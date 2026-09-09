@@ -1,6 +1,7 @@
 # Spindle
 
-A small Tangled CI spindle using Proffer, HTTPz, Fetch and Eio on OxCaml.
+A small Tangled CI spindle using Proffer, HTTPz, Fetch, JSONWT and Eio on
+OxCaml.
 The default `inspect` job checks out the requested commit, prints the spindle
 request metadata and executes `ls -la --`. Metadata is JSON in both the job
 log and service stdout. Authorization headers and service tokens are excluded.
@@ -29,7 +30,7 @@ _build/default/bleeding/spindle/bin/main.exe \
   --source=/absolute/path/to/git/repo --plc=http://127.0.0.1:2582
 ```
 
-OpenSSL 3 development headers are required to build the ES256K verification
+OpenSSL 3 development headers are required by JSONWT's ES256K verification
 binding. Git must be installed at runtime. The Docker runtime matches the
 Ubuntu 26.04 host ABI and runs as the invoking user's UID. It has a read-only
 root, a read-only Git fixture, resource limits and writable state storage.
@@ -70,6 +71,18 @@ in tangled-core revision `338719d7d4f1e1e32becc4f4d3ef04f3c7daeb32`.
 Trigger and cancellation require an ES256K JWT for the configured owner,
 `did:web:<hostname>` audience and exact method in `lxm`. Verification resolves
 the owner's current `#atproto` key through the explicitly configured PLC.
+Tokens must have `typ=JWT`, an absent `kid` or `#atproto`, integral `iat` and
+`exp`, and a scalar audience. Issuance may be at most 30 seconds in the future,
+expiry at most one hour after receipt, and `iat` cannot exceed `exp`. Optional
+`nbf` is honored. JSONWT rejects duplicate members, malformed registered claims,
+noncanonical base64url and critical JOSE extensions before verification.
+
+The service does not yet require `jti` or track accepted IDs to prevent token
+replay. Valid tokens can be reused until expiry. Its exact configured bare DID
+audience and ES256K key support form a limited ATProto profile. See the
+[JWT RFC review](../jsonwt/spec/REVIEW.md) for the suitability assessment and
+remaining service-authentication work.
+
 The owner/repository/source mapping is operator configuration for this first
 service. It does not yet ingest membership records or knot push/pull events,
 discover repository ownership, serve appview, or support other JWT algorithms.
@@ -107,6 +120,6 @@ GOPROXY=https://proxy.golang.org GOTOOLCHAIN=local go run -mod=readonly \
   ../oxmono/bleeding/spindle/testbed/.state/last-run.json
 ```
 
-Cryptographic verification uses OpenSSL's
+JSONWT's ES256K verification uses OpenSSL's
 [EVP public-key import](https://docs.openssl.org/3.0/man3/EVP_PKEY_fromdata/)
 and [digest verification](https://docs.openssl.org/3.0/man3/EVP_DigestVerifyInit/).

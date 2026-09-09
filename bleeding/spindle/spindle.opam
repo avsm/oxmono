@@ -18,10 +18,9 @@ depends: [
   "jsont"
   "bytesrw"
   "multibase"
-  "base64"
+  "jsonwt"
   "ptime"
   "cmdliner"
-  "conf-libssl"
   "odoc" {with-doc}
 ]
 build: [

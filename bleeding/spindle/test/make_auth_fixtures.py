@@ -40,7 +40,9 @@ def main():
         def sign(payload, header=None):
             if header is None:
                 header = {"alg": "ES256K", "typ": "JWT"}
-            text = b64(json.dumps(header).encode()) + "." + b64(payload.encode())
+            header_json = (header if isinstance(header, str)
+                           else json.dumps(header))
+            text = b64(header_json.encode()) + "." + b64(payload.encode())
             der = subprocess.check_output(["openssl", "dgst", "-sha256",
                 "-sign", str(key)], input=text.encode())
             assert der[0] == 0x30 and der[2] == 2
@@ -59,6 +61,11 @@ def main():
             ("future not-before", {"nbf": 1001}),
             ("excessive lifetime", {"exp": 4601}),
             ("fractional expiry", {"exp": 1060.5}),
+            ("string expiry", {"exp": "1060"}),
+            ("unrepresentable expiry", {"exp": 1e100}),
+            ("string issuance", {"iat": "990"}),
+            ("string not-before", {"nbf": "999"}),
+            ("array audience", {"aud": ["did:web:spindle.test"]}),
             ("wrong audience", {"aud": "did:web:wrong.test"}),
             ("wrong issuer", {"iss": "did:plc:bbbbbbbbbbbbbbbbbbbbbbbb"}),
             ("wrong method", {"lxm": "sh.tangled.ci.cancelPipeline"})]:
@@ -67,6 +74,15 @@ def main():
         duplicate = json.dumps(claims)[:-1] + ', "exp": 1060}'
         for name, payload, header in [
             ("duplicate claim", duplicate, None),
+            ("missing issuance", json.dumps({k: v for k, v in claims.items()
+                                             if k != "iat"}), None),
+            ("missing type", json.dumps(claims), {"alg": "ES256K"}),
+            ("wrong type", json.dumps(claims),
+             {"alg": "ES256K", "typ": "at+jwt"}),
+            ("untrusted key ID", json.dumps(claims),
+             {"alg": "ES256K", "typ": "JWT", "kid": "#atproto_label"}),
+            ("duplicate algorithm", json.dumps(claims),
+             '{"alg":"ES256K","alg":"ES256","typ":"JWT"}'),
             ("unsigned algorithm", json.dumps(claims), {"alg": "none"}),
             ("unencoded payload", json.dumps(claims),
              {"alg": "ES256K", "b64": False}),
@@ -74,10 +90,15 @@ def main():
              {"alg": "ES256K", "crit": ["b64"], "b64": False})]:
             tests.append({"name": name, "valid": False,
                           "token": sign(payload, header)})
+        tests.append({"name": "explicit atproto key", "valid": True,
+                      "token": sign(json.dumps(claims),
+                                    {"alg": "ES256K", "typ": "JWT",
+                                     "kid": "#atproto"})})
         valid = tests[0]["token"]
         for name, token in [
             ("missing signature", valid.rsplit(".", 1)[0] + "."),
             ("wrong signature", valid.rsplit(".", 1)[0] + "." + b64(b"\0" * 64)),
+            ("padded signature", valid + "="),
             ("extra component", valid + ".x"), ("oversized", "x" * 8193)]:
             tests.append({"name": name, "valid": False, "token": token})
     path = Path(__file__).with_name("auth-fixtures.json")

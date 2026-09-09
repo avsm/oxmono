@@ -1,44 +1,34 @@
 (* SPDX-License-Identifier: ISC *)
 open Json
 
-external verify : string -> string -> string -> bool
-  = "spindle_verify_es256k" [@@noalloc]
+module Jwt = Jsonwt
 
 exception Rejected
 
 let reject () = raise Rejected
 let check b = if not b then reject ()
-
-let base64 s =
-  check (String.for_all (function
-    | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '-' | '_' -> true
-    | _ -> false) s);
-  match Base64.decode ~pad:false ~alphabet:Base64.uri_safe_alphabet s with
-  | Error _ -> reject ()
-  | Ok raw ->
-      check (Base64.encode_string ~pad:false
-        ~alphabet:Base64.uri_safe_alphabet raw = s);
-      raw
+let jwt_result = function Ok value -> value | Error _ -> reject ()
+let required_number name claims =
+  match Jwt.Claims.get_number name claims with
+  | Some n -> n | None -> reject ()
 
 let authenticate ~read ~plc ~actor ~audience ~meth ~now token =
   try
-    check (String.length token <= 8192);
-    let header, payload, signature = match String.split_on_char '.' token with
-      | [h; p; s] -> h, p, s | _ -> reject () in
-    let h = decode (base64 header) in
-    let p = decode (base64 payload) in
-    check (get "alg" h = "ES256K");
-    check (field "crit" h = None);
-    check (field "b64" h = None);
-    check (get "iss" p = actor && get "aud" p = audience);
-    check (get "lxm" p = meth);
-    let exp = number (required "exp" p) in
+    let token = jwt_result (Jwt.parse ~max_size:8192 token) in
+    let header = Jwt.header token in
+    let claims = Jwt.claims token in
+    check (header.alg = Jwt.Algorithm.ES256K);
+    check (header.typ = Some "JWT");
+    check (header.kid = None || header.kid = Some "#atproto");
+    check (Jwt.Claims.iss claims = Some actor);
+    check (Jwt.Claims.get_string "aud" claims = Some audience);
+    check (Jwt.Claims.get_string "lxm" claims = Some meth);
+    let exp = required_number "exp" claims in
     check (exp = Float.floor exp && exp > now && exp <= now +. 3600.);
-    (match field "iat" p with None -> () | Some value ->
-      let iat = number value in
-      check (iat = Float.floor iat && iat <= now +. 30. && iat <= exp));
-    (match field "nbf" p with None -> () | Some value ->
-      check (number value <= now));
+    let iat = required_number "iat" claims in
+    check (iat = Float.floor iat && iat <= now +. 30. && iat <= exp);
+    (match Jwt.Claims.get_number "nbf" claims with None -> () | Some nbf ->
+      check (nbf <= now));
     (* The configured PLC is the trust root. Refresh on each dispatch to
        observe key changes. *)
     let document = decode (read (plc ^ "/" ^ actor)) in
@@ -52,7 +42,7 @@ let authenticate ~read ~plc ~actor ~audience ~meth ~now token =
       | Ok (`Base58btc, raw) -> raw | _ -> reject () in
     (* multicodec secp256k1-pub = 0xe7, followed by a compressed SEC1 point. *)
     check (String.length raw = 35 && String.sub raw 0 2 = "\231\001");
-    check (verify (String.sub raw 2 33) (header ^ "." ^ payload)
-      (base64 signature));
+    let key = jwt_result (Jwt.Jwk.secp256k1_pub (String.sub raw 2 33)) in
+    jwt_result (Jwt.verify ~key ~allowed_algs:[Jwt.Algorithm.ES256K] token);
     actor
   with Invalid _ | Rejected -> raise Rejected

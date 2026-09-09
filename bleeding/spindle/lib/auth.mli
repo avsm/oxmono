@@ -11,4 +11,6 @@ val authenticate :
     [read] must bound response size and time and restrict requests to [plc],
     the trusted directory origin. It is called for each verification so key
     rotation takes effect without restarting. Transport errors propagate.
-    Tokens may expire at most one hour after [now]. *)
+    Tokens require [typ=JWT], an absent [kid] or [#atproto], and integral [iat]
+    and [exp]. Issuance may be at most 30 seconds in the future and expiry at
+    most one hour after [now]. [jti] is not required or tracked for replay. *)

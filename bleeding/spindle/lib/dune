@@ -13,9 +13,5 @@
   jsont
   jsont.bytesrw
   multibase
-  base64
-  ptime.clock.os)
- (foreign_stubs
-  (language c)
-  (names verify_stubs))
- (c_library_flags -lcrypto))
+  jsonwt
+  ptime.clock.os))

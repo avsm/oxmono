@@ -1,0 +1,4 @@
+(library
+ (name owntracks_recorder_client)
+ (public_name owntracks.recorder)
+ (libraries owntracks fetch uri bytesrw bytesrw-eio eio))

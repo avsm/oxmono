@@ -28,10 +28,24 @@ clean session and lack of enhanced authentication are explicit interface
 choices. The codecs validate packet-local rules. They cannot validate rules
 that depend on an earlier connection or on which peer sent a packet.
 
+## Follow-up review
+
+OwnTracks now composes `Mqttz_config.codec`, supplying an application client ID
+without duplicating MQTT configuration. Configuration validation checks the
+version-specific CONNECT packet before network I/O. Outgoing PUBLISH headers
+are encoded once into bytes. Pure preparation precedes exchange registration,
+so oversized PUBLISH, SUBSCRIBE and UNSUBSCRIBE calls preserve the connection.
+A socket regression test verifies that a valid publication still succeeds.
+Public validation now checks credential, property and Will field lengths and
+UTF-8, matching the encoder's checks. UTF-8 Will validation uses a local,
+read-only byte view and passes the zero-allocation checker. CONNECT bitfields
+use unboxed mutable variables. An unused parser type was
+removed. The full suites and Docker harness were rerun after these changes.
+
 ## Verification results
 
 The `5.2.0+ox` switch with `--profile release-check` passed the scoped build
-and 19 test cases: nine codec cases, eight client-failure cases and two TOML
+and 21 test cases: ten codec cases, nine client-failure cases and two TOML
 configuration cases. The codec suite includes 10,000 deterministic mutations,
 all control packet kinds, all QoS levels and payload sizes crossing remaining
 length boundaries. Client tests use real local sockets and bounded deadlines.

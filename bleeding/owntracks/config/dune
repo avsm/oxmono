@@ -1,0 +1,4 @@
+(library
+ (name owntracks_config)
+ (public_name owntracks.config)
+ (libraries owntracks mqttz mqttz.eio mqttz.config codec.toml))

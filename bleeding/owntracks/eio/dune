@@ -1,0 +1,4 @@
+(library
+ (name owntracks_eio)
+ (public_name owntracks.eio)
+ (libraries owntracks mqttz mqttz.eio))

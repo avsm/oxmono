@@ -1,0 +1,15 @@
+(lang dune 3.21)
+(name owntracks)
+(generate_opam_files true)
+(implicit_transitive_deps false)
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "anil@recoil.org")
+(package
+ (name owntracks)
+ (synopsis "OwnTracks messages, mqttz client and GeoJSON export")
+ (depends
+  (ocaml (>= 5.2))
+  mqttz jsont bytesrw bytesrw-eio eio eio_main codec fetch fetch-httpz
+  uri cmdliner
+  (alcotest :with-test)))

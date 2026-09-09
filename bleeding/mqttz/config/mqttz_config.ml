@@ -36,14 +36,14 @@ let make host port tls client_id version keep_alive username password
   Mqttz_eio.validate_config client;
   { host; port; tls; client }
 
-let codec =
+let codec ?client_id () =
   Toml.Codec.(
     Table.(
       obj make
       |> mem "host" string ~dec_absent:"127.0.0.1"
       |> opt_mem "port" int
       |> mem "tls" bool ~dec_absent:false
-      |> mem "client_id" string
+      |> mem "client_id" string ?dec_absent:client_id
       |> mem "version" string ~dec_absent:"5.0"
       |> mem "keep_alive" int ~dec_absent:60
       |> opt_mem "username" string |> opt_mem "password" string
@@ -53,5 +53,5 @@ let codec =
       |> error_unknown |> finish))
 
 let of_string text =
-  try Result.map_error Toml.Error.to_string (Toml.of_string codec text)
+  try Result.map_error Toml.Error.to_string (Toml.of_string (codec ()) text)
   with Invalid_argument message -> Error message

@@ -246,6 +246,31 @@ let test_negotiated_limits env () =
       Client.publish t ~topic:"a" S.empty;
       Client.disconnect t)
 
+let test_validation_preserves_session env () =
+  setup
+    ~properties:[ Mqttz.V5.Property.Maximum_packet_size 64l ]
+    env
+    (fun _ read ->
+      (match read () with
+      | P.Publish { packet_id = None; _ } -> ()
+      | _ -> Alcotest.fail "expected QoS 0 PUBLISH");
+      disconnected read)
+    (fun t _ ->
+      let invalid f =
+        match f () with
+        | () -> Alcotest.fail "oversized request accepted"
+        | exception Invalid_argument _ -> ()
+      in
+      invalid (fun () ->
+          Client.publish ~qos:`Exactly_once t ~topic:"a"
+            (S.make (Bytes.make 100 'x')));
+      invalid (fun () -> Client.subscribe t [ String.make 100 'a' ]);
+      invalid (fun () -> Client.unsubscribe t [ String.make 100 'a' ]);
+      Alcotest.(check bool)
+        "preparation leaves session usable" true (Client.is_connected t);
+      Client.publish t ~topic:"a" S.empty;
+      Client.disconnect t)
+
 let () =
   Eio_main.run (fun env ->
       Alcotest.run "mqttz client"
@@ -262,5 +287,7 @@ let () =
                 ("negative SUBACK", test_suback);
                 ("cancelled publish", test_cancel);
                 ("negotiated broker limits", test_negotiated_limits);
+                ( "invalid requests preserve session",
+                  test_validation_preserves_session );
               ] );
         ])

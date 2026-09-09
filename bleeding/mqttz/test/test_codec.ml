@@ -405,6 +405,94 @@ let test_mutations () =
     ignore (V5.decode (S.make bytes))
   done
 
+let test_field_validation () =
+  let too_long = String.make 65536 'a' in
+  let invalid f =
+    match f () with
+    | () -> Alcotest.fail "invalid field accepted by validate"
+    | exception Invalid_argument _ -> ()
+  in
+  List.iter
+    (fun credentials ->
+      invalid (fun () ->
+          V3.validate
+            (V3.Connect
+               {
+                 client_id = "x";
+                 clean_session = true;
+                 keep_alive = 0;
+                 credentials = Some credentials;
+                 will = None;
+               }));
+      invalid (fun () ->
+          V5.validate
+            (V5.Connect
+               {
+                 client_id = "x";
+                 clean_start = true;
+                 keep_alive = 0;
+                 credentials = Some credentials;
+                 will = None;
+                 properties = [];
+               })))
+    [
+      `Username "\000"; `Username too_long; `Username_password ("user", too_long);
+    ];
+  List.iter
+    (fun property ->
+      invalid (fun () ->
+          V5.validate
+            (V5.Publish
+               {
+                 topic = "x";
+                 dup = false;
+                 retain = false;
+                 qos = `At_most_once;
+                 packet_id = None;
+                 properties = [ property ];
+                 payload = S.empty;
+               })))
+    [
+      P.User_property ("\000", "value");
+      P.Content_type too_long;
+      P.Correlation_data too_long;
+    ];
+  invalid (fun () ->
+      V3.validate
+        (V3.Connect
+           {
+             client_id = "x";
+             clean_session = true;
+             keep_alive = 0;
+             credentials = None;
+             will =
+               Some
+                 (Mqttz.Will.create ~topic:"w" ~payload:too_long
+                    ~qos:`At_most_once ~retain:false);
+           }));
+  let connect payload =
+    V5.Connect
+      {
+        client_id = "x";
+        clean_start = true;
+        keep_alive = 0;
+        credentials = None;
+        properties = [];
+        will =
+          Some
+            {
+              will_topic = "w";
+              will_payload = payload;
+              will_qos = `At_most_once;
+              will_retain = false;
+              will_properties = [ P.Payload_format_indicator 1 ];
+            };
+      }
+  in
+  invalid (fun () -> V5.validate (connect too_long));
+  invalid (fun () -> V5.validate (connect "\255"));
+  rt5 (connect "\000valid UTF-8")
+
 let () =
   Alcotest.run "mqttz"
     [
@@ -416,6 +504,7 @@ let () =
             ("publish sizes and QoS", test_publish);
             ("malformed wire packets", test_malformed);
             ("CONNECT flags", test_connect_flags);
+            ("public field validation", test_field_validation);
             ("topic matching", test_topics);
             ("incremental framing and limits", test_framing);
             ("borrowed buffers and local views", test_borrowing);

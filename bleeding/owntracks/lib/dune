@@ -1,0 +1,5 @@
+(library
+ (name owntracks)
+ (public_name owntracks)
+ (private_modules owntracks_codec)
+ (libraries mqttz jsont jsont.bytesrw bytesrw unix))

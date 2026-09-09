@@ -1,6 +1,5 @@
 (* A bounded cursor. Subreaders and payloads borrow the original bytes. *)
 type reader = { global_ data : Slice.t; mutable pos : int; limit : int }
-type writer = Buffer.t
 
 let of_slice data = exclave_ { data; pos = 0; limit = Slice.length data }
 let[@zero_alloc] remaining (r @ local) = r.limit - r.pos
@@ -92,7 +91,19 @@ let write_fixed_header w kind flags size =
   write_uint8 w ((Shared.Packet_type.to_int kind lsl 4) lor flags);
   write_variable_length w size
 let to_string f = let w = Buffer.create 128 in f w; Buffer.contents w
+let to_bytes f = let w = Buffer.create 128 in f w; Buffer.to_bytes w
 let check condition message = if not condition then invalid_arg message
+let binary s = check (String.length s <= 65535) "binary field exceeds uint16 length"
+let string s =
+  binary s;
+  check (Utf8.valid s) "invalid MQTT UTF-8 string"
+let credentials = function
+  | None -> ()
+  | Some (`Username username) -> string username
+  | Some (`Password password) -> binary password
+  | Some (`Username_password (username, password)) ->
+      string username;
+      binary password
 let packet_id id = check (id > 0 && id <= 65535) "invalid packet identifier"
 let topic s = check (Shared.Topic.Name.validate s) "invalid topic name"
 let filter s = check (Shared.Topic.Filter.validate s) "invalid topic filter"

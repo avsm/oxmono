@@ -32,9 +32,9 @@ let[@zero_alloc] valid s =
   in
   loop s n 0
 
-let[@zero_alloc] valid_payload (s : Slice.t) =
+let[@zero_alloc] valid_payload (s : Slice.t @ local) =
   let n = s.len in
-  let rec loop (s : Slice.t) n i =
+  let rec loop (s : Slice.t @ local) n i =
     if i = n then true
     else
       let a = Bytes.get_uint8 s.bytes (s.off + i) in
@@ -62,3 +62,10 @@ let[@zero_alloc] valid_payload (s : Slice.t) =
           && continuation 2 && loop s n (i + width)
   in
   loop s n 0
+
+let[@zero_alloc] valid_payload_string s =
+  (* The temporary alias is read-only and cannot leave this validation call. *)
+  let local_ view = Slice.make_local (Bytes.unsafe_of_string s)
+      ~off:0 ~len:(String.length s) in
+  let valid = valid_payload view in
+  valid

@@ -1,0 +1,31 @@
+(test
+ (name test_owntracks)
+ (modules test_owntracks)
+ (libraries
+  owntracks
+  owntracks.config
+  mqttz
+  mqttz.eio
+  mqttz.config
+  jsont
+  jsont.bytesrw
+  bytesrw
+  alcotest))
+
+(test
+ (name test_recorder)
+ (modules test_recorder)
+ (libraries
+  owntracks
+  owntracks.recorder
+  fetch
+  fetch.mock
+  uri
+  eio
+  eio_main
+  alcotest))
+
+(executable
+ (name integration)
+ (modules integration)
+ (libraries owntracks owntracks.eio mqttz mqttz.eio eio eio_main))

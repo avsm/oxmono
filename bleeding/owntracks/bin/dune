@@ -1,0 +1,17 @@
+(executable
+ (name main)
+ (public_name owntracks)
+ (libraries
+  owntracks
+  owntracks.config
+  owntracks.eio
+  owntracks.recorder
+  mqttz
+  mqttz.eio
+  mqttz.tls
+  mqttz.config
+  eio
+  eio_main
+  fetch-httpz
+  cmdliner
+  unix))

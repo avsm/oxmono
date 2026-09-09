@@ -45,3 +45,9 @@ oracle=$("${compose[@]}" exec -T broker mosquitto_sub -V mqttv5 \
   -q 2 -t mqttz/oracle/out -C 1 -W 5)
 test "$oracle" = from-mqttz
 printf '%s\n' 'PASS independent mosquitto_pub/mosquitto_sub interoperability'
+
+# A consumer can run its own checks against the same isolated broker.
+if (( $# > 0 )); then
+  export MQTTZ_COMPOSE_PROJECT="$project" MQTTZ_COMPOSE_FILE="$harness/compose.yaml"
+  "$@"
+fi

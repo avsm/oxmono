@@ -5,7 +5,7 @@
 
 (** Shared MQTT types used by both V3 and V5 implementations.
 
-    This is an internal module. Use {!Mqtt} for the public API. *)
+    This is an internal module. Use {!Mqttz} for the public API. *)
 
 module Qos = struct
   type t = [ `At_most_once | `At_least_once | `Exactly_once ]

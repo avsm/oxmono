@@ -15,6 +15,8 @@ let test_invalid () =
       "";
       "client_id='x'\nunknown=1";
       "client_id='x'\nport=0";
+      "client_id=\"\\u0000\"";
+      "client_id='x'\nusername=\"\\u0000\"";
       "client_id='x'\nversion='3'";
       "client_id='x'\nkeep_alive=-1";
       "client_id='x'\nmessage_capacity=0";

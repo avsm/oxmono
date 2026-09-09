@@ -26,7 +26,7 @@ let default_config ~client_id =
     operation_timeout = 30.;
   }
 
-let validate_config c =
+let validate_limits c =
   if c.message_capacity < 1 || c.message_capacity > 65535 then
     invalid_arg "message_capacity must be 1..65535";
   if c.max_packet_size < 2 || c.max_packet_size > 268435460 then
@@ -92,9 +92,7 @@ let prepare t packet =
   if size > t.peer_max_size then invalid_arg "packet exceeds broker size limit";
   slices
 
-let send t packet =
-  (* Validate before taking the write lock. A failure here has sent no bytes. *)
-  let slices = prepare t packet in
+let send_slices t slices =
   Eio.Mutex.use_ro t.tx (fun () ->
       check_open t;
       match
@@ -104,6 +102,10 @@ let send t packet =
       | exception ex ->
           fail t ex;
           raise ex)
+
+let send t packet =
+  (* Validate before taking the write lock. A failure here has sent no bytes. *)
+  send_slices t (prepare t packet)
 
 let read t =
   let frame =
@@ -300,6 +302,12 @@ let connect_packet config =
                ];
            })
 
+let validate_config config =
+  validate_limits config;
+  match connect_packet config with
+  | V3 packet -> V3.validate packet
+  | V5 packet -> V5.validate packet
+
 let connack t = function
   | V3 (V3.Connack c) ->
       if c.return_code <> `Accepted then
@@ -393,17 +401,20 @@ let connect ~sw ~net ~clock ~config ~host ~port () =
       in
       start ~sw ~clock ~config (Transport.of_socket socket))
 
-let exchange t f =
+let exchange t ~prepare f =
   Eio.Mutex.use_ro t.operation (fun () ->
       check_open t;
       let id = t.next_id in
+      let slices = prepare id in
       t.next_id <- (if id = 65535 then 1 else id + 1);
       let queue = Eio.Stream.create 4 in
       t.pending <- Some (id, queue);
       Fun.protect
         ~finally:(fun () -> t.pending <- None)
         (fun () ->
-          try Eio.Time.Timeout.run_exn t.timeout (fun () -> f id queue) with
+          try
+            Eio.Time.Timeout.run_exn t.timeout (fun () -> f slices id queue)
+          with
           | Rejected _ as ex -> raise ex
           | ex ->
               fail t ex;
@@ -438,12 +449,12 @@ let publish ?(qos = `At_most_once) ?(retain = false) ?(properties = []) t ~topic
           (V5.Publish
              { dup = false; qos; retain; topic; packet_id; payload; properties })
   in
-  (* Validate before registering an exchange. *)
-  ignore (prepare t (make (if qos = `At_most_once then None else Some 1)));
   if qos = `At_most_once then send t (make None)
   else
-    exchange t (fun id queue ->
-        send t (make (Some id));
+    exchange t
+      ~prepare:(fun id -> prepare t (make (Some id)))
+      (fun slices id queue ->
+        send_slices t slices;
         match (qos, await t queue) with
         | `At_least_once, V3 (V3.Puback _) -> ()
         | `At_least_once, V5 (V5.Puback p) -> accepted p.reason_code
@@ -478,37 +489,40 @@ let subscribe ?(qos = `At_most_once) t filters =
       if (not t.peer_shared) && String.starts_with ~prefix:"$share/" filter then
         invalid_arg "broker does not support shared subscriptions")
     filters;
-  exchange t (fun packet_id queue ->
-      let packet =
-        match t.config.version with
-        | `V3_1_1 ->
-            V3
-              (V3.Subscribe
-                 {
-                   packet_id;
-                   topics =
-                     List.map
-                       (fun filter -> Mqttz.V3.Subscription.{ filter; qos })
-                       filters;
-                 })
-        | `V5_0 ->
-            V5
-              (V5.Subscribe
-                 {
-                   packet_id;
-                   properties = [];
-                   topics =
-                     List.map
-                       (fun filter ->
-                         Mqttz.V5.Subscription.
-                           {
-                             filter;
-                             options = Mqttz.V5.Subscription_options.default qos;
-                           })
-                       filters;
-                 })
-      in
-      send t packet;
+  let prepare packet_id =
+    let packet =
+      match t.config.version with
+      | `V3_1_1 ->
+          V3
+            (V3.Subscribe
+               {
+                 packet_id;
+                 topics =
+                   List.map
+                     (fun filter -> Mqttz.V3.Subscription.{ filter; qos })
+                     filters;
+               })
+      | `V5_0 ->
+          V5
+            (V5.Subscribe
+               {
+                 packet_id;
+                 properties = [];
+                 topics =
+                   List.map
+                     (fun filter ->
+                       Mqttz.V5.Subscription.
+                         {
+                           filter;
+                           options = Mqttz.V5.Subscription_options.default qos;
+                         })
+                     filters;
+               })
+    in
+    prepare t packet
+  in
+  exchange t ~prepare (fun slices _id queue ->
+      send_slices t slices;
       let codes =
         match await t queue with
         | V3 (V3.Suback s) ->
@@ -531,11 +545,14 @@ let unsubscribe t topics =
       if not (Mqttz.Topic.Filter.validate filter) then
         invalid_arg "invalid topic filter")
     topics;
-  exchange t (fun packet_id queue ->
-      send t
-        (match t.config.version with
-        | `V3_1_1 -> V3 (V3.Unsubscribe { packet_id; topics })
-        | `V5_0 -> V5 (V5.Unsubscribe { packet_id; topics; properties = [] }));
+  let prepare packet_id =
+    prepare t
+      (match t.config.version with
+      | `V3_1_1 -> V3 (V3.Unsubscribe { packet_id; topics })
+      | `V5_0 -> V5 (V5.Unsubscribe { packet_id; topics; properties = [] }))
+  in
+  exchange t ~prepare (fun slices _id queue ->
+      send_slices t slices;
       match await t queue with
       | V3 (V3.Unsuback _) -> ()
       | V5 (V5.Unsuback a) ->

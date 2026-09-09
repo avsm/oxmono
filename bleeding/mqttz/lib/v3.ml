@@ -190,10 +190,13 @@ module Packet = struct
         P.check (Utf8.valid c.client_id && String.length c.client_id <= 65535)
           "invalid client id";
         P.check (c.keep_alive >= 0 && c.keep_alive <= 65535) "invalid keep alive";
+        P.credentials c.credentials;
         (match c.credentials with
          | Some (`Password _) -> invalid_arg "v3 password requires username"
          | _ -> ());
-        Option.iter (fun w -> P.topic (Shared.Will.topic w)) c.will
+        Option.iter (fun w ->
+          P.topic (Shared.Will.topic w);
+          P.binary (Shared.Will.payload w)) c.will
     | Connack c ->
         P.check (not c.session_present || c.return_code = `Accepted)
           "session present on refused connection"
@@ -226,20 +229,20 @@ module Packet = struct
       P.to_string (fun w ->
           P.write_mqtt_string w "MQTT";
           P.write_uint8 w 4;
-          let flags = ref 0 in
-          if c.clean_session then flags := !flags lor 0x02;
-          Option.iter
-            (fun w' ->
-              flags := !flags lor 0x04;
-              flags := !flags lor (Shared.Qos.to_int (Shared.Will.qos w') lsl 3);
-              if Shared.Will.retain w' then flags := !flags lor 0x20)
-            c.will;
+          let mutable flags = 0 in
+          if c.clean_session then flags <- flags lor 0x02;
+          (match c.will with
+          | None -> ()
+          | Some will ->
+              flags <- flags lor 0x04;
+              flags <- flags lor (Shared.Qos.to_int (Shared.Will.qos will) lsl 3);
+              if Shared.Will.retain will then flags <- flags lor 0x20);
           (match c.credentials with
           | Some (`Password _) -> invalid_arg "v3 password requires username"
-          | Some (`Username _) -> flags := !flags lor 0x80
-          | Some (`Username_password _) -> flags := !flags lor 0xC0
+          | Some (`Username _) -> flags <- flags lor 0x80
+          | Some (`Username_password _) -> flags <- flags lor 0xC0
           | None -> ());
-          P.write_uint8 w !flags;
+          P.write_uint8 w flags;
           P.write_uint16_be w c.keep_alive;
           P.write_mqtt_string w c.client_id;
           Option.iter
@@ -271,7 +274,7 @@ module Packet = struct
     let flags = (if p.dup then 8 else 0)
       lor (Shared.Qos.to_int p.qos lsl 1)
       lor (if p.retain then 1 else 0) in
-    P.to_string (fun w ->
+    P.to_bytes (fun w ->
       P.write_fixed_header w `PUBLISH flags
         (String.length variable + Slice.length p.payload);
       P.write_string w variable)
@@ -460,8 +463,8 @@ module Packet = struct
   let encode packet =
     validate packet;
     match packet with
-    | Publish p -> [Slice.of_string (publish_header p); p.payload]
-    | _ -> [Slice.of_string (P.to_string (fun w -> write w packet))]
+    | Publish p -> [Slice.make (publish_header p); p.payload]
+    | _ -> [Slice.make (P.to_bytes (fun w -> write w packet))]
   let to_bytes packet =
     let parts = encode packet in
     let size = List.fold_left (fun n s -> n + Slice.length s) 0 parts in

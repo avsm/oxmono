@@ -1,0 +1,21 @@
+(library
+ (name spindle)
+ (public_name spindle)
+ (libraries
+  atp
+  proffer
+  proffer-httpz
+  httpz.websocket
+  fetch
+  fetch-httpz
+  eio
+  eio.unix
+  jsont
+  jsont.bytesrw
+  multibase
+  base64
+  ptime.clock.os)
+ (foreign_stubs
+  (language c)
+  (names verify_stubs))
+ (c_library_flags -lcrypto))

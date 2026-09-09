@@ -1,0 +1,66 @@
+name: oxmono-spindle
+
+services:
+  spindle:
+    image: oxmono-spindle:dev
+    build: .
+    user: "${SPINDLE_UID}:${SPINDLE_GID}"
+    command:
+      - --addr=0.0.0.0
+      - --port=9000
+      - --hostname=spindle.tangled.test
+      - --plc=http://oxmono-atp-plc-1:8080
+      - --owner=${SPINDLE_OWNER:?run prepare.py first}
+      - --repo=did:web:repo.tangled.test
+      - --source=/fixture
+      - --state-dir=/state
+    volumes:
+      - ./.state/fixture:/fixture:ro
+      - ./.state/data:/state
+    ports: ["127.0.0.1:9000:9000"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 2
+    networks:
+      atp:
+        aliases: [spindle.tangled.test]
+
+  test:
+    image: python:3.13-slim@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285
+    profiles: [test]
+    entrypoint: [python3, /test/smoke.py]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./smoke.py:/test/smoke.py:ro
+      - ./.state:/state
+    networks: [atp]
+
+  slow:
+    image: oxmono-spindle:dev
+    profiles: [test]
+    user: "${SPINDLE_UID}:${SPINDLE_GID}"
+    entrypoint: [/test/slow-server]
+    environment:
+      SPINDLE_OWNER: "${SPINDLE_OWNER}"
+    volumes:
+      - ./.state/slow-server:/test/slow-server:ro
+      - ./.state/fixture:/fixture:ro
+      - ./.state/slow-data:/state
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 2
+    networks: [atp]
+
+networks:
+  atp:
+    external: true
+    name: oxmono-atp_default

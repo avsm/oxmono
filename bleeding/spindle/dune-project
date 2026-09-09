@@ -1,0 +1,14 @@
+(lang dune 3.21)
+(name spindle)
+(generate_opam_files true)
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "anil@recoil.org")
+(package
+ (name spindle)
+ (synopsis "OCaml-defined Tangled CI jobs served by Proffer")
+ (depends
+  (ocaml (>= 5.2))
+  atp proffer proffer-httpz httpz fetch fetch-httpz eio eio_main
+  jsont bytesrw multibase base64 ptime cmdliner
+  conf-libssl))

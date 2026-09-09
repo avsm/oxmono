@@ -1,0 +1,4 @@
+(executable
+ (name main)
+ (public_name spindle)
+ (libraries spindle cmdliner eio_main))

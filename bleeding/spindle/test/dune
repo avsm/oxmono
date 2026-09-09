@@ -1,0 +1,10 @@
+(test
+ (name test_auth)
+ (modules test_auth)
+ (libraries spindle jsont jsont.bytesrw)
+ (deps auth-fixtures.json))
+
+(executable
+ (name slow_server)
+ (modules slow_server)
+ (libraries spindle eio_main))

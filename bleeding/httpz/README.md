@@ -18,6 +18,7 @@ standalone OxCaml checkout and intentional monorepo adaptations.
 | `httpz.media` | `Httpz_media` | Typed media, JSON, Markdown, multipart and forms |
 | `httpz.dav` | `Httpz_dav` | Bounded WebDAV protocol values and XML codecs |
 | `httpz.tls` | `Httpz_tls` | Eio TLS client and server flows |
+| `httpz.websocket` | `Httpz_websocket` | WebSocket handshakes, byte framing and bounded connections |
 | `httpz.cookie` | `Cookie` | Cookie parsing and serialization |
 | `httpz.cookie.jar` | `Cookie_jar` | Cookie persistence and request selection |
 | `httpz.punycode` | `Punycode` | Punycode conversion |

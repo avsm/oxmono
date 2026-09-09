@@ -202,6 +202,7 @@ and Markdown support and depend on the HTTP wire library.
 | `httpz.media` | `Httpz_media` | Typed codecs, forms, multipart, SSE, JSON and Markdown. |
 | `httpz.dav` | `Httpz_dav` | Bounded WebDAV protocol values and XML codecs. |
 | `httpz.tls` | `Httpz_tls` | Eio TLS client and server flows. |
+| `httpz.websocket` | `Httpz_websocket` | WebSocket handshakes and bounded byte messages. |
 | `httpz.cookie` | `Cookie` | Cookie parsing and writing. |
 | `httpz.cookie.jar` | `Cookie_jar` | Client cookie storage and persistence. |
 | `httpz.punycode` | `Punycode` | Punycode encoding and decoding. |

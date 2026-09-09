@@ -1,0 +1,4 @@
+(library
+ (name httpz_websocket)
+ (public_name httpz.websocket)
+ (libraries base64 digestif))

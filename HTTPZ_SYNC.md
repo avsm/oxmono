@@ -5,6 +5,13 @@ HTTPz, Fetch and Proffer are synchronized from `avsm/oxcaml-httpz` commit
 `avsm/ocaml-httpz` through commit `72e4541`, including the preceding audit fixes,
 Duration cleanup, media consolidation and Proffer wrapper rename. [HTTPZ.md](HTTPZ.md) introduces the libraries and examples.
 
+## 2026-09-09 WebSocket support
+
+The monorepo adds `httpz.websocket` for version-13 handshakes, bounded byte
+messages and compiler-checked frame operations. Proffer's existing upgrade
+handoff has a WebSocket TCP regression test. These additions have not been
+ported to either standalone checkout.
+
 ## 2026-09-08 IDKit dependency import
 
 Selectively imported stock `avsm/ocaml-httpz` through

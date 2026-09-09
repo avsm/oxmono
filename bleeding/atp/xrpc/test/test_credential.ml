@@ -43,6 +43,12 @@ let () = Eio_mock.Backend.run_full @@ fun mock -> Eio.Switch.run @@ fun sw ->
   (match Xrpc.Credential.resume cred ~session:other () with _ -> failwith "cross-PDS resume accepted"
    | exception Invalid_argument _ -> ());
   check "missing JWT exp treated as expired" (Xrpc.Jwt.is_expired ~now:Ptime.epoch (token "e30"));
+  let malformed payload = token (Jsonwt.base64url_encode payload) in
+  List.iter (fun payload ->
+    check "malformed JWT metadata rejected"
+      (Result.is_error (Xrpc.Jwt.decode_payload (malformed payload))))
+    [ {|{"exp":1,"exp":100000}|}; {|{"exp":"100000"}|};
+      {|{"aud":["service",42]}|} ];
   check "mock-clock JWT expiry" (not (Xrpc.Jwt.is_expired ~now:Ptime.epoch fresh));
   let cred = Xrpc.Credential.create ~sw ~env ~service:"https://example.com" ~http:(Fetch_mock.client (fun _ -> raise (Eio.Cancel.Cancelled Exit))) () in
   ignore (Xrpc.Credential.resume cred ~session:(session fresh) ());

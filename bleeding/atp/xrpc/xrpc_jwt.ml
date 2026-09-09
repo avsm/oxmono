@@ -25,7 +25,7 @@ let payload_of_claims (claims : Jsonwt.Claims.t) : payload =
   }
 
 let decode_payload jwt =
-  match Jsonwt.parse ~strict:false jwt with
+  match Jsonwt.parse jwt with
   | Ok token -> Ok (payload_of_claims (Jsonwt.claims token))
   | Error e -> Error (Jsonwt.error_to_string e)
 
@@ -38,11 +38,11 @@ let is_expired ?(now = Ptime_clock.now ()) ?(leeway = Ptime.Span.of_int_s 60) jw
   | _ -> true
 
 let get_expiration jwt =
-  match Jsonwt.parse ~strict:false jwt with
+  match Jsonwt.parse jwt with
   | Ok token -> Jsonwt.Claims.exp (Jsonwt.claims token)
   | Error _ -> None
 
 let time_to_expiry jwt =
-  match Jsonwt.parse ~strict:false jwt with
+  match Jsonwt.parse jwt with
   | Ok token -> Jsonwt.time_to_expiry ~now:(Ptime_clock.now ()) token
   | Error _ -> None

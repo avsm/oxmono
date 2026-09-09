@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Decode JWT credential metadata with JSONWT's strict bounded parser, rejecting
+  duplicate or malformed registered claims before making refresh decisions.
+
 - Add a reproducible Tangled lexicon audit and a local PLC/PDS/Jetstream Docker
   setup with persistent development accounts and an end-to-end record test.
 

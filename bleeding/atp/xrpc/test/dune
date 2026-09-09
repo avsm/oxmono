@@ -6,4 +6,4 @@
 (test
  (name test_credential)
  (modules test_credential)
- (libraries atp-xrpc fetch.mock eio.mock http jsont.bytesrw ptime))
+ (libraries atp-xrpc fetch.mock eio.mock http jsont.bytesrw ptime jsonwt))

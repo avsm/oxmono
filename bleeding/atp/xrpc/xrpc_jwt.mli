@@ -38,10 +38,9 @@ type payload = {
 val decode_payload : string -> (payload, string) result
 (** [decode_payload jwt] extracts and decodes the payload from a JWT string.
 
-    Uses {{:https://datatracker.ietf.org/doc/html/rfc7519}RFC 7519} compliant
-    parsing via the jsonwt library.
-
-    Returns [Error msg] if the JWT cannot be parsed. *)
+    Parsing is bounded and rejects duplicate members, malformed registered
+    claims and noncanonical base64url. Returns [Error msg] if parsing fails.
+    The signature is not verified. *)
 
 (** {1 Expiration Checking} *)
 

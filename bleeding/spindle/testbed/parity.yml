@@ -1,0 +1,78 @@
+services:
+  spindle:
+    entrypoint: [/test/tangled-server]
+    command: []
+    environment:
+      SPINDLE_OWNER: ${SPINDLE_OWNER}
+    volumes:
+      - ./.state/tangled-server:/test/tangled-server:ro
+
+  knot:
+    image: oxmono-tangled:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.tangled
+    environment:
+      KNOT_SERVER_HOSTNAME: knot.tangled.test
+      KNOT_SERVER_OWNER: ${SPINDLE_OWNER}
+      KNOT_SERVER_PLC_URL: https://plc.tangled.test
+      KNOT_SERVER_JETSTREAM_ENDPOINT: wss://jetstream.tangled.test/subscribe
+      KNOT_SERVER_DB_PATH: /home/git/knot.db
+      KNOT_REPO_SCAN_PATH: /home/git/repositories
+      APPVIEW_ENDPOINT: http://appview.tangled.test
+      LOGS_ADDR: appview.tangled.test:3333
+      KNOT_MIRRORS: ""
+      SSL_CERT_FILE: /certs/ca.crt
+    volumes:
+      - knot:/home/git
+      - ../../atp/testbed/.state/certs/ca.crt:/certs/ca.crt:ro
+    ports: ["127.0.0.1:5555:5555", "127.0.0.1:2222:22"]
+    networks: [atp]
+
+  redis:
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    networks: [atp]
+
+  appview:
+    image: oxmono-tangled:dev
+    entrypoint: [appview]
+    working_dir: /opt/tangled
+    env_file: .state/appview.env
+    environment:
+      TANGLED_DEV: "true"
+      TANGLED_APPVIEW_HOST: appview.tangled.test
+      TANGLED_DB_PATH: /state/appview.db
+      TANGLED_PLC_URL: https://plc.tangled.test
+      TANGLED_JETSTREAM_ENDPOINT: wss://jetstream.tangled.test/subscribe
+      TANGLED_REDIS_ADDR: redis:6379
+      TANGLED_PDS_HOST: https://pds.tangled.test
+      TANGLED_PDS_USER_DOMAIN: .pds.tangled.test
+      TANGLED_KNOT_DEFAULT: knot.tangled.test
+      TANGLED_KNOTMIRROR_URL: http://knot.tangled.test
+      TANGLED_LABEL_DEFAULTS: ""
+      TANGLED_LABEL_GFI: ""
+      TANGLED_AVATAR_HOST: http://appview.tangled.test
+      TANGLED_CAMO_HOST: http://appview.tangled.test
+      TANGLED_OGRE_HOST: http://appview.tangled.test
+      TANGLED_RESEND_ASSETS_URL: http://appview.tangled.test
+      TANGLED_POSTHOG_ENDPOINT: http://appview.tangled.test
+      SSL_CERT_FILE: /certs/ca.crt
+    volumes:
+      - appview:/state
+      - ../../atp/testbed/.state/certs/ca.crt:/certs/ca.crt:ro
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [atp]
+    depends_on: [redis]
+
+  tangled-gateway:
+    image: caddy:alpine@sha256:77c07d5ebfa5be9fd6c820d2094ae662c9e7eeb9bf98346b7f639900263ee2a2
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../atp/testbed/.state/certs:/certs:ro
+    ports: ["127.0.0.1:8444:443"]
+    networks:
+      atp:
+        aliases: [knot.tangled.test, spindle.tangled.test, appview.tangled.test]
+volumes:
+  knot:
+  appview:

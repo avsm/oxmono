@@ -6,6 +6,8 @@
   proffer
   proffer-httpz
   httpz.websocket
+  httpz.websocket-eio
+  httpz.uri
   httpz.tls
   fetch
   fetch-httpz
@@ -15,4 +17,6 @@
   jsont.bytesrw
   multibase
   jsonwt
+  mirage-crypto-ec
+  sqlite3-eio
   ptime.clock.os))

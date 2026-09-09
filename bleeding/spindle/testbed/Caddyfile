@@ -1,0 +1,25 @@
+{
+    auto_https disable_redirects
+    admin off
+}
+https://knot.tangled.test {
+    tls /certs/server.crt /certs/server.key
+    reverse_proxy knot:5555
+}
+https://spindle.tangled.test {
+    tls /certs/server.crt /certs/server.key
+    reverse_proxy spindle:9000
+}
+https://appview.tangled.test {
+    tls /certs/server.crt /certs/server.key
+    reverse_proxy appview:3000
+}
+http://knot.tangled.test {
+    reverse_proxy knot:5555
+}
+http://spindle.tangled.test {
+    reverse_proxy spindle:9000
+}
+http://appview.tangled.test {
+    reverse_proxy appview:3000
+}

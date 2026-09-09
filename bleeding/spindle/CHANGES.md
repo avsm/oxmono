@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Discover Tangled repositories and run push, pull and multi-workflow CI.
+  Persist event recovery and JWT replay protection, with a full Docker testbed.
+
 - Resolve PLC keys over verified HTTPS and test the local TLS gateway.
   Add persistent-service deployment instructions and a manual trigger client.
 

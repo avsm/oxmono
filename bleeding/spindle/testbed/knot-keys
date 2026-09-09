@@ -1,0 +1,4 @@
+#!/bin/sh
+exec /usr/local/bin/knot keys -output authorized-keys \
+  -internal-api http://127.0.0.1:5444 \
+  -git-dir /home/git/repositories -log-path /tmp/knotguard.log

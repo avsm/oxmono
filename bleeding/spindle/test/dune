@@ -8,3 +8,18 @@
  (name slow_server)
  (modules slow_server)
  (libraries spindle eio_main))
+
+(test
+ (name test_store)
+ (modules test_store)
+ (libraries spindle eio_main))
+
+(test
+ (name test_events)
+ (modules test_events)
+ (libraries spindle eio_main))
+
+(executable
+ (name tangled_server)
+ (modules tangled_server)
+ (libraries spindle eio_main))

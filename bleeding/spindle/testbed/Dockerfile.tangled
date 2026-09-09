@@ -1,0 +1,15 @@
+# Pinned sibling binaries, built by parity.py on the host.
+FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git openssh-server ca-certificates gzip python3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -s /bin/sh git && passwd -d git \
+    && mkdir -p /run/sshd /home/git/repositories \
+    && chown -R git:git /home/git
+COPY .state/appview-pages /opt/tangled/appview/pages
+COPY .state/knot .state/appview /usr/local/bin/
+COPY knot-entrypoint.sh knot-keys /usr/local/bin/
+RUN chmod 755 /usr/local/bin/knot-entrypoint.sh /usr/local/bin/knot-keys \
+    && git config --system receive.advertisePushOptions true
+COPY sshd.conf /etc/ssh/sshd_config
+ENTRYPOINT ["/usr/local/bin/knot-entrypoint.sh"]

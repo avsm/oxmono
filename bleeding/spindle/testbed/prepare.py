@@ -40,6 +40,10 @@ def main():
     shutil.copyfile(slow, state / "slow-server.new")
     (state / "slow-server.new").chmod(0o755)
     (state / "slow-server.new").replace(state / "slow-server")
+    tangled = repo / "_build/default/bleeding/spindle/test/tangled_server.exe"
+    shutil.copyfile(tangled, state / "tangled-server.new")
+    (state / "tangled-server.new").chmod(0o755)
+    (state / "tangled-server.new").replace(state / "tangled-server")
     print(f"Prepared {sha} for {owner}", flush=True)
 
 

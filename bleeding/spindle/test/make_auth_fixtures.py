@@ -25,7 +25,7 @@ def base58(data):
 def main():
     actor = "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa"
     claims = {"iss": actor, "aud": "did:web:spindle.test", "iat": 990,
-              "exp": 1060, "lxm": "sh.tangled.ci.triggerPipeline"}
+              "exp": 1060, "jti": "fixture-nonce", "lxm": "sh.tangled.ci.triggerPipeline"}
     with tempfile.TemporaryDirectory() as directory:
         key = Path(directory) / "key.pem"
         subprocess.run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
@@ -56,6 +56,10 @@ def main():
         tests = [{"name": "valid", "valid": True,
                   "token": sign(json.dumps(claims))}]
         for name, updates in [
+            ("empty nonce", {"jti": ""}),
+            ("wrong nonce type", {"jti": 42}),
+            ("oversized nonce", {"jti": "x" * 257}),
+            ("old issuance", {"iat": -4000}),
             ("expired", {"exp": 999}), ("expiry boundary", {"exp": 1000}),
             ("future issuance", {"iat": 1100}),
             ("future not-before", {"nbf": 1001}),
@@ -74,6 +78,8 @@ def main():
         duplicate = json.dumps(claims)[:-1] + ', "exp": 1060}'
         for name, payload, header in [
             ("duplicate claim", duplicate, None),
+            ("missing nonce", json.dumps({k: v for k, v in claims.items()
+                                         if k != "jti"}), None),
             ("missing issuance", json.dumps({k: v for k, v in claims.items()
                                              if k != "iat"}), None),
             ("missing type", json.dumps(claims), {"alg": "ES256K"}),
@@ -101,6 +107,34 @@ def main():
             ("padded signature", valid + "="),
             ("extra component", valid + ".x"), ("oversized", "x" * 8193)]:
             tests.append({"name": name, "valid": False, "token": token})
+        service_claims = dict(claims, aud="did:web:spindle.test#tangled_spindle")
+        tests.append({"name": "PDS proxy service audience", "valid": True,
+                      "token": sign(json.dumps(service_claims))})
+        for name, field, value in [
+                ("wrong controller", "controller", "did:plc:bbbbbbbbbbbbbbbbbbbbbbbb"),
+                ("wrong key type", "type", "JsonWebKey2020"),
+                ("wrong verification method", "id", actor + "#other")]:
+            changed = json.loads(json.dumps(document))
+            changed["verificationMethod"][0][field] = value
+            tests.append({"name": name, "valid": False, "token": valid,
+                          "document": json.dumps(changed)})
+        relative = json.loads(json.dumps(document))
+        relative["verificationMethod"][0]["id"] = "#atproto"
+        tests.append({"name": "relative verification method", "valid": True,
+                      "token": valid, "document": json.dumps(relative)})
+        subprocess.run(["openssl", "genpkey", "-algorithm", "EC", "-pkeyopt",
+                        "ec_paramgen_curve:prime256v1", "-out", str(key)],
+                       check=True, capture_output=True)
+        public = subprocess.check_output(["openssl", "pkey", "-in", str(key),
+            "-pubout", "-outform", "DER", "-ec_conv_form", "compressed"])[-33:]
+        p256 = json.loads(json.dumps(document))
+        p256["verificationMethod"][0]["publicKeyMultibase"] = (
+            "z" + base58(b"\x80\x24" + public))
+        token = sign(json.dumps(claims), {"alg": "ES256", "typ": "JWT"})
+        tests.append({"name": "P-256 service signature", "valid": True,
+                      "token": token, "document": json.dumps(p256)})
+        tests.append({"name": "curve and algorithm mismatch", "valid": False,
+                      "token": token})
     path = Path(__file__).with_name("auth-fixtures.json")
     path.write_text(json.dumps({"actor": actor, "document": json.dumps(document),
                                "tests": tests}, indent=2) + "\n")

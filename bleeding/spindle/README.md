@@ -1,130 +1,150 @@
 # Spindle
 
-A small Tangled CI spindle using Proffer, HTTPz, Fetch, JSONWT and Eio on
-OxCaml.
-The default `inspect` job checks out the requested commit, prints the spindle
-request metadata and executes `ls -la --`. Metadata is JSON in both the job
-log and service stdout. Authorization headers and service tokens are excluded.
+A Tangled CI spindle using Proffer, HTTPz, JSONWT and Eio on OxCaml.
+Trusted OCaml definitions select and run workflows. The default `inspect`
+workflow checks out the requested commit, prints request metadata and runs
+`ls -la --`. Tokens and authorization headers are excluded from job metadata.
 
-Run the Docker testbed from the oxmono root:
+Automatic operation follows PDS repository and membership records through
+Jetstream, verifies each repository against its DID and canonical knot, and
+subscribes to that knot's events. Pushes, branch pull requests, manual retries
+and explicitly requested fork checkouts use the same durable pipeline engine.
+See [the compatibility review](PARITY.md) for the pinned Tack/Tangled baseline.
+
+## Local Docker integration
+
+From the oxmono root:
+
+```sh
+python3 bleeding/spindle/testbed/parity.py test
+```
+
+This builds the sibling `../tangled-core` knot and appview and starts them
+beside the [local ATP stack](../atp/testbed/README.md). It tests real SSH pushes,
+PDS records and tokens, multiple OCaml workflows, gzip pull-request blobs,
+collaborator and member revocation, fork checkout, offline push recovery,
+JWT replay rejection after restart, and Tangled's pipeline page.
+
+Image, package and Go module downloads happen during preparation. Runtime PLC,
+PDS, Jetstream, knot and appview endpoints all refer to the local setup.
+`--tangled-core=/path/to/checkout` selects another source checkout; its exact
+revision is recorded in `.state/tangled-revision`. Local service state persists
+across `parity.py down` and subsequent `up` commands.
+
+| Service | Host URL |
+| --- | --- |
+| Spindle API | `http://127.0.0.1:9000` |
+| Tangled appview | `http://127.0.0.1:3000` |
+| Knot API | `http://127.0.0.1:5555` |
+| Knot SSH | `127.0.0.1:2222` |
+
+The smaller static-repository harness remains available:
 
 ```sh
 python3 bleeding/spindle/testbed/run.py test
 python3 bleeding/spindle/testbed/demo.py
 ```
 
-The testbed uses the [local ATP stack](../atp/testbed/README.md), Alice's real
-PDS-issued service token and a local Git fixture. Build preparation downloads
-container images and Ubuntu packages. Runtime uses the local PDS and HTTPS
-PLC gateway with its test CA.
-The spindle remains running at `http://127.0.0.1:9000` with persistent state.
-`demo.py` dispatches another job and prints its metadata and directory listing.
-`run.py down` removes the spindle containers and retains `.state`.
+For a persistent native service, HTTPS and Tangled registration, see
+[deployment instructions](DEPLOYMENT.md). The spindle creates its own SQLite
+state and needs no PDS password or spindle signing key.
 
-Build and run directly:
+## OCaml workflows
 
-```sh
-opam exec --switch=5.2.0+ox -- dune build --profile release-check \
-  @bleeding/spindle/all
-_build/default/bleeding/spindle/bin/main.exe \
-  --owner=did:plc:OWNER --repo=did:web:REPOSITORY \
-  --source=/absolute/path/to/git/repo --plc=http://127.0.0.1:2582
-```
-
-OpenSSL 3 development headers are required by JSONWT's ES256K verification
-binding. Git must be installed at runtime. The Docker runtime matches the
-Ubuntu 26.04 host ABI and runs as the invoking user's UID. It has a read-only
-root, a read-only Git fixture, resource limits and writable state storage.
-
-For a persistent native service, HTTPS setup and PDS authentication, see
-[deployment instructions](DEPLOYMENT.md). The service initializes its own
-state directory and needs no PDS password or spindle signing key.
-
-## OCaml jobs
-
-Pass a trusted job definition to `Spindle.run`:
+Pass a list of trusted definitions in `Spindle.config.jobs`:
 
 ```ocaml
-let job : Spindle.Job.t = {
-  name = "inspect";
-  steps = [Metadata; Command ["ls"; "-la"; "--"]];
-}
+let open Spindle.Job in
+let inspect = v "inspect" [Metadata; Command ["ls"; "-la"; "--"]] in
+let docs =
+  v "docs" [Command ["make"; "docs"]]
+    ~accepts:(fun event ->
+      event.kind = Manual ||
+      List.exists (String.starts_with ~prefix:"docs/") event.changed_files)
+in
+[inspect; docs]
 ```
 
-Commands receive argument vectors without a shell. Each runs in a fresh
-checkout of the requested commit. The environment supplies `TANGLED_REPO`,
-`TANGLED_COMMIT_SHA`, `TANGLED_PIPELINE_ID` and `SPINDLE_REQUEST` JSON.
-Repository-supplied OCaml and workflow files are not evaluated. Definitions
-are managed by the service, so workflow discovery returns `derived=false`.
+The selection context includes repository, actor, commit, trigger kind, ref,
+changed paths, default-ref status and the full request. Definitions can use
+ordinary OCaml analysis to choose workflows. Explicit workflow selections
+still respect each definition's predicate. Workflow names use 1–40 ASCII
+letters, digits, underscores or hyphens. Each workflow has an independent
+checkout, status, cancellation and log stream.
 
-## API
+Commands receive argument vectors without a shell. Their environment contains
+`TANGLED_REPO`, `TANGLED_COMMIT_SHA`, `TANGLED_PIPELINE_ID` and
+`SPINDLE_REQUEST` JSON. Git hooks and ambient Git configuration are disabled.
+The configured CA bundle is available to HTTPS Git clones. Workflow discovery
+returns `derived=false`, because definitions belong to the OCaml service.
 
-All methods are under `/xrpc/`. The implementation follows the CI lexicons
-in tangled-core revision `338719d7d4f1e1e32becc4f4d3ef04f3c7daeb32`.
+## API and authentication
+
+All Tangled methods are under `/xrpc/`:
 
 | Method | Behaviour |
 | --- | --- |
-| `sh.tangled.owner` | Return the configured owner DID. |
-| `sh.tangled.ci.triggerPipeline` | Authenticate and queue a manual trigger at an explicit SHA. |
-| `sh.tangled.ci.getPipeline` | Return workflow status and timestamps by pipeline TID. |
-| `sh.tangled.ci.queryPipelines` | Filter by commit or trigger kind and paginate newest first. |
-| `sh.tangled.ci.describeWorkflowDefinition` | Describe the external OCaml job definition. |
-| `sh.tangled.ci.cancelPipeline` | Cancel a queued or running job. |
-| `sh.tangled.ci.subscribePipelineLogs` | Stream binary WebSocket messages containing XRPC header and body CBOR values. |
-| `_health` | Report readiness after loading persistent state. |
+| `sh.tangled.owner` | Return the spindle owner DID for registration. |
+| `sh.tangled.ci.triggerPipeline` | Queue authenticated manual or pull-request workflows. |
+| `sh.tangled.ci.getPipeline` | Return all workflow states by pipeline TID. |
+| `sh.tangled.ci.queryPipelines` | Filter repository, commits and kinds; paginate newest first. |
+| `sh.tangled.ci.describeWorkflowDefinition` | List the configured OCaml workflows. |
+| `sh.tangled.ci.cancelPipeline` | Cancel all or selected pending/running workflows. |
+| `sh.tangled.ci.subscribePipelineLogs` | Stream selected workflows as Tangled CBOR WebSocket events. |
+| `_health` | Confirm the HTTP service has loaded persistent state. |
 
-Trigger and cancellation require an ES256K JWT for the configured owner,
-`did:web:<hostname>` audience and exact method in `lxm`. Verification resolves
-the owner's current `#atproto` key through the explicitly configured PLC.
-Tokens must have `typ=JWT`, an absent `kid` or `#atproto`, integral `iat` and
-`exp`, and a scalar audience. Issuance may be at most 30 seconds in the future,
-expiry at most one hour after receipt, and `iat` cannot exceed `exp`. Optional
-`nbf` is honored. JSONWT rejects duplicate members, malformed registered claims,
-noncanonical base64url and critical JOSE extensions before verification.
+`/.well-known/did.json` advertises the `#tangled_spindle` service. Queries and
+logs are public. Mutations require a fresh service JWT and write access to the
+canonical repository. The knot's collaborator list is checked on each
+mutation, so revoked grants are not retained in a permission cache.
 
-The service does not yet require `jti` or track accepted IDs to prevent token
-replay. Valid tokens can be reused until expiry. Its exact configured bare DID
-audience and ES256K key support form a limited ATProto profile. See the
-[JWT RFC review](../jsonwt/spec/REVIEW.md) for the suitability assessment and
-remaining service-authentication work.
+Both ES256K and ES256 `Multikey` account keys are supported. Tokens require
+`typ=JWT`, absent `kid` or `#atproto`, matching issuer/key/controller, scalar
+audience, exact `lxm`, integral `iat` and `exp`, and a nonempty `jti` of at most
+256 bytes. Accepted audiences are the spindle DID and that DID with the
+specific `#tangled_spindle` fragment. Optional `nbf` is honored. Issuance may
+be at most 30 seconds ahead; lifetime and remaining validity are bounded by
+one hour. Normal PDS-issued tokens last approximately one minute.
 
-The owner/repository/source mapping is operator configuration for this first
-service. It does not yet ingest membership records or knot push/pull events,
-discover repository ownership, serve appview, or support other JWT algorithms.
-These endpoints use explicit codecs and validation. The existing ATP generated
-Tangled bindings have not been refreshed by this project.
+After signature verification, SQLite atomically consumes `(issuer, jti)`
+until expiration. Reuse fails across fibers and restarts; failed signatures
+never reserve a nonce. The replay table fails closed at 65,536 live entries.
+These checks implement the current
+[ATProto service-auth profile](https://atproto.com/specs/xrpc#inter-service-authentication-jwt)
+using the [reviewed JSONWT library](../jsonwt/spec/REVIEW.md).
 
-Two jobs may run concurrently, with at most 32 outstanding jobs and 1000
-retained pipelines. A job has a 60-second deadline and 1 MiB log limit.
-Pipeline transitions and step boundaries atomically replace a JSON checkpoint.
-A restart marks interrupted jobs failed and removes their checkouts. One
-process holds the state-directory lock. Checkpoints provide process-restart
-recovery, without a power-loss durability guarantee or automatic retention.
-The worker is a child process in the service container. Use trusted command
-definitions until a separate worker with filesystem quotas is added.
+## Persistence and limits
+
+The state directory holds `spindle.db`, its WAL and temporary checkouts. One
+process owns its directory lock. SQLite uses WAL with `synchronous=FULL`.
+Incoming events and their stream cursors commit together. Dispatch records
+and their deduplication keys also commit together. Transient processing
+failures leave events queued; malformed records have recorded rejections.
+
+Pending workflows resume after restart. Interrupted workflows become failed.
+Completed logs stay in SQLite and are loaded on demand. Existing TID-named
+JSON checkpoints are imported once; keep the original static repository
+mapping for that first migration. Original checkpoint files are retained.
+
+Two workflows run at once; at most 32 pipelines may be outstanding, with up
+to 50 configured workflows. Each workflow has a 60-second execution deadline
+and 1 MiB log budget. Pull blobs have separate 16 MiB compressed and 64 MiB
+expanded limits, plus CID verification. Git and `gzip` are runtime dependencies.
+History and event receipts have no automatic disk-retention policy.
+
+Commands execute as child processes with the service account's filesystem
+access. The Docker harness supplies resource limits. Deploy custom commands
+with the privileges and filesystem access intended for those jobs.
 
 ## Verification
 
 ```sh
 opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force \
-  bleeding/spindle/test
+  bleeding/spindle/test bleeding/httpz/websocket_eio/test
 ```
 
-The native tests cover signed-token validity, expiration, audience, issuer,
-method, malformed signatures and unsupported headers. Fixture signing uses
-OpenSSL and retains no private key. The Docker test covers real authentication,
-checkout, metadata, directory listing, CBOR logs, failed checkout, cancellation,
-filtering, pagination and recovery of completed and interrupted jobs.
-
-`testbed/interop.go` checks captured log frames with the current Tangled Go
-decoder and encoder. From the sibling tangled-core checkout:
-
-```sh
-GOPROXY=https://proxy.golang.org GOTOOLCHAIN=local go run -mod=readonly \
-  ../oxmono/bleeding/spindle/testbed/interop.go \
-  ../oxmono/bleeding/spindle/testbed/.state/last-run.json
-```
-
-JSONWT's ES256K verification uses OpenSSL's
-[EVP public-key import](https://docs.openssl.org/3.0/man3/EVP_PKEY_fromdata/)
-and [digest verification](https://docs.openssl.org/3.0/man3/EVP_DigestVerifyInit/).
+Native tests cover signed service tokens, issuer-scoped replay prevention,
+concurrent consumption, expiry, database reopening, atomic event receipts,
+workflow selection and cancellation. The WebSocket client tests retain frames
+coalesced with the HTTP upgrade and reject bad accepts and HTTP versions.
+The Docker harnesses check service behaviour with actual PDS and Tangled code.

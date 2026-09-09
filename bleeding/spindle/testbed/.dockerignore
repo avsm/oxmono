@@ -2,3 +2,11 @@
 !Dockerfile
 !.state/
 !.state/spindle
+!Dockerfile.tangled
+!knot-entrypoint.sh
+!knot-keys
+!sshd.conf
+!.state/knot
+!.state/appview
+!.state/appview-pages/
+!.state/appview-pages/**

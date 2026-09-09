@@ -28,5 +28,7 @@
   bytesrw
   multibase
   jsonwt
+  mirage-crypto-ec
+  sqlite3-eio
   ptime
   cmdliner))

@@ -1,43 +1,58 @@
 # Running spindle as a service
 
-Spindle can run persistently now and accept manual inspection jobs. It needs
-an owner DID, repository DID, Git source, PLC origin, hostname and writable
-state directory. It creates and locks its state directory on first start.
-There is no database migration, PDS login or spindle signing key to initialize.
+Spindle runs continuously, discovers assigned Tangled repositories and handles
+pushes and pull requests. Configure its hostname, owner DID, PLC origin,
+Jetstream URL and writable state directory. SQLite initialization and migration
+happen automatically. The service needs no PDS login or spindle signing key.
 
 ## PDS and network requirements
 
-The configured owner must have an account whose `did:plc` document contains
-an ES256K/secp256k1 `#atproto` key. Spindle reads that document from `--plc` on
-each authenticated request. Use an HTTPS PLC origin for a remote deployment.
-TLS verifies the host and system CA store. Set `SSL_CERT_FILE` before startup
-only when using a private CA bundle, as the Docker testbed does.
+The owner and authorized callers need ATProto accounts with ES256K or ES256
+`#atproto` signing keys. Their PDS issues short-lived service JWTs. The spindle
+resolves current DID documents, verifies signatures and consumes each token's
+`jti` once. Cancellation requires its own method-specific token. PDS passwords
+and session tokens are never stored by the spindle.
 
-The caller logs in to the owner's PDS and requests
-`com.atproto.server.getServiceAuth`, with `aud=did:web:YOUR_HOSTNAME` and
-`lxm=sh.tangled.ci.triggerPipeline`. It sends the returned JWT directly to
-spindle. Cancellation requires a token for `sh.tangled.ci.cancelPipeline`.
-The service stores neither the PDS password nor its session tokens.
+For automatic operation, supply `--jetstream=wss://YOUR_JETSTREAM/subscribe`.
+That Jetstream must cover the owner/member PDSes and Tangled collections.
+The spindle bootstraps existing owner and member repository assignments from
+their PDSes, then follows changes. Outbound access includes the configured PLC,
+account PDSes, canonical knots, knot WebSockets and HTTPS Git clones.
 
-The current authentication profile supports ES256K, the `#atproto` key, one
-owner and a bare DID audience. It does not support P-256 owner keys, require
-jti, or prevent reuse of a valid token before expiry. The current
-[ATProto specification](https://atproto.com/specs/xrpc#inter-service-authentication-jwt)
-requires jti and recommends replay prevention and short lifetimes. Those gaps
-remain service work before claiming full ATProto authentication conformance.
+Use HTTPS/WSS for remote services. TLS verifies hostnames and system trust;
+`SSL_CERT_FILE` can select a private CA bundle. `--allow-http` enables HTTP/WS
+for a development network. No PLC or Jetstream endpoint defaults to the live
+network. Point them at the local Docker setup for independent operation.
 
-Outbound traffic consists of PLC lookups and Git access if `--source` is a
-remote URL. Spindle does not need a relay, Jetstream or a local PDS process.
-A private installation can instead use the existing local PLC, PDS and Git
-fixture, without any dependency on the wider ATP network.
+## Register in Tangled
+
+1. Serve the configured hostname over HTTPS, forwarding HTTP and WebSocket
+   upgrades to the spindle. Both `/xrpc/sh.tangled.owner` and
+   `/.well-known/did.json` must be reachable.
+2. Sign in to Tangled as the configured owner and register the hostname in
+   spindle settings. This creates the owner's `sh.tangled.spindle` record,
+   whose record key is the hostname. Tangled verifies the owner endpoint.
+3. Select this spindle in the repository's pipeline settings. The owner's
+   `sh.tangled.repo` record must name the spindle and canonical knot/repo DID.
+4. To host another account's repositories, add that account as a spindle
+   member. The owner's `sh.tangled.spindle.member` record names the account in
+   `subject` and this hostname in `instance`.
+5. Push a commit. The default workflow prints metadata and the directory
+   listing; pipeline status and logs appear in Tangled.
+
+Knot membership and repository collaborators are managed by the knot's own
+settings/procedures. Spindle membership permits repository assignment; it does
+not grant access to other members' repositories. The current Tangled appview
+queries spindle CI endpoints directly; no separate spindle event stream is
+needed for pipeline display.
 
 ## Keep the local Docker service running
 
 From the oxmono root:
 
 ```sh
-python3 bleeding/spindle/testbed/run.py up
-python3 bleeding/spindle/testbed/demo.py
+python3 bleeding/spindle/testbed/parity.py up
+python3 bleeding/spindle/testbed/parity.py test
 curl --fail http://127.0.0.1:9000/xrpc/_health
 ```
 
@@ -70,21 +85,10 @@ sudo useradd --system --user-group --home-dir /var/lib/ocaml-spindle \
   --shell /usr/sbin/nologin ocaml-spindle
 ```
 
-Create a mirror owned by that account. Replace `HTTPS_GIT_URL` with the
-repository's clone URL. The requested commit must exist in the mirror.
-
-```sh
-sudo install -d -o ocaml-spindle -g ocaml-spindle /srv/git/ocaml-spindle
-sudo -u ocaml-spindle git clone --mirror HTTPS_GIT_URL \
-  /srv/git/ocaml-spindle/project.git
-```
-
-An existing bare or ordinary repository also works if owned by the service
-account. Git may reject local clones from a different owner's repository.
-Git children run with a fixed environment, disable global/system Git config
-and allow only file, HTTP and HTTPS transports. Use a local mirror for private
-repositories. SSH and ambient credential-helper configuration are unsupported.
-Update the mirror outside the service when new commits are needed.
+Install Git and `gzip` alongside the executable. Automatic jobs clone the
+canonical knot by repository DID. A manual-only installation may instead use
+`--repo=did:plc:REPOSITORY --source=/absolute/path/to/repo` and omit Jetstream.
+This static mapping accepts only its configured owner's mutations.
 
 Save this as `/etc/systemd/system/ocaml-spindle.service`, replacing every
 uppercase placeholder. `--hostname` is a DNS hostname without a scheme, path
@@ -108,8 +112,7 @@ ExecStart=/usr/local/bin/ocaml-spindle \
   --addr=127.0.0.1 --port=9000 \
   --hostname=ci.YOUR_DOMAIN \
   --owner=did:plc:OWNER \
-  --repo=did:plc:REPOSITORY \
-  --source=/srv/git/ocaml-spindle/project.git \
+  --jetstream=wss://YOUR_JETSTREAM/subscribe \
   --plc=https://YOUR_PLC_HOST \
   --state-dir=/var/lib/ocaml-spindle
 Restart=on-failure
@@ -183,26 +186,16 @@ The log endpoint is
 `wss://ci.YOUR_DOMAIN/xrpc/sh.tangled.ci.subscribePipelineLogs?pipeline=PIPELINE_TID`.
 It sends binary Tangled CBOR frames. See the local demo for decoding them.
 
-## Registration and current limits
+## State and operational limits
 
-No PDS record or resolvable spindle DID document is required for the direct
-manual-dispatch path tested here. The configured `did:web` name is the exact
-JWT audience. Spindle does not serve `/.well-known/did.json`, and this guide
-uses direct requests rather than PDS service proxying.
+The state directory contains SQLite state and temporary checkouts. Back it up
+while the service is stopped, or use SQLite's backup API. Preserve `spindle.db`
+with its WAL when copying live storage. Deleting the database also deletes
+pipeline URLs, event cursors and accepted JWT nonces.
 
-The sibling tangled-core appview registers a spindle through its settings UI.
-It writes `sh.tangled.spindle` in the owner's PDS repository, using the hostname
-as its record key, and verifies the owner through `sh.tangled.owner`.
-The OCaml service implements that owner endpoint. Registration alone will not
-make this prototype a complete Tack replacement. It does not consume spindle
-membership records, discover repositories, follow knot push/pull events or
-publish an event stream for appview indexing. Automatic CI and complete UI
-integration need that work. The repository/source mapping is currently static.
-
-There are two concurrent workers, 32 outstanding jobs, 1000 retained pipelines,
-a 60-second job deadline and a 1 MiB log limit. History does not prune itself.
-Archive the state directory while stopped and start with an empty one when
-rotating history. Old pipeline URLs then cease to resolve. Back up state while
-the service is stopped. Interrupted jobs become failed after restart.
-Only one process may use a state directory. Custom OCaml jobs must be trusted
-because child processes share the service account's filesystem permissions.
+There are two concurrent workflows, 32 outstanding pipelines, a 60-second
+execution deadline and a 1 MiB log limit per workflow. Completed histories
+remain on disk without automatic retention. Pending work resumes after
+restart; interrupted workflows become failed. One process may own a state
+directory. The HTTP health endpoint reports service availability; observer
+connection failures are reported in the service journal and retried.

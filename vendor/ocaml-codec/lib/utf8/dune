@@ -1,0 +1,3 @@
+(library
+ (name utf8)
+ (public_name codec.utf8))

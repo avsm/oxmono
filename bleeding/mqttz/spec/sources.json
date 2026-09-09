@@ -1,0 +1,30 @@
+{
+  "retrieved_on": "2026-09-09",
+  "sources": [
+    {
+      "file": "mqtt-v3.1.1-errata01.html",
+      "url": "https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/errata01/os/mqtt-v3.1.1-errata01-os-complete.html",
+      "sha256": "39067a2346cac68df4e341ee08be0c25bf7e273d86ecc974524dcc774ed45eb4"
+    },
+    {
+      "file": "mqtt-v5.0-os.html",
+      "url": "https://docs.oasis-open.org/mqtt/mqtt/v5.0/os/mqtt-v5.0-os.html",
+      "sha256": "e47d9d70c4958550f5935670ee87ab9ddbc7984af8a36da3e180ca44d51fb381"
+    },
+    {
+      "file": "rfc3629.txt",
+      "url": "https://www.rfc-editor.org/rfc/rfc3629.txt",
+      "sha256": "a2a3a39457d30420c812f87a38cc2b9194832f6982ef17e619de7d816879d6a6"
+    },
+    {
+      "file": "rfc8446.txt",
+      "url": "https://www.rfc-editor.org/rfc/rfc8446.txt",
+      "sha256": "47871bc8820a2c3b6ea89f061055577058862cf543686b82d10131239702b3bd"
+    },
+    {
+      "file": "rfc9431.txt",
+      "url": "https://www.rfc-editor.org/rfc/rfc9431.txt",
+      "sha256": "d22af8c655db6420936f7ceec9a6e5d301e0418f77ae464a2a18217fec6da0d5"
+    }
+  ]
+}

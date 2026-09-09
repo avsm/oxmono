@@ -1,0 +1,15 @@
+services:
+  broker:
+    image: eclipse-mosquitto:2.0.22@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c
+    command: [mosquitto, -c, /fixtures/mosquitto.conf]
+    volumes:
+      - ${MQTTZ_FIXTURES:?set by run.sh}:/fixtures:ro
+    ports:
+      - "127.0.0.1::1883"
+      - "127.0.0.1::1884"
+      - "127.0.0.1::8883"
+    healthcheck:
+      test: [CMD, mosquitto_pub, -h, "127.0.0.1", -t, health, -m, ready]
+      interval: 1s
+      timeout: 2s
+      retries: 20

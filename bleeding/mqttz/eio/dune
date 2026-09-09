@@ -1,0 +1,5 @@
+(library
+ (name mqttz_eio)
+ (public_name mqttz.eio)
+ (private_modules transport)
+ (libraries mqttz eio eio.unix unix bytesrw bytesrw-eio))

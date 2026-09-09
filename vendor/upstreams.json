@@ -185,6 +185,14 @@
       "base_version": "v0.1.0"
     },
     {
+      "name": "ocaml-codec",
+      "url": "https://github.com/samoht/ocaml-codec.git",
+      "branch": "HEAD",
+      "revision": "fd9ecc5dd4e1296cc2555c74461495e002e9683f",
+      "base_version": "fd9ecc5",
+      "scope": "TOML subset: lib/ascii, lib/utf8, lib/loc and lib/toml, excluding TOML JSON adapters. Two Result.Syntax opens use equivalent local Result.bind/Result.map operators for OxCaml 5.2. Dune package metadata adapted and upstream MDX stanzas omitted."
+    },
+    {
       "name": "ocaml-proj",
       "url": "https://github.com/geocaml/ocaml-proj.git",
       "branch": "HEAD",

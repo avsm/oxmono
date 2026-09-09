@@ -1,0 +1,4 @@
+(library
+ (name mqttz_config)
+ (public_name mqttz.config)
+ (libraries mqttz mqttz.eio codec.toml))

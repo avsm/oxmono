@@ -1,0 +1,3 @@
+# Preserve the original reference snapshots and their recorded SHA-256 hashes.
+*.html -text -whitespace
+*.txt -text -whitespace

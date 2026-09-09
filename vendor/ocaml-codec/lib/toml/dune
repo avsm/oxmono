@@ -1,0 +1,4 @@
+(library
+ (name toml)
+ (public_name codec.toml)
+ (libraries ascii fmt ptime bytesrw utf8 loc))

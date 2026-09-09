@@ -1,0 +1,5 @@
+; Internal: character tests the text codecs parse with, no public name.
+
+(library
+ (name ascii)
+ (package codec))

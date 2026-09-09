@@ -1,0 +1,13 @@
+(library
+ (name mqttz_tls)
+ (public_name mqttz.tls)
+ (libraries
+  mqttz.eio
+  eio
+  tls
+  tls-eio
+  x509
+  ca-certs
+  domain-name
+  ipaddr
+  mirage-crypto-rng.unix))

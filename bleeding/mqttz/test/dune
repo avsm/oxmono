@@ -1,0 +1,34 @@
+(test
+ (name test_codec)
+ (modules test_codec allocation_guard)
+ (libraries mqttz alcotest))
+
+(test
+ (name test_config)
+ (modules test_config)
+ (libraries mqttz.config mqttz.eio alcotest))
+
+(executable
+ (name integration)
+ (modules integration)
+ (libraries
+  mqttz
+  mqttz.eio
+  mqttz.tls
+  eio
+  eio_main
+  eio.unix
+  unix
+  x509
+  tls-eio
+  ptime.clock.os))
+
+(test
+ (name test_client)
+ (modules test_client)
+ (libraries mqttz mqttz.eio eio eio_main eio.unix alcotest))
+
+(executable
+ (name toml_probe)
+ (modules toml_probe)
+ (libraries codec.toml))

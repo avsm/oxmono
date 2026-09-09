@@ -1,0 +1,4 @@
+(library
+ (name mqttz)
+ (public_name mqttz)
+ (private_modules shared parser utf8))

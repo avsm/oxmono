@@ -1,0 +1,4 @@
+(library
+ (name loc)
+ (public_name codec.loc)
+ (libraries fmt))

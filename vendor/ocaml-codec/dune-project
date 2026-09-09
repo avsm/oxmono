@@ -1,0 +1,19 @@
+(lang dune 3.21)
+
+(name codec)
+
+(generate_opam_files true)
+
+(implicit_transitive_deps false)
+
+(license ISC)
+
+(package
+ (name codec)
+ (synopsis "Vendored TOML subset of ocaml-codec")
+ (depends
+  (ocaml
+   (>= 5.2))
+  bytesrw
+  fmt
+  ptime))

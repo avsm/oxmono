@@ -1,0 +1,35 @@
+(lang dune 3.21)
+
+(name mqttz)
+
+(generate_opam_files true)
+
+(implicit_transitive_deps false)
+
+(license ISC)
+
+(authors "Anil Madhavapeddy")
+
+(maintainers "anil@recoil.org")
+
+(package
+ (name mqttz)
+ (synopsis "MQTT 3.1.1 and 5.0 codecs and Eio client for OxCaml")
+ (depends
+  (ocaml
+   (>= 5.2))
+  bytesrw-eio
+  eio
+  eio_main
+  tls
+  tls-eio
+  x509
+  ca-certs
+  domain-name
+  ipaddr
+  mirage-crypto-rng
+  codec
+  bytesrw
+  fmt
+  ptime
+  (alcotest :with-test)))

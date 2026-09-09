@@ -9,7 +9,7 @@ real local PDS tokens complete the Docker job lifecycle.
 
 This is a source review and regression exercise for the profile below, not a
 cryptographic certification or a claim to implement all JOSE specifications.
-The separate `jsonwt.cwt` library has not received this security review.
+The separate `jsonwt.cwt` library has its own [CWT review](CWT-REVIEW.md).
 
 ## Scope and provenance
 
@@ -178,8 +178,7 @@ fetches during setup. It does not require the live ATP network.
 Observed checks: 30 upstream JWT tests, five security regression groups,
 1500 bidirectional HMAC cases, NIST/Ed25519 signing, HMAC and ES256K across four
 domains, compiler rejection of token forgery, 30 signed spindle auth cases,
-and ATP XRPC tests. Legacy CWT's 45 tests and CBOR's 73 tests still pass but
-are not evidence of a new CWT security audit.
+and ATP XRPC tests. CWT evidence is recorded separately in its review.
 
 Docker checks passed real authentication, checkout, metadata and directory
 listing, CBOR log streaming, rejection cases, failed checkout, discovery,

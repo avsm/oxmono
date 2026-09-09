@@ -77,4 +77,31 @@ let () =
   add_test ~name:"jwt: algorithm parse no crash" [ bytes ]
     test_algorithm_parse_no_crash;
   add_test ~name:"jwt: structured input" [ bytes; bytes; bytes ]
-    test_jwt_structure
+    test_jwt_structure;
+  add_test ~name:"cwt: bounded parser" [ bytes ] (fun bytes ->
+      ignore (Jsonwt_cwt.parse bytes));
+  add_test ~name:"cwt: claims parser" [ bytes ] (fun bytes ->
+      ignore (Jsonwt_cwt.Claims.of_cbor bytes));
+  add_test ~name:"cwt: key parser" [ bytes ] (fun bytes ->
+      ignore (Jsonwt_cwt.Cose_key.of_cbor bytes));
+  let key =
+    Jsonwt_cwt.Cose_key.symmetric (String.make 32 'k')
+    |> Jsonwt_cwt.Cose_key.with_alg Jsonwt_cwt.Algorithm.HMAC_256
+  in
+  add_test ~name:"cwt: structured input" [ bytes; bytes; bytes ]
+    (fun protected payload signature ->
+      let open Cbort.Cbor in
+      let raw =
+        Cbort.encode_string Cbort.any
+          (Tag
+             ( 17,
+               Array [ Bytes protected; Map []; Bytes payload; Bytes signature ]
+             ))
+      in
+      match Jsonwt_cwt.parse raw with
+      | Error _ -> ()
+      | Ok token ->
+          ignore
+            (Jsonwt_cwt.verify_and_validate ~key
+               ~allowed_algs:[ Jsonwt_cwt.Algorithm.HMAC_256 ]
+               ~now:Ptime.epoch token))

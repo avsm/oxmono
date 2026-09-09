@@ -46,7 +46,7 @@
 (test
  (name test_cbor)
  (modules test_cbor)
- (libraries jsonwt.cwt cbort alcotest bytesrw))
+ (libraries cbort alcotest bytesrw))
 
 (test
  (name test_security)
@@ -68,3 +68,38 @@
    %{dep:test_types.py}
    %{ocamlc}
    %{dep:../lib/.jsonwt.objs/byte/jsonwt.cmi})))
+
+(test
+ (name test_cwt_security)
+ (modules test_cwt_security)
+ (libraries jsonwt.cwt cbort alcotest digestif))
+
+(rule
+ (targets cwt_pristine.ml)
+ (deps pristine/cwt.ml)
+ (action
+  (copy %{deps} %{targets})))
+
+(rule
+ (targets cwt_pristine.mli)
+ (deps pristine/cwt.mli)
+ (action
+  (copy %{deps} %{targets})))
+
+(library
+ (name pristine_cwt)
+ (wrapped false)
+ (modules cwt_pristine)
+ (libraries cbort mirage-crypto-ec digestif eqaf ptime))
+
+(test
+ (name test_cwt_crypto)
+ (modules test_cwt_crypto)
+ (libraries
+  jsonwt.cwt
+  pristine_cwt
+  jsonwt
+  jsont
+  jsont.bytesrw
+  mirage-crypto-rng.unix)
+ (deps cwt-fixtures.json))

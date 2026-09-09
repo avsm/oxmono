@@ -1,8 +1,6 @@
 # Remaining work
 
-- Review `jsonwt.cwt` independently against its COSE/CWT RFCs before using it
-  for authentication. The JWT review does not cover that implementation.
-- Add RFC 9864 fully specified Ed25519 identifiers with explicit key binding
+- Add RFC 9864 fully specified COSE and JOSE identifiers with explicit binding
   and independent fixtures before recommending Ed25519 for new protocols.
 - Add ES256K signing only with independent signing vectors and a reviewed
   private-key API. Spindle currently needs verification only.

@@ -12,12 +12,15 @@ MIT notice.
 Sibling import: d24430fd7f622250a14efde60f76119d4f000393
 jsonwt.ml:  d3275098b9b20cf3ee5a38c566463086d85c12daa8d474b0bb1d72889b00a199
 jsonwt.mli: 9781e99933dad7f4bf4cb4302cdbc22998a9adcde4e17bb005f61dafa1af70ba
+cwt.ml:    095044119977b8bdd4db6b3fd1f5b17eb41abbbcdd720306ac1bf675f2cbeb97
+cwt.mli:   d9817cff91d81ec9c0cdc3b04633b680e8566f017a3b171b271189a831ed1188
 ```
 
 `test/pristine` holds unchanged copies of these two files and the original JWT
 test source. Dune compiles the snapshots under `Jsonwt_pristine` with an empty
 CWT module because the JWT differential does not use CWT. Snapshots are test
-inputs, not installed libraries.
+inputs, not installed libraries. The original CWT sources are compiled
+separately as `Cwt_pristine` for bidirectional HMAC differentials.
 
 ## Local changes
 
@@ -31,11 +34,14 @@ inputs, not installed libraries.
   borrows its input prefix. Other algorithms retain the existing backends.
 - Portable signatures, immutable kinds, local URI parsing, mutable local
   counters and an unboxed delimiter tuple target OxCaml minus-39.
-- `cwt/jsonwt_cwt.ml` and `.mli` are the original CWT sources moved unchanged.
-  Their public path changes from `Jsonwt.Cwt` to `Jsonwt_cwt` in `jsonwt.cwt`.
+- `cwt/jsonwt_cwt.ml` and `.mli` repair signed-byte preservation, claim and key
+  validation, algorithm policy and expiration boundaries. `cwt_cbor` supplies
+  bounded CBOR parsing. The public path is `Jsonwt_cwt` in `jsonwt.cwt`.
+  [The CWT review](spec/CWT-REVIEW.md) records the RFC requirements and tests.
 - Original JWT tests are adapted to abstract accessors, explicit algorithm
   policy and `create ... ()`. CWT tests initialize the backend RNG and use the
-  new module path. New tests cover the deliberately stricter behavior.
+  new module path and key policy. RFC CWT vectors now require successful
+  verification. New tests cover the deliberately stricter behavior.
 - Build metadata, documentation and bundled RFCs describe the supported
   profile. Certificate-bound JWKs and JOSE extensions are explicitly rejected.
 

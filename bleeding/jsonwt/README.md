@@ -92,10 +92,29 @@ independent OpenSSL signatures, malformed-token regressions, compiler rejection
 of token record forgery and verification across four domains. Fixture generators
 retain public keys only. Regenerating fixtures changes their random signatures.
 
-## Legacy CWT
+## CWT
 
-The unchanged CWT implementation is a separate `jsonwt.cwt` library, exposed
-as `Jsonwt_cwt`. Its existing tests still run. Its Cstruct/COSE dependencies and
-security limitations are separate from JWT. CWT has not received this RFC
-security review and is not suitable on this review's evidence for an
-untrusted-token authentication boundary. Spindle does not link it.
+`jsonwt.cwt`, exposed as `Jsonwt_cwt`, supports COSE_Sign1 and COSE_Mac0.
+See the separate [CWT RFC review](spec/CWT-REVIEW.md). Spindle and other
+production consumers in this tree do not use CWT.
+
+Verification requires a trusted key bound to one algorithm and an explicit
+`~allowed_algs` list. Signatures authenticate the original protected header
+and payload bytes. COSE key operation restrictions are enforced. Registered
+claims are checked for type, duplicate labels, UTF-8 and valid NumericDates.
+The application must require its claims and enforce issuance, lifetime and
+replay policy. An unprotected `kid` is only an untrusted key-selection hint.
+
+The parser accepts tagged or untagged Sign1/Mac0, including outer CWT tag 61.
+It rejects encryption, detached payloads, external AAD, critical extensions
+and countersignatures. The legacy EC/EdDSA algorithm identifiers are restricted
+to their listed curves. RFC 9864's fully specified replacements are pending.
+
+CWT uses a private bounded CBOR codec with Cbort's immutable value model.
+It does not call Cbort's generic decoder. Inputs default to 8192 bytes with a
+hard 64 KiB cap, depth 32 and 4096 items per decoded CBOR value. Map labels
+must be integers or text, and integer claim labels must fit native integers.
+NumericDates retain fractional binary64 values within Ptime's range. CBOR
+strings and signing structures allocate. The parser cursor is local, and
+parsing and verification have compiler-checked portable interfaces. Neither
+installed JSONWT library uses Cstruct.

@@ -99,13 +99,23 @@ let test_algorithm_unknown () =
 (* ============= COSE Key Tests ============= *)
 
 let test_cose_key_symmetric () =
-  let key = Cwt.Cose_key.symmetric "my-secret-key-32-bytes-long!!!!!" in
+  let key =
+    Cwt.Cose_key.symmetric "my-secret-key-32-bytes-long!!!!!"
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   Alcotest.(check bool)
     "kty is Symmetric" true
     (Cwt.Cose_key.kty key = Cwt.Cose_key.Symmetric)
 
 let test_cose_key_ed25519 () =
-  let pub = String.make 32 '\x00' in
+  let priv =
+    Result.get_ok
+      (Mirage_crypto_ec.Ed25519.priv_of_octets (String.make 32 '\001'))
+  in
+  let pub =
+    Mirage_crypto_ec.Ed25519.pub_of_priv priv
+    |> Mirage_crypto_ec.Ed25519.pub_to_octets
+  in
   let key = Cwt.Cose_key.ed25519_pub pub in
   Alcotest.(check bool)
     "kty is Okp" true
@@ -115,8 +125,14 @@ let test_cose_key_ed25519 () =
     (Cwt.Cose_key.alg key = Some Cwt.Algorithm.EdDSA)
 
 let test_cose_key_p256 () =
-  let x = String.make 32 '\x00' in
-  let y = String.make 32 '\x00' in
+  let d = String.make 31 '\000' ^ "\001" in
+  let priv = Result.get_ok (Mirage_crypto_ec.P256.Dsa.priv_of_octets d) in
+  let point =
+    Mirage_crypto_ec.P256.Dsa.pub_of_priv priv
+    |> Mirage_crypto_ec.P256.Dsa.pub_to_octets
+  in
+  let x = String.sub point 1 32 in
+  let y = String.sub point 33 32 in
   let key = Cwt.Cose_key.p256_pub ~x ~y in
   Alcotest.(check bool)
     "kty is Ec2" true
@@ -126,7 +142,10 @@ let test_cose_key_p256 () =
     (Cwt.Cose_key.alg key = Some Cwt.Algorithm.ES256)
 
 let test_cose_key_with_kid () =
-  let key = Cwt.Cose_key.symmetric "secret" in
+  let key =
+    Cwt.Cose_key.symmetric "secret"
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   Alcotest.(check (option string)) "no kid" None (Cwt.Cose_key.kid key);
   let key' = Cwt.Cose_key.with_kid "my-key-id" key in
   Alcotest.(check (option string))
@@ -222,7 +241,10 @@ let test_create_hmac_cwt () =
     |> Cwt.Claims.set_sub "test-subject"
     |> Cwt.Claims.build
   in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
   | Ok cwt ->
       Alcotest.(check (option string))
@@ -241,7 +263,10 @@ let test_create_hmac_256_64_cwt () =
   let claims =
     Cwt.Claims.empty |> Cwt.Claims.set_iss "test-issuer" |> Cwt.Claims.build
   in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256_64
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256_64 ~claims ~key with
   | Ok cwt ->
       Alcotest.(check bool)
@@ -275,7 +300,10 @@ let test_create_key_mismatch () =
     Cwt.Claims.empty |> Cwt.Claims.set_iss "test" |> Cwt.Claims.build
   in
   (* Symmetric key with ES256 algorithm *)
-  let key = Cwt.Cose_key.symmetric "secret" in
+  let key =
+    Cwt.Cose_key.symmetric "secret"
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.ES256 ~claims ~key with
   | Error (Cwt.Key_type_mismatch _) -> ()
   | Error e ->
@@ -291,17 +319,20 @@ let test_validate_expired_token () =
   let now = Ptime.of_float_s 1400000000. |> Option.get in
   (* After exp *)
   let claims = Cwt.Claims.empty |> Cwt.Claims.set_exp exp |> Cwt.Claims.build in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
-  | Ok cwt -> begin
-      match Cwt.validate ~now cwt with
+  | Ok cwt ->
+      begin match Cwt.validate ~now cwt with
       | Error Cwt.Token_expired -> ()
       | Error e ->
           Alcotest.fail
             (Printf.sprintf "Expected Token_expired, got: %s"
                (Cwt.error_to_string e))
       | Ok () -> Alcotest.fail "Expected Token_expired error"
-    end
+      end
   | Error e -> Alcotest.fail (Cwt.error_to_string e)
 
 let test_validate_not_yet_valid_token () =
@@ -309,17 +340,20 @@ let test_validate_not_yet_valid_token () =
   let now = Ptime.of_float_s 1400000000. |> Option.get in
   (* Before nbf *)
   let claims = Cwt.Claims.empty |> Cwt.Claims.set_nbf nbf |> Cwt.Claims.build in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
-  | Ok cwt -> begin
-      match Cwt.validate ~now cwt with
+  | Ok cwt ->
+      begin match Cwt.validate ~now cwt with
       | Error Cwt.Token_not_yet_valid -> ()
       | Error e ->
           Alcotest.fail
             (Printf.sprintf "Expected Token_not_yet_valid, got: %s"
                (Cwt.error_to_string e))
       | Ok () -> Alcotest.fail "Expected Token_not_yet_valid error"
-    end
+      end
   | Error e -> Alcotest.fail (Cwt.error_to_string e)
 
 let test_validate_with_leeway () =
@@ -329,16 +363,19 @@ let test_validate_with_leeway () =
   let leeway = Ptime.Span.of_int_s 60 in
   (* 60 second leeway *)
   let claims = Cwt.Claims.empty |> Cwt.Claims.set_exp exp |> Cwt.Claims.build in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
-  | Ok cwt -> begin
-      match Cwt.validate ~now ~leeway cwt with
+  | Ok cwt ->
+      begin match Cwt.validate ~now ~leeway cwt with
       | Ok () -> ()
       | Error e ->
           Alcotest.fail
             (Printf.sprintf "Expected validation to pass with leeway, got: %s"
                (Cwt.error_to_string e))
-    end
+      end
   | Error e -> Alcotest.fail (Cwt.error_to_string e)
 
 let test_validate_issuer_match () =
@@ -346,16 +383,19 @@ let test_validate_issuer_match () =
   let claims =
     Cwt.Claims.empty |> Cwt.Claims.set_iss "expected-issuer" |> Cwt.Claims.build
   in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
-  | Ok cwt -> begin
-      match Cwt.validate ~now ~iss:"expected-issuer" cwt with
+  | Ok cwt ->
+      begin match Cwt.validate ~now ~iss:"expected-issuer" cwt with
       | Ok () -> ()
       | Error e ->
           Alcotest.fail
             (Printf.sprintf "Expected validation to pass, got: %s"
                (Cwt.error_to_string e))
-    end
+      end
   | Error e -> Alcotest.fail (Cwt.error_to_string e)
 
 let test_validate_issuer_mismatch () =
@@ -363,17 +403,20 @@ let test_validate_issuer_mismatch () =
   let claims =
     Cwt.Claims.empty |> Cwt.Claims.set_iss "actual-issuer" |> Cwt.Claims.build
   in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
-  | Ok cwt -> begin
-      match Cwt.validate ~now ~iss:"expected-issuer" cwt with
+  | Ok cwt ->
+      begin match Cwt.validate ~now ~iss:"expected-issuer" cwt with
       | Error Cwt.Invalid_issuer -> ()
       | Error e ->
           Alcotest.fail
             (Printf.sprintf "Expected Invalid_issuer, got: %s"
                (Cwt.error_to_string e))
       | Ok () -> Alcotest.fail "Expected Invalid_issuer error"
-    end
+      end
   | Error e -> Alcotest.fail (Cwt.error_to_string e)
 
 let test_validate_audience_match () =
@@ -383,16 +426,19 @@ let test_validate_audience_match () =
     |> Cwt.Claims.set_aud [ "aud1"; "aud2"; "my-app" ]
     |> Cwt.Claims.build
   in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
-  | Ok cwt -> begin
-      match Cwt.validate ~now ~aud:"my-app" cwt with
+  | Ok cwt ->
+      begin match Cwt.validate ~now ~aud:"my-app" cwt with
       | Ok () -> ()
       | Error e ->
           Alcotest.fail
             (Printf.sprintf "Expected validation to pass, got: %s"
                (Cwt.error_to_string e))
-    end
+      end
   | Error e -> Alcotest.fail (Cwt.error_to_string e)
 
 let test_validate_audience_mismatch () =
@@ -402,17 +448,20 @@ let test_validate_audience_mismatch () =
     |> Cwt.Claims.set_aud [ "aud1"; "aud2" ]
     |> Cwt.Claims.build
   in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
-  | Ok cwt -> begin
-      match Cwt.validate ~now ~aud:"my-app" cwt with
+  | Ok cwt ->
+      begin match Cwt.validate ~now ~aud:"my-app" cwt with
       | Error Cwt.Invalid_audience -> ()
       | Error e ->
           Alcotest.fail
             (Printf.sprintf "Expected Invalid_audience, got: %s"
                (Cwt.error_to_string e))
       | Ok () -> Alcotest.fail "Expected Invalid_audience error"
-    end
+      end
   | Error e -> Alcotest.fail (Cwt.error_to_string e)
 
 (* ============= Helper Function Tests ============= *)
@@ -420,7 +469,10 @@ let test_validate_audience_mismatch () =
 let test_is_expired () =
   let exp = Ptime.of_float_s 1300819380. |> Option.get in
   let claims = Cwt.Claims.empty |> Cwt.Claims.set_exp exp |> Cwt.Claims.build in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
   | Ok cwt ->
       let now_before = Ptime.of_float_s 1300819370. |> Option.get in
@@ -436,7 +488,10 @@ let test_is_expired () =
 let test_time_to_expiry () =
   let exp = Ptime.of_float_s 1300819380. |> Option.get in
   let claims = Cwt.Claims.empty |> Cwt.Claims.set_exp exp |> Cwt.Claims.build in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
   | Ok cwt ->
       let now = Ptime.of_float_s 1300819370. |> Option.get in
@@ -502,7 +557,10 @@ let test_create_hmac_384_cwt () =
     Cwt.Claims.empty |> Cwt.Claims.set_iss "test-issuer" |> Cwt.Claims.build
   in
   (* Need 48-byte key for HMAC-384 *)
-  let key = Cwt.Cose_key.symmetric (String.make 48 'k') in
+  let key =
+    Cwt.Cose_key.symmetric (String.make 48 'k')
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_384
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_384 ~claims ~key with
   | Ok cwt ->
       Alcotest.(check bool)
@@ -519,7 +577,10 @@ let test_create_hmac_512_cwt () =
     Cwt.Claims.empty |> Cwt.Claims.set_iss "test-issuer" |> Cwt.Claims.build
   in
   (* Need 64-byte key for HMAC-512 *)
-  let key = Cwt.Cose_key.symmetric (String.make 64 'k') in
+  let key =
+    Cwt.Cose_key.symmetric (String.make 64 'k')
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_512
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_512 ~claims ~key with
   | Ok cwt ->
       Alcotest.(check bool)
@@ -533,12 +594,11 @@ let test_create_hmac_512_cwt () =
 
 (* ============= COSE Key Serialization Tests ============= *)
 
-(* Note: These tests verify that to_cbor produces valid output that can
-   potentially be decoded. The of_cbor function is not yet fully implemented,
-   so we test that it returns appropriate errors. *)
-
 let test_cose_key_to_cbor_symmetric () =
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   let key' = Cwt.Cose_key.with_kid "my-key-id" key in
   let cbor = Cwt.Cose_key.to_cbor key' in
   (* Just verify it produces valid CBOR (non-empty, starts with map header) *)
@@ -548,7 +608,14 @@ let test_cose_key_to_cbor_symmetric () =
   Alcotest.(check bool) "is map" true (first_byte land 0xe0 = 0xa0)
 
 let test_cose_key_to_cbor_ed25519 () =
-  let pub = String.make 32 '\x42' in
+  let priv =
+    Result.get_ok
+      (Mirage_crypto_ec.Ed25519.priv_of_octets (String.make 32 '\x42'))
+  in
+  let pub =
+    Mirage_crypto_ec.Ed25519.pub_of_priv priv
+    |> Mirage_crypto_ec.Ed25519.pub_to_octets
+  in
   let key = Cwt.Cose_key.ed25519_pub pub in
   let cbor = Cwt.Cose_key.to_cbor key in
   Alcotest.(check bool) "non-empty" true (String.length cbor > 0)
@@ -559,23 +626,20 @@ let test_cose_key_to_cbor_p256 () =
   Alcotest.(check bool) "non-empty" true (String.length cbor > 0)
 
 let test_cose_key_of_cbor () =
-  (* Test that of_cbor correctly decodes a symmetric key *)
-  let cbor = hex_to_bytes rfc_256bit_key_hex in
-  match Cwt.Cose_key.of_cbor cbor with
-  | Ok key ->
-      Alcotest.(check bool)
-        "key type is symmetric" true
-        (Cwt.Cose_key.kty key = Cwt.Cose_key.Symmetric);
-      Alcotest.(check (option string))
-        "kid" (Some "Symmetric256") (Cwt.Cose_key.kid key)
-  | Error e ->
-      Alcotest.fail
-        (Printf.sprintf "Failed to decode key: %s" (Cwt.error_to_string e))
+  (* RFC 8392 A.2.2 binds this key to AES-CCM, which is unsupported here. *)
+  (match Cwt.Cose_key.of_cbor (hex_to_bytes rfc_256bit_key_hex) with
+  | Error (Cwt.Unsupported_algorithm _) -> ()
+  | _ -> Alcotest.fail "unsupported key algorithm was ignored");
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+    |> Cwt.Cose_key.with_kid "Symmetric256"
+  in
+  let key = Result.get_ok (Cwt.Cose_key.of_cbor (Cwt.Cose_key.to_cbor key)) in
+  Alcotest.(check (option string))
+    "kid" (Some "Symmetric256") (Cwt.Cose_key.kid key)
 
 (* ============= CWT Encoding Tests ============= *)
-
-(* Note: CWT parsing (Cwt.parse) is not yet implemented, so we test
-   encoding only for now. These tests verify the COSE structure is correct. *)
 
 let test_cwt_hmac_encoding () =
   let claims =
@@ -584,7 +648,10 @@ let test_cwt_hmac_encoding () =
     |> Cwt.Claims.set_sub "roundtrip-subject"
     |> Cwt.Claims.build
   in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
   | Ok cwt ->
       let encoded = Cwt.encode cwt in
@@ -627,7 +694,10 @@ let test_cwt_parse_roundtrip () =
     |> Cwt.Claims.set_sub "test-subject"
     |> Cwt.Claims.build
   in
-  let key = Cwt.Cose_key.symmetric rfc_256bit_key_bytes in
+  let key =
+    Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+    |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256
+  in
   match Cwt.create ~algorithm:Cwt.Algorithm.HMAC_256 ~claims ~key with
   | Ok cwt ->
       let encoded = Cwt.encode cwt in
@@ -675,7 +745,6 @@ let test_rfc_claims_cbor_encoding () =
 
 let test_rfc_claims_cbor_decoding () =
   (* Test that we can decode RFC 8392 Appendix A.1 claims *)
-  (* Note: Claims.of_cbor is not yet fully implemented *)
   let cbor = hex_to_bytes rfc_claims_hex in
   match Cwt.Claims.of_cbor cbor with
   | Ok claims ->
@@ -714,22 +783,13 @@ let test_rfc_claims_cbor_decoding () =
             (abs_float (iat_float -. 1443944944.) < 1.0)
       | None -> Alcotest.fail "Expected iat claim"
       end
-  | Error (Cwt.Invalid_cbor msg) ->
-      (* Claims decoding not yet implemented - verify error message *)
-      Alcotest.(check bool) "error message present" true (String.length msg > 0)
-  | Error (Cwt.Invalid_claims msg) ->
-      (* Claims decoding not yet implemented - verify error message *)
-      Alcotest.(check bool) "error message present" true (String.length msg > 0)
-  | Error _ ->
-      (* Any error is acceptable for unimplemented function *)
-      ()
+  | Error e -> Alcotest.fail (Cwt.error_to_string e)
 
 let test_rfc_signed_cwt_parse () =
   (* Test parsing RFC 8392 Appendix A.3 signed CWT *)
-  (* Note: parse is not yet implemented, so we verify it returns an appropriate error *)
   let cwt_bytes = hex_to_bytes rfc_signed_cwt_hex in
   match Cwt.parse cwt_bytes with
-  | Ok cwt ->
+  | Ok cwt -> (
       (* If parsing succeeds, verify the claims *)
       Alcotest.(check (option string))
         "iss" (Some "coap://as.example.com")
@@ -739,17 +799,18 @@ let test_rfc_signed_cwt_parse () =
         (Cwt.Claims.sub (Cwt.claims cwt));
       Alcotest.(check (option bool))
         "alg is ES256" (Some true)
-        (Option.map (fun a -> a = Cwt.Algorithm.ES256) (Cwt.algorithm cwt))
-  | Error _ ->
-      (* Parse not yet implemented - that's expected *)
-      ()
+        (Option.map (fun a -> a = Cwt.Algorithm.ES256) (Cwt.algorithm cwt));
+      let key = Cwt.Cose_key.p256_pub ~x:rfc_p256_x ~y:rfc_p256_y in
+      match Cwt.verify ~key ~allowed_algs:[ Cwt.Algorithm.ES256 ] cwt with
+      | Ok () -> ()
+      | Error e -> Alcotest.fail (Cwt.error_to_string e))
+  | Error e -> Alcotest.fail (Cwt.error_to_string e)
 
 let test_rfc_maced_cwt_parse () =
   (* Test parsing RFC 8392 Appendix A.4 MACed CWT *)
-  (* Note: parse is not yet implemented, so we verify it returns an appropriate error *)
   let cwt_bytes = hex_to_bytes rfc_maced_cwt_hex in
   match Cwt.parse cwt_bytes with
-  | Ok cwt ->
+  | Ok cwt -> (
       (* If parsing succeeds, verify the claims *)
       Alcotest.(check (option string))
         "iss" (Some "coap://as.example.com")
@@ -761,16 +822,27 @@ let test_rfc_maced_cwt_parse () =
         "alg is HMAC_256_64" (Some true)
         (Option.map
            (fun a -> a = Cwt.Algorithm.HMAC_256_64)
-           (Cwt.algorithm cwt))
-  | Error _ ->
-      (* Parse not yet implemented - that's expected *)
-      ()
+           (Cwt.algorithm cwt));
+      let key =
+        Cwt.Cose_key.symmetric rfc_256bit_key_bytes
+        |> Cwt.Cose_key.with_alg Cwt.Algorithm.HMAC_256_64
+      in
+      match Cwt.verify ~key ~allowed_algs:[ Cwt.Algorithm.HMAC_256_64 ] cwt with
+      | Ok () -> ()
+      | Error e -> Alcotest.fail (Cwt.error_to_string e))
+  | Error e -> Alcotest.fail (Cwt.error_to_string e)
 
 (* ============= P-384 and P-521 Key Tests ============= *)
 
 let test_cose_key_p384 () =
-  let x = String.make 48 '\x01' in
-  let y = String.make 48 '\x02' in
+  let d = String.make 47 '\000' ^ "\001" in
+  let priv = Result.get_ok (Mirage_crypto_ec.P384.Dsa.priv_of_octets d) in
+  let point =
+    Mirage_crypto_ec.P384.Dsa.pub_of_priv priv
+    |> Mirage_crypto_ec.P384.Dsa.pub_to_octets
+  in
+  let x = String.sub point 1 48 in
+  let y = String.sub point 49 48 in
   let key = Cwt.Cose_key.p384_pub ~x ~y in
   Alcotest.(check bool)
     "kty is Ec2" true
@@ -780,8 +852,14 @@ let test_cose_key_p384 () =
     (Cwt.Cose_key.alg key = Some Cwt.Algorithm.ES384)
 
 let test_cose_key_p521 () =
-  let x = String.make 66 '\x01' in
-  let y = String.make 66 '\x02' in
+  let d = String.make 65 '\000' ^ "\001" in
+  let priv = Result.get_ok (Mirage_crypto_ec.P521.Dsa.priv_of_octets d) in
+  let point =
+    Mirage_crypto_ec.P521.Dsa.pub_of_priv priv
+    |> Mirage_crypto_ec.P521.Dsa.pub_to_octets
+  in
+  let x = String.sub point 1 66 in
+  let y = String.sub point 67 66 in
   let key = Cwt.Cose_key.p521_pub ~x ~y in
   Alcotest.(check bool)
     "kty is Ec2" true

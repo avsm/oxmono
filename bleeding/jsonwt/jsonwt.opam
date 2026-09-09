@@ -16,13 +16,12 @@ depends: [
   "base64"
   "ptime"
   "uriz"
-  "mirage-crypto"
   "mirage-crypto-ec"
   "mirage-crypto-rng"
   "conf-libssl"
   "cbort"
-  "cstruct"
-  "mirage-crypto-pk"
+  "zarith"
+  "cstruct" {with-test}
   "crowbar" {with-test}
   "alcotest" {with-test}
   "odoc" {with-doc}

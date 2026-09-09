@@ -1,7 +1,7 @@
 (executable
  (name fuzz_jsonwt)
  (modules fuzz_jsonwt)
- (libraries jsonwt crowbar))
+ (libraries jsonwt jsonwt.cwt cbort crowbar))
 
 (rule
  (alias fuzz)

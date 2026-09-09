@@ -7,7 +7,7 @@ notices remain in each document.
 
 The [review](REVIEW.md) describes the selected JWT profile. Inclusion here does
 not claim full implementation of a document. RFC 9864 updates RFCs 7518, 8037
-and 9053. The legacy CWT implementation has not been reviewed against its RFCs.
+and 9053. The separate [CWT review](CWT-REVIEW.md) covers a bounded Sign1/Mac0 profile.
 
 - [RFC 3986](https://www.rfc-editor.org/rfc/rfc3986.txt):
   URI syntax used for StringOrURI claims.
@@ -43,7 +43,7 @@ and 9053. The legacy CWT implementation has not been reviewed against its RFCs.
   UTF-8 JSON syntax and interoperability.
   Local copy: [rfc8259.txt](rfc8259.txt).
 - [RFC 8392](https://www.rfc-editor.org/rfc/rfc8392.txt):
-  CWT, retained for the unreviewed legacy library.
+  CWT claims and protection.
   Local copy: [rfc8392.txt](rfc8392.txt).
 - [RFC 8725](https://www.rfc-editor.org/rfc/rfc8725.txt):
   JWT security best current practice.
@@ -52,13 +52,13 @@ and 9053. The legacy CWT implementation has not been reviewed against its RFCs.
   secp256k1 JWK and ES256K signatures.
   Local copy: [rfc8812.txt](rfc8812.txt).
 - [RFC 8949](https://www.rfc-editor.org/rfc/rfc8949.txt):
-  CBOR, retained for the legacy library.
+  CBOR syntax, validity and resource limits.
   Local copy: [rfc8949.txt](rfc8949.txt).
 - [RFC 9052](https://www.rfc-editor.org/rfc/rfc9052.txt):
-  COSE structures, retained for the legacy library.
+  COSE structures, headers and key policy.
   Local copy: [rfc9052.txt](rfc9052.txt).
 - [RFC 9053](https://www.rfc-editor.org/rfc/rfc9053.txt):
-  COSE algorithms, retained for the legacy library.
+  COSE algorithms and key parameters.
   Local copy: [rfc9053.txt](rfc9053.txt).
 - [RFC 9864](https://www.rfc-editor.org/rfc/rfc9864.txt):
   Updates JWA/EdDSA algorithm guidance.

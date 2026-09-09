@@ -199,9 +199,9 @@ and build_link_graph entries =
         add_entry_link source_slug target_slug
       else if Bushel.Md.is_contact_slug link then
         let handle = Bushel.Md.strip_handle link in
-        if List.exists
-          (fun c -> Sortal_schema.Contact.handle c = handle) contacts
-        then add_internal_link source_slug handle `Contact
+        (if List.exists
+              (fun c -> Sortal_schema.Contact.handle c = handle) contacts
+         then add_internal_link source_slug handle `Contact)
       else if Bushel.Md.is_tag_slug link || Bushel.Md.is_kind_slug link then
         ()
       else if String.starts_with ~prefix:"http://" link ||

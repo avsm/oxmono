@@ -6,6 +6,7 @@
   proffer
   proffer-httpz
   httpz.websocket
+  httpz.tls
   fetch
   fetch-httpz
   eio

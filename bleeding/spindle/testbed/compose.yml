@@ -9,12 +9,15 @@ services:
       - --addr=0.0.0.0
       - --port=9000
       - --hostname=spindle.tangled.test
-      - --plc=http://oxmono-atp-plc-1:8080
+      - --plc=https://plc.tangled.test
       - --owner=${SPINDLE_OWNER:?run prepare.py first}
       - --repo=did:web:repo.tangled.test
       - --source=/fixture
       - --state-dir=/state
+    environment:
+      SSL_CERT_FILE: /certs/ca.crt
     volumes:
+      - ../../atp/testbed/.state/certs/ca.crt:/certs/ca.crt:ro
       - ./.state/fixture:/fixture:ro
       - ./.state/data:/state
     ports: ["127.0.0.1:9000:9000"]

@@ -15,7 +15,8 @@ python3 bleeding/spindle/testbed/demo.py
 
 The testbed uses the [local ATP stack](../atp/testbed/README.md), Alice's real
 PDS-issued service token and a local Git fixture. Build preparation downloads
-container images and Ubuntu packages. Runtime uses the local PDS and PLC.
+container images and Ubuntu packages. Runtime uses the local PDS and HTTPS
+PLC gateway with its test CA.
 The spindle remains running at `http://127.0.0.1:9000` with persistent state.
 `demo.py` dispatches another job and prints its metadata and directory listing.
 `run.py down` removes the spindle containers and retains `.state`.
@@ -34,6 +35,10 @@ OpenSSL 3 development headers are required by JSONWT's ES256K verification
 binding. Git must be installed at runtime. The Docker runtime matches the
 Ubuntu 26.04 host ABI and runs as the invoking user's UID. It has a read-only
 root, a read-only Git fixture, resource limits and writable state storage.
+
+For a persistent native service, HTTPS setup and PDS authentication, see
+[deployment instructions](DEPLOYMENT.md). The service initializes its own
+state directory and needs no PDS password or spindle signing key.
 
 ## OCaml jobs
 

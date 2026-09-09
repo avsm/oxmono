@@ -14,7 +14,7 @@ type config = {
   job : Job.t;
 }
 (** [config] maps one repository DID to a server-configured Git source and
-    one authorized owner DID. [plc] is the explicitly configured PLC HTTP
+    one authorized owner DID. [plc] is the explicitly configured PLC HTTP(S)
     origin. [state_dir] stores pipeline state, logs and temporary checkouts. *)
 
 val run : ?addr:string -> Eio_unix.Stdenv.base -> config -> unit

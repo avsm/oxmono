@@ -450,7 +450,8 @@ let run ?(addr = "127.0.0.1") system config =
   Fun.protect ~finally:(fun () -> Unix.close lock) @@ fun () ->
   Unix.lockf lock Unix.F_TLOCK 0;
   let fetch = Fetch_httpz.v system#net ~clock:system#mono_clock
-      ~max_response:65536 () |> Fetch.restrict ~under:[config.plc] in
+      ~https:Httpz_tls.system ~max_response:65536 ()
+      |> Fetch.restrict ~under:[config.plc] in
   let state = { config; system; sw; directory;
     read = (fun url -> Fetch.read ~limit:65536 fetch url);
     pipelines = Hashtbl.create 32; slots = Eio.Semaphore.make 2;

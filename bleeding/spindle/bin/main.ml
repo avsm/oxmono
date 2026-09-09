@@ -18,7 +18,7 @@ let command =
     $ required "owner" "Authorized owner PLC DID."
     $ required "repo" "Repository DID mapped to the Git source."
     $ required "source" "Git clone URL or absolute local repository path."
-    $ required "plc" "PLC HTTP origin used for signature verification."
+    $ required "plc" "PLC HTTP(S) origin used for signature verification."
     $ option "state-dir" "spindle-state" "Persistent state directory."
     $ Arg.(value & opt int 9000 & info ["port"] ~doc:"HTTP listening port.")
     $ option "addr" "127.0.0.1" "HTTP listening IP address.") in

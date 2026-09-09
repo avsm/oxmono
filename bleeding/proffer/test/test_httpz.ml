@@ -62,8 +62,37 @@ let relay socket =
   fill 0;
   Body.Socket.write socket (Bytes.to_string b)
 
+let websocket_echo socket =
+  let module W = Httpz_websocket in
+  let ws = W.create ~role:Server
+      ~read:(Body.Socket.read socket) ~write:(Body.Socket.write_sub socket)
+      ~with_write_lock:(fun f -> f ()) () in
+  (* This handler has one fiber. Concurrent readers/writers need a mutex. *)
+  while W.receive ws ~f:(fun kind b ~off ~len -> W.send ws kind b ~off ~len) do
+    ()
+  done
+
+let websocket_route _env req respond =
+  let fields = ref [] in
+  Headers.iter (fun _ name value ->
+    fields := (Req.globalize name, Req.globalize value) :: !fields)
+    (Req.headers req);
+  (* Proffer removes hop-by-hop Connection fields after validating them. *)
+  let fields = if Req.connection_upgrade req then
+      ("Connection", "Upgrade") :: !fields else !fields in
+  match Httpz_websocket.Handshake.accept
+      ~meth:(M.to_string (Req.meth req))
+      ~http_1_1:(Req.version req = Httpz.Version.Http_1_1)
+      (List.rev fields) with
+  | Error reason -> Resp.text respond ~status:St.Bad_request reason
+  | Ok fields ->
+      let headers = Headers.of_list (List.filter (fun (name, _) ->
+        name <> "Connection" && name <> "Upgrade") fields) in
+      Resp.upgrade respond ~protocol:"websocket" ~headers websocket_echo
+
 let routes =
   [
+    get (s "websocket") websocket_route;
     get root (fun _env _req respond -> Resp.html respond index);
     get (s "hello" / str) (fun who env _req respond ->
         Resp.html respond (env.greet (Req.globalize who)));
@@ -446,6 +475,32 @@ let tests ~clock ~net addr =
      Upgrade: proffer-echo\r\n\
      \r\n"
     "HTTP/1.1 101 Switching Protocols" (Some "Upgrade") (Some "proffer-echo");
+  with_conn ~net addr (fun flow ->
+    (* The first WebSocket frame arrives in the same write as the HTTP head.
+       The close frame uses a zero mask, which remains a valid masked frame. *)
+    Eio.Flow.copy_string
+      ("GET /websocket HTTP/1.1\r\nHost: localhost\r\n" ^
+       "Connection: Upgrade\r\nUpgrade: websocket\r\n" ^
+       "Sec-WebSocket-Version: 13\r\n" ^
+       "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n" ^
+       "\x81\x85\x37\xfa\x21\x3d\x7f\x9f\x4d\x51\x58" ^
+       "\x88\x82\x00\x00\x00\x00\x03\xe8") flow;
+    let reader = Eio.Buf_read.of_flow flow ~max_size:65536 in
+    let line, headers = read_head reader in
+    check ("WebSocket 101: " ^ line) (line = "HTTP/1.1 101 Switching Protocols");
+    check "WebSocket handshake verified"
+      (Httpz_websocket.Handshake.verify
+         ~key:"dGhlIHNhbXBsZSBub25jZQ==" ~status:101 headers = Ok None);
+    check "buffered WebSocket data and close"
+      (Eio.Buf_read.take 11 reader = "\x81\x05Hello\x88\x02\x03\xe8"));
+  let resp = request
+      ("GET /websocket HTTP/1.1\r\nHost: localhost\r\n" ^
+       "Connection: Upgrade\r\nUpgrade: websocket\r\n" ^
+       "Sec-WebSocket-Version: 13\r\n" ^
+       "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n" ^
+       "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n") in
+  check "duplicate WebSocket key fails before upgrade"
+    (resp.line = "HTTP/1.1 400 Bad Request");
   let resp = request "GET /upgrade HTTP/1.1\r\nHost: localhost\r\n\r\n" in
   check "an absent Upgrade offer is rejected before handoff"
     (resp.line = "HTTP/1.1 500 Internal Server Error");
@@ -766,7 +821,7 @@ let tests ~clock ~net addr =
   Eio.Time.sleep clock 0.05;
   let event_count = List.length !events in
   check (Printf.sprintf "one event per parsed request (got %d)" event_count)
-    (event_count = 41);
+    (event_count = 43);
   match !events with
   | last :: _ ->
       check "event method" (Method.equal last.Proffer_httpz.meth M.Get);

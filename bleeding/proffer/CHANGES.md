@@ -2,6 +2,9 @@
 
 First release.
 
+- Verify WebSocket upgrades, buffered frames and close replies over TCP with
+  `httpz.websocket`.
+
 - Replace the DAV client alias with explicitly mounted read-only and writable
   servers. Add confined Eio storage, bounded uploads and Docker client tests.
 

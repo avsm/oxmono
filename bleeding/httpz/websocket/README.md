@@ -55,10 +55,15 @@ in
 
 Keep the connection on one domain and run exactly one receiver. All I/O must
 have bounded timeouts. Cancellation or a transport failure invalidates the
-connection. Close the underlying transport in the owner's cleanup scope.
+connection. Suspended operations recheck failure when their callbacks return.
+Close the underlying transport in the owner's cleanup scope to interrupt
+I/O already in progress.
 `close` sends the closing frame. Continue receiving under a deadline until
-the peer closes, then release the transport. A protocol error invalidates the
-connection and requires transport teardown. It does not emit another frame.
+the peer closes, then release the transport. Pings still receive pongs while
+waiting for the peer's close. A server acknowledges client-only close code
+1010 with code 1000 and no reason. Other valid close payloads are echoed.
+A protocol error invalidates the connection and requires transport teardown.
+It does not emit another frame.
 
 Receive storage grows up to `max_message`, default 16 MiB. Fragmentation is
 bounded separately, default 1024 frames per message. Control frames use a
@@ -76,7 +81,8 @@ unboxed record. Parsing, header writing and masking have compiler-checked
 The [protocol tests](test/test_websocket.ml) cover RFC handshake and masking
 vectors, extended length boundaries, wrong-direction masks, malformed control
 frames, fragmentation, interleaved pings, UTF-8, close, bounds and transport
-failure. They are deterministic local tests, not an Autobahn conformance run.
+failure across suspended Eio fibers. They are deterministic local tests, not
+an Autobahn conformance run.
 
 ```sh
 opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force \

@@ -35,6 +35,8 @@ module Handshake : sig
     (string option, string) result
   (** [verify ~key ~status headers] validates the response to {!request},
       returning the selected subprotocol. [key] is the encoded request key.
+      [headers] must preserve duplicate fields. The response must contain
+      exactly one Upgrade field selecting websocket, case insensitively.
       Unexpected extensions and subprotocols are errors. The HTTP layer must
       check HTTP/1.1, preserve buffered bytes and hand over only after success.
       Redirects and authentication retries belong to the caller's policy. *)
@@ -77,7 +79,9 @@ type t
 exception Protocol_error of int * string
 (** [Protocol_error (code, reason)] terminates a connection. Codes include
     1002 for framing, 1007 for UTF-8, 1009 for size bounds and 1006 for EOF
-    without a close frame. No further I/O is permitted through that [t]. *)
+    without a close frame. No further I/O is started through that [t].
+    Suspended operations check for failure when their callbacks return.
+    The caller must close the transport to interrupt I/O already in progress. *)
 
 val create :
   role:role ->
@@ -109,12 +113,15 @@ val receive :
 (** [receive t ~f] calls [f] with one complete validated text or binary message
     and returns [true]. The slice is borrowed until [f] returns. It must not
     be retained or mutated. Fragmented messages are assembled in the reusable
-    receive buffer. Ping receives a pong and pong is ignored.
+    receive buffer. Ping receives a pong, even after a local {!close}, until
+    the peer's close arrives. Pong is ignored.
 
-    A valid close is echoed if necessary and returns [false]. Further calls
-    then return [false]. After {!close}, data is consumed without delivery
-    until the peer closes. Invalid input raises {!Protocol_error}. The caller
-    must close the underlying transport when finished, on error or timeout. *)
+    A valid close is acknowledged if necessary and returns [false]. The reply
+    echoes the payload, except a server answers client-only code 1010 with
+    1000 and no reason. Further calls then return [false]. After {!close},
+    data is consumed without delivery until the peer closes. Invalid input
+    raises {!Protocol_error}. The caller must close the underlying transport
+    when finished, on error or timeout. *)
 
 val send : t -> kind -> bytes -> off:int -> len:int -> unit
 (** [send t kind bytes ~off ~len] writes one final data frame. Server output
@@ -128,4 +135,4 @@ val close : t -> ?code:int -> ?reason:string -> unit -> unit
 (** [close t ()] starts the close handshake, defaulting to code 1000. Continue
     {!receive} under a deadline to await the peer, then close the transport.
     Repeated calls have no effect. Invalid codes, UTF-8, or a reason longer
-    than 123 bytes raise [Invalid_argument]. *)
+    than 123 bytes raise [Invalid_argument]. Code 1010 is for clients only. *)

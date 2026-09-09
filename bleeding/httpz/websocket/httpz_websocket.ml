@@ -143,12 +143,15 @@ module Handshake = struct
       | _ -> Error "invalid or duplicate WebSocket key"
 
   let verify ?(protocols = []) ~key ~status headers =
+    let websocket_upgrade = match one "upgrade" headers with
+      | Some value -> String.lowercase_ascii value = "websocket"
+      | None -> false in
     if not (key_valid key) || not (valid_protocols protocols) then
       Error "invalid client handshake state"
     else if status <> 101 then Error "expected status 101"
     else if not (contains "connection" "upgrade" headers) ||
-            not (contains "upgrade" "websocket" headers) then
-      Error "missing WebSocket upgrade"
+            not websocket_upgrade then
+      Error "expected a single WebSocket upgrade"
     else if one "sec-websocket-accept" headers <> Some (answer key) then
       Error "invalid or duplicate WebSocket accept"
     else if fields "sec-websocket-extensions" headers <> [] then
@@ -340,37 +343,48 @@ let check t = if t.failed then invalid_arg "WebSocket connection has failed"
 
 let protect t (f @ local) =
   match f () with
-  | v -> v
+  | v -> check t; v
   | exception e -> t.failed <- true; raise e
 
+(* A callback can suspend while another fiber fails the connection. Recheck
+   on return, including the last I/O, before using its result or doing more. *)
 let exact t b off len =
+  check t;
   let mutable pos = off in
   let stop = off + len in
   while pos < stop do
     let n = t.read b ~off:pos ~len:(stop - pos) in
+    check t;
     if n = 0 then fail t 1006 "EOF without a close frame";
     if n < 0 || n > stop - pos then fail t 1002 "invalid transport read count";
     pos <- pos + n
   done
 
+let write t b off len =
+  check t;
+  t.write b ~off ~len;
+  check t
+
 let write_frame t opcode b off len =
+  check t;
   let masked = t.role = Client in
   let mutable key = 0 in
   if masked then begin
     t.random t.tx_head ~off:0 ~len:4;
+    check t;
     for i = 0 to 3 do key <- key * 256 + byte t.tx_head i done
   end;
   let size = Frame.write t.tx_head ~off:0 ~fin:true ~opcode ~length:len
       ~masked ~mask:key in
-  t.write t.tx_head ~off:0 ~len:size;
-  if not masked then (if len > 0 then t.write b ~off ~len)
+  write t t.tx_head 0 size;
+  if not masked then (if len > 0 then write t b off len)
   else begin
     let mutable pos = 0 in
     while pos < len do
       let count = min (Bytes.length t.scratch) (len - pos) in
       Bytes.blit b (off + pos) t.scratch 0 count;
       Frame.mask t.scratch ~off:0 ~len:count ~key ~offset:pos;
-      t.write t.scratch ~off:0 ~len:count;
+      write t t.scratch 0 count;
       pos <- pos + count
     done
   end
@@ -453,25 +467,31 @@ let receive_inner t (f @ local) =
           Frame.mask t.control ~off:0 ~len:h.#length ~key:h.#mask ~offset:0;
         if h.#opcode = Frame.Close then begin
           if h.#length = 1 then fail t 1002 "close payload has one byte";
-          if h.#length >= 2 then begin
+          let reply_length = if h.#length = 0 then 0 else begin
             let code = byte t.control 0 * 256 + byte t.control 1 in
             if not (valid_close_code code) || (code = 1010 && t.role = Client)
             then fail t 1002 "invalid close code";
             if not (valid_utf8 t.control 2 (h.#length - 2)) then
-              fail t 1007 "invalid close reason"
-          end;
+              fail t 1007 "invalid close reason";
+            (* Reply with normal closure because 1010 and its extension
+               list describe a client-side failure. *)
+            if code = 1010 then begin
+              put t.control 0 (1000 lsr 8); put t.control 1 1000;
+              2
+            end else h.#length
+          end in
           t.with_write_lock (fun () ->
             check t;
             t.received_close <- true;
             if not t.sent_close then begin
               t.sent_close <- true;
-              write_frame t Frame.Close t.control 0 h.#length
+              write_frame t Frame.Close t.control 0 reply_length
             end);
           done_ <- true
         end else if h.#opcode = Frame.Ping then
           t.with_write_lock (fun () ->
             check t;
-            if not t.sent_close then
+            if not t.received_close then
               write_frame t Frame.Pong t.control 0 h.#length)
     | Frame.Continuation | Frame.Text | Frame.Binary ->
         if h.#opcode = Frame.Continuation then begin
@@ -496,6 +516,7 @@ let receive_inner t (f @ local) =
             used <- 0;
             fragments <- 0
           end else begin
+            check t;
             f kind t.payload ~off:0 ~len:used;
             delivered <- true;
             done_ <- true

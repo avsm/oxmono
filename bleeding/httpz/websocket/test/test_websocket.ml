@@ -41,6 +41,22 @@ let handshake () =
      "Sec-WebSocket-Protocol", "chat";
      "Sec-WebSocket-Accept", "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="]
 
+let response_upgrade () =
+  let response = ["Sec-WebSocket-Accept", "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="] in
+  let verify fields =
+    W.Handshake.verify ~key ~status:101 (fields @ response) in
+  check "Upgrade is case insensitive, Connection is a token list"
+    (verify ["uPgRaDe", " \tWebSocket\t ";
+             "Connection", "keep-alive, UpGrAdE"] = Ok None);
+  List.iter (fun upgrades ->
+    check "only one WebSocket Upgrade value is accepted"
+      (Result.is_error (verify (("Connection", "Upgrade") :: upgrades))))
+    [[]; ["Upgrade", "unrequested"];
+     ["Upgrade", "websocket, unrequested"];
+     ["Upgrade", "websocket, websocket"];
+     ["Upgrade", "websocket"; "upgrade", "unrequested"];
+     ["Upgrade", "websocket"; "upgrade", "websocket"]]
+
 let status ?(role = W.Client) ?(limit = 100000) s =
   let b = bytes s in
   let #(status, _) = F.parse ~role ~max_payload:limit b ~off:0 ~len:(Bytes.length b) in
@@ -173,6 +189,54 @@ let writes () =
   check "reserved close code rejected"
     (try W.close t ~code:1005 (); false with Invalid_argument _ -> true)
 
+let closing_ping () =
+  List.iter (fun role ->
+    let peer_role = match role with
+      | W.Client -> W.Server | W.Server -> W.Client in
+    let peer, peer_output, _ = connection ~role:peer_role "" in
+    W.ping peer (bytes "?") ~off:0 ~len:1;
+    W.close peer ();
+    let t, output, _ = connection ~role (peer_output ()) in
+    W.close t ();
+    let before_ping = output () in
+    check "peer Close completes the handshake" (receive t = (false, None));
+    check "Pong is sent after local Close"
+      (String.length (output ()) > String.length before_ping);
+    let pong = bytes (output ()) in
+    let off = String.length before_ping in
+    let #(status, h) = F.parse ~role:peer_role ~max_payload:125 pong ~off
+        ~len:(Bytes.length pong - off) in
+    check "Pong frame has correct masking and length"
+      (status = F.Complete && h.#opcode = F.Pong && h.#length = 1 &&
+       h.#header_length + h.#length = Bytes.length pong - off);
+    let payload_off = off + h.#header_length in
+    if h.#masked then
+      F.mask pong ~off:payload_off ~len:1 ~key:h.#mask ~offset:0;
+    Alcotest.(check string) "Pong echoes Ping payload" "?"
+      (Bytes.sub_string pong payload_off 1);
+    let after_close = output () in
+    check "no further receive after peer Close" (receive t = (false, None));
+    Alcotest.(check string) "no further output after peer Close"
+      after_close (output ())) [W.Client; W.Server]
+
+let extension_close () =
+  let request, request_output, _ = connection "" in
+  W.close request ~code:1010 ~reason:"required-extension" ();
+  let server, response, _ = connection ~role:W.Server (request_output ()) in
+  check "server accepts client extension failure"
+    (receive server = (false, None));
+  Alcotest.(check string) "server acknowledges with normal closure"
+    "\x88\x02\x03\xe8" (response ());
+  let client, output, _ = connection (response ()) in
+  W.close client ~code:1010 ~reason:"required-extension" ();
+  check "client and server complete the 1010 handshake"
+    (receive client = (false, None));
+  Alcotest.(check string) "client sends Close only once"
+    (request_output ()) (output ());
+  let server, _, _ = connection ~role:W.Server "" in
+  check "server cannot initiate 1010"
+    (try W.close server ~code:1010 (); false with Invalid_argument _ -> true)
+
 let failures () =
   let t = W.create ~role:W.Server
       ~read:(fun _ ~off:_ ~len:_ -> 0)
@@ -188,8 +252,91 @@ let failures () =
       ~with_write_lock:(fun f -> f ()) ()); false
      with Invalid_argument _ -> true)
 
+let with_write_lock mutex f =
+  Eio.Mutex.lock mutex;
+  match f () with
+  | () -> Eio.Mutex.unlock mutex
+  | exception exn -> Eio.Mutex.unlock mutex; raise exn
+
+(* Promises place the failure inside a suspended callback, without relying on
+   scheduler timing. Include the final I/O so a check only before I/O fails. *)
+let failed_writer_during_read input pause_at () = Eio_main.run @@ fun _ ->
+  let entered, signal_entered = Eio.Promise.create () in
+  let failed, signal_failed = Eio.Promise.create () in
+  let reads = ref 0 in
+  let delivered = ref false in
+  let read b ~off ~len:_ =
+    incr reads;
+    if !reads = pause_at then begin
+      Eio.Promise.resolve signal_entered ();
+      Eio.Promise.await failed
+    end;
+    Bytes.set b off input.[!reads - 1];
+    1 in
+  let t = W.create ~role:W.Server ~read
+      ~write:(fun _ ~off:_ ~len:_ -> raise Exit)
+      ~with_write_lock:(with_write_lock (Eio.Mutex.create ())) () in
+  Eio.Fiber.both
+    (fun () -> check "suspended receive fails"
+      (try ignore (W.receive t ~f:(fun _ _ ~off:_ ~len:_ ->
+        delivered := true)); false with Invalid_argument _ -> true))
+    (fun () ->
+      Eio.Promise.await entered;
+      check "writer failure propagates"
+        (try W.send t W.Binary (bytes "x") ~off:0 ~len:1; false
+         with Exit -> true);
+      Eio.Promise.resolve signal_failed ());
+  Alcotest.(check int) "no further reads" pause_at !reads;
+  check "failed connection delivers no message" (not !delivered)
+
+let failed_reader_during_write role pause_at length () =
+  Eio_main.run @@ fun _ ->
+  let entered, signal_entered = Eio.Promise.create () in
+  let failed, signal_failed = Eio.Promise.create () in
+  let writes = ref 0 in
+  let pause () =
+    Eio.Promise.resolve signal_entered ();
+    Eio.Promise.await failed in
+  let random b ~off ~len =
+    if pause_at = 0 then pause ();
+    Bytes.fill b off len '\000' in
+  let write _ ~off:_ ~len:_ =
+    incr writes;
+    if !writes = pause_at then pause () in
+  let t = W.create ~role ~random ~write
+      ~read:(fun _ ~off:_ ~len:_ -> raise Exit)
+      ~with_write_lock:(with_write_lock (Eio.Mutex.create ())) () in
+  Eio.Fiber.both
+    (fun () -> check "suspended send fails"
+      (try W.send t W.Binary (Bytes.make length 'x') ~off:0 ~len:length;
+       false with Invalid_argument _ -> true))
+    (fun () ->
+      Eio.Promise.await entered;
+      check "reader failure propagates"
+        (try ignore (receive t); false with Exit -> true);
+      Eio.Promise.resolve signal_failed ());
+  Alcotest.(check int) "no further writes" pause_at !writes
+
 let () = Alcotest.run "WebSocket"
   ["protocol", List.map (fun (name, f) -> Alcotest.test_case name `Quick f)
     ["handshake", handshake; "frame vectors", frames;
+     "response Upgrade selection", response_upgrade;
      "messages and control", messages; "malformed messages", rejected;
-     "writes and close", writes; "transport failures", failures]]
+     "writes and close", writes; "Pong while closing", closing_ping;
+     "client extension close", extension_close;
+     "transport failures", failures];
+   "concurrent failures",
+   let message = "\x81\x81\000\000\000\000x" in
+   List.map (fun (name, f) -> Alcotest.test_case name `Quick f)
+     ["first read", failed_writer_during_read message 1;
+      "final payload read", failed_writer_during_read message 7;
+      "empty message header", failed_writer_during_read
+        "\x81\x80\000\000\000\000" 6;
+      "client randomness", failed_reader_during_write W.Client 0 1;
+      "server header", failed_reader_during_write W.Server 1 1;
+      "client header", failed_reader_during_write W.Client 1 1;
+      "empty server frame", failed_reader_during_write W.Server 1 0;
+      "empty client frame", failed_reader_during_write W.Client 1 0;
+      "server payload", failed_reader_during_write W.Server 2 1;
+      "client payload chunk", failed_reader_during_write W.Client 2 9000;
+      "client final chunk", failed_reader_during_write W.Client 4 9000]]

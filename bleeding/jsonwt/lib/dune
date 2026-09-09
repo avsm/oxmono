@@ -1,17 +1,17 @@
 (library
  (name jsonwt)
+ (modules jsonwt)
  (public_name jsonwt)
  (libraries
-  cbort
   jsont
   jsont.bytesrw
-  bytesrw
-  mirage-crypto
-  mirage-crypto-pk
-  mirage-crypto-ec
-  mirage-crypto-rng
   digestif
   eqaf
-  cstruct
   base64
-  ptime))
+  ptime
+  uriz
+  mirage-crypto-ec)
+ (foreign_stubs
+  (language c)
+  (names crypto_stubs))
+ (c_library_flags -lcrypto))

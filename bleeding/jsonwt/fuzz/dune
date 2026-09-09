@@ -1,8 +1,3 @@
-; Crowbar fuzz testing for jsonwt
-;
-; To run: dune exec ocaml-jsonwt/fuzz/fuzz_jsonwt.exe
-; With AFL: afl-fuzz -i fuzz/corpus -o fuzz/findings -- ./_build/default/ocaml-jsonwt/fuzz/fuzz_jsonwt.exe @@
-
 (executable
  (name fuzz_jsonwt)
  (modules fuzz_jsonwt)

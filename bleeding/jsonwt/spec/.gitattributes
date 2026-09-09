@@ -1,0 +1,2 @@
+# Preserve RFC Editor source bytes, including original trailing spaces.
+/rfc*.txt whitespace=-blank-at-eol

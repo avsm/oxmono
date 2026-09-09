@@ -1,0 +1,17 @@
+(library
+ (name jsonwt_cwt)
+ (public_name jsonwt.cwt)
+ (libraries
+  cbort
+  jsont
+  jsont.bytesrw
+  bytesrw
+  mirage-crypto
+  mirage-crypto-pk
+  mirage-crypto-ec
+  mirage-crypto-rng
+  digestif
+  eqaf
+  cstruct
+  base64
+  ptime))

@@ -3,7 +3,9 @@
     Tests derived from RFC 8392 (CBOR Web Token) and RFC 9052/9053 (COSE)
     specifications. *)
 
-module Cwt = Jsonwt.Cwt
+let () = Mirage_crypto_rng_unix.use_default ()
+
+module Cwt = Jsonwt_cwt
 
 (* Helper to convert hex string to bytes *)
 let hex_to_bytes hex =

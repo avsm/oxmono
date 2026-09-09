@@ -1,11 +1,70 @@
+(data_only_dirs pristine)
+
+(rule
+ (targets jsonwt_pristine.ml)
+ (deps pristine/jsonwt.ml)
+ (action
+  (copy %{deps} %{targets})))
+
+(rule
+ (targets jsonwt_pristine.mli)
+ (deps pristine/jsonwt.mli)
+ (action
+  (copy %{deps} %{targets})))
+
+(rule
+ (targets cwt.ml)
+ (action
+  (with-stdout-to
+   %{targets}
+   (echo ""))))
+
+(library
+ (name pristine)
+ (wrapped false)
+ (modules jsonwt_pristine cwt)
+ (libraries
+  jsont
+  jsont.bytesrw
+  digestif
+  eqaf
+  base64
+  cstruct
+  ptime
+  mirage-crypto-ec))
+
 (test
  (name test_jsonwt)
+ (modules test_jsonwt)
  (libraries jsonwt alcotest))
 
 (test
  (name test_cwt)
- (libraries jsonwt alcotest ptime))
+ (modules test_cwt)
+ (libraries jsonwt.cwt alcotest ptime mirage-crypto-rng.unix))
 
 (test
  (name test_cbor)
- (libraries jsonwt cbort alcotest bytesrw))
+ (modules test_cbor)
+ (libraries jsonwt.cwt cbort alcotest bytesrw))
+
+(test
+ (name test_security)
+ (modules test_security)
+ (libraries jsonwt alcotest jsont jsont.bytesrw digestif)
+ (deps fixtures.json))
+
+(test
+ (name test_differential)
+ (modules test_differential)
+ (libraries jsonwt pristine mirage-crypto-rng.unix))
+
+(rule
+ (alias runtest)
+ (deps test_types.py ../lib/.jsonwt.objs/byte/jsonwt.cmi)
+ (action
+  (run
+   python3
+   %{dep:test_types.py}
+   %{ocamlc}
+   %{dep:../lib/.jsonwt.objs/byte/jsonwt.cmi})))

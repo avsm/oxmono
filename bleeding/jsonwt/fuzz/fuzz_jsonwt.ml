@@ -12,16 +12,6 @@ let test_parse_no_crash input =
   let _ = Jsonwt.parse input in
   ()
 
-(* Test that JWT parsing in unsafe mode never crashes *)
-let test_parse_unsafe_no_crash input =
-  let _ = Jsonwt.parse_unsafe input in
-  ()
-
-(* Test that nested JWT parsing never crashes *)
-let test_parse_nested_no_crash input =
-  let _ = Jsonwt.parse_nested input in
-  ()
-
 (* Test header parsing never crashes *)
 let test_header_parse_no_crash input =
   let _ = Jsonwt.Header.of_json input in
@@ -68,7 +58,6 @@ let () =
       Jsonwt.Invalid_audience;
       Jsonwt.Key_type_mismatch "test";
       Jsonwt.Unsecured_not_allowed;
-      Jsonwt.Nesting_too_deep;
     ]
   in
   List.iter
@@ -80,10 +69,6 @@ let () =
 
 let () =
   add_test ~name:"jwt: parse no crash" [ bytes ] test_parse_no_crash;
-  add_test ~name:"jwt: parse_unsafe no crash" [ bytes ]
-    test_parse_unsafe_no_crash;
-  add_test ~name:"jwt: parse_nested no crash" [ bytes ]
-    test_parse_nested_no_crash;
   add_test ~name:"jwt: header parse no crash" [ bytes ]
     test_header_parse_no_crash;
   add_test ~name:"jwt: claims parse no crash" [ bytes ]

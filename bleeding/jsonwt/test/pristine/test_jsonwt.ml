@@ -150,11 +150,11 @@ let test_rfc_unsecured_jwt_parse () =
   | Ok jwt ->
       Alcotest.(check bool)
         "alg is none" true
-        ((Jsonwt.header jwt).alg = Jsonwt.Algorithm.None);
+        (jwt.header.alg = Jsonwt.Algorithm.None);
       Alcotest.(check (option string))
         "iss is joe" (Some "joe")
-        (Jsonwt.Claims.iss (Jsonwt.claims jwt));
-      Alcotest.(check string) "signature is empty" "" (Jsonwt.signature jwt)
+        (Jsonwt.Claims.iss jwt.claims);
+      Alcotest.(check string) "signature is empty" "" jwt.signature
   | Error e ->
       Alcotest.fail
         (Printf.sprintf "Parse failed: %s" (Jsonwt.error_to_string e))
@@ -164,7 +164,7 @@ let test_rfc_unsecured_jwt_verify_rejected_by_default () =
   | Ok jwt ->
       let key = Jsonwt.Jwk.symmetric "" in
       (* dummy key *)
-      begin match Jsonwt.verify ~key ~allowed_algs:Jsonwt.Algorithm.all jwt with
+      begin match Jsonwt.verify ~key jwt with
       | Error Jsonwt.Unsecured_not_allowed -> ()
       | Error e ->
           Alcotest.fail
@@ -181,8 +181,7 @@ let test_rfc_unsecured_jwt_verify_allowed_with_opt_in () =
   | Ok jwt ->
       let key = Jsonwt.Jwk.symmetric "" in
       (* dummy key *)
-      begin match Jsonwt.verify ~key ~allow_none:true
-          ~allowed_algs:[Jsonwt.Algorithm.None] jwt with
+      begin match Jsonwt.verify ~key ~allow_none:true jwt with
       | Ok () -> ()
       | Error e ->
           Alcotest.fail
@@ -198,12 +197,11 @@ let test_rfc_hs256_jwt_parse () =
   | Ok jwt ->
       Alcotest.(check bool)
         "alg is HS256" true
-        ((Jsonwt.header jwt).alg = Jsonwt.Algorithm.HS256);
-      Alcotest.(check (option string)) "typ is JWT" (Some "JWT")
-        (Jsonwt.header jwt).typ;
+        (jwt.header.alg = Jsonwt.Algorithm.HS256);
+      Alcotest.(check (option string)) "typ is JWT" (Some "JWT") jwt.header.typ;
       Alcotest.(check (option string))
         "iss is joe" (Some "joe")
-        (Jsonwt.Claims.iss (Jsonwt.claims jwt))
+        (Jsonwt.Claims.iss jwt.claims)
   | Error e ->
       Alcotest.fail
         (Printf.sprintf "Parse failed: %s" (Jsonwt.error_to_string e))
@@ -212,9 +210,8 @@ let test_rfc_hs256_jwt_verify () =
   match Jsonwt.parse rfc_section3_1_token with
   | Ok jwt ->
       let key_bytes = b64url_decode rfc_hs256_key_b64 in
-      let key = Jsonwt.Jwk.symmetric key_bytes
-          |> Jsonwt.Jwk.with_alg Jsonwt.Algorithm.HS256 in
-      begin match Jsonwt.verify ~key ~allowed_algs:Jsonwt.Algorithm.all jwt with
+      let key = Jsonwt.Jwk.symmetric key_bytes in
+      begin match Jsonwt.verify ~key jwt with
       | Ok () -> ()
       | Error e ->
           Alcotest.fail
@@ -229,10 +226,8 @@ let test_rfc_hs256_jwt_verify_wrong_key () =
   | Ok jwt ->
       let wrong_key =
         Jsonwt.Jwk.symmetric "wrong-key-material-that-is-long-enough"
-        |> Jsonwt.Jwk.with_alg Jsonwt.Algorithm.HS256
       in
-      begin match Jsonwt.verify ~key:wrong_key
-          ~allowed_algs:[Jsonwt.Algorithm.HS256] jwt with
+      begin match Jsonwt.verify ~key:wrong_key jwt with
       | Error Jsonwt.Signature_mismatch -> ()
       | Error e ->
           Alcotest.fail
@@ -255,8 +250,7 @@ let test_validate_expired_token () =
     Jsonwt.Claims.empty |> Jsonwt.Claims.set_exp exp |> Jsonwt.Claims.build
   in
   let header = Jsonwt.Header.make Jsonwt.Algorithm.None in
-  let jwt = Result.get_ok (Jsonwt.create ~allow_none:true ~header ~claims
-      ~key:(Jsonwt.Jwk.symmetric "") ()) in
+  let jwt = { Jsonwt.header; claims; signature = ""; raw = "" } in
   match Jsonwt.validate ~now jwt with
   | Error Jsonwt.Token_expired -> ()
   | Error e ->
@@ -273,8 +267,7 @@ let test_validate_not_yet_valid_token () =
     Jsonwt.Claims.empty |> Jsonwt.Claims.set_nbf nbf |> Jsonwt.Claims.build
   in
   let header = Jsonwt.Header.make Jsonwt.Algorithm.None in
-  let jwt = Result.get_ok (Jsonwt.create ~allow_none:true ~header ~claims
-      ~key:(Jsonwt.Jwk.symmetric "") ()) in
+  let jwt = { Jsonwt.header; claims; signature = ""; raw = "" } in
   match Jsonwt.validate ~now jwt with
   | Error Jsonwt.Token_not_yet_valid -> ()
   | Error e ->
@@ -293,8 +286,7 @@ let test_validate_with_leeway () =
     Jsonwt.Claims.empty |> Jsonwt.Claims.set_exp exp |> Jsonwt.Claims.build
   in
   let header = Jsonwt.Header.make Jsonwt.Algorithm.None in
-  let jwt = Result.get_ok (Jsonwt.create ~allow_none:true ~header ~claims
-      ~key:(Jsonwt.Jwk.symmetric "") ()) in
+  let jwt = { Jsonwt.header; claims; signature = ""; raw = "" } in
   match Jsonwt.validate ~now ~leeway jwt with
   | Ok () -> ()
   | Error e ->
@@ -310,8 +302,7 @@ let test_validate_issuer_match () =
     |> Jsonwt.Claims.build
   in
   let header = Jsonwt.Header.make Jsonwt.Algorithm.None in
-  let jwt = Result.get_ok (Jsonwt.create ~allow_none:true ~header ~claims
-      ~key:(Jsonwt.Jwk.symmetric "") ()) in
+  let jwt = { Jsonwt.header; claims; signature = ""; raw = "" } in
   match Jsonwt.validate ~now ~iss:"expected-issuer" jwt with
   | Ok () -> ()
   | Error e ->
@@ -327,8 +318,7 @@ let test_validate_issuer_mismatch () =
     |> Jsonwt.Claims.build
   in
   let header = Jsonwt.Header.make Jsonwt.Algorithm.None in
-  let jwt = Result.get_ok (Jsonwt.create ~allow_none:true ~header ~claims
-      ~key:(Jsonwt.Jwk.symmetric "") ()) in
+  let jwt = { Jsonwt.header; claims; signature = ""; raw = "" } in
   match Jsonwt.validate ~now ~iss:"expected-issuer" jwt with
   | Error Jsonwt.Invalid_issuer -> ()
   | Error e ->
@@ -345,8 +335,7 @@ let test_validate_audience_match () =
     |> Jsonwt.Claims.build
   in
   let header = Jsonwt.Header.make Jsonwt.Algorithm.None in
-  let jwt = Result.get_ok (Jsonwt.create ~allow_none:true ~header ~claims
-      ~key:(Jsonwt.Jwk.symmetric "") ()) in
+  let jwt = { Jsonwt.header; claims; signature = ""; raw = "" } in
   match Jsonwt.validate ~now ~aud:"my-app" jwt with
   | Ok () -> ()
   | Error e ->
@@ -362,8 +351,7 @@ let test_validate_audience_mismatch () =
     |> Jsonwt.Claims.build
   in
   let header = Jsonwt.Header.make Jsonwt.Algorithm.None in
-  let jwt = Result.get_ok (Jsonwt.create ~allow_none:true ~header ~claims
-      ~key:(Jsonwt.Jwk.symmetric "") ()) in
+  let jwt = { Jsonwt.header; claims; signature = ""; raw = "" } in
   match Jsonwt.validate ~now ~aud:"my-app" jwt with
   | Error Jsonwt.Invalid_audience -> ()
   | Error e ->
@@ -378,8 +366,7 @@ let test_algorithm_not_allowed () =
   match Jsonwt.parse rfc_section3_1_token with
   | Ok jwt ->
       let key_bytes = b64url_decode rfc_hs256_key_b64 in
-      let key = Jsonwt.Jwk.symmetric key_bytes
-          |> Jsonwt.Jwk.with_alg Jsonwt.Algorithm.HS256 in
+      let key = Jsonwt.Jwk.symmetric key_bytes in
       (* Only allow HS384 and HS512, not HS256 *)
       let allowed_algs = [ Jsonwt.Algorithm.HS384; Jsonwt.Algorithm.HS512 ] in
       begin match Jsonwt.verify ~key ~allowed_algs jwt with
@@ -403,8 +390,7 @@ let test_is_expired () =
     Jsonwt.Claims.empty |> Jsonwt.Claims.set_exp exp |> Jsonwt.Claims.build
   in
   let header = Jsonwt.Header.make Jsonwt.Algorithm.None in
-  let jwt = Result.get_ok (Jsonwt.create ~allow_none:true ~header ~claims
-      ~key:(Jsonwt.Jwk.symmetric "") ()) in
+  let jwt = { Jsonwt.header; claims; signature = ""; raw = "" } in
   let now_before = Ptime.of_float_s 1300819370. |> Option.get in
   let now_after = Ptime.of_float_s 1300819390. |> Option.get in
   Alcotest.(check bool)
@@ -420,8 +406,7 @@ let test_time_to_expiry () =
     Jsonwt.Claims.empty |> Jsonwt.Claims.set_exp exp |> Jsonwt.Claims.build
   in
   let header = Jsonwt.Header.make Jsonwt.Algorithm.None in
-  let jwt = Result.get_ok (Jsonwt.create ~allow_none:true ~header ~claims
-      ~key:(Jsonwt.Jwk.symmetric "") ()) in
+  let jwt = { Jsonwt.header; claims; signature = ""; raw = "" } in
   let now = Ptime.of_float_s 1300819370. |> Option.get in
   match Jsonwt.time_to_expiry ~now jwt with
   | Some span ->
@@ -435,8 +420,7 @@ let test_time_to_expiry_already_expired () =
     Jsonwt.Claims.empty |> Jsonwt.Claims.set_exp exp |> Jsonwt.Claims.build
   in
   let header = Jsonwt.Header.make Jsonwt.Algorithm.None in
-  let jwt = Result.get_ok (Jsonwt.create ~allow_none:true ~header ~claims
-      ~key:(Jsonwt.Jwk.symmetric "") ()) in
+  let jwt = { Jsonwt.header; claims; signature = ""; raw = "" } in
   let now = Ptime.of_float_s 1300819390. |> Option.get in
   match Jsonwt.time_to_expiry ~now jwt with
   | None -> ()

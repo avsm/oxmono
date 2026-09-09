@@ -1,5 +1,10 @@
 # Changes
 
+## Unreleased
+
+- Add a reproducible Tangled lexicon audit and a local PLC/PDS/Jetstream Docker
+  setup with persistent development accounts and an end-to-end record test.
+
 ## v0.1.0 (2025-01-15)
 
 Initial release.

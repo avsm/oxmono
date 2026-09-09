@@ -1,0 +1,19 @@
+{
+    auto_https disable_redirects
+    admin off
+}
+
+https://pds.tangled.test, https://*.pds.tangled.test {
+    tls /certs/server.crt /certs/server.key
+    reverse_proxy pds:3000
+}
+
+https://plc.tangled.test {
+    tls /certs/server.crt /certs/server.key
+    reverse_proxy plc:8080
+}
+
+https://jetstream.tangled.test {
+    tls /certs/server.crt /certs/server.key
+    reverse_proxy jetstream:6008
+}

@@ -1,0 +1,116 @@
+name: oxmono-atp
+
+services:
+  postgres:
+    image: postgres:14-alpine@sha256:727876d274666da0b92a445390ba093c84b8e9f8343e1c53cd4e9a7ab2d85310
+    environment:
+      POSTGRES_USER: atp
+      POSTGRES_PASSWORD: local-development
+      POSTGRES_DB: plc
+    volumes: [postgres:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U atp -d plc]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  plc:
+    image: ghcr.io/bluesky-social/did-method-plc:plc-f2ab7516bac5bc0f3f86842fa94e996bd1b3815b@sha256:c78a4e972c356610851078757f1ebe4f359634c24909209d740c1dbe74395b83
+    environment:
+      DEBUG_MODE: "1"
+      LOG_ENABLED: "true"
+      LOG_LEVEL: info
+      LOG_DESTINATION: "1"
+      PLC_VERSION: 0.0.1
+      PORT: "8080"
+      DB_CREDS_JSON: &plc-db '{"username":"atp","password":"local-development","host":"postgres","port":5432}'
+      DB_MIGRATE_CREDS_JSON: *plc-db
+    depends_on:
+      postgres: {condition: service_healthy}
+    ports: ["127.0.0.1:2582:8080"]
+
+  pds:
+    image: ghcr.io/bluesky-social/pds:0.4@sha256:d95725b24dbe53af9d91dc69750556931ebed6c396f2cfa42b221434db642f12
+    env_file: .state/pds.env
+    environment:
+      PDS_HOSTNAME: pds.tangled.test
+      PDS_PORT: "3000"
+      PDS_DID_PLC_URL: http://plc:8080
+      PDS_DATA_DIRECTORY: /pds
+      PDS_BLOBSTORE_DISK_LOCATION: /pds/blocks
+      PDS_SERVICE_HANDLE_DOMAINS: .pds.tangled.test
+      PDS_DEV_MODE: "true"
+      PDS_INVITE_REQUIRED: "false"
+      PDS_RATE_LIMITS_ENABLED: "false"
+      PDS_CRAWLERS: ""
+      PDS_BSKY_APP_VIEW_URL: ""
+      PDS_BSKY_APP_VIEW_DID: ""
+      PDS_REPORT_SERVICE_URL: ""
+      PDS_REPORT_SERVICE_DID: ""
+      PDS_MOD_SERVICE_URL: ""
+      PDS_MOD_SERVICE_DID: ""
+      PDS_HANDLE_BACKUP_NAMESERVERS: ""
+      NODE_EXTRA_CA_CERTS: /certs/ca.crt
+      LOG_ENABLED: "true"
+      LOG_LEVEL: warn
+    volumes:
+      - pds:/pds
+      - ./.state/certs/ca.crt:/certs/ca.crt:ro
+    depends_on:
+      plc: {condition: service_started}
+    ports: ["127.0.0.1:2583:3000"]
+    healthcheck:
+      test: [CMD, wget, -qO-, http://localhost:3000/xrpc/_health]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  jetstream:
+    image: ghcr.io/bluesky-social/jetstream:sha-d5a3b62@sha256:ff26ddce185fcaa97519f8aac8e06424cf37263d3c8fdb04e5e14fae6701d4e7
+    environment:
+      JETSTREAM_DATA_DIR: /data
+      JETSTREAM_LIVENESS_TTL: 8760h
+      JETSTREAM_WS_URL: ws://pds:3000/xrpc/com.atproto.sync.subscribeRepos
+    volumes: [jetstream:/data]
+    depends_on:
+      pds: {condition: service_healthy}
+    ports: ["127.0.0.1:6008:6008"]
+
+  gateway:
+    image: caddy:alpine@sha256:77c07d5ebfa5be9fd6c820d2094ae662c9e7eeb9bf98346b7f639900263ee2a2
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./.state/certs:/certs:ro
+    ports: ["127.0.0.1:8443:443"]
+    networks:
+      default:
+        aliases:
+          - pds.tangled.test
+          - alice.pds.tangled.test
+          - bob.pds.tangled.test
+          - plc.tangled.test
+          - jetstream.tangled.test
+
+  test:
+    image: python:3.13-slim@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285
+    profiles: [test]
+    entrypoint: [python3, /test/smoke.py]
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ./smoke.py:/test/smoke.py:ro
+      - ./.state/certs/ca.crt:/certs/ca.crt:ro
+      - ./.state:/state
+    depends_on:
+      pds: {condition: service_healthy}
+      jetstream: {condition: service_started}
+      gateway: {condition: service_started}
+
+networks:
+  default:
+    driver: bridge
+
+volumes:
+  postgres:
+  pds:
+  jetstream:

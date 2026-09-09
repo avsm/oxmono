@@ -16,6 +16,8 @@ more complete PDS implementation. The appropriate MPL license has been
 preserved where that code is used.
 
 The [implementation review](REVIEW.md) documents tested fixes and open issues.
+The [Tangled spindle audit](TANGLED-SPINDLE.md) compares the current core
+lexicons and specifies a Docker testbed isolated from the live ATP network.
 MST mutation and generated-schema validation are incomplete; this is not yet a
 validated repository implementation.
 

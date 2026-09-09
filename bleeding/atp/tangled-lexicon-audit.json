@@ -1,0 +1,1186 @@
+{
+  "oxmono_revision": "2decb59f8014d5d9726aca5ff442fdda744d6239",
+  "upstream_revision": "338719d7d4f1e1e32becc4f4d3ef04f3c7daeb32",
+  "counts": {
+    "local": 55,
+    "upstream": 187,
+    "added": 133,
+    "removed": 1,
+    "changed": 25,
+    "structural": 24,
+    "unchanged": 29
+  },
+  "added": [
+    "sh.tangled.actor.getProfile",
+    "sh.tangled.actor.getProfiles",
+    "sh.tangled.ci.cancelPipeline",
+    "sh.tangled.ci.describeWorkflowDefinition",
+    "sh.tangled.ci.getPipeline",
+    "sh.tangled.ci.pipeline",
+    "sh.tangled.ci.queryPipelines",
+    "sh.tangled.ci.subscribePipelineLogs",
+    "sh.tangled.ci.trigger",
+    "sh.tangled.ci.triggerPipeline",
+    "sh.tangled.feed.comment",
+    "sh.tangled.feed.countComments",
+    "sh.tangled.feed.countCommentsBy",
+    "sh.tangled.feed.countReactions",
+    "sh.tangled.feed.countReactionsBy",
+    "sh.tangled.feed.countStars",
+    "sh.tangled.feed.countStarsBy",
+    "sh.tangled.feed.listComments",
+    "sh.tangled.feed.listCommentsBy",
+    "sh.tangled.feed.listReactions",
+    "sh.tangled.feed.listReactionsBy",
+    "sh.tangled.feed.listStars",
+    "sh.tangled.feed.listStarsBy",
+    "sh.tangled.feed.subscription",
+    "sh.tangled.git.countRefUpdates",
+    "sh.tangled.git.countRefUpdatesBy",
+    "sh.tangled.git.listRefUpdates",
+    "sh.tangled.git.listRefUpdatesBy",
+    "sh.tangled.git.listRefs",
+    "sh.tangled.git.temp.analyzeMerge",
+    "sh.tangled.git.temp.defs",
+    "sh.tangled.git.temp.getArchive",
+    "sh.tangled.git.temp.getBlob",
+    "sh.tangled.git.temp.getBranch",
+    "sh.tangled.git.temp.getCommit",
+    "sh.tangled.git.temp.getDiff",
+    "sh.tangled.git.temp.getEntry",
+    "sh.tangled.git.temp.getHead",
+    "sh.tangled.git.temp.getTag",
+    "sh.tangled.git.temp.getTree",
+    "sh.tangled.git.temp.listBranches",
+    "sh.tangled.git.temp.listCommits",
+    "sh.tangled.git.temp.listLanguages",
+    "sh.tangled.git.temp.listTags",
+    "sh.tangled.graph.countFollows",
+    "sh.tangled.graph.countFollowsBy",
+    "sh.tangled.graph.countVouches",
+    "sh.tangled.graph.countVouchesBy",
+    "sh.tangled.graph.listFollows",
+    "sh.tangled.graph.listFollowsBy",
+    "sh.tangled.graph.listVouches",
+    "sh.tangled.graph.listVouchesBy",
+    "sh.tangled.graph.vouch",
+    "sh.tangled.knot.addMember",
+    "sh.tangled.knot.countKnots",
+    "sh.tangled.knot.countMembers",
+    "sh.tangled.knot.countMembersBy",
+    "sh.tangled.knot.listKnots",
+    "sh.tangled.knot.listMembers",
+    "sh.tangled.knot.listMembersBy",
+    "sh.tangled.knot.memberAcceptance",
+    "sh.tangled.knot.memberInvite",
+    "sh.tangled.knot.removeMember",
+    "sh.tangled.knot.subscribeRepos",
+    "sh.tangled.label.countDefinitions",
+    "sh.tangled.label.countOps",
+    "sh.tangled.label.countOpsBy",
+    "sh.tangled.label.listDefinitions",
+    "sh.tangled.label.listOps",
+    "sh.tangled.label.listOpsBy",
+    "sh.tangled.markup.markdown",
+    "sh.tangled.pipeline.cancelPipeline",
+    "sh.tangled.pipeline.countPipelines",
+    "sh.tangled.pipeline.countPipelinesBy",
+    "sh.tangled.pipeline.countStatuses",
+    "sh.tangled.pipeline.countStatusesBy",
+    "sh.tangled.pipeline.listPipelines",
+    "sh.tangled.pipeline.listPipelinesBy",
+    "sh.tangled.pipeline.listStatuses",
+    "sh.tangled.pipeline.listStatusesBy",
+    "sh.tangled.publicKey.countKeys",
+    "sh.tangled.publicKey.listKeys",
+    "sh.tangled.repo.addCollaborator",
+    "sh.tangled.repo.checkPushAllowed",
+    "sh.tangled.repo.collaboratorAcceptance",
+    "sh.tangled.repo.collaboratorInvite",
+    "sh.tangled.repo.countArtifacts",
+    "sh.tangled.repo.countArtifactsBy",
+    "sh.tangled.repo.countCollaborators",
+    "sh.tangled.repo.countCollaboratorsBy",
+    "sh.tangled.repo.countIssues",
+    "sh.tangled.repo.countIssuesBy",
+    "sh.tangled.repo.countPulls",
+    "sh.tangled.repo.countPullsBy",
+    "sh.tangled.repo.countRepos",
+    "sh.tangled.repo.describeRepo",
+    "sh.tangled.repo.getIssue",
+    "sh.tangled.repo.getIssues",
+    "sh.tangled.repo.getPull",
+    "sh.tangled.repo.getPulls",
+    "sh.tangled.repo.getRepo",
+    "sh.tangled.repo.getRepoByRepoDid",
+    "sh.tangled.repo.getRepos",
+    "sh.tangled.repo.issue.countStates",
+    "sh.tangled.repo.issue.countStatesBy",
+    "sh.tangled.repo.issue.listStates",
+    "sh.tangled.repo.issue.listStatesBy",
+    "sh.tangled.repo.listArtifacts",
+    "sh.tangled.repo.listArtifactsBy",
+    "sh.tangled.repo.listCollaborators",
+    "sh.tangled.repo.listCollaboratorsBy",
+    "sh.tangled.repo.listIssues",
+    "sh.tangled.repo.listIssuesBy",
+    "sh.tangled.repo.listPulls",
+    "sh.tangled.repo.listPullsBy",
+    "sh.tangled.repo.listRepos",
+    "sh.tangled.repo.pull.countStatuses",
+    "sh.tangled.repo.pull.countStatusesBy",
+    "sh.tangled.repo.pull.listStatuses",
+    "sh.tangled.repo.pull.listStatusesBy",
+    "sh.tangled.repo.removeCollaborator",
+    "sh.tangled.repo.tag",
+    "sh.tangled.search.query",
+    "sh.tangled.spindle.countMembers",
+    "sh.tangled.spindle.countMembersBy",
+    "sh.tangled.spindle.countSpindles",
+    "sh.tangled.spindle.listMembers",
+    "sh.tangled.spindle.listMembersBy",
+    "sh.tangled.spindle.listSpindles",
+    "sh.tangled.string.countStrings",
+    "sh.tangled.string.listStrings",
+    "sh.tangled.sync.listRepos",
+    "sh.tangled.sync.requestCrawl"
+  ],
+  "removed": [
+    "sh.tangled.repo.forkStatus"
+  ],
+  "description_only": [
+    "sh.tangled.pipeline.status"
+  ],
+  "changes": {
+    "sh.tangled.actor.profile": [
+      {
+        "path": "/defs/main/record/properties/avatar",
+        "added": {
+          "type": "blob",
+          "description": "Small image to be displayed next to posts from account. AKA, 'profile picture'",
+          "accept": [
+            "image/png",
+            "image/jpeg"
+          ],
+          "maxSize": 1000000
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/pinnedRepositories/description",
+        "old": "Any ATURI, it is up to appviews to validate these fields.",
+        "new": "Pinned repositories. Values are repo DIDs for repos that have them, or AT-URIs for legacy repos."
+      },
+      {
+        "path": "/defs/main/record/properties/pinnedRepositories/items/format",
+        "removed": "at-uri"
+      },
+      {
+        "path": "/defs/main/record/properties/preferredHandle",
+        "added": {
+          "type": "string",
+          "description": "A handle the user prefers to be displayed as.",
+          "format": "handle",
+          "maxLength": 253
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/stats/items/enum",
+        "old": [
+          "merged-pull-request-count",
+          "closed-pull-request-count",
+          "open-pull-request-count",
+          "open-issue-count",
+          "closed-issue-count",
+          "repository-count"
+        ],
+        "new": [
+          "merged-pull-request-count",
+          "closed-pull-request-count",
+          "open-pull-request-count",
+          "open-issue-count",
+          "closed-issue-count",
+          "repository-count",
+          "star-count"
+        ]
+      }
+    ],
+    "sh.tangled.feed.star": [
+      {
+        "path": "/defs/main/record/properties/subject/closed",
+        "added": true
+      },
+      {
+        "path": "/defs/main/record/properties/subject/format",
+        "removed": "at-uri"
+      },
+      {
+        "path": "/defs/main/record/properties/subject/refs",
+        "added": [
+          "#repo",
+          "#string"
+        ]
+      },
+      {
+        "path": "/defs/main/record/properties/subject/type",
+        "old": "string",
+        "new": "union"
+      },
+      {
+        "path": "/defs/repo",
+        "added": {
+          "type": "object",
+          "required": [
+            "did"
+          ],
+          "properties": {
+            "did": {
+              "type": "string",
+              "format": "did"
+            }
+          }
+        }
+      },
+      {
+        "path": "/defs/string",
+        "added": {
+          "type": "object",
+          "required": [
+            "uri"
+          ],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri"
+            }
+          }
+        }
+      }
+    ],
+    "sh.tangled.git.refUpdate": [
+      {
+        "path": "/defs/main/description",
+        "old": "An update to a git repository, emitted by knots.",
+        "new": "An event record representing git-push operation to git repository, emitted by knots."
+      },
+      {
+        "path": "/defs/main/record/properties/changedFiles",
+        "added": {
+          "type": "array",
+          "description": "files changed between commits",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/ownerDid",
+        "added": {
+          "type": "string",
+          "description": "did of the owner of the repo",
+          "format": "did"
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/pushOptions",
+        "added": {
+          "type": "array",
+          "description": "push options passed on git-push",
+          "maxLength": 50,
+          "items": {
+            "type": "string",
+            "maxLength": 1024,
+            "knownValues": [
+              "ci-skip",
+              "ci-verbose",
+              "skip-ci",
+              "verbose-ci"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/repo",
+        "added": {
+          "type": "string",
+          "description": "DID of the repo itself",
+          "format": "did"
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/repoDid",
+        "removed": {
+          "type": "string",
+          "description": "did of the owner of the repo",
+          "format": "did"
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/repoName",
+        "removed": {
+          "type": "string",
+          "description": "name of the repo"
+        }
+      },
+      {
+        "path": "/defs/main/record/required",
+        "old": [
+          "ref",
+          "committerDid",
+          "repoDid",
+          "repoName",
+          "oldSha",
+          "newSha",
+          "meta"
+        ],
+        "new": [
+          "ref",
+          "committerDid",
+          "repo",
+          "oldSha",
+          "newSha",
+          "meta"
+        ]
+      }
+    ],
+    "sh.tangled.knot.version": [
+      {
+        "path": "/defs/main/output/schema/properties/capabilities",
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Protocol capability tokens this knot implements, such as knot-acl. Knots that omit this field are treated as legacy."
+        }
+      }
+    ],
+    "sh.tangled.pipeline": [
+      {
+        "path": "/defs/cloneOpts/properties/tags",
+        "added": {
+          "type": "boolean"
+        }
+      },
+      {
+        "path": "/defs/cloneOpts/required",
+        "old": [
+          "skip",
+          "depth",
+          "submodules"
+        ],
+        "new": [
+          "skip",
+          "depth",
+          "submodules",
+          "tags"
+        ]
+      },
+      {
+        "path": "/defs/main/record/description",
+        "added": "DEPRECATED: use sh.tangled.ci.pipeline instead"
+      },
+      {
+        "path": "/defs/manualTriggerData/properties/ref",
+        "added": {
+          "type": "string",
+          "description": "optional ref the SHA was resolved from, for display and TANGLED_REF"
+        }
+      },
+      {
+        "path": "/defs/manualTriggerData/properties/sha",
+        "added": {
+          "type": "string",
+          "description": "commit SHA the manual run targets",
+          "minLength": 40,
+          "maxLength": 40
+        }
+      },
+      {
+        "path": "/defs/manualTriggerData/required",
+        "added": [
+          "sha"
+        ]
+      },
+      {
+        "path": "/defs/pullRequestTriggerData/properties/action/description",
+        "added": "the pull request lifecycle action that produced this trigger"
+      },
+      {
+        "path": "/defs/pullRequestTriggerData/properties/action/enum",
+        "added": [
+          "opened",
+          "reopened",
+          "closed",
+          "merged",
+          "synchronize"
+        ]
+      },
+      {
+        "path": "/defs/pullRequestTriggerData/properties/pull",
+        "added": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT-URI of the sh.tangled.repo.pull record this run belongs to"
+        }
+      },
+      {
+        "path": "/defs/pullRequestTriggerData/required",
+        "old": [
+          "sourceBranch",
+          "targetBranch",
+          "sourceSha",
+          "action"
+        ],
+        "new": [
+          "sourceBranch",
+          "targetBranch",
+          "sourceSha"
+        ]
+      },
+      {
+        "path": "/defs/triggerMetadata/properties/sourceRepo",
+        "added": {
+          "type": "string",
+          "format": "did",
+          "description": "Repository DID that code and workflow definitions are checked out from, when different from repo (e.g. a fork's commit for a fork-based manual trigger). If absent, source uses repo itself."
+        }
+      },
+      {
+        "path": "/defs/triggerRepo/properties/repoDid",
+        "added": {
+          "type": "string",
+          "description": "DID of the repo itself",
+          "format": "did"
+        }
+      },
+      {
+        "path": "/defs/triggerRepo/required",
+        "old": [
+          "knot",
+          "did",
+          "repo",
+          "defaultBranch"
+        ],
+        "new": [
+          "knot",
+          "did",
+          "defaultBranch"
+        ]
+      },
+      {
+        "path": "/defs/workflow/properties/runsOn",
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    ],
+    "sh.tangled.pipeline.status": [
+      {
+        "path": "/defs/main/record/description",
+        "added": "DEPRECATED: use sh.tangled.ci.pipeline instead"
+      }
+    ],
+    "sh.tangled.repo": [
+      {
+        "path": "/defs/main/key",
+        "old": "tid",
+        "new": "any"
+      },
+      {
+        "path": "/defs/main/record/properties/name/description",
+        "old": "name of the repo",
+        "new": "Cosmetic name of the repo."
+      },
+      {
+        "path": "/defs/main/record/properties/repoDid",
+        "added": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the repo itself, if assigned"
+        }
+      },
+      {
+        "path": "/defs/main/record/required",
+        "old": [
+          "name",
+          "knot",
+          "createdAt"
+        ],
+        "new": [
+          "knot",
+          "createdAt"
+        ]
+      }
+    ],
+    "sh.tangled.repo.artifact": [
+      {
+        "path": "/defs/main/record/properties/repoDid",
+        "added": {
+          "type": "string",
+          "format": "did"
+        }
+      },
+      {
+        "path": "/defs/main/record/required",
+        "old": [
+          "name",
+          "repo",
+          "tag",
+          "createdAt",
+          "artifact"
+        ],
+        "new": [
+          "name",
+          "tag",
+          "createdAt",
+          "artifact"
+        ]
+      }
+    ],
+    "sh.tangled.repo.blob": [
+      {
+        "path": "/defs/lastCommit/properties/shortHash",
+        "removed": {
+          "type": "string",
+          "description": "Short commit hash"
+        }
+      },
+      {
+        "path": "/defs/main/output/schema/properties/fileTooLarge",
+        "added": {
+          "type": "boolean"
+        }
+      },
+      {
+        "path": "/defs/main/parameters/properties/repo/description",
+        "old": "Repository identifier in format 'did:plc:.../repoName'",
+        "new": "DID of the repository"
+      },
+      {
+        "path": "/defs/main/parameters/properties/repo/format",
+        "added": "did"
+      }
+    ],
+    "sh.tangled.repo.collaborator": [
+      {
+        "path": "/defs/main/record/properties/repo/description",
+        "old": "repo to add this user to",
+        "new": "repo DID to add this user to"
+      },
+      {
+        "path": "/defs/main/record/properties/repo/format",
+        "old": "at-uri",
+        "new": "did"
+      }
+    ],
+    "sh.tangled.repo.create": [
+      {
+        "path": "/defs/main/input/schema/properties/name",
+        "added": {
+          "type": "string",
+          "description": "Name of the repository"
+        }
+      },
+      {
+        "path": "/defs/main/input/schema/properties/repoDid",
+        "added": {
+          "type": "string",
+          "format": "did",
+          "description": "Optional user-provided did:web to use as the repo identity instead of minting a did:plc."
+        }
+      },
+      {
+        "path": "/defs/main/input/schema/properties/rkey/format",
+        "added": "record-key"
+      },
+      {
+        "path": "/defs/main/input/schema/required",
+        "old": [
+          "rkey"
+        ],
+        "new": [
+          "rkey",
+          "name"
+        ]
+      },
+      {
+        "path": "/defs/main/output",
+        "added": {
+          "encoding": "application/json",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "repoDid": {
+                "type": "string",
+                "format": "did"
+              },
+              "key": {
+                "type": "string",
+                "description": "Multibase-encoded public signing key the knot holds for this repository"
+              }
+            }
+          }
+        }
+      }
+    ],
+    "sh.tangled.repo.delete": [
+      {
+        "path": "/defs/main/input/schema/properties/did/description",
+        "old": "DID of the repository owner",
+        "new": "DID of the repository owner. A knot without the repo-did-input capability reads this and name in place of repo."
+      },
+      {
+        "path": "/defs/main/input/schema/properties/force",
+        "added": {
+          "type": "boolean",
+          "description": "Admin-only. Delete even though the repository record still exists on the owner's PDS."
+        }
+      },
+      {
+        "path": "/defs/main/input/schema/properties/name/description",
+        "old": "Name of the repository to delete",
+        "new": "Name of the repository to delete. A knot without the repo-did-input capability reads this and DID in place of repo."
+      },
+      {
+        "path": "/defs/main/input/schema/properties/repo",
+        "added": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the repository to delete"
+        }
+      },
+      {
+        "path": "/defs/main/input/schema/properties/rkey/description",
+        "old": "Rkey of the repository record",
+        "new": "Rkey of the repository record. A knot without the repo-did-input capability checks this against the owner's PDS."
+      },
+      {
+        "path": "/defs/main/input/schema/properties/rkey/format",
+        "added": "record-key"
+      },
+      {
+        "path": "/defs/main/input/schema/required",
+        "old": [
+          "did",
+          "name",
+          "rkey"
+        ],
+        "new": [
+          "repo"
+        ]
+      }
+    ],
+    "sh.tangled.repo.deleteBranch": [
+      {
+        "path": "/defs/main/input/schema/properties/repo/description",
+        "added": "DID of the repository"
+      },
+      {
+        "path": "/defs/main/input/schema/properties/repo/format",
+        "old": "at-uri",
+        "new": "did"
+      }
+    ],
+    "sh.tangled.repo.forkSync": [
+      {
+        "path": "/defs/main/input/schema/properties/did/description",
+        "old": "DID of the fork owner",
+        "new": "DID of the fork owner. A knot without the repo-did-input capability reads this and name in place of repo."
+      },
+      {
+        "path": "/defs/main/input/schema/properties/name/description",
+        "old": "Name of the forked repository",
+        "new": "Name of the forked repository. A knot without the repo-did-input capability reads this and DID in place of repo."
+      },
+      {
+        "path": "/defs/main/input/schema/properties/repo",
+        "added": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the fork to sync"
+        }
+      },
+      {
+        "path": "/defs/main/input/schema/properties/source/description",
+        "old": "AT-URI of the source repository",
+        "new": "AT-URI of the source repository. A knot without the repo-did-input capability requires this field without reading it."
+      },
+      {
+        "path": "/defs/main/input/schema/required",
+        "old": [
+          "did",
+          "source",
+          "name",
+          "branch"
+        ],
+        "new": [
+          "repo",
+          "branch"
+        ]
+      }
+    ],
+    "sh.tangled.repo.hiddenRef": [
+      {
+        "path": "/defs/main/input/schema/properties/repo/description",
+        "old": "AT-URI of the repository",
+        "new": "DID of the fork that the hidden ref belongs to"
+      },
+      {
+        "path": "/defs/main/input/schema/properties/repo/format",
+        "old": "at-uri",
+        "new": "did"
+      }
+    ],
+    "sh.tangled.repo.issue": [
+      {
+        "path": "/defs/main/record/properties/blobs",
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "blob",
+            "accept": [
+              "image/*"
+            ],
+            "maxSize": 1000000
+          }
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/repo/format",
+        "old": "at-uri",
+        "new": "did"
+      }
+    ],
+    "sh.tangled.repo.issue.state": [
+      {
+        "path": "/defs/main/record/properties/createdAt",
+        "added": {
+          "type": "string",
+          "format": "datetime"
+        }
+      },
+      {
+        "path": "/defs/main/record/required",
+        "old": [
+          "issue",
+          "state"
+        ],
+        "new": [
+          "issue",
+          "state",
+          "createdAt"
+        ]
+      }
+    ],
+    "sh.tangled.repo.languages": [
+      {
+        "path": "/defs/main/output/schema/nullable",
+        "added": [
+          "languages"
+        ]
+      }
+    ],
+    "sh.tangled.repo.listSecrets": [
+      {
+        "path": "/defs/main/output/schema/nullable",
+        "added": [
+          "secrets"
+        ]
+      }
+    ],
+    "sh.tangled.repo.merge": [
+      {
+        "path": "/defs/main/input/schema/properties/did/description",
+        "old": "DID of the repository owner",
+        "new": "DID of the repository owner. A knot without the repo-did-input capability reads this and name in place of repo."
+      },
+      {
+        "path": "/defs/main/input/schema/properties/name/description",
+        "old": "Name of the repository",
+        "new": "Name of the repository. A knot without the repo-did-input capability reads this and DID in place of repo."
+      },
+      {
+        "path": "/defs/main/input/schema/properties/repo",
+        "added": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the repository"
+        }
+      },
+      {
+        "path": "/defs/main/input/schema/required",
+        "old": [
+          "did",
+          "name",
+          "patch",
+          "branch"
+        ],
+        "new": [
+          "repo",
+          "patch",
+          "branch"
+        ]
+      }
+    ],
+    "sh.tangled.repo.mergeCheck": [
+      {
+        "path": "/defs/main/input/schema/properties/did/description",
+        "old": "DID of the repository owner",
+        "new": "DID of the repository owner. A knot without the repo-did-input capability reads this and name in place of repo."
+      },
+      {
+        "path": "/defs/main/input/schema/properties/name/description",
+        "old": "Name of the repository",
+        "new": "Name of the repository. A knot without the repo-did-input capability reads this and DID in place of repo."
+      },
+      {
+        "path": "/defs/main/input/schema/properties/repo",
+        "added": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the repository"
+        }
+      },
+      {
+        "path": "/defs/main/input/schema/required",
+        "old": [
+          "did",
+          "name",
+          "patch",
+          "branch"
+        ],
+        "new": [
+          "repo",
+          "patch",
+          "branch"
+        ]
+      }
+    ],
+    "sh.tangled.repo.pull": [
+      {
+        "path": "/defs/main/record/properties/blobs",
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "blob",
+            "accept": [
+              "image/*"
+            ],
+            "maxSize": 1000000
+          }
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/dependentOn",
+        "added": {
+          "type": "string",
+          "format": "at-uri"
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/patch",
+        "removed": {
+          "type": "string",
+          "description": "(deprecated) use patchBlob instead"
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/patchBlob",
+        "removed": {
+          "type": "blob",
+          "accept": [
+            "text/x-patch"
+          ],
+          "description": "patch content"
+        }
+      },
+      {
+        "path": "/defs/main/record/properties/rounds",
+        "added": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#round"
+          }
+        }
+      },
+      {
+        "path": "/defs/main/record/required",
+        "old": [
+          "target",
+          "title",
+          "patchBlob",
+          "createdAt"
+        ],
+        "new": [
+          "target",
+          "title",
+          "createdAt",
+          "rounds"
+        ]
+      },
+      {
+        "path": "/defs/round",
+        "added": {
+          "type": "object",
+          "required": [
+            "patchBlob",
+            "createdAt"
+          ],
+          "description": "revisions of this pull request, newer rounds are appended to this array. appviews may reject records do not treat this field as append-only. the blob format is gzipped text-based git-format-patches.",
+          "properties": {
+            "createdAt": {
+              "type": "string",
+              "format": "datetime"
+            },
+            "patchBlob": {
+              "type": "blob",
+              "accept": [
+                "application/gzip"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "path": "/defs/source/properties/repo/format",
+        "old": "at-uri",
+        "new": "did"
+      },
+      {
+        "path": "/defs/source/properties/sha",
+        "removed": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40
+        }
+      },
+      {
+        "path": "/defs/source/required",
+        "old": [
+          "branch",
+          "sha"
+        ],
+        "new": [
+          "branch"
+        ]
+      },
+      {
+        "path": "/defs/target/properties/repo/format",
+        "old": "at-uri",
+        "new": "did"
+      }
+    ],
+    "sh.tangled.repo.pull.status": [
+      {
+        "path": "/defs/main/record/properties/createdAt",
+        "added": {
+          "type": "string",
+          "format": "datetime"
+        }
+      },
+      {
+        "path": "/defs/main/record/required",
+        "old": [
+          "pull",
+          "status"
+        ],
+        "new": [
+          "pull",
+          "status",
+          "createdAt"
+        ]
+      }
+    ],
+    "sh.tangled.repo.setDefaultBranch": [
+      {
+        "path": "/defs/main/input/schema/properties/repo/description",
+        "added": "DID of the repository"
+      },
+      {
+        "path": "/defs/main/input/schema/properties/repo/format",
+        "old": "at-uri",
+        "new": "did"
+      }
+    ],
+    "sh.tangled.repo.tree": [
+      {
+        "path": "/defs/lastCommit/properties/author",
+        "added": {
+          "type": "ref",
+          "ref": "#signature"
+        }
+      },
+      {
+        "path": "/defs/main/output/schema/properties/lastCommit",
+        "added": {
+          "type": "ref",
+          "ref": "#lastCommit"
+        }
+      },
+      {
+        "path": "/defs/signature",
+        "added": {
+          "type": "object",
+          "required": [
+            "name",
+            "email",
+            "when"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Author name"
+            },
+            "email": {
+              "type": "string",
+              "description": "Author email"
+            },
+            "when": {
+              "type": "string",
+              "format": "datetime",
+              "description": "Author timestamp"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "other_upstream": {
+    "com.atproto.repo.strongRef": {
+      "identical_atproto_copy": true
+    },
+    "org.tangled.temp.account.beginSignup": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.account.completeSignup": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.account.deleteEmail": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.account.dismissNewsletter": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.account.listEmails": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.account.setPrimaryEmail": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.account.subscribeNewsletter": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.focus.beginSession": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.focus.endSession": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.focus.nextItem": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.notification.deleteNotification": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.notification.getPreferences": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.notification.getUnreadCount": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.notification.listNotifications": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.notification.listRecipients": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.notification.markAllRead": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.notification.updatePreferences": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.notification.updateSeen": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.repo.createWebhook": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.repo.deleteWebhook": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.repo.disableSite": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.repo.getSiteConfig": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.repo.listWebhookDeliveries": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.repo.listWebhooks": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.repo.retryWebhookDelivery": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.repo.toggleWebhook": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.repo.updateSiteConfig": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.repo.updateWebhook": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.search.searchCode": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.site.claimDomain": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.site.getDomainClaim": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.site.releaseDomain": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.moderation.ban": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.moderation.defs": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.moderation.getBan": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.moderation.listBans": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.moderation.unban": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.quota.defs": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.quota.get": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.quota.list": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.quota.set": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.quota.unset": {
+      "identical_atproto_copy": false
+    },
+    "org.tangled.temp.spindle.quota.usage": {
+      "identical_atproto_copy": false
+    }
+  }
+}

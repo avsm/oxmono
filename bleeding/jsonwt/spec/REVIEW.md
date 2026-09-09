@@ -3,7 +3,7 @@
 ## Verdict
 
 The repaired `jsonwt` library is suitable for signature verification in the
-current local ES256K spindle. Spindle now uses it instead of its own JWT parser
+OCaml spindle. Spindle now uses it instead of its own JWT parser
 and OpenSSL binding. Independently signed malformed tokens are rejected, and
 real local PDS tokens complete the Docker job lifecycle.
 
@@ -145,26 +145,32 @@ Explicit application typing and issuer-key binding remain at the service
 boundary. JSONWT never follows `jku`, embedded `jwk`, `x5u` or token-controlled
 key URLs. No compression or password derivation is implemented.
 
-Spindle pins ES256K, requires `typ=JWT`, permits only an absent `kid` or
-`#atproto`, and binds the signature to the configured owner's current PLC key.
-It checks exact issuer, scalar audience and method, requires integral `iat`
-and `exp`, limits future issuance to 30 seconds and expiry to one hour from
-receipt, checks `iat <= exp`, and honors optional `nbf`. PLC document ID,
-controller and key ID must match. The configured PLC is the trust root.
+Spindle's application profile was updated on 2026-09-09. It accepts ES256K
+and ES256 `#atproto` Multikeys, binds the document ID and key controller to
+the verified issuer, checks exact method and audience, and permits the
+specific `#tangled_spindle` audience fragment. Bare spindle DIDs remain
+accepted for existing Tangled clients. Both relative and absolute verification
+method IDs are supported.
 
-## Application limitations
+## Application profile and replay prevention
 
-The current [ATProto service authentication specification][atproto], checked
-on the review date, requires `jti` and recommends replay prevention. Spindle
-still accepts missing IDs and does not remember used IDs. A valid token can
-be reused until expiry. The one-hour acceptance bound is also broader than
-the specification's suggested 60-second token lifetime.
+The current [ATProto service authentication specification][atproto] requires
+`jti` and recommends one-use tokens. Spindle now requires a nonempty bounded
+nonce and consumes `(issuer, jti)` in SQLite only after signature verification.
+Concurrent reuse and reuse after process restart fail. Nonces expire with the
+token; capacity exhaustion fails closed. Forged tokens cannot reserve nonces.
 
-Spindle currently accepts only ES256K accounts and its exact configured bare
-DID audience. Supporting P-256 PLC keys, service-fragment audiences and nonce
-tracking requires an application-profile update. These limits do not prevent
-the repaired JWT library from replacing the existing ES256K verifier, but the
-service should not claim complete current ATProto service-auth conformance.
+Spindle requires integral `iat` and `exp`, bounds future issuance by 30 seconds,
+and limits both lifetime and remaining validity to one hour. The PDS's normal
+short-lived service tokens are used by the integration clients. The one-hour
+ceiling remains an explicit application policy, broader than the suggested
+60-second lifetime. The library provides token primitives; storage and replay
+policy correctly remain in the service.
+
+See [spindle's compatibility review](../../spindle/PARITY.md) and
+[deployment guide](../../spindle/DEPLOYMENT.md). Signed fixtures now cover both
+curves and identity binding; Docker tests use actual local PDS-issued tokens,
+restart replay rejection, knot pushes and Tangled's CI API.
 
 [atproto]: https://atproto.com/specs/xrpc#inter-service-authentication-jwt
 
@@ -177,7 +183,7 @@ fetches during setup. It does not require the live ATP network.
 
 Observed checks: 30 upstream JWT tests, five security regression groups,
 1500 bidirectional HMAC cases, NIST/Ed25519 signing, HMAC and ES256K across four
-domains, compiler rejection of token forgery, 30 signed spindle auth cases,
+domains, compiler rejection of token forgery, 42 signed spindle auth cases,
 and ATP XRPC tests. CWT evidence is recorded separately in its review.
 
 Docker checks passed real authentication, checkout, metadata and directory

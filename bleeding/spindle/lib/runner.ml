@@ -9,6 +9,8 @@ type t = {
   mutable error : string option;
   mutable events : Jsont.json list;
   mutable log_bytes : int;
+  mutable log_seq : int64;
+  log_lock : Eio.Mutex.t;
   mutable cancel : (unit -> unit) option;
   mutable cancelled : bool;
 }
@@ -41,6 +43,8 @@ let v job =
     error = None;
     events = [];
     log_bytes = 0;
+    log_seq = 0L;
+    log_lock = Eio.Mutex.create ();
     cancel = None;
     cancelled = false;
   }
@@ -93,7 +97,8 @@ let restore raw =
     p.finished <- Some (now ()));
   p
 
-let emit p ~step ~kind fields =
+let emit record p ~step ~kind fields =
+  Lock.protect p.log_lock @@ fun () ->
   let event =
     obj
       ([
@@ -104,13 +109,16 @@ let emit p ~step ~kind fields =
        ]
       @ fields)
   in
-  let size = String.length (encode event) in
+  let raw = encode event in
+  let size = String.length raw in
   if p.log_bytes + size > 1024 * 1024 then failwith "job log exceeds 1 MiB";
+  let seq = record raw in
+  p.log_seq <- seq;
   p.log_bytes <- p.log_bytes + size;
   p.events <- event :: p.events
 
-let control persist p ~step ~status command =
-  emit p ~step ~kind:"control"
+let control record persist p ~step ~status command =
+  emit record p ~step ~kind:"control"
     [
       ("content", str command);
       ("command", str command);
@@ -119,8 +127,9 @@ let control persist p ~step ~status command =
     ];
   persist ()
 
-let data p ~step ~stream content =
-  emit p ~step ~kind:"data" [ ("content", str content); ("stream", str stream) ]
+let data record p ~step ~stream content =
+  emit record p ~step ~kind:"data"
+    [ ("content", str content); ("stream", str stream) ]
 
 let environment input =
   Eio.Process.Env.of_bindings
@@ -144,7 +153,32 @@ let environment input =
       ("SPINDLE_REQUEST", encode input.metadata);
     ]
 
-let command state input p ~cwd ~step argv =
+(* Log frames contain text. Carry incomplete UTF-8 characters between reads,
+   replacing malformed bytes while preserving whitespace and partial lines. *)
+let utf8 ~eof raw =
+  if String.is_valid_utf_8 raw then (raw, "")
+  else
+    let output = Buffer.create (String.length raw) in
+    let rec loop off =
+      if off = String.length raw then (Buffer.contents output, "")
+      else
+        let width =
+          match raw.[off] with
+          | '\194' .. '\223' -> 2
+          | '\224' .. '\239' -> 3
+          | '\240' .. '\244' -> 4
+          | _ -> 1
+        in
+        if (not eof) && String.length raw - off < width then
+          (Buffer.contents output, String.sub raw off (String.length raw - off))
+        else
+          let decoded = String.get_utf_8_uchar raw off in
+          Buffer.add_utf_8_uchar output (Uchar.utf_decode_uchar decoded);
+          loop (off + Uchar.utf_decode_length decoded)
+    in
+    loop 0
+
+let command state input ~output:emit_output ~text ~cwd argv =
   Eio.Switch.run @@ fun sw ->
   let mgr = state.system#process_mgr in
   let output, output_write = Eio.Process.pipe ~sw mgr in
@@ -172,15 +206,26 @@ let command state input p ~cwd ~step argv =
   Eio.Flow.close output_write;
   Eio.Flow.close errors_write;
   let read stream flow () =
-    let reader = Eio.Buf_read.of_flow ~max_size:65536 flow in
-    let rec loop () =
-      match Eio.Buf_read.line reader with
-      | line ->
-          data p ~step ~stream (line ^ "\n");
-          loop ()
-      | exception End_of_file -> ()
+    let reader = Eio.Buf_read.of_flow ~initial_size:8192 ~max_size:8192 flow in
+    let emit content = if content <> "" then emit_output ~stream content in
+    let rec loop pending =
+      match Eio.Buf_read.ensure reader 1 with
+      | () ->
+          let raw =
+            Eio.Buf_read.take (Eio.Buf_read.buffered_bytes reader) reader
+          in
+          if text then (
+            let raw = if pending = "" then raw else pending ^ raw in
+            let content, pending = utf8 ~eof:false raw in
+            emit content;
+            loop pending)
+          else (
+            emit raw;
+            loop "")
+      | exception End_of_file ->
+          if text then emit (fst (utf8 ~eof:true pending))
     in
-    loop ()
+    loop ""
   in
   Eio.Fiber.all
     [
@@ -194,14 +239,17 @@ let command state input p ~cwd ~step argv =
 let git args = "git" :: "-c" :: "core.hooksPath=/dev/null" :: args
 
 let capture state input argv =
-  let output = v (Job.v "discovery" []) in
-  command state input output ~cwd:state.directory ~step:0 argv;
-  List.rev output.events
-  |> List.filter_map (fun event ->
-      if get "stream" event = "stdout" then Some (get "content" event) else None)
-  |> String.concat ""
+  let output = Buffer.create 4096 in
+  let size = ref 0 in
+  command state input ~cwd:state.directory ~text:false
+    ~output:(fun ~stream content ->
+      size := !size + String.length content;
+      if !size > 1024 * 1024 then failwith "command output exceeds 1 MiB";
+      if stream = "stdout" then Buffer.add_string output content)
+    argv;
+  Buffer.contents output
 
-let execute state input ~persist p =
+let execute state input ~record ~persist p =
   let open Eio.Path in
   let work = state.directory / (input.id ^ "." ^ p.job.name ^ ".work") in
   Eio.Semaphore.acquire state.slots;
@@ -217,8 +265,9 @@ let execute state input ~persist p =
         Eio.Time.with_timeout_exn state.system#clock 60. @@ fun () ->
         Eio.Switch.run @@ fun sw ->
         p.cancel <- Some (fun () -> Eio.Switch.fail sw Cancelled);
-        control persist p ~step:0 ~status:"start" "checkout";
-        command state input p ~cwd:state.directory ~step:0
+        control record persist p ~step:0 ~status:"start" "checkout";
+        command state input ~output:(data record p ~step:0) ~text:true
+          ~cwd:state.directory
           (git
              [
                "clone";
@@ -228,9 +277,9 @@ let execute state input ~persist p =
                input.source;
                native_exn work;
              ]);
-        command state input p ~cwd:work ~step:0
+        command state input ~output:(data record p ~step:0) ~text:true ~cwd:work
           (git [ "checkout"; "--detach"; input.commit ]);
-        control persist p ~step:0 ~status:"end" "checkout";
+        control record persist p ~step:0 ~status:"end" "checkout";
         List.iteri
           (fun index action ->
             let step = index + 1 in
@@ -239,14 +288,16 @@ let execute state input ~persist p =
               | Job.Metadata -> "spindle request metadata"
               | Job.Command argv -> String.concat " " argv
             in
-            control persist p ~step ~status:"start" name;
+            control record persist p ~step ~status:"start" name;
             (match action with
             | Job.Metadata ->
                 let text = encode input.metadata in
-                data p ~step ~stream:"stdout" (text ^ "\n");
+                data record p ~step ~stream:"stdout" (text ^ "\n");
                 Printf.printf "%s\n%!" text
-            | Job.Command argv -> command state input p ~cwd:work ~step argv);
-            control persist p ~step ~status:"end" name)
+            | Job.Command argv ->
+                command state input ~output:(data record p ~step) ~text:true
+                  ~cwd:work argv);
+            control record persist p ~step ~status:"end" name)
           p.job.steps;
         Ok ()
       with exn -> Error exn

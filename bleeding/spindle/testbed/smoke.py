@@ -110,7 +110,7 @@ def read_exact(reader, length):
     return data
 
 
-def logs(pipeline, workflows=("inspect",)):
+def logs(pipeline, workflows=("inspect",), until=None):
     endpoint = urllib.parse.urlsplit(SPINDLE)
     sock = socket.create_connection((endpoint.hostname, endpoint.port), 10)
     sock.settimeout(20)
@@ -160,6 +160,8 @@ def logs(pipeline, workflows=("inspect",)):
             event["type"] = header["t"][1:]
             events.append(event)
             frames.append(payload.hex())
+            if until is not None and until(events):
+                break
         return events, frames
     finally:
         reader.close()

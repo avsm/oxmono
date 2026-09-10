@@ -155,3 +155,8 @@ The Tangled harness then stops Jetstream and checks degraded readiness, removes
 an offline push from the knot's real SQLite journal, verifies current-ref
 recovery without duplicate dispatch after restart, and exercises automatic
 history expiry while preserving pending and recent pipelines.
+It also pushes annotated tags and notes, recovers while an unrelated catalog
+retry remains pending, and kills the spindle during a command after receiving
+70,000 bytes and an unterminated line. Published CBOR frames must survive that
+restart byte-for-byte. Native tests cover chunk boundaries, malformed UTF-8,
+the log budget, journal compaction races and independent recovery queues.

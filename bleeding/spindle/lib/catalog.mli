@@ -22,6 +22,11 @@ val v :
   t
 
 val members : t -> string list
+
+val member : t -> string -> bool
+(** [member catalog owner] checks membership, raising [Pending] while the
+    spindle owner's grants are being refreshed. *)
+
 val repositories : t -> string list
 val managed : t -> string -> repo option
 

@@ -128,6 +128,9 @@ and assignment events refresh current PDS state. Replayed grants cannot restore
 revoked access, and mutations wait while relevant refreshes are pending.
 
 Pending workflows resume after restart. Interrupted workflows become failed.
+Output streams without waiting for a newline. Log chunks commit before
+publication and survive interruption of the current step. Step snapshots
+compact the journal atomically. Invalid UTF-8 becomes replacement characters.
 Completed logs stay in SQLite and are loaded on demand. Existing TID-named
 JSON checkpoints are imported once; keep the original static repository
 mapping for that first migration. Original checkpoint files are retained.

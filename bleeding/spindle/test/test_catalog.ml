@@ -132,6 +132,9 @@ let () =
                 ("spindle", str "spindle.test");
               ]));
       notice owner;
+      (match Catalog.member catalog member with
+      | _ -> failwith "pending revocation must block pull recovery"
+      | exception Catalog.Pending -> ());
       (match Catalog.managed catalog repo with
       | _ -> failwith "pending revocation must fail closed"
       | exception Catalog.Pending -> ());

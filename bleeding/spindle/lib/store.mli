@@ -14,6 +14,10 @@ val usage : t -> string -> int * int * float
 val pending_source : t -> string -> int
 (** [pending_source store source] counts pending events from [source]. *)
 
+val pending_repo : t -> string -> bool
+(** [pending_repo store repo] reports queued knot events for [repo]. Recovery
+    lets these preserve push options and actor metadata before scanning refs. *)
+
 val ref_state : t -> repo:string -> ref_:string -> (string * int64) option
 
 val checkpoint_ref :
@@ -71,12 +75,22 @@ val complete :
     deletes a task only if its generation is still [value]. *)
 
 val batch :
+  ?logs:(string * string * int64) list ->
   t ->
   puts:(string * string * string) list ->
   deletes:(string * string) list ->
   unit
 (** [batch store ~puts ~deletes] applies all mutations atomically. Tuples name
-    the namespace, key and, for writes, value. *)
+    the namespace, key and, for writes, value. [logs] acknowledges journal
+    entries through each pipeline/workflow sequence included in a snapshot. *)
+
+val append_log : t -> pipeline:string -> workflow:string -> string -> int64
+(** [append_log store ~pipeline ~workflow event] durably appends [event] and
+    returns its sequence. Sequences are never reused after compaction. *)
+
+val logs : t -> pipeline:string -> workflow:string -> (int64 * string) list
+(** [logs store ~pipeline ~workflow] reads journal entries in sequence order.
+    Workflow admission bounds their total encoded size to 1 MiB. *)
 
 val consume :
   t -> now:float -> issuer:string -> jti:string -> expires:float -> bool

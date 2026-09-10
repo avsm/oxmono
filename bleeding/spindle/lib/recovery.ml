@@ -84,7 +84,7 @@ let seed engine =
     Store.put engine.store "schema" "ref-checkpoints" "1")
 
 let parse_refs raw =
-  let heads = Hashtbl.create 32 and peeled = Hashtbl.create 8 in
+  let heads = Hashtbl.create 32 in
   let default = ref None in
   String.split_on_char '\n' raw
   |> List.iter (fun line ->
@@ -96,21 +96,23 @@ let parse_refs raw =
           when String.starts_with ~prefix:"refs/heads/" name
                || String.starts_with ~prefix:"refs/tags/" name ->
             let value = sha value in
-            if String.ends_with ~suffix:"^{}" name then
-              Hashtbl.replace peeled
-                (String.sub name 0 (String.length name - 3))
-                value
-            else Hashtbl.replace heads name value
+            (* Knot events identify the ref's object, including annotated tag
+               objects. Peeling here changes the dispatch identity. *)
+            if not (String.ends_with ~suffix:"^{}" name) then
+              Hashtbl.replace heads name value
+        | [ value; name ] when String.starts_with ~prefix:"refs/" name ->
+            (* Notes and other namespaces are valid advertisements but do not
+               select CI jobs. Keep validating the advertised object ID. *)
+            ignore (sha value)
         | [ _; "HEAD" ] -> ()
         | _ -> invalid "invalid Git ref advertisement");
   Hashtbl.fold
-    (fun name hash refs ->
-      let hash = Option.value ~default:hash (Hashtbl.find_opt peeled name) in
-      (name, hash, !default = Some name) :: refs)
+    (fun name hash refs -> (name, hash, !default = Some name) :: refs)
     heads []
   |> List.sort (fun (a, _, _) (b, _, _) -> String.compare a b)
 
 let repo engine id =
+  if Store.pending_repo engine.Engine.store id then raise Catalog.Pending;
   match Catalog.managed engine.Engine.catalog id with
   | None -> ()
   | Some repo ->
@@ -137,6 +139,20 @@ let repo engine id =
                 repo.source;
               ])
       in
+      let refs = parse_refs raw in
+      if
+        List.exists
+          (fun (ref_, sha, _) ->
+            match Store.ref_state engine.store ~repo:id ~ref_ with
+            | Some (previous, _) -> previous <> sha
+            | None -> true)
+          refs
+      then
+        (* Git refs become visible before the knot publishes their events.
+           Give those events a bounded head start, then reload checkpoints.
+           This delay belongs to this repository, never the global inbox. *)
+        Eio.Time.sleep engine.runner.system#clock 5.;
+      if Store.pending_repo engine.store id then raise Catalog.Pending;
       List.iter
         (fun (ref_, sha, default_ref) ->
           let previous = Store.ref_state engine.store ~repo:id ~ref_ in
@@ -185,7 +201,7 @@ let repo engine id =
                  request);
             Store.checkpoint_ref engine.store ~repo:id ~ref_ ~sha
               ~position:(position started)))
-        (parse_refs raw)
+        refs
 
 let schedule engine ~source =
   let store = engine.Engine.store in

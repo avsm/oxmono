@@ -8,6 +8,8 @@ type t = {
   mutable error : string option;
   mutable events : Jsont.json list;
   mutable log_bytes : int;
+  mutable log_seq : int64;
+  log_lock : Eio.Mutex.t;
   mutable cancel : (unit -> unit) option;
   mutable cancelled : bool;
 }
@@ -43,8 +45,17 @@ val capture : env -> input -> string list -> string
     process-group cleanup and environment as jobs. Callers supply a total
     deadline. *)
 
-val execute : env -> input -> persist:(unit -> unit) -> t -> unit
+val execute :
+  env ->
+  input ->
+  record:(string -> int64) ->
+  persist:(unit -> unit) ->
+  t ->
+  unit
 (** [execute env input ~persist workflow] waits for a worker slot, checks out
-    the source and executes trusted steps. Each transition calls [persist]. *)
+    the source and executes trusted steps. Each transition calls [persist]. Each
+    JSON-encoded event calls [record] before becoming visible to log
+    subscribers. [record] returns the durable journal sequence for snapshot
+    compaction. *)
 
 val cancel : persist:(unit -> unit) -> t -> unit

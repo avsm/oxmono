@@ -73,13 +73,41 @@ let () =
       assert (Store.get store "refresh" "key" = None);
       Store.batch store
         ~puts:[ ("pipeline", "id", "result"); ("dispatch", "event", "id") ]
-        ~deletes:[]);
+        ~deletes:[];
+      let first =
+        Store.append_log store ~pipeline:"id" ~workflow:"job" "first"
+      in
+      let later =
+        Store.append_log store ~pipeline:"id" ~workflow:"job" "later"
+      in
+      (* A snapshot captured before an append must leave that append in the
+         journal, even when it commits after the append. *)
+      Store.batch
+        ~logs:[ ("id", "job", first) ]
+        store
+        ~puts:[ ("pipeline", "id", "result") ]
+        ~deletes:[];
+      assert (
+        Store.logs store ~pipeline:"id" ~workflow:"job" = [ (later, "later") ]));
   Eio.Switch.run (fun sw ->
       let store = Store.open_ ~sw directory in
       assert (not (consume store "issuer-a" "nonce"));
       assert (not (consume store "issuer-b" "nonce"));
       assert (Store.get store "dispatch" "event" = Some "id");
       assert (Store.get store "pipeline" "id" = Some "result");
+      let seq =
+        match Store.logs store ~pipeline:"id" ~workflow:"job" with
+        | [ (seq, "later") ] -> seq
+        | _ -> assert false
+      in
+      Store.batch ~logs:[ ("id", "job", seq) ] store ~puts:[] ~deletes:[];
+      let next = Store.append_log store ~pipeline:"id" ~workflow:"job" "next" in
+      assert (next > seq);
+      Store.batch ~logs:[ ("id", "job", seq) ] store ~puts:[] ~deletes:[];
+      assert (
+        Store.logs store ~pipeline:"id" ~workflow:"job" = [ (next, "next") ]);
+      Store.delete store "pipeline" "id";
+      assert (Store.logs store ~pipeline:"id" ~workflow:"job" = []);
       assert (
         not
           (List.mem_assoc "000"
@@ -92,7 +120,8 @@ let () =
       Store.delete store "tasks" "000";
       Store.put store "tasks" "000" "new";
       assert (
-        fst (List.hd (Store.ready store "tasks" ~now:1002. ~limit:1)) = "000");
+        fst (List.hd (Store.ready store "tasks" ~now:1002. ~limit:1)) = "001");
+      assert (Store.get store "tasks" "000" = Some "new");
       assert (
         Store.consume store ~now:1060. ~issuer:"issuer-a" ~jti:"nonce"
           ~expires:1120.));

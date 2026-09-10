@@ -63,14 +63,20 @@ let snapshot p =
 
 let persist t p =
   Lock.protect t.lock (fun () ->
-      Store.batch t.store
+      let logs =
+        List.map
+          (fun (run : Runner.t) -> (p.id, run.job.name, run.log_seq))
+          p.workflows
+      in
+      let finished = terminal p in
+      Store.batch ~logs t.store
         ~puts:
           [
             ("pipeline", p.id, snapshot p);
             ("pipeline-view", p.id, encode (view p));
           ]
         ~deletes:[];
-      if terminal p then Hashtbl.remove t.pipelines p.id)
+      if finished then Hashtbl.remove t.pipelines p.id)
 
 let start t p =
   List.iter
@@ -88,6 +94,9 @@ let start t p =
             in
             try
               Runner.execute t.runner input
+                ~record:(fun event ->
+                  Store.append_log t.store ~pipeline:p.id
+                    ~workflow:workflow.job.name event)
                 ~persist:(fun () -> persist t p)
                 workflow
             with exn ->
@@ -197,7 +206,7 @@ let migrate t static =
       ~puts:(("schema", "json-import", "1") :: puts)
       ~deletes:[]
 
-let restore id raw =
+let restore t id raw =
   if not (Atp.Tid.is_valid id) then invalid "invalid stored pipeline ID";
   let data = decode raw in
   let v = required "pipeline" data in
@@ -209,7 +218,17 @@ let restore id raw =
     metadata = required "metadata" data;
     commit = sha (get "commit" v);
     created = get "createdAt" v;
-    workflows = List.map Runner.restore (list (required "runs" data));
+    workflows =
+      List.map
+        (fun raw ->
+          let run = Runner.restore raw in
+          Store.logs t.store ~pipeline:id ~workflow:run.job.name
+          |> List.iter (fun (seq, raw) ->
+              run.events <- decode raw :: run.events;
+              run.log_bytes <- run.log_bytes + String.length raw;
+              run.log_seq <- seq);
+          run)
+        (list (required "runs" data));
   }
 
 let load t =
@@ -231,7 +250,7 @@ let load t =
             List.mem (get "status" w) [ "pending"; "running" ])
       in
       if active then (
-        let p = restore id (Option.get (Store.get t.store "pipeline" id)) in
+        let p = restore t id (Option.get (Store.get t.store "pipeline" id)) in
         List.iter
           (fun (run : Runner.t) ->
             if
@@ -269,7 +288,7 @@ let find t id =
   if not (Atp.Tid.is_valid id) then invalid "pipeline must be a TID";
   match Hashtbl.find_opt t.pipelines id with
   | Some p -> Some p
-  | None -> Option.map (restore id) (Store.get t.store "pipeline" id)
+  | None -> Option.map (restore t id) (Store.get t.store "pipeline" id)
 
 let query t ~repo ~limit ~cursor ~kinds ~commits =
   let seen = Hashtbl.create (List.length commits) in

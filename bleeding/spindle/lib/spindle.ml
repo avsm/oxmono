@@ -126,7 +126,7 @@ let logs state workflows socket =
         raise exn
   in
   let ws =
-    W.create ~role:Server ~max_message:4096 ~with_write_lock
+    W.create ~role:Server ~max_message:(1024 * 1024) ~with_write_lock
       ~read:(fun bytes ~off ~len ->
         Eio.Time.with_timeout_exn state.system#clock 90. (fun () ->
             Body.Socket.read socket bytes ~off ~len))
@@ -206,7 +206,13 @@ let upgrade state req respond =
              (fun (name, _) -> name <> "Connection" && name <> "Upgrade")
              fields)
       in
-      Resp.upgrade respond ~protocol:"websocket" ~headers (logs state workflows)
+      Resp.upgrade respond ~protocol:"websocket" ~headers (fun socket ->
+          try logs state workflows socket with
+          | Eio.Cancel.Cancelled _ as exn -> raise exn
+          | exn ->
+              (* The upgrade has already committed the HTTP response. *)
+              Printf.eprintf "spindle log stream: %s\n%!"
+                (Printexc.to_string exn))
 
 let respond_json respond ?(status = Status.Success) ?(headers = Headers.empty)
     json =

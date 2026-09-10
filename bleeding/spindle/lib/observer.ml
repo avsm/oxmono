@@ -183,6 +183,86 @@ let commit engine network event =
       Option.iter (pull engine network owner rkey) record
     else Catalog.notice engine.Engine.catalog ~owner ~collection ~rkey
 
+let recover_once ~engine ~network =
+  let store = engine.Engine.store and system = engine.runner.system in
+  let now = Eio.Time.now system#clock in
+  List.iter
+    (fun (source, value) ->
+      Recovery.schedule engine ~source;
+      ignore
+        (Store.complete store "recover-source" source ~value ~puts:[]
+           ~deletes:[]))
+    (Store.ready store "recover-source" ~now ~limit:16);
+  let tasks namespace f =
+    Eio.Fiber.List.iter ~max_fibers:2
+      (fun (key, value) ->
+        try
+          Eio.Time.with_timeout_exn system#clock 30. (fun () -> f key);
+          ignore
+            (Store.complete store namespace key ~value ~puts:[] ~deletes:[])
+        with
+        | Eio.Cancel.Cancelled _ as exn -> raise exn
+        | exn ->
+            Store.defer store namespace key ~now:(Eio.Time.now system#clock);
+            report ("recovery " ^ key) exn)
+      (Store.ready store namespace ~now ~limit:16)
+  in
+  Eio.Fiber.both
+    (fun () -> tasks "recover" (Recovery.repo engine))
+    (fun () ->
+      tasks "recover-pulls" (fun owner ->
+          if Catalog.member engine.catalog owner then
+            Network.records network owner "sh.tangled.repo.pull"
+            |> List.iter (fun item ->
+                if not (Catalog.member engine.catalog owner) then
+                  raise Catalog.Pending;
+                let uri = Atp.At_uri.of_string_exn (get "uri" item) in
+                if
+                  Atp.At_uri.authority uri <> owner
+                  || Atp.At_uri.collection uri <> Some "sh.tangled.repo.pull"
+                then
+                  invalid "PDS returned a pull outside the requested collection";
+                let rkey =
+                  match Atp.At_uri.rkey uri with
+                  | Some value -> value
+                  | None -> invalid "missing pull key"
+                in
+                let uri = Atp.At_uri.to_string uri in
+                let cid = get "cid" item in
+                if Store.get store "pull-seen" uri = Some cid then
+                  Store.put store "pull-seen" uri cid
+                else
+                  let now = Eio.Time.now system#clock in
+                  let event =
+                    obj
+                      [
+                        ("kind", str "commit");
+                        ("did", str owner);
+                        ("time_us", Jsont.Json.number (now *. 1e6));
+                        ( "commit",
+                          obj
+                            [
+                              ("collection", str "sh.tangled.repo.pull");
+                              ("rkey", str rkey);
+                              ("operation", str "update");
+                              ("record", required "value" item);
+                            ] );
+                      ]
+                  in
+                  Store.enqueue store ~source:"recovery"
+                    ~cursor:(Int64.to_string (Int64.of_float (now *. 1e6)))
+                    ~key:("pull-recovery/" ^ uri ^ "/" ^ cid)
+                    ~value:
+                      (encode
+                         (obj
+                            [
+                              ("source", str "jetstream");
+                              ("jetstream", bool true);
+                              ("event", event);
+                            ]));
+                  Store.put store "pull-seen" uri cid)));
+  Recovery.settled store ~now:(Eio.Time.now system#clock)
+
 let run ~engine ~network ~jetstream ~health ~policy =
   let store = engine.Engine.store and system = engine.runner.system in
   let rec retry source f =
@@ -253,11 +333,12 @@ let run ~engine ~network ~jetstream ~health ~policy =
   in
   let refresh () =
     while true do
-      List.iter
+      Eio.Fiber.List.iter ~max_fibers:4
         (fun (key, value) ->
           try
             Eio.Time.with_timeout_exn system#clock 30. (fun () ->
-                Catalog.refresh engine.catalog key ~value)
+                Catalog.refresh engine.catalog key ~value);
+            Store.schedule store "recover-source" "jetstream"
           with
           | Eio.Cancel.Cancelled _ as exn -> raise exn
           | exn ->
@@ -309,90 +390,7 @@ let run ~engine ~network ~jetstream ~health ~policy =
         Catalog.bootstrap engine.catalog;
         Store.schedule store "recover-source" "jetstream";
         next_scan := now +. float_of_int policy.reconcile_seconds);
-      let count ns =
-        let n, _, _ = Store.usage store ns in
-        n
-      in
-      if
-        count "reconcile" = 0
-        && Store.ready store "inbox" ~now ~limit:1 = []
-        && Health.caught_up health ~now
-      then (
-        List.iter
-          (fun (source, value) ->
-            Recovery.schedule engine ~source;
-            ignore
-              (Store.complete store "recover-source" source ~value ~puts:[]
-                 ~deletes:[]))
-          (Store.ready store "recover-source" ~now ~limit:16);
-        let tasks namespace f =
-          Eio.Fiber.List.iter ~max_fibers:2
-            (fun (key, value) ->
-              try
-                Eio.Time.with_timeout_exn system#clock 30. (fun () -> f key);
-                ignore
-                  (Store.complete store namespace key ~value ~puts:[]
-                     ~deletes:[])
-              with
-              | Eio.Cancel.Cancelled _ as exn -> raise exn
-              | exn ->
-                  Store.defer store namespace key
-                    ~now:(Eio.Time.now system#clock);
-                  report ("recovery " ^ key) exn)
-            (Store.ready store namespace ~now ~limit:16)
-        in
-        tasks "recover" (Recovery.repo engine);
-        tasks "recover-pulls" (fun owner ->
-            if List.mem owner (Catalog.members engine.catalog) then
-              Network.records network owner "sh.tangled.repo.pull"
-              |> List.iter (fun item ->
-                  let uri = Atp.At_uri.of_string_exn (get "uri" item) in
-                  if
-                    Atp.At_uri.authority uri <> owner
-                    || Atp.At_uri.collection uri <> Some "sh.tangled.repo.pull"
-                  then
-                    invalid
-                      "PDS returned a pull outside the requested collection";
-                  let rkey =
-                    match Atp.At_uri.rkey uri with
-                    | Some value -> value
-                    | None -> invalid "missing pull key"
-                  in
-                  let uri = Atp.At_uri.to_string uri in
-                  let cid = get "cid" item in
-                  if Store.get store "pull-seen" uri = Some cid then
-                    Store.put store "pull-seen" uri cid
-                  else
-                    let now = Eio.Time.now system#clock in
-                    let event =
-                      obj
-                        [
-                          ("kind", str "commit");
-                          ("did", str owner);
-                          ("time_us", Jsont.Json.number (now *. 1e6));
-                          ( "commit",
-                            obj
-                              [
-                                ("collection", str "sh.tangled.repo.pull");
-                                ("rkey", str rkey);
-                                ("operation", str "update");
-                                ("record", required "value" item);
-                              ] );
-                        ]
-                    in
-                    Store.enqueue store ~source:"recovery"
-                      ~cursor:(Int64.to_string (Int64.of_float (now *. 1e6)))
-                      ~key:("pull-recovery/" ^ uri ^ "/" ^ cid)
-                      ~value:
-                        (encode
-                           (obj
-                              [
-                                ("source", str "jetstream");
-                                ("jetstream", bool true);
-                                ("event", event);
-                              ]));
-                    Store.put store "pull-seen" uri cid));
-        Recovery.settled store ~now:(Eio.Time.now system#clock));
+      recover_once ~engine ~network;
       Eio.Time.sleep system#clock 2.
     done
   in

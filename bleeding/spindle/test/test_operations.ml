@@ -131,14 +131,13 @@ let () =
       let refs =
         Recovery.parse_refs
           ("ref: refs/heads/main\tHEAD\n" ^ hash ^ "\trefs/heads/main\n" ^ hash
-         ^ "\trefs/tags/v1\n" ^ String.make 40 'b' ^ "\trefs/tags/v1^{}\n")
+         ^ "\trefs/tags/v1\n" ^ String.make 40 'b' ^ "\trefs/tags/v1^{}\n"
+         ^ hash ^ "\trefs/notes/commits\n" ^ hash ^ "\trefs/remotes/test/main\n"
+          )
       in
       assert (
         refs
-        = [
-            ("refs/heads/main", hash, true);
-            ("refs/tags/v1", String.make 40 'b', false);
-          ]));
+        = [ ("refs/heads/main", hash, true); ("refs/tags/v1", hash, false) ]));
   Eio.Switch.run (fun sw ->
       let store = Store.open_ ~sw directory in
       assert (Store.get store "replay-floor" "knot" = Some "500");

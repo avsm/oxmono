@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Recover refs despite unrelated catalog failures, tolerate notes and avoid
+  duplicate annotated-tag jobs. Stream and durably journal partial log output.
+
 - Bound retained history and event queues, report observer readiness, and
   reconcile current Git/PDS state when upstream replay is unavailable.
 

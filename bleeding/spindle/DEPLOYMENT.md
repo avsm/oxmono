@@ -24,6 +24,27 @@ Use HTTPS/WSS for remote services. TLS verifies hostnames and system trust;
 for a development network. No PLC or Jetstream endpoint defaults to the live
 network. Point them at the local Docker setup for independent operation.
 
+## Jetstream version
+
+Bluesky now recommends [Jetstream v2](https://bsky.network/docs/jetstream/)
+for new clients. Its native API uses
+`/xrpc/network.bsky.jetstream.subscribeEvents`, `xrpc.v1.json` envelopes,
+`collections` filters and instance-local sequence cursors. This spindle
+implements the legacy `/subscribe` protocol with `wantedCollections` and
+microsecond timestamp cursors. Do not point it at the v2 XRPC path.
+
+For the first live trial, use
+`--jetstream=wss://jetstream1.us-west.bsky.network/subscribe`.
+The Docker tests use a pinned legacy Jetstream with the private local PDS.
+Neither test run nor binary startup selects a public endpoint implicitly.
+
+V2 also serves a [legacy compatibility endpoint](https://github.com/bluesky-social/jetstream/blob/main/docs/README.md#51-legacy-v1-json-payload-subscribe).
+It has not been exercised by this Docker harness. A full upgrade should add
+sequence cursor storage, the new frame/filter contract, `CursorTooOld` and
+`OutdatedCursor` recovery, and local v2 integration tests. Sequence cursors
+also avoid using display timestamps that can be backdated by v2 imports.
+Archive replay is a separate integration from live subscriptions.
+
 ## Register in Tangled
 
 1. Serve the configured hostname over HTTPS, forwarding HTTP and WebSocket
@@ -200,10 +221,24 @@ execution deadline and a 1 MiB log limit per workflow. Pending work resumes
 after restart. Interrupted workflows become failed. One process may own a
 state directory.
 
+Output streams in bounded chunks without waiting for newlines. Valid UTF-8,
+including characters split across reads, is preserved. Malformed bytes become
+replacement characters. Each event commits to SQLite before log subscribers
+can see it. Step transitions atomically fold acknowledged journal entries into
+the pipeline snapshot. Restart restores any remaining journal entries, so
+already published output survives an interrupted step.
+
 Membership and repository changes trigger fresh PDS reads. Affected mutations
 return `503 CatalogPending` while reconciliation is pending. Fetch failures
 back off up to one minute and keep the affected catalog unavailable. Event
 processing continues for other repositories.
+Ref and pull recovery have independent worker batches. A repository waits for
+its own catalog dependencies and queued knot events, allowing push options
+and actor metadata to be processed first. Unrelated pending reads or inbox
+traffic do not block its recovery. Global readiness still reports unresolved
+work elsewhere in the catalog.
+Changed refs get a five-second grace period for their knot events to arrive
+before recovery reloads checkpoints and decides whether to synthesize a push.
 
 Each command gets a process group. Cancellation, deadlines and normal exit
 kill remaining group members. This cleans up shell children but does not
@@ -268,6 +303,9 @@ can inspect these fields to decide how to handle incomplete context. Stream
 pushes and recovered pushes share a repository/ref/SHA key. Re-pushing the
 same SHA shares the existing dispatch while its key is retained. Checkpoints
 prevent unchanged refs from running on every scan.
+Annotated tags retain the tag object's SHA, matching knot events and Git's
+checkout semantics. Ref recovery ignores notes and other namespaces outside
+branches and tags.
 
 The health report's `replay` entries record the first missing cursor, reason,
 and `pending` or `reconciled` status. Readiness returns after current-state

@@ -89,6 +89,15 @@ let open_ ~sw directory =
       repo TEXT NOT NULL, ref TEXT NOT NULL, sha TEXT NOT NULL,
       position INTEGER NOT NULL, updated REAL NOT NULL,
       PRIMARY KEY(repo,ref));
+    CREATE TABLE IF NOT EXISTS workflow_log (
+      seq INTEGER PRIMARY KEY AUTOINCREMENT, pipeline TEXT NOT NULL,
+      workflow TEXT NOT NULL, value TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS workflow_log_run
+      ON workflow_log(pipeline,workflow,seq);
+    CREATE TRIGGER IF NOT EXISTS pipeline_log_delete AFTER DELETE ON kv
+      WHEN OLD.namespace='pipeline' BEGIN
+      DELETE FROM workflow_log WHERE pipeline=OLD.key;
+    END;
   |});
   t
 
@@ -136,11 +145,11 @@ let ready t namespace ~now ~limit =
       rows t
         {|SELECT kv.key,kv.value FROM kv LEFT JOIN retry
           ON retry.namespace=kv.namespace AND retry.key=kv.key
+          JOIN age ON age.namespace=kv.namespace AND age.key=kv.key
           WHERE kv.namespace=? AND (retry.due IS NULL OR retry.due<=?)
-          ORDER BY COALESCE(retry.due,?),kv.key LIMIT ?|}
+          ORDER BY COALESCE(retry.due,age.updated),kv.key LIMIT ?|}
         [
           text namespace;
-          Sqlite3.Data.FLOAT now;
           Sqlite3.Data.FLOAT now;
           Sqlite3.Data.INT (Int64.of_int limit);
         ]
@@ -160,7 +169,7 @@ let defer t namespace key ~now =
           Sqlite3.Data.FLOAT now;
         ])
 
-let batch_unlocked t ~puts ~deletes =
+let batch_unlocked ?(logs = []) t ~puts ~deletes =
   check (Sqlite3_eio.exec t.db "BEGIN IMMEDIATE");
   match
     List.iter
@@ -172,9 +181,17 @@ let batch_unlocked t ~puts ~deletes =
       deletes;
     List.iter
       (fun (ns, key, value) ->
-        execute t "INSERT OR REPLACE INTO kv(namespace,key,value) VALUES(?,?,?)"
+        execute t
+          "INSERT INTO kv(namespace,key,value) VALUES(?,?,?) ON \
+           CONFLICT(namespace,key) DO UPDATE SET value=excluded.value"
           [ text ns; text key; text value ])
       puts;
+    List.iter
+      (fun (pipeline, workflow, seq) ->
+        execute t
+          "DELETE FROM workflow_log WHERE pipeline=? AND workflow=? AND seq<=?"
+          [ text pipeline; text workflow; Sqlite3.Data.INT seq ])
+      logs;
     check (Sqlite3_eio.exec t.db "COMMIT")
   with
   | () -> ()
@@ -182,8 +199,28 @@ let batch_unlocked t ~puts ~deletes =
       ignore (Sqlite3_eio.exec t.db "ROLLBACK");
       raise ex
 
-let batch t ~puts ~deletes =
-  locked t (fun () -> batch_unlocked t ~puts ~deletes)
+let batch ?(logs = []) t ~puts ~deletes =
+  locked t (fun () -> batch_unlocked t ~logs ~puts ~deletes)
+
+let append_log t ~pipeline ~workflow value =
+  locked t (fun () ->
+      match
+        rows t
+          "INSERT INTO workflow_log(pipeline,workflow,value) VALUES(?,?,?) \
+           RETURNING seq"
+          [ text pipeline; text workflow; text value ]
+      with
+      | [ row ] -> Sqlite3.Data.to_int64_exn row.(0)
+      | _ -> assert false)
+
+let logs t ~pipeline ~workflow =
+  locked t (fun () ->
+      rows t
+        "SELECT seq,value FROM workflow_log WHERE pipeline=? AND workflow=? \
+         ORDER BY seq"
+        [ text pipeline; text workflow ]
+      |> List.map (fun row ->
+          (Sqlite3.Data.to_int64_exn row.(0), string row.(1))))
 
 let schedule t namespace key =
   locked t (fun () ->
@@ -225,6 +262,14 @@ let usage_unlocked t namespace =
   | _ -> assert false
 
 let usage t namespace = locked t (fun () -> usage_unlocked t namespace)
+
+let pending_repo t repo =
+  locked t (fun () ->
+      rows t
+        {|SELECT 1 FROM kv WHERE namespace='inbox' AND json_valid(value)
+          AND json_extract(value,'$.event.event.repo')=? LIMIT 1|}
+        [ text repo ]
+      <> [])
 
 let pending_source t source =
   locked t (fun () ->
@@ -373,7 +418,8 @@ let prune t ~now (policy : Operations.t) =
       in
       let size =
         "length(CAST(v.value AS BLOB))+COALESCE(length(CAST(p.value AS \
-         BLOB)),0)"
+         BLOB)),0)+COALESCE((SELECT sum(length(CAST(l.value AS BLOB))) FROM \
+         workflow_log l WHERE l.pipeline=v.key),0)"
       in
       let count, bytes =
         match

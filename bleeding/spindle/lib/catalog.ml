@@ -60,6 +60,10 @@ let members t =
 
 let allowed t owner = List.mem owner (members t)
 
+let member t owner =
+  if owner <> t.owner && pending t t.owner member_collection then raise Pending;
+  allowed t owner
+
 let split_key key =
   match String.split_on_char '/' key with
   | [ owner; rkey ] -> (owner, rkey)

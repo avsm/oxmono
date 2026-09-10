@@ -34,6 +34,11 @@
  (modules test_operations)
  (libraries spindle eio_main))
 
+(test
+ (name test_recovery)
+ (modules test_recovery)
+ (libraries spindle eio_main))
+
 (executable
  (name tangled_server)
  (modules tangled_server)

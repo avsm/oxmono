@@ -6,8 +6,6 @@ type source = {
   mutable connected : bool;
   mutable attempts : int;
   mutable activity : float;
-  mutable connected_at : float;
-  mutable received : float;
   mutable event : float option;
   mutable error : string option;
   mutable persisted : float;
@@ -47,8 +45,6 @@ let require t name =
         connected = false;
         attempts = 0;
         activity = 0.;
-        connected_at = 0.;
-        received = 0.;
         event = None;
         error = None;
         persisted = 0.;
@@ -70,7 +66,6 @@ let connected t name ~now =
     (fun source ->
       source.connected <- true;
       source.activity <- now;
-      source.connected_at <- now;
       source.error <- None;
       persist t source ~now)
     (Hashtbl.find_opt t.sources name)
@@ -82,25 +77,10 @@ let activity t name ~now =
       if now -. source.persisted >= 30. then persist t source ~now)
     (Hashtbl.find_opt t.sources name)
 
-let event t name ~at ~now =
+let event t name ~at ~now:_ =
   Option.iter
-    (fun source ->
-      source.event <- Some at;
-      source.received <- now)
+    (fun source -> source.event <- Some at)
     (Hashtbl.find_opt t.sources name)
-
-let caught_up t ~now =
-  Hashtbl.length t.sources > 0
-  && Hashtbl.fold
-       (fun _ source ok ->
-         ok
-         && ((not source.connected)
-            || now -. source.connected_at >= 2.
-               && (now -. source.received >= 2.
-                  || Option.fold ~none:false
-                       ~some:(fun at -> now -. at < 30.)
-                       source.event)))
-       t.sources true
 
 let failed t name ~now exn =
   Option.iter

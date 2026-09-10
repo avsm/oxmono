@@ -12,14 +12,7 @@ let choose override fallback =
   match override with Some _ -> override | None -> fallback
 
 let value override fallback = Option.value override ~default:fallback
-
-let default_path () =
-  let dir =
-    match Sys.getenv_opt "XDG_CONFIG_HOME" with
-    | Some dir when dir <> "" && not (Filename.is_relative dir) -> dir
-    | _ -> Filename.concat (Sys.getenv "HOME") ".config"
-  in
-  Filename.concat dir "owntracks/owntracks.toml"
+let default_path = Config.default_path
 
 let load path =
   let client_id =
@@ -218,17 +211,7 @@ let geojson path options topic device duration track max_points from_date
       check_date to_date;
       if from_date > to_date then invalid_arg "from must not follow to";
       let device = value device "phone" in
-      let matches =
-        List.filter
-          (fun (d : Config.device) -> d.id = device || d.name = device)
-          config.owntracks.devices
-      in
-      let device =
-        match matches with
-        | [] -> device
-        | [ d ] -> d.id
-        | _ -> invalid_arg "Ambiguous device name. Use the device ID"
-      in
+      let device = get (Config.device_id config device) in
       let client = recorder env config recorder_options in
       let locations =
         with_timeout (Eio.Stdenv.mono_clock env) duration (fun () ->

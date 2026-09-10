@@ -25,6 +25,7 @@ let test_messages () =
         (get (O.Message.to_string again)))
     [
       location;
+      {|{"_type":"location","lat":51.5,"lon":-0.1,"tst":1700000000,"SSID":"Office Wi-Fi","BSSID":"02:00:00:00:00:01","conn":"w","created_at":1700000005}|};
       {|{"_type":"transition","tst":1,"acc":2,"wtst":0,"event":"enter"}|};
       {|{"_type":"waypoint","tst":1,"desc":"Home","lat":51,"lon":0,"rad":100}|};
       {|{"_type":"waypoint","tst":1,"desc":"Beacon","uuid":"abc","major":1,"minor":2}|};
@@ -37,7 +38,22 @@ let test_messages () =
       (O.Message.of_string
          {|{"lat":51.5,"lon":-0.1,"tst":1700000000,"_type":"location","unknown":{"a":[1,2]}}|})
   in
-  Alcotest.(check (float 0.)) "tag after fields" 51.5 (O.Location.lat loc)
+  Alcotest.(check (float 0.)) "tag after fields" 51.5 (O.Location.lat loc);
+  Alcotest.(check (option string))
+    "missing SSID stays absent" None (O.Location.ssid loc);
+  let wifi =
+    O.Location.v ~lat:51.5 ~lon:0. ~tst:1 ~created_at:2 ~ssid:"Office Wi-Fi"
+      ~bssid:"02:00:00:00:00:01" ~conn:"w" ()
+  in
+  let encoded = get (O.Message.to_string (O.Message.Location wifi)) in
+  let wifi = location_of (O.Message.of_string encoded) in
+  Alcotest.(check (option string))
+    "SSID survives codec" (Some "Office Wi-Fi") (O.Location.ssid wifi);
+  Alcotest.(check (option string))
+    "BSSID survives codec" (Some "02:00:00:00:00:01") (O.Location.bssid wifi);
+  Alcotest.(check (option int))
+    "report time distinct from fix" (Some 2)
+    (O.Location.created_at wifi)
 
 let test_invalid () =
   List.iter
@@ -177,6 +193,26 @@ let test_recorder () =
 let test_config () =
   let parse = Owntracks_config.of_string ~client_id:"test" in
   let config = get (parse Owntracks_config.default_toml) in
+  Alcotest.(check string)
+    "default Overpass interpreter" "https://overpass-api.de/api/interpreter"
+    config.owntracks.overpass.url;
+  Alcotest.(check bool)
+    "Overpass enabled" true config.owntracks.overpass.enabled;
+  let custom =
+    get
+      (parse
+         "[owntracks.overpass]\n\
+          url='http://maps.example/query'\n\
+          enabled=false\n\
+          allow_http=true")
+  in
+  Alcotest.(check string)
+    "custom Overpass interpreter" "http://maps.example/query"
+    custom.owntracks.overpass.url;
+  Alcotest.(check bool)
+    "Overpass disabled" false custom.owntracks.overpass.enabled;
+  Alcotest.(check bool)
+    "explicit plain HTTP" true custom.owntracks.overpass.allow_http;
   Alcotest.(check string) "client default" "test" config.mqtt.client.client_id;
   let config =
     get
@@ -194,6 +230,25 @@ name="My Phone"
   Alcotest.(check string)
     "device name" "My Phone"
     (Owntracks_config.device_name config "phone");
+  Alcotest.(check string)
+    "resolve display name" "phone"
+    (get (Owntracks_config.device_id config "My Phone"));
+  Alcotest.(check string)
+    "raw device ID" "unlisted"
+    (get (Owntracks_config.device_id config "unlisted"));
+  reject (Owntracks_config.device_id config "../other");
+  let ambiguous =
+    {
+      config with
+      owntracks =
+        {
+          config.owntracks with
+          devices =
+            [ { id = "a"; name = "Phone" }; { id = "b"; name = "Phone" } ];
+        };
+    }
+  in
+  reject (Owntracks_config.device_id ambiguous "Phone");
   List.iter
     (fun text -> reject (parse text))
     [
@@ -202,6 +257,8 @@ name="My Phone"
       "[mqtt]\nversion='3'";
       "[owntracks]\ntopic='a/#/b'";
       "[owntracks]\nunknown=1";
+      "[owntracks.overpass]\nunknown=1";
+      "[owntracks.overpass]\nenabled='yes'";
       "[[owntracks.devices]]\n\
        id='x'\n\
        name='a'\n\

@@ -30,6 +30,14 @@ result. The caller must keep the input unchanged until decoding returns.
 `Message.encode` writes owned bytes for publishing. Serialization buffers and
 decoded values still allocate. No OwnTracks or mqttz source uses Cstruct.
 
+Location messages preserve optional `SSID`, `BSSID`, `conn` and `created_at`
+fields through `Owntracks.Location.ssid`, `bssid`, `conn` and `created_at`.
+SSID names the reported WLAN and BSSID identifies its access point. These
+describe the report's network context when the device supplies it.
+`created_at` dates report construction, while `tst` dates the GPS fix.
+The [OwnTracks message format](https://owntracks.org/booklet/tech/json/)
+documents these optional fields.
+
 ```ocaml
 let receive_location client =
   match Owntracks_eio.receive client with
@@ -66,6 +74,11 @@ url = "https://recorder.example.com"
 # user = "api-user"
 # password = "secret"
 
+[owntracks.overpass]
+url = "https://overpass-api.de/api/interpreter"
+enabled = true
+# allow_http = false
+
 [mqtt]
 host = "mqtt.example.com"
 tls = true
@@ -84,6 +97,15 @@ LineString, or a Point if only one location arrived. Multiple groups produce
 a FeatureCollection. Collection defaults to 30 seconds and 100,000 locations.
 `--duration` and `--max-points` adjust these limits. Historical queries use the
 same timeout and point limit, plus a 16 MiB response limit.
+
+Applications can reuse `Owntracks_config.default_path`, `of_string` and
+`device_id` to read the CLI's configuration and resolve its device aliases.
+`device_id` rejects ambiguous names and validates unlisted raw IDs. Crowthebot
+uses these functions to reference this TOML without copying Recorder secrets,
+then restricts each initialized tool to a locally selected user/device pair.
+The optional `[owntracks.overpass]` table configures Crow's OpenStreetMap
+queries. It defaults to the interpreter above, enabled over HTTPS. Set
+`enabled = false` to disable them. The OwnTracks CLI does not query Overpass.
 
 ## Checks
 

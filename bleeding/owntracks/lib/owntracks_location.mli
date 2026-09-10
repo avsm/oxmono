@@ -32,6 +32,9 @@ val v :
   ?batt:int ->
   ?bs:int ->
   ?conn:string ->
+  ?ssid:string ->
+  ?bssid:string ->
+  ?created_at:int ->
   ?t:string ->
   ?m:int ->
   ?poi:string ->
@@ -90,6 +93,16 @@ val conn : t -> string option
     - ["w"] = WiFi
     - ["m"] = Mobile/cellular
     - ["o"] = Offline *)
+
+val ssid : t -> string option
+(** [ssid loc] is the reported WLAN name, from the optional [SSID] field. *)
+
+val bssid : t -> string option
+(** [bssid loc] is the reported access point identifier, from [BSSID]. *)
+
+val created_at : t -> int option
+(** [created_at loc] is the optional report construction time in Unix seconds.
+    It may differ from [tst loc], which dates the GPS fix. *)
 
 val trigger : t -> string option
 (** [trigger loc] returns what caused this location report, if present:

@@ -15,6 +15,9 @@ type t = {
   batt : int option;
   bs : int option;
   conn : string option;
+  ssid : string option;
+  bssid : string option;
+  created_at : int option;
   t : string option;
   m : int option;
   poi : string option;
@@ -23,8 +26,8 @@ type t = {
   topic : string option;
 }
 
-let v ?tid ~tst ~lat ~lon ?alt ?acc ?vel ?cog ?batt ?bs ?conn ?t ?m ?poi
-    ?(inregions = []) ?addr ?topic () =
+let v ?tid ~tst ~lat ~lon ?alt ?acc ?vel ?cog ?batt ?bs ?conn ?ssid ?bssid
+    ?created_at ?t ?m ?poi ?(inregions = []) ?addr ?topic () =
   {
     tid;
     tst;
@@ -37,6 +40,9 @@ let v ?tid ~tst ~lat ~lon ?alt ?acc ?vel ?cog ?batt ?bs ?conn ?t ?m ?poi
     batt;
     bs;
     conn;
+    ssid;
+    bssid;
+    created_at;
     t;
     m;
     poi;
@@ -56,6 +62,9 @@ let cog t = t.cog
 let batt t = t.batt
 let bs t = t.bs
 let conn t = t.conn
+let ssid t = t.ssid
+let bssid t = t.bssid
+let created_at t = t.created_at
 let trigger t = t.t
 let monitoring_mode t = t.m
 let poi t = t.poi
@@ -65,8 +74,8 @@ let topic t = t.topic
 let with_topic topic t = { t with topic = Some topic }
 
 let jsont_bare : t Jsont.t =
-  let make tid tst lat lon alt acc vel cog batt bs conn t m poi inregions addr
-      topic =
+  let make tid tst lat lon alt acc vel cog batt bs conn ssid bssid created_at t
+      m poi inregions addr topic =
     {
       tid;
       tst;
@@ -79,6 +88,9 @@ let jsont_bare : t Jsont.t =
       batt;
       bs;
       conn;
+      ssid;
+      bssid;
+      created_at;
       t;
       m;
       poi;
@@ -99,6 +111,10 @@ let jsont_bare : t Jsont.t =
   |> Jsont.Object.opt_mem "batt" Owntracks_codec.integer ~enc:(fun l -> l.batt)
   |> Jsont.Object.opt_mem "bs" Owntracks_codec.integer ~enc:(fun l -> l.bs)
   |> Jsont.Object.opt_mem "conn" Jsont.string ~enc:(fun l -> l.conn)
+  |> Jsont.Object.opt_mem "SSID" Jsont.string ~enc:(fun l -> l.ssid)
+  |> Jsont.Object.opt_mem "BSSID" Jsont.string ~enc:(fun l -> l.bssid)
+  |> Jsont.Object.opt_mem "created_at" Owntracks_codec.integer ~enc:(fun l ->
+      l.created_at)
   |> Jsont.Object.opt_mem "t" Jsont.string ~enc:(fun l -> l.t)
   |> Jsont.Object.opt_mem "m" Owntracks_codec.integer ~enc:(fun l -> l.m)
   |> Jsont.Object.opt_mem "poi" Jsont.string ~enc:(fun l -> l.poi)
@@ -146,6 +162,13 @@ let pp ppf loc =
     loc.topic;
   Option.iter (fun tid -> Format.fprintf ppf "  Tracker:   %s@," tid) loc.tid;
   Format.fprintf ppf "  Time:      %s@," (format_timestamp loc.tst);
+  Option.iter
+    (fun at -> Format.fprintf ppf "  Reported:  %s@," (format_timestamp at))
+    loc.created_at;
+  Option.iter (fun ssid -> Format.fprintf ppf "  WiFi SSID: %S@," ssid) loc.ssid;
+  Option.iter
+    (fun bssid -> Format.fprintf ppf "  WiFi AP:   %S@," bssid)
+    loc.bssid;
   Format.fprintf ppf "  Location:  %.6f, %.6f@," loc.lat loc.lon;
   Option.iter
     (fun alt -> Format.fprintf ppf "  Altitude:  %.1f m@," alt)

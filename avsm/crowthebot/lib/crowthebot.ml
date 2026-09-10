@@ -11,6 +11,7 @@ module Tool_config = Tool_config
 module Owntracks_source = Owntracks_source
 module Model_config = Model_config
 module Locations = Locations
+module Email_client = Email_client
 module Feed_http = Feed_http
 module Feed_parse = Feed_parse
 module Feeds = Feeds

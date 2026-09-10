@@ -63,3 +63,8 @@
   uri
   jsont
   jsont.bytesrw))
+
+(test
+ (name test_email_client)
+ (modules test_email_client)
+ (libraries crowthebot jmap jmap.eio fetch.mock eio_main http jsont))

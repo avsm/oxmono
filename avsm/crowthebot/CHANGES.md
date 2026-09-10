@@ -1,5 +1,8 @@
 # Changes
 
+- Add a typed JMAP mail adapter with separate reader and label-writer
+  capabilities, server-limited paging and relative API URL support.
+
 - Add shared OwnTracks person/location tools and private named Xdge tool
   configuration for Recorder connections and OpenRouter keys.
 - Replace the fixed blogroll with shared RSS, Atom and OPML subscriptions,

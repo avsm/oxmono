@@ -1,8 +1,11 @@
 (library
  (name crowthebot)
  (public_name crowthebot)
- (private_modules profile persistence)
+ (private_modules profile persistence email_http email_json)
  (libraries
+  http
+  jmap
+  jmap.eio
   matrix-chat.bot
   matrix-chat.eio
   openrouter

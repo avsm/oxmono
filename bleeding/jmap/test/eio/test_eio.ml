@@ -3871,8 +3871,11 @@ let run_cli_main argv =
       env Unix.stdin fd fd
   in
   Unix.close fd;
+  let rec wait () =
+    try Unix.waitpid [] pid with Unix.Unix_error (Unix.EINTR, _, _) -> wait ()
+  in
   let code =
-    match snd (Unix.waitpid [] pid) with
+    match snd (wait ()) with
     | Unix.WEXITED c -> c
     | Unix.WSIGNALED n | Unix.WSTOPPED n -> -n
   in

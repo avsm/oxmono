@@ -19,6 +19,7 @@
   jmap_eio
   codec
   client
+  calendars
   cli
   push
   auth

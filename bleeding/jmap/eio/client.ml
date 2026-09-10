@@ -441,7 +441,7 @@ let json_headers =
 
 let accept_json = Fetch.Header.[ (accept, [ pref json_media ]) ]
 let session_codec = Jmap.Proto.Json.media Jmap.Proto.Session.jsont
-let response_codec = Jmap.Proto.Json.media Jmap.Proto.Response.jsont
+let response_codec = Jmap.Proto.Response.media
 let upload_codec = Jmap.Proto.Json.media Jmap.Proto.Blob.upload_response_jsont
 
 (* RFC 8620 3.6.1: a request level error arrives as an RFC 7807 problem
@@ -1106,6 +1106,7 @@ let known_capabilities =
     Jmap.Proto.Capability.submission;
     Jmap.Proto.Capability.vacation_response;
     Jmap.Proto.Capability.contacts;
+    Jmap.Proto.Capability.calendars;
   ]
 
 let default_capabilities t =

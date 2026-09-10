@@ -110,11 +110,22 @@ module Proto : sig
   (** Email submissions. *)
 
   module Vacation = Mail_vacation
-  module Address_book = Contacts_addressbook
-
-  module Contact_card = Contacts_card
   (** The vacation response. *)
+
+  module Address_book = Contacts_addressbook
+  module Contact_card = Contacts_card
+
+  (** {1 Calendars (draft-ietf-jmap-calendars-28)} *)
+
+  module Calendar_types = Calendar_types
+  (** Shared JSCalendar types, including recurrence rules and alerts. *)
+  module Calendar = Calendar_calendar
+  module Calendar_event = Calendar_event
+  module Participant_identity = Calendar_participant_identity
 end
 
 module Chain = Chain
 (** Requests whose method calls refer to each other's results. *)
+
+module Mirror = Mirror
+(** Storage-independent, restartable synchronisation. *)

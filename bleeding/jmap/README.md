@@ -30,6 +30,59 @@ callback or promise layer to bridge: every client call is a direct-style
 function, and concurrency is the caller's to arrange with fibers and
 switches.
 
+## Durable mirrors and calendars
+
+`Jmap.Proto.Calendar`, `Calendar_event` and `Participant_identity` provide typed
+codecs, including nested recurrence rules, participants, alerts and links.
+Unknown extension fields remain available in each object's `unknown` map.
+`Jmap.Chain` supplies their get and changes methods and CalendarEvent queries.
+Ordinary reads use `Client.call`:
+
+```ocaml
+let events =
+  Jmap.Chain.calendar_event_get ~account_id
+    ~ids:(Jmap.Chain.ids event_ids) ~properties:[ `Id; `Title; `Participants ] ()
+  |> Jmap_eio.Client.call client
+```
+
+`Client.request` decodes with `Jmap.Proto.Response.media`, which retains the
+original JSON body. `Response.source` returns it and `Response.source_fragment`
+extracts a typed object's located bytes without re-encoding. Use `Client.chain`
+when both typed results and the response source are needed. Source capture
+preserves unknown fields and numeric spellings. I-JSON validation, structured
+JSON errors, nesting and response-size limits still apply.
+
+`Jmap.Mirror` is a storage-independent, restartable sync state machine for
+any JMAP data type. Supply bounded `get`, `changes` and optional unfiltered
+`query` callbacks. Each `step` returns a page of objects, deletions, receipts and
+the next cursor. Commit those together in a storage transaction, with a revision
+check if workers may overlap. Publish a staged snapshot only when `publish` is
+true. A `Restart` discards staging and starts from `initial`, while the previous
+complete snapshot remains available. Persist the cursor with `cursor_jsont` to
+resume after a crash. The codec and `cursor` constructor validate phase invariants.
+
+The state machine anchors an initial scan, advances by actual query page lengths,
+detects changed query states, batches get IDs, and drains changes one page at a
+time. It checkpoints the changes response's `newState`, never a later get state.
+`cannotCalculateChanges` requests a replacement snapshot. The `more` flag lets a
+scheduler promptly continue unfinished work. Storage, scheduling, credential
+configuration and retention remain with the caller.
+
+`Jmap_eio.Calendars` supplies archival reads for
+[draft-ietf-jmap-calendars-28](https://datatracker.ietf.org/doc/html/draft-ietf-jmap-calendars-28).
+`create ?account_id client` selects and pins an account. `mirror_source` adapts
+it to the generic mirror state machine. `archive` retains exact object source
+JSON. `archive ~include_ical:true` and `mirror_source` also fetch the `iCalendar`
+conversion object at the same state, with unsupported-property responses
+recorded as a fidelity limitation. Recurring events remain base
+objects with rules and overrides. Calendar search or agenda expansion can be
+derived separately without changing the canonical source.
+
+The calendar interface exposes no mutation methods. Server-side token scopes
+must also restrict writes. The existing client's endpoint and authentication
+rules apply. Use `Transport.restrict` to pin trusted origins before connecting.
+Calendar provider interoperability has only been tested with mock responses.
+
 ## The Eio client
 
 The `jmap` core uses `httpz.uri` for URI templates and `httpz.media` for

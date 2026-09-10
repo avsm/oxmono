@@ -24,11 +24,29 @@ type t = {
   session_state : string;
       (** The state of the session resource. A change of this value means the
           client should fetch the session resource again. *)
+  source : string option;
+      (** Original response body when decoded by {!media}. It is provenance of
+          the received response, and does not reflect subsequent record edits.
+          It is never encoded as a JSON property. *)
 }
 (** The type for responses. *)
 
 val jsont : t Jsont.t
 (** [jsont] is the codec for a response. *)
+
+val media : t Httpz_media.t
+(** [media] decodes a validated response and retains its original source.
+    Ordinary client requests use this codec. *)
+
+val source : t -> string option
+(** [source r] is the original JSON body, if [r] was decoded by {!media}.
+    Values decoded with {!jsont} alone have no source. *)
+
+val source_fragment : t -> Jsont.Meta.t -> string option
+(** [source_fragment r meta] is the original JSON fragment located by [meta]
+    in [r]. Metadata can come from a typed object's [Jsont.Object.map'] codec.
+    It must originate from this response and describe the unmodified value.
+    Absent or out-of-bounds locations return [None]. *)
 
 val pp : Format.formatter -> t -> unit
 (** [pp ppf r] prints the JSON {!jsont} encodes [r] as, indented over several

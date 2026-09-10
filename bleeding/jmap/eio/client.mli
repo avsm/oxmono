@@ -355,6 +355,10 @@ val request : t -> Jmap.Proto.Request.t -> (Jmap.Proto.Response.t, error) result
 (** [request t req] POSTs [req] to the session's [apiUrl] as [application/json]
     (RFC 8620 Section 3.3) and is the response.
 
+    The response retains its original JSON body through
+    {!Jmap.Proto.Response.source}. Typed objects with location metadata can
+    recover their source bytes with {!Jmap.Proto.Response.source_fragment}.
+
     The encoded byte length and number of method calls are checked against the
     session's [maxSizeRequest] and [maxCallsInRequest] before the request is
     sent, after any wait for a concurrency slot. Exceeding either is returned as
@@ -372,11 +376,12 @@ val default_capabilities : t -> string list
 (** [default_capabilities t] is the [using] array {!chain}, {!val-call} and
     {!run} send when the caller names none. It is those of
     [urn:ietf:params:jmap:core], [urn:ietf:params:jmap:mail],
-    [urn:ietf:params:jmap:submission], [urn:ietf:params:jmap:vacationresponse]
-    and [urn:ietf:params:jmap:contacts] that the session held by [t] advertises,
-    in that order, so it follows a session refresh.
+    [urn:ietf:params:jmap:submission], [urn:ietf:params:jmap:vacationresponse],
+    [urn:ietf:params:jmap:contacts] and [urn:ietf:params:jmap:calendars] that
+    the session held by [t] advertises, in that order, so it follows a session
+    refresh.
 
-    Those five are the capabilities this library builds method calls for. A
+    Those six are the capabilities this library builds method calls for. A
     request may name any capability the server supports, and naming one outside
     them is what the explicit argument is for. *)
 

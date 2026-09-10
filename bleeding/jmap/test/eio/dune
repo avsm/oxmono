@@ -27,3 +27,22 @@
  (name test_client_release)
  (package jmap)
  (libraries jmap jmap.eio fetch fetch.mock eio eio.mock http alcotest fmt))
+
+(test
+ (name test_mirror)
+ (package jmap)
+ (libraries jmap jsont.bytesrw))
+
+(test
+ (name test_calendars)
+ (package jmap)
+ (libraries
+  jmap
+  jmap.eio
+  fetch
+  fetch.mock
+  eio
+  eio.mock
+  http
+  httpz.media
+  jsont))

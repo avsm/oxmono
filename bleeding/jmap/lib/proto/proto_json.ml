@@ -122,7 +122,7 @@ let malformed error =
     (Httpz_media.sanitize_diagnostic (Jsont.Error.to_string error))
 
 let media ?(media = "application/json") ?(accept = [ "application/*+json" ])
-    ?format ?(locs = true) ?max_depth jsont =
+    ?format ?(locs = true) ?max_depth ?with_source jsont =
   Httpz_media.v_reader ~accept media
     ~encode:(fun value writer ->
       match encode ?format jsont value with
@@ -133,4 +133,9 @@ let media ?(media = "application/json") ?(accept = [ "application/*+json" ])
             ^ Httpz_media.sanitize_diagnostic (Jsont.Error.to_string error)))
     ~decode:(fun reader ->
       let source = Bytesrw.Bytes.Reader.to_string reader in
-      Result.map_error malformed (decode ~locs ?max_depth jsont source))
+      decode ~locs ?max_depth jsont source
+      |> Result.map (fun value ->
+          match with_source with
+          | None -> value
+          | Some retain -> retain ~source value)
+      |> Result.map_error malformed)

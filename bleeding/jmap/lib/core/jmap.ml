@@ -35,6 +35,12 @@ module Proto = struct
   module Vacation = Mail_vacation
   module Address_book = Contacts_addressbook
   module Contact_card = Contacts_card
+  module Calendar_types = Calendar_types
+  module Calendar = Calendar_calendar
+  module Calendar_event = Calendar_event
+  module Participant_identity = Calendar_participant_identity
 end
 
 module Chain = Chain
+
+module Mirror = Mirror

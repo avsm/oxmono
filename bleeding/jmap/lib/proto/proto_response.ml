@@ -7,10 +7,11 @@ type t = {
   method_responses : Proto_invocation.t list;
   created_ids : (Proto_id.t * Proto_id.t) list option;
   session_state : string;
+  source : string option;
 }
 
 let make method_responses created_ids session_state =
-  { method_responses; created_ids; session_state }
+  { method_responses; created_ids; session_state; source = None }
 
 let jsont =
   let kind = "Response" in
@@ -22,6 +23,21 @@ let jsont =
   |> Jsont.Object.mem "sessionState" Jsont.string ~enc:(fun r ->
       r.session_state)
   |> Jsont.Object.finish
+
+let media =
+  Proto_json.media
+    ~with_source:(fun ~source response -> { response with source = Some source })
+    jsont
+
+let source r = r.source
+
+let source_fragment r meta =
+  Option.bind r.source (fun text ->
+      let loc = Jsont.Meta.textloc meta in
+      let first = Jsont.Textloc.first_byte loc in
+      let last = Jsont.Textloc.last_byte loc in
+      if first < 0 || last < first || last >= String.length text then None
+      else Some (String.sub text first (last - first + 1)))
 
 let is_for method_call_id inv =
   String.equal inv.Proto_invocation.method_call_id method_call_id

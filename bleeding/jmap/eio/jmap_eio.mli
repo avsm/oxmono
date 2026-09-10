@@ -159,3 +159,9 @@ module Profile = Profile
 
 module Chain = Jmap.Chain
 (** Requests whose method calls refer to each other's results. *)
+
+module Calendars = Calendars
+(** Source-preserving calendar archives backed by typed protocol codecs. *)
+
+module Mirror = Jmap.Mirror
+(** Alias for the storage-independent mirror state machine in [jmap]. *)

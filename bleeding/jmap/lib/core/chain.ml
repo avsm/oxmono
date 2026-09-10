@@ -912,6 +912,84 @@ let contact_card_copy ~from_account_id ~account_id ?if_from_in_state
     (Proto_method.copy_response_jsont Contacts_card.jsont)
     state
 
+(* JMAP Calendars, draft-ietf-jmap-calendars-28. *)
+
+let calendar_get ~account_id ?ids ?properties ?properties_raw () state =
+  let props =
+    properties_arg ~to_string:Calendar_calendar.property_to_string properties
+      properties_raw
+  in
+  let args = [ ("accountId", json_of_id account_id) ] in
+  let args = add_id_source_arg ~name:"ids" args ids in
+  let args = add_properties_arg ~name:"properties" args props in
+  make ~name:"Calendar/get" ~args ?properties:props
+    (Proto_method.get_response_jsont Calendar_calendar.jsont)
+    state
+
+let calendar_state ~account_id state =
+  state_read ~name:"Calendar/get" ~account_id Calendar_calendar.jsont state
+
+let calendar_changes ~account_id ~since_state ?max_changes () state =
+  let args = build_changes_args ~account_id ~since_state ?max_changes () in
+  make ~name:"Calendar/changes" ~args Proto_method.changes_response_jsont state
+
+let calendar_event_get ~account_id ?ids ?properties ?properties_raw () state =
+  let props =
+    properties_arg ~to_string:Calendar_event.property_to_string properties
+      properties_raw
+  in
+  let args = [ ("accountId", json_of_id account_id) ] in
+  let args = add_id_source_arg ~name:"ids" args ids in
+  let args = add_properties_arg ~name:"properties" args props in
+  make ~name:"CalendarEvent/get" ~args ?properties:props
+    (Proto_method.get_response_jsont Calendar_event.jsont)
+    state
+
+let calendar_event_state ~account_id state =
+  state_read ~name:"CalendarEvent/get" ~account_id Calendar_event.jsont state
+
+let calendar_event_changes ~account_id ~since_state ?max_changes () state =
+  let args = build_changes_args ~account_id ~since_state ?max_changes () in
+  make ~name:"CalendarEvent/changes" ~args Proto_method.changes_response_jsont
+    state
+
+let participant_identity_get ~account_id ?ids ?properties ?properties_raw ()
+    state =
+  let props =
+    properties_arg ~to_string:Calendar_participant_identity.property_to_string
+      properties properties_raw
+  in
+  let args = [ ("accountId", json_of_id account_id) ] in
+  let args = add_id_source_arg ~name:"ids" args ids in
+  let args = add_properties_arg ~name:"properties" args props in
+  make ~name:"ParticipantIdentity/get" ~args ?properties:props
+    (Proto_method.get_response_jsont Calendar_participant_identity.jsont)
+    state
+
+let participant_identity_state ~account_id state =
+  state_read ~name:"ParticipantIdentity/get" ~account_id
+    Calendar_participant_identity.jsont state
+
+let participant_identity_changes ~account_id ~since_state ?max_changes () state
+    =
+  let args = build_changes_args ~account_id ~since_state ?max_changes () in
+  make ~name:"ParticipantIdentity/changes" ~args
+    Proto_method.changes_response_jsont state
+
+let calendar_event_query ~account_id ?filter ?sort ?position ?anchor
+    ?anchor_offset ?limit ?calculate_total ?expand_recurrences ?time_zone ()
+    state =
+  let args =
+    build_query_args ~account_id ?filter
+      ~filter_jsont:Calendar_event.filter_jsont ?sort ?position ?anchor
+      ?anchor_offset ?limit ?calculate_total ()
+  in
+  let args =
+    add_opt args "expandRecurrences" Jsont.Json.bool expand_recurrences
+  in
+  let args = add_opt args "timeZone" Jsont.Json.string time_zone in
+  make ~name:"CalendarEvent/query" ~args Proto_method.query_response_jsont state
+
 let invocation ~name ~arguments codec state =
   (match check_arguments arguments with
   | Ok () -> ()

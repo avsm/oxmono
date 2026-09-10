@@ -12,3 +12,5 @@ module Transport = Transport
 module Sync = Sync
 module Profile = Profile
 module Chain = Jmap.Chain
+module Calendars = Calendars
+module Mirror = Jmap.Mirror

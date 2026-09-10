@@ -7,6 +7,7 @@ let core = "urn:ietf:params:jmap:core"
 let mail = "urn:ietf:params:jmap:mail"
 let submission = "urn:ietf:params:jmap:submission"
 let vacation_response = "urn:ietf:params:jmap:vacationresponse"
+let calendars = "urn:ietf:params:jmap:calendars"
 let contacts = "urn:ietf:params:jmap:contacts"
 
 let empty_object_jsont kind =

@@ -18,6 +18,7 @@
  (modules
   jmap
   chain
+  mirror
   proto_id
   proto_int53
   proto_json
@@ -48,4 +49,8 @@
   mail_submission
   mail_vacation
   contacts_addressbook
-  contacts_card))
+  contacts_card
+  calendar_types
+  calendar_calendar
+  calendar_event
+  calendar_participant_identity))

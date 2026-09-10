@@ -62,8 +62,11 @@ val media :
   ?format:Jsont.format ->
   ?locs:bool ->
   ?max_depth:int ->
+  ?with_source:(source:string -> 'a -> 'a) @ portable ->
   'a Jsont.t ->
   'a Httpz_media.t
 (** [media jsont] is an HTTP media codec using {!decode} and {!encode}. [media]
     defaults to [application/json]. [accept] defaults to [application/*+json].
-    [locs] defaults to [true]. *)
+    [locs] defaults to [true]. [with_source], when supplied, attaches the
+    original source to the successfully decoded value. Validation and structured
+    errors are unchanged. *)

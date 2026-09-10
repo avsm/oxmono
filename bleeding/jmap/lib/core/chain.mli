@@ -1067,6 +1067,93 @@ val contact_card_copy :
       if the two accounts are the same or if [create] is empty, both of which
       RFC 8620 Section 5.4 rejects. *)
 
+(** {1 Calendar methods} *)
+
+val calendar_get :
+  account_id:Proto_id.t ->
+  ?ids:id_source ->
+  ?properties:Calendar_calendar.property list ->
+  ?properties_raw:string list ->
+  unit ->
+  (get, Calendar_calendar.t Proto_method.get_response) handle t
+(** [calendar_get ~account_id ()] adds a typed [Calendar/get] call. Omitted
+    properties retain the server defaults. *)
+
+val calendar_state : account_id:Proto_id.t -> (unit, string) handle t
+(** [calendar_state ~account_id] fetches the state with an empty ID list. *)
+
+val calendar_changes :
+  account_id:Proto_id.t ->
+  since_state:string ->
+  ?max_changes:int64 ->
+  unit ->
+  (changes, Proto_method.changes_response) handle t
+(** [calendar_changes ~account_id ~since_state ()] adds [Calendar/changes]. *)
+
+val calendar_event_get :
+  account_id:Proto_id.t ->
+  ?ids:id_source ->
+  ?properties:Calendar_event.property list ->
+  ?properties_raw:string list ->
+  unit ->
+  (get, Calendar_event.t Proto_method.get_response) handle t
+(** [calendar_event_get ~account_id ()] adds a typed [CalendarEvent/get] call.
+    Omitted properties retain the server defaults. *)
+
+val calendar_event_state : account_id:Proto_id.t -> (unit, string) handle t
+(** [calendar_event_state ~account_id] fetches the state with an empty ID list.
+*)
+
+val calendar_event_changes :
+  account_id:Proto_id.t ->
+  since_state:string ->
+  ?max_changes:int64 ->
+  unit ->
+  (changes, Proto_method.changes_response) handle t
+(** [calendar_event_changes ~account_id ~since_state ()] adds
+    [CalendarEvent/changes]. *)
+
+val participant_identity_get :
+  account_id:Proto_id.t ->
+  ?ids:id_source ->
+  ?properties:Calendar_participant_identity.property list ->
+  ?properties_raw:string list ->
+  unit ->
+  (get, Calendar_participant_identity.t Proto_method.get_response) handle t
+(** [participant_identity_get ~account_id ()] adds a typed
+    [ParticipantIdentity/get] call. Omitted properties retain the server
+    defaults. *)
+
+val participant_identity_state :
+  account_id:Proto_id.t -> (unit, string) handle t
+(** [participant_identity_state ~account_id] fetches the state with an empty ID
+    list. *)
+
+val participant_identity_changes :
+  account_id:Proto_id.t ->
+  since_state:string ->
+  ?max_changes:int64 ->
+  unit ->
+  (changes, Proto_method.changes_response) handle t
+(** [participant_identity_changes ~account_id ~since_state ()] adds
+    [ParticipantIdentity/changes]. *)
+
+val calendar_event_query :
+  account_id:Proto_id.t ->
+  ?filter:Calendar_event.filter ->
+  ?sort:Proto_filter.comparator list ->
+  ?position:int64 ->
+  ?anchor:Proto_id.t ->
+  ?anchor_offset:int64 ->
+  ?limit:int64 ->
+  ?calculate_total:bool ->
+  ?expand_recurrences:bool ->
+  ?time_zone:string ->
+  unit ->
+  (query, Proto_method.query_response) handle t
+(** [calendar_event_query ~account_id ()] adds a typed CalendarEvent query.
+    Expansion is requested only when [expand_recurrences] is supplied. *)
+
 (** {1 Other methods} *)
 
 val echo : Jsont.Json.t -> (unit, Jsont.Json.t) handle t

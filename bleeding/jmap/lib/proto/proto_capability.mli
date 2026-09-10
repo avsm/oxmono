@@ -30,6 +30,9 @@ val vacation_response : string
 (** [vacation_response] is [urn:ietf:params:jmap:vacationresponse], the RFC 8621
     vacation response capability. *)
 
+val calendars : string
+(** [calendars] is the JMAP Calendars capability. *)
+
 val contacts : string
 (** [contacts] is [urn:ietf:params:jmap:contacts], the
     {{:https://www.rfc-editor.org/rfc/rfc9610#section-1.4.1} RFC 9610 Section

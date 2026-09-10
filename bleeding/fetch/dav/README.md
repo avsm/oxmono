@@ -185,6 +185,9 @@ the home set named by the caller. HTTP, DAV, XML and Fetch transport errors
 are returned as results for composition with `Result.bind`. Cancellation and
 unexpected provider exceptions propagate. Invalid configuration can raise
 `Invalid_argument`. Credentials are attached to the origin of the URL given.
+An origin root returning 404, 405 or a redirect is retried once through the
+service's well-known path. Explicit resource paths and authentication failures
+are not retried. Discovery remains within the configured origin.
 The switch a session is connected under scopes `Session.download`, whose
 body streams until closed with `Fetch.close` or until that switch ends.
 Rejected downloads close immediately, including when reading their error

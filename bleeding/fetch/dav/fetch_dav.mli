@@ -217,7 +217,10 @@ module Session : sig
   (** [connect ~sw ~service ~home_set fetch url] is a session on the origin of
       [url]. A well-known URL of [service] is followed to its context path,
       whose current principal is read, and [home_set] is read from the
-      principal. [credentials] are attached to requests on that origin, over
+      principal. An origin root returning 404, 405 or a redirect is retried
+      once through the service's well-known discovery path. Authentication
+      failures and failures at explicit resource paths are not retried.
+      [credentials] are attached to requests on that origin, over
       TLS unless [allow_insecure]. [limits] and [lenient_hrefs] are those of
       {!v}. *)
 

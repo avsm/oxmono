@@ -7,3 +7,8 @@
  (name test_mirror)
  (modules test_mirror)
  (libraries fetch.dav httpz.dav fetch fetch.mock http eio eio_main eio.mock))
+
+(test
+ (name test_discovery)
+ (modules test_discovery)
+ (libraries fetch.dav httpz.dav fetch fetch.mock http eio eio.mock))

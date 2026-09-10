@@ -561,7 +561,19 @@ module Session = struct
       if String.ends_with ~suffix:well_known path || String.ends_with ~suffix:(well_known ^ "/") path
       then guard ~target:url (fun () -> context_path dav service)
       else Ok url in
-    let* principal = guard ~target:context (fun () -> principal dav context) in
+    let* principal =
+      let initial = guard ~target:context (fun () -> principal dav context) in
+      match initial with
+      | Error (Not_found _
+        | Http ((301 | 302 | 303 | 307 | 308 | 405), _)
+        | Dav ((301 | 302 | 303 | 307 | 308 | 405), _))
+        when path = "" || path = "/" ->
+        (* Origin roots need not be DAV resources. Discover a context path
+           once, without following arbitrary redirects or retrying auth. *)
+        let* discovered = guard ~target:url (fun () -> context_path dav service) in
+        if discovered = context then initial
+        else guard ~target:discovered (fun () -> principal dav discovered)
+      | result -> result in
     let* home_sets = guard ~target:principal (fun () -> home_set dav home principal) in
     if home_sets = [] then Error (Discovery (principal ^ " names no " ^ snd home))
     else Ok { dav; sw; principal; home_sets }

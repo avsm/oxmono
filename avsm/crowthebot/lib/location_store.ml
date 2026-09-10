@@ -13,6 +13,10 @@ type point = {
   longitude : float;
   accuracy : float option;
   recorded_at : float;
+  reported_at : float option;
+  ssid : string option;
+  bssid : string option;
+  conn : string option;
 }
 
 type link = {
@@ -42,11 +46,21 @@ CREATE TABLE IF NOT EXISTS locations_people(
  recorded_at REAL, checked_at TEXT);
 INSERT OR IGNORE INTO tool_schemas VALUES('locations',1);
 |};
-  if
+  match
     rows db "SELECT version FROM tool_schemas WHERE name='locations'" []
       (fun s -> Sqlite3.column_int s 0)
-    <> [ 1 ]
-  then invalid_arg "Unsupported locations tool schema."
+  with
+  | [ 2 ] -> ()
+  | [ 1 ] ->
+      sql db
+        {|
+ALTER TABLE locations_people ADD COLUMN reported_at REAL;
+ALTER TABLE locations_people ADD COLUMN ssid TEXT;
+ALTER TABLE locations_people ADD COLUMN bssid TEXT;
+ALTER TABLE locations_people ADD COLUMN conn TEXT;
+UPDATE tool_schemas SET version=2 WHERE name='locations';
+|}
+  | _ -> invalid_arg "Unsupported locations tool schema."
 
 let access t actor f =
   locked t.mutex (fun () ->
@@ -81,6 +95,14 @@ let valid_point ~now p =
   && Option.fold ~none:true
        ~some:(fun a -> Float.is_finite a && a >= 0.)
        p.accuracy
+  && Option.fold ~none:true
+       ~some:(fun at -> Float.is_finite at && at >= 0. && at <= now +. 300.)
+       p.reported_at
+  && List.for_all
+       (Option.fold ~none:true ~some:(fun s -> String.length s <= 256))
+       [ p.ssid; p.bssid; p.conn ]
+
+let report_time p = Option.value ~default:p.recorded_at p.reported_at
 
 let float_opt s i =
   match Sqlite3.column s i with
@@ -88,7 +110,7 @@ let float_opt s i =
   | _ -> Some (Sqlite3.column_double s i)
 
 let columns =
-  "person,connection,user,device,actor,room,event,attached_at,latitude,longitude,accuracy,recorded_at,checked_at"
+  "person,connection,user,device,actor,room,event,attached_at,latitude,longitude,accuracy,recorded_at,checked_at,reported_at,ssid,bssid,conn"
 
 let row s =
   {
@@ -108,6 +130,10 @@ let row s =
             longitude = Sqlite3.column_double s 9;
             accuracy = float_opt s 10;
             recorded_at;
+            reported_at = float_opt s 13;
+            ssid = string_opt s 14;
+            bssid = string_opt s 15;
+            conn = string_opt s 16;
           })
         (float_opt s 11);
     checked_at = string_opt s 12;
@@ -142,7 +168,8 @@ INSERT INTO locations_people(person,connection,user,device,actor,room,event,atta
 VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(person) DO UPDATE SET
 connection=excluded.connection,user=excluded.user,device=excluded.device,
 actor=excluded.actor,room=excluded.room,event=excluded.event,attached_at=excluded.attached_at,
-latitude=NULL,longitude=NULL,accuracy=NULL,recorded_at=NULL,checked_at=NULL
+latitude=NULL,longitude=NULL,accuracy=NULL,recorded_at=NULL,checked_at=NULL,
+reported_at=NULL,ssid=NULL,bssid=NULL,conn=NULL
 |}
         [
           text person;
@@ -176,7 +203,7 @@ let update t ~actor (link : link) point =
       in
       let point =
         match (current.point, point) with
-        | Some old, Some fresh when old.recorded_at > fresh.recorded_at ->
+        | Some old, Some fresh when report_time old > report_time fresh ->
             Some old
         | old, None -> old
         | _, point -> point
@@ -184,7 +211,7 @@ let update t ~actor (link : link) point =
       let field f = optional (fun p -> Sqlite3.Data.FLOAT (f p)) point in
       execute t.db
         {|
-UPDATE locations_people SET latitude=?,longitude=?,accuracy=?,recorded_at=?,checked_at=? WHERE person=?
+UPDATE locations_people SET latitude=?,longitude=?,accuracy=?,recorded_at=?,checked_at=?,reported_at=?,ssid=?,bssid=?,conn=? WHERE person=?
 |}
         [
           field (fun p -> p.latitude);
@@ -194,6 +221,12 @@ UPDATE locations_people SET latitude=?,longitude=?,accuracy=?,recorded_at=?,chec
             (Option.bind point (fun p -> p.accuracy));
           field (fun p -> p.recorded_at);
           text (t.timestamp (t.now ()));
+          optional
+            (fun at -> Sqlite3.Data.FLOAT at)
+            (Option.bind point (fun p -> p.reported_at));
+          optional text (Option.bind point (fun p -> p.ssid));
+          optional text (Option.bind point (fun p -> p.bssid));
+          optional text (Option.bind point (fun p -> p.conn));
           text link.person;
         ];
       Option.get (find t link.person))

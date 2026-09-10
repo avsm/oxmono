@@ -14,9 +14,17 @@ let optional names doc = Arg.(value & opt (some string) None & info names ~doc)
 let api_key_file =
   optional [ "api-key-file" ] "0600 file containing the model API key."
 
-let run action =
+let verbose =
+  Arg.(
+    value & flag
+    & info [ "v"; "verbose" ]
+        ~doc:
+          "Log Crow startup, Matrix routing, model calls and reply delivery to \
+           stderr. Includes identifiers, but not message bodies or secrets.")
+
+let run ?(verbose = false) action =
   Logs.set_reporter (Logs_fmt.reporter ());
-  Logs.set_level (Some Logs.Warning);
+  Crowthebot.Diagnostics.configure ~verbose;
   try
     Eio_main.run (fun env -> Eio.Switch.run (fun sw -> action env sw));
     0
@@ -33,7 +41,9 @@ let run action =
       prerr_endline "Operation timed out.";
       1
   | Eio.Cancel.Cancelled _ -> 130
-  | _ ->
+  | exn ->
+      Crowthebot.Diagnostics.Log.info (fun m ->
+          m "Command failed: %s" (Crowthebot.Diagnostics.error exn));
       prerr_endline
         "Operation failed. Check the profile and network connection.";
       1
@@ -72,9 +82,10 @@ let join =
 let serve =
   command "run" "Run Crow in enabled rooms and approved direct messages."
     Term.(
-      const (fun profile api_key_file ->
-          run (fun env sw -> Crowthebot.App.run ~env ~sw ~profile ~api_key_file))
-      $ profile $ api_key_file)
+      const (fun profile api_key_file verbose ->
+          run ~verbose (fun env sw ->
+              Crowthebot.App.run ~env ~sw ~profile ~api_key_file))
+      $ profile $ api_key_file $ verbose)
 
 let verify =
   command "verify" "Verify Crow's saved Matrix device by comparing emoji."
@@ -157,12 +168,26 @@ let feeds =
       $ Arg.(non_empty & pos_all string [] & info [] ~docv:"COMMAND"))
 
 let probe =
-  command "probe" "Test the configured model without sending Matrix messages."
+  command "probe"
+    "Test the model and CalDAV connections without Matrix messages."
     Term.(
-      const (fun profile api_key_file ->
-          run (fun env sw ->
-              Crowthebot.App.probe ~env ~sw ~profile ~api_key_file))
-      $ profile $ api_key_file)
+      const (fun profile api_key_file verbose caldav model_only ->
+          run ~verbose (fun env sw ->
+              let target =
+                match (caldav, model_only) with
+                | Some _, true ->
+                    invalid_arg "Use either --caldav or --model-only."
+                | Some name, false -> `Caldav name
+                | None, true -> `Model
+                | None, false -> `All
+              in
+              Crowthebot.App.probe ~env ~sw ~profile ~api_key_file ~target))
+      $ profile $ api_key_file $ verbose
+      $ optional [ "caldav" ]
+          "Test only this named CalDAV connection, without OpenRouter."
+      $ Arg.(
+          value & flag
+          & info [ "model-only" ] ~doc:"Test only the configured model."))
 
 let config =
   Cmd.group
@@ -174,8 +199,34 @@ let config =
                 Crowthebot.App.configure ~env ~sw ~profile action)))
        [
          Crowthebot.Locations.configuration;
+         Crowthebot.Calendar_source.configuration;
+         Crowthebot.Caldav_source.configuration;
+         Crowthebot.Email_source.read_configuration;
+         Crowthebot.Email_source.write_configuration;
          Crowthebot.Model_config.configuration;
        ])
+
+let inspect =
+  command "inspect"
+    "Inspect pending work and tool state as JSON, including while Crow runs."
+    Term.(
+      const (fun profile section after limit ->
+          run (fun env sw ->
+              Crowthebot.Inspect.run ~env ~sw ~profile ~section ~after ~limit))
+      $ profile
+      $ Arg.(
+          value
+          & opt
+              (enum (List.map (fun s -> (s, s)) Crowthebot.Inspect.sections))
+              "pending"
+          & info [ "section" ]
+              ~doc:"Database view. Defaults to pending reminders.")
+      $ Arg.(
+          value & opt int 0
+          & info [ "after" ] ~doc:"Continue after this row cursor.")
+      $ Arg.(
+          value & opt int 20
+          & info [ "limit" ] ~doc:"Page size, between 1 and 100."))
 
 let () =
   exit
@@ -196,4 +247,5 @@ let () =
             feeds;
             probe;
             config;
+            inspect;
           ]))

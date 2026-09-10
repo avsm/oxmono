@@ -149,7 +149,7 @@ let () =
     | _ -> false);
   let flood =
     Fetch_mock.client
-      (Fetch_mock.respond (String.make ((2 * 1024 * 1024) + 2) 'x'))
+      (Fetch_mock.respond (String.make (Feed_http.max_bytes + 2) 'x'))
   in
   check "HTTP body bounded"
     (failed (fun () ->
@@ -372,7 +372,7 @@ let () =
         if !issued then (Some "Subscribed to your feed.", [])
         else begin
           issued := true;
-          check "memory, cron and feed tools available" (List.length tools = 13);
+          check "memory, cron and feed tools available" (List.length tools = 15);
           ( None,
             [
               Openrouter.Tool.

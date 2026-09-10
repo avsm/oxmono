@@ -9,10 +9,20 @@ type person = { user : string; role : role; allowed : bool }
 type message = { role : string; body : string }
 type t
 
+val room_context : t -> Room_context.t
+(** [room_context store] accesses bounded observations shared within each room.
+*)
+
+val trace : t -> Trace.t
+(** [trace store] records model exchanges in the profile database. *)
+
+val compaction : t -> Compaction.t
+(** [compaction store] accesses conversation summaries within this profile. *)
+
 val create : ?now:(unit -> float) -> Sqlite3_eio.t -> admin:string -> t
 (** [create db ~admin] initializes the schema or verifies its saved primary
     admin. A different admin is rejected. [now] defaults to Unix time. Versions
-    1 through 4 are migrated atomically. Unfinished tool calls and reminder runs
+    1 through 7 are migrated atomically. Unfinished tool calls and reminder runs
     become interrupted on reopening. The caller owns [db]'s switch and must open
     the profile only once at startup. *)
 
@@ -54,10 +64,13 @@ val append :
   user:string ->
   max_messages:int ->
   max_bytes:int ->
+  ?event:string ->
+  ?source_event:string ->
   message list ->
   unit
 (** [append t ~room ~user ~max_messages ~max_bytes messages] appends and trims
-    the thread atomically. Most recent messages are kept within both bounds. *)
+    the thread atomically. Most recent messages are kept within both bounds.
+    [event] and [source_event] retain message or scheduler provenance. *)
 
 val timestamp : float -> string
 val today : t -> string
@@ -218,3 +231,7 @@ val feeds : t -> Feed_store.t
 
 val locations : t -> Location_store.t
 (** [locations t] projects the typed location state capability. *)
+
+val calendars : t -> Calendar_store.t
+val caldav : t -> Caldav_store.t
+val emails : t -> Email_cache.t

@@ -7,6 +7,15 @@ let render (note : Store.daily_note) =
   Printf.sprintf "%s UTC: %d tool calls\n%s" note.day note.tool_count note.body
 
 let generate ~store ~(config : Config.t) ~complete ~day =
+  Trace.with_context
+    {
+      actor = Store.admin store;
+      room = "local";
+      event = day;
+      source_event = "";
+      source = "daily-note";
+    }
+  @@ fun () ->
   Store.validate_day day;
   if day >= Store.today store then
     invalid_arg "Daily notes summarize completed UTC days.";

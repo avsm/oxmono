@@ -102,9 +102,13 @@ val probe :
   sw:Eio.Switch.t ->
   profile:string ->
   api_key_file:string option ->
+  target:[ `All | `Model | `Caldav of string ] ->
   unit
-(** [probe ~env ~sw ~profile ~api_key_file] sends a synthetic prompt to the
-    configured model. It does not connect to Matrix. *)
+(** [probe ~env ~sw ~profile ~api_key_file ~target] checks the model and every
+    CalDAV connection with [`All], or only the selected service. Checks continue
+    after failures and the command fails if any check fails. CalDAV uses the
+    restricted runtime source, without saving a mirror or registering a job. It
+    does not connect to Matrix. The profile must be stopped. *)
 
 val complete :
   Eio_unix.Stdenv.base -> Config.t -> Openrouter.t -> Engine.complete

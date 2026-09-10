@@ -2,24 +2,58 @@ type document =
   | Opml of string * string list
   | Feed of string * string * Feed_store.entry list
 
-let xml_root body =
-  if String.length body > 2 * 1024 * 1024 then invalid_arg "Feed exceeds 2 MiB.";
+let inspect ~url body =
+  if String.length body > Feed_http.max_bytes then
+    invalid_arg "Feed page exceeds 64 MiB.";
   let input = Xmlm.make_input (`String (0, body)) in
   let depth = ref 0 and count = ref 0 and root = ref None in
+  let bases = ref [ url ] and next = ref None in
+  let resolve base target =
+    Uri.(to_string (resolve "" (of_string base) (of_string target)))
+  in
   while not (Xmlm.eoi input) do
     incr count;
-    if !count > 100000 then invalid_arg "Feed XML has too many nodes.";
+    if !count > 2000000 then invalid_arg "Feed XML has too many nodes.";
     match Xmlm.input input with
     | `Dtd None -> ()
     | `Dtd (Some _) -> invalid_arg "Feed DTDs are forbidden."
-    | `El_start (name, _) ->
+    | `El_start (name, attrs) ->
         incr depth;
         if !depth > 64 then invalid_arg "Feed XML is too deeply nested.";
-        if !root = None then root := Some name
-    | `El_end -> decr depth
+        if !root = None then root := Some name;
+        let base = List.hd !bases in
+        let base =
+          match
+            List.assoc_opt
+              ("http://www.w3.org/XML/1998/namespace", "base")
+              attrs
+          with
+          | None -> base
+          | Some value -> resolve base value
+        in
+        bases := base :: !bases;
+        if
+          name = ("http://www.w3.org/2005/Atom", "link")
+          && (!root = Some ("http://www.w3.org/2005/Atom", "feed")
+              && !depth = 2
+             || (!root = Some ("", "rss") && !depth = 3))
+        then
+          begin match
+            (List.assoc_opt ("", "rel") attrs, List.assoc_opt ("", "href") attrs)
+          with
+          | Some (("next" | "prev-archive") as rel), Some href ->
+              let priority = if rel = "next" then 0 else 1 in
+              if Option.fold ~none:true ~some:(fun (p, _) -> priority < p) !next
+              then
+                next := Some (priority, Feed_http.normalize (resolve base href))
+          | _ -> ()
+          end
+    | `El_end ->
+        decr depth;
+        bases := List.tl !bases
     | `Data _ -> ()
   done;
-  Option.get !root
+  (Option.get !root, Option.map snd !next)
 
 let atom_text (text : Syndic.Atom.text_construct) =
   match text with
@@ -54,14 +88,15 @@ let entry ~fallback (e : Sortal_feed.Entry.t) =
       key = digest identity;
       title = clip ~bytes:512 title;
       summary = clip ~bytes:2048 summary;
+      content = Option.value ~default:summary e.content;
       url = link e.url;
       published;
       observed_at = "";
     }
 
-let decode ~url body =
+let decode_page ~url body =
   try
-    let root = xml_root body in
+    let root, next = inspect ~url body in
     let input () = Xmlm.make_input (`String (0, body)) in
     let xmlbase = Uriz.of_string_exn url in
     let result =
@@ -115,17 +150,20 @@ let decode ~url body =
                       summary =
                         clip ~bytes:2048
                           (Option.value ~default:"" e.description);
+                      content = Option.value ~default:"" e.description;
                       observed_at = "";
                     })
                 feed.item )
       | _ -> invalid_arg "Expected RSS, Atom or OPML, not a web page."
     in
     (match result with
-    | Feed (_, _, entries) when List.length entries > 2000 ->
-        invalid_arg "Feed contains more than 2000 entries."
+    | Feed (_, _, entries) when List.length entries > 50000 ->
+        invalid_arg "Feed page contains more than 50000 entries."
     | _ -> ());
-    Ok result
+    Ok (result, next)
   with
   | Eio.Cancel.Cancelled _ as exn -> raise exn
   | Invalid_argument m -> Error m
   | _ -> Error "Could not parse this RSS, Atom or OPML document."
+
+let decode ~url body = Result.map fst (decode_page ~url body)

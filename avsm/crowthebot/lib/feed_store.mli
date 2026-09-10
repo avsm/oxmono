@@ -31,6 +31,7 @@ type source = {
   error : string option;
   failures : int;
   retry_at : float;
+  next_url : string option;
 }
 
 type subscription = {
@@ -62,6 +63,7 @@ type entry = {
   published : string option;
   summary : string;
   observed_at : string;
+  content : string;
 }
 
 val get : t -> actor:string -> int -> subscription * source
@@ -108,6 +110,8 @@ val entries :
   t -> actor:string -> subscription_id:int -> after:int -> entry list
 
 val complete_poll :
+  ?next_url:string ->
+  ?page_url:string ->
   t ->
   actor:string ->
   member_id:int ->
@@ -117,6 +121,32 @@ val complete_poll :
   last_modified:string option ->
   entries:entry list ->
   unit
+(** [complete_poll ?next_url ?page_url t ~actor ~member_id ~kind ~title ~etag
+     ~last_modified ~entries] commits one imported page and its continuation.
+    [page_url] defaults to the source URL. Continuations retain root validators
+    and queue active polling jobs after 60 seconds, respecting their expiry.
+    Pagination cycles roll back the page. *)
+
+val search :
+  t ->
+  actor:string ->
+  subscription_id:int ->
+  after:int ->
+  query:string ->
+  entry list
+(** [search t ~actor ~subscription_id ~after ~query] reads five matching
+    mirrored entries after [after], in ID order. [query] uses FTS5 syntax. *)
+
+val read_content :
+  t ->
+  actor:string ->
+  subscription_id:int ->
+  entry_id:int ->
+  offset:int ->
+  string * int
+(** [read_content t ~actor ~subscription_id ~entry_id ~offset] reads at most
+    2049 bytes of a mirrored article and its total byte length. The extra byte
+    allows a caller to end a 2048-byte page on a UTF-8 boundary. *)
 
 val not_modified : t -> actor:string -> member_id:int -> unit
 val failed : t -> actor:string -> member_id:int -> string -> unit
@@ -124,6 +154,7 @@ val failed : t -> actor:string -> member_id:int -> string -> unit
 val pending : t -> actor:string -> member_id:int -> entry list
 (** [pending ...] establishes a baseline on the first successful poll. Later
     calls return up to ten undelivered entries, including after a failed send.
+    An unfinished import returns no entries and leaves the baseline unchanged.
 *)
 
 val acknowledge : t -> actor:string -> member_id:int -> through:int -> unit

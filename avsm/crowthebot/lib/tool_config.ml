@@ -65,8 +65,6 @@ let secret ~label = function
       if not (Unix.isatty Unix.stdin) then
         invalid_arg "Use a secret file outside an interactive terminal.";
       let before = Unix.tcgetattr Unix.stdin in
-      prerr_string (label ^ ": ");
-      flush stderr;
       Fun.protect
         ~finally:(fun () ->
           Unix.tcsetattr Unix.stdin Unix.TCSAFLUSH before;
@@ -74,6 +72,8 @@ let secret ~label = function
         (fun () ->
           Unix.tcsetattr Unix.stdin Unix.TCSAFLUSH
             { before with c_echo = false };
+          prerr_string (label ^ ": ");
+          flush stderr;
           let value = read_line () in
           if
             value = ""

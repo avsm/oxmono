@@ -1,5 +1,6 @@
 module Context = Matrix_bot.Context
 module Id = Matrix_proto.Id
+module Log = Diagnostics.Log
 
 let with_timeout env seconds f =
   Eio.Time.Timeout.run_exn
@@ -37,6 +38,7 @@ let password_prompt () =
       read_line ())
 
 let connect ~env ~sw ~profile config ?username ?password () =
+  Log.info (fun m -> m "Connecting Matrix profile=%S" profile);
   let store =
     Matrix_client.Profile_store.create
       ~xdg:(Xdge.create (Eio.Stdenv.fs env) "matrix")
@@ -63,6 +65,10 @@ let connect ~env ~sw ~profile config ?username ?password () =
   | Ok ctx ->
       if Id.User_id.to_string (Context.user_id ctx) = config.admin then
         invalid_arg "use a separate Matrix account for the bot";
+      Log.info (fun m ->
+          m "Matrix connected user=%S encryption=%b"
+            (Id.User_id.to_string (Context.user_id ctx))
+            (Context.encryption ctx <> None));
       ctx
 
 let login ~env ~sw ~profile ~username ~password_file =
@@ -123,7 +129,8 @@ let configure ~env ~sw ~profile action =
   let dir = Profile.directory env profile in
   with_secrets ~env ~sw ~profile ~dir action
 
-let model ~env ~sw ~profile ~dir config client api_key_file =
+let model ~env ~sw ~profile ~dir ~store config client api_key_file =
+  let client = Trace.wrap (Store.trace store) client in
   let fallback () =
     Openrouter.of_fetch ~base_url:config.Config.base_url
       ~max_response_bytes:(1024 * 1024)
@@ -142,12 +149,80 @@ let model ~env ~sw ~profile ~dir config client api_key_file =
                  config openrouter select.";
             fallback ())
 
+let calendar_tools ~env ~sw ~profile ~dir store =
+  let fetch = fetch env and clock = Eio.Stdenv.clock env in
+  with_secrets ~env ~sw ~profile ~dir (fun secrets ->
+      let names = Secret_store.list secrets ~tool:"calendar" in
+      let default = List.find_opt snd names |> Option.map fst in
+      let sources =
+        List.map
+          (fun (name, _) ->
+            let settings =
+              Option.get (Secret_store.get secrets ~tool:"calendar" ~name)
+            in
+            (name, Calendar_source.initialize ~sw ~fetch ~clock settings))
+          names
+      in
+      Calendars.create ~state:(Store.calendars store) ~sources ~default)
+
+let caldav_tools ~env ~sw ~profile ~dir store =
+  let fetch = fetch env and clock = Eio.Stdenv.clock env in
+  with_secrets ~env ~sw ~profile ~dir (fun secrets ->
+      let names = Secret_store.list secrets ~tool:"caldav" in
+      let default = List.find_opt snd names |> Option.map fst in
+      let sources =
+        List.map
+          (fun (name, _) ->
+            let settings =
+              Option.get (Secret_store.get secrets ~tool:"caldav" ~name)
+            in
+            (name, Caldav_source.initialize ~sw ~fetch ~clock settings))
+          names
+      in
+      Caldav_tools.create ~state:(Store.caldav store) ~sources ~default)
+
+let email_tools ~env ~sw ~profile ~dir store =
+  let fetch = fetch env and clock = Eio.Stdenv.clock env in
+  with_secrets ~env ~sw ~profile ~dir (fun secrets ->
+      let load tool initialize =
+        let names = Secret_store.list secrets ~tool in
+        let default = List.find_opt snd names |> Option.map fst in
+        let sources =
+          List.map
+            (fun (name, _) ->
+              let settings =
+                Option.get (Secret_store.get secrets ~tool ~name)
+              in
+              (name, initialize ~sw ~fetch ~clock settings))
+            names
+        in
+        (sources, default)
+      in
+      let readers, default_reader =
+        load "email-ro" Email_source.initialize_reader
+      in
+      let writers, default_writer =
+        load "email-rw" Email_source.initialize_writer
+      in
+      Emails.create ~state:(Store.emails store) ~readers ~writers
+        ~default_reader ~default_writer)
+
 let location_tools ~env ~sw ~profile ~dir store =
   let client = fetch env in
   let clock = Eio.Stdenv.mono_clock env in
   let now =
     let clock = Eio.Stdenv.clock env in
     fun () -> Eio.Time.now clock
+  in
+  let load path =
+    let profiles = Filename.dirname (Unix.realpath (Eio.Path.native_exn dir)) in
+    let native = Unix.realpath path in
+    if native = profiles || String.starts_with ~prefix:(profiles ^ "/") native
+    then
+      invalid_arg
+        "OwnTracks configuration must be outside Matrix profile data and tool \
+         workspaces.";
+    Owntracks_source.load_config path
   in
   with_secrets ~env ~sw ~profile ~dir (fun secrets ->
       let sources = Secret_store.list secrets ~tool:"owntracks" in
@@ -159,7 +234,8 @@ let location_tools ~env ~sw ~profile ~dir store =
               Option.get (Secret_store.get secrets ~tool:"owntracks" ~name)
             in
             ( name,
-              Owntracks_source.initialize ~fetch:client ~clock ~now settings ))
+              Owntracks_source.initialize ~load ~fetch:client ~clock ~now
+                settings ))
           sources
       in
       Locations.create ~state:(Store.locations store) ~sources ~default)
@@ -167,22 +243,57 @@ let location_tools ~env ~sw ~profile ~dir store =
 let complete env (config : Config.t) client =
   let clock = Eio.Stdenv.mono_clock env in
   fun messages tools ->
-    Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 90.) @@ fun () ->
-    let request =
-      Openrouter.Chat.request ~model:config.Config.model
-        ~max_tokens:config.max_tokens ~messages
-        ?tools:(if tools = [] then None else Some tools)
-        ?parallel_tool_calls:(if tools = [] then None else Some false)
-        ()
-    in
-    let result = Openrouter.Chat.complete client request in
-    match
-      List.find_opt
-        (fun (c : Openrouter.Chat.choice) -> c.index = 0)
-        result.choices
-    with
-    | None -> failwith "no model choice"
-    | Some choice -> (choice.text, choice.tool_calls)
+    let started = Eio.Time.Mono.now clock in
+    Log.info (fun m ->
+        m "Model request started model=%S messages=%d tools=%d" config.model
+          (List.length messages) (List.length tools));
+    try
+      Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 90.) @@ fun () ->
+      let compacting =
+        match Trace.current () with
+        | Some context -> context.source = "context-compaction"
+        | None -> false
+      in
+      let max_tokens =
+        if compacting then max 4096 config.max_tokens else config.max_tokens
+      in
+      let request =
+        Openrouter.Chat.request ~model:config.Config.model ~max_tokens ~messages
+          ?tools:(if tools = [] then None else Some tools)
+          ?parallel_tool_calls:(if tools = [] then None else Some false)
+          ()
+      in
+      let result = Openrouter.Chat.complete client request in
+      match
+        List.find_opt
+          (fun (c : Openrouter.Chat.choice) -> c.index = 0)
+          result.choices
+      with
+      | None -> failwith "no model choice"
+      | Some choice ->
+          Log.info (fun m ->
+              m
+                "Model request completed elapsed_ms=%.0f text_bytes=%d \
+                 tool_calls=%d finish_reason=%s"
+                (Mtime.Span.to_float_ns
+                   (Mtime.span started (Eio.Time.Mono.now clock))
+                /. 1e6)
+                (Option.fold ~none:0 ~some:String.length choice.text)
+                (List.length choice.tool_calls)
+                (match choice.finish_reason with
+                | Some Openrouter.Chat.Stop -> "stop"
+                | Some Length -> "length"
+                | Some Tool_calls -> "tool_calls"
+                | Some Content_filter -> "content_filter"
+                | Some (Other _) -> "other"
+                | None -> "absent"));
+          if compacting && choice.finish_reason = Some Openrouter.Chat.Length
+          then raise Diagnostics.Model_output_limit;
+          (choice.text, choice.tool_calls)
+    with exn ->
+      let bt = Printexc.get_raw_backtrace () in
+      Log.err (fun m -> m "Model request failed: %s" (Diagnostics.error exn));
+      Printexc.raise_with_backtrace exn bt
 
 let people ~env ~sw ~profile =
   with_profile ~env ~sw ~profile @@ fun _ _ store ->
@@ -219,7 +330,7 @@ let note ~env ~sw ~profile ~day ~generate ~api_key_file =
   let note =
     if generate then
       let client =
-        model ~env ~sw ~profile ~dir config (fetch env) api_key_file
+        model ~env ~sw ~profile ~dir ~store config (fetch env) api_key_file
       in
       Some
         (Daily.generate ~store ~config
@@ -250,15 +361,90 @@ let feeds ~env ~sw ~profile ~command =
        ~call_id:"" ~tool:name ~arguments (fun () ->
          Feeds.invoke capability name arguments))
 
-let probe ~env ~sw ~profile ~api_key_file =
-  with_profile ~env ~sw ~profile @@ fun dir config _ ->
-  let client = model ~env ~sw ~profile ~dir config (fetch env) api_key_file in
-  let text, _ =
-    complete env config client
-      [ Openrouter.Message.user "Reply with CROW_OK." ]
-      []
+let probe ~env ~sw ~profile ~api_key_file ~target =
+  with_profile ~env ~sw ~profile @@ fun dir config store ->
+  let model_check () =
+    let client =
+      model ~env ~sw ~profile ~dir ~store config (fetch env) api_key_file
+    in
+    Trace.with_context
+      {
+        actor = Store.admin store;
+        room = "local";
+        event = "";
+        source_event = "";
+        source = "probe";
+      }
+    @@ fun () ->
+    let text, calls =
+      complete env config client
+        [ Openrouter.Message.user "Reply with CROW_OK." ]
+        []
+    in
+    match (text, calls) with
+    | Some text, [] when String.trim text <> "" ->
+        print_endline (Plugin.clip ~bytes:1024 text)
+    | _ -> failwith "Model probe returned no text or unexpected tool calls."
   in
-  print_endline (Option.value ~default:"No text returned" text)
+  let caldav_check selected =
+    let configurations =
+      with_secrets ~env ~sw ~profile ~dir (fun secrets ->
+          let names =
+            match selected with
+            | None -> Secret_store.list secrets ~tool:"caldav" |> List.map fst
+            | Some name ->
+                Secret_store.validate_name name;
+                [ name ]
+          in
+          List.map
+            (fun name -> (name, Secret_store.get secrets ~tool:"caldav" ~name))
+            names)
+    in
+    let client = fetch env and clock = Eio.Stdenv.clock env in
+    let sources =
+      List.map
+        (fun (name, settings) ->
+          ( name,
+            fun () ->
+              match settings with
+              | Some settings ->
+                  Caldav_source.initialize ~sw ~fetch:client ~clock settings
+              | None ->
+                  invalid_arg
+                    "Connection is not configured. Use config caldav set NAME."
+          ))
+        configurations
+    in
+    Caldav_probe.run ~emit:print_endline sources
+  in
+  let model_ok =
+    match target with
+    | `Caldav _ -> true
+    | `All | `Model -> (
+        try
+          model_check ();
+          true
+        with
+        | Eio.Cancel.Cancelled _ as exn -> raise exn
+        | exn ->
+            Printf.printf "Model: FAILED (%s)\n%!" (Diagnostics.error exn);
+            false)
+  in
+  let caldav_ok =
+    match target with
+    | `Model -> true
+    | (`All | `Caldav _) as target -> (
+        try
+          caldav_check
+            (match target with `Caldav name -> Some name | _ -> None)
+        with
+        | Eio.Cancel.Cancelled _ as exn -> raise exn
+        | exn ->
+            Printf.printf "CalDAV: FAILED (%s)\n%!" (Diagnostics.error exn);
+            false)
+  in
+  if not (model_ok && caldav_ok) then
+    failwith "One or more probe checks failed."
 
 let verify ~env ~sw ~profile ~user ~listen ~room ~recovery_key_file =
   with_profile ~env ~sw ~profile @@ fun _ config _ ->
@@ -335,10 +521,15 @@ let verify ~env ~sw ~profile ~user ~listen ~room ~recovery_key_file =
         ^ Matrix_client.Verification.Cancel_code.reason code)
 
 let run ~env ~sw ~profile ~api_key_file =
+  Log.info (fun m -> m "Starting Crow profile=%S" profile);
   with_profile ~env ~sw ~profile @@ fun dir config store ->
+  Log.info (fun m ->
+      m "Profile loaded admin=%S enabled_rooms=%d" config.admin
+        (List.length (Store.rooms store)));
   let ctx = connect ~env ~sw ~profile config () in
   let client = fetch env in
-  let model = model ~env ~sw ~profile ~dir config client api_key_file in
+  let model = model ~env ~sw ~profile ~dir ~store config client api_key_file in
+  let matrix_state = ref (fun () -> None) in
   let engine =
     Engine.create ~config ~store
       ~self:(Id.User_id.to_string (Context.user_id ctx))
@@ -347,18 +538,41 @@ let run ~env ~sw ~profile ~api_key_file =
       ~now:(now env)
     |> fun engine ->
     Engine.with_feeds engine (feed_tools env store) |> fun engine ->
+    Engine.with_calendars engine (calendar_tools ~env ~sw ~profile ~dir store)
+    |> fun engine ->
+    Engine.with_caldav engine (caldav_tools ~env ~sw ~profile ~dir store)
+    |> fun engine ->
+    Engine.with_emails engine (email_tools ~env ~sw ~profile ~dir store)
+    |> fun engine ->
     Engine.with_locations engine (location_tools ~env ~sw ~profile ~dir store)
+    |> Engine.with_room_observation
+    |> fun engine ->
+    Engine.with_matrix engine
+      (Matrix_rooms.create ~store ~state:(fun () -> !matrix_state ()))
   in
+  Log.info (fun m -> m "Model and tool configurations loaded");
   let self = Id.User_id.to_string (Context.user_id ctx) in
-  let direct_peer bot room =
+  let direct_peer bot room ~actor =
     let room_id = Matrix_bot.Room.id room in
     let saved = Store.direct_peer store (Id.Room_id.to_string room_id) in
     let marked = Matrix_bot.Room.is_dm room || saved <> None in
-    if not marked then None
+    let admin = if actor = Store.admin store then Some actor else None in
+    if (not marked) && admin = None then begin
+      Log.info (fun m ->
+          m "DM check room=%S marked=false; requires an enabled group room"
+            (Id.Room_id.to_string room_id));
+      None
+    end
     else begin
       (match Matrix_bot.Room.sync_members room with
       | Ok () -> ()
-      | Error _ -> failwith "could not check DM membership");
+      | Error error ->
+          Log.err (fun m ->
+              m "DM membership fetch failed room=%S error=%s"
+                (Id.Room_id.to_string room_id)
+                (Diagnostics.matrix_error
+                   (Matrix_eio.Error.of_client_error error)));
+          failwith "could not check DM membership");
       let state =
         Matrix_eio.Sync_service.state
           (Matrix_ui.Runtime.sync_service (Matrix_bot.Bot.runtime bot))
@@ -368,15 +582,34 @@ let run ~env ~sw ~profile ~api_key_file =
         | Some info -> info.members_complete
         | None -> false
       in
-      match
-        Address.direct_peer ~self ~marked ~complete
-          (List.map Id.User_id.to_string (Matrix_bot.Room.members room))
-      with
-      | Some peer when saved = None || saved = Some peer -> Some peer
-      | _ -> None
+      let members = Matrix_bot.Room.members room in
+      let peer =
+        Address.direct_peer ?admin ~self ~marked ~complete
+          (List.map Id.User_id.to_string members)
+      in
+      let matches = saved = None || saved = peer in
+      Log.info (fun m ->
+          m
+            "DM check room=%S marked=%b admin_fallback=%b complete=%b \
+             members=%d peer=%s saved_peer_matches=%b"
+            (Id.Room_id.to_string room_id)
+            marked (admin <> None) complete (List.length members)
+            (Option.fold ~none:"none" ~some:(Printf.sprintf "%S") peer)
+            matches);
+      if matches then begin
+        Option.iter
+          (fun peer ->
+            if saved = None && (Store.person store peer).allowed then
+              Store.add_direct_room store
+                ~room:(Id.Room_id.to_string room_id)
+                ~peer)
+          peer;
+        peer
+      end
+      else None
     end
   in
-  let on_message bot (message : Matrix_bot.Event.message) =
+  let on_message bot ({ message; original } : Matrix_input.t) =
     if message.content.kind = Matrix_ui.Presentation.Text then begin
       let e = message.envelope in
       let event : Engine.event =
@@ -388,55 +621,141 @@ let run ~env ~sw ~profile ~api_key_file =
             Address.body ~reply:(message.reply_to <> None) message.content.body;
         }
       in
+      Log.info (fun m ->
+          m "Received text event=%S room=%S sender=%S bytes=%d edit_of=%s"
+            event.id event.room event.sender (String.length event.body)
+            (Option.fold ~none:"none" ~some:Id.Event_id.to_string original));
       let send text =
-        match Matrix_bot.Sent.await (Matrix_bot.Event.reply e text) with
-        | Matrix_bot.Sent.Sent _ -> ()
-        | _ -> failwith "Matrix reply could not be confirmed"
+        Log.info (fun m ->
+            m "Reply queued event=%S room=%S bytes=%d" event.id event.room
+              (String.length text));
+        match
+          Matrix_bot.Sent.await
+            (Matrix_bot.Event.reply
+               { e with event_id = Option.value ~default:e.event_id original }
+               ~html:(Rich_text.html text) text)
+        with
+        | Matrix_bot.Sent.Sent sent_id ->
+            Log.info (fun m ->
+                m "Reply sent event=%S reply=%S" event.id
+                  (Id.Event_id.to_string sent_id))
+        | outcome ->
+            Log.err (fun m ->
+                m "Reply failed event=%S error=%s" event.id
+                  (Diagnostics.sent outcome));
+            failwith "Matrix reply could not be confirmed"
       in
       try
         with_timeout env 180. (fun () ->
-            let direct = direct_peer bot e.room = Some event.sender in
+            Typing.with_session ~clock:(Eio.Stdenv.mono_clock env)
+              ~room:event.room ~event:event.id ~set:(fun typing ->
+                Matrix_eio.Typing.set_typing (Context.client ctx)
+                  ~room_id:(Matrix_bot.Room.id e.room)
+                  ~typing
+                  ?timeout:(if typing then Some 30000 else None)
+                  ())
+            @@ fun typing ->
+            let direct =
+              direct_peer bot e.room ~actor:event.sender = Some event.sender
+            in
             let mentioned =
               Address.mentions ~self message.presentation.raw.content
             in
             let send text =
-              if direct && direct_peer bot e.room <> Some event.sender then
-                failwith "DM membership changed during the request";
+              Typing.stop typing;
+              if not (Store.person store event.sender).allowed then
+                failwith "access revoked before reply delivery";
+              if
+                direct
+                && direct_peer bot e.room ~actor:event.sender
+                   <> Some event.sender
+              then failwith "DM membership changed during the request";
               send text
             in
-            Engine.handle engine ~mentioned ~direct ~send event)
+            Engine.handle engine ~mentioned ~direct
+              ~on_accept:(fun () -> Typing.start typing)
+              ~send event)
       with
       | Eio.Cancel.Cancelled _ as exn -> raise exn
-      | _ ->
-          Logs.err (fun m -> m "Crow request failed. Context was not advanced")
+      | exn ->
+          Log.err (fun m ->
+              m
+                "Crow request failed event=%S room=%S error=%s; context was \
+                 not advanced"
+                event.id event.room (Diagnostics.error exn))
     end
+    else
+      Log.info (fun m ->
+          m "Ignored non-text message event=%S"
+            (Id.Event_id.to_string message.envelope.event_id))
   in
+  let watchers = Hashtbl.create 8 in
   let spec =
     Matrix_bot.Bot.v ~name:"crowthebot" ~prefix:"!" ~auto_join:false
       ~ignore_notices:true ~ignore_own:true ~backlog:`Skip ~queue_depth:32 ()
-    |> Matrix_bot.Bot.command ~name:"crow" (fun bot command ->
-        on_message bot command.message)
+    |> Matrix_input.register on_message
     |> Matrix_bot.Bot.on_invite (fun bot invitation ->
         let runtime = Matrix_bot.Bot.runtime bot in
         let state =
           Matrix_eio.Sync_service.state (Matrix_ui.Runtime.sync_service runtime)
         in
+        Log.info (fun m ->
+            m "Invitation room=%S inviter=%s"
+              (Id.Room_id.to_string invitation.room_id)
+              (Option.fold ~none:"unknown"
+                 ~some:(fun user ->
+                   Printf.sprintf "%S" (Id.User_id.to_string user))
+                 invitation.inviter));
         match
           ( invitation.inviter,
             Matrix_client.Base_client.find_room state invitation.room_id )
         with
         | Some inviter, Some info
-          when info.is_dm
+          when (info.is_dm || Id.User_id.to_string inviter = Store.admin store)
                && (Store.person store (Id.User_id.to_string inviter)).allowed ->
             with_timeout env 30. (fun () ->
                 match Matrix_ui.Runtime.join runtime invitation.room_id with
-                | Error _ -> failwith "could not join DM"
+                | Error error ->
+                    Log.err (fun m ->
+                        m
+                          "DM join failed room=%S inviter=%S error=%s; \
+                           invitation remains pending"
+                          (Id.Room_id.to_string invitation.room_id)
+                          (Id.User_id.to_string inviter)
+                          (Diagnostics.matrix_error
+                             (Matrix_eio.Error.of_client_error error)))
                 | Ok () ->
-                    Store.add_direct_room store
-                      ~room:(Id.Room_id.to_string invitation.room_id)
-                      ~peer:(Id.User_id.to_string inviter))
-        | _ -> ())
-    |> Matrix_bot.Bot.on_join (fun _ room ->
+                    if info.is_dm then
+                      Store.add_direct_room store
+                        ~room:(Id.Room_id.to_string invitation.room_id)
+                        ~peer:(Id.User_id.to_string inviter);
+                    Log.info (fun m ->
+                        m "Accepted invitation marked_dm=%b" info.is_dm))
+        | _ ->
+            Log.info (fun m ->
+                m
+                  "Ignored invitation: requires the admin or a direct invite \
+                   from an approved account"))
+    |> Matrix_bot.Bot.on_join (fun bot room ->
+        let id = Matrix_bot.Room.id room in
+        Log.info (fun m ->
+            m
+              "Watching room=%S marked_dm=%b enabled=%b saved_dm=%b; existing \
+               timeline skipped"
+              (Id.Room_id.to_string id)
+              (Matrix_bot.Room.is_dm room)
+              (List.mem (Id.Room_id.to_string id) (Store.rooms store))
+              (Store.direct_peer store (Id.Room_id.to_string id) <> None));
+        if Diagnostics.enabled () then begin
+          Option.iter (fun stop -> stop ()) (Hashtbl.find_opt watchers id);
+          let stop =
+            Diagnostics.watch_room ~sw ~self:(Context.user_id ctx)
+              ~cache:
+                (Matrix_ui.Runtime.event_cache (Matrix_bot.Bot.runtime bot))
+              ~room:id
+          in
+          Hashtbl.replace watchers id stop
+        end;
         if
           List.mem
             (Id.Room_id.to_string (Matrix_bot.Room.id room))
@@ -447,6 +766,15 @@ let run ~env ~sw ~profile ~api_key_file =
               if not (Id.User_id.equal user (Context.user_id ctx)) then
                 Store.observe store (Id.User_id.to_string user))
             (Matrix_bot.Room.members room))
+    |> Matrix_bot.Bot.on_leave (fun _ id ->
+        Option.iter (fun stop -> stop ()) (Hashtbl.find_opt watchers id);
+        Hashtbl.remove watchers id;
+        Log.info (fun m -> m "Left room=%S" (Id.Room_id.to_string id)))
+    |> Matrix_bot.Bot.on_sync (fun _ state ->
+        match state with
+        | Matrix_ui.Runtime.Failed _ ->
+            Log.err (fun m -> m "Matrix sync failed; waiting for retry or stop")
+        | _ -> Log.info (fun m -> m "Matrix sync %s" (Diagnostics.sync state)))
     |> Matrix_bot.Bot.on_membership (fun _ event ->
         if
           List.mem
@@ -454,11 +782,13 @@ let run ~env ~sw ~profile ~api_key_file =
             (Store.rooms store)
           && not (Id.User_id.equal event.user (Context.user_id ctx))
         then Store.observe store (Id.User_id.to_string event.user))
-    |> Matrix_bot.Bot.on_unknown_command (fun bot command ->
-        on_message bot command.message)
-    |> Matrix_bot.Bot.on_message on_message
-    |> Matrix_bot.Bot.on_error (fun _ _ _ ->
-        Logs.err (fun m -> m "Matrix handler failed"))
+    |> Matrix_bot.Bot.on_error (fun _ event exn ->
+        Log.err (fun m ->
+            m "Matrix handler failed room=%s error=%s"
+              (Option.fold ~none:"none"
+                 ~some:(fun id -> Printf.sprintf "%S" (Id.Room_id.to_string id))
+                 (Matrix_bot.Event.room_id event))
+              (Diagnostics.error exn)))
   in
   (* Signal handlers only touch an atomic flag. Shutdown happens in a fiber. *)
   let stopping = Atomic.make false in
@@ -477,10 +807,52 @@ let run ~env ~sw ~profile ~api_key_file =
           (Sys.set_signal [@alert "-unsafe_multidomain"]) signal handler)
         previous)
   @@ fun () ->
+  Log.info (fun m ->
+      m
+        "Starting Matrix sync; messages in the initial timeline are skipped. \
+         Send a fresh message once sync is live");
   Matrix_bot.Bot.run ctx spec ~on_start:(fun bot ->
+      (matrix_state :=
+         fun () ->
+           Some
+             (Matrix_eio.Sync_service.state
+                (Matrix_ui.Runtime.sync_service (Matrix_bot.Bot.runtime bot))));
+      Log.info (fun m ->
+          m "Crow handlers ready; sync=%s"
+            (Diagnostics.sync
+               (Matrix_ui.Observable.Value.get
+                  (Matrix_ui.Runtime.sync_state (Matrix_bot.Bot.runtime bot)))));
       let clock = Eio.Stdenv.mono_clock env in
       Eio.Fiber.fork_daemon ~sw (fun () ->
+          let readiness = ref None in
+          let ready () =
+            let runtime = Matrix_bot.Bot.runtime bot in
+            let ready =
+              match
+                Matrix_ui.Observable.Value.get
+                  (Matrix_ui.Runtime.sync_state runtime)
+              with
+              | Matrix_ui.Runtime.Live _ ->
+                  Matrix_ui.Room_list.all_rooms
+                    (Matrix_ui.Runtime.room_list runtime)
+                  |> Matrix_ui.Observable.List.snapshot
+                  |> Array.for_all (fun (room : Matrix_ui.Room_list.room) ->
+                      room.membership <> Matrix_client.Base_client.Joined
+                      || Matrix_bot.Bot.find_room bot room.id <> None)
+              | _ -> false
+            in
+            if !readiness <> Some ready then begin
+              readiness := Some ready;
+              Log.info (fun m ->
+                  m "Scheduler ready=%b; requires live sync and restored rooms"
+                    ready)
+            end;
+            ready
+          in
           let fire (job : Store.reminder) ~run_id =
+            Log.info (fun m ->
+                m "Reminder firing id=%d run_id=%d room=%S" job.reminder_id
+                  run_id job.room);
             Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 180.)
             @@ fun () ->
             let room =
@@ -493,7 +865,7 @@ let run ~env ~sw ~profile ~api_key_file =
             let check_room () =
               if
                 (not (List.mem job.room (Store.rooms store)))
-                && direct_peer bot room <> Some job.creator
+                && direct_peer bot room ~actor:job.creator <> Some job.creator
               then failwith "reminder room is no longer enabled"
             in
             check_room ();
@@ -502,15 +874,25 @@ let run ~env ~sw ~profile ~api_key_file =
                 let reply_to = Id.Event_id.of_string_exn job.event in
                 match
                   Matrix_bot.Sent.await
-                    (Matrix_bot.Room.send_notice room ~reply_to text)
+                    (Matrix_bot.Room.send_notice room ~reply_to
+                       ~html:(Rich_text.html text) text)
                 with
-                | Matrix_bot.Sent.Sent _ -> ()
-                | _ -> failwith "reminder delivery failed")
+                | Matrix_bot.Sent.Sent _ ->
+                    Log.info (fun m ->
+                        m "Reminder reply sent id=%d" job.reminder_id)
+                | outcome ->
+                    Log.err (fun m ->
+                        m "Reminder reply failed id=%d error=%s" job.reminder_id
+                          (Diagnostics.sent outcome));
+                    failwith "reminder delivery failed")
           in
           while not (Atomic.get stopping) do
-            (try Cron.run_due store ~fire with
+            (try Cron.run_due ~ready store ~fire with
             | Eio.Cancel.Cancelled _ as exn -> raise exn
-            | _ -> Logs.err (fun m -> m "Reminder scheduler failed; will retry"));
+            | exn ->
+                Log.err (fun m ->
+                    m "Reminder scheduler failed: %s; will retry"
+                      (Diagnostics.error exn)));
             Eio.Time.Mono.sleep clock 10.
           done;
           `Stop_daemon);
@@ -519,6 +901,7 @@ let run ~env ~sw ~profile ~api_key_file =
             (try
                List.iter
                  (fun day ->
+                   Log.info (fun m -> m "Generating daily note day=%s" day);
                    ignore
                      (Daily.generate ~store ~config
                         ~complete:(complete env config model)
@@ -526,7 +909,10 @@ let run ~env ~sw ~profile ~api_key_file =
                  (Store.pending_note_days store)
              with
             | Eio.Cancel.Cancelled _ as exn -> raise exn
-            | _ -> Logs.err (fun m -> m "Daily note failed; will retry"));
+            | exn ->
+                Log.err (fun m ->
+                    m "Daily note failed: %s; will retry"
+                      (Diagnostics.error exn)));
             Eio.Time.Mono.sleep clock 60.
           done;
           `Stop_daemon);
@@ -534,5 +920,6 @@ let run ~env ~sw ~profile ~api_key_file =
           while not (Atomic.get stopping) do
             Eio.Time.Mono.sleep clock 0.2
           done;
+          Log.info (fun m -> m "Stopping Crow");
           Matrix_bot.Bot.stop bot;
           `Stop_daemon))

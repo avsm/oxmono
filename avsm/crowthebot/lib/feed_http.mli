@@ -22,5 +22,8 @@ type t =
 
 val create : fetch:_ Fetch.t -> clock:_ Eio.Time.Mono.t -> t
 (** [create ~fetch ~clock] permits GET only, three redirects without HTTPS
-    downgrades, at most 2 MiB and a 30-second deadline. [fetch] must use the
+    downgrades, at most 64 MiB and a 60-second deadline. [fetch] must use the
     public-address connector and carry no cookies or credentials. *)
+
+val max_bytes : int
+(** [max_bytes] is the maximum decoded feed-page size. *)

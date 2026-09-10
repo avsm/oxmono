@@ -1,8 +1,13 @@
 (library
  (name crowthebot)
  (public_name crowthebot)
- (private_modules profile persistence email_http email_json)
+ (private_modules profile persistence email_http email_json tool_args)
  (libraries
+  caldav.eio
+  caldav
+  ical
+  fetch.dav
+  httpz.dav
   http
   jmap
   jmap.eio
@@ -17,7 +22,11 @@
   eio.unix
   xdge
   cmdliner
+  logs
+  cmarkit
+  cstruct
   owntracks
+  owntracks.config
   owntracks.recorder
   uri
   jsont

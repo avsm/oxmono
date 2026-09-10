@@ -12,7 +12,13 @@ val command :
     mentions and nonempty direct messages. A bare address requests help. *)
 
 val direct_peer :
-  self:string -> marked:bool -> complete:bool -> string list -> string option
-(** [direct_peer ~self ~marked ~complete members] returns the other account only
-    for a marked DM with complete membership containing exactly two users,
-    including [self]. Include invited users in [members]. *)
+  ?admin:string ->
+  self:string ->
+  marked:bool ->
+  complete:bool ->
+  string list ->
+  string option
+(** [direct_peer ?admin ~self ~marked ~complete members] returns the other
+    account when complete membership contains exactly two users, including
+    [self], and the room is marked as a DM or the peer is [admin]. Include
+    invited users in [members]. *)

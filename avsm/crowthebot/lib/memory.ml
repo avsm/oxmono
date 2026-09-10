@@ -79,21 +79,31 @@ let invoke access name arguments =
       | "memory_store" ->
           let body = decode "fact" Jsont.string arguments in
           let id = access.add body in
+          Diagnostics.Tools.info (fun m -> m "Memory stored fact_id=%d" id);
           Printf.sprintf "Stored fact #%d." id
       | "memory_search" ->
           let query = decode "query" Jsont.string arguments in
           let facts = access.search query in
+          Diagnostics.Tools.info (fun m ->
+              m "Memory searched results=%d" (List.length facts));
           if facts = [] then "No matching facts."
           else
             "Up to 20 facts, shared across this profile:\n"
             ^ String.concat "\n\n" (List.map fact_line facts)
       | "memory_get" -> (
-          match access.get (id ()) with
+          let id = id () in
+          let fact = access.get id in
+          Diagnostics.Tools.info (fun m ->
+              m "Memory retrieved fact_id=%d found=%b" id (fact <> None));
+          match fact with
           | Some fact -> fact_line fact
           | None -> "Fact not found.")
       | "memory_erase" ->
           let id = id () in
-          if access.erase id then Printf.sprintf "Erased fact #%d." id
+          let erased = access.erase id in
+          Diagnostics.Tools.info (fun m ->
+              m "Memory erased fact_id=%d removed=%b" id erased);
+          if erased then Printf.sprintf "Erased fact #%d." id
           else "Fact not found."
       | _ -> invalid_arg "Unknown memory operation.")
   with Invalid_argument message -> Error message

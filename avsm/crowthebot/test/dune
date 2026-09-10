@@ -9,6 +9,23 @@
  (libraries crowthebot sqlite3-eio eio_main jsont jsont.bytesrw))
 
 (test
+ (name test_diagnostics)
+ (modules test_diagnostics)
+ (libraries crowthebot sqlite3-eio eio_main logs jsont jsont.bytesrw))
+
+(test
+ (name test_runtime_state)
+ (modules test_runtime_state)
+ (libraries
+  crowthebot
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw))
+
+(test
  (name test_verification)
  (modules test_verification)
  (libraries crowthebot eio_main fetch.mock http jsont jsont.bytesrw))
@@ -47,6 +64,18 @@
  (libraries crowthebot sqlite3-eio eio_main))
 
 (test
+ (name test_feed_mirror)
+ (modules test_feed_mirror)
+ (libraries
+  crowthebot
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw))
+
+(test
  (name test_secrets)
  (modules test_secrets)
  (libraries crowthebot eio_main fetch.mock http jsont jsont.bytesrw))
@@ -56,6 +85,7 @@
  (modules test_locations)
  (libraries
   crowthebot
+  owntracks.config
   sqlite3-eio
   eio_main
   fetch.mock
@@ -63,6 +93,153 @@
   uri
   jsont
   jsont.bytesrw))
+
+(test
+ (name test_location_queries)
+ (modules test_location_queries)
+ (libraries
+  crowthebot
+  owntracks.config
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  http
+  uri
+  jsont
+  jsont.bytesrw))
+
+(test
+ (name test_room_observation)
+ (modules test_room_observation)
+ (libraries
+  crowthebot
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw))
+
+(test
+ (name test_matrix_context)
+ (modules test_matrix_context)
+ (libraries
+  crowthebot
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  uriz))
+
+(test
+ (name test_interactions)
+ (modules test_interactions)
+ (libraries
+  crowthebot
+  sqlite3-eio
+  eio_main
+  eio.mock
+  fetch.mock
+  jsont
+  jsont.bytesrw
+  uri
+  uriz))
+
+(test
+ (name test_compaction)
+ (modules test_compaction)
+ (libraries
+  crowthebot
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  http
+  jsont
+  jsont.bytesrw
+  logs))
+
+(test
+ (name test_calendars)
+ (modules test_calendars)
+ (libraries
+  crowthebot
+  jmap
+  jmap.eio
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  http
+  jsont))
+
+(test
+ (name test_caldav)
+ (modules test_caldav)
+ (libraries
+  crowthebot
+  caldav.eio
+  caldav
+  ical
+  logs
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  http
+  uri
+  jsont
+  jsont.bytesrw))
+
+(test
+ (name test_caldav_read_only)
+ (modules test_caldav_read_only)
+ (libraries
+  crowthebot
+  caldav.eio
+  caldav
+  fetch.dav
+  httpz.dav
+  eio_main
+  fetch.mock
+  http))
+
+(test
+ (name test_caldav_probe)
+ (modules test_caldav_probe)
+ (libraries crowthebot eio_main fetch.mock http uri jsont jsont.bytesrw))
+
+(test
+ (name test_caldav_agenda)
+ (modules test_caldav_agenda)
+ (libraries
+  crowthebot
+  caldav
+  caldav.eio
+  ical
+  jmap.eio
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  http
+  httpz.dav
+  jsont))
+
+(test
+ (name test_emails)
+ (modules test_emails)
+ (libraries
+  crowthebot
+  jmap.eio
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  http
+  jsont
+  logs))
+
+(test
+ (name test_synthesis)
+ (modules test_synthesis)
+ (libraries crowthebot sqlite3-eio eio_main fetch.mock http jsont.bytesrw))
 
 (test
  (name test_email_client)

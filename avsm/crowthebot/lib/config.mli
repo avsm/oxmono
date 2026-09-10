@@ -19,5 +19,6 @@ val validate : t -> unit
 
 val upgrade : t -> t
 (** [upgrade t] removes the retired fixed blogroll plugin and its old default
-    prompt suffix when loading an existing profile. It preserves other settings.
+    prompt suffix when loading an existing profile. It replaces the old built-in
+    assistant prompt with Crow's robot personality, preserving custom prompts.
 *)

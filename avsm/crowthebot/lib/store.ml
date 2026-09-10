@@ -39,9 +39,13 @@ let create ?(now = Unix.gettimeofday) db ~admin =
   let version =
     rows db "PRAGMA user_version" [] (fun s -> Sqlite3.column_int s 0)
   in
-  if not (List.mem version [ [ 0 ]; [ 1 ]; [ 2 ]; [ 3 ]; [ 4 ]; [ 5 ] ]) then
-    invalid_arg "unsupported crowthebot database version";
-  sql db "PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;";
+  if
+    not
+      (List.mem version
+         [ [ 0 ]; [ 1 ]; [ 2 ]; [ 3 ]; [ 4 ]; [ 5 ]; [ 6 ]; [ 7 ]; [ 8 ] ])
+  then invalid_arg "unsupported crowthebot database version";
+  sql db
+    "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;";
   sql db "BEGIN IMMEDIATE";
   try
     sql db
@@ -96,7 +100,7 @@ CREATE TABLE IF NOT EXISTS reminder_runs (
  scheduled_at REAL NOT NULL, started_at TEXT NOT NULL, finished_at TEXT,
  status TEXT NOT NULL, UNIQUE(reminder_id,scheduled_at));
 |};
-    if version <> [ 5 ] then
+    if not (List.mem version [ [ 5 ]; [ 6 ]; [ 7 ]; [ 8 ] ]) then
       sql db
         {|
 ALTER TABLE reminders RENAME TO reminders_v4;
@@ -118,7 +122,27 @@ CREATE INDEX reminders_due ON reminders(state,next_at);
 |};
     Feed_store.init db;
     Location_store.init db;
-    sql db "PRAGMA user_version=5";
+    Calendar_store.init db;
+    Caldav_store.init db;
+    Caldav_agenda_store.init db;
+    Email_cache.init db;
+    Room_context.init db;
+    if version <> [ 8 ] then
+      sql db
+        {|
+ALTER TABLE history RENAME TO history_v7;
+DROP INDEX history_thread;
+CREATE TABLE history (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, room TEXT NOT NULL, user TEXT NOT NULL,
+ role TEXT NOT NULL, body TEXT NOT NULL,
+ event TEXT NOT NULL DEFAULT '', source_event TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL DEFAULT '');
+INSERT INTO history(id,room,user,role,body) SELECT id,room,user,role,body FROM history_v7;
+DROP TABLE history_v7;
+CREATE INDEX history_thread ON history(room,user,id);
+|};
+    Compaction.init db;
+    sql db "PRAGMA user_version=8";
     execute db "INSERT OR IGNORE INTO settings VALUES ('admin',?)"
       [ text admin ];
     let stored =
@@ -128,6 +152,7 @@ CREATE INDEX reminders_due ON reminders(state,next_at);
     if stored <> [ admin ] then
       invalid_arg "configured admin differs from database authority";
     let started_at = timestamp (now ()) in
+    Trace.init db ~now:started_at;
     execute db "INSERT OR IGNORE INTO settings VALUES ('daily_since',?)"
       [ text (String.sub started_at 0 10) ];
     execute db
@@ -146,6 +171,17 @@ CREATE INDEX reminders_due ON reminders(state,next_at);
     Printexc.raise_with_backtrace exn bt
 
 let admin t = t.admin
+
+let trace t =
+  Trace.create ~db:t.db ~mutex:t.mutex ~now:(fun () -> timestamp (t.now ()))
+
+let room_context t =
+  Room_context.create ~db:t.db ~mutex:t.mutex ~now:(fun () ->
+      timestamp (t.now ()))
+
+let compaction t =
+  Compaction.create ~db:t.db ~mutex:t.mutex ~now:(fun () ->
+      timestamp (t.now ()))
 
 let person_unlocked t user =
   if user = t.admin then { user; role = Friend; allowed = true }
@@ -192,8 +228,11 @@ role=excluded.role, allowed=excluded.allowed
 |}
       [ text user; text (role_string role); integer (if allowed then 1 else 0) ];
     (* Revocation removes context immediately, including earlier assistant replies. *)
-    if not allowed then
+    if not allowed then begin
+      Compaction.clear t.db ~room:None ~user;
       execute t.db "DELETE FROM history WHERE user=?" [ text user ];
+      execute t.db "DELETE FROM room_observations WHERE sender=?" [ text user ]
+    end;
     if (not allowed) || role <> Friend then
       execute t.db "UPDATE reminders SET state='cancelled' WHERE creator=?"
         [ text user ];
@@ -243,7 +282,11 @@ let direct_peer t room =
 
 let clear t ~room ~user =
   locked t (fun () ->
+      transaction t.db @@ fun () ->
+      Compaction.clear t.db ~room:(Some room) ~user;
       execute t.db "DELETE FROM history WHERE room=? AND user=?"
+        [ text room; text user ];
+      execute t.db "DELETE FROM room_observations WHERE room=? AND sender=?"
         [ text room; text user ])
 
 let history t ~room ~user =
@@ -267,15 +310,28 @@ DELETE FROM events WHERE room=? AND id NOT IN
     [ text room; text room ];
   fresh
 
-let append t ~room ~user ~max_messages ~max_bytes messages =
+let append t ~room ~user ~max_messages ~max_bytes ?(event = "") ?source_event
+    messages =
   if max_messages < 0 || max_bytes < 0 then invalid_arg "negative context limit";
   locked t @@ fun () ->
   sql t.db "BEGIN IMMEDIATE";
   try
+    Compaction.touch t.db (Thread { room; user });
     List.iter
       (fun (m : message) ->
-        execute t.db "INSERT INTO history(room,user,role,body) VALUES (?,?,?,?)"
-          [ text room; text user; text m.role; text m.body ])
+        execute t.db
+          "INSERT INTO \
+           history(room,user,role,body,event,source_event,created_at) VALUES \
+           (?,?,?,?,?,?,?)"
+          [
+            text room;
+            text user;
+            text m.role;
+            text m.body;
+            text event;
+            text (Option.value ~default:event source_event);
+            text (timestamp (t.now ()));
+          ])
       messages;
     let existing =
       rows t.db
@@ -707,3 +763,14 @@ let feeds t =
 let locations t =
   Location_store.create ~db:t.db ~mutex:t.mutex ~admin:t.admin ~now:t.now
     ~timestamp
+
+let calendars t =
+  Calendar_store.create ~db:t.db ~mutex:t.mutex ~admin:t.admin ~now:t.now
+    ~timestamp
+
+let caldav t =
+  Caldav_store.create ~db:t.db ~mutex:t.mutex ~admin:t.admin ~now:t.now
+    ~timestamp
+
+let emails t =
+  Email_cache.create ~db:t.db ~mutex:t.mutex ~admin:t.admin ~now:t.now

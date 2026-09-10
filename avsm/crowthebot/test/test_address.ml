@@ -59,6 +59,16 @@ let () =
     (peer ~complete:false [ self; alice ] = None);
   check "third member disables DM" (peer [ self; alice; admin ] = None);
   check "own membership required" (peer [ alice; admin ] = None);
+  let admin_peer ?(complete = true) members =
+    Address.direct_peer ~admin ~self ~marked:false ~complete members
+  in
+  check "unmarked admin DM" (admin_peer [ self; admin ] = Some admin);
+  check "admin fallback does not enable other pairs"
+    (admin_peer [ self; alice ] = None);
+  check "admin fallback requires complete membership"
+    (admin_peer ~complete:false [ self; admin ] = None);
+  check "admin group still needs addressing"
+    (admin_peer [ self; admin; alice ] = None);
   check "explicit confirmation"
     (Verification.affirmative " YES "
     && (not (Verification.affirmative ""))
@@ -111,7 +121,7 @@ let () =
   handle (event "exact-mention" (self ^ ": hello"));
   check "exact account mention reaches model" (!calls = 1);
   handle ~direct:true (event ~room:dm "dm" "hello");
-  check "DM independent cooldown" (!calls = 2);
+  check "DM reaches model" (!calls = 2);
   check "group and DM context isolated"
     (List.length (Store.history store ~room ~user:alice) = 2
     && List.length (Store.history store ~room:dm ~user:alice) = 2);
@@ -139,4 +149,8 @@ let () =
   check "revocation clears group and DM context"
     (Store.history store ~room ~user:alice = []
     && Store.history store ~room:dm ~user:alice = []);
+  handle
+    ~direct:(admin_peer [ self; admin ] = Some admin)
+    (event ~sender:admin ~room:dm "admin-plain" "hello without a prefix");
+  check "unmarked admin DM reaches model without prefix" (!calls = 4);
   print_endline "crowthebot: mentions, direct messages and migration passed"

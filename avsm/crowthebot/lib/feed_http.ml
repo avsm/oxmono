@@ -82,6 +82,8 @@ type response =
 type t =
   url:string -> etag:string option -> last_modified:string option -> response
 
+let max_bytes = 64 * 1024 * 1024
+
 let create ~fetch ~clock =
   let fetch =
     Fetch.restrict ~methods:[ `GET ]
@@ -94,7 +96,7 @@ let create ~fetch ~clock =
   in
   fun ~url ~etag ~last_modified ->
     let url = normalize url in
-    Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 30.) @@ fun () ->
+    Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 60.) @@ fun () ->
     let headers =
       match etag with
       | None -> Fetch.Header.[]
@@ -110,13 +112,26 @@ let create ~fetch ~clock =
         match Fetch.status response with
         | 304 -> Unchanged
         | 200 ->
-            let body =
-              Eio.Buf_read.parse_exn
-                ~max_size:((2 * 1024 * 1024) + 1)
-                Eio.Buf_read.take_all (Fetch.body response)
+            let input =
+              Eio.Buf_read.of_flow ~max_size:65536 (Fetch.body response)
             in
-            if String.length body > 2 * 1024 * 1024 then
-              invalid_arg "Feed exceeds 2 MiB.";
+            let buffer = Buffer.create 65536 in
+            let rec read () =
+              if Eio.Buf_read.at_end_of_input input then ()
+              else begin
+                let chunk =
+                  Eio.Buf_read.take
+                    (min 65536 (Eio.Buf_read.buffered_bytes input))
+                    input
+                in
+                if Buffer.length buffer + String.length chunk > max_bytes then
+                  invalid_arg "Feed page exceeds 64 MiB. Use a paginated feed.";
+                Buffer.add_string buffer chunk;
+                read ()
+              end
+            in
+            read ();
+            let body = Buffer.contents buffer in
             let header name =
               Option.bind
                 (Fetch.header (Fetch.Header.text name) response)

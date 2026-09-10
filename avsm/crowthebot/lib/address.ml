@@ -68,10 +68,10 @@ let command ~self ~mentioned ~direct text =
         else if mentioned then Some "help"
         else None
 
-let direct_peer ~self ~marked ~complete members =
-  if (not marked) || not complete then None
+let direct_peer ?admin ~self ~marked ~complete members =
+  if not complete then None
   else
     match List.sort_uniq String.compare members with
-    | [ a; b ] when a = self -> Some b
-    | [ a; b ] when b = self -> Some a
+    | [ a; b ] when a = self && (marked || admin = Some b) -> Some b
+    | [ a; b ] when b = self && (marked || admin = Some a) -> Some a
     | _ -> None

@@ -47,18 +47,24 @@ let () =
   and replies = ref [] in
   let tool_mode = ref false and tool_step = ref 0 in
   let complete messages tools =
-    incr calls;
-    check "bounded context" (List.length messages <= 10);
-    if !tool_mode && !tool_step = 0 then begin
-      incr tool_step;
-      check "plugin, memory and cron tools advertised" (List.length tools = 8);
-      ( None,
-        [
-          Openrouter.Tool.
-            { id = "call1"; name = "test"; arguments = {|{"query":"hi"}|} };
-        ] )
+    if tools = [] && List.length messages = 2 then
+      ( Some
+          {|{"summary":"The sender greeted Crow and asked about the test tool."}|},
+        [] )
+    else begin
+      incr calls;
+      check "bounded context" (List.length messages <= 10);
+      if !tool_mode && !tool_step = 0 then begin
+        incr tool_step;
+        check "plugin, memory and cron tools advertised" (List.length tools = 8);
+        ( None,
+          [
+            Openrouter.Tool.
+              { id = "call1"; name = "test"; arguments = {|{"query":"hi"}|} };
+          ] )
+      end
+      else (Some "hello", [])
     end
-    else (Some "hello", [])
   in
   let plugin =
     Plugin.
@@ -104,11 +110,11 @@ let () =
   check "replay ignored" (!calls = 1);
   handle (event "m2" "!crow hello");
   handle (event "m3" "!crow hello");
-  check "cooldown" (!calls = 2);
+  check "immediate follow-ups are processed" (!calls = 3);
   clock := 40.;
   tool_mode := true;
   handle (event "tool" "!crow ask use the tool");
-  check "tool roundtrip" (!calls = 4 && !plugin_calls = 1);
+  check "tool roundtrip" (!calls = 5 && !plugin_calls = 1);
   check "context message bound"
     (List.length (Store.history store ~room ~user:alice) = 4);
   check "per-person isolation" (Store.history store ~room ~user:other = []);
@@ -229,7 +235,7 @@ let () =
          (event ~sender:admin "loop" "!crow ask hello");
        false
      with Failure _ -> true);
-  check "at most three tool calls" (!plugin_calls = before + 3);
+  check "at most six tool calls" (!plugin_calls = before + 6);
   let hung = ref true and tick = ref 0. in
   let pending, _ = Eio.Promise.create () in
   let complete _ _ =

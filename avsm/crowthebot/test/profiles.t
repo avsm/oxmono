@@ -9,17 +9,17 @@
   @admin:example.org: friend, allowed
   $ ../bin/main.exe people --profile two
   @other:example.org: friend, allowed
-  $ ../bin/main.exe memory --profile one 'store Bring jasmine tea.'
+  $ ../bin/main.exe memory --profile one 'store Bring jasmine tea.' 2>/dev/null
   Stored fact #1.
-  $ ../bin/main.exe memory --profile one 'search jasmine' | tail -1
+  $ ../bin/main.exe memory --profile one 'search jasmine' 2>/dev/null | tail -1
   Bring jasmine tea.
-  $ ../bin/main.exe memory --profile one 'get 1' | tail -1
+  $ ../bin/main.exe memory --profile one 'get 1' 2>/dev/null | tail -1
   Bring jasmine tea.
-  $ ../bin/main.exe memory --profile two list
+  $ ../bin/main.exe memory --profile two list 2>/dev/null
   No matching facts.
-  $ ../bin/main.exe memory --profile one 'erase 1'
+  $ ../bin/main.exe memory --profile one 'erase 1' 2>/dev/null
   Erased fact #1.
-  $ ../bin/main.exe memory --profile one 'search jasmine'
+  $ ../bin/main.exe memory --profile one 'search jasmine' 2>/dev/null
   No matching facts.
   $ python3 - <<'PY'
   > import sqlite3
@@ -28,7 +28,7 @@
   >     print(db.execute('SELECT tool,status FROM tool_uses ORDER BY id').fetchall())
   >     print(db.execute('SELECT count(*) FROM facts').fetchone()[0])
   > PY
-  5
+  8
   [('memory_store', 'ok'), ('memory_search', 'ok'), ('memory_get', 'ok'), ('memory_erase', 'ok'), ('memory_search', 'ok')]
   0
   $ ../bin/main.exe init --profile one --admin @other:example.org --homeserver https://matrix.example.org
@@ -45,6 +45,19 @@
   $ ../bin/main.exe run --profile one
   no saved Matrix session. Run crowthebot login first
   [1]
+  $ python3 - <<'PY'
+  > import subprocess
+  > for flag in ['--verbose', '-v']:
+  >     r = subprocess.run(['../bin/main.exe', 'run', '--profile', 'one', flag], capture_output=True, text=True)
+  >     assert r.returncode == 1 and r.stdout == ''
+  >     assert 'Starting Crow profile="one"' in r.stderr
+  >     assert 'Connecting Matrix profile="one"' in r.stderr
+  >     assert 'no saved Matrix session' in r.stderr
+  > r = subprocess.run(['../bin/main.exe', 'probe', '--verbose', '--help=plain'], capture_output=True, text=True)
+  > assert r.returncode == 0 and '--verbose' in r.stdout
+  > print('Verbose startup logs go to stderr; run and probe accept the flag.')
+  > PY
+  Verbose startup logs go to stderr; run and probe accept the flag.
   $ ../bin/main.exe --help=plain | head -1
   NAME
   $ ../bin/main.exe verify --help=plain | head -1
@@ -58,6 +71,14 @@
   >     fcntl.lockf(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
   >     result = subprocess.run(['../bin/main.exe', 'people', '--profile', 'one'])
   >     assert result.returncode == 1
+  >     import json
+  >     result = subprocess.run(['../bin/main.exe', 'inspect', '--profile', 'one'], capture_output=True, text=True)
+  >     assert result.returncode == 0
+  >     data = json.loads(result.stdout)
+  >     assert data['items'] == [] and data['outstanding']['reminders'] == 0
+  >     result = subprocess.run(['../bin/main.exe', 'inspect', '--profile', 'one', '--section', 'tools', '--limit', '2'], capture_output=True, text=True)
+  >     data = json.loads(result.stdout)
+  >     assert len(data['items']) == 2 and data['next_after'] == 2
   > PY
   this profile is already in use by crowthebot
   $ ../bin/main.exe init --profile ../escape --admin @admin:example.org --homeserver https://matrix.example.org 2>/dev/null

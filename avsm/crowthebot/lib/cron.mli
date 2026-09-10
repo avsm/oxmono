@@ -28,8 +28,14 @@ val line : Store.reminder -> string
 val invoke : access -> string -> string -> (string, string) result
 val command : string -> (string * string, string) result
 
-val run_due : Store.t -> fire:(Store.reminder -> run_id:int -> string) -> unit
-(** [run_due store ~fire] claims up to 20 due occurrences before effects.
-    Recurrences skip missed intervals and advance from now. Expired jobs do not
-    fire. A crash may lose a claimed occurrence but cannot replay it. [fire]
-    must recheck current authority, linked memory and delivery access. *)
+val run_due :
+  ?ready:(unit -> bool) ->
+  Store.t ->
+  fire:(Store.reminder -> run_id:int -> string) ->
+  unit
+(** [run_due ?ready store ~fire] claims up to 20 due occurrences before effects.
+    [ready ()] is checked before each claim, so startup or disconnected
+    transports can defer work without consuming an occurrence. Recurrences skip
+    missed intervals and advance from now. Expired jobs do not fire. A crash may
+    lose a claimed occurrence but cannot replay it. [fire] must recheck current
+    authority, linked memory and delivery access. *)

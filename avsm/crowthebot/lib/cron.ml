@@ -278,44 +278,48 @@ let command input =
       | _ -> Error "Reminder ID must be positive.")
   | _ -> Error help
 
-let run_due store ~fire =
+let run_due ?(ready = fun () -> true) store ~fire =
   List.iter
     (fun (job : Store.reminder) ->
-      let next_at =
-        Option.bind job.cron (fun expression ->
-            next (parse expression) ~after:(Store.now store) ~until:job.until_at)
-      in
-      match Store.claim_reminder store job ~next_at with
-      | None -> ()
-      | Some run_id -> (
-          let finish status =
-            Eio.Cancel.protect (fun () ->
-                Store.finish_reminder store run_id ~status)
-          in
-          let expired =
-            Option.fold ~none:false
-              ~some:(fun until -> Store.now store > until)
-              job.until_at
-          in
-          try
-            ignore
-              (Audit.run store ~actor:job.creator ~room:job.room
-                 ~event:job.event ~source:"scheduler"
-                 ~call_id:(string_of_int run_id) ~tool:"cron_fire"
-                 ~arguments:
-                   (Printf.sprintf "reminder=%d %s" job.reminder_id
-                      (target job.target))
-                 (fun () ->
-                   if expired then
-                     Error "Reminder expired while Crow was offline."
-                   else Ok (fire job ~run_id)));
-            finish (if expired then "expired" else "ok")
-          with
-          | Eio.Cancel.Cancelled _ as exn ->
-              finish "cancelled";
-              raise exn
-          | _ ->
-              finish "error";
-              Logs.err (fun m ->
-                  m "Scheduled action failed for reminder %d" job.reminder_id)))
+      if ready () then begin
+        let next_at =
+          Option.bind job.cron (fun expression ->
+              next (parse expression) ~after:(Store.now store)
+                ~until:job.until_at)
+        in
+        match Store.claim_reminder store job ~next_at with
+        | None -> ()
+        | Some run_id -> (
+            let finish status =
+              Eio.Cancel.protect (fun () ->
+                  Store.finish_reminder store run_id ~status)
+            in
+            let expired =
+              Option.fold ~none:false
+                ~some:(fun until -> Store.now store > until)
+                job.until_at
+            in
+            try
+              ignore
+                (Audit.run store ~actor:job.creator ~room:job.room
+                   ~event:job.event ~source:"scheduler"
+                   ~call_id:(string_of_int run_id) ~tool:"cron_fire"
+                   ~arguments:
+                     (Printf.sprintf "reminder=%d %s" job.reminder_id
+                        (target job.target))
+                   (fun () ->
+                     if expired then
+                       Error "Reminder expired while Crow was offline."
+                     else Ok (fire job ~run_id)));
+              finish (if expired then "expired" else "ok")
+            with
+            | Eio.Cancel.Cancelled _ as exn ->
+                finish "cancelled";
+                raise exn
+            | exn ->
+                finish "error";
+                Diagnostics.Log.err (fun m ->
+                    m "Scheduled action failed for reminder %d: %s"
+                      job.reminder_id (Diagnostics.error exn)))
+      end)
     (Store.due_reminders store)

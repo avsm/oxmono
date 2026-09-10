@@ -54,11 +54,38 @@ CREATE TRIGGER IF NOT EXISTS feeds_member_delete AFTER DELETE ON feeds_membershi
 END;
 INSERT OR IGNORE INTO tool_schemas VALUES('feeds',1);
 |};
-  if
+  match
     rows db "SELECT version FROM tool_schemas WHERE name='feeds'" [] (fun s ->
         Sqlite3.column_int s 0)
-    <> [ 1 ]
-  then invalid_arg "unsupported feeds tool schema"
+  with
+  | [ 2 ] -> ()
+  | [ 1 ] ->
+      sql db
+        {|
+ALTER TABLE feeds_entries ADD COLUMN content TEXT NOT NULL DEFAULT '';
+UPDATE feeds_entries SET content=summary;
+ALTER TABLE feeds_sources ADD COLUMN next_url TEXT;
+UPDATE feeds_sources SET etag=NULL,last_modified=NULL,checked_at=NULL,retry_at=0;
+UPDATE feeds_memberships SET initialized=0;
+CREATE TABLE feeds_pages(
+ source_id INTEGER NOT NULL REFERENCES feeds_sources(id) ON DELETE CASCADE,
+ url TEXT NOT NULL, PRIMARY KEY(source_id,url));
+CREATE VIRTUAL TABLE feeds_fts USING fts5(title,summary,content,
+ content='feeds_entries',content_rowid='id');
+CREATE TRIGGER feeds_fts_insert AFTER INSERT ON feeds_entries BEGIN
+ INSERT INTO feeds_fts(rowid,title,summary,content) VALUES(new.id,new.title,new.summary,new.content);
+END;
+CREATE TRIGGER feeds_fts_delete AFTER DELETE ON feeds_entries BEGIN
+ INSERT INTO feeds_fts(feeds_fts,rowid,title,summary,content) VALUES('delete',old.id,old.title,old.summary,old.content);
+END;
+CREATE TRIGGER feeds_fts_update AFTER UPDATE ON feeds_entries BEGIN
+ INSERT INTO feeds_fts(feeds_fts,rowid,title,summary,content) VALUES('delete',old.id,old.title,old.summary,old.content);
+ INSERT INTO feeds_fts(rowid,title,summary,content) VALUES(new.id,new.title,new.summary,new.content);
+END;
+INSERT INTO feeds_fts(feeds_fts) VALUES('rebuild');
+UPDATE tool_schemas SET version=2 WHERE name='feeds';
+|}
+  | _ -> invalid_arg "unsupported feeds tool schema"
 
 let require t actor =
   if
@@ -87,6 +114,7 @@ type source = {
   error : string option;
   failures : int;
   retry_at : float;
+  next_url : string option;
 }
 
 let source_row s =
@@ -105,6 +133,7 @@ let source_row s =
     error = string_opt s 8;
     failures = Sqlite3.column_int s 9;
     retry_at = Sqlite3.column_double s 10;
+    next_url = string_opt s 11;
   }
 
 type subscription = {
@@ -161,6 +190,7 @@ type entry = {
   published : string option;
   summary : string;
   observed_at : string;
+  content : string;
 }
 
 let entry_row s =
@@ -173,6 +203,7 @@ let entry_row s =
     published = string_opt s 5;
     summary = Sqlite3.column_text s 6;
     observed_at = Sqlite3.column_text s 7;
+    content = Sqlite3.column_text s 8;
   }
 
 let one = function
@@ -391,73 +422,130 @@ let opml_urls t ~actor ~member_id =
         [ integer m.source_id ]
         (fun s -> Sqlite3.column_text s 0))
 
+let entry_columns =
+  "e.id,e.source_id,e.entry_key,e.title,e.url,e.published,e.summary,e.observed_at,''"
+
 let entries t ~actor ~subscription_id ~after =
   access t actor (fun () ->
       ignore (subscription t subscription_id);
       rows t.db
-        "SELECT e.* FROM feeds_entries e JOIN feeds_memberships m ON \
-         m.source_id=e.source_id WHERE m.subscription_id=? AND e.id>? ORDER BY \
-         e.id LIMIT 5"
+        ("SELECT " ^ entry_columns
+       ^ " FROM feeds_entries e JOIN feeds_memberships m ON \
+          m.source_id=e.source_id WHERE m.subscription_id=? AND e.id>? ORDER \
+          BY e.id LIMIT 5")
         [ integer subscription_id; integer after ]
         entry_row)
 
-let complete_poll t ~actor ~member_id ~kind ~title ~etag ~last_modified ~entries
-    =
+let complete_poll ?next_url ?page_url t ~actor ~member_id ~kind ~title ~etag
+    ~last_modified ~entries =
   access t actor (fun () ->
       transaction t.db (fun () ->
           let m = member t member_id in
+          let src = source t m.source_id in
+          let page_url = Option.value ~default:src.url page_url in
+          let first_page = src.next_url = None in
+          if first_page then
+            execute t.db "DELETE FROM feeds_pages WHERE source_id=?"
+              [ integer m.source_id ];
+          execute t.db "INSERT OR IGNORE INTO feeds_pages VALUES(?,?)"
+            [ integer m.source_id; text page_url ];
+          Option.iter
+            (fun url ->
+              if
+                rows t.db
+                  "SELECT 1 FROM feeds_pages WHERE source_id=? AND url=?"
+                  [ integer m.source_id; text url ]
+                  (fun _ -> ())
+                <> []
+              then invalid_arg "Feed pagination contains a cycle.";
+              let pages =
+                rows t.db "SELECT count(*) FROM feeds_pages WHERE source_id=?"
+                  [ integer m.source_id ]
+                  (fun s -> Sqlite3.column_int s 0)
+              in
+              if List.hd pages >= 1000 then
+                invalid_arg "Feed import exceeds 1000 pages.")
+            next_url;
           List.iter
             (fun (entry : entry) ->
               execute t.db
                 "INSERT OR IGNORE INTO feeds_seen(source_id,entry_key) \
                  VALUES(?,?)"
                 [ integer m.source_id; text entry.key ];
-              if Sqlite3.changes (Sqlite3_eio.db t.db) > 0 then
-                execute t.db
-                  "INSERT INTO \
-                   feeds_entries(source_id,entry_key,title,url,published,summary,observed_at) \
-                   VALUES(?,?,?,?,?,?,?)"
-                  [
-                    integer m.source_id;
-                    text entry.key;
-                    text entry.title;
-                    optional text entry.url;
-                    optional text entry.published;
-                    text entry.summary;
-                    text (stamp t);
-                  ]
-              else
-                execute t.db
-                  "UPDATE feeds_entries SET \
-                   title=?,url=?,published=?,summary=? WHERE source_id=? AND \
-                   entry_key=?"
-                  [
-                    text entry.title;
-                    optional text entry.url;
-                    optional text entry.published;
-                    text entry.summary;
-                    integer m.source_id;
-                    text entry.key;
-                  ])
+              execute t.db
+                "INSERT INTO \
+                 feeds_entries(source_id,entry_key,title,url,published,summary,observed_at,content) \
+                 VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(source_id,entry_key) DO \
+                 UPDATE SET \
+                 title=excluded.title,url=excluded.url,published=excluded.published,summary=excluded.summary,content=excluded.content"
+                [
+                  integer m.source_id;
+                  text entry.key;
+                  text entry.title;
+                  optional text entry.url;
+                  optional text entry.published;
+                  text entry.summary;
+                  text (stamp t);
+                  text entry.content;
+                ])
             entries;
           execute t.db
             "UPDATE feeds_sources SET \
-             kind=?,title=?,etag=?,last_modified=?,checked_at=?,success_at=?,error=NULL,failures=0,retry_at=0 \
+             kind=?,title=?,etag=?,last_modified=?,checked_at=?,success_at=?,error=NULL,failures=0,retry_at=0,next_url=? \
              WHERE id=?"
             [
               text kind;
-              text title;
-              optional text etag;
-              optional text last_modified;
+              text (if first_page then title else src.title);
+              optional text (if first_page then etag else src.etag);
+              optional text
+                (if first_page then last_modified else src.last_modified);
               Sqlite3.Data.FLOAT (t.now ());
-              text (stamp t);
+              optional text
+                (if next_url = None then Some (stamp t) else src.success_at);
+              optional text next_url;
               integer m.source_id;
             ];
-          execute t.db
-            "DELETE FROM feeds_entries WHERE source_id=? AND id NOT IN (SELECT \
-             id FROM feeds_entries WHERE source_id=? ORDER BY id DESC LIMIT \
-             2000)"
-            [ integer m.source_id; integer m.source_id ]))
+          if next_url <> None then
+            execute t.db
+              "UPDATE reminders SET next_at=min(next_at,?) WHERE \
+               state='active' AND id IN (SELECT job_id FROM feeds_memberships \
+               WHERE source_id=?) AND (until_at IS NULL OR until_at>=?)"
+              [
+                Sqlite3.Data.FLOAT (t.now () +. 60.);
+                integer m.source_id;
+                Sqlite3.Data.FLOAT (t.now () +. 60.);
+              ]))
+
+let search t ~actor ~subscription_id ~after ~query =
+  access t actor (fun () ->
+      ignore (subscription t subscription_id);
+      if query = "" || String.length query > 256 || String.contains query '\000'
+      then invalid_arg "Use a full-text query of 1 to 256 bytes.";
+      try
+        rows t.db
+          ("SELECT " ^ entry_columns
+         ^ " FROM feeds_fts JOIN feeds_entries e ON e.id=feeds_fts.rowid JOIN \
+            feeds_memberships m ON m.source_id=e.source_id WHERE \
+            m.subscription_id=? AND e.id>? AND feeds_fts MATCH ? ORDER BY e.id \
+            LIMIT 5")
+          [ integer subscription_id; integer after; text query ]
+          entry_row
+      with Sqlite3.Error _ | Sqlite3.SqliteError _ ->
+        invalid_arg "Invalid feed search. Use words, quoted phrases or prefix*.")
+
+let read_content t ~actor ~subscription_id ~entry_id ~offset =
+  access t actor (fun () ->
+      if offset < 0 || offset > Feed_http.max_bytes then
+        invalid_arg "Invalid article byte offset.";
+      rows t.db
+        "SELECT substr(CAST(e.content AS BLOB),?,2049),length(CAST(e.content \
+         AS BLOB)) FROM feeds_entries e JOIN feeds_memberships m ON \
+         m.source_id=e.source_id WHERE m.subscription_id=? AND e.id=?"
+        [ integer (offset + 1); integer subscription_id; integer entry_id ]
+        (fun s -> (Sqlite3.column_blob s 0, Sqlite3.column_int s 1))
+      |> function
+      | [ page ] -> page
+      | _ -> invalid_arg "Entry is not in this subscription's mirror.")
 
 let not_modified t ~actor ~member_id =
   access t actor (fun () ->
@@ -489,7 +577,8 @@ let pending t ~actor ~member_id =
       transaction t.db (fun () ->
           let m = member t member_id in
           let s = source t m.source_id in
-          if s.success_at = None || s.kind = "opml" then []
+          if s.success_at = None || s.next_url <> None || s.kind = "opml" then
+            []
           else if not m.initialized then begin
             let sub = subscription t m.subscription_id in
             execute t.db
@@ -502,8 +591,9 @@ let pending t ~actor ~member_id =
           end
           else
             rows t.db
-              "SELECT * FROM feeds_entries WHERE source_id=? AND id>? ORDER BY \
-               id LIMIT 10"
+              ("SELECT " ^ entry_columns
+             ^ " FROM feeds_entries e WHERE source_id=? AND id>? ORDER BY id \
+                LIMIT 10")
               [ integer m.source_id; integer m.cursor ]
               entry_row))
 

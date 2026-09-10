@@ -109,9 +109,15 @@ let write_byte e b =
 
 let write_bytes e bs =
   let len = String.length bs in
-  ensure_space e len;
-  Stdlib.Bytes.blit_string bs 0 e.buf e.buf_pos len;
-  e.buf_pos <- e.buf_pos + len
+  if len > Stdlib.Bytes.length e.buf then begin
+    flush_encoder e;
+    Bytes.Writer.write_string e.writer bs
+  end
+  else begin
+    ensure_space e len;
+    Stdlib.Bytes.blit_string bs 0 e.buf e.buf_pos len;
+    e.buf_pos <- e.buf_pos + len
+  end
 
 let write_u16_be e v =
   ensure_space e 2;

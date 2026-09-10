@@ -14,3 +14,8 @@
  (name test_review)
  (modules test_review)
  (libraries atp bytesrw))
+
+(test
+ (name test_dagcbor_large)
+ (modules test_dagcbor_large)
+ (libraries atp bytesrw))

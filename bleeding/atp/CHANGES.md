@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Encode DAG-CBOR text and byte strings larger than 4 KiB without overflowing
+  the encoder buffer, preserving streaming writer order.
+
 - Decode JWT credential metadata with JSONWT's strict bounded parser, rejecting
   duplicate or malformed registered claims before making refresh decisions.
 

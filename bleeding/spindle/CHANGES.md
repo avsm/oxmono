@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Wait for the client's WebSocket close acknowledgement after the last log
+  event, preventing completed log reads from failing with a broken pipe.
+
 - Recover refs despite unrelated catalog failures, tolerate notes and avoid
   duplicate annotated-tag jobs. Stream and durably journal partial log output.
 

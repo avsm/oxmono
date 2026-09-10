@@ -173,7 +173,11 @@ let logs state workflows socket =
             (fun ((run : Runner.t), sent) ->
               Runner.terminal run && !sent == run.events)
             subscriptions
-        then W.close ws ()
+        then (
+          W.close ws ();
+          (* The receiving fiber completes when the peer acknowledges Close.
+             Give it time to finish before the outer race closes the socket. *)
+          Eio.Time.sleep state.system#clock 5.)
         else (
           Eio.Time.sleep state.system#clock 0.05;
           send ())

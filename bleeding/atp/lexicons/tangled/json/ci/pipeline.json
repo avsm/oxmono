@@ -1,0 +1,93 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.ci.pipeline",
+  "defs": {
+    "main": {
+      "type": "object",
+      "description": "A CI pipeline. Record-like, but owned by the spindle rather than a PDS.",
+      "required": ["id", "trigger", "commit", "workflows"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Spindle-local pipeline id"
+        },
+        "repo": {
+          "type": "string",
+          "format": "did",
+          "description": "Repository DID"
+        },
+        "trigger": {
+          "type": "union",
+          "refs": [
+            "sh.tangled.ci.trigger#push",
+            "sh.tangled.ci.trigger#pullRequest",
+            "sh.tangled.ci.trigger#manual"
+          ],
+          "description": "Trigger event metadata"
+        },
+        "commit": {
+          "type": "string",
+          "description": "Commit Id this pipeline is running on"
+        },
+        "sourceRepo": {
+          "type": "string",
+          "format": "did",
+          "description": "Repository DID that the commit was checked out from, if different from repo (e.g. a fork for a fork-based pull request)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "workflows": {
+          "type": "array",
+          "description": "Triggered workflows",
+          "minLength": 1,
+          "maxLength": 50,
+          "items": {
+            "type": "ref",
+            "ref": "#workflow"
+          }
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "required": ["id", "name", "status"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Spindle-local workflow id. Unique per pipeline, usually same as name."
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the workflow",
+          "minGraphemes": 1,
+          "maxGraphemes": 40
+        },
+        "status": {
+          "type": "string",
+          "description": "Workflow status",
+          "enum": [
+            "pending",
+            "running",
+            "failed",
+            "timeout",
+            "cancelled",
+            "success"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "finishedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "error": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

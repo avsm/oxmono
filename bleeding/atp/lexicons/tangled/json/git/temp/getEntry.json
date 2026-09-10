@@ -1,0 +1,81 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.git.temp.getEntry",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "get metadata of blob by ref and path",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "path"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Git revision (branch, tag, or commit id)",
+            "default": "HEAD"
+          },
+          "path": {
+            "type": "string",
+            "description": "path of the entity"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["name", "mode", "oid", "size"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "The file name"
+            },
+            "mode": {
+              "type": "string",
+              "enum": ["0040000", "0100644", "0100664", "0100755", "0120000", "0160000"]
+            },
+            "oid": {
+              "type": "string"
+            },
+            "size": {
+              "type": "integer",
+              "description": "Blob size"
+            },
+            "lastCommit": {
+              "type": "ref",
+              "ref": "sh.tangled.git.temp.defs#commit"
+            },
+            "submodule": {
+              "type": "ref",
+              "ref": "sh.tangled.git.temp.defs#submodule",
+              "description": "Submodule information if path is a submodule"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RefNotFound",
+          "description": "Git reference not found"
+        },
+        {
+          "name": "EntryNotFound",
+          "description": "Entry not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    }
+  }
+}

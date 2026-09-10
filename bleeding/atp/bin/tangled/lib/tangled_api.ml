@@ -1,13 +1,8 @@
-(*---------------------------------------------------------------------------
-   Copyright (c) 2025 Anil Madhavapeddy. All rights reserved.
-   SPDX-License-Identifier: ISC
-  ---------------------------------------------------------------------------*)
+(* SPDX-License-Identifier: ISC *)
 
-(* Aliases for generated lexicon modules *)
 module Atproto = Atp_lexicon_atproto.Com.Atproto
-module Tangled = Atp_lexicon_tangled.Sh.Tangled
+module Lex = Atp_lexicon_tangled.Sh.Tangled
 
-(* Use shared xrpc_auth client *)
 type t = Xrpc_auth.Client.t
 
 let create = Xrpc_auth.Client.create
@@ -17,441 +12,407 @@ let logout = Xrpc_auth.Client.logout
 let get_session = Xrpc_auth.Client.get_session
 let is_logged_in = Xrpc_auth.Client.is_logged_in
 let get_did = Xrpc_auth.Client.get_did
-let get_client = Xrpc_auth.Client.get_client
 
-(* Identity *)
+let get_client t =
+  if is_logged_in t then Xrpc_auth.Client.get_client t
+  else Xrpc_auth.Client.make_client t ~service:(Xrpc_auth.Client.get_pds t)
+
+let service_url service =
+  let url =
+    if
+      String.starts_with ~prefix:"http://" service
+      || String.starts_with ~prefix:"https://" service
+    then service
+    else "https://" ^ service
+  in
+  let url = Xrpc.Client.normalize_service url in
+  let uri = Uriz.of_string_exn url in
+  if Uriz.path uri <> "" && Uriz.path uri <> "/" then
+    invalid_arg "Service must be a hostname or an HTTP(S) origin";
+  url
+
+let service_host service =
+  let url = service_url service in
+  let start = String.index url ':' + 3 in
+  String.sub url start (String.length url - start)
+
+let service_did service =
+  "did:web:"
+  ^ String.concat "%3A" (String.split_on_char ':' (service_host service))
+
+let public_client t ~service =
+  Xrpc_auth.Client.make_client t ~service:(service_url service)
+
+let service_client t ~service ?audience ~nsid () =
+  let did = get_did t in
+  let service = service_url service in
+  let aud = Option.value ~default:(service_did service) audience in
+  let exp = Int64.to_string (Int64.add (Int64.of_float (Unix.time ())) 60L) in
+  let response =
+    Xrpc.Client.query (get_client t) ~nsid:"com.atproto.server.getServiceAuth"
+      ~params:[ ("aud", aud); ("exp", exp); ("lxm", nsid) ]
+      ~decoder:
+        (Jsont.Object.map Fun.id
+        |> Jsont.Object.mem "token" Jsont.string ~enc:Fun.id
+        |> Jsont.Object.finish)
+  in
+  let client = public_client t ~service in
+  let session : Xrpc.Types.session =
+    {
+      access_jwt = response;
+      refresh_jwt = "";
+      did;
+      handle = "";
+      pds_uri = None;
+      email = None;
+      email_confirmed = None;
+      email_auth_factor = None;
+      active = None;
+      status = None;
+    }
+  in
+  Xrpc.Client.set_session client session;
+  client
 
 let resolve_handle t handle =
-  let client = get_client t in
-  let resp =
-    Xrpc.Client.query client ~nsid:"com.atproto.identity.resolveHandle"
-      ~params:[ ("handle", handle) ]
-      ~decoder:Tangled_types.resolve_handle_response_jsont
-  in
-  resp.did
+  if String.starts_with ~prefix:"did:" handle then handle
+  else
+    let response =
+      Xrpc.Client.query (get_client t)
+        ~nsid:"com.atproto.identity.resolveHandle"
+        ~params:[ ("handle", handle) ]
+        ~decoder:
+          (Jsont.Object.map Fun.id
+          |> Jsont.Object.mem "did" Jsont.string ~enc:Fun.id
+          |> Jsont.Object.finish)
+    in
+    response
 
-(* Repository Operations *)
+let encode codec value =
+  match Jsont.Json.encode codec value with
+  | Ok json -> json
+  | Error message -> invalid_arg message
 
-(* Helper to extract rkey from AT URI *)
+let decode codec json =
+  match Jsont.Json.decode codec json with
+  | Ok value -> value
+  | Error message -> failwith message
+
 let rkey_of_uri uri =
-  match Tangled_types.parse_at_uri uri with Some u -> u.rkey | None -> uri
+  match Tangled_types.parse_at_uri uri with
+  | Some uri -> uri.rkey
+  | None -> invalid_arg ("Invalid record URI: " ^ uri)
 
-(* Helper to decode listRecords response with filtering *)
-let decode_list_records (decoder : 'a Jsont.t)
-    (resp : Atproto.Repo.ListRecords.output) : (string * 'a) list =
-  List.filter_map
-    (fun (r : Atproto.Repo.ListRecords.record) ->
-      match Jsont.Json.decode decoder r.value with
-      | Ok v -> Some (rkey_of_uri r.uri, v)
-      | Error _ -> None)
-    resp.records
+let list_records t ~did ~collection =
+  let rec pages seen cursor acc =
+    let params =
+      [ ("repo", did); ("collection", collection); ("limit", "100") ]
+      @ Option.to_list (Option.map (fun c -> ("cursor", c)) cursor)
+    in
+    let page =
+      Xrpc.Client.query (get_client t) ~nsid:"com.atproto.repo.listRecords"
+        ~params ~decoder:Atproto.Repo.ListRecords.output_jsont
+    in
+    let acc = List.rev_append page.records acc in
+    match page.cursor with
+    | None | Some "" -> List.rev acc
+    | Some next ->
+        if List.mem next seen then
+          failwith "Server repeated a pagination cursor";
+        pages (next :: seen) (Some next) acc
+  in
+  pages [] None []
+
+let get_record t ~did ~collection ~rkey =
+  try
+    Some
+      (Xrpc.Client.query (get_client t) ~nsid:"com.atproto.repo.getRecord"
+         ~params:[ ("repo", did); ("collection", collection); ("rkey", rkey) ]
+         ~decoder:Atproto.Repo.GetRecord.output_jsont)
+  with
+  | Eio.Io (Xrpc.Error.E (Xrpc_error { error = "RecordNotFound"; _ }), _) ->
+    None
+
+let create_record t ~collection ?rkey record =
+  let input : Atproto.Repo.CreateRecord.input =
+    {
+      repo = get_did t;
+      collection;
+      rkey;
+      record;
+      validate = None;
+      swap_commit = None;
+    }
+  in
+  Xrpc.Client.procedure (get_client t) ~nsid:"com.atproto.repo.createRecord"
+    ~params:[] ~input:(Some Atproto.Repo.CreateRecord.input_jsont)
+    ~input_data:(Some input) ~decoder:Atproto.Repo.CreateRecord.output_jsont
+
+let put_record t ~collection ~rkey ~swap_record record =
+  let input : Atproto.Repo.PutRecord.input =
+    {
+      repo = get_did t;
+      collection;
+      rkey;
+      record;
+      validate = None;
+      swap_record = Option.map Option.some swap_record;
+      swap_commit = None;
+    }
+  in
+  Xrpc.Client.procedure (get_client t) ~nsid:"com.atproto.repo.putRecord"
+    ~params:[] ~input:(Some Atproto.Repo.PutRecord.input_jsont)
+    ~input_data:(Some input) ~decoder:Atproto.Repo.PutRecord.output_jsont
+
+let delete_record t ~collection ~rkey ?swap_record () =
+  let input : Atproto.Repo.DeleteRecord.input =
+    { repo = get_did t; collection; rkey; swap_record; swap_commit = None }
+  in
+  ignore
+    (Xrpc.Client.procedure (get_client t) ~nsid:"com.atproto.repo.deleteRecord"
+       ~params:[] ~input:(Some Atproto.Repo.DeleteRecord.input_jsont)
+       ~input_data:(Some input) ~decoder:Atproto.Repo.DeleteRecord.output_jsont)
+
+let records t ?did ~collection codec =
+  let did = match did with Some did -> did | None -> get_did t in
+  list_records t ~did ~collection
+  |> List.map (fun (r : Atproto.Repo.ListRecords.record) ->
+      (rkey_of_uri r.uri, decode codec r.value))
 
 let list_repos t ?did () =
-  let client = get_client t in
-  let target_did = match did with Some d -> d | None -> get_did t in
-  let resp =
-    Xrpc.Client.query client ~nsid:"com.atproto.repo.listRecords"
-      ~params:
-        [
-          ("repo", target_did);
-          ("collection", "sh.tangled.repo");
-          ("limit", "100");
-        ]
-      ~decoder:Atproto.Repo.ListRecords.output_jsont
-  in
-  decode_list_records Tangled.Repo.main_jsont resp
+  records t ?did ~collection:"sh.tangled.repo" Lex.Repo.main_jsont
+
+let list_public_keys t ?did () =
+  records t ?did ~collection:"sh.tangled.publicKey" Lex.PublicKey.main_jsont
+
+let list_stars t ?did () =
+  records t ?did ~collection:"sh.tangled.feed.star" Lex.Feed.Star.main_jsont
 
 let get_repo t ~did ~rkey =
-  let client = get_client t in
-  try
-    let resp =
-      Xrpc.Client.query client ~nsid:"com.atproto.repo.getRecord"
-        ~params:
-          [ ("repo", did); ("collection", "sh.tangled.repo"); ("rkey", rkey) ]
-        ~decoder:Atproto.Repo.GetRecord.output_jsont
-    in
-    (* Decode the value field *)
-    match Jsont.Json.decode Tangled.Repo.main_jsont resp.value with
-    | Ok v -> Some v
-    | Error _ -> None
-  with Eio.Io (Xrpc.Error.E _, _) -> None
+  Option.map
+    (fun (r : Atproto.Repo.GetRecord.output) ->
+      decode Lex.Repo.main_jsont r.value)
+    (get_record t ~did ~collection:"sh.tangled.repo" ~rkey)
 
-(* Helper to create a client for a specific knot server *)
-let knot_client t ~knot =
-  let service = "https://" ^ knot in
-  Xrpc_auth.Client.make_client t ~service
+let get_profile t ~did =
+  Option.map
+    (fun (r : Atproto.Repo.GetRecord.output) ->
+      decode Lex.Actor.Profile.main_jsont r.value)
+    (get_record t ~did ~collection:"sh.tangled.actor.profile" ~rkey:"self")
 
-(* Create a minimal session for ServiceAuth tokens *)
-let make_service_auth_session ~did ~token : Xrpc.Types.session =
-  {
-    access_jwt = token;
-    refresh_jwt = "";
-    did;
-    handle = "";
-    pds_uri = None;
-    email = None;
-    email_confirmed = None;
-    email_auth_factor = None;
-    active = None;
-    status = None;
-  }
+type repository = {
+  owner : string;
+  rkey : string;
+  record : Lex.Repo.main;
+  service : string;
+}
 
-(* Get ServiceAuth token for knot operations *)
-let get_service_auth t ~knot =
-  let client = get_client t in
-  (* Audience is did:web:<knot-host> *)
-  let aud = "did:web:" ^ knot in
-  (* ServiceAuth tokens must expire within 60 seconds *)
-  let exp = Int64.to_string (Int64.add (Int64.of_float (Unix.time ())) 60L) in
-  let resp =
-    Xrpc.Client.query client ~nsid:"com.atproto.server.getServiceAuth"
-      ~params:[ ("aud", aud); ("exp", exp) ]
-      ~decoder:Tangled_types.service_auth_response_jsont
+let repo_did repository =
+  match repository.record.repo_did with
+  | Some did -> did
+  | None -> failwith "Repository has no repo DID. Upgrade it on its knot first."
+
+let resolve_repo t ?knot repo =
+  let resolved owner rkey (record : Lex.Repo.main) =
+    let service = Option.value ~default:record.knot knot in
+    if service_host service <> service_host record.knot then
+      failwith "Selected knot does not match the repository record";
+    { owner; rkey; record; service = service_url service }
   in
-  resp.token
+  let by_record owner rkey =
+    let owner = resolve_handle t owner in
+    match get_repo t ~did:owner ~rkey with
+    | Some record -> resolved owner rkey record
+    | None -> failwith ("Repository record not found: " ^ repo)
+  in
+  if String.starts_with ~prefix:"at://" repo then
+    match Tangled_types.parse_at_uri repo with
+    | Some uri when uri.collection = "sh.tangled.repo" ->
+        by_record uri.did uri.rkey
+    | _ -> invalid_arg "Expected a sh.tangled.repo record URI"
+  else if
+    String.starts_with ~prefix:"did:" repo && not (String.contains repo '/')
+  then (
+    let knot =
+      match knot with
+      | Some knot -> knot
+      | None ->
+          invalid_arg "A repo DID requires --knot for authoritative lookup"
+    in
+    let description =
+      Xrpc.Client.query
+        (public_client t ~service:knot)
+        ~nsid:"sh.tangled.repo.describeRepo"
+        ~params:[ ("repoDid", repo) ]
+        ~decoder:Lex.Repo.DescribeRepo.output_jsont
+    in
+    let result = by_record description.owner_did description.rkey in
+    if
+      result.record.repo_did <> Some repo
+      || service_host result.record.knot <> service_host knot
+    then failwith "Knot metadata does not match the repository record";
+    result)
+  else
+    let owner, name =
+      match String.split_on_char '/' repo with
+      | [ owner; name ] -> (resolve_handle t owner, name)
+      | [ name ] -> (get_did t, name)
+      | _ -> invalid_arg "Expected owner/name, a record URI, or a repo DID"
+    in
+    let matches =
+      list_repos t ~did:owner ()
+      |> List.filter (fun (rkey, r) ->
+          (r.Lex.Repo.name = Some name || rkey = name)
+          &&
+          match knot with
+          | None -> true
+          | Some k -> service_host r.knot = service_host k)
+    in
+    match matches with
+    | [ (rkey, record) ] -> resolved owner rkey record
+    | [] -> failwith ("Repository not found: " ^ repo)
+    | _ -> failwith "Repository name is ambiguous. Use its record URI."
 
-(* Helper to encode a value to Jsont.json *)
-let encode_to_json (encoder : 'a Jsont.t) (value : 'a) : Jsont.json =
-  match Jsont.Json.encode encoder value with
-  | Ok json -> json
-  | Error e -> failwith ("Failed to encode: " ^ e)
+let now () = Ptime.to_rfc3339 (Ptime_clock.now ())
 
-let create_repo t ~name ~knot ?description ?default_branch () =
-  let client = get_client t in
-  let did = get_did t in
-
-  (* 1. Create sh.tangled.repo record on PDS *)
-  let now = Ptime.to_rfc3339 (Ptime_clock.now ()) in
-  let repo_record : Tangled.Repo.main =
+let create_repo t ~name ~knot ?audience ?description ?default_branch ?source ()
+    =
+  let rkey = String.lowercase_ascii name in
+  if not (Atp.Record_key.is_valid rkey) then
+    invalid_arg "Invalid repository name";
+  if Option.is_some (get_repo t ~did:(get_did t) ~rkey) then
+    failwith "A repository record already exists with this name";
+  let nsid = "sh.tangled.repo.create" in
+  let client = service_client t ~service:knot ?audience ~nsid () in
+  let source_url = Option.map (fun r -> r.service ^ "/" ^ repo_did r) source in
+  let input : Lex.Repo.Create.input =
+    { rkey; name; default_branch; source = source_url; repo_did = None }
+  in
+  let created =
+    Xrpc.Client.procedure client ~nsid ~params:[]
+      ~input:(Some Lex.Repo.Create.input_jsont) ~input_data:(Some input)
+      ~decoder:Lex.Repo.Create.output_jsont
+  in
+  let minted_did =
+    match created.repo_did with
+    | Some did -> did
+    | None -> failwith "Knot did not return a repo DID"
+  in
+  let record : Lex.Repo.main =
     {
-      name;
-      knot;
+      name = Some name;
+      knot = service_host knot;
       description;
-      created_at = now;
+      created_at = now ();
+      repo_did = Some minted_did;
       spindle = None;
       website = None;
       topics = None;
-      source = None;
+      source = Option.map (fun r -> repo_did r) source;
       labels = None;
     }
   in
-  let input : Atproto.Repo.CreateRecord.input =
+  (* Preserve the minted identity on an uncertain PDS write. Deleting the knot
+     here could destroy a repository after a successful but timed-out write. *)
+  (try
+     ignore
+       (create_record t ~collection:"sh.tangled.repo" ~rkey
+          (encode Lex.Repo.main_jsont record))
+   with Eio.Io _ as ex ->
+     failwith
+       (Printf.sprintf
+          "Knot created %s, but PDS publication failed: %s. Retry publication \
+           with this DID and rkey %s."
+          minted_did (Printexc.to_string ex) rkey));
+  { owner = get_did t; rkey; record; service = service_url knot }
+
+let delete_repo t ?audience repository =
+  if repository.owner <> get_did t then
+    failwith "Only the owner can delete this repository";
+  let repo = repo_did repository in
+  (* The knot verifies that the owner's PDS record has gone before teardown. *)
+  let existing =
+    get_record t ~did:repository.owner ~collection:"sh.tangled.repo"
+      ~rkey:repository.rkey
+  in
+  Option.iter
+    (fun (r : Atproto.Repo.GetRecord.output) ->
+      if decode Lex.Repo.main_jsont r.value <> repository.record then
+        failwith "Repository changed. Resolve it again before deleting.";
+      delete_record t ~collection:"sh.tangled.repo" ~rkey:repository.rkey
+        ~swap_record:
+          (match r.cid with
+          | Some cid -> cid
+          | None -> failwith "PDS did not return a record CID")
+        ())
+    existing;
+  let nsid = "sh.tangled.repo.delete" in
+  let client =
+    service_client t ~service:repository.service ?audience ~nsid ()
+  in
+  let input : Lex.Repo.Delete.input =
     {
-      repo = did;
-      collection = "sh.tangled.repo";
-      rkey = None;
-      validate = Some false;
-      record = encode_to_json Tangled.Repo.main_jsont repo_record;
-      swap_commit = None;
+      repo;
+      did = Some repository.owner;
+      name = repository.record.name;
+      rkey = Some repository.rkey;
+      force = None;
     }
   in
-  let resp =
-    Xrpc.Client.procedure client ~nsid:"com.atproto.repo.createRecord"
-      ~params:[] ~input:(Some Atproto.Repo.CreateRecord.input_jsont)
-      ~input_data:(Some input) ~decoder:Atproto.Repo.CreateRecord.output_jsont
+  Xrpc.Client.procedure_unit client ~nsid ~params:[]
+    ~input:(Some Lex.Repo.Delete.input_jsont) ~input_data:(Some input)
+
+let git_url repository = repository.service ^ "/" ^ repo_did repository
+
+let clone t ~repo ?knot ?dir () =
+  let repository = resolve_repo t ?knot repo in
+  let target =
+    Option.value
+      ~default:(Option.value ~default:repository.rkey repository.record.name)
+      dir
   in
-
-  (* Extract rkey from AT URI *)
-  let rkey = rkey_of_uri resp.uri in
-
-  (* 2. Get ServiceAuth for knot *)
-  let sa_token = get_service_auth t ~knot in
-
-  (* 3. Create repo on knot *)
-  let knot_input : Tangled.Repo.Create.input =
-    { rkey; default_branch; source = None }
+  let command =
+    String.concat " "
+      (List.map Filename.quote
+         [ "git"; "clone"; "--"; git_url repository; target ])
   in
-  let knot_client = knot_client t ~knot in
-  Xrpc.Client.set_session knot_client
-    (make_service_auth_session ~did ~token:sa_token);
-  let _ =
-    Xrpc.Client.procedure_unit knot_client ~nsid:"sh.tangled.repo.create" ~params:[]
-      ~input:(Some Tangled.Repo.Create.input_jsont)
-      ~input_data:(Some knot_input)
-  in
-  rkey
+  let code = Sys.command command in
+  if code <> 0 then
+    failwith (Printf.sprintf "git clone exited with status %d" code)
 
-let delete_repo t ~name ~knot =
-  let client = get_client t in
-  let did = get_did t in
-
-  (* Find the repo record to get the rkey *)
-  let repos = list_repos t ~did () in
-  let rkey =
-    match
-      List.find_opt
-        (fun (_, (r : Tangled.Repo.main)) -> r.name = name && r.knot = knot)
-        repos
-    with
-    | Some (rkey, _) -> rkey
-    | None -> failwith ("Repository not found: " ^ name)
-  in
-
-  (* 1. Delete from knot *)
-  let sa_token = get_service_auth t ~knot in
-  let knot_client = knot_client t ~knot in
-  Xrpc.Client.set_session knot_client
-    (make_service_auth_session ~did ~token:sa_token);
-  let knot_input : Tangled.Repo.Delete.input = { did; name; rkey } in
-  let _ =
-    Xrpc.Client.procedure_unit knot_client ~nsid:"sh.tangled.repo.delete" ~params:[]
-      ~input:(Some Tangled.Repo.Delete.input_jsont)
-      ~input_data:(Some knot_input)
-  in
-
-  (* 2. Delete record from PDS *)
-  let delete_input : Atproto.Repo.DeleteRecord.input =
-    {
-      repo = did;
-      collection = "sh.tangled.repo";
-      rkey;
-      swap_record = None;
-      swap_commit = None;
-    }
-  in
-  let _ =
-    Xrpc.Client.procedure client ~nsid:"com.atproto.repo.deleteRecord"
-      ~params:[] ~input:(Some Atproto.Repo.DeleteRecord.input_jsont)
-      ~input_data:(Some delete_input)
-      ~decoder:Atproto.Repo.DeleteRecord.output_jsont
-  in
-  ()
-
-(* Convert from generated lexicon type to our language type *)
-let language_of_generated (g : Tangled.Repo.Languages.language) :
-    Tangled_types.language =
-  {
-    name = g.name;
-    size = g.size;
-    percentage = g.percentage;
-    file_count = g.file_count;
-    color = g.color;
-    extensions = g.extensions;
-  }
-
-let get_repo_info t ~knot ~did ~name =
-  let knot_client = knot_client t ~knot in
-  (* Repo identifier in format "did/name" *)
-  let repo = did ^ "/" ^ name in
-  let params = [ ("repo", repo) ] in
-
-  (* Get default branch using generated lexicon type *)
-  let branch_resp =
-    Xrpc.Client.query knot_client ~nsid:"sh.tangled.repo.getDefaultBranch"
-      ~params ~decoder:Tangled.Repo.GetDefaultBranch.output_jsont
-  in
-
-  (* Get languages using generated type, then convert to our type *)
-  let lang_resp =
-    Xrpc.Client.query knot_client ~nsid:"sh.tangled.repo.languages" ~params
-      ~decoder:Tangled.Repo.Languages.output_jsont
-  in
-  let languages = List.map language_of_generated lang_resp.languages in
-
-  (* Use the branch name from the response *)
-  { Tangled_types.default_branch = branch_resp.name; languages }
-
-(* Git Operations *)
-
-let git_url _t ~knot ~did ~name =
-  Printf.sprintf "https://%s/%s/%s.git" knot did name
-
-let clone t ~repo ?dir () =
-  (* Parse repo identifier: "user/name" or AT URI *)
-  let did, name, knot =
-    if String.starts_with ~prefix:"at://" repo then
-      match Tangled_types.parse_at_uri repo with
-      | Some uri -> (
-          (* Need to fetch the record to get the knot *)
-          let repos = list_repos t ~did:uri.did () in
-          match List.find_opt (fun (rkey, _) -> rkey = uri.rkey) repos with
-          | Some (_, (r : Tangled.Repo.main)) -> (uri.did, r.name, r.knot)
-          | None -> failwith ("Repository not found: " ^ repo))
-      | None -> failwith ("Invalid AT URI: " ^ repo)
-    else
-      (* user/name format *)
-      match String.split_on_char '/' repo with
-      | [ user; name ] -> (
-          let did =
-            if String.starts_with ~prefix:"did:" user then user
-            else resolve_handle t user
-          in
-          let repos = list_repos t ~did () in
-          match
-            List.find_opt
-              (fun (_, (r : Tangled.Repo.main)) -> r.name = name)
-              repos
-          with
-          | Some (_, (r : Tangled.Repo.main)) -> (did, name, r.knot)
-          | None -> failwith ("Repository not found: " ^ repo))
-      | _ -> failwith ("Invalid repo format: " ^ repo ^ " (expected user/name)")
-  in
-
-  let url = git_url t ~knot ~did ~name in
-  let target = match dir with Some d -> d | None -> name in
-
-  (* Shell out to git *)
-  let cmd =
-    Printf.sprintf "git clone %s %s" (Filename.quote url)
-      (Filename.quote target)
-  in
-  let ret = Sys.command cmd in
-  if ret <> 0 then
-    failwith (Printf.sprintf "git clone failed with exit code %d" ret)
-
-(* Pipeline Operations *)
-
-(* Helper to create a client for querying a spindle *)
-let spindle_client t ~spindle =
-  let service = "https://" ^ spindle in
-  Xrpc_auth.Client.make_client t ~service
-
-(* Helper to get the spindle DID from hostname *)
-let spindle_did spindle = "did:web:" ^ spindle
-
-(* Get the spindle for a repo, returns (spindle_hostname, spindle_did) *)
-let get_spindle_for_repo t ~did ~repo_name =
-  let repos = list_repos t ~did () in
-  match
-    List.find_opt (fun (_, (r : Tangled.Repo.main)) -> r.name = repo_name) repos
-  with
-  | Some (_, r) -> (
-      match r.spindle with Some s -> Some (s, spindle_did s) | None -> None)
-  | None -> None
-
-let list_pipelines t ~spindle () =
-  let client = spindle_client t ~spindle in
-  let spindle_did = spindle_did spindle in
-  let resp =
-    Xrpc.Client.query client ~nsid:"com.atproto.repo.listRecords"
-      ~params:
-        [
-          ("repo", spindle_did);
-          ("collection", "sh.tangled.pipeline");
-          ("limit", "100");
-        ]
-      ~decoder:Atproto.Repo.ListRecords.output_jsont
-  in
-  decode_list_records Tangled.Pipeline.main_jsont resp
-
-let list_pipelines_for_repo t ~spindle ~did ~repo_name () =
-  let all_pipelines = list_pipelines t ~spindle () in
-  List.filter
-    (fun (_, (p : Tangled.Pipeline.main)) ->
-      p.trigger_metadata.repo.repo = repo_name
-      && p.trigger_metadata.repo.did = did)
-    all_pipelines
-
-let list_pipeline_statuses t ~spindle ~pipeline_rkey () =
-  let client = spindle_client t ~spindle in
-  let spindle_did = spindle_did spindle in
-  (* Construct the AT-URI for the pipeline *)
-  let pipeline_uri =
-    Tangled_types.make_at_uri ~did:spindle_did ~collection:"sh.tangled.pipeline"
-      ~rkey:pipeline_rkey
-  in
-  (* List all status records *)
-  let resp =
-    Xrpc.Client.query client ~nsid:"com.atproto.repo.listRecords"
-      ~params:
-        [
-          ("repo", spindle_did);
-          ("collection", "sh.tangled.pipeline.status");
-          ("limit", "100");
-        ]
-      ~decoder:Atproto.Repo.ListRecords.output_jsont
-  in
-  let records = decode_list_records Tangled.Pipeline.Status.main_jsont resp in
-  (* Filter by pipeline URI and sort by created_at descending *)
-  records
-  |> List.filter (fun (_, (s : Tangled.Pipeline.Status.main)) ->
-      s.pipeline = pipeline_uri)
-  |> List.map snd
-  |> List.sort
-       (fun
-         (a : Tangled.Pipeline.Status.main)
-         (b : Tangled.Pipeline.Status.main)
-       -> String.compare b.created_at a.created_at)
-(* newest first *)
-
-let get_pipeline_summary t ~spindle ~pipeline_rkey () =
-  let statuses = list_pipeline_statuses t ~spindle ~pipeline_rkey () in
-  (* Group by workflow, take most recent (first since sorted newest first) *)
-  List.fold_left
-    (fun acc (s : Tangled.Pipeline.Status.main) ->
-      if List.mem_assoc s.workflow acc then acc else (s.workflow, s) :: acc)
-    [] statuses
-  |> List.rev (* Preserve workflow order *)
-
-(* Knot Operations *)
-
-let get_knot_version t ~knot =
-  let client = knot_client t ~knot in
-  Xrpc.Client.query client ~nsid:"sh.tangled.knot.version" ~params:[]
-    ~decoder:Tangled.Knot.Version.output_jsont
-
-let list_knot_keys t ~knot ?limit ?cursor () =
-  let client = knot_client t ~knot in
+let query_pipelines t ~spindle ~repo ?(commits = []) ?(kinds = []) ?(limit = 50)
+    ?cursor () =
+  if limit < 1 || limit > 250 then invalid_arg "Pipeline limit must be 1..250";
   let params =
-    List.filter_map Fun.id
-      [
-        Option.map (fun l -> ("limit", string_of_int l)) limit;
-        Option.map (fun c -> ("cursor", c)) cursor;
-      ]
+    [ ("repo", repo); ("limit", string_of_int limit) ]
+    @ List.map (fun x -> ("commits", x)) commits
+    @ List.map (fun x -> ("kinds", x)) kinds
+    @ Option.to_list (Option.map (fun x -> ("cursor", x)) cursor)
   in
-  Xrpc.Client.query client ~nsid:"sh.tangled.knot.listKeys" ~params
-    ~decoder:Tangled.Knot.ListKeys.output_jsont
+  Xrpc.Client.query
+    (public_client t ~service:spindle)
+    ~nsid:"sh.tangled.ci.queryPipelines" ~params
+    ~decoder:Lex.Ci.QueryPipelines.output_jsont
 
-(* Profile Operations *)
+let get_pipeline t ~spindle ~pipeline =
+  Xrpc.Client.query
+    (public_client t ~service:spindle)
+    ~nsid:"sh.tangled.ci.getPipeline"
+    ~params:[ ("pipeline", pipeline) ]
+    ~decoder:Lex.Ci.GetPipeline.output_jsont
 
-let get_profile t ~did =
-  let client = get_client t in
-  try
-    let resp =
-      Xrpc.Client.query client ~nsid:"com.atproto.repo.getRecord"
-        ~params:
-          [
-            ("repo", did);
-            ("collection", "sh.tangled.actor.profile");
-            ("rkey", "self");
-          ]
-        ~decoder:Atproto.Repo.GetRecord.output_jsont
-    in
-    match Jsont.Json.decode Tangled.Actor.Profile.main_jsont resp.value with
-    | Ok v -> Some v
-    | Error _ -> None
-  with Eio.Io (Xrpc.Error.E _, _) -> None
+let trigger_pipeline t ~spindle ?audience ~repo ~trigger ?workflows () =
+  let nsid = "sh.tangled.ci.triggerPipeline" in
+  let input : Lex.Ci.TriggerPipeline.input = { repo; trigger; workflows } in
+  Xrpc.Client.procedure
+    (service_client t ~service:spindle ?audience ~nsid ())
+    ~nsid ~params:[] ~input:(Some Lex.Ci.TriggerPipeline.input_jsont)
+    ~input_data:(Some input) ~decoder:Lex.Ci.TriggerPipeline.output_jsont
 
-(* Public Keys (user's SSH keys stored in their PDS) *)
-
-let list_public_keys t ?did () =
-  let client = get_client t in
-  let target_did = match did with Some d -> d | None -> get_did t in
-  let resp =
-    Xrpc.Client.query client ~nsid:"com.atproto.repo.listRecords"
-      ~params:
-        [
-          ("repo", target_did);
-          ("collection", "sh.tangled.publicKey");
-          ("limit", "100");
-        ]
-      ~decoder:Atproto.Repo.ListRecords.output_jsont
-  in
-  decode_list_records Tangled.PublicKey.main_jsont resp
-
-(* Stars *)
-
-let list_stars t ?did () =
-  let client = get_client t in
-  let target_did = match did with Some d -> d | None -> get_did t in
-  let resp =
-    Xrpc.Client.query client ~nsid:"com.atproto.repo.listRecords"
-      ~params:
-        [
-          ("repo", target_did);
-          ("collection", "sh.tangled.feed.star");
-          ("limit", "100");
-        ]
-      ~decoder:Atproto.Repo.ListRecords.output_jsont
-  in
-  decode_list_records Tangled.Feed.Star.main_jsont resp
+let cancel_pipeline t ~spindle ?audience ~repo ~pipeline ?workflows () =
+  let nsid = "sh.tangled.ci.cancelPipeline" in
+  let input : Lex.Ci.CancelPipeline.input = { repo; pipeline; workflows } in
+  Xrpc.Client.procedure_unit
+    (service_client t ~service:spindle ?audience ~nsid ())
+    ~nsid ~params:[] ~input:(Some Lex.Ci.CancelPipeline.input_jsont)
+    ~input_data:(Some input)

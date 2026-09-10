@@ -1,0 +1,54 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.describeRepo",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Fetch the knot's authoritative metadata for a git repo DID.",
+      "parameters": {
+        "type": "params",
+        "required": ["repoDid"],
+        "properties": {
+          "repoDid": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the git repo as minted by the knot"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repoDid", "ownerDid", "rkey"],
+          "properties": {
+            "repoDid": {
+              "type": "string",
+              "format": "did"
+            },
+            "ownerDid": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the current owner according to the knot."
+            },
+            "rkey": {
+              "type": "string",
+              "format": "record-key",
+              "description": "Current rkey of the sh.tangled.repo record tracked by this knot"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repo DID is not registered on this knot"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    }
+  }
+}

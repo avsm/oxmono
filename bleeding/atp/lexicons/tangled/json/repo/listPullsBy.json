@@ -1,0 +1,60 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.listPullsBy",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["subject"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "did",
+            "description": "Actor DID whose pull authorings to list"
+          },
+          "status": {
+            "type": "string",
+            "knownValues": ["open", "closed", "merged"],
+            "description": "Restrict to pulls whose latest derived status matches."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "order": {
+            "type": "string",
+            "knownValues": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort direction by createdAt."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["items"],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "sh.tangled.repo.listPulls#pullListItem"
+              }
+            },
+            "cursor": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

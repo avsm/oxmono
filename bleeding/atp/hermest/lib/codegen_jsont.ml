@@ -264,8 +264,9 @@ let gen_object_type_and_jsont ?(first = true) nsid out name (spec : object_spec)
         let is_required = List.mem prop_name required in
         let is_nullable = List.mem prop_name nullable in
         let type_str =
-          if is_required && not is_nullable then base_type
-          else base_type ^ " option"
+          base_type
+          ^ (if is_nullable then " option" else "")
+          ^ (if is_required then "" else " option")
         in
         emitln out (Printf.sprintf "  %s : %s;" ocaml_name type_str))
       spec.properties;
@@ -299,7 +300,11 @@ let gen_object_type_and_jsont ?(first = true) nsid out name (spec : object_spec)
         let jsont_ref = gen_jsont_ref nsid out prop.type_def in
         let is_required = List.mem prop_name required in
         let is_nullable = List.mem prop_name nullable in
-        let is_optional = (not is_required) || is_nullable in
+        let is_optional = not is_required in
+        let jsont_ref =
+          if is_nullable then "(Jsont.option " ^ jsont_ref ^ ")"
+          else jsont_ref
+        in
 
         if is_optional then
           emitln out
@@ -726,8 +731,9 @@ let gen_object_interface ?(first = true) nsid out name (spec : object_spec) desc
         let is_required = List.mem prop_name required in
         let is_nullable = List.mem prop_name nullable in
         let type_str =
-          if is_required && not is_nullable then base_type
-          else base_type ^ " option"
+          base_type
+          ^ (if is_nullable then " option" else "")
+          ^ (if is_required then "" else " option")
         in
         (* Emit field with inline doc *)
         match prop.description with
@@ -1116,8 +1122,9 @@ let gen_unified_object_type ?(first = true) ctx out name (spec : object_spec) =
         let is_required = List.mem prop_name required in
         let is_nullable = List.mem prop_name nullable in
         let type_str =
-          if is_required && not is_nullable then base_type
-          else base_type ^ " option"
+          base_type
+          ^ (if is_nullable then " option" else "")
+          ^ (if is_required then "" else " option")
         in
         emitln out (Printf.sprintf "  %s : %s;" ocaml_name type_str))
       spec.properties;
@@ -1151,7 +1158,11 @@ let gen_unified_object_type ?(first = true) ctx out name (spec : object_spec) =
         let jsont_ref = gen_unified_jsont_ref ctx out prop.type_def in
         let is_required = List.mem prop_name required in
         let is_nullable = List.mem prop_name nullable in
-        let is_optional = (not is_required) || is_nullable in
+        let is_optional = not is_required in
+        let jsont_ref =
+          if is_nullable then "(Jsont.option " ^ jsont_ref ^ ")"
+          else jsont_ref
+        in
         if is_optional then
           emitln out
             (Printf.sprintf
@@ -1632,8 +1643,9 @@ let gen_unified_object_interface ?(first = true) ctx out name
         let is_required = List.mem prop_name required in
         let is_nullable = List.mem prop_name nullable in
         let type_str =
-          if is_required && not is_nullable then base_type
-          else base_type ^ " option"
+          base_type
+          ^ (if is_nullable then " option" else "")
+          ^ (if is_required then "" else " option")
         in
         match prop.description with
         | Some desc when String.trim desc <> "" ->

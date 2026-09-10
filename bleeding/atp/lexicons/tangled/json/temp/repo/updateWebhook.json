@@ -1,0 +1,47 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.repo.updateWebhook",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Update an existing webhook. Only supplied fields are changed.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repoDid", "id"],
+          "properties": {
+            "repoDid": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the repository as minted by the knot."
+            },
+            "id": {
+              "type": "integer",
+              "description": "Webhook ID to update."
+            },
+            "url": {
+              "type": "string",
+              "format": "uri"
+            },
+            "secret": {
+              "type": "string"
+            },
+            "active": {
+              "type": "boolean"
+            },
+            "events": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "WebhookNotFound" }
+      ]
+    }
+  }
+}

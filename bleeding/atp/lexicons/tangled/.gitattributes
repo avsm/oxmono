@@ -1,0 +1,2 @@
+# Preserve upstream whitespace in the vendored JSON documents.
+json/** whitespace=-blank-at-eof

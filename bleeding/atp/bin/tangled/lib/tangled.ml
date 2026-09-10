@@ -7,3 +7,4 @@ module Session = Xrpc_auth.Session
 module Types = Tangled_types
 module Api = Tangled_api
 module Config = Tangled_config
+module Schema = Tangled_schema

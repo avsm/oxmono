@@ -5,7 +5,7 @@
 
 open Cmdliner
 
-let version = "0.1.0"
+let version = "0.2.0"
 let app_name = "tangled"
 
 let main_cmd =
@@ -21,8 +21,6 @@ let main_cmd =
       `P "Use $(mname) $(i,COMMAND) --help for help on a specific command.";
       `S Manpage.s_environment;
       `P (Xdge.Cmd.env_docs app_name);
-      `S Manpage.s_bugs;
-      `P "Report bugs at https://github.com/user/tangled/issues";
     ]
   in
   let info = Cmd.info "tangled" ~version ~doc ~man in
@@ -34,6 +32,12 @@ let main_cmd =
       Cmd_profile.cmd;
       Cmd_star.cmd;
       Cmd_pipeline.cmd;
+      Cmd_spindle.cmd;
+      Cmd_record.cmd;
+      Cmd_api.cmd;
+      Cmd_issue.cmd;
+      Cmd_issue.pull_cmd;
+      Cmd_key.cmd;
     ]
 
 let () =

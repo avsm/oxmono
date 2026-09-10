@@ -1,0 +1,98 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.listIssues",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["subject"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "did",
+            "description": "Repo DID to list issues for"
+          },
+          "author": {
+            "type": "string",
+            "format": "did",
+            "description": "Restrict to issues authored by this user DID."
+          },
+          "state": {
+            "type": "string",
+            "knownValues": ["open", "closed"],
+            "description": "Restrict to issues whose latest derived state matches."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "order": {
+            "type": "string",
+            "knownValues": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort direction by createdAt."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["items"],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#issueListItem"
+              }
+            },
+            "cursor": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "issueListItem": {
+      "type": "object",
+      "required": ["uri", "value", "state", "commentCount"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "cid": {
+          "type": "string",
+          "format": "cid"
+        },
+        "value": {
+          "type": "unknown",
+          "description": "Embedded sh.tangled.repo.issue record"
+        },
+        "state": {
+          "type": "string",
+          "knownValues": ["open", "closed"],
+          "description": "Latest derived state."
+        },
+        "stateUpdatedAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "TID-derived timestamp of the latest state record."
+        },
+        "commentCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of sh.tangled.repo.issue.comment records targeting this issue."
+        }
+      }
+    }
+  }
+}

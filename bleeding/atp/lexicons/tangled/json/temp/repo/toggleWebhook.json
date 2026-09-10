@@ -1,0 +1,44 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.repo.toggleWebhook",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Toggle the active state of a webhook.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repoDid", "id"],
+          "properties": {
+            "repoDid": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the repository as minted by the knot."
+            },
+            "id": {
+              "type": "integer",
+              "description": "Webhook ID to toggle."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["active"],
+          "properties": {
+            "active": {
+              "type": "boolean",
+              "description": "New active state of the webhook."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "WebhookNotFound" }
+      ]
+    }
+  }
+}

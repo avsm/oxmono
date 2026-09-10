@@ -24,6 +24,7 @@
         "schema": {
           "type": "object",
           "required": ["ref", "languages"],
+          "nullable": ["languages"],
           "properties": {
             "ref": {
               "type": "string",

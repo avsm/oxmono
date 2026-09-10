@@ -9,6 +9,7 @@
       "key": "tid",
       "record": {
         "type": "object",
+        "description": "DEPRECATED: use sh.tangled.ci.pipeline instead",
         "required": [
           "triggerMetadata",
           "workflows"
@@ -58,6 +59,11 @@
         "manual": {
           "type": "ref",
           "ref": "#manualTriggerData"
+        },
+        "sourceRepo": {
+          "type": "string",
+          "format": "did",
+          "description": "Repository DID that code and workflow definitions are checked out from, when different from repo (e.g. a fork's commit for a fork-based manual trigger). If absent, source uses repo itself."
         }
       }
     },
@@ -66,7 +72,6 @@
       "required": [
         "knot",
         "did",
-        "repo",
         "defaultBranch"
       ],
       "properties": {
@@ -75,6 +80,11 @@
         },
         "did": {
           "type": "string",
+          "format": "did"
+        },
+        "repoDid": {
+          "type": "string",
+          "description": "DID of the repo itself",
           "format": "did"
         },
         "repo": {
@@ -113,10 +123,20 @@
       "required": [
         "sourceBranch",
         "targetBranch",
-        "sourceSha",
-        "action"
+        "sourceSha"
       ],
       "properties": {
+        "action": {
+          "type": "string",
+          "description": "the pull request lifecycle action that produced this trigger",
+          "enum": [
+            "opened",
+            "reopened",
+            "closed",
+            "merged",
+            "synchronize"
+          ]
+        },
         "sourceBranch": {
           "type": "string"
         },
@@ -128,14 +148,29 @@
           "minLength": 40,
           "maxLength": 40
         },
-        "action": {
-          "type": "string"
+        "pull": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT-URI of the sh.tangled.repo.pull record this run belongs to"
         }
       }
     },
     "manualTriggerData": {
       "type": "object",
+      "required": [
+        "sha"
+      ],
       "properties": {
+        "sha": {
+          "type": "string",
+          "description": "commit SHA the manual run targets",
+          "minLength": 40,
+          "maxLength": 40
+        },
+        "ref": {
+          "type": "string",
+          "description": "optional ref the SHA was resolved from, for display and TANGLED_REF"
+        },
         "inputs": {
           "type": "array",
           "items": {
@@ -160,6 +195,12 @@
         "engine": {
           "type": "string"
         },
+        "runsOn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "clone": {
           "type": "ref",
           "ref": "#cloneOpts"
@@ -174,7 +215,8 @@
       "required": [
         "skip",
         "depth",
-        "submodules"
+        "submodules",
+        "tags"
       ],
       "properties": {
         "skip": {
@@ -184,6 +226,9 @@
           "type": "integer"
         },
         "submodules": {
+          "type": "boolean"
+        },
+        "tags": {
           "type": "boolean"
         }
       }

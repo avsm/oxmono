@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.spindle.moderation.getBan",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "return the active ban for a repository or account owner DID",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "did"
+        ],
+        "properties": {
+          "did": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository or account owner to look up"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "ban"
+          ],
+          "properties": {
+            "ban": {
+              "description": "active ban matching the requested DID",
+              "type": "ref",
+              "ref": "org.tangled.temp.spindle.moderation.defs#ban"
+            }
+          }
+        }
+      }
+    }
+  }
+}

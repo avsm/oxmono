@@ -12,10 +12,7 @@ let app_name = "tangled"
 let pds =
   let doc = "PDS base URL." in
   let env = Cmd.Env.info "TANGLED_PDS" in
-  Arg.(
-    value
-    & opt string "https://bsky.social"
-    & info [ "pds" ] ~env ~docv:"URL" ~doc)
+  Arg.(value & opt (some string) None & info [ "pds" ] ~env ~docv:"URL" ~doc)
 
 (* Auth login command *)
 
@@ -42,17 +39,32 @@ let prompt_or label = function
   | Some v -> v
   | None ->
       Fmt.pr "%s: @?" label;
-      read_line ()
+      if label = "Password" && Unix.isatty Unix.stdin then
+        let original = Unix.tcgetattr Unix.stdin in
+        Fun.protect
+          ~finally:(fun () ->
+            Unix.tcsetattr Unix.stdin Unix.TCSANOW original;
+            Fmt.pr "@.")
+          (fun () ->
+            Unix.tcsetattr Unix.stdin Unix.TCSANOW
+              { original with c_echo = false };
+            read_line ())
+      else read_line ()
 
 let login_action ~pds ~handle ~password ~save_password env =
   Eio.Switch.run @@ fun sw ->
   let fs = env#fs in
   let xdg = Xdge.create fs app_name in
-  let api = Tangled.Api.create ~sw ~env ~app_name ~pds () in
-
   (* Try to get credentials from config if not provided *)
   let config = Tangled.Config.load fs xdg in
   let saved_password = Tangled.Config.load_password fs xdg in
+  let pds =
+    match (pds, config) with
+    | Some pds, _ -> pds
+    | None, Some config -> config.pds
+    | None, None -> "https://bsky.social"
+  in
+  let api = Common.create_api ~sw ~env ~app_name ~pds () in
 
   let handle =
     match handle with
@@ -80,17 +92,19 @@ let login_action ~pds ~handle ~password ~save_password env =
       if save_password then Tangled.Config.save_password fs xdg password;
       Fmt.pr "Logged in as %s (%s)@." session.handle session.did;
       if save_password then Fmt.pr "Password saved to config.@."
-  | None -> Fmt.pr "Login failed@."
+  | None -> failwith "Login failed"
 
 let login_cmd =
   let doc = "Login to Tangled." in
   let info = Cmd.info "login" ~doc in
   let login' pds handle password save_password =
-    Eio_main.run @@ fun env ->
-    login_action ~pds ~handle ~password ~save_password env
+    Common.run (fun env ->
+        login_action ~pds ~handle ~password ~save_password env)
   in
   Cmd.v info
-    Term.(const login' $ pds $ handle_arg $ password_arg $ save_password_arg)
+    Term.(
+      term_result
+        (const login' $ pds $ handle_arg $ password_arg $ save_password_arg))
 
 (* Auth logout command *)
 
@@ -98,21 +112,24 @@ let logout_action env =
   Eio.Switch.run @@ fun sw ->
   let fs = env#fs in
   let xdg = Xdge.create fs app_name in
-  match Xrpc_auth.Session.load fs ~app_name () with
-  | None -> Fmt.pr "Not logged in.@."
-  | Some session ->
-      let pds = session.pds in
-      let api = Tangled.Api.create ~sw ~env ~app_name ~pds () in
-      Tangled.Api.resume api ~session;
-      Tangled.Api.logout api;
-      Tangled.Config.clear_password fs xdg;
-      Fmt.pr "Logged out.@."
+  Fun.protect
+    ~finally:(fun () ->
+      Xrpc_auth.Session.clear fs ~app_name ();
+      Tangled.Config.clear_password fs xdg)
+    (fun () ->
+      match Xrpc_auth.Session.load fs ~app_name () with
+      | None -> Fmt.pr "Not logged in.@."
+      | Some session ->
+          let api = Common.create_api ~sw ~env ~app_name ~pds:session.pds () in
+          Tangled.Api.resume api ~session;
+          Tangled.Api.logout api;
+          Fmt.pr "Logged out.@.")
 
 let logout_cmd =
   let doc = "Logout from Tangled." in
   let info = Cmd.info "logout" ~doc in
-  let logout' () = Eio_main.run @@ fun env -> logout_action env in
-  Cmd.v info Term.(const logout' $ const ())
+  let logout' () = Common.run logout_action in
+  Cmd.v info Term.(term_result (const logout' $ const ()))
 
 (* Auth status command *)
 

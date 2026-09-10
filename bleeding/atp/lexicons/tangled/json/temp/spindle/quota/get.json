@@ -1,0 +1,44 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.spindle.quota.get",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "return a per-subject quota override for one resource",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "did",
+          "resource"
+        ],
+        "properties": {
+          "did": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository or account owner"
+          },
+          "resource": {
+            "type": "string",
+            "description": "quota resource to look up"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "limit"
+          ],
+          "properties": {
+            "limit": {
+              "description": "quota override for the requested DID and resource",
+              "type": "ref",
+              "ref": "org.tangled.temp.spindle.quota.defs#limit"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -9,16 +9,21 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["did", "name", "patch", "branch"],
+          "required": ["repo", "patch", "branch"],
           "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the repository"
+            },
             "did": {
               "type": "string",
               "format": "did",
-              "description": "DID of the repository owner"
+              "description": "DID of the repository owner. A knot without the repo-did-input capability reads this and name in place of repo."
             },
             "name": {
               "type": "string",
-              "description": "Name of the repository"
+              "description": "Name of the repository. A knot without the repo-did-input capability reads this and DID in place of repo."
             },
             "patch": {
               "type": "string",

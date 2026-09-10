@@ -14,6 +14,10 @@ depends: [
   "xrpc-auth" {= version}
   "atp-xrpc" {= version}
   "fetch"
+  "fetch-httpz"
+  "httpz"
+  "uriz"
+  "bytesrw"
   "atp-lexicon-atproto" {= version}
   "atp-lexicon-tangled" {= version}
   "jsont" {>= "0.1"}

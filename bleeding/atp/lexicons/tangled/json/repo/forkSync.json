@@ -10,25 +10,28 @@
         "schema": {
           "type": "object",
           "required": [
-            "did",
-            "source",
-            "name",
+            "repo",
             "branch"
           ],
           "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the fork to sync"
+            },
             "did": {
               "type": "string",
               "format": "did",
-              "description": "DID of the fork owner"
+              "description": "DID of the fork owner. A knot without the repo-did-input capability reads this and name in place of repo."
+            },
+            "name": {
+              "type": "string",
+              "description": "Name of the forked repository. A knot without the repo-did-input capability reads this and DID in place of repo."
             },
             "source": {
               "type": "string",
               "format": "at-uri",
-              "description": "AT-URI of the source repository"
-            },
-            "name": {
-              "type": "string",
-              "description": "Name of the forked repository"
+              "description": "AT-URI of the source repository. A knot without the repo-did-input capability requires this field without reading it."
             },
             "branch": {
               "type": "string",

@@ -1,0 +1,98 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.listPulls",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["subject"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "did",
+            "description": "Repo DID to list pulls for"
+          },
+          "author": {
+            "type": "string",
+            "format": "did",
+            "description": "Restrict to pulls authored by this user DID."
+          },
+          "status": {
+            "type": "string",
+            "knownValues": ["open", "closed", "merged"],
+            "description": "Restrict to pulls whose latest derived status matches."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "order": {
+            "type": "string",
+            "knownValues": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort direction by createdAt."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["items"],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#pullListItem"
+              }
+            },
+            "cursor": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "pullListItem": {
+      "type": "object",
+      "required": ["uri", "value", "state", "commentCount"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "cid": {
+          "type": "string",
+          "format": "cid"
+        },
+        "value": {
+          "type": "unknown",
+          "description": "Embedded sh.tangled.repo.pull record"
+        },
+        "state": {
+          "type": "string",
+          "knownValues": ["open", "closed", "merged"],
+          "description": "Latest derived state."
+        },
+        "stateUpdatedAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "TID-derived timestamp of the latest pull status record."
+        },
+        "commentCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of sh.tangled.repo.pull.comment records targeting this pull."
+        }
+      }
+    }
+  }
+}

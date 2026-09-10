@@ -1,0 +1,41 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.getRepoByRepoDid",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repoDid"],
+        "properties": {
+          "repoDid": {
+            "type": "string",
+            "format": "did",
+            "description": "Repo DID whose sh.tangled.repo record to fetch."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri", "value"],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri"
+            },
+            "cid": {
+              "type": "string",
+              "format": "cid"
+            },
+            "value": {
+              "type": "unknown",
+              "description": "Embedded sh.tangled.repo record."
+            }
+          }
+        }
+      }
+    }
+  }
+}

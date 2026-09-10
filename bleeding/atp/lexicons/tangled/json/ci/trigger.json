@@ -1,0 +1,98 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.ci.trigger",
+  "defs": {
+    "push": {
+      "type": "object",
+      "required": ["ref", "newSha", "oldSha"],
+      "properties": {
+        "ref": {
+          "type": "string"
+        },
+        "newSha": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40
+        },
+        "oldSha": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40
+        }
+      }
+    },
+    "pullRequest": {
+      "type": "object",
+      "required": ["targetBranch", "sourceSha"],
+      "description": "TODO: reference PR record with strongRef instead of embedding raw values",
+      "properties": {
+        "action": {
+          "type": "string",
+          "description": "the pull request lifecycle action that produced this trigger",
+          "enum": ["opened", "reopened", "closed", "merged", "synchronize"]
+        },
+        "sourceRepo": {
+          "type": "string",
+          "format": "did",
+          "description": "Repository DID to check out code and workflow definitions from, if different from the target repo."
+        },
+        "sourceBranch": {
+          "type": "string"
+        },
+        "targetBranch": {
+          "type": "string"
+        },
+        "sourceSha": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 40
+        },
+        "pull": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "AT-URI of the sh.tangled.repo.pull record this run belongs to"
+        }
+      }
+    },
+    "manual": {
+      "type": "object",
+      "required": ["sha"],
+      "properties": {
+        "sha": {
+          "type": "string",
+          "description": "commit SHA the manual run targets",
+          "minLength": 40,
+          "maxLength": 40
+        },
+        "ref": {
+          "type": "string",
+          "description": "optional ref the SHA was resolved from, for display and TANGLED_REF"
+        },
+        "sourceRepo": {
+          "type": "string",
+          "format": "did",
+          "description": "Repository DID to check out code and workflow definitions from, if different from the target repo."
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#pair"
+          }
+        }
+      }
+    },
+    "pair": {
+      "type": "object",
+      "required": ["key", "value"],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

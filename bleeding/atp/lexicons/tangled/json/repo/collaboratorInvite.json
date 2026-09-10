@@ -1,0 +1,26 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.collaboratorInvite",
+  "needsCbor": true,
+  "needsType": true,
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Offer of collaboration on this repo, w/ invitee-DID as rkey",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": [
+          "createdAt"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Invite issue timestamp"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.listRepos",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["subject"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "did",
+            "description": "Owner DID whose repo records to list."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "order": {
+            "type": "string",
+            "knownValues": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort direction by createdAt."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["items"],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#listItem" }
+            },
+            "cursor": { "type": "string" }
+          }
+        }
+      }
+    },
+    "listItem": {
+      "type": "object",
+      "required": ["uri", "value"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" },
+        "value": {
+          "type": "unknown",
+          "description": "Embedded sh.tangled.repo record"
+        }
+      }
+    }
+  }
+}

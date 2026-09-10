@@ -92,6 +92,13 @@ val decode :
 
     @raise Eio.Io on decode errors. *)
 
+val decode_prefix :
+  ?strict:bool -> ?cid_format:cid_format -> ?max_bytes:int ->
+  ?max_depth:int -> Bytesrw.Bytes.Reader.t -> value
+(** [decode_prefix reader] reads one value and leaves subsequent bytes on
+    [reader]. Use it for concatenated values such as XRPC stream frames.
+    [strict] controls canonical encoding checks, independently of framing. *)
+
 val decode_string : ?strict:bool -> ?cid_format:cid_format -> ?max_bytes:int -> ?max_depth:int -> string -> value
 (** [decode_string ?strict ?cid_format s] decodes a DAG-CBOR value from string
     [s].

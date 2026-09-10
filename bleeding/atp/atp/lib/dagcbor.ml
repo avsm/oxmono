@@ -560,20 +560,29 @@ let rec decode_value d depth : value =
       raise_error
         (`Dagcbor_decode_error (Printf.sprintf "unknown major type: %d" major))
 
-let decode ?(strict = true) ?cid_format ?max_bytes ?max_depth reader =
+let decode_reader ~eod ~strict ?cid_format ?max_bytes ?max_depth reader =
   try
     let d = make_decoder ~strict ?cid_format ?max_bytes ?max_depth reader in
     decoder_refill d;
     let v = decode_value d 0 in
-    if d.strict then begin
+    if eod then begin
       if available d > 0 then raise_error `Dagcbor_trailing_data;
       decoder_refill d;
       if available d > 0 then raise_error `Dagcbor_trailing_data
-    end;
+    end else if available d > 0 then
+      Bytes.Reader.push_back reader
+        (Bytes.Slice.make (Bytes.Slice.bytes d.slice)
+           ~first:d.pos ~length:(available d));
     v
   with Eio.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
     Eio.Exn.reraise_with_context ex bt "decoding DAG-CBOR"
+
+let decode ?(strict = true) ?cid_format ?max_bytes ?max_depth reader =
+  decode_reader ~eod:strict ~strict ?cid_format ?max_bytes ?max_depth reader
+
+let decode_prefix ?(strict = true) ?cid_format ?max_bytes ?max_depth reader =
+  decode_reader ~eod:false ~strict ?cid_format ?max_bytes ?max_depth reader
 
 let decode_string ?(strict = true) ?cid_format ?max_bytes ?max_depth s =
   try

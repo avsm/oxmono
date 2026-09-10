@@ -12,34 +12,30 @@
         "required": [
           "target",
           "title",
-          "patchBlob",
-          "createdAt"
+          "createdAt",
+          "rounds"
         ],
         "properties": {
-          "target": {
-            "type": "ref",
-            "ref": "#target"
-          },
           "title": {
             "type": "string"
           },
           "body": {
             "type": "string"
           },
-          "patch": {
-            "type": "string",
-            "description": "(deprecated) use patchBlob instead"
-          },
-          "patchBlob": {
-            "type": "blob",
-            "accept": [
-              "text/x-patch"
-            ],
-            "description": "patch content"
+          "rounds": {
+            "type": "array",
+            "items": {
+              "type": "ref",
+              "ref": "#round"
+            }
           },
           "source": {
             "type": "ref",
             "ref": "#source"
+          },
+          "target": {
+            "type": "ref",
+            "ref": "#target"
           },
           "createdAt": {
             "type": "string",
@@ -58,6 +54,18 @@
               "type": "string",
               "format": "at-uri"
             }
+          },
+          "dependentOn": {
+            "type": "string",
+            "format": "at-uri"
+          },
+          "blobs": {
+            "type": "array",
+            "items": {
+              "type": "blob",
+              "accept": ["image/*"],
+              "maxSize": 1000000
+            }
           }
         }
       }
@@ -71,7 +79,7 @@
       "properties": {
         "repo": {
           "type": "string",
-          "format": "at-uri"
+          "format": "did"
         },
         "branch": {
           "type": "string"
@@ -81,21 +89,35 @@
     "source": {
       "type": "object",
       "required": [
-        "branch",
-        "sha"
+        "branch"
       ],
       "properties": {
         "branch": {
           "type": "string"
         },
-        "sha": {
-          "type": "string",
-          "minLength": 40,
-          "maxLength": 40
-        },
         "repo": {
           "type": "string",
-          "format": "at-uri"
+          "format": "did"
+        }
+      }
+    },
+    "round": {
+      "type": "object",
+      "required": [
+        "patchBlob",
+        "createdAt"
+      ],
+      "description": "revisions of this pull request, newer rounds are appended to this array. appviews may reject records do not treat this field as append-only. the blob format is gzipped text-based git-format-patches.",
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "patchBlob": {
+          "type": "blob",
+          "accept": [
+            "application/gzip"
+          ]
         }
       }
     }

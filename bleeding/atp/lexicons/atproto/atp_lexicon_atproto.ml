@@ -154,7 +154,7 @@ type input = {
   repo : string;
   rkey : string;
   swap_commit : string option;
-  swap_record : string option;
+  swap_record : string option option;
   validate : bool option;
 }
 
@@ -167,7 +167,7 @@ let input_jsont =
   |> Jsont.Object.mem "repo" Jsont.string ~enc:(fun r -> r.repo)
   |> Jsont.Object.mem "rkey" Jsont.string ~enc:(fun r -> r.rkey)
   |> Jsont.Object.opt_mem "swapCommit" Jsont.string ~enc:(fun r -> r.swap_commit)
-  |> Jsont.Object.opt_mem "swapRecord" Jsont.string ~enc:(fun r -> r.swap_record)
+  |> Jsont.Object.opt_mem "swapRecord" (Jsont.option Jsont.string) ~enc:(fun r -> r.swap_record)
   |> Jsont.Object.opt_mem "validate" Jsont.bool ~enc:(fun r -> r.validate)
   |> Jsont.Object.finish
 

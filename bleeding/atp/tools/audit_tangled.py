@@ -5,6 +5,7 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+import shutil
 
 
 def lexicons(root):
@@ -53,17 +54,31 @@ def main():
     atp = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("upstream", type=Path)
+    parser.add_argument("--sync", action="store_true",
+                        help="replace the vendored Tangled documents")
+    parser.add_argument("--check", action="store_true",
+                        help="fail if any vendored document differs")
     args = parser.parse_args()
-    old = lexicons(atp / "lexicons/tangled/json")
+    destination = atp / "lexicons/tangled/json"
     upstream = lexicons(args.upstream / "lexicons")
-    new = {k: v for k, v in upstream.items() if k.startswith("sh.tangled.")}
+    # Include the shared strongRef dependency supplied by Tangled itself.
+    new = upstream
+    if args.sync:
+        # Parse every document before changing the vendored tree.
+        for path in destination.rglob("*.json"):
+            path.unlink()
+        for source in sorted((args.upstream / "lexicons").rglob("*.json")):
+            if json.loads(source.read_text())["id"] in new:
+                target = destination / source.relative_to(args.upstream / "lexicons")
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
+    old = lexicons(destination)
     common = old.keys() & new.keys()
     changed = sorted(k for k in common if old[k] != new[k])
     structural = [k for k in changed if
                   without_descriptions(old[k]) != without_descriptions(new[k])]
     added = sorted(new.keys() - old.keys())
     removed = sorted(old.keys() - new.keys())
-    atproto = lexicons(atp / "lexicons/atproto/json")
     report = {
         "oxmono_revision": revision(atp),
         "upstream_revision": revision(args.upstream),
@@ -75,11 +90,10 @@ def main():
         "removed": removed,
         "description_only": sorted(set(changed) - set(structural)),
         "changes": {k: changes(old[k], new[k]) for k in changed},
-        "other_upstream": {k: {"identical_atproto_copy": atproto.get(k) == v}
-                           for k, v in sorted(upstream.items())
-                           if k not in new},
     }
     print(json.dumps(report, indent=2))
+    if args.check and (added or removed or changed):
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

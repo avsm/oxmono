@@ -1,0 +1,43 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.feed.comment",
+  "needsCbor": true,
+  "needsType": true,
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "subject",
+          "body",
+          "createdAt"
+        ],
+        "properties": {
+          "subject": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef"
+          },
+          "body": {
+            "type": "union",
+            "refs": ["sh.tangled.markup.markdown"]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          },
+          "replyTo": {
+            "type": "ref",
+            "ref": "com.atproto.repo.strongRef"
+          },
+          "pullRoundIdx": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "optional pull submission round index. required when subject is sh.tangled.repo.pull"
+          }
+        }
+      }
+    }
+  }
+}

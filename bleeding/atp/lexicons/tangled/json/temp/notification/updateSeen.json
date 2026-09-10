@@ -1,0 +1,27 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.notification.updateSeen",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Mark a single notification as read or unread.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri", "read"],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "at-uri of the notification to update."
+            },
+            "read": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  }
+}

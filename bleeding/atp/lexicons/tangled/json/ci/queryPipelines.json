@@ -1,0 +1,72 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.ci.queryPipelines",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Query pipelines in git repository",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "commits": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "commit id (SHA-1 or SHA-265)"
+            },
+            "description": "Filter pipelines by commits. When provided, maximum one pipeline per commit id will be returned."
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": ["push", "pull_request", "manual"]
+            },
+            "description": "Filter pipelines by trigger kind. When provided, pipelines matching any listed kind are returned; when omitted, every kind is returned."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of pipelines to return",
+            "minimum": 1,
+            "maximum": 250,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["total", "pipelines"],
+          "properties": {
+            "cursor": { "type": "string" },
+            "total": {
+              "type": "integer",
+              "description": "Maximum number of pipelines"
+            },
+            "pipelines": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "sh.tangled.ci.pipeline" }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    }
+  }
+}

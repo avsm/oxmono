@@ -1,0 +1,77 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.ci.subscribePipelineLogs",
+  "defs": {
+    "main": {
+      "type": "subscription",
+      "description": "Pipeline logs stream",
+      "parameters": {
+        "type": "params",
+        "required": ["pipeline"],
+        "properties": {
+          "pipeline": {
+            "type": "string",
+            "format": "tid",
+            "description": "Pipeline ID"
+          },
+          "workflows": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Workflow name"
+            },
+            "description": "filter logs by specific workflows"
+          }
+        }
+      },
+      "message": {
+        "schema": {
+          "type": "union",
+          "refs": ["#control", "#data"]
+        }
+      },
+      "errors": [
+        {
+          "name": "WorkflowNotFound",
+          "description": "Workflow not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    },
+    "control": {
+      "type": "object",
+      "required": ["time", "workflow", "step", "content"],
+      "properties": {
+        "time": { "type": "string", "format": "datetime" },
+        "workflow": { "type": "string", "description": "workflow name" },
+        "step": { "type": "integer", "description": "Step ID" },
+        "content": { "type": "string" },
+        "command": { "type": "string", "description": "Step command" },
+        "status": {
+          "type": "string",
+          "enum": ["start", "end"],
+          "description": "Step status"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["system", "user"],
+          "description": "Step kind"
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "required": ["time", "workflow", "step", "content", "stream"],
+      "properties": {
+        "time": { "type": "string", "format": "datetime" },
+        "workflow": { "type": "string", "description": "workflow name" },
+        "step": { "type": "integer", "description": "Step ID" },
+        "content": { "type": "string" },
+        "stream": { "type": "string", "enum": [ "stdout", "stderr" ] }
+      }
+    }
+  }
+}

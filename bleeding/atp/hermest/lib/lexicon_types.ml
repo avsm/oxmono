@@ -564,6 +564,16 @@ let ( type_def_jsont,
     in
 
     let subscription_spec_jsont =
+      (* Subscription messages are DAG-CBOR, without an HTTP body encoding. *)
+      let message_jsont =
+        Jsont.Object.map (fun schema description ->
+            { encoding = "application/vnd.ipld.dag-cbor"; schema; description })
+        |> Jsont.Object.opt_mem "schema" (Jsont.rec' type_def_jsont_lazy)
+             ~enc:(fun (s : body_def) -> s.schema)
+        |> Jsont.Object.opt_mem "description" Jsont.string
+             ~enc:(fun (s : body_def) -> s.description)
+        |> Jsont.Object.finish
+      in
       let make parameters message errors description : subscription_spec =
         { parameters; message; errors; description }
       in
@@ -571,7 +581,7 @@ let ( type_def_jsont,
         Jsont.Object.map ~kind:"subscription_spec" make
         |> Jsont.Object.opt_mem "parameters" (Jsont.rec' params_spec_jsont_lazy)
              ~enc:(fun (s : subscription_spec) -> s.parameters)
-        |> Jsont.Object.opt_mem "message" (Jsont.rec' body_def_jsont_lazy)
+        |> Jsont.Object.opt_mem "message" message_jsont
              ~enc:(fun (s : subscription_spec) -> s.message)
         |> Jsont.Object.opt_mem "errors"
              Jsont.(list error_def_jsont)

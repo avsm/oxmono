@@ -1,6 +1,11 @@
 # Tangled spindle: compatibility audit and local testbed
 
-Reviewed 2026-09-09 against local checkouts:
+Historical design note, reviewed 2026-09-09. The implemented
+[spindle](../spindle/README.md), [CLI](bin/tangled/README.md) and
+[current lexicon manifest](lexicons/tangled/README.md) supersede its status
+and refresh plan. The machine-readable audit now describes the refreshed set.
+
+Original checkout comparison:
 
 | Source | Revision |
 | --- | --- |
@@ -28,8 +33,8 @@ python3 bleeding/atp/tools/audit_tangled.py ../tangled-core
 
 | `sh.tangled.*` | Count |
 | --- | ---: |
-| Current oxmono | 55 |
-| Current tangled-core | 187 |
+| Initial oxmono | 55 |
+| Initial tangled-core | 187 |
 | Added upstream | 133 |
 | Removed upstream | 1 |
 | Changed existing definitions | 25 |

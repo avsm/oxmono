@@ -10,12 +10,18 @@
         "schema": {
           "type": "object",
           "required": [
-            "rkey"
+            "rkey",
+            "name"
           ],
           "properties": {
             "rkey": {
               "type": "string",
+              "format": "record-key",
               "description": "Rkey of the repository record"
+            },
+            "name": {
+              "type": "string",
+              "description": "Name of the repository"
             },
             "defaultBranch": {
               "type": "string",
@@ -24,6 +30,27 @@
             "source": {
               "type": "string",
               "description": "A source URL to clone from, populate this when forking or importing a repository."
+            },
+            "repoDid": {
+              "type": "string",
+              "format": "did",
+              "description": "Optional user-provided did:web to use as the repo identity instead of minting a did:plc."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "repoDid": {
+              "type": "string",
+              "format": "did"
+            },
+            "key": {
+              "type": "string",
+              "description": "Multibase-encoded public signing key the knot holds for this repository"
             }
           }
         }

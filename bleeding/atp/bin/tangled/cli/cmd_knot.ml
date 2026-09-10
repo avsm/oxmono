@@ -1,80 +1,56 @@
-(*---------------------------------------------------------------------------
-   Copyright (c) 2025 Anil Madhavapeddy. All rights reserved.
-   SPDX-License-Identifier: ISC
-  ---------------------------------------------------------------------------*)
-
+(* SPDX-License-Identifier: ISC *)
 open Cmdliner
+module Api = Tangled.Api
 
-(* Type alias for convenience *)
-module Knot = Atp_lexicon_tangled.Sh.Tangled.Knot
+let knot = Common.positional 0 "KNOT" "Knot hostname or HTTP(S) origin."
 
-(* Helper to create API without requiring login for public queries *)
-let with_public_api env ~knot f =
-  Eio.Switch.run @@ fun sw ->
-  (* Create a minimal client for the knot server directly *)
-  let service = "https://" ^ knot in
-  let client = Xrpc.Client.create ~sw ~env ~service () in
-  f client
-
-(* Knot version command *)
-
-let knot_arg =
-  let doc = "Knot server hostname." in
-  Arg.(required & pos 0 (some string) None & info [] ~docv:"KNOT" ~doc)
-
-let version_action ~knot env =
-  with_public_api env ~knot @@ fun client ->
-  let resp =
-    Xrpc.Client.query client ~nsid:"sh.tangled.knot.version" ~params:[]
-      ~decoder:Knot.Version.output_jsont
+let query name nsid ~paged ~subject =
+  let action knot limit cursor =
+    Common.run (fun env ->
+        Common.with_api ~authenticated:false env (fun api ->
+            let params =
+              (if subject then [ ("subject", Api.service_host knot) ] else [])
+              @ (if paged then [ ("limit", string_of_int limit) ] else [])
+              @ Option.to_list (Option.map (fun x -> ("cursor", x)) cursor)
+            in
+            Tangled.Schema.params nsid params;
+            Common.json
+              (Xrpc.Client.query
+                 (Api.public_client api ~service:knot)
+                 ~nsid ~params ~decoder:Jsont.json)))
   in
-  Fmt.pr "Knot: %s@." knot;
-  Fmt.pr "Version: %s@." resp.version
-
-let version_cmd =
-  let doc = "Get knot server version." in
-  let info = Cmd.info "version" ~doc in
-  let version' knot = Eio_main.run @@ fun env -> version_action ~knot env in
-  Cmd.v info Term.(const version' $ knot_arg)
-
-(* Knot keys command *)
-
-let limit_arg =
-  let doc = "Maximum number of keys to return." in
-  Arg.(value & opt (some int) None & info [ "limit"; "n" ] ~docv:"N" ~doc)
-
-let pp_public_key ppf (k : Knot.ListKeys.public_key) =
-  Fmt.pf ppf "@[<v>DID: %s@,Key: %s@,Created: %s@]" k.did
-    (String.sub k.key 0 (min 50 (String.length k.key)) ^ "...")
-    k.created_at
-
-let keys_action ~knot ~limit env =
-  with_public_api env ~knot @@ fun client ->
-  let params =
-    List.filter_map Fun.id
-      [ Option.map (fun l -> ("limit", string_of_int l)) limit ]
+  let term =
+    if paged then Term.(const action $ knot $ Common.limit $ Common.cursor)
+    else Term.(const action $ knot $ const 50 $ const None)
   in
-  let resp =
-    Xrpc.Client.query client ~nsid:"sh.tangled.knot.listKeys" ~params
-      ~decoder:Knot.ListKeys.output_jsont
-  in
-  if resp.keys = [] then Fmt.pr "No public keys found on %s.@." knot
-  else begin
-    Fmt.pr "Public keys on %s:@.@." knot;
-    List.iter (fun k -> Fmt.pr "%a@.@." pp_public_key k) resp.keys
-  end
+  Cmd.v (Cmd.info name ~doc:("Read knot " ^ name ^ ".")) Term.(term_result term)
 
-let keys_cmd =
-  let doc = "List public keys on a knot server." in
-  let info = Cmd.info "keys" ~doc in
-  let keys' knot limit =
-    Eio_main.run @@ fun env -> keys_action ~knot ~limit env
+let member name method_ =
+  let user = Common.positional 1 "USER" "Member handle or DID." in
+  let action knot user audience =
+    Common.run (fun env ->
+        Common.with_api env (fun api ->
+            let nsid = "sh.tangled.knot." ^ method_ in
+            let input =
+              Common.object_
+                [ ("subject", Common.string (Api.resolve_handle api user)) ]
+            in
+            Tangled.Schema.validate_input nsid input;
+            Xrpc.Client.procedure_unit
+              (Api.service_client api ~service:knot ?audience ~nsid ())
+              ~nsid ~params:[] ~input:(Some Jsont.json) ~input_data:(Some input)))
   in
-  Cmd.v info Term.(const keys' $ knot_arg $ limit_arg)
-
-(* Knot command group *)
+  Cmd.v
+    (Cmd.info name ~doc:"Change knot membership using its authoritative API.")
+    Term.(term_result (const action $ knot $ user $ Common.audience))
 
 let cmd =
-  let doc = "Knot server commands." in
-  let info = Cmd.info "knot" ~doc in
-  Cmd.group info [ version_cmd; keys_cmd ]
+  Cmd.group
+    (Cmd.info "knot" ~doc:"Inspect a knot and manage its members.")
+    [
+      query "version" "sh.tangled.knot.version" ~paged:false ~subject:false;
+      query "keys" "sh.tangled.knot.listKeys" ~paged:true ~subject:false;
+      query "members" "sh.tangled.knot.listMembers" ~paged:true ~subject:true;
+      member "add-member" "addMember";
+      member "remove-member" "removeMember";
+    ]

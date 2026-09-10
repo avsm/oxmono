@@ -1,0 +1,41 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.getRepo",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the sh.tangled.repo record to fetch."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri", "value"],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri"
+            },
+            "cid": {
+              "type": "string",
+              "format": "cid"
+            },
+            "value": {
+              "type": "unknown",
+              "description": "Embedded sh.tangled.repo record."
+            }
+          }
+        }
+      }
+    }
+  }
+}

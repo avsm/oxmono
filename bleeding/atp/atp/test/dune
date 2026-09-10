@@ -19,3 +19,8 @@
  (name test_dagcbor_large)
  (modules test_dagcbor_large)
  (libraries atp bytesrw))
+
+(test
+ (name test_dagcbor_prefix)
+ (modules test_dagcbor_prefix)
+ (libraries atp bytesrw))

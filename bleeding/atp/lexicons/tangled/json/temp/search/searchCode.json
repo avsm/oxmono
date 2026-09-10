@@ -1,0 +1,118 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.search.searchCode",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Full-text code search across indexed repositories, backed by Zoekt.",
+      "parameters": {
+        "type": "params",
+        "required": ["q"],
+        "properties": {
+          "q": {
+            "type": "string",
+            "description": "Search query string."
+          },
+          "repoDid": {
+            "type": "string",
+            "format": "did",
+            "description": "Restrict search to a specific repository, by its DID."
+          },
+          "lang": {
+            "type": "string",
+            "description": "Restrict search to a specific programming language (e.g. 'go', 'rust')."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cursor": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["results"],
+          "properties": {
+            "results": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#fileResult"
+              }
+            },
+            "cursor": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "fileResult": {
+      "type": "object",
+      "required": ["repoDid", "path", "chunks"],
+      "properties": {
+        "repoDid": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the repository as minted by the knot."
+        },
+        "path": {
+          "type": "string",
+          "description": "File path relative to repository root."
+        },
+        "language": {
+          "type": "string",
+          "description": "Detected programming language."
+        },
+        "chunks": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#chunk"
+          }
+        }
+      }
+    },
+    "chunk": {
+      "type": "object",
+      "required": ["content", "lineStart"],
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "Source lines for this match chunk."
+        },
+        "lineStart": {
+          "type": "integer",
+          "description": "1-based line number of the first line in content."
+        },
+        "highlights": {
+          "type": "array",
+          "description": "Byte-offset ranges within content that match the query.",
+          "items": {
+            "type": "ref",
+            "ref": "#highlight"
+          }
+        }
+      }
+    },
+    "highlight": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "description": "Start byte offset within the chunk content string."
+        },
+        "end": {
+          "type": "integer",
+          "description": "End byte offset (exclusive) within the chunk content string."
+        }
+      }
+    }
+  }
+}

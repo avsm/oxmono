@@ -1,0 +1,26 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.spindle.moderation.defs",
+  "defs": {
+    "ban": {
+      "description": "an active ban for a repository or account owner",
+      "type": "object",
+      "required": [
+        "did",
+        "createdAt"
+      ],
+      "properties": {
+        "did": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the banned subject, either a repository or its owner"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "time at which the ban was created"
+        }
+      }
+    }
+  }
+}

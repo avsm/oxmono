@@ -9,20 +9,7 @@ open Cmdliner
 module Profile = Atp_lexicon_tangled.Sh.Tangled.Actor.Profile
 module PublicKey = Atp_lexicon_tangled.Sh.Tangled.PublicKey
 
-let app_name = "tangled"
-
-(* Helper to load session and create API *)
-let with_api env f =
-  Eio.Switch.run @@ fun sw ->
-  let fs = env#fs in
-  match Xrpc_auth.Session.load fs ~app_name () with
-  | None ->
-      Fmt.epr "Not logged in. Use 'tangled auth login' first.@.";
-      exit 1
-  | Some session ->
-      let api = Tangled.Api.create ~sw ~env ~app_name ~pds:session.pds () in
-      Tangled.Api.resume api ~session;
-      f api
+let with_api = Common.with_api
 
 (* Pretty printers *)
 
@@ -45,8 +32,7 @@ let pp_profile ppf (p : Profile.main) =
     p.bluesky
 
 let pp_public_key ppf (rkey, (k : PublicKey.main)) =
-  Fmt.pf ppf "@[<v>%s (%s)@,  %s@,  Created: %s@]" k.name rkey
-    (String.sub k.key 0 (min 60 (String.length k.key)) ^ "...")
+  Fmt.pf ppf "@[<v>%s (%s)@,  %s@,  Created: %s@]" k.name rkey k.key
     k.created_at
 
 (* Profile view command *)
@@ -78,8 +64,11 @@ let view_action ~user env =
 let view_cmd =
   let doc = "View a user's Tangled profile." in
   let info = Cmd.info "view" ~doc in
-  let view' user = Eio_main.run @@ fun env -> view_action ~user env in
-  Cmd.v info Term.(const view' $ user_arg)
+  Cmd.v info
+    Term.(
+      term_result
+        (const (fun user -> Common.run (fun env -> view_action ~user env))
+        $ user_arg))
 
 (* Keys list command *)
 
@@ -102,8 +91,11 @@ let keys_action ~user env =
 let keys_cmd =
   let doc = "List a user's SSH public keys." in
   let info = Cmd.info "keys" ~doc in
-  let keys' user = Eio_main.run @@ fun env -> keys_action ~user env in
-  Cmd.v info Term.(const keys' $ user_arg)
+  Cmd.v info
+    Term.(
+      term_result
+        (const (fun user -> Common.run (fun env -> keys_action ~user env))
+        $ user_arg))
 
 (* Profile command group *)
 

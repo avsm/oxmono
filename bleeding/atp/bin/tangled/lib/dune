@@ -2,6 +2,7 @@
  (name tangled)
  (public_name tangled)
  (libraries
+  uriz
   xrpc-auth
   fetch
   atp-xrpc
@@ -15,3 +16,15 @@
   ptime.clock.os
   tomlt.eio
   xdge))
+
+(rule
+ (target tangled_documents.ml)
+ (deps
+  (source_tree ../../../lexicons/tangled/json))
+ (action
+  (with-stdout-to
+   %{target}
+   (run
+    python3
+    %{dep:../../../tools/tangled_endpoints.py}
+    ../../../lexicons/tangled/json))))

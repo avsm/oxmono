@@ -16,8 +16,9 @@ more complete PDS implementation. The appropriate MPL license has been
 preserved where that code is used.
 
 The [implementation review](REVIEW.md) documents tested fixes and open issues.
-The [Tangled spindle audit](TANGLED-SPINDLE.md) compares the current core
-lexicons and specifies a Docker testbed isolated from the live ATP network.
+The [Tangled CLI guide](bin/tangled/README.md) covers repository, CI and access
+commands. The [lexicon manifest](lexicons/tangled/README.md) pins the complete
+Tangled schema set. The Docker testbed runs independently of live ATP services.
 MST mutation and generated-schema validation are incomplete; this is not yet a
 validated repository implementation.
 
@@ -77,7 +78,7 @@ opam pin add -y https://tangled.org/@anil.recoil.org/ocaml-atp.git
 |---------|-------------|
 | `atp-lexicon-atproto` | `com.atproto.*` types |
 | `atp-lexicon-bsky` | `app.bsky.*` types (Bluesky) |
-| `atp-lexicon-tangled` | `sh.tangled.*` types |
+| `atp-lexicon-tangled` | `sh.tangled.*` and `org.tangled.temp.*` types |
 | `atp-lexicon-standard-site` | `site.standard.*` types |
 
 ### Application Libraries and CLIs

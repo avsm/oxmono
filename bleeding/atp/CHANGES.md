@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Refresh all 231 Tangled lexicons and add current CI, repository identity,
+  access-control, issue, key, record and complete API commands to the CLI.
+- Generate subscriptions and nullable fields correctly, fail on invalid input
+  schemas, and decode concatenated DAG-CBOR values without losing stream bytes.
+
 - Encode DAG-CBOR text and byte strings larger than 4 KiB without overflowing
   the encoder buffer, preserving streaming writer order.
 

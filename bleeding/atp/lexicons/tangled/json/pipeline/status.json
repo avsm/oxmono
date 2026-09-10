@@ -9,6 +9,7 @@
       "key": "tid",
       "record": {
         "type": "object",
+        "description": "DEPRECATED: use sh.tangled.ci.pipeline instead",
         "required": ["pipeline", "workflow", "status", "createdAt"],
         "properties": {
           "pipeline": {

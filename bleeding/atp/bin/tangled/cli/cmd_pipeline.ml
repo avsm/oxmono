@@ -1,272 +1,289 @@
-(*---------------------------------------------------------------------------
-   Copyright (c) 2025 Anil Madhavapeddy. All rights reserved.
-   SPDX-License-Identifier: ISC
-  ---------------------------------------------------------------------------*)
-
+(* SPDX-License-Identifier: ISC *)
 open Cmdliner
+module Api = Tangled.Api
+module Ci = Atp_lexicon_tangled.Sh.Tangled.Ci
 
-let app_name = "tangled"
+let spindle =
+  Common.optional [ "spindle"; "s" ] "SPINDLE"
+    "Spindle hostname or HTTP(S) origin."
 
-(* Helper to load session and create API *)
-let with_api env f =
-  Eio.Switch.run @@ fun sw ->
-  let fs = env#fs in
-  match Xrpc_auth.Session.load fs ~app_name () with
-  | None ->
-      Fmt.epr "Not logged in. Use 'tangled auth login' first.@.";
-      exit 1
-  | Some session ->
-      let api = Tangled.Api.create ~sw ~env ~app_name ~pds:session.pds () in
-      Tangled.Api.resume api ~session;
-      f api
+let repo =
+  Common.optional [ "repo"; "r" ] "REPO"
+    "Repository DID, owner/name, or record URI."
 
-(* Type aliases for convenience *)
-module Pipeline = Atp_lexicon_tangled.Sh.Tangled.Pipeline
+let pipeline =
+  Common.positional 0 "PIPELINE" "Spindle-local pipeline ID or pipeline AT-URI."
 
-(* Pretty printers *)
-
-let pp_trigger_kind ppf (tm : Pipeline.trigger_metadata) =
-  match tm.kind with
-  | "push" -> (
-      match tm.push with
-      | Some p -> Fmt.pf ppf "push (%s)" p.ref_
-      | None -> Fmt.pf ppf "push")
-  | "pull_request" -> (
-      match tm.pull_request with
-      | Some pr -> Fmt.pf ppf "PR (%s → %s)" pr.source_branch pr.target_branch
-      | None -> Fmt.pf ppf "pull_request")
-  | "manual" -> Fmt.pf ppf "manual"
-  | k -> Fmt.pf ppf "%s" k
-
-let pp_status ppf status =
-  let style =
-    match status with
-    | "success" -> `Green
-    | "failed" -> `Red
-    | "running" -> `Yellow
-    | "pending" -> `Blue
-    | "cancelled" | "timeout" -> `Magenta
-    | _ -> `None
-  in
-  Fmt.pf ppf "%a" Fmt.(styled style string) status
-
-let pp_pipeline_summary ppf (rkey, (p : Pipeline.main)) =
-  Fmt.pf ppf "@[<v>%s@,  repo: %s/%s@,  trigger: %a@,  workflows: %d@]" rkey
-    p.trigger_metadata.repo.did p.trigger_metadata.repo.repo pp_trigger_kind
-    p.trigger_metadata (List.length p.workflows)
-
-let pp_pipeline_detail ppf (rkey, (p : Pipeline.main)) =
-  let tm = p.trigger_metadata in
-  Fmt.pf ppf "@[<v>Pipeline: %s@,@," rkey;
-  Fmt.pf ppf "Trigger: %a@," pp_trigger_kind tm;
-  Fmt.pf ppf "Repository: %s/%s@," tm.repo.did tm.repo.repo;
-  Fmt.pf ppf "Knot: %s@," tm.repo.knot;
-  Fmt.pf ppf "Default Branch: %s@,@," tm.repo.default_branch;
-  (* Trigger-specific details *)
-  (match tm.push with
-  | Some push ->
-      Fmt.pf ppf "Push Details:@,";
-      Fmt.pf ppf "  ref: %s@," push.ref_;
-      Fmt.pf ppf "  new: %s@," push.new_sha;
-      Fmt.pf ppf "  old: %s@,@," push.old_sha
-  | None -> ());
-  (match tm.pull_request with
-  | Some pr ->
-      Fmt.pf ppf "Pull Request Details:@,";
-      Fmt.pf ppf "  source: %s @ %s@," pr.source_branch pr.source_sha;
-      Fmt.pf ppf "  target: %s@," pr.target_branch;
-      Fmt.pf ppf "  action: %s@,@," pr.action
-  | None -> ());
-  (match tm.manual with
-  | Some m ->
-      Fmt.pf ppf "Manual Trigger:@,";
-      (match m.inputs with
-      | Some inputs ->
-          List.iter
-            (fun (inp : Pipeline.pair) ->
-              Fmt.pf ppf "  %s: %s@," inp.key inp.value)
-            inputs
-      | None -> Fmt.pf ppf "  (no inputs)@,");
-      Fmt.pf ppf "@,"
-  | None -> ());
-  (* Workflows *)
-  Fmt.pf ppf "Workflows:@,";
-  List.iter
-    (fun (w : Pipeline.workflow) ->
-      Fmt.pf ppf "  - %s (engine: %s)@," w.name w.engine)
-    p.workflows;
-  Fmt.pf ppf "@]"
-
-let pp_status_entry ppf (s : Pipeline.Status.main) =
-  Fmt.pf ppf "@[<h>%s: %a%a@]" s.workflow pp_status s.status
-    (Fmt.option (fun ppf e -> Fmt.pf ppf " - %s" e))
-    s.error
-
-(* Pipeline list command *)
-
-let user_arg =
-  let doc =
-    "User handle or DID to list pipelines for (default: logged-in user)."
-  in
-  Arg.(value & opt (some string) None & info [ "user"; "u" ] ~docv:"USER" ~doc)
-
-let repo_arg =
-  let doc = "Filter by repository name (required to look up spindle)." in
+let sha =
   Arg.(
-    required & opt (some string) None & info [ "repo"; "r" ] ~docv:"REPO" ~doc)
-
-let spindle_arg =
-  let doc = "Spindle hostname (default: look up from repo record)." in
-  Arg.(
-    value
+    required
     & opt (some string) None
-    & info [ "spindle"; "s" ] ~docv:"SPINDLE" ~doc)
+    & info [ "sha" ] ~docv:"SHA" ~doc:"Exact commit SHA.")
 
-let limit_arg =
-  let doc = "Maximum number of pipelines to show." in
-  Arg.(value & opt int 10 & info [ "limit"; "n" ] ~docv:"N" ~doc)
+let source_repo =
+  Common.optional [ "source-repo" ] "DID" "Fork repository DID to check out."
 
-let list_action ~user ~repo ~spindle ~limit env =
-  with_api env @@ fun api ->
-  let did =
-    match user with
-    | Some u ->
-        if String.starts_with ~prefix:"did:" u then u
-        else Tangled.Api.resolve_handle api u
-    | None -> Tangled.Api.get_did api
+let ref_ =
+  Common.optional [ "ref" ] "REF"
+    "Original Git reference for display and workflow metadata."
+
+let inputs =
+  Common.strings [ "input" ] "KEY=VALUE" "Workflow input (repeatable)."
+
+let id value =
+  if String.starts_with ~prefix:"at://" value then Api.rkey_of_uri value
+  else value
+
+let target api ~repo ~user ~spindle =
+  match (repo, spindle) with
+  | Some repo, Some spindle
+    when String.starts_with ~prefix:"did:" repo
+         && not (String.contains repo '/') ->
+      (repo, spindle)
+  | Some name, spindle ->
+      let name =
+        match user with
+        | Some user when not (String.contains name '/') -> user ^ "/" ^ name
+        | _ -> name
+      in
+      let repository = Api.resolve_repo api name in
+      let spindle =
+        match (spindle, repository.record.spindle) with
+        | Some s, _ | None, Some s -> s
+        | None, None ->
+            invalid_arg "Repository has no spindle. Supply --spindle."
+      in
+      (Api.repo_did repository, spindle)
+  | None, _ -> invalid_arg "Supply --repo"
+
+let host api ~repo ~user ~spindle =
+  match spindle with
+  | Some spindle -> spindle
+  | None -> snd (target api ~repo ~user ~spindle)
+
+let pp_pipeline ppf (p : Ci.Pipeline.main) =
+  Fmt.pf ppf "%s  %s%a@." p.id p.commit Fmt.(option (fmt "  %s")) p.created_at;
+  List.iter
+    (fun (w : Ci.Pipeline.workflow) ->
+      Fmt.pf ppf "  %-24s %s%a@." w.name w.status
+        Fmt.(option (fmt "  %s"))
+        w.error)
+    p.workflows
+
+let show name =
+  let action pipeline repo user spindle json =
+    Common.run (fun env ->
+        Common.with_api ~authenticated:(spindle = None) env (fun api ->
+            let spindle = host api ~repo ~user ~spindle in
+            let value = Api.get_pipeline api ~spindle ~pipeline:(id pipeline) in
+            if json then Common.print Ci.Pipeline.main_jsont value
+            else Fmt.pr "%a" pp_pipeline value))
   in
-  (* Get spindle from argument or look up from repo *)
-  let spindle =
-    match spindle with
-    | Some s -> s
-    | None -> (
-        match Tangled.Api.get_spindle_for_repo api ~did ~repo_name:repo with
-        | Some (s, _) -> s
-        | None ->
-            Fmt.epr "Repository %s has no spindle configured for CI.@." repo;
-            exit 1)
-  in
-  let pipelines =
-    Tangled.Api.list_pipelines_for_repo api ~spindle ~did ~repo_name:repo ()
-  in
-  let pipelines =
-    if List.length pipelines > limit then
-      List.filteri (fun i _ -> i < limit) pipelines
-    else pipelines
-  in
-  if pipelines = [] then
-    Fmt.pr "No pipelines found for %s (spindle: %s).@." repo spindle
-  else begin
-    Fmt.pr "@[<v>";
-    List.iter (fun p -> Fmt.pr "%a@,@," pp_pipeline_summary p) pipelines;
-    Fmt.pr "@]"
-  end
+  Cmd.v
+    (Cmd.info name ~doc:"Show a pipeline and its workflow statuses.")
+    Term.(
+      term_result
+        (const action $ pipeline $ repo $ Common.user $ spindle
+       $ Common.json_flag))
 
 let list_cmd =
-  let doc = "List CI pipelines for a repository." in
-  let info = Cmd.info "list" ~doc ~sdocs:Manpage.s_common_options in
-  let list' user repo spindle limit =
-    Eio_main.run @@ fun env -> list_action ~user ~repo ~spindle ~limit env
+  let commits =
+    Common.strings [ "commit" ] "SHA" "Filter by commit (repeatable)."
   in
-  Cmd.v info Term.(const list' $ user_arg $ repo_arg $ spindle_arg $ limit_arg)
+  let kinds =
+    Common.strings [ "kind" ] "KIND"
+      "Filter by push, pull_request or manual (repeatable)."
+  in
+  let action repo user spindle limit cursor commits kinds json =
+    Common.run (fun env ->
+        Common.with_api env (fun api ->
+            let repo, spindle = target api ~repo ~user ~spindle in
+            let page =
+              Api.query_pipelines api ~spindle ~repo ~limit ?cursor ~commits
+                ~kinds ()
+            in
+            if json then Common.print Ci.QueryPipelines.output_jsont page
+            else begin
+              List.iter (fun p -> Fmt.pr "%a" pp_pipeline p) page.pipelines;
+              Option.iter (fun c -> Fmt.pr "Next cursor: %s@." c) page.cursor
+            end))
+  in
+  Cmd.v
+    (Cmd.info "list"
+       ~doc:"Query pipelines with server-side filters and pagination.")
+    Term.(
+      term_result
+        (const action $ repo $ Common.user $ spindle $ Common.limit
+       $ Common.cursor $ commits $ kinds $ Common.json_flag))
 
-(* Pipeline show command *)
+let trigger_cmd =
+  let action repo user spindle audience sha ref_ source_repo inputs workflows =
+    Common.run (fun env ->
+        let inputs =
+          List.map
+            (fun input ->
+              let key, value = Common.pair input in
+              { Ci.Trigger.key; value })
+            inputs
+          |> Common.nonempty
+        in
+        let trigger : Ci.Trigger.manual = { sha; ref_; source_repo; inputs } in
+        let trigger = Api.encode Ci.Trigger.manual_jsont trigger in
+        Tangled.Schema.validate ~nsid:"sh.tangled.ci.trigger"
+          (Tangled.Schema.field "manual"
+             (Tangled.Schema.field "defs"
+                (Tangled.Schema.document "sh.tangled.ci.trigger")))
+          trigger;
+        Common.with_api env (fun api ->
+            let repo, spindle = target api ~repo ~user ~spindle in
+            Common.print Ci.TriggerPipeline.output_jsont
+              (Api.trigger_pipeline api ~spindle ?audience ~repo ~trigger
+                 ?workflows:(Common.nonempty workflows)
+                 ())))
+  in
+  Cmd.v
+    (Cmd.info "trigger" ~doc:"Run workflows at an explicit commit.")
+    Term.(
+      term_result
+        (const action $ repo $ Common.user $ spindle $ Common.audience $ sha
+       $ ref_ $ source_repo $ inputs $ Common.workflows))
 
-let rkey_arg =
-  let doc = "Pipeline rkey (record key)." in
-  Arg.(required & pos 0 (some string) None & info [] ~docv:"RKEY" ~doc)
+let retry_cmd =
+  let action pipeline repo user spindle audience workflows =
+    Common.run (fun env ->
+        Common.with_api env (fun api ->
+            let spindle = host api ~repo ~user ~spindle in
+            let previous =
+              Api.get_pipeline api ~spindle ~pipeline:(id pipeline)
+            in
+            let repo =
+              match previous.repo with
+              | Some repo -> repo
+              | None -> fst (target api ~repo ~user ~spindle:(Some spindle))
+            in
+            let trigger =
+              match Tangled.Schema.member "$type" previous.trigger with
+              | Some type_
+                when Tangled.Schema.text type_ = "sh.tangled.ci.trigger#manual"
+                     || Tangled.Schema.text type_
+                        = "sh.tangled.ci.trigger#pullRequest" ->
+                  previous.trigger
+              | _ ->
+                  Api.encode Ci.Trigger.manual_jsont
+                    {
+                      sha = previous.commit;
+                      ref_ = None;
+                      source_repo = previous.source_repo;
+                      inputs = None;
+                    }
+            in
+            let workflows =
+              if workflows = [] then
+                List.map
+                  (fun (w : Ci.Pipeline.workflow) -> w.name)
+                  previous.workflows
+              else workflows
+            in
+            Common.print Ci.TriggerPipeline.output_jsont
+              (Api.trigger_pipeline api ~spindle ?audience ~repo ~trigger
+                 ~workflows ())))
+  in
+  Cmd.v
+    (Cmd.info "retry"
+       ~doc:
+         "Run a new pipeline at the original commit, retaining workflow \
+          selection.")
+    Term.(
+      term_result
+        (const action $ pipeline $ repo $ Common.user $ spindle
+       $ Common.audience $ Common.workflows))
 
-let show_action ~rkey ~user ~repo ~spindle env =
-  with_api env @@ fun api ->
-  let did =
-    match user with
-    | Some u ->
-        if String.starts_with ~prefix:"did:" u then u
-        else Tangled.Api.resolve_handle api u
-    | None -> Tangled.Api.get_did api
+let cancel_cmd =
+  let action pipeline repo user spindle audience workflows =
+    Common.run (fun env ->
+        Common.with_api env (fun api ->
+            let repo, spindle = target api ~repo ~user ~spindle in
+            Api.cancel_pipeline api ~spindle ?audience ~repo
+              ~pipeline:(id pipeline)
+              ?workflows:(Common.nonempty workflows)
+              ()))
   in
-  let spindle =
-    match spindle with
-    | Some s -> s
-    | None -> (
-        match Tangled.Api.get_spindle_for_repo api ~did ~repo_name:repo with
-        | Some (s, _) -> s
-        | None ->
-            Fmt.epr "Repository %s has no spindle configured for CI.@." repo;
-            exit 1)
-  in
-  let pipelines =
-    Tangled.Api.list_pipelines_for_repo api ~spindle ~did ~repo_name:repo ()
-  in
-  match List.find_opt (fun (k, _) -> k = rkey) pipelines with
-  | Some p -> Fmt.pr "%a@." pp_pipeline_detail p
-  | None ->
-      Fmt.epr "Pipeline not found: %s@." rkey;
-      exit 1
+  Cmd.v
+    (Cmd.info "cancel" ~doc:"Cancel a pipeline or selected workflows.")
+    Term.(
+      term_result
+        (const action $ pipeline $ repo $ Common.user $ spindle
+       $ Common.audience $ Common.workflows))
 
-let show_cmd =
-  let doc = "Show pipeline details." in
-  let info = Cmd.info "show" ~doc in
-  let show' rkey user repo spindle =
-    Eio_main.run @@ fun env -> show_action ~rkey ~user ~repo ~spindle env
+let logs_cmd =
+  let action pipeline repo user spindle workflows json =
+    Common.run (fun env ->
+        Common.with_api ~authenticated:(spindle = None) env (fun api ->
+            let spindle = host api ~repo ~user ~spindle in
+            let params =
+              [ ("pipeline", id pipeline) ]
+              @ List.map (fun w -> ("workflows", w)) workflows
+            in
+            Stream.subscribe env ~service:spindle
+              ~nsid:"sh.tangled.ci.subscribePipelineLogs" ~params
+              (fun type_ value ->
+                if json then
+                  Common.json
+                    (Common.object_
+                       [ ("type", Common.string type_); ("body", value) ])
+                else if type_ = "#data" then begin
+                  let channel =
+                    match Tangled.Schema.member "stream" value with
+                    | Some stream when Tangled.Schema.text stream = "stderr" ->
+                        stderr
+                    | _ -> stdout
+                  in
+                  output_string channel
+                    (Tangled.Schema.text (Tangled.Schema.field "content" value));
+                  flush channel
+                end)))
   in
-  Cmd.v info Term.(const show' $ rkey_arg $ user_arg $ repo_arg $ spindle_arg)
+  Cmd.v
+    (Cmd.info "logs"
+       ~doc:"Stream workflow logs, preserving partial lines and stderr.")
+    Term.(
+      term_result
+        (const action $ pipeline $ repo $ Common.user $ spindle
+       $ Common.workflows $ Common.json_flag))
 
-(* Pipeline status command *)
-
-let status_action ~rkey ~user ~repo ~spindle env =
-  with_api env @@ fun api ->
-  let did =
-    match user with
-    | Some u ->
-        if String.starts_with ~prefix:"did:" u then u
-        else Tangled.Api.resolve_handle api u
-    | None -> Tangled.Api.get_did api
+let definition_cmd =
+  let action repo user spindle sha source_repo =
+    Common.run (fun env ->
+        Common.with_api env (fun api ->
+            let repo, spindle = target api ~repo ~user ~spindle in
+            let params =
+              [ ("repo", repo); ("sha", sha) ]
+              @ Option.to_list
+                  (Option.map (fun repo -> ("sourceRepo", repo)) source_repo)
+            in
+            Common.print Ci.DescribeWorkflowDefinition.output_jsont
+              (Xrpc.Client.query
+                 (Api.public_client api ~service:spindle)
+                 ~nsid:"sh.tangled.ci.describeWorkflowDefinition" ~params
+                 ~decoder:Ci.DescribeWorkflowDefinition.output_jsont)))
   in
-  let spindle =
-    match spindle with
-    | Some s -> s
-    | None -> (
-        match Tangled.Api.get_spindle_for_repo api ~did ~repo_name:repo with
-        | Some (s, _) -> s
-        | None ->
-            Fmt.epr "Repository %s has no spindle configured for CI.@." repo;
-            exit 1)
-  in
-  (* First get the pipeline to show context *)
-  let pipelines =
-    Tangled.Api.list_pipelines_for_repo api ~spindle ~did ~repo_name:repo ()
-  in
-  (match List.find_opt (fun (k, _) -> k = rkey) pipelines with
-  | Some (_, p) ->
-      Fmt.pr "Pipeline: %s@," rkey;
-      Fmt.pr "Trigger: %a@," pp_trigger_kind p.trigger_metadata;
-      Fmt.pr "Repo: %s/%s@,@," p.trigger_metadata.repo.did
-        p.trigger_metadata.repo.repo
-  | None ->
-      Fmt.epr "Pipeline not found: %s@." rkey;
-      exit 1);
-  (* Get status summary *)
-  let summary =
-    Tangled.Api.get_pipeline_summary api ~spindle ~pipeline_rkey:rkey ()
-  in
-  if summary = [] then Fmt.pr "No status updates found.@."
-  else begin
-    Fmt.pr "Workflow Status:@,";
-    List.iter (fun (_, s) -> Fmt.pr "  %a@," pp_status_entry s) summary
-  end
-
-let status_cmd =
-  let doc = "Show pipeline status." in
-  let info = Cmd.info "status" ~doc in
-  let status' rkey user repo spindle =
-    Eio_main.run @@ fun env -> status_action ~rkey ~user ~repo ~spindle env
-  in
-  Cmd.v info Term.(const status' $ rkey_arg $ user_arg $ repo_arg $ spindle_arg)
-
-(* Pipeline command group *)
+  Cmd.v
+    (Cmd.info "definition"
+       ~doc:"Inspect the workflow definition fingerprint at a commit.")
+    Term.(
+      term_result
+        (const action $ repo $ Common.user $ spindle $ sha $ source_repo))
 
 let cmd =
-  let doc = "CI pipeline commands." in
-  let info = Cmd.info "pipeline" ~doc in
-  Cmd.group info [ list_cmd; show_cmd; status_cmd ]
+  Cmd.group
+    (Cmd.info "pipeline" ~doc:"Query and control CI on a spindle.")
+    [
+      list_cmd;
+      show "show";
+      show "status";
+      trigger_cmd;
+      retry_cmd;
+      cancel_cmd;
+      logs_cmd;
+      definition_cmd;
+    ]

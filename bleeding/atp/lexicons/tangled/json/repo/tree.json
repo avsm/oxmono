@@ -6,7 +6,10 @@
       "type": "query",
       "parameters": {
         "type": "params",
-        "required": ["repo", "ref"],
+        "required": [
+          "repo",
+          "ref"
+        ],
         "properties": {
           "repo": {
             "type": "string",
@@ -27,7 +30,10 @@
         "encoding": "application/json",
         "schema": {
           "type": "object",
-          "required": ["ref", "files"],
+          "required": [
+            "ref",
+            "files"
+          ],
           "properties": {
             "ref": {
               "type": "string",
@@ -45,6 +51,10 @@
               "type": "ref",
               "ref": "#readme",
               "description": "Readme for this file tree"
+            },
+            "lastCommit": {
+              "type": "ref",
+              "ref": "#lastCommit"
             },
             "files": {
               "type": "array",
@@ -77,7 +87,10 @@
     },
     "readme": {
       "type": "object",
-      "required": ["filename", "contents"],
+      "required": [
+        "filename",
+        "contents"
+      ],
       "properties": {
         "filename": {
           "type": "string",
@@ -91,7 +104,11 @@
     },
     "treeEntry": {
       "type": "object",
-      "required": ["name", "mode", "size"],
+      "required": [
+        "name",
+        "mode",
+        "size"
+      ],
       "properties": {
         "name": {
           "type": "string",
@@ -113,7 +130,11 @@
     },
     "lastCommit": {
       "type": "object",
-      "required": ["hash", "message", "when"],
+      "required": [
+        "hash",
+        "message",
+        "when"
+      ],
       "properties": {
         "hash": {
           "type": "string",
@@ -123,10 +144,37 @@
           "type": "string",
           "description": "Commit message"
         },
+        "author": {
+          "type": "ref",
+          "ref": "#signature"
+        },
         "when": {
           "type": "string",
           "format": "datetime",
           "description": "Commit timestamp"
+        }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "required": [
+        "name",
+        "email",
+        "when"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Author name"
+        },
+        "email": {
+          "type": "string",
+          "description": "Author email"
+        },
+        "when": {
+          "type": "string",
+          "format": "datetime",
+          "description": "Author timestamp"
         }
       }
     }

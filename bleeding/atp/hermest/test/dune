@@ -1,3 +1,9 @@
 (test
  (name test_recursive_codecs)
  (libraries hermest jsont.bytesrw))
+
+(rule
+ (alias runtest)
+ (deps test_invalid.py)
+ (action
+  (run python3 %{dep:test_invalid.py} %{bin:hermest})))

@@ -14,7 +14,8 @@
         "properties": {
           "repo": {
             "type": "string",
-            "description": "Repository identifier in format 'did:plc:.../repoName'"
+            "format": "did",
+            "description": "DID of the repository"
           },
           "ref": {
             "type": "string",
@@ -80,6 +81,9 @@
             "lastCommit": {
               "type": "ref",
               "ref": "#lastCommit"
+            },
+            "fileTooLarge": {
+              "type": "boolean"
             }
           }
         }
@@ -114,10 +118,6 @@
         "hash": {
           "type": "string",
           "description": "Commit hash"
-        },
-        "shortHash": {
-          "type": "string",
-          "description": "Short commit hash"
         },
         "message": {
           "type": "string",

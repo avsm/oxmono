@@ -1,0 +1,81 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.listCollaborators",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["subject"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "did",
+            "description": "Repo DID whose collaborator records to list."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "order": {
+            "type": "string",
+            "knownValues": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort direction by createdAt."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["items"],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#listItem" }
+            },
+            "cursor": { "type": "string" }
+          }
+        }
+      }
+    },
+    "listItem": {
+      "type": "object",
+      "required": ["subject", "addedBy", "createdAt"],
+      "properties": {
+        "subject": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the collaborator"
+        },
+        "addedBy": {
+          "type": "string",
+          "format": "did",
+          "description": "DID that added this collaborator"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the collaborator was added"
+        },
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "Optional record AT-URI for record-backed indexers"
+        },
+        "cid": {
+          "type": "string",
+          "format": "cid",
+          "description": "Optional record CID for record-backed indexers"
+        }
+      }
+    }
+  }
+}

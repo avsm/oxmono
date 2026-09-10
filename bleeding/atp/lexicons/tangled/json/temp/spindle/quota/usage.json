@@ -1,0 +1,47 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.spindle.quota.usage",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "list non-zero quota usage aggregated by repository and account owner",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "knownValues": [
+              "user",
+              "repo"
+            ],
+            "description": "limit results to one aggregation axis: user or repo"
+          },
+          "did": {
+            "type": "string",
+            "format": "did",
+            "description": "limit results to rows for this subject DID"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "usages"
+          ],
+          "properties": {
+            "usages": {
+              "description": "non-zero usage rows, including active reservations and committed allocations",
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "org.tangled.temp.spindle.quota.defs#usage"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

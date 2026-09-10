@@ -1,0 +1,101 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.search.query",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["q"],
+        "properties": {
+          "q": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Full-text search query."
+          },
+          "nsid": {
+            "type": "string",
+            "format": "nsid",
+            "description": "Restrict to records of this collection."
+          },
+          "author": {
+            "type": "string",
+            "format": "did",
+            "description": "Restrict to records authored by this DID."
+          },
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "Restrict to records under this repo DID."
+          },
+          "since": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Restrict to records created at or after this time."
+          },
+          "until": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Restrict to records created at or before this time."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["hits"],
+          "properties": {
+            "hits": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#hit"
+              }
+            },
+            "cursor": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "hit": {
+      "type": "object",
+      "required": ["uri", "nsid", "score", "value"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "cid": {
+          "type": "string",
+          "format": "cid"
+        },
+        "nsid": {
+          "type": "string",
+          "format": "nsid",
+          "description": "Collection of the matched record."
+        },
+        "score": {
+          "type": "unknown",
+          "description": "Relevance score of the hit, a floating-point number where higher ranks first."
+        },
+        "value": {
+          "type": "unknown",
+          "description": "Embedded matched record."
+        }
+      }
+    }
+  }
+}

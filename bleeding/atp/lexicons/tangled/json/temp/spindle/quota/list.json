@@ -1,0 +1,29 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.spindle.quota.list",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "list all per-subject quota overrides",
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "limits"
+          ],
+          "properties": {
+            "limits": {
+              "description": "quota overrides ordered by DID and resource",
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "org.tangled.temp.spindle.quota.defs#limit"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

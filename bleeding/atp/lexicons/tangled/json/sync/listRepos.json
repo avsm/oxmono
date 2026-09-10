@@ -1,0 +1,90 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.sync.listRepos",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "List git repos hosted on this service.",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "order": {
+            "type": "string",
+            "knownValues": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort direction over the service's repo listing order."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repos"],
+          "properties": {
+            "repos": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#repo" },
+              "maxLength": 1000
+            },
+            "cursor": { "type": "string" }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    },
+    "repo": {
+      "type": "object",
+      "required": ["repo", "status"],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the git repo as minted by the knot"
+        },
+        "status": {
+          "type": "string",
+          "knownValues": ["active", "archived", "disabled"],
+          "description": "Serving status of the repo according to the knot."
+        },
+        "defaultBranch": {
+          "type": "ref",
+          "ref": "#defaultBranch"
+        }
+      }
+    },
+    "defaultBranch": {
+      "type": "object",
+      "required": ["ref"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "description": "Default branch ref name, eg. refs/heads/main.",
+          "maxGraphemes": 256,
+          "maxLength": 2560
+        },
+        "head": {
+          "type": "string",
+          "description": "Commit SHA at the tip of the default branch, for reconciling against a last-known state. Width depends on the repo's git object-format.",
+          "minLength": 40,
+          "maxLength": 128
+        }
+      }
+    }
+  }
+}

@@ -105,7 +105,7 @@ type input = {
   repo : string;  (** The handle or DID of the repo (aka, current account). *)
   rkey : string;  (** The Record Key. *)
   swap_commit : string option;  (** Compare and swap with the previous commit by CID. *)
-  swap_record : string option;  (** Compare and swap with the previous record by CID. WARNING: nullable and optional field; may cause problems with golang implementation *)
+  swap_record : string option option;  (** Compare and swap with the previous record by CID. WARNING: nullable and optional field; may cause problems with golang implementation *)
   validate : bool option;  (** Can be set to 'false' to skip Lexicon schema validation of record data, 'true' to require it, or leave unset to validate only for known Lexicons. *)
 }
 

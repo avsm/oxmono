@@ -56,15 +56,14 @@ let generate ~inputs ~output_dir ~module_name ~public_name =
   log "Found %d lexicon files\n" (List.length files);
   (* parse all files *)
   let lexicons =
-    List.filter_map
+    List.map
       (fun path ->
         match parse_file path with
         | Ok doc ->
             log "  Parsed: %s\n" doc.Lexicon_types.id;
-            Some doc
+            doc
         | Error e ->
-            Printf.eprintf "  Error parsing %s: %s\n" path e;
-            None)
+            failwith (Printf.sprintf "Error parsing %s: %s" path e))
       files
   in
   log "Successfully parsed %d lexicons\n" (List.length lexicons);

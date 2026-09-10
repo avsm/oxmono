@@ -1,0 +1,9 @@
+(test
+ (name test_lexicons)
+ (libraries tangled jsont.bytesrw))
+
+(rule
+ (alias runtest)
+ (deps test_cli.py ../cli/main.exe)
+ (action
+  (run python3 %{dep:test_cli.py} %{exe:../cli/main.exe})))

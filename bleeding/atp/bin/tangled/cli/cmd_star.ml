@@ -1,69 +1,73 @@
-(*---------------------------------------------------------------------------
-   Copyright (c) 2025 Anil Madhavapeddy. All rights reserved.
-   SPDX-License-Identifier: ISC
-  ---------------------------------------------------------------------------*)
-
+(* SPDX-License-Identifier: ISC *)
 open Cmdliner
-
-(* Type alias for convenience *)
+module Api = Tangled.Api
 module Star = Atp_lexicon_tangled.Sh.Tangled.Feed.Star
 
-let app_name = "tangled"
-
-(* Helper to load session and create API *)
-let with_api env f =
-  Eio.Switch.run @@ fun sw ->
-  let fs = env#fs in
-  match Xrpc_auth.Session.load fs ~app_name () with
-  | None ->
-      Fmt.epr "Not logged in. Use 'tangled auth login' first.@.";
-      exit 1
-  | Some session ->
-      let api = Tangled.Api.create ~sw ~env ~app_name ~pds:session.pds () in
-      Tangled.Api.resume api ~session;
-      f api
-
-(* Pretty printer for star *)
-let pp_star ppf (_rkey, (s : Star.main)) =
-  (* subject is an AT URI like at://did:plc:.../sh.tangled.repo/reponame *)
-  let repo_display =
-    match Tangled.Types.parse_at_uri s.subject with
-    | Some uri -> Printf.sprintf "%s/%s" uri.did uri.rkey
-    | None -> s.subject
-  in
-  Fmt.pf ppf "%s (starred %s)" repo_display s.created_at
-
-(* Stars list command *)
-
-let user_arg =
-  let doc = "User handle or DID (default: logged-in user)." in
-  Arg.(value & opt (some string) None & info [ "user"; "u" ] ~docv:"USER" ~doc)
-
-let list_action ~user env =
-  with_api env @@ fun api ->
-  let did =
-    match user with
-    | Some u ->
-        if String.starts_with ~prefix:"did:" u then u
-        else Tangled.Api.resolve_handle api u
-    | None -> Tangled.Api.get_did api
-  in
-  let stars = Tangled.Api.list_stars api ~did () in
-  if stars = [] then Fmt.pr "No starred repositories.@."
-  else begin
-    Fmt.pr "Starred repositories:@.@.";
-    List.iter (fun s -> Fmt.pr "  %a@." pp_star s) stars
-  end
+let collection = "sh.tangled.feed.star"
+let repo = Common.positional 0 "REPO" "Repository DID."
 
 let list_cmd =
-  let doc = "List starred repositories." in
-  let info = Cmd.info "list" ~doc in
-  let list' user = Eio_main.run @@ fun env -> list_action ~user env in
-  Cmd.v info Term.(const list' $ user_arg)
+  let action user =
+    Common.run (fun env ->
+        Common.with_api env (fun api ->
+            Common.print
+              (Jsont.list Star.main_jsont)
+              (List.map snd (Api.list_stars api ~did:(Common.did api user) ()))))
+  in
+  Cmd.v
+    (Cmd.info "list" ~doc:"List starred repositories and strings.")
+    Term.(term_result (const action $ Common.user))
 
-(* Star command group *)
+let subject repo =
+  Common.object_
+    [
+      ("$type", Common.string "sh.tangled.feed.star#repo");
+      ("did", Common.string repo);
+    ]
+
+let matches repo (star : Star.main) =
+  Tangled.Schema.member "did" star.subject
+  |> Option.fold ~none:false ~some:(fun did -> Tangled.Schema.text did = repo)
+
+let add_cmd =
+  let action repo =
+    Common.run (fun env ->
+        Common.with_api env (fun api ->
+            if not (Atp.Did.is_valid repo) then
+              invalid_arg "Expected repository DID";
+            if
+              not
+                (List.exists
+                   (fun (_, star) -> matches repo star)
+                   (Api.list_stars api ()))
+            then
+              let star : Star.main =
+                { subject = subject repo; created_at = Api.now () }
+              in
+              Common.print Api.Atproto.Repo.CreateRecord.output_jsont
+                (Api.create_record api ~collection
+                   (Api.encode Star.main_jsont star))))
+  in
+  Cmd.v
+    (Cmd.info "add" ~doc:"Star a repository.")
+    Term.(term_result (const action $ repo))
+
+let remove_cmd =
+  let action repo =
+    Common.run (fun env ->
+        Common.with_api env (fun api ->
+            Api.list_records api ~did:(Api.get_did api) ~collection
+            |> List.iter (fun (record : Api.Atproto.Repo.ListRecords.record) ->
+                if matches repo (Api.decode Star.main_jsont record.value) then
+                  Api.delete_record api ~collection
+                    ~rkey:(Api.rkey_of_uri record.uri)
+                    ~swap_record:record.cid ())))
+  in
+  Cmd.v
+    (Cmd.info "remove" ~doc:"Unstar a repository.")
+    Term.(term_result (const action $ repo))
 
 let cmd =
-  let doc = "Star/unstar repositories." in
-  let info = Cmd.info "star" ~doc in
-  Cmd.group info [ list_cmd ]
+  Cmd.group
+    (Cmd.info "star" ~doc:"Manage stars.")
+    [ list_cmd; add_cmd; remove_cmd ]

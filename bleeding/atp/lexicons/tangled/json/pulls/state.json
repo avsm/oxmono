@@ -11,12 +11,17 @@
         "type": "object",
         "required": [
           "pull",
-          "status"
+          "status",
+          "createdAt"
         ],
         "properties": {
           "pull": {
             "type": "string",
             "format": "at-uri"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
           },
           "status": {
             "type": "string",

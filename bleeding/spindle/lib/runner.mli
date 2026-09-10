@@ -34,6 +34,15 @@ val view : t -> Jsont.json
 val snapshot : t -> Jsont.json
 val restore : Jsont.json -> t
 
+val environment : input -> Eio.Process.Env.t
+(** [environment input] supplies a fixed command environment with ambient Git
+    configuration and interactive authentication disabled. *)
+
+val capture : env -> input -> string list -> string
+(** [capture env input argv] captures bounded stdout using the same
+    process-group cleanup and environment as jobs. Callers supply a total
+    deadline. *)
+
 val execute : env -> input -> persist:(unit -> unit) -> t -> unit
 (** [execute env input ~persist workflow] waits for a worker slot, checks out
     the source and executes trusted steps. Each transition calls [persist]. *)

@@ -126,6 +126,33 @@ let () =
   assert (list (required "pipelines" older) = []);
   let manual = query ~commits:[ sha 42 ] ~kinds:[ "manual" ] () in
   assert (get "id" (List.hd (list (required "pipelines" manual))) = id 127);
+  Eio.Semaphore.acquire engine.runner.slots;
+  Eio.Semaphore.acquire engine.runner.slots;
+  let request =
+    obj
+      [
+        ("repo", str repo);
+        ( "trigger",
+          obj
+            [
+              ("$type", str "sh.tangled.ci.trigger#manual");
+              ("sha", str (String.make 40 'a'));
+            ] );
+      ]
+  in
+  let create () =
+    Option.get (Engine.create engine ~automatic:false ~actor:owner request)
+  in
+  let queued = List.init 32 (fun _ -> create ()) in
+  (match create () with
+  | _ -> failwith "pipeline capacity was not enforced"
+  | exception Engine.Capacity -> ());
+  let cancel id = Engine.cancel engine ~actor:owner ~repo ~id ~names:[] in
+  cancel (List.hd queued);
+  let replacement = create () in
+  List.iter cancel (replacement :: List.tl queued);
+  Eio.Semaphore.release engine.runner.slots;
+  Eio.Semaphore.release engine.runner.slots;
   print_endline
     "events: durable dispatch deduplication, OCaml selection and cancellation \
      passed"

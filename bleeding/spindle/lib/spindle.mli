@@ -2,6 +2,7 @@
 
 module Job = Job
 module Service_auth = Auth
+module Operations = Operations
 
 type config = {
   hostname : string;
@@ -19,7 +20,12 @@ type config = {
     [plc] selects the PLC directory; no live ATP endpoints are implicit.
     [allow_http] permits cleartext HTTP and WS for development networks. *)
 
-val run : ?addr:string -> Eio_unix.Stdenv.base -> config -> unit
+val run :
+  ?addr:string ->
+  ?operations:Operations.t ->
+  Eio_unix.Stdenv.base ->
+  config ->
+  unit
 (** [run system config] serves Tangled CI XRPC through Proffer. Workflow
     definitions are trusted OCaml values; repository code does not configure the
     runner. State, event cursors, JWT nonces and logs persist in SQLite. Jobs

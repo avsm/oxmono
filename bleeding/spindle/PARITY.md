@@ -30,6 +30,9 @@ and the local process runner.
 | Log subscriptions | Tangled binary XRPC/CBOR WebSocket events; selected workflow multiplexing |
 | Tangled UI | Appview reads CI endpoints and renders pipeline/workflow pages |
 | Restart and reconnect | Atomic inbox/cursors, dispatch deduplication, pending-work recovery |
+| Expired upstream replay | Durable gap reports, current Git ref and member PDS reconciliation |
+| Retention | Completed history and receipt budgets, inbox backpressure, live-work protection |
+| Observer health | Connection/activity, queue age, discovery and recovery diagnostics, readiness status |
 | Cancellation | All or selected pending/running workflows |
 | Definition discovery | Configured OCaml workflow names with `derived=false` |
 | Service JWT replay protection | Durable issuer/nonce consumption after signature verification |
@@ -86,7 +89,32 @@ or writes. Invalid gzip patches become permanent event rejections.
 The runner stores workflow definitions with accepted pipelines. Pending work
 resumes using those accepted command vectors; running work becomes failed
 after a restart. Completed logs are not retained in the active-work table.
-History, receipts and rejected events have no automatic retention policy.
+Maintenance expires completed history and receipts by age and count, and
+history by payload size. It preserves pending jobs, inbox entries and live JWT
+nonces. An inbox count/size limit rejects new events without advancing their
+cursors. Expired receipts leave durable per-source replay floors, so old
+events cannot execute again after their individual receipts are removed.
+
+Reconnects attempt replay within the configured 24-hour window. Older cursors,
+local receipt floors and upstream HTTP 410 responses persist recovery tasks
+before moving to the live stream. Current PDS assignments, member-owned pull
+records and Git refs are reconciled on startup, reconnect and every five
+minutes. Ref checkpoints are monotonic. Stream and recovered pushes share
+repository/ref/SHA deduplication keys. Known skip-ci and deletion events also
+update checkpoints. Recovered requests identify their unknown committer and
+changed paths, and use the spindle DID as actor.
+
+The pinned knot's `eventstream/store.go` queries events after a cursor without
+advertising the earliest available position. The testbed Jetstream dependency
+`e0274250f654` seeks into retained Pebble history and defaults to a 24-hour
+event TTL. Neither proves that an old interval is complete. Recovery reports
+keep `historicalEventsComplete=false` after current-state reconciliation.
+An upstream HTTP 410 is handled explicitly, but is not required for recovery.
+
+`/xrpc/_health` returns HTTP 200 with diagnostics. `/xrpc/_ready` and `/readyz`
+return 503 for disconnected or inactive sources, pending discovery/recovery,
+old inbox work, or maintenance failure. WebSocket control traffic keeps quiet
+sources healthy. Event age remains separately visible.
 
 The execution backend runs trusted commands as the service account, with a
 bounded deadline/log budget and separate checkouts. It does not implement
@@ -96,12 +124,11 @@ outside the OCaml backend used here.
 
 ## Remaining operational limits
 
-- Historical pipelines, event receipts and the durable inbox have no disk
-  retention or quota policy. History queries still scan stored summaries.
-- Catch-up requires the configured Jetstream and knot to retain the requested
-  cursor. There is no reconstruction of pushes lost beyond their retention.
-- The health endpoint checks the listener and loaded state. It does not report
-  observer lag or dependency readiness.
+- Purged intermediate commits, deleted refs and records from unknown PR
+  authors cannot always be reconstructed. Current-state reconciliation is
+  explicit about this loss of historical coverage.
+- Storage budgets count payloads. SQLite keeps freed pages for reuse and active
+  work is exempt. History queries still scan stored summaries.
 - Jobs share the service account. Process groups clean up ordinary descendants,
   but are not a security boundary against jobs that deliberately detach.
 - Automatic PR events cover same-repository branches. Fork PRs use Tangled's
@@ -124,3 +151,7 @@ revocation, forks, restart catch-up and UI rendering. Runtime endpoints are
 local; build preparation may download images, packages and Go modules.
 The review regressions also cover replayed grants after revocation, superseded
 PDS snapshots, persisted backoff, pagination and process-group cleanup.
+The Tangled harness then stops Jetstream and checks degraded readiness, removes
+an offline push from the knot's real SQLite journal, verifies current-ref
+recovery without duplicate dispatch after restart, and exercises automatic
+history expiry while preserving pending and recent pipelines.

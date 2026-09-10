@@ -29,6 +29,11 @@
  (modules test_runner)
  (libraries spindle eio_main))
 
+(test
+ (name test_operations)
+ (modules test_operations)
+ (libraries spindle eio_main))
+
 (executable
  (name tangled_server)
  (modules tangled_server)

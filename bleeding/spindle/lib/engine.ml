@@ -62,7 +62,7 @@ let snapshot p =
        ])
 
 let persist t p =
-  Eio.Mutex.use_rw ~protect:true t.lock (fun () ->
+  Lock.protect t.lock (fun () ->
       Store.batch t.store
         ~puts:
           [
@@ -395,7 +395,7 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false) ~automatic
         (names = [] || List.mem job.name names) && job.accepts context)
       t.jobs
   in
-  Eio.Mutex.use_rw ~protect:true t.lock @@ fun () ->
+  Lock.protect t.lock @@ fun () ->
   if not (Catalog.current t.catalog repo) then
     invalid "repository assignment changed during dispatch";
   match Option.bind dedup (Store.get t.store "dispatch") with

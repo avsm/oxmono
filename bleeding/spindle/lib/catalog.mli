@@ -22,6 +22,7 @@ val v :
   t
 
 val members : t -> string list
+val repositories : t -> string list
 val managed : t -> string -> repo option
 
 val current : t -> repo -> bool

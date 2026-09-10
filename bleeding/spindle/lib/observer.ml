@@ -20,7 +20,11 @@ let timestamp event key =
     invalid "invalid event timestamp";
   Int64.of_float n
 
-let connect ~system ~store ~source ~url ~jetstream =
+let connect ~system ~store ~source ~url ~jetstream ~health ~policy =
+  let reset =
+    Recovery.resume store policy ~source ~jetstream
+      ~now:(Eio.Time.now system#clock)
+  in
   let cursor =
     match Store.get store "cursor" source with
     | Some value -> value
@@ -34,12 +38,18 @@ let connect ~system ~store ~source ~url ~jetstream =
   in
   let url =
     Httpz_uri.of_string_exn (ws_url url) |> fun uri ->
-    Httpz_uri.add_query_param
-      (Httpz_uri.remove_query_param uri "cursor")
-      ~key:"cursor" ~value:cursor
+    let uri = Httpz_uri.remove_query_param uri "cursor" in
+    (if reset && jetstream then uri
+     else Httpz_uri.add_query_param uri ~key:"cursor" ~value:cursor)
     |> Httpz_uri.to_string
   in
-  Httpz_websocket_eio.with_connection system url @@ fun socket ->
+  Httpz_websocket_eio.with_connection
+    ~on_activity:(fun () ->
+      Health.activity health source ~now:(Eio.Time.now system#clock))
+    system url
+  @@ fun socket ->
+  Health.connected health source ~now:(Eio.Time.now system#clock);
+  Store.schedule store "recover-source" source;
   while
     Httpz_websocket.receive socket ~f:(fun kind bytes ~off ~len ->
         if kind <> Httpz_websocket.Text then invalid "event must be JSON text";
@@ -73,49 +83,62 @@ let connect ~system ~store ~source ~url ~jetstream =
             ]
         in
         Store.enqueue store ~source ~cursor:(Int64.to_string cursor) ~key:id
-          ~value:(encode pending))
+          ~value:(encode pending);
+        Health.event health source
+          ~now:(Eio.Time.now system#clock)
+          ~at:(Int64.to_float timestamp /. if jetstream then 1e6 else 1e9))
   do
     ()
   done
 
 let push engine source event key =
   if get "nsid" event = "sh.tangled.git.refUpdate" then
+    let position = timestamp event "created" in
     let event = required "event" event in
     let repo = did (get "repo" event) in
     match Catalog.managed engine.Engine.catalog repo with
     | Some canonical when canonical.knot = source ->
         let options = strings "pushOptions" event in
         let commit = sha (get "newSha" event) in
-        if
-          commit <> String.make 40 '0'
-          && not
-               (List.exists
-                  (fun option -> List.mem option [ "skip-ci"; "ci-skip" ])
-                  options)
-        then
-          let trigger =
-            obj
-              [
-                ("$type", str "sh.tangled.ci.trigger#push");
-                ("ref", str (get "ref" event));
-                ("newSha", str commit);
-                ("oldSha", str (sha (get "oldSha" event)));
-              ]
-          in
-          let default_ref =
-            match field "meta" event with
-            | Some meta -> (
-                match field "isDefaultRef" meta with
-                | Some (Jsont.Bool (value, _)) -> value
-                | _ -> false)
-            | None -> false
-          in
-          ignore
-            (Engine.create engine ~dedup:key ~automatic:true
-               ~changed_files:(strings "changedFiles" event)
-               ~default_ref
-               ~actor:(did (get "committerDid" event))
-               (obj [ ("repo", str repo); ("trigger", trigger) ]))
+        let ref_ = get "ref" event in
+        (if
+           commit <> String.make 40 '0'
+           && not
+                (List.exists
+                   (fun option -> List.mem option [ "skip-ci"; "ci-skip" ])
+                   options)
+         then
+           let trigger =
+             obj
+               [
+                 ("$type", str "sh.tangled.ci.trigger#push");
+                 ("ref", str (get "ref" event));
+                 ("newSha", str commit);
+                 ("oldSha", str (sha (get "oldSha" event)));
+               ]
+           in
+           let default_ref =
+             match field "meta" event with
+             | Some meta -> (
+                 match field "isDefaultRef" meta with
+                 | Some (Jsont.Bool (value, _)) -> value
+                 | _ -> false)
+             | None -> false
+           in
+           ignore
+             (Engine.create engine
+                ~dedup:(Recovery.dedup ~repo ~ref_ ~sha:commit)
+                ~automatic:true
+                ~changed_files:(strings "changedFiles" event)
+                ~default_ref
+                ~actor:(did (get "committerDid" event))
+                (obj
+                   [
+                     ("repo", str repo);
+                     ("trigger", trigger);
+                     ("eventKey", str key);
+                   ])));
+        Store.checkpoint_ref engine.store ~repo ~ref_ ~sha:commit ~position
     | _ -> ()
 
 let pull engine network owner rkey record =
@@ -160,12 +183,32 @@ let commit engine network event =
       Option.iter (pull engine network owner rkey) record
     else Catalog.notice engine.Engine.catalog ~owner ~collection ~rkey
 
-let run ~engine ~network ~jetstream =
+let run ~engine ~network ~jetstream ~health ~policy =
   let store = engine.Engine.store and system = engine.runner.system in
   let rec retry source f =
-    (try f () with
+    Health.starting health source ~now:(Eio.Time.now system#clock);
+    (try
+       f ();
+       Health.failed health source
+         ~now:(Eio.Time.now system#clock)
+         (Failure "event stream closed")
+     with
     | Eio.Cancel.Cancelled _ as exn -> raise exn
-    | exn -> report source exn);
+    | exn ->
+        Health.failed health source ~now:(Eio.Time.now system#clock) exn;
+        (match exn with
+        | Httpz_websocket_eio.Upgrade_rejected 410 ->
+            let now = Eio.Time.now system#clock in
+            Recovery.gap store ~source ~now
+              ~cursor:
+                (Option.value ~default:"0" (Store.get store "cursor" source))
+              ~reason:"upstream refused replay with HTTP 410";
+            Store.put store "cursor" source
+              (Int64.to_string
+                 (Int64.of_float
+                    (now *. if source = "jetstream" then 1e6 else 1e9)))
+        | _ -> ());
+        report source exn);
     Eio.Time.sleep system#clock 2.;
     retry source f
   in
@@ -174,6 +217,9 @@ let run ~engine ~network ~jetstream =
   if Store.get store "cursor" "jetstream" = None then
     Store.put store "cursor" "jetstream" (Int64.to_string initial);
   Catalog.bootstrap engine.catalog;
+  Recovery.seed engine;
+  Health.require health "jetstream";
+  Store.schedule store "recover-source" "jetstream";
   let subscriptions = Hashtbl.create 8 in
   let reconcile () =
     while true do
@@ -183,6 +229,7 @@ let run ~engine ~network ~jetstream =
           if List.mem knot wanted then Some cancel
           else (
             cancel ();
+            Health.remove health knot;
             None))
         subscriptions;
       List.iter
@@ -198,7 +245,7 @@ let run ~engine ~network ~jetstream =
                   (fun () -> Eio.Promise.await cancel)
                   (fun () ->
                     retry knot (fun () ->
-                        connect ~system ~store ~source:knot
+                        connect ~system ~store ~source:knot ~health ~policy
                           ~url:(knot ^ "/events") ~jetstream:false)))))
         wanted;
       Eio.Time.sleep system#clock 1.
@@ -250,6 +297,105 @@ let run ~engine ~network ~jetstream =
       Eio.Time.sleep system#clock 0.5
     done
   in
+  let recover () =
+    let next_scan =
+      ref
+        (Eio.Time.now system#clock
+        +. float_of_int policy.Operations.reconcile_seconds)
+    in
+    while true do
+      let now = Eio.Time.now system#clock in
+      if now >= !next_scan then (
+        Catalog.bootstrap engine.catalog;
+        Store.schedule store "recover-source" "jetstream";
+        next_scan := now +. float_of_int policy.reconcile_seconds);
+      let count ns =
+        let n, _, _ = Store.usage store ns in
+        n
+      in
+      if
+        count "reconcile" = 0
+        && Store.ready store "inbox" ~now ~limit:1 = []
+        && Health.caught_up health ~now
+      then (
+        List.iter
+          (fun (source, value) ->
+            Recovery.schedule engine ~source;
+            ignore
+              (Store.complete store "recover-source" source ~value ~puts:[]
+                 ~deletes:[]))
+          (Store.ready store "recover-source" ~now ~limit:16);
+        let tasks namespace f =
+          Eio.Fiber.List.iter ~max_fibers:2
+            (fun (key, value) ->
+              try
+                Eio.Time.with_timeout_exn system#clock 30. (fun () -> f key);
+                ignore
+                  (Store.complete store namespace key ~value ~puts:[]
+                     ~deletes:[])
+              with
+              | Eio.Cancel.Cancelled _ as exn -> raise exn
+              | exn ->
+                  Store.defer store namespace key
+                    ~now:(Eio.Time.now system#clock);
+                  report ("recovery " ^ key) exn)
+            (Store.ready store namespace ~now ~limit:16)
+        in
+        tasks "recover" (Recovery.repo engine);
+        tasks "recover-pulls" (fun owner ->
+            if List.mem owner (Catalog.members engine.catalog) then
+              Network.records network owner "sh.tangled.repo.pull"
+              |> List.iter (fun item ->
+                  let uri = Atp.At_uri.of_string_exn (get "uri" item) in
+                  if
+                    Atp.At_uri.authority uri <> owner
+                    || Atp.At_uri.collection uri <> Some "sh.tangled.repo.pull"
+                  then
+                    invalid
+                      "PDS returned a pull outside the requested collection";
+                  let rkey =
+                    match Atp.At_uri.rkey uri with
+                    | Some value -> value
+                    | None -> invalid "missing pull key"
+                  in
+                  let uri = Atp.At_uri.to_string uri in
+                  let cid = get "cid" item in
+                  if Store.get store "pull-seen" uri = Some cid then
+                    Store.put store "pull-seen" uri cid
+                  else
+                    let now = Eio.Time.now system#clock in
+                    let event =
+                      obj
+                        [
+                          ("kind", str "commit");
+                          ("did", str owner);
+                          ("time_us", Jsont.Json.number (now *. 1e6));
+                          ( "commit",
+                            obj
+                              [
+                                ("collection", str "sh.tangled.repo.pull");
+                                ("rkey", str rkey);
+                                ("operation", str "update");
+                                ("record", required "value" item);
+                              ] );
+                        ]
+                    in
+                    Store.enqueue store ~source:"recovery"
+                      ~cursor:(Int64.to_string (Int64.of_float (now *. 1e6)))
+                      ~key:("pull-recovery/" ^ uri ^ "/" ^ cid)
+                      ~value:
+                        (encode
+                           (obj
+                              [
+                                ("source", str "jetstream");
+                                ("jetstream", bool true);
+                                ("event", event);
+                              ]));
+                    Store.put store "pull-seen" uri cid));
+        Recovery.settled store ~now:(Eio.Time.now system#clock));
+      Eio.Time.sleep system#clock 2.
+    done
+  in
   let url =
     Httpz_uri.of_string_exn jetstream |> fun uri ->
     List.fold_left
@@ -263,7 +409,9 @@ let run ~engine ~network ~jetstream =
       reconcile;
       refresh;
       work;
+      recover;
       (fun () ->
         retry "jetstream" (fun () ->
-            connect ~system ~store ~source:"jetstream" ~url ~jetstream:true));
+            connect ~system ~store ~source:"jetstream" ~url ~jetstream:true
+              ~health ~policy));
     ]

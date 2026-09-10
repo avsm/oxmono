@@ -79,6 +79,11 @@ let assignments t =
         | None -> None
       else None)
 
+let repositories t =
+  assignments t
+  |> List.map (fun (_, _, id, _) -> id)
+  |> List.sort_uniq String.compare
+
 let verified t id =
   ignore (did id);
   match t.static with
@@ -171,15 +176,23 @@ let knots t =
             try
               match managed t id with
               | None -> None
-              | Some repo -> Some repo.knot
+              | Some repo ->
+                  Store.delete t.store "discovery-error" id;
+                  Some repo.knot
             with
             | Eio.Cancel.Cancelled _ as exn -> raise exn
             | exn ->
+                Store.put t.store "discovery-error" id (Printexc.to_string exn);
                 Printf.eprintf "spindle repository %s: %s\n%!" id
                   (Printexc.to_string exn);
                 None)
         |> List.sort_uniq String.compare
       in
+      let assigned = repositories t in
+      Store.list t.store "discovery-error"
+      |> List.iter (fun (id, _) ->
+          if not (List.mem id assigned) then
+            Store.delete t.store "discovery-error" id);
       if generation = t.generation then t.subscription_cache <- Some (now, knots);
       knots
 

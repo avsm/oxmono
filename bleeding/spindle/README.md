@@ -23,7 +23,9 @@ This builds the sibling `../tangled-core` knot and appview and starts them
 beside the [local ATP stack](../atp/testbed/README.md). It tests real SSH pushes,
 PDS records and tokens, multiple OCaml workflows, gzip pull-request blobs,
 collaborator and member revocation, fork checkout, offline push recovery,
-JWT replay rejection after restart, and Tangled's pipeline page.
+JWT replay rejection after restart, and Tangled's pipeline page. Fault tests
+disconnect Jetstream, remove a push from the knot journal and age stored
+history to verify readiness, current-ref recovery and automatic retention.
 
 Image, package and Go module downloads happen during preparation. Runtime PLC,
 PDS, Jetstream, knot and appview endpoints all refer to the local setup.
@@ -91,7 +93,8 @@ All Tangled methods are under `/xrpc/`:
 | `sh.tangled.ci.describeWorkflowDefinition` | List the configured OCaml workflows. |
 | `sh.tangled.ci.cancelPipeline` | Cancel all or selected pending/running workflows. |
 | `sh.tangled.ci.subscribePipelineLogs` | Stream selected workflows as Tangled CBOR WebSocket events. |
-| `_health` | Confirm the HTTP service has loaded persistent state. |
+| `_health` | Return liveness and observer, queue, recovery and maintenance diagnostics. |
+| `_ready` | Return the same report, with HTTP 503 while degraded. |
 
 `/.well-known/did.json` advertises the `#tangled_spindle` service. Queries and
 logs are public. Mutations require a fresh service JWT and write access to the
@@ -133,10 +136,32 @@ Two workflows run at once; at most 32 pipelines may be outstanding, with up
 to 50 configured workflows. Each workflow has a 60-second execution deadline
 and 1 MiB log budget. Pull blobs have separate 16 MiB compressed and 64 MiB
 expanded limits, plus CID verification. Git and `gzip` are runtime dependencies.
-History and event receipts have no automatic disk-retention policy.
+Automatic maintenance retains completed history for 30 days, at most 1000
+pipelines or 1024 MiB of stored payload. Completed event receipts last seven
+days, capped at 100000 entries. The inbox admits 10000 events or 64 MiB before
+applying backpressure without advancing its cursor. Pending work and live JWT
+nonces are preserved. SQLite reuses freed pages. These are payload budgets,
+not a limit on the database file's physical size.
 History queries read summaries in batches. HTTP exchanges have a 15-second
 total deadline. Event processing and collection refreshes have 30-second
-deadlines. Catch-up depends on the upstream streams retaining their cursors.
+deadlines. See [operating settings](DEPLOYMENT.md#retention-and-readiness) for
+CLI flags and the `Spindle.Operations` API.
+
+Reconnects replay within a configured 24-hour window. Older cursors, expired
+local receipts and upstream HTTP 410 responses create durable recovery tasks.
+Startup, reconnects and five-minute scans reconcile PDS assignments, current
+Git refs and current member-owned pull records. A missing push can dispatch
+the current ref with `request.recovery.mode="current_refs"`. Its actor is the
+spindle DID, with unknown committer and changed paths marked in the request.
+Workflow predicates must account for that missing context when appropriate.
+Pushes share a repository/ref/SHA deduplication key across stream delivery and
+recovery, so repeated pushes of the same SHA share a pipeline while that key
+is retained.
+
+Upstream streams do not advertise their earliest retained cursor. Reconciliation
+restores current-state coverage and records `historicalEventsComplete=false`.
+It cannot reconstruct every deleted ref, intermediate commit or pull record
+from an unknown author. `/xrpc/_health` reports these gaps even after recovery.
 
 Commands execute as child processes with the service account's filesystem
 access. The Docker harness supplies resource limits. Deploy custom commands
@@ -155,7 +180,10 @@ Native tests cover signed service tokens, issuer-scoped replay prevention,
 concurrent consumption, expiry, database reopening, atomic event receipts,
 workflow selection and cancellation.
 Native review regressions cover stale catalog grants, superseded snapshots,
-persisted retries, history pagination and cleanup of shell descendants.
+persisted retries, history pagination and cleanup of shell descendants. They
+also cover retention budgets, queue backpressure, replay floors, ref checkpoints
+and observer readiness, including quiet streams kept alive by control frames.
 The WebSocket client tests retain frames
-coalesced with the HTTP upgrade and reject bad accepts and HTTP versions.
+coalesced with the HTTP upgrade, report activity and expose rejected HTTP
+upgrades, and reject bad accepts and HTTP versions.
 The Docker harnesses check service behaviour with actual PDS and Tangled code.

@@ -7,7 +7,9 @@ let () =
       [ Metadata; Command [ "git"; "ls-files" ] ]
       ~accepts:(fun context -> context.kind <> Manual)
   in
-  Spindle.run ~addr:"0.0.0.0" system
+  Spindle.run ~addr:"0.0.0.0"
+    ~operations:(Spindle.Operations.v ~maintenance_seconds:1 ())
+    system
     {
       hostname = "spindle.tangled.test";
       owner = Sys.getenv "SPINDLE_OWNER";

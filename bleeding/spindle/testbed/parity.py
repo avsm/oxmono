@@ -73,6 +73,7 @@ def main():
     compose('up', '-d', 'redis', 'appview', 'knot', 'tangled-gateway', 'spindle')
     if args.command == 'test':
         run('python3', str(ROOT / 'tangled.py'), cwd=REPO)
+        run('python3', str(ROOT / 'operations.py'), cwd=REPO)
     print('Local Tangled: appview http://127.0.0.1:3000; '
           'spindle http://127.0.0.1:9000; knot SSH 127.0.0.1:2222', flush=True)
 

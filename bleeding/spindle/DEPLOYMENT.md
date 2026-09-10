@@ -54,6 +54,7 @@ From the oxmono root:
 python3 bleeding/spindle/testbed/parity.py up
 python3 bleeding/spindle/testbed/parity.py test
 curl --fail http://127.0.0.1:9000/xrpc/_health
+curl --fail http://127.0.0.1:9000/xrpc/_ready
 ```
 
 `up` builds the executable and image, prepares the local identity/Git fixtures
@@ -141,8 +142,9 @@ curl --fail http://127.0.0.1:9000/xrpc/_health
 curl --fail http://127.0.0.1:9000/xrpc/sh.tangled.owner
 ```
 
-Readiness confirms state loading and the listener. It does not probe the PLC
-or Git source. Submit an authenticated job to check those dependencies.
+`/xrpc/_health` reports liveness and diagnostics. Use `/xrpc/_ready` or
+`/readyz` for readiness, including observer connections and pending recovery.
+Submit an authenticated job to check execution and caller authorization.
 
 ## Expose HTTPS and submit a job
 
@@ -194,19 +196,82 @@ with its WAL when copying live storage. Deleting the database also deletes
 pipeline URLs, event cursors and accepted JWT nonces.
 
 There are two concurrent workflows, 32 outstanding pipelines, a 60-second
-execution deadline and a 1 MiB log limit per workflow. Completed histories
-remain on disk without automatic retention. Pending work resumes after
-restart; interrupted workflows become failed. One process may own a state
-directory. The HTTP health endpoint reports service availability; observer
-connection failures are reported in the service journal and retried.
+execution deadline and a 1 MiB log limit per workflow. Pending work resumes
+after restart. Interrupted workflows become failed. One process may own a
+state directory.
 
 Membership and repository changes trigger fresh PDS reads. Affected mutations
 return `503 CatalogPending` while reconciliation is pending. Fetch failures
 back off up to one minute and keep the affected catalog unavailable. Event
-processing continues for other repositories. Stream catch-up requires the
-upstream knot and Jetstream to retain the saved cursor. Monitor disk use,
-since history and event queues have no automatic quota or retention policy.
+processing continues for other repositories.
 
 Each command gets a process group. Cancellation, deadlines and normal exit
 kill remaining group members. This cleans up shell children but does not
 isolate jobs that deliberately detach or access the service account's files.
+
+## Retention and readiness
+
+Automatic maintenance runs on startup and every minute. Override these CLI
+defaults as needed, or pass `~operations:(Spindle.Operations.v ... ())` to
+`Spindle.run` in an OCaml service:
+
+| Flag | Default | Scope |
+| --- | --- | --- |
+| `--history-days` | 30 | Age since the last completed pipeline update |
+| `--history-limit` | 1000 | Completed pipelines |
+| `--history-megabytes` | 1024 | Completed summaries and logs, in MiB |
+| `--receipt-days` | 7 | Completed event receipts and inactive dispatch keys |
+| `--receipt-limit` | 100000 | Completed receipts and inactive dispatch keys, each |
+| `--inbox-limit` | 10000 | Pending stream events |
+| `--inbox-megabytes` | 64 | Pending event payload, in MiB |
+| `--replay-hours` | 24 | Maximum age of a cursor to replay |
+| `--reconcile-seconds` | 300 | PDS and current Git ref reconciliation interval |
+| `--maintenance-seconds` | 60 | Storage cleanup interval |
+
+All limits must be positive. Receipt retention must cover the replay window
+and exceed the reconciliation interval. Cleanup removes the oldest completed
+pipelines first until all history budgets hold. It never evicts active
+pipelines, pending inbox work or unexpired JWT nonces. A full inbox applies
+backpressure without advancing the stream cursor. Expired receipts retain a
+per-source replay floor, preventing blind redispatch of old events.
+
+These are payload budgets, not physical disk quotas. SQLite reuses freed pages
+and checkpoints its WAL. Database overhead, pending work and original JSON
+migration files are outside the completed-history budget. Monitor filesystem
+capacity and use SQLite maintenance during planned downtime if the file must
+shrink. Deleted pipeline URLs return not found.
+
+`/xrpc/_health` returns HTTP 200 with a `ready` flag and diagnostics. The same
+report at `/xrpc/_ready` or `/readyz` returns HTTP 503 while degraded. It includes
+observer connections, reconnect attempts, activity and event ages, cursors,
+queue counts/bytes/ages, discovery errors, replay gaps and maintenance results.
+Readiness fails for disconnected sources, 120 seconds without transport
+activity, inbox work older than 60 seconds, pending catalog/recovery tasks or
+maintenance failure. Ping/pong traffic keeps a quiet stream healthy. Readiness
+can briefly fail during periodic reconciliation. Connection errors also go
+to the service journal.
+
+## When upstream replay is unavailable
+
+Set `--replay-hours` no higher than the history guaranteed by the configured
+Jetstream and knots. Their protocols do not advertise an earliest retained
+cursor, so the spindle cannot prove that every historical event is available.
+An expired cursor, pruned receipt floor or HTTP 410 creates a durable recovery
+task before the cursor moves forward. Ref checks also detect surviving pushes
+missing from a journal even when no replay error is returned.
+
+Startup, reconnect and periodic reconciliation read current PDS assignments,
+member-owned pull records and canonical Git refs. Missing ref heads dispatch
+jobs with `request.recovery.mode="current_refs"`, the spindle DID as actor,
+and `committerKnown=false` and `changedFilesKnown=false`. Custom predicates
+can inspect these fields to decide how to handle incomplete context. Stream
+pushes and recovered pushes share a repository/ref/SHA key. Re-pushing the
+same SHA shares the existing dispatch while its key is retained. Checkpoints
+prevent unchanged refs from running on every scan.
+
+The health report's `replay` entries record the first missing cursor, reason,
+and `pending` or `reconciled` status. Readiness returns after current-state
+recovery finishes, while `historicalEventsComplete=false` remains visible.
+Deleted refs, intermediate commits and unknown authors' PR records may be
+unrecoverable. Reconciled reports expire with the history age policy. Pending
+reports and recovery tasks remain until resolved.

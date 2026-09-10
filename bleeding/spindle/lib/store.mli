@@ -2,6 +2,33 @@
 
 type t
 
+exception Inbox_full
+
+val set_limits : t -> Operations.t -> unit
+(** [set_limits store policy] bounds admission to the durable inbox. *)
+
+val usage : t -> string -> int * int * float
+(** [usage store namespace] returns count, payload bytes and oldest update time,
+    or zero for the time of an empty namespace. *)
+
+val pending_source : t -> string -> int
+(** [pending_source store source] counts pending events from [source]. *)
+
+val ref_state : t -> repo:string -> ref_:string -> (string * int64) option
+
+val checkpoint_ref :
+  t -> repo:string -> ref_:string -> sha:string -> position:int64 -> unit
+(** [checkpoint_ref store ~repo ~ref_ ~sha ~position] advances a ref checkpoint
+    monotonically. *)
+
+val touch_ref : t -> repo:string -> ref_:string -> unit
+(** [touch_ref store ~repo ~ref_] retains a verified live ref. *)
+
+val prune : t -> now:float -> Operations.t -> int * int
+(** [prune store ~now policy] removes completed history and expired receipts,
+    retaining replay floors, pending events, active jobs and live JWT nonces. It
+    returns removed pipeline and receipt counts. *)
+
 val open_ : sw:Eio.Switch.t -> _ Eio.Path.t -> t
 (** [open_ ~sw directory] initializes the SQLite database in [directory]. *)
 
@@ -60,5 +87,6 @@ val consume :
 val enqueue :
   t -> source:string -> cursor:string -> key:string -> value:string -> unit
 (** [enqueue store ~source ~cursor ~key ~value] checkpoints the stream and
-    stores an event unless it has already completed, in one transaction. Cursors
-    advance monotonically as signed 64-bit integers. *)
+    stores an event unless completed or below a pruned receipt floor, in one
+    transaction. Cursors advance monotonically as signed 64-bit integers.
+    [Inbox_full] leaves both the event and cursor unchanged. *)

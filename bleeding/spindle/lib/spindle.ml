@@ -1,6 +1,7 @@
 (* SPDX-License-Identifier: ISC *)
 module Job = Job
 module Service_auth = Auth
+module Operations = Operations
 open Json
 open Proffer
 module Status = Httpz.Res
@@ -23,9 +24,11 @@ type state = {
   engine : Engine.t;
   network : Network.t;
   system : Eio_unix.Stdenv.base;
+  health : Health.t;
 }
 
 exception Http_error of Status.status * string * string
+exception Not_ready of Jsont.json
 
 let reject status code message = raise (Http_error (status, code, message))
 let optional = Runner.optional
@@ -228,7 +231,16 @@ let handle state name req respond =
       then reject Status.Method_not_allowed "InvalidRequest" "wrong HTTP method";
       let result =
         match name with
-        | "_health" -> obj [ ("status", str "ok") ]
+        | "_health" ->
+            snd
+              (Health.report state.health
+                 ~now:(Eio.Time.now state.system#clock))
+        | "_ready" ->
+            let ready, report =
+              Health.report state.health ~now:(Eio.Time.now state.system#clock)
+            in
+            if not ready then raise (Not_ready report);
+            report
         | "_did" ->
             let id = "did:web:" ^ state.config.hostname in
             obj
@@ -295,6 +307,8 @@ let handle state name req respond =
       in
       respond_json respond result
   with
+  | Not_ready report ->
+      respond_json respond ~status:Status.Service_unavailable report
   | Invalid message ->
       respond_json respond ~status:Status.Bad_request
         (obj [ ("error", str "InvalidRequest"); ("message", str message) ])
@@ -350,7 +364,7 @@ let handle state name req respond =
              ("message", str "request could not be completed");
            ])
 
-let run ?(addr = "127.0.0.1") system config =
+let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   ignore (did config.owner);
   ignore (did ("did:web:" ^ config.hostname));
   if config.repo = None && config.jetstream = None then
@@ -385,6 +399,7 @@ let run ?(addr = "127.0.0.1") system config =
     Network.v ~allow_http:config.allow_http ~plc:config.plc system
   in
   let store = Store.open_ ~sw directory in
+  Store.set_limits store operations;
   let static =
     Option.map
       (fun (repo, source) ->
@@ -407,10 +422,42 @@ let run ?(addr = "127.0.0.1") system config =
   in
   Engine.migrate engine config.repo;
   Engine.load engine;
-  let state = { config; engine; network; system } in
+  let health = Health.v ~store ~enabled:(config.jetstream <> None) in
+  let state = { config; engine; network; system; health } in
+  Eio.Fiber.fork ~sw (fun () ->
+      while true do
+        let now = Eio.Time.now system#clock in
+        (try
+           let pipelines, receipts =
+             Lock.protect engine.lock (fun () ->
+                 Store.prune store ~now operations)
+           in
+           Store.put store "health" "maintenance"
+             (encode
+                (obj
+                   [
+                     ("lastSuccessAt", Jsont.Json.number now);
+                     ("pipelinesRemoved", int pipelines);
+                     ("receiptsRemoved", int receipts);
+                   ]))
+         with
+        | Eio.Cancel.Cancelled _ as exn -> raise exn
+        | exn ->
+            Printf.eprintf "spindle retention: %s\n%!" (Printexc.to_string exn);
+            Store.put store "health" "maintenance"
+              (encode
+                 (obj
+                    [
+                      ("lastFailureAt", Jsont.Json.number now);
+                      ("error", str (Printexc.to_string exn));
+                    ])));
+        Eio.Time.sleep system#clock
+          (float_of_int operations.maintenance_seconds)
+      done);
   Option.iter
     (fun jetstream ->
-      Eio.Fiber.fork ~sw (fun () -> Observer.run ~engine ~network ~jetstream))
+      Eio.Fiber.fork ~sw (fun () ->
+          Observer.run ~engine ~network ~jetstream ~health ~policy:operations))
     config.jetstream;
   let open Route in
   let handler name env req respond = env (Req.globalize name) req respond in
@@ -423,6 +470,7 @@ let run ?(addr = "127.0.0.1") system config =
           (s ".well-known" / s "did.json")
           (fun env req respond -> env "_did" req respond);
         get root (fun env req respond -> env "_health" req respond);
+        get (s "readyz") (fun env req respond -> env "_ready" req respond);
       ]
   in
   let ip = Eio_unix.Net.Ipaddr.of_unix (Unix.inet_addr_of_string addr) in

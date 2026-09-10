@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Bound retained history and event queues, report observer readiness, and
+  reconcile current Git/PDS state when upstream replay is unavailable.
+
 - Reconcile catalog changes from current PDS state, reject stale snapshots and
   persist retry delays. Bound history reads and clean up job descendants.
 

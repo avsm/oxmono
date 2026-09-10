@@ -122,33 +122,34 @@ let control persist p ~step ~status command =
 let data p ~step ~stream content =
   emit p ~step ~kind:"data" [ ("content", str content); ("stream", str stream) ]
 
+let environment input =
+  Eio.Process.Env.of_bindings
+    [
+      ("PATH", "/usr/bin:/bin");
+      ("LANG", "C");
+      ("LC_ALL", "C");
+      ("GIT_CONFIG_NOSYSTEM", "1");
+      ("GIT_CONFIG_GLOBAL", "/dev/null");
+      ("GIT_TERMINAL_PROMPT", "0");
+      ("GIT_ALLOW_PROTOCOL", "file:https:http");
+      ("TANGLED_REPO", input.repo);
+      ("TANGLED_COMMIT_SHA", input.commit);
+      ("TANGLED_PIPELINE_ID", input.id);
+      ( "SSL_CERT_FILE",
+        Option.value ~default:"/etc/ssl/certs/ca-certificates.crt"
+          (Sys.getenv_opt "SSL_CERT_FILE") );
+      ( "GIT_SSL_CAINFO",
+        Option.value ~default:"/etc/ssl/certs/ca-certificates.crt"
+          (Sys.getenv_opt "SSL_CERT_FILE") );
+      ("SPINDLE_REQUEST", encode input.metadata);
+    ]
+
 let command state input p ~cwd ~step argv =
   Eio.Switch.run @@ fun sw ->
   let mgr = state.system#process_mgr in
   let output, output_write = Eio.Process.pipe ~sw mgr in
   let errors, errors_write = Eio.Process.pipe ~sw mgr in
-  let env =
-    Eio.Process.Env.of_bindings
-      [
-        ("PATH", "/usr/bin:/bin");
-        ("LANG", "C");
-        ("LC_ALL", "C");
-        ("GIT_CONFIG_NOSYSTEM", "1");
-        ("GIT_CONFIG_GLOBAL", "/dev/null");
-        ("GIT_TERMINAL_PROMPT", "0");
-        ("GIT_ALLOW_PROTOCOL", "file:https:http");
-        ("TANGLED_REPO", input.repo);
-        ("TANGLED_COMMIT_SHA", input.commit);
-        ("TANGLED_PIPELINE_ID", input.id);
-        ( "SSL_CERT_FILE",
-          Option.value ~default:"/etc/ssl/certs/ca-certificates.crt"
-            (Sys.getenv_opt "SSL_CERT_FILE") );
-        ( "GIT_SSL_CAINFO",
-          Option.value ~default:"/etc/ssl/certs/ca-certificates.crt"
-            (Sys.getenv_opt "SSL_CERT_FILE") );
-        ("SPINDLE_REQUEST", encode input.metadata);
-      ]
-  in
+  let env = environment input in
   let stdin = Eio.Path.open_in ~sw Eio.Path.(state.system#fs / "/dev/null") in
   let fd flow = Option.get (Eio_unix.Resource.fd_opt flow) in
   let process =
@@ -191,6 +192,14 @@ let command state input p ~cwd ~step argv =
     ]
 
 let git args = "git" :: "-c" :: "core.hooksPath=/dev/null" :: args
+
+let capture state input argv =
+  let output = v (Job.v "discovery" []) in
+  command state input output ~cwd:state.directory ~step:0 argv;
+  List.rev output.events
+  |> List.filter_map (fun event ->
+      if get "stream" event = "stdout" then Some (get "content" event) else None)
+  |> String.concat ""
 
 let execute state input ~persist p =
   let open Eio.Path in

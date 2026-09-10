@@ -4,8 +4,10 @@ module U = Httpz_uri
 let i16 = Httpz.Buf_read.i16
 let to_int = Httpz.Buf_read.to_int
 
+exception Upgrade_rejected of int
+
 let with_connection ?(tls = Httpz_tls.system) ?(max_message = 1048576)
-    env url f =
+    ?(on_activity = fun () -> ()) env url f =
   let uri = U.of_string_exn url in
   let secure = match U.scheme uri with
     | This "wss" -> true | This "ws" -> false
@@ -73,6 +75,7 @@ let with_connection ?(tls = Httpz_tls.system) ?(max_message = 1048576)
           else (
             if response.#version <> Httpz.Version.Http_1_1 then
               failwith "WebSocket upgrade requires HTTP/1.1";
+            if code <> 101 then raise (Upgrade_rejected code);
             let fields = Httpz.Header.to_rev_string_pairs_local buffer fields in
             (match W.Handshake.verify ~key ~status:code fields with
              | Ok _ -> () | Error message -> failwith message);
@@ -80,7 +83,7 @@ let with_connection ?(tls = Httpz_tls.system) ?(max_message = 1048576)
       | status -> failwith (Httpz.Buf_read.status_to_string status) in
     head 0 0 in
   let offset = ref head_end in
-  let read bytes ~off ~len =
+  let read_raw bytes ~off ~len =
     if !offset < buffered then (
       let size = min len (buffered - !offset) in
       Bytes.blit buffer !offset bytes off size; offset := !offset + size; size)
@@ -90,6 +93,10 @@ let with_connection ?(tls = Httpz_tls.system) ?(max_message = 1048576)
           let size = min len (Eio.Buf_read.buffered_bytes reader) in
           Bytes.blit_string (Eio.Buf_read.take size reader) 0 bytes off size; size
       | exception End_of_file -> 0) in
+  let read bytes ~off ~len =
+    let size = read_raw bytes ~off ~len in
+    if size > 0 then on_activity ();
+    size in
   let write bytes ~off ~len =
     Eio.Time.with_timeout_exn env#clock 10. (fun () ->
       Eio.Flow.copy_string (Bytes.sub_string bytes off len) flow) in

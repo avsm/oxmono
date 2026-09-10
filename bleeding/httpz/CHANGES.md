@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Report WebSocket read activity and expose rejected upgrade status codes.
+
 - Add an Eio WS/WSS client with verified upgrades, TLS, bounded I/O and
   cancellation. Preserve frames buffered after the HTTP upgrade.
 

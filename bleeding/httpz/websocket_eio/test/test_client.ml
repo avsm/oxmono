@@ -54,9 +54,11 @@ let test env ~valid ~version =
        Eio.Flow.copy_string response flow)
     (fun () ->
        let received = ref false in
+       let activity = ref 0 in
        let accepted =
          try
            Httpz_websocket_eio.with_connection
+             ~on_activity:(fun () -> incr activity)
              env
              (Printf.sprintf "ws://127.0.0.1:%d/events?cursor=12" port)
              (fun ws ->
@@ -70,7 +72,42 @@ let test env ~valid ~version =
          | Failure _ -> false
        in
        assert (accepted = (valid && version = "HTTP/1.1"));
-       assert (!received = accepted))
+       assert (!received = accepted);
+       assert (!activity > 0 = accepted))
+;;
+
+let rejected env =
+  Eio.Switch.run
+  @@ fun sw ->
+  let listener =
+    Eio.Net.listen
+      ~sw
+      ~reuse_addr:true
+      ~backlog:1
+      env#net
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
+  in
+  let port =
+    match Eio.Net.listening_addr listener with
+    | `Tcp (_, port) -> port
+    | _ -> assert false
+  in
+  Eio.Fiber.both
+    (fun () ->
+       let flow, _ = Eio.Net.accept ~sw listener in
+       let reader = Eio.Buf_read.of_flow ~max_size:16384 flow in
+       let rec headers () = if Eio.Buf_read.line reader <> "" then headers () in
+       headers ();
+       Eio.Flow.copy_string "HTTP/1.1 410 Gone\r\nContent-Length: 0\r\n\r\n" flow)
+    (fun () ->
+       match
+         Httpz_websocket_eio.with_connection
+           env
+           (Printf.sprintf "ws://127.0.0.1:%d/events" port)
+           (fun _ -> ())
+       with
+       | () -> failwith "HTTP 410 was accepted as a WebSocket"
+       | exception Httpz_websocket_eio.Upgrade_rejected 410 -> ())
 ;;
 
 let () =
@@ -79,7 +116,8 @@ let () =
   Eio.Time.with_timeout_exn env#clock 5. (fun () ->
     test env ~valid:true ~version:"HTTP/1.1";
     test env ~valid:false ~version:"HTTP/1.1";
-    test env ~valid:true ~version:"HTTP/1.0");
+    test env ~valid:true ~version:"HTTP/1.0";
+    rejected env);
   print_endline
     "WebSocket Eio: coalesced frame, accept validation and HTTP version passed"
 ;;

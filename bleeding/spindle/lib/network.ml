@@ -2,10 +2,18 @@
 open Json
 module U = Httpz_uri
 
-type t = { fetch : Fetch_httpz.t; plc : string; allow_http : bool }
+type t = {
+  fetch : Fetch_httpz.t;
+  plc : string;
+  allow_http : bool;
+  timeout : Eio.Time.Timeout.t;
+}
 
 let origin ~allow_http value =
-  let uri = U.of_string_exn value in
+  let uri =
+    try U.of_string_exn value
+    with Invalid_argument _ -> invalid "invalid service URL"
+  in
   let scheme =
     match U.scheme uri with
     | This "https" -> "https"
@@ -37,14 +45,19 @@ let v ~allow_http ~plc system =
       ~max_response:(16 * 1024 * 1024)
       ()
   in
-  { fetch; plc; allow_http }
+  {
+    fetch;
+    plc;
+    allow_http;
+    timeout = Eio.Time.Timeout.seconds system#mono_clock 15.;
+  }
 
 let read ?(limit = 1048576) t url =
   let uri = U.of_string_exn url in
   let base = U.with_encoded_query uri Null |> fun uri -> U.to_string uri in
   let host = origin ~allow_http:t.allow_http base in
   let fetch = Fetch.restrict t.fetch ~under:[ host ] in
-  Fetch.read ~limit fetch url
+  Eio.Time.Timeout.run_exn t.timeout (fun () -> Fetch.read ~limit fetch url)
 
 let json t url = decode (read t url)
 

@@ -26,6 +26,9 @@ let () =
       Store.enqueue store ~source:"knot" ~cursor:"1234567890123456789"
         ~key:"event" ~value:"payload";
       assert (Store.get store "inbox" "event" = Some "payload");
+      Store.enqueue store ~source:"knot" ~cursor:"1234567890123456789"
+        ~key:"event" ~value:"conflicting duplicate";
+      assert (Store.get store "inbox" "event" = Some "payload");
       Store.batch store
         ~puts:[ ("done", "event", "") ]
         ~deletes:[ ("inbox", "event") ];
@@ -33,6 +36,41 @@ let () =
         ~key:"event" ~value:"payload";
       assert (Store.get store "inbox" "event" = None);
       assert (Store.get store "cursor" "knot" = Some "1234567890123456789");
+      Store.batch store ~deletes:[]
+        ~puts:(List.init 300 (fun i -> ("tasks", Printf.sprintf "%03d" i, "")));
+      let keys =
+        Store.fold store "tasks" ~init:[]
+          ~f:(fun keys (key, _) -> key :: keys)
+          ()
+      in
+      assert (List.length keys = 300 && List.hd keys = "299");
+      let keys =
+        Store.fold store "tasks" ~descending:true ~init:[]
+          ~f:(fun keys (key, _) -> key :: keys)
+          ()
+      in
+      assert (List.length keys = 300 && List.hd keys = "000");
+      assert (List.length (Store.ready store "tasks" ~now:1000. ~limit:64) = 64);
+      Store.defer store "tasks" "000" ~now:1000.;
+      assert (
+        fst (List.hd (Store.ready store "tasks" ~now:1000. ~limit:1)) = "001");
+      assert (
+        fst (List.hd (Store.ready store "tasks" ~now:1002. ~limit:1)) = "000");
+      Store.schedule store "refresh" "key";
+      let old = Option.get (Store.get store "refresh" "key") in
+      Store.schedule store "refresh" "key";
+      assert (
+        not
+          (Store.complete store "refresh" "key" ~value:old
+             ~puts:[ ("grant", "stale", "bad") ]
+             ~deletes:[]));
+      assert (Store.get store "grant" "stale" = None);
+      let current = Option.get (Store.get store "refresh" "key") in
+      assert (
+        Store.complete store "refresh" "key" ~value:current
+          ~puts:[ ("grant", "current", "ok") ]
+          ~deletes:[]);
+      assert (Store.get store "refresh" "key" = None);
       Store.batch store
         ~puts:[ ("pipeline", "id", "result"); ("dispatch", "event", "id") ]
         ~deletes:[]);
@@ -42,6 +80,19 @@ let () =
       assert (not (consume store "issuer-b" "nonce"));
       assert (Store.get store "dispatch" "event" = Some "id");
       assert (Store.get store "pipeline" "id" = Some "result");
+      assert (
+        not
+          (List.mem_assoc "000"
+             (Store.ready store "tasks" ~now:1000. ~limit:128)));
+      Store.defer store "tasks" "000" ~now:1001.;
+      assert (
+        not
+          (List.mem_assoc "000"
+             (Store.ready store "tasks" ~now:1002. ~limit:128)));
+      Store.delete store "tasks" "000";
+      Store.put store "tasks" "000" "new";
+      assert (
+        fst (List.hd (Store.ready store "tasks" ~now:1002. ~limit:1)) = "000");
       assert (
         Store.consume store ~now:1060. ~issuer:"issuer-a" ~jti:"nonce"
           ~expires:1120.));

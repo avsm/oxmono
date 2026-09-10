@@ -83,6 +83,49 @@ let () =
   Engine.cancel engine ~actor:owner ~repo ~id ~names:[];
   Eio.Semaphore.release engine.runner.slots;
   Eio.Semaphore.release engine.runner.slots;
+  Store.batch store ~puts:[]
+    ~deletes:
+      (List.map
+         (fun (id, _) -> ("pipeline-view", id))
+         (Store.list store "pipeline-view"));
+  let id i =
+    Atp.Tid.to_string
+      (Atp.Tid.of_timestamp_us ~clockid:0 (Int64.of_int (1000000 + i)))
+  in
+  let sha i = Printf.sprintf "%040x" i in
+  Store.batch store ~deletes:[]
+    ~puts:
+      (List.init 300 (fun i ->
+           let trigger = if i mod 2 = 0 then "push" else "manual" in
+           ( "pipeline-view",
+             id i,
+             encode
+               (obj
+                  [
+                    ("id", str (id i));
+                    ("repo", str repo);
+                    ("commit", str (sha (i / 3)));
+                    ( "trigger",
+                      obj
+                        [ ("$type", str ("sh.tangled.ci.trigger#" ^ trigger)) ]
+                    );
+                  ]) )));
+  let query ?cursor ?(commits = []) ?(kinds = []) () =
+    Engine.query engine ~repo ~limit:17 ~cursor ~kinds ~commits
+  in
+  let page = query () in
+  assert (number (required "total" page) = 300.);
+  assert (get "cursor" page = id 283);
+  assert (List.length (list (required "pipelines" page)) = 17);
+  let page = query ~cursor:(id 283) () in
+  assert (number (required "total" page) = 283.);
+  assert (get "id" (List.hd (list (required "pipelines" page))) = id 282);
+  let latest = query ~commits:[ sha 42 ] () in
+  assert (get "id" (List.hd (list (required "pipelines" latest))) = id 128);
+  let older = query ~commits:[ sha 42 ] ~cursor:(id 128) () in
+  assert (list (required "pipelines" older) = []);
+  let manual = query ~commits:[ sha 42 ] ~kinds:[ "manual" ] () in
+  assert (get "id" (List.hd (list (required "pipelines" manual))) = id 127);
   print_endline
     "events: durable dispatch deduplication, OCaml selection and cancellation \
      passed"

@@ -1,6 +1,6 @@
 # Tack and Tangled compatibility review
 
-Reviewed 2026-09-09 against:
+Reviewed 2026-09-10 against:
 
 - Tack `8e3bd108617fdd83514b2955f47f045029e5577f` in `../tack`.
 - Tangled core `338719d7d4f1e1e32becc4f4d3ef04f3c7daeb32` in
@@ -63,6 +63,26 @@ as rejected. Existing assignments are reloaded from PDSes after restart;
 failed member collection refreshes retry independently. Discovery failures
 must not terminate the HTTP service.
 
+Membership and assignment events request authoritative PDS snapshots. Their
+payloads never restore catalog state. A durable generation check discards a
+snapshot if another notice arrives during its fetch. Pending refreshes block
+affected mutations with `503 CatalogPending`. The catalog is checked again
+after remote resolution and authorization. Non-owner membership records do
+not schedule refreshes. These checks cover delayed grants after revocation,
+bootstrap followed by replay, and in-flight snapshot races.
+
+Event work runs in batches of 64 with four processing fibers. Catalog
+refreshes run separately. Failed tasks retain exponential retry delays across
+restart, capped at one minute. HTTP exchanges have a 15-second total deadline,
+and event processing and collection refreshes have 30-second deadlines.
+History queries and startup scan summaries in bounded batches. Query `total`
+counts matches after the cursor, matching Tack and Tangled.
+
+Commands run in separate process groups. Cancellation, timeout and normal
+completion kill descendants that remain in the group. Log subscriptions send
+only newly appended events, ping every 30 seconds and time out stalled reads
+or writes. Invalid gzip patches become permanent event rejections.
+
 The runner stores workflow definitions with accepted pipelines. Pending work
 resumes using those accepted command vectors; running work becomes failed
 after a restart. Completed logs are not retained in the active-work table.
@@ -73,6 +93,19 @@ bounded deadline/log budget and separate checkouts. It does not implement
 Buildkite billing callbacks, Tekton cluster scheduling, sourcehut submission,
 or a separate container per job. Those provider-specific capabilities are
 outside the OCaml backend used here.
+
+## Remaining operational limits
+
+- Historical pipelines, event receipts and the durable inbox have no disk
+  retention or quota policy. History queries still scan stored summaries.
+- Catch-up requires the configured Jetstream and knot to retain the requested
+  cursor. There is no reconstruction of pushes lost beyond their retention.
+- The health endpoint checks the listener and loaded state. It does not report
+  observer lag or dependency readiness.
+- Jobs share the service account. Process groups clean up ordinary descendants,
+  but are not a security boundary against jobs that deliberately detach.
+- Automatic PR events cover same-repository branches. Fork PRs use Tangled's
+  authenticated trigger path, as in the pinned Tack baseline.
 
 ## Reproduction
 
@@ -89,3 +122,5 @@ harness runs the actual sibling knot and appview with the local PDS, PLC and
 Jetstream. It exercises SSH pushes, two concurrent workflows, pull patches,
 revocation, forks, restart catch-up and UI rendering. Runtime endpoints are
 local; build preparation may download images, packages and Go modules.
+The review regressions also cover replayed grants after revocation, superseded
+PDS snapshots, persisted backoff, pagination and process-group cleanup.

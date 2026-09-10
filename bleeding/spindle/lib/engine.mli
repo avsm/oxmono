@@ -45,6 +45,19 @@ val kind : Jsont.json -> Job.kind
 val view : pipeline -> Jsont.json
 val managed : t -> string -> Catalog.repo
 val find : t -> string -> pipeline option
+
+val query :
+  t ->
+  repo:string ->
+  limit:int ->
+  cursor:string option ->
+  kinds:string list ->
+  commits:string list ->
+  Jsont.json
+(** [query engine ~repo ~limit ~cursor ~kinds ~commits] returns newest-first
+    summaries with bounded memory. [total] counts matches after the cursor.
+    Commit filtering selects the latest match before applying the cursor. *)
+
 val select_workflows : pipeline -> string list -> Runner.t list
 
 val create :

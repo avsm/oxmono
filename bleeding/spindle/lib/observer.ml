@@ -145,7 +145,7 @@ let pull engine network owner rkey record =
              (obj [ ("repo", str repo); ("trigger", trigger) ]))
 
 let commit engine network event =
-  if get "kind" event = "commit" then (
+  if get "kind" event = "commit" then
     let owner = did (get "did" event) in
     let commit = required "commit" event in
     let collection = get "collection" commit in
@@ -158,16 +158,7 @@ let commit engine network event =
     in
     if collection = "sh.tangled.repo.pull" then
       Option.iter (pull engine network owner rkey) record
-    else
-      let catalog = engine.Engine.catalog in
-      Catalog.apply catalog ~owner ~collection ~rkey record;
-      if collection = "sh.tangled.spindle.member" then
-        Option.iter
-          (fun value ->
-            let member = get "subject" value in
-            if List.mem member (Catalog.members catalog) then
-              Catalog.replace catalog member "sh.tangled.repo")
-          record)
+    else Catalog.notice engine.Engine.catalog ~owner ~collection ~rkey
 
 let run ~engine ~network ~jetstream =
   let store = engine.Engine.store and system = engine.runner.system in
@@ -182,15 +173,7 @@ let run ~engine ~network ~jetstream =
   let initial = Int64.of_float (Eio.Time.now system#clock *. 1e6) in
   if Store.get store "cursor" "jetstream" = None then
     Store.put store "cursor" "jetstream" (Int64.to_string initial);
-  let rec bootstrap () =
-    try Catalog.bootstrap engine.catalog with
-    | Eio.Cancel.Cancelled _ as exn -> raise exn
-    | exn ->
-        report "bootstrap" exn;
-        Eio.Time.sleep system#clock 2.;
-        bootstrap ()
-  in
-  bootstrap ();
+  Catalog.bootstrap engine.catalog;
   let subscriptions = Hashtbl.create 8 in
   let reconcile () =
     while true do
@@ -221,26 +204,35 @@ let run ~engine ~network ~jetstream =
       Eio.Time.sleep system#clock 1.
     done
   in
-  let work () =
+  let refresh () =
     while true do
       List.iter
-        (fun (member, _) ->
+        (fun (key, value) ->
           try
-            if List.mem member (Catalog.members engine.catalog) then
-              Catalog.replace engine.catalog member "sh.tangled.repo";
-            Store.delete store "reconcile" member
+            Eio.Time.with_timeout_exn system#clock 30. (fun () ->
+                Catalog.refresh engine.catalog key ~value)
           with
           | Eio.Cancel.Cancelled _ as exn -> raise exn
-          | exn -> report member exn)
-        (Store.list store "reconcile");
-      List.iter
+          | exn ->
+              Store.defer store "reconcile" key ~now:(Eio.Time.now system#clock);
+              report key exn)
+        (Store.ready store "reconcile"
+           ~now:(Eio.Time.now system#clock)
+           ~limit:16);
+      Eio.Time.sleep system#clock 0.5
+    done
+  in
+  let work () =
+    while true do
+      Eio.Fiber.List.iter ~max_fibers:4
         (fun (key, raw) ->
           try
             let value = decode raw in
             let event = required "event" value in
-            (match required "jetstream" value with
-            | Jsont.Bool (true, _) -> commit engine network event
-            | _ -> push engine (get "source" value) event key);
+            Eio.Time.with_timeout_exn system#clock 30. (fun () ->
+                match required "jetstream" value with
+                | Jsont.Bool (true, _) -> commit engine network event
+                | _ -> push engine (get "source" value) event key);
             Store.batch store
               ~puts:[ ("done", key, "") ]
               ~deletes:[ ("inbox", key) ]
@@ -251,8 +243,10 @@ let run ~engine ~network ~jetstream =
                 ~puts:[ ("rejected", key, message); ("done", key, "") ]
                 ~deletes:[ ("inbox", key) ];
               report key (Invalid message)
-          | exn -> report key exn)
-        (Store.list store "inbox");
+          | exn ->
+              Store.defer store "inbox" key ~now:(Eio.Time.now system#clock);
+              report key exn)
+        (Store.ready store "inbox" ~now:(Eio.Time.now system#clock) ~limit:64);
       Eio.Time.sleep system#clock 0.5
     done
   in
@@ -267,6 +261,7 @@ let run ~engine ~network ~jetstream =
   Eio.Fiber.all
     [
       reconcile;
+      refresh;
       work;
       (fun () ->
         retry "jetstream" (fun () ->

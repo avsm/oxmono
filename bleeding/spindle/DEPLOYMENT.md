@@ -199,3 +199,14 @@ remain on disk without automatic retention. Pending work resumes after
 restart; interrupted workflows become failed. One process may own a state
 directory. The HTTP health endpoint reports service availability; observer
 connection failures are reported in the service journal and retried.
+
+Membership and repository changes trigger fresh PDS reads. Affected mutations
+return `503 CatalogPending` while reconciliation is pending. Fetch failures
+back off up to one minute and keep the affected catalog unavailable. Event
+processing continues for other repositories. Stream catch-up requires the
+upstream knot and Jetstream to retain the saved cursor. Monitor disk use,
+since history and event queues have no automatic quota or retention policy.
+
+Each command gets a process group. Cancellation, deadlines and normal exit
+kill remaining group members. This cleans up shell children but does not
+isolate jobs that deliberately detach or access the service account's files.

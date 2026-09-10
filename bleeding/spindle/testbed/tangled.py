@@ -226,8 +226,23 @@ def main():
     foreign_id = request(CI + smoke.TRIGGER, foreign, token(alice))['pipeline']
     result = smoke.wait_pipeline(foreign_id.rsplit('/', 1)[1])
     assert result['sourceRepo'] == fork and result['workflows'][0]['status'] == 'success'
+    old_grant = json.loads(stored('sh.tangled.spindle.member', alice['did'] + '/' + member))
     delete(alice, 'sh.tangled.spindle.member', member)
     eventually(lambda: stored('sh.tangled.spindle.member', alice['did'] + '/' + member) is None)
+    # Replay a grant that failed before a later revocation completed. The worker
+    # must reconcile current PDS state instead of restoring the old payload.
+    replay_key = 'review-stale-grant-' + tid()
+    replay = {'source': 'jetstream', 'jetstream': True, 'event': {
+        'did': alice['did'], 'kind': 'commit', 'commit': {
+            'collection': 'sh.tangled.spindle.member', 'rkey': member,
+            'operation': 'create', 'record': old_grant}}}
+    with sqlite3.connect(STATE / 'data/spindle.db') as db:
+        db.execute('INSERT INTO kv(namespace,key,value) VALUES(?,?,?)',
+                   ('inbox', replay_key, json.dumps(replay)))
+    eventually(lambda: stored('done', replay_key) is not None)
+    eventually(lambda: stored('reconcile', alice['did'] + '/sh.tangled.spindle.member') is None)
+    assert stored('sh.tangled.spindle.member', alice['did'] + '/' + member) is None
+    print('PASS: delayed grant replay cannot restore revoked membership', flush=True)
     revoked = commit(fixture, 'revoked-member.txt')
     push(fixture, fork)
     time.sleep(2)

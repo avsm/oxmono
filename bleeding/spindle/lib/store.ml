@@ -49,6 +49,9 @@ let open_ ~sw directory =
       issuer TEXT NOT NULL, jti TEXT NOT NULL, expires REAL NOT NULL,
       PRIMARY KEY(issuer, jti));
     CREATE INDEX IF NOT EXISTS replay_expiry ON replay(expires);
+    CREATE TABLE IF NOT EXISTS retry (
+      namespace TEXT NOT NULL, key TEXT NOT NULL, attempts INTEGER NOT NULL,
+      due REAL NOT NULL, PRIMARY KEY(namespace, key));
   |});
   t
 
@@ -68,27 +71,100 @@ let list t namespace =
         [ text namespace ]
       |> List.map (fun row -> (string row.(0), string row.(1))))
 
-let batch t ~puts ~deletes =
+let fold t namespace ?(descending = false) ~init ~f () =
+  let rec pages after acc =
+    let page =
+      locked t (fun () ->
+          let comparison, order =
+            if descending then ("<", "DESC") else (">", "ASC")
+          in
+          rows t
+            ("SELECT key,value FROM kv WHERE namespace=?"
+            ^ (if after = None then "" else " AND key" ^ comparison ^ "?")
+            ^ " ORDER BY key " ^ order ^ " LIMIT 128")
+            (text namespace :: Option.to_list (Option.map text after))
+          |> List.map (fun row -> (string row.(0), string row.(1))))
+    in
+    match page with
+    | [] -> acc
+    | _ ->
+        let acc = List.fold_left f acc page in
+        pages (Some (fst (List.hd (List.rev page)))) acc
+  in
+  pages None init
+
+let ready t namespace ~now ~limit =
+  if limit < 1 || limit > 128 then invalid_arg "Store.ready limit";
   locked t (fun () ->
-      check (Sqlite3_eio.exec t.db "BEGIN IMMEDIATE");
+      rows t
+        {|SELECT kv.key,kv.value FROM kv LEFT JOIN retry
+          ON retry.namespace=kv.namespace AND retry.key=kv.key
+          WHERE kv.namespace=? AND (retry.due IS NULL OR retry.due<=?)
+          ORDER BY COALESCE(retry.due,?),kv.key LIMIT ?|}
+        [
+          text namespace;
+          Sqlite3.Data.FLOAT now;
+          Sqlite3.Data.FLOAT now;
+          Sqlite3.Data.INT (Int64.of_int limit);
+        ]
+      |> List.map (fun row -> (string row.(0), string row.(1))))
+
+let defer t namespace key ~now =
+  locked t (fun () ->
+      execute t
+        {|INSERT INTO retry(namespace,key,attempts,due) VALUES(?,?,1,?+1)
+          ON CONFLICT(namespace,key) DO UPDATE SET
+          attempts=MIN(retry.attempts+1,6),
+          due=?+MIN(1 << retry.attempts,60)|}
+        [
+          text namespace;
+          text key;
+          Sqlite3.Data.FLOAT now;
+          Sqlite3.Data.FLOAT now;
+        ])
+
+let batch_unlocked t ~puts ~deletes =
+  check (Sqlite3_eio.exec t.db "BEGIN IMMEDIATE");
+  match
+    List.iter
+      (fun (ns, key) ->
+        execute t "DELETE FROM kv WHERE namespace=? AND key=?"
+          [ text ns; text key ];
+        execute t "DELETE FROM retry WHERE namespace=? AND key=?"
+          [ text ns; text key ])
+      deletes;
+    List.iter
+      (fun (ns, key, value) ->
+        execute t "INSERT OR REPLACE INTO kv(namespace,key,value) VALUES(?,?,?)"
+          [ text ns; text key; text value ])
+      puts;
+    check (Sqlite3_eio.exec t.db "COMMIT")
+  with
+  | () -> ()
+  | exception ex ->
+      ignore (Sqlite3_eio.exec t.db "ROLLBACK");
+      raise ex
+
+let batch t ~puts ~deletes =
+  locked t (fun () -> batch_unlocked t ~puts ~deletes)
+
+let schedule t namespace key =
+  locked t (fun () ->
+      execute t
+        "INSERT OR REPLACE INTO kv(namespace,key,value) \
+         VALUES(?,?,hex(randomblob(16)))"
+        [ text namespace; text key ])
+
+let complete t namespace key ~value ~puts ~deletes =
+  locked t (fun () ->
       match
-        List.iter
-          (fun (ns, key) ->
-            execute t "DELETE FROM kv WHERE namespace=? AND key=?"
-              [ text ns; text key ])
-          deletes;
-        List.iter
-          (fun (ns, key, value) ->
-            execute t
-              "INSERT OR REPLACE INTO kv(namespace,key,value) VALUES(?,?,?)"
-              [ text ns; text key; text value ])
-          puts;
-        check (Sqlite3_eio.exec t.db "COMMIT")
+        rows t "SELECT value FROM kv WHERE namespace=? AND key=?"
+          [ text namespace; text key ]
       with
-      | () -> ()
-      | exception ex ->
-          ignore (Sqlite3_eio.exec t.db "ROLLBACK");
-          raise ex)
+      | [ row ] when string row.(0) = value ->
+          batch_unlocked t ~puts ~deletes:((namespace, key) :: deletes);
+          true
+      | _ -> false)
 
 let put t ns key value = batch t ~puts:[ (ns, key, value) ] ~deletes:[]
 let delete t ns key = batch t ~puts:[] ~deletes:[ (ns, key) ]
@@ -128,7 +204,7 @@ let enqueue t ~source ~cursor ~key ~value =
       match
         execute t
           {|
-      INSERT OR REPLACE INTO kv(namespace,key,value)
+      INSERT OR IGNORE INTO kv(namespace,key,value)
       SELECT 'inbox',?,? WHERE NOT EXISTS
         (SELECT 1 FROM kv WHERE namespace='done' AND key=?)
     |}

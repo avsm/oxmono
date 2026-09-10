@@ -149,11 +149,25 @@ let command state input p ~cwd ~step argv =
         ("SPINDLE_REQUEST", encode input.metadata);
       ]
   in
+  let stdin = Eio.Path.open_in ~sw Eio.Path.(state.system#fs / "/dev/null") in
+  let fd flow = Option.get (Eio_unix.Resource.fd_opt flow) in
   let process =
-    Eio.Process.spawn ~sw mgr ~cwd ~env
-      ~stdin:(Eio.Flow.string_source "")
-      ~stdout:output_write ~stderr:errors_write argv
+    Eio_unix.Process.spawn_unix ~sw mgr ~cwd ~env ~pgid:0
+      ~fds:
+        [
+          (0, fd stdin, `Blocking);
+          (1, fd output_write, `Blocking);
+          (2, fd errors_write, `Blocking);
+        ]
+      argv
   in
+  (* Shell pipelines and background children inherit this group. Killing only
+     the immediate child leaves them running after cancellation or timeout. *)
+  let kill_group () =
+    try Unix.kill (-Eio.Process.pid process) Sys.sigkill
+    with Unix.Unix_error (Unix.ESRCH, _, _) -> ()
+  in
+  Fun.protect ~finally:kill_group @@ fun () ->
   Eio.Flow.close output_write;
   Eio.Flow.close errors_write;
   let read stream flow () =
@@ -171,7 +185,9 @@ let command state input p ~cwd ~step argv =
     [
       read "stdout" output;
       read "stderr" errors;
-      (fun () -> Eio.Process.await_exn process);
+      (fun () ->
+        Eio.Process.await_exn process;
+        kill_group ());
     ]
 
 let git args = "git" :: "-c" :: "core.hooksPath=/dev/null" :: args

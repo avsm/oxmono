@@ -213,17 +213,15 @@ let restore id raw =
   }
 
 let load t =
-  (if Store.get t.store "schema" "pipeline-views" = None then
-     let puts =
-       Store.list t.store "pipeline"
-       |> List.map (fun (id, raw) ->
-           ("pipeline-view", id, encode (required "pipeline" (decode raw))))
-     in
-     Store.batch t.store
-       ~puts:(("schema", "pipeline-views", "1") :: puts)
-       ~deletes:[]);
-  List.iter
-    (fun (id, raw) ->
+  if Store.get t.store "schema" "pipeline-views" = None then
+    Store.fold t.store "pipeline" ~init:()
+      ~f:(fun () (id, raw) ->
+        Store.put t.store "pipeline-view" id
+          (encode (required "pipeline" (decode raw))))
+      ();
+  Store.put t.store "schema" "pipeline-views" "1";
+  Store.fold t.store "pipeline-view" ~init:()
+    ~f:(fun () (id, raw) ->
       if not (Atp.Tid.is_valid id) then invalid "invalid stored pipeline ID";
       t.last_tid <-
         Int64.max t.last_tid (Atp.Tid.timestamp_us (Atp.Tid.of_string id));
@@ -257,7 +255,7 @@ let load t =
         Hashtbl.add t.pipelines id p;
         persist t p;
         start t p))
-    (Store.list t.store "pipeline-view")
+    ()
 
 let managed t id =
   match Catalog.managed t.catalog id with
@@ -272,6 +270,41 @@ let find t id =
   match Hashtbl.find_opt t.pipelines id with
   | Some p -> Some p
   | None -> Option.map (restore id) (Store.get t.store "pipeline" id)
+
+let query t ~repo ~limit ~cursor ~kinds ~commits =
+  let seen = Hashtbl.create (List.length commits) in
+  let total, count, page =
+    Store.fold t.store "pipeline-view" ~descending:true ~init:(0, 0, [])
+      ~f:(fun ((total, count, page) as acc) (id, raw) ->
+        let p = decode raw in
+        let kind =
+          match kind (required "trigger" p) with
+          | Job.Push -> "push"
+          | Job.Manual -> "manual"
+          | Job.Pull_request -> "pull_request"
+        in
+        let commit = get "commit" p in
+        if
+          get "repo" p <> repo
+          || (kinds <> [] && not (List.mem kind kinds))
+          || commits <> []
+             && ((not (List.mem commit commits)) || Hashtbl.mem seen commit)
+        then acc
+        else (
+          if commits <> [] then Hashtbl.add seen commit ();
+          if
+            Option.fold ~none:false
+              ~some:(fun cursor -> String.compare id cursor >= 0)
+              cursor
+          then acc
+          else if count = limit then (total + 1, count, page)
+          else (total + 1, count + 1, p :: page)))
+      ()
+  in
+  let next =
+    if total > count then [ ("cursor", str (get "id" (List.hd page))) ] else []
+  in
+  obj ([ ("total", int total); ("pipelines", arr (List.rev page)) ] @ next)
 
 let select_workflows p names =
   let names = List.sort_uniq String.compare names in
@@ -363,6 +396,8 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false) ~automatic
       t.jobs
   in
   Eio.Mutex.use_rw ~protect:true t.lock @@ fun () ->
+  if not (Catalog.current t.catalog repo) then
+    invalid "repository assignment changed during dispatch";
   match Option.bind dedup (Store.get t.store "dispatch") with
   | Some id -> Some id
   | None when jobs = [] -> None
@@ -418,6 +453,8 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false) ~automatic
 let cancel t ~actor ~repo ~id ~names =
   let canonical = managed t repo in
   check_actor t canonical actor;
+  if not (Catalog.current t.catalog canonical) then
+    invalid "repository assignment changed during cancellation";
   match find t id with
   | None -> invalid "pipeline not found"
   | Some p ->

@@ -98,51 +98,7 @@ let query_pipelines state req =
       kinds
   then invalid "invalid trigger kind";
   let commits = query_list req "commits" in
-  let all =
-    Store.list state.engine.store "pipeline-view"
-    |> List.map (fun (_, raw) -> decode raw)
-    |> List.filter (fun p ->
-        let kind =
-          match Engine.kind (required "trigger" p) with
-          | Job.Push -> "push"
-          | Job.Manual -> "manual"
-          | Job.Pull_request -> "pull_request"
-        in
-        get "repo" p = repo
-        && (kinds = [] || List.mem kind kinds)
-        && (commits = [] || List.mem (get "commit" p) commits))
-    |> List.sort (fun a b -> String.compare (get "id" b) (get "id" a))
-  in
-  let seen = Hashtbl.create 16 in
-  let all =
-    if commits = [] then all
-    else
-      List.filter
-        (fun p ->
-          let commit = get "commit" p in
-          if Hashtbl.mem seen commit then false
-          else (
-            Hashtbl.add seen commit ();
-            true))
-        all
-  in
-  let total = List.length all in
-  let remaining =
-    List.filter
-      (fun p ->
-        match cursor with
-        | None -> true
-        | Some cursor -> String.compare (get "id" p) cursor < 0)
-      all
-  in
-  let page = List.filteri (fun i _ -> i < limit) remaining in
-  let next =
-    if List.length remaining > limit then
-      optional "cursor" str
-        (Option.map (get "id") (List.nth_opt page (limit - 1)))
-    else []
-  in
-  obj ([ ("total", int total); ("pipelines", arr page) ] @ next)
+  Engine.query state.engine ~repo ~limit ~cursor ~kinds ~commits
 
 let frame event =
   let kind = get "type" event in
@@ -168,7 +124,9 @@ let logs state workflows socket =
   in
   let ws =
     W.create ~role:Server ~max_message:4096 ~with_write_lock
-      ~read:(Body.Socket.read socket)
+      ~read:(fun bytes ~off ~len ->
+        Eio.Time.with_timeout_exn state.system#clock 90. (fun () ->
+            Body.Socket.read socket bytes ~off ~len))
       ~write:(fun bytes ~off ~len ->
         Eio.Time.with_timeout_exn state.system#clock 10. (fun () ->
             Body.Socket.write_sub socket bytes ~off ~len))
@@ -176,33 +134,42 @@ let logs state workflows socket =
   in
   Eio.Fiber.first
     (fun () ->
-      while W.receive ws ~f:(fun _ _ ~off:_ ~len:_ -> ()) do
-        ()
-      done)
+      Eio.Fiber.first
+        (fun () ->
+          while W.receive ws ~f:(fun _ _ ~off:_ ~len:_ -> ()) do
+            ()
+          done)
+        (fun () ->
+          let empty = Bytes.empty in
+          while true do
+            Eio.Time.sleep state.system#clock 30.;
+            W.ping ws empty ~off:0 ~len:0
+          done))
     (fun () ->
-      let sent = Hashtbl.create 8 in
+      let subscriptions = List.map (fun p -> (p, ref [])) workflows in
       let rec send () =
         List.iter
-          (fun (p : Runner.t) ->
-            let count =
-              Option.value ~default:0 (Hashtbl.find_opt sent p.job.name)
+          (fun ((p : Runner.t), sent) ->
+            let snapshot = p.events in
+            let rec added acc events =
+              if events == !sent then acc
+              else
+                match events with
+                | [] -> acc
+                | event :: rest -> added (event :: acc) rest
             in
-            let snapshot = List.rev p.events in
-            List.iteri
-              (fun i event ->
-                if i >= count then
-                  let bytes = frame event in
-                  W.send ws Binary bytes ~off:0 ~len:(Bytes.length bytes))
-              snapshot;
-            Hashtbl.replace sent p.job.name (List.length snapshot))
-          workflows;
+            List.iter
+              (fun event ->
+                let bytes = frame event in
+                W.send ws Binary bytes ~off:0 ~len:(Bytes.length bytes))
+              (added [] snapshot);
+            sent := snapshot)
+          subscriptions;
         if
           List.for_all
-            (fun (run : Runner.t) ->
-              Runner.terminal run
-              && Hashtbl.find_opt sent run.job.name
-                 = Some (List.length run.events))
-            workflows
+            (fun ((run : Runner.t), sent) ->
+              Runner.terminal run && !sent == run.events)
+            subscriptions
         then W.close ws ()
         else (
           Eio.Time.sleep state.system#clock 0.05;
@@ -348,6 +315,14 @@ let handle state name req respond =
            [
              ("error", str "CapacityExceeded");
              ("message", str "job queue is full");
+           ])
+  | Catalog.Pending ->
+      respond_json respond ~status:Status.Service_unavailable
+        ~headers:(Headers.of_list [ ("Retry-After", "2") ])
+        (obj
+           [
+             ("error", str "CatalogPending");
+             ("message", str "repository discovery is refreshing");
            ])
   | Http_error (status, code, message) ->
       let headers =

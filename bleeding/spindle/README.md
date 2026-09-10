@@ -120,6 +120,9 @@ process owns its directory lock. SQLite uses WAL with `synchronous=FULL`.
 Incoming events and their stream cursors commit together. Dispatch records
 and their deduplication keys also commit together. Transient processing
 failures leave events queued; malformed records have recorded rejections.
+Failed tasks back off up to one minute, including after restart. Membership
+and assignment events refresh current PDS state. Replayed grants cannot restore
+revoked access, and mutations wait while relevant refreshes are pending.
 
 Pending workflows resume after restart. Interrupted workflows become failed.
 Completed logs stay in SQLite and are loaded on demand. Existing TID-named
@@ -131,10 +134,15 @@ to 50 configured workflows. Each workflow has a 60-second execution deadline
 and 1 MiB log budget. Pull blobs have separate 16 MiB compressed and 64 MiB
 expanded limits, plus CID verification. Git and `gzip` are runtime dependencies.
 History and event receipts have no automatic disk-retention policy.
+History queries read summaries in batches. HTTP exchanges have a 15-second
+total deadline. Event processing and collection refreshes have 30-second
+deadlines. Catch-up depends on the upstream streams retaining their cursors.
 
 Commands execute as child processes with the service account's filesystem
 access. The Docker harness supplies resource limits. Deploy custom commands
 with the privileges and filesystem access intended for those jobs.
+Normal completion, cancellation and timeout kill remaining children in the
+command's process group. Jobs that deliberately detach need external isolation.
 
 ## Verification
 
@@ -145,6 +153,9 @@ opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force \
 
 Native tests cover signed service tokens, issuer-scoped replay prevention,
 concurrent consumption, expiry, database reopening, atomic event receipts,
-workflow selection and cancellation. The WebSocket client tests retain frames
+workflow selection and cancellation.
+Native review regressions cover stale catalog grants, superseded snapshots,
+persisted retries, history pagination and cleanup of shell descendants.
+The WebSocket client tests retain frames
 coalesced with the HTTP upgrade and reject bad accepts and HTTP versions.
 The Docker harnesses check service behaviour with actual PDS and Tangled code.

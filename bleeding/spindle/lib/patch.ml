@@ -28,8 +28,15 @@ let revision system compressed =
         lines total revision
     | exception End_of_file -> revision
   in
-  let revision = lines 0 None in
-  Eio.Process.await_exn process;
+  let revision =
+    try lines 0 None
+    with Eio.Buf_read.Buffer_limit_exceeded ->
+      invalid "patch line exceeds 1 MiB"
+  in
+  (match Eio.Process.await process with
+  | `Exited 0 -> ()
+  | `Exited _ -> invalid "invalid gzip patch"
+  | `Signaled _ -> failwith "patch decoder was interrupted");
   match revision with Some sha -> sha | None -> invalid "patch has no commits"
 
 let pull network system actor record =

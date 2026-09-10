@@ -19,6 +19,16 @@
  (modules test_events)
  (libraries spindle eio_main))
 
+(test
+ (name test_catalog)
+ (modules test_catalog)
+ (libraries spindle eio_main))
+
+(test
+ (name test_runner)
+ (modules test_runner)
+ (libraries spindle eio_main))
+
 (executable
  (name tangled_server)
  (modules tangled_server)

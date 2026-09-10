@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Reconcile catalog changes from current PDS state, reject stale snapshots and
+  persist retry delays. Bound history reads and clean up job descendants.
+
 - Discover Tangled repositories and run push, pull and multi-workflow CI.
   Persist event recovery and JWT replay protection, with a full Docker testbed.
 

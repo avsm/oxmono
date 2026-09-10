@@ -49,7 +49,6 @@ and t = {
   own : Id.User_id.t;
   plugin : string;
   rooms_table : (string, room_fibers) Hashtbl.t;
-  inviters : (string, Id.User_id.t) Hashtbl.t;
   global : queued Eio.Stream.t;
   stop_promise : unit Eio.Promise.t;
   stop_resolver : unit Eio.Promise.u;
@@ -541,7 +540,11 @@ let watch_rooms bot =
                     Event.Invited
                       {
                         room_id = info.id;
-                        inviter = Hashtbl.find_opt bot.inviters key;
+                        inviter =
+                          Matrix_client.Base_client.inviter
+                            (Matrix_eio.Sync_service.state
+                               (Ui.Runtime.sync_service bot.the_runtime))
+                            info.id;
                       };
                   at = None;
                 }
@@ -603,26 +606,6 @@ let watch_sync bot =
   in
   loop ()
 
-(* An invitation's [m.room.member] event is state rather than timeline, so
-   it never reaches the event cache; the sync hook is where the inviter can
-   be read. *)
-let record_inviters bot _state (changes : Matrix_client.Base_client.changes) =
-  List.iter
-    (fun (change : Matrix_client.Base_client.room_change) ->
-      if change.info.membership = Matrix_client.Base_client.Invited then
-        List.iter
-          (fun raw ->
-            let p = P.of_event raw in
-            match p.content with
-            | P.Membership { user; change = P.Invited; _ }
-              when Id.User_id.equal user bot.own ->
-                Hashtbl.replace bot.inviters
-                  (Id.Room_id.to_string change.changed_room_id)
-                  p.sender
-            | _ -> ())
-          change.state_events)
-    changes.room_changes
-
 exception Finished
 
 let wait_first_response bot =
@@ -662,14 +645,13 @@ let start ?params ?on_start ctx the_spec =
       own;
       plugin = "matrix.bot/" ^ the_spec.spec_name;
       rooms_table = Hashtbl.create 8;
-      inviters = Hashtbl.create 8;
       global = Eio.Stream.create the_spec.queue_depth;
       stop_promise;
       stop_resolver;
       stopping = false;
     }
   in
-  Ui.Runtime.start ?params ~on_change:(record_inviters bot) the_runtime;
+  Ui.Runtime.start ?params the_runtime;
   Eio.Fiber.fork ~sw (fun () -> global_loop bot);
   Eio.Fiber.fork ~sw (fun () -> watch_sync bot);
   wait_first_response bot;

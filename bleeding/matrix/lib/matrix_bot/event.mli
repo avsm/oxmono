@@ -113,7 +113,8 @@ type custom = {
 type invitation = {
   room_id : Matrix_proto.Id.Room_id.t;
   inviter : Matrix_proto.Id.User_id.t option;
-      (** [None] when the invitation reached the bot without its sender. *)
+      (** The authenticated sender of the bot's own stripped membership invite.
+          [None] when that invite is absent or malformed. *)
 }
 (** The type for an invitation the bot has not acted on. *)
 

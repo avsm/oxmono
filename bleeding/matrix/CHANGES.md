@@ -1,5 +1,8 @@
 ## unreleased
 
+Bot invitations now identify their sender from stripped membership state,
+including pending invitations returned at startup and later invitations.
+
 Rename the opam package to `matrix-chat` to avoid the existing terminal UI
 package. Public Dune libraries use `matrix-chat.*`; OCaml module names and
 the `omatrix` and `matrix-bot` executable names are unchanged. Remove the

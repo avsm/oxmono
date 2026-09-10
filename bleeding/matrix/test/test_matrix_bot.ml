@@ -1,5 +1,6 @@
-(** Tests for [matrix-chat.bot] with no homeserver: the plugin store, the command
-    parser, spec construction, and the dispatcher driven over a mock [/sync].
+(** Tests for [matrix-chat.bot] with no homeserver: the plugin store, the
+    command parser, spec construction, and the dispatcher driven over a mock
+    [/sync].
 
     The bot's fibers are the point, so most checks run inside
     {!Matrix_bot.Bot.run}: [~on_start] hands out the running bot, the body feeds
@@ -287,7 +288,11 @@ let feed cache state json =
   List.iter (Ui.Event_cache.apply_room_change cache) changes.room_changes;
   state
 
-type server = { fetch : Fetch.plain; sent : string list ref }
+type server = {
+  fetch : Fetch.plain;
+  sent : string list ref;
+  push_sync : string -> unit;
+}
 
 let mock_server ~clock script =
   let pending = ref script in
@@ -320,7 +325,7 @@ let mock_server ~clock script =
             request)
         else Fetch_mock.respond "{}" request)
   in
-  { fetch; sent }
+  { fetch; sent; push_sync = (fun body -> pending := !pending @ [ body ]) }
 
 let client_of ~sw ~env server =
   let client =
@@ -387,6 +392,77 @@ let names events =
       | Event.Left _ -> "left"
       | Event.Sync _ -> "sync")
     events
+
+let test_invitation_senders () =
+  Eio_main.run @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  let invite ~batch events =
+    Printf.sprintf
+      {|{"next_batch":%S,"rooms":{"invite":{"!room:example.org":{"invite_state":{"events":[%s]}}}}}|}
+      batch (String.concat "," events)
+  in
+  let member ?(user = bot_user) ?(membership = "invite") sender =
+    Printf.sprintf
+      {|{"type":"m.room.member","state_key":%S,"sender":%S,"content":{"membership":%S,"is_direct":true}}|}
+      (Id.User_id.to_string user)
+      (Id.User_id.to_string sender)
+      membership
+  in
+  let check ?later label script expected =
+    let seen = ref [] in
+    let spec =
+      Bot.v ~name:"invitations" ~auto_join:false ()
+      |> Bot.on_invite (fun _ invitation -> seen := invitation.inviter :: !seen)
+    in
+    run_bot ~env ~store:(Plugin_store.memory ()) ~script spec (fun server _ ->
+        Option.iter server.push_sync later;
+        until ~clock label (fun () -> List.length !seen >= List.length expected);
+        Eio.Time.sleep clock 0.05);
+    check_bool label true (!seen = List.rev expected)
+  in
+  check "startup stripped invite retains its authenticated sender"
+    [ invite ~batch:"first" [ member alice ] ]
+    [ Some alice ];
+  check
+    ~later:(invite ~batch:"later" [ member alice ])
+    "later stripped invite retains its authenticated sender"
+    [ {|{"next_batch":"empty"}|} ]
+    [ Some alice ];
+  check "another member's invite cannot name our inviter"
+    [ invite ~batch:"other" [ member ~user:carol alice ] ]
+    [ None ];
+  check "our non-invite member event cannot name an inviter"
+    [ invite ~batch:"wrong" [ member ~membership:"join" alice ] ]
+    [ None ];
+  check "missing stripped state stays unknown"
+    [ invite ~batch:"missing" [] ]
+    [ None ];
+  let seen = ref [] in
+  let spec =
+    Bot.v ~name:"reinvitation" ~auto_join:false ()
+    |> Bot.on_invite (fun _ invitation -> seen := invitation.inviter :: !seen)
+  in
+  run_bot ~env ~store:(Plugin_store.memory ())
+    ~script:[ invite ~batch:"original" [ member alice ] ]
+    spec
+    (fun server bot ->
+      until ~clock "first invite" (fun () -> !seen = [ Some alice ]);
+      server.push_sync
+        {|{"next_batch":"leave","rooms":{"leave":{"!room:example.org":{}}}}|};
+      until ~clock "leave sync" (fun () ->
+          let rooms =
+            Ui.Runtime.room_list (Bot.runtime bot)
+            |> Ui.Room_list.all_rooms |> Ui.Observable.List.snapshot
+          in
+          Array.exists
+            (fun (r : Ui.Room_list.room) ->
+              Id.Room_id.equal r.id room_id
+              && r.membership = Matrix_client.Base_client.Left)
+            rooms);
+      server.push_sync (invite ~batch:"replacement" [ member carol ]);
+      until ~clock "replacement invite" (fun () -> List.length !seen = 2));
+  check_bool "reinvitation uses the current sender" true
+    (!seen = [ Some carol; Some alice ])
 
 (* Ordering, the two default filters, and a handler that raises: the room's
    dispatcher runs the handlers in registration order, one event at a time,
@@ -744,6 +820,8 @@ let () =
         ] );
       ( "dispatch",
         [
+          Alcotest.test_case "stripped invitation senders" `Quick
+            test_invitation_senders;
           Alcotest.test_case "order, filters and failures" `Quick
             test_dispatcher;
           Alcotest.test_case "help and replies" `Quick test_help_and_reply;

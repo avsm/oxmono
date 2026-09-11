@@ -84,7 +84,7 @@ Table of Contents
      4.3.  Scoped Properties within Affiliations . . . . . . . . .  15
    5.  New Property: X-FEED  . . . . . . . . . . . . . . . . . . .  16
      5.1.  Purpose . . . . . . . . . . . . . . . . . . . . . . . .  16
-     5.2.  Why Not URL with MEDIATYPE? . . . . . . . . . . . . . .  16
+     5.2.  URL with MEDIATYPE and Compatibility . . . . . . . . . .  16
      5.3.  Value Type  . . . . . . . . . . . . . . . . . . . . . .  17
      5.4.  Parameters  . . . . . . . . . . . . . . . . . . . . . .  17
      5.5.  ABNF  . . . . . . . . . . . . . . . . . . . . . . . . .  17
@@ -600,37 +600,32 @@ Table of Contents
    OPML for import into any feed reader, bridging contact management
    and content consumption.
 
-5.2.  Why Not URL with MEDIATYPE?
+5.2.  URL with MEDIATYPE and Compatibility
 
-   vCard's URL property supports a MEDIATYPE parameter [RFC6350],
-   which in principle could distinguish feed URLs from web pages:
+   vCard 4.0's URL property supports a MEDIATYPE parameter [RFC6350],
+   which can distinguish feed URLs from web pages:
 
      URL;MEDIATYPE=application/atom+xml:
       https://example.com/feed.atom
 
-   In practice, this approach is unreliable for several reasons:
+   This parameter is an explicit format hint supplied by the vCard
+   producer.  An HTTP server serving a generic XML or JSON Content-Type
+   does not invalidate that hint.  Consumers should still validate
+   fetched content before processing it.
 
-   *  Many web servers serve Atom feeds as "text/xml" or
-      "application/xml" rather than the correct
-      "application/atom+xml", and RSS feeds as "text/xml" rather
-      than "application/rss+xml".  A client cannot depend on the
-      MEDIATYPE matching the actual feed format.
+   An ordinary URL property also remains visible in clients that do
+   not understand feed extensions.  Applications prioritising broad
+   contact-client compatibility can use URL with a grouped X-ABLabel,
+   and retain feed settings in small extensions.  For vCard 3.0,
+   which does not define MEDIATYPE, X-FEED-TYPE can retain the format
+   on the URL property.
 
-   *  JSON Feed has no registered IANA media type; it is typically
-      served as "application/json", which is indistinguishable from
-      any other JSON resource.
-
-   *  Existing vCard clients that display URL properties would show
-      feed URLs as clickable web links, which is misleading -- a
-      raw Atom XML document is not useful to open in a browser.
-
-   *  The URL property provides no way to distinguish feed format
-      (atom vs rss vs json) without fetching the resource and
-      inspecting its content.
-
-   A dedicated X-FEED property with an explicit X-FEED-TYPE parameter
-   avoids these problems and clearly signals to clients that the URL
-   is a machine-readable feed, not a human-readable web page.
+   X-FEED is an optional application convention for explicitly
+   distinguishing subscriptions, including manual discovery pages.
+   It is not necessary merely to represent an Atom or RSS feed URI.
+   Clients that ignore it will not display its URI unless an ordinary
+   URL fallback is also provided.  Grouped feed settings and format
+   extensions can accompany ordinary URL properties as well.
 
 5.3.  Value Type
 
@@ -928,11 +923,11 @@ Table of Contents
 
    *  X-VALID-FROM and X-VALID-UNTIL are vCard parameters.  CardDAV
       servers MUST accept and preserve X- parameters on PUT
-      operations per RFC 6352 Section 6.3.2.3.
+      operations per RFC 6352 Section 6.3.2.2.
 
    *  X-FEED and X-ATPROTO are new vCard properties using X- names.
       CardDAV servers MUST accept and store X- properties per
-      RFC 6352 Section 6.3.2.3.
+      RFC 6352 Section 6.3.2.2.
 
    *  X-ABLabel, X-FEED-TYPE, X-FEED-HINT, and X-ATPROTO-DID all
       use the X-name convention and are accepted by all conformant
@@ -946,7 +941,7 @@ Table of Contents
 
 8.2.  Client Compatibility
 
-   Clients that do not understand these extensions will:
+   Clients that do not understand these extensions may:
 
    *  Ignore X-VALID-FROM and X-VALID-UNTIL parameters, displaying
       properties without temporal context.  This is safe and provides
@@ -954,7 +949,8 @@ Table of Contents
 
    *  Ignore X-FEED and X-ATPROTO properties entirely, as they are
       unrecognised.  This means feed and AT Protocol data is not
-      displayed but is preserved for round-trip.
+      displayed.  Retention during editing depends on the client;
+      it requires testing rather than an assumption of preservation.
 
    *  Display GROUP-associated properties individually without
       visual grouping, losing the affiliation association but
@@ -965,17 +961,20 @@ Table of Contents
 
 8.3.  Round-Trip Preservation
 
-   CardDAV servers are required to preserve unrecognised properties
-   and parameters [RFC6352].  Therefore:
+   CardDAV servers are required to store non-standard properties
+   and parameters submitted by clients [RFC6352, Section 6.3.2.2].
+   This server requirement does not guarantee preservation by every
+   editing application:
 
    *  A vCard written by an aware client, stored on a CardDAV
       server, and later read back by the same or another aware
       client will retain all temporal and extended data.
 
-   *  A vCard edited by an unaware client will preserve the
-      extension parameters and properties (they are opaque to the
-      editing client), provided the client does not strip unknown
-      data -- which conformant implementations MUST NOT do.
+   *  A vCard edited by an unaware client retains extensions only
+      if that client resubmits them.  The CardDAV server requirement
+      does not prevent a client from omitting fields in a replacement
+      PUT.  A lossless synchroniser needs a local baseline, explicit
+      field-loss detection, and tests through each intended editor.
 
    *  JSContact conversion via RFC 9555 [RFC9555] will preserve
       X-VALID-FROM, X-VALID-UNTIL, X-FEED, and X-ATPROTO as

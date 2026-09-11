@@ -85,8 +85,10 @@ val photo : t -> string option @@ portable
 val feeds : t -> Feed.t list @@ portable
 
 val vcard : t -> (string * string) list @@ portable
-(** [vcard t] is [t]'s reserved passthrough data for a future CardDAV
-    importer. Nothing in this module interprets it. *)
+(** [vcard t] is [t]'s vCard passthrough data, encoded as a YAML/JSON
+    string mapping. The migration tools use unfolded property headers as
+    keys and wire-format property values as values. Distinct headers/groups
+    retain repeated properties. Nothing in this schema module interprets it. *)
 
 (** {1 Account queries} *)
 

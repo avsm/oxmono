@@ -1,0 +1,9 @@
+(executable
+ (name validate_carddav)
+ (modules validate_carddav)
+ (libraries vcard base64))
+
+(executable
+ (name validate_sortal)
+ (modules validate_sortal)
+ (libraries sortal.schema yamlt bytesrw))

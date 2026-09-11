@@ -15,3 +15,6 @@ third_party/
 
 # Opam local switch
 _opam/
+
+# Private local migration bundles
+/_carddav-export*/

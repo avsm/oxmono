@@ -6,9 +6,10 @@ description: """
 Sortal provides contact metadata management with versioned schemas,
    XDG-compliant storage, git versioning, and CLI tools.
 
-   The library is split into three components:
+   The library includes:
    - sortal.schema: Versioned data types with minimal dependencies
    - sortal: Core library with storage, git integration, and CLI support
+   - sortal.carddav: Lossless vCard export and conservative CardDAV sync
    - sortal.web: The local web UI, as a proffer site"""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
@@ -34,6 +35,13 @@ depends: [
   "fetch-curl"
   "xmlm"
   "uriz"
+  "yamlrw"
+  "vcard"
+  "base64"
+  "digestif"
+  "httpz"
+  "uunf"
+  "uucp"
   "proffer"
   "proffer-httpz"
   "odoc" {with-doc}

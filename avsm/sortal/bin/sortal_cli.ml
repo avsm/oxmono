@@ -705,6 +705,7 @@ let () =
     set_cmd;
     unset_cmd;
     feed_group;
+    Sortal_carddav.Cmd.cmd;
   ] in
 
   Cmd.eval' cmd

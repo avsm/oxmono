@@ -43,6 +43,39 @@ Contact data is stored as individual YAML files in the XDG data directory:
 
 ## Usage Example
 
+### CardDAV
+
+CardDAV operations are part of the OCaml `sortal` binary. Preview your live
+Sortal root directly; there is no separate export step:
+
+```sh
+sortal carddav sync --dry-run --source ~/bushel/sortal \
+  --bundle avsm/sortal/_carddav-export-compatible-2026-09-11 \
+  --username ACCOUNT \
+  --password-file APP_PASSWORD_FILE --report /tmp/sortal-preview
+```
+
+`--source` supplies the current contact data, including edits since the last
+sync. `--bundle` supplies the existing store/contact IDs and saved sync
+history; its archived contact data does not replace the live source. The
+command creates its own fresh snapshot under the new report directory.
+See [testing the live Sortal root](spec/carddav-migration.md#testing-the-live-sortal-root)
+for the complete command and how to read the result.
+
+Use `--previous EXISTING_BUNDLE` if you separately create a recovery export.
+The default server is Fastmail; `--server` selects another HTTPS CardDAV
+server. Dry runs create a private local report and leave source contacts,
+server contacts and existing journals unchanged. Possible duplicates are
+held for review.
+
+`sortal carddav seed --apply` creates verified new contacts.
+`sortal carddav pull prepare` and `sortal carddav pull apply --apply`
+import supported remote edits with a saved common baseline. General pushes
+to existing cards and deletion propagation still require reconciliation.
+See [the mapping and workflow](spec/carddav-migration.md) and
+`sortal carddav --help`. From this checkout, prefix commands with
+`dune exec --`.
+
 ### Basic Usage
 
 ```ocaml

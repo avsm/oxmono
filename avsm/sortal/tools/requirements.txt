@@ -1,2 +1,0 @@
-PyYAML>=6,<7
-ruamel.yaml>=0.18,<0.19

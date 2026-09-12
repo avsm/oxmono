@@ -1,0 +1,6 @@
+(library
+ (name sortal_carddav)
+ (public_name sortal.carddav)
+ (libraries sortal.schema yamlt yamlrw jsont jsont.bytesrw bytesrw
+  vcard base64 digestif unix uriz fetch fetch-curl httpz.dav
+  eio eio.core cmdliner uunf uucp))

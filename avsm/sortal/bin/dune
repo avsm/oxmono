@@ -4,6 +4,7 @@
  (libraries
   sortal
   sortal.schema
+  sortal.carddav
   sortal.feed
   sortal.discover
   sortal.config

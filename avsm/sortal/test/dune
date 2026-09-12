@@ -26,3 +26,7 @@
 (test
  (name test_opml)
  (libraries sortal.feed))
+
+(test
+ (name test_carddav)
+ (libraries sortal.carddav yamlrw base64 unix alcotest eio_main fetch.mock http))

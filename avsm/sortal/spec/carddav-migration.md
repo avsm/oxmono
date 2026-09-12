@@ -2,10 +2,10 @@
 
 The implemented offline exporter translates Sortal V2 records into individual
 vCard properties. It emits **no complete YAML or JSON contact payload**.
-`tools/sortal_vcard.py` provides the forward mapping and a reverse mapping for
-this export profile. `tools/carddav_export.py` builds and verifies the bundle.
-The original files remain in a local recovery archive. `tools/carddav_trial.py`
-can inspect and seed a Fastmail test collection, verify each new card, and hold
+The OCaml library `sortal.carddav` provides the forward and reverse mapping;
+`sortal carddav export` builds and verifies the bundle.
+The original files remain in a local recovery archive. `sortal carddav seed`
+can inspect and seed a CardDAV collection, verify each new card, and hold
 possible duplicates for review. It does not update existing contacts.
 
 The selected sync mode is **two-way**: Sortal, Fastmail and connected phone or
@@ -15,28 +15,54 @@ pull tool described below. General two-way merging remains unfinished. The
 inverse mapping alone is an offline verification primitive, not a general
 CardDAV importer.
 
-## Dry run against a real account
+## Testing the live Sortal root
 
-`tools/carddav_sync.py --dry-run` builds a fresh export of the current Sortal
+`sortal carddav sync --dry-run` builds a fresh export of the current Sortal
 root, retains the identities from the supplied bundle, and inspects the
 destination. It writes a private Markdown report, JSON plan and snapshots to
 a new report directory. It does not change source contacts, server contacts,
 or existing synchronization journals. This combined command only exposes
 previewing; omitting `--dry-run` also previews.
 
+**Do not run `carddav export` first.** The command below reads your current
+`~/bushel/sortal` files, including any changes made since the last test.
+`--bundle` points to the existing identity/history anchor, not the contact
+data to upload. It preserves the IDs already assigned to this Sortal root.
+The fresh snapshot is produced internally under `REPORT/export`; it is not
+a second contact store you need to keep up to date.
+
 From the monorepo root, replace the login and password-file path:
 
 ```sh
-uv run --no-project --script avsm/sortal/tools/carddav_sync.py \
+dune exec -- sortal carddav sync \
   --dry-run --source ~/bushel/sortal \
   --bundle avsm/sortal/_carddav-export-compatible-2026-09-11 \
   --username YOUR_REAL_LOGIN --password-file ~/.fm-real \
   --report /tmp/sortal-real-preview
 ```
 
-`uv` installs the script's declared dependencies into its cache automatically.
-Alternatively, install `tools/requirements.txt` and invoke the script with
-Python. The default server is Fastmail. For another server, add
+`~/.fm-real` should contain your live account's app password on one line.
+Keep the existing `--bundle` path above for this root; replace
+`YOUR_REAL_LOGIN` and the password-file path with your live account details.
+Do not pass the recoil test account's `--previous-pull` journal when testing
+a different live account. An initial preview there checks for matching names,
+emails and account links, but cannot infer a pull merge without that account's
+own common baseline.
+
+Inspect the human-readable result with:
+
+```sh
+cat /tmp/sortal-real-preview/report.md
+```
+
+To test subsequent edits in the live root, rerun the same sync command with
+a new `--report` directory. No manual re-export is necessary. The dry run
+writes only that new local preview directory; it does not upload contacts,
+edit the live YAML, or advance existing sync journals.
+
+With an installed binary, use `sortal carddav sync` directly. All operations
+run in OCaml inside the Sortal binary, using the native vCard, YAML and DAV
+codecs and the Fetch HTTP client. The default server is Fastmail. For another server, add
 `--server https://contacts.example.org/`, or its discovery endpoint such as
 `https://contacts.example.org/remote.php/dav/`. Use `--collection FULL_URL`
 to select an address book explicitly. The server URL must use HTTPS and
@@ -61,10 +87,10 @@ merge support or an actual server write/readback test.
 The lower-level commands also accept an explicit dry mode:
 
 ```sh
-python3 avsm/sortal/tools/carddav_trial.py BUNDLE --dry-run \
+sortal carddav seed --bundle BUNDLE --dry-run \
   --server https://contacts.example.org/ \
   --username ACCOUNT --password-file PASSWORD_FILE --report NEW_REPORT_DIR
-python3 avsm/sortal/tools/carddav_pull.py apply PREPARED_PULL_JOURNAL \
+sortal carddav pull apply --journal PREPARED_PULL_JOURNAL \
   --dry-run --username ACCOUNT --password-file PASSWORD_FILE
 ```
 
@@ -74,11 +100,16 @@ run, rejecting write methods before opening a connection. Pull dry mode
 validates the prepared hashes and current remote version without writing
 YAML, returned-card files, status changes or ETags into the existing journal.
 
-Validation on 2026-09-11: the complete suite passes 69 tests, including an
-actual proposed pull diff that leaves the source and prior baseline untouched,
-HTTP mutation blocking, cross-origin redirect rejection, fresh-source export,
-and existing-name duplicate prevention. A live dry run against the test
-account proposed 0 creations and 0 local updates: 459 uploads were unchanged,
+The native regression suite runs with `dune runtest avsm/sortal/test`.
+It covers lossless mapping, legacy identity compatibility, YAML comments,
+common baselines, HTTP mutation blocking, cross-origin redirect rejection,
+fresh-source export and existing-name duplicate prevention.
+On 2026-09-12, 74 native regression tests passed, along with the existing
+Sortal suite. The OCaml command verified all 464 contacts and 899 archived
+files from the existing bundle, exported the current root with the same
+identities, and read the previously applied pull journal.
+A live native dry run against the test account on 2026-09-12
+proposed 0 creations and 0 local updates: 459 uploads were unchanged,
 and 5 records were held for review (the two possible duplicate pairs plus the
 previously edited card's stripped annotations). All current source files
 matched the fresh export afterward; prior applied baseline hashes remained
@@ -225,20 +256,18 @@ such fields. Missing photos, duplicate handles/YAML keys, special files,
 symlinks and paths outside the root also fail the export. Remote image URLs
 are retained; their contents are not fetched.
 
-From the monorepo root, with Python 3.10+ and PyYAML:
+From the monorepo root:
 
 ```sh
-python3 avsm/sortal/tools/carddav_export.py export ~/bushel/sortal \
-  avsm/sortal/_carddav-export-compatible-2026-09-11 \
-  --previous avsm/sortal/_carddav-export-fields-2026-09-10
-python3 avsm/sortal/tools/carddav_export.py verify \
-  avsm/sortal/_carddav-export-compatible-2026-09-11 --source ~/bushel/sortal
-dune exec avsm/sortal/tools/validate_carddav.exe -- \
-  avsm/sortal/_carddav-export-compatible-2026-09-11
+dune exec -- sortal carddav export --source ~/bushel/sortal \
+  --output /tmp/sortal-export \
+  --previous avsm/sortal/_carddav-export-compatible-2026-09-11
+dune exec -- sortal carddav verify \
+  --bundle /tmp/sortal-export --source ~/bushel/sortal
 ```
 
-Choose a new destination for subsequent runs. The prior `--previous` bundle
-above is the prior field-mapped export, used to keep exactly the same IDs;
+Choose a new destination for subsequent runs. The `--previous` bundle
+above is an earlier field-mapped export, used to keep exactly the same IDs;
 new exports no longer emit `X-SORTAL-META`. Omit `--previous` only when creating
 an independent store identity. Use `--vcard-version 4.0` for the newer profile.
 `--as-of` records a reference date; it does not discard historical affiliations.
@@ -325,17 +354,17 @@ field/photo reconstruction. The returned UID, store identity and strong ETag
 are checked. A conservative property comparison also checks that every emitted
 property survives, including unannotated display fallbacks; casing of standard
 `TYPE`, `VALUE` and `ENCODING` parameter tokens is normalized. Extra server
-properties are retained in the readback. One contact must pass before the remaining uploads begin, with
-at most two requests in flight. A failed write or readback stops new uploads;
+properties are retained in the readback. Uploads proceed one at a time, and
+each must pass readback before the next starts. A failed write or readback stops new uploads;
 already completed writes remain, with their outcomes in the local journal.
 Interrupted or uncertain writes must be reconciled by inspecting the account
 again, not replayed with unconditional PUT.
 
 ```sh
-python3 avsm/sortal/tools/carddav_trial.py BUNDLE \
+sortal carddav seed --bundle BUNDLE \
   --username ACCOUNT --password-file PASSWORD_FILE --report NEW_REPORT_DIR
-python3 avsm/sortal/tools/carddav_trial.py BUNDLE \
-  --username ACCOUNT --password-file PASSWORD_FILE --report ANOTHER_REPORT_DIR \
+sortal carddav seed --bundle BUNDLE \
+  --username ACCOUNT --password-file PASSWORD_FILE --report BUNDLE/seed \
   --apply
 ```
 
@@ -348,6 +377,9 @@ Use a Git-ignored report directory inside the private bundle. Each report
 includes the discovery result, full plan, previous cards, and saved readbacks
 with per-contact outcomes and ETags. These are initial-sync evidence and a
 starting baseline; they are not a complete two-way synchronization database.
+Use `BUNDLE/seed` for a new applied seed, or pass `--seed SEED_REPORT_DIR` to
+subsequent sync previews and pull preparation. The existing `fastmail-seed`
+directory and version 1 pull journals remain readable.
 
 On 2026-09-11 the test account's Personal collection was empty. The plan
 selected 460 creations and held two possible duplicate pairs. Their identities
@@ -375,7 +407,7 @@ running.
 
 ## Pulling an edited Fastmail contact
 
-`tools/carddav_pull.py` compares the full fetched card with its saved server
+`sortal carddav pull` compares the full fetched card with its saved server
 baseline, then compares the resulting field edits with the corresponding
 Sortal baseline and current YAML. The current importer supports primary names,
 kind, email lists and an explicit set of additional properties, including
@@ -393,16 +425,17 @@ server property ID. Only that contact's YAML changed among the original 899
 files. The updated YAML passed the native Sortal schema and vCard round-trip
 checks. Contact names and addresses remain in the private pull journal.
 
-Install `tools/requirements.txt` for the Python tools; pull additionally uses
-`ruamel.yaml` for YAML editing. First fetch a fresh snapshot with the trial
-tool **without `--apply`**, then prepare the pull:
+First fetch a fresh snapshot with `sortal carddav seed` **without `--apply`**,
+then prepare and validate the pull. Applying it requires explicit `--apply`:
 
 ```sh
-python3 avsm/sortal/tools/carddav_pull.py prepare BUNDLE \
+sortal carddav pull prepare --bundle BUNDLE \
   --snapshot FRESH_INSPECTION_REPORT --source ~/bushel/sortal \
   --output NEW_PULL_JOURNAL
-python3 avsm/sortal/tools/carddav_pull.py apply NEW_PULL_JOURNAL \
-  --username ACCOUNT --password-file PASSWORD_FILE
+sortal carddav pull apply --journal NEW_PULL_JOURNAL \
+  --dry-run --username ACCOUNT --password-file PASSWORD_FILE
+sortal carddav pull apply --journal NEW_PULL_JOURNAL \
+  --apply --username ACCOUNT --password-file PASSWORD_FILE
 ```
 
 Preparation writes reviewable before/after YAML, a separate `common.yaml`,
@@ -423,8 +456,9 @@ without being mistaken for already synchronized data. Later conflicting edits
 still require resolution. Older journals without a separate common file remain
 readable using their saved after-image. The repeat plan after the live
 pull was **0 remote changes, 0 local updates**. The current tool uses complete
-snapshots, requires the same set of linked remote UIDs, and rejects new/deleted
-contacts for separate reconciliation. It does not implement general pushes,
+snapshots and requires every linked UID to remain present. Unlinked remote
+contacts are left intact; deleted linked contacts require reconciliation.
+It does not implement general pushes,
 photo changes, arbitrary affiliation changes, or background synchronization.
 
 ### vCard passthrough contract

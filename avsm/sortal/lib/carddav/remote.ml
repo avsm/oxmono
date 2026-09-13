@@ -351,14 +351,9 @@ let identifiers props =
 let intersects a b = List.exists (fun s -> List.mem s b) a
 
 let assert_contact data bundle entry =
-  let manifest = load_json (Filename.concat bundle "manifest.json") in
   let props = Mapping.parse data in
   if Mapping.untext (Mapping.only props "UID").value <> field "uid" entry then
     fail "server changed UID";
-  if
-    Mapping.untext (Mapping.only props "X-SORTAL-STORE").value
-    <> field "store_id" manifest
-  then fail "server changed Sortal store identity";
   let originals = Filename.concat bundle "originals" in
   let c = Bundle.contact (read (safe_path originals (field "source" entry))) in
   let decoded, photos = Mapping.decode data in
@@ -372,7 +367,8 @@ let assert_contact data bundle entry =
   let signatures props =
     Mapping.signatures
       (List.filter
-         (fun (p : Mapping.property) -> p.name <> "X-SORTAL-MAPPING")
+         (fun (p : Mapping.property) ->
+           not (List.mem p.name [ "X-SORTAL-MAPPING"; "X-SORTAL-STORE" ]))
          props)
   in
   let expected =
@@ -403,20 +399,7 @@ let plan bundle manifest book remote =
   List.map
     (fun (entry, data, ids) ->
       let uid = field "uid" entry and handle = field "handle" entry in
-      let values r key =
-        List.filter_map
-          (fun (p : Mapping.property) ->
-            if p.name = key then Some (Mapping.untext p.value) else None)
-          r.props
-      in
-      let strong =
-        List.filter
-          (fun r ->
-            r.uid = uid
-            || values r "X-SORTAL-ID" = [ handle ]
-               && values r "X-SORTAL-STORE" = [ field "store_id" manifest ])
-          remote
-      in
+      let strong = List.filter (fun r -> r.uid = uid) remote in
       let row =
         obj
           [

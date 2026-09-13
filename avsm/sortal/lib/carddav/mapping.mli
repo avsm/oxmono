@@ -15,6 +15,11 @@ val text : string -> string
 val untext : string -> string
 val property : string -> property
 val parse : string -> property list
+
+val without_store : string -> string
+(** [without_store raw] removes retired [X-SORTAL-STORE] properties, including
+    folded lines, while retaining every other byte. [raw] must be a vCard. *)
+
 val only : property list -> string -> property
 val param : property -> string -> string option
 val required : property -> string -> string
@@ -35,12 +40,12 @@ val signatures :
 val encode :
   ?version:string ->
   uid:string ->
-  store_id:string ->
   originals:string ->
   Common.value ->
   string * string list
 (** Encode a complete contact and return its card and projection warnings. Local
-    photos are loaded beneath [originals] without resizing. *)
+    photos are loaded beneath [originals] without resizing. Store identity is
+    local sync state and is never emitted. *)
 
 val decode : string -> Common.value * (string * string) list
 (** [decode data] reconstructs annotated contact fields and photo bytes. Remote

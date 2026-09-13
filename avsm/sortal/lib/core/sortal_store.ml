@@ -26,14 +26,7 @@ module Common = Carddav.Common
 let root t = Eio.Path.native_exn t.data_dir
 let cards t = Filename.concat (root t) "cards"
 let marker t = Filename.concat (root t) "store.json"
-
-let identity t =
-  let m = Common.load_json (marker t) in
-  if Common.number (Common.get "version" m) <> 1 then
-    Common.fail "unsupported Sortal store version";
-  let id = Common.field "store_id" m in
-  ignore (Common.uuid_bytes id);
-  id
+let identity t = Carddav.Store.identity (root t)
 
 let regular path =
   if (Unix.lstat path).Unix.st_kind <> Unix.S_REG then
@@ -50,7 +43,7 @@ let documents t =
         (Sys.readdir (root t));
     [])
   else
-    let store_id = identity t in
+    let () = ignore (identity t) in
     let handles = Hashtbl.create 512 and uids = Hashtbl.create 512 in
     Sys.readdir (cards t)
     |> Array.to_list |> List.sort String.compare
@@ -65,8 +58,8 @@ let documents t =
             Carddav.Mapping.untext (Carddav.Mapping.only props n).value
           in
           let uid = one "UID" in
-          if name <> uid ^ ".vcf" || one "X-SORTAL-STORE" <> store_id then
-            Common.fail "vCard filename or store identity mismatch: %s" name;
+          if name <> uid ^ ".vcf" then
+            Common.fail "vCard filename differs from UID: %s" name;
           let contact = Document.contact raw in
           let handle = Contact.handle contact in
           if handle = "" || Hashtbl.mem handles handle || Hashtbl.mem uids uid
@@ -141,7 +134,7 @@ let save t contact =
           then
             Common.fail "contact handle already exists: %s" (Contact.handle c))
         entries;
-      let store_id = initialize t in
+      ignore (initialize t);
       let name, before, after =
         match existing with
         | Some (name, c) ->
@@ -150,7 +143,7 @@ let save t contact =
         | None ->
             let uid = Common.new_uuid () in
             let data, _ =
-              Carddav.Mapping.encode ~uid ~store_id ~originals:(root t)
+              Carddav.Mapping.encode ~uid ~originals:(root t)
                 (Document.of_contact contact)
             in
             (uid ^ ".vcf", None, data)

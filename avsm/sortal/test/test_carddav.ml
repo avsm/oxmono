@@ -107,16 +107,12 @@ let fixture f =
              ("store_id", str "6ba7b810-9dad-11d1-80b4-00c04fd430c8");
            ]);
       let c = json raw in
-      let data, _ =
-        Mapping.encode ~uid:"uid"
-          ~store_id:"6ba7b810-9dad-11d1-80b4-00c04fd430c8" ~originals:source c
-      in
+      let data, _ = Mapping.encode ~uid:"uid" ~originals:source c in
       write (Filename.concat source "cards/uid.vcf") data;
       f { root; source; bundle = Filename.concat root "bundle"; c })
 
 let encode ?version f c =
-  fst
-    (Mapping.encode ?version ~uid:"uid" ~store_id:"store" ~originals:f.source c)
+  fst (Mapping.encode ?version ~uid:"uid" ~originals:f.source c)
 
 let roundtrip ?version f c =
   let data = encode ?version f c in
@@ -134,10 +130,7 @@ let replace name fn props =
     props
 
 let put_source f c =
-  let data, _ =
-    Mapping.encode ~uid:"uid" ~store_id:"6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-      ~originals:f.source c
-  in
+  let data, _ = Mapping.encode ~uid:"uid" ~originals:f.source c in
   write (Filename.concat f.source "cards/uid.vcf") data
 
 let export f = Bundle.export ~source:f.source ~output:f.bundle ()
@@ -256,6 +249,58 @@ let snapshot_tree root =
 
 let test_export =
   [
+    ( "retire folded store tags without changing other bytes",
+      fun _ ->
+        List.iter
+          (fun newline ->
+            let before = "BEGIN:VCARD" ^ newline ^ "VERSION:3.0" ^ newline in
+            let after =
+              "UID:stable" ^ newline ^ "FN:Example" ^ newline ^ "NOTE:Folded"
+              ^ newline ^ "  text" ^ newline ^ "END:VCARD" ^ newline ^ newline
+            in
+            let tag =
+              "old.x-Sortal-" ^ newline ^ " STORE:old" ^ newline ^ "\tstore"
+              ^ newline
+            in
+            check
+              (Mapping.without_store (before ^ tag ^ after) = before ^ after)
+              "changed bytes outside the store tag";
+            check
+              (Mapping.without_store (before ^ after) = before ^ after)
+              "changed an already independent card")
+          [ "\r\n"; "\n" ] );
+    ( "export retires legacy tags and retains original source bytes",
+      fun f ->
+        let path = Filename.concat f.source "cards/uid.vcf" in
+        let clean = read path in
+        let split = String.length "BEGIN:VCARD\r\nVERSION:3.0\r\n" in
+        let legacy =
+          String.concat "X-SORTAL-STORE:legacy\r\n"
+            [
+              String.sub clean 0 split;
+              String.sub clean split (String.length clean - split);
+            ]
+        in
+        write path legacy;
+        let m = export f in
+        check (card f m = clean) "export retained store identity";
+        check
+          (read (Filename.concat f.bundle "originals/cards/uid.vcf") = legacy)
+          "archive lost original bytes";
+        let e = entry m |> set "sha256" (str (digest legacy)) in
+        write (safe_path f.bundle (field "card" e)) legacy;
+        write (Filename.concat f.bundle "contacts.vcf") legacy;
+        save_json
+          (Filename.concat f.bundle "manifest.json")
+          (set "contacts" (arr [ e ]) m);
+        ignore (Bundle.verify f.bundle) );
+    ( "snapshot identity is checked against local state",
+      fun f ->
+        let m = export f in
+        save_json
+          (Filename.concat f.bundle "manifest.json")
+          (set "store_id" (str (new_uuid ())) m);
+        rejects (fun () -> Bundle.verify f.bundle) );
     ( "v3 complete field and byte recovery",
       fun f ->
         let data = roundtrip f f.c in
@@ -392,14 +437,14 @@ let test_export =
       fun f ->
         let c = set "future" (obj [ ("nested", str "preserve") ]) f.c in
         let old = roundtrip f c in
-        let merged = Pull.reconcile c c old (edited old) "uid" "store" in
+        let merged = Pull.reconcile c c old (edited old) "uid" in
         eq (get "future" c) (get "future" merged);
         let stripped =
           Mapping.parse (edited old)
           |> replace "X-SORTAL-FIELD" (fun p -> { p with params = [] })
           |> Mapping.render
         in
-        rejects (fun () -> Pull.reconcile c c old stripped "uid" "store") );
+        rejects (fun () -> Pull.reconcile c c old stripped "uid") );
     ( "future fields retain nested shapes, escaped paths and scalar types",
       fun f ->
         let extra =
@@ -647,10 +692,40 @@ let test_export =
 
 let test_pull =
   [
+    ( "legacy store tags are irrelevant to pull reconciliation",
+      fun f ->
+        let clean = encode f f.c in
+        let tagged =
+          Mapping.parse clean
+          |> List.concat_map (fun (p : Mapping.property) ->
+              if p.name = "END" then
+                [ Mapping.property "X-SORTAL-STORE:old"; p ]
+              else [ p ])
+          |> Mapping.render
+        in
+        eq f.c (Pull.reconcile f.c f.c tagged clean "uid");
+        eq
+          (Pull.reconcile f.c f.c clean (edited clean) "uid")
+          (Pull.reconcile f.c f.c tagged (edited tagged) "uid") );
+    ( "pull journals cannot cross local stores with identical cards",
+      fun f ->
+        baseline_fixture f (fun _ _ _ _ snapshot ->
+            let output, _ = prepare f snapshot in
+            let path = Filename.concat f.source "store.json" in
+            save_json path (load_json path |> set "store_id" (str (new_uuid ())));
+            let before = snapshot_tree f.source in
+            rejects (fun () ->
+                Pull.apply ~dav:(mock_dav no_network) ~dry_run:false
+                  ~username:"test" output);
+            rejects (fun () ->
+                Pull.prepare ~bundle:f.bundle ~snapshot ~source:f.source
+                  ~output:(Filename.concat f.root "foreign")
+                  ());
+            check (snapshot_tree f.source = before) "changed another store") );
     ( "Fastmail edit retains other fields",
       fun f ->
         let old = encode f f.c in
-        let merged = Pull.reconcile f.c f.c old (edited old) "uid" "store" in
+        let merged = Pull.reconcile f.c f.c old (edited old) "uid" in
         List.iter
           (fun k -> eq (get k merged) (get k f.c))
           [
@@ -666,7 +741,7 @@ let test_pull =
     ( "pulled email exports once with parameters",
       fun f ->
         let old = encode f f.c in
-        let merged = Pull.reconcile f.c f.c old (edited old) "uid" "store" in
+        let merged = Pull.reconcile f.c f.c old (edited old) "uid" in
         List.iter
           (fun version ->
             let data = roundtrip ~version f merged in
@@ -682,20 +757,20 @@ let test_pull =
       fun f ->
         let old = encode f f.c in
         let newer = edited old in
-        let merged = Pull.reconcile f.c f.c old newer "uid" "store" in
-        eq merged (Pull.reconcile f.c merged old newer "uid" "store") );
+        let merged = Pull.reconcile f.c f.c old newer "uid" in
+        eq merged (Pull.reconcile f.c merged old newer "uid") );
     ( "concurrent email conflict",
       fun f ->
         let old = encode f f.c in
         rejects (fun () ->
             Pull.reconcile f.c
               (set "emails" (arr [ str "local@example.invalid" ]) f.c)
-              old (edited old) "uid" "store") );
+              old (edited old) "uid") );
     ( "unrelated local edits retained",
       fun f ->
         let old = encode f f.c in
         let local = set "links" (arr [ str "https://local.invalid/" ]) f.c in
-        let merged = Pull.reconcile f.c local old (edited old) "uid" "store" in
+        let merged = Pull.reconcile f.c local old (edited old) "uid" in
         eq (get "links" merged) (get "links" local) );
     ( "remote photo changes conflict",
       fun f ->
@@ -706,7 +781,7 @@ let test_pull =
               { p with value = Base64.encode_exn "changed" })
           |> Mapping.render
         in
-        rejects (fun () -> Pull.reconcile f.c f.c old newer "uid" "store") );
+        rejects (fun () -> Pull.reconcile f.c f.c old newer "uid") );
     ( "remote identity conflict",
       fun f ->
         let old = encode f f.c in
@@ -715,7 +790,7 @@ let test_pull =
           |> replace "X-SORTAL-ID" (fun p -> { p with value = "other" })
           |> Mapping.render
         in
-        rejects (fun () -> Pull.reconcile f.c f.c old newer "uid" "store") );
+        rejects (fun () -> Pull.reconcile f.c f.c old newer "uid") );
     ( "passthrough grouped phones and labels",
       fun f ->
         let c =
@@ -980,19 +1055,22 @@ let test_remote =
                 (Remote.plan f.bundle m book [ remote (edited (card f m)) ]))
           = "review")
           "remote edit overwritten" );
-    ( "store identity conflict held",
+    ( "legacy store tags do not affect UID matching",
       fun f ->
         let m = export f in
         let data =
           card f m |> Mapping.parse
-          |> replace "X-SORTAL-STORE" (fun p -> { p with value = "different" })
+          |> List.concat_map (fun (p : Mapping.property) ->
+              if p.name = "END" then
+                [ Mapping.property "X-SORTAL-STORE:different"; p ]
+              else [ p ])
           |> Mapping.render
         in
         check
           (field "action"
              (List.hd (Remote.plan f.bundle m book [ remote data ]))
-          = "review")
-          "identity conflict" );
+          = "unchanged")
+          "legacy store identity affected matching" );
     ( "destination size limit holds creation",
       fun f ->
         let m = export f in

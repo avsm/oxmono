@@ -32,9 +32,7 @@ let fixture env f =
       save_json
         (Filename.concat root "store.json")
         (obj [ ("version", int 1); ("store_id", str store_id) ]);
-      let raw, _ =
-        Mapping.encode ~uid:"stable" ~store_id ~originals:root fields
-      in
+      let raw, _ = Mapping.encode ~uid:"stable" ~originals:root fields in
       let path = Filename.concat root "cards/stable.vcf" in
       let props = Mapping.parse raw in
       let props =
@@ -59,6 +57,33 @@ let loaded store = Option.get (Sortal.Store.lookup store "ada")
 
 let tests =
   [
+    ( "cards move between stores without rewriting their identity",
+      fun root path store ->
+        let before = read path in
+        let marker = Filename.concat root "store.json" in
+        save_json marker (load_json marker |> set "store_id" (str (new_uuid ())));
+        Sortal.Store.save store (loaded store);
+        check (read path = before) "moving store rewrote card identity";
+        Sortal.Store.save store (Contact.make ~handle:"new" ~names:[ "New" ] ());
+        let path = Filename.concat root (Sortal.Store.filename store "new") in
+        check
+          (Mapping.without_store (read path) = read path)
+          "new card contains store identity" );
+    ( "saving a legacy card retires only its store tag",
+      fun root path store ->
+        let clean = read path
+        and marker = read (Filename.concat root "store.json") in
+        let split = String.length "BEGIN:VCARD\r\nVERSION:3.0\r\n" in
+        let legacy =
+          String.sub clean 0 split ^ "X-SORTAL-STORE:other\r\n"
+          ^ String.sub clean split (String.length clean - split)
+        in
+        write path legacy;
+        Sortal.Store.save store (loaded store);
+        check (read path = clean) "legacy save changed contact data";
+        check
+          (read (Filename.concat root "store.json") = marker)
+          "legacy tag changed local identity" );
     ( "account shorthand retains unknown nested fields",
       fun root path _ ->
         let original = Document.value (read path) in
@@ -75,13 +100,7 @@ let tests =
             (obj [ ("atproto", account); ("github", arr [ str "ada" ]) ])
             original
         in
-        let props = Mapping.parse (read path) in
-        let store_id =
-          Mapping.untext (Mapping.only props "X-SORTAL-STORE").value
-        in
-        let raw, _ =
-          Mapping.encode ~uid:"stable" ~store_id ~originals:root original
-        in
+        let raw, _ = Mapping.encode ~uid:"stable" ~originals:root original in
         let before = Document.contact raw |> Document.of_contact in
         let after =
           set "accounts"

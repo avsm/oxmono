@@ -2,7 +2,9 @@
 
 Sortal's authoritative store is `~/.local/share/sortal`. Contacts are vCard
 3.0 files in `cards/`, named by UID. `store.json` records the store UUID and
-storage format version 1. Assets and feed caches retain their original paths.
+storage format version 1. This UUID binds local sync journals to the store.
+Cards contain no store identity and can move between stores unchanged. Assets
+and feed caches retain their original paths.
 The contact library, Bushel, Arod and Termanil read this store directly.
 
 The one-off migration preserves the store UUID and every existing contact UID.
@@ -16,7 +18,7 @@ writer or migration command.
 | Contact field | Compatible vCard representation |
 | --- | --- |
 | Stable contact identity | `UID` |
-| Handle and store identity | `X-SORTAL-ID`, `X-SORTAL-STORE` |
+| Readable handle | `X-SORTAL-ID` |
 | Primary name | `FN`, with an unsplit `N` fallback |
 | Additional names | `X-SORTAL-ALT-NAME` |
 | Person or organization | `X-ADDRESSBOOKSERVER-KIND`, `X-ABShowAs` |
@@ -37,7 +39,9 @@ such as `X-SORTAL-META`.
 The public contact schema is a projection of the vCard. Loaded contacts retain
 their source revision in memory. A typed save patches only changed fields,
 preserves metadata outside the projection and checks the revision before an
-atomic write. A no-op save preserves every byte. Store writes take an advisory
+atomic write. A no-op save preserves every byte except retired
+`X-SORTAL-STORE` properties. Legacy tags are removed on save or export and are
+ignored when matching server copies by UID. Store writes take an advisory
 lock. Editors that bypass that lock should save and refresh before another
 writer edits the same contact. Ambiguous grouped or repeated metadata causes an
 error rather than an uncertain rewrite.
@@ -56,8 +60,11 @@ dune exec -- sortal carddav verify \
 ```
 
 The output must be new and outside the source. Export copies the live cards
-without re-encoding them. Verification checks every archived file, card UID,
-handle, store identity, embedded photo and typed no-op round trip.
+without re-encoding them, omitting retired store tags. The original files are
+archived byte for byte. Verification checks every archived file, card UID,
+handle, embedded photo and typed no-op round trip. Store identity is checked
+against archived local metadata. Previous snapshots and pull journals must
+belong to the current local store, account and collection.
 
 Native snapshots use manifest version 3. The earlier YAML recovery bundles
 and pull journals are archival material. They cannot be used as native sync

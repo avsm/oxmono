@@ -10,5 +10,7 @@ val verify : ?source:string -> string -> Common.value
 val export :
   ?previous:string -> source:string -> output:string -> unit -> Common.value
 (** [export ~source ~output ()] snapshots a native store without re-encoding
-    cards. UIDs live in the source cards. [previous] optionally verifies an
-    earlier native bundle. Failed exports remove their incomplete output. *)
+    cards. Retired store tags are omitted from exported cards, while originals
+    retain all bytes. UIDs live in the source cards. [previous] optionally
+    verifies an earlier native bundle from this store. Failed exports remove
+    their incomplete output. *)

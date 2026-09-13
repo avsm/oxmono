@@ -56,7 +56,7 @@ let merge_value base local remote field =
 
 let keys v = List.map fst (assoc v)
 
-let remote_record base old_data new_data uid store_id =
+let remote_record base old_data new_data uid =
   let old = Mapping.parse old_data and newer = Mapping.parse new_data in
   if Mapping.untext (Mapping.only newer "UID").value <> uid then
     fail "remote UID changed";
@@ -70,11 +70,13 @@ let remote_record base old_data new_data uid store_id =
       in
       if values <> [] && values <> [ expected ] then
         fail "conflicting remote Sortal identity")
-    [ ("X-SORTAL-ID", field "handle" base); ("X-SORTAL-STORE", store_id) ];
+    [ ("X-SORTAL-ID", field "handle" base) ];
   let fixed props =
     List.filter
       (fun (p : Mapping.property) ->
-        not (List.mem p.name (editable @ [ "REV"; "PRODID" ] @ extra)))
+        not
+          (List.mem p.name
+             (editable @ [ "REV"; "PRODID"; "X-SORTAL-STORE" ] @ extra)))
       props
   in
   if
@@ -139,8 +141,8 @@ let merge_records base local candidate =
     local
     (List.sort_uniq String.compare (keys base @ keys candidate))
 
-let reconcile base local old_data new_data uid store_id =
-  merge_records base local (remote_record base old_data new_data uid store_id)
+let reconcile base local old_data new_data uid =
+  merge_records base local (remote_record base old_data new_data uid)
 
 let seed_directory ?seed bundle =
   match seed with
@@ -161,6 +163,8 @@ let prepare ?previous ?seed ~bundle ~snapshot ~source ~output () =
      ]
     @ Option.to_list previous);
   let manifest = Bundle.verify bundle in
+  if Store.identity source <> field "store_id" manifest then
+    fail "pull baseline belongs to another local store";
   let seed_dir = seed_directory ?seed bundle in
   let seed = load_json (Filename.concat seed_dir "report.json") in
   let current = load_json (Filename.concat snapshot "report.json") in
@@ -280,8 +284,9 @@ let prepare ?previous ?seed ~bundle ~snapshot ~source ~output () =
         in
         let remote_data = List.assoc uid remote in
         if
-          Mapping.signatures (Mapping.parse old_data)
-          = Mapping.signatures (Mapping.parse remote_data)
+          Mapping.signatures (Mapping.parse (Mapping.without_store old_data))
+          = Mapping.signatures
+              (Mapping.parse (Mapping.without_store remote_data))
         then None
         else
           let target = safe_path source (field "source" entry) in
@@ -290,19 +295,12 @@ let prepare ?previous ?seed ~bundle ~snapshot ~source ~output () =
           let before = read target in
           let base = Bundle.contact base_raw
           and local = Bundle.contact before in
-          let candidate =
-            remote_record base old_data remote_data uid
-              (field "store_id" manifest)
-          in
+          let candidate = remote_record base old_data remote_data uid in
           let merged = merge_records base local candidate in
           let common = Document.update ~originals:source base_raw candidate
           and after = Document.update ~originals:source before merged in
           ignore (Bundle.contact after);
-          let projected, _ =
-            Mapping.encode ~uid
-              ~store_id:(field "store_id" manifest)
-              ~originals:source merged
-          in
+          let projected, _ = Mapping.encode ~uid ~originals:source merged in
           let decoded, photos = Mapping.decode projected in
           if not (equal decoded merged) then
             fail "merged contact does not survive vCard reverse mapping";
@@ -377,6 +375,8 @@ let apply ~dav ~dry_run ~username output =
   let report = ref (load_json path) in
   if number (get "version" !report) <> 2 then
     fail "requires a native vCard pull journal";
+  if Store.identity (field "source" !report) <> field "store_id" !report then
+    fail "pull journal belongs to another local store";
   if field "account" !report <> username then
     fail "account does not match the prepared pull";
   if not (List.mem (field "status" !report) [ "prepared"; "applied" ]) then

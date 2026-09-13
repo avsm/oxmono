@@ -147,6 +147,41 @@ let media_types =
     ("json", "application/feed+json");
   ]
 
+let without_store raw =
+  ignore (parse raw);
+  let blocks =
+    List.fold_left
+      (fun blocks line ->
+        if line <> "" && (line.[0] = ' ' || line.[0] = '\t') then
+          match blocks with
+          | block :: rest -> (line :: block) :: rest
+          | [] -> fail "vCard starts with a continuation"
+        else [ line ] :: blocks)
+      []
+      (String.split_on_char '\n' raw)
+    |> List.rev |> List.map List.rev
+  in
+  let strip_cr s =
+    if String.ends_with ~suffix:"\r" s then String.sub s 0 (String.length s - 1)
+    else s
+  in
+  let keep = function
+    | [] -> true
+    | first :: rest ->
+        let unfolded =
+          strip_cr first
+          ^ String.concat ""
+              (List.map
+                 (fun s ->
+                   let s = strip_cr s in
+                   String.sub s 1 (String.length s - 1))
+                 rest)
+        in
+        String.trim unfolded = ""
+        || (property unfolded).name <> "X-SORTAL-STORE"
+  in
+  blocks |> List.filter keep |> List.concat |> String.concat "\n"
+
 let normalized_params ?(client = false) ?(annotations = true) p =
   p.params
   |> List.filter_map (fun (k, v) ->
@@ -266,7 +301,7 @@ let known_contact contact =
                      | x -> atproto x ))
            (assoc v)))
 
-let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
+let encode ?(version = "3.0") ~uid ~originals contact =
   if not (List.mem version [ "3.0"; "4.0" ]) then
     fail "unsupported vCard version";
   let v4 = version = "4.0" in
@@ -326,7 +361,6 @@ let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
   add "X-SORTAL-MAPPING" "4";
   add ~params:(if v4 then [ ("VALUE", "text") ] else []) "UID" uid;
   add ~path:"/handle" "X-SORTAL-ID" (field "handle" contact);
-  add "X-SORTAL-STORE" store_id;
   add ~path:"/version" "X-SORTAL-SCHEMA" "2";
   extras contact contact_keys "";
   let names = List.map string (items "names" contact) in

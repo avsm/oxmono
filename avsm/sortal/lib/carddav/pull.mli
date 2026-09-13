@@ -1,20 +1,12 @@
 (** Conservative remote-to-Sortal reconciliation. Full source/card versions and
     separate common baselines are retained in durable local journals. *)
 
-val remote_record :
-  Common.value -> string -> string -> string -> string -> Common.value
-
+val remote_record : Common.value -> string -> string -> string -> Common.value
 val merge_records : Common.value -> Common.value -> Common.value -> Common.value
 
 val reconcile :
-  Common.value ->
-  Common.value ->
-  string ->
-  string ->
-  string ->
-  string ->
-  Common.value
-(** [reconcile base local old_card new_card uid store] merges supported remote
+  Common.value -> Common.value -> string -> string -> string -> Common.value
+(** [reconcile base local old_card new_card uid] merges supported remote
     changes. Concurrent changes to the same field or unsupported card edits
     raise [Common.Error]. Unrelated local changes stay local. *)
 

@@ -74,8 +74,7 @@ let%expect_test "native vCards show metadata and read subsequent edits" =
           "emails":["ada@example.test"],"future":{"colour":"blue","flag":true}}|}
       in
       let data, _ =
-        Sortal_carddav.Mapping.encode ~uid:"ada" ~store_id:"store"
-          ~originals:output
+        Sortal_carddav.Mapping.encode ~uid:"ada" ~originals:output
           (Sortal_carddav.Common.json raw)
       in
       C.atomic_write (Filename.concat directory "ada.vcf") data;

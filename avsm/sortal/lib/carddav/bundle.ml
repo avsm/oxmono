@@ -10,6 +10,8 @@ let verify ?source bundle =
   let version = number (get "version" manifest) in
   if version <> 3 then fail "requires a native vCard bundle (version 3)";
   let originals = Filename.concat bundle "originals" in
+  if Store.identity originals <> field "store_id" manifest then
+    fail "snapshot store identity differs from manifest";
   let files = assoc (get "files" manifest) in
   let names = List.sort String.compare (List.map fst files) in
   if inventory originals <> names then
@@ -47,15 +49,14 @@ let verify ?source bundle =
         Hashtbl.add seen uid ();
         Hashtbl.add handles handle ();
         ignore (safe_path bundle (uid ^ ".vcf"));
-        if
-          one "X-SORTAL-ID" <> handle
-          || one "X-SORTAL-STORE" <> field "store_id" manifest
-        then fail "Sortal identity mismatch";
+        if one "X-SORTAL-ID" <> handle then fail "Sortal handle mismatch";
         let raw = read (safe_path originals (field "source" entry)) in
         let c = contact raw in
-        if Document.edit ~originals raw (Document.contact raw) <> raw then
-          fail "typed contact round-trip changed the vCard";
-        if data <> raw then fail "archived vCard differs from active card";
+        let normalized = Mapping.without_store raw in
+        if Document.edit ~originals raw (Document.contact raw) <> normalized
+        then fail "typed contact round-trip changed the vCard";
+        if Mapping.without_store data <> normalized then
+          fail "archived vCard differs from active card";
         if List.exists (fun p -> p.Mapping.name = "X-SORTAL-META") props then
           fail "serialized contact payload is forbidden";
         let decoded, photos = Mapping.decode data in
@@ -76,11 +77,12 @@ let export ?previous ~source ~output () =
   let source = absolute source and output = absolute output in
   fresh output;
   separate output [ source ];
-  Option.iter (fun p -> ignore (verify p)) previous;
-  let marker = load_json (Filename.concat source "store.json") in
-  if number (get "version" marker) <> 1 then fail "unsupported native store";
-  let store_id = field "store_id" marker in
-  ignore (uuid_bytes store_id);
+  let store_id = Store.identity source in
+  Option.iter
+    (fun p ->
+      if field "store_id" (verify p) <> store_id then
+        fail "previous snapshot belongs to another local store")
+    previous;
   let files = inventory source in
   let contact_files =
     List.filter
@@ -119,7 +121,7 @@ let export ?previous ~source ~output () =
           if handle = "" || Hashtbl.mem handles handle then
             fail "duplicate or empty contact handle: %s" handle;
           Hashtbl.add handles handle ();
-          let data = read (safe_path originals name) in
+          let data = Mapping.without_store (read (safe_path originals name)) in
           let props = Mapping.parse data in
           let uid = Mapping.untext (Mapping.only props "UID").value in
           let path = "cards/" ^ uid ^ ".vcf" in

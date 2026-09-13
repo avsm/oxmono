@@ -13,7 +13,8 @@ val of_contact : Sortal_schema.Contact.t -> Common.value
 val update : originals:string -> string -> Common.value -> string
 (** [update ~originals raw fields] changes annotated fields while retaining
     unrelated properties, groups and parameters. [originals] contains photos. An
-    unchanged document is returned byte for byte. *)
+    unchanged document is returned byte for byte, except that retired store
+    identity properties are removed. *)
 
 val edit : originals:string -> string -> Sortal_schema.Contact.t -> string
 (** [edit ~originals raw contact] applies changes to the typed projection,

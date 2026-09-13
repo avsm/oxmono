@@ -160,6 +160,7 @@ let key props (p : Mapping.property) =
   | None -> "plain:" ^ p.name
 
 let update ~originals raw fields =
+  let raw = Mapping.without_store raw in
   let before = value raw in
   ignore (project fields);
   if equal before fields then raw
@@ -169,8 +170,8 @@ let update ~originals raw fields =
     let encode fields =
       Mapping.parse
         (fst
-           (Mapping.encode ~version:(one "VERSION") ~uid:(one "UID")
-              ~store_id:(one "X-SORTAL-STORE") ~originals fields))
+           (Mapping.encode ~version:(one "VERSION") ~uid:(one "UID") ~originals
+              fields))
     in
     let old = encode before and newer = encode fields in
     let keyed ps = List.map (fun p -> (key ps p, p)) ps in

@@ -7,14 +7,16 @@ subscriptions. Bushel and Arod use the same `Sortal.Store` API.
 The default store is `~/.local/share/sortal`, or `$XDG_DATA_HOME/sortal`:
 
 ```
-store.json          store UUID and storage format version
+store.json          local sync identity and storage format version
 cards/<uid>.vcf     one contact per stable UID
 *.png, *.jpg, ...   existing photo assets
 feeds/              existing feed caches and annotations
 .git/               optional local version history
 ```
 
-`X-SORTAL-ID` carries the handle. Renaming a handle keeps the UID and filename.
+`UID` identifies a contact across stores. The store UUID stays in local
+`store.json` and sync journals, never in the cards. `X-SORTAL-ID` carries the
+handle. Renaming a handle keeps the UID and filename.
 Standard fields use compatible vCard properties. Additional metadata uses
 individual properties, including `X-SORTAL-FIELD` for future fields. No whole
 contact payload is embedded. Typed edits retain unknown fields, parameters

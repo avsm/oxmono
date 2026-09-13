@@ -50,7 +50,8 @@ val save : t -> Contact.t -> unit
     property parameters. A contact read from the store carries its original
     revision. Saving that contact fails if it was edited or deleted meanwhile. A
     freshly constructed contact replaces the typed fields of the same handle.
-    Concurrent Sortal writers serialize through an advisory store lock. *)
+    Retired [X-SORTAL-STORE] properties are removed on save. Concurrent Sortal
+    writers serialize through an advisory store lock. *)
 
 val lookup : t -> string -> Contact.t option
 (** [lookup t handle] is the contact with [handle], or [None] if absent. Corrupt

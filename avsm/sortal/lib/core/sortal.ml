@@ -3,7 +3,6 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-module Temporal = Sortal_schema.Temporal
 module Feed = Sortal_schema.Feed
 module Contact = Sortal_schema.Contact
 module Store = Sortal_store

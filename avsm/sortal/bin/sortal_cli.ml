@@ -61,24 +61,6 @@ let () =
     Cmd.v Sortal.Cmd.sync_info term
   in
 
-  let migrate_cmd =
-    let dry_run_arg =
-      Arg.(value & flag
-           & info [ "dry-run"; "n" ]
-               ~doc:"Report what would change without writing anything. \
-                     This is the safe way to preview a migration.")
-    in
-    let term =
-      let open Term.Syntax in
-      let+ (xdg, _) = xdg_term
-      and+ dry_run = dry_run_arg
-      and+ log_level = Logs_cli.level () in
-      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
-      Logs.set_level log_level;
-      Sortal.Cmd.migrate_cmd ~dry_run xdg
-    in
-    Cmd.v Sortal.Cmd.migrate_info term
-  in
 
   let serve_cmd =
     let term =
@@ -585,11 +567,11 @@ let () =
         let process_mgr = Eio.Stdenv.process_mgr env in
         let clock = Eio.Stdenv.clock env in
         List.iter (fun (handle, feeds) ->
-          (* Load contact YAML for context *)
+          (* Load contact vCard for context *)
           let data_dir = Sortal.Store.data_dir store in
-          let yaml_path = Eio.Path.(data_dir / (handle ^ ".yaml")) in
-          let contact_yaml =
-            try Eio.Path.load yaml_path
+          let card_path = Eio.Path.(data_dir / (Sortal.Store.filename store handle)) in
+          let contact_vcard =
+            try Eio.Path.load card_path
             with _ -> Printf.sprintf "handle: %s" handle
           in
           List.iter (fun feed ->
@@ -597,7 +579,7 @@ let () =
                 (Sortal_schema.Feed.name feed) in
             Logs.app (fun m -> m "Discovering @%s %s ..." handle name);
             match Sortal_discover.discover ~sw ~process_mgr ~clock
-                    ~store:feed_store ~handle ~contact_yaml feed with
+                    ~store:feed_store ~handle ~contact_vcard feed with
             | Ok r ->
               Logs.app (fun m -> m "  @%s %s: %d new, %d total"
                           handle name r.new_entries r.total_entries)
@@ -695,7 +677,6 @@ let () =
     search_cmd;
     stats_cmd;
     sync_cmd;
-    migrate_cmd;
     serve_cmd;
     git_group;
     init_config_cmd;

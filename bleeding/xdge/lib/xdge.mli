@@ -36,9 +36,9 @@
 
     {b Directory Creation:}
 
-    All directories are automatically created with appropriate permissions
-    (0o755) when accessed, except for runtime directories which require stricter
-    permissions as per the specification.
+    By default, directories are automatically created with appropriate
+    permissions (0o755) when accessed, except for runtime directories which
+    require stricter permissions as per the specification.
 
     @see <https://specifications.freedesktop.org/basedir-spec/latest/>
       XDG Base Directory Specification
@@ -69,15 +69,17 @@ exception Invalid_xdg_path of string
 
 (** {1 Construction} *)
 
-val create : Eio.Fs.dir_ty Eio.Path.t -> string -> t
+val create : ?create_dirs:bool -> Eio.Fs.dir_ty Eio.Path.t -> string -> t
 (** [create fs app_name] creates an XDG context for the given application.
 
     This function initializes the complete XDG directory structure for your
     application, resolving all paths according to the environment variables and
-    creating directories as needed.
+    creating directories as needed unless [create_dirs] is [false].
 
     @param fs The Eio filesystem providing filesystem access
     @param app_name The name of your application (used as subdirectory name)
+    @param create_dirs Defaults to [true]. With [false], resolve and validate
+      paths without creating directories, suitable for read-only commands.
 
     {b Path Resolution:}
 
@@ -93,7 +95,7 @@ val create : Eio.Fs.dir_ty Eio.Path.t -> string -> t
       (* config is now <fs:$HOME/.config/myapp> or the overridden path *)
     ]}
 
-    All directories are created with permissions 0o755 if they don't exist,
+    With [create_dirs=true], directories are created with permissions 0o755 if they don't exist,
     except for runtime directories which are created with 0o700 permissions and
     validated according to the XDG specification.
 

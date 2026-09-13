@@ -85,10 +85,18 @@ val photo : t -> string option @@ portable
 val feeds : t -> Feed.t list @@ portable
 
 val vcard : t -> (string * string) list @@ portable
-(** [vcard t] is [t]'s vCard passthrough data, encoded as a YAML/JSON
-    string mapping. The migration tools use unfolded property headers as
+(** [vcard t] is [t]'s vCard passthrough data, encoded as a JSON
+    string mapping. The mapping uses unfolded property headers as
     keys and wire-format property values as values. Distinct headers/groups
     retain repeated properties. Nothing in this schema module interprets it. *)
+
+val source : t -> string option @@ portable
+(** [source t] is the original vCard, used to retain unmodelled properties and
+    detect concurrent edits. It is absent on newly constructed contacts. *)
+
+val with_source : t -> string option -> t @@ portable
+(** [with_source t source] attaches the storage revision [source] to [t].
+    Contact JSON serialization excludes this in-memory provenance. *)
 
 (** {1 Account queries} *)
 

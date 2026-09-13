@@ -192,6 +192,8 @@ let prepare ?previous ?seed ~bundle ~snapshot ~source ~output () =
         separate output [ cursor ];
         Hashtbl.add visited cursor ();
         let prior = load_json (Filename.concat cursor "report.json") in
+        if number (get "version" prior) <> 2 then
+          fail "previous pull requires a native vCard journal";
         if
           field "status" prior <> "applied"
           || (not (same_destination seed prior))
@@ -215,8 +217,8 @@ let prepare ?previous ?seed ~bundle ~snapshot ~source ~output () =
             let remote = read (Filename.concat directory "remote-get.vcf") in
             let name, hash =
               match find "common_sha256" change with
-              | Some h -> ("common.yaml", string h)
-              | None -> ("after.yaml", field "after_sha256" change)
+              | Some h -> ("common.vcf", string h)
+              | None -> ("after.vcf", field "after_sha256" change)
             in
             let local = read (Filename.concat directory name) in
             if
@@ -293,8 +295,8 @@ let prepare ?previous ?seed ~bundle ~snapshot ~source ~output () =
               (field "store_id" manifest)
           in
           let merged = merge_records base local candidate in
-          let common = Yaml_edit.update base_raw candidate
-          and after = Yaml_edit.update before merged in
+          let common = Document.update ~originals:source base_raw candidate
+          and after = Document.update ~originals:source before merged in
           ignore (Bundle.contact after);
           let projected, _ =
             Mapping.encode ~uid
@@ -329,9 +331,9 @@ let prepare ?previous ?seed ~bundle ~snapshot ~source ~output () =
         List.iter
           (fun (name, data) -> write (Filename.concat directory name) data)
           [
-            ("before.yaml", before);
-            ("after.yaml", after);
-            ("common.yaml", common);
+            ("before.vcf", before);
+            ("after.vcf", after);
+            ("common.vcf", common);
             ("baseline.vcf", old);
             ("remote.vcf", remote);
             ("projected.vcf", projected);
@@ -353,7 +355,7 @@ let prepare ?previous ?seed ~bundle ~snapshot ~source ~output () =
   let report =
     obj
       [
-        ("version", int 1);
+        ("version", int 2);
         ("account", get "account" seed);
         ("book", get "book" seed);
         ("source", str (absolute source));
@@ -373,6 +375,8 @@ let prepare ?previous ?seed ~bundle ~snapshot ~source ~output () =
 let apply ~dav ~dry_run ~username output =
   let path = Filename.concat output "report.json" in
   let report = ref (load_json path) in
+  if number (get "version" !report) <> 2 then
+    fail "requires a native vCard pull journal";
   if field "account" !report <> username then
     fail "account does not match the prepared pull";
   if not (List.mem (field "status" !report) [ "prepared"; "applied" ]) then
@@ -394,8 +398,8 @@ let apply ~dav ~dry_run ~username output =
       let uid = field "uid" change in
       let directory = safe_path output uid in
       let target = safe_path (field "source" !report) (field "source" change) in
-      let before = read (Filename.concat directory "before.yaml")
-      and after = read (Filename.concat directory "after.yaml") in
+      let before = read (Filename.concat directory "before.vcf")
+      and after = read (Filename.concat directory "after.vcf") in
       let remote = read (Filename.concat directory "remote.vcf") in
       if
         digest before <> field "before_sha256" change
@@ -404,7 +408,7 @@ let apply ~dav ~dry_run ~username output =
       then fail "prepared pull checksum mismatch";
       Option.iter
         (fun h ->
-          if digest (read (Filename.concat directory "common.yaml")) <> string h
+          if digest (read (Filename.concat directory "common.vcf")) <> string h
           then fail "prepared common baseline checksum mismatch")
         (find "common_sha256" change);
       if (Unix.lstat target).Unix.st_kind <> Unix.S_REG then

@@ -27,7 +27,6 @@
   xdge
   jsont
   ptime
-  yamlt
   bytesrw
   fmt
   cmdliner
@@ -38,7 +37,6 @@
   fetch-curl
   xmlm
   uriz
-  yamlrw
   vcard
   base64
   digestif

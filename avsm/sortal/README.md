@@ -1,223 +1,61 @@
-# Sortal - Contact Metadata Management Library
+# Sortal
 
-Sortal is an OCaml library that provides a comprehensive system for managing
-contact metadata with temporal validity tracking. It stores data in
-XDG-compliant locations using the YAML format and optionally versions all changes
-with git.
+Sortal stores contact metadata as vCard 3.0 files. The OCaml library exposes
+names, email addresses, accounts, affiliations, links, photos and feed
+subscriptions. Bushel and Arod use the same `Sortal.Store` API.
 
-## Features
+The default store is `~/.local/share/sortal`, or `$XDG_DATA_HOME/sortal`:
 
-- **Temporal Support**: Track how contact information changes over time (emails, organizations, URLs)
-- **XDG-compliant storage**: Contact metadata stored in standard XDG data directories
-- **YAML format**: Human-readable YAML files with type-safe encoding/decoding using yamlt
-- **Rich metadata**: Support for multiple names, emails (typed), organizations, services (GitHub, social media), ORCID, URLs, and Atom feeds
-- **Git Versioning**: Optional automatic git commits for all changes with descriptive messages
-- **CLI Interface**: Full command-line interface for CRUD operations on contacts
-- **Simple API**: Easy-to-use functions for saving, loading, searching, and deleting contacts
+```
+store.json          store UUID and storage format version
+cards/<uid>.vcf     one contact per stable UID
+*.png, *.jpg, ...   existing photo assets
+feeds/              existing feed caches and annotations
+.git/               optional local version history
+```
 
-## Metadata Fields
-
-Each contact can include:
-
-- `handle`: Unique identifier/username (required)
-- `names`: List of full names with primary name first (required)
-- `email`: Email address
-- `icon`: Avatar/icon URL
-- `thumbnail`: Path to a local thumbnail image file
-- `github`: GitHub username
-- `twitter`: Twitter/X username
-- `bluesky`: Bluesky handle
-- `mastodon`: Mastodon handle (with instance)
-- `orcid`: ORCID identifier
-- `url`: Personal/professional website
-- `atom_feeds`: List of Atom/RSS feed URLs
-
-## Storage
-
-Contact data is stored as individual YAML files in the XDG data directory:
-
-- Default location: `$HOME/.local/share/sortal/`
-- Override with: `SORTAL_DATA_DIR` or `XDG_DATA_HOME`
-- Each contact stored as: `{handle}.yaml`
-- Format: Human-readable YAML with temporal data support
-
-## Usage Example
-
-### CardDAV
-
-CardDAV operations are part of the OCaml `sortal` binary. Preview your live
-Sortal root directly; there is no separate export step:
+`X-SORTAL-ID` carries the handle. Renaming a handle keeps the UID and filename.
+Standard fields use compatible vCard properties. Additional metadata uses
+individual properties, including `X-SORTAL-FIELD` for future fields. No whole
+contact payload is embedded. Typed edits retain unknown fields, parameters
+and properties. Stale writes and ambiguous edits are rejected.
 
 ```sh
-sortal carddav sync --dry-run --source ~/bushel/sortal \
-  --bundle avsm/sortal/_carddav-export-compatible-2026-09-11 \
-  --username ACCOUNT \
-  --password-file APP_PASSWORD_FILE --report /tmp/sortal-preview
+dune exec -- sortal list
+dune exec -- sortal show avsm
+dune exec -- sortal stats
 ```
 
-`--source` supplies the current contact data, including edits since the last
-sync. `--bundle` supplies the existing store/contact IDs and saved sync
-history; its archived contact data does not replace the live source. The
-command creates its own fresh snapshot under the new report directory.
-See [testing the live Sortal root](spec/carddav-migration.md#testing-the-live-sortal-root)
-for the complete command and how to read the result.
-
-Use `--previous EXISTING_BUNDLE` if you separately create a recovery export.
-The default server is Fastmail; `--server` selects another HTTPS CardDAV
-server. Dry runs create a private local report and leave source contacts,
-server contacts and existing journals unchanged. Possible duplicates are
-held for review.
-
-`sortal carddav seed --apply` creates verified new contacts.
-`sortal carddav pull prepare` and `sortal carddav pull apply --apply`
-import supported remote edits with a saved common baseline. General pushes
-to existing cards and deletion propagation still require reconciliation.
-See [the mapping and workflow](spec/carddav-migration.md) and
-`sortal carddav --help`. From this checkout, prefix commands with
-`dune exec --`.
-
-### Basic Usage
+Use `--data-dir /absolute/store/path` on these commands to select another
+store. Reading through `Sortal.Store.create` uses XDG configuration.
+`Sortal.Store.create_at fs path` opens an explicit path without creating
+other application directories.
 
 ```ocaml
-(* Create a contact store from filesystem *)
-let store = Sortal.create env#fs "myapp" in
-
-(* Or create from an existing XDG context (recommended when using eiocmd) *)
-let store = Sortal.create_from_xdg xdg in
-
-(* Create a new contact *)
+let store = Sortal.Store.create env#fs "sortal" in
 let contact = Sortal.Contact.make
-  ~handle:"avsm"
-  ~names:["Anil Madhavapeddy"]
-  ~email:"anil@recoil.org"
-  ~github:"avsm"
-  ~orcid:"0000-0002-7890-1234"
-  () in
-
-(* Save the contact *)
-Sortal.save store contact;
-
-(* Lookup by handle *)
-match Sortal.lookup store "avsm" with
-| Some c -> Printf.printf "Found: %s\n" (Sortal.Contact.name c)
-| None -> Printf.printf "Not found\n"
-
-(* Search for contacts by name *)
-let matches = Sortal.search_all store "Anil" in
-List.iter (fun c ->
-  Printf.printf "%s: %s\n"
-    (Sortal.Contact.handle c)
-    (Sortal.Contact.name c)
-) matches
-
-(* List all contacts *)
-let all_contacts = Sortal.list store in
-List.iter (fun c ->
-  Printf.printf "%s: %s\n"
-    (Sortal.Contact.handle c)
-    (Sortal.Contact.name c)
-) all_contacts
+    ~handle:"example" ~names:["Example Person"]
+    ~emails:["person@example.org"] () in
+Sortal.Store.save store contact
 ```
 
-## CLI Tool
+The one-off YAML migration is complete. Sortal no longer reads or writes YAML
+contacts. Original source bytes and Git history remain in the migration backup.
 
-The library includes a standalone `sortal` CLI tool with full CRUD functionality:
+CardDAV tools operate on this live native store. A recovery snapshot preserves
+all card and asset bytes:
 
-```bash
-# Initialize git versioning (optional)
-sortal git-init
-
-# List all contacts
-sortal list
-
-# Show details for a specific contact
-sortal show avsm
-
-# Search for contacts
-sortal search "Anil"
-
-# Show database statistics
-sortal stats
-
-# Add a new contact
-sortal add jsmith --name "John Smith" --email "john@example.com" --kind person
-
-# Add metadata to contacts
-sortal add-org jsmith "Acme Corp" --title "Software Engineer" --from 2020-01
-sortal add-service jsmith "https://github.com/jsmith" --kind github --handle jsmith
-sortal add-email jsmith "john.work@example.com" --type work --from 2020-01
-sortal add-url jsmith "https://jsmith.example.com" --label "Personal website"
-
-# Remove metadata
-sortal remove-email jsmith "old@example.com"
-sortal remove-service jsmith "https://old-service.com"
-sortal remove-org jsmith "Old Company"
-sortal remove-url jsmith "https://old-url.com"
-
-# Delete a contact
-sortal delete jsmith
-
-# Synchronize data (convert thumbnails to PNG)
-sortal sync
+```sh
+dune exec -- sortal carddav export \
+  --source ~/.local/share/sortal --output /tmp/sortal-snapshot
+dune exec -- sortal carddav verify \
+  --bundle /tmp/sortal-snapshot --source ~/.local/share/sortal
 ```
 
-### Web interface
+See [storage and CardDAV workflows](spec/carddav-migration.md) for mappings,
+dry runs and the current synchronization limits.
 
-`sortal serve` presents the same database as a small HTML interface for
-browsing, searching, adding, editing and deleting contacts. `--port` selects
-the port, which defaults to 8380.
-
-```bash
-sortal serve --port 8380
+```sh
+dune build @avsm/sortal/all
+dune runtest avsm/sortal --force
 ```
-
-The server binds 127.0.0.1 only and this is not configurable, because the UI
-has no authentication. Anyone who can reach the port can change every contact.
-Edits are committed when the data directory is a git repository, as the
-equivalent subcommands would commit them.
-
-## Git Versioning
-
-Sortal includes a `Sortal_git_store` module that provides automatic git commits
-for all contact modifications:
-
-```ocaml
-open Sortal
-
-(* Create a git-backed store *)
-let git_store = Git_store.create store env in
-
-(* Initialize git repository *)
-let () = match Git_store.init git_store with
-  | Ok () -> Logs.app (fun m -> m "Git initialized")
-  | Error msg -> Logs.err (fun m -> m "Error: %s" msg)
-in
-
-(* Save a contact - automatically commits with descriptive message *)
-let contact = Contact.make ~handle:"jsmith" ~names:["John Smith"] () in
-match Git_store.save git_store contact with
-| Ok () -> Logs.app (fun m -> m "Contact saved and committed")
-| Error msg -> Logs.err (fun m -> m "Error: %s" msg)
-```
-
-**Commit Messages**: All git store operations create descriptive commit messages:
-- `save`: "Add contact @handle (Name)" or "Update contact @handle (Name)"
-- `delete`: "Delete contact @handle (Name)"
-- `add_email`: "Update @handle: add email address@example.com"
-- `remove_email`: "Update @handle: remove email address@example.com"
-- `add_service`: "Update @handle: add service Kind (url)"
-- `add_organization`: "Update @handle: add organization Org Name"
-- And similar for all other operations
-
-## Project Status
-
-Still very much just used by Anil Madhavapeddy. You're welcome to try it, but let me know...
-
-## License
-
-ISC License - see [LICENSE.md](LICENSE.md) for details.
-
-`Sortal_feed.Opml.decode` reads OPML 1.0, 1.1 and 2.0 subscription lists,
-including nested groups. It bounds input size, nesting and feed count, rejects
-DTDs and returns HTTP(S) feed URLs without fetching them. Its interface is in
-[sortal_feed_opml.mli](lib/feed/sortal_feed_opml.mli).

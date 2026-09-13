@@ -3,11 +3,7 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-module V1 = struct
-  module Temporal = Sortal_schema_temporal
-  module Feed = Sortal_schema_feed
-  module Contact = Sortal_schema_contact_v1
-end
+(** Typed projections of native vCard contacts. *)
 
 module V2 = struct
   module Date = Sortal_schema_date
@@ -17,11 +13,8 @@ module V2 = struct
   module Contact = Sortal_schema_contact_v2
 end
 
-module Migrate = Sortal_schema_migrate
-
 module Date = V2.Date
 module Platform = V2.Platform
 module Account = V2.Account
 module Feed = V2.Feed
-module Temporal = V1.Temporal
 module Contact = V2.Contact

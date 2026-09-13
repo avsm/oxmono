@@ -15,12 +15,12 @@ val discover :
   clock:float Eio.Time.clock_ty Eio.Resource.t ->
   store:Sortal_feed.Store.t ->
   handle:string ->
-  contact_yaml:string ->
+  contact_vcard:string ->
   Sortal_schema.Feed.t ->
   (Sortal_feed.Sync.sync_result, string) result
-(** [discover ~sw ~process_mgr ~clock ~store ~handle ~contact_yaml feed]
+(** [discover ~sw ~process_mgr ~clock ~store ~handle ~contact_vcard feed]
     uses Claude to inspect the URL of a Manual [feed], discover new content,
     and merge the resulting Atom entries into the feed store.
 
-    @param contact_yaml  Raw YAML text for the contact (passed to Claude for context)
+    @param contact_vcard  Raw vCard text for the contact (passed to Claude for context)
     @return [Ok result] with entry counts, or [Error msg] on failure *)

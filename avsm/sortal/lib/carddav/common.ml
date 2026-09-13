@@ -5,7 +5,13 @@ exception Error of string
 let fail fmt = Printf.ksprintf (fun s -> raise (Error s)) fmt
 let get_ok = function Ok x -> x | Error e -> fail "%s" e
 
-type value = Yamlrw.value
+type value =
+  [ `Null
+  | `Bool of bool
+  | `Float of float
+  | `String of string
+  | `A of value list
+  | `O of (string * value) list ]
 
 let str s : value = `String s
 let int n : value = `Float (float_of_int n)
@@ -56,13 +62,7 @@ let rec unique : value -> unit = function
   | `A xs -> List.iter unique xs
   | _ -> ()
 
-let yaml s =
-  let v = Yamlrw.of_string s in
-  unique v;
-  v
-
 let read path = In_channel.with_open_bin path In_channel.input_all
-let load_yaml path = yaml (read path)
 let digest s = Digestif.SHA256.(to_hex (digest_string s))
 
 let exists p =

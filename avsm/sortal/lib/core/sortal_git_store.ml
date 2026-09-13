@@ -5,13 +5,9 @@
 
 module Contact = Sortal_schema.Contact
 
-type t = {
-  store : Sortal_store.t;
-  env : Eio_unix.Stdenv.base;
-}
+type t = { store : Sortal_store.t; env : Eio_unix.Stdenv.base }
 
 let create store env = { store; env }
-
 let store t = t.store
 
 (* Helper to check if a string contains a substring *)
@@ -22,12 +18,7 @@ let contains_substring ~needle haystack =
   with Not_found -> false
 
 (* Helper to get the data directory path as a native string *)
-let data_dir_path t =
-  (* We need to extract the data directory from the store somehow.
-     For now, we'll use the XDG environment to locate it. *)
-  let xdg = Xdge.create t.env#fs "sortal" in
-  let data_path = Xdge.data_dir xdg in
-  Eio.Path.native_exn data_path
+let data_dir_path t = Eio.Path.native_exn (Sortal_store.data_dir t.store)
 
 (* Execute a git command in the data directory *)
 let run_git t args =
@@ -35,20 +26,22 @@ let run_git t args =
   Eio.Switch.run @@ fun sw ->
   try
     let mgr = t.env#process_mgr in
-    let cmd = ["git"; "-C"; data_dir] @ args in
+    let cmd = [ "git"; "-C"; data_dir ] @ args in
     let proc = Eio.Process.spawn ~sw mgr cmd in
     match Eio.Process.await proc with
     | `Exited 0 -> Ok ()
-    | `Exited n -> Error (Printf.sprintf "git %s exited with code %d" (String.concat " " args) n)
+    | `Exited n ->
+        Error
+          (Printf.sprintf "git %s exited with code %d" (String.concat " " args)
+             n)
     | `Signaled n -> Error (Printf.sprintf "git killed by signal %d" n)
-  with
-  | exn ->
-      let msg = Printexc.to_string exn in
-      if contains_substring ~needle:"not found" msg ||
-         contains_substring ~needle:"No such file" msg then
-        Error "git executable not found - please install git"
-      else
-        Error (Printf.sprintf "git command failed: %s" msg)
+  with exn ->
+    let msg = Printexc.to_string exn in
+    if
+      contains_substring ~needle:"not found" msg
+      || contains_substring ~needle:"No such file" msg
+    then Error "git executable not found - please install git"
+    else Error (Printf.sprintf "git command failed: %s" msg)
 
 let is_initialized t =
   let data_dir = data_dir_path t in
@@ -56,112 +49,88 @@ let is_initialized t =
   Sys.file_exists git_dir && Sys.is_directory git_dir
 
 let init t =
-  if is_initialized t then
-    Ok ()
+  if is_initialized t then Ok ()
   else begin
-    match run_git t ["init"] with
+    Sortal_carddav.Common.mkdir (data_dir_path t);
+    match run_git t [ "init" ] with
     | Error _ as e -> e
-    | Ok () ->
+    | Ok () -> (
         (* Create initial commit *)
-        match run_git t ["add"; "."] with
+        match run_git t [ "add"; "--"; "."; ":(exclude).sortal.lock" ] with
         | Error _ as e -> e
         | Ok () ->
             let msg = "Initialize sortal contact database" in
-            run_git t ["commit"; "--allow-empty"; "-m"; msg]
+            run_git t [ "commit"; "--allow-empty"; "-m"; msg ])
   end
 
 (* Auto-initialize git repo if not already initialized *)
-let ensure_initialized t =
-  if is_initialized t then Ok ()
-  else init t
+let ensure_initialized t = if is_initialized t then Ok () else init t
+let ( let* ) = Result.bind
 
-(* Helper to commit a file with a message *)
 let commit_file t filename msg =
-  match run_git t ["add"; filename] with
-  | Error _ as e -> e
-  | Ok () ->
-      run_git t ["commit"; "-m"; msg]
+  let* () = run_git t [ "add"; "--"; "store.json"; filename ] in
+  run_git t [ "commit"; "--only"; "-m"; msg; "--"; "store.json"; filename ]
 
-(* Helper to commit a deletion *)
-let commit_deletion t filename msg =
-  match run_git t ["rm"; filename] with
-  | Error _ as e -> e
-  | Ok () ->
-      run_git t ["commit"; "-m"; msg]
+let changed t filename before msg =
+  let path = Filename.concat (data_dir_path t) filename in
+  if Some (Sortal_carddav.Common.read path) = before then Ok ()
+  else commit_file t filename msg
 
 let save t contact =
+  let* () = ensure_initialized t in
   let handle = Contact.handle contact in
-  let name = Contact.name contact in
-  let filename = handle ^ ".yaml" in
-
-  (* Check if contact already exists *)
-  let is_new = match Sortal_store.lookup t.store handle with
-    | None -> true
-    | Some _ -> false
+  let before =
+    Option.bind (Sortal_store.lookup t.store handle) Contact.source
   in
-
-  (* Save to store *)
   Sortal_store.save t.store contact;
-
-  (* Commit to git (auto-init if needed) *)
-  match ensure_initialized t with
-  | Error _ as e -> e
-  | Ok () ->
-    let msg = if is_new then
-      Printf.sprintf "Add contact @%s (%s)" handle name
-    else
-      Printf.sprintf "Update contact @%s (%s)" handle name
-    in
-    commit_file t filename msg
+  let filename = Sortal_store.filename t.store handle in
+  let msg =
+    Printf.sprintf "%s contact @%s (%s)"
+      (if before = None then "Add" else "Update")
+      handle (Contact.name contact)
+  in
+  changed t filename before msg
 
 let delete t handle =
   match Sortal_store.lookup t.store handle with
   | None -> Error (Printf.sprintf "Contact not found: %s" handle)
   | Some contact ->
-      let name = Contact.name contact in
-      let filename = handle ^ ".yaml" in
-
-      (* Delete from store *)
+      let* () = ensure_initialized t in
+      let filename = Sortal_store.filename t.store handle in
       Sortal_store.delete t.store handle;
+      let* () = run_git t [ "add"; "-u"; "--"; filename ] in
+      let msg =
+        Printf.sprintf "Delete contact @%s (%s)" handle (Contact.name contact)
+      in
+      run_git t [ "commit"; "--only"; "-m"; msg; "--"; filename ]
 
-      (* Commit deletion to git (auto-init if needed) *)
-      match ensure_initialized t with
-      | Error _ as e -> e
-      | Ok () ->
-        let msg = Printf.sprintf "Delete contact @%s (%s)" handle name in
-        commit_deletion t filename msg
+let modify t handle f msg =
+  match Sortal_store.lookup t.store handle with
+  | None -> Error (Printf.sprintf "Contact not found: %s" handle)
+  | Some contact ->
+      let* () = ensure_initialized t in
+      let filename = Sortal_store.filename t.store handle in
+      let* () = f () in
+      changed t filename (Contact.source contact) msg
 
 let update_contact t handle f ~msg =
-  match Sortal_store.update_contact t.store handle f with
-  | Error _ as e -> e
-  | Ok () ->
-      match ensure_initialized t with
-      | Error _ as e -> e
-      | Ok () ->
-        let filename = handle ^ ".yaml" in
-        commit_file t filename msg
+  modify t handle (fun () -> Sortal_store.update_contact t.store handle f) msg
 
 let set_account t handle account =
-  let msg = Printf.sprintf "Update @%s: set %s account %s" handle
-    (Contact.Platform.key (Contact.Account.platform account))
-    (Contact.Account.handle account) in
-  match Sortal_store.set_account t.store handle account with
-  | Error _ as e -> e
-  | Ok () ->
-      match ensure_initialized t with
-      | Error _ as e -> e
-      | Ok () ->
-        let filename = handle ^ ".yaml" in
-        commit_file t filename msg
+  let msg =
+    Printf.sprintf "Update @%s: set %s account %s" handle
+      (Contact.Platform.key (Contact.Account.platform account))
+      (Contact.Account.handle account)
+  in
+  modify t handle
+    (fun () -> Sortal_store.set_account t.store handle account)
+    msg
 
 let unset_account t handle platform =
-  let msg = Printf.sprintf "Update @%s: unset %s account" handle
-    (Contact.Platform.key platform) in
-  match Sortal_store.unset_account t.store handle platform with
-  | Error _ as e -> e
-  | Ok () ->
-      match ensure_initialized t with
-      | Error _ as e -> e
-      | Ok () ->
-        let filename = handle ^ ".yaml" in
-        commit_file t filename msg
+  let msg =
+    Printf.sprintf "Update @%s: unset %s account" handle
+      (Contact.Platform.key platform)
+  in
+  modify t handle
+    (fun () -> Sortal_store.unset_account t.store handle platform)
+    msg

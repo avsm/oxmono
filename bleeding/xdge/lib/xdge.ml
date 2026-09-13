@@ -174,7 +174,7 @@ let validate_standard_xdg_vars () =
       | _ -> ())
     xdg_vars
 
-let create fs app_name =
+let create ?(create_dirs = true) fs app_name =
   let fs = fs in
   let home_path = get_home_dir fs in
   (* First validate all standard XDG environment variables *)
@@ -206,11 +206,12 @@ let create fs app_name =
     resolve_system_dirs fs home_path app_name "DATA_DIRS" "XDG_DATA_DIRS"
       [ "/usr/local/share"; "/usr/share" ]
   in
-  ensure_dir config_dir;
-  ensure_dir data_dir;
-  ensure_dir cache_dir;
-  ensure_dir state_dir;
-  Option.iter (ensure_runtime_dir fs) runtime_dir;
+  if create_dirs then (
+    ensure_dir config_dir;
+    ensure_dir data_dir;
+    ensure_dir cache_dir;
+    ensure_dir state_dir;
+    Option.iter (ensure_runtime_dir fs) runtime_dir);
   {
     app_name;
     config_dir;

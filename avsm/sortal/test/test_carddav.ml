@@ -16,8 +16,7 @@ let rejects f =
   match f () with
   | _ -> failwith "expected rejection"
   | exception
-      ( Common.Error _ | Invalid_argument _ | Sys_error _ | Unix.Unix_error _
-      | Yamlrw.Yamlrw_error _ ) ->
+      (Common.Error _ | Invalid_argument _ | Sys_error _ | Unix.Unix_error _) ->
       ()
 
 let photo =
@@ -25,26 +24,62 @@ let photo =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII="
 
 let raw =
-  {|# Original comments stay in the recovery archive.
-version: 2
-kind: person
-handle: casey
-names: ["Casey Example; Jr.", "C. Example"]
-emails: ["test@example.invalid", "other@example.invalid"]
-photo: avatar.png
-accounts:
-  atproto:
-    handle: example.invalid
-    did: did:plc:example
-    apps: [bluesky, tangled]
-  github: [example, alternate]
-affiliations:
-  - {org: Past, until: "2020"}
-  - {org: Current, from: "2020", address: "Room 2, Example St"}
-  - {org: Future, from: "2099"}
-feeds: [{type: atom, url: "https://example.invalid/feed", paused: true}]
-links: [{url: "https://example.invalid/", label: "雪, semi; backslash \\ é雪"}]
-|}
+  {|{
+  "version": 2,
+  "kind": "person",
+  "handle": "casey",
+  "names": [
+    "Casey Example; Jr.",
+    "C. Example"
+  ],
+  "emails": [
+    "test@example.invalid",
+    "other@example.invalid"
+  ],
+  "photo": "avatar.png",
+  "accounts": {
+    "atproto": {
+      "handle": "example.invalid",
+      "did": "did:plc:example",
+      "apps": [
+        "bluesky",
+        "tangled"
+      ]
+    },
+    "github": [
+      "example",
+      "alternate"
+    ]
+  },
+  "affiliations": [
+    {
+      "org": "Past",
+      "until": "2020"
+    },
+    {
+      "org": "Current",
+      "from": "2020",
+      "address": "Room 2, Example St"
+    },
+    {
+      "org": "Future",
+      "from": "2099"
+    }
+  ],
+  "feeds": [
+    {
+      "type": "atom",
+      "url": "https://example.invalid/feed",
+      "paused": true
+    }
+  ],
+  "links": [
+    {
+      "url": "https://example.invalid/",
+      "label": "雪, semi; backslash \\ é雪"
+    }
+  ]
+}|}
 
 type fixture = { root : string; source : string; bundle : string; c : value }
 
@@ -57,14 +92,27 @@ let fixture f =
     (fun () ->
       let source = Filename.concat root "source" in
       Unix.mkdir source 0o700;
-      write (Filename.concat source "casey.yaml") raw;
       write (Filename.concat source "avatar.png") photo;
       mkdir (Filename.concat source "feeds");
       write (Filename.concat source "feeds/annotations.json") "{\"read\":true}";
       mkdir (Filename.concat source ".git");
       write (Filename.concat source ".git/HEAD") "ref: refs/heads/main\n";
       write (Filename.concat source "unused.png") "extra asset";
-      f { root; source; bundle = Filename.concat root "bundle"; c = yaml raw })
+      mkdir (Filename.concat source "cards");
+      save_json
+        (Filename.concat source "store.json")
+        (obj
+           [
+             ("version", int 1);
+             ("store_id", str "6ba7b810-9dad-11d1-80b4-00c04fd430c8");
+           ]);
+      let c = json raw in
+      let data, _ =
+        Mapping.encode ~uid:"uid"
+          ~store_id:"6ba7b810-9dad-11d1-80b4-00c04fd430c8" ~originals:source c
+      in
+      write (Filename.concat source "cards/uid.vcf") data;
+      f { root; source; bundle = Filename.concat root "bundle"; c })
 
 let encode ?version f c =
   fst
@@ -86,7 +134,11 @@ let replace name fn props =
     props
 
 let put_source f c =
-  write (Filename.concat f.source "casey.yaml") (Yamlrw.to_string c)
+  let data, _ =
+    Mapping.encode ~uid:"uid" ~store_id:"6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+      ~originals:f.source c
+  in
+  write (Filename.concat f.source "cards/uid.vcf") data
 
 let export f = Bundle.export ~source:f.source ~output:f.bundle ()
 let entry m = List.hd (items "contacts" m)
@@ -214,9 +266,10 @@ let test_export =
           lines;
         let m = export f in
         ignore (Bundle.verify ~source:f.source f.bundle);
-        check (List.length (assoc (get "files" m)) = 5) "archive inventory";
+        check (List.length (assoc (get "files" m)) = 6) "archive inventory";
         check
-          (read (Filename.concat f.bundle "originals/casey.yaml") = raw)
+          (read (Filename.concat f.bundle "originals/cards/uid.vcf")
+          = read (Filename.concat f.source "cards/uid.vcf"))
           "original bytes";
         check ((Unix.stat f.bundle).Unix.st_perm = 0o700) "private bundle" );
     ( "v4 complete field and byte recovery",
@@ -242,7 +295,7 @@ let test_export =
         let b =
           Bundle.export ~source:f.source
             ~output:(Filename.concat f.root "second")
-            ~previous:f.bundle ~renames:[ "casey=renamed" ] ()
+            ~previous:f.bundle ()
         in
         check (field "uid" (entry b) = before) "changed UID" );
     ( "UUIDv5 matches the standard namespace algorithm",
@@ -253,13 +306,11 @@ let test_export =
           "uuid5" );
     ( "duplicate handle removes incomplete output",
       fun f ->
-        write (Filename.concat f.source "duplicate.yaml") raw;
+        write
+          (Filename.concat f.source "cards/duplicate.vcf")
+          (read (Filename.concat f.source "cards/uid.vcf"));
         rejects (fun () -> export f);
         check (not (exists f.bundle)) "incomplete export retained" );
-    ( "duplicate YAML key",
-      fun f ->
-        write (Filename.concat f.source "casey.yaml") (raw ^ "version: 2\n");
-        rejects (fun () -> export f) );
     ( "missing photo",
       fun f ->
         Unix.unlink (Filename.concat f.source "avatar.png");
@@ -278,7 +329,7 @@ let test_export =
     ( "snapshot corruption detected",
       fun f ->
         ignore (export f);
-        write (Filename.concat f.bundle "originals/casey.yaml") "bad";
+        write (Filename.concat f.bundle "originals/cards/uid.vcf") "bad";
         rejects (fun () -> Bundle.verify f.bundle) );
     ( "stripped annotation detected independently of checksums",
       fun f ->
@@ -289,12 +340,132 @@ let test_export =
         in
         let decoded, _ = Mapping.decode (Mapping.render props) in
         check (not (equal decoded f.c)) "lost identity ignored" );
-    ( "unknown top level field rejected",
-      fun f -> rejects (fun () -> encode f (set "unknown" (str "keep") f.c)) );
-    ( "unknown account rejected",
+    ( "unknown top level field retained",
+      fun f -> ignore (roundtrip f (set "unknown" (str "keep") f.c)) );
+    ( "unknown account retained",
       fun f ->
+        ignore (roundtrip f (set "accounts" (obj [ ("unknown", str "x") ]) f.c))
+    );
+    ( "future field paths and JSON values are validated",
+      fun f ->
+        let c = set "future" (obj [ ("nested", str "preserve") ]) f.c in
+        let props = Mapping.parse (roundtrip f c) in
+        let mutate fn = Mapping.render (replace "X-SORTAL-FIELD" fn props) in
         rejects (fun () ->
-            encode f (set "accounts" (obj [ ("unknown", str "x") ]) f.c)) );
+            Mapping.decode (mutate (fun p -> { p with value = "{bad" })));
+        rejects (fun () ->
+            Mapping.decode
+              (mutate (fun p ->
+                   {
+                     p with
+                     params = [ ("X-SORTAL-PATH", "%2Fnames") ];
+                     value = "[\"replacement\"]";
+                   })));
+        rejects (fun () ->
+            Mapping.decode (mutate (fun p -> { p with params = [] })));
+        let extension =
+          List.find (fun p -> p.Mapping.name = "X-SORTAL-FIELD") props
+        in
+        let duplicated =
+          List.concat_map
+            (fun p ->
+              if p.Mapping.name = "END" then [ extension; p ] else [ p ])
+            props
+        in
+        rejects (fun () -> Mapping.decode (Mapping.render duplicated));
+        let downgraded =
+          replace "X-SORTAL-MAPPING" (fun p -> { p with value = "3" }) props
+        in
+        rejects (fun () -> Mapping.decode (Mapping.render downgraded));
+        let known = Mapping.parse (roundtrip f f.c) in
+        List.iter
+          (fun version ->
+            eq f.c
+              (fst
+                 (Mapping.decode
+                    (Mapping.render
+                       (replace "X-SORTAL-MAPPING"
+                          (fun p -> { p with value = version })
+                          known)))))
+          [ "1"; "2"; "3" ] );
+    ( "pull preserves future fields and holds missing field paths",
+      fun f ->
+        let c = set "future" (obj [ ("nested", str "preserve") ]) f.c in
+        let old = roundtrip f c in
+        let merged = Pull.reconcile c c old (edited old) "uid" "store" in
+        eq (get "future" c) (get "future" merged);
+        let stripped =
+          Mapping.parse (edited old)
+          |> replace "X-SORTAL-FIELD" (fun p -> { p with params = [] })
+          |> Mapping.render
+        in
+        rejects (fun () -> Pull.reconcile c c old stripped "uid" "store") );
+    ( "future fields retain nested shapes, escaped paths and scalar types",
+      fun f ->
+        let extra =
+          obj
+            [
+              ( "0",
+                arr
+                  [
+                    `Null;
+                    `Bool false;
+                    `Float 1.25;
+                    str "semi;comma,slash\\\n雪";
+                    obj [];
+                    arr [];
+                  ] );
+            ]
+        in
+        let c =
+          f.c
+          |> set "future/~\";\n雪" extra
+          |> set "links"
+               (arr
+                  [
+                    obj
+                      [
+                        ("url", str "https://example.invalid");
+                        ("new/key", extra);
+                      ];
+                  ])
+          |> set "affiliations"
+               (arr [ obj [ ("org", str "Example"); ("new", extra) ] ])
+          |> set "accounts"
+               (obj
+                  [
+                    ("new/platform", extra);
+                    ( "atproto",
+                      obj
+                        [
+                          ("handle", str "example.invalid");
+                          ("apps", arr [ str "new-app" ]);
+                          ("new", extra);
+                        ] );
+                  ])
+          |> set "feeds"
+               (arr
+                  [
+                    obj
+                      [
+                        ("type", str "atom");
+                        ("url", str "https://example.invalid/feed");
+                        ("new", extra);
+                      ];
+                    obj
+                      [
+                        ("type", str "future");
+                        ("url", str "https://example.invalid/new");
+                        ("new", extra);
+                      ];
+                  ])
+        in
+        List.iter
+          (fun version -> ignore (roundtrip ~version f c))
+          [ "3.0"; "4.0" ];
+        put_source f c;
+        ignore (export f);
+        ignore (Bundle.verify ~source:f.source f.bundle) );
     ( "reordered properties retain list positions",
       fun f ->
         let props = Mapping.parse (encode f f.c) in
@@ -545,109 +716,6 @@ let test_pull =
           |> Mapping.render
         in
         rejects (fun () -> Pull.reconcile f.c f.c old newer "uid" "store") );
-    ( "YAML comments quotes and unknown fields",
-      fun _ ->
-        let raw =
-          "# context\n\
-           version: 2\n\
-           kind: person\n\
-           handle: \"casey\" # stable\n\
-           names:\n\
-          \  - Casey Example # full name\n\
-           custom: keep\n"
-        in
-        let value =
-          set "emails" (arr [ str "casey@example.invalid" ]) (yaml raw)
-        in
-        let after = Yaml_edit.update raw value in
-        eq (yaml after) value;
-        List.iter
-          (fun s -> check (contains after s) "lost source bytes")
-          [
-            "# context";
-            "handle: \"casey\" # stable";
-            "Casey Example # full name";
-          ] );
-    ( "YAML changed collection values keep comments",
-      fun _ ->
-        let raw =
-          "emails:\n\
-          \  - \"old@example.invalid\" # preferred\n\
-          \  - keep@example.invalid # retain this\n\
-           vcard:\n\
-          \  NOTE: \"Keep\" # context\n\
-          \  NICKNAME: Old # short name\n"
-        in
-        let c = yaml raw in
-        let c =
-          c
-          |> set "emails"
-               (arr [ str "new@example.invalid"; str "keep@example.invalid" ])
-          |> set "vcard" (set "NICKNAME" (str "New") (get "vcard" c))
-        in
-        let after = Yaml_edit.update raw c in
-        eq (yaml after) c;
-        List.iter
-          (fun s -> check (contains after s) "lost comment")
-          [ "# preferred"; "# retain this"; "# context"; "# short name" ] );
-    ( "YAML sequence insertion removal and empty collections",
-      fun _ ->
-        List.iter
-          (fun raw ->
-            List.iter
-              (fun values ->
-                let c = set "emails" (arr (List.map str values)) (yaml raw) in
-                let after = Yaml_edit.update raw c in
-                eq (yaml after) c;
-                check (contains after "# keep comment") "lost comment")
-              [ []; [ "new" ]; [ "new"; "keep" ]; [ "new"; "keep"; "added" ] ])
-          [
-            "emails:\n  - old # keep comment\n  - keep\nkind: person\n";
-            "kind: person\nemails:\n  - old # keep comment\n  - keep\n";
-            "emails: [old, keep] # keep comment\nkind: person\n";
-          ] );
-    ( "YAML mapping addition and removal preserve neighboring fields",
-      fun _ ->
-        let raw =
-          "vcard:\n\
-          \  NOTE: Keep # keep comment\n\
-          \  NICKNAME: Old # name comment\n\
-           kind: person\n"
-        in
-        let c = yaml raw in
-        List.iter
-          (fun fields ->
-            let c = set "vcard" (obj fields) c in
-            let after = Yaml_edit.update raw c in
-            eq (yaml after) c;
-            check
-              (contains after "# keep comment"
-              && contains after "# name comment")
-              "lost map comment")
-          [
-            [ ("NICKNAME", str "New") ];
-            [
-              ("NOTE", str "Keep"); ("NICKNAME", str "New"); ("TEL", str "123");
-            ];
-          ] );
-    ( "YAML literal scalar and CRLF updates",
-      fun _ ->
-        let raw =
-          "# context\r\n\
-           vcard:\r\n\
-          \  NOTE: |\r\n\
-          \    old text\r\n\
-          \    second line\r\n\
-          \  NICKNAME: Old # name\r\n\
-           kind: person\r\n"
-        in
-        let c = yaml raw in
-        let c = set "vcard" (set "NOTE" (str "New\\ntext") (get "vcard" c)) c in
-        let after = Yaml_edit.update raw c in
-        eq (yaml after) c;
-        check
-          (contains after "# context\r\n" && contains after "Old # name\r\n")
-          "changed line endings" );
     ( "passthrough grouped phones and labels",
       fun f ->
         let c =
@@ -718,7 +786,9 @@ let test_pull =
       fun f ->
         baseline_fixture f (fun _ _ _ _ snapshot ->
             let output, _ = prepare f snapshot in
-            write (Filename.concat f.source "casey.yaml") (raw ^ "# user edit\n");
+            write
+              (Filename.concat f.source "cards/uid.vcf")
+              (read (Filename.concat f.source "cards/uid.vcf") ^ "\r\n");
             rejects (fun () ->
                 Pull.apply ~dav:(mock_dav no_network) ~dry_run:false
                   ~username:"test" output)) );
@@ -757,8 +827,8 @@ let test_pull =
             put_source f local;
             let output, _ = prepare f snapshot in
             let common =
-              load_yaml
-                (Filename.concat output (field "uid" e ^ "/common.yaml"))
+              (fun p -> Bundle.contact (read p))
+                (Filename.concat output (field "uid" e ^ "/common.vcf"))
             in
             eq (get "names" common) (get "names" f.c);
             ignore
@@ -1042,7 +1112,8 @@ let test_remote =
           (number (get "create" (get "upload_counts" r)) = 1)
           "creation count";
         let fresh =
-          load_yaml (Filename.concat output "export/originals/casey.yaml")
+          (fun p -> Bundle.contact (read p))
+            (Filename.concat output "export/originals/cards/uid.vcf")
         in
         eq fresh c;
         check

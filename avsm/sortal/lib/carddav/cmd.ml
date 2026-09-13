@@ -99,27 +99,10 @@ let cmd =
       and+ output = output
       and+ previous =
         optional [ "previous" ]
-          "Previous export, required to preserve identities on re-export."
-      and+ renames =
-        Arg.(
-          value & opt_all string []
-          & info [ "rename" ] ~docv:"OLD=NEW"
-              ~doc:"Retain a UID across a handle rename.")
-      and+ as_of =
-        optional [ "as-of" ]
-          "Reference date recorded in the manifest; all affiliation history is \
-           exported."
-      and+ version =
-        Arg.(
-          value
-          & opt (enum [ ("3.0", "3.0"); ("4.0", "4.0") ]) "3.0"
-          & info [ "vcard-version" ]
-              ~doc:"vCard version (3.0 for maximum compatibility).")
+          "Previous native export to verify before taking a new snapshot."
       in
       guard (fun () ->
-          let m =
-            Bundle.export ?previous ~renames ?as_of ~version ~source ~output ()
-          in
+          let m = Bundle.export ?previous ~source ~output () in
           Printf.printf
             "Verified %d vCards and %d original files; no network operations.\n\
              %!"

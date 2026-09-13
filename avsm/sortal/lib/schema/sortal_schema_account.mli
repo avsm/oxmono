@@ -44,7 +44,7 @@ val app_url : atproto -> app -> string @@ portable
 (** [app_url a app] is the URL of [a]'s identity on [app]. *)
 
 val app_to_string : app -> string @@ portable
-(** [app_to_string app] is [app]'s name as it appears in YAML. *)
+(** [app_to_string app] is [app]'s name as it appears in the field mapping. *)
 
 val app_of_string : string -> app option @@ portable
 (** [app_of_string s] is the app [s] names, or [None]. *)

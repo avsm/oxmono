@@ -3,12 +3,25 @@
  (libraries sortal eio eio_main jsont jsont.bytesrw))
 
 (test
+ (name test_native_store)
+ (libraries sortal sortal.carddav eio_main unix alcotest jsont.bytesrw))
+
+(test
  (name test_schema)
  (libraries sortal.schema jsont jsont.bytesrw))
 
 (test
  (name test_feed)
- (libraries sortal.feed sortal.schema eio eio_main syndic jsonfeed xmlm uriz ptime))
+ (libraries
+  sortal.feed
+  sortal.schema
+  eio
+  eio_main
+  syndic
+  jsonfeed
+  xmlm
+  uriz
+  ptime))
 
 (test
  (name test_feed_sync)
@@ -19,14 +32,9 @@
  (libraries sortal.web sortal.schema proffer proffer.mock))
 
 (test
- (name test_migrate_golden)
- (deps (universe))
- (libraries sortal.schema yamlt jsont jsont.bytesrw bytesrw))
-
-(test
  (name test_opml)
  (libraries sortal.feed))
 
 (test
  (name test_carddav)
- (libraries sortal.carddav yamlrw base64 unix alcotest eio_main fetch.mock http))
+ (libraries sortal.carddav base64 unix alcotest eio_main fetch.mock http))

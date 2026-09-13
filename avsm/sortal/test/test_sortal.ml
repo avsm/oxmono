@@ -239,6 +239,12 @@ let test_links () =
   traceln "✓ Links field works correctly"
 
 let () =
+  let root = Filename.temp_file "sortal-test-" "" in
+  Unix.unlink root;
+  Unix.mkdir root 0o700;
+  List.iter (fun name -> (Unix.putenv [@alert "-unsafe_multidomain"]) name root)
+    [ "XDG_DATA_HOME"; "XDG_CONFIG_HOME"; "XDG_CACHE_HOME"; "XDG_STATE_HOME" ];
+  at_exit (fun () -> Sortal_carddav.Common.remove_tree root);
   traceln "\n=== Running Sortal Tests ===\n";
 
   test_contact_creation ();

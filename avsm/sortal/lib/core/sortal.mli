@@ -13,10 +13,8 @@
 
     {b Storage:}
 
-    Contact metadata is stored as YAML files in the XDG data directory,
-    with one file per contact using the handle as the filename. The YAML
-    format uses the same Jsont codec definitions as JSON for seamless
-    compatibility.
+    Contact metadata is stored as native vCards under [cards/], keyed by UID.
+    The schema exposes the contact fields used by Bushel and Arod.
 
     {b Typical Usage:}
 
@@ -25,9 +23,7 @@
       let contact = Sortal.Contact.make
         ~handle:"avsm"
         ~names:["Anil Madhavapeddy"]
-        ~email:"anil@recoil.org"
-        ~github:"avsm"
-        ~orcid:"0000-0002-7890-1234"
+        ~emails:["anil@recoil.org"]
         () in
       Sortal.save store contact;
 
@@ -41,10 +37,8 @@
 
     These modules define the data types and serialization formats.
     They are re-exported from {!Sortal_schema} for convenience.
-    For version-specific access, use [Sortal_schema.V1.*]. *)
+    Contacts are stored as native vCards. *)
 
-(** Temporal validity support for time-bounded contact fields. *)
-module Temporal = Sortal_schema.Temporal
 
 (** Feed subscription metadata. *)
 module Feed = Sortal_schema.Feed

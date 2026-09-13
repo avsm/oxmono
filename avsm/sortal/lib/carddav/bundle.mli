@@ -1,22 +1,14 @@
-(** Immutable local recovery bundles, compatible with the earlier manifests. *)
+(** Immutable snapshots of native vCard stores. *)
 
 val contact : string -> Common.value
-(** Parse YAML, reject duplicate keys, and validate with the native V2 schema.
-    The original generic tree is retained for losslessness checks. *)
+(** [contact raw] validates a native vCard and returns all annotated fields. *)
 
 val verify : ?source:string -> string -> Common.value
-(** Verify inventory, hashes, identity, all mapped fields and original photos.
-    With [source], compare every source file with its archived bytes too. *)
+(** [verify bundle] checks inventory, hashes, identity and embedded photos. With
+    [source], every archived file must match its current source bytes. *)
 
 val export :
-  ?previous:string ->
-  ?renames:string list ->
-  ?as_of:string ->
-  ?version:string ->
-  source:string ->
-  output:string ->
-  unit ->
-  Common.value
-(** Create a new private bundle. [previous] retains the store and contact UIDs;
-    [renames] are [OLD=NEW] bindings. A failed export removes only the output
-    created by this invocation. Source files are never changed. *)
+  ?previous:string -> source:string -> output:string -> unit -> Common.value
+(** [export ~source ~output ()] snapshots a native store without re-encoding
+    cards. UIDs live in the source cards. [previous] optionally verifies an
+    earlier native bundle. Failed exports remove their incomplete output. *)

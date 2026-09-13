@@ -12,4 +12,4 @@ val preview :
   unit ->
   Common.value
 (** Requires a read-only transport and new output directory. Retains existing
-    UIDs and journals, saves complete snapshots and reviewable YAML diffs. *)
+    UIDs and journals, saves complete snapshots and reviewable vCard diffs. *)

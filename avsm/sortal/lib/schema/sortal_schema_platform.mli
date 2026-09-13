@@ -38,7 +38,7 @@ val all : id list @@ portable
 (** [all] is every platform, in the order they are declared. *)
 
 val key : id -> string @@ portable
-(** [key id] is the YAML mapping key for [id]. Keys are unique across
+(** [key id] is the field mapping key for [id]. Keys are unique across
     platforms. *)
 
 val of_key : string -> id option @@ portable

@@ -56,7 +56,7 @@ let markdown report =
         (fun change ->
           "- "
           ^ cell (field "handle" change)
-          ^ ": [YAML diff](pull/"
+          ^ ": [vCard diff](pull/"
           ^ percent (field "uid" change)
           ^ "/changes.diff)")
         (items "changes" pull)
@@ -220,15 +220,15 @@ let preview ?collection ?previous ?seed ~dav ~source ~bundle ~username ~output
             write
               (Filename.concat directory "changes.diff")
               (diff (field "source" c)
-                 (read (Filename.concat directory "before.yaml"))
-                 (read (Filename.concat directory "after.yaml"))))
+                 (read (Filename.concat directory "before.vcf"))
+                 (read (Filename.concat directory "after.vcf"))))
           (items "changes" journal);
         obj
           [
             ("status", str "planned");
             ( "message",
               str
-                "Compared with the saved baseline; proposed YAML diffs are \
+                "Compared with the saved baseline; proposed vCard diffs are \
                  saved under pull/." );
             ( "local_updates",
               int

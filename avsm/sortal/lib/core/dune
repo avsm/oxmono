@@ -3,6 +3,7 @@
  (name sortal)
  (libraries
   sortal.schema
+  sortal.carddav
   immich
   immich.auth
   eio
@@ -11,7 +12,6 @@
   xdge
   jsont
   jsont.bytesrw
-  yamlt
   bytesrw
   fmt
   cmdliner

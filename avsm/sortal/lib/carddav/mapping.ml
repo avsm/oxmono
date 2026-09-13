@@ -151,7 +151,8 @@ let normalized_params ?(client = false) ?(annotations = true) p =
   p.params
   |> List.filter_map (fun (k, v) ->
       if
-        (client && List.mem k [ "X-SORTAL-PATH"; "PROP-ID" ])
+        client
+        && (k = "PROP-ID" || (k = "X-SORTAL-PATH" && p.name <> "X-SORTAL-FIELD"))
         || ((not annotations) && String.starts_with ~prefix:"X-SORTAL-" k)
       then None
       else
@@ -174,25 +175,101 @@ let signatures ?(client = false) props =
     props
   |> List.sort compare
 
+let pointer_key key =
+  String.concat "~1"
+    (String.split_on_char '/'
+       (String.concat "~0" (String.split_on_char '~' key)))
+
+let unpercent s =
+  let b = Buffer.create (String.length s) in
+  let rec loop i =
+    if i < String.length s then
+      if s.[i] = '%' then (
+        if i + 2 >= String.length s then fail "invalid encoded field path";
+        let n =
+          try int_of_string ("0x" ^ String.sub s (i + 1) 2)
+          with Failure _ -> fail "invalid encoded field path"
+        in
+        Buffer.add_char b (Char.chr n);
+        loop (i + 3))
+      else (
+        Buffer.add_char b s.[i];
+        loop (i + 1))
+  in
+  loop 0;
+  Buffer.contents b
+
+let contact_keys =
+  [
+    "version";
+    "kind";
+    "handle";
+    "names";
+    "emails";
+    "accounts";
+    "links";
+    "affiliations";
+    "photo";
+    "feeds";
+    "vcard";
+  ]
+
+let affiliation_keys =
+  [ "org"; "department"; "title"; "url"; "address"; "from"; "until" ]
+
+let feed_keys = [ "type"; "url"; "name"; "hint"; "paused" ]
+let known_platform key = Option.is_some (Sortal_schema.Platform.of_key key)
+let known_app s = List.mem s [ "bluesky"; "tangled"; "standard-site" ]
+
+let known_feed v =
+  let kind = field "type" v in
+  kind = "manual" || List.mem_assoc kind media_types
+
+(* Only this projection is passed through the closed native schema. Encoding
+   and verification always use the complete original tree. *)
+let known_contact contact =
+  let project keys v =
+    obj (List.filter (fun (k, _) -> List.mem k keys) (assoc v))
+  in
+  let map_field k f v =
+    match find k v with None -> v | Some x -> set k (f x) v
+  in
+  let atproto = function
+    | `O _ as v ->
+        project [ "handle"; "did"; "apps" ] v
+        |> map_field "apps" (fun apps ->
+            arr (List.filter (fun v -> known_app (string v)) (list apps)))
+    | v -> v
+  in
+  project contact_keys contact
+  |> map_field "links" (fun v ->
+      arr
+        (List.map
+           (function `O _ as x -> project [ "url"; "label" ] x | x -> x)
+           (list v)))
+  |> map_field "affiliations" (fun v ->
+      arr (List.map (project affiliation_keys) (list v)))
+  |> map_field "feeds" (fun v ->
+      arr (List.map (project feed_keys) (List.filter known_feed (list v))))
+  |> map_field "accounts" (fun v ->
+      obj
+        (List.filter_map
+           (fun (k, x) ->
+             if not (known_platform k) then None
+             else
+               Some
+                 ( k,
+                   if k <> "atproto" then x
+                   else
+                     match x with
+                     | `A xs -> arr (List.map atproto xs)
+                     | x -> atproto x ))
+           (assoc v)))
+
 let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
   if not (List.mem version [ "3.0"; "4.0" ]) then
     fail "unsupported vCard version";
   let v4 = version = "4.0" in
-  check_keys contact
-    [
-      "version";
-      "kind";
-      "handle";
-      "names";
-      "emails";
-      "accounts";
-      "links";
-      "affiliations";
-      "photo";
-      "feeds";
-      "vcard";
-    ]
-    "/";
   if number (get "version" contact) <> 2 then
     fail "this mapping requires Sortal V2";
   let props = ref [] and warnings = ref [] and next_group = ref 0 in
@@ -224,6 +301,16 @@ let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
         "URL normalized; original retained in grouped X-SORTAL-ORIGINAL-URL"
         :: !warnings)
   in
+  let extra path value =
+    add ~path:(percent path) "X-SORTAL-FIELD" (json_string value)
+  in
+  let extras value allowed path =
+    List.iter
+      (fun (key, value) ->
+        if not (List.mem key allowed) then
+          extra (path ^ "/" ^ pointer_key key) value)
+      (assoc value)
+  in
   let empty path value =
     match value with
     | `A [] ->
@@ -236,11 +323,12 @@ let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
   in
   add "BEGIN" "VCARD";
   add "VERSION" version;
-  add "X-SORTAL-MAPPING" "3";
+  add "X-SORTAL-MAPPING" "4";
   add ~params:(if v4 then [ ("VALUE", "text") ] else []) "UID" uid;
   add ~path:"/handle" "X-SORTAL-ID" (field "handle" contact);
   add "X-SORTAL-STORE" store_id;
   add ~path:"/version" "X-SORTAL-SCHEMA" "2";
+  extras contact contact_keys "";
   let names = List.map string (items "names" contact) in
   if names = [] || List.exists (( = ) "") names then
     fail "names must be nonempty strings";
@@ -285,7 +373,7 @@ let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
       let path = "/links/" ^ string_of_int i and group = group () in
       match link with
       | `O _ ->
-          check_keys link [ "url"; "label" ] path;
+          extras link [ "url"; "label" ] path;
           url ~path:(path ^ "/url") ~group "URL" (field "url" link);
           Option.iter
             (fun s -> add ~path:(path ^ "/label") ~group "X-ABLabel" (string s))
@@ -294,7 +382,7 @@ let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
     (items "links" contact);
   let atproto path g account =
     let is_obj = match account with `O _ -> true | _ -> false in
-    if is_obj then check_keys account [ "handle"; "did"; "apps" ] path;
+    if is_obj then extras account [ "handle"; "did"; "apps" ] path;
     let handle = if is_obj then field "handle" account else string account in
     let did = if is_obj then Option.map string (find "did" account) else None in
     let params =
@@ -313,7 +401,7 @@ let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
       (fun i app ->
         let app = string app and group = group () in
         add ~path:(path ^ "/apps/" ^ string_of_int i) ~group "X-ATPROTO-APP" app;
-        url ~group "URL" (app_url app handle);
+        if known_app app then url ~group "URL" (app_url app handle);
         add ~group "X-ABLabel" app)
       apps;
     if apps = [] then (
@@ -326,47 +414,48 @@ let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
     (fun accounts ->
       List.iter
         (fun (platform, values) ->
-          let path = "/accounts/" ^ platform in
-          let entries =
-            match values with
-            | `A xs ->
-                ignore (empty path values);
-                List.mapi (fun i v -> (path ^ "/" ^ string_of_int i, v)) xs
-            | x -> [ (path, x) ]
-          in
-          List.iter
-            (fun (path, value) ->
-              let g = group () in
-              if platform = "atproto" then atproto path g value
-              else
-                let handle = string value in
-                let params =
-                  [ ((if v4 then "SERVICE-TYPE" else "TYPE"), platform) ]
-                in
-                let params =
-                  if bad_param handle then (
-                    add ~group:g "X-SORTAL-USERNAME" handle;
-                    params)
-                  else
-                    params @ [ ((if v4 then "USERNAME" else "X-USER"), handle) ]
-                in
-                url ~path ~group:g ~params
-                  (if v4 then "SOCIALPROFILE" else "X-SOCIALPROFILE")
-                  (profile_url platform handle);
-                url ~group:g
-                  ~params:[ ("X-SORTAL-DERIVED", "profile") ]
-                  "URL"
-                  (profile_url platform handle);
-                add ~group:g "X-ABLabel" platform)
-            entries)
+          let path = "/accounts/" ^ pointer_key platform in
+          if not (known_platform platform) then extra path values
+          else
+            let entries =
+              match values with
+              | `A xs ->
+                  ignore (empty path values);
+                  List.mapi (fun i v -> (path ^ "/" ^ string_of_int i, v)) xs
+              | x -> [ (path, x) ]
+            in
+            List.iter
+              (fun (path, value) ->
+                let g = group () in
+                if platform = "atproto" then atproto path g value
+                else
+                  let handle = string value in
+                  let params =
+                    [ ((if v4 then "SERVICE-TYPE" else "TYPE"), platform) ]
+                  in
+                  let params =
+                    if bad_param handle then (
+                      add ~group:g "X-SORTAL-USERNAME" handle;
+                      params)
+                    else
+                      params
+                      @ [ ((if v4 then "USERNAME" else "X-USER"), handle) ]
+                  in
+                  url ~path ~group:g ~params
+                    (if v4 then "SOCIALPROFILE" else "X-SOCIALPROFILE")
+                    (profile_url platform handle);
+                  url ~group:g
+                    ~params:[ ("X-SORTAL-DERIVED", "profile") ]
+                    "URL"
+                    (profile_url platform handle);
+                  add ~group:g "X-ABLabel" platform)
+              entries)
         (assoc accounts))
     (find "accounts" contact);
   List.iteri
     (fun i a ->
       let path = "/affiliations/" ^ string_of_int i and group = group () in
-      check_keys a
-        [ "org"; "department"; "title"; "url"; "address"; "from"; "until" ]
-        path;
+      extras a affiliation_keys path;
       let dates =
         List.filter_map
           (fun k ->
@@ -402,10 +491,8 @@ let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
   List.iteri
     (fun i feed ->
       let path = "/feeds/" ^ string_of_int i and group = group () in
-      check_keys feed [ "type"; "url"; "name"; "hint"; "paused" ] path;
+      extras feed feed_keys path;
       let kind = field "type" feed in
-      if kind <> "manual" && not (List.mem_assoc kind media_types) then
-        fail "unmapped feed type";
       let params =
         [ ("X-FEED-TYPE", kind) ]
         @
@@ -541,7 +628,8 @@ let encode ?(version = "3.0") ~uid ~store_id ~originals contact =
 
 let decode data =
   let props = parse data in
-  if not (List.mem (only props "X-SORTAL-MAPPING").value [ "1"; "2"; "3" ]) then
+  let mapping = (only props "X-SORTAL-MAPPING").value in
+  if not (List.mem mapping [ "1"; "2"; "3"; "4" ]) then
     fail "unsupported Sortal mapping";
   let siblings p name =
     List.filter (fun q -> q.group = p.group && q.name = name) props
@@ -575,6 +663,10 @@ let decode data =
           (fun path ->
             let path, value =
               match p.name with
+              | "X-SORTAL-FIELD" ->
+                  if mapping <> "4" then
+                    fail "field extension requires mapping 4";
+                  (unpercent path, json (untext p.value))
               | "X-SORTAL-VCARD-KEY" ->
                   let key = untext p.value in
                   let original = property (key ^ ":") in
@@ -723,6 +815,17 @@ let decode data =
           (param p "X-SORTAL-PATH"))
       props
   in
+  List.iter
+    (fun p ->
+      if p.name = "X-SORTAL-FIELD" then (
+        let path = unpercent (required p "X-SORTAL-PATH") in
+        if path = "" then fail "field extension cannot replace the contact";
+        List.iter
+          (fun (other, _) ->
+            if String.starts_with ~prefix:(path ^ "/") other then
+              fail "overlapping extension field paths")
+          assignments))
+    props;
   let unpointer key =
     let b = Buffer.create (String.length key) in
     let rec loop i =

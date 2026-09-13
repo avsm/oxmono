@@ -36,13 +36,14 @@ type t = {
   photo : string option;
   feeds : Feed.t list;
   vcard : (string * string) list;
+  source : string option;
 }
 
 let make ~handle ~names ?(kind = Person) ?(emails = []) ?(accounts = [])
     ?(links = []) ?(affiliations = []) ?photo ?(feeds = []) ?(vcard = []) ()
     =
   { kind; handle; names; emails; accounts; links; affiliations; photo;
-    feeds; vcard }
+    feeds; vcard; source = None }
 
 let kind t = t.kind
 let handle t = t.handle
@@ -55,6 +56,8 @@ let affiliations t = t.affiliations
 let photo t = t.photo
 let feeds t = t.feeds
 let vcard t = t.vcard
+let source t = t.source
+let with_source t source = { t with source }
 
 let accounts_on t p =
   List.filter (fun a -> Account.platform a = p) t.accounts
@@ -183,10 +186,7 @@ let list_mem name codec get =
   Jsont.Object.mem name codec ~dec_absent:(fun () -> []) ~enc:get
     ~enc_omit:(fun v -> v = [])
 
-(* [Jsont.int] accepts a numeric JSON string as well as a number, so a file
-   with ["version": "2"] would decode. The migration tells a V1 file from a
-   V2 one by whether this decoder fails, so the check has to be strict about
-   the JSON type as well as the value. *)
+(* The field schema version must be a number, never a numeric string. *)
 let version_json =
   let dec meta f =
     if Float.is_integer f && int_of_float f = version then version
@@ -201,7 +201,7 @@ let json_t =
     (fun _v kind handle names emails accounts links affiliations photo feeds
          vcard ->
       { kind; handle; names; emails; accounts; links; affiliations; photo;
-        feeds; vcard })
+        feeds; vcard; source = None })
   |> mem "version" version_json ~enc:(fun _ -> version)
   |> mem "kind" kind_json ~enc:(fun c -> c.kind)
   |> mem "handle" Jsont.string ~enc:(fun c -> c.handle)

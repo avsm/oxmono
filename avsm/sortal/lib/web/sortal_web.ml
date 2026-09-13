@@ -60,7 +60,7 @@ let rebuild (c : Contact.t) ~names ~kind ~emails ~accounts ~links
     ~affiliations ~photo =
   Contact.make ~handle:(Contact.handle c) ~names ~kind ~emails ~accounts
     ~links ~affiliations ?photo ~feeds:(Contact.feeds c)
-    ~vcard:(Contact.vcard c) ()
+    ~vcard:(Contact.vcard c) () |> fun updated -> Contact.with_source updated (Contact.source c)
 
 let with_emails c emails =
   rebuild c ~names:(Contact.names c) ~kind:(Contact.kind c) ~emails

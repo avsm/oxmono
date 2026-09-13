@@ -1,0 +1,4 @@
+(executable
+ (name dooit_cli)
+ (public_name dooit)
+ (libraries dooit eio_main cmdliner fetch-curl))

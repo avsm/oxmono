@@ -1,0 +1,21 @@
+(library
+ (name dooit)
+ (public_name dooit)
+ (libraries
+  unix
+  eio
+  eio.unix
+  xdge
+  tomlt.bytesrw
+  yamlrw
+  jsont.bytesrw
+  frontmatter
+  digestif
+  ptime
+  fetch
+  fetch.dav
+  httpz.dav
+  jmap.eio
+  sqlite3
+  uunf
+  uucp))

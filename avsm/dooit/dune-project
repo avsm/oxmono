@@ -1,0 +1,14 @@
+(lang dune 3.21)
+(name dooit)
+(generate_opam_files true)
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(package
+ (name dooit)
+ (synopsis "Editable task notes with WebDAV synchronization and JMAP sources")
+ (depends
+  (ocaml (>= 5.1.0))
+  eio eio_main cmdliner xdge tomlt yamlrw jsont bytesrw frontmatter
+  digestif ptime fetch fetch-curl httpz jmap sqlite3 uunf uucp
+  (alcotest :with-test)))

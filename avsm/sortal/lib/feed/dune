@@ -1,5 +1,18 @@
 (library
  (name sortal_feed)
  (public_name sortal.feed)
- (libraries sortal.schema syndic jsonfeed fetch xdge
-            eio fmt logs ptime ptime.clock.os bytesrw uriz jsont xmlm))
+ (libraries
+  sortal.schema
+  syndic
+  jsonfeed
+  fetch
+  xdge
+  eio
+  fmt
+  logs
+  ptime
+  ptime.clock.os
+  bytesrw
+  uriz
+  jsont
+  xmlm))

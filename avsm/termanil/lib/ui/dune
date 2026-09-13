@@ -1,0 +1,12 @@
+(library
+ (name termanil_ui)
+ (public_name termanil.ui)
+ (allow_overlapping_dependencies)
+ (libraries
+  termanil.model
+  bonsai_term
+  bonsai
+  core
+  bonsai_term_components.text_editor)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))

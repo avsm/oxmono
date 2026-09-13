@@ -1,0 +1,28 @@
+(executable
+ (name termanil_cli)
+ (public_name termanil)
+ (modules termanil_cli)
+ (link_deps termanil_worker.exe)
+ (allow_overlapping_dependencies)
+ (libraries
+  termanil.ui
+  termanil.protocol
+  termanil.demo
+  async
+  core
+  core_unix.command_unix
+  core_unix.filename_unix)
+ (preprocess
+  (pps ppx_jane)))
+
+(executable
+ (name termanil_worker)
+ (public_name termanil-worker)
+ (modules termanil_worker)
+ (libraries termanil.backend termanil.protocol cmdliner))
+
+(rule
+ (alias runtest)
+ (deps termanil_cli.exe termanil_worker.exe)
+ (action
+  (run %{exe:termanil_cli.exe} --check-worker)))

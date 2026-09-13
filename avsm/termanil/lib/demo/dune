@@ -1,0 +1,4 @@
+(library
+ (name termanil_demo)
+ (public_name termanil.demo)
+ (libraries termanil.model))

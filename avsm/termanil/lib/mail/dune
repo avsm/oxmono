@@ -1,0 +1,4 @@
+(library
+ (name termanil_mail)
+ (public_name termanil.mail)
+ (libraries termanil.model jmap.eio ptime markup))

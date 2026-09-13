@@ -1,0 +1,44 @@
+; This ppx_expect runtime resolves source names relative to this directory.
+
+(library
+ (name termanil_ui_tests)
+ (modules test_ui test_model test_protocol)
+ (inline_tests
+  (flags
+   (-source-tree-root .)))
+ (allow_overlapping_dependencies)
+ (libraries
+  termanil.ui
+  termanil.model
+  termanil.demo
+  termanil.protocol
+  bonsai_term_test
+  bonsai_test
+  core)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))
+
+(library
+ (name termanil_backend_tests)
+ (modules test_backend test_mail test_workflow)
+ (inline_tests
+  (flags
+   (-source-tree-root .)))
+ (libraries
+  termanil.mail
+  termanil.contacts
+  termanil.tasks
+  termanil.backend
+  termanil.protocol
+  termanil.drafts
+  termanil.fake_jmap
+  termanil.demo
+  fetch.mock
+  eio_main
+  dooit
+  core)
+ (preprocess
+  (pps ppx_jane)))
+
+(cram
+ (deps ../bin/termanil_cli.exe ../bin/termanil_worker.exe))

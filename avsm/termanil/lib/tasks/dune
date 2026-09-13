@@ -1,0 +1,4 @@
+(library
+ (name termanil_tasks)
+ (public_name termanil.tasks)
+ (libraries termanil.model dooit ptime unix))

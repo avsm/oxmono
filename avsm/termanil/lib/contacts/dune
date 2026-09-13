@@ -1,0 +1,4 @@
+(library
+ (name termanil_contacts)
+ (public_name termanil.contacts)
+ (libraries termanil.model sortal.schema sortal.carddav dooit))

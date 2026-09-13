@@ -1,0 +1,6 @@
+(library
+ (name termanil_model)
+ (public_name termanil.model)
+ (libraries uunf uucp sexplib)
+ (preprocess
+  (pps ppx_sexp_conv)))

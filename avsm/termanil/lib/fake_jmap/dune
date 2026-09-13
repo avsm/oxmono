@@ -1,0 +1,4 @@
+(library
+ (name termanil_fake_jmap)
+ (public_name termanil.fake_jmap)
+ (libraries termanil.model termanil.demo dooit fetch.mock jmap.eio unix))

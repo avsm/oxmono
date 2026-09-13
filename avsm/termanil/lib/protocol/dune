@@ -1,0 +1,4 @@
+(library
+ (name termanil_protocol)
+ (public_name termanil.protocol)
+ (libraries termanil.model sexplib))

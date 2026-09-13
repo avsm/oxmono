@@ -1,0 +1,19 @@
+(library
+ (name termanil_backend)
+ (public_name termanil.backend)
+ (libraries
+  termanil.model
+  termanil.drafts
+  termanil.fake_jmap
+  termanil.demo
+  termanil.mail
+  termanil.contacts
+  termanil.tasks
+  eio_main
+  eio.unix
+  xdge
+  tomlt.bytesrw
+  fetch-curl
+  dooit
+  sortal.carddav
+  jmap.eio))

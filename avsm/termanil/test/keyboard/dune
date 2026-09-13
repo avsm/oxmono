@@ -1,0 +1,15 @@
+(library
+ (name termanil_keyboard_tests)
+ (inline_tests
+  (flags
+   (-source-tree-root .)))
+ (allow_overlapping_dependencies)
+ (libraries
+  termanil.ui
+  termanil.model
+  termanil.demo
+  bonsai_term_test
+  bonsai_test
+  core)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))

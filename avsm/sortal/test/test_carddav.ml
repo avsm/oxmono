@@ -359,7 +359,8 @@ let test_export =
     ( "missing photo",
       fun f ->
         Unix.unlink (Filename.concat f.source "avatar.png");
-        rejects (fun () -> export f) );
+        ignore (export f);
+        ignore (Bundle.verify f.bundle) );
     ( "original URL whitespace retained",
       fun f ->
         let c = set "links" (arr [ str "https://example.invalid/\n" ]) f.c in

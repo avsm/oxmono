@@ -18,7 +18,9 @@ let verify ?source bundle =
     fail "snapshot inventory differs from manifest";
   Option.iter
     (fun source ->
-      if inventory source <> names then fail "source file inventory changed")
+      let present = inventory source in
+      if not (List.for_all (fun name -> List.mem name names) present) then
+        fail "source file inventory changed")
     source;
   List.iter
     (fun (name, entry) ->
@@ -29,11 +31,12 @@ let verify ?source bundle =
       then fail "snapshot checksum mismatch: %s" name;
       Option.iter
         (fun source ->
-          if read (safe_path source name) <> raw then
+          if exists (safe_path source name) && read (safe_path source name) <> raw then
             fail "source differs from snapshot: %s" name)
         source)
     files;
   let seen = Hashtbl.create 512 and handles = Hashtbl.create 512 in
+  let photo_names = Hashtbl.create 128 in
   let cards =
     List.map
       (fun entry ->
@@ -52,6 +55,8 @@ let verify ?source bundle =
         if one "X-SORTAL-ID" <> handle then fail "Sortal handle mismatch";
         let raw = read (safe_path originals (field "source" entry)) in
         let c = contact raw in
+        List.iter (fun (name, _) -> Hashtbl.replace photo_names name ())
+          (snd (Mapping.decode raw));
         let normalized = Mapping.without_store raw in
         if Document.edit ~originals raw (Document.contact raw) <> normalized
         then fail "typed contact round-trip changed the vCard";
@@ -69,12 +74,22 @@ let verify ?source bundle =
         data)
       (items "contacts" manifest)
   in
+  Option.iter
+    (fun source ->
+      let present = inventory source in
+      List.iter
+        (fun name ->
+          if not (List.mem name present) && not (Hashtbl.mem photo_names name)
+          then fail "snapshot omitted a non-photo source file: %s" name)
+        names)
+    source;
   if read (Filename.concat bundle "contacts.vcf") <> String.concat "" cards then
     fail "combined vCard file differs";
   manifest
 
 let export ?previous ~source ~output () =
   let source = absolute source and output = absolute output in
+  mkdir (Filename.dirname output);
   fresh output;
   separate output [ source ];
   let store_id = Store.identity source in
@@ -94,7 +109,7 @@ let export ?previous ~source ~output () =
     let originals = Filename.concat output "originals" in
     Unix.mkdir originals 0o700;
     Unix.mkdir (Filename.concat output "cards") 0o700;
-    let file_entries =
+    let file_entries = ref (
       List.map
         (fun name ->
           let src = safe_path source name in
@@ -110,8 +125,27 @@ let export ?previous ~source ~output () =
               [
                 ("bytes", int (String.length raw)); ("sha256", str (digest raw));
               ] ))
-        files
+        files)
     in
+    List.iter
+      (fun name ->
+        let raw = read (safe_path source name) in
+        List.iter
+          (fun (photo, bytes) ->
+            let dst = safe_path originals photo in
+            if not (exists dst) then (
+              mkdir (Filename.dirname dst);
+              write dst bytes;
+              file_entries :=
+                ( photo,
+                  obj
+                    [
+                      ("bytes", int (String.length bytes));
+                      ("sha256", str (digest bytes));
+                    ] )
+                :: !file_entries))
+          (snd (Mapping.decode raw)))
+      contact_files;
     let handles = Hashtbl.create 512 and cards = Buffer.create 4096 in
     let contacts =
       List.map
@@ -146,7 +180,7 @@ let export ?previous ~source ~output () =
           ("store_id", str store_id);
           ("as_of", str (today ()));
           ("source", str source);
-          ("files", obj file_entries);
+          ("files", obj !file_entries);
           ("contacts", arr contacts);
         ]
     in

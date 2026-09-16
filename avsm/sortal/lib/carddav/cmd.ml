@@ -125,7 +125,9 @@ let cmd =
           "Previous native export to verify before taking a new snapshot."
       in
       guard (fun () ->
-          let source, _, output, _, _, _ = settings ?source ?output () in
+          let c = configured () in
+          let source = setting source (Sortal_config.data_dir ()) in
+          let output = setting output c.bundle in
           let m = Bundle.export ?previous ~source ~output () in
           Printf.printf
             "Verified %d vCards and %d original files; no network operations.\n\

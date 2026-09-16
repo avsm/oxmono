@@ -16,7 +16,14 @@ CardDAV connection defaults are stored in
 `$XDG_CONFIG_HOME/sortal/config.toml` under `[carddav]`. The password is kept
 in the configured `password_file`, which `sortal init` creates beside the
 configuration with mode `0600`. CardDAV command options override configured
-values. Bundle and report paths default to `$XDG_STATE_HOME/sortal/carddav`.
+values. The baseline bundle defaults to `.sortal/carddav/bundle` inside the
+versioned Sortal data directory. Reports remain under XDG state because they
+are generated views rather than synchronization state.
+
+This makes the baseline part of the local Sortal Git repository. Pull the
+repository before a CardDAV preview or apply, and commit the resulting cards
+and `.sortal/carddav/bundle` together after a successful operation. Passwords
+and reports remain machine-local.
 
 The one-off migration preserves the store UUID and every existing contact UID.
 It retains the complete original store, including comments, source formatting,

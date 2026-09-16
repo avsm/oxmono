@@ -311,7 +311,7 @@ let test_export =
           lines;
         let m = export f in
         ignore (Bundle.verify ~source:f.source f.bundle);
-        check (List.length (assoc (get "files" m)) = 6) "archive inventory";
+        check (List.length (assoc (get "files" m)) = 5) "archive inventory";
         check
           (read (Filename.concat f.bundle "originals/cards/uid.vcf")
           = read (Filename.concat f.source "cards/uid.vcf"))
@@ -321,12 +321,12 @@ let test_export =
       fun f -> ignore (roundtrip ~version:"4.0" f f.c) );
     ( "archive preserves file permissions and timestamps",
       fun f ->
-        let path = Filename.concat f.source ".git/HEAD" in
+      let path = Filename.concat f.source "feeds/annotations.json" in
         Unix.chmod path 0o770;
         Unix.utimes path 1_700_000_000. 1_700_000_001.;
         ignore (export f);
         let archived =
-          Unix.stat (Filename.concat f.bundle "originals/.git/HEAD")
+          Unix.stat (Filename.concat f.bundle "originals/feeds/annotations.json")
         in
         check
           (archived.st_perm = 0o770 && archived.st_mtime = 1_700_000_001.)

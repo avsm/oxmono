@@ -85,7 +85,8 @@ let separate output protected =
   List.iter
     (fun p ->
       let p = absolute p in
-      if under ~root:p output || under ~root:output p then
+      let internal = under ~root:(Filename.concat p ".sortal") output in
+      if (under ~root:p output || under ~root:output p) && not internal then
         fail "output must be outside the source and saved contact/journal trees")
     protected
 
@@ -145,7 +146,9 @@ let inventory root =
     | Unix.S_DIR ->
         Sys.readdir path |> Array.to_list |> List.sort String.compare
         |> List.concat_map (fun n ->
-            walk (if relative = "" then n else relative ^ "/" ^ n))
+            if relative = "" &&
+               (n = ".sortal" || n = ".git" || n = ".sortal.lock") then []
+            else walk (if relative = "" then n else relative ^ "/" ^ n))
     | _ -> fail "cannot archive special file or symlink: %s" path
   in
   walk "" |> List.sort String.compare

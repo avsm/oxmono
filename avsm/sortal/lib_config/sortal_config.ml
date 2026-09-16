@@ -43,7 +43,6 @@ let xdg_data_home () =
 let config_dir () = Filename.concat (xdg_config_home ()) "sortal"
 let config_file () = Filename.concat (config_dir ()) "config.toml"
 let data_dir () = Filename.concat (xdg_data_home ()) "sortal"
-
 let state_dir () =
   match Sys.getenv_opt "XDG_STATE_HOME" with
   | Some dir -> dir
@@ -63,7 +62,7 @@ let default () =
         username = "";
         password_file = Filename.concat (config_dir ()) "carddav-password";
         collection = None;
-        bundle = Filename.concat (state_dir ()) "sortal/carddav/bundle";
+        bundle = Filename.concat (data_dir ()) ".sortal/carddav/bundle";
         report = Filename.concat (state_dir ()) "sortal/carddav/report";
       };
   }
@@ -160,7 +159,7 @@ bundle = %S
 report = %S
 |}
     (Filename.concat (config_dir ()) "carddav-password")
-    (Filename.concat (state_dir ()) "sortal/carddav/bundle")
+    (Filename.concat (data_dir ()) ".sortal/carddav/bundle")
     (Filename.concat (state_dir ()) "sortal/carddav/report")
 
 let write_default_config ?(force = false) () =

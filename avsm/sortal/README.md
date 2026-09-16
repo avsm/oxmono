@@ -65,6 +65,24 @@ dune exec -- sortal carddav verify \
 See [storage and CardDAV workflows](spec/carddav-migration.md) for mappings,
 dry runs and the current synchronization limits.
 
+The configured baseline lives at `.sortal/carddav/bundle` inside the Sortal
+data repository, so it can be reviewed and synchronized with Git along with
+the cards. Reports stay in XDG state and are machine-local. A typical
+multi-machine cycle is:
+
+```sh
+git -C ~/.local/share/sortal pull --ff-only
+dune exec -- sortal carddav sync --dry-run
+# inspect the report, then run the explicit seed/pull operation you intend
+git -C ~/.local/share/sortal add cards .sortal/carddav/bundle
+git -C ~/.local/share/sortal commit -m 'Sync contacts with CardDAV'
+git -C ~/.local/share/sortal push
+```
+
+Do not commit the configured app-password file. Each machine keeps its own
+password and report directory; Git carries the cards and their common
+CardDAV baseline.
+
 ```sh
 dune build @avsm/sortal/all
 dune runtest avsm/sortal --force

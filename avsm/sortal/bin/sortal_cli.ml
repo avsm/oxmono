@@ -81,19 +81,29 @@ let () =
     | Error e -> Printf.eprintf "Config error: %s\n" e; 1
     | Ok config ->
       let data_dir = Xdge.data_dir xdg |> Eio.Path.native_exn in
-      let sync_config = match remote_override with
-        | Some r -> { config.Sortal_config.sync with Gitops.Sync.Config.remote = r }
-        | None -> config.Sortal_config.sync
+      let git = Gitops.v ~dry_run env in
+      let repo = Eio.Path.(env#fs / data_dir) in
+      let configured = config.Sortal_config.sync in
+      let remote = match remote_override with
+        | Some r -> Some r
+        | None when configured.Gitops.Sync.Config.remote <> "" ->
+          Some configured.Gitops.Sync.Config.remote
+        | None -> Gitops.remote_url git ~repo ~remote:"origin"
       in
-      if sync_config.Gitops.Sync.Config.remote = "" then begin
-        Printf.eprintf "Error: No sync remote configured.\n";
-        Printf.eprintf "Add to ~/.config/sortal/config.toml:\n";
-        Printf.eprintf "  [sync]\n";
-        Printf.eprintf "  remote = \"ssh://server/path/to/repo.git\"\n";
-        Printf.eprintf "\nOr use --remote URL\n"; 1
-      end else
-        let git = Gitops.v ~dry_run env in
-        let repo = Eio.Path.(env#fs / data_dir) in
+      match remote with
+      | None ->
+        Printf.eprintf "Error: no sync remote configured and no Git origin exists.\n";
+        Printf.eprintf "Set [sync].remote in ~/.config/sortal/config.toml or use --remote URL.\n";
+        1
+      | Some remote ->
+        let branch = match Gitops.current_branch git ~repo with
+          | Some branch -> branch
+          | None -> configured.Gitops.Sync.Config.branch
+        in
+        let sync_config = { configured with
+          Gitops.Sync.Config.remote = remote;
+          branch;
+        } in
         f git repo sync_config
   in
 
@@ -120,21 +130,15 @@ let () =
       and+ log_level = Logs_cli.level () in
       Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
       Logs.set_level log_level;
-      with_git_remote xdg env ~dry_run ~remote_override (fun git repo _sync_config ->
-        Gitops.fetch git ~repo ~remote:"origin";
-        match Gitops.current_branch git ~repo with
-        | None ->
-          Printf.eprintf "Error: not on any branch (detached HEAD)\n"; 1
-        | Some branch ->
-          let local_head = Gitops.rev_parse_opt git ~repo "HEAD" in
-          let remote_ref = "origin/" ^ branch in
-          let remote_head = Gitops.rev_parse_opt git ~repo remote_ref in
-          if local_head = remote_head then begin
-            Printf.printf "Already up to date.\n"; 0
-          end else begin
-            Gitops.merge git ~repo ~ref_:remote_ref;
-            Printf.printf "Merged changes from %s\n" remote_ref; 0
-          end)
+      with_git_remote xdg env ~dry_run ~remote_override (fun git repo sync_config ->
+        let pulled = Gitops.Sync.pull git ~config:sync_config ~repo in
+        if pulled then
+          Printf.printf "%s changes from %s/%s.\n"
+            (if dry_run then "Would pull" else "Pulled")
+            sync_config.Gitops.Sync.Config.remote sync_config.branch
+        else
+          Printf.printf "Already up to date.\n";
+        0)
     in
     let doc = "Fetch and merge changes from remote." in
     let man = [
@@ -185,9 +189,12 @@ let () =
       and+ log_level = Logs_cli.level () in
       Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
       Logs.set_level log_level;
-      with_git_remote xdg env ~dry_run ~remote_override (fun git repo _sync_config ->
-        Gitops.push git ~repo ~remote:"origin";
-        Printf.printf "Pushed to remote\n";
+      with_git_remote xdg env ~dry_run ~remote_override (fun git repo sync_config ->
+        let pushed = Gitops.Sync.push git ~config:sync_config ~repo () in
+        if pushed then Printf.printf "%s to %s/%s.\n"
+          (if dry_run then "Would push" else "Pushed")
+          sync_config.Gitops.Sync.Config.remote sync_config.branch
+        else Printf.printf "Already up to date.\n";
         0)
     in
     let doc = "Push commits to remote." in

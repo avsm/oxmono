@@ -25,6 +25,12 @@ repository before a CardDAV preview or apply, and commit the resulting cards
 and `.sortal/carddav/bundle` together after a successful operation. Passwords
 and reports remain machine-local.
 
+The `sortal git pull` and `sortal git push` commands use `[sync].remote` when
+present; otherwise they use the repository's existing `origin`. This allows a
+repository configured once with ordinary Git to be synchronized without
+duplicating its remote URL in Sortal configuration. Push follows the checked
+out branch and auto-commits according to the sync settings.
+
 The one-off migration preserves the store UUID and every existing contact UID.
 It retains the complete original store, including comments, source formatting,
 photos, caches, uncommitted changes and Git history, in a separate backup.

@@ -71,12 +71,11 @@ the cards. Reports stay in XDG state and are machine-local. A typical
 multi-machine cycle is:
 
 ```sh
-git -C ~/.local/share/sortal pull --ff-only
+dune exec -- sortal git pull
 dune exec -- sortal carddav sync --dry-run
 # inspect the report, then run the explicit seed/pull operation you intend
-git -C ~/.local/share/sortal add cards .sortal/carddav/bundle
-git -C ~/.local/share/sortal commit -m 'Sync contacts with CardDAV'
-git -C ~/.local/share/sortal push
+dune exec -- sortal git commit -m 'Sync contacts with CardDAV'
+dune exec -- sortal git push
 ```
 
 Do not commit the configured app-password file. Each machine keeps its own

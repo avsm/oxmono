@@ -5,8 +5,8 @@
 
 (** Sortal configuration management with XDG paths
 
-    Configuration is loaded from [~/.config/sortal/config.toml] by default,
-    with support for environment variable overrides via [XDG_CONFIG_HOME].
+    Configuration is loaded from [~/.config/sortal/config.toml] by default, with
+    support for environment variable overrides via [XDG_CONFIG_HOME].
 
     {1 Example config.toml}
 
@@ -16,14 +16,29 @@
     branch = "main"
     auto_commit = true
     commit_message = "sync"
+
+    [carddav]
+    server = "https://carddav.fastmail.com/"
+    username = "me@example.com"
+    password_file = "~/.config/sortal/carddav-password"
+    collection = ""
+    bundle = "~/.local/state/sortal/carddav/bundle"
+    report = "~/.local/state/sortal/carddav/report"
     v} *)
 
 (** {1 Types} *)
 
-type t = {
-  sync : Gitops.Sync.Config.t;
-}
+type t = { sync : Gitops.Sync.Config.t; carddav : carddav }
 (** Complete sortal configuration. *)
+
+and carddav = {
+  server : string;
+  username : string;
+  password_file : string;
+  collection : string option;
+  bundle : string;
+  report : string;
+}
 
 (** {1 XDG Paths} *)
 
@@ -48,8 +63,8 @@ val default : unit -> t
 (** Return the default configuration. *)
 
 val load : unit -> (t, string) result
-(** Load configuration from the default config file.
-    Returns default config if file doesn't exist. *)
+(** Load configuration from the default config file. Returns default config if
+    file doesn't exist. *)
 
 val load_file : string -> (t, string) result
 (** Load configuration from a specific file path. *)
@@ -68,6 +83,6 @@ val default_config_toml : unit -> string
 (** Generate a default config.toml content with comments. *)
 
 val write_default_config : ?force:bool -> unit -> (string, string) result
-(** Write a default config file to the config directory.
-    Returns [Ok path] on success, or [Error msg] if the file exists
-    and [force] is not set, or if writing fails. *)
+(** Write a default config file to the config directory. Returns [Ok path] on
+    success, or [Error msg] if the file exists and [force] is not set, or if
+    writing fails. *)

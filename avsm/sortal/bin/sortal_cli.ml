@@ -357,6 +357,8 @@ let () =
         Printf.printf "Created config file: %s\n" path;
         Printf.printf "\nEdit this file to configure:\n";
         Printf.printf "  - Git sync remote URL\n";
+        Printf.printf "  - CardDAV account and collection\n";
+        Printf.printf "  - Put the app password in the generated carddav-password file\n";
         Printf.printf "  - Branch name and commit message\n";
         0
     in

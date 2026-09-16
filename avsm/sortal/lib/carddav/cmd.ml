@@ -8,29 +8,27 @@ let required names doc =
 let optional names doc =
   Arg.(value & opt (some string) None & info names ~docv:"VALUE" ~doc)
 
-let source = required [ "source" ] "Current Sortal root."
+let source =
+  optional [ "source" ] "Current Sortal root (defaults to the XDG data root)."
 
 let bundle =
-  required [ "bundle" ]
-    "Export bundle retaining stable Sortal/CardDAV identities."
+  optional [ "bundle" ]
+    "Export bundle (defaults to the configured CardDAV state directory)."
 
 let output =
-  required [ "output" ] "New private output directory outside the source."
+  optional [ "output" ]
+    "Report directory (defaults to the configured CardDAV state directory)."
 
 let report =
-  required [ "report" ] "New private report directory outside the source."
+  optional [ "report" ]
+    "Report directory (defaults to the configured CardDAV state directory)."
 
-let username = required [ "username" ] "CardDAV account login."
+let username = optional [ "username" ] "CardDAV account login."
 
 let password_file =
-  required [ "password-file" ] "File containing the account app password."
+  optional [ "password-file" ] "File containing the account app password."
 
-let server =
-  Arg.(
-    value
-    & opt string Remote.default_server
-    & info [ "server" ] ~docv:"URL"
-        ~doc:"HTTPS CardDAV origin or discovery endpoint (default: Fastmail).")
+let server = optional [ "server" ] "HTTPS CardDAV origin or discovery endpoint."
 
 let collection =
   optional [ "collection" ] "Full address-book URL when discovery is ambiguous."
@@ -58,6 +56,30 @@ let apply =
     & info [ "apply" ]
         ~doc:"Apply the explicitly selected seed or pull operation.")
 
+let configured () =
+  match Sortal_config.load () with
+  | Ok c -> c.Sortal_config.carddav
+  | Error e -> fail "invalid Sortal configuration: %s" e
+
+let expand path =
+  if String.starts_with ~prefix:"~/" path then
+    match Sys.getenv_opt "HOME" with
+    | Some home ->
+        Filename.concat home (String.sub path 2 (String.length path - 2))
+    | None -> path
+  else path
+
+let setting value default = expand (Option.value value ~default)
+
+let settings ?source ?bundle ?output ?server ?username ?password_file () =
+  let c = configured () in
+  ( setting source (Sortal_config.data_dir ()),
+    setting bundle c.bundle,
+    setting output c.report,
+    setting server c.server,
+    setting username c.username,
+    setting password_file c.password_file )
+
 let guard f =
   try
     f ();
@@ -71,6 +93,7 @@ let guard f =
       1
 
 let with_dav ~server ~username ~password_file ~readonly f =
+  if username = "" then fail "CardDAV username is not configured";
   let password = Remote.password password_file in
   Eio.Switch.run (fun sw ->
       let fetch =
@@ -102,6 +125,7 @@ let cmd =
           "Previous native export to verify before taking a new snapshot."
       in
       guard (fun () ->
+          let source, _, output, _, _, _ = settings ?source ?output () in
           let m = Bundle.export ?previous ~source ~output () in
           Printf.printf
             "Verified %d vCards and %d original files; no network operations.\n\
@@ -122,7 +146,8 @@ let cmd =
           "Also compare every original file with the current Sortal root."
       in
       guard (fun () ->
-          let m = Bundle.verify ?source bundle in
+          let source, bundle, _, _, _, _ = settings ?source ?bundle () in
+          let m = Bundle.verify ~source bundle in
           Printf.printf "Verified %d vCards and %d original files.\n%!"
             (List.length (items "contacts" m))
             (List.length (assoc (get "files" m))))
@@ -146,6 +171,14 @@ let cmd =
       and+ seed = seed
       and+ _dry_run = dry_run in
       guard (fun () ->
+          let source, bundle, output, server, username, password_file =
+            settings ?source ?bundle ?output ?server ?username ?password_file ()
+          in
+          let collection =
+            Option.value collection
+              ~default:(Option.value (configured ()).collection ~default:"")
+          in
+          let collection = if collection = "" then None else Some collection in
           with_dav ~server ~username ~password_file ~readonly:true (fun dav ->
               counts
                 (Sync.preview ?collection ?previous ?seed ~dav ~source ~bundle
@@ -180,6 +213,14 @@ let cmd =
       and+ dry_run = dry_run
       and+ apply = apply in
       guard (fun () ->
+          let _, bundle, report, server, username, password_file =
+            settings ?bundle ?server ?username ?password_file ()
+          in
+          let collection =
+            Option.value collection
+              ~default:(Option.value (configured ()).collection ~default:"")
+          in
+          let collection = if collection = "" then None else Some collection in
           if dry_run && apply then
             fail "--dry-run and --apply cannot be combined";
           with_dav ~server ~username ~password_file ~readonly:(not apply)
@@ -215,6 +256,9 @@ let cmd =
           "Server inspection report containing the fetched cards."
       in
       guard (fun () ->
+          let source, bundle, output, _, _, _ =
+            settings ?source ?bundle ?output ()
+          in
           let r =
             Pull.prepare ?previous ?seed ~bundle ~snapshot ~source ~output ()
           in
@@ -240,12 +284,21 @@ let cmd =
       and+ dry_run = dry_run
       and+ apply = apply in
       guard (fun () ->
+          let ( _,
+                _,
+                _,
+                configured_server,
+                configured_username,
+                configured_password ) =
+            settings ?server ?username ?password_file ()
+          in
+          let server = Option.value server ~default:configured_server in
+          let username = Option.value username ~default:configured_username in
+          let password_file =
+            Option.value password_file ~default:configured_password
+          in
           if dry_run && apply then
             fail "--dry-run and --apply cannot be combined";
-          let r = load_json (Filename.concat journal "report.json") in
-          let server =
-            Option.value ~default:(field "href" (get "book" r)) server
-          in
           with_dav ~server ~username ~password_file ~readonly:true (fun dav ->
               let result =
                 Pull.apply ~dav ~dry_run:(not apply) ~username journal

@@ -36,6 +36,11 @@ store. Reading through `Sortal.Store.create` uses XDG configuration.
 `Sortal.Store.create_at fs path` opens an explicit path without creating
 other application directories.
 
+CardDAV settings live in `~/.config/sortal/config.toml` under `[carddav]`.
+`sortal init` creates the adjacent `carddav-password` file with mode `0600`.
+Put the Fastmail app password there. CardDAV commands use these settings by
+default, while command-line options override them.
+
 ```ocaml
 let store = Sortal.Store.create env#fs "sortal" in
 let contact = Sortal.Contact.make

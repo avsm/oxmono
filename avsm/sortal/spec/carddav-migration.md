@@ -12,6 +12,12 @@ materialization under the XDG cache directory. A local photo file may be
 removed once its bytes are represented in the card. Unreferenced legacy assets
 remain separate files until explicitly cleaned up.
 
+CardDAV connection defaults are stored in
+`$XDG_CONFIG_HOME/sortal/config.toml` under `[carddav]`. The password is kept
+in the configured `password_file`, which `sortal init` creates beside the
+configuration with mode `0600`. CardDAV command options override configured
+values. Bundle and report paths default to `$XDG_STATE_HOME/sortal/carddav`.
+
 The one-off migration preserves the store UUID and every existing contact UID.
 It retains the complete original store, including comments, source formatting,
 photos, caches, uncommitted changes and Git history, in a separate backup.

@@ -3,6 +3,7 @@
  (public_name sortal.carddav)
  (libraries
   sortal.schema
+  sortal.config
   jsont
   jsont.bytesrw
   bytesrw

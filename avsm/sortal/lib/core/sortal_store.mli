@@ -93,10 +93,11 @@ val list : t -> Contact.t list
 
 val thumbnail_path : t -> Contact.t -> Eio.Fs.dir_ty Eio.Path.t option
 (** [thumbnail_path t contact] returns the absolute filesystem path to the
-    contact's thumbnail.
+    contact's thumbnail, materializing an embedded card photo in the XDG cache
+    when needed.
 
-    Returns [None] if the contact has no thumbnail set, or [Some path] with the
-    full path to the thumbnail file in Sortal's data directory.
+    Returns [None] if the contact has no local thumbnail set, or [Some path]
+    with the full path to the cached image file.
 
     @param t The Sortal store
     @param contact The contact whose thumbnail path to retrieve *)

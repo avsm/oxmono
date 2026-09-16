@@ -9,7 +9,7 @@ The default store is `~/.local/share/sortal`, or `$XDG_DATA_HOME/sortal`:
 ```
 store.json          local sync identity and storage format version
 cards/<uid>.vcf     one contact per stable UID
-*.png, *.jpg, ...   existing photo assets
+*.png, *.jpg, ...   legacy or unreferenced photo assets
 feeds/              existing feed caches and annotations
 .git/               optional local version history
 ```
@@ -17,6 +17,9 @@ feeds/              existing feed caches and annotations
 `UID` identifies a contact across stores. The store UUID stays in local
 `store.json` and sync journals, never in the cards. `X-SORTAL-ID` carries the
 handle. Renaming a handle keeps the UID and filename.
+Embedded card photos are authoritative. Sortal materializes them beneath the
+XDG cache directory when a caller needs a file path. Loose files in the data
+directory are retained only when they are not referenced by a card.
 Standard fields use compatible vCard properties. Additional metadata uses
 individual properties, including `X-SORTAL-FIELD` for future fields. No whole
 contact payload is embedded. Typed edits retain unknown fields, parameters

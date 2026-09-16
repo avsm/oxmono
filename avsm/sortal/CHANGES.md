@@ -1,5 +1,8 @@
 # Changes
 
+Treat embedded vCard photos as authoritative and materialize them in the XDG
+cache for file-based callers.
+
 Keep store identity in local sync metadata. Cards use their UID and no longer
 carry or require X-SORTAL-STORE.
 

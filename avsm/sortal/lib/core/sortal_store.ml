@@ -5,18 +5,26 @@
 
 module Contact = Sortal_schema.Contact
 
-type t = { data_dir : Eio.Fs.dir_ty Eio.Path.t }
+type t = {
+  data_dir : Eio.Fs.dir_ty Eio.Path.t;
+  cache_dir : Eio.Fs.dir_ty Eio.Path.t;
+}
 
 let create fs app_name =
   let xdg = Xdge.create ~create_dirs:false fs app_name in
   let data_dir = Xdge.data_dir xdg in
-  { data_dir }
+  { data_dir; cache_dir = Xdge.cache_dir xdg }
 
 let create_from_xdg xdg =
   let data_dir = Xdge.data_dir xdg in
-  { data_dir }
+  { data_dir; cache_dir = Xdge.cache_dir xdg }
 
-let create_at fs root = { data_dir = Eio.Path.(fs / root) }
+let create_at fs root =
+  {
+    data_dir = Eio.Path.(fs / root);
+    cache_dir = Eio.Path.(fs / (root ^ ".cache"));
+  }
+
 let data_dir t = t.data_dir
 
 module Carddav = Sortal_carddav
@@ -26,11 +34,22 @@ module Common = Carddav.Common
 let root t = Eio.Path.native_exn t.data_dir
 let cards t = Filename.concat (root t) "cards"
 let marker t = Filename.concat (root t) "store.json"
+let cache_root t = Eio.Path.native_exn t.cache_dir
 let identity t = Carddav.Store.identity (root t)
 
 let regular path =
   if (Unix.lstat path).Unix.st_kind <> Unix.S_REG then
     Common.fail "contact must be a regular file: %s" path
+
+let materialize_photos t raw =
+  let _, photos = Carddav.Mapping.decode raw in
+  List.iter
+    (fun (relative, bytes) ->
+      let path = Common.safe_path (cache_root t) relative in
+      Common.mkdir (Filename.dirname path);
+      if (not (Common.exists path)) || Common.read path <> bytes then
+        Common.atomic_write path bytes)
+    photos
 
 let documents t =
   if not (Common.exists (marker t)) then (
@@ -61,6 +80,7 @@ let documents t =
           if name <> uid ^ ".vcf" then
             Common.fail "vCard filename differs from UID: %s" name;
           let contact = Document.contact raw in
+          materialize_photos t raw;
           let handle = Contact.handle contact in
           if handle = "" || Hashtbl.mem handles handle || Hashtbl.mem uids uid
           then Common.fail "duplicate or empty contact identity: %s" handle;
@@ -139,7 +159,7 @@ let save t contact =
         match existing with
         | Some (name, c) ->
             let raw = Option.get (Contact.source c) in
-            (name, Some raw, Document.edit ~originals:(root t) raw contact)
+            (name, Some raw, Document.edit ~originals:(cache_root t) raw contact)
         | None ->
             let uid = Common.new_uuid () in
             let data, _ =
@@ -239,8 +259,20 @@ let set_feed_paused t handle url paused =
         Ok ()
 
 let thumbnail_path t contact =
-  Contact.photo contact
-  |> Option.map (fun relative_path -> Eio.Path.(t.data_dir / relative_path))
+  match Contact.photo contact with
+  | None -> None
+  | Some relative_path ->
+      if
+        String.starts_with ~prefix:"http://" relative_path
+        || String.starts_with ~prefix:"https://" relative_path
+      then None
+      else (
+        Option.iter (materialize_photos t) (Contact.source contact);
+        let path = Eio.Path.(t.cache_dir / relative_path) in
+        try
+          ignore (Eio.Path.load path);
+          Some path
+        with _ -> None)
 
 let png_thumbnail_path t contact =
   match Contact.photo contact with
@@ -248,7 +280,7 @@ let png_thumbnail_path t contact =
   | Some relative_path -> (
       let base = Filename.remove_extension relative_path in
       let png_path = base ^ ".png" in
-      let full_path = Eio.Path.(t.data_dir / png_path) in
+      let full_path = Eio.Path.(t.cache_dir / png_path) in
       try
         ignore (Eio.Path.load full_path);
         Some full_path

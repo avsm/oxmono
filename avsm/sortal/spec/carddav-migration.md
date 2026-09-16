@@ -7,6 +7,11 @@ Cards contain no store identity and can move between stores unchanged. Assets
 and feed caches retain their original paths.
 The contact library, Bushel, Arod and Termanil read this store directly.
 
+Embedded `PHOTO` bytes are authoritative. File-based callers receive a cached
+materialization under the XDG cache directory. A local photo file may be
+removed once its bytes are represented in the card. Unreferenced legacy assets
+remain separate files until explicitly cleaned up.
+
 The one-off migration preserves the store UUID and every existing contact UID.
 It retains the complete original store, including comments, source formatting,
 photos, caches, uncommitted changes and Git history, in a separate backup.

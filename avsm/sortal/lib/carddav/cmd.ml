@@ -181,6 +181,10 @@ let cmd =
               ~default:(Option.value (configured ()).collection ~default:"")
           in
           let collection = if collection = "" then None else Some collection in
+          if exists output then (
+            let previous_report = output ^ ".previous" in
+            if exists previous_report then remove_tree previous_report;
+            Unix.rename output previous_report);
           with_dav ~server ~username ~password_file ~readonly:true (fun dav ->
               counts
                 (Sync.preview ?collection ?previous ?seed ~dav ~source ~bundle

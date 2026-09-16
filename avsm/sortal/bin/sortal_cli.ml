@@ -293,6 +293,20 @@ let () =
     Cmd.v Sortal.Cmd.delete_info term
   in
 
+  let merge_cmd =
+    let term =
+      let open Term.Syntax in
+      let+ (xdg, _) = xdg_term
+      and+ source = Sortal.Cmd.merge_source_arg
+      and+ target = Sortal.Cmd.merge_target_arg
+      and+ log_level = Logs_cli.level () in
+      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
+      Logs.set_level log_level;
+      Sortal.Cmd.merge_cmd source target xdg env
+    in
+    Cmd.v Sortal.Cmd.merge_info term
+  in
+
   (* Account management commands *)
   let set_cmd =
     let term =
@@ -692,6 +706,7 @@ let () =
     config_cmd;
     add_cmd;
     delete_cmd;
+    merge_cmd;
     set_cmd;
     unset_cmd;
     feed_group;

@@ -75,6 +75,10 @@ val add_cmd : string -> string list -> Contact.kind option ->
     @param env Eio environment for git operations *)
 val delete_cmd : string -> Xdge.t -> Eio_unix.Stdenv.base -> int
 
+(** [merge_cmd source target xdg env] interactively merges [source] into
+    [target], retaining the target's stable identity. *)
+val merge_cmd : string -> string -> Xdge.t -> Eio_unix.Stdenv.base -> int
+
 (** [set_cmd handle platform_key value xdg env] sets [handle]'s account on the
     platform named by [platform_key] to [value]. For a federated platform,
     [value] is [user@host]. It exits with a message listing every known
@@ -116,6 +120,9 @@ val add_info : Cmdliner.Cmd.info
 (** [delete_info] is the command info for the delete command. *)
 val delete_info : Cmdliner.Cmd.info
 
+(** [merge_info] describes the interactive merge command. *)
+val merge_info : Cmdliner.Cmd.info
+
 (** [set_info] is the command info for the set command. *)
 val set_info : Cmdliner.Cmd.info
 
@@ -133,6 +140,10 @@ val query_arg : string Cmdliner.Term.t
 
 (** [add_handle_arg] is the positional argument for a new contact handle. *)
 val add_handle_arg : string Cmdliner.Term.t
+
+(** Positional source and target handles for [merge]. *)
+val merge_source_arg : string Cmdliner.Term.t
+val merge_target_arg : string Cmdliner.Term.t
 
 (** [add_names_arg] is the repeatable option for contact names. *)
 val add_names_arg : string list Cmdliner.Term.t

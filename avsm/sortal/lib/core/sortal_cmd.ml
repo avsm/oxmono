@@ -354,6 +354,102 @@ let delete_cmd handle xdg env =
       Logs.err (fun m -> m "%s" msg);
       1
 
+(* Merge two contacts interactively.  The second handle is the canonical one;
+   its UID, handle and passthrough properties are retained. *)
+let merge_cmd source_handle target_handle xdg env =
+  if source_handle = target_handle then begin
+    Logs.err (fun m -> m "Cannot merge a contact into itself");
+    1
+  end else
+    let store = Sortal_store.create_from_xdg xdg in
+    let git_store = Sortal_git_store.create store env in
+    match Sortal_store.lookup store source_handle,
+      Sortal_store.lookup store target_handle with
+    | None, _ -> Logs.err (fun m -> m "Contact not found: %s" source_handle); 1
+    | _, None -> Logs.err (fun m -> m "Contact not found: %s" target_handle); 1
+    | Some source, Some target ->
+      let rec ask field y x =
+        Printf.printf "Conflict in %s:\n  Y (%s): %s\n  X (%s): %s\n"
+          field target_handle y source_handle x;
+        Printf.printf "Keep [y] %s, use [x] %s, or [m] merge? "
+          target_handle source_handle;
+        flush stdout;
+        match String.lowercase_ascii (String.trim (input_line stdin)) with
+        | "y" | "" -> `Y
+        | "x" -> `X
+        | "m" -> `M
+        | _ ->
+          Printf.printf "Please answer y, x, or m.\n%!";
+          ask field y x
+      in
+      let show_list f xs = String.concat ", " (List.map f xs) in
+      let union a b = List.fold_left (fun acc x ->
+          if List.mem x acc then acc else acc @ [x]) a b
+      in
+      let subset a b = List.for_all (fun x -> List.mem x b) a in
+      let merge_list field show y x =
+        if y = x then y
+        else if subset x y then y
+        else if subset y x then x
+        else match ask field (show_list show y) (show_list show x) with
+          | `Y -> y | `X -> x | `M -> union y x
+      in
+      let names =
+        if List.hd (Contact.names target) = List.hd (Contact.names source)
+        then merge_list "names" Fun.id (Contact.names target) (Contact.names source)
+        else match ask "primary name" (Contact.name target) (Contact.name source) with
+          | `Y -> Contact.names target
+          | `X -> Contact.names source
+          | `M -> Contact.names target @
+                 List.filter ((<>) (Contact.name target)) (Contact.names source)
+      in
+      let kind_name = function Contact.Person -> "person" | Contact.Organization -> "organization" in
+      let kind = if Contact.kind target = Contact.kind source then Contact.kind target
+        else match ask "kind" (kind_name (Contact.kind target))
+            (kind_name (Contact.kind source)) with
+          | `X -> Contact.kind source | `Y | `M -> Contact.kind target
+      in
+      let emails = merge_list "emails" Fun.id (Contact.emails target) (Contact.emails source) in
+      let accounts = merge_list "accounts" Contact.Account.handle
+          (Contact.accounts target) (Contact.accounts source) in
+      let links = merge_list "links" (fun (l : Contact.link) -> l.url)
+          (Contact.links target) (Contact.links source) in
+      let affiliations = merge_list "affiliations" (fun (a : Contact.affiliation) -> a.org)
+          (Contact.affiliations target) (Contact.affiliations source) in
+      let feeds = merge_list "feeds" Sortal_schema.Feed.url
+          (Contact.feeds target) (Contact.feeds source) in
+      let photo = match Contact.photo target, Contact.photo source with
+        | None, p | p, None -> p
+        | Some y, Some x when y = x -> Some y
+        | Some y, Some x -> Some (match ask "photo" y x with
+            | `X -> x | `Y | `M -> y)
+      in
+      let vcard =
+        List.fold_left (fun acc (key, value) ->
+          match List.assoc_opt key acc with
+          | None -> acc @ [ (key, value) ]
+          | Some old when old = value -> acc
+          | Some old ->
+            match ask ("passthrough " ^ key) old value with
+            | `Y -> acc
+            | `X -> List.map (fun (k, v) -> if k = key then (k, value) else (k, v)) acc
+            | `M -> acc @ [ (key, value) ])
+          (Contact.vcard target) (Contact.vcard source)
+      in
+      let merged = Contact.make ~handle:(Contact.handle target) ~names ~kind ~emails
+          ~accounts ~links ~affiliations ?photo ~feeds
+          ~vcard ()
+        |> fun c -> Contact.with_source c (Contact.source target)
+      in
+      match Sortal_git_store.save git_store merged with
+      | Error msg -> Logs.err (fun m -> m "Failed to save merged contact: %s" msg); 1
+      | Ok () ->
+        match Sortal_git_store.delete git_store source_handle with
+        | Error msg -> Logs.err (fun m -> m "Merged %s, but could not delete it: %s" source_handle msg); 1
+        | Ok () ->
+          Logs.app (fun m -> m "Merged @%s into @%s" source_handle target_handle);
+          0
+
 (* The error message for an unknown platform key names every known one. *)
 let unknown_platform key =
   Fmt.epr "unknown platform %S@.known platforms: %s@." key
@@ -435,6 +531,12 @@ let add_info = Cmd.info "add" ~doc:"Create a new contact"
   ]
 
 let delete_info = Cmd.info "delete" ~doc:"Delete a contact"
+let merge_info = Cmd.info "merge" ~doc:"Interactively merge one contact into another"
+  ~man:[
+    `S Manpage.s_description;
+    `P "Merge X into Y, retaining Y's stable identity and deleting X after the merge.";
+    `P "Only conflicting non-empty fields are queried. List conflicts offer y, x, or m (merge).";
+  ]
 let set_info = Cmd.info "set" ~doc:"Set a contact's account on a platform"
 let unset_info = Cmd.info "unset" ~doc:"Remove a contact's account on a platform"
 
@@ -450,6 +552,14 @@ let query_arg =
 let add_handle_arg =
   Arg.(required & pos 0 (some string) None & info [] ~docv:"HANDLE"
     ~doc:"Contact handle (unique identifier)")
+
+let merge_source_arg =
+  Arg.(required & pos 0 (some string) None & info [] ~docv:"X"
+    ~doc:"Source contact to merge and then delete")
+
+let merge_target_arg =
+  Arg.(required & pos 1 (some string) None & info [] ~docv:"Y"
+    ~doc:"Canonical contact to retain")
 
 let add_names_arg =
   Arg.(non_empty & opt_all string [] & info ["n"; "name"] ~docv:"NAME"

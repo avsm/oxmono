@@ -22,8 +22,37 @@ let show_cmd handle xdg =
   let store = Sortal_store.create_from_xdg xdg in
   match Sortal_store.lookup store handle with
   | Some c ->
-    (* Use the pretty printer for rich temporal display *)
-    Fmt.pr "%a@." Contact.pp c;
+    let print_list label pp xs =
+      if xs <> [] then begin
+        Printf.printf "%s:\n" label;
+        List.iter (fun x -> Printf.printf "  - %s\n" (pp x)) xs
+      end
+    in
+    let uid = Filename.basename (Sortal_store.filename store handle) in
+    let uid = Filename.chop_extension uid in
+    Printf.printf "Handle: %s\nUID: %s\nName: %s\nKind: %s\n"
+      (Contact.handle c) uid (Contact.name c)
+      (match Contact.kind c with Contact.Person -> "person" | Contact.Organization -> "organization");
+    print_list "Names" Fun.id (Contact.names c);
+    print_list "Emails" Fun.id (Contact.emails c);
+    print_list "Accounts"
+      (fun a -> Platform.key (Contact.Account.platform a) ^ ": " ^ Contact.Account.handle a)
+      (Contact.accounts c);
+    print_list "Links"
+      (fun l -> l.Contact.url ^ Option.fold ~none:"" ~some:(fun x -> " (" ^ x ^ ")") l.label)
+      (Contact.links c);
+    print_list "Affiliations"
+      (fun a -> a.Contact.org ^ Option.fold ~none:"" ~some:(fun x -> " — " ^ x) a.title)
+      (Contact.affiliations c);
+    print_list "Feeds"
+      (fun f -> Sortal_schema.Feed.url f ^
+        if Sortal_schema.Feed.paused f then " [paused]" else "")
+      (Contact.feeds c);
+    Option.iter (fun p -> Printf.printf "Photo: %s\n" p) (Contact.photo c);
+    if Contact.vcard c <> [] then begin
+      Printf.printf "Passthrough properties:\n";
+      List.iter (fun (k, v) -> Printf.printf "  - %s: %s\n" k v) (Contact.vcard c)
+    end;
     0
   | None -> Logs.err (fun m -> m "Contact not found: %s" handle); 1
 

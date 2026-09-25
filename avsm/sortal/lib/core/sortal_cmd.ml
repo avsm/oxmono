@@ -39,7 +39,8 @@ let show_cmd handle xdg =
       (fun a -> Platform.key (Contact.Account.platform a) ^ ": " ^ Contact.Account.handle a)
       (Contact.accounts c);
     print_list "Links"
-      (fun l -> l.Contact.url ^ Option.fold ~none:"" ~some:(fun x -> " (" ^ x ^ ")") l.label)
+      (fun l -> Option.value l.Contact.url ~default:"(no URL)" ^
+        Option.fold ~none:"" ~some:(fun x -> " (" ^ x ^ ")") l.label)
       (Contact.links c);
     print_list "Affiliations"
       (fun a -> a.Contact.org ^ Option.fold ~none:"" ~some:(fun x -> " — " ^ x) a.title)

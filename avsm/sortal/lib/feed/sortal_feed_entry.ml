@@ -67,7 +67,12 @@ let of_rss2_item ~source_feed (item : Syndic.Rss2.item) =
     | Syndic.Rss2.Title t -> (Some t, None)
     | Syndic.Rss2.Description (_, d) -> (None, Some d)
   in
-  let date = item.pubDate in
+  (* Syndic uses the epoch sentinel for an empty RSS pubDate. Treat that as
+     absent rather than presenting 1970 as the article's publication date. *)
+  let date = match item.pubDate with
+    | Some d when Syndic.Date.compare d Syndic.Date.epoch = 0 -> None
+    | date -> date
+  in
   let content = let (_, c) = item.content in
     if String.length c > 0 then Some c else None
   in

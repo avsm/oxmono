@@ -568,9 +568,11 @@ let item_comments_of_xml ~xmlbase (pos, _tag, datas) =
       (Error.Error (pos, "The content of <comments> MUST be a non-empty string"))
 
 let item_pubdate_of_xml ~xmlbase:_ (pos, _tag, datas) =
-  try `PubDate (Date.of_rfc822 (get_leaf datas)) with Not_found ->
-    raise
-      (Error.Error (pos, "The content of <pubDate> MUST be a non-empty string"))
+  let value = try get_leaf datas with Not_found -> "" in
+  if String.trim value = "" then `PubDate Date.epoch
+  else
+    try `PubDate (Date.of_rfc822 value) with _ ->
+      raise (Error.Error (pos, "The content of <pubDate> is not a valid date"))
 
 let item_namespaces = [""; "http://purl.org/rss/1.0/modules/content/"]
 
@@ -826,9 +828,11 @@ let channel_webmaster_of_xml ~xmlbase:_ (pos, _tag, datas) =
          (pos, "The content of <webMaster> MUST be a non-empty string"))
 
 let channel_pubdate_of_xml ~xmlbase:_ (pos, _tag, datas) =
-  try `PubDate (Date.of_rfc822 (get_leaf datas)) with Not_found ->
-    raise
-      (Error.Error (pos, "The content of <pubDate> MUST be a non-empty string"))
+  let value = try get_leaf datas with Not_found -> "" in
+  if String.trim value = "" then `PubDate Date.epoch
+  else
+    try `PubDate (Date.of_rfc822 value) with _ ->
+      raise (Error.Error (pos, "The content of <pubDate> is not a valid date"))
 
 let channel_lastbuilddate_of_xml ~xmlbase:_ (pos, _tag, datas) =
   try `LastBuildDate (Date.of_rfc822 (get_leaf datas)) with Not_found ->

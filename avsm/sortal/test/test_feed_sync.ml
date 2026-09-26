@@ -246,6 +246,22 @@ let test_manual_feed_is_not_sniffed () =
   | Error e -> failwith ("Manual feeds must not be sniffed, got: " ^ e)
   | Ok _ -> traceln "  detection: a Manual feed dispatches on its recorded type, unsniffed"
 
+let malformed_rss_dates_body =
+  "<?xml version=\"1.0\"?><rss version=\"2.0\"><channel>\n\
+   <title>Test</title><link>https://example.com</link><description>d</description>\n\
+   <item><title>UTC date</title><link>https://example.com/utc</link>\n\
+   <pubDate>Wed, 18 Mar 2026 12:28:23 UTC</pubDate></item>\n\
+   <item><title>Empty date</title><link>https://example.com/empty</link>\n\
+   <pubDate></pubDate></item></channel></rss>"
+
+let test_malformed_rss_dates_are_tolerated () =
+  with_tmp_store @@ fun store ->
+  let session, _ = mock_session ~body:malformed_rss_dates_body () in
+  let feed = Sortal_schema.Feed.make ~feed_type:Rss ~url:"https://example.com/dates.rss" () in
+  match Sortal_feed.Sync.sync_feed ~session ~store ~handle:"dates" feed with
+  | Error e -> failwith ("malformed RSS dates should be tolerated: " ^ e)
+  | Ok r -> assert (r.total_entries = 2)
+
 let test_unpaused_feed_does_fetch () =
   with_tmp_store @@ fun store ->
   let session, called =
@@ -277,4 +293,5 @@ let () =
   test_html_response_fails_with_content_type ();
   test_html_response_without_content_type_still_fails ();
   test_manual_feed_is_not_sniffed ();
+  test_malformed_rss_dates_are_tolerated ();
   traceln "\n=== All Feed Sync Tests Passed ===\n"

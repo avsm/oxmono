@@ -50,7 +50,7 @@ let of_rfc822 s =
     (* FIXME: this should be made more robust. *)
     let tz_offset_s =
       match z with
-      | "" | "GMT" | "UT" | "Z" -> 0
+      | "" | "GMT" | "UTC" | "UT" | "Z" -> 0
       | "EST" -> -5 * 3600
       | "EDT" -> -4 * 3600
       | "CST" -> -6 * 3600

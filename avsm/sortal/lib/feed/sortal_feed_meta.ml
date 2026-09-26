@@ -38,7 +38,10 @@ let json_t =
   |> mem "feed_type" string ~enc:(fun m -> Feed.feed_type_to_string m.feed_type)
   |> mem "feed_url" string ~enc:(fun m -> m.feed_url)
   |> opt_mem "last_sync" ptime_jsont ~enc:(fun m -> m.last_sync)
-  |> opt_mem "etag" string ~enc:(fun m -> m.etag)
+  (* Older metadata writers emitted [null] for an absent ETag.  Decode both
+     that representation and the current string form. *)
+  |> mem "etag" (option string) ~dec_absent:(fun () -> None)
+       ~enc:(fun m -> m.etag)
   |> opt_mem "last_modified" string ~enc:(fun m -> m.last_modified)
   |> mem "entry_count" int ~dec_absent:(fun () -> 0) ~enc:(fun m -> m.entry_count)
   |> finish

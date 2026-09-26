@@ -19,15 +19,24 @@ let skip_ws s i =
   let rec go i = if i < n && is_ws s.[i] then go (i + 1) else i in
   go i
 
-(* Skip a leading "<?xml ... ?>" declaration, if present. Anything else
-   ahead of the root element, such as an HTML-escaped declaration, is not
-   skipped: the owner declined to tolerate leading junk, so a feed like
-   that falls through to [Unknown]. *)
-let skip_xml_decl s i =
+(* Skip harmless XML prologue material. Some Squarespace responses put a
+   generated comment before the XML declaration. HTML-escaped declarations
+   remain unsupported and therefore still fall through to [Unknown]. *)
+let rec skip_prologue s i =
   let n = String.length s in
+  let i = skip_ws s i in
   if i + 5 <= n && String.sub s i 5 = "<?xml" then
     match String.index_from_opt s i '>' with
-    | Some j -> j + 1
+    | Some j -> skip_prologue s (j + 1)
+    | None -> i
+  else if i + 4 <= n && String.sub s i 4 = "<!--" then
+    let rec find_end j =
+      if j + 2 >= n then None
+      else if String.sub s j 3 = "-->" then Some j
+      else find_end (j + 1)
+    in
+    match find_end (i + 4) with
+    | Some j -> skip_prologue s (j + 3)
     | None -> i
   else i
 
@@ -43,9 +52,7 @@ let excerpt s i =
   if i + len < n then e ^ "..." else e
 
 let detect body =
-  let i = skip_ws body 0 in
-  let i = skip_xml_decl body i in
-  let i = skip_ws body i in
+  let i = skip_prologue body 0 in
   if i < String.length body && body.[i] = '{' then Json
   else if starts_with_ci "<feed" body i then Atom
   else if starts_with_ci "<rss" body i then Rss

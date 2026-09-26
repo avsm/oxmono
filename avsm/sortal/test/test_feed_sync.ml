@@ -192,6 +192,23 @@ let test_undetectable_body_fails_legibly () =
       && contains msg "&lt;?xml");
     traceln "  detection: an HTML-escaped declaration fails with a legible message"
 
+let test_feed_metadata_accepts_null_etag () =
+  with_tmp_store @@ fun store ->
+    let feed = Sortal_schema.Feed.make ~feed_type:Atom ~url:"https://example.com/a.atom" () in
+    Sortal_feed.Store.ensure_feed_dir store "legacy";
+    let path = Sortal_feed.Store.meta_file store "legacy" feed in
+    Eio.Path.save ~create:(`Or_truncate 0o644) path
+      {|{"feed_type":"atom","feed_url":"https://example.com/a.atom","etag":null,"entry_count":0}|};
+    match Sortal_feed.Meta.load path with
+    | Some meta -> assert (meta.etag = None)
+    | None -> failwith "legacy null ETag metadata was rejected"
+
+let test_comment_before_xml_is_detected () =
+  match Sortal_feed.Sniff.detect
+      "<!-- Squarespace -->\n<?xml version=\"1.0\"?><rss version=\"2.0\"></rss>" with
+  | Sortal_feed.Sniff.Rss -> ()
+  | _ -> failwith "leading XML comment prevented RSS detection"
+
 (* gabrielmahler.org/feed.xml: the domain lapsed and now serves an HTML
    gambling site at every URL, including the feed's. *)
 let gmahler_html_body =
@@ -255,6 +272,8 @@ let () =
   test_reclassify_merges_when_content_already_matches ();
   test_reclassify_preserves_genuinely_old_format ();
   test_undetectable_body_fails_legibly ();
+  test_feed_metadata_accepts_null_etag ();
+  test_comment_before_xml_is_detected ();
   test_html_response_fails_with_content_type ();
   test_html_response_without_content_type_still_fails ();
   test_manual_feed_is_not_sniffed ();

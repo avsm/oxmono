@@ -1,6 +1,16 @@
 let buffer_size = 65_536
 let no_output_limit = 16 * 1024 * 1024
 
+type Eio.Exn.err += Deflate of string
+
+let () =
+  Eio.Exn.register_pp (fun ppf -> function
+    | Deflate message ->
+        Format.fprintf ppf "IMAP DEFLATE: %s" message; true
+    | _ -> false)
+
+let fail message = raise (Eio.Exn.create (Deflate message))
+
 type t = {
   raw : [Eio.Flow.two_way_ty | Eio.Resource.close_ty] Eio.Resource.t;
   input : Cstruct.t;
@@ -35,16 +45,16 @@ let close t =
     t.closed <- true;
     Eio.Cancel.protect (fun () -> Eio.Resource.close t.raw))
 
-let protect t f =
-  if t.closed then invalid_arg "closed IMAP DEFLATE flow";
+let protect t operation f =
+  if t.closed then fail "flow is closed";
   try f () with ex ->
     let backtrace=Printexc.get_raw_backtrace () in
-    (try Eio.Cancel.protect (fun () -> close t) with _ -> ());
-    Printexc.raise_with_backtrace ex backtrace
+    (try close t with _ -> ());
+    Eio.Exn.reraise_with_context ex backtrace "IMAP DEFLATE %s" operation
 
 let read t dst =
   if Cstruct.length dst=0 then invalid_arg "empty DEFLATE read buffer";
-  Eio.Mutex.use_ro t.reads (fun () -> protect t (fun () ->
+  Eio.Mutex.use_ro t.reads (fun () -> protect t "read" (fun () ->
     let rec receive () =
       let available=buffer_size-De.Inf.dst_rem t.decoder-t.decoded_pos in
       if available>0 then (
@@ -62,22 +72,21 @@ let read t dst =
         if t.needs_input then (
           Eio.Fiber.yield ();
           let count=Eio.Flow.single_read t.raw t.input in
-          if count=0 then raise End_of_file;
           t.no_output <- t.no_output+count;
           if t.no_output>no_output_limit then
-            failwith "IMAP DEFLATE exceeded input budget without decoded output";
+            fail "input budget exceeded without decoded output";
           De.Inf.src t.decoder (Cstruct.to_bigarray t.input) 0 count;
           t.needs_input <- false);
         (match De.Inf.decode t.decoder with
          | `Await -> t.needs_input <- true
          | `Flush -> ()
-         | `End -> failwith "unexpected final IMAP DEFLATE block"
-         | `Malformed _ -> failwith "invalid IMAP DEFLATE stream");
+         | `End -> fail "unexpected final block"
+         | `Malformed message -> fail ("invalid stream: " ^ message));
         receive ())
     in receive ()))
 
 let write t buffers =
-  Eio.Mutex.use_ro t.writes (fun () -> protect t (fun () ->
+  Eio.Mutex.use_ro t.writes (fun () -> protect t "write" (fun () ->
     let drain () =
       let count=buffer_size-De.Def.dst_rem t.encoder in
       if count>0 then Eio.Flow.write t.raw [Cstruct.sub t.encoded 0 count];
@@ -89,7 +98,7 @@ let write t buffers =
     let fixed () =
       encode (`Block {De.Def.kind=De.Def.Fixed;last=false});
       if not (De.Queue.is_empty t.queue) then
-        failwith "IMAP DEFLATE encoder did not consume its bounded block" in
+        fail "encoder did not consume its bounded block" in
     let chunk bytes =
       let lz=De.Lz77.state ~level:4 ~q:t.queue
         ~w:(De.Lz77.make_window ~bits:15) (`String bytes) in

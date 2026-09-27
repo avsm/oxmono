@@ -81,7 +81,10 @@ let test_invalid_and_end () =
     let raw,flow=connection data in
     (match D.read flow (Cstruct.create 100) with
      | _ -> failwith "invalid/final DEFLATE stream accepted"
-     | exception Failure _ -> ());
+     | exception Eio.Io (D.Deflate message,_) ->
+         if data="\007" && not (String.starts_with ~prefix:"invalid stream: "
+             message && String.length message>16) then
+           failwith "decompress diagnostic was dropped");
     D.close flow;
     if raw.closes<>1 then failwith "codec failure close not idempotent")
     ["\007";"\003\000"]
@@ -92,8 +95,8 @@ let test_no_output_budget () =
   raw.refill<-(fun () -> empties);
   (match D.read flow (Cstruct.create 1) with
    | _ -> failwith "empty blocks bypassed no-output budget"
-   | exception Failure message when message=
-       "IMAP DEFLATE exceeded input budget without decoded output" -> ());
+   | exception Eio.Io (D.Deflate message,_) when message=
+       "input budget exceeded without decoded output" -> ());
   if raw.reads>258 || raw.closes<>1 then failwith "no-output work was not bounded"
 
 let test_cancel () =

@@ -119,8 +119,8 @@ run only once everything else works.
 | 6 | Plan item 5b: move vocabulary types out of `Command`; `Command.error` a real type; label mailbox arguments; `Mailbox_name.t` private; `Client.list` returns `Mailbox_name.t` | done | 2415590b9 |
 | 7 | Plan item 5c: `Imap.Search` and `Imap.Fetch_item`; one `Selected.fetch` replacing the six fifty-UID fetchers | done | 5681e332f |
 | 8 | Plan item 6: one `Client.append` and `append_many`; typed flags on APPEND | done | b03f5b918 |
-| 9 | Plan item 4: extension witness submodules on `Client` and `Selected`, each with `require` | todo | |
-| 10 | Plan item 9: `with_mailbox` reentrancy returns `State` instead of blocking | todo | |
+| 9 | Plan item 4: extension witness submodules on `Client` and `Selected`, each with `require` | done | 42eb28cab |
+| 10 | Plan item 9: `with_mailbox` reentrancy returns `State` instead of blocking | done | 286cc6993 |
 | 11 | Sync moves: `Ctx` record, single `Imap_sync.Error.t`, `Repair` module, `Plan` module, one APPEND inspection, drop `Engine.run_once` if unused | todo | |
 | 12 | CLI on cmdliner with one term per command and a single `deletion_policy` option; also applies every `bin/imap_cli.ml` finding from 0.R and wires the blob orphan collector and `forget_epochs` into startup under the writer lease | todo | |
 | 13 | `imap.mli` facade, `.mld` pages, `(documentation)` stanza, dune-project dependency fixes | todo | |
@@ -402,6 +402,63 @@ Notify; on the connection Acl, Quota, Metadata, Notify, Objectid_plus,
 Multiappend, Compress. Each group has `require` returning a witness whose
 operations take it instead of the bare lease or client. The base `Selected`
 keeps search, fetch, store, copy, expunge, noop and idle.
+
+Done: `Selected` keeps `info`, `select_updates`, `uid_search`,
+`uid_search_range`, `fetch`, `fetch_range`, `fetch_to`, `uid_store_flags`
+without `?unchangedsince` or a trailing unit, `uid_copy` and `noop`.
+Fourteen lease submodules each have an abstract `t` and `require`, and a
+witness is the lease itself, so it expires with the lease and an
+operation on it after the lease is `State`. `Condstore` has
+`uid_store_flags ~unchangedsince` and `fetch_changes_range`, `Qresync`
+`fetch_changes`, `Uidplus` `uid_expunge`, `Move` `uid_move`, `Binary`
+`fetch_binary_to`, `Searchres` the saved-search family with
+`saved_search`, `Sort` `uid_sort`, `Esort` `uid_sort_extended`, `Thread`
+`uid_thread` with the algorithm taken by `require`, `Partial`
+`uid_search_partial` and `uid_fetch_partial`, `Messagelimit`
+`uid_search_page`, `Uidbatches` `uid_batches`, `Notify` `notify_set` and
+`notify_none`, and `Idle` `wait_for_change`. `Qresync.require` is
+`Unsupported` without the capability and `Not_enabled` before ENABLE.
+Gates that depend on arguments stay at the call: PARTIAL on
+`uid_fetch_saved ?partial`, CONDSTORE on `uid_store_saved
+?unchangedsince`, MOVE and UIDPLUS on the saved move and expunge, and
+CONTEXT=SORT on a positional ESORT. `Client` keeps its lifecycle,
+negotiation, discovery, `status`, `get_jmap_access`, mailbox mutations,
+`with_mailbox`, `append`, `noop`, `logout` and `close`, and gains `Acl`,
+`Quota` (QUOTASET checked in `set_quota`), `Metadata` (satisfied by
+METADATA-SERVER, which still limits calls to the server scope),
+`Notify`, `Multiappend`, `Compress.activate`, and the modes
+`Objectid_plus` (`enable`, `pin_mailbox`, `create_mailbox`,
+`rename_mailbox`, `status`) and `Uidonly` (`enable`). `append_many`
+now needs the MULTIAPPEND witness even for one message. The step note's
+Preview and Objectid groups were not made, since PREVIEW and OBJECTID are
+fetch items already gated per call. The per-call gates the witnesses
+replace are gone from the implementations. Consumers edited: lib/sync
+engine (OBJECTID+ witness threaded through the scan, CHANGEDSINCE through
+`Condstore.require`), deletion, flags and watch, README, IMAP-SPEC and
+test/bridge_faults, dovecot (test_dovecot, body_memory), eio (binary,
+capability, client, client_review, compress, lifecycle, literal_modes,
+multiappend, rejections, review_fixes, searchres, sort_thread), oracle
+(test_oracle, test_cross_protocol) and stalwart. bin needed no change.
+Every assertion is kept, with each gate case now reached through
+`require`. test/api/check.sh compiles a `Selected.Move` path, checks that
+`Selected.uid_move` is unbound, and checks that a lease does not
+typecheck as a `Move` witness. Build and runtest are clean, 16 suites and
+231 test cases.
+
+Step 10. Done: `Session.locked` returns `State "call inside with_mailbox on
+the same connection"` without taking the mutex when the calling fiber
+holds the session, recorded in an `Eio.Fiber` key that `with_mailbox`
+binds around the callback through `Session.with_lease`. `with_mailbox`
+now takes the session through `locked`, so a nested call is refused the
+same way. Fibers forked inside the callback inherit the key, and a call
+on another connection is unaffected. Selected operations use the lease's
+own mutex and still serialize across fibers. The facade and README state
+the typed outcome in place of the deadlock warning.
+`test/eio/test_reentrancy.ml` covers a nested `with_mailbox` and a
+`Client.noop` inside the callback, each refused with no bytes written,
+and the connection stays usable. Without the guard the test ends in
+`Eio_mock.Backend.Deadlock_detected`. Build and runtest are clean, 16
+suites and 231 test cases plus the new executable.
 
 ### Step F notes
 
@@ -759,7 +816,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [ ] session.ml:460 [medium] cancelling IDLE closes the session instead of sending DONE, so a timeout cannot bound `wait_for_change` without losing the connection; and any untagged line at :441 and :456 counts as a change, including `* OK Still here`. (left for step 14)
 - [x] session.ml:469 [medium] `protect` relabels every non-`Session.Failure` exception as `Transport`, including `Stdlib.Failure`, `Invalid_argument`, `Out_of_memory` and `Stack_overflow`, and loses identity and backtrace; the local `Failure` at :33 shadows the stdlib one.
 - [x] session.ml:89 [low] the PREVIEW 1024-byte check rebuilds the marker as `{%Ld}` while `Wire.literal_suffix` at wire.ml:71 accepts leading zeros, so `{0010}` bypasses it and `parse_parts` at response.ml:1604 misses it too; memory stays bounded by `max_metadata`.
-- [ ] session.ml:471 [confirmed] reentrancy deadlocks: `with_mailbox` holds the mutex for the callback at client.ml:634 and every other entry point relocks through `locked`; Eio mutexes have no owner tracking, so the second lock parks forever until cancellation, which then closes the session at client.ml:686. Plan step 10. (left for step 10)
+- [x] session.ml:471 [confirmed] reentrancy deadlocks: `with_mailbox` holds the mutex for the callback at client.ml:634 and every other entry point relocks through `locked`; Eio mutexes have no owner tracking, so the second lock parks forever until cancellation, which then closes the session at client.ml:686. Plan step 10. (step 10: an `Eio.Fiber` key lists the sessions a fiber leases, and `locked` returns `State` for one of them)
 - [x] session.ml:177 [dead] `written` and `sent` at :177, :283, :358, :402 and :531 are always true when read; the `| _ -> raise ex` arm at :365 is unreachable; `mutable` on `flow` at :14 is never used; `?collect_literals` in session.mli:41 has no external caller.
 - [ ] session.ml:108 [redundant] response-kind detection duplicates response.ml:1597; the PREVIEW limit at :87 duplicates response.ml:1607; the read, size, limit, parse, BYE loop skeleton is written five times at :182, :286, :325, :375 and :405; `authentication_rejected` at :533 is redone by client.ml:132. (left: the read, size, limit, parse and BYE loop is one helper and the authentication redaction lives only in Client; kind detection and the early PREVIEW check stay because Response exposes no helper and the check bounds the read before parse_parts)
 - Facts for later steps: tag counter, close-on-desync, COMPRESS boundary, APPEND literal handshake, IDLE DONE ordering, cancellation re-raise and mutex release are all clean. Session record writers: `capabilities` by Client only, uppercased latest CAPABILITY; `enabled` by Client, appended without dedup at :70 and :80; `selected` by Client at :658, :681, :699 and not reset by `close`, so a closed session can keep a stale `Some`; `generation` bumped by `Session.close` and Client, checked by `Selected.check`; `saved_search_nonce` by Session only; `readonly` never reset; `uidbatches_last_mailbox` by Selected only, compared by string so INBOX case variants escape; `wire` also by Client after STARTTLS. Optimisation and comments are clean.
@@ -780,7 +837,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] selected.ml:452 [dead] the `> 50` test cannot fire after the Hashtbl check at :448; the `supports_limit` conjuncts at :661, :666, :917 and :922 are redundant since `accept_partial:false` never yields `partial = Some`; the SEARCHRES recheck at :83 cannot fail; `bytes = 0L` at :1102 is implied.
 - [x] selected.ml:476 [redundant] the six `uid_fetch_<x>s` functions repeat UID-list validation, comma join, `Map.Make(Int64)` fold with `List.mem`, and projection; only the UID-list policy, result order, duplicate policy and unrequested-UID policy vary. Plan step 7. (step 7: `Selected.fetch` and `fetch_range`)
 - [x] selected.ml:642 [redundant] `fetch_metadata_range` and `fetch_changes_range` at :897 run near-identical MESSAGELIMIT loops; the prefix test is written three ways at :322, :357 and :639.
-- [x] selected.ml:679 [redundant] the `List.mem cap` then `raise (State "X unavailable")` pattern appears about twenty times and `has` is defined only at :679; the encoder unwrap about thirty times; `Fetch row | Uidfetch row` extraction twelve times; the tagged-tag match six times; the correlated-ESEARCH filter four times. Plan step 2 and step 9. (the capability idiom is `Session.require` and `require_enabled` since step 2. The witness submodules are left for step 9. `syntax`, fetch-row, completion-tag and correlated-ESEARCH helpers now replace the other copies)
+- [x] selected.ml:679 [redundant] the `List.mem cap` then `raise (State "X unavailable")` pattern appears about twenty times and `has` is defined only at :679; the encoder unwrap about thirty times; `Fetch row | Uidfetch row` extraction twelve times; the tagged-tag match six times; the correlated-ESEARCH filter four times. Plan step 2 and step 9. (the capability idiom is `Session.require` and `require_enabled` since step 2. The witness submodules are left for step 9. `syntax`, fetch-row, completion-tag and correlated-ESEARCH helpers now replace the other copies. Step 9 added the witness submodules)
 - [x] selected.ml:43 [redundant] `uid < 1L || uid > 4_294_967_295L` is written nine times at :43, :327, :453, :507, :546, :594, :1004, :1060 and :1089 although `Proto.Uid.of_int64` exists; the 1000-UID window check three times at :352, :631 and :888. Plan step 5. (left for step 5)
 - [x] selected.ml:748 [redundant] the rev2 predicate is duplicated in `mailbox_wire` at :748, `require_binary` at :979 and `Client.revision_two`; `Selected.mailbox_wire` duplicates `Client.mailbox_wire` except for the error prefix.
 - [x] selected.ml:442 [comment] restates the code; delete. At :38 keep the RFC 5267 sentence and delete "SEARCH retains its existing expansion."
@@ -812,7 +869,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 - [x] client.ml:695 [high] when the callback returns `Ok v` and the following UNSELECT fails, `with_mailbox` returns `Error` and drops `v` although every mutation completed; pool.ml:31 then closes the connection and a retrying caller replays a MOVE, STORE or EXPUNGE. Close the connection and still return the outcome.
 - [x] client.ml:181 [high] each connection registers an `Eio.Switch.on_release` hook that is never removed, so under `Pool` reconnect churn every closed `Session.t` with its 64 KiB input buffer stays alive until the pool switch ends; use `on_release_cancellable` and remove it in `close`.
-- [ ] client.ml:634 [confirmed] a Client call from inside `with_mailbox`, including nested `with_mailbox`, `noop` or `logout`, deadlocks with no detection; the `selected` guards at :219, :239 and :259 run inside the lock and cannot catch it. Plan step 10. (left for step 10)
+- [x] client.ml:634 [confirmed] a Client call from inside `with_mailbox`, including nested `with_mailbox`, `noop` or `logout`, deadlocks with no detection; the `selected` guards at :219, :239 and :259 run inside the lock and cannot catch it. Plan step 10. (step 10: `with_mailbox` takes the session through `Session.locked` and runs the callback under `Session.with_lease`, so these calls return `State` before any byte is sent)
 - [x] client.ml:216 [medium] `enable_uidonly` and `enable_objectid_plus` require a literal ENABLE token at :216 and :236 while `enable_revision`, `enable_utf8` and `enable_qresync` at :48, :63 and :73 send ENABLE without checking; RFC 9051 folds ENABLE into rev2, so a rev2-only server advertising UIDONLY is refused. ENABLE is available when advertised or when IMAP4rev2 is advertised, since RFC 9051 makes it a base command; requiring effective rev2 would stop ENABLE IMAP4rev2 itself on a rev1+rev2 server.
 - [x] client.ml:219 [medium] after a callback exception at :686 or a failed UNSELECT at :695 the session is closed but `selected` stays `Some`, so `enable_uidonly`, `enable_objectid_plus` and `pin_mailbox_objectid` report a "before selecting a mailbox" `State` instead of `Closed`.
 - [x] client.ml:55 [low] `enable_revision` overwrites `enabled` instead of merging; correct only because it runs first on the empty list at :178.
@@ -1081,11 +1138,11 @@ These are visible only across modules. Each names the step that absorbs it.
 - [x] [flag equality, step F] structural equality after `sort_uniq compare` at sync_journal.ml:497, :695, :814, :850 and bridge.ml:330 disagrees with `Imap_flag.equal_durable` used everywhere else. Use `equal_durable` and consider an `Imap_flag.Set`. (journal by the store fixes, bridge.ml:330 by the sync fixes)
 - [x] [hand-coded UID ranges, step 5] the literal `4_294_967_295L` check is at sixteen response.ml sites, nine selected.ml sites, command.ml:317 and imap_cli.ml:574, :751, :753 although `Proto.Uid.of_int64` exists.
 - [ ] [store helpers, step F] the SHA-256 hex validator is at blob_store.ml:16, operation_intent.ml:42, sync_journal.ml:74 and :452; the cursor read plus decode at imap_store.ml:29, :130, :141, :187 and blob_store.ml:116; the stale check at imap_store.ml:239, :333, :402 and blob_store.ml:122 with three disagreeing missing-row cases. Move to Record_codec.
-- [x] [capability idiom, step 2 and step 9] the `List.mem cap` then `State "X unavailable"` pattern is at about fifteen client.ml sites, twenty selected.ml sites and session.ml:256; the effective-rev2 predicate is written four ways at client.ml:57, :692, selected.ml:748, :979; `Capability` and `Enabled` are raw uppercase words with no dedup. (step 2 replaced the pattern with `Session.require` returning `Unsupported`, the predicates with `Session.has`, and the words with `Imap.Capability`. The extension witnesses are left for step 9)
+- [x] [capability idiom, step 2 and step 9] the `List.mem cap` then `State "X unavailable"` pattern is at about fifteen client.ml sites, twenty selected.ml sites and session.ml:256; the effective-rev2 predicate is written four ways at client.ml:57, :692, selected.ml:748, :979; `Capability` and `Enabled` are raw uppercase words with no dedup. (step 2 replaced the pattern with `Session.require` returning `Unsupported`, the predicates with `Session.has`, and the words with `Imap.Capability`. The extension witnesses are left for step 9. Step 9 added them)
 - [ ] [two APPEND journals, decision in step 11] `intents` (18 columns) and `sync_operations` (26 columns) are bridged only by a shared ID at bridge.ml:195, :243, :326, :409, :1412; `intents.uidvalidity` conflates the pre-send epoch with the receipt epoch (operation_intent.ml:117). Unification is a schema v14 migration. Recommendation: keep both tables this round, add a separate receipt epoch column in v14, and record the unification as follow-up.
 - [ ] [blob reclamation, step F and step 12] nothing in lib or bin runs the orphan collector (blob_store.ml:271), and `referenced` at blob_store.ml:250 counts refs from superseded epochs that `publish` retains at imap_store.ml:377, so no blob is ever reclaimed. Run `reap_orphans_iter` from the CLI at startup under the writer lease, and add an explicit epoch-drop operation so quarantined epochs can release their blobs.
 - [ ] [finally clobbering, step F] `Fun.protect ~finally` with a raising finaliser at blob_store.ml:280, :224 and imap_maildir.ml:505, :178 replaces the original exception with `Finally_raised`.
-- [ ] [non-reentrant locks, step 10 and step F] `with_mailbox` deadlocks on a nested call (client.ml:634) and `Database.transaction` hangs on a nested call (database.ml:53); both need owner tracking through a fiber-local key or a flag on the record.
+- [x] [non-reentrant locks, step 10 and step F] `with_mailbox` deadlocks on a nested call (client.ml:634) and `Database.transaction` hangs on a nested call (database.ml:53); both need owner tracking through a fiber-local key or a flag on the record. (step F made a nested transaction `Invalid_argument`, and step 10 gave `with_mailbox` a fiber-local key)
 - [ ] [error payload loss, step F] session.ml:244, :363, command.ml:263, response.ml:1623, :1691, record_codec.ml:32, imap_store.ml:69, deflate_flow.ml:75, database.ml:9, imap_cli.ml:429, :772 all replace a specific message with a fixed one.
 - [ ] [test-only scan chain, step 11] `Engine.run_once` has one test caller, and through it `Imap_store.publish`, `Imap_store.load` (once engine.ml:503 uses `load_cursor`), `Mirror.complete` and `Mirror.publish` are test-only. Remove the chain and the oracle case with it, or keep `Mirror` planner functions if the JMAP sibling shares the design.
 - [ ] [scale cluster, step F] N+1 queries in `pairs_page` (sync_journal.ml:194) and the paged inventory (imap_maildir.ml:305); a prepare per row in `stage_rows` (imap_store.ml:271) and per name in the blob collector (blob_store.ml:260); a full epoch rewrite on every publish (imap_store.ml:363, :436); a fresh Lz77 state per 64 KiB chunk (deflate_flow.ml:93). Each matters from about 10,000 to 100,000 items.

@@ -1,7 +1,8 @@
 (** Continuous observation of one mailbox with durable scans.
 
     IDLE is only a wakeup hint. A scan runs when the selected mailbox state
-    differs from the published cursor, and at each renewal or poll. Every
+    differs from the published cursor, at each poll, and at each IDLE
+    renewal of a mailbox without a CONDSTORE anchor. Every
     scan is complete and staged in SQLite before its publication is
     reported. Run one supervisor per mailbox, with a bounded connection
     pool above it. *)
@@ -52,12 +53,17 @@ val run :
     When the scanning connection offers IDLE, the wait selects the mailbox
     on a new connection and compares UIDVALIDITY, UIDNEXT and HIGHESTMODSEQ
     with the published cursor. A difference starts a scan. Otherwise the
-    wait enters IDLE, and after any untagged response it selects the mailbox
-    and compares again, so a keepalive alone starts no scan. After
-    [idle_renew_seconds] it scans regardless, and a mailbox without a
-    CONDSTORE anchor can delay a flag-only change until then.
-    [idle_renew_seconds] defaults to 1500. Without IDLE the wait sleeps for
-    [poll_seconds], which defaults to 60.
+    wait enters IDLE for at most [idle_renew_seconds], which defaults to
+    1500. After any untagged response, or when that time passes, it sends
+    DONE, selects the mailbox again on the same connection and compares
+    again, so neither a keepalive nor a renewal starts a scan or a
+    reconnection. A cursor without a CONDSTORE anchor cannot show a flag
+    change or an expunge in that comparison, so for such a cursor the wait
+    ends in a scan [idle_renew_seconds] after it began. A selection and
+    IDLE round that outlasts [idle_renew_seconds] by
+    [connect_timeout_seconds] closes the connection and starts a scan.
+    Without IDLE the wait sleeps for [poll_seconds], which defaults to
+    60.
 
     A failed or timed-out connection, scan or wait is reported to
     [on_retry], which defaults to ignoring it, and retried after a delay

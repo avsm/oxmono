@@ -63,8 +63,8 @@ let run ~clock ~connect ~next_stage_id ~on_publish
       | None -> Error Connect_timed_out
       | Some (Error error) -> Error (Connect_failed error)
       | Some (Ok (ctx:Ctx.t)) ->
-          let renew_at = Eio.Time.now clock +. idle_renew_seconds in
-          let watch_once () =
+          let rescan_at = Eio.Time.now clock +. idle_renew_seconds in
+          let round timeout () =
             Imap_eio.Client.with_mailbox ctx.client ~mode:`Read_only
               ctx.mailbox
               (fun selected ->
@@ -74,15 +74,21 @@ let run ~clock ~connect ~next_stage_id ~on_publish
                 | Ok _ ->
                     match Result.bind (Imap_eio.Selected.Idle.require selected)
                         (Imap_eio.Selected.Idle.wait_for_change ~clock
-                           ~timeout:idle_renew_seconds) with
-                    | Ok _ -> Ok `Woken
+                           ~timeout) with
+                    | Ok _ -> Ok `Unchanged
                     | Error _ as error -> error) in
+          (* Without a CONDSTORE anchor [needs_rescan] cannot see a flag
+             change or an expunge, so such a cursor is scanned at the first
+             renewal instead of being compared again. *)
           let rec watch () =
-            let remaining = renew_at -. Eio.Time.now clock in
-            if remaining <= 0. then Ok ()
+            let timeout = match cursor.anchor with
+              | Some _ -> idle_renew_seconds
+              | None -> rescan_at -. Eio.Time.now clock in
+            if timeout <= 0. then Ok ()
             else
-              match Eio.Time.with_timeout_exn clock remaining watch_once with
-              | Ok `Woken -> watch ()
+              match Eio.Time.with_timeout_exn clock
+                  (timeout +. connect_timeout_seconds) (round timeout) with
+              | Ok `Unchanged -> watch ()
               | Ok `Changed -> Ok ()
               | Error error -> Error (Idle_failed error)
               | exception Eio.Time.Timeout -> Ok () in

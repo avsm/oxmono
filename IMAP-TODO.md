@@ -48,10 +48,10 @@ comments unless the code cannot say it.
 |---|------|--------|--------|
 | 0 | Baseline commit of the untracked IMAP tree and its shared-library edits | done | b4084133b |
 | R | Phase 2 implementation review by subagent, one per module, findings in section 0.R | done, 21 reviews, 336 findings | |
-| F | Apply Phase 2 correctness fixes in severity order, then dead code, redundancy, comments | wave 1 (protocol, eio, store, maildir) merged at 30e22ab3f; wave 2 (sync) in progress in the main checkout; the CLI findings fold into step 12 | |
+| F | Apply Phase 2 correctness fixes in severity order, then dead code, redundancy, comments | done; 235 findings fixed, the remainder annotated to their steps; CLI findings fold into step 12 | e449db4a4 |
 | 1 | Plan item 8: strip duplicated docs from core Eio `.mli` and private store `.mli` to one-line internal contracts; rename `Imap_store.Sync` to `Journal` | todo | |
 | 2 | Plan items 1 to 3: `Imap.Capability`, typed `Response.Capability`/`Enabled`, `Error.Unsupported`, typed `Client.capabilities`/`enabled`/`has`/`enable` | todo | |
-| 3 | Plan item 12: `spool` as a private library shared by `imap.sync` and test/io; drop copy_files | todo | |
+| 3 | Plan item 12: `spool` and `database` as private support libraries shared by their library and their tests; drop the copy_files rules in test/io and test/store/database | todo | |
 | 4 | Plan item 10: standalone `maildir` package at `bleeding/maildir/`; no `imap` or `sqlite3-eio` dependency; `Local_inventory` in sync; `with_writer` capability; typed errors; `Dotlock` public | todo | |
 | 5 | Plan item 5a: dissolve `Proto` into `Imap.Uid`, `Uidvalidity`, `Modseq`, `Uid_set` with `equal`, `compare`, `pp`; unify identifier shapes across `Selected` | todo | |
 | 6 | Plan item 5b: move vocabulary types out of `Command`; `Command.error` a real type; label mailbox arguments; `Mailbox_name.t` private; `Client.list` returns `Mailbox_name.t` | todo | |

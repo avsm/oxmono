@@ -155,9 +155,11 @@ val prepare_intent : t -> intent -> unit
     values, while [Some []] flags mean known empty flags. The frontier is the
     last published UID bound before send, not proof of server state at send.
     New APPEND intents require a 64-character lowercase SHA-256 digest and,
-    when supplied, a valid unquoted IMAP date-time. Invalid metadata raises
-    [Invalid_argument] without inserting an intent. Existing legacy metadata
-    remains readable for inspection and explicit recovery. *)
+    when supplied, a valid unquoted IMAP date-time. A [uid] requires a
+    [uidvalidity]. Invalid metadata raises [Invalid_argument] without
+    inserting an intent. Existing legacy metadata remains readable for
+    inspection and explicit recovery. A legacy row with no stored message
+    ID, digest or spool reference reads that field as the empty string. *)
 
 val set_intent_state : t -> id:string -> intent_state -> unit
 (** Legal transitions are Prepared -> Sent/Ambiguous/Rejected and
@@ -169,7 +171,7 @@ val confirm_intent : t -> id:string ->
   uid:Imap.Proto.Uid.t option -> unit
 (** Resolve a sent or ambiguous operation and record an optional UIDPLUS
     [APPENDUID] receipt in the same transaction. [uid] requires
-    [uidvalidity]. *)
+    [uidvalidity]. [uidvalidity = None] keeps the stored UIDVALIDITY. *)
 
 val pending_intents : t -> scope:Imap.Mirror.scope -> intent list
 (** Returns Prepared, Sent and Ambiguous operations for reconciliation.

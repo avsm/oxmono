@@ -31,7 +31,10 @@ let kind = function Append _ -> "append" | Other _ -> "other"
 
 let prepare_intent t x =
   if x.id = "" then invalid_arg "Imap_store.prepare_intent: empty ID";
-  if x.state <> Prepared then invalid_arg "Imap_store.prepare_intent: state must be Prepared";
+  if x.state <> Prepared then
+    invalid_arg "Imap_store.prepare_intent: state must be Prepared";
+  if x.uid <> None && x.uidvalidity = None then
+    invalid_arg "Imap_store.prepare_intent: UID without UIDVALIDITY";
   transaction t (fun () ->
     let message_id,digest,spool_ref,frontier,length,flags,date = match x.kind with
       | Append {message_id;content_digest;spool_ref;
@@ -72,23 +75,41 @@ let prepare_intent t x =
         [s x.id; i (Int64.of_int ord); s (Mail_flag.Imap_flag.to_wire flag)]))
       flags)
 
-let decode_append t ~id ~message_id ~digest ~spool_ref ~frontier ~length
-    ~flags_known ~date =
-  let expected_flags = match flags_known with
-    | S.Data.NULL -> None
-    | S.Data.INT 1L ->
-      Some (rows t "SELECT flag FROM intent_flags WHERE intent_id=? ORDER BY ord"
-        [s id] |> List.map (fun r ->
-          of_checked "intent flag" Mail_flag.Imap_flag.of_wire (text r.(0))))
-    | _ -> fail "invalid expected-flags marker" in
-  let frontier=nullable_int frontier and length=nullable_int length in
-  Option.iter (fun n -> if n<0L || n>4_294_967_295L then
-    fail "invalid stored UID frontier") frontier;
-  Option.iter (fun n -> if n<0L then fail "negative stored expected length") length;
-  Append {message_id=text message_id;content_digest=text digest;
-    spool_ref=text spool_ref;pre_send_uid_frontier=frontier;
-    expected_length=length;expected_flags;
-    expected_internal_date=nullable_text date}
+let decode_intent t r =
+  let id=text r.(0) in
+  let scope : M.scope = {endpoint=text r.(1);account=text r.(2);
+    mailbox_key=text r.(3);raw_name=text r.(4);
+    encoding=dec_enc (text r.(5));mailbox_id=nullable_text r.(6)} in
+  let legacy x = Option.value ~default:"" (nullable_text x) in
+  let kind=match text r.(7) with
+    | "append" ->
+      let expected_flags=match r.(16) with
+        | S.Data.NULL -> None
+        | S.Data.INT 1L ->
+          Some (rows t "SELECT flag FROM intent_flags WHERE intent_id=? \
+            ORDER BY ord" [s id] |> List.map (fun f ->
+              of_checked "intent flag" Mail_flag.Imap_flag.of_wire
+                (text f.(0))))
+        | _ -> fail "invalid expected-flags marker" in
+      let frontier=nullable_int r.(14) and length=nullable_int r.(15) in
+      Option.iter (fun n -> if n<0L || n>4_294_967_295L then
+        fail "invalid stored UID frontier") frontier;
+      Option.iter (fun n -> if n<0L then
+        fail "negative stored expected length") length;
+      Append {message_id=legacy r.(8);content_digest=legacy r.(9);
+        spool_ref=legacy r.(10);pre_send_uid_frontier=frontier;
+        expected_length=length;expected_flags;
+        expected_internal_date=nullable_text r.(17)}
+    | "other" -> Other (legacy r.(10))
+    | other -> fail (Printf.sprintf "unknown intent kind %S" other) in
+  {id;scope;kind;state=dec_state (text r.(11));
+   uidvalidity=Option.map validity (nullable_int r.(12));
+   uid=Option.map uid (nullable_int r.(13))}
+
+let select_intents = "SELECT id,endpoint,account,mailbox_key,raw_name,\
+  encoding,mailbox_id,kind,message_id,digest,spool_ref,state,uidvalidity,\
+  uid,pre_send_frontier,expected_length,expected_flags_known,\
+  expected_internal_date FROM intents WHERE "
 
 let legal before after = match before,after with
   | Prepared,(Sent|Ambiguous|Rejected)
@@ -99,71 +120,38 @@ let legal before after = match before,after with
 let set_intent_state t ~id next =
   transaction t (fun () ->
     match rows t "SELECT state FROM intents WHERE id=?" [s id] with
-    | [r] ->
-      let before = dec_state (text r.(0)) in
-      if not (legal before next) then invalid_arg "Imap_store.set_intent_state: illegal transition";
+    | r :: _ ->
+      if not (legal (dec_state (text r.(0))) next) then
+        invalid_arg "Imap_store.set_intent_state: illegal transition";
       run t "UPDATE intents SET state=? WHERE id=?" [s (state next); s id]
-    | [] -> invalid_arg "Imap_store.set_intent_state: unknown ID"
-    | _ -> fail "duplicate intent ID")
+    | [] -> invalid_arg "Imap_store.set_intent_state: unknown ID")
 
 let confirm_intent t ~id ~uidvalidity ~uid =
   if uid <> None && uidvalidity = None then
     invalid_arg "Imap_store.confirm_intent: UID without UIDVALIDITY";
   transaction t (fun () ->
     match rows t "SELECT state FROM intents WHERE id=?" [s id] with
-    | [r] when legal (dec_state (text r.(0))) Confirmed ->
-      run t "UPDATE intents SET state='confirmed', uidvalidity=?, uid=? WHERE id=?"
+    | r :: _ when legal (dec_state (text r.(0))) Confirmed ->
+      run t "UPDATE intents SET state='confirmed',\
+        uidvalidity=COALESCE(?,uidvalidity),uid=? WHERE id=?"
         [ni (Option.map P.Uidvalidity.to_int64 uidvalidity);
          ni (Option.map P.Uid.to_int64 uid); s id]
-    | [r] ->
-      ignore (dec_state (text r.(0)) : intent_state);
-      invalid_arg "Imap_store.confirm_intent: illegal transition"
-    | [] -> invalid_arg "Imap_store.confirm_intent: unknown ID"
-    | _ -> fail "duplicate intent ID")
+    | _ :: _ -> invalid_arg "Imap_store.confirm_intent: illegal transition"
+    | [] -> invalid_arg "Imap_store.confirm_intent: unknown ID")
 
 let pending_intents t ~scope =
   locked t (fun () ->
-    rows t "SELECT id,raw_name,encoding,mailbox_id,kind,message_id,digest, \
-      spool_ref,state,uidvalidity,uid,pre_send_frontier,expected_length, \
-      expected_flags_known,expected_internal_date FROM intents WHERE \
-      endpoint=? AND account=? AND mailbox_key=? AND \
-      state IN ('prepared','sent','ambiguous') ORDER BY rowid" (scope_key scope)
+    rows t (select_intents ^ "endpoint=? AND account=? AND mailbox_key=? \
+      AND state IN ('prepared','sent','ambiguous') ORDER BY rowid")
+      (scope_key scope)
     |> List.map (fun r ->
-      let stored_scope : M.scope = { scope with raw_name=text r.(1);
-        encoding=dec_enc (text r.(2)); mailbox_id=nullable_text r.(3) } in
-      if stored_scope <> scope then fail "stored intent scope differs from requested scope";
-      let kind = match text r.(4) with
-        | "append" -> decode_append t ~id:(text r.(0))
-            ~message_id:r.(5) ~digest:r.(6) ~spool_ref:r.(7)
-            ~frontier:r.(11) ~length:r.(12) ~flags_known:r.(13)
-            ~date:r.(14)
-        | "other" -> Other (text r.(7))
-        | _ -> fail "unknown intent kind" in
-      {id=text r.(0);scope;kind;state=dec_state (text r.(8));
-       uidvalidity=Option.map validity (nullable_int r.(9));
-       uid=Option.map uid (nullable_int r.(10))}))
+      let x=decode_intent t r in
+      if x.scope <> scope then
+        fail "stored intent scope differs from requested scope";
+      x))
 
 let find_intent t ~id =
   locked t (fun () ->
-    match rows t "SELECT endpoint,account,mailbox_key,raw_name,encoding, \
-      mailbox_id,kind,message_id,digest,spool_ref,state,uidvalidity,uid, \
-      pre_send_frontier,expected_length,expected_flags_known, \
-      expected_internal_date \
-      FROM intents WHERE id=?" [s id] with
+    match rows t (select_intents ^ "id=?") [s id] with
     | [] -> None
-    | [r] ->
-      let scope : M.scope = {endpoint=text r.(0);account=text r.(1);
-        mailbox_key=text r.(2);raw_name=text r.(3);
-        encoding=dec_enc (text r.(4));mailbox_id=nullable_text r.(5)} in
-      let kind=match text r.(6) with
-        | "append" -> decode_append t ~id
-            ~message_id:r.(7) ~digest:r.(8) ~spool_ref:r.(9)
-            ~frontier:r.(13) ~length:r.(14) ~flags_known:r.(15)
-            ~date:r.(16)
-        | "other" -> Other (text r.(9))
-        | _ -> fail "unknown intent kind" in
-      Some {id;scope;kind;state=dec_state (text r.(10));
-        uidvalidity=Option.map validity (nullable_int r.(11));
-        uid=Option.map uid (nullable_int r.(12))}
-    | _ -> fail "duplicate intent ID")
-
+    | r :: _ -> Some (decode_intent t r))

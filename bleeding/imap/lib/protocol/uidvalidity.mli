@@ -4,8 +4,9 @@
     for a mailbox, RFC 9051 §2.3.1.1. A UID is meaningful only together
     with the UIDVALIDITY in force when it was assigned. *)
 
-type t
-(** The type for UIDVALIDITY values. *)
+type t : immediate
+(** The type for UIDVALIDITY values. A value is an immediate integer, so
+    it is never allocated and may be used at any mode. *)
 
 val of_int64 : int64 -> (t, string) result
 (** [of_int64 n] is [n] as a UIDVALIDITY. The error names the valid range

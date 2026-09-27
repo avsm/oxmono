@@ -4,8 +4,9 @@
     message in the selected mailbox from 1 to 4294967295. It changes when
     an earlier message is expunged. *)
 
-type t
-(** The type for sequence numbers. *)
+type t : immediate
+(** The type for sequence numbers. A number is an immediate integer, so
+    it is never allocated and may be used at any mode. *)
 
 val of_int64 : int64 -> (t, string) result
 (** [of_int64 n] is [n] as a sequence number. The error names the valid

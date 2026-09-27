@@ -3,8 +3,9 @@
     A UID is the RFC 9051 [uniqueid], a number from 1 to 4294967295 that
     names one message of a mailbox for as long as its UIDVALIDITY holds. *)
 
-type t
-(** The type for UIDs. *)
+type t : immediate
+(** The type for UIDs. A UID is an immediate integer, so it is never
+    allocated and may be used at any mode. *)
 
 val of_int64 : int64 -> (t, string) result
 (** [of_int64 n] is [n] as a UID. The error names the valid range when [n]

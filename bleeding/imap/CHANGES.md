@@ -373,3 +373,7 @@ CONDSTORE anchor.
 
 `bench_store` also prints the allocation of each store phase in total
 and per staged row.
+
+`stage_rows` and `stage_membership` run their per-row statements in one
+system thread per call, cutting the staging benchmark from 3,926 MB and
+6.0 s to 93 MB and 0.48 s for 100,000 rows.

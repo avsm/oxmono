@@ -39,6 +39,21 @@ val rows_prepared : t -> Sqlite3.stmt -> Sqlite3.Data.t list ->
 (** [rows_prepared t stmt values] reads every row and then resets [stmt]
     and clears its bindings, whether or not the read succeeded. *)
 
+val batch : t -> (unit -> 'a) -> 'a
+(** [batch t f] is [f ()] evaluated in one system thread, so a loop of
+    statements costs one thread hop rather than two or more per statement.
+    [f] runs outside Eio and must not perform an Eio operation. Of the
+    operations here it may use only {!bind}, {!batch_run}, {!batch_rows},
+    {!changes} and the value codecs. *)
+
+val batch_run : t -> Sqlite3.stmt -> Sqlite3.Data.t list -> unit
+(** [batch_run t stmt values] is {!run_prepared} for use inside {!batch}. *)
+
+val batch_rows : t -> Sqlite3.stmt -> Sqlite3.Data.t list ->
+  Sqlite3.Data.t array list
+(** [batch_rows t stmt values] is {!rows_prepared} for use inside
+    {!batch}. *)
+
 val changes : t -> int
 (** [changes t] is the number of rows changed by the last write. *)
 

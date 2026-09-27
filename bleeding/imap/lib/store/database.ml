@@ -26,36 +26,46 @@ let bind t stmt values =
 
 (* A failed step leaves its error code in the statement, which reset
    returns again, so only a reset after success is checked. *)
-let with_reset t stmt f =
+let with_reset t ~reset stmt f =
   match f () with
   | x ->
-    Eio.Cancel.protect (fun () -> check t (SE.reset t.db stmt));
+    check t (reset stmt);
     check t (S.clear_bindings stmt);
     x
   | exception ex ->
     let backtrace = Printexc.get_raw_backtrace () in
-    (try Eio.Cancel.protect (fun () ->
-       ignore (SE.reset t.db stmt : S.Rc.t);
-       ignore (S.clear_bindings stmt : S.Rc.t)) with _ -> ());
+    (try
+       ignore (reset stmt : S.Rc.t);
+       ignore (S.clear_bindings stmt : S.Rc.t)
+     with _ -> ());
     Printexc.raise_with_backtrace ex backtrace
-let run_prepared t stmt values =
-  with_reset t stmt (fun () ->
+let write t ~step ~reset stmt values =
+  with_reset t ~reset stmt (fun () ->
     bind t stmt values;
-    match SE.step t.db stmt with
+    match step stmt with
     | S.Rc.DONE -> ()
     | S.Rc.ROW -> fail "write returned rows"
     | rc -> check t rc; fail ("write step returned " ^ S.Rc.to_string rc))
-let rows_prepared t stmt values =
-  with_reset t stmt (fun () ->
+let read t ~step ~reset stmt values =
+  with_reset t ~reset stmt (fun () ->
     bind t stmt values;
     let rec loop acc =
-      match SE.step t.db stmt with
+      match step stmt with
       | S.Rc.ROW ->
         let row = Array.init (S.column_count stmt) (S.column stmt) in
         loop (row :: acc)
       | S.Rc.DONE -> List.rev acc
       | rc -> check t rc; fail ("read step returned " ^ S.Rc.to_string rc) in
     loop [])
+let eio_step t stmt = SE.step t.db stmt
+let eio_reset t stmt = Eio.Cancel.protect (fun () -> SE.reset t.db stmt)
+let run_prepared t stmt values =
+  write t ~step:(eio_step t) ~reset:(eio_reset t) stmt values
+let rows_prepared t stmt values =
+  read t ~step:(eio_step t) ~reset:(eio_reset t) stmt values
+let batch t f = SE.run t.db ~label:"imap_store_batch" (fun _ -> f ())
+let batch_run t stmt values = write t ~step:S.step ~reset:S.reset stmt values
+let batch_rows t stmt values = read t ~step:S.step ~reset:S.reset stmt values
 let run t statement values =
   with_stmt t statement (fun stmt -> run_prepared t stmt values)
 let rows t statement values =

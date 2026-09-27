@@ -148,7 +148,7 @@ let seed_stage_from_published t ~(cursor:M.cursor) ~(action:M.action) =
         AND account=? AND mailbox_key=? AND uidvalidity=? AND uid<=?" values;
       `Seeded))
 
-let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last batch =
+let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last fetched =
   let who="Imap_store.stage_rows" in
   if first < 1L || last < first then invalid_arg (who ^ ": range");
   transaction t (fun () ->
@@ -162,12 +162,12 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last batch =
       VALUES (?,?,?,?) ON CONFLICT(stage_id,uid) DO UPDATE SET \
       modseq=excluded.modseq,flags=excluded.flags"
     @@ fun row_stmt ->
-    List.iter (fun (row:M.row) ->
+    batch t (fun () -> List.iter (fun (row:M.row) ->
       let uid=Imap.Uid.to_int64 row.uid in
       if uid<first || uid>last then
         invalid_arg (who ^ ": UID outside FETCH range");
       let newer=if not preserve_newer then true else
-        match rows_prepared t seeded_stmt [s stage_id;i uid] with
+        match batch_rows t seeded_stmt [s stage_id;i uid] with
         | [] -> true
         | seeded :: _ ->
             (match nullable_int seeded.(0),row.modseq with
@@ -179,9 +179,9 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last batch =
                  invalid_arg
                    (who ^ ": seeded and incremental rows lack MODSEQ")) in
       if newer then
-        run_prepared t row_stmt
+        batch_run t row_stmt
           [s stage_id;i uid;ni (Option.map Imap.Modseq.to_int64 row.modseq);
-           flags row.flags]) batch;
+           flags row.flags]) fetched);
     run t "UPDATE scan_stages SET fetch_upper=? WHERE id=?"
       [i last;s stage_id])
 
@@ -198,15 +198,15 @@ let stage_membership t ~stage_id ~first ~last uids =
     @@ fun check_stmt ->
     with_stmt t "UPDATE scan_rows SET seen=1 WHERE stage_id=? AND uid=?"
     @@ fun mark_stmt ->
-    List.iter (fun uid ->
+    batch t (fun () -> List.iter (fun uid ->
       let uid=Imap.Uid.to_int64 uid in
       if uid<first || uid>last then
         invalid_arg (who ^ ": UID outside SEARCH range");
       if Hashtbl.mem unique uid then invalid_arg (who ^ ": duplicate UID");
       Hashtbl.add unique uid ();
-      if rows_prepared t check_stmt [s stage_id;i uid]=[] then
+      if batch_rows t check_stmt [s stage_id;i uid]=[] then
         invalid_arg (who ^ ": live UID absent from FETCH");
-      run_prepared t mark_stmt [s stage_id;i uid]) uids;
+      batch_run t mark_stmt [s stage_id;i uid]) uids);
     run t "UPDATE scan_stages SET search_upper=? WHERE id=?"
       [i last;s stage_id])
 

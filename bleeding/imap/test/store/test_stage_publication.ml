@@ -263,6 +263,32 @@ let test_over_coverage db =
     Store.stage_membership db ~stage_id:action.id ~first:1L ~last:beyond
       [uid 1L])
 
+(* A rejected row or UID aborts its whole call, and nothing it staged
+   before the rejection survives. *)
+let test_rejected_rows_roll_back db =
+  let first=baseline db in
+  let action=ok (M.plan first ~stage_id:"rollback"
+    (selected ~highest:99L 5L 4L)) in
+  let last=action.upper_uid in
+  Store.begin_stage db ~cursor:first ~action;
+  rejects "FETCH row outside its window accepted"
+    ~needle:"outside FETCH range" (fun () ->
+      Store.stage_rows db ~stage_id:action.id ~first:1L ~last:2L
+        [row 1L;row 3L]);
+  Store.stage_rows db ~stage_id:action.id ~first:1L ~last [row 2L];
+  rejects "duplicate SEARCH UID accepted" ~needle:"duplicate UID"
+    (fun () ->
+      Store.stage_membership db ~stage_id:action.id ~first:1L ~last
+        [uid 2L;uid 2L]);
+  rejects "SEARCH UID of a rolled-back row accepted"
+    ~needle:"absent from FETCH" (fun () ->
+      Store.stage_membership db ~stage_id:action.id ~first:1L ~last
+        [uid 2L;uid 1L]);
+  Store.stage_membership db ~stage_id:action.id ~first:1L ~last [uid 2L];
+  let next=(publish ~explicit:99L db first action).cursor in
+  Alcotest.(check (list int64)) "published inventory" [2L]
+    (uids (snapshot db next))
+
 let test_recent_only_change db =
   let first=baseline db in
   let before=snapshot db first in
@@ -322,6 +348,7 @@ let () =
         test_anchor_needs_explicit_highestmodseq;
       case "restart reason kept" test_restart_reason_kept;
       case "over-coverage" test_over_coverage;
+      case "rejected rows roll back" test_rejected_rows_roll_back;
       case "Recent-only change" test_recent_only_change;
       case "cross-scope action" test_cross_scope_action;
       case "restored cursor" test_restore_cursor]]

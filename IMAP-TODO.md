@@ -48,7 +48,7 @@ comments unless the code cannot say it.
 |---|------|--------|--------|
 | 0 | Baseline commit of the untracked IMAP tree and its shared-library edits | done | b4084133b |
 | R | Phase 2 implementation review by subagent, one per module, findings in section 0.R | done, 21 reviews, 336 findings | |
-| F | Apply Phase 2 correctness fixes in severity order, then dead code, redundancy, comments | in progress: wave 1 (protocol, eio, store, maildir) runs in four git worktrees, see `git worktree list`; merge each branch onto minus39 with rebase, then wave 2 (sync, then cli) | |
+| F | Apply Phase 2 correctness fixes in severity order, then dead code, redundancy, comments | wave 1 (protocol, eio, store, maildir) merged at 30e22ab3f; wave 2 (sync) in progress in the main checkout; the CLI findings fold into step 12 | |
 | 1 | Plan item 8: strip duplicated docs from core Eio `.mli` and private store `.mli` to one-line internal contracts; rename `Imap_store.Sync` to `Journal` | todo | |
 | 2 | Plan items 1 to 3: `Imap.Capability`, typed `Response.Capability`/`Enabled`, `Error.Unsupported`, typed `Client.capabilities`/`enabled`/`has`/`enable` | todo | |
 | 3 | Plan item 12: `spool` as a private library shared by `imap.sync` and test/io; drop copy_files | todo | |
@@ -60,7 +60,7 @@ comments unless the code cannot say it.
 | 9 | Plan item 4: extension witness submodules on `Client` and `Selected`, each with `require` | todo | |
 | 10 | Plan item 9: `with_mailbox` reentrancy returns `State` instead of blocking | todo | |
 | 11 | Sync moves: `Ctx` record, single `Imap_sync.Error.t`, `Repair` module, `Plan` module, one APPEND inspection, drop `Engine.run_once` if unused | todo | |
-| 12 | CLI on cmdliner with one term per command and a single `deletion_policy` option | todo | |
+| 12 | CLI on cmdliner with one term per command and a single `deletion_policy` option; also applies every `bin/imap_cli.ml` finding from 0.R and wires the blob orphan collector and `forget_epochs` into startup under the writer lease | todo | |
 | 13 | `imap.mli` facade, `.mld` pages, `(documentation)` stanza, dune-project dependency fixes | todo | |
 | 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | todo | |
 | 15 | Redocumentation pass under doc-style over every public interface | todo | |

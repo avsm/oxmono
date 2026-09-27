@@ -127,7 +127,7 @@ run only once everything else works.
 | 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | done | b6957cba1 |
 | 15 | Redocumentation pass under doc-style over every public interface | done; three worktree branches merged | cdbd2e380 |
 | 15b | Fix the code contracts the redocumentation pass found contradicted, listed under the step 15b note | done; five commits, protocol before eio | 5c4f7363c |
-| 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | in progress; benchmarks and baseline | |
+| 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | done; six benchmarks, immediates, iarray UID sets, a portable protocol library with kind probes, and four allocation cuts | ed4ac2d2e |
 | 17 | Wrap up: add `CHANGES.md` for the `imap` and `maildir` packages summarising the user-visible changes since the baseline, run both packages' build and tests a final time, and record a review pause | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
@@ -648,31 +648,146 @@ test/examples/client.ml, which prints the strategy of a
 `Mailbox.move`. Build and runtest are clean, 17 suites and 235 test
 cases plus the new executable.
 
-Step 16. In progress: test/bench holds six executables that `@all`
-builds and `runtest` never runs. Each prints wall time, `Gc.allocated_bytes`
-and minor words for a fixed workload through public interfaces only.
-Run one as `_build/default/bleeding/imap/test/bench/bench_wire.exe`.
-`bench_wire` frames and parses 100,000 `* n FETCH (UID n FLAGS (\Seen)
-MODSEQ (n))` rows fed in 64 KiB chunks. `bench_uid_set` parses two sets
-of 100,000 UIDs in 10,000 intervals, unions them, probes `mem` 10,000
-times and prints both. `bench_encode` runs `Search.to_wire` over 100,000
-nine-key conjunctions and `Fetch_item.to_wire` over 100,000 items.
-`bench_session` reads the same 100,000 rows from a mock flow through
-`Client.with_mailbox` and 100 `Selected.fetch_range` calls of 1,000 UIDs,
-since one call refuses a wider window. `bench_maildir` scans and folds
-100,000 messages. `bench_store` stages 100,000 rows in one FETCH and one
-SEARCH window and publishes them. Baseline, the median of three runs:
+Step 16. Done: test/bench holds six executables that `@all` builds and
+`runtest` never runs. Each prints wall time, `Gc.allocated_bytes` and
+minor words for a fixed workload through public interfaces only. Run one
+as `_build/default/bleeding/imap/test/bench/bench_wire.exe`. `bench_wire`
+frames and parses 100,000 `* n FETCH (UID n FLAGS (\Seen) MODSEQ (n))`
+rows fed in 64 KiB chunks. `bench_uid_set` parses two sets of 100,000
+UIDs in 10,000 intervals, unions them, probes `mem` 10,000 times and
+prints both. `bench_encode` runs `Search.to_wire` over 100,000 nine-key
+conjunctions and `Fetch_item.to_wire` over 100,000 items. `bench_session`
+reads the same 100,000 rows from a mock flow through `Client.with_mailbox`
+and 100 `Selected.fetch_range` calls of 1,000 UIDs, since one call refuses
+a wider window. `bench_maildir` scans and folds 100,000 messages.
+`bench_store` stages 100,000 rows in one FETCH and one SEARCH window and
+publishes them. Figures are medians of three runs in the dev profile,
+which compiles with `-opaque`. Deltas come from interleaved runs of the
+previous and the new binaries, because the same binary drifts by up to
+15% between sessions. Rebuild the new binary before an interleaved run,
+or it compares a binary with itself.
 
-| Benchmark | Wall | Allocated | Minor words |
-|---|---|---|---|
-| wire + parse | 178.9 ms | 688.4 MB | 86.05 M |
-| uid_set | 376.0 ms | 28.3 MB | 3.51 M |
-| Search.to_wire | 124.9 ms | 421.5 MB | 52.69 M |
-| Fetch_item.to_wire | 1.1 ms | 1.2 MB | 0.15 M |
-| session fetch_range | 365.7 ms | 905.2 MB | 112.45 M |
-| Maildir.scan | 726.7 ms | 253.0 MB | 31.63 M |
-| Maildir.fold | 654.8 ms | 210.5 MB | 26.32 M |
-| store stage + publish | 7345.8 ms | 6169.6 MB | 771.07 M |
+| Benchmark | Baseline wall | Final wall | Baseline alloc | Final alloc |
+|---|---|---|---|---|
+| wire + parse | 178.5 ms | 104.6 ms | 688.4 MB | 275.0 MB |
+| uid_set | 376.7 ms | 6.4 ms | 28.3 MB | 18.1 MB |
+| Search.to_wire | 127.1 ms | 118.5 ms | 421.5 MB | 363.1 MB |
+| Fetch_item.to_wire | 1.1 ms | 1.2 ms | 1.2 MB | 1.2 MB |
+| session fetch_range | 263.4 ms | 165.4 ms | 905.2 MB | 454.0 MB |
+| Maildir.scan | 689.6 ms | 683.5 ms | 253.3 MB | 253.1 MB |
+| Maildir.fold | 606.3 ms | 624.8 ms | 210.7 MB | 210.7 MB |
+| store stage + publish | 7178.9 ms | 7131.9 ms | 6169.6 MB | 6174.4 MB |
+
+Maildir wall time is filesystem noise, from 0.58 s to 1.46 s for the same
+binary, and its allocation did not change. The store allocates 61 KB per
+staged row, which a later round could examine.
+
+Accepted changes, each measured against the commit before it:
+
+- 5974c418b. `Uid.t`, `Uidvalidity.t` and `Seq.t` are `int` and declared
+  `immediate`. `Modseq.t` stays `int64`, since RFC 7162 allows 63 unsigned
+  bits. Wire and session moved +0.9% and -3.6% with unchanged
+  allocation. uid_set read +16.4%, but its `mem` loop took 431 ms under
+  both representations when timed in a separate program, so the
+  difference is code placement. `Int.compare` is bound to
+  `Stdlib.compare` as a value, so the comparisons are written with typed
+  arguments instead.
+- bae4359fc. `Uid_set.t` is a `Uid.t iarray` of interval bounds, and
+  `mem` bisects. `mem` dominated benchmark 2. uid_set went from 436.4 ms
+  and 28.3 MB to 6.4 ms and 18.1 MB. A differential against the list
+  implementation over 200,000 random cases agreed on every operation.
+- 824f35726. `Wire.feed` is a `let mutable` loop with an `int` offset,
+  and `prefix_ci` a `let mutable` loop. The boxed `int64` offset cost 24
+  bytes per input byte, and `prefix_ci` built a closure for each of 14
+  keywords per line. Wire went from 191.2 ms and 688.4 MB to 177.8 ms and
+  470.8 MB, and session from 263.1 ms and 905.2 MB to 249.8 ms and 687.5
+  MB. A differential against the old decoder over 200,000 randomly
+  chunked streams matched every event, error and offset.
+- 93cc5f9ad. `parse_parts` parses a lone `[Text s; End_of_response]` with
+  `parse s`, and `parse` uppercases only the word it dispatches on. Wire
+  went from 180.1 ms and 470.8 MB to 104.7 ms and 275.0 MB, and session
+  from 248.8 ms and 687.5 MB to 175.0 ms and 491.6 MB. A differential over
+  300,000 random lines matched the old results.
+- 450684c38. Session's read loop detects a FETCH response from the first
+  three words instead of splitting the line. Session went from 178.6 ms
+  and 491.6 MB to 165.7 ms and 454.0 MB. A differential over 1,000,000
+  strings matched the split-based predicate.
+- ed4ac2d2e. SEARCH dates and sizes are built without `Printf`.
+  Search.to_wire went from 126.1 ms and 423.9 MB to 121.5 ms and 363.1
+  MB. Every valid date encodes as before.
+
+Portability. Every `bleeding/imap/lib/protocol` interface opens with
+`@@ portable`, and so does mail-flag's `imap_flag.mli` (8919079f3),
+which the protocol library calls. What blocked it was the month arrays in
+`Internal_date` and `Search`, now an iarray and a match, and the stdlib
+`Set.Make` and `Map.Make` in `Capability.Set`, `Mirror` and
+`Sync_policy`, now `MakePortable` with each empty value built at its use
+site. `Uid_set.t`, `Modseq.t` and `Internal_date.t` are declared
+`immutable_data`. The imap.mli facade says every function is portable
+and every type immutable data except `Wire.t`, `Capability.Set.t` and
+`Mirror.snapshot`. The probes are kept tests. test/proto/test_modes.ml
+("IMAP kinds and modes") holds 68 kind abbreviations, one per protocol
+type, portable closures over identifiers, vocabulary, records and
+framing, and locality probes for the three immediates.
+bleeding/maildir/test/test_modes.ml ("Maildir kinds and modes") covers
+`Keywords.t`, `Maildir.error`, `location` and `occurrence` and closures
+over `Keywords` and `pp_error`. test/eio/test_modes.ml ("Imap_eio kinds
+and modes") covers `Error.t`, the `Auth` constructors and accessors, and
+`Client.pp_error` and `error_to_string`. Each claim was removed in turn
+to confirm its probe then fails. A probe must bind the closure at a
+mode, as in `let (f @ portable) = fun () -> ...`. The form
+`fun () @ portable -> e` constrains only the mode of `e` and compiles
+whatever the kinds are.
+
+What blocks the rest. In maildir, `Keywords` now holds an iarray and is
+portable with `Maildir_error`, and `Maildir.pp_error` is portable. But
+`Maildir` and `Dotlock` call `Eio.Path.native` and hold Eio resources,
+and Eio is not annotated. In imap.eio, only `Error`, the `Auth`
+constructors and accessors, and `Client.pp_error` and `error_to_string`
+are portable. `Transport` uses the `Eio.Io` constructor and TLS flows.
+`Deflate_flow` calls decompress's `De.Queue.create`. `Session.t` holds an
+`Eio.Mutex.t` and the transport, so a portable `create` would return a
+contended session. `Client` also reaches `Auth` responses that call
+`Base64`. `Selected` uses `Set.Make` over Session. `Mailbox` and `Pool`
+depend on these. `Auth.t` holds closures and has no `immutable_data`
+kind.
+
+Rejected, with measurements:
+
+- A stack-allocated token accumulator in the Response tokenizer does not
+  compile. Loop bodies are regions, so a `stack_` cons cannot be stored
+  in an outer `let mutable`. A tail call cannot pass a local argument.
+  The elements of a local list are local, and the token type does not
+  cross locality. Non-tail recursion risks stack depth on 1 MiB lines.
+  The most it could save is the 39 of 315 words per row that the
+  reversal copies.
+- `[@zero_alloc]` holds under the release-check profile for `equal` and
+  `compare` of `Uid`, `Uidvalidity`, `Seq` and `Modseq`. It also holds
+  for `Uid_set.mem` once its bound readers are typed at `t`, since
+  otherwise the generic iarray read counts as boxing a float. It fails
+  for `of_int64`, `succ`, `pred` and `to_int64`, which allocate their
+  result. It showed no gain, with uid_set +1.6%, session -2.9%, encode
+  +1.1% and unchanged allocation. The dev and release profiles pass
+  `-zero-alloc-check none` in dune-workspace, so the annotation would go
+  unchecked in normal builds.
+- `exclave_` has no candidate in `Uid_set`, because no small
+  tuple-returning helper remains after the iarray change.
+- Iarray tables. `Keywords` became an iarray for portability. The
+  `Capability` token table and the vocabulary encoders, which are
+  matches, lie on no benchmark path.
+- Removing the `Cstruct.to_string` copy in Session's read loop has a
+  ceiling of 0.73 ms and 4.5 MB on benchmark 4, which is 0.4% of wall and
+  1.0% of allocation, and needs a new bigstring entry point in `Wire`.
+  `Deflate_flow` already reads and writes through bigarray views.
+- Passing `~strict` directly in `Search.encode` instead of building
+  partial applications left allocation at 363.1 MB, and wall time moved
+  -6.0%, -0.9% and -1.6% in three runs.
+
+Restoring an edited file within the same second can leave dune with a
+stale digest and inconsistent objects, which showed as an
+`Optlibrarian` error. Sleep a second before restoring and touch the
+file, or move `_build/.db` aside once. Build and runtest are clean, 20
+suites and 263 test cases.
 
 ### Step F notes
 

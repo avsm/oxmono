@@ -288,7 +288,8 @@ let test_objectid_binding () =
     | Error error -> Alcotest.failf "initial identity scan: %a"
         Imap_sync.Engine.pp_error error in
   Alcotest.(check bool) "OBJECTID+ bound in SQLite" true
-    (Option.is_some (Imap_store.object_identity store ~scope));
+    (match Imap_store.object_identity store ~scope with
+     | `Bound _ -> true | `Unbound | `Conflict -> false);
   unwrap (Client.enable_objectid_plus mutator);
   ignore (unwrap (Client.rename_mailbox_objectid mutator
     ~old_name:mailbox ~new_name:renamed));

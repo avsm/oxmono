@@ -40,10 +40,12 @@ val load : t -> scope:Imap.Mirror.scope -> mailbox
 
 type object_identity = { account_id:string; mailbox_id:string }
 
-val object_identity : t -> scope:Imap.Mirror.scope -> object_identity option
-(** A verified OBJECTID+ binding, or [None] for an unbound mailbox or a
-    read-only pre-v12 database. The stored raw name and encoding must match
-    the requested scope. *)
+val object_identity : t -> scope:Imap.Mirror.scope ->
+  [ `Bound of object_identity | `Unbound | `Conflict ]
+(** [object_identity t ~scope] is the verified OBJECTID+ binding of
+    [scope]. It is [`Unbound] for an unbound mailbox or a read-only pre-v12
+    database, and [`Conflict] when the binding was made under another raw
+    name or encoding, as {!observe_object_identity} reports it. *)
 
 val observe_object_identity : t -> scope:Imap.Mirror.scope ->
   object_identity -> [ `Bound | `Matched | `Conflict ]
@@ -88,8 +90,10 @@ val seed_stage_from_published : t -> cursor:Imap.Mirror.cursor ->
 (** Copy the current epoch's published rows and flags into a new scan stage
     using SQLite statements, without materializing them in OCaml. The caller
     must cover the entire UID range with changed-row FETCH windows and then
-    prove complete membership with SEARCH before publication. A stale cursor
-    leaves the stage unseeded. *)
+    prove complete membership with SEARCH before publication. A cursor whose
+    revision or UIDVALIDITY is no longer current yields [`Stale_revision]
+    and leaves the stage unseeded. A stage that already has coverage, or
+    was begun for another cursor or action, raises [Invalid_argument]. *)
 
 val stage_rows : ?preserve_newer:bool -> t -> stage_id:string ->
   first:int64 -> last:int64 ->
@@ -97,7 +101,9 @@ val stage_rows : ?preserve_newer:bool -> t -> stage_id:string ->
 (** Commit one contiguous FETCH window. The next window must start at the
     previous window's end plus one. Each call is atomic. With
     [preserve_newer=true], a row whose MODSEQ is older than its seeded stage
-    counterpart is ignored, including its flags. *)
+    counterpart is ignored, including its flags, and a row without a MODSEQ
+    to compare raises [Invalid_argument]. [preserve_newer] defaults to
+    [false]. *)
 
 val stage_membership : t -> stage_id:string -> first:int64 -> last:int64 ->
   int64 list -> unit
@@ -113,7 +119,11 @@ val publish_stage : t -> cursor:Imap.Mirror.cursor ->
 (** Requires full FETCH and SEARCH coverage to the fixed upper UID. In one
     transaction, CAS-checks the cursor, replaces the current epoch's rows
     with SEARCH-confirmed stage rows, advances the cursor, and deletes the
-    stage. No complete OCaml snapshot is materialized. *)
+    stage. No complete OCaml snapshot is materialized. In CONDSTORE mode
+    without [explicit_highestmodseq] the new anchor is the largest staged
+    MODSEQ when every published row has one. Incomplete coverage, a stage
+    begun for another cursor or action, or a MODSEQ regression raises
+    [Invalid_argument]. *)
 
 val discard_stage : t -> stage_id:string -> unit
 val abandoned_stages : t -> string list

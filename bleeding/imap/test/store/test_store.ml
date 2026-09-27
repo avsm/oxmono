@@ -39,7 +39,7 @@ let test_object_identity env =
       let db=Store.open_path ~sw db_path in
       let rival=Store.open_path ~sw db_path in
       Alcotest.(check bool) "unbound" true
-        (Store.object_identity db ~scope=None);
+        (Store.object_identity db ~scope=`Unbound);
       Alcotest.(check bool) "first binding" true
         (Store.observe_object_identity db ~scope identity=`Bound);
       Alcotest.(check bool) "cross-handle exact match" true
@@ -54,7 +54,7 @@ let test_object_identity env =
     Eio.Switch.run (fun sw ->
       let db=Store.open_readonly ~sw db_path in
       Alcotest.(check bool) "binding survives reopen" true
-        (Store.object_identity db ~scope=Some identity)))
+        (Store.object_identity db ~scope=`Bound identity)))
 
 let test_flag_settlement_transaction env =
   let module J=Store.Sync in

@@ -205,7 +205,7 @@ let test_objectid_binding_guards_reconnect () =
        Imap_sync.Engine.pp_error error);
   Alcotest.(check bool) "first scan bound identity" true
     (Imap_store.object_identity store ~scope=
-      Some {Imap_store.account_id="u_account";mailbox_id="F_box"});
+      `Bound {Imap_store.account_id="u_account";mailbox_id="F_box"});
   let downgraded=scripted_scan ~sw ~has_message:false () in
   (match Imap_sync.Engine.run_once_staged ~client:downgraded ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"objectid-downgraded" () with
@@ -290,7 +290,7 @@ let test_objectid_first_binding_requires_stable_epoch () =
        Imap_sync.Engine.pp_error error
    | Ok _ -> Alcotest.fail "changed epoch acquired first OBJECTID+ binding");
   Alcotest.(check bool) "changed epoch not bound" true
-    (Imap_store.object_identity store ~scope=None);
+    (Imap_store.object_identity store ~scope=`Unbound);
   Alcotest.(check int64) "changed epoch not published" before
     (Imap_store.load_cursor store ~scope).revision
 
@@ -313,7 +313,7 @@ let test_objectid_missing_select_identity_cannot_publish () =
      | Ok _ -> Alcotest.fail (name ^ " OBJECTID+ scan was published")))
     ["missing",`Missing; "partial",`Partial];
   Alcotest.(check bool) "missing identity was not bound" true
-    (Imap_store.object_identity store ~scope=None);
+    (Imap_store.object_identity store ~scope=`Unbound);
   Alcotest.(check int64) "missing identity did not publish" 0L
     (Imap_store.load_cursor store ~scope).revision;
   Alcotest.(check (list string)) "missing identity made no stage" []

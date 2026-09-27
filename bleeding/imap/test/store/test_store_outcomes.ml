@@ -183,8 +183,71 @@ let finaliser_keeps_exception env = with_store env (fun ~path:_ ~dir db ->
       failwith ("directory failure not Eio.Io: " ^ Printexc.to_string other)
   | _ -> failwith "missing blob directory listed")
 
+let selected ?(highestmodseq=Some (modseq 40L)) epoch_value : M.selected = {
+  uidvalidity=epoch epoch_value; uidnext=5L; highestmodseq; nomodseq=false }
+
+(* A cursor at the current revision but an older epoch must not seed rows
+   from the quarantined epoch. *)
+let seed_checks_epoch env = with_store env (fun ~path:_ ~dir:_ db ->
+  publish db ~stage:"five" ~epoch_value:5L [row 1L];
+  let old_epoch=Store.load_cursor db ~scope in
+  publish db ~stage:"six" ~epoch_value:6L [row 1L];
+  let current=Store.load_cursor db ~scope in
+  let cursor=ok (M.restore ~schema_version:current.schema_version ~scope
+    ~phase:current.phase ~uidvalidity:old_epoch.uidvalidity
+    ~generation:current.generation ~revision:current.revision
+    ~anchor:current.anchor ~frontier:current.frontier
+    ~inventory_ref:current.inventory_ref ~mode:current.mode) in
+  let action=ok (M.plan cursor ~stage_id:"old-epoch-seed" (selected 5L)) in
+  Store.begin_stage db ~cursor ~action;
+  check (Store.seed_stage_from_published db ~cursor ~action=`Stale_revision)
+    "seeded from a quarantined epoch")
+
+let identity_conflict env = with_store env (fun ~path:_ ~dir:_ db ->
+  let identity:Store.object_identity={account_id="u_a";mailbox_id="F_b"} in
+  check (Store.observe_object_identity db ~scope identity=`Bound) "bind";
+  check (Store.object_identity db ~scope=`Bound identity) "bound identity";
+  check (Store.object_identity db ~scope:renamed=`Conflict)
+    "renamed binding not a conflict")
+
+let seeded_modseq_message env = with_store env (fun ~path:_ ~dir:_ db ->
+  publish db ~stage:"plain" ~epoch_value:5L
+    [{uid=uid 1L; flags=[]; modseq=None}];
+  let cursor=Store.load_cursor db ~scope in
+  let action=ok (M.plan cursor ~stage_id:"seeded-plain" (selected 5L)) in
+  Store.begin_stage db ~cursor ~action;
+  check (Store.seed_stage_from_published db ~cursor ~action=`Seeded) "seed";
+  match Store.stage_rows ~preserve_newer:true db ~stage_id:action.id
+      ~first:1L ~last:4L [{uid=uid 1L; flags=[]; modseq=None}] with
+  | exception Invalid_argument message when contains ~needle:"seeded" message
+    -> ()
+  | exception Invalid_argument message ->
+      failwith ("seeded row not named: " ^ message)
+  | () -> failwith "rows without MODSEQ compared")
+
+let observed_anchor env = with_store env (fun ~path:_ ~dir:_ db ->
+  let cursor=Store.load_cursor db ~scope in
+  let action=ok (M.plan cursor ~stage_id:"anchor" (selected 5L)) in
+  check (action.mode=M.Condstore) "fixture is not CONDSTORE";
+  Store.begin_stage db ~cursor ~action;
+  let staged n m : M.row = {uid=uid n; flags=[]; modseq=Some (modseq m)} in
+  Store.stage_rows db ~stage_id:action.id ~first:1L ~last:4L
+    [staged 1L 20L; staged 2L 30L];
+  Store.stage_membership db ~stage_id:action.id ~first:1L ~last:4L [1L;2L];
+  match Store.publish_stage db ~cursor ~action ~explicit_highestmodseq:None
+      ~nomodseq:false with
+  | `Committed receipt ->
+      check (receipt.row_count=2L) "row count";
+      check (receipt.cursor.anchor=Some (modseq 30L))
+        "anchor is not the largest staged MODSEQ"
+  | `Stale_revision -> failwith "fresh stage stale")
+
 let () =
   Eio_main.run (fun env ->
+    seed_checks_epoch env;
+    identity_conflict env;
+    seeded_modseq_message env;
+    observed_anchor env;
     scope_mismatch env;
     decode_reasons env;
     forget_epochs env;

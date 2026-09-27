@@ -46,18 +46,22 @@ let selected_metadata (info:Imap.Response.select_metadata) =
   Ok ({uidvalidity; uidnext=info.uidnext; highestmodseq;
        nomodseq=info.nomodseq || Option.is_none highestmodseq}:Mirror.selected)
 
+let conflicting_identity =
+  Invalid_scope "saved OBJECTID+ binding names another mailbox"
+
 let prepare_object_identity ~client ~store ~scope ~mailbox =
   let caps=Imap_eio.Client.capabilities client in
   let offered=List.mem "OBJECTID+" caps && List.mem "ENABLE" caps in
-  let bound=Imap_store.object_identity store ~scope in
-  if bound<>None && not offered then
+  match Imap_store.object_identity store ~scope with
+  | `Conflict -> Error conflicting_identity
+  | `Bound _ when not offered ->
     Error (Invalid_scope "saved OBJECTID+ identity cannot be verified")
-  else if not offered then Ok false
-  else
+  | `Unbound when not offered -> Ok false
+  | `Unbound | `Bound _ as bound ->
     let* ()=network (Imap_eio.Client.enable_objectid_plus client) in
     let* ()=match bound with
-      | None -> Ok ()
-      | Some (identity:Imap_store.object_identity) ->
+      | `Unbound -> Ok ()
+      | `Bound (identity:Imap_store.object_identity) ->
           let* status=network (Imap_eio.Client.status client ~mailbox
             ~items:[Imap.Command.Objectid]) in
           (match status.objectid with
@@ -72,15 +76,17 @@ let prepare_object_identity ~client ~store ~scope ~mailbox =
 
 let guard_bound_mailbox ~client ~store ~scope ~mailbox =
   match Imap_store.object_identity store ~scope with
-  | None -> Ok ()
-  | Some _ ->
+  | `Unbound -> Ok ()
+  | `Conflict -> Error conflicting_identity
+  | `Bound _ ->
       let* _=prepare_object_identity ~client ~store ~scope ~mailbox in
       Ok ()
 
 let verify_mutation_destination ~client ~store ~scope ~mailbox =
   match Imap_store.object_identity store ~scope with
-  | None -> Ok ()
-  | Some (identity:Imap_store.object_identity) ->
+  | `Unbound -> Ok ()
+  | `Conflict -> Error conflicting_identity
+  | `Bound (identity:Imap_store.object_identity) ->
       if not (List.mem "OBJECTID+" (Imap_eio.Client.enabled client)) then
         Error (Invalid_scope "saved OBJECTID+ identity is not enabled")
       else
@@ -107,7 +113,7 @@ let guard_initial_identity_epoch ~store ~scope ~(cursor:Mirror.cursor)
     ~validity =
   match (Imap_store.object_identity store ~scope,
          cursor.Mirror.uidvalidity) with
-  | None,Some previous when previous<>validity ->
+  | `Unbound,Some previous when previous<>validity ->
       Error (Invalid_scope
         "cannot first-bind OBJECTID+ after mailbox UIDVALIDITY changed")
   | _ -> Ok ()
@@ -500,15 +506,15 @@ let append_journaled ~client ~store ~scope ~mailbox ~id ~message_id
                 (Mail_flag.Imap_flag.of_wire flag) in
               parse (parsed :: acc) rest
         in parse [] flags in
-  let current = Imap_store.load store ~scope in
+  let current = Imap_store.load_cursor store ~scope in
   let intent : Imap_store.intent = {
     id; scope; state=Imap_store.Prepared;
     kind=Imap_store.Append {message_id; content_digest; spool_ref;
-      pre_send_uid_frontier=Some current.cursor.frontier;
+      pre_send_uid_frontier=Some current.frontier;
       expected_length=Some length; expected_flags;
       expected_internal_date=Option.map
         Imap.Internal_date.to_string internal_date};
-    uidvalidity=current.cursor.uidvalidity; uid=None
+    uidvalidity=current.uidvalidity; uid=None
   } in
   Imap_store.prepare_intent store intent;
   (* Sent is durable before the first network write. A crash between this

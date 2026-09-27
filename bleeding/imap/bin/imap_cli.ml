@@ -686,8 +686,9 @@ let inspect config ~fs =
   Printf.printf "cursor revision=%Ld generation=%Ld frontier=%Ld\n%!"
     cursor.revision cursor.generation cursor.frontier;
   (match Imap_store.object_identity store ~scope with
-   | None -> ()
-   | Some identity ->
+   | `Unbound -> ()
+   | `Conflict -> print_endline "objectid binding names another mailbox"
+   | `Bound (identity:Imap_store.object_identity) ->
        Printf.printf "objectid account=%S mailbox=%S\n%!"
          identity.account_id identity.mailbox_id);
   let print_operation (op:Imap_store.Sync.operation) =

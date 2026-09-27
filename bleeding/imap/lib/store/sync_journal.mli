@@ -37,7 +37,8 @@ val find_pair : t -> id:string -> pair option
 val note_presence : t -> pair:pair -> side:[ `Remote | `Local ] ->
   generation:int64 -> [ `Recorded | `Stale_revision ]
 (** [note_presence t ~pair ~side ~generation] records that the complete
-    published scan at [generation] saw [side] of [pair] present. *)
+    published scan at [generation] saw [side] of [pair] present, or is
+    [`Stale_revision] once a later publication replaced [generation]. *)
 
 val last_presence_generation : t -> pair_id:string ->
   side:[ `Remote | `Local ] -> int64 option

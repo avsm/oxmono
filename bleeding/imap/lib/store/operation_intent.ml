@@ -132,7 +132,7 @@ let confirm_intent t ~id ~uidvalidity ~uid =
     match rows t "SELECT state FROM intents WHERE id=?" [s id] with
     | r :: _ when legal (dec_state (text r.(0))) Confirmed ->
       run t "UPDATE intents SET state='confirmed',\
-        uidvalidity=COALESCE(?,uidvalidity),uid=? WHERE id=?"
+        uidvalidity=COALESCE(?,uidvalidity),uid=COALESCE(?,uid) WHERE id=?"
         [ni (Option.map Imap.Uidvalidity.to_int64 uidvalidity);
          ni (Option.map Imap.Uid.to_int64 uid); s id]
     | _ :: _ -> invalid_arg "Imap_store.confirm_intent: illegal transition"

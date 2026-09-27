@@ -56,6 +56,15 @@ let run env =
         (match Store.find_intent db ~id:"keeps-epoch" with
          | Some {state=Confirmed;uidvalidity=Some kept;_} when kept=epoch -> ()
          | _ -> failwith "confirmation without receipt dropped UIDVALIDITY");
+        let stored=Result.get_ok (Imap.Uid.of_int64 4L) in
+        Store.prepare_intent db {(intent "keeps-uid") with
+          uidvalidity=Some epoch;uid=Some stored};
+        Store.set_intent_state db ~id:"keeps-uid" Sent;
+        Store.confirm_intent db ~id:"keeps-uid" ~uidvalidity:(Some epoch)
+          ~uid:None;
+        (match Store.find_intent db ~id:"keeps-uid" with
+         | Some {state=Confirmed;uid=Some kept;_} when kept=stored -> ()
+         | _ -> failwith "confirmation without a UID dropped the stored UID");
         Store.prepare_intent db (intent "legacy");
         Store.prepare_intent db (intent "legacy-null"));
       (* Simulate a pre-validation journal without rewriting historical evidence. *)

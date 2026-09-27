@@ -210,9 +210,10 @@ val publish_stage : t -> cursor:Imap.Mirror.cursor ->
     publishes the stage of [action] in one transaction and is the receipt.
     The stage needs FETCH and SEARCH coverage up to the upper UID of
     [action]. When the stored revision differs from [cursor], the result
-    is [`Stale_revision] and nothing changes. Otherwise the rows of
-    the epoch of [action] become the staged rows a SEARCH window
-    confirmed, blob references to UIDs no longer present are dropped, the
+    is [`Stale_revision] and nothing changes, whatever the coverage of the
+    stage. Otherwise the rows of the epoch of [action] become the staged
+    rows a SEARCH window confirmed, blob references to UIDs no longer
+    present are dropped, the
     cursor advances to the next revision and generation with [action.id]
     as its inventory reference, and the stage is deleted. Other epochs
     keep their rows until {!forget_epochs}.
@@ -316,8 +317,8 @@ val confirm_intent : t -> id:string ->
   uid:Imap.Uid.t option -> unit
 (** [confirm_intent t ~id ~uidvalidity ~uid] moves the sent or ambiguous
     intent [id] to [Confirmed] and records its APPENDUID receipt in the
-    same transaction. The stored UID becomes [uid], and
-    [uidvalidity = None] keeps the stored UIDVALIDITY.
+    same transaction. [Some] replaces the stored UIDVALIDITY or UID, and
+    [None] keeps it.
 
     @raise Invalid_argument if [uid] is given without [uidvalidity], if no
     intent is [id], or if the intent is neither [Sent] nor
@@ -431,12 +432,13 @@ module Journal : sig
       For [`Remote] the store checks the UID against the published
       snapshot. For [`Local] the caller has verified presence in a complete
       Maildir inventory. The result is [`Stale_revision] when the stored
-      pair differs from [pair].
+      pair differs from [pair] or a later publication has replaced
+      [generation].
 
       @raise Invalid_argument if [generation] is negative, if [pair] has no
-      occurrence on [side], if [generation] is not the published
-      generation, or if for [`Remote] the published epoch is not the pair's
-      UIDVALIDITY or lacks its UID. *)
+      occurrence on [side], if no complete inventory is published or
+      [generation] is ahead of it, or if for [`Remote] the published epoch
+      is not the pair's UIDVALIDITY or lacks its UID. *)
 
   val last_presence_generation : t -> pair_id:string ->
     side:[ `Remote | `Local ] -> int64 option

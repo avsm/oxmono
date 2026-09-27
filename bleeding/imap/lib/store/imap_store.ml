@@ -293,9 +293,9 @@ let publish_stage t ~(cursor:M.cursor) ~(action:M.action)
   transaction t (fun () ->
     let h=stage_for who t cursor action in
     let scope=cursor.scope in
-    if int h.(9)<>action.upper_uid || int h.(10)<>action.upper_uid then
-      invalid_arg (who ^ ": incomplete range coverage");
     if stale_revision t scope ~revision:cursor.revision then `Stale_revision
+    else if int h.(9)<>action.upper_uid || int h.(10)<>action.upper_uid then
+      invalid_arg (who ^ ": incomplete range coverage")
     else (
       let resolved_mode=if nomodseq then M.Baseline else action.mode in
       let anchor=

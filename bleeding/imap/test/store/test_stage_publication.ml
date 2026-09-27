@@ -156,6 +156,45 @@ let test_incomplete_and_regression db =
   publish_rejects "regressing completed anchor accepted"
     ~needle:"MODSEQ regression" ~explicit:97L action
 
+let test_stale_before_coverage db =
+  let first=baseline db in
+  let sel=selected ~highest:104L 5L 5L in
+  let gap=ok (M.plan first ~stage_id:"stale-gap" sel) in
+  Store.begin_stage db ~cursor:first ~action:gap;
+  Store.stage_rows db ~stage_id:gap.id ~first:1L ~last:1L [row 1L];
+  Store.stage_membership db ~stage_id:gap.id ~first:1L ~last:1L [uid 1L];
+  let action=stage db first ~stage_id:"advance" sel [row 1L;row 2L] in
+  ignore (publish ~explicit:104L db first action);
+  match Store.publish_stage db ~cursor:first ~action:gap
+    ~explicit_highestmodseq:(Some (modseq 104L)) ~nomodseq:false with
+  | `Stale_revision -> ()
+  | `Committed _ -> Alcotest.fail "stale incomplete stage was published"
+  | exception Invalid_argument message ->
+      Alcotest.failf "stale incomplete stage raised: %s" message
+
+let test_presence_after_publication db =
+  let module J = Store.Journal in
+  let first=baseline db in
+  let pair : J.pair = {
+    id="presence";scope;remote_uidvalidity=Some (validity 5L);
+    remote_uid=Some (uid 1L);local_id=Some "presence-local";
+    content_sha256=None;content_length=None;internal_date=None;
+    common_flags=[];remote_tombstone=None;local_tombstone=None;
+    revision=0L} in
+  let pair=match J.put_pair db ~expected_revision:None pair with
+    | `Committed pair -> pair
+    | `Stale_revision -> Alcotest.fail "new presence pair stale" in
+  let note generation=J.note_presence db ~pair ~side:`Remote ~generation in
+  Alcotest.(check bool) "current generation recorded" true
+    (note first.generation=`Recorded);
+  let action=stage db first ~stage_id:"moved-on"
+    (selected ~highest:100L 5L 4L) [row 1L;row 2L;row 3L] in
+  let next=(publish ~explicit:100L db first action).cursor in
+  Alcotest.(check bool) "replaced generation is stale" true
+    (note first.generation=`Stale_revision);
+  rejects "future generation accepted" ~needle:"unpublished generation"
+    (fun () -> note (Int64.succ next.generation))
+
 let test_flag_delta db =
   let first=baseline db in
   let before=snapshot db first in
@@ -273,6 +312,9 @@ let () =
       case "lower explicit MODSEQ and interruption"
         test_anchor_and_interruption;
       case "incomplete and regression" test_incomplete_and_regression;
+      case "staleness before coverage" test_stale_before_coverage;
+      case "presence after a later publication"
+        test_presence_after_publication;
       case "flag delta" test_flag_delta;
       case "duplicate flag membership" test_duplicate_flag_membership;
       case "mid-cycle NOMODSEQ" test_mid_cycle_nomodseq;

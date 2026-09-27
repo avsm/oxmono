@@ -169,22 +169,27 @@ let note_presence t ~pair ~side ~generation =
   transaction t (fun () ->
     match find_pair_unlocked t ~id:pair.id with
     | Some current when current=pair ->
-        let observed=match published_state t pair.scope with
-          | Some (published,Some _,validity) ->
-              published=generation && (match remote with
-                | None -> true
-                | Some (epoch,_) ->
-                    validity=Some (Imap.Uidvalidity.to_int64 epoch))
-          | _ -> false in
-        if not observed then invalid_arg (who ^ ": unpublished generation");
-        Option.iter (fun (epoch,uid) ->
-          if not (in_snapshot t pair.scope ~epoch ~uid) then
-            invalid_arg (who ^ ": remote UID absent")) remote;
-        run t "INSERT INTO sync_pair_presence(pair_id,side,generation) \
-          VALUES (?,?,?) ON CONFLICT(pair_id,side) DO UPDATE SET \
-          generation=MAX(generation,excluded.generation)"
-          [s pair.id;s (side_name side);i generation];
-        `Recorded
+        (match published_state t pair.scope with
+         | Some (published,Some _,_) when published>generation ->
+             `Stale_revision
+         | published ->
+             let observed=match published with
+               | Some (published,Some _,validity) ->
+                   published=generation && (match remote with
+                     | None -> true
+                     | Some (epoch,_) ->
+                         validity=Some (Imap.Uidvalidity.to_int64 epoch))
+               | _ -> false in
+             if not observed then
+               invalid_arg (who ^ ": unpublished generation");
+             Option.iter (fun (epoch,uid) ->
+               if not (in_snapshot t pair.scope ~epoch ~uid) then
+                 invalid_arg (who ^ ": remote UID absent")) remote;
+             run t "INSERT INTO sync_pair_presence(pair_id,side,generation) \
+               VALUES (?,?,?) ON CONFLICT(pair_id,side) DO UPDATE SET \
+               generation=MAX(generation,excluded.generation)"
+               [s pair.id;s (side_name side);i generation];
+             `Recorded)
     | _ -> `Stale_revision)
 let reactivate_local t ~pair ~generation =
   transaction t (fun () ->

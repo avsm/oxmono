@@ -37,8 +37,8 @@ val confirm_intent : Database.t -> id:string ->
   uidvalidity:Imap.Uidvalidity.t option ->
   uid:Imap.Uid.t option -> unit
 (** [confirm_intent t ~id ~uidvalidity ~uid] resolves a sent or ambiguous intent
-    and records its APPENDUID receipt, keeping the stored UIDVALIDITY when
-    [uidvalidity] is [None]. *)
+    and records its APPENDUID receipt, keeping the stored UIDVALIDITY or UID
+    where [uidvalidity] or [uid] is [None]. *)
 
 val pending_intents : Database.t -> scope:Imap.Mirror.scope -> intent list
 val find_intent : Database.t -> id:string -> intent option

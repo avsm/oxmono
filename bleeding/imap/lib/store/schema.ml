@@ -1,73 +1,96 @@
 open Database
 module SE = Sqlite3_eio
 
+let current_version = 13L
+
+let user_version t =
+  match rows t "PRAGMA user_version" [] with
+  | [r] -> int r.(0)
+  | _ -> fail "invalid schema version"
+
 let validate_schema t =
-  let expect_columns table expected =
-    let actual = rows t ("PRAGMA table_info(" ^ table ^ ")") []
+  let version = user_version t in
+  if version < 8L || version > current_version then
+    fail "unsupported schema version";
+  let expect_table ?(unique=[]) table ~key expected =
+    let info = rows t ("PRAGMA table_info(" ^ table ^ ")") [] in
+    let key_rank r = int r.(5) in
+    let actual_key = List.filter (fun r -> key_rank r > 0L) info
+      |> List.sort (fun a b -> compare (key_rank a) (key_rank b))
       |> List.map (fun r -> text r.(1)) in
-    if actual <> expected then fail ("incompatible table: " ^ table) in
+    let index_columns name =
+      rows t ("PRAGMA index_info(" ^ name ^ ")") []
+      |> List.sort (fun a b -> compare (int a.(0)) (int b.(0)))
+      |> List.map (fun r -> text r.(2)) in
+    let actual_unique = rows t ("PRAGMA index_list(" ^ table ^ ")") []
+      |> List.filter (fun r -> text r.(3) = "u")
+      |> List.map (fun r -> index_columns (text r.(1)))
+      |> List.sort compare in
+    if List.map (fun r -> text r.(1)) info <> expected ||
+       actual_key <> key || actual_unique <> List.sort compare unique then
+      fail ("incompatible table: " ^ table) in
   let expect_index name =
     match rows t "SELECT 1 FROM sqlite_master WHERE type='index' AND name=?"
       [s name] with
     | [_] -> ()
     | _ -> fail ("missing index: " ^ name) in
-  let version = match rows t "PRAGMA user_version" [] with
-    | [r] -> int r.(0) | _ -> fail "invalid schema version" in
-  if version <> 8L && version <> 9L && version <> 10L &&
-     version <> 11L && version <> 12L && version <> 13L then
-    fail "unsupported schema version";
-  expect_columns "mailboxes" ["endpoint";"account";"mailbox_key";
+  let scope = ["endpoint";"account";"mailbox_key"] in
+  let epoch_uid = scope @ ["uidvalidity";"uid"] in
+  expect_table "mailboxes" ~key:scope (scope @ [
     "raw_name";"encoding";"mailbox_id";"phase";"uidvalidity";
-    "generation";"revision";"anchor";"frontier";"inventory_ref";"mode"];
-  expect_columns "snapshots" ["endpoint";"account";"mailbox_key";
-    "uidvalidity";"uid";"modseq"];
-  expect_columns "snapshot_flags" ["endpoint";"account";"mailbox_key";
-    "uidvalidity";"uid";"ord";"flag"];
-  expect_columns "intents" ["id";"endpoint";"account";"mailbox_key";
+    "generation";"revision";"anchor";"frontier";"inventory_ref";"mode"]);
+  expect_table "snapshots" ~key:epoch_uid (epoch_uid @ ["modseq"]);
+  expect_table "snapshot_flags" ~key:(epoch_uid @ ["ord"])
+    (epoch_uid @ ["ord";"flag"]);
+  expect_table "intents" ~key:["id"] ["id";"endpoint";"account";"mailbox_key";
     "raw_name";"encoding";"mailbox_id";"kind";"message_id";
     "digest";"spool_ref";"state";"uidvalidity";"uid";
     "pre_send_frontier";"expected_length";"expected_flags_known";
     "expected_internal_date"];
-  expect_columns "intent_flags" ["intent_id";"ord";"flag"];
-  expect_columns "blob_refs" ["endpoint";"account";"mailbox_key";
-    "uidvalidity";"uid";"sha256";"length"];
-  expect_columns "scan_stages" ["id";"endpoint";"account";"mailbox_key";
-    "raw_name";"encoding";"mailbox_id";"uidvalidity";"upper_uid";
-    "expected_revision";"fetch_upper";"search_upper"];
-  expect_columns "scan_rows" ["stage_id";"uid";"modseq";"seen"];
-  expect_columns "scan_flags" ["stage_id";"uid";"ord";"flag"];
-  expect_columns "sync_pairs" (["id";"endpoint";"account";"mailbox_key";
-    "raw_name";"encoding";"mailbox_id";"remote_epoch";"remote_uid";
-    "local_id";"revision";"remote_tombstone_kind";
+  expect_table "intent_flags" ~key:["intent_id";"ord"]
+    ["intent_id";"ord";"flag"];
+  expect_table "blob_refs" ~key:epoch_uid (epoch_uid @ ["sha256";"length"]);
+  expect_table "scan_stages" ~key:["id"] ["id";"endpoint";"account";
+    "mailbox_key";"raw_name";"encoding";"mailbox_id";"uidvalidity";
+    "upper_uid";"expected_revision";"fetch_upper";"search_upper"];
+  expect_table "scan_rows" ~key:["stage_id";"uid"]
+    ["stage_id";"uid";"modseq";"seen"];
+  expect_table "scan_flags" ~key:["stage_id";"uid";"ord"]
+    ["stage_id";"uid";"ord";"flag"];
+  expect_table "sync_pairs" ~key:["id"] (["id";"endpoint";"account";
+    "mailbox_key";"raw_name";"encoding";"mailbox_id";"remote_epoch";
+    "remote_uid";"local_id";"revision";"remote_tombstone_kind";
     "remote_tombstone_evidence";"remote_tombstone_generation";
     "local_tombstone_kind";"local_tombstone_evidence";
     "local_tombstone_generation";"content_sha256";"content_length"] @
     (if version>=10L then ["internal_date"] else []));
-  expect_columns "sync_pair_flags" ["pair_id";"ord";"flag"];
-  expect_columns "sync_conflicts" ["id";"pair_id";"kind";"evidence";
-    "pair_revision";"resolved"];
-  expect_columns "sync_operations" ["id";"pair_id";"local_id";"endpoint";"account";
-    "mailbox_key";"raw_name";"encoding";"mailbox_id";"kind";"state";
-    "source_epoch";"source_uid";"dest_endpoint";"dest_account";
-    "dest_mailbox_key";"dest_raw_name";"dest_encoding";"dest_mailbox_id";
-    "dest_epoch";"receipt_epoch";"receipt_uid";"blob_sha256";
-    "blob_length";"desired_flags_known";"receipt"];
-  expect_columns "sync_operation_flags" ["operation_id";"ord";"flag"];
-  expect_columns "sync_operation_preconditions"
-    ["operation_id";"pair_revision"];
-  expect_columns "sync_operation_local_preimages"
-    ["operation_id"];
-  expect_columns "sync_operation_local_preimage_flags"
+  expect_table "sync_pair_flags" ~key:["pair_id";"ord"]
+    ["pair_id";"ord";"flag"];
+  expect_table "sync_conflicts" ~key:["id"] ["id";"pair_id";"kind";
+    "evidence";"pair_revision";"resolved"];
+  expect_table "sync_operations" ~key:["id"] ["id";"pair_id";"local_id";
+    "endpoint";"account";"mailbox_key";"raw_name";"encoding";"mailbox_id";
+    "kind";"state";"source_epoch";"source_uid";"dest_endpoint";
+    "dest_account";"dest_mailbox_key";"dest_raw_name";"dest_encoding";
+    "dest_mailbox_id";"dest_epoch";"receipt_epoch";"receipt_uid";
+    "blob_sha256";"blob_length";"desired_flags_known";"receipt"];
+  expect_table "sync_operation_flags" ~key:["operation_id";"ord"]
     ["operation_id";"ord";"flag"];
-  if version>=9L then expect_columns "sync_operation_local_sources"
-    ["operation_id";"mtime"];
-  if version>=11L then expect_columns "sync_operation_source_dates"
-    ["operation_id";"internal_date"];
-  if version>=12L then expect_columns "mailbox_object_ids"
-    ["endpoint";"account";"mailbox_key";"raw_name";"encoding";
-     "account_id";"mailbox_id"];
-  if version>=13L then expect_columns "sync_pair_presence"
-    ["pair_id";"side";"generation"];
+  expect_table "sync_operation_preconditions" ~key:["operation_id"]
+    ["operation_id";"pair_revision"];
+  expect_table "sync_operation_local_preimages" ~key:["operation_id"]
+    ["operation_id"];
+  expect_table "sync_operation_local_preimage_flags"
+    ~key:["operation_id";"ord"] ["operation_id";"ord";"flag"];
+  if version>=9L then expect_table "sync_operation_local_sources"
+    ~key:["operation_id"] ["operation_id";"mtime"];
+  if version>=11L then expect_table "sync_operation_source_dates"
+    ~key:["operation_id"] ["operation_id";"internal_date"];
+  if version>=12L then expect_table "mailbox_object_ids" ~key:scope
+    ~unique:[["endpoint";"account";"account_id";"mailbox_id"]]
+    (scope @ ["raw_name";"encoding";"account_id";"mailbox_id"]);
+  if version>=13L then expect_table "sync_pair_presence"
+    ~key:["pair_id";"side"] ["pair_id";"side";"generation"];
   (* The scope/ID and pair/ID operation indexes were added to existing v7
      databases without a schema bump. A read-only opener cannot create them. *)
   List.iter expect_index ["sync_pairs_scope";"sync_conflicts_open"];
@@ -83,7 +106,8 @@ let validate_schema t =
     | _ -> fail ("incompatible unique occurrence index: " ^ name))
     ["sync_pairs_remote","endpoint,account,mailbox_key,remote_epoch,remote_uid",
        "remote_uid IS NOT NULL";
-     "sync_pairs_local","endpoint,account,mailbox_key,local_id","local_id IS NOT NULL"]
+     "sync_pairs_local","endpoint,account,mailbox_key,local_id","local_id IS NOT NULL"];
+  version
 
 let initialize db f =
   match f () with
@@ -99,11 +123,7 @@ let open_readonly ~sw path =
   let t = { db; mutex = Eio.Mutex.create (); blob_dir = None;
             schema_version=0L } in
   transaction ~begin_sql:"BEGIN" t (fun () ->
-  let schema_version=match rows t "PRAGMA user_version" [] with
-    | [r] -> int r.(0) | _ -> fail "invalid schema version" in
-  let t={t with schema_version} in
-  validate_schema t;
-  t))
+  {t with schema_version=validate_schema t}))
 
 let open_path ~sw ?blob_dir path =
   let blob_dir = Option.map (fun dir ->
@@ -114,7 +134,7 @@ let open_path ~sw ?blob_dir path =
   let db = SE.open_path ~sw ~busy_timeout:5000 path in
   initialize db (fun () ->
   let t = { db; mutex = Eio.Mutex.create (); blob_dir;
-            schema_version=13L } in
+            schema_version=current_version } in
   sql t "PRAGMA journal_mode=WAL";
   sql t "PRAGMA synchronous=FULL";
   sql t "PRAGMA foreign_keys=ON";
@@ -128,25 +148,25 @@ let open_path ~sw ?blob_dir path =
    | [r] when int r.(0) = 1L -> ()
    | _ -> fail "foreign keys unavailable");
   transaction t (fun () ->
-  let version = match rows t "PRAGMA user_version" [] with
-    | [r] -> int r.(0) | _ -> fail "invalid schema version" in
-  if version > 13L || version < 0L then fail "unsupported schema version";
+  let version = user_version t in
+  if version > current_version || version < 0L then
+    fail "unsupported schema version";
   if version = 0L && rows t "SELECT name FROM sqlite_master WHERE \
-    type='table' AND name NOT LIKE 'sqlite_%'" [] <> [] then
+    type='table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'" [] <> [] then
     fail "unversioned database already contains tables";
   if version = 0L then (
-    sql t "CREATE TABLE IF NOT EXISTS mailboxes ( \
+    sql t "CREATE TABLE mailboxes ( \
       endpoint TEXT NOT NULL, account TEXT NOT NULL, mailbox_key TEXT NOT NULL, \
       raw_name TEXT NOT NULL, encoding TEXT NOT NULL, mailbox_id TEXT, \
       phase INTEGER NOT NULL, uidvalidity INTEGER, generation INTEGER NOT NULL, \
       revision INTEGER NOT NULL, anchor INTEGER, frontier INTEGER NOT NULL, \
       inventory_ref TEXT, mode INTEGER NOT NULL, \
       PRIMARY KEY(endpoint,account,mailbox_key))";
-    sql t "CREATE TABLE IF NOT EXISTS snapshots ( \
+    sql t "CREATE TABLE snapshots ( \
       endpoint TEXT NOT NULL, account TEXT NOT NULL, mailbox_key TEXT NOT NULL, \
       uidvalidity INTEGER NOT NULL, uid INTEGER NOT NULL, modseq INTEGER, \
       PRIMARY KEY(endpoint,account,mailbox_key,uidvalidity,uid))";
-    sql t "CREATE TABLE IF NOT EXISTS snapshot_flags ( \
+    sql t "CREATE TABLE snapshot_flags ( \
       endpoint TEXT NOT NULL, account TEXT NOT NULL, mailbox_key TEXT NOT NULL, \
       uidvalidity INTEGER NOT NULL, uid INTEGER NOT NULL, ord INTEGER NOT NULL, \
       flag TEXT NOT NULL, \
@@ -154,12 +174,12 @@ let open_path ~sw ?blob_dir path =
       FOREIGN KEY(endpoint,account,mailbox_key,uidvalidity,uid) \
         REFERENCES snapshots(endpoint,account,mailbox_key,uidvalidity,uid) \
         ON DELETE CASCADE)";
-    sql t "CREATE TABLE IF NOT EXISTS intents ( \
+    sql t "CREATE TABLE intents ( \
       id TEXT PRIMARY KEY, endpoint TEXT NOT NULL, account TEXT NOT NULL, \
       mailbox_key TEXT NOT NULL, raw_name TEXT NOT NULL, encoding TEXT NOT NULL, \
       mailbox_id TEXT, kind TEXT NOT NULL, message_id TEXT, digest TEXT, \
       spool_ref TEXT, state TEXT NOT NULL, uidvalidity INTEGER, uid INTEGER)";
-    sql t "CREATE INDEX IF NOT EXISTS intents_pending ON intents \
+    sql t "CREATE INDEX intents_pending ON intents \
       (endpoint,account,mailbox_key,state)";
     sql t "PRAGMA user_version=1");
   if version <= 1L then (
@@ -290,16 +310,16 @@ let open_path ~sw ?blob_dir path =
       CHECK (side IN ('remote','local')), CHECK (generation >= 0), \
       FOREIGN KEY(pair_id) REFERENCES sync_pairs(id) ON DELETE CASCADE)";
     sql t "PRAGMA user_version=13");
+  (* Auxiliary indexes do not alter the persisted row representation. *)
   sql t "CREATE INDEX IF NOT EXISTS sync_operations_scope_id ON \
     sync_operations(endpoint,account,mailbox_key,id)";
   sql t "CREATE INDEX IF NOT EXISTS sync_operations_pair_id ON \
     sync_operations(pair_id,id)";
-  sql t "CREATE INDEX IF NOT EXISTS sync_pairs_scope_id ON sync_pairs(endpoint,account,mailbox_key,id)";
-  (* Auxiliary indexes do not alter the persisted row representation. *)
+  sql t "CREATE INDEX IF NOT EXISTS sync_pairs_scope_id ON \
+    sync_pairs(endpoint,account,mailbox_key,id)";
   sql t "CREATE INDEX IF NOT EXISTS sync_operations_blob_pending ON \
     sync_operations(blob_sha256) WHERE state NOT IN ('committed','rejected')";
   sql t "CREATE INDEX IF NOT EXISTS intents_blob_pending ON \
     intents(digest) WHERE state NOT IN ('confirmed','rejected')";
-  validate_schema t
-  );
+  ignore (validate_schema t : int64));
   t)

@@ -9,6 +9,22 @@ let scope : M.scope = {
   raw_name="INBOX"; encoding=Imap.Mailbox_name.Rev1; mailbox_id=None;
 }
 
+(* [context ~store ~spool_dir client] is the sync context of [client] for
+   [scope] and INBOX, and fails the test when [Ctx.v] refuses it. The
+   default [next_id] fails the test, so a call that needs no ID proves it. *)
+let context ?(next_id=fun () -> Alcotest.fail "unexpected ID request")
+    ~store ~spool_dir client =
+  match Imap_sync.Ctx.v ~client ~store ~scope ~mailbox:"INBOX" ~spool_dir
+      ~next_id with
+  | Ok ctx -> ctx
+  | Error e -> Alcotest.failf "context: %a" Imap_sync.Error.pp e
+
+(* [connected ~store ~spool_dir result] is the context of a connected client
+   as a [Watch.run] connect returns it. *)
+let connected ~store ~spool_dir = function
+  | Ok client -> Ok (context ~store ~spool_dir client)
+  | Error e -> Error (Imap_sync.Error.Client e)
+
 (* Test conveniences over [Maildir]: a format or policy error fails the
    test, and each mutation takes its own writer. *)
 module Md = struct
@@ -137,9 +153,9 @@ let scripted_scan ?(confirmed_body=false) ?(missing_body=false)
   | Error e -> Alcotest.fail (Imap_eio.Client.error_to_string e)
 
 let run_bridge ~client ~store ~maildir ~spool_dir =
-  Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope ~mailbox:"INBOX"
-    ~stage_id:"fault-scan" ~next_id:(fun () -> "unexpected-transfer")
-    ~spool_dir ()
+  let next_id ()="unexpected-transfer" in
+  Imap_sync.Bridge.copy_once ~ctx:(context ~store ~spool_dir ~next_id client)
+    ~maildir ~stage_id:"fault-scan" ()
 
 let scripted_condstore ?(nomodseq=false) ~sw ~modseq ~seen () =
   let wire=Buffer.create 512 in
@@ -218,29 +234,30 @@ let test_objectid_binding_guards_reconnect () =
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let first,_=scripted_objectid_empty ~sw ~mailbox_id:"F_box" () in
-  (match Imap_sync.Engine.scan_once ~client:first ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"objectid-first" () with
+  (match Imap_sync.Engine.scan_once
+    ~ctx:(context ~store ~spool_dir first) ~stage_id:"objectid-first" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "first OBJECTID+ scan: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "first scan bound identity" true
     (Imap_store.object_identity store ~scope=
       `Bound {Imap_store.account_id="u_account";mailbox_id="F_box"});
   let downgraded=scripted_scan ~sw ~has_message:false () in
-  (match Imap_sync.Engine.scan_once ~client:downgraded ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"objectid-downgraded" () with
-   | Error (Imap_sync.Engine.Invalid_scope
+  (match Imap_sync.Engine.scan_once
+    ~ctx:(context ~store ~spool_dir downgraded)
+    ~stage_id:"objectid-downgraded" () with
+   | Error (Imap_sync.Error.Invalid_scope
        "saved OBJECTID+ identity cannot be verified") -> ()
    | Error error -> Alcotest.failf "wrong capability-loss error: %a"
-       Imap_sync.Engine.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "capability loss bypassed durable identity");
   let second,wire=scripted_objectid_empty ~sw ~mailbox_id:"F_box"
     ~status_mailbox_id:"F_box" () in
-  (match Imap_sync.Engine.scan_once ~client:second ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"objectid-second" () with
+  (match Imap_sync.Engine.scan_once
+    ~ctx:(context ~store ~spool_dir second) ~stage_id:"objectid-second" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "second OBJECTID+ scan: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   let output=Buffer.contents wire in
   let requested="EXAMINE INBOX (OBJECTID (MAILBOXID F_box ACCOUNTID u_account))" in
   Alcotest.(check bool) "reconnect selected by durable ID" true
@@ -252,12 +269,13 @@ let test_objectid_binding_guards_reconnect () =
   let replacement,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement"
     ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Engine.scan_once ~client:replacement ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"objectid-replaced" () with
-   | Error (Imap_sync.Engine.Invalid_scope
+  (match Imap_sync.Engine.scan_once
+    ~ctx:(context ~store ~spool_dir replacement)
+    ~stage_id:"objectid-replaced" () with
+   | Error (Imap_sync.Error.Invalid_scope
        "configured mailbox name no longer matches saved OBJECTID+") -> ()
    | Error error -> Alcotest.failf "wrong replacement error: %a"
-       Imap_sync.Engine.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "replaced mailbox advanced durable cursor");
   Alcotest.(check int64) "replacement did not publish" before
     (Imap_store.load_cursor store ~scope).revision;
@@ -267,47 +285,48 @@ let test_objectid_binding_guards_reconnect () =
    | Ok _ -> ()
    | Error error -> Alcotest.fail
        (Imap_eio.Client.error_to_string error));
-  (match Imap_sync.Engine.append_journaled ~client:append_client ~store ~scope
-    ~mailbox:"INBOX" ~id:"wrong-destination" ~message_id:"<wrong@x>"
+  (match Imap_sync.Engine.append_journaled
+    ~ctx:(context ~store ~spool_dir append_client)
+    ~id:"wrong-destination" ~message_id:"<wrong@x>"
     ~content_digest:"sha256:dummy" ~spool_ref:"dummy" ~length:0L
     (Eio.Flow.string_source "") with
-   | Error (Imap_sync.Engine.Invalid_scope
+   | Error (Imap_sync.Error.Invalid_scope
        "APPEND destination name no longer matches saved OBJECTID+") -> ()
    | Error error -> Alcotest.failf "wrong APPEND guard error: %a"
-       Imap_sync.Engine.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "APPEND to replaced mailbox was allowed");
   Alcotest.(check bool) "unsafe APPEND was not journaled" true
     (Imap_store.find_intent store ~id:"wrong-destination"=None);
   let archive_client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Engine.archive_uid ~client:archive_client ~store ~scope
-      ~mailbox:"INBOX" ~uid:(uid 1L)
+  (match Imap_sync.Engine.archive_uid
+      ~ctx:(context ~store ~spool_dir archive_client) ~uid:(uid 1L)
       ~spool:Eio.Path.(spool_dir / "wrong-mailbox-archive") () with
-   | Error (Imap_sync.Engine.Invalid_scope
+   | Error (Imap_sync.Error.Invalid_scope
        "configured mailbox name no longer matches saved OBJECTID+") -> ()
    | Error error -> Alcotest.failf "wrong archive guard error: %a"
-       Imap_sync.Engine.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "archived UID from replacement mailbox")
 
 let test_objectid_first_binding_requires_stable_epoch () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let baseline=scripted_scan ~sw ~has_message:false () in
-  (match Imap_sync.Engine.scan_once ~client:baseline ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"pre-objectid" () with
+  (match Imap_sync.Engine.scan_once
+    ~ctx:(context ~store ~spool_dir baseline) ~stage_id:"pre-objectid" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "baseline scan: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   let before=(Imap_store.load_cursor store ~scope).revision in
   let scan stage_id=
     let client,_=scripted_objectid_empty ~sw ~mailbox_id:"F_unknown"
       ~uidvalidity:12L () in
-    match Imap_sync.Engine.scan_once ~client ~store ~scope
-      ~mailbox:"INBOX" ~stage_id () with
+    match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir client)
+      ~stage_id () with
     | Ok _ -> ()
     | Error error -> Alcotest.failf "%s: %a" stage_id
-        Imap_sync.Engine.pp_error error in
+        Imap_sync.Error.pp error in
   scan "changed-epoch";
   Alcotest.(check bool) "changed epoch not bound" true
     (Imap_store.object_identity store ~scope=`Unbound);
@@ -320,7 +339,7 @@ let test_objectid_first_binding_requires_stable_epoch () =
       `Bound {Imap_store.account_id="u_account";mailbox_id="F_unknown"})
 
 let test_objectid_missing_select_identity_cannot_publish () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   List.iter (fun (name,options) ->
@@ -329,12 +348,12 @@ let test_objectid_missing_select_identity_cannot_publish () =
           ~select_objectid:false ()
       | `Partial -> scripted_objectid_empty ~sw ~mailbox_id:"F_partial"
           ~select_account_id:false () in
-    (match Imap_sync.Engine.scan_once ~client ~store ~scope
-      ~mailbox:"INBOX" ~stage_id:("objectid-" ^ name) () with
-     | Error (Imap_sync.Engine.Invalid_scope
+    (match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir client)
+      ~stage_id:("objectid-" ^ name) () with
+     | Error (Imap_sync.Error.Invalid_scope
          "OBJECTID+ SELECT omitted account/mailbox identity") -> ()
      | Error error -> Alcotest.failf "wrong %s identity error: %a"
-         name Imap_sync.Engine.pp_error error
+         name Imap_sync.Error.pp error
      | Ok _ -> Alcotest.fail (name ^ " OBJECTID+ scan was published")))
     ["missing",`Missing; "partial",`Partial];
   Alcotest.(check bool) "missing identity was not bound" true
@@ -345,7 +364,7 @@ let test_objectid_missing_select_identity_cannot_publish () =
     (Imap_store.abandoned_stages store)
 
 let test_flag_settlement_rejects_replaced_objectid () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let module J=Imap_store.Journal in
@@ -374,12 +393,13 @@ let test_flag_settlement_rejects_replaced_objectid () =
   J.mark_sent store ~id:operation.id;
   let client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Flags.settle_operation ~client ~store ~maildir ~scope
-      ~mailbox:"INBOX" ~id:operation.id ~evidence:"operator audit" () with
-   | Error (Imap_sync.Flags.Diverged
-       "invalid IMAP scope: configured mailbox name no longer matches saved OBJECTID+") -> ()
+  (match Imap_sync.Flags.settle_operation
+      ~ctx:(context ~store ~spool_dir client) ~maildir ~id:operation.id
+      ~evidence:"operator audit" () with
+   | Error (Imap_sync.Error.Invalid_scope
+       "configured mailbox name no longer matches saved OBJECTID+") -> ()
    | Error error -> Alcotest.failf "wrong replacement settlement error: %a"
-       Imap_sync.Flags.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "FLAGS settlement accepted replaced mailbox");
   Alcotest.(check bool) "replacement left FLAGS intent pending" true
     ((Option.get (J.find_operation store ~id:operation.id)).state=J.Sent);
@@ -417,12 +437,13 @@ let test_standalone_repairs_reject_replaced_objectid () =
   J.mark_sent store ~id:delete.id;
   let client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Deletion.repair_local_delete ~client ~store ~maildir
-      ~scope ~mailbox:"INBOX" ~id:delete.id ~evidence:"operator audit" () with
-   | Error (Imap_sync.Deletion.Diverged
-       "invalid IMAP scope: configured mailbox name no longer matches saved OBJECTID+") -> ()
+  (match Imap_sync.Deletion.repair_local_delete
+      ~ctx:(context ~store ~spool_dir client) ~maildir ~id:delete.id
+      ~evidence:"operator audit" () with
+   | Error (Imap_sync.Error.Invalid_scope
+       "configured mailbox name no longer matches saved OBJECTID+") -> ()
    | Error error -> Alcotest.failf "wrong DELETE repair guard: %a"
-       Imap_sync.Deletion.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "local DELETE repaired against replacement");
   Alcotest.(check bool) "DELETE intent remains sent" true
     ((Option.get (J.find_operation store ~id:delete.id)).state=J.Sent);
@@ -434,13 +455,13 @@ let test_standalone_repairs_reject_replaced_objectid () =
   J.mark_sent store ~id:append.id;
   let client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Bridge.repair_local_append ~client ~store ~maildir
-      ~scope ~mailbox:"INBOX" ~id:append.id ~evidence:"operator audit"
-      ~spool_dir () with
-   | Error (Imap_sync.Bridge.Sync (Imap_sync.Engine.Invalid_scope
-       "configured mailbox name no longer matches saved OBJECTID+")) -> ()
+  (match Imap_sync.Bridge.repair_local_append
+      ~ctx:(context ~store ~spool_dir client) ~maildir ~id:append.id
+      ~evidence:"operator audit" () with
+   | Error (Imap_sync.Error.Invalid_scope
+       "configured mailbox name no longer matches saved OBJECTID+") -> ()
    | Error error -> Alcotest.failf "wrong local APPEND repair guard: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok () -> Alcotest.fail "local APPEND repaired against replacement");
   Alcotest.(check bool) "APPEND intent remains sent" true
     ((Option.get (J.find_operation store ~id:append.id)).state=J.Sent)
@@ -470,12 +491,13 @@ let test_candidate_inspection_rejects_replaced_objectid () =
       {account_id="u_account";mailbox_id="F_original"}=`Bound);
   let client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Bridge.inspect_append_candidates ~client ~store ~scope
-      ~mailbox:"INBOX" ~id:op.id ~spool_dir () with
-   | Error (Imap_sync.Bridge.Sync (Imap_sync.Engine.Invalid_scope
-       "configured mailbox name no longer matches saved OBJECTID+")) -> ()
+  (match Imap_sync.Bridge.inspect_append_candidates
+      ~ctx:(context ~store ~spool_dir client) ~id:op.id () with
+   | Error (Imap_sync.Error.Invalid_scope
+       "configured mailbox name no longer matches saved OBJECTID+") -> ()
+
    | Error error -> Alcotest.failf "wrong candidate identity guard: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "inspected APPEND candidates in replacement");
   Alcotest.(check bool) "candidate inspection left journal unchanged" true
     ((Option.get (J.find_operation store ~id:op.id)).state=J.Sent &&
@@ -506,24 +528,24 @@ let examine ?(extra="") ~tag ~exists ~uidnext () =
     * OK [UIDNEXT %d] next\r\n%sA%08d OK [READ-ONLY] selected\r\n"
     exists uidnext extra tag
 
-let publish_two ~sw ~store =
+let publish_two ~sw ~store ~spool_dir =
   let client,_=scripted_client ~sw "two-messages" [
     examine ~tag:4 ~exists:2 ~uidnext:3 ();
     "* 1 FETCH (UID 1 FLAGS ())\r\n* 2 FETCH (UID 2 FLAGS ())\r\n\
      A00000005 OK fetched\r\n";
     "* SEARCH 1 2\r\nA00000006 OK searched\r\n";
     "A00000007 OK unselected\r\n"] in
-  match Imap_sync.Engine.scan_once ~client ~store ~scope
-      ~mailbox:"INBOX" ~stage_id:"two-messages" () with
+  match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir client)
+      ~stage_id:"two-messages" () with
   | Ok _ -> ()
   | Error error -> Alcotest.failf "two-message scan: %a"
-      Imap_sync.Engine.pp_error error
+      Imap_sync.Error.pp error
 
 let test_hydration_skips_oversized_message () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  publish_two ~sw ~store;
+  publish_two ~sw ~store ~spool_dir;
   let size=String.length message in
   let client,_=scripted_client ~sw "hydrate-oversized" [
     examine ~tag:4 ~exists:2 ~uidnext:3 ();
@@ -534,9 +556,9 @@ let test_hydration_skips_oversized_message () =
     message ^ ")\r\nA00000006 OK fetched\r\n";
     "A00000007 OK unselected\r\n"] in
   let spool_id=ref 0 in
-  (match Imap_sync.Engine.hydrate_once ~max_body_bytes:1000L ~client ~store
-      ~scope ~mailbox:"INBOX" ~spool_dir
-      ~next_spool_id:(fun () -> incr spool_id; string_of_int !spool_id) ()
+  let next_id ()=incr spool_id; string_of_int !spool_id in
+  (match Imap_sync.Engine.hydrate_once ~max_body_bytes:1000L
+      ~ctx:(context ~store ~spool_dir ~next_id client) ()
    with
    | Ok receipt ->
        Alcotest.(check int) "later UID hydrated" 1 receipt.hydrated;
@@ -546,25 +568,26 @@ let test_hydration_skips_oversized_message () =
          (Option.map Imap.Uid.to_int64 receipt.last_uid);
        Alcotest.(check bool) "skipped UID leaves more" true receipt.more
    | Error error -> Alcotest.failf "oversized hydration: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   let client,_=scripted_client ~sw "hydrate-after" [
     examine ~tag:4 ~exists:2 ~uidnext:3 ();
     "A00000005 OK unselected\r\n"] in
   match Imap_sync.Engine.hydrate_once ~after_uid:(uid 1L)
-      ~max_body_bytes:1000L ~client ~store ~scope ~mailbox:"INBOX" ~spool_dir
-      ~next_spool_id:(fun () -> "unused") () with
+      ~max_body_bytes:1000L
+      ~ctx:(context ~store ~spool_dir ~next_id:(fun () -> "unused") client)
+      () with
   | Ok receipt ->
       Alcotest.(check int) "nothing missing after the skipped UID" 0
         receipt.hydrated;
       Alcotest.(check bool) "continuation complete" false receipt.more
   | Error error -> Alcotest.failf "continued hydration: %a"
-      Imap_sync.Engine.pp_error error
+      Imap_sync.Error.pp error
 
 let test_hydration_skips_message_above_total_budget () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  publish_two ~sw ~store;
+  publish_two ~sw ~store ~spool_dir;
   let size=String.length message in
   let client,_=scripted_client ~sw "hydrate-total" [
     examine ~tag:4 ~exists:2 ~uidnext:3 ();
@@ -575,20 +598,21 @@ let test_hydration_skips_message_above_total_budget () =
     message ^ ")\r\nA00000006 OK fetched\r\n";
     "A00000007 OK unselected\r\n"] in
   match Imap_sync.Engine.hydrate_once
-      ~max_total_bytes:(Int64.of_int (size+1)) ~client ~store ~scope
-      ~mailbox:"INBOX" ~spool_dir ~next_spool_id:(fun () -> "total") () with
+      ~max_total_bytes:(Int64.of_int (size+1))
+      ~ctx:(context ~store ~spool_dir ~next_id:(fun () -> "total") client)
+      () with
   | Ok receipt ->
       Alcotest.(check int) "fitting UID hydrated" 1 receipt.hydrated;
       Alcotest.(check (list int64)) "unfittable UID skipped" [1L]
         (List.map Imap.Uid.to_int64 receipt.skipped)
   | Error error -> Alcotest.failf "total budget hydration: %a"
-      Imap_sync.Engine.pp_error error
+      Imap_sync.Error.pp error
 
 let test_hydration_keeps_counts_after_concurrent_publish () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  publish_two ~sw ~store;
+  publish_two ~sw ~store ~spool_dir;
   let size=String.length message in
   let republish ()=
     let client,_=scripted_client ~sw "one-message" [
@@ -596,11 +620,11 @@ let test_hydration_keeps_counts_after_concurrent_publish () =
       "* 1 FETCH (UID 1 FLAGS ())\r\nA00000005 OK fetched\r\n";
       "* SEARCH 1\r\nA00000006 OK searched\r\n";
       "A00000007 OK unselected\r\n"] in
-    match Imap_sync.Engine.scan_once ~client ~store ~scope
-        ~mailbox:"INBOX" ~stage_id:"one-message" () with
+    match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir client)
+        ~stage_id:"one-message" () with
     | Ok _ -> ""
     | Error error -> Alcotest.failf "concurrent scan: %a"
-        Imap_sync.Engine.pp_error error in
+        Imap_sync.Error.pp error in
   let flow=Eio_mock.Flow.make "hydrate-concurrent" in
   let size_row n=Printf.sprintf
     "* %d FETCH (UID %d FLAGS () RFC822.SIZE %d)\r\n" n n size in
@@ -625,22 +649,22 @@ let test_hydration_keeps_counts_after_concurrent_publish () =
     | Ok client -> client
     | Error error -> Alcotest.fail (Imap_eio.Client.error_to_string error) in
   let spool_id=ref 0 in
-  match Imap_sync.Engine.hydrate_once ~client ~store ~scope ~mailbox:"INBOX"
-      ~spool_dir
-      ~next_spool_id:(fun () -> incr spool_id; string_of_int !spool_id) ()
+  let next_id ()=incr spool_id; string_of_int !spool_id in
+  match Imap_sync.Engine.hydrate_once
+      ~ctx:(context ~store ~spool_dir ~next_id client) ()
   with
   | Ok receipt ->
       Alcotest.(check int) "committed attach reported" 1 receipt.hydrated;
       Alcotest.(check bool) "concurrent publish leaves more" true
         receipt.more
   | Error error -> Alcotest.failf "concurrent hydration: %a"
-      Imap_sync.Engine.pp_error error
+      Imap_sync.Error.pp error
 
 let test_audit_skips_blob_above_budget () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  publish_two ~sw ~store;
+  publish_two ~sw ~store ~spool_dir;
   let attach n body=
     let blob=Imap_store.Blob.put store ~source:(Eio.Flow.string_source body)
       ~length:(Int64.of_int (String.length body)) () in
@@ -658,22 +682,23 @@ let test_audit_skips_blob_above_budget () =
       Alcotest.(check (option int64)) "last UID advanced past it" (Some 2L)
         (Option.map Imap.Uid.to_int64 receipt.last_uid);
       Alcotest.(check bool) "audit complete" false receipt.more
-  | Error error -> Alcotest.failf "audit: %a" Imap_sync.Engine.pp_error error
+  | Error error -> Alcotest.failf "audit: %a" Imap_sync.Error.pp error
 
 let test_digest_checks_receipt_epoch () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  publish_two ~sw ~store;
+  publish_two ~sw ~store ~spool_dir;
   let client,_=scripted_client ~sw "digest-epoch" [
     examine ~tag:4 ~exists:2 ~uidnext:3 ();
     "A00000005 OK unselected\r\n"] in
-  match Imap_sync.Engine.fetch_uid_digest ~client ~store ~scope
-      ~mailbox:"INBOX" ~uidvalidity:(epoch 12L) ~uid:(uid 1L)
+  match Imap_sync.Engine.fetch_uid_digest
+      ~ctx:(context ~store ~spool_dir client) ~uidvalidity:(epoch 12L)
+      ~uid:(uid 1L)
       ~spool:Eio.Path.(spool_dir / "digest-epoch") () with
-  | Error Imap_sync.Engine.Uidvalidity_changed -> ()
+  | Error Imap_sync.Error.Uidvalidity_changed -> ()
   | Error error -> Alcotest.failf "wrong digest epoch error: %a"
-      Imap_sync.Engine.pp_error error
+      Imap_sync.Error.pp error
   | Ok _ -> Alcotest.fail "digest ignored the receipt epoch"
 
 
@@ -685,19 +710,19 @@ let published_rows store =
   | `Stale_revision -> Alcotest.fail "published snapshot changed"
 
 let test_staged_condstore_wire () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let initial,first_wire=scripted_condstore ~sw ~modseq:20L ~seen:false () in
-  (match Imap_sync.Engine.scan_once ~client:initial ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"condstore-first" () with
+  (match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir initial)
+    ~stage_id:"condstore-first" () with
    | Ok _ -> ()
-   | Error error -> Alcotest.failf "first scan: %a" Imap_sync.Engine.pp_error error);
+   | Error error -> Alcotest.failf "first scan: %a" Imap_sync.Error.pp error);
   let second,second_wire=scripted_condstore ~sw ~modseq:21L ~seen:true () in
-  (match Imap_sync.Engine.scan_once ~client:second ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"condstore-second" () with
+  (match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir second)
+    ~stage_id:"condstore-second" () with
    | Ok _ -> ()
-   | Error error -> Alcotest.failf "second scan: %a" Imap_sync.Engine.pp_error error);
+   | Error error -> Alcotest.failf "second scan: %a" Imap_sync.Error.pp error);
   let contains haystack needle =
     let n=String.length needle in
     let rec loop i=i+n<=String.length haystack &&
@@ -713,11 +738,11 @@ let test_staged_condstore_wire () =
       (List.hd snapshot).flags);
   let baseline,baseline_wire=scripted_condstore ~nomodseq:true
     ~sw ~modseq:22L ~seen:false () in
-  (match Imap_sync.Engine.scan_once ~client:baseline ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"condstore-nomodseq" () with
+  (match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir baseline)
+    ~stage_id:"condstore-nomodseq" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "NOMODSEQ scan: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "NOMODSEQ uses full FETCH" true
     (contains (Buffer.contents baseline_wire) "UID FETCH 1:1 (UID FLAGS)");
   Alcotest.(check bool) "NOMODSEQ does not send CHANGEDSINCE" false
@@ -726,7 +751,7 @@ let test_staged_condstore_wire () =
     ((Imap_store.load_cursor store ~scope).anchor=None)
 
 let test_staged_messagelimit_continuation () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let wire=Buffer.create 512 in
@@ -753,11 +778,11 @@ let test_staged_messagelimit_continuation () =
     | Ok client -> client
     | Error error -> Alcotest.fail
         (Imap_eio.Client.error_to_string error) in
-  let published=match Imap_sync.Engine.scan_once ~client ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"partial-complete" () with
+  let published=match Imap_sync.Engine.scan_once
+    ~ctx:(context ~store ~spool_dir client) ~stage_id:"partial-complete" () with
     | Ok published -> published
     | Error error -> Alcotest.failf "partial staged scan: %a"
-        Imap_sync.Engine.pp_error error in
+        Imap_sync.Error.pp error in
   Alcotest.(check int64) "all partial rows published" 3L
     published.row_count;
   let snapshot=published_rows store in
@@ -772,7 +797,7 @@ let test_staged_messagelimit_continuation () =
     (contains_substring transcript "UIDBEFORE 2")
 
 let test_staged_changedsince_messagelimit () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let make_client ~delta =
@@ -809,19 +834,19 @@ let test_staged_changedsince_messagelimit () =
           (Imap_eio.Client.error_to_string error) in
     client,wire in
   let initial,_=make_client ~delta:false in
-  (match Imap_sync.Engine.scan_once ~client:initial ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"changes-baseline" () with
+  (match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir initial)
+    ~stage_id:"changes-baseline" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "baseline scan: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   let changed,wire=make_client ~delta:true in
-  (match Imap_sync.Engine.scan_once ~client:changed ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"changes-partial" () with
+  (match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir changed)
+    ~stage_id:"changes-partial" () with
    | Ok receipt ->
        Alcotest.(check int64) "complete incremental inventory" 3L
          receipt.row_count
    | Error error -> Alcotest.failf "partial CHANGEDSINCE scan: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   let snapshot=published_rows store in
   Alcotest.(check (list (list string))) "changed flags published"
     [["\\Seen"];[];["\\Seen"]]
@@ -842,6 +867,7 @@ let test_staged_timeout_discards_stage () =
   let store=open_store ~sw
     ~database:Eio.Path.(fs / dir / "sync.db")
     ~blob_dir:Eio.Path.(fs / dir / "blob") in
+  let spool_dir=Eio.Path.(fs / dir / "spool") in
   let flow=Eio_mock.Flow.make "staged-timeout" in
   Eio_mock.Flow.on_read flow [
     `Return "* OK ready\r\n";
@@ -863,8 +889,9 @@ let test_staged_timeout_discards_stage () =
         (Imap_eio.Client.error_to_string error) in
   (try
      ignore (Eio.Time.with_timeout_exn clock 0.02 (fun () ->
-       Imap_sync.Engine.scan_once ~client ~store ~scope
-         ~mailbox:"INBOX" ~stage_id:"timeout-stage" ()));
+       Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir client)
+         ~stage_id:"timeout-stage" ()));
+
      Alcotest.fail "staged FETCH did not time out"
    with Eio.Time.Timeout -> ());
   Alcotest.(check (list string)) "cancelled stage discarded" []
@@ -884,11 +911,12 @@ let test_watch_deadlines () =
   let store=open_store ~sw
     ~database:Eio.Path.(fs / dir / "sync.db")
     ~blob_dir:Eio.Path.(fs / dir / "blob") in
+  let spool_dir=Eio.Path.(fs / dir / "spool") in
   let run ~connect ~stage_id ~expected =
     let seen=ref false in
     (try
-       ignore (Imap_sync.Watch.run ~clock ~connect ~store ~scope
-         ~mailbox:"INBOX" ~next_stage_id:(fun () -> stage_id)
+       ignore (Imap_sync.Watch.run ~clock ~connect
+         ~next_stage_id:(fun () -> stage_id)
          ~on_publish:(fun _ -> Alcotest.fail "timed-out watch published")
          ~on_retry:(fun issue ->
            seen:=true;
@@ -901,7 +929,7 @@ let test_watch_deadlines () =
   run ~stage_id:"connect-timeout" ~expected:Imap_sync.Watch.Connect_timed_out
     ~connect:(fun ~sw:_ ->
       Eio.Time.sleep clock 1.;
-      Error Imap_eio.Error.Closed);
+      Error (Imap_sync.Error.Client Imap_eio.Error.Closed));
   let connect ~sw =
     let flow=Eio_mock.Flow.make "watch-scan-timeout" in
     Eio_mock.Flow.on_read flow [
@@ -918,7 +946,7 @@ let test_watch_deadlines () =
     ];
     let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
       ~allow_insecure_transport:true () in
-    Imap_eio.Client.of_flow ~sw ~auth flow in
+    connected ~store ~spool_dir (Imap_eio.Client.of_flow ~sw ~auth flow) in
   run ~stage_id:"watch-scan-timeout" ~expected:Imap_sync.Watch.Scan_timed_out
     ~connect;
   Alcotest.(check (list string)) "watch discarded timed-out stage" []
@@ -938,6 +966,7 @@ let test_watch_keepalive_does_not_rescan () =
   let store=open_store ~sw
     ~database:Eio.Path.(fs / dir / "sync.db")
     ~blob_dir:Eio.Path.(fs / dir / "blob") in
+  let spool_dir=Eio.Path.(fs / dir / "spool") in
   let caps="IMAP4rev1 UNSELECT IDLE" in
   let prelude=[
     `Return "* OK ready\r\n";
@@ -978,12 +1007,12 @@ let test_watch_keepalive_does_not_rescan () =
         Eio_mock.Flow.on_read flow lines;
         let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
           ~allow_insecure_transport:true () in
-        Imap_eio.Client.of_flow ~sw ~auth flow in
+        connected ~store ~spool_dir
+          (Imap_eio.Client.of_flow ~sw ~auth flow) in
   let published=ref 0 in
   let stage=ref 0 in
   (try
-     ignore (Imap_sync.Watch.run ~clock ~connect ~store ~scope
-       ~mailbox:"INBOX"
+     ignore (Imap_sync.Watch.run ~clock ~connect
        ~next_stage_id:(fun () -> incr stage;
          Printf.sprintf "keepalive-%d" !stage)
        ~on_publish:(fun _ ->
@@ -1000,18 +1029,12 @@ let test_watch_keepalive_does_not_rescan () =
     (List.length !connections)
 
 let test_watch_rejects_long_idle_renewal () =
-  let dir=root () in
-  Fun.protect ~finally:(fun () -> remove_tree dir) @@ fun () ->
   Eio_main.run @@ fun env ->
-  Eio.Switch.run @@ fun sw ->
-  let fs=Eio.Stdenv.fs env in
-  let store=open_store ~sw
-    ~database:Eio.Path.(fs / dir / "sync.db")
-    ~blob_dir:Eio.Path.(fs / dir / "blob") in
   match Imap_sync.Watch.run ~clock:(Eio.Stdenv.clock env)
       ~connect:(fun ~sw:_ -> Alcotest.fail "invalid watch connected")
-      ~store ~scope ~mailbox:"INBOX" ~next_stage_id:(fun () -> "unused")
+      ~next_stage_id:(fun () -> "unused")
       ~on_publish:(fun _ -> ()) ~idle_renew_seconds:1741. () with
+
   | Error (Imap_sync.Watch.Invalid_configuration _) -> ()
   | _ -> Alcotest.fail "IDLE renewal above 29 minutes accepted"
 
@@ -1021,13 +1044,13 @@ let test_remote_source_vanishes_before_archive () =
   let store=open_store ~sw ~database ~blob_dir in
   let disappearing=scripted_scan ~sw ~has_message:true
     ~missing_body:true () in
-  (match Imap_sync.Bridge.copy_once ~client:disappearing ~store ~maildir
-      ~scope ~mailbox:"INBOX" ~stage_id:"vanishing-first"
-      ~next_id:(fun () -> Alcotest.fail "vanished source reserved journal")
-      ~spool_dir () with
-   | Error (Imap_sync.Bridge.Source_vanished vanished) when vanished=uid 1L -> ()
+  let next_id ()=Alcotest.fail "vanished source reserved journal" in
+  (match Imap_sync.Bridge.copy_once
+      ~ctx:(context ~store ~spool_dir ~next_id disappearing) ~maildir
+      ~stage_id:"vanishing-first" () with
+   | Error (Imap_sync.Error.Source_vanished vanished) when vanished=uid 1L -> ()
    | Error error -> Alcotest.failf "vanished source: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "vanished source reported convergence");
   Alcotest.(check int) "vanished source made no journal" 0
     (List.length (J.active_operations store ~scope));
@@ -1036,15 +1059,15 @@ let test_remote_source_vanishes_before_archive () =
   Alcotest.(check int) "vanished source made no Maildir file" 0
     (List.length (Md.scan maildir));
   let absent=scripted_scan ~sw ~has_message:false () in
-  (match Imap_sync.Bridge.copy_once ~client:absent ~store ~maildir
-      ~scope ~mailbox:"INBOX" ~stage_id:"vanishing-rescan"
-      ~next_id:(fun () -> Alcotest.fail "absent source copied")
-      ~spool_dir () with
+  let next_id ()=Alcotest.fail "absent source copied" in
+  (match Imap_sync.Bridge.copy_once
+      ~ctx:(context ~store ~spool_dir ~next_id absent) ~maildir
+      ~stage_id:"vanishing-rescan" () with
    | Ok receipt ->
        Alcotest.(check int) "rescan has no remote copy" 0
          receipt.remote_to_local
    | Error error -> Alcotest.failf "vanished source rescan: %a"
-       Imap_sync.Bridge.pp_error error)
+       Imap_sync.Error.pp error)
 
 let test_local_occurrence_changes_before_archive () =
   with_fixture @@ fun ~database:_ ~blob_dir:_ ~spool_dir:_ ~maildir ->
@@ -1079,12 +1102,12 @@ let test_invalid_blob_rejects_unsent_append () =
     output_string output "corrupt";
     close_out output;
     id in
-  (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope
-      ~mailbox:"INBOX" ~stage_id:"corrupt-append-scan"
-      ~next_id:corrupt_blob ~spool_dir () with
-   | Error (Imap_sync.Bridge.Sync (Imap_sync.Engine.Incomplete _)) -> ()
+  (match Imap_sync.Bridge.copy_once
+      ~ctx:(context ~store ~spool_dir ~next_id:corrupt_blob client) ~maildir
+      ~stage_id:"corrupt-append-scan" () with
+   | Error (Imap_sync.Error.Incomplete _) -> ()
    | Error error -> Alcotest.failf "corrupt source: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "corrupt source was uploaded");
   Alcotest.(check bool) "no legacy APPEND intent" true
     (Imap_store.find_intent store ~id=None);
@@ -1109,12 +1132,13 @@ let test_missing_appenduid_keeps_reason () =
     let client=scripted_scan ~sw ~has_message:false
       ~caps:"IMAP4rev1 UNSELECT"
       ~append_without_uidplus:true () in
-    (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope
-        ~mailbox:"INBOX" ~stage_id:"missing-appenduid-scan"
-        ~next_id:(fun () -> id) ~spool_dir () with
-     | Error (Imap_sync.Bridge.Pending_operations [pending]) when pending=id -> ()
+    (match Imap_sync.Bridge.copy_once
+        ~ctx:(context ~store ~spool_dir ~next_id:(fun () -> id) client)
+        ~maildir ~stage_id:"missing-appenduid-scan" () with
+     | Error (Imap_sync.Error.Pending_operations [pending])
+       when pending=id -> ()
      | Error error -> Alcotest.failf "missing APPENDUID: %a"
-         Imap_sync.Bridge.pp_error error
+         Imap_sync.Error.pp error
      | Ok _ -> Alcotest.fail "unidentified APPEND reported convergence"));
   Eio.Switch.run (fun sw ->
     let store=open_store ~sw ~database ~blob_dir in
@@ -1168,12 +1192,12 @@ let test_appenduid_readback_rejects_changed_body () =
     | Error error -> Alcotest.fail
         (Imap_eio.Client.error_to_string error) in
   let id="appenduid-body-mismatch" in
-  (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope
-      ~mailbox:"INBOX" ~stage_id:"appenduid-body-scan"
-      ~next_id:(fun () -> id) ~spool_dir () with
-   | Error (Imap_sync.Bridge.Content_diverged got) when got=id -> ()
+  (match Imap_sync.Bridge.copy_once
+      ~ctx:(context ~store ~spool_dir ~next_id:(fun () -> id) client)
+      ~maildir ~stage_id:"appenduid-body-scan" () with
+   | Error (Imap_sync.Error.Content_diverged got) when got=id -> ()
    | Error error -> Alcotest.failf "APPENDUID readback: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "changed remote APPEND bytes were paired");
   Alcotest.(check bool) "APPEND readback fetched remote bytes" true
     (contains_substring (Buffer.contents wire) "BODY.PEEK[]");
@@ -1191,7 +1215,7 @@ let test_appenduid_readback_rejects_changed_body () =
     (Md.find maildir ~id:local.id<>None)
 
 let test_append_date_survives_uncertain_reply () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let blob=Imap_store.Blob.put store
@@ -1212,13 +1236,14 @@ let test_append_date_survives_uncertain_reply () =
     | Error error -> Alcotest.fail (Imap_eio.Client.error_to_string error) in
   let date=ok (Imap.Internal_date.of_string
     "26-Sep-2025 12:34:56 +0000") in
-  (match Imap_sync.Engine.append_blob_journaled ~client ~store ~scope
-    ~mailbox:"INBOX" ~id:"dated-append" ~message_id:"dated-append"
+  (match Imap_sync.Engine.append_blob_journaled
+    ~ctx:(context ~store ~spool_dir client) ~id:"dated-append"
+    ~message_id:"dated-append"
     ~internal_date:date blob with
    | Ok Imap_sync.Engine.Needs_reconciliation -> ()
    | Ok _ -> Alcotest.fail "unattributed APPEND was identified"
    | Error error -> Alcotest.failf "dated APPEND: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   let intent=match Imap_store.find_intent store ~id:"dated-append" with
     | Some intent -> intent
     | None -> Alcotest.fail "dated APPEND intent missing" in
@@ -1248,12 +1273,13 @@ let test_sent_append_without_lower_intent_restarts () =
     let client=scripted_scan ~sw ~has_message:false
       ~caps:"IMAP4rev1 UNSELECT"
       ~append_without_uidplus:true () in
-    (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope
-        ~mailbox:"INBOX" ~stage_id:"sent-without-lower-rescan"
-        ~next_id:(fun () -> "fresh-after-unsent") ~spool_dir () with
-     | Error (Imap_sync.Bridge.Pending_operations ["fresh-after-unsent"]) -> ()
+    let next_id ()="fresh-after-unsent" in
+    (match Imap_sync.Bridge.copy_once
+        ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir
+        ~stage_id:"sent-without-lower-rescan" () with
+     | Error (Imap_sync.Error.Pending_operations ["fresh-after-unsent"]) -> ()
      | Error error -> Alcotest.failf "unsent APPEND restart: %a"
-         Imap_sync.Bridge.pp_error error
+         Imap_sync.Error.pp error
      | Ok _ -> Alcotest.fail "new unidentified APPEND was not held");
     Alcotest.(check bool) "old unsent operation rejected" true
       (match J.find_operation store ~id:"sent-before-lower-intent" with
@@ -1297,8 +1323,8 @@ let test_ambiguous_append_survives_restart () =
       (List.length (J.active_operations store ~scope));
     let client=scripted_scan ~sw ~has_message:false () in
     (match run_bridge ~client ~store ~maildir ~spool_dir with
-     | Error (Imap_sync.Bridge.Pending_operations ["ambiguous-append"]) -> ()
-     | Error e -> Alcotest.failf "wrong error: %a" Imap_sync.Bridge.pp_error e
+     | Error (Imap_sync.Error.Pending_operations ["ambiguous-append"]) -> ()
+     | Error e -> Alcotest.failf "wrong error: %a" Imap_sync.Error.pp e
      | Ok _ -> Alcotest.fail "ambiguous APPEND was replayed");
     Alcotest.(check int) "no pair published" 0
       (List.length (J.pairs store ~scope));
@@ -1336,11 +1362,13 @@ let test_local_write_recovery ?(missing_date=false) ?(wrong_date=false)
     let store=open_store ~sw ~database ~blob_dir in
     let client=scripted_scan ~sw ~has_message:true ~recovery_date:date () in
     (match run_bridge ~client ~store ~maildir ~spool_dir with
-     | Error (Imap_sync.Bridge.Content_diverged "reserved-local") when divergent -> ()
-     | Error (Imap_sync.Bridge.Date_diverged "reserved-local")
+     | Error (Imap_sync.Error.Content_diverged "reserved-local")
+         when divergent -> ()
+
+     | Error (Imap_sync.Error.Date_diverged "reserved-local")
          when missing_date || wrong_date -> ()
      | Error e -> Alcotest.failf "wrong recovery error: %a"
-         Imap_sync.Bridge.pp_error e
+         Imap_sync.Error.pp e
      | Ok receipt when not divergent && not missing_date &&
          not wrong_date ->
          Alcotest.(check int) "no duplicate local copy" 0
@@ -1404,13 +1432,13 @@ let test_confirmed_uidplus_recovery ?(changed_mtime=false)
       ?confirmed_date:(local_date local)
       ~fetched_body ~flags:wire_flags ~missing_metadata:missing_target () in
     (match run_bridge ~client ~store ~maildir ~spool_dir with
-     | Error (Imap_sync.Bridge.Local_source_changed id)
+     | Error (Imap_sync.Error.Local_source_changed id)
        when changed_mtime && id=local.id -> ()
-     | Error (Imap_sync.Bridge.Invalid_operation
+     | Error (Imap_sync.Error.Invalid_operation
          "APPENDUID target UID 1 is missing") when missing_target -> ()
-     | Error (Imap_sync.Bridge.Pending_operations [id])
+     | Error (Imap_sync.Error.Pending_operations [id])
        when missing_preimage && id="confirmed-append" -> ()
-     | Error (Imap_sync.Bridge.Content_diverged "confirmed-append")
+     | Error (Imap_sync.Error.Content_diverged "confirmed-append")
        when changed_remote_body -> ()
      | Ok receipt when not changed_mtime && not missing_preimage &&
        not changed_remote_body && not missing_target ->
@@ -1419,7 +1447,7 @@ let test_confirmed_uidplus_recovery ?(changed_mtime=false)
          Alcotest.(check int) "remote body not copied locally again" 0
            receipt.remote_to_local
      | Error e -> Alcotest.failf "UIDPLUS recovery: %a"
-         Imap_sync.Bridge.pp_error e
+         Imap_sync.Error.pp e
      | Ok _ -> Alcotest.fail "changed mtime was paired");
     Alcotest.(check bool) "mismatched remote body not cached" true
       (Imap_store.Blob.find store ~scope ~uidvalidity:(epoch 11L)
@@ -1445,7 +1473,7 @@ let test_confirmed_uidplus_recovery ?(changed_mtime=false)
            Alcotest.(check int) "restored source did not replay APPEND" 0
              receipt.local_to_remote
        | Error e -> Alcotest.failf "restored UIDPLUS recovery: %a"
-           Imap_sync.Bridge.pp_error e);
+           Imap_sync.Error.pp e);
       Alcotest.(check bool) "restored source paired" true
         (Option.is_some (J.find_remote store ~scope
           ~uidvalidity:(epoch 11L) ~uid:(uid 1L)))))
@@ -1457,9 +1485,9 @@ let test_writer_lease_blocks_bridge () =
     let client=scripted_scan ~sw ~has_message:false () in
     Md.with_writer maildir (fun _ ->
       match run_bridge ~client ~store ~maildir ~spool_dir with
-      | Error Imap_sync.Bridge.Writer_busy -> ()
+      | Error Imap_sync.Error.Writer_busy -> ()
       | Error error -> Alcotest.failf "wrong lease error: %a"
-          Imap_sync.Bridge.pp_error error
+          Imap_sync.Error.pp error
       | Ok _ -> Alcotest.fail "bridge ignored competing writer lease"))
 
 let test_maildir_error_is_typed () =
@@ -1471,9 +1499,9 @@ let test_maildir_error_is_typed () =
       (fun out -> output_string out "x");
     let client=scripted_scan ~sw ~has_message:false () in
     (match run_bridge ~client ~store ~maildir ~spool_dir with
-     | Error (Imap_sync.Bridge.Maildir (Md.Malformed_filename "a:b")) -> ()
+     | Error (Imap_sync.Error.Maildir (Md.Malformed_filename "a:b")) -> ()
      | Error error -> Alcotest.failf "wrong malformed-name result: %a"
-         Imap_sync.Bridge.pp_error error
+         Imap_sync.Error.pp error
      | Ok _ -> Alcotest.fail "bridge staged a malformed Maildir name");
     Alcotest.(check (list string)) "failed staging left no spool file" []
       (Sys.readdir (Filename.concat dir "spool") |> Array.to_list))
@@ -1489,12 +1517,12 @@ let test_recover_local () =
     ["maildir/tmp/" ^ temporary;"spool/" ^ staging;"spool/imap-keep"];
   Md.with_writer maildir (fun _ ->
     match Imap_sync.Bridge.recover_local ~maildir ~spool_dir () with
-    | Error Imap_sync.Bridge.Writer_busy -> ()
+    | Error Imap_sync.Error.Writer_busy -> ()
     | _ -> Alcotest.fail "recovery ran without the writer lease");
   (match Imap_sync.Bridge.recover_local ~maildir ~spool_dir () with
    | Ok () -> ()
    | Error error -> Alcotest.failf "recovery: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check (list string)) "Maildir temporary removed" []
     (Sys.readdir (Filename.concat dir "maildir/tmp") |> Array.to_list);
   Alcotest.(check (list string)) "only the staging file removed"
@@ -1517,10 +1545,10 @@ let test_metadata_lock_is_not_writer_lease () =
   match run_bridge ~client ~store ~maildir
       ~spool_dir:Eio.Path.(fs / dir / "spool") with
   | exception Md.Metadata_lock_busy _ -> ()
-  | Error Imap_sync.Bridge.Writer_busy ->
+  | Error Imap_sync.Error.Writer_busy ->
       Alcotest.fail "metadata lock reported as a busy writer lease"
   | Error error -> Alcotest.failf "wrong metadata lock result: %a"
-      Imap_sync.Bridge.pp_error error
+      Imap_sync.Error.pp error
   | Ok _ -> Alcotest.fail "bridge ignored the metadata lock"
 
 let test_prepared_copies_rejected_without_send () =
@@ -1554,7 +1582,7 @@ let test_prepared_copies_rejected_without_send () =
          Alcotest.(check int) "no copy retried" 0
            (receipt.remote_to_local+receipt.local_to_remote)
      | Error e -> Alcotest.failf "prepared repair: %a"
-         Imap_sync.Bridge.pp_error e);
+         Imap_sync.Error.pp e);
     List.iter (fun id ->
       Alcotest.(check bool) (id ^ " rejected") true
         (match J.find_operation store ~id with
@@ -1592,7 +1620,7 @@ let test_operator_appenduid_evidence () =
     (match Imap_sync.Bridge.record_appenduid_evidence ~store ~maildir ~scope
       ~id:"operator-appenduid" ~uidvalidity:(epoch 12L) ~uid:(uid 1L)
       ~evidence:"saved server receipt" () with
-     | Error (Imap_sync.Bridge.Invalid_operation _) -> ()
+     | Error (Imap_sync.Error.Invalid_operation _) -> ()
      | _ -> Alcotest.fail "wrong epoch was accepted");
     Alcotest.(check bool) "wrong epoch left operation ambiguous" true
       (match J.find_operation store ~id:"operator-appenduid" with
@@ -1602,16 +1630,16 @@ let test_operator_appenduid_evidence () =
       ~evidence:"saved server receipt" () with
      | Ok () -> ()
      | Error e -> Alcotest.failf "record APPENDUID: %a"
-         Imap_sync.Bridge.pp_error e);
+         Imap_sync.Error.pp e);
     let divergent=String.map (fun c -> if c='S' then 'X' else c)
       message in
     let wrong_client=scripted_scan ~sw ~has_message:true
       ~confirmed_body:true ?confirmed_date:(local_date local)
       ~fetched_body:divergent () in
     (match run_bridge ~client:wrong_client ~store ~maildir ~spool_dir with
-     | Error (Imap_sync.Bridge.Content_diverged "operator-appenduid") -> ()
+     | Error (Imap_sync.Error.Content_diverged "operator-appenduid") -> ()
      | Error e -> Alcotest.failf "wrong divergent result: %a"
-         Imap_sync.Bridge.pp_error e
+         Imap_sync.Error.pp e
      | Ok _ -> Alcotest.fail "unverified operator UID was committed");
     Alcotest.(check bool) "divergent remote body leaves operation observed"
       true (match J.find_operation store ~id:"operator-appenduid" with
@@ -1623,7 +1651,7 @@ let test_operator_appenduid_evidence () =
          Alcotest.(check int) "no duplicate upload" 0
            receipt.local_to_remote
      | Error e -> Alcotest.failf "repair APPENDUID: %a"
-         Imap_sync.Bridge.pp_error e);
+         Imap_sync.Error.pp e);
     Alcotest.(check bool) "verified pair committed" true
       (Option.is_some (J.find_remote store ~scope
         ~uidvalidity:(epoch 11L) ~uid:(uid 1L)));
@@ -1666,9 +1694,9 @@ let test_unresolved_delete_reports_pending () =
       ~evidence:"operator verified exact deleted target"=`Attested);
   let client=scripted_scan ~sw ~has_message:true () in
   (match run_bridge ~client ~store ~maildir ~spool_dir with
-   | Error (Imap_sync.Bridge.Pending_operations ["uncertain-delete"]) -> ()
+   | Error (Imap_sync.Error.Pending_operations ["uncertain-delete"]) -> ()
    | Error error -> Alcotest.failf "wrong pending result: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "uncertain delete was ignored");
   Alcotest.(check bool) "uncertain delete remains active" true
     (match J.find_operation store ~id:op.id with
@@ -1677,12 +1705,13 @@ let test_unresolved_delete_reports_pending () =
            "operator authorized targeted UID EXPUNGE: operator verified exact deleted target"
      | _ -> false);
   let vanished=scripted_scan ~sw ~has_message:false () in
-  (match Imap_sync.Bridge.copy_once ~client:vanished ~store ~maildir ~scope
-    ~mailbox:"INBOX" ~stage_id:"fault-scan-absent"
-    ~next_id:(fun () -> "unexpected-transfer") ~spool_dir () with
+  let next_id ()="unexpected-transfer" in
+  (match Imap_sync.Bridge.copy_once
+    ~ctx:(context ~store ~spool_dir ~next_id vanished) ~maildir
+    ~stage_id:"fault-scan-absent" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "attested delete recovery: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "attested delete recovered without replay" true
     (match J.find_operation store ~id:op.id with
      | Some {state=J.Committed;receipt=Some receipt;_} ->
@@ -1711,13 +1740,13 @@ let test_unsupported_targeted_delete_is_durable_hold () =
   let copy stage_id=
     let client=scripted_scan ~sw ~has_message:true
       ~caps:"IMAP4rev1 UNSELECT" () in
+    let next_id ()="unsupported-hold-" ^ stage_id in
     match Imap_sync.Bridge.copy_once ~deletion_policy:Imap.Sync_policy.Propagate
-      ~client ~store ~maildir ~scope ~mailbox:"INBOX" ~stage_id
-      ~next_id:(fun () -> "unsupported-hold-" ^ stage_id)
-      ~spool_dir () with
+      ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir ~stage_id
+      () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "unsupported delete: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   let first=copy "unsupported-first" in
   Alcotest.(check int) "missing UIDPLUS reports a hold" 1
     first.deletions_held;
@@ -1740,7 +1769,7 @@ let test_unsupported_targeted_delete_is_durable_hold () =
     ~on_preview:(fun item -> preview:=item::!preview) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "candidate preview: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "preview shows remote-delete candidate" true
     (match !preview with
      | [{decision=`Plan Imap.Sync_policy.Delete_remote;_}] -> true
@@ -1763,13 +1792,14 @@ let test_deletion_grace_across_complete_scans () =
    | `Committed _ -> () | `Stale_revision -> Alcotest.fail "new pair stale");
   let copy suffix=
     let client=scripted_scan ~sw ~has_message:true () in
+    let next_id ()="grace-op-"^suffix in
     match Imap_sync.Bridge.copy_once ~min_absence_scans:1
-      ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir ~scope
-      ~mailbox:"INBOX" ~stage_id:("grace-"^suffix)
-      ~next_id:(fun () -> "grace-op-"^suffix) ~spool_dir () with
+      ~deletion_policy:Imap.Sync_policy.Propagate
+      ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir
+      ~stage_id:("grace-"^suffix) () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "grace scan: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   let first=copy "first" in
   Alcotest.(check int) "first absence held" 1 first.deletions_held;
   Alcotest.(check int) "first absence not deleted" 0 first.deletions;
@@ -1785,7 +1815,7 @@ let test_deletion_grace_across_complete_scans () =
     ~on_preview:(fun item -> preview:=item::!preview) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "grace preview: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "preview holds during grace" true
     (match !preview with
      | [{decision=`Plan (Imap.Sync_policy.Hold_deletion
@@ -1806,7 +1836,7 @@ let test_deletion_grace_across_complete_scans () =
     ~on_preview:(fun item -> preview:=item::!preview) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "mature preview: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "later preview offers remote DELETE" true
     (match !preview with
      | [{decision=`Plan Imap.Sync_policy.Delete_remote;_}] -> true
@@ -1833,7 +1863,7 @@ let test_deletion_grace_across_complete_scans () =
     ~on_preview:(fun item -> preview:=item::!preview) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "reappeared preview: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "old absence cannot mature after presence" true
     (match !preview with
      | [{decision=`Plan (Imap.Sync_policy.Hold_deletion
@@ -1866,13 +1896,14 @@ let test_changed_reappearance_blocks_delete () =
    | `Committed _ -> () | `Stale_revision -> Alcotest.fail "new pair stale");
   let copy suffix=
     let client=scripted_scan ~sw ~has_message:true () in
+    let next_id ()="changed-op-"^suffix in
     match Imap_sync.Bridge.copy_once ~min_absence_scans:1
-      ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir ~scope
-      ~mailbox:"INBOX" ~stage_id:("changed-"^suffix)
-      ~next_id:(fun () -> "changed-op-"^suffix) ~spool_dir () with
+      ~deletion_policy:Imap.Sync_policy.Propagate
+      ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir
+      ~stage_id:("changed-"^suffix) () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "changed reappearance: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   ignore (copy "first-absence");
   let changed=String.sub message 0 (String.length message-1) ^ "!" in
   let restored=Md.append maildir ~id:local_id
@@ -1891,7 +1922,7 @@ let test_changed_reappearance_blocks_delete () =
    | Ok result -> Alcotest.(check int64)
        "offline scrub skips a tombstoned local absence" 0L result.missing
    | Error error -> Alcotest.failf "offline scrub: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check (list string)) "offline scrub retains content conflict"
     [conflict.id] (List.map (fun (x:J.conflict) -> x.id)
       (content_conflicts ()));
@@ -1909,7 +1940,7 @@ let test_changed_reappearance_blocks_delete () =
     ~on_preview:(fun item -> preview:=item::!preview) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "changed preview: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "offline plan holds content conflict" true
     (match !preview with
      | [{decision=`Plan (Imap.Sync_policy.Hold_deletion
@@ -1943,14 +1974,15 @@ let test_wrong_date_reappearance_blocks_delete () =
    | `Committed _ -> () | `Stale_revision -> Alcotest.fail "new pair stale");
   let run suffix=
     let client=scripted_scan ~sw ~has_message:true () in
+    let next_id ()="date-op-"^suffix in
     Imap_sync.Bridge.copy_once ~min_absence_scans:1
-      ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir ~scope
-      ~mailbox:"INBOX" ~stage_id:("date-"^suffix)
-      ~next_id:(fun () -> "date-op-"^suffix) ~spool_dir () in
+      ~deletion_policy:Imap.Sync_policy.Propagate
+      ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir
+      ~stage_id:("date-"^suffix) () in
   let copy suffix=match run suffix with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "date reappearance: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   ignore (copy "first-absence");
   let wrong=Md.append maildir ~id:local_id
     ~source:(Eio.Flow.string_source message) ~length ~flags:[]
@@ -1960,7 +1992,7 @@ let test_wrong_date_reappearance_blocks_delete () =
        Alcotest.(check bool) "wrong date is a held pair" true
          (receipt.flags_held=1 && receipt.held_pair_ids=[pair.id])
    | Error error -> Alcotest.failf "wrong date: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   let identity_conflicts ()=J.open_conflicts store ~scope
     |> List.filter (fun (x:J.conflict) -> x.kind=J.Identity_conflict) in
   Alcotest.(check int) "date conflict is durable" 1
@@ -1978,7 +2010,7 @@ let test_wrong_date_reappearance_blocks_delete () =
     ~on_preview:(fun item -> preview:=item::!preview) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "date preview: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "offline plan holds wrong-date identity" true
     (match !preview with
      | [{decision=`Plan (Imap.Sync_policy.Hold_deletion
@@ -2011,15 +2043,16 @@ let test_retention_holds_remote_delete () =
     ~pair_id:pair.id ~evidence:"local size limit" () with
    | Ok () -> ()
    | Error error -> Alcotest.failf "mark retention: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   let client=scripted_scan ~sw ~has_message:true () in
+  let next_id ()="retention-operation" in
   let receipt=match Imap_sync.Bridge.copy_once
-    ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir ~scope
-    ~mailbox:"INBOX" ~stage_id:"retention-scan"
-    ~next_id:(fun () -> "retention-operation") ~spool_dir () with
+    ~deletion_policy:Imap.Sync_policy.Propagate
+    ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir
+    ~stage_id:"retention-scan" () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "retention bridge: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   Alcotest.(check int) "no deletion" 0 receipt.deletions;
   Alcotest.(check int) "retention hold" 1 receipt.deletions_held;
   Alcotest.(check bool) "retention conflict explains hold" true
@@ -2038,7 +2071,7 @@ let test_retention_holds_remote_delete () =
     ~on_preview:(fun item -> planned:=item::!planned) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "retention preview: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "preview preserves retention hold" true
     (match !planned with
      | [{decision=`Plan (Imap.Sync_policy.Hold_deletion
@@ -2055,11 +2088,11 @@ let test_readonly_sync_plan () =
   let local=Md.append maildir
     ~source:(Eio.Flow.string_source message) ~length ~flags:[seen] () in
   let client=scripted_scan ~sw ~has_message:true () in
-  (match Imap_sync.Engine.scan_once ~client ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"plan-source" () with
+  (match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir client)
+    ~stage_id:"plan-source" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "plan source scan: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   let preview ?(allow_bootstrap_duplicates=false) () =
     let events=ref [] in
     let cursor=match Imap_sync.Bridge.preview_sync ~spool_dir
@@ -2068,7 +2101,7 @@ let test_readonly_sync_plan () =
       ~on_preview:(fun event -> events:=event::!events) () with
       | Ok cursor -> cursor
       | Error error -> Alcotest.failf "sync preview: %a"
-          Imap_sync.Bridge.pp_error error in
+          Imap_sync.Error.pp error in
     cursor,List.rev !events in
   let cursor,blocked=preview () in
   Alcotest.(check bool) "populated bootstrap held" true
@@ -2128,13 +2161,14 @@ let test_incompatible_absence_tombstone_holds () =
   (match J.put_pair store ~expected_revision:None pair with
    | `Committed _ -> () | `Stale_revision -> Alcotest.fail "new pair stale");
   let client=scripted_scan ~sw ~has_message:true () in
+  let next_id ()="incompatible-operation" in
   let receipt=match Imap_sync.Bridge.copy_once
-    ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir ~scope
-    ~mailbox:"INBOX" ~stage_id:"incompatible-scan"
-    ~next_id:(fun () -> "incompatible-operation") ~spool_dir () with
+    ~deletion_policy:Imap.Sync_policy.Propagate
+    ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir
+    ~stage_id:"incompatible-scan" () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "incompatible tombstone bridge: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   Alcotest.(check int) "incompatible evidence held" 1
     receipt.deletions_held;
   Alcotest.(check int) "no deletion operation" 0
@@ -2145,7 +2179,7 @@ let test_incompatible_absence_tombstone_holds () =
     ~on_preview:(fun item -> planned:=item::!planned) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "incompatible preview: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "preview reports unverified absence" true
     (match !planned with
      | [{decision=`Plan (Imap.Sync_policy.Hold_deletion
@@ -2185,7 +2219,7 @@ let test_prepared_flags_with_stale_pair () =
   (match run_bridge ~client ~store ~maildir ~spool_dir with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "stale prepared FLAGS: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "unsent FLAGS rejected despite pair revision" true
     (match J.find_operation store ~id:op.id with
      | Some {state=J.Rejected;_} -> true | _ -> false)
@@ -2211,12 +2245,13 @@ let test_flag_write_rejects_replaced_local_body () =
     | `Stale_revision -> Alcotest.fail "new pair was stale" in
   let client=scripted_scan ~sw ~has_message:true () in
   let reject ()=match Md.with_writer maildir (fun writer ->
-      Imap_sync.Flags.reconcile_pair ~client ~store ~writer
-        ~mailbox:"INBOX" ~pair
-        ~next_id:(fun () -> "replaced-body-conflict") ()) with
-    | Error (Imap_sync.Flags.Content_mismatch id) when id=pair.id -> ()
+      let next_id ()="replaced-body-conflict" in
+      Imap_sync.Flags.reconcile_pair
+        ~ctx:(context ~store ~spool_dir ~next_id client) ~writer ~pair ())
+    with
+    | Error (Imap_sync.Error.Content_mismatch id) when id=pair.id -> ()
     | Error error -> Alcotest.failf "replaced body: %a"
-        Imap_sync.Flags.pp_error error
+        Imap_sync.Error.pp error
     | Ok _ -> Alcotest.fail "FLAGS update accepted replaced body" in
   reject ();
   let first=J.open_conflicts store ~scope in
@@ -2241,12 +2276,12 @@ let test_flag_write_rejects_replaced_local_body () =
   (match run_bridge ~client:repair_client ~store ~maildir ~spool_dir with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "restored content scan: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check int) "restored body clears content hold" 0
     (List.length (J.open_conflicts store ~scope))
 
 let test_sent_flags_recovery_holds_replaced_local_body () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let changed=String.mapi (fun i c -> if i=0 then 'X' else c) message in
@@ -2276,11 +2311,11 @@ let test_sent_flags_recovery_holds_replaced_local_body () =
   let op=Option.get (J.find_operation store ~id:op.id) in
   let client=scripted_scan ~sw ~has_message:true () in
   let recover ()=match Md.with_writer maildir (fun writer ->
-      Imap_sync.Flags.recover_operation ~client ~store ~writer
-        ~mailbox:"INBOX" ~operation:op ()) with
-    | Error (Imap_sync.Flags.Pending_operation id) when id=op.id -> ()
+      Imap_sync.Flags.recover_operation
+        ~ctx:(context ~store ~spool_dir client) ~writer ~operation:op ()) with
+    | Error (Imap_sync.Error.Pending_operations [id]) when id=op.id -> ()
     | Error error -> Alcotest.failf "sent FLAGS body mismatch: %a"
-        Imap_sync.Flags.pp_error error
+        Imap_sync.Error.pp error
     | Ok _ -> Alcotest.fail "sent FLAGS committed with replaced body" in
   recover ();
   let first=J.open_conflicts store ~scope in
@@ -2323,16 +2358,16 @@ let flag_fetch ~tag flags=Printf.sprintf
   "* 1 FETCH (UID 1 FLAGS (%s) MODSEQ (20))\r\nA%08d OK fetched\r\n"
   flags tag
 
-let reconcile ~client ~store ~maildir pair=
+let reconcile ~client ~store ~maildir ~spool_dir pair=
+  let ctx=context ~store ~spool_dir ~next_id:(fun () -> "flag-op") client in
   Md.with_writer maildir (fun writer ->
-    Imap_sync.Flags.reconcile_pair ~client ~store ~writer ~mailbox:"INBOX"
-      ~pair ~next_id:(fun () -> "flag-op") ())
+    Imap_sync.Flags.reconcile_pair ~ctx ~writer ~pair ())
 
 let operation_state store id=
   (Option.get (J.find_operation store ~id)).state
 
 let test_rejected_store_rejects_operation () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let pair,_=flag_pair ~store ~maildir ~local_flags:[seen] "rejected-store" in
@@ -2341,10 +2376,10 @@ let test_rejected_store_rejects_operation () =
     condstore_select; flag_fetch ~tag:5 "";
     "A00000006 NO [CANNOT] refused\r\n";
     "A00000007 OK unselected\r\n"] in
-  (match reconcile ~client ~store ~maildir pair with
-   | Error (Imap_sync.Flags.Client (Imap_eio.Error.Rejected _)) -> ()
+  (match reconcile ~client ~store ~maildir ~spool_dir pair with
+   | Error (Imap_sync.Error.Client (Imap_eio.Error.Rejected _)) -> ()
    | Error error -> Alcotest.failf "wrong rejected STORE error: %a"
-       Imap_sync.Flags.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "rejected STORE committed");
   Alcotest.(check bool) "rejected STORE rejects the operation" true
     (match J.find_operation store ~id:"flag-op" with
@@ -2355,17 +2390,17 @@ let test_rejected_store_rejects_operation () =
     (List.length (J.open_conflicts store ~scope))
 
 let test_uncertain_store_leaves_conflict () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let pair,_=flag_pair ~store ~maildir ~local_flags:[seen] "uncertain-store" in
   let client,_=scripted_client ~caps:"IMAP4rev1 UNSELECT CONDSTORE" ~sw
     ~tail:[`Raise End_of_file] "uncertain-store" [
     condstore_select; flag_fetch ~tag:5 ""] in
-  (match reconcile ~client ~store ~maildir pair with
-   | Error (Imap_sync.Flags.Client _) -> ()
+  (match reconcile ~client ~store ~maildir ~spool_dir pair with
+   | Error (Imap_sync.Error.Client _) -> ()
    | Error error -> Alcotest.failf "wrong uncertain STORE error: %a"
-       Imap_sync.Flags.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "uncertain STORE committed");
   Alcotest.(check bool) "uncertain STORE is ambiguous with a reason" true
     (match J.find_operation store ~id:"flag-op" with
@@ -2378,7 +2413,7 @@ let test_uncertain_store_leaves_conflict () =
      | _ -> false)
 
 let test_local_only_race_rejects_prepared () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let pair,local=flag_pair ~store ~maildir "local-only-race" in
@@ -2388,10 +2423,10 @@ let test_local_only_race_rejects_prepared () =
     "* 1 FETCH (UID 1 FLAGS (\\Seen \\Flagged))\r\n\
      A00000006 OK fetched\r\n";
     "A00000007 OK unselected\r\n"] in
-  (match reconcile ~client ~store ~maildir pair with
-   | Error Imap_sync.Flags.Modified -> ()
+  (match reconcile ~client ~store ~maildir ~spool_dir pair with
+   | Error Imap_sync.Error.Modified -> ()
    | Error error -> Alcotest.failf "wrong local-only race error: %a"
-       Imap_sync.Flags.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "local-only write ignored a remote change");
   Alcotest.(check bool) "race rejected before dispatch" true
     (operation_state store "flag-op"=J.Rejected);
@@ -2401,7 +2436,7 @@ let test_local_only_race_rejects_prepared () =
     ((Option.get (Md.find maildir ~id:local.id)).flags=[])
 
 let test_held_deleted_merges_other_flags () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let pair,local=flag_pair ~store ~maildir "held-deleted" in
@@ -2411,19 +2446,19 @@ let test_held_deleted_merges_other_flags () =
     "* 1 FETCH (UID 1 FLAGS (\\Deleted \\Seen))\r\n\
      A00000006 OK fetched\r\n";
     "A00000007 OK unselected\r\n"] in
-  (match reconcile ~client ~store ~maildir pair with
+  (match reconcile ~client ~store ~maildir ~spool_dir pair with
    | Ok {outcome=Imap_sync.Flags.Updated updated;deleted_held=true} ->
        Alcotest.(check bool) "common flags gain Seen only" true
          (Mail_flag.Imap_flag.equal_durable updated.common_flags [seen])
    | Ok _ -> Alcotest.fail "held \\Deleted blocked the Seen merge"
    | Error error -> Alcotest.failf "held \\Deleted merge: %a"
-       Imap_sync.Flags.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "local gains Seen without Deleted" true
     (Mail_flag.Imap_flag.equal_durable
       (Option.get (Md.find maildir ~id:local.id)).flags [seen])
 
 let test_settle_reports_content_mismatch () =
-  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let changed=String.mapi (fun i c -> if i=0 then 'X' else c) message in
@@ -2438,15 +2473,16 @@ let test_settle_reports_content_mismatch () =
   J.prepare_operation ~local_flags:[] store op;
   J.mark_sent store ~id:op.id;
   let client,_=scripted_client ~sw "settle-content" [] in
-  let settle id=Imap_sync.Flags.settle_operation ~client ~store ~maildir
-    ~scope ~mailbox:"INBOX" ~id ~evidence:"operator audit" () in
+  let settle id=Imap_sync.Flags.settle_operation
+    ~ctx:(context ~store ~spool_dir client) ~maildir ~id
+    ~evidence:"operator audit" () in
   (match settle op.id with
-   | Error (Imap_sync.Flags.Content_mismatch id) when id=pair.id -> ()
+   | Error (Imap_sync.Error.Content_mismatch id) when id=pair.id -> ()
    | Error error -> Alcotest.failf "wrong settle content error: %a"
-       Imap_sync.Flags.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "settled a changed local body");
   match settle "unknown-op" with
-  | Error Imap_sync.Flags.No_pending_operation -> ()
+  | Error Imap_sync.Error.No_pending_operation -> ()
   | _ -> Alcotest.fail "unknown settle operation not typed"
 
 let delete_select tag=Printf.sprintf
@@ -2474,10 +2510,11 @@ let delete_pair ~client ~store ~maildir ~spool_dir pair =
   Md.with_writer maildir (fun writer ->
     Md.ok @@ Local_inventory.with_pages ~spool_dir maildir
       (fun local_inventory ->
-        Imap_sync.Deletion.reconcile_pair ~client ~store ~writer
-          ~mailbox:"INBOX" ~cursor:(Imap_store.load_cursor store ~scope)
-          ~local_inventory ~pair ~policy:Imap.Sync_policy.Propagate
-          ~next_id:(fun () -> "delete-op") ~spool_dir ()))
+        Imap_sync.Deletion.reconcile_pair
+          ~ctx:(context ~store ~spool_dir ~next_id:(fun () -> "delete-op")
+            client)
+          ~writer ~cursor:(Imap_store.load_cursor store ~scope)
+          ~local_inventory ~pair ~policy:Imap.Sync_policy.Propagate ()))
 
 let held_survivor = function
   | Ok (Imap_sync.Deletion.Held Imap.Sync_policy.Survivor_changed) -> true
@@ -2487,7 +2524,7 @@ let test_modified_delete_is_held () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  publish_two ~sw ~store;
+  publish_two ~sw ~store ~spool_dir;
   let pair=remote_delete_pair ~store "modified-delete" in
   let size=String.length message in
   let meta tag=Printf.sprintf
@@ -2511,7 +2548,7 @@ let test_longer_remote_body_is_held () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  publish_two ~sw ~store;
+  publish_two ~sw ~store ~spool_dir;
   let pair=remote_delete_pair ~store "longer-delete" in
   let longer=message ^ "extra" in
   let client,_=scripted_client
@@ -2532,7 +2569,7 @@ let test_expunged_during_body_fetch_is_stale () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  publish_two ~sw ~store;
+  publish_two ~sw ~store ~spool_dir;
   let pair=remote_delete_pair ~store "expunged-delete" in
   let client,_=scripted_client
     ~caps:"IMAP4rev1 UNSELECT UIDPLUS CONDSTORE" ~sw "expunged-delete" [
@@ -2541,16 +2578,16 @@ let test_expunged_during_body_fetch_is_stale () =
     "A00000006 OK fetched\r\n";
     "A00000007 OK unselected\r\n"] in
   match delete_pair ~client ~store ~maildir ~spool_dir pair with
-  | Error Imap_sync.Deletion.Stale_inventory -> ()
+  | Error Imap_sync.Error.Stale_inventory -> ()
   | Error error -> Alcotest.failf "wrong expunge race error: %a"
-      Imap_sync.Deletion.pp_error error
+      Imap_sync.Error.pp error
   | Ok _ -> Alcotest.fail "expunge race was not stale"
 
 let test_legacy_pair_holds_without_evidence () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  publish_two ~sw ~store;
+  publish_two ~sw ~store ~spool_dir;
   let pair=remote_delete_pair ~store ~evidence:false "legacy-delete" in
   let client,_=scripted_client ~sw "legacy-delete" [] in
   match delete_pair ~client ~store ~maildir ~spool_dir pair with
@@ -2558,7 +2595,7 @@ let test_legacy_pair_holds_without_evidence () =
       Imap.Sync_policy.Missing_content_evidence) -> ()
   | Ok _ -> Alcotest.fail "legacy pair not held for content evidence"
   | Error error -> Alcotest.failf "legacy pair: %a"
-      Imap_sync.Deletion.pp_error error
+      Imap_sync.Error.pp error
 
 let test_changed_local_survivor_is_held () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
@@ -2569,11 +2606,11 @@ let test_changed_local_survivor_is_held () =
     "A00000005 OK fetched\r\n";
     "* SEARCH\r\nA00000006 OK searched\r\n";
     "A00000007 OK unselected\r\n"] in
-  (match Imap_sync.Engine.scan_once ~client:empty ~store ~scope
-      ~mailbox:"INBOX" ~stage_id:"empty-scan" () with
+  (match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir empty)
+      ~stage_id:"empty-scan" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "empty scan: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   let cursor=Imap_store.load_cursor store ~scope in
   let pair,local=flag_pair ~store ~maildir "local-survivor" in
   let pair=match J.put_pair store ~expected_revision:(Some pair.revision)
@@ -2590,10 +2627,11 @@ let test_changed_local_survivor_is_held () =
     Md.ok @@ Local_inventory.with_pages ~spool_dir maildir
       (fun local_inventory ->
         ignore (Md.ok (Maildir.set_flags writer local [seen]));
-        Imap_sync.Deletion.reconcile_pair ~client ~store ~writer
-          ~mailbox:"INBOX" ~cursor ~local_inventory ~pair
-          ~policy:Imap.Sync_policy.Propagate
-          ~next_id:(fun () -> "delete-op") ~spool_dir ())) in
+        Imap_sync.Deletion.reconcile_pair
+          ~ctx:(context ~store ~spool_dir ~next_id:(fun () -> "delete-op")
+            client)
+          ~writer ~cursor ~local_inventory ~pair
+          ~policy:Imap.Sync_policy.Propagate ())) in
   Alcotest.(check bool) "changed local survivor is held" true
     (held_survivor result);
   Alcotest.(check bool) "changed survivor was not unlinked" true
@@ -2614,7 +2652,7 @@ let test_content_mismatch_is_bridge_hold () =
       Alcotest.(check (list string)) "content mismatch names the pair"
         [pair.id] receipt.held_pair_ids
   | Error error -> Alcotest.failf "content mismatch aborted the cycle: %a"
-      Imap_sync.Bridge.pp_error error
+      Imap_sync.Error.pp error
 
 let test_unconditional_store_is_bridge_hold () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
@@ -2638,7 +2676,7 @@ let test_unconditional_store_is_bridge_hold () =
       Alcotest.(check bool) "hold is durable" true
         (J.has_open_conflict store ~pair ~kind:J.Policy_conflict)
   | Error error -> Alcotest.failf "missing CONDSTORE aborted the cycle: %a"
-      Imap_sync.Bridge.pp_error error
+      Imap_sync.Error.pp error
 
 let test_tombstoned_pair_present_is_hold () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
@@ -2656,7 +2694,7 @@ let test_tombstoned_pair_present_is_hold () =
       Alcotest.(check (list string)) "tombstoned present pair held"
         [pair.id] receipt.held_pair_ids
   | Error error -> Alcotest.failf "tombstoned pair: %a"
-      Imap_sync.Bridge.pp_error error
+      Imap_sync.Error.pp error
 
 let test_unstorable_remote_copy_is_rejected () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
@@ -2676,12 +2714,13 @@ let test_unstorable_remote_copy_is_rejected () =
     Printf.sprintf "* 1 FETCH (UID 1 BODY[] {%d}\r\n" size;
     message ^ ")\r\nA00000012 OK fetched\r\n";
     "A00000013 OK unselected\r\n"] in
-  (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope
-      ~mailbox:"INBOX" ~stage_id:"unstorable" ~next_id:(fun () -> "unstorable")
-      ~spool_dir () with
-   | Error (Imap_sync.Bridge.Invalid_operation _) -> ()
+  let next_id ()="unstorable" in
+  (match Imap_sync.Bridge.copy_once
+      ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir
+      ~stage_id:"unstorable" () with
+   | Error (Imap_sync.Error.Invalid_operation _) -> ()
    | Error error -> Alcotest.failf "wrong unstorable error: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "unstorable date was written");
   Alcotest.(check bool) "unstorable copy rejected in the journal" true
     (match J.find_operation store ~id:"unstorable" with
@@ -2713,7 +2752,7 @@ let test_verify_local_content_without_flag_change () =
       ~on_issue:(fun id reason -> issues:=(id,reason)::!issues) () with
     | Ok report -> report
     | Error error -> Alcotest.failf "local verification: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   let first=verify () in
   Alcotest.(check int64) "same-length mismatch detected" 1L
     first.mismatched;
@@ -2774,12 +2813,14 @@ let local_delete_crash_child dir =
   let blob_dir=Eio.Path.(fs / dir / "blob") in
   let maildir=Md.open_dir Eio.Path.(fs / dir / "maildir") in
   let store=open_store ~sw ~database ~blob_dir in
+  let spool_dir=Eio.Path.(fs / dir / "spool") in
   let client=scripted_scan ~sw ~has_message:false () in
-  let published=match Imap_sync.Engine.scan_once ~client ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"delete-crash-initial" () with
+  let published=match Imap_sync.Engine.scan_once
+    ~ctx:(context ~store ~spool_dir client)
+    ~stage_id:"delete-crash-initial" () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "initial scan: %a"
-        Imap_sync.Engine.pp_error error in
+        Imap_sync.Error.pp error in
   let cursor=published.cursor in
   let local=Md.append maildir
     ~source:(Eio.Flow.string_source message) ~length ~flags:[] () in
@@ -2842,7 +2883,7 @@ let test_local_delete_process_crash () =
        Alcotest.(check int) "no local copy replayed" 0
          receipt.remote_to_local
    | Error error -> Alcotest.failf "local delete recovery: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   Alcotest.(check bool) "delete journal committed after restart" true
     (match J.find_operation store ~id:"delete-crash-op" with
      | Some {state=J.Committed;_} -> true | _ -> false);
@@ -2887,13 +2928,13 @@ let test_real_process_crash phase () =
     | [local] -> local_date local | _ -> None in
   let client=scripted_scan ~sw ?recovery_date ~has_message:(phase<>"prepared") () in
   (match run_bridge ~client ~store ~maildir ~spool_dir with
-   | Error (Imap_sync.Bridge.Pending_operations [pending_id])
+   | Error (Imap_sync.Error.Pending_operations [pending_id])
        when phase="sent" && pending_id=id -> ()
    | Ok receipt when phase<>"sent" ->
        Alcotest.(check int) "no second local write after restart" 0
          receipt.remote_to_local
    | Error error -> Alcotest.failf "process-crash recovery: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "sent without write was incorrectly retried");
   let expected_terminal=match phase with
     | "prepared" -> J.Rejected
@@ -2912,11 +2953,11 @@ let test_epoch_reset_preserves_published_snapshot () =
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let initial=scripted_scan ~sw ~has_message:true () in
-  let published=match Imap_sync.Engine.scan_once ~client:initial ~store
-      ~scope ~mailbox:"INBOX" ~stage_id:"old-epoch" () with
+  let published=match Imap_sync.Engine.scan_once
+      ~ctx:(context ~store ~spool_dir initial) ~stage_id:"old-epoch" () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "initial scan: %a"
-        Imap_sync.Engine.pp_error error in
+        Imap_sync.Error.pp error in
   let pair : J.pair = {
     id="old-epoch-pair";scope;remote_uidvalidity=Some (epoch 11L);
     remote_uid=Some (uid 1L);local_id=Some "old-local-id";
@@ -2927,12 +2968,13 @@ let test_epoch_reset_preserves_published_snapshot () =
    | `Committed _ -> ()
    | `Stale_revision -> Alcotest.fail "new pair was stale");
   let reset=scripted_scan ~sw ~uidvalidity:12L ~has_message:false () in
-  (match Imap_sync.Bridge.copy_once ~client:reset ~store ~maildir ~scope
-      ~mailbox:"INBOX" ~stage_id:"new-epoch"
-      ~next_id:(fun () -> "unexpected-transfer") ~spool_dir () with
-   | Error Imap_sync.Bridge.Uidvalidity_changed -> ()
+  let next_id ()="unexpected-transfer" in
+  (match Imap_sync.Bridge.copy_once
+      ~ctx:(context ~store ~spool_dir ~next_id reset) ~maildir
+      ~stage_id:"new-epoch" () with
+   | Error Imap_sync.Error.Uidvalidity_changed -> ()
    | Error error -> Alcotest.failf "wrong reset error: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "reset was accepted");
   let current=Imap_store.load_cursor store ~scope in
   Alcotest.(check int64) "old generation remains published"
@@ -2947,11 +2989,13 @@ let test_epoch_reset_preserves_pending_journal_view () =
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let initial=scripted_scan ~sw ~has_message:true () in
-  let published=match Imap_sync.Engine.scan_once ~client:initial ~store
-      ~scope ~mailbox:"INBOX" ~stage_id:"pending-old-epoch" () with
+  let published=match Imap_sync.Engine.scan_once
+      ~ctx:(context ~store ~spool_dir initial)
+      ~stage_id:"pending-old-epoch" () with
+
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "initial scan: %a"
-        Imap_sync.Engine.pp_error error in
+        Imap_sync.Error.pp error in
   let blob=Imap_store.Blob.put store
     ~source:(Eio.Flow.string_source message) ~length () in
   let op=operation ~kind:J.Append ~id:"epoch-pending-append"
@@ -2959,12 +3003,14 @@ let test_epoch_reset_preserves_pending_journal_view () =
   J.prepare_operation store op;
   J.mark_sent store ~id:op.id;
   let reset=scripted_scan ~sw ~uidvalidity:12L ~has_message:false () in
-  (match Imap_sync.Bridge.copy_once ~client:reset ~store ~maildir ~scope
-      ~mailbox:"INBOX" ~stage_id:"pending-new-epoch"
-      ~next_id:(fun () -> "unexpected-transfer") ~spool_dir () with
-   | Error Imap_sync.Bridge.Uidvalidity_changed -> ()
+  let next_id ()="unexpected-transfer" in
+  (match Imap_sync.Bridge.copy_once
+      ~ctx:(context ~store ~spool_dir ~next_id reset) ~maildir
+      ~stage_id:"pending-new-epoch" () with
+
+   | Error Imap_sync.Error.Uidvalidity_changed -> ()
    | Error error -> Alcotest.failf "wrong reset error: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "reset was accepted");
   let current=Imap_store.load_cursor store ~scope in
   Alcotest.(check int64) "old generation remains published"

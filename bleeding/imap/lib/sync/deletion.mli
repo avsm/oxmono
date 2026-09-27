@@ -10,21 +10,6 @@
     Journal writes and spool files are handled outside the mailbox
     selection. A pair in another scope is [Stale_pair] throughout. *)
 
-type error =
-  | Client of Imap_eio.Error.t
-  | Missing_pair
-  | Stale_pair
-  | Stale_inventory
-  | Identity_changed
-  | Unsupported of string
-  | Pending_operation of string
-  | Diverged of string
-  | Maildir of Maildir.error
-      (** [Maildir e] is a Maildir format or policy failure. An operation
-          already sent stays pending. *)
-
-val pp_error : Format.formatter -> error -> unit
-
 type outcome =
   | Unchanged
   | Held of Imap.Sync_policy.deletion_hold
@@ -40,32 +25,31 @@ val expunge_preflight :
     before a targeted UID EXPUNGE. *)
 
 val reconcile_pair :
-  ?min_absence_scans:int ->
-  client:Imap_eio.Client.t -> store:Imap_store.t ->
-  writer:Maildir.writer -> mailbox:string ->
-  cursor:Imap.Mirror.cursor ->
-  local_inventory:Local_inventory.t ->
+  ?min_absence_scans:int -> ctx:Ctx.t -> writer:Maildir.writer ->
+  cursor:Imap.Mirror.cursor -> local_inventory:Local_inventory.t ->
   pair:Imap_store.Journal.pair -> policy:Imap.Sync_policy.deletion_policy ->
-  next_id:(unit -> string) -> spool_dir:_ Eio.Path.t -> unit ->
-  (outcome, error) result
-(** [Preserve] only reports a hold. [Propagate] removes an unchanged local
-    survivor when the remote UID is absent, or an unchanged remote survivor
-    when the local occurrence is absent. [Propagate_remote] and
-    [Propagate_local] enable only the corresponding direction. A local
-    [Retention] tombstone always holds remote deletion. Either direction is
-    held until [min_absence_scans] (default 0) later complete scan
-    generations have passed since the missing side's first durable absence
-    tombstone. Legacy tombstones without a generation stay held if this
-    setting is positive, and a negative value raises [Invalid_argument]. A saved content or identity conflict holds either
-    direction, and a legacy pair without a content digest and length is held
-    as [Missing_content_evidence].
+  unit -> (outcome, Error.t) result
+(** [reconcile_pair ~ctx ~writer ~cursor ~local_inventory ~pair ~policy ()]
+    plans and applies the deletion of the surviving side of [pair] when one
+    side is absent from the complete inventories. [Preserve] only reports a
+    hold. [Propagate] removes an unchanged local survivor when the remote UID
+    is absent, or an unchanged remote survivor when the local occurrence is
+    absent. [Propagate_remote] and [Propagate_local] enable only the
+    corresponding direction. A local [Retention] tombstone always holds remote
+    deletion. Either direction is held until [min_absence_scans] (default 0)
+    later complete scan generations have passed since the missing side's first
+    durable absence tombstone. Legacy tombstones without a generation stay held
+    if this setting is positive, and a negative value raises
+    [Invalid_argument]. A saved content or identity conflict holds either
+    direction, and a legacy pair without a content digest and length is held as
+    [Missing_content_evidence].
 
     The local delete is journaled before [Maildir.remove]. A survivor
     whose bytes, flags or file changed is held as [Survivor_changed]. A
-    remote delete requires UIDPLUS, CONDSTORE, a [spool_dir] directory,
+    remote delete requires UIDPLUS, CONDSTORE, a [ctx.spool_dir] directory,
     [\\Deleted] in PERMANENTFLAGS and a nonzero MODSEQ on the target, and
     otherwise returns [Unsupported]. It verifies the remote body through
-    [spool_dir] with bounded memory, uses conditional UID STORE to add
+    [ctx.spool_dir] with bounded memory, uses conditional UID STORE to add
     [\\Deleted], then UID EXPUNGE for exactly the paired UID. Before
     expunging it fetches the target again and requires {!expunge_preflight}.
     It verifies UID absence before atomically committing the tombstone and
@@ -73,27 +57,29 @@ val reconcile_pair :
     STORE, rejects the operation and is held as [Survivor_changed]. A
     concurrent expunge of the target is [Stale_inventory]. A STORE refused
     before dispatch rejects the operation. An uncertain result stays pending
-    with its cause recorded. *)
+    with its cause recorded and returns [Pending_operations]. A pending
+    operation for the pair returns [Pending_operations]. *)
 
 val recover_operation :
   store:Imap_store.t -> writer:Maildir.writer ->
   cursor:Imap.Mirror.cursor ->
   local_inventory:Local_inventory.t ->
   operation:Imap_store.Journal.operation -> unit ->
-  (outcome, error) result
+  (outcome, Error.t) result
 (** [recover_operation ~store ~writer ~cursor ~local_inventory ~operation ()]
-    reconciles a pending deletion using complete newly published
-    inventories. A [Prepared] operation is rejected because no send began. A
-    [Sent], [Ambiguous] or [Observed] deletion is committed only when both
-    sides are absent and the pair carries the absence tombstone for the side
-    the operation did not delete. Otherwise it remains pending and is never
-    replayed. This must run before new copies or flag changes. *)
+    reconciles a pending deletion using complete newly published inventories. A
+    [Prepared] operation is rejected because no send began. A [Sent],
+    [Ambiguous] or [Observed] deletion is committed only when both sides are
+    absent and the pair carries the absence tombstone for the side the
+    operation did not delete. Otherwise it remains pending, returns
+    [Pending_operations] and is never replayed. This must run before new copies
+    or flag changes. *)
 
 val repair_local_delete :
-  client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
-  id:string -> evidence:string -> unit -> (outcome, error) result
-(** Explicit operator repair of a [Sent] or [Ambiguous] local unlink whose
+  ctx:Ctx.t -> maildir:Maildir.t -> id:string -> evidence:string -> unit ->
+  (outcome, Error.t) result
+(** [repair_local_delete ~ctx ~maildir ~id ~evidence ()] is the explicit
+    operator repair of a [Sent] or [Ambiguous] local unlink whose
     exact Maildir occurrence is still present. Acquires the writer lease and
     verifies the saved pair revision and identity, an existing complete
     remote absence tombstone, the current complete inventory, live read-only
@@ -104,11 +90,10 @@ val repair_local_delete :
     propagates when the lease is held. *)
 
 val reject_unchanged_remote_delete :
-  client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
-  id:string -> evidence:string -> spool_dir:_ Eio.Path.t -> unit ->
-  (unit, error) result
-(** Explicitly reject a sent/ambiguous remote DELETE whose original UID
+  ctx:Ctx.t -> maildir:Maildir.t -> id:string -> evidence:string -> unit ->
+  (unit, Error.t) result
+(** [reject_unchanged_remote_delete ~ctx ~maildir ~id ~evidence ()]
+    explicitly rejects a sent/ambiguous remote DELETE whose original UID
     remains present with the paired bytes, flags and stable MODSEQ. Requires
     current complete published UID membership, local absence, saved pair
     revision and exact journal identity, and a matching OBJECTID+ mailbox
@@ -118,11 +103,10 @@ val reject_unchanged_remote_delete :
     lease is held. *)
 
 val finish_marked_remote_delete :
-  client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
-  id:string -> evidence:string -> spool_dir:_ Eio.Path.t -> unit ->
-  (outcome, error) result
-(** Explicit operator completion of a sent/ambiguous remote DELETE when
+  ctx:Ctx.t -> maildir:Maildir.t -> id:string -> evidence:string -> unit ->
+  (outcome, Error.t) result
+(** [finish_marked_remote_delete ~ctx ~maildir ~id ~evidence ()] is the
+    explicit operator completion of a sent/ambiguous remote DELETE when
     the exact saved UID remains present with paired bytes, original flags
     plus [\\Deleted], and stable MODSEQ. Verifies the current complete
     published inventory, local absence and OBJECTID+ mailbox binding under

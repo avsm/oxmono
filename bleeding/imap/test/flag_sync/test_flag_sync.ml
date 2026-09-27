@@ -1,4 +1,5 @@
 module S = Imap_sync.Flags
+module E = Imap_sync.Error
 module F = Mail_flag.Imap_flag
 
 let seen=F.system F.Seen
@@ -10,7 +11,7 @@ let keyword=match F.of_wire "customKey" with
 let apply = function
   | Ok {S.plan=S.Apply flags;_} -> flags
   | Ok {plan=S.No_change;_} -> Alcotest.fail "expected flag changes"
-  | Error e -> Alcotest.fail (Format.asprintf "%a" S.pp_error e)
+  | Error e -> Alcotest.fail (Imap_sync.Error.to_string e)
 
 let test_remote_add_to_local () =
   let flags=S.plan_flags ~base:[] ~remote:[seen;keyword] ~local:[]
@@ -21,15 +22,15 @@ let test_remote_add_to_local () =
 let test_local_add_requires_modseq () =
   (match S.plan_flags ~base:[] ~remote:[] ~local:[flagged]
     ~condstore:false ~remote_modseq:None () with
-   | Error S.Conditional_store_unavailable -> ()
+   | Error E.Conditional_store_unavailable -> ()
    | _ -> Alcotest.fail "must hold an unguarded remote write");
   (match S.plan_flags ~base:[] ~remote:[] ~local:[flagged]
     ~condstore:true ~remote_modseq:None () with
-   | Error S.Conditional_store_unavailable -> ()
+   | Error E.Conditional_store_unavailable -> ()
    | _ -> Alcotest.fail "must hold when FETCH omitted MODSEQ");
   (match S.plan_flags ~base:[] ~remote:[] ~local:[flagged]
     ~condstore:true ~remote_modseq:(Some 0L) () with
-   | Error S.Conditional_store_unavailable -> ()
+   | Error E.Conditional_store_unavailable -> ()
    | _ -> Alcotest.fail "must hold invalid zero MODSEQ");
   let flags=S.plan_flags ~base:[] ~remote:[] ~local:[flagged]
     ~condstore:true ~remote_modseq:(Some 4L) () |> apply in
@@ -85,11 +86,11 @@ let test_permanent_flags () =
    | Ok () -> () | _ -> Alcotest.fail "wildcard should permit new keyword");
   (match S.validate_permanent_flags ~available:(Some ["\\Seen";"\\*"])
     ~defined:None ~remote:[seen;keyword] ~merged:[seen] with
-   | Error (S.Permanent_flag_unavailable flag) when F.equal flag keyword -> ()
+   | Error (E.Permanent_flag_unavailable flag) when F.equal flag keyword -> ()
    | _ -> Alcotest.fail "wildcard does not authorize keyword removal");
   (match S.validate_permanent_flags ~available:(Some ["\\Seen"])
     ~defined:None ~remote:[seen] ~merged:[seen;flagged] with
-   | Error (S.Permanent_flag_unavailable flag) when F.equal flag flagged -> ()
+   | Error (E.Permanent_flag_unavailable flag) when F.equal flag flagged -> ()
    | _ -> Alcotest.fail "unlisted system flag must be held");
   (match S.validate_permanent_flags ~available:None ~defined:None
     ~remote:[] ~merged:[seen;keyword] with
@@ -98,7 +99,7 @@ let test_permanent_flags () =
   (match S.validate_permanent_flags ~available:(Some ["\\Seen";"\\*"])
     ~defined:(Some ["\\Seen";"customKey"]) ~remote:[seen]
     ~merged:[seen;keyword] with
-   | Error (S.Permanent_flag_unavailable flag) when F.equal flag keyword -> ()
+   | Error (E.Permanent_flag_unavailable flag) when F.equal flag keyword -> ()
    | _ -> Alcotest.fail "wildcard licenses only keywords absent from FLAGS")
 
 let test_case_only_is_unchanged () =

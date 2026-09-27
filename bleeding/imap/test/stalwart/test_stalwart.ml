@@ -21,6 +21,17 @@ let unwrap = function
   | Ok x -> x
   | Error e -> Alcotest.fail (Client.error_to_string e)
 
+(* [sync_ctx ~client ~store ~scope ~mailbox ~spool_dir ?next_id ()] is the
+   context of one sync call, and a refused context fails the test. The
+   default [next_id] fails the test, since a call that took no ID source
+   before contexts existed must not journal. *)
+let sync_ctx ~client ~store ~scope ~mailbox ~spool_dir
+    ?(next_id=fun () -> Alcotest.fail "sync call requested an ID") () =
+  match Imap_sync.Ctx.v ~client ~store ~scope ~mailbox ~spool_dir ~next_id
+  with
+  | Ok ctx -> ctx
+  | Error e -> Alcotest.failf "sync context refused: %a" Imap_sync.Error.pp e
+
 let env name = match Sys.getenv_opt name with
   | Some s when s <> "" -> s
   | _ -> Alcotest.fail (name ^ " is unset")
@@ -242,11 +253,12 @@ let test_bridge () =
   let maildir = Md.open_dir Eio.Path.(fs / maildir_path) in
   let counter = ref 0 in
   let next_id () = incr counter; Printf.sprintf "stalwart-%s-%d" n !counter in
-  let copy stage_id = match Imap_sync.Bridge.copy_once ~client ~store ~maildir
-    ~scope ~mailbox ~stage_id ~next_id ~spool_dir:Eio.Path.(fs / spooldir)
-    () with
+  let copy stage_id = match Imap_sync.Bridge.copy_once
+    ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir) ~next_id ())
+    ~maildir ~stage_id () with
     | Ok receipt -> receipt
-    | Error e -> Alcotest.fail (Format.asprintf "%a" Imap_sync.Bridge.pp_error e) in
+    | Error e -> Alcotest.fail (Format.asprintf "%a" Imap_sync.Error.pp e) in
   let imported = copy ("stalwart-import-" ^ n) in
   Alcotest.(check int) "remote imported" 1 imported.remote_to_local;
   let imported_local = match Md.scan maildir with
@@ -313,12 +325,15 @@ let test_objectid_binding () =
     raw_name; encoding = mode; mailbox_id = None } in
   Eio.Switch.run @@ fun store_sw ->
   let store = Imap_store.open_path ~sw:store_sw Eio.Path.(fs / dbfile) in
-  let scan stage_id = Imap_sync.Engine.scan_once ~client ~store ~scope
-    ~mailbox ~stage_id () in
+  (* A scan uses neither the spool directory nor an ID. *)
+  let scan stage_id = Imap_sync.Engine.scan_once
+    ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / Filename.get_temp_dir_name ()) ())
+    ~stage_id () in
   let first = match scan ("identity-first-" ^ n) with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "initial identity scan: %a"
-        Imap_sync.Engine.pp_error error in
+        Imap_sync.Error.pp error in
   Alcotest.(check bool) "OBJECTID+ bound in SQLite" true
     (match Imap_store.object_identity store ~scope with
      | `Bound _ -> true | `Unbound | `Conflict -> false);
@@ -327,9 +342,9 @@ let test_objectid_binding () =
     ~old_name:mailbox ~new_name:renamed));
   unwrap (Client.create_mailbox mutator ~mailbox);
   (match scan ("identity-replaced-" ^ n) with
-   | Error (Imap_sync.Engine.Invalid_scope _) -> ()
+   | Error (Imap_sync.Error.Invalid_scope _) -> ()
    | Error error -> Alcotest.failf "wrong replacement error: %a"
-       Imap_sync.Engine.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "replacement mailbox was scanned");
   let current = Imap_store.load_cursor store ~scope in
   Alcotest.(check int64) "replacement did not publish"

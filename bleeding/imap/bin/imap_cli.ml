@@ -434,6 +434,17 @@ let with_connected config ~sw ~net ~password f =
         Eio.Cancel.protect (fun () -> Imap_eio.Client.close client)) @@ fun () ->
       f client (scope config (Imap_eio.Client.mailbox_mode client))
 
+(* [with_context] builds the sync context for the connected client. The
+   scope comes from the client's own encoding, so [Ctx.v] fails only on a
+   mailbox name that cannot be encoded, which [scope] already refuses. *)
+let with_context config ~sw ~net ~password ~store ~spool_dir ~next_id f =
+  with_connected config ~sw ~net ~password @@ fun client scope ->
+  match Imap_sync.Ctx.v ~client ~store ~scope ~mailbox:config.mailbox
+      ~spool_dir ~next_id with
+  | Ok ctx -> f ctx
+  | Error error ->
+      Format.eprintf "IMAP mailbox scope: %a@." Imap_sync.Error.pp error; 6
+
 let local_scope config store =
   let initial=scope config config.encoding in
   if config.encoding_explicit then initial
@@ -552,12 +563,11 @@ let hydrate config ~net ~fs ~random ~getenv =
         Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 spool_dir;
         Eio.Switch.run @@ fun sw ->
         let store=Imap_store.open_path ~sw ~blob_dir db in
-        with_connected config ~sw ~net ~password @@ fun client scope ->
+        with_context config ~sw ~net ~password ~store ~spool_dir
+          ~next_id:(fun () -> id ~random "hydrate-") @@ fun ctx ->
             match Imap_sync.Engine.hydrate_once ~max_messages:config.max_transfers
               ~max_body_bytes:config.max_body_bytes
-              ~max_total_bytes:config.max_total_bytes ~client ~store ~scope
-              ~mailbox:config.mailbox ~spool_dir
-              ~next_spool_id:(fun () -> id ~random "hydrate-") () with
+              ~max_total_bytes:config.max_total_bytes ~ctx () with
             | Ok receipt ->
                 Printf.printf "hydrated=%d bytes=%Ld more=%b revision=%Ld\n%!"
                   receipt.hydrated receipt.bytes receipt.more
@@ -565,8 +575,7 @@ let hydrate config ~net ~fs ~random ~getenv =
                 if receipt.more then 2 else 0
             | Error error ->
                 Printf.eprintf "IMAP hydration failed: %s\n%!"
-                  (redact password (Format.asprintf "%a"
-                    Imap_sync.Engine.pp_error error));
+                  (redact password (Imap_sync.Error.to_string error));
                 6
 
 let audit_cache config ~fs =
@@ -592,10 +601,11 @@ let audit_cache config ~fs =
           receipt.more receipt.cursor.revision;
         if receipt.more then 2 else 0
     | Error error ->
-        Format.eprintf "cache audit failed: %a@." Imap_sync.Engine.pp_error error;
+        Format.eprintf "cache audit failed: %a@." Imap_sync.Error.pp error;
         (match error with
-         | Imap_sync.Engine.Stale_revision | Imap_sync.Engine.Incomplete _ -> 4
-         | Imap_sync.Engine.Limit _ -> 5
+         | Imap_sync.Error.Store_stale_revision
+         | Imap_sync.Error.Incomplete _ -> 4
+         | Imap_sync.Error.Limit _ -> 5
          | _ -> 7)
 
 let sync config ~net ~fs ~random ~getenv =
@@ -614,16 +624,16 @@ let sync config ~net ~fs ~random ~getenv =
     if not recovered then (
       prerr_endline "Maildir writer lease is busy"; 8)
     else
-    with_connected config ~sw ~net ~password @@ fun client scope ->
+    with_context config ~sw ~net ~password ~store ~spool_dir
+      ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
+      let scope=ctx.scope in
       let deletion_policy=deletion_policy config in
       let rec cycles cycle =
         let stage_id=id ~random "stage-" in
-        let next_id ()=id ~random "op-" in
         match Imap_sync.Bridge.copy_once ~max_transfers:config.max_transfers
           ~min_absence_scans:config.min_absence_scans
           ~allow_bootstrap_duplicates:config.allow_bootstrap_duplicates
-          ~deletion_policy ~client ~store ~maildir ~scope
-          ~mailbox:config.mailbox ~stage_id ~next_id ~spool_dir () with
+          ~deletion_policy ~ctx ~maildir ~stage_id () with
         | Ok receipt ->
           print_sync receipt cycle;
           if receipt.flags_held>0 || receipt.deletions_held>0 then 4
@@ -635,9 +645,7 @@ let sync config ~net ~fs ~random ~getenv =
                 (match Imap_sync.Engine.hydrate_once
                     ~max_messages:config.max_transfers
                     ~max_body_bytes:config.max_body_bytes
-                    ~max_total_bytes:config.max_total_bytes
-                    ~client ~store ~scope ~mailbox:config.mailbox ~spool_dir
-                    ~next_spool_id:(fun () -> id ~random "hydrate-") () with
+                    ~max_total_bytes:config.max_total_bytes ~ctx () with
                  | Ok hydration ->
                      Printf.printf
                        "hydrated=%d bytes=%Ld more=%b revision=%Ld\n%!"
@@ -646,44 +654,42 @@ let sync config ~net ~fs ~random ~getenv =
                      if hydration.more then 2 else 0
                  | Error error ->
                      Printf.eprintf "IMAP hydration failed: %s\n%!"
-                       (redact password (Format.asprintf "%a"
-                         Imap_sync.Engine.pp_error error));
+                       (redact password (Imap_sync.Error.to_string error));
                      6)
             | _ -> prerr_endline "unresolved sync conflict; run inspect"; 4)
           else if cycle>=config.max_cycles then 2
           else cycles (cycle+1)
-        | Error (Imap_sync.Bridge.Pending_operations ids) ->
+        | Error (Imap_sync.Error.Pending_operations ids) ->
           Printf.eprintf "pending journal operations=%d; run inspect\n%!"
             (List.length ids); 3
-        | Error (Imap_sync.Bridge.Source_vanished uid) ->
+        | Error (Imap_sync.Error.Source_vanished uid) ->
           Printf.eprintf "remote UID %Ld vanished before archival; rescanning\n%!"
             (Imap.Uid.to_int64 uid);
           if cycle>=config.max_cycles then 2 else cycles (cycle+1)
-        | Error (Imap_sync.Bridge.Local_source_changed id) ->
+        | Error (Imap_sync.Error.Local_source_changed id) ->
           Printf.eprintf "local occurrence %s changed before archival; rescanning\n%!" id;
           if cycle>=config.max_cycles then 2 else cycles (cycle+1)
-        | Error Imap_sync.Bridge.Writer_busy ->
+        | Error Imap_sync.Error.Writer_busy ->
           prerr_endline "Maildir writer lease is busy"; 8
-        | Error (Imap_sync.Bridge.Flag_sync
-            (Imap_sync.Flags.Content_mismatch pair_id)) ->
+        | Error (Imap_sync.Error.Content_mismatch pair_id) ->
           Printf.eprintf "paired local content changed for %s; run inspect\n%!"
             pair_id; 4
-        | Error (Imap_sync.Bridge.Maildir error) -> local_failure error
-        | Error (Imap_sync.Bridge.Client _ | Imap_sync.Bridge.Sync _
-            | Imap_sync.Bridge.Flag_sync _ | Imap_sync.Bridge.Delete_sync _) ->
-          prerr_endline "IMAP sync operation failed; run inspect for journal state";
-          6
-        | Error (Imap_sync.Bridge.Bootstrap_requires_pairing) ->
+        | Error (Imap_sync.Error.Maildir error) -> local_failure error
+        | Error (Imap_sync.Error.Bootstrap_requires_pairing) ->
           prerr_endline "both endpoints contain unpaired messages; inspect before enabling --allow-bootstrap-duplicates"; 4
-        | Error (Imap_sync.Bridge.Uidvalidity_changed |
-            Imap_sync.Bridge.Content_diverged _ | Imap_sync.Bridge.Flags_diverged _ |
-            Imap_sync.Bridge.Date_diverged _ |
-            Imap_sync.Bridge.Stale_revision) ->
+        | Error (Imap_sync.Error.Uidvalidity_changed |
+            Imap_sync.Error.Content_diverged _ |
+            Imap_sync.Error.Flags_diverged _ |
+            Imap_sync.Error.Date_diverged _ |
+            Imap_sync.Error.Store_stale_revision) ->
           prerr_endline "sync identity or content conflict; run inspect"; 4
-        | Error (Imap_sync.Bridge.Invalid_configuration message) ->
+        | Error (Imap_sync.Error.Invalid_configuration message) ->
           Printf.eprintf "configuration: %s\n%!" message; 5
-        | Error (Imap_sync.Bridge.Invalid_operation _) ->
-          prerr_endline "invalid journal operation; run inspect"; 3 in
+        | Error (Imap_sync.Error.Invalid_operation _) ->
+          prerr_endline "invalid journal operation; run inspect"; 3
+        | Error _ ->
+          prerr_endline "IMAP sync operation failed; run inspect for journal state";
+          6 in
       cycles 1
 
 let inspect config ~fs =
@@ -768,11 +774,11 @@ let repair_appenduid config ~fs =
   | Ok () ->
     prerr_endline "APPENDUID attestation recorded; run sync to verify body and flags";
     0
-  | Error Imap_sync.Bridge.Writer_busy ->
+  | Error Imap_sync.Error.Writer_busy ->
     prerr_endline "Maildir writer lease is busy"; 8
-  | Error (Imap_sync.Bridge.Invalid_operation _) ->
+  | Error (Imap_sync.Error.Invalid_operation _) ->
     prerr_endline "operation cannot accept APPENDUID evidence"; 3
-  | Error (Imap_sync.Bridge.Maildir error) -> local_failure error
+  | Error (Imap_sync.Error.Maildir error) -> local_failure error
   | Error _ -> prerr_endline "APPENDUID evidence was not recorded"; 4
 
 let spool_path config ~fs =
@@ -796,14 +802,14 @@ let mark_local_retention config ~fs =
       ~spool_dir:(spool_path config ~fs) () with
     | Ok () ->
         Printf.printf "retention recorded for pair %S\n%!" config.pair_id; 0
-    | Error Imap_sync.Bridge.Writer_busy ->
+    | Error Imap_sync.Error.Writer_busy ->
         prerr_endline "Maildir writer lease is busy"; 8
-    | Error (Imap_sync.Bridge.Invalid_operation message) ->
+    | Error (Imap_sync.Error.Invalid_operation message) ->
         Printf.eprintf "retention rejected: %s\n%!" message; 4
-    | Error (Imap_sync.Bridge.Maildir error) ->
+    | Error (Imap_sync.Error.Maildir error) ->
         local_failure error
     | Error error ->
-        Format.eprintf "retention failed: %a@." Imap_sync.Bridge.pp_error error; 4
+        Format.eprintf "retention failed: %a@." Imap_sync.Error.pp error; 4
 
 let verify_local config ~fs ~random =
   let db_path=Eio.Path.(fs / config.db) in
@@ -825,13 +831,13 @@ let verify_local config ~fs ~random =
     match Imap_sync.Bridge.verify_local_content ~store ~maildir ~scope
       ~next_id:(fun () -> id ~random "content-")
       ~spool_dir:(spool_path config ~fs) ~on_issue () with
-    | Error Imap_sync.Bridge.Writer_busy ->
+    | Error Imap_sync.Error.Writer_busy ->
         prerr_endline "Maildir writer lease is busy"; 8
-    | Error (Imap_sync.Bridge.Maildir error) ->
+    | Error (Imap_sync.Error.Maildir error) ->
         local_failure error
     | Error error ->
         Format.eprintf "local verification failed: %a@."
-          Imap_sync.Bridge.pp_error error; 4
+          Imap_sync.Error.pp error; 4
     | Ok report ->
         List.iter (fun (pair_id,reason) ->
           Printf.printf "pair=%S issue=%S\n" pair_id reason)
@@ -871,13 +877,13 @@ let plan_deletions config ~fs =
       ~min_absence_scans:config.min_absence_scans ~store ~maildir ~scope
       ~policy:(deletion_policy config) ~spool_dir:(spool_path config ~fs)
       ~on_preview () with
-    | Error Imap_sync.Bridge.Writer_busy ->
+    | Error Imap_sync.Error.Writer_busy ->
         prerr_endline "Maildir writer lease is busy"; 8
-    | Error (Imap_sync.Bridge.Maildir error) ->
+    | Error (Imap_sync.Error.Maildir error) ->
         local_failure error
     | Error error ->
         Format.eprintf "deletion plan failed: %a@."
-          Imap_sync.Bridge.pp_error error; 4
+          Imap_sync.Error.pp error; 4
     | Ok cursor ->
         let presence = function None -> "unknown" | Some true -> "present"
           | Some false -> "absent" in
@@ -950,13 +956,13 @@ let plan_sync config ~fs =
       ~min_absence_scans:config.min_absence_scans
       ~store ~maildir ~scope ~policy:(deletion_policy config)
       ~spool_dir:(spool_path config ~fs) ~on_preview () with
-    | Error Imap_sync.Bridge.Writer_busy ->
+    | Error Imap_sync.Error.Writer_busy ->
         prerr_endline "Maildir writer lease is busy"; 8
-    | Error (Imap_sync.Bridge.Maildir error) ->
+    | Error (Imap_sync.Error.Maildir error) ->
         local_failure error
     | Error error ->
         Format.eprintf "sync plan failed: %a@."
-          Imap_sync.Bridge.pp_error error; 4
+          Imap_sync.Error.pp error; 4
     | Ok cursor ->
         let wires xs=String.concat ","
           (List.map Mail_flag.Imap_flag.to_wire xs) in
@@ -1000,7 +1006,7 @@ let plan_sync config ~fs =
           !pending !shown_count (!count>config.max_inspect);
         0
 
-let repair_local_delete config ~net ~fs ~getenv =
+let repair_local_delete config ~net ~fs ~random ~getenv =
   with_password config ~getenv @@ fun password ->
       let db_path=Eio.Path.(fs / config.db) in
       let maildir_path=Eio.Path.(fs / config.maildir) in
@@ -1011,26 +1017,27 @@ let repair_local_delete config ~net ~fs ~getenv =
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw db_path in
       with_maildir maildir_path @@ fun maildir ->
-      with_connected config ~sw ~net ~password @@ fun client scope ->
+      with_context config ~sw ~net ~password ~store
+        ~spool_dir:Eio.Path.(fs / config.spool_dir)
+        ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
           (try
-            match Imap_sync.Deletion.repair_local_delete ~client ~store
-                ~maildir ~scope ~mailbox:config.mailbox
+            match Imap_sync.Deletion.repair_local_delete ~ctx ~maildir
                 ~id:config.operation_id ~evidence:config.evidence () with
             | Ok (Imap_sync.Deletion.Deleted _) ->
                 prerr_endline "local deletion repaired and committed"; 0
             | Ok _ ->
                 prerr_endline "local deletion was not repaired"; 4
-            | Error (Imap_sync.Deletion.Client _) ->
+            | Error (Imap_sync.Error.Client _) ->
                 prerr_endline "IMAP verification failed; deletion unchanged"; 6
-            | Error (Imap_sync.Deletion.Maildir error) ->
+            | Error (Imap_sync.Error.Maildir error) ->
                 local_failure error
             | Error error ->
                 Format.eprintf "local deletion unchanged: %a@."
-                  Imap_sync.Deletion.pp_error error; 4
+                  Imap_sync.Error.pp error; 4
            with Maildir.Writer_lock_busy _ ->
              prerr_endline "Maildir writer lease is busy"; 8)
 
-let remote_delete_repair config ~finish ~net ~fs ~getenv =
+let remote_delete_repair config ~finish ~net ~fs ~random ~getenv =
   with_password config ~getenv @@ fun password ->
       let db_path=Eio.Path.(fs / config.db) in
       let maildir_path=Eio.Path.(fs / config.maildir) in
@@ -1043,42 +1050,41 @@ let remote_delete_repair config ~finish ~net ~fs ~getenv =
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw db_path in
       with_maildir maildir_path @@ fun maildir ->
-      with_connected config ~sw ~net ~password @@ fun client scope ->
+      with_context config ~sw ~net ~password ~store ~spool_dir
+        ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
           (try
             let result=if finish then
               (match Imap_sync.Deletion.finish_marked_remote_delete
-                ~client ~store ~maildir ~scope ~mailbox:config.mailbox
-                ~id:config.operation_id ~evidence:config.evidence
-                ~spool_dir () with
+                ~ctx ~maildir ~id:config.operation_id
+                ~evidence:config.evidence () with
                | Ok (Imap_sync.Deletion.Deleted _) -> Ok ()
-               | Ok _ -> Error (Imap_sync.Deletion.Diverged
+               | Ok _ -> Error (Imap_sync.Error.Diverged
                    "targeted UID EXPUNGE did not commit")
                | Error error -> Error error)
               else Imap_sync.Deletion.reject_unchanged_remote_delete
-                ~client ~store ~maildir ~scope ~mailbox:config.mailbox
-                ~id:config.operation_id ~evidence:config.evidence
-                ~spool_dir () in
+                ~ctx ~maildir ~id:config.operation_id
+                ~evidence:config.evidence () in
             match result with
             | Ok () ->
                 prerr_endline (if finish then
                   "targeted remote deletion committed" else
                   "unchanged remote target verified; pending deletion rejected");
                 0
-            | Error (Imap_sync.Deletion.Pending_operation _) ->
+            | Error (Imap_sync.Error.Pending_operations _) ->
                 prerr_endline "targeted deletion remains pending; run inspect";
                 3
-            | Error (Imap_sync.Deletion.Client _) ->
+            | Error (Imap_sync.Error.Client _) ->
                 prerr_endline "IMAP verification failed; deletion remains pending";
                 6
-            | Error (Imap_sync.Deletion.Maildir error) ->
+            | Error (Imap_sync.Error.Maildir error) ->
                 local_failure error
             | Error error ->
                 Format.eprintf "remote deletion remains pending: %a@."
-                  Imap_sync.Deletion.pp_error error; 4
+                  Imap_sync.Error.pp error; 4
            with Maildir.Writer_lock_busy _ ->
              prerr_endline "Maildir writer lease is busy"; 8)
 
-let repair_local_append config ~net ~fs ~getenv =
+let repair_local_append config ~net ~fs ~random ~getenv =
   with_password config ~getenv @@ fun password ->
       let db_path=Eio.Path.(fs / config.db) in
       let maildir_path=Eio.Path.(fs / config.maildir) in
@@ -1093,26 +1099,25 @@ let repair_local_append config ~net ~fs ~getenv =
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw ~blob_dir db_path in
       with_maildir maildir_path @@ fun maildir ->
-      with_connected config ~sw ~net ~password @@ fun client scope ->
-          match Imap_sync.Bridge.repair_local_append ~client ~store ~maildir
-              ~scope ~mailbox:config.mailbox ~id:config.operation_id
-              ~evidence:config.evidence ~spool_dir () with
+      with_context config ~sw ~net ~password ~store ~spool_dir
+        ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
+          match Imap_sync.Bridge.repair_local_append ~ctx ~maildir
+              ~id:config.operation_id ~evidence:config.evidence () with
           | Ok () ->
               prerr_endline "local append repaired and committed"; 0
-          | Error Imap_sync.Bridge.Writer_busy ->
+          | Error Imap_sync.Error.Writer_busy ->
               prerr_endline "Maildir writer lease is busy"; 8
-          | Error (Imap_sync.Bridge.Client _) | Error (Imap_sync.Bridge.Sync
-              (Imap_sync.Engine.Client _)) ->
+          | Error (Imap_sync.Error.Client _) ->
               prerr_endline "IMAP verification failed; local append unchanged"; 6
-          | Error (Imap_sync.Bridge.Invalid_operation _) ->
+          | Error (Imap_sync.Error.Invalid_operation _) ->
               prerr_endline "pending local append not found in this scope"; 9
-          | Error (Imap_sync.Bridge.Maildir error) ->
+          | Error (Imap_sync.Error.Maildir error) ->
               local_failure error
           | Error error ->
               Format.eprintf "local append unchanged: %a@."
-                Imap_sync.Bridge.pp_error error; 4
+                Imap_sync.Error.pp error; 4
 
-let settle_flags config ~net ~fs ~getenv =
+let settle_flags config ~net ~fs ~random ~getenv =
   with_password config ~getenv @@ fun password ->
       let db_path=Eio.Path.(fs / config.db) in
       let maildir_path=Eio.Path.(fs / config.maildir) in
@@ -1123,30 +1128,31 @@ let settle_flags config ~net ~fs ~getenv =
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw db_path in
       with_maildir maildir_path @@ fun maildir ->
-      with_connected config ~sw ~net ~password @@ fun client scope ->
-          (try match Imap_sync.Flags.settle_operation ~client ~store ~maildir
-              ~scope ~mailbox:config.mailbox ~id:config.operation_id
-              ~evidence:config.evidence () with
+      with_context config ~sw ~net ~password ~store
+        ~spool_dir:Eio.Path.(fs / config.spool_dir)
+        ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
+          (try match Imap_sync.Flags.settle_operation ~ctx ~maildir
+              ~id:config.operation_id ~evidence:config.evidence () with
            | Ok (Imap_sync.Flags.Updated _) ->
                prerr_endline "matching endpoint flags adopted; old intent rejected";
                0
            | Ok Imap_sync.Flags.Unchanged ->
                prerr_endline "FLAGS settlement made no change"; 4
-           | Error (Imap_sync.Flags.Client _) ->
+           | Error (Imap_sync.Error.Client _) ->
                prerr_endline "IMAP verification failed; FLAGS intent unchanged";
                6
-           | Error Imap_sync.Flags.No_pending_operation ->
+           | Error Imap_sync.Error.No_pending_operation ->
                prerr_endline "pending FLAGS operation not found in this scope";
                9
-           | Error (Imap_sync.Flags.Maildir error) ->
+           | Error (Imap_sync.Error.Maildir error) ->
                local_failure error
            | Error error ->
                Format.eprintf "FLAGS intent unchanged: %a@."
-                 Imap_sync.Flags.pp_error error; 4
+                 Imap_sync.Error.pp error; 4
            with Maildir.Writer_lock_busy _ ->
              prerr_endline "Maildir writer lease is busy"; 8)
 
-let inspect_append_candidates config ~net ~fs ~getenv =
+let inspect_append_candidates config ~net ~fs ~random ~getenv =
   with_password config ~getenv @@ fun password ->
       let db_path=Eio.Path.(fs / config.db) in
       let spool_dir=Eio.Path.(fs / config.spool_dir) in
@@ -1156,10 +1162,10 @@ let inspect_append_candidates config ~net ~fs ~getenv =
         5)
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_readonly ~sw db_path in
-      with_connected config ~sw ~net ~password @@ fun client scope ->
-          match Imap_sync.Bridge.inspect_append_candidates ~client ~store ~scope
-              ~mailbox:config.mailbox ~id:config.operation_id ~spool_dir
-              ~max_uids:config.max_inspect
+      with_context config ~sw ~net ~password ~store ~spool_dir
+        ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
+          match Imap_sync.Bridge.inspect_append_candidates ~ctx
+              ~id:config.operation_id ~max_uids:config.max_inspect
               ~max_body_bytes:config.max_candidate_bytes () with
           | Ok report ->
               Printf.printf "inspected %d UIDs in UIDVALIDITY %Ld\n%!"
@@ -1170,15 +1176,15 @@ let inspect_append_candidates config ~net ~fs ~getenv =
               prerr_endline
                 "matching bytes do not attribute APPEND; independent APPENDUID evidence is required";
               0
-          | Error (Imap_sync.Bridge.Invalid_operation _) ->
+          | Error (Imap_sync.Error.Invalid_operation _) ->
               prerr_endline "pending APPEND operation not found in this scope";
               9
-          | Error (Imap_sync.Bridge.Client error) ->
+          | Error (Imap_sync.Error.Client error) ->
               Format.eprintf "IMAP candidate inspection failed: %a@."
                 Imap_eio.Client.pp_error error; 6
           | Error error ->
               Format.eprintf "APPEND candidate inspection failed: %a@."
-                Imap_sync.Bridge.pp_error error; 4
+                Imap_sync.Error.pp error; 4
 
 let run config ~net ~fs ~random ~getenv =
   try match config.command with
@@ -1187,19 +1193,21 @@ let run config ~net ~fs ~random ~getenv =
     | Audit_cache -> audit_cache config ~fs
     | Inspect -> inspect config ~fs
     | Inspect_append_candidates ->
-        inspect_append_candidates config ~net ~fs ~getenv
+        inspect_append_candidates config ~net ~fs ~random ~getenv
     | Repair_appenduid -> repair_appenduid config ~fs
     | Mark_local_retention -> mark_local_retention config ~fs
     | Plan_deletions -> plan_deletions config ~fs
     | Plan_sync -> plan_sync config ~fs
     | Verify_local -> verify_local config ~fs ~random
-    | Repair_local_delete -> repair_local_delete config ~net ~fs ~getenv
+    | Repair_local_delete ->
+        repair_local_delete config ~net ~fs ~random ~getenv
     | Reject_remote_delete -> remote_delete_repair config ~finish:false
-        ~net ~fs ~getenv
+        ~net ~fs ~random ~getenv
     | Finish_remote_delete -> remote_delete_repair config ~finish:true
-        ~net ~fs ~getenv
-    | Repair_local_append -> repair_local_append config ~net ~fs ~getenv
-    | Settle_flags -> settle_flags config ~net ~fs ~getenv
+        ~net ~fs ~random ~getenv
+    | Repair_local_append ->
+        repair_local_append config ~net ~fs ~random ~getenv
+    | Settle_flags -> settle_flags config ~net ~fs ~random ~getenv
   with
   | Eio.Cancel.Cancelled _ as exn -> raise exn
   | Invalid_argument message ->

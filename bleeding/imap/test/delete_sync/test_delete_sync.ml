@@ -90,7 +90,7 @@ let outcome = function
   | Ok (Imap_sync.Deletion.Deleted pair) -> pair
   | Ok _ -> Alcotest.fail "expected completed deletion"
   | Error e -> Alcotest.fail (Format.asprintf "%a"
-      Imap_sync.Deletion.pp_error e)
+      Imap_sync.Error.pp e)
 
 let test_local_sent_recovery_after_new_scan () =
   with_fixture @@ fun store maildir ->
@@ -137,7 +137,7 @@ let test_local_sent_without_unlink_is_held () =
   with_pages maildir (fun writer local_inventory ->
     (match Imap_sync.Deletion.recover_operation ~store ~writer ~cursor
       ~local_inventory ~operation:op () with
-     | Error (Imap_sync.Deletion.Pending_operation id) when id=op.id -> ()
+     | Error (Imap_sync.Error.Pending_operations [id]) when id=op.id -> ()
      | _ -> Alcotest.fail "uncertain local unlink was replayed"));
   Alcotest.(check bool) "local occurrence remains present" true
     (Option.is_some (local_ok (Maildir.find maildir ~id:local.id)));
@@ -161,7 +161,7 @@ let test_remote_ambiguous_needs_complete_absence () =
     Alcotest.(check bool) "still pending while UID present" true
       (match Imap_sync.Deletion.recover_operation ~store ~writer
         ~cursor ~local_inventory ~operation:op () with
-       | Error (Imap_sync.Deletion.Pending_operation _) -> true
+       | Error (Imap_sync.Error.Pending_operations _) -> true
        | _ -> false));
   let cursor=publish store ~stage:"absent" [] in
   with_pages maildir (fun writer local_inventory ->

@@ -18,6 +18,17 @@ module Md = struct
   let remove m o = with_writer m (fun w -> remove w o)
 end
 
+(* [sync_ctx ~client ~store ~scope ~mailbox ~spool_dir ?next_id ()] is the
+   context of one sync call, and a refused context fails the test. The
+   default [next_id] fails the test, since a call that took no ID source
+   before contexts existed must not journal. *)
+let sync_ctx ~client ~store ~scope ~mailbox ~spool_dir
+    ?(next_id=fun () -> Alcotest.fail "sync call requested an ID") () =
+  match Imap_sync.Ctx.v ~client ~store ~scope ~mailbox ~spool_dir ~next_id
+  with
+  | Ok ctx -> ctx
+  | Error e -> Alcotest.failf "sync context refused: %a" Imap_sync.Error.pp e
+
 let u n = match Imap.Uid.of_int64 n with
   | Ok uid -> uid | Error e -> Alcotest.fail e
 let raw_uids = List.map Imap.Uid.to_int64
@@ -886,7 +897,14 @@ let test_durable_watch ~gap () =
       ~port:(int_of_string (env "IMAP_DOVECOT_PORT")) ~tls:`Plain () in
     let auth=Imap_eio.Auth.password ~username:(env "IMAP_DOVECOT_USER")
       ~password:(env "IMAP_DOVECOT_PASSWORD") ~mechanism:`Cram_md5 () in
-    Imap_eio.Client.connect ~sw ~auth transport in
+    match Imap_eio.Client.connect ~sw ~auth transport with
+    | Error e -> Error (Imap_sync.Error.Client e)
+    | Ok client ->
+        (* A scan uses neither the spool directory nor an ID. *)
+        Imap_sync.Ctx.v ~client ~store ~scope ~mailbox
+          ~spool_dir:Eio.Path.(Eio.Stdenv.fs env_io /
+            Filename.get_temp_dir_name ())
+          ~next_id:(fun () -> Alcotest.fail "watch scan requested an ID") in
   let stage_number=ref 0 and publications=ref [] in
   let next_stage_id () =
     incr stage_number;
@@ -907,8 +925,8 @@ let test_durable_watch ~gap () =
         write ()))
     else if List.length !publications=2 then raise Watch_done in
   (try Eio.Time.with_timeout_exn clock 10. (fun () ->
-    ignore (Imap_sync.Watch.run ~clock ~connect:connect_watch ~store ~scope
-      ~mailbox ~next_stage_id ~on_publish () : (unit, Imap_sync.Watch.error) result))
+    ignore (Imap_sync.Watch.run ~clock ~connect:connect_watch ~next_stage_id
+      ~on_publish () : (unit, Imap_sync.Watch.error) result))
    with Watch_done -> ());
   Alcotest.(check (list int64)) "durable watch publications"
     [0L;1L] (List.rev !publications);
@@ -961,12 +979,13 @@ let test_bridge_cram () =
   let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let number=ref 0 in
   let next_id ()=incr number;Printf.sprintf "dovecot-%s-%d" nonce !number in
-  let copy stage_id=match Imap_sync.Bridge.copy_once ~client ~store ~maildir
-    ~scope ~mailbox ~stage_id ~next_id ~spool_dir:Eio.Path.(fs / spooldir)
-    () with
+  let ctx ()=sync_ctx ~client ~store ~scope ~mailbox
+    ~spool_dir:Eio.Path.(fs / spooldir) ~next_id () in
+  let copy stage_id=match Imap_sync.Bridge.copy_once ~ctx:(ctx ()) ~maildir
+    ~stage_id () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.fail (Format.asprintf "%a"
-        Imap_sync.Bridge.pp_error error) in
+        Imap_sync.Error.pp error) in
   let imported=copy ("dovecot-import-" ^ nonce) in
   Alcotest.(check int) "CRAM-MD5 bridge import" 1
     imported.remote_to_local;
@@ -1172,12 +1191,11 @@ let test_bridge_cram () =
     | Some pair -> pair | None -> Alcotest.fail "import pair missing" in
   Md.remove maildir imported_local;
   let deleted_remote=match Imap_sync.Bridge.copy_once
-    ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir
-    ~scope ~mailbox ~stage_id:("dovecot-delete-remote-" ^ nonce)
-    ~next_id ~spool_dir:Eio.Path.(fs / spooldir) () with
+    ~deletion_policy:Imap.Sync_policy.Propagate ~ctx:(ctx ()) ~maildir
+    ~stage_id:("dovecot-delete-remote-" ^ nonce) () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.fail (Format.asprintf "%a"
-        Imap_sync.Bridge.pp_error error) in
+        Imap_sync.Error.pp error) in
   Alcotest.(check int) "Dovecot targeted remote deletion" 1
     deleted_remote.deletions;
   Alcotest.(check bool) "remote delete journal committed" true
@@ -1193,12 +1211,11 @@ let test_bridge_cram () =
         ~operation:`Add ~flags:[deleted] in
       uid_expunge selected ~set));
   let deleted_local=match Imap_sync.Bridge.copy_once
-    ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir
-    ~scope ~mailbox ~stage_id:("dovecot-delete-local-" ^ nonce)
-    ~next_id ~spool_dir:Eio.Path.(fs / spooldir) () with
+    ~deletion_policy:Imap.Sync_policy.Propagate ~ctx:(ctx ()) ~maildir
+    ~stage_id:("dovecot-delete-local-" ^ nonce) () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.fail (Format.asprintf "%a"
-        Imap_sync.Bridge.pp_error error) in
+        Imap_sync.Error.pp error) in
   Alcotest.(check int) "Dovecot local survivor deletion" 1
     deleted_local.deletions;
   Alcotest.(check bool) "local delete journal committed" true
@@ -1240,12 +1257,11 @@ let test_bridge_cram () =
   let first_path=Filename.concat
     (Filename.concat maildir_path "new") first.filename in
   Unix.utimes first_path 1709164801. 1709164801.;
-  let drift stage=match Imap_sync.Bridge.copy_once ~client ~store ~maildir
-      ~scope ~mailbox ~stage_id:stage ~next_id
-      ~spool_dir:Eio.Path.(fs / spooldir) () with
-    | Error (Imap_sync.Bridge.Date_diverged _) -> ()
+  let drift stage=match Imap_sync.Bridge.copy_once ~ctx:(ctx ()) ~maildir
+      ~stage_id:stage () with
+    | Error (Imap_sync.Error.Date_diverged _) -> ()
     | Error error -> Alcotest.failf "date drift: %a"
-        Imap_sync.Bridge.pp_error error
+        Imap_sync.Error.pp error
     | Ok _ -> Alcotest.fail "paired date drift was accepted" in
   drift ("dovecot-date-drift-" ^ nonce);
   let date_conflicts ()=Imap_store.Journal.open_conflicts store ~scope
@@ -1312,12 +1328,13 @@ let test_shared_mailbox_bootstrap () =
   let next_id ()=incr number;Printf.sprintf "bootstrap-%s-%d" nonce !number in
   let copy ?(allow_bootstrap_duplicates=false) stage_id=
     Imap_sync.Bridge.copy_once ~allow_bootstrap_duplicates
-      ~client ~store ~maildir ~scope ~mailbox ~stage_id ~next_id
-      ~spool_dir:Eio.Path.(fs / spooldir) () in
+      ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+        ~spool_dir:Eio.Path.(fs / spooldir) ~next_id ())
+      ~maildir ~stage_id () in
   (match copy ("bootstrap-refuse-" ^ nonce) with
-   | Error Imap_sync.Bridge.Bootstrap_requires_pairing -> ()
+   | Error Imap_sync.Error.Bootstrap_requires_pairing -> ()
    | Error error -> Alcotest.failf "bootstrap refusal: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "unpaired populated endpoints were merged");
   Alcotest.(check int) "refusal did not make local copies" 1
     (List.length (Md.scan maildir));
@@ -1334,7 +1351,7 @@ let test_shared_mailbox_bootstrap () =
       ("bootstrap-accept-" ^ nonce) with
     | Ok result -> result
     | Error error -> Alcotest.failf "explicit bootstrap: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   Alcotest.(check int) "explicit remote import" 1
     accepted.remote_to_local;
   Alcotest.(check int) "explicit local upload" 1
@@ -1346,7 +1363,7 @@ let test_shared_mailbox_bootstrap () =
   let stable=match copy ("bootstrap-stable-" ^ nonce) with
     | Ok result -> result
     | Error error -> Alcotest.failf "bootstrap replay: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   Alcotest.(check int) "no import replay" 0 stable.remote_to_local;
   Alcotest.(check int) "no upload replay" 0 stable.local_to_remote
 
@@ -1438,12 +1455,13 @@ let test_append_process_crash () =
   let scope=dovecot_scope client mailbox in
   let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let copy store stage_id = match Imap_sync.Bridge.copy_once
-    ~client ~store ~maildir ~scope ~mailbox ~stage_id
-    ~next_id:(fun () -> "unexpected-" ^ Md.reserve_id ())
-    ~spool_dir:Eio.Path.(fs / spooldir) () with
+    ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir)
+      ~next_id:(fun () -> "unexpected-" ^ Md.reserve_id ()) ())
+    ~maildir ~stage_id () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "APPEND crash bridge: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   Eio.Switch.run (fun store_sw ->
     let store=Imap_store.open_path ~sw:store_sw
       ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
@@ -1491,13 +1509,15 @@ let test_append_process_crash () =
        | Some {state=Imap_store.Journal.Sent;receipt_uid=None;_},
          Some {state=Imap_store.Sent;uid=None;_} -> true
        | _ -> false);
-    (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope ~mailbox
-      ~stage_id:("append-crash-hold-" ^ nonce)
-      ~next_id:(fun () -> Alcotest.fail "ambiguous APPEND replayed")
-      ~spool_dir:Eio.Path.(fs / spooldir) () with
-     | Error (Imap_sync.Bridge.Pending_operations [pending]) when pending=id -> ()
+    (match Imap_sync.Bridge.copy_once
+      ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+        ~spool_dir:Eio.Path.(fs / spooldir)
+        ~next_id:(fun () -> Alcotest.fail "ambiguous APPEND replayed") ())
+      ~maildir ~stage_id:("append-crash-hold-" ^ nonce) () with
+     | Error (Imap_sync.Error.Pending_operations [pending])
+       when pending=id -> ()
      | Error error -> Alcotest.failf "wrong APPEND hold: %a"
-         Imap_sync.Bridge.pp_error error
+         Imap_sync.Error.pp error
      | Ok _ -> Alcotest.fail "unconfirmed APPEND was not held");
     Alcotest.(check (list int64)) "restart did not replay APPEND"
       [uid_raw] (remote_uids ());
@@ -1519,24 +1539,23 @@ let test_append_process_crash () =
          (Eio.Flow.string_source raw))) with
       | Some receipt -> receipt.uid
       | None -> Alcotest.fail "Dovecot omitted other-date APPENDUID" in
+    let inspect_ctx ()=sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir) () in
     (match Imap_sync.Bridge.inspect_append_candidates ~max_uids:1
-      ~client ~store ~scope ~mailbox ~id
-      ~spool_dir:Eio.Path.(fs / spooldir) () with
-     | Error (Imap_sync.Bridge.Invalid_configuration _) -> ()
+      ~ctx:(inspect_ctx ()) ~id () with
+     | Error (Imap_sync.Error.Invalid_configuration _) -> ()
      | _ -> Alcotest.fail "candidate scan silently truncated UID range");
     (match Imap_sync.Bridge.inspect_append_candidates
       ~max_body_bytes:(Int64.of_int (String.length raw))
-      ~client ~store ~scope ~mailbox ~id
-      ~spool_dir:Eio.Path.(fs / spooldir) () with
-     | Error (Imap_sync.Bridge.Invalid_configuration _) -> ()
+      ~ctx:(inspect_ctx ()) ~id () with
+     | Error (Imap_sync.Error.Invalid_configuration _) -> ()
      | _ -> Alcotest.fail "candidate scan exceeded aggregate body budget");
     let candidates=match Imap_sync.Bridge.inspect_append_candidates
       ~max_body_bytes:(Int64.mul 2L (Int64.of_int (String.length raw)))
-      ~client ~store ~scope ~mailbox ~id
-      ~spool_dir:Eio.Path.(fs / spooldir) () with
+      ~ctx:(inspect_ctx ()) ~id () with
       | Ok report -> report
       | Error error -> Alcotest.failf "APPEND candidate inspection: %a"
-          Imap_sync.Bridge.pp_error error in
+          Imap_sync.Error.pp error in
     Alcotest.(check (list int64))
       "only identical bodies at the intended instant remain ambiguous"
       [uid_raw;Imap.Uid.to_int64 extra]
@@ -1559,7 +1578,7 @@ let test_append_process_crash () =
       ~evidence:"Dovecot APPENDUID saved by crash witness" () with
      | Ok () -> ()
      | Error error -> Alcotest.failf "attest APPENDUID: %a"
-         Imap_sync.Bridge.pp_error error);
+         Imap_sync.Error.pp error);
     let completed=copy store ("append-crash-repair-" ^ nonce) in
     Alcotest.(check int) "attested APPEND not uploaded again" 0
       completed.local_to_remote;
@@ -1666,12 +1685,14 @@ let test_delete_process_crash () =
   let open_store store_sw=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
   let copy store stage_id policy=match Imap_sync.Bridge.copy_once
-    ~deletion_policy:policy ~client ~store ~maildir ~scope ~mailbox
-    ~stage_id ~next_id:(fun () -> "delete-import-" ^
-      Md.reserve_id ()) ~spool_dir:Eio.Path.(fs / spooldir) () with
+    ~deletion_policy:policy
+    ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir)
+      ~next_id:(fun () -> "delete-import-" ^ Md.reserve_id ()) ())
+    ~maildir ~stage_id () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "delete crash bridge: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   let pair_id,target_uid,unrelated_uid=Eio.Switch.run (fun store_sw ->
     let store=open_store store_sw in
     let imported=copy store ("delete-crash-import-" ^ nonce)
@@ -1792,13 +1813,14 @@ let test_flags_recovery () =
   let next_id ()="flag-import-" ^ Md.reserve_id () in
   Eio.Switch.run @@ fun store_sw ->
   let store=open_store store_sw in
-  (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope ~mailbox
-    ~stage_id:("flags-import-" ^ nonce) ~next_id
-    ~spool_dir:Eio.Path.(fs / spooldir) () with
+  (match Imap_sync.Bridge.copy_once
+    ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir) ~next_id ())
+    ~maildir ~stage_id:("flags-import-" ^ nonce) () with
    | Ok receipt -> Alcotest.(check int) "imported paired occurrence" 1
        receipt.remote_to_local
    | Error error -> Alcotest.failf "import: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   let pair=match Imap_store.Journal.pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one pair" in
   let local_id=Option.get pair.local_id in
@@ -1828,15 +1850,17 @@ let test_flags_recovery () =
   Eio.Switch.run @@ fun restart_sw ->
   let restarted=open_store restart_sw in
   let recover operation=Md.with_writer maildir (fun writer ->
-    Imap_sync.Flags.recover_operation ~client ~store:restarted ~writer
-      ~mailbox ~operation ()) in
+    Imap_sync.Flags.recover_operation
+      ~ctx:(sync_ctx ~client ~store:restarted ~scope ~mailbox
+        ~spool_dir:Eio.Path.(fs / spooldir) ())
+      ~writer ~operation ()) in
   let pending=Option.get (Imap_store.Journal.find_operation restarted
     ~id:first.id) in
   (match recover pending with
    | Ok (Imap_sync.Flags.Updated _) -> ()
    | Ok _ -> Alcotest.fail "one-sided FLAGS did not commit"
    | Error e -> Alcotest.failf "FLAGS recovery: %a"
-       Imap_sync.Flags.pp_error e);
+       Imap_sync.Error.pp e);
   Alcotest.(check bool) "recovered local flag" true
     (List.mem flagged (Option.get (Md.find maildir
       ~id:local_id)).flags);
@@ -1855,7 +1879,7 @@ let test_flags_recovery () =
   let pending=Option.get (Imap_store.Journal.find_operation restarted
     ~id:second.id) in
   (match recover pending with
-   | Error (Imap_sync.Flags.Pending_operation id) when id=second.id -> ()
+   | Error (Imap_sync.Error.Pending_operations [id]) when id=second.id -> ()
    | _ -> Alcotest.fail "divergent local flags were overwritten");
   Alcotest.(check bool) "divergent local flag preserved" true
     (List.mem draft (Option.get (Md.find maildir
@@ -1870,7 +1894,7 @@ let test_flags_recovery () =
     | [conflict] -> conflict
     | _ -> Alcotest.fail "pending FLAGS lacked a durable conflict" in
   (match recover pending with
-   | Error (Imap_sync.Flags.Pending_operation id) when id=second.id -> ()
+   | Error (Imap_sync.Error.Pending_operations [id]) when id=second.id -> ()
    | _ -> Alcotest.fail "repeated divergent FLAGS recovery changed outcome");
   Alcotest.(check string) "flag conflict ID stays stable" conflict.id
     (List.hd (flag_conflicts ())).id;
@@ -1896,13 +1920,14 @@ let test_flags_recovery () =
   let pending=Option.get (Imap_store.Journal.find_operation restarted
     ~id:third.id) in
   (match recover pending with
-   | Error (Imap_sync.Flags.Pending_operation id) when id=third.id -> ()
+   | Error (Imap_sync.Error.Pending_operations [id]) when id=third.id -> ()
    | _ -> Alcotest.fail "divergent remote FLAGS was not held");
   let settle ?(scope=scope) evidence=Imap_sync.Flags.settle_operation
-    ~client ~store:restarted ~maildir ~scope ~mailbox ~id:third.id
-    ~evidence () in
+    ~ctx:(sync_ctx ~client ~store:restarted ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir) ())
+    ~maildir ~id:third.id ~evidence () in
   (match settle "audit before endpoints agree" with
-   | Error (Imap_sync.Flags.Diverged _) -> ()
+   | Error (Imap_sync.Error.Diverged _) -> ()
    | _ -> Alcotest.fail "divergent endpoints were settled");
   Alcotest.(check bool) "refused settlement remains pending" true
     ((Option.get (Imap_store.Journal.find_operation restarted
@@ -1980,12 +2005,13 @@ let test_operator_local_delete_repair () =
   let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let n=ref 0 in
   let next_id ()=incr n;Printf.sprintf "repair-%s-%d" nonce !n in
-  let copy stage_id=match Imap_sync.Bridge.copy_once ~client ~store ~maildir
-    ~scope ~mailbox ~stage_id ~next_id
-    ~spool_dir:Eio.Path.(fs / spooldir) () with
+  let copy stage_id=match Imap_sync.Bridge.copy_once
+    ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir) ~next_id ())
+    ~maildir ~stage_id () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "local repair setup: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   ignore (copy ("local-repair-import-" ^ nonce));
   let pair=match Imap_store.Journal.pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
@@ -2018,8 +2044,10 @@ let test_operator_local_delete_repair () =
   Imap_store.Journal.prepare_operation store operation;
   Imap_store.Journal.mark_sent store ~id:operation_id;
   let repair ?(scope=scope) evidence =
-    Imap_sync.Deletion.repair_local_delete ~client ~store ~maildir ~scope
-      ~mailbox ~id:operation_id ~evidence () in
+    Imap_sync.Deletion.repair_local_delete
+      ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+        ~spool_dir:Eio.Path.(fs / spooldir) ())
+      ~maildir ~id:operation_id ~evidence () in
   (match repair "" with
    | Error _ -> () | Ok _ -> Alcotest.fail "empty evidence repaired");
   (match repair ~scope:{scope with account="foreign"} "audit" with
@@ -2028,7 +2056,7 @@ let test_operator_local_delete_repair () =
   let flagged=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Flagged in
   let changed=Md.set_flags maildir local [flagged] in
   (match repair "operator checked target" with
-   | Error Imap_sync.Deletion.Identity_changed -> ()
+   | Error Imap_sync.Error.Identity_changed -> ()
    | _ -> Alcotest.fail "changed local flags repaired");
   Alcotest.(check bool) "local file retained after refusal" true
     (Option.is_some (Md.find maildir ~id:local_id));
@@ -2039,7 +2067,7 @@ let test_operator_local_delete_repair () =
   (match repair "Dovecot audit: UID absent and local bytes checked" with
    | Ok (Imap_sync.Deletion.Deleted _) -> ()
    | Error e -> Alcotest.failf "local deletion repair: %a"
-       Imap_sync.Deletion.pp_error e
+       Imap_sync.Error.pp e
    | Ok _ -> Alcotest.fail "local deletion was not committed");
   Alcotest.(check bool) "exact local file removed" true
     (Md.find maildir ~id:local_id=None);
@@ -2089,11 +2117,13 @@ let test_operator_local_append_repair () =
   let store=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
   let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
-  (match Imap_sync.Engine.scan_once ~client ~store ~scope ~mailbox
+  (match Imap_sync.Engine.scan_once
+      ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+        ~spool_dir:Eio.Path.(fs / spooldir) ())
       ~stage_id:("append-repair-scan-" ^ nonce) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "repair setup scan: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   let blob=Imap_store.Blob.put store ~source:(Eio.Flow.string_source raw)
     ~length:(Int64.of_int (String.length raw)) () in
   let local_id=Md.reserve_id () in
@@ -2109,17 +2139,21 @@ let test_operator_local_append_repair () =
   Imap_store.Journal.prepare_operation ~source_internal_date:date
     store operation;
   Imap_store.Journal.mark_sent store ~id;
-  let copy stage_id=Imap_sync.Bridge.copy_once ~client ~store ~maildir
-    ~scope ~mailbox ~stage_id ~next_id:(fun () -> "unexpected-copy-" ^ nonce)
-    ~spool_dir:Eio.Path.(fs / spooldir) () in
+  let copy stage_id=Imap_sync.Bridge.copy_once
+    ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir)
+      ~next_id:(fun () -> "unexpected-copy-" ^ nonce) ())
+    ~maildir ~stage_id () in
   (match copy ("append-repair-pending-" ^ nonce) with
-   | Error (Imap_sync.Bridge.Pending_operations [pending]) when pending=id -> ()
+   | Error (Imap_sync.Error.Pending_operations [pending])
+     when pending=id -> ()
    | Error error -> Alcotest.failf "wrong missing-file outcome: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "missing local append was replayed");
   let repair ?(scope=scope) evidence=Imap_sync.Bridge.repair_local_append
-    ~client ~store ~maildir ~scope ~mailbox ~id ~evidence
-    ~spool_dir:Eio.Path.(fs / spooldir) () in
+    ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir) ())
+    ~maildir ~id ~evidence () in
   (match repair "" with Error _ -> () | Ok () -> Alcotest.fail "empty evidence accepted");
   (match repair ~scope:{scope with account="foreign"} "audit" with
    | Error _ -> () | Ok () -> Alcotest.fail "foreign scope accepted");
@@ -2132,9 +2166,9 @@ let test_operator_local_append_repair () =
       Ok ())) in
   set_flags [flagged];
   (match repair "audit" with
-   | Error (Imap_sync.Bridge.Flags_diverged _) -> ()
+   | Error (Imap_sync.Error.Flags_diverged _) -> ()
    | Error error -> Alcotest.failf "wrong changed-flags refusal: %a"
-       Imap_sync.Bridge.pp_error error
+       Imap_sync.Error.pp error
    | Ok () -> Alcotest.fail "changed flags repaired");
   Alcotest.(check bool) "no local file after refusal" true
     (Md.find maildir ~id:local_id=None);
@@ -2142,7 +2176,7 @@ let test_operator_local_append_repair () =
   (match repair "operator verified Dovecot source" with
    | Ok () -> ()
    | Error error -> Alcotest.failf "local append repair: %a"
-       Imap_sync.Bridge.pp_error error);
+       Imap_sync.Error.pp error);
   let local=Option.get (Md.find maildir ~id:local_id) in
   Alcotest.(check string) "repaired exact bytes" blob.sha256
     (Md.sha256 maildir local);
@@ -2158,7 +2192,7 @@ let test_operator_local_append_repair () =
    | Ok result -> Alcotest.(check int) "no duplicate import" 0
        result.remote_to_local
    | Error error -> Alcotest.failf "post-repair sync: %a"
-       Imap_sync.Bridge.pp_error error)
+       Imap_sync.Error.pp error)
 
 let test_deletion_grace_live () =
   configured ();
@@ -2198,11 +2232,12 @@ let test_deletion_grace_live () =
   let next_id ()=incr n;Printf.sprintf "grace-%s-%d" nonce !n in
   let copy ?(grace=0) stage_id=match Imap_sync.Bridge.copy_once
     ~min_absence_scans:grace ~deletion_policy:Imap.Sync_policy.Propagate
-    ~client ~store ~maildir ~scope ~mailbox ~stage_id ~next_id
-    ~spool_dir:Eio.Path.(fs / spooldir) () with
+    ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir) ~next_id ())
+    ~maildir ~stage_id () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "grace bridge: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   ignore (copy ("grace-import-" ^ nonce));
   let pair=match Imap_store.Journal.pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
@@ -2305,12 +2340,13 @@ let test_reject_unchanged_remote_delete () =
   let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let n=ref 0 in
   let next_id ()=incr n;Printf.sprintf "delete-reject-%s-%d" nonce !n in
-  let copy stage_id=match Imap_sync.Bridge.copy_once ~client ~store ~maildir
-    ~scope ~mailbox ~stage_id ~next_id
-    ~spool_dir:Eio.Path.(fs / spooldir) () with
+  let copy stage_id=match Imap_sync.Bridge.copy_once
+    ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+      ~spool_dir:Eio.Path.(fs / spooldir) ~next_id ())
+    ~maildir ~stage_id () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "delete reject setup: %a"
-        Imap_sync.Bridge.pp_error error in
+        Imap_sync.Error.pp error in
   ignore (copy ("delete-reject-import-" ^ nonce));
   let pair=match Imap_store.Journal.pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
@@ -2332,9 +2368,10 @@ let test_reject_unchanged_remote_delete () =
   Imap_store.Journal.prepare_operation store operation;
   Imap_store.Journal.mark_sent store ~id:operation_id;
   let reject ?(scope=scope) evidence =
-    Imap_sync.Deletion.reject_unchanged_remote_delete ~client ~store
-      ~maildir ~scope ~mailbox ~id:operation_id ~evidence
-      ~spool_dir:Eio.Path.(fs / spooldir) () in
+    Imap_sync.Deletion.reject_unchanged_remote_delete
+      ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+        ~spool_dir:Eio.Path.(fs / spooldir) ())
+      ~maildir ~id:operation_id ~evidence () in
   (match reject ~scope:{scope with account="foreign"} "audit" with
    | Error _ -> () | Ok () -> Alcotest.fail "foreign scope rejected delete");
   let flagged=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Flagged in
@@ -2345,9 +2382,9 @@ let test_reject_unchanged_remote_delete () =
         ~flags:[flagged] in Ok ())) in
   edit `Add;
   (match reject "operator verified unchanged UID" with
-   | Error Imap_sync.Deletion.Identity_changed -> ()
+   | Error Imap_sync.Error.Identity_changed -> ()
    | Error error -> Alcotest.failf "wrong changed-flags refusal: %a"
-       Imap_sync.Deletion.pp_error error
+       Imap_sync.Error.pp error
    | Ok () -> Alcotest.fail "changed flags rejected pending delete");
   Alcotest.(check bool) "changed remote target stays pending" true
     ((Option.get (Imap_store.Journal.find_operation store
@@ -2390,13 +2427,14 @@ let test_reject_unchanged_remote_delete () =
         ~flags:[deleted] in Ok ())) in
   edit_deleted `Add;
   edit `Add;
-  (match Imap_sync.Deletion.finish_marked_remote_delete ~client ~store
-      ~maildir ~scope ~mailbox ~id:finish_id
-      ~evidence:"operator verified marked target"
-      ~spool_dir:Eio.Path.(fs / spooldir) () with
-   | Error Imap_sync.Deletion.Identity_changed -> ()
+  (match Imap_sync.Deletion.finish_marked_remote_delete
+      ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+        ~spool_dir:Eio.Path.(fs / spooldir) ())
+      ~maildir ~id:finish_id
+      ~evidence:"operator verified marked target" () with
+   | Error Imap_sync.Error.Identity_changed -> ()
    | Error error -> Alcotest.failf "wrong extra-flags refusal: %a"
-       Imap_sync.Deletion.pp_error error
+       Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "extra remote flag was expunged");
   Alcotest.(check bool) "refusal did not attest operation" true
     ((Option.get (Imap_store.Journal.find_operation store
@@ -2467,11 +2505,13 @@ let test_bounded_hydration () =
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  (match Imap_sync.Engine.scan_once ~client ~store ~scope ~mailbox
+  (match Imap_sync.Engine.scan_once
+      ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+        ~spool_dir:Eio.Path.(fs / spooldir) ())
       ~stage_id:("hydrate-scan-" ^ nonce) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "hydration setup scan: %a"
-       Imap_sync.Engine.pp_error error);
+       Imap_sync.Error.pp error);
   let cursor=Imap_store.load_cursor store ~scope in
   let epoch=Option.get cursor.uidvalidity in
   Alcotest.(check bool) "no body before hydration" true
@@ -2480,11 +2520,12 @@ let test_bounded_hydration () =
   let next_spool_id ()=incr serial;nonce ^ "-" ^ string_of_int !serial in
   let hydrate ?(max_messages=1) ?(max_total_bytes=1024L) () =
     match Imap_sync.Engine.hydrate_once ~max_messages ~max_total_bytes
-      ~client ~store ~scope ~mailbox ~spool_dir:Eio.Path.(fs / spooldir)
-      ~next_spool_id () with
+      ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
+        ~spool_dir:Eio.Path.(fs / spooldir) ~next_id:next_spool_id ())
+      () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "hydration: %a"
-        Imap_sync.Engine.pp_error error in
+        Imap_sync.Error.pp error in
   let blocked=hydrate ~max_total_bytes:1L () in
   Alcotest.(check int) "budget preflight does not fetch" 0 blocked.hydrated;
   Alcotest.(check bool) "budget reports pending body" true blocked.more;
@@ -2556,7 +2597,7 @@ let test_bounded_hydration () =
       ~max_total_bytes ~store ~scope () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "cache audit: %a"
-        Imap_sync.Engine.pp_error error in
+        Imap_sync.Error.pp error in
   let blocked_audit=audit ~max_total_bytes:1L () in
   Alcotest.(check int) "audit preflight respects bytes" 0
     blocked_audit.checked;
@@ -2569,7 +2610,7 @@ let test_bounded_hydration () =
   Alcotest.(check bool) "changed audit revision rejected" true
     (Imap_sync.Engine.audit_cache_once ~after_uid:first.uid
       ~expected_revision:(Int64.sub first_audit.cursor.revision 1L)
-      ~store ~scope ()=Error Imap_sync.Engine.Stale_revision);
+      ~store ~scope ()=Error Imap_sync.Error.Store_stale_revision);
   let second_audit=audit ?after_uid:first_audit.last_uid () in
   Alcotest.(check int) "second audit page" 1 second_audit.checked;
   Alcotest.(check int) "corrupt reference invalidated" 1

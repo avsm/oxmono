@@ -198,12 +198,19 @@ let round_trip () =
     let blobpath = Eio.Path.(Eio.Stdenv.fs env / blobdir) in
     Eio.Switch.run @@ fun store_sw ->
     let store = Imap_store.open_path ~sw:store_sw ~blob_dir:blobpath dbpath in
+    let spool_dir = Eio.Path.(Eio.Stdenv.fs env / spooldir) in
+    let sequence = ref 0 in
+    let next_id () = incr sequence;
+      Printf.sprintf "bridge-%s-%d" nonce !sequence in
+    let ctx = match Imap_sync.Ctx.v ~client ~store ~scope ~mailbox ~spool_dir
+      ~next_id with
+      | Ok ctx -> ctx
+      | Error error -> Alcotest.fail (Imap_sync.Error.to_string error) in
     let scan stage_id =
-      match Imap_sync.Engine.scan_once ~client ~store ~scope ~mailbox
-        ~stage_id () with
+      match Imap_sync.Engine.scan_once ~ctx ~stage_id () with
       | Ok receipt -> receipt
       | Error error -> Alcotest.fail (Format.asprintf "%a"
-          Imap_sync.Engine.pp_error error) in
+          Imap_sync.Error.pp error) in
     let published_rows () =
       let cursor = Imap_store.load_cursor store ~scope in
       match Imap_store.snapshot_page store ~scope ~cursor ~limit:10_000 () with
@@ -222,11 +229,11 @@ let round_trip () =
         (Client.is_enabled client Imap.Capability.Qresync);
     let first_uid = (List.hd first_rows).uid in
     let spool = Eio.Path.(Eio.Stdenv.fs env / (dbfile ^ ".spool")) in
-    let archived = match Imap_sync.Engine.archive_uid ~client ~store ~scope
-      ~mailbox ~uid:first_uid ~spool () with
+    let archived = match Imap_sync.Engine.archive_uid ~ctx ~uid:first_uid
+      ~spool () with
       | Ok blob -> blob
       | Error error -> Alcotest.fail (Format.asprintf "%a"
-          Imap_sync.Engine.pp_error error) in
+          Imap_sync.Error.pp error) in
     let archived_bytes = Buffer.create 256 in
     Eio.Flow.copy
       (Imap_store.Blob.open_in store ~sw:store_sw archived)
@@ -281,11 +288,11 @@ let round_trip () =
       receipt_uid=None};
     Imap_store.Journal.mark_sent store ~id:probe_id;
     let outcome = match Imap_sync.Engine.append_blob_journaled
-      ~client ~store ~scope ~mailbox ~id:("append-" ^ nonce)
+      ~ctx ~id:("append-" ^ nonce)
       ~message_id:("duplicate-" ^ nonce) blob with
       | Ok x -> x
       | Error error -> Alcotest.fail (Format.asprintf "%a"
-          Imap_sync.Engine.pp_error error) in
+          Imap_sync.Error.pp error) in
     let receipt = match outcome with
       | Imap_sync.Engine.Identified x -> x
       | Imap_sync.Engine.Needs_reconciliation ->
@@ -303,11 +310,10 @@ let round_trip () =
            (metadata.expected_flags = Some [])
      | Imap_store.Other _ -> Alcotest.fail "wrong APPEND intent kind");
     let evidence = match Imap_sync.Bridge.inspect_append_candidates
-      ~client ~store ~scope ~mailbox ~id:probe_id
-      ~spool_dir:Eio.Path.(Eio.Stdenv.fs env / spooldir) () with
+      ~ctx ~id:probe_id () with
       | Ok report -> report
       | Error error -> Alcotest.fail (Format.asprintf "%a"
-          Imap_sync.Bridge.pp_error error) in
+          Imap_sync.Error.pp error) in
     (* The inspection admits only candidates whose flags equal the journaled
        flags, so one match also proves the candidate's wire flags. *)
     Alcotest.(check (list int64)) "uncertain APPEND candidate"
@@ -335,11 +341,11 @@ let round_trip () =
       ~uid:receipt.uid blob;
     Alcotest.(check bool) "archived body hash and length" true
       (Imap_store.Blob.verify store blob);
-    let staged = match Imap_sync.Engine.scan_once ~client ~store ~scope
-      ~mailbox ~stage_id:("disk-stage-" ^ nonce) () with
+    let staged = match Imap_sync.Engine.scan_once ~ctx
+      ~stage_id:("disk-stage-" ^ nonce) () with
       | Ok receipt -> receipt
       | Error error -> Alcotest.fail (Format.asprintf "%a"
-          Imap_sync.Engine.pp_error error) in
+          Imap_sync.Error.pp error) in
     Alcotest.(check int64) "disk-staged mirror rows" 4L staged.row_count;
     Alcotest.(check int64) "disk-staged revision"
       (Int64.succ third.cursor.revision) staged.cursor.revision;
@@ -352,25 +358,21 @@ let round_trip () =
       (Imap_store.pending_intents store ~scope = []);
     let maildir = Md.open_dir
       Eio.Path.(Eio.Stdenv.fs env / maildir_path) in
-    let spool_dir = Eio.Path.(Eio.Stdenv.fs env / spooldir) in
-    let sequence = ref 0 in
-    let next_id () = incr sequence;
-      Printf.sprintf "bridge-%s-%d" nonce !sequence in
     let bootstrap = Md.append maildir
       ~source:(Eio.Flow.string_source "bootstrap\r\n")
       ~length:11L ~flags:[] () in
-    (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope ~mailbox
-      ~stage_id:("bridge-bootstrap-" ^ nonce) ~next_id ~spool_dir () with
-     | Error Imap_sync.Bridge.Bootstrap_requires_pairing -> ()
+    (match Imap_sync.Bridge.copy_once ~ctx ~maildir
+      ~stage_id:("bridge-bootstrap-" ^ nonce) () with
+     | Error Imap_sync.Error.Bootstrap_requires_pairing -> ()
      | Error error -> Alcotest.fail (Format.asprintf
-         "unexpected bootstrap error: %a" Imap_sync.Bridge.pp_error error)
+         "unexpected bootstrap error: %a" Imap_sync.Error.pp error)
      | Ok _ -> Alcotest.fail "unpaired populated endpoints must be held");
     Md.remove maildir bootstrap;
-    let copy stage_id = match Imap_sync.Bridge.copy_once ~client ~store ~maildir
-      ~scope ~mailbox ~stage_id ~next_id ~spool_dir () with
+    let copy stage_id = match Imap_sync.Bridge.copy_once ~ctx ~maildir
+      ~stage_id () with
       | Ok receipt -> receipt
       | Error error -> Alcotest.fail
-          (Format.asprintf "%a" Imap_sync.Bridge.pp_error error) in
+          (Format.asprintf "%a" Imap_sync.Error.pp error) in
     let imported = copy ("bridge-import-" ^ nonce) in
     Alcotest.(check int) "remote occurrences imported" 4
       imported.remote_to_local;
@@ -518,13 +520,12 @@ let round_trip () =
     Imap_store.Journal.prepare_operation
       ~local_source_mtime:append_local.mtime store append_pending;
     Imap_store.Journal.mark_sent store ~id:append_id;
-    (match Imap_sync.Engine.append_blob_journaled ~client ~store ~scope
-      ~mailbox ~id:append_id ~message_id:append_id ~flags:[] append_blob with
+    (match Imap_sync.Engine.append_blob_journaled ~ctx ~id:append_id ~message_id:append_id ~flags:[] append_blob with
      | Ok (Imap_sync.Engine.Identified _) -> ()
      | Ok Imap_sync.Engine.Needs_reconciliation ->
          Alcotest.fail "Cyrus omitted APPENDUID for recovery"
      | Error error -> Alcotest.fail (Format.asprintf "%a"
-         Imap_sync.Engine.pp_error error));
+         Imap_sync.Error.pp error));
     let recovered_append = copy ("bridge-append-recover-" ^ nonce) in
     Alcotest.(check int) "confirmed APPEND not duplicated" 0
       recovered_append.local_to_remote;
@@ -574,13 +575,12 @@ let round_trip () =
     let changed_survivor=Md.set_flags maildir append_local
       [local_keyword] in
     let propagated = match Imap_sync.Bridge.copy_once
-      ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir
-      ~scope ~mailbox ~stage_id:("bridge-propagate-delete-" ^ nonce)
-      ~next_id ~spool_dir () with
+      ~deletion_policy:Imap.Sync_policy.Propagate ~ctx ~maildir
+      ~stage_id:("bridge-propagate-delete-" ^ nonce) () with
       | Ok receipt -> receipt
       | Error error -> Alcotest.fail
           (Format.asprintf "delete propagation: %a"
-            Imap_sync.Bridge.pp_error error) in
+            Imap_sync.Error.pp error) in
     Alcotest.(check int) "unchanged remote survivor deleted" 1
       propagated.deletions;
     Alcotest.(check bool) "changed survivor deletion hold is visible" true
@@ -595,13 +595,12 @@ let round_trip () =
       (Option.is_some (Md.find maildir ~id:append_local.id));
     ignore (Md.set_flags maildir changed_survivor []);
     let propagated_local = match Imap_sync.Bridge.copy_once
-      ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir
-      ~scope ~mailbox ~stage_id:("bridge-propagate-local-" ^ nonce)
-      ~next_id ~spool_dir () with
+      ~deletion_policy:Imap.Sync_policy.Propagate ~ctx ~maildir
+      ~stage_id:("bridge-propagate-local-" ^ nonce) () with
       | Ok receipt -> receipt
       | Error error -> Alcotest.fail
           (Format.asprintf "local delete propagation: %a"
-            Imap_sync.Bridge.pp_error error) in
+            Imap_sync.Error.pp error) in
     Alcotest.(check int) "restored survivor deleted" 1
       propagated_local.deletions;
     Alcotest.(check bool) "local survivor removed" true
@@ -660,11 +659,11 @@ let round_trip () =
         let* uids = Selected.uid_search selected ~criteria:Imap.Search.All in
         Ok (List.length uids))) in
     let count_before = count_remote () in
-    (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope ~mailbox
-      ~stage_id:("bridge-ambiguous-" ^ nonce) ~next_id ~spool_dir () with
-     | Error (Imap_sync.Bridge.Pending_operations [id]) when id=ambiguous_id -> ()
+    (match Imap_sync.Bridge.copy_once ~ctx ~maildir
+      ~stage_id:("bridge-ambiguous-" ^ nonce) () with
+     | Error (Imap_sync.Error.Pending_operations [id]) when id=ambiguous_id -> ()
      | Error error -> Alcotest.fail (Format.asprintf
-         "unexpected ambiguous result: %a" Imap_sync.Bridge.pp_error error)
+         "unexpected ambiguous result: %a" Imap_sync.Error.pp error)
      | Ok _ -> Alcotest.fail "ambiguous APPEND was not held");
     Alcotest.(check int) "ambiguous APPEND not replayed"
       count_before (count_remote ());
@@ -676,7 +675,7 @@ let round_trip () =
       ~evidence:"Cyrus APPENDUID retained by operator" () with
      | Ok () -> ()
      | Error error -> Alcotest.fail (Format.asprintf
-         "operator APPENDUID: %a" Imap_sync.Bridge.pp_error error));
+         "operator APPENDUID: %a" Imap_sync.Error.pp error));
     let repaired=copy ("bridge-repaired-append-" ^ nonce) in
     Alcotest.(check int) "operator repair made no duplicate upload" 0
       repaired.local_to_remote;

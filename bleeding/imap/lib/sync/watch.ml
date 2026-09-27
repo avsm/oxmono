@@ -1,13 +1,13 @@
 type retry_error =
-  | Connect_failed of Imap_eio.Error.t
+  | Connect_failed of Error.t
   | Connect_timed_out
-  | Scan_failed of Engine.error
+  | Scan_failed of Error.t
   | Scan_timed_out
   | Idle_failed of Imap_eio.Error.t
 
 type error =
   | Invalid_configuration of string
-  | Fatal_scan of Engine.error
+  | Fatal_scan of Error.t
 
 let needs_rescan (cursor : Imap.Mirror.cursor)
     (info : Imap.Response.select_metadata) =
@@ -22,7 +22,7 @@ let needs_rescan (cursor : Imap.Mirror.cursor)
         info.nomodseq || Imap.Modseq.to_int64 anchor <> observed in
   epoch_changed || frontier_changed || modseq_changed
 
-let run ~clock ~connect ~store ~scope ~mailbox ~next_stage_id ~on_publish
+let run ~clock ~connect ~next_stage_id ~on_publish
     ?(on_retry=fun _ -> ()) ?(poll_seconds=60.) ?(retry_seconds=5.)
     ?(max_retry_seconds=300.) ?(connect_timeout_seconds=30.)
     ?(scan_timeout_seconds=3600.) ?(idle_renew_seconds=1500.) () =
@@ -52,10 +52,9 @@ let run ~clock ~connect ~store ~scope ~mailbox ~next_stage_id ~on_publish
           match connect_bounded ~sw with
           | None -> Error Connect_timed_out
           | Some (Error error) -> Error (Connect_failed error)
-          | Some (Ok client) ->
-              let idle=Imap_eio.Client.has client Imap.Capability.Idle in
-              match Engine.scan_once ~client ~store ~scope ~mailbox
-                ~stage_id:(next_stage_id ()) () with
+          | Some (Ok (ctx:Ctx.t)) ->
+              let idle=Imap_eio.Client.has ctx.client Imap.Capability.Idle in
+              match Engine.scan_once ~ctx ~stage_id:(next_stage_id ()) () with
               | Ok receipt -> Ok (receipt,idle)
               | Error error -> Error (Scan_failed error))
       with Eio.Time.Timeout -> Error Scan_timed_out in
@@ -63,10 +62,11 @@ let run ~clock ~connect ~store ~scope ~mailbox ~next_stage_id ~on_publish
       match connect_bounded ~sw with
       | None -> Error Connect_timed_out
       | Some (Error error) -> Error (Connect_failed error)
-      | Some (Ok client) ->
+      | Some (Ok (ctx:Ctx.t)) ->
           let renew_at = Eio.Time.now clock +. idle_renew_seconds in
           let watch_once () =
-            Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
+            Imap_eio.Client.with_mailbox ctx.client ~mode:`Read_only
+              ctx.mailbox
               (fun selected ->
                 match Imap_eio.Selected.info selected with
                 | Error _ as error -> error
@@ -87,13 +87,13 @@ let run ~clock ~connect ~store ~scope ~mailbox ~next_stage_id ~on_publish
               | exception Eio.Time.Timeout -> Ok () in
           watch () in
     let fatal = function
-      | Engine.Invalid_scope _ | Engine.Limit _ | Engine.Mirror _
-      | Engine.Uidvalidity_changed -> true
-      | Engine.Client _ | Engine.Incomplete _ |
-        Engine.Stale_revision -> false in
+      | Error.Invalid_scope _ | Error.Limit _ | Error.Mirror _
+      | Error.Uidvalidity_changed -> true
+      | _ -> false in
     let rec loop delay =
       match scan () with
-      | Error (Scan_failed error) when fatal error -> Error (Fatal_scan error)
+      | Error (Connect_failed error | Scan_failed error) when fatal error ->
+          Error (Fatal_scan error)
       | Error issue ->
           on_retry issue;
           sleep delay;

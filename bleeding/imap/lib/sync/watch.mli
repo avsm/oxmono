@@ -6,20 +6,24 @@
     Use one supervisor per mailbox with a bounded connection pool above it. *)
 
 type retry_error =
-  | Connect_failed of Imap_eio.Error.t
+  | Connect_failed of Error.t
+      (** [Connect_failed e] is a failure of the caller's [connect],
+          including a context {!Ctx.v} refused. *)
   | Connect_timed_out
-  | Scan_failed of Engine.error
+  | Scan_failed of Error.t
   | Scan_timed_out
   | Idle_failed of Imap_eio.Error.t
 
 type error =
   | Invalid_configuration of string
-  | Fatal_scan of Engine.error
+  | Fatal_scan of Error.t
+      (** [Fatal_scan e] is a connect or scan error that a retry cannot
+          fix: [Invalid_scope], [Limit], [Mirror] or
+          [Uidvalidity_changed]. *)
 
 val run :
   clock:[> float Eio.Time.clock_ty ] Eio.Resource.t ->
-  connect:(sw:Eio.Switch.t -> (Imap_eio.Client.t, Imap_eio.Error.t) result) ->
-  store:Imap_store.t -> scope:Imap.Mirror.scope -> mailbox:string ->
+  connect:(sw:Eio.Switch.t -> (Ctx.t, Error.t) result) ->
   next_stage_id:(unit -> string) ->
   on_publish:(Imap_store.staged_receipt -> unit) ->
   ?on_retry:(retry_error -> unit) ->
@@ -27,10 +31,10 @@ val run :
   ?connect_timeout_seconds:float -> ?scan_timeout_seconds:float ->
   ?idle_renew_seconds:float ->
   unit -> (unit, error) result
-(** [run ~clock ~connect ~store ~scope ~mailbox ~next_stage_id ~on_publish ()]
-    scans [mailbox] immediately, reports each publication to [on_publish], and
-    then waits for a change before scanning again. It returns only an error,
-    and the caller stops it by cancelling its fiber.
+(** [run ~clock ~connect ~next_stage_id ~on_publish ()] connects with [connect],
+    scans the context's mailbox immediately, reports each publication to
+    [on_publish], and then waits for a change before scanning again. It returns
+    only an error, and the caller stops it by cancelling its fiber.
 
     When the scanning connection offers IDLE, a second connection selects the
     mailbox and compares UIDVALIDITY, UIDNEXT and HIGHESTMODSEQ with the
@@ -46,8 +50,9 @@ val run :
     [max_retry_seconds] (default 300). A successful publication and wait
     reset the delay. Connecting has a deadline of [connect_timeout_seconds]
     (default 30) and a complete scan one of [scan_timeout_seconds] (default
-    3600). A timed-out scan discards its provisional SQLite rows. Invalid
-    scope, limit and mirror consistency errors return [Fatal_scan].
+    3600). A timed-out scan discards its provisional SQLite rows. [connect]
+    runs for every scan and every wait, under the switch it is given. An
+    error a retry cannot fix returns [Fatal_scan].
     Exceptions raised by [on_publish] and [on_retry] propagate. Stage IDs from
     [next_stage_id] must be globally unique.
 

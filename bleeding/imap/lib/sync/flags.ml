@@ -1,41 +1,7 @@
 module J = Imap_store.Journal
 module F = Mail_flag.Imap_flag
 
-type error =
-  | Client of Imap_eio.Error.t
-  | Missing_pair
-  | Stale_pair
-  | Missing_occurrence
-  | Uidvalidity_changed
-  | Conditional_store_unavailable
-  | Permanent_flag_unavailable of F.t
-  | Modified
-  | Pending_operation of string
-  | No_pending_operation
-  | Content_mismatch of string
-  | Diverged of string
-  | Maildir of Maildir.error
-
-let pp_error ppf = function
-  | Client error -> Imap_eio.Client.pp_error ppf error
-  | Missing_pair -> Format.pp_print_string ppf "sync pair is missing"
-  | Stale_pair -> Format.pp_print_string ppf "sync pair revision changed"
-  | Missing_occurrence ->
-      Format.pp_print_string ppf "paired occurrence is absent"
-  | Uidvalidity_changed -> Format.pp_print_string ppf "UIDVALIDITY changed"
-  | Conditional_store_unavailable ->
-      Format.pp_print_string ppf "conditional UID STORE is unavailable"
-  | Permanent_flag_unavailable flag ->
-      Format.fprintf ppf "remote flag %a is not permanently writable"
-        F.pp flag
-  | Modified -> Format.pp_print_string ppf "flags changed concurrently"
-  | Pending_operation id -> Format.fprintf ppf "flag operation %s is pending" id
-  | No_pending_operation ->
-      Format.pp_print_string ppf "no pending FLAGS operation in this scope"
-  | Content_mismatch id ->
-      Format.fprintf ppf "paired local content differs for %s" id
-  | Diverged text -> Format.pp_print_string ppf text
-  | Maildir error -> Maildir.pp_error ppf error
+open Error
 
 type outcome = Unchanged | Updated of J.pair
 type plan = No_change | Apply of F.t list
@@ -180,12 +146,6 @@ let remote_now client ~mailbox ~epoch ~uid ~modseq =
   with_selected client ~mode:`Read_only mailbox ~epoch (fun selected _ ->
     remote selected ~uid ~modseq)
 
-let engine_error = function
-  | Engine.Client error -> Client error
-  | Engine.Stale_revision -> Stale_pair
-  | Engine.Uidvalidity_changed -> Uidvalidity_changed
-  | error -> Diverged (Format.asprintf "%a" Engine.pp_error error)
-
 let describe error =
   let text=Format.asprintf "%a" Imap_eio.Client.pp_error error in
   if String.length text<=512 then text else String.sub text 0 512
@@ -218,7 +178,7 @@ let flag_conflict store (pair:J.pair) ~id evidence =
 
 let pending store pair ~id evidence =
   let* ()=flag_conflict store pair ~id evidence in
-  Error (Pending_operation id)
+  Error (Pending_operations [id])
 
 let hold_content store (pair:J.pair) ~id =
   match J.ensure_open_conflict store ~pair ~kind:J.Content_conflict
@@ -231,8 +191,9 @@ let clear_content_hold store (pair:J.pair) =
   | `Resolved _ -> Ok ()
   | `Stale_revision -> Error Stale_pair
 
-let recover_sent ~inventory ~client ~store ~writer ~mailbox
-    ~(operation:J.operation) ~pair_id ~merged =
+let recover_sent ~inventory ~(ctx:Ctx.t) ~writer ~(operation:J.operation)
+    ~pair_id ~merged =
+  let {Ctx.client;store;mailbox;_}=ctx in
   let maildir=Maildir.of_writer writer in
   let* pair=match J.find_pair store ~id:pair_id with
     | Some pair when pair.scope=operation.scope -> Ok pair
@@ -304,8 +265,9 @@ let recover_sent ~inventory ~client ~store ~writer ~mailbox
               ~destination_uidvalidity:None ~destination_uid:None;
           commit store pair ~id:operation.id ~merged)
 
-let recover_operation ?inventory ~client ~store ~writer ~mailbox
+let recover_operation ?inventory ~(ctx:Ctx.t) ~writer
     ~(operation:J.operation) () =
+  let store=ctx.store in
   match operation.kind,operation.state with
   | kind,_ when kind<>J.Flags -> Error (Diverged "operation is not FLAGS")
   | _,J.Prepared ->
@@ -316,11 +278,11 @@ let recover_operation ?inventory ~client ~store ~writer ~mailbox
   | _,(J.Sent | J.Ambiguous | J.Observed) ->
       match operation.pair_id,operation.desired_flags with
       | Some pair_id,Some merged ->
-          recover_sent ~inventory ~client ~store ~writer ~mailbox ~operation
-            ~pair_id ~merged
+          recover_sent ~inventory ~ctx ~writer ~operation ~pair_id ~merged
       | _ -> Error (Diverged "FLAGS operation has no pair or target flags")
 
-let settle_operation ~client ~store ~maildir ~scope ~mailbox ~id ~evidence () =
+let settle_operation ~(ctx:Ctx.t) ~maildir ~id ~evidence () =
+  let {Ctx.client;store;scope;mailbox;_}=ctx in
   if String.trim evidence="" || String.length evidence>1024 ||
      not (String.for_all (fun c -> let n=Char.code c in
        n>=32 && n<>127) evidence) then
@@ -344,8 +306,7 @@ let settle_operation ~client ~store ~maildir ~scope ~mailbox ~id ~evidence () =
        J.operation_pair_revision store ~id<>Some pair.revision then
       Error Stale_pair
     else
-      let* ()=Result.map_error engine_error
-        (Engine.guard_bound_mailbox ~client ~store ~scope ~mailbox) in
+      let* ()=Engine.guard_bound_mailbox ~ctx in
       let local_read () =
         let* occurrence=local maildir local_id in
         if content maildir pair occurrence<>`Matches then
@@ -391,13 +352,14 @@ let advance_baseline store (pair:J.pair) ~merged =
   | `Committed pair -> Ok (Updated pair)
   | `Stale_revision -> Error Stale_pair
 
-let reconcile_pair ?(propagate_deleted=false) ?inventory ~client ~store
-    ~writer ~mailbox ~(pair:J.pair) ~next_id () =
+let reconcile_pair ?(propagate_deleted=false) ?inventory ~(ctx:Ctx.t)
+    ~writer ~(pair:J.pair) () =
+  let {Ctx.client;store;mailbox;next_id;_}=ctx in
   let maildir=Maildir.of_writer writer in
   let* pair=current_pair store pair in
   let* epoch,uid,local_id=bound pair in
   match J.active_operation_for_pair store ~pair_id:pair.id with
-  | Some op when op.kind=J.Flags -> Error (Pending_operation op.id)
+  | Some op when op.kind=J.Flags -> Error (Pending_operations [op.id])
   | Some op -> Error (Diverged (Printf.sprintf
       "pair has a pending %s operation %s" (kind_name op.kind) op.id))
   | None ->

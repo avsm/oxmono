@@ -133,15 +133,13 @@ consumers it touched, and the test evidence.
 
 #### F: maildir
 
-Branch `worktree-agent-a8b4ff22560c66080`, three commits: Keywords,
-Dotlock, Imap_maildir.
+Branch `worktree-agent-a8b4ff22560c66080`: Keywords, Dotlock and
+Imap_maildir commits, then a commit restoring rename for publication.
 
 Fixed. `Stale_occurrence` is exported and documented on `open_message`,
 `sha256`, `set_flags` and `remove`. A supplied `?id` is checked inside the
 publication lock against `new/<id>`, every `cur` name that parses to the ID
-and, when given, the paged view. Publication and flag renames use `link`
-then `unlink`, so an existing target raises `Eio.Io Already_exists` instead
-of being replaced. Entries named with a leading dot and entries that are not
+and, when given, the paged view. Entries named with a leading dot and entries that are not
 regular files are skipped in scan, staging and `find`. One
 `stat ~follow:false` per entry replaces three to four, and an entry gone
 before that stat counts as vanished. An epoch INTERNALDATE works. Cleanup
@@ -163,13 +161,11 @@ publishing it, after installing `dovecot-keywords`, after removing the
 staging database and in `recover`. Each only made the removal or presence
 of a `tmp` name durable, and `recover` handles a surviving name. Kept: the
 message and keywords files before publication, the target directory after
-each link, rename or unlink, and the parent after `mkdir`. A flag change now
-syncs `cur` after the link and the source directory after the unlink, so a
-`cur` to `cur` change syncs `cur` twice. A crash between that link and
-unlink leaves two names for one inode, which `scan` reports as a duplicate
-identity.
+each rename or unlink, and the parent after `mkdir`. Publication and flag
+changes keep `Eio.Path.rename`, because Maildir names are unique and a
+duplicate identity is rejected under the metadata lock before the rename.
 
-Remaining `Unix`: `lockf` for the writer lease, `link`, `utimes`, directory
+Remaining `Unix`: `lockf` for the writer lease, `utimes`, directory
 fsync (`openfile`, `fstat`, `fsync`, `close`), `/dev/urandom` in
 `random_id` because `reserve_id` takes no environment, and `getpid` and
 `gethostname` for the lock body. Each carries a comment naming the missing
@@ -192,7 +188,7 @@ listing once.
 Evidence. `dune build @bleeding/imap/all` and
 `dune build @bleeding/imap/runtest --force` are clean. `test_maildir` has
 21 cases, 9 of them new. Against the previous implementation the
-supplied-ID, ignored-entry, find, epoch, no-replace and cleanup cases fail.
+supplied-ID, ignored-entry, find, epoch and cleanup cases fail.
 `test_dotlock` adds deleted-lock, post-callback no-write and release stat
 failure cases.
 
@@ -313,7 +309,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] imap_maildir.ml:490 [high] the duplicate-ID check for a supplied `?id` runs via `find` outside the metadata lock, and the in-lock check at :533 tests only the exact target name, so `id:2,S` in cur plus a flagless append of `id` to new succeeds and every later scan fails with "duplicate occurrence identity".
 - [x] imap_maildir.ml:229 [high] `id_of_filename` at :229 and :400 accepts dotfiles, so `.DS_Store` in new or cur becomes a message occurrence; Maildir readers including Dovecot skip names starting with a dot.
 - [x] imap_maildir.ml:523 [medium] an INTERNALDATE of exactly the Unix epoch always fails because `Unix.utimes p 0.0 0.0` sets both times to now and the check at :524 then raises.
-- [x] imap_maildir.ml:535 [medium] `rename` at :535 and :591 overwrites an existing target; the `kind target <> Not_found` checks at :533 and :589 only protect against writers honouring the uidlist lock. Use link plus unlink or `RENAME_NOREPLACE`.
+- [x] imap_maildir.ml:535 [medium] `rename` at :535 and :591 overwrites an existing target; the `kind target <> Not_found` checks at :533 and :589 only protect against writers honouring the uidlist lock. Use link plus unlink or `RENAME_NOREPLACE`. (rename kept: names are unique and a duplicate identity is rejected under the lock before the rename)
 - [x] imap_maildir.ml:215 [medium] a rename by an external MUA between the lstat at :215 and the stat at :218 raises `Eio.Io Not_found` and aborts the whole scan, while a disappearance before :215 is tolerated.
 - [x] imap_maildir.ml:233 [medium] a symlink or subdirectory with a valid-looking name fails at :216 while one with an unparsable name is skipped silently at :234.
 - [ ] imap_maildir.ml:483 [confirmed] no mutation path checks the writer lease: `append`, `set_flags`, `remove`, `recover`, `ensure_keywords`, `with_inventory_pages` and `open_dir` all skip it; `writer_locks` is read only by `with_writer_lock`. Plan step 4. (left for step 4)

@@ -16,6 +16,14 @@ val of_int64 : int64 -> (t, string) result
 val to_int64 : t -> int64
 (** [to_int64 u] is the numeric value of [u]. *)
 
+val of_int : int -> (t, string) result
+(** [of_int n] is [n] as a UID. The error names the valid range when [n]
+    is outside 1 to 4294967295. *)
+
+val to_int : t -> int
+(** [to_int u] is the numeric value of [u]. Unlike {!to_int64} it
+    allocates nothing. *)
+
 val to_string : t -> string
 (** [to_string u] is the decimal wire form of [u]. *)
 

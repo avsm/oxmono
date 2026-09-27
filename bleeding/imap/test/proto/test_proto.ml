@@ -6,6 +6,26 @@ let wire_ok = function
   | Ok x -> x
   | Error (e:Imap.Wire.error) -> fail e.message
 
+let test_identifier_ints () =
+  let accepts name of_int to_int of_int64 =
+    List.iter (fun n ->
+      Alcotest.(check (option int)) (name ^ " in range") (Some n)
+        (Result.to_option (Result.map to_int (of_int n)));
+      Alcotest.(check bool) (name ^ " matches of_int64") true
+        (Result.map to_int (of_int64 (Int64.of_int n))
+         = Result.map to_int (of_int n))) [ 1; 42; 4_294_967_295 ];
+    List.iter (fun n ->
+      let error r = match r with Ok _ -> None | Error e -> Some e in
+      Alcotest.(check bool) (name ^ " rejects") true (error (of_int n) <> None);
+      Alcotest.(check (option string)) (name ^ " error as of_int64")
+        (error (of_int64 (Int64.of_int n))) (error (of_int n)))
+      [ 0; -1; 4_294_967_296; max_int ] in
+  accepts "UID" Imap.Uid.of_int Imap.Uid.to_int Imap.Uid.of_int64;
+  accepts "UIDVALIDITY" Imap.Uidvalidity.of_int Imap.Uidvalidity.to_int
+    Imap.Uidvalidity.of_int64;
+  accepts "sequence number" Imap.Seq.of_int Imap.Seq.to_int
+    Imap.Seq.of_int64
+
 let test_uid_set () =
   let u n = expect_ok (Imap.Uid.of_int64 n) in
   let set=Imap.Uid_set.of_intervals [u 7L,u 9L;u 1L,u 3L;u 4L,u 5L] in
@@ -1761,7 +1781,9 @@ let () =
                   test_search_requirements];
      "fetch items", [Alcotest.test_case "wire and capabilities" `Quick
                        test_fetch_items];
-     "scalars", [Alcotest.test_case "UID set" `Quick test_uid_set;
+     "scalars", [Alcotest.test_case "identifier ints" `Quick
+                   test_identifier_ints;
+                 Alcotest.test_case "UID set" `Quick test_uid_set;
                  Alcotest.test_case "UID set syntax" `Quick
                    test_uid_set_syntax;
                  Alcotest.test_case "UID set algebra" `Quick

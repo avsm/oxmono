@@ -394,3 +394,6 @@ staging phase by 40 bytes per row, to 65 and 67.
 
 `stage_rows` encodes a row's flag text only when its list differs from
 the previous row's, cutting the phase from 65 to 25 bytes per row.
+
+`Uid`, `Uidvalidity` and `Seq` gain `of_int` and `to_int`, which
+convert without allocating an `int64`.

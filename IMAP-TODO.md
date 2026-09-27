@@ -126,7 +126,7 @@ run only once everything else works.
 | 13 | `imap.mli` facade, `.mld` pages, `(documentation)` stanza, dune-project dependency fixes | done | 796c75184 |
 | 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | done | b6957cba1 |
 | 15 | Redocumentation pass under doc-style over every public interface | done; three worktree branches merged | cdbd2e380 |
-| 15b | Fix the code contracts the redocumentation pass found contradicted, listed under the step 15b note | todo | |
+| 15b | Fix the code contracts the redocumentation pass found contradicted, listed under the step 15b note | done; five commits, protocol before eio | 5c4f7363c |
 | 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
@@ -1008,6 +1008,65 @@ Fix each with a directed test, in this order.
 15. `Maildir.check_append` reads the keyword map without the metadata lock;
     take the lock or document the race precisely, whichever the callers
     need.
+
+Done: in five commits, be84b858c (sync and bin), affaea851 (protocol),
+99117f194 (eio), b6b45b59f (store) and 5c4f7363c (maildir). The protocol
+commit precedes the eio one because item 8 needs the parser change.
+
+1. An uncertain STORE in `Flags`, and an uncertain conditional STORE or
+   UID EXPUNGE in `Deletion`, marks the operation ambiguous and returns
+   `Pending_operations [id]`, so `sync` exits 3. A failed verification read
+   after a flag STORE marks the operation ambiguous with the read's error
+   as the reason, keeps the flag conflict and returns `Pending_operations`.
+2. `Bridge.copy_once` and `Plan.preview_sync` take `?propagate_deleted`,
+   default `false`, passed to `Flags.reconcile_pair` and
+   `Sync_policy.reconcile_flags`. `--propagate-deleted-flag` sets it on
+   `sync`, `plan-sync` and `plan-deletions`, and bin/README.md lists it.
+3. An unknown ID, or an operation of another kind or scope, is
+   `No_pending_operation` in the three deletion repairs, `local_append`,
+   `record_appenduid` and `inspect_append_candidates`, as in
+   `settle_flags`. A local append without its source or target fields, and
+   an APPEND that is finished or records another UID, stay
+   `Invalid_operation`. The CLI still exits 9 first.
+4. An invalid budget, a missing spool directory or an unusable spool ID is
+   `Invalid_configuration` in `Engine.scan_once` (a `max_windows` below 1),
+   `hydrate_once`, `audit_cache_once`, the two remote-delete repairs and
+   `Deletion`'s remote delete. `Limit` now means only a UID range over the
+   window budget, and `Error.Limit` says so.
+5. `Deletion.reconcile_pair` returns `Stale_pair` for a pair whose scope is
+   not `ctx.scope`, before any cursor check.
+6. `Bridge.copy_once` validates its arguments before it takes the lease.
+7. `Uidbatches.uid_batches` records the mailbox after the tagged OK, in a
+   per-connection list of mailboxes, so a rejected request does not count
+   and A, B, A refuses the second A.
+8. The Response SORT/THREAD parser keeps its 2 MiB and depth bounds and no
+   longer counts nodes. `Selected.Sort.uid_sort` and `Thread.uid_thread`
+   report more than 100,000 UIDs or nodes as `Limit`.
+9. `Journal.note_presence` returns `Stale_revision` when the published
+   generation is above the one given. A generation ahead of it, or no
+   publication, still raises.
+10. `confirm_intent` keeps the stored UID for `~uid:None`, as it keeps the
+    UIDVALIDITY for `~uidvalidity:None`.
+11. `publish_stage` checks staleness before coverage.
+12. STATUS takes the mailbox only from an atom or quoted-string token,
+    which is also what a retained literal becomes, and otherwise fails.
+13. ESEARCH `MODSEQ` must be positive.
+14. `fetch_objectid` rejects a row over 1 MiB or with an unbalanced quote.
+15. Bridge and `Repair.local_append` call `check_append` under the writer
+    lease, and the dotlock is cheap, so `check_append` now reads the
+    keyword map under the metadata lock when the flags hold a keyword. Its
+    doc states that another keyword writer can still fill the free slots
+    after release, and that it raises `Metadata_lock_busy` and
+    `Metadata_lock_lost`.
+
+Assertions changed to the corrected contract: bridge_faults "uncertain
+STORE leaves a conflict" now expects `Pending_operations ["flag-op"]`.
+test_proto "responses" for SORT/THREAD now expects the parser to accept
+100,001 nodes, since the bound moved to `Selected`, where test_sort_thread
+checks it. test_proto "strict ESEARCH fields" uses `MODSEQ 1` as the
+boundary, lists `MODSEQ 0` as invalid and tests duplicates with
+`MODSEQ 1 MODSEQ 2`. The eio sort/thread helper splits large replies into
+32 KiB mock reads. Build and runtest are clean, 17 suites.
 
 ### Step 15 notes
 

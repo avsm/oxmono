@@ -1,4 +1,7 @@
-(** Mailbox STATUS data items (RFC 9051 section 6.3.11). *)
+(** Mailbox STATUS data items.
+
+    The items a STATUS command can request, RFC 9051 §6.3.11 and its
+    extensions. *)
 
 type t =
   | Messages
@@ -11,12 +14,14 @@ type t =
   | Size  (** RFC 8438. *)
   | Deleted  (** RFC 9051 and RFC 9208. *)
   | Deleted_storage  (** RFC 9208. *)
+(** The type for STATUS data items. *)
 
 val to_wire : t -> string
-(** [to_wire i] is the uppercase item name of [i], such as [DELETED-STORAGE]. *)
+(** [to_wire i] is the uppercase item name of [i], such as
+    [DELETED-STORAGE]. *)
 
 val equal : t -> t -> bool
-(** [equal a b] holds when [a] and [b] are the same item. *)
+(** [equal a b] is [true] if [a] and [b] are the same item. *)
 
 val pp : Format.formatter -> t -> unit
-(** [pp] prints {!to_wire}. *)
+(** [pp ppf i] prints [to_wire i] on [ppf]. *)

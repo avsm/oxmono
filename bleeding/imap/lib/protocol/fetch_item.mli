@@ -1,5 +1,8 @@
-(** Metadata FETCH data items. Body items are absent because bodies stream
-    through the Eio client's [fetch_to] and [fetch_binary_to]. *)
+(** Metadata FETCH data items.
+
+    The items a metadata FETCH can request. Body items are absent, since
+    bodies stream through [Imap_eio.Selected.fetch_to] and
+    [Imap_eio.Selected.Binary.fetch_binary_to]. *)
 
 type t =
   | Uid
@@ -14,7 +17,9 @@ type t =
   | Objectid  (** The draft OBJECTID+ compound identity. *)
   | Preview of { lazy_ : bool }  (** RFC 8970, with LAZY when [lazy_]. *)
   | Binary_size of int list
-      (** RFC 3516 decoded size of the MIME part at the section path. *)
+      (** The RFC 3516 decoded size of the MIME part at the section
+          path. *)
+(** The type for metadata FETCH items. *)
 
 val to_wire : t -> string
 (** [to_wire i] is the item name of [i], such as [RFC822.SIZE],
@@ -28,5 +33,7 @@ val capabilities : t -> Capability.t list
     needs [Binary]. *)
 
 val equal : t -> t -> bool
+(** [equal a b] is [true] if [a] and [b] are the same item. *)
+
 val pp : Format.formatter -> t -> unit
-(** [pp] prints {!to_wire}. *)
+(** [pp ppf i] prints [to_wire i] on [ppf]. *)

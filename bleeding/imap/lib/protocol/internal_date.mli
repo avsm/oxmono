@@ -1,32 +1,39 @@
-(** Validated IMAP INTERNALDATE / APPEND date-time (RFC 9051).
+(** IMAP INTERNALDATE and APPEND date-times.
 
-    The value retains its explicit numeric zone, including the distinction
-    between [+0000] and [-0000]. It contains no host-local time conversion. *)
+    A value is an RFC 9051 [date-time] checked for calendar validity. It
+    keeps its explicit numeric zone, including the distinction between
+    [+0000] and [-0000], and involves no host-local time conversion. *)
 
 type t
+(** The type for validated date-times. *)
 
 val of_string : string -> (t, string) result
-(** [of_string s] parses the unquoted 26-byte date-time value [s]. It rejects
-    impossible calendar dates, invalid clock fields, malformed zones and
-    non-ASCII bytes. Second 60 is accepted only when it falls at 23:59:60
-    UTC after applying the zone. *)
+(** [of_string s] is the unquoted 26-byte date-time [s], such as
+    [" 7-Feb-1994 21:52:25 -0800"]. The day may be space-padded or
+    zero-padded, and the month name is matched case-insensitively. The
+    error covers bad syntax, a year of 0, an impossible calendar date, an
+    hour, minute or zone field out of range, and a second of 60 that does
+    not fall at 23:59:60 UTC once the zone is applied. *)
 
 val to_string : t -> string
-(** Return the canonical unquoted IMAP value. *)
+(** [to_string t] is the canonical unquoted form of [t], with a
+    space-padded day and a capitalised month name. *)
 
 val to_wire : t -> string
-(** Return the quoted date-time argument for APPEND. *)
+(** [to_wire t] is [to_string t] in double quotes, the APPEND argument
+    form. *)
 
 val equal_instant : t -> t -> bool
-(** Compare the represented instant across numeric timezone offsets. A leap
-    second compares only with another explicit leap second. *)
+(** [equal_instant a b] is [true] if [a] and [b] denote the same instant,
+    whatever their zones. A leap second equals only another leap second. *)
 
 val of_unix_seconds : int64 -> (t, string) result
-(** Convert a whole-second POSIX timestamp into a UTC IMAP date-time without
-    relying on the process timezone. Reject years outside 1..9999. *)
+(** [of_unix_seconds s] is the POSIX timestamp [s] as a date-time in zone
+    [+0000]. The error covers an [s] whose UTC year is outside 1 to
+    9999. *)
 
 val to_unix_seconds : t -> (int64, string) result
-(** [to_unix_seconds t] is the whole-second POSIX timestamp of [t]. It is
-    [Error] for an explicit leap second, and for an instant outside the range
-    {!of_unix_seconds} accepts, which a year-1 or year-9999 local time can
-    reach through its zone. *)
+(** [to_unix_seconds t] is the whole-second POSIX timestamp of [t]. The
+    error covers a leap second, and an instant outside the range
+    {!of_unix_seconds} accepts, which a local time in year 1 or year 9999
+    can reach through its zone. *)

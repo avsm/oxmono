@@ -1,3 +1,5 @@
+@@ portable
+
 (** IMAP client failures, documented in [Imap_eio.Error]. *)
 
 type t =

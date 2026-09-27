@@ -73,3 +73,7 @@
 (test
  (name test_mailbox)
  (libraries imap.eio imap mail-flag eio eio.mock cstruct))
+
+(test
+ (name test_modes)
+ (libraries imap imap.eio alcotest))

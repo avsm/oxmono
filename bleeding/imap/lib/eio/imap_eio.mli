@@ -52,7 +52,10 @@ module Auth : sig
 
       A secret the chosen mechanism cannot send, such as an empty password
       under PLAIN, fails authentication with
-      [Error.State "invalid credentials"] before any secret is sent. *)
+      [Error.State "invalid credentials"] before any secret is sent.
+
+      The constructors and accessors below are portable, so a credential
+      may be built and inspected on any domain. *)
 
   type mechanism = [ `Auto | `Login | `Cram_md5 | `Plain | `Oauthbearer ]
   (** The type for authentication mechanisms. [`Auto] chooses among PLAIN,
@@ -62,7 +65,7 @@ module Auth : sig
   (** The type for credentials. *)
 
   val password : username:string -> password:string -> ?mechanism:mechanism ->
-    ?allow_insecure_transport:bool -> unit -> t
+    ?allow_insecure_transport:bool -> unit -> t @@ portable
   (** [password ~username ~password ~mechanism ~allow_insecure_transport ()]
       is a credential holding the fixed [password] for [username].
       [mechanism] defaults to [`Auto]. [allow_insecure_transport] defaults
@@ -74,7 +77,7 @@ module Auth : sig
       [username] contains a space or a tab. *)
 
   val refreshing : username:string -> ?mechanism:mechanism ->
-    ?allow_insecure_transport:bool -> (unit -> string) -> t
+    ?allow_insecure_transport:bool -> (unit -> string) -> t @@ portable
   (** [refreshing ~username ~mechanism ~allow_insecure_transport get] is a
       credential for [username] that calls [get] for the password at each
       authentication. [mechanism] defaults to [`Auto].
@@ -87,7 +90,7 @@ module Auth : sig
       [mechanism]. *)
 
   val bearer : username:string -> token:string ->
-    ?allow_insecure_transport:bool -> unit -> t
+    ?allow_insecure_transport:bool -> unit -> t @@ portable
   (** [bearer ~username ~token ~allow_insecure_transport ()] is an
       OAUTHBEARER credential holding the fixed [token] for [username].
       [allow_insecure_transport] defaults to [false].
@@ -97,7 +100,7 @@ module Auth : sig
       b64token. *)
 
   val refreshing_bearer : username:string ->
-    ?allow_insecure_transport:bool -> (unit -> string) -> t
+    ?allow_insecure_transport:bool -> (unit -> string) -> t @@ portable
   (** [refreshing_bearer ~username ~allow_insecure_transport get] is an
       OAUTHBEARER credential for [username] that calls [get] for the token
       at each authentication. [allow_insecure_transport] defaults to
@@ -107,14 +110,14 @@ module Auth : sig
 
       @raise Invalid_argument if {!password} would reject [username]. *)
 
-  val username : t -> string
+  val username : t -> string @@ portable
   (** [username t] is the username of [t]. *)
 
-  val mechanism : t -> mechanism
+  val mechanism : t -> mechanism @@ portable
   (** [mechanism t] is the mechanism of [t]. It is [`Oauthbearer] for a
       bearer credential. *)
 
-  val allow_insecure_transport : t -> bool
+  val allow_insecure_transport : t -> bool @@ portable
   (** [allow_insecure_transport t] holds when [t] may use PLAIN,
       OAUTHBEARER or LOGIN without TLS. *)
 end
@@ -159,7 +162,8 @@ module Error : sig
     | Not_enabled of Imap.Capability.t
         (** The server offers the capability but ENABLE has not confirmed
             it. Nothing was sent. *)
-  (** The type for client errors. *)
+  (** The type for client errors. An error is immutable data, so it may be
+      shared between domains. *)
 end
 
 (** {1 Endpoints} *)
@@ -908,11 +912,13 @@ module Client : sig
   type error = Error.t
   (** The type for client errors. *)
 
-  val pp_error : Format.formatter -> error -> unit
-  (** [pp_error ppf e] prints a one-line description of [e] on [ppf]. *)
+  val pp_error : Format.formatter -> error -> unit @@ portable
+  (** [pp_error ppf e] prints a one-line description of [e] on [ppf]. It
+      is portable, so it may run on any domain. *)
 
-  val error_to_string : error -> string
-  (** [error_to_string e] is the text {!pp_error} prints for [e]. *)
+  val error_to_string : error -> string @@ portable
+  (** [error_to_string e] is the text {!pp_error} prints for [e]. It is
+      portable, so it may run on any domain. *)
 
   val connect :
     sw:Eio.Switch.t -> ?auth:Auth.t -> Transport.t -> (t, error) result

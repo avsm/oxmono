@@ -4,8 +4,8 @@
 type t
 type error = Error.t
 
-val pp_error : Format.formatter -> error -> unit
-val error_to_string : error -> string
+val pp_error : Format.formatter -> error -> unit @@ portable
+val error_to_string : error -> string @@ portable
 
 val connect :
   sw:Eio.Switch.t -> ?auth:Auth.t -> Transport.t -> (t, error) result

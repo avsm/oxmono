@@ -7,20 +7,20 @@ exception Invalid_credentials
 (** Raised when a resolved secret or the username cannot be sent. *)
 
 val password : username:string -> password:string -> ?mechanism:mechanism ->
-  ?allow_insecure_transport:bool -> unit -> t
+  ?allow_insecure_transport:bool -> unit -> t @@ portable
 
 val refreshing : username:string -> ?mechanism:mechanism ->
-  ?allow_insecure_transport:bool -> (unit -> string) -> t
+  ?allow_insecure_transport:bool -> (unit -> string) -> t @@ portable
 
 val bearer : username:string -> token:string ->
-  ?allow_insecure_transport:bool -> unit -> t
+  ?allow_insecure_transport:bool -> unit -> t @@ portable
 
 val refreshing_bearer : username:string ->
-  ?allow_insecure_transport:bool -> (unit -> string) -> t
+  ?allow_insecure_transport:bool -> (unit -> string) -> t @@ portable
 
-val username : t -> string
-val mechanism : t -> mechanism
-val allow_insecure_transport : t -> bool
+val username : t -> string @@ portable
+val mechanism : t -> mechanism @@ portable
+val allow_insecure_transport : t -> bool @@ portable
 
 val resolve_password : t -> string
 (** [resolve_password t] is the current password, or raises

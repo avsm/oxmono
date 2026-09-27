@@ -22,6 +22,9 @@ All dune commands run in the OxCaml switch, from the repository root:
     opam exec --switch=5.2.0+ox -- dune build @bleeding/imap/all
     opam exec --switch=5.2.0+ox -- dune build @bleeding/imap/runtest --force
 
+From a git worktree under `.claude/worktrees/`, dune otherwise resolves
+to the parent checkout's workspace, so add `--root .` to both commands
+there, as in `dune build --root . @bleeding/imap/all`.
 Live-server tests skip without their environment variables. ocamlformat is not
 usable in that switch, so match the surrounding formatting by hand and keep
 lines within 80 columns. Never regenerate a golden file to make a test pass.

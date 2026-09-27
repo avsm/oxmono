@@ -44,6 +44,29 @@ full sentences, no colons or em dashes joining clauses, defaults stated for
 every optional argument, no history in the prose. Implementations carry no
 comments unless the code cannot say it.
 
+### Follow-up round, 2026-09-27: steps 18 to 21
+
+The user asked for the recorded follow-ups to be fixed with the cleanest
+code, since nothing is released and no schema maintenance burden exists,
+and for an investigation of a portable Set and Map.
+
+Investigation result. The OxCaml `base` library is installed in the
+`5.2.0+ox` switch. Its `Map` and `Set` module types are `@@ portable`
+and their types carry kinds: `Base.Set.t : immutable_data with 'elt with
+('elt, 'cmp) Comparator.t` and `Base.Map.t : immutable_data with 'k with
+'v`. The stdlib `Map.MakePortable` exists but its `t` carries no kind,
+which is why CLAUDE.md says a module-level stdlib collection stays
+unreadable from portable code. There is no in-repo sorted map; the
+`Bushel.Smap` name in CLAUDE.md does not exist under `avsm/bushel`.
+Decision: use `Base.Set` and `Base.Map` (qualified, never opened) for
+every collection whose type appears in an interface or lives at module
+level, and iarrays for constant tables.
+
+Rules for this round: every commit adds its entry to the package's
+`CHANGES.md`; behaviour changes get directed tests; both packages build
+and test clean before each commit; `.mli` mode and kind claims come from
+probe tests.
+
 ### Review pause, 2026-09-27, after step 17: plan complete
 
 Every step of the accepted plan is done. Tree state: `minus39` at 68baa44f6,
@@ -178,6 +201,10 @@ run only once everything else works.
 | 15b | Fix the code contracts the redocumentation pass found contradicted, listed under the step 15b note | done; five commits, protocol before eio | 5c4f7363c |
 | 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | done; six benchmarks, immediates, iarray UID sets, a portable protocol library with kind probes, and four allocation cuts | ed4ac2d2e |
 | 17 | Wrap up: add `CHANGES.md` for the `imap` and `maildir` packages summarising the user-visible changes since the baseline, run both packages' build and tests a final time, and record a review pause | done | 68baa44f6 |
+| 18 | Schema reset and one journal: delete the migration ladder for one version-1 schema, fold the APPEND intents into `Journal.operation`, collapse single-valued side tables into columns and flag lists into text columns, drop the redundant index, remove the test-only list readers | todo | |
+| 19 | Publish allocation: find and fix the 61 KB per staged row on the stage and publish path, measured with `bench_store` | todo | |
+| 20 | IDLE with a deadline: `Selected.Idle.wait_for_change` takes a clock and timeout and sends DONE from a timer fiber instead of cancelling the read, `Watch` renews without reconnecting, `Mailbox.wait` uses it | todo | |
+| 21 | Portable collections: replace stdlib `Set`, `Map` and module-level `Hashtbl` with `Base.Set`, `Base.Map` and iarrays so the store, sync and remaining eio types carry kinds, then annotate `@@ portable` wherever the compiler accepts, with probes | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
 becomes its own package now; the `imap` package split into protocol, eio and

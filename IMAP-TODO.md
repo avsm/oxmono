@@ -45,7 +45,7 @@ comments unless the code cannot say it.
 |---|------|--------|--------|
 | 0 | Baseline commit of the untracked IMAP tree and its shared-library edits | done | b4084133b |
 | R | Phase 2 implementation review by subagent, one per module, findings in section 0.R | done, 21 reviews, 336 findings | |
-| F | Apply Phase 2 correctness fixes in severity order, then dead code, redundancy, comments | todo | |
+| F | Apply Phase 2 correctness fixes in severity order, then dead code, redundancy, comments | in progress: wave 1 (protocol, eio, store, maildir) runs in four git worktrees, see `git worktree list`; merge each branch onto minus39 with rebase, then wave 2 (sync, then cli) | |
 | 1 | Plan item 8: strip duplicated docs from core Eio `.mli` and private store `.mli` to one-line internal contracts; rename `Imap_store.Sync` to `Journal` | todo | |
 | 2 | Plan items 1 to 3: `Imap.Capability`, typed `Response.Capability`/`Enabled`, `Error.Unsupported`, typed `Client.capabilities`/`enabled`/`has`/`enable` | todo | |
 | 3 | Plan item 12: `spool` as a private library shared by `imap.sync` and test/io; drop copy_files | todo | |

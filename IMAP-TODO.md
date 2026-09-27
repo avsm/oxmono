@@ -123,7 +123,7 @@ run only once everything else works.
 | 10 | Plan item 9: `with_mailbox` reentrancy returns `State` instead of blocking | done | 286cc6993 |
 | 11 | Sync moves: `Ctx` record, single `Imap_sync.Error.t`, `Repair` module, `Plan` module, one APPEND inspection, drop `Engine.run_once` if unused | done | 533f506c0 |
 | 12 | CLI on cmdliner with one term per command and a single `deletion_policy` option; also applies every `bin/imap_cli.ml` finding from 0.R and wires the blob orphan collector and `forget_epochs` into startup under the writer lease | done | e03ce0e85 |
-| 13 | `imap.mli` facade, `.mld` pages, `(documentation)` stanza, dune-project dependency fixes | todo | |
+| 13 | `imap.mli` facade, `.mld` pages, `(documentation)` stanza, dune-project dependency fixes | done | 796c75184 |
 | 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | todo | |
 | 15 | Redocumentation pass under doc-style over every public interface | todo | |
 | 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | todo | |
@@ -573,6 +573,40 @@ spool, the list-mode exit status, the startup orphan collection, `gc` with and
 without a lease and `forget-epochs`. README and IMAP-SPEC name the new
 grammar. The cross-module error payload item stays open for its other
 modules. Build and runtest are clean, 17 suites and 235 test cases.
+
+Step 13. Done: `lib/protocol/imap.mli` is the main module of the `imap`
+library. Its synopsis says the library performs no I/O, and it declares
+a documented alias for each of the 21 modules under the sections
+Identifiers, Wire and codecs, Vocabularies and Planning, the order the
+`(modules)` list now follows. Consumers are unchanged. Package `imap`
+has `doc/index.mld`, `client.mld` and `sync.mld`, and package `maildir`
+has `doc/index.mld`, each declared by a `(documentation)` stanza. Every
+code block is a verbatim excerpt of `test/examples/client.ml`, `sync.ml`
+or `bleeding/maildir/test/examples/writer.ml`, executables that `@all`
+links and nothing runs. The sync page runs `Bridge.copy_once` outside
+`Maildir.with_writer`, because the cycle takes the writer lease itself
+and a nested lease in the same process is `Writer_busy`. It shows
+`with_writer` around the startup orphan collection, as the CLI does.
+`dune build @doc` cannot run. The `odoc` on PATH is 3.2.1 from the 5.5.0
+switch, and it rejects every OxCaml interface with errors such as
+`ERROR: File "mtime.cmti": not an interface`. Comment placement was
+checked instead with `ocamlc -stop-after parsing -w +50` over every
+`.mli` of both packages. The facades, auth.mli, transport.mli and the
+new imap.mli are clean. response.mli has 4 ambiguous comments and
+command.mli 23, each packed between two `val`s, left for step 15.
+Package `imap` now lists `sqlite3`, which `imap.store` and
+`imap_sync_local` use directly and so is not test-only, `optint` for
+engine.ml, and `ptime` and `jmap` with `:with-test`.
+Package `maildir` lists `eio_main` with `:with-test`. No stanza names
+`threads`. Entries no module uses were removed: `cstruct` and
+`digestif` from `imap.sync` and test/io, `cstruct` from test_client,
+test_sasl and test_pool, `imap` from test_sasl, test_pool,
+test_reentrancy and body_memory, `imap.eio` from test_session_limits
+and test_deflate_flow, `mail-flag` from test/mirror and test/scale,
+`fetch`, `fetch-httpz`, `fmt` and `uri` from test_cross_protocol, which
+reaches them through `jmap.eio`, and `eio.unix` from test_dotlock. Both
+READMEs point at the pages and examples. Build and runtest are clean, 17
+suites and 235 test cases.
 
 ### Step F notes
 
@@ -1111,7 +1145,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] auth.ml:15 [redundant] `password` is `refreshing (fun () -> password)` and `bearer` is `refreshing_bearer (fun () -> token)` with duplicated checks at :15 and :31; the flow type is spelled out five times at transport.ml:157, :178, :198, :209 and :248; session.ml:52 and deflate_flow.ml:40 wrap a `close` that already runs under `Cancel.protect`.
 - [x] transport.ml:221 [comment] the STARTTLS ownership sentence sits above `check_open`; move next to `upgrade` or delete. auth.ml:82 stays.
 - [ ] auth.mli:10 [drift] defaults are `Auto` and `false`, undocumented; `Invalid_argument` for an empty, control or non-UTF-8 username and for `Oauthbearer` on `password` is undocumented. transport.mli:6 defaults are 993 for `Implicit`, 143 otherwise; trust defaults to `Ca_certs.system_authenticator ()` loaded eagerly in `v`, raising `Failure` if the store is missing; `v` raises `Invalid_argument` for an empty host, bad port or unparseable name. None documented. Plan step 15. (left for step 15: Transport.v defaults and exceptions; the Auth constructor defaults and Invalid_argument cases are documented)
-- [ ] auth.mli:26 [drift] doc comments at auth.mli:26, :28 and transport.mli:23 sit between two `val`s with no blank line, the facade uses the same pattern throughout, and odoc may attach them to the wrong item; confirm with `dune build @doc` in step 13. (left for step 13)
+- [x] auth.mli:26 [drift] doc comments at auth.mli:26, :28 and transport.mli:23 sit between two `val`s with no blank line, the facade uses the same pattern throughout, and odoc may attach them to the wrong item; confirm with `dune build @doc` in step 13. (left for step 13) (step 13: `@doc` cannot read OxCaml `.cmti` files, so `ocamlc -stop-after parsing -w +50` checked placement instead, and auth.mli, transport.mli and imap_eio.mli have no ambiguous comment)
 - Facts for later steps: CRAM-MD5, PLAIN and OAUTHBEARER wire formats, refresher call count, `close` idempotency, `upgrade` failure handling, `compress_deflate` guards, `read` End_of_file consistency and `connect` cleanup are clean. Callers of hidden values: `resolve_password` at client.ml:95 and auth.ml:64, :95; `cram_md5_response` at session.ml:499; `plain_response` and `oauthbearer_response` at client.ml:127. The `@ portable` on the authenticator is required by vendor/tls/lib/config.mli:83.
 
 #### lib/protocol/proto.ml, wire.ml, mailbox_name.ml

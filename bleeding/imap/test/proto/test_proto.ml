@@ -38,6 +38,172 @@ let test_uid_set_syntax () =
   Alcotest.(check string) "pp" "1:3"
     (Format.asprintf "%a" S.pp (expect_ok (S.of_wire "1,2,3")))
 
+let test_search_encoding () =
+  let module S = Imap.Search in
+  let u n = expect_ok (Imap.Uid.of_int64 n) in
+  let flag f = expect_ok (Mail_flag.Imap_flag.keyword f) in
+  let seen = Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
+  let wire ?(utf8=false) c = match S.to_wire ~utf8 c with
+    | Ok wire -> wire | Error e -> fail (S.error_to_string e) in
+  let check name expected c = Alcotest.(check string) name expected (wire c) in
+  let date day month year = {S.day; month; year} in
+  check "flag keys" "ANSWERED UNSEEN DELETED UNDRAFT"
+    (S.And [Answered; Unseen; Deleted; Undraft]);
+  check "rev1 keys" "NEW OLD RECENT" (S.And [New; Old; Recent]);
+  check "keyword" "KEYWORD $Forwarded" (Keyword (flag "$Forwarded"));
+  check "unkeyword" "UNKEYWORD work" (Unkeyword (flag "work"));
+  check "quoted" "SUBJECT \"say \\\"hi\\\" \\\\ now\""
+    (Subject "say \"hi\" \\ now");
+  check "empty string" "BODY \"\"" (Body "");
+  check "header" "HEADER \"Message-ID\" \"<a@b>\""
+    (Header ("Message-ID", "<a@b>"));
+  check "dates" "SINCE 1-Feb-2024 SENTBEFORE 29-Feb-2024 ON 31-Dec-0999"
+    (S.And [Since (date 1 2 2024); Sentbefore (date 29 2 2024);
+            On (date 31 12 999)]);
+  check "sizes" "LARGER 0 SMALLER 4096" (S.And [Larger 0L; Smaller 4096L]);
+  check "uid" "UID 1:3,7"
+    (Uid (Imap.Uid_set.of_list [u 1L; u 2L; u 3L; u 7L]));
+  check "modseq" "MODSEQ 42"
+    (Modseq (expect_ok (Imap.Modseq.of_int64 42L)));
+  check "object ids" "EMAILID M_1 THREADID T-2"
+    (S.And [Emailid "M_1"; Threadid "T-2"]);
+  check "saved" "$" Saved;
+  check "empty conjunction" "ALL" (S.And []);
+  check "single conjunction" "SEEN" (S.And [Seen]);
+  check "not" "NOT (SEEN FLAGGED)" (Not (And [Seen; Flagged]));
+  check "or" "OR SEEN (UID 1:5)"
+    (Or (Seen, Raw "UID 1:5"));
+  check "nested or" "OR (SEEN DRAFT) NOT OR ANSWERED FLAGGED"
+    (Or (And [Seen; Draft], Not (Or (Answered, Flagged))));
+  check "top-level raw" "RETURN (SAVE) ALL" (Raw "RETURN (SAVE) ALL");
+  check "raw quotes" "SUBJECT \"a ) ( b\"" (Raw "SUBJECT \"a ) ( b\"");
+  let rejected name c =
+    match S.to_wire ~utf8:true c with
+    | Error (S.Invalid_key _ | S.Invalid_raw _) -> ()
+    | Error e -> fail (name ^ ": wrong error " ^ S.error_to_string e)
+    | Ok wire -> fail (name ^ ": accepted " ^ wire) in
+  rejected "system flag keyword" (Keyword seen);
+  rejected "system flag unkeyword" (Unkeyword seen);
+  rejected "30 February" (Before (date 30 2 2024));
+  rejected "29 February 2023" (Before (date 29 2 2023));
+  rejected "month 13" (On (date 1 13 2024));
+  rejected "year 10000" (On (date 1 1 10000));
+  rejected "negative size" (Larger (-1L));
+  rejected "empty UID set" (Uid Imap.Uid_set.empty);
+  rejected "empty header name" (Header ("", "x"));
+  rejected "object id" (Emailid "a b");
+  rejected "empty object id" (Threadid "");
+  rejected "nested" (Not (Or (Seen, Smaller (-5L))));
+  List.iter (fun raw -> rejected ("raw " ^ String.escaped raw) (Raw raw))
+    ["";"   ";"ALL\r\nNOOP";"SUBJECT {5}";"SUBJECT {5+}";"ALL) (";
+     "(ALL";"SUBJECT \"open";"TAB\tX"];
+  let date = S.date_of_internal_date
+    (expect_ok (Imap.Internal_date.of_string " 5-Mar-2024 23:30:00 -0800")) in
+  Alcotest.(check (list int)) "date of an internal date in its own zone"
+    [5; 3; 2024] [date.day; date.month; date.year];
+  Alcotest.(check string) "pp" "OR SEEN (UID 1:2)"
+    (Format.asprintf "%a" S.pp (Or (Seen, Raw "UID 1:2")));
+  Alcotest.(check bool) "equal" true
+    (S.equal (Uid (Imap.Uid_set.of_list [u 2L; u 1L]))
+       (Uid (Imap.Uid_set.of_intervals [u 1L, u 2L])));
+  Alcotest.(check bool) "not equal" false
+    (S.equal (Keyword (flag "a")) (Keyword (flag "b")))
+
+let test_search_utf8 () =
+  let module S = Imap.Search in
+  (match S.to_wire ~utf8:false (Subject "caf\xc3\xa9") with
+   | Error (S.Needs_utf8 "caf\xc3\xa9") -> ()
+   | _ -> fail "non-ASCII string accepted without UTF-8");
+  (match S.to_wire ~utf8:false (Not (Header ("X", "\xe2\x82\xac"))) with
+   | Error (S.Needs_utf8 _) -> ()
+   | _ -> fail "nested non-ASCII header accepted without UTF-8");
+  Alcotest.(check (result string reject)) "UTF-8 quoted"
+    (Ok "SUBJECT \"caf\xc3\xa9\"")
+    (Result.map_error ignore
+       (S.to_wire ~utf8:true (Subject "caf\xc3\xa9")));
+  List.iter (fun s ->
+    match S.to_wire ~utf8:true (Text s) with
+    | Error (S.Unquotable _) -> ()
+    | _ -> fail ("string needing a literal accepted: " ^ String.escaped s))
+    ["a\rb";"a\nb";"a\000b";"\xff\xfe";"bell\007"];
+  Alcotest.(check (result string reject)) "raw is not held to the UTF-8 rule"
+    (Ok "SUBJECT caf\xc3\xa9")
+    (Result.map_error ignore
+       (S.to_wire ~utf8:false (Raw "SUBJECT caf\xc3\xa9")))
+
+let test_search_requirements () =
+  let module S = Imap.Search in
+  let module C = Imap.Capability in
+  let caps c = List.map C.to_wire (S.capabilities c) in
+  let modseq = S.Modseq (expect_ok (Imap.Modseq.of_int64 1L)) in
+  Alcotest.(check (list string)) "plain" [] (caps (And [Seen; Subject "x"]));
+  Alcotest.(check (list string)) "modseq" ["CONDSTORE"] (caps modseq);
+  Alcotest.(check (list string)) "saved" ["SEARCHRES"] (caps Saved);
+  Alcotest.(check (list string)) "object ids once" ["OBJECTID"]
+    (caps (Or (Emailid "M1", Not (Threadid "T1"))));
+  Alcotest.(check (list string)) "combined"
+    ["SEARCHRES"; "CONDSTORE"; "OBJECTID"]
+    (caps (And [Saved; Not modseq; Emailid "M"; modseq]));
+  Alcotest.(check (list string)) "raw needs nothing" []
+    (caps (Raw "MODSEQ 5"));
+  let safe name expected c =
+    Alcotest.(check bool) name expected (S.uidonly_safe c) in
+  safe "typed" true (And [All; Uid (Imap.Uid_set.singleton
+    (expect_ok (Imap.Uid.of_int64 3L))); Saved]);
+  safe "raw UID" true (Raw "UID 1:5");
+  safe "raw sequence set" false (Raw "1:5");
+  safe "raw star" false (Raw " 2,4:* SEEN");
+  safe "nested raw sequence set" false (Not (Raw "1:5"));
+  safe "raw sequence in or" false (Or (Seen, And [Raw "3"]));
+  safe "parenthesized raw passes the leading-token guard" true
+    (Raw "(1:5)")
+
+let test_fetch_items () =
+  let module F = Imap.Fetch_item in
+  let module C = Imap.Capability in
+  let all = [F.Uid; Flags; Internal_date; Rfc822_size; Envelope;
+    Bodystructure; Modseq; Emailid; Threadid; Objectid;
+    Preview {lazy_=false}; Preview {lazy_=true}; Binary_size [1; 2];
+    Binary_size []] in
+  Alcotest.(check (list string)) "wire"
+    ["UID"; "FLAGS"; "INTERNALDATE"; "RFC822.SIZE"; "ENVELOPE";
+     "BODYSTRUCTURE"; "MODSEQ"; "EMAILID"; "THREADID"; "OBJECTID";
+     "PREVIEW"; "PREVIEW (LAZY)"; "BINARY.SIZE[1.2]"; "BINARY.SIZE[]"]
+    (List.map F.to_wire all);
+  Alcotest.(check bool) "no body item" true
+    (List.for_all (fun item ->
+      let wire = F.to_wire item in
+      not (List.exists (fun prefix -> String.starts_with ~prefix wire)
+        ["BODY["; "BODY.PEEK["; "BINARY["; "BINARY.PEEK["])) all);
+  Alcotest.(check (list (list string))) "capabilities"
+    [[]; []; []; []; []; []; ["CONDSTORE"]; ["OBJECTID"]; ["OBJECTID"];
+     ["OBJECTID+"]; ["PREVIEW"]; ["PREVIEW"]; ["BINARY"]; ["BINARY"]]
+    (List.map (fun item -> List.map C.to_wire (F.capabilities item)) all);
+  Alcotest.(check bool) "equal" true
+    (F.equal (Binary_size [1; 2]) (Binary_size [1; 2]));
+  Alcotest.(check bool) "lazy differs" false
+    (F.equal (Preview {lazy_=true}) (Preview {lazy_=false}));
+  Alcotest.(check string) "pp" "BINARY.SIZE[3]"
+    (Format.asprintf "%a" F.pp (Binary_size [3]));
+  Alcotest.(check string) "command"
+    "UID FETCH 1:3 (UID FLAGS PREVIEW (LAZY) BINARY.SIZE[2]) (PARTIAL 1:2)"
+    (command_ok (Imap.Command.uid_fetch_items ~partial:(1L, 2L) ~set:"1:3"
+      ~items:[Uid; Flags; Preview {lazy_=true}; Binary_size [2]] ()));
+  Alcotest.(check string) "saved command" "UID FETCH $ (UID ENVELOPE)"
+    (command_ok (Imap.Command.uid_fetch_saved_items ~items:[Uid; Envelope]
+      ()));
+  List.iter (fun (name, result) ->
+    match result with
+    | Error (e : Imap.Command.error) when e.argument <> None -> ()
+    | Error e -> fail (name ^ ": unlabelled " ^ Imap.Command.to_string e)
+    | Ok wire -> fail (name ^ ": accepted " ^ wire))
+    ["no items", Imap.Command.uid_fetch_items ~set:"1" ~items:[] ();
+     "zero section", Imap.Command.uid_fetch_items ~set:"1"
+       ~items:[Binary_size [0]] ();
+     "saved set", Imap.Command.uid_fetch_items ~set:"$" ~items:[Uid] ();
+     "saved zero section", Imap.Command.uid_fetch_saved_items
+       ~items:[Binary_size [1; 0]] ()]
+
 let test_uid_set_algebra () =
   let module S = Imap.Uid_set in
   let u n = expect_ok (Imap.Uid.of_int64 n) in
@@ -1539,6 +1705,12 @@ let () =
                       test_capability;
                     Alcotest.test_case "responses" `Quick
                       test_capability_responses];
+     "search", [Alcotest.test_case "encoding" `Quick test_search_encoding;
+                Alcotest.test_case "UTF-8 rule" `Quick test_search_utf8;
+                Alcotest.test_case "capabilities and UIDONLY" `Quick
+                  test_search_requirements];
+     "fetch items", [Alcotest.test_case "wire and capabilities" `Quick
+                       test_fetch_items];
      "scalars", [Alcotest.test_case "UID set" `Quick test_uid_set;
                  Alcotest.test_case "UID set syntax" `Quick
                    test_uid_set_syntax;

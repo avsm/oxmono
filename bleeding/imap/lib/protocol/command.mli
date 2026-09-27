@@ -112,6 +112,16 @@ val uid_fetch_binary_size : set:string -> section:int list -> (string, error) re
     the caller. Decoded sections are not replacements for archival BODY[]. *)
 val uid_fetch_preview : set:string -> lazy_:bool -> (string, error) result
 (** RFC 8970 PREVIEW, optionally with the LAZY modifier. *)
+val uid_fetch_items : ?partial:(int64 * int64) -> set:string ->
+  items:Fetch_item.t list -> unit -> (string, error) result
+(** [uid_fetch_items ~set ~items ()] is [UID FETCH] of [items] in order,
+    with the RFC 9394 PARTIAL modifier when [partial] is given. It is an
+    error when [items] is empty or a [Binary_size] section path is
+    invalid. [partial] is omitted by default. *)
+val uid_fetch_saved_items : ?partial:(int64 * int64) ->
+  items:Fetch_item.t list -> unit -> (string, error) result
+(** [uid_fetch_saved_items ~items ()] is {!uid_fetch_items} on the saved
+    result [$]. *)
 val uid_fetch_mod : ?changedsince:int64 -> ?vanished:bool ->
   ?partial:(int64 * int64) ->
   set:string -> items:string list -> unit -> (string, error) result

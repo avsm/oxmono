@@ -348,11 +348,8 @@ let partial_range (first,last) =
      (first<0L)<>(last<0L) then Error "invalid PARTIAL range"
   else Ok (Printf.sprintf "%Ld:%Ld" first last)
 
-let fetch_command ?changedsince ?(vanished=false) ?partial ~set ~items () =
-  let command="UID FETCH" in
-  if not (valid_items items) then
-    fail ~argument:"items" command "invalid FETCH item"
-  else if vanished && changedsince=None then
+let fetch_modifiers ?changedsince ?(vanished=false) ?partial command =
+  if vanished && changedsince=None then
     fail ~argument:"vanished" command "VANISHED requires CHANGEDSINCE"
   else
     let* partial = match partial with
@@ -366,7 +363,15 @@ let fetch_command ?changedsince ?(vanished=false) ?partial ~set ~items () =
       | Some _ ->
           fail ~argument:"changedsince" command "negative CHANGEDSINCE" in
     let mods=partial @ changed @ (if vanished then ["VANISHED"] else []) in
-    let modifier=if mods=[] then "" else " (" ^ String.concat " " mods ^ ")" in
+    Ok (if mods=[] then "" else " (" ^ String.concat " " mods ^ ")")
+
+let fetch_command ?changedsince ?vanished ?partial ~set ~items () =
+  let command="UID FETCH" in
+  if not (valid_items items) then
+    fail ~argument:"items" command "invalid FETCH item"
+  else
+    let* modifier =
+      fetch_modifiers ?changedsince ?vanished ?partial command in
     Ok ("UID FETCH " ^ set ^ " (" ^ String.concat " " items ^ ")" ^ modifier)
 
 let uid_fetch_mod ?changedsince ?vanished ?partial ~set ~items () =
@@ -404,6 +409,29 @@ let uid_fetch_preview ~set ~lazy_ =
   let* set = valid_set "UID FETCH" set in
   Ok ("UID FETCH " ^ set ^
     (if lazy_ then " (UID PREVIEW (LAZY))" else " (UID PREVIEW)"))
+
+let typed_fetch ?partial ~set ~items () =
+  let command="UID FETCH" in
+  let* () = if items=[] then
+      fail ~argument:"items" command "needs at least one item"
+    else List.fold_left (fun acc (item : Fetch_item.t) ->
+      let* () = acc in
+      match item with
+      | Binary_size section ->
+          let* _ = arg command "items"
+            (Result.map_error (fun e -> e.reason) (binary_section section)) in
+          Ok ()
+      | _ -> Ok ()) (Ok ()) items in
+  let* modifier = fetch_modifiers ?partial command in
+  Ok ("UID FETCH " ^ set ^ " (" ^
+    String.concat " " (List.map Fetch_item.to_wire items) ^ ")" ^ modifier)
+
+let uid_fetch_items ?partial ~set ~items () =
+  let* set = valid_set "UID FETCH" set in
+  typed_fetch ?partial ~set ~items ()
+
+let uid_fetch_saved_items ?partial ~items () =
+  typed_fetch ?partial ~set:"$" ~items ()
 
 (* A trailing "{n}" or "{n+}" would make the server read the next line as
    literal data and desynchronise the session. *)

@@ -101,7 +101,8 @@ let test_coalesced_and_fragmented () =
       let sink=Buffer.create 1024 in
       ok (C.with_mailbox client ~mode:`Read_only "INBOX" (fun selected ->
         ok (S.fetch_to selected ~uid:(u 7L) (Eio.Flow.buffer_sink sink));
-        if List.map Imap.Uid.to_int64 (ok (S.uid_search selected "ALL"))<>[7L]
+        if List.map Imap.Uid.to_int64 (ok (S.uid_search selected
+          ~criteria:Imap.Search.All))<>[7L]
         then failwith "compressed SEARCH result lost";
         Ok ()));
       if Buffer.contents sink<>String.make 1024 'x' then failwith "compressed literal changed";

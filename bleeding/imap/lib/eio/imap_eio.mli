@@ -130,48 +130,86 @@ module Selected : sig
   val saved_search_count : saved_search -> int64
   (** COUNT captured when SAVE completed, not the current live set size. *)
 
-  val uid_search_save : t -> criterion:string -> (saved_search, Error.t) result
-  (** Requires SEARCHRES or IMAP4rev2. Requests SAVE and COUNT, with exactly
-      one correlated UID ESEARCH COUNT before minting a handle. An empty saved
-      set is valid. Raw criteria and UIDONLY restrictions follow
-      [uid_search]. *)
+  type row = {
+    uid : Imap.Uid.t;
+    flags : Mail_flag.Imap_flag.t list option;
+    internal_date : Imap.Internal_date.t option;
+    size : int64 option;
+    modseq : Imap.Modseq.t option;
+    envelope : Imap.Response.envelope option;
+    bodystructure : Imap.Response.bodystructure option;
+    email_id : string option;
+    thread_id : string option option;
+    preview : string option option;
+    objectid : Imap.Response.compound_object_id option;
+    binary_sizes : (int list * int64) list;
+  }
+  (** The FETCH data of one message. A field is [None], and [binary_sizes]
+      is empty, when its item was not requested or the server did not
+      report it. [flags] is the last FLAGS reported and can include the
+      transient [\Recent]. [size] is RFC822.SIZE. [thread_id = Some None]
+      is an RFC 8474 THREADID NIL. [preview = Some None] is a LAZY PREVIEW
+      NIL, and [Some (Some "")] means the server found no meaningful
+      preview. [objectid] is the OBJECTID+ message identity, which never
+      carries an account or mailbox identifier. [binary_sizes] pairs each
+      requested BINARY.SIZE section with its decoded size in octets. *)
+
+  val uid_search_save :
+    t -> criteria:Imap.Search.t -> (saved_search, Error.t) result
+  (** [uid_search_save t ~criteria] saves the UIDs matching [criteria] on
+      the server and is a handle to them. It requires SEARCHRES or
+      IMAP4rev2, requests SAVE and COUNT, and needs exactly one correlated
+      UID ESEARCH COUNT before minting the handle. An empty saved set is
+      valid. [criteria] follows the rules of [uid_search]. *)
 
   val uid_search_saved :
-    saved_search -> criterion:string -> (Imap.Uid.t list, Error.t) result
-  (** Search within the live saved set, preserving the handle for later use.
-      The fixed ALL/COUNT command combines UID $ with a validated grouped
-      criterion; RETURN/SAVE cannot be injected. Requires exactly one correlated
-      UID ESEARCH result with consistent ALL/COUNT and no duplicate UIDs.
-      At most 100,000 results are expanded. Ordinary [uid_search] remains a
-      conservative invalidation boundary even when used with UID $. *)
+    saved_search -> criteria:Imap.Search.t -> (Imap.Uid.t list, Error.t) result
+  (** [uid_search_saved saved ~criteria] is the UIDs of the live saved set
+      that match [criteria], and keeps [saved] valid. The fixed command
+      requests ALL and COUNT for [UID $] and the grouped [criteria], so a
+      [Raw] criterion cannot inject RETURN or SAVE. Exactly one correlated
+      UID ESEARCH result with consistent ALL and COUNT and no repeated UID
+      is required. At most 100,000 results are expanded. [criteria] follows
+      the rules of [uid_search]. An ordinary [uid_search] invalidates
+      [saved] even when its criteria name [Saved]. *)
 
   val uid_fetch_saved : saved_search -> ?partial:(int64 * int64) ->
-    items:string list -> unit -> (Imap.Response.fetch list, Error.t) result
-  (** Bounded metadata-only UID FETCH of the saved set. Always requests UID;
-      allowed attributes are UID, FLAGS, INTERNALDATE, RFC822.SIZE, ENVELOPE,
-      BODYSTRUCTURE and MODSEQ. MODSEQ requires CONDSTORE/QRESYNC; positional
-      PARTIAL requires PARTIAL. Body literals are not supported here.
-      Existing response-count/metadata budgets apply; MESSAGELIMIT partial
-      results fail. Returned rows have UID but may include unsolicited FETCH
-      updates: they do not independently prove membership in the saved set. *)
+    items:Imap.Fetch_item.t list -> unit -> (row list, Error.t) result
+  (** [uid_fetch_saved saved ~items ()] fetches [items] for the saved set
+      under the row policy of [fetch], in ascending UID order. [partial]
+      is omitted by default. When given it is an RFC 9394 position range
+      and requires PARTIAL. Every reported UID is accepted because the
+      saved set is not known locally, so rows can include unsolicited
+      updates and do not prove membership. A MESSAGELIMIT partial result
+      fails the call. *)
 
-  val uid_search : t -> string -> (Imap.Uid.t list, Error.t) result
-  (** [uid_search t criterion] is the explicit SEARCH result for [criterion],
-      sorted and without duplicates. Exactly one SEARCH response or one UID
-      ESEARCH response tagged with this command is required. A missing
-      response is not an empty result. Expansion is bounded to 100,000 UIDs. *)
+  val uid_search :
+    t -> criteria:Imap.Search.t -> (Imap.Uid.t list, Error.t) result
+  (** [uid_search t ~criteria] is the UIDs matching [criteria], sorted and
+      without duplicates. Exactly one SEARCH response or one UID ESEARCH
+      response tagged with this command is required. A missing response is
+      not an empty result. Expansion is bounded to 100,000 UIDs.
+
+      Every search in this module encodes its criteria with
+      {!Imap.Search.to_wire}, allowing non-ASCII strings once UTF8=ACCEPT
+      is enabled or IMAP4rev2 is in effect, and an encoding error is
+      [Error.State]. The extensions {!Imap.Search.capabilities} lists are
+      required, and QRESYNC satisfies CONDSTORE. Once UIDONLY is enabled,
+      criteria that fail {!Imap.Search.uidonly_safe} are [Error.State].
+      The server validates the grammar of a [Raw] criterion. *)
 
   val uid_sort :
     t -> keys:(Imap.Sort.key * Imap.Sort.order) list ->
-    charset:string -> criterion:string -> (Imap.Uid.t list, Error.t) result
-  (** RFC 5256 UID SORT. Requires SORT or SORT=DISPLAY and returns at most
-      100,000 distinct UIDs in server sort order. An explicit empty SORT result
-      is [Ok []]; absent, repeated, malformed or MESSAGELIMIT partial results
-      fail. [charset] is mandatory; [criterion] is raw SEARCH syntax, with no
-      CHARSET prefix. Under UIDONLY it must not contain message sequence sets;
-      use [ALL] or [UID ...]. The leading sequence-set guard is shared with
-      [uid_search]; the server validates the remaining SEARCH grammar.
-      A result describes current mailbox membership, not a durable snapshot. *)
+    charset:string -> criteria:Imap.Search.t ->
+    (Imap.Uid.t list, Error.t) result
+  (** [uid_sort t ~keys ~charset ~criteria] is the RFC 5256 UID SORT of
+      the messages matching [criteria], in server sort order. It requires
+      SORT or SORT=DISPLAY and returns at most 100,000 distinct UIDs. An
+      explicit empty SORT result is [Ok []]. An absent, repeated or
+      malformed result and a MESSAGELIMIT partial result fail the call.
+      [charset] is mandatory and [criteria] follows the rules of
+      [uid_search]. The result describes current membership, not a durable
+      snapshot. *)
 
   type sort_result = {
     count : int64;
@@ -182,7 +220,7 @@ module Selected : sig
   }
   val uid_sort_extended : t -> returns:Imap.Sort.return list ->
     keys:(Imap.Sort.key * Imap.Sort.order) list ->
-    charset:string -> criterion:string -> (sort_result, Error.t) result
+    charset:string -> criteria:Imap.Search.t -> (sort_result, Error.t) result
   (** RFC 5267 ESORT. Requires ESORT; positive positional PARTIAL additionally
       requires CONTEXT=SORT (the separate PARTIAL capability is insufficient).
       An empty [returns] requests ALL; COUNT is always additionally requested.
@@ -194,7 +232,7 @@ module Selected : sig
       Expansion preserves comma-element order and expands each numeric range
       ascending, rejecting duplicates and more than 100,000 UIDs. COUNT alone
       may exceed that bound. Partial pages must match their clipped COUNT and
-      position range. Raw criteria and UIDONLY restrictions follow [uid_sort].
+      position range. [charset] and [criteria] follow [uid_sort].
       No UPDATE context is established; positions may shift between commands
       and results do not establish a durable snapshot. *)
 
@@ -204,21 +242,24 @@ module Selected : sig
 
   val uid_thread :
     t -> algorithm:Imap.Thread.algorithm -> charset:string ->
-    criterion:string -> (thread list, Error.t) result
+    criteria:Imap.Search.t -> (thread list, Error.t) result
   (** RFC 5256 UID THREAD, gated by the exact THREAD=algorithm capability.
       Preserves ordered parent/child relationships and dummy grouping nodes
       ([uid=None]). A number in the response outside the UID range is a
       [Protocol] error. Bounds are 100,000 nodes and depth 100. Empty results
       must be explicit. Absent, repeated, malformed and partial results fail.
-      [charset] and raw [criterion] follow [uid_sort]'s rules, including
-      UIDONLY. Thread trees are server-computed relationships, not stable JMAP
-      thread identifiers or a durable mailbox snapshot. *)
+      [charset] and [criteria] follow [uid_sort]. Thread trees are
+      server-computed relationships, not stable JMAP thread identifiers or a
+      durable mailbox snapshot. *)
 
-  val uid_search_partial : t -> range:(int64 * int64) -> criterion:string ->
-    (Imap.Response.esearch, Error.t) result
-  (** One correlated RFC 9394 ESEARCH page. [partial] retains the requested
-      result-position range and returned UID set (or NIL). Positions can shift
-      between calls; pages alone do not prove a complete mailbox inventory. *)
+  val uid_search_partial : t -> range:(int64 * int64) ->
+    criteria:Imap.Search.t -> (Imap.Response.esearch, Error.t) result
+  (** [uid_search_partial t ~range ~criteria] is one correlated RFC 9394
+      ESEARCH page of the results at positions [range]. It requires
+      PARTIAL. [partial] in the result keeps the requested range and the
+      returned UID set, or NIL. Positions can shift between calls, so pages
+      alone do not prove a complete mailbox inventory. [criteria] follows
+      the rules of [uid_search]. *)
 
   type search_page = {
     uids : Imap.Uid.t list;
@@ -226,13 +267,17 @@ module Selected : sig
     limit : int64 option;
     resume_before : Imap.Uid.t option;
   }
-  val uid_search_page : t -> ?before:Imap.Uid.t -> string ->
+  val uid_search_page : ?before:Imap.Uid.t -> t -> criteria:Imap.Search.t ->
     (search_page, Error.t) result
-  (** RFC 9738 descending SEARCH page. [uids] are sorted. [complete] is false
-      only when [resume_before] is [Some _]. After a partial page, use
-      [resume_before] with the same criterion. A missing server boundary returns
-      [Error.Limit]. Cross-page mailbox changes can still shift results; a
-      durable inventory needs an independent membership/checkpoint strategy. *)
+  (** [uid_search_page t ~criteria] is one RFC 9738 descending SEARCH page
+      of the UIDs matching [criteria], below [before] when it is given.
+      [before] is omitted by default. It requires MESSAGELIMIT. [uids] are
+      sorted. [complete] is false only when [resume_before] is [Some _].
+      After a partial page, call again with [resume_before] as [before]
+      and the same criteria. A missing server boundary is [Error.Limit].
+      Mailbox changes between pages can shift results, so a durable
+      inventory needs an independent membership check. [criteria] follows
+      the rules of [uid_search]. *)
 
   val uid_search_range : t -> first:Imap.Uid.t -> last:Imap.Uid.t ->
     (Imap.Uid.t list, Error.t) result
@@ -243,12 +288,14 @@ module Selected : sig
       [last] below [first] or spanning more than 1,000 UIDs is
       [Error.State]. *)
 
-  val uid_fetch_partial : t -> set:Imap.Uid_set.t -> items:string list ->
-    range:(int64 * int64) -> (Imap.Response.fetch list, Error.t) result
-  (** RFC 9394 positional FETCH page. Unsolicited FETCH rows can be interleaved;
-      this is provisional page data, not a complete UID-set inventory. Body
-      items such as [BODY[]] or [BINARY[]] and an empty [set] are refused with
-      [Error.State]. *)
+  val uid_fetch_partial : t -> set:Imap.Uid_set.t ->
+    items:Imap.Fetch_item.t list -> range:(int64 * int64) ->
+    (row list, Error.t) result
+  (** [uid_fetch_partial t ~set ~items ~range] is one RFC 9394 positional
+      FETCH page of [set] under the row policy of [fetch], in ascending UID
+      order. It requires PARTIAL, and an empty [set] is [Error.State].
+      Positions can shift between pages, so pages do not prove a complete
+      inventory of [set]. *)
 
   val fetch_binary_to : t -> ?max_bytes:int64 -> ?partial:(int64 * int64) ->
     uid:Imap.Uid.t -> section:int list -> _ Eio.Flow.sink ->
@@ -269,15 +316,6 @@ module Selected : sig
       connection and is [Error.State]. Decoded parts are not the raw RFC 5322
       message and must not replace archive/synchronization body bytes. *)
 
-  type binary_size_row = { uid : Imap.Uid.t; size : int64 }
-  val uid_fetch_binary_sizes : t -> uids:Imap.Uid.t list -> section:int list ->
-    unit -> (binary_size_row list, Error.t) result
-  (** Decoded sizes for at most 50 distinct UIDs, in ascending UID order. Uses
-      the same BINARY/rev2 gate and leaf section rules as [fetch_binary_to].
-      Missing rows can mean expunged messages; sizes are metadata, not proof of
-      complete membership. Malformed, duplicate or unrequested results fail.
-      Decoding sizes can be expensive on the server; fetch only when needed. *)
-
   val fetch_to : t -> ?max_bytes:int64 -> uid:Imap.Uid.t ->
     _ Eio.Flow.sink -> (unit, Error.t) result
   (** Streams a literal body into [sink] while parsing. A body sent as a quoted
@@ -288,82 +326,39 @@ module Selected : sig
       [Error.Missing_uid] while keeping the selected connection usable. A
       failing [sink] closes the connection and is [Error.State]. *)
 
-  val uid_fetch : t -> set:Imap.Uid_set.t -> items:string list ->
-    (string list, Error.t) result
-  (** [uid_fetch t ~set ~items] is the raw text of each FETCH row in the
-      response, including unsolicited rows. Body items such as [BODY[]] or
-      [BINARY[]] and an empty [set] are refused with [Error.State]. *)
+  val fetch : t -> uids:Imap.Uid.t list -> items:Imap.Fetch_item.t list ->
+    (row list, Error.t) result
+  (** [fetch t ~uids ~items] is one UID FETCH of [items] for [uids], with
+      a row for each requested UID the server reported, in request order.
+      UID and FLAGS are always requested. A repeated UID counts once, more
+      than 1,000 distinct UIDs is [Error.State], and an empty [uids] is
+      [Ok []] without a command. A UID with no row may have been expunged.
+      The session's response budgets bound the reply. The extensions
+      {!Imap.Fetch_item.capabilities} lists are required, with QRESYNC
+      satisfying CONDSTORE and IMAP4rev2 satisfying BINARY, and OBJECTID+
+      must be enabled. EMAILID and THREADID need a selected MAILBOXID, and
+      OBJECTID a selected ACCOUNTID and MAILBOXID, else [Error.Protocol].
 
-  type envelope_row = {
-    uid : Imap.Uid.t;
-    envelope : Imap.Response.envelope;
-  }
-  val uid_fetch_envelopes : t -> uids:Imap.Uid.t list -> unit ->
-    (envelope_row list, Error.t) result
-  (** Fetch typed ENVELOPE data for 1..50 UIDs. Results retain requested UID
-      order and omit messages expunged before FETCH. Malformed, duplicate or
-      changing envelope data fails the call. *)
+      Every FETCH of metadata in this module applies one row policy. A row
+      for a UID that was not requested is unsolicited and ignored. Rows for
+      one UID merge. FLAGS and MODSEQ are live state and take the last
+      value reported, and a differing value for any other item is
+      [Error.Protocol]. A row without a UID is ignored when it carries only
+      FLAGS or MODSEQ and is [Error.Protocol] otherwise. A requested item
+      missing from a row leaves its field empty. Malformed item data and a
+      PREVIEW NIL without LAZY are [Error.Protocol]. Body items do not
+      exist here. Stream bodies with [fetch_to] and [fetch_binary_to]. *)
 
-  type bodystructure_row = {
-    uid : Imap.Uid.t;
-    bodystructure : Imap.Response.bodystructure;
-  }
-  val uid_fetch_bodystructures : t -> uids:Imap.Uid.t list -> unit ->
-    (bodystructure_row list, Error.t) result
-  (** Fetch typed RFC 3501/9051 BODYSTRUCTURE for 1..50 UIDs. Results retain
-      requested UID order and omit expunged messages. Malformed or
-      conflicting repeated structures fail the call. Each row has bounded
-      nesting and size. *)
-
-  type preview_row = { uid : Imap.Uid.t; preview : string option }
-  val uid_fetch_previews : t -> ?lazy_:bool -> uids:Imap.Uid.t list -> unit ->
-    (preview_row list, Error.t) result
-  (** RFC 8970 PREVIEW for at most 50 UIDs per request. [None] is LAZY NIL;
-      [Some ""] means the server found no meaningful preview. A non-LAZY NIL
-      is a protocol error. Missing rows may have been expunged meanwhile. *)
-
-  type object_id_row = {
-    uid : Imap.Uid.t;
-    email_id : string;
-    thread_id : string option;
-  }
-  val uid_fetch_object_ids : t -> uids:Imap.Uid.t list -> unit ->
-    (object_id_row list, Error.t) result
-  (** RFC 8474 OBJECTID for at most 50 distinct UIDs per request. Requires the
-      exact OBJECTID capability and selected MAILBOXID; OBJECTID+ alone has a
-      separate activation and grammar. [thread_id=None] is a reported NIL,
-      while an omitted THREADID is an error. Missing UID rows may have been
-      expunged. A proxy must still verify account scope and must not treat
-      EMAILID as an occurrence or JMAP Email ID without that evidence. *)
-
-  type object_id_plus_row = {
-    uid : Imap.Uid.t;
-    ids : Imap.Response.compound_object_id;
-  }
-  val uid_fetch_object_ids_plus : t -> uids:Imap.Uid.t list -> unit ->
-    (object_id_plus_row list, Error.t) result
-  (** Pinned OBJECTID+ draft -06 compound FETCH for at most 50 distinct UIDs.
-      Requires explicit [Client.enable_objectid_plus] and a selected compound
-      identity with ACCOUNTID and MAILBOXID. Individual message identifiers
-      are optional, including an empty compound response. The caller obtains
-      the verified mailbox context from [info]. The draft mode is not silently
-      substituted for RFC 8474. *)
-
-  val fetch_metadata_range : ?size:bool -> ?internal_date:bool ->
-    t -> first:Imap.Uid.t -> last:Imap.Uid.t ->
-    modseq:bool -> (Imap.Response.fetch list, Error.t) result
-  (** [fetch_metadata_range t ~first ~last ~modseq] fetches the UIDs from
-      [first] to [last] with UID, FLAGS and optionally MODSEQ, which
-      requires CONDSTORE or QRESYNC. A window with [last] below [first] or
-      spanning more than 1,000 UIDs is [Error.State]. Rows without a UID or
-      complete FLAGS are ignored as unsolicited partial updates. Duplicate
-      UID rows are resolved in wire order. A caller must separately reconcile
-      complete membership before treating absence as an expunge. Advertised
-      RFC 9738 MESSAGELIMIT partial successes are continued below the
-      processed UID, and missing or contradictory boundaries fail the
-      call. [size=true] also requests RFC822.SIZE for
-      bounded body inspection; [internal_date=true] requests a validated IMAP
-      INTERNALDATE. *)
+  val fetch_range : t -> first:Imap.Uid.t -> last:Imap.Uid.t ->
+    items:Imap.Fetch_item.t list -> (row list, Error.t) result
+  (** [fetch_range t ~first ~last ~items] fetches [items] for the UIDs from
+      [first] to [last] under the row policy of [fetch], in ascending UID
+      order. A window with [last] below [first] or spanning more than 1,000
+      UIDs is [Error.State]. Advertised RFC 9738 MESSAGELIMIT partial
+      successes are continued below the processed UID, and a missing or
+      contradictory boundary fails the call. Absence from the result does
+      not prove an expunge, so reconcile membership separately before
+      publishing it. *)
 
   type store_receipt = {
     modified : Imap.Uid_set.t;

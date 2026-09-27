@@ -176,17 +176,17 @@ val hydrate_once :
 (** Fetch and durably attach exact BODY.PEEK[] bytes for published UIDs after
     [after_uid] that lack blob references. Queries and transfers are paged.
     [max_messages] defaults to 100 and must be 1 to 10,000, and both byte
-    budgets default to 1 GiB. Each candidate is preflighted with RFC822.SIZE
-    before any body byte is fetched. A message larger than [max_body_bytes]
-    or [max_total_bytes] is skipped, listed in [skipped], and counted against
-    [max_messages]. A message larger than the remaining total budget stops
-    the pass before it. [more] is [true] when missing UIDs remain after
-    [last_uid] or any UID was skipped. Missing UIDs, a changed epoch, failed
-    FETCH completion and SQLite errors stop the pass with an error, and
-    earlier attached blobs remain durable. A concurrent publication yields
-    [Stale_revision] before any attach, and ends the pass with the committed
-    counts and [more=true] after one. The caller supplies unique
-    filesystem-safe spool IDs. No message flags are changed. *)
+    budgets default to 1 GiB. One RFC822.SIZE FETCH preflights each page of up
+    to 100 candidates before any of their body bytes is fetched. A message
+    larger than [max_body_bytes] or [max_total_bytes] is skipped, listed in
+    [skipped], and counted against [max_messages]. A message larger than the
+    remaining total budget stops the pass before it. [more] is [true] when
+    missing UIDs remain after [last_uid] or any UID was skipped. Missing UIDs, a
+    changed epoch, failed FETCH completion and SQLite errors stop the pass with
+    an error, and earlier attached blobs remain durable. A concurrent
+    publication yields [Stale_revision] before any attach, and ends the pass
+    with the committed counts and [more=true] after one. The caller supplies
+    unique filesystem-safe spool IDs. No message flags are changed. *)
 
 type uid_digest = { sha256:string; length:int64 }
 

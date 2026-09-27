@@ -149,14 +149,14 @@ let test_protocol () =
       Alcotest.(check int64) "EXISTS" 1L info.exists;
       Alcotest.(check bool) "APPENDUID UIDVALIDITY" true
         (info.uidvalidity = Imap.Uidvalidity.to_int64 receipt.uidvalidity);
-      let* uids = Selected.uid_search selected "ALL" in
+      let* uids = Selected.uid_search selected ~criteria:Imap.Search.All in
       Alcotest.(check (list int64)) "APPENDUID UID"
         [raw_receipt_uid] (raw_uids uids);
       let* ()=if objectid_plus then
-        let* objects=Selected.uid_fetch_object_ids_plus selected
-          ~uids:[receipt_uid] () in
+        let* objects=Selected.fetch selected ~uids:[receipt_uid]
+          ~items:[Imap.Fetch_item.Objectid] in
         (match objects with
-         | [{uid;ids={email_id=Some _;thread_id=Some _;_}}]
+         | [{uid;objectid=Some {email_id=Some _;thread_id=Some _;_};_}]
              when Imap.Uid.equal uid receipt_uid -> Ok ()
          | _ -> Alcotest.fail "OBJECTID+ omitted message identifiers")
         else Ok () in
@@ -165,12 +165,14 @@ let test_protocol () =
         (Eio.Flow.buffer_sink output) in
       Alcotest.(check string) "exact RFC822 bytes" body
         (Buffer.contents output);
-      let* rows = Selected.fetch_metadata_range selected
-        ~first:receipt_uid ~last:receipt_uid ~modseq:true in
+      let* rows = Selected.fetch_range selected
+        ~first:receipt_uid ~last:receipt_uid
+        ~items:[Imap.Fetch_item.Modseq] in
       let modseq = match rows with
-        | [row] when row.uid = Some raw_receipt_uid ->
-            (match row.modseq with Some n -> n | None ->
-              Alcotest.fail "CONDSTORE omitted MODSEQ")
+        | [row] when Imap.Uid.equal row.uid receipt_uid ->
+            (match row.modseq with
+             | Some n -> Imap.Modseq.to_int64 n
+             | None -> Alcotest.fail "CONDSTORE omitted MODSEQ")
         | _ -> Alcotest.fail "missing CONDSTORE metadata" in
       let set = Imap.Uid_set.singleton receipt.uid in
       let seen = Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
@@ -194,7 +196,7 @@ let test_protocol () =
         (Option.is_some info.highestmodseq);
       Alcotest.(check bool) "QRESYNC advanced checkpoint" true
         (match info.highestmodseq with Some n -> n > checkpoint | None -> false);
-      let* uids = Selected.uid_search selected "ALL" in
+      let* uids = Selected.uid_search selected ~criteria:Imap.Search.All in
       Alcotest.(check (list int64)) "QRESYNC preserved UID"
         [raw_receipt_uid] (raw_uids uids);
       Ok ()))
@@ -330,13 +332,13 @@ let test_objectid_binding () =
     first.cursor.revision current.revision;
   unwrap (Client.with_mailbox mutator ~mode:`Read_only mailbox
     (fun selected ->
-      let* uids = Selected.uid_search selected "ALL" in
+      let* uids = Selected.uid_search selected ~criteria:Imap.Search.All in
       Alcotest.(check (list int64)) "replacement remains empty" []
         (List.map Imap.Uid.to_int64 uids);
       Ok ()));
   unwrap (Client.with_mailbox mutator ~mode:`Read_only renamed
     (fun selected ->
-      let* uids = Selected.uid_search selected "ALL" in
+      let* uids = Selected.uid_search selected ~criteria:Imap.Search.All in
       Alcotest.(check int) "renamed original retains message" 1
         (List.length uids);
       Ok ()))

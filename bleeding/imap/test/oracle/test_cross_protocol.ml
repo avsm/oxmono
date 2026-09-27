@@ -28,7 +28,8 @@ let test t =
     Fun.protect ~finally:(fun () -> C.close client) (fun () ->
       let selected f=imap (C.with_mailbox client ~mode:`Read_write mailbox f) in
       let find subject=selected (fun s ->
-        match imap (S.uid_search s ("HEADER Subject \"" ^ subject ^ "\"")) with
+        match imap (S.uid_search s
+          ~criteria:(Imap.Search.Header ("Subject", subject))) with
         | [uid] -> Ok uid | _ -> Alcotest.fail "expected exactly one IMAP occurrence") in
       let body uid expected=selected (fun s ->
         let out=Buffer.create 128 in
@@ -36,8 +37,8 @@ let test t =
         Alcotest.(check string) "exact IMAP body" expected (Buffer.contents out);
         Ok ()) in
       let has uid criteria=selected (fun s ->
-        let found=imap (S.uid_search s
-          (Printf.sprintf "UID %s %s" (Imap.Uid.to_string uid) criteria)) in
+        let found=imap (S.uid_search s ~criteria:(Imap.Search.Raw
+          (Printf.sprintf "UID %s %s" (Imap.Uid.to_string uid) criteria))) in
         Alcotest.(check (list int64)) criteria [Imap.Uid.to_int64 uid]
           (List.map Imap.Uid.to_int64 found);
         Ok ()) in

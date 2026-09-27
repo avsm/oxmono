@@ -162,6 +162,16 @@ let row_of_fetch (item : Imap.Response.fetch) =
       Ok (Some ({uid; flags; modseq} : Mirror.row))
   | _ -> Ok None
 
+let modseq_items modseq = if modseq then [Imap.Fetch_item.Modseq] else []
+
+(* A row without FLAGS is an unsolicited partial update, not a message. *)
+let row_of_selected (item : Imap_eio.Selected.row) =
+  Option.map (fun flags ->
+    ({uid=item.uid; modseq=item.modseq;
+      flags=List.filter (function
+        | Mail_flag.Imap_flag.Recent -> false
+        | _ -> true) flags} : Mirror.row)) item.flags
+
 let scan ~max_windows ~max_rows ~modseq selected action =
   let upper = action.Mirror.upper_uid in
   let windows = if upper = 0L then 0L else
@@ -174,13 +184,11 @@ let scan ~max_windows ~max_rows ~modseq selected action =
       if first > upper then Ok by_uid else
       let last = Int64.min upper (Int64.add first 999L) in
       let* first_uid, last_uid = window first last in
-      let* fetched = network (Imap_eio.Selected.fetch_metadata_range selected
-        ~first:first_uid ~last:last_uid ~modseq) in
-      let* by_uid = List.fold_left (fun accumulated
-          (item : Imap.Response.fetch) ->
+      let* fetched = network (Imap_eio.Selected.fetch_range selected
+        ~first:first_uid ~last:last_uid ~items:(modseq_items modseq)) in
+      let* by_uid = List.fold_left (fun accumulated item ->
         let* by_uid = accumulated in
-        let* parsed = row_of_fetch item in
-        match parsed with
+        match row_of_selected item with
         | Some row ->
             if not (Uids.mem row.uid by_uid) then incr fetched_count;
             let by_uid = Uids.add row.uid row by_uid in
@@ -262,12 +270,13 @@ let scan_qresync ~max_windows ~max_rows selected action
         if first > upper then Ok map else
         let last = Int64.min upper (Int64.add first 999L) in
         let* first_uid, last_uid = window first last in
-        let* fetched = network (Imap_eio.Selected.fetch_metadata_range
-          selected ~first:first_uid ~last:last_uid ~modseq:true) in
+        let* fetched = network (Imap_eio.Selected.fetch_range selected
+          ~first:first_uid ~last:last_uid ~items:(modseq_items true)) in
         let* map = List.fold_left (fun accumulated fetched ->
           let* map = accumulated in
-          let* row = row_of_fetch fetched in
-          match row with Some row -> add map row | None -> Ok map)
+          match row_of_selected fetched with
+          | Some row -> add map row
+          | None -> Ok map)
           (Ok map) fetched in
         fetch_new (Int64.succ last) map in
       let* by_uid = fetch_new (Int64.succ frontier) by_uid in
@@ -447,16 +456,17 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
                       fetched (Ok [])
                 | _ ->
                     let* fetched=network
-                      (Imap_eio.Selected.fetch_metadata_range selected
-                        ~first:first_uid ~last:last_uid ~modseq:use_modseq) in
+                      (Imap_eio.Selected.fetch_range selected
+                        ~first:first_uid ~last:last_uid
+                        ~items:(modseq_items use_modseq)) in
                     List.fold_right
                       (fun item acc ->
                         let* rest=acc in
-                        let* row=row_of_fetch item in
-                        match row with
+                        match row_of_selected item with
+                        | None -> Ok rest
                         | Some row when not use_modseq ||
                             row.modseq<>None -> Ok (row::rest)
-                        | _ -> Error (Incomplete
+                        | Some _ -> Error (Incomplete
                             "FETCH metadata omitted requested MODSEQ"))
                       fetched (Ok []) in
               let* ()=staged (fun () ->
@@ -680,15 +690,15 @@ let valid_spool_id id =
     | 'A'..'Z' | 'a'..'z' | '0'..'9' | '_' | '-' -> true
     | _ -> false) id
 
-let remote_size selected uid =
-  let raw_uid=Imap.Uid.to_int64 uid in
-  let* metadata=network (Imap_eio.Selected.fetch_metadata_range selected
-    ~first:uid ~last:uid ~modseq:false ~size:true) in
-  match List.find_opt (fun (row:Imap.Response.fetch) ->
-      row.uid=Some raw_uid) metadata with
-  | None -> Error (Incomplete "published UID vanished before hydration")
-  | Some {size=Some size;_} -> Ok size
-  | Some _ -> Error (Incomplete "hydration FETCH omitted RFC822.SIZE")
+let remote_sizes selected uids =
+  let* rows=network (Imap_eio.Selected.fetch selected ~uids
+    ~items:[Imap.Fetch_item.Rfc822_size]) in
+  Ok (fun uid ->
+    match List.find_opt (fun (row:Imap_eio.Selected.row) ->
+        Imap.Uid.equal row.uid uid) rows with
+    | None -> Error (Incomplete "published UID vanished before hydration")
+    | Some {size=Some size;_} -> Ok size
+    | Some _ -> Error (Incomplete "hydration FETCH omitted RFC822.SIZE"))
 
 let hydrate_once ?after_uid ?(max_messages=100)
     ?(max_body_bytes=1_073_741_824L) ?(max_total_bytes=1_073_741_824L)
@@ -749,13 +759,16 @@ let hydrate_once ?after_uid ?(max_messages=100)
               | `Uids [] ->
                   receipt ~after ~hydrated ~bytes ~skipped ~more:false
               | `Uids uids ->
-                  process after considered hydrated bytes skipped uids
-          and process after considered hydrated bytes skipped = function
+                  let* size_of=remote_sizes selected uids in
+                  process ~size_of after considered hydrated bytes skipped
+                    uids
+          and process ~size_of after considered hydrated bytes skipped =
+            function
             | [] -> pages after considered hydrated bytes skipped
             | uid::rest ->
-                let* size=remote_size selected uid in
+                let* size=size_of uid in
                 if size>body_limit then
-                  process (Some uid) (considered+1) hydrated bytes
+                  process ~size_of (Some uid) (considered+1) hydrated bytes
                     (uid::skipped) rest
                 else if size>Int64.sub max_total_bytes bytes then
                   receipt ~after ~hydrated ~bytes ~skipped ~more:true
@@ -764,8 +777,8 @@ let hydrate_once ?after_uid ?(max_messages=100)
                   match attached with
                   | None -> stale ~after ~hydrated ~bytes ~skipped
                   | Some length ->
-                      process (Some uid) (considered+1) (hydrated+1)
-                        (Int64.add bytes length) skipped rest in
+                      process ~size_of (Some uid) (considered+1)
+                        (hydrated+1) (Int64.add bytes length) skipped rest in
           pages after_uid 0 0 0L [] in
       let* nested=network (Imap_eio.Client.with_mailbox client
         ~mode:`Read_only mailbox (fun selected -> Ok (hydrate selected))) in

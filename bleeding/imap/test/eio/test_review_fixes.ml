@@ -269,24 +269,16 @@ let test_rev2_base_extensions () =
     `Return (tag 7 ^ " OK unselected\r\n")] (fun selected ->
     ignore (ok (S.uid_move selected ~set:(uid_set "1") ~mailbox:"Archive"));
     ok (S.uid_expunge selected ~set:(uid_set "1"));
-    ignore (ok (S.uid_search_save selected ~criterion:"ALL"));
+    ignore (ok (S.uid_search_save selected ~criteria:Imap.Search.All));
     ignore (ok (S.wait_for_change selected));
     Ok ())
 
-let test_uid_fetch_rejects_body_items () =
+let test_metadata_fetch_row () =
   with_lease ~caps:"IMAP4rev1 UNSELECT PARTIAL" [
     `Return ("* 1 FETCH (UID 1 FLAGS ())\r\n" ^ tag 3 ^ " OK done\r\n");
     `Return (tag 4 ^ " OK unselected\r\n")] (fun selected ->
-    List.iter (fun items ->
-      expect "body item in uid_fetch" state
-        (S.uid_fetch selected ~set:(uid_set "1") ~items))
-      [["UID"; "BODY[]"]; ["BINARY.PEEK[]"]; ["body.peek[text]"]];
-    expect "body item in uid_fetch_partial" state
-      (S.uid_fetch_partial selected ~set:(uid_set "1") ~items:["BODY[HEADER]"]
-        ~range:(1L,1L));
-    if ok (S.uid_fetch selected ~set:(uid_set "1")
-        ~items:["UID"; "FLAGS"]) = [] then
-      failwith "metadata FETCH after refusal lost its row";
+    if ok (S.fetch selected ~uids:[u 1L] ~items:[]) = [] then
+      failwith "metadata FETCH lost its row";
     Ok ())
 
 let test_fetch_to_quoted_body () =
@@ -338,10 +330,10 @@ let test_search_page_at_uid_one () =
     `Return ("* SEARCH 1\r\n" ^ tag 3 ^ " OK [MESSAGELIMIT 2 1] partial\r\n");
     `Return ("* SEARCH 9 3 9\r\n" ^ tag 4 ^ " OK done\r\n");
     `Return (tag 5 ^ " OK unselected\r\n")] (fun selected ->
-    let page = ok (S.uid_search_page selected "ALL") in
+    let page = ok (S.uid_search_page selected ~criteria:Imap.Search.All) in
     if not page.complete || page.resume_before <> None then
       failwith "page ending at UID 1 was left open";
-    let uids = ok (S.uid_search selected "ALL") in
+    let uids = ok (S.uid_search selected ~criteria:Imap.Search.All) in
     if List.map Imap.Uid.to_int64 uids <> [3L; 9L] then
       failwith "SEARCH UIDs were not sorted and distinct";
     Ok ())
@@ -350,8 +342,8 @@ let test_metadata_modseq_needs_condstore () =
   with_lease ~caps:"IMAP4rev1 UNSELECT" [`Return (tag 3 ^ " OK unselected\r\n")]
     (fun selected ->
       expect "MODSEQ without CONDSTORE" (unsupported Imap.Capability.Condstore)
-        (S.fetch_metadata_range selected ~first:(u 1L) ~last:(u 9L)
-          ~modseq:true);
+        (S.fetch_range selected ~first:(u 1L) ~last:(u 9L)
+          ~items:[Imap.Fetch_item.Modseq]);
       Ok ())
 
 let test_copyuid_source_checked () =
@@ -428,7 +420,7 @@ let () =
   test_provider_credentials_are_state ();
   test_plain_endpoint_names ();
   test_rev2_base_extensions ();
-  test_uid_fetch_rejects_body_items ();
+  test_metadata_fetch_row ();
   test_fetch_to_quoted_body ();
   test_sink_failure_is_local ();
   test_changes_keep_complete_rows ();

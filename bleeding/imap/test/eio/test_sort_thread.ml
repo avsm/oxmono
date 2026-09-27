@@ -37,11 +37,12 @@ let scripted ?(uidonly=false) ?(dispatched=true) ~capabilities ~reply f =
   Imap_eio.Client.close client;
   outcome
 
-let sort ?(criterion="ALL") selected =
+let sort ?(criteria=Imap.Search.All) selected =
   S.uid_sort selected ~keys:[C.Date,C.Descending;C.Subject,C.Ascending]
-    ~charset:"UTF-8" ~criterion
-let thread ?(algorithm=Imap.Thread.References) ?(criterion="ALL") selected =
-  S.uid_thread selected ~algorithm ~charset:"UTF-8" ~criterion
+    ~charset:"UTF-8" ~criteria
+let thread ?(algorithm=Imap.Thread.References) ?(criteria=Imap.Search.All)
+    selected =
+  S.uid_thread selected ~algorithm ~charset:"UTF-8" ~criteria
 let complete response tag = response ^ tag ^ " OK completed\r\n"
 let expect_error label kind = function
   | Error error when kind error -> ()
@@ -63,7 +64,7 @@ let test_capability_gates () =
   expect_error "SORT key list empty" state
     (scripted ~dispatched:false ~capabilities:"SORT" ~reply:(complete "")
       (fun selected -> S.uid_sort selected ~keys:[] ~charset:"UTF-8"
-        ~criterion:"ALL"));
+        ~criteria:Imap.Search.All));
   let uids=ok (scripted ~capabilities:"SORT=DISPLAY"
     ~reply:(complete "* SORT 9 1 4\r\n") sort) in
   if raw_list uids<>[9L;1L;4L] then failwith "SORT order changed"
@@ -121,19 +122,20 @@ let test_partial_results () =
 let test_uidonly () =
   expect_error "sequence SORT in UIDONLY" state
     (scripted ~uidonly:true ~dispatched:false ~capabilities:"SORT"
-      ~reply:(complete "") (sort ~criterion:"1:3"));
+      ~reply:(complete "") (sort ~criteria:(Raw "1:3")));
   expect_error "sequence THREAD in UIDONLY" state
     (scripted ~uidonly:true ~dispatched:false ~capabilities:"THREAD=REFERENCES"
-      ~reply:(complete "") (thread ~criterion:"1:3"));
+      ~reply:(complete "") (thread ~criteria:(Raw "1:3")));
   if raw_list (ok (scripted ~uidonly:true ~capabilities:"SORT"
-    ~reply:(complete "* SORT 9 1\r\n") (sort ~criterion:"UID 1:9")))<>[9L;1L]
+    ~reply:(complete "* SORT 9 1\r\n")
+    (sort ~criteria:(Raw "UID 1:9"))))<>[9L;1L]
   then failwith "UIDONLY SORT changed UIDs";
   ignore (ok (scripted ~uidonly:true ~capabilities:"THREAD=REFERENCES"
     ~reply:(complete "* THREAD (9 1)\r\n") thread))
 
 let extended ?(returns=[]) selected =
   S.uid_sort_extended selected ~returns ~keys:[C.Date,C.Descending]
-    ~charset:"UTF-8" ~criterion:"ALL"
+    ~charset:"UTF-8" ~criteria:Imap.Search.All
 let esort fields tag =
   Printf.sprintf "* ESEARCH (TAG \"%s\") UID %s\r\n%s OK sorted\r\n" tag fields tag
 

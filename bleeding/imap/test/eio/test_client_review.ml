@@ -85,18 +85,21 @@ let with_selected ?(caps="") reply f =
 
 let test_search_evidence () =
   List.iter (fun reply -> with_selected reply (fun with_mailbox ->
-    match with_mailbox (fun selected -> Imap_eio.Selected.uid_search selected "ALL") with
+    match with_mailbox (fun selected -> Imap_eio.Selected.uid_search selected
+      ~criteria:Imap.Search.All) with
     | Error (E.Protocol _) -> ()
     | _ -> failwith "missing, repeated or uncorrelated SEARCH accepted"))
     ["";"* SEARCH 1\r\n* SEARCH 2\r\n";
      "* ESEARCH (TAG \"other\") UID ALL 1\r\n";
      "* ESEARCH UID ALL 1:4294967295\r\n* ESEARCH UID ALL 1:4294967295\r\n"];
   List.iter (fun reply -> with_selected reply (fun with_mailbox ->
-    if ok (with_mailbox (fun selected -> Imap_eio.Selected.uid_search selected "ALL"))<>[]
+    if ok (with_mailbox (fun selected -> Imap_eio.Selected.uid_search selected
+      ~criteria:Imap.Search.All))<>[]
     then failwith "explicit empty SEARCH changed"))
     ["* SEARCH\r\n";"* ESEARCH (TAG \"A00000003\") UID\r\n"];
   with_selected "* ESEARCH UID\r\n" (fun with_mailbox ->
-    match with_mailbox (fun selected -> Imap_eio.Selected.uid_search selected "ALL") with
+    match with_mailbox (fun selected -> Imap_eio.Selected.uid_search selected
+      ~criteria:Imap.Search.All) with
     | Error (E.Protocol _) -> ()
     | _ -> failwith "uncorrelated ESEARCH accepted");
   with_selected "* SEARCH 9 3 9\r\n" (fun with_mailbox ->
@@ -110,7 +113,8 @@ let test_search_evidence () =
         ~last:(u 9L)) with
     | Error (E.Protocol _) -> () | _ -> failwith "out-of-range SEARCH accepted");
   with_selected ~caps:"MESSAGELIMIT=2" "" (fun with_mailbox ->
-    match with_mailbox (fun selected -> Imap_eio.Selected.uid_search_page selected "ALL") with
+    match with_mailbox (fun selected ->
+      Imap_eio.Selected.uid_search_page selected ~criteria:Imap.Search.All) with
     | Error (E.Protocol _) -> () | _ -> failwith "missing page treated as complete")
 
 let test_copy_correspondence () =
@@ -129,18 +133,22 @@ let test_copy_correspondence () =
      "1:1000000000","1000000001:2000000000",[1L,1000000001L,1000000000L]]
 
 let test_fetch_order () =
-  let envelope="(NIL NIL NIL NIL NIL NIL NIL NIL NIL NIL)" in
-  let row uid=Printf.sprintf "* 1 FETCH (UID %d ENVELOPE %s)\r\n" uid envelope in
+  let envelope subject=Printf.sprintf
+    "(NIL %s NIL NIL NIL NIL NIL NIL NIL NIL)" subject in
+  let row ?(subject="NIL") uid=
+    Printf.sprintf "* 1 FETCH (UID %d ENVELOPE %s)\r\n" uid
+      (envelope subject) in
+  let envelopes uids selected=Imap_eio.Selected.fetch selected ~uids
+    ~items:[Imap.Fetch_item.Envelope] in
   with_selected (row 1 ^ row 2) (fun with_mailbox ->
-    let rows=ok (with_mailbox (fun selected ->
-      Imap_eio.Selected.uid_fetch_envelopes selected ~uids:[u 2L;u 1L] ())) in
-    if List.map (fun (row:Imap_eio.Selected.envelope_row) ->
+    let rows=ok (with_mailbox (envelopes [u 2L;u 1L])) in
+    if List.map (fun (row:Imap_eio.Selected.row) ->
         Imap.Uid.to_int64 row.uid) rows<>[2L;1L]
     then failwith "structured FETCH lost request order");
-  with_selected (row 1 ^ row 1) (fun with_mailbox ->
-    match with_mailbox (fun selected ->
-      Imap_eio.Selected.uid_fetch_envelopes selected ~uids:[u 1L] ()) with
-    | Error (E.Protocol _) -> () | _ -> failwith "duplicate ENVELOPE accepted")
+  with_selected (row 1 ^ row ~subject:"\"changed\"" 1) (fun with_mailbox ->
+    match with_mailbox (envelopes [u 1L]) with
+    | Error (E.Protocol _) -> ()
+    | _ -> failwith "conflicting ENVELOPE accepted")
 
 let () =
   test_auth_redaction (); test_selection_cleanup (); test_metadata_scope ();

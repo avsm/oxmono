@@ -64,15 +64,20 @@ let read_one selected message nonce =
     | "mime" -> "MIME IMAP oracle"
     | _ -> assert false
   in
-  let criterion = "HEADER Subject \"" ^ subject ^ " " ^ nonce ^ "\"" in
-  let* uids = Selected.uid_search selected criterion in
+  let criteria = Imap.Search.Header ("Subject", subject ^ " " ^ nonce) in
+  let* uids = Selected.uid_search selected ~criteria in
   match uids with
   | [ uid ] ->
       let body = Buffer.create (String.length message.raw) in
       let* () = Selected.fetch_to selected ~uid (Eio.Flow.buffer_sink body) in
-      let* metadata =
-        Selected.uid_fetch selected ~set:(Imap.Uid_set.singleton uid)
-          ~items:[ "UID"; "FLAGS" ]
+      let* rows = Selected.fetch selected ~uids:[ uid ] ~items:[] in
+      let metadata =
+        List.map
+          (fun (row : Selected.row) ->
+            String.concat " "
+              (List.map Mail_flag.Imap_flag.to_wire
+                 (Option.value ~default:[] row.flags)))
+          rows
       in
       Ok (message.name, message.raw, Buffer.contents body, metadata)
   | _ ->
@@ -224,7 +229,7 @@ let round_trip () =
     let flag = Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
     unwrap (Client.with_mailbox client ~mode:`Read_write mailbox
       (fun selected ->
-        let* uids = Selected.uid_search selected "ALL" in
+        let* uids = Selected.uid_search selected ~criteria:Imap.Search.All in
         match uids with
         | uid :: _ ->
             let set = Imap.Uid_set.singleton uid in
@@ -395,10 +400,10 @@ let round_trip () =
        List.mem local_keyword flag_local.flags);
     let remote_flag_wires = unwrap (Client.with_mailbox client
       ~mode:`Read_only mailbox (fun selected ->
-        let* rows=Selected.fetch_metadata_range selected ~first:flag_uid
-          ~last:flag_uid ~modseq:false in
+        let* rows=Selected.fetch selected ~uids:[flag_uid] ~items:[] in
         match rows with
-        | [row] -> Ok (Option.value ~default:[] row.flags)
+        | [row] -> Ok (List.map Mail_flag.Imap_flag.to_wire
+            (Option.value ~default:[] row.flags))
         | _ -> Alcotest.fail "flag UID disappeared")) in
     Alcotest.(check bool) "server has merged flags" true
       (List.mem "\\Flagged" remote_flag_wires &&
@@ -576,11 +581,9 @@ let round_trip () =
     Alcotest.(check bool) "other deleted UID not expunged" true
       (unwrap (Client.with_mailbox client ~mode:`Read_only mailbox
         (fun selected ->
-          let raw=Imap.Uid.to_int64 flag_uid in
-          let* rows=Selected.fetch_metadata_range selected ~first:flag_uid
-            ~last:flag_uid ~modseq:false in
-          Ok (List.exists (fun (row:Imap.Response.fetch) ->
-            row.uid=Some raw) rows))));
+          let* rows=Selected.fetch selected ~uids:[flag_uid] ~items:[] in
+          Ok (List.exists (fun (row:Selected.row) ->
+            Imap.Uid.equal row.uid flag_uid) rows))));
     Alcotest.(check bool) "no pending deletion operations" true
       (Imap_store.Journal.active_operations store ~scope = []);
     let ambiguous_bytes = "From: ambiguous@example.test\r\nSubject: " ^
@@ -623,7 +626,7 @@ let round_trip () =
       | None -> Alcotest.fail "Cyrus omitted operator APPENDUID" in
     let count_remote () = unwrap (Client.with_mailbox client
       ~mode:`Read_only mailbox (fun selected ->
-        let* uids = Selected.uid_search selected "ALL" in
+        let* uids = Selected.uid_search selected ~criteria:Imap.Search.All in
         Ok (List.length uids))) in
     let count_before = count_remote () in
     (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope ~mailbox
@@ -686,9 +689,11 @@ let objectid_round_trip () =
       let* info=Selected.info selected in
       Alcotest.(check bool) "selected MAILBOXID" true
         (Option.is_some info.mailbox_id);
-      let* rows=Selected.uid_fetch_object_ids selected ~uids:[uid] () in
+      let* rows=Selected.fetch selected ~uids:[uid]
+        ~items:[Imap.Fetch_item.Emailid; Threadid] in
       (match rows with
-       | [{uid=observed;email_id;_}] when Imap.Uid.equal observed uid ->
+       | [{uid=observed;email_id=Some email_id;thread_id=Some _;_}]
+         when Imap.Uid.equal observed uid ->
            Alcotest.(check bool) "EMAILID nonempty" true (email_id<>"")
        | _ -> Alcotest.fail "missing typed OBJECTID row");
       Ok ()))

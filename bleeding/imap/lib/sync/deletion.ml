@@ -52,15 +52,6 @@ let expunge_preflight ~before_flags ~before_modseq after =
        else after_modseq>before_modseq)
   | _ -> false
 
-let decode_flags raw =
-  let rec loop acc = function
-    | [] -> Ok (flags acc)
-    | wire :: tail ->
-        (match F.of_wire wire with
-         | Ok flag -> loop (flag :: acc) tail
-         | Error text -> Error (Diverged text)) in
-  loop [] raw
-
 let describe error =
   let text=Format.asprintf "%a" Imap_eio.Client.pp_error error in
   if String.length text<=512 then text else String.sub text 0 512
@@ -153,12 +144,11 @@ let remote_metadata selected ~epoch ~uid ~modseq =
   if info.uidvalidity<>Imap.Uidvalidity.to_int64 epoch then
     Error Stale_inventory
   else
-    let* rows=network (Imap_eio.Selected.fetch_metadata_range selected
-      ~first:uid ~last:uid ~modseq) in
+    let* rows=network (Imap_eio.Selected.fetch selected ~uids:[uid]
+      ~items:(if modseq then [Imap.Fetch_item.Modseq] else [])) in
     match rows with
-    | {flags=Some raw_flags;modseq;_} :: _ ->
-        let* parsed=decode_flags raw_flags in
-        Ok (Some (parsed,modseq))
+    | {flags=Some remote;modseq;_} :: _ ->
+        Ok (Some (flags remote,Option.map Imap.Modseq.to_int64 modseq))
     | _ -> Ok None
 
 let with_selected client ~mailbox ~mode f =

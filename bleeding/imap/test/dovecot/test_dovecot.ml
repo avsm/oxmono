@@ -21,6 +21,7 @@ end
 let u n = match Imap.Uid.of_int64 n with
   | Ok uid -> uid | Error e -> Alcotest.fail e
 let raw_uids = List.map Imap.Uid.to_int64
+let wires = List.map Mail_flag.Imap_flag.to_wire
 
 let mtime date = match Local_date.to_mtime date with
   | Ok mtime -> mtime | Error message -> Alcotest.fail message
@@ -158,12 +159,13 @@ let test_binary_append () =
       Alcotest.(check (option int64)) "binary append decoded length"
         (Some (Int64.of_int (String.length decoded))) length;
       Alcotest.(check string) "binary append decoded octets" decoded (Buffer.contents output);
-      let rows=unwrap (Imap_eio.Selected.fetch_metadata_range selected ~first:uid ~last:uid
-        ~modseq:false ~internal_date:true) in
+      let rows=unwrap (Imap_eio.Selected.fetch selected ~uids:[uid]
+        ~items:[Imap.Fetch_item.Internal_date]) in
       Alcotest.(check bool) "binary append flags and date" true
         (match rows with
-         | [{Imap.Response.flags=Some flags;internal_date=Some actual;_}] ->
-             List.mem "\\Flagged" flags && Imap.Internal_date.equal_instant date actual
+         | [{Imap_eio.Selected.flags=Some flags;internal_date=Some actual;_}] ->
+             List.mem "\\Flagged" (wires flags) &&
+             Imap.Internal_date.equal_instant date actual
          | _ -> false);
       Ok ()))
 
@@ -236,11 +238,11 @@ let test_binary_sections () =
       fetch ~partial:(2L,100L) [2] (String.sub decoded 2 (String.length decoded-2));
       fetch ~partial:(1000L,10L) [2] "";
       fetch [1] "hello world!";
-      let sizes=unwrap (S.uid_fetch_binary_sizes selected ~uids:[uid]
-        ~section:[2] ()) in
+      let sizes=unwrap (S.fetch selected ~uids:[uid]
+        ~items:[Imap.Fetch_item.Binary_size [2]]) in
       Alcotest.(check bool) "decoded BINARY.SIZE agrees with octets" true
         (match sizes with
-         | [{S.uid=got;size}] ->
+         | [{S.uid=got;binary_sizes=[[2],size];_}] ->
              Imap.Uid.equal got uid &&
              size=Int64.of_int (String.length decoded)
          | _ -> false);
@@ -254,10 +256,10 @@ let test_binary_sections () =
       let archived=Buffer.create 256 in
       unwrap (S.fetch_to selected ~uid (Eio.Flow.buffer_sink archived));
       Alcotest.(check string) "raw BODY stays transfer-encoded" raw (Buffer.contents archived);
-      let rows=unwrap (S.fetch_metadata_range selected ~first:uid ~last:uid ~modseq:false) in
+      let rows=unwrap (S.fetch_range selected ~first:uid ~last:uid ~items:[]) in
       Alcotest.(check bool) "BINARY.PEEK preserves unseen flag" true
         (match rows with
-         | [{Imap.Response.flags=Some flags;_}] -> not (List.mem "\\Seen" flags)
+         | [{S.flags=Some flags;_}] -> not (List.mem "\\Seen" (wires flags))
          | _ -> false);
       Ok ()))
 
@@ -289,8 +291,9 @@ let test_saved_search () =
   let second=append "selected-second" in
   let keeper=append "untouched" in
   let module S=Imap_eio.Selected in
-  let fetch saved=unwrap (S.uid_fetch_saved saved ~items:["FLAGS"] ()) in
-  let uids rows=List.filter_map (fun (row:Imap.Response.fetch) -> row.uid) rows
+  let fetch saved=unwrap (S.uid_fetch_saved saved ~items:[Imap.Fetch_item.Flags]
+    ()) in
+  let uids rows=List.map (fun (row:S.row) -> Imap.Uid.to_int64 row.uid) rows
     |> List.sort Int64.compare in
   let stale name result=match result with
     | Error (Imap_eio.Error.State _) -> ()
@@ -298,13 +301,14 @@ let test_saved_search () =
     | Ok _ -> Alcotest.fail (name ^ " accepted stale saved result") in
   let escaped=unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write source
     (fun selected ->
-      let saved=unwrap (S.uid_search_save selected ~criterion:"SUBJECT selected-") in
+      let saved=unwrap (S.uid_search_save selected
+        ~criteria:(Imap.Search.Subject "selected-")) in
       Alcotest.(check int64) "saved capture count" 2L (S.saved_search_count saved);
       Alcotest.(check (list int64)) "saved fetch selects exact fixture subset"
         [first;second] (uids (fetch saved));
       Alcotest.(check (list int64)) "search within saved subset" [first]
         (raw_uids (unwrap (S.uid_search_saved saved
-          ~criterion:"SUBJECT selected-first")));
+          ~criteria:(Imap.Search.Subject "selected-first"))));
       Alcotest.(check (list int64)) "subset query preserves saved variable"
         [first;second] (uids (fetch saved));
       ignore (unwrap (S.uid_store_saved saved ~operation:`Add
@@ -320,38 +324,42 @@ let test_saved_search () =
       Alcotest.(check int64) "capture count is not a live count" 2L
         (S.saved_search_count saved);
       unwrap (S.uid_expunge_saved saved);
-      let replacement=unwrap (S.uid_search_save selected ~criterion:"ALL") in
-      stale "replaced saved FETCH" (S.uid_fetch_saved saved ~items:["FLAGS"] ());
+      let replacement=unwrap (S.uid_search_save selected
+        ~criteria:Imap.Search.All) in
+      stale "replaced saved FETCH"
+        (S.uid_fetch_saved saved ~items:[Imap.Fetch_item.Flags] ());
       stale "replaced saved STORE" (S.uid_store_saved saved ~operation:`Add
         ~flags:[Mail_flag.Imap_flag.system Deleted] ());
       let rows=fetch replacement in
       Alcotest.(check (list int64)) "unmatched keeper survives" [keeper] (uids rows);
       Alcotest.(check bool) "stale STORE did not modify keeper" true
-        (List.for_all (fun (row:Imap.Response.fetch) -> row.flags=Some []) rows);
+        (List.for_all (fun (row:S.row) -> row.flags=Some []) rows);
       ignore (unwrap (S.uid_store_saved replacement ~operation:`Add
         ~flags:[Mail_flag.Imap_flag.system Deleted] ()));
       unwrap (S.uid_expunge_saved replacement);
       Alcotest.(check (list int64)) "targeted saved EXPUNGE empties selection" []
         (uids (fetch replacement));
-      let empty=unwrap (S.uid_search_save selected ~criterion:"ALL") in
+      let empty=unwrap (S.uid_search_save selected ~criteria:Imap.Search.All) in
       Alcotest.(check int64) "empty saved count" 0L (S.saved_search_count empty);
       Alcotest.(check (list int64)) "empty saved FETCH" [] (uids (fetch empty));
-      ignore (unwrap (S.uid_search selected "RETURN (SAVE COUNT) ALL"));
+      ignore (unwrap (S.uid_search selected
+        ~criteria:(Imap.Search.Raw "RETURN (SAVE COUNT) ALL")));
       stale "raw SEARCH invalidates saved handle" (S.uid_fetch_saved empty
-        ~items:["FLAGS"] ());
-      let last=unwrap (S.uid_search_save selected ~criterion:"ALL") in
+        ~items:[Imap.Fetch_item.Flags] ());
+      let last=unwrap (S.uid_search_save selected ~criteria:Imap.Search.All) in
       Ok last)) in
   stale "saved handle outlives selected lease"
-    (S.uid_fetch_saved escaped ~items:["FLAGS"] ());
+    (S.uid_fetch_saved escaped ~items:[Imap.Fetch_item.Flags] ());
   List.iter (fun mailbox ->
     unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
       (fun selected ->
-        let rows=unwrap (S.fetch_metadata_range selected ~first:(u 1L)
-          ~last:(u 100L) ~modseq:false) in
+        let rows=unwrap (S.fetch_range selected ~first:(u 1L)
+          ~last:(u 100L) ~items:[]) in
         Alcotest.(check int) "saved transfer destination count" 2 (List.length rows);
         Alcotest.(check bool) "saved STORE flags survived transfer" true
-          (List.for_all (fun (row:Imap.Response.fetch) ->
-            Option.fold ~none:false ~some:(fun flags -> List.mem "\\Flagged" flags)
+          (List.for_all (fun (row:S.row) ->
+            Option.fold ~none:false
+              ~some:(fun flags -> List.mem "\\Flagged" (wires flags))
               row.flags) rows);
         Ok ()))) [copied;moved]
 
@@ -395,20 +403,21 @@ let test_sort_thread () =
   (* Removing the first occurrence makes sequence numbers differ from UIDs. *)
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected ->
-      let sort order criterion=raw_uids (unwrap (Imap_eio.Selected.uid_sort
+      let top=Imap.Search.Uid (Imap.Uid_set.singleton (u 4294967295L)) in
+      let sort order criteria=raw_uids (unwrap (Imap_eio.Selected.uid_sort
         selected ~keys:[Imap.Sort.Subject,order] ~charset:"UTF-8"
-        ~criterion)) in
+        ~criteria)) in
       Alcotest.(check (list int64)) "ascending subject, stable ties"
-        [solo;root;first;second] (sort Imap.Sort.Ascending "ALL");
+        [solo;root;first;second] (sort Imap.Sort.Ascending Imap.Search.All);
       Alcotest.(check (list int64)) "reverse subject, stable ties"
-        [root;first;second;solo] (sort Imap.Sort.Descending "ALL");
+        [root;first;second;solo] (sort Imap.Sort.Descending Imap.Search.All);
       Alcotest.(check (list int64)) "empty sort" []
-        (sort Imap.Sort.Ascending "UID 4294967295");
-      let extended returns order criterion =
+        (sort Imap.Sort.Ascending top);
+      let extended returns order criteria =
         unwrap (Imap_eio.Selected.uid_sort_extended selected ~returns
-          ~keys:[Imap.Sort.Subject,order] ~charset:"UTF-8" ~criterion) in
+          ~keys:[Imap.Sort.Subject,order] ~charset:"UTF-8" ~criteria) in
       let summary=extended [Imap.Sort.Min;Max;Count]
-        Imap.Sort.Ascending "ALL" in
+        Imap.Sort.Ascending Imap.Search.All in
       Alcotest.(check int64) "ESORT count" 4L summary.count;
       Alcotest.(check (option int64)) "ESORT first follows subject order"
         (Some solo) (Option.map raw summary.first);
@@ -416,35 +425,35 @@ let test_sort_thread () =
         (Some second) (Option.map raw summary.last);
       Alcotest.(check bool) "summary avoids UID materialization" true
         (summary.uids=None && summary.range=None);
-      let ordered=extended [] Imap.Sort.Descending "ALL" in
+      let ordered=extended [] Imap.Sort.Descending Imap.Search.All in
       Alcotest.(check (option (list int64))) "ESORT default ALL preserves order"
         (Some [root;first;second;solo]) (Option.map raw_uids ordered.uids);
       Alcotest.(check int64) "ESORT default ALL count" 4L ordered.count;
       let empty=extended [Imap.Sort.All;Min;Max]
-        Imap.Sort.Ascending "UID 4294967295" in
+        Imap.Sort.Ascending top in
       Alcotest.(check int64) "ESORT empty count" 0L empty.count;
       Alcotest.(check (option (list int64))) "ESORT explicit empty UID result"
         (Some []) (Option.map raw_uids empty.uids);
       Alcotest.(check bool) "empty ESORT has no boundary UIDs" true
         (empty.first=None && empty.last=None);
-      let threads criterion=unwrap (Imap_eio.Selected.uid_thread selected
-        ~algorithm:Imap.Thread.References ~charset:"UTF-8" ~criterion) in
+      let threads criteria=unwrap (Imap_eio.Selected.uid_thread selected
+        ~algorithm:Imap.Thread.References ~charset:"UTF-8" ~criteria) in
       let node uid children : Imap_eio.Selected.thread =
         {uid=Option.map u uid;children} in
       let expected=[node (Some root)
         [node (Some first) [];node (Some second) []];node (Some solo) []] in
       Alcotest.(check bool) "REFERENCES preserves sibling tree and UIDs" true
-        (threads "ALL"=expected);
+        (threads Imap.Search.All=expected);
       let by_subject=unwrap (Imap_eio.Selected.uid_thread selected
         ~algorithm:Imap.Thread.Orderedsubject ~charset:"UTF-8"
-        ~criterion:"ALL") in
+        ~criteria:Imap.Search.All) in
       Alcotest.(check bool) "ORDEREDSUBJECT preserves sibling tree and UIDs" true
         (by_subject=expected);
       Alcotest.(check bool) "filtered parent retained as dummy node" true
-        (threads (Printf.sprintf "UID %Ld,%Ld" first second)=
+        (threads (Imap.Search.Uid (Imap.Uid_set.of_list [u first;u second]))=
          [node None [node (Some first) [];node (Some second) []]]);
       Alcotest.(check bool) "empty thread" true
-        (threads "UID 4294967295"=[]);
+        (threads top=[]);
       Ok ()))
 
 let test_internal_date_roundtrip () =
@@ -471,12 +480,12 @@ let test_internal_date_roundtrip () =
   let uid=receipt.uid in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected ->
-      match Imap_eio.Selected.fetch_metadata_range selected
-        ~first:uid ~last:uid ~modseq:false ~internal_date:true with
+      match Imap_eio.Selected.fetch selected ~uids:[uid]
+        ~items:[Imap.Fetch_item.Internal_date] with
       | Error _ as error -> error
       | Ok rows ->
           (match rows with
-           | [row] when row.uid=Some (Imap.Uid.to_int64 uid) ->
+           | [row] when Imap.Uid.equal row.uid uid ->
                Alcotest.(check (option string)) "Dovecot INTERNALDATE"
                  (Some "26-Sep-2025 12:34:56 +0000")
                  (Option.map Imap.Internal_date.to_string row.internal_date)
@@ -525,18 +534,18 @@ let test_typed_mime_fetch () =
     (fun selected ->
       let ( let* ) result f=match result with
         | Ok value -> f value | Error _ as error -> error in
-      let* envelopes=Imap_eio.Selected.uid_fetch_envelopes selected
-        ~uids:[uid] () in
+      let* envelopes=Imap_eio.Selected.fetch selected
+        ~uids:[uid] ~items:[Imap.Fetch_item.Envelope] in
       (match envelopes with
-       | [{envelope={subject=Some "multipart fixture";
+       | [{envelope=Some {subject=Some "multipart fixture";
            message_id=Some "<multipart-fixture@example.test>";_};_}] -> ()
        | _ -> Alcotest.fail "Dovecot typed ENVELOPE mismatch");
-      let* structures=Imap_eio.Selected.uid_fetch_bodystructures selected
-        ~uids:[uid] () in
+      let* structures=Imap_eio.Selected.fetch selected
+        ~uids:[uid] ~items:[Imap.Fetch_item.Bodystructure] in
       (match structures with
-       | [{bodystructure=Imap.Response.Multipart
+       | [{bodystructure=Some (Imap.Response.Multipart
            {parts=[Imap.Response.Single_part first;
-                   Imap.Response.Single_part second];subtype;_};_}]
+                   Imap.Response.Single_part second];subtype;_});_}]
            when String.uppercase_ascii subtype="MIXED" &&
              String.uppercase_ascii first.media_type="TEXT" &&
              String.uppercase_ascii first.subtype="PLAIN" &&
@@ -591,7 +600,8 @@ let test_compress () =
             (Buffer.contents output=raw);
           Alcotest.(check (list int64)) "compressed SEARCH after literal"
             [Imap.Uid.to_int64 uid]
-            (raw_uids (unwrap (Imap_eio.Selected.uid_search selected "ALL")));
+            (raw_uids (unwrap (Imap_eio.Selected.uid_search selected
+              ~criteria:Imap.Search.All)));
           Ok ()));
       (match Imap_eio.Client.create_mailbox client ~mailbox with
        | Error (Imap_eio.Error.Rejected {code=Some Imap.Response.Alreadyexists;_}) -> ()
@@ -701,17 +711,19 @@ let test_condstore_move_expunge () =
       Alcotest.(check bool) "UIDNEXT" true (info.uidnext >= 3L);
       Alcotest.(check bool) "HIGHESTMODSEQ present" true
         (Option.is_some info.highestmodseq);
-      let* uids = Imap_eio.Selected.uid_search selected "ALL" in
+      let* uids = Imap_eio.Selected.uid_search selected
+        ~criteria:Imap.Search.All in
       let move_uid, expunge_uid = match uids with
       | [first; second] -> first, second
       | _ -> Alcotest.failf "expected two source UIDs, found %d"
           (List.length uids) in
-      let* rows = Imap_eio.Selected.fetch_metadata_range selected
-        ~first:move_uid ~last:move_uid ~modseq:true in
+      let* rows = Imap_eio.Selected.fetch selected
+        ~uids:[move_uid] ~items:[Imap.Fetch_item.Modseq] in
       let modseq = match rows with
-      | [row] when row.uid = Some (Imap.Uid.to_int64 move_uid) ->
-          (match row.modseq with Some n -> n | None ->
-            Alcotest.fail "FETCH omitted MODSEQ")
+      | [row] when Imap.Uid.equal row.uid move_uid ->
+          (match row.modseq with
+           | Some n -> Imap.Modseq.to_int64 n
+           | None -> Alcotest.fail "FETCH omitted MODSEQ")
       | _ -> Alcotest.fail "FETCH omitted message metadata" in
       let seen = Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
       let* conflict = Imap_eio.Selected.uid_store_flags selected
@@ -732,7 +744,8 @@ let test_condstore_move_expunge () =
         ~set:(uid_set expunge_uid) ~operation:`Add ~flags:[deleted] () in
       let* () = Imap_eio.Selected.uid_expunge selected
         ~set:(uid_set expunge_uid) in
-      let* remaining = Imap_eio.Selected.uid_search selected "ALL" in
+      let* remaining = Imap_eio.Selected.uid_search selected
+        ~criteria:Imap.Search.All in
       Alcotest.(check (list int64)) "source empty" [] (raw_uids remaining);
       Ok (info.uidvalidity, modseq) in
     let validity, checkpoint = unwrap
@@ -740,7 +753,8 @@ let test_condstore_move_expunge () =
          source check_source) in
     unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only
       destination (fun selected ->
-        let* uids = Imap_eio.Selected.uid_search selected "ALL" in
+        let* uids = Imap_eio.Selected.uid_search selected
+          ~criteria:Imap.Search.All in
         Alcotest.(check int) "one moved message" 1 (List.length uids);
         Ok ()));
     let qresync = match Imap.Uidvalidity.of_int64 validity,
@@ -977,9 +991,8 @@ let test_bridge_cram () =
     | Some uid -> uid | None -> Alcotest.fail "upload UID missing" in
   let uploaded_date=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
-      match Imap_eio.Selected.fetch_metadata_range selected
-        ~first:remote_uid ~last:remote_uid ~modseq:false
-        ~internal_date:true with
+      match Imap_eio.Selected.fetch selected ~uids:[remote_uid]
+        ~items:[Imap.Fetch_item.Internal_date] with
       | Error _ as error -> error
       | Ok [row] -> Ok row.internal_date
       | Ok _ -> Error (Imap_eio.Error.Protocol
@@ -1174,9 +1187,8 @@ let test_bridge_cram () =
     (not (Imap.Uid.equal (paired_uid first) (paired_uid second)));
   let uploaded_mtime_date=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
-      match Imap_eio.Selected.fetch_metadata_range selected
-        ~first:(paired_uid first) ~last:(paired_uid first)
-        ~modseq:false ~internal_date:true with
+      match Imap_eio.Selected.fetch selected ~uids:[paired_uid first]
+        ~items:[Imap.Fetch_item.Internal_date] with
       | Error _ as error -> error
       | Ok [row] -> Ok row.internal_date
       | Ok _ -> Error (Imap_eio.Error.Protocol
@@ -1276,7 +1288,7 @@ let test_shared_mailbox_bootstrap () =
     (List.length (Imap_store.Journal.pairs store ~scope));
   let server_uids ()=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
-      Imap_eio.Selected.uid_search selected "ALL")) in
+      Imap_eio.Selected.uid_search selected ~criteria:Imap.Search.All)) in
   Alcotest.(check int) "refusal did not upload" 1
     (List.length (server_uids ()));
   let accepted=match copy ~allow_bootstrap_duplicates:true
@@ -1428,7 +1440,7 @@ let test_append_process_crash () =
     | Ok uid -> uid | Error e -> Alcotest.fail e in
   let remote_uids ()=raw_uids (unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
-      Imap_eio.Selected.uid_search selected "ALL"))) in
+      Imap_eio.Selected.uid_search selected ~criteria:Imap.Search.All))) in
   Alcotest.(check (list int64)) "one server APPEND after child exit"
     [uid_raw] (remote_uids ());
   Eio.Switch.run (fun store_sw ->
@@ -1546,11 +1558,11 @@ let delete_crash_child dbfile mailbox pair_id operation_id =
       let* info=Imap_eio.Selected.info selected in
       Alcotest.(check int64) "delete child epoch"
         (Imap.Uidvalidity.to_int64 epoch) info.uidvalidity;
-      let raw_uid=Imap.Uid.to_int64 uid in
-      let* rows=Imap_eio.Selected.fetch_metadata_range selected
-        ~first:uid ~last:uid ~modseq:true in
+      let* rows=Imap_eio.Selected.fetch selected ~uids:[uid]
+        ~items:[Imap.Fetch_item.Modseq] in
       let modseq=match rows with
-        | [row] when row.uid=Some raw_uid -> Option.get row.modseq
+        | [row] when Imap.Uid.equal row.uid uid ->
+            Imap.Modseq.to_int64 (Option.get row.modseq)
         | _ -> Alcotest.fail "delete child lost target metadata" in
       Imap_store.Journal.prepare_operation store operation;
       Imap_store.Journal.mark_sent store ~id:operation_id;
@@ -1560,22 +1572,18 @@ let delete_crash_child dbfile mailbox pair_id operation_id =
         ~operation:`Add ~flags:[deleted] ~unchangedsince:modseq () in
       Alcotest.(check bool) "conditional delete accepted" true
         (Imap.Uid_set.is_empty result.modified);
-      let* rows=Imap_eio.Selected.fetch_metadata_range selected
-        ~first:uid ~last:uid ~modseq:true in
+      let* rows=Imap_eio.Selected.fetch selected ~uids:[uid]
+        ~items:[Imap.Fetch_item.Modseq] in
       let after=match rows with
-        | [row] when row.uid=Some raw_uid ->
-            let raw_flags=Option.get row.flags in
-            let flags=List.map (fun raw -> match
-              Mail_flag.Imap_flag.of_wire raw with
-              | Ok flag -> flag | Error e -> Alcotest.fail e) raw_flags in
-            Some (flags,row.modseq)
+        | [row] when Imap.Uid.equal row.uid uid ->
+            Some (Option.get row.flags,
+              Option.map Imap.Modseq.to_int64 row.modseq)
         | _ -> None in
       Alcotest.(check bool) "delete child expunge preflight" true
         (Imap_sync.Deletion.expunge_preflight
            ~before_flags:pair.common_flags ~before_modseq:modseq after);
       let* ()=Imap_eio.Selected.uid_expunge selected ~set in
-      let* rows=Imap_eio.Selected.fetch_metadata_range selected
-        ~first:uid ~last:uid ~modseq:false in
+      let* rows=Imap_eio.Selected.fetch selected ~uids:[uid] ~items:[] in
       Alcotest.(check int) "target absent before process exit" 0
         (List.length rows);
       Ok ()));
@@ -1677,7 +1685,7 @@ let test_delete_process_crash () =
     (status=Unix.WEXITED 77);
   let remote_uids ()=raw_uids (unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
-      Imap_eio.Selected.uid_search selected "ALL"))) in
+      Imap_eio.Selected.uid_search selected ~criteria:Imap.Search.All))) in
   Alcotest.(check (list int64)) "only unrelated UID survives crash"
     [unrelated_uid] (remote_uids ());
   Eio.Switch.run (fun store_sw ->
@@ -2157,7 +2165,7 @@ let test_deletion_grace_live () =
       ~id:(Option.get pair.local_id)));
   let server_uids ()=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
-      Imap_eio.Selected.uid_search selected "ALL")) in
+      Imap_eio.Selected.uid_search selected ~criteria:Imap.Search.All)) in
   let first=copy ~grace:1 ("grace-first-" ^ nonce) in
   Alcotest.(check int) "first absence held" 1 first.deletions_held;
   Alcotest.(check int) "first absence did not delete" 0 first.deletions;
@@ -2322,7 +2330,7 @@ let test_reject_unchanged_remote_delete () =
     (Option.get (Imap_store.Journal.find_pair store ~id:pair.id)).revision;
   let remote=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
-      Imap_eio.Selected.uid_search selected "ALL")) in
+      Imap_eio.Selected.uid_search selected ~criteria:Imap.Search.All)) in
   Alcotest.(check (list int64)) "remote UID preserved"
     [Imap.Uid.to_int64 uid] (raw_uids remote);
   let finish_id="remote-delete-finish-" ^ nonce in
@@ -2368,7 +2376,7 @@ let test_reject_unchanged_remote_delete () =
     finished.receipt;
   let remote=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
-      Imap_eio.Selected.uid_search selected "ALL")) in
+      Imap_eio.Selected.uid_search selected ~criteria:Imap.Search.All)) in
   Alcotest.(check (list int64)) "targeted UID absent" [] (raw_uids remote);
   Alcotest.(check bool) "pair has expunge receipt" true
     (match Imap_store.Journal.find_pair store ~id:pair.id with
@@ -2583,15 +2591,15 @@ let test_multiappend () =
       if List.length receipt.uids<>2 then Alcotest.fail "wrong batch UID cardinality";
       unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox (fun selected ->
         List.iter2 (fun uid (body,expected_flags) ->
-          let rows=unwrap (Imap_eio.Selected.fetch_metadata_range selected
-            ~first:uid ~last:uid ~modseq:false ~internal_date:true) in
+          let rows=unwrap (Imap_eio.Selected.fetch selected ~uids:[uid]
+            ~items:[Imap.Fetch_item.Internal_date]) in
           let row=match rows with [row] -> row | _ -> Alcotest.fail "missing batch row" in
           if not (Option.fold ~none:false ~some:(Imap.Internal_date.equal_instant date)
             row.internal_date) then Alcotest.fail "batch date changed";
           let normalize flags=List.map String.lowercase_ascii flags |>
             List.filter ((<>) "\\recent") |> List.sort_uniq String.compare in
           Alcotest.(check (list string)) "per-message flags" (normalize expected_flags)
-            (normalize (Option.get row.flags));
+            (normalize (wires (Option.get row.flags)));
           let buffer=Buffer.create 128 in
           unwrap (Imap_eio.Selected.fetch_to selected ~uid (Eio.Flow.buffer_sink buffer));
           Alcotest.(check string) "UID corresponds to input message" body (Buffer.contents buffer))
@@ -2622,13 +2630,15 @@ let test_shared_maildir () =
   let with_selected mode f=unwrap (Imap_eio.Client.with_mailbox client
     ~mode "INBOX" (fun selected -> Ok (f selected))) in
   let uid=with_selected `Read_only (fun selected ->
-    match unwrap (S.uid_search selected ("HEADER Message-ID <" ^ id ^ "@example.test>")) with
+    match unwrap (S.uid_search selected ~criteria:(Imap.Search.Header
+      ("Message-ID", "<" ^ id ^ "@example.test>"))) with
     | [uid] -> uid | _ -> Alcotest.fail "Dovecot did not discover shared message") in
   let check_remote expected=with_selected `Read_only (fun selected ->
-    let rows=unwrap (S.fetch_metadata_range selected ~first:uid ~last:uid
-      ~internal_date:true ~modseq:false) in
+    let rows=unwrap (S.fetch selected ~uids:[uid]
+      ~items:[Imap.Fetch_item.Internal_date]) in
     let row=match rows with [row] -> row | _ -> Alcotest.fail "missing shared metadata" in
-    let actual=match row.flags with Some flags -> flags | None -> Alcotest.fail "missing flags" in
+    let actual=match row.flags with
+      | Some flags -> wires flags | None -> Alcotest.fail "missing flags" in
     let normalize flags=List.map String.lowercase_ascii flags |> List.filter
       ((<>) "\\recent") |> List.sort_uniq String.compare in
     Alcotest.(check (list string)) "Dovecot sees file flags"

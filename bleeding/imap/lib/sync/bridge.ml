@@ -101,15 +101,6 @@ let local_date (local:Maildir.occurrence) =
 let durable_flags = F.durable
 let same_flags = F.equal_durable
 
-let parse_flags raw =
-  let rec parse acc = function
-    | [] -> Ok (durable_flags (List.rev acc))
-    | value :: rest ->
-        (match F.of_wire value with
-         | Error message -> Error (Client (Imap_eio.Error.Protocol message))
-         | Ok flag -> parse (flag :: acc) rest) in
-  parse [] raw
-
 let appended_uid_missing uid =
   Invalid_operation (Printf.sprintf "APPENDUID target UID %Ld is missing"
     (Imap.Uid.to_int64 uid))
@@ -122,18 +113,16 @@ let remote_metadata ?(missing=fun uid -> Source_vanished uid) client ~mailbox
       if info.uidvalidity<>Imap.Uidvalidity.to_int64 uidvalidity then
         Error Uidvalidity_changed
       else
-        let* rows=network (Imap_eio.Selected.fetch_metadata_range selected
-          ~first:uid ~last:uid ~modseq:false ~internal_date) in
+        let* rows=network (Imap_eio.Selected.fetch selected ~uids:[uid]
+          ~items:(if internal_date then [Imap.Fetch_item.Internal_date]
+            else [])) in
         match rows with
-        | row :: _ -> Ok row
-        | [] -> Error (missing uid))) with
+        | {flags=Some flags;internal_date;_} :: _ ->
+            Ok (durable_flags flags,internal_date)
+        | _ -> Error (missing uid))) with
     | Error error -> Error (Client error)
     | Ok result -> result in
-  let* flags=match row.flags with
-    | Some flags -> parse_flags flags
-    | None -> Error (Client (Imap_eio.Error.Protocol
-        "message FETCH omitted FLAGS")) in
-  Ok (flags,row.internal_date)
+  Ok row
 
 let remote_flags_and_date ?missing client ~mailbox ~uid ~uidvalidity =
   let* flags,date=remote_metadata ?missing client ~mailbox ~uid ~uidvalidity
@@ -1612,17 +1601,19 @@ let inspect_append_candidates ?(max_uids=1000)
                 let* first_uid=checked_uid first in
                 let* last_uid=checked_uid last in
                 let* rows=network
-                  (Imap_eio.Selected.fetch_metadata_range selected
-                    ~first:first_uid ~last:last_uid ~modseq:false ~size:true
-                    ~internal_date:(Option.is_some expected_date)) in
+                  (Imap_eio.Selected.fetch_range selected
+                    ~first:first_uid ~last:last_uid
+                    ~items:(Imap.Fetch_item.Rfc822_size ::
+                      (if Option.is_some expected_date then [Internal_date]
+                       else []))) in
                 let rec check matches = function
                   | [] -> scan (Int64.succ last) matches
-                  | (row:Imap.Response.fetch)::rest ->
-                      (match row.uid,row.flags,row.size with
-                       | Some raw_uid,Some raw_flags,Some row_size when
-                           raw_uid>=first && raw_uid<=last ->
-                           let* uid=checked_uid raw_uid in
-                           let* row_flags=parse_flags raw_flags in
+                  | (row:Imap_eio.Selected.row)::rest ->
+                      (match row.flags,row.size with
+                       | None,_ -> check matches rest
+                       | Some row_flags,Some row_size ->
+                           let uid=row.uid in
+                           let row_flags=durable_flags row_flags in
                            let* date_matches=match expected_date,
                                row.internal_date with
                              | None,_ -> Ok true

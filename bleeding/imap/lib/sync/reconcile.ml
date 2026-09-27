@@ -1,5 +1,5 @@
 module Flag = Mail_flag.Imap_flag
-module Uids = Map.Make (Int64)
+module Uids = Map.Make (Imap.Uid)
 
 type error =
   | Client of Imap_eio.Error.t
@@ -41,15 +41,6 @@ let checked = function
   | Error message -> Error (Incomplete message)
 let uid n = checked (Imap.Uid.of_int64 n)
 
-let flags_equal expected raw =
-  let rec parse acc = function
-    | [] -> Ok acc
-    | value :: rest ->
-        (match Flag.of_wire value with
-         | Error message -> Error (Incomplete ("invalid server flag: " ^ message))
-         | Ok flag -> parse (flag :: acc) rest) in
-  let* actual = parse [] raw in
-  Ok (Flag.equal_durable actual expected)
 
 let inspect_append ?(max_windows=1000) ?(max_candidates=1000)
     ?(max_bytes=1_073_741_824L) ~client ~store ~scope ~mailbox ~id
@@ -118,22 +109,24 @@ let inspect_append ?(max_windows=1000) ?(max_candidates=1000)
                             else
                               let last = Int64.min upper
                                 (Int64.add first 999L) in
-                              let criterion = Printf.sprintf "UID %Ld:%Ld"
-                                first last in
                               let* first_uid = uid first in
                               let* last_uid = uid last in
+                              let criteria = Imap.Search.Uid
+                                (Imap.Uid_set.of_intervals
+                                  [first_uid, last_uid]) in
                               let* uids = network
-                                (Imap_eio.Selected.uid_search selected criterion) in
+                                (Imap_eio.Selected.uid_search selected
+                                  ~criteria) in
                               let uids = List.sort_uniq Imap.Uid.compare uids in
                               let* rows = network
-                                (Imap_eio.Selected.fetch_metadata_range selected
+                                (Imap_eio.Selected.fetch_range selected
                                   ~first:first_uid ~last:last_uid
-                                  ~modseq:false) in
+                                  ~items:[]) in
                               let flags = List.fold_left (fun acc
-                                  (row : Imap.Response.fetch) ->
-                                match row.uid, row.flags with
-                                | Some uid, Some flags -> Uids.add uid flags acc
-                                | _ -> acc) Uids.empty rows in
+                                  (row : Imap_eio.Selected.row) ->
+                                match row.flags with
+                                | Some flags -> Uids.add row.uid flags acc
+                                | None -> acc) Uids.empty rows in
                               let rec candidates matches = function
                                 | [] -> scan (Int64.succ last) matches
                                 | uid :: rest ->
@@ -162,11 +155,10 @@ let inspect_append ?(max_windows=1000) ?(max_candidates=1000)
                                       else
                                         let* flags_match = match
                                           expected_flags,
-                                          Uids.find_opt (Imap.Uid.to_int64 uid)
-                                            flags with
-                                          | Some expected, Some raw ->
-                                              let* equal = flags_equal expected raw in
-                                              Ok (Some equal)
+                                          Uids.find_opt uid flags with
+                                          | Some expected, Some actual ->
+                                              Ok (Some (Flag.equal_durable
+                                                actual expected))
                                           | _ -> Ok None in
                                         candidates ({uid;length;sha256;
                                           flags_match} :: matches) rest) in

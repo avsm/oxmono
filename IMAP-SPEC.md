@@ -1601,7 +1601,7 @@ with the same operation ID.
 The protocol library now has a validated `Internal_date.t` for IMAP's
 `date-time` syntax, including leap days, optional leading day space, leap
 seconds and signed offsets. `FETCH INTERNALDATE` yields this type;
-`Selected.fetch_metadata_range ~internal_date:true` requests it; and the
+the `Imap.Fetch_item.Internal_date` item requests it; and the
 Eio client accepts it on APPEND. `Imap_sync.Engine.append_blob_journaled` persists
 the intended date before dispatch, including when an APPEND completes without
 an attributable APPENDUID. Protocol, scripted crash-journal, and live Dovecot

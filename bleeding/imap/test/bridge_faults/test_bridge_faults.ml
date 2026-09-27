@@ -527,13 +527,12 @@ let test_hydration_skips_oversized_message () =
   let size=String.length message in
   let client,_=scripted_client ~sw "hydrate-oversized" [
     examine ~tag:4 ~exists:2 ~uidnext:3 ();
-    "* 1 FETCH (UID 1 FLAGS () RFC822.SIZE 5000)\r\n\
-     A00000005 OK fetched\r\n";
-    Printf.sprintf "* 2 FETCH (UID 2 FLAGS () RFC822.SIZE %d)\r\n\
-      A00000006 OK fetched\r\n" size;
+    Printf.sprintf "* 1 FETCH (UID 1 FLAGS () RFC822.SIZE 5000)\r\n\
+      * 2 FETCH (UID 2 FLAGS () RFC822.SIZE %d)\r\n\
+      A00000005 OK fetched\r\n" size;
     Printf.sprintf "* 2 FETCH (UID 2 BODY[] {%d}\r\n" size;
-    message ^ ")\r\nA00000007 OK fetched\r\n";
-    "A00000008 OK unselected\r\n"] in
+    message ^ ")\r\nA00000006 OK fetched\r\n";
+    "A00000007 OK unselected\r\n"] in
   let spool_id=ref 0 in
   (match Imap_sync.Engine.hydrate_once ~max_body_bytes:1000L ~client ~store
       ~scope ~mailbox:"INBOX" ~spool_dir
@@ -570,12 +569,11 @@ let test_hydration_skips_message_above_total_budget () =
   let client,_=scripted_client ~sw "hydrate-total" [
     examine ~tag:4 ~exists:2 ~uidnext:3 ();
     Printf.sprintf "* 1 FETCH (UID 1 FLAGS () RFC822.SIZE %d)\r\n\
-      A00000005 OK fetched\r\n" (size*2);
-    Printf.sprintf "* 2 FETCH (UID 2 FLAGS () RFC822.SIZE %d)\r\n\
-      A00000006 OK fetched\r\n" size;
+      * 2 FETCH (UID 2 FLAGS () RFC822.SIZE %d)\r\n\
+      A00000005 OK fetched\r\n" (size*2) size;
     Printf.sprintf "* 2 FETCH (UID 2 BODY[] {%d}\r\n" size;
-    message ^ ")\r\nA00000007 OK fetched\r\n";
-    "A00000008 OK unselected\r\n"] in
+    message ^ ")\r\nA00000006 OK fetched\r\n";
+    "A00000007 OK unselected\r\n"] in
   match Imap_sync.Engine.hydrate_once
       ~max_total_bytes:(Int64.of_int (size+1)) ~client ~store ~scope
       ~mailbox:"INBOX" ~spool_dir ~next_spool_id:(fun () -> "total") () with
@@ -604,20 +602,23 @@ let test_hydration_keeps_counts_after_concurrent_publish () =
     | Error error -> Alcotest.failf "concurrent scan: %a"
         Imap_sync.Engine.pp_error error in
   let flow=Eio_mock.Flow.make "hydrate-concurrent" in
-  let fetch n=[
-    `Return (Printf.sprintf "* %d FETCH (UID %d FLAGS () RFC822.SIZE %d)\r\n\
-      A%08d OK fetched\r\n" n n size (3+2*n));
-    `Return (Printf.sprintf "* %d FETCH (UID %d BODY[] {%d}\r\n" n n size)] in
-  Eio_mock.Flow.on_read flow ([
+  let size_row n=Printf.sprintf
+    "* %d FETCH (UID %d FLAGS () RFC822.SIZE %d)\r\n" n n size in
+  let body n=
+    `Return (Printf.sprintf "* %d FETCH (UID %d BODY[] {%d}\r\n" n n size) in
+  Eio_mock.Flow.on_read flow [
     `Return "* OK ready\r\n";
     `Return "* CAPABILITY IMAP4rev1 UNSELECT\r\nA00000001 OK done\r\n";
     `Return "A00000002 OK logged in\r\n";
     `Return "* CAPABILITY IMAP4rev1 UNSELECT\r\nA00000003 OK done\r\n";
-    `Return (examine ~tag:4 ~exists:2 ~uidnext:3 ())] @ fetch 1 @ [
-    `Return (message ^ ")\r\nA00000006 OK fetched\r\n")] @ fetch 2 @ [
+    `Return (examine ~tag:4 ~exists:2 ~uidnext:3 ());
+    `Return (size_row 1 ^ size_row 2 ^ "A00000005 OK fetched\r\n");
+    body 1;
+    `Return (message ^ ")\r\nA00000006 OK fetched\r\n");
+    body 2;
     `Run (fun () -> republish () ^ message ^
-      ")\r\nA00000008 OK fetched\r\n");
-    `Return "A00000009 OK unselected\r\n"]);
+      ")\r\nA00000007 OK fetched\r\n");
+    `Return "A00000008 OK unselected\r\n"];
   let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
     ~allow_insecure_transport:true () in
   let client=match Imap_eio.Client.of_flow ~sw ~auth flow with

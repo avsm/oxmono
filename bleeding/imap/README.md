@@ -140,14 +140,18 @@ modified UTF-7 on rev1 connections unless UTF-8 mode was enabled. Each LIST
 and LSUB row carries its decoded `name`, whose `utf8` field is the decoded
 name and whose `raw` field is the exact wire name. An interrupted APPEND
 returns an uncertain outcome and must be reconciled before retrying.
-RFC 8970 PREVIEW is available through capability-gated
-`Selected.uid_fetch_previews`, batching up to 50 UIDs and preserving the
+Metadata FETCH is one typed call. `Selected.fetch` takes up to 1,000 UIDs and
+a list of `Imap.Fetch_item.t` and returns one `Selected.row` per reported UID
+in request order, and `Selected.fetch_range` does the same for a UID window
+in ascending order. Rows for one UID merge, unsolicited UIDs are ignored, and
+a conflicting value for an immutable item is a protocol error. RFC 8970
+PREVIEW is the capability-gated `Preview` item, which preserves the
 difference between an absent preview, `NIL` and empty text.
-RFC 8474 OBJECTID has a bounded typed `Selected.uid_fetch_object_ids` path for
-EMAILID and THREADID, requiring the exact `OBJECTID` capability and selected
-MAILBOXID. The independent [OBJECTID+ draft -06](spec/draft-ietf-mailmaint-imap-objectid-bis-06.txt)
-has an explicit `Client.enable_objectid_plus` mode and a bounded
-`Selected.uid_fetch_object_ids_plus` path. It parses the compound SELECT
+RFC 8474 OBJECTID is the `Emailid` and `Threadid` items, requiring the exact
+`OBJECTID` capability and selected MAILBOXID. The independent
+[OBJECTID+ draft -06](spec/draft-ietf-mailmaint-imap-objectid-bis-06.txt)
+has an explicit `Client.enable_objectid_plus` mode and the `Objectid` item.
+It parses the compound SELECT
 ACCOUNTID/MAILBOXID, STATUS OBJECTID and message EMAILID/THREADID, retaining
 unknown keys for future versions. STATUS OBJECTID requires prior activation,
 including when requested through LIST-STATUS. The optional [with_mailbox]
@@ -173,11 +177,11 @@ RFC 5256 sorting and threading are exposed as `Selected.uid_sort` and
 ascending/descending order and preserves the server's result order. THREAD
 supports advertised REFERENCES and ORDEREDSUBJECT algorithms, retaining parent,
 child, sibling and dummy-parent structure. Both require an explicit charset
-and raw SEARCH criterion, reject missing/duplicate/partial results, and bound
-results to 100,000 nodes (thread ancestry depth 100). These views describe a
-server search at command time; they are not durable inventory checkpoints or
-JMAP thread IDs. Under UIDONLY, criteria must use UID sets rather than message
-sequence sets.
+and typed `Imap.Search.t` criteria, reject missing/duplicate/partial results,
+and bound results to 100,000 nodes (thread ancestry depth 100). These views
+describe a server search at command time; they are not durable inventory
+checkpoints or JMAP thread IDs. Typed criteria have no sequence-set key, and
+under UIDONLY a `Raw` criterion that starts with a sequence set is refused.
 `Selected.uid_sort_extended` adds RFC 5267 ESORT summaries and ordered UID
 results. It always requests COUNT, correlates the UID ESEARCH reply to its
 command tag, and validates requested fields against that count. MIN/MAX mean
@@ -201,12 +205,12 @@ and their mutation methods do not journal or retry uncertain outcomes.
 BINARY.PEEK, with optional decoded byte offsets and a caller-supplied output
 limit. It verifies UID, section, offset and length before reporting success;
 sink bytes remain provisional until then. NIL and an empty section are
-distinct results. `uid_fetch_binary_sizes` queries decoded lengths for bounded
-UID lists without downloading their bodies. These operations require BINARY
-or effective IMAP4rev2, whose requests are limited to leaf MIME parts. Choose
-parts using BODYSTRUCTURE and let the server validate them. BINARY output is
-for decoded content consumption; `fetch_to` and durable archival retain the
-original transfer-encoded message.
+distinct results. The `Binary_size` FETCH item queries decoded lengths for
+bounded UID lists without downloading their bodies. These operations require
+BINARY or effective IMAP4rev2, whose requests are limited to leaf MIME parts.
+Choose parts using BODYSTRUCTURE and let the server validate them. BINARY
+output is for decoded content consumption; `fetch_to` and durable archival
+retain the original transfer-encoded message.
 `Client.append_binary_flow_receipt` explicitly opts into RFC 3516 literal8
 APPEND and requires the BINARY capability, even under IMAP4rev2. It shares the
 ordinary APPEND lock, destination identity check and uncertainty handling.
@@ -293,8 +297,10 @@ match Imap_eio.Client.connect ~sw ~auth endpoint with
     failwith (Imap_eio.Client.error_to_string error)
 | Ok client ->
     match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
-      (fun selected -> Imap_eio.Selected.uid_search selected "ALL") with
-    | Ok uids -> List.iter (fun uid -> Printf.printf "%Ld\n" uid) uids
+      (fun selected ->
+        Imap_eio.Selected.uid_search selected ~criteria:Imap.Search.All) with
+    | Ok uids ->
+        List.iter (fun uid -> print_endline (Imap.Uid.to_string uid)) uids
     | Error error ->
         failwith (Imap_eio.Client.error_to_string error)
 ```
@@ -305,7 +311,7 @@ encoding, modified UTF-7/UTF-8 mailbox-name conversion, and a storage-independen
 `Imap.Mirror` baseline reconciliation planner. The planner produces typed
 add/change/remove deltas for atomic publication. Unknown FETCH fields retain
 their raw syntax. Validated `Imap.Internal_date.t` values can be requested by
-`Selected.fetch_metadata_range ~internal_date:true` and supplied to
+the `Imap.Fetch_item.Internal_date` item and supplied to
 `Client.append_flow_receipt`; journaled APPEND saves the intended date before
 the network write. Remote bridge imports set the message file's modification
 time to the server's INTERNALDATE before syncing and publishing it. Local

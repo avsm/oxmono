@@ -76,15 +76,6 @@ let plan_flags ?(propagate_deleted=false) ~base ~remote ~local
     Error Conditional_store_unavailable
   else Ok {plan=Apply merged;deleted_held}
 
-let decode raw =
-  let rec loop acc = function
-    | [] -> Ok (flags acc)
-    | wire :: rest ->
-        (match F.of_wire wire with
-         | Ok flag -> loop (flag :: acc) rest
-         | Error message -> Error (Diverged message)) in
-  loop [] raw
-
 let validate_permanent_flags ~available ~defined ~remote ~merged =
   match available with
   | None -> Ok ()
@@ -167,15 +158,13 @@ let check_epoch (info:Imap.Response.select_metadata) epoch =
   else Ok ()
 
 let remote selected ~uid ~modseq =
-  let raw=Imap.Uid.to_int64 uid in
-  let* rows=network (Imap_eio.Selected.fetch_metadata_range selected
-    ~first:uid ~last:uid ~modseq) in
+  let* rows=network (Imap_eio.Selected.fetch selected ~uids:[uid]
+    ~items:(if modseq then [Imap.Fetch_item.Modseq] else [])) in
   match rows with
-  | [row] when row.uid=Some raw ->
+  | [row] ->
       (match row.flags with
-       | Some wire ->
-           let* flags=decode wire in
-           Ok (flags,row.modseq)
+       | Some remote ->
+           Ok (flags remote,Option.map Imap.Modseq.to_int64 row.modseq)
        | None -> Error (Diverged "UID FETCH omitted FLAGS"))
   | _ -> Error Missing_occurrence
 

@@ -175,22 +175,31 @@ let test_capabilities () =
   if result<>Some 3L then failwith "UIDONLY BINARY lost"
 
 let test_sizes () =
-  let sizes selected=S.uid_fetch_binary_sizes selected ~uids:[u 7L;u 3L]
-    ~section:[2] () in
+  let sizes selected=S.fetch selected ~uids:[u 7L;u 3L]
+    ~items:[Imap.Fetch_item.Binary_size [2]] in
+  let raw rows=List.map (fun (row:S.row) ->
+    Imap.Uid.to_int64 row.uid,row.binary_sizes) rows in
   let found=ok (scripted ~reply:(fun n -> [`Return (
     "* 2 FETCH (UID 7 BINARY.SIZE[2] 99)\r\n* 1 FETCH (UID 3 BINARY.SIZE[2] 0)\r\n" ^ done_ n)]) sizes) in
-  if List.map (fun (row:S.binary_size_row) ->
-      Imap.Uid.to_int64 row.uid,row.size) found<>[3L,0L;7L,99L] then
+  if raw found<>[7L,[[2],99L];3L,[[2],0L]] then
     failwith "decoded sizes lost";
   if ok (scripted ~reply:(fun n -> [`Return (done_ n)]) sizes)<>[] then
     failwith "missing size rows invented";
+  if ok (scripted ~reply:(fun n -> [`Return (
+      "* 1 FETCH (UID 9 BINARY.SIZE[2] 9)\r\n" ^ done_ n)]) sizes)<>[] then
+    failwith "unrequested BINARY.SIZE UID was not ignored";
+  if raw (ok (scripted ~reply:(fun n -> [`Return (
+      "* 1 FETCH (UID 7 BINARY.SIZE[2] 9)\r\n" ^
+      "* 1 FETCH (UID 7 BINARY.SIZE[2] 9)\r\n" ^ done_ n)]) sizes))
+     <>[7L,[[2],9L]] then
+    failwith "repeated identical BINARY.SIZE did not merge";
   List.iter (fun response ->
     expect "invalid BINARY.SIZE" protocol
       (scripted ~reply:(fun n -> [`Return (response ^ done_ n)]) sizes))
     ["* 1 FETCH (UID 7 BINARY.SIZE[2] NIL)\r\n";
      "* 1 FETCH (BINARY.SIZE[2] 9)\r\n";
-     "* 1 FETCH (UID 9 BINARY.SIZE[2] 9)\r\n";
-     "* 1 FETCH (UID 7 BINARY.SIZE[2] 9)\r\n* 1 FETCH (UID 7 BINARY.SIZE[2] 9)\r\n"]
+     "* 1 FETCH (UID 7 BINARY.SIZE[2] 9)\r\n\
+      * 1 FETCH (UID 7 BINARY.SIZE[2] 10)\r\n"]
 
 let test_cancelled_stream () =
   let entered,mark_entered=Eio.Promise.create () in

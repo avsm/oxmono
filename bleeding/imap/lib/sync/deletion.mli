@@ -2,13 +2,13 @@
 
     [reconcile_pair] and [recover_operation] take the {!Maildir.writer} of
     the lease the caller holds across the remote scan, the local inventory
-    and the call. The three operator repairs take the lease themselves, so
-    the caller must not hold it. A missing side is actionable
-    only when a complete published inventory proves absence. The survivor
-    must still have its paired byte digest, length, and last-common flags.
-    No mailbox-wide EXPUNGE or retry of an uncertain remote mutation occurs.
-    Journal writes and spool files are handled outside the mailbox
-    selection. A pair in another scope is [Stale_pair] throughout. *)
+    and the call. A missing side is actionable only when a complete
+    published inventory proves absence. The survivor must still have its
+    paired byte digest, length, and last-common flags. No mailbox-wide
+    EXPUNGE or retry of an uncertain remote mutation occurs. Journal writes
+    and spool files are handled outside the mailbox selection. A pair in
+    another scope is [Stale_pair] throughout. {!Repair} holds the operator
+    repairs of pending deletions. *)
 
 type outcome =
   | Unchanged
@@ -24,22 +24,41 @@ val expunge_preflight :
     [\\Deleted]. It is checked after the conditional STORE, immediately
     before a targeted UID EXPUNGE. *)
 
+val plan :
+  policy:Imap.Sync_policy.deletion_policy -> min_absence_scans:int ->
+  current_generation:int64 ->
+  last_presence:([ `Remote | `Local ] -> int64 option) ->
+  remote_present:bool -> local_present:bool -> Imap_store.Journal.pair ->
+  Imap.Sync_policy.deletion_plan
+(** [plan ~policy ~min_absence_scans ~current_generation ~last_presence
+    ~remote_present ~local_present pair] is the deletion decision for
+    [pair] when complete inventories show its sides as [remote_present] and
+    [local_present]. It applies
+    {!Imap.Sync_policy.plan_disappearance_with_grace}, where the absence of
+    the missing side matures [min_absence_scans] complete scan generations
+    after its first durable absence unless [last_presence side], the last
+    generation that saw [side] present, supersedes it. A delete action is
+    held as [Missing_content_evidence] when [pair] saved no digest or
+    length, and as [Unverified_absence] when the missing side lacks its
+    absence tombstone. It reads no state, and it raises [Invalid_argument]
+    when [min_absence_scans] is negative. *)
+
 val reconcile_pair :
   ?min_absence_scans:int -> ctx:Ctx.t -> writer:Maildir.writer ->
   cursor:Imap.Mirror.cursor -> local_inventory:Local_inventory.t ->
   pair:Imap_store.Journal.pair -> policy:Imap.Sync_policy.deletion_policy ->
   unit -> (outcome, Error.t) result
 (** [reconcile_pair ~ctx ~writer ~cursor ~local_inventory ~pair ~policy ()]
-    plans and applies the deletion of the surviving side of [pair] when one
-    side is absent from the complete inventories. [Preserve] only reports a
-    hold. [Propagate] removes an unchanged local survivor when the remote UID
-    is absent, or an unchanged remote survivor when the local occurrence is
-    absent. [Propagate_remote] and [Propagate_local] enable only the
-    corresponding direction. A local [Retention] tombstone always holds remote
-    deletion. Either direction is held until [min_absence_scans] (default 0)
-    later complete scan generations have passed since the missing side's first
-    durable absence tombstone. Legacy tombstones without a generation stay held
-    if this setting is positive, and a negative value raises
+    plans with {!plan} and applies the deletion of the surviving side of [pair]
+    when one side is absent from the complete inventories. [Preserve] only
+    reports a hold. [Propagate] removes an unchanged local survivor when the
+    remote UID is absent, or an unchanged remote survivor when the local
+    occurrence is absent. [Propagate_remote] and [Propagate_local] enable only
+    the corresponding direction. A local [Retention] tombstone always holds
+    remote deletion. Either direction is held until [min_absence_scans] (default
+    0) later complete scan generations have passed since the missing side's
+    first durable absence tombstone. Legacy tombstones without a generation stay
+    held if this setting is positive, and a negative value raises
     [Invalid_argument]. A saved content or identity conflict holds either
     direction, and a legacy pair without a content digest and length is held as
     [Missing_content_evidence].
@@ -74,45 +93,3 @@ val recover_operation :
     operation did not delete. Otherwise it remains pending, returns
     [Pending_operations] and is never replayed. This must run before new copies
     or flag changes. *)
-
-val repair_local_delete :
-  ctx:Ctx.t -> maildir:Maildir.t -> id:string -> evidence:string -> unit ->
-  (outcome, Error.t) result
-(** [repair_local_delete ~ctx ~maildir ~id ~evidence ()] is the explicit
-    operator repair of a [Sent] or [Ambiguous] local unlink whose
-    exact Maildir occurrence is still present. Acquires the writer lease and
-    verifies the saved pair revision and identity, an existing complete
-    remote absence tombstone, the current complete inventory, live read-only
-    UID absence, and local bytes, length, and flags before unlinking and
-    committing the journal. A saved OBJECTID+ binding is checked and pinned
-    before the live UID check. It never retries a remote mutation. The caller
-    must provide printable operator evidence. [Maildir.Writer_lock_busy]
-    propagates when the lease is held. *)
-
-val reject_unchanged_remote_delete :
-  ctx:Ctx.t -> maildir:Maildir.t -> id:string -> evidence:string -> unit ->
-  (unit, Error.t) result
-(** [reject_unchanged_remote_delete ~ctx ~maildir ~id ~evidence ()]
-    explicitly rejects a sent/ambiguous remote DELETE whose original UID
-    remains present with the paired bytes, flags and stable MODSEQ. Requires
-    current complete published UID membership, local absence, saved pair
-    revision and exact journal identity, and a matching OBJECTID+ mailbox
-    binding when one is saved. Holds the Maildir writer lease throughout.
-    It sends no STORE or EXPUNGE, and a changed or already-expunged UID
-    remains pending. [Maildir.Writer_lock_busy] propagates when the
-    lease is held. *)
-
-val finish_marked_remote_delete :
-  ctx:Ctx.t -> maildir:Maildir.t -> id:string -> evidence:string -> unit ->
-  (outcome, Error.t) result
-(** [finish_marked_remote_delete ~ctx ~maildir ~id ~evidence ()] is the
-    explicit operator completion of a sent/ambiguous remote DELETE when
-    the exact saved UID remains present with paired bytes, original flags
-    plus [\\Deleted], and stable MODSEQ. Verifies the current complete
-    published inventory, local absence and OBJECTID+ mailbox binding under
-    the Maildir writer lease. Persists operator evidence and [Ambiguous]
-    state before sending only targeted UID EXPUNGE. A lost result remains
-    pending for complete-inventory recovery, never automatic replay. The
-    unavoidable concurrent remote-edit window between the final FETCH and
-    EXPUNGE remains. [Maildir.Writer_lock_busy] propagates when the
-    lease is held. *)

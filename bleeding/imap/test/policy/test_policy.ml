@@ -62,10 +62,10 @@ let test_deleted_hold_is_per_flag () =
 let test_deletion_guards () =
   let plan ?(policy=P.Propagate) ?(paired=true) ?(local_retained=false)
       ?(remote_complete=true) ?(survivor_unchanged=true) () =
-    P.plan_disappearance ~policy ~paired ~remote_present:false
-      ~remote_complete ~local_present:true ~local_complete:true
-      ~local_retained
-      ~survivor_unchanged in
+    P.plan_disappearance_with_grace ~absence_mature:true ~policy ~paired
+      ~local_retained ~survivor_unchanged
+      ~remote:{present=false;complete=remote_complete}
+      ~local:{present=true;complete=true} in
   Alcotest.(check bool) "default preserve" true
     (plan ~policy:P.Preserve () =
       P.Hold_deletion P.Preservation_policy);
@@ -84,10 +84,10 @@ let test_deletion_guards () =
   Alcotest.(check bool) "wrong direction held" true
     (plan ~policy:P.Propagate_local () =
       P.Hold_deletion P.Direction_policy);
-  let local_missing policy retained = P.plan_disappearance ~policy
-    ~paired:true ~remote_present:true ~remote_complete:true
-    ~local_present:false ~local_complete:true ~local_retained:retained
-    ~survivor_unchanged:true in
+  let local_missing policy retained = P.plan_disappearance_with_grace
+    ~absence_mature:true ~policy ~paired:true ~local_retained:retained
+    ~survivor_unchanged:true ~remote:{present=true;complete=true}
+    ~local:{present=false;complete=true} in
   Alcotest.(check bool) "local-only propagation" true
     (local_missing P.Propagate_local false = P.Delete_remote);
   Alcotest.(check bool) "retention protects remote" true
@@ -140,9 +140,9 @@ let test_absence_grace () =
       ~min_scans:0);
   let plan ~mature=P.plan_disappearance_with_grace
     ~absence_mature:mature ~policy:P.Propagate ~paired:true
-    ~remote_present:true ~remote_complete:true
-    ~local_present:false ~local_complete:true
-    ~local_retained:false ~survivor_unchanged:true in
+    ~local_retained:false ~survivor_unchanged:true
+    ~remote:{present=true;complete=true}
+    ~local:{present=false;complete=true} in
   Alcotest.(check bool) "immature deletion held" true
     (plan ~mature:false=P.Hold_deletion P.Grace_period);
   Alcotest.(check bool) "mature deletion planned" true

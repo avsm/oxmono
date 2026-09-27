@@ -8,14 +8,6 @@
     QRESYNC. FETCH and SEARCH are separate commands, so a scan is not a
     snapshot of one instant, and a later scan catches concurrent edits. *)
 
-val guard_bound_mailbox : ctx:Ctx.t -> (unit, Error.t) result
-(** [guard_bound_mailbox ~ctx] re-enables OBJECTID+ and checks that a
-    saved account and mailbox binding of [ctx.scope] still names
-    [ctx.mailbox], then pins the client so later selections and APPENDs keep
-    that identity. A scope without a binding needs no action. A missing
-    capability or a changed name returns [Invalid_scope] before any
-    mutation. *)
-
 val scan_once :
   ?max_windows:int -> ?expected_uidvalidity:Imap.Uidvalidity.t ->
   ctx:Ctx.t -> stage_id:string -> unit ->
@@ -59,8 +51,8 @@ val append_journaled :
     provides a durable spool reference and a verified content digest.
     [internal_date] and [flags], which default to none, are saved in the
     intent before the send. A saved OBJECTID+ binding requires OBJECTID+ to
-    be enabled on [ctx.client] already, as {!guard_bound_mailbox} does, and
-    a destination whose STATUS identity differs from it returns
+    be enabled on [ctx.client] already, as a scan or a body transfer does,
+    and a destination whose STATUS identity differs from it returns
     [Invalid_scope] before any intent is saved. *)
 
 val append_blob_journaled :
@@ -72,20 +64,31 @@ val append_blob_journaled :
     [Incomplete]. The blob stays available for recovery when the outcome is
     ambiguous. *)
 
+type archived = {
+  blob : Imap_store.Blob.blob;
+  flags : Mail_flag.Imap_flag.t list;
+      (** [flags] are the durable flags read after the body. *)
+  internal_date : Imap.Internal_date.t;
+      (** [internal_date] is the INTERNALDATE read after the body. *)
+}
+
 val archive_uid :
   ?max_bytes:int64 -> ctx:Ctx.t -> uid:Imap.Uid.t -> spool:_ Eio.Path.t ->
-  unit -> (Imap_store.Blob.blob, Error.t) result
+  unit -> (archived, Error.t) result
 (** [archive_uid ~ctx ~uid ~spool ()] fetches the exact BODY.PEEK[] bytes of
-    [uid] into [spool], and only after a successful tagged completion puts a
-    synced content-addressed blob and attaches it to the published
-    snapshot. [spool] must not exist. The call creates it and removes it on
-    every exit, and an existing file at [spool] raises [Eio.Io] and is left
-    in place. [max_bytes] defaults to 1 GiB. A saved OBJECTID+ binding is
-    checked as {!guard_bound_mailbox} does before any body is fetched. A
-    selected UIDVALIDITY that differs from the published one returns
-    [Uidvalidity_changed]. A UID removed from the snapshot by a concurrent
-    publication raises [Invalid_argument] from the attach and leaves an
-    orphan blob for the collector. *)
+    [uid] into [spool], then reads its flags and INTERNALDATE in the same
+    selection. Only after both commands complete does it put a synced
+    content-addressed blob and attach it to the published snapshot.
+    [spool] must not exist. The call creates it and removes it on every
+    exit, and an existing file at [spool] raises [Eio.Io] and is left in
+    place. [max_bytes] defaults to 1 GiB. Before any body is fetched,
+    OBJECTID+ is enabled and a saved binding of [ctx.scope] is checked
+    against [ctx.mailbox] and pinned, and a mismatch returns
+    [Invalid_scope]. A selected UIDVALIDITY that differs from the published
+    one returns [Uidvalidity_changed], and a UID gone after its body
+    returns [Client (Missing_uid _)]. A UID removed from the snapshot by a
+    concurrent publication raises [Invalid_argument] from the attach and
+    leaves an orphan blob for the collector. *)
 
 type hydration_receipt = {
   cursor : Imap.Mirror.cursor;
@@ -156,7 +159,15 @@ val hydrate_once :
     committed counts and [more=true] after one. No message flags are
     changed. *)
 
-type uid_digest = { sha256:string; length:int64 }
+type uid_digest = {
+  sha256 : string;
+  length : int64;
+  flags : Mail_flag.Imap_flag.t list;
+      (** [flags] are the durable flags read after the body. *)
+  internal_date : Imap.Internal_date.t;
+      (** [internal_date] is the INTERNALDATE read after the body. *)
+}
+
 
 val fetch_uid_digest :
   ?max_bytes:int64 -> ctx:Ctx.t -> uidvalidity:Imap.Uidvalidity.t ->
@@ -164,8 +175,8 @@ val fetch_uid_digest :
   (uid_digest, Error.t) result
 (** [fetch_uid_digest ~ctx ~uidvalidity ~uid ~spool ()] is the length and
     SHA-256 digest of the exact BODY.PEEK[] bytes of [uid], fetched into
-    [spool]. No blob file or snapshot reference is created, so it serves an
-    APPENDUID that has not entered the published snapshot yet. A selected
-    UIDVALIDITY other than [uidvalidity] returns [Uidvalidity_changed].
-    [max_bytes] defaults to 1 GiB. The spool and OBJECTID+ rules of
-    {!archive_uid} apply. *)
+    [spool], with the flags and INTERNALDATE read after them. No blob file or
+    snapshot reference is created, so it serves an APPENDUID that has not
+    entered the published snapshot yet. A selected UIDVALIDITY other than
+    [uidvalidity] returns [Uidvalidity_changed]. [max_bytes] defaults to 1 GiB.
+    The spool and OBJECTID+ rules of {!archive_uid} apply. *)

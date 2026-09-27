@@ -1687,7 +1687,7 @@ The next agent should complete M7 before calling this an isync-like syncer:
    attribution remains ambiguous, expose a durable conflict and
    require a caller decision. A prepared copy is now rejected on restart before
    any send using a prepared-only SQLite transition, and
-   `record_appenduid_evidence` accepts an independently
+   `Repair.record_appenduid` accepts an independently
    attributable operator receipt; the bridge verifies the nominated UID's
    body, length and flags before committing a pair. Never infer identity from
    matching bytes alone. The immediate APPENDUID success path now performs the
@@ -1994,8 +1994,8 @@ crash-safe bidirectional synchronization or proxy readiness.
 
 The source tree now has five public libraries under `bleeding/imap/lib/`:
 `protocol` (`imap`), `eio`, `maildir`, `store` and `sync`. The former separate
-workflow libraries are modules in `Imap_sync`: Engine, Bridge, Flags,
-Deletion and Watch. Pure policy is `Imap.Sync_policy`; Spool is private.
+workflow libraries are modules in `Imap_sync`: Error, Ctx, Engine, Bridge,
+Flags, Deletion, Plan, Repair and Watch. Pure policy is `Imap.Sync_policy`; Spool is private.
 The CLI support library is private under `bin/`, with the same installed
 `imap-sync` executable. Unit and integration tests are grouped under `test/`.
 This supersedes the original directory proposal in section 3. Detailed review

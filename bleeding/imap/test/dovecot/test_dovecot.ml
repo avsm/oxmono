@@ -1541,16 +1541,16 @@ let test_append_process_crash () =
       | None -> Alcotest.fail "Dovecot omitted other-date APPENDUID" in
     let inspect_ctx ()=sync_ctx ~client ~store ~scope ~mailbox
       ~spool_dir:Eio.Path.(fs / spooldir) () in
-    (match Imap_sync.Bridge.inspect_append_candidates ~max_uids:1
+    (match Imap_sync.Repair.inspect_append_candidates ~max_uids:1
       ~ctx:(inspect_ctx ()) ~id () with
      | Error (Imap_sync.Error.Invalid_configuration _) -> ()
      | _ -> Alcotest.fail "candidate scan silently truncated UID range");
-    (match Imap_sync.Bridge.inspect_append_candidates
+    (match Imap_sync.Repair.inspect_append_candidates
       ~max_body_bytes:(Int64.of_int (String.length raw))
       ~ctx:(inspect_ctx ()) ~id () with
      | Error (Imap_sync.Error.Invalid_configuration _) -> ()
      | _ -> Alcotest.fail "candidate scan exceeded aggregate body budget");
-    let candidates=match Imap_sync.Bridge.inspect_append_candidates
+    let candidates=match Imap_sync.Repair.inspect_append_candidates
       ~max_body_bytes:(Int64.mul 2L (Int64.of_int (String.length raw)))
       ~ctx:(inspect_ctx ()) ~id () with
       | Ok report -> report
@@ -1573,7 +1573,7 @@ let test_append_process_crash () =
         uid_expunge selected ~set));
     Alcotest.(check (list int64)) "extra candidate removed before repair"
       [uid_raw] (remote_uids ());
-    (match Imap_sync.Bridge.record_appenduid_evidence ~store ~maildir ~scope
+    (match Imap_sync.Repair.record_appenduid ~store ~maildir ~scope
       ~id ~uidvalidity:epoch ~uid
       ~evidence:"Dovecot APPENDUID saved by crash witness" () with
      | Ok () -> ()
@@ -1922,7 +1922,7 @@ let test_flags_recovery () =
   (match recover pending with
    | Error (Imap_sync.Error.Pending_operations [id]) when id=third.id -> ()
    | _ -> Alcotest.fail "divergent remote FLAGS was not held");
-  let settle ?(scope=scope) evidence=Imap_sync.Flags.settle_operation
+  let settle ?(scope=scope) evidence=Imap_sync.Repair.settle_flags
     ~ctx:(sync_ctx ~client ~store:restarted ~scope ~mailbox
       ~spool_dir:Eio.Path.(fs / spooldir) ())
     ~maildir ~id:third.id ~evidence () in
@@ -2044,7 +2044,7 @@ let test_operator_local_delete_repair () =
   Imap_store.Journal.prepare_operation store operation;
   Imap_store.Journal.mark_sent store ~id:operation_id;
   let repair ?(scope=scope) evidence =
-    Imap_sync.Deletion.repair_local_delete
+    Imap_sync.Repair.local_delete
       ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
         ~spool_dir:Eio.Path.(fs / spooldir) ())
       ~maildir ~id:operation_id ~evidence () in
@@ -2150,7 +2150,7 @@ let test_operator_local_append_repair () =
    | Error error -> Alcotest.failf "wrong missing-file outcome: %a"
        Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "missing local append was replayed");
-  let repair ?(scope=scope) evidence=Imap_sync.Bridge.repair_local_append
+  let repair ?(scope=scope) evidence=Imap_sync.Repair.local_append
     ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
       ~spool_dir:Eio.Path.(fs / spooldir) ())
     ~maildir ~id ~evidence () in
@@ -2368,7 +2368,7 @@ let test_reject_unchanged_remote_delete () =
   Imap_store.Journal.prepare_operation store operation;
   Imap_store.Journal.mark_sent store ~id:operation_id;
   let reject ?(scope=scope) evidence =
-    Imap_sync.Deletion.reject_unchanged_remote_delete
+    Imap_sync.Repair.reject_remote_delete
       ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
         ~spool_dir:Eio.Path.(fs / spooldir) ())
       ~maildir ~id:operation_id ~evidence () in
@@ -2427,7 +2427,7 @@ let test_reject_unchanged_remote_delete () =
         ~flags:[deleted] in Ok ())) in
   edit_deleted `Add;
   edit `Add;
-  (match Imap_sync.Deletion.finish_marked_remote_delete
+  (match Imap_sync.Repair.finish_remote_delete
       ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
         ~spool_dir:Eio.Path.(fs / spooldir) ())
       ~maildir ~id:finish_id

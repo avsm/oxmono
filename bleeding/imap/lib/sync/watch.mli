@@ -18,7 +18,7 @@ type error =
   | Invalid_configuration of string
   | Fatal_scan of Error.t
       (** [Fatal_scan e] is a connect or scan error that a retry cannot
-          fix: [Invalid_scope], [Limit], [Mirror] or
+          fix, which is [Invalid_scope], [Limit], [Mirror] or
           [Uidvalidity_changed]. *)
 
 val run :

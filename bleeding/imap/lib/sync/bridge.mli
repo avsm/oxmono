@@ -1,12 +1,12 @@
-(** Conservative IMAP↔Maildir occurrence transfer and paired flag sync.
+(** IMAP↔Maildir occurrence transfer with paired flag and deletion sync.
 
-    This driver makes durable, individually journaled copies in both directions.
-    Remote imports keep the server's INTERNALDATE in a durable Maildir sidecar;
-    dated local occurrences supply it to APPEND. Undated local files use their
-    filesystem mtime as a UTC upload date. It never infers identity from
-    matching bytes or replays an uncertain server mutation. It records
-    complete-inventory absence and applies three-way flag and opt-in deletion
-    policies with journaled writes. *)
+    A cycle publishes a complete remote inventory and then makes durable,
+    individually journaled copies in both directions. A copied message
+    keeps its INTERNALDATE as the Maildir file mtime. The driver never
+    infers identity from matching bytes or replays an uncertain server
+    mutation. It records complete-inventory absence and applies three-way
+    flag and opt-in deletion policies with journaled writes. {!Plan}
+    previews a cycle offline, and {!Repair} settles what a cycle holds. *)
 
 type receipt = {
   cursor : Imap.Mirror.cursor;
@@ -27,50 +27,59 @@ val copy_once :
   ctx:Ctx.t -> maildir:Maildir.t -> stage_id:string -> unit ->
   (receipt, Error.t) result
 (** [copy_once ~ctx ~maildir ~stage_id ()] publishes a complete remote
-    inventory of [ctx.mailbox] with {!Engine.scan_once}, then copies unpaired
-    occurrences up to [max_transfers] (default 100). A remote→local copy
-    reserves a Maildir ID and journals it before the write. A local→remote copy
-    archives exact bytes and journals before APPEND. A changed staged local
-    occurrence yields [Local_source_changed] before preparing an APPEND intent.
-    UIDPLUS and fetched remote bytes, flags and INTERNALDATE must verify before
-    a pair and operation commit atomically. On a crash or ambiguous result, the
-    operation stays pending and the next call refuses new transfers. A bridge
-    APPEND marked sent before its lower-layer intent was prepared is proven
-    unsent on restart, rejected, and may be attempted afresh. Once the lower
-    intent is sent, missing attribution remains pending, returns
-    [Pending_operations] and is never replayed automatically. With no prior
-    pairs, both endpoints populated requires explicit
-    [allow_bootstrap_duplicates] to avoid accidental duplicate import. On
-    restart a completed remote-to-Maildir write is reconciled from its reserved
-    local ID, source UID in the new complete inventory, and persisted digest,
-    length, flags and source INTERNALDATE; an absent or divergent write remains
-    pending or errors. A remote APPEND whose legacy intent has a confirmed
-    UIDPLUS receipt is reconciled after verifying current UID membership, exact
-    body digest, byte length, and flags; an APPEND without an attributable
-    receipt stays pending and is never replayed automatically. Existing pairs
-    also reconcile flags with a journaled three-way merge. Remote writes
-    require CONDSTORE and use conditional UID STORE. A changed [\\Deleted] is
-    held by default while the other flags merge. A pair is held rather than
-    failing the cycle when its local date differs from the paired date, its
-    local content differs from the paired digest, a remote write lacks
-    CONDSTORE, a MODSEQ or a permanent flag, an endpoint changed concurrently,
-    or it is tombstoned while both endpoints are present. A remote message that
-    Maildir cannot store, such as one with an unrepresentable date, is rejected
-    in the journal and returns [Invalid_operation]. [deletion_policy=Propagate]
-    permits journaled targeted deletion only after complete-inventory absence
-    and survivor byte/flag verification; the default is [Preserve].
-    [min_absence_scans] requires that many additional complete scan generations
-    after the first durable absence before propagation. It defaults to zero; a
-    positive value also holds legacy local tombstones without first-observed
-    generation metadata. [max_transfers] covers copies, flag updates, and
-    deletions. The entire cycle holds the cross-process Maildir writer lease,
-    and failing to acquire it yields [Writer_busy]. All direct Maildir writers
-    must honor the same lease. A Maildir format or policy failure returns
-    [Maildir]. [Maildir.Metadata_lock_busy] from a contended Dovecot lock,
-    other Maildir concurrency exceptions, Store exceptions and Eio cancellation
-    propagate. [flags_held] and [deletions_held] count flag and deletion holds,
-    and [held_pair_ids] includes at most 100 IDs for diagnostics. A hold means
-    the requested policy has not fully converged, even when [more=false]. *)
+    inventory of [ctx.mailbox] with {!Engine.scan_once} under [stage_id],
+    then copies unpaired occurrences, reconciles paired flags and applies
+    the deletion policy, up to [max_transfers] (default 100) copies, flag
+    updates and deletions together.
+
+    A remote-to-Maildir copy archives the exact bytes with their flags and
+    INTERNALDATE, reserves a Maildir ID and journals it before the write. A
+    Maildir-to-remote copy archives the exact bytes and journals them before
+    APPEND, and a staged local occurrence that changed returns
+    [Local_source_changed] before any APPEND intent. A pair and its
+    operation commit together only after the written occurrence verifies its
+    bytes and flags, or the APPENDUID target its bytes, flags and
+    INTERNALDATE. A remote
+    message that Maildir cannot store, such as one with an unrepresentable
+    date, is rejected in the journal and returns [Invalid_operation].
+
+    A crash or an ambiguous result leaves the operation pending, and the
+    next call reconciles it before any new transfer or returns
+    [Pending_operations]. A completed remote-to-Maildir write is reconciled
+    from its reserved local ID, the source UID in the new inventory and its
+    journaled digest, length, flags and INTERNALDATE. An APPEND whose legacy
+    intent has a confirmed APPENDUID is reconciled after the UID's
+    membership, bytes, length and flags verify. An APPEND marked sent before
+    its lower-layer intent was prepared is proven unsent, rejected and may be
+    attempted afresh. An APPEND without attribution stays pending and is
+    never replayed. With no prior pairs and both endpoints populated, the
+    call returns [Bootstrap_requires_pairing] unless
+    [allow_bootstrap_duplicates] is [true], which defaults to [false].
+
+    Paired flags reconcile with a journaled three-way merge, and remote
+    writes use conditional UID STORE, which requires CONDSTORE. A changed
+    [\\Deleted] is held by default while the other flags merge. A pair is
+    held rather than failing the cycle when its local date or content
+    differs from the pair, a remote write lacks CONDSTORE, a MODSEQ or a
+    permanent flag, an endpoint changed concurrently, or it is tombstoned
+    while both endpoints are present. [flags_held] and [deletions_held]
+    count the holds, [held_pair_ids] lists at most 100 of the pairs, and a
+    hold means the policy has not converged even when [more] is [false].
+
+    [deletion_policy] defaults to [Preserve]. [Propagate] and its
+    directional forms permit a journaled targeted deletion only after a
+    complete inventory proves the absence and the survivor's bytes and
+    flags verify, as {!Deletion.reconcile_pair} does. [min_absence_scans]
+    (default 0) further complete scan generations must follow the first
+    durable absence, and a positive value also holds a legacy local
+    tombstone without a generation. A negative value returns
+    [Invalid_configuration].
+
+    The whole cycle holds the Maildir writer lease, and failing to acquire
+    it returns [Writer_busy]. Every direct Maildir writer must honour the
+    same lease. A Maildir format or policy failure returns [Maildir].
+    [Maildir.Metadata_lock_busy], other Maildir concurrency exceptions,
+    store exceptions and Eio cancellation propagate. *)
 
 val recover_local :
   maildir:Maildir.t -> spool_dir:_ Eio.Path.t -> unit -> (unit, Error.t) result
@@ -102,128 +111,3 @@ val verify_local_content :
     pair revision change occurs. [on_issue] receives a pair ID and reason for
     each mismatch, absence, or unverified pair. The local inventory is
     staged in [spool_dir], which must be a directory. *)
-
-val mark_local_retention :
-  store:Imap_store.t -> maildir:Maildir.t ->
-  scope:Imap.Mirror.scope -> pair_id:string -> evidence:string ->
-  spool_dir:_ Eio.Path.t -> unit -> (unit, Error.t) result
-(** Attest that a missing local paired occurrence was removed by local
-    retention, not by a user deletion. Requires a complete Maildir inventory,
-    the Maildir writer lease, no active operation for the pair, and an extant
-    remote binding. The durable tombstone prevents later propagation of this
-    local absence to the server. No IMAP mutation is sent. The local
-    inventory is staged in [spool_dir], which must be a directory. *)
-
-type deletion_preview = {
-  pair_id : string;
-  remote_uid : Imap.Uid.t;
-  local_id : string;
-  remote_present : bool option;
-  local_present : bool;
-  decision : [ `Pending of string | `Stale_epoch |
-    `Plan of Imap.Sync_policy.deletion_plan ];
-}
-
-val preview_deletions :
-  ?min_absence_scans:int ->
-  store:Imap_store.t -> maildir:Maildir.t ->
-  scope:Imap.Mirror.scope -> policy:Imap.Sync_policy.deletion_policy ->
-  spool_dir:_ Eio.Path.t -> on_preview:(deletion_preview -> unit) ->
-  unit -> (Imap.Mirror.cursor, Error.t) result
-(** Stream one-sided paired occurrences from the latest complete published
-    remote inventory and a freshly staged local inventory. Holds the Maildir
-    writer lease and pages pairs, so memory is bounded. This is a read-only
-    candidate plan: it does not connect to IMAP, verify live survivor content
-    or flags, journal operations, or authorize deletion. [copy_once] must
-    revalidate everything immediately before any mutation. A pending journal
-    operation is reported instead of a deletion decision. A pair from an
-    earlier UIDVALIDITY is reported as [`Stale_epoch] only while its local
-    occurrence is present. [min_absence_scans] defaults to 0, and a negative
-    value returns [Invalid_configuration]. The local inventory is staged in
-    [spool_dir], which must be a directory. *)
-
-type sync_preview =
-  | Preview_pending of string
-  | Preview_bootstrap_hold
-  | Preview_copy_remote of Imap.Uid.t
-  | Preview_copy_local of string
-  | Preview_flags of {
-      pair_id : string;
-      to_remote : Imap.Sync_policy.flag_delta;
-      to_local : Imap.Sync_policy.flag_delta;
-    }
-  | Preview_pair_hold of string * string
-  | Preview_deletion of deletion_preview
-
-val preview_sync :
-  ?allow_bootstrap_duplicates:bool ->
-  ?min_absence_scans:int ->
-  store:Imap_store.t -> maildir:Maildir.t ->
-  scope:Imap.Mirror.scope -> policy:Imap.Sync_policy.deletion_policy ->
-  spool_dir:_ Eio.Path.t -> on_preview:(sync_preview -> unit) ->
-  unit -> (Imap.Mirror.cursor, Error.t) result
-(** Stream a candidate plan for copies, paired flag changes and one-sided
-    deletion using the latest complete published remote snapshot and a fresh
-    staged Maildir inventory. It holds the writer lease and pages both
-    inventories and pairs, with memory bounded by the caller's output buffer.
-    Pending journal work and unsafe populated bootstrap stop planning, as in
-    [copy_once]. Saved content conflicts appear as pair holds and suppress
-    FLAGS candidates for those pairs. The plan does not connect to IMAP or
-    mutate durable state; it cannot validate current server capabilities,
-    survivor bytes or flags, or concurrent changes. A later [copy_once] must
-    refresh the inventory and revalidate every action. [min_absence_scans]
-    defaults to 0, and a negative value returns [Invalid_configuration]. The
-    local inventory is staged in [spool_dir], which must be a directory. *)
-
-val repair_local_append :
-  ctx:Ctx.t -> maildir:Maildir.t -> id:string -> evidence:string -> unit ->
-  (unit, Error.t) result
-(** [repair_local_append ~ctx ~maildir ~id ~evidence ()] explicitly
-    finishes a pending remote-to-Maildir append whose reserved
-    occurrence is absent. Requires a complete published inventory containing
-    the source UID in the saved UIDVALIDITY, and verifies live flags, exact
-    bytes, length, and INTERNALDATE before writing. A saved OBJECTID+ binding
-    must still identify the configured mailbox. The reserved occurrence is
-    published under the Maildir writer lease, and its bytes and flags are
-    verified before it is observed and paired. A crash
-    after publication is recovered by ordinary [copy_once]; it must not be
-    repaired again. [evidence] is a printable operator audit note. *)
-
-val record_appenduid_evidence :
-  store:Imap_store.t -> maildir:Maildir.t ->
-  scope:Imap.Mirror.scope -> id:string ->
-  uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t ->
-  evidence:string -> unit -> (unit, Error.t) result
-(** Record a trusted, externally recovered APPENDUID for one pending upload.
-    This is an explicit operator attestation of attribution: equal message
-    bytes alone cannot prove which client appended the UID. The call checks the
-    operation's scope, destination epoch and saved legacy intent, then persists
-    the receipt under the Maildir writer lease. It does not create a pair. The
-    next [copy_once] must find the exact UID in a complete scan and verify its
-    body digest, length and flags against the unchanged local occurrence before
-    committing. A missing or divergent UID remains pending. *)
-
-type append_candidates = {
-  uidvalidity : Imap.Uidvalidity.t;
-  inspected_uids : int;
-      (** [inspected_uids] is the width of the UID range above the saved
-          frontier, including UIDs that no longer exist. *)
-  matching_uids : Imap.Uid.t list;
-}
-
-val inspect_append_candidates :
-  ?max_uids:int -> ?max_body_bytes:int64 -> ctx:Ctx.t -> id:string -> unit ->
-  (append_candidates, Error.t) result
-(** [inspect_append_candidates ~ctx ~id ()] is a read-only, bounded
-    diagnostic for a pending APPEND lacking APPENDUID.
-    Inspect UIDs above the saved pre-send frontier, requiring the same epoch,
-    flags, exact byte length and SHA-256 digest. If the intent saved an
-    INTERNALDATE, compare the represented instant across timezone offsets
-    before reading a candidate body. Refuse a candidate range over
-    [max_uids] (default 1000) instead of silently truncating it. Body reads
-    have an aggregate [max_body_bytes] budget (default 1 GiB). [max_uids]
-    must be 1 to 10,000, [max_body_bytes] positive and [ctx.spool_dir] a
-    directory, or the call returns [Invalid_configuration]. Matching bytes
-    do not attribute an APPEND to this client, and this call never confirms
-    an intent, pairs an occurrence or authorizes replay. A saved OBJECTID+
-    mailbox binding is verified before inspecting any UID. *)

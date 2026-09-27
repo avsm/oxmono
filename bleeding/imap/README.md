@@ -7,10 +7,13 @@ The library is organized by purpose under `lib/`:
 - The sibling [`maildir`](../maildir/README.md) package provides local
   message storage.
 - `imap.store` provides SQLite snapshots, journals and blob archives.
-- `imap.sync` contains `Engine`, `Bridge`, `Flags`, `Deletion` and `Watch`
-  modules for durable synchronization. Every online call takes an
-  `Imap_sync.Ctx.t` naming the client, store, mailbox scope, spool directory
-  and ID source, and every call reports one flat `Imap_sync.Error.t`.
+- `imap.sync` contains the modules for durable synchronization: `Engine`
+  scans, archives and appends, `Bridge` runs IMAP↔Maildir cycles, `Flags`
+  and `Deletion` reconcile one pair, `Plan` previews a cycle offline,
+  `Repair` holds the operator-attested repairs and `Watch` reacts to IDLE.
+  Every online call takes an `Imap_sync.Ctx.t` naming the client, store,
+  mailbox scope, spool directory and ID source, and every call reports one
+  flat `Imap_sync.Error.t`.
 
 Maildir system flags live in filenames; custom keywords use lowercase filename
 letters and the standard `dovecot-keywords` mapping. INTERNALDATE lives in file
@@ -31,7 +34,7 @@ The
 APPEND after a crash. It stops on unresolved operations rather than replaying a
 possibly completed APPEND. A prepared copy that was never dispatched is
 rejected on restart. If an operator has an independently attributable
-APPENDUID receipt, `Imap_sync.Bridge.record_appenduid_evidence` records it; the
+APPENDUID receipt, `Imap_sync.Repair.record_appenduid` records it; the
 next cycle still verifies the remote UID's exact bytes, length and flags
 before committing a pair. Matching message bytes alone are insufficient
 evidence of ownership. Complete remote and local scans record durable
@@ -57,11 +60,12 @@ endpoint may lose its surviving copy. `imap-sync mark-local-retention` records
 an explicit local eviction tombstone; even full propagation holds the remote
 survivor for that pair. The bridge holds a cross-process Maildir writer lease
 for each cycle; other writers must use the same lease.
-`imap-sync plan-deletions` streams an offline candidate plan from the last
-complete published remote inventory and a fresh local inventory. It does not
-authorize mutation; the next sync revalidates against live IMAP state.
-`imap-sync plan-sync` adds paged copy and paired flag candidates to that
-read-only view, while respecting the populated-bootstrap hold.
+`Imap_sync.Plan.preview_sync` streams an offline candidate plan from the
+last complete published remote inventory and a fresh local inventory. It does
+not authorize mutation; the next sync revalidates against live IMAP state.
+`imap-sync plan-sync` prints it, and `imap-sync plan-deletions` prints its
+deletion candidates. A pending journal operation stops both, and plan-sync
+also stops at an unsafe populated bootstrap.
 Paired FLAGS writes verify the local body's saved digest before dispatch.
 A changed body produces a durable `content` conflict without sending STORE;
 a complete bridge scan clears the conflict once the original body is restored.
@@ -83,7 +87,7 @@ recovery.
 Bridge receipts count held flag and deletion decisions, and `imap-sync`
 returns a conflict exit status with affected pair IDs when requested work is
 held.
-`Imap_sync.Bridge.inspect_append_candidates` inspects uncertain APPEND
+`Imap_sync.Repair.inspect_append_candidates` inspects uncertain APPEND
 outcomes without replaying them.
 The [imap-sync command](bin/README.md) runs bounded bridge cycles with
 CRAM-MD5 or the client's negotiated authentication, inspects journal work
@@ -284,7 +288,7 @@ revision-pinned UID pages. It conditionally invalidates missing or corrupt
 references, which a later hydration pass can refill from IMAP.
 `Imap_sync.Engine.append_blob_journaled` verifies a durable source blob and records
 the pre-send UID frontier, byte length and wire flags before APPEND.
-`Imap_sync.Bridge.inspect_append_candidates` can scan later UIDs and compare
+`Imap_sync.Repair.inspect_append_candidates` can scan later UIDs and compare
 exact body digests after a lost receipt. Its report is evidence, not an
 automatic commit: another client may have appended identical bytes, or the
 original may already have been expunged.

@@ -1,4 +1,5 @@
 module Mirror = Imap.Mirror
+module E = Pair_evidence
 
 open Error
 
@@ -18,61 +19,6 @@ let selected_metadata (info:Imap.Response.select_metadata) =
         Ok (Some value) in
   Ok ({uidvalidity; uidnext=info.uidnext; highestmodseq;
        nomodseq=info.nomodseq || Option.is_none highestmodseq}:Mirror.selected)
-
-let conflicting_identity =
-  Invalid_scope "saved OBJECTID+ binding names another mailbox"
-
-let prepare_object_identity ~client ~store ~scope ~mailbox =
-  let has=Imap_eio.Client.has client in
-  let offered=has Imap.Capability.Objectid_plus &&
-    has Imap.Capability.Enable in
-  match Imap_store.object_identity store ~scope with
-  | `Conflict -> Error conflicting_identity
-  | `Bound _ when not offered ->
-    Error (Invalid_scope "saved OBJECTID+ identity cannot be verified")
-  | `Unbound when not offered -> Ok None
-  | `Unbound | `Bound _ as bound ->
-    let* objectid=network (Imap_eio.Client.Objectid_plus.enable client) in
-    let* ()=match bound with
-      | `Unbound -> Ok ()
-      | `Bound (identity:Imap_store.object_identity) ->
-          let* status=network (Imap_eio.Client.Objectid_plus.status objectid
-            ~mailbox ~items:[Imap.Status_item.Objectid]) in
-          (match status.objectid with
-           | Some ids when ids.account_id=Some identity.account_id &&
-               ids.mailbox_id=Some identity.mailbox_id ->
-               network (Imap_eio.Client.Objectid_plus.pin_mailbox objectid
-                 ~mailbox ~account_id:identity.account_id
-                 ~mailbox_id:identity.mailbox_id)
-           | _ -> Error (Invalid_scope
-               "configured mailbox name no longer matches saved OBJECTID+")) in
-    Ok (Some objectid)
-
-let guard_bound_mailbox ~(ctx:Ctx.t) =
-  let {Ctx.client;store;scope;mailbox;_}=ctx in
-  match Imap_store.object_identity store ~scope with
-  | `Unbound -> Ok ()
-  | `Conflict -> Error conflicting_identity
-  | `Bound _ ->
-      let* _=prepare_object_identity ~client ~store ~scope ~mailbox in
-      Ok ()
-
-let verify_mutation_destination ~client ~store ~scope ~mailbox =
-  match Imap_store.object_identity store ~scope with
-  | `Unbound -> Ok ()
-  | `Conflict -> Error conflicting_identity
-  | `Bound (identity:Imap_store.object_identity) ->
-      if not (Imap_eio.Client.is_enabled client
-                Imap.Capability.Objectid_plus) then
-        Error (Invalid_scope "saved OBJECTID+ identity is not enabled")
-      else
-        let* status=network (Imap_eio.Client.status client ~mailbox
-          ~items:[Imap.Status_item.Objectid]) in
-        (match status.objectid with
-         | Some ids when ids.account_id=Some identity.account_id &&
-             ids.mailbox_id=Some identity.mailbox_id -> Ok ()
-         | _ -> Error (Invalid_scope
-             "APPEND destination name no longer matches saved OBJECTID+"))
 
 let observe_selected_identity ~store ~scope info =
   match info.Imap.Response.objectid with
@@ -101,9 +47,6 @@ let window first last =
   let* first = uid first in
   let* last = uid last in
   Ok (first, last)
-
-let outside ~first ~last uid =
-  Imap.Uid.compare uid first < 0 || Imap.Uid.compare uid last > 0
 
 let pin_observed_identity ~objectid ~mailbox identity =
   match objectid,identity with
@@ -149,8 +92,7 @@ let scan_once ?(max_windows=100_000) ?expected_uidvalidity ~(ctx:Ctx.t)
   let {Ctx.client;store;scope;mailbox;_}=ctx in
   if max_windows<1 then Error (Limit "scan window budget must be positive")
   else
-    let* objectid=prepare_object_identity ~client ~store
-      ~scope ~mailbox in
+    let* objectid=E.enable_object_identity ~ctx in
     let cursor=Imap_store.load_cursor store ~scope in
     let observed_identity=ref None in
     let stage_created=ref false in
@@ -286,7 +228,7 @@ type append_outcome =
 let append_journaled ~(ctx:Ctx.t) ~id ~message_id ~content_digest
     ~spool_ref ?flags ?internal_date ~length source =
   let {Ctx.client;store;scope;mailbox;_}=ctx in
-  let* ()=verify_mutation_destination ~client ~store ~scope ~mailbox in
+  let* ()=E.verify_mutation_destination ~ctx in
   let expected_flags = Some (Option.value ~default:[] flags) in
   let current = Imap_store.load_cursor store ~scope in
   let intent : Imap_store.intent = {
@@ -334,25 +276,43 @@ let append_blob_journaled ~(ctx:Ctx.t) ~id ~message_id ?flags
       ?internal_date
       ~length:blob.length source
 
-type uid_digest = { sha256:string; length:int64 }
+type archived = {
+  blob : Imap_store.Blob.blob;
+  flags : Mail_flag.Imap_flag.t list;
+  internal_date : Imap.Internal_date.t;
+}
 
+type uid_digest = {
+  sha256 : string;
+  length : int64;
+  flags : Mail_flag.Imap_flag.t list;
+  internal_date : Imap.Internal_date.t;
+}
+
+(* The metadata is read after the body in the same selection, so a caller
+   comparing it with journaled values needs no second selection. *)
 let with_fetched_uid ~max_bytes ~(ctx:Ctx.t) ~uid ~epoch ~spool ~on_spool =
-  let {Ctx.client;mailbox;_}=ctx in
-  let* () = guard_bound_mailbox ~ctx in
+  let* () = E.guard_bound_mailbox ~ctx in
   let* epoch = epoch () in
   Spool.with_spool spool (fun output ->
-    let* fetch_result = network
-      (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
-        (fun selected ->
-          let result =
-            let* info = network (Imap_eio.Selected.info selected) in
-            if info.uidvalidity <> Imap.Uidvalidity.to_int64 epoch then
-              Error Uidvalidity_changed
-            else network (Imap_eio.Selected.fetch_to selected
-              ~max_bytes ~uid output)
-          in Ok result)) in
-    let* () = fetch_result in
-    on_spool epoch spool)
+    let* metadata = E.with_selected ctx ~mode:`Read_only (fun selected ->
+      let* info = network (Imap_eio.Selected.info selected) in
+      if info.uidvalidity <> Imap.Uidvalidity.to_int64 epoch then
+        Error Uidvalidity_changed
+      else
+        let* () = network (Imap_eio.Selected.fetch_to selected
+          ~max_bytes ~uid output) in
+        let* rows = network (Imap_eio.Selected.fetch selected ~uids:[uid]
+          ~items:[Imap.Fetch_item.Internal_date]) in
+        match rows with
+        | {flags=Some flags;internal_date=Some date;_} :: _ ->
+            Ok (Mail_flag.Imap_flag.durable flags,date)
+        | {flags=Some _;internal_date=None;_} :: _ ->
+            Error (Client (Imap_eio.Error.Protocol
+              "message FETCH omitted INTERNALDATE"))
+        | _ -> Error (Client (Imap_eio.Error.Missing_uid uid))) in
+    let flags,internal_date = metadata in
+    on_spool epoch spool ~flags ~internal_date)
 
 let archive_uid ?(max_bytes=1_073_741_824L) ~(ctx:Ctx.t) ~uid ~spool () =
   let {Ctx.store;scope;_}=ctx in
@@ -360,13 +320,13 @@ let archive_uid ?(max_bytes=1_073_741_824L) ~(ctx:Ctx.t) ~uid ~spool () =
     | None -> Error (Incomplete "mailbox has no published UIDVALIDITY")
     | Some epoch -> Ok epoch in
   with_fetched_uid ~max_bytes ~ctx ~uid ~epoch
-    ~spool ~on_spool:(fun epoch spool ->
+    ~spool ~on_spool:(fun epoch spool ~flags ~internal_date ->
       let blob=Eio.Path.with_open_in spool (fun input ->
         let length=Optint.Int63.to_int64 (Eio.File.size input) in
         Imap_store.Blob.put store ~source:input ~length ()) in
       Imap_store.Blob.attach ~verify:false store ~scope ~uidvalidity:epoch
         ~uid blob;
-      Ok blob)
+      Ok {blob;flags;internal_date})
 
 type hydration_receipt = {
   cursor : Mirror.cursor;
@@ -477,7 +437,7 @@ let hydrate_once ?after_uid ?(max_messages=100)
      max_total_bytes<1L || not (Eio.Path.is_directory spool_dir) then
     Error (Limit "invalid hydration count, byte budget or spool directory")
   else
-    let* ()=guard_bound_mailbox ~ctx in
+    let* ()=E.guard_bound_mailbox ~ctx in
     let cursor=Imap_store.load_cursor store ~scope in
     match cursor.phase,cursor.uidvalidity,cursor.inventory_ref with
     | Mirror.Live,Some epoch,Some _ ->
@@ -559,6 +519,6 @@ let fetch_uid_digest ?(max_bytes=1_073_741_824L) ~ctx ~uidvalidity ~uid
     ~spool () =
   with_fetched_uid ~max_bytes ~ctx ~uid
     ~epoch:(fun () -> Ok uidvalidity) ~spool
-    ~on_spool:(fun _epoch spool ->
+    ~on_spool:(fun _epoch spool ~flags ~internal_date ->
       let length,sha256 = Spool.hash_file spool in
-      Ok {sha256;length})
+      Ok {sha256;length;flags;internal_date})

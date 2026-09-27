@@ -499,10 +499,10 @@ let test_mark_local_retention () =
      | Some {reason=J.Retention;evidence="cache retention expired";_} -> true
      | _ -> false);
   Alcotest.(check bool) "retained absence blocks deletion" true
-    (Imap.Sync_policy.plan_disappearance ~policy:Imap.Sync_policy.Propagate
-      ~paired:true ~remote_present:true ~remote_complete:true
-      ~local_present:false ~local_complete:true ~local_retained:true
-      ~survivor_unchanged:true =
+    (Imap.Sync_policy.plan_disappearance_with_grace ~absence_mature:true
+      ~policy:Imap.Sync_policy.Propagate ~paired:true ~local_retained:true
+      ~survivor_unchanged:true ~remote:{present=true;complete=true}
+      ~local:{present=false;complete=true} =
       Imap.Sync_policy.Hold_deletion Imap.Sync_policy.Retention_policy);
   ignore maildir
 

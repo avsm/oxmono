@@ -75,21 +75,20 @@ let absence_mature ~last_present_generation ~current_generation
         Int64.sub current_generation first>=Int64.of_int min_scans
     | _ -> false
 
+type observation = { present : bool; complete : bool }
+
 let plan_disappearance_with_grace ~absence_mature ~policy ~paired
-    ~remote_present ~remote_complete
-    ~local_present ~local_complete ~local_retained
-    ~survivor_unchanged =
-  match remote_present,local_present with
+    ~local_retained ~survivor_unchanged ~remote ~local =
+  match remote.present,local.present with
   | true,true | false,false -> No_deletion
   | false,true | true,false ->
-      let missing_complete = if remote_present then local_complete
-        else remote_complete in
-      if not missing_complete then Hold_deletion Incomplete_inventory
+      let missing=if remote.present then local else remote in
+      if not missing.complete then Hold_deletion Incomplete_inventory
       else if not paired then Hold_deletion Unpaired_identity
       else if not survivor_unchanged then Hold_deletion Survivor_changed
-      else if remote_present && local_retained then
+      else if remote.present && local_retained then
         Hold_deletion Retention_policy
-      else let action=match policy,remote_present with
+      else let action=match policy,remote.present with
         | Preserve,_ -> Hold_deletion Preservation_policy
         | (Propagate | Propagate_remote),false -> Delete_local
         | (Propagate | Propagate_local),true -> Delete_remote
@@ -99,9 +98,3 @@ let plan_disappearance_with_grace ~absence_mature ~policy ~paired
        | Delete_local | Delete_remote when not absence_mature ->
            Hold_deletion Grace_period
        | _ -> action)
-
-let plan_disappearance ~policy ~paired ~remote_present ~remote_complete
-    ~local_present ~local_complete ~local_retained ~survivor_unchanged =
-  plan_disappearance_with_grace ~absence_mature:true ~policy ~paired
-    ~remote_present ~remote_complete ~local_present ~local_complete
-    ~local_retained ~survivor_unchanged

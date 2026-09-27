@@ -1,8 +1,8 @@
 (** Durable three-way flag reconciliation for one paired IMAP/Maildir
     occurrence. This module does not discover pairs or publish mailbox
     inventories. [reconcile_pair] and [recover_operation] take the
-    {!Maildir.writer} of the lease the caller holds. [settle_operation] takes
-    the lease itself, so the caller must not hold it. *)
+    {!Maildir.writer} of the lease the caller holds. {!Repair.settle_flags}
+    settles a pending FLAGS operation by hand. *)
 
 type outcome = Unchanged | Updated of Imap_store.Journal.pair
 
@@ -100,18 +100,3 @@ val recover_operation :
     common flags, and a held operation returns [Pending_operations]. A
     [Prepared] intent is rejected because dispatch had not begun. A pair in
     another scope returns [Stale_pair]. *)
-
-val settle_operation :
-  ctx:Ctx.t -> maildir:Maildir.t -> id:string -> evidence:string -> unit ->
-  (outcome, Error.t) result
-(** [settle_operation ~ctx ~maildir ~id ~evidence ()] is the explicit operator
-    repair of a sent, ambiguous or observed FLAGS intent after both endpoints
-    have been brought to the same flags by hand. It takes the Maildir writer
-    lease and verifies the operation and pair revision, a saved OBJECTID+
-    binding, UIDVALIDITY, the paired local content and date, and a stable
-    remote MODSEQ across two reads. It sends no STORE and changes no Maildir
-    flags. An atomic SQLite transition adopts the agreed flags as common,
-    rejects the superseded intent with operator evidence, and resolves its flag
-    conflict. Divergence leaves all state pending. An unknown or finished
-    operation returns [No_pending_operation], a pair in another scope
-    [Stale_pair], and a changed local body [Content_mismatch]. *)

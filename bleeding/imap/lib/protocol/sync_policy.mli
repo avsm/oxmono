@@ -69,26 +69,28 @@ val absence_mature : last_present_generation:int64 option ->
     [first_generation] is [None], a legacy absence of unknown age, the result
     is [true] only when [min_scans] is 0 or less. *)
 
-val plan_disappearance :
-  policy:deletion_policy -> paired:bool ->
-  remote_present:bool -> remote_complete:bool ->
-  local_present:bool -> local_complete:bool ->
-  local_retained:bool ->
-  survivor_unchanged:bool -> deletion_plan
-(** Absence is actionable only after a complete inventory of that endpoint,
-    a proven occurrence pair and an unchanged surviving occurrence. The
-    default [Preserve] policy never emits a delete action. [Propagate_remote]
-    propagates remote disappearance to local, while [Propagate_local]
-    propagates local disappearance to remote. A retained local absence is
-    never propagated. A [Delete_*] result
-    is only a plan: the driver must also check that the missing endpoint has
-    the expected durable absence tombstone, then journal and verify the mutation before
-    committing a tombstone. [\Deleted] alone is not absence. *)
+type observation = {
+  present : bool;
+      (** [present] is [true] when the endpoint holds the occurrence. *)
+  complete : bool;
+      (** [complete] is [true] when [present] comes from a complete
+          inventory of the endpoint. *)
+}
 
 val plan_disappearance_with_grace :
   absence_mature:bool -> policy:deletion_policy -> paired:bool ->
-  remote_present:bool -> remote_complete:bool ->
-  local_present:bool -> local_complete:bool ->
-  local_retained:bool -> survivor_unchanged:bool -> deletion_plan
-(** The same decision with an additional gate: when [absence_mature=false],
-    an otherwise allowed deletion is held as [Grace_period]. *)
+  local_retained:bool -> survivor_unchanged:bool ->
+  remote:observation -> local:observation -> deletion_plan
+(** [plan_disappearance_with_grace ~absence_mature ~policy ~paired
+    ~local_retained ~survivor_unchanged ~remote ~local] is the deletion plan
+    for a pair whose endpoints were observed as [remote] and [local]. An
+    absence is actionable only when the missing endpoint's inventory is
+    complete, the occurrences are [paired] and the survivor is unchanged.
+    [Preserve] never emits a delete action. [Propagate_remote] propagates a
+    remote disappearance to the local side, and [Propagate_local] a local
+    disappearance to the remote side. A [local_retained] local absence is
+    never propagated. When [absence_mature] is [false], an otherwise allowed
+    deletion is held as [Grace_period]. A [Delete_*] result is only a plan:
+    the driver must also check that the missing endpoint has the expected
+    durable absence tombstone, then journal and verify the mutation before
+    committing a tombstone. [\Deleted] alone is not absence. *)

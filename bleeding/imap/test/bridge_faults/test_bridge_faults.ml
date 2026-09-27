@@ -125,14 +125,13 @@ let scripted_scan ?(confirmed_body=false) ?(missing_body=false)
     `Return (Printf.sprintf "* 1 FETCH (UID 1 BODY[] {%d}\r\n"
       (String.length fetched_body));
     `Return (fetched_body ^ ")\r\nA00000009 OK fetched\r\n");
-    `Return "A00000010 OK unselected\r\n";
-    `Return "* 1 EXISTS\r\n* OK [UIDVALIDITY 11] valid\r\n* OK [UIDNEXT 2] next\r\nA00000011 OK [READ-ONLY] selected\r\n";
     `Return ((if missing_metadata then "" else
-      "* 1 FETCH (UID 1 FLAGS (" ^ flags ^ ")" ^
-      (match confirmed_date with None -> "" | Some date ->
-        " INTERNALDATE " ^ Imap.Internal_date.to_wire date) ^
-      ")\r\n") ^ "A00000012 OK fetched\r\n");
-    `Return "A00000013 OK unselected\r\n";
+      "* 1 FETCH (UID 1 FLAGS (" ^ flags ^ ") INTERNALDATE " ^
+      (match confirmed_date with
+       | None -> "\"01-Jan-2020 00:00:00 +0000\""
+       | Some date -> Imap.Internal_date.to_wire date) ^
+      ")\r\n") ^ "A00000010 OK fetched\r\n");
+    `Return "A00000011 OK unselected\r\n";
   ] else lines in
   let lines=if append_without_uidplus then lines @ [
     `Return "+ ready for literal\r\n";
@@ -393,7 +392,7 @@ let test_flag_settlement_rejects_replaced_objectid () =
   J.mark_sent store ~id:operation.id;
   let client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Flags.settle_operation
+  (match Imap_sync.Repair.settle_flags
       ~ctx:(context ~store ~spool_dir client) ~maildir ~id:operation.id
       ~evidence:"operator audit" () with
    | Error (Imap_sync.Error.Invalid_scope
@@ -437,7 +436,7 @@ let test_standalone_repairs_reject_replaced_objectid () =
   J.mark_sent store ~id:delete.id;
   let client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Deletion.repair_local_delete
+  (match Imap_sync.Repair.local_delete
       ~ctx:(context ~store ~spool_dir client) ~maildir ~id:delete.id
       ~evidence:"operator audit" () with
    | Error (Imap_sync.Error.Invalid_scope
@@ -455,7 +454,7 @@ let test_standalone_repairs_reject_replaced_objectid () =
   J.mark_sent store ~id:append.id;
   let client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Bridge.repair_local_append
+  (match Imap_sync.Repair.local_append
       ~ctx:(context ~store ~spool_dir client) ~maildir ~id:append.id
       ~evidence:"operator audit" () with
    | Error (Imap_sync.Error.Invalid_scope
@@ -491,7 +490,7 @@ let test_candidate_inspection_rejects_replaced_objectid () =
       {account_id="u_account";mailbox_id="F_original"}=`Bound);
   let client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Bridge.inspect_append_candidates
+  (match Imap_sync.Repair.inspect_append_candidates
       ~ctx:(context ~store ~spool_dir client) ~id:op.id () with
    | Error (Imap_sync.Error.Invalid_scope
        "configured mailbox name no longer matches saved OBJECTID+") -> ()
@@ -701,6 +700,16 @@ let test_digest_checks_receipt_epoch () =
       Imap_sync.Error.pp error
   | Ok _ -> Alcotest.fail "digest ignored the receipt epoch"
 
+
+(* [preview_deletions] is the deletion case of [Plan.preview_sync], as
+   imap-sync plan-deletions reads it. *)
+let preview_deletions ?min_absence_scans ~spool_dir ~store ~maildir ~scope
+    ~policy ~on_preview () =
+  Imap_sync.Plan.preview_sync ~allow_bootstrap_duplicates:true
+    ?min_absence_scans ~store ~maildir ~scope ~policy ~spool_dir
+    ~on_preview:(function
+      | Imap_sync.Plan.Preview_deletion item -> on_preview item
+      | _ -> ()) ()
 
 (* [published_rows store] is every row of the published snapshot. *)
 let published_rows store =
@@ -1183,7 +1192,8 @@ let test_appenduid_readback_rejects_changed_body () =
     `Return (Printf.sprintf "* 1 FETCH (UID 1 BODY[] {%d}\r\n"
       (String.length changed));
     `Return (changed ^ ")\r\nA00000008 OK fetched\r\n");
-    `Return "A00000009 OK unselected\r\n";
+    `Return "* 1 FETCH (UID 1 FLAGS () INTERNALDATE \"01-Jan-2020 00:00:00 +0000\")\r\nA00000009 OK fetched\r\n";
+    `Return "A00000010 OK unselected\r\n";
   ];
   let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
     ~allow_insecure_transport:true () in
@@ -1617,7 +1627,7 @@ let test_operator_appenduid_evidence () =
     Imap_store.set_intent_state store ~id:op.id Imap_store.Sent);
   Eio.Switch.run (fun sw ->
     let store=open_store ~sw ~database ~blob_dir in
-    (match Imap_sync.Bridge.record_appenduid_evidence ~store ~maildir ~scope
+    (match Imap_sync.Repair.record_appenduid ~store ~maildir ~scope
       ~id:"operator-appenduid" ~uidvalidity:(epoch 12L) ~uid:(uid 1L)
       ~evidence:"saved server receipt" () with
      | Error (Imap_sync.Error.Invalid_operation _) -> ()
@@ -1625,7 +1635,7 @@ let test_operator_appenduid_evidence () =
     Alcotest.(check bool) "wrong epoch left operation ambiguous" true
       (match J.find_operation store ~id:"operator-appenduid" with
        | Some {state=J.Ambiguous;_} -> true | _ -> false);
-    (match Imap_sync.Bridge.record_appenduid_evidence ~store ~maildir ~scope
+    (match Imap_sync.Repair.record_appenduid ~store ~maildir ~scope
       ~id:"operator-appenduid" ~uidvalidity:(epoch 11L) ~uid:(uid 1L)
       ~evidence:"saved server receipt" () with
      | Ok () -> ()
@@ -1764,7 +1774,7 @@ let test_unsupported_targeted_delete_is_durable_hold () =
   Alcotest.(check int) "unsupported delete sent no operation" 0
     (List.length (J.active_operations store ~scope));
   let preview=ref [] in
-  (match Imap_sync.Bridge.preview_deletions ~spool_dir ~store ~maildir ~scope
+  (match preview_deletions ~spool_dir ~store ~maildir ~scope
     ~policy:Imap.Sync_policy.Propagate_local
     ~on_preview:(fun item -> preview:=item::!preview) () with
    | Ok _ -> ()
@@ -1809,7 +1819,7 @@ let test_deletion_grace_across_complete_scans () =
   Alcotest.(check (option int64)) "first observation recorded"
     (Some first.cursor.generation) observed;
   let preview=ref [] in
-  (match Imap_sync.Bridge.preview_deletions ~spool_dir ~min_absence_scans:1
+  (match preview_deletions ~spool_dir ~min_absence_scans:1
     ~store ~maildir
     ~scope ~policy:Imap.Sync_policy.Propagate
     ~on_preview:(fun item -> preview:=item::!preview) () with
@@ -1830,7 +1840,7 @@ let test_deletion_grace_across_complete_scans () =
     (Option.bind second_pair.local_tombstone
       (fun tombstone -> tombstone.generation));
   let preview=ref [] in
-  (match Imap_sync.Bridge.preview_deletions ~spool_dir ~min_absence_scans:1
+  (match preview_deletions ~spool_dir ~min_absence_scans:1
     ~store ~maildir
     ~scope ~policy:Imap.Sync_policy.Propagate
     ~on_preview:(fun item -> preview:=item::!preview) () with
@@ -1857,7 +1867,7 @@ let test_deletion_grace_across_complete_scans () =
     (J.last_presence_generation reopened ~pair_id:pair.id ~side:`Local);
   Md.remove maildir restored;
   let preview=ref [] in
-  (match Imap_sync.Bridge.preview_deletions ~spool_dir ~min_absence_scans:1
+  (match preview_deletions ~spool_dir ~min_absence_scans:1
     ~store ~maildir
     ~scope ~policy:Imap.Sync_policy.Propagate
     ~on_preview:(fun item -> preview:=item::!preview) () with
@@ -1934,7 +1944,7 @@ let test_changed_reappearance_blocks_delete () =
     [conflict.id] (List.map (fun (x:J.conflict) -> x.id)
       (content_conflicts ()));
   let preview=ref [] in
-  (match Imap_sync.Bridge.preview_deletions ~spool_dir ~min_absence_scans:1
+  (match preview_deletions ~spool_dir ~min_absence_scans:1
     ~store ~maildir
     ~scope ~policy:Imap.Sync_policy.Propagate
     ~on_preview:(fun item -> preview:=item::!preview) () with
@@ -2004,7 +2014,7 @@ let test_wrong_date_reappearance_blocks_delete () =
   Alcotest.(check int) "date conflict remains open" 1
     (List.length (identity_conflicts ()));
   let preview=ref [] in
-  (match Imap_sync.Bridge.preview_deletions ~spool_dir ~min_absence_scans:1
+  (match preview_deletions ~spool_dir ~min_absence_scans:1
     ~store ~maildir
     ~scope ~policy:Imap.Sync_policy.Propagate
     ~on_preview:(fun item -> preview:=item::!preview) () with
@@ -2039,7 +2049,7 @@ let test_retention_holds_remote_delete () =
     local_tombstone=None;revision=0L} in
   (match J.put_pair store ~expected_revision:None pair with
    | `Committed _ -> () | `Stale_revision -> Alcotest.fail "new pair stale");
-  (match Imap_sync.Bridge.mark_local_retention ~spool_dir ~store ~maildir ~scope
+  (match Imap_sync.Repair.mark_local_retention ~spool_dir ~store ~maildir ~scope
     ~pair_id:pair.id ~evidence:"local size limit" () with
    | Ok () -> ()
    | Error error -> Alcotest.failf "mark retention: %a"
@@ -2066,7 +2076,7 @@ let test_retention_holds_remote_delete () =
      | Some {reason=J.Retention;_} -> true | _ -> false);
   let planned=ref [] in
   let before=(Option.get (J.find_pair store ~id:pair.id)).revision in
-  (match Imap_sync.Bridge.preview_deletions ~spool_dir ~store ~maildir ~scope
+  (match preview_deletions ~spool_dir ~store ~maildir ~scope
     ~policy:Imap.Sync_policy.Propagate
     ~on_preview:(fun item -> planned:=item::!planned) () with
    | Ok _ -> ()
@@ -2095,7 +2105,7 @@ let test_readonly_sync_plan () =
        Imap_sync.Error.pp error);
   let preview ?(allow_bootstrap_duplicates=false) () =
     let events=ref [] in
-    let cursor=match Imap_sync.Bridge.preview_sync ~spool_dir
+    let cursor=match Imap_sync.Plan.preview_sync ~spool_dir
       ~allow_bootstrap_duplicates ~store ~maildir ~scope
       ~policy:Imap.Sync_policy.Preserve
       ~on_preview:(fun event -> events:=event::!events) () with
@@ -2105,12 +2115,12 @@ let test_readonly_sync_plan () =
     cursor,List.rev !events in
   let cursor,blocked=preview () in
   Alcotest.(check bool) "populated bootstrap held" true
-    (blocked=[Imap_sync.Bridge.Preview_bootstrap_hold]);
+    (blocked=[Imap_sync.Plan.Preview_bootstrap_hold]);
   let _,allowed=preview ~allow_bootstrap_duplicates:true () in
   Alcotest.(check bool) "opt-in previews two separate copies" true
     (match allowed with
-     | [Imap_sync.Bridge.Preview_copy_remote remote_uid;
-        Imap_sync.Bridge.Preview_copy_local id] ->
+     | [Imap_sync.Plan.Preview_copy_remote remote_uid;
+        Imap_sync.Plan.Preview_copy_local id] ->
          remote_uid=uid 1L && id=local.id
      | _ -> false);
   let pair:J.pair={id="plan-flags-pair";scope;
@@ -2125,7 +2135,7 @@ let test_readonly_sync_plan () =
   let after,planned=preview () in
   Alcotest.(check bool) "three-way flag plan" true
     (match planned with
-     | [Imap_sync.Bridge.Preview_flags flags] ->
+     | [Imap_sync.Plan.Preview_flags flags] ->
          flags.pair_id=pair.id && flags.to_remote.add=[seen] &&
          flags.to_remote.remove=[] && flags.to_local.add=[] &&
          flags.to_local.remove=[]
@@ -2140,7 +2150,7 @@ let test_readonly_sync_plan () =
   let _,held=preview () in
   Alcotest.(check bool) "saved content hold suppresses FLAGS candidate" true
     (match held with
-     | [Imap_sync.Bridge.Preview_pair_hold (id,reason)] ->
+     | [Imap_sync.Plan.Preview_pair_hold (id,reason)] ->
          id=pair.id && String.length reason>0
      | _ -> false);
   Alcotest.(check int64) "held preview kept pair revision" pair.revision
@@ -2174,7 +2184,7 @@ let test_incompatible_absence_tombstone_holds () =
   Alcotest.(check int) "no deletion operation" 0
     (List.length (J.active_operations store ~scope));
   let planned=ref [] in
-  (match Imap_sync.Bridge.preview_deletions ~spool_dir ~store ~maildir ~scope
+  (match preview_deletions ~spool_dir ~store ~maildir ~scope
     ~policy:Imap.Sync_policy.Propagate
     ~on_preview:(fun item -> planned:=item::!planned) () with
    | Ok _ -> ()
@@ -2473,7 +2483,7 @@ let test_settle_reports_content_mismatch () =
   J.prepare_operation ~local_flags:[] store op;
   J.mark_sent store ~id:op.id;
   let client,_=scripted_client ~sw "settle-content" [] in
-  let settle id=Imap_sync.Flags.settle_operation
+  let settle id=Imap_sync.Repair.settle_flags
     ~ctx:(context ~store ~spool_dir client) ~maildir ~id
     ~evidence:"operator audit" () in
   (match settle op.id with
@@ -2707,13 +2717,11 @@ let test_unstorable_remote_copy_is_rejected () =
     "* SEARCH 1\r\nA00000006 OK searched\r\n";
     "A00000007 OK unselected\r\n";
     examine ~tag:8 ~exists:1 ~uidnext:2 ();
-    "* 1 FETCH (UID 1 FLAGS () INTERNALDATE \"31-Dec-2016 23:59:60 +0000\")\r\n\
-     A00000009 OK fetched\r\n";
-    "A00000010 OK unselected\r\n";
-    examine ~tag:11 ~exists:1 ~uidnext:2 ();
     Printf.sprintf "* 1 FETCH (UID 1 BODY[] {%d}\r\n" size;
-    message ^ ")\r\nA00000012 OK fetched\r\n";
-    "A00000013 OK unselected\r\n"] in
+    message ^ ")\r\nA00000009 OK fetched\r\n";
+    "* 1 FETCH (UID 1 FLAGS () INTERNALDATE \"31-Dec-2016 23:59:60 +0000\")\r\n\
+     A00000010 OK fetched\r\n";
+    "A00000011 OK unselected\r\n"] in
   let next_id ()="unstorable" in
   (match Imap_sync.Bridge.copy_once
       ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir

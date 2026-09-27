@@ -688,7 +688,8 @@ let sync config ~net ~fs ~random ~getenv =
         | Error (Imap_sync.Error.Invalid_operation _) ->
           prerr_endline "invalid journal operation; run inspect"; 3
         | Error _ ->
-          prerr_endline "IMAP sync operation failed; run inspect for journal state";
+          prerr_endline
+            "IMAP sync operation failed; run inspect for journal state";
           6 in
       cycles 1
 
@@ -769,7 +770,7 @@ let repair_appenduid config ~fs =
   let store=Imap_store.open_path ~sw db_path in
   with_maildir Eio.Path.(fs / config.maildir) @@ fun maildir ->
   let scope=local_scope config store in
-  match Imap_sync.Bridge.record_appenduid_evidence ~store ~maildir ~scope
+  match Imap_sync.Repair.record_appenduid ~store ~scope ~maildir
     ~id:config.operation_id ~uidvalidity ~uid ~evidence:config.evidence () with
   | Ok () ->
     prerr_endline "APPENDUID attestation recorded; run sync to verify body and flags";
@@ -797,7 +798,7 @@ let mark_local_retention config ~fs =
     let store=Imap_store.open_path ~sw db_path in
     with_maildir maildir_path @@ fun maildir ->
     let scope=local_scope config store in
-    match Imap_sync.Bridge.mark_local_retention ~store ~maildir ~scope
+    match Imap_sync.Repair.mark_local_retention ~store ~maildir ~scope
       ~pair_id:config.pair_id ~evidence:config.evidence
       ~spool_dir:(spool_path config ~fs) () with
     | Ok () ->
@@ -863,7 +864,7 @@ let plan_deletions config ~fs =
     let count=ref 0 and shown=ref [] and shown_count=ref 0
     and candidate=ref 0
     and held=ref 0 and pending=ref 0 in
-    let on_preview (item:Imap_sync.Bridge.deletion_preview) =
+    let on_deletion (item:Imap_sync.Plan.deletion_preview) =
       incr count;
       if !shown_count<config.max_inspect then (
         shown:=item::!shown; incr shown_count);
@@ -873,7 +874,14 @@ let plan_deletions config ~fs =
       | `Pending _ -> incr pending
       | `Stale_epoch | `Plan (Imap.Sync_policy.Hold_deletion _ |
           Imap.Sync_policy.No_deletion) -> incr held in
-    match Imap_sync.Bridge.preview_deletions
+    (* The deletion plan is the deletion case of the full plan. Bootstrap
+       duplicates are allowed so that an unpaired populated bootstrap,
+       which holds no deletion, does not stop the plan. *)
+    let on_preview = function
+      | Imap_sync.Plan.Preview_deletion item -> on_deletion item
+      | Imap_sync.Plan.Preview_pending _ -> incr pending
+      | _ -> () in
+    match Imap_sync.Plan.preview_sync ~allow_bootstrap_duplicates:true
       ~min_absence_scans:config.min_absence_scans ~store ~maildir ~scope
       ~policy:(deletion_policy config) ~spool_dir:(spool_path config ~fs)
       ~on_preview () with
@@ -907,7 +915,7 @@ let plan_deletions config ~fs =
                     "no-content-evidence") in
         Printf.printf "published_revision=%Ld generation=%Ld; candidates require live revalidation\n"
           cursor.revision cursor.generation;
-        List.iter (fun (item:Imap_sync.Bridge.deletion_preview) ->
+        List.iter (fun (item:Imap_sync.Plan.deletion_preview) ->
           Printf.printf "pair=%S remote_uid=%Ld remote=%s local_id=%S local=%s decision=%s\n"
             item.pair_id (Imap.Uid.to_int64 item.remote_uid)
             (presence item.remote_present) item.local_id
@@ -933,25 +941,25 @@ let plan_sync config ~fs =
     let remote_copies=ref 0 and local_copies=ref 0
     and flags=ref 0 and deletes=ref 0
     and holds=ref 0 and pending=ref 0 in
-    let on_preview (item:Imap_sync.Bridge.sync_preview) =
+    let on_preview (item:Imap_sync.Plan.sync_preview) =
       incr count;
       if !shown_count<config.max_inspect then (
         shown:=item::!shown; incr shown_count);
       match item with
-      | Imap_sync.Bridge.Preview_copy_remote _ -> incr remote_copies
-      | Imap_sync.Bridge.Preview_copy_local _ -> incr local_copies
-      | Imap_sync.Bridge.Preview_flags _ -> incr flags
-      | Imap_sync.Bridge.Preview_pending _ -> incr pending
-      | Imap_sync.Bridge.Preview_bootstrap_hold |
-        Imap_sync.Bridge.Preview_pair_hold _ -> incr holds
-      | Imap_sync.Bridge.Preview_deletion item ->
+      | Imap_sync.Plan.Preview_copy_remote _ -> incr remote_copies
+      | Imap_sync.Plan.Preview_copy_local _ -> incr local_copies
+      | Imap_sync.Plan.Preview_flags _ -> incr flags
+      | Imap_sync.Plan.Preview_pending _ -> incr pending
+      | Imap_sync.Plan.Preview_bootstrap_hold |
+        Imap_sync.Plan.Preview_pair_hold _ -> incr holds
+      | Imap_sync.Plan.Preview_deletion item ->
           (match item.decision with
            | `Plan (Imap.Sync_policy.Delete_local |
                Imap.Sync_policy.Delete_remote) -> incr deletes
            | `Pending _ -> incr pending
            | `Stale_epoch | `Plan (Imap.Sync_policy.Hold_deletion _ |
                Imap.Sync_policy.No_deletion) -> incr holds) in
-    match Imap_sync.Bridge.preview_sync
+    match Imap_sync.Plan.preview_sync
       ~allow_bootstrap_duplicates:config.allow_bootstrap_duplicates
       ~min_absence_scans:config.min_absence_scans
       ~store ~maildir ~scope ~policy:(deletion_policy config)
@@ -969,22 +977,22 @@ let plan_sync config ~fs =
         let delta (x:Imap.Sync_policy.flag_delta) =
           Printf.sprintf "+[%s]-[%s]" (wires x.add) (wires x.remove) in
         let line = function
-          | Imap_sync.Bridge.Preview_pending id ->
+          | Imap_sync.Plan.Preview_pending id ->
               Printf.sprintf "pending operation=%S" id
-          | Imap_sync.Bridge.Preview_bootstrap_hold ->
+          | Imap_sync.Plan.Preview_bootstrap_hold ->
               "hold: both endpoints have unpaired messages; bootstrap opt-in required"
-          | Imap_sync.Bridge.Preview_copy_remote uid ->
+          | Imap_sync.Plan.Preview_copy_remote uid ->
               Printf.sprintf "candidate:copy-remote uid=%Ld"
                 (Imap.Uid.to_int64 uid)
-          | Imap_sync.Bridge.Preview_copy_local id ->
+          | Imap_sync.Plan.Preview_copy_local id ->
               Printf.sprintf "candidate:copy-local id=%S" id
-          | Imap_sync.Bridge.Preview_flags flags ->
+          | Imap_sync.Plan.Preview_flags flags ->
               Printf.sprintf "candidate:flags pair=%S remote=%s local=%s"
                 flags.pair_id (delta flags.to_remote)
                 (delta flags.to_local)
-          | Imap_sync.Bridge.Preview_pair_hold (id,reason) ->
+          | Imap_sync.Plan.Preview_pair_hold (id,reason) ->
               Printf.sprintf "hold pair=%S reason=%S" id reason
-          | Imap_sync.Bridge.Preview_deletion item ->
+          | Imap_sync.Plan.Preview_deletion item ->
               let decision=match item.decision with
                 | `Pending id -> "pending:" ^ id
                 | `Stale_epoch -> "hold:stale-uidvalidity"
@@ -1021,12 +1029,14 @@ let repair_local_delete config ~net ~fs ~random ~getenv =
         ~spool_dir:Eio.Path.(fs / config.spool_dir)
         ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
           (try
-            match Imap_sync.Deletion.repair_local_delete ~ctx ~maildir
+            match Imap_sync.Repair.local_delete ~ctx ~maildir
                 ~id:config.operation_id ~evidence:config.evidence () with
             | Ok (Imap_sync.Deletion.Deleted _) ->
                 prerr_endline "local deletion repaired and committed"; 0
             | Ok _ ->
                 prerr_endline "local deletion was not repaired"; 4
+            | Error Imap_sync.Error.Writer_busy ->
+                prerr_endline "Maildir writer lease is busy"; 8
             | Error (Imap_sync.Error.Client _) ->
                 prerr_endline "IMAP verification failed; deletion unchanged"; 6
             | Error (Imap_sync.Error.Maildir error) ->
@@ -1054,14 +1064,14 @@ let remote_delete_repair config ~finish ~net ~fs ~random ~getenv =
         ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
           (try
             let result=if finish then
-              (match Imap_sync.Deletion.finish_marked_remote_delete
+              (match Imap_sync.Repair.finish_remote_delete
                 ~ctx ~maildir ~id:config.operation_id
                 ~evidence:config.evidence () with
                | Ok (Imap_sync.Deletion.Deleted _) -> Ok ()
                | Ok _ -> Error (Imap_sync.Error.Diverged
                    "targeted UID EXPUNGE did not commit")
                | Error error -> Error error)
-              else Imap_sync.Deletion.reject_unchanged_remote_delete
+              else Imap_sync.Repair.reject_remote_delete
                 ~ctx ~maildir ~id:config.operation_id
                 ~evidence:config.evidence () in
             match result with
@@ -1073,6 +1083,8 @@ let remote_delete_repair config ~finish ~net ~fs ~random ~getenv =
             | Error (Imap_sync.Error.Pending_operations _) ->
                 prerr_endline "targeted deletion remains pending; run inspect";
                 3
+            | Error Imap_sync.Error.Writer_busy ->
+                prerr_endline "Maildir writer lease is busy"; 8
             | Error (Imap_sync.Error.Client _) ->
                 prerr_endline "IMAP verification failed; deletion remains pending";
                 6
@@ -1101,7 +1113,7 @@ let repair_local_append config ~net ~fs ~random ~getenv =
       with_maildir maildir_path @@ fun maildir ->
       with_context config ~sw ~net ~password ~store ~spool_dir
         ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
-          match Imap_sync.Bridge.repair_local_append ~ctx ~maildir
+          match Imap_sync.Repair.local_append ~ctx ~maildir
               ~id:config.operation_id ~evidence:config.evidence () with
           | Ok () ->
               prerr_endline "local append repaired and committed"; 0
@@ -1131,13 +1143,15 @@ let settle_flags config ~net ~fs ~random ~getenv =
       with_context config ~sw ~net ~password ~store
         ~spool_dir:Eio.Path.(fs / config.spool_dir)
         ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
-          (try match Imap_sync.Flags.settle_operation ~ctx ~maildir
+          (try match Imap_sync.Repair.settle_flags ~ctx ~maildir
               ~id:config.operation_id ~evidence:config.evidence () with
            | Ok (Imap_sync.Flags.Updated _) ->
                prerr_endline "matching endpoint flags adopted; old intent rejected";
                0
            | Ok Imap_sync.Flags.Unchanged ->
                prerr_endline "FLAGS settlement made no change"; 4
+           | Error Imap_sync.Error.Writer_busy ->
+               prerr_endline "Maildir writer lease is busy"; 8
            | Error (Imap_sync.Error.Client _) ->
                prerr_endline "IMAP verification failed; FLAGS intent unchanged";
                6
@@ -1164,7 +1178,7 @@ let inspect_append_candidates config ~net ~fs ~random ~getenv =
       let store=Imap_store.open_readonly ~sw db_path in
       with_context config ~sw ~net ~password ~store ~spool_dir
         ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
-          match Imap_sync.Bridge.inspect_append_candidates ~ctx
+          match Imap_sync.Repair.inspect_append_candidates ~ctx
               ~id:config.operation_id ~max_uids:config.max_inspect
               ~max_body_bytes:config.max_candidate_bytes () with
           | Ok report ->

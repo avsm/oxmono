@@ -19,6 +19,7 @@
  (public_name imap.sync)
  (modules
   (:standard \ spool local_date local_inventory))
+ (private_modules pair_evidence)
  (flags
   (:standard -open Imap_sync_spool -open Imap_sync_local))
  (libraries

@@ -1,5 +1,6 @@
 module J = Imap_store.Journal
 module F = Mail_flag.Imap_flag
+module E = Pair_evidence
 
 open Error
 
@@ -75,80 +76,25 @@ let validate_permanent_flags ~available ~defined ~remote ~merged =
            | Some flag -> Error (Permanent_flag_unavailable flag)
            | None -> Ok ())
 
-let bound (pair:J.pair) =
-  match pair.remote_uidvalidity,pair.remote_uid,pair.local_id,
-        pair.remote_tombstone,pair.local_tombstone with
-  | Some epoch,Some uid,Some local_id,None,None ->
-      Ok (epoch,uid,local_id)
-  | _ -> Error Missing_occurrence
-
-let current_pair store (pair:J.pair) =
-  match J.find_pair store ~id:pair.id with
-  | None -> Error Missing_pair
-  | Some current when current<>pair -> Error Stale_pair
-  | Some current -> Ok current
-
-let local ?inventory maildir id =
-  let found=match inventory with
-    | Some inventory -> Ok (Local_inventory.find inventory ~id)
-    | None -> Maildir.find maildir ~id in
-  match found with
-  | Error error -> Error (Maildir error)
-  | Ok None -> Error Missing_occurrence
-  | Ok (Some occurrence) -> Ok occurrence
-
-let unchanged ?inventory maildir occurrence =
-  match Local_inventory.with_unchanged_occurrence ?inventory maildir occurrence
-      ignore with
-  | Ok () -> true
-  | Error `Changed -> false
-
-(* [`Changed] means the observation is stale, not that the bytes differ. *)
-let content ?inventory maildir (pair:J.pair)
-    (occurrence:Maildir.occurrence) =
-  match pair.content_sha256,pair.content_length with
-  | Some sha256,Some length when occurrence.length=length ->
-      (match Local_inventory.with_unchanged_occurrence ?inventory maildir
-          occurrence (fun () ->
-            Local_inventory.sha256 ?inventory maildir occurrence) with
-       | Ok digest when digest=sha256 -> `Matches
-       | Ok _ -> `Differs
-       | Error `Changed -> `Changed)
-  | Some _,Some _ ->
-      if unchanged ?inventory maildir occurrence then `Differs else `Changed
-  | _ -> `Differs
-
 let check_epoch (info:Imap.Response.select_metadata) epoch =
   if info.uidvalidity<>Imap.Uidvalidity.to_int64 epoch then
     Error Uidvalidity_changed
   else Ok ()
 
 let remote selected ~uid ~modseq =
-  let* rows=network (Imap_eio.Selected.fetch selected ~uids:[uid]
-    ~items:(if modseq then [Imap.Fetch_item.Modseq] else [])) in
-  match rows with
-  | [row] ->
-      (match row.flags with
-       | Some remote ->
-           Ok (flags remote,Option.map Imap.Modseq.to_int64 row.modseq)
-       | None -> Error (Diverged "UID FETCH omitted FLAGS"))
-  | _ -> Error Missing_occurrence
+  let* found=E.remote_flags selected ~uid ~modseq in
+  match found with
+  | Some flags -> Ok flags
+  | None -> Error Missing_occurrence
 
-let with_selected client ~mode mailbox ~epoch f =
-  match Imap_eio.Client.with_mailbox client ~mode mailbox (fun selected ->
+let with_selected (ctx:Ctx.t) ~mode ~epoch f =
+  match Imap_eio.Client.with_mailbox ctx.client ~mode ctx.mailbox
+      (fun selected ->
     Ok (let* info=network (Imap_eio.Selected.info selected) in
         let* ()=check_epoch info epoch in
         f selected info)) with
   | Error e -> Error (Client e)
   | Ok result -> result
-
-let remote_now client ~mailbox ~epoch ~uid ~modseq =
-  with_selected client ~mode:`Read_only mailbox ~epoch (fun selected _ ->
-    remote selected ~uid ~modseq)
-
-let describe error =
-  let text=Format.asprintf "%a" Imap_eio.Client.pp_error error in
-  if String.length text<=512 then text else String.sub text 0 512
 
 let kind_name = function
   | J.Append -> "APPEND" | J.Local_append -> "local APPEND"
@@ -192,33 +138,29 @@ let clear_content_hold store (pair:J.pair) =
   | `Stale_revision -> Error Stale_pair
 
 let recover_sent ~inventory ~(ctx:Ctx.t) ~writer ~(operation:J.operation)
-    ~pair_id ~merged =
-  let {Ctx.client;store;mailbox;_}=ctx in
+    ~merged =
+  let store=ctx.store in
   let maildir=Maildir.of_writer writer in
-  let* pair=match J.find_pair store ~id:pair_id with
-    | Some pair when pair.scope=operation.scope -> Ok pair
-    | Some _ -> Error Stale_pair
-    | None -> Error Missing_pair in
-  let* epoch,uid,local_id=bound pair in
-  if operation.source_uidvalidity<>Some epoch ||
-     operation.source_uid<>Some uid ||
-     operation.local_id<>Some local_id ||
-     J.operation_pair_revision store ~id:operation.id<>Some pair.revision then
+  let* pair=E.operation_pair store operation in
+  let* epoch,uid,local_id=E.live_target pair in
+  if not (E.same_target operation ~epoch ~uid ~local_id &&
+          E.journaled_at store operation pair) then
     Error Stale_pair
   else
     let base=pair.common_flags in
     let pending=pending store pair ~id:operation.id in
-    let* staged=local ?inventory maildir local_id in
-    let* local_before,state=match content ?inventory maildir pair staged with
+    let* staged=E.occurrence ?inventory maildir local_id in
+    let* local_before,state=
+      match E.local_content ?inventory maildir pair staged with
       | `Changed ->
-          let* fresh=local maildir local_id in
-          Ok (fresh,content maildir pair fresh)
+          let* fresh=E.occurrence maildir local_id in
+          Ok (fresh,E.local_content maildir pair fresh)
       | state -> Ok (staged,state) in
     let* ()=if state=`Matches then Ok ()
       else pending
         "uncertain FLAGS write: local message content differs from the paired \
          digest" in
-    let* remote_flags,_=remote_now client ~mailbox ~epoch ~uid ~modseq:false in
+    let* remote_flags,_=E.remote_flags_now ctx ~epoch ~uid ~modseq:false in
     if not (same remote_flags (target ~base ~desired:merged remote_flags)) then
       pending
         "uncertain FLAGS write: remote flags differ from the journaled target"
@@ -226,7 +168,7 @@ let recover_sent ~inventory ~(ctx:Ctx.t) ~writer ~(operation:J.operation)
       let local_target=target ~base ~desired:merged local_before.flags in
       let* local_after=
         if same local_before.flags local_target then
-          if unchanged maildir local_before then Ok local_before
+          if E.unchanged maildir local_before then Ok local_before
           else pending
             "uncertain FLAGS write: local message changed during recovery"
         else match J.local_flags_preimage store ~id:operation.id with
@@ -234,7 +176,7 @@ let recover_sent ~inventory ~(ctx:Ctx.t) ~writer ~(operation:J.operation)
               (* A sent/ambiguous STORE may have reached the server.  Its
                  verified target and the unchanged Maildir preimage are
                  enough to finish locally, without replaying STORE. *)
-              let* _=current_pair store pair in
+              let* _=E.current_pair store pair in
               (match Maildir.set_flags writer local_before local_target
                with
                | exception Maildir.Stale_occurrence ->
@@ -242,7 +184,8 @@ let recover_sent ~inventory ~(ctx:Ctx.t) ~writer ~(operation:J.operation)
                      "uncertain FLAGS write: local message changed during \
                       recovery"
                | Error error -> Error (Maildir error)
-               | Ok written when content maildir pair written=`Matches ->
+               | Ok written
+                 when E.local_content maildir pair written=`Matches ->
                    Ok written
                | Ok _ -> pending
                    "uncertain FLAGS write: local message content changed \
@@ -253,7 +196,7 @@ let recover_sent ~inventory ~(ctx:Ctx.t) ~writer ~(operation:J.operation)
       if not (same local_after.flags local_target) then
         pending "uncertain FLAGS write: local flags did not reach the target"
       else
-        let* remote_after,_=remote_now client ~mailbox ~epoch ~uid
+        let* remote_after,_=E.remote_flags_now ctx ~epoch ~uid
           ~modseq:false in
         if not (same remote_after (target ~base ~desired:merged remote_after))
         then pending
@@ -277,74 +220,9 @@ let recover_operation ?inventory ~(ctx:Ctx.t) ~writer
   | _,(J.Committed | J.Rejected) -> Error (Diverged "operation is terminal")
   | _,(J.Sent | J.Ambiguous | J.Observed) ->
       match operation.pair_id,operation.desired_flags with
-      | Some pair_id,Some merged ->
-          recover_sent ~inventory ~ctx ~writer ~operation ~pair_id ~merged
+      | Some _,Some merged ->
+          recover_sent ~inventory ~ctx ~writer ~operation ~merged
       | _ -> Error (Diverged "FLAGS operation has no pair or target flags")
-
-let settle_operation ~(ctx:Ctx.t) ~maildir ~id ~evidence () =
-  let {Ctx.client;store;scope;mailbox;_}=ctx in
-  if String.trim evidence="" || String.length evidence>1024 ||
-     not (String.for_all (fun c -> let n=Char.code c in
-       n>=32 && n<>127) evidence) then
-    Error (Diverged "operator evidence must be 1..1024 printable bytes")
-  else Maildir.with_writer maildir (fun _ ->
-    let* operation=match J.find_operation store ~id with
-      | Some op when op.scope=scope && op.kind=J.Flags &&
-          List.mem op.state [J.Sent;J.Ambiguous;J.Observed] -> Ok op
-      | _ -> Error No_pending_operation in
-    let* pair=match operation.pair_id with
-      | Some pair_id ->
-          (match J.find_pair store ~id:pair_id with
-           | Some pair when pair.scope=scope -> Ok pair
-           | Some _ -> Error Stale_pair
-           | None -> Error Missing_pair)
-      | None -> Error Missing_pair in
-    let* epoch,uid,local_id=bound pair in
-    if operation.source_uidvalidity<>Some epoch ||
-       operation.source_uid<>Some uid ||
-       operation.local_id<>Some local_id ||
-       J.operation_pair_revision store ~id<>Some pair.revision then
-      Error Stale_pair
-    else
-      let* ()=Engine.guard_bound_mailbox ~ctx in
-      let local_read () =
-        let* occurrence=local maildir local_id in
-        if content maildir pair occurrence<>`Matches then
-          Error (Content_mismatch pair.id)
-        else match pair.internal_date with
-          | None -> Ok occurrence
-          | Some date ->
-              (match Local_date.of_occurrence occurrence with
-               | Ok observed when
-                   Imap.Internal_date.equal_instant observed date ->
-                   Ok occurrence
-               | _ -> Error (Diverged
-                   "local message date differs from paired date")) in
-      let remote_read () =
-        remote_now client ~mailbox ~epoch ~uid ~modseq:true in
-      let* local_before=local_read () in
-      let* remote_flags,first_modseq=remote_read () in
-      let* modseq=match first_modseq with
-        | Some value when value>0L -> Ok value
-        | _ -> Error Conditional_store_unavailable in
-      if not (same local_before.flags remote_flags) then
-        Error (Diverged "remote and local flags still differ")
-      else
-        let* local_after=local_read () in
-        if not (same local_after.flags local_before.flags) then
-          Error (Diverged "local flags changed during repair")
-        else
-          let* remote_after,second_modseq=remote_read () in
-          if not (same remote_after remote_flags) ||
-             second_modseq<>Some modseq then
-            Error (Diverged "remote flags changed during repair")
-          else
-            match J.settle_flag_operation store ~id pair
-                ~flags:remote_flags ~evidence with
-            | `Settled pair -> Ok (Updated pair)
-            | `Stale_revision -> Error Stale_pair
-            | `Invalid_operation -> Error (Diverged
-                "FLAGS operation changed during repair"))
 
 let advance_baseline store (pair:J.pair) ~merged =
   match J.put_pair store ~expected_revision:(Some pair.revision)
@@ -354,17 +232,17 @@ let advance_baseline store (pair:J.pair) ~merged =
 
 let reconcile_pair ?(propagate_deleted=false) ?inventory ~(ctx:Ctx.t)
     ~writer ~(pair:J.pair) () =
-  let {Ctx.client;store;mailbox;next_id;_}=ctx in
+  let {Ctx.client;store;next_id;_}=ctx in
   let maildir=Maildir.of_writer writer in
-  let* pair=current_pair store pair in
-  let* epoch,uid,local_id=bound pair in
+  let* pair=E.current_pair store pair in
+  let* epoch,uid,local_id=E.live_target pair in
   match J.active_operation_for_pair store ~pair_id:pair.id with
   | Some op when op.kind=J.Flags -> Error (Pending_operations [op.id])
   | Some op -> Error (Diverged (Printf.sprintf
       "pair has a pending %s operation %s" (kind_name op.kind) op.id))
   | None ->
-      let* local_before=local ?inventory maildir local_id in
-      let* ()=match content ?inventory maildir pair local_before with
+      let* local_before=E.occurrence ?inventory maildir local_id in
+      let* ()=match E.local_content ?inventory maildir pair local_before with
         | `Matches -> clear_content_hold store pair
         | `Differs -> hold_content store pair ~id:(next_id ())
         | `Changed -> Error Modified in
@@ -394,13 +272,14 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~(ctx:Ctx.t)
           (intent pair ~id ~epoch ~uid ~local_id ~merged);
         let write_local ~stale =
           if not local_needed then
-            if unchanged ?inventory maildir local_before then Ok local_before
+            if E.unchanged ?inventory maildir local_before then Ok local_before
             else stale ()
           else match Maildir.set_flags writer local_before local_target
           with
           | exception Maildir.Stale_occurrence -> stale ()
           | Error error -> Error (Maildir error)
-          | Ok written when content maildir pair written=`Matches -> Ok written
+          | Ok written
+            when E.local_content maildir pair written=`Matches -> Ok written
           | Ok _ -> pending
               "local message content changed during the FLAGS update" in
         let finish ~stale ~verify_remote =
@@ -417,7 +296,7 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~(ctx:Ctx.t)
               ~receipt:"verified FLAGS on both endpoints"
               ~destination_uidvalidity:None ~destination_uid:None;
             commit store pair ~id ~merged in
-        match current_pair store pair with
+        match E.current_pair store pair with
         | Error error -> unsent "pair changed before FLAGS dispatch" error
         | Ok _ when not remote_needed ->
             (match remote selected ~uid ~modseq:false with
@@ -426,7 +305,7 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~(ctx:Ctx.t)
              | Ok (observed,_) when not (same observed remote_before) ->
                  unsent "remote flags changed before the local FLAGS write"
                    Modified
-             | Ok _ when not (unchanged ?inventory maildir local_before) ->
+             | Ok _ when not (E.unchanged ?inventory maildir local_before) ->
                  unsent "local message changed before the FLAGS write"
                    Modified
              | Ok _ ->
@@ -453,10 +332,10 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~(ctx:Ctx.t)
                      | Imap_eio.Error.Unsupported _
                      | Imap_eio.Error.Not_enabled _ as error) ->
                 J.reject_operation store ~id
-                  ~receipt:("UID STORE not applied: " ^ describe error);
+                  ~receipt:("UID STORE not applied: " ^ E.describe error);
                 Error (Client error)
             | Error error ->
-                let reason="UID STORE outcome unknown: " ^ describe error in
+                let reason="UID STORE outcome unknown: " ^ E.describe error in
                 J.mark_ambiguous ~reason store ~id;
                 let* ()=flag_conflict store pair ~id reason in
                 Error (Client error)
@@ -482,7 +361,7 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~(ctx:Ctx.t)
                       pending
                         "local message changed while the FLAGS write was in \
                          flight") in
-      with_selected client ~mode:`Read_write mailbox ~epoch
+      with_selected ctx ~mode:`Read_write ~epoch
         (fun selected info ->
           let* remote_before,remote_modseq=
             remote selected ~uid ~modseq:condstore in

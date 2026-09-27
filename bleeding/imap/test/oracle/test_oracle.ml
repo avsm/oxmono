@@ -231,7 +231,7 @@ let round_trip () =
     let spool = Eio.Path.(Eio.Stdenv.fs env / (dbfile ^ ".spool")) in
     let archived = match Imap_sync.Engine.archive_uid ~ctx ~uid:first_uid
       ~spool () with
-      | Ok blob -> blob
+      | Ok archived -> archived.blob
       | Error error -> Alcotest.fail (Format.asprintf "%a"
           Imap_sync.Error.pp error) in
     let archived_bytes = Buffer.create 256 in
@@ -309,7 +309,7 @@ let round_trip () =
          Alcotest.(check bool) "known empty APPEND flags" true
            (metadata.expected_flags = Some [])
      | Imap_store.Other _ -> Alcotest.fail "wrong APPEND intent kind");
-    let evidence = match Imap_sync.Bridge.inspect_append_candidates
+    let evidence = match Imap_sync.Repair.inspect_append_candidates
       ~ctx ~id:probe_id () with
       | Ok report -> report
       | Error error -> Alcotest.fail (Format.asprintf "%a"
@@ -669,7 +669,7 @@ let round_trip () =
       count_before (count_remote ());
     Alcotest.(check int) "ambiguous APPEND not paired" 7
       (List.length (Imap_store.Journal.pairs store ~scope));
-    (match Imap_sync.Bridge.record_appenduid_evidence ~store ~maildir ~scope
+    (match Imap_sync.Repair.record_appenduid ~store ~maildir ~scope
       ~id:ambiguous_id ~uidvalidity:ambiguous_receipt.uidvalidity
       ~uid:ambiguous_receipt.uid
       ~evidence:"Cyrus APPENDUID retained by operator" () with

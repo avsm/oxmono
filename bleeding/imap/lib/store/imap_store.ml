@@ -166,10 +166,12 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last fetched =
       let uid=Imap.Uid.to_int64 row.uid in
       if uid<first || uid>last then
         invalid_arg (who ^ ": UID outside FETCH range");
-      let newer=if not preserve_newer then true else
-        match batch_rows t seeded_stmt [s stage_id;i uid] with
-        | [] -> true
-        | seeded :: _ ->
+      let newer=if not preserve_newer then true else (
+        bind_text t seeded_stmt 1 stage_id;
+        bind_int64 t seeded_stmt 2 uid;
+        match batch_row t seeded_stmt with
+        | None -> true
+        | Some seeded ->
             (match nullable_int seeded.(0),row.modseq with
              | Some old,Some now -> Imap.Modseq.to_int64 now>=old
              | None,Some _ -> true
@@ -177,11 +179,15 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last fetched =
                  invalid_arg (who ^ ": incremental row lacks MODSEQ")
              | None,None ->
                  invalid_arg
-                   (who ^ ": seeded and incremental rows lack MODSEQ")) in
-      if newer then
-        batch_run t row_stmt
-          [s stage_id;i uid;ni (Option.map Imap.Modseq.to_int64 row.modseq);
-           flags row.flags]) fetched);
+                   (who ^ ": seeded and incremental rows lack MODSEQ"))) in
+      if newer then (
+        bind_text t row_stmt 1 stage_id;
+        bind_int64 t row_stmt 2 uid;
+        (match row.modseq with
+         | None -> bind_null t row_stmt 3
+         | Some m -> bind_int64 t row_stmt 3 (Imap.Modseq.to_int64 m));
+        bind_text t row_stmt 4 (flag_text row.flags);
+        batch_exec t row_stmt)) fetched);
     run t "UPDATE scan_stages SET fetch_upper=? WHERE id=?"
       [i last;s stage_id])
 
@@ -204,9 +210,13 @@ let stage_membership t ~stage_id ~first ~last uids =
         invalid_arg (who ^ ": UID outside SEARCH range");
       if Hashtbl.mem unique uid then invalid_arg (who ^ ": duplicate UID");
       Hashtbl.add unique uid ();
-      if batch_rows t check_stmt [s stage_id;i uid]=[] then
+      bind_text t check_stmt 1 stage_id;
+      bind_int64 t check_stmt 2 uid;
+      if batch_row t check_stmt=None then
         invalid_arg (who ^ ": live UID absent from FETCH");
-      batch_run t mark_stmt [s stage_id;i uid]) uids);
+      bind_text t mark_stmt 1 stage_id;
+      bind_int64 t mark_stmt 2 uid;
+      batch_exec t mark_stmt) uids);
     run t "UPDATE scan_stages SET search_upper=? WHERE id=?"
       [i last;s stage_id])
 

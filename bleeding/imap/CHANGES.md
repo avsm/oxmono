@@ -377,3 +377,6 @@ and per staged row.
 `stage_rows` and `stage_membership` run their per-row statements in one
 system thread per call, cutting the staging benchmark from 3,926 MB and
 6.0 s to 93 MB and 0.48 s for 100,000 rows.
+
+Staging binds each row's parameters by index instead of through a value
+list, cutting the staging benchmark from 93 MB to 37 MB for 100,000 rows.

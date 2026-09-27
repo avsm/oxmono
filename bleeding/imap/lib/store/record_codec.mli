@@ -46,9 +46,12 @@ val check_page_args : string -> Imap.Mirror.scope -> Imap.Mirror.cursor ->
     naming [who] unless [limit] is 1 to 10,000 and [cursor] belongs to
     [scope]. *)
 
-val flags : Mail_flag.Imap_flag.t list -> Sqlite3.Data.t
-(** [flags l] is the wire spellings of [l] in order, separated by single
+val flag_text : Mail_flag.Imap_flag.t list -> string
+(** [flag_text l] is the wire spellings of [l] in order, separated by single
     spaces. *)
+
+val flags : Mail_flag.Imap_flag.t list -> Sqlite3.Data.t
+(** [flags l] is {!flag_text} [l] as a TEXT value. *)
 
 val dec_flags : string -> Sqlite3.Data.t -> Mail_flag.Imap_flag.t list
 (** [dec_flags what v] is the list {!flags} stored as [v]. [what] names the

@@ -39,13 +39,15 @@ let with_reset t ~reset stmt f =
        ignore (S.clear_bindings stmt : S.Rc.t)
      with _ -> ());
     Printexc.raise_with_backtrace ex backtrace
+let step_write t ~step stmt =
+  match step stmt with
+  | S.Rc.DONE -> ()
+  | S.Rc.ROW -> fail "write returned rows"
+  | rc -> check t rc; fail ("write step returned " ^ S.Rc.to_string rc)
 let write t ~step ~reset stmt values =
   with_reset t ~reset stmt (fun () ->
     bind t stmt values;
-    match step stmt with
-    | S.Rc.DONE -> ()
-    | S.Rc.ROW -> fail "write returned rows"
-    | rc -> check t rc; fail ("write step returned " ^ S.Rc.to_string rc))
+    step_write t ~step stmt)
 let read t ~step ~reset stmt values =
   with_reset t ~reset stmt (fun () ->
     bind t stmt values;
@@ -64,8 +66,17 @@ let run_prepared t stmt values =
 let rows_prepared t stmt values =
   read t ~step:(eio_step t) ~reset:(eio_reset t) stmt values
 let batch t f = SE.run t.db ~label:"imap_store_batch" (fun _ -> f ())
-let batch_run t stmt values = write t ~step:S.step ~reset:S.reset stmt values
-let batch_rows t stmt values = read t ~step:S.step ~reset:S.reset stmt values
+let bind_text t stmt n x = check t (S.bind_text stmt n x)
+let bind_int64 t stmt n x = check t (S.bind_int64 stmt n x)
+let bind_null t stmt n = check t (S.bind stmt n S.Data.NULL)
+let batch_exec t stmt =
+  with_reset t ~reset:S.reset stmt (fun () -> step_write t ~step:S.step stmt)
+let batch_row t stmt =
+  with_reset t ~reset:S.reset stmt (fun () ->
+    match S.step stmt with
+    | S.Rc.ROW -> Some (Array.init (S.column_count stmt) (S.column stmt))
+    | S.Rc.DONE -> None
+    | rc -> check t rc; fail ("read step returned " ^ S.Rc.to_string rc))
 let run t statement values =
   with_stmt t statement (fun stmt -> run_prepared t stmt values)
 let rows t statement values =

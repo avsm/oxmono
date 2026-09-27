@@ -74,7 +74,8 @@ let check_page_args who (scope:M.scope) (cursor:M.cursor) limit =
 
 (* A flag atom never contains a space, so a single space separates the
    spellings without escaping. *)
-let flags l = s (String.concat " " (List.map Mail_flag.Imap_flag.to_wire l))
+let flag_text l = String.concat " " (List.map Mail_flag.Imap_flag.to_wire l)
+let flags l = s (flag_text l)
 let dec_flags what v =
   match text v with
   | "" -> []

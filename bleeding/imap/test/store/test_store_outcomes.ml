@@ -281,6 +281,35 @@ let flag_text env = with_store env (fun ~path ~dir:_ db ->
   | exception Failure _ -> ()
   | _ -> failwith "malformed flag text accepted")
 
+(* Staging binds the stage, the UID, the MODSEQ or NULL and the flag text
+   as typed columns, and publication copies them unchanged. *)
+let staged_columns env = with_store env (fun ~path ~dir:_ db ->
+  let flag x = ok (Mail_flag.Imap_flag.of_wire x) in
+  let cursor=Store.load_cursor db ~scope in
+  let action=ok (M.plan cursor ~stage_id:"columns" (selected 5L)) in
+  Store.begin_stage db ~cursor ~action;
+  let last=action.upper_uid in
+  Store.stage_rows db ~stage_id:action.id ~first:1L ~last
+    [{uid=uid 1L; flags=[flag "\\Seen"; flag "$Label"];
+      modseq=Some (modseq 17L)};
+     {uid=uid 3L; flags=[]; modseq=None}];
+  let columns table =
+    text path ("SELECT group_concat(r,';') FROM (SELECT typeof(uid)||':'||\
+      uid||','||quote(modseq)||','||quote(flags) AS r FROM " ^ table ^
+      " ORDER BY uid)") in
+  let staged="integer:1,17,'\\Seen $Label';integer:3,NULL,''" in
+  check (columns "scan_rows"=Some staged) "staged columns";
+  let marks ()=text path "SELECT group_concat(r,';') FROM (SELECT \
+    quote(stage_id)||seen AS r FROM scan_rows ORDER BY uid)" in
+  check (marks ()=Some "'columns'0;'columns'0") "unmarked rows";
+  Store.stage_membership db ~stage_id:action.id ~first:1L ~last
+    [uid 3L; uid 1L];
+  check (marks ()=Some "'columns'1;'columns'1") "marked rows";
+  check (match Store.publish_stage db ~cursor ~action
+      ~explicit_highestmodseq:(Some (modseq 40L)) ~nomodseq:false with
+    | `Committed _ -> true | `Stale_revision -> false) "publish columns";
+  check (columns "snapshots"=Some staged) "published columns")
+
 let () =
   Eio_main.run (fun env ->
     seed_checks_epoch env;
@@ -292,4 +321,5 @@ let () =
     forget_epochs env;
     attach_without_verify env;
     finaliser_keeps_exception env;
-    flag_text env)
+    flag_text env;
+    staged_columns env)

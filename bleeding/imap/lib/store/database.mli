@@ -43,16 +43,26 @@ val batch : t -> (unit -> 'a) -> 'a
 (** [batch t f] is [f ()] evaluated in one system thread, so a loop of
     statements costs one thread hop rather than two or more per statement.
     [f] runs outside Eio and must not perform an Eio operation. Of the
-    operations here it may use only {!bind}, {!batch_run}, {!batch_rows},
-    {!changes} and the value codecs. *)
+    operations here it may use only the [bind_] functions, {!batch_exec},
+    {!batch_row}, {!changes} and the value codecs. *)
 
-val batch_run : t -> Sqlite3.stmt -> Sqlite3.Data.t list -> unit
-(** [batch_run t stmt values] is {!run_prepared} for use inside {!batch}. *)
+val bind_text : t -> Sqlite3.stmt -> int -> string -> unit
+val bind_int64 : t -> Sqlite3.stmt -> int -> int64 -> unit
+val bind_null : t -> Sqlite3.stmt -> int -> unit
+(** [bind_text t stmt n x], [bind_int64 t stmt n x] and [bind_null t stmt n]
+    bind parameter [n] of [stmt], counting from 1, without building a
+    value list. *)
 
-val batch_rows : t -> Sqlite3.stmt -> Sqlite3.Data.t list ->
-  Sqlite3.Data.t array list
-(** [batch_rows t stmt values] is {!rows_prepared} for use inside
-    {!batch}. *)
+val batch_exec : t -> Sqlite3.stmt -> unit
+(** [batch_exec t stmt] executes a write whose parameters the caller has
+    bound, then resets [stmt] and clears its bindings, whether or not the
+    write succeeded. It is for use inside {!batch}. *)
+
+val batch_row : t -> Sqlite3.stmt -> Sqlite3.Data.t array option
+(** [batch_row t stmt] is the first row of a read whose parameters the
+    caller has bound, or [None] if it has none. It then resets [stmt] and
+    clears its bindings, whether or not the read succeeded. It is for use
+    inside {!batch}. *)
 
 val changes : t -> int
 (** [changes t] is the number of rows changed by the last write. *)

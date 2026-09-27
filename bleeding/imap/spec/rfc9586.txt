@@ -1,0 +1,410 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                       A. Melnikov
+Request for Comments: 9586                                         Isode
+Category: Experimental                                    A. P. Achuthan
+ISSN: 2070-1721                                           V. Nagulakonda
+                                                                A. Singh
+                                                                  Yahoo!
+                                                                L. Alves
+                                                                May 2024
+
+
+ IMAP Extension for Using and Returning Unique Identifiers (UIDs) Only
+
+Abstract
+
+   The UIDONLY extension to the Internet Message Access Protocol (RFCs
+   3501 and 9051) allows clients to enable a mode in which information
+   about mailbox changes is returned using only Unique Identifiers
+   (UIDs).  Message numbers are not returned in responses and cannot be
+   used in requests once this extension is enabled.  This helps both
+   clients and servers to reduce resource usage required to maintain a
+   map between message numbers and UIDs.
+
+   This document defines an experimental IMAP extension.
+
+Status of This Memo
+
+   This document is not an Internet Standards Track specification; it is
+   published for examination, experimental implementation, and
+   evaluation.
+
+   This document defines an Experimental Protocol for the Internet
+   community.  This document is a product of the Internet Engineering
+   Task Force (IETF).  It represents the consensus of the IETF
+   community.  It has received public review and has been approved for
+   publication by the Internet Engineering Steering Group (IESG).  Not
+   all documents approved by the IESG are candidates for any level of
+   Internet Standard; see Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc9586.
+
+Copyright Notice
+
+   Copyright (c) 2024 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+   This document may contain material from IETF Documents or IETF
+   Contributions published or made publicly available before November
+   10, 2008.  The person(s) controlling the copyright in some of this
+   material may not have granted the IETF Trust the right to allow
+   modifications of such material outside the IETF Standards Process.
+   Without obtaining an adequate license from the person(s) controlling
+   the copyright in such materials, this document may not be modified
+   outside the IETF Standards Process, and derivative works of it may
+   not be created outside the IETF Standards Process, except to format
+   it for publication as an RFC or to translate it into languages other
+   than English.
+
+Table of Contents
+
+   1.  Introduction and Overview
+   2.  Document Conventions
+   3.  The UIDONLY Extension
+     3.1.  Enabling the UIDONLY Extension
+     3.2.  Changes to FETCH/STORE/SEARCH/COPY/MOVE
+     3.3.  Changes to UID FETCH / UID STORE
+     3.4.  Changes to EXPUNGE / UID EXPUNGE
+     3.5.  Changes to UID SEARCH
+     3.6.  Changes to How Other Mailbox Changes Are Announced
+     3.7.  Interaction with the CONDSTORE and QRESYNC Extensions
+     3.8.  Interaction with Other Extensions
+   4.  Formal Syntax
+   5.  Security Considerations
+   6.  IANA Considerations
+   7.  Alternative Solutions Not Taken
+   8.  Normative References
+   9.  Informative References
+   Acknowledgments
+   Authors' Addresses
+
+1.  Introduction and Overview
+
+   This document defines an extension to the Internet Message Access
+   Protocol [RFC3501] [RFC9051] for eliminating the use of message
+   numbers.  This extension is compatible with both IMAP4rev1 [RFC3501]
+   and IMAP4rev2 [RFC9051].
+
+   The UIDONLY extension of the Internet Message Access Protocol allows
+   clients to request that servers only use and return UIDs.  This helps
+   both clients and servers to reduce resource usage required to
+   maintain a map between message numbers and UIDs.
+
+2.  Document Conventions
+
+   In protocol examples, this document uses a prefix of "C:" to denote
+   lines sent by the client to the server and "S:" for lines sent by the
+   server to the client.  Lines prefixed with "//" are comments
+   explaining the previous protocol line.  These prefixes and comments
+   are not part of the protocol.  Lines without any of these prefixes
+   are continuations of the previous line, and no line break is present
+   in the protocol unless specifically mentioned.
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in BCP
+   14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+   Other capitalized words are names of IMAP commands or responses
+   [RFC3501] [RFC9051] or keywords from this document.
+
+3.  The UIDONLY Extension
+
+   An IMAP server advertises support for the UIDONLY extension by
+   including the "UIDONLY" capability in the CAPABILITY response/
+   response code.
+
+   Once the UIDONLY extension is enabled (see Section 3.1), the client
+   MUST NOT use message sequence numbers (including the special marker
+   "*") in any arguments to IMAP commands, and the server MUST return a
+   tagged BAD response if the client uses message sequence numbers.  The
+   server MUST include the UIDREQUIRED response code in such BAD
+   responses (see below).  Additionally, once the UIDONLY extension is
+   enabled, the server MUST NOT return message sequence numbers in any
+   response.
+
+   The UIDREQUIRED response code is defined as follows:
+
+   UIDREQUIRED:  Once the UIDONLY extension is enabled, the server
+      returns the UIDREQUIRED response code when the client issues a
+      command that includes message numbers instead of UIDs.
+
+        C: 07 FETCH 10000:14589 (UID FLAGS)
+        S: 07 BAD [UIDREQUIRED] Message numbers are not allowed
+            once UIDONLY is enabled
+
+   The UIDONLY extension affects how information about new, expunged, or
+   changed messages is returned in unsolicited responses.  In
+   particular, it affects responses to UID FETCH/UID STORE/EXPUNGE/UID
+   EXPUNGE, as well as how unsolicited mailbox changes are announced.
+
+   The following subsections describe changes introduced by this
+   extension in more detail.
+
+3.1.  Enabling the UIDONLY Extension
+
+   As the UIDONLY extension affects how information about new, expunged,
+   or changed messages is returned in unsolicited responses, it has to
+   be enabled by the client first using the ENABLE command.
+
+     S: * OK [CAPABILITY IMAP4rev1 ENABLE CONDSTORE QRESYNC UIDONLY
+         AUTH=SCRAM-SHA-256]
+     C: 01 ENABLE UIDONLY
+     S: * ENABLED UIDONLY
+     S: 01 OK ENABLE completed
+
+3.2.  Changes to FETCH/STORE/SEARCH/COPY/MOVE
+
+   When UIDONLY is enabled, the FETCH, STORE, SEARCH, COPY, and MOVE
+   commands are prohibited and MUST result in a tagged BAD response.
+   Clients should instead use UID FETCH, UID STORE, UID SEARCH, UID
+   COPY, or UID MOVE, respectively.
+
+3.3.  Changes to UID FETCH / UID STORE
+
+   When UIDONLY is enabled, all FETCH responses that would be returned
+   by UID FETCH / UID STORE are replaced by UIDFETCH responses.
+
+   Note that the UIDFETCH response contains the same response data items
+   as specified for the FETCH response.  The UID is always returned at
+   the beginning of a UIDFETCH response, and it can also appear in the
+   UID response data item, if requested by the client.  While the UID
+   response data item is redundant when requested, it can simplify the
+   updating of existing (non-UIDONLY) implementations to support
+   UIDONLY.
+
+     C: 10 UID FETCH 25900:26600 (FLAGS)
+     [...]
+     S: * 25996 UIDFETCH (FLAGS (\Seen))
+     S: * 25997 UIDFETCH (FLAGS (\Flagged \Answered))
+     S: * 26600 UIDFETCH (FLAGS ())
+     S: 10 OK FETCH completed
+
+     C: 11 UID FETCH 25900:26600 (UID FLAGS)
+     S: * 25900 UIDFETCH (FLAGS (\Seen) UID 25900)
+     S: * 25902 UIDFETCH (FLAGS (\Flagged) UID 25902)
+     S: * 26310 UIDFETCH (FLAGS (\Answered) UID 26310)
+     S: * 26311 UIDFETCH (FLAGS () UID 26311)
+     S: * 26498 UIDFETCH (FLAGS (\Answered) UID 26498)
+     [...]
+     S: 11 OK FETCH completed
+
+3.4.  Changes to EXPUNGE / UID EXPUNGE
+
+   When UIDONLY is enabled, all EXPUNGED responses that would be
+   returned by EXPUNGE / UID EXPUNGE are replaced by VANISHED responses,
+   as defined in [RFC7162].  Note that a server that implements the
+   UIDONLY extension is not required (but allowed) to also implement the
+   CONDSTORE and/or QRESYNC extensions.
+
+     C: 12 EXPUNGE
+     S: * VANISHED 405,407,410,425
+     S: 12 OK expunged
+
+3.5.  Changes to UID SEARCH
+
+   The "<sequence set>" UID SEARCH criterion is prohibited (and results
+   in a tagged BAD response) once UIDONLY is enabled.  Clients should
+   use ALL or "UID <sequence set>" UID SEARCH criterion instead.
+
+3.6.  Changes to How Other Mailbox Changes Are Announced
+
+   When UIDONLY is enabled, all changes to flags (and other dynamic
+   message attributes) are returned using UIDFETCH responses instead of
+   FETCH responses.
+
+   Similarly, all expunged messages are announced using VANISHED
+   responses instead of EXPUNGE responses.
+
+   This extension doesn't affect EXISTS or RECENT responses.
+
+   The UID MOVE / UID COPY commands SHOULD return the COPYUID response
+   code, as specified in [RFC4315].
+
+   Use of the UIDNOTSTICKY response code (see [RFC4315]) is not
+   compatible with the UIDONLY extension, i.e., a server that advertises
+   the UIDONLY extension MUST NOT return a UIDNOTSTICKY response code.
+
+     C: 15 UID move 597 "Archives/2023/2023-05"
+     S: * OK [COPYUID 1685977201 597 2] UID MOVE
+     S: * VANISHED 597
+     S: 15 OK UID MOVE Completed
+
+3.7.  Interaction with the CONDSTORE and QRESYNC Extensions
+
+   The CONDSTORE extension is compatible with the UIDONLY extension.
+   The MODSEQ message data item is returned in UIDFETCH responses
+   instead of FETCH responses.
+
+   The QRESYNC extension is compatible with the UIDONLY extension, but
+   once UIDONLY is enabled, the fourth SELECT QRESYNC parameter (see
+   Section 3.2.5.2 ("Message Sequence Match Data") of [RFC7162]) MUST
+   NOT be used.  The server MUST return a tagged BAD response if such a
+   parameter is observed once UIDONLY is enabled.
+
+3.8.  Interaction with Other Extensions
+
+   IMAP extensions might define other commands that accept message
+   sequence numbers ("sequence-set" ABNF non-terminal; see Section 9 of
+   [RFC9051]).  Once UIDONLY is enabled, the server MUST reject such
+   commands with a tagged BAD response.  For example, the SORT and
+   THREAD [RFC5256] commands are prohibited, similarly to the SEARCH
+   command.  However, UID SORT and UID THREAD can be used instead.
+
+4.  Formal Syntax
+
+   The following syntax specification uses the Augmented Backus-Naur
+   Form (ABNF) notation as specified in [ABNF].
+
+   Non-terminals referenced but not defined below are as defined in
+   Section 9 of IMAP4 [RFC9051].
+
+   Except as noted otherwise, all alphabetic characters are case
+   insensitive.  The use of uppercase or lowercase characters to define
+   token strings is for editorial clarity only.  Implementations MUST
+   accept these strings in a case-insensitive fashion.
+
+   SP                  = <Defined in RFC 5234>
+
+   capability          =/ "UIDONLY"
+                          ;; <capability>; see RFC 9051
+
+   message-data        =/ uidfetch-resp
+
+   uidfetch-resp       = uniqueid SP "UIDFETCH" SP msg-att
+                         ;; The uniqueid is the UID of
+                         ;; the corresponding message
+
+   message-data        =/ expunged-resp
+
+   expunged-resp       = <defines VANISHED response; see RFC 7162>
+
+   resp-text-code      =/ "UIDREQUIRED"
+
+5.  Security Considerations
+
+   This IMAP extension is not believed to add any additional Security
+   Considerations beyond the ones that are generally applicable to
+   IMAP4rev1 [RFC3501] and IMAP4rev2 [RFC9051].
+
+6.  IANA Considerations
+
+   IMAP4 capabilities are registered by publishing a Standards Track or
+   IESG-approved Informational or Experimental RFC.
+
+   IANA has added the UIDONLY extension to the "IMAP Capabilities"
+   registry with RFC 9586 as the reference.  The registry is located at
+   <https://www.iana.org/assignments/imap4-capabilities/>.
+
+   IANA has also added the UIDREQUIRED response code to the "IMAP
+   Response Codes" registry with RFC 9586 as the reference.  The
+   registry is located at <https://www.iana.org/assignments/imap-
+   response-codes/>.
+
+7.  Alternative Solutions Not Taken
+
+   An earlier draft version of this document proposed use of FETCH
+   responses with the message number parameter always set to 0.  This
+   was considered to be too risky as it could cause unexpected side
+   effects and cache corruptions in client code that was not properly
+   updated to handle a lack of message numbers.
+
+8.  Normative References
+
+   [ABNF]     Crocker, D., Ed. and P. Overell, "Augmented BNF for Syntax
+              Specifications: ABNF", STD 68, RFC 5234,
+              DOI 10.17487/RFC5234, January 2008,
+              <https://www.rfc-editor.org/info/rfc5234>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC3501]  Crispin, M., "INTERNET MESSAGE ACCESS PROTOCOL - VERSION
+              4rev1", RFC 3501, DOI 10.17487/RFC3501, March 2003,
+              <https://www.rfc-editor.org/info/rfc3501>.
+
+   [RFC4315]  Crispin, M., "Internet Message Access Protocol (IMAP) -
+              UIDPLUS extension", RFC 4315, DOI 10.17487/RFC4315,
+              December 2005, <https://www.rfc-editor.org/info/rfc4315>.
+
+   [RFC5256]  Crispin, M. and K. Murchison, "Internet Message Access
+              Protocol - SORT and THREAD Extensions", RFC 5256,
+              DOI 10.17487/RFC5256, June 2008,
+              <https://www.rfc-editor.org/info/rfc5256>.
+
+   [RFC7162]  Melnikov, A. and D. Cridland, "IMAP Extensions: Quick Flag
+              Changes Resynchronization (CONDSTORE) and Quick Mailbox
+              Resynchronization (QRESYNC)", RFC 7162,
+              DOI 10.17487/RFC7162, May 2014,
+              <https://www.rfc-editor.org/info/rfc7162>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC9051]  Melnikov, A., Ed. and B. Leiba, Ed., "Internet Message
+              Access Protocol (IMAP) - Version 4rev2", RFC 9051,
+              DOI 10.17487/RFC9051, August 2021,
+              <https://www.rfc-editor.org/info/rfc9051>.
+
+9.  Informative References
+
+   [IMAP-UIDONLY-ORIG]
+              Gulbrandsen, A., "The IMAP UIDONLY Extension", Work in
+              Progress, Internet-Draft, draft-gulbrandsen-imap-uidonly-
+              00, 25 April 2014, <https://datatracker.ietf.org/doc/html/
+              draft-gulbrandsen-imap-uidonly-00>.
+
+Acknowledgments
+
+   The editors of this document would like to thank the following people
+   who provided useful comments and/or participated in discussions that
+   lead to this document: Arnt Gulbrandsen, Ken Murchison, Bron
+   Gondwana, Barry Leiba, and Elwyn Davis.
+
+   This document is similar to [IMAP-UIDONLY-ORIG], but some different
+   syntactic choices were made in the end.
+
+Authors' Addresses
+
+   Alexey Melnikov
+   Isode Limited
+   Email: alexey.melnikov@isode.com
+   URI:   https://www.isode.com
+
+
+   Arun Prakash Achuthan
+   Yahoo Inc.
+   Email: arunprakash@myyahoo.com
+
+
+   Vikram Nagulakonda
+   Yahoo Inc.
+   Email: nvikram_imap@yahoo.com
+
+
+   Ashutosh Singh
+   Yahoo Inc.
+   Email: ashutoshvsingh@yahoo.com
+
+
+   Luis Alves
+   Email: luis.alves@lafaspot.com

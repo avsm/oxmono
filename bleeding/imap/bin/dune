@@ -1,0 +1,11 @@
+(library
+ (name imap_cli)
+ (package imap)
+ (modules imap_cli)
+ (libraries imap imap.eio imap.store imap.sync imap.maildir mail-flag eio eio.unix cstruct))
+
+(executable
+ (name main)
+ (public_name imap-sync)
+ (modules main)
+ (libraries imap_cli eio_main))

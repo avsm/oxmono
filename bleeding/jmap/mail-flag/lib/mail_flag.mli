@@ -40,14 +40,17 @@
     - {{:https://www.rfc-editor.org/rfc/rfc8621}RFC 8621} - JMAP for Mail.
     - {{:https://www.rfc-editor.org/rfc/rfc6154}RFC 6154} - IMAP Special-Use
       Mailboxes.
-    - {{:https://datatracker.ietf.org/doc/draft-ietf-mailmaint-messageflag-mailboxattribute}
-       draft-ietf-mailmaint} - extended keywords and attributes. *)
+    - {{:https://www.rfc-editor.org/rfc/rfc9979}RFC 9979} - extended
+      keywords and attributes. *)
 
 (** {1 Modules} *)
 
 module Keyword = Keyword
 (** Message keywords and flags, including standard IMAP flags, JMAP keywords,
     extension keywords and Apple Mail flag bits. *)
+
+module Imap_flag = Imap_flag
+(** Strict IMAP wire flags, retaining keyword and unknown extension spellings. *)
 
 module Mailbox_attr = Mailbox_attr
 (** IMAP LIST response attributes and special-use mailbox roles, with JMAP role

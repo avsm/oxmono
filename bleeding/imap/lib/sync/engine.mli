@@ -1,0 +1,160 @@
+(** A conservative, durable baseline mailbox scan.
+
+    Every successful call covers a finite UID interval with completed FETCH and
+    SEARCH commands, then atomically publishes a replacement snapshot through
+    {!Imap_store}. It does not claim snapshot isolation across commands. When
+    CONDSTORE supplies HIGHESTMODSEQ on selection, that opening value is a
+    conservative checkpoint; later FETCH values do not advance it. If QRESYNC
+    is enabled and a saved checkpoint exists, the scan applies SELECT changes
+    and fetches only new UIDs, then verifies complete membership. Incomplete
+    deltas fall back to a full metadata scan before publication. Run it again
+    to catch concurrent edits.
+    The in-memory planner is deliberately bounded; use [run_once_staged] for
+    a disk-backed full scan of larger mailboxes. *)
+
+type error =
+  | Client of Imap_eio.Error.t
+  | Mirror of Imap.Mirror.error
+  | Invalid_scope of string
+  | Incomplete of string
+  | Limit of string
+  | Stale_revision
+
+val pp_error : Format.formatter -> error -> unit
+
+val guard_bound_mailbox :
+  client:Imap_eio.Client.t -> store:Imap_store.t ->
+  scope:Imap.Mirror.scope -> mailbox:string -> (unit, error) result
+(** For standalone repair paths, re-enable and verify a saved OBJECTID+
+    account/mailbox binding against the configured name, then pin the client
+    so later selections and APPENDs retain that identity. A scope without a
+    binding needs no action. A missing capability or changed name fails
+    before any repair mutation. *)
+
+val run_once :
+  ?max_windows:int -> ?max_rows:int ->
+  client:Imap_eio.Client.t -> store:Imap_store.t ->
+  scope:Imap.Mirror.scope -> mailbox:string -> stage_id:string -> unit ->
+  (Imap.Mirror.transition, error) result
+(** [mailbox] is UTF-8; [scope.raw_name] must match the active client's wire
+    encoding. [stage_id] must uniquely identify this attempted scan. A failed
+    scan never publishes a partial replacement. Store I/O exceptions propagate,
+    as do Eio cancellations. *)
+
+val run_once_staged :
+  ?max_windows:int -> ?expected_uidvalidity:Imap.Proto.Uidvalidity.t ->
+  client:Imap_eio.Client.t -> store:Imap_store.t ->
+  scope:Imap.Mirror.scope -> mailbox:string -> stage_id:string -> unit ->
+  (Imap_store.staged_receipt, error) result
+(** Disk-backed baseline scan for large mailboxes. FETCH and SEARCH windows
+    are durably staged in SQLite and the complete membership is published by
+    a single cursor CAS transaction, without materializing a full OCaml
+    snapshot. The returned receipt contains only the new cursor and row
+    count. Normal protocol errors discard the stage; process crashes leave
+    an inert stage that can be inspected and discarded on restart. With a
+    same-epoch CONDSTORE anchor, it seeds the stage from published SQLite
+    rows, fetches changed metadata and new UID ranges, then verifies every
+    live UID with a complete SEARCH inventory. Other cases use full FETCH
+    and SEARCH. The anchor advances only with the complete publication.
+    [expected_uidvalidity] rejects a changed mailbox epoch before staging or
+    publishing any rows. *)
+
+type append_outcome =
+  | Identified of Imap_eio.Client.append_receipt
+  | Needs_reconciliation
+
+val append_journaled :
+  client:Imap_eio.Client.t -> store:Imap_store.t ->
+  scope:Imap.Mirror.scope -> mailbox:string -> id:string ->
+  message_id:string -> content_digest:string -> spool_ref:string ->
+  ?flags:string list -> ?internal_date:Imap.Internal_date.t ->
+  length:int64 -> _ Eio.Flow.source ->
+  (append_outcome, error) result
+(** Commits [Prepared] and [Sent] before sending any APPEND byte. A tagged OK
+    without APPENDUID, disconnect, or cancellation leaves a pending journal
+    entry for reconciliation; it is never automatically replayed. The caller
+    must provide a durable spool reference and verified content digest.
+    An optional validated [internal_date] is saved in the intent before send. *)
+
+val append_blob_journaled :
+  client:Imap_eio.Client.t -> store:Imap_store.t ->
+  scope:Imap.Mirror.scope -> mailbox:string -> id:string ->
+  message_id:string -> ?flags:string list ->
+  ?internal_date:Imap.Internal_date.t -> Imap_store.Blob.blob ->
+  (append_outcome, error) result
+(** Verify a content-addressed local blob before sending it through
+    [append_journaled]. The blob remains available for recovery if the server
+    outcome is ambiguous. *)
+
+val archive_uid :
+  ?max_bytes:int64 -> client:Imap_eio.Client.t -> store:Imap_store.t ->
+  scope:Imap.Mirror.scope -> mailbox:string -> uid:Imap.Proto.Uid.t ->
+  spool:_ Eio.Path.t -> unit ->
+  (Imap_store.Blob.blob, error) result
+(** Fetches exact BODY.PEEK[] bytes to an exclusive provisional spool. Only
+    after a successful tagged completion does it put a synced content-addressed
+    blob and attach it to the current SQLite snapshot. [spool] is removed on
+    every exit; callers supply a unique path on a filesystem with free space.
+    A saved OBJECTID+ binding is checked against the configured name and used
+    for selection before any body is fetched. A failed database attach may
+    leave a recoverable orphan blob. *)
+
+type hydration_receipt = {
+  cursor : Imap.Mirror.cursor;
+  hydrated : int;
+  bytes : int64;
+  more : bool;
+}
+
+type cache_audit_receipt = {
+  cursor : Imap.Mirror.cursor;
+  checked : int;
+  invalidated : int;
+  bytes : int64;
+  last_uid : Imap.Proto.Uid.t option;
+  more : bool;
+}
+
+val audit_cache_once :
+  ?after_uid:Imap.Proto.Uid.t -> ?expected_revision:int64 ->
+  ?max_messages:int ->
+  ?max_total_bytes:int64 -> store:Imap_store.t ->
+  scope:Imap.Mirror.scope -> unit ->
+  (cache_audit_receipt, error) result
+(** Offline bounded integrity pass over blob references in the published
+    snapshot. Rehashes up to [max_messages] references and
+    [max_total_bytes] declared bytes, then returns [last_uid] for the next
+    pass and [more] if references remain. Missing or corrupt files have only
+    their matching cache references detached; message inventory and files
+    are unchanged. The caller can then run [hydrate_once] to refill them.
+    Defaults are 100 references and 1 GiB. A body larger than the remaining
+    budget causes a clean zero-or-partial-progress stop with [more=true].
+    [expected_revision] pins a continued audit to its first page; a changed
+    or concurrent cursor revision or epoch yields [Stale_revision]. *)
+
+val hydrate_once :
+  ?max_messages:int -> ?max_body_bytes:int64 -> ?max_total_bytes:int64 ->
+  client:Imap_eio.Client.t -> store:Imap_store.t ->
+  scope:Imap.Mirror.scope -> mailbox:string -> spool_dir:_ Eio.Path.t ->
+  next_spool_id:(unit -> string) -> unit ->
+  (hydration_receipt, error) result
+(** Fetch and durably attach exact BODY.PEEK[] bytes for published UIDs that
+    lack blob references. Queries and transfers are paged; defaults are 100
+    messages and 1 GiB per body and invocation. Each candidate is preflighted
+    with RFC822.SIZE before sending body bytes, so the aggregate byte budget
+    never starts a body it cannot fit. A clean budget stop returns [more=true].
+    Missing UIDs, changed epochs, failed FETCH completion and SQLite errors
+    stop the pass; earlier attached blobs remain durable. The caller supplies
+    unique filesystem-safe spool IDs. No message flags are changed. *)
+
+type uid_digest = { sha256:string; length:int64 }
+
+val fetch_uid_digest :
+  ?max_bytes:int64 -> client:Imap_eio.Client.t -> store:Imap_store.t ->
+  scope:Imap.Mirror.scope -> mailbox:string -> uid:Imap.Proto.Uid.t ->
+  spool:_ Eio.Path.t -> unit -> (uid_digest, error) result
+(** Fetch exact BODY.PEEK[] bytes into a provisional spool and return only
+    their length and SHA-256 digest. The spool is removed on every exit; no
+    blob file or snapshot reference is created. Use for an APPENDUID that has
+    not entered the published snapshot yet. The same scope, OBJECTID+,
+    UIDVALIDITY and literal-completion checks as [archive_uid] apply. *)

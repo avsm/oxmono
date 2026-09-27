@@ -1,0 +1,5 @@
+(library
+ (name imap_store)
+ (public_name imap.store)
+ (private_modules database schema record_codec sync_journal operation_intent blob_store)
+ (libraries imap sqlite3-eio eio eio.unix unix digestif cstruct))

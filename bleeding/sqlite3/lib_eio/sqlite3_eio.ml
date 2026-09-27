@@ -63,25 +63,39 @@ let check_open t =
 
 (* -- Systhread wrapper with cancellation -- *)
 
-(** Run [fn handle] in a system thread after verifying [t] is open.
-
-    Uses {!Eio.Fiber.first} to race the systhread operation against a
-    cancellation watcher.  If the fiber's cancel context fires while the
-    systhread is blocked inside SQLite, [sqlite3_interrupt] is called so
-    the blocking C call returns promptly. *)
+(** Race the SQLite worker against cancellation. A single interrupt can be
+    lost if it arrives before SQLite starts the statement, so a cancelled
+    worker skips the statement and an active worker is interrupted until it
+    has returned. The completion flag is set in the system thread because
+    the waiting Eio fiber itself may already be cancelled. *)
 let run t ~label fn =
   let st = check_open t in
+  let cancelled = Atomic.make false in
+  let started = Atomic.make false in
   let completed = Atomic.make false in
   Eio.Fiber.first
     (fun () ->
-      let x = Eio_unix.run_in_systhread ~label (fun () -> fn st.handle) in
-      Atomic.set completed true;
-      x)
+      match Eio_unix.run_in_systhread ~label (fun () ->
+          Fun.protect
+            ~finally:(fun () -> Atomic.set completed true)
+            (fun () ->
+              if Atomic.get cancelled then None
+              else (
+                Atomic.set started true;
+                if Atomic.get cancelled then None
+                else Some (fn st.handle)))) with
+      | Some x -> x
+      | None -> Eio.Fiber.await_cancel ())
     (fun () ->
       Fun.protect
         ~finally:(fun () ->
-          if not (Atomic.get completed) then
-            Sqlite3.interrupt st.handle)
+          Atomic.set cancelled true;
+          if Atomic.get started then
+            Eio.Cancel.protect (fun () ->
+                while not (Atomic.get completed) do
+                  Sqlite3.interrupt st.handle;
+                  Eio_unix.sleep 0.001
+                done))
         (fun () -> Eio.Fiber.await_cancel ()))
 
 (* -- Opening -- *)

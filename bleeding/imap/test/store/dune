@@ -1,0 +1,19 @@
+(test
+ (name test_store)
+ (libraries imap imap.store mail-flag sqlite3 sqlite3-eio digestif eio eio_main alcotest))
+
+(test
+ (name test_operation_evidence)
+ (libraries imap imap.store mail-flag eio eio_main))
+
+(test
+ (name test_schema_guards)
+ (libraries imap.store eio eio_main sqlite3 unix))
+
+(test
+ (name test_intent_validation)
+ (libraries imap imap.store eio eio_main sqlite3))
+
+(test
+ (name test_blob_gc)
+ (libraries imap.store eio eio_main unix sqlite3))

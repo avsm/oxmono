@@ -1,0 +1,5 @@
+(library
+ (name imap_sync)
+ (public_name imap.sync)
+ (private_modules spool)
+ (libraries imap imap.eio imap.store imap.maildir mail-flag eio cstruct digestif optint))

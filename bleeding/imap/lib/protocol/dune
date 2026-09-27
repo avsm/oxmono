@@ -1,0 +1,5 @@
+(library
+ (name imap)
+ (public_name imap)
+ (libraries mail-flag)
+ (modules proto wire response command mailbox_name internal_date mirror sync_policy))

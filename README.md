@@ -81,6 +81,9 @@ The [mqttz client and codecs](bleeding/mqttz/README.md) support MQTT 3.1.1 and
 The [OwnTracks client](bleeding/owntracks/README.md) uses mqttz for location
 messages and exports live tracks and Recorder history as GeoJSON.
 
+The [IMAP client](bleeding/imap/README.md) provides a pure protocol library and
+an Eio-native client, with a Cyrus end-to-end test fixture.
+
 The unreleased [JMAP client](bleeding/jmap/OXMONO.md),
 [IDKit contact and calendar libraries](bleeding/idk/OXMONO.md), and
 [JSON Pointer library](bleeding/json-pointer/OXMONO.md) retain their upstream

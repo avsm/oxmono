@@ -86,7 +86,7 @@ let to_string = function
   | `Trash -> "\\Trash"
   (* Names registered in the IANA "IMAP Mailbox Name Attributes" registry
      outside RFC 6154 Section 2 carry no implied backslash.
-     draft-ietf-mailmaint-messageflag-mailboxattribute Section 4.2: "none of the
+     RFC 9979 Section 9.2: "none of the
      attribute names in this section have an implied backslash.  This sets them
      apart from those specified in Section 2 of [RFC6154]."  RFC 8621
      Section 10.5.1 registers "Inbox" the same way, as a "JMAP only" attribute:

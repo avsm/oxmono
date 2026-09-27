@@ -17,7 +17,7 @@
     - {!standard}: core flags from RFC 8621 Section 4.1.1 that map to IMAP
       system flags.
     - {!spam}: spam-related keywords for junk mail handling.
-    - {!extended}: extended keywords from draft-ietf-mailmaint.
+    - {!extended}: extended keywords from RFC 9979.
     - {!flag_bit}: Apple Mail flag color bits.
 
     {2 Protocol Mapping}
@@ -76,7 +76,7 @@ type extended =
   | `MaskedEmail  (** The message was sent to a masked email address. *)
   | `New  (** The message is new: not yet processed by the client. *)
   | `Notify  (** The user should be notified about this message. *) ]
-(** Extended keywords per draft-ietf-mailmaint. *)
+(** Extended keywords per RFC 9979. *)
 
 type flag_bit =
   [ `MailFlagBit0  (** Bit 0 of the Apple Mail flag color encoding. *)
@@ -122,8 +122,8 @@ val to_string : t -> string
 
     Standard and extended keywords carry a [$] prefix and are lowercase. Apple
     Mail flag bits preserve the mixed-case spelling under which they are
-    registered in draft-ietf-mailmaint-messageflag-mailboxattribute Section
-    4.1.14-4.1.16; RFC 8621 Section 4.1.1's "servers MUST return keywords in
+    registered in RFC 9979 Section 9.1.9-9.1.11; RFC 8621 Section 4.1.1's
+    "servers MUST return keywords in
     lowercase" binds servers, and {!of_string} accepts either spelling. A custom
     keyword is exactly what {!of_string} received, so
     [of_string s |> to_string = s] for any keyword this module does not know.

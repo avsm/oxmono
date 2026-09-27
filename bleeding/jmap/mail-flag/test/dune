@@ -9,3 +9,7 @@
 (test
  (name test_flag_color)
  (libraries mail-flag alcotest))
+
+(test
+ (name test_imap_flag)
+ (libraries mail-flag alcotest))

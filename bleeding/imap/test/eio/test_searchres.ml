@@ -1,0 +1,274 @@
+module S = Imap_eio.Selected
+module C = Imap_eio.Client
+module E = Imap_eio.Error
+let ok = function Ok x -> x | Error e -> failwith (C.error_to_string e)
+let expect label kind = function
+  | Error e when kind e -> ()
+  | Error e -> failwith (label ^ ": " ^ C.error_to_string e)
+  | Ok _ -> failwith (label ^ ": unexpectedly succeeded")
+let state = function E.State _ -> true | _ -> false
+let protocol = function E.Protocol _ -> true | _ -> false
+let uncertain = function E.Uncertain _ -> true | _ -> false
+let rejected = function E.Rejected _ -> true | _ -> false
+let tag n=Printf.sprintf "A%08d" n
+let done_ n = tag n ^ " OK done\r\n"
+let save n count = Printf.sprintf "* ESEARCH (TAG \"%s\") UID COUNT %Ld\r\n%s"
+  (tag n) count (done_ n)
+let selected n = "* 2 EXISTS\r\n* OK [UIDVALIDITY 1] valid\r\n" ^
+  "* OK [UIDNEXT 10] next\r\n" ^ done_ n
+let with_client ?(caps="SEARCHRES UIDPLUS MOVE CONDSTORE PARTIAL") replies f =
+  Eio_mock.Backend.run @@ fun () ->
+  Eio.Switch.run @@ fun sw ->
+  let flow=Eio_mock.Flow.make "searchres" in
+  let caps="IMAP4rev1 UNSELECT " ^ caps in
+  Eio_mock.Flow.on_read flow ([
+    `Return "* OK ready\r\n";
+    `Return ("* CAPABILITY " ^ caps ^ "\r\n" ^ done_ 1);
+    `Return (done_ 2);
+    `Return ("* CAPABILITY " ^ caps ^ "\r\n" ^ done_ 3)] @ replies);
+  let auth=Imap_eio.Auth.password ~username:"u" ~password:"p"
+    ~allow_insecure_transport:true () in
+  let client=ok (C.of_flow ~sw ~auth flow) in
+  Fun.protect ~finally:(fun () -> C.close client) (fun () -> f ~sw client)
+let seen=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen
+let store saved=S.uid_store_saved saved ~operation:`Add ~flags:[seen] ()
+let fetch saved=S.uid_fetch_saved saved ~items:["FLAGS"] ()
+
+let test_operations () =
+  with_client [
+    `Return (selected 4); `Return (save 5 2L);
+    `Return ("* 1 FETCH (UID 3 FLAGS ())\r\n* 2 FETCH (UID 7 FLAGS ())\r\n" ^ done_ 6);
+    `Return ("* 1 FETCH (UID 3 FLAGS (\\Seen))\r\n" ^ done_ 7);
+    `Return (tag 8 ^ " OK [COPYUID 2 3,7 20:21] copied\r\n");
+    `Return ("* 1 EXPUNGE\r\n" ^ tag 9 ^ " OK [COPYUID 2 3 22] moved\r\n");
+    `Return (done_ 10); `Return (done_ 11); `Return (done_ 12)]
+    (fun ~sw:_ client ->
+      let escaped=ref None in
+      ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+        let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
+        escaped:=Some saved;
+        if S.saved_search_count saved<>2L then failwith "saved count lost";
+        let rows=ok (fetch saved) in
+        if List.map (fun (row:Imap.Response.fetch) -> row.uid) rows<>[Some 3L;Some 7L]
+        then failwith "saved fetch UIDs lost";
+        ignore (ok (store saved));
+        (match ok (S.uid_copy_saved saved ~mailbox:"Archive") with
+         | Some _ -> () | None -> failwith "saved COPYUID lost");
+        ignore (ok (S.uid_move_saved saved ~mailbox:"Archive"));
+        ok (S.uid_expunge_saved saved);
+        if ok (fetch saved)<>[] then failwith "expunged saved set not empty";
+        if S.saved_search_count saved<>2L then failwith "captured count mutated";
+        Ok ()));
+      expect "escaped saved lease" state (fetch (Option.get !escaped)))
+
+let test_empty () =
+  with_client ([`Return (selected 4);`Return (save 5 0L)] @
+    List.init 6 (fun i -> `Return (done_ (6+i)))) (fun ~sw:_ client ->
+    ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+      let saved=ok (S.uid_search_save selected ~criterion:"UID 100:200") in
+      if S.saved_search_count saved<>0L || ok (fetch saved)<>[] then
+        failwith "empty saved set changed";
+      ignore (ok (store saved));
+      ignore (ok (S.uid_copy_saved saved ~mailbox:"Archive"));
+      ignore (ok (S.uid_move_saved saved ~mailbox:"Archive"));
+      ok (S.uid_expunge_saved saved); Ok ())))
+
+let test_replacement_and_raw_search () =
+  with_client [`Return (selected 4);`Return (save 5 2L);`Return (save 6 1L);
+    `Return ("* SEARCH 7\r\n" ^ done_ 7);`Return (done_ 8)] (fun ~sw:_ client ->
+    ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+      let old=ok (S.uid_search_save selected ~criterion:"ALL") in
+      let current=ok (S.uid_search_save selected ~criterion:"UID 7") in
+      expect "replacement SAVE" state (store old);
+      ignore (ok (S.uid_search selected "RETURN (SAVE) ALL"));
+      expect "raw SAVE invalidates fetch" state (fetch current);
+      expect "raw SAVE invalidates store" state (store current);
+      expect "raw SAVE invalidates copy" state (S.uid_copy_saved current ~mailbox:"Archive");
+      expect "raw SAVE invalidates move" state (S.uid_move_saved current ~mailbox:"Archive");
+      expect "raw SAVE invalidates expunge" state (S.uid_expunge_saved current);
+      Ok ())))
+
+let test_rejected_search () =
+  List.iter (fun response ->
+    with_client [`Return (selected 4);`Return (save 5 2L);
+      `Return (tag 6 ^ response ^ "\r\n");`Return (done_ 7)] (fun ~sw:_ client ->
+      ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+        let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
+        expect "SAVE rejection" rejected (S.uid_search_save selected ~criterion:"ALL");
+        expect "rejected SAVE invalidates prior handle" state (fetch saved);
+        Ok ())))) [" NO [NOTSAVED] resource limit";" BAD bad criteria"];
+  with_client [`Return (selected 4);`Return (save 5 2L);
+    `Return ("* SEARCH 3 7\r\n" ^ done_ 6);`Return (done_ 7)] (fun ~sw:_ client ->
+    ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+      let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
+      ignore (ok (S.uid_search selected "ALL"));
+      expect "ordinary SEARCH conservative invalidation" state (fetch saved);
+      Ok ())))
+
+let test_invalid_save_results () =
+  List.iter (fun reply ->
+    with_client [`Return (selected 4);`Return (reply (tag 5) ^ done_ 5);
+      `Return (done_ 6)] (fun ~sw:_ client ->
+      expect "invalid SAVE COUNT" protocol
+        (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+          S.uid_search_save selected ~criterion:"ALL"))))
+    [(fun _ -> "");
+     (fun _ -> "* ESEARCH UID COUNT 2\r\n");
+     (fun tag -> "* ESEARCH (TAG \"" ^ tag ^ "\") UID\r\n");
+     (fun tag -> "* ESEARCH (TAG \"" ^ tag ^ "\") COUNT 2\r\n");
+     (fun tag -> "* ESEARCH (TAG \"" ^ tag ^ "\") UID COUNT 2 PARTIAL (1:1 7)\r\n");
+     (fun tag -> let row="* ESEARCH (TAG \"" ^ tag ^ "\") UID COUNT 2\r\n" in row^row)]
+
+let test_gates () =
+  with_client ~caps:"" [`Return (selected 4);`Return (done_ 5)] (fun ~sw:_ client ->
+    expect "SEARCHRES capability" state
+      (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+        S.uid_search_save selected ~criterion:"ALL")));
+  with_client ~caps:"SEARCHRES" [`Return (selected 4);`Return (save 5 2L);
+    `Return (done_ 6)] (fun ~sw:_ client ->
+    ok (C.with_mailbox client ~mode:`Read_only "INBOX" (fun selected ->
+      let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
+      expect "saved body fetch forbidden" state
+        (S.uid_fetch_saved saved ~items:["BODY[]"] ());
+      expect "saved partial requires capability" state
+        (S.uid_fetch_saved saved ~partial:(1L,2L) ~items:["FLAGS"] ());
+      expect "saved MODSEQ requires capability" state
+        (S.uid_fetch_saved saved ~items:["MODSEQ"] ());
+      expect "read-only saved STORE" state (store saved);
+      expect "read-only saved MOVE" state (S.uid_move_saved saved ~mailbox:"Archive");
+      expect "read-only saved EXPUNGE" state (S.uid_expunge_saved saved);
+      Ok ())))
+
+let test_identity_reset () =
+  List.iter (fun code ->
+    let notice="* OK [" ^ code ^ "] reset\r\n" in
+    with_client [`Return (selected 4);`Return (notice ^ save 5 2L)] (fun ~sw:_ client ->
+      expect "identity reset during SAVE" protocol
+        (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+          S.uid_search_save selected ~criterion:"ALL")));
+    List.iter (fun (name,mutate) ->
+      with_client [`Return (selected 4);`Return (save 5 2L);
+        `Return (notice ^ done_ 6)] (fun ~sw:_ client ->
+        expect (name ^ " identity reset must be uncertain") uncertain
+          (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+            let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
+            mutate saved))))
+      ["STORE",(fun saved -> Result.map (fun _ -> ()) (store saved));
+       "COPY",(fun saved -> Result.map (fun _ -> ()) (S.uid_copy_saved saved ~mailbox:"Archive"));
+       "MOVE",(fun saved -> Result.map (fun _ -> ()) (S.uid_move_saved saved ~mailbox:"Archive"));
+       "EXPUNGE",S.uid_expunge_saved]) ["UIDVALIDITY 2";"CLOSED"]
+
+let test_concurrent_invalidation () =
+  Eio_mock.Backend.run @@ fun () ->
+  let entered,mark_entered=Eio.Promise.create () in
+  let release,mark_release=Eio.Promise.create () in
+  with_client [`Return (selected 4);`Return (save 5 2L);
+    `Run (fun () -> Eio.Promise.resolve mark_entered ();
+      Eio.Promise.await release; "* SEARCH 3\r\n" ^ done_ 6);
+    `Return (done_ 7)] (fun ~sw client ->
+    ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+      let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
+      let searched,mark_searched=Eio.Promise.create () in
+      let stored,mark_stored=Eio.Promise.create () in
+      Eio.Fiber.fork ~sw (fun () -> Eio.Promise.resolve mark_searched
+        (S.uid_search selected "RETURN (SAVE) UID 3"));
+      Eio.Promise.await entered;
+      Eio.Fiber.fork ~sw (fun () -> Eio.Promise.resolve mark_stored (store saved));
+      Eio.Promise.resolve mark_release ();
+      ignore (ok (Eio.Promise.await searched));
+      expect "queued saved STORE invalidated before dispatch" state (Eio.Promise.await stored);
+      Ok ())))
+
+let test_saved_refinement () =
+  with_client [`Return (selected 4);`Return (save 5 3L);
+    `Return ("* ESEARCH (TAG \"A00000006\") UID COUNT 1 ALL 7\r\n" ^ done_ 6);
+    `Return ("* ESEARCH (TAG \"A00000007\") UID COUNT 0\r\n" ^ done_ 7);
+    `Return (done_ 8);`Return (done_ 9)] (fun ~sw:_ client ->
+    ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+      let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
+      let found=ok (S.uid_search_saved saved ~criterion:"UNSEEN") in
+      if found<>[7L] then failwith "saved refinement lost subset";
+      if ok (S.uid_search_saved saved ~criterion:"UID 100")<>[] then
+        failwith "empty saved refinement changed";
+      expect "refinement grammar escape rejected" state
+        (S.uid_search_saved saved ~criterion:"ALL) RETURN (SAVE) (");
+      ignore (ok (store saved));
+      Ok ())))
+
+let test_invalid_refinement () =
+  List.iter (fun fields ->
+    with_client [`Return (selected 4);`Return (save 5 2L);
+      `Return ("* ESEARCH (TAG \"A00000006\") UID " ^ fields ^ "\r\n" ^ done_ 6);
+      `Return (done_ 7)] (fun ~sw:_ client ->
+      expect "invalid saved refinement" protocol
+        (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+          let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
+          S.uid_search_saved saved ~criterion:"ALL"))))
+    ["COUNT 3 ALL 1:3";"COUNT 2 ALL 3,3";"COUNT 2";
+     "ALL 3,7";"COUNT 0 ALL 3";"COUNT 2 PARTIAL (1:2 3,7)"]
+
+let test_saved_failures () =
+  List.iter (fun mutate ->
+    with_client [`Return (selected 4);`Return (save 5 2L);`Raise End_of_file]
+      (fun ~sw:_ client -> expect "lost saved mutation completion" uncertain
+        (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+          mutate (ok (S.uid_search_save selected ~criterion:"ALL"))))))
+    [(fun saved -> Result.map (fun _ -> ()) (store saved));
+     (fun saved -> Result.map (fun _ -> ()) (S.uid_copy_saved saved ~mailbox:"Archive"));
+     (fun saved -> Result.map (fun _ -> ()) (S.uid_move_saved saved ~mailbox:"Archive"));
+     S.uid_expunge_saved];
+  with_client ~caps:"SEARCHRES IDLE" [
+    `Return (selected 4);`Return (save 5 2L);
+    `Return "+ idling\r\n";`Return "* OK [UIDVALIDITY 2] changed\r\n"]
+    (fun ~sw:_ client ->
+      ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+        let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
+        expect "IDLE epoch reset" protocol (S.wait_for_change selected);
+        expect "IDLE reset expires saved handle" state (fetch saved);
+        expect "IDLE reset expires lease info" state (S.info selected);
+        Ok ())))
+
+let test_mutation_receipts () =
+  List.iter (fun (reply,mutate) ->
+    with_client [`Return (selected 4);`Return (save 5 2L);`Return reply]
+      (fun ~sw:_ client -> expect "invalid saved mutation receipt" uncertain
+        (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
+          mutate (ok (S.uid_search_save selected ~criterion:"ALL"))))))
+    ["* OK [COPYUID 2 3 20] copied\r\n" ^ tag 6 ^
+       " OK [COPYUID 2 3 20] copied\r\n",
+       (fun saved -> Result.map (fun _ -> ()) (S.uid_copy_saved saved ~mailbox:"Archive"));
+     tag 6 ^ " OK [COPYUID 2 3,7 20] copied\r\n",
+       (fun saved -> Result.map (fun _ -> ()) (S.uid_move_saved saved ~mailbox:"Archive"));
+     tag 6 ^ " OK [MODIFIED 0] stored\r\n",
+       (fun saved -> Result.map (fun _ -> ()) (store saved))]
+
+let test_truncated_save () =
+  List.iter (fun partial ->
+    with_client ~caps:"SEARCHRES MESSAGELIMIT=1"
+      [`Return (selected 4);`Return (save 5 2L);`Return partial;
+       `Return (done_ 7)] (fun ~sw:_ client ->
+      ok (C.with_mailbox client ~mode:`Read_only "INBOX" (fun selected ->
+        let previous=ok (S.uid_search_save selected ~criterion:"ALL") in
+        expect "truncated SAVE cannot mint a handle"
+          (function E.Limit _ -> true | _ -> false)
+          (S.uid_search_save selected ~criterion:"ALL");
+        expect "truncated SAVE invalidates previous handle" state (fetch previous);
+        Ok ()))))
+    ["* ESEARCH (TAG \"A00000006\") UID COUNT 1\r\n" ^
+       tag 6 ^ " OK [MESSAGELIMIT 1 7] partial\r\n";
+     "* ESEARCH (TAG \"A00000006\") UID COUNT 1\r\n" ^
+       "* NO [MESSAGELIMIT 1 7] partial\r\n" ^ done_ 6];
+  with_client ~caps:"SEARCHRES SAVELIMIT=1"
+    [`Return (selected 4);`Return (save 5 2L);`Return (done_ 6)]
+    (fun ~sw:_ client ->
+      ok (C.with_mailbox client ~mode:`Read_only "INBOX" (fun selected ->
+        let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
+        if S.saved_search_count saved<>2L then failwith "SAVELIMIT truncated SEARCH";
+        Ok ())))
+
+let () =
+  test_truncated_save ();
+  test_operations (); test_empty (); test_replacement_and_raw_search ();
+  test_rejected_search (); test_invalid_save_results (); test_gates ();
+  test_identity_reset (); test_concurrent_invalidation ();
+  test_saved_refinement (); test_invalid_refinement (); test_saved_failures (); test_mutation_receipts ()

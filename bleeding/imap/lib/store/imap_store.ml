@@ -162,6 +162,16 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last fetched =
       VALUES (?,?,?,?) ON CONFLICT(stage_id,uid) DO UPDATE SET \
       modseq=excluded.modseq,flags=excluded.flags"
     @@ fun row_stmt ->
+    (* Consecutive rows usually share their flags, so the text is encoded
+       again only when the list changes. The comparison is structural
+       rather than [Imap_flag.equal], which ignores keyword case that the
+       stored spelling keeps. *)
+    let last_flags=ref [] and last_text=ref "" in
+    let text_of flags =
+      if flags!= !last_flags && flags<> !last_flags then (
+        last_flags:=flags;
+        last_text:=flag_text flags);
+      !last_text in
     batch t (fun () -> List.iter (fun (row:M.row) ->
       let uid=Imap.Uid.to_int64 row.uid in
       if uid<first || uid>last then
@@ -186,7 +196,7 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last fetched =
         (match row.modseq with
          | None -> bind_null t row_stmt 3
          | Some m -> bind_int64 t row_stmt 3 (Imap.Modseq.to_int64 m));
-        bind_text t row_stmt 4 (flag_text row.flags);
+        bind_text t row_stmt 4 (text_of row.flags);
         batch_exec t row_stmt)) fetched);
     run t "UPDATE scan_stages SET fetch_upper=? WHERE id=?"
       [i last;s stage_id])

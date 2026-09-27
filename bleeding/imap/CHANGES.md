@@ -391,3 +391,6 @@ per UID.
 
 A staged write that succeeds builds no cleanup closure, cutting each
 staging phase by 40 bytes per row, to 65 and 67.
+
+`stage_rows` encodes a row's flag text only when its list differs from
+the previous row's, cutting the phase from 65 to 25 bytes per row.

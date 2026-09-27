@@ -289,22 +289,28 @@ let staged_columns env = with_store env (fun ~path ~dir:_ db ->
   let action=ok (M.plan cursor ~stage_id:"columns" (selected 5L)) in
   Store.begin_stage db ~cursor ~action;
   let last=action.upper_uid in
+  let labelled n : M.row =
+    {uid=uid n; flags=[flag "\\Seen"; flag "$Label"];
+     modseq=Some (modseq 17L)} in
   Store.stage_rows db ~stage_id:action.id ~first:1L ~last
-    [{uid=uid 1L; flags=[flag "\\Seen"; flag "$Label"];
-      modseq=Some (modseq 17L)};
-     {uid=uid 3L; flags=[]; modseq=None}];
+    [labelled 1L; labelled 2L;
+     {uid=uid 3L; flags=[flag "\\Seen"; flag "$label"]; modseq=None};
+     {(labelled 4L) with flags=[]}];
   let columns table =
     text path ("SELECT group_concat(r,';') FROM (SELECT typeof(uid)||':'||\
       uid||','||quote(modseq)||','||quote(flags) AS r FROM " ^ table ^
       " ORDER BY uid)") in
-  let staged="integer:1,17,'\\Seen $Label';integer:3,NULL,''" in
+  let staged="integer:1,17,'\\Seen $Label';integer:2,17,'\\Seen $Label';\
+    integer:3,NULL,'\\Seen $label';integer:4,17,''" in
   check (columns "scan_rows"=Some staged) "staged columns";
   let marks ()=text path "SELECT group_concat(r,';') FROM (SELECT \
     quote(stage_id)||seen AS r FROM scan_rows ORDER BY uid)" in
-  check (marks ()=Some "'columns'0;'columns'0") "unmarked rows";
+  check (marks ()=Some "'columns'0;'columns'0;'columns'0;'columns'0")
+    "unmarked rows";
   Store.stage_membership db ~stage_id:action.id ~first:1L ~last
-    [uid 3L; uid 1L];
-  check (marks ()=Some "'columns'1;'columns'1") "marked rows";
+    [uid 3L; uid 1L; uid 4L; uid 2L];
+  check (marks ()=Some "'columns'1;'columns'1;'columns'1;'columns'1")
+    "marked rows";
   check (match Store.publish_stage db ~cursor ~action
       ~explicit_highestmodseq:(Some (modseq 40L)) ~nomodseq:false with
     | `Committed _ -> true | `Stale_revision -> false) "publish columns";

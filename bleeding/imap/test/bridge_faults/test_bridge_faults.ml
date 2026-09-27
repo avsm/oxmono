@@ -699,6 +699,95 @@ let test_watch_deadlines () =
   Alcotest.(check int64) "watch cursor stayed unpublished" 0L
     (Imap_store.load_cursor store ~scope).revision
 
+exception Watch_stopped
+
+let test_watch_keepalive_does_not_rescan () =
+  let dir=root () in
+  Fun.protect ~finally:(fun () -> remove_tree dir) @@ fun () ->
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let fs=Eio.Stdenv.fs env in
+  let clock=Eio.Stdenv.clock env in
+  let store=open_store ~sw
+    ~database:Eio.Path.(fs / dir / "sync.db")
+    ~blob_dir:Eio.Path.(fs / dir / "blob") in
+  let caps="IMAP4rev1 UNSELECT IDLE" in
+  let prelude=[
+    `Return "* OK ready\r\n";
+    `Return ("* CAPABILITY " ^ caps ^ "\r\nA00000001 OK done\r\n");
+    `Return "A00000002 OK logged in\r\n";
+    `Return ("* CAPABILITY " ^ caps ^ "\r\nA00000003 OK done\r\n")] in
+  let select tag uidnext=`Return (Printf.sprintf
+    "* 0 EXISTS\r\n* OK [UIDVALIDITY 11] valid\r\n\
+     * OK [UIDNEXT %d] next\r\nA%08d OK [READ-ONLY] selected\r\n"
+    uidnext tag) in
+  let empty_scan=prelude @ [select 4 1;
+    `Return "A00000005 OK unselected\r\n"] in
+  let idle_wire=Buffer.create 256 in
+  let idle_session=prelude @ [
+    select 4 1;
+    `Return "+ idling\r\n";
+    `Return "* OK Still here\r\n";
+    `Return "A00000005 OK idle done\r\n";
+    `Return "A00000006 OK unselected\r\n";
+    select 7 1;
+    `Return "+ idling\r\n";
+    `Return "* 1 EXISTS\r\n";
+    `Return "A00000008 OK idle done\r\n";
+    `Return "A00000009 OK unselected\r\n";
+    select 10 2;
+    `Return "A00000011 OK unselected\r\n"] in
+  let connections=ref [empty_scan,None; idle_session,Some idle_wire;
+    empty_scan,None] in
+  let connect ~sw =
+    match !connections with
+    | [] -> Alcotest.fail "watch opened an unexpected connection"
+    | (lines,wire)::rest ->
+        connections:=rest;
+        let pp ppf data=
+          Option.iter (fun wire -> Buffer.add_string wire data) wire;
+          Format.pp_print_string ppf data in
+        let flow=Eio_mock.Flow.make ~pp "watch-keepalive" in
+        Eio_mock.Flow.on_read flow lines;
+        let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
+          ~allow_insecure_transport:true () in
+        Imap_eio.Client.of_flow ~sw ~auth flow in
+  let published=ref 0 in
+  let stage=ref 0 in
+  (try
+     ignore (Imap_sync.Watch.run ~clock ~connect ~store ~scope
+       ~mailbox:"INBOX"
+       ~next_stage_id:(fun () -> incr stage;
+         Printf.sprintf "keepalive-%d" !stage)
+       ~on_publish:(fun _ ->
+         incr published;
+         if !published=2 then raise Watch_stopped)
+       ~on_retry:(fun _ -> Alcotest.fail "keepalive watch retried") ());
+     Alcotest.fail "watch returned"
+   with Watch_stopped -> ());
+  let idles=List.length (String.split_on_char '\n' (Buffer.contents idle_wire)
+    |> List.filter (fun line -> String.starts_with ~prefix:"A" line &&
+      String.ends_with ~suffix:" IDLE\r" line)) in
+  Alcotest.(check int) "keepalive re-entered IDLE before the rescan" 2 idles;
+  Alcotest.(check int) "every scripted connection used" 0
+    (List.length !connections)
+
+let test_watch_rejects_long_idle_renewal () =
+  let dir=root () in
+  Fun.protect ~finally:(fun () -> remove_tree dir) @@ fun () ->
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let fs=Eio.Stdenv.fs env in
+  let store=open_store ~sw
+    ~database:Eio.Path.(fs / dir / "sync.db")
+    ~blob_dir:Eio.Path.(fs / dir / "blob") in
+  match Imap_sync.Watch.run ~clock:(Eio.Stdenv.clock env)
+      ~connect:(fun ~sw:_ -> Alcotest.fail "invalid watch connected")
+      ~store ~scope ~mailbox:"INBOX" ~next_stage_id:(fun () -> "unused")
+      ~on_publish:(fun _ -> ()) ~idle_renew_seconds:1741. () with
+  | Error (Imap_sync.Watch.Invalid_configuration _) -> ()
+  | _ -> Alcotest.fail "IDLE renewal above 29 minutes accepted"
+
 let test_remote_source_vanishes_before_archive () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
@@ -2215,6 +2304,10 @@ else Alcotest.run "imap-bridge-faults" [
       test_staged_timeout_discards_stage;
     Alcotest.test_case "watch connection and scan deadlines" `Quick
       test_watch_deadlines;
+    Alcotest.test_case "watch keepalive does not rescan" `Quick
+      test_watch_keepalive_does_not_rescan;
+    Alcotest.test_case "watch IDLE renewal limit" `Quick
+      test_watch_rejects_long_idle_renewal;
     Alcotest.test_case "remote source vanishes before archival" `Quick
       test_remote_source_vanishes_before_archive;
     Alcotest.test_case "local source changes before archival" `Quick

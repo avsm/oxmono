@@ -34,14 +34,14 @@ let run ~clock ~connect ~store ~scope ~mailbox ~next_stage_id ~on_publish
           connect_timeout_seconds > 0. &&
           Float.is_finite scan_timeout_seconds &&
           scan_timeout_seconds > 0. &&
-          Float.is_finite idle_renew_seconds && idle_renew_seconds > 0.) then
+          Float.is_finite idle_renew_seconds && idle_renew_seconds > 0. &&
+          idle_renew_seconds <= 1740.) then
     Error (Invalid_configuration
-      "watch intervals must be finite and positive; maximum retry must be at least initial retry")
+      "watch intervals must be finite and positive, IDLE renewal at most \
+       1740 seconds, and maximum retry at least initial retry")
   else
     let sleep seconds = Eio.Time.sleep clock seconds in
-    let next_delay delay =
-      if delay >= max_retry_seconds /. 2. then max_retry_seconds
-      else min max_retry_seconds (delay *. 2.) in
+    let next_delay delay = min max_retry_seconds (delay *. 2.) in
     let connect_bounded ~sw =
       try Some (Eio.Time.with_timeout_exn clock connect_timeout_seconds
         (fun () -> connect ~sw))
@@ -65,25 +65,27 @@ let run ~clock ~connect ~store ~scope ~mailbox ~next_stage_id ~on_publish
       | None -> Error Connect_timed_out
       | Some (Error error) -> Error (Connect_failed error)
       | Some (Ok client) ->
-          if not (List.mem "IDLE" (Imap_eio.Client.capabilities client)) then
-            (sleep poll_seconds; Ok ())
-          else
-            try
-              let result = Eio.Time.with_timeout_exn clock idle_renew_seconds
-                (fun () ->
-                  Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
-                    (fun selected ->
-                      match Imap_eio.Selected.info selected with
-                      | Error _ as error -> error
-                      | Ok info ->
-                          if needs_rescan cursor info then Ok ()
-                          else match Imap_eio.Selected.wait_for_change selected with
-                            | Ok _ -> Ok ()
-                            | Error _ as error -> error)) in
-              (match result with
-               | Ok () -> Ok ()
-               | Error error -> Error (Idle_failed error))
-            with Eio.Time.Timeout -> Ok () in
+          let renew_at = Eio.Time.now clock +. idle_renew_seconds in
+          let watch_once () =
+            Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
+              (fun selected ->
+                match Imap_eio.Selected.info selected with
+                | Error _ as error -> error
+                | Ok info when needs_rescan cursor info -> Ok `Changed
+                | Ok _ ->
+                    match Imap_eio.Selected.wait_for_change selected with
+                    | Ok _ -> Ok `Woken
+                    | Error _ as error -> error) in
+          let rec watch () =
+            let remaining = renew_at -. Eio.Time.now clock in
+            if remaining <= 0. then Ok ()
+            else
+              match Eio.Time.with_timeout_exn clock remaining watch_once with
+              | Ok `Woken -> watch ()
+              | Ok `Changed -> Ok ()
+              | Error error -> Error (Idle_failed error)
+              | exception Eio.Time.Timeout -> Ok () in
+          watch () in
     let fatal = function
       | Engine.Invalid_scope _ | Engine.Limit _ | Engine.Mirror _ -> true
       | Engine.Client _ | Engine.Incomplete _ |

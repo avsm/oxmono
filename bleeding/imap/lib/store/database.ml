@@ -72,6 +72,7 @@ let rows_prepared t stmt values =
   read t ~step:(eio_step t) ~reset:(eio_reset t) stmt values
 let batch t f = SE.run t.db ~label:"imap_store_batch" (fun _ -> f ())
 let bind_text t stmt n x = check t (S.bind_text stmt n x)
+let bind_int t stmt n x = check t (S.bind_int stmt n x)
 let bind_int64 t stmt n x = check t (S.bind_int64 stmt n x)
 let bind_null t stmt n = check t (S.bind stmt n S.Data.NULL)
 (* The success path skips [with_reset] because its closure is most of what

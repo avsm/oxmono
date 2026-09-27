@@ -397,3 +397,6 @@ the previous row's, cutting the phase from 65 to 25 bytes per row.
 
 `Uid`, `Uidvalidity` and `Seq` gain `of_int` and `to_int`, which
 convert without allocating an `int64`.
+
+`stage_rows` and `stage_membership` bind each UID as an `int`, cutting
+the rows phase from 25 to 1 byte per row and membership from 67 to 43.

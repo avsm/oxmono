@@ -50,11 +50,12 @@ val batch : t -> (unit -> 'a) -> 'a
     {!batch_row}, {!changes} and the value codecs. *)
 
 val bind_text : t -> Sqlite3.stmt -> int -> string -> unit
+val bind_int : t -> Sqlite3.stmt -> int -> int -> unit
 val bind_int64 : t -> Sqlite3.stmt -> int -> int64 -> unit
 val bind_null : t -> Sqlite3.stmt -> int -> unit
-(** [bind_text t stmt n x], [bind_int64 t stmt n x] and [bind_null t stmt n]
-    bind parameter [n] of [stmt], counting from 1, without building a
-    value list. *)
+(** [bind_text t stmt n x], [bind_int t stmt n x], [bind_int64 t stmt n x]
+    and [bind_null t stmt n] bind parameter [n] of [stmt], counting from 1,
+    without building a value list. *)
 
 val batch_exec : t -> Sqlite3.stmt -> unit
 (** [batch_exec t stmt] executes a write whose parameters the caller has

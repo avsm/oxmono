@@ -148,6 +148,10 @@ let seed_stage_from_published t ~(cursor:M.cursor) ~(action:M.action) =
         AND account=? AND mailbox_key=? AND uidvalidity=? AND uid<=?" values;
       `Seeded))
 
+(* A UID fits in an [int], so clamping a range bound to [max_int] changes
+   no comparison with one. *)
+let uid_bound x = if x > Int64.of_int max_int then max_int else Int64.to_int x
+
 let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last fetched =
   let who="Imap_store.stage_rows" in
   if first < 1L || last < first then invalid_arg (who ^ ": range");
@@ -172,13 +176,14 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last fetched =
         last_flags:=flags;
         last_text:=flag_text flags);
       !last_text in
+    let first_uid=uid_bound first and last_uid=uid_bound last in
     batch t (fun () -> List.iter (fun (row:M.row) ->
-      let uid=Imap.Uid.to_int64 row.uid in
-      if uid<first || uid>last then
+      let uid=Imap.Uid.to_int row.uid in
+      if uid<first_uid || uid>last_uid then
         invalid_arg (who ^ ": UID outside FETCH range");
       let newer=if not preserve_newer then true else (
         bind_text t seeded_stmt 1 stage_id;
-        bind_int64 t seeded_stmt 2 uid;
+        bind_int t seeded_stmt 2 uid;
         match batch_row t seeded_stmt with
         | None -> true
         | Some seeded ->
@@ -192,7 +197,7 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last fetched =
                    (who ^ ": seeded and incremental rows lack MODSEQ"))) in
       if newer then (
         bind_text t row_stmt 1 stage_id;
-        bind_int64 t row_stmt 2 uid;
+        bind_int t row_stmt 2 uid;
         (match row.modseq with
          | None -> bind_null t row_stmt 3
          | Some m -> bind_int64 t row_stmt 3 (Imap.Modseq.to_int64 m));
@@ -212,14 +217,15 @@ let stage_membership t ~stage_id ~first ~last uids =
     let unique=Hashtbl.create (List.length uids) in
     with_stmt t "UPDATE scan_rows SET seen=1 WHERE stage_id=? AND uid=?"
     @@ fun mark_stmt ->
+    let first_uid=uid_bound first and last_uid=uid_bound last in
     batch t (fun () -> List.iter (fun uid ->
-      let uid=Imap.Uid.to_int64 uid in
-      if uid<first || uid>last then
+      let uid=Imap.Uid.to_int uid in
+      if uid<first_uid || uid>last_uid then
         invalid_arg (who ^ ": UID outside SEARCH range");
       if Hashtbl.mem unique uid then invalid_arg (who ^ ": duplicate UID");
       Hashtbl.add unique uid ();
       bind_text t mark_stmt 1 stage_id;
-      bind_int64 t mark_stmt 2 uid;
+      bind_int t mark_stmt 2 uid;
       batch_exec t mark_stmt;
       if changes t=0 then
         invalid_arg (who ^ ": live UID absent from FETCH")) uids);

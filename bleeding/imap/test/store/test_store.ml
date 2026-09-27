@@ -93,7 +93,7 @@ let test_flag_settlement_transaction env =
     let stale={pair with revision=Int64.pred pair.revision} in
     Alcotest.(check bool) "stale pair cannot settle" true
       (J.settle_flag_operation db ~id:operation.id stale
-        ~flags:[flag "\\Flagged"] ~evidence:"manual"=`Invalid_operation);
+        ~flags:[flag "\\Flagged"] ~evidence:"manual"=`Stale_revision);
     (match J.settle_flag_operation db ~id:operation.id pair
         ~flags:[flag "\\Flagged"] ~evidence:"operator aligned both sides" with
      | `Settled updated ->

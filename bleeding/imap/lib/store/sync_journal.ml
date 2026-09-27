@@ -4,6 +4,7 @@ open Record_codec
 module M = Imap.Mirror
 module P = Imap.Proto
 module S = Sqlite3
+module F = Mail_flag.Imap_flag
 
 type tombstone_reason = Inventory_absence | Expunge_receipt
   | Local_absence | Explicit_delete | Retention
@@ -14,7 +15,7 @@ type pair = { id:string; scope:M.scope;
   local_id:string option; content_sha256:string option;
   content_length:int64 option;
   internal_date:Imap.Internal_date.t option;
-  common_flags:Mail_flag.Imap_flag.t list;
+  common_flags:F.t list;
   remote_tombstone:tombstone option; local_tombstone:tombstone option;
   revision:int64 }
 let reason = function
@@ -38,111 +39,151 @@ let dec_tombstone kind evidence generation = match kind,evidence with
 let tombstone_columns = function
   | None -> [S.Data.NULL;S.Data.NULL;S.Data.NULL]
   | Some x -> [s (reason x.reason);s x.evidence;ni x.generation]
-let valid_tombstone side = function
+let valid_tombstone who side = function
   | None -> ()
   | Some x ->
-    if x.evidence="" || (match x.generation with Some n -> n<0L | None -> false) then
-      invalid_arg "Imap_store.Sync.put_pair: invalid tombstone evidence";
+    if x.evidence="" ||
+       (match x.generation with Some n -> n<0L | None -> false) then
+      invalid_arg (who ^ ": invalid tombstone evidence");
     (match side,x.reason with
-     | `Remote,(Local_absence|Retention) | `Local,(Inventory_absence|Expunge_receipt) ->
-       invalid_arg "Imap_store.Sync.put_pair: tombstone side mismatch"
+     | `Remote,(Local_absence|Retention)
+     | `Local,(Inventory_absence|Expunge_receipt) ->
+       invalid_arg (who ^ ": tombstone side mismatch")
      | _ -> ())
 let check_sync_flags where flags =
-  if List.exists (function Mail_flag.Imap_flag.Recent -> true | _ -> false)
-      flags then invalid_arg (where ^ ": \\Recent is ephemeral");
+  if List.exists (function F.Recent -> true | _ -> false) flags then
+    invalid_arg (where ^ ": \\Recent is ephemeral");
   let rec check = function
     | a::(b::_ as rest) ->
-      if Mail_flag.Imap_flag.equal a b then
-        invalid_arg (where ^ ": duplicate flag")
+      if F.equal a b then invalid_arg (where ^ ": duplicate flag")
       else check rest
     | _ -> () in
-  check (List.sort Mail_flag.Imap_flag.compare flags)
-let validate_pair x =
+  check (List.sort F.compare flags)
+let validate_pair who x =
   if x.id="" || x.revision<0L then
-    invalid_arg "Imap_store.Sync.put_pair: invalid ID or revision";
+    invalid_arg (who ^ ": invalid ID or revision");
   if Option.is_some x.remote_uidvalidity <> Option.is_some x.remote_uid ||
      (x.remote_uid=None && x.local_id=None) then
-    invalid_arg "Imap_store.Sync.put_pair: incomplete occurrence identity";
+    invalid_arg (who ^ ": incomplete occurrence identity");
   Option.iter (fun id -> if id="" then
-    invalid_arg "Imap_store.Sync.put_pair: empty local ID") x.local_id;
+    invalid_arg (who ^ ": empty local ID")) x.local_id;
   if x.remote_tombstone<>None && x.remote_uid=None then
-    invalid_arg "Imap_store.Sync.put_pair: remote tombstone without UID";
+    invalid_arg (who ^ ": remote tombstone without UID");
   if x.local_tombstone<>None && x.local_id=None then
-    invalid_arg "Imap_store.Sync.put_pair: local tombstone without ID";
+    invalid_arg (who ^ ": local tombstone without ID");
   if Option.is_some x.content_sha256<>Option.is_some x.content_length then
-    invalid_arg "Imap_store.Sync.put_pair: incomplete content evidence";
+    invalid_arg (who ^ ": incomplete content evidence");
   Option.iter (fun hash -> if not (is_sha256_hex hash) then
-      invalid_arg "Imap_store.Sync.put_pair: invalid content digest")
+      invalid_arg (who ^ ": invalid content digest"))
     x.content_sha256;
   Option.iter (fun length -> if length<0L then
-    invalid_arg "Imap_store.Sync.put_pair: negative content length")
+    invalid_arg (who ^ ": negative content length"))
     x.content_length;
-  valid_tombstone `Remote x.remote_tombstone;
-  valid_tombstone `Local x.local_tombstone;
-  check_sync_flags "Imap_store.Sync.put_pair" x.common_flags
+  valid_tombstone who `Remote x.remote_tombstone;
+  valid_tombstone who `Local x.local_tombstone;
+  check_sync_flags who x.common_flags
 let decode_scope r start : M.scope =
   {endpoint=text r.(start);account=text r.(start+1);
    mailbox_key=text r.(start+2);raw_name=text r.(start+3);
    encoding=dec_enc (text r.(start+4));
    mailbox_id=nullable_text r.(start+5)}
+let scope_where = "endpoint=? AND account=? AND mailbox_key=?"
+let active_states = "state IN ('prepared','sent','ambiguous','observed')"
+let page_where ?after where =
+  where ^ (match after with None -> "" | Some _ -> " AND id>?") ^
+  " ORDER BY id LIMIT ?"
+let page_values ?after values limit =
+  values @ (match after with None -> [] | Some id -> [s id]) @
+  [i (Int64.of_int limit)]
+let check_limit who limit =
+  if limit<1 || limit>10_000 then
+    invalid_arg (who ^ ": limit must be 1..10000")
+let insert_flags t table id flags =
+  with_stmt t ("INSERT INTO " ^ table ^ " VALUES (?,?,?)") (fun stmt ->
+    List.iteri (fun ord flag -> run_prepared t stmt
+      [s id;i (Int64.of_int ord);s (F.to_wire flag)]) flags)
+let read_flags t what sql id =
+  rows t sql [s id]
+  |> List.map (fun r -> of_checked what F.of_wire (text r.(0)))
+
+(* Pair and operation rows are read joined with their flag rows, so one
+   statement decodes a whole page. The flag column follows the record. *)
 let pair_columns t =
-  "id,endpoint,account,mailbox_key,raw_name,encoding,mailbox_id,remote_epoch,remote_uid,local_id,revision,remote_tombstone_kind,remote_tombstone_evidence,remote_tombstone_generation,local_tombstone_kind,local_tombstone_evidence,local_tombstone_generation,content_sha256,content_length," ^
+  "id,endpoint,account,mailbox_key,raw_name,encoding,mailbox_id,\
+   remote_epoch,remote_uid,local_id,revision,remote_tombstone_kind,\
+   remote_tombstone_evidence,remote_tombstone_generation,\
+   local_tombstone_kind,local_tombstone_evidence,\
+   local_tombstone_generation,content_sha256,content_length," ^
   (if t.schema_version>=10L then "internal_date" else "NULL")
+let decode_pair (r,common_flags) =
+  {id=text r.(0);scope=decode_scope r 1;
+   remote_uidvalidity=Option.map validity (nullable_int r.(7));
+   remote_uid=Option.map uid (nullable_int r.(8));
+   local_id=nullable_text r.(9);revision=int r.(10);common_flags;
+   content_sha256=nullable_text r.(17);
+   content_length=nullable_int r.(18);
+   internal_date=Option.map (of_checked "pair INTERNALDATE"
+     Imap.Internal_date.of_string) (nullable_text r.(19));
+   remote_tombstone=dec_tombstone r.(11) r.(12) r.(13);
+   local_tombstone=dec_tombstone r.(14) r.(15) r.(16)}
+let select_pairs t where values =
+  rows t ("SELECT p.*,f.flag FROM (SELECT " ^ pair_columns t ^
+    " FROM sync_pairs WHERE " ^ where ^ ") AS p \
+    LEFT JOIN sync_pair_flags AS f ON f.pair_id=p.id ORDER BY p.id,f.ord")
+    values
+  |> group_flags "sync flag" ~flag:20 |> List.map decode_pair
+let scoped_pairs t (scope:M.scope) where values =
+  select_pairs t (scope_where ^ where) (scope_key scope @ values)
+  |> List.map (fun pair ->
+    if pair.scope<>scope then fail "sync pair scope mismatch";
+    pair)
 let find_pair_unlocked t ~id =
-  match rows t ("SELECT "^pair_columns t^" FROM sync_pairs WHERE id=?") [s id] with
-  | [] -> None
-  | [r] ->
-    let common_flags=rows t
-      "SELECT flag FROM sync_pair_flags WHERE pair_id=? ORDER BY ord" [s id]
-      |> List.map (fun f -> of_checked "sync flag"
-        Mail_flag.Imap_flag.of_wire (text f.(0))) in
-    Some {id;scope=decode_scope r 1;
-      remote_uidvalidity=Option.map validity (nullable_int r.(7));
-      remote_uid=Option.map uid (nullable_int r.(8));
-      local_id=nullable_text r.(9);revision=int r.(10);common_flags;
-      content_sha256=nullable_text r.(17);
-      content_length=nullable_int r.(18);
-      internal_date=Option.map (of_checked "pair INTERNALDATE"
-        Imap.Internal_date.of_string) (nullable_text r.(19));
-      remote_tombstone=dec_tombstone r.(11) r.(12) r.(13);
-      local_tombstone=dec_tombstone r.(14) r.(15) r.(16)}
-  | _ -> fail "duplicate sync pair ID"
+  match select_pairs t "id=?" [s id] with [] -> None | x :: _ -> Some x
 let find_pair t ~id =
   transaction ~begin_sql:"BEGIN" t (fun () -> find_pair_unlocked t ~id)
+let published_state t scope =
+  match rows t "SELECT generation,inventory_ref,uidvalidity FROM mailboxes \
+    WHERE endpoint=? AND account=? AND mailbox_key=?" (scope_key scope) with
+  | [] -> None
+  | r :: _ -> Some (int r.(0),nullable_text r.(1),nullable_int r.(2))
+let in_snapshot t scope ~epoch ~uid =
+  rows t "SELECT 1 FROM snapshots WHERE endpoint=? AND account=? \
+    AND mailbox_key=? AND uidvalidity=? AND uid=?"
+    (scope_key scope @ [i (P.Uidvalidity.to_int64 epoch);
+      i (P.Uid.to_int64 uid)])<>[]
 let side_name = function `Remote -> "remote" | `Local -> "local"
 let last_presence_generation t ~pair_id ~side =
   if t.schema_version<13L then None
   else transaction ~begin_sql:"BEGIN" t (fun () ->
-    match rows t "SELECT generation FROM sync_pair_presence WHERE pair_id=? AND side=?"
-      [s pair_id;s (side_name side)] with
+    match rows t "SELECT generation FROM sync_pair_presence \
+      WHERE pair_id=? AND side=?" [s pair_id;s (side_name side)] with
     | [] -> None
-    | [r] -> Some (int r.(0))
-    | _ -> fail "duplicate pair presence")
+    | r :: _ -> Some (int r.(0)))
 let note_presence t ~pair ~side ~generation =
-  if generation<0L then
-    invalid_arg "Imap_store.Sync.note_presence: negative generation";
+  let who="Imap_store.Sync.note_presence" in
+  if generation<0L then invalid_arg (who ^ ": negative generation");
+  let remote=match side,pair.remote_uidvalidity,pair.remote_uid,
+      pair.local_id with
+    | `Remote,Some epoch,Some uid,_ -> Some (epoch,uid)
+    | `Local,_,_,Some _ -> None
+    | _ -> invalid_arg (who ^ ": pair has no occurrence on that side") in
   transaction t (fun () ->
     match find_pair_unlocked t ~id:pair.id with
     | Some current when current=pair ->
-        let observed=match rows t
-          "SELECT generation,inventory_ref,uidvalidity FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?"
-          (scope_key pair.scope) with
-        | [r] -> int r.(0)=generation && nullable_text r.(1)<>None &&
-            (side=`Local || nullable_int r.(2)=
-              Option.map P.Uidvalidity.to_int64 pair.remote_uidvalidity)
-        | _ -> false in
-        if not observed then
-          invalid_arg "Imap_store.Sync.note_presence: unpublished generation";
-        (match side with
-         | `Remote ->
-             let epoch=Option.get pair.remote_uidvalidity in
-             let uid=Option.get pair.remote_uid in
-             if rows t "SELECT 1 FROM snapshots WHERE endpoint=? AND account=? AND mailbox_key=? AND uidvalidity=? AND uid=?"
-               (scope_key pair.scope @ [i (P.Uidvalidity.to_int64 epoch);
-                 i (P.Uid.to_int64 uid)])=[] then
-               invalid_arg "Imap_store.Sync.note_presence: remote UID absent"
-         | `Local -> ());
-        run t "INSERT INTO sync_pair_presence(pair_id,side,generation) VALUES (?,?,?) ON CONFLICT(pair_id,side) DO UPDATE SET generation=MAX(generation,excluded.generation)"
+        let observed=match published_state t pair.scope with
+          | Some (published,Some _,validity) ->
+              published=generation && (match remote with
+                | None -> true
+                | Some (epoch,_) ->
+                    validity=Some (P.Uidvalidity.to_int64 epoch))
+          | _ -> false in
+        if not observed then invalid_arg (who ^ ": unpublished generation");
+        Option.iter (fun (epoch,uid) ->
+          if not (in_snapshot t pair.scope ~epoch ~uid) then
+            invalid_arg (who ^ ": remote UID absent")) remote;
+        run t "INSERT INTO sync_pair_presence(pair_id,side,generation) \
+          VALUES (?,?,?) ON CONFLICT(pair_id,side) DO UPDATE SET \
+          generation=MAX(generation,excluded.generation)"
           [s pair.id;s (side_name side);i generation];
         `Recorded
     | _ -> `Stale_revision)
@@ -152,139 +193,129 @@ let reactivate_local t ~pair ~generation =
     | Some current when current=pair ->
         let allowed=match pair.local_tombstone with
           | Some {reason=Local_absence;generation=first;_} ->
-              (match rows t
-                "SELECT generation FROM sync_pair_presence WHERE pair_id=? AND side='local'"
-                [s pair.id] with
-               | [r] -> let seen=int r.(0) in
+              (match rows t "SELECT generation FROM sync_pair_presence \
+                WHERE pair_id=? AND side='local'" [s pair.id] with
+               | r :: _ -> let seen=int r.(0) in
                    seen=generation &&
                    (match first with Some first -> seen>=first | None -> true)
-               | _ -> false)
+               | [] -> false)
           | _ -> false in
-        let published=match rows t
-          "SELECT generation,inventory_ref FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?"
-          (scope_key pair.scope) with
-          | [r] -> int r.(0)=generation && nullable_text r.(1)<>None
+        let published=match published_state t pair.scope with
+          | Some (published,Some _,_) -> published=generation
           | _ -> false in
         if not allowed || not published then
           invalid_arg "Imap_store.Sync.reactivate_local: unverified presence";
-        run t "UPDATE sync_pairs SET local_tombstone_kind=NULL,local_tombstone_evidence=NULL,local_tombstone_generation=NULL,revision=? WHERE id=?"
-          [i (Int64.succ pair.revision);s pair.id];
+        run t "UPDATE sync_pairs SET local_tombstone_kind=NULL,\
+          local_tombstone_evidence=NULL,local_tombstone_generation=NULL,\
+          revision=? WHERE id=?" [i (Int64.succ pair.revision);s pair.id];
         `Reactivated {pair with local_tombstone=None;
           revision=Int64.succ pair.revision}
     | _ -> `Stale_revision)
-let find_by t ~(scope:M.scope) clause values =
+let find_by t ~scope clause values =
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    match rows t ("SELECT id,raw_name,encoding,mailbox_id FROM sync_pairs WHERE endpoint=? AND account=? AND mailbox_key=? AND "^clause)
-      (scope_key scope@values) with
+    match scoped_pairs t scope (" AND " ^ clause) values with
     | [] -> None
-    | [r] ->
-      if text r.(1)<>scope.raw_name ||
-         dec_enc (text r.(2))<>scope.encoding ||
-         nullable_text r.(3)<>scope.mailbox_id then
-        fail "sync pair scope mismatch";
-      find_pair_unlocked t ~id:(text r.(0))
-    | _ -> fail "duplicate occurrence identity")
+    | x :: _ -> Some x)
 let find_remote t ~scope ~uidvalidity ~uid =
   find_by t ~scope "remote_epoch=? AND remote_uid=?"
     [i (P.Uidvalidity.to_int64 uidvalidity);i (P.Uid.to_int64 uid)]
 let find_local t ~scope ~local_id =
   find_by t ~scope "local_id=?" [s local_id]
-let pairs t ~(scope:M.scope) =
+let pairs t ~scope =
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    rows t "SELECT id,raw_name,encoding,mailbox_id FROM sync_pairs WHERE endpoint=? AND account=? AND mailbox_key=? ORDER BY id"
-      (scope_key scope)
-    |> List.map (fun r ->
-      if text r.(1)<>scope.raw_name ||
-         dec_enc (text r.(2))<>scope.encoding ||
-         nullable_text r.(3)<>scope.mailbox_id then
-        fail "sync pair scope mismatch";
-      Option.get (find_pair_unlocked t ~id:(text r.(0)))))
-let pairs_page t ~(scope:M.scope) ?after ~limit () =
-  if limit<1 || limit>10_000 then
-    invalid_arg "Imap_store.Sync.pairs_page: limit must be 1..10000";
+    scoped_pairs t scope " ORDER BY id" [])
+let pairs_page t ~scope ?after ~limit () =
+  check_limit "Imap_store.Sync.pairs_page" limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    let query="SELECT id,raw_name,encoding,mailbox_id FROM sync_pairs WHERE endpoint=? AND account=? AND mailbox_key=? "^
-      (match after with None -> "" | Some _ -> "AND id>? ")^
-      "ORDER BY id LIMIT ?" in
-    let params=scope_key scope@
-      (match after with None -> [] | Some id -> [s id])@
-      [i (Int64.of_int limit)] in
-    rows t query params |> List.map (fun r ->
-      if text r.(1)<>scope.raw_name ||
-         dec_enc (text r.(2))<>scope.encoding ||
-         nullable_text r.(3)<>scope.mailbox_id then
-        fail "sync pair scope mismatch";
-      Option.get (find_pair_unlocked t ~id:(text r.(0)))))
-let check_inventory_tombstone t x = match x.remote_tombstone with
-  | Some {reason=Inventory_absence;evidence;generation=Some generation} ->
-    let epoch=P.Uidvalidity.to_int64 (Option.get x.remote_uidvalidity) in
-    let uid=P.Uid.to_int64 (Option.get x.remote_uid) in
-    (match rows t "SELECT uidvalidity,generation,inventory_ref FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?"
-      (scope_key x.scope) with
-     | [r] when nullable_int r.(0)=Some epoch && int r.(1)=generation &&
-       nullable_text r.(2)=Some evidence -> ()
-     | _ -> invalid_arg "Imap_store.Sync.put_pair: unverified inventory tombstone");
-    if rows t "SELECT 1 FROM snapshots WHERE endpoint=? AND account=? AND mailbox_key=? AND uidvalidity=? AND uid=?"
-      (scope_key x.scope@[i epoch;i uid])<>[] then
-      invalid_arg "Imap_store.Sync.put_pair: UID still in published inventory"
-  | Some {reason=Inventory_absence;generation=None;_} ->
-    invalid_arg "Imap_store.Sync.put_pair: missing inventory generation"
+    scoped_pairs t scope (page_where ?after "") (page_values ?after [] limit))
+let check_inventory_tombstone t who x =
+  match x.remote_tombstone,x.remote_uidvalidity,x.remote_uid with
+  | Some {reason=Inventory_absence;evidence;generation=Some generation},
+    Some epoch,Some uid ->
+    (match published_state t x.scope with
+     | Some (published,Some reference,validity)
+       when validity=Some (P.Uidvalidity.to_int64 epoch) &&
+            published=generation && reference=evidence -> ()
+     | _ -> invalid_arg (who ^ ": unverified inventory tombstone"));
+    if in_snapshot t x.scope ~epoch ~uid then
+      invalid_arg (who ^ ": UID still in published inventory")
+  | Some {reason=Inventory_absence;generation=None;_},_,_ ->
+    invalid_arg (who ^ ": missing inventory generation")
   | _ -> ()
-let put_pair_unlocked t ~expected_revision x =
-  validate_pair x;
-    let previous=find_pair_unlocked t ~id:x.id in
-    let stale=match previous,expected_revision with
-      | None,None -> x.revision<>0L
-      | Some old,Some expected -> old.revision<>expected ||
-          x.revision<>expected || old.scope<>x.scope
-      | _ -> true in
-    if stale then `Stale_revision else (
-      (match previous with
-       | Some old ->
-         let identity_changed old new_value = match old with
-           | None -> false | Some _ -> old<>new_value in
-         if identity_changed old.remote_uidvalidity x.remote_uidvalidity ||
-            identity_changed old.remote_uid x.remote_uid ||
-            identity_changed old.local_id x.local_id ||
-            identity_changed old.content_sha256 x.content_sha256 ||
-            identity_changed old.content_length x.content_length ||
-            identity_changed old.internal_date x.internal_date then
-           invalid_arg "Imap_store.Sync.put_pair: occurrence identity is immutable";
-         if old.remote_tombstone<>None && x.remote_tombstone=None ||
-            old.local_tombstone<>None && x.local_tombstone=None then
-           invalid_arg "Imap_store.Sync.put_pair: tombstone cannot be cleared"
-       | None -> ());
-      if (match previous with None -> true
-          | Some old -> old.remote_tombstone<>x.remote_tombstone) then
-        check_inventory_tombstone t x;
-      let next={x with revision=Int64.succ x.revision} in
-      let base=[s x.id]@scope_key x.scope@
-        [s x.scope.raw_name;s (enc x.scope.encoding);ns x.scope.mailbox_id;
-         ni (Option.map P.Uidvalidity.to_int64 x.remote_uidvalidity);
-         ni (Option.map P.Uid.to_int64 x.remote_uid);ns x.local_id;
-         i next.revision] in
-      (match previous with
-       | None -> run t "INSERT INTO sync_pairs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
-           (base@tombstone_columns x.remote_tombstone@
-            tombstone_columns x.local_tombstone@
-            [ns x.content_sha256;ni x.content_length;
-             ns (Option.map Imap.Internal_date.to_string x.internal_date)])
-       | Some _ -> run t "UPDATE sync_pairs SET remote_epoch=?,remote_uid=?,local_id=?,revision=?,remote_tombstone_kind=?,remote_tombstone_evidence=?,remote_tombstone_generation=?,local_tombstone_kind=?,local_tombstone_evidence=?,local_tombstone_generation=?,content_sha256=?,content_length=?,internal_date=? WHERE id=?"
-           ([ni (Option.map P.Uidvalidity.to_int64 x.remote_uidvalidity);
-             ni (Option.map P.Uid.to_int64 x.remote_uid);ns x.local_id;
-             i next.revision]@tombstone_columns x.remote_tombstone@
-             tombstone_columns x.local_tombstone@
-             [ns x.content_sha256;ni x.content_length;
-              ns (Option.map Imap.Internal_date.to_string x.internal_date);
-              s x.id]));
-      run t "DELETE FROM sync_pair_flags WHERE pair_id=?" [s x.id];
-      List.iteri (fun ord flag -> run t
-        "INSERT INTO sync_pair_flags VALUES (?,?,?)"
-        [s x.id;i (Int64.of_int ord);
-         s (Mail_flag.Imap_flag.to_wire flag)]) x.common_flags;
-      `Committed next)
+(* Absence tombstones are renewed when the side vanishes again. Allowing
+   only the same or a more permanent reason keeps a deletion tombstone from
+   being rewritten into a Local_absence one that reactivate_local clears. *)
+let permanence = function
+  | Inventory_absence | Local_absence -> 0
+  | Expunge_receipt | Retention -> 1
+  | Explicit_delete -> 2
+let replace_tombstone who old next =
+  match old,next with
+  | Some _,None -> invalid_arg (who ^ ": tombstone cannot be cleared")
+  | Some old,Some next when permanence next.reason<permanence old.reason ->
+      invalid_arg (who ^ ": tombstone cannot become less permanent")
+  | _ -> ()
+let put_pair_unlocked t ~who ~previous ~expected_revision x =
+  validate_pair who x;
+  let stale=match previous,expected_revision with
+    | None,None -> x.revision<>0L
+    | Some old,Some expected ->
+        if old.scope<>x.scope then invalid_arg (who ^ ": scope is immutable");
+        old.revision<>expected || x.revision<>expected
+    | _ -> true in
+  if stale then `Stale_revision else (
+    (match previous with
+     | Some old ->
+       let identity_changed old new_value = match old with
+         | None -> false | Some _ -> old<>new_value in
+       if identity_changed old.remote_uidvalidity x.remote_uidvalidity ||
+          identity_changed old.remote_uid x.remote_uid ||
+          identity_changed old.local_id x.local_id ||
+          identity_changed old.content_sha256 x.content_sha256 ||
+          identity_changed old.content_length x.content_length ||
+          identity_changed old.internal_date x.internal_date then
+         invalid_arg (who ^ ": occurrence identity is immutable");
+       replace_tombstone who old.remote_tombstone x.remote_tombstone;
+       replace_tombstone who old.local_tombstone x.local_tombstone
+     | None -> ());
+    if (match previous with None -> true
+        | Some old -> old.remote_tombstone<>x.remote_tombstone) then
+      check_inventory_tombstone t who x;
+    let next={x with revision=Int64.succ x.revision} in
+    run t "INSERT INTO sync_pairs (id,endpoint,account,mailbox_key,raw_name,\
+      encoding,mailbox_id,remote_epoch,remote_uid,local_id,revision,\
+      remote_tombstone_kind,remote_tombstone_evidence,\
+      remote_tombstone_generation,local_tombstone_kind,\
+      local_tombstone_evidence,local_tombstone_generation,content_sha256,\
+      content_length,internal_date) \
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) \
+      ON CONFLICT(id) DO UPDATE SET remote_epoch=excluded.remote_epoch,\
+      remote_uid=excluded.remote_uid,local_id=excluded.local_id,\
+      revision=excluded.revision,\
+      remote_tombstone_kind=excluded.remote_tombstone_kind,\
+      remote_tombstone_evidence=excluded.remote_tombstone_evidence,\
+      remote_tombstone_generation=excluded.remote_tombstone_generation,\
+      local_tombstone_kind=excluded.local_tombstone_kind,\
+      local_tombstone_evidence=excluded.local_tombstone_evidence,\
+      local_tombstone_generation=excluded.local_tombstone_generation,\
+      content_sha256=excluded.content_sha256,\
+      content_length=excluded.content_length,\
+      internal_date=excluded.internal_date"
+      ([s x.id]@scope_key x.scope@
+       [s x.scope.raw_name;s (enc x.scope.encoding);ns x.scope.mailbox_id;
+        ni (Option.map P.Uidvalidity.to_int64 x.remote_uidvalidity);
+        ni (Option.map P.Uid.to_int64 x.remote_uid);ns x.local_id;
+        i next.revision]@tombstone_columns x.remote_tombstone@
+       tombstone_columns x.local_tombstone@
+       [ns x.content_sha256;ni x.content_length;
+        ns (Option.map Imap.Internal_date.to_string x.internal_date)]);
+    run t "DELETE FROM sync_pair_flags WHERE pair_id=?" [s x.id];
+    insert_flags t "sync_pair_flags" x.id x.common_flags;
+    `Committed next)
 let put_pair t ~expected_revision x =
-  transaction t (fun () -> put_pair_unlocked t ~expected_revision x)
+  transaction t (fun () ->
+    put_pair_unlocked t ~who:"Imap_store.Sync.put_pair"
+      ~previous:(find_pair_unlocked t ~id:x.id) ~expected_revision x)
 
 type conflict_kind = Flag_conflict | Identity_conflict | Content_conflict
   | Delete_conflict | Policy_conflict | Deletion_hold
@@ -317,18 +348,19 @@ let ensure_open_conflict t ~(pair:pair) ~kind ~id ~evidence =
   transaction t (fun () ->
     match find_pair_unlocked t ~id:pair.id with
     | Some current when current=pair ->
-        let existing=rows t "SELECT id FROM sync_conflicts WHERE pair_id=? AND kind=? AND resolved=0 ORDER BY id LIMIT 1"
-          [s pair.id;s (conflict_kind kind)] in
-        let conflict_id=match existing with
-          | [r] -> text r.(0)
-          | [] -> id
-          | _ -> assert false in
-        (match existing with
-         | [] -> run t "INSERT INTO sync_conflicts VALUES (?,?,?,?,?,0)"
-             [s conflict_id;s pair.id;s (conflict_kind kind);
-              s evidence;i pair.revision]
-         | _ -> run t "UPDATE sync_conflicts SET evidence=?,pair_revision=? WHERE id=?"
-             [s evidence;i pair.revision;s conflict_id]);
+        let conflict_id=match rows t "SELECT id FROM sync_conflicts \
+          WHERE pair_id=? AND kind=? AND resolved=0 ORDER BY id LIMIT 1"
+          [s pair.id;s (conflict_kind kind)] with
+          | r :: _ ->
+              let existing=text r.(0) in
+              run t "UPDATE sync_conflicts SET evidence=?,pair_revision=? \
+                WHERE id=?" [s evidence;i pair.revision;s existing];
+              existing
+          | [] ->
+              run t "INSERT INTO sync_conflicts VALUES (?,?,?,?,?,0)"
+                [s id;s pair.id;s (conflict_kind kind);
+                 s evidence;i pair.revision];
+              id in
         `Open {id=conflict_id;pair_id=pair.id;kind;evidence;
           pair_revision=pair.revision;resolved=false}
     | _ -> `Stale_revision)
@@ -336,47 +368,48 @@ let resolve_open_conflicts t ~(pair:pair) ~kind =
   transaction t (fun () ->
     match find_pair_unlocked t ~id:pair.id with
     | Some current when current=pair ->
-        let count=match rows t "SELECT count(*) FROM sync_conflicts WHERE pair_id=? AND kind=? AND resolved=0"
-          [s pair.id;s (conflict_kind kind)] with
-          | [r] -> Int64.to_int (int r.(0))
-          | _ -> fail "invalid open conflict count" in
-        if count>0 then run t "UPDATE sync_conflicts SET resolved=1 WHERE pair_id=? AND kind=? AND resolved=0"
+        run t "UPDATE sync_conflicts SET resolved=1 \
+          WHERE pair_id=? AND kind=? AND resolved=0"
           [s pair.id;s (conflict_kind kind)];
-        `Resolved count
+        `Resolved (changes t)
     | _ -> `Stale_revision)
 let has_open_conflict t ~(pair:pair) ~kind =
   locked t (fun () ->
-    rows t "SELECT 1 FROM sync_conflicts WHERE pair_id=? AND kind=? AND resolved=0 LIMIT 1"
+    rows t "SELECT 1 FROM sync_conflicts \
+      WHERE pair_id=? AND kind=? AND resolved=0 LIMIT 1"
       [s pair.id;s (conflict_kind kind)]<>[])
 let resolve_conflict t ~id =
   transaction t (fun () ->
-    match rows t "SELECT resolved FROM sync_conflicts WHERE id=?" [s id] with
-    | [r] when int r.(0)=0L ->
-      run t "UPDATE sync_conflicts SET resolved=1 WHERE id=?" [s id]
-    | _ -> invalid_arg "Imap_store.Sync.resolve_conflict: unknown or resolved")
+    run t "UPDATE sync_conflicts SET resolved=1 WHERE id=? AND resolved=0"
+      [s id];
+    if changes t=0 then
+      invalid_arg "Imap_store.Sync.resolve_conflict: unknown or resolved")
 let decode_conflicts (scope:M.scope) rows =
   List.map (fun r ->
       if text r.(6)<>scope.raw_name || dec_enc (text r.(7))<>scope.encoding ||
-         nullable_text r.(8)<>scope.mailbox_id then fail "sync conflict scope mismatch";
+         nullable_text r.(8)<>scope.mailbox_id then
+        fail "sync conflict scope mismatch";
       {id=text r.(0);pair_id=text r.(1);
        kind=dec_conflict_kind (text r.(2));evidence=text r.(3);
        pair_revision=int r.(4);resolved=int r.(5)<>0L}) rows
-let conflicts_query = "SELECT c.id,c.pair_id,c.kind,c.evidence,c.pair_revision,c.resolved,p.raw_name,p.encoding,p.mailbox_id FROM sync_conflicts c JOIN sync_pairs p ON p.id=c.pair_id WHERE p.endpoint=? AND p.account=? AND p.mailbox_key=? AND c.resolved=0 "
+(* CROSS JOIN keeps the conflicts as the outer loop so the partial index
+   sync_conflicts_open_id supplies ID order over open conflicts only. *)
+let conflicts_query = "SELECT c.id,c.pair_id,c.kind,c.evidence,\
+  c.pair_revision,c.resolved,p.raw_name,p.encoding,p.mailbox_id \
+  FROM sync_conflicts AS c CROSS JOIN sync_pairs AS p ON p.id=c.pair_id \
+  WHERE c.resolved=0 AND p.endpoint=? AND p.account=? AND p.mailbox_key=? "
 let open_conflicts t ~(scope:M.scope) =
   transaction ~begin_sql:"BEGIN" t (fun () ->
     decode_conflicts scope
       (rows t (conflicts_query ^ "ORDER BY c.id") (scope_key scope)))
 let open_conflicts_page t ~(scope:M.scope) ?after ~limit () =
-  if limit<1 || limit>10_000 then
-    invalid_arg "Imap_store.Sync.open_conflicts_page: limit must be 1..10000";
+  check_limit "Imap_store.Sync.open_conflicts_page" limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
     let query=conflicts_query ^
       (match after with None -> "" | Some _ -> "AND c.id>? ") ^
       "ORDER BY c.id LIMIT ?" in
-    let params=scope_key scope @
-      (match after with None -> [] | Some id -> [s id]) @
-      [i (Int64.of_int limit)] in
-    decode_conflicts scope (rows t query params))
+    decode_conflicts scope
+      (rows t query (page_values ?after (scope_key scope) limit)))
 
 type operation_kind = Append | Local_append | Copy | Move | Flags
   | Delete | Local_delete
@@ -389,7 +422,7 @@ type operation = { id:string; pair_id:string option; local_id:string option;
   destination:M.scope option;
   destination_uidvalidity:P.Uidvalidity.t option;
   blob_sha256:string option; blob_length:int64 option;
-  desired_flags:Mail_flag.Imap_flag.t list option;
+  desired_flags:F.t list option;
   receipt:string option;
   receipt_uidvalidity:P.Uidvalidity.t option;
   receipt_uid:P.Uid.t option }
@@ -413,42 +446,42 @@ let dec_operation_state = function
   | "observed" -> Observed | "committed" -> Committed
   | "rejected" -> Rejected | _ -> fail "unknown sync operation state"
 let validate_operation x =
+  let who="Imap_store.Sync.prepare_operation" in
   if x.id="" || x.state<>Prepared || x.receipt<>None ||
      x.receipt_uidvalidity<>None || x.receipt_uid<>None ||
      Option.is_some x.source_uidvalidity<>Option.is_some x.source_uid ||
      (match x.pair_id with Some s -> s="" | None -> false) ||
      (match x.local_id with Some s -> s="" | None -> false) then
-    invalid_arg "Imap_store.Sync.prepare_operation: invalid operation";
+    invalid_arg (who ^ ": invalid operation");
   Option.iter (fun n -> if n<0L then
-    invalid_arg "Imap_store.Sync.prepare_operation: negative blob length")
+    invalid_arg (who ^ ": negative blob length"))
     x.blob_length;
-  Option.iter (check_sync_flags "Imap_store.Sync.prepare_operation")
-    x.desired_flags;
+  Option.iter (check_sync_flags who) x.desired_flags;
   (match x.kind with
    | Append when x.destination=None || x.blob_sha256=None ||
                  x.blob_length=None || x.source_uid<>None ->
-     invalid_arg "Imap_store.Sync.prepare_operation: incomplete APPEND"
+     invalid_arg (who ^ ": incomplete APPEND")
    | Local_append when x.source_uid=None || x.local_id=None ||
                        x.destination<>None || x.blob_sha256=None ||
                        x.blob_length=None ->
-     invalid_arg "Imap_store.Sync.prepare_operation: incomplete local APPEND"
+     invalid_arg (who ^ ": incomplete local APPEND")
    | Copy | Move when x.source_uid=None || x.destination=None ->
-     invalid_arg "Imap_store.Sync.prepare_operation: incomplete COPY/MOVE"
+     invalid_arg (who ^ ": incomplete COPY/MOVE")
    | Flags when x.source_uid=None || x.desired_flags=None ||
                 x.destination<>None ->
-     invalid_arg "Imap_store.Sync.prepare_operation: incomplete FLAGS"
+     invalid_arg (who ^ ": incomplete FLAGS")
    | Delete when x.source_uid=None || x.destination<>None ->
-     invalid_arg "Imap_store.Sync.prepare_operation: incomplete DELETE"
+     invalid_arg (who ^ ": incomplete DELETE")
    | Local_delete when x.pair_id=None || x.local_id=None ||
                        x.source_uid=None || x.destination<>None ->
-     invalid_arg "Imap_store.Sync.prepare_operation: incomplete local DELETE"
+     invalid_arg (who ^ ": incomplete local DELETE")
    | _ -> ());
   if x.destination_uidvalidity<>None && x.destination=None then
-    invalid_arg "Imap_store.Sync.prepare_operation: destination epoch without scope";
+    invalid_arg (who ^ ": destination epoch without scope");
   if Option.is_some x.blob_sha256<>Option.is_some x.blob_length then
-    invalid_arg "Imap_store.Sync.prepare_operation: incomplete content evidence";
+    invalid_arg (who ^ ": incomplete content evidence");
   Option.iter (fun hash -> if not (is_sha256_hex hash) then
-      invalid_arg "Imap_store.Sync.prepare_operation: invalid content digest")
+      invalid_arg (who ^ ": invalid content digest"))
     x.blob_sha256
 let destination_columns = function
   | None -> [S.Data.NULL;S.Data.NULL;S.Data.NULL;S.Data.NULL;
@@ -456,24 +489,23 @@ let destination_columns = function
   | Some x -> scope_key x@[s x.raw_name;s (enc x.encoding);ns x.mailbox_id]
 let prepare_operation ?local_flags ?local_source_mtime
     ?source_internal_date t x =
+  let who="Imap_store.Sync.prepare_operation" in
   validate_operation x;
   (match local_flags with
    | None -> ()
    | Some flags ->
        if x.kind<>Flags || x.pair_id=None || x.local_id=None then
-         invalid_arg "Imap_store.Sync.prepare_operation: local preimage requires paired FLAGS";
-       check_sync_flags "Imap_store.Sync.prepare_operation" flags);
+         invalid_arg (who ^ ": local preimage requires paired FLAGS");
+       check_sync_flags who flags);
   (match local_source_mtime with
    | None -> ()
    | Some mtime when x.kind=Append && x.local_id<>None &&
        Float.is_finite mtime -> ()
-   | Some _ -> invalid_arg
-       "Imap_store.Sync.prepare_operation: invalid local source mtime");
+   | Some _ -> invalid_arg (who ^ ": invalid local source mtime"));
   (match source_internal_date with
    | None -> ()
    | Some _ when x.kind=Local_append -> ()
-   | Some _ -> invalid_arg
-       "Imap_store.Sync.prepare_operation: source date requires local append");
+   | Some _ -> invalid_arg (who ^ ": source date requires local append"));
   transaction t (fun () ->
     let pair_revision=Option.map (fun id -> match find_pair_unlocked t ~id with
       | Some pair when pair.scope=x.scope &&
@@ -483,20 +515,22 @@ let prepare_operation ?local_flags ?local_source_mtime
             pair.remote_uid=x.source_uid)) ->
           (match x.kind with
            | Flags | Delete | Local_delete ->
-               if (x.blob_sha256<>None && x.blob_sha256<>pair.content_sha256) ||
-                  (x.blob_length<>None && x.blob_length<>pair.content_length) then
-                 invalid_arg "Imap_store.Sync.prepare_operation: content preimage mismatch"
+               if (x.blob_sha256<>None &&
+                   x.blob_sha256<>pair.content_sha256) ||
+                  (x.blob_length<>None &&
+                   x.blob_length<>pair.content_length) then
+                 invalid_arg (who ^ ": content preimage mismatch")
            | _ -> ());
           (match x.kind,x.desired_flags with
            | (Delete | Local_delete),Some flags ->
-               let normalize=List.sort_uniq Mail_flag.Imap_flag.compare in
-               if normalize flags<>normalize pair.common_flags then
-                 invalid_arg "Imap_store.Sync.prepare_operation: flag preimage mismatch"
+               if not (F.equal_durable flags pair.common_flags) then
+                 invalid_arg (who ^ ": flag preimage mismatch")
            | _ -> ());
           pair.revision
-      | _ -> invalid_arg "Imap_store.Sync.prepare_operation: unknown pair")
+      | _ -> invalid_arg (who ^ ": unknown pair"))
       x.pair_id in
-    run t "INSERT INTO sync_operations VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+    run t "INSERT INTO sync_operations VALUES \
+      (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
       ([s x.id;ns x.pair_id;ns x.local_id]@scope_key x.scope@
        [s x.scope.raw_name;s (enc x.scope.encoding);ns x.scope.mailbox_id;
         s (operation_kind x.kind);s (operation_state x.state);
@@ -508,21 +542,14 @@ let prepare_operation ?local_flags ?local_source_mtime
         ni (Option.map P.Uid.to_int64 x.receipt_uid);
         ns x.blob_sha256;ni x.blob_length;
         ni (Option.map (fun _ -> 1L) x.desired_flags);ns x.receipt]);
-    Option.iter (fun flags ->
-      List.iteri (fun ord flag ->
-        run t "INSERT INTO sync_operation_flags VALUES (?,?,?)"
-          [s x.id;i (Int64.of_int ord);
-           s (Mail_flag.Imap_flag.to_wire flag)]) flags)
-      x.desired_flags;
+    Option.iter (insert_flags t "sync_operation_flags" x.id) x.desired_flags;
     Option.iter (fun revision ->
       run t "INSERT INTO sync_operation_preconditions VALUES (?,?)"
         [s x.id;i revision]) pair_revision;
     Option.iter (fun flags ->
       run t "INSERT INTO sync_operation_local_preimages VALUES (?)" [s x.id];
-      List.iteri (fun ord flag ->
-        run t "INSERT INTO sync_operation_local_preimage_flags VALUES (?,?,?)"
-          [s x.id;i (Int64.of_int ord);
-           s (Mail_flag.Imap_flag.to_wire flag)]) flags) local_flags;
+      insert_flags t "sync_operation_local_preimage_flags" x.id flags)
+      local_flags;
     Option.iter (fun mtime ->
       run t "INSERT INTO sync_operation_local_sources VALUES (?,?)"
         [s x.id;S.Data.FLOAT mtime]) local_source_mtime;
@@ -531,56 +558,50 @@ let prepare_operation ?local_flags ?local_source_mtime
         [s x.id;s (Imap.Internal_date.to_string date)]) source_internal_date)
 let local_flags_preimage t ~id =
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    match rows t "SELECT 1 FROM sync_operation_local_preimages WHERE operation_id=?"
-      [s id] with
+    match rows t "SELECT 1 FROM sync_operation_local_preimages \
+      WHERE operation_id=?" [s id] with
     | [] -> None
-    | [_] -> Some (rows t
-        "SELECT flag FROM sync_operation_local_preimage_flags WHERE operation_id=? ORDER BY ord"
-        [s id] |> List.map (fun row -> of_checked "operation local preimage flag"
-          Mail_flag.Imap_flag.of_wire (text row.(0))))
-    | _ -> fail "duplicate sync operation local preimage")
+    | _ :: _ -> Some (read_flags t "operation local preimage flag"
+        "SELECT flag FROM sync_operation_local_preimage_flags \
+         WHERE operation_id=? ORDER BY ord" id))
+let saved_pair_revision t id =
+  match rows t "SELECT pair_revision FROM sync_operation_preconditions \
+    WHERE operation_id=?" [s id] with
+  | [] -> None
+  | r :: _ -> Some (int r.(0))
 let operation_pair_revision t ~id =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
-    match rows t "SELECT pair_revision FROM sync_operation_preconditions WHERE operation_id=?"
-      [s id] with
-    | [] -> None
-    | [r] -> Some (int r.(0))
-    | _ -> fail "duplicate sync operation precondition")
+  transaction ~begin_sql:"BEGIN" t (fun () -> saved_pair_revision t id)
 let operation_source_mtime t ~id =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
-    match rows t "SELECT 1 FROM sqlite_master WHERE type='table' AND name='sync_operation_local_sources'" [] with
+  if t.schema_version<9L then None
+  else transaction ~begin_sql:"BEGIN" t (fun () ->
+    match rows t "SELECT mtime FROM sync_operation_local_sources \
+      WHERE operation_id=?" [s id] with
     | [] -> None
-    | [_] ->
-        (match rows t "SELECT mtime FROM sync_operation_local_sources WHERE operation_id=?"
-           [s id] with
-         | [] -> None
-         | [r] ->
-             (match r.(0) with
-              | S.Data.FLOAT mtime when Float.is_finite mtime -> Some mtime
-              | _ -> fail "invalid operation source mtime")
-         | _ -> fail "duplicate operation source mtime")
-    | _ -> fail "duplicate operation source table")
+    | r :: _ ->
+        (match r.(0) with
+         | S.Data.FLOAT mtime when Float.is_finite mtime -> Some mtime
+         | _ -> fail "invalid operation source mtime"))
+let source_date t id =
+  match rows t "SELECT internal_date FROM sync_operation_source_dates \
+    WHERE operation_id=?" [s id] with
+  | [] -> None
+  | r :: _ -> Some (of_checked "operation source INTERNALDATE"
+      Imap.Internal_date.of_string (text r.(0)))
 let operation_source_date t ~id =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
-    if t.schema_version<11L then None
-    else match rows t
-      "SELECT internal_date FROM sync_operation_source_dates WHERE operation_id=?"
-      [s id] with
-    | [] -> None
-    | [r] -> Some (of_checked "operation source INTERNALDATE"
-        Imap.Internal_date.of_string (text r.(0)))
-    | _ -> fail "duplicate operation source INTERNALDATE")
-let operation_columns = "id,pair_id,local_id,endpoint,account,mailbox_key,raw_name,encoding,mailbox_id,kind,state,source_epoch,source_uid,dest_endpoint,dest_account,dest_mailbox_key,dest_raw_name,dest_encoding,dest_mailbox_id,dest_epoch,receipt_epoch,receipt_uid,blob_sha256,blob_length,desired_flags_known,receipt"
-let decode_operation t r =
+  if t.schema_version<11L then None
+  else transaction ~begin_sql:"BEGIN" t (fun () -> source_date t id)
+let operation_columns = "id,pair_id,local_id,endpoint,account,mailbox_key,\
+  raw_name,encoding,mailbox_id,kind,state,source_epoch,source_uid,\
+  dest_endpoint,dest_account,dest_mailbox_key,dest_raw_name,dest_encoding,\
+  dest_mailbox_id,dest_epoch,receipt_epoch,receipt_uid,blob_sha256,\
+  blob_length,desired_flags_known,receipt"
+let decode_operation (r,flags) =
   let destination=match r.(13) with
     | S.Data.NULL -> None
     | _ -> Some (decode_scope r 13) in
   let desired_flags=match r.(24) with
     | S.Data.NULL -> None
-    | S.Data.INT 1L -> Some (rows t
-        "SELECT flag FROM sync_operation_flags WHERE operation_id=? ORDER BY ord"
-        [r.(0)] |> List.map (fun row -> of_checked "operation flag"
-          Mail_flag.Imap_flag.of_wire (text row.(0))))
+    | S.Data.INT 1L -> Some flags
     | _ -> fail "invalid operation flags marker" in
   {id=text r.(0);pair_id=nullable_text r.(1);local_id=nullable_text r.(2);
    scope=decode_scope r 3;
@@ -593,52 +614,44 @@ let decode_operation t r =
    receipt_uid=Option.map uid (nullable_int r.(21));
    blob_sha256=nullable_text r.(22);blob_length=nullable_int r.(23);
    desired_flags;receipt=nullable_text r.(25)}
+let select_operations t ?(order="id") where values =
+  rows t ("SELECT o.*,f.flag FROM (SELECT " ^ operation_columns ^
+    ",rowid AS rid FROM sync_operations WHERE " ^ where ^ ") AS o \
+    LEFT JOIN sync_operation_flags AS f ON f.operation_id=o.id \
+    ORDER BY o." ^ order ^ ",f.ord") values
+  |> group_flags "operation flag" ~flag:27 |> List.map decode_operation
+let scoped_operations t ?order (scope:M.scope) where values =
+  select_operations t ?order (scope_where ^ " AND " ^ where)
+    (scope_key scope @ values)
+  |> List.map (fun x ->
+    if x.scope<>scope then fail "sync operation scope mismatch";
+    x)
 let find_operation_unlocked t ~id =
-  match rows t ("SELECT "^operation_columns^" FROM sync_operations WHERE id=?")
-    [s id] with
-  | [] -> None
-  | [r] -> Some (decode_operation t r)
-  | _ -> fail "duplicate sync operation ID"
+  match select_operations t "id=?" [s id] with [] -> None | x :: _ -> Some x
 let find_operation t ~id =
   transaction ~begin_sql:"BEGIN" t (fun () -> find_operation_unlocked t ~id)
-let active_operations t ~(scope:M.scope) =
+let active_operations t ~scope =
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    rows t ("SELECT "^operation_columns^" FROM sync_operations WHERE endpoint=? AND account=? AND mailbox_key=? AND state IN ('prepared','sent','ambiguous','observed') ORDER BY rowid")
-      (scope_key scope)
-    |> List.map (fun r ->
-      let x=decode_operation t r in
-      if x.scope<>scope then fail "sync operation scope mismatch";
-      x))
-let active_operations_page t ~(scope:M.scope) ?after ~limit () =
-  if limit<1 || limit>10_000 then
-    invalid_arg "Imap_store.Sync.active_operations_page: limit must be 1..10000";
+    scoped_operations t ~order:"rid" scope
+      (active_states ^ " ORDER BY rowid") [])
+let active_operations_page t ~scope ?after ~limit () =
+  check_limit "Imap_store.Sync.active_operations_page" limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    let query="SELECT "^operation_columns^
-      " FROM sync_operations WHERE endpoint=? AND account=? AND mailbox_key=? "^
-      "AND state IN ('prepared','sent','ambiguous','observed') "^
-      (match after with None -> "" | Some _ -> "AND id>? ")^
-      "ORDER BY id LIMIT ?" in
-    let params=scope_key scope@
-      (match after with None -> [] | Some id -> [s id])@
-      [i (Int64.of_int limit)] in
-    rows t query params |> List.map (fun r ->
-      let x=decode_operation t r in
-      if x.scope<>scope then fail "sync operation scope mismatch";
-      x))
+    scoped_operations t scope (page_where ?after active_states)
+      (page_values ?after [] limit))
 let active_operation_for_pair t ~pair_id =
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    match rows t ("SELECT "^operation_columns^
-      " FROM sync_operations WHERE pair_id=? "^
-      "AND state IN ('prepared','sent','ambiguous','observed') "^
-      "ORDER BY id LIMIT 1") [s pair_id] with
+    match select_operations t
+      ("pair_id=? AND " ^ active_states ^ " ORDER BY id LIMIT 1")
+      [s pair_id] with
     | [] -> None
-    | [r] -> Some (decode_operation t r)
-    | _ -> fail "active pair query exceeded LIMIT 1")
+    | x :: _ -> Some x)
 let transition t ~id ~allowed ~next ~receipt ~epoch ~uid =
   transaction t (fun () ->
     match find_operation_unlocked t ~id with
     | Some x when List.mem x.state allowed ->
-      run t "UPDATE sync_operations SET state=?,receipt=?,receipt_epoch=?,receipt_uid=? WHERE id=?"
+      run t "UPDATE sync_operations SET state=?,receipt=?,receipt_epoch=?,\
+        receipt_uid=? WHERE id=?"
         [s (operation_state next);ns receipt;
          ni (Option.map P.Uidvalidity.to_int64 epoch);
          ni (Option.map P.Uid.to_int64 uid);s id]
@@ -653,7 +666,8 @@ let mark_ambiguous ?reason t ~id =
   transition t ~id ~allowed:[Prepared;Sent] ~next:Ambiguous
     ~receipt:reason ~epoch:None ~uid:None
 let reject_operation t ~id ~receipt =
-  if receipt="" then invalid_arg "Imap_store.Sync.reject_operation: empty receipt";
+  if receipt="" then
+    invalid_arg "Imap_store.Sync.reject_operation: empty receipt";
   transition t ~id ~allowed:[Prepared;Sent;Ambiguous;Observed]
     ~next:Rejected ~receipt:(Some receipt) ~epoch:None ~uid:None
 let reject_prepared_operation t ~id ~receipt =
@@ -674,8 +688,9 @@ let commit_operation t ~id =
     match find_operation_unlocked t ~id with
     | Some x when x.state=Observed && x.pair_id=None ->
       run t "UPDATE sync_operations SET state='committed' WHERE id=?" [s id]
-    | _ -> invalid_arg "Imap_store.Sync.commit_operation: operation is not unpaired and observed")
-let check_operation_pair (x:operation) (pair:pair) =
+    | _ -> invalid_arg "Imap_store.Sync.commit_operation: \
+        operation is not unpaired and observed")
+let check_operation_pair who (x:operation) (pair:pair) =
   let remote_identity,scope = match x.kind with
     | Append | Copy | Move ->
         ((x.receipt_uidvalidity,x.receipt_uid), x.destination)
@@ -686,9 +701,7 @@ let check_operation_pair (x:operation) (pair:pair) =
     | None -> true | Some value -> actual=Some value in
   let flags_match=match x.desired_flags with
     | None -> true
-    | Some flags ->
-        let normalize=List.sort_uniq Mail_flag.Imap_flag.compare in
-        normalize flags=normalize pair.common_flags in
+    | Some flags -> F.equal_durable flags pair.common_flags in
   let tombstones_match=match x.kind with
     | Delete -> pair.remote_tombstone<>None
     | Local_delete -> pair.local_tombstone<>None
@@ -704,170 +717,149 @@ let check_operation_pair (x:operation) (pair:pair) =
       | Append | Copy | Move ->
           not (supplied_matches x.destination_uidvalidity epoch)
       | _ -> false) then
-    invalid_arg "Imap_store.Sync.commit_operation_with_pair: pair contradicts operation evidence"
+    invalid_arg (who ^ ": pair contradicts operation evidence")
 
 let commit_operation_with_pair t ~id ~expected_pair_revision (pair:pair) =
+  let who="Imap_store.Sync.commit_operation_with_pair" in
   transaction t (fun () ->
-    match find_operation_unlocked t ~id with
-    | Some x when x.state=Observed &&
-        (match x.pair_id with None -> expected_pair_revision=None
-         | Some pair_id -> pair_id=pair.id) ->
-      let precondition_ok=match x.pair_id,expected_pair_revision with
-        | None,None -> true
-        | Some _,Some expected ->
-            (match rows t "SELECT pair_revision FROM sync_operation_preconditions WHERE operation_id=?" [s id] with
-             | [r] -> int r.(0)=expected
-             | [] -> false
-             | _ -> fail "duplicate sync operation precondition")
-        | _ -> false in
-      let current=find_pair_unlocked t ~id:pair.id in
-      let revision_ok=match current,expected_pair_revision with
-        | None,None -> pair.revision=0L
-        | Some old,Some expected -> old.revision=expected && pair.revision=expected
-        | _ -> false in
-      if not precondition_ok || not revision_ok then `Stale_revision
-      else (
-        check_operation_pair x pair;
-        (match current,x.kind with
-         | Some old,(Flags | Delete | Local_delete) ->
-             let unchanged=match x.kind with
-               | Flags -> {pair with common_flags=old.common_flags}
-               | Delete -> {pair with remote_tombstone=old.remote_tombstone}
-               | Local_delete -> {pair with local_tombstone=old.local_tombstone}
-               | _ -> assert false in
-             if unchanged<>old then
-               invalid_arg "Imap_store.Sync.commit_operation_with_pair: unrelated pair change"
-         | _ -> ());
-        if x.kind=Local_append then (
-          match rows t "SELECT internal_date FROM sync_operation_source_dates WHERE operation_id=?" [s id] with
-          | [] -> ()
-          | [r] ->
-              let date=of_checked "operation source date" Imap.Internal_date.of_string (text r.(0)) in
-              if not (Option.fold ~none:false
-                  ~some:(Imap.Internal_date.equal_instant date) pair.internal_date) then
-                invalid_arg "Imap_store.Sync.commit_operation_with_pair: source date mismatch"
-          | _ -> fail "duplicate source date");
-        match put_pair_unlocked t ~expected_revision:expected_pair_revision pair with
-         | `Stale_revision -> `Stale_revision
-         | `Committed next ->
-           run t "UPDATE sync_operations SET state='committed' WHERE id=?" [s id];
-           if x.kind=Flags then
-             run t "UPDATE sync_conflicts SET resolved=1 WHERE pair_id=? AND kind='flags' AND resolved=0 AND NOT EXISTS (SELECT 1 FROM sync_operations WHERE pair_id=? AND kind='flags' AND state IN ('prepared','sent','ambiguous','observed'))"
-               [s pair.id;s pair.id];
-           `Committed next)
-    | _ -> invalid_arg "Imap_store.Sync.commit_operation_with_pair: invalid operation or pair")
+    let x=match find_operation_unlocked t ~id with
+      | Some x when x.state=Observed -> x
+      | _ -> invalid_arg (who ^ ": invalid operation or pair") in
+    (match x.pair_id,expected_pair_revision with
+     | Some _,None ->
+         invalid_arg (who ^ ": paired operation needs expected_pair_revision")
+     | Some pair_id,Some _ when pair_id<>pair.id ->
+         invalid_arg (who ^ ": invalid operation or pair")
+     | None,Some _ -> invalid_arg (who ^ ": invalid operation or pair")
+     | _ -> ());
+    let precondition_ok=match expected_pair_revision with
+      | None -> true
+      | Some expected -> saved_pair_revision t id=Some expected in
+    let current=find_pair_unlocked t ~id:pair.id in
+    let revision_ok=match current,expected_pair_revision with
+      | None,None -> pair.revision=0L
+      | Some old,Some expected ->
+          old.revision=expected && pair.revision=expected
+      | _ -> false in
+    if not precondition_ok || not revision_ok then `Stale_revision
+    else (
+      check_operation_pair who x pair;
+      Option.iter (fun old ->
+        let unchanged=match x.kind with
+          | Flags -> Some {pair with common_flags=old.common_flags}
+          | Delete -> Some {pair with remote_tombstone=old.remote_tombstone}
+          | Local_delete ->
+              Some {pair with local_tombstone=old.local_tombstone}
+          | Append | Local_append | Copy | Move -> None in
+        if Option.fold ~none:false ~some:(fun u -> u<>old) unchanged then
+          invalid_arg (who ^ ": unrelated pair change")) current;
+      if x.kind=Local_append then
+        Option.iter (fun date ->
+          if not (Option.fold ~none:false
+              ~some:(Imap.Internal_date.equal_instant date)
+              pair.internal_date) then
+            invalid_arg (who ^ ": source date mismatch")) (source_date t id);
+      match put_pair_unlocked t ~who ~previous:current
+          ~expected_revision:expected_pair_revision pair with
+       | `Stale_revision -> `Stale_revision
+       | `Committed next ->
+         run t "UPDATE sync_operations SET state='committed' WHERE id=?"
+           [s id];
+         if x.kind=Flags then
+           run t ("UPDATE sync_conflicts SET resolved=1 WHERE pair_id=? \
+             AND kind='flags' AND resolved=0 AND NOT EXISTS (SELECT 1 FROM \
+             sync_operations WHERE pair_id=? AND kind='flags' AND " ^
+             active_states ^ ")") [s pair.id;s pair.id];
+         `Committed next))
+
+let check_evidence who evidence =
+  if String.trim evidence="" || String.length evidence>1024 ||
+     not (String.for_all (fun c -> let n=Char.code c in
+       n>=32 && n<>127) evidence) then
+    invalid_arg (who ^ ": invalid evidence")
+
+(* A stale pair or saved precondition is [`Stale_revision]. An operation
+   of the wrong kind, state or identity, or other active work on the pair,
+   is [`Invalid_operation]. *)
+let verify_repair t ~id ~kind ~states (pair:pair) ~matches =
+  match find_operation_unlocked t ~id with
+  | Some op when op.kind=kind && List.mem op.state states &&
+                 op.pair_id=Some pair.id ->
+      (match find_pair_unlocked t ~id:pair.id with
+       | Some current when current=pair ->
+           if not (op.scope=pair.scope && op.local_id=pair.local_id &&
+                   op.source_uidvalidity=pair.remote_uidvalidity &&
+                   op.source_uid=pair.remote_uid && matches op) then
+             Error `Invalid_operation
+           else if saved_pair_revision t id<>Some pair.revision then
+             Error `Stale_revision
+           else if rows t ("SELECT 1 FROM sync_operations WHERE pair_id=? \
+               AND id<>? AND " ^ active_states ^ " LIMIT 1")
+               [s pair.id;s id]<>[] then Error `Invalid_operation
+           else Ok op
+       | _ -> Error `Stale_revision)
+  | _ -> Error `Invalid_operation
+
 let settle_flag_operation t ~id (pair:pair) ~flags ~evidence =
-  if String.trim evidence="" || String.length evidence>1024 ||
-     not (String.for_all (fun c -> let n=Char.code c in
-       n>=32 && n<>127) evidence) then
-    invalid_arg "Imap_store.Sync.settle_flag_operation: invalid evidence";
+  let who="Imap_store.Sync.settle_flag_operation" in
+  check_evidence who evidence;
   transaction t (fun () ->
-    match find_operation_unlocked t ~id,find_pair_unlocked t ~id:pair.id with
-    | Some op,Some current when op.kind=Flags &&
-        List.mem op.state [Sent;Ambiguous;Observed] &&
-        op.pair_id=Some pair.id && op.scope=pair.scope && current=pair &&
-        op.local_id=pair.local_id &&
-        op.source_uidvalidity=pair.remote_uidvalidity &&
-        op.source_uid=pair.remote_uid &&
-        pair.remote_tombstone=None && pair.local_tombstone=None ->
-        let saved=rows t
-          "SELECT pair_revision FROM sync_operation_preconditions WHERE operation_id=?"
-          [s id] in
-        if (match saved with
-            | [r] -> int r.(0)<>pair.revision
-            | [] -> true
-            | _ -> fail "duplicate sync operation precondition") then
-          `Stale_revision
-        else if rows t "SELECT 1 FROM sync_operations WHERE pair_id=? AND id<>? AND state IN ('prepared','sent','ambiguous','observed') LIMIT 1"
-            [s pair.id;s id]<>[] then `Invalid_operation
-        else (match put_pair_unlocked t ~expected_revision:(Some pair.revision)
+    match verify_repair t ~id ~kind:Flags ~states:[Sent;Ambiguous;Observed]
+        pair ~matches:(fun _ ->
+          pair.remote_tombstone=None && pair.local_tombstone=None) with
+    | Error e -> e
+    | Ok _ ->
+        match put_pair_unlocked t ~who ~previous:(Some pair)
+            ~expected_revision:(Some pair.revision)
             {pair with common_flags=flags} with
-          | `Stale_revision -> `Stale_revision
-          | `Committed next ->
-              run t "UPDATE sync_operations SET state='rejected',receipt=? WHERE id=?"
-                [s ("operator accepted matching endpoint flags: " ^ evidence);
-                 s id];
-              run t "UPDATE sync_conflicts SET resolved=1 WHERE pair_id=? AND kind='flags' AND resolved=0"
-                [s pair.id];
-              `Settled next)
-    | Some _,Some _ -> `Invalid_operation
-    | _ -> `Invalid_operation)
+        | `Stale_revision -> `Stale_revision
+        | `Committed next ->
+            run t "UPDATE sync_operations SET state='rejected',receipt=? \
+              WHERE id=?"
+              [s ("operator accepted matching endpoint flags: " ^ evidence);
+               s id];
+            run t "UPDATE sync_conflicts SET resolved=1 \
+              WHERE pair_id=? AND kind='flags' AND resolved=0" [s pair.id];
+            `Settled next)
+
+let unchanged_delete_target (pair:pair) (op:operation) =
+  op.blob_sha256=pair.content_sha256 &&
+  op.blob_length=pair.content_length &&
+  (match op.desired_flags with
+   | None -> true
+   | Some flags -> F.equal_durable flags pair.common_flags) &&
+  pair.remote_tombstone=None &&
+  (match pair.local_tombstone with
+   | Some {reason=Local_absence;_} -> true | _ -> false)
+
 let reject_unchanged_delete_operation t ~id (pair:pair) ~evidence =
-  if String.trim evidence="" || String.length evidence>1024 ||
-     not (String.for_all (fun c -> let n=Char.code c in
-       n>=32 && n<>127) evidence) then
-    invalid_arg "Imap_store.Sync.reject_unchanged_delete_operation: invalid evidence";
+  check_evidence "Imap_store.Sync.reject_unchanged_delete_operation"
+    evidence;
   transaction t (fun () ->
-    match find_operation_unlocked t ~id,find_pair_unlocked t ~id:pair.id with
-    | Some op,Some current when op.kind=Delete &&
-        List.mem op.state [Sent;Ambiguous] &&
-        op.pair_id=Some pair.id && op.scope=pair.scope && current=pair &&
-        op.local_id=pair.local_id &&
-        op.source_uidvalidity=pair.remote_uidvalidity &&
-        op.source_uid=pair.remote_uid &&
-        op.blob_sha256=pair.content_sha256 &&
-        op.blob_length=pair.content_length &&
-        op.desired_flags=Some (List.sort_uniq
-          Mail_flag.Imap_flag.compare pair.common_flags) &&
-        pair.remote_tombstone=None &&
-        (match pair.local_tombstone with
-         | Some {reason=Local_absence;_} -> true | _ -> false) ->
-        let saved=rows t
-          "SELECT pair_revision FROM sync_operation_preconditions WHERE operation_id=?"
-          [s id] in
-        if (match saved with
-            | [r] -> int r.(0)<>pair.revision
-            | [] -> true
-            | _ -> fail "duplicate sync operation precondition") then
-          `Stale_revision
-        else if rows t "SELECT 1 FROM sync_operations WHERE pair_id=? AND id<>? AND state IN ('prepared','sent','ambiguous','observed') LIMIT 1"
-            [s pair.id;s id]<>[] then `Invalid_operation
-        else (
-          run t "UPDATE sync_operations SET state='rejected',receipt=? WHERE id=?"
-            [s ("operator verified unchanged remote target: " ^ evidence);
-             s id];
-          `Rejected)
-    | _ -> `Invalid_operation)
+    match verify_repair t ~id ~kind:Delete ~states:[Sent;Ambiguous] pair
+        ~matches:(unchanged_delete_target pair) with
+    | Error e -> e
+    | Ok _ ->
+        run t "UPDATE sync_operations SET state='rejected',receipt=? \
+          WHERE id=?"
+          [s ("operator verified unchanged remote target: " ^ evidence);
+           s id];
+        `Rejected)
+
 let attest_targeted_expunge t ~id (pair:pair) ~evidence =
-  if String.trim evidence="" || String.length evidence>1024 ||
-     not (String.for_all (fun c -> let n=Char.code c in
-       n>=32 && n<>127) evidence) then
-    invalid_arg "Imap_store.Sync.attest_targeted_expunge: invalid evidence";
+  let who="Imap_store.Sync.attest_targeted_expunge" in
+  check_evidence who evidence;
   transaction t (fun () ->
-    match find_operation_unlocked t ~id,find_pair_unlocked t ~id:pair.id with
-    | Some op,Some current when op.kind=Delete &&
-        List.mem op.state [Sent;Ambiguous] &&
-        op.pair_id=Some pair.id && op.scope=pair.scope && current=pair &&
-        op.local_id=pair.local_id &&
-        op.source_uidvalidity=pair.remote_uidvalidity &&
-        op.source_uid=pair.remote_uid &&
-        op.blob_sha256=pair.content_sha256 &&
-        op.blob_length=pair.content_length &&
-        op.desired_flags=Some (List.sort_uniq
-          Mail_flag.Imap_flag.compare pair.common_flags) &&
-        pair.remote_tombstone=None &&
-        (match pair.local_tombstone with
-         | Some {reason=Local_absence;_} -> true | _ -> false) ->
-        let saved=rows t
-          "SELECT pair_revision FROM sync_operation_preconditions WHERE operation_id=?"
-          [s id] in
-        if (match saved with
-            | [r] -> int r.(0)<>pair.revision
-            | [] -> true
-            | _ -> fail "duplicate sync operation precondition") then
-          `Stale_revision
-        else if rows t "SELECT 1 FROM sync_operations WHERE pair_id=? AND id<>? AND state IN ('prepared','sent','ambiguous','observed') LIMIT 1"
-            [s pair.id;s id]<>[] then `Invalid_operation
-        else
-          let note="operator authorized targeted UID EXPUNGE: " ^ evidence in
-          let receipt=match op.receipt with
-            | None -> note
-            | Some previous when String.length previous+
-                String.length note+2<=4096 -> previous ^ "; " ^ note
-            | Some _ -> "" in
-          if receipt="" then `Invalid_operation
-          else (
-            run t "UPDATE sync_operations SET state='ambiguous',receipt=? WHERE id=?"
-              [s receipt;s id];
-            `Attested)
-    | _ -> `Invalid_operation)
+    match verify_repair t ~id ~kind:Delete ~states:[Sent;Ambiguous] pair
+        ~matches:(unchanged_delete_target pair) with
+    | Error e -> e
+    | Ok op ->
+        let note="operator authorized targeted UID EXPUNGE: " ^ evidence in
+        let receipt=match op.receipt with
+          | None -> note
+          | Some previous -> previous ^ "; " ^ note in
+        if String.length receipt>4096 then
+          invalid_arg (who ^ ": receipt would exceed 4096 bytes");
+        run t "UPDATE sync_operations SET state='ambiguous',receipt=? \
+          WHERE id=?" [s receipt;s id];
+        `Attested)

@@ -317,6 +317,8 @@ let open_path ~sw ?blob_dir path =
     sync_operations(pair_id,id)";
   sql t "CREATE INDEX IF NOT EXISTS sync_pairs_scope_id ON \
     sync_pairs(endpoint,account,mailbox_key,id)";
+  sql t "CREATE INDEX IF NOT EXISTS sync_conflicts_open_id ON \
+    sync_conflicts(id) WHERE resolved=0";
   sql t "CREATE INDEX IF NOT EXISTS sync_operations_blob_pending ON \
     sync_operations(blob_sha256) WHERE state NOT IN ('committed','rejected')";
   sql t "CREATE INDEX IF NOT EXISTS intents_blob_pending ON \

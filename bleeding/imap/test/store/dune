@@ -19,5 +19,9 @@
  (libraries imap.store eio eio_main unix sqlite3))
 
 (test
+ (name test_journal_outcomes)
+ (libraries imap imap.store mail-flag eio eio_main sqlite3))
+
+(test
  (name test_store_outcomes)
  (libraries imap imap.store eio eio_main sqlite3 unix))

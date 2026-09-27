@@ -45,3 +45,10 @@ val check_page_args : string -> Imap.Mirror.scope -> Imap.Mirror.cursor ->
 (** [check_page_args who scope cursor limit] raises [Invalid_argument]
     naming [who] unless [limit] is 1 to 10,000 and [cursor] belongs to
     [scope]. *)
+
+val group_flags : string -> flag:int -> Sqlite3.Data.t array list ->
+  (Sqlite3.Data.t array * Mail_flag.Imap_flag.t list) list
+(** [group_flags what ~flag rows] merges adjacent rows that share column 0
+    into the first such row and the flags decoded from column [flag] in
+    row order. A NULL flag column contributes no flag. [what] names the
+    flag in a decoding failure. *)

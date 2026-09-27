@@ -213,6 +213,10 @@ module Sync : sig
       retain [None], but deletion propagation must hold for them.
       A remote [Inventory_absence] tombstone requires the current complete
       published inventory reference and generation, and absence of that UID.
+      A tombstone cannot be cleared. It can be replaced only by one whose
+      reason is the same or more permanent, in the order absence, then
+      [Expunge_receipt] or [Retention], then [Explicit_delete]. A changed
+      scope, identity or tombstone raises [Invalid_argument].
       The pair, flags and tombstones commit atomically. *)
   val find_pair : t -> id:string -> pair option
   val note_presence : t -> pair:pair -> side:[ `Remote | `Local ] ->
@@ -220,18 +224,20 @@ module Sync : sig
   (** Record that a complete published scan saw the paired side present.
       The caller must verify local presence in its complete Maildir inventory;
       remote presence is checked against the published SQLite snapshot.
-      Pair revision and published generation are checked transactionally. *)
+      Pair revision and published generation are checked transactionally.
+      A pair without an occurrence on [side] raises [Invalid_argument]. *)
   val last_presence_generation : t -> pair_id:string ->
     side:[ `Remote | `Local ] -> int64 option
-  (** The latest complete scan that observed this paired side present after
-      an earlier absence. A read-only pre-v13 database returns [None]. *)
+  (** The latest published generation at which {!note_presence} recorded
+      this paired side present, or [None] if it never did. A read-only
+      pre-v13 database returns [None]. *)
   val reactivate_local : t -> pair:pair -> generation:int64 ->
     [ `Reactivated of pair | `Stale_revision ]
   (** Clear a [Local_absence] tombstone after the caller verifies the same
       Maildir occurrence's saved body digest, length and INTERNALDATE in a
       complete local inventory. Requires a matching durable local presence
       witness and current published generation; pair revision is CAS-checked.
-      Other tombstone reasons remain immutable. *)
+      No other tombstone reason can be cleared. *)
   val find_remote : t -> scope:Imap.Mirror.scope ->
     uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t -> pair option
   val find_local : t -> scope:Imap.Mirror.scope -> local_id:string -> pair option
@@ -299,8 +305,9 @@ module Sync : sig
       must be [Prepared]. For FLAGS, [local_flags] atomically saves the
       Maildir preimage, including an empty list. Older operations without
       this evidence cannot safely finish a one-sided remote write.
-      For an unpaired APPEND, [local_source_mtime] atomically saves the scanned
-      Maildir file timestamp used as a source preimage. For a local append,
+      For an APPEND with a [local_id], [local_source_mtime] atomically saves
+      the scanned Maildir file timestamp used as a source preimage. For a
+      local append,
       [source_internal_date] saves the remote date before Maildir publication
       so crash recovery can reject an altered Maildir timestamp.
       A paired operation must match the stored local occurrence and any
@@ -350,7 +357,9 @@ module Sync : sig
       supplied content and desired flags. Remote creation also checks the
       destination scope and any expected UIDVALIDITY. Deletion requires the
       corresponding tombstone; other operations require live occurrences.
-      Contradictory evidence raises [Invalid_argument] without committing. *)
+      Contradictory evidence, or a paired operation with
+      [expected_pair_revision = None], raises [Invalid_argument] without
+      committing. *)
   val settle_flag_operation : t -> id:string -> pair ->
     flags:Mail_flag.Imap_flag.t list -> evidence:string ->
     [ `Settled of pair | `Stale_revision | `Invalid_operation ]
@@ -361,7 +370,10 @@ module Sync : sig
       identities to match, an active sent/ambiguous/observed FLAGS operation,
       and no other active operation for the pair. This performs no network or
       Maildir write; the caller must verify both endpoints under its writer
-      lease before calling it. *)
+      lease before calling it. A stale [pair], or one whose revision differs
+      from the revision saved by {!prepare_operation}, yields
+      [`Stale_revision]. An operation of another kind, state or identity, or
+      other active work on the pair, yields [`Invalid_operation]. *)
   val reject_unchanged_delete_operation : t -> id:string -> pair ->
     evidence:string ->
     [ `Rejected | `Stale_revision | `Invalid_operation ]
@@ -369,8 +381,11 @@ module Sync : sig
       caller independently verifies that the exact remote UID remains with
       its saved bytes and last-common flags. Requires the original pair
       revision and occurrence identities, a local-absence tombstone, and no
-      other active operation for the pair. Does not mutate either endpoint.
-      A later deletion attempt requires a new journal operation. *)
+      other active operation for the pair. The operation's saved digest and
+      length must equal the pair's, and its flag preimage, when present, must
+      equal the pair's common flags as a set. Does not mutate either
+      endpoint. A later deletion attempt requires a new journal operation.
+      Outcomes follow {!settle_flag_operation}. *)
   val attest_targeted_expunge : t -> id:string -> pair ->
     evidence:string ->
     [ `Attested | `Stale_revision | `Invalid_operation ]
@@ -380,7 +395,10 @@ module Sync : sig
       of other active work for the pair. Leaves the operation [Ambiguous]
       before network dispatch so crash recovery never replays the command.
       The caller must verify the same remote UID, original bytes, expected
-      [\\Deleted] flags and stable MODSEQ immediately before invoking this. *)
+      [\\Deleted] flags and stable MODSEQ immediately before invoking this.
+      Evidence checks and outcomes follow
+      {!reject_unchanged_delete_operation}. Evidence that would grow the
+      operation receipt beyond 4096 bytes raises [Invalid_argument]. *)
   val find_operation : t -> id:string -> operation option
   val active_operations : t -> scope:Imap.Mirror.scope -> operation list
   (** Prepared, Sent, Ambiguous and Observed operations survive restart. *)

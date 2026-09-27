@@ -23,6 +23,18 @@ let days_in_month year = function
   | 4 | 6 | 9 | 11 -> 30
   | _ -> 31
 
+let zone_offset_minutes ~sign ~hour ~minute =
+  let offset=hour*60+minute in
+  if sign='+' then offset else -offset
+
+(* A leap second is inserted only after 23:59:59 UTC. *)
+let valid_second ~hour ~minute ~second ~sign ~zone_hour ~zone_minute =
+  second<=59 ||
+  (second=60 &&
+   let utc=hour*60+minute -
+     zone_offset_minutes ~sign ~hour:zone_hour ~minute:zone_minute in
+   ((utc mod 1440)+1440) mod 1440 = 1439)
+
 let of_string s =
   if String.length s<>26 || s.[2]<>'-' || s.[6]<>'-' ||
      s.[11]<>' ' || s.[14]<>':' || s.[17]<>':' || s.[20]<>' ' ||
@@ -38,8 +50,10 @@ let of_string s =
     | Some day,Some month,Some year,Some hour,Some minute,
       Some second,Some zone_hour,Some zone_minute
       when year>=1 && day>=1 && day<=days_in_month year (month+1) &&
-           hour<=23 && minute<=59 && second<=60 &&
-           zone_hour<=23 && zone_minute<=59 ->
+           hour<=23 && minute<=59 &&
+           zone_hour<=23 && zone_minute<=59 &&
+           valid_second ~hour ~minute ~second ~sign:s.[21] ~zone_hour
+             ~zone_minute ->
         Ok {day;month=month+1;year;hour;minute;second;
             zone_sign=s.[21];zone_hour;zone_minute}
     | _ -> Error "invalid IMAP date-time value"
@@ -64,8 +78,9 @@ let second_count t =
     days_before_month t.year t.month + t.day-1 in
   let local=Int64.of_int
     (days*86_400 + t.hour*3600 + t.minute*60 + t.second) in
-  let offset=(t.zone_hour*60+t.zone_minute)*60 in
-  Int64.sub local (Int64.of_int (if t.zone_sign='+' then offset else -offset))
+  let offset=60*zone_offset_minutes ~sign:t.zone_sign ~hour:t.zone_hour
+    ~minute:t.zone_minute in
+  Int64.sub local (Int64.of_int offset)
 
 let equal_instant a b =
   (* A leap second has no unique representation in ordinary POSIX time.
@@ -73,18 +88,18 @@ let equal_instant a b =
   (a.second=b.second || (a.second<>60 && b.second<>60)) &&
   second_count a=second_count b
 
+let unix_epoch_days=Int64.of_int (days_before_year 1970)
+let min_unix_seconds=Int64.mul (Int64.neg unix_epoch_days) 86_400L
+let max_unix_seconds=Int64.pred (Int64.mul
+  (Int64.sub (Int64.of_int (days_before_year 10000)) unix_epoch_days) 86_400L)
+
 let of_unix_seconds seconds =
-  let day_seconds=86_400L in
-  let days=Int64.div seconds day_seconds in
-  let remaining=Int64.rem seconds day_seconds in
-  let days,remaining=if remaining<0L then
-    Int64.pred days,Int64.add remaining day_seconds
-    else days,remaining in
-  let serial=Int64.add days (Int64.of_int (days_before_year 1970)) in
-  if serial<0L || serial>=Int64.of_int (days_before_year 10000) then
+  if seconds<min_unix_seconds || seconds>max_unix_seconds then
     Error "Unix timestamp is outside the IMAP date-time year range"
   else
-    let serial=Int64.to_int serial in
+    let seconds=Int64.sub seconds min_unix_seconds in
+    let serial=Int64.to_int (Int64.div seconds 86_400L) in
+    let remaining=Int64.to_int (Int64.rem seconds 86_400L) in
     let rec year_between low high =
       if high-low=1 then low else
       let middle=(low+high)/2 in
@@ -97,12 +112,14 @@ let of_unix_seconds seconds =
       then month else month_of_day (month+1) in
     let month=month_of_day 1 in
     let day=day_of_year-days_before_month year month+1 in
-    let remaining=Int64.to_int remaining in
     Ok {year;month;day;hour=remaining/3600;
       minute=(remaining mod 3600)/60;second=remaining mod 60;
       zone_sign='+';zone_hour=0;zone_minute=0}
 
 let to_unix_seconds t =
   if t.second=60 then Error "leap seconds cannot be represented in POSIX time"
-  else Ok (Int64.sub (second_count t)
-    (Int64.mul (Int64.of_int (days_before_year 1970)) 86_400L))
+  else
+    let seconds=Int64.add (second_count t) min_unix_seconds in
+    if seconds<min_unix_seconds || seconds>max_unix_seconds then
+      Error "date-time is outside the IMAP date-time year range in UTC"
+    else Ok seconds

@@ -605,6 +605,25 @@ let test_internal_date () =
     "29-Feb-2024 00:00:00 +0000" (unix_date 1709164800L);
   (match Imap.Internal_date.of_unix_seconds Int64.max_int with
    | Error _ -> () | Ok _ -> fail "accepted out-of-range Unix timestamp");
+  List.iter (fun raw ->
+    match Imap.Internal_date.of_string raw with
+    | Error _ -> ()
+    | Ok _ -> fail ("accepted a leap second away from 23:59 UTC: " ^ raw))
+    ["31-Dec-2016 12:00:60 +0000";"31-Dec-2016 23:58:60 +0000";
+     "31-Dec-2016 23:59:60 +0100"];
+  List.iter (fun raw -> ignore (instant raw))
+    [" 1-Jan-2017 00:59:60 +0100";"31-Dec-2016 18:29:60 -0530"];
+  List.iter (fun raw ->
+    match Imap.Internal_date.to_unix_seconds (instant raw) with
+    | Error _ -> ()
+    | Ok seconds ->
+        (match Imap.Internal_date.of_unix_seconds seconds with
+         | Error _ -> fail ("to_unix_seconds escaped the range: " ^ raw)
+         | Ok _ -> fail ("expected an out-of-range error: " ^ raw)))
+    [" 1-Jan-0001 00:00:00 +0100";"31-Dec-9999 23:59:59 -0100"];
+  Alcotest.(check (result int64 string)) "earliest instant in range"
+    (Ok (-62135596800L))
+    (Imap.Internal_date.to_unix_seconds (instant " 1-Jan-0001 00:00:00 +0000"));
   let command=expect_ok (Imap.Command.append_prefix ~mailbox:"INBOX"
     ~flags:["\\Seen"] ~internal_date:one ~size:3L ()) in
   Alcotest.(check string) "APPEND preserves internal date"

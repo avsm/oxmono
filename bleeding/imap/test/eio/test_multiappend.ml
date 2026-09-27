@@ -47,6 +47,9 @@ let with_client ?(caps="IMAP4rev1 MULTIAPPEND UIDPLUS") replies f =
   Buffer.clear transport.written;
   Fun.protect ~finally:(fun () -> C.close client) (fun () -> f client transport)
 
+let append_many client ~mailbox messages =
+  Result.bind (C.Multiappend.require client) (fun multiappend ->
+    C.Multiappend.append_many multiappend ~mailbox messages)
 let message text=C.append_message ~length:(Int64.of_int (String.length text))
   (Eio.Flow.string_source text)
 let replies completion=[`Return "+ first\r\n";`Return "+ second\r\n";
@@ -57,7 +60,7 @@ let test_wire () =
     let seen=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
     let first=C.append_message ~length:3L ~flags:[seen] source in
     let second=message "defg" in
-    (match ok (C.append_many client ~mailbox:"INBOX" [first;second]) with
+    (match ok (append_many client ~mailbox:"INBOX" [first;second]) with
      | Some receipt when List.map Imap.Uid.to_int64 receipt.uids=[29L;7L] -> ()
      | _ -> failwith "receipt order lost");
     if Buffer.contents transport.written<>
@@ -71,7 +74,7 @@ let test_preflight () =
   List.iter (fun (caps,kind,messages) ->
     with_client ~caps [] (fun client transport ->
     expect "preflight" kind
-      (C.append_many client ~mailbox:"INBOX" messages);
+      (append_many client ~mailbox:"INBOX" messages);
     if Buffer.length transport.written<>0 then failwith "preflight wrote bytes"))
     ["IMAP4rev1",unsupported Imap.Capability.Multiappend,
        [message "a";message "b"];
@@ -85,7 +88,7 @@ let test_rejection () =
     (fun client transport ->
       let second=Eio.Flow.string_source "SECOND" in
       expect "atomic rejection" (function E.Rejected _ -> true | _ -> false)
-        (C.append_many client ~mailbox:"INBOX"
+        (append_many client ~mailbox:"INBOX"
           [message "first";C.append_message ~length:6L second]);
       if not (C.is_open client) then failwith "rejection closed usable session";
       if Buffer.contents transport.written<>"A00000004 APPEND INBOX {5}\r\nfirst {6}\r\n" then
@@ -95,23 +98,23 @@ let test_rejection () =
 let test_uncertain () =
   List.iter (fun completion -> with_client (replies completion) (fun client _ ->
     expect "invalid receipt" uncertain
-      (C.append_many client ~mailbox:"INBOX" [message "a";message "b"]);
+      (append_many client ~mailbox:"INBOX" [message "a";message "b"]);
     if C.is_open client then failwith "invalid receipt left connection open"))
     ["OK [APPENDUID 11 1] done";"OK [APPENDUID 11 1:3] done";
      "OK [APPENDUID 11 1:4294967295] done";"OK [APPENDUID 11 1,2,1] done"];
   with_client [`Return "+ first\r\n";`Return "+ second\r\n";`Raise End_of_file]
     (fun client _ -> expect "lost completion" uncertain
-      (C.append_many client ~mailbox:"INBOX" [message "a";message "b"]));
+      (append_many client ~mailbox:"INBOX" [message "a";message "b"]));
   with_client [`Return "+ first\r\n";`Return "+ second\r\n"]
     (fun client _ -> expect "short second source" state
-      (C.append_many client ~mailbox:"INBOX"
+      (append_many client ~mailbox:"INBOX"
         [message "a";C.append_message ~length:5L (Eio.Flow.string_source "x")]);
       if C.is_open client then failwith "short second source kept session open")
 let test_extra_continuation () =
   with_client [`Return "+ first\r\n";`Return "+ second\r\n";
     `Return "+ unexpected\r\nA00000004 OK [APPENDUID 11 1:2] done\r\n"]
     (fun client _ -> expect "extra continuation" uncertain
-      (C.append_many client ~mailbox:"INBOX" [message "a";message "b"]);
+      (append_many client ~mailbox:"INBOX" [message "a";message "b"]);
       if C.is_open client then failwith "extra continuation kept session open")
 let test_partial_notice () =
   List.iter (fun completion ->
@@ -121,7 +124,7 @@ let test_partial_notice () =
         let expected=if String.starts_with ~prefix:"NO" completion then
           (function E.Rejected _ -> true | _ -> false) else uncertain in
         expect "partial notice" expected
-          (C.append_many client ~mailbox:"INBOX" [message "a";message "b"])))
+          (append_many client ~mailbox:"INBOX" [message "a";message "b"])))
     ["OK [APPENDUID 11 1:2] done";"NO rejected"]
 let test_cancelled_second_source () =
   with_client [`Return "+ first\r\n";`Return "+ second\r\n"] (fun client transport ->
@@ -130,7 +133,7 @@ let test_cancelled_second_source () =
     Eio_mock.Flow.on_read source [`Run (fun () ->
       Eio.Promise.resolve mark_entered (); Eio.Fiber.await_cancel ())];
     Eio.Fiber.first
-      (fun () -> ignore (C.append_many client ~mailbox:"INBOX"
+      (fun () -> ignore (append_many client ~mailbox:"INBOX"
         [message "a";C.append_message ~length:3L source]))
       (fun () -> Eio.Promise.await entered);
     if C.is_open client || not transport.closed then failwith "cancelled batch stayed open";
@@ -140,18 +143,18 @@ let test_advertised_limits () =
   List.iter (fun capability ->
     with_client ~caps:("IMAP4rev1 MULTIAPPEND " ^ capability) [] (fun client transport ->
       expect "advertised batch limit" (function E.Limit _ -> true | _ -> false)
-        (C.append_many client ~mailbox:"INBOX" [message "a";message "b"]);
+        (append_many client ~mailbox:"INBOX" [message "a";message "b"]);
       if Buffer.length transport.written<>0 then failwith "over-limit batch dispatched"))
     ["SAVELIMIT=1";"MESSAGELIMIT=1";"MESSAGELIMIT=10 SAVELIMIT=1"];
   with_client ~caps:"IMAP4rev1 MULTIAPPEND SAVELIMIT=2"
     (replies "OK [APPENDUID 11 1:2] done") (fun client _ ->
-      ignore (ok (C.append_many client ~mailbox:"INBOX" [message "a";message "b"])));
+      ignore (ok (append_many client ~mailbox:"INBOX" [message "a";message "b"])));
   with_client ~caps:"IMAP4rev1 MULTIAPPEND SAVELIMIT=0" [] (fun client transport ->
     expect "invalid advertised limit" (function E.Protocol _ -> true | _ -> false)
-      (C.append_many client ~mailbox:"INBOX" [message "a";message "b"]);
+      (append_many client ~mailbox:"INBOX" [message "a";message "b"]);
     if Buffer.length transport.written<>0 then failwith "invalid limit allowed dispatch")
 let test_empty_receipt () =
   with_client (replies "OK done") (fun client _ ->
-    if ok (C.append_many client ~mailbox:"INBOX" [message "a";message "b"])<>None then
+    if ok (append_many client ~mailbox:"INBOX" [message "a";message "b"])<>None then
       failwith "invented UID receipt")
 let () = test_wire (); test_preflight (); test_rejection (); test_uncertain (); test_empty_receipt (); test_extra_continuation (); test_partial_notice (); test_cancelled_second_source (); test_advertised_limits ()

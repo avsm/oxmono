@@ -67,9 +67,12 @@ let test_idle_notification_overflow () =
        `Return "A00000005 OK noop\r\n";
        `Return "A00000006 OK unselected\r\n"] (fun client ->
       ok (C.with_mailbox client ~mode:`Read_only "INBOX" (fun selected ->
-        ignore (ok (S.notify_set selected ~groups:[Imap.Notify.Selected,
-          [Imap.Notify.Message_new;Imap.Notify.Message_expunge]] ()));
-        (match ok (S.wait_for_change selected) with
+        let notify=ok (S.Notify.require selected) in
+        let idle=ok (S.Idle.require selected) in
+        ignore (ok (S.Notify.notify_set notify
+          ~groups:[Imap.Notify.Selected,
+            [Imap.Notify.Message_new;Imap.Notify.Message_expunge]] ()));
+        (match ok (S.Idle.wait_for_change idle) with
          | [Imap.Response.Untagged (Imap.Response.Ok
               (Some Imap.Response.Notificationoverflow,_));
             Imap.Response.Untagged (Imap.Response.Exists 1L)] -> ()

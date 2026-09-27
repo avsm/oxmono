@@ -42,7 +42,7 @@ let test_unselect_failure_keeps_outcome () =
        | _ -> failwith "failed UNSELECT dropped the callback outcome");
       if C.is_open client then failwith "failed UNSELECT left the connection open";
       expect "stale selection after failed UNSELECT" closed
-        (C.enable_uidonly client)))
+        (C.Uidonly.enable client)))
     [`Return (tag 3 ^ " NO busy\r\n"); `Raise End_of_file]
 
 let test_selection_reset_after_exception () =
@@ -53,13 +53,13 @@ let test_selection_reset_after_exception () =
        | exception Failure message when message = "callback bug" -> ()
        | _ -> failwith "callback exception was relabelled");
       expect "stale selection after callback exception" closed
-        (C.enable_objectid_plus client))
+        (C.Objectid_plus.enable client))
 
 let test_enable_gating () =
   preauth ~caps:"IMAP4rev2 UIDONLY"
     [`Return ("* ENABLED UIDONLY\r\n" ^ tag 2 ^ " OK enabled\r\n")]
     (fun client ->
-      ok (C.enable_uidonly client);
+      ignore (ok (C.Uidonly.enable client));
       if not (C.is_enabled client Imap.Capability.Uidonly) then
         failwith "IMAP4rev2 ENABLE UIDONLY was not recorded");
   preauth ~caps:"IMAP4rev1 QRESYNC UTF8=ACCEPT"
@@ -267,10 +267,15 @@ let test_rev2_base_extensions () =
     `Return "+ idling\r\n* 1 EXISTS\r\n";
     `Return (tag 6 ^ " OK done\r\n");
     `Return (tag 7 ^ " OK unselected\r\n")] (fun selected ->
-    ignore (ok (S.uid_move selected ~set:(uid_set "1") ~mailbox:"Archive"));
-    ok (S.uid_expunge selected ~set:(uid_set "1"));
-    ignore (ok (S.uid_search_save selected ~criteria:Imap.Search.All));
-    ignore (ok (S.wait_for_change selected));
+    let move=ok (S.Move.require selected) in
+    let uidplus=ok (S.Uidplus.require selected) in
+    let searchres=ok (S.Searchres.require selected) in
+    let idle=ok (S.Idle.require selected) in
+    ignore (ok (S.Move.uid_move move ~set:(uid_set "1") ~mailbox:"Archive"));
+    ok (S.Uidplus.uid_expunge uidplus ~set:(uid_set "1"));
+    ignore (ok (S.Searchres.uid_search_save searchres
+      ~criteria:Imap.Search.All));
+    ignore (ok (S.Idle.wait_for_change idle));
     Ok ())
 
 let test_metadata_fetch_row () =
@@ -319,8 +324,9 @@ let test_changes_keep_complete_rows () =
       "* 1 FETCH (UID 5 MODSEQ (8))\r\n" ^ tag 3 ^ " OK done\r\n");
     `Return (tag 4 ^ " OK unselected\r\n")] (fun selected ->
     let since = Result.get_ok (Imap.Modseq.of_int64 1L) in
-    (match ok (S.fetch_changes_range selected ~first:(u 1L) ~last:(u 9L)
-        ~since) with
+    let condstore = ok (S.Condstore.require selected) in
+    (match ok (S.Condstore.fetch_changes_range condstore ~first:(u 1L)
+        ~last:(u 9L) ~since) with
      | [{uid = Some 5L; flags = Some ["\\Seen"]; modseq = Some 7L; _}] -> ()
      | _ -> failwith "a row without FLAGS replaced a complete change");
     Ok ())
@@ -330,7 +336,9 @@ let test_search_page_at_uid_one () =
     `Return ("* SEARCH 1\r\n" ^ tag 3 ^ " OK [MESSAGELIMIT 2 1] partial\r\n");
     `Return ("* SEARCH 9 3 9\r\n" ^ tag 4 ^ " OK done\r\n");
     `Return (tag 5 ^ " OK unselected\r\n")] (fun selected ->
-    let page = ok (S.uid_search_page selected ~criteria:Imap.Search.All) in
+    let limit = ok (S.Messagelimit.require selected) in
+    let page = ok (S.Messagelimit.uid_search_page limit
+      ~criteria:Imap.Search.All) in
     if not page.complete || page.resume_before <> None then
       failwith "page ending at UID 1 was left open";
     let uids = ok (S.uid_search selected ~criteria:Imap.Search.All) in

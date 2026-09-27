@@ -476,9 +476,17 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~client ~store
         | Ok _ ->
             J.mark_sent store ~id;
             let set=Imap.Uid_set.singleton uid in
-            match Imap_eio.Selected.uid_store_flags selected ~set
-                ~operation:`Replace ~flags:remote_target
-                ?unchangedsince:remote_modseq () with
+            let stored=match remote_modseq with
+              | None ->
+                  Imap_eio.Selected.uid_store_flags selected ~set
+                    ~operation:`Replace ~flags:remote_target
+              | Some unchangedsince ->
+                  Result.bind (Imap_eio.Selected.Condstore.require selected)
+                    (fun condstore ->
+                      Imap_eio.Selected.Condstore.uid_store_flags condstore
+                        ~set ~operation:`Replace ~flags:remote_target
+                        ~unchangedsince) in
+            match stored with
             | Error (Imap_eio.Error.Rejected _ | Imap_eio.Error.State _
                      | Imap_eio.Error.Unsupported _
                      | Imap_eio.Error.Not_enabled _ as error) ->

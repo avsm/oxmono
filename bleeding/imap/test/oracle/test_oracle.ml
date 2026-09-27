@@ -235,7 +235,7 @@ let round_trip () =
         | uid :: _ ->
             let set = Imap.Uid_set.singleton uid in
             let* _ = Selected.uid_store_flags selected ~set
-              ~operation:`Add ~flags:[flag] () in
+              ~operation:`Add ~flags:[flag] in
             Ok ()
         | [] -> Alcotest.fail "no UID to flag"));
     let second = scan "after-flags" in
@@ -382,7 +382,7 @@ let round_trip () =
       (fun selected ->
         let set=Imap.Uid_set.singleton flag_uid in
         let* _ = Selected.uid_store_flags selected ~set ~operation:`Add
-          ~flags:[flagged] () in Ok ()));
+          ~flags:[flagged] in Ok ()));
     ignore (Md.set_flags maildir flag_local
       (local_keyword::flag_local.flags));
     let after_flags = copy ("bridge-three-way-flags-" ^ nonce) in
@@ -414,7 +414,7 @@ let round_trip () =
       (fun selected ->
         let set=Imap.Uid_set.singleton flag_uid in
         let* _ = Selected.uid_store_flags selected ~set ~operation:`Add
-          ~flags:[deleted] () in Ok ()));
+          ~flags:[deleted] in Ok ()));
     let held_deleted = copy ("bridge-deleted-held-" ^ nonce) in
     Alcotest.(check int) "Deleted requires policy" 0
       held_deleted.flags_updated;
@@ -530,8 +530,9 @@ let round_trip () =
         let set = Imap.Uid_set.singleton expunged_uid in
         let* _ = Selected.uid_store_flags selected ~set ~operation:`Add
           ~flags:[Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted]
-          () in
-        Selected.uid_expunge selected ~set));
+        in
+        let* uidplus = Selected.Uidplus.require selected in
+        Selected.Uidplus.uid_expunge uidplus ~set));
     let after_remote_absence = copy ("bridge-remote-absence-" ^ nonce) in
     Alcotest.(check int) "remote disappearance not reuploaded" 0
       after_remote_absence.local_to_remote;

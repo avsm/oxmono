@@ -79,7 +79,8 @@ let test_idle_rejections () =
     with_client (prefix @ [`Return (tag 5 ^ " " ^ status_text status ^
       " [" ^ wire ^ "] refused\r\n")]) (fun client ->
       ignore (rejected ~tag:(tag 5) ~status ~code:(Some code)
-        (C.with_mailbox client ~mode:`Read_only "INBOX" S.wait_for_change))))
+        (C.with_mailbox client ~mode:`Read_only "INBOX" (fun selected ->
+          Result.bind (S.Idle.require selected) S.Idle.wait_for_change)))))
     [false;true]
 
 let secret="synthetic-auth-secret"

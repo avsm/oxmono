@@ -67,7 +67,7 @@ let test t =
         let set=Imap.Uid_set.singleton uid in
         ignore (imap (S.uid_store_flags s ~set ~operation:`Add
           ~flags:[value (Mail_flag.Imap_flag.of_wire "\\Flagged");
-                  value (Mail_flag.Imap_flag.of_wire "from-imap")] ()));
+                  value (Mail_flag.Imap_flag.of_wire "from-imap")]));
         Ok ());
       let expected=["$seen";"$flagged";"cross-label";"seen";"from-jmap";"from-imap"] in
       keywords id expected;
@@ -76,7 +76,7 @@ let test t =
       selected (fun s ->
         let set=Imap.Uid_set.singleton uid in
         ignore (imap (S.uid_store_flags s ~set ~operation:`Add
-          ~flags:[Mail_flag.Imap_flag.system Deleted] ()));
+          ~flags:[Mail_flag.Imap_flag.system Deleted]));
         Ok ());
       has uid "DELETED";
       let hidden=H.call t (Chain.email_get ~account_id:t.H.account_id
@@ -89,7 +89,7 @@ let test t =
       selected (fun s ->
         let set=Imap.Uid_set.singleton uid in
         ignore (imap (S.uid_store_flags s ~set ~operation:`Remove
-          ~flags:[Mail_flag.Imap_flag.system Deleted] ()));
+          ~flags:[Mail_flag.Imap_flag.system Deleted]));
         Ok ());
       has uid "UNDELETED";
       keywords id expected;

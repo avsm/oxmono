@@ -60,23 +60,23 @@ let prepare_object_identity ~client ~store ~scope ~mailbox =
   | `Conflict -> Error conflicting_identity
   | `Bound _ when not offered ->
     Error (Invalid_scope "saved OBJECTID+ identity cannot be verified")
-  | `Unbound when not offered -> Ok false
+  | `Unbound when not offered -> Ok None
   | `Unbound | `Bound _ as bound ->
-    let* ()=network (Imap_eio.Client.enable_objectid_plus client) in
+    let* objectid=network (Imap_eio.Client.Objectid_plus.enable client) in
     let* ()=match bound with
       | `Unbound -> Ok ()
       | `Bound (identity:Imap_store.object_identity) ->
-          let* status=network (Imap_eio.Client.status client ~mailbox
-            ~items:[Imap.Status_item.Objectid]) in
+          let* status=network (Imap_eio.Client.Objectid_plus.status objectid
+            ~mailbox ~items:[Imap.Status_item.Objectid]) in
           (match status.objectid with
            | Some ids when ids.account_id=Some identity.account_id &&
                ids.mailbox_id=Some identity.mailbox_id ->
-               network (Imap_eio.Client.pin_mailbox_objectid client ~mailbox
-                 ~account_id:identity.account_id
+               network (Imap_eio.Client.Objectid_plus.pin_mailbox objectid
+                 ~mailbox ~account_id:identity.account_id
                  ~mailbox_id:identity.mailbox_id)
            | _ -> Error (Invalid_scope
                "configured mailbox name no longer matches saved OBJECTID+")) in
-    Ok true
+    Ok (Some objectid)
 
 let guard_bound_mailbox ~client ~store ~scope ~mailbox =
   match Imap_store.object_identity store ~scope with
@@ -117,10 +117,10 @@ let observe_selected_identity ~store ~scope info =
 (* A first binding would attest a mailbox whose epoch just changed, which
    may be a replacement. Binding waits for a scan that sees the new epoch
    already published. *)
-let observe_identity ~objectid_enabled ~store ~scope ~(cursor:Mirror.cursor)
+let observe_identity ~objectid ~store ~scope ~(cursor:Mirror.cursor)
     ~validity info =
   match Imap_store.object_identity store ~scope,cursor.uidvalidity with
-  | _ when not objectid_enabled -> Ok None
+  | _ when Option.is_none objectid -> Ok None
   | `Unbound,Some previous when previous<>validity -> Ok None
   | _ -> observe_selected_identity ~store ~scope info
 
@@ -134,11 +134,12 @@ let window first last =
 let outside ~first ~last uid =
   Imap.Uid.compare uid first < 0 || Imap.Uid.compare uid last > 0
 
-let pin_observed_identity ~client ~mailbox = function
-  | None -> Ok ()
-  | Some (identity:Imap_store.object_identity) ->
-      network (Imap_eio.Client.pin_mailbox_objectid client ~mailbox
+let pin_observed_identity ~objectid ~mailbox identity =
+  match objectid,identity with
+  | Some objectid,Some (identity:Imap_store.object_identity) ->
+      network (Imap_eio.Client.Objectid_plus.pin_mailbox objectid ~mailbox
         ~account_id:identity.account_id ~mailbox_id:identity.mailbox_id)
+  | _ -> Ok ()
 
 let row_of_fetch (item : Imap.Response.fetch) =
   match item.uid, item.flags with
@@ -308,7 +309,7 @@ let run_once ?(max_windows=1000) ?(max_rows=100_000) ~client ~store
     Error (Limit "scan budgets must be positive")
   else
     let* () = validate_scope ~client ~scope ~mailbox in
-    let* objectid_enabled=prepare_object_identity ~client ~store
+    let* objectid=prepare_object_identity ~client ~store
       ~scope ~mailbox in
     let current = Imap_store.load store ~scope in
     let observed_identity=ref None in
@@ -326,7 +327,7 @@ let run_once ?(max_windows=1000) ?(max_rows=100_000) ~client ~store
             let* info = network (Imap_eio.Selected.info selected) in
             let* selected_info = selected_metadata info in
             let validity = selected_info.uidvalidity in
-            let* identity=observe_identity ~objectid_enabled ~store ~scope
+            let* identity=observe_identity ~objectid ~store ~scope
               ~cursor:current.cursor ~validity info in
             observed_identity:=identity;
             let highestmodseq = selected_info.highestmodseq in
@@ -361,7 +362,7 @@ let run_once ?(max_windows=1000) ?(max_rows=100_000) ~client ~store
               ~published:current.snapshot staged)
           in Ok result)) in
     let* transition = scan_result in
-    let* ()=pin_observed_identity ~client ~mailbox !observed_identity in
+    let* ()=pin_observed_identity ~objectid ~mailbox !observed_identity in
     (match Imap_store.publish store transition with
      | `Committed -> Ok transition
      | `Stale_revision -> Error Stale_revision)
@@ -372,7 +373,7 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
   if max_windows<1 then Error (Limit "scan window budget must be positive")
   else
     let* () = validate_scope ~client ~scope ~mailbox in
-    let* objectid_enabled=prepare_object_identity ~client ~store
+    let* objectid=prepare_object_identity ~client ~store
       ~scope ~mailbox in
     let cursor=Imap_store.load_cursor store ~scope in
     let observed_identity=ref None in
@@ -392,7 +393,7 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
             | Some expected when expected<>validity ->
                 Error Uidvalidity_changed
             | _ -> Ok () in
-          let* identity=observe_identity ~objectid_enabled ~store ~scope
+          let* identity=observe_identity ~objectid ~store ~scope
             ~cursor ~validity info in
           observed_identity:=identity;
           let highestmodseq = selected_info.highestmodseq in
@@ -410,10 +411,10 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
               cursor.anchor,cursor.inventory_ref,action.restart with
               | Mirror.Live,Some previous_epoch,Some anchor,Some _,None
                 when previous_epoch=validity &&
-                  cursor.frontier<=upper && use_modseq &&
-                  (Imap_eio.Client.has client Imap.Capability.Condstore ||
-                   Imap_eio.Client.has client Imap.Capability.Qresync) ->
-                  Some anchor
+                  cursor.frontier<=upper && use_modseq ->
+                  (match Imap_eio.Selected.Condstore.require selected with
+                   | Ok condstore -> Some (condstore,anchor)
+                   | Error _ -> None)
               | _ -> None in
             let ceil_windows n=if n<=0L then 0L else
               Int64.div (Int64.add n 999L) 1000L in
@@ -442,10 +443,11 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
                 | _ -> last in
               let* first_uid,last_uid=window first last in
               let* parsed=match incremental with
-                | Some anchor when last<=cursor.frontier ->
+                | Some (condstore,anchor) when last<=cursor.frontier ->
                     let* fetched=network
-                      (Imap_eio.Selected.fetch_changes_range selected
-                        ~first:first_uid ~last:last_uid ~since:anchor) in
+                      (Imap_eio.Selected.Condstore.fetch_changes_range
+                        condstore ~first:first_uid ~last:last_uid
+                        ~since:anchor) in
                     List.fold_right (fun item acc ->
                       let* rest=acc in
                       let* row=row_of_fetch item in
@@ -492,7 +494,7 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
     | Error _ as error -> error
     | Ok (Error _ as error) -> error
     | Ok (Ok (action,highestmodseq,nomodseq)) ->
-        (match pin_observed_identity ~client ~mailbox
+        (match pin_observed_identity ~objectid ~mailbox
            !observed_identity with
          | Error _ as error -> error
          | Ok () ->

@@ -127,10 +127,10 @@ COPY, MOVE and targeted UID EXPUNGE. Selection requests CONDSTORE when offered;
 it refuses RFC 4315 `UIDNOTSTICKY` mailboxes before handing a selected lease
 to a caller, since their UIDs cannot support durable pairing.
 QRESYNC can be enabled and selected with a saved checkpoint. IDLE waits for a
-change on a dedicated selected connection. Capability-gated ACL, QUOTA,
-METADATA and NOTIFY operations return typed responses; selected NOTIFY filters
-use the active mailbox lease. SETQUOTA replaces the complete limit list for its
-root. `fetch_to`
+change on a dedicated selected connection. ACL, QUOTA, METADATA and NOTIFY
+operations return typed responses. Selected NOTIFY filters go through
+`Selected.Notify` on the active mailbox lease. SETQUOTA replaces the complete
+limit list for its root. `fetch_to`
 streams `BODY.PEEK[]` into a sink and verifies the UID and literal length at
 tagged completion. Its output is provisional until it returns `Ok ()`; discard
 it on error. Selected handles expire when `with_mailbox` returns. The callback
@@ -140,6 +140,19 @@ modified UTF-7 on rev1 connections unless UTF-8 mode was enabled. Each LIST
 and LSUB row carries its decoded `name`, whose `utf8` field is the decoded
 name and whose `raw` field is the exact wire name. An interrupted APPEND
 returns an uncertain outcome and must be reconciled before retrying.
+An operation that exists only because of an extension lives in a submodule
+named for it, on `Selected` for a lease and on `Client` for a connection. The
+submodule's `require` checks the gate once and returns a witness that its
+operations take instead of the lease or client, as in `Selected.Move.require`
+followed by `Selected.Move.uid_move`. A missing extension is
+`Error (Unsupported c)` and an unconfirmed mode `Error (Not_enabled c)`, both
+before anything is sent, so a fallback is one match. `require` succeeds where
+effective IMAP4rev2 folds the extension in. The lease submodules are
+`Condstore`, `Qresync`, `Uidplus`, `Move`, `Binary`, `Searchres`, `Sort`,
+`Esort`, `Thread`, `Partial`, `Messagelimit`, `Uidbatches`, `Notify` and
+`Idle`. The connection submodules are `Acl`, `Quota`, `Metadata`, `Notify`,
+`Multiappend` and `Compress`, and the modes `Objectid_plus` and `Uidonly`
+return their witnesses from `enable`. A lease witness expires with its lease.
 Metadata FETCH is one typed call. `Selected.fetch` takes up to 1,000 UIDs and
 a list of `Imap.Fetch_item.t` and returns one `Selected.row` per reported UID
 in request order, and `Selected.fetch_range` does the same for a UID window
@@ -150,14 +163,15 @@ difference between an absent preview, `NIL` and empty text.
 RFC 8474 OBJECTID is the `Emailid` and `Threadid` items, requiring the exact
 `OBJECTID` capability and selected MAILBOXID. The independent
 [OBJECTID+ draft -06](spec/draft-ietf-mailmaint-imap-objectid-bis-06.txt)
-has an explicit `Client.enable_objectid_plus` mode and the `Objectid` item.
+has an explicit `Client.Objectid_plus.enable` mode and the `Objectid` item.
 It parses the compound SELECT
 ACCOUNTID/MAILBOXID, STATUS OBJECTID and message EMAILID/THREADID, retaining
 unknown keys for future versions. STATUS OBJECTID requires prior activation,
 including when requested through LIST-STATUS. The optional [with_mailbox]
 identity argument selects by account/mailbox ID and refuses a name fallback to
-a different mailbox. Typed CREATE and RENAME methods return the tagged compound
-identity, or an uncertain outcome if the server omits it after success. This
+a different mailbox. `Objectid_plus.create_mailbox` and `rename_mailbox` return
+the tagged compound identity, or an uncertain outcome if the server omits it
+after success. This
 draft mode does not activate legacy OBJECTID. Neither
 path assumes an EMAILID is a JMAP Email ID without account identity evidence.
 
@@ -172,9 +186,10 @@ Each range maps `source_first + i` to `destination_first + i` for
 `0 <= i < length`. The separate source/destination sets describe membership;
 independently sorting and zipping them does not preserve the mapping.
 
-RFC 5256 sorting and threading are exposed as `Selected.uid_sort` and
-`Selected.uid_thread`. SORT takes priority-ordered typed keys with per-key
-ascending/descending order and preserves the server's result order. THREAD
+RFC 5256 sorting and threading are exposed as `Selected.Sort.uid_sort` and
+`Selected.Thread.uid_thread`. SORT takes priority-ordered typed keys with
+per-key ascending/descending order and preserves the server's result order.
+`Selected.Thread.require` takes the algorithm, and THREAD
 supports advertised REFERENCES and ORDEREDSUBJECT algorithms, retaining parent,
 child, sibling and dummy-parent structure. Both require an explicit charset
 and typed `Imap.Search.t` criteria, reject missing/duplicate/partial results,
@@ -182,7 +197,7 @@ and bound results to 100,000 nodes (thread ancestry depth 100). These views
 describe a server search at command time; they are not durable inventory
 checkpoints or JMAP thread IDs. Typed criteria have no sequence-set key, and
 under UIDONLY a `Raw` criterion that starts with a sequence set is refused.
-`Selected.uid_sort_extended` adds RFC 5267 ESORT summaries and ordered UID
+`Selected.Esort.uid_sort_extended` adds RFC 5267 ESORT summaries and ordered UID
 results. It always requests COUNT, correlates the UID ESEARCH reply to its
 command tag, and validates requested fields against that count. MIN/MAX mean
 first/last in sort order. UID range expansion follows ESORT's ascending-range
@@ -191,8 +206,9 @@ require `CONTEXT=SORT`; results remain bounded to 100,000 expanded UIDs, while
 COUNT-only summaries can describe larger mailboxes. Page positions can change
 between calls and are not durable scan checkpoints.
 
-RFC 5182 SEARCHRES uses opaque `Selected.saved_search` handles. A successful
-`uid_search_save` binds the server's saved set to the current mailbox lease;
+RFC 5182 SEARCHRES uses opaque `Selected.Searchres.saved_search` handles. A
+successful `Searchres.uid_search_save` binds the server's saved set to the
+current mailbox lease;
 saved FETCH, STORE, COPY, MOVE and targeted EXPUNGE validate the handle under
 the command mutex. Another SAVE or a raw UID SEARCH invalidates it. The fixed
 `uid_search_saved` operation queries a subset while preserving the handle.
@@ -201,7 +217,7 @@ SAVE completion. Metadata FETCH can include unsolicited updates; use the
 correlated search API when membership matters. These handles are ephemeral,
 and their mutation methods do not journal or retry uncertain outcomes.
 
-`Selected.fetch_binary_to` streams transfer-decoded MIME sections using
+`Selected.Binary.fetch_binary_to` streams transfer-decoded MIME sections using
 BINARY.PEEK, with optional decoded byte offsets and a caller-supplied output
 limit. It verifies UID, section, offset and length before reporting success;
 sink bytes remain provisional until then. NIL and an empty section are
@@ -229,7 +245,7 @@ Authentication errors redact server text and arbitrary code payloads while
 preserving a whitelist of standard failure codes. No rejection automatically
 triggers a retry; uncertain mutations still require reconciliation.
 
-`Client.compress_deflate` explicitly activates RFC 4978 after authentication
+`Client.Compress.activate` explicitly activates RFC 4978 after authentication
 and before acquiring a mailbox lease. It wraps the current transport, including
 TLS, with continuous raw DEFLATE streams. Activation preserves the exact
 plaintext/compressed boundary even when both arrive in one packet. Rejected
@@ -389,8 +405,9 @@ crash recovery for this case remains a production gate.
 
 
 For atomic multi-message uploads, construct borrowed streams with
-`Imap_eio.Client.append_message` and send them using `Client.append_many`.
-Multiple messages require MULTIAPPEND. Optional receipt UIDs correspond to input
+`Imap_eio.Client.append_message` and send them using
+`Client.Multiappend.append_many`, whose witness requires MULTIAPPEND. Optional
+receipt UIDs correspond to input
 order; absent receipts and uncertain outcomes require reconciliation. The API
 streams each literal with bounded buffers and does not journal or replay batches.
 

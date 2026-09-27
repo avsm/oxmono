@@ -161,7 +161,6 @@ let check_saved saved =
 let uid_search_save t ~criteria =
   run t (fun () ->
     let criterion = search_wire t criteria in
-    require t Cap.Searchres;
     let result=Session.command_result t.session
       (syntax (Imap.Command.uid_search_save ~criterion)) in
     let count=match correlated_esearch result with
@@ -228,8 +227,6 @@ let uid_search t ~criteria =
 let uid_sort t ~keys ~charset ~criteria =
   run t (fun () ->
     let criterion = search_wire t criteria in
-    if not (has t Cap.Sort || has t Cap.Sort_display) then
-      raise (Session.Failure (Session.Unsupported Cap.Sort));
     let responses=Session.command t.session
       (syntax (Imap.Command.uid_sort ~keys ~charset ~criterion)) in
     match List.filter_map (function
@@ -249,7 +246,6 @@ type sort_result = {
 let uid_sort_extended t ~returns ~keys ~charset ~criteria =
   run t (fun () ->
     let criterion = search_wire t criteria in
-    require t Cap.Esort;
     let returns=if returns=[] then [Imap.Sort.All] else returns in
     let range=List.find_map (function
       | Imap.Sort.Partial range -> Some range | _ -> None) returns in
@@ -329,7 +325,6 @@ let rec typed_thread (node : Imap.Response.thread) =
 let uid_thread t ~algorithm ~charset ~criteria =
   run t (fun () ->
     let criterion = search_wire t criteria in
-    require t (Cap.Thread algorithm);
     let responses=Session.command t.session
       (syntax (Imap.Command.uid_thread ~algorithm ~charset ~criterion)) in
     match List.filter_map (function
@@ -341,7 +336,6 @@ let uid_thread t ~algorithm ~charset ~criteria =
 let uid_search_partial t ~range ~criteria =
   run t (fun () ->
     let criterion = search_wire t criteria in
-    require t Cap.Partial;
     let result = Session.command_result t.session
       (syntax (Imap.Command.uid_search_partial ~range ~criterion)) in
     let expected = Printf.sprintf "%Ld:%Ld" (fst range) (snd range) in
@@ -359,9 +353,6 @@ type search_page = {
 let uid_search_page ?before t ~criteria =
   run t (fun () ->
     let criterion = search_wire t criteria in
-    if not (supports_messagelimit t) then
-      raise (Session.Failure
-        (Session.Unsupported (Cap.Other "MESSAGELIMIT")));
     let criterion = criterion ^ (match before with
       | None -> "" | Some uid -> " UIDBEFORE " ^ Imap.Uid.to_string uid) in
     let result = Session.command_result ~accept_partial:true t.session
@@ -571,7 +562,6 @@ let fetch t ~uids ~items =
 
 let uid_fetch_partial t ~set ~items ~range =
   run t (fun () ->
-    require t Cap.Partial;
     let items=fetch_items t items in
     let wire=nonempty_set set in
     Session.command t.session
@@ -670,11 +660,14 @@ let store_flags_unlocked t ~command ~operation ~flags ?unchangedsince () =
   mutation_receipt t store_receipt
     (Session.command_result ~mutation:true t.session syntax)
 
-let uid_store_flags t ~set ~operation ~flags ?unchangedsince () =
+let store_flags t ~set ~operation ~flags ?unchangedsince () =
   run t (fun () ->
     let set=nonempty_set set in
     store_flags_unlocked t ~command:(Imap.Command.uid_store_mod ~set)
       ~operation ~flags ?unchangedsince ())
+
+let uid_store_flags t ~set ~operation ~flags =
+  store_flags t ~set ~operation ~flags ()
 
 let uid_store_saved saved ~operation ~flags ?unchangedsince () =
   let t=saved.owner in
@@ -798,14 +791,10 @@ let uid_expunge_saved saved =
     expunge_unlocked t Imap.Command.uid_expunge_saved)
 
 let wait_for_change t =
-  run t (fun () ->
-    require t Cap.Idle;
-    Session.idle_once t.session)
+  run t (fun () -> Session.idle_once t.session)
 
 let fetch_changes t ~set ~since ~vanished =
   run t (fun () ->
-    condstore t;
-    if vanished then Session.require_enabled t.session Cap.Qresync;
     let set = nonempty_set set in
     let changedsince = Imap.Modseq.to_int64 since in
     Session.command t.session
@@ -821,7 +810,6 @@ let fetch_changes t ~set ~since ~vanished =
 
 let fetch_changes_range t ~first ~last ~since =
   run t (fun () ->
-    condstore t;
     if not (valid_window ~first ~last) then
       raise (Session.Failure (Session.State
         "invalid CHANGEDSINCE UID window"));
@@ -837,7 +825,6 @@ let fetch_changes_range t ~first ~last ~since =
 
 let uid_batches t ?range ~size () =
   run t (fun () ->
-    require t Cap.Uidbatches;
     if t.session.Session.uidbatches_last_mailbox = t.session.Session.selected then
       raise (Session.Failure (Session.State
         "UIDBATCHES already issued for this mailbox on this connection"));
@@ -855,7 +842,6 @@ let uid_batches t ?range ~size () =
 
 let notify_set t ?(status=false) ~groups () =
   run t (fun () ->
-    require t Cap.Notify;
     let responses=Session.command ~mutation:true t.session
       (syntax (Imap.Command.notify_set ~status ~groups ())) in
     if List.exists (function
@@ -870,7 +856,6 @@ let notify_set t ?(status=false) ~groups () =
 
 let notify_none t =
   run t (fun () ->
-    require t Cap.Notify;
     ignore (Session.command ~mutation:true t.session Imap.Command.notify_none))
 
 (* A failed local sink leaves the command mid-literal, so the session
@@ -900,7 +885,6 @@ let stream_fetch t ~syntax ~max_bytes sink =
 
 let fetch_binary_to t ?(max_bytes=1_073_741_824L) ?partial ~uid ~section sink =
   run t (fun () ->
-    require_binary_fetch t;
     if max_bytes<0L then
       raise (Session.Failure (Session.State "invalid BINARY UID or byte limit"));
     let raw_uid=Some (Imap.Uid.to_int64 uid) in
@@ -1007,3 +991,115 @@ let fetch_to t ?(max_bytes=1_073_741_824L) ~uid sink =
             "FETCH body exceeds byte limit"));
         write_sink sink value
     | _ -> invalid ())
+
+(* A witness is the lease itself, so every operation on it keeps the lease
+   checks of [run]. Capabilities cannot change during a lease, which keeps a
+   gate checked once valid for the lease's lifetime. *)
+let witness t gate =
+  Session.protect t.session (fun () -> check t; gate (); t)
+
+module Condstore = struct
+  type nonrec t = t
+  let require t = witness t (fun () -> condstore t)
+  let uid_store_flags t ~set ~operation ~flags ~unchangedsince =
+    store_flags t ~set ~operation ~flags ~unchangedsince ()
+  let fetch_changes_range = fetch_changes_range
+end
+
+module Qresync = struct
+  type nonrec t = t
+  let require t = witness t (fun () ->
+    require t Cap.Qresync;
+    Session.require_enabled t.session Cap.Qresync)
+  let fetch_changes = fetch_changes
+end
+
+module Uidplus = struct
+  type nonrec t = t
+  let require t = witness t (fun () -> require t Cap.Uidplus)
+  let uid_expunge = uid_expunge
+end
+
+module Move = struct
+  type nonrec t = t
+  let require t = witness t (fun () -> require t Cap.Move)
+  let uid_move = uid_move
+end
+
+module Binary = struct
+  type nonrec t = t
+  let require t = witness t (fun () -> require_binary_fetch t)
+  let fetch_binary_to = fetch_binary_to
+end
+
+module Searchres = struct
+  type nonrec t = t
+  type nonrec saved_search = saved_search
+  let require t = witness t (fun () -> require t Cap.Searchres)
+  let uid_search_save = uid_search_save
+  let uid_search_saved = uid_search_saved
+  let uid_fetch_saved = uid_fetch_saved
+  let uid_store_saved = uid_store_saved
+  let uid_copy_saved = uid_copy_saved
+  let uid_move_saved = uid_move_saved
+  let uid_expunge_saved = uid_expunge_saved
+  let saved_search_count = saved_search_count
+end
+
+module Sort = struct
+  type nonrec t = t
+  let require t = witness t (fun () ->
+    if not (has t Cap.Sort || has t Cap.Sort_display) then
+      raise (Session.Failure (Session.Unsupported Cap.Sort)))
+  let uid_sort = uid_sort
+end
+
+module Esort = struct
+  type nonrec t = t
+  let require t = witness t (fun () -> require t Cap.Esort)
+  let uid_sort_extended = uid_sort_extended
+end
+
+module Thread = struct
+  type nonrec t = { lease : t; algorithm : Imap.Thread.algorithm }
+  let require t algorithm =
+    witness t (fun () -> require t (Cap.Thread algorithm))
+    |> Result.map (fun lease -> {lease; algorithm})
+  let uid_thread {lease; algorithm} ~charset ~criteria =
+    uid_thread lease ~algorithm ~charset ~criteria
+end
+
+module Partial = struct
+  type nonrec t = t
+  let require t = witness t (fun () -> require t Cap.Partial)
+  let uid_search_partial = uid_search_partial
+  let uid_fetch_partial = uid_fetch_partial
+end
+
+module Messagelimit = struct
+  type nonrec t = t
+  let require t = witness t (fun () ->
+    if not (supports_messagelimit t) then
+      raise (Session.Failure
+        (Session.Unsupported (Cap.Other "MESSAGELIMIT"))))
+  let uid_search_page = uid_search_page
+end
+
+module Uidbatches = struct
+  type nonrec t = t
+  let require t = witness t (fun () -> require t Cap.Uidbatches)
+  let uid_batches = uid_batches
+end
+
+module Notify = struct
+  type nonrec t = t
+  let require t = witness t (fun () -> require t Cap.Notify)
+  let notify_set = notify_set
+  let notify_none = notify_none
+end
+
+module Idle = struct
+  type nonrec t = t
+  let require t = witness t (fun () -> require t Cap.Idle)
+  let wait_for_change = wait_for_change
+end

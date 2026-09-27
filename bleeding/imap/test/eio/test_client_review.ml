@@ -71,8 +71,11 @@ let test_metadata_scope () =
   with_client "METADATA-SERVER" [
     `Return "* METADATA \"\" (/shared/comment \"ok\")\r\nA00000002 OK done\r\n"]
     (fun client ->
-      ignore (ok (C.get_metadata client ~mailbox:"" ~entries:["/shared/comment"] ()));
-      match C.get_metadata client ~mailbox:"INBOX" ~entries:["/shared/comment"] () with
+      let metadata=ok (C.Metadata.require client) in
+      ignore (ok (C.Metadata.get_metadata metadata ~mailbox:""
+        ~entries:["/shared/comment"] ()));
+      match C.Metadata.get_metadata metadata ~mailbox:"INBOX"
+          ~entries:["/shared/comment"] () with
       | Error (E.Unsupported Imap.Capability.Metadata) -> ()
       | _ -> failwith "mailbox metadata bypassed capability gate")
 
@@ -114,7 +117,9 @@ let test_search_evidence () =
     | Error (E.Protocol _) -> () | _ -> failwith "out-of-range SEARCH accepted");
   with_selected ~caps:"MESSAGELIMIT=2" "" (fun with_mailbox ->
     match with_mailbox (fun selected ->
-      Imap_eio.Selected.uid_search_page selected ~criteria:Imap.Search.All) with
+      Result.bind (Imap_eio.Selected.Messagelimit.require selected)
+        (fun limit -> Imap_eio.Selected.Messagelimit.uid_search_page limit
+          ~criteria:Imap.Search.All)) with
     | Error (E.Protocol _) -> () | _ -> failwith "missing page treated as complete")
 
 let test_copy_correspondence () =

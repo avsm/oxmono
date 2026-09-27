@@ -232,7 +232,9 @@ let test_idle_fragmented () =
   let auth = Imap_eio.Auth.password ~username:"user" ~password:"pw" ~allow_insecure_transport:true () in
   let client = ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   let updates = ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only
-    "INBOX" Imap_eio.Selected.wait_for_change) in
+    "INBOX" (fun selected ->
+      Result.bind (Imap_eio.Selected.Idle.require selected)
+        Imap_eio.Selected.Idle.wait_for_change)) in
   (match updates with
    | [Imap.Response.Untagged (Imap.Response.Exists 1L)] -> ()
    | _ -> failwith "fragmented IDLE response lost");
@@ -332,8 +334,10 @@ let test_changes_messagelimit_resume () =
   let since=match Imap.Modseq.of_int64 5L with
     | Ok value -> value | Error message -> failwith message in
   let rows=ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
-    (fun selected -> Imap_eio.Selected.fetch_changes_range selected
-      ~first:(u 1L) ~last:(u 3L) ~since)) in
+    (fun selected ->
+      Result.bind (Imap_eio.Selected.Condstore.require selected)
+        (fun condstore -> Imap_eio.Selected.Condstore.fetch_changes_range
+          condstore ~first:(u 1L) ~last:(u 3L) ~since))) in
   if List.map (fun (row:Imap.Response.fetch) -> row.uid) rows<>
       [Some 1L;Some 3L] then
     failwith "MESSAGELIMIT CHANGEDSINCE continuation lost changes";
@@ -358,8 +362,10 @@ let test_changes_messagelimit_missing_boundary () =
   let since=match Imap.Modseq.of_int64 5L with
     | Ok value -> value | Error message -> failwith message in
   match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
-    (fun selected -> Imap_eio.Selected.fetch_changes_range selected
-      ~first:(u 1L) ~last:(u 3L) ~since) with
+    (fun selected ->
+      Result.bind (Imap_eio.Selected.Condstore.require selected)
+        (fun condstore -> Imap_eio.Selected.Condstore.fetch_changes_range
+          condstore ~first:(u 1L) ~last:(u 3L) ~since)) with
   | Error (Imap_eio.Error.Limit _) -> ()
   | Error error -> failwith ("wrong CHANGEDSINCE boundary error: " ^
       Imap_eio.Client.error_to_string error)
@@ -438,25 +444,29 @@ let test_extension_wrappers () =
   ];
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw" ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  let acl=ok (Imap_eio.Client.get_acl client ~mailbox:"INBOX") in
+  let acl_ops=ok (Imap_eio.Client.Acl.require client) in
+  let quota=ok (Imap_eio.Client.Quota.require client) in
+  let metadata_ops=ok (Imap_eio.Client.Metadata.require client) in
+  let notify=ok (Imap_eio.Client.Notify.require client) in
+  let acl=ok (Imap_eio.Client.Acl.get_acl acl_ops ~mailbox:"INBOX") in
   if acl.entries<>["alice","lr"] then failwith "ACL wrapper lost entries";
-  let mapping,quotas=ok (Imap_eio.Client.get_quota_root client
+  let mapping,quotas=ok (Imap_eio.Client.Quota.get_quota_root quota
     ~mailbox:"INBOX") in
   if mapping.roots<>["#user/alice"] || List.length quotas<>1 ||
      (List.hd quotas).root<>"#user/alice" then
     failwith "QUOTAROOT wrapper accepted unrelated QUOTA";
-  let metadata=ok (Imap_eio.Client.get_metadata client ~mailbox:"INBOX"
-    ~entries:["/shared/comment"] ~maxsize:1024L ()) in
+  let metadata=ok (Imap_eio.Client.Metadata.get_metadata metadata_ops
+    ~mailbox:"INBOX" ~entries:["/shared/comment"] ~maxsize:1024L ()) in
   if metadata.longentries<>Some 2000L ||
      List.length metadata.responses<>1 then
     failwith "METADATA truncation receipt lost";
-  let statuses=ok (Imap_eio.Client.notify_set client ~status:true
+  let statuses=ok (Imap_eio.Client.Notify.notify_set notify ~status:true
     ~groups:[Imap.Notify.Inboxes,
              [Imap.Notify.Message_new;Imap.Notify.Message_expunge]] ()) in
   if List.length statuses<>1 then failwith "NOTIFY STATUS receipt lost";
-  ignore (ok (Imap_eio.Client.set_acl client ~mailbox:"INBOX"
+  ignore (ok (Imap_eio.Client.Acl.set_acl acl_ops ~mailbox:"INBOX"
     ~identifier:"alice" ~operation:`Add ~rights:"w"));
-  ignore (ok (Imap_eio.Client.notify_none client));
+  ignore (ok (Imap_eio.Client.Notify.notify_none notify));
   Imap_eio.Client.close client
 
 let test_acl_mutation_uncertain () =
@@ -472,7 +482,8 @@ let test_acl_mutation_uncertain () =
   ];
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw" ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  match Imap_eio.Client.set_acl client ~mailbox:"INBOX"
+  let acl=ok (Imap_eio.Client.Acl.require client) in
+  match Imap_eio.Client.Acl.set_acl acl ~mailbox:"INBOX"
     ~identifier:"alice" ~operation:`Add ~rights:"w" with
   | Error (Imap_eio.Error.Uncertain _) -> ()
   | Error e -> failwith ("wrong SETACL failure: " ^
@@ -499,17 +510,18 @@ let test_selected_notify () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   ignore (ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected ->
+      let notify=ok (Imap_eio.Selected.Notify.require selected) in
       let groups=[Imap.Notify.Selected,
         [Imap.Notify.Message_new;Imap.Notify.Message_expunge]] in
-      let statuses=ok (Imap_eio.Selected.notify_set selected ~status:true
-        ~groups ()) in
+      let statuses=ok (Imap_eio.Selected.Notify.notify_set notify
+        ~status:true ~groups ()) in
       if List.length statuses<>1 then failwith "selected NOTIFY STATUS lost";
-      (match Imap_eio.Selected.notify_set selected ~groups () with
+      (match Imap_eio.Selected.Notify.notify_set notify ~groups () with
        | Error (Imap_eio.Error.Limit _) -> ()
        | Error e -> failwith ("wrong NOTIFY overflow error: " ^
            Imap_eio.Client.error_to_string e)
        | Ok _ -> failwith "notification overflow accepted");
-      Imap_eio.Selected.notify_none selected)));
+      Imap_eio.Selected.Notify.notify_none notify)));
   Imap_eio.Client.close client
 
 let test_discovery () =
@@ -625,18 +637,20 @@ let test_uidonly_partial_batches () =
   ];
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw" ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  ignore (ok (Imap_eio.Client.enable_uidonly client));
+  ignore (ok (Imap_eio.Client.Uidonly.enable client));
   ignore (ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected ->
+      let partial=ok (Imap_eio.Selected.Partial.require selected) in
+      let uidbatches=ok (Imap_eio.Selected.Uidbatches.require selected) in
       (match Imap_eio.Selected.uid_search selected
           ~criteria:(Imap.Search.Raw "1:3") with
        | Error (Imap_eio.Error.State _) -> ()
        | _ -> failwith "UIDONLY accepted sequence SEARCH key");
-      let page=ok (Imap_eio.Selected.uid_search_partial selected
+      let page=ok (Imap_eio.Selected.Partial.uid_search_partial partial
         ~range:(1L,2L) ~criteria:Imap.Search.All) in
       if page.partial<>Some ("1:2",Some "99") then
         failwith "PARTIAL ESEARCH page lost";
-      let rows=ok (Imap_eio.Selected.uid_fetch_partial selected
+      let rows=ok (Imap_eio.Selected.Partial.uid_fetch_partial partial
         ~set:(uid_set "1:99") ~items:[Imap.Fetch_item.Flags]
         ~range:(1L,2L)) in
       (match rows with
@@ -644,9 +658,11 @@ let test_uidonly_partial_batches () =
          when raw_list [uid]=[99L] &&
               Mail_flag.Imap_flag.to_wire flag="\\Seen" -> ()
        | _ -> failwith "UIDFETCH page lost");
-      let batches=ok (Imap_eio.Selected.uid_batches selected ~size:500L ()) in
+      let batches=ok (Imap_eio.Selected.Uidbatches.uid_batches uidbatches
+        ~size:500L ()) in
       if batches.ranges<>[99L,1L] then failwith "UIDBATCHES lost";
-      (match Imap_eio.Selected.uid_batches selected ~size:500L () with
+      (match Imap_eio.Selected.Uidbatches.uid_batches uidbatches
+          ~size:500L () with
        | Error (Imap_eio.Error.State _) -> ()
        | _ -> failwith "UIDBATCHES reissue was not gated");
       Ok ())));
@@ -700,7 +716,10 @@ let test_mutation_messagelimit_no () =
         if copy then
           Result.map (fun _ -> ())
             (Imap_eio.Selected.uid_copy selected ~set ~mailbox:"Archive")
-        else Imap_eio.Selected.uid_expunge selected ~set) in
+        else
+          Result.bind (Imap_eio.Selected.Uidplus.require selected)
+            (fun uidplus -> Imap_eio.Selected.Uidplus.uid_expunge uidplus
+              ~set)) in
     (match outcome,uncertain with
      | Error (Imap_eio.Error.Uncertain reason),true ->
          if reason <> "server reported a partial mutation with MESSAGELIMIT" then
@@ -739,12 +758,13 @@ let test_search_messagelimit_resume () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   ignore (ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected ->
-      let first=ok (Imap_eio.Selected.uid_search_page selected
+      let limit=ok (Imap_eio.Selected.Messagelimit.require selected) in
+      let first=ok (Imap_eio.Selected.Messagelimit.uid_search_page limit
         ~criteria:Imap.Search.All) in
       if first.complete || raw_list first.uids<>[2L;3L] ||
          Option.map Imap.Uid.to_int64 first.resume_before<>Some 2L then
         failwith "MESSAGELIMIT continuation lost";
-      let second=ok (Imap_eio.Selected.uid_search_page selected
+      let second=ok (Imap_eio.Selected.Messagelimit.uid_search_page limit
         ~before:(u 2L) ~criteria:Imap.Search.All) in
       if not second.complete || raw_list second.uids<>[1L] then
         failwith "MESSAGELIMIT continuation wrong";
@@ -767,7 +787,7 @@ let test_uidonly_rejects_sequence_updates () =
   ];
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw" ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  ignore (ok (Imap_eio.Client.enable_uidonly client));
+  ignore (ok (Imap_eio.Client.Uidonly.enable client));
   match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.fetch_range selected
       ~first:(u 1L) ~last:(u 9L) ~items:[]) with
@@ -983,15 +1003,15 @@ let test_objectid_plus_activation () =
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw"
     ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  ok (Imap_eio.Client.enable_objectid_plus client);
+  let objectid=ok (Imap_eio.Client.Objectid_plus.enable client) in
   if not (Imap_eio.Client.is_enabled client Imap.Capability.Objectid_plus)
   then failwith "OBJECTID+ activation not retained";
   let created=ok
-    (Imap_eio.Client.create_mailbox_objectid client ~mailbox:"Draft") in
+    (Imap_eio.Client.Objectid_plus.create_mailbox objectid ~mailbox:"Draft") in
   (match created with
    | {account_id=Some "u_account";mailbox_id=Some "F_created";_} -> ()
    | _ -> failwith "CREATE compound receipt missing");
-  let renamed=ok (Imap_eio.Client.rename_mailbox_objectid client
+  let renamed=ok (Imap_eio.Client.Objectid_plus.rename_mailbox objectid
     ~old_name:"Draft" ~new_name:"Renamed") in
   (match renamed with
    | {account_id=Some "u_account";mailbox_id=Some "F_created";_} -> ()
@@ -1033,7 +1053,7 @@ let test_objectid_plus_fallback_refused () =
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw"
     ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  ok (Imap_eio.Client.enable_objectid_plus client);
+  ignore (ok (Imap_eio.Client.Objectid_plus.enable client));
   let called=ref false in
   (match Imap_eio.Client.with_mailbox client
     ~objectid:("u_account","F_expected") ~mode:`Read_only "INBOX"
@@ -1062,8 +1082,9 @@ let test_objectid_plus_missing_mutation_receipt () =
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw"
     ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  ok (Imap_eio.Client.enable_objectid_plus client);
-  (match Imap_eio.Client.create_mailbox_objectid client ~mailbox:"Draft" with
+  let objectid=ok (Imap_eio.Client.Objectid_plus.enable client) in
+  (match Imap_eio.Client.Objectid_plus.create_mailbox objectid
+      ~mailbox:"Draft" with
    | Error (Imap_eio.Error.Uncertain _) -> ()
    | Error error -> failwith ("wrong missing receipt error: " ^
        Imap_eio.Client.error_to_string error)
@@ -1086,8 +1107,8 @@ let test_objectid_plus_pinned_append_guard () =
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw"
     ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  ok (Imap_eio.Client.enable_objectid_plus client);
-  ok (Imap_eio.Client.pin_mailbox_objectid client ~mailbox:"INBOX"
+  let objectid=ok (Imap_eio.Client.Objectid_plus.enable client) in
+  ok (Imap_eio.Client.Objectid_plus.pin_mailbox objectid ~mailbox:"INBOX"
     ~account_id:"u_account" ~mailbox_id:"F_expected");
   (match Imap_eio.Client.append client ~mailbox:"INBOX"
     (Imap_eio.Client.append_message ~length:0L

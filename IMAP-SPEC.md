@@ -2148,9 +2148,10 @@ bridge-fault cases pass. Log: `/tmp/imap-dotlock-lifetime-final.log`.
 
 ### RFC 3502 MULTIAPPEND checkpoint
 
-`Client.append_message` describes borrowed streams and `Client.append_many`
-streams 1..1000 nonempty messages with per-message flags and INTERNALDATE under
-one connection lock. Multiple messages require MULTIAPPEND; no sequential
+`Client.append_message` describes borrowed streams and
+`Client.Multiappend.append_many` streams 1..1000 nonempty messages with
+per-message flags and INTERNALDATE under one connection lock. Its witness
+requires MULTIAPPEND; no sequential
 fallback weakens atomicity. Every argument is validated before APPEND dispatch,
 with 1 MiB total syntax and bounded per-argument syntax. The existing OBJECTID+
 destination guard applies before mutation. Single and batch APPEND share one

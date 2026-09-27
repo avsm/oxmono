@@ -205,9 +205,6 @@ let close t =
   Session.close t.session
 let is_open t = not t.session.Session.closed
 
-let compress_deflate t =
-  Session.locked t.session (fun () -> Session.compress_deflate t.session)
-
 let enable t capabilities =
   Session.locked t.session (fun () -> enable_session t.session capabilities)
 
@@ -219,16 +216,12 @@ let enable_mode t capability =
       fail (Session.Protocol
         (name ^ " ENABLE completed without ENABLED " ^ name)))
 
-let enable_uidonly t = enable_mode t Cap.Uidonly
-let enable_objectid_plus t = enable_mode t Cap.Objectid_plus
-
 let pinned t mailbox =
   List.find_opt (fun (name,_) -> same_mailbox name mailbox) t.objectid_pins
   |> Option.map snd
 
 let pin_mailbox_objectid t ~mailbox ~account_id ~mailbox_id =
   Session.locked t.session (fun () ->
-    Session.require_enabled t.session Cap.Objectid_plus;
     if Option.is_some t.session.Session.selected then
       raise (Session.Failure (Session.State
         "cannot pin OBJECTID+ during a selected lease"));
@@ -285,9 +278,6 @@ type discovery = {
 
 let has_quota session = Session.has session Cap.Quota ||
   Cap.quota_resources session.Session.capabilities <> []
-
-let require_quota session =
-  if not (has_quota session) then fail (Session.Unsupported Cap.Quota)
 
 (* RFC 7162 ties HIGHESTMODSEQ to CONDSTORE, RFC 8474 ties MAILBOXID to
    OBJECTID, RFC 8438 and RFC 9051 define SIZE, RFC 9051 defines DELETED and
@@ -374,7 +364,6 @@ let get_jmap_access t =
 
 let get_acl t ~mailbox =
   Session.locked t.session (fun () ->
-    Session.require t.session Cap.Acl;
     let mailbox = mailbox_wire t.session mailbox in
     Session.command t.session (syntax (Imap.Command.getacl ~mailbox))
     |> List.filter_map (function
@@ -385,7 +374,6 @@ let get_acl t ~mailbox =
 
 let list_rights t ~mailbox ~identifier =
   Session.locked t.session (fun () ->
-    Session.require t.session Cap.Acl;
     let mailbox = mailbox_wire t.session mailbox in
     Session.command t.session
       (syntax (Imap.Command.listrights ~mailbox ~identifier))
@@ -397,7 +385,6 @@ let list_rights t ~mailbox ~identifier =
 
 let my_rights t ~mailbox =
   Session.locked t.session (fun () ->
-    Session.require t.session Cap.Acl;
     let mailbox = mailbox_wire t.session mailbox in
     Session.command t.session (syntax (Imap.Command.myrights ~mailbox))
     |> List.filter_map (function
@@ -408,21 +395,18 @@ let my_rights t ~mailbox =
 
 let set_acl t ~mailbox ~identifier ~operation ~rights =
   Session.locked t.session (fun () ->
-    Session.require t.session Cap.Acl;
     let mailbox=mailbox_wire t.session mailbox in
     ignore (Session.command ~mutation:true t.session
       (syntax (Imap.Command.setacl ~mailbox ~identifier ~operation ~rights))))
 
 let delete_acl t ~mailbox ~identifier =
   Session.locked t.session (fun () ->
-    Session.require t.session Cap.Acl;
     let mailbox=mailbox_wire t.session mailbox in
     ignore (Session.command ~mutation:true t.session
       (syntax (Imap.Command.deleteacl ~mailbox ~identifier))))
 
 let get_quota t ~root =
   Session.locked t.session (fun () ->
-    require_quota t.session;
     Session.command t.session (syntax (Imap.Command.getquota ~root))
     |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Quota x)
@@ -432,7 +416,6 @@ let get_quota t ~root =
 
 let get_quota_root t ~mailbox =
   Session.locked t.session (fun () ->
-    require_quota t.session;
     let mailbox=mailbox_wire t.session mailbox in
     let responses=Session.command t.session
       (syntax (Imap.Command.getquotaroot ~mailbox)) in
@@ -460,12 +443,9 @@ let set_quota t ~root ~limits =
     | _ -> raise (Session.Failure (Session.Protocol
         "duplicate SETQUOTA response")))
 
+(* RFC 5464 lets a METADATA-SERVER witness reach server annotations only. *)
 let metadata_capability session mailbox =
-  if mailbox="" then (
-    if not (Session.has session Cap.Metadata ||
-            Session.has session Cap.Metadata_server) then
-      fail (Session.Unsupported Cap.Metadata_server))
-  else Session.require session Cap.Metadata
+  if mailbox<>"" then Session.require session Cap.Metadata
 
 type metadata_result = {
   responses : Imap.Response.metadata list;
@@ -498,7 +478,6 @@ let set_metadata t ~mailbox ~values =
 
 let notify_set t ?(status=false) ~groups () =
   Session.locked t.session (fun () ->
-    Session.require t.session Cap.Notify;
     if List.exists (fun (filter,_) -> Imap.Notify.is_selected filter) groups
     then
       raise (Session.Failure (Session.State
@@ -517,7 +496,6 @@ let notify_set t ?(status=false) ~groups () =
 
 let notify_none t =
   Session.locked t.session (fun () ->
-    Session.require t.session Cap.Notify;
     ignore (Session.command ~mutation:true t.session Imap.Command.notify_none))
 
 let mailbox_mutation t command =
@@ -529,7 +507,6 @@ let create_mailbox t ~mailbox =
     Imap.Command.create ~mailbox:(mailbox_wire t.session mailbox))
 
 let objectid_mutation_receipt t syntax =
-  Session.require_enabled t.session Cap.Objectid_plus;
   let result=Session.command_result ~mutation:true t.session syntax in
   match result.completion with
   | Imap.Response.Tagged {status=`Ok;
@@ -762,7 +739,6 @@ let append_many t ~mailbox messages =
     let count=List.length messages in
     let state message=raise (Session.Failure (Session.State message)) in
     if count=0 || count>1000 then state "MULTIAPPEND requires 1..1000 messages";
-    if count>1 then Session.require t.session Cap.Multiappend;
     let capabilities=t.session.Session.capabilities in
     if List.exists Cap.malformed_limit (Cap.Set.to_list capabilities) then
       fail (Session.Protocol "invalid advertised APPEND message limit");
@@ -784,3 +760,69 @@ let append_many t ~mailbox messages =
       part) messages in
     check_append_destination t ~mailbox;
     appended_uids t ~count (Session.append_many t.session parts))
+
+let require t capability =
+  if Session.has t.session capability then Ok t
+  else Error (Session.Unsupported capability)
+
+module Acl = struct
+  type nonrec t = t
+  let require t = require t Cap.Acl
+  let get_acl = get_acl
+  let list_rights = list_rights
+  let my_rights = my_rights
+  let set_acl = set_acl
+  let delete_acl = delete_acl
+end
+
+module Quota = struct
+  type nonrec t = t
+  let require t =
+    if has_quota t.session then Ok t else Error (Session.Unsupported Cap.Quota)
+  let get_quota = get_quota
+  let get_quota_root = get_quota_root
+  let set_quota = set_quota
+end
+
+module Metadata = struct
+  type nonrec t = t
+  let require t =
+    if Session.has t.session Cap.Metadata then Ok t
+    else require t Cap.Metadata_server
+  let get_metadata = get_metadata
+  let set_metadata = set_metadata
+end
+
+module Notify = struct
+  type nonrec t = t
+  let require t = require t Cap.Notify
+  let notify_set = notify_set
+  let notify_none = notify_none
+end
+
+module Multiappend = struct
+  type nonrec t = t
+  let require t = require t Cap.Multiappend
+  let append_many = append_many
+end
+
+module Compress = struct
+  type nonrec t = t
+  let require t = require t (Cap.Compress `Deflate)
+  let activate t =
+    Session.locked t.session (fun () -> Session.compress_deflate t.session)
+end
+
+module Objectid_plus = struct
+  type nonrec t = t
+  let enable t = Result.map (fun () -> t) (enable_mode t Cap.Objectid_plus)
+  let pin_mailbox = pin_mailbox_objectid
+  let create_mailbox = create_mailbox_objectid
+  let rename_mailbox = rename_mailbox_objectid
+  let status = status
+end
+
+module Uidonly = struct
+  type nonrec t = t
+  let enable t = Result.map (fun () -> t) (enable_mode t Cap.Uidonly)
+end

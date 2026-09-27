@@ -48,12 +48,14 @@ let scripted ?(caps="IMAP4rev1 BINARY UNSELECT") ?revision ?(uidonly=false)
   let auth=Imap_eio.Auth.password ~username:"u" ~password:"p"
     ~allow_insecure_transport:true () in
   let client=ok (C.of_flow ~sw ~auth flow) in
-  if uidonly then ignore (ok (C.enable_uidonly client));
+  if uidonly then ignore (ok (C.Uidonly.enable client));
   Fun.protect ~finally:(fun () -> C.close client) (fun () ->
     C.with_mailbox client ~mode:`Read_only "INBOX" f)
 
 let fetch ?max_bytes ?partial selected sink =
-  S.fetch_binary_to selected ?max_bytes ?partial ~uid:(u 7L) ~section:[2] sink
+  Result.bind (S.Binary.require selected) (fun binary ->
+    S.Binary.fetch_binary_to binary ?max_bytes ?partial ~uid:(u 7L)
+      ~section:[2] sink)
 let fetch_reply fields n = [`Return ("* 1 FETCH (UID 7 " ^ fields ^ ")\r\n" ^ done_ n)]
 let check_value label expected bytes fields =
   let sink=Buffer.create 16 in

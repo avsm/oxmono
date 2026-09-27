@@ -285,8 +285,12 @@ let delete_remote ~client ~store ~maildir ~mailbox (pair:J.pair) ~epoch
                 let* remote_flags=match before with
                   | Some (flags,Some current) when current=modseq -> Ok flags
                   | _ -> Error Identity_changed in
-                match Imap_eio.Selected.uid_store_flags selected ~set
-                    ~operation:`Add ~flags:[deleted] ~unchangedsince:modseq ()
+                let* condstore=network
+                  (Imap_eio.Selected.Condstore.require selected) in
+                let* uidplus=network
+                  (Imap_eio.Selected.Uidplus.require selected) in
+                match Imap_eio.Selected.Condstore.uid_store_flags condstore
+                    ~set ~operation:`Add ~flags:[deleted] ~unchangedsince:modseq
                 with
                 | Error error -> Ok (`Store_failed error)
                 | Ok receipt when Imap.Uid_set.mem uid receipt.modified ->
@@ -305,7 +309,8 @@ let delete_remote ~client ~store ~maildir ~mailbox (pair:J.pair) ~epoch
                           "target changed after conditional STORE; \
                            EXPUNGE not sent")
                     | Ok _ ->
-                        match Imap_eio.Selected.uid_expunge selected ~set with
+                        match Imap_eio.Selected.Uidplus.uid_expunge uidplus
+                            ~set with
                         | Error error -> Ok (`Expunge_failed error)
                         | Ok () ->
                             match remote_metadata selected ~epoch ~uid
@@ -624,8 +629,10 @@ let finish_marked_remote_delete ~client ~store ~maildir ~scope
                   match before with
                   | Some (flags,Some current) when current=modseq &&
                       same_flags flags expected ->
+                      let* uidplus=network
+                        (Imap_eio.Selected.Uidplus.require selected) in
                       let* ()=network
-                        (Imap_eio.Selected.uid_expunge selected ~set) in
+                        (Imap_eio.Selected.Uidplus.uid_expunge uidplus ~set) in
                       let* target=remote_metadata selected ~epoch ~uid
                         ~modseq:false in
                       Ok (target=None)

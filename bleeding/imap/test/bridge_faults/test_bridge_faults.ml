@@ -263,8 +263,8 @@ let test_objectid_binding_guards_reconnect () =
     (Imap_store.load_cursor store ~scope).revision;
   let append_client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
-  (match Imap_eio.Client.enable_objectid_plus append_client with
-   | Ok () -> ()
+  (match Imap_eio.Client.Objectid_plus.enable append_client with
+   | Ok _ -> ()
    | Error error -> Alcotest.fail
        (Imap_eio.Client.error_to_string error));
   (match Imap_sync.Engine.append_journaled ~client:append_client ~store ~scope

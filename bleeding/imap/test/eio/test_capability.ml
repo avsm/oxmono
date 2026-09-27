@@ -57,7 +57,8 @@ let test_move_needs_capability () =
     (fun client written ->
       ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
         let before = Buffer.length written in
-        (match S.uid_move selected ~set:(uid_set "1") ~mailbox:"Archive" with
+        (match Result.bind (S.Move.require selected) (fun move ->
+           S.Move.uid_move move ~set:(uid_set "1") ~mailbox:"Archive") with
          | Error (E.Unsupported Cap.Move) -> ()
          | Error e -> failwith ("rev1 MOVE: " ^ C.error_to_string e)
          | Ok _ -> failwith "rev1 MOVE without the capability was sent");
@@ -79,7 +80,8 @@ let test_move_folded_into_rev2 () =
       if C.has client Cap.Binary then
         failwith "IMAP4rev2 implied BINARY";
       ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
-        match S.uid_move selected ~set:(uid_set "1") ~mailbox:"Archive" with
+        match Result.bind (S.Move.require selected) (fun move ->
+          S.Move.uid_move move ~set:(uid_set "1") ~mailbox:"Archive") with
         | Ok (Some _) -> Ok ()
         | Ok None -> failwith "COPYUID receipt lost"
         | Error e -> failwith ("rev2 MOVE: " ^ C.error_to_string e)));

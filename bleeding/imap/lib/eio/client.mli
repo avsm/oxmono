@@ -20,16 +20,8 @@ val enabled : t -> Imap.Capability.Set.t
 val has : t -> Imap.Capability.t -> bool
 val is_enabled : t -> Imap.Capability.t -> bool
 val is_open : t -> bool
-val compress_deflate : t -> (unit, error) result
 val enable : t -> Imap.Capability.t list ->
   (Imap.Capability.t list, error) result
-val enable_uidonly : t -> (unit, error) result
-val enable_objectid_plus : t -> (unit, error) result
-
-val pin_mailbox_objectid : t -> mailbox:string -> account_id:string ->
-  mailbox_id:string -> (unit, error) result
-(** [pin_mailbox_objectid t ~mailbox ~account_id ~mailbox_id] makes later
-    selections and APPENDs of [mailbox] on [t] verify that identity. *)
 
 type mailbox_entry = {
   name : Imap.Mailbox_name.t;
@@ -55,42 +47,16 @@ val mailbox_mode : t -> Imap.Mailbox_name.mode
 val status : t -> mailbox:string -> items:Imap.Status_item.t list ->
   (Imap.Response.mailbox_status, error) result
 val get_jmap_access : t -> (string, error) result
-val get_acl : t -> mailbox:string -> (Imap.Response.acl, error) result
-val list_rights : t -> mailbox:string -> identifier:string ->
-  (Imap.Response.list_rights, error) result
-val my_rights : t -> mailbox:string -> (Imap.Response.my_rights, error) result
-val set_acl : t -> mailbox:string -> identifier:string ->
-  operation:[ `Add | `Remove | `Replace ] -> rights:string ->
-  (unit, error) result
-val delete_acl : t -> mailbox:string -> identifier:string ->
-  (unit, error) result
-val get_quota : t -> root:string -> (Imap.Response.quota, error) result
-val get_quota_root : t -> mailbox:string ->
-  ((Imap.Response.quota_root * Imap.Response.quota list), error) result
-val set_quota : t -> root:string -> limits:(string * int64) list ->
-  (Imap.Response.quota option, error) result
 
 type metadata_result = {
   responses : Imap.Response.metadata list;
   longentries : int64 option;
 }
 
-val get_metadata : t -> mailbox:string -> entries:string list ->
-  ?maxsize:int64 -> ?depth:Imap.Metadata.depth -> unit ->
-  (metadata_result, error) result
-val set_metadata : t -> mailbox:string ->
-  values:(string * string option) list -> (unit, error) result
-val notify_set : t -> ?status:bool -> groups:Imap.Notify.group list ->
-  unit -> (Imap.Response.mailbox_status list, error) result
-val notify_none : t -> (unit, error) result
 val create_mailbox : t -> mailbox:string -> (unit, error) result
-val create_mailbox_objectid : t -> mailbox:string ->
-  (Imap.Response.compound_object_id, error) result
 val delete_mailbox : t -> mailbox:string -> (unit, error) result
 val rename_mailbox : t -> old_name:string -> new_name:string ->
   (unit, error) result
-val rename_mailbox_objectid : t -> old_name:string -> new_name:string ->
-  (Imap.Response.compound_object_id, error) result
 val subscribe_mailbox : t -> mailbox:string -> (unit, error) result
 val unsubscribe_mailbox : t -> mailbox:string -> (unit, error) result
 
@@ -125,10 +91,96 @@ type multiappend_receipt = {
   uids : Imap.Uid.t list;
 }
 
-val append_many : t -> mailbox:string -> append_message list ->
-  (multiappend_receipt option, error) result
-(** [append_many t ~mailbox messages] sends [messages] as one RFC 3502
-    atomic APPEND. *)
-
 val noop : t -> (Imap.Response.t list, error) result
 val logout : t -> (unit, error) result
+
+(** Each submodule's [t] is a witness that its extension is usable on one
+    connection. *)
+
+module Acl : sig
+  type client := t
+  type t
+  val require : client -> (t, error) result
+  val get_acl : t -> mailbox:string -> (Imap.Response.acl, error) result
+  val list_rights : t -> mailbox:string -> identifier:string ->
+    (Imap.Response.list_rights, error) result
+  val my_rights : t -> mailbox:string ->
+    (Imap.Response.my_rights, error) result
+  val set_acl : t -> mailbox:string -> identifier:string ->
+    operation:[ `Add | `Remove | `Replace ] -> rights:string ->
+    (unit, error) result
+  val delete_acl : t -> mailbox:string -> identifier:string ->
+    (unit, error) result
+end
+
+module Quota : sig
+  type client := t
+  type t
+  val require : client -> (t, error) result
+  val get_quota : t -> root:string -> (Imap.Response.quota, error) result
+  val get_quota_root : t -> mailbox:string ->
+    ((Imap.Response.quota_root * Imap.Response.quota list), error) result
+  val set_quota : t -> root:string -> limits:(string * int64) list ->
+    (Imap.Response.quota option, error) result
+end
+
+module Metadata : sig
+  type client := t
+  type t
+  val require : client -> (t, error) result
+  val get_metadata : t -> mailbox:string -> entries:string list ->
+    ?maxsize:int64 -> ?depth:Imap.Metadata.depth -> unit ->
+    (metadata_result, error) result
+  val set_metadata : t -> mailbox:string ->
+    values:(string * string option) list -> (unit, error) result
+end
+
+module Notify : sig
+  type client := t
+  type t
+  val require : client -> (t, error) result
+  val notify_set : t -> ?status:bool -> groups:Imap.Notify.group list ->
+    unit -> (Imap.Response.mailbox_status list, error) result
+  val notify_none : t -> (unit, error) result
+end
+
+module Multiappend : sig
+  type client := t
+  type t
+  val require : client -> (t, error) result
+  val append_many : t -> mailbox:string -> append_message list ->
+    (multiappend_receipt option, error) result
+  (** [append_many t ~mailbox messages] sends [messages] as one RFC 3502
+      atomic APPEND. *)
+end
+
+module Compress : sig
+  type client := t
+  type t
+  val require : client -> (t, error) result
+  val activate : t -> (unit, error) result
+end
+
+module Objectid_plus : sig
+  type client := t
+  type t
+  val enable : client -> (t, error) result
+  val pin_mailbox : t -> mailbox:string -> account_id:string ->
+    mailbox_id:string -> (unit, error) result
+  (** [pin_mailbox t ~mailbox ~account_id ~mailbox_id] makes later
+      selections and APPENDs of [mailbox] on the connection verify that
+      identity. *)
+
+  val create_mailbox : t -> mailbox:string ->
+    (Imap.Response.compound_object_id, error) result
+  val rename_mailbox : t -> old_name:string -> new_name:string ->
+    (Imap.Response.compound_object_id, error) result
+  val status : t -> mailbox:string -> items:Imap.Status_item.t list ->
+    (Imap.Response.mailbox_status, error) result
+end
+
+module Uidonly : sig
+  type client := t
+  type t
+  val enable : client -> (t, error) result
+end

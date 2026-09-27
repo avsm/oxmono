@@ -102,14 +102,17 @@ let test_protocol () =
   if Sys.getenv_opt "IMAP_STALWART_OBJECTID_PLUS_REQUIRED"=Some "1" &&
       not objectid_plus then
     Alcotest.fail "OBJECTID+ required but not advertised";
-  if objectid_plus then unwrap (Client.enable_objectid_plus client);
-  let objectid=if objectid_plus then (
-    let ids=unwrap (Client.create_mailbox_objectid client ~mailbox) in
-    match ids with
-    | {account_id=Some account_id;mailbox_id=Some mailbox_id;_} ->
-        Some (account_id,mailbox_id)
-    | _ -> Alcotest.fail "OBJECTID+ CREATE omitted account/mailbox context")
-    else (unwrap (Client.create_mailbox client ~mailbox); None) in
+  let objectid_ops=if objectid_plus then
+    Some (unwrap (Client.Objectid_plus.enable client)) else None in
+  let objectid=match objectid_ops with
+    | Some ops -> (
+        let ids=unwrap (Client.Objectid_plus.create_mailbox ops ~mailbox) in
+        match ids with
+        | {account_id=Some account_id;mailbox_id=Some mailbox_id;_} ->
+            Some (account_id,mailbox_id)
+        | _ -> Alcotest.fail
+            "OBJECTID+ CREATE omitted account/mailbox context")
+    | None -> unwrap (Client.create_mailbox client ~mailbox); None in
   if objectid_plus then (
     let status=unwrap (Client.status client ~mailbox
       ~items:[Imap.Status_item.Objectid]) in
@@ -117,11 +120,11 @@ let test_protocol () =
     | Some {account_id=Some account_id;mailbox_id=Some mailbox_id;_}
       when objectid=Some (account_id,mailbox_id) -> ()
     | _ -> Alcotest.fail "OBJECTID+ STATUS omitted account/mailbox context");
-  if objectid_plus then (
+  Option.iter (fun ops ->
     let source=mailbox ^ "-rename-source" in
     let target=mailbox ^ "-rename-target" in
-    ignore (unwrap (Client.create_mailbox_objectid client ~mailbox:source));
-    let renamed=unwrap (Client.rename_mailbox_objectid client
+    ignore (unwrap (Client.Objectid_plus.create_mailbox ops ~mailbox:source));
+    let renamed=unwrap (Client.Objectid_plus.rename_mailbox ops
       ~old_name:source ~new_name:target) in
     let status=unwrap (Client.status client ~mailbox:target
       ~items:[Imap.Status_item.Objectid]) in
@@ -129,7 +132,7 @@ let test_protocol () =
      | Some ids when ids.account_id=renamed.account_id &&
          ids.mailbox_id=renamed.mailbox_id -> ()
      | _ -> Alcotest.fail "OBJECTID+ RENAME receipt differs from STATUS");
-    unwrap (Client.delete_mailbox client ~mailbox:target));
+    unwrap (Client.delete_mailbox client ~mailbox:target)) objectid_ops;
   let body = raw (nonce ()) "protocol" in
   let receipt = unwrap (Client.append client ~mailbox
     (Client.append_message ~length:(Int64.of_int (String.length body))
@@ -176,12 +179,13 @@ let test_protocol () =
         | _ -> Alcotest.fail "missing CONDSTORE metadata" in
       let set = Imap.Uid_set.singleton receipt.uid in
       let seen = Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
-      let* conflict = Selected.uid_store_flags selected ~set
-        ~operation:`Add ~flags:[seen] ~unchangedsince:0L () in
+      let* condstore = Selected.Condstore.require selected in
+      let* conflict = Selected.Condstore.uid_store_flags condstore ~set
+        ~operation:`Add ~flags:[seen] ~unchangedsince:0L in
       Alcotest.(check bool) "CONDSTORE conflict" true
         (Imap.Uid_set.mem receipt.uid conflict.modified);
-      let* accepted = Selected.uid_store_flags selected ~set
-        ~operation:`Add ~flags:[seen] ~unchangedsince:modseq () in
+      let* accepted = Selected.Condstore.uid_store_flags condstore ~set
+        ~operation:`Add ~flags:[seen] ~unchangedsince:modseq in
       Alcotest.(check bool) "conditional STORE accepted" true
         (Imap.Uid_set.is_empty accepted.modified);
       Ok (info.uidvalidity, modseq))) in
@@ -318,8 +322,8 @@ let test_objectid_binding () =
   Alcotest.(check bool) "OBJECTID+ bound in SQLite" true
     (match Imap_store.object_identity store ~scope with
      | `Bound _ -> true | `Unbound | `Conflict -> false);
-  unwrap (Client.enable_objectid_plus mutator);
-  ignore (unwrap (Client.rename_mailbox_objectid mutator
+  let mutator_ops=unwrap (Client.Objectid_plus.enable mutator) in
+  ignore (unwrap (Client.Objectid_plus.rename_mailbox mutator_ops
     ~old_name:mailbox ~new_name:renamed));
   unwrap (Client.create_mailbox mutator ~mailbox);
   (match scan ("identity-replaced-" ^ n) with

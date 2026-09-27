@@ -3,6 +3,8 @@ module S=Imap_eio.Selected
 module E=Imap_eio.Error
 let ok=function Ok x -> x | Error e -> failwith (C.error_to_string e)
 let u n = match Imap.Uid.of_int64 n with Ok v -> v | Error e -> failwith e
+let compress client =
+  Result.bind (C.Compress.require client) C.Compress.activate
 let expect label kind=function
   | Error e when kind e -> ()
   | Error e -> failwith (label ^ ": " ^ C.error_to_string e)
@@ -94,9 +96,9 @@ let test_coalesced_and_fragmented () =
       List.init (String.length remaining) (fun i -> reply (String.make 1 remaining.[i]))
       else [reply remaining] in
     with_client ~queued_notice:true replies (fun client raw ->
-      ok (C.compress_deflate client);
+      ok (compress client);
       let written=Buffer.length raw.written in
-      expect "second COMPRESS" state (C.compress_deflate client);
+      expect "second COMPRESS" state (compress client);
       if Buffer.length raw.written<>written then failwith "second COMPRESS was sent";
       let sink=Buffer.create 1024 in
       ok (C.with_mailbox client ~mode:`Read_only "INBOX" (fun selected ->
@@ -118,7 +120,7 @@ let test_refusal_reusable () =
       (fun client raw ->
         expect "COMPRESS rejection code" (function
           | E.Rejected {code=actual;_} -> actual=code | _ -> false)
-          (C.compress_deflate client);
+          (compress client);
         ok (C.create_mailbox client ~mailbox:"Draft");
         if Buffer.contents raw.written<>
            "A00000004 COMPRESS DEFLATE\r\nA00000005 CREATE Draft\r\n" then
@@ -128,13 +130,13 @@ let test_refusal_reusable () =
   with_client ~caps:"IMAP4rev1 UNSELECT" [] (fun client raw ->
     expect "COMPRESS capability required"
       (unsupported (Imap.Capability.Compress `Deflate))
-      (C.compress_deflate client);
+      (compress client);
     if Buffer.length raw.written<>0 then failwith "unadvertised COMPRESS sent")
 
 let test_malformed_and_uncertain () =
   List.iter (fun mutation ->
     with_client [reply (done_ 4 ^ "\007")] (fun client raw ->
-      ok (C.compress_deflate client);
+      ok (compress client);
       if mutation then expect "compressed mutation remains uncertain" uncertain
           (C.create_mailbox client ~mailbox:"Draft")
       else expect "malformed compressed stream" (function
@@ -149,7 +151,7 @@ let test_cancelled_handshake () =
     (fun () -> Eio.Promise.resolve mark_entered ();Eio.Fiber.await_cancel ())]
     (fun client raw ->
       Eio.Fiber.first
-        (fun () -> ignore (C.compress_deflate client))
+        (fun () -> ignore (compress client))
         (fun () -> Eio.Promise.await entered);
       if C.is_open client || not raw.closed then failwith "cancelled compression stayed open";
       if Buffer.contents raw.written<>"A00000004 COMPRESS DEFLATE\r\n" then
@@ -157,7 +159,7 @@ let test_cancelled_handshake () =
   with_client [] (fun client raw ->
     C.close client;
     expect "closed compression" (function E.Closed -> true | _ -> false)
-      (C.compress_deflate client);
+      (compress client);
     if Buffer.length raw.written<>0 then failwith "closed compression wrote bytes")
 
 let test_decompressed_budget () =
@@ -185,7 +187,7 @@ let test_cancelled_compressed_read () =
   with_client [reply (done_ 4);
     (fun () -> Eio.Promise.resolve mark_entered ();Eio.Fiber.await_cancel ())]
     (fun client raw ->
-      ok (C.compress_deflate client);
+      ok (compress client);
       Eio.Fiber.first
         (fun () -> ignore (C.with_mailbox client ~mode:`Read_only "INBOX"
           (fun _ -> Ok ())))

@@ -89,7 +89,9 @@ let test_mixed_batch () =
       let first=String.make 4096 'a' and second=String.make 4097 'b' in
       let message text=C.append_message ~length:(Int64.of_int (String.length text))
         (Eio.Flow.string_source text) in
-      ignore (ok (C.append_many client ~mailbox:"INBOX" [message first;message second]));
+      let multiappend=ok (C.Multiappend.require client) in
+      ignore (ok (C.Multiappend.append_many multiappend ~mailbox:"INBOX"
+        [message first;message second]));
       if Buffer.contents transport.written<>
         "A00000004 APPEND INBOX {4096+}\r\n" ^ first ^ " {4097}\r\n" ^ second ^ "\r\n" then
         failwith "mixed batch framing changed")

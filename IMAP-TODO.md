@@ -1001,6 +1001,31 @@ balanced-quote guards the other FETCH extractors apply.
 
 #### Step 15: eio and store facades
 
+Eio. `lib/eio/imap_eio.mli` opens with the ownership contract (switch,
+expiring lease and witnesses, the nested-call `State`, cancellation
+closing the connection, `Uncertain` after dispatch) and the extension
+model, then `{1}` sections for credentials, errors, endpoints, leases,
+connections, the strategy layer and pools, and a `{2 Extensions}` section
+in `Selected` and `Client`. Every type, constructor where needed and
+`val` has its own doc read from the implementation, every optional
+argument states its default, and every witness submodule states its gate.
+The `Client` synopsis states the session bounds, 64 KiB per command line,
+10,000 untagged responses, 16 MiB per response and 64 MiB per command.
+`Transport.v`, `connect`, `of_flow`, `with_mailbox` and `Pool.create` gained
+their defaults and failure cases. With comments stripped the signature is
+byte-identical to the previous facade, and `-w +50` parsing is clean.
+
+Follow-ups where the code and the intended contract disagree, code
+unchanged:
+
+- `Selected.Uidbatches.uid_batches` records the mailbox before sending,
+  so a rejected request also refuses the next one for that mailbox, and it
+  remembers only the previous mailbox, so A, B, A reissues for A. The old
+  doc promised one request per mailbox per connection.
+- `Selected.Sort.uid_sort` and `Thread.uid_thread` report more than
+  100,000 UIDs as `Protocol`, from the response parser, while every ESEARCH
+  expansion over 100,000 is `Limit`.
+
 #### Step 15: sync, cli and pages
 
 Done: every public `.mli` under lib/sync opens with a synopsis and a
@@ -1161,7 +1186,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] client.ml:51 [redundant] ENABLED extraction appears five times at :51, :66, :76, :224 and :244; the three optional enables at :47, :62 and :72 and the two required enables at :214 and :234 differ only in name; the effective-rev2 test at :692 bypasses `revision_two`; syntax unwrapping is inlined at :96, :277, :288, :577, :603, :656 and :737 while `command_syntax` at :405 exists; `one_response` at :409 is rewritten in `namespace`, `status_locked` and `get_jmap_access`; the OBJECTID+ enabled check repeats at :257, :335, :368, :582 and :649; the pin lookup at :266, :637 and :710; `canonical` at :345 duplicates `same_mailbox` at :24; `begins` at :26 duplicates `String.starts_with`; the mechanism name is computed twice at :117 and :126; `connect` and `of_flow` handlers at :189 and :196 are identical; :702 is `Result.join`. (the OBJECTID+ enabled check is `Session.require_enabled` since step 2, and every other listed duplicate is factored)
 - [x] client.ml:763 [redundant] `append_flow` and `append_binary_flow` are one-line wrappers over `append_receipt ~binary`; `append_messages` at :793 duplicates receipt decoding and Uncertain handling from `append_receipt`. Plan step 8. (step 8: `append` and `append_many` share one part builder and one APPENDUID decoder)
 - [x] client.ml:149 [optimisation] a PREAUTH connection sends CAPABILITY twice at :149 and :177; `append_receipt` runs the pinned STATUS at :730 before validating syntax at :735.
-- [ ] client.mli:8 [drift] `connect` silently ENABLEs IMAP4rev2, UTF8=ACCEPT and QRESYNC at :178, which changes `mailbox_mode` and replaces EXPUNGE with VANISHED, while the interface calls `enable_uidonly` and `enable_objectid_plus` the explicit modes; `of_flow` is always treated as insecure at :150; `capabilities` and `enabled` return uppercased tokens; `with_mailbox` closes on UIDNOTSTICKY at :667 and a failed UNSELECT replaces the callback result. (left for step 15, except the UNSELECT sentence, which is fixed)
+- [x] client.mli:8 [drift] `connect` silently ENABLEs IMAP4rev2, UTF8=ACCEPT and QRESYNC at :178, which changes `mailbox_mode` and replaces EXPUNGE with VANISHED, while the interface calls `enable_uidonly` and `enable_objectid_plus` the explicit modes; `of_flow` is always treated as insecure at :150; `capabilities` and `enabled` return uppercased tokens; `with_mailbox` closes on UIDNOTSTICKY at :667 and a failed UNSELECT replaces the callback result. (left for step 15, except the UNSELECT sentence, which is fixed) (step 15: the facade documents the automatic ENABLEs and their effect on `mailbox_mode` and VANISHED under `connect`, `of_flow` as never TLS, and the UIDNOTSTICKY close under `with_mailbox`. Capabilities are a typed set since step 2, so the uppercasing sentence no longer applies)
 - Facts for later steps: capability comparison is consistently case-insensitive by uppercasing on receipt at :41, :53, :68, :78, :226, :246; ENABLE results are always recorded; STARTTLS ordering, credential redaction and APPEND uncertainty are clean; comments are clean. Without `?auth`, a non-PREAUTH greeting fails `State "authentication required"`. Capability tokens tested here: IMAP4REV2, IMAP4REV1, UTF8=ACCEPT, QRESYNC, CONDSTORE, LOGINDISABLED, AUTH=PLAIN, AUTH=CRAM-MD5, AUTH=OAUTHBEARER, SASL-IR, STARTTLS, UIDONLY, ENABLE, OBJECTID+, NAMESPACE, LIST-EXTENDED, SPECIAL-USE, LIST-STATUS, JMAPACCESS, ACL, QUOTA and the `QUOTA=RES-` prefix, QUOTASET, METADATA, METADATA-SERVER, NOTIFY, UNSELECT, BINARY, LITERAL-, LITERAL+, MULTIAPPEND, `MESSAGELIMIT=` and `SAVELIMIT=` prefixes, COMPRESS=DEFLATE via Session. Never tested in Client: UIDPLUS, MOVE, IDLE, OBJECTID, STATUS=SIZE, ID. Missing-capability errors are always `State` with the strings listed in the review transcript, of the shape "<CAP> unavailable", "server does not advertise AUTH=<M>", "<X> and ENABLE must both be advertised", "binary APPEND requires BINARY capability", "MULTIAPPEND capability unavailable"; not-enabled errors are `State "<X> not enabled"` and the two STATUS OBJECTID variants.
 
 #### lib/maildir/imap_maildir.ml
@@ -1279,7 +1304,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] auth.ml:78 [dead] `resolve_token` has no caller outside auth.ml; drop it from the interface. `Transport.host` and `port` are unused internally but public; keep. transport.ml:204 is a defensive branch; keep.
 - [x] auth.ml:15 [redundant] `password` is `refreshing (fun () -> password)` and `bearer` is `refreshing_bearer (fun () -> token)` with duplicated checks at :15 and :31; the flow type is spelled out five times at transport.ml:157, :178, :198, :209 and :248; session.ml:52 and deflate_flow.ml:40 wrap a `close` that already runs under `Cancel.protect`.
 - [x] transport.ml:221 [comment] the STARTTLS ownership sentence sits above `check_open`; move next to `upgrade` or delete. auth.ml:82 stays.
-- [ ] auth.mli:10 [drift] defaults are `Auto` and `false`, undocumented; `Invalid_argument` for an empty, control or non-UTF-8 username and for `Oauthbearer` on `password` is undocumented. transport.mli:6 defaults are 993 for `Implicit`, 143 otherwise; trust defaults to `Ca_certs.system_authenticator ()` loaded eagerly in `v`, raising `Failure` if the store is missing; `v` raises `Invalid_argument` for an empty host, bad port or unparseable name. None documented. Plan step 15. (left for step 15: Transport.v defaults and exceptions; the Auth constructor defaults and Invalid_argument cases are documented)
+- [x] auth.mli:10 [drift] defaults are `Auto` and `false`, undocumented; `Invalid_argument` for an empty, control or non-UTF-8 username and for `Oauthbearer` on `password` is undocumented. transport.mli:6 defaults are 993 for `Implicit`, 143 otherwise; trust defaults to `Ca_certs.system_authenticator ()` loaded eagerly in `v`, raising `Failure` if the store is missing; `v` raises `Invalid_argument` for an empty host, bad port or unparseable name. None documented. Plan step 15. (left for step 15: Transport.v defaults and exceptions; the Auth constructor defaults and Invalid_argument cases are documented) (step 15: `Transport.v` documents its `tls` and `port` defaults, the system trust store it loads eagerly with its `Failure`, and its `Invalid_argument` cases)
 - [x] auth.mli:26 [drift] doc comments at auth.mli:26, :28 and transport.mli:23 sit between two `val`s with no blank line, the facade uses the same pattern throughout, and odoc may attach them to the wrong item; confirm with `dune build @doc` in step 13. (left for step 13) (step 13: `@doc` cannot read OxCaml `.cmti` files, so `ocamlc -stop-after parsing -w +50` checked placement instead, and auth.mli, transport.mli and imap_eio.mli have no ambiguous comment)
 - Facts for later steps: CRAM-MD5, PLAIN and OAUTHBEARER wire formats, refresher call count, `close` idempotency, `upgrade` failure handling, `compress_deflate` guards, `read` End_of_file consistency and `connect` cleanup are clean. Callers of hidden values: `resolve_password` at client.ml:95 and auth.ml:64, :95; `cram_md5_response` at session.ml:499; `plain_response` and `oauthbearer_response` at client.ml:127. The `@ portable` on the authenticator is required by vendor/tls/lib/config.mli:83.
 

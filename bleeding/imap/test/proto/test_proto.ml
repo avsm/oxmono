@@ -515,7 +515,19 @@ let test_modified_utf7 () =
   List.iter (fun wire ->
     match Imap.Mailbox_name.decode_rev1 wire with
     | Error _ -> () | Ok _ -> fail ("accepted malformed mailbox " ^ wire))
-    ["&";"&A-";"&2AA-";"&AEE-";"\255"]
+    ["&";"&A-";"&2AA-";"&AEE-";"\255"];
+  List.iter (fun name ->
+    List.iter (fun (mode,label) ->
+      (match Imap.Mailbox_name.encode ~mode name with
+       | Error _ -> ()
+       | Ok _ -> fail (label ^ " encoded a control or invalid name"));
+      match Imap.Mailbox_name.decode ~mode name with
+      | Error _ -> ()
+      | Ok _ -> fail (label ^ " decoded a control or invalid name"))
+      [Imap.Mailbox_name.Rev1,"Rev1";Imap.Mailbox_name.Utf8,"UTF-8"])
+    ["a\000b";"a\r\nb";"a\027b";"a\127b";"\255"];
+  Alcotest.(check string) "UTF-8 mode keeps valid names" "旅行"
+    (expect_ok (Imap.Mailbox_name.encode ~mode:Imap.Mailbox_name.Utf8 "旅行"))
 
 let test_preview () =
   let command=Imap.Command.uid_fetch_preview ~set:"2,7" ~lazy_:true

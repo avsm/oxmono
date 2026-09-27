@@ -44,6 +44,55 @@ full sentences, no colons or em dashes joining clauses, defaults stated for
 every optional argument, no history in the prose. Implementations carry no
 comments unless the code cannot say it.
 
+### Review pause, 2026-09-27, after step 17: plan complete
+
+Every step of the accepted plan is done. Tree state: `minus39` at 68baa44f6,
+122 commits since the baseline b4084133b, nothing uncommitted. Both
+packages build with `dune build @bleeding/imap/all @bleeding/maildir/all`
+and all 20 test suites pass with `--force`, 261 alcotest cases plus the
+plain executables, up from 172 cases at the baseline.
+
+What to review, in order:
+
+1. `bleeding/imap/CHANGES.md` and `bleeding/maildir/CHANGES.md`, one entry
+   per commit, for the user-visible picture.
+2. The Eio facade `bleeding/imap/lib/eio/imap_eio.mli`: the ownership
+   contract in its synopsis, the witness submodules under `Selected` and
+   `Client`, the typed `Unsupported` and `Not_enabled` errors, the typed
+   `Search`, `Fetch_item` and identifier arguments, and `Mailbox`.
+3. `bleeding/imap/doc/*.mld` and `bleeding/maildir/doc/index.mld`, whose
+   code blocks are copied from compiled examples under `test/examples/`.
+   odoc could not run in the ox switch, so `{!...}` links are unchecked.
+4. The step 16 Done paragraph for the benchmark table and the rejected
+   attempts.
+
+Decisions taken since the step 4 pause that deserve a look:
+
+- Step 12: `sync` and `hydrate` hold a `DB.lock` file for their whole
+  run so blob writes stay clear of the orphan collector, so a concurrent
+  `hydrate` exits 8. `forget-epochs` and `gc` are explicit commands.
+- Step 15b: the Deleted flag is held by default and propagated only with
+  `--propagate-deleted-flag`.
+- Step 16: `bleeding/jmap/mail-flag/lib/imap_flag.mli` is now
+  `@@ portable`, which the protocol library needed. The `Modseq.t`
+  representation stays `int64` because RFC 7162 allows 63 unsigned bits.
+- Step 16 found that CLAUDE.md's portability rule describes a probe form,
+  `fun () @ portable -> e`, that constrains only the result and proves
+  nothing. The working form binds the closure at the mode,
+  `let (f @ portable) = fun () -> ...`. CLAUDE.md is unchanged; that
+  rewording is the user's call.
+
+Follow-ups recorded but not done:
+
+- The two APPEND journals stay; unification is a schema v14 migration.
+- The store allocates about 61 KB per staged row on the publish path.
+- Cancelling IDLE still closes the connection rather than sending DONE.
+- The test-only readers `Journal.pairs`, `open_conflicts` and
+  `active_operations` remain.
+- `Set.Make` and `Map.Make` in the store and sync libraries keep them out
+  of portable code; only the protocol library, `Maildir.Keywords`, the
+  Maildir errors and the pure Eio helpers are portable.
+
 ### Review pause, 2026-09-27, after step 4
 
 The session stopped here at the user's request so the work so far can be
@@ -128,7 +177,7 @@ run only once everything else works.
 | 15 | Redocumentation pass under doc-style over every public interface | done; three worktree branches merged | cdbd2e380 |
 | 15b | Fix the code contracts the redocumentation pass found contradicted, listed under the step 15b note | done; five commits, protocol before eio | 5c4f7363c |
 | 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | done; six benchmarks, immediates, iarray UID sets, a portable protocol library with kind probes, and four allocation cuts | ed4ac2d2e |
-| 17 | Wrap up: add `CHANGES.md` for the `imap` and `maildir` packages summarising the user-visible changes since the baseline, run both packages' build and tests a final time, and record a review pause | todo | |
+| 17 | Wrap up: add `CHANGES.md` for the `imap` and `maildir` packages summarising the user-visible changes since the baseline, run both packages' build and tests a final time, and record a review pause | done | 68baa44f6 |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
 becomes its own package now; the `imap` package split into protocol, eio and

@@ -184,7 +184,7 @@ let test_cram_not_advertised () =
   let auth = Imap_eio.Auth.password ~username:"user"
     ~password:"pw" ~mechanism:`Cram_md5 () in
   match Imap_eio.Client.of_flow ~sw ~auth flow with
-  | Error (Imap_eio.Error.State _) -> ()
+  | Error (Imap_eio.Error.Unsupported (Imap.Capability.Auth "CRAM-MD5")) -> ()
   | Error e -> failwith ("wrong missing mechanism error: " ^
       Imap_eio.Client.error_to_string e)
   | Ok _ -> failwith "accepted absent CRAM-MD5 mechanism"
@@ -553,16 +553,19 @@ let test_discovery_capabilities () =
   ];
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw" ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  let unavailable = function
-    | Error (Imap_eio.Error.State _) -> ()
+  let unavailable capability = function
+    | Error (Imap_eio.Error.Unsupported c)
+      when Imap.Capability.equal c capability -> ()
     | Error e -> failwith ("wrong capability error: " ^
         Imap_eio.Client.error_to_string e)
     | Ok _ -> failwith "accepted unavailable discovery extension" in
-  unavailable (Imap_eio.Client.namespace client);
-  unavailable (Imap_eio.Client.list_extended client ~patterns:["*"]
-    ~returns:[Imap.Command.Children] ());
-  unavailable (Imap_eio.Client.list_extended client ~patterns:["*"]
-    ~status:[Imap.Command.Messages] ());
+  unavailable Imap.Capability.Namespace (Imap_eio.Client.namespace client);
+  unavailable Imap.Capability.List_extended
+    (Imap_eio.Client.list_extended client ~patterns:["*"]
+      ~returns:[Imap.Command.Children] ());
+  unavailable Imap.Capability.List_extended
+    (Imap_eio.Client.list_extended client ~patterns:["*"]
+      ~status:[Imap.Command.Messages] ());
   Imap_eio.Client.close client
 
 let test_uidonly_partial_batches () =
@@ -831,7 +834,7 @@ let test_preview_requires_capability () =
   (match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.uid_fetch_previews selected
       ~uids:[2L] ()) with
-   | Error (Imap_eio.Error.State _) -> ()
+   | Error (Imap_eio.Error.Unsupported Imap.Capability.Preview) -> ()
    | Error e -> failwith ("wrong PREVIEW capability error: " ^
        Imap_eio.Client.error_to_string e)
    | Ok _ -> failwith "accepted PREVIEW without capability");
@@ -882,7 +885,7 @@ let test_objectid_plus_is_separate () =
   (match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.uid_fetch_object_ids selected
       ~uids:[7L] ()) with
-   | Error (Imap_eio.Error.State "OBJECTID unavailable") -> ()
+   | Error (Imap_eio.Error.Unsupported Imap.Capability.Objectid) -> ()
    | Error error -> failwith ("wrong OBJECTID+ refusal: " ^
        Imap_eio.Client.error_to_string error)
    | Ok _ -> failwith "OBJECTID+ accepted as RFC 8474 OBJECTID");
@@ -937,8 +940,8 @@ let test_objectid_plus_activation () =
     ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   ok (Imap_eio.Client.enable_objectid_plus client);
-  if not (List.mem "OBJECTID+" (Imap_eio.Client.enabled client)) then
-    failwith "OBJECTID+ activation not retained";
+  if not (Imap_eio.Client.is_enabled client Imap.Capability.Objectid_plus)
+  then failwith "OBJECTID+ activation not retained";
   let created=ok (Imap_eio.Client.create_mailbox_objectid client "Draft") in
   (match created with
    | {account_id=Some "u_account";mailbox_id=Some "F_created";_} -> ()

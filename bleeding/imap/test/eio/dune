@@ -44,7 +44,7 @@
 
 (test
  (name test_client_review)
- (libraries imap.eio eio eio.mock))
+ (libraries imap.eio imap eio eio.mock))
 
 (test
  (name test_multiappend)
@@ -61,3 +61,7 @@
 (test
  (name test_review_fixes)
  (libraries imap_eio_core imap.eio imap eio eio.mock cstruct))
+
+(test
+ (name test_capability)
+ (libraries imap.eio imap eio eio.mock cstruct))

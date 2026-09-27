@@ -7,6 +7,8 @@ let expect label kind=function
   | Error e -> failwith (label ^ ": " ^ C.error_to_string e)
   | Ok _ -> failwith (label ^ ": unexpectedly succeeded")
 let state=function E.State _ -> true | _ -> false
+let unsupported c = function
+  | E.Unsupported x -> Imap.Capability.equal x c | _ -> false
 let uncertain=function E.Uncertain _ -> true | _ -> false
 let tag n=Printf.sprintf "A%08d" n
 let done_ n=tag n ^ " OK done\r\n"
@@ -63,15 +65,18 @@ let test_wire () =
     let rest=Cstruct.create 4 in Eio.Flow.read_exact source rest;
     if Cstruct.to_string rest<>"TAIL" then failwith "read beyond first message")
 let test_preflight () =
-  List.iter (fun (caps,messages) -> with_client ~caps [] (fun client transport ->
-    expect "preflight" state (C.append_messages client ~mailbox:"INBOX" messages);
+  List.iter (fun (caps,kind,messages) ->
+    with_client ~caps [] (fun client transport ->
+    expect "preflight" kind
+      (C.append_messages client ~mailbox:"INBOX" messages);
     if Buffer.length transport.written<>0 then failwith "preflight wrote bytes"))
-    ["IMAP4rev1",[message "a";message "b"];
-     "MULTIAPPEND",[];
-     "MULTIAPPEND",[message "a";message ""];
-     "MULTIAPPEND",[message "a";C.append_message ~flags:["bad flag"] ~length:1L
-       (Eio.Flow.string_source "b")];
-     "MULTIAPPEND",List.init 1001 (fun _ -> message "a")]
+    ["IMAP4rev1",unsupported Imap.Capability.Multiappend,
+       [message "a";message "b"];
+     "MULTIAPPEND",state,[];
+     "MULTIAPPEND",state,[message "a";message ""];
+     "MULTIAPPEND",state,[message "a";C.append_message ~flags:["bad flag"]
+       ~length:1L (Eio.Flow.string_source "b")];
+     "MULTIAPPEND",state,List.init 1001 (fun _ -> message "a")]
 let test_rejection () =
   with_client [`Return "+ first\r\n";`Return "A00000004 NO [OVERQUOTA] full\r\n"]
     (fun client transport ->

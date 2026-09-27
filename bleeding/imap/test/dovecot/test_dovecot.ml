@@ -622,7 +622,8 @@ let test_tls_cram () =
 
 let require_capability client capability =
   Alcotest.(check bool) capability true
-    (List.mem capability (Imap_eio.Client.capabilities client))
+    (Imap.Capability.Set.mem (Imap.Capability.of_wire capability)
+      (Imap_eio.Client.capabilities client))
 
 let uid_set uid =
   let uid = match Imap.Proto.Uid.of_int64 uid with

@@ -237,15 +237,14 @@ let delete_local ~client ~store ~maildir ~local_inventory ~mailbox
             commit store pair ~id ~remote_tombstone:pair.remote_tombstone
               ~local_tombstone:(Some tombstone)
 
-let has_capability client cap =
-  List.mem cap (Imap_eio.Client.capabilities client)
+let has_capability = Imap_eio.Client.has
 
 let delete_remote ~client ~store ~maildir ~mailbox (pair:J.pair) ~epoch
     ~uid ~local_id ~digest ~length ~next_id ~spool_dir =
-  if not (has_capability client "UIDPLUS") then
+  if not (has_capability client Imap.Capability.Uidplus) then
     Error (Unsupported "UIDPLUS required for targeted UID EXPUNGE")
-  else if not (has_capability client "CONDSTORE" ||
-               has_capability client "QRESYNC") then
+  else if not (has_capability client Imap.Capability.Condstore ||
+               has_capability client Imap.Capability.Qresync) then
     Error (Unsupported "CONDSTORE required for conditional UID STORE")
   else if not (Eio.Path.is_directory spool_dir) then
     Error (Unsupported "spool_dir is not a directory")
@@ -328,7 +327,9 @@ let delete_remote ~client ~store ~maildir ~mailbox (pair:J.pair) ~epoch
                 J.reject_operation store ~id ~receipt:"MODIFIED";
                 Ok survivor_changed
             | Ok (`Store_failed (Imap_eio.Error.Rejected _
-                                 | Imap_eio.Error.State _ as error)) ->
+                                 | Imap_eio.Error.State _
+                                 | Imap_eio.Error.Unsupported _
+                                 | Imap_eio.Error.Not_enabled _ as error)) ->
                 J.reject_operation store ~id
                   ~receipt:("conditional STORE not applied: " ^
                     describe error);
@@ -552,8 +553,8 @@ let reject_unchanged_remote_delete ~client ~store ~maildir ~scope
     let cursor=Imap_store.load_cursor store ~scope in
     let* present=published_presence store ~cursor pair epoch uid in
     if not present then Error Stale_inventory
-    else if not (has_capability client "CONDSTORE" ||
-                 has_capability client "QRESYNC") then
+    else if not (has_capability client Imap.Capability.Condstore ||
+                 has_capability client Imap.Capability.Qresync) then
       Error (Unsupported "CONDSTORE required for stable remote verification")
     else
       let spool=Eio.Path.(spool_dir /
@@ -579,10 +580,10 @@ let finish_marked_remote_delete ~client ~store ~maildir ~scope
     Error (Diverged "operator evidence must be 1..1024 printable bytes")
   else if not (Eio.Path.is_directory spool_dir) then
     Error (Unsupported "spool_dir is not a directory")
-  else if not (has_capability client "UIDPLUS") then
+  else if not (has_capability client Imap.Capability.Uidplus) then
     Error (Unsupported "UIDPLUS required for targeted UID EXPUNGE")
-  else if not (has_capability client "CONDSTORE" ||
-               has_capability client "QRESYNC") then
+  else if not (has_capability client Imap.Capability.Condstore ||
+               has_capability client Imap.Capability.Qresync) then
     Error (Unsupported "CONDSTORE required for stable remote verification")
   else Imap_maildir.with_writer_lock maildir (fun () ->
     let* pair,epoch,uid,local_id,digest,length=

@@ -9,6 +9,8 @@ let expect label kind = function
 let protocol=function E.Protocol _ -> true | _ -> false
 let limit=function E.Limit _ -> true | _ -> false
 let state=function E.State _ -> true | _ -> false
+let unsupported c = function
+  | E.Unsupported x -> Imap.Capability.equal x c | _ -> false
 let rejected=function E.Rejected _ -> true | _ -> false
 let missing=function E.Missing_uid 7L -> true | _ -> false
 let tag n=Printf.sprintf "A%08d" n
@@ -156,12 +158,13 @@ let test_budgets_and_failure () =
 
 let test_capabilities () =
   let f selected=fetch selected (Eio.Flow.buffer_sink (Buffer.create 8)) in
-  expect "BINARY required" state
+  expect "BINARY required" (unsupported Imap.Capability.Binary)
     (scripted ~caps:"IMAP4rev1 UNSELECT" ~dispatched:false ~reply:(fetch_reply "BINARY[2] NIL") f);
   ignore (ok (scripted ~caps:"IMAP4rev2 UNSELECT" ~reply:(fetch_reply "BINARY[2] NIL") f));
   ignore (ok (scripted ~caps:"IMAP4rev1 IMAP4rev2 ENABLE UNSELECT" ~revision:true
     ~reply:(fetch_reply "BINARY[2] NIL") f));
-  expect "unnegotiated rev2 insufficient" state
+  expect "unnegotiated rev2 insufficient"
+    (unsupported Imap.Capability.Binary)
     (scripted ~caps:"IMAP4rev1 IMAP4rev2 ENABLE UNSELECT" ~revision:false
       ~dispatched:false ~reply:(fetch_reply "BINARY[2] NIL") f);
   let result=ok (scripted ~uidonly:true ~reply:(fun n ->

@@ -53,8 +53,9 @@ let conflicting_identity =
   Invalid_scope "saved OBJECTID+ binding names another mailbox"
 
 let prepare_object_identity ~client ~store ~scope ~mailbox =
-  let caps=Imap_eio.Client.capabilities client in
-  let offered=List.mem "OBJECTID+" caps && List.mem "ENABLE" caps in
+  let has=Imap_eio.Client.has client in
+  let offered=has Imap.Capability.Objectid_plus &&
+    has Imap.Capability.Enable in
   match Imap_store.object_identity store ~scope with
   | `Conflict -> Error conflicting_identity
   | `Bound _ when not offered ->
@@ -90,7 +91,8 @@ let verify_mutation_destination ~client ~store ~scope ~mailbox =
   | `Unbound -> Ok ()
   | `Conflict -> Error conflicting_identity
   | `Bound (identity:Imap_store.object_identity) ->
-      if not (List.mem "OBJECTID+" (Imap_eio.Client.enabled client)) then
+      if not (Imap_eio.Client.is_enabled client
+                Imap.Capability.Objectid_plus) then
         Error (Invalid_scope "saved OBJECTID+ identity is not enabled")
       else
         let* status=network (Imap_eio.Client.status client ~mailbox
@@ -293,7 +295,7 @@ let run_once ?(max_windows=1000) ?(max_rows=100_000) ~client ~store
     let qresync = match current.cursor.uidvalidity,
       current.cursor.anchor with
       | Some validity, Some anchor
-        when List.mem "QRESYNC" (Imap_eio.Client.enabled client) ->
+        when Imap_eio.Client.is_enabled client Imap.Capability.Qresync ->
           Some (Imap.Proto.Uidvalidity.to_int64 validity,
                 Imap.Proto.Modseq.to_int64 anchor)
       | _ -> None in
@@ -390,10 +392,8 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
               | Mirror.Live,Some previous_epoch,Some anchor,Some _,None
                 when previous_epoch=validity &&
                   cursor.frontier<=upper && use_modseq &&
-                  (List.mem "CONDSTORE"
-                    (Imap_eio.Client.capabilities client) ||
-                   List.mem "QRESYNC"
-                    (Imap_eio.Client.capabilities client)) ->
+                  (Imap_eio.Client.has client Imap.Capability.Condstore ||
+                   Imap_eio.Client.has client Imap.Capability.Qresync) ->
                   Some anchor
               | _ -> None in
             let ceil_windows n=if n<=0L then 0L else

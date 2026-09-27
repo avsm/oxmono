@@ -47,13 +47,16 @@ let expect_error label kind = function
   | Error error -> failwith (label ^ ": " ^ Imap_eio.Client.error_to_string error)
   | Ok _ -> failwith (label ^ ": unexpectedly succeeded")
 let state = function E.State _ -> true | _ -> false
+let unsupported c = function
+  | E.Unsupported x -> Imap.Capability.equal x c | _ -> false
 let protocol = function E.Protocol _ -> true | _ -> false
 let limit = function E.Limit _ -> true | _ -> false
 
 let test_capability_gates () =
-  expect_error "missing SORT" state
+  expect_error "missing SORT" (unsupported Imap.Capability.Sort)
     (scripted ~dispatched:false ~capabilities:"" ~reply:(complete "") sort);
-  expect_error "wrong THREAD algorithm" state
+  expect_error "wrong THREAD algorithm"
+    (unsupported Imap.Capability.(Thread References))
     (scripted ~dispatched:false ~capabilities:"THREAD=ORDEREDSUBJECT"
       ~reply:(complete "") thread);
   expect_error "SORT key list empty" state
@@ -162,7 +165,8 @@ let test_esort () =
      [C.Count],"COUNT 2 PARTIAL (1:2 1,2)"];
   expect_error "ESORT expansion bounded" limit
     (run [C.All] "COUNT 100001 ALL 1:100001");
-  expect_error "ESORT required beyond SORT" state
+  expect_error "ESORT required beyond SORT"
+    (unsupported Imap.Capability.Esort)
     (scripted ~dispatched:false ~capabilities:"SORT" ~reply:(esort "COUNT 0") extended);
   List.iter (fun reply ->
     expect_error "ESORT correlation" protocol
@@ -197,7 +201,8 @@ let test_esort_partial () =
      "COUNT 8 PARTIAL (2:4 NIL)";"COUNT 8 PARTIAL (2:4 9,3)";
      "COUNT 8 PARTIAL (2:4 9,3,4,5)";"COUNT 8 PARTIAL (2:4 9,3,3)";
      "COUNT 8 ALL 1:8 PARTIAL (2:4 2:4)"];
-  expect_error "PARTIAL alone does not authorize ESORT page" state
+  expect_error "PARTIAL alone does not authorize ESORT page"
+    (unsupported (Imap.Capability.Context `Sort))
     (scripted ~dispatched:false ~capabilities:"ESORT PARTIAL"
       ~reply:(esort "COUNT 0") (extended ~returns:[C.Partial (1L,2L)]));
   expect_error "negative ESORT positions refused" state

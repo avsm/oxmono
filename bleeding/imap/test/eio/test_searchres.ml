@@ -7,6 +7,8 @@ let expect label kind = function
   | Error e -> failwith (label ^ ": " ^ C.error_to_string e)
   | Ok _ -> failwith (label ^ ": unexpectedly succeeded")
 let state = function E.State _ -> true | _ -> false
+let unsupported c = function
+  | E.Unsupported x -> Imap.Capability.equal x c | _ -> false
 let protocol = function E.Protocol _ -> true | _ -> false
 let uncertain = function E.Uncertain _ -> true | _ -> false
 let rejected = function E.Rejected _ -> true | _ -> false
@@ -121,7 +123,7 @@ let test_invalid_save_results () =
 
 let test_gates () =
   with_client ~caps:"" [`Return (selected 4);`Return (done_ 5)] (fun ~sw:_ client ->
-    expect "SEARCHRES capability" state
+    expect "SEARCHRES capability" (unsupported Imap.Capability.Searchres)
       (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
         S.uid_search_save selected ~criterion:"ALL")));
   with_client ~caps:"SEARCHRES" [`Return (selected 4);`Return (save 5 2L);
@@ -130,9 +132,11 @@ let test_gates () =
       let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
       expect "saved body fetch forbidden" state
         (S.uid_fetch_saved saved ~items:["BODY[]"] ());
-      expect "saved partial requires capability" state
+      expect "saved partial requires capability"
+        (unsupported Imap.Capability.Partial)
         (S.uid_fetch_saved saved ~partial:(1L,2L) ~items:["FLAGS"] ());
-      expect "saved MODSEQ requires capability" state
+      expect "saved MODSEQ requires capability"
+        (unsupported Imap.Capability.Condstore)
         (S.uid_fetch_saved saved ~items:["MODSEQ"] ());
       expect "read-only saved STORE" state (store saved);
       expect "read-only saved MOVE" state (S.uid_move_saved saved ~mailbox:"Archive");

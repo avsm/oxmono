@@ -1,3 +1,5 @@
+module Cap = Imap.Capability
+
 type t = {
   session : Session.t;
   generation : int;
@@ -36,12 +38,13 @@ let info t = run t (fun () -> t.info)
 let select_updates t = run t (fun () -> t.select_updates)
 
 let has t capability = Session.has t.session capability
+let require t capability = Session.require t.session capability
 
-(* RFC 9051 folds MOVE, UIDPLUS, SEARCHRES, IDLE and BINARY into the base
-   protocol. *)
-let require_base t capability =
-  if not (has t capability || Session.revision_two t.session) then
-    raise (Session.Failure (Session.State (capability ^ " unavailable")))
+(* RFC 9051 Appendix E item 2 folds only the FETCH side of BINARY into
+   IMAP4rev2, so BINARY APPEND still needs the capability. *)
+let require_binary_fetch t =
+  if not (has t Cap.Binary || Session.revision_two t.session) then
+    raise (Session.Failure (Session.Unsupported Cap.Binary))
 
 let syntax = function
   | Ok syntax -> syntax
@@ -67,8 +70,7 @@ let correlated_esearch (result : Session.command_result) =
     | _ -> None) result.untagged
 
 let supports_messagelimit t =
-  List.exists (String.starts_with ~prefix:"MESSAGELIMIT=")
-    t.session.Session.capabilities
+  Option.is_some (Cap.messagelimit t.session.Session.capabilities)
 
 (* ESORT orders comma-separated elements but treats either range spelling
    as ascending (RFC 5267 section 3.2). *)
@@ -103,7 +105,7 @@ let esearch_uids ?(sort=false) all =
   |> List.rev
 
 let check_uidonly_search t criterion =
-    if List.mem "UIDONLY" t.session.Session.enabled then (
+    if Session.is_enabled t.session Cap.Uidonly then (
       let first = match String.split_on_char ' ' (String.trim criterion) with
         | x::_ -> x | [] -> "" in
       if first<>"" && String.for_all (function
@@ -120,7 +122,7 @@ let check_saved saved =
 let uid_search_save t ~criterion =
   run t (fun () ->
     check_uidonly_search t criterion;
-    require_base t "SEARCHRES";
+    require t Cap.Searchres;
     let result=Session.command_result t.session
       (syntax (Imap.Command.uid_search_save ~criterion)) in
     let count=match correlated_esearch result with
@@ -186,9 +188,8 @@ let uid_search t criterion =
 let uid_sort t ~keys ~charset ~criterion =
   run t (fun () ->
     check_uidonly_search t criterion;
-    if not (List.exists (String.starts_with ~prefix:"SORT")
-        t.session.Session.capabilities) then
-      raise (Session.Failure (Session.State "SORT unavailable"));
+    if not (has t Cap.Sort || has t Cap.Sort_display) then
+      raise (Session.Failure (Session.Unsupported Cap.Sort));
     let responses=Session.command t.session
       (syntax (Imap.Command.uid_sort ~keys ~charset ~criterion)) in
     match List.filter_map (function
@@ -208,13 +209,11 @@ type sort_result = {
 let uid_sort_extended t ~returns ~keys ~charset ~criterion =
   run t (fun () ->
     check_uidonly_search t criterion;
-    if not (has t "ESORT") then
-      raise (Session.Failure (Session.State "ESORT unavailable"));
+    require t Cap.Esort;
     let returns=if returns=[] then [Imap.Command.All] else returns in
     let range=List.find_map (function
       | Imap.Command.Partial range -> Some range | _ -> None) returns in
-    if range<>None && not (has t "CONTEXT=SORT") then
-      raise (Session.Failure (Session.State "CONTEXT=SORT unavailable"));
+    if range<>None then require t (Cap.Context `Sort);
     let returns=if List.mem Imap.Command.Count returns then returns
       else returns @ [Imap.Command.Count] in
     let result=Session.command_result t.session
@@ -280,11 +279,9 @@ let uid_sort_extended t ~returns ~keys ~charset ~criterion =
 let uid_thread t ~algorithm ~charset ~criterion =
   run t (fun () ->
     check_uidonly_search t criterion;
-    let capability=match algorithm with
-      | Imap.Command.Orderedsubject -> "THREAD=ORDEREDSUBJECT"
-      | Imap.Command.References -> "THREAD=REFERENCES" in
-    if not (has t capability) then
-      raise (Session.Failure (Session.State (capability ^ " unavailable")));
+    require t (Cap.Thread (match algorithm with
+      | Imap.Command.Orderedsubject -> Cap.Orderedsubject
+      | Imap.Command.References -> Cap.References));
     let responses=Session.command t.session
       (syntax (Imap.Command.uid_thread ~algorithm ~charset ~criterion)) in
     match List.filter_map (function
@@ -296,8 +293,7 @@ let uid_thread t ~algorithm ~charset ~criterion =
 let uid_search_partial t ~range ~criterion =
   run t (fun () ->
     check_uidonly_search t criterion;
-    if not (has t "PARTIAL") then
-      raise (Session.Failure (Session.State "PARTIAL unavailable"));
+    require t Cap.Partial;
     let result = Session.command_result t.session
       (syntax (Imap.Command.uid_search_partial ~range ~criterion)) in
     let expected = Printf.sprintf "%Ld:%Ld" (fst range) (snd range) in
@@ -316,7 +312,8 @@ let uid_search_page t ?before criterion =
   run t (fun () ->
     check_uidonly_search t criterion;
     if not (supports_messagelimit t) then
-      raise (Session.Failure (Session.State "MESSAGELIMIT unavailable"));
+      raise (Session.Failure
+        (Session.Unsupported (Cap.Other "MESSAGELIMIT")));
     (match before with
      | Some uid when uid < 1L || uid > 4_294_967_295L ->
          raise (Session.Failure (Session.State "invalid UIDBEFORE boundary"))
@@ -386,8 +383,7 @@ let reject_body_items items =
 
 let uid_fetch_partial t ~set ~items ~range =
   run t (fun () ->
-    if not (has t "PARTIAL") then
-      raise (Session.Failure (Session.State "PARTIAL unavailable"));
+    require t Cap.Partial;
     reject_body_items items;
     Session.command t.session
       (syntax (Imap.Command.uid_fetch_mod ~partial:range ~set ~items ()))
@@ -400,15 +396,14 @@ let uid_fetch t ~set ~items =
     |> fetch_rows |> List.map (fun (row : Imap.Response.fetch) -> row.raw))
 
 let condstore t =
-  if not (has t "CONDSTORE" || has t "QRESYNC") then
-    raise (Session.Failure (Session.State "CONDSTORE unavailable"))
+  if not (has t Cap.Condstore || has t Cap.Qresync) then
+    raise (Session.Failure (Session.Unsupported Cap.Condstore))
 
 let uid_fetch_saved saved ?partial ~items () =
   let t=saved.owner in
   run t (fun () ->
     check_saved saved;
-    if partial<>None && not (has t "PARTIAL") then
-      raise (Session.Failure (Session.State "PARTIAL unavailable"));
+    if partial<>None then require t Cap.Partial;
     let items=List.map String.uppercase_ascii items in
     let permitted=["UID";"FLAGS";"INTERNALDATE";"RFC822.SIZE";"ENVELOPE";
       "BODYSTRUCTURE";"MODSEQ"] in
@@ -480,8 +475,7 @@ let uid_fetch_bodystructures t ~uids () =
 
 let uid_fetch_previews t ?(lazy_=false) ~uids () =
   run t (fun () ->
-    if not (has t "PREVIEW") then
-      raise (Session.Failure (Session.State "PREVIEW unavailable"));
+    require t Cap.Preview;
     let uids=List.sort_uniq Int64.compare uids in
     if uids=[] || List.length uids>50 || List.exists (fun uid ->
       uid<1L || uid>4_294_967_295L) uids then
@@ -510,8 +504,7 @@ type object_id_row = {
 
 let uid_fetch_object_ids t ~uids () =
   run t (fun () ->
-    if not (has t "OBJECTID") then
-      raise (Session.Failure (Session.State "OBJECTID unavailable"));
+    require t Cap.Objectid;
     if t.info.mailbox_id=None then
       protocol "OBJECTID selection omitted MAILBOXID";
     if List.length uids>50 || List.length uids<>
@@ -548,9 +541,7 @@ type object_id_plus_row = {
 
 let uid_fetch_object_ids_plus t ~uids () =
   run t (fun () ->
-    if not (List.mem "OBJECTID+" t.session.Session.enabled) then
-      raise (Session.Failure (Session.State
-        "OBJECTID+ has not been enabled"));
+    Session.require_enabled t.session Cap.Objectid_plus;
     (match t.info.objectid with
      | Some {account_id=Some _;mailbox_id=Some _;_} -> ()
      | _ -> protocol "OBJECTID+ selection omitted ACCOUNTID or MAILBOXID");
@@ -756,7 +747,7 @@ let copy_receipt ?requested result =
 let copy_or_move_unlocked ?requested t ~move ~command ~mailbox =
   if move then (
     writable t;
-    require_base t "MOVE");
+    require t Cap.Move);
   let mailbox=Session.mailbox_wire t.session mailbox in
   mutation_receipt t (copy_receipt ?requested)
     (Session.command_result ~mutation:true t.session
@@ -788,7 +779,7 @@ let uid_move_saved saved ~mailbox =
 
 let expunge_unlocked t syntax =
   writable t;
-  require_base t "UIDPLUS";
+  require t Cap.Uidplus;
   ignore (Session.command_result ~mutation:true t.session syntax)
 
 let uid_expunge t ~set =
@@ -804,15 +795,13 @@ let uid_expunge_saved saved =
 
 let wait_for_change t =
   run t (fun () ->
-    require_base t "IDLE";
+    require t Cap.Idle;
     Session.idle_once t.session)
 
 let fetch_changes t ~set ~since ~vanished =
   run t (fun () ->
     condstore t;
-    if vanished &&
-       not (List.mem "QRESYNC" t.session.Session.enabled) then
-      raise (Session.Failure (Session.State "QRESYNC not enabled"));
+    if vanished then Session.require_enabled t.session Cap.Qresync;
     let set = nonempty_set set in
     let changedsince = Imap.Proto.Modseq.to_int64 since in
     Session.command t.session
@@ -840,8 +829,7 @@ let fetch_changes_range t ~first ~last ~since =
 
 let uid_batches t ?range ~size () =
   run t (fun () ->
-    if not (has t "UIDBATCHES") then
-      raise (Session.Failure (Session.State "UIDBATCHES unavailable"));
+    require t Cap.Uidbatches;
     if t.session.Session.uidbatches_last_mailbox = t.session.Session.selected then
       raise (Session.Failure (Session.State
         "UIDBATCHES already issued for this mailbox on this connection"));
@@ -859,8 +847,7 @@ let uid_batches t ?range ~size () =
 
 let notify_set t ?(status=false) ~groups () =
   run t (fun () ->
-    if not (has t "NOTIFY") then
-      raise (Session.Failure (Session.State "NOTIFY unavailable"));
+    require t Cap.Notify;
     let responses=Session.command ~mutation:true t.session
       (syntax (Imap.Command.notify_set ~status ~groups ())) in
     if List.exists (function
@@ -875,8 +862,7 @@ let notify_set t ?(status=false) ~groups () =
 
 let notify_none t =
   run t (fun () ->
-    if not (has t "NOTIFY") then
-      raise (Session.Failure (Session.State "NOTIFY unavailable"));
+    require t Cap.Notify;
     ignore (Session.command ~mutation:true t.session Imap.Command.notify_none))
 
 (* A failed local sink leaves the command mid-literal, so the session
@@ -906,7 +892,7 @@ let stream_fetch t ~syntax ~max_bytes sink =
 
 let fetch_binary_to t ?(max_bytes=1_073_741_824L) ?partial ~uid ~section sink =
   run t (fun () ->
-    require_base t "BINARY";
+    require_binary_fetch t;
     if uid<1L || uid>4_294_967_295L || max_bytes<0L then
       raise (Session.Failure (Session.State "invalid BINARY UID or byte limit"));
     let syntax=syntax (Imap.Command.uid_fetch_binary ~set:(Int64.to_string uid)
@@ -953,7 +939,7 @@ type binary_size_row = { uid : int64; size : int64 }
 
 let uid_fetch_binary_sizes t ~uids ~section () =
   run t (fun () ->
-    require_base t "BINARY";
+    require_binary_fetch t;
     let uids=List.sort_uniq Int64.compare uids in
     if uids=[] || List.length uids>50 || List.exists (fun uid ->
       uid<1L || uid>4_294_967_295L) uids then

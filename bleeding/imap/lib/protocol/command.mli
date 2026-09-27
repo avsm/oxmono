@@ -16,6 +16,10 @@ val done_idle : string
     continuation before expecting events, and send untagged DONE before
     awaiting the original tag's completion. The Eio session owns that state. *)
 val get_jmap_access : string
+val enable : Capability.t list -> (string, error) result
+(** [enable caps] is RFC 5161 ENABLE for [caps] in {!Capability.to_wire}
+    spelling. It is an error when [caps] is empty or a token is not an
+    atom. *)
 val getacl : mailbox:string -> (string, error) result
 val myrights : mailbox:string -> (string, error) result
 val listrights : mailbox:string -> identifier:string -> (string, error) result

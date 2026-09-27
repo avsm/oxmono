@@ -8,6 +8,8 @@ type error = Error.t =
   | Missing_uid of int64
   | Limit of string
   | Uncertain of string
+  | Unsupported of Imap.Capability.t
+  | Not_enabled of Imap.Capability.t
 
 type t = {
   flow : Transport.flow;
@@ -21,8 +23,8 @@ type t = {
   mutable selected : string option;
   mutable uidbatches_last_mailbox : string option;
   mutable readonly : bool;
-  mutable capabilities : string list;
-  mutable enabled : string list;
+  mutable capabilities : Imap.Capability.Set.t;
+  mutable enabled : Imap.Capability.Set.t;
   input : Cstruct.t;
   mutable read_size : int;
   max_metadata : int;
@@ -41,7 +43,8 @@ let create ?(max_metadata=16_777_216) ?(max_responses=10_000)
     mutex = Eio.Mutex.create (); closed = false; tag_number = 0;
     generation = 0; saved_search_nonce = ref (); selected = None; uidbatches_last_mailbox = None;
     readonly = false;
-    capabilities = []; enabled = [];
+    capabilities = Imap.Capability.Set.empty;
+    enabled = Imap.Capability.Set.empty;
     input = Cstruct.create 65536; read_size = 65536; max_metadata; max_responses;
     max_command_metadata }
 
@@ -53,14 +56,23 @@ let close t =
 
 let check_open t = if t.closed then raise (Failure Closed)
 
-let has t name = List.mem name t.capabilities
+let advertised t c = Imap.Capability.Set.mem c t.capabilities
+let is_enabled t c = Imap.Capability.Set.mem c t.enabled
 
 let revision_two t =
-  has t "IMAP4REV2" &&
-  (not (has t "IMAP4REV1") || List.mem "IMAP4REV2" t.enabled)
+  advertised t Imap4rev2 &&
+  (not (advertised t Imap4rev1) || is_enabled t Imap4rev2)
+
+let has t c =
+  advertised t c || (Imap.Capability.implied_by_rev2 c && revision_two t)
+
+let require t c = if not (has t c) then raise (Failure (Unsupported c))
+
+let require_enabled t c =
+  if not (is_enabled t c) then raise (Failure (Not_enabled c))
 
 let mailbox_mode t =
-  if revision_two t || List.mem "UTF8=ACCEPT" t.enabled
+  if revision_two t || is_enabled t (Utf8 `Accept)
   then Imap.Mailbox_name.Utf8 else Imap.Mailbox_name.Rev1
 
 let mailbox_wire t name =
@@ -184,7 +196,7 @@ let parse_active t parts =
        if t.selected<>None then
          raise (Failure (Protocol "selected mailbox identity was reset"))
    | _ -> ());
-  let uidonly = List.mem "UIDONLY" t.enabled in
+  let uidonly = is_enabled t Uidonly in
   (match response with
    | Imap.Response.Untagged (Imap.Response.Fetch _ | Imap.Response.Expunge _)
      when uidonly ->
@@ -333,8 +345,7 @@ let compress_deflate t =
   check_open t;
   if Transport.compressed t.flow then
     raise (Failure (State "COMPRESS is already active"));
-  if not (List.mem "COMPRESS=DEFLATE" t.capabilities) then
-    raise (Failure (State "COMPRESS=DEFLATE unavailable"));
+  require t (Compress `Deflate);
   (* The server switches immediately after the tagged OK CRLF. Reading one
      byte at a time only during this handshake leaves a coalesced compressed
      tail in the underlying flow (including TLS's own read buffer), never in

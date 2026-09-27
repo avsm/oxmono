@@ -9,6 +9,8 @@ type error = Error.t =
   | Missing_uid of int64
   | Limit of string
   | Uncertain of string
+  | Unsupported of Imap.Capability.t
+  | Not_enabled of Imap.Capability.t
 
 type t = {
   flow : Transport.flow;
@@ -22,8 +24,8 @@ type t = {
   mutable selected : string option;
   mutable uidbatches_last_mailbox : string option;
   mutable readonly : bool;
-  mutable capabilities : string list;
-  mutable enabled : string list;
+  mutable capabilities : Imap.Capability.Set.t;
+  mutable enabled : Imap.Capability.Set.t;
   input : Cstruct.t;
   mutable read_size : int;
   max_metadata : int;
@@ -38,9 +40,19 @@ val create : ?max_metadata:int -> ?max_responses:int ->
 val close : t -> unit
 val check_open : t -> unit
 
-val has : t -> string -> bool
-(** [has t name] holds when the latest CAPABILITY response listed the
-    uppercase [name]. *)
+val has : t -> Imap.Capability.t -> bool
+(** [has t c] holds when the latest CAPABILITY response listed [c], or
+    {!revision_two} holds and [Imap.Capability.implied_by_rev2 c]. *)
+
+val is_enabled : t -> Imap.Capability.t -> bool
+(** [is_enabled t c] holds when an ENABLED response confirmed [c]. *)
+
+val require : t -> Imap.Capability.t -> unit
+(** [require t c] raises [Failure (Unsupported c)] unless [has t c]. *)
+
+val require_enabled : t -> Imap.Capability.t -> unit
+(** [require_enabled t c] raises [Failure (Not_enabled c)] unless
+    [is_enabled t c]. *)
 
 val revision_two : t -> bool
 (** [revision_two t] holds when IMAP4rev2 is advertised and either IMAP4rev1

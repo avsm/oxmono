@@ -53,8 +53,7 @@ let run ~clock ~connect ~store ~scope ~mailbox ~next_stage_id ~on_publish
           | None -> Error Connect_timed_out
           | Some (Error error) -> Error (Connect_failed error)
           | Some (Ok client) ->
-              let idle=List.mem "IDLE"
-                (Imap_eio.Client.capabilities client) in
+              let idle=Imap_eio.Client.has client Imap.Capability.Idle in
               match Engine.run_once_staged ~client ~store ~scope ~mailbox
                 ~stage_id:(next_stage_id ()) () with
               | Ok receipt -> Ok (receipt,idle)

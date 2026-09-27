@@ -36,6 +36,13 @@ let quote s =
 
 let astring s = if atom s then Ok s else quote s
 
+let enable capabilities =
+  let tokens = List.map Capability.to_wire capabilities in
+  if tokens = [] then Error "ENABLE requires a capability"
+  else if not (List.for_all atom tokens) then
+    Error "ENABLE capability is not an atom"
+  else Ok ("ENABLE " ^ String.concat " " tokens)
+
 let astrings names =
   let rec encode acc = function
     | [] -> Ok (List.rev acc)

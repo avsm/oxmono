@@ -1425,9 +1425,15 @@ let test_capability_responses () =
        Alcotest.(check (option string)) "code name" (Some "CAPABILITY")
          (response_code_name code)
    | _ -> fail "CAPABILITY code not typed");
-  match expect_ok (parse "A1 OK [capability IMAP4rev1] done") with
-  | Tagged {code=Some (Capability [C.Imap4rev1]);_} -> ()
-  | _ -> fail "lowercase CAPABILITY code not typed"
+  (match expect_ok (parse "A1 OK [capability IMAP4rev1] done") with
+   | Tagged {code=Some (Capability [C.Imap4rev1]);_} -> ()
+   | _ -> fail "lowercase CAPABILITY code not typed");
+  Alcotest.(check string) "ENABLE encoding" "ENABLE QRESYNC UTF8=ACCEPT X-a"
+    (expect_ok (Imap.Command.enable C.[Qresync; Utf8 `Accept; Other "X-a"]));
+  List.iter (fun caps ->
+    Alcotest.(check bool) "ENABLE refused" true
+      (Result.is_error (Imap.Command.enable caps)))
+    C.[[]; [Other "X Y"]; [Other "X\r\nA1 LOGOUT"]; [Other "(X"]]
 
 let () =
   Alcotest.run "IMAP protocol"

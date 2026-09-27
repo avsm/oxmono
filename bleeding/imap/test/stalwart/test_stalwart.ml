@@ -52,9 +52,12 @@ let raw nonce part =
   "\r\nMessage-ID: <" ^ nonce ^ "-" ^ part ^ "@example.test>\r\n" ^
   "\r\nExact Stalwart body " ^ part ^ ".\r\n"
 
+let advertised client capability =
+  Imap.Capability.Set.mem capability (Client.capabilities client)
+
 let require_capability client capability =
   Alcotest.(check bool) capability true
-    (List.mem capability (Client.capabilities client))
+    (advertised client (Imap.Capability.of_wire capability))
 
 let test_protocol () =
   configured ();
@@ -65,20 +68,20 @@ let test_protocol () =
   Fun.protect ~finally:(fun () ->
     ignore (Client.delete_mailbox client mailbox); Client.close client) @@ fun () ->
   Alcotest.(check bool) "Stalwart does not advertise CRAM-MD5" false
-    (List.mem "AUTH=CRAM-MD5" (Client.capabilities client));
+    (advertised client (Imap.Capability.Auth "CRAM-MD5"));
   let transport = transport env_io in
   let cram = Imap_eio.Auth.password ~username:(env "IMAP_STALWART_USER")
     ~password:(env "IMAP_STALWART_PASSWORD") ~mechanism:`Cram_md5 () in
   (match Client.connect ~sw ~auth:cram transport with
-   | Error (Imap_eio.Error.State
-       "server does not advertise AUTH=CRAM-MD5") -> ()
+   | Error (Imap_eio.Error.Unsupported (Imap.Capability.Auth "CRAM-MD5")) ->
+       ()
    | Error e -> Alcotest.fail ("unexpected CRAM-MD5 rejection: " ^
        Client.error_to_string e)
    | Ok unexpected -> Client.close unexpected;
        Alcotest.fail "Stalwart unexpectedly accepted CRAM-MD5");
   List.iter (require_capability client)
     ["UIDPLUS"; "CONDSTORE"; "QRESYNC"];
-  let objectid_plus=List.mem "OBJECTID+" (Client.capabilities client) in
+  let objectid_plus=advertised client Imap.Capability.Objectid_plus in
   if Sys.getenv_opt "IMAP_STALWART_OBJECTID_PLUS_REQUIRED"=Some "1" &&
       not objectid_plus then
     Alcotest.fail "OBJECTID+ required but not advertised";
@@ -251,7 +254,7 @@ let test_objectid_binding () =
   Eio_main.run @@ fun env_io ->
   Eio.Switch.run @@ fun sw ->
   let client = connect env_io sw in
-  if not (List.mem "OBJECTID+" (Client.capabilities client)) then (
+  if not (advertised client Imap.Capability.Objectid_plus) then (
     Client.close client;
     Alcotest.skip ());
   let mutator = connect env_io sw in

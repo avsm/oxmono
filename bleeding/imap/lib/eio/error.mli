@@ -10,6 +10,8 @@ type t =
   | Missing_uid of int64
   | Limit of string
   | Uncertain of string
+  | Unsupported of Imap.Capability.t
+  | Not_enabled of Imap.Capability.t
 
 val pp : Format.formatter -> t -> unit
 val to_string : t -> string

@@ -15,10 +15,14 @@ val of_flow :
   [> Eio.Flow.two_way_ty | Eio.Resource.close_ty ] Eio.Resource.t ->
   (t, error) result
 
-val capabilities : t -> string list
-val enabled : t -> string list
+val capabilities : t -> Imap.Capability.Set.t
+val enabled : t -> Imap.Capability.Set.t
+val has : t -> Imap.Capability.t -> bool
+val is_enabled : t -> Imap.Capability.t -> bool
 val is_open : t -> bool
 val compress_deflate : t -> (unit, error) result
+val enable : t -> Imap.Capability.t list ->
+  (Imap.Capability.t list, error) result
 val enable_uidonly : t -> (unit, error) result
 val enable_objectid_plus : t -> (unit, error) result
 

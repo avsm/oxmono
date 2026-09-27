@@ -7,6 +7,8 @@ let expect label kind=function
   | Error e -> failwith (label ^ ": " ^ C.error_to_string e)
   | Ok _ -> failwith (label ^ ": unexpectedly succeeded")
 let state=function E.State _ -> true | _ -> false
+let unsupported c = function
+  | E.Unsupported x -> Imap.Capability.equal x c | _ -> false
 let uncertain=function E.Uncertain _ -> true | _ -> false
 let tag n=Printf.sprintf "A%08d" n
 let done_ n=tag n ^ " OK done\r\n"
@@ -80,7 +82,8 @@ let test_capability_refusal () =
       let source=Eio_mock.Flow.make "unread-binary-source" in
       let read=ref false in
       Eio_mock.Flow.on_read source [`Run (fun () -> read:=true; "abc")];
-      expect "binary APPEND needs explicit BINARY" state
+      expect "binary APPEND needs explicit BINARY"
+        (unsupported Imap.Capability.Binary)
         (C.append_binary_flow client ~mailbox:"INBOX" ~length:3L source);
       if !read || Buffer.length transport.written<>0 then
         failwith "capability refusal dispatched or read source"))

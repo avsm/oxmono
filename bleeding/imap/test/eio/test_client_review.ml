@@ -71,7 +71,7 @@ let test_metadata_scope () =
     (fun client ->
       ignore (ok (C.get_metadata client ~mailbox:"" ~entries:["/shared/comment"] ()));
       match C.get_metadata client ~mailbox:"INBOX" ~entries:["/shared/comment"] () with
-      | Error (E.State _) -> ()
+      | Error (E.Unsupported Imap.Capability.Metadata) -> ()
       | _ -> failwith "mailbox metadata bypassed capability gate")
 
 let with_selected ?(caps="") reply f =

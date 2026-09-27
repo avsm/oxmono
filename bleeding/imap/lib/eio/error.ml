@@ -8,6 +8,8 @@ type t =
   | Missing_uid of int64
   | Limit of string
   | Uncertain of string
+  | Unsupported of Imap.Capability.t
+  | Not_enabled of Imap.Capability.t
 
 let pp ppf = function
   | Closed -> Format.pp_print_string ppf "IMAP connection closed"
@@ -22,5 +24,11 @@ let pp ppf = function
   | Missing_uid uid -> Format.fprintf ppf "IMAP UID %Ld vanished" uid
   | Limit s -> Format.fprintf ppf "IMAP limit error: %s" s
   | Uncertain s -> Format.fprintf ppf "IMAP uncertain outcome: %s" s
+  | Unsupported c ->
+      Format.fprintf ppf "IMAP server does not support %a"
+        Imap.Capability.pp c
+  | Not_enabled c ->
+      Format.fprintf ppf "IMAP extension %a is not enabled"
+        Imap.Capability.pp c
 
 let to_string e = Format.asprintf "%a" pp e

@@ -412,8 +412,9 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~client ~store
         | `Matches -> clear_content_hold store pair
         | `Differs -> hold_content store pair ~id:(next_id ())
         | `Changed -> Error Modified in
-      let caps=Imap_eio.Client.capabilities client in
-      let condstore=List.mem "CONDSTORE" caps || List.mem "QRESYNC" caps in
+      let has=Imap_eio.Client.has client in
+      let condstore=has Imap.Capability.Condstore ||
+        has Imap.Capability.Qresync in
       let base=pair.common_flags in
       let apply selected (info:Imap.Response.select_metadata)
           ~remote_before ~remote_modseq ~merged =
@@ -484,7 +485,8 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~client ~store
                 ~operation:`Replace ~flags:remote_target
                 ?unchangedsince:remote_modseq () with
             | Error (Imap_eio.Error.Rejected _ | Imap_eio.Error.State _
-                     as error) ->
+                     | Imap_eio.Error.Unsupported _
+                     | Imap_eio.Error.Not_enabled _ as error) ->
                 J.reject_operation store ~id
                   ~receipt:("UID STORE not applied: " ^ describe error);
                 Error (Client error)

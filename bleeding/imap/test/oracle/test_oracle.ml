@@ -94,9 +94,10 @@ let round_trip () =
              ~mode:(Client.mailbox_mode client) item.mailbox in
            name.utf8 = Ok mailbox)
          mailboxes);
-    let capabilities = Client.capabilities client in
-    if List.mem "NAMESPACE" capabilities ||
-       List.mem "IMAP4REV2" capabilities then (
+    let advertised capability =
+      Imap.Capability.Set.mem capability (Client.capabilities client) in
+    if advertised Imap.Capability.Namespace ||
+       advertised Imap.Capability.Imap4rev2 then (
       let namespaces = unwrap (Client.namespace client) in
       Alcotest.(check bool) "NAMESPACE personal response" true
         (Option.is_some namespaces.personal));
@@ -108,12 +109,12 @@ let round_trip () =
              ~length:(Int64.of_int (String.length message.raw))
              (Eio.Flow.string_source message.raw)))
       messages;
-    if List.mem "LIST-EXTENDED" capabilities ||
-       List.mem "IMAP4REV2" capabilities then (
+    if advertised Imap.Capability.List_extended ||
+       advertised Imap.Capability.Imap4rev2 then (
       let discovery = unwrap (Client.list_extended client
         ~patterns:[mailbox]
         ~returns:[Imap.Command.Children]
-        ?status:(if List.mem "LIST-STATUS" capabilities then
+        ?status:(if advertised Imap.Capability.List_status then
           Some [Imap.Command.Messages; Imap.Command.Uidnext;
                 Imap.Command.Uidvalidity] else None) ()) in
       let discovered = List.filter (fun
@@ -123,7 +124,7 @@ let round_trip () =
         name.utf8 = Ok mailbox) discovery.mailboxes in
       Alcotest.(check int) "LIST-EXTENDED found test mailbox" 1
         (List.length discovered);
-      if List.mem "LIST-STATUS" capabilities then
+      if advertised Imap.Capability.List_status then
         Alcotest.(check bool) "LIST-STATUS paired mailbox" true
           (match discovered with [_, Some status] ->
             status.messages=Some 3L | _ -> false));
@@ -187,12 +188,14 @@ let round_trip () =
     let first = scan "initial" in
     Alcotest.(check int) "initial mirror rows" 3
       (List.length (Imap.Mirror.rows first.snapshot));
-    if List.mem "CONDSTORE" (Client.capabilities client) then
+    let advertised capability =
+      Imap.Capability.Set.mem capability (Client.capabilities client) in
+    if advertised Imap.Capability.Condstore then
       Alcotest.(check bool) "opening MODSEQ checkpoint" true
         (Option.is_some first.cursor.anchor);
-    if List.mem "QRESYNC" (Client.capabilities client) then
+    if advertised Imap.Capability.Qresync then
       Alcotest.(check bool) "QRESYNC enabled for next scan" true
-        (List.mem "QRESYNC" (Client.enabled client));
+        (Client.is_enabled client Imap.Capability.Qresync);
     let first_uid = (List.hd (Imap.Mirror.rows first.snapshot)).uid in
     let spool = Eio.Path.(Eio.Stdenv.fs env / (dbfile ^ ".spool")) in
     let archived = match Imap_sync.Engine.archive_uid ~client ~store ~scope
@@ -660,7 +663,8 @@ let objectid_round_trip () =
     ignore (Client.delete_mailbox client mailbox);
     Client.close client) @@ fun () ->
   Alcotest.(check bool) "Cyrus advertises OBJECTID" true
-    (List.mem "OBJECTID" (Client.capabilities client));
+    (Imap.Capability.Set.mem Imap.Capability.Objectid
+      (Client.capabilities client));
   unwrap (Client.create_mailbox client mailbox);
   let raw="From: objectid@example.test\r\nSubject: identity\r\n\r\nExact content\r\n" in
   let receipt=match unwrap (Client.append_flow_receipt client ~mailbox

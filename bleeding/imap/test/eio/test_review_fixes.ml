@@ -11,6 +11,8 @@ let expect label kind = function
   | Ok _ -> failwith (label ^ ": unexpectedly succeeded")
 let closed = function E.Closed -> true | _ -> false
 let state = function E.State _ -> true | _ -> false
+let unsupported c = function
+  | E.Unsupported x -> Imap.Capability.equal x c | _ -> false
 
 (* A PREAUTH server answers CAPABILITY as A00000001, so the first command a
    test issues is A00000002. *)
@@ -55,21 +57,25 @@ let test_enable_gating () =
     [`Return ("* ENABLED UIDONLY\r\n" ^ tag 2 ^ " OK enabled\r\n")]
     (fun client ->
       ok (C.enable_uidonly client);
-      if not (List.mem "UIDONLY" (C.enabled client)) then
+      if not (C.is_enabled client Imap.Capability.Uidonly) then
         failwith "IMAP4rev2 ENABLE UIDONLY was not recorded");
   preauth ~caps:"IMAP4rev1 QRESYNC UTF8=ACCEPT"
     [`Return ("* OK still here\r\n" ^ tag 2 ^ " OK noop\r\n")]
     (fun client ->
       match ok (C.noop client) with
-      | [_] when C.enabled client = [] -> ()
+      | [_] when Imap.Capability.Set.is_empty (C.enabled client) -> ()
       | _ -> failwith "ENABLE was sent without ENABLE or IMAP4rev2")
 
 let test_status_item_gating () =
   preauth ~caps:"IMAP4rev1" [] (fun client ->
-    List.iter (fun item ->
-      expect "ungated STATUS item" state
+    List.iter (fun (item, capability) ->
+      expect "ungated STATUS item" (unsupported capability)
         (C.status client ~mailbox:"INBOX" ~items:[Imap.Command.Messages; item]))
-      Imap.Command.[Highestmodseq; Mailboxid; Size; Deleted; Deleted_storage];
+      Imap.Command.[Highestmodseq, Imap.Capability.Condstore;
+        Mailboxid, Imap.Capability.Objectid;
+        Size, Imap.Capability.Status_size;
+        Deleted, Imap.Capability.Quota;
+        Deleted_storage, Imap.Capability.Quota];
     if not (C.is_open client) then failwith "local STATUS refusal closed");
   preauth ~caps:"IMAP4rev1 CONDSTORE OBJECTID STATUS=SIZE QUOTA"
     [`Return ("* STATUS INBOX (HIGHESTMODSEQ 5 MAILBOXID (M1) SIZE 10 " ^
@@ -334,7 +340,7 @@ let test_search_page_at_uid_one () =
 let test_metadata_modseq_needs_condstore () =
   with_lease ~caps:"IMAP4rev1 UNSELECT" [`Return (tag 3 ^ " OK unselected\r\n")]
     (fun selected ->
-      expect "MODSEQ without CONDSTORE" state
+      expect "MODSEQ without CONDSTORE" (unsupported Imap.Capability.Condstore)
         (S.fetch_metadata_range selected ~first:1L ~last:9L ~modseq:true);
       Ok ())
 

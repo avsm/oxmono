@@ -59,8 +59,18 @@ module Error : sig
     | Missing_uid of int64
     | Limit of string
     | Uncertain of string
+    | Unsupported of Imap.Capability.t
+    | Not_enabled of Imap.Capability.t
 
-  (** [Rejected] retains the tagged response code separately from explanatory
+  (** [Unsupported c] means the server neither advertises [c] nor has it
+      folded into effective IMAP4rev2, and [Not_enabled c] means the server
+      offers [c] but ENABLE has not confirmed it. Both are returned before
+      anything is sent and leave the connection usable. A missing
+      MESSAGELIMIT is [Unsupported (Other "MESSAGELIMIT")], since there is no
+      limit to name. [State] reports a local precondition that is not about
+      an extension.
+
+      [Rejected] retains the tagged response code separately from explanatory
       text. Known codes are typed; extension codes use
       [Imap.Response.Other_code]. No code is represented by [None]. A rejection
       does not itself authorize retry: partial mutations may instead return
@@ -95,7 +105,10 @@ module Selected : sig
   (** A mailbox lease. Commands on the handle are serialized across fibers. A
       handle expires when [Client.with_mailbox] returns. Join command fibers
       before returning: an in-flight command at lease exit closes the
-      connection, and queued commands fail with [Error.State]. *)
+      connection, and queued commands fail with [Error.State]. An operation
+      that requires an extension [c] is [Error.Unsupported c] unless
+      [Client.has] holds for [c], and one that requires an enabled mode is
+      [Error.Not_enabled c] until ENABLE confirms it. *)
 
   type t
   val info : t -> (Imap.Response.select_metadata, Error.t) result
@@ -150,7 +163,7 @@ module Selected : sig
   val uid_sort :
     t -> keys:(Imap.Command.sort_key * Imap.Command.sort_order) list ->
     charset:string -> criterion:string -> (int64 list, Error.t) result
-  (** RFC 5256 UID SORT. Requires a SORT-prefixed capability and returns at most
+  (** RFC 5256 UID SORT. Requires SORT or SORT=DISPLAY and returns at most
       100,000 distinct UIDs in server sort order. An explicit empty SORT result
       is [Ok []]; absent, repeated, malformed or MESSAGELIMIT partial results
       fail. [charset] is mandatory; [criterion] is raw SEARCH syntax, with no
@@ -446,7 +459,10 @@ module Selected : sig
 end
 
 module Client : sig
-  (** A single Eio IMAP connection. Commands are serialized across fibers. *)
+  (** A single Eio IMAP connection. Commands are serialized across fibers.
+      An operation that requires an extension [c] is [Error.Unsupported c]
+      unless {!has} holds for [c], and one that requires an enabled mode is
+      [Error.Not_enabled c] until {!enable} confirms it. *)
 
   type t
   type error = Error.t
@@ -465,8 +481,24 @@ module Client : sig
     (t, error) result
   (** Take ownership of a connected test flow. *)
 
-  val capabilities : t -> string list
-  val enabled : t -> string list
+  val capabilities : t -> Imap.Capability.Set.t
+  (** [capabilities t] is the set the latest CAPABILITY response advertised.
+      The client reads it after the greeting, after STARTTLS and after
+      authentication. *)
+
+  val enabled : t -> Imap.Capability.Set.t
+  (** [enabled t] is every capability an ENABLED response confirmed on [t]. *)
+
+  val has : t -> Imap.Capability.t -> bool
+  (** [has t c] holds when [capabilities t] contains [c], or when [t] is in
+      effective IMAP4rev2 and {!Imap.Capability.implied_by_rev2} [c] holds.
+      Effective IMAP4rev2 means the server advertises IMAP4rev2 and either
+      does not advertise IMAP4rev1 or confirmed ENABLE IMAP4rev2. Every
+      extension gate in [Client] and [Selected] uses this predicate. *)
+
+  val is_enabled : t -> Imap.Capability.t -> bool
+  (** [is_enabled t c] is [Imap.Capability.Set.mem c (enabled t)]. *)
+
   val is_open : t -> bool
   (** Whether the connection can still be reused. A successful protocol command
       may close it later, so check again when taking it from a pool. *)
@@ -486,14 +518,29 @@ module Client : sig
       Activate between mailbox leases; never call connection commands from
       inside [with_mailbox]. STARTTLS after compression is not supported. *)
 
+  val enable : t -> Imap.Capability.t list ->
+    (Imap.Capability.t list, error) result
+  (** [enable t caps] sends RFC 5161 ENABLE for those of [caps] not yet
+      enabled and is the list the server's ENABLED responses confirmed. It
+      sends nothing and is [Ok []] when [caps] is empty or already enabled.
+      It is [Error.Unsupported Enable] unless [has t Enable] or the server
+      advertises IMAP4rev2, and [Error.Unsupported c] for a [c] of [caps]
+      with [not (has t c)]. It is [Error.State] while a mailbox is selected.
+      A capability the server does not confirm is not an error. [connect]
+      already enables IMAP4rev2 when both revisions are advertised, then
+      UTF8=ACCEPT without effective IMAP4rev2, then QRESYNC, ignoring a
+      rejection of each. *)
+
   val enable_uidonly : t -> (unit, error) result
-  (** Explicitly enables RFC 9586 mode before mailbox selection. UIDFETCH and
-      VANISHED replace sequence-based updates. This mode cannot be disabled on
-      the connection; callers should use a dedicated connection. *)
+  (** [enable_uidonly t] is [enable t [Uidonly]], and a [Protocol] error if
+      the server does not confirm it. UIDFETCH and VANISHED replace
+      sequence-based updates. This mode cannot be disabled on the connection,
+      so use a dedicated connection. *)
 
   val enable_objectid_plus : t -> (unit, error) result
-  (** Explicitly activate the pinned OBJECTID+ draft through ENABLE before
-      selection. The mode stays active on this connection and changes SELECT
+  (** [enable_objectid_plus t] is [enable t [Objectid_plus]], and a
+      [Protocol] error if the server does not confirm it. The pinned
+      OBJECTID+ draft stays active on this connection and changes SELECT
       identity response codes to compound OBJECTID. It is separate from the
       RFC 8474 OBJECTID capability. *)
 
@@ -541,7 +588,9 @@ module Client : sig
       [Highestmodseq] requires CONDSTORE or QRESYNC, [Mailboxid] requires
       OBJECTID, [Size] requires STATUS=SIZE or IMAP4rev2, [Deleted] requires
       QUOTA or IMAP4rev2 and [Deleted_storage] requires QUOTA. A missing
-      capability is [Error.State] and sends nothing. *)
+      capability is [Error.Unsupported] naming CONDSTORE, OBJECTID,
+      STATUS=SIZE or QUOTA, and a missing OBJECTID+ activation is
+      [Error.Not_enabled], and neither sends anything. *)
 
   val get_jmap_access : t -> (string, error) result
   (** Returns the server's advertised JMAP access data verbatim. A proxy must

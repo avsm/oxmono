@@ -370,3 +370,6 @@ longer needs cancellation. `Mailbox.wait` takes `?timeout`, default
 connection instead of reconnecting, and scans at a renewal only when
 the selected state differs from the cursor or the cursor has no
 CONDSTORE anchor.
+
+`bench_store` also prints the allocation of each store phase in total
+and per staged row.

@@ -1,0 +1,123 @@
+{0 A client session}
+
+This page reads one program that connects to a server, selects a
+mailbox, searches it, fetches metadata and archives the matches. The
+program is [test/examples/client.ml], which the build compiles and never
+runs, and every block below is copied from it.
+
+{1 Connecting}
+
+{!Imap_eio.Transport.v} names the server, with implicit TLS on port 993
+by default. {!Imap_eio.Auth.password} holds a fixed password, and over
+TLS its default mechanism prefers advertised SASL PLAIN, then CRAM-MD5,
+then LOGIN. {!Imap_eio.Client.connect} opens the connection, checks the
+certificate, reads the greeting and authenticates.
+
+{!Imap_eio.Client.with_mailbox} selects [INBOX] and holds the selection
+lease across the callback. The lease handle expires when the callback
+returns. A [Client] call on the same connection from inside the callback
+is [Error (State _)] and sends nothing, so the callback uses only the
+[Selected] operations. {!Imap_eio.Client.logout} ends the session and
+releases the transport even when it fails.
+
+{[
+let () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let transport =
+    Imap_eio.Transport.v ~net:(Eio.Stdenv.net env) ~host:"imap.example.org" ()
+  in
+  let auth =
+    Imap_eio.Auth.password ~username:"alice" ~password:"secret" ()
+  in
+  let result =
+    let* client = Imap_eio.Client.connect ~sw ~auth transport in
+    match
+      Imap_eio.Client.with_mailbox client ~mode:`Read_write "INBOX"
+        archive_old
+    with
+    | Ok () -> Imap_eio.Client.logout client
+    | Error _ as error ->
+        Imap_eio.Client.close client;
+        error
+  in
+  match result with
+  | Ok () -> ()
+  | Error e ->
+      Format.eprintf "imap: %a@." Imap_eio.Client.pp_error e;
+      exit 1
+]}
+
+{1 Searching and fetching}
+
+{!Imap_eio.Selected.uid_search} takes typed {!Imap.Search.t} criteria
+and is the matching UIDs, sorted and without duplicates.
+{!Imap_eio.Selected.fetch} takes at most 1,000 UIDs and a list of
+{!Imap.Fetch_item.t}. It is one {!Imap_eio.Selected.row} for each UID the
+server reported, in request order. A field of a row is [None] when its
+item was not requested or the server did not report it.
+
+{[
+let archive_old selected =
+  let criteria =
+    Imap.Search.(And [ Seen; Before { day = 1; month = 1; year = 2025 } ])
+  in
+  let* uids = Imap_eio.Selected.uid_search selected ~criteria in
+  let uids = List.filteri (fun i _ -> i < 1000) uids in
+  let* rows =
+    Imap_eio.Selected.fetch selected ~uids
+      ~items:[ Imap.Fetch_item.Internal_date; Rfc822_size ]
+  in
+  List.iter
+    (fun (row : Imap_eio.Selected.row) ->
+      Format.printf "%a %Ld octets@." Imap.Uid.pp row.uid
+        (Option.value row.size ~default:0L))
+    rows;
+  if uids = [] then Ok ()
+  else archive selected ~set:(Imap.Uid_set.of_list uids)
+]}
+
+{1 Archiving with a fallback}
+
+An operation that exists only because of an extension lives in a
+submodule named for it. {!Imap_eio.Selected.Move.require} is a MOVE
+witness when the server offers MOVE or IMAP4rev2, and
+[Error (Unsupported Move)] otherwise. It sends nothing, so the fallback
+is one match arm.
+
+The fallback copies the messages with {!Imap_eio.Selected.uid_copy} and
+marks the originals deleted. It checks for CONDSTORE or QRESYNC before
+copying, so a server with neither receives no copy.
+{!Imap_eio.Selected.Condstore.uid_store_flags} changes only the messages
+unchanged since the HIGHESTMODSEQ reported at selection, and [modified]
+in its receipt names the UIDs it refused. Expunging the originals is left
+to the caller, through {!Imap_eio.Selected.Uidplus.uid_expunge} where the
+server offers UIDPLUS.
+
+{[
+let ( let* ) = Result.bind
+
+let archive selected ~set =
+  let open Imap_eio in
+  match Selected.Move.require selected with
+  | Ok move ->
+      let* _receipt = Selected.Move.uid_move move ~set ~mailbox:"Archive" in
+      Ok ()
+  | Error (Error.Unsupported _) ->
+      let* info = Selected.info selected in
+      let* condstore = Selected.Condstore.require selected in
+      let* _receipt = Selected.uid_copy selected ~set ~mailbox:"Archive" in
+      let* receipt =
+        Selected.Condstore.uid_store_flags condstore ~set ~operation:`Add
+          ~flags:[ Mail_flag.Imap_flag.system Deleted ]
+          ~unchangedsince:(Option.value info.highestmodseq ~default:0L)
+      in
+      if not (Imap.Uid_set.is_empty receipt.modified) then
+        Format.printf "changed since selection: %a@." Imap.Uid_set.pp
+          receipt.modified;
+      Ok ()
+  | Error e -> Error e
+]}
+
+[Error (Uncertain _)] means the server may have applied a command, so
+reconcile the mailbox before retrying.

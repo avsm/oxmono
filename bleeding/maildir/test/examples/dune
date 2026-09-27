@@ -1,0 +1,6 @@
+; doc/index.mld copies this program verbatim. It is built by @all and
+; never run.
+
+(executable
+ (name writer)
+ (libraries maildir mail-flag eio eio_main))

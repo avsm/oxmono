@@ -1,0 +1,15 @@
+; The documentation pages copy these programs verbatim. They are built by
+; @all and never run.
+
+(executables
+ (names client sync)
+ (libraries
+  imap
+  imap.eio
+  imap.store
+  imap.sync
+  maildir
+  mail-flag
+  eio
+  eio_main
+  cstruct))

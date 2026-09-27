@@ -100,7 +100,7 @@ let verify t blob =
   with Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> false
 
 let find t ~scope ~uidvalidity ~uid =
-  Eio.Mutex.use_ro t.mutex (fun () ->
+  locked t (fun () ->
     match rows t "SELECT sha256,length FROM blob_refs WHERE endpoint=? \
       AND account=? AND mailbox_key=? AND uidvalidity=? AND uid=?"
       (scope_key scope @ [i (P.Uidvalidity.to_int64 uidvalidity);
@@ -248,7 +248,7 @@ let iter_directory native f =
     loop ())
 
 let referenced t hash =
-  Eio.Mutex.use_ro t.mutex (fun () ->
+  locked t (fun () ->
     match rows t "SELECT EXISTS (SELECT 1 FROM blob_refs WHERE sha256=?) OR \
       EXISTS (SELECT 1 FROM sync_operations WHERE blob_sha256=? \
         AND state NOT IN ('committed','rejected')) OR \

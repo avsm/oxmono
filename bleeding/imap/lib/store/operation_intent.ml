@@ -124,7 +124,7 @@ let confirm_intent t ~id ~uidvalidity ~uid =
     | _ -> fail "duplicate intent ID")
 
 let pending_intents t ~scope =
-  Eio.Mutex.use_ro t.mutex (fun () ->
+  locked t (fun () ->
     rows t "SELECT id,raw_name,encoding,mailbox_id,kind,message_id,digest, \
       spool_ref,state,uidvalidity,uid,pre_send_frontier,expected_length, \
       expected_flags_known,expected_internal_date FROM intents WHERE \
@@ -146,7 +146,7 @@ let pending_intents t ~scope =
        uid=Option.map uid (nullable_int r.(10))}))
 
 let find_intent t ~id =
-  Eio.Mutex.use_ro t.mutex (fun () ->
+  locked t (fun () ->
     match rows t "SELECT endpoint,account,mailbox_key,raw_name,encoding, \
       mailbox_id,kind,message_id,digest,spool_ref,state,uidvalidity,uid, \
       pre_send_frontier,expected_length,expected_flags_known, \

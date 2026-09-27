@@ -347,7 +347,7 @@ let resolve_open_conflicts t ~(pair:pair) ~kind =
         `Resolved count
     | _ -> `Stale_revision)
 let has_open_conflict t ~(pair:pair) ~kind =
-  Eio.Mutex.use_ro t.mutex (fun () ->
+  locked t (fun () ->
     rows t "SELECT 1 FROM sync_conflicts WHERE pair_id=? AND kind=? AND resolved=0 LIMIT 1"
       [s pair.id;s (conflict_kind kind)]<>[])
 let resolve_conflict t ~id =

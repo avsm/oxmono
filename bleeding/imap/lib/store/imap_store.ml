@@ -308,13 +308,9 @@ let stage_membership t ~stage_id ~first ~last uids =
               if Hashtbl.mem unique uid then
                 invalid_arg "Imap_store.stage_membership: duplicate UID";
               Hashtbl.add unique uid ();
-              bind check_stmt [s stage_id;i uid];
-              (match SE.step t.db check_stmt with
-               | S.Rc.ROW -> ()
-               | S.Rc.DONE ->
-                   invalid_arg "Imap_store.stage_membership: live UID absent from FETCH"
-               | rc -> check rc);
-              check (SE.reset t.db check_stmt);
+              if rows_prepared t check_stmt [s stage_id;i uid]=[] then
+                invalid_arg
+                  "Imap_store.stage_membership: live UID absent from FETCH";
               run_prepared t mark_stmt [s stage_id;i uid]) uids));
     run t "UPDATE scan_stages SET search_upper=? WHERE id=?"
       [i last;s stage_id])

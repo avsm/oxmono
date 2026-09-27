@@ -1,0 +1,8 @@
+; Database is private to imap.store, so its source is compiled directly.
+
+(copy_files#
+ (files ../../../lib/store/database.{ml,mli}))
+
+(test
+ (name test_database)
+ (libraries sqlite3 sqlite3-eio eio eio_main))

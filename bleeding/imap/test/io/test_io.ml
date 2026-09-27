@@ -43,6 +43,16 @@ let cancellation env = with_path env (fun path ->
    with Stop -> ());
   absent path)
 
+let failing_cleanup env = with_path env (fun path ->
+  (try Spool.with_spool path (fun _ ->
+     Eio.Path.unlink path;
+     Eio.Path.mkdir ~perm:0o700 path;
+     raise Stop)
+   with Stop -> ());
+  Alcotest.(check bool) "blocking entry left in place" true
+    (Eio.Path.is_directory path);
+  Eio.Path.rmdir path)
+
 let hash_file env = with_path env (fun path ->
   Eio.Path.save ~create:(`Exclusive 0o600) path "abc";
   let length,digest = Spool.hash_file path in
@@ -57,4 +67,6 @@ let () = Eio_main.run (fun env ->
     Alcotest.test_case "collision preserves sentinel" `Quick (fun () -> collision env);
     Alcotest.test_case "success cleanup" `Quick (fun () -> success env);
     Alcotest.test_case "exception cleanup" `Quick (fun () -> failure env);
+    Alcotest.test_case "failed cleanup keeps exception" `Quick
+      (fun () -> failing_cleanup env);
     Alcotest.test_case "cancellation cleanup" `Quick (fun () -> cancellation env) ]])

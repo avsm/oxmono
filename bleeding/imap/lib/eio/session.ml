@@ -140,6 +140,20 @@ let body_item item =
       List.mem (String.uppercase_ascii (String.sub item s (k-s)))
         ["BODY"; "BODY.PEEK"; "BINARY"; "BINARY.PEEK"]
 
+(* [fetch_line s] holds when the first three words of [s], as
+   [String.split_on_char ' '] separates them, are [*], a number and FETCH or
+   UIDFETCH in any case. It reads only those words. *)
+let fetch_line s =
+  let n = String.length s in
+  n > 2 && s.[0] = '*' && s.[1] = ' ' &&
+  match String.index_from_opt s 2 ' ' with
+  | None -> false
+  | Some j ->
+      Option.is_some (Int64.of_string_opt (String.sub s 2 (j-2))) &&
+      let k = Option.value (String.index_from_opt s (j+1) ' ') ~default:n in
+      let kind = String.uppercase_ascii (String.sub s (j+1) (k-j-1)) in
+      kind = "FETCH" || kind = "UIDFETCH"
+
 let read_response ?on_literal ?(on_literal_start=(fun _ -> ())) t =
   let fetch_response = ref None in
   let streaming = ref false in
@@ -167,11 +181,7 @@ let read_response ?on_literal ?(on_literal_start=(fun _ -> ())) t =
     | Imap.Wire.End_of_response -> List.rev (Imap.Wire.End_of_response :: acc)
     | Imap.Wire.Text s as event ->
         (if !fetch_response=None then
-           fetch_response:=Some (match String.split_on_char ' ' s with
-             | "*"::seq::kind::_ when Int64.of_string_opt seq<>None ->
-                 let kind=String.uppercase_ascii kind in
-                 kind="FETCH" || kind="UIDFETCH"
-             | _ -> false));
+           fetch_response:=Some (fetch_line s));
         let size = size + String.length s in
         if size > t.max_metadata then
           raise (Failure (Limit "response metadata exceeds configured limit"));

@@ -99,8 +99,10 @@ Open questions for the user before resuming:
 - Step 11 removes `Engine.run_once`, `Imap_store.publish` and `load`, the
   `Mirror.complete` and `publish` chain and `Reconcile`, all test-only.
 
-To resume: continue at step 5 in the table below, one agent per step, in
-the main checkout, verifying both packages after each step.
+Resumed 2026-09-27 at step 5 after the user reviewed. Steps 5 to 16 run
+one agent per step in the main checkout, verifying both packages after
+each step. Step 16 is the OxCaml performance pass the user asked for, to
+run only once everything else works.
 
 ### Steps
 
@@ -124,6 +126,7 @@ the main checkout, verifying both packages after each step.
 | 13 | `imap.mli` facade, `.mld` pages, `(documentation)` stanza, dune-project dependency fixes | todo | |
 | 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | todo | |
 | 15 | Redocumentation pass under doc-style over every public interface | todo | |
+| 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
 becomes its own package now; the `imap` package split into protocol, eio and

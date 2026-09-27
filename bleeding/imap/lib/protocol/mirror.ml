@@ -105,14 +105,6 @@ type staged = {
   resolved_mode:mode; resolved_restart:restart_reason option
 }
 
-let max_observed_modseq rows =
-  List.fold_left (fun acc row ->
-    match acc,row.modseq with
-    | None,x | x,None -> x
-    | Some a,Some b ->
-        Some (if Proto.Modseq.to_int64 a >= Proto.Modseq.to_int64 b
-              then a else b)) None rows
-
 let complete (cursor:cursor) (action:action) done_ =
   if cursor.scope<>action.scope then Error Wrong_action
   else if cursor.revision<>action.expected_revision ||
@@ -121,6 +113,8 @@ let complete (cursor:cursor) (action:action) done_ =
   else if done_.action_id<>action.id ||
           done_.uidvalidity<>action.uidvalidity
   then Error Wrong_action
+  else if done_.covered_upper>action.upper_uid
+  then Error (Invalid "coverage beyond fixed upper UID bound")
   else if not done_.inventory_complete || not done_.commands_complete ||
           done_.covered_upper<>action.upper_uid
   then Error Incomplete_coverage
@@ -132,16 +126,12 @@ let complete (cursor:cursor) (action:action) done_ =
     | Error _ as e -> e
     | Ok replacement ->
         let resolved_mode=if done_.nomodseq then Baseline else action.mode in
-        let resolved_restart=
-          if done_.nomodseq && action.mode=Condstore then Some Nomodseq
-          else action.restart in
+        let resolved_restart=match action.restart with
+          | None when done_.nomodseq && action.mode=Condstore -> Some Nomodseq
+          | restart -> restart in
         let next_anchor =
           if resolved_mode=Baseline then None
-          else match done_.explicit_highestmodseq with
-            | Some explicit -> Some explicit
-            | None when List.for_all (fun row -> row.modseq<>None) done_.rows ->
-                max_observed_modseq done_.rows
-            | None -> None in
+          else done_.explicit_highestmodseq in
         (match action.previous_anchor,next_anchor with
          | Some old,Some now when Proto.Modseq.to_int64 now <
                                   Proto.Modseq.to_int64 old ->
@@ -156,12 +146,6 @@ type transition = {
   invalidated_epoch:bool; restart:restart_reason option;
   stage_id:string; more:bool
 }
-
-let flags_equal a b =
-  let normalize = List.sort_uniq Mail_flag.Imap_flag.compare in
-  let a=normalize a and b=normalize b in
-  List.length a=List.length b &&
-  List.for_all2 Mail_flag.Imap_flag.equal a b
 
 let publish (cursor:cursor) ~published staged =
   let action=staged.action in
@@ -190,7 +174,8 @@ let publish (cursor:cursor) ~published staged =
       let changed =
         Uid_map.fold (fun uid row acc ->
           match Uid_map.find_opt uid old with
-          | Some before when not (flags_equal before.flags row.flags) ->
+          | Some before when not (Mail_flag.Imap_flag.equal_durable
+                                    before.flags row.flags) ->
               {before;after=row}::acc
           | _ -> acc) staged.replacement.by_uid [] |> List.rev in
       let removed =

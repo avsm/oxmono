@@ -40,7 +40,10 @@ type cursor = private {
 }
 
 val initial : scope -> cursor
-(** A new mailbox cursor. Empty scope components are rejected. *)
+(** [initial scope] is a new cursor for [scope].
+
+    @raise Invalid_argument if [endpoint], [account], [mailbox_key] or
+    [raw_name] is empty. *)
 
 val restore : schema_version:int -> scope:scope -> phase:phase ->
   uidvalidity:Proto.Uidvalidity.t option -> generation:int64 ->
@@ -97,8 +100,12 @@ type completed = {
 
 type staged
 val complete : cursor -> action -> completed -> (staged, error) result
-(** Rejects interrupted or mismatched work. The returned value is provisional:
-    callers may discard it after a crash without advancing a checkpoint. *)
+(** [complete cursor action done_] stages the inventory [done_] reports for
+    [action]. It is [Error Incomplete_coverage] for interrupted work and
+    [Error (Invalid _)] for coverage or rows beyond [action.upper_uid]. The
+    next MODSEQ anchor is [done_.explicit_highestmodseq] in CONDSTORE mode
+    and [None] otherwise. The staged value is provisional. Callers may
+    discard it after a crash without advancing a checkpoint. *)
 
 type flag_change = { before : row; after : row }
 type transition = {
@@ -117,4 +124,6 @@ val publish : cursor -> published:snapshot option -> staged ->
   (transition, error) result
 (** Apply [transition] under a revision check in one store transaction: replace
     the snapshot, install the new cursor and revision, and expose deltas together.
-    [removed] is empty on UIDVALIDITY changes; the old epoch is quarantined. *)
+    [removed] is empty on UIDVALIDITY changes, and the old epoch is quarantined.
+    [changed] compares durable flags, so a [\Recent]-only difference is not a
+    change. *)

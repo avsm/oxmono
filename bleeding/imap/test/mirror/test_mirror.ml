@@ -129,6 +129,55 @@ let test_mid_cycle_nomodseq () =
   Alcotest.(check bool) "anchor cleared" true (next.cursor.anchor=None);
   Alcotest.(check bool) "restart reason" true (next.restart=Some Nomodseq)
 
+let test_anchor_needs_explicit_highestmodseq () =
+  let first=baseline () in
+  let action=ok (plan first.cursor ~stage_id:"no-explicit"
+    (selected ~highest:99L 5L 4L)) in
+  (* The highest-MODSEQ message was expunged, so the largest row MODSEQ is
+     below the previous anchor. That is not a regression. *)
+  let staged=ok (complete first.cursor action
+    (done_ action [row ~modseq:(modseq 50L) 1L;
+                   row ~modseq:(modseq 60L) 2L] ())) in
+  let next=ok (publish first.cursor ~published:(Some first.snapshot) staged) in
+  Alcotest.(check (option int64)) "no anchor without HIGHESTMODSEQ" None
+    (Option.map Imap.Proto.Modseq.to_int64 next.cursor.anchor)
+
+let test_restart_reason_kept () =
+  let first=baseline () in
+  let action=ok (plan first.cursor ~stage_id:"epoch-nomodseq"
+    (selected ~highest:5L 6L 2L)) in
+  let completed={(done_ action [row 1L] ()) with nomodseq=true} in
+  let staged=ok (complete first.cursor action completed) in
+  let next=ok (publish first.cursor ~published:(Some first.snapshot) staged) in
+  Alcotest.(check bool) "UIDVALIDITY reason survives NOMODSEQ" true
+    (next.restart=Some Uidvalidity_changed)
+
+let test_over_coverage () =
+  let first=baseline () in
+  let action=ok (plan first.cursor ~stage_id:"over"
+    (selected ~highest:99L 5L 4L)) in
+  let receipt={(done_ action [row 1L] ~explicit:99L ()) with
+    covered_upper=Int64.succ action.upper_uid} in
+  (match complete first.cursor action receipt with
+   | Error (Invalid _) -> ()
+   | _ -> Alcotest.fail "over-coverage not reported as invalid")
+
+let test_recent_only_change () =
+  let first=baseline () in
+  let action=ok (plan first.cursor ~stage_id:"recent"
+    (selected ~highest:99L 5L 4L)) in
+  let staged=ok (complete first.cursor action
+    (done_ action [row ~flags:[flag "\\Recent"] 1L;row 2L;row 3L]
+      ~explicit:99L ())) in
+  let next=ok (publish first.cursor ~published:(Some first.snapshot) staged) in
+  Alcotest.(check int) "Recent is not a durable change" 0
+    (List.length next.changed)
+
+let test_initial_empty_scope () =
+  match initial {scope with account=""} with
+  | exception Invalid_argument _ -> ()
+  | _ -> Alcotest.fail "empty scope accepted"
+
 let test_cross_scope_action () =
   let source=initial scope in
   let other=initial {scope with mailbox_key="archive";raw_name="Archive"} in
@@ -172,5 +221,11 @@ let () =
       Alcotest.test_case "duplicate flag membership" `Quick
         test_duplicate_flag_membership;
       Alcotest.test_case "mid-cycle NOMODSEQ" `Quick test_mid_cycle_nomodseq;
+      Alcotest.test_case "anchor needs explicit HIGHESTMODSEQ" `Quick
+        test_anchor_needs_explicit_highestmodseq;
+      Alcotest.test_case "restart reason kept" `Quick test_restart_reason_kept;
+      Alcotest.test_case "over-coverage" `Quick test_over_coverage;
+      Alcotest.test_case "Recent-only change" `Quick test_recent_only_change;
+      Alcotest.test_case "empty scope" `Quick test_initial_empty_scope;
       Alcotest.test_case "cross-scope action" `Quick test_cross_scope_action;
       Alcotest.test_case "restored cursor" `Quick test_restore_cursor]]

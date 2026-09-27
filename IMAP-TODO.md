@@ -115,7 +115,7 @@ run only once everything else works.
 | 2 | Plan items 1 to 3: `Imap.Capability`, typed `Response.Capability`/`Enabled`, `Error.Unsupported`, typed `Client.capabilities`/`enabled`/`has`/`enable` | done | a21c8b091 |
 | 3 | Plan item 12: `spool` and `database` as private support libraries shared by their library and their tests; drop the copy_files rules in test/io and test/store/database | done | 722b25c41 |
 | 4 | Plan item 10: standalone `maildir` package at `bleeding/maildir/`; no `imap` or `sqlite3-eio` dependency; `Local_inventory` in sync; `with_writer` capability; typed errors; `Dotlock` public | done | 68af6a250 |
-| 5 | Plan item 5a: dissolve `Proto` into `Imap.Uid`, `Uidvalidity`, `Modseq`, `Uid_set` with `equal`, `compare`, `pp`; unify identifier shapes across `Selected` | todo | |
+| 5 | Plan item 5a: dissolve `Proto` into `Imap.Uid`, `Uidvalidity`, `Modseq`, `Uid_set` with `equal`, `compare`, `pp`; unify identifier shapes across `Selected` | done | 7dbd4c0ca |
 | 6 | Plan item 5b: move vocabulary types out of `Command`; `Command.error` a real type; label mailbox arguments; `Mailbox_name.t` private; `Client.list` returns `Mailbox_name.t` | todo | |
 | 7 | Plan item 5c: `Imap.Search` and `Imap.Fetch_item`; one `Selected.fetch` replacing the six fifty-UID fetchers | todo | |
 | 8 | Plan item 6: one `Client.append` and `append_many`; typed flags on APPEND | todo | |
@@ -279,6 +279,30 @@ and staging cases moved to test/local. New cases cover the escaped
 writer, the typed errors, the lease file check, Bridge surfacing a
 malformed name as `Maildir` and startup recovery. Build and runtest are
 clean for both packages, 16 suites and 226 test cases.
+
+Step 5. Done: `Imap.Proto` is gone. `Imap.Uid`, `Uidvalidity`, `Modseq` and
+`Seq` each have `of_int64`, `to_int64`, `to_string`, `equal`, `compare` and
+`pp`, and `Uid` adds `succ` and `pred`, which are `None` at the range ends.
+`Imap.Uid_set` gains `of_list`, `add`, `inter`, `diff`, `iter`, `fold` and
+`to_list`, and `to_wire` raises `Invalid_argument` on the empty set.
+`Selected` takes and returns `Imap.Uid.t` for every UID, UID list, UID
+window, row record and ESORT MIN and MAX, and `Imap.Uid_set.t` for
+`uid_fetch` and `uid_fetch_partial`, which refuse an empty set with `State`.
+Response values enter `Uid.t` through `of_int64`, and a failure is
+`Protocol`. `Error.Missing_uid` carries a `Uid.t`, and `Client.with_mailbox
+?qresync` takes `Uidvalidity.t * Modseq.t`. `?unchangedsince` stays `int64`
+because RFC 7162 allows 0 there, the live CONDSTORE tests send 0, and
+`Modseq.t` rejects 0. Command encoders keep `set:string` because test/proto
+drives them with raw and invalid sets. `Imap_store.stage_membership` takes a
+`Uid.t list`. The CLI parses `--after-uid`, `--uidvalidity` and `--uid`
+through the checked constructors, which removes its `invalid_arg` calls.
+Engine, Bridge and Reconcile keep int64 window arithmetic, since an empty
+mailbox has upper UID 0, and convert each window once. The 1,000-UID window
+check is one helper in Selected, the COPYUID subset check is `Uid_set.diff`,
+and Mirror and the engine compare MODSEQs with `Modseq.compare`.
+`Uid_set.union` backs `add` and has a directed test. Tests changed only in
+how they build and read identifiers, and test/proto gained a set-algebra
+case. Build and runtest are clean, 16 suites and 227 test cases.
 
 Steps 5 to 9 are ordered so the tree builds after each. Step 9 groups: on
 the lease Condstore, Qresync, Uidplus, Move, Binary, Searchres, Sort, Esort,
@@ -666,7 +690,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [ ] selected.ml:476 [redundant] the six `uid_fetch_<x>s` functions repeat UID-list validation, comma join, `Map.Make(Int64)` fold with `List.mem`, and projection; only the UID-list policy, result order, duplicate policy and unrequested-UID policy vary. Plan step 7. (left for step 7)
 - [x] selected.ml:642 [redundant] `fetch_metadata_range` and `fetch_changes_range` at :897 run near-identical MESSAGELIMIT loops; the prefix test is written three ways at :322, :357 and :639.
 - [x] selected.ml:679 [redundant] the `List.mem cap` then `raise (State "X unavailable")` pattern appears about twenty times and `has` is defined only at :679; the encoder unwrap about thirty times; `Fetch row | Uidfetch row` extraction twelve times; the tagged-tag match six times; the correlated-ESEARCH filter four times. Plan step 2 and step 9. (the capability idiom is `Session.require` and `require_enabled` since step 2. The witness submodules are left for step 9. `syntax`, fetch-row, completion-tag and correlated-ESEARCH helpers now replace the other copies)
-- [ ] selected.ml:43 [redundant] `uid < 1L || uid > 4_294_967_295L` is written nine times at :43, :327, :453, :507, :546, :594, :1004, :1060 and :1089 although `Proto.Uid.of_int64` exists; the 1000-UID window check three times at :352, :631 and :888. Plan step 5. (left for step 5)
+- [x] selected.ml:43 [redundant] `uid < 1L || uid > 4_294_967_295L` is written nine times at :43, :327, :453, :507, :546, :594, :1004, :1060 and :1089 although `Proto.Uid.of_int64` exists; the 1000-UID window check three times at :352, :631 and :888. Plan step 5. (left for step 5)
 - [x] selected.ml:748 [redundant] the rev2 predicate is duplicated in `mailbox_wire` at :748, `require_binary` at :979 and `Client.revision_two`; `Selected.mailbox_wire` duplicates `Client.mailbox_wire` except for the error prefix.
 - [x] selected.ml:442 [comment] restates the code; delete. At :38 keep the RFC 5267 sentence and delete "SEARCH retains its existing expansion."
 - [x] selected.mli:258 [drift] "require their advertised extensions" is accurate to the code but conflicts with RFC 9051 for MOVE and UIDPLUS.
@@ -833,7 +857,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] wire.ml:72 [high] a literal length that overflows int64 falls through to `None`, so the line is framed as a complete response and the literal bytes are parsed as control lines; probed with `{99999999999999999999}`. Reject as "literal exceeds limit".
 - [x] wire.ml:91 [high] `err` drops every event already framed in the same chunk, so a `* BYE` before a bad byte is lost; probed with `* OK hi\r\nbad\n`.
 - [x] wire.ml:41 [medium] the `data_response` allowlist omits ESEARCH (RFC 4731 tag is a string) and LANGUAGE (RFC 5255 astring), whose grammar allows a literal; probed with `* ESEARCH (TAG {2}`.
-- [ ] proto.ml:75 [medium] `to_wire empty` returns `""`, which is not a valid sequence set and which `of_wire` rejects; callers at flags.ml:373, deletion.ml:258 and selected.ml:684 test emptiness by string comparison because there is no `is_empty`. Plan step 5. (left for step 5: `Uid_set.is_empty` added, `to_wire empty = ""` kept for the three callers)
+- [x] proto.ml:75 [medium] `to_wire empty` returns `""`, which is not a valid sequence set and which `of_wire` rejects; callers at flags.ml:373, deletion.ml:258 and selected.ml:684 test emptiness by string comparison because there is no `is_empty`. Plan step 5. (left for step 5: `Uid_set.is_empty` added, `to_wire empty = ""` kept for the three callers)
 - [x] mailbox_name.ml:179 [low] `Utf8` mode `decode` and `encode` at :179 and :184 accept NUL, CR, LF and C0 controls that `Rev1` rejects; `Command.quote` catches it later.
 - [x] proto.ml:51 [low] `of_wire` accepts leading zeros and its endpoint errors omit the offending token.
 - [ ] wire.ml:97 [dead] the `remaining = 0L` branch and the `take = 0` branch at :102 are unreachable; mailbox_name.ml:90 `s = ""` is unreachable; `Proto.Seq` has zero callers in lib, bin and test; `Uid_set.union` has zero callers; `encode_rev1` and `decode_rev1` are called only by test/proto/test_proto.ml:458; `decode ~mode` has no external caller beyond `of_wire`, which only test_oracle.ml:93 and :121 call; mailbox_name.ml:4 `fail` aliases `Error`. (partly fixed: both Wire branches, `s = ""` and `fail` removed; `Proto.Seq` is now used by Response range checks; left for step 5: `Uid_set.union`; left for step 6: `encode_rev1`, `decode_rev1`, `decode ~mode`)
@@ -964,7 +988,7 @@ These are visible only across modules. Each names the step that absorbs it.
 - [x] [lease exceptions, step 4] `Writer_lock_busy = Dotlock.Busy` at imap_maildir.ml:17 conflates the application lease with the Dovecot metadata lock; bridge.ml wraps whole cycles in that handler at seven sites; the lease is non-reentrant yet deletion.ml:422, :493, :580 and flags.ml:260 take it themselves while their docs say the caller holds it. Distinct exceptions now, the `with_writer` capability in step 4. (`Metadata_lock_busy` is distinct and Bridge reports `Writer_busy` only for the lease. Step 4: `with_writer` grants a writer that `reconcile_pair` and `recover_operation` take, and the operator repairs take the lease themselves as documented)
 - [ ] [pair evidence helpers, step 11] the local content hash check is at bridge.ml:478, :836, :975 and flags.ml:119; the local date check at bridge.ml:485, :697, :1243 and flags.ml:288; evidence validation at deletion.ml:418, :487, :569, flags.ml:256, bridge.ml:1020, :1313, :1388; operation-against-pair identity at deletion.ml:434, :507, :594, :366; guard error mapping at deletion.ml:444, :521, :608, flags.ml:278. One private `Pair_evidence` module in sync.
 - [x] [flag equality, step F] structural equality after `sort_uniq compare` at sync_journal.ml:497, :695, :814, :850 and bridge.ml:330 disagrees with `Imap_flag.equal_durable` used everywhere else. Use `equal_durable` and consider an `Imap_flag.Set`. (journal by the store fixes, bridge.ml:330 by the sync fixes)
-- [ ] [hand-coded UID ranges, step 5] the literal `4_294_967_295L` check is at sixteen response.ml sites, nine selected.ml sites, command.ml:317 and imap_cli.ml:574, :751, :753 although `Proto.Uid.of_int64` exists.
+- [x] [hand-coded UID ranges, step 5] the literal `4_294_967_295L` check is at sixteen response.ml sites, nine selected.ml sites, command.ml:317 and imap_cli.ml:574, :751, :753 although `Proto.Uid.of_int64` exists.
 - [ ] [store helpers, step F] the SHA-256 hex validator is at blob_store.ml:16, operation_intent.ml:42, sync_journal.ml:74 and :452; the cursor read plus decode at imap_store.ml:29, :130, :141, :187 and blob_store.ml:116; the stale check at imap_store.ml:239, :333, :402 and blob_store.ml:122 with three disagreeing missing-row cases. Move to Record_codec.
 - [x] [capability idiom, step 2 and step 9] the `List.mem cap` then `State "X unavailable"` pattern is at about fifteen client.ml sites, twenty selected.ml sites and session.ml:256; the effective-rev2 predicate is written four ways at client.ml:57, :692, selected.ml:748, :979; `Capability` and `Enabled` are raw uppercase words with no dedup. (step 2 replaced the pattern with `Session.require` returning `Unsupported`, the predicates with `Session.has`, and the words with `Imap.Capability`. The extension witnesses are left for step 9)
 - [ ] [two APPEND journals, decision in step 11] `intents` (18 columns) and `sync_operations` (26 columns) are bridged only by a shared ID at bridge.ml:195, :243, :326, :409, :1412; `intents.uidvalidity` conflates the pre-send epoch with the receipt epoch (operation_intent.ml:117). Unification is a schema v14 migration. Recommendation: keep both tables this round, add a separate receipt epoch column in v14, and record the unification as follow-up.

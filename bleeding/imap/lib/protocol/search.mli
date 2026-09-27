@@ -1,3 +1,5 @@
+@@ portable
+
 (** SEARCH criteria.
 
     A criterion is built from the RFC 9051 §6.4.4 search keys and the

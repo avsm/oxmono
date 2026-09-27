@@ -1,3 +1,5 @@
+@@ portable
+
 (** IMAP capability tokens and sets.
 
     A capability is a token a server advertises in a CAPABILITY response or

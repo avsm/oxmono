@@ -1,3 +1,5 @@
+@@ portable
+
 (** Mailbox STATUS data items.
 
     The items a STATUS command can request, RFC 9051 §6.3.11 and its

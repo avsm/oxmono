@@ -1,3 +1,5 @@
+@@ portable
+
 (** IMAP message sequence numbers.
 
     A sequence number is the RFC 9051 [seq-number], the position of a

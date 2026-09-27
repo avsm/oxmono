@@ -1,3 +1,5 @@
+@@ portable
+
 (** LIST-EXTENDED selection and return options.
 
     The options of an RFC 5258 extended LIST command. *)

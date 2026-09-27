@@ -1,11 +1,14 @@
+@@ portable
+
 (** IMAP INTERNALDATE and APPEND date-times.
 
     A value is an RFC 9051 [date-time] checked for calendar validity. It
     keeps its explicit numeric zone, including the distinction between
     [+0000] and [-0000], and involves no host-local time conversion. *)
 
-type t
-(** The type for validated date-times. *)
+type t : immutable_data
+(** The type for validated date-times. A value is immutable data, so it may
+    be shared between domains. *)
 
 val of_string : string -> (t, string) result
 (** [of_string s] is the unquoted 26-byte date-time [s], such as

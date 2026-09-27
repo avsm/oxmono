@@ -1,3 +1,5 @@
+@@ portable
+
 (** IMAP mailbox UIDVALIDITY values.
 
     A UIDVALIDITY is a number from 1 to 4294967295 that a server announces

@@ -1,3 +1,5 @@
+@@ portable
+
 (** Incremental IMAP response framing.
 
     A decoder splits the byte stream from a server into control lines and

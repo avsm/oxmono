@@ -1,3 +1,5 @@
+@@ portable
+
 (** SORT keys and ESORT return options.
 
     The vocabulary of RFC 5256 SORT and RFC 5267 ESORT. *)

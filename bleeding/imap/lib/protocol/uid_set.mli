@@ -1,11 +1,14 @@
+@@ portable
+
 (** Finite UID sets.
 
     A set is the UID form of the RFC 9051 [sequence-set]. It is held as
     sorted, disjoint, non-adjacent intervals, so two sets with the same
     UIDs are equal and print the same wire form. *)
 
-type t
-(** The type for finite sets of UIDs. *)
+type t : immutable_data
+(** The type for finite sets of UIDs. A set is immutable data, so it may be
+    shared between domains. *)
 
 val empty : t
 (** [empty] is the set with no UIDs. *)

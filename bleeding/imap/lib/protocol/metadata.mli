@@ -1,3 +1,5 @@
+@@ portable
+
 (** GETMETADATA options.
 
     The DEPTH option of the RFC 5464 GETMETADATA command. *)

@@ -1,3 +1,5 @@
+@@ portable
+
 (** Flag and deletion reconciliation policy for a paired message.
 
     The policy is conservative and pure. The caller must first prove that

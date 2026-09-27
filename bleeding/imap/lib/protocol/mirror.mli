@@ -1,3 +1,5 @@
+@@ portable
+
 (** Mailbox cursors and scan planning.
 
     A cursor records the last complete inventory published for a mailbox

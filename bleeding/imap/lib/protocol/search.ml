@@ -38,16 +38,22 @@ let pp_error ppf e = Format.pp_print_string ppf (error_to_string e)
 
 let ( let* ) = Result.bind
 
-let months = [|
+let months = [:
   "Jan";"Feb";"Mar";"Apr";"May";"Jun";
   "Jul";"Aug";"Sep";"Oct";"Nov";"Dec"
-|]
+:]
+
+let month_number name =
+  let rec find i =
+    if String.equal (Stdlib_stable.Iarray.get months i) name then i + 1
+    else find (i + 1) in
+  find 0
 
 let date_of_internal_date d =
   let s = Internal_date.to_string d in
   let month = String.sub s 3 3 in
   {day = int_of_string (String.trim (String.sub s 0 2));
-   month = 1 + Option.get (Array.find_index (String.equal month) months);
+   month = month_number month;
    year = int_of_string (String.sub s 7 4)}
 
 let leap year = year mod 4 = 0 && (year mod 100 <> 0 || year mod 400 = 0)
@@ -58,7 +64,8 @@ let days_in_month year = function
   | _ -> 31
 
 let date_text {day; month; year} =
-  Printf.sprintf "%d-%s-%04d" day months.(month - 1) year
+  Printf.sprintf "%d-%s-%04d" day (Stdlib_stable.Iarray.get months (month - 1))
+    year
 
 let control c = Char.code c < 0x20 || Char.code c = 0x7f
 

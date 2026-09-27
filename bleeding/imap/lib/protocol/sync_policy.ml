@@ -1,5 +1,5 @@
 module Flag = Mail_flag.Imap_flag
-module Flags = Map.Make (struct
+module Flags = Map.MakePortable (struct
   type t = Flag.t
   let compare = Flag.compare
 end)
@@ -13,8 +13,7 @@ type flag_plan = {
 }
 
 let flag_map flags =
-  List.fold_left (fun map flag -> Flags.add flag flag map) Flags.empty
-    (Flag.durable flags)
+  Flags.of_list (List.map (fun flag -> flag, flag) (Flag.durable flags))
 
 let prefer_right _ _ right = Some right
 

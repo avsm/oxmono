@@ -147,7 +147,7 @@ let malformed_limit c =
 
 module Set = struct
   type elt = t
-  module S = Stdlib.Set.Make (struct
+  module S = Stdlib.Set.MakePortable (struct
     type nonrec t = t
     let compare = compare
   end)
@@ -155,7 +155,7 @@ module Set = struct
   let empty = S.empty
   let is_empty = S.is_empty
   let add c s = S.add (canonical c) s
-  let of_list l = List.fold_left (fun s c -> add c s) empty l
+  let of_list l = S.of_list (List.map canonical l)
   let to_list = S.elements
   let mem = S.mem
   let union = S.union

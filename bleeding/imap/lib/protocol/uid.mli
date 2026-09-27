@@ -1,3 +1,5 @@
+@@ portable
+
 (** IMAP message unique identifiers.
 
     A UID is the RFC 9051 [uniqueid], a number from 1 to 4294967295 that

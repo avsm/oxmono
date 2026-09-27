@@ -1,3 +1,5 @@
+@@ portable
+
 (** Typed IMAP server responses.
 
     {!parse_parts} parses the {!Wire} events of exactly one framed

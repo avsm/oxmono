@@ -4,10 +4,16 @@ type t = {
   zone_sign : char; zone_hour : int; zone_minute : int;
 }
 
-let months = [|
+let months = [:
   "Jan";"Feb";"Mar";"Apr";"May";"Jun";
   "Jul";"Aug";"Sep";"Oct";"Nov";"Dec"
-|]
+:]
+
+let month_index = function
+  | "jan" -> Some 0 | "feb" -> Some 1 | "mar" -> Some 2 | "apr" -> Some 3
+  | "may" -> Some 4 | "jun" -> Some 5 | "jul" -> Some 6 | "aug" -> Some 7
+  | "sep" -> Some 8 | "oct" -> Some 9 | "nov" -> Some 10 | "dec" -> Some 11
+  | _ -> None
 
 let digits s start count =
   let rec loop i value =
@@ -43,8 +49,7 @@ let of_string s =
   else
     let day=if s.[0]=' ' then digits s 1 1 else digits s 0 2 in
     let month=String.sub s 3 3 |> String.lowercase_ascii in
-    let month=Array.find_index (fun name ->
-      String.lowercase_ascii name=month) months in
+    let month=month_index month in
     match day,month,digits s 7 4,digits s 12 2,digits s 15 2,
           digits s 18 2,digits s 22 2,digits s 24 2 with
     | Some day,Some month,Some year,Some hour,Some minute,
@@ -60,7 +65,7 @@ let of_string s =
 
 let to_string t =
   Printf.sprintf "%2d-%s-%04d %02d:%02d:%02d %c%02d%02d"
-    t.day months.(t.month-1) t.year t.hour t.minute t.second
+    t.day (Stdlib_stable.Iarray.get months (t.month-1)) t.year t.hour t.minute t.second
     t.zone_sign t.zone_hour t.zone_minute
 
 let to_wire t = "\"" ^ to_string t ^ "\""
@@ -70,8 +75,9 @@ let days_before_year year =
   previous*365 + previous/4 - previous/100 + previous/400
 
 let days_before_month year month =
-  let cumulative=[|0;31;59;90;120;151;181;212;243;273;304;334|] in
-  cumulative.(month-1) + if month>2 && leap year then 1 else 0
+  let cumulative=[:0;31;59;90;120;151;181;212;243;273;304;334:] in
+  Stdlib_stable.Iarray.get cumulative (month-1) +
+  if month>2 && leap year then 1 else 0
 
 let second_count t =
   let days=days_before_year t.year +

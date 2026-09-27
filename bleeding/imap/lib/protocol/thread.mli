@@ -1,3 +1,5 @@
+@@ portable
+
 (** RFC 5256 THREAD algorithms.
 
     Algorithm names compare case-insensitively. *)

@@ -1,3 +1,5 @@
+@@ portable
+
 (** IMAP command encoders.
 
     An encoder returns the syntax of one command without its tag or final

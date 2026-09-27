@@ -1,3 +1,5 @@
+@@ portable
+
 (** CONDSTORE modification sequences.
 
     A MODSEQ is the RFC 7162 [mod-sequence-value] a server reports for a
@@ -5,8 +7,9 @@
     integer. The value 0, which RFC 7162 permits only as an UNCHANGEDSINCE
     argument, is not a [t]. *)
 
-type t
-(** The type for received MODSEQ values. *)
+type t : immutable_data
+(** The type for received MODSEQ values. A value is immutable data, so it
+    may be shared between domains. *)
 
 val of_int64 : int64 -> (t, string) result
 (** [of_int64 n] is [n] as a MODSEQ, or an error when [n] is not

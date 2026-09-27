@@ -78,7 +78,7 @@ type row = {
   uid:Uid.t; flags:Mail_flag.Imap_flag.t list;
   modseq:Modseq.t option
 }
-module Uid_map = Map.Make(Uid)
+module Uid_map = Map.MakePortable(Uid)
 type snapshot = { validity:Uidvalidity.t; by_uid:row Uid_map.t }
 
 let snapshot ~uidvalidity rows =
@@ -88,6 +88,6 @@ let snapshot ~uidvalidity rows =
         let uid=row.uid in
         if Uid_map.mem uid map then Error (Invalid "duplicate UID in inventory")
         else add (Uid_map.add uid row map) rest in
-  add Uid_map.empty rows
+  add (Uid_map.of_list []) rows
 let rows snap = Uid_map.bindings snap.by_uid |> List.map snd
 let snapshot_uidvalidity snap = snap.validity

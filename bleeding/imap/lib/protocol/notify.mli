@@ -1,3 +1,5 @@
+@@ portable
+
 (** NOTIFY filters and events.
 
     The vocabulary of the RFC 5465 NOTIFY command. {!Command.notify_set}

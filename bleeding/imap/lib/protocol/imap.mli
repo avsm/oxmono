@@ -1,10 +1,17 @@
+@@ portable
+
 (** IMAP protocol values, codecs and synchronization planning.
 
     [Imap] is the pure half of the IMAP client. It checks identifiers,
     frames and parses server responses, encodes commands, types the
     extension vocabularies and plans mailbox scans and reconciliation. It
     performs no I/O. [Imap_eio] runs these values over a connection, and
-    [Imap_sync] drives durable synchronization with them. *)
+    [Imap_sync] drives durable synchronization with them.
+
+    Every function is portable, so a caller may frame, parse, encode and
+    plan on any domain. Every type is immutable data that may be shared
+    between domains, except the mutable {!Wire.t} and the stdlib-backed
+    {!Capability.Set.t} and {!Mirror.snapshot}. *)
 
 (** {1 Identifiers} *)
 

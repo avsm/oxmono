@@ -1,3 +1,5 @@
+@@ portable
+
 (** IMAP mailbox names with their exact wire identity.
 
     A name travels in one of two encodings. Rev1 uses modified UTF-7, RFC

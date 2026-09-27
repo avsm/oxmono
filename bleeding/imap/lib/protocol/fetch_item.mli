@@ -1,3 +1,5 @@
+@@ portable
+
 (** Metadata FETCH data items.
 
     The items a metadata FETCH can request. Body items are absent, since

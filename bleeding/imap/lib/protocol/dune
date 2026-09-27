@@ -2,6 +2,6 @@
  (name imap)
  (public_name imap)
  (libraries mail-flag)
- (modules uid uidvalidity modseq seq uid_set thread capability wire response
-  status_item mailbox_list sort notify metadata search fetch_item command
-  mailbox_name internal_date mirror sync_policy))
+ (modules imap uid uidvalidity modseq seq uid_set mailbox_name internal_date
+  wire response command capability search fetch_item status_item
+  mailbox_list sort thread notify metadata mirror sync_policy))

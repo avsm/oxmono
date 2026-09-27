@@ -85,6 +85,8 @@ let discard path =
   Eio.Cancel.protect (fun () ->
     try Eio.Path.unlink path with Eio.Io _ -> ())
 
+exception Duplicate of string
+
 let with_pages ~spool_dir maildir f =
   let path=Eio.Path.(spool_dir / (prefix ^ Maildir.reserve_id () ^ suffix)) in
   let owned=ref false in
@@ -99,24 +101,32 @@ let with_pages ~spool_dir maildir f =
       db_exec db "CREATE TABLE occurrences \
         (id TEXT PRIMARY KEY,occurrence BLOB NOT NULL)";
       db_exec db "BEGIN";
-      let count=with_stmt db
+      let staged=with_stmt db
         "INSERT INTO occurrences(id,occurrence) VALUES (?,?)" (fun stmt ->
-        Maildir.fold maildir ~init:0L ~f:(fun count (o:Maildir.occurrence) ->
-          bind stmt [Sql.Data.TEXT o.id;
-            Sql.Data.BLOB (Marshal.to_string o [])];
-          (match Db.step db stmt with
-           | Sql.Rc.DONE -> ()
-           | Sql.Rc.CONSTRAINT ->
-               ignore (Db.reset db stmt : Sql.Rc.t);
-               failwith ("Imap_maildir: duplicate occurrence identity " ^
-                 o.id)
-           | rc -> db_check rc);
-          db_check (Db.reset db stmt);
-          Int64.succ count)) in
-      db_exec db "COMMIT";
-      let view={db;count;owner=maildir;live=true;
-        appended_ids=Hashtbl.create 32} in
-      Fun.protect ~finally:(fun () -> view.live<-false) (fun () -> f view)))
+        match
+          Maildir.fold maildir ~init:0L ~f:(fun count (o:Maildir.occurrence) ->
+            bind stmt [Sql.Data.TEXT o.id;
+              Sql.Data.BLOB (Marshal.to_string o [])];
+            (match Db.step db stmt with
+             | Sql.Rc.DONE -> ()
+             | Sql.Rc.CONSTRAINT ->
+                 ignore (Db.reset db stmt : Sql.Rc.t);
+                 raise (Duplicate o.id)
+             | rc -> db_check rc);
+            db_check (Db.reset db stmt);
+            Int64.succ count)
+        with
+        | staged -> staged
+        | exception Duplicate id ->
+            Error (Maildir.Duplicate_identity id)) in
+      match staged with
+      | Error _ as error -> error
+      | Ok count ->
+          db_exec db "COMMIT";
+          let view={db;count;owner=maildir;live=true;
+            appended_ids=Hashtbl.create 32} in
+          Fun.protect ~finally:(fun () -> view.live<-false) (fun () ->
+            Ok (f view))))
 
 let with_unchanged_occurrence ?inventory maildir o f =
   check ?inventory maildir;
@@ -130,17 +140,19 @@ let open_message ?inventory maildir ~sw o =
   check ?inventory maildir;
   Maildir.open_message maildir ~sw o
 
-let append ?inventory maildir ?id ~source ~length ~flags ?mtime () =
-  check ?inventory maildir;
-  (match inventory,id with
-   | Some view,Some id when
-       Hashtbl.mem view.appended_ids id || find view ~id<>None ->
-       failwith ("Imap_maildir: occurrence ID " ^ id ^ " already published")
-   | _ -> ());
-  let o=Maildir.append maildir ?id ~source ~length ~flags ?mtime () in
-  Option.iter (fun view -> Hashtbl.replace view.appended_ids o.id ())
-    inventory;
-  o
+let append ?inventory writer ?id ~source ~length ~flags ?mtime () =
+  check ?inventory (Maildir.of_writer writer);
+  match inventory,id with
+  | Some view,Some id when
+      Hashtbl.mem view.appended_ids id || find view ~id<>None ->
+      Error (Maildir.Duplicate_identity id)
+  | _ ->
+      let appended=Maildir.append writer ?id ~source ~length ~flags ?mtime
+        () in
+      (match inventory,appended with
+       | Some view,Ok o -> Hashtbl.replace view.appended_ids o.id ()
+       | _ -> ());
+      appended
 
 let recover spool_dir =
   let staging name =

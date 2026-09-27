@@ -1,6 +1,22 @@
 module Client = Imap_eio.Client
 module Selected = Imap_eio.Selected
 
+(* Test conveniences over [Maildir]: a format or policy error fails the
+   test, and each mutation takes its own writer. *)
+module Md = struct
+  include Maildir
+  let ok = function
+    | Ok x -> x
+    | Error e -> Alcotest.failf "unexpected Maildir error: %a" pp_error e
+  let open_dir path = ok (open_dir path)
+  let scan m = ok (scan m)
+  let find m ~id = ok (find m ~id)
+  let append m ?id ~source ~length ~flags ?mtime () =
+    ok (with_writer m (fun w -> append w ?id ~source ~length ~flags ?mtime ()))
+  let set_flags m o flags = ok (with_writer m (fun w -> set_flags w o flags))
+  let remove m o = with_writer m (fun w -> remove w o)
+end
+
 let unwrap = function
   | Ok x -> x
   | Error e -> Alcotest.fail (Client.error_to_string e)
@@ -210,7 +226,7 @@ let test_bridge () =
   Eio.Switch.run @@ fun store_sw ->
   let store = Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  let maildir = Maildir.open_dir Eio.Path.(fs / maildir_path) in
+  let maildir = Md.open_dir Eio.Path.(fs / maildir_path) in
   let counter = ref 0 in
   let next_id () = incr counter; Printf.sprintf "stalwart-%s-%d" n !counter in
   let copy stage_id = match Imap_sync.Bridge.copy_once ~client ~store ~maildir
@@ -220,16 +236,16 @@ let test_bridge () =
     | Error e -> Alcotest.fail (Format.asprintf "%a" Imap_sync.Bridge.pp_error e) in
   let imported = copy ("stalwart-import-" ^ n) in
   Alcotest.(check int) "remote imported" 1 imported.remote_to_local;
-  let imported_local = match Maildir.scan maildir with
+  let imported_local = match Md.scan maildir with
     | [x] -> x | _ -> Alcotest.fail "expected one imported local message" in
   let imported_bytes = Buffer.create (String.length remote) in
   Eio.Switch.run @@ fun read_sw ->
-  Eio.Flow.copy (Maildir.open_message maildir ~sw:read_sw imported_local)
+  Eio.Flow.copy (Md.open_message maildir ~sw:read_sw imported_local)
     (Eio.Flow.buffer_sink imported_bytes);
   Alcotest.(check string) "import exact bytes" remote
     (Buffer.contents imported_bytes);
   let local_body = raw n "local" in
-  let local = Maildir.append maildir
+  let local = Md.append maildir
     ~source:(Eio.Flow.string_source local_body)
     ~length:(Int64.of_int (String.length local_body)) ~flags:[] () in
   let uploaded = copy ("stalwart-upload-" ^ n) in

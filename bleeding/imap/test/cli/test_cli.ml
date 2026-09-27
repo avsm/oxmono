@@ -1,3 +1,19 @@
+(* Test conveniences over [Maildir]: a format or policy error fails the
+   test, and each mutation takes its own writer. *)
+module Md = struct
+  include Maildir
+  let ok = function
+    | Ok x -> x
+    | Error e -> Alcotest.failf "unexpected Maildir error: %a" pp_error e
+  let open_dir path = ok (open_dir path)
+  let scan m = ok (scan m)
+  let find m ~id = ok (find m ~id)
+  let append m ?id ~source ~length ~flags ?mtime () =
+    ok (with_writer m (fun w -> append w ?id ~source ~length ~flags ?mtime ()))
+  let set_flags m o flags = ok (with_writer m (fun w -> set_flags w o flags))
+  let remove m o = with_writer m (fun w -> remove w o)
+end
+
 let env = function
   | "IMAP_HOST" -> Some "mail.example"
   | "IMAP_USER" -> Some "alice"
@@ -343,7 +359,7 @@ let test_readonly_inspect () =
         remove (Filename.concat path child)); Unix.rmdir path)
       else Sys.remove path in
     remove maildir) @@ fun () ->
-  ignore (Maildir.open_dir Eio.Path.(fs / maildir));
+  ignore (Md.open_dir Eio.Path.(fs / maildir));
   let plan=parse ["plan-deletions";"--db";filename;
     "--maildir";maildir;"--propagate-deletions"] in
   Alcotest.(check int) "plan requires complete published inventory" 4
@@ -424,7 +440,7 @@ let test_sync_recovers_before_connect () =
   Fun.protect ~finally:(fun () -> remove root) @@ fun () ->
   let maildir=Filename.concat root "maildir" in
   let fs=Eio.Stdenv.fs eio in
-  ignore (Maildir.open_dir Eio.Path.(fs / maildir));
+  ignore (Md.open_dir Eio.Path.(fs / maildir));
   let abandoned=Filename.concat (Filename.concat maildir "tmp")
     ".tmp-0123456789abcdef0123456789abcdef" in
   let output=open_out_bin abandoned in
@@ -452,7 +468,7 @@ let test_mark_local_retention () =
   let fs=Eio.Stdenv.fs eio in
   let database=Filename.concat root "sync.db"
   and local_path=Filename.concat root "Maildir" in
-  let maildir=Maildir.open_dir Eio.Path.(fs / local_path) in
+  let maildir=Md.open_dir Eio.Path.(fs / local_path) in
   let scope:Imap.Mirror.scope={endpoint="server-id";account="account-id";
     mailbox_key="INBOX";raw_name="INBOX";
     encoding=Imap.Mailbox_name.Rev1;mailbox_id=None} in

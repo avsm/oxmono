@@ -25,6 +25,10 @@ type error =
   | Date_diverged of string
   | Invalid_operation of string
   | Invalid_configuration of string
+  | Maildir of Maildir.error
+      (** [Maildir e] is a Maildir format or policy failure, including one
+          from {!Flags} or {!Deletion}. An operation already sent stays
+          pending. *)
 
 val pp_error : Format.formatter -> error -> unit
 
@@ -88,8 +92,9 @@ val copy_once :
     [max_transfers] covers copies, flag updates, and deletions. The entire
     cycle holds the cross-process Maildir writer lease, and failing to
     acquire it yields [Writer_busy]. All direct Maildir writers must honor
-    the same lease. [Maildir.Metadata_lock_busy] from a contended
-    Dovecot lock, other Store and Maildir exceptions, and Eio cancellation
+    the same lease. A Maildir format or policy failure returns [Maildir].
+    [Maildir.Metadata_lock_busy] from a contended Dovecot lock, other Maildir
+    concurrency exceptions, Store exceptions and Eio cancellation
     propagate. [flags_held] and [deletions_held] count flag and deletion
     holds, and [held_pair_ids] includes at most 100 IDs for diagnostics. A
     hold means the requested policy has not fully converged, even when

@@ -4,6 +4,9 @@ module S = Imap_store
 module P = Imap.Proto
 
 let fail fmt = Printf.ksprintf (fun message -> Alcotest.fail message) fmt
+let local = function
+  | Ok x -> x
+  | Error e -> fail "Maildir error: %s" (Format.asprintf "%a" M.pp_error e)
 let ok = function Ok x -> x | Error _ -> fail "invalid protocol value"
 let uid n = ok (P.Uid.of_int64 n)
 let epoch = ok (P.Uidvalidity.of_int64 1L)
@@ -75,7 +78,7 @@ let vm_hwm_kib () =
   with Sys_error _ -> None
 
 let page_maildir ~spool_dir m count =
-  L.with_pages ~spool_dir m (fun view ->
+  local @@ L.with_pages ~spool_dir m (fun view ->
     Alcotest.(check int64) "complete disk inventory"
       (Int64.of_int count) (L.count view);
     List.iter (fun i ->
@@ -184,7 +187,7 @@ let test_scale env = with_root (fun root ->
     Printf.printf "%s: elapsed %.1fs, process VmHWM %s\n%!"
       phase (Unix.gettimeofday () -. started) hwm in
   let fs = Eio.Stdenv.fs env in
-  let maildir = M.open_dir Eio.Path.(fs / root) in
+  let maildir = local (M.open_dir Eio.Path.(fs / root)) in
   let spool_dir = Eio.Path.(fs / root / "spool") in
   Eio.Path.mkdir ~perm:0o700 spool_dir;
   for i = 0 to count - 1 do external_maildir_message root i done;
@@ -200,18 +203,19 @@ let test_scale env = with_root (fun root ->
      if count >= 100_000 && delta > 256 * 1024 then
        fail "Maildir paging raised process high-water RSS by %d KiB" delta
    | _ -> Printf.printf "VmHWM unavailable; skipping Linux RSS bound\n%!");
-  L.with_pages ~spool_dir maildir (fun inventory ->
-    for i=0 to 99 do
-      ignore (L.append ~inventory maildir ~id:(id (count+i))
-        ~source:(Eio.Flow.string_source body)
-        ~length:(Int64.of_int (String.length body)) ~flags:[] ())
-    done);
+  local @@ L.with_pages ~spool_dir maildir (fun inventory ->
+    M.with_writer maildir (fun writer ->
+      for i=0 to 99 do
+        ignore (local (L.append ~inventory writer ~id:(id (count+i))
+          ~source:(Eio.Flow.string_source body)
+          ~length:(Int64.of_int (String.length body)) ~flags:[] ()))
+      done));
   report "100 indexed Maildir imports completed";
   if not (Sys.file_exists
       (Filename.concat (Filename.concat root "new") (id (count+99)))) then
     fail "indexed Maildir import was not published";
   let before_recovery=vm_hwm_kib () in
-  ignore (M.recover maildir);
+  ignore (M.with_writer maildir M.recover);
   report "Maildir startup recovery completed";
   (match before_recovery,vm_hwm_kib () with
    | Some before,Some after when count>=100_000 &&

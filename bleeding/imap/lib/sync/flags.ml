@@ -15,6 +15,7 @@ type error =
   | No_pending_operation
   | Content_mismatch of string
   | Diverged of string
+  | Maildir of Maildir.error
 
 let pp_error ppf = function
   | Client error -> Imap_eio.Client.pp_error ppf error
@@ -35,6 +36,7 @@ let pp_error ppf = function
   | Content_mismatch id ->
       Format.fprintf ppf "paired local content differs for %s" id
   | Diverged text -> Format.pp_print_string ppf text
+  | Maildir error -> Maildir.pp_error ppf error
 
 type outcome = Unchanged | Updated of J.pair
 type plan = No_change | Apply of F.t list
@@ -132,11 +134,12 @@ let current_pair store (pair:J.pair) =
 
 let local ?inventory maildir id =
   let found=match inventory with
-    | Some inventory -> Local_inventory.find inventory ~id
+    | Some inventory -> Ok (Local_inventory.find inventory ~id)
     | None -> Maildir.find maildir ~id in
   match found with
-  | None -> Error Missing_occurrence
-  | Some occurrence -> Ok occurrence
+  | Error error -> Error (Maildir error)
+  | Ok None -> Error Missing_occurrence
+  | Ok (Some occurrence) -> Ok occurrence
 
 let unchanged ?inventory maildir occurrence =
   match Local_inventory.with_unchanged_occurrence ?inventory maildir occurrence
@@ -240,8 +243,9 @@ let clear_content_hold store (pair:J.pair) =
   | `Resolved _ -> Ok ()
   | `Stale_revision -> Error Stale_pair
 
-let recover_sent ~inventory ~client ~store ~maildir ~mailbox
+let recover_sent ~inventory ~client ~store ~writer ~mailbox
     ~(operation:J.operation) ~pair_id ~merged =
+  let maildir=Maildir.of_writer writer in
   let* pair=match J.find_pair store ~id:pair_id with
     | Some pair when pair.scope=operation.scope -> Ok pair
     | Some _ -> Error Stale_pair
@@ -282,15 +286,16 @@ let recover_sent ~inventory ~client ~store ~maildir ~mailbox
                  verified target and the unchanged Maildir preimage are
                  enough to finish locally, without replaying STORE. *)
               let* _=current_pair store pair in
-              (match Maildir.set_flags maildir local_before local_target
+              (match Maildir.set_flags writer local_before local_target
                with
                | exception Maildir.Stale_occurrence ->
                    pending
                      "uncertain FLAGS write: local message changed during \
                       recovery"
-               | written when content maildir pair written=`Matches ->
+               | Error error -> Error (Maildir error)
+               | Ok written when content maildir pair written=`Matches ->
                    Ok written
-               | _ -> pending
+               | Ok _ -> pending
                    "uncertain FLAGS write: local message content changed \
                     during recovery")
           | _ -> pending
@@ -311,7 +316,7 @@ let recover_sent ~inventory ~client ~store ~maildir ~mailbox
               ~destination_uidvalidity:None ~destination_uid:None;
           commit store pair ~id:operation.id ~merged)
 
-let recover_operation ?inventory ~client ~store ~maildir ~mailbox
+let recover_operation ?inventory ~client ~store ~writer ~mailbox
     ~(operation:J.operation) () =
   match operation.kind,operation.state with
   | kind,_ when kind<>J.Flags -> Error (Diverged "operation is not FLAGS")
@@ -323,7 +328,7 @@ let recover_operation ?inventory ~client ~store ~maildir ~mailbox
   | _,(J.Sent | J.Ambiguous | J.Observed) ->
       match operation.pair_id,operation.desired_flags with
       | Some pair_id,Some merged ->
-          recover_sent ~inventory ~client ~store ~maildir ~mailbox ~operation
+          recover_sent ~inventory ~client ~store ~writer ~mailbox ~operation
             ~pair_id ~merged
       | _ -> Error (Diverged "FLAGS operation has no pair or target flags")
 
@@ -332,7 +337,7 @@ let settle_operation ~client ~store ~maildir ~scope ~mailbox ~id ~evidence () =
      not (String.for_all (fun c -> let n=Char.code c in
        n>=32 && n<>127) evidence) then
     Error (Diverged "operator evidence must be 1..1024 printable bytes")
-  else Maildir.with_writer_lock maildir (fun () ->
+  else Maildir.with_writer maildir (fun _ ->
     let* operation=match J.find_operation store ~id with
       | Some op when op.scope=scope && op.kind=J.Flags &&
           List.mem op.state [J.Sent;J.Ambiguous;J.Observed] -> Ok op
@@ -399,7 +404,8 @@ let advance_baseline store (pair:J.pair) ~merged =
   | `Stale_revision -> Error Stale_pair
 
 let reconcile_pair ?(propagate_deleted=false) ?inventory ~client ~store
-    ~maildir ~mailbox ~(pair:J.pair) ~next_id () =
+    ~writer ~mailbox ~(pair:J.pair) ~next_id () =
+  let maildir=Maildir.of_writer writer in
   let* pair=current_pair store pair in
   let* epoch,uid,local_id=bound pair in
   match J.active_operation_for_pair store ~pair_id:pair.id with
@@ -440,11 +446,12 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~client ~store
           if not local_needed then
             if unchanged ?inventory maildir local_before then Ok local_before
             else stale ()
-          else match Maildir.set_flags maildir local_before local_target
+          else match Maildir.set_flags writer local_before local_target
           with
           | exception Maildir.Stale_occurrence -> stale ()
-          | written when content maildir pair written=`Matches -> Ok written
-          | _ -> pending
+          | Error error -> Error (Maildir error)
+          | Ok written when content maildir pair written=`Matches -> Ok written
+          | Ok _ -> pending
               "local message content changed during the FLAGS update" in
         let finish ~stale ~verify_remote =
           let* local_after=write_local ~stale in

@@ -1,8 +1,8 @@
 (** Durable three-way flag reconciliation for one paired IMAP/Maildir occurrence.
     This module does not discover pairs or publish mailbox inventories.
-    [reconcile_pair] and [recover_operation] require the caller to hold the
-    Maildir writer lease. [settle_operation] takes the lease itself, so the
-    caller must not hold it. *)
+    [reconcile_pair] and [recover_operation] take the {!Maildir.writer} of
+    the lease the caller holds. [settle_operation] takes the lease itself, so
+    the caller must not hold it. *)
 
 type error =
   | Client of Imap_eio.Error.t
@@ -19,6 +19,9 @@ type error =
   | No_pending_operation
   | Content_mismatch of string
   | Diverged of string
+  | Maildir of Maildir.error
+      (** [Maildir e] is a Maildir format or policy failure. An operation
+          already sent stays pending. *)
 
 val pp_error : Format.formatter -> error -> unit
 
@@ -71,10 +74,10 @@ type reconciled = {
 val reconcile_pair :
   ?propagate_deleted:bool -> ?inventory:Local_inventory.t ->
   client:Imap_eio.Client.t ->
-  store:Imap_store.t -> maildir:Maildir.t -> mailbox:string ->
+  store:Imap_store.t -> writer:Maildir.writer -> mailbox:string ->
   pair:Imap_store.Journal.pair -> next_id:(unit -> string) ->
   unit -> (reconciled, error) result
-(** [reconcile_pair ~client ~store ~maildir ~mailbox ~pair ~next_id ()]
+(** [reconcile_pair ~client ~store ~writer ~mailbox ~pair ~next_id ()]
     fetches the current UID FLAGS and MODSEQ and the Maildir flags, merges
     them against [pair.common_flags] as {!plan_flags} does, and journals an
     intent before changing either side. [inventory], when given, is the live
@@ -98,16 +101,16 @@ val reconcile_pair :
     including a failed read after STORE, remains pending with a durable
     [Flag_conflict] record. Callers must call [recover_operation] or
     investigate it before issuing a new write for this pair. A pending
-    operation of another kind returns [Diverged]. Store and Maildir
-    exceptions and Eio cancellation propagate. *)
+    operation of another kind returns [Diverged]. Store exceptions, Maildir
+    concurrency exceptions and Eio cancellation propagate. *)
 
 val recover_operation :
   ?inventory:Local_inventory.t ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Maildir.t -> mailbox:string ->
+  writer:Maildir.writer -> mailbox:string ->
   operation:Imap_store.Journal.operation -> unit ->
   (outcome, error) result
-(** [recover_operation ~client ~store ~maildir ~mailbox ~operation ()] verifies
+(** [recover_operation ~client ~store ~writer ~mailbox ~operation ()] verifies
     the saved pair revision, UIDVALIDITY, remote target and paired local body
     hash and length. [inventory], when given, is the live paged view the
     caller holds. If local flags are still the saved preimage, it finishes

@@ -528,6 +528,16 @@ let deletion_policy config =
     Imap.Sync_policy.Propagate_local
   else Imap.Sync_policy.Preserve
 
+let local_failure error =
+  Format.eprintf "local filesystem or SQLite operation failed: %a@."
+    Maildir.pp_error error;
+  7
+
+let with_maildir path f =
+  match Maildir.open_dir path with
+  | Ok maildir -> f maildir
+  | Error error -> local_failure error
+
 let hydrate config ~net ~fs ~random ~getenv =
   with_password config ~getenv @@ fun password ->
       let db=Eio.Path.(fs / config.db) in
@@ -598,7 +608,7 @@ let sync config ~net ~fs ~random ~getenv =
     Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 spool_dir;
     Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_path ~sw ~blob_dir Eio.Path.(fs / config.db) in
-    let maildir=Maildir.open_dir Eio.Path.(fs / config.maildir) in
+    with_maildir Eio.Path.(fs / config.maildir) @@ fun maildir ->
     let recovered=match
         Imap_sync.Bridge.recover_local ~maildir ~spool_dir () with
       | Ok () -> true
@@ -660,6 +670,7 @@ let sync config ~net ~fs ~random ~getenv =
             (Imap_sync.Flags.Content_mismatch pair_id)) ->
           Printf.eprintf "paired local content changed for %s; run inspect\n%!"
             pair_id; 4
+        | Error (Imap_sync.Bridge.Maildir error) -> local_failure error
         | Error (Imap_sync.Bridge.Client _ | Imap_sync.Bridge.Sync _
             | Imap_sync.Bridge.Flag_sync _ | Imap_sync.Bridge.Delete_sync _) ->
           prerr_endline "IMAP sync operation failed; run inspect for journal state";
@@ -756,7 +767,7 @@ let repair_appenduid config ~fs =
     5)
   else
   let store=Imap_store.open_path ~sw db_path in
-  let maildir=Maildir.open_dir Eio.Path.(fs / config.maildir) in
+  with_maildir Eio.Path.(fs / config.maildir) @@ fun maildir ->
   let scope=local_scope config store in
   match Imap_sync.Bridge.record_appenduid_evidence ~store ~maildir ~scope
     ~id:config.operation_id ~uidvalidity ~uid ~evidence:config.evidence () with
@@ -767,6 +778,7 @@ let repair_appenduid config ~fs =
     prerr_endline "Maildir writer lease is busy"; 8
   | Error (Imap_sync.Bridge.Invalid_operation _) ->
     prerr_endline "operation cannot accept APPENDUID evidence"; 3
+  | Error (Imap_sync.Bridge.Maildir error) -> local_failure error
   | Error _ -> prerr_endline "APPENDUID evidence was not recorded"; 4
 
 let spool_path config ~fs =
@@ -783,7 +795,7 @@ let mark_local_retention config ~fs =
     5)
   else Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_path ~sw db_path in
-    let maildir=Maildir.open_dir maildir_path in
+    with_maildir maildir_path @@ fun maildir ->
     let scope=local_scope config store in
     match Imap_sync.Bridge.mark_local_retention ~store ~maildir ~scope
       ~pair_id:config.pair_id ~evidence:config.evidence
@@ -794,6 +806,8 @@ let mark_local_retention config ~fs =
         prerr_endline "Maildir writer lease is busy"; 8
     | Error (Imap_sync.Bridge.Invalid_operation message) ->
         Printf.eprintf "retention rejected: %s\n%!" message; 4
+    | Error (Imap_sync.Bridge.Maildir error) ->
+        local_failure error
     | Error error ->
         Format.eprintf "retention failed: %a@." Imap_sync.Bridge.pp_error error; 4
 
@@ -806,7 +820,7 @@ let verify_local config ~fs ~random =
     5)
   else Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_path ~sw db_path in
-    let maildir=Maildir.open_dir maildir_path in
+    with_maildir maildir_path @@ fun maildir ->
     let scope=local_scope config store in
     let shown=ref [] and shown_count=ref 0 and issues=ref 0L in
     let on_issue pair_id reason=
@@ -819,6 +833,8 @@ let verify_local config ~fs ~random =
       ~spool_dir:(spool_path config ~fs) ~on_issue () with
     | Error Imap_sync.Bridge.Writer_busy ->
         prerr_endline "Maildir writer lease is busy"; 8
+    | Error (Imap_sync.Bridge.Maildir error) ->
+        local_failure error
     | Error error ->
         Format.eprintf "local verification failed: %a@."
           Imap_sync.Bridge.pp_error error; 4
@@ -842,7 +858,7 @@ let plan_deletions config ~fs =
     5)
   else Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_readonly ~sw db_path in
-    let maildir=Maildir.open_dir maildir_path in
+    with_maildir maildir_path @@ fun maildir ->
     let scope=local_scope config store in
     let count=ref 0 and shown=ref [] and shown_count=ref 0
     and candidate=ref 0
@@ -863,6 +879,8 @@ let plan_deletions config ~fs =
       ~on_preview () with
     | Error Imap_sync.Bridge.Writer_busy ->
         prerr_endline "Maildir writer lease is busy"; 8
+    | Error (Imap_sync.Bridge.Maildir error) ->
+        local_failure error
     | Error error ->
         Format.eprintf "deletion plan failed: %a@."
           Imap_sync.Bridge.pp_error error; 4
@@ -909,7 +927,7 @@ let plan_sync config ~fs =
     5)
   else Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_readonly ~sw db_path in
-    let maildir=Maildir.open_dir maildir_path in
+    with_maildir maildir_path @@ fun maildir ->
     let scope=local_scope config store in
     let count=ref 0 and shown=ref [] and shown_count=ref 0 in
     let remote_copies=ref 0 and local_copies=ref 0
@@ -940,6 +958,8 @@ let plan_sync config ~fs =
       ~spool_dir:(spool_path config ~fs) ~on_preview () with
     | Error Imap_sync.Bridge.Writer_busy ->
         prerr_endline "Maildir writer lease is busy"; 8
+    | Error (Imap_sync.Bridge.Maildir error) ->
+        local_failure error
     | Error error ->
         Format.eprintf "sync plan failed: %a@."
           Imap_sync.Bridge.pp_error error; 4
@@ -996,7 +1016,7 @@ let repair_local_delete config ~net ~fs ~getenv =
         5)
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw db_path in
-      let maildir=Maildir.open_dir maildir_path in
+      with_maildir maildir_path @@ fun maildir ->
       with_connected config ~sw ~net ~password @@ fun client scope ->
           (try
             match Imap_sync.Deletion.repair_local_delete ~client ~store
@@ -1008,6 +1028,8 @@ let repair_local_delete config ~net ~fs ~getenv =
                 prerr_endline "local deletion was not repaired"; 4
             | Error (Imap_sync.Deletion.Client _) ->
                 prerr_endline "IMAP verification failed; deletion unchanged"; 6
+            | Error (Imap_sync.Deletion.Maildir error) ->
+                local_failure error
             | Error error ->
                 Format.eprintf "local deletion unchanged: %a@."
                   Imap_sync.Deletion.pp_error error; 4
@@ -1026,7 +1048,7 @@ let remote_delete_repair config ~finish ~net ~fs ~getenv =
         5)
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw db_path in
-      let maildir=Maildir.open_dir maildir_path in
+      with_maildir maildir_path @@ fun maildir ->
       with_connected config ~sw ~net ~password @@ fun client scope ->
           (try
             let result=if finish then
@@ -1054,6 +1076,8 @@ let remote_delete_repair config ~finish ~net ~fs ~getenv =
             | Error (Imap_sync.Deletion.Client _) ->
                 prerr_endline "IMAP verification failed; deletion remains pending";
                 6
+            | Error (Imap_sync.Deletion.Maildir error) ->
+                local_failure error
             | Error error ->
                 Format.eprintf "remote deletion remains pending: %a@."
                   Imap_sync.Deletion.pp_error error; 4
@@ -1074,7 +1098,7 @@ let repair_local_append config ~net ~fs ~getenv =
         5)
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw ~blob_dir db_path in
-      let maildir=Maildir.open_dir maildir_path in
+      with_maildir maildir_path @@ fun maildir ->
       with_connected config ~sw ~net ~password @@ fun client scope ->
           match Imap_sync.Bridge.repair_local_append ~client ~store ~maildir
               ~scope ~mailbox:config.mailbox ~id:config.operation_id
@@ -1088,6 +1112,8 @@ let repair_local_append config ~net ~fs ~getenv =
               prerr_endline "IMAP verification failed; local append unchanged"; 6
           | Error (Imap_sync.Bridge.Invalid_operation _) ->
               prerr_endline "pending local append not found in this scope"; 9
+          | Error (Imap_sync.Bridge.Maildir error) ->
+              local_failure error
           | Error error ->
               Format.eprintf "local append unchanged: %a@."
                 Imap_sync.Bridge.pp_error error; 4
@@ -1102,7 +1128,7 @@ let settle_flags config ~net ~fs ~getenv =
         5)
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw db_path in
-      let maildir=Maildir.open_dir maildir_path in
+      with_maildir maildir_path @@ fun maildir ->
       with_connected config ~sw ~net ~password @@ fun client scope ->
           (try match Imap_sync.Flags.settle_operation ~client ~store ~maildir
               ~scope ~mailbox:config.mailbox ~id:config.operation_id
@@ -1118,6 +1144,8 @@ let settle_flags config ~net ~fs ~getenv =
            | Error Imap_sync.Flags.No_pending_operation ->
                prerr_endline "pending FLAGS operation not found in this scope";
                9
+           | Error (Imap_sync.Flags.Maildir error) ->
+               local_failure error
            | Error error ->
                Format.eprintf "FLAGS intent unchanged: %a@."
                  Imap_sync.Flags.pp_error error; 4

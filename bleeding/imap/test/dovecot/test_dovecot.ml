@@ -2,6 +2,22 @@ let unwrap = function
   | Ok x -> x
   | Error e -> Alcotest.fail (Imap_eio.Client.error_to_string e)
 
+(* Test conveniences over [Maildir]: a format or policy error fails the
+   test, and each mutation takes its own writer. *)
+module Md = struct
+  include Maildir
+  let ok = function
+    | Ok x -> x
+    | Error e -> Alcotest.failf "unexpected Maildir error: %a" pp_error e
+  let open_dir path = ok (open_dir path)
+  let scan m = ok (scan m)
+  let find m ~id = ok (find m ~id)
+  let append m ?id ~source ~length ~flags ?mtime () =
+    ok (with_writer m (fun w -> append w ?id ~source ~length ~flags ?mtime ()))
+  let set_flags m o flags = ok (with_writer m (fun w -> set_flags w o flags))
+  let remove m o = with_writer m (fun w -> remove w o)
+end
+
 let mtime date = match Local_date.to_mtime date with
   | Ok mtime -> mtime | Error message -> Alcotest.fail message
 let occurrence_date local = Result.to_option (Local_date.of_occurrence local)
@@ -876,7 +892,7 @@ let test_bridge_cram () =
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  let maildir=Maildir.open_dir Eio.Path.(fs / maildir_path) in
+  let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let number=ref 0 in
   let next_id ()=incr number;Printf.sprintf "dovecot-%s-%d" nonce !number in
   let copy stage_id=match Imap_sync.Bridge.copy_once ~client ~store ~maildir
@@ -888,8 +904,8 @@ let test_bridge_cram () =
   let imported=copy ("dovecot-import-" ^ nonce) in
   Alcotest.(check int) "CRAM-MD5 bridge import" 1
     imported.remote_to_local;
-  let imported_occurrence=match Maildir.scan
-      (Maildir.open_dir Eio.Path.(fs / maildir_path)) with
+  let imported_occurrence=match Md.scan
+      (Md.open_dir Eio.Path.(fs / maildir_path)) with
     | [occurrence] -> occurrence
     | _ -> Alcotest.fail "dated import missing" in
   Alcotest.(check bool) "imported instant survives Maildir reopen" true
@@ -911,7 +927,7 @@ let test_bridge_cram () =
      | None -> false);
   let local_bytes="From: local@example.test\r\nSubject: upload " ^ nonce ^
     "\r\n\r\nLocal original\r\n" in
-  let local=Maildir.append maildir
+  let local=Md.append maildir
     ~source:(Eio.Flow.string_source local_bytes)
     ~length:(Int64.of_int (String.length local_bytes)) ~flags:[]
     ~mtime:(mtime local_date) () in
@@ -967,7 +983,7 @@ let test_bridge_cram () =
       let* _=Imap_eio.Selected.uid_store_flags selected
         ~set:(Imap.Proto.Uid_set.singleton remote_uid)
         ~operation:`Add ~flags:[flagged] () in Ok ()));
-  ignore (Maildir.set_flags maildir local [custom]);
+  ignore (Md.set_flags maildir local [custom]);
   let reconciled=copy ("dovecot-flags-" ^ nonce) in
   Alcotest.(check int) "Dovecot conditional flag merge" 1
     reconciled.flags_updated;
@@ -979,9 +995,9 @@ let test_bridge_cram () =
   let seen=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
   let changed_body=String.mapi
     (fun i c -> if i=0 then 'X' else c) local_bytes in
-  let current=Option.get (Maildir.find maildir ~id:local.id) in
-  Maildir.remove maildir current;
-  ignore (Maildir.append maildir ~id:local.id
+  let current=Option.get (Md.find maildir ~id:local.id) in
+  Md.remove maildir current;
+  ignore (Md.append maildir ~id:local.id
     ~source:(Eio.Flow.string_source changed_body)
     ~length:(Int64.of_int (String.length changed_body))
     ~flags:[seen] ~mtime:(mtime local_date) ());
@@ -1005,9 +1021,9 @@ let test_bridge_cram () =
      | [{pair_id;kind=Imap_store.Journal.Content_conflict;_}] ->
          pair_id=pair.id
      | _ -> false);
-  let current=Option.get (Maildir.find maildir ~id:local.id) in
-  Maildir.remove maildir current;
-  ignore (Maildir.append maildir ~id:local.id
+  let current=Option.get (Md.find maildir ~id:local.id) in
+  Md.remove maildir current;
+  ignore (Md.append maildir ~id:local.id
     ~source:(Eio.Flow.string_source local_bytes)
     ~length:(Int64.of_int (String.length local_bytes))
     ~flags:pair.common_flags ~mtime:(mtime local_date) ());
@@ -1016,9 +1032,9 @@ let test_bridge_cram () =
     restored.flags_updated;
   Alcotest.(check int) "restored body clears content conflict" 0
     (List.length (Imap_store.Journal.open_conflicts store ~scope));
-  let current=Option.get (Maildir.find maildir ~id:local.id) in
-  Maildir.remove maildir current;
-  ignore (Maildir.append maildir ~id:local.id
+  let current=Option.get (Md.find maildir ~id:local.id) in
+  Md.remove maildir current;
+  ignore (Md.append maildir ~id:local.id
     ~source:(Eio.Flow.string_source changed_body)
     ~length:(Int64.of_int (String.length changed_body))
     ~flags:pair.common_flags ~mtime:(mtime local_date) ());
@@ -1040,9 +1056,9 @@ let test_bridge_cram () =
      | [{pair_id;kind=Imap_store.Journal.Content_conflict;_}] ->
          pair_id=pair.id
      | _ -> false);
-  let current=Option.get (Maildir.find maildir ~id:local.id) in
-  Maildir.remove maildir current;
-  ignore (Maildir.append maildir ~id:local.id
+  let current=Option.get (Md.find maildir ~id:local.id) in
+  Md.remove maildir current;
+  ignore (Md.append maildir ~id:local.id
     ~source:(Eio.Flow.string_source local_bytes)
     ~length:(Int64.of_int (String.length local_bytes))
     ~flags:pair.common_flags ~mtime:(mtime local_date) ());
@@ -1085,12 +1101,12 @@ let test_bridge_cram () =
     cleared.flags_held;
   Alcotest.(check int) "policy conflict resolved after complete scan" 0
     (List.length (policy_conflicts ()));
-  let imported_local=List.find (fun (x:Maildir.occurrence) ->
-    x.id<>local.id) (Maildir.scan maildir) in
+  let imported_local=List.find (fun (x:Md.occurrence) ->
+    x.id<>local.id) (Md.scan maildir) in
   let imported_pair=match Imap_store.Journal.find_local store ~scope
       ~local_id:imported_local.id with
     | Some pair -> pair | None -> Alcotest.fail "import pair missing" in
-  Maildir.remove maildir imported_local;
+  Md.remove maildir imported_local;
   let deleted_remote=match Imap_sync.Bridge.copy_once
     ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir
     ~scope ~mailbox ~stage_id:("dovecot-delete-remote-" ^ nonce)
@@ -1126,11 +1142,11 @@ let test_bridge_cram () =
      | Some {local_tombstone=Some
          {reason=Imap_store.Journal.Explicit_delete;_};_} -> true
      | _ -> false);
-  let append_identical ()=Maildir.append maildir
+  let append_identical ()=Md.append maildir
     ~source:(Eio.Flow.string_source local_bytes)
     ~length:(Int64.of_int (String.length local_bytes)) ~flags:[] () in
   let first=append_identical () and second=append_identical () in
-  List.iter (fun (local:Maildir.occurrence) ->
+  List.iter (fun (local:Md.occurrence) ->
     let filename=Filename.concat
       (Filename.concat maildir_path "new") local.filename in
     Unix.utimes filename 1709164800. 1709164800.) [first;second];
@@ -1138,7 +1154,7 @@ let test_bridge_cram () =
   Alcotest.(check int) "identical bytes retain two occurrences" 2
     twins.local_to_remote;
   let paired_uid local=match Imap_store.Journal.find_local store ~scope
-      ~local_id:local.Maildir.id with
+      ~local_id:local.Md.id with
     | Some {remote_uid=Some uid;_} -> Imap.Proto.Uid.to_int64 uid
     | _ -> Alcotest.fail "identical occurrence lacks a paired UID" in
   Alcotest.(check bool) "identical bytes have distinct remote UIDs" true
@@ -1224,8 +1240,8 @@ let test_shared_mailbox_bootstrap () =
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  let maildir=Maildir.open_dir Eio.Path.(fs / maildir_path) in
-  ignore (Maildir.append maildir
+  let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
+  ignore (Md.append maildir
     ~source:(Eio.Flow.string_source raw)
     ~length:(Int64.of_int (String.length raw)) ~flags:[] ());
   let number=ref 0 in
@@ -1240,7 +1256,7 @@ let test_shared_mailbox_bootstrap () =
        Imap_sync.Bridge.pp_error error
    | Ok _ -> Alcotest.fail "unpaired populated endpoints were merged");
   Alcotest.(check int) "refusal did not make local copies" 1
-    (List.length (Maildir.scan maildir));
+    (List.length (Md.scan maildir));
   Alcotest.(check int) "refusal did not journal mutations" 0
     (List.length (Imap_store.Journal.active_operations store ~scope));
   Alcotest.(check int) "refusal did not publish pairs" 0
@@ -1282,14 +1298,14 @@ let append_crash_child dbfile mailbox local_id id =
   let scope=dovecot_scope client mailbox in
   let store=Imap_store.open_path ~sw
     ~blob_dir:Eio.Path.(fs / (dbfile ^ "-blobs")) Eio.Path.(fs / dbfile) in
-  let maildir=Maildir.open_dir Eio.Path.(fs / (dbfile ^ "-maildir")) in
-  let local=match Maildir.find maildir ~id:local_id with
+  let maildir=Md.open_dir Eio.Path.(fs / (dbfile ^ "-maildir")) in
+  let local=match Md.find maildir ~id:local_id with
     | Some local -> local | None -> Alcotest.fail "crash child lost source" in
   let cursor=Imap_store.load_cursor store ~scope in
   let epoch=match cursor.uidvalidity with
     | Some epoch -> epoch | None -> Alcotest.fail "crash child has no epoch" in
   let blob=Eio.Switch.run @@ fun source_sw ->
-    let source=Maildir.open_message maildir ~sw:source_sw local in
+    let source=Md.open_message maildir ~sw:source_sw local in
     Imap_store.Blob.put store ~source ~length:local.length () in
   let op : Imap_store.Journal.operation = {
     id;pair_id=None;local_id=Some local_id;scope;
@@ -1356,10 +1372,10 @@ let test_append_process_crash () =
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
   unwrap (Imap_eio.Client.create_mailbox client mailbox);
   let scope=dovecot_scope client mailbox in
-  let maildir=Maildir.open_dir Eio.Path.(fs / maildir_path) in
+  let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let copy store stage_id = match Imap_sync.Bridge.copy_once
     ~client ~store ~maildir ~scope ~mailbox ~stage_id
-    ~next_id:(fun () -> "unexpected-" ^ Maildir.reserve_id ())
+    ~next_id:(fun () -> "unexpected-" ^ Md.reserve_id ())
     ~spool_dir:Eio.Path.(fs / spooldir) () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "APPEND crash bridge: %a"
@@ -1373,7 +1389,7 @@ let test_append_process_crash () =
   let raw="From: crash@example.test\r\nSubject: APPEND crash " ^ nonce ^
     "\r\nMessage-ID: <append-crash-" ^ nonce ^
     "@example.test>\r\n\r\nAccepted before process exit.\r\n" in
-  let local=Maildir.append maildir
+  let local=Md.append maildir
     ~source:(Eio.Flow.string_source raw)
     ~length:(Int64.of_int (String.length raw)) ~flags:[]
     ~mtime:(mtime (append_crash_date ())) () in
@@ -1584,13 +1600,13 @@ let test_delete_process_crash () =
       ~length:(Int64.of_int (String.length bytes))
       (Eio.Flow.string_source bytes))) ["target";"unrelated"];
   let scope=dovecot_scope client mailbox in
-  let maildir=Maildir.open_dir Eio.Path.(fs / maildir_path) in
+  let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let open_store store_sw=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
   let copy store stage_id policy=match Imap_sync.Bridge.copy_once
     ~deletion_policy:policy ~client ~store ~maildir ~scope ~mailbox
     ~stage_id ~next_id:(fun () -> "delete-import-" ^
-      Maildir.reserve_id ()) ~spool_dir:Eio.Path.(fs / spooldir) () with
+      Md.reserve_id ()) ~spool_dir:Eio.Path.(fs / spooldir) () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "delete crash bridge: %a"
         Imap_sync.Bridge.pp_error error in
@@ -1608,8 +1624,8 @@ let test_delete_process_crash () =
       | [target;other] -> target,other
       | _ -> Alcotest.fail "expected two paired UIDs" in
     let target_local=Option.get target.local_id in
-    Maildir.remove maildir
-      (Option.get (Maildir.find maildir ~id:target_local));
+    Md.remove maildir
+      (Option.get (Md.find maildir ~id:target_local));
     let held=copy store ("delete-crash-absence-" ^ nonce)
       Imap.Sync_policy.Preserve in
     Alcotest.(check int) "preserve policy holds deletion" 0
@@ -1706,10 +1722,10 @@ let test_flags_recovery () =
   unwrap (Imap_eio.Client.append_flow client ~mailbox ~internal_date
     ~length:(Int64.of_int (String.length raw)) (Eio.Flow.string_source raw));
   let scope=dovecot_scope client mailbox in
-  let maildir=Maildir.open_dir Eio.Path.(fs / maildir_path) in
+  let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let open_store store_sw=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  let next_id ()="flag-import-" ^ Maildir.reserve_id () in
+  let next_id ()="flag-import-" ^ Md.reserve_id () in
   Eio.Switch.run @@ fun store_sw ->
   let store=open_store store_sw in
   (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope ~mailbox
@@ -1747,8 +1763,8 @@ let test_flags_recovery () =
      by recovery: only the local side may be finished. *)
   Eio.Switch.run @@ fun restart_sw ->
   let restarted=open_store restart_sw in
-  let recover operation=Maildir.with_writer_lock maildir (fun () ->
-    Imap_sync.Flags.recover_operation ~client ~store:restarted ~maildir
+  let recover operation=Md.with_writer maildir (fun writer ->
+    Imap_sync.Flags.recover_operation ~client ~store:restarted ~writer
       ~mailbox ~operation ()) in
   let pending=Option.get (Imap_store.Journal.find_operation restarted
     ~id:first.id) in
@@ -1758,7 +1774,7 @@ let test_flags_recovery () =
    | Error e -> Alcotest.failf "FLAGS recovery: %a"
        Imap_sync.Flags.pp_error e);
   Alcotest.(check bool) "recovered local flag" true
-    (List.mem flagged (Option.get (Maildir.find maildir
+    (List.mem flagged (Option.get (Md.find maildir
       ~id:local_id)).flags);
   Alcotest.(check bool) "journal committed after local write" true
     ((Option.get (Imap_store.Journal.find_operation restarted
@@ -1770,15 +1786,15 @@ let test_flags_recovery () =
   Imap_store.Journal.prepare_operation ~local_flags:[flagged] restarted second;
   Imap_store.Journal.mark_sent restarted ~id:second.id;
   store_remote [flagged;seen];
-  let local=Option.get (Maildir.find maildir ~id:local_id) in
-  ignore (Maildir.set_flags maildir local [flagged;draft]);
+  let local=Option.get (Md.find maildir ~id:local_id) in
+  ignore (Md.set_flags maildir local [flagged;draft]);
   let pending=Option.get (Imap_store.Journal.find_operation restarted
     ~id:second.id) in
   (match recover pending with
    | Error (Imap_sync.Flags.Pending_operation id) when id=second.id -> ()
    | _ -> Alcotest.fail "divergent local flags were overwritten");
   Alcotest.(check bool) "divergent local flag preserved" true
-    (List.mem draft (Option.get (Maildir.find maildir
+    (List.mem draft (Option.get (Md.find maildir
       ~id:local_id)).flags);
   Alcotest.(check bool) "divergent operation remains pending" true
     ((Option.get (Imap_store.Journal.find_operation restarted
@@ -1794,8 +1810,8 @@ let test_flags_recovery () =
    | _ -> Alcotest.fail "repeated divergent FLAGS recovery changed outcome");
   Alcotest.(check string) "flag conflict ID stays stable" conflict.id
     (List.hd (flag_conflicts ())).id;
-  let local=Option.get (Maildir.find maildir ~id:local_id) in
-  ignore (Maildir.set_flags maildir local [flagged]);
+  let local=Option.get (Md.find maildir ~id:local_id) in
+  ignore (Md.set_flags maildir local [flagged]);
   (match recover pending with
    | Ok (Imap_sync.Flags.Updated _) -> ()
    | _ -> Alcotest.fail "restored FLAGS preimage did not recover");
@@ -1804,7 +1820,7 @@ let test_flags_recovery () =
   let third=op ("flags-settle-" ^ nonce) [seen] in
   let current=Option.get (Imap_store.Journal.find_pair restarted ~id:pair.id) in
   let paired_date=Option.get current.internal_date in
-  let local=Option.get (Maildir.find maildir ~id:local_id) in
+  let local=Option.get (Md.find maildir ~id:local_id) in
   let local_date=match Local_date.of_occurrence local with
     | Ok date -> date | Error message -> Alcotest.fail message in
   Alcotest.(check bool) "mtime preserves the paired instant" true
@@ -1827,8 +1843,8 @@ let test_flags_recovery () =
   Alcotest.(check bool) "refused settlement remains pending" true
     ((Option.get (Imap_store.Journal.find_operation restarted
       ~id:third.id)).state=Imap_store.Journal.Sent);
-  let local=Option.get (Maildir.find maildir ~id:local_id) in
-  ignore (Maildir.set_flags maildir local [flagged;draft]);
+  let local=Option.get (Md.find maildir ~id:local_id) in
+  ignore (Md.set_flags maildir local [flagged;draft]);
   (match settle ~scope:{scope with account="foreign"} "foreign scope" with
    | Error _ -> () | Ok _ -> Alcotest.fail "foreign scope settled FLAGS");
   let getenv name=if name="IMAP_FLAGS_REPAIR_SECRET" then
@@ -1896,7 +1912,7 @@ let test_operator_local_delete_repair () =
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  let maildir=Maildir.open_dir Eio.Path.(fs / maildir_path) in
+  let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let n=ref 0 in
   let next_id ()=incr n;Printf.sprintf "repair-%s-%d" nonce !n in
   let copy stage_id=match Imap_sync.Bridge.copy_once ~client ~store ~maildir
@@ -1943,25 +1959,25 @@ let test_operator_local_delete_repair () =
    | Error _ -> () | Ok _ -> Alcotest.fail "empty evidence repaired");
   (match repair ~scope:{scope with account="foreign"} "audit" with
    | Error _ -> () | Ok _ -> Alcotest.fail "foreign scope repaired");
-  let local=Option.get (Maildir.find maildir ~id:local_id) in
+  let local=Option.get (Md.find maildir ~id:local_id) in
   let flagged=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Flagged in
-  let changed=Maildir.set_flags maildir local [flagged] in
+  let changed=Md.set_flags maildir local [flagged] in
   (match repair "operator checked target" with
    | Error Imap_sync.Deletion.Identity_changed -> ()
    | _ -> Alcotest.fail "changed local flags repaired");
   Alcotest.(check bool) "local file retained after refusal" true
-    (Option.is_some (Maildir.find maildir ~id:local_id));
+    (Option.is_some (Md.find maildir ~id:local_id));
   Alcotest.(check bool) "journal still Sent after refusal" true
     ((Option.get (Imap_store.Journal.find_operation store
       ~id:operation_id)).state=Imap_store.Journal.Sent);
-  ignore (Maildir.set_flags maildir changed pair.common_flags);
+  ignore (Md.set_flags maildir changed pair.common_flags);
   (match repair "Dovecot audit: UID absent and local bytes checked" with
    | Ok (Imap_sync.Deletion.Deleted _) -> ()
    | Error e -> Alcotest.failf "local deletion repair: %a"
        Imap_sync.Deletion.pp_error e
    | Ok _ -> Alcotest.fail "local deletion was not committed");
   Alcotest.(check bool) "exact local file removed" true
-    (Maildir.find maildir ~id:local_id=None);
+    (Md.find maildir ~id:local_id=None);
   Alcotest.(check bool) "journal committed" true
     ((Option.get (Imap_store.Journal.find_operation store
       ~id:operation_id)).state=Imap_store.Journal.Committed);
@@ -2006,7 +2022,7 @@ let test_operator_local_append_repair () =
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  let maildir=Maildir.open_dir Eio.Path.(fs / maildir_path) in
+  let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   (match Imap_sync.Engine.run_once_staged ~client ~store ~scope ~mailbox
       ~stage_id:("append-repair-scan-" ^ nonce) () with
    | Ok _ -> ()
@@ -2014,7 +2030,7 @@ let test_operator_local_append_repair () =
        Imap_sync.Engine.pp_error error);
   let blob=Imap_store.Blob.put store ~source:(Eio.Flow.string_source raw)
     ~length:(Int64.of_int (String.length raw)) () in
-  let local_id=Maildir.reserve_id () in
+  let local_id=Md.reserve_id () in
   let id="append-repair-" ^ nonce in
   let operation : Imap_store.Journal.operation = {
     id;pair_id=None;local_id=Some local_id;scope;
@@ -2055,15 +2071,15 @@ let test_operator_local_append_repair () =
        Imap_sync.Bridge.pp_error error
    | Ok () -> Alcotest.fail "changed flags repaired");
   Alcotest.(check bool) "no local file after refusal" true
-    (Maildir.find maildir ~id:local_id=None);
+    (Md.find maildir ~id:local_id=None);
   set_flags [];
   (match repair "operator verified Dovecot source" with
    | Ok () -> ()
    | Error error -> Alcotest.failf "local append repair: %a"
        Imap_sync.Bridge.pp_error error);
-  let local=Option.get (Maildir.find maildir ~id:local_id) in
+  let local=Option.get (Md.find maildir ~id:local_id) in
   Alcotest.(check string) "repaired exact bytes" blob.sha256
-    (Maildir.sha256 maildir local);
+    (Md.sha256 maildir local);
   Alcotest.(check (option string)) "repaired INTERNALDATE"
     (Some (Imap.Internal_date.to_string date))
     (Option.map Imap.Internal_date.to_string (occurrence_date local));
@@ -2110,7 +2126,7 @@ let test_deletion_grace_live () =
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  let maildir=Maildir.open_dir Eio.Path.(fs / maildir_path) in
+  let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let n=ref 0 in
   let next_id ()=incr n;Printf.sprintf "grace-%s-%d" nonce !n in
   let copy ?(grace=0) stage_id=match Imap_sync.Bridge.copy_once
@@ -2123,8 +2139,8 @@ let test_deletion_grace_live () =
   ignore (copy ("grace-import-" ^ nonce));
   let pair=match Imap_store.Journal.pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
-  Maildir.remove maildir
-    (Option.get (Maildir.find maildir
+  Md.remove maildir
+    (Option.get (Md.find maildir
       ~id:(Option.get pair.local_id)));
   let server_uids ()=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
@@ -2135,7 +2151,7 @@ let test_deletion_grace_live () =
   Alcotest.(check int) "remote message survives first scan" 1
     (List.length (server_uids ()));
   let changed=String.sub raw 0 (String.length raw-1) ^ "!" in
-  let wrong=Maildir.append maildir
+  let wrong=Md.append maildir
     ~id:(Option.get pair.local_id)
     ~source:(Eio.Flow.string_source changed)
     ~length:(Int64.of_int (String.length changed))
@@ -2147,20 +2163,20 @@ let test_deletion_grace_live () =
       x.kind=Imap_store.Journal.Content_conflict) in
   Alcotest.(check int) "changed restoration creates content conflict" 1
     (List.length (content_conflicts ()));
-  Maildir.remove maildir wrong;
+  Md.remove maildir wrong;
   ignore (copy ~grace:1 ("grace-changed-absent-" ^ nonce));
   Alcotest.(check int) "content conflict survives renewed absence" 1
     (List.length (content_conflicts ()));
   Alcotest.(check int) "remote survives content conflict" 1
     (List.length (server_uids ()));
-  let restored=Maildir.append maildir
+  let restored=Md.append maildir
     ~id:(Option.get pair.local_id)
     ~source:(Eio.Flow.string_source raw)
     ~length:(Int64.of_int (String.length raw))
     ~flags:pair.common_flags ?mtime:(Option.map mtime pair.internal_date)
     () in
   let seen=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
-  let restored=Maildir.set_flags maildir restored [seen] in
+  let restored=Md.set_flags maildir restored [seen] in
   let present=copy ~grace:1 ("grace-present-" ^ nonce) in
   Alcotest.(check int) "restored local file prevents deletion" 0
     present.deletions;
@@ -2175,7 +2191,7 @@ let test_deletion_grace_live () =
     (Some present.cursor.generation)
     (Imap_store.Journal.last_presence_generation store ~pair_id:pair.id
       ~side:`Local);
-  Maildir.remove maildir restored;
+  Md.remove maildir restored;
   let again=copy ~grace:1 ("grace-absent-again-" ^ nonce) in
   Alcotest.(check int) "new first absence held" 1 again.deletions_held;
   Alcotest.(check int) "remote survives new first absence" 1
@@ -2218,7 +2234,7 @@ let test_reject_unchanged_remote_delete () =
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  let maildir=Maildir.open_dir Eio.Path.(fs / maildir_path) in
+  let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let n=ref 0 in
   let next_id ()=incr n;Printf.sprintf "delete-reject-%s-%d" nonce !n in
   let copy stage_id=match Imap_sync.Bridge.copy_once ~client ~store ~maildir
@@ -2232,8 +2248,8 @@ let test_reject_unchanged_remote_delete () =
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
   let uid=Option.get pair.remote_uid in
   let local_id=Option.get pair.local_id in
-  Maildir.remove maildir
-    (Option.get (Maildir.find maildir ~id:local_id));
+  Md.remove maildir
+    (Option.get (Md.find maildir ~id:local_id));
   ignore (copy ("delete-reject-absence-" ^ nonce));
   let pair=Option.get (Imap_store.Journal.find_pair store ~id:pair.id) in
   let operation_id="remote-delete-reject-" ^ nonce in
@@ -2441,8 +2457,8 @@ let test_bounded_hydration () =
       ~random:(Eio.Stdenv.secure_random env_io)
       ~getenv:Sys.getenv_opt);
   Alcotest.(check int) "bridge imported both occurrences" 2
-    (List.length (Maildir.scan
-      (Maildir.open_dir Eio.Path.(fs / maildir_path))));
+    (List.length (Md.scan
+      (Md.open_dir Eio.Path.(fs / maildir_path))));
   let raw_db=Sqlite3.db_open dbfile in
   let evicted=Fun.protect ~finally:(fun () ->
     ignore (Sqlite3.db_close raw_db : bool)) (fun () ->
@@ -2457,8 +2473,8 @@ let test_bounded_hydration () =
       ~random:(Eio.Stdenv.secure_random env_io)
       ~getenv:Sys.getenv_opt);
   Alcotest.(check int) "rehydration did not duplicate Maildir messages" 2
-    (List.length (Maildir.scan
-      (Maildir.open_dir Eio.Path.(fs / maildir_path))));
+    (List.length (Md.scan
+      (Md.open_dir Eio.Path.(fs / maildir_path))));
   let second_blob=Option.get (Imap_store.Blob.find store ~scope
     ~uidvalidity:epoch ~uid:second.uid) in
   Eio.Path.save ~create:(`Or_truncate 0o600)
@@ -2575,7 +2591,7 @@ let test_shared_maildir () =
     | Some path -> path | None -> Alcotest.skip () in
   Eio_main.run @@ fun env_io ->
   Eio.Switch.run @@ fun sw ->
-  let module D=Maildir in
+  let module D=Md in
   let module S=Imap_eio.Selected in
   let flag name=match Mail_flag.Imap_flag.of_wire name with
     | Ok flag -> flag | Error message -> Alcotest.fail message in

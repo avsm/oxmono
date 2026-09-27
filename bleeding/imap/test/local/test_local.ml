@@ -1,6 +1,9 @@
 module M = Maildir
 module L = Local_inventory
 
+let ok = function
+  | Ok x -> x
+  | Error e -> Alcotest.failf "unexpected Maildir error: %a" M.pp_error e
 let flag s = match Mail_flag.Imap_flag.of_wire s with
   | Ok flag -> flag | Error e -> Alcotest.fail e
 let wires flags = List.map Mail_flag.Imap_flag.to_wire flags
@@ -18,7 +21,13 @@ let with_root f =
     Unix.mkdir (Filename.concat root "spool") 0o700;
     f root)
 let spool env root = Eio.Path.(Eio.Stdenv.fs env / root / "spool")
-let maildir env root = M.open_dir Eio.Path.(Eio.Stdenv.fs env / root / "mail")
+let maildir env root =
+  ok (M.open_dir Eio.Path.(Eio.Stdenv.fs env / root / "mail"))
+let put m ~source ~length ~flags () =
+  ok (M.with_writer m (fun w -> M.append w ~source ~length ~flags ()))
+let try_l_append ?inventory ?id m ~source ~length ~flags () =
+  M.with_writer m (fun w -> L.append ?inventory w ?id ~source ~length ~flags ())
+let with_pages ~spool_dir m f = ok (L.with_pages ~spool_dir m f)
 let spool_names root =
   Sys.readdir (Filename.concat root "spool") |> Array.to_list
 let date s = match Imap.Internal_date.of_string s with
@@ -26,13 +35,15 @@ let date s = match Imap.Internal_date.of_string s with
 let date_string = function
   | Ok date -> Imap.Internal_date.to_string date
   | Error e -> Alcotest.fail e
-let append_x ?inventory ?id m flags =
-  L.append ?inventory m ?id ~source:(Eio.Flow.string_source "x") ~length:1L
-    ~flags ()
-let rejects label f =
-  match f () with
-  | exception Failure _ -> ()
-  | _ -> Alcotest.fail (label ^ " accepted")
+let try_append_x ?inventory ?id m flags =
+  try_l_append ?inventory m ?id ~source:(Eio.Flow.string_source "x")
+    ~length:1L ~flags ()
+let append_x ?inventory ?id m flags = ok (try_append_x ?inventory ?id m flags)
+let rejects_duplicate label id result =
+  match result with
+  | Error (M.Duplicate_identity found) when found=id -> ()
+  | Error e -> Alcotest.failf "%s: wrong error %a" label M.pp_error e
+  | Ok _ -> Alcotest.fail (label ^ " accepted")
 
 let test_paged_inventory env = with_root (fun root ->
   let spool_dir=spool env root in
@@ -40,11 +51,11 @@ let test_paged_inventory env = with_root (fun root ->
   let raw="Subject: duplicate\r\n\r\nEqual bytes\r\n" in
   let expected=List.init 43 (fun i ->
     let flags=if i mod 2=0 then [flag "\\Seen";flag "Custom"] else [] in
-    M.append m ~source:(Eio.Flow.string_source raw)
+    put m ~source:(Eio.Flow.string_source raw)
       ~length:(Int64.of_int (String.length raw)) ~flags () ) in
   let expected_ids=List.map (fun (o:M.occurrence) -> o.id) expected
     |> List.sort String.compare in
-  L.with_pages ~spool_dir m (fun view ->
+  with_pages ~spool_dir m (fun view ->
     Alcotest.(check int) "one staging file in the spool" 1
       (List.length (spool_names root));
     Alcotest.(check (list string)) "nothing staged in the Maildir" []
@@ -85,43 +96,43 @@ let test_paged_inventory env = with_root (fun root ->
     Alcotest.(check string) "indexed occurrence hash" digest
       (L.sha256 ~inventory:view m staged);
     (match L.with_unchanged_occurrence ~inventory:view m staged
-        (fun () -> M.set_flags m staged [flag "\\Seen";flag "Later"]) with
+        (fun () -> M.with_writer m (fun w ->
+          ok (M.set_flags w staged [flag "\\Seen";flag "Later"]))) with
      | Error `Changed -> ()
      | Ok _ -> Alcotest.fail "indexed check accepted a flag rename");
-    let _=M.append m ~source:(Eio.Flow.string_source raw)
+    let _=put m ~source:(Eio.Flow.string_source raw)
       ~length:(Int64.of_int (String.length raw)) ~flags:[] () in
     Alcotest.(check int64) "snapshot excludes later append" 43L
       (L.count view);
-    (try ignore (L.append ~inventory:view m ~id:staged.id
-      ~source:(Eio.Flow.string_source raw)
-      ~length:(Int64.of_int (String.length raw)) ~flags:[] ());
-      Alcotest.fail "staged duplicate ID accepted"
-     with Failure _ -> ());
+    rejects_duplicate "staged duplicate ID" staged.id
+      (try_l_append ~inventory:view m ~id:staged.id
+        ~source:(Eio.Flow.string_source raw)
+        ~length:(Int64.of_int (String.length raw)) ~flags:[] ());
     let fresh=M.reserve_id () in
-    ignore (L.append ~inventory:view m ~id:fresh
+    ignore (ok (try_l_append ~inventory:view m ~id:fresh
       ~source:(Eio.Flow.string_source raw)
-      ~length:(Int64.of_int (String.length raw)) ~flags:[] ());
-    (try ignore (L.append ~inventory:view m ~id:fresh
-      ~source:(Eio.Flow.string_source raw)
-      ~length:(Int64.of_int (String.length raw)) ~flags:[flag "\\Seen"] ());
-      Alcotest.fail "new duplicate ID accepted"
-     with Failure _ -> ());
+      ~length:(Int64.of_int (String.length raw)) ~flags:[] ()));
+    rejects_duplicate "new duplicate ID" fresh
+      (try_l_append ~inventory:view m ~id:fresh
+        ~source:(Eio.Flow.string_source raw)
+        ~length:(Int64.of_int (String.length raw))
+        ~flags:[flag "\\Seen"] ());
     Alcotest.(check int64) "snapshot remains fixed after indexed appends"
       43L (L.count view);
     let other=maildir env root in
-    (try ignore (L.append ~inventory:view other ~id:(M.reserve_id ())
+    (try ignore (try_l_append ~inventory:view other ~id:(M.reserve_id ())
       ~source:(Eio.Flow.string_source raw)
       ~length:(Int64.of_int (String.length raw)) ~flags:[] ());
       Alcotest.fail "inventory accepted another Maildir handle"
      with Invalid_argument _ -> ()));
   Alcotest.(check (list string)) "staging file removed" [] (spool_names root);
-  let view=L.with_pages ~spool_dir m Fun.id in
+  let view=with_pages ~spool_dir m Fun.id in
   (try ignore (L.count view); Alcotest.fail "expired inventory accepted"
    with Invalid_argument _ -> ()))
 
 let test_paged_duplicate_id env = with_root (fun root ->
   let m=maildir env root in
-  let a=M.append m ~source:(Eio.Flow.string_source "x") ~length:1L
+  let a=put m ~source:(Eio.Flow.string_source "x") ~length:1L
     ~flags:[] () in
   let mail=Filename.concat root "mail" in
   let source=Filename.concat (Filename.concat mail "new") a.filename in
@@ -130,27 +141,31 @@ let test_paged_duplicate_id env = with_root (fun root ->
   let input=open_in_bin source and output=open_out_bin duplicate in
   Fun.protect ~finally:(fun () -> close_in input; close_out output)
     (fun () -> output_char output (input_char input));
-  (try L.with_pages ~spool_dir:(spool env root) m (fun _ ->
-     Alcotest.fail "duplicate ID accepted")
-   with Failure message ->
-     Alcotest.(check string) "duplicate identity diagnosed"
-       ("Imap_maildir: duplicate occurrence identity " ^ a.id) message);
+  (match L.with_pages ~spool_dir:(spool env root) m (fun _ ->
+     Alcotest.fail "duplicate ID staged") with
+   | Error e ->
+       Alcotest.(check bool) "duplicate identity is typed" true
+         (e=M.Duplicate_identity a.id);
+       Alcotest.(check string) "duplicate identity diagnosed"
+         ("duplicate occurrence identity " ^ a.id)
+         (Format.asprintf "%a" M.pp_error e)
+   | Ok () -> Alcotest.fail "duplicate ID accepted");
   Alcotest.(check (list string)) "failed staging file removed" []
     (spool_names root))
 
 let test_external_mtime_date env = with_root (fun root ->
   let m=maildir env root in
-  let original=M.append m ~source:(Eio.Flow.string_source "x")
+  let original=put m ~source:(Eio.Flow.string_source "x")
     ~length:1L ~flags:[] () in
   let filename=Filename.concat (Filename.concat root "mail/new")
     original.filename in
   Unix.utimes filename 1709164800. 1709164800.;
-  let local=match M.scan m with
+  let local=match ok (M.scan m) with
     | [local] -> local | _ -> Alcotest.fail "external file missing" in
   Alcotest.(check string) "external mtime becomes UTC INTERNALDATE"
     "29-Feb-2024 00:00:00 +0000"
     (date_string (Local_date.of_occurrence local));
-  L.with_pages ~spool_dir:(spool env root) m (fun inventory ->
+  with_pages ~spool_dir:(spool env root) m (fun inventory ->
     let staged=Option.get (L.find inventory ~id:local.id) in
     Alcotest.(check bool) "paged inventory retains mtime" true
       (local.mtime=staged.mtime);
@@ -163,12 +178,12 @@ let test_external_mtime_date env = with_root (fun root ->
 let test_staged_variants env = with_root (fun root ->
   let m=maildir env root in
   let staged_later=M.reserve_id () in
-  L.with_pages ~spool_dir:(spool env root) m (fun inventory ->
+  with_pages ~spool_dir:(spool env root) m (fun inventory ->
     Eio.Path.save ~create:(`Exclusive 0o600)
       Eio.Path.(Eio.Stdenv.fs env / root / "mail" / "cur" /
         (staged_later ^ ":2,S")) "x";
-    rejects "variant published after staging" (fun () ->
-      append_x ~inventory m ~id:staged_later []));
+    rejects_duplicate "variant published after staging" staged_later
+      (try_append_x ~inventory m ~id:staged_later []));
   Alcotest.(check bool) "nothing published in new" false
     (List.mem staged_later
       (Sys.readdir (Filename.concat root "mail/new") |> Array.to_list)))
@@ -188,7 +203,7 @@ let test_ignored_entries env = with_root (fun root ->
   Unix.symlink (Filename.concat (Filename.concat mail "cur") real.filename)
     link;
   Unix.mkfifo (Filename.concat (Filename.concat mail "new") "fifo") 0o600;
-  L.with_pages ~spool_dir:(spool env root) m (fun view ->
+  with_pages ~spool_dir:(spool env root) m (fun view ->
     Alcotest.(check int64) "staging skips the same entries as scan" 1L
       (L.count view));
   Unix.unlink link)

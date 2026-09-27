@@ -1,9 +1,9 @@
 (** Policy-gated deletion of an established IMAP/Maildir occurrence pair.
 
-    [reconcile_pair] and [recover_operation] require the caller to hold
-    [Maildir.with_writer_lock] across the remote scan, the local
-    inventory and the call. The three operator repairs take the lease
-    themselves, so the caller must not hold it. A missing side is actionable
+    [reconcile_pair] and [recover_operation] take the {!Maildir.writer} of
+    the lease the caller holds across the remote scan, the local inventory
+    and the call. The three operator repairs take the lease themselves, so
+    the caller must not hold it. A missing side is actionable
     only when a complete published inventory proves absence. The survivor
     must still have its paired byte digest, length, and last-common flags.
     No mailbox-wide EXPUNGE or retry of an uncertain remote mutation occurs.
@@ -19,6 +19,9 @@ type error =
   | Unsupported of string
   | Pending_operation of string
   | Diverged of string
+  | Maildir of Maildir.error
+      (** [Maildir e] is a Maildir format or policy failure. An operation
+          already sent stays pending. *)
 
 val pp_error : Format.formatter -> error -> unit
 
@@ -39,7 +42,7 @@ val expunge_preflight :
 val reconcile_pair :
   ?min_absence_scans:int ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Maildir.t -> mailbox:string ->
+  writer:Maildir.writer -> mailbox:string ->
   cursor:Imap.Mirror.cursor ->
   local_inventory:Local_inventory.t ->
   pair:Imap_store.Journal.pair -> policy:Imap.Sync_policy.deletion_policy ->
@@ -73,12 +76,12 @@ val reconcile_pair :
     with its cause recorded. *)
 
 val recover_operation :
-  store:Imap_store.t -> maildir:Maildir.t ->
+  store:Imap_store.t -> writer:Maildir.writer ->
   cursor:Imap.Mirror.cursor ->
   local_inventory:Local_inventory.t ->
   operation:Imap_store.Journal.operation -> unit ->
   (outcome, error) result
-(** [recover_operation ~store ~maildir ~cursor ~local_inventory ~operation ()]
+(** [recover_operation ~store ~writer ~cursor ~local_inventory ~operation ()]
     reconciles a pending deletion using complete newly published
     inventories. A [Prepared] operation is rejected because no send began. A
     [Sent], [Ambiguous] or [Observed] deletion is committed only when both

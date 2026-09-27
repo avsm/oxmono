@@ -13,6 +13,12 @@ and extra filename fields. Keyword-map updates and directory scans take
 `.imap-flags` or `.imap-dates` directories require offline migration and are
 never ignored or removed.
 
+Mutations take a `Maildir.writer`, the capability that `Maildir.with_writer`
+grants under an exclusive application lease, and a writer used after its
+callback returns raises `Maildir.Writer_expired`. Format and policy failures
+are `Maildir.error` results. I/O failures raise `Eio.Io`, and lock contention
+and stale observations raise the exceptions the interface documents.
+
 Tests live under `test/` and run with
 
     dune build @bleeding/maildir/runtest

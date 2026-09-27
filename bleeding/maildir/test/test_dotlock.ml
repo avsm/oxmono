@@ -8,7 +8,7 @@ let lost label f =
   | exception Dotlock.Lost _ -> ()
   | _ -> failwith (label ^ " accepted")
 let run fs =
-  let root=Filename.temp_file "imap-dotlock-" "" in
+  let root=Filename.temp_file "maildir-dotlock-" "" in
   Sys.remove root;
   Unix.mkdir root 0o700;
   let path=Filename.concat root "dovecot-uidlist.lock" in

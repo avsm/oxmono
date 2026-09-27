@@ -2,6 +2,22 @@ module Client = Imap_eio.Client
 module Selected = Imap_eio.Selected
 module Transport = Imap_eio.Transport
 
+(* Test conveniences over [Maildir]: a format or policy error fails the
+   test, and each mutation takes its own writer. *)
+module Md = struct
+  include Maildir
+  let ok = function
+    | Ok x -> x
+    | Error e -> Alcotest.failf "unexpected Maildir error: %a" pp_error e
+  let open_dir path = ok (open_dir path)
+  let scan m = ok (scan m)
+  let find m ~id = ok (find m ~id)
+  let append m ?id ~source ~length ~flags ?mtime () =
+    ok (with_writer m (fun w -> append w ?id ~source ~length ~flags ?mtime ()))
+  let set_flags m o flags = ok (with_writer m (fun w -> set_flags w o flags))
+  let remove m o = with_writer m (fun w -> remove w o)
+end
+
 let getenv name default =
   match Sys.getenv_opt name with Some s when s <> "" -> s | _ -> default
 
@@ -305,13 +321,13 @@ let round_trip () =
       (Imap_store.abandoned_stages store);
     Alcotest.(check bool) "no pending confirmed APPEND" true
       (Imap_store.pending_intents store ~scope = []);
-    let maildir = Maildir.open_dir
+    let maildir = Md.open_dir
       Eio.Path.(Eio.Stdenv.fs env / maildir_path) in
     let spool_dir = Eio.Path.(Eio.Stdenv.fs env / spooldir) in
     let sequence = ref 0 in
     let next_id () = incr sequence;
       Printf.sprintf "bridge-%s-%d" nonce !sequence in
-    let bootstrap = Maildir.append maildir
+    let bootstrap = Md.append maildir
       ~source:(Eio.Flow.string_source "bootstrap\r\n")
       ~length:11L ~flags:[] () in
     (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope ~mailbox
@@ -320,7 +336,7 @@ let round_trip () =
      | Error error -> Alcotest.fail (Format.asprintf
          "unexpected bootstrap error: %a" Imap_sync.Bridge.pp_error error)
      | Ok _ -> Alcotest.fail "unpaired populated endpoints must be held");
-    Maildir.remove maildir bootstrap;
+    Md.remove maildir bootstrap;
     let copy stage_id = match Imap_sync.Bridge.copy_once ~client ~store ~maildir
       ~scope ~mailbox ~stage_id ~next_id ~spool_dir () with
       | Ok receipt -> receipt
@@ -330,12 +346,12 @@ let round_trip () =
     Alcotest.(check int) "remote occurrences imported" 4
       imported.remote_to_local;
     Alcotest.(check int) "Maildir occurrences" 4
-      (List.length (Maildir.scan maildir));
+      (List.length (Md.scan maildir));
     Alcotest.(check int) "durable occurrence pairs" 4
       (List.length (Imap_store.Journal.pairs store ~scope));
     let local_bytes = "From: local@example.test\r\nSubject: Local bridge " ^ nonce ^
       "\r\n\r\nUnique local payload\r\n" in
-    let local = Maildir.append maildir
+    let local = Md.append maildir
       ~source:(Eio.Flow.string_source local_bytes)
       ~length:(Int64.of_int (String.length local_bytes)) ~flags:[] () in
     let uploaded = copy ("bridge-upload-" ^ nonce) in
@@ -351,8 +367,8 @@ let round_trip () =
     let stable = copy ("bridge-stable-" ^ nonce) in
     Alcotest.(check int) "stable remote copies" 0 stable.remote_to_local;
     Alcotest.(check int) "stable local copies" 0 stable.local_to_remote;
-    let flag_local = List.find (fun (item:Maildir.occurrence) ->
-      item.id<>local.id) (Maildir.scan maildir) in
+    let flag_local = List.find (fun (item:Md.occurrence) ->
+      item.id<>local.id) (Md.scan maildir) in
     let flag_pair = match Imap_store.Journal.find_local store ~scope
       ~local_id:flag_local.id with
       | Some pair -> pair
@@ -367,7 +383,7 @@ let round_trip () =
         let set=Imap.Proto.Uid_set.singleton flag_uid in
         let* _ = Selected.uid_store_flags selected ~set ~operation:`Add
           ~flags:[flagged] () in Ok ()));
-    ignore (Maildir.set_flags maildir flag_local
+    ignore (Md.set_flags maildir flag_local
       (local_keyword::flag_local.flags));
     let after_flags = copy ("bridge-three-way-flags-" ^ nonce) in
     Alcotest.(check int) "three-way flags updated" 1
@@ -378,7 +394,7 @@ let round_trip () =
     Alcotest.(check bool) "remote and local additions merged" true
       (List.mem flagged flag_pair.common_flags &&
        List.mem local_keyword flag_pair.common_flags);
-    let flag_local = match Maildir.find maildir ~id:flag_local.id with
+    let flag_local = match Md.find maildir ~id:flag_local.id with
       | Some local -> local | None -> Alcotest.fail "flag local vanished" in
     Alcotest.(check bool) "Maildir has merged flags" true
       (List.mem flagged flag_local.flags &&
@@ -411,7 +427,7 @@ let round_trip () =
       | Some pair -> pair | None -> Alcotest.fail "held pair vanished" in
     Alcotest.(check bool) "Deleted absent from common flags" false
       (List.mem deleted held_pair.common_flags);
-    let held_local = match Maildir.find maildir ~id:flag_local.id with
+    let held_local = match Md.find maildir ~id:flag_local.id with
       | Some local -> local | None -> Alcotest.fail "held local vanished" in
     Alcotest.(check bool) "Deleted absent from Maildir" false
       (List.mem deleted held_local.flags);
@@ -427,7 +443,7 @@ let round_trip () =
       ~source:(Eio.Flow.string_source recovered_bytes)
       ~length:recovered_length () in
     let recovery_id = next_id () in
-    let recovery_local_id = Maildir.reserve_id () in
+    let recovery_local_id = Md.reserve_id () in
     let pending : Imap_store.Journal.operation = {
       id=recovery_id; pair_id=None;local_id=Some recovery_local_id;
       scope; kind=Imap_store.Journal.Local_append;
@@ -440,7 +456,7 @@ let round_trip () =
       receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
     Imap_store.Journal.prepare_operation store pending;
     Imap_store.Journal.mark_sent store ~id:recovery_id;
-    ignore (Maildir.append maildir ~id:recovery_local_id
+    ignore (Md.append maildir ~id:recovery_local_id
       ~source:(Eio.Flow.string_source recovered_bytes)
       ~length:recovered_length ~flags:[] ());
     let recovered = copy ("bridge-recover-" ^ nonce) in
@@ -455,7 +471,7 @@ let round_trip () =
     let append_bytes = "From: append-recovery@example.test\r\nSubject: " ^
       "Append recovery " ^ nonce ^ "\r\n\r\nReceipt survived\r\n" in
     let append_length = Int64.of_int (String.length append_bytes) in
-    let append_local = Maildir.append maildir
+    let append_local = Md.append maildir
       ~source:(Eio.Flow.string_source append_bytes)
       ~length:append_length ~flags:[] () in
     let append_blob = Imap_store.Blob.put store
@@ -490,14 +506,14 @@ let round_trip () =
       (match Imap_store.Journal.find_operation store ~id:append_id with
        | Some {state=Imap_store.Journal.Committed;_} -> true
        | _ -> false);
-    let removed_local = match Maildir.find maildir ~id:local.id with
+    let removed_local = match Md.find maildir ~id:local.id with
       | Some occurrence -> occurrence
       | None -> Alcotest.fail "uploaded local occurrence vanished" in
     let removed_pair = match Imap_store.Journal.find_local store ~scope
       ~local_id:removed_local.id with
       | Some pair -> pair
       | None -> Alcotest.fail "local occurrence lacks pair" in
-    Maildir.remove maildir removed_local;
+    Md.remove maildir removed_local;
     let after_local_absence = copy ("bridge-local-absence-" ^ nonce) in
     Alcotest.(check int) "local disappearance not recopied" 0
       after_local_absence.remote_to_local;
@@ -526,7 +542,7 @@ let round_trip () =
            {reason=Imap_store.Journal.Inventory_absence;
             generation=Some _;_};_} -> true
        | _ -> false);
-    let changed_survivor=Maildir.set_flags maildir append_local
+    let changed_survivor=Md.set_flags maildir append_local
       [local_keyword] in
     let propagated = match Imap_sync.Bridge.copy_once
       ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir
@@ -547,8 +563,8 @@ let round_trip () =
            {reason=Imap_store.Journal.Expunge_receipt;_};_} -> true
        | _ -> false);
     Alcotest.(check bool) "changed local survivor held" true
-      (Option.is_some (Maildir.find maildir ~id:append_local.id));
-    ignore (Maildir.set_flags maildir changed_survivor []);
+      (Option.is_some (Md.find maildir ~id:append_local.id));
+    ignore (Md.set_flags maildir changed_survivor []);
     let propagated_local = match Imap_sync.Bridge.copy_once
       ~deletion_policy:Imap.Sync_policy.Propagate ~client ~store ~maildir
       ~scope ~mailbox ~stage_id:("bridge-propagate-local-" ^ nonce)
@@ -577,7 +593,7 @@ let round_trip () =
     let ambiguous_bytes = "From: ambiguous@example.test\r\nSubject: " ^
       "Ambiguous " ^ nonce ^ "\r\n\r\nMust not replay\r\n" in
     let ambiguous_length = Int64.of_int (String.length ambiguous_bytes) in
-    let ambiguous_local = Maildir.append maildir
+    let ambiguous_local = Md.append maildir
       ~source:(Eio.Flow.string_source ambiguous_bytes)
       ~length:ambiguous_length ~flags:[] () in
     let ambiguous_blob = Imap_store.Blob.put store

@@ -1,24 +1,30 @@
 module Flag = Mail_flag.Imap_flag
 
 type t = Flag.t option array
+type error = Maildir_error.t
 
-let fail message = failwith ("Imap_maildir: " ^ message)
+exception Invalid of error
+
+let invalid e = raise (Invalid e)
+let catch f = try Ok (f ()) with Invalid e -> Error e
+
 let max_size = 65536
 let empty = Array.make 26 None
 
-let validate_flags flags = List.iter (function
+let check_flags flags = List.iter (function
   | Flag.System _ | Keyword _ -> ()
-  | Recent -> fail "\\Recent is not a durable Maildir flag"
-  | Extension _ as flag ->
-      fail ("unsupported Maildir system flag " ^ Flag.to_wire flag)) flags
+  | Recent | Extension _ as flag ->
+      invalid (Maildir_error.Unsupported_flag flag)) flags
+
+let validate_flags flags = catch (fun () -> check_flags flags)
 
 let find mapping flag = Array.find_index (function
   | Some existing -> Flag.equal existing flag
   | None -> false) mapping
 
 let parse_line mapping line =
-  let invalid what = fail (Printf.sprintf "%s in dovecot-keywords line %S"
-    what line) in
+  let invalid what = invalid (Maildir_error.Keyword_map
+    (Printf.sprintf "%s in dovecot-keywords line %S" what line)) in
   match String.index_opt line ' ' with
   | None -> invalid "missing separator"
   | Some separator ->
@@ -34,33 +40,35 @@ let parse_line mapping line =
         invalid "duplicate mapping";
       mapping.(index)<-Some flag
 
-let parse raw =
+let parse raw = catch (fun () ->
   let mapping=Array.copy empty in
   String.split_on_char '\n' raw |> List.iter (fun line ->
     if String.trim line<>"" then parse_line mapping line);
-  mapping
+  mapping)
 
-let encode mapping =
+let encode_exn mapping =
   let buffer=Buffer.create 128 in
   Array.iteri (fun i -> function None -> () | Some flag ->
     Buffer.add_string buffer (Printf.sprintf "%d %s\n" i
       (Flag.to_wire flag))) mapping;
   let raw=Buffer.contents buffer in
-  if String.length raw>max_size then fail "dovecot-keywords exceeds 64 KiB";
+  if String.length raw>max_size then
+    invalid (Maildir_error.Keyword_map "dovecot-keywords exceeds 64 KiB");
   raw
 
-let add mapping flags =
-  validate_flags flags;
+let encode mapping = catch (fun () -> encode_exn mapping)
+
+let add mapping flags = catch (fun () ->
+  check_flags flags;
   let mapping=Array.copy mapping in
   List.iter (function
     | Flag.Keyword _ as flag when find mapping flag=None ->
         (match Array.find_index Option.is_none mapping with
-         | None -> fail ("keyword " ^ Flag.to_wire flag ^
-             " exceeds the 26 Maildir keyword slots")
+         | None -> invalid (Maildir_error.Too_many_keywords flag)
          | Some i -> mapping.(i)<-Some flag)
     | _ -> ()) flags;
-  ignore (encode mapping : string);
-  mapping
+  ignore (encode_exn mapping : string);
+  mapping)
 
 let equal = Array.for_all2 (Option.equal Flag.equal)
 
@@ -76,26 +84,24 @@ let letters ?(passed=false) mapping flags =
     | Keyword _ as flag ->
         (match find mapping flag with
          | Some i -> Some (Char.chr (Char.code 'a'+i))
-         | None -> fail ("keyword " ^ Flag.to_wire flag ^
-             " has no filename mapping"))
+         | None -> invalid_arg ("Maildir.Keywords.letters: keyword " ^
+             Flag.to_wire flag ^ " has no filename mapping"))
     | Recent | Extension _ -> None in
   let chars=List.filter_map letter flags in
   let chars=if passed then 'P'::chars else chars in
   String.of_seq (List.to_seq (List.sort_uniq Char.compare chars))
 
-let flags mapping ~file letters =
+let flags mapping ~file letters = catch (fun () ->
   String.fold_left (fun acc c ->
     match c with
     | 'a'..'z' ->
         (match mapping.(Char.code c-Char.code 'a') with
          | Some flag -> flag::acc
-         | None -> fail (Printf.sprintf
-             "%s references unmapped keyword letter %c" file c))
+         | None -> invalid (Maildir_error.Unknown_letter {file;letter=c}))
     | 'P' -> acc
     | c ->
         match List.assoc_opt c system_letters with
         | Some system -> Flag.system system::acc
-        | None -> fail (Printf.sprintf
-            "%s has invalid Maildir flag letter %C" file c))
+        | None -> invalid (Maildir_error.Unknown_letter {file;letter=c}))
     [] letters
-  |> Flag.durable
+  |> Flag.durable)

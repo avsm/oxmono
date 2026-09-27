@@ -127,7 +127,7 @@ run only once everything else works.
 | 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | done | b6957cba1 |
 | 15 | Redocumentation pass under doc-style over every public interface | done; three worktree branches merged | cdbd2e380 |
 | 15b | Fix the code contracts the redocumentation pass found contradicted, listed under the step 15b note | done; five commits, protocol before eio | 5c4f7363c |
-| 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | todo | |
+| 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | in progress; benchmarks and baseline | |
 | 17 | Wrap up: add `CHANGES.md` for the `imap` and `maildir` packages summarising the user-visible changes since the baseline, run both packages' build and tests a final time, and record a review pause | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
@@ -647,6 +647,32 @@ syncers, and doc/client.mld shows `archive_any` from
 test/examples/client.ml, which prints the strategy of a
 `Mailbox.move`. Build and runtest are clean, 17 suites and 235 test
 cases plus the new executable.
+
+Step 16. In progress: test/bench holds six executables that `@all`
+builds and `runtest` never runs. Each prints wall time, `Gc.allocated_bytes`
+and minor words for a fixed workload through public interfaces only.
+Run one as `_build/default/bleeding/imap/test/bench/bench_wire.exe`.
+`bench_wire` frames and parses 100,000 `* n FETCH (UID n FLAGS (\Seen)
+MODSEQ (n))` rows fed in 64 KiB chunks. `bench_uid_set` parses two sets
+of 100,000 UIDs in 10,000 intervals, unions them, probes `mem` 10,000
+times and prints both. `bench_encode` runs `Search.to_wire` over 100,000
+nine-key conjunctions and `Fetch_item.to_wire` over 100,000 items.
+`bench_session` reads the same 100,000 rows from a mock flow through
+`Client.with_mailbox` and 100 `Selected.fetch_range` calls of 1,000 UIDs,
+since one call refuses a wider window. `bench_maildir` scans and folds
+100,000 messages. `bench_store` stages 100,000 rows in one FETCH and one
+SEARCH window and publishes them. Baseline, the median of three runs:
+
+| Benchmark | Wall | Allocated | Minor words |
+|---|---|---|---|
+| wire + parse | 178.9 ms | 688.4 MB | 86.05 M |
+| uid_set | 376.0 ms | 28.3 MB | 3.51 M |
+| Search.to_wire | 124.9 ms | 421.5 MB | 52.69 M |
+| Fetch_item.to_wire | 1.1 ms | 1.2 MB | 0.15 M |
+| session fetch_range | 365.7 ms | 905.2 MB | 112.45 M |
+| Maildir.scan | 726.7 ms | 253.0 MB | 31.63 M |
+| Maildir.fold | 654.8 ms | 210.5 MB | 26.32 M |
+| store stage + publish | 7345.8 ms | 6169.6 MB | 771.07 M |
 
 ### Step F notes
 

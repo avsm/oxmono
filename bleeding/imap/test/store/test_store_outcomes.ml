@@ -225,7 +225,7 @@ let seeded_modseq_message env = with_store env (fun ~path:_ ~dir:_ db ->
       failwith ("seeded row not named: " ^ message)
   | () -> failwith "rows without MODSEQ compared")
 
-let observed_anchor env = with_store env (fun ~path:_ ~dir:_ db ->
+let anchor_requires_explicit env = with_store env (fun ~path:_ ~dir:_ db ->
   let cursor=Store.load_cursor db ~scope in
   let action=ok (M.plan cursor ~stage_id:"anchor" (selected 5L)) in
   check (action.mode=M.Condstore) "fixture is not CONDSTORE";
@@ -238,8 +238,8 @@ let observed_anchor env = with_store env (fun ~path:_ ~dir:_ db ->
       ~nomodseq:false with
   | `Committed receipt ->
       check (receipt.row_count=2L) "row count";
-      check (receipt.cursor.anchor=Some (modseq 30L))
-        "anchor is not the largest staged MODSEQ"
+      check (receipt.cursor.anchor=None)
+        "anchor set without an explicit HIGHESTMODSEQ"
   | `Stale_revision -> failwith "fresh stage stale")
 
 let () =
@@ -247,7 +247,7 @@ let () =
     seed_checks_epoch env;
     identity_conflict env;
     seeded_modseq_message env;
-    observed_anchor env;
+    anchor_requires_explicit env;
     scope_mismatch env;
     decode_reasons env;
     forget_epochs env;

@@ -198,9 +198,11 @@ as `""`, UID without UIDVALIDITY rejected, confirmation keeps the stored
 UIDVALIDITY. Blobs: finalisers no longer mask the body exception, Unix
 directory errors become `Eio.Io`, one reachability statement, fsync after
 the digest check, one temp-name retry. Imap_store: seeding checks the
-epoch, OBJECTID+ name mismatch is `Conflict`, CONDSTORE publish without
-HIGHESTMODSEQ anchors at the largest staged MODSEQ as `Mirror.complete`
-does, publish paths share the cursor upsert and epoch replacement.
+epoch, OBJECTID+ name mismatch is `Conflict`, publish paths share the
+cursor upsert and epoch replacement. A CONDSTORE publish without an
+explicit HIGHESTMODSEQ anchors `None`, the same rule `Mirror.complete`
+now follows, since a largest-row fallback yields a false regression after
+the highest message is expunged.
 
 Deviation. The decision that a tombstone can never be replaced by
 `put_pair` breaks bridge.ml:539 and :1048, which renew an absence tombstone

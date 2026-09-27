@@ -343,14 +343,6 @@ let forget_epochs t ~(scope:M.scope) ~(cursor:M.cursor) =
       run t ("DELETE FROM blob_refs WHERE " ^ others) key;
       `Dropped dropped))
 
-(* Without an explicit HIGHESTMODSEQ the anchor is the largest staged
-   MODSEQ when every row has one, as in [Mirror.complete]. *)
-let observed_anchor t stage_id =
-  match rows t "SELECT count(*)-count(modseq),max(modseq) FROM scan_rows \
-    WHERE stage_id=? AND seen=1" [s stage_id] with
-  | r :: _ when int r.(0)=0L -> Option.map modseq (nullable_int r.(1))
-  | _ -> None
-
 let publish_stage t ~(cursor:M.cursor) ~(action:M.action)
     ~explicit_highestmodseq ~nomodseq =
   let who="Imap_store.publish_stage" in
@@ -363,10 +355,8 @@ let publish_stage t ~(cursor:M.cursor) ~(action:M.action)
     if stale_revision t scope ~revision:cursor.revision then `Stale_revision
     else (
       let resolved_mode=if nomodseq then M.Baseline else action.mode in
-      let anchor=if resolved_mode=M.Baseline then None else
-        match explicit_highestmodseq with
-        | Some _ as explicit -> explicit
-        | None -> observed_anchor t action.id in
+      let anchor=
+        if resolved_mode=M.Baseline then None else explicit_highestmodseq in
       (match action.previous_anchor,anchor with
        | Some old,Some now when P.Modseq.to_int64 now<P.Modseq.to_int64 old ->
            invalid_arg (who ^ ": MODSEQ regression")

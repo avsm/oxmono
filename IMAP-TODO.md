@@ -179,6 +179,73 @@ Evidence: `dune build --root . @bleeding/imap/all` clean and
 
 #### F: eio
 
+Commits, in order: 4a9221ede Deflate_flow errors, a16352a40 Client,
+2371c0167 Session, 8f2542b4b Auth and Transport, eb09d48f4 Selected,
+71286aa8c Pool, 7a27bc2f3 Deflate_flow allocation.
+
+Fixed. Session sets its sent flag after each write returns. A failure before
+the final CRLF keeps its kind and text, and one after it on a mutation is
+`Uncertain` naming the cause. `protect` converts only I/O failures (Eio.Io,
+Unix_error, End_of_file, TLS alerts and failures) and re-raises anything else
+with its backtrace after closing. Only BODY[...] and BINARY[...] literals of a
+FETCH reach `on_literal`. PREVIEW, ENVELOPE, BODYSTRUCTURE and unsolicited
+LIST, STATUS or METADATA literals reach `parse_parts`. The PREVIEW limit uses
+the parsed length. A tagged IDLE rejection leaves the session open. One
+budgeted `next` helper replaces the five read loops, and `read_event` is
+untouched. A local APPEND source failure is `State`. Client keeps the
+callback outcome when UNSELECT fails, removes its switch hook in `close`,
+resets `selected` on every exit, gates every ENABLE through one predicate,
+merges ENABLED results, gates STATUS items, sends CAPABILITY once on PREAUTH
+and checks STATUS pins after APPEND syntax. Selected accepts effective
+IMAP4rev2 for MOVE, UID EXPUNGE, SEARCHRES and IDLE, refuses body items in
+`uid_fetch` and `uid_fetch_partial`, accepts a quoted BODY[] in `fetch_to`,
+reports a UID-less BINARY row as `Protocol`, keeps only rows with FLAGS in
+`fetch_changes_range`, reports a failing sink as `State`, never leaves a page
+open at UID 1, requires correlated ESEARCH and sorts SEARCH results, checks
+CONDSTORE for MODSEQ metadata and the COPYUID source set. Auth validates fixed
+credentials at construction and replaces an invalid or failing provider with
+`Auth.Invalid_credentials`, which Client reports as `State "invalid
+credentials"` before any secret is sent. Transport derives peer names only for
+TLS. Pool refuses allocation after its switch is released. Deflate_flow codec
+failures are `Eio.Io` carrying decompress's diagnostic.
+
+Deflate_flow allocation, measured with `Gc.allocated_bytes` around one write:
+1 MiB of random lowercase text 44,192,440 bytes before and 33,396,480 after;
+940,108 bytes of repeated IMAP command text 9,202,344 before and 828,480
+after; a 40-byte write 532,704 before and 532,552 after. One `Manual` LZ77
+state now spans the caller's buffers in 64 KiB slices and the window lives in
+`t`. The remainder is per-symbol allocation inside decompress and the per-write
+LZ77 hash arrays, which the upstream API cannot reuse.
+
+Interface changes. `Error.pp` and `Error.to_string`, with `Client.pp_error`
+and `error_to_string` defined through them. Session gains `has`,
+`revision_two`, `mailbox_mode`, `mailbox_wire` and `io_failure`, loses
+`authentication_rejected` and `?collect_literals`, and `flow` is immutable.
+Auth gains `Invalid_credentials`, drops `resolve_token`, and
+`cram_md5_response t` validates before returning the challenge function.
+`Deflate_flow.Deflate` extends `Eio.Exn.err`. The facade gains documentation
+for Auth constructors, STATUS gating, APPEND outcomes, the UNSELECT outcome,
+the Selected refusals and gates, and Pool after release, and no signature
+changes. `unix` is a direct dependency of `imap_eio_core`. Client calls now
+re-raise non-I/O exceptions, including a `with_mailbox` callback's, instead
+of returning `Transport`. No consumer outside lib/eio needed a change.
+
+Tests. New directed regressions are in test/eio/test_review_fixes.ml; the
+switch-hook and pool tests were confirmed to fail without their fixes. Tests
+whose assertions encoded replaced behaviour were changed to the new contract:
+PREAUTH fixtures in test_client, test_client_review and test_lifecycle expect
+one CAPABILITY; test_client_review expects the callback outcome after a
+failed UNSELECT and a tagged empty ESEARCH; test_session_limits,
+test_binary_append and test_multiappend expect `Limit` or `State` before the
+final CRLF; test_binary expects a foreign LIST literal to stay out of the body
+and a UID-less BINARY row to be `Protocol`; test_client expects sorted SEARCH
+pages; test_deflate_flow matches `Deflate` and adds a buffer-list round trip.
+Both `@bleeding/imap/all` and `@bleeding/imap/runtest --force` are clean.
+
+Cross-module findings resolved here but not ticked above: exception
+relabelling, lost callback result, and the session.ml and deflate_flow.ml
+entries of error payload loss.
+
 #### F: store
 
 Commits 88693549a, e710b45c5, 8fae853c6, d26a71a5e, 20c80d652, a219531ee,
@@ -338,40 +405,40 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/eio/session.ml
 
-- [ ] session.ml:180 [high] `written := true` precedes the write at :180, :285, :423 and :569, so a 64 KiB syntax `Limit` raised by `write` at :58 before any byte leaves is reported as sent; with `~mutation:true` the handler at :244 relabels it `Uncertain` and closes the session. A UID STORE or MOVE over a large set therefore loses the connection with an unknown outcome although nothing was sent.
-- [ ] session.ml:363 [high] `append_many` maps every failure to a generic `Uncertain` because `!written` is always true, dropping `Protocol "server BYE"`, `Limit`, the missing-continuation error and the short-source `State` error, all of which have a known outcome. `command_result` at :244 loses the same information.
-- [ ] session.ml:98 [high] with `on_literal` set, every `Literal_chunk` of every response in the command goes to the body sink and none reaches `parse_parts`, so an ENVELOPE or PREVIEW literal in the same FETCH, or a literal in an unsolicited LIST or STATUS, lands in the caller's sink and parses as an empty string.
-- [ ] session.ml:86 [medium] `on_literal_start` runs before the PREVIEW limit check at :91, and `on_literal` streams chunks before `parse_active` at :188 or a tagged NO can reject the response, leaving the sink with a partial or foreign payload.
-- [ ] session.ml:460 [medium] `idle_once` closes the session on a tagged NO or BAD, unlike every other rejection path at :240, :359, :520 and :575.
-- [ ] session.ml:460 [medium] cancelling IDLE closes the session instead of sending DONE, so a timeout cannot bound `wait_for_change` without losing the connection; and any untagged line at :441 and :456 counts as a change, including `* OK Still here`.
-- [ ] session.ml:469 [medium] `protect` relabels every non-`Session.Failure` exception as `Transport`, including `Stdlib.Failure`, `Invalid_argument`, `Out_of_memory` and `Stack_overflow`, and loses identity and backtrace; the local `Failure` at :33 shadows the stdlib one.
-- [ ] session.ml:89 [low] the PREVIEW 1024-byte check rebuilds the marker as `{%Ld}` while `Wire.literal_suffix` at wire.ml:71 accepts leading zeros, so `{0010}` bypasses it and `parse_parts` at response.ml:1604 misses it too; memory stays bounded by `max_metadata`.
-- [ ] session.ml:471 [confirmed] reentrancy deadlocks: `with_mailbox` holds the mutex for the callback at client.ml:634 and every other entry point relocks through `locked`; Eio mutexes have no owner tracking, so the second lock parks forever until cancellation, which then closes the session at client.ml:686. Plan step 10.
-- [ ] session.ml:177 [dead] `written` and `sent` at :177, :283, :358, :402 and :531 are always true when read; the `| _ -> raise ex` arm at :365 is unreachable; `mutable` on `flow` at :14 is never used; `?collect_literals` in session.mli:41 has no external caller.
-- [ ] session.ml:108 [redundant] response-kind detection duplicates response.ml:1597; the PREVIEW limit at :87 duplicates response.ml:1607; the read, size, limit, parse, BYE loop skeleton is written five times at :182, :286, :325, :375 and :405; `authentication_rejected` at :533 is redone by client.ml:132.
+- [x] session.ml:180 [high] `written := true` precedes the write at :180, :285, :423 and :569, so a 64 KiB syntax `Limit` raised by `write` at :58 before any byte leaves is reported as sent; with `~mutation:true` the handler at :244 relabels it `Uncertain` and closes the session. A UID STORE or MOVE over a large set therefore loses the connection with an unknown outcome although nothing was sent.
+- [x] session.ml:363 [high] `append_many` maps every failure to a generic `Uncertain` because `!written` is always true, dropping `Protocol "server BYE"`, `Limit`, the missing-continuation error and the short-source `State` error, all of which have a known outcome. `command_result` at :244 loses the same information.
+- [x] session.ml:98 [high] with `on_literal` set, every `Literal_chunk` of every response in the command goes to the body sink and none reaches `parse_parts`, so an ENVELOPE or PREVIEW literal in the same FETCH, or a literal in an unsolicited LIST or STATUS, lands in the caller's sink and parses as an empty string.
+- [x] session.ml:86 [medium] `on_literal_start` runs before the PREVIEW limit check at :91, and `on_literal` streams chunks before `parse_active` at :188 or a tagged NO can reject the response, leaving the sink with a partial or foreign payload. A partial body before a tagged failure is inherent to streaming and is documented as provisional.
+- [x] session.ml:460 [medium] `idle_once` closes the session on a tagged NO or BAD, unlike every other rejection path at :240, :359, :520 and :575.
+- [ ] session.ml:460 [medium] cancelling IDLE closes the session instead of sending DONE, so a timeout cannot bound `wait_for_change` without losing the connection; and any untagged line at :441 and :456 counts as a change, including `* OK Still here`. (left for step 14)
+- [x] session.ml:469 [medium] `protect` relabels every non-`Session.Failure` exception as `Transport`, including `Stdlib.Failure`, `Invalid_argument`, `Out_of_memory` and `Stack_overflow`, and loses identity and backtrace; the local `Failure` at :33 shadows the stdlib one.
+- [x] session.ml:89 [low] the PREVIEW 1024-byte check rebuilds the marker as `{%Ld}` while `Wire.literal_suffix` at wire.ml:71 accepts leading zeros, so `{0010}` bypasses it and `parse_parts` at response.ml:1604 misses it too; memory stays bounded by `max_metadata`.
+- [ ] session.ml:471 [confirmed] reentrancy deadlocks: `with_mailbox` holds the mutex for the callback at client.ml:634 and every other entry point relocks through `locked`; Eio mutexes have no owner tracking, so the second lock parks forever until cancellation, which then closes the session at client.ml:686. Plan step 10. (left for step 10)
+- [x] session.ml:177 [dead] `written` and `sent` at :177, :283, :358, :402 and :531 are always true when read; the `| _ -> raise ex` arm at :365 is unreachable; `mutable` on `flow` at :14 is never used; `?collect_literals` in session.mli:41 has no external caller.
+- [ ] session.ml:108 [redundant] response-kind detection duplicates response.ml:1597; the PREVIEW limit at :87 duplicates response.ml:1607; the read, size, limit, parse, BYE loop skeleton is written five times at :182, :286, :325, :375 and :405; `authentication_rejected` at :533 is redone by client.ml:132. (left: the read, size, limit, parse and BYE loop is one helper and the authentication redaction lives only in Client; kind detection and the early PREVIEW check stay because Response exposes no helper and the check bounds the read before parse_parts)
 - Facts for later steps: tag counter, close-on-desync, COMPRESS boundary, APPEND literal handshake, IDLE DONE ordering, cancellation re-raise and mutex release are all clean. Session record writers: `capabilities` by Client only, uppercased latest CAPABILITY; `enabled` by Client, appended without dedup at :70 and :80; `selected` by Client at :658, :681, :699 and not reset by `close`, so a closed session can keep a stale `Some`; `generation` bumped by `Session.close` and Client, checked by `Selected.check`; `saved_search_nonce` by Session only; `readonly` never reset; `uidbatches_last_mailbox` by Selected only, compared by string so INBOX case variants escape; `wire` also by Client after STARTTLS. Optimisation and comments are clean.
 
 #### lib/eio/selected.ml
 
-- [ ] selected.ml:83 [high] SEARCHRES at :83 and :91, MOVE at :805, UIDPLUS at :838 and IDLE at :858 are gated on their literal tokens, so an IMAP4rev2-only server is refused although RFC 9051 folds all four into the base protocol; `require_binary` at :978 already accepts rev2.
-- [ ] selected.ml:387 [high] `uid_fetch` and `uid_fetch_partial` accept `BODY[]`, `BODY[TEXT]`, `BODY[HEADER]` and `BINARY[]`, buffering up to 16 MiB of literal and discarding it, and the non-PEEK forms set Seen without the writable check or `~mutation:true`.
-- [ ] selected.ml:1097 [high] `fetch_to` keeps only rows with literals, so a body sent as a quoted string such as `BODY[] ""` is reported `Missing_uid`; `fetch_binary_to` handles the same case via `Inline` at :1044.
-- [ ] selected.ml:1031 [medium] a BINARY row with no UID closes the session but returns `Missing_uid`, which the interface at :145 presents as leaving the connection usable; this path should be `Protocol`.
-- [ ] selected.ml:910 [medium] `fetch_changes_range` keeps any row with a UID, so a later unsolicited row without FLAGS or MODSEQ overwrites the complete row; `fetch_metadata_range` guards on `Some uid, Some flags` at :654.
-- [ ] selected.ml:997 [medium] a sink write failure inside `stream_fetch` closes the connection and reports `Transport`, indistinguishable from a network failure.
-- [ ] selected.ml:522 [medium] the fetch helpers disagree on duplicates and unrequested UIDs: previews overwrite duplicates and ignore unrequested UIDs at :522, object IDs ignore unrequested UIDs at :560 and :608, while `fetch_attribute` at :476 and binary sizes at :1082 fail on them.
-- [ ] selected.ml:347 [low] `uid_search_page` with `last_uid = 1` returns `complete = false` and `resume_before = None`, a state the interface does not describe, so a direct caller cannot tell done from stuck.
-- [ ] selected.ml:143 [low] `search_uids` accepts an ESEARCH with no tag despite the interface promise of a matching one, and its untagged SEARCH arm returns server order with duplicates while the ESEARCH arm at :154 returns sorted distinct UIDs.
-- [ ] selected.ml:634 [low] `fetch_metadata_range ~modseq:true` requests MODSEQ without the CONDSTORE check that `uid_fetch_saved` makes at :421, so a server BAD surfaces as `Rejected`.
-- [ ] selected.ml:763 [low] the COPYUID source set is never checked against the requested set.
-- [ ] selected.ml:452 [dead] the `> 50` test cannot fire after the Hashtbl check at :448; the `supports_limit` conjuncts at :661, :666, :917 and :922 are redundant since `accept_partial:false` never yields `partial = Some`; the SEARCHRES recheck at :83 cannot fail; `bytes = 0L` at :1102 is implied.
-- [ ] selected.ml:476 [redundant] the six `uid_fetch_<x>s` functions repeat UID-list validation, comma join, `Map.Make(Int64)` fold with `List.mem`, and projection; only the UID-list policy, result order, duplicate policy and unrequested-UID policy vary. Plan step 7.
-- [ ] selected.ml:642 [redundant] `fetch_metadata_range` and `fetch_changes_range` at :897 run near-identical MESSAGELIMIT loops; the prefix test is written three ways at :322, :357 and :639.
-- [ ] selected.ml:679 [redundant] the `List.mem cap` then `raise (State "X unavailable")` pattern appears about twenty times and `has` is defined only at :679; the encoder unwrap about thirty times; `Fetch row | Uidfetch row` extraction twelve times; the tagged-tag match six times; the correlated-ESEARCH filter four times. Plan step 2 and step 9.
-- [ ] selected.ml:43 [redundant] `uid < 1L || uid > 4_294_967_295L` is written nine times at :43, :327, :453, :507, :546, :594, :1004, :1060 and :1089 although `Proto.Uid.of_int64` exists; the 1000-UID window check three times at :352, :631 and :888. Plan step 5.
-- [ ] selected.ml:748 [redundant] the rev2 predicate is duplicated in `mailbox_wire` at :748, `require_binary` at :979 and `Client.revision_two`; `Selected.mailbox_wire` duplicates `Client.mailbox_wire` except for the error prefix.
-- [ ] selected.ml:442 [comment] restates the code; delete. At :38 keep the RFC 5267 sentence and delete "SEARCH retains its existing expansion."
-- [ ] selected.mli:258 [drift] "require their advertised extensions" is accurate to the code but conflicts with RFC 9051 for MOVE and UIDPLUS.
+- [x] selected.ml:83 [high] SEARCHRES at :83 and :91, MOVE at :805, UIDPLUS at :838 and IDLE at :858 are gated on their literal tokens, so an IMAP4rev2-only server is refused although RFC 9051 folds all four into the base protocol; `require_binary` at :978 already accepts rev2.
+- [x] selected.ml:387 [high] `uid_fetch` and `uid_fetch_partial` accept `BODY[]`, `BODY[TEXT]`, `BODY[HEADER]` and `BINARY[]`, buffering up to 16 MiB of literal and discarding it, and the non-PEEK forms set Seen without the writable check or `~mutation:true`.
+- [x] selected.ml:1097 [high] `fetch_to` keeps only rows with literals, so a body sent as a quoted string such as `BODY[] ""` is reported `Missing_uid`; `fetch_binary_to` handles the same case via `Inline` at :1044.
+- [x] selected.ml:1031 [medium] a BINARY row with no UID closes the session but returns `Missing_uid`, which the interface at :145 presents as leaving the connection usable; this path should be `Protocol`.
+- [x] selected.ml:910 [medium] `fetch_changes_range` keeps any row with a UID, so a later unsolicited row without FLAGS or MODSEQ overwrites the complete row; `fetch_metadata_range` guards on `Some uid, Some flags` at :654.
+- [x] selected.ml:997 [medium] a sink write failure inside `stream_fetch` closes the connection and reports `Transport`, indistinguishable from a network failure.
+- [ ] selected.ml:522 [medium] the fetch helpers disagree on duplicates and unrequested UIDs: previews overwrite duplicates and ignore unrequested UIDs at :522, object IDs ignore unrequested UIDs at :560 and :608, while `fetch_attribute` at :476 and binary sizes at :1082 fail on them. (left for step 7)
+- [x] selected.ml:347 [low] `uid_search_page` with `last_uid = 1` returns `complete = false` and `resume_before = None`, a state the interface does not describe, so a direct caller cannot tell done from stuck.
+- [x] selected.ml:143 [low] `search_uids` accepts an ESEARCH with no tag despite the interface promise of a matching one, and its untagged SEARCH arm returns server order with duplicates while the ESEARCH arm at :154 returns sorted distinct UIDs.
+- [x] selected.ml:634 [low] `fetch_metadata_range ~modseq:true` requests MODSEQ without the CONDSTORE check that `uid_fetch_saved` makes at :421, so a server BAD surfaces as `Rejected`.
+- [x] selected.ml:763 [low] the COPYUID source set is never checked against the requested set.
+- [x] selected.ml:452 [dead] the `> 50` test cannot fire after the Hashtbl check at :448; the `supports_limit` conjuncts at :661, :666, :917 and :922 are redundant since `accept_partial:false` never yields `partial = Some`; the SEARCHRES recheck at :83 cannot fail; `bytes = 0L` at :1102 is implied.
+- [ ] selected.ml:476 [redundant] the six `uid_fetch_<x>s` functions repeat UID-list validation, comma join, `Map.Make(Int64)` fold with `List.mem`, and projection; only the UID-list policy, result order, duplicate policy and unrequested-UID policy vary. Plan step 7. (left for step 7)
+- [x] selected.ml:642 [redundant] `fetch_metadata_range` and `fetch_changes_range` at :897 run near-identical MESSAGELIMIT loops; the prefix test is written three ways at :322, :357 and :639.
+- [ ] selected.ml:679 [redundant] the `List.mem cap` then `raise (State "X unavailable")` pattern appears about twenty times and `has` is defined only at :679; the encoder unwrap about thirty times; `Fetch row | Uidfetch row` extraction twelve times; the tagged-tag match six times; the correlated-ESEARCH filter four times. Plan step 2 and step 9. (left for steps 2 and 9: the capability idiom; `syntax`, fetch-row, completion-tag and correlated-ESEARCH helpers now replace the other copies)
+- [ ] selected.ml:43 [redundant] `uid < 1L || uid > 4_294_967_295L` is written nine times at :43, :327, :453, :507, :546, :594, :1004, :1060 and :1089 although `Proto.Uid.of_int64` exists; the 1000-UID window check three times at :352, :631 and :888. Plan step 5. (left for step 5)
+- [x] selected.ml:748 [redundant] the rev2 predicate is duplicated in `mailbox_wire` at :748, `require_binary` at :979 and `Client.revision_two`; `Selected.mailbox_wire` duplicates `Client.mailbox_wire` except for the error prefix.
+- [x] selected.ml:442 [comment] restates the code; delete. At :38 keep the RFC 5267 sentence and delete "SEARCH retains its existing expansion."
+- [x] selected.mli:258 [drift] "require their advertised extensions" is accurate to the code but conflicts with RFC 9051 for MOVE and UIDPLUS.
 - Facts for later steps: lease checks, saved-search handles, the 100,000 expansion bound, streamed-body ordering, MESSAGELIMIT loops, COPYUID pairing and missing-response handling are clean. `uid_fetch` returns `fetch.raw` per row, including unsolicited rows not filtered by UID. The UIDONLY guard at :71 checks only whether the first token is made of `0-9,:*`, so `(1:5)`, `NOT 1:5` and `OR 1 2` pass. Capability tokens tested here: SEARCHRES, any `SORT` prefix, ESORT, CONTEXT=SORT, THREAD=ORDEREDSUBJECT, THREAD=REFERENCES, PARTIAL, `MESSAGELIMIT=` prefix, CONDSTORE, QRESYNC, PREVIEW, OBJECTID, IMAP4REV2, IMAP4REV1, BINARY, MOVE, UIDPLUS, IDLE, UIDBATCHES, NOTIFY; enabled: UIDONLY, OBJECTID+, QRESYNC, IMAP4REV2, UTF8=ACCEPT. A missing capability is always `State "<CAP> unavailable"`; missing enabled modes are `State "OBJECTID+ has not been enabled"` and `State "QRESYNC not enabled"`; missing SELECT identity is `Protocol`. `uid_search_range`, `fetch_metadata_range` and `fetch_changes_range` fall back silently without MESSAGELIMIT.
 
 #### lib/sync/bridge.ml
@@ -397,18 +464,18 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/eio/client.ml
 
-- [ ] client.ml:695 [high] when the callback returns `Ok v` and the following UNSELECT fails, `with_mailbox` returns `Error` and drops `v` although every mutation completed; pool.ml:31 then closes the connection and a retrying caller replays a MOVE, STORE or EXPUNGE. Close the connection and still return the outcome.
-- [ ] client.ml:181 [high] each connection registers an `Eio.Switch.on_release` hook that is never removed, so under `Pool` reconnect churn every closed `Session.t` with its 64 KiB input buffer stays alive until the pool switch ends; use `on_release_cancellable` and remove it in `close`.
-- [ ] client.ml:634 [confirmed] a Client call from inside `with_mailbox`, including nested `with_mailbox`, `noop` or `logout`, deadlocks with no detection; the `selected` guards at :219, :239 and :259 run inside the lock and cannot catch it. Plan step 10.
-- [ ] client.ml:216 [medium] `enable_uidonly` and `enable_objectid_plus` require a literal ENABLE token at :216 and :236 while `enable_revision`, `enable_utf8` and `enable_qresync` at :48, :63 and :73 send ENABLE without checking; RFC 9051 folds ENABLE into rev2, so a rev2-only server advertising UIDONLY is refused.
-- [ ] client.ml:219 [medium] after a callback exception at :686 or a failed UNSELECT at :695 the session is closed but `selected` stays `Some`, so `enable_uidonly`, `enable_objectid_plus` and `pin_mailbox_objectid` report a "before selecting a mailbox" `State` instead of `Closed`.
-- [ ] client.ml:55 [low] `enable_revision` overwrites `enabled` instead of merging; correct only because it runs first on the empty list at :178.
-- [ ] client.ml:367 [low] `status` and `list_extended` gate only the `Objectid` item; `Highestmodseq`, `Mailboxid`, `Size`, `Deleted` and `Deleted_storage` are sent without checking CONDSTORE, OBJECTID, STATUS=SIZE, rev2 or QUOTA.
-- [ ] client.ml:93 [dead] the LOGINDISABLED check in `login` is preceded by the same check in `authenticate` at :111; the `require` error branch at :742 and the range test at :831 and :835 are unreachable because response.ml:287 already bounds APPENDUID and the set passes `Uid_set.of_wire`.
-- [ ] client.ml:51 [redundant] ENABLED extraction appears five times at :51, :66, :76, :224 and :244; the three optional enables at :47, :62 and :72 and the two required enables at :214 and :234 differ only in name; the effective-rev2 test at :692 bypasses `revision_two`; syntax unwrapping is inlined at :96, :277, :288, :577, :603, :656 and :737 while `command_syntax` at :405 exists; `one_response` at :409 is rewritten in `namespace`, `status_locked` and `get_jmap_access`; the OBJECTID+ enabled check repeats at :257, :335, :368, :582 and :649; the pin lookup at :266, :637 and :710; `canonical` at :345 duplicates `same_mailbox` at :24; `begins` at :26 duplicates `String.starts_with`; the mechanism name is computed twice at :117 and :126; `connect` and `of_flow` handlers at :189 and :196 are identical; :702 is `Result.join`.
-- [ ] client.ml:763 [redundant] `append_flow` and `append_binary_flow` are one-line wrappers over `append_receipt ~binary`; `append_messages` at :793 duplicates receipt decoding and Uncertain handling from `append_receipt`. Plan step 8.
-- [ ] client.ml:149 [optimisation] a PREAUTH connection sends CAPABILITY twice at :149 and :177; `append_receipt` runs the pinned STATUS at :730 before validating syntax at :735.
-- [ ] client.mli:8 [drift] `connect` silently ENABLEs IMAP4rev2, UTF8=ACCEPT and QRESYNC at :178, which changes `mailbox_mode` and replaces EXPUNGE with VANISHED, while the interface calls `enable_uidonly` and `enable_objectid_plus` the explicit modes; `of_flow` is always treated as insecure at :150; `capabilities` and `enabled` return uppercased tokens; `with_mailbox` closes on UIDNOTSTICKY at :667 and a failed UNSELECT replaces the callback result.
+- [x] client.ml:695 [high] when the callback returns `Ok v` and the following UNSELECT fails, `with_mailbox` returns `Error` and drops `v` although every mutation completed; pool.ml:31 then closes the connection and a retrying caller replays a MOVE, STORE or EXPUNGE. Close the connection and still return the outcome.
+- [x] client.ml:181 [high] each connection registers an `Eio.Switch.on_release` hook that is never removed, so under `Pool` reconnect churn every closed `Session.t` with its 64 KiB input buffer stays alive until the pool switch ends; use `on_release_cancellable` and remove it in `close`.
+- [ ] client.ml:634 [confirmed] a Client call from inside `with_mailbox`, including nested `with_mailbox`, `noop` or `logout`, deadlocks with no detection; the `selected` guards at :219, :239 and :259 run inside the lock and cannot catch it. Plan step 10. (left for step 10)
+- [x] client.ml:216 [medium] `enable_uidonly` and `enable_objectid_plus` require a literal ENABLE token at :216 and :236 while `enable_revision`, `enable_utf8` and `enable_qresync` at :48, :63 and :73 send ENABLE without checking; RFC 9051 folds ENABLE into rev2, so a rev2-only server advertising UIDONLY is refused. ENABLE is available when advertised or when IMAP4rev2 is advertised, since RFC 9051 makes it a base command; requiring effective rev2 would stop ENABLE IMAP4rev2 itself on a rev1+rev2 server.
+- [x] client.ml:219 [medium] after a callback exception at :686 or a failed UNSELECT at :695 the session is closed but `selected` stays `Some`, so `enable_uidonly`, `enable_objectid_plus` and `pin_mailbox_objectid` report a "before selecting a mailbox" `State` instead of `Closed`.
+- [x] client.ml:55 [low] `enable_revision` overwrites `enabled` instead of merging; correct only because it runs first on the empty list at :178.
+- [x] client.ml:367 [low] `status` and `list_extended` gate only the `Objectid` item; `Highestmodseq`, `Mailboxid`, `Size`, `Deleted` and `Deleted_storage` are sent without checking CONDSTORE, OBJECTID, STATUS=SIZE, rev2 or QUOTA. DELETED also accepts IMAP4rev2, which RFC 9051 includes in STATUS.
+- [x] client.ml:93 [dead] the LOGINDISABLED check in `login` is preceded by the same check in `authenticate` at :111; the `require` error branch at :742 and the range test at :831 and :835 are unreachable because response.ml:287 already bounds APPENDUID and the set passes `Uid_set.of_wire`. The range test is gone; the result conversions stay because they are the only way to obtain typed values.
+- [ ] client.ml:51 [redundant] ENABLED extraction appears five times at :51, :66, :76, :224 and :244; the three optional enables at :47, :62 and :72 and the two required enables at :214 and :234 differ only in name; the effective-rev2 test at :692 bypasses `revision_two`; syntax unwrapping is inlined at :96, :277, :288, :577, :603, :656 and :737 while `command_syntax` at :405 exists; `one_response` at :409 is rewritten in `namespace`, `status_locked` and `get_jmap_access`; the OBJECTID+ enabled check repeats at :257, :335, :368, :582 and :649; the pin lookup at :266, :637 and :710; `canonical` at :345 duplicates `same_mailbox` at :24; `begins` at :26 duplicates `String.starts_with`; the mechanism name is computed twice at :117 and :126; `connect` and `of_flow` handlers at :189 and :196 are identical; :702 is `Result.join`. (left for step 2: the OBJECTID+ enabled check; every other listed duplicate is factored)
+- [ ] client.ml:763 [redundant] `append_flow` and `append_binary_flow` are one-line wrappers over `append_receipt ~binary`; `append_messages` at :793 duplicates receipt decoding and Uncertain handling from `append_receipt`. Plan step 8. (left for step 8)
+- [x] client.ml:149 [optimisation] a PREAUTH connection sends CAPABILITY twice at :149 and :177; `append_receipt` runs the pinned STATUS at :730 before validating syntax at :735.
+- [ ] client.mli:8 [drift] `connect` silently ENABLEs IMAP4rev2, UTF8=ACCEPT and QRESYNC at :178, which changes `mailbox_mode` and replaces EXPUNGE with VANISHED, while the interface calls `enable_uidonly` and `enable_objectid_plus` the explicit modes; `of_flow` is always treated as insecure at :150; `capabilities` and `enabled` return uppercased tokens; `with_mailbox` closes on UIDNOTSTICKY at :667 and a failed UNSELECT replaces the callback result. (left for step 15, except the UNSELECT sentence, which is fixed)
 - Facts for later steps: capability comparison is consistently case-insensitive by uppercasing on receipt at :41, :53, :68, :78, :226, :246; ENABLE results are always recorded; STARTTLS ordering, credential redaction and APPEND uncertainty are clean; comments are clean. Without `?auth`, a non-PREAUTH greeting fails `State "authentication required"`. Capability tokens tested here: IMAP4REV2, IMAP4REV1, UTF8=ACCEPT, QRESYNC, CONDSTORE, LOGINDISABLED, AUTH=PLAIN, AUTH=CRAM-MD5, AUTH=OAUTHBEARER, SASL-IR, STARTTLS, UIDONLY, ENABLE, OBJECTID+, NAMESPACE, LIST-EXTENDED, SPECIAL-USE, LIST-STATUS, JMAPACCESS, ACL, QUOTA and the `QUOTA=RES-` prefix, QUOTASET, METADATA, METADATA-SERVER, NOTIFY, UNSELECT, BINARY, LITERAL-, LITERAL+, MULTIAPPEND, `MESSAGELIMIT=` and `SAVELIMIT=` prefixes, COMPRESS=DEFLATE via Session. Never tested in Client: UIDPLUS, MOVE, IDLE, OBJECTID, STATUS=SIZE, ID. Missing-capability errors are always `State` with the strings listed in the review transcript, of the shape "<CAP> unavailable", "server does not advertise AUTH=<M>", "<X> and ENABLE must both be advertised", "binary APPEND requires BINARY capability", "MULTIAPPEND capability unavailable"; not-enabled errors are `State "<X> not enabled"` and the two STATUS OBJECTID variants.
 
 #### lib/maildir/imap_maildir.ml
@@ -519,15 +586,15 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/eio/auth.ml, error.ml, transport.ml
 
-- [ ] auth.ml:15 [medium] invalid credentials pass construction and only fail inside `resolve_password`, `plain_response` and `resolve_token` at :31, :44 and :58, where client.ml:142 turns the `Invalid_argument` into `Transport "authentication exchange failed"`; a refresher exception gets the same label.
-- [ ] auth.ml:93 [medium] the CRAM-MD5 username whitespace check runs after `AUTHENTICATE CRAM-MD5` has been sent at session.ml:490, so a local config error closes a working connection and surfaces as `Transport`; PLAIN and OAUTHBEARER build their response before sending.
-- [ ] transport.ml:180 [medium] the TLS peer name is derived from `host` for every mode, so `Plain` endpoints reject non-LDH hosts such as `imap_test` or scoped IPv6 literals via `Domain_name.host_exn` although `tls_config` is `None`.
-- [ ] auth.ml:58 [low] the bearer token charset accepts `=` anywhere; RFC 6750 allows it only as trailing padding.
-- [ ] auth.ml:78 [dead] `resolve_token` has no caller outside auth.ml; drop it from the interface. `Transport.host` and `port` are unused internally but public; keep. transport.ml:204 is a defensive branch; keep.
-- [ ] auth.ml:15 [redundant] `password` is `refreshing (fun () -> password)` and `bearer` is `refreshing_bearer (fun () -> token)` with duplicated checks at :15 and :31; the flow type is spelled out five times at transport.ml:157, :178, :198, :209 and :248; session.ml:52 and deflate_flow.ml:40 wrap a `close` that already runs under `Cancel.protect`.
-- [ ] transport.ml:221 [comment] the STARTTLS ownership sentence sits above `check_open`; move next to `upgrade` or delete. auth.ml:82 stays.
-- [ ] auth.mli:10 [drift] defaults are `Auto` and `false`, undocumented; `Invalid_argument` for an empty, control or non-UTF-8 username and for `Oauthbearer` on `password` is undocumented. transport.mli:6 defaults are 993 for `Implicit`, 143 otherwise; trust defaults to `Ca_certs.system_authenticator ()` loaded eagerly in `v`, raising `Failure` if the store is missing; `v` raises `Invalid_argument` for an empty host, bad port or unparseable name. None documented. Plan step 15.
-- [ ] auth.mli:26 [drift] doc comments at auth.mli:26, :28 and transport.mli:23 sit between two `val`s with no blank line, the facade uses the same pattern throughout, and odoc may attach them to the wrong item; confirm with `dune build @doc` in step 13.
+- [x] auth.ml:15 [medium] invalid credentials pass construction and only fail inside `resolve_password`, `plain_response` and `resolve_token` at :31, :44 and :58, where client.ml:142 turns the `Invalid_argument` into `Transport "authentication exchange failed"`; a refresher exception gets the same label.
+- [x] auth.ml:93 [medium] the CRAM-MD5 username whitespace check runs after `AUTHENTICATE CRAM-MD5` has been sent at session.ml:490, so a local config error closes a working connection and surfaces as `Transport`; PLAIN and OAUTHBEARER build their response before sending.
+- [x] transport.ml:180 [medium] the TLS peer name is derived from `host` for every mode, so `Plain` endpoints reject non-LDH hosts such as `imap_test` or scoped IPv6 literals via `Domain_name.host_exn` although `tls_config` is `None`.
+- [x] auth.ml:58 [low] the bearer token charset accepts `=` anywhere; RFC 6750 allows it only as trailing padding.
+- [x] auth.ml:78 [dead] `resolve_token` has no caller outside auth.ml; drop it from the interface. `Transport.host` and `port` are unused internally but public; keep. transport.ml:204 is a defensive branch; keep.
+- [x] auth.ml:15 [redundant] `password` is `refreshing (fun () -> password)` and `bearer` is `refreshing_bearer (fun () -> token)` with duplicated checks at :15 and :31; the flow type is spelled out five times at transport.ml:157, :178, :198, :209 and :248; session.ml:52 and deflate_flow.ml:40 wrap a `close` that already runs under `Cancel.protect`.
+- [x] transport.ml:221 [comment] the STARTTLS ownership sentence sits above `check_open`; move next to `upgrade` or delete. auth.ml:82 stays.
+- [ ] auth.mli:10 [drift] defaults are `Auto` and `false`, undocumented; `Invalid_argument` for an empty, control or non-UTF-8 username and for `Oauthbearer` on `password` is undocumented. transport.mli:6 defaults are 993 for `Implicit`, 143 otherwise; trust defaults to `Ca_certs.system_authenticator ()` loaded eagerly in `v`, raising `Failure` if the store is missing; `v` raises `Invalid_argument` for an empty host, bad port or unparseable name. None documented. Plan step 15. (left for step 15: Transport.v defaults and exceptions; the Auth constructor defaults and Invalid_argument cases are documented)
+- [ ] auth.mli:26 [drift] doc comments at auth.mli:26, :28 and transport.mli:23 sit between two `val`s with no blank line, the facade uses the same pattern throughout, and odoc may attach them to the wrong item; confirm with `dune build @doc` in step 13. (left for step 13)
 - Facts for later steps: CRAM-MD5, PLAIN and OAUTHBEARER wire formats, refresher call count, `close` idempotency, `upgrade` failure handling, `compress_deflate` guards, `read` End_of_file consistency and `connect` cleanup are clean. Callers of hidden values: `resolve_password` at client.ml:95 and auth.ml:64, :95; `cram_md5_response` at session.ml:499; `plain_response` and `oauthbearer_response` at client.ml:127. The `@ portable` on the authenticator is required by vendor/tls/lib/config.mli:83.
 
 #### lib/protocol/proto.ml, wire.ml, mailbox_name.ml
@@ -563,14 +630,14 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/eio/deflate_flow.ml, pool.ml
 
-- [ ] deflate_flow.ml:93 [optimisation, medium] every 64 KiB chunk on every write allocates a fresh `Lz77.state` (about 0.5 MiB of `prev` and `head`), a 64 KiB window and two copies of the input at :93 and :106; a 100 MiB APPEND allocates about 1.1 GiB and a 40-byte command line about 0.58 MiB. Use a `Manual` Lz77 source on the buffer to remove the copies and probe hoisting the window into `t`. Only `Fixed` blocks are emitted, costing ratio.
-- [ ] pool.ml:25 [low] `closed` is checked once before `Eio.Pool.use`, so a fiber that waits for a slot while the switch releases calls `connect ~sw` on a finished switch and gets `Transport "Invalid_argument(...)"` where `Closed` is meant; check `closed` in `alloc`.
-- [ ] pool.ml:35 [low] `Client.close` before `raise ex` can clobber the backtrace; deflate_flow.ml:41 does it correctly with `raise_with_backtrace`.
-- [ ] deflate_flow.ml:75 [low] `Malformed _` discards decompress's diagnostic.
-- [ ] deflate_flow.ml:33 [low] `close` takes neither direction mutex, so a read-side codec failure can close `raw` while a writer is inside `Eio.Flow.write`; the interface is silent about `close` racing an operation.
-- [ ] deflate_flow.ml:65 [dead] `count = 0` is unreachable since `single_read` asserts progress; the non-empty-queue check at :91 is unreachable while every batch ends in EOB. Keep :99 and :74.
-- [ ] deflate_flow.ml:42 [redundant] `Cancel.protect` around `close` double-wraps :36.
-- [ ] deflate_flow.mli:127 [drift] cancellation while blocked on the mutex leaves the flow open, which is correct; the doc should say cancellation during an operation closes it.
+- [x] deflate_flow.ml:93 [optimisation, medium] every 64 KiB chunk on every write allocates a fresh `Lz77.state` (about 0.5 MiB of `prev` and `head`), a 64 KiB window and two copies of the input at :93 and :106; a 100 MiB APPEND allocates about 1.1 GiB and a 40-byte command line about 0.58 MiB. Use a `Manual` Lz77 source on the buffer to remove the copies and probe hoisting the window into `t`. Only `Fixed` blocks are emitted, costing ratio.
+- [x] pool.ml:25 [low] `closed` is checked once before `Eio.Pool.use`, so a fiber that waits for a slot while the switch releases calls `connect ~sw` on a finished switch and gets `Transport "Invalid_argument(...)"` where `Closed` is meant; check `closed` in `alloc`.
+- [x] pool.ml:35 [low] `Client.close` before `raise ex` can clobber the backtrace; deflate_flow.ml:41 does it correctly with `raise_with_backtrace`.
+- [x] deflate_flow.ml:75 [low] `Malformed _` discards decompress's diagnostic.
+- [x] deflate_flow.ml:33 [low] `close` takes neither direction mutex, so a read-side codec failure can close `raw` while a writer is inside `Eio.Flow.write`; the interface is silent about `close` racing an operation.
+- [x] deflate_flow.ml:65 [dead] `count = 0` is unreachable since `single_read` asserts progress; the non-empty-queue check at :91 is unreachable while every batch ends in EOB. Keep :99 and :74.
+- [x] deflate_flow.ml:42 [redundant] `Cancel.protect` around `close` double-wraps :36.
+- [x] deflate_flow.mli:127 [drift] cancellation while blocked on the mutex leaves the flow open, which is correct; the doc should say cancellation during an operation closes it.
 - Facts for later steps: the sync-flush claim holds, each write ends in an empty stored block; pool accounting, waiter fairness, `validate` on checkout, cancellation and the 16 MiB bound are clean; comments are clean.
 
 #### bin/imap_cli.ml, main.ml

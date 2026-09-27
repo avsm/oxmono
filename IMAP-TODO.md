@@ -49,7 +49,7 @@ comments unless the code cannot say it.
 | 0 | Baseline commit of the untracked IMAP tree and its shared-library edits | done | b4084133b |
 | R | Phase 2 implementation review by subagent, one per module, findings in section 0.R | done, 21 reviews, 336 findings | |
 | F | Apply Phase 2 correctness fixes in severity order, then dead code, redundancy, comments | done; 235 findings fixed, the remainder annotated to their steps; CLI findings fold into step 12 | e449db4a4 |
-| 1 | Plan item 8: strip duplicated docs from core Eio `.mli` and private store `.mli` to one-line internal contracts; rename `Imap_store.Sync` to `Journal` | todo | |
+| 1 | Plan item 8: strip duplicated docs from core Eio `.mli` and private store `.mli` to one-line internal contracts; rename `Imap_store.Sync` to `Journal` | done | |
 | 2 | Plan items 1 to 3: `Imap.Capability`, typed `Response.Capability`/`Enabled`, `Error.Unsupported`, typed `Client.capabilities`/`enabled`/`has`/`enable` | todo | |
 | 3 | Plan item 12: `spool` and `database` as private support libraries shared by their library and their tests; drop the copy_files rules in test/io and test/store/database | todo | |
 | 4 | Plan item 10: standalone `maildir` package at `bleeding/maildir/`; no `imap` or `sqlite3-eio` dependency; `Local_inventory` in sync; `with_writer` capability; typed errors; `Dotlock` public | todo | |
@@ -78,6 +78,20 @@ signature and gets a one-sentence synopsis plus one-line value docs at most.
 The same for `lib/store/sync_journal.mli`, `operation_intent.mli` and
 `blob_store.mli`, which `lib/store/imap_store.mli` re-exports. Guard:
 `test/api/check.sh` must still pass.
+
+Done: the core Eio and private store `.mli` files now carry a synopsis
+naming their documented facade, the signature, and one sentence where a
+contract is not obvious. `Session` and `Deflate_flow` have no facade copy
+and keep one-sentence internal contracts. The facades gained the 16 MiB
+compressed-input budget in `Client.compress_deflate` and the `Blob`
+synopsis. `publish_stage` now states the current rule, an anchor of
+`None` without an explicit HIGHESTMODSEQ. `Imap_store.Sync` is
+`Imap_store.Journal` in lib/sync, bin/imap_cli.ml and every test.
+`Operation_intent` takes `Database.t` directly, so `imap_store.ml` includes
+it instead of restating the intent types, which settles the remainder of
+the imap_store.ml:29 finding. Every touched `.mli` parses cleanly under
+`-w +50`, and the facades are within 80 columns. Build and runtest are
+clean, 15 suites and 216 test cases.
 
 Step 2. `Imap.Capability` in `lib/protocol/` with constructors carrying
 parameters where the wire does: `Auth of string`, `Thread of algorithm`,

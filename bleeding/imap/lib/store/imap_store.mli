@@ -19,12 +19,12 @@ val open_path : sw:Eio.Switch.t -> ?blob_dir:_ Eio.Path.t -> _ Eio.Path.t -> t
     Raises on incompatible schema. *)
 
 val open_readonly : sw:Eio.Switch.t -> _ Eio.Path.t -> t
-(** Opens an existing version-8 through version-13 database with SQLite's [READONLY] flag and
-    validates its schema. This never creates, migrates, or changes the
-    database, and no blob directory is opened. Missing or incompatible
-    databases raise. Reading a live WAL database may require an existing
-    readable [-wal] and [-shm] pair, or a writable containing directory so
-    SQLite can create [-shm]; for a strict no-file-write inspection, inspect
+(** Opens an existing version-8 through version-13 database with SQLite's
+    [READONLY] flag and validates its schema. This never creates, migrates, or
+    changes the database, and no blob directory is opened. Missing or
+    incompatible databases raise. Reading a live WAL database may require an
+    existing readable [-wal] and [-shm] pair, or a writable containing directory
+    so SQLite can create [-shm]; for a strict no-file-write inspection, inspect
     a checkpointed database or a snapshot that includes those sidecars. *)
 
 type mailbox = {
@@ -122,9 +122,9 @@ val publish_stage : t -> cursor:Imap.Mirror.cursor ->
     transaction, CAS-checks the cursor, replaces the current epoch's rows
     with SEARCH-confirmed stage rows, advances the cursor, and deletes the
     stage. No complete OCaml snapshot is materialized. In CONDSTORE mode
-    without [explicit_highestmodseq] the new anchor is the largest staged
-    MODSEQ when every published row has one. Incomplete coverage, a stage
-    begun for another cursor or action, or a MODSEQ regression raises
+    without [explicit_highestmodseq] the new anchor is [None], and with
+    [nomodseq] the cursor falls back to baseline mode. Incomplete coverage, a
+    stage begun for another cursor or action, or a MODSEQ regression raises
     [Invalid_argument]. *)
 
 val discard_stage : t -> stage_id:string -> unit
@@ -204,10 +204,11 @@ val find_intent : t -> id:string -> intent option
 (** Retrieve a pending or resolved intent, including a persisted UIDPLUS
     receipt recorded by [confirm_intent]. *)
 
-module Sync : sig
+module Journal : sig
   (** Durable identities and mutation evidence for a bidirectional driver.
       No method performs IMAP or Maildir I/O. In particular, pending mutations
       are never replayed automatically after a crash. *)
+
   type tombstone_reason = Inventory_absence | Expunge_receipt
     | Local_absence | Explicit_delete | Retention
   type tombstone = {
@@ -231,17 +232,18 @@ module Sync : sig
   }
   val put_pair : t -> expected_revision:int64 option -> pair ->
     [ `Committed of pair | `Stale_revision ]
-  (** Create with [None] and revision 0, or CAS-update with [Some revision].
-      The ID, scope, once-bound occurrence identities, and once-bound content
-      digest/length/date are immutable. Legacy pairs without content evidence may
-      retain [None], but deletion propagation must hold for them.
-      A remote [Inventory_absence] tombstone requires the current complete
-      published inventory reference and generation, and absence of that UID.
-      A tombstone cannot be cleared. It can be replaced only by one whose
-      reason is the same or more permanent, in the order absence, then
-      [Expunge_receipt] or [Retention], then [Explicit_delete]. A changed
-      scope, identity or tombstone raises [Invalid_argument].
-      The pair, flags and tombstones commit atomically. *)
+  (** Create with [None] and revision 0, or CAS-update with [Some revision]. The
+      ID, scope, once-bound occurrence identities, and once-bound content
+      digest/length/date are immutable. Legacy pairs without content evidence
+      may retain [None], but deletion propagation must hold for them. A remote
+      [Inventory_absence] tombstone requires the current complete published
+      inventory reference and generation, and absence of that UID. A tombstone
+      cannot be cleared. It can be replaced only by one whose reason is the same
+      or more permanent, in the order absence, then [Expunge_receipt] or
+      [Retention], then [Explicit_delete]. A changed scope, identity or
+      tombstone raises [Invalid_argument]. The pair, flags and tombstones commit
+      atomically. *)
+
   val find_pair : t -> id:string -> pair option
   val note_presence : t -> pair:pair -> side:[ `Remote | `Local ] ->
     generation:int64 -> [ `Recorded | `Stale_revision ]
@@ -250,11 +252,13 @@ module Sync : sig
       remote presence is checked against the published SQLite snapshot.
       Pair revision and published generation are checked transactionally.
       A pair without an occurrence on [side] raises [Invalid_argument]. *)
+
   val last_presence_generation : t -> pair_id:string ->
     side:[ `Remote | `Local ] -> int64 option
   (** The latest published generation at which {!note_presence} recorded
       this paired side present, or [None] if it never did. A read-only
       pre-v13 database returns [None]. *)
+
   val reactivate_local : t -> pair:pair -> generation:int64 ->
     [ `Reactivated of pair | `Stale_revision ]
   (** Clear a [Local_absence] tombstone after the caller verifies the same
@@ -262,9 +266,11 @@ module Sync : sig
       complete local inventory. Requires a matching durable local presence
       witness and current published generation; pair revision is CAS-checked.
       No other tombstone reason can be cleared. *)
+
   val find_remote : t -> scope:Imap.Mirror.scope ->
     uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t -> pair option
-  val find_local : t -> scope:Imap.Mirror.scope -> local_id:string -> pair option
+  val find_local :
+    t -> scope:Imap.Mirror.scope -> local_id:string -> pair option
   val pairs : t -> scope:Imap.Mirror.scope -> pair list
   val pairs_page : t -> scope:Imap.Mirror.scope -> ?after:string ->
     limit:int -> unit -> pair list
@@ -279,16 +285,20 @@ module Sync : sig
   }
   val record_conflict : t -> conflict -> unit
   (** Requires the named pair at [pair_revision]. Duplicate IDs fail. *)
+
   val ensure_open_conflict : t -> pair:pair -> kind:conflict_kind ->
     id:string -> evidence:string -> [ `Open of conflict | `Stale_revision ]
   (** Idempotently create or update the one open conflict of this kind for
       [pair]. The pair revision is CAS-checked; a repeated hold keeps its ID. *)
+
   val resolve_open_conflicts : t -> pair:pair -> kind:conflict_kind ->
     [ `Resolved of int | `Stale_revision ]
   (** Resolve open conflicts of this kind only if the pair revision still
       matches. Use only after independently proving the condition is gone. *)
+
   val has_open_conflict : t -> pair:pair -> kind:conflict_kind -> bool
   (** Read-only direct lookup for a specific pair and conflict kind. *)
+
   val resolve_conflict : t -> id:string -> unit
   val open_conflicts : t -> scope:Imap.Mirror.scope -> conflict list
   val open_conflicts_page : t -> scope:Imap.Mirror.scope -> ?after:string ->
@@ -337,27 +347,34 @@ module Sync : sig
       A paired operation must match the stored local occurrence and any
       supplied remote UID and UIDVALIDITY; contradictions raise
       [Invalid_argument] before journaling. *)
+
   val operation_source_mtime : t -> id:string -> float option
   (** The immutable source timestamp captured when an APPEND was prepared.
       Older pending operations and read-only v8 databases return [None]. *)
+
   val operation_source_date : t -> id:string -> Imap.Internal_date.t option
   (** The immutable remote INTERNALDATE captured for a local append. Older
       pending operations and read-only databases before v11 return [None]. *)
+
   val local_flags_preimage : t -> id:string ->
     Mail_flag.Imap_flag.t list option
   (** Read the immutable local preimage saved with a FLAGS operation. *)
+
   val operation_pair_revision : t -> id:string -> int64 option
   (** The pair revision captured when the operation was prepared. Missing
       preconditions on legacy pending operations return [None]. *)
+
   val mark_sent : t -> id:string -> unit
   val mark_ambiguous : ?reason:string -> t -> id:string -> unit
   (** Persist an uncertain outcome. [reason], when supplied, is bounded and
       visible in read-only operation inspection; it is superseded by a later
       verified receipt. Never use this state for a mutation proven unsent. *)
+
   val reject_operation : t -> id:string -> receipt:string -> unit
   val reject_prepared_operation : t -> id:string -> receipt:string -> unit
   (** Atomically reject only an operation that is still [Prepared]. A
       concurrently dispatched mutation cannot be classified as unsent. *)
+
   val observe_operation : t -> id:string -> receipt:string ->
     destination_uidvalidity:Imap.Proto.Uidvalidity.t option ->
     destination_uid:Imap.Proto.Uid.t option -> unit
@@ -366,6 +383,7 @@ module Sync : sig
       A paired operation must use [commit_operation_with_pair] so its common
       state advances atomically. A [Sent] or [Ambiguous] operation must be
       reconciled before commit. *)
+
   val commit_operation_with_pair : t -> id:string ->
     expected_pair_revision:int64 option -> pair ->
     [ `Committed of pair | `Stale_revision ]
@@ -384,6 +402,7 @@ module Sync : sig
       Contradictory evidence, or a paired operation with
       [expected_pair_revision = None], raises [Invalid_argument] without
       committing. *)
+
   val settle_flag_operation : t -> id:string -> pair ->
     flags:Mail_flag.Imap_flag.t list -> evidence:string ->
     [ `Settled of pair | `Stale_revision | `Invalid_operation ]
@@ -398,6 +417,7 @@ module Sync : sig
       from the revision saved by {!prepare_operation}, yields
       [`Stale_revision]. An operation of another kind, state or identity, or
       other active work on the pair, yields [`Invalid_operation]. *)
+
   val reject_unchanged_delete_operation : t -> id:string -> pair ->
     evidence:string ->
     [ `Rejected | `Stale_revision | `Invalid_operation ]
@@ -410,6 +430,7 @@ module Sync : sig
       equal the pair's common flags as a set. Does not mutate either
       endpoint. A later deletion attempt requires a new journal operation.
       Outcomes follow {!settle_flag_operation}. *)
+
   val attest_targeted_expunge : t -> id:string -> pair ->
     evidence:string ->
     [ `Attested | `Stale_revision | `Invalid_operation ]
@@ -423,15 +444,18 @@ module Sync : sig
       Evidence checks and outcomes follow
       {!reject_unchanged_delete_operation}. Evidence that would grow the
       operation receipt beyond 4096 bytes raises [Invalid_argument]. *)
+
   val find_operation : t -> id:string -> operation option
   val active_operations : t -> scope:Imap.Mirror.scope -> operation list
   (** Prepared, Sent, Ambiguous and Observed operations survive restart. *)
+
   val active_operations_page : t -> scope:Imap.Mirror.scope ->
     ?after:string -> limit:int -> unit -> operation list
   (** Active operations in ascending ID order, strictly after [after].
       [limit] must be 1..10,000. Continue with the last returned ID until a
       page is short. Terminal operations are excluded; a state change between
       calls may remove an operation from subsequent pages. *)
+
   val active_operation_for_pair : t -> pair_id:string -> operation option
   (** The lowest-ID active operation for the pair, if any. Pair IDs are
       globally unique. Use this to hold a pair while any mutation is pending
@@ -439,6 +463,8 @@ module Sync : sig
 end
 
 module Blob : sig
+  (** Content-addressed message files and snapshot references. *)
+
   type blob = private { sha256 : string; length : int64 }
   exception Digest_mismatch
 
@@ -456,7 +482,8 @@ module Blob : sig
 
   val verify : t -> blob -> bool
   (** Rehash the complete file and check its length. Missing or non-regular
-      files return [false]; other I/O failures propagate. Requires [blob_dir]. *)
+      files return [false]; other I/O failures propagate. Requires
+      [blob_dir]. *)
 
   val open_in : t -> sw:Eio.Switch.t -> blob -> Eio.File.ro_ty Eio.Resource.t
   (** Open exact blob bytes for reading. Call [verify] if corruption detection
@@ -516,22 +543,23 @@ module Blob : sig
 
   val reap_orphans_iter : t -> removed:(string -> unit) -> unit
   (** [reap_orphans_iter t ~removed] removes orphan candidates with bounded
-      inventory memory. [removed name] runs after unlinking each candidate.
-      The directory is synced on return, exception or cancellation if any unlink
-      was attempted. A failed sync after an exception or cancellation does not
-      replace it. Callbacks precede this sync and do not prove durability.
-      The same writer-quiescence requirement as [iter_orphan_candidates] applies. *)
+      inventory memory. [removed name] runs after unlinking each candidate. The
+      directory is synced on return, exception or cancellation if any unlink was
+      attempted. A failed sync after an exception or cancellation does not
+      replace it. Callbacks precede this sync and do not prove durability. The
+      same writer-quiescence requirement as [iter_orphan_candidates] applies. *)
 
   val orphan_candidates : t -> string list
-  (** Names of final blobs unreferenced by snapshots or pending journals, and temporary files. Call only while
-      no writer is active; this is a non-destructive recovery inventory.
-      A file can become referenced immediately after this call.
-      This convenience wrapper collects and sorts all names in memory. *)
+  (** Names of final blobs unreferenced by snapshots or pending journals, and
+      temporary files. Call only while no writer is active; this is a
+      non-destructive recovery inventory. A file can become referenced
+      immediately after this call. This convenience wrapper collects and sorts
+      all names in memory. *)
 
   val reap_orphans : t -> string list
-  (** Remove orphan candidates and sync the directory, returning removed
-      names. Call at startup while all blob writers are quiescent, including
-      writers in other processes. Never call concurrently with [put]/[attach].
-      A crash during reaping leaves candidates for the next startup.
-      This convenience wrapper collects and sorts all removed names in memory. *)
+  (** Remove orphan candidates and sync the directory, returning removed names.
+      Call at startup while all blob writers are quiescent, including writers in
+      other processes. Never call concurrently with [put]/[attach]. A crash
+      during reaping leaves candidates for the next startup. This convenience
+      wrapper collects and sorts all removed names in memory. *)
 end

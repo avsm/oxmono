@@ -231,7 +231,7 @@ let test_bridge () =
     ~length:(Int64.of_int (String.length local_body)) ~flags:[] () in
   let uploaded = copy ("stalwart-upload-" ^ n) in
   Alcotest.(check int) "local uploaded" 1 uploaded.local_to_remote;
-  let pair = match Imap_store.Sync.find_local store ~scope ~local_id:local.id with
+  let pair = match Imap_store.Journal.find_local store ~scope ~local_id:local.id with
     | Some pair -> pair | None -> Alcotest.fail "upload pair missing" in
   let uid = match pair.remote_uid with Some uid -> Imap.Proto.Uid.to_int64 uid | None ->
     Alcotest.fail "upload UIDPLUS receipt missing" in
@@ -244,7 +244,7 @@ let test_bridge () =
         (Buffer.contents output);
       Ok ()));
   Alcotest.(check int) "durable pairs" 2
-    (List.length (Imap_store.Sync.pairs store ~scope))
+    (List.length (Imap_store.Journal.pairs store ~scope))
 
 let test_objectid_binding () =
   configured ();

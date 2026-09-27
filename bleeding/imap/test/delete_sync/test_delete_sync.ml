@@ -1,6 +1,6 @@
 module M = Imap.Mirror
 module P = Imap.Proto
-module J = Imap_store.Sync
+module J = Imap_store.Journal
 
 let ok = function Ok x -> x | Error _ -> Alcotest.fail "unexpected error"
 let uid n = ok (P.Uid.of_int64 n)

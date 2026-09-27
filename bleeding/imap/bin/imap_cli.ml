@@ -445,21 +445,21 @@ let local_scope config store =
         alternate
 
 let string_of_kind = function
-  | Imap_store.Sync.Append -> "append"
+  | Imap_store.Journal.Append -> "append"
   | Local_append -> "local_append" | Copy -> "copy" | Move -> "move"
   | Flags -> "flags" | Delete -> "delete" | Local_delete -> "local_delete"
 let string_of_state = function
-  | Imap_store.Sync.Prepared -> "prepared"
+  | Imap_store.Journal.Prepared -> "prepared"
   | Sent -> "sent" | Ambiguous -> "ambiguous" | Observed -> "observed"
   | Committed -> "committed" | Rejected -> "rejected"
 let string_of_conflict = function
-  | Imap_store.Sync.Flag_conflict -> "flags"
+  | Imap_store.Journal.Flag_conflict -> "flags"
   | Identity_conflict -> "identity" | Content_conflict -> "content"
   | Delete_conflict -> "delete"
   | Policy_conflict -> "policy"
   | Deletion_hold -> "deletion_hold"
 
-let operation_identity (op:Imap_store.Sync.operation) =
+let operation_identity (op:Imap_store.Journal.operation) =
   let number f = function None -> "?" | Some value ->
     Int64.to_string (f value) in
   let epoch=number Imap.Proto.Uidvalidity.to_int64
@@ -474,8 +474,8 @@ let operation_identity (op:Imap_store.Sync.operation) =
     (Option.value ~default:"" op.blob_sha256)
     (match op.blob_length with None -> "?" | Some n -> Int64.to_string n)
 
-let operation_context store (op:Imap_store.Sync.operation) =
-  let module J = Imap_store.Sync in
+let operation_context store (op:Imap_store.Journal.operation) =
+  let module J = Imap_store.Journal in
   let flags = function
     | None -> "?"
     | Some flags -> String.concat ","
@@ -621,7 +621,7 @@ let sync config ~net ~fs ~random ~getenv =
           print_sync receipt cycle;
           if receipt.flags_held>0 || receipt.deletions_held>0 then 4
           else if not receipt.more then (
-            match Imap_store.Sync.open_conflicts_page store ~scope
+            match Imap_store.Journal.open_conflicts_page store ~scope
               ~limit:1 () with
             | [] when not config.hydrate_bodies -> 0
             | [] ->
@@ -691,13 +691,13 @@ let inspect config ~fs =
    | `Bound (identity:Imap_store.object_identity) ->
        Printf.printf "objectid account=%S mailbox=%S\n%!"
          identity.account_id identity.mailbox_id);
-  let print_operation (op:Imap_store.Sync.operation) =
+  let print_operation (op:Imap_store.Journal.operation) =
     Printf.printf "operation id=%S kind=%s state=%s pair=%S%s%s\n%!"
       op.id (string_of_kind op.kind) (string_of_state op.state)
       (Option.value ~default:"" op.pair_id)
       (operation_identity op) (operation_context store op) in
   if config.operation_id<>"" then
-    match Imap_store.Sync.find_operation store ~id:config.operation_id with
+    match Imap_store.Journal.find_operation store ~id:config.operation_id with
     | None ->
       Printf.eprintf "operation id=%S not found in requested scope\n%!"
         config.operation_id;
@@ -716,9 +716,9 @@ let inspect config ~fs =
   let rec operations after =
     if !remaining>0 then (
       let limit=min 256 !remaining in
-      let page=Imap_store.Sync.active_operations_page store ~scope ?after
+      let page=Imap_store.Journal.active_operations_page store ~scope ?after
         ~limit () in
-      List.iter (fun (op:Imap_store.Sync.operation) ->
+      List.iter (fun (op:Imap_store.Journal.operation) ->
         print_operation op;
         incr count; decr remaining) page;
       if List.length page=limit then
@@ -728,9 +728,9 @@ let inspect config ~fs =
   let rec conflicts after =
     if !conflict_count<config.max_inspect then (
       let limit=min 256 (config.max_inspect - !conflict_count) in
-      let page=Imap_store.Sync.open_conflicts_page store ~scope ?after
+      let page=Imap_store.Journal.open_conflicts_page store ~scope ?after
         ~limit () in
-      List.iter (fun (conflict:Imap_store.Sync.conflict) ->
+      List.iter (fun (conflict:Imap_store.Journal.conflict) ->
         Printf.printf "conflict id=%S kind=%s pair=%S revision=%Ld\n%!"
           conflict.id (string_of_conflict conflict.kind) conflict.pair_id
           conflict.pair_revision;

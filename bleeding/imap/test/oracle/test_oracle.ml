@@ -329,7 +329,7 @@ let round_trip () =
     Alcotest.(check int) "Maildir occurrences" 4
       (List.length (Imap_maildir.scan maildir));
     Alcotest.(check int) "durable occurrence pairs" 4
-      (List.length (Imap_store.Sync.pairs store ~scope));
+      (List.length (Imap_store.Journal.pairs store ~scope));
     let local_bytes = "From: local@example.test\r\nSubject: Local bridge " ^ nonce ^
       "\r\n\r\nUnique local payload\r\n" in
     let local = Imap_maildir.append maildir
@@ -339,18 +339,18 @@ let round_trip () =
     Alcotest.(check int) "local occurrence uploaded" 1
       uploaded.local_to_remote;
     Alcotest.(check int) "durable pair after upload" 5
-      (List.length (Imap_store.Sync.pairs store ~scope));
+      (List.length (Imap_store.Journal.pairs store ~scope));
     Alcotest.(check bool) "local upload paired" true
-      (Option.is_some (Imap_store.Sync.find_local store ~scope
+      (Option.is_some (Imap_store.Journal.find_local store ~scope
         ~local_id:local.id));
     Alcotest.(check bool) "no pending bridge operations" true
-      (Imap_store.Sync.active_operations store ~scope = []);
+      (Imap_store.Journal.active_operations store ~scope = []);
     let stable = copy ("bridge-stable-" ^ nonce) in
     Alcotest.(check int) "stable remote copies" 0 stable.remote_to_local;
     Alcotest.(check int) "stable local copies" 0 stable.local_to_remote;
     let flag_local = List.find (fun (item:Imap_maildir.occurrence) ->
       item.id<>local.id) (Imap_maildir.scan maildir) in
-    let flag_pair = match Imap_store.Sync.find_local store ~scope
+    let flag_pair = match Imap_store.Journal.find_local store ~scope
       ~local_id:flag_local.id with
       | Some pair -> pair
       | None -> Alcotest.fail "flag test occurrence lacks pair" in
@@ -369,7 +369,8 @@ let round_trip () =
     let after_flags = copy ("bridge-three-way-flags-" ^ nonce) in
     Alcotest.(check int) "three-way flags updated" 1
       after_flags.flags_updated;
-    let flag_pair = match Imap_store.Sync.find_pair store ~id:flag_pair.id with
+    let flag_pair =
+      match Imap_store.Journal.find_pair store ~id:flag_pair.id with
       | Some pair -> pair | None -> Alcotest.fail "flag pair vanished" in
     Alcotest.(check bool) "remote and local additions merged" true
       (List.mem flagged flag_pair.common_flags &&
@@ -402,7 +403,8 @@ let round_trip () =
     Alcotest.(check bool) "Deleted flag hold is visible" true
       (held_deleted.flags_held>0 &&
        List.mem flag_pair.id held_deleted.held_pair_ids);
-    let held_pair = match Imap_store.Sync.find_pair store ~id:flag_pair.id with
+    let held_pair =
+      match Imap_store.Journal.find_pair store ~id:flag_pair.id with
       | Some pair -> pair | None -> Alcotest.fail "held pair vanished" in
     Alcotest.(check bool) "Deleted absent from common flags" false
       (List.mem deleted held_pair.common_flags);
@@ -423,18 +425,18 @@ let round_trip () =
       ~length:recovered_length () in
     let recovery_id = next_id () in
     let recovery_local_id = Imap_maildir.reserve_id () in
-    let pending : Imap_store.Sync.operation = {
+    let pending : Imap_store.Journal.operation = {
       id=recovery_id; pair_id=None;local_id=Some recovery_local_id;
-      scope; kind=Imap_store.Sync.Local_append;
-      state=Imap_store.Sync.Prepared;
+      scope; kind=Imap_store.Journal.Local_append;
+      state=Imap_store.Journal.Prepared;
       source_uidvalidity=Some remote_receipt.uidvalidity;
       source_uid=Some remote_receipt.uid;
       destination=None;destination_uidvalidity=None;
       blob_sha256=Some recovered_blob.sha256;
       blob_length=Some recovered_length;desired_flags=Some [];
       receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
-    Imap_store.Sync.prepare_operation store pending;
-    Imap_store.Sync.mark_sent store ~id:recovery_id;
+    Imap_store.Journal.prepare_operation store pending;
+    Imap_store.Journal.mark_sent store ~id:recovery_id;
     ignore (Imap_maildir.append maildir ~id:recovery_local_id
       ~source:(Eio.Flow.string_source recovered_bytes)
       ~length:recovered_length ~flags:[] ());
@@ -442,10 +444,10 @@ let round_trip () =
     Alcotest.(check int) "recovered write not duplicated" 0
       recovered.remote_to_local;
     Alcotest.(check int) "recovered pair count" 6
-      (List.length (Imap_store.Sync.pairs store ~scope));
+      (List.length (Imap_store.Journal.pairs store ~scope));
     Alcotest.(check bool) "recovered operation committed" true
-      (match Imap_store.Sync.find_operation store ~id:recovery_id with
-       | Some {state=Imap_store.Sync.Committed;_} -> true
+      (match Imap_store.Journal.find_operation store ~id:recovery_id with
+       | Some {state=Imap_store.Journal.Committed;_} -> true
        | _ -> false);
     let append_bytes = "From: append-recovery@example.test\r\nSubject: " ^
       "Append recovery " ^ nonce ^ "\r\n\r\nReceipt survived\r\n" in
@@ -457,18 +459,18 @@ let round_trip () =
       ~source:(Eio.Flow.string_source append_bytes)
       ~length:append_length () in
     let append_id = next_id () in
-    let append_pending : Imap_store.Sync.operation = {
+    let append_pending : Imap_store.Journal.operation = {
       id=append_id;pair_id=None;local_id=Some append_local.id;
-      scope;kind=Imap_store.Sync.Append;state=Imap_store.Sync.Prepared;
+      scope;kind=Imap_store.Journal.Append;state=Imap_store.Journal.Prepared;
       source_uidvalidity=None;source_uid=None;
       destination=Some scope;
       destination_uidvalidity=staged.cursor.uidvalidity;
       blob_sha256=Some append_blob.sha256;
       blob_length=Some append_length;desired_flags=Some [];
       receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
-    Imap_store.Sync.prepare_operation
+    Imap_store.Journal.prepare_operation
       ~local_source_mtime:append_local.mtime store append_pending;
-    Imap_store.Sync.mark_sent store ~id:append_id;
+    Imap_store.Journal.mark_sent store ~id:append_id;
     (match Imap_sync.Engine.append_blob_journaled ~client ~store ~scope
       ~mailbox ~id:append_id ~message_id:append_id ~flags:[] append_blob with
      | Ok (Imap_sync.Engine.Identified _) -> ()
@@ -480,15 +482,15 @@ let round_trip () =
     Alcotest.(check int) "confirmed APPEND not duplicated" 0
       recovered_append.local_to_remote;
     Alcotest.(check int) "APPEND recovery pair count" 7
-      (List.length (Imap_store.Sync.pairs store ~scope));
+      (List.length (Imap_store.Journal.pairs store ~scope));
     Alcotest.(check bool) "APPEND recovery committed" true
-      (match Imap_store.Sync.find_operation store ~id:append_id with
-       | Some {state=Imap_store.Sync.Committed;_} -> true
+      (match Imap_store.Journal.find_operation store ~id:append_id with
+       | Some {state=Imap_store.Journal.Committed;_} -> true
        | _ -> false);
     let removed_local = match Imap_maildir.find maildir ~id:local.id with
       | Some occurrence -> occurrence
       | None -> Alcotest.fail "uploaded local occurrence vanished" in
-    let removed_pair = match Imap_store.Sync.find_local store ~scope
+    let removed_pair = match Imap_store.Journal.find_local store ~scope
       ~local_id:removed_local.id with
       | Some pair -> pair
       | None -> Alcotest.fail "local occurrence lacks pair" in
@@ -497,11 +499,12 @@ let round_trip () =
     Alcotest.(check int) "local disappearance not recopied" 0
       after_local_absence.remote_to_local;
     Alcotest.(check bool) "local absence tombstone committed" true
-      (match Imap_store.Sync.find_pair store ~id:removed_pair.id with
+      (match Imap_store.Journal.find_pair store ~id:removed_pair.id with
        | Some {local_tombstone=Some
-           {reason=Imap_store.Sync.Local_absence;_};_} -> true
+           {reason=Imap_store.Journal.Local_absence;_};_} -> true
        | _ -> false);
-    let expunged_uid = match Imap_store.Sync.find_pair store ~id:append_id with
+    let expunged_uid =
+      match Imap_store.Journal.find_pair store ~id:append_id with
       | Some {remote_uid=Some uid;_} -> uid
       | _ -> Alcotest.fail "APPEND recovery pair lacks remote UID" in
     unwrap (Client.with_mailbox client ~mode:`Read_write mailbox
@@ -515,9 +518,9 @@ let round_trip () =
     Alcotest.(check int) "remote disappearance not reuploaded" 0
       after_remote_absence.local_to_remote;
     Alcotest.(check bool) "inventory-proven remote tombstone" true
-      (match Imap_store.Sync.find_pair store ~id:append_id with
+      (match Imap_store.Journal.find_pair store ~id:append_id with
        | Some {remote_tombstone=Some
-           {reason=Imap_store.Sync.Inventory_absence;
+           {reason=Imap_store.Journal.Inventory_absence;
             generation=Some _;_};_} -> true
        | _ -> false);
     let changed_survivor=Imap_maildir.set_flags maildir append_local
@@ -536,9 +539,9 @@ let round_trip () =
       (propagated.deletions_held>0 &&
        List.mem append_id propagated.held_pair_ids);
     Alcotest.(check bool) "remote survivor targeted for deletion" true
-      (match Imap_store.Sync.find_pair store ~id:removed_pair.id with
+      (match Imap_store.Journal.find_pair store ~id:removed_pair.id with
        | Some {remote_tombstone=Some
-           {reason=Imap_store.Sync.Expunge_receipt;_};_} -> true
+           {reason=Imap_store.Journal.Expunge_receipt;_};_} -> true
        | _ -> false);
     Alcotest.(check bool) "changed local survivor held" true
       (Option.is_some (Imap_maildir.find maildir ~id:append_local.id));
@@ -554,9 +557,9 @@ let round_trip () =
     Alcotest.(check int) "restored survivor deleted" 1
       propagated_local.deletions;
     Alcotest.(check bool) "local survivor removed" true
-      (match Imap_store.Sync.find_pair store ~id:append_id with
+      (match Imap_store.Journal.find_pair store ~id:append_id with
        | Some {local_tombstone=Some
-           {reason=Imap_store.Sync.Explicit_delete;_};_} -> true
+           {reason=Imap_store.Journal.Explicit_delete;_};_} -> true
        | _ -> false);
     Alcotest.(check bool) "other deleted UID not expunged" true
       (unwrap (Client.with_mailbox client ~mode:`Read_only mailbox
@@ -567,7 +570,7 @@ let round_trip () =
           Ok (List.exists (fun (row:Imap.Response.fetch) ->
             row.uid=Some raw) rows))));
     Alcotest.(check bool) "no pending deletion operations" true
-      (Imap_store.Sync.active_operations store ~scope = []);
+      (Imap_store.Journal.active_operations store ~scope = []);
     let ambiguous_bytes = "From: ambiguous@example.test\r\nSubject: " ^
       "Ambiguous " ^ nonce ^ "\r\n\r\nMust not replay\r\n" in
     let ambiguous_length = Int64.of_int (String.length ambiguous_bytes) in
@@ -579,17 +582,17 @@ let round_trip () =
       ~length:ambiguous_length () in
     let ambiguous_id = next_id () in
     let current = Imap_store.load_cursor store ~scope in
-    let ambiguous_op : Imap_store.Sync.operation = {
+    let ambiguous_op : Imap_store.Journal.operation = {
       id=ambiguous_id;pair_id=None;local_id=Some ambiguous_local.id;
-      scope;kind=Imap_store.Sync.Append;state=Imap_store.Sync.Prepared;
+      scope;kind=Imap_store.Journal.Append;state=Imap_store.Journal.Prepared;
       source_uidvalidity=None;source_uid=None;
       destination=Some scope;destination_uidvalidity=current.uidvalidity;
       blob_sha256=Some ambiguous_blob.sha256;
       blob_length=Some ambiguous_length;desired_flags=Some [];
       receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
-    Imap_store.Sync.prepare_operation
+    Imap_store.Journal.prepare_operation
       ~local_source_mtime:ambiguous_local.mtime store ambiguous_op;
-    Imap_store.Sync.mark_sent store ~id:ambiguous_id;
+    Imap_store.Journal.mark_sent store ~id:ambiguous_id;
     let legacy : Imap_store.intent = {
       id=ambiguous_id;scope;state=Imap_store.Prepared;
       kind=Imap_store.Append {
@@ -620,7 +623,7 @@ let round_trip () =
     Alcotest.(check int) "ambiguous APPEND not replayed"
       count_before (count_remote ());
     Alcotest.(check int) "ambiguous APPEND not paired" 7
-      (List.length (Imap_store.Sync.pairs store ~scope));
+      (List.length (Imap_store.Journal.pairs store ~scope));
     (match Imap_sync.Bridge.record_appenduid_evidence ~store ~maildir ~scope
       ~id:ambiguous_id ~uidvalidity:ambiguous_receipt.uidvalidity
       ~uid:ambiguous_receipt.uid
@@ -632,11 +635,11 @@ let round_trip () =
     Alcotest.(check int) "operator repair made no duplicate upload" 0
       repaired.local_to_remote;
     Alcotest.(check bool) "operator APPENDUID pair verified" true
-      (Option.is_some (Imap_store.Sync.find_local store ~scope
+      (Option.is_some (Imap_store.Journal.find_local store ~scope
         ~local_id:ambiguous_local.id));
     Alcotest.(check bool) "operator APPENDUID committed" true
-      (match Imap_store.Sync.find_operation store ~id:ambiguous_id with
-       | Some {state=Imap_store.Sync.Committed;_} -> true
+      (match Imap_store.Journal.find_operation store ~id:ambiguous_id with
+       | Some {state=Imap_store.Journal.Committed;_} -> true
        | _ -> false)
 
 let objectid_round_trip () =

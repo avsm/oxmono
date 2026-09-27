@@ -1,13 +1,14 @@
 (** Scoped Eio IMAP connections and mailbox commands. *)
 
 module Auth : sig
-  (** Password and bearer credentials. [Auto] prefers advertised SASL PLAIN
-      over TLS, then CRAM-MD5, then LOGIN. On explicitly insecure transports it
-      prefers CRAM-MD5 before LOGIN. An explicit SASL mechanism must be advertised;
-      no authentication failure triggers fallback. TLS is required for PLAIN,
-      OAUTHBEARER and LOGIN, including Auto's LOGIN fallback, unless
+  (** Password and bearer credentials. [Auto] prefers advertised SASL PLAIN over
+      TLS, then CRAM-MD5, then LOGIN. On explicitly insecure transports it
+      prefers CRAM-MD5 before LOGIN. An explicit SASL mechanism must be
+      advertised; no authentication failure triggers fallback. TLS is required
+      for PLAIN, OAUTHBEARER and LOGIN, including Auto's LOGIN fallback, unless
       [allow_insecure_transport] opts out for an isolated fixture. CRAM-MD5 does
       not protect subsequent mailbox traffic. *)
+
   type mechanism = [ `Auto | `Login | `Cram_md5 | `Plain | `Oauthbearer ]
   type t
   val password : username:string -> password:string -> ?mechanism:mechanism ->
@@ -18,6 +19,7 @@ module Auth : sig
       for an empty, non-UTF-8 or control-character username, a password
       containing NUL, [`Oauthbearer], or [`Cram_md5] with a username
       containing whitespace. *)
+
   val refreshing : username:string -> ?mechanism:mechanism ->
     ?allow_insecure_transport:bool -> (unit -> string) -> t
   (** [refreshing ~username ?mechanism ?allow_insecure_transport get] calls
@@ -25,17 +27,20 @@ module Auth : sig
       and [mechanism] as {!password} does. An invalid password, or an
       exception from [get], fails authentication with
       [Error.State "invalid credentials"] before any secret is sent. *)
+
   val bearer : username:string -> token:string ->
     ?allow_insecure_transport:bool -> unit -> t
   (** [bearer ~username ~token ?allow_insecure_transport ()] holds a fixed
       OAUTHBEARER token. [allow_insecure_transport] defaults to [false]. It
       raises [Invalid_argument] for an invalid username, or a token that is
       empty, longer than 32 KiB or not an RFC 6750 b64token. *)
+
   val refreshing_bearer : username:string ->
     ?allow_insecure_transport:bool -> (unit -> string) -> t
   (** [refreshing_bearer ~username ?allow_insecure_transport get] calls
       [get] for the token at each authentication, with the failure rules of
       {!refreshing}. *)
+
   val username : t -> string
   val mechanism : t -> mechanism
   val allow_insecure_transport : t -> bool
@@ -43,6 +48,7 @@ end
 
 module Error : sig
   (** Structured IMAP client failures. *)
+
   type t =
     | Closed
     | Protocol of string
@@ -55,12 +61,13 @@ module Error : sig
     | Uncertain of string
 
   (** [Rejected] retains the tagged response code separately from explanatory
-      text. Known codes are typed; extension codes use [Imap.Response.Other_code].
-      No code is represented by [None]. A rejection does not itself authorize
-      retry: partial mutations may instead return [Uncertain]. Authentication
-      failures retain only a whitelist of standard codes without payloads and
-      replace server text with a fixed diagnostic, so echoed credentials cannot
-      enter the public error through arbitrary code parameters or text. *)
+      text. Known codes are typed; extension codes use
+      [Imap.Response.Other_code]. No code is represented by [None]. A rejection
+      does not itself authorize retry: partial mutations may instead return
+      [Uncertain]. Authentication failures retain only a whitelist of standard
+      codes without payloads and replace server text with a fixed diagnostic, so
+      echoed credentials cannot enter the public error through arbitrary code
+      parameters or text. *)
 end
 
 module Transport : sig
@@ -85,37 +92,45 @@ module Transport : sig
 end
 
 module Selected : sig
-  (** A mailbox lease. Commands on the handle are serialized across fibers.
-      A handle expires when [Client.with_mailbox] returns. Join command fibers
-      before returning: an in-flight command at lease exit closes the connection,
-      and queued commands fail with [Error.State]. *)
+  (** A mailbox lease. Commands on the handle are serialized across fibers. A
+      handle expires when [Client.with_mailbox] returns. Join command fibers
+      before returning: an in-flight command at lease exit closes the
+      connection, and queued commands fail with [Error.State]. *)
+
   type t
   val info : t -> (Imap.Response.select_metadata, Error.t) result
   val select_updates : t -> (Imap.Response.t list, Error.t) result
   (** Bounded SELECT/EXAMINE prelude, including QRESYNC FETCH and VANISHED
-      responses, in wire order. Treat it as provisional until SELECT completed. *)
+      responses, in wire order. Treat it as provisional until SELECT
+      completed. *)
+
   type saved_search
   (** Opaque RFC 5182 server result, bound to its originating selected lease.
-      The set shrinks as matching messages are expunged. It is not a snapshot
-      or a durable UID inventory. Every subsequent ordinary UID SEARCH dispatch
-      on this connection conservatively invalidates older handles, including raw
-      RETURN (SAVE), rejected searches and new saved searches.
-      Only [uid_search_saved] refinement preserves the handle.
-      Handle validation and command dispatch share the selected command mutex. *)
+      The set shrinks as matching messages are expunged. It is not a snapshot or
+      a durable UID inventory. Every subsequent ordinary UID SEARCH dispatch on
+      this connection conservatively invalidates older handles, including raw
+      RETURN (SAVE), rejected searches and new saved searches. Only
+      [uid_search_saved] refinement preserves the handle. Handle validation and
+      command dispatch share the selected command mutex. *)
+
   val saved_search_count : saved_search -> int64
   (** COUNT captured when SAVE completed, not the current live set size. *)
+
   val uid_search_save : t -> criterion:string -> (saved_search, Error.t) result
   (** Requires SEARCHRES or IMAP4rev2. Requests SAVE and COUNT, with exactly
       one correlated UID ESEARCH COUNT before minting a handle. An empty saved
       set is valid. Raw criteria and UIDONLY restrictions follow
       [uid_search]. *)
-  val uid_search_saved : saved_search -> criterion:string -> (int64 list, Error.t) result
+
+  val uid_search_saved :
+    saved_search -> criterion:string -> (int64 list, Error.t) result
   (** Search within the live saved set, preserving the handle for later use.
       The fixed ALL/COUNT command combines UID $ with a validated grouped
       criterion; RETURN/SAVE cannot be injected. Requires exactly one correlated
       UID ESEARCH result with consistent ALL/COUNT and no duplicate UIDs.
       At most 100,000 results are expanded. Ordinary [uid_search] remains a
       conservative invalidation boundary even when used with UID $. *)
+
   val uid_fetch_saved : saved_search -> ?partial:(int64 * int64) ->
     items:string list -> unit -> (Imap.Response.fetch list, Error.t) result
   (** Bounded metadata-only UID FETCH of the saved set. Always requests UID;
@@ -125,12 +140,15 @@ module Selected : sig
       Existing response-count/metadata budgets apply; MESSAGELIMIT partial
       results fail. Returned rows have UID but may include unsolicited FETCH
       updates: they do not independently prove membership in the saved set. *)
+
   val uid_search : t -> string -> (int64 list, Error.t) result
   (** [uid_search t criterion] is the explicit SEARCH result for [criterion],
       sorted and without duplicates. Exactly one SEARCH response or one UID
       ESEARCH response tagged with this command is required. A missing
       response is not an empty result. Expansion is bounded to 100,000 UIDs. *)
-  val uid_sort : t -> keys:(Imap.Command.sort_key * Imap.Command.sort_order) list ->
+
+  val uid_sort :
+    t -> keys:(Imap.Command.sort_key * Imap.Command.sort_order) list ->
     charset:string -> criterion:string -> (int64 list, Error.t) result
   (** RFC 5256 UID SORT. Requires a SORT-prefixed capability and returns at most
       100,000 distinct UIDs in server sort order. An explicit empty SORT result
@@ -140,6 +158,7 @@ module Selected : sig
       use [ALL] or [UID ...]. The leading sequence-set guard is shared with
       [uid_search]; the server validates the remaining SEARCH grammar.
       A result describes current mailbox membership, not a durable snapshot. *)
+
   type sort_result = {
     count : int64;
     first : int64 option;
@@ -164,20 +183,24 @@ module Selected : sig
       position range. Raw criteria and UIDONLY restrictions follow [uid_sort].
       No UPDATE context is established; positions may shift between commands
       and results do not establish a durable snapshot. *)
-  val uid_thread : t -> algorithm:Imap.Command.thread_algorithm -> charset:string ->
+
+  val uid_thread :
+    t -> algorithm:Imap.Command.thread_algorithm -> charset:string ->
     criterion:string -> (Imap.Response.thread list, Error.t) result
   (** RFC 5256 UID THREAD, gated by the exact THREAD=algorithm capability.
       Preserves ordered parent/child relationships and dummy grouping nodes
       ([uid=None]). Bounds are 100,000 nodes and depth 100. Empty results must
       be explicit; absent, repeated, malformed and partial results fail.
-      [charset] and raw [criterion] follow [uid_sort]'s rules, including UIDONLY.
-      Thread trees are server-computed relationships, not stable JMAP thread
-      identifiers or a durable mailbox snapshot. *)
+      [charset] and raw [criterion] follow [uid_sort]'s rules, including
+      UIDONLY. Thread trees are server-computed relationships, not stable JMAP
+      thread identifiers or a durable mailbox snapshot. *)
+
   val uid_search_partial : t -> range:(int64 * int64) -> criterion:string ->
     (Imap.Response.esearch, Error.t) result
   (** One correlated RFC 9394 ESEARCH page. [partial] retains the requested
       result-position range and returned UID set (or NIL). Positions can shift
       between calls; pages alone do not prove a complete mailbox inventory. *)
+
   type search_page = {
     uids : int64 list;
     complete : bool;
@@ -191,18 +214,22 @@ module Selected : sig
       [resume_before] with the same criterion. A missing server boundary returns
       [Error.Limit]. Cross-page mailbox changes can still shift results; a
       durable inventory needs an independent membership/checkpoint strategy. *)
+
   val uid_search_range : t -> first:int64 -> last:int64 ->
     (int64 list, Error.t) result
   (** Search at most 1,000 UIDs, resuming RFC 9738 MESSAGELIMIT pages by the
       server's processed-UID boundary when advertised. Returns sorted distinct
       UIDs only after every requested UID has been processed. *)
+
   val uid_fetch_partial : t -> set:string -> items:string list ->
     range:(int64 * int64) -> (Imap.Response.fetch list, Error.t) result
   (** RFC 9394 positional FETCH page. Unsolicited FETCH rows can be interleaved;
       this is provisional page data, not a complete UID-set inventory. Body
       items such as [BODY[]] or [BINARY[]] are refused with [Error.State]. *)
+
   val fetch_binary_to : t -> ?max_bytes:int64 -> ?partial:(int64 * int64) ->
-    uid:int64 -> section:int list -> _ Eio.Flow.sink -> (int64 option, Error.t) result
+    uid:int64 -> section:int list -> _ Eio.Flow.sink ->
+    (int64 option, Error.t) result
   (** Stream RFC 3516 decoded BINARY.PEEK leaf-part bytes without setting Seen.
       Requires BINARY or effective IMAP4rev2. Numeric [section] identifies a
       MIME leaf; the server validates its existence and body structure.
@@ -210,23 +237,24 @@ module Selected : sig
       response origin; short reads at EOF are allowed. [max_bytes] defaults to
       1 GiB and caps literals and quoted strings, additionally bounded by count.
       The wire framer independently caps each literal at 1 GiB even if a larger
-      [max_bytes] is supplied.
-      [None] is explicit NIL; [Some 0L] is an empty string/literal. Missing UID
-      is [Error.Missing_uid]; missing/wrong section, origin, UID or extra literals
-      fail. UNKNOWN-CTE and other tagged failures propagate as rejections.
-      Sink bytes are provisional until [Ok] confirms metadata and tagged success;
-      discard them on any error or cancellation. A payload row without UID is
-      [Error.Protocol]. A failing [sink] closes the connection and is
-      [Error.State]. Decoded parts are not the raw RFC 5322 message and must
-      not replace archive/synchronization body bytes. *)
+      [max_bytes] is supplied. [None] is explicit NIL; [Some 0L] is an empty
+      string/literal. Missing UID is [Error.Missing_uid]; missing/wrong section,
+      origin, UID or extra literals fail. UNKNOWN-CTE and other tagged failures
+      propagate as rejections. Sink bytes are provisional until [Ok] confirms
+      metadata and tagged success; discard them on any error or cancellation. A
+      payload row without UID is [Error.Protocol]. A failing [sink] closes the
+      connection and is [Error.State]. Decoded parts are not the raw RFC 5322
+      message and must not replace archive/synchronization body bytes. *)
+
   type binary_size_row = { uid : int64; size : int64 }
-  val uid_fetch_binary_sizes : t -> uids:int64 list -> section:int list -> unit ->
-    (binary_size_row list, Error.t) result
-  (** Decoded sizes for at most 50 distinct UIDs, in ascending UID order.
-      Uses the same BINARY/rev2 gate and leaf section rules as [fetch_binary_to].
+  val uid_fetch_binary_sizes : t -> uids:int64 list -> section:int list ->
+    unit -> (binary_size_row list, Error.t) result
+  (** Decoded sizes for at most 50 distinct UIDs, in ascending UID order. Uses
+      the same BINARY/rev2 gate and leaf section rules as [fetch_binary_to].
       Missing rows can mean expunged messages; sizes are metadata, not proof of
       complete membership. Malformed, duplicate or unrequested results fail.
       Decoding sizes can be expensive on the server; fetch only when needed. *)
+
   val fetch_to : t -> ?max_bytes:int64 -> uid:int64 ->
     _ Eio.Flow.sink -> (unit, Error.t) result
   (** Streams a literal body into [sink] while parsing. A body sent as a quoted
@@ -236,11 +264,13 @@ module Selected : sig
       1 GiB. A clean tagged success with no matching FETCH row returns
       [Error.Missing_uid] while keeping the selected connection usable. A
       failing [sink] closes the connection and is [Error.State]. *)
+
   val uid_fetch : t -> set:string -> items:string list ->
     (string list, Error.t) result
   (** [uid_fetch t ~set ~items] is the raw text of each FETCH row in the
       response, including unsolicited rows. Body items such as [BODY[]] or
       [BINARY[]] are refused with [Error.State]. *)
+
   type envelope_row = {
     uid : int64;
     envelope : Imap.Response.envelope;
@@ -250,6 +280,7 @@ module Selected : sig
   (** Fetch typed ENVELOPE data for 1..50 UIDs. Results retain requested UID
       order and omit messages expunged before FETCH. Malformed, duplicate or
       changing envelope data fails the call. *)
+
   type bodystructure_row = {
     uid : int64;
     bodystructure : Imap.Response.bodystructure;
@@ -257,14 +288,17 @@ module Selected : sig
   val uid_fetch_bodystructures : t -> uids:int64 list -> unit ->
     (bodystructure_row list, Error.t) result
   (** Fetch typed RFC 3501/9051 BODYSTRUCTURE for 1..50 UIDs. Results retain
-      requested UID order and omit expunged messages. Malformed or conflicting
-      repeated structures fail the call. Each row has bounded nesting and size. *)
+      requested UID order and omit expunged messages. Malformed or
+      conflicting repeated structures fail the call. Each row has bounded
+      nesting and size. *)
+
   type preview_row = { uid : int64; preview : string option }
   val uid_fetch_previews : t -> ?lazy_:bool -> uids:int64 list -> unit ->
     (preview_row list, Error.t) result
   (** RFC 8970 PREVIEW for at most 50 UIDs per request. [None] is LAZY NIL;
       [Some ""] means the server found no meaningful preview. A non-LAZY NIL
       is a protocol error. Missing rows may have been expunged meanwhile. *)
+
   type object_id_row = {
     uid : int64;
     email_id : string;
@@ -278,6 +312,7 @@ module Selected : sig
       while an omitted THREADID is an error. Missing UID rows may have been
       expunged. A proxy must still verify account scope and must not treat
       EMAILID as an occurrence or JMAP Email ID without that evidence. *)
+
   type object_id_plus_row = {
     uid : int64;
     ids : Imap.Response.compound_object_id;
@@ -290,36 +325,40 @@ module Selected : sig
       are optional, including an empty compound response. The caller obtains
       the verified mailbox context from [info]. The draft mode is not silently
       substituted for RFC 8474. *)
+
   val fetch_metadata_range : ?size:bool -> ?internal_date:bool ->
     t -> first:int64 -> last:int64 ->
     modseq:bool -> (Imap.Response.fetch list, Error.t) result
   (** Fetches a finite UID range with UID, FLAGS and optionally MODSEQ, which
-      requires CONDSTORE or QRESYNC. Rows
-      without a UID or complete FLAGS are ignored as unsolicited partial updates;
-      duplicate UID rows are resolved in wire order. A caller must separately
-      reconcile complete membership before treating absence as an expunge.
-      Advertised RFC 9738 MESSAGELIMIT partial successes are continued below
-      the processed UID; missing or contradictory boundaries fail the call.
-      [size=true] also requests RFC822.SIZE for bounded body inspection;
-      [internal_date=true] requests a validated IMAP INTERNALDATE. *)
+      requires CONDSTORE or QRESYNC. Rows without a UID or complete FLAGS are
+      ignored as unsolicited partial updates; duplicate UID rows are resolved in
+      wire order. A caller must separately reconcile complete membership before
+      treating absence as an expunge. Advertised RFC 9738 MESSAGELIMIT partial
+      successes are continued below the processed UID; missing or contradictory
+      boundaries fail the call. [size=true] also requests RFC822.SIZE for
+      bounded body inspection; [internal_date=true] requests a validated IMAP
+      INTERNALDATE. *)
 
   type store_receipt = {
     modified : Imap.Proto.Uid_set.t;
     updates : Imap.Response.fetch list;
   }
 
-  val uid_store_saved : saved_search -> operation:[ `Add | `Remove | `Replace ] ->
+  val uid_store_saved : saved_search ->
+    operation:[ `Add | `Remove | `Replace ] ->
     flags:Mail_flag.Imap_flag.t list -> ?unchangedsince:int64 -> unit ->
     (store_receipt, Error.t) result
   (** STORE on a valid saved set, with the same conditional-write and writable
       mailbox checks as [uid_store_flags]. An identity reset or lost completion
       after dispatch returns [Error.Uncertain]; never automatically replay. *)
+
   val uid_store_flags : t -> set:Imap.Proto.Uid_set.t ->
     operation:[ `Add | `Remove | `Replace ] ->
     flags:Mail_flag.Imap_flag.t list -> ?unchangedsince:int64 ->
     unit -> (store_receipt, Error.t) result
   (** Conditional STORE requires CONDSTORE. [modified] is the server's RFC 7162
-      conflict set. On an uncertain transport outcome, reconcile before retrying. *)
+      conflict set. On an uncertain transport outcome, reconcile before
+      retrying. *)
 
   type copy_mapping = {
     source_first : Imap.Proto.Uid.t;
@@ -339,13 +378,16 @@ module Selected : sig
       [0 <= i < length]. Ranges stay compact even for large copies. The source
       and destination sets describe membership only, not positional pairing. *)
 
-  val uid_copy_saved : saved_search -> mailbox:string -> (copy_receipt option, Error.t) result
-  val uid_move_saved : saved_search -> mailbox:string -> (copy_receipt option, Error.t) result
+  val uid_copy_saved :
+    saved_search -> mailbox:string -> (copy_receipt option, Error.t) result
+  val uid_move_saved :
+    saved_search -> mailbox:string -> (copy_receipt option, Error.t) result
   val uid_expunge_saved : saved_search -> (unit, Error.t) result
   (** Saved-set variants with the same capability, receipt and writable checks
       as their finite UID-set equivalents. Empty sets are valid. EXPUNGE/MOVE
       may shrink the saved set without invalidating its handle. These mutate
       remote state; uncertain outcomes require reconciliation, not replay. *)
+
   val uid_copy : t -> set:Imap.Proto.Uid_set.t -> mailbox:string ->
     (copy_receipt option, Error.t) result
   val uid_move : t -> set:Imap.Proto.Uid_set.t -> mailbox:string ->
@@ -357,13 +399,14 @@ module Selected : sig
       UTF-8. *)
 
   val wait_for_change : t -> (Imap.Response.t list, Error.t) result
-  (** Enters IDLE, waits for one unsolicited response, sends DONE, and waits for
-      tagged completion. Requires IDLE or IMAP4rev2. A tagged NO or BAD leaves
-      the connection open. Use a dedicated client connection. If cancelled while
-      waiting, the connection closes; reconnect and reconcile from durable state.
-      A response is a wakeup hint, not a durable change receipt.
-    NOTIFICATIONOVERFLOW is retained in the returned updates and means the
-    server disabled NOTIFY registration. Reconcile before registering again. *)
+  (** Enters IDLE, waits for one unsolicited response, sends DONE, and waits
+      for tagged completion. Requires IDLE or IMAP4rev2. A tagged NO or BAD
+      leaves the connection open. Use a dedicated client connection. If
+      cancelled while waiting, the connection closes; reconnect and reconcile
+      from durable state. A response is a wakeup hint, not a durable change
+      receipt. NOTIFICATIONOVERFLOW is retained in the returned updates and
+      means the server disabled NOTIFY registration. Reconcile before
+      registering again. *)
 
   val fetch_changes : t -> set:Imap.Proto.Uid_set.t ->
     since:Imap.Proto.Modseq.t -> vanished:bool ->
@@ -393,7 +436,9 @@ module Selected : sig
   (** RFC 5465 notification registration through the active selected lease.
       Registration is session state, so it also works for EXAMINE. A server
       NOTIFICATIONOVERFLOW cancels the watch; reconnect/reconcile as needed.
-      Selected filters require a selected lease; other filters may be combined. *)  
+      Selected filters require a selected lease; other filters may be
+      combined. *)  
+
   val noop : t -> (Imap.Response.t list, Error.t) result
   (** [noop t] polls unsolicited updates under the selected command lease.
       Updates retain wire order and do not establish a durable checkpoint. *)
@@ -402,6 +447,7 @@ end
 
 module Client : sig
   (** A single Eio IMAP connection. Commands are serialized across fibers. *)
+
   type t
   type error = Error.t
 
@@ -424,6 +470,7 @@ module Client : sig
   val is_open : t -> bool
   (** Whether the connection can still be reused. A successful protocol command
       may close it later, so check again when taking it from a pool. *)
+
   val compress_deflate : t -> (unit, error) result
   (** Explicit RFC 4978 COMPRESS DEFLATE activation after authentication.
       Requires COMPRESS=DEFLATE, runs under the connection command mutex, and
@@ -431,41 +478,50 @@ module Client : sig
       and typed rejection code; a second activation is a state error.
       Compression wraps the current transport, including TLS, and lasts for the
       connection. Cancellation, malformed streams and lost framing close it;
-      mutation outcomes remain uncertain after dispatch. Decompressed data is
-      subject to the ordinary IMAP parser/command limits.
+      mutation outcomes remain uncertain after dispatch. More than 16 MiB of
+      compressed input without decoded output counts as a malformed stream.
+      Decompressed data is subject to the ordinary IMAP parser/command limits.
       This is opt-in: it is never enabled during credential exchange. Consider
       compression side channels when mixing secret and attacker-controlled data.
       Activate between mailbox leases; never call connection commands from
       inside [with_mailbox]. STARTTLS after compression is not supported. *)
+
   val enable_uidonly : t -> (unit, error) result
   (** Explicitly enables RFC 9586 mode before mailbox selection. UIDFETCH and
       VANISHED replace sequence-based updates. This mode cannot be disabled on
       the connection; callers should use a dedicated connection. *)
+
   val enable_objectid_plus : t -> (unit, error) result
   (** Explicitly activate the pinned OBJECTID+ draft through ENABLE before
       selection. The mode stays active on this connection and changes SELECT
       identity response codes to compound OBJECTID. It is separate from the
       RFC 8474 OBJECTID capability. *)
+
   val pin_mailbox_objectid : t -> mailbox:string -> account_id:string ->
     mailbox_id:string -> (unit, error) result
   (** Bind a mailbox name to a previously verified compound identity for this
       connection. Subsequent [with_mailbox] calls select by ID and reject a
       name fallback to another mailbox. APPEND checks the name with STATUS
       before sending message bytes. Rebinding to a different ID fails. *)
+
   val list : t -> ?reference:string -> pattern:string ->
     unit -> (Imap.Response.list_result list, error) result
   (** [reference] and [pattern] are UTF-8, with IMAP [*] and [%] wildcards in
       [pattern]. Outbound names use modified UTF-7 until UTF-8 mode is enabled.
       Returned [list_result.mailbox] is the exact wire name; decode it with
       [Imap.Mailbox_name.of_wire] using {!mailbox_mode}. *)
+
   val lsub : t -> ?reference:string -> pattern:string ->
     unit -> (Imap.Response.list_result list, error) result
   (** Legacy subscribed-mailbox discovery. Returned names remain exact wire
       bytes; LSUB rows may include unsubscribed hierarchy parents. *)
+
   val namespace : t -> (Imap.Response.namespace, error) result
   (** Requires NAMESPACE or IMAP4rev2. Prefixes remain exact wire names. *)
+
   type discovery = {
-    mailboxes : (Imap.Response.list_result * Imap.Response.mailbox_status option) list;
+    mailboxes :
+      (Imap.Response.list_result * Imap.Response.mailbox_status option) list;
     unpaired_status : Imap.Response.mailbox_status list;
   }
   val list_extended : t -> ?reference:string -> patterns:string list ->
@@ -476,6 +532,7 @@ module Client : sig
       A selectable LIST row can lack STATUS even after tagged OK (RFC 5819);
       [None] is incomplete, never an empty status. Unpaired unsolicited STATUS
       rows remain visible. Names are exact wire bytes. *)
+
   val mailbox_mode : t -> Imap.Mailbox_name.mode
   val status : t -> mailbox:string -> items:Imap.Command.status_item list ->
     (Imap.Response.mailbox_status, error) result
@@ -485,9 +542,11 @@ module Client : sig
       OBJECTID, [Size] requires STATUS=SIZE or IMAP4rev2, [Deleted] requires
       QUOTA or IMAP4rev2 and [Deleted_storage] requires QUOTA. A missing
       capability is [Error.State] and sends nothing. *)
+
   val get_jmap_access : t -> (string, error) result
   (** Returns the server's advertised JMAP access data verbatim. A proxy must
       apply its own endpoint trust policy before using it. *)
+
   val get_acl : t -> mailbox:string -> (Imap.Response.acl, error) result
   val list_rights : t -> mailbox:string -> identifier:string ->
     (Imap.Response.list_rights, error) result
@@ -497,8 +556,10 @@ module Client : sig
     (unit, error) result
   val delete_acl : t -> mailbox:string -> identifier:string ->
     (unit, error) result
-  (** ACL operations require the advertised ACL capability. Identifiers are sent
-      verbatim as IMAP astrings; caller policy must handle identity preparation. *)
+  (** ACL operations require the advertised ACL capability. Identifiers are
+      sent verbatim as IMAP astrings; caller policy must handle identity
+      preparation. *)
+
   val get_quota : t -> root:string -> (Imap.Response.quota, error) result
   val get_quota_root : t -> mailbox:string ->
     ((Imap.Response.quota_root * Imap.Response.quota list), error) result
@@ -507,6 +568,7 @@ module Client : sig
   (** Requires QUOTASET. [limits] replaces every limit on the quota root;
       omitted resources lose their limits. A returned QUOTA is the server's
       authoritative rounded/actual values when present. *)
+
   type metadata_result = {
     responses : Imap.Response.metadata list;
     longentries : int64 option;
@@ -516,16 +578,20 @@ module Client : sig
     (metadata_result, error) result
   (** [longentries] reports RFC 5464 MAXSIZE truncation; when present the
       returned entries do not form a complete requested result. *)
+
   val set_metadata : t -> mailbox:string ->
     values:(string * string option) list -> (unit, error) result
-  (** Empty [mailbox] refers to server metadata. This quoted-value path rejects
-      values requiring a literal. METADATA-SERVER alone permits only that scope. *)
+  (** Empty [mailbox] refers to server metadata. This quoted-value path
+      rejects values requiring a literal. METADATA-SERVER alone permits only
+      that scope. *)
+
   val notify_set : t -> ?status:bool -> groups:Imap.Command.notify_group list ->
     unit -> (Imap.Response.mailbox_status list, error) result
   val notify_none : t -> (unit, error) result
   (** Only non-selected NOTIFY filters can be installed via [Client]: calling
       this inside [with_mailbox] would violate the exclusive lease. Use a
       dedicated connection and reconcile after any notification overflow. *)
+
   val create_mailbox : t -> string -> (unit, error) result
   val create_mailbox_objectid : t -> string ->
     (Imap.Response.compound_object_id, error) result
@@ -538,11 +604,13 @@ module Client : sig
       tagged account/mailbox identity. If the server omits either ID after a
       successful mutation, the connection closes and the outcome is uncertain
       for callers that need a durable identity; reconcile before retrying. *)
+
   val subscribe_mailbox : t -> string -> (unit, error) result
   val unsubscribe_mailbox : t -> string -> (unit, error) result
   (** Mailbox mutations have uncertain outcomes on a lost tagged completion.
       A caller managing a durable mirror must reconcile identity and cursor
       scope after RENAME rather than assuming UID continuity. *)
+
   val with_mailbox : t -> ?qresync:(int64 * int64) ->
     ?objectid:(string * string) ->
     mode:[ `Read_only | `Read_write ] -> string ->
@@ -562,6 +630,7 @@ module Client : sig
       client requires prior OBJECTID+ activation and checks the SELECT response
       before invoking [callback], closing the connection if the server fell
       back to a different mailbox. *)
+
   val append_flow : t -> mailbox:string -> ?flags:string list ->
     ?internal_date:Imap.Internal_date.t ->
     length:int64 -> _ Eio.Flow.source -> (unit, error) result
@@ -570,6 +639,7 @@ module Client : sig
       must reconcile before retrying. An earlier failure keeps its own kind,
       since the server cannot have run the command, and closes the connection
       if bytes were sent. The client never replays APPEND automatically. *)
+
   type append_receipt = {
     uidvalidity : Imap.Proto.Uidvalidity.t;
     uid : Imap.Proto.Uid.t;
@@ -579,25 +649,29 @@ module Client : sig
     length:int64 -> _ Eio.Flow.source -> (append_receipt option, error) result
   (** A tagged OK without APPENDUID is successful but has unknown destination
       identity. [None] must be reconciled before any source deletion. *)
+
   val append_binary_flow_receipt : t -> mailbox:string -> ?flags:string list ->
     ?internal_date:Imap.Internal_date.t -> length:int64 -> _ Eio.Flow.source ->
     (append_receipt option, error) result
   (** RFC 3516 literal8 APPEND, gated by explicit BINARY capability; IMAP4rev2
       alone does not enable it. Uses the same destination identity guard, scoped
       command lock and uncertainty handling as [append_flow_receipt]. Sends
-      exactly [length] octets and leaves any following source bytes unread.
-      The server may transform content-transfer encodings while preserving
-      decoded content, so the receipt proves UID identity, not stored byte
-      equality. Do not publish the input digest as a canonical archived body:
-      fetch and verify the stored representation first. This low-level operation
-      does not journal or automatically retry. UNKNOWN-CTE is a typed rejection. *)
+      exactly [length] octets and leaves any following source bytes unread. The
+      server may transform content-transfer encodings while preserving decoded
+      content, so the receipt proves UID identity, not stored byte equality. Do
+      not publish the input digest as a canonical archived body: fetch and
+      verify the stored representation first. This low-level operation does not
+      journal or automatically retry. UNKNOWN-CTE is a typed rejection. *)
+
   val append_binary_flow : t -> mailbox:string -> ?flags:string list ->
     ?internal_date:Imap.Internal_date.t -> length:int64 -> _ Eio.Flow.source ->
     (unit, error) result
   (** Binary APPEND without retaining the optional destination UID receipt. *)
+
   val close : t -> unit
   type append_message
-  val append_message : ?flags:string list -> ?internal_date:Imap.Internal_date.t ->
+  val append_message :
+    ?flags:string list -> ?internal_date:Imap.Internal_date.t ->
     length:int64 -> _ Eio.Flow.source -> append_message
   (** [append_message source] describes a borrowed message stream. The source
       must remain usable until [append_messages] returns; it is not closed. *)
@@ -610,20 +684,22 @@ module Client : sig
     (multiappend_receipt option, error) result
   (** Stream 1..1000 nonempty messages as one RFC 3502 atomic APPEND. Multiple
       messages require MULTIAPPEND; there is no sequential fallback. Advertised
-    MESSAGELIMIT/SAVELIMIT caps are checked before dispatch. All syntax
-      is validated before dispatch. Each stream supplies exactly its declared
-      length; excess bytes remain unread. Literals use a fixed-size streaming buffer. Negotiated LITERAL-/LITERAL+
-    or effective IMAP4rev2 permits non-synchronizing literals up to 4096
-    octets; larger literals remain synchronizing.
-      A rejection aborts the entire batch. Lost completion or invalid receipt
-      returns Uncertain and closes the connection; cancellation also closes it.
-      Receipt UIDs retain message order. None means success without UID evidence.
-      This low-level operation does not journal or automatically replay a batch. *)
+      MESSAGELIMIT/SAVELIMIT caps are checked before dispatch. All syntax is
+      validated before dispatch. Each stream supplies exactly its declared
+      length; excess bytes remain unread. Literals use a fixed-size streaming
+      buffer. Negotiated LITERAL-/LITERAL+ or effective IMAP4rev2 permits
+      non-synchronizing literals up to 4096 octets; larger literals remain
+      synchronizing. A rejection aborts the entire batch. Lost completion or
+      invalid receipt returns Uncertain and closes the connection; cancellation
+      also closes it. Receipt UIDs retain message order. None means success
+      without UID evidence. This low-level operation does not journal or
+      automatically replay a batch. *)
   
   val noop : t -> (Imap.Response.t list, error) result
   (** [noop t] sends a keepalive and returns unsolicited updates in wire order.
       Use between mailbox leases; use [Selected.noop] inside a lease. Updates
       are observations, not durable checkpoints. *)
+
   val logout : t -> (unit, error) result
   (** [logout t] waits for BYE and tagged completion, then closes the transport.
       Errors and cancellation also close it. Use between mailbox leases.

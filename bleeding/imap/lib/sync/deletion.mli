@@ -25,7 +25,7 @@ val pp_error : Format.formatter -> error -> unit
 type outcome =
   | Unchanged
   | Held of Imap.Sync_policy.deletion_hold
-  | Deleted of Imap_store.Sync.pair
+  | Deleted of Imap_store.Journal.pair
 
 val expunge_preflight :
   before_flags:Mail_flag.Imap_flag.t list -> before_modseq:int64 ->
@@ -42,7 +42,7 @@ val reconcile_pair :
   maildir:Imap_maildir.t -> mailbox:string ->
   cursor:Imap.Mirror.cursor ->
   local_inventory:Imap_maildir.paged_inventory ->
-  pair:Imap_store.Sync.pair -> policy:Imap.Sync_policy.deletion_policy ->
+  pair:Imap_store.Journal.pair -> policy:Imap.Sync_policy.deletion_policy ->
   next_id:(unit -> string) -> spool_dir:_ Eio.Path.t -> unit ->
   (outcome, error) result
 (** [Preserve] only reports a hold. [Propagate] removes an unchanged local
@@ -76,7 +76,7 @@ val recover_operation :
   store:Imap_store.t -> maildir:Imap_maildir.t ->
   cursor:Imap.Mirror.cursor ->
   local_inventory:Imap_maildir.paged_inventory ->
-  operation:Imap_store.Sync.operation -> unit ->
+  operation:Imap_store.Journal.operation -> unit ->
   (outcome, error) result
 (** [recover_operation ~store ~maildir ~cursor ~local_inventory ~operation ()]
     reconciles a pending deletion using complete newly published

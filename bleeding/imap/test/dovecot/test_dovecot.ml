@@ -892,15 +892,16 @@ let test_bridge_cram () =
      | Some saved -> Imap.Internal_date.equal_instant remote_date saved
      | None -> false);
   Alcotest.(check bool) "imported pair retains INTERNALDATE" true
-    (match Imap_store.Sync.find_local store ~scope
+    (match Imap_store.Journal.find_local store ~scope
         ~local_id:imported_occurrence.id with
      | Some {internal_date=Some saved;_} ->
          Imap.Internal_date.equal_instant remote_date saved
      | _ -> false);
-  let imported_pair=Option.get (Imap_store.Sync.find_local store ~scope
+  let imported_pair=Option.get (Imap_store.Journal.find_local store ~scope
     ~local_id:imported_occurrence.id) in
   Alcotest.(check bool) "import intent retains source INTERNALDATE" true
-    (match Imap_store.Sync.operation_source_date store ~id:imported_pair.id with
+    (match Imap_store.Journal.operation_source_date store
+             ~id:imported_pair.id with
      | Some saved -> Imap.Internal_date.equal_instant remote_date saved
      | None -> false);
   let local_bytes="From: local@example.test\r\nSubject: upload " ^ nonce ^
@@ -921,16 +922,17 @@ let test_bridge_cram () =
       ~random:(Eio.Stdenv.secure_random env_io)
       ~getenv:Sys.getenv_opt);
   Alcotest.(check bool) "plan did not pair local source" true
-    (Imap_store.Sync.find_local store ~scope ~local_id:local.id=None);
+    (Imap_store.Journal.find_local store ~scope ~local_id:local.id=None);
   let uploaded=copy ("dovecot-upload-" ^ nonce) in
   Alcotest.(check int) "CRAM-MD5 bridge upload" 1
     uploaded.local_to_remote;
   Alcotest.(check bool) "Dovecot upload paired" true
-    (Option.is_some (Imap_store.Sync.find_local store ~scope
+    (Option.is_some (Imap_store.Journal.find_local store ~scope
       ~local_id:local.id));
   Alcotest.(check int) "Dovecot durable pairs" 2
-    (List.length (Imap_store.Sync.pairs store ~scope));
-  let pair=match Imap_store.Sync.find_local store ~scope ~local_id:local.id with
+    (List.length (Imap_store.Journal.pairs store ~scope));
+  let pair=
+    match Imap_store.Journal.find_local store ~scope ~local_id:local.id with
     | Some pair -> pair | None -> Alcotest.fail "upload pair missing" in
   Alcotest.(check bool) "uploaded pair retains INTERNALDATE" true
     (match pair.internal_date with
@@ -964,7 +966,7 @@ let test_bridge_cram () =
   let reconciled=copy ("dovecot-flags-" ^ nonce) in
   Alcotest.(check int) "Dovecot conditional flag merge" 1
     reconciled.flags_updated;
-  let pair=match Imap_store.Sync.find_pair store ~id:pair.id with
+  let pair=match Imap_store.Journal.find_pair store ~id:pair.id with
     | Some pair -> pair | None -> Alcotest.fail "merged pair missing" in
   Alcotest.(check bool) "Dovecot common flags merged" true
     (List.mem flagged pair.common_flags &&
@@ -994,8 +996,8 @@ let test_bridge_cram () =
       ~random:(Eio.Stdenv.secure_random env_io)
       ~getenv:Sys.getenv_opt);
   Alcotest.(check bool) "CLI persists content conflict" true
-    (match Imap_store.Sync.open_conflicts store ~scope with
-     | [{pair_id;kind=Imap_store.Sync.Content_conflict;_}] ->
+    (match Imap_store.Journal.open_conflicts store ~scope with
+     | [{pair_id;kind=Imap_store.Journal.Content_conflict;_}] ->
          pair_id=pair.id
      | _ -> false);
   let current=Option.get (Imap_maildir.find maildir ~id:local.id) in
@@ -1008,7 +1010,7 @@ let test_bridge_cram () =
   Alcotest.(check int) "restored body needs no flag update" 0
     restored.flags_updated;
   Alcotest.(check int) "restored body clears content conflict" 0
-    (List.length (Imap_store.Sync.open_conflicts store ~scope));
+    (List.length (Imap_store.Journal.open_conflicts store ~scope));
   let current=Option.get (Imap_maildir.find maildir ~id:local.id) in
   Imap_maildir.remove maildir current;
   ignore (Imap_maildir.append maildir ~id:local.id
@@ -1029,8 +1031,8 @@ let test_bridge_cram () =
   Alcotest.(check int) "offline scrub detects silent same-length edit" 4
     (verify ());
   Alcotest.(check bool) "silent edit persisted as content conflict" true
-    (match Imap_store.Sync.open_conflicts store ~scope with
-     | [{pair_id;kind=Imap_store.Sync.Content_conflict;_}] ->
+    (match Imap_store.Journal.open_conflicts store ~scope with
+     | [{pair_id;kind=Imap_store.Journal.Content_conflict;_}] ->
          pair_id=pair.id
      | _ -> false);
   let current=Option.get (Imap_maildir.find maildir ~id:local.id) in
@@ -1049,9 +1051,9 @@ let test_bridge_cram () =
         ~operation:`Add ~flags:[deleted] () in Ok ()));
   let held=copy ("dovecot-deleted-hold-" ^ nonce) in
   Alcotest.(check int) "deleted flag held" 1 held.flags_held;
-  let policy_conflicts ()=Imap_store.Sync.open_conflicts store ~scope
-    |> List.filter (fun (x:Imap_store.Sync.conflict) ->
-      x.kind=Imap_store.Sync.Policy_conflict) in
+  let policy_conflicts ()=Imap_store.Journal.open_conflicts store ~scope
+    |> List.filter (fun (x:Imap_store.Journal.conflict) ->
+      x.kind=Imap_store.Journal.Policy_conflict) in
   let conflict=match policy_conflicts () with
     | [conflict] -> conflict
     | _ -> Alcotest.fail "deleted hold lacked one durable policy conflict" in
@@ -1060,13 +1062,13 @@ let test_bridge_cram () =
       Eio.Path.(fs / dbfile) in
     Alcotest.(check (list string)) "policy hold visible after reopen"
       [conflict.id]
-      (Imap_store.Sync.open_conflicts reopened ~scope
-       |> List.map (fun (x:Imap_store.Sync.conflict) -> x.id)));
+      (Imap_store.Journal.open_conflicts reopened ~scope
+       |> List.map (fun (x:Imap_store.Journal.conflict) -> x.id)));
   let held_again=copy ("dovecot-deleted-hold-again-" ^ nonce) in
   Alcotest.(check int) "repeated deleted flag held" 1
     held_again.flags_held;
   Alcotest.(check (list string)) "policy conflict ID stable"
-    [conflict.id] (List.map (fun (x:Imap_store.Sync.conflict) -> x.id)
+    [conflict.id] (List.map (fun (x:Imap_store.Journal.conflict) -> x.id)
       (policy_conflicts ()));
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
     (fun selected ->
@@ -1080,7 +1082,7 @@ let test_bridge_cram () =
     (List.length (policy_conflicts ()));
   let imported_local=List.find (fun (x:Imap_maildir.occurrence) ->
     x.id<>local.id) (Imap_maildir.scan maildir) in
-  let imported_pair=match Imap_store.Sync.find_local store ~scope
+  let imported_pair=match Imap_store.Journal.find_local store ~scope
       ~local_id:imported_local.id with
     | Some pair -> pair | None -> Alcotest.fail "import pair missing" in
   Imap_maildir.remove maildir imported_local;
@@ -1094,9 +1096,9 @@ let test_bridge_cram () =
   Alcotest.(check int) "Dovecot targeted remote deletion" 1
     deleted_remote.deletions;
   Alcotest.(check bool) "remote delete journal committed" true
-    (match Imap_store.Sync.find_pair store ~id:imported_pair.id with
+    (match Imap_store.Journal.find_pair store ~id:imported_pair.id with
      | Some {remote_tombstone=Some
-         {reason=Imap_store.Sync.Expunge_receipt;_};_} -> true
+         {reason=Imap_store.Journal.Expunge_receipt;_};_} -> true
      | _ -> false);
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
     (fun selected ->
@@ -1115,9 +1117,9 @@ let test_bridge_cram () =
   Alcotest.(check int) "Dovecot local survivor deletion" 1
     deleted_local.deletions;
   Alcotest.(check bool) "local delete journal committed" true
-    (match Imap_store.Sync.find_pair store ~id:pair.id with
+    (match Imap_store.Journal.find_pair store ~id:pair.id with
      | Some {local_tombstone=Some
-         {reason=Imap_store.Sync.Explicit_delete;_};_} -> true
+         {reason=Imap_store.Journal.Explicit_delete;_};_} -> true
      | _ -> false);
   let append_identical ()=Imap_maildir.append maildir
     ~source:(Eio.Flow.string_source local_bytes)
@@ -1130,7 +1132,7 @@ let test_bridge_cram () =
   let twins=copy ("dovecot-identical-" ^ nonce) in
   Alcotest.(check int) "identical bytes retain two occurrences" 2
     twins.local_to_remote;
-  let paired_uid local=match Imap_store.Sync.find_local store ~scope
+  let paired_uid local=match Imap_store.Journal.find_local store ~scope
       ~local_id:local.Imap_maildir.id with
     | Some {remote_uid=Some uid;_} -> Imap.Proto.Uid.to_int64 uid
     | _ -> Alcotest.fail "identical occurrence lacks a paired UID" in
@@ -1162,16 +1164,16 @@ let test_bridge_cram () =
         Imap_sync.Bridge.pp_error error
     | Ok _ -> Alcotest.fail "paired date drift was accepted" in
   drift ("dovecot-date-drift-" ^ nonce);
-  let date_conflicts ()=Imap_store.Sync.open_conflicts store ~scope
-    |> List.filter (fun (x:Imap_store.Sync.conflict) ->
-      x.kind=Imap_store.Sync.Identity_conflict) in
+  let date_conflicts ()=Imap_store.Journal.open_conflicts store ~scope
+    |> List.filter (fun (x:Imap_store.Journal.conflict) ->
+      x.kind=Imap_store.Journal.Identity_conflict) in
   let conflict=match date_conflicts () with
     | [conflict] -> conflict
     | _ -> Alcotest.fail "date drift lacked durable identity conflict" in
   drift ("dovecot-date-drift-again-" ^ nonce);
   Alcotest.(check (list string)) "date conflict ID survives rescan"
     [conflict.id]
-    (List.map (fun (x:Imap_store.Sync.conflict) -> x.id)
+    (List.map (fun (x:Imap_store.Journal.conflict) -> x.id)
       (date_conflicts ()));
   Unix.utimes first_path 1709164800. 1709164800.;
   ignore (copy ("dovecot-date-restored-" ^ nonce));
@@ -1235,9 +1237,9 @@ let test_shared_mailbox_bootstrap () =
   Alcotest.(check int) "refusal did not make local copies" 1
     (List.length (Imap_maildir.scan maildir));
   Alcotest.(check int) "refusal did not journal mutations" 0
-    (List.length (Imap_store.Sync.active_operations store ~scope));
+    (List.length (Imap_store.Journal.active_operations store ~scope));
   Alcotest.(check int) "refusal did not publish pairs" 0
-    (List.length (Imap_store.Sync.pairs store ~scope));
+    (List.length (Imap_store.Journal.pairs store ~scope));
   let server_uids ()=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
       Imap_eio.Selected.uid_search selected "ALL")) in
@@ -1253,7 +1255,7 @@ let test_shared_mailbox_bootstrap () =
   Alcotest.(check int) "explicit local upload" 1
     accepted.local_to_remote;
   Alcotest.(check int) "two occurrence pairs" 2
-    (List.length (Imap_store.Sync.pairs store ~scope));
+    (List.length (Imap_store.Journal.pairs store ~scope));
   Alcotest.(check int) "two remote UIDs" 2
     (List.length (server_uids ()));
   let stable=match copy ("bootstrap-stable-" ^ nonce) with
@@ -1284,15 +1286,15 @@ let append_crash_child dbfile mailbox local_id id =
   let blob=Eio.Switch.run @@ fun source_sw ->
     let source=Imap_maildir.open_message maildir ~sw:source_sw local in
     Imap_store.Blob.put store ~source ~length:local.length () in
-  let op : Imap_store.Sync.operation = {
+  let op : Imap_store.Journal.operation = {
     id;pair_id=None;local_id=Some local_id;scope;
-    kind=Imap_store.Sync.Append;state=Imap_store.Sync.Prepared;
+    kind=Imap_store.Journal.Append;state=Imap_store.Journal.Prepared;
     source_uidvalidity=None;source_uid=None;destination=Some scope;
     destination_uidvalidity=Some epoch;
     blob_sha256=Some blob.sha256;blob_length=Some blob.length;
     desired_flags=Some [];receipt=None;receipt_uidvalidity=None;
     receipt_uid=None} in
-  Imap_store.Sync.prepare_operation
+  Imap_store.Journal.prepare_operation
     ~local_source_mtime:local.mtime store op;
   let legacy : Imap_store.intent = {
     id;scope;state=Imap_store.Prepared;
@@ -1304,7 +1306,7 @@ let append_crash_child dbfile mailbox local_id id =
         (Imap.Internal_date.to_string (append_crash_date ())) };
     uidvalidity=Some epoch;uid=None} in
   Imap_store.prepare_intent store legacy;
-  Imap_store.Sync.mark_sent store ~id;
+  Imap_store.Journal.mark_sent store ~id;
   Imap_store.set_intent_state store ~id Imap_store.Sent;
   let receipt=Eio.Switch.run @@ fun source_sw ->
     let source=Imap_store.Blob.open_in store ~sw:source_sw blob in
@@ -1399,9 +1401,9 @@ let test_append_process_crash () =
     let store=Imap_store.open_path ~sw:store_sw
       ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
     Alcotest.(check bool) "both journals lack durable receipt" true
-      (match Imap_store.Sync.find_operation store ~id,
+      (match Imap_store.Journal.find_operation store ~id,
              Imap_store.find_intent store ~id with
-       | Some {state=Imap_store.Sync.Sent;receipt_uid=None;_},
+       | Some {state=Imap_store.Journal.Sent;receipt_uid=None;_},
          Some {state=Imap_store.Sent;uid=None;_} -> true
        | _ -> false);
     (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope ~mailbox
@@ -1455,8 +1457,8 @@ let test_append_process_crash () =
       [uid_raw;Imap.Proto.Uid.to_int64 extra]
       (List.map Imap.Proto.Uid.to_int64 candidates.matching_uids);
     Alcotest.(check bool) "candidate inspection did not confirm journal"
-      true (match Imap_store.Sync.find_operation store ~id with
-        | Some {state=Imap_store.Sync.Sent;_} -> true | _ -> false);
+      true (match Imap_store.Journal.find_operation store ~id with
+        | Some {state=Imap_store.Journal.Sent;_} -> true | _ -> false);
     unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
       (fun selected ->
         let set=Imap.Proto.Uid_set.of_intervals
@@ -1477,9 +1479,9 @@ let test_append_process_crash () =
     Alcotest.(check int) "attested APPEND not uploaded again" 0
       completed.local_to_remote;
     Alcotest.(check int) "one paired occurrence" 1
-      (List.length (Imap_store.Sync.pairs store ~scope));
+      (List.length (Imap_store.Journal.pairs store ~scope));
     Alcotest.(check bool) "local occurrence paired to witnessed UID" true
-      (match Imap_store.Sync.find_local store ~scope ~local_id:local.id with
+      (match Imap_store.Journal.find_local store ~scope ~local_id:local.id with
        | Some {remote_uid=Some paired_uid;_} -> paired_uid=uid
        | _ -> false));
   Alcotest.(check (list int64)) "repair left one server occurrence"
@@ -1492,14 +1494,14 @@ let delete_crash_child dbfile mailbox pair_id operation_id =
   let _,client=connect env_io sw in
   let store=Imap_store.open_path ~sw
     ~blob_dir:Eio.Path.(fs / (dbfile ^ "-blobs")) Eio.Path.(fs / dbfile) in
-  let pair=match Imap_store.Sync.find_pair store ~id:pair_id with
+  let pair=match Imap_store.Journal.find_pair store ~id:pair_id with
     | Some pair -> pair | None -> Alcotest.fail "delete child lost pair" in
   let epoch=Option.get pair.remote_uidvalidity in
   let uid=Option.get pair.remote_uid in
-  let operation : Imap_store.Sync.operation = {
+  let operation : Imap_store.Journal.operation = {
     id=operation_id;pair_id=Some pair_id;local_id=pair.local_id;
-    scope=pair.scope;kind=Imap_store.Sync.Delete;
-    state=Imap_store.Sync.Prepared;
+    scope=pair.scope;kind=Imap_store.Journal.Delete;
+    state=Imap_store.Journal.Prepared;
     source_uidvalidity=Some epoch;source_uid=Some uid;
     destination=None;destination_uidvalidity=None;
     blob_sha256=pair.content_sha256;blob_length=pair.content_length;
@@ -1516,8 +1518,8 @@ let delete_crash_child dbfile mailbox pair_id operation_id =
       let modseq=match rows with
         | [row] when row.uid=Some raw_uid -> Option.get row.modseq
         | _ -> Alcotest.fail "delete child lost target metadata" in
-      Imap_store.Sync.prepare_operation store operation;
-      Imap_store.Sync.mark_sent store ~id:operation_id;
+      Imap_store.Journal.prepare_operation store operation;
+      Imap_store.Journal.mark_sent store ~id:operation_id;
       let set=Imap.Proto.Uid_set.singleton uid in
       let deleted=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted in
       let* result=Imap_eio.Selected.uid_store_flags selected ~set
@@ -1593,10 +1595,10 @@ let test_delete_process_crash () =
       Imap.Sync_policy.Preserve in
     Alcotest.(check int) "two remote occurrences imported" 2
       imported.remote_to_local;
-    let pairs=Imap_store.Sync.pairs store ~scope in
+    let pairs=Imap_store.Journal.pairs store ~scope in
     let by_uid=List.sort (fun a b -> compare
-      (Option.get a.Imap_store.Sync.remote_uid)
-      (Option.get b.Imap_store.Sync.remote_uid)) pairs in
+      (Option.get a.Imap_store.Journal.remote_uid)
+      (Option.get b.Imap_store.Journal.remote_uid)) pairs in
     let target,other=match by_uid with
       | [target;other] -> target,other
       | _ -> Alcotest.fail "expected two paired UIDs" in
@@ -1609,10 +1611,10 @@ let test_delete_process_crash () =
       held.deletions;
     Alcotest.(check int) "preserve policy reports one hold" 1
       held.deletions_held;
-    let conflicts=Imap_store.Sync.open_conflicts store ~scope in
+    let conflicts=Imap_store.Journal.open_conflicts store ~scope in
     Alcotest.(check int) "preserve hold is durable" 1
-      (List.length (List.filter (fun (x:Imap_store.Sync.conflict) ->
-        x.kind=Imap_store.Sync.Deletion_hold) conflicts));
+      (List.length (List.filter (fun (x:Imap_store.Journal.conflict) ->
+        x.kind=Imap_store.Journal.Deletion_hold) conflicts));
     let hold_id=(List.hd conflicts).id in
     let held_again=copy store ("delete-crash-still-held-" ^ nonce)
       Imap.Sync_policy.Preserve in
@@ -1620,12 +1622,12 @@ let test_delete_process_crash () =
       held_again.deletions_held;
     Alcotest.(check (list string)) "deletion hold ID stays stable"
       [hold_id]
-      (List.map (fun (x:Imap_store.Sync.conflict) -> x.id)
-        (Imap_store.Sync.open_conflicts store ~scope));
-    let target=Option.get (Imap_store.Sync.find_pair store ~id:target.id) in
+      (List.map (fun (x:Imap_store.Journal.conflict) -> x.id)
+        (Imap_store.Journal.open_conflicts store ~scope));
+    let target=Option.get (Imap_store.Journal.find_pair store ~id:target.id) in
     Alcotest.(check bool) "local absence tombstone durable" true
       (match target.local_tombstone with
-       | Some {reason=Imap_store.Sync.Local_absence;_} -> true
+       | Some {reason=Imap_store.Journal.Local_absence;_} -> true
        | _ -> false);
     target.id,Imap.Proto.Uid.to_int64 (Option.get target.remote_uid),
       Imap.Proto.Uid.to_int64 (Option.get other.remote_uid)) in
@@ -1647,21 +1649,21 @@ let test_delete_process_crash () =
   Eio.Switch.run (fun store_sw ->
     let store=open_store store_sw in
     Alcotest.(check bool) "delete intent remained Sent" true
-      (match Imap_store.Sync.find_operation store ~id:operation_id with
-       | Some {state=Imap_store.Sync.Sent;_} -> true | _ -> false);
+      (match Imap_store.Journal.find_operation store ~id:operation_id with
+       | Some {state=Imap_store.Journal.Sent;_} -> true | _ -> false);
     let recovered=copy store ("delete-crash-recovery-" ^ nonce)
       Imap.Sync_policy.Propagate in
     Alcotest.(check int) "no deletion mutation replayed" 0
       recovered.deletions;
     Alcotest.(check bool) "delete journal committed" true
-      (match Imap_store.Sync.find_operation store ~id:operation_id with
-       | Some {state=Imap_store.Sync.Committed;_} -> true | _ -> false);
+      (match Imap_store.Journal.find_operation store ~id:operation_id with
+       | Some {state=Imap_store.Journal.Committed;_} -> true | _ -> false);
     Alcotest.(check int) "deletion hold resolved after target absent" 0
-      (List.length (Imap_store.Sync.open_conflicts store ~scope));
+      (List.length (Imap_store.Journal.open_conflicts store ~scope));
     Alcotest.(check bool) "target has inventory tombstone" true
-      (match Imap_store.Sync.find_pair store ~id:pair_id with
+      (match Imap_store.Journal.find_pair store ~id:pair_id with
        | Some {remote_tombstone=Some
-           {reason=Imap_store.Sync.Inventory_absence;_};_} -> true
+           {reason=Imap_store.Journal.Inventory_absence;_};_} -> true
        | _ -> false));
   Alcotest.(check (list int64)) "recovery preserved unrelated UID"
     [unrelated_uid] (remote_uids ());
@@ -1712,7 +1714,7 @@ let test_flags_recovery () =
        receipt.remote_to_local
    | Error error -> Alcotest.failf "import: %a"
        Imap_sync.Bridge.pp_error error);
-  let pair=match Imap_store.Sync.pairs store ~scope with
+  let pair=match Imap_store.Journal.pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one pair" in
   let local_id=Option.get pair.local_id in
   let uid=Option.get pair.remote_uid in
@@ -1720,9 +1722,9 @@ let test_flags_recovery () =
   let flagged=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Flagged in
   let seen=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
   let draft=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Draft in
-  let op id desired : Imap_store.Sync.operation = {
+  let op id desired : Imap_store.Journal.operation = {
     id;pair_id=Some pair.id;local_id=Some local_id;scope;
-    kind=Imap_store.Sync.Flags;state=Imap_store.Sync.Prepared;
+    kind=Imap_store.Journal.Flags;state=Imap_store.Journal.Prepared;
     source_uidvalidity=Some epoch;source_uid=Some uid;
     destination=None;destination_uidvalidity=None;
     blob_sha256=None;blob_length=None;desired_flags=Some desired;
@@ -1733,8 +1735,8 @@ let test_flags_recovery () =
         ~set:(Imap.Proto.Uid_set.singleton uid)
         ~operation:`Replace ~flags:desired () in Ok ())) in
   let first=op ("flags-recover-" ^ nonce) [flagged] in
-  Imap_store.Sync.prepare_operation ~local_flags:[] store first;
-  Imap_store.Sync.mark_sent store ~id:first.id;
+  Imap_store.Journal.prepare_operation ~local_flags:[] store first;
+  Imap_store.Journal.mark_sent store ~id:first.id;
   store_remote [flagged];
   (* Reopen the durable journal as the next process would.  No STORE is sent
      by recovery: only the local side may be finished. *)
@@ -1743,7 +1745,7 @@ let test_flags_recovery () =
   let recover operation=Imap_maildir.with_writer_lock maildir (fun () ->
     Imap_sync.Flags.recover_operation ~client ~store:restarted ~maildir
       ~mailbox ~operation ()) in
-  let pending=Option.get (Imap_store.Sync.find_operation restarted
+  let pending=Option.get (Imap_store.Journal.find_operation restarted
     ~id:first.id) in
   (match recover pending with
    | Ok (Imap_sync.Flags.Updated _) -> ()
@@ -1754,18 +1756,18 @@ let test_flags_recovery () =
     (List.mem flagged (Option.get (Imap_maildir.find maildir
       ~id:local_id)).flags);
   Alcotest.(check bool) "journal committed after local write" true
-    ((Option.get (Imap_store.Sync.find_operation restarted
-      ~id:first.id)).state=Imap_store.Sync.Committed);
-  let current=Option.get (Imap_store.Sync.find_pair restarted ~id:pair.id) in
+    ((Option.get (Imap_store.Journal.find_operation restarted
+      ~id:first.id)).state=Imap_store.Journal.Committed);
+  let current=Option.get (Imap_store.Journal.find_pair restarted ~id:pair.id) in
   Alcotest.(check bool) "pair baseline advanced" true
     (List.mem flagged current.common_flags);
   let second=op ("flags-diverge-" ^ nonce) [flagged;seen] in
-  Imap_store.Sync.prepare_operation ~local_flags:[flagged] restarted second;
-  Imap_store.Sync.mark_sent restarted ~id:second.id;
+  Imap_store.Journal.prepare_operation ~local_flags:[flagged] restarted second;
+  Imap_store.Journal.mark_sent restarted ~id:second.id;
   store_remote [flagged;seen];
   let local=Option.get (Imap_maildir.find maildir ~id:local_id) in
   ignore (Imap_maildir.set_flags maildir local [flagged;draft]);
-  let pending=Option.get (Imap_store.Sync.find_operation restarted
+  let pending=Option.get (Imap_store.Journal.find_operation restarted
     ~id:second.id) in
   (match recover pending with
    | Error (Imap_sync.Flags.Pending_operation id) when id=second.id -> ()
@@ -1774,11 +1776,11 @@ let test_flags_recovery () =
     (List.mem draft (Option.get (Imap_maildir.find maildir
       ~id:local_id)).flags);
   Alcotest.(check bool) "divergent operation remains pending" true
-    ((Option.get (Imap_store.Sync.find_operation restarted
-      ~id:second.id)).state=Imap_store.Sync.Sent);
-  let flag_conflicts ()=Imap_store.Sync.open_conflicts restarted ~scope
-    |> List.filter (fun (conflict:Imap_store.Sync.conflict) ->
-      conflict.kind=Imap_store.Sync.Flag_conflict) in
+    ((Option.get (Imap_store.Journal.find_operation restarted
+      ~id:second.id)).state=Imap_store.Journal.Sent);
+  let flag_conflicts ()=Imap_store.Journal.open_conflicts restarted ~scope
+    |> List.filter (fun (conflict:Imap_store.Journal.conflict) ->
+      conflict.kind=Imap_store.Journal.Flag_conflict) in
   let conflict=match flag_conflicts () with
     | [conflict] -> conflict
     | _ -> Alcotest.fail "pending FLAGS lacked a durable conflict" in
@@ -1795,18 +1797,18 @@ let test_flags_recovery () =
   Alcotest.(check int) "flag conflict resolves with paired commit" 0
     (List.length (flag_conflicts ()));
   let third=op ("flags-settle-" ^ nonce) [seen] in
-  let current=Option.get (Imap_store.Sync.find_pair restarted ~id:pair.id) in
+  let current=Option.get (Imap_store.Journal.find_pair restarted ~id:pair.id) in
   let paired_date=Option.get current.internal_date in
   let local=Option.get (Imap_maildir.find maildir ~id:local_id) in
   let local_date=match Imap_maildir.upload_internal_date local with
     | Ok date -> date | Error message -> Alcotest.fail message in
   Alcotest.(check bool) "mtime preserves the paired instant" true
     (Imap.Internal_date.equal_instant local_date paired_date);
-  Imap_store.Sync.prepare_operation ~local_flags:current.common_flags
+  Imap_store.Journal.prepare_operation ~local_flags:current.common_flags
     restarted third;
-  Imap_store.Sync.mark_sent restarted ~id:third.id;
+  Imap_store.Journal.mark_sent restarted ~id:third.id;
   store_remote [flagged;draft];
-  let pending=Option.get (Imap_store.Sync.find_operation restarted
+  let pending=Option.get (Imap_store.Journal.find_operation restarted
     ~id:third.id) in
   (match recover pending with
    | Error (Imap_sync.Flags.Pending_operation id) when id=third.id -> ()
@@ -1818,8 +1820,8 @@ let test_flags_recovery () =
    | Error (Imap_sync.Flags.Diverged _) -> ()
    | _ -> Alcotest.fail "divergent endpoints were settled");
   Alcotest.(check bool) "refused settlement remains pending" true
-    ((Option.get (Imap_store.Sync.find_operation restarted
-      ~id:third.id)).state=Imap_store.Sync.Sent);
+    ((Option.get (Imap_store.Journal.find_operation restarted
+      ~id:third.id)).state=Imap_store.Journal.Sent);
   let local=Option.get (Imap_maildir.find maildir ~id:local_id) in
   ignore (Imap_maildir.set_flags maildir local [flagged;draft]);
   (match settle ~scope:{scope with account="foreign"} "foreign scope" with
@@ -1841,14 +1843,14 @@ let test_flags_recovery () =
   Alcotest.(check int) "CLI settled matching endpoints" 0
     (Imap_cli.run config ~net:(Eio.Stdenv.net env_io) ~fs
       ~random:(Eio.Stdenv.secure_random env_io) ~getenv);
-  let current=Option.get (Imap_store.Sync.find_pair restarted ~id:pair.id) in
+  let current=Option.get (Imap_store.Journal.find_pair restarted ~id:pair.id) in
   Alcotest.(check (list string)) "operator flags adopted as baseline"
     ["\\Draft";"\\Flagged"]
     (List.map Mail_flag.Imap_flag.to_wire current.common_flags
      |> List.sort String.compare);
   Alcotest.(check bool) "superseded FLAGS intent rejected" true
-    ((Option.get (Imap_store.Sync.find_operation restarted
-      ~id:third.id)).state=Imap_store.Sync.Rejected);
+    ((Option.get (Imap_store.Journal.find_operation restarted
+      ~id:third.id)).state=Imap_store.Journal.Rejected);
   Alcotest.(check int) "settlement resolved flag conflict" 0
     (List.length (flag_conflicts ()));
   Alcotest.(check int) "settlement cannot repeat" 9
@@ -1856,7 +1858,7 @@ let test_flags_recovery () =
       ~random:(Eio.Stdenv.secure_random env_io) ~getenv);
   Alcotest.(check int64) "repeat did not advance pair"
     current.revision
-    (Option.get (Imap_store.Sync.find_pair restarted ~id:pair.id)).revision
+    (Option.get (Imap_store.Journal.find_pair restarted ~id:pair.id)).revision
 
 let test_operator_local_delete_repair () =
   configured ();
@@ -1899,7 +1901,7 @@ let test_operator_local_delete_repair () =
     | Error error -> Alcotest.failf "local repair setup: %a"
         Imap_sync.Bridge.pp_error error in
   ignore (copy ("local-repair-import-" ^ nonce));
-  let pair=match Imap_store.Sync.pairs store ~scope with
+  let pair=match Imap_store.Journal.pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
   let uid=Option.get pair.remote_uid in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
@@ -1910,16 +1912,16 @@ let test_operator_local_delete_repair () =
         ~operation:`Add ~flags:[deleted] () in
       Imap_eio.Selected.uid_expunge selected ~set));
   ignore (copy ("local-repair-absence-" ^ nonce));
-  let pair=Option.get (Imap_store.Sync.find_pair store ~id:pair.id) in
+  let pair=Option.get (Imap_store.Journal.find_pair store ~id:pair.id) in
   Alcotest.(check bool) "published remote tombstone" true
     (match pair.remote_tombstone with
-     | Some {reason=Imap_store.Sync.Inventory_absence;_} -> true
+     | Some {reason=Imap_store.Journal.Inventory_absence;_} -> true
      | _ -> false);
   let local_id=Option.get pair.local_id in
   let operation_id="local-repair-" ^ nonce in
-  let operation : Imap_store.Sync.operation = {
+  let operation : Imap_store.Journal.operation = {
     id=operation_id;pair_id=Some pair.id;local_id=Some local_id;scope;
-    kind=Imap_store.Sync.Local_delete;state=Imap_store.Sync.Prepared;
+    kind=Imap_store.Journal.Local_delete;state=Imap_store.Journal.Prepared;
     source_uidvalidity=pair.remote_uidvalidity;
     source_uid=pair.remote_uid;destination=None;
     destination_uidvalidity=None;
@@ -1927,8 +1929,8 @@ let test_operator_local_delete_repair () =
     blob_length=pair.content_length;
     desired_flags=Some pair.common_flags;
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
-  Imap_store.Sync.prepare_operation store operation;
-  Imap_store.Sync.mark_sent store ~id:operation_id;
+  Imap_store.Journal.prepare_operation store operation;
+  Imap_store.Journal.mark_sent store ~id:operation_id;
   let repair ?(scope=scope) evidence =
     Imap_sync.Deletion.repair_local_delete ~client ~store ~maildir ~scope
       ~mailbox ~id:operation_id ~evidence () in
@@ -1945,8 +1947,8 @@ let test_operator_local_delete_repair () =
   Alcotest.(check bool) "local file retained after refusal" true
     (Option.is_some (Imap_maildir.find maildir ~id:local_id));
   Alcotest.(check bool) "journal still Sent after refusal" true
-    ((Option.get (Imap_store.Sync.find_operation store
-      ~id:operation_id)).state=Imap_store.Sync.Sent);
+    ((Option.get (Imap_store.Journal.find_operation store
+      ~id:operation_id)).state=Imap_store.Journal.Sent);
   ignore (Imap_maildir.set_flags maildir changed pair.common_flags);
   (match repair "Dovecot audit: UID absent and local bytes checked" with
    | Ok (Imap_sync.Deletion.Deleted _) -> ()
@@ -1956,12 +1958,12 @@ let test_operator_local_delete_repair () =
   Alcotest.(check bool) "exact local file removed" true
     (Imap_maildir.find maildir ~id:local_id=None);
   Alcotest.(check bool) "journal committed" true
-    ((Option.get (Imap_store.Sync.find_operation store
-      ~id:operation_id)).state=Imap_store.Sync.Committed);
+    ((Option.get (Imap_store.Journal.find_operation store
+      ~id:operation_id)).state=Imap_store.Journal.Committed);
   Alcotest.(check bool) "local tombstone committed" true
-    (match Imap_store.Sync.find_pair store ~id:pair.id with
+    (match Imap_store.Journal.find_pair store ~id:pair.id with
      | Some {local_tombstone=Some
-         {reason=Imap_store.Sync.Explicit_delete;_};_} -> true
+         {reason=Imap_store.Journal.Explicit_delete;_};_} -> true
      | _ -> false)
 
 let test_operator_local_append_repair () =
@@ -2009,17 +2011,17 @@ let test_operator_local_append_repair () =
     ~length:(Int64.of_int (String.length raw)) () in
   let local_id=Imap_maildir.reserve_id () in
   let id="append-repair-" ^ nonce in
-  let operation : Imap_store.Sync.operation = {
+  let operation : Imap_store.Journal.operation = {
     id;pair_id=None;local_id=Some local_id;scope;
-    kind=Imap_store.Sync.Local_append;state=Imap_store.Sync.Prepared;
+    kind=Imap_store.Journal.Local_append;state=Imap_store.Journal.Prepared;
     source_uidvalidity=Some receipt.uidvalidity;
     source_uid=Some receipt.uid;destination=None;
     destination_uidvalidity=None;blob_sha256=Some blob.sha256;
     blob_length=Some blob.length;desired_flags=Some [];
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
-  Imap_store.Sync.prepare_operation ~source_internal_date:date
+  Imap_store.Journal.prepare_operation ~source_internal_date:date
     store operation;
-  Imap_store.Sync.mark_sent store ~id;
+  Imap_store.Journal.mark_sent store ~id;
   let copy stage_id=Imap_sync.Bridge.copy_once ~client ~store ~maildir
     ~scope ~mailbox ~stage_id ~next_id:(fun () -> "unexpected-copy-" ^ nonce)
     ~spool_dir:Eio.Path.(fs / spooldir) () in
@@ -2061,10 +2063,10 @@ let test_operator_local_append_repair () =
     (Some (Imap.Internal_date.to_string date))
     (Option.map Imap.Internal_date.to_string local.internal_date);
   Alcotest.(check bool) "repair committed" true
-    ((Option.get (Imap_store.Sync.find_operation store ~id)).state=
-      Imap_store.Sync.Committed);
+    ((Option.get (Imap_store.Journal.find_operation store ~id)).state=
+      Imap_store.Journal.Committed);
   Alcotest.(check int) "one pair" 1
-    (List.length (Imap_store.Sync.pairs store ~scope));
+    (List.length (Imap_store.Journal.pairs store ~scope));
   (match copy ("append-repair-resume-" ^ nonce) with
    | Ok result -> Alcotest.(check int) "no duplicate import" 0
        result.remote_to_local
@@ -2114,7 +2116,7 @@ let test_deletion_grace_live () =
     | Error error -> Alcotest.failf "grace bridge: %a"
         Imap_sync.Bridge.pp_error error in
   ignore (copy ("grace-import-" ^ nonce));
-  let pair=match Imap_store.Sync.pairs store ~scope with
+  let pair=match Imap_store.Journal.pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
   Imap_maildir.remove maildir
     (Option.get (Imap_maildir.find maildir
@@ -2134,9 +2136,9 @@ let test_deletion_grace_live () =
     ~length:(Int64.of_int (String.length changed))
     ~flags:pair.common_flags ?internal_date:pair.internal_date () in
   ignore (copy ~grace:1 ("grace-changed-" ^ nonce));
-  let content_conflicts ()=Imap_store.Sync.open_conflicts store ~scope
-    |> List.filter (fun (x:Imap_store.Sync.conflict) ->
-      x.kind=Imap_store.Sync.Content_conflict) in
+  let content_conflicts ()=Imap_store.Journal.open_conflicts store ~scope
+    |> List.filter (fun (x:Imap_store.Journal.conflict) ->
+      x.kind=Imap_store.Journal.Content_conflict) in
   Alcotest.(check int) "changed restoration creates content conflict" 1
     (List.length (content_conflicts ()));
   Imap_maildir.remove maildir wrong;
@@ -2158,13 +2160,13 @@ let test_deletion_grace_live () =
   Alcotest.(check int) "reactivated pair resumes flag reconciliation" 1
     present.flags_updated;
   Alcotest.(check bool) "local absence tombstone cleared" true
-    ((Option.get (Imap_store.Sync.find_pair store ~id:pair.id))
+    ((Option.get (Imap_store.Journal.find_pair store ~id:pair.id))
        .local_tombstone=None);
   Alcotest.(check int) "exact restoration resolves content conflict" 0
     (List.length (content_conflicts ()));
   Alcotest.(check (option int64)) "local presence recorded"
     (Some present.cursor.generation)
-    (Imap_store.Sync.last_presence_generation store ~pair_id:pair.id
+    (Imap_store.Journal.last_presence_generation store ~pair_id:pair.id
       ~side:`Local);
   Imap_maildir.remove maildir restored;
   let again=copy ~grace:1 ("grace-absent-again-" ^ nonce) in
@@ -2219,25 +2221,25 @@ let test_reject_unchanged_remote_delete () =
     | Error error -> Alcotest.failf "delete reject setup: %a"
         Imap_sync.Bridge.pp_error error in
   ignore (copy ("delete-reject-import-" ^ nonce));
-  let pair=match Imap_store.Sync.pairs store ~scope with
+  let pair=match Imap_store.Journal.pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
   let uid=Option.get pair.remote_uid in
   let local_id=Option.get pair.local_id in
   Imap_maildir.remove maildir
     (Option.get (Imap_maildir.find maildir ~id:local_id));
   ignore (copy ("delete-reject-absence-" ^ nonce));
-  let pair=Option.get (Imap_store.Sync.find_pair store ~id:pair.id) in
+  let pair=Option.get (Imap_store.Journal.find_pair store ~id:pair.id) in
   let operation_id="remote-delete-reject-" ^ nonce in
-  let operation:Imap_store.Sync.operation={
+  let operation:Imap_store.Journal.operation={
     id=operation_id;pair_id=Some pair.id;local_id=Some local_id;scope;
-    kind=Imap_store.Sync.Delete;state=Imap_store.Sync.Prepared;
+    kind=Imap_store.Journal.Delete;state=Imap_store.Journal.Prepared;
     source_uidvalidity=pair.remote_uidvalidity;source_uid=pair.remote_uid;
     destination=None;destination_uidvalidity=None;
     blob_sha256=pair.content_sha256;blob_length=pair.content_length;
     desired_flags=Some pair.common_flags;
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
-  Imap_store.Sync.prepare_operation store operation;
-  Imap_store.Sync.mark_sent store ~id:operation_id;
+  Imap_store.Journal.prepare_operation store operation;
+  Imap_store.Journal.mark_sent store ~id:operation_id;
   let reject ?(scope=scope) evidence =
     Imap_sync.Deletion.reject_unchanged_remote_delete ~client ~store
       ~maildir ~scope ~mailbox ~id:operation_id ~evidence
@@ -2257,8 +2259,8 @@ let test_reject_unchanged_remote_delete () =
        Imap_sync.Deletion.pp_error error
    | Ok () -> Alcotest.fail "changed flags rejected pending delete");
   Alcotest.(check bool) "changed remote target stays pending" true
-    ((Option.get (Imap_store.Sync.find_operation store
-      ~id:operation_id)).state=Imap_store.Sync.Sent);
+    ((Option.get (Imap_store.Journal.find_operation store
+      ~id:operation_id)).state=Imap_store.Journal.Sent);
   edit `Remove;
   let cli_args=[|"imap-sync";"reject-remote-delete";
     "--host";env "IMAP_DOVECOT_HOST";
@@ -2278,18 +2280,18 @@ let test_reject_unchanged_remote_delete () =
       ~random:(Eio.Stdenv.secure_random env_io)
       ~getenv:Sys.getenv_opt);
   Alcotest.(check bool) "unchanged remote intent rejected" true
-    ((Option.get (Imap_store.Sync.find_operation store
-      ~id:operation_id)).state=Imap_store.Sync.Rejected);
+    ((Option.get (Imap_store.Journal.find_operation store
+      ~id:operation_id)).state=Imap_store.Journal.Rejected);
   Alcotest.(check int64) "pair revision unchanged" pair.revision
-    (Option.get (Imap_store.Sync.find_pair store ~id:pair.id)).revision;
+    (Option.get (Imap_store.Journal.find_pair store ~id:pair.id)).revision;
   let remote=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
       Imap_eio.Selected.uid_search selected "ALL")) in
   Alcotest.(check (list int64)) "remote UID preserved"
     [Imap.Proto.Uid.to_int64 uid] remote;
   let finish_id="remote-delete-finish-" ^ nonce in
-  Imap_store.Sync.prepare_operation store {operation with id=finish_id};
-  Imap_store.Sync.mark_sent store ~id:finish_id;
+  Imap_store.Journal.prepare_operation store {operation with id=finish_id};
+  Imap_store.Journal.mark_sent store ~id:finish_id;
   let deleted=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted in
   let edit_deleted operation=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_write mailbox (fun selected ->
@@ -2306,8 +2308,8 @@ let test_reject_unchanged_remote_delete () =
        Imap_sync.Deletion.pp_error error
    | Ok _ -> Alcotest.fail "extra remote flag was expunged");
   Alcotest.(check bool) "refusal did not attest operation" true
-    ((Option.get (Imap_store.Sync.find_operation store
-      ~id:finish_id)).state=Imap_store.Sync.Sent);
+    ((Option.get (Imap_store.Journal.find_operation store
+      ~id:finish_id)).state=Imap_store.Journal.Sent);
   edit `Remove;
   let finish_args=Array.mapi (fun i value ->
     if i=1 then "finish-remote-delete"
@@ -2321,10 +2323,10 @@ let test_reject_unchanged_remote_delete () =
     (Imap_cli.run finish_config ~net:(Eio.Stdenv.net env_io) ~fs
       ~random:(Eio.Stdenv.secure_random env_io)
       ~getenv:Sys.getenv_opt);
-  let finished=Option.get (Imap_store.Sync.find_operation store
+  let finished=Option.get (Imap_store.Journal.find_operation store
     ~id:finish_id) in
   Alcotest.(check bool) "targeted EXPUNGE journal committed" true
-    (finished.state=Imap_store.Sync.Committed);
+    (finished.state=Imap_store.Journal.Committed);
   Alcotest.(check (option string)) "operator evidence in committed receipt"
     (Some "operator targeted UID EXPUNGE: operator verified marked target; UID FETCH absent")
     finished.receipt;
@@ -2333,9 +2335,9 @@ let test_reject_unchanged_remote_delete () =
       Imap_eio.Selected.uid_search selected "ALL")) in
   Alcotest.(check (list int64)) "targeted UID absent" [] remote;
   Alcotest.(check bool) "pair has expunge receipt" true
-    (match Imap_store.Sync.find_pair store ~id:pair.id with
+    (match Imap_store.Journal.find_pair store ~id:pair.id with
      | Some {remote_tombstone=Some
-         {reason=Imap_store.Sync.Expunge_receipt;_};_} -> true
+         {reason=Imap_store.Journal.Expunge_receipt;_};_} -> true
      | _ -> false)
 
 let test_bounded_hydration () =

@@ -106,7 +106,7 @@ let page_maildir m count =
 let prepare_journal db count =
   for i = 0 to count - 1 do
     let local_id = id i and pair_id = pair_id i in
-    let pair : S.Sync.pair = {
+    let pair : S.Journal.pair = {
       id=pair_id; scope; remote_uidvalidity=Some epoch;
       remote_uid=Some (uid (Int64.of_int (i + 1)));
       local_id=Some local_id; content_sha256=None; content_length=None;
@@ -114,10 +114,10 @@ let prepare_journal db count =
       common_flags=[]; remote_tombstone=None; local_tombstone=None;
       revision=0L;
     } in
-    (match S.Sync.put_pair db ~expected_revision:None pair with
+    (match S.Journal.put_pair db ~expected_revision:None pair with
      | `Committed _ -> ()
      | `Stale_revision -> fail "fresh pair %d was stale" i);
-    let operation : S.Sync.operation = {
+    let operation : S.Journal.operation = {
       id=Printf.sprintf "operation-%08d" i; pair_id=Some pair_id;
       local_id=Some local_id; scope; kind=Flags; state=Prepared;
       source_uidvalidity=Some epoch;
@@ -126,16 +126,16 @@ let prepare_journal db count =
       blob_sha256=None; blob_length=None; desired_flags=Some [];
       receipt=None; receipt_uidvalidity=None; receipt_uid=None;
     } in
-    S.Sync.prepare_operation db operation;
+    S.Journal.prepare_operation db operation;
     if i mod 13 = 0 then
-      S.Sync.reject_operation db ~id:operation.id ~receipt:"fixture terminal"
+      S.Journal.reject_operation db ~id:operation.id ~receipt:"fixture terminal"
   done
 
 let page_journal db count =
   let seen = ref 0 and after = ref None in
   let rec pairs () =
-    let page = S.Sync.pairs_page db ~scope ?after:!after ~limit:113 () in
-    List.iter (fun (pair:S.Sync.pair) ->
+    let page = S.Journal.pairs_page db ~scope ?after:!after ~limit:113 () in
+    List.iter (fun (pair:S.Journal.pair) ->
       if pair.id <> pair_id !seen then
         fail "pair page order mismatch at %d: %s" !seen pair.id;
       incr seen) page;
@@ -147,9 +147,9 @@ let page_journal db count =
   let seen = ref 0 and after = ref None in
   let expected = ref 0 in
   let rec operations () =
-    let page = S.Sync.active_operations_page db ~scope ?after:!after
+    let page = S.Journal.active_operations_page db ~scope ?after:!after
       ~limit:97 () in
-    List.iter (fun (op:S.Sync.operation) ->
+    List.iter (fun (op:S.Journal.operation) ->
       while !expected < count && !expected mod 13 = 0 do
         incr expected
       done;
@@ -165,7 +165,7 @@ let page_journal db count =
   let rejected = (count + 12) / 13 in
   Alcotest.(check int) "all and only active operations paged"
     (count - rejected) !seen;
-  let active = S.Sync.active_operation_for_pair db
+  let active = S.Journal.active_operation_for_pair db
     ~pair_id:(pair_id (count - 1)) in
   Alcotest.(check bool) "indexed pair operation"
     (count mod 13 <> 1) (Option.is_some active)

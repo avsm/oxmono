@@ -382,22 +382,22 @@ let test_targeted_inspect () =
     | Ok x -> x | Error e -> Alcotest.fail e in
   Eio.Switch.run (fun sw ->
     let store=Imap_store.open_path ~sw Eio.Path.(fs / filename) in
-    let make id scope : Imap_store.Sync.operation = {
+    let make id scope : Imap_store.Journal.operation = {
       id;pair_id=None;local_id=None;scope;kind=Flags;state=Prepared;
       source_uidvalidity=Some epoch;source_uid=Some uid;
       destination=None;destination_uidvalidity=None;
       blob_sha256=None;blob_length=None;desired_flags=Some [];
       receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
-    List.iter (fun id -> Imap_store.Sync.prepare_operation store
+    List.iter (fun id -> Imap_store.Journal.prepare_operation store
       (make id scope)) ["active";"committed";"rejected"];
-    Imap_store.Sync.prepare_operation store
+    Imap_store.Journal.prepare_operation store
       (make "foreign" {scope with account="other-account"});
-    Imap_store.Sync.mark_sent store ~id:"committed";
-    Imap_store.Sync.observe_operation store ~id:"committed"
+    Imap_store.Journal.mark_sent store ~id:"committed";
+    Imap_store.Journal.observe_operation store ~id:"committed"
       ~receipt:"verified" ~destination_uidvalidity:None
       ~destination_uid:None;
-    Imap_store.Sync.commit_operation store ~id:"committed";
-    Imap_store.Sync.reject_prepared_operation store ~id:"rejected"
+    Imap_store.Journal.commit_operation store ~id:"committed";
+    Imap_store.Journal.reject_prepared_operation store ~id:"rejected"
       ~receipt:"unsent");
   let inspect id =
     let config=parse ["inspect";"--db";filename;"--operation-id";id;
@@ -462,7 +462,7 @@ let test_mark_local_retention () =
     | Ok x -> x | Error e -> Alcotest.fail e in
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_path ~sw Eio.Path.(fs / database) in
-  let module J=Imap_store.Sync in
+  let module J=Imap_store.Journal in
   let pair:J.pair={id="pair-retained";scope;
     remote_uidvalidity=Some epoch;remote_uid=Some uid;
     local_id=Some "local-evicted";content_sha256=Some (String.make 64 'a');

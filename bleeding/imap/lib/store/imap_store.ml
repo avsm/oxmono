@@ -5,20 +5,7 @@ module P = Imap.Proto
 
 type t = Database.t
 type mailbox = { cursor : M.cursor; snapshot : M.snapshot option }
-type intent_kind = Operation_intent.intent_kind =
-  | Append of {
-      message_id : string; content_digest : string; spool_ref : string;
-      pre_send_uid_frontier : int64 option;
-      expected_length : int64 option;
-      expected_flags : Mail_flag.Imap_flag.t list option;
-      expected_internal_date : string option
-    }
-  | Other of string
-type intent_state = Operation_intent.intent_state = Prepared | Sent | Ambiguous | Confirmed | Rejected
-type intent = Operation_intent.intent = {
-  id : string; scope : M.scope; kind : intent_kind; state : intent_state;
-  uidvalidity : P.Uidvalidity.t option; uid : P.Uid.t option
-}
+include Operation_intent
 
 let open_readonly = Schema.open_readonly
 let open_path = Schema.open_path
@@ -383,11 +370,5 @@ let publish_stage t ~(cursor:M.cursor) ~(action:M.action)
       run t "DELETE FROM scan_stages WHERE id=?" [s action.id];
       `Committed {cursor=next;row_count}))
 
-let prepare_intent = Operation_intent.prepare_intent
-let set_intent_state = Operation_intent.set_intent_state
-let confirm_intent = Operation_intent.confirm_intent
-let pending_intents = Operation_intent.pending_intents
-let find_intent = Operation_intent.find_intent
-
-module Sync = Sync_journal
+module Journal = Sync_journal
 module Blob = Blob_store

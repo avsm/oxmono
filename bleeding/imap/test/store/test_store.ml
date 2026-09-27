@@ -57,7 +57,7 @@ let test_object_identity env =
         (Store.object_identity db ~scope=`Bound identity)))
 
 let test_flag_settlement_transaction env =
-  let module J=Store.Sync in
+  let module J=Store.Journal in
   let path=Filename.temp_file "imap-flag-settlement-" ".db" in
   let cleanup ()=List.iter (fun p -> try Sys.remove p with Sys_error _ -> ())
     [path;path^"-wal";path^"-shm"] in
@@ -277,8 +277,9 @@ let test_blobs env =
       Store.set_intent_state db ~id:"gc-pending-intent" Store.Sent;
       let pending_op=Store.Blob.put db ~source:(Eio.Flow.string_source "operation")
         ~length:9L () in
-      Store.Sync.prepare_operation db {id="gc-pending-operation";pair_id=None;
-        local_id=None;scope;kind=Store.Sync.Append;state=Store.Sync.Prepared;
+      Store.Journal.prepare_operation db {id="gc-pending-operation";
+        pair_id=None;local_id=None;scope;kind=Store.Journal.Append;
+        state=Store.Journal.Prepared;
         source_uidvalidity=None;source_uid=None;destination=Some scope;
         destination_uidvalidity=None;receipt_uidvalidity=None;receipt_uid=None;
         blob_sha256=Some pending_op.sha256;blob_length=Some 9L;
@@ -462,7 +463,7 @@ let test_schema_upgrade env ~from_version =
     Eio.Switch.run (fun sw ->
       let db=Store.open_path ~sw Eio.Path.(fs / path) in
       if List.mem from_version [5;7;8;9;10;11;12] then (
-        let module J=Store.Sync in
+        let module J=Store.Journal in
         let pair : J.pair = {
           id="legacy-pair";scope;remote_uidvalidity=Some (epoch 5L);
           remote_uid=Some (uid 1L);local_id=Some "legacy-local";
@@ -537,32 +538,32 @@ let test_schema_upgrade env ~from_version =
       let db=Store.open_readonly ~sw Eio.Path.(fs / path) in
       if from_version=12 then Alcotest.(check (option int64))
         "v12 has no presence witness table" None
-        (Store.Sync.last_presence_generation db ~pair_id:"legacy-pair"
+        (Store.Journal.last_presence_generation db ~pair_id:"legacy-pair"
           ~side:`Local);
       Alcotest.(check bool) "older pair readable before migration" true
-        (match Store.Sync.find_pair db ~id:"legacy-pair" with
+        (match Store.Journal.find_pair db ~id:"legacy-pair" with
          | Some pair -> pair.internal_date=None
          | None -> false);
       Alcotest.(check bool) "older source date is unknown" true
-        (Store.Sync.operation_source_date db ~id:"legacy-flags"=None)));
+        (Store.Journal.operation_source_date db ~id:"legacy-flags"=None)));
     Eio.Switch.run (fun sw ->
       let db=Store.open_path ~sw Eio.Path.(fs / path) in
       Alcotest.(check int64) "pre-blob cursor still loads" 0L
         (Store.load db ~scope).cursor.revision;
       if from_version>=8 then Alcotest.(check bool)
         "migrated pair retains unknown date" true
-        (match Store.Sync.find_pair db ~id:"legacy-pair" with
+        (match Store.Journal.find_pair db ~id:"legacy-pair" with
          | Some pair -> pair.internal_date=None
          | None -> false);
       if from_version=5 then (
-        let module J=Store.Sync in
+        let module J=Store.Journal in
         let pair=Option.get (J.find_pair db ~id:"legacy-pair") in
         Alcotest.(check bool) "v5 pending operation lacks safe precondition"
           true (J.commit_operation_with_pair db ~id:"legacy-flags"
             ~expected_pair_revision:(Some pair.revision)
             {pair with common_flags=[flag "\\Seen"]}=`Stale_revision));
       if from_version=7 then (
-        let module J=Store.Sync in
+        let module J=Store.Journal in
         Alcotest.(check bool) "v7 FLAGS preimage remains unknown" true
           (J.local_flags_preimage db ~id:"legacy-flags"=None);
         Alcotest.(check (option int64)) "v7 pair precondition retained"
@@ -715,7 +716,7 @@ let test_stage_blob_refs env =
   ()
 
 let test_sync_journal env =
-  let module J = Store.Sync in
+  let module J = Store.Journal in
   let path=Filename.temp_file "imap-sync-journal-" ".db" in
   let fs=Eio.Stdenv.fs env in
   let db_path=Eio.Path.(fs / path) in
@@ -1022,7 +1023,7 @@ let test_active_operation_pages env =
     Eio.Switch.run (fun sw ->
       let db=Store.open_path ~sw Eio.Path.(Eio.Stdenv.fs env / path) in
       let other={scope with account="bob"} in
-      let create ~scope id : Store.Sync.operation = {
+      let create ~scope id : Store.Journal.operation = {
         id;pair_id=None;local_id=None;scope;
         kind=Flags;state=Prepared;
         source_uidvalidity=Some (epoch 9L);source_uid=Some (uid 1L);
@@ -1032,23 +1033,23 @@ let test_active_operation_pages env =
       } in
       let ids=["z-prepared";"c-rejected";"e-ambiguous";
                "d-committed";"b-sent";"a-observed"] in
-      List.iter (fun id -> Store.Sync.prepare_operation db
+      List.iter (fun id -> Store.Journal.prepare_operation db
         (create ~scope id)) ids;
-      Store.Sync.prepare_operation db (create ~scope:other "f-other");
-      Store.Sync.mark_sent db ~id:"b-sent";
-      Store.Sync.mark_sent db ~id:"e-ambiguous";
-      Store.Sync.mark_ambiguous db ~id:"e-ambiguous";
-      Store.Sync.mark_sent db ~id:"a-observed";
-      Store.Sync.observe_operation db ~id:"a-observed" ~receipt:"verified"
+      Store.Journal.prepare_operation db (create ~scope:other "f-other");
+      Store.Journal.mark_sent db ~id:"b-sent";
+      Store.Journal.mark_sent db ~id:"e-ambiguous";
+      Store.Journal.mark_ambiguous db ~id:"e-ambiguous";
+      Store.Journal.mark_sent db ~id:"a-observed";
+      Store.Journal.observe_operation db ~id:"a-observed" ~receipt:"verified"
         ~destination_uidvalidity:None ~destination_uid:None;
-      Store.Sync.mark_sent db ~id:"d-committed";
-      Store.Sync.observe_operation db ~id:"d-committed" ~receipt:"verified"
+      Store.Journal.mark_sent db ~id:"d-committed";
+      Store.Journal.observe_operation db ~id:"d-committed" ~receipt:"verified"
         ~destination_uidvalidity:None ~destination_uid:None;
-      Store.Sync.commit_operation db ~id:"d-committed";
-      Store.Sync.reject_operation db ~id:"c-rejected" ~receipt:"not sent";
+      Store.Journal.commit_operation db ~id:"d-committed";
+      Store.Journal.reject_operation db ~id:"c-rejected" ~receipt:"not sent";
       let page ?after ~limit () =
-        Store.Sync.active_operations_page db ~scope ?after ~limit ()
-        |> List.map (fun (x:Store.Sync.operation) -> x.id) in
+        Store.Journal.active_operations_page db ~scope ?after ~limit ()
+        |> List.map (fun (x:Store.Journal.operation) -> x.id) in
       Alcotest.(check (list string)) "first ordered page"
         ["a-observed";"b-sent"] (page ~limit:2 ());
       Alcotest.(check (list string)) "terminal rows skipped"
@@ -1059,32 +1060,32 @@ let test_active_operation_pages env =
       Alcotest.(check (list string)) "all active states"
         ["a-observed";"b-sent";"e-ambiguous";"z-prepared"]
         (page ~limit:100 ());
-      Store.Sync.reject_operation db ~id:"e-ambiguous"
+      Store.Journal.reject_operation db ~id:"e-ambiguous"
         ~receipt:"reconciled";
       Alcotest.(check (list string)) "state transition between pages"
         ["z-prepared"] (page ~after:"b-sent" ~limit:2 ());
-      let pair : Store.Sync.pair = {
+      let pair : Store.Journal.pair = {
         id="paired-page";scope;remote_uidvalidity=Some (epoch 9L);
         remote_uid=Some (uid 1L);local_id=Some "local-page";
         content_sha256=None;content_length=None;internal_date=None;
         common_flags=[];
         remote_tombstone=None;local_tombstone=None;revision=0L;
       } in
-      (match Store.Sync.put_pair db ~expected_revision:None pair with
+      (match Store.Journal.put_pair db ~expected_revision:None pair with
        | `Committed _ -> () | `Stale_revision -> Alcotest.fail "pair stale");
       List.iter (fun id ->
-        Store.Sync.prepare_operation db
+        Store.Journal.prepare_operation db
           {(create ~scope id) with pair_id=Some pair.id;
             local_id=pair.local_id}) ["pair-z";"pair-a"];
       let active_pair () =
-        Store.Sync.active_operation_for_pair db ~pair_id:pair.id
-        |> Option.map (fun (x:Store.Sync.operation) -> x.id) in
+        Store.Journal.active_operation_for_pair db ~pair_id:pair.id
+        |> Option.map (fun (x:Store.Journal.operation) -> x.id) in
       Alcotest.(check (option string)) "first active pair operation"
         (Some "pair-a") (active_pair ());
-      Store.Sync.reject_operation db ~id:"pair-a" ~receipt:"resolved";
+      Store.Journal.reject_operation db ~id:"pair-a" ~receipt:"resolved";
       Alcotest.(check (option string)) "next active pair operation"
         (Some "pair-z") (active_pair ());
-      Store.Sync.reject_operation db ~id:"pair-z" ~receipt:"resolved";
+      Store.Journal.reject_operation db ~id:"pair-z" ~receipt:"resolved";
       Alcotest.(check (option string)) "no pending pair operation"
         None (active_pair ());
       List.iter (fun limit ->
@@ -1108,21 +1109,22 @@ let test_readonly_and_conflict_pages env =
       let db=Store.open_path ~sw Eio.Path.(fs / path) in
       for n=1 to 5 do
         let id=Printf.sprintf "%02d" n in
-        let pair : Store.Sync.pair = {
+        let pair : Store.Journal.pair = {
           id="pair-"^id;scope;remote_uidvalidity=None;remote_uid=None;
           local_id=Some ("local-"^id);content_sha256=None;
           content_length=None;internal_date=None;
           common_flags=[];remote_tombstone=None;
           local_tombstone=None;revision=0L} in
-        let pair=match Store.Sync.put_pair db ~expected_revision:None pair with
+        let pair=
+          match Store.Journal.put_pair db ~expected_revision:None pair with
           | `Committed pair -> pair
           | `Stale_revision -> Alcotest.fail "new pair stale" in
-        let conflict : Store.Sync.conflict = {
+        let conflict : Store.Journal.conflict = {
           id="conflict-"^id;pair_id=pair.id;kind=Identity_conflict;
           evidence="test";pair_revision=pair.revision;resolved=false} in
-        Store.Sync.record_conflict db conflict
+        Store.Journal.record_conflict db conflict
       done;
-      Store.Sync.resolve_conflict db ~id:"conflict-03");
+      Store.Journal.resolve_conflict db ~id:"conflict-03");
     let legacy_v7=Sqlite3.db_open path in
     List.iter (fun name ->
       Alcotest.(check bool) (name ^ " dropped") true
@@ -1132,8 +1134,8 @@ let test_readonly_and_conflict_pages env =
     let before=Digest.file path in
     Eio.Switch.run (fun sw ->
       let db=Store.open_readonly ~sw Eio.Path.(fs / path) in
-      let page ?after ()=Store.Sync.open_conflicts_page db ~scope ?after
-        ~limit:2 () |> List.map (fun (c:Store.Sync.conflict) -> c.id) in
+      let page ?after ()=Store.Journal.open_conflicts_page db ~scope ?after
+        ~limit:2 () |> List.map (fun (c:Store.Journal.conflict) -> c.id) in
       Alcotest.(check (list string)) "first conflict page"
         ["conflict-01";"conflict-02"] (page ());
       Alcotest.(check (list string)) "second conflict page skips resolved"
@@ -1142,10 +1144,10 @@ let test_readonly_and_conflict_pages env =
       Alcotest.(check (list string)) "last conflict page empty" []
         (page ~after:"conflict-05" ());
       List.iter (fun limit ->
-        try ignore (Store.Sync.open_conflicts_page db ~scope ~limit ());
+        try ignore (Store.Journal.open_conflicts_page db ~scope ~limit ());
           Alcotest.fail "bad conflict page limit accepted"
         with Invalid_argument _ -> ()) [0;10_001];
-      (try Store.Sync.resolve_conflict db ~id:"conflict-01";
+      (try Store.Journal.resolve_conflict db ~id:"conflict-01";
            Alcotest.fail "read-only connection accepted write"
        with Sqlite3.SqliteError _ | Sqlite3.Error _ -> ()));
     Alcotest.(check string) "database unchanged by inspection"

@@ -160,7 +160,7 @@ let last_presence_generation t ~pair_id ~side =
     | [] -> None
     | r :: _ -> Some (int r.(0)))
 let note_presence t ~pair ~side ~generation =
-  let who="Imap_store.Sync.note_presence" in
+  let who="Imap_store.Journal.note_presence" in
   if generation<0L then invalid_arg (who ^ ": negative generation");
   let remote=match side,pair.remote_uidvalidity,pair.remote_uid,
       pair.local_id with
@@ -204,7 +204,8 @@ let reactivate_local t ~pair ~generation =
           | Some (published,Some _,_) -> published=generation
           | _ -> false in
         if not allowed || not published then
-          invalid_arg "Imap_store.Sync.reactivate_local: unverified presence";
+          invalid_arg
+            "Imap_store.Journal.reactivate_local: unverified presence";
         run t "UPDATE sync_pairs SET local_tombstone_kind=NULL,\
           local_tombstone_evidence=NULL,local_tombstone_generation=NULL,\
           revision=? WHERE id=?" [i (Int64.succ pair.revision);s pair.id];
@@ -225,7 +226,7 @@ let pairs t ~scope =
   transaction ~begin_sql:"BEGIN" t (fun () ->
     scoped_pairs t scope " ORDER BY id" [])
 let pairs_page t ~scope ?after ~limit () =
-  check_limit "Imap_store.Sync.pairs_page" limit;
+  check_limit "Imap_store.Journal.pairs_page" limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
     scoped_pairs t scope (page_where ?after "") (page_values ?after [] limit))
 let check_inventory_tombstone t who x =
@@ -314,7 +315,7 @@ let put_pair_unlocked t ~who ~previous ~expected_revision x =
     `Committed next)
 let put_pair t ~expected_revision x =
   transaction t (fun () ->
-    put_pair_unlocked t ~who:"Imap_store.Sync.put_pair"
+    put_pair_unlocked t ~who:"Imap_store.Journal.put_pair"
       ~previous:(find_pair_unlocked t ~id:x.id) ~expected_revision x)
 
 type conflict_kind = Flag_conflict | Identity_conflict | Content_conflict
@@ -334,17 +335,17 @@ let dec_conflict_kind = function
   | _ -> fail "unknown sync conflict kind"
 let record_conflict t x =
   if x.id="" || x.evidence="" || x.resolved || x.pair_revision<0L then
-    invalid_arg "Imap_store.Sync.record_conflict: invalid conflict";
+    invalid_arg "Imap_store.Journal.record_conflict: invalid conflict";
   transaction t (fun () ->
     match find_pair_unlocked t ~id:x.pair_id with
     | Some pair when pair.revision=x.pair_revision ->
       run t "INSERT INTO sync_conflicts VALUES (?,?,?,?,?,0)"
         [s x.id;s x.pair_id;s (conflict_kind x.kind);s x.evidence;
          i x.pair_revision]
-    | _ -> invalid_arg "Imap_store.Sync.record_conflict: stale pair")
+    | _ -> invalid_arg "Imap_store.Journal.record_conflict: stale pair")
 let ensure_open_conflict t ~(pair:pair) ~kind ~id ~evidence =
   if id="" || evidence="" then
-    invalid_arg "Imap_store.Sync.ensure_open_conflict: empty ID/evidence";
+    invalid_arg "Imap_store.Journal.ensure_open_conflict: empty ID/evidence";
   transaction t (fun () ->
     match find_pair_unlocked t ~id:pair.id with
     | Some current when current=pair ->
@@ -383,7 +384,7 @@ let resolve_conflict t ~id =
     run t "UPDATE sync_conflicts SET resolved=1 WHERE id=? AND resolved=0"
       [s id];
     if changes t=0 then
-      invalid_arg "Imap_store.Sync.resolve_conflict: unknown or resolved")
+      invalid_arg "Imap_store.Journal.resolve_conflict: unknown or resolved")
 let decode_conflicts (scope:M.scope) rows =
   List.map (fun r ->
       if text r.(6)<>scope.raw_name || dec_enc (text r.(7))<>scope.encoding ||
@@ -403,7 +404,7 @@ let open_conflicts t ~(scope:M.scope) =
     decode_conflicts scope
       (rows t (conflicts_query ^ "ORDER BY c.id") (scope_key scope)))
 let open_conflicts_page t ~(scope:M.scope) ?after ~limit () =
-  check_limit "Imap_store.Sync.open_conflicts_page" limit;
+  check_limit "Imap_store.Journal.open_conflicts_page" limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
     let query=conflicts_query ^
       (match after with None -> "" | Some _ -> "AND c.id>? ") ^
@@ -446,7 +447,7 @@ let dec_operation_state = function
   | "observed" -> Observed | "committed" -> Committed
   | "rejected" -> Rejected | _ -> fail "unknown sync operation state"
 let validate_operation x =
-  let who="Imap_store.Sync.prepare_operation" in
+  let who="Imap_store.Journal.prepare_operation" in
   if x.id="" || x.state<>Prepared || x.receipt<>None ||
      x.receipt_uidvalidity<>None || x.receipt_uid<>None ||
      Option.is_some x.source_uidvalidity<>Option.is_some x.source_uid ||
@@ -489,7 +490,7 @@ let destination_columns = function
   | Some x -> scope_key x@[s x.raw_name;s (enc x.encoding);ns x.mailbox_id]
 let prepare_operation ?local_flags ?local_source_mtime
     ?source_internal_date t x =
-  let who="Imap_store.Sync.prepare_operation" in
+  let who="Imap_store.Journal.prepare_operation" in
   validate_operation x;
   (match local_flags with
    | None -> ()
@@ -635,7 +636,7 @@ let active_operations t ~scope =
     scoped_operations t ~order:"rid" scope
       (active_states ^ " ORDER BY rowid") [])
 let active_operations_page t ~scope ?after ~limit () =
-  check_limit "Imap_store.Sync.active_operations_page" limit;
+  check_limit "Imap_store.Journal.active_operations_page" limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
     scoped_operations t scope (page_where ?after active_states)
       (page_values ?after [] limit))
@@ -655,31 +656,31 @@ let transition t ~id ~allowed ~next ~receipt ~epoch ~uid =
         [s (operation_state next);ns receipt;
          ni (Option.map P.Uidvalidity.to_int64 epoch);
          ni (Option.map P.Uid.to_int64 uid);s id]
-    | _ -> invalid_arg "Imap_store.Sync: illegal operation transition")
+    | _ -> invalid_arg "Imap_store.Journal: illegal operation transition")
 let mark_sent t ~id =
   transition t ~id ~allowed:[Prepared] ~next:Sent ~receipt:None
     ~epoch:None ~uid:None
 let mark_ambiguous ?reason t ~id =
   Option.iter (fun reason ->
     if reason="" || String.length reason>4096 then
-      invalid_arg "Imap_store.Sync.mark_ambiguous: invalid reason") reason;
+      invalid_arg "Imap_store.Journal.mark_ambiguous: invalid reason") reason;
   transition t ~id ~allowed:[Prepared;Sent] ~next:Ambiguous
     ~receipt:reason ~epoch:None ~uid:None
 let reject_operation t ~id ~receipt =
   if receipt="" then
-    invalid_arg "Imap_store.Sync.reject_operation: empty receipt";
+    invalid_arg "Imap_store.Journal.reject_operation: empty receipt";
   transition t ~id ~allowed:[Prepared;Sent;Ambiguous;Observed]
     ~next:Rejected ~receipt:(Some receipt) ~epoch:None ~uid:None
 let reject_prepared_operation t ~id ~receipt =
   if receipt="" then
-    invalid_arg "Imap_store.Sync.reject_prepared_operation: empty receipt";
+    invalid_arg "Imap_store.Journal.reject_prepared_operation: empty receipt";
   transition t ~id ~allowed:[Prepared] ~next:Rejected
     ~receipt:(Some receipt) ~epoch:None ~uid:None
 let observe_operation t ~id ~receipt ~destination_uidvalidity
     ~destination_uid =
   if receipt="" ||
      (destination_uid<>None && destination_uidvalidity=None) then
-    invalid_arg "Imap_store.Sync.observe_operation: invalid receipt";
+    invalid_arg "Imap_store.Journal.observe_operation: invalid receipt";
   transition t ~id ~allowed:[Sent;Ambiguous] ~next:Observed
     ~receipt:(Some receipt) ~epoch:destination_uidvalidity
     ~uid:destination_uid
@@ -688,7 +689,7 @@ let commit_operation t ~id =
     match find_operation_unlocked t ~id with
     | Some x when x.state=Observed && x.pair_id=None ->
       run t "UPDATE sync_operations SET state='committed' WHERE id=?" [s id]
-    | _ -> invalid_arg "Imap_store.Sync.commit_operation: \
+    | _ -> invalid_arg "Imap_store.Journal.commit_operation: \
         operation is not unpaired and observed")
 let check_operation_pair who (x:operation) (pair:pair) =
   let remote_identity,scope = match x.kind with
@@ -720,7 +721,7 @@ let check_operation_pair who (x:operation) (pair:pair) =
     invalid_arg (who ^ ": pair contradicts operation evidence")
 
 let commit_operation_with_pair t ~id ~expected_pair_revision (pair:pair) =
-  let who="Imap_store.Sync.commit_operation_with_pair" in
+  let who="Imap_store.Journal.commit_operation_with_pair" in
   transaction t (fun () ->
     let x=match find_operation_unlocked t ~id with
       | Some x when x.state=Observed -> x
@@ -801,7 +802,7 @@ let verify_repair t ~id ~kind ~states (pair:pair) ~matches =
   | _ -> Error `Invalid_operation
 
 let settle_flag_operation t ~id (pair:pair) ~flags ~evidence =
-  let who="Imap_store.Sync.settle_flag_operation" in
+  let who="Imap_store.Journal.settle_flag_operation" in
   check_evidence who evidence;
   transaction t (fun () ->
     match verify_repair t ~id ~kind:Flags ~states:[Sent;Ambiguous;Observed]
@@ -833,7 +834,7 @@ let unchanged_delete_target (pair:pair) (op:operation) =
    | Some {reason=Local_absence;_} -> true | _ -> false)
 
 let reject_unchanged_delete_operation t ~id (pair:pair) ~evidence =
-  check_evidence "Imap_store.Sync.reject_unchanged_delete_operation"
+  check_evidence "Imap_store.Journal.reject_unchanged_delete_operation"
     evidence;
   transaction t (fun () ->
     match verify_repair t ~id ~kind:Delete ~states:[Sent;Ambiguous] pair
@@ -847,7 +848,7 @@ let reject_unchanged_delete_operation t ~id (pair:pair) ~evidence =
         `Rejected)
 
 let attest_targeted_expunge t ~id (pair:pair) ~evidence =
-  let who="Imap_store.Sync.attest_targeted_expunge" in
+  let who="Imap_store.Journal.attest_targeted_expunge" in
   check_evidence who evidence;
   transaction t (fun () ->
     match verify_repair t ~id ~kind:Delete ~states:[Sent;Ambiguous] pair

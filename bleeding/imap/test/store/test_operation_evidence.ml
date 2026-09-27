@@ -1,4 +1,4 @@
-module J = Imap_store.Sync
+module J = Imap_store.Journal
 module P = Imap.Proto
 let value = function Ok x -> x | Error _ -> failwith "invalid fixture"
 let uid n = value (P.Uid.of_int64 n)

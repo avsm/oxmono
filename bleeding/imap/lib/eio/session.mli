@@ -37,23 +37,27 @@ val create : ?max_metadata:int -> ?max_responses:int ->
   ?max_command_metadata:int -> Transport.flow -> t
 val close : t -> unit
 val check_open : t -> unit
+
 val has : t -> string -> bool
-(** [has t name] holds when the latest CAPABILITY response listed [name],
-    which must be uppercase. *)
+(** [has t name] holds when the latest CAPABILITY response listed the
+    uppercase [name]. *)
+
 val revision_two : t -> bool
-(** [revision_two t] holds when IMAP4rev2 is in effect. The server advertises
-    it and either omits IMAP4rev1 or accepted ENABLE IMAP4rev2. *)
+(** [revision_two t] holds when IMAP4rev2 is advertised and either IMAP4rev1
+    is not or ENABLE IMAP4rev2 succeeded. *)
+
 val mailbox_mode : t -> Imap.Mailbox_name.mode
+
 val mailbox_wire : t -> string -> string
-(** [mailbox_wire t name] encodes the UTF-8 mailbox [name] for the wire in
-    {!mailbox_mode}. It raises [Failure (State _)] for an invalid name. *)
+(** [mailbox_wire t name] encodes the UTF-8 [name] in {!mailbox_mode}, or
+    raises [Failure (State _)] for an invalid name. *)
+
 val read_response : ?on_literal:(string -> unit) ->
   ?on_literal_start:(int64 -> unit) -> t -> Imap.Wire.event list
-(** [read_response ?on_literal ?on_literal_start t] reads one response. With
-    [on_literal], the payload of each [BODY[...]] or [BINARY[...]] literal in
-    a FETCH response goes to [on_literal] after [on_literal_start] receives
-    its length, and is not returned. Every other literal is returned and
-    counts against the metadata limit. *)
+(** [read_response ?on_literal ?on_literal_start t] reads one response,
+    passing each FETCH [BODY[...]] or [BINARY[...]] literal to [on_literal]
+    after its length to [on_literal_start] instead of returning it. *)
+
 val parse : Imap.Wire.event list -> Imap.Response.t
 
 type command_result = {
@@ -69,18 +73,28 @@ val command : ?on_literal:(string -> unit) ->
   ?on_literal_start:(int64 -> unit) -> ?mutation:bool ->
   t -> string -> Imap.Response.t list
 val compress_deflate : t -> unit
-type append_part = { prefix : string; length : int64; read : Cstruct.t -> int; synchronizing : bool }
+
+type append_part = {
+  prefix : string;
+  length : int64;
+  read : Cstruct.t -> int;
+  synchronizing : bool;
+}
+
 val append_many : t -> append_part list -> Imap.Response.t
 val append : ?synchronizing:bool -> t -> prefix:string -> length:int64 ->
   _ Eio.Flow.source -> Imap.Response.t
 val idle_once : t -> Imap.Response.t list
+
 val io_failure : exn -> bool
 (** [io_failure ex] holds for [Eio.Io], [Unix.Unix_error], [End_of_file] and
     TLS alerts and failures. *)
+
 val protect : t -> (unit -> 'a) -> ('a, error) result
-(** [protect t f] is [Ok (f ())]. A [Failure e] becomes [Error e]. An
-    {!io_failure} closes [t] and becomes [Error (Transport _)]. Any other
-    exception closes [t] and is re-raised with its backtrace. *)
+(** [protect t f] is [Ok (f ())], maps [Failure e] to [Error e] and an
+    {!io_failure} to [Error (Transport _)], and closes [t] on any exception
+    other than [Failure], re-raising one that is not an {!io_failure}. *)
+
 val locked : t -> (unit -> 'a) -> ('a, error) result
 val authenticate_cram_md5 : t -> Auth.t -> unit
 val authenticate_initial : t -> mechanism:string -> encoded:string ->

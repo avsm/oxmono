@@ -1,6 +1,6 @@
 module M = Imap.Mirror
 module P = Imap.Proto
-module J = Imap_store.Sync
+module J = Imap_store.Journal
 
 let ok = function Ok x -> x | Error e -> Alcotest.fail e
 let uid n = ok (P.Uid.of_int64 n)
@@ -330,7 +330,7 @@ let test_flag_settlement_rejects_replaced_objectid () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  let module J=Imap_store.Sync in
+  let module J=Imap_store.Journal in
   let pair:J.pair={
     id="objectid-flags-pair";scope;
     remote_uidvalidity=Some (epoch 11L);remote_uid=Some (uid 1L);
@@ -372,7 +372,7 @@ let test_standalone_repairs_reject_replaced_objectid () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
-  let module J=Imap_store.Sync in
+  let module J=Imap_store.Journal in
   let digest=String.make 64 'a' in
   Alcotest.(check bool) "saved repair mailbox identity" true
     (Imap_store.observe_object_identity store ~scope

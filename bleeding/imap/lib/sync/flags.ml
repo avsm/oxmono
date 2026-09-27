@@ -1,4 +1,4 @@
-module J = Imap_store.Sync
+module J = Imap_store.Journal
 module P = Imap.Proto
 module F = Mail_flag.Imap_flag
 

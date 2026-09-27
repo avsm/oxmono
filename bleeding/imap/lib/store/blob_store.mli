@@ -1,99 +1,59 @@
-(** Content-addressed message files and snapshot references. *)
+(** Content-addressed message files and their snapshot references,
+    documented in [Imap_store.Blob]. *)
 
 type t = Database.t
 
 type blob = private { sha256 : string; length : int64 }
+
 exception Digest_mismatch
 
 val put : t -> source:_ Eio.Flow.source -> length:int64 ->
   ?expected_sha256:string -> unit -> blob
-(** Read exactly [length] octets into a unique temporary file while hashing
-    them with SHA-256. [expected_sha256], if set, must match or
-    [Digest_mismatch] is raised and the temporary file is removed. The file
-    is then synced, renamed to the content-addressed name and the containing
-    directory synced. Requires [blob_dir]. Does not consume bytes beyond
-    [length]. A negative [length] or an [expected_sha256] that is not 64
-    lowercase hexadecimal digits raises [Invalid_argument]. I/O failures
-    raise [Eio.Io]. A failed operation never creates a DB reference, but may
-    leave an orphan file. *)
+(** [put t ~source ~length ()] durably stores exactly [length] octets from
+    [source] under their SHA-256 digest, raising [Digest_mismatch] when
+    [expected_sha256] differs. *)
 
 val verify : t -> blob -> bool
-(** Rehash the complete file and check its length. Missing or non-regular
-    files return [false]; other I/O failures propagate. Requires [blob_dir]. *)
+(** [verify t blob] holds when the file still has the length and digest of
+    [blob]. *)
 
 val open_in : t -> sw:Eio.Switch.t -> blob -> Eio.File.ro_ty Eio.Resource.t
-(** Open exact blob bytes for reading. Call [verify] if corruption detection
-    is required; opening alone does not rehash the file. *)
-
 val attach : ?verify:bool -> t -> scope:Imap.Mirror.scope ->
   uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
   blob -> unit
-(** Atomically reference [blob] from an existing message in the current
-    mailbox epoch. With [verify], which defaults to [true], the blob is
-    first rehashed as by {!verify} and a missing or corrupt file raises
-    [Invalid_argument]. Pass [~verify:false] only for a blob just returned
-    by {!put}. An unknown UID or mismatched scope/epoch raises
-    [Invalid_argument]. Replacing a reference is atomic. *)
+(** [attach ?verify t ~scope ~uidvalidity ~uid blob] references [blob] from a
+    message of the current epoch, rehashing it first when [verify] is [true],
+    the default. *)
 
 val find : t -> scope:Imap.Mirror.scope ->
   uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
   blob option
-
 val missing_page : t -> scope:Imap.Mirror.scope ->
   cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Proto.Uid.t ->
   limit:int -> unit ->
   [ `Uids of Imap.Proto.Uid.t list | `Stale_revision ]
-(** Indexed UID page from the current published snapshot whose messages
-    have no blob reference. The cursor's revision, UIDVALIDITY and full
-    scope are checked in the same read transaction. [limit] is 1..10,000.
-    A new mailbox yields an empty page. Continue strictly after the last
-    returned UID; a concurrent blob attachment can shrink later pages. *)
-
 val referenced_page : t -> scope:Imap.Mirror.scope ->
   cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Proto.Uid.t ->
   limit:int -> unit ->
   [ `Refs of (Imap.Proto.Uid.t * blob) list | `Stale_revision ]
-(** Indexed UID page of blob references still present in the published
-    snapshot. Checks the cursor revision, epoch and full scope in one read
-    transaction. [limit] is 1..10,000. Page strictly after the last UID. *)
-
 val detach_if_matches : t -> scope:Imap.Mirror.scope ->
   cursor:Imap.Mirror.cursor -> uid:Imap.Proto.Uid.t -> blob ->
   [ `Detached | `Unchanged | `Stale_revision ]
-(** Remove a corrupt or missing cache reference only if the published
-    cursor and exact reference still match. Does not unlink blob files.
-    A changed reference returns [Unchanged]; a new snapshot revision or
-    epoch returns [Stale_revision]. *)
+(** [detach_if_matches t ~scope ~cursor ~uid blob] removes the reference only
+    while the cursor and the reference still match, and never unlinks a file. *)
 
 val iter_orphan_candidates : t -> (string -> unit) -> unit
-(** [iter_orphan_candidates t f] visits unreferenced final blobs and temporary
-    files in unspecified order. It keeps at most 256 directory names in memory
-    and checks references using indexed database lookups. The callback runs
-    without a database lock; exceptions and cancellation close the directory.
-    All blob writers, including other processes, must remain quiescent until
-    iteration finishes. The callback must not create files or references.
-    References from every retained UIDVALIDITY epoch keep their blobs, so a
-    quarantined epoch's blobs become candidates only after
-    [Imap_store.forget_epochs] drops it. Directory I/O failures raise
-    [Eio.Io]. *)
+(** [iter_orphan_candidates t f] visits unreferenced blobs and temporary files,
+    and requires every blob writer to be quiescent. *)
 
 val reap_orphans_iter : t -> removed:(string -> unit) -> unit
-(** [reap_orphans_iter t ~removed] removes orphan candidates with bounded
-    inventory memory. [removed name] runs after unlinking each candidate.
-    The directory is synced on return, exception or cancellation if any unlink
-    was attempted. A failed sync after an exception or cancellation does not
-    replace it. Callbacks precede this sync and do not prove durability.
-    The same writer-quiescence requirement as [iter_orphan_candidates] applies. *)
+(** [reap_orphans_iter t ~removed] unlinks every orphan candidate under the same
+    quiescence rule as {!iter_orphan_candidates}. *)
 
 val orphan_candidates : t -> string list
-(** Names of final blobs unreferenced by snapshots or pending journals, and temporary files. Call only while
-    no writer is active; this is a non-destructive recovery inventory.
-    A file can become referenced immediately after this call.
-    This convenience wrapper collects and sorts all names in memory. *)
+(** [orphan_candidates t] is the sorted list that {!iter_orphan_candidates}
+    visits. *)
 
 val reap_orphans : t -> string list
-(** Remove orphan candidates and sync the directory, returning removed
-    names. Call at startup while all blob writers are quiescent, including
-    writers in other processes. Never call concurrently with [put]/[attach].
-    A crash during reaping leaves candidates for the next startup.
-    This convenience wrapper collects and sorts all removed names in memory. *)
+(** [reap_orphans t] is the sorted list of names that {!reap_orphans_iter}
+    removed. *)

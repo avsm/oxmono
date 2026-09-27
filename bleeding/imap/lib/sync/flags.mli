@@ -22,7 +22,7 @@ type error =
 
 val pp_error : Format.formatter -> error -> unit
 
-type outcome = Unchanged | Updated of Imap_store.Sync.pair
+type outcome = Unchanged | Updated of Imap_store.Journal.pair
 
 type plan = No_change | Apply of Mail_flag.Imap_flag.t list
 
@@ -72,7 +72,7 @@ val reconcile_pair :
   ?propagate_deleted:bool -> ?inventory:Imap_maildir.paged_inventory ->
   client:Imap_eio.Client.t ->
   store:Imap_store.t -> maildir:Imap_maildir.t -> mailbox:string ->
-  pair:Imap_store.Sync.pair -> next_id:(unit -> string) ->
+  pair:Imap_store.Journal.pair -> next_id:(unit -> string) ->
   unit -> (reconciled, error) result
 (** [reconcile_pair ~client ~store ~maildir ~mailbox ~pair ~next_id ()]
     fetches the current UID FLAGS and MODSEQ and the Maildir flags, merges
@@ -105,7 +105,7 @@ val recover_operation :
   ?inventory:Imap_maildir.paged_inventory ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   maildir:Imap_maildir.t -> mailbox:string ->
-  operation:Imap_store.Sync.operation -> unit ->
+  operation:Imap_store.Journal.operation -> unit ->
   (outcome, error) result
 (** [recover_operation ~client ~store ~maildir ~mailbox ~operation ()] verifies
     the saved pair revision, UIDVALIDITY, remote target and paired local body

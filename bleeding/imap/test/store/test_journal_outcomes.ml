@@ -1,7 +1,7 @@
 (* Directed checks for journal outcomes: flag-set equality, stale pairs in
    operator repairs, tombstone replacement, caller errors and the indexed
    open-conflict page. *)
-module J = Imap_store.Sync
+module J = Imap_store.Journal
 module P = Imap.Proto
 
 let value = function Ok x -> x | Error _ -> failwith "invalid fixture"
@@ -60,7 +60,7 @@ let delete_repairs db =
   let unflagged=delete p "delete-unflagged" None in
   J.prepare_operation db unflagged;
   J.mark_ambiguous db ~id:unflagged.id ~reason:(String.make 4000 'r');
-  raises_from "Imap_store.Sync.attest_targeted_expunge" (fun () ->
+  raises_from "Imap_store.Journal.attest_targeted_expunge" (fun () ->
     J.attest_targeted_expunge db ~id:unflagged.id p
       ~evidence:(String.make 200 'e'));
   check ((Option.get (J.find_operation db ~id:unflagged.id)).receipt
@@ -81,7 +81,7 @@ let settle_messages db =
     with kind=Flags} in
   J.prepare_operation ~local_flags:p.common_flags db op;
   J.mark_sent db ~id:op.id;
-  raises_from "Imap_store.Sync.settle_flag_operation" (fun () ->
+  raises_from "Imap_store.Journal.settle_flag_operation" (fun () ->
     J.settle_flag_operation db ~id:op.id p ~flags:[flag "\\Recent"]
       ~evidence:"verified")
 
@@ -91,11 +91,11 @@ let tombstones db =
       {reason=Retention; evidence="policy"; generation=None}}) in
   let put candidate=J.put_pair db ~expected_revision:(Some p.revision)
     candidate in
-  raises_from "Imap_store.Sync.put_pair" (fun () ->
+  raises_from "Imap_store.Journal.put_pair" (fun () ->
     put {p with local_tombstone=Some absence});
-  raises_from "Imap_store.Sync.put_pair" (fun () ->
+  raises_from "Imap_store.Journal.put_pair" (fun () ->
     put {p with local_tombstone=None});
-  raises_from "Imap_store.Sync.put_pair" (fun () ->
+  raises_from "Imap_store.Journal.put_pair" (fun () ->
     put {p with scope={scope with raw_name="Renamed"}});
   let p=committed (put {p with local_tombstone=Some
     {reason=Explicit_delete; evidence="operator"; generation=None}}) in
@@ -110,7 +110,7 @@ let caller_errors db =
     remote_uidvalidity=None; remote_uid=None} in
   let local_only=committed (J.put_pair db ~expected_revision:None
     local_only) in
-  raises_from "Imap_store.Sync.note_presence" (fun () ->
+  raises_from "Imap_store.Journal.note_presence" (fun () ->
     J.note_presence db ~pair:local_only ~side:`Remote ~generation:0L);
   let p=committed (J.put_pair db ~expected_revision:None (pair "commit")) in
   let op : J.operation = {(delete p "commit-op" (Some p.common_flags))
@@ -119,7 +119,7 @@ let caller_errors db =
   J.mark_sent db ~id:op.id;
   J.observe_operation db ~id:op.id ~receipt:"seen"
     ~destination_uidvalidity:None ~destination_uid:None;
-  raises_from "Imap_store.Sync.commit_operation_with_pair" (fun () ->
+  raises_from "Imap_store.Journal.commit_operation_with_pair" (fun () ->
     J.commit_operation_with_pair db ~id:op.id ~expected_pair_revision:None p);
   let keyword={p with common_flags=[flag "\\seen"; flag "\\FLAGGED";
     flag "CUSTOM"]} in

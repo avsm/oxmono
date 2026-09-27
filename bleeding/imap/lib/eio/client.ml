@@ -163,13 +163,12 @@ let start ~sw ?auth ?endpoint flow =
     Ok {session; objectid_pins=[]; release}
   with
   | Session.Failure e -> Session.close session; Error e
-  | Eio.Cancel.Cancelled _ as ex ->
+  | ex ->
       let bt = Printexc.get_raw_backtrace () in
       Session.close session;
-      Printexc.raise_with_backtrace ex bt
-  | ex ->
-      Session.close session;
-      Error (Session.Transport (Printexc.to_string ex))
+      if Session.io_failure ex then
+        Error (Session.Transport (Printexc.to_string ex))
+      else Printexc.raise_with_backtrace ex bt
 
 let connect ~sw ?auth transport =
   match Transport.connect ~sw transport with

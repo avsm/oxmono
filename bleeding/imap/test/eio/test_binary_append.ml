@@ -106,7 +106,7 @@ let test_rejection () =
 
 let test_source_failures () =
   with_client [`Return "+ ready\r\n"] (fun client transport ->
-    expect "truncated source is uncertain" uncertain
+    expect "truncated source is a known failure" state
       (C.append_binary_flow client ~mailbox:"INBOX" ~length:3L (Eio.Flow.string_source "a"));
     if C.is_open client || not transport.closed then failwith "truncated APPEND stayed open";
     if Buffer.contents transport.written<>"A00000004 APPEND INBOX ~{3}\r\na" then
@@ -114,7 +114,7 @@ let test_source_failures () =
   with_client [`Return "+ ready\r\n"] (fun client transport ->
     let source=Eio_mock.Flow.make "failed-binary-source" in
     Eio_mock.Flow.on_read source [`Raise (Failure "synthetic source failure")];
-    expect "source exception is uncertain" uncertain
+    expect "source exception is a known failure" state
       (C.append_binary_flow client ~mailbox:"INBOX" ~length:3L source);
     if C.is_open client || not transport.closed then failwith "failed source stayed open";
     if Buffer.contents transport.written<>"A00000004 APPEND INBOX ~{3}\r\n" then

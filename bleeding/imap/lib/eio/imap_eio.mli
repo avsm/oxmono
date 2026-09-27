@@ -517,10 +517,11 @@ module Client : sig
       client from inside [callback] wait for that lease and therefore must be
       avoided. The selected handle becomes stale when [callback] returns. A
       normal exit sends UNSELECT where negotiated, otherwise closes safely; an
-      exceptional exit closes the connection. If UNSELECT fails, the connection
-      closes and the callback's result is still returned. Selected commands
-      are serialized. Join their fibers before returning. An escaped in-flight
-      command closes the connection at lease exit. Mailbox arguments are UTF-8.
+      exceptional exit closes the connection and re-raises. If UNSELECT fails,
+      the connection closes and the callback's result is still returned.
+      Selected commands are serialized. Join their fibers before returning. An
+      escaped in-flight command closes the connection at lease exit. Mailbox
+      arguments are UTF-8.
       [qresync] is a saved UIDVALIDITY and completed MODSEQ checkpoint, and is
       accepted only when QRESYNC was successfully enabled. [objectid] is the
       draft [(account_id, mailbox_id)] identity of the intended mailbox. The
@@ -530,9 +531,11 @@ module Client : sig
   val append_flow : t -> mailbox:string -> ?flags:string list ->
     ?internal_date:Imap.Internal_date.t ->
     length:int64 -> _ Eio.Flow.source -> (unit, error) result
-  (** Sends exactly [length] octets. After any APPEND command byte is written,
-      an I/O failure returns [Error.Uncertain]; the caller must reconcile before
-      retrying. The client never replays APPEND automatically. *)
+  (** Sends exactly [length] octets. Once the final CRLF is sent, any failure
+      other than a tagged rejection returns [Error.Uncertain], and the caller
+      must reconcile before retrying. An earlier failure keeps its own kind,
+      since the server cannot have run the command, and closes the connection
+      if bytes were sent. The client never replays APPEND automatically. *)
   type append_receipt = {
     uidvalidity : Imap.Proto.Uidvalidity.t;
     uid : Imap.Proto.Uid.t;

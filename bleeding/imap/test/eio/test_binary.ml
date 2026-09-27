@@ -98,8 +98,13 @@ let test_metadata_mismatch () =
      "* 1 FETCH (UID 7 BINARY[2] ~{0}\r\n BINARY[3] ~{0}\r\n)\r\n";
      "* 1 FETCH (UID 7 BINARY[2] NIL BODY[] {0}\r\n)\r\n";
      "* 1 FETCH (UID 7 BINARY[2] \"abc\" BINARY[3] NIL)\r\n";
-     "* 1 FETCH (UID 7 UID 8 BINARY[2] \"abc\")\r\n";
-     "* LIST () \"/\" {0}\r\n\r\n* 1 FETCH (UID 7 BINARY[2] \"abc\")\r\n"];
+     "* 1 FETCH (UID 7 UID 8 BINARY[2] \"abc\")\r\n"];
+  let sink=Buffer.create 8 in
+  let result=ok (scripted ~reply:(fun n -> [`Return (
+    "* LIST () \"/\" {5}\r\nINBOX\r\n* 1 FETCH (UID 7 BINARY[2] \"abc\")\r\n" ^
+    done_ n)]) (fun selected -> fetch selected (Eio.Flow.buffer_sink sink))) in
+  if result<>Some 3L || Buffer.contents sink<>"abc" then
+    failwith "unsolicited LIST literal was taken for the body";
   expect "payload missing UID" missing
     (scripted ~reply:(fun n -> [`Return ("* 1 FETCH (BINARY[2] \"abc\")\r\n" ^ done_ n)])
       (fun selected -> fetch selected (Eio.Flow.buffer_sink (Buffer.create 8))));

@@ -11,7 +11,7 @@ type error = Error.t =
   | Uncertain of string
 
 type t = {
-  mutable flow : Transport.flow;
+  flow : Transport.flow;
   mutable wire : Imap.Wire.t;
   mutable queued : Imap.Wire.event list;
   mutex : Eio.Mutex.t;
@@ -48,8 +48,12 @@ val mailbox_wire : t -> string -> string
 (** [mailbox_wire t name] encodes the UTF-8 mailbox [name] for the wire in
     {!mailbox_mode}. It raises [Failure (State _)] for an invalid name. *)
 val read_response : ?on_literal:(string -> unit) ->
-  ?on_literal_start:(int64 -> unit) -> ?collect_literals:bool ->
-  t -> Imap.Wire.event list
+  ?on_literal_start:(int64 -> unit) -> t -> Imap.Wire.event list
+(** [read_response ?on_literal ?on_literal_start t] reads one response. With
+    [on_literal], the payload of each [BODY[...]] or [BINARY[...]] literal in
+    a FETCH response goes to [on_literal] after [on_literal_start] receives
+    its length, and is not returned. Every other literal is returned and
+    counts against the metadata limit. *)
 val parse : Imap.Wire.event list -> Imap.Response.t
 
 type command_result = {
@@ -74,9 +78,10 @@ val io_failure : exn -> bool
 (** [io_failure ex] holds for [Eio.Io], [Unix.Unix_error], [End_of_file] and
     TLS alerts and failures. *)
 val protect : t -> (unit -> 'a) -> ('a, error) result
+(** [protect t f] is [Ok (f ())]. A [Failure e] becomes [Error e]. An
+    {!io_failure} closes [t] and becomes [Error (Transport _)]. Any other
+    exception closes [t] and is re-raised with its backtrace. *)
 val locked : t -> (unit -> 'a) -> ('a, error) result
-val authentication_rejected : tag:string -> status:[ `No | `Bad ] ->
-  code:Imap.Response.code option -> exn
 val authenticate_cram_md5 : t -> Auth.t -> unit
 val authenticate_initial : t -> mechanism:string -> encoded:string ->
   sasl_ir:bool -> oauthbearer:bool -> unit

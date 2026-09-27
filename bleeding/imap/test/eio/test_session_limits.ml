@@ -29,20 +29,26 @@ let test_idle_count () =
   ] (fun session ->
     expect_limit session (fun () -> Session.idle_once session))
 
+(* A budget exceeded before the final CRLF leaves the APPEND unexecuted, so
+   the limit is reported as such. After the final CRLF the outcome is
+   unknown. *)
 let test_append_budget () =
-  List.iter (fun (max_responses,replies) ->
+  let limit = function Imap_eio_core.Error.Limit _ -> true | _ -> false in
+  let uncertain = function
+    | Imap_eio_core.Error.Uncertain _ -> true | _ -> false in
+  List.iter (fun (max_responses,replies,expected) ->
     with_session ~max_responses replies (fun session ->
       match Session.protect session (fun () ->
         Session.append session ~prefix:"APPEND INBOX {0}\r\n" ~length:0L
           (Eio.Flow.string_source "")) with
-      | Error (Imap_eio_core.Error.Uncertain _) when session.closed -> ()
-      | _ -> failwith "APPEND continuation exceeded budget without closing"))
-    [8,[notice;notice;"+ go\r\n";"A00000001 OK appended\r\n"];
-     8,[notice;"+ go\r\n";notice;"A00000001 OK appended\r\n"];
+      | Error e when expected e && session.closed -> ()
+      | _ -> failwith "APPEND exceeded budget without the right error or close"))
+    [8,[notice;notice;"+ go\r\n";"A00000001 OK appended\r\n"],limit;
+     8,[notice;"+ go\r\n";notice;"A00000001 OK appended\r\n"],uncertain;
      1,["* OK notice\r\n";"* OK notice\r\n";"+ go\r\n";
-        "A00000001 OK appended\r\n"];
+        "A00000001 OK appended\r\n"],limit;
      1,["* OK notice\r\n";"+ go\r\n";"* OK notice\r\n";
-        "A00000001 OK appended\r\n"]]
+        "A00000001 OK appended\r\n"],uncertain]
 
 let test_idle_control_literal () =
   with_session ["+ idle\r\n"; "* LIST () \"/\" {5}\r\nINBOX\r\n";
@@ -61,7 +67,7 @@ let test_multiappend_budget () =
         read=Eio.Flow.single_read (Eio.Flow.string_source "a")} in
       match Session.protect session (fun () -> Session.append_many session
         [part "APPEND INBOX {1}\r\n";part " {1}\r\n"]) with
-      | Error (Imap_eio_core.Error.Uncertain _) when session.closed -> ()
+      | Error (Imap_eio_core.Error.Limit _) when session.closed -> ()
       | _ -> failwith "MULTIAPPEND reset response budget between literals")
 
 let test_logout_budget () =

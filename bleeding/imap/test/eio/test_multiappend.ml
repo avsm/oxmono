@@ -95,9 +95,10 @@ let test_uncertain () =
     (fun client _ -> expect "lost completion" uncertain
       (C.append_messages client ~mailbox:"INBOX" [message "a";message "b"]));
   with_client [`Return "+ first\r\n";`Return "+ second\r\n"]
-    (fun client _ -> expect "short second source" uncertain
+    (fun client _ -> expect "short second source" state
       (C.append_messages client ~mailbox:"INBOX"
-        [message "a";C.append_message ~length:5L (Eio.Flow.string_source "x")]))
+        [message "a";C.append_message ~length:5L (Eio.Flow.string_source "x")]);
+      if C.is_open client then failwith "short second source kept session open")
 let test_extra_continuation () =
   with_client [`Return "+ first\r\n";`Return "+ second\r\n";
     `Return "+ unexpected\r\nA00000004 OK [APPENDUID 11 1:2] done\r\n"]

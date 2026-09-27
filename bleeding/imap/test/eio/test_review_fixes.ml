@@ -45,8 +45,8 @@ let test_selection_reset_after_exception () =
     (fun client ->
       (match C.with_mailbox client ~mode:`Read_only "INBOX"
          (fun _ -> failwith "callback bug") with
-       | exception Failure _ -> ()
-       | _ -> ());
+       | exception Failure message when message = "callback bug" -> ()
+       | _ -> failwith "callback exception was relabelled");
       expect "stale selection after callback exception" closed
         (C.enable_objectid_plus client))
 
@@ -84,6 +84,92 @@ let test_status_item_gating () =
       ignore (ok (C.status client ~mailbox:"INBOX"
         ~items:Imap.Command.[Size; Deleted])))
 
+module Session = Imap_eio_core.Session
+module Core_error = Imap_eio_core.Error
+
+let with_session replies f =
+  Eio_mock.Backend.run @@ fun () ->
+  let flow = Eio_mock.Flow.make "review-session" in
+  Eio_mock.Flow.on_read flow (List.map (fun s -> `Return s) replies);
+  f (Session.create (Imap_eio_core.Transport.of_flow flow))
+
+let test_unsent_command_is_known () =
+  with_session [] (fun session ->
+    match Session.protect session (fun () ->
+      Session.command ~mutation:true session (String.make 70_000 'x')) with
+    | Error (Core_error.Limit _) when not session.closed -> ()
+    | _ -> failwith "an unsent mutation was not a plain limit")
+
+let test_sent_mutation_keeps_cause () =
+  with_session ["* BYE shutting down\r\n"] (fun session ->
+    match Session.protect session (fun () ->
+      Session.command ~mutation:true session "CREATE x") with
+    | Error (Core_error.Uncertain text) when session.closed &&
+        String.ends_with ~suffix:"server BYE: shutting down" text -> ()
+    | _ -> failwith "sent mutation lost its cause or stayed open")
+
+let test_append_known_failures () =
+  List.iter (fun (replies, expected) ->
+    with_session replies (fun session ->
+      match Session.protect session (fun () ->
+        Session.append session ~prefix:"APPEND INBOX {1}\r\n" ~length:1L
+          (Eio.Flow.string_source "x")) with
+      | Error e when expected e && session.closed -> ()
+      | _ -> failwith "APPEND before its final CRLF was not a known failure"))
+    [["* BYE going away\r\n"],
+     (function Core_error.Protocol "server BYE: going away" -> true
+      | _ -> false);
+     ["A00000001 OK early\r\n"],
+     (function Core_error.Protocol "expected APPEND continuation" -> true
+      | _ -> false)]
+
+let test_protect_reraises () =
+  with_session [] (fun session ->
+    match Session.protect session (fun () -> invalid_arg "bug") with
+    | exception Invalid_argument message when message = "bug" ->
+        if not session.closed then failwith "protect left a failed session open"
+    | _ -> failwith "protect relabelled a programming error")
+
+let test_idle_rejection_keeps_session () =
+  with_session ["A00000001 NO [UNAVAILABLE] later\r\n"] (fun session ->
+    match Session.protect session (fun () -> Session.idle_once session) with
+    | Error (Core_error.Rejected _) when not session.closed -> ()
+    | _ -> failwith "IDLE rejection closed the session")
+
+let test_preview_limit_leading_zeros () =
+  with_session ["* 1 FETCH (UID 1 PREVIEW {0002000}\r\n"] (fun session ->
+    match Session.protect session (fun () ->
+      Session.command session "UID FETCH 1 (UID PREVIEW)") with
+    | Error (Core_error.Limit _) -> ()
+    | _ -> failwith "zero-padded PREVIEW literal bypassed its limit")
+
+let test_control_literals_bypass_sink () =
+  let envelope = "ENVELOPE (\"d\" {3}\r\nsub NIL NIL NIL NIL NIL NIL NIL NIL)" in
+  with_session [
+    "* LIST () \"/\" {5}\r\nINBOX\r\n";
+    "* 1 FETCH (UID 1 PREVIEW {5}\r\nhello BODY[] {3}\r\nabc " ^
+      envelope ^ ")\r\n";
+    "A00000001 OK done\r\n"] (fun session ->
+    let sink = Buffer.create 8 and starts = ref [] in
+    let responses = match Session.protect session (fun () ->
+      Session.command session "UID FETCH 1 (UID PREVIEW BODY.PEEK[] ENVELOPE)"
+        ~on_literal:(fun chunk -> Buffer.add_string sink chunk)
+        ~on_literal_start:(fun n -> starts := n :: !starts)) with
+      | Ok responses -> responses
+      | Error e -> failwith (Core_error.to_string e) in
+    if Buffer.contents sink <> "abc" || !starts <> [3L] then
+      failwith "a control literal reached the body sink";
+    match responses with
+    | [Imap.Response.Untagged (Imap.Response.List list);
+       Imap.Response.Untagged (Imap.Response.Fetch row)] ->
+        if list.mailbox <> "INBOX" then failwith "LIST literal lost";
+        if row.preview <> Some (Some "hello") then failwith "PREVIEW lost";
+        if row.literals <> ["BODY[]", 3L] then failwith "body marker lost";
+        (match Imap.Response.fetch_envelope row with
+         | Ok (Some {subject = Some "sub"; _}) -> ()
+         | _ -> failwith "ENVELOPE literal lost")
+    | _ -> failwith "responses were not parsed")
+
 let connect_and_close ~sw collected =
   let flow = Eio_mock.Flow.make "released" in
   Eio_mock.Flow.on_read flow [`Return "* PREAUTH ready\r\n";
@@ -106,4 +192,11 @@ let () =
   test_selection_reset_after_exception ();
   test_enable_gating ();
   test_status_item_gating ();
-  test_close_releases_switch_hook ()
+  test_close_releases_switch_hook ();
+  test_unsent_command_is_known ();
+  test_sent_mutation_keeps_cause ();
+  test_append_known_failures ();
+  test_protect_reraises ();
+  test_idle_rejection_keeps_session ();
+  test_preview_limit_leading_zeros ();
+  test_control_literals_bypass_sink ()

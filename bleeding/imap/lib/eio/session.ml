@@ -10,7 +10,7 @@ type error = Error.t =
   | Uncertain of string
 
 type t = {
-  mutable flow : Transport.flow;
+  flow : Transport.flow;
   mutable wire : Imap.Wire.t;
   mutable queued : Imap.Wire.event list;
   mutex : Eio.Mutex.t;
@@ -49,7 +49,7 @@ let close t =
   if not t.closed then (
     t.closed <- true;
     t.generation <- t.generation + 1;
-    try Eio.Cancel.protect (fun () -> Transport.close t.flow) with _ -> ())
+    try Transport.close t.flow with _ -> ())
 
 let check_open t = if t.closed then raise (Failure Closed)
 
@@ -97,32 +97,60 @@ let read_event t =
       take ()
   in take ()
 
-let read_response ?(on_literal=(fun _ -> ())) ?(on_literal_start=(fun _ -> ()))
-    ?(collect_literals=true) t =
-  let fetch_response=ref None in
+let literal_item text =
+  match String.rindex_opt text '{' with
+  | Some k when k > 0 && text.[k-1] = '~' -> String.sub text 0 (k-1)
+  | Some k -> String.sub text 0 k
+  | None -> text
+
+let ends_with_ci ~suffix s =
+  let n = String.length s and m = String.length suffix in
+  n >= m && String.uppercase_ascii (String.sub s (n-m) m) = suffix
+
+(* [body_item item] holds when [item] ends with a message-body data item name
+   such as [BODY[HEADER]] or [BINARY[1]<0>], followed by one space. *)
+let body_item item =
+  let n = String.length item in
+  let n = if n > 0 && item.[n-1] = ' ' then n-1 else n in
+  let n =
+    if n > 0 && item.[n-1] = '>' then
+      match String.rindex_from_opt item (n-1) '<' with Some k -> k | None -> n
+    else n in
+  n > 0 && item.[n-1] = ']' &&
+  match String.rindex_from_opt item (n-1) '[' with
+  | None -> false
+  | Some k ->
+      let rec start i =
+        if i > 0 && item.[i-1] <> ' ' && item.[i-1] <> '(' then start (i-1)
+        else i in
+      let s = start k in
+      List.mem (String.uppercase_ascii (String.sub item s (k-s)))
+        ["BODY"; "BODY.PEEK"; "BINARY"; "BINARY.PEEK"]
+
+let read_response ?on_literal ?(on_literal_start=(fun _ -> ())) t =
+  let fetch_response = ref None in
+  let streaming = ref false in
   let rec loop acc size =
     match read_event t with
     | Imap.Wire.Literal_start n as event ->
-        on_literal_start n;
-        (match acc with
-         | Imap.Wire.Text s::_ ->
-             let marker=Printf.sprintf "{%Ld}\r\n" n in
-             let k=String.length s-String.length marker in
-             if !fetch_response=Some true && k>=8 &&
-                String.sub s k (String.length marker)=marker &&
-                String.uppercase_ascii (String.sub s (k-8) 8)="PREVIEW " &&
-                n>1024L then
-               raise (Failure (Limit "PREVIEW literal exceeds 1024 bytes"))
-         | _ -> ());
-        loop (event::acc) size
+        let fetch = !fetch_response = Some true in
+        let item = match acc with
+          | Imap.Wire.Text s :: _ -> literal_item s
+          | _ -> "" in
+        if fetch && n > 1024L && ends_with_ci ~suffix:"PREVIEW " item then
+          raise (Failure (Limit "PREVIEW literal exceeds 1024 bytes"));
+        streaming := fetch && Option.is_some on_literal && body_item item;
+        if !streaming then on_literal_start n;
+        loop (event :: acc) size
     | Imap.Wire.Literal_chunk s as event ->
-        on_literal s;
-        if collect_literals then (
-          let size = size + String.length s in
-          if size > t.max_metadata then
-            raise (Failure (Limit "response literal exceeds metadata limit"));
-          loop (event :: acc) size)
-        else loop acc size
+        (match on_literal with
+         | Some on_literal when !streaming -> on_literal s; loop acc size
+         | _ ->
+             let size = size + String.length s in
+             if size > t.max_metadata then
+               raise (Failure (Limit
+                 "response literal exceeds metadata limit"));
+             loop (event :: acc) size)
     | Imap.Wire.End_of_response -> List.rev (Imap.Wire.End_of_response :: acc)
     | Imap.Wire.Text s as event ->
         (if !fetch_response=None then
@@ -172,6 +200,48 @@ let parts_size parts =
         Int64.add size (Int64.of_int (String.length s))
     | _ -> size) 0L parts
 
+type budget = { what : string; mutable bytes : int64; mutable count : int }
+
+let budget what = { what; bytes = 0L; count = 0 }
+
+let next ?on_literal ?on_literal_start ?(bye=false) t budget =
+  let parts = read_response ?on_literal ?on_literal_start t in
+  budget.bytes <- Int64.add budget.bytes (parts_size parts);
+  if budget.bytes > Int64.of_int t.max_command_metadata then
+    raise (Failure (Limit
+      (budget.what ^ " metadata exceeds configured limit")));
+  match parse_active t parts with
+  | Imap.Response.Untagged (Imap.Response.Bye (_, text)) when not bye ->
+      raise (Failure (Protocol ("server BYE: " ^ text)))
+  | response -> response
+
+let charge t budget =
+  if budget.count >= t.max_responses then
+    raise (Failure (Limit (budget.what ^ " response count exceeds limit")));
+  budget.count <- budget.count + 1
+
+let io_failure = function
+  | Eio.Io _ | Unix.Unix_error _ | End_of_file
+  | Tls_eio.Tls_alert _ | Tls_eio.Tls_failure _ -> true
+  | _ -> false
+
+(* A tagged rejection leaves [t] in step with the server. Any other failure
+   after bytes were sent, and any exception that is not a [Failure], closes
+   [t] because later replies can no longer be matched to commands. With
+   [uncertain], the whole command reached the server, so a failure other
+   than a rejection leaves its effect unknown. *)
+let abandon ?uncertain t ~sent ex bt =
+  match ex, uncertain with
+  | Failure (Rejected _), _ -> Printexc.raise_with_backtrace ex bt
+  | (Failure (Uncertain _) | Eio.Cancel.Cancelled _), _ ->
+      close t; Printexc.raise_with_backtrace ex bt
+  | Failure e, Some what ->
+      close t; raise (Failure (Uncertain (what ^ ": " ^ Error.to_string e)))
+  | ex, Some what when io_failure ex ->
+      close t; raise (Failure (Uncertain (what ^ ": " ^ Printexc.to_string ex)))
+  | Failure _, _ when not sent -> Printexc.raise_with_backtrace ex bt
+  | _ -> close t; Printexc.raise_with_backtrace ex bt
+
 type command_result = {
   untagged : Imap.Response.t list;
   completion : Imap.Response.t;
@@ -194,18 +264,14 @@ let command_result ?on_literal ?on_literal_start
      String.starts_with ~prefix:"UID SEARCH " (String.uppercase_ascii syntax) then
     t.saved_search_nonce <- ref ();
   let tag = next_tag t in
-  let written = ref false in
+  let sent = ref false in
   let partial_limit = ref None in
+  let budget = budget "command" in
   try
-    written := true;
     write t (tag ^ " " ^ syntax ^ "\r\n");
-    let rec receive acc count total_bytes =
-      let parts = read_response ?on_literal ?on_literal_start
-        ~collect_literals:(Option.is_none on_literal) t in
-      let total_bytes = Int64.add total_bytes (parts_size parts) in
-      if total_bytes > Int64.of_int t.max_command_metadata then
-        raise (Failure (Limit "command metadata exceeds configured limit"));
-      let response = parse_active t parts in
+    sent := true;
+    let rec receive acc =
+      let response = next ?on_literal ?on_literal_start t budget in
       match response with
       | Imap.Response.Tagged {
           tag=got; status=`Ok;
@@ -243,28 +309,22 @@ let command_result ?on_literal ?on_literal_start
           else raise (Failure (Rejected {tag; status; code; text}))
       | Imap.Response.Tagged {tag=got; _} ->
           raise (Failure (Protocol ("unexpected tagged completion " ^ got)))
-      | Imap.Response.Untagged (Imap.Response.Bye (_, text)) ->
-          raise (Failure (Protocol ("server BYE: " ^ text)))
       | Imap.Response.Continuation _ -> raise (Failure (Protocol "unexpected continuation"))
-      | _ ->
+      | Imap.Response.Untagged _ ->
           (match response with
            | Imap.Response.Untagged (Imap.Response.No
                (Some (Imap.Response.Messagelimit (limit,last)), _)) ->
                partial_limit := Some (limit,last)
            | _ -> ());
-          if count >= t.max_responses then
-            raise (Failure (Limit "command response count exceeds limit"));
-          receive (response :: acc) (count + 1) total_bytes
-    in receive [] 0 0L
+          charge t budget;
+          receive (response :: acc)
+    in receive []
   with ex ->
-    (match ex with Failure (Rejected _) -> () | _ -> if !written then close t);
-    (match ex with
-     | Failure (Rejected _ | Uncertain _) -> raise ex
-     | Eio.Cancel.Cancelled _ -> raise ex
-     | _ when mutation && !written ->
-         raise (Failure (Uncertain
-           "mutation outcome unknown after command bytes were sent"))
-     | _ -> raise ex)
+    let bt = Printexc.get_raw_backtrace () in
+    let uncertain = if mutation && !sent then
+        Some "mutation outcome unknown after command bytes were sent"
+      else None in
+    abandon ?uncertain t ~sent:!sent ex bt
 
 let command ?on_literal ?on_literal_start ?mutation t syntax =
   (command_result ?on_literal ?on_literal_start ?mutation t syntax).untagged
@@ -290,7 +350,10 @@ let compress_deflate t =
     try
       Transport.compress_deflate t.flow;
       t.wire<-Imap.Wire.create ()
-    with ex -> close t; raise ex)
+    with ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      close t;
+      Printexc.raise_with_backtrace ex bt)
 
 type append_part = { prefix : string; length : int64; read : Cstruct.t -> int; synchronizing : bool }
 
@@ -299,90 +362,73 @@ let append_many t parts =
   if parts=[] || List.exists (fun part -> part.length<0L) parts then
     raise (Failure (State "invalid APPEND parts"));
   let tag = next_tag t in
-  let written = ref false in
+  let started = ref false and complete = ref false in
   let partial = ref false in
+  let budget = budget "APPEND" in
+  let response () =
+    let response = next t budget in
+    (match response with
+     | Imap.Response.Untagged (Imap.Response.No
+         (Some (Imap.Response.Messagelimit _), _)) -> partial:=true
+     | _ -> ());
+    response in
+  let rec continuation () =
+    match response () with
+    | Imap.Response.Continuation _ -> ()
+    | Imap.Response.Tagged {tag=got; status=(`No | `Bad as status); code; text}
+      when got = tag -> raise (Failure (Rejected {tag; status; code; text}))
+    | Imap.Response.Untagged _ -> charge t budget; continuation ()
+    | _ -> raise (Failure (Protocol "expected APPEND continuation")) in
+  let buffer = Cstruct.create 65536 in
+  let rec copy read left =
+    if left > 0L then (
+      let amount = Int64.to_int (Int64.min left 65536L) in
+      let chunk = Cstruct.sub buffer 0 amount in
+      let n = match read chunk with
+        | n -> n
+        | exception End_of_file -> 0
+        | exception (Eio.Cancel.Cancelled _ as ex) -> raise ex
+        | exception ex -> raise (Failure (State
+            ("APPEND source failed: " ^ Printexc.to_string ex))) in
+      if n = 0 then
+        raise (Failure (State "APPEND source ended before declared length"));
+      Transport.write t.flow [Cstruct.sub chunk 0 n];
+      copy read (Int64.sub left (Int64.of_int n))) in
+  let rec completion () =
+    match response () with
+    | Imap.Response.Tagged {
+        tag=got; status=`Ok;
+        code=Some (Imap.Response.Messagelimit _); _} when got = tag ->
+        raise (Failure (Uncertain
+          "server reported a partial APPEND with MESSAGELIMIT"))
+    | Imap.Response.Tagged {tag=got; status=`Ok; _} as response
+      when got = tag ->
+        if !partial then raise (Failure (Uncertain
+          "server reported a partial APPEND before success"));
+        response
+    | Imap.Response.Tagged {tag=got; status=(`No | `Bad as status); code; text}
+      when got = tag -> raise (Failure (Rejected {tag; status; code; text}))
+    | Imap.Response.Tagged {tag=got; _} ->
+        raise (Failure (Protocol ("unexpected tagged completion " ^ got)))
+    | Imap.Response.Continuation _ ->
+        raise (Failure (Protocol
+          "unexpected APPEND continuation after final literal"))
+    | Imap.Response.Untagged _ -> charge t budget; completion () in
   try
-    written := true;
-    let rec continuation count total_bytes =
-      let parts=read_response t in
-      let total_bytes=Int64.add total_bytes (parts_size parts) in
-      if total_bytes > Int64.of_int t.max_command_metadata then
-        raise (Failure (Limit "APPEND continuation metadata exceeds limit"));
-      let response=parse_active t parts in
-      (match response with
-       | Imap.Response.Untagged (Imap.Response.No
-           (Some (Imap.Response.Messagelimit _), _)) -> partial:=true
-       | _ -> ());
-      match response with
-      | Imap.Response.Continuation _ -> count,total_bytes
-      | Imap.Response.Tagged {tag=got; status=(`No | `Bad as status); code; text}
-        when got = tag -> raise (Failure (Rejected {tag; status; code; text}))
-      | Imap.Response.Untagged (Imap.Response.Bye (_, text)) ->
-          raise (Failure (Protocol ("server BYE: " ^ text)))
-      | Imap.Response.Untagged _ ->
-          if count >= t.max_responses then
-            raise (Failure (Limit "APPEND continuation response count exceeds limit"));
-          continuation (count+1) total_bytes
-      | _ -> raise (Failure (Protocol "expected APPEND continuation"))
-    in
-    let buffer = Cstruct.create 65536 in
-    let rec copy read left =
-      if left > 0L then (
-        let amount = Int64.to_int (Int64.min left 65536L) in
-        let chunk = Cstruct.sub buffer 0 amount in
-        let n = read chunk in
-        if n = 0 then raise (Failure (State "APPEND source ended before declared length"));
-        Transport.write t.flow [Cstruct.sub chunk 0 n];
-        copy read (Int64.sub left (Int64.of_int n)))
-    in
-    let _,count,total_bytes=List.fold_left (fun (first,count,total_bytes) part ->
-      write t ((if first then tag ^ " " else "") ^ part.prefix);
-      let count,total_bytes=if part.synchronizing then continuation count total_bytes
-        else count,total_bytes in
-      copy part.read part.length;
-      false,count,total_bytes) (true,0,0L) parts in
+    List.iteri (fun index part ->
+      write t ((if index = 0 then tag ^ " " else "") ^ part.prefix);
+      started := true;
+      if part.synchronizing then continuation ();
+      copy part.read part.length) parts;
     Transport.write t.flow [Cstruct.of_string "\r\n"];
-    let rec completion count total_bytes =
-      let parts = read_response t in
-      let total_bytes = Int64.add total_bytes (parts_size parts) in
-      if total_bytes > Int64.of_int t.max_command_metadata then
-        raise (Failure (Limit "APPEND completion metadata exceeds limit"));
-      let response = parse_active t parts in
-      (match response with
-       | Imap.Response.Untagged (Imap.Response.No
-           (Some (Imap.Response.Messagelimit _), _)) -> partial:=true
-       | _ -> ());
-      match response with
-      | Imap.Response.Tagged {
-          tag=got; status=`Ok;
-          code=Some (Imap.Response.Messagelimit _); _} when got = tag ->
-          raise (Failure (Uncertain
-            "server reported a partial APPEND with MESSAGELIMIT"))
-      | Imap.Response.Tagged {tag=got; status=`Ok; _} when got = tag ->
-          if !partial then raise (Failure (Uncertain
-            "server reported a partial APPEND before success"));
-          response
-      | Imap.Response.Tagged {tag=got; status=(`No | `Bad as status); code; text}
-        when got = tag -> raise (Failure (Rejected {tag; status; code; text}))
-      | Imap.Response.Tagged {tag=got; _} ->
-          raise (Failure (Protocol ("unexpected tagged completion " ^ got)))
-      | Imap.Response.Untagged (Imap.Response.Bye (_, text)) ->
-          raise (Failure (Protocol ("server BYE: " ^ text)))
-      | Imap.Response.Continuation _ ->
-          raise (Failure (Protocol "unexpected APPEND continuation after final literal"))
-      | _ ->
-          if count >= t.max_responses then
-            raise (Failure (Limit "APPEND completion response count exceeds limit"));
-          completion (count + 1) total_bytes
-    in completion count total_bytes
+    complete := true;
+    completion ()
   with ex ->
-    (match ex with Failure (Rejected _) -> () | _ -> if !written then close t);
-    (match ex with
-     | Failure (Rejected _) -> raise ex
-     | Eio.Cancel.Cancelled _ -> raise ex
-     | _ when !written ->
-         raise (Failure (Uncertain "APPEND outcome unknown after command bytes were sent"))
-     | _ -> raise ex)
+    let bt = Printexc.get_raw_backtrace () in
+    let uncertain = if !complete then
+        Some "APPEND outcome unknown after the command was sent"
+      else None in
+    abandon ?uncertain t ~sent:!started ex bt
 
 let append ?(synchronizing=true) t ~prefix ~length source =
   append_many t [{prefix;length;read=Eio.Flow.single_read source;synchronizing}]
@@ -391,13 +437,10 @@ let logout t =
   Fun.protect ~finally:(fun () -> close t) (fun () ->
     check_open t;
     let tag=next_tag t in
+    let budget = budget "LOGOUT" in
     write t (tag ^ " " ^ Imap.Command.logout ^ "\r\n");
-    let rec receive seen_bye count total_bytes =
-      let parts=read_response t in
-      let total_bytes=Int64.add total_bytes (parts_size parts) in
-      if total_bytes>Int64.of_int t.max_command_metadata then
-        raise (Failure (Limit "LOGOUT metadata exceeds limit"));
-      match parse_active t parts with
+    let rec receive seen_bye =
+      match next ~bye:true t budget with
       | Imap.Response.Tagged {tag=got;status=`Ok;_} when got=tag && seen_bye -> ()
       | Imap.Response.Tagged {tag=got;status=(`No | `Bad as status);code;text}
           when got=tag -> raise (Failure (Rejected {tag;status;code;text}))
@@ -406,47 +449,34 @@ let logout t =
       | Imap.Response.Continuation _ ->
           raise (Failure (Protocol "unexpected LOGOUT continuation"))
       | Imap.Response.Untagged response ->
-          if count>=t.max_responses then
-            raise (Failure (Limit "LOGOUT response count exceeds limit"));
+          charge t budget;
           let seen_bye=match response with
             | Imap.Response.Bye _ when seen_bye ->
                 raise (Failure (Protocol "repeated LOGOUT BYE"))
             | Imap.Response.Bye _ -> true
             | _ -> seen_bye in
-          receive seen_bye (count+1) total_bytes
-    in receive false 0 0L)
+          receive seen_bye
+    in receive false)
 
 let idle_once t =
   check_open t;
   let tag = next_tag t in
   let sent = ref false in
-  let total_bytes=ref 0L in
-  let count=ref 0 in
-  let response () =
-    let parts=read_response t in
-    total_bytes := Int64.add !total_bytes (parts_size parts);
-    if !total_bytes > Int64.of_int t.max_command_metadata then
-      raise (Failure (Limit "IDLE metadata exceeds limit"));
-    parse_active t parts in
+  let budget = budget "IDLE" in
+  let response () = next t budget in
   let fail_tagged got status code text =
     if got <> tag then
       raise (Failure (Protocol ("unexpected tagged completion " ^ got)))
     else match status with
       | `No | `Bad as status -> raise (Failure (Rejected {tag; status; code; text}))
       | `Ok -> raise (Failure (Protocol "IDLE completed before DONE")) in
-  let add acc item =
-    if !count >= t.max_responses then
-      raise (Failure (Limit "IDLE event count exceeds limit"));
-    incr count;
-    item :: acc in
+  let add acc item = charge t budget; item :: acc in
   try
-    sent := true;
     write t (tag ^ " IDLE\r\n");
+    sent := true;
     let rec continuation acc =
       match response () with
       | Imap.Response.Continuation _ -> acc
-      | Imap.Response.Untagged (Imap.Response.Bye (_, text)) ->
-          raise (Failure (Protocol ("server BYE during IDLE: " ^ text)))
       | Imap.Response.Untagged _ as item -> continuation (add acc item)
       | Imap.Response.Tagged {tag=got; status; code; text} ->
           fail_tagged got status code text
@@ -456,8 +486,6 @@ let idle_once t =
       | _::_ -> initial
       | [] ->
           (match response () with
-           | Imap.Response.Untagged (Imap.Response.Bye (_, text)) ->
-               raise (Failure (Protocol ("server BYE during IDLE: " ^ text)))
            | Imap.Response.Untagged _ as item -> add [] item
            | Imap.Response.Tagged {tag=got; status; code; text} ->
                fail_tagged got status code text
@@ -471,48 +499,38 @@ let idle_once t =
         when got=tag -> raise (Failure (Rejected {tag; status; code; text}))
       | Imap.Response.Tagged {tag=got; _} ->
           raise (Failure (Protocol ("unexpected tagged completion " ^ got)))
-      | Imap.Response.Untagged (Imap.Response.Bye (_, text)) ->
-          raise (Failure (Protocol ("server BYE during IDLE: " ^ text)))
       | Imap.Response.Untagged _ as item -> completion (add acc item)
       | Imap.Response.Continuation _ ->
           raise (Failure (Protocol "unexpected IDLE continuation"))
     in completion changed
   with ex ->
-    if !sent then close t;
-    raise ex
-
-let io_failure = function
-  | Eio.Io _ | Unix.Unix_error _ | End_of_file
-  | Tls_eio.Tls_alert _ | Tls_eio.Tls_failure _ -> true
-  | _ -> false
+    let bt = Printexc.get_raw_backtrace () in
+    abandon t ~sent:!sent ex bt
 
 let protect t f =
   try Ok (f ()) with
   | Failure e -> Error e
   | End_of_file -> close t; Error (Transport "unexpected EOF")
-  | Eio.Cancel.Cancelled _ as ex -> close t; raise ex
-  | ex -> close t; Error (Transport (Printexc.to_string ex))
+  | ex when io_failure ex ->
+      close t; Error (Transport (Printexc.to_string ex))
+  | ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      close t;
+      Printexc.raise_with_backtrace ex bt
 
 let locked t f = Eio.Mutex.use_ro t.mutex (fun () -> protect t f)
-
-let authentication_rejected ~tag ~status ~code =
-  let code=match code with
-    | Some (Imap.Response.Unavailable | Authenticationfailed | Authorizationfailed
-        | Expired | Privacyrequired | Contactadmin | Noperm | Inuse | Serverbug
-        | Clientbug | Cannot | Limit as code) -> Some code
-    | _ -> None in
-  Failure (Rejected {tag;status;code;text="authentication rejected"})
 
 (* RFC 3501 AUTHENTICATE exchange and RFC 2195 CRAM-MD5. A malformed or
    unexpected continuation closes the session before any secret-derived
    response is sent. A tagged rejection leaves the connection usable. *)
 let authenticate_cram_md5 t auth =
   check_open t;
+  let respond = Auth.cram_md5_response auth in
   let tag = next_tag t in
-  let written = ref false in
+  let sent = ref false in
   try
-    written := true;
     write t (tag ^ " AUTHENTICATE CRAM-MD5\r\n");
+    sent := true;
     let rec challenge skipped =
       match parse_active t (read_response t) with
       | Imap.Response.Continuation encoded ->
@@ -521,8 +539,7 @@ let authenticate_cram_md5 t auth =
           let decoded = match Base64.decode encoded with
           | Ok data when data <> "" && Base64.encode_string data = encoded -> data
           | _ -> raise (Failure (Protocol "invalid CRAM-MD5 challenge")) in
-          let answer = Auth.cram_md5_response auth decoded in
-          write t (answer ^ "\r\n")
+          write t (respond decoded ^ "\r\n")
       | Imap.Response.Tagged {tag=got; status=(`No | `Bad as status); code; text}
         when got = tag -> raise (Failure (Rejected {tag; status; code; text}))
       | Imap.Response.Untagged (Imap.Response.Bye (_, text)) ->
@@ -542,8 +559,8 @@ let authenticate_cram_md5 t auth =
       | _ -> raise (Failure (Protocol "unexpected CRAM-MD5 completion"))
     in completion 0
   with ex ->
-    (match ex with Failure (Rejected _) -> () | _ -> if !written then close t);
-    raise ex
+    let bt = Printexc.get_raw_backtrace () in
+    abandon t ~sent:!sent ex bt
 
 (* RFC 4959 initial response, RFC 4616 PLAIN and RFC 7628 OAUTHBEARER.
    The bearer error continuation must be acknowledged before tagged failure.
@@ -556,7 +573,8 @@ let authenticate_initial t ~mechanism ~encoded ~sasl_ir ~oauthbearer =
   let sent = ref false in
   let response () = parse_active t (read_response t) in
   let rejected status code =
-    raise (authentication_rejected ~tag ~status ~code) in
+    raise (Failure (Rejected {tag; status; code;
+      text="authentication rejected"})) in
   let rec await_initial skipped =
     match response () with
     | Imap.Response.Continuation "" -> write t (encoded ^ "\r\n")
@@ -591,11 +609,11 @@ let authenticate_initial t ~mechanism ~encoded ~sasl_ir ~oauthbearer =
     | Imap.Response.Untagged _ when skipped < 32 -> await_completion (skipped + 1)
     | _ -> raise (Failure (Protocol "unexpected SASL continuation or completion")) in
   try
-    sent := true;
     write t (tag ^ " AUTHENTICATE " ^ mechanism ^
       (if sasl_ir then " " ^ encoded else "") ^ "\r\n");
+    sent := true;
     if not sasl_ir then await_initial 0;
     await_completion 0
   with ex ->
-    (match ex with Failure (Rejected _) -> () | _ -> if !sent then close t);
-    raise ex
+    let bt = Printexc.get_raw_backtrace () in
+    abandon t ~sent:!sent ex bt

@@ -17,10 +17,12 @@ its own row and the step notes below, and nothing else in this file.
 
 ### Environment
 
-All dune commands run in the OxCaml switch, from the repository root:
+All dune commands run in the OxCaml switch, from the repository root. The
+`imap` package and the sibling `maildir` package at `bleeding/maildir/` build
+and test together:
 
-    opam exec --switch=5.2.0+ox -- dune build @bleeding/imap/all
-    opam exec --switch=5.2.0+ox -- dune build @bleeding/imap/runtest --force
+    opam exec --switch=5.2.0+ox -- dune build @bleeding/imap/all @bleeding/maildir/all
+    opam exec --switch=5.2.0+ox -- dune build @bleeding/imap/runtest @bleeding/maildir/runtest --force
 
 From a git worktree under `.claude/worktrees/`, dune otherwise resolves
 to the parent checkout's workspace, so add `--root .` to both commands
@@ -52,7 +54,7 @@ comments unless the code cannot say it.
 | 1 | Plan item 8: strip duplicated docs from core Eio `.mli` and private store `.mli` to one-line internal contracts; rename `Imap_store.Sync` to `Journal` | done | d948dc830 |
 | 2 | Plan items 1 to 3: `Imap.Capability`, typed `Response.Capability`/`Enabled`, `Error.Unsupported`, typed `Client.capabilities`/`enabled`/`has`/`enable` | done | a21c8b091 |
 | 3 | Plan item 12: `spool` and `database` as private support libraries shared by their library and their tests; drop the copy_files rules in test/io and test/store/database | done | 722b25c41 |
-| 4 | Plan item 10: standalone `maildir` package at `bleeding/maildir/`; no `imap` or `sqlite3-eio` dependency; `Local_inventory` in sync; `with_writer` capability; typed errors; `Dotlock` public | todo | |
+| 4 | Plan item 10: standalone `maildir` package at `bleeding/maildir/`; no `imap` or `sqlite3-eio` dependency; `Local_inventory` in sync; `with_writer` capability; typed errors; `Dotlock` public | done | 68af6a250 |
 | 5 | Plan item 5a: dissolve `Proto` into `Imap.Uid`, `Uidvalidity`, `Modseq`, `Uid_set` with `equal`, `compare`, `pp`; unify identifier shapes across `Selected` | todo | |
 | 6 | Plan item 5b: move vocabulary types out of `Command`; `Command.error` a real type; label mailbox arguments; `Mailbox_name.t` private; `Client.list` returns `Mailbox_name.t` | todo | |
 | 7 | Plan item 5c: `Imap.Search` and `Imap.Fetch_item`; one `Selected.fetch` replacing the six fifty-UID fetchers | todo | |
@@ -171,6 +173,51 @@ a bounded fold over entries, and `with_unchanged_occurrence`. Replace
 `scan` return `(_, error) result` over a typed error. Delete `lib/maildir/`
 and `imap.maildir`; update every consumer and test. Move `test/maildir` and
 `test/dotlock` under `bleeding/maildir/test/`.
+
+Done: package `maildir` (library `maildir`, module `Maildir`) lives at
+`bleeding/maildir/` with its own `dune-project` and depends on eio,
+cstruct, optint, digestif and mail-flag. `Maildir.Dotlock` and
+`Maildir.Keywords` are public, and the package refers to no `Imap`
+module. `occurrence` keeps `mtime` and loses `internal_date`, `append`
+and `check_append` take `?mtime`, and the `.r<32hex>` alias is gone.
+`with_writer : t -> (writer -> 'a) -> 'a` replaces `with_writer_lock`.
+`append`, `check_append`, `set_flags`, `remove` and `recover` take the
+writer, `of_writer` recovers the handle, and a writer used after its
+callback raises `Writer_expired`. `open_dir`, `scan`, `fold`, `find`,
+`append`, `check_append` and `set_flags` return results over one `error`
+type with `pp_error`, and the Keywords functions return the same type. An
+unusable lease file, or a message directory found replaced at fsync, raises
+`Eio.Io` with `Maildir.Unusable_file`. An occurrence whose flags can no
+longer be read is stale. `fold` walks entries in directory order under
+the metadata lock. In `imap.sync`, the private library `imap_sync_local`
+holds `Local_date`, the mtime and INTERNALDATE conversions, and
+`Local_inventory`, the paged inventory with the `?inventory` checks around
+`with_unchanged_occurrence`, `sha256`, `open_message` and `append`. It
+stages through `Maildir.fold` into `local-inventory-im-<32hex>.sqlite3` in
+the sync spool directory, removes the file on every exit and offers
+`recover` for leftovers. Since
+`occurrence` stays private, a staged row keeps the marshalled observation
+beside its ID, so the table is `occurrences(id PK, occurrence BLOB)`.
+`Bridge.recover_local` runs `Maildir.recover` and `Local_inventory.recover`
+under the lease, and the CLI calls it where it called `Maildir.recover`.
+`verify_local_content`, `mark_local_retention`, `preview_deletions` and
+`preview_sync` take `~spool_dir`, and the CLI passes its spool directory.
+`Flags.reconcile_pair`, `Flags.recover_operation`, `Deletion.reconcile_pair`
+and `Deletion.recover_operation` take `~writer` instead of `~maildir`.
+`Bridge`, `Flags` and `Deletion` gain a `Maildir` error constructor, Bridge
+lifts the nested ones to its own, and the CLI maps it to exit 7 as it
+mapped the old `Failure`. A local INTERNALDATE outside the representable
+range is `Invalid_operation` in Bridge where the scan used to fail.
+Consumers edited: lib/sync bridge, flags, deletion, bin/imap_cli.ml,
+test/bridge_faults, delete_sync, scale, cli, oracle, dovecot, stalwart.
+Assertions changed: Maildir `Failure` expectations match the typed
+constructor, the Unknown_letter and duplicate messages lose the
+`Imap_maildir: ` prefix, Maildir recovery no longer names a staging file,
+the leap-second case moved to `Local_date`, and the paged inventory, date
+and staging cases moved to test/local. New cases cover the escaped
+writer, the typed errors, the lease file check, Bridge surfacing a
+malformed name as `Maildir` and startup recovery. Build and runtest are
+clean for both packages, 16 suites and 226 test cases.
 
 Steps 5 to 9 are ordered so the tree builds after each. Step 9 groups: on
 the lease Condstore, Qresync, Uidplus, Move, Binary, Searchres, Sort, Esort,
@@ -610,7 +657,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] imap_maildir.ml:535 [medium] `rename` at :535 and :591 overwrites an existing target; the `kind target <> Not_found` checks at :533 and :589 only protect against writers honouring the uidlist lock. Use link plus unlink or `RENAME_NOREPLACE`. (rename kept: names are unique and a duplicate identity is rejected under the lock before the rename)
 - [x] imap_maildir.ml:215 [medium] a rename by an external MUA between the lstat at :215 and the stat at :218 raises `Eio.Io Not_found` and aborts the whole scan, while a disappearance before :215 is tolerated.
 - [x] imap_maildir.ml:233 [medium] a symlink or subdirectory with a valid-looking name fails at :216 while one with an unparsable name is skipped silently at :234.
-- [ ] imap_maildir.ml:483 [confirmed] no mutation path checks the writer lease: `append`, `set_flags`, `remove`, `recover`, `ensure_keywords`, `with_inventory_pages` and `open_dir` all skip it; `writer_locks` is read only by `with_writer_lock`. Plan step 4. (left for step 4)
+- [x] imap_maildir.ml:483 [confirmed] no mutation path checks the writer lease: `append`, `set_flags`, `remove`, `recover`, `ensure_keywords`, `with_inventory_pages` and `open_dir` all skip it; `writer_locks` is read only by `with_writer_lock`. Plan step 4. (step 4: mutations take the `writer`; staging and `open_dir` write no messages)
 - [x] imap_maildir.ml:65 [low] `open_dir` raises `Eio.Io` for a non-native path where the interface says `Failure`.
 - [x] imap_maildir.ml:257 [low] the "expired Maildir inventory" message lacks the module prefix the others carry.
 - [x] imap_maildir.ml:505 [low] `Fun.protect ~finally` unlink at :505 and :178 can replace the original exception with `Finally_raised`.
@@ -807,7 +854,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] dotlock.ml:28 [low] release does not take the refresh mutex; the interface rule that the callback joins its fibers is what prevents a write to a closed fd, so keep that sentence prominent.
 - [x] dotlock.ml:50 [low] a failed `fstat` after `owned_fd` is set leaves `acquired = None`, so the finally closes the fd and never unlinks the lock.
 - [x] keywords.ml:6 [low] error messages at :6, :54, :62, :24 and :26 drop the offending flag, keyword, letter or line.
-- [ ] keywords.ml:2 [low] both modules prefix messages with "Imap_maildir: ", wrong once they live in the `maildir` package; a public `Dotlock` needs a named exception for lost ownership. Plan step 4. (left for step 4, `Dotlock.Lost` is the named exception)
+- [x] keywords.ml:2 [low] both modules prefix messages with "Imap_maildir: ", wrong once they live in the `maildir` package; a public `Dotlock` needs a named exception for lost ownership. Plan step 4. (step 4: typed errors replace the messages, `Maildir.Dotlock.Lost` is the named exception)
 - [x] keywords.ml:63 [redundant] the `DFPRST` table appears at keywords.ml:63, imap_maildir.ml:152 and :192, and imap_maildir.ml:221 appends unsorted system flags to the sorted keywords; Keywords should own both directions. The 64 KiB limit at keywords.ml:37 and imap_maildir.ml:168; `fail` three times; the `ref` plus `String.iter` at :57 is `String.fold_left`; imap_maildir.ml:175 compares `Keywords.t` structurally.
 - [x] keywords.ml:21 [format] lines over 80 columns at keywords.ml:21, dotlock.ml:41, :55 and dotlock.mli:13.
 - [x] dotlock.mli:1 [drift] "Dovecot-compatible" is contradicted by the lock body; `refresh` raising `Failure` or `Unix_error` on lost ownership and the post-callback check are undocumented. keywords.mli has no value docs; one-sentence contracts for all six values are in the review transcript.
@@ -853,7 +900,7 @@ These are visible only across modules. Each names the step that absorbs it.
 - [x] [exception relabelling, step F] session.ml:469 `protect` turns every non-`Session.Failure` exception into `Transport`, which client.ml:142 relies on for auth `Invalid_argument`, deletion.ml:146 suffers for journal writes inside the lease, and pool.ml:25 suffers for a finished switch. Fix once in Session: re-raise anything that is not an I/O failure. (Session by the eio fixes, and Deletion keeps journal and spool work outside the lease)
 - [x] [lost callback result, step F] client.ml:695 drops a successful callback result when UNSELECT fails; deletion.ml:288 and every mutating `with_mailbox` caller then reports failure for a committed change. (Client by the eio fixes, and Deletion commits after the lease exits)
 - [x] [full Maildir scans, step F then step 4] `Imap_maildir.find` at imap_maildir.ml:244 is a locked full scan called about twenty times per message across bridge.ml, flags.ml (three per pair) and deletion.ml (three to four per delete), so a sync of N messages is O(N^2) stats under the Dovecot lock. Make `find` locate by name without scanning and pass the paged inventory through every caller. (`find` by the maildir fixes, and Flags and Deletion take the held inventory)
-- [ ] [lease exceptions, step 4] `Writer_lock_busy = Dotlock.Busy` at imap_maildir.ml:17 conflates the application lease with the Dovecot metadata lock; bridge.ml wraps whole cycles in that handler at seven sites; the lease is non-reentrant yet deletion.ml:422, :493, :580 and flags.ml:260 take it themselves while their docs say the caller holds it. Distinct exceptions now, the `with_writer` capability in step 4. (partly fixed: `Metadata_lock_busy` is distinct and Bridge reports `Writer_busy` only for the lease. `with_writer` is left for step 4)
+- [x] [lease exceptions, step 4] `Writer_lock_busy = Dotlock.Busy` at imap_maildir.ml:17 conflates the application lease with the Dovecot metadata lock; bridge.ml wraps whole cycles in that handler at seven sites; the lease is non-reentrant yet deletion.ml:422, :493, :580 and flags.ml:260 take it themselves while their docs say the caller holds it. Distinct exceptions now, the `with_writer` capability in step 4. (`Metadata_lock_busy` is distinct and Bridge reports `Writer_busy` only for the lease. Step 4: `with_writer` grants a writer that `reconcile_pair` and `recover_operation` take, and the operator repairs take the lease themselves as documented)
 - [ ] [pair evidence helpers, step 11] the local content hash check is at bridge.ml:478, :836, :975 and flags.ml:119; the local date check at bridge.ml:485, :697, :1243 and flags.ml:288; evidence validation at deletion.ml:418, :487, :569, flags.ml:256, bridge.ml:1020, :1313, :1388; operation-against-pair identity at deletion.ml:434, :507, :594, :366; guard error mapping at deletion.ml:444, :521, :608, flags.ml:278. One private `Pair_evidence` module in sync.
 - [x] [flag equality, step F] structural equality after `sort_uniq compare` at sync_journal.ml:497, :695, :814, :850 and bridge.ml:330 disagrees with `Imap_flag.equal_durable` used everywhere else. Use `equal_durable` and consider an `Imap_flag.Set`. (journal by the store fixes, bridge.ml:330 by the sync fixes)
 - [ ] [hand-coded UID ranges, step 5] the literal `4_294_967_295L` check is at sixteen response.ml sites, nine selected.ml sites, command.ml:317 and imap_cli.ml:574, :751, :753 although `Proto.Uid.of_int64` exists.

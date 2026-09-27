@@ -127,6 +127,56 @@ consumers it touched, and the test evidence.
 
 #### F: protocol
 
+Fixed 63 findings in lib/protocol, one commit per module, and left 8
+annotated in place. Every correctness fix has a directed test in
+test/proto, test/mirror, test/policy or test/eio/test_session_limits.ml.
+
+Interface changes. `Proto` gains `Uid_set.is_empty`, `equal`, `compare` and
+`pp` on `Uid`, `Uidvalidity`, `Modseq` and `Uid_set`, and
+`Uid_set.of_wire ?allow_star`, which reads `*` as 4294967295. `of_wire`
+now rejects leading zeros and names the bad token. `Sync_policy.error` and
+`Deleted_flag_requires_policy` are gone. `reconcile_flags` returns a
+`flag_plan` with a new `deleted_held` field, holds only a `\Deleted` change
+the endpoints disagree on, and merges every other flag. `Wire.feed` returns
+events framed before an error and reports the error on the next call.
+Documentation changed on `Wire`, `Mirror.initial` (`@raise`),
+`Mirror.complete`, `Internal_date`, `Mailbox_name`, `Command` and
+`Response` (`raw`, `Thread`, `parse_parts`).
+
+Consumers edited outside lib/protocol. lib/eio/session.ml `read_event`
+calls `Imap.Wire.feed t.wire ""` before each transport read so a deferred
+wire error surfaces after the events framed before it. lib/sync/flags.ml
+`plan_flags` maps `deleted_held` to `Deleted_flag_held`, keeping its old
+whole-merge hold, and lib/sync/bridge.ml preview does the same with its
+hold message. Wave 2 (sync) can now merge the other flags there.
+
+Behaviour worth knowing for later steps. `Mirror.complete` anchors only on
+an explicit HIGHESTMODSEQ, as `Imap_store.publish_stage` does, and
+`changed` ignores `\Recent`. Command encoders accept `*` in `uid_expunge`,
+emit CONDSTORE alongside QRESYNC, and reject quoted strings that are not
+valid UTF-8, criteria ending in a literal marker and empty `Add`/`Remove`
+ACL rights. Response keeps the FETCH line unaltered in `raw`, rejects
+duplicate FETCH and STATUS items, missing or unterminated FETCH lists and
+sequence numbers above int64, and accepts SEARCH and SORT `(MODSEQ n)`
+suffixes, which it validates and drops because `Search` and `Sort` carry
+no MODSEQ. THREAD chains of any length count as one nesting level.
+`max_control_literal` now also bounds the combined size of all literals
+retained from one response. ESEARCH and LANGUAGE literals are framed by
+Wire and retained by `parse_parts`. `select_metadata` reports a tagged NO
+or BAD with its code and text. Three existing assertions changed with the
+decisions. UID EXPUNGE with `*` is now accepted. A THREAD chain of 101 is
+now accepted, while nested depth 101 is still rejected. An ENVELOPE with an
+unterminated quote is now rejected by `parse` itself, so the test accepts
+rejection at either stage.
+
+For step 5: `to_wire empty = ""` is kept because flags.ml:373,
+deletion.ml:258 and selected.ml:684 compare against it. They can switch to
+`Uid_set.is_empty`. `Proto.Seq` now has a caller in Response.
+
+Evidence: `dune build --root . @bleeding/imap/all` clean and
+`dune build --root . @bleeding/imap/runtest --force` clean, 15 suites and
+182 test cases passing, up from 172.
+
 #### F: eio
 
 #### F: store
@@ -203,29 +253,29 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/protocol/response.ml
 
-- [ ] response.ml:1470 [high] `fetch` receives `String.concat " " rest` from `split_words`, so runs of spaces inside quoted strings collapse in every FETCH row, altering `raw`, `preview`, ENVELOPE and BODYSTRUCTURE strings; probed with `PREVIEW "a    b"` giving `a b`. Pass the raw suffix unchanged.
-- [ ] response.ml:397 [high] the tokenizer scans to end of line for `}` on every `{` token, quadratic on hostile input; probed 0.88 s at 80 KB, minutes at the 1 MiB control default. Bound the search to the digit run.
-- [ ] response.ml:1603 [high] `parse_parts` copies the whole buffer on every `Literal_start` and re-tokenizes it twice per FETCH; probed 0.89 s for 4000 empty literals.
-- [ ] response.ml:1559 [high] no aggregate bound on retained control literals; a METADATA or LIST response with many 16 MiB literals grows the buffer without limit.
-- [ ] response.ml:1491 [high] `* SEARCH 2 5 (MODSEQ 917)` and the SORT equivalent are rejected; RFC 7162 adds the MODSEQ suffix to both.
-- [ ] response.ml:1346 [medium] a THREAD chain longer than 100 elements fails the whole response because chains recurse against the depth cap; build chains iteratively.
-- [ ] response.ml:1448 [medium] `(EARLIER)` is matched case-sensitively.
-- [ ] response.ml:1455 [medium] a sequence number above int64 turns FETCH, EXISTS and EXPUNGE lines into `Ok (Other raw)` instead of an error, because `parse_i64` returns `None` before the range check at :1468.
-- [ ] response.ml:495 [medium] `* 1 FETCH garbage` parses as a FETCH with every field `None`; `seek` returns `[]` without a paren and trailing tokens are ignored.
-- [ ] response.ml:533 [medium] duplicate FLAGS, RFC822.SIZE, INTERNALDATE, MODSEQ, EMAILID and THREADID items take the last value silently, while UID at :513 and PREVIEW at :561 reject duplicates; STATUS at :1136 and MAILBOXID at :1120 have the same gap.
-- [ ] response.ml:1071 [medium] ESEARCH skips one token for an unknown return item, so a parenthesised extension value fails the parse.
-- [ ] response.ml:1691 [low] `select_metadata` on a tagged NO or BAD discards the server code and text.
-- [ ] response.ml:1623 [low] a later `failure :=` overwrites the first cause.
-- [ ] response.ml:496 [dead] the empty-atom arm; `atom` never emits one.
-- [ ] response.ml:1440 [dead] the `value` arms at :1440, :1453 and :1461 duplicate the wildcard arm and their result is discarded by the second dispatch; :1485 `assert false` is unreachable.
-- [ ] response.ml:1139 [dead] non-negative guards at :328, :331, :522, :713, :721, :1077, :1139, :1274 and :1546 can never fail since `parse_i64` and `Lit` never yield negatives.
-- [ ] response.ml:279 [redundant] the literal `4_294_967_295L` range check is hand-coded at sixteen sites where `Proto.Uid.of_int64` and siblings already exist.
-- [ ] response.ml:456 [redundant] `valid_flag` is inlined again at :352 and :538; the FETCH `seek` is copied at :703, :741, :886, :914 and :1577; OBJECTID pair collection at :893 and :1100; `prefix` at :224 is `String.starts_with`; `valid_preview` at :460 reimplements `String.get_utf_8_uchar`.
-- [ ] response.ml:960 [redundant] the special-use list and `selectable` duplicate `Mail_flag.Mailbox_attr`, with the caveat that `of_string` also accepts names without a backslash and maps `\Spam` to Junk.
-- [ ] response.ml:1452 [redundant] SEARCH words are parsed three times; `response_code` runs twice per status line via :375 and :1431.
-- [ ] response.ml:196 [comment] doc comment on `type thread` duplicates the interface; delete. Comments at :716, :1331 and :1406 earn their place.
-- [ ] response.mli:1 [drift] the header says literal payloads are never retained in `Fetch`, but PREVIEW, ENVELOPE and BODYSTRUCTURE literals are inlined into `raw` up to 256 KiB each, as :119 and :152 say.
-- [ ] response.mli:81 [drift] `raw` is not wire text: it drops the leading `* N `, collapses spaces, replaces retained literals with quoted strings and keeps `{n}` markers for streamed ones.
+- [x] response.ml:1470 [high] `fetch` receives `String.concat " " rest` from `split_words`, so runs of spaces inside quoted strings collapse in every FETCH row, altering `raw`, `preview`, ENVELOPE and BODYSTRUCTURE strings; probed with `PREVIEW "a    b"` giving `a b`. Pass the raw suffix unchanged.
+- [x] response.ml:397 [high] the tokenizer scans to end of line for `}` on every `{` token, quadratic on hostile input; probed 0.88 s at 80 KB, minutes at the 1 MiB control default. Bound the search to the digit run.
+- [x] response.ml:1603 [high] `parse_parts` copies the whole buffer on every `Literal_start` and re-tokenizes it twice per FETCH; probed 0.89 s for 4000 empty literals.
+- [x] response.ml:1559 [high] no aggregate bound on retained control literals; a METADATA or LIST response with many 16 MiB literals grows the buffer without limit.
+- [x] response.ml:1491 [high] `* SEARCH 2 5 (MODSEQ 917)` and the SORT equivalent are rejected; RFC 7162 adds the MODSEQ suffix to both.
+- [x] response.ml:1346 [medium] a THREAD chain longer than 100 elements fails the whole response because chains recurse against the depth cap; build chains iteratively.
+- [x] response.ml:1448 [medium] `(EARLIER)` is matched case-sensitively.
+- [x] response.ml:1455 [medium] a sequence number above int64 turns FETCH, EXISTS and EXPUNGE lines into `Ok (Other raw)` instead of an error, because `parse_i64` returns `None` before the range check at :1468.
+- [x] response.ml:495 [medium] `* 1 FETCH garbage` parses as a FETCH with every field `None`; `seek` returns `[]` without a paren and trailing tokens are ignored.
+- [x] response.ml:533 [medium] duplicate FLAGS, RFC822.SIZE, INTERNALDATE, MODSEQ, EMAILID and THREADID items take the last value silently, while UID at :513 and PREVIEW at :561 reject duplicates; STATUS at :1136 and MAILBOXID at :1120 have the same gap.
+- [x] response.ml:1071 [medium] ESEARCH skips one token for an unknown return item, so a parenthesised extension value fails the parse.
+- [x] response.ml:1691 [low] `select_metadata` on a tagged NO or BAD discards the server code and text.
+- [x] response.ml:1623 [low] a later `failure :=` overwrites the first cause.
+- [x] response.ml:496 [dead] the empty-atom arm; `atom` never emits one.
+- [x] response.ml:1440 [dead] the `value` arms at :1440, :1453 and :1461 duplicate the wildcard arm and their result is discarded by the second dispatch; :1485 `assert false` is unreachable.
+- [x] response.ml:1139 [dead] non-negative guards at :328, :331, :522, :713, :721, :1077, :1139, :1274 and :1546 can never fail since `parse_i64` and `Lit` never yield negatives.
+- [x] response.ml:279 [redundant] the literal `4_294_967_295L` range check is hand-coded at sixteen sites where `Proto.Uid.of_int64` and siblings already exist.
+- [x] response.ml:456 [redundant] `valid_flag` is inlined again at :352 and :538; the FETCH `seek` is copied at :703, :741, :886, :914 and :1577; OBJECTID pair collection at :893 and :1100; `prefix` at :224 is `String.starts_with`; `valid_preview` at :460 reimplements `String.get_utf_8_uchar`.
+- [ ] response.ml:960 [redundant] the special-use list and `selectable` duplicate `Mail_flag.Mailbox_attr`, with the caveat that `of_string` also accepts names without a backslash and maps `\Spam` to Junk. (left: `Mail_flag.Mailbox_attr.of_string` also accepts names without a backslash, maps `\Spam` to Junk and adds `\Inbox`, `\Scheduled` and `\Memos`, so the semantics differ)
+- [x] response.ml:1452 [redundant] SEARCH words are parsed three times; `response_code` runs twice per status line via :375 and :1431.
+- [x] response.ml:196 [comment] doc comment on `type thread` duplicates the interface; delete. Comments at :716, :1331 and :1406 earn their place.
+- [x] response.mli:1 [drift] the header says literal payloads are never retained in `Fetch`, but PREVIEW, ENVELOPE and BODYSTRUCTURE literals are inlined into `raw` up to 256 KiB each, as :119 and :152 say.
+- [x] response.mli:81 [drift] `raw` is not wire text: it drops the leading `* N `, collapses spaces, replaces retained literals with quoted strings and keeps `{n}` markers for streamed ones.
 - Facts for later steps: ranges are validated inline, not through `Proto`; flags are validated with `Imap_flag.of_wire` and then discarded for the string. `Proto.Seq` is unused. `Capability` and `Enabled` are space-split words with no atom validation, case normalisation or deduplication, and a `[CAPABILITY ...]` code becomes `Other_code`. `parse` takes one physical line and cannot handle a literal-bearing LIST, STATUS or METADATA line. `raw` costs 7 to 11 MB per 100,000 metadata rows and every extractor re-tokenizes it.
 
 #### lib/eio/session.ml
@@ -424,17 +474,17 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/protocol/proto.ml, wire.ml, mailbox_name.ml
 
-- [ ] wire.ml:72 [high] a literal length that overflows int64 falls through to `None`, so the line is framed as a complete response and the literal bytes are parsed as control lines; probed with `{99999999999999999999}`. Reject as "literal exceeds limit".
-- [ ] wire.ml:91 [high] `err` drops every event already framed in the same chunk, so a `* BYE` before a bad byte is lost; probed with `* OK hi\r\nbad\n`.
-- [ ] wire.ml:41 [medium] the `data_response` allowlist omits ESEARCH (RFC 4731 tag is a string) and LANGUAGE (RFC 5255 astring), whose grammar allows a literal; probed with `* ESEARCH (TAG {2}`.
-- [ ] proto.ml:75 [medium] `to_wire empty` returns `""`, which is not a valid sequence set and which `of_wire` rejects; callers at flags.ml:373, deletion.ml:258 and selected.ml:684 test emptiness by string comparison because there is no `is_empty`. Plan step 5.
-- [ ] mailbox_name.ml:179 [low] `Utf8` mode `decode` and `encode` at :179 and :184 accept NUL, CR, LF and C0 controls that `Rev1` rejects; `Command.quote` catches it later.
-- [ ] proto.ml:51 [low] `of_wire` accepts leading zeros and its endpoint errors omit the offending token.
-- [ ] wire.ml:97 [dead] the `remaining = 0L` branch and the `take = 0` branch at :102 are unreachable; mailbox_name.ml:90 `s = ""` is unreachable; `Proto.Seq` has zero callers in lib, bin and test; `Uid_set.union` has zero callers; `encode_rev1` and `decode_rev1` are called only by test/proto/test_proto.ml:458; `decode ~mode` has no external caller beyond `of_wire`, which only test_oracle.ml:93 and :121 call; mailbox_name.ml:4 `fail` aliases `Error`.
-- [ ] wire.ml:27 [redundant] `starts` and `has_prefix_ci` duplicate `String.starts_with` and the latter re-uppercases; the backward digit scan at :56 and :81; mailbox_name.ml:5 `add_utf8` is `Buffer.add_utf_8_uchar`; :20 `decode_utf8` duplicates a `String.get_utf_8_uchar` loop; :179 and :184 are `String.is_valid_utf_8`. Keep the hand-rolled base64 since it enforces strict padding and the protocol library has no base64 dependency.
-- [ ] proto.ml:72 [optimisation] `mem` is a linear scan; matters only when a MODIFIED set has thousands of intervals, which current callers never produce. wire.ml:40 copies each untagged line twice, about 2 MiB per 1 MiB line, linear.
-- [ ] wire.ml:62 [comment] the second sentence restates the code; delete. Keep :36, :60 and :61.
-- [ ] proto.mli:33 [drift] `of_intervals` swaps reversed pairs, sorts and merges overlapping and adjacent intervals, and `of_wire` normalises the same way; undocumented. wire.mli:15 defaults are 1,048,576 and 1,073,741,824; `create` raises `Invalid_argument` below 16 or negative; errors are sticky across later `feed` and `finish` calls; undocumented.
+- [x] wire.ml:72 [high] a literal length that overflows int64 falls through to `None`, so the line is framed as a complete response and the literal bytes are parsed as control lines; probed with `{99999999999999999999}`. Reject as "literal exceeds limit".
+- [x] wire.ml:91 [high] `err` drops every event already framed in the same chunk, so a `* BYE` before a bad byte is lost; probed with `* OK hi\r\nbad\n`.
+- [x] wire.ml:41 [medium] the `data_response` allowlist omits ESEARCH (RFC 4731 tag is a string) and LANGUAGE (RFC 5255 astring), whose grammar allows a literal; probed with `* ESEARCH (TAG {2}`.
+- [ ] proto.ml:75 [medium] `to_wire empty` returns `""`, which is not a valid sequence set and which `of_wire` rejects; callers at flags.ml:373, deletion.ml:258 and selected.ml:684 test emptiness by string comparison because there is no `is_empty`. Plan step 5. (left for step 5: `Uid_set.is_empty` added, `to_wire empty = ""` kept for the three callers)
+- [x] mailbox_name.ml:179 [low] `Utf8` mode `decode` and `encode` at :179 and :184 accept NUL, CR, LF and C0 controls that `Rev1` rejects; `Command.quote` catches it later.
+- [x] proto.ml:51 [low] `of_wire` accepts leading zeros and its endpoint errors omit the offending token.
+- [ ] wire.ml:97 [dead] the `remaining = 0L` branch and the `take = 0` branch at :102 are unreachable; mailbox_name.ml:90 `s = ""` is unreachable; `Proto.Seq` has zero callers in lib, bin and test; `Uid_set.union` has zero callers; `encode_rev1` and `decode_rev1` are called only by test/proto/test_proto.ml:458; `decode ~mode` has no external caller beyond `of_wire`, which only test_oracle.ml:93 and :121 call; mailbox_name.ml:4 `fail` aliases `Error`. (partly fixed: both Wire branches, `s = ""` and `fail` removed; `Proto.Seq` is now used by Response range checks; left for step 5: `Uid_set.union`; left for step 6: `encode_rev1`, `decode_rev1`, `decode ~mode`)
+- [x] wire.ml:27 [redundant] `starts` and `has_prefix_ci` duplicate `String.starts_with` and the latter re-uppercases; the backward digit scan at :56 and :81; mailbox_name.ml:5 `add_utf8` is `Buffer.add_utf_8_uchar`; :20 `decode_utf8` duplicates a `String.get_utf_8_uchar` loop; :179 and :184 are `String.is_valid_utf_8`. Keep the hand-rolled base64 since it enforces strict padding and the protocol library has no base64 dependency.
+- [ ] proto.ml:72 [optimisation] `mem` is a linear scan; matters only when a MODIFIED set has thousands of intervals, which current callers never produce. wire.ml:40 copies each untagged line twice, about 2 MiB per 1 MiB line, linear. (partly fixed: `data_response` compares prefixes in place and no longer uppercases the line; left: `mem` stays linear, no caller builds large sets)
+- [x] wire.ml:62 [comment] the second sentence restates the code; delete. Keep :36, :60 and :61.
+- [x] proto.mli:33 [drift] `of_intervals` swaps reversed pairs, sorts and merges overlapping and adjacent intervals, and `of_wire` normalises the same way; undocumented. wire.mli:15 defaults are 1,048,576 and 1,073,741,824; `create` raises `Invalid_argument` below 16 or negative; errors are sticky across later `feed` and `finish` calls; undocumented.
 - Facts for step 5: 87 `Uid.to_int64` sites and 65 `Uidvalidity` or `Modseq.to_int64` sites; comparisons after unwrapping at mirror.ml:113, :128, engine.ml:236, watch.ml:16, :22, bridge.ml:82, :145, :1360, flags.ml:129, deletion.ml:123. No caller builds `Mailbox_name.t` directly. `Modseq` rejecting 0 is correct for received values. Proto normalisation, `union`, `cardinality`, Wire zero and split-CRLF handling, and the modified UTF-7 edge cases are clean.
 
 #### lib/store/blob_store.ml, operation_intent.ml
@@ -517,18 +567,18 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/protocol/internal_date.ml, sync_policy.ml, mirror.ml
 
-- [ ] sync_policy.ml:38 [high] if `\Deleted` differs from base on either side, `reconcile_flags` returns `Error Deleted_flag_requires_policy` for the whole message, so flags.ml:49 holds the entire merge and, since base only advances on persist, a server-side Deleted blocks Seen and Flagged sync for that message permanently; it also fires when both sides added Deleted identically. Hold only the Deleted flag and merge the rest.
-- [ ] mirror.ml:138 [medium] with no explicit HIGHESTMODSEQ, `complete` uses the largest row MODSEQ as the next anchor, which drops below the previous anchor once the highest message is expunged and yields a false `Modseq_regression` at :146; `publish_stage` at imap_store.ml:411 has no such fallback, so the two anchor rules disagree.
-- [ ] mirror.ml:20 [low] `initial` raises `Invalid_argument "Imap.Mirror.initial: empty scope"` while `restore` returns `Error (Invalid _)` for the same check at :29.
-- [ ] sync_policy.ml:76 [medium] with `last_present_generation = Some _` and `first_generation = None` the absence is never mature even at `min_scans = 0`, so a legacy tombstone whose message was ever seen present holds forever; the interface at :52 says it holds only when grace is enabled; no test covers it.
-- [ ] mirror.ml:135 [low] `nomodseq` on a Condstore action with `restart = Some Uidvalidity_changed` becomes `Some Nomodseq` and loses the original reason.
-- [ ] internal_date.ml:41 [low] `second <= 60` accepts a leap second at any minute; only 23:59:60 UTC is possible.
-- [ ] mirror.ml:125 [low] `covered_upper > upper_uid` is reported as `Incomplete_coverage`.
-- [ ] internal_date.ml:105 [low] `to_unix_seconds` of `01-Jan-0001 00:00:00 +0100` returns a value `of_unix_seconds` rejects; the interface promises no round trip.
-- [ ] sync_policy.ml:47 [dead] the `match` choosing `value` always equals `representative`; `| _ -> assert false` at :105 is unreachable by restructuring; mirror.ml:209 `transition.more` is always false and never read.
-- [ ] mirror.ml:160 [redundant] `flags_equal` duplicates `Imap_flag.equal_durable` but keeps Recent so a Recent-only difference shows as changed; sync_policy.ml:15 `normalize` is `Imap_flag.durable`; :20 `overlay` is `Flags.union`; mirror.ml:32 `generation` and `revision` always carry one value; the anchor rule is implemented at mirror.ml:134 and imap_store.ml:411 and they disagree. Ptime is not warranted since it cannot hold `-0000` or second 60.
-- [ ] mirror.ml:160 [optimisation] `publish` is O((n+m) log(n+m)) and about 150 MB per snapshot at 1,000,000 rows; irrelevant once `run_once` goes. Plan step 11.
-- [ ] sync_policy.mli:27 [drift] "a changed Deleted is held" reads as one flag but the whole merge fails; mirror.mli:42 lacks `@raise`; sync_policy.mli:52 contradicts :76; internal_date.mli:9 promises invalid clock rejection.
+- [x] sync_policy.ml:38 [high] if `\Deleted` differs from base on either side, `reconcile_flags` returns `Error Deleted_flag_requires_policy` for the whole message, so flags.ml:49 holds the entire merge and, since base only advances on persist, a server-side Deleted blocks Seen and Flagged sync for that message permanently; it also fires when both sides added Deleted identically. Hold only the Deleted flag and merge the rest.
+- [x] mirror.ml:138 [medium] with no explicit HIGHESTMODSEQ, `complete` uses the largest row MODSEQ as the next anchor, which drops below the previous anchor once the highest message is expunged and yields a false `Modseq_regression` at :146; `publish_stage` at imap_store.ml:411 has no such fallback, so the two anchor rules disagree.
+- [x] mirror.ml:20 [low] `initial` raises `Invalid_argument "Imap.Mirror.initial: empty scope"` while `restore` returns `Error (Invalid _)` for the same check at :29.
+- [x] sync_policy.ml:76 [medium] with `last_present_generation = Some _` and `first_generation = None` the absence is never mature even at `min_scans = 0`, so a legacy tombstone whose message was ever seen present holds forever; the interface at :52 says it holds only when grace is enabled; no test covers it.
+- [x] mirror.ml:135 [low] `nomodseq` on a Condstore action with `restart = Some Uidvalidity_changed` becomes `Some Nomodseq` and loses the original reason.
+- [x] internal_date.ml:41 [low] `second <= 60` accepts a leap second at any minute; only 23:59:60 UTC is possible.
+- [x] mirror.ml:125 [low] `covered_upper > upper_uid` is reported as `Incomplete_coverage`.
+- [x] internal_date.ml:105 [low] `to_unix_seconds` of `01-Jan-0001 00:00:00 +0100` returns a value `of_unix_seconds` rejects; the interface promises no round trip.
+- [ ] sync_policy.ml:47 [dead] the `match` choosing `value` always equals `representative`; `| _ -> assert false` at :105 is unreachable by restructuring; mirror.ml:209 `transition.more` is always false and never read. (partly fixed: the `value` match and `assert false` are gone; left for step 11: `transition.more`)
+- [ ] mirror.ml:160 [redundant] `flags_equal` duplicates `Imap_flag.equal_durable` but keeps Recent so a Recent-only difference shows as changed; sync_policy.ml:15 `normalize` is `Imap_flag.durable`; :20 `overlay` is `Flags.union`; mirror.ml:32 `generation` and `revision` always carry one value; the anchor rule is implemented at mirror.ml:134 and imap_store.ml:411 and they disagree. Ptime is not warranted since it cannot hold `-0000` or second 60. (partly fixed: `equal_durable`, `Imap_flag.durable` and `Flags.union` replace the local copies, and the anchor rules now agree; left: `generation` and `revision` are persisted cursor fields; left for step 11: the duplicated anchor rule goes with `Mirror.complete`)
+- [ ] mirror.ml:160 [optimisation] `publish` is O((n+m) log(n+m)) and about 150 MB per snapshot at 1,000,000 rows; irrelevant once `run_once` goes. Plan step 11. (left for step 11)
+- [x] sync_policy.mli:27 [drift] "a changed Deleted is held" reads as one flag but the whole merge fails; mirror.mli:42 lacks `@raise`; sync_policy.mli:52 contradicts :76; internal_date.mli:9 promises invalid clock rejection.
 - Facts for later steps: Internal_date calendar, zone, format, equality and range handling are clean under a 200,000-case probe; a total `compare` is derivable by count then leap-first tie-break. `Mirror.restore`, `plan`, `snapshot` and overflow guards are clean. `plan_disappearance` treats no combination as contradictory: both present or both absent gives `No_deletion`, then incomplete missing side, unpaired, survivor changed, retained local, then policy; the present side's completeness is never read; `Unverified_absence` is produced only by deletion.ml:331 and :338. `Mirror.complete` and `publish` are reached only via `Engine.run_once`. Comments are clean.
 
 #### lib/sync/spool.ml, watch.ml, reconcile.ml
@@ -573,29 +623,29 @@ Rule for step F: apply correctness, dead code, local redundancy and comment fixe
 
 #### lib/protocol/command.ml
 
-- [ ] command.ml:397 [high] `uid_search` and the SORT, THREAD, PARTIAL and SAVE encoders accept a criterion ending in a literal marker such as `{5}` or `{5+}`, which desynchronises the session; only `uid_search_saved` is safe because it wraps the criterion in parentheses.
-- [ ] command.ml:317 [high] `valid_set` parses endpoints with `Int64.of_string_opt`, so `+1`, `0x10`, `1_0`, `0b11`, `0u5` and `0o7` pass and are sent verbatim; affects every `uid_fetch*`, `uid_store*`, `uid_copy` and `uid_move`.
-- [ ] command.ml:10 [medium] `quote` rejects only 0x00 to 0x1F and 0x7F, so 8-bit bytes reach quoted strings in `login`, mailbox arguments, ACL identifiers and metadata values; RFC 9051 quoted strings must be UTF-8.
-- [ ] command.ml:91 [low] leading zeros pass both `valid_set` and `Proto.Uid_set.of_wire` (proto.ml:91) and are emitted; `nz-number` forbids them.
-- [ ] command.ml:80 [low] `metadata_entry` accepts `/a//b`, `/a/` and 8-bit bytes; RFC 5464 §3.2 forbids all three.
-- [ ] command.ml:88 [low] METADATA MAXSIZE has no upper bound; it is a 32-bit number.
-- [ ] command.ml:107 [low] `setmetadata` duplicate check is case-sensitive while `setquota` at :70 uppercases first.
-- [ ] command.ml:263 [low] `finite_set`, the sequence-match check at :290 and the flag checks at :499 and :543 discard the underlying error text; `astring` never names the failing argument.
-- [ ] command.ml:277 [low] `~condstore:true` is dropped when `?qresync` is given; the interface at command.mli:73 does not say so.
-- [ ] command.ml:84 [dead] the `String.contains s '\000'` test is covered by `contains_control` at :83; delete.
-- [ ] command.ml:438 [dead] the empty-criterion check duplicates :398; delete.
-- [ ] command.ml:65 [dead] `quota_resource` aliases `atom` once; inline.
-- [ ] command.ml:314 [redundant] `valid_set` reimplements `Proto.Uid_set.of_wire` plus `*`; one validator with an `~allow_star` flag replaces both.
-- [ ] command.ml:34 [redundant] `bind` is `Result.bind`.
-- [ ] command.ml:97 [redundant] the astring-list loop appears at :97, :139 and :219 and the bare-or-parenthesised wrapper at :101, :144 and :224.
-- [ ] command.ml:241 [redundant] `list_status` is byte-identical to `list_extended ~patterns:[pattern] ~status:items`.
-- [ ] command.ml:402 [redundant] the criterion validator is run by building and discarding a SEARCH string at :402, :419, :440 and :481.
-- [ ] command.ml:70 [redundant] the sort-uniq duplicate idiom appears at :70, :107, :161, :212 and :460.
-- [ ] command.ml:498 [redundant] flag-list validation at :498 and :542, operation-to-prefix mapping at :52 and :502.
-- [ ] command.ml:13 [redundant] `atom` is a ref loop that is `String.for_all`, and duplicates the private `valid_atom` in mail-flag imap_flag.ml:52.
-- [ ] command.mli:153 [drift] `uid_expunge` rejects `*` while every other set encoder accepts it, and RFC 4315 permits it.
-- [ ] command.mli:68 [drift] nothing says mailbox arguments must already be wire-encoded; `Mailbox_name.encode` is never called here, callers encode first (selected.ml:752, imap_cli.ml:411).
-- [ ] command.mli:21 [drift] empty `rights` is accepted, emitting a bare `+` or `-`.
+- [x] command.ml:397 [high] `uid_search` and the SORT, THREAD, PARTIAL and SAVE encoders accept a criterion ending in a literal marker such as `{5}` or `{5+}`, which desynchronises the session; only `uid_search_saved` is safe because it wraps the criterion in parentheses.
+- [x] command.ml:317 [high] `valid_set` parses endpoints with `Int64.of_string_opt`, so `+1`, `0x10`, `1_0`, `0b11`, `0u5` and `0o7` pass and are sent verbatim; affects every `uid_fetch*`, `uid_store*`, `uid_copy` and `uid_move`.
+- [x] command.ml:10 [medium] `quote` rejects only 0x00 to 0x1F and 0x7F, so 8-bit bytes reach quoted strings in `login`, mailbox arguments, ACL identifiers and metadata values; RFC 9051 quoted strings must be UTF-8.
+- [x] command.ml:91 [low] leading zeros pass both `valid_set` and `Proto.Uid_set.of_wire` (proto.ml:91) and are emitted; `nz-number` forbids them.
+- [x] command.ml:80 [low] `metadata_entry` accepts `/a//b`, `/a/` and 8-bit bytes; RFC 5464 §3.2 forbids all three.
+- [x] command.ml:88 [low] METADATA MAXSIZE has no upper bound; it is a 32-bit number.
+- [x] command.ml:107 [low] `setmetadata` duplicate check is case-sensitive while `setquota` at :70 uppercases first.
+- [ ] command.ml:263 [low] `finite_set`, the sequence-match check at :290 and the flag checks at :499 and :543 discard the underlying error text; `astring` never names the failing argument. (partly fixed: set, sequence-match and flag errors carry their cause; left for step 6: `astring` naming the argument belongs to a typed `Command.error`)
+- [x] command.ml:277 [low] `~condstore:true` is dropped when `?qresync` is given; the interface at command.mli:73 does not say so.
+- [x] command.ml:84 [dead] the `String.contains s '\000'` test is covered by `contains_control` at :83; delete.
+- [x] command.ml:438 [dead] the empty-criterion check duplicates :398; delete.
+- [x] command.ml:65 [dead] `quota_resource` aliases `atom` once; inline.
+- [x] command.ml:314 [redundant] `valid_set` reimplements `Proto.Uid_set.of_wire` plus `*`; one validator with an `~allow_star` flag replaces both.
+- [x] command.ml:34 [redundant] `bind` is `Result.bind`.
+- [x] command.ml:97 [redundant] the astring-list loop appears at :97, :139 and :219 and the bare-or-parenthesised wrapper at :101, :144 and :224.
+- [x] command.ml:241 [redundant] `list_status` is byte-identical to `list_extended ~patterns:[pattern] ~status:items`.
+- [x] command.ml:402 [redundant] the criterion validator is run by building and discarding a SEARCH string at :402, :419, :440 and :481.
+- [x] command.ml:70 [redundant] the sort-uniq duplicate idiom appears at :70, :107, :161, :212 and :460.
+- [x] command.ml:498 [redundant] flag-list validation at :498 and :542, operation-to-prefix mapping at :52 and :502.
+- [x] command.ml:13 [redundant] `atom` is a ref loop that is `String.for_all`, and duplicates the private `valid_atom` in mail-flag imap_flag.ml:52.
+- [x] command.mli:153 [drift] `uid_expunge` rejects `*` while every other set encoder accepts it, and RFC 4315 permits it.
+- [x] command.mli:68 [drift] nothing says mailbox arguments must already be wire-encoded; `Mailbox_name.encode` is never called here, callers encode first (selected.ml:752, imap_cli.ml:411).
+- [x] command.mli:21 [drift] empty `rights` is accepted, emitting a bare `+` or `-`.
 - Facts for later steps: 47 distinct error strings, listed in the review transcript, grouped by command family. All nine vocabulary types are to-wire only; `notify_filter` returns a result; `metadata_depth`, `sort_order`, `thread_algorithm`, `sort_return` are written inline; selected.ml:276 has a second `thread_algorithm` mapping to capability names. The FETCH whitelist `valid_items` at command.ml:326 has 19 names; selected.ml:417 keeps a narrower second list. Comments and optimisation are clean.
 
 

@@ -201,7 +201,7 @@ run only once everything else works.
 | 15b | Fix the code contracts the redocumentation pass found contradicted, listed under the step 15b note | done; five commits, protocol before eio | 5c4f7363c |
 | 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | done; six benchmarks, immediates, iarray UID sets, a portable protocol library with kind probes, and four allocation cuts | ed4ac2d2e |
 | 17 | Wrap up: add `CHANGES.md` for the `imap` and `maildir` packages summarising the user-visible changes since the baseline, run both packages' build and tests a final time, and record a review pause | done | 68baa44f6 |
-| 18 | Schema reset and one journal: delete the migration ladder for one version-1 schema, fold the APPEND intents into `Journal.operation`, collapse single-valued side tables into columns and flag lists into text columns, drop the redundant index, remove the test-only list readers | todo | |
+| 18 | Schema reset and one journal: delete the migration ladder for one version-1 schema, fold the APPEND intents into `Journal.operation`, collapse single-valued side tables into columns and flag lists into text columns, drop the redundant index, remove the test-only list readers | done; four commits | a091fa2ef |
 | 19 | Publish allocation: find and fix the 61 KB per staged row on the stage and publish path, measured with `bench_store` | todo | |
 | 20 | IDLE with a deadline: `Selected.Idle.wait_for_change` takes a clock and timeout and sends DONE from a timer fiber instead of cancelling the read, `Watch` renews without reconnecting, `Mailbox.wait` uses it | todo | |
 | 21 | Portable collections: replace stdlib `Set`, `Map` and module-level `Hashtbl` with `Base.Set`, `Base.Map` and iarrays so the store, sync and remaining eio types carry kinds, then annotate `@@ portable` wherever the compiler accepts, with probes | todo | |
@@ -864,6 +864,41 @@ stale digest and inconsistent objects, which showed as an
 `Optlibrarian` error. Sleep a second before restoring and touch the
 file, or move `_build/.db` aside once. Build and runtest are clean, 20
 suites and 263 test cases.
+
+Step 18. Done: in four commits, 19883fed5 (one schema), 7ff316d5a
+(paged readers), 4d2817aea (one journal) and a091fa2ef (columns).
+`Schema` holds one list of CREATE statements at `user_version` 1.
+`open_path` runs it in an empty database, and both openers compare every
+stored table and index statement, whitespace aside, and reject a missing,
+differing or extra object and any other `user_version` with `Failure`.
+`Database.t` has no `schema_version`, and no store value is gated on a
+version. `sync_pairs_scope` is gone and the five auxiliary indexes are
+part of the schema. The ten tables are `mailboxes`, `snapshots` (with a
+`flags` column), `blob_refs`, `scan_stages`, `scan_rows` (with `flags`),
+`sync_pairs` (with `common_flags`), `sync_pair_presence`,
+`sync_conflicts`, `sync_operations` and `mailbox_object_ids`. A flag
+list is the space-separated `to_wire` spellings in the caller's order,
+NULL where the list is unknown. `sync_operations` gains `desired_flags`,
+`internal_date`, `message_id`, `spool_ref`, `pre_send_frontier`,
+`pair_revision`, `local_flags` and `local_source_mtime`.
+`Operation_intent` and its API are deleted. `Journal.operation` gains
+`internal_date`, the APPEND's INTERNALDATE or a local append's source
+date, and `append : append option` with `message_id`, `spool_ref` and
+`pre_send_frontier`, required for `Append` and refused for every other
+kind. `prepare_operation` loses `?source_internal_date`, and
+`operation_source_date` is gone. `Engine.append_journaled ~ctx ~id
+source` and `append_blob_journaled ~ctx ~id blob` send a prepared
+operation, mark it `Sent` before the first byte, and leave it
+`Observed`, `Ambiguous` or `Rejected`. A failure before dispatch leaves
+it `Prepared`, which Bridge rejects as undispatched. A restart rejects
+only `Prepared` copies and holds a `Sent` APPEND. `inspect` prints the
+APPEND metadata and INTERNALDATE. `Journal.pairs`, `open_conflicts`,
+`active_operations`, `Blob.orphan_candidates` and `reap_orphans` are
+removed, and tests fold the pages. The migration tests are deleted,
+test_intent_validation is test_append_validation, and new tests cover
+rejected versions, keys and indexes, flag text and NULL, the Engine
+APPEND contract and a held `Sent` APPEND. Build and runtest are clean,
+20 suites and 252 test cases.
 
 ### Step F notes
 

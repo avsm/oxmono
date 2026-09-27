@@ -19,6 +19,9 @@ type error =
   | Incomplete of string
   | Limit of string
   | Stale_revision
+  | Uidvalidity_changed
+      (** [Uidvalidity_changed] is returned when the selected mailbox's
+          UIDVALIDITY differs from the epoch a call must preserve. *)
 
 val pp_error : Format.formatter -> error -> unit
 
@@ -56,8 +59,12 @@ val run_once_staged :
     rows, fetches changed metadata and new UID ranges, then verifies every
     live UID with a complete SEARCH inventory. Other cases use full FETCH
     and SEARCH. The anchor advances only with the complete publication.
-    [expected_uidvalidity] rejects a changed mailbox epoch before staging or
-    publishing any rows. *)
+    [expected_uidvalidity] rejects a changed mailbox epoch with
+    [Uidvalidity_changed] before staging or publishing any rows. When
+    OBJECTID+ is offered and no binding is saved, the scan binds the mailbox
+    identity only if the selected UIDVALIDITY equals the published one. A
+    scan that publishes a new epoch leaves the scope unbound, and the next
+    scan binds it. *)
 
 type append_outcome =
   | Identified of Imap_eio.Client.append_receipt
@@ -74,7 +81,11 @@ val append_journaled :
     without APPENDUID, disconnect, or cancellation leaves a pending journal
     entry for reconciliation; it is never automatically replayed. The caller
     must provide a durable spool reference and verified content digest.
-    An optional validated [internal_date] is saved in the intent before send. *)
+    An optional validated [internal_date] is saved in the intent before send.
+    A saved OBJECTID+ binding requires OBJECTID+ to be enabled on [client]
+    already, as {!guard_bound_mailbox} does, and a destination whose STATUS
+    identity differs from it returns [Invalid_scope] before any intent is
+    saved. *)
 
 val append_blob_journaled :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
@@ -93,16 +104,26 @@ val archive_uid :
   (Imap_store.Blob.blob, error) result
 (** Fetches exact BODY.PEEK[] bytes to an exclusive provisional spool. Only
     after a successful tagged completion does it put a synced content-addressed
-    blob and attach it to the current SQLite snapshot. [spool] is removed on
-    every exit; callers supply a unique path on a filesystem with free space.
-    A saved OBJECTID+ binding is checked against the configured name and used
-    for selection before any body is fetched. A failed database attach may
-    leave a recoverable orphan blob. *)
+    blob and attach it to the current SQLite snapshot. [spool] must not exist.
+    The call creates it and removes it on every exit, and an existing file at
+    [spool] raises [Eio.Io] and is left in place. Callers supply a unique path
+    on a filesystem with free space. A saved OBJECTID+ binding is checked
+    against the configured name and used for selection before any body is
+    fetched. A selected UIDVALIDITY that differs from the published one
+    returns [Uidvalidity_changed]. A UID removed from the snapshot by a
+    concurrent publication raises [Invalid_argument] from the attach and
+    leaves an orphan blob for the collector. *)
 
 type hydration_receipt = {
   cursor : Imap.Mirror.cursor;
   hydrated : int;
   bytes : int64;
+  last_uid : Imap.Proto.Uid.t option;
+      (** [last_uid] is the last UID the pass hydrated or skipped. Pass it
+          as [after_uid] to continue. *)
+  skipped : Imap.Proto.Uid.t list;
+      (** [skipped] lists, in order, the UIDs larger than the per-body or
+          total byte budget, which no pass with these budgets can hydrate. *)
   more : bool;
 }
 
@@ -112,6 +133,9 @@ type cache_audit_receipt = {
   invalidated : int;
   bytes : int64;
   last_uid : Imap.Proto.Uid.t option;
+  skipped : Imap.Proto.Uid.t list;
+      (** [skipped] lists, in order, the UIDs whose blobs are larger than
+          [max_total_bytes] and were passed over unchecked. *)
   more : bool;
 }
 
@@ -122,39 +146,52 @@ val audit_cache_once :
   scope:Imap.Mirror.scope -> unit ->
   (cache_audit_receipt, error) result
 (** Offline bounded integrity pass over blob references in the published
-    snapshot. Rehashes up to [max_messages] references and
+    snapshot after [after_uid]. Rehashes up to [max_messages] references and
     [max_total_bytes] declared bytes, then returns [last_uid] for the next
     pass and [more] if references remain. Missing or corrupt files have only
     their matching cache references detached; message inventory and files
     are unchanged. The caller can then run [hydrate_once] to refill them.
-    Defaults are 100 references and 1 GiB. A body larger than the remaining
-    budget causes a clean zero-or-partial-progress stop with [more=true].
-    [expected_revision] pins a continued audit to its first page; a changed
-    or concurrent cursor revision or epoch yields [Stale_revision]. *)
+    [max_messages] defaults to 100 and must be 1 to 10,000, and
+    [max_total_bytes] defaults to 1 GiB. A blob larger than [max_total_bytes]
+    is skipped and listed in [skipped]. A blob larger than the remaining
+    budget stops the pass before it with [more=true].
+    [expected_revision] pins a continued audit to its first page. A changed
+    cursor revision or epoch yields [Stale_revision] before any check, and
+    ends the pass with the committed counts and [more=true] after one. *)
 
 val hydrate_once :
+  ?after_uid:Imap.Proto.Uid.t ->
   ?max_messages:int -> ?max_body_bytes:int64 -> ?max_total_bytes:int64 ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   scope:Imap.Mirror.scope -> mailbox:string -> spool_dir:_ Eio.Path.t ->
   next_spool_id:(unit -> string) -> unit ->
   (hydration_receipt, error) result
-(** Fetch and durably attach exact BODY.PEEK[] bytes for published UIDs that
-    lack blob references. Queries and transfers are paged; defaults are 100
-    messages and 1 GiB per body and invocation. Each candidate is preflighted
-    with RFC822.SIZE before sending body bytes, so the aggregate byte budget
-    never starts a body it cannot fit. A clean budget stop returns [more=true].
-    Missing UIDs, changed epochs, failed FETCH completion and SQLite errors
-    stop the pass; earlier attached blobs remain durable. The caller supplies
-    unique filesystem-safe spool IDs. No message flags are changed. *)
+(** Fetch and durably attach exact BODY.PEEK[] bytes for published UIDs after
+    [after_uid] that lack blob references. Queries and transfers are paged.
+    [max_messages] defaults to 100 and must be 1 to 10,000, and both byte
+    budgets default to 1 GiB. Each candidate is preflighted with RFC822.SIZE
+    before any body byte is fetched. A message larger than [max_body_bytes]
+    or [max_total_bytes] is skipped, listed in [skipped], and counted against
+    [max_messages]. A message larger than the remaining total budget stops
+    the pass before it. [more] is [true] when missing UIDs remain after
+    [last_uid] or any UID was skipped. Missing UIDs, a changed epoch, failed
+    FETCH completion and SQLite errors stop the pass with an error, and
+    earlier attached blobs remain durable. A concurrent publication yields
+    [Stale_revision] before any attach, and ends the pass with the committed
+    counts and [more=true] after one. The caller supplies unique
+    filesystem-safe spool IDs. No message flags are changed. *)
 
 type uid_digest = { sha256:string; length:int64 }
 
 val fetch_uid_digest :
   ?max_bytes:int64 -> client:Imap_eio.Client.t -> store:Imap_store.t ->
-  scope:Imap.Mirror.scope -> mailbox:string -> uid:Imap.Proto.Uid.t ->
+  scope:Imap.Mirror.scope -> mailbox:string ->
+  uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
   spool:_ Eio.Path.t -> unit -> (uid_digest, error) result
-(** Fetch exact BODY.PEEK[] bytes into a provisional spool and return only
-    their length and SHA-256 digest. The spool is removed on every exit; no
-    blob file or snapshot reference is created. Use for an APPENDUID that has
-    not entered the published snapshot yet. The same scope, OBJECTID+,
-    UIDVALIDITY and literal-completion checks as [archive_uid] apply. *)
+(** [fetch_uid_digest ~client ~store ~scope ~mailbox ~uidvalidity ~uid ~spool
+    ()] is the length and SHA-256 digest of the exact BODY.PEEK[] bytes of
+    [uid], fetched into a provisional spool. No blob file or snapshot
+    reference is created. Use it for an APPENDUID that has not entered the
+    published snapshot yet. A selected UIDVALIDITY other than [uidvalidity]
+    returns [Uidvalidity_changed]. [max_bytes] defaults to 1 GiB. The spool,
+    scope, OBJECTID+ and literal-completion rules of [archive_uid] apply. *)

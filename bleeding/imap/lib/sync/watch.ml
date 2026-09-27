@@ -87,7 +87,8 @@ let run ~clock ~connect ~store ~scope ~mailbox ~next_stage_id ~on_publish
               | exception Eio.Time.Timeout -> Ok () in
           watch () in
     let fatal = function
-      | Engine.Invalid_scope _ | Engine.Limit _ | Engine.Mirror _ -> true
+      | Engine.Invalid_scope _ | Engine.Limit _ | Engine.Mirror _
+      | Engine.Uidvalidity_changed -> true
       | Engine.Client _ | Engine.Incomplete _ |
         Engine.Stale_revision -> false in
     let rec loop delay =

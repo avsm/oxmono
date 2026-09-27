@@ -280,19 +280,24 @@ let test_objectid_first_binding_requires_stable_epoch () =
    | Error error -> Alcotest.failf "baseline scan: %a"
        Imap_sync.Engine.pp_error error);
   let before=(Imap_store.load_cursor store ~scope).revision in
-  let changed,_=scripted_objectid_empty ~sw ~mailbox_id:"F_unknown"
-    ~uidvalidity:12L () in
-  (match Imap_sync.Engine.run_once_staged ~client:changed ~store ~scope
-    ~mailbox:"INBOX" ~stage_id:"unsafe-first-binding" () with
-   | Error (Imap_sync.Engine.Invalid_scope
-       "cannot first-bind OBJECTID+ after mailbox UIDVALIDITY changed") -> ()
-   | Error error -> Alcotest.failf "wrong first-binding error: %a"
-       Imap_sync.Engine.pp_error error
-   | Ok _ -> Alcotest.fail "changed epoch acquired first OBJECTID+ binding");
+  let scan stage_id=
+    let client,_=scripted_objectid_empty ~sw ~mailbox_id:"F_unknown"
+      ~uidvalidity:12L () in
+    match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+      ~mailbox:"INBOX" ~stage_id () with
+    | Ok _ -> ()
+    | Error error -> Alcotest.failf "%s: %a" stage_id
+        Imap_sync.Engine.pp_error error in
+  scan "changed-epoch";
   Alcotest.(check bool) "changed epoch not bound" true
     (Imap_store.object_identity store ~scope=`Unbound);
-  Alcotest.(check int64) "changed epoch not published" before
-    (Imap_store.load_cursor store ~scope).revision
+  Alcotest.(check bool) "changed epoch published" true
+    ((Imap_store.load_cursor store ~scope).revision>before &&
+     (Imap_store.load_cursor store ~scope).uidvalidity=Some (epoch 12L));
+  scan "stable-epoch";
+  Alcotest.(check bool) "stable epoch binds" true
+    (Imap_store.object_identity store ~scope=
+      `Bound {Imap_store.account_id="u_account";mailbox_id="F_unknown"})
 
 let test_objectid_missing_select_identity_cannot_publish () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
@@ -456,6 +461,198 @@ let test_candidate_inspection_rejects_replaced_objectid () =
     ((Option.get (J.find_operation store ~id:op.id)).state=J.Sent &&
      (Option.get (Imap_store.find_intent store ~id:op.id)).state=
        Imap_store.Sent)
+
+let scripted_client ?(caps="IMAP4rev1 UNSELECT UIDPLUS") ~sw name lines =
+  let wire=Buffer.create 512 in
+  let pp ppf data=
+    Buffer.add_string wire data;
+    Format.pp_print_string ppf data in
+  let flow=Eio_mock.Flow.make ~pp name in
+  Eio_mock.Flow.on_read flow ([
+    `Return "* OK ready\r\n";
+    `Return ("* CAPABILITY " ^ caps ^ "\r\nA00000001 OK done\r\n");
+    `Return "A00000002 OK logged in\r\n";
+    `Return ("* CAPABILITY " ^ caps ^ "\r\nA00000003 OK done\r\n")]
+    @ List.map (fun line -> `Return line) lines);
+  let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
+    ~allow_insecure_transport:true () in
+  match Imap_eio.Client.of_flow ~sw ~auth flow with
+  | Ok client -> client,wire
+  | Error error -> Alcotest.fail (Imap_eio.Client.error_to_string error)
+
+let examine ?(extra="") ~tag ~exists ~uidnext () =
+  Printf.sprintf "* %d EXISTS\r\n* OK [UIDVALIDITY 11] valid\r\n\
+    * OK [UIDNEXT %d] next\r\n%sA%08d OK [READ-ONLY] selected\r\n"
+    exists uidnext extra tag
+
+let publish_two ~sw ~store =
+  let client,_=scripted_client ~sw "two-messages" [
+    examine ~tag:4 ~exists:2 ~uidnext:3 ();
+    "* 1 FETCH (UID 1 FLAGS ())\r\n* 2 FETCH (UID 2 FLAGS ())\r\n\
+     A00000005 OK fetched\r\n";
+    "* SEARCH 1 2\r\nA00000006 OK searched\r\n";
+    "A00000007 OK unselected\r\n"] in
+  match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+      ~mailbox:"INBOX" ~stage_id:"two-messages" () with
+  | Ok _ -> ()
+  | Error error -> Alcotest.failf "two-message scan: %a"
+      Imap_sync.Engine.pp_error error
+
+let test_hydration_skips_oversized_message () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store;
+  let size=String.length message in
+  let client,_=scripted_client ~sw "hydrate-oversized" [
+    examine ~tag:4 ~exists:2 ~uidnext:3 ();
+    "* 1 FETCH (UID 1 FLAGS () RFC822.SIZE 5000)\r\n\
+     A00000005 OK fetched\r\n";
+    Printf.sprintf "* 2 FETCH (UID 2 FLAGS () RFC822.SIZE %d)\r\n\
+      A00000006 OK fetched\r\n" size;
+    Printf.sprintf "* 2 FETCH (UID 2 BODY[] {%d}\r\n" size;
+    message ^ ")\r\nA00000007 OK fetched\r\n";
+    "A00000008 OK unselected\r\n"] in
+  let spool_id=ref 0 in
+  (match Imap_sync.Engine.hydrate_once ~max_body_bytes:1000L ~client ~store
+      ~scope ~mailbox:"INBOX" ~spool_dir
+      ~next_spool_id:(fun () -> incr spool_id; string_of_int !spool_id) ()
+   with
+   | Ok receipt ->
+       Alcotest.(check int) "later UID hydrated" 1 receipt.hydrated;
+       Alcotest.(check (list int64)) "oversized UID reported" [1L]
+         (List.map P.Uid.to_int64 receipt.skipped);
+       Alcotest.(check (option int64)) "last UID considered" (Some 2L)
+         (Option.map P.Uid.to_int64 receipt.last_uid);
+       Alcotest.(check bool) "skipped UID leaves more" true receipt.more
+   | Error error -> Alcotest.failf "oversized hydration: %a"
+       Imap_sync.Engine.pp_error error);
+  let client,_=scripted_client ~sw "hydrate-after" [
+    examine ~tag:4 ~exists:2 ~uidnext:3 ();
+    "A00000005 OK unselected\r\n"] in
+  match Imap_sync.Engine.hydrate_once ~after_uid:(uid 1L)
+      ~max_body_bytes:1000L ~client ~store ~scope ~mailbox:"INBOX" ~spool_dir
+      ~next_spool_id:(fun () -> "unused") () with
+  | Ok receipt ->
+      Alcotest.(check int) "nothing missing after the skipped UID" 0
+        receipt.hydrated;
+      Alcotest.(check bool) "continuation complete" false receipt.more
+  | Error error -> Alcotest.failf "continued hydration: %a"
+      Imap_sync.Engine.pp_error error
+
+let test_hydration_skips_message_above_total_budget () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store;
+  let size=String.length message in
+  let client,_=scripted_client ~sw "hydrate-total" [
+    examine ~tag:4 ~exists:2 ~uidnext:3 ();
+    Printf.sprintf "* 1 FETCH (UID 1 FLAGS () RFC822.SIZE %d)\r\n\
+      A00000005 OK fetched\r\n" (size*2);
+    Printf.sprintf "* 2 FETCH (UID 2 FLAGS () RFC822.SIZE %d)\r\n\
+      A00000006 OK fetched\r\n" size;
+    Printf.sprintf "* 2 FETCH (UID 2 BODY[] {%d}\r\n" size;
+    message ^ ")\r\nA00000007 OK fetched\r\n";
+    "A00000008 OK unselected\r\n"] in
+  match Imap_sync.Engine.hydrate_once
+      ~max_total_bytes:(Int64.of_int (size+1)) ~client ~store ~scope
+      ~mailbox:"INBOX" ~spool_dir ~next_spool_id:(fun () -> "total") () with
+  | Ok receipt ->
+      Alcotest.(check int) "fitting UID hydrated" 1 receipt.hydrated;
+      Alcotest.(check (list int64)) "unfittable UID skipped" [1L]
+        (List.map P.Uid.to_int64 receipt.skipped)
+  | Error error -> Alcotest.failf "total budget hydration: %a"
+      Imap_sync.Engine.pp_error error
+
+let test_hydration_keeps_counts_after_concurrent_publish () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store;
+  let size=String.length message in
+  let republish ()=
+    let client,_=scripted_client ~sw "one-message" [
+      examine ~tag:4 ~exists:1 ~uidnext:3 ();
+      "* 1 FETCH (UID 1 FLAGS ())\r\nA00000005 OK fetched\r\n";
+      "* SEARCH 1\r\nA00000006 OK searched\r\n";
+      "A00000007 OK unselected\r\n"] in
+    match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+        ~mailbox:"INBOX" ~stage_id:"one-message" () with
+    | Ok _ -> ""
+    | Error error -> Alcotest.failf "concurrent scan: %a"
+        Imap_sync.Engine.pp_error error in
+  let flow=Eio_mock.Flow.make "hydrate-concurrent" in
+  let fetch n=[
+    `Return (Printf.sprintf "* %d FETCH (UID %d FLAGS () RFC822.SIZE %d)\r\n\
+      A%08d OK fetched\r\n" n n size (3+2*n));
+    `Return (Printf.sprintf "* %d FETCH (UID %d BODY[] {%d}\r\n" n n size)] in
+  Eio_mock.Flow.on_read flow ([
+    `Return "* OK ready\r\n";
+    `Return "* CAPABILITY IMAP4rev1 UNSELECT\r\nA00000001 OK done\r\n";
+    `Return "A00000002 OK logged in\r\n";
+    `Return "* CAPABILITY IMAP4rev1 UNSELECT\r\nA00000003 OK done\r\n";
+    `Return (examine ~tag:4 ~exists:2 ~uidnext:3 ())] @ fetch 1 @ [
+    `Return (message ^ ")\r\nA00000006 OK fetched\r\n")] @ fetch 2 @ [
+    `Run (fun () -> republish () ^ message ^
+      ")\r\nA00000008 OK fetched\r\n");
+    `Return "A00000009 OK unselected\r\n"]);
+  let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
+    ~allow_insecure_transport:true () in
+  let client=match Imap_eio.Client.of_flow ~sw ~auth flow with
+    | Ok client -> client
+    | Error error -> Alcotest.fail (Imap_eio.Client.error_to_string error) in
+  let spool_id=ref 0 in
+  match Imap_sync.Engine.hydrate_once ~client ~store ~scope ~mailbox:"INBOX"
+      ~spool_dir
+      ~next_spool_id:(fun () -> incr spool_id; string_of_int !spool_id) ()
+  with
+  | Ok receipt ->
+      Alcotest.(check int) "committed attach reported" 1 receipt.hydrated;
+      Alcotest.(check bool) "concurrent publish leaves more" true
+        receipt.more
+  | Error error -> Alcotest.failf "concurrent hydration: %a"
+      Imap_sync.Engine.pp_error error
+
+let test_audit_skips_blob_above_budget () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store;
+  let attach n body=
+    let blob=Imap_store.Blob.put store ~source:(Eio.Flow.string_source body)
+      ~length:(Int64.of_int (String.length body)) () in
+    Imap_store.Blob.attach store ~scope ~uidvalidity:(epoch 11L) ~uid:(uid n)
+      blob in
+  attach 1L (message ^ message);
+  attach 2L message;
+  match Imap_sync.Engine.audit_cache_once
+      ~max_total_bytes:(Int64.of_int (String.length message)) ~store ~scope
+      () with
+  | Ok receipt ->
+      Alcotest.(check int) "fitting blob checked" 1 receipt.checked;
+      Alcotest.(check (list int64)) "large blob skipped" [1L]
+        (List.map P.Uid.to_int64 receipt.skipped);
+      Alcotest.(check (option int64)) "last UID advanced past it" (Some 2L)
+        (Option.map P.Uid.to_int64 receipt.last_uid);
+      Alcotest.(check bool) "audit complete" false receipt.more
+  | Error error -> Alcotest.failf "audit: %a" Imap_sync.Engine.pp_error error
+
+let test_digest_checks_receipt_epoch () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store;
+  let client,_=scripted_client ~sw "digest-epoch" [
+    examine ~tag:4 ~exists:2 ~uidnext:3 ();
+    "A00000005 OK unselected\r\n"] in
+  match Imap_sync.Engine.fetch_uid_digest ~client ~store ~scope
+      ~mailbox:"INBOX" ~uidvalidity:(epoch 12L) ~uid:(uid 1L)
+      ~spool:Eio.Path.(spool_dir / "digest-epoch") () with
+  | Error Imap_sync.Engine.Uidvalidity_changed -> ()
+  | Error error -> Alcotest.failf "wrong digest epoch error: %a"
+      Imap_sync.Engine.pp_error error
+  | Ok _ -> Alcotest.fail "digest ignored the receipt epoch"
 
 let test_staged_condstore_wire () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
@@ -2332,6 +2529,16 @@ else Alcotest.run "imap-bridge-faults" [
       test_watch_rejects_long_idle_renewal;
     Alcotest.test_case "metadata lock is not the writer lease" `Quick
       test_metadata_lock_is_not_writer_lease;
+    Alcotest.test_case "hydration skips oversized message" `Quick
+      test_hydration_skips_oversized_message;
+    Alcotest.test_case "hydration skips message above total budget" `Quick
+      test_hydration_skips_message_above_total_budget;
+    Alcotest.test_case "hydration keeps counts after concurrent publish"
+      `Quick test_hydration_keeps_counts_after_concurrent_publish;
+    Alcotest.test_case "audit skips blob above budget" `Quick
+      test_audit_skips_blob_above_budget;
+    Alcotest.test_case "digest checks receipt epoch" `Quick
+      test_digest_checks_receipt_epoch;
     Alcotest.test_case "remote source vanishes before archival" `Quick
       test_remote_source_vanishes_before_archive;
     Alcotest.test_case "local source changes before archival" `Quick

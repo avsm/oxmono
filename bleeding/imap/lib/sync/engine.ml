@@ -9,6 +9,7 @@ type error =
   | Incomplete of string
   | Limit of string
   | Stale_revision
+  | Uidvalidity_changed
 
 let pp_error ppf = function
   | Client e -> Imap_eio.Client.pp_error ppf e
@@ -17,6 +18,8 @@ let pp_error ppf = function
   | Incomplete s -> Format.fprintf ppf "incomplete IMAP inventory: %s" s
   | Limit s -> Format.fprintf ppf "IMAP scan limit: %s" s
   | Stale_revision -> Format.pp_print_string ppf "IMAP snapshot changed concurrently"
+  | Uidvalidity_changed ->
+      Format.pp_print_string ppf "mailbox UIDVALIDITY changed"
 
 let ( let* ) result f = match result with Ok x -> f x | Error _ as e -> e
 let network = function Ok x -> Ok x | Error e -> Error (Client e)
@@ -109,14 +112,15 @@ let observe_selected_identity ~store ~scope info =
   | _ -> Error (Invalid_scope
       "OBJECTID+ SELECT omitted account/mailbox identity")
 
-let guard_initial_identity_epoch ~store ~scope ~(cursor:Mirror.cursor)
-    ~validity =
-  match (Imap_store.object_identity store ~scope,
-         cursor.Mirror.uidvalidity) with
-  | `Unbound,Some previous when previous<>validity ->
-      Error (Invalid_scope
-        "cannot first-bind OBJECTID+ after mailbox UIDVALIDITY changed")
-  | _ -> Ok ()
+(* A first binding would attest a mailbox whose epoch just changed, which
+   may be a replacement. Binding waits for a scan that sees the new epoch
+   already published. *)
+let observe_identity ~objectid_enabled ~store ~scope ~(cursor:Mirror.cursor)
+    ~validity info =
+  match Imap_store.object_identity store ~scope,cursor.uidvalidity with
+  | _ when not objectid_enabled -> Ok None
+  | `Unbound,Some previous when previous<>validity -> Ok None
+  | _ -> observe_selected_identity ~store ~scope info
 
 let pin_observed_identity ~client ~mailbox = function
   | None -> Ok ()
@@ -301,11 +305,8 @@ let run_once ?(max_windows=1000) ?(max_rows=100_000) ~client ~store
             let* info = network (Imap_eio.Selected.info selected) in
             let* selected_info = selected_metadata info in
             let validity = selected_info.uidvalidity in
-            let* ()=if objectid_enabled then
-              guard_initial_identity_epoch ~store ~scope
-                ~cursor:current.cursor ~validity else Ok () in
-            let* identity=if objectid_enabled then
-              observe_selected_identity ~store ~scope info else Ok None in
+            let* identity=observe_identity ~objectid_enabled ~store ~scope
+              ~cursor:current.cursor ~validity info in
             observed_identity:=identity;
             let highestmodseq = selected_info.highestmodseq in
             let use_modseq = not selected_info.nomodseq in
@@ -368,13 +369,10 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
           let validity = selected_info.uidvalidity in
           let* ()=match expected_uidvalidity with
             | Some expected when expected<>validity ->
-                Error (Invalid_scope "mailbox UIDVALIDITY changed")
+                Error Uidvalidity_changed
             | _ -> Ok () in
-          let* ()=if objectid_enabled then
-            guard_initial_identity_epoch ~store ~scope ~cursor ~validity
-            else Ok () in
-          let* identity=if objectid_enabled then
-            observe_selected_identity ~store ~scope info else Ok None in
+          let* identity=observe_identity ~objectid_enabled ~store ~scope
+            ~cursor ~validity info in
           observed_identity:=identity;
           let highestmodseq = selected_info.highestmodseq in
           let use_modseq = not selected_info.nomodseq in
@@ -413,13 +411,11 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
                     ~cursor ~action with
                    | `Seeded -> Ok ()
                    | `Stale_revision -> Error Stale_revision) in
-            let fetch_windows=ref 0 in
+            let staged f =
+              try f (); Ok ()
+              with Invalid_argument message -> Error (Incomplete message) in
             let rec fetch first=
               if first>upper then Ok () else
-              if !fetch_windows>=max_windows then
-                Error (Limit "UID range exceeds configured window budget")
-              else
-              (incr fetch_windows;
               let last=Int64.min upper (Int64.add first 999L) in
               let last=match incremental with
                 | Some _ when first<=cursor.frontier ->
@@ -436,8 +432,7 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
                       match row with
                       | Some row when row.modseq<>None ->
                           Ok (row::rest)
-                      | _ -> Error (Incomplete
-                          "CHANGEDSINCE omitted FLAGS or MODSEQ"))
+                      | _ -> Error (Incomplete "CHANGEDSINCE omitted MODSEQ"))
                       fetched (Ok [])
                 | _ ->
                     let* fetched=network
@@ -450,27 +445,23 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
                         match row with
                         | Some row when not use_modseq ||
                             row.modseq<>None -> Ok (row::rest)
-                        | Some _ -> Error (Incomplete
-                            "FETCH metadata omitted requested MODSEQ")
-                        | None -> Error (Incomplete
-                            "FETCH metadata missing UID or FLAGS"))
+                        | _ -> Error (Incomplete
+                            "FETCH metadata omitted requested MODSEQ"))
                       fetched (Ok []) in
-              (try
-                 Imap_store.stage_rows store ~stage_id ~first ~last
-                   ~preserve_newer:(Option.is_some incremental) parsed;
-                 fetch (Int64.succ last)
-               with Invalid_argument message -> Error (Incomplete message))) in
+              let* ()=staged (fun () ->
+                Imap_store.stage_rows store ~stage_id ~first ~last
+                  ~preserve_newer:(Option.is_some incremental) parsed) in
+              fetch (Int64.succ last) in
             let rec inventory first=
               if first>upper then Ok () else
               let last=Int64.min upper (Int64.add first 999L) in
               let* found=network
                 (Imap_eio.Selected.uid_search_range selected
                   ~first ~last) in
-              (try
-                 Imap_store.stage_membership store ~stage_id
-                   ~first ~last found;
-                 inventory (Int64.succ last)
-               with Invalid_argument message -> Error (Incomplete message)) in
+              let* ()=staged (fun () ->
+                Imap_store.stage_membership store ~stage_id
+                  ~first ~last found) in
+              inventory (Int64.succ last) in
             let* ()=fetch 1L in
             let* ()=inventory 1L in
             Ok (action,highestmodseq,not use_modseq))
@@ -553,43 +544,45 @@ let append_blob_journaled ~client ~store ~scope ~mailbox ~id ~message_id
 
 type uid_digest = { sha256:string; length:int64 }
 
-let with_fetched_uid ~max_bytes ~client ~store ~scope
-    ~mailbox ~uid ~spool ~on_spool () =
+let with_fetched_uid ~max_bytes ~client ~store ~scope ~mailbox ~uid ~epoch
+    ~spool ~on_spool =
   let* () = validate_scope ~client ~scope ~mailbox in
   let* () = guard_bound_mailbox ~client ~store ~scope ~mailbox in
-  let cursor = Imap_store.load_cursor store ~scope in
-  match cursor.uidvalidity with
-  | None -> Error (Incomplete "mailbox has no published UIDVALIDITY")
-  | Some epoch ->
-      Spool.with_spool spool (fun output ->
-        let* fetch_result = network
-          (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
-            (fun selected ->
-              let result =
-                let* info = network (Imap_eio.Selected.info selected) in
-                if info.uidvalidity <> Imap.Proto.Uidvalidity.to_int64 epoch then
-                  Error (Invalid_scope "mailbox UIDVALIDITY changed")
-                else network (Imap_eio.Selected.fetch_to selected
-                  ~max_bytes ~uid:(Imap.Proto.Uid.to_int64 uid) output)
-              in Ok result)) in
-        let* () = fetch_result in
-        on_spool epoch spool)
+  let* epoch = epoch () in
+  Spool.with_spool spool (fun output ->
+    let* fetch_result = network
+      (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
+        (fun selected ->
+          let result =
+            let* info = network (Imap_eio.Selected.info selected) in
+            if info.uidvalidity <> Imap.Proto.Uidvalidity.to_int64 epoch then
+              Error Uidvalidity_changed
+            else network (Imap_eio.Selected.fetch_to selected
+              ~max_bytes ~uid:(Imap.Proto.Uid.to_int64 uid) output)
+          in Ok result)) in
+    let* () = fetch_result in
+    on_spool epoch spool)
 
 let archive_uid ?(max_bytes=1_073_741_824L) ~client ~store ~scope
     ~mailbox ~uid ~spool () =
-  with_fetched_uid ~max_bytes ~client ~store ~scope ~mailbox ~uid ~spool
-    ~on_spool:(fun epoch spool ->
+  let epoch () = match (Imap_store.load_cursor store ~scope).uidvalidity with
+    | None -> Error (Incomplete "mailbox has no published UIDVALIDITY")
+    | Some epoch -> Ok epoch in
+  with_fetched_uid ~max_bytes ~client ~store ~scope ~mailbox ~uid ~epoch
+    ~spool ~on_spool:(fun epoch spool ->
       let blob=Eio.Path.with_open_in spool (fun input ->
         let length=Optint.Int63.to_int64 (Eio.File.size input) in
         Imap_store.Blob.put store ~source:input ~length ()) in
       Imap_store.Blob.attach ~verify:false store ~scope ~uidvalidity:epoch
         ~uid blob;
-      Ok blob) ()
+      Ok blob)
 
 type hydration_receipt = {
   cursor : Mirror.cursor;
   hydrated : int;
   bytes : int64;
+  last_uid : Imap.Proto.Uid.t option;
+  skipped : Imap.Proto.Uid.t list;
   more : bool;
 }
 
@@ -599,6 +592,7 @@ type cache_audit_receipt = {
   invalidated : int;
   bytes : int64;
   last_uid : Imap.Proto.Uid.t option;
+  skipped : Imap.Proto.Uid.t list;
   more : bool;
 }
 
@@ -613,48 +607,80 @@ let audit_cache_once ?after_uid ?expected_revision ?(max_messages=100)
         | None -> false) then Error Stale_revision else
     match cursor.phase,cursor.uidvalidity,cursor.inventory_ref with
     | Mirror.Live,Some _,Some _ ->
-        let more_after after =
-          match Imap_store.Blob.referenced_page store ~scope ~cursor
-            ?after_uid:after ~limit:1 () with
-          | `Stale_revision -> Error Stale_revision
-          | `Refs [] -> Ok false
-          | `Refs _ -> Ok true in
-        let rec pages after checked invalidated bytes =
-          if checked>=max_messages || bytes>=max_total_bytes then
-            let* more=more_after after in
-            Ok {cursor;checked;invalidated;bytes;last_uid=after;more}
+        let receipt ~after ~checked ~invalidated ~bytes ~skipped ~more =
+          Ok ({cursor;checked;invalidated;bytes;last_uid=after;
+               skipped=List.rev skipped;more} : cache_audit_receipt) in
+        let stale ~after ~checked ~invalidated ~bytes ~skipped =
+          if checked=0 then Error Stale_revision
+          else receipt ~after ~checked ~invalidated ~bytes ~skipped
+            ~more:true in
+        let rec pages after considered checked invalidated bytes skipped =
+          if considered>=max_messages || bytes>=max_total_bytes then
+            match Imap_store.Blob.referenced_page store ~scope ~cursor
+              ?after_uid:after ~limit:1 () with
+            | `Stale_revision ->
+                stale ~after ~checked ~invalidated ~bytes ~skipped
+            | `Refs refs ->
+                receipt ~after ~checked ~invalidated ~bytes ~skipped
+                  ~more:(refs<>[])
           else
             match Imap_store.Blob.referenced_page store ~scope ~cursor
-              ?after_uid:after ~limit:(min 100 (max_messages-checked)) () with
-            | `Stale_revision -> Error Stale_revision
-            | `Refs [] -> Ok {cursor;checked;invalidated;bytes;
-                last_uid=after;more=false}
+              ?after_uid:after ~limit:(min 100 (max_messages-considered))
+              () with
+            | `Stale_revision ->
+                stale ~after ~checked ~invalidated ~bytes ~skipped
+            | `Refs [] -> receipt ~after ~checked ~invalidated ~bytes
+                ~skipped ~more:false
             | `Refs refs ->
-                let rec process after checked invalidated bytes = function
-                  | [] -> pages after checked invalidated bytes
-                  | (uid,(blob:Imap_store.Blob.blob))::rest ->
-                      if blob.length>Int64.sub max_total_bytes bytes then
-                        Ok {cursor;checked;invalidated;bytes;
-                          last_uid=after;more=true}
-                      else
-                        let* invalidated=if Imap_store.Blob.verify store blob ||
-                          Imap_store.Blob.verify store blob then Ok invalidated
-                        else
-                          match Imap_store.Blob.detach_if_matches store ~scope
-                            ~cursor ~uid blob with
-                          | `Detached -> Ok (invalidated+1)
-                          | `Unchanged -> Ok invalidated
-                          | `Stale_revision -> Error Stale_revision in
-                        process (Some uid) (checked+1) invalidated
-                          (Int64.add bytes blob.length) rest in
-                process after checked invalidated bytes refs in
-        pages after_uid 0 0 0L
+                process after considered checked invalidated bytes skipped
+                  refs
+        and process after considered checked invalidated bytes skipped =
+          function
+          | [] -> pages after considered checked invalidated bytes skipped
+          | (uid,(blob:Imap_store.Blob.blob))::rest ->
+              if blob.length>max_total_bytes then
+                process (Some uid) (considered+1) checked invalidated bytes
+                  (uid::skipped) rest
+              else if blob.length>Int64.sub max_total_bytes bytes then
+                receipt ~after ~checked ~invalidated ~bytes ~skipped
+                  ~more:true
+              else if Imap_store.Blob.verify store blob then
+                process (Some uid) (considered+1) (checked+1) invalidated
+                  (Int64.add bytes blob.length) skipped rest
+              else
+                match Imap_store.Blob.detach_if_matches store ~scope
+                  ~cursor ~uid blob with
+                | `Stale_revision ->
+                    stale ~after ~checked ~invalidated ~bytes ~skipped
+                | (`Detached | `Unchanged) as outcome ->
+                    let invalidated=if outcome=`Detached then invalidated+1
+                      else invalidated in
+                    process (Some uid) (considered+1) (checked+1)
+                      invalidated (Int64.add bytes blob.length) skipped
+                      rest in
+        pages after_uid 0 0 0 0L []
     | _ -> Error (Incomplete
         "cache audit requires a complete published mailbox inventory")
 
-let hydrate_once ?(max_messages=100) ?(max_body_bytes=1_073_741_824L)
-    ?(max_total_bytes=1_073_741_824L) ~client ~store ~scope ~mailbox
-    ~spool_dir ~next_spool_id () =
+let valid_spool_id id =
+  id<>"" && String.length id<=128 &&
+  String.for_all (function
+    | 'A'..'Z' | 'a'..'z' | '0'..'9' | '_' | '-' -> true
+    | _ -> false) id
+
+let remote_size selected uid =
+  let raw_uid=Imap.Proto.Uid.to_int64 uid in
+  let* metadata=network (Imap_eio.Selected.fetch_metadata_range selected
+    ~first:raw_uid ~last:raw_uid ~modseq:false ~size:true) in
+  match List.find_opt (fun (row:Imap.Response.fetch) ->
+      row.uid=Some raw_uid) metadata with
+  | None -> Error (Incomplete "published UID vanished before hydration")
+  | Some {size=Some size;_} -> Ok size
+  | Some _ -> Error (Incomplete "hydration FETCH omitted RFC822.SIZE")
+
+let hydrate_once ?after_uid ?(max_messages=100)
+    ?(max_body_bytes=1_073_741_824L) ?(max_total_bytes=1_073_741_824L)
+    ~client ~store ~scope ~mailbox ~spool_dir ~next_spool_id () =
   if max_messages<1 || max_messages>10_000 || max_body_bytes<1L ||
      max_total_bytes<1L || not (Eio.Path.is_directory spool_dir) then
     Error (Limit "invalid hydration count, byte budget or spool directory")
@@ -664,81 +690,71 @@ let hydrate_once ?(max_messages=100) ?(max_body_bytes=1_073_741_824L)
     let cursor=Imap_store.load_cursor store ~scope in
     match cursor.phase,cursor.uidvalidity,cursor.inventory_ref with
     | Mirror.Live,Some epoch,Some _ ->
+      let body_limit=Int64.min max_body_bytes max_total_bytes in
+      let receipt ~after ~hydrated ~bytes ~skipped ~more =
+        Ok ({cursor;hydrated;bytes;last_uid=after;skipped=List.rev skipped;
+             more=more || skipped<>[]} : hydration_receipt) in
+      let stale ~after ~hydrated ~bytes ~skipped =
+        if hydrated=0 then Error Stale_revision
+        else receipt ~after ~hydrated ~bytes ~skipped ~more:true in
+      let hydrate_uid selected uid ~size =
+        let id=next_spool_id () in
+        if not (valid_spool_id id) then
+          Error (Limit "invalid hydration spool identifier")
+        else
+          let spool=Eio.Path.(spool_dir / ("imap-hydrate-" ^ id)) in
+          Spool.with_spool spool (fun output ->
+            let* ()=network (Imap_eio.Selected.fetch_to selected
+              ~max_bytes:size ~uid:(Imap.Proto.Uid.to_int64 uid) output) in
+            Eio.Path.with_open_in spool (fun input ->
+              let length=Optint.Int63.to_int64 (Eio.File.size input) in
+              if length<>size then Error (Incomplete
+                "hydrated body length differs from RFC822.SIZE")
+              else
+                let blob=Imap_store.Blob.put store ~source:input ~length () in
+                match Imap_store.Blob.attach ~verify:false store ~scope
+                    ~uidvalidity:epoch ~uid blob with
+                | () -> Ok (Some length)
+                | exception Invalid_argument _ -> Ok None)) in
       let hydrate selected =
         let* info=network (Imap_eio.Selected.info selected) in
         if info.uidvalidity<>
            Imap.Proto.Uidvalidity.to_int64 epoch then
-          Error (Invalid_scope "mailbox UIDVALIDITY changed")
+          Error Uidvalidity_changed
         else
-          let rec more_after after =
-            match Imap_store.Blob.missing_page store ~scope ~cursor
-              ?after_uid:after ~limit:1 () with
-            | `Stale_revision -> Error Stale_revision
-            | `Uids [] -> Ok false
-            | `Uids _ -> Ok true in
-          let rec pages after hydrated bytes =
-            if hydrated>=max_messages || bytes>=max_total_bytes then
-              let* more=more_after after in
-              Ok {cursor;hydrated;bytes;more}
-            else
-              let limit=min 100 (max_messages-hydrated) in
+          let rec pages after considered hydrated bytes skipped =
+            if considered>=max_messages || bytes>=max_total_bytes then
               match Imap_store.Blob.missing_page store ~scope ~cursor
-                ?after_uid:after ~limit () with
-              | `Stale_revision -> Error Stale_revision
-              | `Uids [] -> Ok {cursor;hydrated;bytes;more=false}
+                ?after_uid:after ~limit:1 () with
+              | `Stale_revision -> stale ~after ~hydrated ~bytes ~skipped
               | `Uids uids ->
-                let rec process after hydrated bytes = function
-                  | [] -> pages after hydrated bytes
-                  | uid::rest ->
-                    let raw_uid=Imap.Proto.Uid.to_int64 uid in
-                    let* metadata=network
-                      (Imap_eio.Selected.fetch_metadata_range selected
-                        ~first:raw_uid ~last:raw_uid ~modseq:false
-                        ~size:true) in
-                    let size=match List.find_opt
-                        (fun (row:Imap.Response.fetch) ->
-                          row.uid=Some raw_uid) metadata with
-                      | None -> Error (Incomplete
-                          "published UID vanished before hydration")
-                      | Some row ->
-                          (match row.size with
-                           | Some size -> Ok size
-                           | None -> Error (Incomplete
-                               "hydration FETCH omitted RFC822.SIZE")) in
-                    let* size=size in
-                    if size>max_body_bytes then
-                      Error (Limit "message exceeds hydration body limit")
-                    else if size>Int64.sub max_total_bytes bytes then
-                      Ok {cursor;hydrated;bytes;more=true}
-                    else
-                      let id=next_spool_id () in
-                      if id="" || String.length id>128 ||
-                         not (String.for_all (function
-                           | 'A'..'Z' | 'a'..'z' | '0'..'9' | '_' | '-' ->
-                               true | _ -> false) id) then
-                        Error (Limit "invalid hydration spool identifier")
-                      else
-                        let spool=Eio.Path.(spool_dir / ("imap-hydrate-" ^ id)) in
-                        let* length=Spool.with_spool spool (fun output ->
-                          let* ()=network
-                            (Imap_eio.Selected.fetch_to selected
-                              ~max_bytes:size ~uid:raw_uid output) in
-                          let length=Eio.Path.with_open_in spool
-                            (fun input ->
-                              Optint.Int63.to_int64 (Eio.File.size input)) in
-                          if length<>size then Error (Incomplete
-                            "hydrated body length differs from RFC822.SIZE")
-                          else
-                            let blob=Eio.Path.with_open_in spool
-                              (fun input -> Imap_store.Blob.put store
-                                ~source:input ~length ()) in
-                            Imap_store.Blob.attach ~verify:false store
-                              ~scope ~uidvalidity:epoch ~uid blob;
-                            Ok length) in
-                        process (Some uid) (hydrated+1)
-                          (Int64.add bytes length) rest in
-                process after hydrated bytes uids in
-          pages None 0 0L in
+                  receipt ~after ~hydrated ~bytes ~skipped ~more:(uids<>[])
+            else
+              match Imap_store.Blob.missing_page store ~scope ~cursor
+                ?after_uid:after ~limit:(min 100 (max_messages-considered))
+                () with
+              | `Stale_revision -> stale ~after ~hydrated ~bytes ~skipped
+              | `Uids [] ->
+                  receipt ~after ~hydrated ~bytes ~skipped ~more:false
+              | `Uids uids ->
+                  process after considered hydrated bytes skipped uids
+          and process after considered hydrated bytes skipped = function
+            | [] -> pages after considered hydrated bytes skipped
+            | uid::rest ->
+                let* size=remote_size selected uid in
+                if size>body_limit then
+                  process (Some uid) (considered+1) hydrated bytes
+                    (uid::skipped) rest
+                else if size>Int64.sub max_total_bytes bytes then
+                  receipt ~after ~hydrated ~bytes ~skipped ~more:true
+                else
+                  let* attached=hydrate_uid selected uid ~size in
+                  match attached with
+                  | None -> stale ~after ~hydrated ~bytes ~skipped
+                  | Some length ->
+                      process (Some uid) (considered+1) (hydrated+1)
+                        (Int64.add bytes length) skipped rest in
+          pages after_uid 0 0 0L [] in
       let* nested=network (Imap_eio.Client.with_mailbox client
         ~mode:`Read_only mailbox (fun selected -> Ok (hydrate selected))) in
       nested
@@ -746,8 +762,9 @@ let hydrate_once ?(max_messages=100) ?(max_body_bytes=1_073_741_824L)
         "hydration requires a complete published mailbox inventory")
 
 let fetch_uid_digest ?(max_bytes=1_073_741_824L) ~client ~store ~scope
-    ~mailbox ~uid ~spool () =
-  with_fetched_uid ~max_bytes ~client ~store ~scope ~mailbox ~uid ~spool
+    ~mailbox ~uidvalidity ~uid ~spool () =
+  with_fetched_uid ~max_bytes ~client ~store ~scope ~mailbox ~uid
+    ~epoch:(fun () -> Ok uidvalidity) ~spool
     ~on_spool:(fun _epoch spool ->
       let length,sha256 = Spool.hash_file spool in
-      Ok {sha256;length}) ()
+      Ok {sha256;length})

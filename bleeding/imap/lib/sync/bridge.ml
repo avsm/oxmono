@@ -58,7 +58,10 @@ type receipt = {
 
 let ( let* ) result f = match result with Ok value -> f value | Error _ as e -> e
 let network = function Ok value -> Ok value | Error error -> Error (Client error)
-let sync = function Ok value -> Ok value | Error error -> Error (Sync error)
+let sync = function
+  | Ok value -> Ok value
+  | Error Engine.Uidvalidity_changed -> Error Uidvalidity_changed
+  | Error error -> Error (Sync error)
 
 let with_lease maildir f =
   let entered=ref false in
@@ -215,7 +218,7 @@ let copy_local_to_remote ~client:remote_client ~store ~maildir
         ("imap-upload-verify-" ^ Imap_maildir.reserve_id ())) in
       let* remote_blob=sync (Engine.fetch_uid_digest
         ~client:remote_client ~store ~scope ~mailbox
-        ~uid:receipt.uid ~spool ()) in
+        ~uidvalidity:receipt.uidvalidity ~uid:receipt.uid ~spool ()) in
       let* ()=if remote_blob.length=blob.length &&
           remote_blob.sha256=blob.sha256 then Ok ()
         else Error (Content_diverged id) in
@@ -377,7 +380,7 @@ let reconcile_remote_append ~client ~store ~maildir ~scope ~mailbox
                     let spool=Eio.Path.(spool_dir /
                       ("imap-recover-" ^ Imap_maildir.reserve_id ())) in
                     let* blob=sync (Engine.fetch_uid_digest ~client ~store
-                      ~scope ~mailbox ~uid ~spool ()) in
+                      ~scope ~mailbox ~uidvalidity ~uid ~spool ()) in
                     if blob.length<>length || blob.sha256<>sha256 then
                       Error (Content_diverged operation.id)
                     else
@@ -566,11 +569,8 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
       J.active_operations_page store ~scope ~limit:1 ()<>[] in
     let expected_uidvalidity=if has_durable_identity then
       prior_cursor.uidvalidity else None in
-    let* published=match Engine.run_once_staged ~client:remote_client
-        ~store ~scope ~mailbox ~stage_id ?expected_uidvalidity () with
-      | Error (Engine.Invalid_scope "mailbox UIDVALIDITY changed") ->
-          Error Uidvalidity_changed
-      | result -> sync result in
+    let* published=sync (Engine.run_once_staged ~client:remote_client
+        ~store ~scope ~mailbox ~stage_id ?expected_uidvalidity ()) in
       let cursor=published.cursor in
       let rec reconcile_pages after =
         let page=J.active_operations_page store ~scope ?after

@@ -202,7 +202,7 @@ run only once everything else works.
 | 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | done; six benchmarks, immediates, iarray UID sets, a portable protocol library with kind probes, and four allocation cuts | ed4ac2d2e |
 | 17 | Wrap up: add `CHANGES.md` for the `imap` and `maildir` packages summarising the user-visible changes since the baseline, run both packages' build and tests a final time, and record a review pause | done | 68baa44f6 |
 | 18 | Schema reset and one journal: delete the migration ladder for one version-1 schema, fold the APPEND intents into `Journal.operation`, collapse single-valued side tables into columns and flag lists into text columns, drop the redundant index, remove the test-only list readers | done; four commits | a091fa2ef |
-| 19 | Publish allocation: find and fix the 61 KB per staged row on the stage and publish path, measured with `bench_store` | todo | |
+| 19 | Publish allocation: find and fix the 61 KB per staged row on the stage and publish path, measured with `bench_store` | done; eight commits, 3,926 MB to 9.4 MB and 6.2 s to 0.38 s | 42548d20c |
 | 20 | IDLE with a deadline: `Selected.Idle.wait_for_change` takes a clock and timeout and sends DONE from a timer fiber instead of cancelling the read, `Watch` renews without reconnecting, `Mailbox.wait` uses it | done | 4d164450e |
 | 21 | Portable collections: replace stdlib `Set`, `Map` and module-level `Hashtbl` with `Base.Set`, `Base.Map` and iarrays so the store, sync and remaining eio types carry kinds, then annotate `@@ portable` wherever the compiler accepts, with probes | todo | |
 
@@ -899,6 +899,72 @@ test_intent_validation is test_append_validation, and new tests cover
 rejected versions, keys and indexes, flag text and NULL, the Engine
 APPEND contract and a held `Sent` APPEND. Build and runtest are clean,
 20 suites and 252 test cases.
+
+Step 19. Done: in eight commits, 999d36908 (per-phase report), 7bef67622
+(`Sqlite3_eio.run`), 8435753fd (one thread per staging call), 9a3b657cf
+(index binding), 82af8fc55 (one membership statement), d7d2914bb (cached
+handle), 811abe551 (no reset closure on success) and 42548d20c (flag
+text memo). `bench_store` now prints each phase's allocation in total
+and per row. Step 18 had already brought the run from 6,174 MB to 3,926
+MB, which is 39 KB per staged row. Almost all of it was the
+thread hop that `Sqlite3_eio` makes for every `step`, `reset`, `prepare`
+and `finalize`. A separate probe measured one hop at 5,256 bytes and 10.7
+µs, of which `Fiber.first` is 3,057 bytes, `run_in_systhread` 1,064 and
+`Cancel.protect` 480, against 0 bytes and 0.17 µs for a bare step and
+reset. A staged row took two hops and a membership UID five. The smaller
+causes were the value list and boxed `Data.t` values bound per row, the
+cleanup closure of `with_reset`, the 80 bytes that each
+`Sqlite3_eio.db` lookup allocates inside `changes`, and the flag text
+encoded afresh for every row. `Sqlite3_eio.run` now runs a function over
+the handle in one system thread under the same cancellation, and
+`Database.batch` runs each staging loop through it with the `bind_`
+functions, `batch_exec` and `batch_row`. `stage_membership` marks a UID
+with one UPDATE and reads `changes` instead of a SELECT first.
+`Database.t` holds the raw handle. The schema is unchanged. New tests
+assert the stored column bytes of staged and published rows, including
+consecutive equal flag lists and a keyword that differs only in case,
+the rollback of a rejected row or UID, and the batch reset and error
+contract. Figures are medians of three runs, bytes per row.
+
+| Phase | Before | After |
+|---|---|---|
+| begin_stage | 35 KB total | 35 KB total |
+| stage_rows | 11,345.6 | 24.9 |
+| stage_membership | 27,908.7 | 67.3 |
+| publish_stage | 1.8 | 1.8 |
+| stage and publish | 3,925.6 MB, 6.17 s | 9.4 MB, 0.38 s |
+
+| Commit | stage_rows | membership | Total | Wall |
+|---|---|---|---|---|
+| baseline | 11,345.6 | 27,908.7 | 3,925.6 MB | 6.17 s |
+| 8435753fd | 320.9 | 611.4 | 93.4 MB | 0.48 s |
+| 9a3b657cf | 104.9 | 259.4 | 36.6 MB | 0.47 s |
+| 82af8fc55 | 104.9 | 187.3 | 29.4 MB | 0.40 s |
+| d7d2914bb | 104.9 | 107.3 | 21.4 MB | 0.39 s |
+| 811abe551 | 64.9 | 67.3 | 13.4 MB | 0.38 s |
+| 42548d20c | 24.9 | 67.3 | 9.4 MB | 0.38 s |
+
+Publication allocates 181 KB whatever the row count, which is its eight
+statements at four hops each. It takes 0.15 s of the 0.38 s, spent in
+SQLite copying 100,000 rows into `snapshots` and deleting the stage's
+rows by cascade. Running `Database.run` and `rows` in one hop instead of
+four would shrink every journal transaction too, and is left for later.
+What remains per row is the boxed `int64` from `Uid.to_int64`, 24 bytes
+in each phase, which needs a `Uid.to_int` in the protocol interface, and
+in membership the duplicate table's entry and bucket array, 42 bytes.
+
+Rejected, with measurements: dropping that duplicate table in favour of
+`AND seen=0` in the UPDATE took membership from 67.3 to 24.8 bytes per
+UID with unchanged wall time, 0.37 to 0.40 s. It relies on no row of the
+window being marked before the call, and telling a duplicate from an
+absent UID then needs a read on the error path, so the table stays.
+
+The upstream sqlite3 test `test_win` fails now and then with "database
+is locked" because it and `test_fun` share the file `t_fun`. It failed
+in four of eight runs. Neither the `sqlite3` library nor those tests
+changed in this step, and they do not link `sqlite3-eio`. Build and runtest are clean, 20 suites and 253 test cases.
+`@bleeding/sqlite3/runtest`, `@bleeding/jmap/all` and
+`@bleeding/spindle/all` build and pass.
 
 Step 20. Done: `Session.idle_once t ~clock ~timeout` forks a daemon
 fiber after the continuation, under a switch that ends with the read

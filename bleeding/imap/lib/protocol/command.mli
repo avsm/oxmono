@@ -1,5 +1,10 @@
 (** Validated command syntax, without tags or final CRLF. The Eio connection
-    generates a unique tag and owns continuation handshakes. *)
+    generates a unique tag and owns continuation handshakes.
+
+    Mailbox arguments are wire names. Encode them with {!Mailbox_name.encode}
+    first. Quoted arguments must be valid UTF-8 without control characters.
+    UID set arguments are RFC 9051 sequence sets of canonical nonzero
+    numbers and may use [*]. *)
 
 type error = string
 val capability : string
@@ -20,7 +25,8 @@ val setacl : mailbox:string -> identifier:string ->
 val deleteacl : mailbox:string -> identifier:string -> (string, error) result
 (** ACL identifiers are encoded as IMAP astrings but SASLprep is not performed
     locally. Rights are lowercase ASCII letters/digits, including unknown
-    extension rights supplied by the caller. *)
+    extension rights supplied by the caller. [`Add] and [`Remove] need at
+    least one right. *)
 val getquota : root:string -> (string, error) result
 val getquotaroot : mailbox:string -> (string, error) result
 val setquota : root:string -> limits:(string * int64) list ->
@@ -31,10 +37,15 @@ val setquota : root:string -> limits:(string * int64) list ->
 type metadata_depth = Zero | One | Infinity
 val getmetadata : mailbox:string -> entries:string list ->
   ?maxsize:int64 -> ?depth:metadata_depth -> unit -> (string, error) result
+(** Entry names follow RFC 5464 section 3.2. They start with [/], do not end
+    with [/], and contain no [//], [*], [%], controls or non-ASCII bytes.
+    [maxsize] is a 32-bit number. [maxsize] and [depth] are omitted by
+    default. *)
 val setmetadata : mailbox:string -> values:(string * string option) list ->
   (string, error) result
 (** This encoder supports NIL and quoted values only. Values requiring
-    literals, including CR/LF, need a session-level streaming path. *)
+    literals, including CR/LF, need a session-level streaming path. Entry
+    names compare case-insensitively when checking for duplicates. *)
 type notify_filter = Selected | Selected_delayed | Inboxes | Personal |
   Subscribed | Subtree of string list | Mailboxes of string list
 type notify_event = Message_new | Message_expunge | Flag_change |
@@ -74,7 +85,9 @@ val select : ?readonly:bool -> ?condstore:bool -> ?qresync:(int64 * int64) ->
   ?known_uids:string -> ?sequence_match:(string * string) ->
   ?objectid:(string * string) ->
   string -> (string, error) result
-(** QRESYNC requires the caller to have successfully ENABLEd QRESYNC.
+(** [condstore] defaults to [false] and adds the CONDSTORE parameter, also
+    alongside [qresync]. QRESYNC requires the caller to have successfully
+    ENABLEd QRESYNC. [known_uids] and [sequence_match] may not use [*].
     [objectid] is the draft OBJECTID+ [(account_id, mailbox_id)] identity;
     the client must enable OBJECTID+ and verify the selected identity. *)
 val uid_fetch : set:string -> items:string list -> (string, error) result
@@ -94,6 +107,10 @@ val uid_fetch_mod : ?changedsince:int64 -> ?vanished:bool ->
   ?partial:(int64 * int64) ->
   set:string -> items:string list -> unit -> (string, error) result
 val uid_search : criterion:string -> (string, error) result
+(** [uid_search ~criterion] is [UID SEARCH criterion]. Every criterion
+    argument of this module must be nonempty and free of control characters,
+    and must not end in a literal marker such as [{5}] or [{5+}], which would
+    make the server read the next command as literal data. *)
 val uid_search_save : criterion:string -> (string, error) result
 (** RFC 5182 SEARCHRES, returning SAVE COUNT so the complete matching set is
     saved without enumerating it. Requires SEARCHRES; COUNT must be correlated
@@ -151,6 +168,7 @@ val uid_store_mod : ?unchangedsince:int64 -> set:string ->
 val uid_copy : set:string -> mailbox:string -> (string, error) result
 val uid_move : set:string -> mailbox:string -> (string, error) result
 val uid_expunge : set:string -> (string, error) result
+(** [uid_expunge ~set] is the RFC 4315 [UID EXPUNGE set]. *)
 val append_part_prefix : ?non_sync:bool -> ?flags:string list ->
   ?internal_date:Internal_date.t -> size:int64 -> unit -> (string, error) result
 (** [append_part_prefix ()] is the space-prefixed next MULTIAPPEND argument,

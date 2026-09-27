@@ -113,6 +113,68 @@ let test_wire_errors () =
     ["* ESEARCH (TAG {2}\r\n","A1";
      "* LANGUAGE ({2}\r\n","EN"]
 
+let test_command_validation () =
+  let module C = Imap.Command in
+  let rejected label = function
+    | Error _ -> () | Ok s -> fail (label ^ " accepted: " ^ s) in
+  List.iter (fun criterion ->
+    rejected "uid_search" (C.uid_search ~criterion);
+    rejected "uid_search_save" (C.uid_search_save ~criterion);
+    rejected "uid_search_saved" (C.uid_search_saved ~criterion);
+    rejected "uid_search_partial"
+      (C.uid_search_partial ~range:(1L,10L) ~criterion);
+    rejected "uid_sort" (C.uid_sort ~keys:[C.Date,C.Ascending]
+      ~charset:"UTF-8" ~criterion);
+    rejected "uid_sort_extended" (C.uid_sort_extended ~returns:[C.Count]
+      ~keys:[C.Date,C.Ascending] ~charset:"UTF-8" ~criterion);
+    rejected "uid_thread" (C.uid_thread ~algorithm:C.References
+      ~charset:"UTF-8" ~criterion))
+    ["SUBJECT {5}";"SUBJECT {5+}";"TEXT ~{12}";"BODY {0} "];
+  Alcotest.(check string) "a quoted brace is not a marker"
+    "UID SEARCH SUBJECT \"{5}\""
+    (expect_ok (C.uid_search ~criterion:"SUBJECT \"{5}\""));
+  List.iter (fun set ->
+    rejected ("uid_fetch " ^ set) (C.uid_fetch ~set ~items:["UID"]);
+    rejected ("uid_store " ^ set) (C.uid_store ~set ~operation:`Add
+      ~silent:true ~flags:["\\Seen"]);
+    rejected ("uid_copy " ^ set) (C.uid_copy ~set ~mailbox:"Archive");
+    rejected ("uid_expunge " ^ set) (C.uid_expunge ~set))
+    ["+1";"0x10";"1_0";"0b11";"0u5";"0o7";"01";"1:007"];
+  Alcotest.(check string) "star still accepted" "UID FETCH 1:* (UID)"
+    (expect_ok (C.uid_fetch ~set:"1:*" ~items:["UID"]));
+  rejected "8-bit login" (C.login ~username:"caf\xe9" ~password:"p");
+  Alcotest.(check string) "UTF-8 login" "LOGIN \"caf\xc3\xa9\" \"p\""
+    (expect_ok (C.login ~username:"caf\xc3\xa9" ~password:"p"));
+  rejected "8-bit mailbox" (C.create "Caf\xe9");
+  Alcotest.(check string) "CONDSTORE alongside QRESYNC"
+    "SELECT INBOX (CONDSTORE QRESYNC (7 42))"
+    (expect_ok (C.select ~condstore:true ~qresync:(7L,42L) "INBOX"));
+  List.iter (fun entry ->
+    rejected ("metadata entry " ^ entry)
+      (C.getmetadata ~mailbox:"INBOX" ~entries:[entry] ());
+    rejected ("metadata entry " ^ entry)
+      (C.setmetadata ~mailbox:"INBOX" ~values:[entry,None]))
+    ["/a//b";"/a/";"/caf\xc3\xa9";"/";"a"];
+  rejected "MAXSIZE above 32 bits" (C.getmetadata ~mailbox:"INBOX"
+    ~entries:["/shared/comment"] ~maxsize:4_294_967_296L ());
+  rejected "case-insensitive duplicate entry" (C.setmetadata ~mailbox:"INBOX"
+    ~values:["/shared/Comment",None;"/shared/comment",Some "x"]);
+  rejected "empty added rights" (C.setacl ~mailbox:"INBOX" ~identifier:"bob"
+    ~operation:`Add ~rights:"");
+  rejected "empty removed rights" (C.setacl ~mailbox:"INBOX"
+    ~identifier:"bob" ~operation:`Remove ~rights:"");
+  (match C.uid_store ~set:"1" ~operation:`Add ~silent:true ~flags:["\\*"]
+   with
+   | Error message ->
+       Alcotest.(check bool) "flag error keeps its cause" true
+         (String.length message > String.length "invalid STORE flag: ")
+   | Ok _ -> fail "accepted an invalid STORE flag");
+  Alcotest.(check string) "LIST-STATUS matches LIST-EXTENDED"
+    (expect_ok (C.list_extended ~reference:"" ~patterns:["*"]
+      ~status:[C.Messages] ()))
+    (expect_ok (C.list_status ~reference:"" ~pattern:"*"
+      ~items:[C.Messages]))
+
 let test_bad_values () =
   (match Imap.Response.parse "* 1 FETCH (UID 0 FLAGS (\\Seen))\r\n" with
   | Error _ -> () | Ok _ -> fail "accepted UID zero");
@@ -202,8 +264,10 @@ let test_mutation_extensions () =
     (expect_ok (Imap.Command.uid_move ~set:"8:9" ~mailbox:"Archive"));
   Alcotest.(check string) "UID EXPUNGE" "UID EXPUNGE 8:9"
     (expect_ok (Imap.Command.uid_expunge ~set:"8:9"));
-  (match Imap.Command.uid_expunge ~set:"*" with
-   | Error _ -> () | Ok _ -> fail "UID EXPUNGE accepted wildcard");
+  Alcotest.(check string) "UID EXPUNGE wildcard, RFC 4315" "UID EXPUNGE 8:*"
+    (expect_ok (Imap.Command.uid_expunge ~set:"8:*"));
+  (match Imap.Command.uid_expunge ~set:"$" with
+   | Error _ -> () | Ok _ -> fail "UID EXPUNGE accepted a saved result");
   (match parse "A2 OK [MODIFIED 8:9] partial\r\n" with
    | Imap.Response.Tagged {code=Some (Modified "8:9");_} -> ()
    | _ -> fail "missing MODIFIED");
@@ -1151,6 +1215,8 @@ let () =
               Alcotest.test_case "LIST literal" `Quick test_list_literal;
               Alcotest.test_case "framing errors" `Quick test_wire_errors;
               Alcotest.test_case "invalid values" `Quick test_bad_values;
+              Alcotest.test_case "command validation" `Quick
+                test_command_validation;
               Alcotest.test_case "sync metadata" `Quick test_sync_metadata];
      "extensions", [Alcotest.test_case "SELECT/QRESYNC" `Quick test_select_and_qresync;
                     Alcotest.test_case "mutation receipts" `Quick test_mutation_extensions;

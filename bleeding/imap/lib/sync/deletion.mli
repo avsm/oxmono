@@ -53,7 +53,7 @@ val reconcile_pair :
     held until [min_absence_scans] (default 0) later complete scan
     generations have passed since the missing side's first durable absence
     tombstone. Legacy tombstones without a generation stay held if this
-    setting is positive. A saved content or identity conflict holds either
+    setting is positive, and a negative value raises [Invalid_argument]. A saved content or identity conflict holds either
     direction, and a legacy pair without a content digest and length is held
     as [Missing_content_evidence].
 

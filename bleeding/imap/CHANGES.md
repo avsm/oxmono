@@ -356,3 +356,7 @@ message ID, spool reference, pre-send UID frontier and INTERNALDATE, and
 `Engine.append_journaled` sends an operation the caller prepared, moving
 it to `Sent`, `Observed`, `Ambiguous` or `Rejected`. `inspect` prints
 those fields.
+
+Each flag list is one text column of wire spellings on its row, and the
+single-valued operation side tables are columns of `sync_operations`, so
+the schema has 10 tables instead of 19 and reads join no flag rows.

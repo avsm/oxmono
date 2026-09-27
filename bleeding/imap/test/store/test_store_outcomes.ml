@@ -244,6 +244,43 @@ let anchor_requires_explicit env = with_store env (fun ~path:_ ~dir:_ db ->
         "anchor set without an explicit HIGHESTMODSEQ"
   | `Stale_revision -> failwith "fresh stage stale")
 
+let text path sql =
+  let db=Sqlite3.db_open ~mode:`READONLY path in
+  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () ->
+    let v=ref None in
+    Sqlite3.Rc.check (Sqlite3.exec_no_headers db
+      ~cb:(fun row -> v := Some row.(0)) sql);
+    Option.join !v)
+
+(* Snapshot and stage flags are one text column of wire spellings in the
+   order FETCH gave them, carried through seeding and publication. *)
+let flag_text env = with_store env (fun ~path ~dir:_ db ->
+  let flag x = ok (Mail_flag.Imap_flag.of_wire x) in
+  let flags=[flag "\\Seen"; flag "$Label"; flag "\\Flagged"] in
+  publish db ~stage:"flags" ~epoch_value:5L
+    [{(row 1L) with flags}; row 2L];
+  check (text path "SELECT flags FROM snapshots WHERE uid=1"
+    =Some "\\Seen $Label \\Flagged") "flag text";
+  check (text path "SELECT flags FROM snapshots WHERE uid=2"=Some "")
+    "empty flag text";
+  let cursor=Store.load_cursor db ~scope in
+  let action=ok (M.plan cursor ~stage_id:"reseed" (selected 5L)) in
+  Store.begin_stage db ~cursor ~action;
+  check (Store.seed_stage_from_published db ~cursor ~action=`Seeded) "seed";
+  check (text path "SELECT flags FROM scan_rows WHERE uid=1"
+    =Some "\\Seen $Label \\Flagged") "seeded flag text";
+  Store.discard_stage db ~stage_id:action.id;
+  (match Store.snapshot_page db ~scope ~cursor ~limit:10 () with
+   | `Rows [first;second] ->
+       check (List.map Mail_flag.Imap_flag.to_wire first.flags
+         =["\\Seen";"$Label";"\\Flagged"]) "flag order";
+       check (second.flags=[]) "empty flags"
+   | _ -> failwith "snapshot page");
+  mutate path "UPDATE snapshots SET flags='\\Seen  x' WHERE uid=1";
+  match Store.snapshot_page db ~scope ~cursor ~limit:10 () with
+  | exception Failure _ -> ()
+  | _ -> failwith "malformed flag text accepted")
+
 let () =
   Eio_main.run (fun env ->
     seed_checks_epoch env;
@@ -254,4 +291,5 @@ let () =
     decode_reasons env;
     forget_epochs env;
     attach_without_verify env;
-    finaliser_keeps_exception env)
+    finaliser_keeps_exception env;
+    flag_text env)

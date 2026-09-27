@@ -19,16 +19,8 @@ let objects = [
   "CREATE TABLE snapshots ( \
    endpoint TEXT NOT NULL, account TEXT NOT NULL, mailbox_key TEXT NOT NULL, \
    uidvalidity INTEGER NOT NULL, uid INTEGER NOT NULL, modseq INTEGER, \
+   flags TEXT NOT NULL, \
    PRIMARY KEY(endpoint,account,mailbox_key,uidvalidity,uid))";
-  "table","snapshot_flags",
-  "CREATE TABLE snapshot_flags ( \
-   endpoint TEXT NOT NULL, account TEXT NOT NULL, mailbox_key TEXT NOT NULL, \
-   uidvalidity INTEGER NOT NULL, uid INTEGER NOT NULL, ord INTEGER NOT NULL, \
-   flag TEXT NOT NULL, \
-   PRIMARY KEY(endpoint,account,mailbox_key,uidvalidity,uid,ord), \
-   FOREIGN KEY(endpoint,account,mailbox_key,uidvalidity,uid) \
-     REFERENCES snapshots(endpoint,account,mailbox_key,uidvalidity,uid) \
-     ON DELETE CASCADE)";
   "table","blob_refs",
   "CREATE TABLE blob_refs ( \
    endpoint TEXT NOT NULL, account TEXT NOT NULL, mailbox_key TEXT NOT NULL, \
@@ -48,16 +40,9 @@ let objects = [
   "table","scan_rows",
   "CREATE TABLE scan_rows ( \
    stage_id TEXT NOT NULL, uid INTEGER NOT NULL, modseq INTEGER, \
-   seen INTEGER NOT NULL DEFAULT 0, \
+   flags TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 0, \
    PRIMARY KEY(stage_id,uid), \
    FOREIGN KEY(stage_id) REFERENCES scan_stages(id) ON DELETE CASCADE)";
-  "table","scan_flags",
-  "CREATE TABLE scan_flags ( \
-   stage_id TEXT NOT NULL, uid INTEGER NOT NULL, ord INTEGER NOT NULL, \
-   flag TEXT NOT NULL, \
-   PRIMARY KEY(stage_id,uid,ord), \
-   FOREIGN KEY(stage_id,uid) REFERENCES scan_rows(stage_id,uid) \
-     ON DELETE CASCADE)";
   "table","sync_pairs",
   "CREATE TABLE sync_pairs ( \
    id TEXT PRIMARY KEY, endpoint TEXT NOT NULL, account TEXT NOT NULL, \
@@ -67,7 +52,7 @@ let objects = [
    remote_tombstone_evidence TEXT, remote_tombstone_generation INTEGER, \
    local_tombstone_kind TEXT, local_tombstone_evidence TEXT, \
    local_tombstone_generation INTEGER, content_sha256 TEXT, \
-   content_length INTEGER, internal_date TEXT, \
+   content_length INTEGER, internal_date TEXT, common_flags TEXT NOT NULL, \
    CHECK ((remote_epoch IS NULL) = (remote_uid IS NULL)), \
    CHECK (remote_uid IS NOT NULL OR local_id IS NOT NULL))";
   "index","sync_pairs_remote",
@@ -80,11 +65,6 @@ let objects = [
   "index","sync_pairs_scope_id",
   "CREATE INDEX sync_pairs_scope_id ON \
    sync_pairs(endpoint,account,mailbox_key,id)";
-  "table","sync_pair_flags",
-  "CREATE TABLE sync_pair_flags ( \
-   pair_id TEXT NOT NULL, ord INTEGER NOT NULL, flag TEXT NOT NULL, \
-   PRIMARY KEY(pair_id,ord), \
-   FOREIGN KEY(pair_id) REFERENCES sync_pairs(id) ON DELETE CASCADE)";
   "table","sync_pair_presence",
   "CREATE TABLE sync_pair_presence ( \
    pair_id TEXT NOT NULL, side TEXT NOT NULL, generation INTEGER NOT NULL, \
@@ -110,9 +90,11 @@ let objects = [
    state TEXT NOT NULL, source_epoch INTEGER, source_uid INTEGER, \
    dest_endpoint TEXT, dest_account TEXT, dest_mailbox_key TEXT, \
    dest_raw_name TEXT, dest_encoding TEXT, dest_mailbox_id TEXT, \
-   dest_epoch INTEGER, receipt_epoch INTEGER, receipt_uid INTEGER, \
-   blob_sha256 TEXT, blob_length INTEGER, desired_flags_known INTEGER, \
-   receipt TEXT, message_id TEXT, spool_ref TEXT, pre_send_frontier INTEGER, \
+   dest_epoch INTEGER, blob_sha256 TEXT, blob_length INTEGER, \
+   desired_flags TEXT, internal_date TEXT, message_id TEXT, spool_ref TEXT, \
+   pre_send_frontier INTEGER, receipt TEXT, receipt_epoch INTEGER, \
+   receipt_uid INTEGER, pair_revision INTEGER, local_flags TEXT, \
+   local_source_mtime REAL, \
    FOREIGN KEY(pair_id) REFERENCES sync_pairs(id) ON DELETE RESTRICT)";
   "index","sync_operations_pending",
   "CREATE INDEX sync_operations_pending ON sync_operations \
@@ -125,39 +107,6 @@ let objects = [
   "index","sync_operations_blob_pending",
   "CREATE INDEX sync_operations_blob_pending ON sync_operations(blob_sha256) \
    WHERE state NOT IN ('committed','rejected')";
-  "table","sync_operation_flags",
-  "CREATE TABLE sync_operation_flags ( \
-   operation_id TEXT NOT NULL, ord INTEGER NOT NULL, flag TEXT NOT NULL, \
-   PRIMARY KEY(operation_id,ord), \
-   FOREIGN KEY(operation_id) REFERENCES sync_operations(id) \
-     ON DELETE CASCADE)";
-  "table","sync_operation_preconditions",
-  "CREATE TABLE sync_operation_preconditions ( \
-   operation_id TEXT PRIMARY KEY, pair_revision INTEGER NOT NULL, \
-   FOREIGN KEY(operation_id) REFERENCES sync_operations(id) \
-     ON DELETE CASCADE)";
-  "table","sync_operation_local_preimages",
-  "CREATE TABLE sync_operation_local_preimages ( \
-   operation_id TEXT PRIMARY KEY, \
-   FOREIGN KEY(operation_id) REFERENCES sync_operations(id) \
-     ON DELETE CASCADE)";
-  "table","sync_operation_local_preimage_flags",
-  "CREATE TABLE sync_operation_local_preimage_flags ( \
-   operation_id TEXT NOT NULL, ord INTEGER NOT NULL, flag TEXT NOT NULL, \
-   PRIMARY KEY(operation_id,ord), \
-   FOREIGN KEY(operation_id) \
-     REFERENCES sync_operation_local_preimages(operation_id) \
-     ON DELETE CASCADE)";
-  "table","sync_operation_local_sources",
-  "CREATE TABLE sync_operation_local_sources ( \
-   operation_id TEXT PRIMARY KEY, mtime REAL NOT NULL, \
-   FOREIGN KEY(operation_id) REFERENCES sync_operations(id) \
-     ON DELETE CASCADE)";
-  "table","sync_operation_source_dates",
-  "CREATE TABLE sync_operation_source_dates ( \
-   operation_id TEXT PRIMARY KEY, internal_date TEXT NOT NULL, \
-   FOREIGN KEY(operation_id) REFERENCES sync_operations(id) \
-     ON DELETE CASCADE)";
   "table","mailbox_object_ids",
   "CREATE TABLE mailbox_object_ids ( \
    endpoint TEXT NOT NULL, account TEXT NOT NULL, mailbox_key TEXT NOT NULL, \

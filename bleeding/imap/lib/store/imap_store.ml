@@ -9,11 +9,9 @@ let open_path = Schema.open_path
 
 exception Scope_mismatch = Record_codec.Scope_mismatch
 
-let snapshot_rows rows =
-  group_flags "snapshot flag" ~flag:2 rows
-  |> List.map (fun (r,flags) ->
-    {M.uid=uid (int r.(0));modseq=Option.map modseq (nullable_int r.(1));
-     flags})
+let snapshot_row r =
+  {M.uid=uid (int r.(0));modseq=Option.map modseq (nullable_int r.(1));
+   flags=dec_flags "snapshot flags" r.(2)}
 
 type object_identity = { account_id:string; mailbox_id:string }
 
@@ -69,17 +67,13 @@ let snapshot_page t ~(scope:M.scope) ~(cursor:M.cursor) ?after_uid ~limit () =
     match cursor.uidvalidity with
     | None -> `Rows []
     | Some epoch ->
-      let found=rows t "SELECT m.uid,m.modseq,f.flag FROM ( \
-        SELECT * FROM snapshots WHERE endpoint=? AND account=? \
-        AND mailbox_key=? AND uidvalidity=? AND uid>? ORDER BY uid LIMIT ?) \
-        AS m LEFT JOIN snapshot_flags AS f ON f.endpoint=m.endpoint \
-        AND f.account=m.account AND f.mailbox_key=m.mailbox_key \
-        AND f.uidvalidity=m.uidvalidity AND f.uid=m.uid \
-        ORDER BY m.uid,f.ord"
+      let found=rows t "SELECT uid,modseq,flags FROM snapshots \
+        WHERE endpoint=? AND account=? AND mailbox_key=? AND uidvalidity=? \
+        AND uid>? ORDER BY uid LIMIT ?"
         (scope_key scope@[i (Imap.Uidvalidity.to_int64 epoch);
           i (match after_uid with None -> 0L | Some u -> Imap.Uid.to_int64 u);
           i (Int64.of_int limit)]) in
-      `Rows (snapshot_rows found))
+      `Rows (List.map snapshot_row found))
 
 let snapshot_contains_uid t ~(scope:M.scope) ~(cursor:M.cursor) ~uid:target =
   if cursor.scope<>scope then
@@ -149,11 +143,8 @@ let seed_stage_from_published t ~(cursor:M.cursor) ~(action:M.action) =
     if stale t cursor then `Stale_revision else (
       let values=[s action.id] @ scope_key cursor.scope @
         [i (Imap.Uidvalidity.to_int64 action.uidvalidity);i action.upper_uid] in
-      run t "INSERT INTO scan_rows(stage_id,uid,modseq) SELECT ?,uid,modseq \
-        FROM snapshots WHERE endpoint=? AND account=? AND mailbox_key=? \
-        AND uidvalidity=? AND uid<=?" values;
-      run t "INSERT INTO scan_flags(stage_id,uid,ord,flag) \
-        SELECT ?,uid,ord,flag FROM snapshot_flags WHERE endpoint=? \
+      run t "INSERT INTO scan_rows(stage_id,uid,modseq,flags) \
+        SELECT ?,uid,modseq,flags FROM snapshots WHERE endpoint=? \
         AND account=? AND mailbox_key=? AND uidvalidity=? AND uid<=?" values;
       `Seeded))
 
@@ -167,12 +158,10 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last batch =
       invalid_arg (who ^ ": noncontiguous FETCH coverage");
     with_stmt t "SELECT modseq FROM scan_rows WHERE stage_id=? AND uid=?"
     @@ fun seeded_stmt ->
-    with_stmt t "INSERT INTO scan_rows (stage_id,uid,modseq) VALUES (?,?,?) \
-      ON CONFLICT(stage_id,uid) DO UPDATE SET modseq=excluded.modseq"
+    with_stmt t "INSERT INTO scan_rows (stage_id,uid,modseq,flags) \
+      VALUES (?,?,?,?) ON CONFLICT(stage_id,uid) DO UPDATE SET \
+      modseq=excluded.modseq,flags=excluded.flags"
     @@ fun row_stmt ->
-    with_stmt t "DELETE FROM scan_flags WHERE stage_id=? AND uid=?"
-    @@ fun clear_stmt ->
-    with_stmt t "INSERT INTO scan_flags VALUES (?,?,?,?)" @@ fun flag_stmt ->
     List.iter (fun (row:M.row) ->
       let uid=Imap.Uid.to_int64 row.uid in
       if uid<first || uid>last then
@@ -189,13 +178,10 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last batch =
              | None,None ->
                  invalid_arg
                    (who ^ ": seeded and incremental rows lack MODSEQ")) in
-      if newer then (
+      if newer then
         run_prepared t row_stmt
-          [s stage_id;i uid;ni (Option.map Imap.Modseq.to_int64 row.modseq)];
-        run_prepared t clear_stmt [s stage_id;i uid];
-        List.iteri (fun ord flag -> run_prepared t flag_stmt
-          [s stage_id;i uid;i (Int64.of_int ord);
-           s (Mail_flag.Imap_flag.to_wire flag)]) row.flags)) batch;
+          [s stage_id;i uid;ni (Option.map Imap.Modseq.to_int64 row.modseq);
+           flags row.flags]) batch;
     run t "UPDATE scan_stages SET fetch_upper=? WHERE id=?"
       [i last;s stage_id])
 
@@ -313,14 +299,9 @@ let publish_stage t ~(cursor:M.cursor) ~(action:M.action)
         | Error e -> invalid_arg (who ^ ": " ^ mirror_error e) in
       write_cursor t next;
       let row_count=replace_epoch t scope action.uidvalidity (fun key ->
-        run t "INSERT INTO snapshots SELECT ?,?,?,?,uid,modseq FROM scan_rows \
-          WHERE stage_id=? AND seen=1" (key@[s action.id]);
-        let inserted=Int64.of_int (changes t) in
-        run t "INSERT INTO snapshot_flags SELECT ?,?,?,?,f.uid,f.ord,f.flag \
-          FROM scan_flags AS f JOIN scan_rows AS r ON r.stage_id=f.stage_id \
-          AND r.uid=f.uid WHERE f.stage_id=? AND r.seen=1"
-          (key@[s action.id]);
-        inserted) in
+        run t "INSERT INTO snapshots SELECT ?,?,?,?,uid,modseq,flags \
+          FROM scan_rows WHERE stage_id=? AND seen=1" (key@[s action.id]);
+        Int64.of_int (changes t)) in
       run t "DELETE FROM scan_stages WHERE id=?" [s action.id];
       `Committed {cursor=next;row_count}))
 

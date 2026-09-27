@@ -53,7 +53,7 @@ let run env =
      "DROP TABLE snapshots; CREATE TABLE snapshots ( \
        endpoint TEXT NOT NULL, account TEXT NOT NULL, \
        mailbox_key TEXT NOT NULL, uidvalidity INTEGER NOT NULL, \
-       uid INTEGER NOT NULL, modseq INTEGER, \
+       uid INTEGER NOT NULL, modseq INTEGER, flags TEXT NOT NULL, \
        PRIMARY KEY(endpoint,account,mailbox_key,uid))";
      "DROP INDEX sync_operations_scope_id";
      "DROP INDEX sync_conflicts_open_id";

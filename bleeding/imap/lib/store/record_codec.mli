@@ -46,9 +46,19 @@ val check_page_args : string -> Imap.Mirror.scope -> Imap.Mirror.cursor ->
     naming [who] unless [limit] is 1 to 10,000 and [cursor] belongs to
     [scope]. *)
 
-val group_flags : string -> flag:int -> Sqlite3.Data.t array list ->
-  (Sqlite3.Data.t array * Mail_flag.Imap_flag.t list) list
-(** [group_flags what ~flag rows] merges adjacent rows that share column 0
-    into the first such row and the flags decoded from column [flag] in
-    row order. A NULL flag column contributes no flag. [what] names the
-    flag in a decoding failure. *)
+val flags : Mail_flag.Imap_flag.t list -> Sqlite3.Data.t
+(** [flags l] is the wire spellings of [l] in order, separated by single
+    spaces. *)
+
+val dec_flags : string -> Sqlite3.Data.t -> Mail_flag.Imap_flag.t list
+(** [dec_flags what v] is the list {!flags} stored as [v]. [what] names the
+    column in a decoding failure. *)
+
+val nullable_flags : Mail_flag.Imap_flag.t list option -> Sqlite3.Data.t
+(** [nullable_flags l] is NULL for [None], so that an unknown list stays
+    distinct from a known empty one. *)
+
+val dec_nullable_flags : string -> Sqlite3.Data.t ->
+  Mail_flag.Imap_flag.t list option
+(** [dec_nullable_flags what v] is [None] for NULL and {!dec_flags}
+    otherwise. *)

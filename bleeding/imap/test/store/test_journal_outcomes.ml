@@ -149,6 +149,45 @@ let conflicts db path =
       List.mem "sync_conflicts_open_id" (String.split_on_char ' ' line))
       !plan) "open conflict page does not use sync_conflicts_open_id")
 
+(* A flag list is one text column on its row. A known empty list is the
+   empty string and an unknown one NULL. *)
+let flag_columns db path =
+  let column sql =
+    let raw=Sqlite3.db_open ~mode:`READONLY path in
+    Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close raw)) (fun () ->
+      let v=ref None in
+      Sqlite3.Rc.check (Sqlite3.exec_no_headers raw
+        ~cb:(fun row -> v := Some row.(0)) sql);
+      !v) in
+  let p=committed (J.put_pair db ~expected_revision:None
+    {(pair "columns") with
+      common_flags=[flag "\\Seen"; flag "$Label"; flag "\\Flagged"]}) in
+  check (column "SELECT common_flags FROM sync_pairs WHERE id='columns'"
+    =Some (Some "\\Seen $Label \\Flagged")) "pair flag text";
+  check ((Option.get (J.find_pair db ~id:p.id)).common_flags=p.common_flags)
+    "pair flag order";
+  let unknown=delete p "columns-unknown" None in
+  let empty={(delete p "columns-empty" None) with
+    kind=Flags; desired_flags=Some []} in
+  J.prepare_operation db unknown;
+  J.prepare_operation ~local_flags:[] db empty;
+  let stored id what = column (Printf.sprintf
+    "SELECT %s FROM sync_operations WHERE id='%s'" what id) in
+  check (stored unknown.id "desired_flags"=Some None) "unknown flags not NULL";
+  check (stored empty.id "desired_flags"=Some (Some "")) "empty flags";
+  check (stored unknown.id "local_flags"=Some None) "unknown preimage";
+  check (stored empty.id "local_flags"=Some (Some "")) "empty preimage";
+  check ((Option.get (J.find_operation db ~id:unknown.id)).desired_flags=None)
+    "unknown flags read back";
+  check ((Option.get (J.find_operation db ~id:empty.id)).desired_flags
+    =Some []) "empty flags read back";
+  check (J.local_flags_preimage db ~id:unknown.id=None
+    && J.local_flags_preimage db ~id:empty.id=Some []) "preimage read back";
+  check (J.operation_pair_revision db ~id:empty.id=Some p.revision)
+    "pair revision column";
+  List.iter (fun id -> J.reject_prepared_operation db ~id ~receipt:"test")
+    [unknown.id;empty.id]
+
 let () =
   Eio_main.run (fun env ->
     let path=Filename.temp_file "imap-journal-outcomes-" ".db" in
@@ -161,4 +200,5 @@ let () =
         settle_messages db;
         tombstones db;
         caller_errors db;
-        conflicts db path)))
+        conflicts db path;
+        flag_columns db path)))

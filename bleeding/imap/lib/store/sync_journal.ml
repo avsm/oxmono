@@ -97,27 +97,19 @@ let page_values ?after values limit =
 let check_limit who limit =
   if limit<1 || limit>10_000 then
     invalid_arg (who ^ ": limit must be 1..10000")
-let insert_flags t table id flags =
-  with_stmt t ("INSERT INTO " ^ table ^ " VALUES (?,?,?)") (fun stmt ->
-    List.iteri (fun ord flag -> run_prepared t stmt
-      [s id;i (Int64.of_int ord);s (F.to_wire flag)]) flags)
-let read_flags t what sql id =
-  rows t sql [s id]
-  |> List.map (fun r -> of_checked what F.of_wire (text r.(0)))
-
-(* Pair and operation rows are read joined with their flag rows, so one
-   statement decodes a whole page. The flag column follows the record. *)
 let pair_columns =
   "id,endpoint,account,mailbox_key,raw_name,encoding,mailbox_id,\
    remote_epoch,remote_uid,local_id,revision,remote_tombstone_kind,\
    remote_tombstone_evidence,remote_tombstone_generation,\
    local_tombstone_kind,local_tombstone_evidence,\
-   local_tombstone_generation,content_sha256,content_length,internal_date"
-let decode_pair (r,common_flags) =
+   local_tombstone_generation,content_sha256,content_length,internal_date,\
+   common_flags"
+let decode_pair r =
   {id=text r.(0);scope=decode_scope r 1;
    remote_uidvalidity=Option.map validity (nullable_int r.(7));
    remote_uid=Option.map uid (nullable_int r.(8));
-   local_id=nullable_text r.(9);revision=int r.(10);common_flags;
+   local_id=nullable_text r.(9);revision=int r.(10);
+   common_flags=dec_flags "pair flags" r.(20);
    content_sha256=nullable_text r.(17);
    content_length=nullable_int r.(18);
    internal_date=Option.map (of_checked "pair INTERNALDATE"
@@ -125,11 +117,9 @@ let decode_pair (r,common_flags) =
    remote_tombstone=dec_tombstone r.(11) r.(12) r.(13);
    local_tombstone=dec_tombstone r.(14) r.(15) r.(16)}
 let select_pairs t where values =
-  rows t ("SELECT p.*,f.flag FROM (SELECT " ^ pair_columns ^
-    " FROM sync_pairs WHERE " ^ where ^ ") AS p \
-    LEFT JOIN sync_pair_flags AS f ON f.pair_id=p.id ORDER BY p.id,f.ord")
+  rows t ("SELECT " ^ pair_columns ^ " FROM sync_pairs WHERE " ^ where)
     values
-  |> group_flags "sync flag" ~flag:20 |> List.map decode_pair
+  |> List.map decode_pair
 let scoped_pairs t (scope:M.scope) where values =
   select_pairs t (scope_where ^ where) (scope_key scope @ values)
   |> List.map (fun pair ->
@@ -287,8 +277,8 @@ let put_pair_unlocked t ~who ~previous ~expected_revision x =
       remote_tombstone_kind,remote_tombstone_evidence,\
       remote_tombstone_generation,local_tombstone_kind,\
       local_tombstone_evidence,local_tombstone_generation,content_sha256,\
-      content_length,internal_date) \
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) \
+      content_length,internal_date,common_flags) \
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) \
       ON CONFLICT(id) DO UPDATE SET remote_epoch=excluded.remote_epoch,\
       remote_uid=excluded.remote_uid,local_id=excluded.local_id,\
       revision=excluded.revision,\
@@ -300,7 +290,8 @@ let put_pair_unlocked t ~who ~previous ~expected_revision x =
       local_tombstone_generation=excluded.local_tombstone_generation,\
       content_sha256=excluded.content_sha256,\
       content_length=excluded.content_length,\
-      internal_date=excluded.internal_date"
+      internal_date=excluded.internal_date,\
+      common_flags=excluded.common_flags"
       ([s x.id]@scope_key x.scope@
        [s x.scope.raw_name;s (enc x.scope.encoding);ns x.scope.mailbox_id;
         ni (Option.map Imap.Uidvalidity.to_int64 x.remote_uidvalidity);
@@ -308,9 +299,8 @@ let put_pair_unlocked t ~who ~previous ~expected_revision x =
         i next.revision]@tombstone_columns x.remote_tombstone@
        tombstone_columns x.local_tombstone@
        [ns x.content_sha256;ni x.content_length;
-        ns (Option.map Imap.Internal_date.to_string x.internal_date)]);
-    run t "DELETE FROM sync_pair_flags WHERE pair_id=?" [s x.id];
-    insert_flags t "sync_pair_flags" x.id x.common_flags;
+        ns (Option.map Imap.Internal_date.to_string x.internal_date);
+        flags x.common_flags]);
     `Committed next)
 let put_pair t ~expected_revision x =
   transaction t (fun () ->
@@ -536,7 +526,7 @@ let prepare_operation ?local_flags ?local_source_mtime t x =
       | _ -> invalid_arg (who ^ ": unknown pair"))
       x.pair_id in
     run t "INSERT INTO sync_operations VALUES \
-      (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+      (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
       ([s x.id;ns x.pair_id;ns x.local_id]@scope_key x.scope@
        [s x.scope.raw_name;s (enc x.scope.encoding);ns x.scope.mailbox_id;
         s (operation_kind x.kind);s (operation_state x.state);
@@ -544,66 +534,48 @@ let prepare_operation ?local_flags ?local_source_mtime t x =
         ni (Option.map Imap.Uid.to_int64 x.source_uid)]@
        destination_columns x.destination@
        [ni (Option.map Imap.Uidvalidity.to_int64 x.destination_uidvalidity);
-        ni (Option.map Imap.Uidvalidity.to_int64 x.receipt_uidvalidity);
-        ni (Option.map Imap.Uid.to_int64 x.receipt_uid);
-        ns x.blob_sha256;ni x.blob_length;
-        ni (Option.map (fun _ -> 1L) x.desired_flags);ns x.receipt;
+        ns x.blob_sha256;ni x.blob_length;nullable_flags x.desired_flags;
+        ns (Option.map Imap.Internal_date.to_string x.internal_date);
         ns (Option.map (fun a -> a.message_id) x.append);
         ns (Option.map (fun a -> a.spool_ref) x.append);
-        ni (Option.map (fun a -> a.pre_send_frontier) x.append)]);
-    Option.iter (insert_flags t "sync_operation_flags" x.id) x.desired_flags;
-    Option.iter (fun revision ->
-      run t "INSERT INTO sync_operation_preconditions VALUES (?,?)"
-        [s x.id;i revision]) pair_revision;
-    Option.iter (fun flags ->
-      run t "INSERT INTO sync_operation_local_preimages VALUES (?)" [s x.id];
-      insert_flags t "sync_operation_local_preimage_flags" x.id flags)
-      local_flags;
-    Option.iter (fun mtime ->
-      run t "INSERT INTO sync_operation_local_sources VALUES (?,?)"
-        [s x.id;S.Data.FLOAT mtime]) local_source_mtime;
-    Option.iter (fun date ->
-      run t "INSERT INTO sync_operation_source_dates VALUES (?,?)"
-        [s x.id;s (Imap.Internal_date.to_string date)]) x.internal_date)
-let local_flags_preimage t ~id =
+        ni (Option.map (fun a -> a.pre_send_frontier) x.append);
+        ns x.receipt;
+        ni (Option.map Imap.Uidvalidity.to_int64 x.receipt_uidvalidity);
+        ni (Option.map Imap.Uid.to_int64 x.receipt_uid);
+        ni pair_revision;nullable_flags local_flags;
+        (match local_source_mtime with
+         | None -> S.Data.NULL | Some mtime -> S.Data.FLOAT mtime)]))
+let operation_value t id column =
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    match rows t "SELECT 1 FROM sync_operation_local_preimages \
-      WHERE operation_id=?" [s id] with
-    | [] -> None
-    | _ :: _ -> Some (read_flags t "operation local preimage flag"
-        "SELECT flag FROM sync_operation_local_preimage_flags \
-         WHERE operation_id=? ORDER BY ord" id))
+    match rows t ("SELECT " ^ column ^ " FROM sync_operations WHERE id=?")
+      [s id] with
+    | [] -> S.Data.NULL
+    | r :: _ -> r.(0))
+let local_flags_preimage t ~id =
+  dec_nullable_flags "operation local flags"
+    (operation_value t id "local_flags")
 let saved_pair_revision t id =
-  match rows t "SELECT pair_revision FROM sync_operation_preconditions \
-    WHERE operation_id=?" [s id] with
+  match rows t "SELECT pair_revision FROM sync_operations WHERE id=?"
+    [s id] with
   | [] -> None
-  | r :: _ -> Some (int r.(0))
+  | r :: _ -> nullable_int r.(0)
 let operation_pair_revision t ~id =
   transaction ~begin_sql:"BEGIN" t (fun () -> saved_pair_revision t id)
 let operation_source_mtime t ~id =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
-    match rows t "SELECT mtime FROM sync_operation_local_sources \
-      WHERE operation_id=?" [s id] with
-    | [] -> None
-    | r :: _ ->
-        (match r.(0) with
-         | S.Data.FLOAT mtime when Float.is_finite mtime -> Some mtime
-         | _ -> fail "invalid operation source mtime"))
+  match operation_value t id "local_source_mtime" with
+  | S.Data.NULL -> None
+  | S.Data.FLOAT mtime when Float.is_finite mtime -> Some mtime
+  | _ -> fail "invalid operation source mtime"
 let operation_columns = "id,pair_id,local_id,endpoint,account,mailbox_key,\
   raw_name,encoding,mailbox_id,kind,state,source_epoch,source_uid,\
   dest_endpoint,dest_account,dest_mailbox_key,dest_raw_name,dest_encoding,\
-  dest_mailbox_id,dest_epoch,receipt_epoch,receipt_uid,blob_sha256,\
-  blob_length,desired_flags_known,receipt,message_id,spool_ref,\
-  pre_send_frontier,(SELECT internal_date FROM sync_operation_source_dates \
-  WHERE operation_id=sync_operations.id)"
-let decode_operation (r,flags) =
+  dest_mailbox_id,dest_epoch,blob_sha256,blob_length,desired_flags,\
+  internal_date,message_id,spool_ref,pre_send_frontier,receipt,\
+  receipt_epoch,receipt_uid"
+let decode_operation r =
   let destination=match r.(13) with
     | S.Data.NULL -> None
     | _ -> Some (decode_scope r 13) in
-  let desired_flags=match r.(24) with
-    | S.Data.NULL -> None
-    | S.Data.INT 1L -> Some flags
-    | _ -> fail "invalid operation flags marker" in
   {id=text r.(0);pair_id=nullable_text r.(1);local_id=nullable_text r.(2);
    scope=decode_scope r 3;
    kind=dec_operation_kind (text r.(9));
@@ -611,23 +583,22 @@ let decode_operation (r,flags) =
    source_uidvalidity=Option.map validity (nullable_int r.(11));
    source_uid=Option.map uid (nullable_int r.(12));destination;
    destination_uidvalidity=Option.map validity (nullable_int r.(19));
-   receipt_uidvalidity=Option.map validity (nullable_int r.(20));
-   receipt_uid=Option.map uid (nullable_int r.(21));
-   blob_sha256=nullable_text r.(22);blob_length=nullable_int r.(23);
-   desired_flags;receipt=nullable_text r.(25);
-   append=(match r.(26),r.(27),r.(28) with
+   blob_sha256=nullable_text r.(20);blob_length=nullable_int r.(21);
+   desired_flags=dec_nullable_flags "operation flags" r.(22);
+   internal_date=Option.map (of_checked "operation INTERNALDATE"
+     Imap.Internal_date.of_string) (nullable_text r.(23));
+   append=(match r.(24),r.(25),r.(26) with
      | S.Data.NULL,S.Data.NULL,S.Data.NULL -> None
      | message_id,spool_ref,frontier ->
          Some {message_id=text message_id;spool_ref=text spool_ref;
                pre_send_frontier=int frontier});
-   internal_date=Option.map (of_checked "operation INTERNALDATE"
-     Imap.Internal_date.of_string) (nullable_text r.(29))}
+   receipt=nullable_text r.(27);
+   receipt_uidvalidity=Option.map validity (nullable_int r.(28));
+   receipt_uid=Option.map uid (nullable_int r.(29))}
 let select_operations t where values =
-  rows t ("SELECT o.*,f.flag FROM (SELECT " ^ operation_columns ^
-    " FROM sync_operations WHERE " ^ where ^ ") AS o \
-    LEFT JOIN sync_operation_flags AS f ON f.operation_id=o.id \
-    ORDER BY o.id,f.ord") values
-  |> group_flags "operation flag" ~flag:30 |> List.map decode_operation
+  rows t ("SELECT " ^ operation_columns ^ " FROM sync_operations WHERE " ^
+    where) values
+  |> List.map decode_operation
 let scoped_operations t (scope:M.scope) where values =
   select_operations t (scope_where ^ " AND " ^ where)
     (scope_key scope @ values)

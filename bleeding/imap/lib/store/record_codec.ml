@@ -72,18 +72,16 @@ let check_page_args who (scope:M.scope) (cursor:M.cursor) limit =
     invalid_arg (who ^ ": limit must be 1..10000");
   if cursor.scope <> scope then invalid_arg (who ^ ": scope/cursor mismatch")
 
-let group_flags what ~flag rows =
-  let close acc = function
-    | None -> acc
-    | Some (first, flags) -> (first, List.rev flags) :: acc in
-  let rec go acc current = function
-    | [] -> List.rev (close acc current)
-    | r :: rest ->
-      let flags = match r.(flag) with
-        | Sqlite3.Data.NULL -> []
-        | x -> [of_checked what Mail_flag.Imap_flag.of_wire (text x)] in
-      match current with
-      | Some (first, seen) when first.(0) = r.(0) ->
-        go acc (Some (first, flags @ seen)) rest
-      | _ -> go (close acc current) (Some (r, flags)) rest in
-  go [] None rows
+(* A flag atom never contains a space, so a single space separates the
+   spellings without escaping. *)
+let flags l = s (String.concat " " (List.map Mail_flag.Imap_flag.to_wire l))
+let dec_flags what v =
+  match text v with
+  | "" -> []
+  | spellings ->
+      List.map (of_checked what Mail_flag.Imap_flag.of_wire)
+        (String.split_on_char ' ' spellings)
+let nullable_flags = function None -> Sqlite3.Data.NULL | Some l -> flags l
+let dec_nullable_flags what = function
+  | Sqlite3.Data.NULL -> None
+  | v -> Some (dec_flags what v)

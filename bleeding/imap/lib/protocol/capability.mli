@@ -2,12 +2,8 @@
     ENABLED responses. Token names compare case-insensitively (RFC 9051
     section 7.2.2). *)
 
-type thread_algorithm =
-  | Orderedsubject
-  | References
-  | Other_algorithm of string
-      (** An algorithm name this library does not know, in uppercase. *)
-(** RFC 5256 THREAD algorithms. *)
+type thread_algorithm = Thread.algorithm
+(** RFC 5256 THREAD algorithms, the same type as {!Thread.algorithm}. *)
 
 type t =
   | Imap4rev1
@@ -35,7 +31,7 @@ type t =
   | Sort_display
   | Esort
   | Context of [ `Search | `Sort ]
-  | Thread of thread_algorithm
+  | Thread of Thread.algorithm
   | Partial
   | Preview
   | Objectid

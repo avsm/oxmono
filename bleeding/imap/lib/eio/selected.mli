@@ -27,7 +27,7 @@ val uid_fetch_saved : saved_search -> ?partial:(int64 * int64) ->
   items:string list -> unit -> (Imap.Response.fetch list, Error.t) result
 val uid_search : t -> string -> (Imap.Uid.t list, Error.t) result
 val uid_sort :
-  t -> keys:(Imap.Command.sort_key * Imap.Command.sort_order) list ->
+  t -> keys:(Imap.Sort.key * Imap.Sort.order) list ->
   charset:string -> criterion:string -> (Imap.Uid.t list, Error.t) result
 
 type sort_result = {
@@ -38,12 +38,14 @@ type sort_result = {
   range : (int64 * int64) option;
 }
 
-val uid_sort_extended : t -> returns:Imap.Command.sort_return list ->
-  keys:(Imap.Command.sort_key * Imap.Command.sort_order) list ->
+val uid_sort_extended : t -> returns:Imap.Sort.return list ->
+  keys:(Imap.Sort.key * Imap.Sort.order) list ->
   charset:string -> criterion:string -> (sort_result, Error.t) result
+type thread = { uid : Imap.Uid.t option; children : thread list }
+
 val uid_thread :
-  t -> algorithm:Imap.Command.thread_algorithm -> charset:string ->
-  criterion:string -> (Imap.Response.thread list, Error.t) result
+  t -> algorithm:Imap.Thread.algorithm -> charset:string ->
+  criterion:string -> (thread list, Error.t) result
 val uid_search_partial : t -> range:(int64 * int64) -> criterion:string ->
   (Imap.Response.esearch, Error.t) result
 
@@ -172,7 +174,7 @@ val fetch_changes_range : t -> first:Imap.Uid.t -> last:Imap.Uid.t ->
   since:Imap.Modseq.t -> (Imap.Response.fetch list, Error.t) result
 val uid_batches : t -> ?range:(int64 * int64) -> size:int64 ->
   unit -> (Imap.Response.uidbatches, Error.t) result
-val notify_set : t -> ?status:bool -> groups:Imap.Command.notify_group list ->
+val notify_set : t -> ?status:bool -> groups:Imap.Notify.group list ->
   unit -> (Imap.Response.mailbox_status list, Error.t) result
 val notify_none : t -> (unit, Error.t) result
 val noop : t -> (Imap.Response.t list, Error.t) result

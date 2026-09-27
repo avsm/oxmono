@@ -100,30 +100,30 @@ let test_mailbox_management () =
   let old_name="Oxmono-Dovecot-" ^ nonce ^ "-Old" in
   let new_name="Oxmono-Dovecot-" ^ nonce ^ "-New" in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.unsubscribe_mailbox client old_name);
-    ignore (Imap_eio.Client.unsubscribe_mailbox client new_name);
-    ignore (Imap_eio.Client.delete_mailbox client old_name);
-    ignore (Imap_eio.Client.delete_mailbox client new_name);
+    ignore (Imap_eio.Client.unsubscribe_mailbox client ~mailbox:old_name);
+    ignore (Imap_eio.Client.unsubscribe_mailbox client ~mailbox:new_name);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox:old_name);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox:new_name);
     Imap_eio.Client.close client) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client old_name);
-  unwrap (Imap_eio.Client.subscribe_mailbox client old_name);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox:old_name);
+  unwrap (Imap_eio.Client.subscribe_mailbox client ~mailbox:old_name);
   let subscribed=unwrap (Imap_eio.Client.lsub client ~pattern:old_name ()) in
   Alcotest.(check bool) "LSUB includes subscribed mailbox" true
     (List.exists (fun (row:Imap.Response.list_result) ->
       row.mailbox=old_name) subscribed);
-  unwrap (Imap_eio.Client.unsubscribe_mailbox client old_name);
+  unwrap (Imap_eio.Client.unsubscribe_mailbox client ~mailbox:old_name);
   unwrap (Imap_eio.Client.rename_mailbox client ~old_name ~new_name);
   let renamed=unwrap (Imap_eio.Client.list client ~pattern:new_name ()) in
   Alcotest.(check bool) "RENAME exposes destination" true
     (List.exists (fun (row:Imap.Response.list_result) ->
       row.mailbox=new_name) renamed);
-  unwrap (Imap_eio.Client.subscribe_mailbox client new_name);
+  unwrap (Imap_eio.Client.subscribe_mailbox client ~mailbox:new_name);
   let subscribed=unwrap (Imap_eio.Client.lsub client ~pattern:new_name ()) in
   Alcotest.(check bool) "LSUB includes renamed subscription" true
     (List.exists (fun (row:Imap.Response.list_result) ->
       row.mailbox=new_name) subscribed);
-  unwrap (Imap_eio.Client.unsubscribe_mailbox client new_name);
-  unwrap (Imap_eio.Client.delete_mailbox client new_name)
+  unwrap (Imap_eio.Client.unsubscribe_mailbox client ~mailbox:new_name);
+  unwrap (Imap_eio.Client.delete_mailbox client ~mailbox:new_name)
 
 let test_binary_append () =
   configured ();
@@ -133,9 +133,9 @@ let test_binary_append () =
   let mailbox=Printf.sprintf "Oxmono-Dovecot-%d-%06x-BinaryAppend"
     (Unix.getpid ()) (Random.bits () land 0xffffff) in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let decoded="binary\000payload\255\128\r\n" in
   let raw="From: binary@example.test\r\nSubject: binary append\r\n" ^
     "MIME-Version: 1.0\r\nContent-Type: application/octet-stream\r\n" ^
@@ -176,7 +176,7 @@ let test_rejection_codes () =
     (Unix.getpid ()) (Random.bits () land 0xffffff) in
   let missing=mailbox ^ "-Missing" in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client) @@ fun () ->
   let rejected expected = function
     | Error (Imap_eio.Error.Rejected {status=`No;code=Some actual;_})
@@ -184,8 +184,9 @@ let test_rejection_codes () =
     | Error error -> Alcotest.fail ("unexpected rejection: " ^
         Imap_eio.Client.error_to_string error)
     | Ok _ -> Alcotest.fail "command unexpectedly succeeded" in
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
-  rejected Imap.Response.Alreadyexists (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
+  rejected Imap.Response.Alreadyexists
+    (Imap_eio.Client.create_mailbox client ~mailbox);
   rejected Imap.Response.Nonexistent
     (Imap_eio.Client.with_mailbox client ~mode:`Read_only missing
       (fun _ -> Alcotest.fail "missing selection invoked callback"));
@@ -194,7 +195,8 @@ let test_rejection_codes () =
       (Eio.Flow.string_source "x"));
   let boxes=unwrap (Imap_eio.Client.list client ~pattern:mailbox ()) in
   Alcotest.(check bool) "connection usable after typed rejections" true
-    (List.exists (fun (row:Imap.Response.list_result) -> row.mailbox=mailbox) boxes)
+    (List.exists (fun (row:Imap.Response.list_result) ->
+      row.mailbox=mailbox) boxes)
 
 let test_binary_sections () =
   configured ();
@@ -204,9 +206,9 @@ let test_binary_sections () =
   let mailbox=Printf.sprintf "Oxmono-Dovecot-%d-%06x-Binary"
     (Unix.getpid ()) (Random.bits () land 0xffffff) in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let decoded="\000\255hello\r\nbinary\128end" in
   let raw="From: binary@example.test\r\nSubject: decoded sections\r\n" ^
     "MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=oxbinary\r\n\r\n" ^
@@ -269,10 +271,12 @@ let test_saved_search () =
   let source=prefix ^ "-Source" and copied=prefix ^ "-Copy"
   and moved=prefix ^ "-Move" in
   Fun.protect ~finally:(fun () ->
-    List.iter (fun mailbox -> ignore (Imap_eio.Client.delete_mailbox client mailbox))
+    List.iter (fun mailbox ->
+      ignore (Imap_eio.Client.delete_mailbox client ~mailbox))
       [source;copied;moved];
     Imap_eio.Client.close client) @@ fun () ->
-  List.iter (fun mailbox -> unwrap (Imap_eio.Client.create_mailbox client mailbox))
+  List.iter (fun mailbox ->
+    unwrap (Imap_eio.Client.create_mailbox client ~mailbox))
     [source;copied;moved];
   let append subject =
     let body="From: saved@example.test\r\nSubject: " ^ subject ^
@@ -359,9 +363,9 @@ let test_sort_thread () =
   let mailbox=Printf.sprintf "Oxmono-Dovecot-%d-%06x-SortThread"
     (Unix.getpid ()) (Random.bits () land 0xffffff) in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let append ~id ~subject ~day ?parent () =
     let refs=match parent with None -> "" | Some parent ->
       "References: <" ^ parent ^ "@example.test>\r\n" ^
@@ -392,19 +396,19 @@ let test_sort_thread () =
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected ->
       let sort order criterion=raw_uids (unwrap (Imap_eio.Selected.uid_sort
-        selected ~keys:[Imap.Command.Subject,order] ~charset:"UTF-8"
+        selected ~keys:[Imap.Sort.Subject,order] ~charset:"UTF-8"
         ~criterion)) in
       Alcotest.(check (list int64)) "ascending subject, stable ties"
-        [solo;root;first;second] (sort Imap.Command.Ascending "ALL");
+        [solo;root;first;second] (sort Imap.Sort.Ascending "ALL");
       Alcotest.(check (list int64)) "reverse subject, stable ties"
-        [root;first;second;solo] (sort Imap.Command.Descending "ALL");
+        [root;first;second;solo] (sort Imap.Sort.Descending "ALL");
       Alcotest.(check (list int64)) "empty sort" []
-        (sort Imap.Command.Ascending "UID 4294967295");
+        (sort Imap.Sort.Ascending "UID 4294967295");
       let extended returns order criterion =
         unwrap (Imap_eio.Selected.uid_sort_extended selected ~returns
-          ~keys:[Imap.Command.Subject,order] ~charset:"UTF-8" ~criterion) in
-      let summary=extended [Imap.Command.Min;Max;Count]
-        Imap.Command.Ascending "ALL" in
+          ~keys:[Imap.Sort.Subject,order] ~charset:"UTF-8" ~criterion) in
+      let summary=extended [Imap.Sort.Min;Max;Count]
+        Imap.Sort.Ascending "ALL" in
       Alcotest.(check int64) "ESORT count" 4L summary.count;
       Alcotest.(check (option int64)) "ESORT first follows subject order"
         (Some solo) (Option.map raw summary.first);
@@ -412,26 +416,28 @@ let test_sort_thread () =
         (Some second) (Option.map raw summary.last);
       Alcotest.(check bool) "summary avoids UID materialization" true
         (summary.uids=None && summary.range=None);
-      let ordered=extended [] Imap.Command.Descending "ALL" in
+      let ordered=extended [] Imap.Sort.Descending "ALL" in
       Alcotest.(check (option (list int64))) "ESORT default ALL preserves order"
         (Some [root;first;second;solo]) (Option.map raw_uids ordered.uids);
       Alcotest.(check int64) "ESORT default ALL count" 4L ordered.count;
-      let empty=extended [Imap.Command.All;Min;Max]
-        Imap.Command.Ascending "UID 4294967295" in
+      let empty=extended [Imap.Sort.All;Min;Max]
+        Imap.Sort.Ascending "UID 4294967295" in
       Alcotest.(check int64) "ESORT empty count" 0L empty.count;
       Alcotest.(check (option (list int64))) "ESORT explicit empty UID result"
         (Some []) (Option.map raw_uids empty.uids);
       Alcotest.(check bool) "empty ESORT has no boundary UIDs" true
         (empty.first=None && empty.last=None);
       let threads criterion=unwrap (Imap_eio.Selected.uid_thread selected
-        ~algorithm:Imap.Command.References ~charset:"UTF-8" ~criterion) in
-      let node uid children : Imap.Response.thread = {uid;children} in
+        ~algorithm:Imap.Thread.References ~charset:"UTF-8" ~criterion) in
+      let node uid children : Imap_eio.Selected.thread =
+        {uid=Option.map u uid;children} in
       let expected=[node (Some root)
         [node (Some first) [];node (Some second) []];node (Some solo) []] in
       Alcotest.(check bool) "REFERENCES preserves sibling tree and UIDs" true
         (threads "ALL"=expected);
       let by_subject=unwrap (Imap_eio.Selected.uid_thread selected
-        ~algorithm:Imap.Command.Orderedsubject ~charset:"UTF-8" ~criterion:"ALL") in
+        ~algorithm:Imap.Thread.Orderedsubject ~charset:"UTF-8"
+        ~criterion:"ALL") in
       Alcotest.(check bool) "ORDEREDSUBJECT preserves sibling tree and UIDs" true
         (by_subject=expected);
       Alcotest.(check bool) "filtered parent retained as dummy node" true
@@ -449,9 +455,9 @@ let test_internal_date_roundtrip () =
   let mailbox=Printf.sprintf "Oxmono-Dovecot-%d-%06x-Date"
     (Unix.getpid ()) (Random.bits () land 0xffffff) in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let date=match Imap.Internal_date.of_string
     "26-Sep-2025 12:34:56 +0000" with
     | Ok date -> date | Error e -> Alcotest.fail e in
@@ -485,9 +491,9 @@ let test_typed_mime_fetch () =
   let mailbox=Printf.sprintf "Oxmono-Dovecot-%d-%06x-MIME"
     (Unix.getpid ()) (Random.bits () land 0xffffff) in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let message=String.concat "\r\n" [
     "From: Alice <alice@example.test>";
     "To: Bob <bob@example.test>";
@@ -563,13 +569,13 @@ let test_compress () =
       let mailbox=Printf.sprintf "Oxmono-Dovecot-%d-%06x-Compress%d"
         (Unix.getpid ()) (Random.bits () land 0xffffff) index in
       Fun.protect ~finally:(fun () ->
-        ignore (Imap_eio.Client.delete_mailbox client mailbox);
+        ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
         Imap_eio.Client.close client) @@ fun () ->
       unwrap (Imap_eio.Client.compress_deflate client);
       (match Imap_eio.Client.compress_deflate client with
        | Error (Imap_eio.Error.State _) -> ()
        | _ -> Alcotest.fail "repeated COMPRESS was not refused locally");
-      unwrap (Imap_eio.Client.create_mailbox client mailbox);
+      unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
       let raw="From: compress@example.test\r\nSubject: compressed literal\r\n\r\n" ^
         String.concat "" (List.init 16384 (fun _ ->
           "Repeated data across compressed APPEND and FETCH chunks.\r\n")) in
@@ -587,7 +593,7 @@ let test_compress () =
             [Imap.Uid.to_int64 uid]
             (raw_uids (unwrap (Imap_eio.Selected.uid_search selected "ALL")));
           Ok ()));
-      (match Imap_eio.Client.create_mailbox client mailbox with
+      (match Imap_eio.Client.create_mailbox client ~mailbox with
        | Error (Imap_eio.Error.Rejected {code=Some Imap.Response.Alreadyexists;_}) -> ()
        | _ -> Alcotest.fail "compressed typed rejection lost");
       Alcotest.(check bool) "compressed connection still usable" true
@@ -674,10 +680,10 @@ let test_condstore_move_expunge () =
     let created = ref [] in
     Fun.protect ~finally:(fun () ->
       List.iter (fun mailbox ->
-        ignore (Imap_eio.Client.delete_mailbox client mailbox)) !created;
+        ignore (Imap_eio.Client.delete_mailbox client ~mailbox)) !created;
       Imap_eio.Client.close client) @@ fun () ->
     List.iter (fun mailbox ->
-      unwrap (Imap_eio.Client.create_mailbox client mailbox);
+      unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
       created := mailbox :: !created) [source; destination];
     let append subject =
       let raw = "From: fixture@example.test\r\nSubject: " ^ subject ^
@@ -771,9 +777,9 @@ let test_idle ~compress () =
     let mailbox = "Oxmono-Dovecot-" ^ nonce ^ "-Idle" in
     Fun.protect ~finally:(fun () ->
       Imap_eio.Client.close idle_client;
-      ignore (Imap_eio.Client.delete_mailbox writer_client mailbox);
+      ignore (Imap_eio.Client.delete_mailbox writer_client ~mailbox);
       Imap_eio.Client.close writer_client) @@ fun () ->
-    unwrap (Imap_eio.Client.create_mailbox writer_client mailbox);
+    unwrap (Imap_eio.Client.create_mailbox writer_client ~mailbox);
     let clock = Eio.Stdenv.clock env_io in
     let changes = Eio.Time.with_timeout_exn clock 10. (fun () ->
       unwrap (Imap_eio.Client.with_mailbox idle_client
@@ -806,12 +812,12 @@ let test_durable_watch ~gap () =
   let mailbox = "Oxmono-Dovecot-" ^ nonce ^ "-Watch" in
   let dbfile = Filename.temp_file "oxmono-imap-watch-" ".sqlite" in
   let cleanup () =
-    ignore (Imap_eio.Client.delete_mailbox writer mailbox);
+    ignore (Imap_eio.Client.delete_mailbox writer ~mailbox);
     Imap_eio.Client.close writer;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm"] in
   Fun.protect ~finally:cleanup @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox writer mailbox);
+  unwrap (Imap_eio.Client.create_mailbox writer ~mailbox);
   let mode=Imap_eio.Client.mailbox_mode writer in
   let raw_name=match Imap.Mailbox_name.encode ~mode mailbox with
     | Ok name -> name | Error message -> Alcotest.fail message in
@@ -873,13 +879,13 @@ let test_bridge_cram () =
   Unix.mkdir spooldir 0o700;
   let fs=Eio.Stdenv.fs env_io in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let parse_date raw=match Imap.Internal_date.of_string raw with
     | Ok date -> date | Error error -> Alcotest.fail error in
   let remote_date=parse_date "26-Sep-2025 12:34:56 +0230" in
@@ -1231,13 +1237,13 @@ let test_shared_mailbox_bootstrap () =
   Unix.mkdir blobdir 0o700;
   Unix.mkdir spooldir 0o700;
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw="From: bootstrap@example.test\r\nSubject: same " ^ nonce ^
     "\r\n\r\nIdentical on both sides\r\n" in
   unwrap (Imap_eio.Client.append_flow client ~mailbox
@@ -1371,13 +1377,13 @@ let test_append_process_crash () =
   Unix.mkdir blobdir 0o700;
   Unix.mkdir spooldir 0o700;
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm";dbfile ^ "-appenduid"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let scope=dovecot_scope client mailbox in
   let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let copy store stage_id = match Imap_sync.Bridge.copy_once
@@ -1592,13 +1598,13 @@ let test_delete_process_crash () =
   Unix.mkdir blobdir 0o700;
   Unix.mkdir spooldir 0o700;
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw subject="From: delete@example.test\r\nSubject: " ^ subject ^
     " " ^ nonce ^ "\r\n\r\nKeep identities distinct.\r\n" in
   List.iter (fun subject ->
@@ -1714,13 +1720,13 @@ let test_flags_recovery () =
   Unix.mkdir blobdir 0o700;
   Unix.mkdir spooldir 0o700;
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw="From: dovecot@example.test\r\nSubject: flags recovery " ^ nonce ^
     "\r\n\r\nBody\r\n" in
   let internal_date=match Imap.Internal_date.of_string
@@ -1903,13 +1909,13 @@ let test_operator_local_delete_repair () =
   Unix.mkdir spooldir 0o700;
   let fs=Eio.Stdenv.fs env_io in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw="From: repair@example.test\r\nSubject: local repair " ^ nonce ^
     "\r\n\r\nUnchanged local survivor\r\n" in
   unwrap (Imap_eio.Client.append_flow client ~mailbox
@@ -2009,13 +2015,13 @@ let test_operator_local_append_repair () =
   Unix.mkdir spooldir 0o700;
   let fs=Eio.Stdenv.fs env_io in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw="From: repair@example.test\r\nSubject: append repair " ^ nonce ^
     "\r\n\r\nExact remote bytes\r\n" in
   let date=match Imap.Internal_date.of_string
@@ -2117,13 +2123,13 @@ let test_deletion_grace_live () =
   Unix.mkdir blobdir 0o700;
   Unix.mkdir spooldir 0o700;
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw="From: grace@example.test\r\nSubject: grace " ^ nonce ^
     "\r\n\r\nOriginal body\r\n" in
   unwrap (Imap_eio.Client.append_flow client ~mailbox
@@ -2225,13 +2231,13 @@ let test_reject_unchanged_remote_delete () =
   Unix.mkdir spooldir 0o700;
   let fs=Eio.Stdenv.fs env_io in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw="From: reject@example.test\r\nSubject: delete " ^ nonce ^
     "\r\n\r\nOriginal remote body\r\n" in
   unwrap (Imap_eio.Client.append_flow client ~mailbox
@@ -2385,13 +2391,13 @@ let test_bounded_hydration () =
   Unix.mkdir spooldir 0o700;
   let fs=Eio.Stdenv.fs env_io in
   Fun.protect ~finally:(fun () ->
-    ignore (Imap_eio.Client.delete_mailbox client mailbox);
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
     Imap_eio.Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile;dbfile ^ "-wal";dbfile ^ "-shm"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true
       Eio.Path.(fs / path)) [blobdir;spooldir;maildir_path]) @@ fun () ->
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let append subject =
     let raw="From: hydrate@example.test\r\nSubject: " ^ subject ^
       "\r\n\r\nExact body " ^ nonce ^ "\r\n" in
@@ -2560,8 +2566,9 @@ let test_multiappend () =
   let _,client=connect env_io sw in
   let mailbox=Printf.sprintf "Oxmono-Multiappend-%d-%06x"
     (Unix.getpid ()) (Random.bits () land 0xffffff) in
-  unwrap (Imap_eio.Client.create_mailbox client mailbox);
-  Fun.protect ~finally:(fun () -> ignore (Imap_eio.Client.delete_mailbox client mailbox))
+  unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
+  Fun.protect ~finally:(fun () ->
+    ignore (Imap_eio.Client.delete_mailbox client ~mailbox))
     (fun () ->
       let date=match Imap.Internal_date.of_string "26-Sep-2025 12:34:56 +0230" with
         | Ok date -> date | Error message -> Alcotest.fail message in

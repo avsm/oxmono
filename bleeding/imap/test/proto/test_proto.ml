@@ -1,5 +1,7 @@
 let fail s = Alcotest.fail s
 let expect_ok = function Ok x -> x | Error e -> fail e
+let command_ok = function
+  | Ok x -> x | Error e -> fail (Imap.Command.to_string e)
 let wire_ok = function
   | Ok x -> x
   | Error (e:Imap.Wire.error) -> fail e.message
@@ -156,16 +158,16 @@ let test_command_validation () =
     rejected "uid_search_saved" (C.uid_search_saved ~criterion);
     rejected "uid_search_partial"
       (C.uid_search_partial ~range:(1L,10L) ~criterion);
-    rejected "uid_sort" (C.uid_sort ~keys:[C.Date,C.Ascending]
+    rejected "uid_sort" (C.uid_sort ~keys:[Imap.Sort.Date,Ascending]
       ~charset:"UTF-8" ~criterion);
-    rejected "uid_sort_extended" (C.uid_sort_extended ~returns:[C.Count]
-      ~keys:[C.Date,C.Ascending] ~charset:"UTF-8" ~criterion);
-    rejected "uid_thread" (C.uid_thread ~algorithm:C.References
+    rejected "uid_sort_extended" (C.uid_sort_extended ~returns:[Imap.Sort.Count]
+      ~keys:[Imap.Sort.Date,Ascending] ~charset:"UTF-8" ~criterion);
+    rejected "uid_thread" (C.uid_thread ~algorithm:Imap.Thread.References
       ~charset:"UTF-8" ~criterion))
     ["SUBJECT {5}";"SUBJECT {5+}";"TEXT ~{12}";"BODY {0} "];
   Alcotest.(check string) "a quoted brace is not a marker"
     "UID SEARCH SUBJECT \"{5}\""
-    (expect_ok (C.uid_search ~criterion:"SUBJECT \"{5}\""));
+    (command_ok (C.uid_search ~criterion:"SUBJECT \"{5}\""));
   List.iter (fun set ->
     rejected ("uid_fetch " ^ set) (C.uid_fetch ~set ~items:["UID"]);
     rejected ("uid_store " ^ set) (C.uid_store ~set ~operation:`Add
@@ -174,14 +176,24 @@ let test_command_validation () =
     rejected ("uid_expunge " ^ set) (C.uid_expunge ~set))
     ["+1";"0x10";"1_0";"0b11";"0u5";"0o7";"01";"1:007"];
   Alcotest.(check string) "star still accepted" "UID FETCH 1:* (UID)"
-    (expect_ok (C.uid_fetch ~set:"1:*" ~items:["UID"]));
+    (command_ok (C.uid_fetch ~set:"1:*" ~items:["UID"]));
   rejected "8-bit login" (C.login ~username:"caf\xe9" ~password:"p");
   Alcotest.(check string) "UTF-8 login" "LOGIN \"caf\xc3\xa9\" \"p\""
-    (expect_ok (C.login ~username:"caf\xc3\xa9" ~password:"p"));
-  rejected "8-bit mailbox" (C.create "Caf\xe9");
+    (command_ok (C.login ~username:"caf\xc3\xa9" ~password:"p"));
+  rejected "8-bit mailbox" (C.create ~mailbox:"Caf\xe9");
+  (match C.create ~mailbox:"Caf\xe9" with
+   | Error e ->
+       Alcotest.(check string) "astring error names its argument"
+         "CREATE mailbox: control character or invalid UTF-8"
+         (C.to_string e)
+   | Ok _ -> fail "accepted an 8-bit mailbox");
+  (match C.rename ~old_name:"Old" ~new_name:"New\r\n" with
+   | Error {argument=Some "new_name";_} -> ()
+   | Error e -> fail ("wrong RENAME argument: " ^ C.to_string e)
+   | Ok _ -> fail "accepted a CR LF mailbox");
   Alcotest.(check string) "CONDSTORE alongside QRESYNC"
     "SELECT INBOX (CONDSTORE QRESYNC (7 42))"
-    (expect_ok (C.select ~condstore:true ~qresync:(7L,42L) "INBOX"));
+    (command_ok (C.select ~condstore:true ~qresync:(7L,42L) "INBOX"));
   List.iter (fun entry ->
     rejected ("metadata entry " ^ entry)
       (C.getmetadata ~mailbox:"INBOX" ~entries:[entry] ());
@@ -198,15 +210,19 @@ let test_command_validation () =
     ~identifier:"bob" ~operation:`Remove ~rights:"");
   (match C.uid_store ~set:"1" ~operation:`Add ~silent:true ~flags:["\\*"]
    with
-   | Error message ->
+   | Error {command; argument; reason} ->
+       Alcotest.(check string) "flag error names its command" "UID STORE"
+         command;
+       Alcotest.(check (option string)) "flag error names its argument"
+         (Some "flags") argument;
        Alcotest.(check bool) "flag error keeps its cause" true
-         (String.length message > String.length "invalid STORE flag: ")
+         (String.length reason > String.length "invalid flag: ")
    | Ok _ -> fail "accepted an invalid STORE flag");
   Alcotest.(check string) "LIST-STATUS matches LIST-EXTENDED"
-    (expect_ok (C.list_extended ~reference:"" ~patterns:["*"]
-      ~status:[C.Messages] ()))
-    (expect_ok (C.list_status ~reference:"" ~pattern:"*"
-      ~items:[C.Messages]))
+    (command_ok (C.list_extended ~reference:"" ~patterns:["*"]
+      ~status:[Imap.Status_item.Messages] ()))
+    (command_ok (C.list_status ~reference:"" ~pattern:"*"
+      ~items:[Imap.Status_item.Messages]))
 
 let test_response_review () =
   let module R = Imap.Response in
@@ -358,10 +374,10 @@ let test_select_and_qresync () =
     (Some ["\\Seen";"Custom";"\\*"]) info.permanentflags;
   Alcotest.(check string) "QRESYNC syntax"
     "SELECT INBOX (QRESYNC (77 1234 1:3 (1:3 10:12)))"
-    (expect_ok (Imap.Command.select ~qresync:(77L,1234L)
+    (command_ok (Imap.Command.select ~qresync:(77L,1234L)
       ~known_uids:"1:3" ~sequence_match:("1:3","10:12") "INBOX"));
   Alcotest.(check string) "CONDSTORE syntax" "EXAMINE INBOX (CONDSTORE)"
-    (expect_ok (Imap.Command.select ~readonly:true ~condstore:true "INBOX"));
+    (command_ok (Imap.Command.select ~readonly:true ~condstore:true "INBOX"));
   (match Imap.Command.select ~qresync:(77L,1234L)
            ~known_uids:"1:3" ~sequence_match:("1:3","10:11") "INBOX" with
    | Error _ -> () | Ok _ -> fail "accepted unequal sequence match")
@@ -370,20 +386,20 @@ let test_mutation_extensions () =
   let parse s=expect_ok (Imap.Response.parse s) in
   Alcotest.(check string) "changed fetch"
     "UID FETCH 1:9 (UID FLAGS MODSEQ) (CHANGEDSINCE 42 VANISHED)"
-    (expect_ok (Imap.Command.uid_fetch_mod ~changedsince:42L ~vanished:true
+    (command_ok (Imap.Command.uid_fetch_mod ~changedsince:42L ~vanished:true
       ~set:"1:9" ~items:["UID";"FLAGS";"MODSEQ"] ()));
   Alcotest.(check string) "conditional store"
     "UID STORE 8 (UNCHANGEDSINCE 0) +FLAGS.SILENT (\\Seen)"
-    (expect_ok (Imap.Command.uid_store_mod ~unchangedsince:0L ~set:"8"
+    (command_ok (Imap.Command.uid_store_mod ~unchangedsince:0L ~set:"8"
       ~operation:`Add ~silent:true ~flags:["\\Seen"] ()));
   Alcotest.(check string) "UID COPY" "UID COPY 8:9 Archive"
-    (expect_ok (Imap.Command.uid_copy ~set:"8:9" ~mailbox:"Archive"));
+    (command_ok (Imap.Command.uid_copy ~set:"8:9" ~mailbox:"Archive"));
   Alcotest.(check string) "UID MOVE" "UID MOVE 8:9 Archive"
-    (expect_ok (Imap.Command.uid_move ~set:"8:9" ~mailbox:"Archive"));
+    (command_ok (Imap.Command.uid_move ~set:"8:9" ~mailbox:"Archive"));
   Alcotest.(check string) "UID EXPUNGE" "UID EXPUNGE 8:9"
-    (expect_ok (Imap.Command.uid_expunge ~set:"8:9"));
+    (command_ok (Imap.Command.uid_expunge ~set:"8:9"));
   Alcotest.(check string) "UID EXPUNGE wildcard, RFC 4315" "UID EXPUNGE 8:*"
-    (expect_ok (Imap.Command.uid_expunge ~set:"8:*"));
+    (command_ok (Imap.Command.uid_expunge ~set:"8:*"));
   (match Imap.Command.uid_expunge ~set:"$" with
    | Error _ -> () | Ok _ -> fail "UID EXPUNGE accepted a saved result");
   (match parse "A2 OK [MODIFIED 8:9] partial\r\n" with
@@ -418,13 +434,13 @@ let test_discovery_and_objectid () =
     Imap.Command.get_jmap_access;
   Alcotest.(check string) "STATUS command"
     "STATUS INBOX (MESSAGES UIDNEXT MAILBOXID SIZE)"
-    (expect_ok (Imap.Command.status ~mailbox:"INBOX"
-      ~items:[Imap.Command.Messages;Imap.Command.Uidnext;
-              Imap.Command.Mailboxid;Imap.Command.Size]));
+    (command_ok (Imap.Command.status ~mailbox:"INBOX"
+      ~items:[Imap.Status_item.Messages;Imap.Status_item.Uidnext;
+              Imap.Status_item.Mailboxid;Imap.Status_item.Size]));
   Alcotest.(check string) "LIST-STATUS command"
     "LIST \"\" \"*\" RETURN (STATUS (MESSAGES UNSEEN))"
-    (expect_ok (Imap.Command.list_status ~reference:"" ~pattern:"*"
-      ~items:[Imap.Command.Messages;Imap.Command.Unseen]));
+    (command_ok (Imap.Command.list_status ~reference:"" ~pattern:"*"
+      ~items:[Imap.Status_item.Messages;Imap.Status_item.Unseen]));
   (match parse "* STATUS INBOX (MESSAGES 3 MAILBOXID (F_abc-09) SIZE 900)\r\n" with
    | Imap.Response.Untagged (Status x) ->
        Alcotest.(check (option string)) "status mailbox id"
@@ -459,13 +475,13 @@ let test_extended_discovery () =
     Imap.Command.namespace;
   Alcotest.(check string) "extended LIST"
     "LIST (SUBSCRIBED RECURSIVEMATCH) \"\" (INBOX \"Sent/*\") RETURN (CHILDREN SPECIAL-USE STATUS (MESSAGES UIDNEXT))"
-    (expect_ok (Imap.Command.list_extended ~reference:""
+    (command_ok (Imap.Command.list_extended ~reference:""
       ~patterns:["INBOX";"Sent/*"]
-      ~selection:[Imap.Command.Subscribed;Imap.Command.Recursive_match]
-      ~returns:[Imap.Command.Children;Imap.Command.Return_special_use]
-      ~status:[Imap.Command.Messages;Imap.Command.Uidnext] ())); 
+      ~selection:[Imap.Mailbox_list.Subscribed;Recursive_match]
+      ~returns:[Imap.Mailbox_list.Children;Imap.Mailbox_list.Special_use]
+      ~status:[Imap.Status_item.Messages;Imap.Status_item.Uidnext] ())); 
   (match Imap.Command.list_extended ~reference:"" ~patterns:["*"]
-    ~selection:[Imap.Command.Recursive_match] () with
+    ~selection:[Imap.Mailbox_list.Recursive_match] () with
    | Error _ -> () | Ok _ -> fail "accepted RECUSIVEMATCH without base");
   (match parse "* NAMESPACE ((\"\" \"/\")(\"#mh/\" \"/\" \"X-PARAM\" (\"FLAG1\" \"FLAG2\"))) NIL ((\"#shared.\" \".\"))\r\n" with
    | Imap.Response.Untagged (Namespace x) ->
@@ -506,7 +522,7 @@ let test_uidbatches_and_partial () =
   let parse s=expect_ok (Imap.Response.parse s) in
   Alcotest.(check string) "batch command"
     "UIDBATCHES 2000 1:50"
-    (expect_ok (Imap.Command.uid_batches ~size:2000L ~range:(1L,50L) ()));
+    (command_ok (Imap.Command.uid_batches ~size:2000L ~range:(1L,50L) ()));
   (match Imap.Command.uid_batches ~size:499L () with
    | Error _ -> () | Ok _ -> fail "accepted undersized batch");
   (match Imap.Command.uid_batches ~size:2000L ~range:(1L,51L) () with
@@ -525,11 +541,11 @@ let test_uidbatches_and_partial () =
    | Error _ -> () | Ok _ -> fail "accepted overlapping UID batches");
   Alcotest.(check string) "PARTIAL UID SEARCH"
     "UID SEARCH RETURN (PARTIAL -1:-10) UNDELETED"
-    (expect_ok (Imap.Command.uid_search_partial ~range:(-1L,-10L)
+    (command_ok (Imap.Command.uid_search_partial ~range:(-1L,-10L)
       ~criterion:"UNDELETED"));
   Alcotest.(check string) "PARTIAL UID FETCH"
     "UID FETCH 1:* (UID FLAGS) (PARTIAL 1:20 CHANGEDSINCE 5)"
-    (expect_ok (Imap.Command.uid_fetch_mod ~partial:(1L,20L)
+    (command_ok (Imap.Command.uid_fetch_mod ~partial:(1L,20L)
       ~changedsince:5L ~set:"1:*" ~items:["UID";"FLAGS"] ()));
   (match parse "* ESEARCH (TAG \"A3\") UID PARTIAL (-1:-10 90:99) COUNT 100\r\n" with
    | Imap.Response.Untagged (Esearch x) ->
@@ -574,12 +590,12 @@ let test_uidonly () =
 let test_acl_quota () =
   let parse s=expect_ok (Imap.Response.parse s) in
   Alcotest.(check string) "GETACL" "GETACL INBOX"
-    (expect_ok (Imap.Command.getacl ~mailbox:"INBOX"));
+    (command_ok (Imap.Command.getacl ~mailbox:"INBOX"));
   Alcotest.(check string) "SETACL add" "SETACL INBOX alice +lr"
-    (expect_ok (Imap.Command.setacl ~mailbox:"INBOX" ~identifier:"alice"
+    (command_ok (Imap.Command.setacl ~mailbox:"INBOX" ~identifier:"alice"
       ~operation:`Add ~rights:"lr"));
   Alcotest.(check string) "DELETEACL" "DELETEACL INBOX alice"
-    (expect_ok (Imap.Command.deleteacl ~mailbox:"INBOX" ~identifier:"alice"));
+    (command_ok (Imap.Command.deleteacl ~mailbox:"INBOX" ~identifier:"alice"));
   (match Imap.Command.setacl ~mailbox:"INBOX" ~identifier:"alice"
     ~operation:`Replace ~rights:"R" with
    | Error _ -> () | Ok _ -> fail "accepted uppercase ACL right");
@@ -599,10 +615,10 @@ let test_acl_quota () =
    | _ -> fail "missing MYRIGHTS");
   Alcotest.(check string) "GETQUOTA"
     "GETQUOTA #user/alice"
-    (expect_ok (Imap.Command.getquota ~root:"#user/alice"));
+    (command_ok (Imap.Command.getquota ~root:"#user/alice"));
   Alcotest.(check string) "SETQUOTA full replacement"
     "SETQUOTA #user/alice (STORAGE 1024 MESSAGE 500)"
-    (expect_ok (Imap.Command.setquota ~root:"#user/alice"
+    (command_ok (Imap.Command.setquota ~root:"#user/alice"
       ~limits:["storage",1024L;"message",500L]));
   (match parse "* QUOTA \"#user/alice\" (STORAGE 10 512 X-CUSTOM 2 9)\r\n" with
    | Imap.Response.Untagged (Quota x) ->
@@ -632,12 +648,12 @@ let test_metadata_notify () =
   let parse s=expect_ok (Imap.Response.parse s) in
   Alcotest.(check string) "GETMETADATA options"
     "GETMETADATA (MAXSIZE 1024 DEPTH 1) INBOX (/shared/comment /private/comment)"
-    (expect_ok (Imap.Command.getmetadata ~mailbox:"INBOX"
+    (command_ok (Imap.Command.getmetadata ~mailbox:"INBOX"
       ~entries:["/shared/comment";"/private/comment"]
-      ~maxsize:1024L ~depth:Imap.Command.One ()));
+      ~maxsize:1024L ~depth:Imap.Metadata.One ()));
   Alcotest.(check string) "SETMETADATA quoted/NIL"
     "SETMETADATA INBOX (/shared/comment \"Hello\" /private/comment NIL)"
-    (expect_ok (Imap.Command.setmetadata ~mailbox:"INBOX"
+    (command_ok (Imap.Command.setmetadata ~mailbox:"INBOX"
       ~values:["/shared/comment",Some "Hello";"/private/comment",None]));
   (match Imap.Command.setmetadata ~mailbox:"INBOX"
     ~values:["/shared/comment",Some "line\nnext"] with
@@ -669,14 +685,14 @@ let test_metadata_notify () =
   Alcotest.(check string) "NOTIFY NONE" "NOTIFY NONE" Imap.Command.notify_none;
   Alcotest.(check string) "NOTIFY SET"
     "NOTIFY SET STATUS (selected (MessageNew MessageExpunge FlagChange)) (subtree Lists (MessageNew MessageExpunge))"
-    (expect_ok (Imap.Command.notify_set ~status:true
-      ~groups:[Imap.Command.Selected,
-               [Imap.Command.Message_new;Imap.Command.Message_expunge;
-                Imap.Command.Flag_change];
-               Imap.Command.Subtree ["Lists"],
-               [Imap.Command.Message_new;Imap.Command.Message_expunge]] ()));
-  (match Imap.Command.notify_set ~groups:[Imap.Command.Selected,
-    [Imap.Command.Flag_change]] () with
+    (command_ok (Imap.Command.notify_set ~status:true
+      ~groups:[Imap.Notify.Selected,
+               [Imap.Notify.Message_new;Imap.Notify.Message_expunge;
+                Imap.Notify.Flag_change];
+               Imap.Notify.Subtree ["Lists"],
+               [Imap.Notify.Message_new;Imap.Notify.Message_expunge]] ()));
+  (match Imap.Command.notify_set ~groups:[Imap.Notify.Selected,
+    [Imap.Notify.Flag_change]] () with
    | Error _ -> () | Ok _ -> fail "accepted unpaired NOTIFY events");
   (match parse "* OK [NOTIFICATIONOVERFLOW] dropped\r\n" with
    | Imap.Response.Untagged (Ok (Some Notificationoverflow,_)) -> ()
@@ -713,7 +729,7 @@ let test_modified_utf7 () =
 
 let test_preview () =
   let command=Imap.Command.uid_fetch_preview ~set:"2,7" ~lazy_:true
-    |> expect_ok in
+    |> command_ok in
   Alcotest.(check string) "LAZY syntax"
     "UID FETCH 2,7 (UID PREVIEW (LAZY))" command;
   let get s=match expect_ok (Imap.Response.parse s) with
@@ -806,7 +822,7 @@ let test_internal_date () =
   Alcotest.(check (result int64 string)) "earliest instant in range"
     (Ok (-62135596800L))
     (Imap.Internal_date.to_unix_seconds (instant " 1-Jan-0001 00:00:00 +0000"));
-  let command=expect_ok (Imap.Command.append_prefix ~mailbox:"INBOX"
+  let command=command_ok (Imap.Command.append_prefix ~mailbox:"INBOX"
     ~flags:["\\Seen"] ~internal_date:one ~size:3L ()) in
   Alcotest.(check string) "APPEND preserves internal date"
     "APPEND INBOX (\\Seen) \" 1-Jan-2024 01:02:03 +0530\" {3}\r\n"
@@ -834,13 +850,13 @@ let test_internal_date () =
 
 let test_mailbox_management () =
   Alcotest.(check string) "LSUB syntax" "LSUB \"\" \"Box*\""
-    (expect_ok (Imap.Command.lsub ~reference:"" ~pattern:"Box*"));
+    (command_ok (Imap.Command.lsub ~reference:"" ~pattern:"Box*"));
   Alcotest.(check string) "RENAME syntax" "RENAME Old New"
-    (expect_ok (Imap.Command.rename ~old_name:"Old" ~new_name:"New"));
+    (command_ok (Imap.Command.rename ~old_name:"Old" ~new_name:"New"));
   Alcotest.(check string) "SUBSCRIBE syntax" "SUBSCRIBE Box"
-    (expect_ok (Imap.Command.subscribe "Box"));
+    (command_ok (Imap.Command.subscribe ~mailbox:"Box"));
   Alcotest.(check string) "UNSUBSCRIBE syntax" "UNSUBSCRIBE Box"
-    (expect_ok (Imap.Command.unsubscribe "Box"));
+    (command_ok (Imap.Command.unsubscribe ~mailbox:"Box"));
   (match expect_ok (Imap.Response.parse
     "* LSUB (\\HasNoChildren) \"/\" \"Box\"\r\n") with
    | Imap.Response.Untagged (List {subscribed=true;mailbox="Box";_}) -> ()
@@ -893,8 +909,8 @@ let test_objectid_plus_draft () =
    | Error _ -> () | Ok _ -> fail "duplicate compound key accepted");
   Alcotest.(check string) "draft STATUS command"
     "STATUS INBOX (OBJECTID)"
-    (expect_ok (Imap.Command.status ~mailbox:"INBOX"
-      ~items:[Imap.Command.Objectid]));
+    (command_ok (Imap.Command.status ~mailbox:"INBOX"
+      ~items:[Imap.Status_item.Objectid]));
   (match parse
     "* STATUS INBOX (OBJECTID (ACCOUNTID u_account MAILBOXID F_box FUTURE X_1))\r\n" with
    | Imap.Response.Untagged (Status {objectid=Some ids;_}) ->
@@ -910,11 +926,11 @@ let test_objectid_plus_draft () =
    | Error _ -> () | Ok _ -> fail "duplicate STATUS compound key accepted");
   Alcotest.(check string) "OBJECTID+ identity SELECT"
     "EXAMINE INBOX (CONDSTORE OBJECTID (MAILBOXID F_box ACCOUNTID u_account))"
-    (expect_ok (Imap.Command.select ~readonly:true ~condstore:true
+    (command_ok (Imap.Command.select ~readonly:true ~condstore:true
       ~objectid:("u_account","F_box") "INBOX"));
   Alcotest.(check string) "OBJECTID+ with QRESYNC"
     "SELECT INBOX (QRESYNC (7 42) OBJECTID (MAILBOXID F_box ACCOUNTID u_account))"
-    (expect_ok (Imap.Command.select ~qresync:(7L,42L)
+    (command_ok (Imap.Command.select ~qresync:(7L,42L)
       ~objectid:("u_account","F_box") "INBOX"));
   (match Imap.Command.select ~objectid:("invalid id","F_box") "INBOX" with
    | Error _ -> () | Ok _ -> fail "invalid OBJECTID+ ID accepted")
@@ -1033,13 +1049,13 @@ let test_bodystructure () =
 let test_sort_thread_commands () =
   let open Imap.Command in
   Alcotest.(check string) "per-key reverse" "UID SORT (SUBJECT REVERSE DATE) UTF-8 ALL"
-    (expect_ok (uid_sort ~keys:[Subject,Ascending;Date,Descending]
+    (command_ok (uid_sort ~keys:[Subject,Ascending;Date,Descending]
       ~charset:"UTF-8" ~criterion:"ALL"));
   Alcotest.(check string) "references" "UID THREAD REFERENCES US-ASCII UID 1:50"
-    (expect_ok (uid_thread ~algorithm:References ~charset:"US-ASCII"
+    (command_ok (uid_thread ~algorithm:References ~charset:"US-ASCII"
       ~criterion:"UID 1:50"));
   Alcotest.(check string) "ordered subject" "UID THREAD ORDEREDSUBJECT UTF-8 ALL"
-    (expect_ok (uid_thread ~algorithm:Orderedsubject ~charset:"UTF-8"
+    (command_ok (uid_thread ~algorithm:Orderedsubject ~charset:"UTF-8"
       ~criterion:"ALL"));
   List.iter (function Error _ -> () | Ok _ -> fail "invalid SORT/THREAD command accepted")
     [uid_sort ~keys:[] ~charset:"UTF-8" ~criterion:"ALL";
@@ -1049,8 +1065,8 @@ let test_sort_thread_commands () =
      uid_thread ~algorithm:References ~charset:"UTF-8" ~criterion:"ALL\r\nNOOP"]
 
 let test_sort_thread_responses () =
-  let leaf uid : Imap.Response.thread = {uid=Some uid;children=[]} in
-  let node uid children : Imap.Response.thread = {uid=Some uid;children} in
+  let leaf n : Imap.Response.thread = {number=Some n;children=[]} in
+  let node n children : Imap.Response.thread = {number=Some n;children} in
   (match expect_ok (Imap.Response.parse "* SORT 9 2 7\r\n") with
    | Imap.Response.Untagged (Sort [9L;2L;7L]) -> ()
    | _ -> fail "SORT order changed");
@@ -1061,7 +1077,8 @@ let test_sort_thread_responses () =
          fail "THREAD chains or branch order changed"
    | _ -> fail "THREAD result missing");
   (match expect_ok (Imap.Response.parse "* THREAD ((3)(5))") with
-   | Imap.Response.Untagged (Thread [{uid=None;children}]) when children=[leaf 3L;leaf 5L] -> ()
+   | Imap.Response.Untagged (Thread [{number=None;children}])
+     when children=[leaf 3L;leaf 5L] -> ()
    | _ -> fail "THREAD dummy parent lost");
   List.iter (fun raw -> match expect_ok (Imap.Response.parse raw) with
     | Imap.Response.Untagged (Sort [] | Thread []) -> ()
@@ -1070,7 +1087,8 @@ let test_sort_thread_responses () =
   let parts=List.concat_map (fun chunk -> wire_ok (Imap.Wire.feed wire chunk))
     ["* TH";"READ ((3)";"(5))\r";"\n"] in
   (match expect_ok (Imap.Response.parse_parts parts) with
-   | Imap.Response.Untagged (Thread [{uid=None;children}]) when children=[leaf 3L;leaf 5L] -> ()
+   | Imap.Response.Untagged (Thread [{number=None;children}])
+     when children=[leaf 3L;leaf 5L] -> ()
    | _ -> fail "fragmented THREAD changed")
 
 let test_sort_thread_invalid () =
@@ -1097,9 +1115,9 @@ let test_sort_thread_invalid () =
        Alcotest.(check int) "long THREAD chain" 5000 (chain_length 0 [root])
    | _ -> fail "long THREAD chain rejected");
   (match expect_ok (Imap.Response.parse "* THREAD (1 2 (3)(4 5))") with
-   | Imap.Response.Untagged (Thread [{uid=Some 1L;children=[
-       {uid=Some 2L;children=[{uid=Some 3L;children=[]};
-         {uid=Some 4L;children=[{uid=Some 5L;children=[]}]}]}]}]) -> ()
+   | Imap.Response.Untagged (Thread [{number=Some 1L;children=[
+       {number=Some 2L;children=[{number=Some 3L;children=[]};
+         {number=Some 4L;children=[{number=Some 5L;children=[]}]}]}]}]) -> ()
    | _ -> fail "chain before a branch misparsed");
   let rec dummy depth =
     if depth=1 then "(1)"
@@ -1125,13 +1143,13 @@ let test_esort_commands () =
     ~charset:"UTF-8" ~criterion:"UNDELETED" in
   Alcotest.(check string) "default ALL"
     "UID SORT RETURN () (REVERSE DATE) UTF-8 UNDELETED"
-    (expect_ok (command []));
+    (command_ok (command []));
   Alcotest.(check string) "summary and positive range"
     "UID SORT RETURN (MIN MAX COUNT PARTIAL 500:400) (REVERSE DATE) UTF-8 UNDELETED"
-    (expect_ok (command [Min;Max;Count;Partial (500L,400L)]));
+    (command_ok (command [Min;Max;Count;Partial (500L,400L)]));
   Alcotest.(check string) "all and count"
     "UID SORT RETURN (ALL COUNT) (REVERSE DATE) UTF-8 UNDELETED"
-    (expect_ok (command [All;Count]));
+    (command_ok (command [All;Count]));
   List.iter (fun returns -> match command returns with
     | Error _ -> () | Ok _ -> fail "invalid ESORT return options accepted")
     [[Min;Min];[Max;Max];[Count;Count];[All;All];[All;Partial (1L,2L)];
@@ -1165,7 +1183,7 @@ let test_esearch_fields () =
 let test_searchres_commands () =
   let open Imap.Command in
   let check label expected command =
-    Alcotest.(check string) label expected (expect_ok command) in
+    Alcotest.(check string) label expected (command_ok command) in
   check "SAVE COUNT" "UID SEARCH RETURN (SAVE COUNT) UNSEEN"
     (uid_search_save ~criterion:"UNSEEN");
   check "refine saved" "UID SEARCH RETURN (ALL COUNT) UID $ (SMALLER 4096)"
@@ -1215,15 +1233,15 @@ let test_binary_sections () =
   let open Imap.Command in
   Alcotest.(check string) "numeric decoded section"
     "UID FETCH 7 (UID BINARY.PEEK[1.2]<4294967296.9>)"
-    (expect_ok (uid_fetch_binary ~set:"7" ~section:[1;2]
+    (command_ok (uid_fetch_binary ~set:"7" ~section:[1;2]
       ~partial:(4_294_967_296L,9L) ()));
   Alcotest.(check string) "empty section"
     "UID FETCH 7 (UID BINARY.PEEK[])"
-    (expect_ok (uid_fetch_binary ~set:"7" ~section:[] ()));
+    (command_ok (uid_fetch_binary ~set:"7" ~section:[] ()));
   Alcotest.(check string) "decoded size"
     "UID FETCH 7:9 (UID BINARY.SIZE[2])"
-    (expect_ok (uid_fetch_binary_size ~set:"7:9" ~section:[2]));
-  ignore (expect_ok (uid_fetch_binary ~set:"7" ~section:[1]
+    (command_ok (uid_fetch_binary_size ~set:"7:9" ~section:[2]));
+  ignore (command_ok (uid_fetch_binary ~set:"7" ~section:[1]
     ~partial:(Int64.max_int,Int64.max_int) ()));
   List.iter (function Error _ -> () | Ok _ -> fail "invalid BINARY command accepted")
     [uid_fetch_binary ~set:"7\r\nNOOP" ~section:[1] ();
@@ -1333,12 +1351,13 @@ let test_binary_append_prefix () =
   let date=expect_ok (Imap.Internal_date.of_string " 1-Jan-2024 01:02:03 +0530") in
   Alcotest.(check string) "literal8 with flags and date"
     "APPEND \"Binary Mail\" (\\Seen custom) \" 1-Jan-2024 01:02:03 +0530\" ~{3}\r\n"
-    (expect_ok (Imap.Command.append_binary_prefix ~mailbox:"Binary Mail"
+    (command_ok (Imap.Command.append_binary_prefix ~mailbox:"Binary Mail"
       ~flags:["\\Seen";"custom"] ~internal_date:date ~size:3L ()));
   Alcotest.(check string) "zero literal8" "APPEND INBOX ~{0}\r\n"
-    (expect_ok (Imap.Command.append_binary_prefix ~mailbox:"INBOX" ~size:0L ()));
+    (command_ok
+      (Imap.Command.append_binary_prefix ~mailbox:"INBOX" ~size:0L ()));
   Alcotest.(check string) "ordinary marker unchanged" "APPEND INBOX {0}\r\n"
-    (expect_ok (Imap.Command.append_prefix ~mailbox:"INBOX" ~size:0L ()));
+    (command_ok (Imap.Command.append_prefix ~mailbox:"INBOX" ~size:0L ()));
   List.iter (function Error _ -> () | Ok _ -> fail "invalid binary APPEND accepted")
     [Imap.Command.append_binary_prefix ~mailbox:"INBOX" ~size:(-1L) ();
      Imap.Command.append_binary_prefix ~mailbox:"INBOX\r\nNOOP" ~size:0L ();
@@ -1365,7 +1384,7 @@ let test_capability () =
         "THREAD=orderedsubject",Thread Orderedsubject,
           "THREAD=ORDEREDSUBJECT";
         "THREAD=REFERENCES",Thread References,"THREAD=REFERENCES";
-        "thread=refs",Thread (Other_algorithm "REFS"),"THREAD=REFS";
+        "thread=refs",Thread (Imap.Thread.Other "REFS"),"THREAD=REFS";
         "objectid+",Objectid_plus,"OBJECTID+";
         "OBJECTID",Objectid,"OBJECTID";
         "MESSAGELIMIT=1000",Messagelimit 1000L,"MESSAGELIMIT=1000";
@@ -1415,7 +1434,7 @@ let test_capability () =
   Alcotest.(check (list string)) "mechanisms" ["PLAIN";"XOAUTH2"]
     (C.auth_mechanisms set);
   Alcotest.(check bool) "algorithms" true
-    (C.thread_algorithms set = [C.References]);
+    (C.thread_algorithms set = [Imap.Thread.References]);
   Alcotest.(check (list string)) "quota resources" ["STORAGE"]
     (C.quota_resources set);
   Alcotest.(check bool) "union" true
@@ -1462,7 +1481,7 @@ let test_capability_responses () =
    | Tagged {code=Some (Capability [C.Imap4rev1]);_} -> ()
    | _ -> fail "lowercase CAPABILITY code not typed");
   Alcotest.(check string) "ENABLE encoding" "ENABLE QRESYNC UTF8=ACCEPT X-a"
-    (expect_ok (Imap.Command.enable C.[Qresync; Utf8 `Accept; Other "X-a"]));
+    (command_ok (Imap.Command.enable C.[Qresync; Utf8 `Accept; Other "X-a"]));
   List.iter (fun caps ->
     Alcotest.(check bool) "ENABLE refused" true
       (Result.is_error (Imap.Command.enable caps)))

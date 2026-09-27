@@ -4,9 +4,23 @@
     Mailbox arguments are wire names. Encode them with {!Mailbox_name.encode}
     first. Quoted arguments must be valid UTF-8 without control characters.
     UID set arguments are RFC 9051 sequence sets of canonical nonzero
-    numbers and may use [*]. *)
+    numbers and may use [*]. Every encoder that validates returns an
+    {!error} naming the command and, where one is at fault, the labelled
+    argument. *)
 
-type error = string
+type error = {
+  command : string;  (** The IMAP command, such as [UID FETCH]. *)
+  argument : string option;
+      (** The label of the failing argument, such as [mailbox]. *)
+  reason : string;  (** Why the encoder refused. *)
+}
+
+val to_string : error -> string
+(** [to_string e] is [e] as one line, [COMMAND argument: reason]. *)
+
+val pp : Format.formatter -> error -> unit
+(** [pp] prints {!to_string}. *)
+
 val capability : string
 val noop : string
 val logout : string
@@ -38,9 +52,8 @@ val setquota : root:string -> limits:(string * int64) list ->
 (** RFC 9208 SETQUOTA replaces the complete limit list for the root, including
     removing limits omitted from [limits]. This API represents nonnegative
     values through signed int64 only. Callers must read/confirm policy. *)
-type metadata_depth = Zero | One | Infinity
 val getmetadata : mailbox:string -> entries:string list ->
-  ?maxsize:int64 -> ?depth:metadata_depth -> unit -> (string, error) result
+  ?maxsize:int64 -> ?depth:Metadata.depth -> unit -> (string, error) result
 (** Entry names follow RFC 5464 section 3.2. They start with [/], do not end
     with [/], and contain no [//], [*], [%], controls or non-ASCII bytes.
     [maxsize] is a 32-bit number. [maxsize] and [depth] are omitted by
@@ -50,14 +63,8 @@ val setmetadata : mailbox:string -> values:(string * string option) list ->
 (** This encoder supports NIL and quoted values only. Values requiring
     literals, including CR/LF, need a session-level streaming path. Entry
     names compare case-insensitively when checking for duplicates. *)
-type notify_filter = Selected | Selected_delayed | Inboxes | Personal |
-  Subscribed | Subtree of string list | Mailboxes of string list
-type notify_event = Message_new | Message_expunge | Flag_change |
-  Annotation_change | Mailbox_name | Subscription_change |
-  Mailbox_metadata_change | Server_metadata_change
-type notify_group = notify_filter * notify_event list
 val notify_none : string
-val notify_set : ?status:bool -> groups:notify_group list -> unit ->
+val notify_set : ?status:bool -> groups:Notify.group list -> unit ->
   (string, error) result
 (** Known RFC 5465 event names only, without MessageNew FETCH attributes.
     Call only when NOTIFY is advertised. NOTIFICATIONOVERFLOW cancels the watch. *)
@@ -65,26 +72,24 @@ val login : username:string -> password:string -> (string, error) result
 val namespace : string
 val list : reference:string -> pattern:string -> (string, error) result
 val lsub : reference:string -> pattern:string -> (string, error) result
-type status_item = Messages | Unseen | Uidnext | Uidvalidity |
-  Highestmodseq | Mailboxid | Objectid | Size | Deleted | Deleted_storage
-type list_selection = Subscribed | Remote | Recursive_match | Special_use
-type list_return = Return_subscribed | Children | Return_special_use
 val list_extended : reference:string -> patterns:string list ->
-  ?selection:list_selection list -> ?returns:list_return list ->
-  ?status:status_item list -> unit -> (string, error) result
+  ?selection:Mailbox_list.selection list ->
+  ?returns:Mailbox_list.return list ->
+  ?status:Status_item.t list -> unit -> (string, error) result
 (** RFC 5258 selection/return options. [Recursive_match] requires
     [Subscribed] or [Special_use]. [status] adds RFC 5819 LIST-STATUS.
     Use this only after the relevant capability has been negotiated. *)
-val status : mailbox:string -> items:status_item list -> (string, error) result
+val status : mailbox:string -> items:Status_item.t list ->
+  (string, error) result
 val list_status : reference:string -> pattern:string ->
-  items:status_item list -> (string, error) result
+  items:Status_item.t list -> (string, error) result
 (** RFC 5819 return option. Call only when LIST-STATUS is advertised, and
     correlate untagged LIST/STATUS rows by mailbox name. *)
-val create : string -> (string, error) result
-val delete : string -> (string, error) result
+val create : mailbox:string -> (string, error) result
+val delete : mailbox:string -> (string, error) result
 val rename : old_name:string -> new_name:string -> (string, error) result
-val subscribe : string -> (string, error) result
-val unsubscribe : string -> (string, error) result
+val subscribe : mailbox:string -> (string, error) result
+val unsubscribe : mailbox:string -> (string, error) result
 val select : ?readonly:bool -> ?condstore:bool -> ?qresync:(int64 * int64) ->
   ?known_uids:string -> ?sequence_match:(string * string) ->
   ?objectid:(string * string) ->
@@ -136,22 +141,19 @@ val uid_expunge_saved : string
 (** Explicit saved-result encoders using [$]. Ordinary UID-set constructors
     continue rejecting [$]. These constructors do not track saved-variable
     lifetime or negotiate SEARCHRES or command-specific extensions. *)
-type sort_key = Arrival | Cc | Date | From | Size | Subject | To
-type sort_order = Ascending | Descending
-type thread_algorithm = Orderedsubject | References
-val uid_sort : keys:(sort_key * sort_order) list -> charset:string ->
+val uid_sort : keys:(Sort.key * Sort.order) list -> charset:string ->
   criterion:string -> (string, error) result
-type sort_return = Min | Max | Count | All | Partial of (int64 * int64)
-val uid_sort_extended : returns:sort_return list ->
-  keys:(sort_key * sort_order) list -> charset:string -> criterion:string ->
+val uid_sort_extended : returns:Sort.return list ->
+  keys:(Sort.key * Sort.order) list -> charset:string -> criterion:string ->
   (string, error) result
 (** RFC 5267 ESORT. Empty return options mean ALL. PARTIAL requires
     CONTEXT=SORT and positive 32-bit positions; reversed bounds are equivalent.
     ALL and PARTIAL are mutually exclusive and options cannot repeat. *)
-val uid_thread : algorithm:thread_algorithm -> charset:string ->
+val uid_thread : algorithm:Thread.algorithm -> charset:string ->
   criterion:string -> (string, error) result
-(** RFC 5256 UID results. Charset is mandatory; criteria retain SEARCH syntax
-    and may contain sequence sets even though results contain UIDs. Literal
+(** RFC 5256 UID results. An [Other] algorithm name must be an atom.
+    Charset is mandatory. Criteria retain SEARCH syntax and may contain
+    sequence sets even though results contain UIDs. Literal
     search strings are not supported by these single-line constructors.
     SORT accepts 1..100 priority-ordered keys; descending applies per key. *)
 val uid_search_partial : range:(int64 * int64) -> criterion:string ->

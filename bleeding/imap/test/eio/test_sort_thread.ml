@@ -1,5 +1,4 @@
-module C = Imap.Command
-module R = Imap.Response
+module C = Imap.Sort
 module S = Imap_eio.Selected
 module E = Imap_eio.Error
 
@@ -41,7 +40,7 @@ let scripted ?(uidonly=false) ?(dispatched=true) ~capabilities ~reply f =
 let sort ?(criterion="ALL") selected =
   S.uid_sort selected ~keys:[C.Date,C.Descending;C.Subject,C.Ascending]
     ~charset:"UTF-8" ~criterion
-let thread ?(algorithm=C.References) ?(criterion="ALL") selected =
+let thread ?(algorithm=Imap.Thread.References) ?(criterion="ALL") selected =
   S.uid_thread selected ~algorithm ~charset:"UTF-8" ~criterion
 let complete response tag = response ^ tag ^ " OK completed\r\n"
 let expect_error label kind = function
@@ -58,7 +57,7 @@ let test_capability_gates () =
   expect_error "missing SORT" (unsupported Imap.Capability.Sort)
     (scripted ~dispatched:false ~capabilities:"" ~reply:(complete "") sort);
   expect_error "wrong THREAD algorithm"
-    (unsupported Imap.Capability.(Thread References))
+    (unsupported (Imap.Capability.Thread References))
     (scripted ~dispatched:false ~capabilities:"THREAD=ORDEREDSUBJECT"
       ~reply:(complete "") thread);
   expect_error "SORT key list empty" state
@@ -81,15 +80,18 @@ let test_empty_and_missing () =
     (scripted ~capabilities:"THREAD=REFERENCES" ~reply:(complete "") thread)
 
 let test_tree () =
-  let leaf uid:R.thread={uid=Some uid;children=[]} in
-  let expected:R.thread list=[
-    {uid=None;children=[{uid=Some 9L;children=[leaf 1L]};leaf 4L]};leaf 2L] in
+  let u n = match Imap.Uid.of_int64 n with
+    | Ok uid -> uid | Error e -> failwith e in
+  let leaf n:S.thread={uid=Some (u n);children=[]} in
+  let expected:S.thread list=[
+    {uid=None;children=[{uid=Some (u 9L);children=[leaf 1L]};leaf 4L]};
+    leaf 2L] in
   let found=ok (scripted ~capabilities:"THREAD=REFERENCES"
     ~reply:(complete "* THREAD ((9 1)(4))(2)\r\n") thread) in
   if found<>expected then failwith "THREAD dummy/chain/order changed";
   ignore (ok (scripted ~capabilities:"THREAD=ORDEREDSUBJECT"
     ~reply:(complete "* THREAD (9)(1 4)\r\n")
-    (thread ~algorithm:C.Orderedsubject)))
+    (thread ~algorithm:Orderedsubject)))
 
 let test_invalid_results () =
   List.iter (fun response ->

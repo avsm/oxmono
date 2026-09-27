@@ -42,7 +42,7 @@ let test_ordinary_rejections () =
       with_client [`Return (tag 4 ^ " " ^ status_text status ^ " " ^ wire ^ "refused\r\n")]
         (fun client ->
           let error=rejected ~tag:(tag 4) ~status ~code
-            (C.create_mailbox client "Archive") in
+            (C.create_mailbox client ~mailbox:"Archive") in
           let formatted=C.error_to_string error in
           (match code with
            | Some (R.Other_code _) when contains formatted "X-SERVER" ->

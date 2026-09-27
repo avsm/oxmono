@@ -1,7 +1,4 @@
-type thread_algorithm =
-  | Orderedsubject
-  | References
-  | Other_algorithm of string
+type thread_algorithm = Thread.algorithm
 
 type t =
   | Imap4rev1
@@ -28,7 +25,7 @@ type t =
   | Sort_display
   | Esort
   | Context of [ `Search | `Sort ]
-  | Thread of thread_algorithm
+  | Thread of Thread.algorithm
   | Partial
   | Preview
   | Objectid
@@ -68,8 +65,7 @@ let plain = [
   "SEARCHRES", Searchres; "ESEARCH", Esearch; "SORT", Sort;
   "SORT=DISPLAY", Sort_display; "ESORT", Esort;
   "CONTEXT=SEARCH", Context `Search; "CONTEXT=SORT", Context `Sort;
-  "THREAD=ORDEREDSUBJECT", Thread Orderedsubject;
-  "THREAD=REFERENCES", Thread References; "PARTIAL", Partial;
+  "PARTIAL", Partial;
   "PREVIEW", Preview; "OBJECTID", Objectid; "OBJECTID+", Objectid_plus;
   "UIDONLY", Uidonly; "UIDBATCHES", Uidbatches;
   "UTF8=ACCEPT", Utf8 `Accept; "UTF8=ONLY", Utf8 `Only;
@@ -105,7 +101,7 @@ let of_wire raw =
   | None ->
       match split token with
       | Some ("AUTH", m) when m <> "" -> Auth m
-      | Some ("THREAD", a) when a <> "" -> Thread (Other_algorithm a)
+      | Some ("THREAD", a) when a <> "" -> Thread (Thread.of_wire a)
       | Some ("MESSAGELIMIT", v) ->
           (match limit v with Some n -> Messagelimit n | None -> Other raw)
       | Some ("SAVELIMIT", v) ->
@@ -117,7 +113,7 @@ let of_wire raw =
 
 let to_wire = function
   | Auth m -> "AUTH=" ^ upper m
-  | Thread (Other_algorithm a) -> "THREAD=" ^ upper a
+  | Thread a -> "THREAD=" ^ Thread.to_wire a
   | Messagelimit n -> "MESSAGELIMIT=" ^ Int64.to_string n
   | Savelimit n -> "SAVELIMIT=" ^ Int64.to_string n
   | Quota_res r -> "QUOTA=RES-" ^ upper r

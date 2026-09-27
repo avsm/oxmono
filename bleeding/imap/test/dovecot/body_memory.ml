@@ -117,10 +117,10 @@ let run mode size = Eio_main.run (fun io ->
     let client=ok (Imap_eio.Client.connect ~sw ~auth transport) in
     let mailbox=Printf.sprintf "Oxmono-memory-%d-%s-%d" (Unix.getpid ()) mode size in
     Fun.protect ~finally:(fun () -> Eio.Cancel.protect (fun () ->
-      ignore (Imap_eio.Client.delete_mailbox client mailbox);
+      ignore (Imap_eio.Client.delete_mailbox client ~mailbox);
       Imap_eio.Client.close client)) (fun () ->
       if compressed then ok (Imap_eio.Client.compress_deflate client);
-      ok (Imap_eio.Client.create_mailbox client mailbox);
+      ok (Imap_eio.Client.create_mailbox client ~mailbox);
       let length=size*mib in
       let append=measurement () in
       let source={Source.length;count=0;m=append;hash=Digestif.SHA256.empty;

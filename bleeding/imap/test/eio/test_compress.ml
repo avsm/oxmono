@@ -118,7 +118,7 @@ let test_refusal_reusable () =
         expect "COMPRESS rejection code" (function
           | E.Rejected {code=actual;_} -> actual=code | _ -> false)
           (C.compress_deflate client);
-        ok (C.create_mailbox client "Draft");
+        ok (C.create_mailbox client ~mailbox:"Draft");
         if Buffer.contents raw.written<>
            "A00000004 COMPRESS DEFLATE\r\nA00000005 CREATE Draft\r\n" then
           failwith "rejected compression changed plaintext framing"))
@@ -135,7 +135,7 @@ let test_malformed_and_uncertain () =
     with_client [reply (done_ 4 ^ "\007")] (fun client raw ->
       ok (C.compress_deflate client);
       if mutation then expect "compressed mutation remains uncertain" uncertain
-          (C.create_mailbox client "Draft")
+          (C.create_mailbox client ~mailbox:"Draft")
       else expect "malformed compressed stream" (function
         | E.Transport _ | E.Protocol _ -> true | _ -> false)
           (C.with_mailbox client ~mode:`Read_only "INBOX" (fun _ -> Ok ()));

@@ -162,7 +162,7 @@ module Selected : sig
       response is not an empty result. Expansion is bounded to 100,000 UIDs. *)
 
   val uid_sort :
-    t -> keys:(Imap.Command.sort_key * Imap.Command.sort_order) list ->
+    t -> keys:(Imap.Sort.key * Imap.Sort.order) list ->
     charset:string -> criterion:string -> (Imap.Uid.t list, Error.t) result
   (** RFC 5256 UID SORT. Requires SORT or SORT=DISPLAY and returns at most
       100,000 distinct UIDs in server sort order. An explicit empty SORT result
@@ -180,8 +180,8 @@ module Selected : sig
     uids : Imap.Uid.t list option;
     range : (int64 * int64) option;
   }
-  val uid_sort_extended : t -> returns:Imap.Command.sort_return list ->
-    keys:(Imap.Command.sort_key * Imap.Command.sort_order) list ->
+  val uid_sort_extended : t -> returns:Imap.Sort.return list ->
+    keys:(Imap.Sort.key * Imap.Sort.order) list ->
     charset:string -> criterion:string -> (sort_result, Error.t) result
   (** RFC 5267 ESORT. Requires ESORT; positive positional PARTIAL additionally
       requires CONTEXT=SORT (the separate PARTIAL capability is insufficient).
@@ -198,13 +198,18 @@ module Selected : sig
       No UPDATE context is established; positions may shift between commands
       and results do not establish a durable snapshot. *)
 
+  type thread = { uid : Imap.Uid.t option; children : thread list }
+  (** A UID THREAD node. [uid] is [None] for a dummy parent that groups its
+      [children]. *)
+
   val uid_thread :
-    t -> algorithm:Imap.Command.thread_algorithm -> charset:string ->
-    criterion:string -> (Imap.Response.thread list, Error.t) result
+    t -> algorithm:Imap.Thread.algorithm -> charset:string ->
+    criterion:string -> (thread list, Error.t) result
   (** RFC 5256 UID THREAD, gated by the exact THREAD=algorithm capability.
       Preserves ordered parent/child relationships and dummy grouping nodes
-      ([uid=None]). Bounds are 100,000 nodes and depth 100. Empty results must
-      be explicit; absent, repeated, malformed and partial results fail.
+      ([uid=None]). A number in the response outside the UID range is a
+      [Protocol] error. Bounds are 100,000 nodes and depth 100. Empty results
+      must be explicit. Absent, repeated, malformed and partial results fail.
       [charset] and raw [criterion] follow [uid_sort]'s rules, including
       UIDONLY. Thread trees are server-computed relationships, not stable JMAP
       thread identifiers or a durable mailbox snapshot. *)
@@ -453,7 +458,7 @@ module Selected : sig
       permits one request per selected mailbox per connection, conservatively
       satisfying the RFC's reissue limit until it can track mailbox churn. *)
 
-  val notify_set : t -> ?status:bool -> groups:Imap.Command.notify_group list ->
+  val notify_set : t -> ?status:bool -> groups:Imap.Notify.group list ->
     unit -> (Imap.Response.mailbox_status list, Error.t) result
   val notify_none : t -> (unit, Error.t) result
   (** RFC 5465 notification registration through the active selected lease.
@@ -579,19 +584,29 @@ module Client : sig
   type discovery = {
     mailboxes :
       (Imap.Response.list_result * Imap.Response.mailbox_status option) list;
+        (** Each LIST row with the STATUS row that followed it. *)
     unpaired_status : Imap.Response.mailbox_status list;
+        (** STATUS rows that followed no LIST row. *)
   }
+  (** The result of {!list_extended}. *)
+
   val list_extended : t -> ?reference:string -> patterns:string list ->
-    ?selection:Imap.Command.list_selection list ->
-    ?returns:Imap.Command.list_return list ->
-    ?status:Imap.Command.status_item list -> unit -> (discovery, error) result
-  (** Negotiates LIST-EXTENDED, SPECIAL-USE and LIST-STATUS as requested.
-      A selectable LIST row can lack STATUS even after tagged OK (RFC 5819);
-      [None] is incomplete, never an empty status. Unpaired unsolicited STATUS
-      rows remain visible. Names are exact wire bytes. *)
+    ?selection:Imap.Mailbox_list.selection list ->
+    ?returns:Imap.Mailbox_list.return list ->
+    ?status:Imap.Status_item.t list -> unit -> (discovery, error) result
+  (** [list_extended t ~patterns ()] negotiates LIST-EXTENDED, SPECIAL-USE
+      and LIST-STATUS as requested. [reference] defaults to [""], and
+      [selection] and [returns] default to none. [status] adds RFC 5819
+      LIST-STATUS and is omitted by default. A selectable LIST row can lack
+      STATUS even after tagged OK (RFC 5819). [None] is incomplete, never an
+      empty status. Unpaired unsolicited STATUS rows remain visible, with
+      their names as exact wire bytes. *)
 
   val mailbox_mode : t -> Imap.Mailbox_name.mode
-  val status : t -> mailbox:string -> items:Imap.Command.status_item list ->
+  (** [mailbox_mode t] is [Utf8] when IMAP4rev2 or UTF8=ACCEPT is in effect
+      on [t], and [Rev1] otherwise. *)
+
+  val status : t -> mailbox:string -> items:Imap.Status_item.t list ->
     (Imap.Response.mailbox_status, error) result
   (** The draft [Objectid] item requires prior [enable_objectid_plus]; its
       account and mailbox identifiers are in [mailbox_status.objectid].
@@ -633,7 +648,7 @@ module Client : sig
     longentries : int64 option;
   }
   val get_metadata : t -> mailbox:string -> entries:string list ->
-    ?maxsize:int64 -> ?depth:Imap.Command.metadata_depth -> unit ->
+    ?maxsize:int64 -> ?depth:Imap.Metadata.depth -> unit ->
     (metadata_result, error) result
   (** [longentries] reports RFC 5464 MAXSIZE truncation; when present the
       returned entries do not form a complete requested result. *)
@@ -644,31 +659,48 @@ module Client : sig
       rejects values requiring a literal. METADATA-SERVER alone permits only
       that scope. *)
 
-  val notify_set : t -> ?status:bool -> groups:Imap.Command.notify_group list ->
+  val notify_set : t -> ?status:bool -> groups:Imap.Notify.group list ->
     unit -> (Imap.Response.mailbox_status list, error) result
   val notify_none : t -> (unit, error) result
   (** Only non-selected NOTIFY filters can be installed via [Client]: calling
       this inside [with_mailbox] would violate the exclusive lease. Use a
       dedicated connection and reconcile after any notification overflow. *)
 
-  val create_mailbox : t -> string -> (unit, error) result
-  val create_mailbox_objectid : t -> string ->
+  val create_mailbox : t -> mailbox:string -> (unit, error) result
+  (** [create_mailbox t ~mailbox] creates the UTF-8 name [mailbox]. Like
+      every mailbox mutation, a lost tagged completion is
+      [Error.Uncertain]. *)
+
+  val create_mailbox_objectid : t -> mailbox:string ->
     (Imap.Response.compound_object_id, error) result
-  val delete_mailbox : t -> string -> (unit, error) result
+  (** [create_mailbox_objectid t ~mailbox] is {!create_mailbox} returning the
+      tagged account and mailbox identity. It requires prior
+      {!enable_objectid_plus}. If the server omits either ID after a
+      successful CREATE, the connection closes and the result is
+      [Error.Uncertain]. Reconcile before retrying. *)
+
+  val delete_mailbox : t -> mailbox:string -> (unit, error) result
+  (** [delete_mailbox t ~mailbox] deletes the UTF-8 name [mailbox]. *)
+
   val rename_mailbox : t -> old_name:string -> new_name:string ->
     (unit, error) result
+  (** [rename_mailbox t ~old_name ~new_name] renames the UTF-8 name
+      [old_name] to [new_name]. A caller managing a durable mirror must
+      reconcile identity and cursor scope afterwards rather than assume UID
+      continuity. *)
+
   val rename_mailbox_objectid : t -> old_name:string -> new_name:string ->
     (Imap.Response.compound_object_id, error) result
-  (** The OBJECTID+ mutation methods require explicit activation and return the
-      tagged account/mailbox identity. If the server omits either ID after a
-      successful mutation, the connection closes and the outcome is uncertain
-      for callers that need a durable identity; reconcile before retrying. *)
+  (** [rename_mailbox_objectid t ~old_name ~new_name] is {!rename_mailbox}
+      returning the tagged identity, under the conditions of
+      {!create_mailbox_objectid}. *)
 
-  val subscribe_mailbox : t -> string -> (unit, error) result
-  val unsubscribe_mailbox : t -> string -> (unit, error) result
-  (** Mailbox mutations have uncertain outcomes on a lost tagged completion.
-      A caller managing a durable mirror must reconcile identity and cursor
-      scope after RENAME rather than assuming UID continuity. *)
+  val subscribe_mailbox : t -> mailbox:string -> (unit, error) result
+  (** [subscribe_mailbox t ~mailbox] subscribes the UTF-8 name [mailbox]. *)
+
+  val unsubscribe_mailbox : t -> mailbox:string -> (unit, error) result
+  (** [unsubscribe_mailbox t ~mailbox] unsubscribes the UTF-8 name
+      [mailbox]. *)
 
   val with_mailbox : t -> ?qresync:(Imap.Uidvalidity.t * Imap.Modseq.t) ->
     ?objectid:(string * string) ->

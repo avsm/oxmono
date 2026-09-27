@@ -194,7 +194,7 @@ type mailbox_status = {
   objectid:compound_object_id option;size:int64 option;
   deleted:int64 option;deleted_storage:int64 option;raw:string
 }
-type thread = { uid : int64 option; children : thread list }
+type thread = { number : int64 option; children : thread list }
 type untagged =
   | Ok of code option * string | No of code option * string
   | Bad of code option * string | Bye of code option * string
@@ -1353,7 +1353,7 @@ let parse_ordered_result ~threaded raw =
     let result=match peek () with
       | Some '(' ->
           node depth;
-          {uid=None;children=nested (depth+1)}
+          {number=None;children=nested (depth+1)}
       | _ -> members depth in
     take ')';
     result
@@ -1370,8 +1370,8 @@ let parse_ordered_result ~threaded raw =
            | _ -> chain (uid::before))
       | _ -> invalid "invalid THREAD member separator" in
     let last,before,children=chain [] in
-    List.fold_left (fun child uid -> {uid=Some uid;children=[child]})
-      {uid=Some last;children} before
+    List.fold_left (fun child n -> {number=Some n;children=[child]})
+      {number=Some last;children} before
   and nested depth =
     let rec collect count acc =
       match peek () with

@@ -447,8 +447,8 @@ let test_extension_wrappers () =
      List.length metadata.responses<>1 then
     failwith "METADATA truncation receipt lost";
   let statuses=ok (Imap_eio.Client.notify_set client ~status:true
-    ~groups:[Imap.Command.Inboxes,
-             [Imap.Command.Message_new;Imap.Command.Message_expunge]] ()) in
+    ~groups:[Imap.Notify.Inboxes,
+             [Imap.Notify.Message_new;Imap.Notify.Message_expunge]] ()) in
   if List.length statuses<>1 then failwith "NOTIFY STATUS receipt lost";
   ignore (ok (Imap_eio.Client.set_acl client ~mailbox:"INBOX"
     ~identifier:"alice" ~operation:`Add ~rights:"w"));
@@ -495,8 +495,8 @@ let test_selected_notify () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   ignore (ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected ->
-      let groups=[Imap.Command.Selected,
-        [Imap.Command.Message_new;Imap.Command.Message_expunge]] in
+      let groups=[Imap.Notify.Selected,
+        [Imap.Notify.Message_new;Imap.Notify.Message_expunge]] in
       let statuses=ok (Imap_eio.Selected.notify_set selected ~status:true
         ~groups ()) in
       if List.length statuses<>1 then failwith "selected NOTIFY STATUS lost";
@@ -533,8 +533,8 @@ let test_discovery () =
    | Some [{prefix="";delimiter=Some "/";_}] -> ()
    | _ -> failwith "missing personal namespace");
   let d=ok (Imap_eio.Client.list_extended client ~patterns:["*"]
-    ~returns:[Imap.Command.Children;Imap.Command.Return_special_use]
-    ~status:[Imap.Command.Messages;Imap.Command.Uidnext] ()) in
+    ~returns:[Imap.Mailbox_list.Children;Imap.Mailbox_list.Special_use]
+    ~status:[Imap.Status_item.Messages;Imap.Status_item.Uidnext] ()) in
   (match d.mailboxes with
    | [(sent,Some status);(archive,None)] ->
        if sent.mailbox<>"Sent" || sent.special_use<>["\\Sent"] ||
@@ -568,10 +568,10 @@ let test_discovery_capabilities () =
   unavailable Imap.Capability.Namespace (Imap_eio.Client.namespace client);
   unavailable Imap.Capability.List_extended
     (Imap_eio.Client.list_extended client ~patterns:["*"]
-      ~returns:[Imap.Command.Children] ());
+      ~returns:[Imap.Mailbox_list.Children] ());
   unavailable Imap.Capability.List_extended
     (Imap_eio.Client.list_extended client ~patterns:["*"]
-      ~status:[Imap.Command.Messages] ());
+      ~status:[Imap.Status_item.Messages] ());
   Imap_eio.Client.close client
 
 let test_uidonly_partial_batches () =
@@ -949,7 +949,8 @@ let test_objectid_plus_activation () =
   ok (Imap_eio.Client.enable_objectid_plus client);
   if not (Imap_eio.Client.is_enabled client Imap.Capability.Objectid_plus)
   then failwith "OBJECTID+ activation not retained";
-  let created=ok (Imap_eio.Client.create_mailbox_objectid client "Draft") in
+  let created=ok
+    (Imap_eio.Client.create_mailbox_objectid client ~mailbox:"Draft") in
   (match created with
    | {account_id=Some "u_account";mailbox_id=Some "F_created";_} -> ()
    | _ -> failwith "CREATE compound receipt missing");
@@ -959,7 +960,7 @@ let test_objectid_plus_activation () =
    | {account_id=Some "u_account";mailbox_id=Some "F_created";_} -> ()
    | _ -> failwith "RENAME compound receipt missing");
   let status=ok (Imap_eio.Client.status client ~mailbox:"INBOX"
-    ~items:[Imap.Command.Objectid]) in
+    ~items:[Imap.Status_item.Objectid]) in
   (match status.objectid with
    | Some {account_id=Some "u_account";mailbox_id=Some "F_box";_} -> ()
    | _ -> failwith "STATUS compound identity missing");
@@ -1024,7 +1025,7 @@ let test_objectid_plus_missing_mutation_receipt () =
     ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   ok (Imap_eio.Client.enable_objectid_plus client);
-  (match Imap_eio.Client.create_mailbox_objectid client "Draft" with
+  (match Imap_eio.Client.create_mailbox_objectid client ~mailbox:"Draft" with
    | Error (Imap_eio.Error.Uncertain _) -> ()
    | Error error -> failwith ("wrong missing receipt error: " ^
        Imap_eio.Client.error_to_string error)

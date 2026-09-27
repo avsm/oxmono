@@ -73,7 +73,8 @@ let test_status_item_gating () =
   preauth ~caps:"IMAP4rev1" [] (fun client ->
     List.iter (fun (item, capability) ->
       expect "ungated STATUS item" (unsupported capability)
-        (C.status client ~mailbox:"INBOX" ~items:[Imap.Command.Messages; item]))
+        (C.status client ~mailbox:"INBOX"
+          ~items:[Imap.Status_item.Messages; item]))
       Imap.Command.[Highestmodseq, Imap.Capability.Condstore;
         Mailboxid, Imap.Capability.Objectid;
         Size, Imap.Capability.Status_size;

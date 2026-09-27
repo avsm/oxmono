@@ -254,10 +254,10 @@ type mailbox_status = {
   raw : string;
 }
 
-type thread = { uid : int64 option; children : thread list }
-(** A THREAD node. [None] preserves a dummy parent. A sequence of message
-    numbers becomes a chain of single-child nodes. Response numbers are UIDs
-    only when the command was UID THREAD. *)
+type thread = { number : int64 option; children : thread list }
+(** A THREAD node. [number] is a message sequence number, or a UID when the
+    command was UID THREAD, and [None] preserves a dummy parent. A sequence
+    of message numbers becomes a chain of single-child nodes. *)
 type untagged =
   | Ok of code option * string
   | No of code option * string

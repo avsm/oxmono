@@ -82,7 +82,8 @@ let test_protocol () =
   let client = connect env_io sw in
   let mailbox = "Oxmono-Stalwart-" ^ nonce () ^ "-Protocol" in
   Fun.protect ~finally:(fun () ->
-    ignore (Client.delete_mailbox client mailbox); Client.close client) @@ fun () ->
+    ignore (Client.delete_mailbox client ~mailbox);
+    Client.close client) @@ fun () ->
   Alcotest.(check bool) "Stalwart does not advertise CRAM-MD5" false
     (advertised client (Imap.Capability.Auth "CRAM-MD5"));
   let transport = transport env_io in
@@ -103,15 +104,15 @@ let test_protocol () =
     Alcotest.fail "OBJECTID+ required but not advertised";
   if objectid_plus then unwrap (Client.enable_objectid_plus client);
   let objectid=if objectid_plus then (
-    let ids=unwrap (Client.create_mailbox_objectid client mailbox) in
+    let ids=unwrap (Client.create_mailbox_objectid client ~mailbox) in
     match ids with
     | {account_id=Some account_id;mailbox_id=Some mailbox_id;_} ->
         Some (account_id,mailbox_id)
     | _ -> Alcotest.fail "OBJECTID+ CREATE omitted account/mailbox context")
-    else (unwrap (Client.create_mailbox client mailbox); None) in
+    else (unwrap (Client.create_mailbox client ~mailbox); None) in
   if objectid_plus then (
     let status=unwrap (Client.status client ~mailbox
-      ~items:[Imap.Command.Objectid]) in
+      ~items:[Imap.Status_item.Objectid]) in
     match status.objectid with
     | Some {account_id=Some account_id;mailbox_id=Some mailbox_id;_}
       when objectid=Some (account_id,mailbox_id) -> ()
@@ -119,16 +120,16 @@ let test_protocol () =
   if objectid_plus then (
     let source=mailbox ^ "-rename-source" in
     let target=mailbox ^ "-rename-target" in
-    ignore (unwrap (Client.create_mailbox_objectid client source));
+    ignore (unwrap (Client.create_mailbox_objectid client ~mailbox:source));
     let renamed=unwrap (Client.rename_mailbox_objectid client
       ~old_name:source ~new_name:target) in
     let status=unwrap (Client.status client ~mailbox:target
-      ~items:[Imap.Command.Objectid]) in
+      ~items:[Imap.Status_item.Objectid]) in
     (match status.objectid with
      | Some ids when ids.account_id=renamed.account_id &&
          ids.mailbox_id=renamed.mailbox_id -> ()
      | _ -> Alcotest.fail "OBJECTID+ RENAME receipt differs from STATUS");
-    unwrap (Client.delete_mailbox client target));
+    unwrap (Client.delete_mailbox client ~mailbox:target));
   let body = raw (nonce ()) "protocol" in
   let receipt = unwrap (Client.append_flow_receipt client ~mailbox
     ~length:(Int64.of_int (String.length body))
@@ -212,12 +213,12 @@ let test_bridge () =
   Unix.mkdir blobdir 0o700;
   Unix.mkdir spooldir 0o700;
   Fun.protect ~finally:(fun () ->
-    ignore (Client.delete_mailbox client mailbox); Client.close client;
+    ignore (Client.delete_mailbox client ~mailbox); Client.close client;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile; dbfile ^ "-wal"; dbfile ^ "-shm"];
     List.iter (fun path -> Eio.Path.rmtree ~missing_ok:true Eio.Path.(fs / path))
       [blobdir; spooldir; maildir_path]) @@ fun () ->
-  unwrap (Client.create_mailbox client mailbox);
+  unwrap (Client.create_mailbox client ~mailbox);
   let remote = raw n "remote" in
   ignore (unwrap (Client.append_flow_receipt client ~mailbox
     ~length:(Int64.of_int (String.length remote))
@@ -286,13 +287,13 @@ let test_objectid_binding () =
   let dbfile = Filename.temp_file "oxmono-stalwart-objectid-" ".sqlite" in
   let fs = Eio.Stdenv.fs env_io in
   Fun.protect ~finally:(fun () ->
-    ignore (Client.delete_mailbox mutator mailbox);
-    ignore (Client.delete_mailbox mutator renamed);
+    ignore (Client.delete_mailbox mutator ~mailbox);
+    ignore (Client.delete_mailbox mutator ~mailbox:renamed);
     Client.close client;
     Client.close mutator;
     List.iter (fun path -> try Unix.unlink path with _ -> ())
       [dbfile; dbfile ^ "-wal"; dbfile ^ "-shm"]) @@ fun () ->
-  unwrap (Client.create_mailbox mutator mailbox);
+  unwrap (Client.create_mailbox mutator ~mailbox);
   let body = raw n "identity" in
   ignore (unwrap (Client.append_flow_receipt mutator ~mailbox
     ~length:(Int64.of_int (String.length body))
@@ -318,7 +319,7 @@ let test_objectid_binding () =
   unwrap (Client.enable_objectid_plus mutator);
   ignore (unwrap (Client.rename_mailbox_objectid mutator
     ~old_name:mailbox ~new_name:renamed));
-  unwrap (Client.create_mailbox mutator mailbox);
+  unwrap (Client.create_mailbox mutator ~mailbox);
   (match scan ("identity-replaced-" ^ n) with
    | Error (Imap_sync.Engine.Invalid_scope _) -> ()
    | Error error -> Alcotest.failf "wrong replacement error: %a"

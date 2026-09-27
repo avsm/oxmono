@@ -18,7 +18,8 @@ let fail error = raise (Session.Failure error)
 
 let syntax = function
   | Ok syntax -> syntax
-  | Error message -> raise (Session.Failure (Session.State message))
+  | Error e ->
+      raise (Session.Failure (Session.State (Imap.Command.to_string e)))
 
 let one_response name items = match items with
   | [item] -> item
@@ -283,16 +284,19 @@ let require_quota session =
    RFC 9208 defines both deleted items. *)
 let check_status_items session items =
   let require item available capability =
-    if List.mem item items && not available then
+    if List.exists (Imap.Status_item.equal item) items && not available then
       fail (Session.Unsupported capability) in
   let has = Session.has session in
-  require Imap.Command.Highestmodseq (has Cap.Condstore || has Cap.Qresync)
+  require Highestmodseq (has Cap.Condstore || has Cap.Qresync)
     Cap.Condstore;
-  require Imap.Command.Mailboxid (has Cap.Objectid) Cap.Objectid;
-  require Imap.Command.Size (has Cap.Status_size) Cap.Status_size;
-  require Imap.Command.Deleted
+  require Mailboxid (has Cap.Objectid) Cap.Objectid;
+  require Size (has Cap.Status_size) Cap.Status_size;
+  require Deleted
     (has_quota session || Session.revision_two session) Cap.Quota;
-  require Imap.Command.Deleted_storage (has_quota session) Cap.Quota
+  require Deleted_storage (has_quota session) Cap.Quota
+
+let requests_objectid items =
+  List.exists (Imap.Status_item.equal Objectid) items
 
 let list_extended t ?(reference="") ~patterns ?(selection=[])
     ?(returns=[]) ?status () =
@@ -300,13 +304,13 @@ let list_extended t ?(reference="") ~patterns ?(selection=[])
     let extended=selection<>[] || returns<>[] || status<>None ||
       List.length patterns<>1 in
     if extended then Session.require t.session Cap.List_extended;
-    if List.mem Imap.Command.Special_use selection ||
-       List.mem Imap.Command.Return_special_use returns then
+    if List.exists (Imap.Mailbox_list.equal_selection Special_use)
+         selection ||
+       List.exists (Imap.Mailbox_list.equal_return Special_use) returns then
       Session.require t.session Cap.Special_use;
     if status<>None then Session.require t.session Cap.List_status;
     Option.iter (check_status_items t.session) status;
-    if (match status with Some items -> List.mem Imap.Command.Objectid items
-        | None -> false) then
+    if Option.fold ~none:false ~some:requests_objectid status then
       Session.require_enabled t.session Cap.Objectid_plus;
     let reference=mailbox_wire t.session reference in
     let patterns=List.map (mailbox_wire t.session) patterns in
@@ -335,7 +339,7 @@ let list_extended t ?(reference="") ~patterns ?(selection=[])
 
 let status_locked t ~mailbox ~items =
     check_status_items t.session items;
-    if List.mem Imap.Command.Objectid items then
+    if requests_objectid items then
       Session.require_enabled t.session Cap.Objectid_plus;
     let mailbox = mailbox_wire t.session mailbox in
     Session.command t.session (syntax (Imap.Command.status ~mailbox ~items))
@@ -484,9 +488,8 @@ let set_metadata t ~mailbox ~values =
 let notify_set t ?(status=false) ~groups () =
   Session.locked t.session (fun () ->
     Session.require t.session Cap.Notify;
-    if List.exists (function
-      | (Imap.Command.Selected|Imap.Command.Selected_delayed),_ -> true
-      | _ -> false) groups then
+    if List.exists (fun (filter,_) -> Imap.Notify.is_selected filter) groups
+    then
       raise (Session.Failure (Session.State
         "selected NOTIFY filters require a selected-session API"));
     let responses=Session.command ~mutation:true t.session
@@ -510,9 +513,9 @@ let mailbox_mutation t command =
   Session.locked t.session (fun () ->
     ignore (Session.command ~mutation:true t.session (syntax (command ()))))
 
-let create_mailbox t mailbox =
+let create_mailbox t ~mailbox =
   mailbox_mutation t (fun () ->
-    Imap.Command.create (mailbox_wire t.session mailbox))
+    Imap.Command.create ~mailbox:(mailbox_wire t.session mailbox))
 
 let objectid_mutation_receipt t syntax =
   Session.require_enabled t.session Cap.Objectid_plus;
@@ -526,14 +529,14 @@ let objectid_mutation_receipt t syntax =
       raise (Session.Failure (Session.Uncertain
         "OBJECTID+ mutation completed without account/mailbox identity"))
 
-let create_mailbox_objectid t mailbox =
+let create_mailbox_objectid t ~mailbox =
   Session.locked t.session (fun () ->
     let mailbox=mailbox_wire t.session mailbox in
-    objectid_mutation_receipt t (syntax (Imap.Command.create mailbox)))
+    objectid_mutation_receipt t (syntax (Imap.Command.create ~mailbox)))
 
-let delete_mailbox t mailbox =
+let delete_mailbox t ~mailbox =
   mailbox_mutation t (fun () ->
-    Imap.Command.delete (mailbox_wire t.session mailbox))
+    Imap.Command.delete ~mailbox:(mailbox_wire t.session mailbox))
 
 let rename_mailbox t ~old_name ~new_name =
   mailbox_mutation t (fun () ->
@@ -548,13 +551,13 @@ let rename_mailbox_objectid t ~old_name ~new_name =
     objectid_mutation_receipt t
       (syntax (Imap.Command.rename ~old_name ~new_name)))
 
-let subscribe_mailbox t mailbox =
+let subscribe_mailbox t ~mailbox =
   mailbox_mutation t (fun () ->
-    Imap.Command.subscribe (mailbox_wire t.session mailbox))
+    Imap.Command.subscribe ~mailbox:(mailbox_wire t.session mailbox))
 
-let unsubscribe_mailbox t mailbox =
+let unsubscribe_mailbox t ~mailbox =
   mailbox_mutation t (fun () ->
-    Imap.Command.unsubscribe (mailbox_wire t.session mailbox))
+    Imap.Command.unsubscribe ~mailbox:(mailbox_wire t.session mailbox))
 
 (* A failed UNSELECT leaves the mailbox selected on the server. Closing the
    connection is the only safe release, and the callback's outcome stands
@@ -645,7 +648,7 @@ let check_append_destination t ~mailbox =
   match pinned t mailbox with
   | None -> ()
   | Some (account_id,mailbox_id) ->
-      let status=status_locked t ~mailbox ~items:[Imap.Command.Objectid] in
+      let status=status_locked t ~mailbox ~items:[Imap.Status_item.Objectid] in
       (match status.objectid with
        | Some ids when ids.account_id=Some account_id &&
            ids.mailbox_id=Some mailbox_id -> ()

@@ -44,11 +44,11 @@ type discovery = {
 }
 
 val list_extended : t -> ?reference:string -> patterns:string list ->
-  ?selection:Imap.Command.list_selection list ->
-  ?returns:Imap.Command.list_return list ->
-  ?status:Imap.Command.status_item list -> unit -> (discovery, error) result
+  ?selection:Imap.Mailbox_list.selection list ->
+  ?returns:Imap.Mailbox_list.return list ->
+  ?status:Imap.Status_item.t list -> unit -> (discovery, error) result
 val mailbox_mode : t -> Imap.Mailbox_name.mode
-val status : t -> mailbox:string -> items:Imap.Command.status_item list ->
+val status : t -> mailbox:string -> items:Imap.Status_item.t list ->
   (Imap.Response.mailbox_status, error) result
 val get_jmap_access : t -> (string, error) result
 val get_acl : t -> mailbox:string -> (Imap.Response.acl, error) result
@@ -72,23 +72,23 @@ type metadata_result = {
 }
 
 val get_metadata : t -> mailbox:string -> entries:string list ->
-  ?maxsize:int64 -> ?depth:Imap.Command.metadata_depth -> unit ->
+  ?maxsize:int64 -> ?depth:Imap.Metadata.depth -> unit ->
   (metadata_result, error) result
 val set_metadata : t -> mailbox:string ->
   values:(string * string option) list -> (unit, error) result
-val notify_set : t -> ?status:bool -> groups:Imap.Command.notify_group list ->
+val notify_set : t -> ?status:bool -> groups:Imap.Notify.group list ->
   unit -> (Imap.Response.mailbox_status list, error) result
 val notify_none : t -> (unit, error) result
-val create_mailbox : t -> string -> (unit, error) result
-val create_mailbox_objectid : t -> string ->
+val create_mailbox : t -> mailbox:string -> (unit, error) result
+val create_mailbox_objectid : t -> mailbox:string ->
   (Imap.Response.compound_object_id, error) result
-val delete_mailbox : t -> string -> (unit, error) result
+val delete_mailbox : t -> mailbox:string -> (unit, error) result
 val rename_mailbox : t -> old_name:string -> new_name:string ->
   (unit, error) result
 val rename_mailbox_objectid : t -> old_name:string -> new_name:string ->
   (Imap.Response.compound_object_id, error) result
-val subscribe_mailbox : t -> string -> (unit, error) result
-val unsubscribe_mailbox : t -> string -> (unit, error) result
+val subscribe_mailbox : t -> mailbox:string -> (unit, error) result
+val unsubscribe_mailbox : t -> mailbox:string -> (unit, error) result
 
 val with_mailbox : t -> ?qresync:(Imap.Uidvalidity.t * Imap.Modseq.t) ->
   ?objectid:(string * string) ->

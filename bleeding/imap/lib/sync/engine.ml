@@ -67,7 +67,7 @@ let prepare_object_identity ~client ~store ~scope ~mailbox =
       | `Unbound -> Ok ()
       | `Bound (identity:Imap_store.object_identity) ->
           let* status=network (Imap_eio.Client.status client ~mailbox
-            ~items:[Imap.Command.Objectid]) in
+            ~items:[Imap.Status_item.Objectid]) in
           (match status.objectid with
            | Some ids when ids.account_id=Some identity.account_id &&
                ids.mailbox_id=Some identity.mailbox_id ->
@@ -96,7 +96,7 @@ let verify_mutation_destination ~client ~store ~scope ~mailbox =
         Error (Invalid_scope "saved OBJECTID+ identity is not enabled")
       else
         let* status=network (Imap_eio.Client.status client ~mailbox
-          ~items:[Imap.Command.Objectid]) in
+          ~items:[Imap.Status_item.Objectid]) in
         (match status.objectid with
          | Some ids when ids.account_id=Some identity.account_id &&
              ids.mailbox_id=Some identity.mailbox_id -> Ok ()

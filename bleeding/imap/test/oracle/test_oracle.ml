@@ -99,8 +99,9 @@ let round_trip () =
         (int_of_float (Unix.gettimeofday ()))
     in
     let mailbox = "Oxmono oracle 📬 " ^ nonce in
-    unwrap (Client.create_mailbox client mailbox);
-    Fun.protect ~finally:(fun () -> unwrap (Client.delete_mailbox client mailbox))
+    unwrap (Client.create_mailbox client ~mailbox);
+    Fun.protect ~finally:(fun () ->
+      unwrap (Client.delete_mailbox client ~mailbox))
     @@ fun () ->
     let mailboxes = unwrap (Client.list client ~pattern:mailbox ()) in
     Alcotest.(check bool) "LIST contains test mailbox" true
@@ -129,10 +130,10 @@ let round_trip () =
        advertised Imap.Capability.Imap4rev2 then (
       let discovery = unwrap (Client.list_extended client
         ~patterns:[mailbox]
-        ~returns:[Imap.Command.Children]
+        ~returns:[Imap.Mailbox_list.Children]
         ?status:(if advertised Imap.Capability.List_status then
-          Some [Imap.Command.Messages; Imap.Command.Uidnext;
-                Imap.Command.Uidvalidity] else None) ()) in
+          Some [Imap.Status_item.Messages; Imap.Status_item.Uidnext;
+                Imap.Status_item.Uidvalidity] else None) ()) in
       let discovered = List.filter (fun
           ((item : Imap.Response.list_result), _) ->
         let name = Imap.Mailbox_name.of_wire
@@ -673,12 +674,12 @@ let objectid_round_trip () =
   let mailbox=Printf.sprintf "Oxmono ObjectID %d-%06x"
     (Unix.getpid ()) (Random.bits () land 0xffffff) in
   Fun.protect ~finally:(fun () ->
-    ignore (Client.delete_mailbox client mailbox);
+    ignore (Client.delete_mailbox client ~mailbox);
     Client.close client) @@ fun () ->
   Alcotest.(check bool) "Cyrus advertises OBJECTID" true
     (Imap.Capability.Set.mem Imap.Capability.Objectid
       (Client.capabilities client));
-  unwrap (Client.create_mailbox client mailbox);
+  unwrap (Client.create_mailbox client ~mailbox);
   let raw="From: objectid@example.test\r\nSubject: identity\r\n\r\nExact content\r\n" in
   let receipt=match unwrap (Client.append_flow_receipt client ~mailbox
       ~length:(Int64.of_int (String.length raw))

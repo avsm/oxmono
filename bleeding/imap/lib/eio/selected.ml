@@ -48,7 +48,8 @@ let require_binary_fetch t =
 
 let syntax = function
   | Ok syntax -> syntax
-  | Error message -> raise (Session.Failure (Session.State message))
+  | Error e ->
+      raise (Session.Failure (Session.State (Imap.Command.to_string e)))
 
 let protocol message = raise (Session.Failure (Session.Protocol message))
 
@@ -234,12 +235,13 @@ let uid_sort_extended t ~returns ~keys ~charset ~criterion =
   run t (fun () ->
     check_uidonly_search t criterion;
     require t Cap.Esort;
-    let returns=if returns=[] then [Imap.Command.All] else returns in
+    let returns=if returns=[] then [Imap.Sort.All] else returns in
     let range=List.find_map (function
-      | Imap.Command.Partial range -> Some range | _ -> None) returns in
+      | Imap.Sort.Partial range -> Some range | _ -> None) returns in
     if range<>None then require t (Cap.Context `Sort);
-    let returns=if List.mem Imap.Command.Count returns then returns
-      else returns @ [Imap.Command.Count] in
+    let requested field=List.exists (Imap.Sort.equal_return field) returns in
+    let returns=if requested Count then returns
+      else returns @ [Imap.Sort.Count] in
     let result=Session.command_result t.session
       (syntax (Imap.Command.uid_sort_extended ~returns ~keys ~charset
         ~criterion)) in
@@ -249,15 +251,15 @@ let uid_sort_extended t ~returns ~keys ~charset ~criterion =
     let count=match response.count with
       | Some count -> count
       | None -> protocol "ESORT omitted requested COUNT" in
-    let requested field=List.mem field returns in
+    let requested field=List.exists (Imap.Sort.equal_return field) returns in
     let min_uid=Option.map received_uid response.min
     and max_uid=Option.map received_uid response.max in
     let endpoint requested value =
       if count=0L && value<>None then protocol "empty ESORT has a MIN or MAX";
       if count>0L && requested && value=None then
         protocol "ESORT omitted requested MIN or MAX" in
-    endpoint (requested Imap.Command.Min) min_uid;
-    endpoint (requested Imap.Command.Max) max_uid;
+    endpoint (requested Min) min_uid;
+    endpoint (requested Max) max_uid;
     (match min_uid,max_uid with
      | Some first,Some last when (count=1L)<>Imap.Uid.equal first last ->
          protocol "ESORT MIN/MAX contradict COUNT"
@@ -267,8 +269,8 @@ let uid_sort_extended t ~returns ~keys ~charset ~criterion =
           if response.partial<>None then
             protocol "unexpected ESORT PARTIAL result";
           (match response.all with
-           | None when requested Imap.Command.All && count=0L -> Some []
-           | None when requested Imap.Command.All ->
+           | None when requested All && count=0L -> Some []
+           | None when requested All ->
                protocol "ESORT omitted requested ALL"
            | None -> None
            | Some all ->
@@ -303,18 +305,22 @@ let uid_sort_extended t ~returns ~keys ~charset ~criterion =
      | _ -> ());
     {count;first=min_uid;last=max_uid;uids;range})
 
+type thread = { uid : Imap.Uid.t option; children : thread list }
+
+let rec typed_thread (node : Imap.Response.thread) =
+  {uid=Option.map received_uid node.number;
+   children=List.map typed_thread node.children}
+
 let uid_thread t ~algorithm ~charset ~criterion =
   run t (fun () ->
     check_uidonly_search t criterion;
-    require t (Cap.Thread (match algorithm with
-      | Imap.Command.Orderedsubject -> Cap.Orderedsubject
-      | Imap.Command.References -> Cap.References));
+    require t (Cap.Thread algorithm);
     let responses=Session.command t.session
       (syntax (Imap.Command.uid_thread ~algorithm ~charset ~criterion)) in
     match List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Thread threads) -> Some threads
       | _ -> None) responses with
-    | [threads] -> threads
+    | [threads] -> List.map typed_thread threads
     | _ -> protocol "missing or repeated THREAD result")
 
 let uid_search_partial t ~range ~criterion =

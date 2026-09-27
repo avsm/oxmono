@@ -46,6 +46,37 @@ let prepared_reuse t =
     | [[| S.Data.TEXT "one" |]] -> ()
     | _ -> failwith "reused read statement kept stale state")
 
+(* The batch operations keep the reset and error contract of their Eio
+   counterparts, and a failed write leaves the statement reusable. *)
+let batch_reuse t =
+  D.with_stmt t "INSERT INTO kv VALUES (?,?)" (fun stmt ->
+    let insert k v =
+      D.bind_int64 t stmt 1 k;
+      D.bind_text t stmt 2 v;
+      D.batch_exec t stmt in
+    D.batch t (fun () ->
+      insert 1L "one";
+      if D.changes t <> 1 then failwith "insert not counted";
+      (match insert 1L "again" with
+       | exception S.SqliteError message ->
+         if not (contains ~needle:"UNIQUE constraint failed: kv.k" message)
+         then failwith ("error lacks SQLite message: " ^ message)
+       | () -> failwith "duplicate key accepted");
+      insert 2L "two"));
+  D.with_stmt t "SELECT v FROM kv WHERE k=?" (fun stmt ->
+    let read k = D.bind_int64 t stmt 1 k; D.batch_row t stmt in
+    D.batch t (fun () ->
+      (match read 2L with
+       | Some [| S.Data.TEXT "two" |] -> ()
+       | _ -> failwith "reused statement lost a row");
+      (match read 1L with
+       | Some [| S.Data.TEXT "one" |] -> ()
+       | _ -> failwith "reused read statement kept stale state");
+      if read 3L <> None then failwith "absent key read"));
+  match D.batch t (fun () -> raise Exit) with
+  | exception Exit -> ()
+  | () -> failwith "batch lost its exception"
+
 let nested t =
   expect "nested transaction" (fun () ->
     D.transaction t (fun () -> D.transaction t (fun () -> ())));
@@ -65,4 +96,5 @@ let () =
   Eio_main.run (fun _ ->
     with_db bind_count;
     with_db prepared_reuse;
+    with_db batch_reuse;
     with_db nested)

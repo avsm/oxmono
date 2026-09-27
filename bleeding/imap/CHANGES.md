@@ -388,3 +388,6 @@ count instead of a SELECT before it, cutting the membership phase from
 The store looks up its SQLite handle once per connection instead of on
 each change count, cutting the membership phase from 187 to 107 bytes
 per UID.
+
+A staged write that succeeds builds no cleanup closure, cutting each
+staging phase by 40 bytes per row, to 65 and 67.

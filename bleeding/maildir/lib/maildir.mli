@@ -23,7 +23,8 @@ module Dotlock = Dotlock
 (** Scoped exclusive dotlocks. *)
 
 module Keywords = Keywords
-(** Keyword maps and filename flag letters. *)
+(** Keyword maps and filename flag letters. Its functions are portable, so
+    they may run on any domain. *)
 
 (** {1 Maildirs and occurrences} *)
 
@@ -91,10 +92,12 @@ type error = Maildir_error.t =
   | Vanished of string
       (** [Vanished name] is a file that disappeared right after it was
           published or renamed. *)
-(** The type for format and policy failures. *)
+(** The type for format and policy failures. An error is immutable data, so
+    it may be shared between domains. *)
 
-val pp_error : Format.formatter -> error -> unit
-(** [pp_error ppf e] prints a one-line description of [e] on [ppf]. *)
+val pp_error : Format.formatter -> error -> unit @@ portable
+(** [pp_error ppf e] prints a one-line description of [e] on [ppf]. It is
+    portable, so it may run on any domain. *)
 
 exception Writer_lock_busy of string
 (** [Writer_lock_busy path] is raised by {!with_writer} when another writer

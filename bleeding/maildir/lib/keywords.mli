@@ -1,3 +1,5 @@
+@@ portable
+
 (** Dovecot keyword maps and Maildir flag letters.
 
     A Maildir filename carries its flags as letters after [:2,]. [D], [F],
@@ -6,8 +8,9 @@
     to [z] stand for the keywords that [dovecot-keywords] maps to slots 0
     to 25. *)
 
-type t
-(** The type for maps from the 26 keyword letters to keywords. *)
+type t : immutable_data
+(** The type for maps from the 26 keyword letters to keywords. A map is
+    immutable data, so it may be shared between domains. *)
 
 type error = Maildir_error.t
 (** The type for errors, which {!Maildir.error} re-exports. *)

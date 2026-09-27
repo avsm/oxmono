@@ -7,3 +7,8 @@
  (name test_dotlock)
  (modules test_dotlock)
  (libraries maildir eio eio_main unix))
+
+(test
+ (name test_modes)
+ (modules test_modes)
+ (libraries maildir mail-flag alcotest))

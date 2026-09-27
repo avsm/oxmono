@@ -1,3 +1,5 @@
+@@ portable
+
 (** Maildir format and policy failures.
 
     {!Maildir.error} re-exports this type and documents each

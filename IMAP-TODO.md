@@ -203,7 +203,7 @@ run only once everything else works.
 | 17 | Wrap up: add `CHANGES.md` for the `imap` and `maildir` packages summarising the user-visible changes since the baseline, run both packages' build and tests a final time, and record a review pause | done | 68baa44f6 |
 | 18 | Schema reset and one journal: delete the migration ladder for one version-1 schema, fold the APPEND intents into `Journal.operation`, collapse single-valued side tables into columns and flag lists into text columns, drop the redundant index, remove the test-only list readers | done; four commits | a091fa2ef |
 | 19 | Publish allocation: find and fix the 61 KB per staged row on the stage and publish path, measured with `bench_store` | todo | |
-| 20 | IDLE with a deadline: `Selected.Idle.wait_for_change` takes a clock and timeout and sends DONE from a timer fiber instead of cancelling the read, `Watch` renews without reconnecting, `Mailbox.wait` uses it | todo | |
+| 20 | IDLE with a deadline: `Selected.Idle.wait_for_change` takes a clock and timeout and sends DONE from a timer fiber instead of cancelling the read, `Watch` renews without reconnecting, `Mailbox.wait` uses it | done | 4d164450e |
 | 21 | Portable collections: replace stdlib `Set`, `Map` and module-level `Hashtbl` with `Base.Set`, `Base.Map` and iarrays so the store, sync and remaining eio types carry kinds, then annotate `@@ portable` wherever the compiler accepts, with probes | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
@@ -900,6 +900,43 @@ rejected versions, keys and indexes, flag text and NULL, the Engine
 APPEND contract and a held `Sent` APPEND. Build and runtest are clean,
 20 suites and 252 test cases.
 
+Step 20. Done: `Session.idle_once t ~clock ~timeout` forks a daemon
+fiber after the continuation, under a switch that ends with the read
+loop. It sleeps `timeout` on `clock` and writes DONE, and the reader
+keeps reading until the tagged completion. The first untagged response
+makes the reader send DONE instead. A flag tested and set without a
+yield between them, under the lease's lock in one domain, lets exactly
+one DONE out. A timeout that is not positive, not finite or above 1740
+is `State` before a tag is taken. `Selected.Idle.wait_for_change t
+~clock ~timeout` exposes it, and on timeout is `Ok []` or the responses
+that crossed the DONE. `Mailbox.wait ?timeout t ~clock ~poll_seconds`
+passes a 1500-second default, drops a timed-out round like a
+keepalive and enters IDLE again. `Watch.run` keeps one waiting
+connection. Each round selects, compares with `needs_rescan` and
+enters IDLE for `idle_renew_seconds`, and a wakeup or a timeout both
+lead to a new selection and comparison. A cursor without a CONDSTORE
+anchor still ends in a scan `idle_renew_seconds` after the wait began,
+because the comparison cannot see its flag changes or expunges. Each
+round has a deadline of `idle_renew_seconds` plus
+`connect_timeout_seconds`, past which the connection closes and a scan
+starts, as the old renewal did. The existing callers of
+`wait_for_change` and `idle_once` in six test/eio files (client,
+lifecycle, rejections, review_fixes, searchres, session_limits) and in
+test/dovecot pass a clock and a timeout that never fires, and
+test/eio/dune gained the `test_idle` stanza. test/eio/test_idle.ml
+asserts the exact bytes for a change before the timeout at unchanged
+mock time, a timeout at 600 seconds with one DONE and `Ok []`, a
+keepalive after the timer's DONE returned with one DONE, five refused
+timeouts with nothing written and the connection open, a caller's
+deadline that closes the connection without DONE, and `Mailbox.wait`
+renewing IDLE twice. test/watch/test_watch.ml runs `Watch.run` with a
+SQLite store and a mock clock and asserts that the renewal at 1500
+seconds sends DONE, UNSELECT, EXAMINE and IDLE on the same connection,
+with one LOGIN and the two handshake CAPABILITY commands, and opens no
+third connection. Removing the single-DONE guard fails test_idle, and
+the previous watch fails test_watch. Build and runtest are clean, 20
+alcotest suites and 263 cases plus the plain executables.
+
 ### Step F notes
 
 Each fix agent writes under its own heading only: what it fixed, what it
@@ -1513,7 +1550,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] session.ml:98 [high] with `on_literal` set, every `Literal_chunk` of every response in the command goes to the body sink and none reaches `parse_parts`, so an ENVELOPE or PREVIEW literal in the same FETCH, or a literal in an unsolicited LIST or STATUS, lands in the caller's sink and parses as an empty string.
 - [x] session.ml:86 [medium] `on_literal_start` runs before the PREVIEW limit check at :91, and `on_literal` streams chunks before `parse_active` at :188 or a tagged NO can reject the response, leaving the sink with a partial or foreign payload. A partial body before a tagged failure is inherent to streaming and is documented as provisional.
 - [x] session.ml:460 [medium] `idle_once` closes the session on a tagged NO or BAD, unlike every other rejection path at :240, :359, :520 and :575.
-- [ ] session.ml:460 [medium] cancelling IDLE closes the session instead of sending DONE, so a timeout cannot bound `wait_for_change` without losing the connection; and any untagged line at :441 and :456 counts as a change, including `* OK Still here`. (step 14: `Mailbox.wait` drops a round without EXISTS, EXPUNGE, FETCH, VANISHED or a coded status, such as a bare `* OK`, and enters IDLE again, so the keepalive half is settled for clients of the strategy layer while `Selected.Idle` stays exact for the syncer. Cancellation still closes the session, since interrupting the blocked read would lose the parser's framing state, and sending DONE after a timeout needs a deadline inside `Session.idle_once`. `Mailbox.wait` documents that the caller applies its own timeout and that cancelling IDLE closes the connection)
+- [x] session.ml:460 [medium] cancelling IDLE closes the session instead of sending DONE, so a timeout cannot bound `wait_for_change` without losing the connection; and any untagged line at :441 and :456 counts as a change, including `* OK Still here`. (step 14: `Mailbox.wait` drops a round without EXISTS, EXPUNGE, FETCH, VANISHED or a coded status, such as a bare `* OK`, and enters IDLE again, so the keepalive half is settled for clients of the strategy layer while `Selected.Idle` stays exact for the syncer. Cancellation still closes the session, since interrupting the blocked read would lose the parser's framing state, and sending DONE after a timeout needs a deadline inside `Session.idle_once`. `Mailbox.wait` documents that the caller applies its own timeout and that cancelling IDLE closes the connection) (step 20: `Session.idle_once` takes a clock and a timeout and a daemon fiber writes DONE when it passes, so the read completes normally and the connection stays open. Cancellation still closes it)
 - [x] session.ml:469 [medium] `protect` relabels every non-`Session.Failure` exception as `Transport`, including `Stdlib.Failure`, `Invalid_argument`, `Out_of_memory` and `Stack_overflow`, and loses identity and backtrace; the local `Failure` at :33 shadows the stdlib one.
 - [x] session.ml:89 [low] the PREVIEW 1024-byte check rebuilds the marker as `{%Ld}` while `Wire.literal_suffix` at wire.ml:71 accepts leading zeros, so `{0010}` bypasses it and `parse_parts` at response.ml:1604 misses it too; memory stays bounded by `max_metadata`.
 - [x] session.ml:471 [confirmed] reentrancy deadlocks: `with_mailbox` holds the mutex for the callback at client.ml:634 and every other entry point relocks through `locked`; Eio mutexes have no owner tracking, so the second lock parks forever until cancellation, which then closes the session at client.ml:686. Plan step 10. (step 10: an `Eio.Fiber` key lists the sessions a fiber leases, and `locked` returns `State` for one of them)

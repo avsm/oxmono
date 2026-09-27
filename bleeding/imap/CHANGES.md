@@ -366,6 +366,7 @@ the schema has 10 tables instead of 19 and reads join no flag rows.
 longer needs cancellation. `Mailbox.wait` takes `?timeout`, default
 1500, and renews IDLE at each timeout.
 
-`Watch.run` renews IDLE with DONE on the waiting connection instead of
-reconnecting, and scans at a renewal only when the selected state
-differs from the cursor or the cursor has no CONDSTORE anchor.
+`Watch.run` renews IDLE with DONE on the waiting
+connection instead of reconnecting, and scans at a renewal only when
+the selected state differs from the cursor or the cursor has no
+CONDSTORE anchor.

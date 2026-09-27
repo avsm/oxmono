@@ -19,7 +19,7 @@ instead of overflowing.
 
 `60a694758` `Sync_policy.reconcile_flags` merges every flag except a
 `\Deleted` change the endpoints disagree on, held in the new
-`deleted_held` field of `flag_plan`; a legacy absence tombstone
+`deleted_held` field of `flag_plan`. A legacy absence tombstone
 without a generation now matures at zero grace. `Sync_policy.error`
 and `Deleted_flag_requires_policy` are gone.
 
@@ -90,7 +90,7 @@ exit path. A PREAUTH connection now sends CAPABILITY only once.
 `e893401dc` A write failure after the final CRLF of a mutating
 command is now `Uncertain` naming the cause, instead of an ambiguous
 outcome. Only `BODY[...]` and `BINARY[...]` FETCH literals reach the
-sink callback; PREVIEW, ENVELOPE, BODYSTRUCTURE and unsolicited
+sink callback. PREVIEW, ENVELOPE, BODYSTRUCTURE and unsolicited
 literals do not. A tagged IDLE rejection now leaves the session
 open.
 
@@ -110,7 +110,7 @@ after its switch has been released instead of hanging.
 
 `b8c6a17a3` `Deflate_flow` compresses each write with one LZ77 state
 reused across 64 KiB slices of the caller's buffers instead of
-allocating one per write; a 1 MiB write now allocates 33.4 MB
+allocating one per write. A 1 MiB write now allocates 33.4 MB
 instead of 44.2 MB.
 
 `c894239e5` `Spool` no longer loses a callback's exception when
@@ -122,7 +122,7 @@ renewal, and caps `idle_renew_seconds` at 1740. A connection without
 IDLE now reports `Idle_failed` instead of holding while it polls.
 
 `0b58aaf34` `Bridge`'s `Writer_busy` now names only the writer
-lease; the Dovecot metadata lock reports Maildir's own
+lease. The Dovecot metadata lock reports Maildir's own
 `Metadata_lock_busy`.
 
 `c8945a2a6` `Engine.hydrate_once` takes `?after_uid` and skips a

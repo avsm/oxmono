@@ -37,7 +37,7 @@ paged inventory (`with_inventory_pages`, `inventory_find`,
 
 `68af6a250` `with_writer` replaces `with_writer_lock`, granting a
 `writer` capability that `append`, `check_append`, `set_flags`,
-`remove` and `recover` now require; a writer used after its callback
+`remove` and `recover` now require. A writer used after its callback
 returns raises `Writer_expired`. `open_dir`, `scan`, `fold`, `find`,
 `append`, `check_append` and `set_flags` return `(_, error) result`
 over one `error` type with `pp_error`, in place of `Failure`.

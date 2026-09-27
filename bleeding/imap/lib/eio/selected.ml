@@ -404,7 +404,6 @@ let uid_search_range t ~first ~last =
            Error (Session.Protocol "SEARCH returned UID outside requested range")
        | Ok uids -> Ok uids)
     else
-      let module Uids=Set.Make(Imap.Uid) in
       let rec pages before count found =
         if count>1000 then Error (Session.Limit
           "SEARCH exceeded continuation budget")
@@ -415,16 +414,13 @@ let uid_search_range t ~first ~last =
               Error (Session.Protocol
                 "MESSAGELIMIT SEARCH returned UID outside requested range")
             else
-              let found=List.fold_left (fun found uid ->
-                Uids.add uid found) found page.uids in
+              let found=List.fold_left Base.Set.add found page.uids in
               match page.resume_before with
               | Some boundary
                 when not page.complete && Imap.Uid.compare boundary first > 0 ->
                   pages (Some boundary) (count+1) found
-              | _ -> Ok (Uids.elements found) in
-      pages None 1 Uids.empty
-
-module Uids = Map.Make (Imap.Uid)
+              | _ -> Ok (Base.Set.to_list found) in
+      pages None 1 (Base.Set.empty (module Imap.Uid))
 
 type row = {
   uid : Imap.Uid.t;
@@ -544,9 +540,9 @@ let collect ~items ~wanted by_uid (r : Imap.Response.fetch) =
       if not (wanted uid) then by_uid
       else
         let row=decode ~items uid r in
-        Uids.update uid (function
-          | None -> Some row
-          | Some previous -> Some (merge previous row)) by_uid
+        Base.Map.update by_uid uid ~f:(function
+          | None -> row
+          | Some previous -> merge previous row)
 
 let fetch_limit = 1000
 
@@ -568,8 +564,8 @@ let fetch t ~uids ~items =
       |> fetch_rows
       |> List.fold_left
         (collect ~items ~wanted:(fun uid -> Imap.Uid_set.mem uid set))
-        Uids.empty in
-    List.filter_map (fun uid -> Uids.find_opt uid by_uid) order)
+        (Base.Map.empty (module Imap.Uid)) in
+    List.filter_map (Base.Map.find by_uid) order)
 
 let uid_fetch_partial t ~set ~items ~range =
   run t (fun () ->
@@ -581,8 +577,8 @@ let uid_fetch_partial t ~set ~items ~range =
     |> fetch_rows
     |> List.fold_left
       (collect ~items ~wanted:(fun uid -> Imap.Uid_set.mem uid set))
-      Uids.empty
-    |> Uids.bindings |> List.map snd)
+      (Base.Map.empty (module Imap.Uid))
+    |> Base.Map.data)
 
 let uid_fetch_saved saved ?partial ~items () =
   let t=saved.owner in
@@ -593,8 +589,9 @@ let uid_fetch_saved saved ?partial ~items () =
     Session.command t.session
       (syntax (Imap.Command.uid_fetch_saved_items ?partial ~items ()))
     |> fetch_rows
-    |> List.fold_left (collect ~items ~wanted:(fun _ -> true)) Uids.empty
-    |> Uids.bindings |> List.map snd)
+    |> List.fold_left (collect ~items ~wanted:(fun _ -> true))
+      (Base.Map.empty (module Imap.Uid))
+    |> Base.Map.data)
 
 (* [fetch_window t ~first ~last ~what ~command ~add] fetches the UID range
    [first:last] with [command ~set], folding each row into a map with
@@ -616,8 +613,9 @@ let fetch_window t ~first ~last ~what ~command ~add =
     | None -> by_uid
     | Some (_,Some boundary) ->
         let boundary=received_uid boundary in
-        if not (within upper boundary && Uids.for_all (fun uid _ ->
-            Imap.Uid.compare uid boundary >= 0) by_uid) then
+        if not (within upper boundary && Base.Map.for_alli by_uid
+            ~f:(fun ~key:uid ~data:_ -> Imap.Uid.compare uid boundary >= 0))
+        then
           protocol ("invalid MESSAGELIMIT " ^ what ^ " continuation");
         (match Imap.Uid.pred boundary with
          | Some below when not (Imap.Uid.equal boundary first) ->
@@ -626,7 +624,7 @@ let fetch_window t ~first ~last ~what ~command ~add =
     | Some (_,None) ->
         raise (Session.Failure (Session.Limit
           ("MESSAGELIMIT " ^ what ^ " omitted UID continuation boundary"))) in
-  Uids.bindings (fetch last 1 Uids.empty) |> List.map snd
+  Base.Map.data (fetch last 1 (Base.Map.empty (module Imap.Uid)))
 
 let fetch_range t ~first ~last ~items =
   run t (fun () ->
@@ -834,7 +832,7 @@ let fetch_changes_range t ~first ~last ~since =
       ~add:(fun ~within by_uid (row : Imap.Response.fetch) ->
         match Option.map received_uid row.uid with
         | Some uid when within uid && row.flags<>None ->
-            Uids.add uid row by_uid
+            Base.Map.set by_uid ~key:uid ~data:row
         | _ -> by_uid))
 
 let uid_batches t ?range ~size () =

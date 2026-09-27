@@ -90,7 +90,7 @@ val rename_mailbox_objectid : t -> old_name:string -> new_name:string ->
 val subscribe_mailbox : t -> string -> (unit, error) result
 val unsubscribe_mailbox : t -> string -> (unit, error) result
 
-val with_mailbox : t -> ?qresync:(int64 * int64) ->
+val with_mailbox : t -> ?qresync:(Imap.Uidvalidity.t * Imap.Modseq.t) ->
   ?objectid:(string * string) ->
   mode:[ `Read_only | `Read_write ] -> string ->
   (Selected.t -> ('a, error) result) -> ('a, error) result

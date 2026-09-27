@@ -12,7 +12,9 @@ let state=function E.State _ -> true | _ -> false
 let unsupported c = function
   | E.Unsupported x -> Imap.Capability.equal x c | _ -> false
 let rejected=function E.Rejected _ -> true | _ -> false
-let missing=function E.Missing_uid 7L -> true | _ -> false
+let u n = match Imap.Uid.of_int64 n with Ok v -> v | Error e -> failwith e
+let missing=function
+  | E.Missing_uid uid -> Imap.Uid.to_int64 uid = 7L | _ -> false
 let tag n=Printf.sprintf "A%08d" n
 let done_ n=tag n ^ " OK done\r\n"
 
@@ -51,7 +53,7 @@ let scripted ?(caps="IMAP4rev1 BINARY UNSELECT") ?revision ?(uidonly=false)
     C.with_mailbox client ~mode:`Read_only "INBOX" f)
 
 let fetch ?max_bytes ?partial selected sink =
-  S.fetch_binary_to selected ?max_bytes ?partial ~uid:7L ~section:[2] sink
+  S.fetch_binary_to selected ?max_bytes ?partial ~uid:(u 7L) ~section:[2] sink
 let fetch_reply fields n = [`Return ("* 1 FETCH (UID 7 " ^ fields ^ ")\r\n" ^ done_ n)]
 let check_value label expected bytes fields =
   let sink=Buffer.create 16 in
@@ -133,7 +135,8 @@ let test_unsolicited_metadata () =
     "* 2 FETCH (FLAGS (\\Seen))\r\n" ^
     "* 1 FETCH (UID 7 BODY[] {3}\r\nraw)\r\n" ^
     "* 2 FETCH (UID 8 FLAGS ())\r\n" ^ done_ n)])
-    (fun selected -> S.fetch_to selected ~uid:7L (Eio.Flow.buffer_sink sink)));
+    (fun selected ->
+      S.fetch_to selected ~uid:(u 7L) (Eio.Flow.buffer_sink sink)));
   if Buffer.contents sink<>"raw" then failwith "unsolicited FLAGS disrupted raw fetch"
 
 let test_budgets_and_failure () =
@@ -172,10 +175,12 @@ let test_capabilities () =
   if result<>Some 3L then failwith "UIDONLY BINARY lost"
 
 let test_sizes () =
-  let sizes selected=S.uid_fetch_binary_sizes selected ~uids:[7L;3L] ~section:[2] () in
+  let sizes selected=S.uid_fetch_binary_sizes selected ~uids:[u 7L;u 3L]
+    ~section:[2] () in
   let found=ok (scripted ~reply:(fun n -> [`Return (
     "* 2 FETCH (UID 7 BINARY.SIZE[2] 99)\r\n* 1 FETCH (UID 3 BINARY.SIZE[2] 0)\r\n" ^ done_ n)]) sizes) in
-  if List.map (fun (row:S.binary_size_row) -> row.uid,row.size) found<>[3L,0L;7L,99L] then
+  if List.map (fun (row:S.binary_size_row) ->
+      Imap.Uid.to_int64 row.uid,row.size) found<>[3L,0L;7L,99L] then
     failwith "decoded sizes lost";
   if ok (scripted ~reply:(fun n -> [`Return (done_ n)]) sizes)<>[] then
     failwith "missing size rows invented";

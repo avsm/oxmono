@@ -52,6 +52,23 @@ let syntax = function
 
 let protocol message = raise (Session.Failure (Session.Protocol message))
 
+let received_uid n =
+  match Imap.Uid.of_int64 n with
+  | Ok uid -> uid
+  | Error message -> protocol message
+
+let mem_uid uid uids = List.exists (Imap.Uid.equal uid) uids
+let wire_uids uids = String.concat "," (List.map Imap.Uid.to_string uids)
+
+let valid_window ~first ~last =
+  let first = Imap.Uid.to_int64 first and last = Imap.Uid.to_int64 last in
+  first <= last && Int64.sub last first <= 999L
+
+let nonempty_set set =
+  if Imap.Uid_set.is_empty set then
+    raise (Session.Failure (Session.State "empty UID set"));
+  Imap.Uid_set.to_wire set
+
 let fetch_rows responses = List.filter_map (function
   | Imap.Response.Untagged (Imap.Response.Fetch row)
   | Imap.Response.Untagged (Imap.Response.Uidfetch row) -> Some row
@@ -76,9 +93,10 @@ let supports_messagelimit t =
    as ascending (RFC 5267 section 3.2). *)
 let esearch_uids ?(sort=false) all =
   let max_results = 100_000 in
-  let parse_uid s = match Int64.of_string_opt s with
-  | Some uid when uid >= 1L && uid <= 4_294_967_295L -> uid
-  | _ -> protocol "invalid ESEARCH UID" in
+  let parse_uid s =
+    match Option.map Imap.Uid.of_int64 (Int64.of_string_opt s) with
+    | Some (Ok uid) -> uid
+    | _ -> protocol "invalid ESEARCH UID" in
   let count = ref 0 in
   let seen = Hashtbl.create 32 in
   let add acc uid =
@@ -93,12 +111,17 @@ let esearch_uids ?(sort=false) all =
     | [one] -> add acc (parse_uid one)
     | [start; finish] ->
         let start = parse_uid start and finish = parse_uid finish in
-        let start,finish=if sort then Int64.min start finish,Int64.max start finish
+        let start,finish=
+          if sort && Imap.Uid.compare finish start < 0 then finish,start
           else start,finish in
-        let step = if start <= finish then 1L else -1L in
+        let step = if Imap.Uid.compare start finish <= 0 then Imap.Uid.succ
+          else Imap.Uid.pred in
         let rec expand acc uid =
           let acc = add acc uid in
-          if uid = finish then acc else expand acc (Int64.add uid step) in
+          if Imap.Uid.equal uid finish then acc
+          else match step uid with
+            | Some next -> expand acc next
+            | None -> acc in
         expand acc start
     | _ -> protocol "invalid ESEARCH UID range")
     [] (String.split_on_char ',' all)
@@ -148,7 +171,8 @@ let uid_search_saved saved ~criterion =
       | None -> protocol "saved SEARCH omitted requested ALL"
       | Some all -> esearch_uids all in
     if Int64.of_int (List.length uids)<>count ||
-       List.length (List.sort_uniq Int64.compare uids)<>List.length uids then
+       List.length (List.sort_uniq Imap.Uid.compare uids)<>List.length uids
+    then
       protocol "saved SEARCH ALL contradicts COUNT or repeats a UID";
     uids)
 
@@ -163,13 +187,13 @@ let search_uids (result:Session.command_result) =
   | [`Search uids] ->
       if List.length uids>100_000 then
         raise (Session.Failure (Session.Limit "SEARCH exceeds 100000 UIDs"));
-      List.sort_uniq Int64.compare uids
+      List.map received_uid uids |> List.sort_uniq Imap.Uid.compare
   | [`Esearch e] ->
       if not e.uid then protocol "ESEARCH result lacks UID marker";
       if e.partial<>None then
         protocol "SEARCH result is a positional partial result";
       let uids=match e.all with
-        | Some all -> esearch_uids all |> List.sort_uniq Int64.compare
+        | Some all -> esearch_uids all |> List.sort_uniq Imap.Uid.compare
         | None when (e.count=None || e.count=Some 0L) && e.min=None && e.max=None -> []
         | None -> protocol "SEARCH omitted ALL for a nonempty result" in
       (match e.count with
@@ -195,14 +219,14 @@ let uid_sort t ~keys ~charset ~criterion =
     match List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Sort uids) -> Some uids
       | _ -> None) responses with
-    | [uids] -> uids
+    | [uids] -> List.map received_uid uids
     | _ -> protocol "missing or repeated SORT result")
 
 type sort_result = {
   count : int64;
-  first : int64 option;
-  last : int64 option;
-  uids : int64 list option;
+  first : Imap.Uid.t option;
+  last : Imap.Uid.t option;
+  uids : Imap.Uid.t list option;
   range : (int64 * int64) option;
 }
 
@@ -226,14 +250,16 @@ let uid_sort_extended t ~returns ~keys ~charset ~criterion =
       | Some count -> count
       | None -> protocol "ESORT omitted requested COUNT" in
     let requested field=List.mem field returns in
+    let min_uid=Option.map received_uid response.min
+    and max_uid=Option.map received_uid response.max in
     let endpoint requested value =
       if count=0L && value<>None then protocol "empty ESORT has a MIN or MAX";
       if count>0L && requested && value=None then
         protocol "ESORT omitted requested MIN or MAX" in
-    endpoint (requested Imap.Command.Min) response.min;
-    endpoint (requested Imap.Command.Max) response.max;
-    (match response.min,response.max with
-     | Some first,Some last when (count=1L)<>(first=last) ->
+    endpoint (requested Imap.Command.Min) min_uid;
+    endpoint (requested Imap.Command.Max) max_uid;
+    (match min_uid,max_uid with
+     | Some first,Some last when (count=1L)<>Imap.Uid.equal first last ->
          protocol "ESORT MIN/MAX contradict COUNT"
      | _ -> ());
     let uids=match range with
@@ -267,14 +293,15 @@ let uid_sort_extended t ~returns ~keys ~charset ~criterion =
          let starts_at_first,ends_at_last=match range with
            | None -> true,true
            | Some (a,b) -> Int64.min a b=1L,Int64.max a b>=count in
+         let differs other uid = not (Imap.Uid.equal other uid) in
          if starts_at_first && Option.fold ~none:false
-             ~some:(fun first -> first<>head) response.min then
+             ~some:(differs head) min_uid then
            protocol "ESORT MIN contradicts first sorted UID";
          if ends_at_last && Option.fold ~none:false
-             ~some:(fun last -> last<>List.hd (List.rev uids)) response.max then
+             ~some:(differs (List.hd (List.rev uids))) max_uid then
            protocol "ESORT MAX contradicts last sorted UID"
      | _ -> ());
-    {count;first=response.min;last=response.max;uids;range})
+    {count;first=min_uid;last=max_uid;uids;range})
 
 let uid_thread t ~algorithm ~charset ~criterion =
   run t (fun () ->
@@ -302,10 +329,10 @@ let uid_search_partial t ~range ~criterion =
     | _ -> protocol "missing or invalid correlated PARTIAL ESEARCH result")
 
 type search_page = {
-  uids : int64 list;
+  uids : Imap.Uid.t list;
   complete : bool;
   limit : int64 option;
-  resume_before : int64 option;
+  resume_before : Imap.Uid.t option;
 }
 
 let uid_search_page t ?before criterion =
@@ -314,59 +341,63 @@ let uid_search_page t ?before criterion =
     if not (supports_messagelimit t) then
       raise (Session.Failure
         (Session.Unsupported (Cap.Other "MESSAGELIMIT")));
-    (match before with
-     | Some uid when uid < 1L || uid > 4_294_967_295L ->
-         raise (Session.Failure (Session.State "invalid UIDBEFORE boundary"))
-     | _ -> ());
     let criterion = criterion ^ (match before with
-      | None -> "" | Some uid -> Printf.sprintf " UIDBEFORE %Ld" uid) in
+      | None -> "" | Some uid -> " UIDBEFORE " ^ Imap.Uid.to_string uid) in
     let result = Session.command_result ~accept_partial:true t.session
       (syntax (Imap.Command.uid_search ~criterion)) in
     let uids=search_uids result in
     match result.partial with
     | None -> {uids;complete=true;limit=None;resume_before=None}
     | Some (limit,Some last_uid) ->
+        let last_uid=received_uid last_uid in
+        let below a b = Imap.Uid.compare a b < 0 in
+        let not_below_before uid = match before with
+          | Some bound -> not (below uid bound)
+          | None -> false in
         if Int64.of_int (List.length uids)>limit ||
-           List.exists (fun uid -> uid<last_uid ||
-             (match before with Some bound -> uid>=bound | None -> false)) uids ||
-           (match before with Some bound -> last_uid>=bound | None -> false)
+           List.exists (fun uid -> below uid last_uid ||
+             not_below_before uid) uids ||
+           not_below_before last_uid
         then
           protocol "MESSAGELIMIT response contradicts processed UID boundary";
         (* A page processed down to UID 1 leaves nothing below it. *)
-        if last_uid>1L then
+        if Option.is_some (Imap.Uid.pred last_uid) then
           {uids;complete=false;limit=Some limit;resume_before=Some last_uid}
         else {uids;complete=true;limit=Some limit;resume_before=None}
     | Some (_,None) -> raise (Session.Failure (Session.Limit
         "MESSAGELIMIT response omitted UID continuation boundary")))
 
 let uid_search_range t ~first ~last =
-  if first<1L || last<first || last>4_294_967_295L ||
-     Int64.sub last first>999L then
+  if not (valid_window ~first ~last) then
     Error (Session.State "invalid SEARCH UID window")
   else
-    let criterion=Printf.sprintf "UID %Ld:%Ld" first last in
+    let criterion=Printf.sprintf "UID %s:%s" (Imap.Uid.to_string first)
+      (Imap.Uid.to_string last) in
+    let outside uid =
+      Imap.Uid.compare uid first < 0 || Imap.Uid.compare uid last > 0 in
     if not (supports_messagelimit t) then
       (match uid_search t criterion with
        | Error _ as error -> error
-       | Ok uids when List.exists (fun uid -> uid<first || uid>last) uids ->
+       | Ok uids when List.exists outside uids ->
            Error (Session.Protocol "SEARCH returned UID outside requested range")
        | Ok uids -> Ok uids)
     else
-      let module Uids=Set.Make(Int64) in
+      let module Uids=Set.Make(Imap.Uid) in
       let rec pages before count found =
         if count>1000 then Error (Session.Limit
           "SEARCH exceeded continuation budget")
         else match uid_search_page t ?before criterion with
         | Error _ as error -> error
         | Ok page ->
-            if List.exists (fun uid -> uid<first || uid>last) page.uids then
+            if List.exists outside page.uids then
               Error (Session.Protocol
                 "MESSAGELIMIT SEARCH returned UID outside requested range")
             else
               let found=List.fold_left (fun found uid ->
                 Uids.add uid found) found page.uids in
               match page.resume_before with
-              | Some boundary when not page.complete && boundary>first ->
+              | Some boundary
+                when not page.complete && Imap.Uid.compare boundary first > 0 ->
                   pages (Some boundary) (count+1) found
               | _ -> Ok (Uids.elements found) in
       pages None 1 Uids.empty
@@ -385,6 +416,7 @@ let uid_fetch_partial t ~set ~items ~range =
   run t (fun () ->
     require t Cap.Partial;
     reject_body_items items;
+    let set=nonempty_set set in
     Session.command t.session
       (syntax (Imap.Command.uid_fetch_mod ~partial:range ~set ~items ()))
     |> fetch_rows)
@@ -392,6 +424,7 @@ let uid_fetch_partial t ~set ~items ~range =
 let uid_fetch t ~set ~items =
   run t (fun () ->
     reject_body_items items;
+    let set=nonempty_set set in
     Session.command t.session (syntax (Imap.Command.uid_fetch ~set ~items))
     |> fetch_rows |> List.map (fun (row : Imap.Response.fetch) -> row.raw))
 
@@ -416,10 +449,10 @@ let uid_fetch_saved saved ?partial ~items () =
     |> fetch_rows
     |> List.filter (fun (row : Imap.Response.fetch) -> row.uid<>None))
 
-type preview_row = { uid : int64; preview : string option }
+type preview_row = { uid : Imap.Uid.t; preview : string option }
 
 type envelope_row = {
-  uid : int64;
+  uid : Imap.Uid.t;
   envelope : Imap.Response.envelope;
 }
 
@@ -431,13 +464,12 @@ let fetch_attribute t ~uids ~item ~decode =
       if Hashtbl.length seen>50 then
         raise (Session.Failure (Session.State (item ^ " requires at most 50 UIDs")));
       true)) uids in
-  let uids=List.sort_uniq Int64.compare requested in
-  if uids=[] || List.exists (fun uid ->
-    uid<1L || uid>4_294_967_295L) uids then
+  let uids=List.sort_uniq Imap.Uid.compare requested in
+  if uids=[] then
     raise (Session.Failure (Session.State
       (item ^ " requires 1..50 valid UIDs")));
-  let set=String.concat "," (List.map Int64.to_string uids) in
-  let module Uids=Map.Make(Int64) in
+  let set=wire_uids uids in
+  let module Uids=Map.Make(Imap.Uid) in
   let by_uid=Session.command t.session
       (syntax (Imap.Command.uid_fetch ~set ~items:["UID";item]))
     |> fetch_rows
@@ -445,8 +477,8 @@ let fetch_attribute t ~uids ~item ~decode =
       let value=match decode row with
         | Ok value -> value
         | Error message -> protocol message in
-      match row.uid,value with
-      | Some uid,Some value when List.mem uid uids ->
+      match Option.map received_uid row.uid,value with
+      | Some uid,Some value when mem_uid uid uids ->
           (match Uids.find_opt uid by_uid with
            | Some previous when item="ENVELOPE" || previous<>value ->
                protocol (item ^ " changed within one FETCH command")
@@ -463,7 +495,7 @@ let uid_fetch_envelopes t ~uids () =
     |> List.map (fun (uid,envelope) -> {uid;envelope}))
 
 type bodystructure_row = {
-  uid : int64;
+  uid : Imap.Uid.t;
   bodystructure : Imap.Response.bodystructure;
 }
 
@@ -476,12 +508,11 @@ let uid_fetch_bodystructures t ~uids () =
 let uid_fetch_previews t ?(lazy_=false) ~uids () =
   run t (fun () ->
     require t Cap.Preview;
-    let uids=List.sort_uniq Int64.compare uids in
-    if uids=[] || List.length uids>50 || List.exists (fun uid ->
-      uid<1L || uid>4_294_967_295L) uids then
+    let uids=List.sort_uniq Imap.Uid.compare uids in
+    if uids=[] || List.length uids>50 then
       raise (Session.Failure (Session.State "PREVIEW requires 1..50 valid UIDs"));
-    let set=String.concat "," (List.map Int64.to_string uids) in
-    let module Uids=Map.Make(Int64) in
+    let set=wire_uids uids in
+    let module Uids=Map.Make(Imap.Uid) in
     Session.command t.session
       (syntax (Imap.Command.uid_fetch_preview ~set ~lazy_))
     |> fetch_rows
@@ -489,15 +520,17 @@ let uid_fetch_previews t ?(lazy_=false) ~uids () =
       match row.preview,row.uid with
       | None,_ -> by_uid
       | Some _,None -> protocol "PREVIEW response lacks UID"
-      | Some preview,Some uid when List.mem uid uids ->
-          if preview=None && not lazy_ then
-            protocol "non-LAZY PREVIEW response was NIL";
-          Uids.add uid {uid;preview} by_uid
-      | Some _,Some _ -> by_uid) Uids.empty
+      | Some preview,Some uid ->
+          let uid=received_uid uid in
+          if not (mem_uid uid uids) then by_uid
+          else (
+            if preview=None && not lazy_ then
+              protocol "non-LAZY PREVIEW response was NIL";
+            Uids.add uid {uid;preview} by_uid)) Uids.empty
     |> Uids.bindings |> List.map snd)
 
 type object_id_row = {
-  uid : int64;
+  uid : Imap.Uid.t;
   email_id : string;
   thread_id : string option;
 }
@@ -508,34 +541,33 @@ let uid_fetch_object_ids t ~uids () =
     if t.info.mailbox_id=None then
       protocol "OBJECTID selection omitted MAILBOXID";
     if List.length uids>50 || List.length uids<>
-        List.length (List.sort_uniq Int64.compare uids) ||
-       List.exists (fun uid -> uid<1L || uid>4_294_967_295L) uids then
+        List.length (List.sort_uniq Imap.Uid.compare uids) then
       raise (Session.Failure (Session.State
         "OBJECTID requires at most 50 distinct valid UIDs"));
     if uids=[] then [] else
-    let set=String.concat "," (List.map Int64.to_string uids) in
-    let module Uids=Map.Make(Int64) in
+    let set=wire_uids uids in
+    let module Uids=Map.Make(Imap.Uid) in
     let by_uid=Session.command t.session
         (syntax (Imap.Command.uid_fetch ~set
           ~items:["UID";"EMAILID";"THREADID"]))
       |> fetch_rows
       |> List.fold_left (fun by_uid (row : Imap.Response.fetch) ->
-        match row.uid,row.email_id,row.thread_id with
-        | Some uid,Some email_id,Some thread_id when List.mem uid uids ->
+        match Option.map received_uid row.uid,row.email_id,row.thread_id with
+        | Some uid,Some email_id,Some thread_id when mem_uid uid uids ->
             let object_id={uid;email_id;thread_id} in
             (match Uids.find_opt uid by_uid with
              | Some previous when previous<>object_id ->
                  protocol "OBJECTID changed within one FETCH command"
              | _ -> Uids.add uid object_id by_uid)
         | Some uid,_,_
-            when List.mem uid uids &&
+            when mem_uid uid uids &&
                  (row.email_id<>None || row.thread_id<>None) ->
             protocol "incomplete OBJECTID FETCH row"
         | _ -> by_uid) Uids.empty in
     List.filter_map (fun uid -> Uids.find_opt uid by_uid) uids)
 
 type object_id_plus_row = {
-  uid : int64;
+  uid : Imap.Uid.t;
   ids : Imap.Response.compound_object_id;
 }
 
@@ -546,19 +578,18 @@ let uid_fetch_object_ids_plus t ~uids () =
      | Some {account_id=Some _;mailbox_id=Some _;_} -> ()
      | _ -> protocol "OBJECTID+ selection omitted ACCOUNTID or MAILBOXID");
     if List.length uids>50 || List.length uids<>
-        List.length (List.sort_uniq Int64.compare uids) ||
-       List.exists (fun uid -> uid<1L || uid>4_294_967_295L) uids then
+        List.length (List.sort_uniq Imap.Uid.compare uids) then
       raise (Session.Failure (Session.State
         "OBJECTID+ requires at most 50 distinct valid UIDs"));
     if uids=[] then [] else
-    let set=String.concat "," (List.map Int64.to_string uids) in
-    let module Uids=Map.Make(Int64) in
+    let set=wire_uids uids in
+    let module Uids=Map.Make(Imap.Uid) in
     let by_uid=Session.command t.session
         (syntax (Imap.Command.uid_fetch ~set ~items:["UID";"OBJECTID"]))
       |> fetch_rows
       |> List.fold_left (fun by_uid (row : Imap.Response.fetch) ->
-        match row.uid with
-        | Some uid when List.mem uid uids ->
+        match Option.map received_uid row.uid with
+        | Some uid when mem_uid uid uids ->
             (match Imap.Response.fetch_objectid row with
              | Error message -> protocol message
              | Ok None -> by_uid
@@ -580,28 +611,34 @@ let uid_fetch_object_ids_plus t ~uids () =
    per UID, the last in wire order winning, and returned in UID order. *)
 let fetch_window t ~first ~last ~what ~command ~keep =
   let supports_limit=supports_messagelimit t in
-  let module Uids = Map.Make(Int64) in
+  let module Uids = Map.Make(Imap.Uid) in
+  let within uid upper =
+    Imap.Uid.compare uid first >= 0 && Imap.Uid.compare uid upper <= 0 in
   let rec fetch upper pages by_uid =
     if pages>1000 then raise (Session.Failure (Session.Limit
       (what ^ " FETCH exceeded continuation budget")));
-    let set=Printf.sprintf "%Ld:%Ld" first upper in
+    let set=Imap.Uid.to_string first ^ ":" ^ Imap.Uid.to_string upper in
     let result=Session.command_result ~accept_partial:supports_limit
       t.session (syntax (command ~set)) in
     let by_uid=List.fold_left (fun by_uid (row : Imap.Response.fetch) ->
-      match row.uid with
-      | Some uid when uid>=first && uid<=upper && keep row ->
+      match Option.map received_uid row.uid with
+      | Some uid when within uid upper && keep row ->
           Uids.add uid row by_uid
       | _ -> by_uid) by_uid (fetch_rows result.untagged) in
     match result.partial with
     | None -> by_uid
-    | Some (_,Some boundary) when boundary>=first && boundary<=upper &&
-        Uids.for_all (fun uid _ -> uid>=boundary) by_uid ->
-        if boundary=first then by_uid
-        else fetch (Int64.pred boundary) (pages+1) by_uid
+    | Some (_,Some boundary) ->
+        let boundary=received_uid boundary in
+        if not (within boundary upper && Uids.for_all (fun uid _ ->
+            Imap.Uid.compare uid boundary >= 0) by_uid) then
+          protocol ("invalid MESSAGELIMIT " ^ what ^ " continuation");
+        (match Imap.Uid.pred boundary with
+         | Some below when not (Imap.Uid.equal boundary first) ->
+             fetch below (pages+1) by_uid
+         | _ -> by_uid)
     | Some (_,None) ->
         raise (Session.Failure (Session.Limit
-          ("MESSAGELIMIT " ^ what ^ " omitted UID continuation boundary")))
-    | Some _ -> protocol ("invalid MESSAGELIMIT " ^ what ^ " continuation") in
+          ("MESSAGELIMIT " ^ what ^ " omitted UID continuation boundary"))) in
   Uids.bindings (fetch last 1 Uids.empty) |> List.map snd
 
 let has_flags (row : Imap.Response.fetch) = row.flags<>None
@@ -609,8 +646,7 @@ let has_flags (row : Imap.Response.fetch) = row.flags<>None
 let fetch_metadata_range ?(size=false) ?(internal_date=false)
     t ~first ~last ~modseq =
   run t (fun () ->
-    if first < 1L || last < first || last > 4_294_967_295L ||
-       Int64.sub last first > 999L then
+    if not (valid_window ~first ~last) then
       raise (Session.Failure (Session.State "invalid metadata UID window"));
     if modseq then condstore t;
     let items = ["UID"; "FLAGS"] @
@@ -628,10 +664,6 @@ type store_receipt = {
 let writable t =
   if t.session.Session.readonly then
     raise (Session.Failure (Session.State "mailbox is read-only"))
-let nonempty_set set =
-  if Imap.Uid_set.is_empty set then
-    raise (Session.Failure (Session.State "empty UID set"));
-  Imap.Uid_set.to_wire set
 
 let store_receipt (result:Session.command_result) =
     let modified = match result.completion with
@@ -691,15 +723,7 @@ let copy_code = function
       Some (v,src,dst)
   | _ -> None
 
-let subset small large =
-  let spans set = Imap.Uid_set.intervals set |> List.map (fun (a,b) ->
-    Imap.Uid.to_int64 a,Imap.Uid.to_int64 b) in
-  let merged=List.fold_left (fun acc (a,b) -> match acc with
-    | (first,last)::rest when Int64.succ last>=a ->
-        (first,Int64.max last b)::rest
-    | _ -> (a,b)::acc) [] (spans large) in
-  List.for_all (fun (a,b) ->
-    List.exists (fun (first,last) -> first<=a && b<=last) merged) (spans small)
+let subset small large = Imap.Uid_set.(is_empty (diff small large))
 
 let copy_receipt ?requested result =
   let codes=List.filter_map copy_code
@@ -818,8 +842,7 @@ let fetch_changes t ~set ~since ~vanished =
 let fetch_changes_range t ~first ~last ~since =
   run t (fun () ->
     condstore t;
-    if first<1L || last<first || last>4_294_967_295L ||
-       Int64.sub last first>999L then
+    if not (valid_window ~first ~last) then
       raise (Session.Failure (Session.State
         "invalid CHANGEDSINCE UID window"));
     let changedsince=Imap.Modseq.to_int64 since in
@@ -893,10 +916,11 @@ let stream_fetch t ~syntax ~max_bytes sink =
 let fetch_binary_to t ?(max_bytes=1_073_741_824L) ?partial ~uid ~section sink =
   run t (fun () ->
     require_binary_fetch t;
-    if uid<1L || uid>4_294_967_295L || max_bytes<0L then
+    if max_bytes<0L then
       raise (Session.Failure (Session.State "invalid BINARY UID or byte limit"));
-    let syntax=syntax (Imap.Command.uid_fetch_binary ~set:(Int64.to_string uid)
-      ~section ?partial ()) in
+    let raw_uid=Some (Imap.Uid.to_int64 uid) in
+    let syntax=syntax (Imap.Command.uid_fetch_binary
+      ~set:(Imap.Uid.to_string uid) ~section ?partial ()) in
     let max_bytes=match partial with
       | None -> max_bytes | Some (_,count) -> Int64.min max_bytes count in
     let responses,bytes,literals=stream_fetch t ~syntax ~max_bytes sink in
@@ -911,10 +935,11 @@ let fetch_binary_to t ?(max_bytes=1_073_741_824L) ?partial ~uid ~section sink =
       | Error message -> invalid message) rows in
     let row,binary=match payloads with
       | [] when literals=0 ->
-          if List.exists (fun (row:Imap.Response.fetch) -> row.uid=Some uid) rows then
+          if List.exists (fun (row:Imap.Response.fetch) ->
+              row.uid=raw_uid) rows then
             invalid "BINARY FETCH omitted the requested section/origin"
           else raise (Session.Failure (Session.Missing_uid uid))
-      | [row,binary] when row.uid=Some uid -> row,binary
+      | [row,binary] when row.uid=raw_uid -> row,binary
       | [row,_] when row.uid=None -> invalid "BINARY FETCH payload lacks UID"
       | _ -> invalid "BINARY FETCH did not match the requested UID" in
     match binary with
@@ -935,17 +960,16 @@ let fetch_binary_to t ?(max_bytes=1_073_741_824L) ?partial ~uid ~section sink =
         write_sink sink value;
         Some length)
 
-type binary_size_row = { uid : int64; size : int64 }
+type binary_size_row = { uid : Imap.Uid.t; size : int64 }
 
 let uid_fetch_binary_sizes t ~uids ~section () =
   run t (fun () ->
     require_binary_fetch t;
-    let uids=List.sort_uniq Int64.compare uids in
-    if uids=[] || List.length uids>50 || List.exists (fun uid ->
-      uid<1L || uid>4_294_967_295L) uids then
+    let uids=List.sort_uniq Imap.Uid.compare uids in
+    if uids=[] || List.length uids>50 then
       raise (Session.Failure (Session.State "BINARY.SIZE requires 1..50 valid UIDs"));
-    let set=String.concat "," (List.map Int64.to_string uids) in
-    let module Uids=Map.Make(Int64) in
+    let set=wire_uids uids in
+    let module Uids=Map.Make(Imap.Uid) in
     let by_uid=Session.command t.session
         (syntax (Imap.Command.uid_fetch_binary_size ~set ~section))
       |> fetch_rows
@@ -956,10 +980,12 @@ let uid_fetch_binary_sizes t ~uids ~section () =
         match value,row.uid with
         | None,_ -> by_uid
         | Some _,None -> protocol "BINARY.SIZE response omitted UID"
-        | Some size,Some uid when List.mem uid uids ->
+        | Some size,Some uid ->
+            let uid=received_uid uid in
+            if not (mem_uid uid uids) then
+              protocol "BINARY.SIZE returned an unrequested UID";
             if Uids.mem uid by_uid then protocol "duplicate BINARY.SIZE UID";
-            Uids.add uid {uid;size} by_uid
-        | Some _,Some _ -> protocol "BINARY.SIZE returned an unrequested UID")
+            Uids.add uid {uid;size} by_uid)
         Uids.empty in
     List.filter_map (fun uid -> Uids.find_opt uid by_uid) uids)
 
@@ -999,12 +1025,11 @@ let quoted_bodies raw =
 
 let fetch_to t ?(max_bytes=1_073_741_824L) ~uid sink =
   run t (fun () ->
-    if uid < 1L || uid > 4294967295L then
-      raise (Session.Failure (Session.State "invalid UID"));
     if max_bytes < 0L then
       raise (Session.Failure (Session.State "negative FETCH byte limit"));
+    let raw_uid = Some (Imap.Uid.to_int64 uid) in
     let syntax = syntax (Imap.Command.uid_fetch
-      ~set:(Int64.to_string uid) ~items:["UID"; "BODY.PEEK[]"]) in
+      ~set:(Imap.Uid.to_string uid) ~items:["UID"; "BODY.PEEK[]"]) in
     let responses,bytes,literals=stream_fetch t ~syntax ~max_bytes sink in
     let bodies=List.filter_map (fun (row : Imap.Response.fetch) ->
       match row.literals,quoted_bodies row.raw with
@@ -1016,11 +1041,11 @@ let fetch_to t ?(max_bytes=1_073_741_824L) ~uid sink =
         "and streamed bytes") in
     match bodies with
     | [] when literals=0 -> raise (Session.Failure (Session.Missing_uid uid))
-    | [row,[name,length],[]] when row.uid=Some uid && literals=1 ->
+    | [row,[name,length],[]] when row.uid=raw_uid && literals=1 ->
         let name=String.uppercase_ascii name in
         if not ((name="BODY[]" || name="BODY.PEEK[]") && length=bytes) then
           invalid ()
-    | [row,[],[value]] when row.uid=Some uid && literals=0 ->
+    | [row,[],[value]] when row.uid=raw_uid && literals=0 ->
         if Int64.of_int (String.length value)>max_bytes then
           raise (Session.Failure (Session.Limit
             "FETCH body exceeds byte limit"));

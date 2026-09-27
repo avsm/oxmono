@@ -6,6 +6,8 @@ module E = Imap_eio.Error
 let ok = function
   | Ok value -> value
   | Error error -> failwith (Imap_eio.Client.error_to_string error)
+let raw_list = List.map Imap.Uid.to_int64
+let raw_opt = Option.map Imap.Uid.to_int64
 
 let scripted ?(uidonly=false) ?(dispatched=true) ~capabilities ~reply f =
   Eio_mock.Backend.run @@ fun () ->
@@ -65,7 +67,7 @@ let test_capability_gates () =
         ~criterion:"ALL"));
   let uids=ok (scripted ~capabilities:"SORT=DISPLAY"
     ~reply:(complete "* SORT 9 1 4\r\n") sort) in
-  if uids<>[9L;1L;4L] then failwith "SORT order changed"
+  if raw_list uids<>[9L;1L;4L] then failwith "SORT order changed"
 
 let test_empty_and_missing () =
   if ok (scripted ~capabilities:"SORT" ~reply:(complete "* SORT\r\n") sort)<>[]
@@ -121,8 +123,8 @@ let test_uidonly () =
   expect_error "sequence THREAD in UIDONLY" state
     (scripted ~uidonly:true ~dispatched:false ~capabilities:"THREAD=REFERENCES"
       ~reply:(complete "") (thread ~criterion:"1:3"));
-  if ok (scripted ~uidonly:true ~capabilities:"SORT"
-    ~reply:(complete "* SORT 9 1\r\n") (sort ~criterion:"UID 1:9"))<>[9L;1L]
+  if raw_list (ok (scripted ~uidonly:true ~capabilities:"SORT"
+    ~reply:(complete "* SORT 9 1\r\n") (sort ~criterion:"UID 1:9")))<>[9L;1L]
   then failwith "UIDONLY SORT changed UIDs";
   ignore (ok (scripted ~uidonly:true ~capabilities:"THREAD=REFERENCES"
     ~reply:(complete "* THREAD (9 1)\r\n") thread))
@@ -137,8 +139,10 @@ let test_esort () =
   let run ?(capabilities="ESORT") returns fields =
     scripted ~capabilities ~reply:(esort fields) (extended ~returns) in
   let result=ok (run [C.All;C.Min;C.Max] "MIN 90 MAX 7 COUNT 6 ALL 90,12:10,6:7") in
-  if result.count<>6L || result.first<>Some 90L || result.last<>Some 7L ||
-     result.uids<>Some [90L;10L;11L;12L;6L;7L] || result.range<>None then
+  if result.count<>6L || raw_opt result.first<>Some 90L ||
+     raw_opt result.last<>Some 7L ||
+     Option.map raw_list result.uids<>Some [90L;10L;11L;12L;6L;7L] ||
+     result.range<>None then
     failwith "ESORT order/range expansion/MIN/MAX changed";
   let result=ok (run [] "COUNT 0") in
   if result.uids<>Some [] then failwith "empty default ALL was not explicit";
@@ -149,7 +153,7 @@ let test_esort () =
   if result.count<>4000000000L || result.uids<>None then
     failwith "COUNT unnecessarily limited by UID expansion budget";
   let result=ok (run [C.Min;C.Max] "COUNT 2 MIN 90 MAX 7") in
-  if result.first<>Some 90L || result.last<>Some 7L then
+  if raw_opt result.first<>Some 90L || raw_opt result.last<>Some 7L then
     failwith "MIN/MAX treated as numeric extrema";
   List.iter (fun (returns,fields) ->
     expect_error ("inconsistent ESORT " ^ fields) protocol (run returns fields))
@@ -184,16 +188,19 @@ let test_esort_partial () =
   let run returns fields=scripted ~capabilities:"ESORT CONTEXT=SORT"
     ~reply:(esort fields) (extended ~returns) in
   let result=ok (run [C.Partial (2L,4L)] "COUNT 8 PARTIAL (2:4 9,4:3)") in
-  if result.uids<>Some [9L;3L;4L] || result.range<>Some (2L,4L) || result.count<>8L then
+  if Option.map raw_list result.uids<>Some [9L;3L;4L] ||
+     result.range<>Some (2L,4L) || result.count<>8L then
     failwith "ESORT positional page changed";
   let result=ok (run [C.Partial (4L,2L)] "COUNT 3 PARTIAL (4:2 9,3)") in
-  if result.uids<>Some [9L;3L] || result.range<>Some (4L,2L) then
+  if Option.map raw_list result.uids<>Some [9L;3L] ||
+     result.range<>Some (4L,2L) then
     failwith "ESORT reversed clipped page changed";
   let result=ok (run [C.Partial (9L,10L)] "COUNT 8 PARTIAL (9:10 NIL)") in
   if result.uids<>Some [] then failwith "ESORT out-of-range page not empty";
   let result=ok (run [C.Partial (1L,2L);C.Min;C.Max]
     "COUNT 2 MIN 9 MAX 3 PARTIAL (1:2 9,3)") in
-  if result.first<>Some 9L || result.last<>Some 3L then failwith "page endpoints lost";
+  if raw_opt result.first<>Some 9L || raw_opt result.last<>Some 3L then
+    failwith "page endpoints lost";
   List.iter (fun fields ->
     expect_error ("invalid ESORT page " ^ fields) protocol
       (run [C.Partial (2L,4L)] fields))

@@ -63,8 +63,7 @@ let plan (cursor:cursor) ~stage_id selected =
       | _ when selected.nomodseq && cursor.anchor <> None -> Some Nomodseq
       | _ ->
           (match cursor.anchor,selected.highestmodseq with
-           | Some old,Some now when Modseq.to_int64 now <
-                                  Modseq.to_int64 old ->
+           | Some old,Some now when Modseq.compare now old < 0 ->
                Some Modseq_regressed
            | _ -> None) in
     let mode =
@@ -81,14 +80,14 @@ type row = {
   uid:Uid.t; flags:Mail_flag.Imap_flag.t list;
   modseq:Modseq.t option
 }
-module Uid_map = Map.Make(Int64)
+module Uid_map = Map.Make(Uid)
 type snapshot = { validity:Uidvalidity.t; by_uid:row Uid_map.t }
 
 let snapshot ~uidvalidity rows =
   let rec add map = function
     | [] -> Ok {validity=uidvalidity;by_uid=map}
     | row::rest ->
-        let uid=Uid.to_int64 row.uid in
+        let uid=row.uid in
         if Uid_map.mem uid map then Error (Invalid "duplicate UID in inventory")
         else add (Uid_map.add uid row map) rest in
   add Uid_map.empty rows
@@ -133,8 +132,7 @@ let complete (cursor:cursor) (action:action) done_ =
           if resolved_mode=Baseline then None
           else done_.explicit_highestmodseq in
         (match action.previous_anchor,next_anchor with
-         | Some old,Some now when Modseq.to_int64 now <
-                                  Modseq.to_int64 old ->
+         | Some old,Some now when Modseq.compare now old < 0 ->
              Error Modseq_regression
          | _ -> Ok {action;replacement;next_anchor;
                     resolved_mode;resolved_restart})

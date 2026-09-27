@@ -114,7 +114,7 @@ let test_cache_audit_config () =
   Alcotest.(check bool) "offline audit command" true
     (config.command=Imap_cli.Audit_cache);
   Alcotest.(check (option int64)) "audit continuation" (Some 17L)
-    config.after_uid;
+    (Option.map Imap.Uid.to_int64 config.after_uid);
   Alcotest.(check (option int64)) "pinned audit revision" (Some 12L)
     config.expected_revision;
   Alcotest.(check int) "audit page bound" 9 config.max_transfers;
@@ -207,7 +207,8 @@ let test_repair_requires_attestation () =
     "--evidence";"operator read APPENDUID from audit"] in
   Alcotest.(check bool) "repair command" true
     (config.command=Imap_cli.Repair_appenduid);
-  Alcotest.(check (option int64)) "UID" (Some 2L) config.receipt_uid
+  Alcotest.(check (option int64)) "UID" (Some 2L)
+    (Option.map Imap.Uid.to_int64 config.receipt_uid)
 
 let test_repair_guards () =
   let base=["repair-appenduid";"--operation-id";"op";

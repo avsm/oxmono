@@ -71,7 +71,7 @@ let read_one selected message nonce =
       let body = Buffer.create (String.length message.raw) in
       let* () = Selected.fetch_to selected ~uid (Eio.Flow.buffer_sink body) in
       let* metadata =
-        Selected.uid_fetch selected ~set:(Int64.to_string uid)
+        Selected.uid_fetch selected ~set:(Imap.Uid_set.singleton uid)
           ~items:[ "UID"; "FLAGS" ]
       in
       Ok (message.name, message.raw, Buffer.contents body, metadata)
@@ -231,8 +231,6 @@ let round_trip () =
         let* uids = Selected.uid_search selected "ALL" in
         match uids with
         | uid :: _ ->
-            let uid = match Imap.Uid.of_int64 uid with
-              | Ok uid -> uid | Error e -> Alcotest.fail e in
             let set = Imap.Uid_set.singleton uid in
             let* _ = Selected.uid_store_flags selected ~set
               ~operation:`Add ~flags:[flag] () in
@@ -401,9 +399,8 @@ let round_trip () =
        List.mem local_keyword flag_local.flags);
     let remote_flag_wires = unwrap (Client.with_mailbox client
       ~mode:`Read_only mailbox (fun selected ->
-        let raw=Imap.Uid.to_int64 flag_uid in
-        let* rows=Selected.fetch_metadata_range selected ~first:raw
-          ~last:raw ~modseq:false in
+        let* rows=Selected.fetch_metadata_range selected ~first:flag_uid
+          ~last:flag_uid ~modseq:false in
         match rows with
         | [row] -> Ok (Option.value ~default:[] row.flags)
         | _ -> Alcotest.fail "flag UID disappeared")) in
@@ -584,8 +581,8 @@ let round_trip () =
       (unwrap (Client.with_mailbox client ~mode:`Read_only mailbox
         (fun selected ->
           let raw=Imap.Uid.to_int64 flag_uid in
-          let* rows=Selected.fetch_metadata_range selected ~first:raw
-            ~last:raw ~modseq:false in
+          let* rows=Selected.fetch_metadata_range selected ~first:flag_uid
+            ~last:flag_uid ~modseq:false in
           Ok (List.exists (fun (row:Imap.Response.fetch) ->
             row.uid=Some raw) rows))));
     Alcotest.(check bool) "no pending deletion operations" true
@@ -687,7 +684,7 @@ let objectid_round_trip () =
       ~length:(Int64.of_int (String.length raw))
       (Eio.Flow.string_source raw)) with
     | Some receipt -> receipt | None -> Alcotest.fail "missing APPENDUID" in
-  let uid=Imap.Uid.to_int64 receipt.uid in
+  let uid=receipt.uid in
   unwrap (Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected ->
       let* info=Selected.info selected in
@@ -695,7 +692,7 @@ let objectid_round_trip () =
         (Option.is_some info.mailbox_id);
       let* rows=Selected.uid_fetch_object_ids selected ~uids:[uid] () in
       (match rows with
-       | [{uid=observed;email_id;_}] when observed=uid ->
+       | [{uid=observed;email_id;_}] when Imap.Uid.equal observed uid ->
            Alcotest.(check bool) "EMAILID nonempty" true (email_id<>"")
        | _ -> Alcotest.fail "missing typed OBJECTID row");
       Ok ()))

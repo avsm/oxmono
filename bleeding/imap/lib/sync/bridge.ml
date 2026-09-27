@@ -63,6 +63,9 @@ let sync = function
   | Ok value -> Ok value
   | Error Engine.Uidvalidity_changed -> Error Uidvalidity_changed
   | Error error -> Error (Sync error)
+let checked_uid raw = match Imap.Uid.of_int64 raw with
+  | Ok uid -> Ok uid
+  | Error message -> Error (Invalid_operation message)
 
 let with_lease maildir f =
   let entered=ref false in
@@ -113,7 +116,6 @@ let appended_uid_missing uid =
 
 let remote_metadata ?(missing=fun uid -> Source_vanished uid) client ~mailbox
     ~uid ~uidvalidity ~internal_date =
-  let raw_uid=Imap.Uid.to_int64 uid in
   let* row=match Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected -> Ok (
       let* info=network (Imap_eio.Selected.info selected) in
@@ -121,7 +123,7 @@ let remote_metadata ?(missing=fun uid -> Source_vanished uid) client ~mailbox
         Error Uidvalidity_changed
       else
         let* rows=network (Imap_eio.Selected.fetch_metadata_range selected
-          ~first:raw_uid ~last:raw_uid ~modseq:false ~internal_date) in
+          ~first:uid ~last:uid ~modseq:false ~internal_date) in
         match rows with
         | row :: _ -> Ok row
         | [] -> Error (missing uid))) with
@@ -175,8 +177,8 @@ let copy_remote_to_local ~client:remote_client ~store ~writer
   let spool=Eio.Path.(spool_dir / ("imap-" ^ Maildir.reserve_id ())) in
   let* blob=match Engine.archive_uid ~client:remote_client ~store ~scope
     ~mailbox ~uid ~spool () with
-    | Error (Engine.Client (Imap_eio.Error.Missing_uid raw)) when
-        raw=Imap.Uid.to_int64 uid -> Error (Source_vanished uid)
+    | Error (Engine.Client (Imap_eio.Error.Missing_uid missing)) when
+        Imap.Uid.equal missing uid -> Error (Source_vanished uid)
     | result -> sync result in
   let id=next_id () and local_id=Maildir.reserve_id () in
   let flags=durable_flags row.flags in
@@ -298,15 +300,12 @@ let snapshot_has_uid store ~scope ~cursor target =
   | `Present present -> Ok present
 
 let snapshot_row_for_uid store ~scope ~cursor target =
-  let raw=Imap.Uid.to_int64 target in
-  let after_uid=if raw=1L then None else
-    match Imap.Uid.of_int64 (Int64.pred raw) with
-    | Ok uid -> Some uid | Error _ -> assert false in
+  let after_uid=Imap.Uid.pred target in
   match Imap_store.snapshot_page store ~scope ~cursor ?after_uid
     ~limit:1 () with
   | `Stale_revision -> Error Stale_revision
   | `Rows ((row:Imap.Mirror.row)::_) when
-      Imap.Uid.to_int64 row.uid=raw -> Ok (Some row)
+      Imap.Uid.equal row.uid target -> Ok (Some row)
   | `Rows _ -> Ok None
 
 let reconcile_local_append ~client ~mailbox ~store ~maildir ~scope
@@ -1451,8 +1450,8 @@ let repair_local_append ~client ~store ~maildir ~scope ~mailbox ~id
         ("imap-repair-" ^ Maildir.reserve_id ())) in
       let* blob=match Engine.archive_uid ~client ~store ~scope
         ~mailbox ~uid ~spool () with
-        | Error (Engine.Client (Imap_eio.Error.Missing_uid raw))
-          when raw=Imap.Uid.to_int64 uid -> Error (Source_vanished uid)
+        | Error (Engine.Client (Imap_eio.Error.Missing_uid missing))
+          when Imap.Uid.equal missing uid -> Error (Source_vanished uid)
         | result -> sync result in
       let* ()=if blob.length=length && blob.sha256=sha256 then Ok ()
         else Error (Content_diverged id) in
@@ -1610,9 +1609,11 @@ let inspect_append_candidates ?(max_uids=1000)
               if first>upper then Ok (List.rev matches)
               else
                 let last=Int64.min upper (Int64.add first 999L) in
+                let* first_uid=checked_uid first in
+                let* last_uid=checked_uid last in
                 let* rows=network
                   (Imap_eio.Selected.fetch_metadata_range selected
-                    ~first ~last ~modseq:false ~size:true
+                    ~first:first_uid ~last:last_uid ~modseq:false ~size:true
                     ~internal_date:(Option.is_some expected_date)) in
                 let rec check matches = function
                   | [] -> scan (Int64.succ last) matches
@@ -1620,6 +1621,7 @@ let inspect_append_candidates ?(max_uids=1000)
                       (match row.uid,row.flags,row.size with
                        | Some raw_uid,Some raw_flags,Some row_size when
                            raw_uid>=first && raw_uid<=last ->
+                           let* uid=checked_uid raw_uid in
                            let* row_flags=parse_flags raw_flags in
                            let* date_matches=match expected_date,
                                row.internal_date with
@@ -1646,7 +1648,7 @@ let inspect_append_candidates ?(max_uids=1000)
                              let fetched=Spool.with_spool spool
                                (fun sink ->
                                  let fetched=Imap_eio.Selected.fetch_to selected
-                                   ~uid:raw_uid ~max_bytes:length sink in
+                                   ~uid ~max_bytes:length sink in
                                  match fetched with
                                  | Error error -> Error (Client error)
                                  | Ok () ->
@@ -1655,11 +1657,8 @@ let inspect_append_candidates ?(max_uids=1000)
                                      Ok (found_length=length &&
                                        found_digest=digest)) in
                              let* matches_body=fetched in
-                             let* matches=if not matches_body then Ok matches
-                               else match Imap.Uid.of_int64 raw_uid with
-                                 | Ok uid -> Ok (uid::matches)
-                                 | Error message -> Error
-                                     (Invalid_operation message) in
+                             let matches=if matches_body then uid::matches
+                               else matches in
                              check matches rest
                        | _ -> Error (Client (Imap_eio.Error.Protocol
                            "candidate FETCH omitted UID, FLAGS or RFC822.SIZE"))) in

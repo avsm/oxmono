@@ -5,7 +5,7 @@ type error = Error.t =
   | Rejected of { tag : string; status : [ `No | `Bad ];
       code : Imap.Response.code option; text : string }
   | State of string
-  | Missing_uid of int64
+  | Missing_uid of Imap.Uid.t
   | Limit of string
   | Uncertain of string
   | Unsupported of Imap.Capability.t

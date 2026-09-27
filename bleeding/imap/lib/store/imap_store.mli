@@ -108,7 +108,7 @@ val stage_rows : ?preserve_newer:bool -> t -> stage_id:string ->
     [false]. *)
 
 val stage_membership : t -> stage_id:string -> first:int64 -> last:int64 ->
-  int64 list -> unit
+  Imap.Uid.t list -> unit
 (** Commit one contiguous SEARCH window. Every reported UID must have a
     staged FETCH row; otherwise the transaction fails without advancing
     coverage. SEARCH windows cannot overtake FETCH coverage. *)

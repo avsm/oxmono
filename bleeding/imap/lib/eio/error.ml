@@ -5,7 +5,7 @@ type t =
   | Rejected of { tag : string; status : [ `No | `Bad ];
       code : Imap.Response.code option; text : string }
   | State of string
-  | Missing_uid of int64
+  | Missing_uid of Imap.Uid.t
   | Limit of string
   | Uncertain of string
   | Unsupported of Imap.Capability.t
@@ -21,7 +21,7 @@ let pp ppf = function
         (match status with `No -> "NO" | `Bad -> "BAD")
         (match label with None -> "" | Some name -> " [" ^ name ^ "]") text
   | State s -> Format.fprintf ppf "IMAP state error: %s" s
-  | Missing_uid uid -> Format.fprintf ppf "IMAP UID %Ld vanished" uid
+  | Missing_uid uid -> Format.fprintf ppf "IMAP UID %a vanished" Imap.Uid.pp uid
   | Limit s -> Format.fprintf ppf "IMAP limit error: %s" s
   | Uncertain s -> Format.fprintf ppf "IMAP uncertain outcome: %s" s
   | Unsupported c ->

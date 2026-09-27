@@ -191,7 +191,8 @@ let test_saved_refinement () =
     ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
       let saved=ok (S.uid_search_save selected ~criterion:"ALL") in
       let found=ok (S.uid_search_saved saved ~criterion:"UNSEEN") in
-      if found<>[7L] then failwith "saved refinement lost subset";
+      if List.map Imap.Uid.to_int64 found<>[7L] then
+        failwith "saved refinement lost subset";
       if ok (S.uid_search_saved saved ~criterion:"UID 100")<>[] then
         failwith "empty saved refinement changed";
       expect "refinement grammar escape rejected" state

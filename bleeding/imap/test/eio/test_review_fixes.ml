@@ -4,6 +4,9 @@ module S = Imap_eio.Selected
 module E = Imap_eio.Error
 
 let ok = function Ok x -> x | Error e -> failwith (C.error_to_string e)
+let u n = match Imap.Uid.of_int64 n with Ok v -> v | Error e -> failwith e
+let uid_set s =
+  match Imap.Uid_set.of_wire s with Ok v -> v | Error e -> failwith e
 let tag n = Printf.sprintf "A%08d" n
 let expect label kind = function
   | Error e when kind e -> ()
@@ -274,12 +277,14 @@ let test_uid_fetch_rejects_body_items () =
     `Return ("* 1 FETCH (UID 1 FLAGS ())\r\n" ^ tag 3 ^ " OK done\r\n");
     `Return (tag 4 ^ " OK unselected\r\n")] (fun selected ->
     List.iter (fun items ->
-      expect "body item in uid_fetch" state (S.uid_fetch selected ~set:"1" ~items))
+      expect "body item in uid_fetch" state
+        (S.uid_fetch selected ~set:(uid_set "1") ~items))
       [["UID"; "BODY[]"]; ["BINARY.PEEK[]"]; ["body.peek[text]"]];
     expect "body item in uid_fetch_partial" state
-      (S.uid_fetch_partial selected ~set:"1" ~items:["BODY[HEADER]"]
+      (S.uid_fetch_partial selected ~set:(uid_set "1") ~items:["BODY[HEADER]"]
         ~range:(1L,1L));
-    if ok (S.uid_fetch selected ~set:"1" ~items:["UID"; "FLAGS"]) = [] then
+    if ok (S.uid_fetch selected ~set:(uid_set "1")
+        ~items:["UID"; "FLAGS"]) = [] then
       failwith "metadata FETCH after refusal lost its row";
     Ok ())
 
@@ -289,10 +294,11 @@ let test_fetch_to_quoted_body () =
     `Return ("* 1 FETCH (UID 7 BODY[] \"a\\\"b\")\r\n" ^ tag 3 ^ " OK done\r\n");
     `Return ("* 1 FETCH (UID 7 BODY[] \"abcd\")\r\n" ^ tag 4 ^ " OK done\r\n");
     `Return (tag 5 ^ " OK unselected\r\n")] (fun selected ->
-    ok (S.fetch_to selected ~uid:7L (Eio.Flow.buffer_sink sink));
+    ok (S.fetch_to selected ~uid:(u 7L) (Eio.Flow.buffer_sink sink));
     if Buffer.contents sink <> "a\"b" then failwith "quoted body lost";
     expect "quoted body limit" (function E.Limit _ -> true | _ -> false)
-      (S.fetch_to selected ~max_bytes:3L ~uid:7L (Eio.Flow.buffer_sink sink));
+      (S.fetch_to selected ~max_bytes:3L ~uid:(u 7L)
+        (Eio.Flow.buffer_sink sink));
     Ok ())
 
 module Failing_sink = struct
@@ -306,7 +312,7 @@ let test_sink_failure_is_local () =
   with_lease ~caps:"IMAP4rev1 UNSELECT"
     [`Return ("* 1 FETCH (UID 7 BODY[] {3}\r\nabc)\r\n" ^ tag 3 ^ " OK done\r\n")]
     (fun selected ->
-      (match S.fetch_to selected ~uid:7L sink with
+      (match S.fetch_to selected ~uid:(u 7L) sink with
        | Error (E.State text)
          when String.starts_with ~prefix:"local FETCH sink failed" text -> ()
        | Error e -> failwith ("sink failure: " ^ C.error_to_string e)
@@ -320,7 +326,8 @@ let test_changes_keep_complete_rows () =
       "* 1 FETCH (UID 5 MODSEQ (8))\r\n" ^ tag 3 ^ " OK done\r\n");
     `Return (tag 4 ^ " OK unselected\r\n")] (fun selected ->
     let since = Result.get_ok (Imap.Modseq.of_int64 1L) in
-    (match ok (S.fetch_changes_range selected ~first:1L ~last:9L ~since) with
+    (match ok (S.fetch_changes_range selected ~first:(u 1L) ~last:(u 9L)
+        ~since) with
      | [{uid = Some 5L; flags = Some ["\\Seen"]; modseq = Some 7L; _}] -> ()
      | _ -> failwith "a row without FLAGS replaced a complete change");
     Ok ())
@@ -333,7 +340,8 @@ let test_search_page_at_uid_one () =
     let page = ok (S.uid_search_page selected "ALL") in
     if not page.complete || page.resume_before <> None then
       failwith "page ending at UID 1 was left open";
-    if ok (S.uid_search selected "ALL") <> [3L; 9L] then
+    let uids = ok (S.uid_search selected "ALL") in
+    if List.map Imap.Uid.to_int64 uids <> [3L; 9L] then
       failwith "SEARCH UIDs were not sorted and distinct";
     Ok ())
 
@@ -341,7 +349,8 @@ let test_metadata_modseq_needs_condstore () =
   with_lease ~caps:"IMAP4rev1 UNSELECT" [`Return (tag 3 ^ " OK unselected\r\n")]
     (fun selected ->
       expect "MODSEQ without CONDSTORE" (unsupported Imap.Capability.Condstore)
-        (S.fetch_metadata_range selected ~first:1L ~last:9L ~modseq:true);
+        (S.fetch_metadata_range selected ~first:(u 1L) ~last:(u 9L)
+          ~modseq:true);
       Ok ())
 
 let test_copyuid_source_checked () =

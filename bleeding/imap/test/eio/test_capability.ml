@@ -94,7 +94,9 @@ let test_qresync_not_enabled () =
     if not (C.has client Cap.Qresync) then failwith "QRESYNC not advertised";
     if C.is_enabled client Cap.Qresync then
       failwith "QRESYNC enabled without ENABLE";
-    (match C.with_mailbox client ~qresync:(1L, 5L) ~mode:`Read_only "INBOX"
+    let qresync = match Imap.Uidvalidity.of_int64 1L, Imap.Modseq.of_int64 5L
+      with Ok v, Ok m -> (v, m) | _ -> failwith "checkpoint" in
+    (match C.with_mailbox client ~qresync ~mode:`Read_only "INBOX"
        (fun _ -> Ok ()) with
      | Error (E.Not_enabled Cap.Qresync) -> ()
      | Error e -> failwith ("QRESYNC gate: " ^ C.error_to_string e)

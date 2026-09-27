@@ -32,7 +32,7 @@ type config = private {
   max_body_bytes : int64;
   max_total_bytes : int64;
   hydrate_bodies : bool;
-  after_uid : int64 option;
+  after_uid : Imap.Uid.t option;
   expected_revision : int64 option;
   propagate_deletions : bool;
   propagate_remote_deletions : bool;
@@ -40,8 +40,8 @@ type config = private {
   allow_bootstrap_duplicates : bool;
   operation_id : string;
   pair_id : string;
-  receipt_uidvalidity : int64 option;
-  receipt_uid : int64 option;
+  receipt_uidvalidity : Imap.Uidvalidity.t option;
+  receipt_uid : Imap.Uid.t option;
   evidence : string;
 }
 

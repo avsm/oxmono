@@ -36,8 +36,10 @@ let test t =
         Alcotest.(check string) "exact IMAP body" expected (Buffer.contents out);
         Ok ()) in
       let has uid criteria=selected (fun s ->
-        let found=imap (S.uid_search s (Printf.sprintf "UID %Ld %s" uid criteria)) in
-        Alcotest.(check (list int64)) criteria [uid] found;
+        let found=imap (S.uid_search s
+          (Printf.sprintf "UID %s %s" (Imap.Uid.to_string uid) criteria)) in
+        Alcotest.(check (list int64)) criteria [Imap.Uid.to_int64 uid]
+          (List.map Imap.Uid.to_int64 found);
         Ok ()) in
       let keywords id expected=
         let email=H.email t ~properties:[`Id;`Keywords] id in
@@ -61,7 +63,7 @@ let test t =
                               J.Email.Patch.set_keyword (`Custom "from-jmap")]] ()));
       has uid "SEEN KEYWORD from-jmap KEYWORD cross-label";
       selected (fun s ->
-        let set=Imap.Uid_set.singleton (value (Imap.Uid.of_int64 uid)) in
+        let set=Imap.Uid_set.singleton uid in
         ignore (imap (S.uid_store_flags s ~set ~operation:`Add
           ~flags:[value (Mail_flag.Imap_flag.of_wire "\\Flagged");
                   value (Mail_flag.Imap_flag.of_wire "from-imap")] ()));
@@ -71,7 +73,7 @@ let test t =
       (* RFC 8621 4.1.1 requires messages marked Deleted to be invisible
          through JMAP, even while their IMAP occurrence remains present. *)
       selected (fun s ->
-        let set=Imap.Uid_set.singleton (value (Imap.Uid.of_int64 uid)) in
+        let set=Imap.Uid_set.singleton uid in
         ignore (imap (S.uid_store_flags s ~set ~operation:`Add
           ~flags:[Mail_flag.Imap_flag.system Deleted] ()));
         Ok ());
@@ -84,7 +86,7 @@ let test t =
       Alcotest.(check int) "Deleted absent from JMAP query" 0
         (List.length (H.query_by_subject t subject));
       selected (fun s ->
-        let set=Imap.Uid_set.singleton (value (Imap.Uid.of_int64 uid)) in
+        let set=Imap.Uid_set.singleton uid in
         ignore (imap (S.uid_store_flags s ~set ~operation:`Remove
           ~flags:[Mail_flag.Imap_flag.system Deleted] ()));
         Ok ());
@@ -102,7 +104,7 @@ let test t =
       Alcotest.(check bool) "same isolated mailbox" true
         (List.mem (mailbox_id,true) (some email.mailbox_ids));
       keywords id ["$answered";"append-label"];
-      body (Imap.Uid.to_int64 receipt.uid) raw))
+      body receipt.uid raw))
 let unrepresentable () =
   let long=String.make 256 'x' in
   let flag=value (Mail_flag.Imap_flag.of_wire long) in

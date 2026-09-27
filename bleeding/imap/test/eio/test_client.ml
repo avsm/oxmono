@@ -1,5 +1,9 @@
 let fail e = failwith (Imap_eio.Client.error_to_string e)
 let ok = function Ok x -> x | Error e -> fail e
+let u n = match Imap.Uid.of_int64 n with Ok v -> v | Error e -> failwith e
+let uid_set s =
+  match Imap.Uid_set.of_wire s with Ok v -> v | Error e -> failwith e
+let raw_list = List.map Imap.Uid.to_int64
 
 let test_login_requires_tls () =
   let check mechanism =
@@ -40,7 +44,8 @@ let test_wrong_uid () =
   let sink = Buffer.create 8 in
   let outcome = Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected ->
-      Imap_eio.Selected.fetch_to selected ~uid:1L (Eio.Flow.buffer_sink sink)) in
+      Imap_eio.Selected.fetch_to selected ~uid:(u 1L)
+        (Eio.Flow.buffer_sink sink)) in
   (match outcome with
    | Error e when String.length (Imap_eio.Client.error_to_string e) > 0 -> ()
    | Error _ -> failwith "empty protocol error"
@@ -67,9 +72,9 @@ let test_cleanly_missing_uid_keeps_session () =
     ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   (match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
-    (fun selected -> Imap_eio.Selected.fetch_to selected ~uid:1L
+    (fun selected -> Imap_eio.Selected.fetch_to selected ~uid:(u 1L)
       (Eio.Flow.buffer_sink (Buffer.create 8))) with
-   | Error (Imap_eio.Error.Missing_uid 1L) -> ()
+   | Error (Imap_eio.Error.Missing_uid uid) when raw_list [uid]=[1L] -> ()
    | Error error -> failwith ("wrong missing-UID result: " ^
        Imap_eio.Client.error_to_string error)
    | Ok () -> failwith "absent UID was fetched");
@@ -247,7 +252,7 @@ let test_partial_fetch_never_completes_inventory () =
   let client = ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   let result = Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.fetch_metadata_range selected
-      ~first:1L ~last:1L ~modseq:false) in
+      ~first:(u 1L) ~last:(u 1L) ~modseq:false) in
   match result with
   | Error (Imap_eio.Error.Limit _) -> ()
   | Error e -> failwith ("wrong partial FETCH error: " ^
@@ -274,7 +279,7 @@ let test_metadata_fetch_messagelimit_resume () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   let rows=ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.fetch_metadata_range selected
-      ~first:1L ~last:3L ~modseq:false)) in
+      ~first:(u 1L) ~last:(u 3L) ~modseq:false)) in
   if List.map (fun (row:Imap.Response.fetch) -> row.uid) rows<>
       [Some 1L;Some 2L;Some 3L] then
     failwith "MESSAGELIMIT FETCH continuation lost metadata";
@@ -298,7 +303,7 @@ let test_metadata_fetch_missing_boundary () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   (match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.fetch_metadata_range selected
-      ~first:1L ~last:3L ~modseq:false) with
+      ~first:(u 1L) ~last:(u 3L) ~modseq:false) with
    | Error (Imap_eio.Error.Limit _) -> ()
    | Error error -> failwith ("missing FETCH boundary: " ^
        Imap_eio.Client.error_to_string error)
@@ -326,7 +331,7 @@ let test_changes_messagelimit_resume () =
     | Ok value -> value | Error message -> failwith message in
   let rows=ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.fetch_changes_range selected
-      ~first:1L ~last:3L ~since)) in
+      ~first:(u 1L) ~last:(u 3L) ~since)) in
   if List.map (fun (row:Imap.Response.fetch) -> row.uid) rows<>
       [Some 1L;Some 3L] then
     failwith "MESSAGELIMIT CHANGEDSINCE continuation lost changes";
@@ -352,7 +357,7 @@ let test_changes_messagelimit_missing_boundary () =
     | Ok value -> value | Error message -> failwith message in
   match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.fetch_changes_range selected
-      ~first:1L ~last:3L ~since) with
+      ~first:(u 1L) ~last:(u 3L) ~since) with
   | Error (Imap_eio.Error.Limit _) -> ()
   | Error error -> failwith ("wrong CHANGEDSINCE boundary error: " ^
       Imap_eio.Client.error_to_string error)
@@ -376,10 +381,10 @@ let test_typed_envelope_fetch () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   let rows=ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.uid_fetch_envelopes selected
-      ~uids:[1L;2L] ())) in
+      ~uids:[u 1L;u 2L] ())) in
   (match rows with
-   | [{uid=2L;envelope={subject=Some "Hello";
-       message_id=Some "<m@example.test>";_}}] -> ()
+   | [{uid;envelope={subject=Some "Hello";
+       message_id=Some "<m@example.test>";_}}] when raw_list [uid]=[2L] -> ()
    | _ -> failwith "typed ENVELOPE projection lost UID or fields");
   Imap_eio.Client.close client
 
@@ -401,11 +406,12 @@ let test_typed_bodystructure_fetch () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   let rows=ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.uid_fetch_bodystructures selected
-      ~uids:[1L;2L] ())) in
+      ~uids:[u 1L;u 2L] ())) in
   (match rows with
-   | [{uid=2L;bodystructure=Imap.Response.Single_part
+   | [{uid;bodystructure=Imap.Response.Single_part
        {media_type="TEXT";lines=Some 2L;
-        parameters=Some ["CHARSET","UTF-8"];_}}] -> ()
+        parameters=Some ["CHARSET","UTF-8"];_}}] when raw_list [uid]=[2L] ->
+       ()
    | _ -> failwith "typed BODYSTRUCTURE projection lost UID or fields");
   Imap_eio.Client.close client
 
@@ -598,7 +604,7 @@ let test_uidonly_partial_batches () =
       if page.partial<>Some ("1:2",Some "99") then
         failwith "PARTIAL ESEARCH page lost";
       let rows=ok (Imap_eio.Selected.uid_fetch_partial selected
-        ~set:"1:99" ~items:["FLAGS"] ~range:(1L,2L)) in
+        ~set:(uid_set "1:99") ~items:["FLAGS"] ~range:(1L,2L)) in
       (match rows with
        | [{uid=Some 99L;flags=Some ["\\Seen"];_}] -> ()
        | _ -> failwith "UIDFETCH page lost");
@@ -626,7 +632,7 @@ let test_untagged_messagelimit () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.fetch_metadata_range selected
-      ~first:1L ~last:1L ~modseq:false) with
+      ~first:(u 1L) ~last:(u 1L) ~modseq:false) with
   | Error (Imap_eio.Error.Limit _) -> ()
   | Error e -> failwith ("wrong partial completion error: " ^
       Imap_eio.Client.error_to_string e)
@@ -698,12 +704,12 @@ let test_search_messagelimit_resume () =
   ignore (ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected ->
       let first=ok (Imap_eio.Selected.uid_search_page selected "ALL") in
-      if first.complete || first.uids<>[2L;3L] ||
-         first.resume_before<>Some 2L then
+      if first.complete || raw_list first.uids<>[2L;3L] ||
+         Option.map Imap.Uid.to_int64 first.resume_before<>Some 2L then
         failwith "MESSAGELIMIT continuation lost";
       let second=ok (Imap_eio.Selected.uid_search_page selected
-        ~before:2L "ALL") in
-      if not second.complete || second.uids<>[1L] then
+        ~before:(u 2L) "ALL") in
+      if not second.complete || raw_list second.uids<>[1L] then
         failwith "MESSAGELIMIT continuation wrong";
       Ok ())));
   Imap_eio.Client.close client
@@ -727,7 +733,7 @@ let test_uidonly_rejects_sequence_updates () =
   ignore (ok (Imap_eio.Client.enable_uidonly client));
   match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.fetch_metadata_range selected
-      ~first:1L ~last:9L ~modseq:false) with
+      ~first:(u 1L) ~last:(u 9L) ~modseq:false) with
   | Error (Imap_eio.Error.Protocol _) -> ()
   | Error e -> failwith ("wrong UIDONLY mode error: " ^
       Imap_eio.Client.error_to_string e)
@@ -755,16 +761,17 @@ let test_preview () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   ignore (ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected ->
+      let raw rows = List.map (fun (row:Imap_eio.Selected.preview_row) ->
+        Imap.Uid.to_int64 row.uid,row.preview) rows in
       let rows=ok (Imap_eio.Selected.uid_fetch_previews selected
-        ~lazy_:true ~uids:[4L;2L;3L] ()) in
-      (match rows with
-       | [{uid=2L;preview=None}; {uid=3L;preview=Some ""};
-          {uid=4L;preview=Some "📧 hi"}] -> ()
+        ~lazy_:true ~uids:[u 4L;u 2L;u 3L] ()) in
+      (match raw rows with
+       | [2L,None; 3L,Some ""; 4L,Some "📧 hi"] -> ()
        | _ -> failwith "LAZY PREVIEW distinctions lost");
       let rows=ok (Imap_eio.Selected.uid_fetch_previews selected
-        ~uids:[2L] ()) in
-      (match rows with
-       | [{uid=2L;preview=Some "ready"}] -> ()
+        ~uids:[u 2L] ()) in
+      (match raw rows with
+       | [2L,Some "ready"] -> ()
        | _ -> failwith "non-LAZY PREVIEW missing");
       Ok ())));
   Imap_eio.Client.close client
@@ -787,7 +794,7 @@ let test_preview_rejects_nonlazy_nil () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.uid_fetch_previews selected
-      ~uids:[2L] ()) with
+      ~uids:[u 2L] ()) with
   | Error (Imap_eio.Error.Protocol _) -> ()
   | Error e -> failwith ("wrong PREVIEW NIL error: " ^
       Imap_eio.Client.error_to_string e)
@@ -810,7 +817,7 @@ let test_preview_rejects_large_literal_early () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.uid_fetch_previews selected
-      ~uids:[2L] ()) with
+      ~uids:[u 2L] ()) with
   | Error (Imap_eio.Error.Limit _) -> ()
   | Error e -> failwith ("wrong oversized PREVIEW error: " ^
       Imap_eio.Client.error_to_string e)
@@ -833,7 +840,7 @@ let test_preview_requires_capability () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   (match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.uid_fetch_previews selected
-      ~uids:[2L] ()) with
+      ~uids:[u 2L] ()) with
    | Error (Imap_eio.Error.Unsupported Imap.Capability.Preview) -> ()
    | Error e -> failwith ("wrong PREVIEW capability error: " ^
        Imap_eio.Client.error_to_string e)
@@ -859,10 +866,10 @@ let test_objectid_fetch () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   let rows=ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.uid_fetch_object_ids selected
-      ~uids:[8L;7L] ())) in
+      ~uids:[u 8L;u 7L] ())) in
   let expected : Imap_eio.Selected.object_id_row list = [
-    {uid=8L;email_id="M_8";thread_id=Some "T_8"};
-    {uid=7L;email_id="M_7";thread_id=None}] in
+    {uid=u 8L;email_id="M_8";thread_id=Some "T_8"};
+    {uid=u 7L;email_id="M_7";thread_id=None}] in
   if rows<>expected then failwith "typed OBJECTID results differ";
   Imap_eio.Client.close client
 
@@ -884,7 +891,7 @@ let test_objectid_plus_is_separate () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   (match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.uid_fetch_object_ids selected
-      ~uids:[7L] ()) with
+      ~uids:[u 7L] ()) with
    | Error (Imap_eio.Error.Unsupported Imap.Capability.Objectid) -> ()
    | Error error -> failwith ("wrong OBJECTID+ refusal: " ^
        Imap_eio.Client.error_to_string error)
@@ -910,7 +917,7 @@ let test_objectid_incomplete_row () =
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
   (match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.uid_fetch_object_ids selected
-      ~uids:[7L] ()) with
+      ~uids:[u 7L] ()) with
    | Error (Imap_eio.Error.Protocol
        "incomplete OBJECTID FETCH row") -> ()
    | Error error -> failwith ("wrong incomplete OBJECTID result: " ^
@@ -964,10 +971,10 @@ let test_objectid_plus_activation () =
        | Some {account_id=Some "u_account";
            mailbox_id=Some "F_box";_} -> ()
        | _ -> failwith "selected account-scoped OBJECTID missing");
-      Imap_eio.Selected.uid_fetch_object_ids_plus selected ~uids:[7L] ())) in
+      Imap_eio.Selected.uid_fetch_object_ids_plus selected ~uids:[u 7L] ())) in
   (match rows with
-   | [{uid=7L;ids={email_id=Some "M_7";
-       thread_id=Some "T_7";_}}] -> ()
+   | [{uid;ids={email_id=Some "M_7";
+       thread_id=Some "T_7";_}}] when raw_list [uid]=[7L] -> ()
    | _ -> failwith "typed OBJECTID+ FETCH result missing");
   Imap_eio.Client.close client
 
@@ -1080,7 +1087,7 @@ let test_selected_serialization () =
     (fun selected ->
       let results=ref [] in
       let search () =
-        let uids=ok (Imap_eio.Selected.uid_search selected "ALL") in
+        let uids=raw_list (ok (Imap_eio.Selected.uid_search selected "ALL")) in
         results:=uids::!results in
       Eio.Fiber.both search search;
       if List.sort compare !results <> [[1L];[2L]] then

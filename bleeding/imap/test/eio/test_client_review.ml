@@ -2,6 +2,8 @@ module C = Imap_eio.Client
 module A = Imap_eio.Auth
 module E = Imap_eio.Error
 let ok = function Ok x -> x | Error e -> failwith (C.error_to_string e)
+let u n = match Imap.Uid.of_int64 n with Ok v -> v | Error e -> failwith e
+let raw_list = List.map Imap.Uid.to_int64
 let contains text part =
   let rec loop i = i+String.length part<=String.length text &&
     (String.sub text i (String.length part)=part || loop (i+1)) in
@@ -98,12 +100,14 @@ let test_search_evidence () =
     | Error (E.Protocol _) -> ()
     | _ -> failwith "uncorrelated ESEARCH accepted");
   with_selected "* SEARCH 9 3 9\r\n" (fun with_mailbox ->
-    if ok (with_mailbox (fun selected ->
-      Imap_eio.Selected.uid_search_range selected ~first:3L ~last:9L))<>[3L;9L]
+    if raw_list (ok (with_mailbox (fun selected ->
+      Imap_eio.Selected.uid_search_range selected ~first:(u 3L)
+        ~last:(u 9L))))<>[3L;9L]
     then failwith "ordinary SEARCH range was not normalized");
   with_selected "* SEARCH 2\r\n" (fun with_mailbox ->
     match with_mailbox (fun selected ->
-      Imap_eio.Selected.uid_search_range selected ~first:3L ~last:9L) with
+      Imap_eio.Selected.uid_search_range selected ~first:(u 3L)
+        ~last:(u 9L)) with
     | Error (E.Protocol _) -> () | _ -> failwith "out-of-range SEARCH accepted");
   with_selected ~caps:"MESSAGELIMIT=2" "" (fun with_mailbox ->
     match with_mailbox (fun selected -> Imap_eio.Selected.uid_search_page selected "ALL") with
@@ -129,12 +133,13 @@ let test_fetch_order () =
   let row uid=Printf.sprintf "* 1 FETCH (UID %d ENVELOPE %s)\r\n" uid envelope in
   with_selected (row 1 ^ row 2) (fun with_mailbox ->
     let rows=ok (with_mailbox (fun selected ->
-      Imap_eio.Selected.uid_fetch_envelopes selected ~uids:[2L;1L] ())) in
-    if List.map (fun (row:Imap_eio.Selected.envelope_row) -> row.uid) rows<>[2L;1L]
+      Imap_eio.Selected.uid_fetch_envelopes selected ~uids:[u 2L;u 1L] ())) in
+    if List.map (fun (row:Imap_eio.Selected.envelope_row) ->
+        Imap.Uid.to_int64 row.uid) rows<>[2L;1L]
     then failwith "structured FETCH lost request order");
   with_selected (row 1 ^ row 1) (fun with_mailbox ->
     match with_mailbox (fun selected ->
-      Imap_eio.Selected.uid_fetch_envelopes selected ~uids:[1L] ()) with
+      Imap_eio.Selected.uid_fetch_envelopes selected ~uids:[u 1L] ()) with
     | Error (E.Protocol _) -> () | _ -> failwith "duplicate ENVELOPE accepted")
 
 let () =

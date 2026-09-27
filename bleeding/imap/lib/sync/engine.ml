@@ -1,6 +1,6 @@
 module Mirror = Imap.Mirror
-module Uids = Map.Make(Int64)
-module Uid_set = Set.Make(Int64)
+module Uids = Map.Make(Imap.Uid)
+module Found = Set.Make(Imap.Uid)
 
 type error =
   | Client of Imap_eio.Error.t
@@ -124,6 +124,16 @@ let observe_identity ~objectid_enabled ~store ~scope ~(cursor:Mirror.cursor)
   | `Unbound,Some previous when previous<>validity -> Ok None
   | _ -> observe_selected_identity ~store ~scope info
 
+(* Windows are counted in int64 because an empty mailbox has upper UID 0. *)
+let window first last =
+  let uid n = validation (fun s -> Incomplete s) (Imap.Uid.of_int64 n) in
+  let* first = uid first in
+  let* last = uid last in
+  Ok (first, last)
+
+let outside ~first ~last uid =
+  Imap.Uid.compare uid first < 0 || Imap.Uid.compare uid last > 0
+
 let pin_observed_identity ~client ~mailbox = function
   | None -> Ok ()
   | Some (identity:Imap_store.object_identity) ->
@@ -163,17 +173,17 @@ let scan ~max_windows ~max_rows ~modseq selected action =
     let rec fetch first by_uid =
       if first > upper then Ok by_uid else
       let last = Int64.min upper (Int64.add first 999L) in
+      let* first_uid, last_uid = window first last in
       let* fetched = network (Imap_eio.Selected.fetch_metadata_range selected
-        ~first ~last ~modseq) in
+        ~first:first_uid ~last:last_uid ~modseq) in
       let* by_uid = List.fold_left (fun accumulated
           (item : Imap.Response.fetch) ->
         let* by_uid = accumulated in
         let* parsed = row_of_fetch item in
         match parsed with
         | Some row ->
-            let raw_uid = Imap.Uid.to_int64 row.uid in
-            if not (Uids.mem raw_uid by_uid) then incr fetched_count;
-            let by_uid = Uids.add raw_uid row by_uid in
+            if not (Uids.mem row.uid by_uid) then incr fetched_count;
+            let by_uid = Uids.add row.uid row by_uid in
             if !fetched_count > max_rows then
               Error (Limit "metadata row budget exceeded")
             else Ok by_uid
@@ -185,24 +195,25 @@ let scan ~max_windows ~max_rows ~modseq selected action =
     let rec inventory first found =
       if first > upper then Ok found else
       let last = Int64.min upper (Int64.add first 999L) in
+      let* first_uid, last_uid = window first last in
       let* uids = network (Imap_eio.Selected.uid_search_range selected
-        ~first ~last) in
+        ~first:first_uid ~last:last_uid) in
       let* found = List.fold_left (fun accumulated uid ->
         let* found = accumulated in
-        if uid < first || uid > last then
+        if outside ~first:first_uid ~last:last_uid uid then
           Error (Incomplete "SEARCH returned UID outside requested range")
         else if not (Uids.mem uid by_uid) then
           Error (Incomplete "SEARCH found a UID absent from completed FETCH")
         else
-          (if not (Uid_set.mem uid found) then incr membership_count;
-          let found = Uid_set.add uid found in
+          (if not (Found.mem uid found) then incr membership_count;
+          let found = Found.add uid found in
           if !membership_count > max_rows then
             Error (Limit "membership row budget exceeded")
           else Ok found)) (Ok found) uids in
       inventory (Int64.succ last) found
     in
-    let* found = inventory 1L Uid_set.empty in
-    Ok (Uid_set.elements found |> List.map (fun uid -> Uids.find uid by_uid))
+    let* found = inventory 1L Found.empty in
+    Ok (Found.elements found |> List.map (fun uid -> Uids.find uid by_uid))
 
 let scan_qresync ~max_windows ~max_rows selected action
     (previous : Mirror.snapshot) ~frontier =
@@ -215,22 +226,20 @@ let scan_qresync ~max_windows ~max_rows selected action
     Error (Incomplete "UID frontier regressed during QRESYNC")
   else
     let old = List.fold_left (fun acc (row : Mirror.row) ->
-      Uids.add (Imap.Uid.to_int64 row.uid) row acc)
+      Uids.add row.uid row acc)
       Uids.empty (Mirror.rows previous) in
     let row_count = ref (Uids.cardinal old) in
     if !row_count > max_rows then
       Error (Limit "published metadata exceeds row budget")
     else
       let add map (row : Mirror.row) =
-        let uid = Imap.Uid.to_int64 row.Mirror.uid in
+        let uid = row.Mirror.uid in
         let previous = Uids.find_opt uid map in
         let newer = match previous with
           | None -> true
           | Some (old : Mirror.row) ->
               (match old.modseq, row.modseq with
-               | Some a, Some b ->
-                   Imap.Modseq.to_int64 b >=
-                     Imap.Modseq.to_int64 a
+               | Some a, Some b -> Imap.Modseq.compare b a >= 0
                | _ -> true) in
         if not newer then Ok map else (
           if previous = None then incr row_count;
@@ -252,8 +261,9 @@ let scan_qresync ~max_windows ~max_rows selected action
       let rec fetch_new first map =
         if first > upper then Ok map else
         let last = Int64.min upper (Int64.add first 999L) in
+        let* first_uid, last_uid = window first last in
         let* fetched = network (Imap_eio.Selected.fetch_metadata_range
-          selected ~first ~last ~modseq:true) in
+          selected ~first:first_uid ~last:last_uid ~modseq:true) in
         let* map = List.fold_left (fun accumulated fetched ->
           let* map = accumulated in
           let* row = row_of_fetch fetched in
@@ -265,22 +275,23 @@ let scan_qresync ~max_windows ~max_rows selected action
       let rec inventory first found =
         if first > upper then Ok found else
         let last = Int64.min upper (Int64.add first 999L) in
+        let* first_uid, last_uid = window first last in
         let* uids = network (Imap_eio.Selected.uid_search_range selected
-          ~first ~last) in
+          ~first:first_uid ~last:last_uid) in
         let* found = List.fold_left (fun accumulated uid ->
           let* found = accumulated in
-          if uid < first || uid > last then
+          if outside ~first:first_uid ~last:last_uid uid then
             Error (Incomplete "SEARCH returned UID outside requested range")
           else if not (Uids.mem uid by_uid) then
             Error (Incomplete "QRESYNC omitted a live UID")
           else (
-            if not (Uid_set.mem uid found) then incr found_count;
+            if not (Found.mem uid found) then incr found_count;
             if !found_count > max_rows then
               Error (Limit "QRESYNC membership exceeds row budget")
-            else Ok (Uid_set.add uid found))) (Ok found) uids in
+            else Ok (Found.add uid found))) (Ok found) uids in
         inventory (Int64.succ last) found in
-      let* found = inventory 1L Uid_set.empty in
-      Ok (Uid_set.elements found |> List.map (fun uid -> Uids.find uid by_uid))
+      let* found = inventory 1L Found.empty in
+      Ok (Found.elements found |> List.map (fun uid -> Uids.find uid by_uid))
 
 let run_once ?(max_windows=1000) ?(max_rows=100_000) ~client ~store
     ~scope ~mailbox ~stage_id () =
@@ -296,8 +307,7 @@ let run_once ?(max_windows=1000) ?(max_rows=100_000) ~client ~store
       current.cursor.anchor with
       | Some validity, Some anchor
         when Imap_eio.Client.is_enabled client Imap.Capability.Qresync ->
-          Some (Imap.Uidvalidity.to_int64 validity,
-                Imap.Modseq.to_int64 anchor)
+          Some (validity, anchor)
       | _ -> None in
     let* scan_result = network
       (Imap_eio.Client.with_mailbox client ?qresync
@@ -421,11 +431,12 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
                 | Some _ when first<=cursor.frontier ->
                     Int64.min last cursor.frontier
                 | _ -> last in
+              let* first_uid,last_uid=window first last in
               let* parsed=match incremental with
                 | Some anchor when last<=cursor.frontier ->
                     let* fetched=network
                       (Imap_eio.Selected.fetch_changes_range selected
-                        ~first ~last ~since:anchor) in
+                        ~first:first_uid ~last:last_uid ~since:anchor) in
                     List.fold_right (fun item acc ->
                       let* rest=acc in
                       let* row=row_of_fetch item in
@@ -437,7 +448,7 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
                 | _ ->
                     let* fetched=network
                       (Imap_eio.Selected.fetch_metadata_range selected
-                        ~first ~last ~modseq:use_modseq) in
+                        ~first:first_uid ~last:last_uid ~modseq:use_modseq) in
                     List.fold_right
                       (fun item acc ->
                         let* rest=acc in
@@ -455,9 +466,10 @@ let run_once_staged ?(max_windows=100_000) ?expected_uidvalidity
             let rec inventory first=
               if first>upper then Ok () else
               let last=Int64.min upper (Int64.add first 999L) in
+              let* first_uid,last_uid=window first last in
               let* found=network
                 (Imap_eio.Selected.uid_search_range selected
-                  ~first ~last) in
+                  ~first:first_uid ~last:last_uid) in
               let* ()=staged (fun () ->
                 Imap_store.stage_membership store ~stage_id
                   ~first ~last found) in
@@ -558,7 +570,7 @@ let with_fetched_uid ~max_bytes ~client ~store ~scope ~mailbox ~uid ~epoch
             if info.uidvalidity <> Imap.Uidvalidity.to_int64 epoch then
               Error Uidvalidity_changed
             else network (Imap_eio.Selected.fetch_to selected
-              ~max_bytes ~uid:(Imap.Uid.to_int64 uid) output)
+              ~max_bytes ~uid output)
           in Ok result)) in
     let* () = fetch_result in
     on_spool epoch spool)
@@ -671,7 +683,7 @@ let valid_spool_id id =
 let remote_size selected uid =
   let raw_uid=Imap.Uid.to_int64 uid in
   let* metadata=network (Imap_eio.Selected.fetch_metadata_range selected
-    ~first:raw_uid ~last:raw_uid ~modseq:false ~size:true) in
+    ~first:uid ~last:uid ~modseq:false ~size:true) in
   match List.find_opt (fun (row:Imap.Response.fetch) ->
       row.uid=Some raw_uid) metadata with
   | None -> Error (Incomplete "published UID vanished before hydration")
@@ -705,7 +717,7 @@ let hydrate_once ?after_uid ?(max_messages=100)
           let spool=Eio.Path.(spool_dir / ("imap-hydrate-" ^ id)) in
           Spool.with_spool spool (fun output ->
             let* ()=network (Imap_eio.Selected.fetch_to selected
-              ~max_bytes:size ~uid:(Imap.Uid.to_int64 uid) output) in
+              ~max_bytes:size ~uid output) in
             Eio.Path.with_open_in spool (fun input ->
               let length=Optint.Int63.to_int64 (Eio.File.size input) in
               if length<>size then Error (Incomplete

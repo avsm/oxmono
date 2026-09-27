@@ -2,6 +2,7 @@ module C=Imap_eio.Client
 module S=Imap_eio.Selected
 module E=Imap_eio.Error
 let ok=function Ok x -> x | Error e -> failwith (C.error_to_string e)
+let u n = match Imap.Uid.of_int64 n with Ok v -> v | Error e -> failwith e
 let expect label kind=function
   | Error e when kind e -> ()
   | Error e -> failwith (label ^ ": " ^ C.error_to_string e)
@@ -99,8 +100,9 @@ let test_coalesced_and_fragmented () =
       if Buffer.length raw.written<>written then failwith "second COMPRESS was sent";
       let sink=Buffer.create 1024 in
       ok (C.with_mailbox client ~mode:`Read_only "INBOX" (fun selected ->
-        ok (S.fetch_to selected ~uid:7L (Eio.Flow.buffer_sink sink));
-        if ok (S.uid_search selected "ALL")<>[7L] then failwith "compressed SEARCH result lost";
+        ok (S.fetch_to selected ~uid:(u 7L) (Eio.Flow.buffer_sink sink));
+        if List.map Imap.Uid.to_int64 (ok (S.uid_search selected "ALL"))<>[7L]
+        then failwith "compressed SEARCH result lost";
         Ok ()));
       if Buffer.contents sink<>String.make 1024 'x' then failwith "compressed literal changed";
       let expected="A00000005 EXAMINE INBOX\r\n" ^

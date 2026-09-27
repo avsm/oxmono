@@ -153,9 +153,8 @@ let remote_metadata selected ~epoch ~uid ~modseq =
   if info.uidvalidity<>Imap.Uidvalidity.to_int64 epoch then
     Error Stale_inventory
   else
-    let raw=Imap.Uid.to_int64 uid in
     let* rows=network (Imap_eio.Selected.fetch_metadata_range selected
-      ~first:raw ~last:raw ~modseq) in
+      ~first:uid ~last:uid ~modseq) in
     match rows with
     | {flags=Some raw_flags;modseq;_} :: _ ->
         let* parsed=decode_flags raw_flags in
@@ -187,7 +186,7 @@ let remote_evidence ?(precheck=fun _ -> Ok ()) client ~mailbox ~mode ~spool
       | Some (flags,_) when not (same_flags flags expected) -> Ok `Changed
       | Some (_,modseq) ->
           match Imap_eio.Selected.fetch_to selected ~max_bytes:length
-              ~uid:(Imap.Uid.to_int64 uid) sink with
+              ~uid sink with
           | Error (Imap_eio.Error.Missing_uid _) -> Ok `Absent
           | Error (Imap_eio.Error.Limit _) -> Ok `Changed
           | Error error -> Error (Client error)

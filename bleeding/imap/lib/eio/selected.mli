@@ -22,19 +22,19 @@ type saved_search
 val saved_search_count : saved_search -> int64
 val uid_search_save : t -> criterion:string -> (saved_search, Error.t) result
 val uid_search_saved :
-  saved_search -> criterion:string -> (int64 list, Error.t) result
+  saved_search -> criterion:string -> (Imap.Uid.t list, Error.t) result
 val uid_fetch_saved : saved_search -> ?partial:(int64 * int64) ->
   items:string list -> unit -> (Imap.Response.fetch list, Error.t) result
-val uid_search : t -> string -> (int64 list, Error.t) result
+val uid_search : t -> string -> (Imap.Uid.t list, Error.t) result
 val uid_sort :
   t -> keys:(Imap.Command.sort_key * Imap.Command.sort_order) list ->
-  charset:string -> criterion:string -> (int64 list, Error.t) result
+  charset:string -> criterion:string -> (Imap.Uid.t list, Error.t) result
 
 type sort_result = {
   count : int64;
-  first : int64 option;
-  last : int64 option;
-  uids : int64 list option;
+  first : Imap.Uid.t option;
+  last : Imap.Uid.t option;
+  uids : Imap.Uid.t list option;
   range : (int64 * int64) option;
 }
 
@@ -48,79 +48,79 @@ val uid_search_partial : t -> range:(int64 * int64) -> criterion:string ->
   (Imap.Response.esearch, Error.t) result
 
 type search_page = {
-  uids : int64 list;
+  uids : Imap.Uid.t list;
   complete : bool;
   limit : int64 option;
-  resume_before : int64 option;
+  resume_before : Imap.Uid.t option;
 }
 
-val uid_search_page : t -> ?before:int64 -> string ->
+val uid_search_page : t -> ?before:Imap.Uid.t -> string ->
   (search_page, Error.t) result
-val uid_search_range : t -> first:int64 -> last:int64 ->
-  (int64 list, Error.t) result
-val uid_fetch_partial : t -> set:string -> items:string list ->
+val uid_search_range : t -> first:Imap.Uid.t -> last:Imap.Uid.t ->
+  (Imap.Uid.t list, Error.t) result
+val uid_fetch_partial : t -> set:Imap.Uid_set.t -> items:string list ->
   range:(int64 * int64) -> (Imap.Response.fetch list, Error.t) result
 
 val fetch_binary_to : t -> ?max_bytes:int64 -> ?partial:(int64 * int64) ->
-  uid:int64 -> section:int list -> _ Eio.Flow.sink ->
+  uid:Imap.Uid.t -> section:int list -> _ Eio.Flow.sink ->
   (int64 option, Error.t) result
 (** [fetch_binary_to t ~uid ~section sink] streams decoded BINARY.PEEK bytes
     into [sink], which stay provisional until the call returns [Ok]. *)
 
-type binary_size_row = { uid : int64; size : int64 }
+type binary_size_row = { uid : Imap.Uid.t; size : int64 }
 
-val uid_fetch_binary_sizes : t -> uids:int64 list -> section:int list ->
+val uid_fetch_binary_sizes : t -> uids:Imap.Uid.t list -> section:int list ->
   unit -> (binary_size_row list, Error.t) result
 
-val fetch_to : t -> ?max_bytes:int64 -> uid:int64 ->
+val fetch_to : t -> ?max_bytes:int64 -> uid:Imap.Uid.t ->
   _ Eio.Flow.sink -> (unit, Error.t) result
 (** [fetch_to t ~uid sink] streams the message body into [sink], which stays
     provisional until the call returns [Ok ()]. *)
 
-val uid_fetch : t -> set:string -> items:string list ->
+val uid_fetch : t -> set:Imap.Uid_set.t -> items:string list ->
   (string list, Error.t) result
 (** [uid_fetch t ~set ~items] is the raw text of every FETCH row in the
     response. *)
 
 type envelope_row = {
-  uid : int64;
+  uid : Imap.Uid.t;
   envelope : Imap.Response.envelope;
 }
 
-val uid_fetch_envelopes : t -> uids:int64 list -> unit ->
+val uid_fetch_envelopes : t -> uids:Imap.Uid.t list -> unit ->
   (envelope_row list, Error.t) result
 
 type bodystructure_row = {
-  uid : int64;
+  uid : Imap.Uid.t;
   bodystructure : Imap.Response.bodystructure;
 }
 
-val uid_fetch_bodystructures : t -> uids:int64 list -> unit ->
+val uid_fetch_bodystructures : t -> uids:Imap.Uid.t list -> unit ->
   (bodystructure_row list, Error.t) result
 
-type preview_row = { uid : int64; preview : string option }
+type preview_row = { uid : Imap.Uid.t; preview : string option }
 
-val uid_fetch_previews : t -> ?lazy_:bool -> uids:int64 list -> unit ->
+val uid_fetch_previews : t -> ?lazy_:bool -> uids:Imap.Uid.t list -> unit ->
   (preview_row list, Error.t) result
 
 type object_id_row = {
-  uid : int64;
+  uid : Imap.Uid.t;
   email_id : string;
   thread_id : string option;
 }
 
-val uid_fetch_object_ids : t -> uids:int64 list -> unit ->
+val uid_fetch_object_ids : t -> uids:Imap.Uid.t list -> unit ->
   (object_id_row list, Error.t) result
 
 type object_id_plus_row = {
-  uid : int64;
+  uid : Imap.Uid.t;
   ids : Imap.Response.compound_object_id;
 }
 
-val uid_fetch_object_ids_plus : t -> uids:int64 list -> unit ->
+val uid_fetch_object_ids_plus : t -> uids:Imap.Uid.t list -> unit ->
   (object_id_plus_row list, Error.t) result
 val fetch_metadata_range : ?size:bool -> ?internal_date:bool ->
-  t -> first:int64 -> last:int64 ->
+  t -> first:Imap.Uid.t -> last:Imap.Uid.t ->
   modseq:bool -> (Imap.Response.fetch list, Error.t) result
 
 type store_receipt = {
@@ -168,7 +168,7 @@ val wait_for_change : t -> (Imap.Response.t list, Error.t) result
 val fetch_changes : t -> set:Imap.Uid_set.t ->
   since:Imap.Modseq.t -> vanished:bool ->
   (Imap.Response.t list, Error.t) result
-val fetch_changes_range : t -> first:int64 -> last:int64 ->
+val fetch_changes_range : t -> first:Imap.Uid.t -> last:Imap.Uid.t ->
   since:Imap.Modseq.t -> (Imap.Response.fetch list, Error.t) result
 val uid_batches : t -> ?range:(int64 * int64) -> size:int64 ->
   unit -> (Imap.Response.uidbatches, Error.t) result

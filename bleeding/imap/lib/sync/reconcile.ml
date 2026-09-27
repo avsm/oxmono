@@ -36,6 +36,10 @@ type report =
 
 let ( let* ) result f = match result with Ok x -> f x | Error _ as e -> e
 let network = function Ok value -> Ok value | Error error -> Error (Client error)
+let checked = function
+  | Ok value -> Ok value
+  | Error message -> Error (Incomplete message)
+let uid n = checked (Imap.Uid.of_int64 n)
 
 let flags_equal expected raw =
   let rec parse acc = function
@@ -89,10 +93,8 @@ let inspect_append ?(max_windows=1000) ?(max_candidates=1000)
                 (fun selected ->
                   let result =
                     let* info = network (Imap_eio.Selected.info selected) in
-                    let* server_uidvalidity = match
-                      Imap.Uidvalidity.of_int64 info.uidvalidity with
-                      | Ok value -> Ok value
-                      | Error message -> Error (Incomplete message) in
+                    let* server_uidvalidity =
+                      checked (Imap.Uidvalidity.of_int64 info.uidvalidity) in
                     if server_uidvalidity <> journal_uidvalidity then
                       Ok (Epoch_changed {journal_uidvalidity;
                         server_uidvalidity})
@@ -118,12 +120,15 @@ let inspect_append ?(max_windows=1000) ?(max_candidates=1000)
                                 (Int64.add first 999L) in
                               let criterion = Printf.sprintf "UID %Ld:%Ld"
                                 first last in
+                              let* first_uid = uid first in
+                              let* last_uid = uid last in
                               let* uids = network
                                 (Imap_eio.Selected.uid_search selected criterion) in
-                              let uids = List.sort_uniq Int64.compare uids in
+                              let uids = List.sort_uniq Imap.Uid.compare uids in
                               let* rows = network
                                 (Imap_eio.Selected.fetch_metadata_range selected
-                                  ~first ~last ~modseq:false) in
+                                  ~first:first_uid ~last:last_uid
+                                  ~modseq:false) in
                               let flags = List.fold_left (fun acc
                                   (row : Imap.Response.fetch) ->
                                 match row.uid, row.flags with
@@ -131,21 +136,19 @@ let inspect_append ?(max_windows=1000) ?(max_candidates=1000)
                                 | _ -> acc) Uids.empty rows in
                               let rec candidates matches = function
                                 | [] -> scan (Int64.succ last) matches
-                                | raw_uid :: rest ->
-                                    if raw_uid < first || raw_uid > last then
+                                | uid :: rest ->
+                                    if Imap.Uid.compare uid first_uid < 0 ||
+                                       Imap.Uid.compare uid last_uid > 0 then
                                       Error (Incomplete "SEARCH UID outside requested range")
                                     else if !examined >= max_candidates then
                                       Error (Limit "candidate count exceeds budget")
                                     else (
                                       incr examined;
-                                      let* uid = match Imap.Uid.of_int64 raw_uid with
-                                        | Ok uid -> Ok uid
-                                        | Error message -> Error (Incomplete message) in
                                       let fetched = Spool.with_spool spool
                                         (fun output ->
                                           let* () = network
                                             (Imap_eio.Selected.fetch_to selected
-                                              ~max_bytes ~uid:raw_uid output) in
+                                              ~max_bytes ~uid output) in
                                           let length, sha256 = Spool.hash_file spool in
                                           Ok (length,sha256)) in
                                       let* length, sha256 = fetched in
@@ -159,7 +162,8 @@ let inspect_append ?(max_windows=1000) ?(max_candidates=1000)
                                       else
                                         let* flags_match = match
                                           expected_flags,
-                                          Uids.find_opt raw_uid flags with
+                                          Uids.find_opt (Imap.Uid.to_int64 uid)
+                                            flags with
                                           | Some expected, Some raw ->
                                               let* equal = flags_equal expected raw in
                                               Ok (Some equal)

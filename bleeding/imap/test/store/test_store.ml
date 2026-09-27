@@ -639,7 +639,7 @@ let test_disk_stage env =
         if first>count then () else
         let last=Int64.min count (Int64.add first 999L) in
         Store.stage_membership db ~stage_id:planned.id ~first ~last
-          (window first last);
+          (List.map uid (window first last));
         search (Int64.succ last) in
       search 1L;
       let receipt=match Store.publish_stage db ~cursor ~action:planned
@@ -657,7 +657,7 @@ let test_disk_stage env =
       let first=row 1L [] in
       Store.stage_rows db ~stage_id:stale.id ~first:1L ~last:count [first];
       Store.stage_membership db ~stage_id:stale.id
-        ~first:1L ~last:count [1L];
+        ~first:1L ~last:count [uid 1L];
       Alcotest.(check bool) "stale CAS leaves published data" true
         (Store.publish_stage db ~cursor ~action:stale
           ~explicit_highestmodseq:(Some (modseq 73L)) ~nomodseq:false
@@ -702,7 +702,7 @@ let test_stage_blob_refs env =
       Store.stage_rows db ~stage_id:action.id ~first:1L ~last:4L
         [row 2L []];
       Store.stage_membership db ~stage_id:action.id ~first:1L ~last:4L
-        [2L];
+        [uid 2L];
       (match Store.publish_stage db ~cursor ~action
         ~explicit_highestmodseq:(Some (modseq 18L)) ~nomodseq:false with
        | `Committed _ -> ()
@@ -1258,7 +1258,7 @@ let test_seeded_stage_modseq_and_membership env =
     ~preserve_newer:true
     [delta 1L 16L [];delta 2L 18L [flag "\\Flagged"]];
   Store.stage_membership db ~stage_id:action.id ~first:1L ~last:4L
-    [1L;2L];
+    [uid 1L;uid 2L];
   (match Store.publish_stage db ~cursor ~action
     ~explicit_highestmodseq:(Some (modseq 18L)) ~nomodseq:false with
    | `Committed _ -> ()

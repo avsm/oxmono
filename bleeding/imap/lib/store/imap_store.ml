@@ -234,6 +234,7 @@ let stage_membership t ~stage_id ~first ~last uids =
     with_stmt t "UPDATE scan_rows SET seen=1 WHERE stage_id=? AND uid=?"
     @@ fun mark_stmt ->
     List.iter (fun uid ->
+      let uid=Imap.Uid.to_int64 uid in
       if uid<first || uid>last then
         invalid_arg (who ^ ": UID outside SEARCH range");
       if Hashtbl.mem unique uid then invalid_arg (who ^ ": duplicate UID");

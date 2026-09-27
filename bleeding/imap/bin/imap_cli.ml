@@ -29,7 +29,7 @@ type config = {
   max_body_bytes : int64;
   max_total_bytes : int64;
   hydrate_bodies : bool;
-  after_uid : int64 option;
+  after_uid : Imap.Uid.t option;
   expected_revision : int64 option;
   propagate_deletions : bool;
   propagate_remote_deletions : bool;
@@ -37,8 +37,8 @@ type config = {
   allow_bootstrap_duplicates : bool;
   operation_id : string;
   pair_id : string;
-  receipt_uidvalidity : int64 option;
-  receipt_uid : int64 option;
+  receipt_uidvalidity : Imap.Uidvalidity.t option;
+  receipt_uid : Imap.Uid.t option;
   evidence : string;
 }
 
@@ -229,6 +229,10 @@ let parse ~getenv argv =
     match int_of_string_opt s with
     | Some n when n>=1 && n<=bound -> Ok n
     | _ -> Error (label ^ " must be between 1 and " ^ string_of_int bound) in
+  let identifier of_int64 label s =
+    match Option.map of_int64 (Int64.of_string_opt s) with
+    | Some (Ok value) -> Ok value
+    | _ -> Error (label ^ " must be between 1 and 4294967295") in
   let* max_transfers=positive 10000 "--max-transfers" !max_transfers in
   let* max_cycles=positive 100000 "--max-cycles" !max_cycles in
   let* max_inspect=positive 10000 "--max-inspect" !max_inspect in
@@ -245,9 +249,8 @@ let parse ~getenv argv =
   let* max_body_bytes=bounded_bytes "--max-body-bytes" !max_body_bytes in
   let* max_total_bytes=bounded_bytes "--max-total-bytes" !max_total_bytes in
   let* after_uid=if !after_uid_arg="" then Ok None else
-    match Int64.of_string_opt !after_uid_arg with
-    | Some uid when uid>=1L && uid<=4_294_967_295L -> Ok (Some uid)
-    | _ -> Error "--after-uid must be between 1 and 4294967295" in
+    let* uid=identifier Imap.Uid.of_int64 "--after-uid" !after_uid_arg in
+    Ok (Some uid) in
   let* expected_revision=if !expected_revision_arg="" then Ok None else
     match Int64.of_string_opt !expected_revision_arg with
     | Some revision when revision>=0L -> Ok (Some revision)
@@ -306,11 +309,10 @@ let parse ~getenv argv =
       let* evidence=required "--evidence" !evidence_arg in
       let* _=required "--maildir" maildir in
       let* evidence=validate_evidence evidence in
-      let* epoch=positive 4294967295 "--uidvalidity"
+      let* epoch=identifier Imap.Uidvalidity.of_int64 "--uidvalidity"
         !uidvalidity_arg in
-      let* uid=positive 4294967295 "--uid" !uid_arg in
-      Ok (operation_id,Some (Int64.of_int epoch),Some (Int64.of_int uid),
-        evidence)
+      let* uid=identifier Imap.Uid.of_int64 "--uid" !uid_arg in
+      Ok (operation_id,Some epoch,Some uid,evidence)
     | Repair_local_delete | Repair_local_append | Settle_flags |
       Reject_remote_delete | Finish_remote_delete ->
       let* operation_id=required "--operation-id" !operation_id_arg in
@@ -577,11 +579,7 @@ let audit_cache config ~fs =
     Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_path ~sw ~blob_dir db in
     let scope=local_scope config store in
-    let after_uid=Option.map (fun value ->
-      match Imap.Uid.of_int64 value with
-      | Ok uid -> uid | Error message -> invalid_arg message)
-      config.after_uid in
-    match Imap_sync.Engine.audit_cache_once ?after_uid
+    match Imap_sync.Engine.audit_cache_once ?after_uid:config.after_uid
       ?expected_revision:config.expected_revision
       ~max_messages:config.max_transfers
       ~max_total_bytes:config.max_total_bytes ~store ~scope () with
@@ -754,12 +752,8 @@ let inspect config ~fs =
   if !conflict_count>0 then 4 else if !count>0 then 3 else 0)
 
 let repair_appenduid config ~fs =
-  let raw_epoch=Option.get config.receipt_uidvalidity
-  and raw_uid=Option.get config.receipt_uid in
-  let uidvalidity=match Imap.Uidvalidity.of_int64 raw_epoch with
-    | Ok value -> value | Error message -> invalid_arg message in
-  let uid=match Imap.Uid.of_int64 raw_uid with
-    | Ok value -> value | Error message -> invalid_arg message in
+  let uidvalidity=Option.get config.receipt_uidvalidity
+  and uid=Option.get config.receipt_uid in
   Eio.Switch.run @@ fun sw ->
   let db_path=Eio.Path.(fs / config.db) in
   if Eio.Path.kind ~follow:false db_path <> `Regular_file then (

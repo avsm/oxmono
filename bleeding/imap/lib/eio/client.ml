@@ -588,6 +588,9 @@ let with_mailbox t ?qresync ?objectid ~mode mailbox callback =
       let condstore = Option.is_none qresync &&
         (Session.has session Cap.Condstore ||
          Session.has session Cap.Qresync) in
+      let qresync = Option.map (fun (validity, modseq) ->
+        Imap.Uidvalidity.to_int64 validity, Imap.Modseq.to_int64 modseq)
+        qresync in
       let syntax = syntax (Imap.Command.select
         ~readonly:(mode = `Read_only) ~condstore ?qresync ?objectid
         mailbox_wire) in

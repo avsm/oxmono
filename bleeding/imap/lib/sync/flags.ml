@@ -169,7 +169,7 @@ let check_epoch (info:Imap.Response.select_metadata) epoch =
 let remote selected ~uid ~modseq =
   let raw=Imap.Uid.to_int64 uid in
   let* rows=network (Imap_eio.Selected.fetch_metadata_range selected
-    ~first:raw ~last:raw ~modseq) in
+    ~first:uid ~last:uid ~modseq) in
   match rows with
   | [row] when row.uid=Some raw ->
       (match row.flags with

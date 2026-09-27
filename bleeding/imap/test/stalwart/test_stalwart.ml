@@ -135,7 +135,9 @@ let test_protocol () =
     (Eio.Flow.string_source body)) in
   let receipt = match receipt with Some r -> r | None ->
     Alcotest.fail "advertised UIDPLUS did not return APPENDUID" in
-  let receipt_uid = Imap.Uid.to_int64 receipt.uid in
+  let receipt_uid = receipt.uid in
+  let raw_receipt_uid = Imap.Uid.to_int64 receipt_uid in
+  let raw_uids = List.map Imap.Uid.to_int64 in
   let validity, checkpoint = unwrap (Client.with_mailbox client ?objectid
     ~mode:`Read_write mailbox (fun selected ->
       let* info = Selected.info selected in
@@ -148,13 +150,13 @@ let test_protocol () =
         (info.uidvalidity = Imap.Uidvalidity.to_int64 receipt.uidvalidity);
       let* uids = Selected.uid_search selected "ALL" in
       Alcotest.(check (list int64)) "APPENDUID UID"
-        [receipt_uid] uids;
+        [raw_receipt_uid] (raw_uids uids);
       let* ()=if objectid_plus then
         let* objects=Selected.uid_fetch_object_ids_plus selected
           ~uids:[receipt_uid] () in
         (match objects with
          | [{uid;ids={email_id=Some _;thread_id=Some _;_}}]
-             when uid=receipt_uid -> Ok ()
+             when Imap.Uid.equal uid receipt_uid -> Ok ()
          | _ -> Alcotest.fail "OBJECTID+ omitted message identifiers")
         else Ok () in
       let output = Buffer.create (String.length body) in
@@ -165,7 +167,7 @@ let test_protocol () =
       let* rows = Selected.fetch_metadata_range selected
         ~first:receipt_uid ~last:receipt_uid ~modseq:true in
       let modseq = match rows with
-        | [row] when row.uid = Some receipt_uid ->
+        | [row] when row.uid = Some raw_receipt_uid ->
             (match row.modseq with Some n -> n | None ->
               Alcotest.fail "CONDSTORE omitted MODSEQ")
         | _ -> Alcotest.fail "missing CONDSTORE metadata" in
@@ -180,7 +182,11 @@ let test_protocol () =
       Alcotest.(check bool) "conditional STORE accepted" true
         (Imap.Uid_set.is_empty accepted.modified);
       Ok (info.uidvalidity, modseq))) in
-  unwrap (Client.with_mailbox client ?objectid ~qresync:(validity, checkpoint)
+  let qresync = match Imap.Uidvalidity.of_int64 validity,
+      Imap.Modseq.of_int64 checkpoint with
+    | Ok validity, Ok checkpoint -> (validity, checkpoint)
+    | Error e, _ | _, Error e -> Alcotest.fail e in
+  unwrap (Client.with_mailbox client ?objectid ~qresync
     ~mode:`Read_only mailbox (fun selected ->
       let* info = Selected.info selected in
       Alcotest.(check bool) "QRESYNC selected MODSEQ" true
@@ -189,7 +195,7 @@ let test_protocol () =
         (match info.highestmodseq with Some n -> n > checkpoint | None -> false);
       let* uids = Selected.uid_search selected "ALL" in
       Alcotest.(check (list int64)) "QRESYNC preserved UID"
-        [receipt_uid] uids;
+        [raw_receipt_uid] (raw_uids uids);
       Ok ()))
 
 let test_bridge () =
@@ -252,7 +258,7 @@ let test_bridge () =
   Alcotest.(check int) "local uploaded" 1 uploaded.local_to_remote;
   let pair = match Imap_store.Journal.find_local store ~scope ~local_id:local.id with
     | Some pair -> pair | None -> Alcotest.fail "upload pair missing" in
-  let uid = match pair.remote_uid with Some uid -> Imap.Uid.to_int64 uid | None ->
+  let uid = match pair.remote_uid with Some uid -> uid | None ->
     Alcotest.fail "upload UIDPLUS receipt missing" in
   unwrap (Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected ->
@@ -324,7 +330,8 @@ let test_objectid_binding () =
   unwrap (Client.with_mailbox mutator ~mode:`Read_only mailbox
     (fun selected ->
       let* uids = Selected.uid_search selected "ALL" in
-      Alcotest.(check (list int64)) "replacement remains empty" [] uids;
+      Alcotest.(check (list int64)) "replacement remains empty" []
+        (List.map Imap.Uid.to_int64 uids);
       Ok ()));
   unwrap (Client.with_mailbox mutator ~mode:`Read_only renamed
     (fun selected ->

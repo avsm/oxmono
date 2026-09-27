@@ -232,7 +232,8 @@ let anchor_requires_explicit env = with_store env (fun ~path:_ ~dir:_ db ->
   let staged n m : M.row = {uid=uid n; flags=[]; modseq=Some (modseq m)} in
   Store.stage_rows db ~stage_id:action.id ~first:1L ~last:4L
     [staged 1L 20L; staged 2L 30L];
-  Store.stage_membership db ~stage_id:action.id ~first:1L ~last:4L [1L;2L];
+  Store.stage_membership db ~stage_id:action.id ~first:1L ~last:4L
+    [uid 1L;uid 2L];
   match Store.publish_stage db ~cursor ~action ~explicit_highestmodseq:None
       ~nomodseq:false with
   | `Committed receipt ->

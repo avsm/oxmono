@@ -125,7 +125,8 @@ run only once everything else works.
 | 12 | CLI on cmdliner with one term per command and a single `deletion_policy` option; also applies every `bin/imap_cli.ml` finding from 0.R and wires the blob orphan collector and `forget_epochs` into startup under the writer lease | done | e03ce0e85 |
 | 13 | `imap.mli` facade, `.mld` pages, `(documentation)` stanza, dune-project dependency fixes | done | 796c75184 |
 | 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | done | b6957cba1 |
-| 15 | Redocumentation pass under doc-style over every public interface | in progress: three worktree agents (protocol and maildir; eio and store facades; sync, cli and pages), merged onto minus39 by rebase | |
+| 15 | Redocumentation pass under doc-style over every public interface | done; three worktree branches merged | cdbd2e380 |
+| 15b | Fix the code contracts the redocumentation pass found contradicted, listed under the step 15b note | todo | |
 | 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
@@ -959,6 +960,54 @@ injection point for a journal failure. `dune build @bleeding/imap/all` and
 test cases.
 
 #### F: cli
+
+### Step 15b note
+
+The redocumentation agents read every implementation against its intended
+contract and found these places where the code, not the doc, is wrong.
+Fix each with a directed test, in this order.
+
+1. `Flags.reconcile_pair` and `Deletion.reconcile_pair`: an uncertain STORE
+   or EXPUNGE marks the operation ambiguous but returns `Client`, so the CLI
+   exits 6 where 3 is right; return `Pending_operations [id]`. A failed
+   verification read after a flag STORE returns the read's error and leaves
+   the operation `Sent`; mark it ambiguous with the reason and return
+   `Pending_operations` too.
+2. `Bridge.copy_once` never passes `propagate_deleted`, so a Deleted change
+   is always held; add `?propagate_deleted` (default false) and a
+   `--propagate-deleted-flag` option on `sync`, `plan-sync` and
+   `plan-deletions`, documented in bin/README.md.
+3. An unknown operation ID is `No_pending_operation` in `settle_flags`,
+   `Diverged` in the three deletion repairs and `Invalid_operation` in
+   `local_append`, `record_appenduid` and `inspect_append_candidates`; make
+   it `No_pending_operation` everywhere and keep the CLI's exit 9.
+4. A missing spool directory or a bad budget is `Limit` in
+   `Engine.hydrate_once` and `audit_cache_once` and `Unsupported` in the two
+   remote-delete repairs; make it `Invalid_configuration` everywhere.
+5. `Deletion.reconcile_pair` reports a pair of another scope as
+   `Stale_inventory`; report `Stale_pair`.
+6. `Bridge.copy_once` takes the writer lease before validating arguments,
+   so a busy lease hides `Invalid_configuration`; validate first.
+7. `Selected.Uidbatches.uid_batches` records the mailbox before sending, so
+   a rejected request still blocks the next one, and it remembers only the
+   previous mailbox; record after tagged OK, per mailbox.
+8. `Selected.Sort.uid_sort` and `Thread.uid_thread` report more than
+   100,000 results as `Protocol`; every other expansion bound is `Limit`.
+9. `Imap_store.Journal.note_presence` raises `Invalid_argument` when the
+   published generation has moved on; return `Stale_revision`.
+10. `confirm_intent ~uid:None` clears the stored UID while
+    `~uidvalidity:None` keeps the stored UIDVALIDITY; keep both.
+11. `Imap_store.publish_stage` checks coverage before staleness, so a stale
+    cursor over an incomplete stage raises; check staleness first.
+12. `Response` STATUS accepts any token as the mailbox name, so
+    `* STATUS ((MESSAGES 1)` yields the mailbox `(`; require an astring.
+13. `Response` ESEARCH accepts `MODSEQ 0`; RFC 7162 requires a positive
+    value.
+14. `Response.fetch_objectid` skips the 1 MiB and balanced-quote checks the
+    other FETCH extractors apply; apply them.
+15. `Maildir.check_append` reads the keyword map without the metadata lock;
+    take the lock or document the race precisely, whichever the callers
+    need.
 
 ### Step 15 notes
 

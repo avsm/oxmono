@@ -8,6 +8,11 @@
 
 type t
 
+exception Scope_mismatch
+(** Raised by {!load} and {!load_cursor} when the stored cursor for the
+    scope's endpoint, account and mailbox key names a different raw name,
+    encoding or mailbox ID than the requested scope. *)
+
 val open_path : sw:Eio.Switch.t -> ?blob_dir:_ Eio.Path.t -> _ Eio.Path.t -> t
 (** Opens or creates a versioned database. [blob_dir], when supplied, must
     already exist on a native filesystem and be controlled by this process.
@@ -28,8 +33,10 @@ type mailbox = {
 }
 
 val load : t -> scope:Imap.Mirror.scope -> mailbox
-(** Missing mailboxes return [Mirror.initial scope] and no snapshot. A
-    mismatched stored scope or corrupt snapshot raises [Failure]. *)
+(** [load t ~scope] is the stored cursor and snapshot for [scope]. A missing
+    mailbox yields [Mirror.initial scope] and no snapshot. A mismatched
+    stored scope raises {!Scope_mismatch}. A corrupt row raises
+    [Failure]. *)
 
 type object_identity = { account_id:string; mailbox_id:string }
 
@@ -46,21 +53,25 @@ val observe_object_identity : t -> scope:Imap.Mirror.scope ->
     state. Invalid draft identifiers raise [Invalid_argument]. *)
 
 val load_cursor : t -> scope:Imap.Mirror.scope -> Imap.Mirror.cursor
-(** Read only the cursor, without materializing the mailbox snapshot. *)
+(** [load_cursor t ~scope] is the cursor of {!load} without the snapshot.
+    It raises as {!load} does. *)
 
 val snapshot_page : t -> scope:Imap.Mirror.scope ->
   cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Proto.Uid.t ->
   limit:int -> unit -> [ `Rows of Imap.Mirror.row list | `Stale_revision ]
 (** Page the current published epoch by UID. The caller's cursor revision,
-    UIDVALIDITY and full scope must still match inside the read transaction.
-    [limit] is 1..10,000. A new mailbox yields an empty page. *)
+    UIDVALIDITY and full scope must still match inside the read transaction,
+    or the result is [`Stale_revision]. [limit] is 1..10,000. A new mailbox
+    yields an empty page. A [cursor] for another scope or a [limit] out of
+    range raises [Invalid_argument]. *)
 
 val snapshot_contains_uid : t -> scope:Imap.Mirror.scope ->
   cursor:Imap.Mirror.cursor -> uid:Imap.Proto.Uid.t ->
   [ `Present of bool | `Stale_revision ]
-(** Indexed membership check against the same published revision and epoch.
-    A complete published inventory is required before treating absence as
-    deletion evidence. *)
+(** Indexed membership check against the same published revision, epoch
+    and full scope, or [`Stale_revision]. A complete published inventory is
+    required before treating absence as deletion evidence. A [cursor] for
+    another scope raises [Invalid_argument]. *)
 
 type staged_receipt = {
   cursor : Imap.Mirror.cursor;

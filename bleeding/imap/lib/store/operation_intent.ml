@@ -39,9 +39,7 @@ let prepare_intent t x =
                 expected_internal_date} ->
         if message_id="" || content_digest="" || spool_ref="" then
           invalid_arg "Imap_store.prepare_intent: incomplete APPEND recovery data";
-        if String.length content_digest <> 64 ||
-           not (String.for_all (function
-             | '0'..'9' | 'a'..'f' -> true | _ -> false) content_digest) then
+        if not (is_sha256_hex content_digest) then
           invalid_arg "Imap_store.prepare_intent: expected lowercase SHA-256 hex";
         Option.iter (fun n ->
           if n < 0L || n > 4_294_967_295L then

@@ -25,14 +25,10 @@ type intent = Operation_intent.intent = {
 let open_readonly = Schema.open_readonly
 let open_path = Schema.open_path
 
+exception Scope_mismatch = Record_codec.Scope_mismatch
+
 let load_unlocked t ~scope =
-  match rows t "SELECT endpoint,account,mailbox_key,raw_name,encoding,mailbox_id, \
-    phase,uidvalidity,generation,revision,anchor,frontier,inventory_ref,mode \
-    FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?"
-    (scope_key scope) with
-  | [] -> { cursor = M.initial scope; snapshot = None }
-  | [r] ->
-    let cursor = decode_cursor scope r in
+    let cursor = cursor_exn t scope in
     let snapshot = match cursor.uidvalidity with
       | None -> None
       | Some epoch ->
@@ -66,9 +62,8 @@ let load_unlocked t ~scope =
         let snapshot_rows = List.rev !snapshot_rows in
         (match M.snapshot ~uidvalidity:epoch snapshot_rows with
          | Ok snapshot -> Some snapshot
-         | Error _ -> fail "invalid persisted snapshot") in
+         | Error e -> fail ("persisted snapshot: " ^ mirror_error e)) in
     {cursor; snapshot}
-  | _ -> fail "duplicate mailbox cursor"
 
 let load t ~scope =
   transaction ~begin_sql:"BEGIN" t (fun () -> load_unlocked t ~scope)
@@ -126,25 +121,13 @@ let observe_object_identity t ~(scope:M.scope) identity =
     | _ -> fail "duplicate OBJECTID+ binding")
 
 let load_cursor t ~scope =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
-    match rows t "SELECT endpoint,account,mailbox_key,raw_name,encoding,mailbox_id,phase,uidvalidity,generation,revision,anchor,frontier,inventory_ref,mode FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?" (scope_key scope) with
-    | [] -> M.initial scope
-    | [r] -> decode_cursor scope r
-    | _ -> fail "duplicate mailbox cursor")
+  transaction ~begin_sql:"BEGIN" t (fun () -> cursor_exn t scope)
 
 let snapshot_page t ~(scope:M.scope) ~(cursor:M.cursor) ?after_uid ~limit () =
-  if limit<1 || limit>10_000 then
-    invalid_arg "Imap_store.snapshot_page: limit must be 1..10000";
-  if cursor.scope<>scope then
-    invalid_arg "Imap_store.snapshot_page: scope/cursor mismatch";
+  check_page_args "Imap_store.snapshot_page" scope cursor limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    let current=match rows t "SELECT endpoint,account,mailbox_key,raw_name,encoding,mailbox_id,phase,uidvalidity,generation,revision,anchor,frontier,inventory_ref,mode FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?" (scope_key scope) with
-      | [] -> M.initial scope
-      | [r] -> decode_cursor scope r
-      | _ -> fail "duplicate mailbox cursor" in
-    if current.revision<>cursor.revision ||
-       current.uidvalidity<>cursor.uidvalidity then `Stale_revision else
-    match current.uidvalidity with
+    if stale t cursor then `Stale_revision else
+    match cursor.uidvalidity with
     | None -> `Rows []
     | Some epoch ->
       let found=rows t "SELECT m.uid,m.modseq,f.flag FROM ( \
@@ -184,13 +167,8 @@ let snapshot_contains_uid t ~(scope:M.scope) ~(cursor:M.cursor) ~uid:target =
   if cursor.scope<>scope then
     invalid_arg "Imap_store.snapshot_contains_uid: scope/cursor mismatch";
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    let current=match rows t "SELECT endpoint,account,mailbox_key,raw_name,encoding,mailbox_id,phase,uidvalidity,generation,revision,anchor,frontier,inventory_ref,mode FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?" (scope_key scope) with
-      | [] -> M.initial scope
-      | [r] -> decode_cursor scope r
-      | _ -> fail "duplicate mailbox cursor" in
-    if current.revision<>cursor.revision ||
-       current.uidvalidity<>cursor.uidvalidity then `Stale_revision
-    else match current.uidvalidity with
+    if stale t cursor then `Stale_revision
+    else match cursor.uidvalidity with
       | None -> `Present false
       | Some epoch ->
           let found=rows t "SELECT 1 FROM snapshots WHERE endpoint=? AND account=? AND mailbox_key=? AND uidvalidity=? AND uid=? LIMIT 1"
@@ -236,15 +214,7 @@ let seed_stage_from_published t ~(cursor:M.cursor) ~(action:M.action) =
        int h.(7)<>action.upper_uid || int h.(8)<>cursor.revision ||
        int h.(9)<>0L || int h.(10)<>0L then
       invalid_arg "Imap_store.seed_stage_from_published: stage mismatch";
-    let current=rows t "SELECT revision,raw_name,encoding,mailbox_id FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?"
-      (scope_key cursor.scope) in
-    let stale=match current with
-      | [r] -> int r.(0)<>cursor.revision ||
-          text r.(1)<>cursor.scope.raw_name ||
-          dec_enc (text r.(2))<>cursor.scope.encoding ||
-          nullable_text r.(3)<>cursor.scope.mailbox_id
-      | _ -> true in
-    if stale then `Stale_revision else (
+    if stale t cursor then `Stale_revision else (
       let key=scope_key cursor.scope @
         [i (P.Uidvalidity.to_int64 action.uidvalidity)] in
       run t "INSERT INTO scan_rows(stage_id,uid,modseq) SELECT ?,uid,modseq FROM snapshots WHERE endpoint=? AND account=? AND mailbox_key=? AND uidvalidity=? AND uid<=?"
@@ -326,18 +296,8 @@ let abandoned_stages t =
 let publish t (change:M.transition) =
   transaction t (fun () ->
     let c = change.cursor and scope = change.cursor.scope in
-    let current = rows t "SELECT revision,raw_name,encoding,mailbox_id \
-      FROM mailboxes WHERE \
-      endpoint=? AND account=? AND mailbox_key=?" (scope_key scope) in
-    let expected = Int64.pred c.revision in
-    let stale = match current with
-      | [] -> expected <> 0L
-      | [r] ->
-        int r.(0) <> expected || text r.(1) <> scope.raw_name ||
-        dec_enc (text r.(2)) <> scope.encoding ||
-        nullable_text r.(3) <> scope.mailbox_id
-      | _ -> fail "duplicate mailbox cursor" in
-    if stale then `Stale_revision else (
+    if stale_revision t scope ~revision:(Int64.pred c.revision) then
+      `Stale_revision else (
       if M.snapshot_uidvalidity change.snapshot <> Option.get c.uidvalidity then
         invalid_arg "Imap_store.publish: cursor/snapshot epoch mismatch";
       let key = scope_key scope in
@@ -395,15 +355,8 @@ let publish_stage t ~(cursor:M.cursor) ~(action:M.action)
       invalid_arg "Imap_store.publish_stage: stage metadata mismatch";
     if int h.(9)<>action.upper_uid || int h.(10)<>action.upper_uid then
       invalid_arg "Imap_store.publish_stage: incomplete range coverage";
-    let existing=rows t "SELECT revision,raw_name,encoding,mailbox_id FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?"
-      (scope_key scope) in
-    let stale=match existing with
-      | [] -> cursor.revision<>0L
-      | [r] -> int r.(0)<>cursor.revision || text r.(1)<>scope.raw_name ||
-          dec_enc (text r.(2))<>scope.encoding ||
-          nullable_text r.(3)<>scope.mailbox_id
-      | _ -> fail "duplicate mailbox cursor" in
-    if stale then `Stale_revision else (
+    if stale_revision t scope ~revision:cursor.revision then `Stale_revision
+    else (
       let resolved_mode=if nomodseq then M.Baseline else action.mode in
       let anchor=if resolved_mode=M.Baseline then None else explicit_highestmodseq in
       (match action.previous_anchor,anchor with
@@ -418,7 +371,8 @@ let publish_stage t ~(cursor:M.cursor) ~(action:M.action)
           ~frontier:action.upper_uid ~inventory_ref:(Some action.id)
           ~mode:resolved_mode with
         | Ok cursor -> cursor
-        | Error _ -> invalid_arg "Imap_store.publish_stage: invalid cursor" in
+        | Error e -> invalid_arg
+            ("Imap_store.publish_stage: " ^ mirror_error e) in
       let key=scope_key scope in
       run t "INSERT INTO mailboxes VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(endpoint,account,mailbox_key) DO UPDATE SET raw_name=excluded.raw_name,encoding=excluded.encoding,mailbox_id=excluded.mailbox_id,phase=excluded.phase,uidvalidity=excluded.uidvalidity,generation=excluded.generation,revision=excluded.revision,anchor=excluded.anchor,frontier=excluded.frontier,inventory_ref=excluded.inventory_ref,mode=excluded.mode"
         (key @ [s scope.raw_name;s (enc scope.encoding);ns scope.mailbox_id;

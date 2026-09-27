@@ -13,12 +13,8 @@ let directory t = match t.blob_dir with
   | Some (Dir dir) -> Dir dir
   | None -> invalid_arg "Imap_store.Blob: open store with blob_dir"
 
-let valid_hash x =
-  String.length x = 64 && String.for_all (function
-    | '0'..'9' | 'a'..'f' -> true | _ -> false) x
-
 let filename hash =
-  if not (valid_hash hash) then fail "invalid stored blob hash";
+  if not (is_sha256_hex hash) then fail "invalid stored blob hash";
   "sha256-" ^ hash
 
 let sync_directory path =
@@ -38,7 +34,7 @@ let temp_name () =
 let put t ~source ~length ?expected_sha256 () =
   if length < 0L then invalid_arg "Imap_store.Blob.put: negative length";
   Option.iter (fun hash ->
-    if not (valid_hash hash) then
+    if not (is_sha256_hex hash) then
       invalid_arg "Imap_store.Blob.put: expected SHA-256 must be lowercase hex")
     expected_sha256;
   let Dir dir = directory t in
@@ -81,7 +77,7 @@ let open_in t ~sw blob =
 
 let verify t blob =
   let Dir dir = directory t in
-  if not (valid_hash blob.sha256) || blob.length < 0L then false else
+  if not (is_sha256_hex blob.sha256) || blob.length < 0L then false else
   let path=Eio.Path.(dir / filename blob.sha256) in
   if not (Eio.Path.is_file path) then false else
   try Eio.Path.with_open_in path (fun input ->
@@ -108,32 +104,15 @@ let find t ~scope ~uidvalidity ~uid =
     | [] -> None
     | [r] ->
       let sha256=text r.(0) and length=int r.(1) in
-      if not (valid_hash sha256) || length<0L then
+      if not (is_sha256_hex sha256) || length<0L then
         fail "invalid stored blob reference";
       Some {sha256;length}
     | _ -> fail "duplicate blob reference")
 
-let current_cursor_unlocked t scope =
-  match rows t "SELECT endpoint,account,mailbox_key,raw_name,encoding,mailbox_id,phase,uidvalidity,generation,revision,anchor,frontier,inventory_ref,mode FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?" (scope_key scope) with
-  | [] -> M.initial scope
-  | [r] -> decode_cursor scope r
-  | _ -> fail "duplicate mailbox cursor"
-
-let checked_cursor t scope (cursor:M.cursor) =
-  let current=current_cursor_unlocked t scope in
-  current.revision=cursor.M.revision &&
-  current.uidvalidity=cursor.uidvalidity
-
-let checked_page_args who scope (cursor:M.cursor) limit =
-  if limit<1 || limit>10_000 then
-    invalid_arg (who ^ ": limit must be 1..10000");
-  if cursor.M.scope<>scope then
-    invalid_arg (who ^ ": scope/cursor mismatch")
-
 let missing_page t ~(scope:M.scope) ~(cursor:M.cursor) ?after_uid ~limit () =
-  checked_page_args "Imap_store.Blob.missing_page" scope cursor limit;
+  check_page_args "Imap_store.Blob.missing_page" scope cursor limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    if not (checked_cursor t scope cursor) then `Stale_revision
+    if stale t cursor then `Stale_revision
     else match cursor.uidvalidity with
       | None -> `Uids []
       | Some epoch ->
@@ -153,9 +132,9 @@ let missing_page t ~(scope:M.scope) ~(cursor:M.cursor) ?after_uid ~limit () =
 
 let referenced_page t ~(scope:M.scope) ~(cursor:M.cursor) ?after_uid
     ~limit () =
-  checked_page_args "Imap_store.Blob.referenced_page" scope cursor limit;
+  check_page_args "Imap_store.Blob.referenced_page" scope cursor limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
-    if not (checked_cursor t scope cursor) then `Stale_revision
+    if stale t cursor then `Stale_revision
     else match cursor.uidvalidity with
     | None -> `Refs []
     | Some epoch ->
@@ -171,7 +150,7 @@ let referenced_page t ~(scope:M.scope) ~(cursor:M.cursor) ?after_uid
             i (Int64.of_int limit)]) in
         `Refs (List.map (fun r ->
           let sha256=text r.(1) and length=int r.(2) in
-          if not (valid_hash sha256) || length<0L then
+          if not (is_sha256_hex sha256) || length<0L then
             fail "invalid stored blob reference";
           uid (int r.(0)),{sha256;length}) found))
 
@@ -180,7 +159,7 @@ let detach_if_matches t ~(scope:M.scope) ~(cursor:M.cursor) ~uid:target
   if cursor.scope<>scope then
     invalid_arg "Imap_store.Blob.detach_if_matches: scope/cursor mismatch";
   transaction t (fun () ->
-    if not (checked_cursor t scope cursor) then `Stale_revision
+    if stale t cursor then `Stale_revision
     else match cursor.uidvalidity with
     | None -> `Unchanged
     | Some epoch ->
@@ -264,7 +243,7 @@ let iter_orphan_candidates t f =
       if String.starts_with ~prefix:".tmp-" name then true
       else if String.starts_with ~prefix:"sha256-" name then
         let hash=String.sub name 7 (String.length name-7) in
-        valid_hash hash && not (referenced t hash)
+        is_sha256_hex hash && not (referenced t hash)
       else false in
     if candidate && Eio.Path.is_file Eio.Path.(dir / name) then f name)
 

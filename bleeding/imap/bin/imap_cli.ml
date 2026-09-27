@@ -439,9 +439,7 @@ let local_scope config store =
     try
       ignore (Imap_store.load_cursor store ~scope:initial);
       initial
-    with Failure message when
-        message="Imap_store: stored mailbox scope differs from requested scope"
-      ->
+    with Imap_store.Scope_mismatch ->
         let alternate=scope config Imap.Mailbox_name.Utf8 in
         ignore (Imap_store.load_cursor store ~scope:alternate);
         alternate

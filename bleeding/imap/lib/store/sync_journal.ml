@@ -71,9 +71,7 @@ let validate_pair x =
     invalid_arg "Imap_store.Sync.put_pair: local tombstone without ID";
   if Option.is_some x.content_sha256<>Option.is_some x.content_length then
     invalid_arg "Imap_store.Sync.put_pair: incomplete content evidence";
-  Option.iter (fun hash ->
-    if String.length hash<>64 || not (String.for_all (function
-      | '0'..'9' | 'a'..'f' -> true | _ -> false) hash) then
+  Option.iter (fun hash -> if not (is_sha256_hex hash) then
       invalid_arg "Imap_store.Sync.put_pair: invalid content digest")
     x.content_sha256;
   Option.iter (fun length -> if length<0L then
@@ -449,9 +447,7 @@ let validate_operation x =
     invalid_arg "Imap_store.Sync.prepare_operation: destination epoch without scope";
   if Option.is_some x.blob_sha256<>Option.is_some x.blob_length then
     invalid_arg "Imap_store.Sync.prepare_operation: incomplete content evidence";
-  Option.iter (fun hash ->
-    if String.length hash<>64 || not (String.for_all (function
-      | '0'..'9' | 'a'..'f' -> true | _ -> false) hash) then
+  Option.iter (fun hash -> if not (is_sha256_hex hash) then
       invalid_arg "Imap_store.Sync.prepare_operation: invalid content digest")
     x.blob_sha256
 let destination_columns = function

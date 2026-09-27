@@ -125,7 +125,7 @@ run only once everything else works.
 | 12 | CLI on cmdliner with one term per command and a single `deletion_policy` option; also applies every `bin/imap_cli.ml` finding from 0.R and wires the blob orphan collector and `forget_epochs` into startup under the writer lease | done | e03ce0e85 |
 | 13 | `imap.mli` facade, `.mld` pages, `(documentation)` stanza, dune-project dependency fixes | done | 796c75184 |
 | 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | done | b6957cba1 |
-| 15 | Redocumentation pass under doc-style over every public interface | todo | |
+| 15 | Redocumentation pass under doc-style over every public interface | in progress: three worktree agents (protocol and maildir; eio and store facades; sync, cli and pages), merged onto minus39 by rebase | |
 | 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
@@ -959,6 +959,16 @@ injection point for a journal failure. `dune build @bleeding/imap/all` and
 test cases.
 
 #### F: cli
+
+### Step 15 notes
+
+Each redocumentation agent writes only under its own heading.
+
+#### Step 15: protocol and maildir
+
+#### Step 15: eio and store facades
+
+#### Step 15: sync, cli and pages
 
 ### 0.R Phase 2 findings
 

@@ -64,8 +64,10 @@ let days_in_month year = function
   | _ -> 31
 
 let date_text {day; month; year} =
-  Printf.sprintf "%d-%s-%04d" day (Stdlib_stable.Iarray.get months (month - 1))
-    year
+  let year = string_of_int year in
+  String.concat "" [
+    string_of_int day; "-"; Stdlib_stable.Iarray.get months (month - 1); "-";
+    String.make (max 0 (4 - String.length year)) '0'; year ]
 
 let control c = Char.code c < 0x20 || Char.code c = 0x7f
 
@@ -140,7 +142,7 @@ let keyword ~strict key flag =
   | _ -> invalid ~strict key "not a keyword" wire
 
 let size ~strict key n =
-  let wire = Printf.sprintf "%s %Ld" key n in
+  let wire = key ^ " " ^ Int64.to_string n in
   if n < 0L then invalid ~strict key "negative size" wire else Ok wire
 
 let date ~strict key ({day; month; year} as d) =

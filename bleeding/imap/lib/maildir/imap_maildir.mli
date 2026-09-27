@@ -120,6 +120,13 @@ val append : ?inventory:paged_inventory -> t -> ?id:string ->
     mappings requiring more than 26 slots fail before message publication.
     Keyword mappings are additive and durable before filenames reference them.
     [inventory], when supplied, must remain live under the writer lease. *)
+val check_append : t -> flags:Mail_flag.Imap_flag.t list ->
+  ?internal_date:Imap.Internal_date.t -> unit -> (unit, string) result
+(** [check_append t ~flags ?internal_date ()] is [Error reason] when
+    {!append} with [flags] and [internal_date] would fail whatever the
+    source: a flag Maildir cannot store, a keyword with no free slot in
+    [dovecot-keywords], or a date outside the representable range. It writes
+    nothing. [Ok ()] does not guarantee that {!append} succeeds. *)
 val open_message : ?inventory:paged_inventory -> t -> sw:Eio.Switch.t -> occurrence ->
   Eio.File.ro_ty Eio.Resource.t
 (** [open_message t ~sw occurrence] is its read-only file owned by [sw].

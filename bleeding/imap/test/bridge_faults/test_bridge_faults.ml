@@ -60,7 +60,7 @@ let operation ~kind ~id ~local_id ~source_uid ~blob ~flags : J.operation = {
 }
 
 let scripted_scan ?(confirmed_body=false) ?(missing_body=false)
-    ?(append_without_uidplus=false)
+    ?(append_without_uidplus=false) ?(flags="") ?(missing_metadata=false)
     ?recovery_date ?confirmed_date
     ?(fetched_body=message)
     ?(uidvalidity=11L)
@@ -77,7 +77,8 @@ let scripted_scan ?(confirmed_body=false) ?(missing_body=false)
       (if has_message then 2 else 1));
   ] in
   let lines=if has_message then lines @ [
-    `Return "* 1 FETCH (UID 1 FLAGS ())\r\nA00000005 OK fetched\r\n";
+    `Return ("* 1 FETCH (UID 1 FLAGS (" ^ flags ^
+      "))\r\nA00000005 OK fetched\r\n");
     `Return "* SEARCH 1\r\nA00000006 OK searched\r\n";
     `Return "A00000007 OK unselected\r\n";
   ] else lines @ [`Return "A00000005 OK unselected\r\n"] in
@@ -92,10 +93,11 @@ let scripted_scan ?(confirmed_body=false) ?(missing_body=false)
     `Return (fetched_body ^ ")\r\nA00000009 OK fetched\r\n");
     `Return "A00000010 OK unselected\r\n";
     `Return "* 1 EXISTS\r\n* OK [UIDVALIDITY 11] valid\r\n* OK [UIDNEXT 2] next\r\nA00000011 OK [READ-ONLY] selected\r\n";
-    `Return ("* 1 FETCH (UID 1 FLAGS ()" ^
+    `Return ((if missing_metadata then "" else
+      "* 1 FETCH (UID 1 FLAGS (" ^ flags ^ ")" ^
       (match confirmed_date with None -> "" | Some date ->
         " INTERNALDATE " ^ Imap.Internal_date.to_wire date) ^
-      ")\r\nA00000012 OK fetched\r\n");
+      ")\r\n") ^ "A00000012 OK fetched\r\n");
     `Return "A00000013 OK unselected\r\n";
   ] else lines in
   let lines=if append_without_uidplus then lines @ [
@@ -1328,13 +1330,19 @@ let test_local_write_recovery ?(missing_date=false) ?(wrong_date=false)
        | Some {state=J.Committed;_} -> true | _ -> false))
 
 let test_confirmed_uidplus_recovery ?(changed_mtime=false)
-    ?(missing_preimage=false) ?(changed_remote_body=false) () =
+    ?(missing_preimage=false) ?(changed_remote_body=false)
+    ?(missing_target=false) ?(keyword_case=false) () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  let keyword spelling=match Mail_flag.Imap_flag.of_wire spelling with
+    | Ok flag -> flag | Error message -> Alcotest.fail message in
+  let flags,legacy_flags,wire_flags=if keyword_case then
+      [keyword "$Label"],[keyword "$LABEL"],"$Label"
+    else [],[],"" in
   let local=Imap_maildir.append maildir
-    ~source:(Eio.Flow.string_source message) ~length ~flags:[] () in
+    ~source:(Eio.Flow.string_source message) ~length ~flags () in
   let local_path=Filename.concat
     (Filename.concat (Filename.dirname (Eio.Path.native_exn database))
-      "maildir/new") local.filename in
+      (if flags=[] then "maildir/new" else "maildir/cur")) local.filename in
   Unix.utimes local_path 1709164800. 1709164800.;
   let local=Option.get (Imap_maildir.find maildir ~id:local.id) in
   Eio.Switch.run (fun sw ->
@@ -1342,7 +1350,7 @@ let test_confirmed_uidplus_recovery ?(changed_mtime=false)
     let blob=Imap_store.Blob.put store
       ~source:(Eio.Flow.string_source message) ~length () in
     let op=operation ~kind:J.Append ~id:"confirmed-append"
-      ~local_id:local.id ~source_uid:None ~blob ~flags:[] in
+      ~local_id:local.id ~source_uid:None ~blob ~flags in
     if missing_preimage then J.prepare_operation store op
     else J.prepare_operation ~local_source_mtime:local.mtime store op;
     J.mark_sent store ~id:op.id;
@@ -1351,7 +1359,7 @@ let test_confirmed_uidplus_recovery ?(changed_mtime=false)
       kind=Imap_store.Append {
         message_id=op.id;content_digest=blob.sha256;
         spool_ref=blob.sha256;pre_send_uid_frontier=Some 0L;
-        expected_length=Some length;expected_flags=Some [];
+        expected_length=Some length;expected_flags=Some legacy_flags;
         expected_internal_date=None};
       uidvalidity=Some (epoch 11L);uid=None;
     } in
@@ -1366,16 +1374,18 @@ let test_confirmed_uidplus_recovery ?(changed_mtime=false)
       String.sub message 0 (String.length message-1) ^ "!"
       else message in
     let client=scripted_scan ~sw ~has_message:true ~confirmed_body:true ?confirmed_date:local.internal_date
-      ~fetched_body () in
+      ~fetched_body ~flags:wire_flags ~missing_metadata:missing_target () in
     (match run_bridge ~client ~store ~maildir ~spool_dir with
      | Error (Imap_sync.Bridge.Local_source_changed id)
        when changed_mtime && id=local.id -> ()
+     | Error (Imap_sync.Bridge.Invalid_operation
+         "APPENDUID target UID 1 is missing") when missing_target -> ()
      | Error (Imap_sync.Bridge.Pending_operations [id])
        when missing_preimage && id="confirmed-append" -> ()
      | Error (Imap_sync.Bridge.Content_diverged "confirmed-append")
        when changed_remote_body -> ()
      | Ok receipt when not changed_mtime && not missing_preimage &&
-       not changed_remote_body ->
+       not changed_remote_body && not missing_target ->
          Alcotest.(check int) "remote APPEND not replayed" 0
            receipt.local_to_remote;
          Alcotest.(check int) "remote body not copied locally again" 0
@@ -1388,12 +1398,12 @@ let test_confirmed_uidplus_recovery ?(changed_mtime=false)
         ~uid:(uid 1L)=None);
     Alcotest.(check bool) "pair commit follows source evidence"
       (not changed_mtime && not missing_preimage &&
-       not changed_remote_body)
+       not changed_remote_body && not missing_target)
       (Option.is_some (J.find_remote store ~scope
         ~uidvalidity:(epoch 11L) ~uid:(uid 1L)));
     Alcotest.(check bool) "operation commit follows source evidence"
       (not changed_mtime && not missing_preimage &&
-       not changed_remote_body)
+       not changed_remote_body && not missing_target)
       (match J.find_operation store ~id:"confirmed-append" with
        | Some {state=J.Committed;_} -> true | _ -> false));
   if changed_mtime then (
@@ -1807,7 +1817,7 @@ let test_changed_reappearance_blocks_delete () =
     ~next_id:(fun () -> "verify-changed-reappearance")
     ~on_issue:(fun _ _ -> ()) () with
    | Ok result -> Alcotest.(check int64)
-       "offline scrub reports absent occurrence" 1L result.missing
+       "offline scrub skips a tombstoned local absence" 0L result.missing
    | Error error -> Alcotest.failf "offline scrub: %a"
        Imap_sync.Bridge.pp_error error);
   Alcotest.(check (list string)) "offline scrub retains content conflict"
@@ -1873,10 +1883,11 @@ let test_wrong_date_reappearance_blocks_delete () =
     ~source:(Eio.Flow.string_source message) ~length ~flags:[]
     ~internal_date:wrong_date () in
   (match run "wrong-date" with
-   | Error (Imap_sync.Bridge.Date_diverged id) when id=pair.id -> ()
+   | Ok receipt ->
+       Alcotest.(check bool) "wrong date is a held pair" true
+         (receipt.flags_held=1 && receipt.held_pair_ids=[pair.id])
    | Error error -> Alcotest.failf "wrong date: %a"
-       Imap_sync.Bridge.pp_error error
-   | Ok _ -> Alcotest.fail "wrong date was accepted");
+       Imap_sync.Bridge.pp_error error);
   let identity_conflicts ()=J.open_conflicts store ~scope
     |> List.filter (fun (x:J.conflict) -> x.kind=J.Identity_conflict) in
   Alcotest.(check int) "date conflict is durable" 1
@@ -2508,6 +2519,96 @@ let test_changed_local_survivor_is_held () =
   Alcotest.(check bool) "changed survivor was not unlinked" true
     (Imap_maildir.find maildir ~id:local.id<>None)
 
+let test_content_mismatch_is_bridge_hold () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let changed=String.mapi (fun i c -> if i=0 then 'X' else c) message in
+  let pair,_=flag_pair ~store ~maildir ~local_flags:[seen] ~body:changed
+    "bridge-content-hold" in
+  let client=scripted_scan ~sw ~has_message:true () in
+  match run_bridge ~client ~store ~maildir ~spool_dir with
+  | Ok receipt ->
+      Alcotest.(check int) "content mismatch counted once" 1
+        receipt.flags_held;
+      Alcotest.(check (list string)) "content mismatch names the pair"
+        [pair.id] receipt.held_pair_ids
+  | Error error -> Alcotest.failf "content mismatch aborted the cycle: %a"
+      Imap_sync.Bridge.pp_error error
+
+let test_unconditional_store_is_bridge_hold () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let pair,_=flag_pair ~store ~maildir ~local_flags:[seen]
+    "bridge-condstore-hold" in
+  let client,_=scripted_client ~sw "bridge-condstore-hold" [
+    examine ~tag:4 ~exists:1 ~uidnext:2 ();
+    "* 1 FETCH (UID 1 FLAGS ())\r\nA00000005 OK fetched\r\n";
+    "* SEARCH 1\r\nA00000006 OK searched\r\n";
+    "A00000007 OK unselected\r\n";
+    "* 1 EXISTS\r\n* OK [UIDVALIDITY 11] valid\r\n\
+     * OK [UIDNEXT 2] next\r\nA00000008 OK [READ-WRITE] selected\r\n";
+    "* 1 FETCH (UID 1 FLAGS ())\r\nA00000009 OK fetched\r\n";
+    "A00000010 OK unselected\r\n"] in
+  match run_bridge ~client ~store ~maildir ~spool_dir with
+  | Ok receipt ->
+      Alcotest.(check (list string)) "missing CONDSTORE holds the pair"
+        [pair.id] receipt.held_pair_ids;
+      Alcotest.(check bool) "hold is durable" true
+        (J.has_open_conflict store ~pair ~kind:J.Policy_conflict)
+  | Error error -> Alcotest.failf "missing CONDSTORE aborted the cycle: %a"
+      Imap_sync.Bridge.pp_error error
+
+let test_tombstoned_pair_present_is_hold () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let pair,_=flag_pair ~store ~maildir "bridge-tombstone-hold" in
+  (match J.put_pair store ~expected_revision:(Some pair.revision)
+      {pair with local_tombstone=Some {J.reason=J.Retention;
+        evidence="retained";generation=None}} with
+   | `Committed _ -> ()
+   | `Stale_revision -> Alcotest.fail "retention tombstone stale");
+  let client=scripted_scan ~sw ~has_message:true () in
+  match run_bridge ~client ~store ~maildir ~spool_dir with
+  | Ok receipt ->
+      Alcotest.(check (list string)) "tombstoned present pair held"
+        [pair.id] receipt.held_pair_ids
+  | Error error -> Alcotest.failf "tombstoned pair: %a"
+      Imap_sync.Bridge.pp_error error
+
+let test_unstorable_remote_copy_is_rejected () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let size=String.length message in
+  let client,_=scripted_client ~sw "unstorable-copy" [
+    examine ~tag:4 ~exists:1 ~uidnext:2 ();
+    "* 1 FETCH (UID 1 FLAGS (\\Recent))\r\nA00000005 OK fetched\r\n";
+    "* SEARCH 1\r\nA00000006 OK searched\r\n";
+    "A00000007 OK unselected\r\n";
+    examine ~tag:8 ~exists:1 ~uidnext:2 ();
+    "* 1 FETCH (UID 1 FLAGS () INTERNALDATE \"31-Dec-2016 23:59:60 +0000\")\r\n\
+     A00000009 OK fetched\r\n";
+    "A00000010 OK unselected\r\n";
+    examine ~tag:11 ~exists:1 ~uidnext:2 ();
+    Printf.sprintf "* 1 FETCH (UID 1 BODY[] {%d}\r\n" size;
+    message ^ ")\r\nA00000012 OK fetched\r\n";
+    "A00000013 OK unselected\r\n"] in
+  (match Imap_sync.Bridge.copy_once ~client ~store ~maildir ~scope
+      ~mailbox:"INBOX" ~stage_id:"unstorable" ~next_id:(fun () -> "unstorable")
+      ~spool_dir () with
+   | Error (Imap_sync.Bridge.Invalid_operation _) -> ()
+   | Error error -> Alcotest.failf "wrong unstorable error: %a"
+       Imap_sync.Bridge.pp_error error
+   | Ok _ -> Alcotest.fail "unstorable date was written");
+  Alcotest.(check bool) "unstorable copy rejected in the journal" true
+    (match J.find_operation store ~id:"unstorable" with
+     | Some {state=J.Rejected;receipt=Some receipt;_} ->
+         String.starts_with ~prefix:"Maildir cannot store" receipt
+     | _ -> false)
+
 let test_verify_local_content_without_flag_change () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
   Eio.Switch.run @@ fun sw ->
@@ -2860,6 +2961,14 @@ else Alcotest.run "imap-bridge-faults" [
       test_legacy_pair_holds_without_evidence;
     Alcotest.test_case "changed local survivor is held" `Quick
       test_changed_local_survivor_is_held;
+    Alcotest.test_case "content mismatch is a bridge hold" `Quick
+      test_content_mismatch_is_bridge_hold;
+    Alcotest.test_case "missing CONDSTORE is a bridge hold" `Quick
+      test_unconditional_store_is_bridge_hold;
+    Alcotest.test_case "tombstoned present pair is a hold" `Quick
+      test_tombstoned_pair_present_is_hold;
+    Alcotest.test_case "unstorable remote copy is rejected" `Quick
+      test_unstorable_remote_copy_is_rejected;
     Alcotest.test_case "remote source vanishes before archival" `Quick
       test_remote_source_vanishes_before_archive;
     Alcotest.test_case "local source changes before archival" `Quick
@@ -2892,6 +3001,10 @@ else Alcotest.run "imap-bridge-faults" [
       test_confirmed_uidplus_recovery;
     Alcotest.test_case "changed mtime holds UIDPLUS recovery" `Quick
       (test_confirmed_uidplus_recovery ~changed_mtime:true);
+    Alcotest.test_case "missing APPENDUID target is named" `Quick
+      (test_confirmed_uidplus_recovery ~missing_target:true);
+    Alcotest.test_case "legacy intent flags compare as IMAP flags" `Quick
+      (test_confirmed_uidplus_recovery ~keyword_case:true);
     Alcotest.test_case "changed UIDPLUS body leaves cache untouched" `Quick
       (test_confirmed_uidplus_recovery ~changed_remote_body:true);
     Alcotest.test_case "legacy APPEND without mtime stays pending" `Quick

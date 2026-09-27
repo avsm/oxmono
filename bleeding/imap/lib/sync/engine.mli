@@ -25,6 +25,13 @@ type error =
 
 val pp_error : Format.formatter -> error -> unit
 
+val validate_scope :
+  client:Imap_eio.Client.t -> scope:Imap.Mirror.scope -> mailbox:string ->
+  (unit, error) result
+(** [validate_scope ~client ~scope ~mailbox] is [Ok ()] when [mailbox]
+    encodes to [scope.raw_name] under [client]'s mailbox name encoding, and
+    [Invalid_scope] otherwise. *)
+
 val guard_bound_mailbox :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   scope:Imap.Mirror.scope -> mailbox:string -> (unit, error) result

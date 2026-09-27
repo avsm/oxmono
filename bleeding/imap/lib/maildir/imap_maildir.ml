@@ -507,6 +507,17 @@ let published ?inventory t refresh id =
    | None -> false)
   || locate t refresh id<>[]
 
+let check_append t ~flags ?internal_date () =
+  match
+    Keywords.validate_flags flags;
+    if has_keywords flags then
+      ignore (Keywords.add (read_keywords t) flags : Keywords.t);
+    Option.map Imap.Internal_date.to_unix_seconds internal_date
+  with
+  | None | Some (Ok _) -> Ok ()
+  | Some (Error message) -> Error message
+  | exception Failure message -> Error message
+
 let append ?inventory t ?id ~source ~length ~flags ?internal_date () =
   if length<0L then invalid_arg "Imap_maildir.append: negative length";
   Keywords.validate_flags flags;

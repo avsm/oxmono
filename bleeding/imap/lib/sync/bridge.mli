@@ -69,9 +69,16 @@ val copy_once :
     is reconciled after verifying current UID membership, exact body digest,
     byte length, and flags; an APPEND without an attributable receipt stays
     pending and is never replayed automatically.
-    Existing pairs also reconcile flags with a journaled three-way merge;
-    remote writes require CONDSTORE and use conditional UID STORE. A changed
-    [\\Deleted] is held by default. [deletion_policy=Propagate] permits
+    Existing pairs also reconcile flags with a journaled three-way merge.
+    Remote writes require CONDSTORE and use conditional UID STORE. A changed
+    [\\Deleted] is held by default while the other flags merge. A pair is
+    held rather than failing the cycle when its local date differs from the
+    paired date, its local content differs from the paired digest, a remote
+    write lacks CONDSTORE, a MODSEQ or a permanent flag, an endpoint changed
+    concurrently, or it is tombstoned while both endpoints are present. A
+    remote message that Maildir cannot store, such as one with an
+    unrepresentable date, is rejected in the journal and returns
+    [Invalid_operation]. [deletion_policy=Propagate] permits
     journaled targeted deletion only after complete-inventory absence and
     survivor byte/flag verification; the default is [Preserve].
     [min_absence_scans] requires that many additional complete scan
@@ -83,9 +90,10 @@ val copy_once :
     acquire it yields [Writer_busy]. All direct Maildir writers must honor
     the same lease. [Imap_maildir.Metadata_lock_busy] from a contended
     Dovecot lock, other Store and Maildir exceptions, and Eio cancellation
-    propagate. [flags_held] and [deletions_held] count policy/survivor holds;
-    [held_pair_ids] includes at most 100 IDs for diagnostics. A hold means the
-    requested policy has not fully converged, even when [more=false]. *)
+    propagate. [flags_held] and [deletions_held] count flag and deletion
+    holds, and [held_pair_ids] includes at most 100 IDs for diagnostics. A
+    hold means the requested policy has not fully converged, even when
+    [more=false]. *)
 
 type local_verification = {
   checked : int64;
@@ -102,11 +110,12 @@ val verify_local_content :
   (local_verification, error) result
 (** Hash established local pairs with saved content evidence under the
     Maildir writer lease. The complete local inventory and pair table are
-    paged. Mismatches create or refresh durable [Content_conflict] rows;
-    verified restorations resolve them. Missing occurrences and legacy pairs
-    without content evidence are reported separately. No IMAP connection,
-    remote mutation, or pair revision change occurs. [on_issue] receives a
-    pair ID and reason for each mismatch, absence, or unverified pair. *)
+    paged. Pairs with a local tombstone are skipped. Mismatches create or
+    refresh durable [Content_conflict] rows, and verified restorations
+    resolve them. Missing occurrences and legacy pairs without content
+    evidence are reported separately. No IMAP connection, remote mutation, or
+    pair revision change occurs. [on_issue] receives a pair ID and reason for
+    each mismatch, absence, or unverified pair. *)
 
 val mark_local_retention :
   store:Imap_store.t -> maildir:Imap_maildir.t ->
@@ -140,7 +149,10 @@ val preview_deletions :
     candidate plan: it does not connect to IMAP, verify live survivor content
     or flags, journal operations, or authorize deletion. [copy_once] must
     revalidate everything immediately before any mutation. A pending journal
-    operation is reported instead of a deletion decision. *)
+    operation is reported instead of a deletion decision. A pair from an
+    earlier UIDVALIDITY is reported as [`Stale_epoch] only while its local
+    occurrence is present. [min_absence_scans] defaults to 0, and a negative
+    value returns [Invalid_configuration]. *)
 
 type sync_preview =
   | Preview_pending of string
@@ -171,7 +183,8 @@ val preview_sync :
     FLAGS candidates for those pairs. The plan does not connect to IMAP or mutate durable state;
     it cannot validate current server capabilities, survivor bytes or flags,
     or concurrent changes. A later [copy_once] must refresh the inventory
-    and revalidate every action. *)
+    and revalidate every action. [min_absence_scans] defaults to 0, and a
+    negative value returns [Invalid_configuration]. *)
 
 val repair_local_append :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
@@ -183,7 +196,8 @@ val repair_local_append :
     the source UID in the saved UIDVALIDITY, and verifies live flags, exact
     bytes, length, and INTERNALDATE before writing. A saved OBJECTID+ binding
     must still identify the configured mailbox. The reserved occurrence is
-    published under the Maildir writer lease, then observed and paired. A crash
+    published under the Maildir writer lease, and its bytes and flags are
+    verified before it is observed and paired. A crash
     after publication is recovered by ordinary [copy_once]; it must not be
     repaired again. [evidence] is a printable operator audit note. *)
 
@@ -204,6 +218,8 @@ val record_appenduid_evidence :
 type append_candidates = {
   uidvalidity : Imap.Proto.Uidvalidity.t;
   inspected_uids : int;
+      (** [inspected_uids] is the width of the UID range above the saved
+          frontier, including UIDs that no longer exist. *)
   matching_uids : Imap.Proto.Uid.t list;
 }
 
@@ -218,7 +234,10 @@ val inspect_append_candidates :
     INTERNALDATE, compare the represented instant across timezone offsets
     before reading a candidate body. Refuse a candidate range over
     [max_uids] (default 1000) instead of silently truncating it. Body reads
-    have an aggregate [max_body_bytes] budget (default 1 GiB). Matching
-    bytes do not attribute an APPEND to this client; this call never confirms
-    an intent, pairs an occurrence or authorizes replay. A saved OBJECTID+
-    mailbox binding is verified before inspecting any UID. *)
+    have an aggregate [max_body_bytes] budget (default 1 GiB). [max_uids]
+    must be 1 to 10,000, [max_body_bytes] positive and [spool_dir] a
+    directory, or the call returns [Invalid_configuration]. Matching bytes
+    do not attribute an APPEND to this client, and this call never confirms
+    an intent, pairs an occurrence or authorizes replay. The mailbox name
+    must encode to the scope's wire name, and a saved OBJECTID+ mailbox
+    binding is verified before inspecting any UID. *)

@@ -80,40 +80,39 @@ let parse_flags raw =
          | Ok flag -> parse (flag :: acc) rest) in
   parse [] raw
 
-(* Fetch all metadata needed in one verification phase under one selection. *)
-let remote_metadata client ~mailbox ~uid ~uidvalidity ~internal_date =
+let appended_uid_missing uid =
+  Invalid_operation (Printf.sprintf "APPENDUID target UID %Ld is missing"
+    (P.Uid.to_int64 uid))
+
+let remote_metadata ?(missing=fun uid -> Source_vanished uid) client ~mailbox
+    ~uid ~uidvalidity ~internal_date =
   let raw_uid=P.Uid.to_int64 uid in
-  let* row=match network (Imap_eio.Client.with_mailbox client
-    ~mode:`Read_only mailbox (fun selected ->
-      match Imap_eio.Selected.info selected with
-      | Error _ as error -> error
-      | Ok info when info.uidvalidity<>P.Uidvalidity.to_int64 uidvalidity ->
-          Error (Imap_eio.Error.State "message epoch changed")
-      | Ok _ ->
-          (match Imap_eio.Selected.fetch_metadata_range selected
-            ~first:raw_uid ~last:raw_uid ~modseq:false ~internal_date with
-           | Error _ as error -> error
-           | Ok [row] when row.uid=Some raw_uid -> Ok row
-           | Ok [] -> Error (Imap_eio.Error.Missing_uid raw_uid)
-           | Ok _ -> Error (Imap_eio.Error.Protocol
-               "message FETCH returned an ambiguous target")))) with
-    | Error (Client (Imap_eio.Error.Missing_uid raw)) when raw=raw_uid ->
-        Error (Source_vanished uid)
-    | result -> result in
+  let* row=match Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
+    (fun selected -> Ok (
+      let* info=network (Imap_eio.Selected.info selected) in
+      if info.uidvalidity<>P.Uidvalidity.to_int64 uidvalidity then
+        Error Uidvalidity_changed
+      else
+        let* rows=network (Imap_eio.Selected.fetch_metadata_range selected
+          ~first:raw_uid ~last:raw_uid ~modseq:false ~internal_date) in
+        match rows with
+        | row :: _ -> Ok row
+        | [] -> Error (missing uid))) with
+    | Error error -> Error (Client error)
+    | Ok result -> result in
   let* flags=match row.flags with
     | Some flags -> parse_flags flags
     | None -> Error (Client (Imap_eio.Error.Protocol
         "message FETCH omitted FLAGS")) in
-  if internal_date && row.internal_date=None then
-    Error (Client (Imap_eio.Error.Protocol "message FETCH omitted INTERNALDATE"))
-  else Ok (flags,row.internal_date)
+  Ok (flags,row.internal_date)
 
-let remote_flags_and_date client ~mailbox ~uid ~uidvalidity =
-  let* flags,date=remote_metadata client ~mailbox ~uid ~uidvalidity
+let remote_flags_and_date ?missing client ~mailbox ~uid ~uidvalidity =
+  let* flags,date=remote_metadata ?missing client ~mailbox ~uid ~uidvalidity
     ~internal_date:true in
   match date with
   | Some date -> Ok (flags,date)
-  | None -> assert false (* [remote_metadata] requires the requested date. *)
+  | None -> Error (Client (Imap_eio.Error.Protocol
+      "message FETCH omitted INTERNALDATE"))
 
 let remote_date client ~mailbox ~uid ~uidvalidity =
   let* _,date=remote_flags_and_date client ~mailbox ~uid ~uidvalidity in
@@ -158,6 +157,14 @@ let copy_remote_to_local ~client:remote_client ~store ~maildir
     ~source_uidvalidity:(Some uidvalidity) ~source_uid:(Some uid)
     ~destination:None ~destination_uidvalidity:None ~blob ~flags in
   J.prepare_operation ~source_internal_date:internal_date store intent;
+  match Imap_maildir.check_append maildir ~flags ~internal_date () with
+  | Error reason ->
+      J.reject_prepared_operation store ~id
+        ~receipt:("Maildir cannot store the message: " ^ reason);
+      Error (Invalid_operation (Printf.sprintf
+        "remote UID %Ld cannot be stored in Maildir: %s"
+        (P.Uid.to_int64 uid) reason))
+  | Ok () ->
   J.mark_sent store ~id;
   let local=Eio.Switch.run @@ fun sw ->
     let source=Imap_store.Blob.open_in store ~sw blob in
@@ -222,7 +229,8 @@ let copy_local_to_remote ~client:remote_client ~store ~maildir
       let* ()=if remote_blob.length=blob.length &&
           remote_blob.sha256=blob.sha256 then Ok ()
         else Error (Content_diverged id) in
-      let* observed,actual=remote_flags_and_date remote_client ~mailbox ~uid:receipt.uid
+      let* observed,actual=remote_flags_and_date ~missing:appended_uid_missing
+        remote_client ~mailbox ~uid:receipt.uid
         ~uidvalidity:receipt.uidvalidity in
       if not (same_flags flags observed) then Error (Flags_diverged id)
       else let* ()=
@@ -244,12 +252,12 @@ let copy_local_to_remote ~client:remote_client ~store ~maildir
         ~reason:"APPEND completed without an attributable APPENDUID"
         store ~id;
       Error (Pending_operations [id])
-  | Error (Engine.Client (Imap_eio.Error.Rejected _)) as rejected ->
+  | Error (Engine.Client (Imap_eio.Error.Rejected _) as error) ->
       J.reject_operation store ~id ~receipt:"APPEND rejected";
-      (match rejected with Error error -> Error (Sync error) | _ -> assert false)
+      Error (Sync error)
   | Error error ->
       (match Imap_store.find_intent store ~id with
-       | None | Some {state=Imap_store.Prepared;_} ->
+       | None ->
            J.reject_operation store ~id
              ~receipt:"APPEND was not dispatched"
        | Some _ ->
@@ -333,16 +341,16 @@ let reconcile_remote_append ~client ~store ~maildir ~scope ~mailbox
         | _ ->
             (match Imap_store.find_intent store ~id:operation.id with
              | Some {scope=legacy_scope;state=Imap_store.Confirmed;
-                 kind=Imap_store.Append metadata;
+                 kind=Imap_store.Append {content_digest;expected_length;
+                   expected_flags=Some expected_flags;_};
                  uidvalidity=Some epoch;uid=Some uid;_}
-               when legacy_scope=scope &&
-                 metadata.content_digest=sha256 &&
-                 metadata.expected_length=Some length &&
-                 metadata.expected_flags=Some flags -> Some (epoch,uid)
+               when legacy_scope=scope && content_digest=sha256 &&
+                 expected_length=Some length &&
+                 same_flags expected_flags flags -> Some (epoch,uid)
              | _ -> None) in
       (match receipt with
        | None -> Ok ()
-       | Some (uidvalidity,uid) when cursor.uidvalidity<>Some uidvalidity ->
+       | Some (uidvalidity,_) when cursor.uidvalidity<>Some uidvalidity ->
            Ok ()
        | Some (uidvalidity,uid) ->
            let* present=snapshot_has_uid store ~scope ~cursor uid in
@@ -384,17 +392,19 @@ let reconcile_remote_append ~client ~store ~maildir ~scope ~mailbox
                     if blob.length<>length || blob.sha256<>sha256 then
                       Error (Content_diverged operation.id)
                     else
-                      let* observed,actual_date=remote_metadata client ~mailbox ~uid
+                      let* observed,actual_date=remote_metadata
+                        ~missing:appended_uid_missing client ~mailbox ~uid
                         ~uidvalidity ~internal_date:(Option.is_some expected_date) in
                       if not (same_flags flags observed) then
                         Error (Flags_diverged operation.id)
                       else let* ()=match expected_date,actual_date with
-                        | None,_ -> Ok ()
-                        | Some _,None -> assert false
-                        | Some expected,Some actual ->
-                            if Imap.Internal_date.equal_instant expected actual
-                            then Ok () else Error
-                              (Date_diverged operation.id) in
+                        | Some expected,Some actual when not
+                            (Imap.Internal_date.equal_instant expected
+                              actual) ->
+                            Error (Date_diverged operation.id)
+                        | Some _,None -> Error (Client (Imap_eio.Error.Protocol
+                            "message FETCH omitted INTERNALDATE"))
+                        | _ -> Ok () in
                       (
                         if operation.state<>J.Observed then
                           J.observe_operation store ~id:operation.id
@@ -697,16 +707,27 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                   "one paired side is absent; the pair has no content \
                    evidence to verify the survivor" in
             hold_deletion_evidence pair evidence in
+          let hold_flags pair evidence=
+            match J.ensure_open_conflict store ~pair ~kind:J.Policy_conflict
+              ~id:(next_id ()) ~evidence with
+            | `Open _ ->
+                incr flags_held;
+                record_hold pair.J.id;
+                Ok ()
+            | `Stale_revision -> Error Stale_revision in
+          let hold_pair (pair:J.pair)=
+            incr flags_held;
+            record_hold pair.id in
           let verify_pair_date (pair:J.pair) =
             let resolve ()=match J.resolve_open_conflicts store ~pair
                 ~kind:J.Identity_conflict with
-              | `Resolved _ -> Ok ()
+              | `Resolved _ -> Ok true
               | `Stale_revision -> Error Stale_revision in
             match pair.internal_date,pair.local_id with
             | Some expected,Some local_id ->
                 (match Imap_maildir.inventory_find local_inventory
                     ~id:local_id with
-                 | None -> Ok ()
+                 | None -> Ok true
                  | Some local ->
                      let observed=Imap_maildir.upload_internal_date local in
                      (match observed with
@@ -717,13 +738,20 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                           let evidence=match observed with
                             | Ok _ -> "local INTERNALDATE differs from paired baseline"
                             | Error reason -> "local INTERNALDATE unavailable: " ^ reason in
-                          let* ()=match J.ensure_open_conflict store
+                          (match J.ensure_open_conflict store
                               ~pair ~kind:J.Identity_conflict
                               ~id:(next_id ()) ~evidence with
-                            | `Open _ -> Ok ()
-                            | `Stale_revision -> Error Stale_revision in
-                          Error (Date_diverged pair.id)))
-            | _ -> Ok () in
+                            | `Open _ -> Ok false
+                            | `Stale_revision -> Error Stale_revision)))
+            | _ -> Ok true in
+          let both_present (pair:J.pair)=
+            match pair.remote_uidvalidity,pair.remote_uid,pair.local_id with
+            | Some epoch,Some uid,Some local_id
+              when cursor.uidvalidity=Some epoch ->
+                let* remote=snapshot_has_uid store ~scope ~cursor uid in
+                Ok (remote && Imap_maildir.inventory_find local_inventory
+                  ~id:local_id<>None)
+            | _ -> Ok false in
           let rec remote_pages after_uid =
             if budget_used ()>=max_transfers then Ok ()
             else
@@ -785,11 +813,15 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                 | (pair:J.pair)::rest when
                     pair.remote_tombstone<>None ||
                     pair.local_tombstone<>None ->
-                    let* ()=verify_pair_date pair in
-                    let* ()=resolve_policy_conflict pair in
+                    let* dated=verify_pair_date pair in
+                    let* both=both_present pair in
+                    let* ()=if dated && not both then
+                        resolve_policy_conflict pair
+                      else Ok (hold_pair pair) in
                     process rest
                 | (pair:J.pair)::rest ->
-                    let* ()=verify_pair_date pair in
+                    let* dated=verify_pair_date pair in
+                    if not dated then (hold_pair pair; process rest) else
                     let* needs_check=match pair.remote_uid,
                       pair.local_id with
                       | Some uid,Some local_id ->
@@ -825,8 +857,18 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                              else resolve_policy_conflict current in
                            process rest
                        | Error Flags.Modified ->
-                           incr flags_held;
-                           record_hold pair.id;
+                           hold_pair pair;
+                           process rest
+                       | Error (Flags.Content_mismatch _) -> process rest
+                       | Error Flags.Conditional_store_unavailable ->
+                           let* ()=hold_flags pair
+                             "remote flag change needs CONDSTORE and a \
+                              message MODSEQ" in
+                           process rest
+                       | Error (Flags.Permanent_flag_unavailable flag) ->
+                           let* ()=hold_flags pair (Format.asprintf
+                             "remote flag %a is not permanently writable"
+                             F.pp flag) in
                            process rest
                        | Error (Flags.Pending_operation id) ->
                            Error (Pending_operations [id])
@@ -846,7 +888,9 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
               | (conflict:J.conflict)::rest ->
                   let* pair=match J.find_pair store ~id:conflict.pair_id with
                     | Some pair when pair.scope=scope -> Ok pair
-                    | _ -> Error Stale_revision in
+                    | _ -> Error (Invalid_operation (Printf.sprintf
+                        "content conflict %s names missing pair %s"
+                        conflict.id conflict.pair_id)) in
                   let matches=match pair.local_id,
                       pair.content_sha256,pair.content_length with
                     | Some local_id,Some digest,Some length ->
@@ -866,10 +910,7 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                       | `Resolved _ -> Ok ()
                       | `Stale_revision -> Error Stale_revision in
                     process rest)
-                  else (
-                    incr flags_held;
-                    record_hold pair.id;
-                    process rest) in
+                  else (hold_pair pair; process rest) in
             process page in
           let* ()=content_conflict_pages None in
           let rec delete_pages after =
@@ -966,7 +1007,8 @@ let verify_local_content ~store ~maildir ~scope ~next_id ~on_issue () =
           | (pair:J.pair)::rest ->
               let* ()=match pair.local_tombstone,pair.local_id,
                   pair.content_sha256,pair.content_length with
-                | _,Some local_id,Some digest,Some length ->
+                | Some _,_,_,_ -> Ok ()
+                | None,Some local_id,Some digest,Some length ->
                     (match Imap_maildir.inventory_find inventory
                         ~id:local_id with
                      | None ->
@@ -1006,8 +1048,7 @@ let verify_local_content ~store ~maildir ~scope ~next_id ~on_issue () =
                                    on_issue pair.id evidence;
                                    Ok ()
                                | `Stale_revision -> Error Stale_revision)))
-                | Some _,_,_,_ -> Ok ()
-                | _ ->
+                | None,_,_,_ ->
                     bump unverified;
                     on_issue pair.id "paired local content evidence is incomplete";
                     Ok () in
@@ -1121,8 +1162,8 @@ let deletion_preview_of ~store ~policy ~min_absence_scans
 let preview_deletions ?(min_absence_scans=0) ~store ~maildir ~scope
     ~policy ~on_preview () =
   if min_absence_scans<0 then
-    invalid_arg "Bridge.preview_deletions: negative absence grace";
-  with_lease maildir (fun () ->
+    Error (Invalid_configuration "min_absence_scans must be nonnegative")
+  else with_lease maildir (fun () ->
     let cursor=Imap_store.load_cursor store ~scope in
     match cursor.phase,cursor.uidvalidity,cursor.inventory_ref with
     | Imap.Mirror.Live,Some current_epoch,Some _ ->
@@ -1147,7 +1188,7 @@ let preview_deletions ?(min_absence_scans=0) ~store ~maildir ~scope
                      let* remote_present=remote_presence in
                      let one_sided=match remote_present with
                        | Some present -> present<>local_present
-                       | None -> true in
+                       | None -> local_present in
                      if one_sided then on_preview
                        (deletion_preview_of ~store ~policy
                          ~min_absence_scans
@@ -1177,8 +1218,8 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
     ?(min_absence_scans=0) ~store ~maildir
     ~scope ~policy ~on_preview () =
   if min_absence_scans<0 then
-    invalid_arg "Bridge.preview_sync: negative absence grace";
-  with_lease maildir (fun () ->
+    Error (Invalid_configuration "min_absence_scans must be nonnegative")
+  else with_lease maildir (fun () ->
     let cursor=Imap_store.load_cursor store ~scope in
     match cursor.phase,cursor.uidvalidity,cursor.inventory_ref with
     | Imap.Mirror.Live,Some current_epoch,Some _ ->
@@ -1372,12 +1413,18 @@ let repair_local_append ~client ~store ~maildir ~scope ~mailbox ~id
         then Ok () else Error (Date_diverged id) in
       let* ()=if Imap_store.load_cursor store ~scope=cursor then Ok ()
         else Error Stale_revision in
+      let* ()=match Imap_maildir.check_append maildir ~flags ~internal_date
+          () with
+        | Ok () -> Ok ()
+        | Error reason -> Error (Invalid_operation
+            ("Maildir cannot store the message: " ^ reason)) in
       let local=Eio.Switch.run @@ fun sw ->
         let source=Imap_store.Blob.open_in store ~sw blob in
         Imap_maildir.append maildir ~id:local_id ~source ~length
           ~flags ~internal_date () in
       if local.length<>length || Imap_maildir.sha256 maildir local<>sha256
          then Error (Content_diverged id)
+      else if not (same_flags flags local.flags) then Error (Flags_diverged id)
       else (
         J.observe_operation store ~id
           ~receipt:("operator local append repair: " ^ evidence)
@@ -1406,10 +1453,10 @@ let record_appenduid_evidence ~store ~maildir ~scope ~id
           operation.desired_flags<>None then Ok ()
         else Error (Invalid_operation
           "operation is not a matching journaled APPEND") in
-      let* ()=match operation.state with
-        | J.Sent | J.Ambiguous -> Ok ()
+      let* observed=match operation.state with
+        | J.Sent | J.Ambiguous -> Ok false
         | J.Observed when operation.receipt_uidvalidity=Some uidvalidity &&
-            operation.receipt_uid=Some uid -> Ok ()
+            operation.receipt_uid=Some uid -> Ok true
         | _ -> Error (Invalid_operation
             "APPEND is not pending or already records another UID") in
       let* ()=match Imap_store.find_intent store ~id with
@@ -1437,15 +1484,12 @@ let record_appenduid_evidence ~store ~maildir ~scope ~id
                   intent.uid=Some uid -> Ok ()
               | _ -> Error (Invalid_operation
                   "legacy APPEND intent is not pending or has another UID") in
-      (match operation.state with
-       | J.Observed -> Ok ()
-       | J.Sent | J.Ambiguous ->
-           J.observe_operation store ~id
-             ~receipt:("operator APPENDUID: " ^ evidence)
-             ~destination_uidvalidity:(Some uidvalidity)
-             ~destination_uid:(Some uid);
-           Ok ()
-       | _ -> assert false))
+      if not observed then
+        J.observe_operation store ~id
+          ~receipt:("operator APPENDUID: " ^ evidence)
+          ~destination_uidvalidity:(Some uidvalidity)
+          ~destination_uid:(Some uid);
+      Ok ())
 
 type append_candidates = {
   uidvalidity : P.Uidvalidity.t;
@@ -1495,6 +1539,7 @@ let inspect_append_candidates ?(max_uids=1000)
                "APPEND has no saved pre-send UID frontier"))
       | _ -> Error (Invalid_operation
           "APPEND journal and legacy intent disagree") in
+    let* ()=sync (Engine.validate_scope ~client ~scope ~mailbox) in
     let* ()=sync (Engine.guard_bound_mailbox ~client ~store ~scope
       ~mailbox) in
     let inspect selected =
@@ -1541,7 +1586,7 @@ let inspect_append_candidates ?(max_uids=1000)
                               not (same_flags row_flags expected_flags) then
                              check matches rest
                            else
-                             let* ()=if length<0L ||
+                             let* ()=if
                                length>Int64.sub max_body_bytes !body_bytes then
                                Error (Invalid_configuration
                                  "APPEND candidate body byte budget exceeded")

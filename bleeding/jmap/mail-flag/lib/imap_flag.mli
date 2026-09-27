@@ -1,3 +1,5 @@
+@@ portable
+
 (** Lossless IMAP message flags (RFC 9051 §2.3.2).
 
     This is the wire representation. {!Keyword.of_string} intentionally accepts

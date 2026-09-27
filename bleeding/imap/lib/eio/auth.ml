@@ -7,63 +7,77 @@ type t = {
   allow_insecure_transport : bool;
 }
 
+exception Invalid_credentials
+
 let validate_username username =
   if username = "" || not (String.is_valid_utf_8 username) ||
      String.exists (fun c -> Char.code c < 32 || Char.code c = 127) username then
     invalid_arg "invalid IMAP username"
 
-let password ~username ~password ?(mechanism=`Auto)
-    ?(allow_insecure_transport=false) () =
-  validate_username username;
-  if mechanism = `Oauthbearer then
-    invalid_arg "OAUTHBEARER requires a bearer token provider";
-  { username; secret = Password (fun () -> password);
-    mechanism; allow_insecure_transport }
+let valid_password password = not (String.contains password '\000')
+
+(* RFC 6750 b64token: token characters, then only trailing padding. *)
+let valid_token token =
+  let token_char = function
+    | 'A'..'Z' | 'a'..'z' | '0'..'9'
+    | '-' | '.' | '_' | '~' | '+' | '/' -> true
+    | _ -> false in
+  let n = String.length token in
+  let rec body i = if i < n && token_char token.[i] then body (i + 1) else i in
+  let k = body 0 in
+  k > 0 && n <= 32768 &&
+  String.for_all (fun c -> c = '=') (String.sub token k (n - k))
 
 let refreshing ~username ?(mechanism=`Auto)
     ?(allow_insecure_transport=false) get_password =
   validate_username username;
   if mechanism = `Oauthbearer then
     invalid_arg "OAUTHBEARER requires a bearer token provider";
+  if mechanism = `Cram_md5 &&
+     (String.contains username ' ' || String.contains username '\t') then
+    invalid_arg "CRAM-MD5 username contains whitespace";
   { username; secret = Password get_password;
     mechanism; allow_insecure_transport }
 
-let bearer ~username ~token ?(allow_insecure_transport=false) () =
-  validate_username username;
-  { username; secret = Bearer (fun () -> token);
-    mechanism = `Oauthbearer; allow_insecure_transport }
+let password ~username ~password ?mechanism ?allow_insecure_transport () =
+  if not (valid_password password) then
+    invalid_arg "IMAP password contains NUL";
+  refreshing ~username ?mechanism ?allow_insecure_transport (fun () -> password)
 
 let refreshing_bearer ~username ?(allow_insecure_transport=false) get_token =
   validate_username username;
   { username; secret = Bearer get_token;
     mechanism = `Oauthbearer; allow_insecure_transport }
 
+let bearer ~username ~token ?allow_insecure_transport () =
+  if not (valid_token token) then invalid_arg "invalid OAuth bearer token";
+  refreshing_bearer ~username ?allow_insecure_transport (fun () -> token)
+
 let username t = t.username
 let mechanism t = t.mechanism
 let allow_insecure_transport t = t.allow_insecure_transport
-let resolve_password t =
-  let secret = match t.secret with
-  | Password get -> get ()
-  | Bearer _ -> invalid_arg "password requested from bearer credentials" in
-  if String.contains secret '\000' then invalid_arg "IMAP password contains NUL";
-  secret
 
-let resolve_token t =
-  let token = match t.secret with
-  | Bearer get -> get ()
-  | Password _ -> invalid_arg "bearer token requested from password credentials" in
-  if token = "" || String.length token > 32768 ||
-     not (String.for_all (function
-       | 'A'..'Z' | 'a'..'z' | '0'..'9'
-       | '-' | '.' | '_' | '~' | '+' | '/' | '=' -> true
-       | _ -> false) token) then
-    invalid_arg "invalid OAuth bearer token";
-  token
+(* A provider's exception may carry the secret it failed to fetch, so it is
+   replaced rather than propagated. *)
+let resolve get valid =
+  match get () with
+  | value when valid value -> value
+  | _ -> raise Invalid_credentials
+  | exception (Eio.Cancel.Cancelled _ as ex) -> raise ex
+  | exception _ -> raise Invalid_credentials
+
+let resolve_password t = match t.secret with
+  | Password get -> resolve get valid_password
+  | Bearer _ -> invalid_arg "password requested from bearer credentials"
+
+let resolve_token t = match t.secret with
+  | Bearer get -> resolve get valid_token
+  | Password _ -> invalid_arg "bearer token requested from password credentials"
 
 let plain_response t =
   let password = resolve_password t in
   if password = "" || not (String.is_valid_utf_8 password) then
-    invalid_arg "SASL PLAIN password must be nonempty UTF-8";
+    raise Invalid_credentials;
   Base64.encode_string ("\000" ^ t.username ^ "\000" ^ password)
 
 let escape_gs2 s =
@@ -89,8 +103,9 @@ let hmac_md5 ~key data =
   Digest.to_hex (Digest.string (pad 0x5c ^
     Digest.string (pad 0x36 ^ data)))
 
-let cram_md5_response t challenge =
+let cram_md5_response t =
   if String.contains t.username ' ' || String.contains t.username '\t' then
-    invalid_arg "CRAM-MD5 username contains whitespace";
+    raise Invalid_credentials;
   let password = resolve_password t in
-  Base64.encode_string (t.username ^ " " ^ hmac_md5 ~key:password challenge)
+  fun challenge ->
+    Base64.encode_string (t.username ^ " " ^ hmac_md5 ~key:password challenge)

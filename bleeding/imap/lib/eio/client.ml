@@ -117,9 +117,11 @@ let authenticate session auth ~secure =
       raise (Session.Failure (Session.Limit "authentication exchange exceeded limits"))
   | Session.Failure (Session.Protocol _) ->
       raise (Session.Failure (Session.Protocol "invalid authentication exchange"))
-  | Session.Failure (Session.State _) ->
-      raise (Session.Failure (Session.State "invalid authentication credentials"))
-  | _ -> raise (Session.Failure (Session.Transport "authentication exchange failed"))
+  | Session.Failure (Session.State _) | Auth.Invalid_credentials ->
+      raise (Session.Failure (Session.State "invalid credentials"))
+  | ex when Session.io_failure ex ->
+      raise (Session.Failure (Session.Transport
+        "authentication exchange failed"))
 
 let start ~sw ?auth ?endpoint flow =
   let session = Session.create flow in

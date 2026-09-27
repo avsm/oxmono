@@ -12,12 +12,30 @@ module Auth : sig
   type t
   val password : username:string -> password:string -> ?mechanism:mechanism ->
     ?allow_insecure_transport:bool -> unit -> t
+  (** [password ~username ~password ?mechanism ?allow_insecure_transport ()]
+      holds a fixed password. [mechanism] defaults to [`Auto] and
+      [allow_insecure_transport] to [false]. It raises [Invalid_argument]
+      for an empty, non-UTF-8 or control-character username, a password
+      containing NUL, [`Oauthbearer], or [`Cram_md5] with a username
+      containing whitespace. *)
   val refreshing : username:string -> ?mechanism:mechanism ->
     ?allow_insecure_transport:bool -> (unit -> string) -> t
+  (** [refreshing ~username ?mechanism ?allow_insecure_transport get] calls
+      [get] for the password at each authentication. It checks [username]
+      and [mechanism] as {!password} does. An invalid password, or an
+      exception from [get], fails authentication with
+      [Error.State "invalid credentials"] before any secret is sent. *)
   val bearer : username:string -> token:string ->
     ?allow_insecure_transport:bool -> unit -> t
+  (** [bearer ~username ~token ?allow_insecure_transport ()] holds a fixed
+      OAUTHBEARER token. [allow_insecure_transport] defaults to [false]. It
+      raises [Invalid_argument] for an invalid username, or a token that is
+      empty, longer than 32 KiB or not an RFC 6750 b64token. *)
   val refreshing_bearer : username:string ->
     ?allow_insecure_transport:bool -> (unit -> string) -> t
+  (** [refreshing_bearer ~username ?allow_insecure_transport get] calls
+      [get] for the token at each authentication, with the failure rules of
+      {!refreshing}. *)
   val username : t -> string
   val mechanism : t -> mechanism
   val allow_insecure_transport : t -> bool

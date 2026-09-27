@@ -170,6 +170,75 @@ let test_control_literals_bypass_sink () =
          | _ -> failwith "ENVELOPE literal lost")
     | _ -> failwith "responses were not parsed")
 
+(* Keeps the bytes the client writes, independently of mock traces. *)
+module Recording = struct
+  type t = {input : Eio_mock.Flow.t; written : Buffer.t}
+  let read_methods = []
+  let single_read t buffer = Eio.Flow.single_read t.input buffer
+  let single_write t (buffers @ local) =
+    let buffers = Cstruct.globalize_list buffers in
+    List.iter (fun data ->
+      Buffer.add_string t.written (Cstruct.to_string data)) buffers;
+    Cstruct.lenv buffers
+  let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
+  let shutdown _ _ = ()
+  let close _ = ()
+end
+let recording_handler = Eio.Resource.handler (
+  Eio.Resource.H (Eio.Resource.Close, Recording.close) ::
+  Eio.Resource.bindings (Eio.Flow.Pi.two_way (module Recording)))
+
+let authenticate ~caps auth =
+  Eio_mock.Backend.run @@ fun () ->
+  Eio.Switch.run @@ fun sw ->
+  let input = Eio_mock.Flow.make "review-auth" in
+  Eio_mock.Flow.on_read input [`Return "* OK ready\r\n";
+    `Return ("* CAPABILITY " ^ caps ^ "\r\n" ^ tag 1 ^ " OK caps\r\n")];
+  let recording = {Recording.input; written = Buffer.create 64} in
+  let result = C.of_flow ~sw ~auth (Eio.Resource.T (recording, recording_handler)) in
+  Result.iter C.close result;
+  result, Buffer.contents recording.written
+
+let test_static_credentials_checked () =
+  let rejects label f =
+    match f () with
+    | exception Invalid_argument _ -> ()
+    | _ -> failwith (label ^ " was accepted") in
+  rejects "NUL password" (fun () ->
+    Imap_eio.Auth.password ~username:"u" ~password:"a\000b" ());
+  rejects "CRAM-MD5 username with space" (fun () ->
+    Imap_eio.Auth.password ~username:"a b" ~password:"p"
+      ~mechanism:`Cram_md5 ());
+  List.iter (fun token ->
+    rejects ("bearer token " ^ token) (fun () ->
+      Imap_eio.Auth.bearer ~username:"u" ~token ()))
+    [""; "a=b"; "="; "a b"];
+  ignore (Imap_eio.Auth.bearer ~username:"u" ~token:"abc==" ())
+
+let test_provider_credentials_are_state () =
+  let invalid label = function
+    | Error (E.State "invalid credentials"), written
+      when written = tag 1 ^ " CAPABILITY\r\n" -> ()
+    | Error e, _ -> failwith (label ^ ": " ^ C.error_to_string e)
+    | _ -> failwith (label ^ ": sent or accepted invalid credentials") in
+  invalid "NUL provider password" (authenticate ~caps:"IMAP4rev1"
+    (Imap_eio.Auth.refreshing ~username:"u" ~mechanism:`Login
+      ~allow_insecure_transport:true (fun () -> "a\000b")));
+  invalid "padded provider token" (authenticate
+    ~caps:"IMAP4rev1 AUTH=OAUTHBEARER SASL-IR"
+    (Imap_eio.Auth.refreshing_bearer ~username:"u"
+      ~allow_insecure_transport:true (fun () -> "a=b")));
+  invalid "CRAM-MD5 username checked before AUTHENTICATE" (authenticate
+    ~caps:"IMAP4rev1 AUTH=CRAM-MD5"
+    (Imap_eio.Auth.password ~username:"a b" ~password:"p" ()))
+
+let test_plain_endpoint_names () =
+  Eio_mock.Backend.run @@ fun () ->
+  let net = Eio_mock.Net.make "review-net" in
+  List.iter (fun host ->
+    ignore (Imap_eio.Transport.v ~net ~host ~tls:`Plain ()))
+    ["imap_test"; "fe80::1%eth0"]
+
 let connect_and_close ~sw collected =
   let flow = Eio_mock.Flow.make "released" in
   Eio_mock.Flow.on_read flow [`Return "* PREAUTH ready\r\n";
@@ -199,4 +268,7 @@ let () =
   test_protect_reraises ();
   test_idle_rejection_keeps_session ();
   test_preview_limit_leading_zeros ();
-  test_control_literals_bypass_sink ()
+  test_control_literals_bypass_sink ();
+  test_static_credentials_checked ();
+  test_provider_credentials_are_state ();
+  test_plain_endpoint_names ()

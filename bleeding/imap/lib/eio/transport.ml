@@ -1,6 +1,7 @@
 type tls = [ `Implicit | `Required_starttls | `Plain ]
+type raw = [Eio.Flow.two_way_ty | Eio.Resource.close_ty] Eio.Resource.t
 type t = {
-  dial : sw:Eio.Switch.t -> [Eio.Flow.two_way_ty | Eio.Resource.close_ty] Eio.Resource.t;
+  dial : sw:Eio.Switch.t -> raw;
   host : string;
   port : int;
   tls : tls;
@@ -21,11 +22,14 @@ let v ~net ~host ?port ?(tls=`Implicit)
         | Eio.Io _ when rest <> [] -> attempt rest)
     in
     (attempt (Eio.Net.getaddrinfo_stream net host ~service:(string_of_int port))
-      :> [Eio.Flow.two_way_ty | Eio.Resource.close_ty] Eio.Resource.t)
+      :> raw)
   in
-  let peer_name, ip = match Ipaddr.of_string host with
-  | Ok ip -> None, Some ip
-  | Error _ -> Some (Domain_name.host_exn (Domain_name.of_string_exn host)), None
+  let peer_name, ip =
+    if tls = `Plain then None, None
+    else match Ipaddr.of_string host with
+      | Ok ip -> None, Some ip
+      | Error _ ->
+          Some (Domain_name.host_exn (Domain_name.of_string_exn host)), None
   in
   let tls_config = if tls = `Plain then None else (
     let authenticator = match authenticator with
@@ -41,7 +45,7 @@ let port t = t.port
 let tls t = t.tls
 
 type flow = {
-  mutable raw : [Eio.Flow.two_way_ty | Eio.Resource.close_ty] Eio.Resource.t;
+  mutable raw : raw;
   mutable deflate : Deflate_flow.t option;
   mutable closed : bool;
 }
@@ -51,9 +55,7 @@ let secure (t : t @ nonportable) raw =
   let g = Mirage_crypto_rng_unix.fresh_generator () in
   Tls_eio.client_of_flow_with_rng ~g config ?host:t.peer_name ?ip:t.ip raw
 
-let of_flow raw =
-  { raw = (raw :> [Eio.Flow.two_way_ty | Eio.Resource.close_ty] Eio.Resource.t);
-    deflate = None; closed = false }
+let of_flow raw = { raw = (raw :> raw); deflate = None; closed = false }
 
 let connect ~sw (t : t @ nonportable) =
   let raw = t.dial ~sw in
@@ -62,9 +64,8 @@ let connect ~sw (t : t @ nonportable) =
   with e ->
     let bt=Printexc.get_raw_backtrace () in
     (try Eio.Cancel.protect (fun () -> Eio.Resource.close raw) with _ -> ());
-    Printexc.raise_with_backtrace e bt
+    Eio.Exn.reraise_with_context e bt "IMAP TLS handshake with %s" t.host
 
-(* STARTTLS upgrades retain ownership of the original resource. *)
 let check_open f = if f.closed then invalid_arg "closed IMAP transport"
 let read f b =
   check_open f;
@@ -87,12 +88,14 @@ let compress_deflate f =
   check_open f;
   if compressed f then invalid_arg "DEFLATE is already active";
   f.deflate <- Some (Deflate_flow.create f.raw)
+
+(* STARTTLS keeps ownership of the original resource: the TLS flow closes
+   it, and a failed handshake closes it here. *)
 let upgrade (t : t @ nonportable) f =
   check_open f;
   if compressed f then invalid_arg "STARTTLS after COMPRESS is forbidden";
-  try
-    f.raw <- (secure t f.raw :> [Eio.Flow.two_way_ty | Eio.Resource.close_ty] Eio.Resource.t)
+  try f.raw <- (secure t f.raw :> raw)
   with ex ->
     let bt=Printexc.get_raw_backtrace () in
     (try close f with _ -> ());
-    Printexc.raise_with_backtrace ex bt
+    Eio.Exn.reraise_with_context ex bt "IMAP STARTTLS with %s" t.host

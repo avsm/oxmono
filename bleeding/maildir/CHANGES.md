@@ -66,3 +66,6 @@ can still fill the free slots after it returns.
 
 `1f57fbd49` `Keywords`, its errors and `pp_error` are declared
 `@ portable`.
+
+The in-process writer registry is an atomic `Base.Set` of directory
+inodes instead of a mutex-guarded `Hashtbl`.

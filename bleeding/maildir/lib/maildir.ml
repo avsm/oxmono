@@ -60,17 +60,24 @@ let catch f = try Ok (f ()) with Invalid e -> Error e
 (* POSIX record locks are process-scoped: a second lockf in this process would
    succeed, and closing that second descriptor could release the first lock.
    Reserve the canonical directory before opening any lock-file descriptor. *)
-let writer_locks = Hashtbl.create 17
-let writer_locks_mutex = Mutex.create ()
-let reserve_writer key path =
-  Mutex.lock writer_locks_mutex;
-  Fun.protect ~finally:(fun () -> Mutex.unlock writer_locks_mutex) (fun () ->
-    if Hashtbl.mem writer_locks key then raise (Writer_lock_busy path);
-    Hashtbl.add writer_locks key ())
-let release_writer key =
-  Mutex.lock writer_locks_mutex;
-  Fun.protect ~finally:(fun () -> Mutex.unlock writer_locks_mutex) (fun () ->
-    Hashtbl.remove writer_locks key)
+module Inode = struct
+  type t = int64 * int64
+  let compare (dev, ino) (dev', ino') =
+    match Int64.compare dev dev' with 0 -> Int64.compare ino ino' | c -> c
+  include (val Base.Comparator.make__portable ~compare
+      ~sexp_of_t:(fun (dev, ino) -> Base.Sexp.List
+        [ Atom (Int64.to_string dev); Atom (Int64.to_string ino) ]))
+end
+let writer_locks = Atomic.make (Base.Set.empty (module Inode))
+let rec reserve_writer key path =
+  let held = Atomic.get writer_locks in
+  if Base.Set.mem held key then raise (Writer_lock_busy path);
+  if not (Atomic.compare_and_set writer_locks held (Base.Set.add held key))
+  then reserve_writer key path
+let rec release_writer key =
+  let held = Atomic.get writer_locks in
+  if not (Atomic.compare_and_set writer_locks held (Base.Set.remove held key))
+  then release_writer key
 
 let child (Dir p) name = Dir Eio.Path.(p / name)
 let kind (Dir p) = Eio.Path.kind ~follow:false p

@@ -232,7 +232,10 @@ let uid_sort t ~keys ~charset ~criteria =
     match List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Sort uids) -> Some uids
       | _ -> None) responses with
-    | [uids] -> List.map received_uid uids
+    | [uids] ->
+        if List.compare_length_with uids 100_000>0 then
+          raise (Session.Failure (Session.Limit "SORT exceeds 100000 UIDs"));
+        List.map received_uid uids
     | _ -> protocol "missing or repeated SORT result")
 
 type sort_result = {
@@ -330,7 +333,15 @@ let uid_thread t ~algorithm ~charset ~criteria =
     match List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Thread threads) -> Some threads
       | _ -> None) responses with
-    | [threads] -> List.map typed_thread threads
+    | [threads] ->
+        let rec count total = function
+          | [] -> total
+          | (node:Imap.Response.thread)::rest ->
+              count (count (total+1) node.children) rest in
+        if count 0 threads>100_000 then
+          raise (Session.Failure (Session.Limit
+            "THREAD exceeds 100000 nodes"));
+        List.map typed_thread threads
     | _ -> protocol "missing or repeated THREAD result")
 
 let uid_search_partial t ~range ~criteria =
@@ -828,12 +839,19 @@ let fetch_changes_range t ~first ~last ~since =
 
 let uid_batches t ?range ~size () =
   run t (fun () ->
-    if t.session.Session.uidbatches_last_mailbox = t.session.Session.selected then
+    let session = t.session in
+    let issued = match session.Session.selected with
+      | Some mailbox -> List.mem mailbox session.Session.uidbatches_mailboxes
+      | None -> false in
+    if issued then
       raise (Session.Failure (Session.State
         "UIDBATCHES already issued for this mailbox on this connection"));
     let syntax = syntax (Imap.Command.uid_batches ?range ~size ()) in
-    t.session.Session.uidbatches_last_mailbox <- t.session.Session.selected;
-    let result = Session.command_result t.session syntax in
+    let result = Session.command_result session syntax in
+    Option.iter (fun mailbox ->
+      session.Session.uidbatches_mailboxes <-
+        mailbox :: session.Session.uidbatches_mailboxes)
+      session.Session.selected;
     let tag = completion_tag result in
     match List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Uidbatches batch)

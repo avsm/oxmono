@@ -668,6 +668,56 @@ let test_uidonly_partial_batches () =
       Ok ())));
   Imap_eio.Client.close client
 
+let test_uidbatches_per_mailbox () =
+  Eio_mock.Backend.run @@ fun () ->
+  Eio.Switch.run @@ fun sw ->
+  let flow=Eio_mock.Flow.make "uidbatches-per-mailbox" in
+  let caps="IMAP4rev1 UIDBATCHES UNSELECT" in
+  let select tag=Printf.sprintf
+    "* 1 EXISTS\r\n* OK [UIDVALIDITY 5] valid\r\n\
+     * OK [UIDNEXT 100] next\r\nA%08d OK selected\r\n" tag in
+  let batches tag=Printf.sprintf
+    "* UIDBATCHES (TAG \"A%08d\") 99:1\r\nA%08d OK batches\r\n" tag tag in
+  Eio_mock.Flow.on_read flow [
+    `Return "* OK ready\r\n";
+    `Return ("* CAPABILITY " ^ caps ^ "\r\nA00000001 OK done\r\n");
+    `Return "A00000002 OK logged in\r\n";
+    `Return ("* CAPABILITY " ^ caps ^ "\r\nA00000003 OK done\r\n");
+    `Return (select 4);
+    `Return "A00000005 NO [LIMIT] try later\r\n";
+    `Return (batches 6);
+    `Return "A00000007 OK unselected\r\n";
+    `Return (select 8);
+    `Return (batches 9);
+    `Return "A00000010 OK unselected\r\n";
+    `Return (select 11);
+    `Return "A00000012 OK unselected\r\n";
+  ];
+  let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw"
+    ~allow_insecure_transport:true () in
+  let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
+  let request mailbox f=
+    ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
+      (fun selected ->
+        let uidbatches=ok (Imap_eio.Selected.Uidbatches.require selected) in
+        f (fun () ->
+          Imap_eio.Selected.Uidbatches.uid_batches uidbatches ~size:500L ());
+        Ok ())) in
+  request "A" (fun batch ->
+    (match batch () with
+     | Error (Imap_eio.Error.Rejected _) -> ()
+     | _ -> failwith "rejected UIDBATCHES was not reported");
+    if (ok (batch ())).ranges<>[99L,1L] then
+      failwith "UIDBATCHES after a rejection was refused");
+  request "B" (fun batch ->
+    if (ok (batch ())).ranges<>[99L,1L] then
+      failwith "UIDBATCHES for another mailbox was refused");
+  request "A" (fun batch ->
+    match batch () with
+    | Error (Imap_eio.Error.State _) -> ()
+    | _ -> failwith "UIDBATCHES reissue for an earlier mailbox not gated");
+  Imap_eio.Client.close client
+
 let test_untagged_messagelimit () =
   Eio_mock.Backend.run @@ fun () ->
   Eio.Switch.run @@ fun sw ->
@@ -1229,7 +1279,8 @@ let () =
   test_extension_wrappers (); test_acl_mutation_uncertain ();
   test_selected_notify (); test_discovery (); test_discovery_capabilities ();
   test_decoded_names ();
-  test_uidonly_partial_batches (); test_untagged_messagelimit ();
+  test_uidonly_partial_batches (); test_uidbatches_per_mailbox ();
+  test_untagged_messagelimit ();
   test_mutation_messagelimit_no ();
   test_search_messagelimit_resume ();
   test_uidonly_rejects_sequence_updates ();

@@ -8,6 +8,12 @@ let ok = function
 let raw_list = List.map Imap.Uid.to_int64
 let raw_opt = Option.map Imap.Uid.to_int64
 
+(* [chunks s] splits [s] into reads that fit the mock flow's buffer. *)
+let chunks s =
+  let size=32_768 in
+  List.init ((String.length s+size-1)/size) (fun i ->
+    `Return (String.sub s (i*size) (min size (String.length s-i*size))))
+
 let scripted ?(uidonly=false) ?(dispatched=true) ~capabilities ~reply f =
   Eio_mock.Backend.run @@ fun () ->
   Eio.Switch.run @@ fun sw ->
@@ -25,8 +31,7 @@ let scripted ?(uidonly=false) ?(dispatched=true) ~capabilities ~reply f =
        [`Return "* ENABLED UIDONLY\r\nA00000004 OK enabled\r\n"] else [])
     @ [`Return ("* 3 EXISTS\r\n* OK [UIDVALIDITY 1] valid\r\n" ^
        "* OK [UIDNEXT 10] next\r\n" ^ tag selected_tag ^ " OK selected\r\n")]
-    @ (if dispatched then
-       [`Return (reply (tag (selected_tag+1)))] else [])
+    @ (if dispatched then chunks (reply (tag (selected_tag+1))) else [])
     @ [`Return (tag (selected_tag + if dispatched then 2 else 1) ^
        " OK unselected\r\n")]);
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw"
@@ -121,6 +126,24 @@ let test_partial_results () =
     (scripted ~capabilities:"THREAD=REFERENCES MESSAGELIMIT=1"
       ~reply:(fun tag -> "* THREAD (9)\r\n" ^ tag ^
         " OK [MESSAGELIMIT 1 9] partial\r\n") thread)
+
+let test_expansion_bounds () =
+  let numbers n=List.init n (fun i -> string_of_int (i+1)) in
+  let sort_reply n=complete ("* SORT " ^ String.concat " " (numbers n) ^
+    "\r\n") in
+  let thread_reply n=complete ("* THREAD " ^ String.concat ""
+    (List.map (fun n -> "(" ^ n ^ ")") (numbers n)) ^ "\r\n") in
+  if List.length (ok (scripted ~capabilities:"SORT"
+      ~reply:(sort_reply 100_000) sort))<>100_000 then
+    failwith "SORT of 100000 UIDs lost UIDs";
+  expect_error "SORT over 100000 UIDs" limit
+    (scripted ~capabilities:"SORT" ~reply:(sort_reply 100_001) sort);
+  if List.length (ok (scripted ~capabilities:"THREAD=REFERENCES"
+      ~reply:(thread_reply 100_000) thread))<>100_000 then
+    failwith "THREAD of 100000 nodes lost nodes";
+  expect_error "THREAD over 100000 nodes" limit
+    (scripted ~capabilities:"THREAD=REFERENCES"
+      ~reply:(thread_reply 100_001) thread)
 
 let test_uidonly () =
   expect_error "sequence SORT in UIDONLY" state
@@ -230,6 +253,7 @@ let () =
   test_tree ();
   test_invalid_results ();
   test_partial_results ();
+  test_expansion_bounds ();
   test_uidonly ();
   test_esort ();
   test_esort_partial ()

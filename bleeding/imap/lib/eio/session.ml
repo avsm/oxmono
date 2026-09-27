@@ -21,7 +21,7 @@ type t = {
   mutable generation : int;
   mutable saved_search_nonce : unit ref;
   mutable selected : string option;
-  mutable uidbatches_last_mailbox : string option;
+  mutable uidbatches_mailboxes : string list;
   mutable readonly : bool;
   mutable capabilities : Imap.Capability.Set.t;
   mutable enabled : Imap.Capability.Set.t;
@@ -41,7 +41,8 @@ let create ?(max_metadata=16_777_216) ?(max_responses=10_000)
     invalid_arg "Session.create limits";
   { flow; wire = Imap.Wire.create (); queued = [];
     mutex = Eio.Mutex.create (); closed = false; tag_number = 0;
-    generation = 0; saved_search_nonce = ref (); selected = None; uidbatches_last_mailbox = None;
+    generation = 0; saved_search_nonce = ref (); selected = None;
+    uidbatches_mailboxes = [];
     readonly = false;
     capabilities = Imap.Capability.Set.empty;
     enabled = Imap.Capability.Set.empty;

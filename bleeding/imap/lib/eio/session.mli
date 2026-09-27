@@ -22,7 +22,7 @@ type t = {
   mutable generation : int;
   mutable saved_search_nonce : unit ref;
   mutable selected : string option;
-  mutable uidbatches_last_mailbox : string option;
+  mutable uidbatches_mailboxes : string list;
   mutable readonly : bool;
   mutable capabilities : Imap.Capability.Set.t;
   mutable enabled : Imap.Capability.Set.t;

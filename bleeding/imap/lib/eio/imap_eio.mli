@@ -673,9 +673,9 @@ module Selected : sig
     (** [uid_sort t ~keys ~charset ~criteria] is the UIDs of the messages
         matching [criteria] in the server's order for [keys], with strings
         compared in [charset]. An explicit empty SORT result is [Ok []]. A
-        missing or repeated result, a malformed one, a repeated UID and
-        more than 100,000 UIDs are [Error.Protocol], and a MESSAGELIMIT
-        partial result is [Error.Limit]. [criteria] follows the rules of
+        missing or repeated result, a malformed one and a repeated UID are
+        [Error.Protocol], and more than 100,000 UIDs and a MESSAGELIMIT
+        partial result are [Error.Limit]. [criteria] follows the rules of
         {!Selected.uid_search}. The result describes current membership,
         not a durable snapshot. *)
   end
@@ -732,10 +732,10 @@ module Selected : sig
         messages matching [criteria] under the witness's algorithm, with
         strings compared in [charset]. It keeps the order of parents and
         children and the dummy grouping nodes. A number outside the UID
-        range, more than 100,000 nodes and a depth over 100 are
-        [Error.Protocol]. An empty result must be explicit. A missing,
-        repeated or malformed result is [Error.Protocol], and a partial one
-        [Error.Limit]. [criteria] follows the rules of
+        range and a depth over 100 are [Error.Protocol], and more than
+        100,000 nodes is [Error.Limit]. An empty result must be explicit. A
+        missing, repeated or malformed result is [Error.Protocol], and a
+        partial one [Error.Limit]. [criteria] follows the rules of
         {!Selected.uid_search}. Thread trees are server-computed
         relationships, not stable JMAP thread identifiers or a durable
         mailbox snapshot. *)
@@ -819,10 +819,11 @@ module Selected : sig
     (** [uid_batches t ~range ~size ()] is the server's UID boundaries for
         batches of [size] messages, restricted to the batch indexes [range]
         when it is given. [range] is omitted by default. Boundaries do not
-        prove UID membership. A request for the mailbox of the connection's
-        previous UIDBATCHES request, even a rejected one, is [Error.State],
-        which keeps within the RFC's reissue limit. The reply must hold
-        exactly one correlated UIDBATCHES response, else
+        prove UID membership. A request for a mailbox whose UIDBATCHES
+        request this connection already completed with a tagged OK is
+        [Error.State] and sends nothing, which keeps within the RFC's
+        reissue limit. A rejected request does not count. The reply must
+        hold exactly one correlated UIDBATCHES response, else
         [Error.Protocol]. *)
   end
 

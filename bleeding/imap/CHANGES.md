@@ -380,3 +380,7 @@ system thread per call, cutting the staging benchmark from 3,926 MB and
 
 Staging binds each row's parameters by index instead of through a value
 list, cutting the staging benchmark from 93 MB to 37 MB for 100,000 rows.
+
+`stage_membership` marks each UID with one UPDATE and reads its change
+count instead of a SELECT before it, cutting the membership phase from
+259 to 187 bytes and from two statements to one per UID.

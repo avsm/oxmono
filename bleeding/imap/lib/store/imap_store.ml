@@ -200,8 +200,6 @@ let stage_membership t ~stage_id ~first ~last uids =
     if first<>Int64.succ prior || last>upper || int h.(9)<last then
       invalid_arg (who ^ ": incomplete FETCH coverage");
     let unique=Hashtbl.create (List.length uids) in
-    with_stmt t "SELECT 1 FROM scan_rows WHERE stage_id=? AND uid=?"
-    @@ fun check_stmt ->
     with_stmt t "UPDATE scan_rows SET seen=1 WHERE stage_id=? AND uid=?"
     @@ fun mark_stmt ->
     batch t (fun () -> List.iter (fun uid ->
@@ -210,13 +208,11 @@ let stage_membership t ~stage_id ~first ~last uids =
         invalid_arg (who ^ ": UID outside SEARCH range");
       if Hashtbl.mem unique uid then invalid_arg (who ^ ": duplicate UID");
       Hashtbl.add unique uid ();
-      bind_text t check_stmt 1 stage_id;
-      bind_int64 t check_stmt 2 uid;
-      if batch_row t check_stmt=None then
-        invalid_arg (who ^ ": live UID absent from FETCH");
       bind_text t mark_stmt 1 stage_id;
       bind_int64 t mark_stmt 2 uid;
-      batch_exec t mark_stmt) uids);
+      batch_exec t mark_stmt;
+      if changes t=0 then
+        invalid_arg (who ^ ": live UID absent from FETCH")) uids);
     run t "UPDATE scan_stages SET search_upper=? WHERE id=?"
       [i last;s stage_id])
 

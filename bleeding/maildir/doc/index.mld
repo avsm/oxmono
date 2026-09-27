@@ -34,8 +34,8 @@ A nonempty legacy [.imap-flags] or [.imap-dates] directory is
 
 {1 Locks}
 
-Scans, lookups, keyword map updates and mutations take the Dovecot
-metadata lock [dovecot-uidlist.lock]. An existing lock raises
+Scans, lookups, keyword checks, keyword map updates and mutations take
+the Dovecot metadata lock [dovecot-uidlist.lock]. An existing lock raises
 {!Maildir.Metadata_lock_busy} at once, including a stale one. No stale
 lock is reclaimed automatically, since a pathname check and unlink can
 remove another writer's fresh lock. Remove a stale lock offline, with

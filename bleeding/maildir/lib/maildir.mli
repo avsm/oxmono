@@ -106,8 +106,9 @@ exception Writer_expired
 
 exception Metadata_lock_busy of string
 (** [Metadata_lock_busy path] is raised by {!scan}, {!fold}, {!find},
-    {!append}, {!set_flags} and {!remove} when the Dovecot metadata lock at
-    [path] already exists. It is the same exception as {!Dotlock.Busy}. *)
+    {!check_append}, {!append}, {!set_flags} and {!remove} when the Dovecot
+    metadata lock at [path] already exists. It is the same exception as
+    {!Dotlock.Busy}. *)
 
 exception Metadata_lock_lost of string
 (** [Metadata_lock_lost path] is raised by the same operations when another
@@ -233,9 +234,15 @@ val check_append : writer -> flags:Mail_flag.Imap_flag.t list ->
 (** [check_append w ~flags ~mtime ()] is the error that {!append} with
     [flags] and [mtime] would return before reading its source. It covers
     an unsupported flag, a keyword with no free slot in [dovecot-keywords],
-    an unreadable keyword map and an [mtime] that is not finite. It writes
-    nothing, and [Ok ()] does not guarantee that {!append} succeeds.
+    an unreadable keyword map and an [mtime] that is not finite. When
+    [flags] hold a keyword it reads the keyword map under the metadata
+    lock, as {!append} does. It writes nothing, and [Ok ()] does not
+    guarantee that {!append} succeeds, since another writer of
+    [dovecot-keywords] can fill the free slots after the lock is released.
 
+    @raise Metadata_lock_busy if [flags] hold a keyword and the metadata
+    lock is held.
+    @raise Metadata_lock_lost if the metadata lock is lost while held.
     @raise Writer_expired if [w] has expired. *)
 
 val set_flags : writer -> occurrence -> Mail_flag.Imap_flag.t list ->

@@ -8,11 +8,11 @@ mapping and filename flag letters.
 System flags live in filename letters and custom keywords in the lowercase
 letters that `dovecot-keywords` maps. A message's modification time is its
 arrival date. Flag changes preserve the basename, timestamps, the Passed flag
-and extra filename fields. Scans, keyword-map updates and mutations take
-the Dovecot metadata lock `dovecot-uidlist.lock`, and an existing lock
-raises `Maildir.Metadata_lock_busy` at once. A nonempty `.imap-flags` or
-`.imap-dates` directory is refused with `Legacy_metadata`. It needs offline
-migration and is never removed.
+and extra filename fields. Scans, keyword checks, keyword-map updates and
+mutations take the Dovecot metadata lock `dovecot-uidlist.lock`, and an
+existing lock raises `Maildir.Metadata_lock_busy` at once. A nonempty
+`.imap-flags` or `.imap-dates` directory is refused with `Legacy_metadata`.
+It needs offline migration and is never removed.
 
 Mutations take a `Maildir.writer`, the capability that `Maildir.with_writer`
 grants under an exclusive application lease on `.imap-writer.lock`. A

@@ -372,9 +372,10 @@ let check_mtime mtime =
 
 let check t ~flags ?mtime () =
   get (Keywords.validate_flags flags);
+  Option.iter check_mtime mtime;
   if has_keywords flags then
-    ignore (get (Keywords.add (read_keywords t) flags) : Keywords.t);
-  Option.iter check_mtime mtime
+    with_metadata_lock t (fun _ ->
+      ignore (get (Keywords.add (read_keywords t) flags) : Keywords.t))
 
 let check_append writer ~flags ?mtime () =
   let t=of_writer writer in

@@ -476,6 +476,23 @@ let probe_writer root =
   | Unix.WSTOPPED signal ->
     Alcotest.failf "writer probe stopped by signal %d" signal
 
+let test_check_append_metadata_lock env = with_root (fun root ->
+  let m=open_dir Eio.Path.(Eio.Stdenv.fs env / root) in
+  let lock=Filename.concat root "dovecot-uidlist.lock" in
+  M.with_writer m (fun w ->
+    Alcotest.(check bool) "keyword check releases the lock" true
+      (M.check_append w ~flags:[flag "Custom"] ()=Ok () &&
+       not (Sys.file_exists lock));
+    Out_channel.with_open_bin lock (fun out ->
+      Printf.fprintf out "%d %s\n" (Unix.getpid ()) (Unix.gethostname ()));
+    Alcotest.(check bool) "system flags need no lock" true
+      (M.check_append w ~flags:[flag "\\Seen"] ()=Ok ());
+    (try
+       ignore (M.check_append w ~flags:[flag "Custom"] ());
+       Alcotest.fail "keyword check ignored a held metadata lock"
+     with M.Metadata_lock_busy _ -> ());
+    Unix.unlink lock))
+
 let test_writer_lock env = with_root (fun root ->
   let path=Eio.Path.(Eio.Stdenv.fs env / root) in
   let m=open_dir path in
@@ -566,6 +583,8 @@ if Array.length Sys.argv=3 && Sys.argv.(1)="--writer-probe" then (
 Eio_main.run (fun env ->
   Alcotest.run "maildir" [
     "durability", [
+      Alcotest.test_case "check_append takes the metadata lock" `Quick
+        (fun () -> test_check_append_metadata_lock env);
       Alcotest.test_case "metadata lock recovery and foreign owners" `Quick
         (fun () -> test_metadata_lock_recovery env);
       Alcotest.test_case "same-name replacement" `Quick (fun () -> test_replaced_occurrence env);

@@ -43,12 +43,12 @@ let run env =
           ["26-Sep-2026 12:00:00 +0000"; "26-Sep-2026 12:00:00 -0000";
            "26-Sep-2026 12:00:00 +0230"];
         (match Store.prepare_intent db {(intent "uid-only") with
-           uid=Some (Result.get_ok (Imap.Proto.Uid.of_int64 3L))} with
+           uid=Some (Result.get_ok (Imap.Uid.of_int64 3L))} with
          | exception Invalid_argument _ -> ()
          | () -> failwith "UID without UIDVALIDITY accepted");
         if Store.find_intent db ~id:"uid-only" <> None then
           failwith "UID without UIDVALIDITY was persisted";
-        let epoch=Result.get_ok (Imap.Proto.Uidvalidity.of_int64 9L) in
+        let epoch=Result.get_ok (Imap.Uidvalidity.of_int64 9L) in
         Store.prepare_intent db {(intent "keeps-epoch") with
           uidvalidity=Some epoch};
         Store.set_intent_state db ~id:"keeps-epoch" Sent;

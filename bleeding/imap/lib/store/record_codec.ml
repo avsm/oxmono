@@ -1,14 +1,13 @@
 open Database
 module M = Imap.Mirror
-module P = Imap.Proto
 
 exception Scope_mismatch
 
 let of_checked name f x =
   match f x with Ok v -> v | Error e -> fail (name ^ ": " ^ e)
-let uid x = of_checked "UID" P.Uid.of_int64 x
-let validity x = of_checked "UIDVALIDITY" P.Uidvalidity.of_int64 x
-let modseq x = of_checked "MODSEQ" P.Modseq.of_int64 x
+let uid x = of_checked "UID" Imap.Uid.of_int64 x
+let validity x = of_checked "UIDVALIDITY" Imap.Uidvalidity.of_int64 x
+let modseq x = of_checked "MODSEQ" Imap.Modseq.of_int64 x
 let enc = function Imap.Mailbox_name.Utf8 -> "utf8" | Rev1 -> "mutf7"
 let dec_enc = function
   | "utf8" -> Imap.Mailbox_name.Utf8

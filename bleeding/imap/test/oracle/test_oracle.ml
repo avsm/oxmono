@@ -231,9 +231,9 @@ let round_trip () =
         let* uids = Selected.uid_search selected "ALL" in
         match uids with
         | uid :: _ ->
-            let uid = match Imap.Proto.Uid.of_int64 uid with
+            let uid = match Imap.Uid.of_int64 uid with
               | Ok uid -> uid | Error e -> Alcotest.fail e in
-            let set = Imap.Proto.Uid_set.singleton uid in
+            let set = Imap.Uid_set.singleton uid in
             let* _ = Selected.uid_store_flags selected ~set
               ~operation:`Add ~flags:[flag] () in
             Ok ()
@@ -290,8 +290,8 @@ let round_trip () =
     (match evidence with
      | Imap_sync.Reconcile.Inspected {matches=[candidate]; _} ->
          Alcotest.(check int64) "uncertain APPEND candidate"
-           (Imap.Proto.Uid.to_int64 receipt.uid)
-           (Imap.Proto.Uid.to_int64 candidate.uid);
+           (Imap.Uid.to_int64 receipt.uid)
+           (Imap.Uid.to_int64 candidate.uid);
          Alcotest.(check (option bool)) "candidate wire flags"
            (Some true) candidate.flags_match
      | _ -> Alcotest.fail "expected one current exact-body candidate");
@@ -380,7 +380,7 @@ let round_trip () =
       | Ok flag -> flag | Error e -> Alcotest.fail e in
     unwrap (Client.with_mailbox client ~mode:`Read_write mailbox
       (fun selected ->
-        let set=Imap.Proto.Uid_set.singleton flag_uid in
+        let set=Imap.Uid_set.singleton flag_uid in
         let* _ = Selected.uid_store_flags selected ~set ~operation:`Add
           ~flags:[flagged] () in Ok ()));
     ignore (Md.set_flags maildir flag_local
@@ -401,7 +401,7 @@ let round_trip () =
        List.mem local_keyword flag_local.flags);
     let remote_flag_wires = unwrap (Client.with_mailbox client
       ~mode:`Read_only mailbox (fun selected ->
-        let raw=Imap.Proto.Uid.to_int64 flag_uid in
+        let raw=Imap.Uid.to_int64 flag_uid in
         let* rows=Selected.fetch_metadata_range selected ~first:raw
           ~last:raw ~modseq:false in
         match rows with
@@ -413,7 +413,7 @@ let round_trip () =
     let deleted = Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted in
     unwrap (Client.with_mailbox client ~mode:`Read_write mailbox
       (fun selected ->
-        let set=Imap.Proto.Uid_set.singleton flag_uid in
+        let set=Imap.Uid_set.singleton flag_uid in
         let* _ = Selected.uid_store_flags selected ~set ~operation:`Add
           ~flags:[deleted] () in Ok ()));
     let held_deleted = copy ("bridge-deleted-held-" ^ nonce) in
@@ -528,7 +528,7 @@ let round_trip () =
       | _ -> Alcotest.fail "APPEND recovery pair lacks remote UID" in
     unwrap (Client.with_mailbox client ~mode:`Read_write mailbox
       (fun selected ->
-        let set = Imap.Proto.Uid_set.singleton expunged_uid in
+        let set = Imap.Uid_set.singleton expunged_uid in
         let* _ = Selected.uid_store_flags selected ~set ~operation:`Add
           ~flags:[Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted]
           () in
@@ -583,7 +583,7 @@ let round_trip () =
     Alcotest.(check bool) "other deleted UID not expunged" true
       (unwrap (Client.with_mailbox client ~mode:`Read_only mailbox
         (fun selected ->
-          let raw=Imap.Proto.Uid.to_int64 flag_uid in
+          let raw=Imap.Uid.to_int64 flag_uid in
           let* rows=Selected.fetch_metadata_range selected ~first:raw
             ~last:raw ~modseq:false in
           Ok (List.exists (fun (row:Imap.Response.fetch) ->
@@ -687,7 +687,7 @@ let objectid_round_trip () =
       ~length:(Int64.of_int (String.length raw))
       (Eio.Flow.string_source raw)) with
     | Some receipt -> receipt | None -> Alcotest.fail "missing APPENDUID" in
-  let uid=Imap.Proto.Uid.to_int64 receipt.uid in
+  let uid=Imap.Uid.to_int64 receipt.uid in
   unwrap (Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected ->
       let* info=Selected.info selected in

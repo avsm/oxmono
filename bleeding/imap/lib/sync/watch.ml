@@ -13,13 +13,13 @@ let needs_rescan (cursor : Imap.Mirror.cursor)
     (info : Imap.Response.select_metadata) =
   let epoch_changed = match cursor.uidvalidity with
     | None -> true
-    | Some value -> Imap.Proto.Uidvalidity.to_int64 value <> info.uidvalidity in
+    | Some value -> Imap.Uidvalidity.to_int64 value <> info.uidvalidity in
   let frontier_changed = info.uidnext <> Int64.succ cursor.frontier in
   let modseq_changed = match cursor.anchor,info.highestmodseq with
     | None,_ -> false
     | Some _,None -> true
     | Some anchor,Some observed ->
-        info.nomodseq || Imap.Proto.Modseq.to_int64 anchor <> observed in
+        info.nomodseq || Imap.Modseq.to_int64 anchor <> observed in
   epoch_changed || frontier_changed || modseq_changed
 
 let run ~clock ~connect ~store ~scope ~mailbox ~next_stage_id ~on_publish

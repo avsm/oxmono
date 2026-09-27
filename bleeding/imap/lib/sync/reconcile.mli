@@ -15,7 +15,7 @@ type error =
 val pp_error : Format.formatter -> error -> unit
 
 type candidate = {
-  uid : Imap.Proto.Uid.t;
+  uid : Imap.Uid.t;
   length : int64;
   sha256 : string;
   flags_match : bool option;
@@ -23,11 +23,11 @@ type candidate = {
 
 type report =
   | Epoch_changed of {
-      journal_uidvalidity : Imap.Proto.Uidvalidity.t;
-      server_uidvalidity : Imap.Proto.Uidvalidity.t;
+      journal_uidvalidity : Imap.Uidvalidity.t;
+      server_uidvalidity : Imap.Uidvalidity.t;
     }
   | Inspected of {
-      uidvalidity : Imap.Proto.Uidvalidity.t;
+      uidvalidity : Imap.Uidvalidity.t;
       covered_upper : int64;
       examined : int;
       matches : candidate list;

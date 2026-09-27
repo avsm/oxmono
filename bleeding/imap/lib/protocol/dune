@@ -2,5 +2,5 @@
  (name imap)
  (public_name imap)
  (libraries mail-flag)
- (modules proto capability wire response command mailbox_name internal_date
-  mirror sync_policy))
+ (modules uid uidvalidity modseq seq uid_set capability wire response
+  command mailbox_name internal_date mirror sync_policy))

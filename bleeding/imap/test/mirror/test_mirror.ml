@@ -4,9 +4,9 @@ let ok = function
   | Ok x -> x
   | Error _ -> Alcotest.fail "unexpected mirror error"
 
-let uid n = ok (Imap.Proto.Uid.of_int64 n)
-let validity n = ok (Imap.Proto.Uidvalidity.of_int64 n)
-let modseq n = ok (Imap.Proto.Modseq.of_int64 n)
+let uid n = ok (Imap.Uid.of_int64 n)
+let validity n = ok (Imap.Uidvalidity.of_int64 n)
+let modseq n = ok (Imap.Modseq.of_int64 n)
 let flag s = ok (Mail_flag.Imap_flag.of_wire s)
 let row ?(flags=[]) ?modseq:seq n = {uid=uid n;flags;modseq=seq}
 let scope = {
@@ -23,7 +23,7 @@ let done_ action rows ?explicit () = {
   commands_complete=true;rows;
   explicit_highestmodseq=Option.map modseq explicit;nomodseq=false
 }
-let uids rows = List.map (fun row -> Imap.Proto.Uid.to_int64 row.uid) rows
+let uids rows = List.map (fun row -> Imap.Uid.to_int64 row.uid) rows
 
 let baseline () =
   let cursor=initial scope in
@@ -42,7 +42,7 @@ let test_same_count_different_uids () =
   let next=ok (publish first.cursor ~published:(Some first.snapshot) staged) in
   Alcotest.(check (list int64)) "new UID" [4L] (uids next.added);
   Alcotest.(check (list int64)) "expunged UID" [2L]
-    (List.map Imap.Proto.Uid.to_int64 next.removed);
+    (List.map Imap.Uid.to_int64 next.removed);
   Alcotest.(check int) "same count" 3 (List.length (rows next.snapshot))
 
 let test_epoch_change () =
@@ -68,10 +68,10 @@ let test_anchor_and_interruption () =
                    row 3L;row 4L] ~explicit:99L ())) in
   (* The staging write can be interrupted. No cursor changes until publish. *)
   Alcotest.(check (option int64)) "old durable anchor" (Some 98L)
-    (Option.map Imap.Proto.Modseq.to_int64 first.cursor.anchor);
+    (Option.map Imap.Modseq.to_int64 first.cursor.anchor);
   let next=ok (publish first.cursor ~published:(Some first.snapshot) staged) in
   Alcotest.(check (option int64)) "explicit lower anchor wins" (Some 99L)
-    (Option.map Imap.Proto.Modseq.to_int64 next.cursor.anchor);
+    (Option.map Imap.Modseq.to_int64 next.cursor.anchor);
   Alcotest.(check int64) "revision advanced at publication" 2L
     next.cursor.revision;
   (match publish next.cursor ~published:(Some next.snapshot) staged with
@@ -100,7 +100,7 @@ let test_flag_delta () =
                    row 2L;row 3L] ~explicit:99L ())) in
   let next=ok (publish first.cursor ~published:(Some first.snapshot) staged) in
   Alcotest.(check (list int64)) "changed UID"
-    [1L] (List.map (fun x -> Imap.Proto.Uid.to_int64 x.after.uid) next.changed)
+    [1L] (List.map (fun x -> Imap.Uid.to_int64 x.after.uid) next.changed)
 
 let test_duplicate_flag_membership () =
   let cursor=initial scope in
@@ -140,7 +140,7 @@ let test_anchor_needs_explicit_highestmodseq () =
                    row ~modseq:(modseq 60L) 2L] ())) in
   let next=ok (publish first.cursor ~published:(Some first.snapshot) staged) in
   Alcotest.(check (option int64)) "no anchor without HIGHESTMODSEQ" None
-    (Option.map Imap.Proto.Modseq.to_int64 next.cursor.anchor)
+    (Option.map Imap.Modseq.to_int64 next.cursor.anchor)
 
 let test_restart_reason_kept () =
   let first=baseline () in

@@ -135,7 +135,7 @@ let test_protocol () =
     (Eio.Flow.string_source body)) in
   let receipt = match receipt with Some r -> r | None ->
     Alcotest.fail "advertised UIDPLUS did not return APPENDUID" in
-  let receipt_uid = Imap.Proto.Uid.to_int64 receipt.uid in
+  let receipt_uid = Imap.Uid.to_int64 receipt.uid in
   let validity, checkpoint = unwrap (Client.with_mailbox client ?objectid
     ~mode:`Read_write mailbox (fun selected ->
       let* info = Selected.info selected in
@@ -145,7 +145,7 @@ let test_protocol () =
         | _ -> Alcotest.fail "OBJECTID+ omitted account/mailbox context");
       Alcotest.(check int64) "EXISTS" 1L info.exists;
       Alcotest.(check bool) "APPENDUID UIDVALIDITY" true
-        (info.uidvalidity = Imap.Proto.Uidvalidity.to_int64 receipt.uidvalidity);
+        (info.uidvalidity = Imap.Uidvalidity.to_int64 receipt.uidvalidity);
       let* uids = Selected.uid_search selected "ALL" in
       Alcotest.(check (list int64)) "APPENDUID UID"
         [receipt_uid] uids;
@@ -169,16 +169,16 @@ let test_protocol () =
             (match row.modseq with Some n -> n | None ->
               Alcotest.fail "CONDSTORE omitted MODSEQ")
         | _ -> Alcotest.fail "missing CONDSTORE metadata" in
-      let set = Imap.Proto.Uid_set.singleton receipt.uid in
+      let set = Imap.Uid_set.singleton receipt.uid in
       let seen = Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
       let* conflict = Selected.uid_store_flags selected ~set
         ~operation:`Add ~flags:[seen] ~unchangedsince:0L () in
       Alcotest.(check bool) "CONDSTORE conflict" true
-        (Imap.Proto.Uid_set.mem receipt.uid conflict.modified);
+        (Imap.Uid_set.mem receipt.uid conflict.modified);
       let* accepted = Selected.uid_store_flags selected ~set
         ~operation:`Add ~flags:[seen] ~unchangedsince:modseq () in
-      Alcotest.(check string) "conditional STORE accepted" ""
-        (Imap.Proto.Uid_set.to_wire accepted.modified);
+      Alcotest.(check bool) "conditional STORE accepted" true
+        (Imap.Uid_set.is_empty accepted.modified);
       Ok (info.uidvalidity, modseq))) in
   unwrap (Client.with_mailbox client ?objectid ~qresync:(validity, checkpoint)
     ~mode:`Read_only mailbox (fun selected ->
@@ -252,7 +252,7 @@ let test_bridge () =
   Alcotest.(check int) "local uploaded" 1 uploaded.local_to_remote;
   let pair = match Imap_store.Journal.find_local store ~scope ~local_id:local.id with
     | Some pair -> pair | None -> Alcotest.fail "upload pair missing" in
-  let uid = match pair.remote_uid with Some uid -> Imap.Proto.Uid.to_int64 uid | None ->
+  let uid = match pair.remote_uid with Some uid -> Imap.Uid.to_int64 uid | None ->
     Alcotest.fail "upload UIDPLUS receipt missing" in
   unwrap (Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected ->

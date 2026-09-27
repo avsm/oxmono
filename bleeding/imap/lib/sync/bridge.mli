@@ -17,7 +17,7 @@ type error =
   | Pending_operations of string list
   | Bootstrap_requires_pairing
   | Uidvalidity_changed
-  | Source_vanished of Imap.Proto.Uid.t
+  | Source_vanished of Imap.Uid.t
   | Local_source_changed of string
   | Stale_revision
   | Content_diverged of string
@@ -144,7 +144,7 @@ val mark_local_retention :
 
 type deletion_preview = {
   pair_id : string;
-  remote_uid : Imap.Proto.Uid.t;
+  remote_uid : Imap.Uid.t;
   local_id : string;
   remote_present : bool option;
   local_present : bool;
@@ -173,7 +173,7 @@ val preview_deletions :
 type sync_preview =
   | Preview_pending of string
   | Preview_bootstrap_hold
-  | Preview_copy_remote of Imap.Proto.Uid.t
+  | Preview_copy_remote of Imap.Uid.t
   | Preview_copy_local of string
   | Preview_flags of {
       pair_id : string;
@@ -221,7 +221,7 @@ val repair_local_append :
 val record_appenduid_evidence :
   store:Imap_store.t -> maildir:Maildir.t ->
   scope:Imap.Mirror.scope -> id:string ->
-  uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
+  uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t ->
   evidence:string -> unit -> (unit, error) result
 (** Record a trusted, externally recovered APPENDUID for one pending upload.
     This is an explicit operator attestation of attribution: equal message
@@ -233,11 +233,11 @@ val record_appenduid_evidence :
     occurrence before committing. A missing or divergent UID remains pending. *)
 
 type append_candidates = {
-  uidvalidity : Imap.Proto.Uidvalidity.t;
+  uidvalidity : Imap.Uidvalidity.t;
   inspected_uids : int;
       (** [inspected_uids] is the width of the UID range above the saved
           frontier, including UIDs that no longer exist. *)
-  matching_uids : Imap.Proto.Uid.t list;
+  matching_uids : Imap.Uid.t list;
 }
 
 val inspect_append_candidates :

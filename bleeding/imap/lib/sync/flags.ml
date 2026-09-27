@@ -1,5 +1,4 @@
 module J = Imap_store.Journal
-module P = Imap.Proto
 module F = Mail_flag.Imap_flag
 
 type error =
@@ -163,12 +162,12 @@ let content ?inventory maildir (pair:J.pair)
   | _ -> `Differs
 
 let check_epoch (info:Imap.Response.select_metadata) epoch =
-  if info.uidvalidity<>P.Uidvalidity.to_int64 epoch then
+  if info.uidvalidity<>Imap.Uidvalidity.to_int64 epoch then
     Error Uidvalidity_changed
   else Ok ()
 
 let remote selected ~uid ~modseq =
-  let raw=P.Uid.to_int64 uid in
+  let raw=Imap.Uid.to_int64 uid in
   let* rows=network (Imap_eio.Selected.fetch_metadata_range selected
     ~first:raw ~last:raw ~modseq) in
   match rows with
@@ -487,7 +486,7 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~client ~store
                    Error Modified))
         | Ok _ ->
             J.mark_sent store ~id;
-            let set=P.Uid_set.singleton uid in
+            let set=Imap.Uid_set.singleton uid in
             match Imap_eio.Selected.uid_store_flags selected ~set
                 ~operation:`Replace ~flags:remote_target
                 ?unchangedsince:remote_modseq () with
@@ -502,10 +501,10 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~client ~store
                 J.mark_ambiguous ~reason store ~id;
                 let* ()=flag_conflict store pair ~id reason in
                 Error (Client error)
-            | Ok receipt when P.Uid_set.mem uid receipt.modified ->
+            | Ok receipt when Imap.Uid_set.mem uid receipt.modified ->
                 J.reject_operation store ~id ~receipt:"MODIFIED";
                 Error Modified
-            | Ok receipt when not (P.Uid_set.is_empty receipt.modified) ->
+            | Ok receipt when not (Imap.Uid_set.is_empty receipt.modified) ->
                 let reason="MODIFIED named an unrelated UID" in
                 J.mark_ambiguous ~reason store ~id;
                 pending reason

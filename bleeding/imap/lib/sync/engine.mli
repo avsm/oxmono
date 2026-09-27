@@ -52,7 +52,7 @@ val run_once :
     as do Eio cancellations. *)
 
 val run_once_staged :
-  ?max_windows:int -> ?expected_uidvalidity:Imap.Proto.Uidvalidity.t ->
+  ?max_windows:int -> ?expected_uidvalidity:Imap.Uidvalidity.t ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   scope:Imap.Mirror.scope -> mailbox:string -> stage_id:string -> unit ->
   (Imap_store.staged_receipt, error) result
@@ -106,7 +106,7 @@ val append_blob_journaled :
 
 val archive_uid :
   ?max_bytes:int64 -> client:Imap_eio.Client.t -> store:Imap_store.t ->
-  scope:Imap.Mirror.scope -> mailbox:string -> uid:Imap.Proto.Uid.t ->
+  scope:Imap.Mirror.scope -> mailbox:string -> uid:Imap.Uid.t ->
   spool:_ Eio.Path.t -> unit ->
   (Imap_store.Blob.blob, error) result
 (** Fetches exact BODY.PEEK[] bytes to an exclusive provisional spool. Only
@@ -125,10 +125,10 @@ type hydration_receipt = {
   cursor : Imap.Mirror.cursor;
   hydrated : int;
   bytes : int64;
-  last_uid : Imap.Proto.Uid.t option;
+  last_uid : Imap.Uid.t option;
       (** [last_uid] is the last UID the pass hydrated or skipped. Pass it
           as [after_uid] to continue. *)
-  skipped : Imap.Proto.Uid.t list;
+  skipped : Imap.Uid.t list;
       (** [skipped] lists, in order, the UIDs larger than the per-body or
           total byte budget, which no pass with these budgets can hydrate. *)
   more : bool;
@@ -139,15 +139,15 @@ type cache_audit_receipt = {
   checked : int;
   invalidated : int;
   bytes : int64;
-  last_uid : Imap.Proto.Uid.t option;
-  skipped : Imap.Proto.Uid.t list;
+  last_uid : Imap.Uid.t option;
+  skipped : Imap.Uid.t list;
       (** [skipped] lists, in order, the UIDs whose blobs are larger than
           [max_total_bytes] and were passed over unchecked. *)
   more : bool;
 }
 
 val audit_cache_once :
-  ?after_uid:Imap.Proto.Uid.t -> ?expected_revision:int64 ->
+  ?after_uid:Imap.Uid.t -> ?expected_revision:int64 ->
   ?max_messages:int ->
   ?max_total_bytes:int64 -> store:Imap_store.t ->
   scope:Imap.Mirror.scope -> unit ->
@@ -167,7 +167,7 @@ val audit_cache_once :
     ends the pass with the committed counts and [more=true] after one. *)
 
 val hydrate_once :
-  ?after_uid:Imap.Proto.Uid.t ->
+  ?after_uid:Imap.Uid.t ->
   ?max_messages:int -> ?max_body_bytes:int64 -> ?max_total_bytes:int64 ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   scope:Imap.Mirror.scope -> mailbox:string -> spool_dir:_ Eio.Path.t ->
@@ -193,7 +193,7 @@ type uid_digest = { sha256:string; length:int64 }
 val fetch_uid_digest :
   ?max_bytes:int64 -> client:Imap_eio.Client.t -> store:Imap_store.t ->
   scope:Imap.Mirror.scope -> mailbox:string ->
-  uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
+  uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t ->
   spool:_ Eio.Path.t -> unit -> (uid_digest, error) result
 (** [fetch_uid_digest ~client ~store ~scope ~mailbox ~uidvalidity ~uid ~spool
     ()] is the length and SHA-256 digest of the exact BODY.PEEK[] bytes of

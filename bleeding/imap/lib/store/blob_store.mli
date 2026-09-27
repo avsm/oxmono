@@ -19,25 +19,25 @@ val verify : t -> blob -> bool
 
 val open_in : t -> sw:Eio.Switch.t -> blob -> Eio.File.ro_ty Eio.Resource.t
 val attach : ?verify:bool -> t -> scope:Imap.Mirror.scope ->
-  uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
+  uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t ->
   blob -> unit
 (** [attach ?verify t ~scope ~uidvalidity ~uid blob] references [blob] from a
     message of the current epoch, rehashing it first when [verify] is [true],
     the default. *)
 
 val find : t -> scope:Imap.Mirror.scope ->
-  uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
+  uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t ->
   blob option
 val missing_page : t -> scope:Imap.Mirror.scope ->
-  cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Proto.Uid.t ->
+  cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
   limit:int -> unit ->
-  [ `Uids of Imap.Proto.Uid.t list | `Stale_revision ]
+  [ `Uids of Imap.Uid.t list | `Stale_revision ]
 val referenced_page : t -> scope:Imap.Mirror.scope ->
-  cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Proto.Uid.t ->
+  cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
   limit:int -> unit ->
-  [ `Refs of (Imap.Proto.Uid.t * blob) list | `Stale_revision ]
+  [ `Refs of (Imap.Uid.t * blob) list | `Stale_revision ]
 val detach_if_matches : t -> scope:Imap.Mirror.scope ->
-  cursor:Imap.Mirror.cursor -> uid:Imap.Proto.Uid.t -> blob ->
+  cursor:Imap.Mirror.cursor -> uid:Imap.Uid.t -> blob ->
   [ `Detached | `Unchanged | `Stale_revision ]
 (** [detach_if_matches t ~scope ~cursor ~uid blob] removes the reference only
     while the cursor and the reference still match, and never unlinks a file. *)

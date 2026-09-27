@@ -30,10 +30,10 @@ type cursor = private {
   schema_version : int;
   scope : scope;
   phase : phase;
-  uidvalidity : Proto.Uidvalidity.t option;
+  uidvalidity : Uidvalidity.t option;
   generation : int64;
   revision : int64;
-  anchor : Proto.Modseq.t option;
+  anchor : Modseq.t option;
   frontier : int64;
   inventory_ref : string option;
   mode : mode;
@@ -46,16 +46,16 @@ val initial : scope -> cursor
     [raw_name] is empty. *)
 
 val restore : schema_version:int -> scope:scope -> phase:phase ->
-  uidvalidity:Proto.Uidvalidity.t option -> generation:int64 ->
-  revision:int64 -> anchor:Proto.Modseq.t option -> frontier:int64 ->
+  uidvalidity:Uidvalidity.t option -> generation:int64 ->
+  revision:int64 -> anchor:Modseq.t option -> frontier:int64 ->
   inventory_ref:string option -> mode:mode -> (cursor, error) result
 (** Validate a persisted cursor before using it for reconciliation. The caller
     must also load and validate its snapshot in the same storage transaction. *)
 
 type selected = {
-  uidvalidity : Proto.Uidvalidity.t;
+  uidvalidity : Uidvalidity.t;
   uidnext : int64;
-  highestmodseq : Proto.Modseq.t option;
+  highestmodseq : Modseq.t option;
   nomodseq : bool;
 }
 
@@ -64,9 +64,9 @@ type action = private {
   scope : scope;
   expected_revision : int64;
   expected_generation : int64;
-  uidvalidity : Proto.Uidvalidity.t;
+  uidvalidity : Uidvalidity.t;
   upper_uid : int64;
-  previous_anchor : Proto.Modseq.t option;
+  previous_anchor : Modseq.t option;
   mode : mode;
   restart : restart_reason option;
 }
@@ -76,25 +76,25 @@ val plan : cursor -> stage_id:string -> selected -> (action, error) result
     inventory, including when counts and UIDNEXT appear unchanged. *)
 
 type row = {
-  uid : Proto.Uid.t;
+  uid : Uid.t;
   flags : Mail_flag.Imap_flag.t list;
-  modseq : Proto.Modseq.t option;
+  modseq : Modseq.t option;
 }
 
 type snapshot
-val snapshot : uidvalidity:Proto.Uidvalidity.t -> row list ->
+val snapshot : uidvalidity:Uidvalidity.t -> row list ->
   (snapshot, error) result
 val rows : snapshot -> row list
-val snapshot_uidvalidity : snapshot -> Proto.Uidvalidity.t
+val snapshot_uidvalidity : snapshot -> Uidvalidity.t
 
 type completed = {
   action_id : string;
-  uidvalidity : Proto.Uidvalidity.t;
+  uidvalidity : Uidvalidity.t;
   covered_upper : int64;
   inventory_complete : bool;
   commands_complete : bool;
   rows : row list;
-  explicit_highestmodseq : Proto.Modseq.t option;
+  explicit_highestmodseq : Modseq.t option;
   nomodseq : bool;
 }
 
@@ -113,7 +113,7 @@ type transition = {
   snapshot : snapshot;
   added : row list;
   changed : flag_change list;
-  removed : Proto.Uid.t list;
+  removed : Uid.t list;
   invalidated_epoch : bool;
   restart : restart_reason option;
   stage_id : string;

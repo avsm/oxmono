@@ -1,14 +1,13 @@
 (* Directed checks for typed store outcomes: scope mismatches, stale
    cursors and the errors each public entry point reports. *)
 module M = Imap.Mirror
-module P = Imap.Proto
 module Store = Imap_store
 
 let ok = function Ok x -> x | Error _ -> failwith "unexpected error"
 let check condition message = if not condition then failwith message
-let uid n = ok (P.Uid.of_int64 n)
-let epoch n = ok (P.Uidvalidity.of_int64 n)
-let modseq n = ok (P.Modseq.of_int64 n)
+let uid n = ok (Imap.Uid.of_int64 n)
+let epoch n = ok (Imap.Uidvalidity.of_int64 n)
+let modseq n = ok (Imap.Modseq.of_int64 n)
 let scope : M.scope = {
   endpoint="imap.example"; account="alice"; mailbox_key="inbox";
   raw_name="INBOX"; encoding=Imap.Mailbox_name.Rev1; mailbox_id=None }

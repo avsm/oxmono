@@ -5,14 +5,14 @@ let wire_ok = function
   | Error (e:Imap.Wire.error) -> fail e.message
 
 let test_uid_set () =
-  let u n = expect_ok (Imap.Proto.Uid.of_int64 n) in
-  let set=Imap.Proto.Uid_set.of_intervals [u 7L,u 9L;u 1L,u 3L;u 4L,u 5L] in
+  let u n = expect_ok (Imap.Uid.of_int64 n) in
+  let set=Imap.Uid_set.of_intervals [u 7L,u 9L;u 1L,u 3L;u 4L,u 5L] in
   Alcotest.(check string) "normalized" "1:5,7:9"
-    (Imap.Proto.Uid_set.to_wire set);
-  Alcotest.(check bool) "hole" false (Imap.Proto.Uid_set.mem (u 6L) set)
+    (Imap.Uid_set.to_wire set);
+  Alcotest.(check bool) "hole" false (Imap.Uid_set.mem (u 6L) set)
 
 let test_uid_set_syntax () =
-  let module S = Imap.Proto.Uid_set in
+  let module S = Imap.Uid_set in
   let rejected ?allow_star s =
     Alcotest.(check bool) ("reject " ^ s) true
       (Result.is_error (S.of_wire ?allow_star s)) in
@@ -35,6 +35,39 @@ let test_uid_set_syntax () =
     (S.compare (expect_ok (S.of_wire "1")) (expect_ok (S.of_wire "2")) < 0);
   Alcotest.(check string) "pp" "1:3"
     (Format.asprintf "%a" S.pp (expect_ok (S.of_wire "1,2,3")))
+
+let test_uid_set_algebra () =
+  let module S = Imap.Uid_set in
+  let u n = expect_ok (Imap.Uid.of_int64 n) in
+  let set s = expect_ok (S.of_wire ~allow_star:true s) in
+  let wire s = if S.is_empty s then "(empty)" else S.to_wire s in
+  let check name expected s = Alcotest.(check string) name expected (wire s) in
+  check "of_list" "1:3,7" (S.of_list [u 7L; u 2L; u 1L; u 3L; u 2L]);
+  check "add merges" "1:4" (S.add (u 4L) (set "1:3"));
+  check "union" "1:9" (S.union (set "1:4") (set "5:9"));
+  check "inter" "3:4,8" (S.inter (set "1:4,8:10") (set "3:8"));
+  check "inter disjoint" "(empty)" (S.inter (set "1:2") (set "5:6"));
+  check "diff" "1:2,5:7,10" (S.diff (set "1:10") (set "3:4,8:9"));
+  check "diff at the top" "4294967294"
+    (S.diff (set "4294967294:*") (set "*"));
+  check "diff all" "(empty)" (S.diff (set "2:3") (set "1:5"));
+  Alcotest.(check (list int64)) "to_list" [1L; 2L; 5L]
+    (List.map Imap.Uid.to_int64 (S.to_list (set "5,1:2")));
+  Alcotest.(check int64) "fold" 8L
+    (S.fold (fun uid acc -> Int64.add acc (Imap.Uid.to_int64 uid))
+       (set "1:2,5") 0L);
+  let seen = ref [] in
+  S.iter (fun uid -> seen := Imap.Uid.to_int64 uid :: !seen) (set "4:5");
+  Alcotest.(check (list int64)) "iter ascending" [5L; 4L] !seen;
+  Alcotest.check_raises "empty has no wire form"
+    (Invalid_argument "Uid_set.to_wire: empty set")
+    (fun () -> ignore (S.to_wire S.empty));
+  let succ n = Option.map Imap.Uid.to_int64 (Imap.Uid.succ (u n)) in
+  let pred n = Option.map Imap.Uid.to_int64 (Imap.Uid.pred (u n)) in
+  Alcotest.(check (option int64)) "succ" (Some 2L) (succ 1L);
+  Alcotest.(check (option int64)) "succ at the top" None (succ 4294967295L);
+  Alcotest.(check (option int64)) "pred" (Some 1L) (pred 2L);
+  Alcotest.(check (option int64)) "pred at the bottom" None (pred 1L)
 
 let test_fragmented_literal () =
   let d=Imap.Wire.create () in
@@ -1481,5 +1514,7 @@ let () =
      "scalars", [Alcotest.test_case "UID set" `Quick test_uid_set;
                  Alcotest.test_case "UID set syntax" `Quick
                    test_uid_set_syntax;
+                 Alcotest.test_case "UID set algebra" `Quick
+                   test_uid_set_algebra;
                  Alcotest.test_case "INTERNALDATE" `Quick test_internal_date;
                  Alcotest.test_case "modified UTF-7" `Quick test_modified_utf7]]

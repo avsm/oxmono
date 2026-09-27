@@ -1,4 +1,3 @@
-module P = Imap.Proto
 module Flag = Mail_flag.Imap_flag
 module Uids = Map.Make (Int64)
 
@@ -17,7 +16,7 @@ let pp_error ppf = function
   | Limit message -> Format.fprintf ppf "APPEND inspection limit: %s" message
 
 type candidate = {
-  uid : P.Uid.t;
+  uid : Imap.Uid.t;
   length : int64;
   sha256 : string;
   flags_match : bool option;
@@ -25,11 +24,11 @@ type candidate = {
 
 type report =
   | Epoch_changed of {
-      journal_uidvalidity : P.Uidvalidity.t;
-      server_uidvalidity : P.Uidvalidity.t;
+      journal_uidvalidity : Imap.Uidvalidity.t;
+      server_uidvalidity : Imap.Uidvalidity.t;
     }
   | Inspected of {
-      uidvalidity : P.Uidvalidity.t;
+      uidvalidity : Imap.Uidvalidity.t;
       covered_upper : int64;
       examined : int;
       matches : candidate list;
@@ -91,7 +90,7 @@ let inspect_append ?(max_windows=1000) ?(max_candidates=1000)
                   let result =
                     let* info = network (Imap_eio.Selected.info selected) in
                     let* server_uidvalidity = match
-                      P.Uidvalidity.of_int64 info.uidvalidity with
+                      Imap.Uidvalidity.of_int64 info.uidvalidity with
                       | Ok value -> Ok value
                       | Error message -> Error (Incomplete message) in
                     if server_uidvalidity <> journal_uidvalidity then
@@ -139,7 +138,7 @@ let inspect_append ?(max_windows=1000) ?(max_candidates=1000)
                                       Error (Limit "candidate count exceeds budget")
                                     else (
                                       incr examined;
-                                      let* uid = match P.Uid.of_int64 raw_uid with
+                                      let* uid = match Imap.Uid.of_int64 raw_uid with
                                         | Ok uid -> Ok uid
                                         | Error message -> Error (Incomplete message) in
                                       let fetched = Spool.with_spool spool

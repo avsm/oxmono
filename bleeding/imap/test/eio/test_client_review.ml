@@ -113,12 +113,12 @@ let test_copy_correspondence () =
   List.iter (fun (source,destination,expected) ->
     with_selected ("A00000003 OK [COPYUID 7 " ^ source ^ " " ^ destination ^ "] copied\r\n")
       (fun with_mailbox ->
-        let set=Result.get_ok (Imap.Proto.Uid_set.of_wire source) in
+        let set=Result.get_ok (Imap.Uid_set.of_wire source) in
         let receipt=ok (with_mailbox (fun selected ->
           Imap_eio.Selected.uid_copy selected ~set ~mailbox:"Archive")) |> Option.get in
         let actual=List.map (fun (range:Imap_eio.Selected.copy_mapping) ->
-          Imap.Proto.Uid.to_int64 range.source_first,
-          Imap.Proto.Uid.to_int64 range.destination_first,range.length) receipt.mapping in
+          Imap.Uid.to_int64 range.source_first,
+          Imap.Uid.to_int64 range.destination_first,range.length) receipt.mapping in
         if actual<>expected then failwith "COPYUID correspondence lost"))
     ["9,3","20:21",[9L,20L,1L;3L,21L,1L];
      "5:3,9","20:22,30",[3L,20L,3L;9L,30L,1L];

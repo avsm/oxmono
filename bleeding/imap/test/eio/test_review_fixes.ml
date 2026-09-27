@@ -252,7 +252,7 @@ let with_lease ~caps replies f =
   preauth ~caps ([`Return (selected 2)] @ replies) (fun client ->
     ok (C.with_mailbox client ~mode:`Read_write "INBOX" f))
 
-let uid_set wire = Result.get_ok (Imap.Proto.Uid_set.of_wire wire)
+let uid_set wire = Result.get_ok (Imap.Uid_set.of_wire wire)
 
 let test_rev2_base_extensions () =
   with_lease ~caps:"IMAP4rev2" [
@@ -319,7 +319,7 @@ let test_changes_keep_complete_rows () =
     `Return ("* 1 FETCH (UID 5 FLAGS (\\Seen) MODSEQ (7))\r\n" ^
       "* 1 FETCH (UID 5 MODSEQ (8))\r\n" ^ tag 3 ^ " OK done\r\n");
     `Return (tag 4 ^ " OK unselected\r\n")] (fun selected ->
-    let since = Result.get_ok (Imap.Proto.Modseq.of_int64 1L) in
+    let since = Result.get_ok (Imap.Modseq.of_int64 1L) in
     (match ok (S.fetch_changes_range selected ~first:1L ~last:9L ~since) with
      | [{uid = Some 5L; flags = Some ["\\Seen"]; modseq = Some 7L; _}] -> ()
      | _ -> failwith "a row without FLAGS replaced a complete change");

@@ -134,7 +134,7 @@ let run mode size = Eio_main.run (fun io ->
         let fetch=measurement () in
         let sink={Sink.count=0;m=fetch;hash=Digestif.SHA256.empty} in
         ok (Imap_eio.Selected.fetch_to selected
-          ~uid:(Imap.Proto.Uid.to_int64 receipt.uid)
+          ~uid:(Imap.Uid.to_int64 receipt.uid)
           (Eio.Resource.T (sink,sink_handler)));
         sample fetch max_int;
         report mode size "fetch" fetch;

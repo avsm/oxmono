@@ -56,8 +56,8 @@ let test_exact_bytes () =
       let source=Eio.Flow.string_source "a\000bTRAIL" in
       (match ok (C.append_binary_flow_receipt client ~mailbox:"INBOX"
         ~flags:["\\Seen"] ~internal_date:date ~length:3L source) with
-       | Some receipt when Imap.Proto.Uidvalidity.to_int64 receipt.uidvalidity=11L &&
-           Imap.Proto.Uid.to_int64 receipt.uid=27L -> ()
+       | Some receipt when Imap.Uidvalidity.to_int64 receipt.uidvalidity=11L &&
+           Imap.Uid.to_int64 receipt.uid=27L -> ()
        | _ -> failwith "binary APPENDUID receipt lost");
       let expected="A00000004 APPEND INBOX (\\Seen) \"12-Jan-2020 12:00:00 +0000\" ~{3}\r\na\000b\r\n" in
       if Buffer.contents transport.written<>expected then

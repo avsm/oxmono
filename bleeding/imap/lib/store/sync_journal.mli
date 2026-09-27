@@ -15,8 +15,8 @@ type tombstone = {
 type pair = {
   id : string;
   scope : Imap.Mirror.scope;
-  remote_uidvalidity : Imap.Proto.Uidvalidity.t option;
-  remote_uid : Imap.Proto.Uid.t option;
+  remote_uidvalidity : Imap.Uidvalidity.t option;
+  remote_uid : Imap.Uid.t option;
   local_id : string option;
   content_sha256 : string option;
   content_length : int64 option;
@@ -48,7 +48,7 @@ val reactivate_local : t -> pair:pair -> generation:int64 ->
     inventory. *)
 
 val find_remote : t -> scope:Imap.Mirror.scope ->
-  uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t -> pair option
+  uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t -> pair option
 val find_local : t -> scope:Imap.Mirror.scope -> local_id:string -> pair option
 val pairs : t -> scope:Imap.Mirror.scope -> pair list
 val pairs_page : t -> scope:Imap.Mirror.scope -> ?after:string ->
@@ -89,16 +89,16 @@ type operation = {
   scope : Imap.Mirror.scope;
   kind : operation_kind;
   state : operation_state;
-  source_uidvalidity : Imap.Proto.Uidvalidity.t option;
-  source_uid : Imap.Proto.Uid.t option;
+  source_uidvalidity : Imap.Uidvalidity.t option;
+  source_uid : Imap.Uid.t option;
   destination : Imap.Mirror.scope option;
-  destination_uidvalidity : Imap.Proto.Uidvalidity.t option;
+  destination_uidvalidity : Imap.Uidvalidity.t option;
   blob_sha256 : string option;
   blob_length : int64 option;
   desired_flags : Mail_flag.Imap_flag.t list option;
   receipt : string option;
-  receipt_uidvalidity : Imap.Proto.Uidvalidity.t option;
-  receipt_uid : Imap.Proto.Uid.t option;
+  receipt_uidvalidity : Imap.Uidvalidity.t option;
+  receipt_uid : Imap.Uid.t option;
 }
 
 val prepare_operation : ?local_flags:Mail_flag.Imap_flag.t list ->
@@ -122,8 +122,8 @@ val mark_ambiguous : ?reason:string -> t -> id:string -> unit
 val reject_operation : t -> id:string -> receipt:string -> unit
 val reject_prepared_operation : t -> id:string -> receipt:string -> unit
 val observe_operation : t -> id:string -> receipt:string ->
-  destination_uidvalidity:Imap.Proto.Uidvalidity.t option ->
-  destination_uid:Imap.Proto.Uid.t option -> unit
+  destination_uidvalidity:Imap.Uidvalidity.t option ->
+  destination_uid:Imap.Uid.t option -> unit
 val commit_operation : t -> id:string -> unit
 (** [commit_operation t ~id] commits an observed operation that has no pair. *)
 

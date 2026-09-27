@@ -142,12 +142,12 @@ let test_binary_append () =
     ~mailbox ~flags:["\\Flagged"] ~internal_date:date
     ~length:(Int64.of_int (String.length raw)) (Eio.Flow.string_source raw)) with
     | Some receipt -> receipt | None -> Alcotest.fail "binary APPEND omitted APPENDUID" in
-  let uid=Imap.Proto.Uid.to_int64 receipt.uid in
+  let uid=Imap.Uid.to_int64 receipt.uid in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected ->
       let info=unwrap (Imap_eio.Selected.info selected) in
       Alcotest.(check bool) "binary APPEND destination epoch"
-        true (info.uidvalidity=Imap.Proto.Uidvalidity.to_int64 receipt.uidvalidity);
+        true (info.uidvalidity=Imap.Uidvalidity.to_int64 receipt.uidvalidity);
       let output=Buffer.create 32 in
       let length=unwrap (Imap_eio.Selected.fetch_binary_to selected ~uid
         ~section:[1] (Eio.Flow.buffer_sink output)) in
@@ -213,7 +213,7 @@ let test_binary_sections () =
     "--oxbinary--\r\n" in
   let uid=match unwrap (Imap_eio.Client.append_flow_receipt client ~mailbox
     ~length:(Int64.of_int (String.length raw)) (Eio.Flow.string_source raw)) with
-    | Some receipt -> Imap.Proto.Uid.to_int64 receipt.uid
+    | Some receipt -> Imap.Uid.to_int64 receipt.uid
     | None -> Alcotest.fail "BINARY fixture requires APPENDUID" in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
     (fun selected ->
@@ -273,7 +273,7 @@ let test_saved_search () =
       "\r\n\r\nSynthetic saved-search body\r\n" in
     match unwrap (Imap_eio.Client.append_flow_receipt client ~mailbox:source
       ~length:(Int64.of_int (String.length body)) (Eio.Flow.string_source body)) with
-    | Some receipt -> Imap.Proto.Uid.to_int64 receipt.uid
+    | Some receipt -> Imap.Uid.to_int64 receipt.uid
     | None -> Alcotest.fail "SEARCHRES fixture requires APPENDUID" in
   let first=append "selected-first" in
   let second=append "selected-second" in
@@ -300,7 +300,7 @@ let test_saved_search () =
         ~flags:[Mail_flag.Imap_flag.system Flagged] ()));
       let check_receipt label result=match unwrap result with
         | Some (receipt:S.copy_receipt) -> Alcotest.(check int64) label 2L
-            (Imap.Proto.Uid_set.cardinality receipt.destination)
+            (Imap.Uid_set.cardinality receipt.destination)
         | None -> Alcotest.fail "saved transfer omitted COPYUID" in
       check_receipt "saved COPY receipt" (S.uid_copy_saved saved ~mailbox:copied);
       check_receipt "saved MOVE receipt" (S.uid_move_saved saved ~mailbox:moved);
@@ -372,11 +372,11 @@ let test_sort_thread () =
   let first=append ~id:"first" ~subject:"Re: Zebra" ~day:3 ~parent:"root" () in
   let second=append ~id:"second" ~subject:"Re: Zebra" ~day:4 ~parent:"root" () in
   let solo=append ~id:"solo" ~subject:"Alpha" ~day:5 () in
-  let raw=Imap.Proto.Uid.to_int64 in
+  let raw=Imap.Uid.to_int64 in
   let root=raw root and first=raw first and second=raw second and solo=raw solo in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
     (fun selected ->
-      let set=Imap.Proto.Uid_set.singleton removed in
+      let set=Imap.Uid_set.singleton removed in
       ignore (unwrap (Imap_eio.Selected.uid_store_flags selected ~set
         ~operation:`Add ~flags:[Mail_flag.Imap_flag.system Deleted] ()));
       unwrap (Imap_eio.Selected.uid_expunge selected ~set);
@@ -454,7 +454,7 @@ let test_internal_date_roundtrip () =
     (Eio.Flow.string_source message)) with
     | Some receipt -> receipt
     | None -> Alcotest.fail "Dovecot omitted APPENDUID" in
-  let uid=Imap.Proto.Uid.to_int64 receipt.uid in
+  let uid=Imap.Uid.to_int64 receipt.uid in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected ->
       match Imap_eio.Selected.fetch_metadata_range selected
@@ -506,7 +506,7 @@ let test_typed_mime_fetch () =
     (Eio.Flow.string_source message)) with
     | Some receipt -> receipt
     | None -> Alcotest.fail "Dovecot omitted MIME APPENDUID" in
-  let uid=Imap.Proto.Uid.to_int64 receipt.uid in
+  let uid=Imap.Uid.to_int64 receipt.uid in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected ->
       let ( let* ) result f=match result with
@@ -568,7 +568,7 @@ let test_compress () =
       let receipt=match unwrap (Imap_eio.Client.append_flow_receipt client
         ~mailbox ~length:(Int64.of_int (String.length raw)) (Eio.Flow.string_source raw)) with
         | Some receipt -> receipt | None -> Alcotest.fail "compressed APPEND omitted UID" in
-      let uid=Imap.Proto.Uid.to_int64 receipt.uid in
+      let uid=Imap.Uid.to_int64 receipt.uid in
       unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
         (fun selected ->
           let output=Buffer.create (String.length raw) in
@@ -646,9 +646,9 @@ let require_capability client capability =
       (Imap_eio.Client.capabilities client))
 
 let uid_set uid =
-  let uid = match Imap.Proto.Uid.of_int64 uid with
+  let uid = match Imap.Uid.of_int64 uid with
   | Ok uid -> uid | Error message -> Alcotest.fail message in
-  Imap.Proto.Uid_set.singleton uid
+  Imap.Uid_set.singleton uid
 
 let ( let* ) result f = match result with
   | Ok x -> f x
@@ -706,14 +706,14 @@ let test_condstore_move_expunge () =
         ~set:(uid_set move_uid) ~operation:`Add ~flags:[seen]
         ~unchangedsince:0L () in
       Alcotest.(check bool) "MODIFIED identifies conflicting UID" true
-        (let uid = match Imap.Proto.Uid.of_int64 move_uid with
+        (let uid = match Imap.Uid.of_int64 move_uid with
          | Ok uid -> uid | Error _ -> assert false in
-         Imap.Proto.Uid_set.mem uid conflict.modified);
+         Imap.Uid_set.mem uid conflict.modified);
       let* accepted = Imap_eio.Selected.uid_store_flags selected
         ~set:(uid_set move_uid) ~operation:`Add ~flags:[seen]
         ~unchangedsince:modseq () in
-      Alcotest.(check string) "accepted store has no conflicts" ""
-        (Imap.Proto.Uid_set.to_wire accepted.modified);
+      Alcotest.(check bool) "accepted store has no conflicts" true
+        (Imap.Uid_set.is_empty accepted.modified);
       let* moved = Imap_eio.Selected.uid_move selected
         ~set:(uid_set move_uid) ~mailbox:destination in
       Alcotest.(check bool) "COPYUID receipt" true (Option.is_some moved);
@@ -964,8 +964,8 @@ let test_bridge_cram () =
   let uploaded_date=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
       match Imap_eio.Selected.fetch_metadata_range selected
-        ~first:(Imap.Proto.Uid.to_int64 remote_uid)
-        ~last:(Imap.Proto.Uid.to_int64 remote_uid) ~modseq:false
+        ~first:(Imap.Uid.to_int64 remote_uid)
+        ~last:(Imap.Uid.to_int64 remote_uid) ~modseq:false
         ~internal_date:true with
       | Error _ as error -> error
       | Ok [row] -> Ok row.internal_date
@@ -981,7 +981,7 @@ let test_bridge_cram () =
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
     (fun selected ->
       let* _=Imap_eio.Selected.uid_store_flags selected
-        ~set:(Imap.Proto.Uid_set.singleton remote_uid)
+        ~set:(Imap.Uid_set.singleton remote_uid)
         ~operation:`Add ~flags:[flagged] () in Ok ()));
   ignore (Md.set_flags maildir local [custom]);
   let reconciled=copy ("dovecot-flags-" ^ nonce) in
@@ -1068,7 +1068,7 @@ let test_bridge_cram () =
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
     (fun selected ->
       let* _=Imap_eio.Selected.uid_store_flags selected
-        ~set:(Imap.Proto.Uid_set.singleton remote_uid)
+        ~set:(Imap.Uid_set.singleton remote_uid)
         ~operation:`Add ~flags:[deleted] () in Ok ()));
   let held=copy ("dovecot-deleted-hold-" ^ nonce) in
   Alcotest.(check int) "deleted flag held" 1 held.flags_held;
@@ -1094,7 +1094,7 @@ let test_bridge_cram () =
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
     (fun selected ->
       let* _=Imap_eio.Selected.uid_store_flags selected
-        ~set:(Imap.Proto.Uid_set.singleton remote_uid)
+        ~set:(Imap.Uid_set.singleton remote_uid)
         ~operation:`Remove ~flags:[deleted] () in Ok ()));
   let cleared=copy ("dovecot-deleted-cleared-" ^ nonce) in
   Alcotest.(check int) "deleted flag hold cleared" 0
@@ -1123,7 +1123,7 @@ let test_bridge_cram () =
      | _ -> false);
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
     (fun selected ->
-      let set=Imap.Proto.Uid_set.singleton remote_uid in
+      let set=Imap.Uid_set.singleton remote_uid in
       let deleted=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted in
       let* _=Imap_eio.Selected.uid_store_flags selected ~set
         ~operation:`Add ~flags:[deleted] () in
@@ -1155,7 +1155,7 @@ let test_bridge_cram () =
     twins.local_to_remote;
   let paired_uid local=match Imap_store.Journal.find_local store ~scope
       ~local_id:local.Md.id with
-    | Some {remote_uid=Some uid;_} -> Imap.Proto.Uid.to_int64 uid
+    | Some {remote_uid=Some uid;_} -> Imap.Uid.to_int64 uid
     | _ -> Alcotest.fail "identical occurrence lacks a paired UID" in
   Alcotest.(check bool) "identical bytes have distinct remote UIDs" true
     (paired_uid first<>paired_uid second);
@@ -1339,8 +1339,8 @@ let append_crash_child dbfile mailbox local_id id =
     | None -> Alcotest.fail "Dovecot omitted APPENDUID" in
   let output=open_out (dbfile ^ "-appenduid") in
   Printf.fprintf output "%Ld %Ld\n"
-    (Imap.Proto.Uidvalidity.to_int64 receipt.uidvalidity)
-    (Imap.Proto.Uid.to_int64 receipt.uid);
+    (Imap.Uidvalidity.to_int64 receipt.uidvalidity)
+    (Imap.Uid.to_int64 receipt.uid);
   flush output;
   Unix.fsync (Unix.descr_of_out_channel output);
   close_out output;
@@ -1409,9 +1409,9 @@ let test_append_process_crash () =
   let epoch_raw,uid_raw=match String.split_on_char ' ' receipt_line with
     | [epoch;uid] -> Int64.of_string epoch,Int64.of_string uid
     | _ -> Alcotest.fail "malformed child APPENDUID evidence" in
-  let epoch=match Imap.Proto.Uidvalidity.of_int64 epoch_raw with
+  let epoch=match Imap.Uidvalidity.of_int64 epoch_raw with
     | Ok epoch -> epoch | Error e -> Alcotest.fail e in
-  let uid=match Imap.Proto.Uid.of_int64 uid_raw with
+  let uid=match Imap.Uid.of_int64 uid_raw with
     | Ok uid -> uid | Error e -> Alcotest.fail e in
   let remote_uids ()=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
@@ -1475,14 +1475,14 @@ let test_append_process_crash () =
           Imap_sync.Bridge.pp_error error in
     Alcotest.(check (list int64))
       "only identical bodies at the intended instant remain ambiguous"
-      [uid_raw;Imap.Proto.Uid.to_int64 extra]
-      (List.map Imap.Proto.Uid.to_int64 candidates.matching_uids);
+      [uid_raw;Imap.Uid.to_int64 extra]
+      (List.map Imap.Uid.to_int64 candidates.matching_uids);
     Alcotest.(check bool) "candidate inspection did not confirm journal"
       true (match Imap_store.Journal.find_operation store ~id with
         | Some {state=Imap_store.Journal.Sent;_} -> true | _ -> false);
     unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
       (fun selected ->
-        let set=Imap.Proto.Uid_set.of_intervals
+        let set=Imap.Uid_set.of_intervals
           [extra,extra;wrong_date,wrong_date] in
         let deleted=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted in
         let* _=Imap_eio.Selected.uid_store_flags selected ~set
@@ -1532,8 +1532,8 @@ let delete_crash_child dbfile mailbox pair_id operation_id =
     (fun selected ->
       let* info=Imap_eio.Selected.info selected in
       Alcotest.(check int64) "delete child epoch"
-        (Imap.Proto.Uidvalidity.to_int64 epoch) info.uidvalidity;
-      let raw_uid=Imap.Proto.Uid.to_int64 uid in
+        (Imap.Uidvalidity.to_int64 epoch) info.uidvalidity;
+      let raw_uid=Imap.Uid.to_int64 uid in
       let* rows=Imap_eio.Selected.fetch_metadata_range selected
         ~first:raw_uid ~last:raw_uid ~modseq:true in
       let modseq=match rows with
@@ -1541,12 +1541,12 @@ let delete_crash_child dbfile mailbox pair_id operation_id =
         | _ -> Alcotest.fail "delete child lost target metadata" in
       Imap_store.Journal.prepare_operation store operation;
       Imap_store.Journal.mark_sent store ~id:operation_id;
-      let set=Imap.Proto.Uid_set.singleton uid in
+      let set=Imap.Uid_set.singleton uid in
       let deleted=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted in
       let* result=Imap_eio.Selected.uid_store_flags selected ~set
         ~operation:`Add ~flags:[deleted] ~unchangedsince:modseq () in
-      Alcotest.(check string) "conditional delete accepted" ""
-        (Imap.Proto.Uid_set.to_wire result.modified);
+      Alcotest.(check bool) "conditional delete accepted" true
+        (Imap.Uid_set.is_empty result.modified);
       let* rows=Imap_eio.Selected.fetch_metadata_range selected
         ~first:raw_uid ~last:raw_uid ~modseq:true in
       let after=match rows with
@@ -1650,8 +1650,8 @@ let test_delete_process_crash () =
       (match target.local_tombstone with
        | Some {reason=Imap_store.Journal.Local_absence;_} -> true
        | _ -> false);
-    target.id,Imap.Proto.Uid.to_int64 (Option.get target.remote_uid),
-      Imap.Proto.Uid.to_int64 (Option.get other.remote_uid)) in
+    target.id,Imap.Uid.to_int64 (Option.get target.remote_uid),
+      Imap.Uid.to_int64 (Option.get other.remote_uid)) in
   let operation_id="delete-crash-" ^ nonce in
   let executable=if Filename.is_relative Sys.executable_name then
     Filename.concat (Sys.getcwd ()) Sys.executable_name
@@ -1753,7 +1753,7 @@ let test_flags_recovery () =
   let store_remote desired=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_write mailbox (fun selected ->
       let* _=Imap_eio.Selected.uid_store_flags selected
-        ~set:(Imap.Proto.Uid_set.singleton uid)
+        ~set:(Imap.Uid_set.singleton uid)
         ~operation:`Replace ~flags:desired () in Ok ())) in
   let first=op ("flags-recover-" ^ nonce) [flagged] in
   Imap_store.Journal.prepare_operation ~local_flags:[] store first;
@@ -1927,7 +1927,7 @@ let test_operator_local_delete_repair () =
   let uid=Option.get pair.remote_uid in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
     (fun selected ->
-      let set=Imap.Proto.Uid_set.singleton uid in
+      let set=Imap.Uid_set.singleton uid in
       let deleted=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted in
       let* _=Imap_eio.Selected.uid_store_flags selected ~set
         ~operation:`Add ~flags:[deleted] () in
@@ -2060,7 +2060,7 @@ let test_operator_local_append_repair () =
   let flagged=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Flagged in
   let set_flags flags=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_write mailbox (fun selected ->
-      let set=Imap.Proto.Uid_set.singleton receipt.uid in
+      let set=Imap.Uid_set.singleton receipt.uid in
       let* _=Imap_eio.Selected.uid_store_flags selected ~set
         ~operation:`Replace ~flags () in
       Ok ())) in
@@ -2270,7 +2270,7 @@ let test_reject_unchanged_remote_delete () =
   (match reject ~scope:{scope with account="foreign"} "audit" with
    | Error _ -> () | Ok () -> Alcotest.fail "foreign scope rejected delete");
   let flagged=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Flagged in
-  let set=Imap.Proto.Uid_set.singleton uid in
+  let set=Imap.Uid_set.singleton uid in
   let edit operation=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_write mailbox (fun selected ->
       let* _=Imap_eio.Selected.uid_store_flags selected ~set ~operation
@@ -2311,7 +2311,7 @@ let test_reject_unchanged_remote_delete () =
     ~mode:`Read_only mailbox (fun selected ->
       Imap_eio.Selected.uid_search selected "ALL")) in
   Alcotest.(check (list int64)) "remote UID preserved"
-    [Imap.Proto.Uid.to_int64 uid] remote;
+    [Imap.Uid.to_int64 uid] remote;
   let finish_id="remote-delete-finish-" ^ nonce in
   Imap_store.Journal.prepare_operation store {operation with id=finish_id};
   Imap_store.Journal.mark_sent store ~id:finish_id;
@@ -2518,7 +2518,7 @@ let test_bounded_hydration () =
     "--endpoint";scope.endpoint;"--account";scope.account;
     "--mailbox";mailbox;"--db";dbfile;"--blob-dir";blobdir;
     "--max-transfers";"1";"--max-total-bytes";"1024";
-    "--after-uid";Int64.to_string (Imap.Proto.Uid.to_int64 first.uid);
+    "--after-uid";Int64.to_string (Imap.Uid.to_int64 first.uid);
     "--expected-revision";
     Int64.to_string (Imap_store.load_cursor store ~scope).revision|] in
   let audit_config=match Imap_cli.parse ~getenv:Sys.getenv_opt audit_args with
@@ -2569,7 +2569,7 @@ let test_multiappend () =
       if List.length receipt.uids<>2 then Alcotest.fail "wrong batch UID cardinality";
       unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox (fun selected ->
         List.iter2 (fun uid (body,expected_flags) ->
-          let uid=Imap.Proto.Uid.to_int64 uid in
+          let uid=Imap.Uid.to_int64 uid in
           let rows=unwrap (Imap_eio.Selected.fetch_metadata_range selected
             ~first:uid ~last:uid ~modseq:false ~internal_date:true) in
           let row=match rows with [row] -> row | _ -> Alcotest.fail "missing batch row" in
@@ -2628,9 +2628,9 @@ let test_shared_maildir () =
   check_remote initial;
   let remote_flags=[flag "\\Answered";flag "remote-keyword"] in
   with_selected `Read_write (fun selected ->
-    let uid=match Imap.Proto.Uid.of_int64 uid with
+    let uid=match Imap.Uid.of_int64 uid with
       | Ok uid -> uid | Error _ -> Alcotest.fail "invalid UID" in
-    ignore (unwrap (S.uid_store_flags selected ~set:(Imap.Proto.Uid_set.singleton uid)
+    ignore (unwrap (S.uid_store_flags selected ~set:(Imap.Uid_set.singleton uid)
       ~operation:`Replace ~flags:remote_flags ())));
   let current=match D.find maildir ~id with
     | Some current -> current | None -> Alcotest.fail "Dovecot renamed occurrence identity" in
@@ -2642,9 +2642,9 @@ let test_shared_maildir () =
   ignore (D.set_flags maildir current final_flags);
   check_remote final_flags;
   with_selected `Read_write (fun selected ->
-    let uid=match Imap.Proto.Uid.of_int64 uid with
+    let uid=match Imap.Uid.of_int64 uid with
       | Ok uid -> uid | Error _ -> Alcotest.fail "invalid UID" in
-    let set=Imap.Proto.Uid_set.singleton uid in
+    let set=Imap.Uid_set.singleton uid in
     ignore (unwrap (S.uid_store_flags selected ~set ~operation:`Add
       ~flags:[flag "\\Deleted"] ()));
     unwrap (S.uid_expunge selected ~set));

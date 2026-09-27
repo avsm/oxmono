@@ -634,8 +634,8 @@ let with_mailbox t ?qresync ?objectid ~mode mailbox callback =
     |> Result.join)
 
 type append_receipt = {
-  uidvalidity : Imap.Proto.Uidvalidity.t;
-  uid : Imap.Proto.Uid.t;
+  uidvalidity : Imap.Uidvalidity.t;
+  uid : Imap.Uid.t;
 }
 
 let check_append_destination t ~mailbox =
@@ -675,8 +675,8 @@ let append_receipt ~binary t ~mailbox ?flags ?internal_date ~length source =
     | Imap.Response.Tagged {
         code=Some (Imap.Response.Appenduid (v,u)); _} ->
         Some {
-          uidvalidity=proto_value (Imap.Proto.Uidvalidity.of_int64 v);
-          uid=proto_value (Imap.Proto.Uid.of_int64 u)
+          uidvalidity=proto_value (Imap.Uidvalidity.of_int64 v);
+          uid=proto_value (Imap.Uid.of_int64 u)
         }
     | Imap.Response.Tagged {code=Some (Imap.Response.Appenduid_set _);_} ->
         Session.close t.session;
@@ -709,8 +709,8 @@ let append_message ?(flags=[]) ?internal_date ~length source =
   {flags;internal_date;length;read=Eio.Flow.single_read source}
 
 type multiappend_receipt = {
-  uidvalidity : Imap.Proto.Uidvalidity.t;
-  uids : Imap.Proto.Uid.t list;
+  uidvalidity : Imap.Uidvalidity.t;
+  uids : Imap.Uid.t list;
 }
 
 let append_messages t ~mailbox messages =
@@ -748,7 +748,7 @@ let append_messages t ~mailbox messages =
       Session.close t.session;
       raise (Session.Failure (Session.Uncertain "MULTIAPPEND returned invalid UID correspondence")) in
     let receipt epoch wire =
-      let epoch=match Imap.Proto.Uidvalidity.of_int64 epoch with
+      let epoch=match Imap.Uidvalidity.of_int64 epoch with
         | Ok epoch -> epoch | Error _ -> invalid () in
       let seen=Hashtbl.create count and result=ref [] and total=ref 0 in
       let number raw=match Int64.of_string_opt raw with
@@ -763,7 +763,7 @@ let append_messages t ~mailbox messages =
         let rec add n =
           if Hashtbl.mem seen n then invalid ();
           Hashtbl.add seen n ();
-          let uid=match Imap.Proto.Uid.of_int64 n with Ok uid -> uid | Error _ -> invalid () in
+          let uid=match Imap.Uid.of_int64 n with Ok uid -> uid | Error _ -> invalid () in
           result:=uid :: !result; incr total;
           if n<last then add (Int64.succ n) in
         add first) (String.split_on_char ',' wire);

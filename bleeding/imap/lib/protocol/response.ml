@@ -220,10 +220,10 @@ let is_digits s = s<>"" && String.for_all (fun c -> c >= '0' && c <= '9') s
 let parse_i64 s = if is_digits s then Int64.of_string_opt s else None
 let up = String.uppercase_ascii
 let after s n = String.sub s n (String.length s-n)
-let valid_uid n = Result.is_ok (Proto.Uid.of_int64 n)
-let valid_uidvalidity n = Result.is_ok (Proto.Uidvalidity.of_int64 n)
-let valid_modseq n = Result.is_ok (Proto.Modseq.of_int64 n)
-let valid_seq n = Result.is_ok (Proto.Seq.of_int64 n)
+let valid_uid n = Result.is_ok (Uid.of_int64 n)
+let valid_uidvalidity n = Result.is_ok (Uidvalidity.of_int64 n)
+let valid_modseq n = Result.is_ok (Modseq.of_int64 n)
+let valid_seq n = Result.is_ok (Seq.of_int64 n)
 (* UIDNEXT may name the slot after the largest possible UID. *)
 let valid_uidnext n = n = 4_294_967_296L || valid_uid n
 let valid_uint32 n = n = 0L || valid_uid n
@@ -299,22 +299,22 @@ let response_code text =
              | Some v, Some u when valid_uidvalidity v && valid_uid u ->
                  Some (Appenduid(v,u))
              | Some v, _ when valid_uidvalidity v ->
-                 (match Proto.Uid_set.of_wire u with
-                  | Result.Ok set when Proto.Uid_set.cardinality set > 1L ->
+                 (match Uid_set.of_wire u with
+                  | Result.Ok set when Uid_set.cardinality set > 1L ->
                       Some (Appenduid_set (v,u))
                   | _ -> None)
              | _ -> None)
         | ["COPYUID"; v; src; dst] ->
-            (match parse_i64 v, Proto.Uid_set.of_wire src,
-                   Proto.Uid_set.of_wire dst with
+            (match parse_i64 v, Uid_set.of_wire src,
+                   Uid_set.of_wire dst with
              | Some v, Result.Ok source, Result.Ok target
                when valid_uidvalidity v &&
-                    Proto.Uid_set.cardinality source =
-                    Proto.Uid_set.cardinality target ->
+                    Uid_set.cardinality source =
+                    Uid_set.cardinality target ->
                  Some (Copyuid(v,src,dst))
              | _ -> None)
         | ["MODIFIED"; uids] ->
-            (match Proto.Uid_set.of_wire uids with
+            (match Uid_set.of_wire uids with
              | Result.Ok _ -> Some (Modified uids) | Result.Error _ -> None)
         | ["MAILBOXID"; wrapped] ->
             let n=String.length wrapped in
@@ -1051,7 +1051,7 @@ let parse_esearch raw =
           Result.Error "invalid ESEARCH PARTIAL range"
         else if up results="NIL" then
           loop min max count all modseq (Some (range,None)) rest
-        else (match Proto.Uid_set.of_wire results with
+        else (match Uid_set.of_wire results with
           | Result.Ok _ ->
               loop min max count all modseq (Some (range,Some results)) rest
           | Result.Error _ -> Result.Error "invalid ESEARCH PARTIAL results")
@@ -1072,7 +1072,7 @@ let parse_esearch raw =
          | "PARTIAL" -> Result.Error "invalid ESEARCH PARTIAL"
          | "ALL" ->
              (match value_string v with
-              | Some x when (match Proto.Uid_set.of_wire x with
+              | Some x when (match Uid_set.of_wire x with
                               | Result.Ok _ -> true | Result.Error _ -> false) ->
                   loop min max count (Some x) modseq partial rest
               | _ -> Result.Error "invalid ESEARCH ALL")
@@ -1480,7 +1480,7 @@ let parse raw =
            let earlier,uids=match rest with
              | flag::xs when up flag="(EARLIER)" -> true,String.concat " " xs
              | _ -> false,String.concat " " rest in
-           (match Proto.Uid_set.of_wire uids with
+           (match Uid_set.of_wire uids with
             | Result.Ok _ -> Result.Ok (Untagged (Vanished {earlier;uids}))
             | Result.Error _ -> Result.Error "invalid VANISHED UID set")
        | _ when is_digits kind ->

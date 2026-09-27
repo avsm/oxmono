@@ -1,7 +1,6 @@
 open Database
 open Record_codec
 module M = Imap.Mirror
-module P = Imap.Proto
 module S = Sqlite3
 
 type t = Database.t
@@ -17,7 +16,7 @@ type intent_kind =
 type intent_state = Prepared | Sent | Ambiguous | Confirmed | Rejected
 type intent = {
   id : string; scope : M.scope; kind : intent_kind; state : intent_state;
-  uidvalidity : P.Uidvalidity.t option; uid : P.Uid.t option
+  uidvalidity : Imap.Uidvalidity.t option; uid : Imap.Uid.t option
 }
 
 let state = function
@@ -67,8 +66,8 @@ let prepare_intent t x =
         s (kind x.kind); ns message_id; ns digest;
         ns (match x.kind with Other payload -> Some payload | Append _ -> spool_ref);
         s (state x.state);
-        ni (Option.map P.Uidvalidity.to_int64 x.uidvalidity);
-        ni (Option.map P.Uid.to_int64 x.uid);
+        ni (Option.map Imap.Uidvalidity.to_int64 x.uidvalidity);
+        ni (Option.map Imap.Uid.to_int64 x.uid);
         ni frontier; ni length; ni (Option.map (fun _ -> 1L) flags); ns date]);
     Option.iter (List.iteri (fun ord flag ->
       run t "INSERT INTO intent_flags VALUES (?,?,?)"
@@ -134,8 +133,8 @@ let confirm_intent t ~id ~uidvalidity ~uid =
     | r :: _ when legal (dec_state (text r.(0))) Confirmed ->
       run t "UPDATE intents SET state='confirmed',\
         uidvalidity=COALESCE(?,uidvalidity),uid=? WHERE id=?"
-        [ni (Option.map P.Uidvalidity.to_int64 uidvalidity);
-         ni (Option.map P.Uid.to_int64 uid); s id]
+        [ni (Option.map Imap.Uidvalidity.to_int64 uidvalidity);
+         ni (Option.map Imap.Uid.to_int64 uid); s id]
     | _ :: _ -> invalid_arg "Imap_store.confirm_intent: illegal transition"
     | [] -> invalid_arg "Imap_store.confirm_intent: unknown ID")
 

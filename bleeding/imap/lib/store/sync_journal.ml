@@ -2,7 +2,6 @@ type t = Database.t
 open Database
 open Record_codec
 module M = Imap.Mirror
-module P = Imap.Proto
 module S = Sqlite3
 module F = Mail_flag.Imap_flag
 
@@ -11,7 +10,7 @@ type tombstone_reason = Inventory_absence | Expunge_receipt
 type tombstone = { reason:tombstone_reason; evidence:string;
   generation:int64 option }
 type pair = { id:string; scope:M.scope;
-  remote_uidvalidity:P.Uidvalidity.t option; remote_uid:P.Uid.t option;
+  remote_uidvalidity:Imap.Uidvalidity.t option; remote_uid:Imap.Uid.t option;
   local_id:string option; content_sha256:string option;
   content_length:int64 option;
   internal_date:Imap.Internal_date.t option;
@@ -149,8 +148,8 @@ let published_state t scope =
 let in_snapshot t scope ~epoch ~uid =
   rows t "SELECT 1 FROM snapshots WHERE endpoint=? AND account=? \
     AND mailbox_key=? AND uidvalidity=? AND uid=?"
-    (scope_key scope @ [i (P.Uidvalidity.to_int64 epoch);
-      i (P.Uid.to_int64 uid)])<>[]
+    (scope_key scope @ [i (Imap.Uidvalidity.to_int64 epoch);
+      i (Imap.Uid.to_int64 uid)])<>[]
 let side_name = function `Remote -> "remote" | `Local -> "local"
 let last_presence_generation t ~pair_id ~side =
   if t.schema_version<13L then None
@@ -175,7 +174,7 @@ let note_presence t ~pair ~side ~generation =
               published=generation && (match remote with
                 | None -> true
                 | Some (epoch,_) ->
-                    validity=Some (P.Uidvalidity.to_int64 epoch))
+                    validity=Some (Imap.Uidvalidity.to_int64 epoch))
           | _ -> false in
         if not observed then invalid_arg (who ^ ": unpublished generation");
         Option.iter (fun (epoch,uid) ->
@@ -219,7 +218,7 @@ let find_by t ~scope clause values =
     | x :: _ -> Some x)
 let find_remote t ~scope ~uidvalidity ~uid =
   find_by t ~scope "remote_epoch=? AND remote_uid=?"
-    [i (P.Uidvalidity.to_int64 uidvalidity);i (P.Uid.to_int64 uid)]
+    [i (Imap.Uidvalidity.to_int64 uidvalidity);i (Imap.Uid.to_int64 uid)]
 let find_local t ~scope ~local_id =
   find_by t ~scope "local_id=?" [s local_id]
 let pairs t ~scope =
@@ -235,7 +234,7 @@ let check_inventory_tombstone t who x =
     Some epoch,Some uid ->
     (match published_state t x.scope with
      | Some (published,Some reference,validity)
-       when validity=Some (P.Uidvalidity.to_int64 epoch) &&
+       when validity=Some (Imap.Uidvalidity.to_int64 epoch) &&
             published=generation && reference=evidence -> ()
      | _ -> invalid_arg (who ^ ": unverified inventory tombstone"));
     if in_snapshot t x.scope ~epoch ~uid then
@@ -304,8 +303,8 @@ let put_pair_unlocked t ~who ~previous ~expected_revision x =
       internal_date=excluded.internal_date"
       ([s x.id]@scope_key x.scope@
        [s x.scope.raw_name;s (enc x.scope.encoding);ns x.scope.mailbox_id;
-        ni (Option.map P.Uidvalidity.to_int64 x.remote_uidvalidity);
-        ni (Option.map P.Uid.to_int64 x.remote_uid);ns x.local_id;
+        ni (Option.map Imap.Uidvalidity.to_int64 x.remote_uidvalidity);
+        ni (Option.map Imap.Uid.to_int64 x.remote_uid);ns x.local_id;
         i next.revision]@tombstone_columns x.remote_tombstone@
        tombstone_columns x.local_tombstone@
        [ns x.content_sha256;ni x.content_length;
@@ -419,14 +418,14 @@ type operation_state = Prepared | Sent | Ambiguous | Observed
 type operation = { id:string; pair_id:string option; local_id:string option;
   scope:M.scope;
   kind:operation_kind; state:operation_state;
-  source_uidvalidity:P.Uidvalidity.t option; source_uid:P.Uid.t option;
+  source_uidvalidity:Imap.Uidvalidity.t option; source_uid:Imap.Uid.t option;
   destination:M.scope option;
-  destination_uidvalidity:P.Uidvalidity.t option;
+  destination_uidvalidity:Imap.Uidvalidity.t option;
   blob_sha256:string option; blob_length:int64 option;
   desired_flags:F.t list option;
   receipt:string option;
-  receipt_uidvalidity:P.Uidvalidity.t option;
-  receipt_uid:P.Uid.t option }
+  receipt_uidvalidity:Imap.Uidvalidity.t option;
+  receipt_uid:Imap.Uid.t option }
 let operation_kind = function
   | Append -> "append" | Local_append -> "local_append"
   | Copy -> "copy" | Move -> "move"
@@ -535,12 +534,12 @@ let prepare_operation ?local_flags ?local_source_mtime
       ([s x.id;ns x.pair_id;ns x.local_id]@scope_key x.scope@
        [s x.scope.raw_name;s (enc x.scope.encoding);ns x.scope.mailbox_id;
         s (operation_kind x.kind);s (operation_state x.state);
-        ni (Option.map P.Uidvalidity.to_int64 x.source_uidvalidity);
-        ni (Option.map P.Uid.to_int64 x.source_uid)]@
+        ni (Option.map Imap.Uidvalidity.to_int64 x.source_uidvalidity);
+        ni (Option.map Imap.Uid.to_int64 x.source_uid)]@
        destination_columns x.destination@
-       [ni (Option.map P.Uidvalidity.to_int64 x.destination_uidvalidity);
-        ni (Option.map P.Uidvalidity.to_int64 x.receipt_uidvalidity);
-        ni (Option.map P.Uid.to_int64 x.receipt_uid);
+       [ni (Option.map Imap.Uidvalidity.to_int64 x.destination_uidvalidity);
+        ni (Option.map Imap.Uidvalidity.to_int64 x.receipt_uidvalidity);
+        ni (Option.map Imap.Uid.to_int64 x.receipt_uid);
         ns x.blob_sha256;ni x.blob_length;
         ni (Option.map (fun _ -> 1L) x.desired_flags);ns x.receipt]);
     Option.iter (insert_flags t "sync_operation_flags" x.id) x.desired_flags;
@@ -654,8 +653,8 @@ let transition t ~id ~allowed ~next ~receipt ~epoch ~uid =
       run t "UPDATE sync_operations SET state=?,receipt=?,receipt_epoch=?,\
         receipt_uid=? WHERE id=?"
         [s (operation_state next);ns receipt;
-         ni (Option.map P.Uidvalidity.to_int64 epoch);
-         ni (Option.map P.Uid.to_int64 uid);s id]
+         ni (Option.map Imap.Uidvalidity.to_int64 epoch);
+         ni (Option.map Imap.Uid.to_int64 uid);s id]
     | _ -> invalid_arg "Imap_store.Journal: illegal operation transition")
 let mark_sent t ~id =
   transition t ~id ~allowed:[Prepared] ~next:Sent ~receipt:None

@@ -392,9 +392,9 @@ let test_targeted_inspect () =
   let scope : Imap.Mirror.scope = {
     endpoint="server-id";account="account-id";mailbox_key="INBOX";
     raw_name="INBOX";encoding=Imap.Mailbox_name.Rev1;mailbox_id=None} in
-  let epoch=match Imap.Proto.Uidvalidity.of_int64 1L with
+  let epoch=match Imap.Uidvalidity.of_int64 1L with
     | Ok x -> x | Error e -> Alcotest.fail e in
-  let uid=match Imap.Proto.Uid.of_int64 1L with
+  let uid=match Imap.Uid.of_int64 1L with
     | Ok x -> x | Error e -> Alcotest.fail e in
   Eio.Switch.run (fun sw ->
     let store=Imap_store.open_path ~sw Eio.Path.(fs / filename) in
@@ -472,9 +472,9 @@ let test_mark_local_retention () =
   let scope:Imap.Mirror.scope={endpoint="server-id";account="account-id";
     mailbox_key="INBOX";raw_name="INBOX";
     encoding=Imap.Mailbox_name.Rev1;mailbox_id=None} in
-  let epoch=match Imap.Proto.Uidvalidity.of_int64 1L with
+  let epoch=match Imap.Uidvalidity.of_int64 1L with
     | Ok x -> x | Error e -> Alcotest.fail e in
-  let uid=match Imap.Proto.Uid.of_int64 1L with
+  let uid=match Imap.Uid.of_int64 1L with
     | Ok x -> x | Error e -> Alcotest.fail e in
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_path ~sw Eio.Path.(fs / database) in

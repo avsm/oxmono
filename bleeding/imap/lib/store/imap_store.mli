@@ -59,7 +59,7 @@ val load_cursor : t -> scope:Imap.Mirror.scope -> Imap.Mirror.cursor
     It raises as {!load} does. *)
 
 val snapshot_page : t -> scope:Imap.Mirror.scope ->
-  cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Proto.Uid.t ->
+  cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
   limit:int -> unit -> [ `Rows of Imap.Mirror.row list | `Stale_revision ]
 (** Page the current published epoch by UID. The caller's cursor revision,
     UIDVALIDITY and full scope must still match inside the read transaction,
@@ -68,7 +68,7 @@ val snapshot_page : t -> scope:Imap.Mirror.scope ->
     range raises [Invalid_argument]. *)
 
 val snapshot_contains_uid : t -> scope:Imap.Mirror.scope ->
-  cursor:Imap.Mirror.cursor -> uid:Imap.Proto.Uid.t ->
+  cursor:Imap.Mirror.cursor -> uid:Imap.Uid.t ->
   [ `Present of bool | `Stale_revision ]
 (** Indexed membership check against the same published revision, epoch
     and full scope, or [`Stale_revision]. A complete published inventory is
@@ -115,7 +115,7 @@ val stage_membership : t -> stage_id:string -> first:int64 -> last:int64 ->
 
 val publish_stage : t -> cursor:Imap.Mirror.cursor ->
   action:Imap.Mirror.action ->
-  explicit_highestmodseq:Imap.Proto.Modseq.t option ->
+  explicit_highestmodseq:Imap.Modseq.t option ->
   nomodseq:bool ->
   [ `Committed of staged_receipt | `Stale_revision ]
 (** Requires full FETCH and SEARCH coverage to the fixed upper UID. In one
@@ -165,8 +165,8 @@ type intent = {
   scope : Imap.Mirror.scope;
   kind : intent_kind;
   state : intent_state;
-  uidvalidity : Imap.Proto.Uidvalidity.t option;
-  uid : Imap.Proto.Uid.t option;
+  uidvalidity : Imap.Uidvalidity.t option;
+  uid : Imap.Uid.t option;
 }
 
 val prepare_intent : t -> intent -> unit
@@ -189,8 +189,8 @@ val set_intent_state : t -> id:string -> intent_state -> unit
     A missing ID or illegal transition raises [Invalid_argument]. *)
 
 val confirm_intent : t -> id:string ->
-  uidvalidity:Imap.Proto.Uidvalidity.t option ->
-  uid:Imap.Proto.Uid.t option -> unit
+  uidvalidity:Imap.Uidvalidity.t option ->
+  uid:Imap.Uid.t option -> unit
 (** Resolve a sent or ambiguous operation and record an optional UIDPLUS
     [APPENDUID] receipt in the same transaction. [uid] requires
     [uidvalidity]. [uidvalidity = None] keeps the stored UIDVALIDITY. *)
@@ -219,8 +219,8 @@ module Journal : sig
   type pair = {
     id : string;
     scope : Imap.Mirror.scope;
-    remote_uidvalidity : Imap.Proto.Uidvalidity.t option;
-    remote_uid : Imap.Proto.Uid.t option;
+    remote_uidvalidity : Imap.Uidvalidity.t option;
+    remote_uid : Imap.Uid.t option;
     local_id : string option;
     content_sha256 : string option;
     content_length : int64 option;
@@ -268,7 +268,7 @@ module Journal : sig
       No other tombstone reason can be cleared. *)
 
   val find_remote : t -> scope:Imap.Mirror.scope ->
-    uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t -> pair option
+    uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t -> pair option
   val find_local :
     t -> scope:Imap.Mirror.scope -> local_id:string -> pair option
   val pairs : t -> scope:Imap.Mirror.scope -> pair list
@@ -317,16 +317,16 @@ module Journal : sig
     scope : Imap.Mirror.scope;
     kind : operation_kind;
     state : operation_state;
-    source_uidvalidity : Imap.Proto.Uidvalidity.t option;
-    source_uid : Imap.Proto.Uid.t option;
+    source_uidvalidity : Imap.Uidvalidity.t option;
+    source_uid : Imap.Uid.t option;
     destination : Imap.Mirror.scope option;
-    destination_uidvalidity : Imap.Proto.Uidvalidity.t option;
+    destination_uidvalidity : Imap.Uidvalidity.t option;
     blob_sha256 : string option;
     blob_length : int64 option;
     desired_flags : Mail_flag.Imap_flag.t list option;
     receipt : string option;
-    receipt_uidvalidity : Imap.Proto.Uidvalidity.t option;
-    receipt_uid : Imap.Proto.Uid.t option;
+    receipt_uidvalidity : Imap.Uidvalidity.t option;
+    receipt_uid : Imap.Uid.t option;
   }
   val prepare_operation : ?local_flags:Mail_flag.Imap_flag.t list ->
     ?local_source_mtime:float ->
@@ -376,8 +376,8 @@ module Journal : sig
       concurrently dispatched mutation cannot be classified as unsent. *)
 
   val observe_operation : t -> id:string -> receipt:string ->
-    destination_uidvalidity:Imap.Proto.Uidvalidity.t option ->
-    destination_uid:Imap.Proto.Uid.t option -> unit
+    destination_uidvalidity:Imap.Uidvalidity.t option ->
+    destination_uid:Imap.Uid.t option -> unit
   val commit_operation : t -> id:string -> unit
   (** Only an observed unpaired operation can become committed this way.
       A paired operation must use [commit_operation_with_pair] so its common
@@ -490,7 +490,7 @@ module Blob : sig
       is required; opening alone does not rehash the file. *)
 
   val attach : ?verify:bool -> t -> scope:Imap.Mirror.scope ->
-    uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
+    uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t ->
     blob -> unit
   (** Atomically reference [blob] from an existing message in the current
       mailbox epoch. With [verify], which defaults to [true], the blob is
@@ -500,13 +500,13 @@ module Blob : sig
       [Invalid_argument]. Replacing a reference is atomic. *)
 
   val find : t -> scope:Imap.Mirror.scope ->
-    uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
+    uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t ->
     blob option
 
   val missing_page : t -> scope:Imap.Mirror.scope ->
-    cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Proto.Uid.t ->
+    cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
     limit:int -> unit ->
-    [ `Uids of Imap.Proto.Uid.t list | `Stale_revision ]
+    [ `Uids of Imap.Uid.t list | `Stale_revision ]
   (** Indexed UID page from the current published snapshot whose messages
       have no blob reference. The cursor's revision, UIDVALIDITY and full
       scope are checked in the same read transaction. [limit] is 1..10,000.
@@ -514,15 +514,15 @@ module Blob : sig
       returned UID; a concurrent blob attachment can shrink later pages. *)
 
   val referenced_page : t -> scope:Imap.Mirror.scope ->
-    cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Proto.Uid.t ->
+    cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
     limit:int -> unit ->
-    [ `Refs of (Imap.Proto.Uid.t * blob) list | `Stale_revision ]
+    [ `Refs of (Imap.Uid.t * blob) list | `Stale_revision ]
   (** Indexed UID page of blob references still present in the published
       snapshot. Checks the cursor revision, epoch and full scope in one read
       transaction. [limit] is 1..10,000. Page strictly after the last UID. *)
 
   val detach_if_matches : t -> scope:Imap.Mirror.scope ->
-    cursor:Imap.Mirror.cursor -> uid:Imap.Proto.Uid.t -> blob ->
+    cursor:Imap.Mirror.cursor -> uid:Imap.Uid.t -> blob ->
     [ `Detached | `Unchanged | `Stale_revision ]
   (** Remove a corrupt or missing cache reference only if the published
       cursor and exact reference still match. Does not unlink blob files.

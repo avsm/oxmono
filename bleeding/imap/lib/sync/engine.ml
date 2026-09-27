@@ -39,12 +39,12 @@ let validate_scope ~client ~(scope:Mirror.scope) ~mailbox =
 
 let selected_metadata (info:Imap.Response.select_metadata) =
   let* uidvalidity = validation (fun s -> Incomplete s)
-    (Imap.Proto.Uidvalidity.of_int64 info.uidvalidity) in
+    (Imap.Uidvalidity.of_int64 info.uidvalidity) in
   let* highestmodseq = match info.highestmodseq with
     | None -> Ok None
     | Some value ->
         let* value = validation (fun s -> Incomplete s)
-          (Imap.Proto.Modseq.of_int64 value) in
+          (Imap.Modseq.of_int64 value) in
         Ok (Some value) in
   Ok ({uidvalidity; uidnext=info.uidnext; highestmodseq;
        nomodseq=info.nomodseq || Option.is_none highestmodseq}:Mirror.selected)
@@ -134,7 +134,7 @@ let row_of_fetch (item : Imap.Response.fetch) =
   match item.uid, item.flags with
   | Some raw_uid, Some raw_flags ->
       let* uid = validation (fun s -> Incomplete s)
-        (Imap.Proto.Uid.of_int64 raw_uid) in
+        (Imap.Uid.of_int64 raw_uid) in
       let* flags = List.fold_right (fun raw acc ->
         let* rest = acc in
         let* flag = validation (fun s -> Incomplete s)
@@ -147,7 +147,7 @@ let row_of_fetch (item : Imap.Response.fetch) =
         | None -> Ok None
         | Some value ->
             let* value = validation (fun s -> Incomplete s)
-              (Imap.Proto.Modseq.of_int64 value) in
+              (Imap.Modseq.of_int64 value) in
             Ok (Some value) in
       Ok (Some ({uid; flags; modseq} : Mirror.row))
   | _ -> Ok None
@@ -171,7 +171,7 @@ let scan ~max_windows ~max_rows ~modseq selected action =
         let* parsed = row_of_fetch item in
         match parsed with
         | Some row ->
-            let raw_uid = Imap.Proto.Uid.to_int64 row.uid in
+            let raw_uid = Imap.Uid.to_int64 row.uid in
             if not (Uids.mem raw_uid by_uid) then incr fetched_count;
             let by_uid = Uids.add raw_uid row by_uid in
             if !fetched_count > max_rows then
@@ -215,22 +215,22 @@ let scan_qresync ~max_windows ~max_rows selected action
     Error (Incomplete "UID frontier regressed during QRESYNC")
   else
     let old = List.fold_left (fun acc (row : Mirror.row) ->
-      Uids.add (Imap.Proto.Uid.to_int64 row.uid) row acc)
+      Uids.add (Imap.Uid.to_int64 row.uid) row acc)
       Uids.empty (Mirror.rows previous) in
     let row_count = ref (Uids.cardinal old) in
     if !row_count > max_rows then
       Error (Limit "published metadata exceeds row budget")
     else
       let add map (row : Mirror.row) =
-        let uid = Imap.Proto.Uid.to_int64 row.Mirror.uid in
+        let uid = Imap.Uid.to_int64 row.Mirror.uid in
         let previous = Uids.find_opt uid map in
         let newer = match previous with
           | None -> true
           | Some (old : Mirror.row) ->
               (match old.modseq, row.modseq with
                | Some a, Some b ->
-                   Imap.Proto.Modseq.to_int64 b >=
-                     Imap.Proto.Modseq.to_int64 a
+                   Imap.Modseq.to_int64 b >=
+                     Imap.Modseq.to_int64 a
                | _ -> true) in
         if not newer then Ok map else (
           if previous = None then incr row_count;
@@ -245,7 +245,7 @@ let scan_qresync ~max_windows ~max_rows selected action
             (Imap.Response.Fetch fetched | Imap.Response.Uidfetch fetched) ->
             let* row = row_of_fetch fetched in
             (match row with
-             | Some row when Imap.Proto.Uid.to_int64 row.uid <= upper ->
+             | Some row when Imap.Uid.to_int64 row.uid <= upper ->
                  add map row
              | _ -> Ok map)
         | _ -> Ok map) (Ok old) updates in
@@ -296,8 +296,8 @@ let run_once ?(max_windows=1000) ?(max_rows=100_000) ~client ~store
       current.cursor.anchor with
       | Some validity, Some anchor
         when Imap_eio.Client.is_enabled client Imap.Capability.Qresync ->
-          Some (Imap.Proto.Uidvalidity.to_int64 validity,
-                Imap.Proto.Modseq.to_int64 anchor)
+          Some (Imap.Uidvalidity.to_int64 validity,
+                Imap.Modseq.to_int64 anchor)
       | _ -> None in
     let* scan_result = network
       (Imap_eio.Client.with_mailbox client ?qresync
@@ -555,10 +555,10 @@ let with_fetched_uid ~max_bytes ~client ~store ~scope ~mailbox ~uid ~epoch
         (fun selected ->
           let result =
             let* info = network (Imap_eio.Selected.info selected) in
-            if info.uidvalidity <> Imap.Proto.Uidvalidity.to_int64 epoch then
+            if info.uidvalidity <> Imap.Uidvalidity.to_int64 epoch then
               Error Uidvalidity_changed
             else network (Imap_eio.Selected.fetch_to selected
-              ~max_bytes ~uid:(Imap.Proto.Uid.to_int64 uid) output)
+              ~max_bytes ~uid:(Imap.Uid.to_int64 uid) output)
           in Ok result)) in
     let* () = fetch_result in
     on_spool epoch spool)
@@ -581,8 +581,8 @@ type hydration_receipt = {
   cursor : Mirror.cursor;
   hydrated : int;
   bytes : int64;
-  last_uid : Imap.Proto.Uid.t option;
-  skipped : Imap.Proto.Uid.t list;
+  last_uid : Imap.Uid.t option;
+  skipped : Imap.Uid.t list;
   more : bool;
 }
 
@@ -591,8 +591,8 @@ type cache_audit_receipt = {
   checked : int;
   invalidated : int;
   bytes : int64;
-  last_uid : Imap.Proto.Uid.t option;
-  skipped : Imap.Proto.Uid.t list;
+  last_uid : Imap.Uid.t option;
+  skipped : Imap.Uid.t list;
   more : bool;
 }
 
@@ -669,7 +669,7 @@ let valid_spool_id id =
     | _ -> false) id
 
 let remote_size selected uid =
-  let raw_uid=Imap.Proto.Uid.to_int64 uid in
+  let raw_uid=Imap.Uid.to_int64 uid in
   let* metadata=network (Imap_eio.Selected.fetch_metadata_range selected
     ~first:raw_uid ~last:raw_uid ~modseq:false ~size:true) in
   match List.find_opt (fun (row:Imap.Response.fetch) ->
@@ -705,7 +705,7 @@ let hydrate_once ?after_uid ?(max_messages=100)
           let spool=Eio.Path.(spool_dir / ("imap-hydrate-" ^ id)) in
           Spool.with_spool spool (fun output ->
             let* ()=network (Imap_eio.Selected.fetch_to selected
-              ~max_bytes:size ~uid:(Imap.Proto.Uid.to_int64 uid) output) in
+              ~max_bytes:size ~uid:(Imap.Uid.to_int64 uid) output) in
             Eio.Path.with_open_in spool (fun input ->
               let length=Optint.Int63.to_int64 (Eio.File.size input) in
               if length<>size then Error (Incomplete
@@ -719,7 +719,7 @@ let hydrate_once ?after_uid ?(max_messages=100)
       let hydrate selected =
         let* info=network (Imap_eio.Selected.info selected) in
         if info.uidvalidity<>
-           Imap.Proto.Uidvalidity.to_int64 epoch then
+           Imap.Uidvalidity.to_int64 epoch then
           Error Uidvalidity_changed
         else
           let rec pages after considered hydrated bytes skipped =

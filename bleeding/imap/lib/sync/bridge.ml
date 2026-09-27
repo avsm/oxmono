@@ -1,5 +1,4 @@
 module J = Imap_store.Journal
-module P = Imap.Proto
 module F = Mail_flag.Imap_flag
 
 type error =
@@ -11,7 +10,7 @@ type error =
   | Pending_operations of string list
   | Bootstrap_requires_pairing
   | Uidvalidity_changed
-  | Source_vanished of P.Uid.t
+  | Source_vanished of Imap.Uid.t
   | Local_source_changed of string
   | Stale_revision
   | Content_diverged of string
@@ -35,7 +34,7 @@ let pp_error ppf = function
       Format.pp_print_string ppf "remote UIDVALIDITY changed since pairing"
   | Source_vanished uid ->
       Format.fprintf ppf "remote UID %Ld vanished before archival"
-        (P.Uid.to_int64 uid)
+        (Imap.Uid.to_int64 uid)
   | Local_source_changed id ->
       Format.fprintf ppf "local occurrence %s changed before archival" id
   | Stale_revision -> Format.pp_print_string ppf "sync revision changed"
@@ -110,15 +109,15 @@ let parse_flags raw =
 
 let appended_uid_missing uid =
   Invalid_operation (Printf.sprintf "APPENDUID target UID %Ld is missing"
-    (P.Uid.to_int64 uid))
+    (Imap.Uid.to_int64 uid))
 
 let remote_metadata ?(missing=fun uid -> Source_vanished uid) client ~mailbox
     ~uid ~uidvalidity ~internal_date =
-  let raw_uid=P.Uid.to_int64 uid in
+  let raw_uid=Imap.Uid.to_int64 uid in
   let* row=match Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
     (fun selected -> Ok (
       let* info=network (Imap_eio.Selected.info selected) in
-      if info.uidvalidity<>P.Uidvalidity.to_int64 uidvalidity then
+      if info.uidvalidity<>Imap.Uidvalidity.to_int64 uidvalidity then
         Error Uidvalidity_changed
       else
         let* rows=network (Imap_eio.Selected.fetch_metadata_range selected
@@ -177,7 +176,7 @@ let copy_remote_to_local ~client:remote_client ~store ~writer
   let* blob=match Engine.archive_uid ~client:remote_client ~store ~scope
     ~mailbox ~uid ~spool () with
     | Error (Engine.Client (Imap_eio.Error.Missing_uid raw)) when
-        raw=P.Uid.to_int64 uid -> Error (Source_vanished uid)
+        raw=Imap.Uid.to_int64 uid -> Error (Source_vanished uid)
     | result -> sync result in
   let id=next_id () and local_id=Maildir.reserve_id () in
   let flags=durable_flags row.flags in
@@ -191,7 +190,7 @@ let copy_remote_to_local ~client:remote_client ~store ~writer
         ~receipt:("Maildir cannot store the message: " ^ reason);
       Error (Invalid_operation (Printf.sprintf
         "remote UID %Ld cannot be stored in Maildir: %s"
-        (P.Uid.to_int64 uid) reason))
+        (Imap.Uid.to_int64 uid) reason))
   | Ok mtime ->
   J.mark_sent store ~id;
   let* local=maildir_result @@ Eio.Switch.run @@ fun sw ->
@@ -299,15 +298,15 @@ let snapshot_has_uid store ~scope ~cursor target =
   | `Present present -> Ok present
 
 let snapshot_row_for_uid store ~scope ~cursor target =
-  let raw=P.Uid.to_int64 target in
+  let raw=Imap.Uid.to_int64 target in
   let after_uid=if raw=1L then None else
-    match P.Uid.of_int64 (Int64.pred raw) with
+    match Imap.Uid.of_int64 (Int64.pred raw) with
     | Ok uid -> Some uid | Error _ -> assert false in
   match Imap_store.snapshot_page store ~scope ~cursor ?after_uid
     ~limit:1 () with
   | `Stale_revision -> Error Stale_revision
   | `Rows ((row:Imap.Mirror.row)::_) when
-      P.Uid.to_int64 row.uid=raw -> Ok (Some row)
+      Imap.Uid.to_int64 row.uid=raw -> Ok (Some row)
   | `Rows _ -> Ok None
 
 let reconcile_local_append ~client ~mailbox ~store ~maildir ~scope
@@ -1144,7 +1143,7 @@ let mark_local_retention ~store ~maildir ~scope ~pair_id ~evidence
 
 type deletion_preview = {
   pair_id : string;
-  remote_uid : P.Uid.t;
+  remote_uid : Imap.Uid.t;
   local_id : string;
   remote_present : bool option;
   local_present : bool;
@@ -1252,7 +1251,7 @@ let preview_deletions ?(min_absence_scans=0) ~store ~maildir ~scope
 type sync_preview =
   | Preview_pending of string
   | Preview_bootstrap_hold
-  | Preview_copy_remote of P.Uid.t
+  | Preview_copy_remote of Imap.Uid.t
   | Preview_copy_local of string
   | Preview_flags of {
       pair_id : string;
@@ -1453,7 +1452,7 @@ let repair_local_append ~client ~store ~maildir ~scope ~mailbox ~id
       let* blob=match Engine.archive_uid ~client ~store ~scope
         ~mailbox ~uid ~spool () with
         | Error (Engine.Client (Imap_eio.Error.Missing_uid raw))
-          when raw=P.Uid.to_int64 uid -> Error (Source_vanished uid)
+          when raw=Imap.Uid.to_int64 uid -> Error (Source_vanished uid)
         | result -> sync result in
       let* ()=if blob.length=length && blob.sha256=sha256 then Ok ()
         else Error (Content_diverged id) in
@@ -1542,9 +1541,9 @@ let record_appenduid_evidence ~store ~maildir ~scope ~id
       Ok ())
 
 type append_candidates = {
-  uidvalidity : P.Uidvalidity.t;
+  uidvalidity : Imap.Uidvalidity.t;
   inspected_uids : int;
-  matching_uids : P.Uid.t list;
+  matching_uids : Imap.Uid.t list;
 }
 
 let inspect_append_candidates ?(max_uids=1000)
@@ -1594,7 +1593,7 @@ let inspect_append_candidates ?(max_uids=1000)
       ~mailbox) in
     let inspect selected =
       let* info=network (Imap_eio.Selected.info selected) in
-      if info.uidvalidity<>P.Uidvalidity.to_int64 epoch then
+      if info.uidvalidity<>Imap.Uidvalidity.to_int64 epoch then
         Error Uidvalidity_changed
       else
         let body_bytes=ref 0L in
@@ -1657,7 +1656,7 @@ let inspect_append_candidates ?(max_uids=1000)
                                        found_digest=digest)) in
                              let* matches_body=fetched in
                              let* matches=if not matches_body then Ok matches
-                               else match P.Uid.of_int64 raw_uid with
+                               else match Imap.Uid.of_int64 raw_uid with
                                  | Ok uid -> Ok (uid::matches)
                                  | Error message -> Error
                                      (Invalid_operation message) in

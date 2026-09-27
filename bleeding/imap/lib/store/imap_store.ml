@@ -1,7 +1,6 @@
 open Record_codec
 open Database
 module M = Imap.Mirror
-module P = Imap.Proto
 
 type t = Database.t
 type mailbox = { cursor : M.cursor; snapshot : M.snapshot option }
@@ -30,7 +29,7 @@ let load t ~scope =
           AND f.uidvalidity=m.uidvalidity AND f.uid=m.uid WHERE \
           m.endpoint=? AND m.account=? AND m.mailbox_key=? \
           AND m.uidvalidity=? ORDER BY m.uid,f.ord"
-          (scope_key scope @ [i (P.Uidvalidity.to_int64 epoch)]) in
+          (scope_key scope @ [i (Imap.Uidvalidity.to_int64 epoch)]) in
         match M.snapshot ~uidvalidity:epoch (snapshot_rows found) with
         | Ok snapshot -> Some snapshot
         | Error e -> fail ("persisted snapshot: " ^ mirror_error e) in
@@ -98,8 +97,8 @@ let snapshot_page t ~(scope:M.scope) ~(cursor:M.cursor) ?after_uid ~limit () =
         AND f.account=m.account AND f.mailbox_key=m.mailbox_key \
         AND f.uidvalidity=m.uidvalidity AND f.uid=m.uid \
         ORDER BY m.uid,f.ord"
-        (scope_key scope@[i (P.Uidvalidity.to_int64 epoch);
-          i (match after_uid with None -> 0L | Some u -> P.Uid.to_int64 u);
+        (scope_key scope@[i (Imap.Uidvalidity.to_int64 epoch);
+          i (match after_uid with None -> 0L | Some u -> Imap.Uid.to_int64 u);
           i (Int64.of_int limit)]) in
       `Rows (snapshot_rows found))
 
@@ -114,8 +113,8 @@ let snapshot_contains_uid t ~(scope:M.scope) ~(cursor:M.cursor) ~uid:target =
           let found=rows t "SELECT 1 FROM snapshots WHERE endpoint=? \
             AND account=? AND mailbox_key=? AND uidvalidity=? AND uid=? \
             LIMIT 1"
-            (scope_key scope@[i (P.Uidvalidity.to_int64 epoch);
-              i (P.Uid.to_int64 target)]) in
+            (scope_key scope@[i (Imap.Uidvalidity.to_int64 epoch);
+              i (Imap.Uid.to_int64 target)]) in
           `Present (found<>[]))
 
 type staged_receipt = { cursor : M.cursor; row_count : int64 }
@@ -142,7 +141,7 @@ let stage_for who t (cursor:M.cursor) (action:M.action) =
      [scope.endpoint;scope.account;scope.mailbox_key] ||
      text h.(3)<>scope.raw_name || dec_enc (text h.(4))<>scope.encoding ||
      nullable_text h.(5)<>scope.mailbox_id ||
-     int h.(6)<>P.Uidvalidity.to_int64 action.uidvalidity ||
+     int h.(6)<>Imap.Uidvalidity.to_int64 action.uidvalidity ||
      int h.(7)<>action.upper_uid || int h.(8)<>cursor.revision then
     invalid_arg (who ^ ": stage metadata mismatch");
   h
@@ -156,7 +155,7 @@ let begin_stage t ~(cursor:M.cursor) ~(action:M.action) =
       ([s action.id] @ scope_key cursor.scope @
        [s cursor.scope.raw_name;s (enc cursor.scope.encoding);
         ns cursor.scope.mailbox_id;
-        i (P.Uidvalidity.to_int64 action.uidvalidity);
+        i (Imap.Uidvalidity.to_int64 action.uidvalidity);
         i action.upper_uid;i action.expected_revision]))
 
 let seed_stage_from_published t ~(cursor:M.cursor) ~(action:M.action) =
@@ -170,7 +169,7 @@ let seed_stage_from_published t ~(cursor:M.cursor) ~(action:M.action) =
       invalid_arg (who ^ ": stage already has coverage");
     if stale t cursor then `Stale_revision else (
       let values=[s action.id] @ scope_key cursor.scope @
-        [i (P.Uidvalidity.to_int64 action.uidvalidity);i action.upper_uid] in
+        [i (Imap.Uidvalidity.to_int64 action.uidvalidity);i action.upper_uid] in
       run t "INSERT INTO scan_rows(stage_id,uid,modseq) SELECT ?,uid,modseq \
         FROM snapshots WHERE endpoint=? AND account=? AND mailbox_key=? \
         AND uidvalidity=? AND uid<=?" values;
@@ -196,7 +195,7 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last batch =
     @@ fun clear_stmt ->
     with_stmt t "INSERT INTO scan_flags VALUES (?,?,?,?)" @@ fun flag_stmt ->
     List.iter (fun (row:M.row) ->
-      let uid=P.Uid.to_int64 row.uid in
+      let uid=Imap.Uid.to_int64 row.uid in
       if uid<first || uid>last then
         invalid_arg (who ^ ": UID outside FETCH range");
       let newer=if not preserve_newer then true else
@@ -204,7 +203,7 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last batch =
         | [] -> true
         | seeded :: _ ->
             (match nullable_int seeded.(0),row.modseq with
-             | Some old,Some now -> P.Modseq.to_int64 now>=old
+             | Some old,Some now -> Imap.Modseq.to_int64 now>=old
              | None,Some _ -> true
              | Some _,None ->
                  invalid_arg (who ^ ": incremental row lacks MODSEQ")
@@ -213,7 +212,7 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last batch =
                    (who ^ ": seeded and incremental rows lack MODSEQ")) in
       if newer then (
         run_prepared t row_stmt
-          [s stage_id;i uid;ni (Option.map P.Modseq.to_int64 row.modseq)];
+          [s stage_id;i uid;ni (Option.map Imap.Modseq.to_int64 row.modseq)];
         run_prepared t clear_stmt [s stage_id;i uid];
         List.iteri (fun ord flag -> run_prepared t flag_stmt
           [s stage_id;i uid;i (Int64.of_int ord);
@@ -266,16 +265,16 @@ let write_cursor t (c:M.cursor) =
     mode=excluded.mode"
     (scope_key scope @ [s scope.raw_name;s (enc scope.encoding);
       ns scope.mailbox_id;i (phase c.phase);
-      ni (Option.map P.Uidvalidity.to_int64 c.uidvalidity);
+      ni (Option.map Imap.Uidvalidity.to_int64 c.uidvalidity);
       i c.generation;i c.revision;
-      ni (Option.map P.Modseq.to_int64 c.anchor);i c.frontier;
+      ni (Option.map Imap.Modseq.to_int64 c.anchor);i c.frontier;
       ns c.inventory_ref;i (mode c.mode)])
 
 (* [replace_epoch t scope epoch fill] empties [epoch]'s snapshot, lets
    [fill] insert its rows under the bound key and drops blob references
    to UIDs no longer present. *)
 let replace_epoch t scope epoch fill =
-  let key=scope_key scope @ [i (P.Uidvalidity.to_int64 epoch)] in
+  let key=scope_key scope @ [i (Imap.Uidvalidity.to_int64 epoch)] in
   run t "DELETE FROM snapshots WHERE endpoint=? AND account=? \
     AND mailbox_key=? AND uidvalidity=?" key;
   let result=fill key in
@@ -301,9 +300,9 @@ let publish t (change:M.transition) =
         with_stmt t "INSERT INTO snapshot_flags VALUES (?,?,?,?,?,?,?)"
         @@ fun flag_stmt ->
         List.iter (fun (row:M.row) ->
-          let row_key = key @ [i (P.Uid.to_int64 row.uid)] in
+          let row_key = key @ [i (Imap.Uid.to_int64 row.uid)] in
           run_prepared t snap_stmt
-            (row_key @ [ni (Option.map P.Modseq.to_int64 row.modseq)]);
+            (row_key @ [ni (Option.map Imap.Modseq.to_int64 row.modseq)]);
           List.iteri (fun ord flag ->
             run_prepared t flag_stmt
               (row_key @ [i (Int64.of_int ord);
@@ -317,7 +316,7 @@ let forget_epochs t ~(scope:M.scope) ~(cursor:M.cursor) =
   transaction t (fun () ->
     if stale t cursor then `Stale_revision else (
       let key=scope_key scope @
-        [ni (Option.map P.Uidvalidity.to_int64 cursor.uidvalidity)] in
+        [ni (Option.map Imap.Uidvalidity.to_int64 cursor.uidvalidity)] in
       let others="endpoint=? AND account=? AND mailbox_key=? \
         AND uidvalidity IS NOT ?" in
       let dropped=match rows t ("SELECT count(*) FROM (\
@@ -345,7 +344,7 @@ let publish_stage t ~(cursor:M.cursor) ~(action:M.action)
       let anchor=
         if resolved_mode=M.Baseline then None else explicit_highestmodseq in
       (match action.previous_anchor,anchor with
-       | Some old,Some now when P.Modseq.to_int64 now<P.Modseq.to_int64 old ->
+       | Some old,Some now when Imap.Modseq.compare now old<0 ->
            invalid_arg (who ^ ": MODSEQ regression")
        | _ -> ());
       let next : M.cursor =

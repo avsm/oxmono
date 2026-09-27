@@ -49,7 +49,7 @@ let selected n =
   "* 1 EXISTS\r\n* OK [UIDVALIDITY 1] valid\r\n* OK [UIDNEXT 9] next\r\n" ^
   tag n ^ " OK selected\r\n"
 
-let uid_set wire = Result.get_ok (Imap.Proto.Uid_set.of_wire wire)
+let uid_set wire = Result.get_ok (Imap.Uid_set.of_wire wire)
 
 let test_move_needs_capability () =
   preauth ~caps:"IMAP4rev1 UNSELECT"

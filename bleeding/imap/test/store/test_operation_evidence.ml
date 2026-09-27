@@ -1,8 +1,7 @@
 module J = Imap_store.Journal
-module P = Imap.Proto
 let value = function Ok x -> x | Error _ -> failwith "invalid fixture"
-let uid n = value (P.Uid.of_int64 n)
-let epoch n = value (P.Uidvalidity.of_int64 n)
+let uid n = value (Imap.Uid.of_int64 n)
+let epoch n = value (Imap.Uidvalidity.of_int64 n)
 let flag x = value (Mail_flag.Imap_flag.of_wire x)
 let scope : Imap.Mirror.scope = {
   endpoint="imap.example"; account="alice"; mailbox_key="inbox";

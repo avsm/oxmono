@@ -57,7 +57,7 @@ let test_wire () =
     let first=C.append_message ~length:3L ~flags:["\\Seen"] source in
     let second=message "defg" in
     (match ok (C.append_messages client ~mailbox:"INBOX" [first;second]) with
-     | Some receipt when List.map Imap.Proto.Uid.to_int64 receipt.uids=[29L;7L] -> ()
+     | Some receipt when List.map Imap.Uid.to_int64 receipt.uids=[29L;7L] -> ()
      | _ -> failwith "receipt order lost");
     if Buffer.contents transport.written<>
       "A00000004 APPEND INBOX (\\Seen) {3}\r\nabc {4}\r\ndefg\r\n" then

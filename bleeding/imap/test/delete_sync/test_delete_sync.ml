@@ -1,10 +1,9 @@
 module M = Imap.Mirror
-module P = Imap.Proto
 module J = Imap_store.Journal
 
 let ok = function Ok x -> x | Error _ -> Alcotest.fail "unexpected error"
-let uid n = ok (P.Uid.of_int64 n)
-let epoch n = ok (P.Uidvalidity.of_int64 n)
+let uid n = ok (Imap.Uid.of_int64 n)
+let epoch n = ok (Imap.Uidvalidity.of_int64 n)
 let scope : M.scope = {
   endpoint="delete.test";account="alice";mailbox_key="INBOX";
   raw_name="INBOX";encoding=Imap.Mailbox_name.Rev1;mailbox_id=None;

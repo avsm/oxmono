@@ -322,7 +322,7 @@ let test_changes_messagelimit_resume () =
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw"
     ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  let since=match Imap.Proto.Modseq.of_int64 5L with
+  let since=match Imap.Modseq.of_int64 5L with
     | Ok value -> value | Error message -> failwith message in
   let rows=ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.fetch_changes_range selected
@@ -348,7 +348,7 @@ let test_changes_messagelimit_missing_boundary () =
   let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw"
     ~allow_insecure_transport:true () in
   let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  let since=match Imap.Proto.Modseq.of_int64 5L with
+  let since=match Imap.Modseq.of_int64 5L with
     | Ok value -> value | Error message -> failwith message in
   match Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected -> Imap_eio.Selected.fetch_changes_range selected
@@ -650,9 +650,9 @@ let test_mutation_messagelimit_no () =
     let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw"
       ~allow_insecure_transport:true () in
     let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-    let uid=match Imap.Proto.Uid.of_int64 1L with
+    let uid=match Imap.Uid.of_int64 1L with
       | Ok uid -> uid | Error message -> failwith message in
-    let set=Imap.Proto.Uid_set.singleton uid in
+    let set=Imap.Uid_set.singleton uid in
     let outcome=Imap_eio.Client.with_mailbox client ~mode:`Read_write
       "INBOX" (fun selected ->
         if copy then
@@ -1134,7 +1134,7 @@ let test_append_unsolicited_continuation () =
   let client=ok (Imap_eio.Client.of_flow ~sw flow) in
   match ok (Imap_eio.Client.append_flow_receipt client ~mailbox:"INBOX"
     ~length:3L (Eio.Flow.string_source "abc")) with
-  | Some receipt when Imap.Proto.Uid.to_int64 receipt.uid=4L -> ()
+  | Some receipt when Imap.Uid.to_int64 receipt.uid=4L -> ()
   | _ -> failwith "APPEND lost receipt after unsolicited response"
 
 let () =

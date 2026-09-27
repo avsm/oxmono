@@ -353,7 +353,7 @@ module Selected : sig
       INTERNALDATE. *)
 
   type store_receipt = {
-    modified : Imap.Proto.Uid_set.t;
+    modified : Imap.Uid_set.t;
     updates : Imap.Response.fetch list;
   }
 
@@ -365,7 +365,7 @@ module Selected : sig
       mailbox checks as [uid_store_flags]. An identity reset or lost completion
       after dispatch returns [Error.Uncertain]; never automatically replay. *)
 
-  val uid_store_flags : t -> set:Imap.Proto.Uid_set.t ->
+  val uid_store_flags : t -> set:Imap.Uid_set.t ->
     operation:[ `Add | `Remove | `Replace ] ->
     flags:Mail_flag.Imap_flag.t list -> ?unchangedsince:int64 ->
     unit -> (store_receipt, Error.t) result
@@ -374,15 +374,15 @@ module Selected : sig
       retrying. *)
 
   type copy_mapping = {
-    source_first : Imap.Proto.Uid.t;
-    destination_first : Imap.Proto.Uid.t;
+    source_first : Imap.Uid.t;
+    destination_first : Imap.Uid.t;
     length : int64;
   }
 
   type copy_receipt = {
-    uidvalidity : Imap.Proto.Uidvalidity.t;
-    source : Imap.Proto.Uid_set.t;
-    destination : Imap.Proto.Uid_set.t;
+    uidvalidity : Imap.Uidvalidity.t;
+    source : Imap.Uid_set.t;
+    destination : Imap.Uid_set.t;
     mapping : copy_mapping list;
   }
 
@@ -401,11 +401,11 @@ module Selected : sig
       may shrink the saved set without invalidating its handle. These mutate
       remote state; uncertain outcomes require reconciliation, not replay. *)
 
-  val uid_copy : t -> set:Imap.Proto.Uid_set.t -> mailbox:string ->
+  val uid_copy : t -> set:Imap.Uid_set.t -> mailbox:string ->
     (copy_receipt option, Error.t) result
-  val uid_move : t -> set:Imap.Proto.Uid_set.t -> mailbox:string ->
+  val uid_move : t -> set:Imap.Uid_set.t -> mailbox:string ->
     (copy_receipt option, Error.t) result
-  val uid_expunge : t -> set:Imap.Proto.Uid_set.t -> (unit, Error.t) result
+  val uid_expunge : t -> set:Imap.Uid_set.t -> (unit, Error.t) result
   (** MOVE requires MOVE or IMAP4rev2 and UID EXPUNGE requires UIDPLUS or
       IMAP4rev2. This API never falls back to mailbox-wide EXPUNGE. A COPYUID
       receipt naming a UID outside [set] is an invalid receipt. [mailbox] is
@@ -421,15 +421,15 @@ module Selected : sig
       means the server disabled NOTIFY registration. Reconcile before
       registering again. *)
 
-  val fetch_changes : t -> set:Imap.Proto.Uid_set.t ->
-    since:Imap.Proto.Modseq.t -> vanished:bool ->
+  val fetch_changes : t -> set:Imap.Uid_set.t ->
+    since:Imap.Modseq.t -> vanished:bool ->
     (Imap.Response.t list, Error.t) result
   (** CONDSTORE CHANGEDSINCE results in wire order. [vanished] requires enabled
       QRESYNC. The caller must also discover new UIDs and account for command
       boundaries before moving a durable checkpoint. *)
 
   val fetch_changes_range : t -> first:int64 -> last:int64 ->
-    since:Imap.Proto.Modseq.t -> (Imap.Response.fetch list, Error.t) result
+    since:Imap.Modseq.t -> (Imap.Response.fetch list, Error.t) result
   (** Fetch changed UID/FLAGS/MODSEQ rows in a window of at most 1,000 UIDs.
       Rows without UID or FLAGS are ignored.
       Advertised RFC 9738 MESSAGELIMIT partial replies are continued below the
@@ -690,8 +690,8 @@ module Client : sig
       if bytes were sent. The client never replays APPEND automatically. *)
 
   type append_receipt = {
-    uidvalidity : Imap.Proto.Uidvalidity.t;
-    uid : Imap.Proto.Uid.t;
+    uidvalidity : Imap.Uidvalidity.t;
+    uid : Imap.Uid.t;
   }
   val append_flow_receipt : t -> mailbox:string -> ?flags:string list ->
     ?internal_date:Imap.Internal_date.t ->
@@ -726,8 +726,8 @@ module Client : sig
       must remain usable until [append_messages] returns; it is not closed. *)
 
   type multiappend_receipt = {
-    uidvalidity : Imap.Proto.Uidvalidity.t;
-    uids : Imap.Proto.Uid.t list;
+    uidvalidity : Imap.Uidvalidity.t;
+    uids : Imap.Uid.t list;
   }
   val append_messages : t -> mailbox:string -> append_message list ->
     (multiappend_receipt option, error) result

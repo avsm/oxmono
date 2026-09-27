@@ -1,7 +1,6 @@
 open Database
 open Record_codec
 module M = Imap.Mirror
-module P = Imap.Proto
 
 type t = Database.t
 
@@ -125,8 +124,8 @@ let find t ~scope ~uidvalidity ~uid =
   locked t (fun () ->
     match rows t "SELECT sha256,length FROM blob_refs WHERE endpoint=? \
       AND account=? AND mailbox_key=? AND uidvalidity=? AND uid=?"
-      (scope_key scope @ [i (P.Uidvalidity.to_int64 uidvalidity);
-                         i (P.Uid.to_int64 uid)]) with
+      (scope_key scope @ [i (Imap.Uidvalidity.to_int64 uidvalidity);
+                         i (Imap.Uid.to_int64 uid)]) with
     | [] -> None
     | r :: _ -> Some (decode_blob r.(0) r.(1)))
 
@@ -145,9 +144,9 @@ let missing_page t ~scope ~(cursor:M.cursor) ?after_uid ~limit () =
               AND b.mailbox_key=m.mailbox_key \
               AND b.uidvalidity=m.uidvalidity AND b.uid=m.uid) \
             ORDER BY m.uid LIMIT ?"
-            (scope_key scope @ [i (P.Uidvalidity.to_int64 epoch);
+            (scope_key scope @ [i (Imap.Uidvalidity.to_int64 epoch);
               i (match after_uid with None -> 0L
-                 | Some uid -> P.Uid.to_int64 uid);
+                 | Some uid -> Imap.Uid.to_int64 uid);
               i (Int64.of_int limit)]) in
           `Uids (List.map (fun r -> uid (int r.(0))) found))
 
@@ -164,9 +163,9 @@ let referenced_page t ~scope ~(cursor:M.cursor) ?after_uid ~limit () =
             AND b.uidvalidity=m.uidvalidity AND b.uid=m.uid \
           WHERE m.endpoint=? AND m.account=? AND m.mailbox_key=? \
             AND m.uidvalidity=? AND m.uid>? ORDER BY m.uid LIMIT ?"
-          (scope_key scope @ [i (P.Uidvalidity.to_int64 epoch);
+          (scope_key scope @ [i (Imap.Uidvalidity.to_int64 epoch);
             i (match after_uid with None -> 0L
-               | Some value -> P.Uid.to_int64 value);
+               | Some value -> Imap.Uid.to_int64 value);
             i (Int64.of_int limit)]) in
         `Refs (List.map (fun r -> uid (int r.(0)),decode_blob r.(1) r.(2))
           found))
@@ -180,8 +179,8 @@ let detach_if_matches t ~(scope:M.scope) ~(cursor:M.cursor) ~uid:target
     else match cursor.uidvalidity with
     | None -> `Unchanged
     | Some epoch ->
-        let key=scope_key scope @ [i (P.Uidvalidity.to_int64 epoch);
-          i (P.Uid.to_int64 target)] in
+        let key=scope_key scope @ [i (Imap.Uidvalidity.to_int64 epoch);
+          i (Imap.Uid.to_int64 target)] in
         run t "DELETE FROM blob_refs WHERE endpoint=? AND account=? \
           AND mailbox_key=? AND uidvalidity=? AND uid=? AND sha256=? \
           AND length=?" (key @ [s blob.sha256;i blob.length]);
@@ -198,10 +197,10 @@ let attach ?(verify=true) t ~(scope:M.scope) ~uidvalidity ~uid blob =
      | [r] when text r.(0)=scope.raw_name &&
                 dec_enc (text r.(1))=scope.encoding &&
                 nullable_text r.(2)=scope.mailbox_id &&
-                nullable_int r.(3)=Some (P.Uidvalidity.to_int64 uidvalidity) -> ()
+                nullable_int r.(3)=Some (Imap.Uidvalidity.to_int64 uidvalidity) -> ()
      | _ -> invalid_arg "Imap_store.Blob.attach: scope or epoch mismatch");
-    let key=scope_key scope @ [i (P.Uidvalidity.to_int64 uidvalidity);
-                               i (P.Uid.to_int64 uid)] in
+    let key=scope_key scope @ [i (Imap.Uidvalidity.to_int64 uidvalidity);
+                               i (Imap.Uid.to_int64 uid)] in
     (match rows t "SELECT 1 FROM snapshots WHERE endpoint=? AND account=? \
       AND mailbox_key=? AND uidvalidity=? AND uid=?" key with
      | [_] -> ()

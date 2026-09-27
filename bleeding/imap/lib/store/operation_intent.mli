@@ -20,8 +20,8 @@ type intent = {
   scope : Imap.Mirror.scope;
   kind : intent_kind;
   state : intent_state;
-  uidvalidity : Imap.Proto.Uidvalidity.t option;
-  uid : Imap.Proto.Uid.t option;
+  uidvalidity : Imap.Uidvalidity.t option;
+  uid : Imap.Uid.t option;
 }
 
 val prepare_intent : Database.t -> intent -> unit
@@ -34,8 +34,8 @@ val set_intent_state : Database.t -> id:string -> intent_state -> unit
     [Invalid_argument]. *)
 
 val confirm_intent : Database.t -> id:string ->
-  uidvalidity:Imap.Proto.Uidvalidity.t option ->
-  uid:Imap.Proto.Uid.t option -> unit
+  uidvalidity:Imap.Uidvalidity.t option ->
+  uid:Imap.Uid.t option -> unit
 (** [confirm_intent t ~id ~uidvalidity ~uid] resolves a sent or ambiguous intent
     and records its APPENDUID receipt, keeping the stored UIDVALIDITY when
     [uidvalidity] is [None]. *)

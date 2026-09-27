@@ -1,5 +1,4 @@
 module J = Imap_store.Journal
-module P = Imap.Proto
 module F = Mail_flag.Imap_flag
 
 type error =
@@ -151,10 +150,10 @@ let check_local_absence_tombstone (pair:J.pair) =
 
 let remote_metadata selected ~epoch ~uid ~modseq =
   let* info=network (Imap_eio.Selected.info selected) in
-  if info.uidvalidity<>P.Uidvalidity.to_int64 epoch then
+  if info.uidvalidity<>Imap.Uidvalidity.to_int64 epoch then
     Error Stale_inventory
   else
-    let raw=P.Uid.to_int64 uid in
+    let raw=Imap.Uid.to_int64 uid in
     let* rows=network (Imap_eio.Selected.fetch_metadata_range selected
       ~first:raw ~last:raw ~modseq) in
     match rows with
@@ -188,7 +187,7 @@ let remote_evidence ?(precheck=fun _ -> Ok ()) client ~mailbox ~mode ~spool
       | Some (flags,_) when not (same_flags flags expected) -> Ok `Changed
       | Some (_,modseq) ->
           match Imap_eio.Selected.fetch_to selected ~max_bytes:length
-              ~uid:(P.Uid.to_int64 uid) sink with
+              ~uid:(Imap.Uid.to_int64 uid) sink with
           | Error (Imap_eio.Error.Missing_uid _) -> Ok `Absent
           | Error (Imap_eio.Error.Limit _) -> Ok `Changed
           | Error error -> Error (Client error)
@@ -290,7 +289,7 @@ let delete_remote ~client ~store ~maildir ~mailbox (pair:J.pair) ~epoch
             Error error
         | Ok _ ->
             J.mark_sent store ~id;
-            let set=P.Uid_set.singleton uid in
+            let set=Imap.Uid_set.singleton uid in
             let dispatched=with_selected client ~mailbox ~mode:`Read_write
               (fun selected ->
                 let* before=remote_metadata selected ~epoch ~uid ~modseq:true in
@@ -301,9 +300,10 @@ let delete_remote ~client ~store ~maildir ~mailbox (pair:J.pair) ~epoch
                     ~operation:`Add ~flags:[deleted] ~unchangedsince:modseq ()
                 with
                 | Error error -> Ok (`Store_failed error)
-                | Ok receipt when P.Uid_set.mem uid receipt.modified ->
+                | Ok receipt when Imap.Uid_set.mem uid receipt.modified ->
                     Ok `Modified
-                | Ok receipt when not (P.Uid_set.is_empty receipt.modified) ->
+                | Ok receipt
+                  when not (Imap.Uid_set.is_empty receipt.modified) ->
                     Ok (`Uncertain "MODIFIED named another UID")
                 | Ok _ ->
                     match remote_metadata selected ~epoch ~uid ~modseq:true with
@@ -627,7 +627,7 @@ let finish_marked_remote_delete ~client ~store ~maildir ~scope
           | `Invalid_operation -> Error (Diverged
               "remote deletion changed before operator EXPUNGE")
           | `Attested ->
-              let set=P.Uid_set.singleton uid in
+              let set=Imap.Uid_set.singleton uid in
               let* expunged=with_selected client ~mailbox ~mode:`Read_write
                 (fun selected ->
                   let* before=remote_metadata selected ~epoch ~uid

@@ -621,7 +621,7 @@ let fetch_metadata_range ?(size=false) ?(internal_date=false)
       ~command:(fun ~set -> Imap.Command.uid_fetch ~set ~items))
 
 type store_receipt = {
-  modified : Imap.Proto.Uid_set.t;
+  modified : Imap.Uid_set.t;
   updates : Imap.Response.fetch list;
 }
 
@@ -629,17 +629,17 @@ let writable t =
   if t.session.Session.readonly then
     raise (Session.Failure (Session.State "mailbox is read-only"))
 let nonempty_set set =
-  let wire = Imap.Proto.Uid_set.to_wire set in
-  if wire = "" then raise (Session.Failure (Session.State "empty UID set"));
-  wire
+  if Imap.Uid_set.is_empty set then
+    raise (Session.Failure (Session.State "empty UID set"));
+  Imap.Uid_set.to_wire set
 
 let store_receipt (result:Session.command_result) =
     let modified = match result.completion with
       | Imap.Response.Tagged {code=Some (Imap.Response.Modified set); _} ->
-          (match Imap.Proto.Uid_set.of_wire set with
+          (match Imap.Uid_set.of_wire set with
            | Ok set -> set
            | Error message -> protocol message)
-      | _ -> Imap.Proto.Uid_set.empty in
+      | _ -> Imap.Uid_set.empty in
     {modified;updates=fetch_rows result.untagged}
 
 let mutation_receipt t decode result =
@@ -672,15 +672,15 @@ let uid_store_saved saved ~operation ~flags ?unchangedsince () =
       ~operation ~flags ?unchangedsince ())
 
 type copy_mapping = {
-  source_first : Imap.Proto.Uid.t;
-  destination_first : Imap.Proto.Uid.t;
+  source_first : Imap.Uid.t;
+  destination_first : Imap.Uid.t;
   length : int64;
 }
 
 type copy_receipt = {
-  uidvalidity : Imap.Proto.Uidvalidity.t;
-  source : Imap.Proto.Uid_set.t;
-  destination : Imap.Proto.Uid_set.t;
+  uidvalidity : Imap.Uidvalidity.t;
+  source : Imap.Uid_set.t;
+  destination : Imap.Uid_set.t;
   mapping : copy_mapping list;
 }
 
@@ -692,8 +692,8 @@ let copy_code = function
   | _ -> None
 
 let subset small large =
-  let spans set = Imap.Proto.Uid_set.intervals set |> List.map (fun (a,b) ->
-    Imap.Proto.Uid.to_int64 a,Imap.Proto.Uid.to_int64 b) in
+  let spans set = Imap.Uid_set.intervals set |> List.map (fun (a,b) ->
+    Imap.Uid.to_int64 a,Imap.Uid.to_int64 b) in
   let merged=List.fold_left (fun acc (a,b) -> match acc with
     | (first,last)::rest when Int64.succ last>=a ->
         (first,Int64.max last b)::rest
@@ -708,14 +708,14 @@ let copy_receipt ?requested result =
     | Ok value -> value
     | Error message -> protocol message in
   let ordered wire =
-    let set=require (Imap.Proto.Uid_set.of_wire wire) in
+    let set=require (Imap.Uid_set.of_wire wire) in
     let ranges=String.split_on_char ',' wire |> List.map (fun span ->
-      match Imap.Proto.Uid_set.intervals (require (Imap.Proto.Uid_set.of_wire span)) with
-      | [first,last] -> Imap.Proto.Uid.to_int64 first,Imap.Proto.Uid.to_int64 last
+      match Imap.Uid_set.intervals (require (Imap.Uid_set.of_wire span)) with
+      | [first,last] -> Imap.Uid.to_int64 first,Imap.Uid.to_int64 last
       | _ -> assert false) in
     let count=List.fold_left (fun count (first,last) ->
       Int64.add count (Int64.succ (Int64.sub last first))) 0L ranges in
-    if count<>Imap.Proto.Uid_set.cardinality set then
+    if count<>Imap.Uid_set.cardinality set then
       protocol "COPYUID repeats a UID";
     set,ranges,count in
   match codes with
@@ -734,13 +734,13 @@ let copy_receipt ?requested result =
         | (sf,sl)::ss,(df,dl)::ds ->
             let length=Int64.succ (Int64.min (Int64.sub sl sf) (Int64.sub dl df)) in
             let next_source=Int64.add sf length and next_destination=Int64.add df length in
-            let range={source_first=require (Imap.Proto.Uid.of_int64 sf);
-              destination_first=require (Imap.Proto.Uid.of_int64 df);length} in
+            let range={source_first=require (Imap.Uid.of_int64 sf);
+              destination_first=require (Imap.Uid.of_int64 df);length} in
             pair (range::acc)
               (if next_source>sl then ss else (next_source,sl)::ss)
               (if next_destination>dl then ds else (next_destination,dl)::ds)
         | _ -> assert false in
-      Some {uidvalidity=require (Imap.Proto.Uidvalidity.of_int64 validity);
+      Some {uidvalidity=require (Imap.Uidvalidity.of_int64 validity);
         source;destination;mapping=pair [] sources destinations}
   | _ -> protocol "duplicate COPYUID receipts"
 
@@ -803,7 +803,7 @@ let fetch_changes t ~set ~since ~vanished =
     condstore t;
     if vanished then Session.require_enabled t.session Cap.Qresync;
     let set = nonempty_set set in
-    let changedsince = Imap.Proto.Modseq.to_int64 since in
+    let changedsince = Imap.Modseq.to_int64 since in
     Session.command t.session
       (syntax (Imap.Command.uid_fetch_mod ~changedsince ~vanished
         ~set ~items:["UID"; "FLAGS"; "MODSEQ"] ()))
@@ -822,7 +822,7 @@ let fetch_changes_range t ~first ~last ~since =
        Int64.sub last first>999L then
       raise (Session.Failure (Session.State
         "invalid CHANGEDSINCE UID window"));
-    let changedsince=Imap.Proto.Modseq.to_int64 since in
+    let changedsince=Imap.Modseq.to_int64 since in
     fetch_window t ~first ~last ~what:"CHANGEDSINCE" ~keep:has_flags
       ~command:(fun ~set -> Imap.Command.uid_fetch_mod ~changedsince
         ~vanished:false ~set ~items:["UID";"FLAGS";"MODSEQ"] ()))

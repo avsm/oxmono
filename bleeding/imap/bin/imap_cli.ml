@@ -462,12 +462,12 @@ let string_of_conflict = function
 let operation_identity (op:Imap_store.Journal.operation) =
   let number f = function None -> "?" | Some value ->
     Int64.to_string (f value) in
-  let epoch=number Imap.Proto.Uidvalidity.to_int64
+  let epoch=number Imap.Uidvalidity.to_int64
     op.source_uidvalidity in
-  let uid=number Imap.Proto.Uid.to_int64 op.source_uid in
-  let receipt_epoch=number Imap.Proto.Uidvalidity.to_int64
+  let uid=number Imap.Uid.to_int64 op.source_uid in
+  let receipt_epoch=number Imap.Uidvalidity.to_int64
     op.receipt_uidvalidity in
-  let receipt_uid=number Imap.Proto.Uid.to_int64 op.receipt_uid in
+  let receipt_uid=number Imap.Uid.to_int64 op.receipt_uid in
   Printf.sprintf " source=%s/%s local=%S target=%s/%s sha256=%S length=%s"
     epoch uid (Option.value ~default:"" op.local_id)
     receipt_epoch receipt_uid
@@ -578,7 +578,7 @@ let audit_cache config ~fs =
     let store=Imap_store.open_path ~sw ~blob_dir db in
     let scope=local_scope config store in
     let after_uid=Option.map (fun value ->
-      match Imap.Proto.Uid.of_int64 value with
+      match Imap.Uid.of_int64 value with
       | Ok uid -> uid | Error message -> invalid_arg message)
       config.after_uid in
     match Imap_sync.Engine.audit_cache_once ?after_uid
@@ -590,7 +590,7 @@ let audit_cache config ~fs =
           "cache_checked=%d invalidated=%d bytes=%Ld last_uid=%Ld more=%b revision=%Ld\n%!"
           receipt.checked receipt.invalidated receipt.bytes
           (match receipt.last_uid with None -> 0L
-           | Some uid -> Imap.Proto.Uid.to_int64 uid)
+           | Some uid -> Imap.Uid.to_int64 uid)
           receipt.more receipt.cursor.revision;
         if receipt.more then 2 else 0
     | Error error ->
@@ -659,7 +659,7 @@ let sync config ~net ~fs ~random ~getenv =
             (List.length ids); 3
         | Error (Imap_sync.Bridge.Source_vanished uid) ->
           Printf.eprintf "remote UID %Ld vanished before archival; rescanning\n%!"
-            (Imap.Proto.Uid.to_int64 uid);
+            (Imap.Uid.to_int64 uid);
           if cycle>=config.max_cycles then 2 else cycles (cycle+1)
         | Error (Imap_sync.Bridge.Local_source_changed id) ->
           Printf.eprintf "local occurrence %s changed before archival; rescanning\n%!" id;
@@ -756,9 +756,9 @@ let inspect config ~fs =
 let repair_appenduid config ~fs =
   let raw_epoch=Option.get config.receipt_uidvalidity
   and raw_uid=Option.get config.receipt_uid in
-  let uidvalidity=match Imap.Proto.Uidvalidity.of_int64 raw_epoch with
+  let uidvalidity=match Imap.Uidvalidity.of_int64 raw_epoch with
     | Ok value -> value | Error message -> invalid_arg message in
-  let uid=match Imap.Proto.Uid.of_int64 raw_uid with
+  let uid=match Imap.Uid.of_int64 raw_uid with
     | Ok value -> value | Error message -> invalid_arg message in
   Eio.Switch.run @@ fun sw ->
   let db_path=Eio.Path.(fs / config.db) in
@@ -909,7 +909,7 @@ let plan_deletions config ~fs =
           cursor.revision cursor.generation;
         List.iter (fun (item:Imap_sync.Bridge.deletion_preview) ->
           Printf.printf "pair=%S remote_uid=%Ld remote=%s local_id=%S local=%s decision=%s\n"
-            item.pair_id (Imap.Proto.Uid.to_int64 item.remote_uid)
+            item.pair_id (Imap.Uid.to_int64 item.remote_uid)
             (presence item.remote_present) item.local_id
             (if item.local_present then "present" else "absent")
             (decision item.decision)) (List.rev !shown);
@@ -975,7 +975,7 @@ let plan_sync config ~fs =
               "hold: both endpoints have unpaired messages; bootstrap opt-in required"
           | Imap_sync.Bridge.Preview_copy_remote uid ->
               Printf.sprintf "candidate:copy-remote uid=%Ld"
-                (Imap.Proto.Uid.to_int64 uid)
+                (Imap.Uid.to_int64 uid)
           | Imap_sync.Bridge.Preview_copy_local id ->
               Printf.sprintf "candidate:copy-local id=%S" id
           | Imap_sync.Bridge.Preview_flags flags ->
@@ -995,7 +995,7 @@ let plan_sync config ~fs =
                 | `Plan Imap.Sync_policy.No_deletion -> "none"
                 | `Plan (Imap.Sync_policy.Hold_deletion _) -> "hold:policy" in
               Printf.sprintf "pair=%S remote_uid=%Ld local_id=%S %s"
-                item.pair_id (Imap.Proto.Uid.to_int64 item.remote_uid)
+                item.pair_id (Imap.Uid.to_int64 item.remote_uid)
                 item.local_id decision in
         Printf.printf "published_revision=%Ld generation=%Ld; all candidates require live revalidation\n"
           cursor.revision cursor.generation;
@@ -1170,9 +1170,9 @@ let inspect_append_candidates config ~net ~fs ~getenv =
           | Ok report ->
               Printf.printf "inspected %d UIDs in UIDVALIDITY %Ld\n%!"
                 report.inspected_uids
-                (Imap.Proto.Uidvalidity.to_int64 report.uidvalidity);
+                (Imap.Uidvalidity.to_int64 report.uidvalidity);
               List.iter (fun uid -> Printf.printf "candidate UID %Ld\n%!"
-                (Imap.Proto.Uid.to_int64 uid)) report.matching_uids;
+                (Imap.Uid.to_int64 uid)) report.matching_uids;
               prerr_endline
                 "matching bytes do not attribute APPEND; independent APPENDUID evidence is required";
               0

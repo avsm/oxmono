@@ -1,10 +1,9 @@
 module M = Imap.Mirror
-module P = Imap.Proto
 module J = Imap_store.Journal
 
 let ok = function Ok x -> x | Error e -> Alcotest.fail e
-let uid n = ok (P.Uid.of_int64 n)
-let epoch n = ok (P.Uidvalidity.of_int64 n)
+let uid n = ok (Imap.Uid.of_int64 n)
+let epoch n = ok (Imap.Uidvalidity.of_int64 n)
 let scope : M.scope = {
   endpoint="scripted.example"; account="alice"; mailbox_key="INBOX";
   raw_name="INBOX"; encoding=Imap.Mailbox_name.Rev1; mailbox_id=None;
@@ -543,9 +542,9 @@ let test_hydration_skips_oversized_message () =
    | Ok receipt ->
        Alcotest.(check int) "later UID hydrated" 1 receipt.hydrated;
        Alcotest.(check (list int64)) "oversized UID reported" [1L]
-         (List.map P.Uid.to_int64 receipt.skipped);
+         (List.map Imap.Uid.to_int64 receipt.skipped);
        Alcotest.(check (option int64)) "last UID considered" (Some 2L)
-         (Option.map P.Uid.to_int64 receipt.last_uid);
+         (Option.map Imap.Uid.to_int64 receipt.last_uid);
        Alcotest.(check bool) "skipped UID leaves more" true receipt.more
    | Error error -> Alcotest.failf "oversized hydration: %a"
        Imap_sync.Engine.pp_error error);
@@ -583,7 +582,7 @@ let test_hydration_skips_message_above_total_budget () =
   | Ok receipt ->
       Alcotest.(check int) "fitting UID hydrated" 1 receipt.hydrated;
       Alcotest.(check (list int64)) "unfittable UID skipped" [1L]
-        (List.map P.Uid.to_int64 receipt.skipped)
+        (List.map Imap.Uid.to_int64 receipt.skipped)
   | Error error -> Alcotest.failf "total budget hydration: %a"
       Imap_sync.Engine.pp_error error
 
@@ -654,9 +653,9 @@ let test_audit_skips_blob_above_budget () =
   | Ok receipt ->
       Alcotest.(check int) "fitting blob checked" 1 receipt.checked;
       Alcotest.(check (list int64)) "large blob skipped" [1L]
-        (List.map P.Uid.to_int64 receipt.skipped);
+        (List.map Imap.Uid.to_int64 receipt.skipped);
       Alcotest.(check (option int64)) "last UID advanced past it" (Some 2L)
-        (Option.map P.Uid.to_int64 receipt.last_uid);
+        (Option.map Imap.Uid.to_int64 receipt.last_uid);
       Alcotest.(check bool) "audit complete" false receipt.more
   | Error error -> Alcotest.failf "audit: %a" Imap_sync.Engine.pp_error error
 
@@ -755,7 +754,7 @@ let test_staged_messagelimit_continuation () =
   let snapshot=Option.get (Imap_store.load store ~scope).snapshot in
   Alcotest.(check (list int64)) "all UIDs survived continuation"
     [1L;2L;3L]
-    (List.map (fun (row:M.row) -> P.Uid.to_int64 row.uid)
+    (List.map (fun (row:M.row) -> Imap.Uid.to_int64 row.uid)
       (M.rows snapshot));
   let transcript=Buffer.contents wire in
   Alcotest.(check bool) "FETCH resumed below processed UID" true

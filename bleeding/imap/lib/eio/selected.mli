@@ -124,7 +124,7 @@ val fetch_metadata_range : ?size:bool -> ?internal_date:bool ->
   modseq:bool -> (Imap.Response.fetch list, Error.t) result
 
 type store_receipt = {
-  modified : Imap.Proto.Uid_set.t;
+  modified : Imap.Uid_set.t;
   updates : Imap.Response.fetch list;
 }
 
@@ -132,21 +132,21 @@ val uid_store_saved : saved_search ->
   operation:[ `Add | `Remove | `Replace ] ->
   flags:Mail_flag.Imap_flag.t list -> ?unchangedsince:int64 -> unit ->
   (store_receipt, Error.t) result
-val uid_store_flags : t -> set:Imap.Proto.Uid_set.t ->
+val uid_store_flags : t -> set:Imap.Uid_set.t ->
   operation:[ `Add | `Remove | `Replace ] ->
   flags:Mail_flag.Imap_flag.t list -> ?unchangedsince:int64 ->
   unit -> (store_receipt, Error.t) result
 
 type copy_mapping = {
-  source_first : Imap.Proto.Uid.t;
-  destination_first : Imap.Proto.Uid.t;
+  source_first : Imap.Uid.t;
+  destination_first : Imap.Uid.t;
   length : int64;
 }
 
 type copy_receipt = {
-  uidvalidity : Imap.Proto.Uidvalidity.t;
-  source : Imap.Proto.Uid_set.t;
-  destination : Imap.Proto.Uid_set.t;
+  uidvalidity : Imap.Uidvalidity.t;
+  source : Imap.Uid_set.t;
+  destination : Imap.Uid_set.t;
   mapping : copy_mapping list;
 }
 
@@ -155,21 +155,21 @@ val uid_copy_saved :
 val uid_move_saved :
   saved_search -> mailbox:string -> (copy_receipt option, Error.t) result
 val uid_expunge_saved : saved_search -> (unit, Error.t) result
-val uid_copy : t -> set:Imap.Proto.Uid_set.t -> mailbox:string ->
+val uid_copy : t -> set:Imap.Uid_set.t -> mailbox:string ->
   (copy_receipt option, Error.t) result
-val uid_move : t -> set:Imap.Proto.Uid_set.t -> mailbox:string ->
+val uid_move : t -> set:Imap.Uid_set.t -> mailbox:string ->
   (copy_receipt option, Error.t) result
-val uid_expunge : t -> set:Imap.Proto.Uid_set.t -> (unit, Error.t) result
+val uid_expunge : t -> set:Imap.Uid_set.t -> (unit, Error.t) result
 
 val wait_for_change : t -> (Imap.Response.t list, Error.t) result
 (** [wait_for_change t] runs one IDLE exchange and returns the unsolicited
     responses that ended it. *)
 
-val fetch_changes : t -> set:Imap.Proto.Uid_set.t ->
-  since:Imap.Proto.Modseq.t -> vanished:bool ->
+val fetch_changes : t -> set:Imap.Uid_set.t ->
+  since:Imap.Modseq.t -> vanished:bool ->
   (Imap.Response.t list, Error.t) result
 val fetch_changes_range : t -> first:int64 -> last:int64 ->
-  since:Imap.Proto.Modseq.t -> (Imap.Response.fetch list, Error.t) result
+  since:Imap.Modseq.t -> (Imap.Response.fetch list, Error.t) result
 val uid_batches : t -> ?range:(int64 * int64) -> size:int64 ->
   unit -> (Imap.Response.uidbatches, Error.t) result
 val notify_set : t -> ?status:bool -> groups:Imap.Command.notify_group list ->

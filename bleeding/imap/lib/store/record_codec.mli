@@ -5,9 +5,9 @@ exception Scope_mismatch
     name, encoding or mailbox ID than the requested scope. *)
 
 val of_checked : string -> ('a -> ('b, string) result) -> 'a -> 'b
-val uid : int64 -> Imap.Proto.Uid.t
-val validity : int64 -> Imap.Proto.Uidvalidity.t
-val modseq : int64 -> Imap.Proto.Modseq.t
+val uid : int64 -> Imap.Uid.t
+val validity : int64 -> Imap.Uidvalidity.t
+val modseq : int64 -> Imap.Modseq.t
 val enc : Imap.Mailbox_name.mode -> string
 val dec_enc : string -> Imap.Mailbox_name.mode
 val phase : Imap.Mirror.phase -> int64

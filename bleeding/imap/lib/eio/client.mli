@@ -104,8 +104,8 @@ val append_flow : t -> mailbox:string -> ?flags:string list ->
     failure after the final CRLF other than a tagged rejection. *)
 
 type append_receipt = {
-  uidvalidity : Imap.Proto.Uidvalidity.t;
-  uid : Imap.Proto.Uid.t;
+  uidvalidity : Imap.Uidvalidity.t;
+  uid : Imap.Uid.t;
 }
 
 val append_flow_receipt : t -> mailbox:string -> ?flags:string list ->
@@ -127,8 +127,8 @@ val append_message :
 (** [append_message ~length source] borrows [source] without closing it. *)
 
 type multiappend_receipt = {
-  uidvalidity : Imap.Proto.Uidvalidity.t;
-  uids : Imap.Proto.Uid.t list;
+  uidvalidity : Imap.Uidvalidity.t;
+  uids : Imap.Uid.t list;
 }
 
 val append_messages : t -> mailbox:string -> append_message list ->

@@ -1,11 +1,10 @@
 module M = Imap.Mirror
-module P = Imap.Proto
 module Store = Imap_store
 
 let ok = function Ok x -> x | Error _ -> Alcotest.fail "unexpected error"
-let uid n = ok (P.Uid.of_int64 n)
-let epoch n = ok (P.Uidvalidity.of_int64 n)
-let modseq n = ok (P.Modseq.of_int64 n)
+let uid n = ok (Imap.Uid.of_int64 n)
+let epoch n = ok (Imap.Uidvalidity.of_int64 n)
+let modseq n = ok (Imap.Modseq.of_int64 n)
 let flag s = ok (Mail_flag.Imap_flag.of_wire s)
 let scope : M.scope = {
   endpoint="imap.example"; account="alice"; mailbox_key="inbox";
@@ -25,7 +24,8 @@ let transition cursor published ~stage ~epoch_value rows =
   let staged=ok (M.complete cursor action completed) in
   ok (M.publish cursor ~published staged)
 
-let uids snap = M.rows snap |> List.map (fun (r:M.row) -> P.Uid.to_int64 r.uid)
+let uids snap =
+  M.rows snap |> List.map (fun (r:M.row) -> Imap.Uid.to_int64 r.uid)
 let test_object_identity env =
   let path=Filename.temp_file "imap-object-id-" ".db" in
   let cleanup ()=List.iter (fun p -> try Sys.remove p with Sys_error _ -> ())
@@ -367,7 +367,7 @@ let test_missing_blob_pages env =
       let initial=Store.load_cursor db ~scope in
       let page cursor ?after_uid ~limit () =
         match Store.Blob.missing_page db ~scope ~cursor ?after_uid ~limit () with
-        | `Uids uids -> List.map P.Uid.to_int64 uids
+        | `Uids uids -> List.map Imap.Uid.to_int64 uids
         | `Stale_revision -> Alcotest.fail "unexpected stale blob page" in
       Alcotest.(check (list int64)) "new mailbox missing page" []
         (page initial ~limit:2 ());
@@ -418,7 +418,7 @@ let test_missing_blob_pages env =
       let refs cursor ?after_uid ~limit () =
         match Store.Blob.referenced_page db ~scope ~cursor ?after_uid
           ~limit () with
-        | `Refs rows -> List.map (fun (uid,_) -> P.Uid.to_int64 uid) rows
+        | `Refs rows -> List.map (fun (uid,_) -> Imap.Uid.to_int64 uid) rows
         | `Stale_revision -> Alcotest.fail "unexpected stale reference page" in
       Alcotest.(check (list int64)) "first bounded reference page" [1L]
         (refs third.cursor ~limit:1 ());
@@ -744,12 +744,12 @@ let test_sync_journal env =
           ~limit:1 () with
         | `Rows rows -> rows | `Stale_revision -> Alcotest.fail "fresh page stale" in
       Alcotest.(check (list int64)) "bounded snapshot first page" [1L]
-        (List.map (fun (r:M.row) -> P.Uid.to_int64 r.uid) page);
+        (List.map (fun (r:M.row) -> Imap.Uid.to_int64 r.uid) page);
       let page=match Store.snapshot_page db ~scope ~cursor:published.cursor
           ~after_uid:(uid 1L) ~limit:1 () with
         | `Rows rows -> rows | `Stale_revision -> Alcotest.fail "fresh page stale" in
       Alcotest.(check (list int64)) "bounded snapshot second page" [2L]
-        (List.map (fun (r:M.row) -> P.Uid.to_int64 r.uid) page);
+        (List.map (fun (r:M.row) -> Imap.Uid.to_int64 r.uid) page);
       Alcotest.(check bool) "indexed published UID membership" true
         (Store.snapshot_contains_uid db ~scope ~cursor:published.cursor
           ~uid:(uid 2L) = `Present true);
@@ -1271,7 +1271,7 @@ let test_seeded_stage_modseq_and_membership env =
   Alcotest.(check (list string)) "older MODSEQ did not replace flags"
     ["\\Seen"] (List.map Mail_flag.Imap_flag.to_wire row1.flags);
   Alcotest.(check int64) "older MODSEQ did not replace checkpoint" 17L
-    (P.Modseq.to_int64 (Option.get row1.modseq));
+    (Imap.Modseq.to_int64 (Option.get row1.modseq));
   Alcotest.(check (list string)) "newer MODSEQ updated flags"
     ["\\Flagged"] (List.map Mail_flag.Imap_flag.to_wire row2.flags)
 

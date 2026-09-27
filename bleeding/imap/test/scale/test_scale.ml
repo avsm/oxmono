@@ -1,15 +1,14 @@
 module M = Maildir
 module L = Local_inventory
 module S = Imap_store
-module P = Imap.Proto
 
 let fail fmt = Printf.ksprintf (fun message -> Alcotest.fail message) fmt
 let local = function
   | Ok x -> x
   | Error e -> fail "Maildir error: %s" (Format.asprintf "%a" M.pp_error e)
 let ok = function Ok x -> x | Error _ -> fail "invalid protocol value"
-let uid n = ok (P.Uid.of_int64 n)
-let epoch = ok (P.Uidvalidity.of_int64 1L)
+let uid n = ok (Imap.Uid.of_int64 n)
+let epoch = ok (Imap.Uidvalidity.of_int64 1L)
 let scope : Imap.Mirror.scope = {
   endpoint="scale.local"; account="test"; mailbox_key="inbox";
   raw_name="INBOX"; encoding=Imap.Mailbox_name.Rev1;

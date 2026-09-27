@@ -274,7 +274,7 @@ let unsubscribe mailbox =
   let* mailbox = astring mailbox in Ok ("UNSUBSCRIBE " ^ mailbox)
 
 let uid_set ?(allow_star=true) what s =
-  match Proto.Uid_set.of_wire ~allow_star s with
+  match Uid_set.of_wire ~allow_star s with
   | Ok set -> Ok set
   | Error e -> Error ("invalid " ^ what ^ ": " ^ e)
 
@@ -293,8 +293,8 @@ let select ?(readonly=false) ?(condstore=false) ?qresync ?known_uids
         Error "QRESYNC UID parameters without checkpoint"
     | None -> Ok condstore
     | Some (validity, modseq) when
-        Result.is_ok (Proto.Uidvalidity.of_int64 validity) &&
-        Result.is_ok (Proto.Modseq.of_int64 modseq) ->
+        Result.is_ok (Uidvalidity.of_int64 validity) &&
+        Result.is_ok (Modseq.of_int64 modseq) ->
         let* known = match known_uids with
           | None -> Ok ""
           | Some s ->
@@ -308,8 +308,8 @@ let select ?(readonly=false) ?(condstore=false) ?qresync ?known_uids
               let what="QRESYNC sequence match" in
               let* seqs_set = uid_set ~allow_star:false what seqs in
               let* uids_set = uid_set ~allow_star:false what uids in
-              if Proto.Uid_set.cardinality seqs_set <>
-                 Proto.Uid_set.cardinality uids_set
+              if Uid_set.cardinality seqs_set <>
+                 Uid_set.cardinality uids_set
               then Error "QRESYNC sequence match sets differ in size"
               else Ok (" (" ^ seqs ^ " " ^ uids ^ ")") in
         Ok (condstore @ [Printf.sprintf "QRESYNC (%Ld %Ld%s%s)" validity modseq

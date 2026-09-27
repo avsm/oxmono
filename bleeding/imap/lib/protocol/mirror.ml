@@ -10,8 +10,8 @@ type error =
   | Incomplete_coverage | Modseq_regression
 type cursor = {
   schema_version:int; scope:scope; phase:phase;
-  uidvalidity:Proto.Uidvalidity.t option; generation:int64; revision:int64;
-  anchor:Proto.Modseq.t option; frontier:int64;
+  uidvalidity:Uidvalidity.t option; generation:int64; revision:int64;
+  anchor:Modseq.t option; frontier:int64;
   inventory_ref:string option; mode:mode
 }
 
@@ -40,13 +40,13 @@ let restore ~schema_version ~scope ~phase ~uidvalidity ~generation ~revision
            frontier;inventory_ref;mode}
 
 type selected = {
-  uidvalidity:Proto.Uidvalidity.t; uidnext:int64;
-  highestmodseq:Proto.Modseq.t option; nomodseq:bool
+  uidvalidity:Uidvalidity.t; uidnext:int64;
+  highestmodseq:Modseq.t option; nomodseq:bool
 }
 type action = {
   id:string; scope:scope; expected_revision:int64; expected_generation:int64;
-  uidvalidity:Proto.Uidvalidity.t; upper_uid:int64;
-  previous_anchor:Proto.Modseq.t option; mode:mode;
+  uidvalidity:Uidvalidity.t; upper_uid:int64;
+  previous_anchor:Modseq.t option; mode:mode;
   restart:restart_reason option
 }
 
@@ -63,8 +63,8 @@ let plan (cursor:cursor) ~stage_id selected =
       | _ when selected.nomodseq && cursor.anchor <> None -> Some Nomodseq
       | _ ->
           (match cursor.anchor,selected.highestmodseq with
-           | Some old,Some now when Proto.Modseq.to_int64 now <
-                                  Proto.Modseq.to_int64 old ->
+           | Some old,Some now when Modseq.to_int64 now <
+                                  Modseq.to_int64 old ->
                Some Modseq_regressed
            | _ -> None) in
     let mode =
@@ -78,17 +78,17 @@ let plan (cursor:cursor) ~stage_id selected =
         upper_uid=Int64.pred selected.uidnext;previous_anchor;mode;restart}
 
 type row = {
-  uid:Proto.Uid.t; flags:Mail_flag.Imap_flag.t list;
-  modseq:Proto.Modseq.t option
+  uid:Uid.t; flags:Mail_flag.Imap_flag.t list;
+  modseq:Modseq.t option
 }
 module Uid_map = Map.Make(Int64)
-type snapshot = { validity:Proto.Uidvalidity.t; by_uid:row Uid_map.t }
+type snapshot = { validity:Uidvalidity.t; by_uid:row Uid_map.t }
 
 let snapshot ~uidvalidity rows =
   let rec add map = function
     | [] -> Ok {validity=uidvalidity;by_uid=map}
     | row::rest ->
-        let uid=Proto.Uid.to_int64 row.uid in
+        let uid=Uid.to_int64 row.uid in
         if Uid_map.mem uid map then Error (Invalid "duplicate UID in inventory")
         else add (Uid_map.add uid row map) rest in
   add Uid_map.empty rows
@@ -96,12 +96,12 @@ let rows snap = Uid_map.bindings snap.by_uid |> List.map snd
 let snapshot_uidvalidity snap = snap.validity
 
 type completed = {
-  action_id:string; uidvalidity:Proto.Uidvalidity.t;
+  action_id:string; uidvalidity:Uidvalidity.t;
   covered_upper:int64; inventory_complete:bool; commands_complete:bool;
-  rows:row list; explicit_highestmodseq:Proto.Modseq.t option; nomodseq:bool
+  rows:row list; explicit_highestmodseq:Modseq.t option; nomodseq:bool
 }
 type staged = {
-  action:action; replacement:snapshot; next_anchor:Proto.Modseq.t option;
+  action:action; replacement:snapshot; next_anchor:Modseq.t option;
   resolved_mode:mode; resolved_restart:restart_reason option
 }
 
@@ -119,7 +119,7 @@ let complete (cursor:cursor) (action:action) done_ =
           done_.covered_upper<>action.upper_uid
   then Error Incomplete_coverage
   else if List.exists (fun row ->
-    Proto.Uid.to_int64 row.uid > action.upper_uid) done_.rows
+    Uid.to_int64 row.uid > action.upper_uid) done_.rows
   then Error (Invalid "inventory row above fixed upper UID bound")
   else
     match snapshot ~uidvalidity:action.uidvalidity done_.rows with
@@ -133,8 +133,8 @@ let complete (cursor:cursor) (action:action) done_ =
           if resolved_mode=Baseline then None
           else done_.explicit_highestmodseq in
         (match action.previous_anchor,next_anchor with
-         | Some old,Some now when Proto.Modseq.to_int64 now <
-                                  Proto.Modseq.to_int64 old ->
+         | Some old,Some now when Modseq.to_int64 now <
+                                  Modseq.to_int64 old ->
              Error Modseq_regression
          | _ -> Ok {action;replacement;next_anchor;
                     resolved_mode;resolved_restart})
@@ -142,7 +142,7 @@ let complete (cursor:cursor) (action:action) done_ =
 type flag_change = {before:row;after:row}
 type transition = {
   cursor:cursor; snapshot:snapshot; added:row list;
-  changed:flag_change list; removed:Proto.Uid.t list;
+  changed:flag_change list; removed:Uid.t list;
   invalidated_epoch:bool; restart:restart_reason option;
   stage_id:string; more:bool
 }

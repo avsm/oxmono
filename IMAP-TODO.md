@@ -128,6 +128,7 @@ run only once everything else works.
 | 15 | Redocumentation pass under doc-style over every public interface | done; three worktree branches merged | cdbd2e380 |
 | 15b | Fix the code contracts the redocumentation pass found contradicted, listed under the step 15b note | done; five commits, protocol before eio | 5c4f7363c |
 | 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | todo | |
+| 17 | Wrap up: add `CHANGES.md` for the `imap` and `maildir` packages summarising the user-visible changes since the baseline, run both packages' build and tests a final time, and record a review pause | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
 becomes its own package now; the `imap` package split into protocol, eio and

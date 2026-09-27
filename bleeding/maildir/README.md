@@ -19,6 +19,10 @@ callback returns raises `Maildir.Writer_expired`. Format and policy failures
 are `Maildir.error` results. I/O failures raise `Eio.Io`, and lock contention
 and stale observations raise the exceptions the interface documents.
 
+The odoc page [`doc/index.mld`](doc/index.mld) states the format limits,
+and its program is the compiled example
+[`test/examples/writer.ml`](test/examples/writer.ml).
+
 Tests live under `test/` and run with
 
     dune build @bleeding/maildir/runtest

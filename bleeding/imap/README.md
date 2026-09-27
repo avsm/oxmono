@@ -15,6 +15,10 @@ The library is organized by purpose under `lib/`:
   mailbox scope, spool directory and ID source, and every call reports one
   flat `Imap_sync.Error.t`.
 
+The odoc pages in [`doc/`](doc/) describe the libraries, a client session
+and a durable sync cycle, and their programs are the compiled examples in
+[`test/examples/`](test/examples/).
+
 Maildir system flags live in filenames; custom keywords use lowercase filename
 letters and the standard `dovecot-keywords` mapping. INTERNALDATE lives in file
 mtime. Flag changes preserve the basename, timestamps, Passed flag and extra

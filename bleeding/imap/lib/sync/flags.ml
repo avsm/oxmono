@@ -46,9 +46,8 @@ let plan_flags ?(propagate_deleted=false) ~base ~remote ~local
     ~condstore ~remote_modseq () =
   match Imap.Sync_policy.reconcile_flags ~propagate_deleted ~base ~remote
     ~local () with
-  | Error Imap.Sync_policy.Deleted_flag_requires_policy ->
-      Error Deleted_flag_held
-  | Ok policy ->
+  | policy when policy.deleted_held -> Error Deleted_flag_held
+  | policy ->
       let merged=flags policy.merged in
       if same remote merged && same local merged && same base merged then
         Ok No_change

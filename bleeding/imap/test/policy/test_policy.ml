@@ -11,8 +11,7 @@ let test_disjoint_changes () =
   let base=[flag "\\Seen";flag "$Old"] in
   let remote=[flag "\\Seen";flag "$Remote"] in
   let local=[flag "\\Seen";flag "$Old";flag "$Local"] in
-  let plan=match P.reconcile_flags ~base ~remote ~local () with
-    | Ok plan -> plan | Error _ -> Alcotest.fail "unexpected deletion conflict" in
+  let plan=P.reconcile_flags ~base ~remote ~local () in
   check_flags "merged" ["\\Seen";"$Local";"$Remote"] plan.merged;
   check_flags "remote adds" ["$Local"] plan.to_remote.add;
   check_flags "remote removes" [] plan.to_remote.remove;
@@ -23,8 +22,7 @@ let test_wire_semantics () =
   let base=[flag "Seen"] in
   let remote=[flag "SEEN";flag "\\Forwarded";flag "\\Recent"] in
   let local=[flag "Seen";flag "\\Seen"] in
-  let plan=match P.reconcile_flags ~base ~remote ~local () with
-    | Ok plan -> plan | Error _ -> Alcotest.fail "unexpected deletion conflict" in
+  let plan=P.reconcile_flags ~base ~remote ~local () in
   check_flags "keeps keyword distinct and remote spelling"
     ["\\Seen";"SEEN";"\\Forwarded"] plan.merged;
   check_flags "remote adds system flag" ["\\Seen"] plan.to_remote.add;
@@ -32,13 +30,34 @@ let test_wire_semantics () =
 
 let test_deleted_gate () =
   let remote=[flag "\\Deleted"] in
-  (match P.reconcile_flags ~base:[] ~remote ~local:[] () with
-   | Error P.Deleted_flag_requires_policy -> ()
-   | Ok _ -> Alcotest.fail "deleted flag propagated without policy");
-  let plan=match P.reconcile_flags ~propagate_deleted:true
-    ~base:[] ~remote ~local:[] () with
-    | Ok plan -> plan | Error _ -> Alcotest.fail "explicit policy rejected" in
+  let held=P.reconcile_flags ~base:[] ~remote ~local:[] () in
+  Alcotest.(check bool) "deleted held without policy" true held.deleted_held;
+  check_flags "held deleted keeps base" [] held.merged;
+  check_flags "no local deleted add" [] held.to_local.add;
+  check_flags "no remote deleted removal" [] held.to_remote.remove;
+  let plan=P.reconcile_flags ~propagate_deleted:true
+    ~base:[] ~remote ~local:[] () in
+  Alcotest.(check bool) "explicit policy" false plan.deleted_held;
   check_flags "local deleted add" ["\\Deleted"] plan.to_local.add
+
+let test_deleted_hold_is_per_flag () =
+  let seen=flag "\\Seen" and flagged=flag "\\Flagged" in
+  let deleted=flag "\\Deleted" in
+  let plan=P.reconcile_flags ~base:[seen] ~remote:[seen;deleted;flagged]
+    ~local:[] () in
+  Alcotest.(check bool) "deleted held" true plan.deleted_held;
+  check_flags "other flags merge" ["\\Flagged"] plan.merged;
+  check_flags "local gets flagged, not deleted" ["\\Flagged"]
+    plan.to_local.add;
+  check_flags "remote loses seen, keeps deleted" ["\\Seen"]
+    plan.to_remote.remove;
+  let agreed=P.reconcile_flags ~base:[] ~remote:[deleted] ~local:[deleted] ()
+  in
+  Alcotest.(check bool) "identical deleted adds are not held" false
+    agreed.deleted_held;
+  check_flags "agreed deleted merges" ["\\Deleted"] agreed.merged;
+  check_flags "nothing to send remote" [] agreed.to_remote.add;
+  check_flags "nothing to send local" [] agreed.to_local.add
 
 let test_deletion_guards () =
   let plan ?(policy=P.Propagate) ?(paired=true) ?(local_retained=false)
@@ -82,9 +101,8 @@ let test_flag_truth_table () =
     let present=present || List.exists (F.equal seen) delta.add in
     present && not (List.exists (F.equal seen) delta.remove) in
   List.iter (fun base -> List.iter (fun remote -> List.iter (fun local ->
-    let plan=match P.reconcile_flags ~base:(as_list base)
-      ~remote:(as_list remote) ~local:(as_list local) () with
-      | Ok plan -> plan | Error _ -> Alcotest.fail "unexpected flag conflict" in
+    let plan=P.reconcile_flags ~base:(as_list base)
+      ~remote:(as_list remote) ~local:(as_list local) () in
     let expected=if base then remote && local else remote || local in
     let merged=List.exists (F.equal seen) plan.merged in
     Alcotest.(check bool) "merged truth table" expected merged;
@@ -106,6 +124,12 @@ let test_absence_grace () =
     (mature 13L None 1);
   Alcotest.(check bool) "zero grace preserves old policy" true
     (mature 12L None 0);
+  Alcotest.(check bool) "legacy absence with presence witness, zero grace"
+    true (P.absence_mature ~last_present_generation:(Some 9L)
+      ~current_generation:12L ~first_generation:None ~min_scans:0);
+  Alcotest.(check bool) "legacy absence with presence witness, grace" false
+    (P.absence_mature ~last_present_generation:(Some 9L)
+      ~current_generation:12L ~first_generation:None ~min_scans:1);
   Alcotest.(check bool) "later presence supersedes old absence" false
     (P.absence_mature ~last_present_generation:(Some 14L)
       ~current_generation:16L ~first_generation:(Some 12L)
@@ -128,6 +152,8 @@ let () = Alcotest.run "imap-policy" ["flags", [
   Alcotest.test_case "disjoint changes" `Quick test_disjoint_changes;
   Alcotest.test_case "wire semantics" `Quick test_wire_semantics;
   Alcotest.test_case "deleted gate" `Quick test_deleted_gate;
+  Alcotest.test_case "deleted hold is per flag" `Quick
+    test_deleted_hold_is_per_flag;
   Alcotest.test_case "deletion guards" `Quick test_deletion_guards;
   Alcotest.test_case "absence grace" `Quick test_absence_grace;
   Alcotest.test_case "flag truth table" `Quick test_flag_truth_table]]

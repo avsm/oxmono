@@ -11,24 +11,32 @@ type flag_plan = {
   merged : Mail_flag.Imap_flag.t list;
   to_remote : flag_delta;
   to_local : flag_delta;
+  deleted_held : bool;
+  (** [deleted_held] is [true] when the endpoints disagree on [\Deleted] and
+      its propagation was not requested. [merged] then keeps the base state
+      of [\Deleted] and neither delta mentions it. *)
 }
-
-type error = Deleted_flag_requires_policy
 
 val reconcile_flags :
   ?propagate_deleted:bool ->
   base:Mail_flag.Imap_flag.t list ->
   remote:Mail_flag.Imap_flag.t list ->
   local:Mail_flag.Imap_flag.t list ->
-  unit -> (flag_plan, error) result
-(** Three-way merge from the last common flag set. Adds and removals on
-    either side are preserved. Flags compare case-insensitively as IMAP flags;
-    where spellings differ, the remote spelling wins. Session-only [\Recent]
-    is ignored. A changed [\Deleted] is held for explicit policy by default;
-    it is a message flag, not proof of expunge or user deletion. Deltas are
-    relative to each observed endpoint and should be sent as conditional
-    additions/removals, then verified before persisting [merged] as the new
-    common state. *)
+  unit -> flag_plan
+(** [reconcile_flags ~base ~remote ~local ()] is the three-way merge of
+    [remote] and [local] from their last common flag set [base]. Adds and
+    removals on either side are preserved. Flags compare case-insensitively
+    as IMAP flags, and where spellings differ the remote spelling wins.
+    Session-only [\Recent] is ignored.
+
+    [\Deleted] is a message flag, not proof of expunge or user deletion.
+    [propagate_deleted] defaults to [false], which holds a [\Deleted] change
+    the endpoints disagree on and reports it through [deleted_held]. Every
+    other flag still merges.
+
+    Deltas are relative to each observed endpoint. Send them as conditional
+    additions and removals, and verify them before persisting [merged] as the
+    new common state. *)
 
 type deletion_policy = Preserve | Propagate | Propagate_remote | Propagate_local
 type deletion_hold =
@@ -46,12 +54,17 @@ type deletion_plan =
   | Delete_remote
   | Delete_local
 
-val absence_mature : last_present_generation:int64 option -> current_generation:int64 ->
-  first_generation:int64 option -> min_scans:int -> bool
-(** Require [min_scans] complete scan generations after the first durable
-    absence observation. A missing legacy first-generation holds when the
-    grace period is enabled. A later complete presence observation supersedes
-    the old absence even with zero grace until a new absence is published. *)
+val absence_mature : last_present_generation:int64 option ->
+  current_generation:int64 -> first_generation:int64 option ->
+  min_scans:int -> bool
+(** [absence_mature ~last_present_generation ~current_generation
+    ~first_generation ~min_scans] is [true] when [min_scans] complete scan
+    generations have passed since [first_generation], the first durable
+    absence observation. A presence observation at or after
+    [first_generation] supersedes the absence, and the result stays [false]
+    until a new absence is published, even when [min_scans] is 0. When
+    [first_generation] is [None], a legacy absence of unknown age, the result
+    is [true] only when [min_scans] is 0 or less. *)
 
 val plan_disappearance :
   policy:deletion_policy -> paired:bool ->

@@ -9,19 +9,18 @@ type flag_plan = {
   merged : Flag.t list;
   to_remote : flag_delta;
   to_local : flag_delta;
+  deleted_held : bool;
 }
-type error = Deleted_flag_requires_policy
 
-let normalize flags =
-  List.fold_left (fun map flag -> match flag with
-    | Flag.Recent -> map
-    | _ -> Flags.add flag flag map) Flags.empty flags
+let flag_map flags =
+  List.fold_left (fun map flag -> Flags.add flag flag map) Flags.empty
+    (Flag.durable flags)
 
-let overlay left right =
-  Flags.fold (fun key value map -> Flags.add key value map) right left
+let prefer_right _ _ right = Some right
 
-let delta ~target ~merged keys =
+let delta ~held ~target ~merged keys =
   let add,remove = Flags.fold (fun key _ (add,remove) ->
+    if held key then add,remove else
     match Flags.find_opt key target, Flags.find_opt key merged with
     | None, Some value -> value::add,remove
     | Some value, None -> add,value::remove
@@ -29,29 +28,23 @@ let delta ~target ~merged keys =
   {add=List.rev add;remove=List.rev remove}
 
 let reconcile_flags ?(propagate_deleted=false) ~base ~remote ~local () =
-  let base=normalize base and remote=normalize remote and local=normalize local in
-  let keys=overlay (overlay base local) remote in
+  let base=flag_map base and remote=flag_map remote and local=flag_map local in
+  let keys=Flags.union prefer_right (Flags.union prefer_right base local)
+    remote in
   let deleted=Flag.system Flag.Deleted in
-  let changed key =
+  let deleted_held=not propagate_deleted &&
+    Flags.mem deleted remote<>Flags.mem deleted local in
+  let held key=deleted_held && Flag.equal key deleted in
+  let merged=Flags.filter (fun key _ ->
     let b=Flags.mem key base in
-    Flags.mem key remote<>b || Flags.mem key local<>b in
-  if not propagate_deleted && changed deleted then
-    Error Deleted_flag_requires_policy
-  else
-    let merged=Flags.fold (fun key representative merged ->
-      let b=Flags.mem key base in
+    if held key then b
+    else
       let r=Flags.mem key remote and l=Flags.mem key local in
-      let present=if b then r && l else r || l in
-      if not present then merged
-      else
-        let value=match Flags.find_opt key remote,
-            Flags.find_opt key local,Flags.find_opt key base with
-          | Some value,_,_ | None,Some value,_ | None,None,Some value -> value
-          | None,None,None -> representative in
-        Flags.add key value merged) keys Flags.empty in
-    Ok {merged=List.map snd (Flags.bindings merged);
-        to_remote=delta ~target:remote ~merged keys;
-        to_local=delta ~target:local ~merged keys}
+      if b then r && l else r || l) keys in
+  {merged=List.map snd (Flags.bindings merged);
+   to_remote=delta ~held ~target:remote ~merged keys;
+   to_local=delta ~held ~target:local ~merged keys;
+   deleted_held}
 
 type deletion_policy = Preserve | Propagate | Propagate_remote | Propagate_local
 type deletion_hold =
@@ -73,8 +66,7 @@ let absence_mature ~last_present_generation ~current_generation
     ~first_generation ~min_scans =
   let superseded=match last_present_generation,first_generation with
     | Some last,Some first -> last>=first
-    | Some _,None -> true
-    | None,_ -> false in
+    | _ -> false in
   if superseded then false
   else min_scans<=0 ||
     match first_generation with
@@ -88,7 +80,7 @@ let plan_disappearance_with_grace ~absence_mature ~policy ~paired
     ~survivor_unchanged =
   match remote_present,local_present with
   | true,true | false,false -> No_deletion
-  | false,true | true,false as presence ->
+  | false,true | true,false ->
       let missing_complete = if remote_present then local_complete
         else remote_complete in
       if not missing_complete then Hold_deletion Incomplete_inventory
@@ -96,13 +88,12 @@ let plan_disappearance_with_grace ~absence_mature ~policy ~paired
       else if not survivor_unchanged then Hold_deletion Survivor_changed
       else if remote_present && local_retained then
         Hold_deletion Retention_policy
-      else let action=match policy,presence with
+      else let action=match policy,remote_present with
         | Preserve,_ -> Hold_deletion Preservation_policy
-        | (Propagate | Propagate_remote),(false,true) -> Delete_local
-        | (Propagate | Propagate_local),(true,false) -> Delete_remote
-        | (Propagate_remote | Propagate_local),_ ->
-            Hold_deletion Direction_policy
-        | _ -> assert false in
+        | (Propagate | Propagate_remote),false -> Delete_local
+        | (Propagate | Propagate_local),true -> Delete_remote
+        | Propagate_remote,true | Propagate_local,false ->
+            Hold_deletion Direction_policy in
       (match action with
        | Delete_local | Delete_remote when not absence_mature ->
            Hold_deletion Grace_period

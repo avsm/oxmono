@@ -1255,10 +1255,10 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
                              else (match Imap.Sync_policy.reconcile_flags
                                ~base:pair.common_flags
                                ~remote:remote.flags ~local:local.flags () with
-                               | Error Imap.Sync_policy.Deleted_flag_requires_policy ->
+                               | flags when flags.deleted_held ->
                                    on_preview (Preview_pair_hold (pair.id,
                                      "\\Deleted differs from paired baseline"))
-                               | Ok flags ->
+                               | flags ->
                                    let nonempty (delta:Imap.Sync_policy.flag_delta) =
                                      delta.add<>[] || delta.remove<>[] in
                                    if nonempty flags.to_remote ||

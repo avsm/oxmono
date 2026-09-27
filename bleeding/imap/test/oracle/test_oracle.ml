@@ -106,10 +106,7 @@ let round_trip () =
     let mailboxes = unwrap (Client.list client ~pattern:mailbox ()) in
     Alcotest.(check bool) "LIST contains test mailbox" true
       (List.exists
-         (fun (item : Imap.Response.list_result) ->
-           let name = Imap.Mailbox_name.of_wire
-             ~mode:(Client.mailbox_mode client) item.mailbox in
-           name.utf8 = Ok mailbox)
+         (fun (entry : Client.mailbox_entry) -> entry.name.utf8 = Ok mailbox)
          mailboxes);
     let advertised capability =
       Imap.Capability.Set.mem capability (Client.capabilities client) in
@@ -135,10 +132,8 @@ let round_trip () =
           Some [Imap.Status_item.Messages; Imap.Status_item.Uidnext;
                 Imap.Status_item.Uidvalidity] else None) ()) in
       let discovered = List.filter (fun
-          ((item : Imap.Response.list_result), _) ->
-        let name = Imap.Mailbox_name.of_wire
-          ~mode:(Client.mailbox_mode client) item.mailbox in
-        name.utf8 = Ok mailbox) discovery.mailboxes in
+          ((entry : Client.mailbox_entry), _) ->
+        entry.name.utf8 = Ok mailbox) discovery.mailboxes in
       Alcotest.(check int) "LIST-EXTENDED found test mailbox" 1
         (List.length discovered);
       if advertised Imap.Capability.List_status then

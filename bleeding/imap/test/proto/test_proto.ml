@@ -702,24 +702,33 @@ let test_metadata_notify () =
    | _ -> fail "missing BADEVENT")
 
 let test_modified_utf7 () =
+  let module M = Imap.Mailbox_name in
+  let encode name = expect_ok (M.encode ~mode:Rev1 name) in
+  let decode ?(mode=M.Rev1) wire = (M.of_wire ~mode wire).utf8 in
   let name="旅行/📧 & Inbox" in
-  let wire=expect_ok (Imap.Mailbox_name.encode_rev1 name) in
-  Alcotest.(check string) "round trip" name
-    (expect_ok (Imap.Mailbox_name.decode_rev1 wire));
-  Alcotest.(check string) "ampersand" "A&-B"
-    (expect_ok (Imap.Mailbox_name.encode_rev1 "A&B"));
-  Alcotest.(check string) "ASCII" "A&B"
-    (expect_ok (Imap.Mailbox_name.decode_rev1 "A&-B"));
+  let wire=encode name in
+  Alcotest.(check string) "round trip" name (expect_ok (decode wire));
+  Alcotest.(check string) "ampersand" "A&-B" (encode "A&B");
+  Alcotest.(check string) "ASCII" "A&B" (expect_ok (decode "A&-B"));
+  let received=M.of_wire ~mode:Rev1 wire in
+  Alcotest.(check string) "raw kept" wire received.raw;
+  Alcotest.(check bool) "equal on raw and mode" true
+    (M.equal received (M.of_wire ~mode:Rev1 wire) &&
+     not (M.equal received (M.of_wire ~mode:Utf8 wire)));
+  Alcotest.(check string) "pp decoded" name
+    (Format.asprintf "%a" M.pp received);
+  Alcotest.(check string) "pp undecodable" "\"&\""
+    (Format.asprintf "%a" M.pp (M.of_wire ~mode:Rev1 "&"));
   List.iter (fun wire ->
-    match Imap.Mailbox_name.decode_rev1 wire with
+    match decode wire with
     | Error _ -> () | Ok _ -> fail ("accepted malformed mailbox " ^ wire))
     ["&";"&A-";"&2AA-";"&AEE-";"\255"];
   List.iter (fun name ->
     List.iter (fun (mode,label) ->
-      (match Imap.Mailbox_name.encode ~mode name with
+      (match M.encode ~mode name with
        | Error _ -> ()
        | Ok _ -> fail (label ^ " encoded a control or invalid name"));
-      match Imap.Mailbox_name.decode ~mode name with
+      match decode ~mode name with
       | Error _ -> ()
       | Ok _ -> fail (label ^ " decoded a control or invalid name"))
       [Imap.Mailbox_name.Rev1,"Rev1";Imap.Mailbox_name.Utf8,"UTF-8"])

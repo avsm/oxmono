@@ -566,24 +566,33 @@ module Client : sig
       name fallback to another mailbox. APPEND checks the name with STATUS
       before sending message bytes. Rebinding to a different ID fails. *)
 
+  type mailbox_entry = {
+    name : Imap.Mailbox_name.t;
+        (** The row's mailbox name. [name.utf8] is the decoded form and
+            [name.raw] the exact wire form. *)
+    info : Imap.Response.list_result;  (** The LIST or LSUB row. *)
+  }
+  (** A listed mailbox, its name decoded in the connection's
+      {!mailbox_mode} at the time of the response. *)
+
   val list : t -> ?reference:string -> pattern:string ->
-    unit -> (Imap.Response.list_result list, error) result
-  (** [reference] and [pattern] are UTF-8, with IMAP [*] and [%] wildcards in
-      [pattern]. Outbound names use modified UTF-7 until UTF-8 mode is enabled.
-      Returned [list_result.mailbox] is the exact wire name; decode it with
-      [Imap.Mailbox_name.of_wire] using {!mailbox_mode}. *)
+    unit -> (mailbox_entry list, error) result
+  (** [list t ~pattern ()] is every LIST row matching [pattern] under
+      [reference], which defaults to [""]. [reference] and [pattern] are
+      UTF-8, with IMAP [*] and [%] wildcards in [pattern]. Outbound names use
+      modified UTF-7 until UTF-8 mode is enabled. *)
 
   val lsub : t -> ?reference:string -> pattern:string ->
-    unit -> (Imap.Response.list_result list, error) result
-  (** Legacy subscribed-mailbox discovery. Returned names remain exact wire
-      bytes; LSUB rows may include unsubscribed hierarchy parents. *)
+    unit -> (mailbox_entry list, error) result
+  (** [lsub t ~pattern ()] is legacy subscribed-mailbox discovery, with
+      [reference] and [pattern] as in {!list}. LSUB rows may include
+      unsubscribed hierarchy parents. *)
 
   val namespace : t -> (Imap.Response.namespace, error) result
   (** Requires NAMESPACE or IMAP4rev2. Prefixes remain exact wire names. *)
 
   type discovery = {
-    mailboxes :
-      (Imap.Response.list_result * Imap.Response.mailbox_status option) list;
+    mailboxes : (mailbox_entry * Imap.Response.mailbox_status option) list;
         (** Each LIST row with the STATUS row that followed it. *)
     unpaired_status : Imap.Response.mailbox_status list;
         (** STATUS rows that followed no LIST row. *)

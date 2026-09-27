@@ -109,19 +109,19 @@ let test_mailbox_management () =
   unwrap (Imap_eio.Client.subscribe_mailbox client ~mailbox:old_name);
   let subscribed=unwrap (Imap_eio.Client.lsub client ~pattern:old_name ()) in
   Alcotest.(check bool) "LSUB includes subscribed mailbox" true
-    (List.exists (fun (row:Imap.Response.list_result) ->
-      row.mailbox=old_name) subscribed);
+    (List.exists (fun (row:Imap_eio.Client.mailbox_entry) ->
+      row.name.utf8=Ok old_name) subscribed);
   unwrap (Imap_eio.Client.unsubscribe_mailbox client ~mailbox:old_name);
   unwrap (Imap_eio.Client.rename_mailbox client ~old_name ~new_name);
   let renamed=unwrap (Imap_eio.Client.list client ~pattern:new_name ()) in
   Alcotest.(check bool) "RENAME exposes destination" true
-    (List.exists (fun (row:Imap.Response.list_result) ->
-      row.mailbox=new_name) renamed);
+    (List.exists (fun (row:Imap_eio.Client.mailbox_entry) ->
+      row.name.utf8=Ok new_name) renamed);
   unwrap (Imap_eio.Client.subscribe_mailbox client ~mailbox:new_name);
   let subscribed=unwrap (Imap_eio.Client.lsub client ~pattern:new_name ()) in
   Alcotest.(check bool) "LSUB includes renamed subscription" true
-    (List.exists (fun (row:Imap.Response.list_result) ->
-      row.mailbox=new_name) subscribed);
+    (List.exists (fun (row:Imap_eio.Client.mailbox_entry) ->
+      row.name.utf8=Ok new_name) subscribed);
   unwrap (Imap_eio.Client.unsubscribe_mailbox client ~mailbox:new_name);
   unwrap (Imap_eio.Client.delete_mailbox client ~mailbox:new_name)
 
@@ -195,8 +195,8 @@ let test_rejection_codes () =
       (Eio.Flow.string_source "x"));
   let boxes=unwrap (Imap_eio.Client.list client ~pattern:mailbox ()) in
   Alcotest.(check bool) "connection usable after typed rejections" true
-    (List.exists (fun (row:Imap.Response.list_result) ->
-      row.mailbox=mailbox) boxes)
+    (List.exists (fun (row:Imap_eio.Client.mailbox_entry) ->
+      row.name.utf8=Ok mailbox) boxes)
 
 let test_binary_sections () =
   configured ();

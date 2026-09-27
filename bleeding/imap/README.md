@@ -136,10 +136,10 @@ tagged completion. Its output is provisional until it returns `Ok ()`; discard
 it on error. Selected handles expire when `with_mailbox` returns. The callback
 holds the session lock, so do not call another `Client` operation on the same
 connection from that callback. Mailbox arguments are UTF-8 and are encoded as
-modified UTF-7 on rev1 connections unless UTF-8 mode was enabled. LIST result
-mailbox fields retain raw wire bytes; use `Client.mailbox_mode` with
-`Imap.Mailbox_name.of_wire` to decode them. An interrupted APPEND returns an
-uncertain outcome and must be reconciled before retrying.
+modified UTF-7 on rev1 connections unless UTF-8 mode was enabled. Each LIST
+and LSUB row carries its decoded `name`, whose `utf8` field is the decoded
+name and whose `raw` field is the exact wire name. An interrupted APPEND
+returns an uncertain outcome and must be reconciled before retrying.
 RFC 8970 PREVIEW is available through capability-gated
 `Selected.uid_fetch_previews`, batching up to 50 UIDs and preserving the
 difference between an absent preview, `NIL` and empty text.

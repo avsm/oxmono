@@ -45,7 +45,7 @@ let decode_b64 s =
           else loop (i+1) bits acc in
   loop 0 0 0
 
-let encode_rev1 s =
+let encode_modified_utf7 s =
   if not (String.is_valid_utf_8 s) then Error "invalid UTF-8 mailbox name"
   else
     let n=String.length s in
@@ -78,7 +78,7 @@ let encode_rev1 s =
           loop next) in
     loop 0
 
-let decode_rev1 s =
+let decode_modified_utf7 s =
   let n=String.length s in
   let out=Buffer.create n in
   let add cp = Buffer.add_utf_8_uchar out (Uchar.of_int cp) in
@@ -138,11 +138,17 @@ let check_utf8 s =
   else Ok s
 
 let decode ~mode s = match mode with
-  | Rev1 -> decode_rev1 s
+  | Rev1 -> decode_modified_utf7 s
   | Utf8 -> check_utf8 s
 
 let encode ~mode s = match mode with
-  | Rev1 -> encode_rev1 s
+  | Rev1 -> encode_modified_utf7 s
   | Utf8 -> check_utf8 s
 
 let of_wire ~mode raw = {raw;mode;utf8=decode ~mode raw}
+
+let equal a b = String.equal a.raw b.raw && a.mode = b.mode
+
+let pp ppf t = match t.utf8 with
+  | Ok name -> Format.pp_print_string ppf name
+  | Error _ -> Format.fprintf ppf "%S" t.raw

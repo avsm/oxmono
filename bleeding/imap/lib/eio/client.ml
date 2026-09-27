@@ -240,13 +240,23 @@ let pin_mailbox_objectid t ~mailbox ~account_id ~mailbox_id =
     | Some _ -> raise (Session.Failure (Session.State
         "OBJECTID+ mailbox pin changed on one connection")))
 
+type mailbox_entry = {
+  name : Imap.Mailbox_name.t;
+  info : Imap.Response.list_result;
+}
+
+let entry session (info : Imap.Response.list_result) =
+  let mode = Session.mailbox_mode session in
+  {name=Imap.Mailbox_name.of_wire ~mode info.mailbox; info}
+
 let list t ?(reference="") ~pattern () =
   Session.locked t.session (fun () ->
     let reference = mailbox_wire t.session reference in
     let pattern = mailbox_wire t.session pattern in
     Session.command t.session (syntax (Imap.Command.list ~reference ~pattern))
     |> List.filter_map (function
-        | Imap.Response.Untagged (Imap.Response.List item) -> Some item
+        | Imap.Response.Untagged (Imap.Response.List item) ->
+            Some (entry t.session item)
         | _ -> None))
 
 let lsub t ?(reference="") ~pattern () =
@@ -256,7 +266,7 @@ let lsub t ?(reference="") ~pattern () =
     Session.command t.session (syntax (Imap.Command.lsub ~reference ~pattern))
     |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.List item)
-          when item.subscribed -> Some item
+          when item.subscribed -> Some (entry t.session item)
       | _ -> None))
 
 let namespace t =
@@ -269,7 +279,7 @@ let namespace t =
     |> one_response "NAMESPACE")
 
 type discovery = {
-  mailboxes:(Imap.Response.list_result * Imap.Response.mailbox_status option) list;
+  mailboxes:(mailbox_entry * Imap.Response.mailbox_status option) list;
   unpaired_status:Imap.Response.mailbox_status list
 }
 
@@ -325,11 +335,12 @@ let list_extended t ?(reference="") ~patterns ?(selection=[])
             raise (Session.Failure (Session.Protocol
               "duplicate LIST mailbox response"));
           Hashtbl.add seen key ();
+          let listed=entry t.session listing in
           (match rest with
            | Imap.Response.Untagged (Imap.Response.Status item)::rest
              when status<>None && same_mailbox listing.mailbox item.mailbox ->
-               collect ((listing,Some item)::mailboxes) unpaired_status rest
-           | _ -> collect ((listing,None)::mailboxes) unpaired_status rest)
+               collect ((listed,Some item)::mailboxes) unpaired_status rest
+           | _ -> collect ((listed,None)::mailboxes) unpaired_status rest)
       | Imap.Response.Untagged (Imap.Response.Status item)::rest ->
           collect mailboxes (item::unpaired_status) rest
       | _::rest -> collect mailboxes unpaired_status rest

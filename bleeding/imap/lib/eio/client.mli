@@ -31,15 +31,19 @@ val pin_mailbox_objectid : t -> mailbox:string -> account_id:string ->
 (** [pin_mailbox_objectid t ~mailbox ~account_id ~mailbox_id] makes later
     selections and APPENDs of [mailbox] on [t] verify that identity. *)
 
+type mailbox_entry = {
+  name : Imap.Mailbox_name.t;
+  info : Imap.Response.list_result;
+}
+
 val list : t -> ?reference:string -> pattern:string ->
-  unit -> (Imap.Response.list_result list, error) result
+  unit -> (mailbox_entry list, error) result
 val lsub : t -> ?reference:string -> pattern:string ->
-  unit -> (Imap.Response.list_result list, error) result
+  unit -> (mailbox_entry list, error) result
 val namespace : t -> (Imap.Response.namespace, error) result
 
 type discovery = {
-  mailboxes :
-    (Imap.Response.list_result * Imap.Response.mailbox_status option) list;
+  mailboxes : (mailbox_entry * Imap.Response.mailbox_status option) list;
   unpaired_status : Imap.Response.mailbox_status list;
 }
 

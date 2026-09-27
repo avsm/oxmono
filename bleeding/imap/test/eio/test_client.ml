@@ -537,14 +537,42 @@ let test_discovery () =
     ~status:[Imap.Status_item.Messages;Imap.Status_item.Uidnext] ()) in
   (match d.mailboxes with
    | [(sent,Some status);(archive,None)] ->
-       if sent.mailbox<>"Sent" || sent.special_use<>["\\Sent"] ||
-          status.messages<>Some 2L || archive.selectable then
+       if sent.name.raw<>"Sent" || sent.name.utf8<>Ok "Sent" ||
+          sent.info.special_use<>["\\Sent"] ||
+          status.messages<>Some 2L || archive.info.selectable then
          failwith "wrong LIST-STATUS association"
    | _ -> failwith "missing LIST rows or STATUS association");
   (match d.unpaired_status with
    | [{mailbox="Sent";messages=Some 999L;_};
       {mailbox="Unrelated";_}] -> ()
    | _ -> failwith "lost unmatched unsolicited STATUS");
+  Imap_eio.Client.close client
+
+let test_decoded_names () =
+  Eio_mock.Backend.run @@ fun () ->
+  Eio.Switch.run @@ fun sw ->
+  let flow=Eio_mock.Flow.make "decoded-names" in
+  Eio_mock.Flow.on_read flow [
+    `Return "* OK ready\r\n";
+    `Return "* CAPABILITY IMAP4rev1\r\nA00000001 OK done\r\n";
+    `Return "A00000002 OK logged in\r\n";
+    `Return "* CAPABILITY IMAP4rev1\r\nA00000003 OK done\r\n";
+    `Return ("* LIST () \"/\" \"&ZeVnLIqe-\"\r\n" ^
+             "* LIST () \"/\" \"&\"\r\n" ^
+             "A00000004 OK done\r\n");
+  ];
+  let auth=Imap_eio.Auth.password ~username:"user" ~password:"pw"
+    ~allow_insecure_transport:true () in
+  let client=ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
+  (match ok (Imap_eio.Client.list client ~pattern:"*" ()) with
+   | [decoded;malformed] ->
+       if decoded.name.raw<>"&ZeVnLIqe-" ||
+          decoded.name.utf8<>Ok "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e" ||
+          decoded.info.mailbox<>"&ZeVnLIqe-" then
+         failwith "LIST row not decoded from modified UTF-7";
+       if malformed.name.raw<>"&" || Result.is_ok malformed.name.utf8 then
+         failwith "malformed LIST name decoded"
+   | _ -> failwith "missing LIST rows");
   Imap_eio.Client.close client
 
 let test_discovery_capabilities () =
@@ -1165,6 +1193,7 @@ let () =
   test_metadata_fetch_missing_boundary ();
   test_extension_wrappers (); test_acl_mutation_uncertain ();
   test_selected_notify (); test_discovery (); test_discovery_capabilities ();
+  test_decoded_names ();
   test_uidonly_partial_batches (); test_untagged_messagelimit ();
   test_mutation_messagelimit_no ();
   test_search_messagelimit_resume ();

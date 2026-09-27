@@ -44,6 +44,64 @@ full sentences, no colons or em dashes joining clauses, defaults stated for
 every optional argument, no history in the prose. Implementations carry no
 comments unless the code cannot say it.
 
+### Review pause, 2026-09-27, after step 4
+
+The session stopped here at the user's request so the work so far can be
+reviewed before steps 5 to 15 run. Tree state: `minus39` at 71411e8c1,
+58 commits since the baseline b4084133b. Both packages build with
+`dune build @bleeding/imap/all @bleeding/maildir/all` and all 16 test
+suites pass with `--force`. Nothing is uncommitted.
+
+What to review, in order:
+
+1. The new standalone package at `bleeding/maildir/`, especially
+   `lib/maildir.mli`: the typed `error`, the `with_writer` capability, the
+   `fold`, and the exceptions kept for concurrency conditions.
+2. `bleeding/imap/lib/protocol/capability.mli` and the `Unsupported` and
+   `Not_enabled` variants in `bleeding/imap/lib/eio/imap_eio.mli`, which
+   are the base of the extension-aware interface.
+3. The "Step F notes" below for each library, which list every behaviour
+   change the fix wave made.
+4. `git log --oneline b4084133b..HEAD` for the commit-by-commit record.
+
+Decisions the agents took that deviate from the brief, each documented in
+its step or F note and worth a look:
+
+- Store: a tombstone can be replaced only by the same or a more permanent
+  reason, rather than never, because Bridge renews absence tombstones.
+- Eio: ENABLE is gated on advertised IMAP4rev2, not effective rev2, so a
+  dual-revision server still gets `ENABLE IMAP4rev2`; STATUS DELETED also
+  accepts rev2; refresher exceptions become `State "invalid credentials"`.
+- Maildir: publication and flag changes stay `rename`, with duplicates
+  refused under the metadata lock; the dovecot-keywords parser tolerates
+  blank lines and a missing final newline but still rejects malformed
+  lines; an unknown flag letter still fails the scan so the syncer never
+  treats an unreadable entry as absent.
+- Sync: when only the stored flag baseline is behind, it advances with a
+  direct `put_pair` and no operation; an oversized message is skipped by
+  hydration and audit with its UID reported.
+- Step 4: `Local_inventory` stages a `Marshal`led occurrence blob keyed by
+  id in `<spool_dir>/local-inventory-im-<hex>.sqlite3` because the
+  occurrence record is private; the alternative is a public constructor
+  and typed columns. The offline plan and verify commands now take and
+  create `--spool-dir`. Bridge, Flags and Deletion gained a
+  `Maildir of Maildir.error` case.
+
+Open questions for the user before resuming:
+
+- Keep the Marshal staging blob, or add a `Maildir.occurrence` constructor
+  and keep typed columns.
+- `Imap_store.forget_epochs` exists but nothing calls it yet; step 12 wires
+  it and the orphan collector into the CLI. Confirm that quarantined epochs
+  may be dropped by an explicit command.
+- The two APPEND journals stay this round; unifying them is a schema v14
+  migration recorded as follow-up.
+- Step 11 removes `Engine.run_once`, `Imap_store.publish` and `load`, the
+  `Mirror.complete` and `publish` chain and `Reconcile`, all test-only.
+
+To resume: continue at step 5 in the table below, one agent per step, in
+the main checkout, verifying both packages after each step.
+
 ### Steps
 
 | # | Step | Status | Commit |

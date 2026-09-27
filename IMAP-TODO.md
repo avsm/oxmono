@@ -117,8 +117,8 @@ run only once everything else works.
 | 4 | Plan item 10: standalone `maildir` package at `bleeding/maildir/`; no `imap` or `sqlite3-eio` dependency; `Local_inventory` in sync; `with_writer` capability; typed errors; `Dotlock` public | done | 68af6a250 |
 | 5 | Plan item 5a: dissolve `Proto` into `Imap.Uid`, `Uidvalidity`, `Modseq`, `Uid_set` with `equal`, `compare`, `pp`; unify identifier shapes across `Selected` | done | 7dbd4c0ca |
 | 6 | Plan item 5b: move vocabulary types out of `Command`; `Command.error` a real type; label mailbox arguments; `Mailbox_name.t` private; `Client.list` returns `Mailbox_name.t` | done | 2415590b9 |
-| 7 | Plan item 5c: `Imap.Search` and `Imap.Fetch_item`; one `Selected.fetch` replacing the six fifty-UID fetchers | todo | |
-| 8 | Plan item 6: one `Client.append` and `append_many`; typed flags on APPEND | todo | |
+| 7 | Plan item 5c: `Imap.Search` and `Imap.Fetch_item`; one `Selected.fetch` replacing the six fifty-UID fetchers | done | 5681e332f |
+| 8 | Plan item 6: one `Client.append` and `append_many`; typed flags on APPEND | done | b03f5b918 |
 | 9 | Plan item 4: extension witness submodules on `Client` and `Selected`, each with `require` | todo | |
 | 10 | Plan item 9: `with_mailbox` reentrancy returns `State` instead of blocking | todo | |
 | 11 | Sync moves: `Ctx` record, single `Imap_sync.Error.t`, `Repair` module, `Plan` module, one APPEND inspection, drop `Engine.run_once` if unused | todo | |
@@ -332,6 +332,68 @@ gained checks that an error names `CREATE mailbox`, `RENAME new_name` and
 `of_wire`, `equal` and `pp`. test/eio/test_client.ml gained
 `test_decoded_names` for a modified UTF-7 row and a malformed one. Build and
 runtest are clean, 16 suites and 227 test cases.
+
+Step 7. Done: `Imap.Search` types the RFC 9051 search keys, the rev1
+NEW, OLD and RECENT, RFC 7162 MODSEQ, RFC 8474 EMAILID and THREADID, the
+RFC 5182 `$`, NOT, OR and a conjunction, with `Raw` for anything else.
+`to_wire ~utf8` quotes every string, refuses a non-ASCII string without
+UTF-8 and any control byte or invalid UTF-8, and validates a date, a size,
+a nonempty UID set, a keyword flag and an object identifier. `Raw` keeps
+the old checks and now also needs balanced parentheses and quotes, which
+only the saved refinement checked before. `capabilities` names CONDSTORE,
+SEARCHRES and OBJECTID, and `uidonly_safe` applies the old leading-token
+guard to every nested `Raw`. `Imap.Fetch_item` has the twelve metadata
+items and no body item, and `Command.uid_fetch_items` and
+`uid_fetch_saved_items` encode them and check BINARY.SIZE sections. Every
+Selected search takes `~criteria`, encoded with UTF-8 when the mailbox mode
+is UTF-8 and gated through Session, with QRESYNC satisfying CONDSTORE.
+`uid_search_page` takes `?before` ahead of the lease. `Selected.fetch` and
+`fetch_range` replace `uid_fetch`, the six per-item fetchers and
+`fetch_metadata_range`, and `uid_fetch_partial` and `uid_fetch_saved`
+return the same `row`. One policy applies to all four. Rows come back in
+request order for `fetch` and ascending otherwise, unsolicited UIDs are
+ignored, rows for one UID merge with FLAGS and MODSEQ taking the last
+value, a conflict in any other item is `Protocol`, and a row without a UID
+is `Protocol` only when it carries an item other than FLAGS or MODSEQ. The
+cap is 1,000 UIDs. `fetch_changes` and `fetch_changes_range` keep raw rows.
+Consumers edited: lib/sync engine (scans, hydration), bridge (metadata and
+APPEND inspection), flags, deletion and reconcile, which still treat a row
+without FLAGS as absent, and bin needed no change. Tests edited:
+test/proto, test/eio (binary, client, client_review, compress,
+review_fixes, searchres, sort_thread), bridge_faults, dovecot, oracle and
+stalwart. Hydration sizes each page of up to 100 UIDs with one FETCH. The bridge.ml:110 finding stays open, since dropping its
+separate INTERNALDATE selection changes `Engine.archive_uid`. test/proto
+gained search encoding, UTF-8, capability and UIDONLY cases and a fetch
+item case, and test/eio/test_searchres gained a typed-criteria gate case.
+Raw criterion strings became typed keys (ALL, UNSEEN, UID sets, SUBJECT,
+HEADER) or `Raw` (sequence sets, RETURN (SAVE), the grammar escape).
+Assertions changed by the policy: PREVIEW and BINARY.SIZE rows follow
+request order, an unrequested BINARY.SIZE UID is ignored, an identical
+repeated ENVELOPE or BINARY.SIZE merges while a differing one is
+`Protocol`, and an OBJECTID row without THREADID reports it absent instead
+of failing. The body-item refusals of `uid_fetch`, `uid_fetch_partial` and
+`uid_fetch_saved` are now unrepresentable, so those cases keep only their
+metadata assertions. The hydration fixtures answer one batched size FETCH.
+README and IMAP-SPEC name the new calls. Build and runtest are clean, 16
+suites and 231 test cases.
+
+Step 8. Done: `Client.append t ~mailbox ?binary message` replaces
+`append_flow`, `append_flow_receipt`, `append_binary_flow` and
+`append_binary_flow_receipt`, and `append_many` replaces
+`append_messages`. `append_message` takes `Mail_flag.Imap_flag.t` flags,
+sent with `to_wire`. Both calls share one part builder and one APPENDUID
+decoder, so a single APPEND whose APPENDUID names several UIDs is
+`Uncertain` with "APPEND returned invalid UID correspondence" and closes
+the connection as before. `Engine.append_journaled` and
+`append_blob_journaled` take typed `?flags` and save them as the expected
+flags without reparsing, and Bridge passes its durable flags directly.
+Tests edited: test/eio client, binary_append, multiappend, literal_modes,
+rejections, and test/dovecot, oracle and stalwart. Callers that discarded
+the receipt use `Result.map ignore`. The MULTIAPPEND preflight case that
+sent an invalid flag string, now unrepresentable, sends a 65,001-byte
+keyword that fails the same syntax preflight. Every other assertion is
+unchanged. README and IMAP-SPEC name the new calls. Build and runtest are
+clean, 16 suites and 231 test cases.
 
 Steps 5 to 9 are ordered so the tree builds after each. Step 9 groups: on
 the lease Condstore, Qresync, Uidplus, Move, Binary, Searchres, Sort, Esort,
@@ -710,13 +772,13 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] selected.ml:1031 [medium] a BINARY row with no UID closes the session but returns `Missing_uid`, which the interface at :145 presents as leaving the connection usable; this path should be `Protocol`.
 - [x] selected.ml:910 [medium] `fetch_changes_range` keeps any row with a UID, so a later unsolicited row without FLAGS or MODSEQ overwrites the complete row; `fetch_metadata_range` guards on `Some uid, Some flags` at :654.
 - [x] selected.ml:997 [medium] a sink write failure inside `stream_fetch` closes the connection and reports `Transport`, indistinguishable from a network failure.
-- [ ] selected.ml:522 [medium] the fetch helpers disagree on duplicates and unrequested UIDs: previews overwrite duplicates and ignore unrequested UIDs at :522, object IDs ignore unrequested UIDs at :560 and :608, while `fetch_attribute` at :476 and binary sizes at :1082 fail on them. (left for step 7)
+- [x] selected.ml:522 [medium] the fetch helpers disagree on duplicates and unrequested UIDs: previews overwrite duplicates and ignore unrequested UIDs at :522, object IDs ignore unrequested UIDs at :560 and :608, while `fetch_attribute` at :476 and binary sizes at :1082 fail on them. (step 7: one row policy for every fetch)
 - [x] selected.ml:347 [low] `uid_search_page` with `last_uid = 1` returns `complete = false` and `resume_before = None`, a state the interface does not describe, so a direct caller cannot tell done from stuck.
 - [x] selected.ml:143 [low] `search_uids` accepts an ESEARCH with no tag despite the interface promise of a matching one, and its untagged SEARCH arm returns server order with duplicates while the ESEARCH arm at :154 returns sorted distinct UIDs.
 - [x] selected.ml:634 [low] `fetch_metadata_range ~modseq:true` requests MODSEQ without the CONDSTORE check that `uid_fetch_saved` makes at :421, so a server BAD surfaces as `Rejected`.
 - [x] selected.ml:763 [low] the COPYUID source set is never checked against the requested set.
 - [x] selected.ml:452 [dead] the `> 50` test cannot fire after the Hashtbl check at :448; the `supports_limit` conjuncts at :661, :666, :917 and :922 are redundant since `accept_partial:false` never yields `partial = Some`; the SEARCHRES recheck at :83 cannot fail; `bytes = 0L` at :1102 is implied.
-- [ ] selected.ml:476 [redundant] the six `uid_fetch_<x>s` functions repeat UID-list validation, comma join, `Map.Make(Int64)` fold with `List.mem`, and projection; only the UID-list policy, result order, duplicate policy and unrequested-UID policy vary. Plan step 7. (left for step 7)
+- [x] selected.ml:476 [redundant] the six `uid_fetch_<x>s` functions repeat UID-list validation, comma join, `Map.Make(Int64)` fold with `List.mem`, and projection; only the UID-list policy, result order, duplicate policy and unrequested-UID policy vary. Plan step 7. (step 7: `Selected.fetch` and `fetch_range`)
 - [x] selected.ml:642 [redundant] `fetch_metadata_range` and `fetch_changes_range` at :897 run near-identical MESSAGELIMIT loops; the prefix test is written three ways at :322, :357 and :639.
 - [x] selected.ml:679 [redundant] the `List.mem cap` then `raise (State "X unavailable")` pattern appears about twenty times and `has` is defined only at :679; the encoder unwrap about thirty times; `Fetch row | Uidfetch row` extraction twelve times; the tagged-tag match six times; the correlated-ESEARCH filter four times. Plan step 2 and step 9. (the capability idiom is `Session.require` and `require_enabled` since step 2. The witness submodules are left for step 9. `syntax`, fetch-row, completion-tag and correlated-ESEARCH helpers now replace the other copies)
 - [x] selected.ml:43 [redundant] `uid < 1L || uid > 4_294_967_295L` is written nine times at :43, :327, :453, :507, :546, :594, :1004, :1060 and :1089 although `Proto.Uid.of_int64` exists; the 1000-UID window check three times at :352, :631 and :888. Plan step 5. (left for step 5)
@@ -757,7 +819,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] client.ml:367 [low] `status` and `list_extended` gate only the `Objectid` item; `Highestmodseq`, `Mailboxid`, `Size`, `Deleted` and `Deleted_storage` are sent without checking CONDSTORE, OBJECTID, STATUS=SIZE, rev2 or QUOTA. DELETED also accepts IMAP4rev2, which RFC 9051 includes in STATUS.
 - [x] client.ml:93 [dead] the LOGINDISABLED check in `login` is preceded by the same check in `authenticate` at :111; the `require` error branch at :742 and the range test at :831 and :835 are unreachable because response.ml:287 already bounds APPENDUID and the set passes `Uid_set.of_wire`. The range test is gone; the result conversions stay because they are the only way to obtain typed values.
 - [x] client.ml:51 [redundant] ENABLED extraction appears five times at :51, :66, :76, :224 and :244; the three optional enables at :47, :62 and :72 and the two required enables at :214 and :234 differ only in name; the effective-rev2 test at :692 bypasses `revision_two`; syntax unwrapping is inlined at :96, :277, :288, :577, :603, :656 and :737 while `command_syntax` at :405 exists; `one_response` at :409 is rewritten in `namespace`, `status_locked` and `get_jmap_access`; the OBJECTID+ enabled check repeats at :257, :335, :368, :582 and :649; the pin lookup at :266, :637 and :710; `canonical` at :345 duplicates `same_mailbox` at :24; `begins` at :26 duplicates `String.starts_with`; the mechanism name is computed twice at :117 and :126; `connect` and `of_flow` handlers at :189 and :196 are identical; :702 is `Result.join`. (the OBJECTID+ enabled check is `Session.require_enabled` since step 2, and every other listed duplicate is factored)
-- [ ] client.ml:763 [redundant] `append_flow` and `append_binary_flow` are one-line wrappers over `append_receipt ~binary`; `append_messages` at :793 duplicates receipt decoding and Uncertain handling from `append_receipt`. Plan step 8. (left for step 8)
+- [x] client.ml:763 [redundant] `append_flow` and `append_binary_flow` are one-line wrappers over `append_receipt ~binary`; `append_messages` at :793 duplicates receipt decoding and Uncertain handling from `append_receipt`. Plan step 8. (step 8: `append` and `append_many` share one part builder and one APPENDUID decoder)
 - [x] client.ml:149 [optimisation] a PREAUTH connection sends CAPABILITY twice at :149 and :177; `append_receipt` runs the pinned STATUS at :730 before validating syntax at :735.
 - [ ] client.mli:8 [drift] `connect` silently ENABLEs IMAP4rev2, UTF8=ACCEPT and QRESYNC at :178, which changes `mailbox_mode` and replaces EXPUNGE with VANISHED, while the interface calls `enable_uidonly` and `enable_objectid_plus` the explicit modes; `of_flow` is always treated as insecure at :150; `capabilities` and `enabled` return uppercased tokens; `with_mailbox` closes on UIDNOTSTICKY at :667 and a failed UNSELECT replaces the callback result. (left for step 15, except the UNSELECT sentence, which is fixed)
 - Facts for later steps: capability comparison is consistently case-insensitive by uppercasing on receipt at :41, :53, :68, :78, :226, :246; ENABLE results are always recorded; STARTTLS ordering, credential redaction and APPEND uncertainty are clean; comments are clean. Without `?auth`, a non-PREAUTH greeting fails `State "authentication required"`. Capability tokens tested here: IMAP4REV2, IMAP4REV1, UTF8=ACCEPT, QRESYNC, CONDSTORE, LOGINDISABLED, AUTH=PLAIN, AUTH=CRAM-MD5, AUTH=OAUTHBEARER, SASL-IR, STARTTLS, UIDONLY, ENABLE, OBJECTID+, NAMESPACE, LIST-EXTENDED, SPECIAL-USE, LIST-STATUS, JMAPACCESS, ACL, QUOTA and the `QUOTA=RES-` prefix, QUOTASET, METADATA, METADATA-SERVER, NOTIFY, UNSELECT, BINARY, LITERAL-, LITERAL+, MULTIAPPEND, `MESSAGELIMIT=` and `SAVELIMIT=` prefixes, COMPRESS=DEFLATE via Session. Never tested in Client: UIDPLUS, MOVE, IDLE, OBJECTID, STATUS=SIZE, ID. Missing-capability errors are always `State` with the strings listed in the review transcript, of the shape "<CAP> unavailable", "server does not advertise AUTH=<M>", "<X> and ENABLE must both be advertised", "binary APPEND requires BINARY capability", "MULTIAPPEND capability unavailable"; not-enabled errors are `State "<X> not enabled"` and the two STATUS OBJECTID variants.
@@ -845,7 +907,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [ ] engine.ml:413 [dead] the `fetch_windows` limit cannot trigger given :379 and :397; :449 and the `None -> Ok` arms at :168 and :248 are unreachable since selected.ml:654 drops such rows; :180 and :260 since `uid_search_range` rejects out-of-range UIDs; the `Uid_set.mem` dedup at :185 and :265; `rec` on `more_after` at :666. (partly fixed: the `fetch_windows` guard, the staged `None` arm and `rec` removed. The `run_once` arms are left for step 11)
 - [ ] engine.ml:145 [redundant] the window count is written four times at :145, :198, :377 and :395; the FETCH loop three times at :151, :240 and :411; the SEARCH loop three times at :173, :253 and :457; STATUS OBJECTID plus identity comparison at :61 and :87; MODSEQ validation at :40 and :134; flag parsing at :496 and :126; `hydrate_once` at :661 and :715 reimplements `with_fetched_uid` at :563 and `archive_uid` at :576 and opens the spool twice; `guard_bound_mailbox` at :74 repeats `prepare_object_identity`; `verify_mutation_destination` at :80 repeats the STATUS check `Client.append_flow_receipt` already does. (partly fixed: `hydrate_once` opens its spool once. The rest is left for step 11)
 - [x] engine.ml:633 [redundant] `Blob.verify store blob || Blob.verify store blob` rehashes a failing blob twice, up to 1 GiB of extra reads.
-- [ ] engine.ml:687 [optimisation] `hydrate_once` issues one RFC822.SIZE FETCH per UID where the page of 100 could be batched. (left for step 7: one `Selected.fetch` over a UID set)
+- [x] engine.ml:687 [optimisation] `hydrate_once` issues one RFC822.SIZE FETCH per UID where the page of 100 could be batched. (step 7: one `Selected.fetch` per page)
 - [ ] engine.mli:3 [drift] the preamble describes only the test-only `run_once` including QRESYNC; production uses CONDSTORE CHANGEDSINCE and never QRESYNC. `append_journaled` at :73 omits that a saved binding requires OBJECTID+ already enabled or fails at :84. `archive_uid` at :96 does not remove a pre-existing spool. The `max_messages <= 10000` bound at :600 and :651 is undocumented. `Blob.attach` raises `Invalid_argument` at :579 and :728 when the UID left the snapshot. (partly fixed: `append_journaled`, `archive_uid`, the 10,000 bound and the attach failure are documented. The `run_once` preamble is left for step 11)
 - Facts for later steps: windows, SEARCH ordering, anchor source, delta skipping, stage discard, spool scoping, budgets and cancellation are clean; comments are clean. `guard_bound_mailbox` callers: deletion.ml:444, :521, :608, flags.ml:278, bridge.ml:1340, :1496, engine.ml:553, :656. `fetch_uid_digest` callers: bridge.ml:211, :374. The epoch string is exactly `Invalid_scope "mailbox UIDVALIDITY changed"` at :365, :565 and :664, and bridge.ml:564 matches that literal; :111 differs. Engine constructs no `State` string; bridge.ml:83 constructs `State "message epoch changed"`.
 

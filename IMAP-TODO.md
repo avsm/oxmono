@@ -116,7 +116,7 @@ run only once everything else works.
 | 3 | Plan item 12: `spool` and `database` as private support libraries shared by their library and their tests; drop the copy_files rules in test/io and test/store/database | done | 722b25c41 |
 | 4 | Plan item 10: standalone `maildir` package at `bleeding/maildir/`; no `imap` or `sqlite3-eio` dependency; `Local_inventory` in sync; `with_writer` capability; typed errors; `Dotlock` public | done | 68af6a250 |
 | 5 | Plan item 5a: dissolve `Proto` into `Imap.Uid`, `Uidvalidity`, `Modseq`, `Uid_set` with `equal`, `compare`, `pp`; unify identifier shapes across `Selected` | done | 7dbd4c0ca |
-| 6 | Plan item 5b: move vocabulary types out of `Command`; `Command.error` a real type; label mailbox arguments; `Mailbox_name.t` private; `Client.list` returns `Mailbox_name.t` | todo | |
+| 6 | Plan item 5b: move vocabulary types out of `Command`; `Command.error` a real type; label mailbox arguments; `Mailbox_name.t` private; `Client.list` returns `Mailbox_name.t` | done | 2415590b9 |
 | 7 | Plan item 5c: `Imap.Search` and `Imap.Fetch_item`; one `Selected.fetch` replacing the six fifty-UID fetchers | todo | |
 | 8 | Plan item 6: one `Client.append` and `append_many`; typed flags on APPEND | todo | |
 | 9 | Plan item 4: extension witness submodules on `Client` and `Selected`, each with `require` | todo | |
@@ -303,6 +303,35 @@ and Mirror and the engine compare MODSEQs with `Modseq.compare`.
 `Uid_set.union` backs `add` and has a directed test. Tests changed only in
 how they build and read identifiers, and test/proto gained a set-algebra
 case. Build and runtest are clean, 16 suites and 227 test cases.
+
+Step 6. Done: the vocabularies live in `Imap.Status_item`, `Mailbox_list`
+(`selection` and `return`, whose constructors lose the `Return_` prefix),
+`Sort` (`key`, `order`, `return`), `Thread` (`algorithm` with `Other`),
+`Notify` (`filter`, `event`, `group`, `is_selected`) and `Metadata`
+(`depth`), each with its `to_wire` and an `equal` where a caller compares.
+`Capability.thread_algorithm` is `Thread.algorithm`, so `Other_algorithm`
+is gone and `Selected.uid_thread` requires `Cap.Thread algorithm` without a
+second mapping. `Command` keeps only encoders, and `uid_thread` accepts an
+`Other` algorithm that is an atom. `Command.error` is `{ command; argument;
+reason }` with `to_string` and `pp`, every encoder names the labelled
+argument at fault, and Client and Selected raise `State (to_string e)`.
+`Command.create`, `delete`, `subscribe` and `unsubscribe` take `~mailbox`,
+as do the five Client mailbox mutations. `Mailbox_name.t` is private, and
+`encode_rev1`, `decode_rev1` and `decode` are gone. `equal` compares `raw`
+and `mode`, and `pp` prints the decoded name. `Client.list`, `lsub` and
+`discovery.mailboxes` carry `Client.mailbox_entry = { name; info }`, with
+the name decoded in the mode in effect when the row arrived.
+`Response.thread` names its field `number`, and `Selected.uid_thread`
+returns `Selected.thread` with `Uid.t` nodes. Consumers edited:
+lib/sync/engine.ml, README.md, test/proto, eio (client, compress,
+lifecycle, rejections, review_fixes, sort_thread), dovecot (test_dovecot,
+body_memory), oracle and stalwart. bin needed no change. Tests changed only
+in how they name vocabulary, label mailboxes and read LIST rows. test/proto
+gained checks that an error names `CREATE mailbox`, `RENAME new_name` and
+`UID STORE flags`, and the `Mailbox_name` round trip now goes through
+`of_wire`, `equal` and `pp`. test/eio/test_client.ml gained
+`test_decoded_names` for a modified UTF-7 row and a malformed one. Build and
+runtest are clean, 16 suites and 227 test cases.
 
 Steps 5 to 9 are ordered so the tree builds after each. Step 9 groups: on
 the lease Condstore, Qresync, Uidplus, Move, Binary, Searchres, Sort, Esort,
@@ -860,7 +889,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] proto.ml:75 [medium] `to_wire empty` returns `""`, which is not a valid sequence set and which `of_wire` rejects; callers at flags.ml:373, deletion.ml:258 and selected.ml:684 test emptiness by string comparison because there is no `is_empty`. Plan step 5. (left for step 5: `Uid_set.is_empty` added, `to_wire empty = ""` kept for the three callers)
 - [x] mailbox_name.ml:179 [low] `Utf8` mode `decode` and `encode` at :179 and :184 accept NUL, CR, LF and C0 controls that `Rev1` rejects; `Command.quote` catches it later.
 - [x] proto.ml:51 [low] `of_wire` accepts leading zeros and its endpoint errors omit the offending token.
-- [ ] wire.ml:97 [dead] the `remaining = 0L` branch and the `take = 0` branch at :102 are unreachable; mailbox_name.ml:90 `s = ""` is unreachable; `Proto.Seq` has zero callers in lib, bin and test; `Uid_set.union` has zero callers; `encode_rev1` and `decode_rev1` are called only by test/proto/test_proto.ml:458; `decode ~mode` has no external caller beyond `of_wire`, which only test_oracle.ml:93 and :121 call; mailbox_name.ml:4 `fail` aliases `Error`. (partly fixed: both Wire branches, `s = ""` and `fail` removed; `Proto.Seq` is now used by Response range checks; left for step 5: `Uid_set.union`; left for step 6: `encode_rev1`, `decode_rev1`, `decode ~mode`)
+- [x] wire.ml:97 [dead] the `remaining = 0L` branch and the `take = 0` branch at :102 are unreachable; mailbox_name.ml:90 `s = ""` is unreachable; `Proto.Seq` has zero callers in lib, bin and test; `Uid_set.union` has zero callers; `encode_rev1` and `decode_rev1` are called only by test/proto/test_proto.ml:458; `decode ~mode` has no external caller beyond `of_wire`, which only test_oracle.ml:93 and :121 call; mailbox_name.ml:4 `fail` aliases `Error`. (partly fixed: both Wire branches, `s = ""` and `fail` removed; `Proto.Seq` is now used by Response range checks; left for step 5: `Uid_set.union`; left for step 6: `encode_rev1`, `decode_rev1`, `decode ~mode`)
 - [x] wire.ml:27 [redundant] `starts` and `has_prefix_ci` duplicate `String.starts_with` and the latter re-uppercases; the backward digit scan at :56 and :81; mailbox_name.ml:5 `add_utf8` is `Buffer.add_utf_8_uchar`; :20 `decode_utf8` duplicates a `String.get_utf_8_uchar` loop; :179 and :184 are `String.is_valid_utf_8`. Keep the hand-rolled base64 since it enforces strict padding and the protocol library has no base64 dependency.
 - [ ] proto.ml:72 [optimisation] `mem` is a linear scan; matters only when a MODIFIED set has thousands of intervals, which current callers never produce. wire.ml:40 copies each untagged line twice, about 2 MiB per 1 MiB line, linear. (partly fixed: `data_response` compares prefixes in place and no longer uppercases the line; left: `mem` stays linear, no caller builds large sets)
 - [x] wire.ml:62 [comment] the second sentence restates the code; delete. Keep :36, :60 and :61.
@@ -1010,7 +1039,7 @@ Rule for step F: apply correctness, dead code, local redundancy and comment fixe
 - [x] command.ml:80 [low] `metadata_entry` accepts `/a//b`, `/a/` and 8-bit bytes; RFC 5464 §3.2 forbids all three.
 - [x] command.ml:88 [low] METADATA MAXSIZE has no upper bound; it is a 32-bit number.
 - [x] command.ml:107 [low] `setmetadata` duplicate check is case-sensitive while `setquota` at :70 uppercases first.
-- [ ] command.ml:263 [low] `finite_set`, the sequence-match check at :290 and the flag checks at :499 and :543 discard the underlying error text; `astring` never names the failing argument. (partly fixed: set, sequence-match and flag errors carry their cause; left for step 6: `astring` naming the argument belongs to a typed `Command.error`)
+- [x] command.ml:263 [low] `finite_set`, the sequence-match check at :290 and the flag checks at :499 and :543 discard the underlying error text; `astring` never names the failing argument. (partly fixed: set, sequence-match and flag errors carry their cause; left for step 6: `astring` naming the argument belongs to a typed `Command.error`)
 - [x] command.ml:277 [low] `~condstore:true` is dropped when `?qresync` is given; the interface at command.mli:73 does not say so.
 - [x] command.ml:84 [dead] the `String.contains s '\000'` test is covered by `contains_control` at :83; delete.
 - [x] command.ml:438 [dead] the empty-criterion check duplicates :398; delete.

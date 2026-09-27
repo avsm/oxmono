@@ -1312,6 +1312,123 @@ let test_binary_append_prefix () =
      Imap.Command.append_binary_prefix ~mailbox:"INBOX" ~flags:["bad flag"] ~size:0L ();
      Imap.Command.append_binary_prefix ~mailbox:"INBOX" ~flags:["x\r\nNOOP"] ~size:0L ()]
 
+let test_capability () =
+  let module C = Imap.Capability in
+  let cap = Alcotest.testable C.pp ( = ) in
+  List.iter (fun (wire,expected,canonical) ->
+    Alcotest.check cap ("parse " ^ wire) expected (C.of_wire wire);
+    Alcotest.(check string) ("print " ^ wire) canonical
+      (C.to_wire (C.of_wire wire)))
+    C.[ "IMAP4rev2",Imap4rev2,"IMAP4REV2";
+        "imap4rev1",Imap4rev1,"IMAP4REV1";
+        "auth=plain",Auth "PLAIN","AUTH=PLAIN";
+        "AUTH=SCRAM-SHA-256",Auth "SCRAM-SHA-256","AUTH=SCRAM-SHA-256";
+        "LoginDisabled",Login_disabled,"LOGINDISABLED";
+        "literal-",Literal_minus,"LITERAL-";
+        "LITERAL+",Literal_plus,"LITERAL+";
+        "Sort=Display",Sort_display,"SORT=DISPLAY";
+        "CONTEXT=SEARCH",Context `Search,"CONTEXT=SEARCH";
+        "context=sort",Context `Sort,"CONTEXT=SORT";
+        "THREAD=orderedsubject",Thread Orderedsubject,
+          "THREAD=ORDEREDSUBJECT";
+        "THREAD=REFERENCES",Thread References,"THREAD=REFERENCES";
+        "thread=refs",Thread (Other_algorithm "REFS"),"THREAD=REFS";
+        "objectid+",Objectid_plus,"OBJECTID+";
+        "OBJECTID",Objectid,"OBJECTID";
+        "MESSAGELIMIT=1000",Messagelimit 1000L,"MESSAGELIMIT=1000";
+        "savelimit=4294967295",Savelimit 4294967295L,
+          "SAVELIMIT=4294967295";
+        "UTF8=Accept",Utf8 `Accept,"UTF8=ACCEPT";
+        "UTF8=ONLY",Utf8 `Only,"UTF8=ONLY";
+        "compress=deflate",Compress `Deflate,"COMPRESS=DEFLATE";
+        "QUOTA=RES-STORAGE",Quota_res "STORAGE","QUOTA=RES-STORAGE";
+        "quotaset",Quotaset,"QUOTASET";
+        "Metadata-Server",Metadata_server,"METADATA-SERVER";
+        "STATUS=SIZE",Status_size,"STATUS=SIZE";
+        "X-Vendor",Other "X-Vendor","X-Vendor";
+        "MESSAGELIMIT=x",Other "MESSAGELIMIT=x","MESSAGELIMIT=x";
+        "MESSAGELIMIT=0",Other "MESSAGELIMIT=0","MESSAGELIMIT=0";
+        "SAVELIMIT=01",Other "SAVELIMIT=01","SAVELIMIT=01";
+        "MESSAGELIMIT=4294967296",Other "MESSAGELIMIT=4294967296",
+          "MESSAGELIMIT=4294967296";
+        "AUTH=",Other "AUTH=","AUTH=";
+        "QUOTA=RES-",Other "QUOTA=RES-","QUOTA=RES-";
+        "UTF8=MAYBE",Other "UTF8=MAYBE","UTF8=MAYBE" ];
+  Alcotest.(check bool) "malformed limit" true
+    (C.malformed_limit (C.of_wire "savelimit=0"));
+  Alcotest.(check bool) "valid limit" false
+    (C.malformed_limit (C.of_wire "SAVELIMIT=5"));
+  Alcotest.(check bool) "unknown token" false
+    (C.malformed_limit (C.of_wire "X-LIMIT=0"));
+  Alcotest.(check bool) "Other equals its known spelling" true
+    (C.equal (C.Other "idle") C.Idle);
+  Alcotest.(check bool) "unknown compares case-insensitively" true
+    (C.equal (C.Other "x-a") (C.Other "X-A"));
+  Alcotest.(check bool) "parameters distinguish" false
+    (C.equal (C.Messagelimit 1L) (C.Messagelimit 2L));
+  let set = C.Set.of_list
+    C.[Other "idle"; Idle; Messagelimit 9L; Messagelimit 3L; Auth "plain";
+       Auth "XOAUTH2"; Thread References; Other "x-a"; Other "X-A";
+       Quota_res "storage"] in
+  Alcotest.(check int) "deduplicated" 8 (List.length (C.Set.to_list set));
+  Alcotest.(check bool) "Other stored as known" true
+    (List.mem C.Idle (C.Set.to_list set));
+  Alcotest.(check bool) "mem ignores case" true
+    (C.Set.mem (C.Other "IDLE") set);
+  Alcotest.(check bool) "not member" false (C.Set.mem C.Move set);
+  Alcotest.(check (option int64)) "smallest MESSAGELIMIT" (Some 3L)
+    (C.messagelimit set);
+  Alcotest.(check (option int64)) "no SAVELIMIT" None (C.savelimit set);
+  Alcotest.(check (list string)) "mechanisms" ["PLAIN";"XOAUTH2"]
+    (C.auth_mechanisms set);
+  Alcotest.(check bool) "algorithms" true
+    (C.thread_algorithms set = [C.References]);
+  Alcotest.(check (list string)) "quota resources" ["STORAGE"]
+    (C.quota_resources set);
+  Alcotest.(check bool) "union" true
+    (C.Set.mem C.Move (C.Set.union set (C.Set.of_list [C.Move])));
+  Alcotest.(check bool) "empty" true (C.Set.is_empty C.Set.empty);
+  List.iter (fun c ->
+    Alcotest.(check bool) ("rev2 folds " ^ C.to_wire c) true
+      (C.implied_by_rev2 c))
+    C.[Enable; Idle; Namespace; Uidplus; Move; Searchres; Esearch;
+       List_extended; List_status; Unselect; Sasl_ir; Literal_minus;
+       Status_size; Other "move"];
+  List.iter (fun c ->
+    Alcotest.(check bool) ("rev2 does not fold " ^ C.to_wire c) false
+      (C.implied_by_rev2 c))
+    C.[Binary; Literal_plus; Condstore; Qresync; Special_use; Children;
+       Imap4rev2; Imap4rev1; Multiappend; Esort; Utf8 `Accept; Objectid]
+
+let test_capability_responses () =
+  let module C = Imap.Capability in
+  let open Imap.Response in
+  (match expect_ok (parse "* CAPABILITY IMAP4rev1 idle IDLE AUTH=plain X-A")
+   with
+   | Untagged (Capability caps) ->
+       Alcotest.(check (list string)) "typed and deduplicated"
+         ["AUTH=PLAIN";"IDLE";"IMAP4REV1";"X-A"] (List.map C.to_wire caps)
+   | _ -> fail "CAPABILITY response not typed");
+  (match expect_ok (parse "* ENABLED QRESYNC condstore QRESYNC") with
+   | Untagged (Enabled caps) ->
+       Alcotest.(check bool) "ENABLED typed" true
+         (caps = C.[Condstore; Qresync])
+   | _ -> fail "ENABLED response not typed");
+  (match expect_ok (parse "* ENABLED") with
+   | Untagged (Enabled []) -> ()
+   | _ -> fail "empty ENABLED rejected");
+  (match expect_ok
+     (parse "* OK [CAPABILITY IMAP4rev2 MOVE move SASL-IR] ready") with
+   | Untagged (Ok (Some (Capability caps as code),"ready")) ->
+       Alcotest.(check bool) "code typed" true
+         (caps = C.[Imap4rev2; Move; Sasl_ir]);
+       Alcotest.(check (option string)) "code name" (Some "CAPABILITY")
+         (response_code_name code)
+   | _ -> fail "CAPABILITY code not typed");
+  match expect_ok (parse "A1 OK [capability IMAP4rev1] done") with
+  | Tagged {code=Some (Capability [C.Imap4rev1]);_} -> ()
+  | _ -> fail "lowercase CAPABILITY code not typed"
+
 let () =
   Alcotest.run "IMAP protocol"
     ["wire", [Alcotest.test_case "fragmented literal" `Quick test_fragmented_literal;
@@ -1351,6 +1468,10 @@ let () =
      "envelope", [Alcotest.test_case "RFC 3501/9051" `Quick test_envelope];
      "bodystructure", [Alcotest.test_case "RFC 3501/9051" `Quick
        test_bodystructure];
+     "capability", [Alcotest.test_case "tokens and sets" `Quick
+                      test_capability;
+                    Alcotest.test_case "responses" `Quick
+                      test_capability_responses];
      "scalars", [Alcotest.test_case "UID set" `Quick test_uid_set;
                  Alcotest.test_case "UID set syntax" `Quick
                    test_uid_set_syntax;

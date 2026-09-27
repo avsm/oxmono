@@ -41,6 +41,9 @@ type code =
   | Nomodseq
   | Closed
   | Alert
+  | Capability of Capability.t list
+      (** A [[CAPABILITY ...]] code, deduplicated in {!Capability.compare}
+          order. *)
   | Unavailable
   | Authenticationfailed
   | Authorizationfailed
@@ -261,8 +264,10 @@ type untagged =
   | Bad of code option * string
   | Bye of code option * string
   | Preauth of code option * string
-  | Capability of string list
-  | Enabled of string list
+  | Capability of Capability.t list
+  | Enabled of Capability.t list
+      (** [Capability] and [Enabled] tokens are deduplicated and in
+          {!Capability.compare} order. *)
   | Flags of string list
   | Exists of int64
   | Recent of int64

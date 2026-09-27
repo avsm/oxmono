@@ -16,6 +16,7 @@ type code =
   | Metadata_toomany | Metadata_noprivate | Notificationoverflow
   | Badevent of string list
   | Unseen of int64 | Read_only | Read_write | Nomodseq | Closed | Alert
+  | Capability of Capability.t list
   | Unavailable
   | Authenticationfailed
   | Authorizationfailed
@@ -70,7 +71,7 @@ let no_argument_codes = [
 let parameter_code_names =
   ["UIDVALIDITY";"UIDNEXT";"HIGHESTMODSEQ";"APPENDUID";"COPYUID";
    "UNSEEN";"MODIFIED";"PERMANENTFLAGS";"MAILBOXID";"OBJECTID";
-   "MESSAGELIMIT";"METADATA";"BADEVENT"]
+   "MESSAGELIMIT";"METADATA";"BADEVENT";"CAPABILITY"]
 
 let response_code_name = function
   | Read_only -> Some "READ-ONLY"
@@ -115,6 +116,7 @@ let response_code_name = function
     Metadata_noprivate -> Some "METADATA"
   | Badevent _ -> Some "BADEVENT"
   | Unseen _ -> Some "UNSEEN"
+  | Capability _ -> Some "CAPABILITY"
   | Other_code _ -> None
 
 type fetch = {
@@ -197,7 +199,7 @@ type untagged =
   | Ok of code option * string | No of code option * string
   | Bad of code option * string | Bye of code option * string
   | Preauth of code option * string
-  | Capability of string list | Enabled of string list
+  | Capability of Capability.t list | Enabled of Capability.t list
   | Flags of string list
   | Exists of int64 | Recent of int64 | Expunge of int64
   | Fetch of fetch | Uidfetch of fetch | List of list_result | Namespace of namespace
@@ -255,6 +257,11 @@ let compound_words words =
     | key::id::rest -> pairs ((key,id)::acc) rest
     | _ -> Result.Error "invalid compound OBJECTID" in
   pairs [] words
+
+let capabilities tokens =
+  Capability.Set.(to_list (of_list (List.map Capability.of_wire tokens)))
+
+let capability_code tokens : code = Capability tokens
 
 let response_code text =
   if String.length text < 2 || text.[0] <> '[' then None, text else
@@ -350,6 +357,7 @@ let response_code text =
               if List.for_all (fun flag -> flag="\\*" || valid_flag flag) values
               then Some (Permanentflags values) else None
             else None
+        | "CAPABILITY"::tokens -> Some (capability_code (capabilities tokens))
         | ["UNSEEN"; n] ->
             (match parse_i64 n with Some n when valid_seq n ->
               Some (Unseen n) | _ -> None)
@@ -1448,8 +1456,9 @@ let parse raw =
        | "BAD" -> status (fun (c,t) -> Bad (c,t))
        | "BYE" -> status (fun (c,t) -> Bye (c,t))
        | "PREAUTH" -> status (fun (c,t) -> Preauth (c,t))
-       | "CAPABILITY" -> Result.Ok (Untagged (Capability rest))
-       | "ENABLED" -> Result.Ok (Untagged (Enabled rest))
+       | "CAPABILITY" ->
+           Result.Ok (Untagged (Capability (capabilities rest)))
+       | "ENABLED" -> Result.Ok (Untagged (Enabled (capabilities rest)))
        | "FLAGS" -> data (fun x -> Flags x) parse_flags
        | "LIST" -> data (fun x -> List x) (parse_list false)
        | "LSUB" -> data (fun x -> List x) (parse_list true)

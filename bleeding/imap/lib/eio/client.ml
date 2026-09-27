@@ -37,7 +37,8 @@ let greeting session =
 let capability session =
   let responses = Session.command session Imap.Command.capability in
   let caps = List.concat_map (function
-    | Imap.Response.Untagged (Imap.Response.Capability caps) -> List.map upper caps
+    | Imap.Response.Untagged (Imap.Response.Capability caps) ->
+        List.map (fun c -> upper (Imap.Capability.to_wire c)) caps
     | _ -> []) responses in
   session.Session.capabilities <- caps
 
@@ -49,7 +50,7 @@ let enable session name =
   let accepted = Session.command session ("ENABLE " ^ name)
     |> List.concat_map (function
       | Imap.Response.Untagged (Imap.Response.Enabled names) ->
-          List.map upper names
+          List.map (fun c -> upper (Imap.Capability.to_wire c)) names
       | _ -> []) in
   session.Session.enabled <-
     List.sort_uniq String.compare (accepted @ session.Session.enabled);

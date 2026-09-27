@@ -10,8 +10,10 @@
 
     Every function is portable, so a caller may frame, parse, encode and
     plan on any domain. Every type is immutable data that may be shared
-    between domains, except the mutable {!Wire.t} and the stdlib-backed
-    {!Capability.Set.t} and {!Mirror.snapshot}. *)
+    between domains, except the mutable {!Wire.t} and the
+    {!Capability.Set.t} and {!Mirror.snapshot} that hold a [Base]
+    comparator. Those two cross portability and contention, so a portable
+    closure may still capture them. *)
 
 (** {1 Identifiers} *)
 

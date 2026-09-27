@@ -1,8 +1,9 @@
 module Flag = Mail_flag.Imap_flag
-module Flags = Map.MakePortable (struct
+module Flag_order = struct
   type t = Flag.t
-  let compare = Flag.compare
-end)
+  include (val Base.Comparator.make__portable ~compare:Flag.compare
+      ~sexp_of_t:(fun flag -> Base.Sexp.Atom (Flag.to_wire flag)))
+end
 
 type flag_delta = { add : Flag.t list; remove : Flag.t list }
 type flag_plan = {
@@ -13,34 +14,36 @@ type flag_plan = {
 }
 
 let flag_map flags =
-  Flags.of_list (List.map (fun flag -> flag, flag) (Flag.durable flags))
+  List.fold_left (fun map flag -> Base.Map.set map ~key:flag ~data:flag)
+    (Base.Map.empty (module Flag_order)) (Flag.durable flags)
 
-let prefer_right _ _ right = Some right
+let union left right =
+  Base.Map.merge_skewed left right ~combine:(fun ~key:_ _ right -> right)
 
 let delta ~held ~target ~merged keys =
-  let add,remove = Flags.fold (fun key _ (add,remove) ->
+  let add,remove = Base.Map.fold keys ~init:([],[])
+      ~f:(fun ~key ~data:_ (add,remove) ->
     if held key then add,remove else
-    match Flags.find_opt key target, Flags.find_opt key merged with
+    match Base.Map.find target key, Base.Map.find merged key with
     | None, Some value -> value::add,remove
     | Some value, None -> add,value::remove
-    | _ -> add,remove) keys ([],[]) in
+    | _ -> add,remove) in
   {add=List.rev add;remove=List.rev remove}
 
 let reconcile_flags ?(propagate_deleted=false) ~base ~remote ~local () =
   let base=flag_map base and remote=flag_map remote and local=flag_map local in
-  let keys=Flags.union prefer_right (Flags.union prefer_right base local)
-    remote in
+  let keys=union (union base local) remote in
   let deleted=Flag.system Flag.Deleted in
   let deleted_held=not propagate_deleted &&
-    Flags.mem deleted remote<>Flags.mem deleted local in
+    Base.Map.mem remote deleted<>Base.Map.mem local deleted in
   let held key=deleted_held && Flag.equal key deleted in
-  let merged=Flags.filter (fun key _ ->
-    let b=Flags.mem key base in
+  let merged=Base.Map.filter_keys keys ~f:(fun key ->
+    let b=Base.Map.mem base key in
     if held key then b
     else
-      let r=Flags.mem key remote and l=Flags.mem key local in
-      if b then r && l else r || l) keys in
-  {merged=List.map snd (Flags.bindings merged);
+      let r=Base.Map.mem remote key and l=Base.Map.mem local key in
+      if b then r && l else r || l) in
+  {merged=Base.Map.data merged;
    to_remote=delta ~held ~target:remote ~merged keys;
    to_local=delta ~held ~target:local ~merged keys;
    deleted_held}

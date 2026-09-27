@@ -15,3 +15,6 @@ let pred n = if n = 1 then None else Some (n - 1)
 let equal (a : t) b = a = b
 let compare (a : t) b = Stdlib.compare a b
 let pp ppf n = Format.fprintf ppf "%d" n
+
+include (val Base.Comparator.make__portable ~compare
+    ~sexp_of_t:(fun u -> Base.Sexp.Atom (to_string u)))

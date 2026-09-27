@@ -133,8 +133,10 @@ type row = {
 }
 (** The type for inventory rows, one message's flags and MODSEQ. *)
 
-type snapshot
-(** The type for inventories of one UIDVALIDITY, with one row per UID. *)
+type snapshot : value mod contended portable
+(** The type for inventories of one UIDVALIDITY, with one row per UID. An
+    inventory crosses portability and contention, so a portable closure
+    may capture one and read it. *)
 
 val snapshot : uidvalidity:Uidvalidity.t -> row list ->
   (snapshot, error) result

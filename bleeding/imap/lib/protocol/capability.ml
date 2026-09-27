@@ -145,21 +145,25 @@ let malformed_limit c =
        | _ -> false)
   | _ -> false
 
+module Order = struct
+  type nonrec t = t
+  include (val Base.Comparator.make__portable ~compare
+      ~sexp_of_t:(fun c -> Base.Sexp.Atom (to_wire c)))
+end
+type comparator_witness = Order.comparator_witness
+let comparator = Order.comparator
+
 module Set = struct
   type elt = t
-  module S = Stdlib.Set.MakePortable (struct
-    type nonrec t = t
-    let compare = compare
-  end)
-  type t = S.t
-  let empty = S.empty
-  let is_empty = S.is_empty
-  let add c s = S.add (canonical c) s
-  let of_list l = S.of_list (List.map canonical l)
-  let to_list = S.elements
-  let mem = S.mem
-  let union = S.union
-  let equal = S.equal
+  type t = (elt, comparator_witness) Base.Set.t
+  let empty = Base.Set.empty (module Order)
+  let is_empty = Base.Set.is_empty
+  let add c s = Base.Set.add s (canonical c)
+  let of_list l = Base.Set.of_list (module Order) (List.map canonical l)
+  let to_list = Base.Set.to_list
+  let mem c s = Base.Set.mem s c
+  let union = Base.Set.union
+  let equal = Base.Set.equal
   let pp ppf s =
     Format.pp_print_list ~pp_sep:Format.pp_print_space pp ppf (to_list s)
 end

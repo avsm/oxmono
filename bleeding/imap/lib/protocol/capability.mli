@@ -109,15 +109,25 @@ val malformed_limit : t -> bool
 (** [malformed_limit c] is [true] if [c] is an [Other] token spelled
     [MESSAGELIMIT=v] or [SAVELIMIT=v] whose [v] {!of_wire} rejected. *)
 
+type comparator_witness : value mod portable
+(** The type witnessing {!comparator}. *)
+
+val comparator : (t, comparator_witness) Base.Comparator.t
+(** [comparator] orders capabilities by {!compare}. It makes
+    [(module Capability)] a comparator module for [Base.Set] and
+    [Base.Map], whose sets and maps of capabilities a portable closure may
+    then capture. *)
+
 (** Capability sets. *)
 module Set : sig
   type elt = t
   (** The type for set elements. *)
 
-  type t
+  type t : value mod contended portable
   (** The type for sets of capabilities under {!equal}. An [Other] token is
       stored as {!of_wire} reads it, so [Other "idle"] is stored as
-      [Idle]. *)
+      [Idle]. A set crosses portability and contention, so a portable
+      closure may capture one and read it. *)
 
   val empty : t
   (** [empty] is the set with no capabilities. *)

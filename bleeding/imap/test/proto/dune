@@ -6,4 +6,4 @@
 (test
  (name test_modes)
  (modules test_modes)
- (libraries imap mail-flag alcotest))
+ (libraries imap mail-flag base alcotest))

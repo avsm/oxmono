@@ -400,3 +400,7 @@ convert without allocating an `int64`.
 
 `stage_rows` and `stage_membership` bind each UID as an `int`, cutting
 the rows phase from 25 to 1 byte per row and membership from 67 to 43.
+
+`Capability.Set` and `Mirror.snapshot` hold `Base` sets and maps, and
+both types now cross portability and contention. `Uid` and
+`Capability` export `comparator` for use with `Base.Set` and `Base.Map`.

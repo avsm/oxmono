@@ -10,9 +10,20 @@
    probes checks the values read. *)
 
 (* Every protocol type other than the mutable [Wire.t] and the
-   stdlib-backed [Capability.Set.t] and [Mirror.snapshot] is immutable
-   data. Each abbreviation compiles only when its kind holds. *)
+   comparator-carrying [Capability.Set.t] and [Mirror.snapshot] is
+   immutable data. Those two, and the Base sets and maps over the exported
+   comparators, cross portability and contention. Each abbreviation
+   compiles only when its kind holds. *)
 module Kinds = struct
+  type capability_set : value mod contended portable = Imap.Capability.Set.t
+  type mirror_snapshot : value mod contended portable = Imap.Mirror.snapshot
+  type uid_comparator : value mod portable = Imap.Uid.comparator_witness
+  type capability_comparator : value mod portable =
+    Imap.Capability.comparator_witness
+  type uid_map : value mod contended portable =
+    (Imap.Uid.t, string, Imap.Uid.comparator_witness) Base.Map.t
+  type capability_base_set : value mod contended portable =
+    (Imap.Capability.t, Imap.Capability.comparator_witness) Base.Set.t
   type uid_t : immutable_data = Imap.Uid.t
   type uidvalidity_t : immutable_data = Imap.Uidvalidity.t
   type modseq_t : immutable_data = Imap.Modseq.t
@@ -149,6 +160,12 @@ let search_error =
   | Ok _ -> failwith "non-ASCII accepted without UTF-8"
 let deletion : Imap.Sync_policy.deletion_plan =
   Hold_deletion Imap.Sync_policy.Grace_period
+let capability_set = Imap.Capability.Set.of_list
+    [ capability; Imap.Capability.Idle; Imap.Capability.of_wire "idle" ]
+let snapshot = match Imap.Mirror.snapshot ~uidvalidity [ row ] with
+  | Ok snapshot -> snapshot
+  | Error (Imap.Mirror.Invalid e) -> failwith e
+let uid_map = Base.Map.singleton (module Imap.Uid) uid "probe"
 
 let global_uid (u : Imap.Uid.t @ local) : Imap.Uid.t = u
 let global_uidvalidity (v : Imap.Uidvalidity.t @ local) : Imap.Uidvalidity.t
@@ -201,6 +218,19 @@ let (records @ portable) = fun () ->
   String.trim event, wire_error.offset, upper, rows, List.length plan.merged,
   action.id, Imap.Search.error_to_string search_error, held
 
+let (collections @ portable) = fun () ->
+  let capabilities = Imap.Capability.Set.add Imap.Capability.Condstore
+      capability_set in
+  let by_capability = Base.Set.of_list (module Imap.Capability)
+      (Imap.Capability.Set.to_list capabilities) in
+  let uids = Base.Set.of_list (module Imap.Uid) [ uid; uid ] in
+  List.map Imap.Capability.to_wire (Imap.Capability.Set.to_list capabilities),
+  Base.Set.length by_capability,
+  List.length (Imap.Mirror.rows snapshot),
+  Imap.Uidvalidity.equal (Imap.Mirror.snapshot_uidvalidity snapshot)
+    uidvalidity,
+  Base.Set.length uids, Base.Map.find uid_map uid
+
 let (framing @ portable) = fun () ->
   let wire = Imap.Wire.create () in
   match Imap.Wire.feed wire "* 1 EXISTS\r\n" with
@@ -244,6 +274,17 @@ let test_records () =
   Alcotest.(check bool) "search error" true (String.length search_error > 0);
   Alcotest.(check bool) "deletion plan" true held
 
+let test_collections () =
+  let tokens, by_capability, rows, same_validity, uids, found =
+    collections () in
+  Alcotest.(check (list string)) "capability set"
+    [ "CONDSTORE"; "IDLE"; "THREAD=REFERENCES" ] tokens;
+  Alcotest.(check int) "Base set of capabilities" 3 by_capability;
+  Alcotest.(check int) "snapshot rows" 1 rows;
+  Alcotest.(check bool) "snapshot uidvalidity" true same_validity;
+  Alcotest.(check int) "Base set of UIDs" 1 uids;
+  Alcotest.(check (option string)) "Base map of UIDs" (Some "probe") found
+
 let test_framing () =
   match framing () with
   | Ok (Imap.Response.Untagged (Imap.Response.Exists 1L)) -> ()
@@ -257,4 +298,5 @@ let () =
       Alcotest.test_case "identifiers" `Quick test_identifiers;
       Alcotest.test_case "vocabulary" `Quick test_vocabulary;
       Alcotest.test_case "records" `Quick test_records;
+      Alcotest.test_case "collections" `Quick test_collections;
       Alcotest.test_case "framing" `Quick test_framing ] ]

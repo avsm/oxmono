@@ -41,3 +41,11 @@ val compare : t -> t -> int
 
 val pp : Format.formatter -> t -> unit
 (** [pp ppf u] prints the decimal form of [u] on [ppf]. *)
+
+type comparator_witness : value mod portable
+(** The type witnessing {!comparator}. *)
+
+val comparator : (t, comparator_witness) Base.Comparator.t
+(** [comparator] orders UIDs by {!compare}. It makes [(module Uid)] a
+    comparator module for [Base.Set] and [Base.Map], whose sets and maps
+    of UIDs a portable closure may then capture. *)

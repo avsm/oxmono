@@ -65,8 +65,9 @@ let test_append_rejections () =
     with_client (prefix @ [`Return (tag 4 ^ " NO [" ^ wire ^ "] refused\r\n")])
       (fun client ->
         ignore (rejected ~tag:(tag 4) ~status:`No ~code:(Some code)
-          (C.append_flow client ~mailbox:"Archive" ~length:3L
-            (Eio.Flow.string_source "abc"))))) [false;true]
+          (Result.map ignore (C.append client ~mailbox:"Archive"
+            (C.append_message ~length:3L
+               (Eio.Flow.string_source "abc"))))))) [false;true]
 
 let test_idle_rejections () =
   List.iter (fun after_done ->

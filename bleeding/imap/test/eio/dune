@@ -32,7 +32,7 @@
 
 (test
  (name test_binary_append)
- (libraries imap.eio imap eio eio.mock cstruct))
+ (libraries imap.eio imap mail-flag eio eio.mock cstruct))
 
 (test
  (name test_deflate_flow)
@@ -48,7 +48,7 @@
 
 (test
  (name test_multiappend)
- (libraries imap.eio imap eio eio.mock cstruct))
+ (libraries imap.eio imap mail-flag eio eio.mock cstruct))
 
 (test
  (name test_lifecycle)

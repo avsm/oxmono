@@ -123,8 +123,9 @@ let test_uncertain_append () =
   ];
   let auth = Imap_eio.Auth.password ~username:"user" ~password:"pw" ~allow_insecure_transport:true () in
   let client = ok (Imap_eio.Client.of_flow ~sw ~auth flow) in
-  match Imap_eio.Client.append_flow client ~mailbox:"INBOX" ~length:3L
-    (Eio.Flow.string_source "abc") with
+  match Result.map ignore (Imap_eio.Client.append client ~mailbox:"INBOX"
+    (Imap_eio.Client.append_message ~length:3L
+       (Eio.Flow.string_source "abc"))) with
   | Error (Imap_eio.Error.Uncertain _) -> ()
   | Error e -> failwith ("expected uncertain APPEND: " ^
       Imap_eio.Client.error_to_string e)
@@ -1088,8 +1089,9 @@ let test_objectid_plus_pinned_append_guard () =
   ok (Imap_eio.Client.enable_objectid_plus client);
   ok (Imap_eio.Client.pin_mailbox_objectid client ~mailbox:"INBOX"
     ~account_id:"u_account" ~mailbox_id:"F_expected");
-  (match Imap_eio.Client.append_flow_receipt client ~mailbox:"INBOX"
-    ~length:0L (Eio.Flow.string_source "") with
+  (match Imap_eio.Client.append client ~mailbox:"INBOX"
+    (Imap_eio.Client.append_message ~length:0L
+       (Eio.Flow.string_source "")) with
    | Error (Imap_eio.Error.State
        "APPEND destination differs from pinned OBJECTID+ identity") -> ()
    | Error error -> failwith ("wrong pinned APPEND error: " ^
@@ -1179,8 +1181,9 @@ let test_append_unsolicited_continuation () =
     `Return "A00000002 OK [APPENDUID 1 4] appended\r\n";
   ];
   let client=ok (Imap_eio.Client.of_flow ~sw flow) in
-  match ok (Imap_eio.Client.append_flow_receipt client ~mailbox:"INBOX"
-    ~length:3L (Eio.Flow.string_source "abc")) with
+  match ok (Imap_eio.Client.append client ~mailbox:"INBOX"
+    (Imap_eio.Client.append_message ~length:3L
+       (Eio.Flow.string_source "abc"))) with
   | Some receipt when Imap.Uid.to_int64 receipt.uid=4L -> ()
   | _ -> failwith "APPEND lost receipt after unsolicited response"
 

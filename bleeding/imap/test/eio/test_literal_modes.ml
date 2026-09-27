@@ -53,8 +53,9 @@ let test_boundary () =
       [`Return "A00000004 OK [APPENDUID 1 9] done\r\n"] in
     with_client ~caps replies (fun client transport ->
       let body=String.make length 'x' in
-      ignore (ok (C.append_flow_receipt client ~mailbox:"INBOX"
-        ~length:(Int64.of_int length) (Eio.Flow.string_source body)));
+      ignore (ok (C.append client ~mailbox:"INBOX"
+        (C.append_message ~length:(Int64.of_int length)
+           (Eio.Flow.string_source body))));
       let expected=Printf.sprintf "A00000004 APPEND INBOX {%d%s}\r\n%s\r\n"
         length (if non_sync then "+" else "") body in
       if Buffer.contents transport.written<>expected then
@@ -68,7 +69,8 @@ let test_revision_negotiation () =
       (if enabled then [] else [`Return "+ ready\r\n"]) @
       [`Return "A00000005 OK [APPENDUID 1 9] done\r\n"] in
     with_client ~caps:"IMAP4rev1 IMAP4rev2" replies (fun client transport ->
-      ok (C.append_flow client ~mailbox:"INBOX" ~length:1L (Eio.Flow.string_source "x"));
+      ok (Result.map ignore (C.append client ~mailbox:"INBOX"
+        (C.append_message ~length:1L (Eio.Flow.string_source "x"))));
       let expected=if enabled then "A00000005 APPEND INBOX {1+}\r\nx\r\n"
         else "A00000005 APPEND INBOX {1}\r\nx\r\n" in
       if Buffer.contents transport.written<>expected then failwith "rev2 negotiation ignored"))
@@ -76,8 +78,8 @@ let test_revision_negotiation () =
 let test_binary () =
   with_client ~caps:"IMAP4rev1 BINARY LITERAL-"
     [`Return "A00000004 OK [APPENDUID 1 9] done\r\n"] (fun client transport ->
-      ok (C.append_binary_flow client ~mailbox:"INBOX" ~length:3L
-        (Eio.Flow.string_source "a\000b"));
+      ok (Result.map ignore (C.append client ~mailbox:"INBOX" ~binary:true
+        (C.append_message ~length:3L (Eio.Flow.string_source "a\000b"))));
       if Buffer.contents transport.written<>"A00000004 APPEND INBOX ~{3+}\r\na\000b\r\n" then
         failwith "binary non-synchronizing marker lost")
 let test_mixed_batch () =
@@ -87,7 +89,7 @@ let test_mixed_batch () =
       let first=String.make 4096 'a' and second=String.make 4097 'b' in
       let message text=C.append_message ~length:(Int64.of_int (String.length text))
         (Eio.Flow.string_source text) in
-      ignore (ok (C.append_messages client ~mailbox:"INBOX" [message first;message second]));
+      ignore (ok (C.append_many client ~mailbox:"INBOX" [message first;message second]));
       if Buffer.contents transport.written<>
         "A00000004 APPEND INBOX {4096+}\r\n" ^ first ^ " {4097}\r\n" ^ second ^ "\r\n" then
         failwith "mixed batch framing changed")
@@ -95,10 +97,12 @@ let test_rejected () =
   with_client ~caps:"IMAP4rev1 LITERAL-"
     [`Return "A00000004 NO [OVERQUOTA] full\r\n"] (fun client _ ->
       expect "non-sync rejection" (function E.Rejected _ -> true | _ -> false)
-        (C.append_flow client ~mailbox:"INBOX" ~length:1L (Eio.Flow.string_source "x"));
+        (Result.map ignore (C.append client ~mailbox:"INBOX"
+          (C.append_message ~length:1L (Eio.Flow.string_source "x"))));
       if not (C.is_open client) then failwith "tagged rejection closed connection");
   with_client ~caps:"IMAP4rev1 LITERAL-"
     [`Return "+ invalid\r\n"] (fun client _ ->
       expect "illegal non-sync continuation" uncertain
-        (C.append_flow client ~mailbox:"INBOX" ~length:1L (Eio.Flow.string_source "x")))
+        (Result.map ignore (C.append client ~mailbox:"INBOX"
+          (C.append_message ~length:1L (Eio.Flow.string_source "x")))))
 let () = test_boundary (); test_revision_negotiation (); test_binary (); test_mixed_batch (); test_rejected ()

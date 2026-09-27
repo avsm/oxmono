@@ -101,43 +101,33 @@ val with_mailbox : t -> ?qresync:(Imap.Uidvalidity.t * Imap.Modseq.t) ->
 (** [with_mailbox t ~mode mailbox f] holds an exclusive selection lease on
     [t] for the duration of [f]. *)
 
-val append_flow : t -> mailbox:string -> ?flags:string list ->
-  ?internal_date:Imap.Internal_date.t ->
-  length:int64 -> _ Eio.Flow.source -> (unit, error) result
-(** [append_flow t ~mailbox ~length source] is [Error.Uncertain] for any
-    failure after the final CRLF other than a tagged rejection. *)
-
 type append_receipt = {
   uidvalidity : Imap.Uidvalidity.t;
   uid : Imap.Uid.t;
 }
 
-val append_flow_receipt : t -> mailbox:string -> ?flags:string list ->
-  ?internal_date:Imap.Internal_date.t ->
-  length:int64 -> _ Eio.Flow.source -> (append_receipt option, error) result
-val append_binary_flow_receipt : t -> mailbox:string -> ?flags:string list ->
-  ?internal_date:Imap.Internal_date.t -> length:int64 -> _ Eio.Flow.source ->
-  (append_receipt option, error) result
-val append_binary_flow : t -> mailbox:string -> ?flags:string list ->
-  ?internal_date:Imap.Internal_date.t -> length:int64 -> _ Eio.Flow.source ->
-  (unit, error) result
-val close : t -> unit
-
 type append_message
 
 val append_message :
-  ?flags:string list -> ?internal_date:Imap.Internal_date.t -> length:int64 ->
-  _ Eio.Flow.source -> append_message
+  ?flags:Mail_flag.Imap_flag.t list -> ?internal_date:Imap.Internal_date.t ->
+  length:int64 -> _ Eio.Flow.source -> append_message
 (** [append_message ~length source] borrows [source] without closing it. *)
+
+val append : t -> mailbox:string -> ?binary:bool -> append_message ->
+  (append_receipt option, error) result
+(** [append t ~mailbox message] is [Error.Uncertain] for any failure after
+    the final CRLF other than a tagged rejection. *)
+
+val close : t -> unit
 
 type multiappend_receipt = {
   uidvalidity : Imap.Uidvalidity.t;
   uids : Imap.Uid.t list;
 }
 
-val append_messages : t -> mailbox:string -> append_message list ->
+val append_many : t -> mailbox:string -> append_message list ->
   (multiappend_receipt option, error) result
-(** [append_messages t ~mailbox messages] sends [messages] as one RFC 3502
+(** [append_many t ~mailbox messages] sends [messages] as one RFC 3502
     atomic APPEND. *)
 
 val noop : t -> (Imap.Response.t list, error) result

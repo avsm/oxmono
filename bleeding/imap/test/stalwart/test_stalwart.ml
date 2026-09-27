@@ -131,9 +131,9 @@ let test_protocol () =
      | _ -> Alcotest.fail "OBJECTID+ RENAME receipt differs from STATUS");
     unwrap (Client.delete_mailbox client ~mailbox:target));
   let body = raw (nonce ()) "protocol" in
-  let receipt = unwrap (Client.append_flow_receipt client ~mailbox
-    ~length:(Int64.of_int (String.length body))
-    (Eio.Flow.string_source body)) in
+  let receipt = unwrap (Client.append client ~mailbox
+    (Client.append_message ~length:(Int64.of_int (String.length body))
+       (Eio.Flow.string_source body))) in
   let receipt = match receipt with Some r -> r | None ->
     Alcotest.fail "advertised UIDPLUS did not return APPENDUID" in
   let receipt_uid = receipt.uid in
@@ -222,9 +222,9 @@ let test_bridge () =
       [blobdir; spooldir; maildir_path]) @@ fun () ->
   unwrap (Client.create_mailbox client ~mailbox);
   let remote = raw n "remote" in
-  ignore (unwrap (Client.append_flow_receipt client ~mailbox
-    ~length:(Int64.of_int (String.length remote))
-    (Eio.Flow.string_source remote)));
+  ignore (unwrap (Client.append client ~mailbox
+    (Client.append_message ~length:(Int64.of_int (String.length remote))
+       (Eio.Flow.string_source remote))));
   let mode = Client.mailbox_mode client in
   let raw_name = match Imap.Mailbox_name.encode ~mode mailbox with
     | Ok raw_name -> raw_name | Error e -> Alcotest.fail e in
@@ -297,9 +297,9 @@ let test_objectid_binding () =
       [dbfile; dbfile ^ "-wal"; dbfile ^ "-shm"]) @@ fun () ->
   unwrap (Client.create_mailbox mutator ~mailbox);
   let body = raw n "identity" in
-  ignore (unwrap (Client.append_flow_receipt mutator ~mailbox
-    ~length:(Int64.of_int (String.length body))
-    (Eio.Flow.string_source body)));
+  ignore (unwrap (Client.append mutator ~mailbox
+    (Client.append_message ~length:(Int64.of_int (String.length body))
+       (Eio.Flow.string_source body))));
   let mode = Client.mailbox_mode client in
   let raw_name = match Imap.Mailbox_name.encode ~mode mailbox with
     | Ok name -> name | Error message -> Alcotest.fail message in

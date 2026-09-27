@@ -211,7 +211,7 @@ BINARY or effective IMAP4rev2, whose requests are limited to leaf MIME parts.
 Choose parts using BODYSTRUCTURE and let the server validate them. BINARY
 output is for decoded content consumption; `fetch_to` and durable archival
 retain the original transfer-encoded message.
-`Client.append_binary_flow_receipt` explicitly opts into RFC 3516 literal8
+`Client.append ~binary:true` explicitly opts into RFC 3516 literal8
 APPEND and requires the BINARY capability, even under IMAP4rev2. It shares the
 ordinary APPEND lock, destination identity check and uncertainty handling.
 Servers may rewrite transfer encodings without changing decoded content;
@@ -312,7 +312,7 @@ encoding, modified UTF-7/UTF-8 mailbox-name conversion, and a storage-independen
 add/change/remove deltas for atomic publication. Unknown FETCH fields retain
 their raw syntax. Validated `Imap.Internal_date.t` values can be requested by
 the `Imap.Fetch_item.Internal_date` item and supplied to
-`Client.append_flow_receipt`; journaled APPEND saves the intended date before
+`Client.append_message`; journaled APPEND saves the intended date before
 the network write. Remote bridge imports set the message file's modification
 time to the server's INTERNALDATE before syncing and publishing it. Local
 uploads use that timestamp in UTC and verify the resulting instant. SQLite
@@ -389,7 +389,7 @@ crash recovery for this case remains a production gate.
 
 
 For atomic multi-message uploads, construct borrowed streams with
-`Imap_eio.Client.append_message` and send them using `Client.append_messages`.
+`Imap_eio.Client.append_message` and send them using `Client.append_many`.
 Multiple messages require MULTIAPPEND. Optional receipt UIDs correspond to input
 order; absent receipts and uncertain outcomes require reconciliation. The API
 streams each literal with bounded buffers and does not journal or replay batches.

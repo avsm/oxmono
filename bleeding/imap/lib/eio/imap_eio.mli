@@ -726,70 +726,72 @@ module Client : sig
       before invoking [callback], closing the connection if the server fell
       back to a different mailbox. *)
 
-  val append_flow : t -> mailbox:string -> ?flags:string list ->
-    ?internal_date:Imap.Internal_date.t ->
-    length:int64 -> _ Eio.Flow.source -> (unit, error) result
-  (** Sends exactly [length] octets. Once the final CRLF is sent, any failure
-      other than a tagged rejection returns [Error.Uncertain], and the caller
-      must reconcile before retrying. An earlier failure keeps its own kind,
-      since the server cannot have run the command, and closes the connection
-      if bytes were sent. The client never replays APPEND automatically. *)
-
   type append_receipt = {
     uidvalidity : Imap.Uidvalidity.t;
     uid : Imap.Uid.t;
   }
-  val append_flow_receipt : t -> mailbox:string -> ?flags:string list ->
-    ?internal_date:Imap.Internal_date.t ->
-    length:int64 -> _ Eio.Flow.source -> (append_receipt option, error) result
-  (** A tagged OK without APPENDUID is successful but has unknown destination
-      identity. [None] must be reconciled before any source deletion. *)
+  (** The RFC 4315 APPENDUID of one stored message. *)
 
-  val append_binary_flow_receipt : t -> mailbox:string -> ?flags:string list ->
-    ?internal_date:Imap.Internal_date.t -> length:int64 -> _ Eio.Flow.source ->
+  type append_message
+  (** One message for [append] or [append_many]. *)
+
+  val append_message :
+    ?flags:Mail_flag.Imap_flag.t list -> ?internal_date:Imap.Internal_date.t ->
+    length:int64 -> _ Eio.Flow.source -> append_message
+  (** [append_message ~length source] is a message of exactly [length]
+      octets read from [source]. [flags] defaults to none and is sent in
+      {!Mail_flag.Imap_flag.to_wire} spelling. [internal_date] is omitted by
+      default, which lets the server choose the INTERNALDATE. [source] is
+      borrowed and must stay usable until the APPEND returns. It is not
+      closed, and bytes after [length] stay unread. *)
+
+  val append : t -> mailbox:string -> ?binary:bool -> append_message ->
     (append_receipt option, error) result
-  (** RFC 3516 literal8 APPEND, gated by explicit BINARY capability; IMAP4rev2
-      alone does not enable it. Uses the same destination identity guard, scoped
-      command lock and uncertainty handling as [append_flow_receipt]. Sends
-      exactly [length] octets and leaves any following source bytes unread. The
-      server may transform content-transfer encodings while preserving decoded
-      content, so the receipt proves UID identity, not stored byte equality. Do
-      not publish the input digest as a canonical archived body: fetch and
-      verify the stored representation first. This low-level operation does not
-      journal or automatically retry. UNKNOWN-CTE is a typed rejection. *)
+  (** [append t ~mailbox message] stores [message] in [mailbox] with one
+      APPEND and is its APPENDUID receipt. [None] is a tagged OK without
+      APPENDUID, whose destination identity is unknown, so reconcile before
+      deleting the source. Use [Result.map ignore] to discard the receipt.
 
-  val append_binary_flow : t -> mailbox:string -> ?flags:string list ->
-    ?internal_date:Imap.Internal_date.t -> length:int64 -> _ Eio.Flow.source ->
-    (unit, error) result
-  (** Binary APPEND without retaining the optional destination UID receipt. *)
+      [binary] defaults to [false]. When [true] the message is an RFC 3516
+      literal8, which requires the BINARY capability even under IMAP4rev2.
+      The server may then transform content-transfer encodings while
+      preserving decoded content, so the receipt proves UID identity and not
+      stored byte equality. Fetch and verify the stored representation
+      before publishing the input digest as an archived body. UNKNOWN-CTE is
+      a typed rejection.
+
+      A mailbox with a pinned OBJECTID+ identity is checked with STATUS
+      before any byte is sent. Negotiated LITERAL-, LITERAL+ or effective
+      IMAP4rev2 permits a non-synchronizing literal up to 4096 octets. Once
+      the final CRLF is sent, any failure other than a tagged rejection is
+      [Error.Uncertain], and the caller must reconcile before retrying. An
+      APPENDUID naming several UIDs is [Error.Uncertain] and closes the
+      connection. An earlier failure keeps its own kind, since the server
+      cannot have run the command, and closes the connection if bytes were
+      sent. The client never replays APPEND. *)
 
   val close : t -> unit
-  type append_message
-  val append_message :
-    ?flags:string list -> ?internal_date:Imap.Internal_date.t ->
-    length:int64 -> _ Eio.Flow.source -> append_message
-  (** [append_message source] describes a borrowed message stream. The source
-      must remain usable until [append_messages] returns; it is not closed. *)
 
   type multiappend_receipt = {
     uidvalidity : Imap.Uidvalidity.t;
     uids : Imap.Uid.t list;
   }
-  val append_messages : t -> mailbox:string -> append_message list ->
+  (** The APPENDUID of an RFC 3502 batch, with [uids] in message order. *)
+
+  val append_many : t -> mailbox:string -> append_message list ->
     (multiappend_receipt option, error) result
-  (** Stream 1..1000 nonempty messages as one RFC 3502 atomic APPEND. Multiple
-      messages require MULTIAPPEND; there is no sequential fallback. Advertised
-      MESSAGELIMIT/SAVELIMIT caps are checked before dispatch. All syntax is
-      validated before dispatch. Each stream supplies exactly its declared
-      length; excess bytes remain unread. Literals use a fixed-size streaming
-      buffer. Negotiated LITERAL-/LITERAL+ or effective IMAP4rev2 permits
-      non-synchronizing literals up to 4096 octets; larger literals remain
-      synchronizing. A rejection aborts the entire batch. Lost completion or
-      invalid receipt returns Uncertain and closes the connection; cancellation
-      also closes it. Receipt UIDs retain message order. None means success
-      without UID evidence. This low-level operation does not journal or
-      automatically replay a batch. *)
-  
+  (** [append_many t ~mailbox messages] streams 1 to 1,000 nonempty
+      messages as one RFC 3502 atomic APPEND. More than one message
+      requires MULTIAPPEND, and there is no sequential fallback. Advertised
+      MESSAGELIMIT and SAVELIMIT caps and all syntax are checked before
+      dispatch. Literals use a fixed-size streaming buffer, and the literal
+      and uncertainty rules of [append] apply. A rejection aborts the whole
+      batch. A lost completion or an APPENDUID that does not name one UID per
+      message is [Error.Uncertain] and closes the connection, and
+      cancellation also closes it. [None] means success without UID
+      evidence. The batch is not journalled or replayed. Binary literals are
+      not supported here. *)
+
   val noop : t -> (Imap.Response.t list, error) result
   (** [noop t] sends a keepalive and returns unsolicited updates in wire order.
       Use between mailbox leases; use [Selected.noop] inside a lease. Updates

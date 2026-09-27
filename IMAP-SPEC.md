@@ -1439,9 +1439,9 @@ unknown codes, codes without text payloads, parameterized authentication-code
 redaction, both APPEND phases, IDLE and typed UNKNOWN-CTE after provisional
 BINARY output.
 
-Binary APPEND now has an explicit literal8 constructor and separate public
-`append_binary_flow_receipt`/`append_binary_flow` entry points. It requires
-advertised BINARY; rev2 alone supplies only the FETCH side of the extension.
+Binary APPEND now has an explicit literal8 constructor, reached through
+`Client.append ~binary:true`. It requires advertised BINARY; rev2 alone
+supplies only the FETCH side of the extension.
 The shared APPEND implementation preserves flags/date validation, destination
 OBJECTID+ guards, command locking, exact input length, unread source suffixes,
 and uncertain/cancelled outcome handling. The server may transform CTE while
@@ -2148,7 +2148,7 @@ bridge-fault cases pass. Log: `/tmp/imap-dotlock-lifetime-final.log`.
 
 ### RFC 3502 MULTIAPPEND checkpoint
 
-`Client.append_message` describes borrowed streams and `Client.append_messages`
+`Client.append_message` describes borrowed streams and `Client.append_many`
 streams 1..1000 nonempty messages with per-message flags and INTERNALDATE under
 one connection lock. Multiple messages require MULTIAPPEND; no sequential
 fallback weakens atomicity. Every argument is validated before APPEND dispatch,

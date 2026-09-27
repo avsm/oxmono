@@ -670,53 +670,8 @@ let non_sync_literal session length =
   length<=4096L && (Session.has session Cap.Literal_minus ||
     Session.has session Cap.Literal_plus)
 
-(* [Imap.Response] bounds APPENDUID values, so a failed conversion means the
-   response contract changed. *)
-let proto_value = function
-  | Ok value -> value
-  | Error message -> raise (Session.Failure (Session.Protocol message))
-
-let append_receipt ~binary t ~mailbox ?flags ?internal_date ~length source =
-  Session.locked t.session (fun () ->
-    if binary then Session.require t.session Cap.Binary;
-    let destination = mailbox in
-    let mailbox = mailbox_wire t.session mailbox in
-    let command=if binary then Imap.Command.append_binary_prefix
-      else Imap.Command.append_prefix in
-    let non_sync=non_sync_literal t.session length in
-    let prefix = syntax (command ~mailbox ~non_sync ?flags
-      ?internal_date ~size:length ()) in
-    check_append_destination t ~mailbox:destination;
-    let completion = Session.append ~synchronizing:(not non_sync) t.session ~prefix ~length source in
-    match completion with
-    | Imap.Response.Tagged {
-        code=Some (Imap.Response.Appenduid (v,u)); _} ->
-        Some {
-          uidvalidity=proto_value (Imap.Uidvalidity.of_int64 v);
-          uid=proto_value (Imap.Uid.of_int64 u)
-        }
-    | Imap.Response.Tagged {code=Some (Imap.Response.Appenduid_set _);_} ->
-        Session.close t.session;
-        raise (Session.Failure (Session.Uncertain
-          "single-message APPEND returned multiple destination UIDs"))
-    | _ -> None)
-
-let append_flow_receipt t ~mailbox ?flags ?internal_date ~length source =
-  append_receipt ~binary:false t ~mailbox ?flags ?internal_date ~length source
-
-let append_binary_flow_receipt t ~mailbox ?flags ?internal_date ~length source =
-  append_receipt ~binary:true t ~mailbox ?flags ?internal_date ~length source
-
-let append_flow t ~mailbox ?flags ?internal_date ~length source =
-  Result.map ignore
-    (append_flow_receipt t ~mailbox ?flags ?internal_date ~length source)
-
-let append_binary_flow t ~mailbox ?flags ?internal_date ~length source =
-  Result.map ignore
-    (append_binary_flow_receipt t ~mailbox ?flags ?internal_date ~length source)
-
 type append_message = {
-  flags : string list;
+  flags : Mail_flag.Imap_flag.t list;
   internal_date : Imap.Internal_date.t option;
   length : int64;
   read : Cstruct.t -> int;
@@ -730,7 +685,79 @@ type multiappend_receipt = {
   uids : Imap.Uid.t list;
 }
 
-let append_messages t ~mailbox messages =
+(* [mailbox] is [Some wire] for the first message of an APPEND and [None]
+   for each MULTIAPPEND continuation. *)
+let append_part t ~binary ~mailbox message =
+  let non_sync=non_sync_literal t.session message.length in
+  let flags=List.map Mail_flag.Imap_flag.to_wire message.flags in
+  let internal_date=message.internal_date and size=message.length in
+  let result=match mailbox with
+    | Some mailbox when binary ->
+        Imap.Command.append_binary_prefix ~mailbox ~non_sync ~flags
+          ?internal_date ~size ()
+    | Some mailbox ->
+        Imap.Command.append_prefix ~mailbox ~non_sync ~flags ?internal_date
+          ~size ()
+    | None ->
+        Imap.Command.append_part_prefix ~non_sync ~flags ?internal_date ~size
+          () in
+  {Session.prefix=syntax result;length=size;read=message.read;
+   synchronizing=not non_sync}
+
+(* An APPENDUID that does not name exactly one UID per message leaves the
+   stored messages unattributable, so the outcome is uncertain. *)
+let appended_uids t ~count completion =
+  let invalid () =
+    Session.close t.session;
+    raise (Session.Failure (Session.Uncertain
+      "APPEND returned invalid UID correspondence")) in
+  let receipt epoch wire =
+    let epoch=match Imap.Uidvalidity.of_int64 epoch with
+      | Ok epoch -> epoch | Error _ -> invalid () in
+    let seen=Hashtbl.create count and result=ref [] and total=ref 0 in
+    let number raw=match Int64.of_string_opt raw with
+      | Some n -> n | None -> invalid () in
+    List.iter (fun item ->
+      let first,last=match String.split_on_char ':' item with
+        | [n] -> let n=number n in n,n
+        | [a;b] -> let a=number a and b=number b in min a b,max a b
+        | _ -> invalid () in
+      let length=Int64.succ (Int64.sub last first) in
+      if length>Int64.of_int (count- !total) then invalid ();
+      let rec add n =
+        if Hashtbl.mem seen n then invalid ();
+        Hashtbl.add seen n ();
+        let uid=match Imap.Uid.of_int64 n with
+          | Ok uid -> uid | Error _ -> invalid () in
+        result:=uid :: !result; incr total;
+        if n<last then add (Int64.succ n) in
+      add first) (String.split_on_char ',' wire);
+    if !total<>count then invalid ();
+    Some {uidvalidity=epoch;uids=List.rev !result} in
+  match completion with
+  | Imap.Response.Tagged
+      {code=Some (Imap.Response.Appenduid (epoch,uid));_} ->
+      receipt epoch (Int64.to_string uid)
+  | Imap.Response.Tagged
+      {code=Some (Imap.Response.Appenduid_set (epoch,wire));_} ->
+      if count=1 then invalid ();
+      receipt epoch wire
+  | _ -> None
+
+let append t ~mailbox ?(binary=false) message =
+  Session.locked t.session (fun () ->
+    if binary then Session.require t.session Cap.Binary;
+    let part=append_part t ~binary
+      ~mailbox:(Some (mailbox_wire t.session mailbox)) message in
+    check_append_destination t ~mailbox;
+    let completion=Session.append_many t.session [part] in
+    Option.map (fun (receipt : multiappend_receipt) ->
+      match receipt.uids with
+      | [uid] -> ({uidvalidity=receipt.uidvalidity;uid} : append_receipt)
+      | _ -> assert false)
+      (appended_uids t ~count:1 completion))
+
+let append_many t ~mailbox messages =
   Session.locked t.session (fun () ->
     let count=List.length messages in
     let state message=raise (Session.Failure (Session.State message)) in
@@ -744,52 +771,16 @@ let append_messages t ~mailbox messages =
           fail (Session.Limit "APPEND batch exceeds advertised message limit")
       | _ -> ())
       [Cap.messagelimit capabilities; Cap.savelimit capabilities];
-    let destination=mailbox in
-    let mailbox=mailbox_wire t.session mailbox in
+    let wire=mailbox_wire t.session mailbox in
     let bytes=ref 0 in
     let parts=List.mapi (fun index message ->
       if message.length<=0L then state "MULTIAPPEND message must be nonempty";
-      let non_sync=non_sync_literal t.session message.length in
-      let result=if index=0 then Imap.Command.append_prefix ~mailbox ~non_sync
-          ~flags:message.flags ?internal_date:message.internal_date ~size:message.length ()
-        else Imap.Command.append_part_prefix ~non_sync ~flags:message.flags
-          ?internal_date:message.internal_date ~size:message.length () in
-      let prefix=syntax result in
-      if String.length prefix>65000 then state "MULTIAPPEND argument exceeds syntax limit";
-      bytes:= !bytes+String.length prefix;
+      let part=append_part t ~binary:false
+        ~mailbox:(if index=0 then Some wire else None) message in
+      let size=String.length part.Session.prefix in
+      if size>65000 then state "MULTIAPPEND argument exceeds syntax limit";
+      bytes:= !bytes+size;
       if !bytes>1_048_576 then state "MULTIAPPEND syntax exceeds 1 MiB";
-      {Session.prefix;length=message.length;read=message.read;synchronizing=not non_sync}) messages in
-    check_append_destination t ~mailbox:destination;
-    let completion=Session.append_many t.session parts in
-    let invalid () =
-      Session.close t.session;
-      raise (Session.Failure (Session.Uncertain "MULTIAPPEND returned invalid UID correspondence")) in
-    let receipt epoch wire =
-      let epoch=match Imap.Uidvalidity.of_int64 epoch with
-        | Ok epoch -> epoch | Error _ -> invalid () in
-      let seen=Hashtbl.create count and result=ref [] and total=ref 0 in
-      let number raw=match Int64.of_string_opt raw with
-        | Some n -> n | None -> invalid () in
-      List.iter (fun item ->
-        let first,last=match String.split_on_char ':' item with
-          | [n] -> let n=number n in n,n
-          | [a;b] -> let a=number a and b=number b in min a b,max a b
-          | _ -> invalid () in
-        let length=Int64.succ (Int64.sub last first) in
-        if length>Int64.of_int (count- !total) then invalid ();
-        let rec add n =
-          if Hashtbl.mem seen n then invalid ();
-          Hashtbl.add seen n ();
-          let uid=match Imap.Uid.of_int64 n with Ok uid -> uid | Error _ -> invalid () in
-          result:=uid :: !result; incr total;
-          if n<last then add (Int64.succ n) in
-        add first) (String.split_on_char ',' wire);
-      if !total<>count then invalid ();
-      Some {uidvalidity=epoch;uids=List.rev !result} in
-    match completion with
-    | Imap.Response.Tagged {code=Some (Imap.Response.Appenduid (epoch,uid));_} ->
-        receipt epoch (Int64.to_string uid)
-    | Imap.Response.Tagged {code=Some (Imap.Response.Appenduid_set (epoch,wire));_} ->
-        if count=1 then invalid ();
-        receipt epoch wire
-    | _ -> None)
+      part) messages in
+    check_append_destination t ~mailbox;
+    appended_uids t ~count (Session.append_many t.session parts))

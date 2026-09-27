@@ -124,9 +124,10 @@ let round_trip () =
     List.iter
       (fun (message : Corpus.message) ->
         unwrap
-          (Client.append_flow client ~mailbox
-             ~length:(Int64.of_int (String.length message.raw))
-             (Eio.Flow.string_source message.raw)))
+          (Result.map ignore (Client.append client ~mailbox
+            (Client.append_message
+               ~length:(Int64.of_int (String.length message.raw))
+               (Eio.Flow.string_source message.raw)))))
       messages;
     if advertised Imap.Capability.List_extended ||
        advertised Imap.Capability.Imap4rev2 then (
@@ -432,9 +433,9 @@ let round_trip () =
     let recovered_bytes = "From: recovery@example.test\r\nSubject: Recovery " ^
       nonce ^ "\r\n\r\nDurable local receipt\r\n" in
     let recovered_length = Int64.of_int (String.length recovered_bytes) in
-    let remote_receipt = match unwrap (Client.append_flow_receipt client
-      ~mailbox ~length:recovered_length
-      (Eio.Flow.string_source recovered_bytes)) with
+    let remote_receipt = match unwrap (Client.append client ~mailbox
+      (Client.append_message ~length:recovered_length
+         (Eio.Flow.string_source recovered_bytes))) with
       | Some receipt -> receipt
       | None -> Alcotest.fail "Cyrus omitted recovery APPENDUID" in
     let recovered_blob = Imap_store.Blob.put store
@@ -619,9 +620,9 @@ let round_trip () =
       uidvalidity=current.uidvalidity;uid=None} in
     Imap_store.prepare_intent store legacy;
     Imap_store.set_intent_state store ~id:ambiguous_id Imap_store.Sent;
-    let ambiguous_receipt=match unwrap (Client.append_flow_receipt client
-      ~mailbox ~length:ambiguous_length
-      (Eio.Flow.string_source ambiguous_bytes)) with
+    let ambiguous_receipt=match unwrap (Client.append client ~mailbox
+      (Client.append_message ~length:ambiguous_length
+         (Eio.Flow.string_source ambiguous_bytes))) with
       | Some receipt -> receipt
       | None -> Alcotest.fail "Cyrus omitted operator APPENDUID" in
     let count_remote () = unwrap (Client.with_mailbox client
@@ -679,9 +680,9 @@ let objectid_round_trip () =
       (Client.capabilities client));
   unwrap (Client.create_mailbox client ~mailbox);
   let raw="From: objectid@example.test\r\nSubject: identity\r\n\r\nExact content\r\n" in
-  let receipt=match unwrap (Client.append_flow_receipt client ~mailbox
-      ~length:(Int64.of_int (String.length raw))
-      (Eio.Flow.string_source raw)) with
+  let receipt=match unwrap (Client.append client ~mailbox
+    (Client.append_message ~length:(Int64.of_int (String.length raw))
+       (Eio.Flow.string_source raw))) with
     | Some receipt -> receipt | None -> Alcotest.fail "missing APPENDUID" in
   let uid=receipt.uid in
   unwrap (Client.with_mailbox client ~mode:`Read_only mailbox

@@ -81,23 +81,24 @@ val append_journaled :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   scope:Imap.Mirror.scope -> mailbox:string -> id:string ->
   message_id:string -> content_digest:string -> spool_ref:string ->
-  ?flags:string list -> ?internal_date:Imap.Internal_date.t ->
+  ?flags:Mail_flag.Imap_flag.t list -> ?internal_date:Imap.Internal_date.t ->
   length:int64 -> _ Eio.Flow.source ->
   (append_outcome, error) result
 (** Commits [Prepared] and [Sent] before sending any APPEND byte. A tagged OK
     without APPENDUID, disconnect, or cancellation leaves a pending journal
     entry for reconciliation; it is never automatically replayed. The caller
     must provide a durable spool reference and verified content digest.
-    An optional validated [internal_date] is saved in the intent before send.
-    A saved OBJECTID+ binding requires OBJECTID+ to be enabled on [client]
-    already, as {!guard_bound_mailbox} does, and a destination whose STATUS
+    An optional validated [internal_date] is saved in the intent before send,
+    as are [flags], which default to none. A saved OBJECTID+ binding
+    requires OBJECTID+ to be enabled on [client] already, as
+    {!guard_bound_mailbox} does, and a destination whose STATUS
     identity differs from it returns [Invalid_scope] before any intent is
     saved. *)
 
 val append_blob_journaled :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   scope:Imap.Mirror.scope -> mailbox:string -> id:string ->
-  message_id:string -> ?flags:string list ->
+  message_id:string -> ?flags:Mail_flag.Imap_flag.t list ->
   ?internal_date:Imap.Internal_date.t -> Imap_store.Blob.blob ->
   (append_outcome, error) result
 (** Verify a content-addressed local blob before sending it through

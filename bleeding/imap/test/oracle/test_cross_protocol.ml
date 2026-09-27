@@ -94,9 +94,11 @@ let test t =
       has uid "UNDELETED";
       keywords id expected;
       let subject,raw=H.message ~body:"IMAP append to JMAP\r\nexact octets\r\n" () in
-      let receipt=some (imap (C.append_flow_receipt client ~mailbox
-        ~flags:["\\Answered";"append-label"] ~length:(Int64.of_int (String.length raw))
-        (Eio.Flow.string_source raw))) in
+      let receipt=some (imap (C.append client ~mailbox
+        (C.append_message ~flags:[Mail_flag.Imap_flag.system Answered;
+             Result.get_ok (Mail_flag.Imap_flag.keyword "append-label")]
+           ~length:(Int64.of_int (String.length raw))
+           (Eio.Flow.string_source raw)))) in
       let id=H.wait_for_email t ~subject () in
       let email=H.email t ~properties:[`Id;`Blob_id;`Mailbox_ids;`Keywords] id in
       let downloaded=jmap (Jmap_eio.Client.download t.H.client

@@ -54,8 +54,10 @@ let test_exact_bytes () =
       let date=match Imap.Internal_date.of_string "12-Jan-2020 12:00:00 +0000" with
         | Ok date -> date | Error message -> failwith message in
       let source=Eio.Flow.string_source "a\000bTRAIL" in
-      (match ok (C.append_binary_flow_receipt client ~mailbox:"INBOX"
-        ~flags:["\\Seen"] ~internal_date:date ~length:3L source) with
+      (match ok (C.append client ~mailbox:"INBOX" ~binary:true
+        (C.append_message ~flags:[Mail_flag.Imap_flag.system Seen]
+           ~internal_date:date ~length:3L
+           source)) with
        | Some receipt when Imap.Uidvalidity.to_int64 receipt.uidvalidity=11L &&
            Imap.Uid.to_int64 receipt.uid=27L -> ()
        | _ -> failwith "binary APPENDUID receipt lost");
@@ -68,13 +70,14 @@ let test_exact_bytes () =
 
 let test_empty_and_no_receipt () =
   with_client [`Return "+ ready\r\n";`Return (done_ 4)] (fun client transport ->
-    if ok (C.append_binary_flow_receipt client ~mailbox:"INBOX" ~length:0L
-      (Eio.Flow.string_source "remaining"))<>None then failwith "missing APPENDUID invented";
+    if ok (C.append client ~mailbox:"INBOX" ~binary:true
+      (C.append_message ~length:0L (Eio.Flow.string_source "remaining")))<>None
+    then failwith "missing APPENDUID invented";
     if Buffer.contents transport.written<>"A00000004 APPEND INBOX ~{0}\r\n\r\n" then
       failwith "empty literal8 framing changed");
   with_client [`Return "+ ready\r\n";`Return (done_ 4)] (fun client _ ->
-    ok (C.append_binary_flow client ~mailbox:"INBOX" ~length:1L
-      (Eio.Flow.string_source "\255")))
+    ok (Result.map ignore (C.append client ~mailbox:"INBOX" ~binary:true
+      (C.append_message ~length:1L (Eio.Flow.string_source "\255")))))
 
 let test_capability_refusal () =
   List.iter (fun caps ->
@@ -84,7 +87,8 @@ let test_capability_refusal () =
       Eio_mock.Flow.on_read source [`Run (fun () -> read:=true; "abc")];
       expect "binary APPEND needs explicit BINARY"
         (unsupported Imap.Capability.Binary)
-        (C.append_binary_flow client ~mailbox:"INBOX" ~length:3L source);
+        (Result.map ignore (C.append client ~mailbox:"INBOX" ~binary:true
+          (C.append_message ~length:3L source)));
       if !read || Buffer.length transport.written<>0 then
         failwith "capability refusal dispatched or read source"))
     ["IMAP4rev1 UIDPLUS";"IMAP4rev2 UIDPLUS"]
@@ -97,7 +101,8 @@ let test_rejection () =
         let source=Eio.Flow.string_source "a\000b" in
         expect "typed UNKNOWN-CTE rejection"
           (function E.Rejected {code=Some R.Unknown_cte;_} -> true | _ -> false)
-          (C.append_binary_flow client ~mailbox:"INBOX" ~length:3L source);
+          (Result.map ignore (C.append client ~mailbox:"INBOX" ~binary:true
+            (C.append_message ~length:3L source)));
         let expected="A00000004 APPEND INBOX ~{3}\r\n" ^
           if after_literal then "a\000b\r\n" else "" in
         if Buffer.contents transport.written<>expected then failwith "rejected APPEND bytes wrong";
@@ -110,7 +115,8 @@ let test_rejection () =
 let test_source_failures () =
   with_client [`Return "+ ready\r\n"] (fun client transport ->
     expect "truncated source is a known failure" state
-      (C.append_binary_flow client ~mailbox:"INBOX" ~length:3L (Eio.Flow.string_source "a"));
+      (Result.map ignore (C.append client ~mailbox:"INBOX" ~binary:true
+        (C.append_message ~length:3L (Eio.Flow.string_source "a"))));
     if C.is_open client || not transport.closed then failwith "truncated APPEND stayed open";
     if Buffer.contents transport.written<>"A00000004 APPEND INBOX ~{3}\r\na" then
       failwith "truncated APPEND replayed or added bytes");
@@ -118,13 +124,15 @@ let test_source_failures () =
     let source=Eio_mock.Flow.make "failed-binary-source" in
     Eio_mock.Flow.on_read source [`Raise (Failure "synthetic source failure")];
     expect "source exception is a known failure" state
-      (C.append_binary_flow client ~mailbox:"INBOX" ~length:3L source);
+      (Result.map ignore (C.append client ~mailbox:"INBOX" ~binary:true
+        (C.append_message ~length:3L source)));
     if C.is_open client || not transport.closed then failwith "failed source stayed open";
     if Buffer.contents transport.written<>"A00000004 APPEND INBOX ~{3}\r\n" then
       failwith "source failure triggered a replay");
   with_client [`Return "+ ready\r\n";`Raise End_of_file] (fun client transport ->
     expect "lost APPEND completion is uncertain" uncertain
-      (C.append_binary_flow client ~mailbox:"INBOX" ~length:3L (Eio.Flow.string_source "a\000b"));
+      (Result.map ignore (C.append client ~mailbox:"INBOX" ~binary:true
+        (C.append_message ~length:3L (Eio.Flow.string_source "a\000b"))));
     if C.is_open client || not transport.closed then failwith "lost completion stayed open";
     if Buffer.contents transport.written<>"A00000004 APPEND INBOX ~{3}\r\na\000b\r\n" then
       failwith "lost completion triggered a replay")
@@ -137,7 +145,8 @@ let test_cancelled_source () =
       `Return "a";
       `Run (fun () -> Eio.Promise.resolve mark_entered (); Eio.Fiber.await_cancel ())];
     Eio.Fiber.first
-      (fun () -> ignore (C.append_binary_flow client ~mailbox:"INBOX" ~length:3L source))
+      (fun () -> ignore (C.append client ~mailbox:"INBOX" ~binary:true
+        (C.append_message ~length:3L source)))
       (fun () -> Eio.Promise.await entered);
     if C.is_open client || not transport.closed then failwith "cancelled APPEND stayed open";
     if Buffer.contents transport.written<>"A00000004 APPEND INBOX ~{3}\r\na" then
@@ -147,10 +156,10 @@ let test_multi_uid_receipt () =
   List.iter (fun binary ->
     with_client [`Return "+ ready\r\n";
       `Return "A00000004 OK [APPENDUID 11 27:28] appended\r\n"] (fun client transport ->
-      let result=if binary then C.append_binary_flow_receipt client
-          ~mailbox:"INBOX" ~length:1L (Eio.Flow.string_source "x")
-        else C.append_flow_receipt client ~mailbox:"INBOX" ~length:1L
-          (Eio.Flow.string_source "x") in
+      let result=if binary then C.append client ~mailbox:"INBOX" ~binary:true
+        (C.append_message ~length:1L (Eio.Flow.string_source "x"))
+        else C.append client ~mailbox:"INBOX"
+          (C.append_message ~length:1L (Eio.Flow.string_source "x")) in
       expect "multiple UIDs for one APPEND is uncertain" uncertain result;
       if C.is_open client || not transport.closed then failwith "ambiguous APPENDUID stayed open"))
     [false;true]

@@ -22,6 +22,8 @@ let u n = match Imap.Uid.of_int64 n with
   | Ok uid -> uid | Error e -> Alcotest.fail e
 let raw_uids = List.map Imap.Uid.to_int64
 let wires = List.map Mail_flag.Imap_flag.to_wire
+let flag_of_wire name = match Mail_flag.Imap_flag.of_wire name with
+  | Ok flag -> flag | Error message -> Alcotest.fail message
 
 let mtime date = match Local_date.to_mtime date with
   | Ok mtime -> mtime | Error message -> Alcotest.fail message
@@ -143,9 +145,10 @@ let test_binary_append () =
     "Content-Transfer-Encoding: binary\r\n\r\n" ^ decoded in
   let date=match Imap.Internal_date.of_string "26-Sep-2025 12:34:56 +0230" with
     | Ok date -> date | Error message -> Alcotest.fail message in
-  let receipt=match unwrap (Imap_eio.Client.append_binary_flow_receipt client
-    ~mailbox ~flags:["\\Flagged"] ~internal_date:date
-    ~length:(Int64.of_int (String.length raw)) (Eio.Flow.string_source raw)) with
+  let receipt=match unwrap (Imap_eio.Client.append client ~mailbox ~binary:true
+    (Imap_eio.Client.append_message ~flags:[flag_of_wire "\\Flagged"]
+       ~internal_date:date ~length:(Int64.of_int (String.length raw))
+       (Eio.Flow.string_source raw))) with
     | Some receipt -> receipt | None -> Alcotest.fail "binary APPEND omitted APPENDUID" in
   let uid=receipt.uid in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
@@ -193,8 +196,9 @@ let test_rejection_codes () =
     (Imap_eio.Client.with_mailbox client ~mode:`Read_only missing
       (fun _ -> Alcotest.fail "missing selection invoked callback"));
   rejected Imap.Response.Trycreate
-    (Imap_eio.Client.append_flow client ~mailbox:missing ~length:1L
-      (Eio.Flow.string_source "x"));
+    (Result.map ignore (Imap_eio.Client.append client ~mailbox:missing
+      (Imap_eio.Client.append_message ~length:1L
+         (Eio.Flow.string_source "x"))));
   let boxes=unwrap (Imap_eio.Client.list client ~pattern:mailbox ()) in
   Alcotest.(check bool) "connection usable after typed rejections" true
     (List.exists (fun (row:Imap_eio.Client.mailbox_entry) ->
@@ -219,8 +223,10 @@ let test_binary_sections () =
     "--oxbinary\r\nContent-Type: application/octet-stream\r\n" ^
     "Content-Transfer-Encoding: base64\r\n\r\nAP9oZWxsbw0KYmluYXJ5gGVuZA==\r\n" ^
     "--oxbinary--\r\n" in
-  let uid=match unwrap (Imap_eio.Client.append_flow_receipt client ~mailbox
-    ~length:(Int64.of_int (String.length raw)) (Eio.Flow.string_source raw)) with
+  let uid=match unwrap (Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message
+       ~length:(Int64.of_int (String.length raw))
+       (Eio.Flow.string_source raw))) with
     | Some receipt -> receipt.uid
     | None -> Alcotest.fail "BINARY fixture requires APPENDUID" in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
@@ -283,8 +289,10 @@ let test_saved_search () =
   let append subject =
     let body="From: saved@example.test\r\nSubject: " ^ subject ^
       "\r\n\r\nSynthetic saved-search body\r\n" in
-    match unwrap (Imap_eio.Client.append_flow_receipt client ~mailbox:source
-      ~length:(Int64.of_int (String.length body)) (Eio.Flow.string_source body)) with
+    match unwrap (Imap_eio.Client.append client ~mailbox:source
+      (Imap_eio.Client.append_message
+         ~length:(Int64.of_int (String.length body))
+         (Eio.Flow.string_source body))) with
     | Some receipt -> Imap.Uid.to_int64 receipt.uid
     | None -> Alcotest.fail "SEARCHRES fixture requires APPENDUID" in
   let first=append "selected-first" in
@@ -381,9 +389,10 @@ let test_sort_thread () =
     let body=Printf.sprintf
       "From: sender@example.test\r\nTo: recipient@example.test\r\nMessage-ID: <%s@example.test>\r\nDate: %02d Jan 2020 12:00:00 +0000\r\nSubject: %s\r\n%s\r\nSynthetic body %s\r\n"
       id day subject refs id in
-    match unwrap (Imap_eio.Client.append_flow_receipt client ~mailbox
-        ~length:(Int64.of_int (String.length body))
-        (Eio.Flow.string_source body)) with
+    match unwrap (Imap_eio.Client.append client ~mailbox
+      (Imap_eio.Client.append_message
+         ~length:(Int64.of_int (String.length body))
+         (Eio.Flow.string_source body))) with
     | Some receipt -> receipt.uid
     | None -> Alcotest.fail "SORT fixture requires APPENDUID" in
   let removed=append ~id:"removed" ~subject:"Removed" ~day:1 () in
@@ -471,10 +480,10 @@ let test_internal_date_roundtrip () =
     "26-Sep-2025 12:34:56 +0000" with
     | Ok date -> date | Error e -> Alcotest.fail e in
   let message="From: date@example.test\r\nSubject: date\r\n\r\nBody\r\n" in
-  let receipt=match unwrap (Imap_eio.Client.append_flow_receipt client
-    ~mailbox ~internal_date:date
-    ~length:(Int64.of_int (String.length message))
-    (Eio.Flow.string_source message)) with
+  let receipt=match unwrap (Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message ~internal_date:date
+       ~length:(Int64.of_int (String.length message))
+       (Eio.Flow.string_source message))) with
     | Some receipt -> receipt
     | None -> Alcotest.fail "Dovecot omitted APPENDUID" in
   let uid=receipt.uid in
@@ -524,9 +533,10 @@ let test_typed_mime_fetch () =
     "--oxmono-boundary--";
     "";
   ] in
-  let receipt=match unwrap (Imap_eio.Client.append_flow_receipt client
-    ~mailbox ~length:(Int64.of_int (String.length message))
-    (Eio.Flow.string_source message)) with
+  let receipt=match unwrap (Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message
+       ~length:(Int64.of_int (String.length message))
+       (Eio.Flow.string_source message))) with
     | Some receipt -> receipt
     | None -> Alcotest.fail "Dovecot omitted MIME APPENDUID" in
   let uid=receipt.uid in
@@ -588,8 +598,10 @@ let test_compress () =
       let raw="From: compress@example.test\r\nSubject: compressed literal\r\n\r\n" ^
         String.concat "" (List.init 16384 (fun _ ->
           "Repeated data across compressed APPEND and FETCH chunks.\r\n")) in
-      let receipt=match unwrap (Imap_eio.Client.append_flow_receipt client
-        ~mailbox ~length:(Int64.of_int (String.length raw)) (Eio.Flow.string_source raw)) with
+      let receipt=match unwrap (Imap_eio.Client.append client ~mailbox
+        (Imap_eio.Client.append_message
+           ~length:(Int64.of_int (String.length raw))
+           (Eio.Flow.string_source raw))) with
         | Some receipt -> receipt | None -> Alcotest.fail "compressed APPEND omitted UID" in
       let uid=receipt.uid in
       unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox
@@ -699,9 +711,10 @@ let test_condstore_move_expunge () =
       let raw = "From: fixture@example.test\r\nSubject: " ^ subject ^
         "\r\nMessage-ID: <" ^ nonce ^ "-" ^ subject ^
         "@example.test>\r\n\r\nSynthetic body.\r\n" in
-      unwrap (Imap_eio.Client.append_flow client ~mailbox:source
-        ~length:(Int64.of_int (String.length raw))
-        (Eio.Flow.string_source raw)) in
+      unwrap (Result.map ignore (Imap_eio.Client.append client ~mailbox:source
+        (Imap_eio.Client.append_message
+           ~length:(Int64.of_int (String.length raw))
+           (Eio.Flow.string_source raw)))) in
     append "move";
     append "expunge";
     let check_source selected =
@@ -802,9 +815,11 @@ let test_idle ~compress () =
             Eio.Time.sleep clock 0.2;
             let raw = "From: fixture@example.test\r\nSubject: idle " ^
               nonce ^ "\r\n\r\nWake up.\r\n" in
-            unwrap (Imap_eio.Client.append_flow writer_client
-              ~mailbox ~length:(Int64.of_int (String.length raw))
-              (Eio.Flow.string_source raw))) in
+            unwrap (Result.map ignore (Imap_eio.Client.append writer_client
+              ~mailbox
+              (Imap_eio.Client.append_message
+                 ~length:(Int64.of_int (String.length raw))
+                 (Eio.Flow.string_source raw))))) in
           let result = Imap_eio.Selected.wait_for_change selected in
           Eio.Promise.await_exn writer;
           result))) in
@@ -860,9 +875,10 @@ let test_durable_watch ~gap () =
       let write () =
         let raw="From: fixture@example.test\r\nSubject: watch " ^
           nonce ^ "\r\n\r\nWake up.\r\n" in
-        unwrap (Imap_eio.Client.append_flow writer ~mailbox
-          ~length:(Int64.of_int (String.length raw))
-          (Eio.Flow.string_source raw)) in
+        unwrap (Result.map ignore (Imap_eio.Client.append writer ~mailbox
+          (Imap_eio.Client.append_message
+             ~length:(Int64.of_int (String.length raw))
+             (Eio.Flow.string_source raw)))) in
       if gap then write ()
       else Eio.Fiber.fork ~sw (fun () ->
         Eio.Time.sleep clock 0.2;
@@ -906,10 +922,10 @@ let test_bridge_cram () =
   let local_date=parse_date " 2-Jan-2024 03:04:05 -0700" in
   let raw="From: dovecot@example.test\r\nSubject: bridge " ^ nonce ^
     "\r\n\r\nRemote original\r\n" in
-  unwrap (Imap_eio.Client.append_flow client ~mailbox
-    ~internal_date:remote_date
-    ~length:(Int64.of_int (String.length raw))
-    (Eio.Flow.string_source raw));
+  unwrap (Result.map ignore (Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message ~internal_date:remote_date
+       ~length:(Int64.of_int (String.length raw))
+       (Eio.Flow.string_source raw))));
   let mode=Imap_eio.Client.mailbox_mode client in
   let raw_name=match Imap.Mailbox_name.encode ~mode mailbox with
     | Ok raw_name -> raw_name | Error e -> Alcotest.fail e in
@@ -1258,9 +1274,10 @@ let test_shared_mailbox_bootstrap () =
   unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw="From: bootstrap@example.test\r\nSubject: same " ^ nonce ^
     "\r\n\r\nIdentical on both sides\r\n" in
-  unwrap (Imap_eio.Client.append_flow client ~mailbox
-    ~length:(Int64.of_int (String.length raw))
-    (Eio.Flow.string_source raw));
+  unwrap (Result.map ignore (Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message
+       ~length:(Int64.of_int (String.length raw))
+       (Eio.Flow.string_source raw))));
   let scope=dovecot_scope client mailbox in
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
@@ -1356,9 +1373,9 @@ let append_crash_child dbfile mailbox local_id id =
   Imap_store.set_intent_state store ~id Imap_store.Sent;
   let receipt=Eio.Switch.run @@ fun source_sw ->
     let source=Imap_store.Blob.open_in store ~sw:source_sw blob in
-    unwrap (Imap_eio.Client.append_flow_receipt client ~mailbox
-      ~internal_date:(append_crash_date ())
-      ~length:blob.length source) in
+    unwrap (Imap_eio.Client.append client ~mailbox
+      (Imap_eio.Client.append_message
+         ~internal_date:(append_crash_date ()) ~length:blob.length source)) in
   let receipt=match receipt with
     | Some receipt -> receipt
     | None -> Alcotest.fail "Dovecot omitted APPENDUID" in
@@ -1468,16 +1485,16 @@ let test_append_process_crash () =
     let different_instant=match Imap.Internal_date.of_string
       "26-Sep-2025 12:34:57 +0000" with
       | Ok date -> date | Error e -> Alcotest.fail e in
-    let extra=match unwrap (Imap_eio.Client.append_flow_receipt client
-      ~mailbox ~internal_date:same_instant
-      ~length:(Int64.of_int (String.length raw))
-      (Eio.Flow.string_source raw)) with
+    let extra=match unwrap (Imap_eio.Client.append client ~mailbox
+      (Imap_eio.Client.append_message ~internal_date:same_instant
+         ~length:(Int64.of_int (String.length raw))
+         (Eio.Flow.string_source raw))) with
       | Some receipt -> receipt.uid
       | None -> Alcotest.fail "Dovecot omitted duplicate APPENDUID" in
-    let wrong_date=match unwrap (Imap_eio.Client.append_flow_receipt client
-      ~mailbox ~internal_date:different_instant
-      ~length:(Int64.of_int (String.length raw))
-      (Eio.Flow.string_source raw)) with
+    let wrong_date=match unwrap (Imap_eio.Client.append client ~mailbox
+      (Imap_eio.Client.append_message ~internal_date:different_instant
+         ~length:(Int64.of_int (String.length raw))
+         (Eio.Flow.string_source raw))) with
       | Some receipt -> receipt.uid
       | None -> Alcotest.fail "Dovecot omitted other-date APPENDUID" in
     (match Imap_sync.Bridge.inspect_append_candidates ~max_uids:1
@@ -1617,9 +1634,10 @@ let test_delete_process_crash () =
     " " ^ nonce ^ "\r\n\r\nKeep identities distinct.\r\n" in
   List.iter (fun subject ->
     let bytes=raw subject in
-    unwrap (Imap_eio.Client.append_flow client ~mailbox
-      ~length:(Int64.of_int (String.length bytes))
-      (Eio.Flow.string_source bytes))) ["target";"unrelated"];
+    unwrap (Result.map ignore (Imap_eio.Client.append client ~mailbox
+      (Imap_eio.Client.append_message
+         ~length:(Int64.of_int (String.length bytes))
+         (Eio.Flow.string_source bytes))))) ["target";"unrelated"];
   let scope=dovecot_scope client mailbox in
   let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let open_store store_sw=Imap_store.open_path ~sw:store_sw
@@ -1740,8 +1758,10 @@ let test_flags_recovery () =
   let internal_date=match Imap.Internal_date.of_string
       "12-Jan-2020 12:00:00 +0000" with
     | Ok date -> date | Error message -> Alcotest.fail message in
-  unwrap (Imap_eio.Client.append_flow client ~mailbox ~internal_date
-    ~length:(Int64.of_int (String.length raw)) (Eio.Flow.string_source raw));
+  unwrap (Result.map ignore (Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message ~internal_date
+       ~length:(Int64.of_int (String.length raw))
+       (Eio.Flow.string_source raw))));
   let scope=dovecot_scope client mailbox in
   let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
   let open_store store_sw=Imap_store.open_path ~sw:store_sw
@@ -1926,9 +1946,10 @@ let test_operator_local_delete_repair () =
   unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw="From: repair@example.test\r\nSubject: local repair " ^ nonce ^
     "\r\n\r\nUnchanged local survivor\r\n" in
-  unwrap (Imap_eio.Client.append_flow client ~mailbox
-    ~length:(Int64.of_int (String.length raw))
-    (Eio.Flow.string_source raw));
+  unwrap (Result.map ignore (Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message
+       ~length:(Int64.of_int (String.length raw))
+       (Eio.Flow.string_source raw))));
   let scope=dovecot_scope client mailbox in
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
@@ -2035,9 +2056,10 @@ let test_operator_local_append_repair () =
   let date=match Imap.Internal_date.of_string
     "26-Sep-2025 12:34:56 +0000" with
     | Ok value -> value | Error error -> Alcotest.fail error in
-  let receipt=match unwrap (Imap_eio.Client.append_flow_receipt client
-      ~mailbox ~internal_date:date ~length:(Int64.of_int (String.length raw))
-      (Eio.Flow.string_source raw)) with
+  let receipt=match unwrap (Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message ~internal_date:date
+       ~length:(Int64.of_int (String.length raw))
+       (Eio.Flow.string_source raw))) with
     | Some value -> value | None -> Alcotest.fail "missing APPENDUID" in
   let scope=dovecot_scope client mailbox in
   Eio.Switch.run @@ fun store_sw ->
@@ -2140,9 +2162,10 @@ let test_deletion_grace_live () =
   unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw="From: grace@example.test\r\nSubject: grace " ^ nonce ^
     "\r\n\r\nOriginal body\r\n" in
-  unwrap (Imap_eio.Client.append_flow client ~mailbox
-    ~length:(Int64.of_int (String.length raw))
-    (Eio.Flow.string_source raw));
+  unwrap (Result.map ignore (Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message
+       ~length:(Int64.of_int (String.length raw))
+       (Eio.Flow.string_source raw))));
   let scope=dovecot_scope client mailbox in
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
@@ -2248,9 +2271,10 @@ let test_reject_unchanged_remote_delete () =
   unwrap (Imap_eio.Client.create_mailbox client ~mailbox);
   let raw="From: reject@example.test\r\nSubject: delete " ^ nonce ^
     "\r\n\r\nOriginal remote body\r\n" in
-  unwrap (Imap_eio.Client.append_flow client ~mailbox
-    ~length:(Int64.of_int (String.length raw))
-    (Eio.Flow.string_source raw));
+  unwrap (Result.map ignore (Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message
+       ~length:(Int64.of_int (String.length raw))
+       (Eio.Flow.string_source raw))));
   let scope=dovecot_scope client mailbox in
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
@@ -2409,9 +2433,10 @@ let test_bounded_hydration () =
   let append subject =
     let raw="From: hydrate@example.test\r\nSubject: " ^ subject ^
       "\r\n\r\nExact body " ^ nonce ^ "\r\n" in
-    let receipt=unwrap (Imap_eio.Client.append_flow_receipt client
-      ~mailbox ~length:(Int64.of_int (String.length raw))
-      (Eio.Flow.string_source raw)) in
+    let receipt=unwrap (Imap_eio.Client.append client ~mailbox
+      (Imap_eio.Client.append_message
+         ~length:(Int64.of_int (String.length raw))
+         (Eio.Flow.string_source raw))) in
     (Option.get receipt,raw) in
   let first,raw_first=append "first" in
   let second,raw_second=append "second" in
@@ -2585,8 +2610,9 @@ let test_multiappend () =
       let flags=[["\\Seen";"batch-keyword"];["\\Flagged"]] in
       let messages=List.map2 (fun body flags ->
         Imap_eio.Client.append_message ~length:(Int64.of_int (String.length body))
-          ~flags ~internal_date:date (Eio.Flow.string_source body)) bodies flags in
-      let receipt=match unwrap (Imap_eio.Client.append_messages client ~mailbox messages) with
+          ~flags:(List.map flag_of_wire flags) ~internal_date:date
+          (Eio.Flow.string_source body)) bodies flags in
+      let receipt=match unwrap (Imap_eio.Client.append_many client ~mailbox messages) with
         | Some receipt -> receipt | None -> Alcotest.fail "Dovecot omitted batch UID receipt" in
       if List.length receipt.uids<>2 then Alcotest.fail "wrong batch UID cardinality";
       unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_only mailbox (fun selected ->

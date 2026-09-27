@@ -509,16 +509,7 @@ let append_journaled ~client ~store ~scope ~mailbox ~id ~message_id
     ~content_digest ~spool_ref ?flags ?internal_date ~length source =
   let* () = validate_scope ~client ~scope ~mailbox in
   let* ()=verify_mutation_destination ~client ~store ~scope ~mailbox in
-  let* expected_flags = match flags with
-    | None -> Ok (Some [])
-    | Some flags ->
-        let rec parse acc = function
-          | [] -> Ok (Some (List.rev acc))
-          | flag :: rest ->
-              let* parsed = validation (fun s -> Incomplete s)
-                (Mail_flag.Imap_flag.of_wire flag) in
-              parse (parsed :: acc) rest
-        in parse [] flags in
+  let expected_flags = Some (Option.value ~default:[] flags) in
   let current = Imap_store.load_cursor store ~scope in
   let intent : Imap_store.intent = {
     id; scope; state=Imap_store.Prepared;
@@ -533,8 +524,8 @@ let append_journaled ~client ~store ~scope ~mailbox ~id ~message_id
   (* Sent is durable before the first network write. A crash between this
      transition and the write is conservatively ambiguous on restart. *)
   Imap_store.set_intent_state store ~id Imap_store.Sent;
-  match Imap_eio.Client.append_flow_receipt client ~mailbox ?flags
-    ?internal_date ~length source with
+  match Imap_eio.Client.append client ~mailbox
+    (Imap_eio.Client.append_message ?flags ?internal_date ~length source) with
   | Ok (Some receipt) ->
       Imap_store.confirm_intent store ~id
         ~uidvalidity:(Some receipt.uidvalidity) ~uid:(Some receipt.uid);

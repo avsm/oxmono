@@ -125,8 +125,9 @@ let run mode size = Eio_main.run (fun io ->
       let append=measurement () in
       let source={Source.length;count=0;m=append;hash=Digestif.SHA256.empty;
                   random=Random.State.make [|0x1a2b;42|]} in
-      let receipt=match ok (Imap_eio.Client.append_flow_receipt client ~mailbox
-        ~length:(Int64.of_int length) (Eio.Resource.T (source,source_handler))) with
+      let receipt=match ok (Imap_eio.Client.append client ~mailbox
+        (Imap_eio.Client.append_message ~length:(Int64.of_int length)
+           (Eio.Resource.T (source,source_handler)))) with
         | Some receipt -> receipt | None -> failwith "missing APPENDUID" in
       sample append max_int;
       report mode size "append" append;

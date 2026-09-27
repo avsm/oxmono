@@ -229,10 +229,8 @@ let copy_local_to_remote ~client:remote_client ~store ~maildir
     ~blob ~flags in
   J.prepare_operation ~local_source_mtime:local.mtime store intent;
   J.mark_sent store ~id;
-  let flag_wires=List.map F.to_wire flags in
   match Engine.append_blob_journaled ~client:remote_client ~store
-      ~scope ~mailbox ~id ~message_id:id ~flags:flag_wires
-      ~internal_date blob with
+      ~scope ~mailbox ~id ~message_id:id ~flags ~internal_date blob with
   | Ok (Engine.Identified receipt) ->
       J.observe_operation store ~id ~receipt:"APPENDUID"
         ~destination_uidvalidity:(Some receipt.uidvalidity)

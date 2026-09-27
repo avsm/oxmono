@@ -1,135 +1,254 @@
-(** Durable mailbox snapshots and operation intents backed by SQLite.
+(** Durable IMAP mailbox snapshots, sync journal and message blobs.
 
-    A store serializes access through one Eio mutex. It sets WAL and
-    [synchronous=FULL], and publishes a cursor and full UID snapshot in one
-    [BEGIN IMMEDIATE] transaction. SQLite durability also depends on the
-    filesystem and its flush guarantees. Do not share a database file on an
-    unsupported network filesystem. *)
+    A store is one SQLite database and, when one is given, a directory of
+    message blobs. One Eio mutex per store serializes its operations, and
+    every write commits in one transaction, so a call that raises leaves
+    the database unchanged. {!open_path} runs the database in WAL mode with
+    [synchronous=FULL] and refuses one where either cannot be set, so a
+    committed write survives a crash as far as the filesystem honours
+    flushes. A database on a network filesystem that SQLite does not
+    support is unsafe. A call waits up to 5 seconds for a lock another
+    process holds before it raises [Sqlite3.SqliteError].
+
+    Publication is compare-and-swap. A write that depends on a published
+    cursor or a pair names the revision it read and is [`Stale_revision],
+    with nothing changed, once that revision has moved on. A snapshot is
+    published whole in one transaction. Intents and operations are
+    journaled before their commands are sent and are never replayed. After
+    a crash they stay pending until the caller reconciles them.
+
+    A scope names a mailbox by endpoint, account and mailbox key, which
+    key the stored rows, and also carries its raw name, encoding and
+    mailbox ID. A check against the full scope compares all six.
+
+    Unless a value says otherwise, a SQLite failure raises
+    [Sqlite3.SqliteError], a stored row that cannot be decoded raises
+    [Failure], and a blob I/O failure raises [Eio.Io]. *)
+
+(** {1 Stores} *)
 
 type t
+(** The type for open stores. *)
 
 exception Scope_mismatch
 (** Raised by {!load_cursor} when the stored cursor for the scope's
-    endpoint, account and mailbox key names a different raw name, encoding
-    or mailbox ID than the requested scope. *)
+    endpoint, account and mailbox key names another raw name, encoding or
+    mailbox ID. *)
 
 val open_path : sw:Eio.Switch.t -> ?blob_dir:_ Eio.Path.t -> _ Eio.Path.t -> t
-(** Opens or creates a versioned database. [blob_dir], when supplied, must
-    already exist on a native filesystem and be controlled by this process.
-    Raises on incompatible schema. *)
+(** [open_path ~sw ~blob_dir path] opens the database at [path] for reading
+    and writing, creating it when absent and migrating an older schema to
+    the current one, and is the store, which [sw] owns. [blob_dir] is
+    omitted by default, and then the {!Blob} operations that touch files
+    raise [Invalid_argument]. When given it is an existing directory on a
+    native filesystem.
+
+    @raise Invalid_argument if [blob_dir] is not an existing directory or
+    has no native path.
+
+    @raise Eio.Io if [path] cannot be opened.
+
+    @raise Failure if the schema is newer than this library or invalid, if
+    the database has tables but no schema version, or if WAL mode,
+    [synchronous=FULL] or foreign keys cannot be enabled. *)
 
 val open_readonly : sw:Eio.Switch.t -> _ Eio.Path.t -> t
-(** Opens an existing version-8 through version-13 database with SQLite's
-    [READONLY] flag and validates its schema. This never creates, migrates, or
-    changes the database, and no blob directory is opened. Missing or
-    incompatible databases raise. Reading a live WAL database may require an
-    existing readable [-wal] and [-shm] pair, or a writable containing directory
-    so SQLite can create [-shm]; for a strict no-file-write inspection, inspect
-    a checkpointed database or a snapshot that includes those sidecars. *)
+(** [open_readonly ~sw path] opens the existing database at [path] with
+    SQLite's read-only flag, validates its schema, and is the store, which
+    [sw] owns. It never creates, migrates or changes the database, and
+    opens no blob directory. An older database opens when this library can
+    still validate its schema, and a value that needs a newer schema then
+    reads as absent, as that value states. Reading a live WAL database
+    needs readable [-wal] and [-shm] files, or a writable containing
+    directory where SQLite can create [-shm]. An inspection that must write
+    no file reads a checkpointed database or a copy that includes those
+    files.
+
+    @raise Eio.Io if [path] cannot be opened.
+
+    @raise Failure if the schema is too old to validate, newer than this
+    library, or invalid. *)
+
+(** {1 Mailbox identity} *)
 
 type object_identity = { account_id:string; mailbox_id:string }
+(** The type for OBJECTID+ identities, the server's account and mailbox
+    identifiers of a mailbox. *)
 
 val object_identity : t -> scope:Imap.Mirror.scope ->
   [ `Bound of object_identity | `Unbound | `Conflict ]
-(** [object_identity t ~scope] is the verified OBJECTID+ binding of
-    [scope]. It is [`Unbound] for an unbound mailbox or a read-only pre-v12
-    database, and [`Conflict] when the binding was made under another raw
-    name or encoding, as {!observe_object_identity} reports it. *)
+(** [object_identity t ~scope] is the OBJECTID+ identity bound to [scope].
+    It is [`Unbound] when none is bound or [t] is an older database opened
+    with {!open_readonly}, and [`Conflict] when the binding was made under
+    another raw name or encoding. *)
 
 val observe_object_identity : t -> scope:Imap.Mirror.scope ->
   object_identity -> [ `Bound | `Matched | `Conflict ]
-(** Atomically bind the first verified account/mailbox identity. A different
-    identity for the logical scope, or one already bound to another logical
-    scope on the same endpoint/account, returns [Conflict] without changing
-    state. Invalid draft identifiers raise [Invalid_argument]. *)
+(** [observe_object_identity t ~scope identity] binds [identity] to
+    [scope] when [scope] has no binding, and is [`Bound]. It is [`Matched]
+    when [scope] is already bound to [identity]. It is [`Conflict], with
+    nothing changed, when [scope] is bound to another identity or under
+    another raw name or encoding, or when another mailbox key of the same
+    endpoint and account holds [identity].
+
+    @raise Invalid_argument if an identifier of [identity] is empty, longer
+    than 255 bytes, or holds a byte other than an ASCII letter, a digit,
+    [_] or [-]. *)
+
+(** {1 Cursors and snapshots} *)
 
 val load_cursor : t -> scope:Imap.Mirror.scope -> Imap.Mirror.cursor
-(** [load_cursor t ~scope] is the stored cursor for [scope]. A missing
-    mailbox yields [Mirror.initial scope]. A mismatched stored scope raises
-    {!Scope_mismatch}, and a corrupt row raises [Failure]. *)
+(** [load_cursor t ~scope] is the published cursor of [scope], or
+    [Imap.Mirror.initial scope] when nothing is published.
+
+    @raise Scope_mismatch if the stored cursor names another raw name,
+    encoding or mailbox ID than [scope]. *)
 
 val snapshot_page : t -> scope:Imap.Mirror.scope ->
   cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
   limit:int -> unit -> [ `Rows of Imap.Mirror.row list | `Stale_revision ]
-(** Page the current published epoch by UID. The caller's cursor revision,
-    UIDVALIDITY and full scope must still match inside the read transaction,
-    or the result is [`Stale_revision]. [limit] is 1..10,000. A new mailbox
-    yields an empty page. A [cursor] for another scope or a [limit] out of
-    range raises [Invalid_argument]. *)
+(** [snapshot_page t ~scope ~cursor ~after_uid ~limit ()] is at most
+    [limit] rows of the published snapshot of [scope] with UIDs above
+    [after_uid], in ascending UID order. [after_uid] is omitted by default,
+    which starts at the lowest UID. The page is read in one transaction
+    that checks that [cursor] is still current, with the stored revision,
+    UIDVALIDITY and full scope, and is [`Stale_revision] otherwise. A
+    cursor without a UIDVALIDITY yields an empty page.
+
+    @raise Invalid_argument if [cursor] is for another scope or [limit] is
+    outside 1 to 10,000. *)
 
 val snapshot_contains_uid : t -> scope:Imap.Mirror.scope ->
   cursor:Imap.Mirror.cursor -> uid:Imap.Uid.t ->
   [ `Present of bool | `Stale_revision ]
-(** Indexed membership check against the same published revision, epoch
-    and full scope, or [`Stale_revision]. A complete published inventory is
-    required before treating absence as deletion evidence. A [cursor] for
-    another scope raises [Invalid_argument]. *)
+(** [snapshot_contains_uid t ~scope ~cursor ~uid] is [`Present b], where
+    [b] holds when [uid] is in the published snapshot of [scope], with
+    [cursor] checked as in {!snapshot_page}. A cursor without a
+    UIDVALIDITY reports every UID absent, so absence is deletion evidence
+    only under a published cursor.
+
+    @raise Invalid_argument if [cursor] is for another scope. *)
+
+(** {1 Scan stages and publication}
+
+    A scan fills a stage with FETCH windows, then confirms membership with
+    SEARCH windows, and {!publish_stage} replaces the published snapshot
+    with the confirmed rows. Each window must continue the coverage of the
+    previous one. *)
 
 type staged_receipt = {
   cursor : Imap.Mirror.cursor;
   row_count : int64;
 }
+(** The type for publication receipts. [cursor] is the new published
+    cursor and [row_count] the number of rows published. *)
 
 val begin_stage : t -> cursor:Imap.Mirror.cursor ->
   action:Imap.Mirror.action -> unit
-(** Create a uniquely named, durable scan stage. Stages surviving a crash are
-    inert until explicitly discarded. An [action] planned from another
-    cursor raises [Invalid_argument], and reusing a stage ID raises
-    [Sqlite3.SqliteError]. *)
+(** [begin_stage t ~cursor ~action] durably creates the empty stage
+    [action.id] for the scan [action] planned from [cursor]. A stage that
+    survives a crash stays inert until {!discard_stage} removes it.
+
+    @raise Invalid_argument if [action] was planned for another scope,
+    revision or generation than [cursor].
+
+    @raise Sqlite3.SqliteError if a stage [action.id] exists. *)
 
 val seed_stage_from_published : t -> cursor:Imap.Mirror.cursor ->
   action:Imap.Mirror.action -> [ `Seeded | `Stale_revision ]
-(** Copy the current epoch's published rows and flags into a new scan stage
-    using SQLite statements, without materializing them in OCaml. The caller
-    must cover the entire UID range with changed-row FETCH windows and then
-    prove complete membership with SEARCH before publication. A cursor whose
-    revision or UIDVALIDITY is no longer current yields [`Stale_revision]
-    and leaves the stage unseeded. A stage that already has coverage, or
-    was begun for another cursor or action, raises [Invalid_argument]. *)
+(** [seed_stage_from_published t ~cursor ~action] copies the published rows
+    and flags of [cursor]'s epoch, up to the upper UID of [action], into the
+    stage of [action] without reading them into memory, and is [`Seeded].
+    The stage gains no coverage, so the caller still covers the whole UID
+    range with FETCH windows of the changed rows and proves complete
+    membership with SEARCH windows before publication. When the stored
+    revision or UIDVALIDITY differs from [cursor], the result is
+    [`Stale_revision] and the stage stays empty.
+
+    @raise Invalid_argument if [action] does not match [cursor] or its
+    UIDVALIDITY, or if the stage is unknown, was begun for another cursor
+    or action, or already has coverage. *)
 
 val stage_rows : ?preserve_newer:bool -> t -> stage_id:string ->
   first:int64 -> last:int64 ->
   Imap.Mirror.row list -> unit
-(** Commit one contiguous FETCH window. The next window must start at the
-    previous window's end plus one. Each call is atomic. With
-    [preserve_newer=true], a row whose MODSEQ is older than its seeded stage
-    counterpart is ignored, including its flags, and a row without a MODSEQ
-    to compare raises [Invalid_argument]. [preserve_newer] defaults to
-    [false]. *)
+(** [stage_rows ~preserve_newer t ~stage_id ~first ~last rows] records
+    [rows] as the FETCH result for the UIDs from [first] to [last] in the
+    stage [stage_id], in one transaction, and extends its FETCH coverage to
+    [last]. [first] is 1 for the first window and one above the previous
+    window's [last] after that, and [last] is at most the stage's upper
+    UID. A row replaces the staged row of its UID, flags included.
+    [preserve_newer] defaults to [false]. When [true], a row whose MODSEQ
+    is below that of the staged row for its UID is ignored, flags
+    included.
+
+    @raise Invalid_argument if the stage is unknown, if the window is empty
+    or does not continue the coverage, if a row lies outside the window, or
+    if [preserve_newer] holds and a row or its staged counterpart lacks a
+    MODSEQ. *)
 
 val stage_membership : t -> stage_id:string -> first:int64 -> last:int64 ->
   Imap.Uid.t list -> unit
-(** Commit one contiguous SEARCH window. Every reported UID must have a
-    staged FETCH row; otherwise the transaction fails without advancing
-    coverage. SEARCH windows cannot overtake FETCH coverage. *)
+(** [stage_membership t ~stage_id ~first ~last uids] records [uids] as the
+    SEARCH result for the UIDs from [first] to [last] in the stage
+    [stage_id], in one transaction, and extends its SEARCH coverage to
+    [last]. [first] continues the previous SEARCH window as in
+    {!stage_rows}, and FETCH coverage must already reach [last]. Only rows
+    that a SEARCH window confirmed are published.
+
+    @raise Invalid_argument if the stage is unknown, if the window is
+    empty, does not continue the coverage or passes the FETCH coverage, or
+    if a UID of [uids] is outside the window, repeated or without a staged
+    row. Nothing is recorded then. *)
 
 val publish_stage : t -> cursor:Imap.Mirror.cursor ->
   action:Imap.Mirror.action ->
   explicit_highestmodseq:Imap.Modseq.t option ->
   nomodseq:bool ->
   [ `Committed of staged_receipt | `Stale_revision ]
-(** Requires full FETCH and SEARCH coverage to the fixed upper UID. In one
-    transaction, CAS-checks the cursor, replaces the current epoch's rows
-    with SEARCH-confirmed stage rows, advances the cursor, and deletes the
-    stage. No complete OCaml snapshot is materialized. In CONDSTORE mode
-    without [explicit_highestmodseq] the new anchor is [None], and with
-    [nomodseq] the cursor falls back to baseline mode. Incomplete coverage, a
-    stage begun for another cursor or action, or a MODSEQ regression raises
-    [Invalid_argument]. *)
+(** [publish_stage t ~cursor ~action ~explicit_highestmodseq ~nomodseq]
+    publishes the stage of [action] in one transaction and is the receipt.
+    The stage needs FETCH and SEARCH coverage up to the upper UID of
+    [action]. When the stored revision differs from [cursor], the result
+    is [`Stale_revision] and nothing changes. Otherwise the rows of
+    the epoch of [action] become the staged rows a SEARCH window
+    confirmed, blob references to UIDs no longer present are dropped, the
+    cursor advances to the next revision and generation with [action.id]
+    as its inventory reference, and the stage is deleted. Other epochs
+    keep their rows until {!forget_epochs}.
+
+    The new cursor is in baseline mode when [nomodseq] holds and in the
+    mode of [action] otherwise. Its MODSEQ anchor is
+    [explicit_highestmodseq] in CONDSTORE mode and [None] in baseline
+    mode, so a CONDSTORE publication without an explicit HIGHESTMODSEQ
+    anchors [None].
+
+    @raise Invalid_argument if [action] does not match [cursor], if the
+    stage is unknown, was begun for another cursor or action, or lacks full
+    coverage, or if the new anchor is below the previous anchor of
+    [action]. *)
 
 val discard_stage : t -> stage_id:string -> unit
+(** [discard_stage t ~stage_id] deletes the stage [stage_id] with its rows.
+    An unknown [stage_id] is ignored. *)
+
 val abandoned_stages : t -> string list
-(** Inspect and explicitly remove incomplete stages, e.g. after restart.
-    A stage is never automatically resumed or published. *)
+(** [abandoned_stages t] is the ID of every stage neither published nor
+    discarded, in ascending order. A stage is never resumed or published
+    automatically. *)
 
 val forget_epochs : t -> scope:Imap.Mirror.scope ->
   cursor:Imap.Mirror.cursor -> [ `Dropped of int | `Stale_revision ]
 (** [forget_epochs t ~scope ~cursor] deletes the snapshot rows and blob
-    references of every UIDVALIDITY epoch of [scope] other than [cursor]'s,
-    and is [`Dropped n] for the [n] epochs removed. Unless [cursor] is still
-    the current cursor it changes nothing and is [`Stale_revision]. Blobs
-    referenced only by a dropped epoch become orphan candidates. A [cursor]
-    for another scope raises [Invalid_argument]. *)
+    references of every UIDVALIDITY epoch of [scope] other than that of
+    [cursor], and is [`Dropped n] for the [n] epochs removed. When the
+    stored revision or UIDVALIDITY differs from [cursor] it changes
+    nothing and is [`Stale_revision]. Blobs referenced only by a
+    dropped epoch become orphan candidates.
+
+    @raise Invalid_argument if [cursor] is for another scope. *)
+
+(** {1 Operation intents} *)
 
 type intent_kind =
   | Append of {
@@ -142,8 +261,20 @@ type intent_kind =
       expected_internal_date : string option;
     }
   | Other of string
+(** The type for intent payloads. [Append] carries what reconciling an
+    APPEND needs. [content_digest] is the lowercase hexadecimal SHA-256 of
+    the message. [pre_send_uid_frontier] is the last published UID bound
+    before the send, not proof of server state at the send.
+    [expected_internal_date] is an unquoted IMAP date-time. A [None] field
+    is a value an older store did not record, while [Some []] flags are
+    known empty flags, and an older intent without a message ID, digest or
+    spool reference reads that field as the empty string. [Other] carries
+    an opaque payload. *)
 
 type intent_state = Prepared | Sent | Ambiguous | Confirmed | Rejected
+(** The type for intent states. [Prepared] is recorded before the command
+    is sent, [Sent] after it was dispatched, and [Ambiguous] once its
+    outcome is unknown. [Confirmed] and [Rejected] are final. *)
 
 type intent = {
   id : string;
@@ -153,54 +284,93 @@ type intent = {
   uidvalidity : Imap.Uidvalidity.t option;
   uid : Imap.Uid.t option;
 }
+(** The type for intents. [id] is unique within the store. [uidvalidity]
+    and [uid] hold the APPENDUID receipt once known. *)
 
 val prepare_intent : t -> intent -> unit
-(** The caller supplies a globally unique ID. [Prepared] is committed before
-    the network command is sent. Reusing an ID raises [Sqlite3.SqliteError].
-    APPEND reconciliation metadata is immutable once prepared; [None] fields
-    mark legacy unknown values, while [Some []] flags mean known empty flags.
-    The frontier is the last published UID bound before send, not proof of
-    server state at send. New APPEND intents require a 64-character
-    lowercase SHA-256 digest and, when supplied, a valid unquoted IMAP
-    date-time. A [uid] requires a [uidvalidity]. Invalid metadata raises
-    [Invalid_argument] without inserting an intent. Existing legacy
-    metadata remains readable for inspection and explicit recovery. A
-    legacy row with no stored message ID, digest or spool reference reads
-    that field as the empty string. *)
+(** [prepare_intent t intent] records [intent] in the [Prepared] state,
+    before its command is sent. The caller supplies a globally unique
+    [intent.id]. The APPEND metadata of [intent] never changes afterwards.
+    An APPEND needs a nonempty message ID and spool reference, a digest
+    of 64 lowercase hexadecimal digits, a frontier from 0 to
+    4,294,967,295, a nonnegative length and, when given, a valid IMAP
+    date-time. The journal does not provide exactly-once delivery.
+
+    @raise Invalid_argument if [intent.id] is empty, [intent.state] is not
+    [Prepared], [intent.uid] is given without [intent.uidvalidity], or the
+    APPEND metadata is invalid. Nothing is recorded then.
+
+    @raise Sqlite3.SqliteError if an intent [intent.id] exists. *)
 
 val set_intent_state : t -> id:string -> intent_state -> unit
-(** Legal transitions are Prepared -> Sent/Ambiguous/Rejected and
-    Sent -> Ambiguous/Confirmed/Rejected and Ambiguous -> Confirmed/Rejected.
-    A missing ID or illegal transition raises [Invalid_argument]. *)
+(** [set_intent_state t ~id state] moves the intent [id] to [state]. The
+    legal moves are from [Prepared] to [Sent], [Ambiguous] or [Rejected],
+    from [Sent] to [Ambiguous], [Confirmed] or [Rejected], and from
+    [Ambiguous] to [Confirmed] or [Rejected].
+
+    @raise Invalid_argument if no intent is [id] or the move is not
+    legal. *)
 
 val confirm_intent : t -> id:string ->
   uidvalidity:Imap.Uidvalidity.t option ->
   uid:Imap.Uid.t option -> unit
-(** Resolve a sent or ambiguous operation and record an optional UIDPLUS
-    [APPENDUID] receipt in the same transaction. [uid] requires
-    [uidvalidity]. [uidvalidity = None] keeps the stored UIDVALIDITY. *)
+(** [confirm_intent t ~id ~uidvalidity ~uid] moves the sent or ambiguous
+    intent [id] to [Confirmed] and records its APPENDUID receipt in the
+    same transaction. The stored UID becomes [uid], and
+    [uidvalidity = None] keeps the stored UIDVALIDITY.
+
+    @raise Invalid_argument if [uid] is given without [uidvalidity], if no
+    intent is [id], or if the intent is neither [Sent] nor
+    [Ambiguous]. *)
 
 val pending_intents : t -> scope:Imap.Mirror.scope -> intent list
-(** Returns Prepared, Sent and Ambiguous operations for reconciliation.
-    Sending an APPEND after restart requires app-specific duplicate detection;
-    the journal does not itself claim exactly-once delivery. *)
+(** [pending_intents t ~scope] is the [Prepared], [Sent] and [Ambiguous]
+    intents of [scope], in the order they were prepared. Sending an APPEND
+    again after a restart needs duplicate detection by the application.
+
+    @raise Failure if a stored intent for the key of [scope] names another
+    raw name, encoding or mailbox ID. *)
 
 val find_intent : t -> id:string -> intent option
-(** Retrieve a pending or resolved intent, including a persisted UIDPLUS
-    receipt recorded by [confirm_intent]. *)
+(** [find_intent t ~id] is the intent [id] in any state, with a receipt
+    {!confirm_intent} recorded, or [None]. *)
+
+(** {1 Sync journal} *)
 
 module Journal : sig
-  (** Durable identities and mutation evidence for a bidirectional driver.
-      No method performs IMAP or Maildir I/O. In particular, pending mutations
-      are never replayed automatically after a crash. *)
+  (** Pairs, conflicts and operations of a bidirectional sync.
+
+      A pair links a remote message and a local Maildir occurrence and
+      holds their last common state. A conflict records why a pair does not
+      converge. An operation journals one mutation before it is sent. No
+      value of this module performs IMAP or Maildir I/O, and a pending
+      operation is never replayed after a crash.
+
+      A read by scope raises [Failure] when a stored record for the key of
+      the scope names another raw name, encoding or mailbox ID. *)
+
+  (** {2 Pairs} *)
 
   type tombstone_reason = Inventory_absence | Expunge_receipt
     | Local_absence | Explicit_delete | Retention
+  (** The type for reasons a side of a pair is gone. [Inventory_absence] is
+      a remote UID missing from a complete published inventory, and
+      [Expunge_receipt] a remote expunge the client carried out.
+      [Local_absence] is an occurrence missing from a complete Maildir
+      inventory, and [Retention] one that local retention removed, not a
+      user. [Explicit_delete] is a deliberate deletion of that side, such
+      as the sync's own unlink of a local occurrence. *)
+
   type tombstone = {
     reason : tombstone_reason;
     evidence : string;
     generation : int64 option;
   }
+  (** The type for tombstones. [evidence] is nonempty and names what proves
+      the absence, such as an inventory reference or an operation ID.
+      [generation] is the published scan generation at which the absence
+      was first recorded, when known. *)
+
   type pair = {
     id : string;
     scope : Imap.Mirror.scope;
@@ -215,86 +385,184 @@ module Journal : sig
     local_tombstone : tombstone option;
     revision : int64;
   }
+  (** The type for pairs. [remote_uidvalidity] and [remote_uid] are given
+      together, and at least one side is bound. [content_sha256],
+      [content_length] and [internal_date] are the common content evidence,
+      [None] on an older pair that never recorded it. [common_flags] is the
+      last flag state both sides agreed on. [revision] is the
+      compare-and-swap revision. *)
+
   val put_pair : t -> expected_revision:int64 option -> pair ->
     [ `Committed of pair | `Stale_revision ]
-  (** Create with [None] and revision 0, or CAS-update with [Some revision]. The
-      ID, scope, once-bound occurrence identities, and once-bound content
-      digest/length/date are immutable. Legacy pairs without content evidence
-      may retain [None], but deletion propagation must hold for them. A remote
-      [Inventory_absence] tombstone requires the current complete published
-      inventory reference and generation, and absence of that UID. A tombstone
-      cannot be cleared. It can be replaced only by one whose reason is the same
-      or more permanent, in the order absence, then [Expunge_receipt] or
-      [Retention], then [Explicit_delete]. A changed scope, identity or
-      tombstone raises [Invalid_argument]. The pair, flags and tombstones commit
-      atomically. *)
+  (** [put_pair t ~expected_revision pair] writes [pair] with its flags and
+      tombstones in one transaction, and is the committed pair at the next
+      revision. [expected_revision = None] creates [pair], which needs
+      revision 0 and an unused ID. [Some r] updates the stored pair, which
+      must be at revision [r], as must [pair]. Any other case is
+      [`Stale_revision] with nothing changed.
+
+      The ID and scope never change, and neither does an occurrence
+      identity or content evidence once bound. An older pair without
+      content evidence may keep [None], and the caller then holds deletion
+      propagation for it. A tombstone is never cleared, and is replaced
+      only by one with the same or a more permanent reason, in the order
+      absence, then [Expunge_receipt] or [Retention], then
+      [Explicit_delete]. A new remote [Inventory_absence] tombstone needs
+      the published inventory reference as its evidence and the published
+      generation as its generation, and its UID must be absent from the
+      published snapshot.
+
+      @raise Invalid_argument if [pair] breaks one of these rules or is
+      malformed. A malformed pair has an empty ID or local ID, a negative
+      revision or length, a UID without a UIDVALIDITY or no bound side, a
+      tombstone on an unbound side or with a reason of the other side,
+      empty tombstone evidence or a negative generation, a digest without
+      a length or not of 64 lowercase hexadecimal digits, or [\Recent] or
+      a repeated flag in [common_flags]. *)
 
   val find_pair : t -> id:string -> pair option
+  (** [find_pair t ~id] is the pair [id], or [None]. *)
+
   val note_presence : t -> pair:pair -> side:[ `Remote | `Local ] ->
     generation:int64 -> [ `Recorded | `Stale_revision ]
-  (** Record that a complete published scan saw the paired side present.
-      The caller must verify local presence in its complete Maildir inventory;
-      remote presence is checked against the published SQLite snapshot.
-      Pair revision and published generation are checked transactionally.
-      A pair without an occurrence on [side] raises [Invalid_argument]. *)
+  (** [note_presence t ~pair ~side ~generation] records that the complete
+      scan published at [generation] saw the [side] occurrence of [pair],
+      and is [`Recorded]. The record keeps the highest generation noted.
+      For [`Remote] the store checks the UID against the published
+      snapshot. For [`Local] the caller has verified presence in a complete
+      Maildir inventory. The result is [`Stale_revision] when the stored
+      pair differs from [pair].
+
+      @raise Invalid_argument if [generation] is negative, if [pair] has no
+      occurrence on [side], if [generation] is not the published
+      generation, or if for [`Remote] the published epoch is not the pair's
+      UIDVALIDITY or lacks its UID. *)
 
   val last_presence_generation : t -> pair_id:string ->
     side:[ `Remote | `Local ] -> int64 option
-  (** The latest published generation at which {!note_presence} recorded
-      this paired side present, or [None] if it never did. A read-only
-      pre-v13 database returns [None]. *)
+  (** [last_presence_generation t ~pair_id ~side] is the highest
+      generation at which {!note_presence} recorded the [side] occurrence
+      of [pair_id], or [None] if it never did. An older database opened
+      with {!open_readonly} yields [None]. *)
 
   val reactivate_local : t -> pair:pair -> generation:int64 ->
     [ `Reactivated of pair | `Stale_revision ]
-  (** Clear a [Local_absence] tombstone after the caller verifies the same
-      Maildir occurrence's saved body digest, length and INTERNALDATE in a
-      complete local inventory. Requires a matching durable local presence
-      witness and current published generation; pair revision is CAS-checked.
-      No other tombstone reason can be cleared. *)
+  (** [reactivate_local t ~pair ~generation] clears the [Local_absence]
+      tombstone of [pair] and is the pair at its next revision. The caller
+      first verifies the same Maildir occurrence, with the saved digest,
+      length and INTERNALDATE, in a complete local inventory, and records
+      it with {!note_presence} at [generation]. No other tombstone can be
+      cleared. The result is [`Stale_revision] when the stored pair
+      differs from [pair].
+
+      @raise Invalid_argument unless the local tombstone is
+      [Local_absence], the local presence is recorded at [generation] and
+      not below the tombstone's generation, and [generation] is the
+      published generation. *)
 
   val find_remote : t -> scope:Imap.Mirror.scope ->
     uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t -> pair option
+  (** [find_remote t ~scope ~uidvalidity ~uid] is the pair of [scope] bound
+      to the remote UID [uid] of epoch [uidvalidity], or [None]. *)
+
   val find_local :
     t -> scope:Imap.Mirror.scope -> local_id:string -> pair option
+  (** [find_local t ~scope ~local_id] is the pair of [scope] bound to the
+      local occurrence [local_id], or [None]. *)
+
   val pairs : t -> scope:Imap.Mirror.scope -> pair list
+  (** [pairs t ~scope] is every pair of [scope] in ascending ID order, held
+      in memory at once. {!pairs_page} bounds the memory. *)
+
   val pairs_page : t -> scope:Imap.Mirror.scope -> ?after:string ->
     limit:int -> unit -> pair list
-  (** Stable ID order, strictly after [after]. [limit] must be 1..10,000.
-      Continue with the last returned ID until a page is short. *)
+  (** [pairs_page t ~scope ~after ~limit ()] is at most [limit] pairs of
+      [scope] with IDs above [after], in ascending ID order. [after] is
+      omitted by default, which starts at the lowest ID. The next page
+      starts after the last ID returned, and a page shorter than [limit] is
+      the last.
+
+      @raise Invalid_argument if [limit] is outside 1 to 10,000. *)
+
+  (** {2 Conflicts} *)
 
   type conflict_kind = Flag_conflict | Identity_conflict | Content_conflict
     | Delete_conflict | Policy_conflict | Deletion_hold
+  (** The type for conflict kinds. [Deletion_hold] records a deletion that
+      the deletion policy holds. *)
+
   type conflict = {
     id : string; pair_id : string; kind : conflict_kind;
     evidence : string; pair_revision : int64; resolved : bool;
   }
+  (** The type for conflicts. [evidence] is nonempty. [pair_revision] is
+      the pair revision the conflict was recorded against. *)
+
   val record_conflict : t -> conflict -> unit
-  (** Requires the named pair at [pair_revision]. Duplicate IDs fail. *)
+  (** [record_conflict t c] records the open conflict [c].
+
+      @raise Invalid_argument if [c] has an empty ID or evidence, a
+      negative pair revision or [resolved] set, or if its pair is missing
+      or not at [c.pair_revision].
+
+      @raise Sqlite3.SqliteError if a conflict [c.id] exists. *)
 
   val ensure_open_conflict : t -> pair:pair -> kind:conflict_kind ->
     id:string -> evidence:string -> [ `Open of conflict | `Stale_revision ]
-  (** Idempotently create or update the one open conflict of this kind for
-      [pair]. The pair revision is CAS-checked; a repeated hold keeps its ID. *)
+  (** [ensure_open_conflict t ~pair ~kind ~id ~evidence] is the one open
+      conflict of [kind] for [pair] with [evidence]. It creates the conflict
+      as [id], or updates the evidence and pair revision of an open one,
+      which keeps its ID. The result is [`Stale_revision] when the stored
+      pair differs from [pair].
+
+      @raise Invalid_argument if [id] or [evidence] is empty. *)
 
   val resolve_open_conflicts : t -> pair:pair -> kind:conflict_kind ->
     [ `Resolved of int | `Stale_revision ]
-  (** Resolve open conflicts of this kind only if the pair revision still
-      matches. Use only after independently proving the condition is gone. *)
+  (** [resolve_open_conflicts t ~pair ~kind] resolves every open conflict
+      of [kind] for [pair] and is [`Resolved n] for the [n] resolved. The
+      result is [`Stale_revision] when the stored pair differs from [pair].
+      A caller resolves only after proving independently that the
+      condition is gone. *)
 
   val has_open_conflict : t -> pair:pair -> kind:conflict_kind -> bool
-  (** Read-only direct lookup for a specific pair and conflict kind. *)
+  (** [has_open_conflict t ~pair ~kind] holds when the pair with the ID of
+      [pair] has an open conflict of [kind]. *)
 
   val resolve_conflict : t -> id:string -> unit
+  (** [resolve_conflict t ~id] resolves the open conflict [id].
+
+      @raise Invalid_argument if no open conflict is [id]. *)
+
   val open_conflicts : t -> scope:Imap.Mirror.scope -> conflict list
+  (** [open_conflicts t ~scope] is every open conflict of the pairs of
+      [scope], in ascending ID order, held in memory at once. *)
+
   val open_conflicts_page : t -> scope:Imap.Mirror.scope -> ?after:string ->
     limit:int -> unit -> conflict list
-  (** Stable conflict-ID order, strictly after [after]. [limit] must be
-      1..10,000. Continue with the last returned ID until a page is short. *)
+  (** [open_conflicts_page t ~scope ~after ~limit ()] is at most [limit]
+      open conflicts of [scope] with IDs above [after], in ascending ID
+      order. [after] is omitted by default, which starts at the lowest ID.
+      The next page starts after the last ID returned, and a page shorter
+      than [limit] is the last.
+
+      @raise Invalid_argument if [limit] is outside 1 to 10,000. *)
+
+  (** {2 Operations} *)
 
   type operation_kind = Append | Local_append | Copy | Move | Flags
     | Delete | Local_delete
+  (** The type for journaled mutation kinds. [Local_append] writes a
+      remote message into the Maildir and [Local_delete] removes a local
+      occurrence. *)
+
   type operation_state = Prepared | Sent | Ambiguous | Observed
     | Committed | Rejected
+  (** The type for operation states. [Prepared] is journaled before
+      dispatch and [Sent] after it. [Ambiguous] has an unknown outcome.
+      [Observed] has a verified receipt not yet committed to a pair.
+      [Committed] and [Rejected] are final, and the others are active. *)
+
   type operation = {
     id : string;
     pair_id : string option;
@@ -313,238 +581,365 @@ module Journal : sig
     receipt_uidvalidity : Imap.Uidvalidity.t option;
     receipt_uid : Imap.Uid.t option;
   }
+  (** The type for operations. [source_uidvalidity] and [source_uid] name
+      the remote message acted on. [destination] and
+      [destination_uidvalidity] name the target mailbox of an APPEND, COPY
+      or MOVE. [blob_sha256] and [blob_length] name the content.
+      [desired_flags] is the target flag state of a FLAGS operation and the
+      flag preimage of a deletion. [receipt], [receipt_uidvalidity] and
+      [receipt_uid] record the outcome. *)
+
   val prepare_operation : ?local_flags:Mail_flag.Imap_flag.t list ->
     ?local_source_mtime:float ->
     ?source_internal_date:Imap.Internal_date.t ->
     t -> operation -> unit
-  (** Persist immutable source/destination identity and desired change before
-      dispatch. [local_id] reserves a stable Maildir occurrence name before a
-      remote-to-local write. For an existing [pair_id], atomically capture its
-      current revision as a durable commit precondition. The initial state
-      must be [Prepared]. For FLAGS, [local_flags] atomically saves the
-      Maildir preimage, including an empty list. Older operations without
-      this evidence cannot safely finish a one-sided remote write.
-      For an APPEND with a [local_id], [local_source_mtime] atomically saves
-      the scanned Maildir file timestamp used as a source preimage. For a
-      local append,
-      [source_internal_date] saves the remote date before Maildir publication
-      so crash recovery can reject an altered Maildir timestamp.
-      A paired operation must match the stored local occurrence and any
-      supplied remote UID and UIDVALIDITY; contradictions raise
-      [Invalid_argument] before journaling. *)
+  (** [prepare_operation ~local_flags ~local_source_mtime
+      ~source_internal_date t op] journals [op] in the [Prepared] state
+      before dispatch. Its source, destination and desired change never
+      change afterwards. [op.local_id] reserves a stable Maildir occurrence
+      name before a remote-to-local write. For [op.pair_id] the pair's
+      current revision is saved as the commit precondition, and [op] must
+      match the pair's scope, local occurrence and any given remote UID and
+      UIDVALIDITY. A FLAGS operation or a deletion that names content must
+      match the pair's, and a deletion's flag preimage, when given, must
+      equal the pair's common flags.
+
+      [local_flags] is omitted by default. For a paired FLAGS operation it
+      saves the Maildir flag preimage, possibly empty. An operation without
+      it cannot finish a one-sided remote write. [local_source_mtime] is
+      omitted by default. For an APPEND with a [local_id] it saves the
+      scanned Maildir file time as the source preimage.
+      [source_internal_date] is omitted by default. For a local append it
+      saves the remote INTERNALDATE before the Maildir write, so recovery
+      can reject an altered Maildir timestamp.
+
+      @raise Invalid_argument if [op] is not [Prepared], carries a receipt,
+      is incomplete for its kind or contradicts its pair, or if an optional
+      argument does not fit the kind of [op] or is not finite. Nothing is
+      journaled then.
+
+      @raise Sqlite3.SqliteError if an operation [op.id] exists. *)
 
   val operation_source_mtime : t -> id:string -> float option
-  (** The immutable source timestamp captured when an APPEND was prepared.
-      Older pending operations and read-only v8 databases return [None]. *)
+  (** [operation_source_mtime t ~id] is the Maildir file time saved when
+      the APPEND [id] was prepared. It is [None] when none was saved or [t]
+      is an older database opened with {!open_readonly}. *)
 
   val operation_source_date : t -> id:string -> Imap.Internal_date.t option
-  (** The immutable remote INTERNALDATE captured for a local append. Older
-      pending operations and read-only databases before v11 return [None]. *)
+  (** [operation_source_date t ~id] is the remote INTERNALDATE saved when
+      the local append [id] was prepared. It is [None] when none was saved
+      or [t] is an older database opened with {!open_readonly}. *)
 
   val local_flags_preimage : t -> id:string ->
     Mail_flag.Imap_flag.t list option
-  (** Read the immutable local preimage saved with a FLAGS operation. *)
+  (** [local_flags_preimage t ~id] is the Maildir flag preimage saved with
+      the FLAGS operation [id], or [None] when none was saved. *)
 
   val operation_pair_revision : t -> id:string -> int64 option
-  (** The pair revision captured when the operation was prepared. Missing
-      preconditions on legacy pending operations return [None]. *)
+  (** [operation_pair_revision t ~id] is the pair revision saved when [id]
+      was prepared, or [None] for an unpaired operation or one prepared
+      without that precondition. *)
 
   val mark_sent : t -> id:string -> unit
+  (** [mark_sent t ~id] moves the prepared operation [id] to [Sent].
+
+      @raise Invalid_argument if [id] is unknown or not [Prepared]. *)
+
   val mark_ambiguous : ?reason:string -> t -> id:string -> unit
-  (** Persist an uncertain outcome. [reason], when supplied, is bounded and
-      visible in read-only operation inspection; it is superseded by a later
-      verified receipt. Never use this state for a mutation proven unsent. *)
+  (** [mark_ambiguous ~reason t ~id] moves the prepared or sent operation
+      [id] to [Ambiguous], whose outcome is unknown. It is never used for a
+      mutation proven unsent. [reason] is omitted by default. When given it
+      is kept as the receipt, shown in read-only inspection, until a
+      verified receipt replaces it.
+
+      @raise Invalid_argument if [reason] is empty or longer than 4,096
+      bytes, or if [id] is unknown or neither [Prepared] nor [Sent]. *)
 
   val reject_operation : t -> id:string -> receipt:string -> unit
+  (** [reject_operation t ~id ~receipt] moves the active operation [id] to
+      [Rejected] with [receipt] as its evidence.
+
+      @raise Invalid_argument if [receipt] is empty, or if [id] is unknown
+      or not active. *)
+
   val reject_prepared_operation : t -> id:string -> receipt:string -> unit
-  (** Atomically reject only an operation that is still [Prepared]. A
-      concurrently dispatched mutation cannot be classified as unsent. *)
+  (** [reject_prepared_operation t ~id ~receipt] is {!reject_operation} for
+      an operation that is still [Prepared], and so never dispatched. An
+      operation marked [Sent] meanwhile is refused, so a concurrent
+      dispatch is never classified as unsent.
+
+      @raise Invalid_argument if [receipt] is empty, or if [id] is unknown
+      or not [Prepared]. *)
 
   val observe_operation : t -> id:string -> receipt:string ->
     destination_uidvalidity:Imap.Uidvalidity.t option ->
     destination_uid:Imap.Uid.t option -> unit
+  (** [observe_operation t ~id ~receipt ~destination_uidvalidity
+      ~destination_uid] moves the sent or ambiguous operation [id] to
+      [Observed] with the verified [receipt] and the destination UID
+      [destination_uid] of epoch [destination_uidvalidity] it names.
+
+      @raise Invalid_argument if [receipt] is empty, if [destination_uid]
+      is given without [destination_uidvalidity], or if [id] is unknown or
+      neither [Sent] nor [Ambiguous]. *)
+
   val commit_operation : t -> id:string -> unit
-  (** Only an observed unpaired operation can become committed this way.
-      A paired operation must use [commit_operation_with_pair] so its common
-      state advances atomically. A [Sent] or [Ambiguous] operation must be
-      reconciled before commit. *)
+  (** [commit_operation t ~id] moves the observed unpaired operation [id]
+      to [Committed]. A paired operation commits with
+      {!commit_operation_with_pair}, so that its common state advances in
+      the same transaction. A [Sent] or [Ambiguous] operation is reconciled
+      before it commits.
+
+      @raise Invalid_argument if [id] is not an observed unpaired
+      operation. *)
 
   val commit_operation_with_pair : t -> id:string ->
     expected_pair_revision:int64 option -> pair ->
     [ `Committed of pair | `Stale_revision ]
-  (** Atomically CAS-publish the paired last-common state and mark an observed
-      operation committed. [None] creates a pair for an unpaired operation.
-      A stale pair leaves the operation observed for reconciliation. For
-      operations against an existing pair, the supplied revision must also
-      match the revision captured by [prepare_operation]. Legacy v5 pending
-      operations lack that evidence and cannot auto-commit. A committed FLAGS
-      operation also resolves that pair's open flag conflicts in the same
-      transaction. The published pair must match the operation's local ID,
-      remote source identity (or destination receipt for APPEND/COPY/MOVE),
-      supplied content and desired flags. Remote creation also checks the
-      destination scope and any expected UIDVALIDITY. Deletion requires the
-      corresponding tombstone; other operations require live occurrences.
-      Contradictory evidence, or a paired operation with
-      [expected_pair_revision = None], raises [Invalid_argument] without
-      committing. *)
+  (** [commit_operation_with_pair t ~id ~expected_pair_revision pair]
+      writes [pair] as the last common state and moves the observed
+      operation [id] to [Committed], in one transaction, and is the
+      committed pair. [expected_pair_revision] is as in {!put_pair}.
+      [None] creates the pair of an unpaired operation. For a paired
+      operation it must equal both the revision {!prepare_operation} saved
+      and the stored revision, else the result is [`Stale_revision] and the
+      operation stays observed. A paired operation with no saved revision
+      therefore never commits this way. A committed FLAGS operation also
+      resolves the pair's open flag conflicts when no other FLAGS operation
+      on the pair is active.
+
+      [pair] must agree with the evidence of the operation. Its local ID,
+      its remote UID and UIDVALIDITY, its scope, the given content and the
+      desired flags must match, where the remote identity is the receipt
+      and the scope the destination for an APPEND, COPY or MOVE, and the
+      source otherwise. A remote creation must also match any expected
+      destination UIDVALIDITY. A deletion needs the tombstone of its side,
+      and other kinds need both sides live. A FLAGS operation or a
+      deletion may change only the flags or that tombstone of the stored
+      pair. A local append's pair carries the INTERNALDATE saved with the
+      operation, when one was saved. The rules of {!put_pair} apply.
+
+      @raise Invalid_argument if [id] is not observed, if [pair] is not the
+      operation's pair, if [expected_pair_revision] is [None] for a paired
+      operation or given for an unpaired one, or if [pair] contradicts the
+      operation's evidence. Nothing is committed then. *)
+
+  (** {2 Operator repairs}
+
+      The three repairs below act on one active operation of a pair after
+      an operator verified both endpoints under the writer lease. They
+      perform no network or Maildir write. Each needs [pair] to be the
+      stored pair at the revision {!prepare_operation} saved, else the
+      result is [`Stale_revision]. An operation of another kind, state or
+      occurrence identity, or another active operation on the pair, is
+      [`Invalid_operation]. [evidence] is nonblank, at most 1,024 bytes
+      and free of control characters. *)
 
   val settle_flag_operation : t -> id:string -> pair ->
     flags:Mail_flag.Imap_flag.t list -> evidence:string ->
     [ `Settled of pair | `Stale_revision | `Invalid_operation ]
-  (** Operator repair after independent verification that remote and local
-      flags agree. Atomically replace the paired common flag baseline, reject
-      the old uncertain FLAGS intent with bounded evidence, and resolve its
-      open flag conflict. Requires the saved pair revision and occurrence
-      identities to match, an active sent/ambiguous/observed FLAGS operation,
-      and no other active operation for the pair. This performs no network or
-      Maildir write; the caller must verify both endpoints under its writer
-      lease before calling it. A stale [pair], or one whose revision differs
-      from the revision saved by {!prepare_operation}, yields
-      [`Stale_revision]. An operation of another kind, state or identity, or
-      other active work on the pair, yields [`Invalid_operation]. *)
+  (** [settle_flag_operation t ~id pair ~flags ~evidence] replaces the
+      common flags of [pair] with [flags], rejects the sent, ambiguous or
+      observed FLAGS operation [id] with [evidence], and resolves the
+      pair's open flag conflicts, in one transaction, and is the settled
+      pair. It follows the operator's check that the remote and local flags
+      both equal [flags]. A pair with a tombstone is [`Invalid_operation].
+
+      @raise Invalid_argument if [evidence] is invalid or [flags] breaks
+      the flag rules of {!put_pair}. *)
 
   val reject_unchanged_delete_operation : t -> id:string -> pair ->
     evidence:string ->
     [ `Rejected | `Stale_revision | `Invalid_operation ]
-  (** Atomically reject a sent/ambiguous paired remote DELETE after the
-      caller independently verifies that the exact remote UID remains with
-      its saved bytes and last-common flags. Requires the original pair
-      revision and occurrence identities, a local-absence tombstone, and no
-      other active operation for the pair. The operation's saved digest and
-      length must equal the pair's, and its flag preimage, when present, must
-      equal the pair's common flags as a set. Does not mutate either
-      endpoint. A later deletion attempt requires a new journal operation.
-      Outcomes follow {!settle_flag_operation}. *)
+  (** [reject_unchanged_delete_operation t ~id pair ~evidence] rejects the
+      sent or ambiguous remote DELETE [id] of [pair] with [evidence] and is
+      [`Rejected]. It follows the operator's check that the remote UID
+      still holds its saved bytes and common flags. The pair needs a
+      [Local_absence] tombstone and no remote tombstone. The operation's
+      digest and length must equal the pair's, and its flag preimage, when
+      present, must equal the pair's common flags as a set, else the
+      result is [`Invalid_operation]. A later deletion needs a new
+      operation.
+
+      @raise Invalid_argument if [evidence] is invalid. *)
 
   val attest_targeted_expunge : t -> id:string -> pair ->
     evidence:string ->
     [ `Attested | `Stale_revision | `Invalid_operation ]
-  (** Persist explicit operator authorization for a targeted UID EXPUNGE of
-      a sent/ambiguous paired DELETE. Atomically checks the saved pair
-      revision, exact operation identity, local-absence tombstone and absence
-      of other active work for the pair. Leaves the operation [Ambiguous]
-      before network dispatch so crash recovery never replays the command.
-      The caller must verify the same remote UID, original bytes, expected
-      [\\Deleted] flags and stable MODSEQ immediately before invoking this.
-      Evidence checks and outcomes follow
-      {!reject_unchanged_delete_operation}. Evidence that would grow the
-      operation receipt beyond 4096 bytes raises [Invalid_argument]. *)
+  (** [attest_targeted_expunge t ~id pair ~evidence] records the operator's
+      authorization of a targeted UID EXPUNGE for the sent or ambiguous
+      remote DELETE [id] of [pair] and is [`Attested]. The operation is
+      left [Ambiguous] before the command is sent, so recovery never
+      replays it. Immediately before, the operator verifies the same remote
+      UID, its original bytes, the expected [\Deleted] flag and a stable
+      MODSEQ. The checks of {!reject_unchanged_delete_operation} apply.
+
+      @raise Invalid_argument if [evidence] is invalid or would grow the
+      operation's receipt beyond 4,096 bytes. *)
+
+  (** {2 Reading operations} *)
 
   val find_operation : t -> id:string -> operation option
+  (** [find_operation t ~id] is the operation [id] in any state, or
+      [None]. *)
+
   val active_operations : t -> scope:Imap.Mirror.scope -> operation list
-  (** Prepared, Sent, Ambiguous and Observed operations survive restart. *)
+  (** [active_operations t ~scope] is every [Prepared], [Sent], [Ambiguous]
+      and [Observed] operation of [scope], in the order they were prepared,
+      held in memory at once. Active operations survive a restart. *)
 
   val active_operations_page : t -> scope:Imap.Mirror.scope ->
     ?after:string -> limit:int -> unit -> operation list
-  (** Active operations in ascending ID order, strictly after [after].
-      [limit] must be 1..10,000. Continue with the last returned ID until a
-      page is short. Terminal operations are excluded; a state change between
-      calls may remove an operation from subsequent pages. *)
+  (** [active_operations_page t ~scope ~after ~limit ()] is at most [limit]
+      active operations of [scope] with IDs above [after], in ascending ID
+      order. [after] is omitted by default, which starts at the lowest ID.
+      The next page starts after the last ID returned, and a page shorter
+      than [limit] is the last. An operation that reaches a final state
+      between calls drops out of later pages.
+
+      @raise Invalid_argument if [limit] is outside 1 to 10,000. *)
 
   val active_operation_for_pair : t -> pair_id:string -> operation option
-  (** The lowest-ID active operation for the pair, if any. Pair IDs are
-      globally unique. Use this to hold a pair while any mutation is pending
-      without loading the entire mailbox journal. *)
+  (** [active_operation_for_pair t ~pair_id] is the active operation with
+      the lowest ID on the pair [pair_id], or [None]. Pair IDs are unique
+      across scopes, so a caller can hold a pair while any mutation on it
+      is pending without reading the whole journal. *)
 end
 
+(** {1 Message blobs} *)
+
 module Blob : sig
-  (** Content-addressed message files and snapshot references. *)
+  (** Content-addressed message bodies and their snapshot references.
+
+      A blob is a file in the blob directory named by the SHA-256 of its
+      bytes. A reference ties a blob to a message of a snapshot. The
+      operations that read or write files raise [Invalid_argument] on a
+      store opened without a blob directory. *)
 
   type blob = private { sha256 : string; length : int64 }
+  (** The type for blobs. [sha256] is the lowercase hexadecimal digest and
+      [length] the size in bytes. *)
+
   exception Digest_mismatch
+  (** Raised by {!put} when the bytes do not have the expected digest. *)
 
   val put : t -> source:_ Eio.Flow.source -> length:int64 ->
     ?expected_sha256:string -> unit -> blob
-  (** Read exactly [length] octets into a unique temporary file while hashing
-      them with SHA-256. [expected_sha256], if set, must match or
-      [Digest_mismatch] is raised and the temporary file is removed. The file
-      is then synced, renamed to the content-addressed name and the containing
-      directory synced. Requires [blob_dir]. Does not consume bytes beyond
-      [length]. A negative [length] or an [expected_sha256] that is not 64
-      lowercase hexadecimal digits raises [Invalid_argument]. I/O failures
-      raise [Eio.Io]. A failed operation never creates a DB reference, but may
-      leave an orphan file. *)
+  (** [put t ~source ~length ~expected_sha256 ()] reads exactly [length]
+      bytes from [source] into the blob directory and is their blob. The
+      file and its directory are synced before [put] returns. Bytes after
+      [length] stay unread. [expected_sha256] is omitted by default. A
+      failure removes the partial file and adds no reference, and a crash
+      can leave an orphan file.
+
+      @raise Digest_mismatch if [expected_sha256] is given and differs from
+      the digest of the bytes.
+
+      @raise Invalid_argument if [length] is negative or [expected_sha256]
+      is not 64 lowercase hexadecimal digits.
+
+      @raise End_of_file if [source] ends before [length] bytes. *)
 
   val verify : t -> blob -> bool
-  (** Rehash the complete file and check its length. Missing or non-regular
-      files return [false]; other I/O failures propagate. Requires
-      [blob_dir]. *)
+  (** [verify t blob] holds when the file of [blob] is a regular file of
+      [blob.length] bytes with the digest [blob.sha256]. A missing file is
+      [false]. *)
 
   val open_in : t -> sw:Eio.Switch.t -> blob -> Eio.File.ro_ty Eio.Resource.t
-  (** Open exact blob bytes for reading. Call [verify] if corruption detection
-      is required; opening alone does not rehash the file. *)
+  (** [open_in t ~sw blob] is the file of [blob] open for reading, owned by
+      [sw]. It does not check the digest, which {!verify} does. *)
 
   val attach : ?verify:bool -> t -> scope:Imap.Mirror.scope ->
     uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t ->
     blob -> unit
-  (** Atomically reference [blob] from an existing message in the current
-      mailbox epoch. With [verify], which defaults to [true], the blob is
-      first rehashed as by {!verify} and a missing or corrupt file raises
-      [Invalid_argument]. Pass [~verify:false] only for a blob just returned
-      by {!put}. An unknown UID or mismatched scope/epoch raises
-      [Invalid_argument]. Replacing a reference is atomic. *)
+  (** [attach ~verify t ~scope ~uidvalidity ~uid blob] references [blob]
+      from the message [uid] of the published epoch [uidvalidity] of
+      [scope] in one transaction, replacing any previous reference.
+      [verify] defaults to [true], and then {!verify} checks [blob] first.
+      [~verify:false] suits only a blob that {!put} returned immediately
+      before.
+
+      @raise Invalid_argument if [verify] holds and [blob] is missing or
+      corrupt, if the published cursor of [scope] is for another epoch or
+      names another raw name, encoding or mailbox ID, or if [uid] is not in
+      the published snapshot. *)
 
   val find : t -> scope:Imap.Mirror.scope ->
     uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t ->
     blob option
+  (** [find t ~scope ~uidvalidity ~uid] is the blob the message [uid] of
+      epoch [uidvalidity] of [scope] references, or [None]. *)
 
   val missing_page : t -> scope:Imap.Mirror.scope ->
     cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
     limit:int -> unit ->
     [ `Uids of Imap.Uid.t list | `Stale_revision ]
-  (** Indexed UID page from the current published snapshot whose messages
-      have no blob reference. The cursor's revision, UIDVALIDITY and full
-      scope are checked in the same read transaction. [limit] is 1..10,000.
-      A new mailbox yields an empty page. Continue strictly after the last
-      returned UID; a concurrent blob attachment can shrink later pages. *)
+  (** [missing_page t ~scope ~cursor ~after_uid ~limit ()] is at most
+      [limit] UIDs of the published snapshot of [scope] above [after_uid],
+      in ascending order, whose messages have no blob reference, with
+      [cursor] checked as in {!snapshot_page}. [after_uid] is omitted by
+      default, which starts at the lowest UID. A concurrent {!attach} can
+      shrink later pages.
+
+      @raise Invalid_argument if [cursor] is for another scope or [limit]
+      is outside 1 to 10,000. *)
 
   val referenced_page : t -> scope:Imap.Mirror.scope ->
     cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
     limit:int -> unit ->
     [ `Refs of (Imap.Uid.t * blob) list | `Stale_revision ]
-  (** Indexed UID page of blob references still present in the published
-      snapshot. Checks the cursor revision, epoch and full scope in one read
-      transaction. [limit] is 1..10,000. Page strictly after the last UID. *)
+  (** [referenced_page t ~scope ~cursor ~after_uid ~limit ()] is at most
+      [limit] messages of the published snapshot of [scope] above
+      [after_uid] with their blobs, in ascending UID order, for the
+      messages that reference one, with [cursor] checked as in
+      {!snapshot_page}. [after_uid] is omitted by default, which starts at
+      the lowest UID.
+
+      @raise Invalid_argument if [cursor] is for another scope or [limit]
+      is outside 1 to 10,000. *)
 
   val detach_if_matches : t -> scope:Imap.Mirror.scope ->
     cursor:Imap.Mirror.cursor -> uid:Imap.Uid.t -> blob ->
     [ `Detached | `Unchanged | `Stale_revision ]
-  (** Remove a corrupt or missing cache reference only if the published
-      cursor and exact reference still match. Does not unlink blob files.
-      A changed reference returns [Unchanged]; a new snapshot revision or
-      epoch returns [Stale_revision]. *)
+  (** [detach_if_matches t ~scope ~cursor ~uid blob] removes the reference
+      from the message [uid] to [blob], after the caller found the file
+      missing or corrupt, and is [`Detached]. It does not remove the file.
+      A reference to another blob, or none, is [`Unchanged]. [cursor] is
+      checked as in {!snapshot_page}.
+
+      @raise Invalid_argument if [cursor] is for another scope. *)
 
   val iter_orphan_candidates : t -> (string -> unit) -> unit
-  (** [iter_orphan_candidates t f] visits unreferenced final blobs and temporary
-      files in unspecified order. It keeps at most 256 directory names in memory
-      and checks references using indexed database lookups. The callback runs
-      without a database lock; exceptions and cancellation close the directory.
-      All blob writers, including other processes, must remain quiescent until
-      iteration finishes. The callback must not create files or references.
-      References from every retained UIDVALIDITY epoch keep their blobs, so a
-      quarantined epoch's blobs become candidates only after
-      [Imap_store.forget_epochs] drops it. Directory I/O failures raise
-      [Eio.Io]. *)
+  (** [iter_orphan_candidates t f] applies [f] to the name of every orphan
+      candidate in the blob directory, in unspecified order. A candidate is
+      a regular file that is either a temporary file or a blob that no
+      snapshot of a retained epoch, no active sync operation and no
+      pending intent references. A quarantined epoch's blobs become
+      candidates only after {!forget_epochs} drops it. At most 256
+      directory names are held in memory. [f] runs without the database
+      lock and must not create files or references. Every blob writer,
+      including one in another process, stays quiescent until the
+      iteration ends. An exception from [f], or cancellation, closes the
+      directory and propagates. *)
 
   val reap_orphans_iter : t -> removed:(string -> unit) -> unit
-  (** [reap_orphans_iter t ~removed] removes orphan candidates with bounded
-      inventory memory. [removed name] runs after unlinking each candidate. The
-      directory is synced on return, exception or cancellation if any unlink was
-      attempted. A failed sync after an exception or cancellation does not
-      replace it. Callbacks precede this sync and do not prove durability. The
-      same writer-quiescence requirement as [iter_orphan_candidates] applies. *)
+  (** [reap_orphans_iter t ~removed] removes every orphan candidate with
+      the memory bound and quiescence rule of {!iter_orphan_candidates},
+      calling [removed name] after each removal. When any removal was
+      attempted, the directory is synced on return, exception or
+      cancellation, and a failed sync after an exception does not replace
+      it. [removed] runs before that sync, so it does not prove
+      durability. *)
 
   val orphan_candidates : t -> string list
-  (** Names of final blobs unreferenced by snapshots or pending journals, and
-      temporary files. Call only while no writer is active; this is a
-      non-destructive recovery inventory. A file can become referenced
-      immediately after this call. This convenience wrapper collects and sorts
-      all names in memory. *)
+  (** [orphan_candidates t] is the sorted names {!iter_orphan_candidates}
+      visits, held in memory at once. It removes nothing. A name can become
+      referenced as soon as it returns. *)
 
   val reap_orphans : t -> string list
-  (** Remove orphan candidates and sync the directory, returning removed names.
-      Call at startup while all blob writers are quiescent, including writers in
-      other processes. Never call concurrently with [put]/[attach]. A crash
-      during reaping leaves candidates for the next startup. This convenience
-      wrapper collects and sorts all removed names in memory. *)
+  (** [reap_orphans t] is the sorted names {!reap_orphans_iter} removed,
+      held in memory at once. It runs at startup while every blob writer,
+      including one in another process, is quiescent, and never
+      concurrently with {!put} or {!attach}. A crash during reaping leaves
+      the remaining candidates for the next startup. *)
 end

@@ -1026,6 +1026,37 @@ unchanged:
   100,000 UIDs as `Protocol`, from the response parser, while every ESEARCH
   expansion over 100,000 is `Limit`.
 
+Store. `lib/store/imap_store.mli` opens with the durability contract (one
+mutex, one transaction per write, WAL with `synchronous=FULL`, the 5 s
+busy wait, compare-and-swap publication, no replay), the full-scope rule
+and the default exceptions, then `{1}` sections for stores, mailbox
+identity, cursors and snapshots, stages and publication, intents, the
+journal and blobs, with `{2}` sections for pairs, conflicts, operations,
+operator repairs and reads in `Journal`. Every `val`, type and exception
+has its own doc, the grouped comments are split, and the schema version
+numbers are gone in favour of "an older database". Newly stated from the
+code: the insertion order of `pending_intents` and `active_operations`,
+the 0 to 4,294,967,295 frontier, the 1 to 4,096 byte ambiguity reason, the
+1,024 byte repair evidence, the `stage_rows` window rules, and the
+exceptions of `open_path`, `open_readonly`, `observe_object_identity`,
+`record_conflict` and `Blob.put`. No existing number was wrong. With
+comments stripped the signature is byte-identical, and `-w +50` parsing is
+clean. doc/client.mld and doc/sync.mld contradict neither facade and are
+unchanged.
+
+Follow-ups where the code and the intended contract disagree, code
+unchanged:
+
+- `Journal.note_presence` raises `Invalid_argument` when the published
+  generation moved on, where a compare-and-swap outcome such as
+  `Stale_revision` is expected, so a publication racing the caller's scan
+  surfaces as an exception.
+- `confirm_intent ~uid:None` clears a stored UID while
+  `~uidvalidity:None` keeps the stored UIDVALIDITY.
+- `publish_stage` checks stage coverage before staleness, so a stale
+  cursor over an incomplete stage raises instead of returning
+  `Stale_revision`.
+
 #### Step 15: sync, cli and pages
 
 Done: every public `.mli` under lib/sync opens with a synopsis and a

@@ -59,8 +59,9 @@ sent and committed only after it verifies. An ambiguous outcome stays
 pending, and the next cycle reconciles it before any new transfer.
 
 The {!Imap_sync.Bridge.receipt} counts the copies, flag updates and
-deletions. [flags_held] and [deletions_held] count the pairs whose
-policy did not converge, and [held_pair_ids] names up to 100 of them.
+deletions. [flags_held] and [deletions_held] count the holds, which mean
+the policy has not converged, and [held_pair_ids] names up to 100 held
+pairs.
 [more] is [true] when the transfer budget ran out, and the caller runs
 another cycle.
 
@@ -89,8 +90,9 @@ let cycle ~random ~store ~maildir ~spool_dir client =
 
 {1 Running it}
 
-The client is closed on every exit. {!Imap_sync.Error.t} is the one
-error type of every [Imap_sync] call.
+The client is closed on every exit. The Maildir and connection errors
+are lifted into {!Imap_sync.Error.t}, the error type of the
+[Imap_sync] calls, so one match reports every failure.
 
 {[
 let () =

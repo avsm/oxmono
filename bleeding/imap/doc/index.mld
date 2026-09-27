@@ -30,8 +30,12 @@ and a mailbox. {!Imap_sync.Engine} scans, archives and appends,
 {!Imap_sync.Bridge} runs a cycle in both directions,
 {!Imap_sync.Flags} and {!Imap_sync.Deletion} reconcile one pair,
 {!Imap_sync.Plan} previews a cycle offline, {!Imap_sync.Repair} holds the
-operator repairs, and {!Imap_sync.Watch} reacts to IDLE. Every call
-reports one {!Imap_sync.Error.t}.
+operator repairs, and {!Imap_sync.Watch} reacts to IDLE. A failing call
+reports an {!Imap_sync.Error.t}, which {!Imap_sync.Watch.error} wraps.
+{!Imap_sync.Error} states the contract every call keeps. A mutation is
+journaled before it is sent, an uncertain outcome stays pending and is
+never replayed, and a pair a cycle cannot settle safely is held rather
+than failing the cycle.
 
 {1 Layering}
 

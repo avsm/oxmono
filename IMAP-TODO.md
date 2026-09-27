@@ -1003,6 +1003,60 @@ balanced-quote guards the other FETCH extractors apply.
 
 #### Step 15: sync, cli and pages
 
+Done: every public `.mli` under lib/sync opens with a synopsis and a
+caller-facing description, documents each type, field and constructor,
+and gives each `val` a `[f x] is` or active-verb comment that names every
+argument, states every default and lists its failures by result, with
+`@raise` for exceptions. `Error` owns the shared contract (journal before
+send, no replay of an uncertain mutation, holds versus errors) and gives
+each constructor its condition and whether a retry, a later
+reconciliation or an operator action follows. `Ctx` owns the context
+record, and `Bridge` owns complete-inventory absence and the writer lease
+rule. The other modules refer to them in one sentence. `Engine`, `Repair`
+and `Watch` gained sections and field docs. The private `Local_inventory`
+and `Pair_evidence` lost a banned word and an imprecise contract.
+`Imap_cli.mli` documents every record, field and exit status.
+bin/README.md is regrouped by task, gains every default and range from the
+cmdliner terms, and drops history, a "legacy" framing, a connection
+"helper" and an inconsistent spool path. bleeding/imap/README.md is
+rewritten to the current layout. It drops the structure-review link,
+the schema version sentences, the stale OBJECTID+ migration claim, the
+future-work list, the private store module names, the uncompiled code
+block and the Maildir details that live in the maildir docs. The maildir
+README names the metadata and writer lock exceptions. index.mld and
+sync.mld no longer claim that every call returns `Error.t` directly, and
+the root README lines name the store, the synchronizer and `imap-sync`.
+Every page code block is still a verbatim excerpt of its example. No
+lib/sync or bin finding in 0.R had an open `[drift]` or step 15
+annotation, so none is ticked here. `ocamlc -stop-after parsing -w +50`
+is clean on every touched `.mli`. Build and runtest are clean, 17 suites
+and 235 test cases.
+
+Follow-ups where the code and the intended contract disagree, recorded
+and not changed:
+
+- `Flags.reconcile_pair` and `Deletion.reconcile_pair` mark an operation
+  ambiguous on an uncertain STORE or EXPUNGE failure but return `Client`,
+  not `Pending_operations`, so `sync` exits 6 rather than 3. A failed
+  verification read after a flag STORE returns the read's error with the
+  operation still sent.
+- `Bridge.copy_once` never passes `propagate_deleted`, so a cycle always
+  holds a `\Deleted` change. The CLI calls it the default hold.
+- An unknown operation ID is `No_pending_operation` in `settle_flags`,
+  `Diverged` in the three deletion repairs and `Invalid_operation` in
+  `local_append`, `record_appenduid` and `inspect_append_candidates`. The
+  CLI hides this by exiting 9 first.
+- `Engine.hydrate_once` and `audit_cache_once` report an invalid budget or
+  spool directory as `Limit`, where every other call uses
+  `Invalid_configuration`, and `reject_remote_delete` and
+  `finish_remote_delete` report a missing spool directory as
+  `Unsupported`.
+- `Deletion.reconcile_pair` reports a pair of another scope as
+  `Stale_inventory` through the cursor check, not `Stale_pair` as the
+  earlier module synopsis claimed.
+- `Bridge.copy_once` acquires the writer lease before it validates its
+  arguments, so a busy lease hides `Invalid_configuration`.
+
 ### 0.R Phase 2 findings
 
 Filled in by the review batches. Each finding is `file:line`, one sentence,

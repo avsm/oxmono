@@ -81,11 +81,12 @@ The [mqttz client and codecs](bleeding/mqttz/README.md) support MQTT 3.1.1 and
 The [OwnTracks client](bleeding/owntracks/README.md) uses mqttz for location
 messages and exports live tracks and Recorder history as GeoJSON.
 
-The [IMAP client](bleeding/imap/README.md) provides a pure protocol library and
-an Eio-native client, with a Cyrus end-to-end test fixture.
+The [IMAP client](bleeding/imap/README.md) provides a pure protocol library,
+an Eio client, a SQLite store and a durable IMAP to Maildir synchronizer with
+the `imap-sync` command.
 
 The [Maildir library](bleeding/maildir/README.md) stores messages in the
-Dovecot Maildir layout for the IMAP bridge and other Eio programs.
+Dovecot Maildir layout for the IMAP synchronizer and other Eio programs.
 
 The unreleased [JMAP client](bleeding/jmap/OXMONO.md),
 [IDKit contact and calendar libraries](bleeding/idk/OXMONO.md), and

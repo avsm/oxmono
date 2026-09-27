@@ -91,7 +91,12 @@ let test_search_evidence () =
      "* ESEARCH UID ALL 1:4294967295\r\n* ESEARCH UID ALL 1:4294967295\r\n"];
   List.iter (fun reply -> with_selected reply (fun with_mailbox ->
     if ok (with_mailbox (fun selected -> Imap_eio.Selected.uid_search selected "ALL"))<>[]
-    then failwith "explicit empty SEARCH changed")) ["* SEARCH\r\n";"* ESEARCH UID\r\n"];
+    then failwith "explicit empty SEARCH changed"))
+    ["* SEARCH\r\n";"* ESEARCH (TAG \"A00000003\") UID\r\n"];
+  with_selected "* ESEARCH UID\r\n" (fun with_mailbox ->
+    match with_mailbox (fun selected -> Imap_eio.Selected.uid_search selected "ALL") with
+    | Error (E.Protocol _) -> ()
+    | _ -> failwith "uncorrelated ESEARCH accepted");
   with_selected "* SEARCH 9 3 9\r\n" (fun with_mailbox ->
     if ok (with_mailbox (fun selected ->
       Imap_eio.Selected.uid_search_range selected ~first:3L ~last:9L))<>[3L;9L]

@@ -695,7 +695,7 @@ let test_search_messagelimit_resume () =
   ignore (ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected ->
       let first=ok (Imap_eio.Selected.uid_search_page selected "ALL") in
-      if first.complete || first.uids<>[3L;2L] ||
+      if first.complete || first.uids<>[2L;3L] ||
          first.resume_before<>Some 2L then
         failwith "MESSAGELIMIT continuation lost";
       let second=ok (Imap_eio.Selected.uid_search_page selected

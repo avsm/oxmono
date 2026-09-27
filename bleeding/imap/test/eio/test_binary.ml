@@ -105,9 +105,14 @@ let test_metadata_mismatch () =
     done_ n)]) (fun selected -> fetch selected (Eio.Flow.buffer_sink sink))) in
   if result<>Some 3L || Buffer.contents sink<>"abc" then
     failwith "unsolicited LIST literal was taken for the body";
-  expect "payload missing UID" missing
-    (scripted ~reply:(fun n -> [`Return ("* 1 FETCH (BINARY[2] \"abc\")\r\n" ^ done_ n)])
-      (fun selected -> fetch selected (Eio.Flow.buffer_sink (Buffer.create 8))));
+  expect "payload missing UID" protocol
+    (scripted
+      ~reply:(fun n -> [`Return ("* 1 FETCH (BINARY[2] \"abc\")\r\n" ^ done_ n)])
+      (fun selected ->
+        let result=fetch selected (Eio.Flow.buffer_sink (Buffer.create 8)) in
+        expect "payload without UID closes" (function E.State _ -> true | _ -> false)
+          (S.info selected);
+        result));
   expect "missing UID" missing
     (scripted ~reply:(fun n -> [`Return (done_ n)]) (fun selected ->
       fetch selected (Eio.Flow.buffer_sink (Buffer.create 8))))

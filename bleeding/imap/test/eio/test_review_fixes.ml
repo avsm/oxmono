@@ -239,6 +239,113 @@ let test_plain_endpoint_names () =
     ignore (Imap_eio.Transport.v ~net ~host ~tls:`Plain ()))
     ["imap_test"; "fe80::1%eth0"]
 
+(* A selected lease on a PREAUTH server: SELECT is A00000002 and the first
+   selected command is A00000003. [replies] must end with the UNSELECT
+   completion when the lease releases normally. *)
+let with_lease ~caps replies f =
+  preauth ~caps ([`Return (selected 2)] @ replies) (fun client ->
+    ok (C.with_mailbox client ~mode:`Read_write "INBOX" f))
+
+let uid_set wire = Result.get_ok (Imap.Proto.Uid_set.of_wire wire)
+
+let test_rev2_base_extensions () =
+  with_lease ~caps:"IMAP4rev2" [
+    `Return (tag 3 ^ " OK [COPYUID 1 1 5] moved\r\n");
+    `Return (tag 4 ^ " OK expunged\r\n");
+    `Return ("* ESEARCH (TAG \"" ^ tag 5 ^ "\") UID COUNT 0\r\n" ^
+      tag 5 ^ " OK saved\r\n");
+    `Return "+ idling\r\n* 1 EXISTS\r\n";
+    `Return (tag 6 ^ " OK done\r\n");
+    `Return (tag 7 ^ " OK unselected\r\n")] (fun selected ->
+    ignore (ok (S.uid_move selected ~set:(uid_set "1") ~mailbox:"Archive"));
+    ok (S.uid_expunge selected ~set:(uid_set "1"));
+    ignore (ok (S.uid_search_save selected ~criterion:"ALL"));
+    ignore (ok (S.wait_for_change selected));
+    Ok ())
+
+let test_uid_fetch_rejects_body_items () =
+  with_lease ~caps:"IMAP4rev1 UNSELECT PARTIAL" [
+    `Return ("* 1 FETCH (UID 1 FLAGS ())\r\n" ^ tag 3 ^ " OK done\r\n");
+    `Return (tag 4 ^ " OK unselected\r\n")] (fun selected ->
+    List.iter (fun items ->
+      expect "body item in uid_fetch" state (S.uid_fetch selected ~set:"1" ~items))
+      [["UID"; "BODY[]"]; ["BINARY.PEEK[]"]; ["body.peek[text]"]];
+    expect "body item in uid_fetch_partial" state
+      (S.uid_fetch_partial selected ~set:"1" ~items:["BODY[HEADER]"]
+        ~range:(1L,1L));
+    if ok (S.uid_fetch selected ~set:"1" ~items:["UID"; "FLAGS"]) = [] then
+      failwith "metadata FETCH after refusal lost its row";
+    Ok ())
+
+let test_fetch_to_quoted_body () =
+  let sink = Buffer.create 8 in
+  with_lease ~caps:"IMAP4rev1 UNSELECT" [
+    `Return ("* 1 FETCH (UID 7 BODY[] \"a\\\"b\")\r\n" ^ tag 3 ^ " OK done\r\n");
+    `Return ("* 1 FETCH (UID 7 BODY[] \"abcd\")\r\n" ^ tag 4 ^ " OK done\r\n");
+    `Return (tag 5 ^ " OK unselected\r\n")] (fun selected ->
+    ok (S.fetch_to selected ~uid:7L (Eio.Flow.buffer_sink sink));
+    if Buffer.contents sink <> "a\"b" then failwith "quoted body lost";
+    expect "quoted body limit" (function E.Limit _ -> true | _ -> false)
+      (S.fetch_to selected ~max_bytes:3L ~uid:7L (Eio.Flow.buffer_sink sink));
+    Ok ())
+
+module Failing_sink = struct
+  type t = unit
+  let single_write () (_ @ local) = failwith "disk full"
+  let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
+end
+
+let test_sink_failure_is_local () =
+  let sink = Eio.Resource.T ((), Eio.Flow.Pi.sink (module Failing_sink)) in
+  with_lease ~caps:"IMAP4rev1 UNSELECT"
+    [`Return ("* 1 FETCH (UID 7 BODY[] {3}\r\nabc)\r\n" ^ tag 3 ^ " OK done\r\n")]
+    (fun selected ->
+      (match S.fetch_to selected ~uid:7L sink with
+       | Error (E.State text)
+         when String.starts_with ~prefix:"local FETCH sink failed" text -> ()
+       | Error e -> failwith ("sink failure: " ^ C.error_to_string e)
+       | Ok () -> failwith "failed sink accepted");
+      expect "sink failure closes the lease" state (S.info selected);
+      Ok ())
+
+let test_changes_keep_complete_rows () =
+  with_lease ~caps:"IMAP4rev1 UNSELECT CONDSTORE" [
+    `Return ("* 1 FETCH (UID 5 FLAGS (\\Seen) MODSEQ (7))\r\n" ^
+      "* 1 FETCH (UID 5 MODSEQ (8))\r\n" ^ tag 3 ^ " OK done\r\n");
+    `Return (tag 4 ^ " OK unselected\r\n")] (fun selected ->
+    let since = Result.get_ok (Imap.Proto.Modseq.of_int64 1L) in
+    (match ok (S.fetch_changes_range selected ~first:1L ~last:9L ~since) with
+     | [{uid = Some 5L; flags = Some ["\\Seen"]; modseq = Some 7L; _}] -> ()
+     | _ -> failwith "a row without FLAGS replaced a complete change");
+    Ok ())
+
+let test_search_page_at_uid_one () =
+  with_lease ~caps:"IMAP4rev1 UNSELECT MESSAGELIMIT=2" [
+    `Return ("* SEARCH 1\r\n" ^ tag 3 ^ " OK [MESSAGELIMIT 2 1] partial\r\n");
+    `Return ("* SEARCH 9 3 9\r\n" ^ tag 4 ^ " OK done\r\n");
+    `Return (tag 5 ^ " OK unselected\r\n")] (fun selected ->
+    let page = ok (S.uid_search_page selected "ALL") in
+    if not page.complete || page.resume_before <> None then
+      failwith "page ending at UID 1 was left open";
+    if ok (S.uid_search selected "ALL") <> [3L; 9L] then
+      failwith "SEARCH UIDs were not sorted and distinct";
+    Ok ())
+
+let test_metadata_modseq_needs_condstore () =
+  with_lease ~caps:"IMAP4rev1 UNSELECT" [`Return (tag 3 ^ " OK unselected\r\n")]
+    (fun selected ->
+      expect "MODSEQ without CONDSTORE" state
+        (S.fetch_metadata_range selected ~first:1L ~last:9L ~modseq:true);
+      Ok ())
+
+let test_copyuid_source_checked () =
+  with_lease ~caps:"IMAP4rev1 UNSELECT UIDPLUS"
+    [`Return (tag 3 ^ " OK [COPYUID 7 2 20] copied\r\n")] (fun selected ->
+    expect "COPYUID for an unrequested source"
+      (function E.Uncertain _ -> true | _ -> false)
+      (S.uid_copy selected ~set:(uid_set "1") ~mailbox:"Archive");
+    Ok ())
+
 let connect_and_close ~sw collected =
   let flow = Eio_mock.Flow.make "released" in
   Eio_mock.Flow.on_read flow [`Return "* PREAUTH ready\r\n";
@@ -271,4 +378,12 @@ let () =
   test_control_literals_bypass_sink ();
   test_static_credentials_checked ();
   test_provider_credentials_are_state ();
-  test_plain_endpoint_names ()
+  test_plain_endpoint_names ();
+  test_rev2_base_extensions ();
+  test_uid_fetch_rejects_body_items ();
+  test_fetch_to_quoted_body ();
+  test_sink_failure_is_local ();
+  test_changes_keep_complete_rows ();
+  test_search_page_at_uid_one ();
+  test_metadata_modseq_needs_condstore ();
+  test_copyuid_source_checked ()

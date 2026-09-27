@@ -105,9 +105,10 @@ module Selected : sig
   val saved_search_count : saved_search -> int64
   (** COUNT captured when SAVE completed, not the current live set size. *)
   val uid_search_save : t -> criterion:string -> (saved_search, Error.t) result
-  (** Requires SEARCHRES. Requests SAVE and COUNT, with exactly one correlated
-      UID ESEARCH COUNT before minting a handle. An empty saved set is valid.
-      Raw criteria and UIDONLY restrictions follow [uid_search]. *)
+  (** Requires SEARCHRES or IMAP4rev2. Requests SAVE and COUNT, with exactly
+      one correlated UID ESEARCH COUNT before minting a handle. An empty saved
+      set is valid. Raw criteria and UIDONLY restrictions follow
+      [uid_search]. *)
   val uid_search_saved : saved_search -> criterion:string -> (int64 list, Error.t) result
   (** Search within the live saved set, preserving the handle for later use.
       The fixed ALL/COUNT command combines UID $ with a validated grouped
@@ -125,8 +126,9 @@ module Selected : sig
       results fail. Returned rows have UID but may include unsolicited FETCH
       updates: they do not independently prove membership in the saved set. *)
   val uid_search : t -> string -> (int64 list, Error.t) result
-  (** [uid_search t criterion] is the explicit SEARCH result for [criterion].
-      Exactly one SEARCH or matching UID ESEARCH response is required. A missing
+  (** [uid_search t criterion] is the explicit SEARCH result for [criterion],
+      sorted and without duplicates. Exactly one SEARCH response or one UID
+      ESEARCH response tagged with this command is required. A missing
       response is not an empty result. Expansion is bounded to 100,000 UIDs. *)
   val uid_sort : t -> keys:(Imap.Command.sort_key * Imap.Command.sort_order) list ->
     charset:string -> criterion:string -> (int64 list, Error.t) result
@@ -184,7 +186,8 @@ module Selected : sig
   }
   val uid_search_page : t -> ?before:int64 -> string ->
     (search_page, Error.t) result
-  (** RFC 9738 descending SEARCH page. After a partial page, use
+  (** RFC 9738 descending SEARCH page. [uids] are sorted. [complete] is false
+      only when [resume_before] is [Some _]. After a partial page, use
       [resume_before] with the same criterion. A missing server boundary returns
       [Error.Limit]. Cross-page mailbox changes can still shift results; a
       durable inventory needs an independent membership/checkpoint strategy. *)
@@ -196,7 +199,8 @@ module Selected : sig
   val uid_fetch_partial : t -> set:string -> items:string list ->
     range:(int64 * int64) -> (Imap.Response.fetch list, Error.t) result
   (** RFC 9394 positional FETCH page. Unsolicited FETCH rows can be interleaved;
-      this is provisional page data, not a complete UID-set inventory. *)
+      this is provisional page data, not a complete UID-set inventory. Body
+      items such as [BODY[]] or [BINARY[]] are refused with [Error.State]. *)
   val fetch_binary_to : t -> ?max_bytes:int64 -> ?partial:(int64 * int64) ->
     uid:int64 -> section:int list -> _ Eio.Flow.sink -> (int64 option, Error.t) result
   (** Stream RFC 3516 decoded BINARY.PEEK leaf-part bytes without setting Seen.
@@ -211,8 +215,10 @@ module Selected : sig
       is [Error.Missing_uid]; missing/wrong section, origin, UID or extra literals
       fail. UNKNOWN-CTE and other tagged failures propagate as rejections.
       Sink bytes are provisional until [Ok] confirms metadata and tagged success;
-      discard them on any error or cancellation. Decoded parts are not the raw
-      RFC 5322 message and must not replace archive/synchronization body bytes. *)
+      discard them on any error or cancellation. A payload row without UID is
+      [Error.Protocol]. A failing [sink] closes the connection and is
+      [Error.State]. Decoded parts are not the raw RFC 5322 message and must
+      not replace archive/synchronization body bytes. *)
   type binary_size_row = { uid : int64; size : int64 }
   val uid_fetch_binary_sizes : t -> uids:int64 list -> section:int list -> unit ->
     (binary_size_row list, Error.t) result
@@ -223,13 +229,18 @@ module Selected : sig
       Decoding sizes can be expensive on the server; fetch only when needed. *)
   val fetch_to : t -> ?max_bytes:int64 -> uid:int64 ->
     _ Eio.Flow.sink -> (unit, Error.t) result
-  (** Streams into [sink] while parsing. Bytes in [sink] are provisional until
-      [Ok ()] confirms a matching UID and body length after tagged completion.
-      [max_bytes] caps provisional output and defaults to 1 GiB. A clean tagged
-      success with no matching FETCH row returns [Error.Missing_uid] while
-      keeping the selected connection usable. *)
+  (** Streams a literal body into [sink] while parsing. A body sent as a quoted
+      string is written after tagged completion. Bytes in [sink] are
+      provisional until [Ok ()] confirms a matching UID and body length after
+      tagged completion. [max_bytes] caps provisional output and defaults to
+      1 GiB. A clean tagged success with no matching FETCH row returns
+      [Error.Missing_uid] while keeping the selected connection usable. A
+      failing [sink] closes the connection and is [Error.State]. *)
   val uid_fetch : t -> set:string -> items:string list ->
     (string list, Error.t) result
+  (** [uid_fetch t ~set ~items] is the raw text of each FETCH row in the
+      response, including unsolicited rows. Body items such as [BODY[]] or
+      [BINARY[]] are refused with [Error.State]. *)
   type envelope_row = {
     uid : int64;
     envelope : Imap.Response.envelope;
@@ -282,7 +293,8 @@ module Selected : sig
   val fetch_metadata_range : ?size:bool -> ?internal_date:bool ->
     t -> first:int64 -> last:int64 ->
     modseq:bool -> (Imap.Response.fetch list, Error.t) result
-  (** Fetches a finite UID range with UID, FLAGS and optionally MODSEQ. Rows
+  (** Fetches a finite UID range with UID, FLAGS and optionally MODSEQ, which
+      requires CONDSTORE or QRESYNC. Rows
       without a UID or complete FLAGS are ignored as unsolicited partial updates;
       duplicate UID rows are resolved in wire order. A caller must separately
       reconcile complete membership before treating absence as an expunge.
@@ -339,12 +351,15 @@ module Selected : sig
   val uid_move : t -> set:Imap.Proto.Uid_set.t -> mailbox:string ->
     (copy_receipt option, Error.t) result
   val uid_expunge : t -> set:Imap.Proto.Uid_set.t -> (unit, Error.t) result
-  (** MOVE and UID EXPUNGE require their advertised extensions; this API never
-      falls back to mailbox-wide EXPUNGE. [mailbox] is UTF-8. *)
+  (** MOVE requires MOVE or IMAP4rev2 and UID EXPUNGE requires UIDPLUS or
+      IMAP4rev2. This API never falls back to mailbox-wide EXPUNGE. A COPYUID
+      receipt naming a UID outside [set] is an invalid receipt. [mailbox] is
+      UTF-8. *)
 
   val wait_for_change : t -> (Imap.Response.t list, Error.t) result
   (** Enters IDLE, waits for one unsolicited response, sends DONE, and waits for
-      tagged completion. Use a dedicated client connection. If cancelled while
+      tagged completion. Requires IDLE or IMAP4rev2. A tagged NO or BAD leaves
+      the connection open. Use a dedicated client connection. If cancelled while
       waiting, the connection closes; reconnect and reconcile from durable state.
       A response is a wakeup hint, not a durable change receipt.
     NOTIFICATIONOVERFLOW is retained in the returned updates and means the
@@ -360,6 +375,7 @@ module Selected : sig
   val fetch_changes_range : t -> first:int64 -> last:int64 ->
     since:Imap.Proto.Modseq.t -> (Imap.Response.fetch list, Error.t) result
   (** Fetch changed UID/FLAGS/MODSEQ rows in a window of at most 1,000 UIDs.
+      Rows without UID or FLAGS are ignored.
       Advertised RFC 9738 MESSAGELIMIT partial replies are continued below the
       processed UID; a missing or contradictory boundary fails the call. This
       returns no VANISHED rows: verify complete membership independently before

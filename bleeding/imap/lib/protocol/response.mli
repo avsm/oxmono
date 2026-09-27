@@ -221,7 +221,8 @@ val fetch_bodystructure : fetch -> (bodystructure option, string) result
 
 val fetch_objectid : fetch -> (compound_object_id option, string) result
 (** [fetch_objectid row] is the draft OBJECTID+ item of [row], or [None]
-    if [row] has none. The error covers a duplicate or malformed item. *)
+    if [row] has none. The error covers a duplicate or malformed item, an
+    unbalanced quote and a [raw] over 1 MiB. *)
 
 (** {1 Mailbox and server data} *)
 
@@ -272,7 +273,7 @@ type esearch = {
   max : int64 option;  (** From 1 to 4294967295. *)
   count : int64 option;  (** From 0 to 4294967295. *)
   all : string option;  (** The sequence set as received. *)
-  modseq : int64 option;  (** A non-negative signed 64-bit number. *)
+  modseq : int64 option;  (** A positive signed 64-bit number. *)
   partial : (string * string option) option;
       (** The RFC 9394 requested range and the returned set, or [None] for
           NIL, both as received. *)
@@ -349,8 +350,10 @@ type mailbox_status = {
   deleted_storage : int64 option;
   raw : string;
 }
-(** The type for STATUS responses. An item appears at most once, unknown
-    items are skipped, and UIDVALIDITY and UIDNEXT are range-checked. *)
+(** The type for STATUS responses. [mailbox] must be an atom, a quoted
+    string or a literal that {!parse_parts} retained. An item appears at
+    most once, unknown items are skipped, and UIDVALIDITY and UIDNEXT are
+    range-checked. *)
 
 type thread = { number : int64 option; children : thread list }
 (** The type for THREAD nodes. [number] is a message sequence number, or a
@@ -397,8 +400,9 @@ type untagged =
           [(MODSEQ n)] suffix is validated and dropped. *)
   | Thread of thread list
       (** RFC 5256 threads in server order. The response is bounded to
-          100,000 nodes, 100 levels of parenthesised nesting and 2 MiB. A
-          chain of members is one level however long it is. A repeated
+          100 levels of parenthesised nesting and 2 MiB, and the node count
+          is left to the caller. A chain of members is one level however
+          long it is. A repeated
           message number is an error. An empty THREAD may end in one
           space. *)
   | Esearch of esearch

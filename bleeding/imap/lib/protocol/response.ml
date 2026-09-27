@@ -887,6 +887,9 @@ let fetch_bodystructure (row:fetch) =
   | Some rest -> fields None rest
 
 let fetch_objectid (row:fetch) =
+  let invalid=Result.Error "invalid FETCH OBJECTID" in
+  if String.length row.raw > 1_048_576 || not (balanced_quotes row.raw)
+  then invalid else
   let rec fields found = function
     | R::_ -> Result.Ok found
     | A key::L::rest when up key="OBJECTID" ->
@@ -1062,7 +1065,7 @@ let parse_esearch raw =
               | Some n when (match up key with
                   | "MIN" | "MAX" -> valid_uid n
                   | "COUNT" -> valid_uint32 n
-                  | _ -> true) ->
+                  | _ -> valid_modseq n) ->
                   (match up key with
                    | "MIN" -> loop (Some n) max count all modseq partial rest
                    | "MAX" -> loop min (Some n) count all modseq partial rest
@@ -1084,7 +1087,7 @@ let parse_status raw =
   let numeric=["MESSAGES";"UNSEEN";"UIDNEXT";"UIDVALIDITY";"HIGHESTMODSEQ";
                "SIZE";"DELETED";"DELETED-STORAGE"] in
   let rec start = function
-    | A s::mailbox::L::rest when up s="STATUS" ->
+    | A s::(A _|Q _ as mailbox)::L::rest when up s="STATUS" ->
         let mailbox=token_string mailbox in
         let rec fields seen messages unseen uidnext uidvalidity highestmodseq
             mailbox_id objectid size deleted deleted_storage = function
@@ -1132,6 +1135,8 @@ let parse_status raw =
                | _ -> Result.Error ("invalid STATUS " ^ name))
           | _ -> Result.Error "invalid STATUS fields" in
         fields [] None None None None None None None None None None rest
+    | A s::_ when up s="STATUS" ->
+        Result.Error "invalid STATUS mailbox or item list"
     | _::rest -> start rest
     | [] -> Result.Error "invalid STATUS response" in
   start (tokenize raw)
@@ -1307,12 +1312,12 @@ let parse_metadata raw =
 (* SORT and THREAD have strict ordered grammars. Scan directly rather than
    tokenizing away whitespace, so malformed trees never become plausible ones.
    Wire nesting is bounded for safe downstream traversal. A chain of members
-   is built iteratively and is bounded only by the node limit. *)
+   is built iteratively and is bounded only by the response size. The
+   caller bounds the node count, so an oversized result is its limit and
+   not a protocol error. *)
 let parse_ordered_result ~threaded raw =
   let exception Invalid of string in
   let invalid message = raise (Invalid message) in
-  let limit=100_000 in
-  let nodes=ref 0 in
   let seen=Hashtbl.create 64 in
   let length=String.length raw in
   let pos=ref (if threaded then 8 else 6) in
@@ -1321,9 +1326,7 @@ let parse_ordered_result ~threaded raw =
     if peek ()<>Some c then invalid "invalid SORT/THREAD syntax";
     incr pos in
   let node depth =
-    if depth>100 then invalid "THREAD depth exceeds 100";
-    incr nodes;
-    if !nodes>limit then invalid "SORT/THREAD exceeds 100000 nodes" in
+    if depth>100 then invalid "THREAD depth exceeds 100" in
   let number () =
     let start= !pos in
     (match peek () with

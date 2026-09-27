@@ -1037,6 +1037,48 @@ let test_mailbox_management () =
    | Imap.Response.Untagged (List {subscribed=true;mailbox="Box";_}) -> ()
    | _ -> fail "LSUB row not typed")
 
+let test_status_mailbox_astring () =
+  let status s=match expect_ok (Imap.Response.parse s) with
+    | Imap.Response.Untagged (Status x) -> x
+    | _ -> fail ("missing STATUS: " ^ s) in
+  Alcotest.(check string) "atom mailbox" "INBOX"
+    (status "* STATUS INBOX (MESSAGES 1)\r\n").mailbox;
+  Alcotest.(check string) "quoted mailbox" "Sent Items"
+    (status "* STATUS \"Sent Items\" (MESSAGES 1)\r\n").mailbox;
+  (match Imap.Response.parse_parts
+    (wire_ok (Imap.Wire.feed (Imap.Wire.create ())
+      "* STATUS {5}\r\nDraft (MESSAGES 1)\r\n")) with
+   | Ok (Imap.Response.Untagged (Status {mailbox="Draft";_})) -> ()
+   | _ -> fail "literal STATUS mailbox lost");
+  List.iter (fun s -> match Imap.Response.parse s with
+    | Error _ -> () | Ok _ -> fail ("accepted STATUS mailbox: " ^ s))
+    ["* STATUS ((MESSAGES 1)\r\n"; "* STATUS ) (MESSAGES 1)\r\n";
+     "* STATUS (MESSAGES 1)\r\n"]
+
+let test_esearch_modseq_positive () =
+  (match Imap.Response.parse "* ESEARCH UID COUNT 1 MODSEQ 0\r\n" with
+   | Error _ -> ()
+   | Ok _ -> fail "accepted ESEARCH MODSEQ 0");
+  match expect_ok (Imap.Response.parse "* ESEARCH UID COUNT 1 MODSEQ 1\r\n")
+  with
+  | Imap.Response.Untagged (Esearch {modseq=Some 1L;_}) -> ()
+  | _ -> fail "ESEARCH MODSEQ 1 lost"
+
+let test_objectid_fetch_guards () =
+  let row s=match expect_ok (Imap.Response.parse s) with
+    | Imap.Response.Untagged (Fetch row) -> row
+    | _ -> fail "OBJECTID+ FETCH row missing" in
+  let base=row "* 1 FETCH (UID 7 OBJECTID (EMAILID M_7))\r\n" in
+  (match Imap.Response.fetch_objectid
+    {base with raw=base.raw ^ "\""} with
+   | Error _ -> ()
+   | Ok _ -> fail "OBJECTID+ accepted an unbalanced quote");
+  let padded=Printf.sprintf "* 1 FETCH (UID 7 X-PAD \"%s\" \
+    OBJECTID (EMAILID M_7))" (String.make 1_048_576 'a') in
+  match Imap.Response.fetch_objectid {base with raw=padded} with
+  | Error _ -> ()
+  | Ok _ -> fail "OBJECTID+ accepted a row over 1 MiB"
+
 let test_objectid_plus_draft () =
   let parse s=expect_ok (Imap.Response.parse s) in
   let replies=List.map parse [
@@ -1305,12 +1347,14 @@ let test_sort_thread_invalid () =
   (match expect_ok (Imap.Response.parse (flat 100_000)) with
    | Imap.Response.Untagged (Thread roots) when List.length roots=100_000 -> ()
    | _ -> fail "bounded wide THREAD lost nodes");
-  (match Imap.Response.parse (flat 100_001) with
-   | Error _ -> () | Ok _ -> fail "THREAD count limit ignored");
+  (match expect_ok (Imap.Response.parse (flat 100_001)) with
+   | Imap.Response.Untagged (Thread roots) when List.length roots=100_001 -> ()
+   | _ -> fail "THREAD node count bounded by the parser");
   let sort="* SORT " ^ String.concat " "
     (List.init 100_001 (fun i -> string_of_int (i+1))) in
-  (match Imap.Response.parse sort with
-   | Error _ -> () | Ok _ -> fail "SORT count limit ignored")
+  (match expect_ok (Imap.Response.parse sort) with
+   | Imap.Response.Untagged (Sort uids) when List.length uids=100_001 -> ()
+   | _ -> fail "SORT count bounded by the parser")
 
 let test_esort_commands () =
   let open Imap.Command in
@@ -1333,10 +1377,10 @@ let test_esort_commands () =
 
 let test_esearch_fields () =
   let parse s=Imap.Response.parse ("* ESEARCH (TAG \"S1\") UID " ^ s) in
-  (match expect_ok (parse "MIN 9 MAX 2 COUNT 4 ALL 9,4:3,2 MODSEQ 0") with
+  (match expect_ok (parse "MIN 9 MAX 2 COUNT 4 ALL 9,4:3,2 MODSEQ 1") with
    | Imap.Response.Untagged (Esearch
        {min=Some 9L;max=Some 2L;count=Some 4L;all=Some "9,4:3,2";
-        modseq=Some 0L;_}) -> ()
+        modseq=Some 1L;_}) -> ()
    | _ -> fail "ESORT order or boundary values changed");
   (match expect_ok (parse "COUNT 0 PARTIAL (500:400 NIL)") with
    | Imap.Response.Untagged (Esearch
@@ -1349,9 +1393,9 @@ let test_esearch_fields () =
   List.iter (fun fields -> match parse fields with
     | Error _ -> () | Ok _ -> fail ("invalid ESEARCH fields accepted: " ^ fields))
     ["MIN 0";"MAX 0";"MIN 4294967296";"MAX 4294967296";
-     "COUNT 4294967296";"COUNT -1";"MODSEQ -1";
+     "COUNT 4294967296";"COUNT -1";"MODSEQ -1";"MODSEQ 0";
      "MODSEQ 9223372036854775808";"MIN 1 min 2";"MAX 1 MAX 2";
-     "COUNT 0 COUNT 1";"MODSEQ 0 MODSEQ 1";"ALL 1 ALL 2";
+     "COUNT 0 COUNT 1";"MODSEQ 1 MODSEQ 2";"ALL 1 ALL 2";
      "PARTIAL (1:2 NIL) PARTIAL (3:4 5)";"PARTIAL 1:2";
      "PARTIAL (1:2 NIL) PARTIAL 1:2";"PARTIAL (0:1 NIL)"]
 
@@ -1696,7 +1740,13 @@ let () =
      "mailboxes", [Alcotest.test_case "legacy management" `Quick
        test_mailbox_management];
      "drafts", [Alcotest.test_case "OBJECTID+ -06" `Quick
-       test_objectid_plus_draft];
+       test_objectid_plus_draft;
+       Alcotest.test_case "OBJECTID+ FETCH guards" `Quick
+         test_objectid_fetch_guards];
+     "astring and MODSEQ", [Alcotest.test_case "STATUS mailbox astring"
+       `Quick test_status_mailbox_astring;
+       Alcotest.test_case "ESEARCH MODSEQ positive" `Quick
+         test_esearch_modseq_positive];
      "preview", [Alcotest.test_case "RFC 8970" `Quick test_preview];
      "envelope", [Alcotest.test_case "RFC 3501/9051" `Quick test_envelope];
      "bodystructure", [Alcotest.test_case "RFC 3501/9051" `Quick

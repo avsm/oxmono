@@ -81,6 +81,12 @@ type operation_kind = Append | Local_append | Copy | Move | Flags
 type operation_state = Prepared | Sent | Ambiguous | Observed
   | Committed | Rejected
 
+type append = {
+  message_id : string;
+  spool_ref : string;
+  pre_send_frontier : int64;
+}
+
 type operation = {
   id : string;
   pair_id : string option;
@@ -95,21 +101,20 @@ type operation = {
   blob_sha256 : string option;
   blob_length : int64 option;
   desired_flags : Mail_flag.Imap_flag.t list option;
+  internal_date : Imap.Internal_date.t option;
+  append : append option;
   receipt : string option;
   receipt_uidvalidity : Imap.Uidvalidity.t option;
   receipt_uid : Imap.Uid.t option;
 }
 
 val prepare_operation : ?local_flags:Mail_flag.Imap_flag.t list ->
-  ?local_source_mtime:float ->
-  ?source_internal_date:Imap.Internal_date.t ->
-  t -> operation -> unit
+  ?local_source_mtime:float -> t -> operation -> unit
 (** [prepare_operation t op] journals the [Prepared] operation [op] and its
     source preimages before dispatch, and raises [Invalid_argument] for evidence
     that contradicts the pair. *)
 
 val operation_source_mtime : t -> id:string -> float option
-val operation_source_date : t -> id:string -> Imap.Internal_date.t option
 val local_flags_preimage : t -> id:string ->
   Mail_flag.Imap_flag.t list option
 val operation_pair_revision : t -> id:string -> int64 option

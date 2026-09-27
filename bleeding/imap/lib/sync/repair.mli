@@ -154,7 +154,7 @@ val inspect_append_candidates :
     any body is read. Body reads go through spool files in
     [ctx.spool_dir]. It takes neither the lease nor evidence and changes
     nothing. Matching bytes do not attribute an APPEND to this client, and
-    this call never confirms an intent, pairs an occurrence or authorizes a
+    this call never records a receipt, pairs an occurrence or authorizes a
     replay.
 
     [max_uids] defaults to 1000 and must be 1 to 10,000. A wider candidate
@@ -174,12 +174,12 @@ val record_appenduid :
     ~evidence ()] records [uid] in [uidvalidity], an APPENDUID recovered
     from an independent record, as the receipt of the pending APPEND [id]
     of [scope] in [store]. It attests attribution, since equal bytes cannot
-    prove which client appended a UID. It checks the operation's scope,
-    destination epoch and {!Imap_store} intent, then saves the receipt
+    prove which client appended a UID. It checks the operation's scope and
+    destination epoch, then saves the receipt
     without connecting to IMAP or creating a pair. Recording the same UID
     again succeeds. The next {!Bridge.copy_once} must find [uid] in a
     complete scan and verify its bytes, length and flags against the
     unchanged local occurrence before it commits, and a missing or different
     UID stays pending. An operation that is unknown or not an APPEND of
-    [scope] returns [No_pending_operation], and an operation or intent that
-    does not otherwise match returns [Invalid_operation]. *)
+    [scope] returns [No_pending_operation], and an operation that does not
+    otherwise match returns [Invalid_operation]. *)

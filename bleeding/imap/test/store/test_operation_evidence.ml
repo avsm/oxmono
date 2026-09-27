@@ -17,8 +17,10 @@ let append : J.operation = {
   state=Prepared; source_uidvalidity=None; source_uid=None;
   destination=Some scope; destination_uidvalidity=Some (epoch 67L);
   blob_sha256=pair.content_sha256; blob_length=pair.content_length;
-  desired_flags=Some pair.common_flags; receipt=None;
-  receipt_uidvalidity=None; receipt_uid=None }
+  desired_flags=Some pair.common_flags; internal_date=None;
+  append=Some {message_id="<append@x>"; spool_ref="spool-append";
+    pre_send_frontier=0L};
+  receipt=None; receipt_uidvalidity=None; receipt_uid=None }
 let invalid label f =
   match f () with
   | exception Invalid_argument _ -> ()
@@ -65,6 +67,7 @@ let run env =
         ~id:missing.id ~expected_pair_revision:None {pair with id=missing.id});
       let current=committed (commit pair) in
       let flags : J.operation = {append with id="flags"; pair_id=Some current.id;
+        append=None;
         kind=Flags; destination=None; destination_uidvalidity=None;
         source_uidvalidity=current.remote_uidvalidity; source_uid=current.remote_uid;
         blob_sha256=None; blob_length=None; desired_flags=Some [flag "\\Flagged"]} in
@@ -99,9 +102,10 @@ let run env =
       ignore (committed (J.commit_operation_with_pair db ~id:deletion.id
         ~expected_pair_revision:(Some next.revision) {next with remote_tombstone=Some tombstone}));
       let local={append with id="local";kind=J.Local_append;local_id=Some "local";
+        append=None;
         destination=None;destination_uidvalidity=None;
         source_uidvalidity=Some (epoch 67L);source_uid=Some (uid 4L)} in
-      J.prepare_operation ~source_internal_date:date db local;
+      J.prepare_operation db {local with internal_date=Some date};
       observed db local None None;
       let candidate={pair with id="local";local_id=local.local_id;remote_uid=local.source_uid} in
       invalid "missing source date" (fun () -> J.commit_operation_with_pair db ~id:local.id

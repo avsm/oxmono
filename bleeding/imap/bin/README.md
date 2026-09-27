@@ -318,7 +318,9 @@ source UIDVALIDITY and UID, the Maildir occurrence ID, any attested
 destination UID and the body digest and length. For a paired operation it
 also shows the saved and current pair revisions, the tombstones, the target
 flags and any saved local flag preimage. A missing preimage prints as `?`,
-distinct from a known empty list. The status is 4 with open conflicts, 3
+distinct from a known empty list. An APPEND or local append shows the
+INTERNALDATE it carries, and an APPEND also its message ID, spool
+reference and pre-send UID frontier. The status is 4 with open conflicts, 3
 with active operations and 0 otherwise.
 
 `--operation-id ID` prints one operation, including a committed or rejected
@@ -407,8 +409,8 @@ EXPUNGE cannot be excluded, so review the target immediately before.
 
 An APPEND that lost its tagged receipt stays ambiguous. `inspect
 --operation-id ID` shows its saved reason. A source blob rejected before
-any APPEND intent was saved is recorded as a rejected operation and is
-attempted afresh after the local storage is repaired.
+the APPEND operation was marked sent is recorded as a rejected operation
+and is attempted afresh after the local storage is repaired.
 
 `inspect-append-candidates` narrows the UID range before an operator
 reviews a server log:

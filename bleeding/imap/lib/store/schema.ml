@@ -29,25 +29,6 @@ let objects = [
    FOREIGN KEY(endpoint,account,mailbox_key,uidvalidity,uid) \
      REFERENCES snapshots(endpoint,account,mailbox_key,uidvalidity,uid) \
      ON DELETE CASCADE)";
-  "table","intents",
-  "CREATE TABLE intents ( \
-   id TEXT PRIMARY KEY, endpoint TEXT NOT NULL, account TEXT NOT NULL, \
-   mailbox_key TEXT NOT NULL, raw_name TEXT NOT NULL, encoding TEXT NOT NULL, \
-   mailbox_id TEXT, kind TEXT NOT NULL, message_id TEXT, digest TEXT, \
-   spool_ref TEXT, state TEXT NOT NULL, uidvalidity INTEGER, uid INTEGER, \
-   pre_send_frontier INTEGER, expected_length INTEGER, \
-   expected_flags_known INTEGER, expected_internal_date TEXT)";
-  "index","intents_pending",
-  "CREATE INDEX intents_pending ON intents \
-   (endpoint,account,mailbox_key,state)";
-  "index","intents_blob_pending",
-  "CREATE INDEX intents_blob_pending ON intents(digest) \
-   WHERE state NOT IN ('confirmed','rejected')";
-  "table","intent_flags",
-  "CREATE TABLE intent_flags ( \
-   intent_id TEXT NOT NULL, ord INTEGER NOT NULL, flag TEXT NOT NULL, \
-   PRIMARY KEY(intent_id,ord), \
-   FOREIGN KEY(intent_id) REFERENCES intents(id) ON DELETE CASCADE)";
   "table","blob_refs",
   "CREATE TABLE blob_refs ( \
    endpoint TEXT NOT NULL, account TEXT NOT NULL, mailbox_key TEXT NOT NULL, \
@@ -131,7 +112,7 @@ let objects = [
    dest_raw_name TEXT, dest_encoding TEXT, dest_mailbox_id TEXT, \
    dest_epoch INTEGER, receipt_epoch INTEGER, receipt_uid INTEGER, \
    blob_sha256 TEXT, blob_length INTEGER, desired_flags_known INTEGER, \
-   receipt TEXT, \
+   receipt TEXT, message_id TEXT, spool_ref TEXT, pre_send_frontier INTEGER, \
    FOREIGN KEY(pair_id) REFERENCES sync_pairs(id) ON DELETE RESTRICT)";
   "index","sync_operations_pending",
   "CREATE INDEX sync_operations_pending ON sync_operations \

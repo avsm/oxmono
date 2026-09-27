@@ -66,7 +66,8 @@ val copy_once :
     occurrence verifies its bytes and flags, or the APPENDUID target its
     bytes, flags and INTERNALDATE. A remote message expunged before its body
     is archived returns [Source_vanished], and a staged local occurrence
-    that changed returns [Local_source_changed] before any APPEND intent. A
+    that changed returns [Local_source_changed] before any APPEND is
+    journaled. A
     remote message that Maildir cannot store, such as one with an
     unrepresentable date, is rejected in the journal and returns
     [Invalid_operation].
@@ -77,9 +78,9 @@ val copy_once :
     reserved local ID, the source UID in the new inventory and its journaled
     digest, length, flags and INTERNALDATE. An APPEND with a confirmed or
     attested APPENDUID is reconciled after the UID's membership, bytes,
-    length, flags and INTERNALDATE verify. An APPEND whose {!Imap_store}
-    intent was never sent is rejected and may be attempted afresh. An APPEND
-    without attribution stays pending and is never replayed.
+    length, flags and INTERNALDATE verify. A copy still [Prepared] was never
+    sent, so it is rejected and may be attempted afresh. An APPEND without
+    attribution stays pending and is never replayed.
 
     With no pairs yet and messages on both endpoints, the call returns
     [Bootstrap_requires_pairing] unless [allow_bootstrap_duplicates] is

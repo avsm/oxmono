@@ -68,6 +68,7 @@ let intent (pair:J.pair) ~id ~kind ~epoch ~uid ~local_id
   destination=None;destination_uidvalidity=None;
   blob_sha256=Some digest;blob_length=Some length;
   desired_flags=Some (F.durable pair.common_flags);
+  internal_date=None;append=None;
   receipt=None;receipt_uidvalidity=None;receipt_uid=None;
 }
 

@@ -40,12 +40,14 @@ let remote_date ctx ~uid ~uidvalidity =
   let* _,date=E.remote_flags_and_date ctx ~uid ~uidvalidity in
   Ok date
 
-let operation ~kind ~id ~scope ~local_id ~source_uidvalidity ~source_uid
-    ~destination ~destination_uidvalidity ~blob ~flags : J.operation = {
+let operation ?append ~kind ~id ~scope ~local_id ~source_uidvalidity
+    ~source_uid ~destination ~destination_uidvalidity ~blob ~flags
+    ~internal_date () : J.operation = {
   id;pair_id=None;local_id=Some local_id;scope;kind;
   state=J.Prepared;source_uidvalidity;source_uid;destination;
   destination_uidvalidity;blob_sha256=Some blob.Imap_store.Blob.sha256;
   blob_length=Some blob.length;desired_flags=Some (durable_flags flags);
+  internal_date=Some internal_date;append;
   receipt=None;receipt_uidvalidity=None;receipt_uid=None}
 
 let pair = E.new_pair
@@ -63,10 +65,10 @@ let copy_remote_to_local ~(ctx:Ctx.t) ~writer ~local_inventory ~uidvalidity
   let blob=archived.blob and internal_date=archived.internal_date in
   let id=next_id () and local_id=Maildir.reserve_id () in
   let flags=durable_flags row.flags in
-  let intent=operation ~kind:J.Local_append ~id ~scope ~local_id
-    ~source_uidvalidity:(Some uidvalidity) ~source_uid:(Some uid)
-    ~destination:None ~destination_uidvalidity:None ~blob ~flags in
-  J.prepare_operation ~source_internal_date:internal_date store intent;
+  J.prepare_operation store (operation ~kind:J.Local_append ~id ~scope
+    ~local_id ~source_uidvalidity:(Some uidvalidity) ~source_uid:(Some uid)
+    ~destination:None ~destination_uidvalidity:None ~blob ~flags
+    ~internal_date ());
   match E.storable writer ~flags internal_date with
   | Error reason ->
       J.reject_prepared_operation store ~id
@@ -114,18 +116,15 @@ let copy_local_to_remote ~(ctx:Ctx.t) ~maildir ~local_inventory
         Error (Local_source_changed local.id) in
   let id=next_id () in
   let flags=durable_flags local.flags in
-  let intent=operation ~kind:J.Append ~id ~scope ~local_id:local.id
-    ~source_uidvalidity:None ~source_uid:None
-    ~destination:(Some scope) ~destination_uidvalidity:(Some uidvalidity)
-    ~blob ~flags in
-  J.prepare_operation ~local_source_mtime:local.mtime store intent;
-  J.mark_sent store ~id;
-  match Engine.append_blob_journaled ~ctx ~id ~message_id:id ~flags
-      ~internal_date blob with
+  let append : J.append = {message_id=id;spool_ref=blob.sha256;
+    pre_send_frontier=(Imap_store.load_cursor store ~scope).frontier} in
+  J.prepare_operation ~local_source_mtime:local.mtime store
+    (operation ~append ~kind:J.Append ~id ~scope ~local_id:local.id
+      ~source_uidvalidity:None ~source_uid:None
+      ~destination:(Some scope) ~destination_uidvalidity:(Some uidvalidity)
+      ~blob ~flags ~internal_date ());
+  match Engine.append_blob_journaled ~ctx ~id blob with
   | Ok (Engine.Identified receipt) ->
-      J.observe_operation store ~id ~receipt:"APPENDUID"
-        ~destination_uidvalidity:(Some receipt.uidvalidity)
-        ~destination_uid:(Some receipt.uid);
       let spool=Eio.Path.(spool_dir /
         ("imap-upload-verify-" ^ Maildir.reserve_id ())) in
       let* remote=appended ~uid:receipt.uid (Engine.fetch_uid_digest ~ctx
@@ -151,23 +150,13 @@ let copy_local_to_remote ~(ctx:Ctx.t) ~maildir ~local_inventory
           ~uid:receipt.uid ~local_id:local.id
           ~sha256:blob.sha256 ~length:blob.length ~internal_date
           ~flags:observed ())
-  | Ok Engine.Needs_reconciliation ->
-      J.mark_ambiguous
-        ~reason:"APPEND completed without an attributable APPENDUID"
-        store ~id;
-      Error (Pending_operations [id])
-  | Error (Client (Imap_eio.Error.Rejected _)) as error ->
-      J.reject_operation store ~id ~receipt:"APPEND rejected";
-      error
+  | Ok Engine.Needs_reconciliation -> Error (Pending_operations [id])
   | Error _ as error ->
-      (match Imap_store.find_intent store ~id with
-       | None ->
-           J.reject_operation store ~id
+      (match J.find_operation store ~id with
+       | Some {state=J.Prepared;_} ->
+           J.reject_prepared_operation store ~id
              ~receipt:"APPEND was not dispatched"
-       | Some _ ->
-           J.mark_ambiguous
-             ~reason:"APPEND may have reached the server; verify before repair"
-             store ~id);
+       | _ -> ());
       error
 
 let snapshot_has_uid = E.snapshot_has_uid
@@ -194,8 +183,7 @@ let reconcile_local_append ~(ctx:Ctx.t) ~maildir ~(cursor:Imap.Mirror.cursor)
              Error (Content_diverged operation.id)
            else if not (same_flags local.flags flags) then
              Error (Flags_diverged operation.id)
-           else let* expected_date=match J.operation_source_date store
-               ~id:operation.id with
+           else let* expected_date=match operation.internal_date with
              | Some expected ->
                  (match Local_date.of_occurrence local with
                   | Ok actual when Imap.Internal_date.equal_instant
@@ -224,100 +212,59 @@ let reconcile_remote_append ~(ctx:Ctx.t) ~maildir
   let {Ctx.store;scope;spool_dir;_}=ctx in
   match operation.kind,operation.state,operation.local_id,
         operation.blob_sha256,operation.blob_length,
-        operation.desired_flags with
-  | J.Append,(J.Sent|J.Ambiguous|J.Observed),Some local_id,
-    Some sha256,Some length,Some flags ->
-      let receipt=match operation.state,operation.receipt_uidvalidity,
+        operation.desired_flags,operation.receipt_uidvalidity,
         operation.receipt_uid with
-        | J.Observed,Some epoch,Some uid -> Some (epoch,uid)
-        | _ ->
-            (match Imap_store.find_intent store ~id:operation.id with
-             | Some ({state=Imap_store.Confirmed;uidvalidity=Some epoch;
-                 uid=Some uid;_} as intent)
-               when E.append_intent_matches ~scope operation intent ->
-                 Some (epoch,uid)
-             | _ -> None) in
-      (match receipt with
-       | None -> Ok ()
-       | Some (uidvalidity,_) when cursor.uidvalidity<>Some uidvalidity ->
-           Ok ()
-       | Some (uidvalidity,uid) ->
-           let* present=snapshot_has_uid store ~scope ~cursor uid in
-           if not present then Ok ()
-           else
-             let* found=find maildir ~id:local_id in
-             (match found with
-              | None -> Ok ()
-              | Some local ->
-                  let* ()=match J.operation_source_mtime store
-                      ~id:operation.id with
-                    | Some mtime when mtime=local.mtime -> Ok ()
-                    | Some _ -> Error (Local_source_changed local_id)
-                    | None -> Error (Pending_operations [operation.id]) in
-                  let* expected_date=match Imap_store.find_intent store
-                      ~id:operation.id with
-                    | Some {kind=Imap_store.Append
-                        {expected_internal_date=Some raw;_};_} ->
-                        (match Imap.Internal_date.of_string raw with
-                         | Error _ -> Error (Invalid_operation
-                             "APPEND journal contains an invalid INTERNALDATE")
-                         | Ok intended ->
-                             let* saved=E.local_date local in
-                             if Imap.Internal_date.equal_instant saved
-                                 intended then Ok (Some intended)
-                             else Error (Date_diverged operation.id))
-                    | _ -> Result.map Option.some (E.local_date local) in
-                  if local.length<>length ||
-                     Maildir.sha256 maildir local<>sha256 then
-                    Error (Content_diverged operation.id)
-                  else if not (same_flags flags local.flags) then
-                    Error (Flags_diverged operation.id)
-                  else
-                    let spool=Eio.Path.(spool_dir /
-                      ("imap-recover-" ^ Maildir.reserve_id ())) in
-                    let* remote=appended ~uid (Engine.fetch_uid_digest ~ctx
-                      ~uidvalidity ~uid ~spool ()) in
-                    if remote.length<>length || remote.sha256<>sha256 then
-                      Error (Content_diverged operation.id)
-                    else if not (same_flags flags remote.flags) then
-                      Error (Flags_diverged operation.id)
-                    else let* ()=match expected_date with
-                      | Some expected when not
-                          (Imap.Internal_date.equal_instant expected
-                            remote.internal_date) ->
-                          Error (Date_diverged operation.id)
-                      | _ -> Ok () in
-                      (
-                        if operation.state<>J.Observed then
-                          J.observe_operation store ~id:operation.id
-                            ~receipt:"APPENDUID"
-                            ~destination_uidvalidity:(Some uidvalidity)
-                            ~destination_uid:(Some uid);
-                        commit_pair store ~id:operation.id
-                          (pair ~id:operation.id ~scope ~uidvalidity ~uid
-                            ~local_id ~sha256 ~length
-                            ?internal_date:expected_date ~flags ()))))
+  | J.Append,J.Observed,Some local_id,Some sha256,Some length,Some flags,
+    Some uidvalidity,Some uid when cursor.uidvalidity=Some uidvalidity ->
+      let* present=snapshot_has_uid store ~scope ~cursor uid in
+      if not present then Ok ()
+      else
+        let* found=find maildir ~id:local_id in
+        (match found with
+         | None -> Ok ()
+         | Some local ->
+             let* ()=match J.operation_source_mtime store
+                 ~id:operation.id with
+               | Some mtime when mtime=local.mtime -> Ok ()
+               | Some _ -> Error (Local_source_changed local_id)
+               | None -> Error (Pending_operations [operation.id]) in
+             let* expected_date=match operation.internal_date with
+               | Some intended ->
+                   let* saved=E.local_date local in
+                   if Imap.Internal_date.equal_instant saved intended
+                   then Ok (Some intended)
+                   else Error (Date_diverged operation.id)
+               | None -> Result.map Option.some (E.local_date local) in
+             if local.length<>length ||
+                Maildir.sha256 maildir local<>sha256 then
+               Error (Content_diverged operation.id)
+             else if not (same_flags flags local.flags) then
+               Error (Flags_diverged operation.id)
+             else
+               let spool=Eio.Path.(spool_dir /
+                 ("imap-recover-" ^ Maildir.reserve_id ())) in
+               let* remote=appended ~uid (Engine.fetch_uid_digest ~ctx
+                 ~uidvalidity ~uid ~spool ()) in
+               if remote.length<>length || remote.sha256<>sha256 then
+                 Error (Content_diverged operation.id)
+               else if not (same_flags flags remote.flags) then
+                 Error (Flags_diverged operation.id)
+               else let* ()=match expected_date with
+                 | Some expected when not
+                     (Imap.Internal_date.equal_instant expected
+                       remote.internal_date) ->
+                     Error (Date_diverged operation.id)
+                 | _ -> Ok () in
+                 commit_pair store ~id:operation.id
+                   (pair ~id:operation.id ~scope ~uidvalidity ~uid
+                     ~local_id ~sha256 ~length
+                     ?internal_date:expected_date ~flags ()))
   | _ -> Ok ()
 
+(* A prepared copy was never dispatched, since APPEND and the Maildir
+   write each move their operation to Sent first. *)
 let reject_unsent_copy ~store ~maildir (operation:J.operation) =
   match operation.kind,operation.state with
-  | J.Append,(J.Sent | J.Ambiguous) ->
-      let reject () =
-        J.reject_operation store ~id:operation.id
-          ~receipt:"no lower-layer APPEND dispatch occurred";
-        Ok () in
-      (match Imap_store.find_intent store ~id:operation.id with
-       | None -> reject ()
-       | Some {scope;kind=Imap_store.Append _;
-               state=Imap_store.Prepared;_}
-           when scope=operation.scope ->
-           Imap_store.set_intent_state store ~id:operation.id
-             Imap_store.Rejected;
-           reject ()
-       | Some {scope;kind=Imap_store.Append _;
-               state=Imap_store.Rejected;_}
-           when scope=operation.scope -> reject ()
-       | _ -> Ok ())
   | (J.Append | J.Local_append),J.Prepared ->
       let* local_exists=match operation.kind,operation.local_id with
         | J.Local_append,Some id ->
@@ -325,21 +272,10 @@ let reject_unsent_copy ~store ~maildir (operation:J.operation) =
             Ok (Option.is_some found)
         | _ -> Ok false in
       if local_exists then Error (Pending_operations [operation.id])
-      else
-        (match Imap_store.find_intent store ~id:operation.id with
-         | Some {state=(Imap_store.Sent | Imap_store.Ambiguous |
-             Imap_store.Confirmed);_} ->
-             Error (Pending_operations [operation.id])
-         | Some {state=Imap_store.Prepared;_} ->
-             Imap_store.set_intent_state store ~id:operation.id
-               Imap_store.Rejected;
-             J.reject_prepared_operation store ~id:operation.id
-               ~receipt:"prepared copy was not dispatched";
-             Ok ()
-         | Some {state=Imap_store.Rejected;_} | None ->
-             J.reject_prepared_operation store ~id:operation.id
-               ~receipt:"prepared copy was not dispatched";
-             Ok ())
+      else (
+        J.reject_prepared_operation store ~id:operation.id
+          ~receipt:"prepared copy was not dispatched";
+        Ok ())
   | _ -> Ok ()
 
 let record_absences ~store ~maildir ~scope ~(cursor:Imap.Mirror.cursor)

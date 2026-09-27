@@ -27,7 +27,9 @@ let delete (p:J.pair) id desired_flags : J.operation = {
   state=Prepared; source_uidvalidity=p.remote_uidvalidity;
   source_uid=p.remote_uid; destination=None; destination_uidvalidity=None;
   blob_sha256=p.content_sha256; blob_length=p.content_length;
-  desired_flags; receipt=None; receipt_uidvalidity=None; receipt_uid=None }
+  desired_flags;
+  internal_date=None;append=None;
+  receipt=None; receipt_uidvalidity=None; receipt_uid=None }
 
 let committed = function
   | `Committed p -> p

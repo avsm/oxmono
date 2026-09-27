@@ -240,9 +240,7 @@ let iter_directory native f =
    stay live until Imap_store.forget_epochs drops it. *)
 let reachability = "SELECT EXISTS (SELECT 1 FROM blob_refs WHERE sha256=?) \
   OR EXISTS (SELECT 1 FROM sync_operations WHERE blob_sha256=? \
-    AND state NOT IN ('committed','rejected')) \
-  OR EXISTS (SELECT 1 FROM intents WHERE digest=? \
-    AND state NOT IN ('confirmed','rejected'))"
+    AND state NOT IN ('committed','rejected'))"
 
 let iter_orphan_candidates t f =
   let Dir dir=directory t in
@@ -250,7 +248,7 @@ let iter_orphan_candidates t f =
   with_stmt t reachability (fun stmt ->
     let referenced hash =
       locked t (fun () ->
-        match rows_prepared t stmt [s hash;s hash;s hash] with
+        match rows_prepared t stmt [s hash;s hash] with
         | r :: _ -> int r.(0)<>0L
         | [] -> fail "invalid blob reachability result") in
     iter_directory (Eio.Path.native_exn dir) (fun name ->

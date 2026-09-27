@@ -32,13 +32,15 @@ let run env =
         let plan=ref [] in
         Sqlite3.Rc.check (Sqlite3.exec raw ~cb:(fun row _ ->
           Array.iter (Option.iter (fun cell -> plan := cell :: !plan)) row)
-          "EXPLAIN QUERY PLAN SELECT EXISTS (SELECT 1 FROM blob_refs WHERE sha256='a') OR EXISTS (SELECT 1 FROM sync_operations WHERE blob_sha256='a' AND state NOT IN ('committed','rejected')) OR EXISTS (SELECT 1 FROM intents WHERE digest='a' AND state NOT IN ('confirmed','rejected'))");
+          "EXPLAIN QUERY PLAN SELECT EXISTS (SELECT 1 FROM blob_refs \
+           WHERE sha256='a') OR EXISTS (SELECT 1 FROM sync_operations \
+           WHERE blob_sha256='a' AND state NOT IN ('committed','rejected'))");
         List.iter (fun index ->
           check (List.exists (fun line ->
             String.starts_with ~prefix:"SEARCH " line &&
             List.mem index (String.split_on_char ' ' line)) !plan)
             ("reachability query does not search index " ^ index))
-          ["blob_refs_hash";"sync_operations_blob_pending";"intents_blob_pending"]);
+          ["blob_refs_hash";"sync_operations_blob_pending"]);
       let count=1031 in
       for n=1 to count do
         let name=if n mod 2=0 then Printf.sprintf "sha256-%064x" n
@@ -53,7 +55,7 @@ let run env =
         check (not (Hashtbl.mem seen name)) "duplicate callback";
         Hashtbl.add seen name ();
         (* Callback does not inherit the database mutex. *)
-        ignore (Imap_store.find_intent db ~id:"absent"));
+        ignore (Imap_store.Journal.find_operation db ~id:"absent"));
       check (Hashtbl.length seen=count) "multi-batch iterator lost entries";
       check (directory_handles archive=0) "normal iteration leaked directory";
       (try Imap_store.Blob.iter_orphan_candidates db (fun _ -> raise Exit)

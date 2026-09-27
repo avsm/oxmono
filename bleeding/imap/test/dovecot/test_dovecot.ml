@@ -1033,11 +1033,11 @@ let test_bridge_cram () =
      | _ -> false);
   let imported_pair=Option.get (Imap_store.Journal.find_local store ~scope
     ~local_id:imported_occurrence.id) in
-  Alcotest.(check bool) "import intent retains source INTERNALDATE" true
-    (match Imap_store.Journal.operation_source_date store
-             ~id:imported_pair.id with
-     | Some saved -> Imap.Internal_date.equal_instant remote_date saved
-     | None -> false);
+  Alcotest.(check bool) "import operation retains source INTERNALDATE" true
+    (match Imap_store.Journal.find_operation store ~id:imported_pair.id with
+     | Some {internal_date=Some saved;_} ->
+         Imap.Internal_date.equal_instant remote_date saved
+     | _ -> false);
   let local_bytes="From: local@example.test\r\nSubject: upload " ^ nonce ^
     "\r\n\r\nLocal original\r\n" in
   let local=Md.append maildir
@@ -1415,22 +1415,15 @@ let append_crash_child dbfile mailbox local_id id =
     source_uidvalidity=None;source_uid=None;destination=Some scope;
     destination_uidvalidity=Some epoch;
     blob_sha256=Some blob.sha256;blob_length=Some blob.length;
-    desired_flags=Some [];receipt=None;receipt_uidvalidity=None;
+    desired_flags=Some [];
+    internal_date=Some (append_crash_date ());
+    append=Some {message_id=id;spool_ref=blob.sha256;
+      pre_send_frontier=cursor.frontier};
+    receipt=None;receipt_uidvalidity=None;
     receipt_uid=None} in
   Imap_store.Journal.prepare_operation
     ~local_source_mtime:local.mtime store op;
-  let legacy : Imap_store.intent = {
-    id;scope;state=Imap_store.Prepared;
-    kind=Imap_store.Append {
-      message_id=id;content_digest=blob.sha256;spool_ref=blob.sha256;
-      pre_send_uid_frontier=Some cursor.frontier;
-      expected_length=Some blob.length;expected_flags=Some [];
-      expected_internal_date=Some
-        (Imap.Internal_date.to_string (append_crash_date ())) };
-    uidvalidity=Some epoch;uid=None} in
-  Imap_store.prepare_intent store legacy;
   Imap_store.Journal.mark_sent store ~id;
-  Imap_store.set_intent_state store ~id Imap_store.Sent;
   let receipt=Eio.Switch.run @@ fun source_sw ->
     let source=Imap_store.Blob.open_in store ~sw:source_sw blob in
     unwrap (Imap_eio.Client.append client ~mailbox
@@ -1447,7 +1440,7 @@ let append_crash_child dbfile mailbox local_id id =
   Unix.fsync (Unix.descr_of_out_channel output);
   close_out output;
   (* Server acceptance is real, but the receipt is only in the sidecar used
-     as operator evidence. Neither SQLite journal records it before death. *)
+     as operator evidence. The journal does not record it before death. *)
   Unix._exit 77
 
 let test_append_process_crash () =
@@ -1524,11 +1517,9 @@ let test_append_process_crash () =
   Eio.Switch.run (fun store_sw ->
     let store=Imap_store.open_path ~sw:store_sw
       ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-    Alcotest.(check bool) "both journals lack durable receipt" true
-      (match Imap_store.Journal.find_operation store ~id,
-             Imap_store.find_intent store ~id with
-       | Some {state=Imap_store.Journal.Sent;receipt_uid=None;_},
-         Some {state=Imap_store.Sent;uid=None;_} -> true
+    Alcotest.(check bool) "journal lacks durable receipt" true
+      (match Imap_store.Journal.find_operation store ~id with
+       | Some {state=Imap_store.Journal.Sent;receipt_uid=None;_} -> true
        | _ -> false);
     (match Imap_sync.Bridge.copy_once
       ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
@@ -1631,6 +1622,7 @@ let delete_crash_child dbfile mailbox pair_id operation_id =
     destination=None;destination_uidvalidity=None;
     blob_sha256=pair.content_sha256;blob_length=pair.content_length;
     desired_flags=Some pair.common_flags;
+    internal_date=None;append=None;
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
     (fun selected ->
@@ -1667,7 +1659,7 @@ let delete_crash_child dbfile mailbox pair_id operation_id =
       Alcotest.(check int) "target absent before process exit" 0
         (List.length rows);
       Ok ()));
-  (* The server accepted both mutations; SQLite has only the Sent intent. *)
+  (* The server accepted both mutations; SQLite has only the Sent operation. *)
   Unix._exit 77
 
 let test_delete_process_crash () =
@@ -1856,6 +1848,7 @@ let test_flags_recovery () =
     source_uidvalidity=Some epoch;source_uid=Some uid;
     destination=None;destination_uidvalidity=None;
     blob_sha256=None;blob_length=None;desired_flags=Some desired;
+    internal_date=None;append=None;
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
   let store_remote desired=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_write mailbox (fun selected ->
@@ -2060,6 +2053,7 @@ let test_operator_local_delete_repair () =
     blob_sha256=pair.content_sha256;
     blob_length=pair.content_length;
     desired_flags=Some pair.common_flags;
+    internal_date=None;append=None;
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
   Imap_store.Journal.prepare_operation store operation;
   Imap_store.Journal.mark_sent store ~id:operation_id;
@@ -2155,9 +2149,9 @@ let test_operator_local_append_repair () =
     source_uid=Some receipt.uid;destination=None;
     destination_uidvalidity=None;blob_sha256=Some blob.sha256;
     blob_length=Some blob.length;desired_flags=Some [];
+    internal_date=Some date;append=None;
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
-  Imap_store.Journal.prepare_operation ~source_internal_date:date
-    store operation;
+  Imap_store.Journal.prepare_operation store operation;
   Imap_store.Journal.mark_sent store ~id;
   let copy stage_id=Imap_sync.Bridge.copy_once
     ~ctx:(sync_ctx ~client ~store ~scope ~mailbox
@@ -2384,6 +2378,7 @@ let test_reject_unchanged_remote_delete () =
     destination=None;destination_uidvalidity=None;
     blob_sha256=pair.content_sha256;blob_length=pair.content_length;
     desired_flags=Some pair.common_flags;
+    internal_date=None;append=None;
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
   Imap_store.Journal.prepare_operation store operation;
   Imap_store.Journal.mark_sent store ~id:operation_id;

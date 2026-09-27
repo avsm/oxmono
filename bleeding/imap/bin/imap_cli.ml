@@ -885,14 +885,22 @@ let operation_context store (op:Imap_store.Journal.operation) =
     | None -> "?","?"
     | Some pair -> tombstone pair.remote_tombstone,
         tombstone pair.local_tombstone in
+  let internal_date=match op.internal_date with
+    | None -> "" | Some date -> Imap.Internal_date.to_string date in
+  let append=match op.append with
+    | None -> ""
+    | Some a -> Printf.sprintf
+        " message_id=%S spool_ref=%S pre_send_frontier=%Ld"
+        a.message_id a.spool_ref a.pre_send_frontier in
   Printf.sprintf
     (" desired=%S local_preimage=%S pair_revision=%s/%s" ^^
-     " remote_tombstone=%S local_tombstone=%S receipt=%S")
+     " remote_tombstone=%S local_tombstone=%S internal_date=%S%s" ^^
+     " receipt=%S")
     (flags op.desired_flags)
     (flags (if op.kind=J.Flags then J.local_flags_preimage store ~id:op.id
       else None))
     saved_revision current_revision remote_tombstone local_tombstone
-    (Option.value ~default:"" op.receipt)
+    internal_date append (Option.value ~default:"" op.receipt)
 
 let print_sync (receipt:Imap_sync.Bridge.receipt) cycle =
   Printf.printf ("cycle=%d revision=%Ld remote_to_local=%d " ^^
@@ -1310,10 +1318,10 @@ let repair_local_append r ~blob_dir ~env ~secret ~net ~fs ~random =
 let settle_flags r ~env ~secret ~net ~fs ~random =
   online_repair r ~env ~secret ~net ~fs ~random ~spool_required:false
   @@ fun ~ctx ~maildir ~id ~evidence ->
-  match check "FLAGS intent unchanged"
+  match check "FLAGS operation unchanged"
       (Imap_sync.Repair.settle_flags ~ctx ~maildir ~id ~evidence ()) with
   | Imap_sync.Flags.Updated _ ->
-      prerr_endline "matching endpoint flags adopted; old intent rejected";
+      prerr_endline "matching endpoint flags adopted; old operation rejected";
       converged
   | Imap_sync.Flags.Unchanged ->
       prerr_endline "FLAGS settlement made no change"; conflict

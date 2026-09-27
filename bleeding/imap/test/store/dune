@@ -11,7 +11,7 @@
  (libraries imap.store eio eio_main sqlite3 unix))
 
 (test
- (name test_intent_validation)
+ (name test_append_validation)
  (libraries imap imap.store eio eio_main sqlite3))
 
 (test

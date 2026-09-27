@@ -1,5 +1,6 @@
 module Mirror = Imap.Mirror
 module E = Pair_evidence
+module J = Imap_store.Journal
 
 open Error
 
@@ -226,56 +227,62 @@ type append_outcome =
   | Identified of Imap_eio.Client.append_receipt
   | Needs_reconciliation
 
-let append_journaled ~(ctx:Ctx.t) ~id ~message_id ~content_digest
-    ~spool_ref ?flags ?internal_date ~length source =
-  let {Ctx.client;store;scope;mailbox;_}=ctx in
+(* [prepared_append ~ctx ~id] is the prepared APPEND [id] of [ctx]'s
+   mailbox and its length. *)
+let prepared_append ~(ctx:Ctx.t) ~id =
+  match J.find_operation ctx.store ~id with
+  | Some (op:J.operation) when op.kind=J.Append && op.scope=ctx.scope ->
+      (match op.state,op.destination,op.blob_length,op.append with
+       | J.Prepared,Some destination,Some length,Some _
+         when destination=ctx.scope -> Ok (op,length)
+       | J.Prepared,_,_,_ -> Error (Invalid_operation
+           "APPEND operation targets another mailbox")
+       | _ -> Error (Invalid_operation "APPEND operation is not prepared"))
+  | _ -> Error No_pending_operation
+
+let send_append ~(ctx:Ctx.t) (op:J.operation) ~length source =
+  let {Ctx.client;store;mailbox;_}=ctx in
+  let id=op.id in
   let* ()=E.verify_mutation_destination ~ctx in
-  let expected_flags = Some (Option.value ~default:[] flags) in
-  let current = Imap_store.load_cursor store ~scope in
-  let intent : Imap_store.intent = {
-    id; scope; state=Imap_store.Prepared;
-    kind=Imap_store.Append {message_id; content_digest; spool_ref;
-      pre_send_uid_frontier=Some current.frontier;
-      expected_length=Some length; expected_flags;
-      expected_internal_date=Option.map
-        Imap.Internal_date.to_string internal_date};
-    uidvalidity=current.uidvalidity; uid=None
-  } in
-  Imap_store.prepare_intent store intent;
-  (* Sent is durable before the first network write. A crash between this
-     transition and the write is conservatively ambiguous on restart. *)
-  Imap_store.set_intent_state store ~id Imap_store.Sent;
+  (* Sent is durable before the first APPEND byte, so a crash after it is
+     ambiguous on restart and a crash before it proves nothing was sent. *)
+  J.mark_sent store ~id;
   match Imap_eio.Client.append client ~mailbox
-    (Imap_eio.Client.append_message ?flags ?internal_date ~length source) with
+    (Imap_eio.Client.append_message ?flags:op.desired_flags
+       ?internal_date:op.internal_date ~length source) with
   | Ok (Some receipt) ->
-      Imap_store.confirm_intent store ~id
-        ~uidvalidity:(Some receipt.uidvalidity) ~uid:(Some receipt.uid);
+      J.observe_operation store ~id ~receipt:"APPENDUID"
+        ~destination_uidvalidity:(Some receipt.uidvalidity)
+        ~destination_uid:(Some receipt.uid);
       Ok (Identified receipt)
   | Ok None ->
-      Imap_store.set_intent_state store ~id Imap_store.Ambiguous;
+      J.mark_ambiguous
+        ~reason:"APPEND completed without an attributable APPENDUID"
+        store ~id;
       Ok Needs_reconciliation
-  | Error (Imap_eio.Error.Uncertain _ as error) ->
-      Imap_store.set_intent_state store ~id Imap_store.Ambiguous;
-      Error (Client error)
   | Error (Imap_eio.Error.Rejected _ as error) ->
-      Imap_store.set_intent_state store ~id Imap_store.Rejected;
+      J.reject_operation store ~id ~receipt:"APPEND rejected";
       Error (Client error)
   | Error error ->
-      Imap_store.set_intent_state store ~id Imap_store.Ambiguous;
+      J.mark_ambiguous
+        ~reason:"APPEND may have reached the server; verify before repair"
+        store ~id;
       Error (Client error)
 
-let append_blob_journaled ~(ctx:Ctx.t) ~id ~message_id ?flags
-    ?internal_date blob =
+let append_journaled ~(ctx:Ctx.t) ~id source =
+  let* op,length=prepared_append ~ctx ~id in
+  send_append ~ctx op ~length source
+
+let append_blob_journaled ~(ctx:Ctx.t) ~id (blob:Imap_store.Blob.blob) =
   let store=ctx.store in
-  if not (Imap_store.Blob.verify store blob) then
+  let* op,length=prepared_append ~ctx ~id in
+  if op.blob_sha256<>Some blob.sha256 || length<>blob.length then
+    Error (Invalid_operation "APPEND operation names another blob")
+  else if not (Imap_store.Blob.verify store blob) then
     Error (Incomplete "APPEND source blob failed integrity verification")
   else
     Eio.Switch.run @@ fun sw ->
-    let source = Imap_store.Blob.open_in store ~sw blob in
-    append_journaled ~ctx ~id ~message_id
-      ~content_digest:blob.sha256 ~spool_ref:blob.sha256 ?flags
-      ?internal_date
-      ~length:blob.length source
+    send_append ~ctx op ~length (Imap_store.Blob.open_in store ~sw blob)
 
 type archived = {
   blob : Imap_store.Blob.blob;

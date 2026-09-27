@@ -113,6 +113,10 @@ let operation ~kind ~id ~local_id ~source_uid ~blob ~flags : J.operation = {
   destination_uidvalidity=(if kind=J.Append then Some (epoch 11L) else None);
   blob_sha256=Some blob.Imap_store.Blob.sha256;
   blob_length=Some blob.length;desired_flags=Some flags;
+  internal_date=None;
+  append=(if kind=J.Append then
+    Some {message_id=id;spool_ref=blob.sha256;pre_send_frontier=0L}
+  else None);
   receipt=None;receipt_uidvalidity=None;receipt_uid=None;
 }
 
@@ -307,18 +311,26 @@ let test_objectid_binding_guards_reconnect () =
    | Ok _ -> ()
    | Error error -> Alcotest.fail
        (Imap_eio.Client.error_to_string error));
+  J.prepare_operation store {id="wrong-destination";pair_id=None;
+    local_id=None;scope;kind=J.Append;state=J.Prepared;
+    source_uidvalidity=None;source_uid=None;destination=Some scope;
+    destination_uidvalidity=None;blob_sha256=Some (String.make 64 'a');
+    blob_length=Some 0L;desired_flags=Some [];internal_date=None;
+    append=Some {message_id="<wrong@x>";spool_ref="dummy";
+      pre_send_frontier=0L};
+    receipt=None;receipt_uidvalidity=None;receipt_uid=None};
   (match Imap_sync.Engine.append_journaled
     ~ctx:(context ~store ~spool_dir append_client)
-    ~id:"wrong-destination" ~message_id:"<wrong@x>"
-    ~content_digest:"sha256:dummy" ~spool_ref:"dummy" ~length:0L
-    (Eio.Flow.string_source "") with
+    ~id:"wrong-destination" (Eio.Flow.string_source "") with
    | Error (Imap_sync.Error.Invalid_scope
        "APPEND destination name no longer matches saved OBJECTID+") -> ()
    | Error error -> Alcotest.failf "wrong APPEND guard error: %a"
        Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "APPEND to replaced mailbox was allowed");
-  Alcotest.(check bool) "unsafe APPEND was not journaled" true
-    (Imap_store.find_intent store ~id:"wrong-destination"=None);
+  Alcotest.(check bool) "unsafe APPEND was not sent" true
+    (match J.find_operation store ~id:"wrong-destination" with
+     | Some {state=J.Prepared;_} -> true
+     | _ -> false);
   let archive_client,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement" ~mailbox_id:"F_replacement" () in
   (match Imap_sync.Engine.archive_uid
@@ -409,7 +421,9 @@ let test_flag_settlement_rejects_replaced_objectid () =
     source_uidvalidity=pair.remote_uidvalidity;
     source_uid=pair.remote_uid;destination=None;
     destination_uidvalidity=None;blob_sha256=None;blob_length=None;
-    desired_flags=Some [];receipt=None;
+    desired_flags=Some [];
+    internal_date=None;append=None;
+    receipt=None;
     receipt_uidvalidity=None;receipt_uid=None} in
   J.prepare_operation store operation;
   J.mark_sent store ~id:operation.id;
@@ -423,7 +437,7 @@ let test_flag_settlement_rejects_replaced_objectid () =
    | Error error -> Alcotest.failf "wrong replacement settlement error: %a"
        Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "FLAGS settlement accepted replaced mailbox");
-  Alcotest.(check bool) "replacement left FLAGS intent pending" true
+  Alcotest.(check bool) "replacement left FLAGS operation pending" true
     ((Option.get (J.find_operation store ~id:operation.id)).state=J.Sent);
   Alcotest.(check int64) "replacement left pair unchanged" pair.revision
     (Option.get (J.find_pair store ~id:pair.id)).revision
@@ -454,6 +468,7 @@ let test_standalone_repairs_reject_replaced_objectid () =
     source_uid=pair.remote_uid;destination=None;
     destination_uidvalidity=None;blob_sha256=Some digest;
     blob_length=Some 1L;desired_flags=Some [];
+    internal_date=None;append=None;
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
   J.prepare_operation store delete;
   J.mark_sent store ~id:delete.id;
@@ -467,7 +482,7 @@ let test_standalone_repairs_reject_replaced_objectid () =
    | Error error -> Alcotest.failf "wrong DELETE repair guard: %a"
        Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "local DELETE repaired against replacement");
-  Alcotest.(check bool) "DELETE intent remains sent" true
+  Alcotest.(check bool) "DELETE operation remains sent" true
     ((Option.get (J.find_operation store ~id:delete.id)).state=J.Sent);
   let append:J.operation={
     delete with id="repair-objectid-append";pair_id=None;
@@ -485,7 +500,7 @@ let test_standalone_repairs_reject_replaced_objectid () =
    | Error error -> Alcotest.failf "wrong local APPEND repair guard: %a"
        Imap_sync.Error.pp error
    | Ok () -> Alcotest.fail "local APPEND repaired against replacement");
-  Alcotest.(check bool) "APPEND intent remains sent" true
+  Alcotest.(check bool) "APPEND operation remains sent" true
     ((Option.get (J.find_operation store ~id:append.id)).state=J.Sent)
 
 let test_candidate_inspection_rejects_replaced_objectid () =
@@ -498,16 +513,6 @@ let test_candidate_inspection_rejects_replaced_objectid () =
     ~local_id:"candidate-local" ~source_uid:None ~blob ~flags:[] in
   J.prepare_operation store op;
   J.mark_sent store ~id:op.id;
-  let intent:Imap_store.intent={
-    id=op.id;scope;state=Imap_store.Prepared;
-    kind=Imap_store.Append {
-      message_id=op.id;content_digest=blob.sha256;
-      spool_ref=blob.sha256;pre_send_uid_frontier=Some 0L;
-      expected_length=Some length;expected_flags=Some [];
-      expected_internal_date=None};
-    uidvalidity=Some (epoch 11L);uid=None} in
-  Imap_store.prepare_intent store intent;
-  Imap_store.set_intent_state store ~id:op.id Imap_store.Sent;
   Alcotest.(check bool) "saved candidate mailbox identity" true
     (Imap_store.observe_object_identity store ~scope
       {account_id="u_account";mailbox_id="F_original"}=`Bound);
@@ -522,9 +527,7 @@ let test_candidate_inspection_rejects_replaced_objectid () =
        Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "inspected APPEND candidates in replacement");
   Alcotest.(check bool) "candidate inspection left journal unchanged" true
-    ((Option.get (J.find_operation store ~id:op.id)).state=J.Sent &&
-     (Option.get (Imap_store.find_intent store ~id:op.id)).state=
-       Imap_store.Sent)
+    ((Option.get (J.find_operation store ~id:op.id)).state=J.Sent)
 
 let scripted_client ?(caps="IMAP4rev1 UNSELECT UIDPLUS") ?(tail=[]) ~sw name
     lines =
@@ -1141,8 +1144,6 @@ let test_invalid_blob_rejects_unsent_append () =
    | Error error -> Alcotest.failf "corrupt source: %a"
        Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "corrupt source was uploaded");
-  Alcotest.(check bool) "no legacy APPEND intent" true
-    (Imap_store.find_intent store ~id=None);
   Alcotest.(check bool) "unsent bridge operation rejected" true
     (match J.find_operation store ~id with
      | Some operation -> operation.state=J.Rejected
@@ -1180,10 +1181,6 @@ let test_missing_appenduid_keeps_reason () =
     Alcotest.(check (option string)) "reason persisted across restart"
       (Some "APPEND completed without an attributable APPENDUID")
       operation.receipt;
-    Alcotest.(check bool) "legacy intent remains ambiguous" true
-      (match Imap_store.find_intent store ~id with
-       | Some intent -> intent.state=Imap_store.Ambiguous
-       | None -> false);
     Alcotest.(check int) "no pair committed" 0
       (List.length (all_pairs store ~scope)));
   Alcotest.(check int) "local occurrence remains" 1
@@ -1269,27 +1266,74 @@ let test_append_date_survives_uncertain_reply () =
     | Error error -> Alcotest.fail (Imap_eio.Client.error_to_string error) in
   let date=ok (Imap.Internal_date.of_string
     "26-Sep-2025 12:34:56 +0000") in
+  J.prepare_operation store {(operation ~kind:J.Append ~id:"dated-append"
+    ~local_id:"dated-local" ~source_uid:None ~blob ~flags:[]) with
+    internal_date=Some date};
   (match Imap_sync.Engine.append_blob_journaled
-    ~ctx:(context ~store ~spool_dir client) ~id:"dated-append"
-    ~message_id:"dated-append"
-    ~internal_date:date blob with
+    ~ctx:(context ~store ~spool_dir client) ~id:"dated-append" blob with
    | Ok Imap_sync.Engine.Needs_reconciliation -> ()
    | Ok _ -> Alcotest.fail "unattributed APPEND was identified"
    | Error error -> Alcotest.failf "dated APPEND: %a"
        Imap_sync.Error.pp error);
-  let intent=match Imap_store.find_intent store ~id:"dated-append" with
-    | Some intent -> intent
-    | None -> Alcotest.fail "dated APPEND intent missing" in
+  let op=match J.find_operation store ~id:"dated-append" with
+    | Some op -> op
+    | None -> Alcotest.fail "dated APPEND operation missing" in
   Alcotest.(check bool) "APPEND remains ambiguous" true
-    (intent.state=Imap_store.Ambiguous);
-  (match intent.kind with
-   | Imap_store.Append append ->
-       Alcotest.(check (option string)) "intended date retained"
-         (Some "26-Sep-2025 12:34:56 +0000")
-         append.expected_internal_date
-   | _ -> Alcotest.fail "wrong intent kind")
+    (op.state=J.Ambiguous);
+  Alcotest.(check (option string)) "intended date retained"
+    (Some "26-Sep-2025 12:34:56 +0000")
+    (Option.map Imap.Internal_date.to_string op.internal_date)
 
-let test_sent_append_without_lower_intent_restarts () =
+(* Engine sends only an APPEND the caller prepared, for the blob it names,
+   and settles the operation itself when the server refuses it. *)
+let test_append_requires_prepared_operation () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let blob=Imap_store.Blob.put store
+    ~source:(Eio.Flow.string_source message) ~length () in
+  let other=Imap_store.Blob.put store
+    ~source:(Eio.Flow.string_source "other") ~length:5L () in
+  let flow=Eio_mock.Flow.make "refused-append" in
+  Eio_mock.Flow.on_read flow [
+    `Return "* OK ready\r\n";
+    `Return "* CAPABILITY IMAP4rev1\r\nA00000001 OK done\r\n";
+    `Return "A00000002 OK logged in\r\n";
+    `Return "* CAPABILITY IMAP4rev1\r\nA00000003 OK done\r\n";
+    `Return "A00000004 NO [OVERQUOTA] refused\r\n";
+  ];
+  let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
+    ~allow_insecure_transport:true () in
+  let client=match Imap_eio.Client.of_flow ~sw ~auth flow with
+    | Ok client -> client
+    | Error error -> Alcotest.fail (Imap_eio.Client.error_to_string error) in
+  let ctx=context ~store ~spool_dir client in
+  let state id=Option.map (fun (op:J.operation) -> op.state)
+    (J.find_operation store ~id) in
+  (match Imap_sync.Engine.append_blob_journaled ~ctx ~id:"unknown" blob with
+   | Error Imap_sync.Error.No_pending_operation -> ()
+   | _ -> Alcotest.fail "unprepared APPEND was sent");
+  J.prepare_operation store (operation ~kind:J.Append ~id:"refused"
+    ~local_id:"refused-local" ~source_uid:None ~blob ~flags:[]);
+  (match Imap_sync.Engine.append_blob_journaled ~ctx ~id:"refused" other with
+   | Error (Imap_sync.Error.Invalid_operation _) -> ()
+   | _ -> Alcotest.fail "APPEND sent another blob");
+  Alcotest.(check bool) "blob mismatch left operation prepared" true
+    (state "refused"=Some J.Prepared);
+  (match Imap_sync.Engine.append_blob_journaled ~ctx ~id:"refused" blob with
+   | Error (Imap_sync.Error.Client (Imap_eio.Error.Rejected _)) -> ()
+   | Error error -> Alcotest.failf "refused APPEND: %a"
+       Imap_sync.Error.pp error
+   | Ok _ -> Alcotest.fail "refused APPEND succeeded");
+  Alcotest.(check bool) "refusal rejected the operation" true
+    (match J.find_operation store ~id:"refused" with
+     | Some {state=J.Rejected;receipt=Some "APPEND rejected";_} -> true
+     | _ -> false);
+  (match Imap_sync.Engine.append_blob_journaled ~ctx ~id:"refused" blob with
+   | Error (Imap_sync.Error.Invalid_operation _) -> ()
+   | _ -> Alcotest.fail "settled APPEND was sent again")
+
+let test_prepared_append_restarts () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   let local=Md.append maildir
     ~source:(Eio.Flow.string_source message) ~length ~flags:[] () in
@@ -1297,10 +1341,9 @@ let test_sent_append_without_lower_intent_restarts () =
     let store=open_store ~sw ~database ~blob_dir in
     let blob=Imap_store.Blob.put store
       ~source:(Eio.Flow.string_source message) ~length () in
-    let op=operation ~kind:J.Append ~id:"sent-before-lower-intent"
+    let op=operation ~kind:J.Append ~id:"prepared-before-send"
       ~local_id:local.id ~source_uid:None ~blob ~flags:[] in
-    J.prepare_operation ~local_source_mtime:local.mtime store op;
-    J.mark_sent store ~id:op.id);
+    J.prepare_operation ~local_source_mtime:local.mtime store op);
   Eio.Switch.run (fun sw ->
     let store=open_store ~sw ~database ~blob_dir in
     let client=scripted_scan ~sw ~has_message:false
@@ -1309,21 +1352,44 @@ let test_sent_append_without_lower_intent_restarts () =
     let next_id ()="fresh-after-unsent" in
     (match Imap_sync.Bridge.copy_once
         ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir
-        ~stage_id:"sent-without-lower-rescan" () with
+        ~stage_id:"prepared-append-rescan" () with
      | Error (Imap_sync.Error.Pending_operations ["fresh-after-unsent"]) -> ()
      | Error error -> Alcotest.failf "unsent APPEND restart: %a"
          Imap_sync.Error.pp error
      | Ok _ -> Alcotest.fail "new unidentified APPEND was not held");
     Alcotest.(check bool) "old unsent operation rejected" true
-      (match J.find_operation store ~id:"sent-before-lower-intent" with
+      (match J.find_operation store ~id:"prepared-before-send" with
        | Some op -> op.state=J.Rejected
        | None -> false);
-    Alcotest.(check bool) "old lower intent never existed" true
-      (Imap_store.find_intent store ~id:"sent-before-lower-intent"=None);
     Alcotest.(check bool) "one fresh APPEND was journaled" true
       (match J.find_operation store ~id:"fresh-after-unsent" with
        | Some op -> op.state=J.Ambiguous
        | None -> false))
+
+(* An APPEND marked sent may have reached the server, so a restart holds
+   it instead of rejecting it as undispatched. *)
+let test_sent_append_survives_restart () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  let local=Md.append maildir
+    ~source:(Eio.Flow.string_source message) ~length ~flags:[] () in
+  Eio.Switch.run (fun sw ->
+    let store=open_store ~sw ~database ~blob_dir in
+    let blob=Imap_store.Blob.put store
+      ~source:(Eio.Flow.string_source message) ~length () in
+    let op=operation ~kind:J.Append ~id:"sent-append"
+      ~local_id:local.id ~source_uid:None ~blob ~flags:[] in
+    J.prepare_operation ~local_source_mtime:local.mtime store op;
+    J.mark_sent store ~id:op.id);
+  Eio.Switch.run (fun sw ->
+    let store=open_store ~sw ~database ~blob_dir in
+    let client=scripted_scan ~sw ~has_message:false () in
+    (match run_bridge ~client ~store ~maildir ~spool_dir with
+     | Error (Imap_sync.Error.Pending_operations ["sent-append"]) -> ()
+     | Error e -> Alcotest.failf "wrong error: %a" Imap_sync.Error.pp e
+     | Ok _ -> Alcotest.fail "sent APPEND was replayed");
+    Alcotest.(check bool) "operation remains sent" true
+      (match J.find_operation store ~id:"sent-append" with
+       | Some {state=J.Sent;_} -> true | _ -> false))
 
 let test_ambiguous_append_survives_restart () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
@@ -1337,19 +1403,7 @@ let test_ambiguous_append_survives_restart () =
       ~local_id:local.id ~source_uid:None ~blob ~flags:[] in
     J.prepare_operation store op;
     J.mark_sent store ~id:op.id;
-    J.mark_ambiguous store ~id:op.id;
-    let legacy : Imap_store.intent = {
-      id=op.id;scope;state=Imap_store.Prepared;
-      kind=Imap_store.Append {
-        message_id=op.id;content_digest=blob.sha256;
-        spool_ref=blob.sha256;pre_send_uid_frontier=Some 0L;
-        expected_length=Some length;expected_flags=Some [];
-        expected_internal_date=None};
-      uidvalidity=Some (epoch 11L);uid=None;
-    } in
-    Imap_store.prepare_intent store legacy;
-    Imap_store.set_intent_state store ~id:op.id Imap_store.Sent;
-    Imap_store.set_intent_state store ~id:op.id Imap_store.Ambiguous);
+    J.mark_ambiguous store ~id:op.id);
   Eio.Switch.run (fun sw ->
     let store=open_store ~sw ~database ~blob_dir in
     Alcotest.(check int) "pending survived restart" 1
@@ -1385,7 +1439,7 @@ let test_local_write_recovery ?(missing_date=false) ?(wrong_date=false)
       ~source:(Eio.Flow.string_source message) ~length () in
     let op=operation ~kind:J.Local_append ~id:"reserved-local"
       ~local_id ~source_uid:(Some (uid 1L)) ~blob ~flags:[] in
-    J.prepare_operation ~source_internal_date:date store op;
+    J.prepare_operation store {op with internal_date=Some date};
     J.mark_sent store ~id:op.id;
     ignore (Md.append maildir ~id:local_id
       ~source:(Eio.Flow.string_source actual) ~length ~flags:[]
@@ -1419,13 +1473,9 @@ let test_local_write_recovery ?(missing_date=false) ?(wrong_date=false)
 
 let test_confirmed_uidplus_recovery ?(changed_mtime=false)
     ?(missing_preimage=false) ?(changed_remote_body=false)
-    ?(missing_target=false) ?(keyword_case=false) () =
+    ?(missing_target=false) () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
-  let keyword spelling=match Mail_flag.Imap_flag.of_wire spelling with
-    | Ok flag -> flag | Error message -> Alcotest.fail message in
-  let flags,legacy_flags,wire_flags=if keyword_case then
-      [keyword "$Label"],[keyword "$LABEL"],"$Label"
-    else [],[],"" in
+  let flags=[] and wire_flags="" in
   let local=Md.append maildir
     ~source:(Eio.Flow.string_source message) ~length ~flags () in
   let local_path=Filename.concat
@@ -1442,19 +1492,9 @@ let test_confirmed_uidplus_recovery ?(changed_mtime=false)
     if missing_preimage then J.prepare_operation store op
     else J.prepare_operation ~local_source_mtime:local.mtime store op;
     J.mark_sent store ~id:op.id;
-    let legacy : Imap_store.intent = {
-      id=op.id;scope;state=Imap_store.Prepared;
-      kind=Imap_store.Append {
-        message_id=op.id;content_digest=blob.sha256;
-        spool_ref=blob.sha256;pre_send_uid_frontier=Some 0L;
-        expected_length=Some length;expected_flags=Some legacy_flags;
-        expected_internal_date=None};
-      uidvalidity=Some (epoch 11L);uid=None;
-    } in
-    Imap_store.prepare_intent store legacy;
-    Imap_store.set_intent_state store ~id:op.id Imap_store.Sent;
-    Imap_store.confirm_intent store ~id:op.id
-      ~uidvalidity:(Some (epoch 11L)) ~uid:(Some (uid 1L)));
+    J.observe_operation store ~id:op.id ~receipt:"APPENDUID"
+      ~destination_uidvalidity:(Some (epoch 11L))
+      ~destination_uid:(Some (uid 1L)));
   if changed_mtime then Unix.utimes local_path 1709164801. 1709164801.;
   Eio.Switch.run (fun sw ->
     let store=open_store ~sw ~database ~blob_dir in
@@ -1597,16 +1637,7 @@ let test_prepared_copies_rejected_without_send () =
       ~local_id:(Md.reserve_id ()) ~source_uid:None
       ~blob ~flags:[] in
     J.prepare_operation store local;
-    J.prepare_operation store remote;
-    let legacy : Imap_store.intent = {
-      id=remote.id;scope;state=Imap_store.Prepared;
-      kind=Imap_store.Append {
-        message_id=remote.id;content_digest=blob.sha256;
-        spool_ref=blob.sha256;pre_send_uid_frontier=Some 0L;
-        expected_length=Some length;expected_flags=Some [];
-        expected_internal_date=None};
-      uidvalidity=Some (epoch 11L);uid=None} in
-    Imap_store.prepare_intent store legacy);
+    J.prepare_operation store remote);
   Eio.Switch.run (fun sw ->
     let store=open_store ~sw ~database ~blob_dir in
     let client=scripted_scan ~sw ~has_message:false () in
@@ -1620,10 +1651,7 @@ let test_prepared_copies_rejected_without_send () =
       Alcotest.(check bool) (id ^ " rejected") true
         (match J.find_operation store ~id with
          | Some {state=J.Rejected;_} -> true | _ -> false))
-      ["prepared-local";"prepared-remote"];
-    Alcotest.(check bool) "legacy intent rejected" true
-      (match Imap_store.find_intent store ~id:"prepared-remote" with
-       | Some {state=Imap_store.Rejected;_} -> true | _ -> false))
+      ["prepared-local";"prepared-remote"])
 
 let test_operator_appenduid_evidence () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
@@ -1637,17 +1665,7 @@ let test_operator_appenduid_evidence () =
       ~local_id:local.id ~source_uid:None ~blob ~flags:[] in
     J.prepare_operation ~local_source_mtime:local.mtime store op;
     J.mark_sent store ~id:op.id;
-    J.mark_ambiguous store ~id:op.id;
-    let legacy : Imap_store.intent = {
-      id=op.id;scope;state=Imap_store.Prepared;
-      kind=Imap_store.Append {
-        message_id=op.id;content_digest=blob.sha256;
-        spool_ref=blob.sha256;pre_send_uid_frontier=Some 0L;
-        expected_length=Some length;expected_flags=Some [];
-        expected_internal_date=None};
-      uidvalidity=Some (epoch 11L);uid=None} in
-    Imap_store.prepare_intent store legacy;
-    Imap_store.set_intent_state store ~id:op.id Imap_store.Sent);
+    J.mark_ambiguous store ~id:op.id);
   Eio.Switch.run (fun sw ->
     let store=open_store ~sw ~database ~blob_dir in
     (match Imap_sync.Repair.record_appenduid ~store ~maildir ~scope
@@ -1688,9 +1706,9 @@ let test_operator_appenduid_evidence () =
     Alcotest.(check bool) "verified pair committed" true
       (Option.is_some (J.find_remote store ~scope
         ~uidvalidity:(epoch 11L) ~uid:(uid 1L)));
-    Alcotest.(check bool) "legacy intent confirmed" true
-      (match Imap_store.find_intent store ~id:"operator-appenduid" with
-       | Some {state=Imap_store.Confirmed;_} -> true | _ -> false))
+    Alcotest.(check bool) "operation committed" true
+      (match J.find_operation store ~id:"operator-appenduid" with
+       | Some {state=J.Committed;_} -> true | _ -> false))
 
 let test_unresolved_delete_reports_pending () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
@@ -1717,7 +1735,9 @@ let test_unresolved_delete_reports_pending () =
     source_uidvalidity=Some (epoch 11L);source_uid=Some (uid 1L);
     destination=None;destination_uidvalidity=None;
     blob_sha256=Some blob.sha256;blob_length=Some length;
-    desired_flags=Some [];receipt=None;receipt_uidvalidity=None;
+    desired_flags=Some [];
+    internal_date=None;append=None;
+    receipt=None;receipt_uidvalidity=None;
     receipt_uid=None} in
   J.prepare_operation store op;
   J.mark_sent store ~id:op.id;
@@ -2314,6 +2334,7 @@ let test_prepared_flags_with_stale_pair () =
     source_uidvalidity=Some (epoch 11L);source_uid=Some (uid 1L);
     destination=None;destination_uidvalidity=None;
     blob_sha256=None;blob_length=None;desired_flags=Some [];
+    internal_date=None;append=None;
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
   J.prepare_operation ~local_flags:[] store op;
   (match J.put_pair store ~expected_revision:(Some pair.revision) pair with
@@ -2366,7 +2387,7 @@ let test_flag_write_rejects_replaced_local_body () =
      | [{id=a;kind=J.Content_conflict;_}],
        [{id=b;kind=J.Content_conflict;_}] -> a=b
      | _ -> false);
-  Alcotest.(check int) "body mismatch created no FLAGS intent" 0
+  Alcotest.(check int) "body mismatch created no FLAGS operation" 0
     (List.length (all_active_operations store ~scope));
   Alcotest.(check bool) "pair baseline unchanged" true
     (match J.find_pair store ~id:pair.id with
@@ -2409,6 +2430,7 @@ let test_sent_flags_recovery_holds_replaced_local_body () =
     source_uidvalidity=pair.remote_uidvalidity;source_uid=pair.remote_uid;
     destination=None;destination_uidvalidity=None;
     blob_sha256=None;blob_length=None;desired_flags=Some [seen];
+    internal_date=None;append=None;
     receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
   J.prepare_operation ~local_flags:[] store op;
   J.mark_sent store ~id:op.id;
@@ -2599,7 +2621,9 @@ let test_settle_reports_content_mismatch () =
     scope;kind=J.Flags;state=J.Prepared;
     source_uidvalidity=pair.remote_uidvalidity;source_uid=pair.remote_uid;
     destination=None;destination_uidvalidity=None;blob_sha256=None;
-    blob_length=None;desired_flags=Some [];receipt=None;
+    blob_length=None;desired_flags=Some [];
+    internal_date=None;append=None;
+    receipt=None;
     receipt_uidvalidity=None;receipt_uid=None} in
   J.prepare_operation ~local_flags:[] store op;
   J.mark_sent store ~id:op.id;
@@ -3149,7 +3173,9 @@ let local_delete_crash_child dir =
     source_uidvalidity=Some (epoch 11L);source_uid=Some (uid 1L);
     destination=None;destination_uidvalidity=None;
     blob_sha256=Some blob.sha256;blob_length=Some length;
-    desired_flags=Some [];receipt=None;receipt_uidvalidity=None;
+    desired_flags=Some [];
+    internal_date=None;append=None;
+    receipt=None;receipt_uidvalidity=None;
     receipt_uid=None} in
   J.prepare_operation store operation;
   J.mark_sent store ~id:operation.id;
@@ -3432,8 +3458,12 @@ else Alcotest.run "imap-bridge-faults" [
       test_appenduid_readback_rejects_changed_body;
     Alcotest.test_case "uncertain APPEND retains date" `Quick
       test_append_date_survives_uncertain_reply;
-    Alcotest.test_case "sent APPEND without lower intent restarts" `Quick
-      test_sent_append_without_lower_intent_restarts;
+    Alcotest.test_case "APPEND requires a prepared operation" `Quick
+      test_append_requires_prepared_operation;
+    Alcotest.test_case "prepared APPEND rejected on restart" `Quick
+      test_prepared_append_restarts;
+    Alcotest.test_case "sent APPEND held on restart" `Quick
+      test_sent_append_survives_restart;
     Alcotest.test_case "UIDVALIDITY reset preserves old snapshot" `Quick
       test_epoch_reset_preserves_published_snapshot;
     Alcotest.test_case "UIDVALIDITY reset preserves pending journal view" `Quick
@@ -3454,11 +3484,9 @@ else Alcotest.run "imap-bridge-faults" [
       (test_confirmed_uidplus_recovery ~changed_mtime:true);
     Alcotest.test_case "missing APPENDUID target is named" `Quick
       (test_confirmed_uidplus_recovery ~missing_target:true);
-    Alcotest.test_case "legacy intent flags compare as IMAP flags" `Quick
-      (test_confirmed_uidplus_recovery ~keyword_case:true);
     Alcotest.test_case "changed UIDPLUS body leaves cache untouched" `Quick
       (test_confirmed_uidplus_recovery ~changed_remote_body:true);
-    Alcotest.test_case "legacy APPEND without mtime stays pending" `Quick
+    Alcotest.test_case "APPEND without saved mtime stays pending" `Quick
       (test_confirmed_uidplus_recovery ~missing_preimage:true);
     Alcotest.test_case "writer lease blocks bridge" `Quick
       test_writer_lease_blocks_bridge;

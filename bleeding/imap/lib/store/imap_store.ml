@@ -3,7 +3,6 @@ open Database
 module M = Imap.Mirror
 
 type t = Database.t
-include Operation_intent
 
 let open_readonly = Schema.open_readonly
 let open_path = Schema.open_path

@@ -13,9 +13,9 @@
     Publication is compare-and-swap. A write that depends on a published
     cursor or a pair names the revision it read and is [`Stale_revision],
     with nothing changed, once that revision has moved on. A snapshot is
-    published whole in one transaction. Intents and operations are
-    journaled before their commands are sent and are never replayed. After
-    a crash they stay pending until the caller reconciles them.
+    published whole in one transaction. Operations are journaled before
+    their commands are sent and are never replayed. After a crash they stay
+    pending until the caller reconciles them.
 
     A scope names a mailbox by endpoint, account and mailbox key, which
     key the stored rows, and also carries its raw name, encoding and
@@ -247,91 +247,6 @@ val forget_epochs : t -> scope:Imap.Mirror.scope ->
 
     @raise Invalid_argument if [cursor] is for another scope. *)
 
-(** {1 Operation intents} *)
-
-type intent_kind =
-  | Append of {
-      message_id : string;
-      content_digest : string;
-      spool_ref : string;
-      pre_send_uid_frontier : int64 option;
-      expected_length : int64 option;
-      expected_flags : Mail_flag.Imap_flag.t list option;
-      expected_internal_date : string option;
-    }
-  | Other of string
-(** The type for intent payloads. [Append] carries what reconciling an
-    APPEND needs. [content_digest] is the lowercase hexadecimal SHA-256 of
-    the message. [pre_send_uid_frontier] is the last published UID bound
-    before the send, not proof of server state at the send.
-    [expected_internal_date] is an unquoted IMAP date-time. A [None] field
-    was not recorded, while [Some []] flags are known empty flags. [Other]
-    carries an opaque payload. *)
-
-type intent_state = Prepared | Sent | Ambiguous | Confirmed | Rejected
-(** The type for intent states. [Prepared] is recorded before the command
-    is sent, [Sent] after it was dispatched, and [Ambiguous] once its
-    outcome is unknown. [Confirmed] and [Rejected] are final. *)
-
-type intent = {
-  id : string;
-  scope : Imap.Mirror.scope;
-  kind : intent_kind;
-  state : intent_state;
-  uidvalidity : Imap.Uidvalidity.t option;
-  uid : Imap.Uid.t option;
-}
-(** The type for intents. [id] is unique within the store. [uidvalidity]
-    and [uid] hold the APPENDUID receipt once known. *)
-
-val prepare_intent : t -> intent -> unit
-(** [prepare_intent t intent] records [intent] in the [Prepared] state,
-    before its command is sent. The caller supplies a globally unique
-    [intent.id]. The APPEND metadata of [intent] never changes afterwards.
-    An APPEND needs a nonempty message ID and spool reference, a digest
-    of 64 lowercase hexadecimal digits, a frontier from 0 to
-    4,294,967,295, a nonnegative length and, when given, a valid IMAP
-    date-time. The journal does not provide exactly-once delivery.
-
-    @raise Invalid_argument if [intent.id] is empty, [intent.state] is not
-    [Prepared], [intent.uid] is given without [intent.uidvalidity], or the
-    APPEND metadata is invalid. Nothing is recorded then.
-
-    @raise Sqlite3.SqliteError if an intent [intent.id] exists. *)
-
-val set_intent_state : t -> id:string -> intent_state -> unit
-(** [set_intent_state t ~id state] moves the intent [id] to [state]. The
-    legal moves are from [Prepared] to [Sent], [Ambiguous] or [Rejected],
-    from [Sent] to [Ambiguous], [Confirmed] or [Rejected], and from
-    [Ambiguous] to [Confirmed] or [Rejected].
-
-    @raise Invalid_argument if no intent is [id] or the move is not
-    legal. *)
-
-val confirm_intent : t -> id:string ->
-  uidvalidity:Imap.Uidvalidity.t option ->
-  uid:Imap.Uid.t option -> unit
-(** [confirm_intent t ~id ~uidvalidity ~uid] moves the sent or ambiguous
-    intent [id] to [Confirmed] and records its APPENDUID receipt in the
-    same transaction. [Some] replaces the stored UIDVALIDITY or UID, and
-    [None] keeps it.
-
-    @raise Invalid_argument if [uid] is given without [uidvalidity], if no
-    intent is [id], or if the intent is neither [Sent] nor
-    [Ambiguous]. *)
-
-val pending_intents : t -> scope:Imap.Mirror.scope -> intent list
-(** [pending_intents t ~scope] is the [Prepared], [Sent] and [Ambiguous]
-    intents of [scope], in the order they were prepared. Sending an APPEND
-    again after a restart needs duplicate detection by the application.
-
-    @raise Failure if a stored intent for the key of [scope] names another
-    raw name, encoding or mailbox ID. *)
-
-val find_intent : t -> id:string -> intent option
-(** [find_intent t ~id] is the intent [id] in any state, with a receipt
-    {!confirm_intent} recorded, or [None]. *)
-
 (** {1 Sync journal} *)
 
 module Journal : sig
@@ -552,6 +467,19 @@ module Journal : sig
       [Observed] has a verified receipt not yet committed to a pair.
       [Committed] and [Rejected] are final, and the others are active. *)
 
+  type append = {
+    message_id : string;
+    spool_ref : string;
+    pre_send_frontier : int64;
+  }
+  (** The type for the recovery metadata of an APPEND. [message_id] names
+      the message for the application's duplicate detection and
+      [spool_ref] where its bytes stay available. [pre_send_frontier] is
+      the published UID frontier of the destination when the APPEND was
+      prepared, 0 for a mailbox with nothing published, and bounds the
+      UIDs an ambiguous APPEND can have produced. It is not proof of the
+      server state at the send. *)
+
   type operation = {
     id : string;
     pair_id : string option;
@@ -566,6 +494,8 @@ module Journal : sig
     blob_sha256 : string option;
     blob_length : int64 option;
     desired_flags : Mail_flag.Imap_flag.t list option;
+    internal_date : Imap.Internal_date.t option;
+    append : append option;
     receipt : string option;
     receipt_uidvalidity : Imap.Uidvalidity.t option;
     receipt_uid : Imap.Uid.t option;
@@ -573,34 +503,37 @@ module Journal : sig
   (** The type for operations. [source_uidvalidity] and [source_uid] name
       the remote message acted on. [destination] and
       [destination_uidvalidity] name the target mailbox of an APPEND, COPY
-      or MOVE. [blob_sha256] and [blob_length] name the content.
-      [desired_flags] is the target flag state of a FLAGS operation and the
-      flag preimage of a deletion. [receipt], [receipt_uidvalidity] and
+      or MOVE, and for an APPEND the epoch it was sent under.
+      [blob_sha256] and [blob_length] name the content. [desired_flags] is
+      the target flag state of a FLAGS operation or an APPEND and the flag
+      preimage of a deletion. [internal_date] is the INTERNALDATE an APPEND
+      sends, or the remote INTERNALDATE a local append saves before its
+      Maildir write so that recovery can reject an altered Maildir
+      timestamp. [append] holds the recovery metadata of an APPEND and is
+      [None] for every other kind. [receipt], [receipt_uidvalidity] and
       [receipt_uid] record the outcome. *)
 
   val prepare_operation : ?local_flags:Mail_flag.Imap_flag.t list ->
-    ?local_source_mtime:float ->
-    ?source_internal_date:Imap.Internal_date.t ->
-    t -> operation -> unit
-  (** [prepare_operation ~local_flags ~local_source_mtime
-      ~source_internal_date t op] journals [op] in the [Prepared] state
-      before dispatch. Its source, destination and desired change never
-      change afterwards. [op.local_id] reserves a stable Maildir occurrence
-      name before a remote-to-local write. For [op.pair_id] the pair's
+    ?local_source_mtime:float -> t -> operation -> unit
+  (** [prepare_operation ~local_flags ~local_source_mtime t op] journals
+      [op] in the [Prepared] state before dispatch. Its source,
+      destination and desired change never change afterwards.
+      [op.local_id] reserves a stable Maildir occurrence name before a
+      remote-to-local write. For [op.pair_id] the pair's
       current revision is saved as the commit precondition, and [op] must
       match the pair's scope, local occurrence and any given remote UID and
       UIDVALIDITY. A FLAGS operation or a deletion that names content must
       match the pair's, and a deletion's flag preimage, when given, must
-      equal the pair's common flags.
+      equal the pair's common flags. An APPEND needs [op.append], with a
+      nonempty message ID and spool reference and a frontier from 0 to
+      4,294,967,295, and only an APPEND or a local append may carry
+      [op.internal_date].
 
       [local_flags] is omitted by default. For a paired FLAGS operation it
       saves the Maildir flag preimage, possibly empty. An operation without
       it cannot finish a one-sided remote write. [local_source_mtime] is
       omitted by default. For an APPEND with a [local_id] it saves the
       scanned Maildir file time as the source preimage.
-      [source_internal_date] is omitted by default. For a local append it
-      saves the remote INTERNALDATE before the Maildir write, so recovery
-      can reject an altered Maildir timestamp.
 
       @raise Invalid_argument if [op] is not [Prepared], carries a receipt,
       is incomplete for its kind or contradicts its pair, or if an optional
@@ -612,10 +545,6 @@ module Journal : sig
   val operation_source_mtime : t -> id:string -> float option
   (** [operation_source_mtime t ~id] is the Maildir file time saved when
       the APPEND [id] was prepared, or [None] when none was saved. *)
-
-  val operation_source_date : t -> id:string -> Imap.Internal_date.t option
-  (** [operation_source_date t ~id] is the remote INTERNALDATE saved when
-      the local append [id] was prepared, or [None] when none was saved. *)
 
   val local_flags_preimage : t -> id:string ->
     Mail_flag.Imap_flag.t list option
@@ -701,8 +630,8 @@ module Journal : sig
       destination UIDVALIDITY. A deletion needs the tombstone of its side,
       and other kinds need both sides live. A FLAGS operation or a
       deletion may change only the flags or that tombstone of the stored
-      pair. A local append's pair carries the INTERNALDATE saved with the
-      operation, when one was saved. The rules of {!put_pair} apply.
+      pair. A local append's pair carries the operation's INTERNALDATE,
+      when it has one. The rules of {!put_pair} apply.
 
       @raise Invalid_argument if [id] is not observed, if [pair] is not the
       operation's pair, if [expected_pair_revision] is [None] for a paired
@@ -893,8 +822,8 @@ module Blob : sig
   (** [iter_orphan_candidates t f] applies [f] to the name of every orphan
       candidate in the blob directory, in unspecified order. A candidate is
       a regular file that is either a temporary file or a blob that no
-      snapshot of a retained epoch, no active sync operation and no
-      pending intent references. A quarantined epoch's blobs become
+      snapshot of a retained epoch and no active sync operation
+      references. A quarantined epoch's blobs become
       candidates only after {!forget_epochs} drops it. At most 256
       directory names are held in memory. [f] runs without the database
       lock and must not create files or references. Every blob writer,

@@ -169,18 +169,6 @@ let operation_pair store (operation:J.operation) =
        | Some pair when pair.scope<>operation.scope -> Error Stale_pair
        | Some pair -> Ok pair)
 
-let append_intent_matches ~scope (operation:J.operation)
-    (intent:Imap_store.intent) =
-  intent.scope=scope &&
-  match intent.kind with
-  | Imap_store.Append metadata ->
-      Some metadata.content_digest=operation.blob_sha256 &&
-      metadata.expected_length=operation.blob_length &&
-      (match metadata.expected_flags,operation.desired_flags with
-       | Some expected,Some desired -> F.equal_durable expected desired
-       | _ -> false)
-  | Imap_store.Other _ -> false
-
 let conflicting_identity =
   Invalid_scope "saved OBJECTID+ binding names another mailbox"
 

@@ -411,6 +411,8 @@ type operation_kind = Append | Local_append | Copy | Move | Flags
   | Delete | Local_delete
 type operation_state = Prepared | Sent | Ambiguous | Observed
   | Committed | Rejected
+type append = { message_id:string; spool_ref:string;
+  pre_send_frontier:int64 }
 type operation = { id:string; pair_id:string option; local_id:string option;
   scope:M.scope;
   kind:operation_kind; state:operation_state;
@@ -419,6 +421,8 @@ type operation = { id:string; pair_id:string option; local_id:string option;
   destination_uidvalidity:Imap.Uidvalidity.t option;
   blob_sha256:string option; blob_length:int64 option;
   desired_flags:F.t list option;
+  internal_date:Imap.Internal_date.t option;
+  append:append option;
   receipt:string option;
   receipt_uidvalidity:Imap.Uidvalidity.t option;
   receipt_uid:Imap.Uid.t option }
@@ -478,13 +482,23 @@ let validate_operation x =
     invalid_arg (who ^ ": incomplete content evidence");
   Option.iter (fun hash -> if not (is_sha256_hex hash) then
       invalid_arg (who ^ ": invalid content digest"))
-    x.blob_sha256
+    x.blob_sha256;
+  (match x.kind,x.append with
+   | Append,Some a ->
+       if a.message_id="" || a.spool_ref="" then
+         invalid_arg (who ^ ": incomplete APPEND recovery data");
+       if a.pre_send_frontier<0L || a.pre_send_frontier>4_294_967_295L then
+         invalid_arg (who ^ ": invalid UID frontier")
+   | Append,None -> invalid_arg (who ^ ": incomplete APPEND")
+   | _,Some _ -> invalid_arg (who ^ ": APPEND recovery data on another kind")
+   | _,None -> ());
+  if x.internal_date<>None && x.kind<>Append && x.kind<>Local_append then
+    invalid_arg (who ^ ": INTERNALDATE requires an APPEND")
 let destination_columns = function
   | None -> [S.Data.NULL;S.Data.NULL;S.Data.NULL;S.Data.NULL;
              S.Data.NULL;S.Data.NULL]
   | Some x -> scope_key x@[s x.raw_name;s (enc x.encoding);ns x.mailbox_id]
-let prepare_operation ?local_flags ?local_source_mtime
-    ?source_internal_date t x =
+let prepare_operation ?local_flags ?local_source_mtime t x =
   let who="Imap_store.Journal.prepare_operation" in
   validate_operation x;
   (match local_flags with
@@ -498,10 +512,6 @@ let prepare_operation ?local_flags ?local_source_mtime
    | Some mtime when x.kind=Append && x.local_id<>None &&
        Float.is_finite mtime -> ()
    | Some _ -> invalid_arg (who ^ ": invalid local source mtime"));
-  (match source_internal_date with
-   | None -> ()
-   | Some _ when x.kind=Local_append -> ()
-   | Some _ -> invalid_arg (who ^ ": source date requires local append"));
   transaction t (fun () ->
     let pair_revision=Option.map (fun id -> match find_pair_unlocked t ~id with
       | Some pair when pair.scope=x.scope &&
@@ -526,7 +536,7 @@ let prepare_operation ?local_flags ?local_source_mtime
       | _ -> invalid_arg (who ^ ": unknown pair"))
       x.pair_id in
     run t "INSERT INTO sync_operations VALUES \
-      (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
+      (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
       ([s x.id;ns x.pair_id;ns x.local_id]@scope_key x.scope@
        [s x.scope.raw_name;s (enc x.scope.encoding);ns x.scope.mailbox_id;
         s (operation_kind x.kind);s (operation_state x.state);
@@ -537,7 +547,10 @@ let prepare_operation ?local_flags ?local_source_mtime
         ni (Option.map Imap.Uidvalidity.to_int64 x.receipt_uidvalidity);
         ni (Option.map Imap.Uid.to_int64 x.receipt_uid);
         ns x.blob_sha256;ni x.blob_length;
-        ni (Option.map (fun _ -> 1L) x.desired_flags);ns x.receipt]);
+        ni (Option.map (fun _ -> 1L) x.desired_flags);ns x.receipt;
+        ns (Option.map (fun a -> a.message_id) x.append);
+        ns (Option.map (fun a -> a.spool_ref) x.append);
+        ni (Option.map (fun a -> a.pre_send_frontier) x.append)]);
     Option.iter (insert_flags t "sync_operation_flags" x.id) x.desired_flags;
     Option.iter (fun revision ->
       run t "INSERT INTO sync_operation_preconditions VALUES (?,?)"
@@ -551,7 +564,7 @@ let prepare_operation ?local_flags ?local_source_mtime
         [s x.id;S.Data.FLOAT mtime]) local_source_mtime;
     Option.iter (fun date ->
       run t "INSERT INTO sync_operation_source_dates VALUES (?,?)"
-        [s x.id;s (Imap.Internal_date.to_string date)]) source_internal_date)
+        [s x.id;s (Imap.Internal_date.to_string date)]) x.internal_date)
 let local_flags_preimage t ~id =
   transaction ~begin_sql:"BEGIN" t (fun () ->
     match rows t "SELECT 1 FROM sync_operation_local_preimages \
@@ -576,19 +589,13 @@ let operation_source_mtime t ~id =
         (match r.(0) with
          | S.Data.FLOAT mtime when Float.is_finite mtime -> Some mtime
          | _ -> fail "invalid operation source mtime"))
-let source_date t id =
-  match rows t "SELECT internal_date FROM sync_operation_source_dates \
-    WHERE operation_id=?" [s id] with
-  | [] -> None
-  | r :: _ -> Some (of_checked "operation source INTERNALDATE"
-      Imap.Internal_date.of_string (text r.(0)))
-let operation_source_date t ~id =
-  transaction ~begin_sql:"BEGIN" t (fun () -> source_date t id)
 let operation_columns = "id,pair_id,local_id,endpoint,account,mailbox_key,\
   raw_name,encoding,mailbox_id,kind,state,source_epoch,source_uid,\
   dest_endpoint,dest_account,dest_mailbox_key,dest_raw_name,dest_encoding,\
   dest_mailbox_id,dest_epoch,receipt_epoch,receipt_uid,blob_sha256,\
-  blob_length,desired_flags_known,receipt"
+  blob_length,desired_flags_known,receipt,message_id,spool_ref,\
+  pre_send_frontier,(SELECT internal_date FROM sync_operation_source_dates \
+  WHERE operation_id=sync_operations.id)"
 let decode_operation (r,flags) =
   let destination=match r.(13) with
     | S.Data.NULL -> None
@@ -607,13 +614,20 @@ let decode_operation (r,flags) =
    receipt_uidvalidity=Option.map validity (nullable_int r.(20));
    receipt_uid=Option.map uid (nullable_int r.(21));
    blob_sha256=nullable_text r.(22);blob_length=nullable_int r.(23);
-   desired_flags;receipt=nullable_text r.(25)}
+   desired_flags;receipt=nullable_text r.(25);
+   append=(match r.(26),r.(27),r.(28) with
+     | S.Data.NULL,S.Data.NULL,S.Data.NULL -> None
+     | message_id,spool_ref,frontier ->
+         Some {message_id=text message_id;spool_ref=text spool_ref;
+               pre_send_frontier=int frontier});
+   internal_date=Option.map (of_checked "operation INTERNALDATE"
+     Imap.Internal_date.of_string) (nullable_text r.(29))}
 let select_operations t where values =
   rows t ("SELECT o.*,f.flag FROM (SELECT " ^ operation_columns ^
     " FROM sync_operations WHERE " ^ where ^ ") AS o \
     LEFT JOIN sync_operation_flags AS f ON f.operation_id=o.id \
     ORDER BY o.id,f.ord") values
-  |> group_flags "operation flag" ~flag:26 |> List.map decode_operation
+  |> group_flags "operation flag" ~flag:30 |> List.map decode_operation
 let scoped_operations t (scope:M.scope) where values =
   select_operations t (scope_where ^ " AND " ^ where)
     (scope_key scope @ values)
@@ -748,7 +762,7 @@ let commit_operation_with_pair t ~id ~expected_pair_revision (pair:pair) =
           if not (Option.fold ~none:false
               ~some:(Imap.Internal_date.equal_instant date)
               pair.internal_date) then
-            invalid_arg (who ^ ": source date mismatch")) (source_date t id);
+            invalid_arg (who ^ ": source date mismatch")) x.internal_date;
       match put_pair_unlocked t ~who ~previous:current
           ~expected_revision:expected_pair_revision pair with
        | `Stale_revision -> `Stale_revision

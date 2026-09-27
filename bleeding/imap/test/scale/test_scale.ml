@@ -127,6 +127,7 @@ let prepare_journal db count =
       source_uid=Some (uid (Int64.of_int (i + 1)));
       destination=None; destination_uidvalidity=None;
       blob_sha256=None; blob_length=None; desired_flags=Some [];
+      internal_date=None;append=None;
       receipt=None; receipt_uidvalidity=None; receipt_uid=None;
     } in
     S.Journal.prepare_operation db operation;

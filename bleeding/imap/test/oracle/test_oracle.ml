@@ -286,29 +286,23 @@ let round_trip () =
       ~source:(Eio.Flow.string_source duplicate.raw)
       ~length:(Int64.of_int (String.length duplicate.raw)) () in
     let probe_id = "probe-" ^ nonce in
-    let probe : Imap_store.intent = {
-      id=probe_id; scope; state=Imap_store.Prepared;
-      kind=Imap_store.Append {
-        message_id="probe"; content_digest=blob.sha256;
-        spool_ref=blob.sha256;
-        pre_send_uid_frontier=Some second.cursor.frontier;
-        expected_length=Some blob.length; expected_flags=Some [];
-        expected_internal_date=None};
-      uidvalidity=second.cursor.uidvalidity; uid=None} in
-    Imap_store.prepare_intent store probe;
-    Imap_store.set_intent_state store ~id:probe_id Imap_store.Sent;
-    Imap_store.Journal.prepare_operation store {
-      id=probe_id; pair_id=None; local_id=None; scope;
+    let upload id message_id : Imap_store.Journal.operation = {
+      id; pair_id=None; local_id=None; scope;
       kind=Imap_store.Journal.Append; state=Imap_store.Journal.Prepared;
       source_uidvalidity=None; source_uid=None; destination=Some scope;
       destination_uidvalidity=second.cursor.uidvalidity;
       blob_sha256=Some blob.sha256; blob_length=Some blob.length;
-      desired_flags=Some []; receipt=None; receipt_uidvalidity=None;
-      receipt_uid=None};
+      desired_flags=Some []; internal_date=None;
+      append=Some {message_id; spool_ref=blob.sha256;
+        pre_send_frontier=(Imap_store.load_cursor store ~scope).frontier};
+      receipt=None; receipt_uidvalidity=None; receipt_uid=None} in
+    Imap_store.Journal.prepare_operation store (upload probe_id "probe");
     Imap_store.Journal.mark_sent store ~id:probe_id;
+    let append_id = "append-" ^ nonce in
+    Imap_store.Journal.prepare_operation store
+      (upload append_id ("duplicate-" ^ nonce));
     let outcome = match Imap_sync.Engine.append_blob_journaled
-      ~ctx ~id:("append-" ^ nonce)
-      ~message_id:("duplicate-" ^ nonce) blob with
+      ~ctx ~id:append_id blob with
       | Ok x -> x
       | Error error -> Alcotest.fail (Format.asprintf "%a"
           Imap_sync.Error.pp error) in
@@ -316,18 +310,22 @@ let round_trip () =
       | Imap_sync.Engine.Identified x -> x
       | Imap_sync.Engine.Needs_reconciliation ->
           Alcotest.fail "Cyrus omitted APPENDUID" in
-    let intent = match Imap_store.find_intent store ~id:("append-" ^ nonce) with
-      | Some intent -> intent
-      | None -> Alcotest.fail "APPEND intent missing after confirmation" in
-    (match intent.kind with
-     | Imap_store.Append metadata ->
-         Alcotest.(check (option int64)) "journaled pre-send frontier"
-           (Some second.cursor.frontier) metadata.pre_send_uid_frontier;
+    let appended = match Imap_store.Journal.find_operation store
+        ~id:append_id with
+      | Some op -> op
+      | None -> Alcotest.fail "APPEND operation missing after receipt" in
+    (match appended.state,appended.append with
+     | Imap_store.Journal.Observed,Some metadata ->
+         Alcotest.(check int64) "journaled pre-send frontier"
+           second.cursor.frontier metadata.pre_send_frontier;
          Alcotest.(check (option int64)) "journaled byte length"
-           (Some blob.length) metadata.expected_length;
+           (Some blob.length) appended.blob_length;
          Alcotest.(check bool) "known empty APPEND flags" true
-           (metadata.expected_flags = Some [])
-     | Imap_store.Other _ -> Alcotest.fail "wrong APPEND intent kind");
+           (appended.desired_flags = Some []);
+         Alcotest.(check bool) "APPENDUID recorded" true
+           (appended.receipt_uid = Some receipt.uid)
+     | _ -> Alcotest.fail "APPEND operation not observed");
+    Imap_store.Journal.commit_operation store ~id:append_id;
     let evidence = match Imap_sync.Repair.inspect_append_candidates
       ~ctx ~id:probe_id () with
       | Ok report -> report
@@ -338,14 +336,10 @@ let round_trip () =
     Alcotest.(check (list int64)) "uncertain APPEND candidate"
       [Imap.Uid.to_int64 receipt.uid]
       (List.map Imap.Uid.to_int64 evidence.matching_uids);
-    Alcotest.(check bool) "inspection leaves intent pending" true
-      (List.exists (fun (x : Imap_store.intent) -> x.id=probe_id)
-        (Imap_store.pending_intents store ~scope));
     Alcotest.(check bool) "inspection leaves operation pending" true
       (match Imap_store.Journal.find_operation store ~id:probe_id with
        | Some {state=Imap_store.Journal.Sent;_} -> true
        | _ -> false);
-    Imap_store.set_intent_state store ~id:probe_id Imap_store.Rejected;
     Imap_store.Journal.reject_operation store ~id:probe_id
       ~receipt:"oracle probe inspected";
     let before_append = published_rows () in
@@ -373,8 +367,8 @@ let round_trip () =
         ~uidvalidity:receipt.uidvalidity ~uid:receipt.uid));
     Alcotest.(check (list string)) "no abandoned stage" []
       (Imap_store.abandoned_stages store);
-    Alcotest.(check bool) "no pending confirmed APPEND" true
-      (Imap_store.pending_intents store ~scope = []);
+    Alcotest.(check bool) "no pending APPEND" true
+      (all_active_operations store ~scope = []);
     let maildir = Md.open_dir
       Eio.Path.(Eio.Stdenv.fs env / maildir_path) in
     let bootstrap = Md.append maildir
@@ -502,6 +496,7 @@ let round_trip () =
       destination=None;destination_uidvalidity=None;
       blob_sha256=Some recovered_blob.sha256;
       blob_length=Some recovered_length;desired_flags=Some [];
+      internal_date=None;append=None;
       receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
     Imap_store.Journal.prepare_operation store pending;
     Imap_store.Journal.mark_sent store ~id:recovery_id;
@@ -535,11 +530,14 @@ let round_trip () =
       destination_uidvalidity=staged.cursor.uidvalidity;
       blob_sha256=Some append_blob.sha256;
       blob_length=Some append_length;desired_flags=Some [];
+      internal_date=None;
+      append=Some {message_id=append_id;spool_ref=append_blob.sha256;
+        pre_send_frontier=(Imap_store.load_cursor store ~scope).frontier};
       receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
     Imap_store.Journal.prepare_operation
       ~local_source_mtime:append_local.mtime store append_pending;
-    Imap_store.Journal.mark_sent store ~id:append_id;
-    (match Imap_sync.Engine.append_blob_journaled ~ctx ~id:append_id ~message_id:append_id ~flags:[] append_blob with
+    (match Imap_sync.Engine.append_blob_journaled ~ctx ~id:append_id
+        append_blob with
      | Ok (Imap_sync.Engine.Identified _) -> ()
      | Ok Imap_sync.Engine.Needs_reconciliation ->
          Alcotest.fail "Cyrus omitted APPENDUID for recovery"
@@ -653,21 +651,13 @@ let round_trip () =
       destination=Some scope;destination_uidvalidity=current.uidvalidity;
       blob_sha256=Some ambiguous_blob.sha256;
       blob_length=Some ambiguous_length;desired_flags=Some [];
+      internal_date=None;
+      append=Some {message_id=ambiguous_id;spool_ref=ambiguous_blob.sha256;
+        pre_send_frontier=current.frontier};
       receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
     Imap_store.Journal.prepare_operation
       ~local_source_mtime:ambiguous_local.mtime store ambiguous_op;
     Imap_store.Journal.mark_sent store ~id:ambiguous_id;
-    let legacy : Imap_store.intent = {
-      id=ambiguous_id;scope;state=Imap_store.Prepared;
-      kind=Imap_store.Append {
-        message_id=ambiguous_id;content_digest=ambiguous_blob.sha256;
-        spool_ref=ambiguous_blob.sha256;
-        pre_send_uid_frontier=Some current.frontier;
-        expected_length=Some ambiguous_length;
-        expected_flags=Some [];expected_internal_date=None};
-      uidvalidity=current.uidvalidity;uid=None} in
-    Imap_store.prepare_intent store legacy;
-    Imap_store.set_intent_state store ~id:ambiguous_id Imap_store.Sent;
     let ambiguous_receipt=match unwrap (Client.append client ~mailbox
       (Client.append_message ~length:ambiguous_length
          (Eio.Flow.string_source ambiguous_bytes))) with

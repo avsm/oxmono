@@ -151,12 +151,6 @@ val operation_pair :
     it has none or it is gone, and [Stale_pair] when it is in another
     scope. *)
 
-val append_intent_matches :
-  scope:Imap.Mirror.scope -> Imap_store.Journal.operation ->
-  Imap_store.intent -> bool
-(** [append_intent_matches ~scope op intent] is [true] when [intent] is an
-    APPEND of [scope] with the digest, length and flags [op] journaled. *)
-
 val enable_object_identity :
   ctx:Ctx.t -> (Imap_eio.Client.Objectid_plus.t option, Error.t) result
 (** [enable_object_identity ~ctx] enables OBJECTID+ when the server offers

@@ -350,3 +350,9 @@ whose tables or indexes differ from it, and `sync_pairs_scope` is gone.
 `Journal.pairs`, `open_conflicts` and `active_operations` and
 `Blob.orphan_candidates` and `reap_orphans` are gone. Use the paged
 readers and the orphan iterators.
+
+The APPEND intents are gone. `Journal.operation` carries an APPEND's
+message ID, spool reference, pre-send UID frontier and INTERNALDATE, and
+`Engine.append_journaled` sends an operation the caller prepared, moving
+it to `Sent`, `Observed`, `Ambiguous` or `Rejected`. `inspect` prints
+those fields.

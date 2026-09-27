@@ -245,7 +245,7 @@ let local_append ~(ctx:Ctx.t) ~maildir ~id ~evidence () =
       ~uidvalidity in
     let* ()=if same_flags flags actual_flags then Ok ()
       else Error (Flags_diverged id) in
-    let* internal_date=match J.operation_source_date store ~id with
+    let* internal_date=match op.internal_date with
       | None -> Ok internal_date
       | Some saved when Imap.Internal_date.equal_instant
           saved internal_date -> Ok saved
@@ -305,23 +305,6 @@ let record_appenduid ~store ~scope ~maildir ~id ~uidvalidity ~uid ~evidence
           operation.receipt_uid=Some uid -> Ok true
       | _ -> Error (Invalid_operation
           "APPEND is not pending or already records another UID") in
-    let* ()=match Imap_store.find_intent store ~id with
-      | None -> Ok ()
-      | Some intent ->
-          let matches=intent.uidvalidity=Some uidvalidity &&
-            E.append_intent_matches ~scope operation intent in
-          if not matches then Error (Invalid_operation
-            "legacy APPEND intent disagrees with sync operation")
-          else match intent.state with
-            | Imap_store.Sent | Imap_store.Ambiguous ->
-                Imap_store.confirm_intent store ~id
-                  ~uidvalidity:(Some uidvalidity) ~uid:(Some uid);
-                Ok ()
-            | Imap_store.Confirmed when
-                intent.uidvalidity=Some uidvalidity &&
-                intent.uid=Some uid -> Ok ()
-            | _ -> Error (Invalid_operation
-                "legacy APPEND intent is not pending or has another UID") in
     if not observed then
       J.observe_operation store ~id
         ~receipt:("operator APPENDUID: " ^ evidence)
@@ -389,29 +372,14 @@ let inspect_append_candidates ?(max_uids=1000)
           op.pair_id=None && op.destination=Some scope &&
           (op.state=J.Sent || op.state=J.Ambiguous) -> Ok op
       | _ -> Error No_pending_operation in
-    let* epoch,digest,length,expected_flags,expected_date,frontier=
+    let expected_date=operation.internal_date in
+    let* epoch,digest,length,expected_flags,frontier=
       match operation.destination_uidvalidity,operation.blob_sha256,
-        operation.blob_length,operation.desired_flags,
-        Imap_store.find_intent store ~id with
-      | Some epoch,Some digest,Some length,Some expected_flags,
-        Some ({state=(Imap_store.Sent | Imap_store.Ambiguous);
-            kind=Imap_store.Append metadata;_} as intent)
-        when intent.uidvalidity=Some epoch &&
-          E.append_intent_matches ~scope operation intent ->
-          (match metadata.pre_send_uid_frontier with
-           | Some frontier ->
-               let* expected_date=match metadata.expected_internal_date with
-                 | None -> Ok None
-                 | Some raw ->
-                     (match Imap.Internal_date.of_string raw with
-                      | Ok date -> Ok (Some date)
-                      | Error _ -> Error (Invalid_operation
-                          "APPEND journal contains an invalid INTERNALDATE")) in
-               Ok (epoch,digest,length,expected_flags,expected_date,frontier)
-           | None -> Error (Invalid_operation
-               "APPEND has no saved pre-send UID frontier"))
+        operation.blob_length,operation.desired_flags,operation.append with
+      | Some epoch,Some digest,Some length,Some expected_flags,Some append ->
+          Ok (epoch,digest,length,expected_flags,append.pre_send_frontier)
       | _ -> Error (Invalid_operation
-          "APPEND journal and legacy intent disagree") in
+          "APPEND operation lacks its recovery metadata") in
     let* ()=E.guard_bound_mailbox ~ctx in
     let inspect selected =
       let* info=network (Imap_eio.Selected.info selected) in

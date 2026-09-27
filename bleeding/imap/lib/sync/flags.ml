@@ -107,6 +107,7 @@ let intent (pair:J.pair) ~id ~epoch ~uid ~local_id ~merged : J.operation = {
   source_uidvalidity=Some epoch;source_uid=Some uid;
   destination=None;destination_uidvalidity=None;
   blob_sha256=None;blob_length=None;desired_flags=Some merged;
+  internal_date=None;append=None;
   receipt=None;receipt_uidvalidity=None;receipt_uid=None}
 
 let commit store (pair:J.pair) ~id ~merged =

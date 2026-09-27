@@ -17,7 +17,6 @@
   schema
   record_codec
   sync_journal
-  operation_intent
   blob_store)
  (flags
   (:standard -open Imap_store_database))

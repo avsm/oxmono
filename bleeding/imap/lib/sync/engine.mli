@@ -52,49 +52,45 @@ val scan_once :
 
 type append_outcome =
   | Identified of Imap_eio.Client.append_receipt
-      (** [Identified r] is an APPEND whose APPENDUID [r] confirmed the
-          intent. *)
+      (** [Identified r] is an APPEND whose APPENDUID [r] the operation
+          now records as [Observed]. *)
   | Needs_reconciliation
       (** [Needs_reconciliation] is a tagged OK without APPENDUID, which
-          leaves the intent ambiguous. *)
+          leaves the operation [Ambiguous]. *)
 (** The type for the outcomes of a journaled APPEND. *)
 
 val append_journaled :
-  ctx:Ctx.t -> id:string -> message_id:string -> content_digest:string ->
-  spool_ref:string -> ?flags:Mail_flag.Imap_flag.t list ->
-  ?internal_date:Imap.Internal_date.t -> length:int64 ->
-  _ Eio.Flow.source -> (append_outcome, Error.t) result
-(** [append_journaled ~ctx ~id ~message_id ~content_digest ~spool_ref
-    ~length source] appends the [length] bytes of [source] to
-    [ctx.mailbox]. It first commits the intent [id] as [Prepared] with
-    [message_id], the verified [content_digest], the durable [spool_ref],
-    [length], [flags], [internal_date] and the published UID frontier, and
-    then marks it [Sent]. [flags] defaults to none and [internal_date] to
-    the server's choice.
+  ctx:Ctx.t -> id:string -> _ Eio.Flow.source ->
+  (append_outcome, Error.t) result
+(** [append_journaled ~ctx ~id source] appends the bytes of [source] to
+    [ctx.mailbox] as the APPEND operation [id], which the caller prepared
+    with {!Imap_store.Journal.prepare_operation} for [ctx.scope]. It sends
+    the operation's length, desired flags and INTERNALDATE, and moves the
+    operation to [Sent] before the first byte of the APPEND.
 
-    A tagged OK without APPENDUID is [Needs_reconciliation]. A rejection
-    marks the intent rejected and returns [Client]. Any other failure marks
-    it ambiguous and returns [Client], and a cancellation leaves it sent.
-    An intent that is not confirmed is never replayed.
+    A receipt moves it to [Observed] with the APPENDUID. A tagged OK
+    without APPENDUID leaves it [Ambiguous] and is [Needs_reconciliation].
+    A rejection moves it to [Rejected] and returns [Client]. Any other
+    failure leaves it [Ambiguous] with the reason and returns [Client], and
+    a cancellation leaves it [Sent]. An operation that is not observed is
+    never replayed.
 
-    A saved OBJECTID+ binding of [ctx.scope] requires OBJECTID+ already
-    enabled on [ctx.client], as {!scan_once} leaves it. A missing mode, or a
+    An unknown [id], or an operation of another kind or scope, returns
+    [No_pending_operation]. An operation that is not [Prepared] or whose
+    destination is not [ctx.scope] returns [Invalid_operation]. A saved
+    OBJECTID+ binding of [ctx.scope] requires OBJECTID+ already enabled on
+    [ctx.client], as {!scan_once} leaves it. A missing mode, or a
     destination whose STATUS identity differs from the binding, returns
-    [Invalid_scope] before any intent is saved.
-
-    @raise Invalid_argument if the intent metadata is malformed.
-    @raise Sqlite3.SqliteError if [id] names an existing intent. *)
+    [Invalid_scope]. Each of these leaves the operation [Prepared]. *)
 
 val append_blob_journaled :
-  ctx:Ctx.t -> id:string -> message_id:string ->
-  ?flags:Mail_flag.Imap_flag.t list -> ?internal_date:Imap.Internal_date.t ->
-  Imap_store.Blob.blob -> (append_outcome, Error.t) result
-(** [append_blob_journaled ~ctx ~id ~message_id blob] rehashes [blob] and
-    sends it with {!append_journaled}, using its digest as the content
-    digest and the spool reference. [flags] and [internal_date] are passed
-    on. A blob that fails verification returns [Incomplete] before any
-    intent is saved. The blob stays available for reconciliation when the
-    outcome is ambiguous. *)
+  ctx:Ctx.t -> id:string -> Imap_store.Blob.blob ->
+  (append_outcome, Error.t) result
+(** [append_blob_journaled ~ctx ~id blob] rehashes [blob] and sends it
+    with {!append_journaled}. A blob other than the operation's returns
+    [Invalid_operation], and one that fails verification returns
+    [Incomplete], both leaving the operation [Prepared]. The blob stays
+    available for reconciliation when the outcome is ambiguous. *)
 
 (** {1 Bodies} *)
 

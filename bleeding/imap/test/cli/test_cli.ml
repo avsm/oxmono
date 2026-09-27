@@ -46,6 +46,28 @@ let run ?(env=env) eio args =
     ~net:(Eio.Stdenv.net eio) ~fs:(Eio.Stdenv.fs eio)
     ~random:(Eio.Stdenv.secure_random eio) ()
 
+(* [captured f] is the result of [f] and what it wrote to standard
+   output. *)
+let captured f =
+  let file=Filename.temp_file "imap-cli-stdout" ".txt" in
+  flush stdout;
+  let saved=Unix.dup Unix.stdout in
+  let fd=Unix.openfile file [Unix.O_WRONLY;Unix.O_TRUNC] 0o600 in
+  Unix.dup2 fd Unix.stdout;
+  Unix.close fd;
+  let result=Fun.protect f ~finally:(fun () ->
+    flush stdout;
+    Unix.dup2 saved Unix.stdout;
+    Unix.close saved) in
+  let text=In_channel.with_open_bin file In_channel.input_all in
+  Sys.remove file;
+  result,text
+
+let contains ~needle haystack =
+  let n=String.length needle and h=String.length haystack in
+  let rec at i = i+n<=h && (String.sub haystack i n=needle || at (i+1)) in
+  at 0
+
 let missing_file prefix suffix =
   let name=Filename.temp_file prefix suffix in
   Sys.remove name; name
@@ -387,6 +409,8 @@ let test_targeted_inspect () =
     | Ok x -> x | Error e -> Alcotest.fail e in
   let uid=match Imap.Uid.of_int64 1L with
     | Ok x -> x | Error e -> Alcotest.fail e in
+  let date=match Imap.Internal_date.of_string "26-Sep-2026 12:00:00 +0000"
+    with Ok x -> x | Error e -> Alcotest.fail e in
   Eio.Switch.run (fun sw ->
     let store=Imap_store.open_path ~sw Eio.Path.(fs / filename) in
     let make id scope : Imap_store.Journal.operation = {
@@ -394,9 +418,18 @@ let test_targeted_inspect () =
       source_uidvalidity=Some epoch;source_uid=Some uid;
       destination=None;destination_uidvalidity=None;
       blob_sha256=None;blob_length=None;desired_flags=Some [];
+      internal_date=None;append=None;
       receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
     List.iter (fun id -> Imap_store.Journal.prepare_operation store
       (make id scope)) ["active";"committed";"rejected";"second"];
+    Imap_store.Journal.prepare_operation store
+      {(make "upload" scope) with kind=Append;local_id=Some "local-1";
+        source_uidvalidity=None;source_uid=None;destination=Some scope;
+        destination_uidvalidity=Some epoch;
+        blob_sha256=Some (String.make 64 'a');blob_length=Some 5L;
+        internal_date=Some date;
+        append=Some {message_id="<m@x>";spool_ref="spool-a";
+          pre_send_frontier=7L}};
     Imap_store.Journal.prepare_operation store
       (make "foreign" {scope with account="other-account"});
     Imap_store.Journal.mark_sent store ~id:"committed";
@@ -414,6 +447,14 @@ let test_targeted_inspect () =
   Alcotest.(check int) "rejected" 0 (inspect "rejected");
   Alcotest.(check int) "another scope hidden" 9 (inspect "foreign");
   Alcotest.(check int) "unknown ID" 9 (inspect "missing");
+  let status,output=captured (fun () -> inspect "upload") in
+  Alcotest.(check int) "pending APPEND" 3 status;
+  List.iter (fun field ->
+    if not (contains ~needle:field output) then
+      Alcotest.failf "inspect omitted %s in %S" field output)
+    [{|message_id="<m@x>"|};{|spool_ref="spool-a"|};
+     "pre_send_frontier=7";
+     Printf.sprintf "internal_date=%S" (Imap.Internal_date.to_string date)];
   Alcotest.(check int) "two active operations listed" 3
     (run eio ["inspect";"--db";filename;"--max-inspect";"2"])
 

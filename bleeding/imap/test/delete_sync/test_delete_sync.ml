@@ -83,6 +83,7 @@ let operation (pair:J.pair) ~id ~kind : J.operation = {
   source_uid=pair.remote_uid;destination=None;
   destination_uidvalidity=None;blob_sha256=pair.content_sha256;
   blob_length=pair.content_length;desired_flags=Some [];
+  internal_date=None;append=None;
   receipt=None;receipt_uidvalidity=None;receipt_uid=None;
 }
 

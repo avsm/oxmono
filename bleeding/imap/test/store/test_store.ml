@@ -130,7 +130,9 @@ let test_flag_settlement_transaction env =
       source_uidvalidity=pair.remote_uidvalidity;
       source_uid=pair.remote_uid;destination=None;
       destination_uidvalidity=None;blob_sha256=None;blob_length=None;
-      desired_flags=Some [flag "\\Flagged"];receipt=None;
+      desired_flags=Some [flag "\\Flagged"];
+      internal_date=None;append=None;
+      receipt=None;
       receipt_uidvalidity=None;receipt_uid=None} in
     J.prepare_operation ~local_flags:[flag "\\Seen"] db operation;
     Alcotest.(check bool) "prepared cannot be settled" true
@@ -150,7 +152,7 @@ let test_flag_settlement_transaction env =
          Alcotest.(check int64) "settlement advances pair"
            (Int64.succ pair.revision) updated.revision
      | _ -> Alcotest.fail "verified flag settlement failed");
-    Alcotest.(check bool) "superseded intent rejected" true
+    Alcotest.(check bool) "superseded operation rejected" true
       ((Option.get (J.find_operation db ~id:operation.id)).state=Rejected);
     Alcotest.(check int) "flag conflict resolved atomically" 0
       (List.length (all_open_conflicts db ~scope)));
@@ -196,20 +198,22 @@ let test_reopen env =
       Alcotest.(check bool) "CAS rejects replay" true
         (transition db initial ~stage:"first-replay" ~epoch_value:5L
           first_rows=`Stale_revision);
-      let intent : Store.intent = {
-        id="append-1";scope;
-        kind=Append {message_id="<a@x>";content_digest=String.make 64 'a';
-                     spool_ref="/spool/a";
-                     pre_send_uid_frontier=Some 2L;
-                     expected_length=Some 47L;
-                     expected_flags=Some [flag "\\Seen";flag "Seen"];
-                     expected_internal_date=Some "26-Sep-2026 12:00:00 +0000"};
-        state=Prepared;uidvalidity=Some (epoch 5L);uid=None } in
-      Store.prepare_intent db intent;
-      (try Store.prepare_intent db intent;
-           Alcotest.fail "duplicate intent accepted"
+      let append : Store.Journal.operation = {
+        id="append-1";pair_id=None;local_id=Some "local-a";scope;
+        kind=Append;state=Prepared;source_uidvalidity=None;source_uid=None;
+        destination=Some scope;destination_uidvalidity=Some (epoch 5L);
+        blob_sha256=Some (String.make 64 'a');blob_length=Some 47L;
+        desired_flags=Some [flag "\\Seen";flag "Seen"];
+        internal_date=Some (ok (Imap.Internal_date.of_string
+          "26-Sep-2026 12:00:00 +0000"));
+        append=Some {message_id="<a@x>";spool_ref="/spool/a";
+          pre_send_frontier=2L};
+        receipt=None;receipt_uidvalidity=None;receipt_uid=None} in
+      Store.Journal.prepare_operation db append;
+      (try Store.Journal.prepare_operation db append;
+           Alcotest.fail "duplicate operation accepted"
        with Sqlite3.SqliteError _ | Sqlite3.Error _ -> ());
-      Store.set_intent_state db ~id:intent.id Sent;
+      Store.Journal.mark_sent db ~id:append.id;
       initial) in
     Eio.Switch.run (fun sw ->
       let fs=Eio.Stdenv.fs env in
@@ -221,50 +225,57 @@ let test_reopen env =
       let flags=(List.hd rows).flags in
       Alcotest.(check (list string)) "flags survive reopen"
         ["\\Seen";"custom"] (List.map Mail_flag.Imap_flag.to_wire flags);
-      let pending=Store.pending_intents db ~scope in
+      let pending=all_active_operations db ~scope in
       Alcotest.(check int) "pending APPEND survives reopen" 1
         (List.length pending);
-      Alcotest.(check bool) "sent state" true
-        ((List.hd pending).state=Sent);
-      (match (List.hd pending).kind with
-       | Append metadata ->
-         Alcotest.(check (option int64)) "pre-send frontier" (Some 2L)
-           metadata.pre_send_uid_frontier;
+      let pending=List.hd pending in
+      Alcotest.(check bool) "sent state" true (pending.state=Sent);
+      (match pending.kind,pending.append with
+       | Append,Some metadata ->
+         Alcotest.(check int64) "pre-send frontier" 2L
+           metadata.pre_send_frontier;
+         Alcotest.(check string) "message ID" "<a@x>" metadata.message_id;
+         Alcotest.(check string) "spool reference" "/spool/a"
+           metadata.spool_ref;
          Alcotest.(check (option int64)) "expected length" (Some 47L)
-           metadata.expected_length;
+           pending.blob_length;
          Alcotest.(check (option (list string))) "exact flags"
            (Some ["\\Seen";"Seen"])
            (Option.map (List.map Mail_flag.Imap_flag.to_wire)
-             metadata.expected_flags);
+             pending.desired_flags);
          Alcotest.(check (option string)) "expected internal date"
            (Some "26-Sep-2026 12:00:00 +0000")
-           metadata.expected_internal_date
-       | _ -> Alcotest.fail "APPEND decoded as another intent");
+           (Option.map Imap.Internal_date.to_string pending.internal_date);
+         Alcotest.(check bool) "pre-send epoch" true
+           (pending.destination_uidvalidity=Some (epoch 5L))
+       | _ -> Alcotest.fail "APPEND decoded as another operation");
       Alcotest.(check bool) "epoch published" true
         (is_committed (transition db loaded ~stage:"epoch" ~epoch_value:6L
           [row 1L []]));
       Alcotest.(check bool) "old transition stale" true
         (transition db first ~stage:"first-replay-reopen" ~epoch_value:5L
           first_rows=`Stale_revision);
-      Store.set_intent_state db ~id:"append-1" Ambiguous;
-      Store.confirm_intent db ~id:"append-1"
-        ~uidvalidity:(Some (epoch 5L)) ~uid:(Some (uid 3L));
-      let receipt=Option.get (Store.find_intent db ~id:"append-1") in
+      Store.Journal.mark_ambiguous db ~id:"append-1";
+      Store.Journal.observe_operation db ~id:"append-1" ~receipt:"APPENDUID"
+        ~destination_uidvalidity:(Some (epoch 5L))
+        ~destination_uid:(Some (uid 3L));
+      let receipt=Option.get (Store.Journal.find_operation db ~id:"append-1") in
       Alcotest.(check bool) "APPENDUID receipt is durable" true
-        (receipt.state=Confirmed && receipt.uidvalidity=Some (epoch 5L)
-         && receipt.uid=Some (uid 3L));
-      Alcotest.(check int) "resolved intents hidden" 0
-        (List.length (Store.pending_intents db ~scope));
-      (try Store.set_intent_state db ~id:"append-1" Sent;
+        (receipt.state=Observed && receipt.receipt_uidvalidity=Some (epoch 5L)
+         && receipt.receipt_uid=Some (uid 3L));
+      Store.Journal.commit_operation db ~id:"append-1";
+      Alcotest.(check int) "resolved operations hidden" 0
+        (List.length (all_active_operations db ~scope));
+      (try Store.Journal.mark_sent db ~id:"append-1";
            Alcotest.fail "illegal reverse state accepted"
        with Invalid_argument _ -> ()));
     Eio.Switch.run (fun sw ->
       let fs=Eio.Stdenv.fs env in
       let db=Store.open_path ~sw Eio.Path.(fs / path) in
-      let receipt=Option.get (Store.find_intent db ~id:"append-1") in
+      let receipt=Option.get (Store.Journal.find_operation db ~id:"append-1") in
       Alcotest.(check bool) "APPENDUID survives reopen" true
-        (receipt.state=Confirmed && receipt.uidvalidity=Some (epoch 5L)
-         && receipt.uid=Some (uid 3L))));
+        (receipt.state=Committed && receipt.receipt_uidvalidity=Some (epoch 5L)
+         && receipt.receipt_uid=Some (uid 3L))));
   ()
 
 let test_blobs env =
@@ -315,21 +326,23 @@ let test_blobs env =
         (orphan_candidates db);
       let pending=Store.Blob.put db ~source:(Eio.Flow.string_source "pending")
         ~length:7L () in
-      Store.prepare_intent db {id="gc-pending-intent";scope;
-        kind=Store.Append {message_id="gc-pending";content_digest=pending.sha256;
-          spool_ref="sha256-"^pending.sha256;pre_send_uid_frontier=None;
-          expected_length=Some 7L;expected_flags=None;expected_internal_date=None};
-        state=Store.Prepared;uidvalidity=None;uid=None};
-      Store.set_intent_state db ~id:"gc-pending-intent" Store.Sent;
+      let pending_append id (blob:Store.Blob.blob) : Store.Journal.operation =
+        {id;pair_id=None;local_id=None;scope;kind=Store.Journal.Append;
+         state=Store.Journal.Prepared;
+         source_uidvalidity=None;source_uid=None;destination=Some scope;
+         destination_uidvalidity=None;receipt_uidvalidity=None;
+         receipt_uid=None;blob_sha256=Some blob.sha256;
+         blob_length=Some blob.length;desired_flags=None;internal_date=None;
+         append=Some {message_id=id;spool_ref="sha256-"^blob.sha256;
+           pre_send_frontier=0L};
+         receipt=None} in
+      Store.Journal.prepare_operation db
+        (pending_append "gc-pending-sent" pending);
+      Store.Journal.mark_sent db ~id:"gc-pending-sent";
       let pending_op=Store.Blob.put db ~source:(Eio.Flow.string_source "operation")
         ~length:9L () in
-      Store.Journal.prepare_operation db {id="gc-pending-operation";
-        pair_id=None;local_id=None;scope;kind=Store.Journal.Append;
-        state=Store.Journal.Prepared;
-        source_uidvalidity=None;source_uid=None;destination=Some scope;
-        destination_uidvalidity=None;receipt_uidvalidity=None;receipt_uid=None;
-        blob_sha256=Some pending_op.sha256;blob_length=Some 9L;
-        desired_flags=None;receipt=None};
+      Store.Journal.prepare_operation db
+        (pending_append "gc-pending-operation" pending_op);
       let orphan=Store.Blob.put db ~source:(Eio.Flow.string_source "orphan")
         ~length:6L () in
       Eio.Path.save ~create:(`Exclusive 0o600)
@@ -745,7 +758,9 @@ let test_sync_journal env =
         source_uidvalidity=Some (epoch 67L);source_uid=Some (uid 1L);
         destination=None;destination_uidvalidity=None;
         blob_sha256=None;blob_length=None;
-        desired_flags=Some [flag "\\Flagged"];receipt=None;
+        desired_flags=Some [flag "\\Flagged"];
+        internal_date=None;append=None;
+        receipt=None;
         receipt_uidvalidity=None;receipt_uid=None} in
       J.prepare_operation ~local_flags:[] db operation;
       Alcotest.(check bool) "empty local FLAGS preimage is known" true
@@ -758,7 +773,9 @@ let test_sync_journal env =
         pair_id=None;kind=Append;source_uidvalidity=None;source_uid=None;
         destination=Some scope;destination_uidvalidity=Some (epoch 67L);
         blob_sha256=Some (String.make 64 'a');
-        blob_length=Some 123L;desired_flags=Some []} in
+        blob_length=Some 123L;desired_flags=Some [];
+        append=Some {message_id="op-append";spool_ref="spool-a";
+          pre_send_frontier=0L}} in
       J.prepare_operation ~local_source_mtime:1709164800.125 db append;
       Alcotest.(check (option bool)) "APPEND source mtime captured"
         (Some true)
@@ -770,14 +787,14 @@ let test_sync_journal env =
       let local_append : J.operation = {operation with
         id="op-local-append";kind=Local_append;
         blob_sha256=Some (String.make 64 'b');blob_length=Some 123L} in
-      J.prepare_operation ~source_internal_date:date db local_append;
-      (try J.prepare_operation ~source_internal_date:date db
-        {append with id="bad-upload-date"};
-       Alcotest.fail "source date accepted for an upload"
-       with Invalid_argument _ -> ());
+      J.prepare_operation db {local_append with internal_date=Some date};
       let local_delete : J.operation = {operation with
         id="op-local-delete";kind=Local_delete;
         desired_flags=None} in
+      (try J.prepare_operation db {local_delete with id="bad-delete-date";
+        internal_date=Some date};
+       Alcotest.fail "INTERNALDATE accepted for a deletion"
+       with Invalid_argument _ -> ());
       J.prepare_operation db local_delete;
       (try J.prepare_operation db {local_append with id="bad-local-append";
         local_id=None};
@@ -820,8 +837,9 @@ let test_sync_journal env =
           (J.operation_source_mtime db ~id:"op-append"));
       Alcotest.(check (option string)) "local append date survives restart"
         (Some "26-Sep-2025 12:34:56 +0230")
-        (Option.map Imap.Internal_date.to_string
-          (J.operation_source_date db ~id:"op-local-append"));
+        (Option.bind (J.find_operation db ~id:"op-local-append")
+          (fun op -> Option.map Imap.Internal_date.to_string
+            op.internal_date));
       Alcotest.(check int) "pairs survive reopen" 2
         (List.length (all_pairs db ~scope));
       Alcotest.(check bool) "verified tombstone survives" true
@@ -881,7 +899,9 @@ let test_sync_journal env =
         source_uidvalidity=current.remote_uidvalidity;
         source_uid=current.remote_uid;destination=None;
         destination_uidvalidity=None;blob_sha256=None;blob_length=None;
-        desired_flags=Some [flag "\\Answered"];receipt=None;
+        desired_flags=Some [flag "\\Answered"];
+        internal_date=None;append=None;
+        receipt=None;
         receipt_uidvalidity=None;receipt_uid=None} in
       J.prepare_operation db stale_op;
       J.mark_sent db ~id:stale_op.id;
@@ -897,7 +917,7 @@ let test_sync_journal env =
           ~expected_pair_revision:(Some advanced.revision)
           {advanced with common_flags=[flag "\\Answered"]}
           = `Stale_revision);
-      Alcotest.(check bool) "stale intent remains visible" true
+      Alcotest.(check bool) "stale operation remains visible" true
         ((Option.get (J.find_operation db ~id:stale_op.id)).state=Observed);
       let with_content=match J.put_pair db
         ~expected_revision:(Some advanced.revision)
@@ -932,6 +952,7 @@ let test_active_operation_pages env =
         source_uidvalidity=Some (epoch 9L);source_uid=Some (uid 1L);
         destination=None;destination_uidvalidity=None;
         blob_sha256=None;blob_length=None;desired_flags=Some [];
+        internal_date=None;append=None;
         receipt=None;receipt_uidvalidity=None;receipt_uid=None;
       } in
       let ids=["z-prepared";"c-rejected";"e-ambiguous";
@@ -1244,7 +1265,7 @@ let () =
       (fun () -> test_object_identity env);
     Alcotest.test_case "FLAGS operator settlement is atomic" `Quick
       (fun () -> test_flag_settlement_transaction env);
-    Alcotest.test_case "reopen, CAS, epoch and intent" `Quick
+    Alcotest.test_case "reopen, CAS, epoch and APPEND operation" `Quick
       (fun () -> test_reopen env);
     Alcotest.test_case "blob fsync, integrity, references and orphans" `Quick
       (fun () -> test_blobs env);

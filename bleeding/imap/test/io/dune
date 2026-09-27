@@ -1,7 +1,5 @@
-(copy_files ../../lib/sync/spool.ml)
-(copy_files ../../lib/sync/spool.mli)
-
 (test
  (name test_io)
- (modules test_io spool)
- (libraries eio cstruct digestif eio_main alcotest))
+ (flags
+  (:standard -open Imap_sync_spool))
+ (libraries imap_sync_spool eio cstruct digestif eio_main alcotest))

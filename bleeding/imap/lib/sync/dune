@@ -1,5 +1,28 @@
+; The library stays wrapped so its compilation unit, Imap_sync_spool__Spool,
+; cannot clash with another Spool in a linked program. The -open keeps the
+; references to Spool unqualified.
+
+(library
+ (name imap_sync_spool)
+ (package imap)
+ (modules spool)
+ (libraries eio cstruct digestif))
+
 (library
  (name imap_sync)
  (public_name imap.sync)
- (private_modules spool)
- (libraries imap imap.eio imap.store imap.maildir mail-flag eio cstruct digestif optint))
+ (modules
+  (:standard \ spool))
+ (flags
+  (:standard -open Imap_sync_spool))
+ (libraries
+  imap
+  imap.eio
+  imap.store
+  imap.maildir
+  imap_sync_spool
+  mail-flag
+  eio
+  cstruct
+  digestif
+  optint))

@@ -51,7 +51,7 @@ comments unless the code cannot say it.
 | F | Apply Phase 2 correctness fixes in severity order, then dead code, redundancy, comments | done; 235 findings fixed, the remainder annotated to their steps; CLI findings fold into step 12 | e449db4a4 |
 | 1 | Plan item 8: strip duplicated docs from core Eio `.mli` and private store `.mli` to one-line internal contracts; rename `Imap_store.Sync` to `Journal` | done | |
 | 2 | Plan items 1 to 3: `Imap.Capability`, typed `Response.Capability`/`Enabled`, `Error.Unsupported`, typed `Client.capabilities`/`enabled`/`has`/`enable` | todo | |
-| 3 | Plan item 12: `spool` and `database` as private support libraries shared by their library and their tests; drop the copy_files rules in test/io and test/store/database | todo | |
+| 3 | Plan item 12: `spool` and `database` as private support libraries shared by their library and their tests; drop the copy_files rules in test/io and test/store/database | done | |
 | 4 | Plan item 10: standalone `maildir` package at `bleeding/maildir/`; no `imap` or `sqlite3-eio` dependency; `Local_inventory` in sync; `with_writer` capability; typed errors; `Dotlock` public | todo | |
 | 5 | Plan item 5a: dissolve `Proto` into `Imap.Uid`, `Uidvalidity`, `Modseq`, `Uid_set` with `equal`, `compare`, `pp`; unify identifier shapes across `Selected` | todo | |
 | 6 | Plan item 5b: move vocabulary types out of `Command`; `Command.error` a real type; label mailbox arguments; `Mailbox_name.t` private; `Client.list` returns `Mailbox_name.t` | todo | |
@@ -108,6 +108,20 @@ or unenabled extension. `Client.enable` is the general RFC 5161 ENABLE.
 Step 3. Move `lib/sync/spool.ml{,i}` into a private library stanza
 (`(library (name imap_sync_spool) (package imap))`) that `imap.sync` and
 `test/io` both link. Delete the copy_files rules.
+
+Done: `imap_sync_spool` (module `Spool`) and `imap_store_database` (module
+`Database`) are private libraries of package `imap`, declared beside their
+sources in lib/sync/dune and lib/store/dune. `imap.sync` and test/io link
+the first, `imap.store` and test/store/database link the second, each with
+`-open` so the sources are unchanged, and both copy_files rules are gone.
+The libraries stay wrapped so their units cannot clash with a user's
+`Spool` or `Database`. A probe stanza linking only `imap.sync` and
+`imap.store` fails on bare `Spool` and `Database`, while the qualified
+`Imap_sync_spool.Spool` and `Imap_store_database.Database` resolve through
+implicit transitive dependencies. The spool and Maildir hash loops of the
+reconcile.ml:41 finding stay separate, since step 4 makes `maildir` a
+package that cannot link a private `imap` library. Build and runtest are
+clean, 15 suites and 216 test cases.
 
 Step 4. Create `bleeding/maildir/` with its own `dune-project`, package
 `maildir`, library `maildir`, module `Maildir`, public submodule

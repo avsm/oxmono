@@ -1,5 +1,32 @@
+; The library stays wrapped so its compilation unit,
+; Imap_store_database__Database, cannot clash with another Database in a
+; linked program. The -open keeps the references to Database unqualified.
+
+(library
+ (name imap_store_database)
+ (package imap)
+ (modules database)
+ (libraries sqlite3 sqlite3-eio eio))
+
 (library
  (name imap_store)
  (public_name imap.store)
- (private_modules database schema record_codec sync_journal operation_intent blob_store)
- (libraries imap sqlite3-eio eio eio.unix unix digestif cstruct))
+ (modules
+  (:standard \ database))
+ (private_modules
+  schema
+  record_codec
+  sync_journal
+  operation_intent
+  blob_store)
+ (flags
+  (:standard -open Imap_store_database))
+ (libraries
+  imap
+  imap_store_database
+  sqlite3-eio
+  eio
+  eio.unix
+  unix
+  digestif
+  cstruct))

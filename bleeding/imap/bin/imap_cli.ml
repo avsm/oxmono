@@ -599,11 +599,10 @@ let sync config ~net ~fs ~random ~getenv =
     Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_path ~sw ~blob_dir Eio.Path.(fs / config.db) in
     let maildir=Maildir.open_dir Eio.Path.(fs / config.maildir) in
-    let recovered=try
-      Maildir.with_writer_lock maildir (fun () ->
-        ignore (Maildir.recover maildir));
-      true
-    with Maildir.Writer_lock_busy _ -> false in
+    let recovered=match
+        Imap_sync.Bridge.recover_local ~maildir ~spool_dir () with
+      | Ok () -> true
+      | Error _ -> false in
     if not recovered then (
       prerr_endline "Maildir writer lease is busy"; 8)
     else
@@ -770,6 +769,11 @@ let repair_appenduid config ~fs =
     prerr_endline "operation cannot accept APPENDUID evidence"; 3
   | Error _ -> prerr_endline "APPENDUID evidence was not recorded"; 4
 
+let spool_path config ~fs =
+  let spool_dir=Eio.Path.(fs / config.spool_dir) in
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 spool_dir;
+  spool_dir
+
 let mark_local_retention config ~fs =
   let db_path=Eio.Path.(fs / config.db) in
   let maildir_path=Eio.Path.(fs / config.maildir) in
@@ -782,7 +786,8 @@ let mark_local_retention config ~fs =
     let maildir=Maildir.open_dir maildir_path in
     let scope=local_scope config store in
     match Imap_sync.Bridge.mark_local_retention ~store ~maildir ~scope
-      ~pair_id:config.pair_id ~evidence:config.evidence () with
+      ~pair_id:config.pair_id ~evidence:config.evidence
+      ~spool_dir:(spool_path config ~fs) () with
     | Ok () ->
         Printf.printf "retention recorded for pair %S\n%!" config.pair_id; 0
     | Error Imap_sync.Bridge.Writer_busy ->
@@ -810,7 +815,8 @@ let verify_local config ~fs ~random =
         shown:=(pair_id,reason)::!shown;
         incr shown_count) in
     match Imap_sync.Bridge.verify_local_content ~store ~maildir ~scope
-      ~next_id:(fun () -> id ~random "content-") ~on_issue () with
+      ~next_id:(fun () -> id ~random "content-")
+      ~spool_dir:(spool_path config ~fs) ~on_issue () with
     | Error Imap_sync.Bridge.Writer_busy ->
         prerr_endline "Maildir writer lease is busy"; 8
     | Error error ->
@@ -853,7 +859,8 @@ let plan_deletions config ~fs =
           Imap.Sync_policy.No_deletion) -> incr held in
     match Imap_sync.Bridge.preview_deletions
       ~min_absence_scans:config.min_absence_scans ~store ~maildir ~scope
-      ~policy:(deletion_policy config) ~on_preview () with
+      ~policy:(deletion_policy config) ~spool_dir:(spool_path config ~fs)
+      ~on_preview () with
     | Error Imap_sync.Bridge.Writer_busy ->
         prerr_endline "Maildir writer lease is busy"; 8
     | Error error ->
@@ -930,7 +937,7 @@ let plan_sync config ~fs =
       ~allow_bootstrap_duplicates:config.allow_bootstrap_duplicates
       ~min_absence_scans:config.min_absence_scans
       ~store ~maildir ~scope ~policy:(deletion_policy config)
-      ~on_preview () with
+      ~spool_dir:(spool_path config ~fs) ~on_preview () with
     | Error Imap_sync.Bridge.Writer_busy ->
         prerr_endline "Maildir writer lease is busy"; 8
     | Error error ->

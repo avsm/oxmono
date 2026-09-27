@@ -1,3 +1,14 @@
 (test
  (name test_delete_sync)
- (libraries imap.sync imap.store maildir imap eio_main alcotest digestif unix))
+ (flags
+  (:standard -open Imap_sync_local))
+ (libraries
+  imap.sync
+  imap_sync_local
+  imap.store
+  maildir
+  imap
+  eio_main
+  alcotest
+  digestif
+  unix))

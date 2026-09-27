@@ -1,4 +1,5 @@
 module M = Maildir
+module L = Local_inventory
 module S = Imap_store
 module P = Imap.Proto
 
@@ -73,12 +74,12 @@ let vm_hwm_kib () =
       find ())
   with Sys_error _ -> None
 
-let page_maildir m count =
-  M.with_inventory_pages m (fun view ->
+let page_maildir ~spool_dir m count =
+  L.with_pages ~spool_dir m (fun view ->
     Alcotest.(check int64) "complete disk inventory"
-      (Int64.of_int count) (M.inventory_count view);
+      (Int64.of_int count) (L.count view);
     List.iter (fun i ->
-      match M.inventory_find view ~id:(id i) with
+      match L.find view ~id:(id i) with
       | Some occurrence ->
         if occurrence.id <> id i then fail "wrong indexed identity %d" i;
         if occurrence.length <> Int64.of_int (String.length body) then
@@ -87,7 +88,7 @@ let page_maildir m count =
       [0; count / 2; count - 1];
     let seen = ref 0 and after = ref None in
     let rec walk () =
-      let page = M.inventory_page view ?after:!after ~limit:257 () in
+      let page = L.page view ?after:!after ~limit:257 () in
       List.iter (fun (entry:M.occurrence) ->
         if entry.id <> id !seen then
           fail "Maildir page order mismatch at %d: %s" !seen entry.id;
@@ -184,10 +185,12 @@ let test_scale env = with_root (fun root ->
       phase (Unix.gettimeofday () -. started) hwm in
   let fs = Eio.Stdenv.fs env in
   let maildir = M.open_dir Eio.Path.(fs / root) in
+  let spool_dir = Eio.Path.(fs / root / "spool") in
+  Eio.Path.mkdir ~perm:0o700 spool_dir;
   for i = 0 to count - 1 do external_maildir_message root i done;
   report "Maildir fixture created";
   let before = vm_hwm_kib () in
-  page_maildir maildir count;
+  page_maildir ~spool_dir maildir count;
   report "Maildir inventory paged";
   (match before, vm_hwm_kib () with
    | Some before, Some after ->
@@ -197,9 +200,9 @@ let test_scale env = with_root (fun root ->
      if count >= 100_000 && delta > 256 * 1024 then
        fail "Maildir paging raised process high-water RSS by %d KiB" delta
    | _ -> Printf.printf "VmHWM unavailable; skipping Linux RSS bound\n%!");
-  M.with_inventory_pages maildir (fun inventory ->
+  L.with_pages ~spool_dir maildir (fun inventory ->
     for i=0 to 99 do
-      ignore (M.append ~inventory maildir ~id:(id (count+i))
+      ignore (L.append ~inventory maildir ~id:(id (count+i))
         ~source:(Eio.Flow.string_source body)
         ~length:(Int64.of_int (String.length body)) ~flags:[] ())
     done);

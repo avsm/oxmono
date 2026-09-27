@@ -1,7 +1,7 @@
 (test
  (name test_maildir)
  (modules test_maildir)
- (libraries maildir imap mail-flag eio eio_main cstruct digestif alcotest unix))
+ (libraries maildir mail-flag eio eio_main cstruct digestif alcotest unix))
 
 (test
  (name test_dotlock)

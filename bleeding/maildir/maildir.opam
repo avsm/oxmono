@@ -12,8 +12,6 @@ depends: [
   "optint"
   "digestif"
   "mail-flag"
-  "imap"
-  "sqlite3-eio"
   "alcotest" {with-test}
   "odoc" {with-doc}
 ]

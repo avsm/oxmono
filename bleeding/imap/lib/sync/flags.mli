@@ -69,7 +69,7 @@ type reconciled = {
 }
 
 val reconcile_pair :
-  ?propagate_deleted:bool -> ?inventory:Maildir.paged_inventory ->
+  ?propagate_deleted:bool -> ?inventory:Local_inventory.t ->
   client:Imap_eio.Client.t ->
   store:Imap_store.t -> maildir:Maildir.t -> mailbox:string ->
   pair:Imap_store.Journal.pair -> next_id:(unit -> string) ->
@@ -102,7 +102,7 @@ val reconcile_pair :
     exceptions and Eio cancellation propagate. *)
 
 val recover_operation :
-  ?inventory:Maildir.paged_inventory ->
+  ?inventory:Local_inventory.t ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   maildir:Maildir.t -> mailbox:string ->
   operation:Imap_store.Journal.operation -> unit ->

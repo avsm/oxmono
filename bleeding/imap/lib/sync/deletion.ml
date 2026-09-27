@@ -127,8 +127,8 @@ let local_unchanged ?inventory maildir (occurrence:Maildir.occurrence)
     ~digest ~length ~common_flags =
   occurrence.length=length &&
   same_flags occurrence.flags common_flags &&
-  match Maildir.with_unchanged_occurrence ?inventory maildir occurrence
-      (fun () -> Maildir.sha256 ?inventory maildir occurrence) with
+  match Local_inventory.with_unchanged_occurrence ?inventory maildir occurrence
+      (fun () -> Local_inventory.sha256 ?inventory maildir occurrence) with
   | Ok found -> found=digest
   | Error `Changed -> false
 
@@ -369,7 +369,7 @@ let reconcile_pair ?(min_absence_scans=0) ~client ~store ~maildir ~mailbox
       Ok survivor_changed
   | None ->
       let* remote_present=published_presence store ~cursor pair epoch uid in
-      let local=Maildir.inventory_find local_inventory ~id:local_id in
+      let local=Local_inventory.find local_inventory ~id:local_id in
       let first_generation=if remote_present then
         Option.bind pair.local_tombstone (fun x -> x.generation)
         else Option.bind pair.remote_tombstone (fun x -> x.generation) in
@@ -433,7 +433,7 @@ let recover_operation ~store ~maildir ~cursor ~local_inventory
       else
         let* remote_present=published_presence store ~cursor pair
           epoch uid in
-        let local_present=Maildir.inventory_find local_inventory
+        let local_present=Local_inventory.find local_inventory
           ~id:local_id<>None in
         let tombstoned=if kind=J.Delete then check_local_absence_tombstone pair
           else check_remote_absence_tombstone pair in

@@ -41,7 +41,7 @@ val reconcile_pair :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   maildir:Maildir.t -> mailbox:string ->
   cursor:Imap.Mirror.cursor ->
-  local_inventory:Maildir.paged_inventory ->
+  local_inventory:Local_inventory.t ->
   pair:Imap_store.Journal.pair -> policy:Imap.Sync_policy.deletion_policy ->
   next_id:(unit -> string) -> spool_dir:_ Eio.Path.t -> unit ->
   (outcome, error) result
@@ -75,7 +75,7 @@ val reconcile_pair :
 val recover_operation :
   store:Imap_store.t -> maildir:Maildir.t ->
   cursor:Imap.Mirror.cursor ->
-  local_inventory:Maildir.paged_inventory ->
+  local_inventory:Local_inventory.t ->
   operation:Imap_store.Journal.operation -> unit ->
   (outcome, error) result
 (** [recover_operation ~store ~maildir ~cursor ~local_inventory ~operation ()]

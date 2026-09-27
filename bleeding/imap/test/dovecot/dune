@@ -13,7 +13,24 @@
   (env_var IMAP_DOVECOT_CA_CERT)
   (env_var IMAP_DOVECOT_WRONG_CA_CERT)
   (env_var IMAP_DOVECOT_SHARED_MAILDIR))
- (libraries imap imap.eio imap.store imap.sync imap_cli maildir mail-flag sqlite3 eio eio_main alcotest unix x509 ptime.clock.os))
+ (flags
+  (:standard -open Imap_sync_local))
+ (libraries
+  imap
+  imap.eio
+  imap.store
+  imap.sync
+  imap_sync_local
+  imap_cli
+  maildir
+  mail-flag
+  sqlite3
+  eio
+  eio_main
+  alcotest
+  unix
+  x509
+  ptime.clock.os))
 
 (executable
  (name body_memory)

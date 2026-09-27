@@ -20,6 +20,10 @@ let rec remove_tree path =
     Unix.rmdir path)
   else Sys.remove path
 
+let spool_dir=ref None
+let with_pages maildir f =
+  Local_inventory.with_pages ~spool_dir:(Option.get !spool_dir) maildir f
+
 let with_fixture f =
   let root=Filename.temp_file "imap-delete-sync-" "" in
   Sys.remove root;
@@ -30,6 +34,9 @@ let with_fixture f =
   let fs=Eio.Stdenv.fs env in
   let store=Imap_store.open_path ~sw Eio.Path.(fs / root / "state.db") in
   let maildir=Maildir.open_dir Eio.Path.(fs / root / "maildir") in
+  let spool=Eio.Path.(fs / root / "spool") in
+  Eio.Path.mkdir ~perm:0o700 spool;
+  spool_dir:=Some spool;
   f store maildir
 
 let publish store ~stage rows =
@@ -97,7 +104,7 @@ let test_local_sent_recovery_after_new_scan () =
   Maildir.remove maildir local;
   let cursor=publish store ~stage:"empty-2" [] in
   let op=Option.get (J.find_operation store ~id:op.id) in
-  Maildir.with_inventory_pages maildir (fun local_inventory ->
+  with_pages maildir (fun local_inventory ->
     let pair=outcome (Imap_sync.Deletion.recover_operation ~store ~maildir
       ~cursor ~local_inventory ~operation:op ()) in
     Alcotest.(check bool) "local tombstone" true
@@ -121,7 +128,7 @@ let test_local_sent_without_unlink_is_held () =
   let op=operation pair ~id:"op-local-pending" ~kind:J.Local_delete in
   J.prepare_operation store op;
   J.mark_sent store ~id:op.id;
-  Maildir.with_inventory_pages maildir (fun local_inventory ->
+  with_pages maildir (fun local_inventory ->
     (match Imap_sync.Deletion.recover_operation ~store ~maildir ~cursor
       ~local_inventory ~operation:op () with
      | Error (Imap_sync.Deletion.Pending_operation id) when id=op.id -> ()
@@ -144,14 +151,14 @@ let test_remote_ambiguous_needs_complete_absence () =
   J.mark_sent store ~id:op.id;
   J.mark_ambiguous store ~id:op.id;
   let op=Option.get (J.find_operation store ~id:op.id) in
-  Maildir.with_inventory_pages maildir (fun local_inventory ->
+  with_pages maildir (fun local_inventory ->
     Alcotest.(check bool) "still pending while UID present" true
       (match Imap_sync.Deletion.recover_operation ~store ~maildir
         ~cursor ~local_inventory ~operation:op () with
        | Error (Imap_sync.Deletion.Pending_operation _) -> true
        | _ -> false));
   let cursor=publish store ~stage:"absent" [] in
-  Maildir.with_inventory_pages maildir (fun local_inventory ->
+  with_pages maildir (fun local_inventory ->
     let pair=outcome (Imap_sync.Deletion.recover_operation ~store ~maildir
       ~cursor ~local_inventory ~operation:op ()) in
     Alcotest.(check bool) "inventory-proven remote tombstone" true
@@ -171,7 +178,7 @@ let test_prepared_never_dispatched () =
     ~local_tombstone:None) in
   let op=operation pair ~id:"op-prepared" ~kind:J.Local_delete in
   J.prepare_operation store op;
-  Maildir.with_inventory_pages maildir (fun local_inventory ->
+  with_pages maildir (fun local_inventory ->
     Alcotest.(check bool) "prepared rejected" true
       (match Imap_sync.Deletion.recover_operation ~store ~maildir
         ~cursor ~local_inventory ~operation:op () with
@@ -192,7 +199,7 @@ let test_prepared_stale_pair_is_rejected () =
   (match J.put_pair store ~expected_revision:(Some pair.revision) pair with
    | `Committed _ -> ()
    | `Stale_revision -> Alcotest.fail "pair advance was stale");
-  Maildir.with_inventory_pages maildir (fun local_inventory ->
+  with_pages maildir (fun local_inventory ->
     (match Imap_sync.Deletion.recover_operation ~store ~maildir ~cursor
       ~local_inventory ~operation:op () with
      | Ok Imap_sync.Deletion.Unchanged -> ()

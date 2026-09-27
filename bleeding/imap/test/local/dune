@@ -1,18 +1,14 @@
 (test
- (name test_bridge_faults)
- (package imap)
+ (name test_local)
  (flags
   (:standard -open Imap_sync_local))
  (libraries
-  imap
-  imap.eio
-  imap.store
-  imap.sync
   imap_sync_local
   maildir
+  imap
   mail-flag
   eio
   eio_main
-  eio.mock
+  digestif
   alcotest
   unix))

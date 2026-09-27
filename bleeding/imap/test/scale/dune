@@ -1,3 +1,14 @@
 (test
  (name test_scale)
- (libraries imap imap.store maildir mail-flag eio eio_main alcotest unix))
+ (flags
+  (:standard -open Imap_sync_local))
+ (libraries
+  imap
+  imap.store
+  imap_sync_local
+  maildir
+  mail-flag
+  eio
+  eio_main
+  alcotest
+  unix))

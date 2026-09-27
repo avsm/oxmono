@@ -2,6 +2,10 @@ let unwrap = function
   | Ok x -> x
   | Error e -> Alcotest.fail (Imap_eio.Client.error_to_string e)
 
+let mtime date = match Local_date.to_mtime date with
+  | Ok mtime -> mtime | Error message -> Alcotest.fail message
+let occurrence_date local = Result.to_option (Local_date.of_occurrence local)
+
 let env name = match Sys.getenv_opt name with
   | Some s when s <> "" -> s
   | _ -> Alcotest.fail (name ^ " is unset")
@@ -889,7 +893,7 @@ let test_bridge_cram () =
     | [occurrence] -> occurrence
     | _ -> Alcotest.fail "dated import missing" in
   Alcotest.(check bool) "imported instant survives Maildir reopen" true
-    (match imported_occurrence.internal_date with
+    (match occurrence_date imported_occurrence with
      | Some saved -> Imap.Internal_date.equal_instant remote_date saved
      | None -> false);
   Alcotest.(check bool) "imported pair retains INTERNALDATE" true
@@ -910,7 +914,7 @@ let test_bridge_cram () =
   let local=Maildir.append maildir
     ~source:(Eio.Flow.string_source local_bytes)
     ~length:(Int64.of_int (String.length local_bytes)) ~flags:[]
-    ~internal_date:local_date () in
+    ~mtime:(mtime local_date) () in
   let plan_args=[|"imap-sync";"plan-sync";
     "--endpoint";scope.endpoint;"--account";scope.account;
     "--mailbox";mailbox;"--db";dbfile;
@@ -980,7 +984,7 @@ let test_bridge_cram () =
   ignore (Maildir.append maildir ~id:local.id
     ~source:(Eio.Flow.string_source changed_body)
     ~length:(Int64.of_int (String.length changed_body))
-    ~flags:[seen] ~internal_date:local_date ());
+    ~flags:[seen] ~mtime:(mtime local_date) ());
   let sync_args=[|"imap-sync";"sync";
     "--host";env "IMAP_DOVECOT_HOST";
     "--port";env "IMAP_DOVECOT_PORT";"--tls";"plain";
@@ -1006,7 +1010,7 @@ let test_bridge_cram () =
   ignore (Maildir.append maildir ~id:local.id
     ~source:(Eio.Flow.string_source local_bytes)
     ~length:(Int64.of_int (String.length local_bytes))
-    ~flags:pair.common_flags ~internal_date:local_date ());
+    ~flags:pair.common_flags ~mtime:(mtime local_date) ());
   let restored=copy ("dovecot-content-restored-" ^ nonce) in
   Alcotest.(check int) "restored body needs no flag update" 0
     restored.flags_updated;
@@ -1017,7 +1021,7 @@ let test_bridge_cram () =
   ignore (Maildir.append maildir ~id:local.id
     ~source:(Eio.Flow.string_source changed_body)
     ~length:(Int64.of_int (String.length changed_body))
-    ~flags:pair.common_flags ~internal_date:local_date ());
+    ~flags:pair.common_flags ~mtime:(mtime local_date) ());
   let verify_args=[|"imap-sync";"verify-local";
     "--endpoint";scope.endpoint;"--account";scope.account;
     "--mailbox";mailbox;"--db";dbfile;"--maildir";maildir_path;
@@ -1041,7 +1045,7 @@ let test_bridge_cram () =
   ignore (Maildir.append maildir ~id:local.id
     ~source:(Eio.Flow.string_source local_bytes)
     ~length:(Int64.of_int (String.length local_bytes))
-    ~flags:pair.common_flags ~internal_date:local_date ());
+    ~flags:pair.common_flags ~mtime:(mtime local_date) ());
   Alcotest.(check int) "offline scrub clears restored bytes" 0
     (verify ());
   let deleted=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted in
@@ -1372,7 +1376,7 @@ let test_append_process_crash () =
   let local=Maildir.append maildir
     ~source:(Eio.Flow.string_source raw)
     ~length:(Int64.of_int (String.length raw)) ~flags:[]
-    ~internal_date:(append_crash_date ()) () in
+    ~mtime:(mtime (append_crash_date ())) () in
   let id="append-crash-" ^ nonce in
   let executable=if Filename.is_relative Sys.executable_name then
     Filename.concat (Sys.getcwd ()) Sys.executable_name
@@ -1801,7 +1805,7 @@ let test_flags_recovery () =
   let current=Option.get (Imap_store.Journal.find_pair restarted ~id:pair.id) in
   let paired_date=Option.get current.internal_date in
   let local=Option.get (Maildir.find maildir ~id:local_id) in
-  let local_date=match Maildir.upload_internal_date local with
+  let local_date=match Local_date.of_occurrence local with
     | Ok date -> date | Error message -> Alcotest.fail message in
   Alcotest.(check bool) "mtime preserves the paired instant" true
     (Imap.Internal_date.equal_instant local_date paired_date);
@@ -2062,7 +2066,7 @@ let test_operator_local_append_repair () =
     (Maildir.sha256 maildir local);
   Alcotest.(check (option string)) "repaired INTERNALDATE"
     (Some (Imap.Internal_date.to_string date))
-    (Option.map Imap.Internal_date.to_string local.internal_date);
+    (Option.map Imap.Internal_date.to_string (occurrence_date local));
   Alcotest.(check bool) "repair committed" true
     ((Option.get (Imap_store.Journal.find_operation store ~id)).state=
       Imap_store.Journal.Committed);
@@ -2135,7 +2139,8 @@ let test_deletion_grace_live () =
     ~id:(Option.get pair.local_id)
     ~source:(Eio.Flow.string_source changed)
     ~length:(Int64.of_int (String.length changed))
-    ~flags:pair.common_flags ?internal_date:pair.internal_date () in
+    ~flags:pair.common_flags ?mtime:(Option.map mtime pair.internal_date)
+    () in
   ignore (copy ~grace:1 ("grace-changed-" ^ nonce));
   let content_conflicts ()=Imap_store.Journal.open_conflicts store ~scope
     |> List.filter (fun (x:Imap_store.Journal.conflict) ->
@@ -2152,7 +2157,8 @@ let test_deletion_grace_live () =
     ~id:(Option.get pair.local_id)
     ~source:(Eio.Flow.string_source raw)
     ~length:(Int64.of_int (String.length raw))
-    ~flags:pair.common_flags ?internal_date:pair.internal_date () in
+    ~flags:pair.common_flags ?mtime:(Option.map mtime pair.internal_date)
+    () in
   let seen=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen in
   let restored=Maildir.set_flags maildir restored [seen] in
   let present=copy ~grace:1 ("grace-present-" ^ nonce) in
@@ -2581,7 +2587,8 @@ let test_shared_maildir () =
     "\r\nMessage-ID: <" ^ id ^ "@example.test>\r\n\r\nshared body\r\n" in
   let initial=[flag "\\Seen";flag "local-keyword"] in
   let occurrence=D.append maildir ~id ~source:(Eio.Flow.string_source body)
-    ~length:(Int64.of_int (String.length body)) ~flags:initial ~internal_date:date () in
+    ~length:(Int64.of_int (String.length body)) ~flags:initial
+    ~mtime:(mtime date) () in
   let _,client=connect env_io sw in
   let with_selected mode f=unwrap (Imap_eio.Client.with_mailbox client
     ~mode "INBOX" (fun selected -> Ok (f selected))) in

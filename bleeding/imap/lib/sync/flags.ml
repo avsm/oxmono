@@ -132,14 +132,14 @@ let current_pair store (pair:J.pair) =
 
 let local ?inventory maildir id =
   let found=match inventory with
-    | Some inventory -> Maildir.inventory_find inventory ~id
+    | Some inventory -> Local_inventory.find inventory ~id
     | None -> Maildir.find maildir ~id in
   match found with
   | None -> Error Missing_occurrence
   | Some occurrence -> Ok occurrence
 
 let unchanged ?inventory maildir occurrence =
-  match Maildir.with_unchanged_occurrence ?inventory maildir occurrence
+  match Local_inventory.with_unchanged_occurrence ?inventory maildir occurrence
       ignore with
   | Ok () -> true
   | Error `Changed -> false
@@ -149,9 +149,9 @@ let content ?inventory maildir (pair:J.pair)
     (occurrence:Maildir.occurrence) =
   match pair.content_sha256,pair.content_length with
   | Some sha256,Some length when occurrence.length=length ->
-      (match Maildir.with_unchanged_occurrence ?inventory maildir
+      (match Local_inventory.with_unchanged_occurrence ?inventory maildir
           occurrence (fun () ->
-            Maildir.sha256 ?inventory maildir occurrence) with
+            Local_inventory.sha256 ?inventory maildir occurrence) with
        | Ok digest when digest=sha256 -> `Matches
        | Ok _ -> `Differs
        | Error `Changed -> `Changed)
@@ -360,7 +360,7 @@ let settle_operation ~client ~store ~maildir ~scope ~mailbox ~id ~evidence () =
         else match pair.internal_date with
           | None -> Ok occurrence
           | Some date ->
-              (match Maildir.upload_internal_date occurrence with
+              (match Local_date.of_occurrence occurrence with
                | Ok observed when
                    Imap.Internal_date.equal_instant observed date ->
                    Ok occurrence

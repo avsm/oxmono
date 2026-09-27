@@ -1,0 +1,61 @@
+(** Complete Maildir inventories staged in SQLite and read in pages.
+
+    A view is staged in a file in the caller's spool directory, so memory is
+    bounded by one directory batch, the SQLite cache and the requested pages.
+    The wrappers below take an optional view and check that it is live and
+    staged from the same Maildir handle before they delegate to [Maildir]. *)
+
+type t
+(** The type of a staged inventory view. *)
+
+type page = {
+  occurrences : Maildir.occurrence list;
+  next_after : string option;
+}
+
+val with_pages : spool_dir:_ Eio.Path.t -> Maildir.t -> (t -> 'a) -> 'a
+(** [with_pages ~spool_dir maildir f] is [f view] for a complete inventory of
+    [maildir] staged in a new file in [spool_dir]. The Maildir metadata lock
+    covers staging and is released before [f]. The view expires and its file
+    is removed on return, exception or cancellation. Concurrent changes can
+    invalidate observations after staging. A duplicate identity raises
+    [Failure], as {!Maildir.scan} does. *)
+
+val count : t -> int64
+(** [count view] is the number of staged occurrences. *)
+
+val find : t -> id:string -> Maildir.occurrence option
+(** [find view ~id] is the staged occurrence with identity [id]. *)
+
+val page : t -> ?after:string -> limit:int -> unit -> page
+(** [page view ~after ~limit ()] is the next ID-ordered page of at most
+    [limit] occurrences. [after] defaults to the beginning. [limit] must be
+    positive. *)
+
+val with_unchanged_occurrence : ?inventory:t -> Maildir.t ->
+  Maildir.occurrence -> (unit -> 'a) -> ('a, [ `Changed ]) result
+(** [with_unchanged_occurrence ?inventory maildir o f] is
+    {!Maildir.with_unchanged_occurrence} after checking [inventory]. *)
+
+val sha256 : ?inventory:t -> Maildir.t -> Maildir.occurrence -> string
+(** [sha256 ?inventory maildir o] is {!Maildir.sha256} after checking
+    [inventory]. *)
+
+val open_message : ?inventory:t -> Maildir.t -> sw:Eio.Switch.t ->
+  Maildir.occurrence -> Eio.File.ro_ty Eio.Resource.t
+(** [open_message ?inventory maildir ~sw o] is {!Maildir.open_message} after
+    checking [inventory]. *)
+
+val append : ?inventory:t -> Maildir.t -> ?id:string ->
+  source:_ Eio.Flow.source -> length:int64 ->
+  flags:Mail_flag.Imap_flag.t list -> ?mtime:float -> unit ->
+  Maildir.occurrence
+(** [append ?inventory maildir ~source ~length ~flags ()] is
+    {!Maildir.append}. A supplied [id] that [inventory] staged, or that an
+    earlier [append] through [inventory] published, raises [Failure] before
+    anything is written. *)
+
+val recover : _ Eio.Path.t -> string list
+(** [recover spool_dir] removes staging files that an interrupted process
+    left in [spool_dir] and is the list of their names. Call it only while
+    no view is staged in [spool_dir]. *)

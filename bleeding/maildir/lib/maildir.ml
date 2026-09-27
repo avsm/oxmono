@@ -11,7 +11,6 @@ type occurrence = {
   inode : int64;
   ctime : float;
   flags : Mail_flag.Imap_flag.t list;
-  internal_date : Imap.Internal_date.t option;
 }
 type directory = Dir : _ Eio.Path.t -> directory
 type keywords_key = int64 * Optint.Int63.t * float * float
@@ -23,8 +22,6 @@ exception Writer_lock_busy of string
 exception Metadata_lock_busy = Dotlock.Busy
 exception Metadata_lock_lost = Dotlock.Lost
 exception Stale_occurrence
-module Sql = Sqlite3
-module Db = Sqlite3_eio
 
 (* POSIX record locks are process-scoped: a second lockf in this process would
    succeed, and closing that second descriptor could release the first lock.
@@ -165,16 +162,9 @@ let parse_name filename =
         String.sub filename (i+3) (stop-i-3),
         String.sub filename stop (length-stop)
     | _ -> filename,"","" in
-  (* Step 4 removes the [.r<32hex>] alias, which nothing in this tree
-     writes. *)
-  let id=
-    if String.length base=69 && String.sub base 35 2=".r" &&
-       valid_supplied_id (String.sub base 0 35) &&
-       valid_hex (String.sub base 37 32)
-    then String.sub base 0 35 else base in
-  if id="" || String.contains id '/' || String.contains id ':' ||
-     String.contains id '\000' then None
-  else Some {ident=id;base;letters;suffix}
+  if base="" || String.contains base '/' || String.contains base ':' ||
+     String.contains base '\000' then None
+  else Some {ident=base;base;letters;suffix}
 
 let visible name = name<>"" && name.[0]<>'.'
 
@@ -221,17 +211,6 @@ let has_keywords = List.exists (function
 let filename ?passed mapping base flags =
   base ^ ":2," ^ Keywords.letters ?passed mapping flags
 
-let internal_date_of_mtime mtime =
-  let seconds=Float.floor mtime in
-  if not (Float.is_finite seconds) || seconds < -1e12 || seconds > 1e12 then
-    Error (Printf.sprintf
-      "Maildir modification time %g is outside the supported range" mtime)
-  else Imap.Internal_date.of_unix_seconds (Int64.of_float seconds)
-
-let date_of_mtime mtime =
-  match internal_date_of_mtime mtime with
-  | Ok date -> date | Error message -> fail message
-
 let dir t = function New -> t.new_dir | Cur -> t.cur
 let message_path t occurrence =
   child (dir t occurrence.location) occurrence.filename
@@ -249,8 +228,7 @@ let observe t mapping location filename =
                 length=Optint.Int63.to_int64 stat.size;
                 mtime=stat.mtime;inode=stat.ino;ctime=stat.ctime;
                 flags=Keywords.flags (Lazy.force mapping) ~file:filename
-                  name.letters;
-                internal_date=Some (date_of_mtime stat.mtime)}
+                  name.letters}
 
 let iter_entries t refresh f =
   let visits=ref 0 in
@@ -267,15 +245,19 @@ let iter_entries t refresh f =
 
 let duplicate id = fail ("duplicate occurrence identity " ^ id)
 
-let scan t = with_metadata_lock t (fun refresh ->
-  let all=ref [] in
-  iter_entries t refresh (fun o -> all:=o:: !all);
-  let sorted=List.sort (fun a b -> String.compare a.id b.id) !all in
+let fold t ~init ~f = with_metadata_lock t (fun refresh ->
+  let acc=ref init in
+  iter_entries t refresh (fun o -> acc:=f !acc o);
+  !acc)
+
+let scan t =
+  let all=fold t ~init:[] ~f:(fun all o -> o::all) in
+  let sorted=List.sort (fun a b -> String.compare a.id b.id) all in
   let rec check = function
     | a::(b::_ as rest) -> if a.id=b.id then duplicate a.id; check rest
     | _ -> () in
   check sorted;
-  sorted)
+  sorted
 
 let locate t refresh id =
   match parse_name id with
@@ -302,177 +284,21 @@ let find t ~id = with_metadata_lock t (fun refresh ->
   | [occurrence] -> Some occurrence
   | _ -> duplicate id)
 
-type paged_inventory = {
-  db : Db.t;
-  count : int64;
-  owner : t;
-  appended_ids : (string,unit) Hashtbl.t;
-  mutable live : bool;
-}
-
-let check_live view =
-  if not view.live then invalid_arg "Imap_maildir: expired inventory"
-let check_inventory t view =
-  check_live view;
-  if view.owner != t then
-    invalid_arg "Imap_maildir: inventory belongs to another handle"
-type inventory_page = {
-  occurrences : occurrence list;
-  next_after : string option;
-}
-let inventory_count x = check_live x; x.count
-
-let db_check = Sql.Rc.check
-let db_exec db sql = db_check (Db.exec db sql)
-let with_stmt db sql f =
-  let stmt=Eio.Cancel.protect (fun () -> Db.prepare db sql) in
-  Fun.protect ~finally:(fun () ->
-    Eio.Cancel.protect (fun () -> db_check (Db.finalize db stmt)))
-    (fun () -> f stmt)
-let bind stmt values = db_check (Sql.bind_values stmt values)
-let step db stmt =
-  match Db.step db stmt with
-  | Sql.Rc.ROW -> true
-  | Sql.Rc.DONE -> false
-  | rc ->
-      db_check rc;
-      fail ("unexpected SQLite step result " ^ Sql.Rc.to_string rc)
-
-let columns =
-  "id,filename,location,length,mtime,internal_date,inode,ctime,flags"
-
-let encode_flags flags =
-  String.concat " " (List.map Mail_flag.Imap_flag.to_wire flags)
-let decode_flags raw =
-  String.split_on_char ' ' raw |> List.filter_map (function
-    | "" -> None
-    | wire ->
-        match Mail_flag.Imap_flag.of_wire wire with
-        | Ok flag -> Some flag
-        | Error _ -> fail ("invalid staged flag " ^ wire))
-
-let staged_occurrence stmt =
-  let column n = Sql.column stmt n in
-  let text n = match column n with
-    | Sql.Data.TEXT s -> s
-    | _ -> fail (Printf.sprintf "invalid inventory text in column %d" n) in
-  let int n = match column n with
-    | Sql.Data.INT i -> i
-    | _ -> fail (Printf.sprintf "invalid inventory integer in column %d" n) in
-  let float n = match column n with
-    | Sql.Data.FLOAT f -> f
-    | _ -> fail (Printf.sprintf "invalid inventory real in column %d" n) in
-  let location=match int 2 with
-    | 0L -> New | 1L -> Cur
-    | n -> fail (Printf.sprintf "invalid staged location %Ld" n) in
-  (* Staged dates are never NULL until step 4 removes [internal_date]. *)
-  let internal_date=match column 5 with
-    | Sql.Data.NULL -> None
-    | Sql.Data.TEXT raw ->
-        (match Imap.Internal_date.of_string raw with
-         | Ok date -> Some date
-         | Error _ -> fail ("invalid staged date " ^ raw))
-    | _ -> fail "invalid inventory date" in
-  {id=text 0;filename=text 1;location;length=int 3;mtime=float 4;
-   internal_date;inode=int 6;ctime=float 7;flags=decode_flags (text 8)}
-
-let inventory_find view ~id =
-  check_live view;
-  with_stmt view.db
-    ("SELECT " ^ columns ^ " FROM occurrences WHERE id=?") (fun stmt ->
-    bind stmt [Sql.Data.TEXT id];
-    if step view.db stmt then Some (staged_occurrence stmt) else None)
-
-let inventory_page view ?after ~limit () =
-  check_live view;
-  if limit<=0 then
-    invalid_arg "Imap_maildir.inventory_page: limit must be positive";
-  if limit=max_int then
-    invalid_arg "Imap_maildir.inventory_page: limit too large";
-  let sql="SELECT " ^ columns ^
-    " FROM occurrences WHERE id > ? ORDER BY id LIMIT ?" in
-  let boundary=Option.value ~default:"" after in
-  with_stmt view.db sql (fun stmt ->
-    bind stmt [Sql.Data.TEXT boundary;Sql.Data.INT (Int64.of_int (limit+1))];
-    let rec collect n acc =
-      if not (step view.db stmt) then
-        {occurrences=List.rev acc;next_after=None}
-      else if n=limit then
-        {occurrences=List.rev acc;
-         next_after=Option.map (fun o -> o.id) (List.nth_opt acc 0)}
-      else collect (n+1) (staged_occurrence stmt::acc) in
-    collect 0 [])
-
-let with_inventory_pages t f =
-  let path=child t.tmp (".inventory-" ^ random_id () ^ ".sqlite3") in
-  let Dir db_path=path in
-  let owned=ref false in
-  Fun.protect ~finally:(fun () -> if !owned then discard path) (fun () ->
-    with_open_out path (fun _ -> owned:=true);
-    Eio.Switch.run (fun sw ->
-      let db=Db.open_path ~sw db_path in
-      db_exec db "PRAGMA journal_mode=OFF";
-      db_exec db "PRAGMA synchronous=OFF";
-      db_exec db "PRAGMA cache_size=-2048";
-      db_exec db "CREATE TABLE occurrences \
-        (id TEXT PRIMARY KEY,filename TEXT NOT NULL,\
-         location INTEGER NOT NULL,length INTEGER NOT NULL,\
-         mtime REAL NOT NULL,internal_date TEXT,inode INTEGER NOT NULL,\
-         ctime REAL NOT NULL,flags TEXT NOT NULL)";
-      let count=with_metadata_lock t (fun refresh ->
-        db_exec db "BEGIN";
-        let count=ref 0L in
-        with_stmt db ("INSERT INTO occurrences(" ^ columns ^
-          ") VALUES (?,?,?,?,?,?,?,?,?)") (fun stmt ->
-          iter_entries t refresh (fun o ->
-            bind stmt [Sql.Data.TEXT o.id;
-              Sql.Data.TEXT o.filename;
-              Sql.Data.INT (if o.location=New then 0L else 1L);
-              Sql.Data.INT o.length;
-              Sql.Data.FLOAT o.mtime;
-              (match o.internal_date with
-               | Some date ->
-                   Sql.Data.TEXT (Imap.Internal_date.to_string date)
-               | None -> Sql.Data.NULL);
-              Sql.Data.INT o.inode;
-              Sql.Data.FLOAT o.ctime;
-              Sql.Data.TEXT (encode_flags o.flags)];
-            (match Db.step db stmt with
-             | Sql.Rc.DONE -> ()
-             | Sql.Rc.CONSTRAINT ->
-                 ignore (Db.reset db stmt : Sql.Rc.t);
-                 duplicate o.id
-             | rc -> db_check rc);
-            db_check (Db.reset db stmt);
-            count:=Int64.succ !count));
-        db_exec db "COMMIT";
-        !count) in
-      let view={db;count;owner=t;live=true;appended_ids=Hashtbl.create 32} in
-      Fun.protect ~finally:(fun () -> view.live<-false) (fun () -> f view)))
-
-let current ?inventory t o =
-  Option.iter (check_inventory t) inventory;
-  observe t (lazy (read_keywords t)) o.location o.filename
+let current t o = observe t (lazy (read_keywords t)) o.location o.filename
 
 let same_occurrence a b =
-  (* Observations always carry a date until step 4 removes the field. *)
-  let same_date = match a.internal_date,b.internal_date with
-    | None,None -> true
-    | Some a,Some b -> Imap.Internal_date.equal_instant a b
-    | _ -> false in
   a.id=b.id && a.filename=b.filename && a.location=b.location &&
   a.length=b.length && a.mtime=b.mtime && a.inode=b.inode &&
-  a.ctime=b.ctime && same_date &&
-  Mail_flag.Imap_flag.equal_durable a.flags b.flags
+  a.ctime=b.ctime && Mail_flag.Imap_flag.equal_durable a.flags b.flags
 
-let require_current ?inventory t o =
-  match current ?inventory t o with
+let require_current t o =
+  match current t o with
   | Some actual when same_occurrence actual o -> ()
   | _ -> raise Stale_occurrence
 
-let with_unchanged_occurrence ?inventory t occurrence f =
+let with_unchanged_occurrence t occurrence f =
   let unchanged () =
-    match current ?inventory t occurrence with
+    match current t occurrence with
     | Some actual -> same_occurrence actual occurrence
     | None -> false in
   if not (unchanged ()) then Error `Changed
@@ -486,12 +312,6 @@ let with_unchanged_occurrence ?inventory t occurrence f =
     | Error _ as error -> error
     | Ok value -> if unchanged () then Ok value else Error `Changed
 
-let upload_internal_date occurrence =
-  match occurrence.internal_date with
-  | Some date -> Ok date
-  (* Unreachable until step 4 removes [internal_date]. *)
-  | None -> internal_date_of_mtime occurrence.mtime
-
 let set_mtime (Dir p) output timestamp =
   let native=Eio.Path.native_exn p in
   (* Eio has no utimes. Unix.utimes reads two zero times as the current
@@ -500,40 +320,33 @@ let set_mtime (Dir p) output timestamp =
   in_systhread ~label:"imap-maildir-utimes" ("setting times of " ^ native)
     (fun () -> Unix.utimes native atime timestamp);
   if (Eio.File.stat output).mtime<>timestamp then
-    fail (Printf.sprintf "filesystem cannot represent INTERNALDATE %.0f"
+    fail (Printf.sprintf "filesystem cannot represent modification time %.0f"
       timestamp)
 
-let published ?inventory t refresh id =
-  (match inventory with
-   | Some view ->
-       Hashtbl.mem view.appended_ids id || inventory_find view ~id<>None
-   | None -> false)
-  || locate t refresh id<>[]
+let check_mtime mtime =
+  if not (Float.is_finite mtime) then
+    fail (Printf.sprintf "modification time %g is not representable" mtime)
 
-let check_append t ~flags ?internal_date () =
+let check_append t ~flags ?mtime () =
   match
     Keywords.validate_flags flags;
     if has_keywords flags then
       ignore (Keywords.add (read_keywords t) flags : Keywords.t);
-    Option.map Imap.Internal_date.to_unix_seconds internal_date
+    Option.iter check_mtime mtime
   with
-  | None | Some (Ok _) -> Ok ()
-  | Some (Error message) -> Error message
+  | () -> Ok ()
   | exception Failure message -> Error message
 
-let append ?inventory t ?id ~source ~length ~flags ?internal_date () =
-  if length<0L then invalid_arg "Imap_maildir.append: negative length";
+let append t ?id ~source ~length ~flags ?mtime () =
+  if length<0L then invalid_arg "Maildir.append: negative length";
   Keywords.validate_flags flags;
-  Option.iter (check_inventory t) inventory;
   let id,supplied=match id with
     | None -> reserve_id (),false
     | Some id when valid_supplied_id id -> id,true
     | Some id ->
-        invalid_arg ("Imap_maildir.append: invalid occurrence ID " ^ id) in
-  let timestamp=Option.map (fun date ->
-    match Imap.Internal_date.to_unix_seconds date with
-    | Ok seconds -> Int64.to_float seconds
-    | Error message -> fail message) internal_date in
+        invalid_arg ("Maildir.append: invalid occurrence ID " ^ id) in
+  Option.iter check_mtime mtime;
+  let timestamp=mtime in
   let keywords=has_keywords flags in
   if keywords then
     with_metadata_lock t (fun _ -> ignore (ensure_keywords t flags));
@@ -553,7 +366,7 @@ let append ?inventory t ?id ~source ~length ~flags ?internal_date () =
       Option.iter (set_mtime temporary output) timestamp;
       Eio.File.sync output);
     with_metadata_lock t (fun refresh ->
-      if supplied && published ?inventory t refresh id then
+      if supplied && locate t refresh id<>[] then
         fail ("occurrence ID " ^ id ^ " already published");
       let mapping=if keywords then read_keywords t else Keywords.empty in
       let location,name=
@@ -564,8 +377,6 @@ let append ?inventory t ?id ~source ~length ~flags ?internal_date () =
       refresh ();
       rename temporary target;
       sync_directory (dir t location);
-      Option.iter (fun view -> Hashtbl.replace view.appended_ids id ())
-        inventory;
       match observe t (Lazy.from_val mapping) location name with
       | Some occurrence -> occurrence
       | None -> fail ("published Maildir message " ^ name ^ " vanished"))
@@ -576,12 +387,12 @@ let append ?inventory t ?id ~source ~length ~flags ?internal_date () =
       if !created then discard temporary;
       Printexc.raise_with_backtrace exn bt
 
-let open_message ?inventory t ~sw occurrence =
-  require_current ?inventory t occurrence;
+let open_message t ~sw occurrence =
+  require_current t occurrence;
   open_in ~sw (message_path t occurrence)
 
-let sha256 ?inventory t occurrence =
-  require_current ?inventory t occurrence;
+let sha256 t occurrence =
+  require_current t occurrence;
   let Dir p=message_path t occurrence in
   Eio.Path.with_open_in p (fun input ->
     let bytes=Bigarray.(Array1.create char c_layout 65536) in
@@ -625,13 +436,9 @@ let remove t occurrence = with_metadata_lock t (fun refresh ->
   sync_directory (dir t occurrence.location))
 
 let recover t =
-  let is_inventory_file s =
-    String.length s=51 && String.starts_with ~prefix:".inventory-" s &&
-    valid_hex (String.sub s 11 32) && String.ends_with ~suffix:".sqlite3" s in
   let is_temporary s =
     String.length s=37 && String.starts_with ~prefix:".tmp-" s &&
     valid_hex (String.sub s 5 32) in
-  let temporaries=read_dir t.tmp |>
-    List.filter (fun s -> is_temporary s || is_inventory_file s) in
+  let temporaries=read_dir t.tmp |> List.filter is_temporary in
   List.iter (fun name -> unlink (child t.tmp name)) temporaries;
   {removed_temporary=temporaries}

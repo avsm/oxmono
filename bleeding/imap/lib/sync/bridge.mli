@@ -95,6 +95,14 @@ val copy_once :
     hold means the requested policy has not fully converged, even when
     [more=false]. *)
 
+val recover_local :
+  maildir:Maildir.t -> spool_dir:_ Eio.Path.t -> unit -> (unit, error) result
+(** [recover_local ~maildir ~spool_dir ()] removes the temporary files an
+    interrupted process left in [maildir] and the inventory staging files it
+    left in [spool_dir]. It holds the Maildir writer lease, and failing to
+    acquire it yields [Writer_busy]. Call it at startup before the first
+    cycle. *)
+
 type local_verification = {
   checked : int64;
   mismatched : int64;
@@ -106,7 +114,7 @@ type local_verification = {
 val verify_local_content :
   store:Imap_store.t -> maildir:Maildir.t ->
   scope:Imap.Mirror.scope -> next_id:(unit -> string) ->
-  on_issue:(string -> string -> unit) -> unit ->
+  spool_dir:_ Eio.Path.t -> on_issue:(string -> string -> unit) -> unit ->
   (local_verification, error) result
 (** Hash established local pairs with saved content evidence under the
     Maildir writer lease. The complete local inventory and pair table are
@@ -115,17 +123,19 @@ val verify_local_content :
     resolve them. Missing occurrences and legacy pairs without content
     evidence are reported separately. No IMAP connection, remote mutation, or
     pair revision change occurs. [on_issue] receives a pair ID and reason for
-    each mismatch, absence, or unverified pair. *)
+    each mismatch, absence, or unverified pair. The local inventory is
+    staged in [spool_dir], which must be a directory. *)
 
 val mark_local_retention :
   store:Imap_store.t -> maildir:Maildir.t ->
   scope:Imap.Mirror.scope -> pair_id:string -> evidence:string ->
-  unit -> (unit, error) result
+  spool_dir:_ Eio.Path.t -> unit -> (unit, error) result
 (** Attest that a missing local paired occurrence was removed by local
     retention, not by a user deletion. Requires a complete Maildir inventory,
     the Maildir writer lease, no active operation for the pair, and an extant
     remote binding. The durable tombstone prevents later propagation of this
-    local absence to the server. No IMAP mutation is sent. *)
+    local absence to the server. No IMAP mutation is sent. The local
+    inventory is staged in [spool_dir], which must be a directory. *)
 
 type deletion_preview = {
   pair_id : string;
@@ -141,7 +151,7 @@ val preview_deletions :
   ?min_absence_scans:int ->
   store:Imap_store.t -> maildir:Maildir.t ->
   scope:Imap.Mirror.scope -> policy:Imap.Sync_policy.deletion_policy ->
-  on_preview:(deletion_preview -> unit) ->
+  spool_dir:_ Eio.Path.t -> on_preview:(deletion_preview -> unit) ->
   unit -> (Imap.Mirror.cursor, error) result
 (** Stream one-sided paired occurrences from the latest complete published
     remote inventory and a freshly staged local inventory. Holds the Maildir
@@ -152,7 +162,8 @@ val preview_deletions :
     operation is reported instead of a deletion decision. A pair from an
     earlier UIDVALIDITY is reported as [`Stale_epoch] only while its local
     occurrence is present. [min_absence_scans] defaults to 0, and a negative
-    value returns [Invalid_configuration]. *)
+    value returns [Invalid_configuration]. The local inventory is staged in
+    [spool_dir], which must be a directory. *)
 
 type sync_preview =
   | Preview_pending of string
@@ -172,7 +183,7 @@ val preview_sync :
   ?min_absence_scans:int ->
   store:Imap_store.t -> maildir:Maildir.t ->
   scope:Imap.Mirror.scope -> policy:Imap.Sync_policy.deletion_policy ->
-  on_preview:(sync_preview -> unit) ->
+  spool_dir:_ Eio.Path.t -> on_preview:(sync_preview -> unit) ->
   unit -> (Imap.Mirror.cursor, error) result
 (** Stream a candidate plan for copies, paired flag changes and one-sided
     deletion using the latest complete published remote snapshot and a fresh
@@ -184,7 +195,8 @@ val preview_sync :
     it cannot validate current server capabilities, survivor bytes or flags,
     or concurrent changes. A later [copy_once] must refresh the inventory
     and revalidate every action. [min_absence_scans] defaults to 0, and a
-    negative value returns [Invalid_configuration]. *)
+    negative value returns [Invalid_configuration]. The local inventory is
+    staged in [spool_dir], which must be a directory. *)
 
 val repair_local_append :
   client:Imap_eio.Client.t -> store:Imap_store.t ->

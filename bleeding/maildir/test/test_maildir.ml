@@ -46,9 +46,6 @@ let test_standard_format env = with_root (fun root ->
     "external,S=1,W=1:2,FP,custom=value" changed.filename;
   Alcotest.(check bool) "mtime preserved by flags" true
     (changed.mtime=occurrence.mtime);
-  let view=M.with_inventory_pages m Fun.id in
-  (try ignore (M.inventory_count view); Alcotest.fail "expired inventory accepted"
-   with Invalid_argument _ -> ());
   let lock=Eio.Path.(path / "dovecot-uidlist.lock") in
   Eio.Path.save ~create:(`Exclusive 0o600) lock
     (Printf.sprintf "%d %s\n" (Unix.getpid ()) (Unix.gethostname ()));
@@ -86,10 +83,10 @@ let test_keyword_limits env = with_root (fun root ->
     (Eio.Path.load Eio.Path.(path / "dovecot-keywords"));
   let changed=M.set_flags m a [flag "key0"] in
   Alcotest.(check int) "case alias reuses slot" 1 (List.length changed.flags);
-  let leap=Result.get_ok (Imap.Internal_date.of_string "31-Dec-2016 23:59:60 +0000") in
-  (try ignore (M.append m ~source:(Eio.Flow.string_source "x") ~length:1L
-    ~flags:[] ~internal_date:leap ()); Alcotest.fail "leap second published"
-   with Failure _ -> ());
+  List.iter (fun mtime ->
+    (try ignore (M.append m ~source:(Eio.Flow.string_source "x") ~length:1L
+      ~flags:[] ~mtime ()); Alcotest.fail "unrepresentable time published"
+     with Failure _ -> ())) [Float.nan;Float.infinity];
   Alcotest.(check int) "invalid date leaves inventory intact" 1 (List.length (M.scan m)))
 
 let test_invalid_mapping env = with_root (fun root ->
@@ -148,14 +145,13 @@ let test_restart env = with_root (fun root ->
   let path=Eio.Path.(fs / root) in
   let m=M.open_dir path in
   let raw="Subject: same\r\n\r\nExact bytes\r\n" in
-  let date=match Imap.Internal_date.of_string
-      "26-Sep-2025 12:34:56 +0230" with
-    | Ok date -> date | Error error -> Alcotest.fail error in
+  (* 26-Sep-2025 10:04:56 +0000 *)
+  let date=1758881096. in
   let flags=[flag "\\Seen";flag "A-Custom"] in
   let reserved=M.reserve_id () in
   let a=M.append m ~id:reserved ~source:(Eio.Flow.string_source raw)
     ~length:(Int64.of_int (String.length raw)) ~flags
-    ~internal_date:date () in
+    ~mtime:date () in
   let b=M.append m ~source:(Eio.Flow.string_source raw)
     ~length:(Int64.of_int (String.length raw)) ~flags:[] () in
   Alcotest.(check bool) "distinct occurrences" true (a.id<>b.id);
@@ -173,14 +169,7 @@ let test_restart env = with_root (fun root ->
   let a=List.find (fun x -> x.M.id=a.id) inventory in
   Alcotest.(check (list string)) "flags survive restart"
     ["\\Seen";"A-Custom"] (wires a.flags);
-  Alcotest.(check (option string)) "date survives restart"
-    (Some "26-Sep-2025 10:04:56 +0000")
-    (Option.map Imap.Internal_date.to_string a.internal_date);
-  Alcotest.(check string) "date comes from file mtime"
-    "26-Sep-2025 10:04:56 +0000"
-    (M.upload_internal_date a |> function
-      | Ok date -> Imap.Internal_date.to_string date
-      | Error error -> Alcotest.fail error);
+  Alcotest.(check (float 0.)) "date survives restart" date a.mtime;
   let expected=Digestif.SHA256.(to_hex (digest_string raw)) in
   Alcotest.(check string) "content digest" expected (M.sha256 m a);
   Eio.Switch.run (fun sw ->
@@ -200,9 +189,7 @@ let test_restart env = with_root (fun root ->
   let changed=M.scan m |> List.find (fun x -> x.M.id=a.id) in
   Alcotest.(check (list string)) "external flag rename removes omitted keyword"
     ["\\Seen"] (wires changed.flags);
-  Alcotest.(check (option string)) "flag rename keeps date"
-    (Some "26-Sep-2025 10:04:56 +0000")
-    (Option.map Imap.Internal_date.to_string changed.internal_date);
+  Alcotest.(check (float 0.)) "flag rename keeps date" date changed.mtime;
   let updated=M.set_flags m changed [flag "\\Flagged";flag "FinalTag"] in
   ignore (M.recover m);
   Alcotest.(check int) "two occurrences after recovery" 2
@@ -226,11 +213,8 @@ let test_failure_recovery env = with_root (fun root ->
   let temp=".tmp-0123456789abcdef0123456789abcdef" in
   let oc=open_out_bin (Filename.concat (Filename.concat root "tmp") temp) in
   output_string oc "interrupted"; close_out oc;
-  let stage=".inventory-0123456789abcdef0123456789abcdef.sqlite3" in
-  let oc=open_out_bin (Filename.concat (Filename.concat root "tmp") stage) in
-  output_string oc "interrupted index"; close_out oc;
   let recovery=M.recover (M.open_dir path) in
-  Alcotest.(check (list string)) "orphan tmp and index" [stage;temp]
+  Alcotest.(check (list string)) "orphan tmp" [temp]
     (List.sort String.compare recovery.removed_temporary);
   let source=Eio.Flow.string_source "abcdef" in
   let o=M.append m ~source ~length:3L ~flags:[] () in
@@ -239,132 +223,10 @@ let test_failure_recovery env = with_root (fun root ->
     Alcotest.(check string) "exact bounded stream" "abc" (read_all input 3));
   Alcotest.(check int64) "exact length" 3L o.length)
 
-let test_paged_inventory env = with_root (fun root ->
-  let path=Eio.Path.(Eio.Stdenv.fs env / root) in
-  let m=M.open_dir path in
-  let raw="Subject: duplicate\r\n\r\nEqual bytes\r\n" in
-  let expected=List.init 43 (fun i ->
-    let flags=if i mod 2=0 then [flag "\\Seen";flag "Custom"] else [] in
-    M.append m ~source:(Eio.Flow.string_source raw)
-      ~length:(Int64.of_int (String.length raw)) ~flags () ) in
-  let expected_ids=List.map (fun (o:M.occurrence) -> o.id) expected
-    |> List.sort String.compare in
-  M.with_inventory_pages m (fun view ->
-    Alcotest.(check int64) "complete count" 43L
-      (M.inventory_count view);
-    (try ignore (M.inventory_page view ~limit:0 ());
-      Alcotest.fail "zero page accepted"
-     with Invalid_argument _ -> ());
-    let rec pages after seen max_page =
-      let p=M.inventory_page view ?after ~limit:7 () in
-      let n=List.length p.occurrences in
-      let ids=List.map (fun (o:M.occurrence) -> o.id) p.occurrences in
-      let seen=List.rev_append ids seen in
-      let max_page=max max_page n in
-      match p.next_after with
-      | None -> List.rev seen,max_page
-      | Some id ->
-        Alcotest.(check bool) "nonempty continuation" true (n>0);
-        pages (Some id) seen max_page in
-    let ids,max_page=pages None [] 0 in
-    Alcotest.(check int) "page bound" 7 max_page;
-    Alcotest.(check (list string)) "every occurrence once"
-      expected_ids ids;
-    let first=M.inventory_page view ~limit:1 () in
-    let o=List.hd first.occurrences in
-    Alcotest.(check string) "staged stable first ID"
-      (List.hd expected_ids) o.id;
-    Alcotest.(check bool) "staged lookup" true
-      (Option.is_some (M.inventory_find view ~id:o.id));
-    Alcotest.(check bool) "missing staged lookup" true
-      (Option.is_none (M.inventory_find view ~id:"missing"));
-    let flagged=List.find (fun (o:M.occurrence) ->
-      List.exists ((=) "Custom") (wires o.flags)) expected in
-    let staged=Option.get (M.inventory_find view ~id:flagged.id) in
-    let digest=Digestif.SHA256.(to_hex (digest_string raw)) in
-    Alcotest.(check string) "indexed occurrence hash" digest
-      (M.sha256 ~inventory:view m staged);
-    (match M.with_unchanged_occurrence ~inventory:view m staged
-        (fun () -> M.set_flags m staged [flag "\\Seen";flag "Later"]) with
-     | Error `Changed -> ()
-     | Ok _ -> Alcotest.fail "indexed check accepted a flag rename");
-    let _=M.append m ~source:(Eio.Flow.string_source raw)
-      ~length:(Int64.of_int (String.length raw)) ~flags:[] () in
-    Alcotest.(check int64) "snapshot excludes later append" 43L
-      (M.inventory_count view);
-    (try ignore (M.append ~inventory:view m ~id:staged.id
-      ~source:(Eio.Flow.string_source raw)
-      ~length:(Int64.of_int (String.length raw)) ~flags:[] ());
-      Alcotest.fail "staged duplicate ID accepted"
-     with Failure _ -> ());
-    let fresh=M.reserve_id () in
-    ignore (M.append ~inventory:view m ~id:fresh
-      ~source:(Eio.Flow.string_source raw)
-      ~length:(Int64.of_int (String.length raw)) ~flags:[] ());
-    (try ignore (M.append ~inventory:view m ~id:fresh
-      ~source:(Eio.Flow.string_source raw)
-      ~length:(Int64.of_int (String.length raw)) ~flags:[flag "\\Seen"] ());
-      Alcotest.fail "new duplicate ID accepted"
-     with Failure _ -> ());
-    Alcotest.(check int64) "snapshot remains fixed after indexed appends"
-      43L (M.inventory_count view);
-    let other=M.open_dir path in
-    (try ignore (M.append ~inventory:view other ~id:(M.reserve_id ())
-      ~source:(Eio.Flow.string_source raw)
-      ~length:(Int64.of_int (String.length raw)) ~flags:[] ());
-      Alcotest.fail "inventory accepted another Maildir handle"
-     with Invalid_argument _ -> ()));
-  Alcotest.(check (list string)) "temporary index removed" []
-    (Sys.readdir (Filename.concat root "tmp") |> Array.to_list))
-
-let test_paged_duplicate_id env = with_root (fun root ->
-  let path=Eio.Path.(Eio.Stdenv.fs env / root) in
-  let m=M.open_dir path in
-  let a=M.append m ~source:(Eio.Flow.string_source "x") ~length:1L
-    ~flags:[] () in
-  let source=Filename.concat (Filename.concat root "new") a.filename in
-  let duplicate=Filename.concat (Filename.concat root "cur")
-    (a.id ^ ":2,S") in
-  let input=open_in_bin source and output=open_out_bin duplicate in
-  Fun.protect ~finally:(fun () -> close_in input; close_out output)
-    (fun () -> output_char output (input_char input));
-  (try M.with_inventory_pages m (fun _ ->
-     Alcotest.fail "duplicate ID accepted")
-   with Failure message ->
-     Alcotest.(check string) "duplicate identity diagnosed"
-       ("Imap_maildir: duplicate occurrence identity " ^ a.id) message);
-  Alcotest.(check (list string)) "failed index removed" []
-    (Sys.readdir (Filename.concat root "tmp") |> Array.to_list))
-
-let test_external_mtime_date env = with_root (fun root ->
-  let path=Eio.Path.(Eio.Stdenv.fs env / root) in
-  let m=M.open_dir path in
-  let original=M.append m ~source:(Eio.Flow.string_source "x")
-    ~length:1L ~flags:[] () in
-  let filename=Filename.concat (Filename.concat root "new")
-    original.filename in
-  Unix.utimes filename 1709164800. 1709164800.;
-  let local=match M.scan m with
-    | [local] -> local | _ -> Alcotest.fail "external file missing" in
-  let date=match M.upload_internal_date local with
-    | Ok date -> date | Error error -> Alcotest.fail error in
-  Alcotest.(check string) "external mtime becomes UTC INTERNALDATE"
-    "29-Feb-2024 00:00:00 +0000"
-    (Imap.Internal_date.to_string date);
-  M.with_inventory_pages m (fun inventory ->
-    let staged=Option.get (M.inventory_find inventory ~id:local.id) in
-    Alcotest.(check bool) "paged inventory retains mtime" true
-      (local.mtime=staged.mtime);
-    Unix.utimes filename 1709164801. 1709164801.;
-    match M.with_unchanged_occurrence ~inventory m staged
-      (fun () -> ()) with
-    | Error `Changed -> ()
-    | Ok () -> Alcotest.fail "changed mtime accepted as same source"))
-
 let save path text = Eio.Path.save ~create:(`Exclusive 0o600) path text
-let append_x ?inventory ?id ?internal_date m flags =
-  M.append ?inventory m ?id ~source:(Eio.Flow.string_source "x") ~length:1L
-    ~flags ?internal_date ()
+let append_x ?id ?mtime m flags =
+  M.append m ?id ~source:(Eio.Flow.string_source "x") ~length:1L
+    ~flags ?mtime ()
 let rejects label f =
   match f () with
   | exception Failure _ -> ()
@@ -381,13 +243,8 @@ let test_supplied_id_variants env = with_root (fun root ->
   save Eio.Path.(path / "cur" / (external_id ^ ":2,FS")) "x";
   rejects "external flag variant" (fun () ->
     append_x m ~id:external_id [flag "\\Draft"]);
-  let staged_later=M.reserve_id () in
-  M.with_inventory_pages m (fun inventory ->
-    save Eio.Path.(path / "cur" / (staged_later ^ ":2,S")) "x";
-    rejects "variant published after staging" (fun () ->
-      append_x ~inventory m ~id:staged_later []));
   Alcotest.(check bool) "nothing published in new" false
-    (List.exists (fun name -> name=staged_later || name=external_id)
+    (List.exists (fun name -> name=external_id)
       (Eio.Path.read_dir Eio.Path.(path / "new"))))
 
 let test_ignored_entries env = with_root (fun root ->
@@ -403,9 +260,8 @@ let test_ignored_entries env = with_root (fun root ->
   Unix.mkfifo (Filename.concat (Filename.concat root "new") "fifo") 0o600;
   Alcotest.(check (list string)) "only the regular message" [real.id]
     (List.map (fun (o:M.occurrence) -> o.id) (M.scan m));
-  M.with_inventory_pages m (fun view ->
-    Alcotest.(check int64) "staging skips the same entries" 1L
-      (M.inventory_count view));
+  Alcotest.(check int) "fold skips the same entries" 1
+    (M.fold m ~init:0 ~f:(fun n _ -> n+1));
   List.iter (fun id ->
     Alcotest.(check bool) ("no occurrence for " ^ id) true
       (M.find m ~id=None)) [dir_id;link_id;".DS_Store";".hidden"];
@@ -434,13 +290,10 @@ let test_find_by_name env = with_root (fun root ->
 
 let test_epoch_date env = with_root (fun root ->
   let m=M.open_dir Eio.Path.(Eio.Stdenv.fs env / root) in
-  let epoch=Result.get_ok
-    (Imap.Internal_date.of_string "01-Jan-1970 00:00:00 +0000") in
-  let o=append_x m [] ~internal_date:epoch in
+  let o=append_x m [] ~mtime:0. in
   Alcotest.(check (float 0.)) "epoch mtime" 0. o.mtime;
-  Alcotest.(check (option string)) "epoch date"
-    (Some " 1-Jan-1970 00:00:00 +0000")
-    (Option.map Imap.Internal_date.to_string o.internal_date))
+  Alcotest.(check (float 0.)) "epoch mtime after scan" 0.
+    (List.hd (M.scan m)).mtime)
 
 let test_duplicate_refused env = with_root (fun root ->
   let path=Eio.Path.(Eio.Stdenv.fs env / root) in
@@ -618,12 +471,6 @@ Eio_main.run (fun env ->
       Alcotest.test_case "restart and flags" `Quick (fun () -> test_restart env);
       Alcotest.test_case "failure recovery" `Quick
         (fun () -> test_failure_recovery env);
-      Alcotest.test_case "paged inventory" `Quick
-        (fun () -> test_paged_inventory env);
-      Alcotest.test_case "paged duplicate identity" `Quick
-        (fun () -> test_paged_duplicate_id env);
-      Alcotest.test_case "external mtime date and change" `Quick
-        (fun () -> test_external_mtime_date env);
       Alcotest.test_case "exclusive process writer lease" `Quick
         (fun () -> test_writer_lock env)];
     "review fixes", [

@@ -133,10 +133,12 @@ operations return typed responses. Selected NOTIFY filters go through
 limit list for its root. `fetch_to`
 streams `BODY.PEEK[]` into a sink and verifies the UID and literal length at
 tagged completion. Its output is provisional until it returns `Ok ()`; discard
-it on error. Selected handles expire when `with_mailbox` returns. The callback
-holds the session lock, so do not call another `Client` operation on the same
-connection from that callback. Mailbox arguments are UTF-8 and are encoded as
-modified UTF-7 on rev1 connections unless UTF-8 mode was enabled. Each LIST
+it on error. Selected handles expire when `with_mailbox` returns. A `Client`
+command on the same connection from inside the callback, including a nested
+`with_mailbox`, returns `Error (State "call inside with_mailbox on the same
+connection")` at once without sending anything. Mailbox arguments are UTF-8
+and are encoded as modified UTF-7 on rev1 connections unless UTF-8 mode was
+enabled. Each LIST
 and LSUB row carries its decoded `name`, whose `utf8` field is the decoded
 name and whose `raw` field is the exact wire name. An interrupted APPEND
 returns an uncertain outcome and must be reconciled before retrying.

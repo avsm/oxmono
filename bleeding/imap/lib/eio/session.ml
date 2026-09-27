@@ -529,7 +529,24 @@ let protect t f =
       close t;
       Printexc.raise_with_backtrace ex bt
 
-let locked t f = Eio.Mutex.use_ro t.mutex (fun () -> protect t f)
+(* Eio mutexes record no owner, so a fiber that relocks the session it holds
+   through [with_mailbox] would park until cancelled. The key lists the
+   sessions leased by the current fiber and the fibers it forked. *)
+let leases : t list Eio.Fiber.key = Eio.Fiber.create_key ()
+
+let leased t =
+  match Eio.Fiber.get leases with
+  | Some held -> List.memq t held
+  | None -> false
+
+let with_lease t f =
+  let held = Option.value ~default:[] (Eio.Fiber.get leases) in
+  Eio.Fiber.with_binding leases (t :: held) f
+
+let locked t f =
+  if leased t then
+    Error (State "call inside with_mailbox on the same connection")
+  else Eio.Mutex.use_ro t.mutex (fun () -> protect t f)
 
 (* RFC 3501 AUTHENTICATE exchange and RFC 2195 CRAM-MD5. A malformed or
    unexpected continuation closes the session before any secret-derived

@@ -65,3 +65,7 @@
 (test
  (name test_capability)
  (libraries imap.eio imap eio eio.mock cstruct))
+
+(test
+ (name test_reentrancy)
+ (libraries imap.eio imap eio eio.mock cstruct))

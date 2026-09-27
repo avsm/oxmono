@@ -561,8 +561,7 @@ let release_selection session =
 
 let with_mailbox t ?qresync ?objectid ~mode mailbox callback =
   let session = t.session in
-  Eio.Mutex.use_ro session.Session.mutex (fun () ->
-    Session.protect session (fun () ->
+  Session.locked session (fun () ->
       Fun.protect ~finally:(fun () -> session.Session.selected <- None)
       (fun () ->
       let mailbox_wire = mailbox_wire session mailbox in
@@ -615,7 +614,7 @@ let with_mailbox t ?qresync ?objectid ~mode mailbox callback =
       let selected = Selected.create session session.Session.generation
         info selected_result.untagged in
       let outcome =
-        try callback selected with ex ->
+        try Session.with_lease session (fun () -> callback selected) with ex ->
           let bt = Printexc.get_raw_backtrace () in
           Selected.invalidate selected;
           Session.close session;
@@ -625,7 +624,7 @@ let with_mailbox t ?qresync ?objectid ~mode mailbox callback =
         release_selection session;
         session.Session.generation <- session.Session.generation + 1);
       outcome))
-    |> Result.join)
+  |> Result.join
 
 type append_receipt = {
   uidvalidity : Imap.Uidvalidity.t;

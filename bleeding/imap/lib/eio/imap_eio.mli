@@ -854,22 +854,29 @@ module Client : sig
     ?objectid:(string * string) ->
     mode:[ `Read_only | `Read_write ] -> string ->
     (Selected.t -> ('a, error) result) -> ('a, error) result
-  (** Holds an exclusive selection lease across [callback]. Calls on the same
-      client from inside [callback] wait for that lease and therefore must be
-      avoided. The selected handle becomes stale when [callback] returns. A
-      normal exit sends UNSELECT where negotiated, otherwise closes safely; an
-      exceptional exit closes the connection and re-raises. If UNSELECT fails,
-      the connection closes and the callback's result is still returned.
-      Selected commands are serialized. Join their fibers before returning. An
-      escaped in-flight command closes the connection at lease exit. Mailbox
-      arguments are UTF-8.
+  (** [with_mailbox t ~mode mailbox callback] holds an exclusive selection
+      lease on the UTF-8 name [mailbox] across [callback] and is its result.
+      A [Client] command on [t], including a nested [with_mailbox], called
+      from [callback] or from a fiber that [callback] forked is
+      [Error.State "call inside with_mailbox on the same connection"] at
+      once and sends nothing. Use the [Selected] operations on the lease
+      instead. A [Client] call on another connection is unaffected.
+
+      The selected handle becomes stale when [callback] returns. A normal
+      exit sends UNSELECT where negotiated and otherwise closes the
+      connection. An exceptional exit closes the connection and re-raises.
+      If UNSELECT fails, the connection closes and the callback's result is
+      still returned. Selected commands are serialized. Join their fibers
+      before returning, since an in-flight command closes the connection at
+      lease exit.
+
       [qresync] is a saved UIDVALIDITY and completed MODSEQ checkpoint, and is
       accepted only when QRESYNC was successfully enabled. [objectid] is the
       draft [(account_id, mailbox_id)] identity of the intended mailbox. It
       is [Error.Not_enabled Objectid_plus] until {!Objectid_plus.enable}
       succeeds. The client checks the SELECT response before invoking
       [callback], closing the connection if the server fell back to a
-      different mailbox. *)
+      different mailbox. [qresync] and [objectid] are omitted by default. *)
 
   type append_receipt = {
     uidvalidity : Imap.Uidvalidity.t;

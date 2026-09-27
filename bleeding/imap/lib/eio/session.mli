@@ -108,6 +108,14 @@ val protect : t -> (unit -> 'a) -> ('a, error) result
     other than [Failure], re-raising one that is not an {!io_failure}. *)
 
 val locked : t -> (unit -> 'a) -> ('a, error) result
+(** [locked t f] is [protect t f] under the session mutex, or [Error (State
+    _)] without waiting when the calling fiber holds [t] through
+    {!with_lease}. *)
+
+val with_lease : t -> (unit -> 'a) -> 'a
+(** [with_lease t f] runs [f] with [t] marked as leased by the calling
+    fiber and the fibers it forks. *)
+
 val authenticate_cram_md5 : t -> Auth.t -> unit
 val authenticate_initial : t -> mechanism:string -> encoded:string ->
   sasl_ir:bool -> oauthbearer:bool -> unit

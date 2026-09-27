@@ -25,4 +25,5 @@
   decompress
   sqlite3-eio
   digestif
+  cmdliner
   (alcotest :with-test)))

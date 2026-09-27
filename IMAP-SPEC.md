@@ -1769,9 +1769,9 @@ The next agent should complete M7 before calling this an isync-like syncer:
    content and flags, a journal, conditional UID STORE and targeted UID
    EXPUNGE. It rechecks flags and MODSEQ immediately before expunging the
    target; a changed target remains pending.
-   `imap-sync` now exposes separate `--propagate-remote-deletions` and
-   `--propagate-local-deletions` switches (the older
-   `--propagate-deletions` enables both). An offline
+   `imap-sync` selects the direction with `--deletion-policy`, one of
+   `preserve`, `propagate`, `propagate-remote` and `propagate-local`. An
+   offline
    `mark-local-retention --pair-id ID --evidence TEXT` command verifies a
    complete Maildir scan under the writer lease, requires the paired local
    occurrence to be absent and no pending operation, then records a durable

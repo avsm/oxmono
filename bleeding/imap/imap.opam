@@ -23,6 +23,7 @@ depends: [
   "decompress"
   "sqlite3-eio"
   "digestif"
+  "cmdliner"
   "alcotest" {with-test}
   "odoc" {with-doc}
 ]

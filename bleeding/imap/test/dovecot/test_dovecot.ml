@@ -47,6 +47,11 @@ let env name = match Sys.getenv_opt name with
   | Some s when s <> "" -> s
   | _ -> Alcotest.fail (name ^ " is unset")
 
+let cli_job ~env argv =
+  match Cmdliner.Cmd.eval_value' ~env ~argv Imap_cli.cmd with
+  | `Ok job -> job
+  | `Exit code -> Alcotest.failf "imap-sync command line exited %d" code
+
 let configured () =
   if Sys.getenv_opt "IMAP_DOVECOT_HOST" = None then
     if Sys.getenv_opt "IMAP_DOVECOT_REQUIRED" = Some "1" then
@@ -1020,13 +1025,11 @@ let test_bridge_cram () =
     "--endpoint";scope.endpoint;"--account";scope.account;
     "--mailbox";mailbox;"--db";dbfile;
     "--maildir";maildir_path;"--max-inspect";"10"|] in
-  let plan=match Imap_cli.parse ~getenv:Sys.getenv_opt plan_args with
-    | Ok config -> config
-    | Error message -> Alcotest.fail message in
+  let plan=cli_job ~env:Sys.getenv_opt plan_args in
   Alcotest.(check int) "read-only CLI sync plan" 0
     (Imap_cli.run plan ~net:(Eio.Stdenv.net env_io) ~fs
       ~random:(Eio.Stdenv.secure_random env_io)
-      ~getenv:Sys.getenv_opt);
+      ~env:Sys.getenv_opt);
   Alcotest.(check bool) "plan did not pair local source" true
     (Imap_store.Journal.find_local store ~scope ~local_id:local.id=None);
   let uploaded=copy ("dovecot-upload-" ^ nonce) in
@@ -1092,13 +1095,11 @@ let test_bridge_cram () =
     "--endpoint";scope.endpoint;"--account";scope.account;
     "--mailbox";mailbox;"--db";dbfile;"--blob-dir";blobdir;
     "--maildir";maildir_path;"--spool-dir";spooldir|] in
-  let sync_config=match Imap_cli.parse ~getenv:Sys.getenv_opt sync_args with
-    | Ok config -> config
-    | Error message -> Alcotest.fail message in
+  let sync_config=cli_job ~env:Sys.getenv_opt sync_args in
   Alcotest.(check int) "CLI reports paired body conflict" 4
     (Imap_cli.run sync_config ~net:(Eio.Stdenv.net env_io) ~fs
       ~random:(Eio.Stdenv.secure_random env_io)
-      ~getenv:Sys.getenv_opt);
+      ~env:Sys.getenv_opt);
   Alcotest.(check bool) "CLI persists content conflict" true
     (match Imap_store.Journal.open_conflicts store ~scope with
      | [{pair_id;kind=Imap_store.Journal.Content_conflict;_}] ->
@@ -1125,13 +1126,10 @@ let test_bridge_cram () =
     "--endpoint";scope.endpoint;"--account";scope.account;
     "--mailbox";mailbox;"--db";dbfile;"--maildir";maildir_path;
     "--max-inspect";"10"|] in
-  let verify_config=match Imap_cli.parse ~getenv:Sys.getenv_opt
-      verify_args with
-    | Ok config -> config
-    | Error message -> Alcotest.fail message in
+  let verify_config=cli_job ~env:Sys.getenv_opt verify_args in
   let verify ()=Imap_cli.run verify_config ~net:(Eio.Stdenv.net env_io)
       ~fs ~random:(Eio.Stdenv.secure_random env_io)
-      ~getenv:Sys.getenv_opt in
+      ~env:Sys.getenv_opt in
   Alcotest.(check int) "offline scrub detects silent same-length edit" 4
     (verify ());
   Alcotest.(check bool) "silent edit persisted as content conflict" true
@@ -1948,11 +1946,10 @@ let test_flags_recovery () =
     "--mailbox";mailbox;"--db";dbfile;"--maildir";maildir_path;
     "--operation-id";third.id;
     "--evidence";"operator aligned Dovecot and Maildir flags"|] in
-  let config=match Imap_cli.parse ~getenv args with
-    | Ok config -> config | Error message -> Alcotest.fail message in
+  let config=cli_job ~env:getenv args in
   Alcotest.(check int) "CLI settled matching endpoints" 0
     (Imap_cli.run config ~net:(Eio.Stdenv.net env_io) ~fs
-      ~random:(Eio.Stdenv.secure_random env_io) ~getenv);
+      ~random:(Eio.Stdenv.secure_random env_io) ~env:getenv);
   let current=Option.get (Imap_store.Journal.find_pair restarted ~id:pair.id) in
   Alcotest.(check (list string)) "operator flags adopted as baseline"
     ["\\Draft";"\\Flagged"]
@@ -1965,7 +1962,7 @@ let test_flags_recovery () =
     (List.length (flag_conflicts ()));
   Alcotest.(check int) "settlement cannot repeat" 9
     (Imap_cli.run config ~net:(Eio.Stdenv.net env_io) ~fs
-      ~random:(Eio.Stdenv.secure_random env_io) ~getenv);
+      ~random:(Eio.Stdenv.secure_random env_io) ~env:getenv);
   Alcotest.(check int64) "repeat did not advance pair"
     current.revision
     (Option.get (Imap_store.Journal.find_pair restarted ~id:pair.id)).revision
@@ -2400,13 +2397,11 @@ let test_reject_unchanged_remote_delete () =
     "--db";dbfile;"--maildir";maildir_path;
     "--spool-dir";spooldir;"--operation-id";operation_id;
     "--evidence";"operator verified unchanged UID"|] in
-  let cli_config=match Imap_cli.parse ~getenv:Sys.getenv_opt cli_args with
-    | Ok config -> config
-    | Error message -> Alcotest.fail message in
+  let cli_config=cli_job ~env:Sys.getenv_opt cli_args in
   Alcotest.(check int) "CLI rejects verified unchanged intent" 0
     (Imap_cli.run cli_config ~net:(Eio.Stdenv.net env_io) ~fs
       ~random:(Eio.Stdenv.secure_random env_io)
-      ~getenv:Sys.getenv_opt);
+      ~env:Sys.getenv_opt);
   Alcotest.(check bool) "unchanged remote intent rejected" true
     ((Option.get (Imap_store.Journal.find_operation store
       ~id:operation_id)).state=Imap_store.Journal.Rejected);
@@ -2446,12 +2441,11 @@ let test_reject_unchanged_remote_delete () =
     else if value="operator verified unchanged UID" then
       "operator verified marked target"
     else value) cli_args in
-  let finish_config=match Imap_cli.parse ~getenv:Sys.getenv_opt finish_args
-    with Ok config -> config | Error message -> Alcotest.fail message in
+  let finish_config=cli_job ~env:Sys.getenv_opt finish_args in
   Alcotest.(check int) "CLI targeted EXPUNGE succeeds" 0
     (Imap_cli.run finish_config ~net:(Eio.Stdenv.net env_io) ~fs
       ~random:(Eio.Stdenv.secure_random env_io)
-      ~getenv:Sys.getenv_opt);
+      ~env:Sys.getenv_opt);
   let finished=Option.get (Imap_store.Journal.find_operation store
     ~id:finish_id) in
   Alcotest.(check bool) "targeted EXPUNGE journal committed" true
@@ -2538,12 +2532,11 @@ let test_bounded_hydration () =
     "--mailbox";mailbox;"--db";dbfile;
     "--blob-dir";blobdir;"--spool-dir";spooldir;
     "--max-transfers";"1";"--max-total-bytes";"1024"|] in
-  let cli_config=match Imap_cli.parse ~getenv:Sys.getenv_opt cli_args with
-    | Ok config -> config | Error message -> Alcotest.fail message in
+  let cli_config=cli_job ~env:Sys.getenv_opt cli_args in
   Alcotest.(check int) "CLI bounded pass reports more" 2
     (Imap_cli.run cli_config ~net:(Eio.Stdenv.net env_io) ~fs
       ~random:(Eio.Stdenv.secure_random env_io)
-      ~getenv:Sys.getenv_opt);
+      ~env:Sys.getenv_opt);
   Alcotest.(check bool) "first body durably attached" true
     (Option.is_some (Imap_store.Blob.find store ~scope
       ~uidvalidity:epoch ~uid:first.uid));
@@ -2557,15 +2550,16 @@ let test_bounded_hydration () =
   Alcotest.(check int) "idempotent hydration" 0 done_pass.hydrated;
   Alcotest.(check bool) "no remaining body" false done_pass.more;
   let sync_args=Array.append
-    (Array.mapi (fun i arg -> if i=1 then "sync" else arg) cli_args)
-    [|"--maildir";maildir_path;"--hydrate-bodies";
-      "--max-transfers";"10"|] in
-  let sync_config=match Imap_cli.parse ~getenv:Sys.getenv_opt sync_args with
-    | Ok config -> config | Error message -> Alcotest.fail message in
+    (Array.mapi (fun i arg ->
+      if i=1 then "sync"
+      else if i>0 && cli_args.(i-1)="--max-transfers" then "10"
+      else arg) cli_args)
+    [|"--maildir";maildir_path;"--hydrate-bodies"|] in
+  let sync_config=cli_job ~env:Sys.getenv_opt sync_args in
   Alcotest.(check int) "sync schedules hydration after bridge" 0
     (Imap_cli.run sync_config ~net:(Eio.Stdenv.net env_io) ~fs
       ~random:(Eio.Stdenv.secure_random env_io)
-      ~getenv:Sys.getenv_opt);
+      ~env:Sys.getenv_opt);
   Alcotest.(check int) "bridge imported both occurrences" 2
     (List.length (Md.scan
       (Md.open_dir Eio.Path.(fs / maildir_path))));
@@ -2581,7 +2575,7 @@ let test_bounded_hydration () =
   Alcotest.(check int) "sync rehydrates existing pairs" 0
     (Imap_cli.run sync_config ~net:(Eio.Stdenv.net env_io) ~fs
       ~random:(Eio.Stdenv.secure_random env_io)
-      ~getenv:Sys.getenv_opt);
+      ~env:Sys.getenv_opt);
   Alcotest.(check int) "rehydration did not duplicate Maildir messages" 2
     (List.length (Md.scan
       (Md.open_dir Eio.Path.(fs / maildir_path))));
@@ -2631,12 +2625,11 @@ let test_bounded_hydration () =
     "--after-uid";Int64.to_string (Imap.Uid.to_int64 first.uid);
     "--expected-revision";
     Int64.to_string (Imap_store.load_cursor store ~scope).revision|] in
-  let audit_config=match Imap_cli.parse ~getenv:Sys.getenv_opt audit_args with
-    | Ok config -> config | Error message -> Alcotest.fail message in
+  let audit_config=cli_job ~env:Sys.getenv_opt audit_args in
   Alcotest.(check int) "offline CLI invalidates corrupt cache" 0
     (Imap_cli.run audit_config ~net:(Eio.Stdenv.net env_io) ~fs
       ~random:(Eio.Stdenv.secure_random env_io)
-      ~getenv:Sys.getenv_opt);
+      ~env:Sys.getenv_opt);
   Alcotest.(check bool) "offline audit removed bad reference" true
     (Imap_store.Blob.find store ~scope
       ~uidvalidity:epoch ~uid:second.uid=None);

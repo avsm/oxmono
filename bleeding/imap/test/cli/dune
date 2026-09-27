@@ -1,3 +1,4 @@
 (test
  (name test_cli)
- (libraries imap_cli imap.store imap maildir eio eio_main alcotest))
+ (libraries imap_cli imap.store imap maildir cmdliner eio eio_main unix
+  alcotest))

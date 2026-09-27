@@ -22,6 +22,7 @@
   imap.sync
   imap_sync_local
   imap_cli
+  cmdliner
   maildir
   mail-flag
   sqlite3

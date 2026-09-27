@@ -1,107 +1,218 @@
-type command = Sync | Hydrate | Audit_cache | Inspect | Inspect_append_candidates | Repair_appenduid
-  | Repair_local_delete | Repair_local_append | Settle_flags
-  | Mark_local_retention | Plan_deletions | Plan_sync | Verify_local
-  | Reject_remote_delete
-  | Finish_remote_delete
-type config = {
-  command : command;
-  host : string;
-  port : int option;
-  tls : Imap_eio.Transport.tls;
-  username : string;
-  password_env : string;
-  mechanism : Imap_eio.Auth.mechanism;
+open Cmdliner
+
+type scope = {
   endpoint : string;
   account : string;
   mailbox : string;
   mailbox_key : string;
-  encoding : Imap.Mailbox_name.mode;
-  encoding_explicit : bool;
   db : string;
+}
+
+type connection = {
+  host : string;
+  port : int option;
+  tls : Imap_eio.Transport.tls;
+  user : string;
+  password_env : string;
+  auth : Imap_eio.Auth.mechanism;
+}
+
+type budget = { max_body_bytes : int64; max_total_bytes : int64 }
+
+type sync = {
+  scope : scope;
+  connection : connection;
   blob_dir : string;
   maildir : string;
   spool_dir : string;
   max_transfers : int;
-  min_absence_scans : int;
   max_cycles : int;
+  min_absence_scans : int;
+  deletion_policy : Imap.Sync_policy.deletion_policy;
+  allow_bootstrap_duplicates : bool;
+  hydrate_bodies : budget option;
+}
+
+type hydrate = {
+  scope : scope;
+  connection : connection;
+  blob_dir : string;
+  spool_dir : string;
+  max_transfers : int;
+  budget : budget;
+}
+
+type audit_cache = {
+  scope : scope;
+  encoding : Imap.Mailbox_name.mode option;
+  blob_dir : string;
+  max_transfers : int;
+  max_total_bytes : int64;
+  continuation : (Imap.Uid.t * int64) option;
+}
+
+type inspect = {
+  scope : scope;
+  encoding : Imap.Mailbox_name.mode option;
+  max_inspect : int;
+  operation_id : string option;
+}
+
+type append_candidates = {
+  scope : scope;
+  connection : connection;
+  spool_dir : string;
+  operation_id : string;
   max_inspect : int;
   max_candidate_bytes : int64;
-  max_body_bytes : int64;
-  max_total_bytes : int64;
-  hydrate_bodies : bool;
-  after_uid : Imap.Uid.t option;
-  expected_revision : int64 option;
-  propagate_deletions : bool;
-  propagate_remote_deletions : bool;
-  propagate_local_deletions : bool;
-  allow_bootstrap_duplicates : bool;
+}
+
+type appenduid = {
+  scope : scope;
+  encoding : Imap.Mailbox_name.mode option;
+  maildir : string;
   operation_id : string;
-  pair_id : string;
-  receipt_uidvalidity : Imap.Uidvalidity.t option;
-  receipt_uid : Imap.Uid.t option;
+  uidvalidity : Imap.Uidvalidity.t;
+  uid : Imap.Uid.t;
   evidence : string;
 }
 
-let usage = {|Usage: imap-sync sync|hydrate|audit-cache|inspect|inspect-append-candidates|repair-appenduid|repair-local-delete|repair-local-append|settle-flags|mark-local-retention|plan-deletions|plan-sync|verify-local|reject-remote-delete|finish-remote-delete [options]
+type repair = {
+  scope : scope;
+  connection : connection;
+  maildir : string;
+  spool_dir : string;
+  operation_id : string;
+  evidence : string;
+}
 
-Shared: --endpoint ID --account ID --mailbox NAME --mailbox-key ID --db PATH
-        --encoding rev1|utf8 (inspect only; sync uses negotiated encoding)
-Sync:   --host HOST --port N --tls implicit|starttls|plain --user USER
-        --password-env NAME --auth auto|cram-md5|plain|login
-        --blob-dir PATH --maildir PATH --spool-dir PATH
-        --max-transfers N --max-cycles N --min-absence-scans N
-        --hydrate-bodies [--max-body-bytes N --max-total-bytes N]
-        --propagate-deletions | --propagate-remote-deletions |
-        --propagate-local-deletions --allow-bootstrap-duplicates
-Hydrate: same connection and SQLite options, plus --blob-dir PATH
-         --spool-dir PATH --max-transfers N --max-body-bytes N
-         --max-total-bytes N (one pass; exit 2 if more bodies remain)
-Audit cache: --blob-dir PATH --max-transfers N --max-total-bytes N
-         [--after-uid N --expected-revision N]
-         (offline; prints the next UID continuation and pinned revision)
-Inspect: --max-inspect N [--operation-id ID]
-Inspect APPEND candidates: --host HOST --port N --tls implicit|starttls|plain
-         --user USER --password-env NAME --auth auto|cram-md5|plain|login
-         --operation-id ID --spool-dir PATH --max-inspect N
-         --max-candidate-bytes N (aggregate body reads, default 1 GiB)
-Repair APPENDUID: --operation-id ID --uidvalidity N --uid N
-         --evidence TEXT --maildir PATH --encoding rev1|utf8
-Repair local deletion: --host HOST --port N --tls implicit|starttls|plain
-         --user USER --password-env NAME --auth auto|cram-md5|plain|login
-         --maildir PATH --operation-id ID --evidence TEXT
-Repair local append: --host HOST --port N --tls implicit|starttls|plain
-         --user USER --password-env NAME --auth auto|cram-md5|plain|login
-         --blob-dir PATH --maildir PATH --spool-dir PATH
-         --operation-id ID --evidence TEXT
-Settle FLAGS: --host HOST --port N --tls implicit|starttls|plain
-         --user USER --password-env NAME --auth auto|cram-md5|plain|login
-         --maildir PATH --operation-id ID --evidence TEXT
-Mark local retention: --maildir PATH --pair-id ID --evidence TEXT
-         --encoding rev1|utf8 (offline mailbox scope)
-Plan deletions: --maildir PATH --max-inspect N --min-absence-scans N
-         [--propagate-deletions | --propagate-remote-deletions |
-          --propagate-local-deletions]
-Plan sync: --maildir PATH --max-inspect N --min-absence-scans N
-         [--propagate-deletions | directional deletion flags]
-         [--allow-bootstrap-duplicates]
-Verify local content: --maildir PATH --max-inspect N
-         --encoding rev1|utf8 (offline mailbox scope)
-Reject remote delete: --host HOST --port N --tls implicit|starttls|plain
-         --user USER --password-env NAME --auth auto|cram-md5|plain|login
-         --maildir PATH --spool-dir PATH --operation-id ID --evidence TEXT
-Finish remote delete: same connection, Maildir, spool and operation options;
-         requires explicit operator evidence before targeted UID EXPUNGE
+type retention = {
+  scope : scope;
+  encoding : Imap.Mailbox_name.mode option;
+  maildir : string;
+  spool_dir : string;
+  pair_id : string;
+  evidence : string;
+}
 
-Defaults may be supplied as IMAP_HOST, IMAP_PORT, IMAP_TLS, IMAP_USER,
-IMAP_PASSWORD_ENV, IMAP_AUTH, IMAP_ENDPOINT, IMAP_ACCOUNT, IMAP_MAILBOX,
-IMAP_MAILBOX_KEY, IMAP_DB, IMAP_BLOB_DIR, IMAP_MAILDIR, IMAP_SPOOL_DIR.
-The password is read from IMAP_PASSWORD by default; it cannot be an argument.
-Exit codes: 0 complete, 2 more work, 3 pending, 4 conflicts, 5 config,
-6 IMAP failure, 7 local storage failure, 8 Maildir writer busy,
-9 requested operation not found in this scope.
-|}
+type plan = {
+  scope : scope;
+  encoding : Imap.Mailbox_name.mode option;
+  maildir : string;
+  spool_dir : string;
+  max_inspect : int;
+  min_absence_scans : int;
+  deletion_policy : Imap.Sync_policy.deletion_policy;
+  allow_bootstrap_duplicates : bool;
+}
 
-let ( let* ) r f = match r with Ok x -> f x | Error _ as e -> e
+type verify_local = {
+  scope : scope;
+  encoding : Imap.Mailbox_name.mode option;
+  maildir : string;
+  spool_dir : string;
+  max_inspect : int;
+}
+
+type job =
+  | Sync of sync
+  | Hydrate of hydrate
+  | Audit_cache of audit_cache
+  | Inspect of inspect
+  | Inspect_append_candidates of append_candidates
+  | Repair_appenduid of appenduid
+  | Repair_local_delete of repair
+  | Repair_local_append of { repair : repair; blob_dir : string }
+  | Settle_flags of repair
+  | Reject_remote_delete of repair
+  | Finish_remote_delete of repair
+  | Mark_local_retention of retention
+  | Plan_deletions of plan
+  | Plan_sync of plan
+  | Verify_local of verify_local
+
+let converged = 0
+let more_work = 2
+let pending = 3
+let conflict = 4
+let configuration = 5
+let imap_failure = 6
+let local_failure = 7
+let busy = 8
+let not_found = 9
+
+let exits = [
+  Cmd.Exit.info converged
+    ~doc:"on convergence, or when a targeted operation is terminal.";
+  Cmd.Exit.info more_work
+    ~doc:"when bounded work remains. Run the command again.";
+  Cmd.Exit.info pending
+    ~doc:"when pending journal work needs operator inspection.";
+  Cmd.Exit.info conflict
+    ~doc:"on a conflict, a held change or an unsafe state.";
+  Cmd.Exit.info configuration
+    ~doc:"on invalid configuration, including a command line error.";
+  Cmd.Exit.info imap_failure ~doc:"on an IMAP connection or protocol failure.";
+  Cmd.Exit.info local_failure
+    ~doc:"on a local filesystem, Maildir or SQLite failure.";
+  Cmd.Exit.info busy
+    ~doc:"when the Maildir writer lease or the Maildir metadata lock is \
+          busy.";
+  Cmd.Exit.info not_found
+    ~doc:"when the targeted operation or pair is not in the mailbox scope.";
+  Cmd.Exit.info Cmd.Exit.internal_error
+    ~doc:"on an unexpected internal error while parsing the command line.";
+]
+
+let error_code : Imap_sync.Error.t -> int = function
+  | Client _ | Mirror _ | Incomplete _ | Conditional_store_unavailable
+  | Permanent_flag_unavailable _ | Unsupported _ -> imap_failure
+  | Maildir _ -> local_failure
+  | Invalid_configuration _ | Limit _ -> configuration
+  | Writer_busy -> busy
+  | Pending_operations _ -> pending
+  | No_pending_operation -> not_found
+  | Source_vanished _ | Local_source_changed _ -> more_work
+  | Store_stale_revision | Invalid_scope _ | Uidvalidity_changed
+  | Missing_pair | Stale_pair | Missing_occurrence | Stale_inventory
+  | Identity_changed | Modified | Bootstrap_requires_pairing
+  | Content_mismatch _ | Content_diverged _ | Flags_diverged _
+  | Date_diverged _ | Diverged _ | Invalid_operation _ -> conflict
+
+let hint : Imap_sync.Error.t -> string = function
+  | Pending_operations _ | Content_mismatch _ | Store_stale_revision
+  | Identity_changed | Stale_pair | Modified -> "; run inspect"
+  | Bootstrap_requires_pairing ->
+      "; inspect both endpoints before enabling --allow-bootstrap-duplicates"
+  | _ -> ""
+
+exception Failed of int * string
+exception Sync_failed of string * Imap_sync.Error.t
+
+let fail code fmt = Format.kasprintf (fun m -> raise (Failed (code, m))) fmt
+
+let check what = function
+  | Ok value -> value
+  | Error error -> raise (Sync_failed (what, error))
+
+let classify = function
+  | Failed (code, message) -> code, message
+  | Sync_failed (what, error) ->
+      error_code error,
+      Format.asprintf "%s: %a%s" what Imap_sync.Error.pp error (hint error)
+  | Maildir.Writer_lock_busy path ->
+      busy, "Maildir writer lease is busy: " ^ path
+  | Maildir.Metadata_lock_busy path ->
+      busy, "Maildir metadata lock is busy: " ^ path
+  | Imap_store.Scope_mismatch ->
+      configuration,
+      "stored mailbox scope differs from the requested scope; check \
+       --mailbox, --mailbox-key and --encoding"
+  | Invalid_argument message ->
+      local_failure, "local operation failed: " ^ message
+  | exn ->
+      local_failure,
+      "local filesystem or SQLite operation failed: " ^ Printexc.to_string exn
 
 let redact secret message =
   if secret="" then message else
@@ -114,291 +225,450 @@ let redact secret message =
     else (Buffer.add_char out message.[i]; loop (i+1)) in
   loop 0
 
-let validate_evidence evidence =
-  if String.trim evidence="" || String.length evidence>1024 ||
-     not (String.for_all (fun c -> let n=Char.code c in
-       n>=32 && n<>127) evidence) then
-    Error "--evidence must be 1..1024 printable bytes"
-  else Ok evidence
+let conv docv parse pp = Arg.Conv.make ~docv ~parser:parse ~pp ()
 
-let parse ~getenv argv =
-  let value env = ref (Option.value ~default:"" (getenv env)) in
-  let host=value "IMAP_HOST" and user=value "IMAP_USER" in
-  let port=value "IMAP_PORT" and tls=value "IMAP_TLS" in
-  let auth=value "IMAP_AUTH" in
-  let password_env=ref (Option.value ~default:"IMAP_PASSWORD"
-    (getenv "IMAP_PASSWORD_ENV")) in
-  let endpoint=value "IMAP_ENDPOINT"
-  and account=value "IMAP_ACCOUNT"
-  and mailbox=value "IMAP_MAILBOX"
-  and mailbox_key=value "IMAP_MAILBOX_KEY"
-  and db=value "IMAP_DB"
-  and blob_dir=value "IMAP_BLOB_DIR"
-  and maildir=value "IMAP_MAILDIR"
-  and spool_dir=value "IMAP_SPOOL_DIR" in
-  let encoding=ref "" and max_transfers=ref "100"
-  and max_cycles=ref "1" and max_inspect=ref "100"
-  and min_absence_scans=ref "0"
-  and max_candidate_bytes=ref "1073741824"
-  and max_body_bytes=ref "1073741824"
-  and max_total_bytes=ref "1073741824" in
-  let propagate_deletions=ref false
-  and propagate_remote_deletions=ref false
-  and propagate_local_deletions=ref false
-  and hydrate_bodies=ref false
-  and allow_bootstrap_duplicates=ref false in
-  let fields=["--host",host;"--port",port;"--tls",tls;"--user",user;
-    "--password-env",password_env;"--auth",auth;
-    "--endpoint",endpoint;"--account",account;"--mailbox",mailbox;
-    "--mailbox-key",mailbox_key;"--encoding",encoding;"--db",db;
-    "--blob-dir",blob_dir;"--maildir",maildir;"--spool-dir",spool_dir;
-    "--max-transfers",max_transfers;"--max-cycles",max_cycles;
-    "--min-absence-scans",min_absence_scans;
-    "--max-inspect",max_inspect;
-    "--max-candidate-bytes",max_candidate_bytes;
-    "--max-body-bytes",max_body_bytes;
-    "--max-total-bytes",max_total_bytes] in
-  let operation_id_arg=ref "" and operation_id_seen=ref false
-  and pair_id_arg=ref ""
-  and after_uid_arg=ref ""
-  and expected_revision_arg=ref ""
-  and candidate_bytes_seen=ref false
-  and body_bytes_seen=ref false and total_bytes_seen=ref false
-  and min_absence_seen=ref false
-  and uidvalidity_arg=ref ""
-  and uid_arg=ref "" and evidence_arg=ref "" in
-  let fields=fields @ ["--operation-id",operation_id_arg;
-    "--pair-id",pair_id_arg;
-    "--after-uid",after_uid_arg;
-    "--expected-revision",expected_revision_arg;
-    "--uidvalidity",uidvalidity_arg;"--uid",uid_arg;
-    "--evidence",evidence_arg] in
-  let n=Array.length argv in
-  let* command = if n<2 then Error "expected command"
-    else match argv.(1) with
-    | "sync" -> Ok Sync | "hydrate" -> Ok Hydrate
-    | "audit-cache" -> Ok Audit_cache
-    | "inspect" -> Ok Inspect
-    | "inspect-append-candidates" -> Ok Inspect_append_candidates
-    | "repair-appenduid" -> Ok Repair_appenduid
-    | "repair-local-delete" -> Ok Repair_local_delete
-    | "repair-local-append" -> Ok Repair_local_append
-    | "settle-flags" -> Ok Settle_flags
-    | "mark-local-retention" -> Ok Mark_local_retention
-    | "plan-deletions" -> Ok Plan_deletions
-    | "plan-sync" -> Ok Plan_sync
-    | "verify-local" -> Ok Verify_local
-    | "reject-remote-delete" -> Ok Reject_remote_delete
-    | "finish-remote-delete" -> Ok Finish_remote_delete
-    | _ -> Error "unknown IMAP command" in
-  let rec options i =
-    if i>=n then Ok ()
-    else if argv.(i)="--propagate-deletions" then
-      (propagate_deletions:=true; options (i+1))
-    else if argv.(i)="--propagate-remote-deletions" then
-      (propagate_remote_deletions:=true; options (i+1))
-    else if argv.(i)="--propagate-local-deletions" then
-      (propagate_local_deletions:=true; options (i+1))
-    else if argv.(i)="--allow-bootstrap-duplicates" then
-      (allow_bootstrap_duplicates:=true; options (i+1))
-    else if argv.(i)="--hydrate-bodies" then
-      (hydrate_bodies:=true; options (i+1))
-    else match List.assoc_opt argv.(i) fields with
-    | None -> Error "unknown option"
-    | Some dst when i+1>=n ||
-        (String.length argv.(i+1)>=2 &&
-         String.sub argv.(i+1) 0 2="--") ->
-        Error ("missing value for " ^ argv.(i))
-    | Some dst ->
-        if argv.(i)="--operation-id" then operation_id_seen:=true;
-        if argv.(i)="--max-candidate-bytes" then
-          candidate_bytes_seen:=true;
-        if argv.(i)="--max-body-bytes" then body_bytes_seen:=true;
-        if argv.(i)="--max-total-bytes" then total_bytes_seen:=true;
-        if argv.(i)="--min-absence-scans" then
-          min_absence_seen:=true;
-        dst:=argv.(i+1); options (i+2) in
-  let* ()=options 2 in
-  let required label v = if v="" then Error ("missing " ^ label) else Ok v in
-  let* endpoint=required "--endpoint" !endpoint in
-  let* account=required "--account" !account in
-  let* mailbox=required "--mailbox" !mailbox in
-  let* db=required "--db" !db in
-  let mailbox_key=if !mailbox_key="" then mailbox else !mailbox_key in
-  let positive bound label s =
-    match int_of_string_opt s with
-    | Some n when n>=1 && n<=bound -> Ok n
-    | _ -> Error (label ^ " must be between 1 and " ^ string_of_int bound) in
-  let identifier of_int64 label s =
-    match Option.map of_int64 (Int64.of_string_opt s) with
+let int_range ~min ~max docv =
+  conv docv (fun s -> match int_of_string_opt s with
+    | Some n when n>=min && n<=max -> Ok n
+    | _ -> Error (Printf.sprintf "%S is not an integer from %d to %d"
+        s min max))
+    Format.pp_print_int
+
+let max_bytes = 1_099_511_627_776L
+let gib = 1_073_741_824L
+
+let bytes =
+  conv "BYTES" (fun s -> match Int64.of_string_opt s with
+    | Some n when n>=1L && n<=max_bytes -> Ok n
+    | _ -> Error (Printf.sprintf "%S is not a byte count from 1 to %Ld" s
+        max_bytes))
+    (fun ppf n -> Format.fprintf ppf "%Ld" n)
+
+let identifier docv of_int64 to_int64 =
+  conv docv (fun s -> match Option.map of_int64 (Int64.of_string_opt s) with
     | Some (Ok value) -> Ok value
-    | _ -> Error (label ^ " must be between 1 and 4294967295") in
-  let* max_transfers=positive 10000 "--max-transfers" !max_transfers in
-  let* max_cycles=positive 100000 "--max-cycles" !max_cycles in
-  let* max_inspect=positive 10000 "--max-inspect" !max_inspect in
-  let* min_absence_scans=match int_of_string_opt !min_absence_scans with
-    | Some n when n>=0 && n<=100000 -> Ok n
-    | _ -> Error "--min-absence-scans must be between 0 and 100000" in
-  let* max_candidate_bytes=match Int64.of_string_opt !max_candidate_bytes with
-    | Some n when n>=1L && n<=1_099_511_627_776L -> Ok n
-    | _ -> Error "--max-candidate-bytes must be between 1 and 1099511627776" in
-  let bounded_bytes label value =
-    match Int64.of_string_opt value with
-    | Some n when n>=1L && n<=1_099_511_627_776L -> Ok n
-    | _ -> Error (label ^ " must be between 1 and 1099511627776") in
-  let* max_body_bytes=bounded_bytes "--max-body-bytes" !max_body_bytes in
-  let* max_total_bytes=bounded_bytes "--max-total-bytes" !max_total_bytes in
-  let* after_uid=if !after_uid_arg="" then Ok None else
-    let* uid=identifier Imap.Uid.of_int64 "--after-uid" !after_uid_arg in
-    Ok (Some uid) in
-  let* expected_revision=if !expected_revision_arg="" then Ok None else
-    match Int64.of_string_opt !expected_revision_arg with
-    | Some revision when revision>=0L -> Ok (Some revision)
-    | _ -> Error "--expected-revision must be nonnegative" in
-  let* port=match !port with
-    | "" -> Ok None
-    | s -> (match int_of_string_opt s with
-      | Some n when n>=1 && n<=65535 -> Ok (Some n)
-      | _ -> Error "--port must be between 1 and 65535") in
-  let* tls=match String.lowercase_ascii !tls with
-    | "" | "implicit" -> Ok `Implicit
-    | "starttls" -> Ok `Required_starttls
-    | "plain" -> Ok `Plain
-    | _ -> Error "--tls must be implicit, starttls or plain" in
-  let* mechanism=match String.lowercase_ascii !auth with
-    | "" | "auto" -> Ok `Auto
-    | "cram-md5" -> Ok `Cram_md5
-    | "plain" -> Ok `Plain
-    | "login" -> Ok `Login
-    | _ -> Error "--auth must be auto, cram-md5, plain or login" in
-  let encoding_explicit= !encoding<>"" in
-  let* encoding=match String.lowercase_ascii !encoding with
-    | "" | "rev1" -> Ok Imap.Mailbox_name.Rev1
-    | "utf8" -> Ok Imap.Mailbox_name.Utf8
-    | _ -> Error "--encoding must be rev1 or utf8" in
-  let* host,username,password_env,blob_dir,maildir,spool_dir=
-    match command with
-    | Audit_cache | Inspect | Repair_appenduid | Mark_local_retention |
-      Plan_deletions | Plan_sync | Verify_local ->
-      let blob_dir=if command=Audit_cache && !blob_dir="" then
-        db ^ ".blobs" else !blob_dir in
-      Ok (!host,!user,!password_env,blob_dir,!maildir,!spool_dir)
-    | Sync | Hydrate | Repair_local_delete | Repair_local_append | Settle_flags |
-      Reject_remote_delete | Finish_remote_delete |
-      Inspect_append_candidates ->
-      let* host=required "--host" !host in
-      let* username=required "--user" !user in
-      let* password_env=required "--password-env" !password_env in
-      let* maildir=if command=Inspect_append_candidates || command=Hydrate
-        then Ok !maildir
-        else required "--maildir" !maildir in
-      let blob_dir=if !blob_dir="" then db ^ ".blobs" else !blob_dir in
-      let spool_dir=if !spool_dir="" then db ^ ".spool" else !spool_dir in
-      Ok (host,username,password_env,blob_dir,maildir,spool_dir) in
-  let* operation_id,receipt_uidvalidity,receipt_uid,evidence=
-    match command with
-    | Sync | Hydrate | Audit_cache | Mark_local_retention | Plan_deletions | Plan_sync |
-      Verify_local ->
-        Ok ("",None,None,"")
-    | Inspect -> Ok (!operation_id_arg,None,None,"")
-    | Inspect_append_candidates ->
-      let* operation_id=required "--operation-id" !operation_id_arg in
-      Ok (operation_id,None,None,"")
-    | Repair_appenduid ->
-      let* operation_id=required "--operation-id" !operation_id_arg in
-      let* evidence=required "--evidence" !evidence_arg in
-      let* _=required "--maildir" maildir in
-      let* evidence=validate_evidence evidence in
-      let* epoch=identifier Imap.Uidvalidity.of_int64 "--uidvalidity"
-        !uidvalidity_arg in
-      let* uid=identifier Imap.Uid.of_int64 "--uid" !uid_arg in
-      Ok (operation_id,Some epoch,Some uid,evidence)
-    | Repair_local_delete | Repair_local_append | Settle_flags |
-      Reject_remote_delete | Finish_remote_delete ->
-      let* operation_id=required "--operation-id" !operation_id_arg in
-      let* evidence=required "--evidence" !evidence_arg in
-      let* evidence=validate_evidence evidence in
-      Ok (operation_id,None,None,evidence) in
-  let* pair_id=match command with
-    | Mark_local_retention -> required "--pair-id" !pair_id_arg
-    | _ when !pair_id_arg<>"" ->
-        Error "--pair-id is supported only by mark-local-retention"
-    | _ -> Ok "" in
-  let* evidence=if command=Mark_local_retention then
-    let* evidence=required "--evidence" !evidence_arg in
-    validate_evidence evidence
-    else Ok evidence in
-  let* ()=if command=Mark_local_retention || command=Plan_deletions ||
-      command=Plan_sync || command=Verify_local then
-    let* _=required "--maildir" maildir in Ok () else Ok () in
-  if (command=Sync || command=Hydrate || command=Repair_local_delete ||
-      command=Repair_local_append || command=Settle_flags ||
-      command=Reject_remote_delete || command=Finish_remote_delete ||
-      command=Inspect_append_candidates) && encoding_explicit then
-    Error "--encoding is determined by negotiated IMAP mode for online commands"
-  else if command=Inspect && !operation_id_seen &&
-    !operation_id_arg="" then
-    Error "--operation-id must be non-empty"
-  else if (command=Sync || command=Hydrate || command=Audit_cache) &&
-      !operation_id_seen then
-    Error "--operation-id is supported only by inspection or repair commands"
-  else if (command=Mark_local_retention || command=Plan_deletions ||
-      command=Plan_sync || command=Verify_local) &&
-    !operation_id_seen then
-    Error "--operation-id is not supported by this command"
-  else if command<>Repair_appenduid &&
-    (!uidvalidity_arg<>"" || !uid_arg<>"") then
-    Error "APPENDUID-only option supplied to another command"
-  else if (command=Sync || command=Hydrate || command=Audit_cache || command=Inspect ||
-      command=Inspect_append_candidates || command=Plan_deletions ||
-      command=Plan_sync || command=Verify_local) &&
-      !evidence_arg<>"" then
-    Error "repair-only option supplied to another command"
-  else if command<>Sync && command<>Plan_deletions &&
-      command<>Plan_sync &&
-    (!propagate_deletions || !propagate_remote_deletions ||
-     !propagate_local_deletions) then
-    Error "deletion policy option supplied to an unrelated command"
-  else if command<>Sync && command<>Plan_sync &&
-    !allow_bootstrap_duplicates then
-    Error "bootstrap policy option supplied to an unrelated command"
-  else if !propagate_deletions &&
-    (!propagate_remote_deletions || !propagate_local_deletions) then
-    Error "--propagate-deletions cannot be combined with directional options"
-  else if command<>Inspect_append_candidates && !candidate_bytes_seen then
-    Error "candidate byte budget is only for inspect-append-candidates"
-  else if command<>Hydrate && command<>Sync && !body_bytes_seen then
-    Error "body byte budget is only for hydrate or sync"
-  else if command<>Hydrate && command<>Sync && command<>Audit_cache &&
-      !total_bytes_seen then
-    Error "total byte budget is only for hydrate, audit-cache or sync"
-  else if command=Sync && not !hydrate_bodies &&
-      (!body_bytes_seen || !total_bytes_seen) then
-    Error "body hydration byte budgets require --hydrate-bodies"
-  else if command<>Sync && !hydrate_bodies then
-    Error "--hydrate-bodies applies only to sync"
-  else if command<>Audit_cache && !after_uid_arg<>"" then
-    Error "--after-uid applies only to audit-cache"
-  else if command<>Audit_cache && !expected_revision_arg<>"" then
-    Error "--expected-revision applies only to audit-cache"
-  else if command=Audit_cache &&
-      ((after_uid=None) <> (expected_revision=None)) then
-    Error "--after-uid and --expected-revision must be supplied together"
-  else if command<>Sync && command<>Plan_deletions &&
-      command<>Plan_sync && !min_absence_seen then
-    Error "absence grace applies only to sync and deletion plans"
-  else Ok {command;host;port;tls;username;password_env;mechanism;
-    endpoint;account;mailbox;mailbox_key;encoding;encoding_explicit;
-    db;blob_dir;maildir;
-    spool_dir;max_transfers;min_absence_scans;max_cycles;max_inspect;
-    max_candidate_bytes;max_body_bytes;max_total_bytes;
-    hydrate_bodies= !hydrate_bodies;after_uid;expected_revision;
-    propagate_deletions=
-    !propagate_deletions;propagate_remote_deletions=
-    !propagate_remote_deletions;propagate_local_deletions=
-    !propagate_local_deletions;allow_bootstrap_duplicates=
-    !allow_bootstrap_duplicates;operation_id;pair_id;receipt_uidvalidity;
-    receipt_uid;evidence}
+    | _ -> Error (Printf.sprintf "%S is not an integer from 1 to 4294967295" s))
+    (fun ppf v -> Format.fprintf ppf "%Ld" (to_int64 v))
+
+let uid = identifier "UID" Imap.Uid.of_int64 Imap.Uid.to_int64
+let uidvalidity = identifier "UIDVALIDITY" Imap.Uidvalidity.of_int64
+    Imap.Uidvalidity.to_int64
+
+let revision =
+  conv "REVISION" (fun s -> match Int64.of_string_opt s with
+    | Some n when n>=0L -> Ok n
+    | _ -> Error (Printf.sprintf "%S is not a nonnegative integer" s))
+    (fun ppf n -> Format.fprintf ppf "%Ld" n)
+
+let text docv =
+  conv docv (fun s -> if s="" then Error "the value must not be empty"
+    else Ok s) Format.pp_print_string
+
+let evidence =
+  conv "TEXT" (fun s ->
+    if String.trim s="" || String.length s>1024 ||
+       not (String.for_all (fun c -> let n=Char.code c in n>=32 && n<>127) s)
+    then Error "evidence must be 1 to 1024 printable bytes"
+    else Ok s) Format.pp_print_string
+
+let keyword docv choices =
+  let names=String.concat ", " (List.map fst choices) in
+  conv docv (fun s ->
+    match List.assoc_opt (String.lowercase_ascii s) choices with
+    | Some v -> Ok v
+    | None -> Error (Printf.sprintf "%S is not one of %s" s names))
+    (fun ppf v -> Format.pp_print_string ppf
+      (fst (List.find (fun (_,x) -> x=v) choices)))
+
+let tls_choices : (string * Imap_eio.Transport.tls) list =
+  ["implicit",`Implicit; "starttls",`Required_starttls; "plain",`Plain]
+let auth_choices : (string * Imap_eio.Auth.mechanism) list =
+  ["auto",`Auto; "cram-md5",`Cram_md5; "plain",`Plain; "login",`Login]
+let encoding_choices =
+  ["rev1",Imap.Mailbox_name.Rev1; "utf8",Imap.Mailbox_name.Utf8]
+let policy_choices = Imap.Sync_policy.[
+  "preserve",Preserve; "propagate",Propagate;
+  "propagate-remote",Propagate_remote; "propagate-local",Propagate_local]
+
+let s_scope = "MAILBOX SCOPE OPTIONS"
+let s_connection = "CONNECTION OPTIONS"
+let s_paths = "PATH OPTIONS"
+
+let env = Cmd.Env.info
+
+let required ?docs ?env names c ~doc =
+  Arg.(required & opt (some c) None & info names ?docs ?env ~doc)
+
+let optional ?docs ?env ?absent names c ~doc =
+  Arg.(value & opt (some c) None & info names ?docs ?env ?absent ~doc)
+
+open Term.Syntax
+
+let db_t =
+  required ["db"] (text "PATH") ~docs:s_scope ~env:(env "IMAP_DB")
+    ~doc:"SQLite database holding the published inventory and the journal. \
+          Its parent directory must exist."
+
+let scope_t =
+  let+ endpoint = required ["endpoint"] (text "ID") ~docs:s_scope
+      ~env:(env "IMAP_ENDPOINT")
+      ~doc:"Stable identifier of the IMAP server."
+  and+ account = required ["account"] (text "ID") ~docs:s_scope
+      ~env:(env "IMAP_ACCOUNT")
+      ~doc:"Stable identifier of the account on the server."
+  and+ mailbox = required ["mailbox"] (text "NAME") ~docs:s_scope
+      ~env:(env "IMAP_MAILBOX") ~doc:"UTF-8 name of the mailbox."
+  and+ mailbox_key = optional ["mailbox-key"] (text "ID") ~docs:s_scope
+      ~env:(env "IMAP_MAILBOX_KEY") ~absent:"the mailbox name"
+      ~doc:"Stable identifier of the mailbox across renames."
+  and+ db = db_t in
+  { endpoint; account; mailbox;
+    mailbox_key=Option.value mailbox_key ~default:mailbox; db }
+
+let encoding_t =
+  optional ["encoding"] (keyword "ENCODING" encoding_choices) ~docs:s_scope
+    ~absent:"rev1, retried once in utf8 when the stored scope differs"
+    ~doc:"Mailbox name encoding of the stored scope, $(b,rev1) or $(b,utf8). \
+          An explicit value pins it, and a stored scope in the other \
+          encoding exits 5."
+
+let connection_t =
+  let+ host = required ["host"] (text "HOST") ~docs:s_connection
+      ~env:(env "IMAP_HOST") ~doc:"IMAP server host name."
+  and+ port = optional ["port"] (int_range ~min:1 ~max:65535 "PORT")
+      ~docs:s_connection ~env:(env "IMAP_PORT")
+      ~absent:"993 for implicit TLS and 143 otherwise"
+      ~doc:"IMAP server port."
+  and+ tls = Arg.(value & opt (keyword "MODE" tls_choices) `Implicit &
+      info ["tls"] ~docs:s_connection ~env:(env "IMAP_TLS")
+        ~doc:"Transport security. $(b,implicit) connects over TLS, \
+              $(b,starttls) requires STARTTLS, and $(b,plain) sends \
+              everything in clear text and permits any authentication \
+              mechanism over it. Use $(b,plain) only for a trusted local \
+              fixture.")
+  and+ user = required ["user"] (text "USER") ~docs:s_connection
+      ~env:(env "IMAP_USER") ~doc:"IMAP user name."
+  and+ password_env = Arg.(value & opt (text "NAME") "IMAP_PASSWORD" &
+      info ["password-env"] ~docs:s_connection ~env:(env "IMAP_PASSWORD_ENV")
+        ~doc:"Environment variable holding the password. The password is \
+              read only when the command runs and is never an argument.")
+  and+ auth = Arg.(value & opt (keyword "MECHANISM" auth_choices) `Auto &
+      info ["auth"] ~docs:s_connection ~env:(env "IMAP_AUTH")
+        ~doc:"Authentication mechanism, one of $(b,auto), $(b,cram-md5), \
+              $(b,plain) or $(b,login). $(b,auto) negotiates an advertised \
+              mechanism.") in
+  { host; port; tls; user; password_env; auth }
+
+let path_opt names ~env:var ~absent ~doc =
+  optional names (text "PATH") ~docs:s_paths ~env:(env var) ~absent ~doc
+
+let blob_dir_t =
+  path_opt ["blob-dir"] ~env:"IMAP_BLOB_DIR" ~absent:"$(i,DB).blobs"
+    ~doc:"Content-addressed body cache belonging to the database alone."
+
+let spool_dir_t =
+  path_opt ["spool-dir"] ~env:"IMAP_SPOOL_DIR" ~absent:"$(i,DB).spool"
+    ~doc:"Directory for provisional transfer and inventory files."
+
+let maildir_t =
+  required ["maildir"] (text "PATH") ~docs:s_paths ~env:(env "IMAP_MAILDIR")
+    ~doc:"Maildir root paired with the mailbox."
+
+let default_dir (s:scope) suffix = Option.value ~default:(s.db ^ suffix)
+
+let max_transfers_t =
+  Arg.(value & opt (int_range ~min:1 ~max:10000 "N") 100 &
+    info ["max-transfers"]
+      ~doc:"Transfers per cycle, or messages per pass, from 1 to 10000.")
+
+let max_inspect_t ~default ~doc =
+  Arg.(value & opt (int_range ~min:1 ~max:10000 "N") default &
+    info ["max-inspect"] ~doc)
+
+let max_inspect_shown =
+  max_inspect_t ~default:100
+    ~doc:"Items printed, from 1 to 10000. Counts cover every item."
+
+let min_absence_scans_t =
+  Arg.(value & opt (int_range ~min:0 ~max:100000 "N") 0 &
+    info ["min-absence-scans"]
+      ~doc:"Additional complete remote scans that must confirm an absence \
+            before its survivor is deleted, from 0 to 100000.")
+
+let deletion_policy_t =
+  Arg.(value & opt (keyword "POLICY" policy_choices)
+    Imap.Sync_policy.Preserve & info ["deletion-policy"]
+      ~doc:"What a verified one-sided disappearance does. $(b,preserve) \
+            holds it, $(b,propagate) deletes the survivor on either side, \
+            $(b,propagate-remote) deletes a local survivor after a remote \
+            disappearance, and $(b,propagate-local) deletes a remote \
+            survivor after a local disappearance.")
+
+let bootstrap_t =
+  Arg.(value & flag & info ["allow-bootstrap-duplicates"]
+    ~doc:"Import both populated sides of a new database without pairing \
+          them. Messages are never paired because their bytes match.")
+
+let total_bytes_t =
+  Arg.(value & opt bytes gib & info ["max-total-bytes"]
+    ~doc:"Bytes read in one pass, from 1 to 1099511627776.")
+
+let budget_t =
+  let+ max_body_bytes = Arg.(value & opt bytes gib & info ["max-body-bytes"]
+      ~doc:"Largest body hydrated, from 1 to 1099511627776.")
+  and+ max_total_bytes = total_bytes_t in
+  { max_body_bytes; max_total_bytes }
+
+let sync_hydration_t =
+  let absent="1073741824, with $(b,--hydrate-bodies)" in
+  let t =
+    let+ on = Arg.(value & flag & info ["hydrate-bodies"]
+        ~doc:"After a converged cycle without held work or open conflicts, \
+              run one bounded hydration of missing bodies.")
+    and+ body = optional ["max-body-bytes"] bytes ~absent
+        ~doc:"Largest body hydrated. Requires $(b,--hydrate-bodies)."
+    and+ total = optional ["max-total-bytes"] bytes ~absent
+        ~doc:"Bytes read by hydration. Requires $(b,--hydrate-bodies)." in
+    match on,body,total with
+    | false,None,None -> `Ok None
+    | false,_,_ ->
+        `Error (true, "--max-body-bytes and --max-total-bytes require \
+                       --hydrate-bodies")
+    | true,body,total ->
+        `Ok (Some { max_body_bytes=Option.value body ~default:gib;
+                    max_total_bytes=Option.value total ~default:gib }) in
+  Term.ret t
+
+let operation_id_t =
+  required ["operation-id"] (text "ID")
+    ~doc:"Journal operation to act on, as $(b,inspect) prints it."
+
+let evidence_t =
+  required ["evidence"] evidence
+    ~doc:"Operator evidence saved in the journal, 1 to 1024 printable \
+          bytes."
+
+let password_envs =
+  [Cmd.Env.info "IMAP_PASSWORD"
+     ~doc:"The IMAP password, unless $(b,--password-env) names another \
+           variable."]
+
+let command ?(online=false) name ~doc ~man term =
+  let envs=if online then password_envs else [] in
+  Cmd.v (Cmd.info name ~doc ~man ~exits ~envs) term
+
+let sync_cmd =
+  let term =
+    let+ scope = scope_t and+ connection = connection_t
+    and+ blob_dir = blob_dir_t and+ maildir = maildir_t
+    and+ spool_dir = spool_dir_t and+ max_transfers = max_transfers_t
+    and+ max_cycles = Arg.(value & opt (int_range ~min:1 ~max:100000 "N") 1
+        & info ["max-cycles"] ~doc:"Bridge cycles, from 1 to 100000.")
+    and+ min_absence_scans = min_absence_scans_t
+    and+ deletion_policy = deletion_policy_t
+    and+ allow_bootstrap_duplicates = bootstrap_t
+    and+ hydrate_bodies = sync_hydration_t in
+    Sync { scope; connection; maildir; max_transfers; max_cycles;
+      min_absence_scans; deletion_policy; allow_bootstrap_duplicates;
+      hydrate_bodies;
+      blob_dir=default_dir scope ".blobs" blob_dir;
+      spool_dir=default_dir scope ".spool" spool_dir } in
+  command ~online:true "sync" term
+    ~doc:"Run bounded IMAP and Maildir bridge cycles."
+    ~man:[`S Manpage.s_description;
+      `P "Recovers interrupted Maildir and spool files, then runs up to \
+          $(b,--max-cycles) cycles. Each cycle publishes a complete remote \
+          inventory and copies, flags and deletes under the deletion \
+          policy."]
+
+let hydrate_cmd =
+  let term =
+    let+ scope = scope_t and+ connection = connection_t
+    and+ blob_dir = blob_dir_t and+ spool_dir = spool_dir_t
+    and+ max_transfers = max_transfers_t and+ budget = budget_t in
+    Hydrate { scope; connection; max_transfers; budget;
+      blob_dir=default_dir scope ".blobs" blob_dir;
+      spool_dir=default_dir scope ".spool" spool_dir } in
+  command ~online:true "hydrate" term
+    ~doc:"Fetch missing bodies of the published inventory."
+    ~man:[`S Manpage.s_description;
+      `P "Requires an existing database. Bodies larger than a budget are \
+          skipped and counted, and do not make the exit status 2."]
+
+let audit_cache_cmd =
+  let continuation =
+    let+ after = optional ["after-uid"] uid
+        ~doc:"Continue after this UID. Requires $(b,--expected-revision)."
+    and+ expected = optional ["expected-revision"] revision
+        ~doc:"Published revision the continuation must still see. \
+              Requires $(b,--after-uid)." in
+    match after,expected with
+    | None,None -> `Ok None
+    | Some uid,Some revision -> `Ok (Some (uid,revision))
+    | _ -> `Error (true, "--after-uid and --expected-revision must be \
+                          supplied together") in
+  let term =
+    let+ scope = scope_t and+ encoding = encoding_t
+    and+ blob_dir = blob_dir_t and+ max_transfers = max_transfers_t
+    and+ max_total_bytes = total_bytes_t
+    and+ continuation = Term.ret continuation in
+    Audit_cache { scope; encoding; max_transfers; max_total_bytes;
+      continuation; blob_dir=default_dir scope ".blobs" blob_dir } in
+  command "audit-cache" term
+    ~doc:"Rehash cached bodies and detach missing or corrupt ones."
+    ~man:[`S Manpage.s_description;
+      `P "Offline. Requires an existing database and blob directory."]
+
+let inspect_cmd =
+  let term =
+    let+ scope = scope_t and+ encoding = encoding_t
+    and+ max_inspect = max_inspect_shown
+    and+ operation_id = optional ["operation-id"] (text "ID")
+        ~doc:"Show this operation alone, including a terminal one." in
+    Inspect { scope; encoding; max_inspect; operation_id } in
+  command "inspect" term
+    ~doc:"Print the cursor, active operations and open conflicts."
+    ~man:[`S Manpage.s_description;
+      `P "Read-only. With $(b,--operation-id), exits 3 for an active \
+          operation, 0 for a terminal one and 9 when it is not in the \
+          scope."]
+
+let append_candidates_cmd =
+  let term =
+    let+ scope = scope_t and+ connection = connection_t
+    and+ spool_dir = spool_dir_t and+ operation_id = operation_id_t
+    and+ max_inspect = max_inspect_t ~default:100
+        ~doc:"Widest UID range inspected, from 1 to 10000. A wider range \
+              is refused."
+    and+ max_candidate_bytes = Arg.(value & opt bytes gib &
+        info ["max-candidate-bytes"]
+          ~doc:"Aggregate body bytes read, from 1 to 1099511627776.") in
+    Inspect_append_candidates { scope; connection; operation_id;
+      max_inspect; max_candidate_bytes;
+      spool_dir=default_dir scope ".spool" spool_dir } in
+  command ~online:true "inspect-append-candidates" term
+    ~doc:"List UIDs that could be a pending APPEND."
+    ~man:[`S Manpage.s_description;
+      `P "Read-only. Matching bytes never attribute an APPEND."]
+
+let appenduid_cmd =
+  let term =
+    let+ scope = scope_t and+ encoding = encoding_t
+    and+ maildir = maildir_t and+ operation_id = operation_id_t
+    and+ uidvalidity = required ["uidvalidity"] uidvalidity
+        ~doc:"UIDVALIDITY of the recovered APPENDUID."
+    and+ uid = required ["uid"] uid ~doc:"UID of the recovered APPENDUID."
+    and+ evidence = evidence_t in
+    Repair_appenduid { scope; encoding; maildir; operation_id; uidvalidity;
+      uid; evidence } in
+  command "repair-appenduid" term
+    ~doc:"Attest an APPENDUID recovered from a trusted record."
+    ~man:[`S Manpage.s_description;
+      `P "Offline. The next sync verifies the UID before pairing."]
+
+let repair_t =
+  let+ scope = scope_t and+ connection = connection_t
+  and+ maildir = maildir_t and+ spool_dir = spool_dir_t
+  and+ operation_id = operation_id_t and+ evidence = evidence_t in
+  { scope; connection; maildir; operation_id; evidence;
+    spool_dir=default_dir scope ".spool" spool_dir }
+
+let repair_cmd name job ~doc =
+  command ~online:true name Term.(const job $ repair_t) ~doc
+    ~man:[`S Manpage.s_description;
+      `P "Operator repair under the Maildir writer lease. It never runs \
+          automatically."]
+
+let local_append_cmd =
+  let term =
+    let+ repair = repair_t and+ blob_dir = blob_dir_t in
+    Repair_local_append { repair;
+      blob_dir=default_dir repair.scope ".blobs" blob_dir } in
+  command ~online:true "repair-local-append" term
+    ~doc:"Finish a remote-to-Maildir copy whose file is absent."
+    ~man:[`S Manpage.s_description;
+      `P "Operator repair under the Maildir writer lease. It never runs \
+          automatically."]
+
+let retention_cmd =
+  let term =
+    let+ scope = scope_t and+ encoding = encoding_t
+    and+ maildir = maildir_t and+ spool_dir = spool_dir_t
+    and+ pair_id = required ["pair-id"] (text "ID")
+        ~doc:"Pair whose local occurrence was evicted."
+    and+ evidence = evidence_t in
+    Mark_local_retention { scope; encoding; maildir; pair_id; evidence;
+      spool_dir=default_dir scope ".spool" spool_dir } in
+  command "mark-local-retention" term
+    ~doc:"Record that a local absence is retention, not deletion."
+    ~man:[`S Manpage.s_description;
+      `P "Offline. Later cycles never propagate this absence."]
+
+let plan_t ~bootstrap =
+  let+ scope = scope_t and+ encoding = encoding_t
+  and+ maildir = maildir_t and+ spool_dir = spool_dir_t
+  and+ max_inspect = max_inspect_shown
+  and+ min_absence_scans = min_absence_scans_t
+  and+ deletion_policy = deletion_policy_t
+  and+ allow_bootstrap_duplicates = bootstrap in
+  { scope; encoding; maildir; max_inspect; min_absence_scans;
+    deletion_policy; allow_bootstrap_duplicates;
+    spool_dir=default_dir scope ".spool" spool_dir }
+
+let plan_deletions_cmd =
+  let term =
+    let+ plan = plan_t ~bootstrap:(Term.const true) in
+    Plan_deletions plan in
+  command "plan-deletions" term
+    ~doc:"Preview one-sided pairs and their deletion decisions."
+    ~man:[`S Manpage.s_description;
+      `P "Offline, from the latest complete published inventory."]
+
+let plan_sync_cmd =
+  let term = let+ plan = plan_t ~bootstrap:bootstrap_t in Plan_sync plan in
+  command "plan-sync" term
+    ~doc:"Preview the copies, flag changes and deletions of a cycle."
+    ~man:[`S Manpage.s_description;
+      `P "Offline, from the latest complete published inventory."]
+
+let verify_local_cmd =
+  let term =
+    let+ scope = scope_t and+ encoding = encoding_t
+    and+ maildir = maildir_t and+ spool_dir = spool_dir_t
+    and+ max_inspect = max_inspect_shown in
+    Verify_local { scope; encoding; maildir; max_inspect;
+      spool_dir=default_dir scope ".spool" spool_dir } in
+  command "verify-local" term
+    ~doc:"Rehash paired Maildir bodies against their saved digests."
+    ~man:[`S Manpage.s_description; `P "Offline."]
+
+let cmd =
+  let man = [
+    `S Manpage.s_description;
+    `P "$(tool) keeps an IMAP mailbox and a Maildir in step through a \
+        SQLite journal. Each invocation does bounded work and exits, so a \
+        scheduler can invoke it again with its own backoff.";
+    `P "Options take their defaults from the environment variables listed \
+        with each command. The password is read from the variable that \
+        $(b,--password-env) names, only by a command that connects.";
+    `P "A nonzero exit never authorizes replaying a possibly sent APPEND \
+        or deletion.";
+  ] in
+  Cmd.group (Cmd.info "imap-sync" ~doc:"Bounded IMAP and Maildir sync"
+      ~man ~exits) [
+    sync_cmd; hydrate_cmd; audit_cache_cmd; inspect_cmd;
+    append_candidates_cmd; appenduid_cmd;
+    repair_cmd "repair-local-delete" (fun r -> Repair_local_delete r)
+      ~doc:"Finish a pending local deletion whose file still exists.";
+    local_append_cmd;
+    repair_cmd "settle-flags" (fun r -> Settle_flags r)
+      ~doc:"Adopt flags an operator aligned on both endpoints.";
+    repair_cmd "reject-remote-delete" (fun r -> Reject_remote_delete r)
+      ~doc:"Reject a pending remote deletion whose target is unchanged.";
+    repair_cmd "finish-remote-delete" (fun r -> Finish_remote_delete r)
+      ~doc:"Expunge the one UID of a pending remote deletion.";
+    retention_cmd; plan_deletions_cmd; plan_sync_cmd; verify_local_cmd;
+  ]
 
 let id ~random prefix =
   let bytes=Cstruct.create 16 in
@@ -409,53 +679,93 @@ let id ~random prefix =
   done;
   prefix ^ Buffer.contents hex
 
-let scope config encoding =
-  let raw_name=match Imap.Mailbox_name.encode ~mode:encoding config.mailbox with
-    | Ok s -> s | Error message -> invalid_arg message in
-  {Imap.Mirror.endpoint=config.endpoint;account=config.account;
-   mailbox_key=config.mailbox_key;raw_name;encoding;mailbox_id=None}
+let path ~fs name = Eio.Path.(fs / name)
 
-let with_password config ~getenv f =
-  match getenv config.password_env with
+let require_db ~fs name =
+  let p=path ~fs name in
+  if Eio.Path.kind ~follow:true p<>`Regular_file then
+    fail configuration "existing SQLite database required: %s" name;
+  p
+
+let require_dir ~fs what name =
+  let p=path ~fs name in
+  if not (Eio.Path.is_directory p) then
+    fail configuration "existing %s required: %s" what name;
+  p
+
+let make_dir ~fs name =
+  let p=path ~fs name in
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 p;
+  p
+
+let open_maildir p =
+  match Maildir.open_dir p with
+  | Ok maildir -> maildir
+  | Error e -> raise (Sync_failed ("Maildir", Imap_sync.Error.Maildir e))
+
+let mirror_scope (s:scope) encoding =
+  match Imap.Mailbox_name.encode ~mode:encoding s.mailbox with
+  | Ok raw_name ->
+      {Imap.Mirror.endpoint=s.endpoint; account=s.account;
+       mailbox_key=s.mailbox_key; raw_name; encoding; mailbox_id=None}
+  | Error message -> fail configuration "--mailbox: %s" message
+
+let local_scope (s:scope) encoding store =
+  let load mode =
+    let scope=mirror_scope s mode in
+    ignore (Imap_store.load_cursor store ~scope);
+    scope in
+  match encoding with
+  | Some mode -> load mode
+  | None ->
+      try load Imap.Mailbox_name.Rev1
+      with Imap_store.Scope_mismatch -> load Imap.Mailbox_name.Utf8
+
+let password (c:connection) ~env ~secret =
+  match env c.password_env with
   | None | Some "" ->
-      prerr_endline "missing non-empty password environment variable"; 5
-  | Some password -> f password
+      fail configuration "missing non-empty password environment variable %s"
+        c.password_env
+  | Some password -> secret:=password; password
 
-(* The callback owns the connection only for this lexical scope. *)
-let with_connected config ~sw ~net ~password f =
-  let transport=Imap_eio.Transport.v ~net ~host:config.host
-    ?port:config.port ~tls:config.tls () in
-  let auth=Imap_eio.Auth.password ~username:config.username ~password
-    ~mechanism:config.mechanism () in
-  match Imap_eio.Client.connect ~sw ~auth transport with
-  | Error _ -> prerr_endline "IMAP connection/authentication failed"; 6
-  | Ok client ->
-      Fun.protect ~finally:(fun () ->
-        Eio.Cancel.protect (fun () -> Imap_eio.Client.close client)) @@ fun () ->
-      f client (scope config (Imap_eio.Client.mailbox_mode client))
+let with_context (c:connection) (s:scope) ~password ~sw ~net ~store
+    ~spool_dir ~next_id f =
+  let transport=Imap_eio.Transport.v ~net ~host:c.host ?port:c.port
+      ~tls:c.tls () in
+  let auth=try Imap_eio.Auth.password ~username:c.user ~password
+      ~mechanism:c.auth ~allow_insecure_transport:(c.tls=`Plain) ()
+    with Invalid_argument message ->
+      fail configuration "invalid IMAP credentials: %s" message in
+  let client=check "IMAP connection or authentication failed"
+      (Result.map_error (fun e -> Imap_sync.Error.Client e)
+        (Imap_eio.Client.connect ~sw ~auth transport)) in
+  Fun.protect ~finally:(fun () ->
+    Eio.Cancel.protect (fun () -> Imap_eio.Client.close client)) @@ fun () ->
+  let scope=mirror_scope s (Imap_eio.Client.mailbox_mode client) in
+  f (check "IMAP mailbox scope" (Imap_sync.Ctx.v ~client ~store ~scope
+    ~mailbox:s.mailbox ~spool_dir ~next_id))
 
-(* [with_context] builds the sync context for the connected client. The
-   scope comes from the client's own encoding, so [Ctx.v] fails only on a
-   mailbox name that cannot be encoded, which [scope] already refuses. *)
-let with_context config ~sw ~net ~password ~store ~spool_dir ~next_id f =
-  with_connected config ~sw ~net ~password @@ fun client scope ->
-  match Imap_sync.Ctx.v ~client ~store ~scope ~mailbox:config.mailbox
-      ~spool_dir ~next_id with
-  | Ok ctx -> f ctx
-  | Error error ->
-      Format.eprintf "IMAP mailbox scope: %a@." Imap_sync.Error.pp error; 6
+let find_operation store ~scope id =
+  match Imap_store.Journal.find_operation store ~id with
+  | Some op when op.scope=scope -> op
+  | _ -> fail not_found "operation id=%S not found in requested scope" id
 
-let local_scope config store =
-  let initial=scope config config.encoding in
-  if config.encoding_explicit then initial
-  else
-    try
-      ignore (Imap_store.load_cursor store ~scope:initial);
-      initial
-    with Imap_store.Scope_mismatch ->
-        let alternate=scope config Imap.Mailbox_name.Utf8 in
-        ignore (Imap_store.load_cursor store ~scope:alternate);
-        alternate
+let last page = List.nth page (List.length page - 1)
+
+(* [bounded_pages ~max ~page ~id print] prints the first [max] items and is
+   [(shown, truncated)], where [truncated] holds when more than [max]
+   items exist. *)
+let bounded_pages ~max ~page ~id print =
+  let rec go after seen =
+    if seen>max then seen else
+    let limit=min 256 (max+1-seen) in
+    let items=page after ~limit in
+    let seen=List.fold_left (fun seen item ->
+      if seen<max then print item; seen+1) seen items in
+    if List.length items<limit then seen
+    else go (Some (id (last items))) seen in
+  let seen=go None 0 in
+  min seen max, seen>max
 
 let string_of_kind = function
   | Imap_store.Journal.Append -> "append"
@@ -513,16 +823,19 @@ let operation_context store (op:Imap_store.Journal.operation) =
     | Some pair -> tombstone pair.remote_tombstone,
         tombstone pair.local_tombstone in
   Printf.sprintf
-    " desired=%S local_preimage=%S pair_revision=%s/%s remote_tombstone=%S local_tombstone=%S receipt=%S"
+    (" desired=%S local_preimage=%S pair_revision=%s/%s" ^^
+     " remote_tombstone=%S local_tombstone=%S receipt=%S")
     (flags op.desired_flags)
     (flags (if op.kind=J.Flags then J.local_flags_preimage store ~id:op.id
       else None))
     saved_revision current_revision remote_tombstone local_tombstone
     (Option.value ~default:"" op.receipt)
 
-let print_sync receipt cycle =
-  Printf.printf "cycle=%d revision=%Ld remote_to_local=%d local_to_remote=%d flags=%d deletions=%d flags_held=%d deletions_held=%d more=%b\n%!"
-    cycle receipt.Imap_sync.Bridge.cursor.revision receipt.remote_to_local
+let print_sync (receipt:Imap_sync.Bridge.receipt) cycle =
+  Printf.printf ("cycle=%d revision=%Ld remote_to_local=%d " ^^
+    "local_to_remote=%d flags=%d deletions=%d flags_held=%d " ^^
+    "deletions_held=%d more=%b\n%!")
+    cycle receipt.cursor.revision receipt.remote_to_local
     receipt.local_to_remote receipt.flags_updated receipt.deletions
     receipt.flags_held receipt.deletions_held receipt.more;
   if receipt.held_pair_ids<>[] then
@@ -531,172 +844,112 @@ let print_sync receipt cycle =
       (String.concat "," (List.map (Printf.sprintf "%S")
         receipt.held_pair_ids))
 
-let deletion_policy config =
-  if config.propagate_deletions ||
-     config.propagate_remote_deletions &&
-     config.propagate_local_deletions then Imap.Sync_policy.Propagate
-  else if config.propagate_remote_deletions then
-    Imap.Sync_policy.Propagate_remote
-  else if config.propagate_local_deletions then
-    Imap.Sync_policy.Propagate_local
-  else Imap.Sync_policy.Preserve
+(* A pass that only skipped oversized bodies continues after them with
+   unchanged budgets, so they cannot use up every invocation. [more]
+   ignores UIDs that no pass with these budgets can hydrate. *)
+let hydrate_bodies ~(ctx:Imap_sync.Ctx.t) ~max_transfers (budget:budget) =
+  let rec pass after_uid skipped =
+    let receipt=check "IMAP hydration failed"
+        (Imap_sync.Engine.hydrate_once ?after_uid ~max_messages:max_transfers
+          ~max_body_bytes:budget.max_body_bytes
+          ~max_total_bytes:budget.max_total_bytes ~ctx ()) in
+    let skipped=skipped @ receipt.skipped in
+    match receipt.last_uid with
+    | Some uid when receipt.more && receipt.hydrated=0 &&
+        receipt.skipped<>[] -> pass (Some uid) skipped
+    | last_uid ->
+        let more=match last_uid with
+          | Some uid when receipt.more && receipt.skipped<>[] ->
+              (match Imap_store.Blob.missing_page ctx.store ~scope:ctx.scope
+                  ~cursor:receipt.cursor ~after_uid:uid ~limit:1 () with
+               | `Uids [] -> false
+               | `Uids _ | `Stale_revision -> true)
+          | _ -> receipt.more in
+        receipt, skipped, more in
+  let receipt,skipped,more=pass None [] in
+  Printf.printf "hydrated=%d bytes=%Ld skipped=%d more=%b revision=%Ld\n%!"
+    receipt.hydrated receipt.bytes (List.length skipped) more
+    receipt.cursor.revision;
+  if skipped<>[] then
+    Printf.eprintf "UIDs over the byte budgets (first %d): %s\n%!"
+      (min 100 (List.length skipped))
+      (String.concat "," (List.filteri (fun i _ -> i<100)
+        (List.map (fun u -> Int64.to_string (Imap.Uid.to_int64 u)) skipped)));
+  if more then more_work else converged
 
-let local_failure error =
-  Format.eprintf "local filesystem or SQLite operation failed: %a@."
-    Maildir.pp_error error;
-  7
-
-let with_maildir path f =
-  match Maildir.open_dir path with
-  | Ok maildir -> f maildir
-  | Error error -> local_failure error
-
-let hydrate config ~net ~fs ~random ~getenv =
-  with_password config ~getenv @@ fun password ->
-      let db=Eio.Path.(fs / config.db) in
-      if not (Eio.Path.is_file db) then (
-        prerr_endline "hydration requires an existing published SQLite store"; 5)
-      else
-        let blob_dir=Eio.Path.(fs / config.blob_dir) in
-        let spool_dir=Eio.Path.(fs / config.spool_dir) in
-        Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 blob_dir;
-        Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 spool_dir;
-        Eio.Switch.run @@ fun sw ->
-        let store=Imap_store.open_path ~sw ~blob_dir db in
-        with_context config ~sw ~net ~password ~store ~spool_dir
-          ~next_id:(fun () -> id ~random "hydrate-") @@ fun ctx ->
-            match Imap_sync.Engine.hydrate_once ~max_messages:config.max_transfers
-              ~max_body_bytes:config.max_body_bytes
-              ~max_total_bytes:config.max_total_bytes ~ctx () with
-            | Ok receipt ->
-                Printf.printf "hydrated=%d bytes=%Ld more=%b revision=%Ld\n%!"
-                  receipt.hydrated receipt.bytes receipt.more
-                  receipt.cursor.revision;
-                if receipt.more then 2 else 0
-            | Error error ->
-                Printf.eprintf "IMAP hydration failed: %s\n%!"
-                  (redact password (Imap_sync.Error.to_string error));
-                6
-
-let audit_cache config ~fs =
-  let db=Eio.Path.(fs / config.db) in
-  let blob_dir=Eio.Path.(fs / config.blob_dir) in
-  if not (Eio.Path.is_file db) || not (Eio.Path.is_directory blob_dir) then (
-    prerr_endline "cache audit requires an existing SQLite store and blob directory";
-    5)
-  else
-    Eio.Switch.run @@ fun sw ->
-    let store=Imap_store.open_path ~sw ~blob_dir db in
-    let scope=local_scope config store in
-    match Imap_sync.Engine.audit_cache_once ?after_uid:config.after_uid
-      ?expected_revision:config.expected_revision
-      ~max_messages:config.max_transfers
-      ~max_total_bytes:config.max_total_bytes ~store ~scope () with
-    | Ok receipt ->
-        Printf.printf
-          "cache_checked=%d invalidated=%d bytes=%Ld last_uid=%Ld more=%b revision=%Ld\n%!"
-          receipt.checked receipt.invalidated receipt.bytes
-          (match receipt.last_uid with None -> 0L
-           | Some uid -> Imap.Uid.to_int64 uid)
-          receipt.more receipt.cursor.revision;
-        if receipt.more then 2 else 0
-    | Error error ->
-        Format.eprintf "cache audit failed: %a@." Imap_sync.Error.pp error;
-        (match error with
-         | Imap_sync.Error.Store_stale_revision
-         | Imap_sync.Error.Incomplete _ -> 4
-         | Imap_sync.Error.Limit _ -> 5
-         | _ -> 7)
-
-let sync config ~net ~fs ~random ~getenv =
-  with_password config ~getenv @@ fun password ->
-    let blob_dir=Eio.Path.(fs / config.blob_dir) in
-    let spool_dir=Eio.Path.(fs / config.spool_dir) in
-    Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 blob_dir;
-    Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 spool_dir;
-    Eio.Switch.run @@ fun sw ->
-    let store=Imap_store.open_path ~sw ~blob_dir Eio.Path.(fs / config.db) in
-    with_maildir Eio.Path.(fs / config.maildir) @@ fun maildir ->
-    let recovered=match
-        Imap_sync.Bridge.recover_local ~maildir ~spool_dir () with
-      | Ok () -> true
-      | Error _ -> false in
-    if not recovered then (
-      prerr_endline "Maildir writer lease is busy"; 8)
-    else
-    with_context config ~sw ~net ~password ~store ~spool_dir
-      ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
-      let scope=ctx.scope in
-      let deletion_policy=deletion_policy config in
-      let rec cycles cycle =
-        let stage_id=id ~random "stage-" in
-        match Imap_sync.Bridge.copy_once ~max_transfers:config.max_transfers
-          ~min_absence_scans:config.min_absence_scans
-          ~allow_bootstrap_duplicates:config.allow_bootstrap_duplicates
-          ~deletion_policy ~ctx ~maildir ~stage_id () with
-        | Ok receipt ->
-          print_sync receipt cycle;
-          if receipt.flags_held>0 || receipt.deletions_held>0 then 4
-          else if not receipt.more then (
-            match Imap_store.Journal.open_conflicts_page store ~scope
-              ~limit:1 () with
-            | [] when not config.hydrate_bodies -> 0
-            | [] ->
-                (match Imap_sync.Engine.hydrate_once
-                    ~max_messages:config.max_transfers
-                    ~max_body_bytes:config.max_body_bytes
-                    ~max_total_bytes:config.max_total_bytes ~ctx () with
-                 | Ok hydration ->
-                     Printf.printf
-                       "hydrated=%d bytes=%Ld more=%b revision=%Ld\n%!"
-                       hydration.hydrated hydration.bytes hydration.more
-                       hydration.cursor.revision;
-                     if hydration.more then 2 else 0
-                 | Error error ->
-                     Printf.eprintf "IMAP hydration failed: %s\n%!"
-                       (redact password (Imap_sync.Error.to_string error));
-                     6)
-            | _ -> prerr_endline "unresolved sync conflict; run inspect"; 4)
-          else if cycle>=config.max_cycles then 2
-          else cycles (cycle+1)
-        | Error (Imap_sync.Error.Pending_operations ids) ->
-          Printf.eprintf "pending journal operations=%d; run inspect\n%!"
-            (List.length ids); 3
-        | Error (Imap_sync.Error.Source_vanished uid) ->
-          Printf.eprintf "remote UID %Ld vanished before archival; rescanning\n%!"
-            (Imap.Uid.to_int64 uid);
-          if cycle>=config.max_cycles then 2 else cycles (cycle+1)
-        | Error (Imap_sync.Error.Local_source_changed id) ->
-          Printf.eprintf "local occurrence %s changed before archival; rescanning\n%!" id;
-          if cycle>=config.max_cycles then 2 else cycles (cycle+1)
-        | Error Imap_sync.Error.Writer_busy ->
-          prerr_endline "Maildir writer lease is busy"; 8
-        | Error (Imap_sync.Error.Content_mismatch pair_id) ->
-          Printf.eprintf "paired local content changed for %s; run inspect\n%!"
-            pair_id; 4
-        | Error (Imap_sync.Error.Maildir error) -> local_failure error
-        | Error (Imap_sync.Error.Bootstrap_requires_pairing) ->
-          prerr_endline "both endpoints contain unpaired messages; inspect before enabling --allow-bootstrap-duplicates"; 4
-        | Error (Imap_sync.Error.Uidvalidity_changed |
-            Imap_sync.Error.Content_diverged _ |
-            Imap_sync.Error.Flags_diverged _ |
-            Imap_sync.Error.Date_diverged _ |
-            Imap_sync.Error.Store_stale_revision) ->
-          prerr_endline "sync identity or content conflict; run inspect"; 4
-        | Error (Imap_sync.Error.Invalid_configuration message) ->
-          Printf.eprintf "configuration: %s\n%!" message; 5
-        | Error (Imap_sync.Error.Invalid_operation _) ->
-          prerr_endline "invalid journal operation; run inspect"; 3
-        | Error _ ->
-          prerr_endline
-            "IMAP sync operation failed; run inspect for journal state";
-          6 in
-      cycles 1
-
-let inspect config ~fs =
+let hydrate (c:hydrate) ~env ~secret ~net ~fs ~random =
+  let password=password c.connection ~env ~secret in
+  let db=require_db ~fs c.scope.db in
+  let blob_dir=make_dir ~fs c.blob_dir and spool_dir=make_dir ~fs c.spool_dir in
   Eio.Switch.run @@ fun sw ->
-  let store=Imap_store.open_readonly ~sw Eio.Path.(fs / config.db) in
-  let scope=local_scope config store in
+  let store=Imap_store.open_path ~sw ~blob_dir db in
+  with_context c.connection c.scope ~password ~sw ~net ~store ~spool_dir
+    ~next_id:(fun () -> id ~random "hydrate-") @@ fun ctx ->
+  hydrate_bodies ~ctx ~max_transfers:c.max_transfers c.budget
+
+let audit_cache (c:audit_cache) ~fs =
+  let db=require_db ~fs c.scope.db in
+  let blob_dir=require_dir ~fs "blob directory" c.blob_dir in
+  Eio.Switch.run @@ fun sw ->
+  let store=Imap_store.open_path ~sw ~blob_dir db in
+  let scope=local_scope c.scope c.encoding store in
+  let receipt=check "cache audit failed"
+      (Imap_sync.Engine.audit_cache_once
+        ?after_uid:(Option.map fst c.continuation)
+        ?expected_revision:(Option.map snd c.continuation)
+        ~max_messages:c.max_transfers ~max_total_bytes:c.max_total_bytes
+        ~store ~scope ()) in
+  Printf.printf
+    ("cache_checked=%d invalidated=%d bytes=%Ld last_uid=%Ld more=%b " ^^
+     "revision=%Ld\n%!")
+    receipt.checked receipt.invalidated receipt.bytes
+    (match receipt.last_uid with None -> 0L
+     | Some uid -> Imap.Uid.to_int64 uid)
+    receipt.more receipt.cursor.revision;
+  if receipt.more then more_work else converged
+
+let sync (c:sync) ~env ~secret ~net ~fs ~random =
+  let password=password c.connection ~env ~secret in
+  let blob_dir=make_dir ~fs c.blob_dir and spool_dir=make_dir ~fs c.spool_dir in
+  Eio.Switch.run @@ fun sw ->
+  let store=Imap_store.open_path ~sw ~blob_dir (path ~fs c.scope.db) in
+  let maildir=open_maildir (path ~fs c.maildir) in
+  check "startup recovery"
+    (Imap_sync.Bridge.recover_local ~maildir ~spool_dir ());
+  with_context c.connection c.scope ~password ~sw ~net ~store ~spool_dir
+    ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
+  let finish (receipt:Imap_sync.Bridge.receipt) =
+    if receipt.flags_held>0 || receipt.deletions_held>0 then conflict
+    else match Imap_store.Journal.open_conflicts_page store ~scope:ctx.scope
+        ~limit:1 () with
+    | _ :: _ -> prerr_endline "unresolved sync conflict; run inspect"; conflict
+    | [] -> match c.hydrate_bodies with
+      | None -> converged
+      | Some budget ->
+          hydrate_bodies ~ctx ~max_transfers:c.max_transfers budget in
+  let rec cycles cycle =
+    let again () =
+      if cycle>=c.max_cycles then more_work else cycles (cycle+1) in
+    match Imap_sync.Bridge.copy_once ~max_transfers:c.max_transfers
+      ~min_absence_scans:c.min_absence_scans
+      ~allow_bootstrap_duplicates:c.allow_bootstrap_duplicates
+      ~deletion_policy:c.deletion_policy ~ctx ~maildir
+      ~stage_id:(id ~random "stage-") () with
+    | Ok receipt ->
+        print_sync receipt cycle;
+        if receipt.more then again () else finish receipt
+    | Error (Imap_sync.Error.Source_vanished _
+            | Imap_sync.Error.Local_source_changed _ as error) ->
+        Format.eprintf "%a; rescanning@." Imap_sync.Error.pp error;
+        again ()
+    | Error error -> raise (Sync_failed ("sync", error)) in
+  cycles 1
+
+let inspect (c:inspect) ~fs =
+  let db=require_db ~fs c.scope.db in
+  Eio.Switch.run @@ fun sw ->
+  let store=Imap_store.open_readonly ~sw db in
+  let scope=local_scope c.scope c.encoding store in
   let cursor=Imap_store.load_cursor store ~scope in
   Printf.printf "cursor revision=%Ld generation=%Ld frontier=%Ld\n%!"
     cursor.revision cursor.generation cursor.frontier;
@@ -711,523 +964,341 @@ let inspect config ~fs =
       op.id (string_of_kind op.kind) (string_of_state op.state)
       (Option.value ~default:"" op.pair_id)
       (operation_identity op) (operation_context store op) in
-  if config.operation_id<>"" then
-    match Imap_store.Journal.find_operation store ~id:config.operation_id with
-    | None ->
-      Printf.eprintf "operation id=%S not found in requested scope\n%!"
-        config.operation_id;
-      9
-    | Some op when op.scope<>scope ->
-      Printf.eprintf "operation id=%S not found in requested scope\n%!"
-        config.operation_id;
-      9
-    | Some op ->
+  match c.operation_id with
+  | Some id ->
+      let op=find_operation store ~scope id in
       print_operation op;
       (match op.state with
-       | Prepared | Sent | Ambiguous | Observed -> 3
-       | Committed | Rejected -> 0)
-  else (
-  let remaining=ref config.max_inspect and count=ref 0 in
-  let rec operations after =
-    if !remaining>0 then (
-      let limit=min 256 !remaining in
-      let page=Imap_store.Journal.active_operations_page store ~scope ?after
-        ~limit () in
-      List.iter (fun (op:Imap_store.Journal.operation) ->
-        print_operation op;
-        incr count; decr remaining) page;
-      if List.length page=limit then
-        operations (Some (List.hd (List.rev page)).id)) in
-  operations None;
-  let conflict_count=ref 0 in
-  let rec conflicts after =
-    if !conflict_count<config.max_inspect then (
-      let limit=min 256 (config.max_inspect - !conflict_count) in
-      let page=Imap_store.Journal.open_conflicts_page store ~scope ?after
-        ~limit () in
-      List.iter (fun (conflict:Imap_store.Journal.conflict) ->
-        Printf.printf "conflict id=%S kind=%s pair=%S revision=%Ld\n%!"
-          conflict.id (string_of_conflict conflict.kind) conflict.pair_id
-          conflict.pair_revision;
-        incr conflict_count) page;
-      if List.length page=limit then
-        conflicts (Some (List.hd (List.rev page)).id)) in
-  conflicts None;
-  Printf.printf "active_operations_shown=%d open_conflicts_shown=%d capped=%b\n%!"
-    !count !conflict_count
-    (!remaining=0 || !conflict_count=config.max_inspect);
-  if !conflict_count>0 then 4 else if !count>0 then 3 else 0)
+       | Prepared | Sent | Ambiguous | Observed -> pending
+       | Committed | Rejected -> converged)
+  | None ->
+      let operations,operations_capped=bounded_pages ~max:c.max_inspect
+          ~page:(fun after ~limit ->
+            Imap_store.Journal.active_operations_page store ~scope ?after
+              ~limit ())
+          ~id:(fun (op:Imap_store.Journal.operation) -> op.id)
+          print_operation in
+      let conflicts,conflicts_capped=bounded_pages ~max:c.max_inspect
+          ~page:(fun after ~limit ->
+            Imap_store.Journal.open_conflicts_page store ~scope ?after
+              ~limit ())
+          ~id:(fun (conflict:Imap_store.Journal.conflict) -> conflict.id)
+          (fun (conflict:Imap_store.Journal.conflict) ->
+            Printf.printf "conflict id=%S kind=%s pair=%S revision=%Ld\n%!"
+              conflict.id (string_of_conflict conflict.kind)
+              conflict.pair_id conflict.pair_revision) in
+      Printf.printf
+        "active_operations_shown=%d open_conflicts_shown=%d capped=%b\n%!"
+        operations conflicts (operations_capped || conflicts_capped);
+      if conflicts>0 then conflict else if operations>0 then pending
+      else converged
 
-let repair_appenduid config ~fs =
-  let uidvalidity=Option.get config.receipt_uidvalidity
-  and uid=Option.get config.receipt_uid in
+let repair_appenduid (c:appenduid) ~fs =
+  let db=require_db ~fs c.scope.db in
+  let maildir_path=require_dir ~fs "Maildir" c.maildir in
   Eio.Switch.run @@ fun sw ->
-  let db_path=Eio.Path.(fs / config.db) in
-  if Eio.Path.kind ~follow:false db_path <> `Regular_file then (
-    prerr_endline "existing regular SQLite database required for repair";
-    5)
-  else
-  let store=Imap_store.open_path ~sw db_path in
-  with_maildir Eio.Path.(fs / config.maildir) @@ fun maildir ->
-  let scope=local_scope config store in
-  match Imap_sync.Repair.record_appenduid ~store ~scope ~maildir
-    ~id:config.operation_id ~uidvalidity ~uid ~evidence:config.evidence () with
-  | Ok () ->
-    prerr_endline "APPENDUID attestation recorded; run sync to verify body and flags";
-    0
-  | Error Imap_sync.Error.Writer_busy ->
-    prerr_endline "Maildir writer lease is busy"; 8
-  | Error (Imap_sync.Error.Invalid_operation _) ->
-    prerr_endline "operation cannot accept APPENDUID evidence"; 3
-  | Error (Imap_sync.Error.Maildir error) -> local_failure error
-  | Error _ -> prerr_endline "APPENDUID evidence was not recorded"; 4
+  let store=Imap_store.open_path ~sw db in
+  let maildir=open_maildir maildir_path in
+  let scope=local_scope c.scope c.encoding store in
+  ignore (find_operation store ~scope c.operation_id);
+  check "APPENDUID evidence was not recorded"
+    (Imap_sync.Repair.record_appenduid ~store ~scope ~maildir
+      ~id:c.operation_id ~uidvalidity:c.uidvalidity ~uid:c.uid
+      ~evidence:c.evidence ());
+  prerr_endline
+    "APPENDUID attestation recorded; run sync to verify body and flags";
+  converged
 
-let spool_path config ~fs =
-  let spool_dir=Eio.Path.(fs / config.spool_dir) in
-  Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 spool_dir;
-  spool_dir
+let mark_local_retention (c:retention) ~fs =
+  let db=require_db ~fs c.scope.db in
+  let maildir_path=require_dir ~fs "Maildir" c.maildir in
+  let spool_dir=make_dir ~fs c.spool_dir in
+  Eio.Switch.run @@ fun sw ->
+  let store=Imap_store.open_path ~sw db in
+  let maildir=open_maildir maildir_path in
+  let scope=local_scope c.scope c.encoding store in
+  (match Imap_store.Journal.find_pair store ~id:c.pair_id with
+   | Some pair when pair.scope=scope -> ()
+   | _ -> fail not_found "pair id=%S not found in requested scope" c.pair_id);
+  check "retention rejected"
+    (Imap_sync.Repair.mark_local_retention ~store ~maildir ~scope
+      ~pair_id:c.pair_id ~evidence:c.evidence ~spool_dir ());
+  Printf.printf "retention recorded for pair %S\n%!" c.pair_id;
+  converged
 
-let mark_local_retention config ~fs =
-  let db_path=Eio.Path.(fs / config.db) in
-  let maildir_path=Eio.Path.(fs / config.maildir) in
-  if Eio.Path.kind ~follow:false db_path<>`Regular_file ||
-     not (Eio.Path.is_directory maildir_path) then (
-    prerr_endline "existing SQLite database and Maildir required for retention";
-    5)
-  else Eio.Switch.run @@ fun sw ->
-    let store=Imap_store.open_path ~sw db_path in
-    with_maildir maildir_path @@ fun maildir ->
-    let scope=local_scope config store in
-    match Imap_sync.Repair.mark_local_retention ~store ~maildir ~scope
-      ~pair_id:config.pair_id ~evidence:config.evidence
-      ~spool_dir:(spool_path config ~fs) () with
-    | Ok () ->
-        Printf.printf "retention recorded for pair %S\n%!" config.pair_id; 0
-    | Error Imap_sync.Error.Writer_busy ->
-        prerr_endline "Maildir writer lease is busy"; 8
-    | Error (Imap_sync.Error.Invalid_operation message) ->
-        Printf.eprintf "retention rejected: %s\n%!" message; 4
-    | Error (Imap_sync.Error.Maildir error) ->
-        local_failure error
-    | Error error ->
-        Format.eprintf "retention failed: %a@." Imap_sync.Error.pp error; 4
+let verify_local (c:verify_local) ~fs ~random =
+  let db=require_db ~fs c.scope.db in
+  let maildir_path=require_dir ~fs "Maildir" c.maildir in
+  let spool_dir=make_dir ~fs c.spool_dir in
+  Eio.Switch.run @@ fun sw ->
+  let store=Imap_store.open_path ~sw db in
+  let maildir=open_maildir maildir_path in
+  let scope=local_scope c.scope c.encoding store in
+  let shown=ref [] and issues=ref 0 in
+  let on_issue pair_id reason=
+    if !issues<c.max_inspect then shown:=(pair_id,reason)::!shown;
+    incr issues in
+  let report=check "local verification failed"
+      (Imap_sync.Bridge.verify_local_content ~store ~maildir ~scope
+        ~next_id:(fun () -> id ~random "content-") ~spool_dir ~on_issue ()) in
+  List.iter (fun (pair_id,reason) ->
+    Printf.printf "pair=%S issue=%S\n" pair_id reason) (List.rev !shown);
+  Printf.printf ("checked=%Ld mismatched=%Ld restored=%Ld missing=%Ld " ^^
+    "unverified=%Ld shown=%d capped=%b\n%!")
+    report.checked report.mismatched report.restored report.missing
+    report.unverified (List.length !shown) (!issues>c.max_inspect);
+  if report.mismatched>0L || report.missing>0L || report.unverified>0L then
+    conflict
+  else converged
 
-let verify_local config ~fs ~random =
-  let db_path=Eio.Path.(fs / config.db) in
-  let maildir_path=Eio.Path.(fs / config.maildir) in
-  if Eio.Path.kind ~follow:false db_path<>`Regular_file ||
-     not (Eio.Path.is_directory maildir_path) then (
-    prerr_endline "existing SQLite database and Maildir required for verification";
-    5)
-  else Eio.Switch.run @@ fun sw ->
-    let store=Imap_store.open_path ~sw db_path in
-    with_maildir maildir_path @@ fun maildir ->
-    let scope=local_scope config store in
-    let shown=ref [] and shown_count=ref 0 and issues=ref 0L in
-    let on_issue pair_id reason=
-      issues:=Int64.succ !issues;
-      if !shown_count<config.max_inspect then (
-        shown:=(pair_id,reason)::!shown;
-        incr shown_count) in
-    match Imap_sync.Bridge.verify_local_content ~store ~maildir ~scope
-      ~next_id:(fun () -> id ~random "content-")
-      ~spool_dir:(spool_path config ~fs) ~on_issue () with
-    | Error Imap_sync.Error.Writer_busy ->
-        prerr_endline "Maildir writer lease is busy"; 8
-    | Error (Imap_sync.Error.Maildir error) ->
-        local_failure error
-    | Error error ->
-        Format.eprintf "local verification failed: %a@."
-          Imap_sync.Error.pp error; 4
-    | Ok report ->
-        List.iter (fun (pair_id,reason) ->
-          Printf.printf "pair=%S issue=%S\n" pair_id reason)
-          (List.rev !shown);
-        Printf.printf "checked=%Ld mismatched=%Ld restored=%Ld missing=%Ld unverified=%Ld shown=%d capped=%b\n%!"
-          report.checked report.mismatched report.restored report.missing
-          report.unverified !shown_count
-          (!issues>Int64.of_int config.max_inspect);
-        if report.mismatched>0L || report.missing>0L ||
-           report.unverified>0L then 4 else 0
+let decision_label = function
+  | `Pending id -> "pending:" ^ id
+  | `Stale_epoch -> "hold:stale-uidvalidity"
+  | `Plan Imap.Sync_policy.No_deletion -> "none"
+  | `Plan Imap.Sync_policy.Delete_local -> "candidate:delete-local"
+  | `Plan Imap.Sync_policy.Delete_remote -> "candidate:delete-remote"
+  | `Plan (Imap.Sync_policy.Hold_deletion reason) ->
+      "hold:" ^ (match reason with
+        | Imap.Sync_policy.Incomplete_inventory -> "incomplete-inventory"
+        | Unpaired_identity -> "unpaired-identity"
+        | Survivor_changed -> "survivor-unverified"
+        | Preservation_policy -> "preserve-policy"
+        | Direction_policy -> "direction-policy"
+        | Retention_policy -> "local-retention"
+        | Unverified_absence -> "unverified-absence"
+        | Grace_period -> "grace-period"
+        | Missing_content_evidence -> "no-content-evidence")
 
-let plan_deletions config ~fs =
-  let db_path=Eio.Path.(fs / config.db) in
-  let maildir_path=Eio.Path.(fs / config.maildir) in
-  if Eio.Path.kind ~follow:false db_path<>`Regular_file ||
-     not (Eio.Path.is_directory maildir_path) then (
-    prerr_endline "existing SQLite database and Maildir required for plan";
-    5)
-  else Eio.Switch.run @@ fun sw ->
-    let store=Imap_store.open_readonly ~sw db_path in
-    with_maildir maildir_path @@ fun maildir ->
-    let scope=local_scope config store in
-    let count=ref 0 and shown=ref [] and shown_count=ref 0
-    and candidate=ref 0
-    and held=ref 0 and pending=ref 0 in
-    let on_deletion (item:Imap_sync.Plan.deletion_preview) =
-      incr count;
-      if !shown_count<config.max_inspect then (
-        shown:=item::!shown; incr shown_count);
-      match item.decision with
-      | `Plan (Imap.Sync_policy.Delete_local | Imap.Sync_policy.Delete_remote) ->
-          incr candidate
-      | `Pending _ -> incr pending
-      | `Stale_epoch | `Plan (Imap.Sync_policy.Hold_deletion _ |
-          Imap.Sync_policy.No_deletion) -> incr held in
-    (* The deletion plan is the deletion case of the full plan. Bootstrap
-       duplicates are allowed so that an unpaired populated bootstrap,
-       which holds no deletion, does not stop the plan. *)
-    let on_preview = function
-      | Imap_sync.Plan.Preview_deletion item -> on_deletion item
-      | Imap_sync.Plan.Preview_pending _ -> incr pending
-      | _ -> () in
-    match Imap_sync.Plan.preview_sync ~allow_bootstrap_duplicates:true
-      ~min_absence_scans:config.min_absence_scans ~store ~maildir ~scope
-      ~policy:(deletion_policy config) ~spool_dir:(spool_path config ~fs)
-      ~on_preview () with
-    | Error Imap_sync.Error.Writer_busy ->
-        prerr_endline "Maildir writer lease is busy"; 8
-    | Error (Imap_sync.Error.Maildir error) ->
-        local_failure error
-    | Error error ->
-        Format.eprintf "deletion plan failed: %a@."
-          Imap_sync.Error.pp error; 4
-    | Ok cursor ->
-        let presence = function None -> "unknown" | Some true -> "present"
-          | Some false -> "absent" in
-        let decision = function
-          | `Pending id -> "pending:" ^ id
-          | `Stale_epoch -> "hold:stale-uidvalidity"
-          | `Plan Imap.Sync_policy.No_deletion -> "none"
-          | `Plan Imap.Sync_policy.Delete_local -> "candidate:delete-local"
-          | `Plan Imap.Sync_policy.Delete_remote -> "candidate:delete-remote"
-          | `Plan (Imap.Sync_policy.Hold_deletion reason) ->
-              "hold:" ^ (match reason with
-                | Imap.Sync_policy.Incomplete_inventory -> "incomplete-inventory"
-                | Imap.Sync_policy.Unpaired_identity -> "unpaired-identity"
-                | Imap.Sync_policy.Survivor_changed -> "survivor-unverified"
-                | Imap.Sync_policy.Preservation_policy -> "preserve-policy"
-                | Imap.Sync_policy.Direction_policy -> "direction-policy"
-                | Imap.Sync_policy.Retention_policy -> "local-retention"
-                | Imap.Sync_policy.Unverified_absence -> "unverified-absence"
-                | Imap.Sync_policy.Grace_period -> "grace-period"
-                | Imap.Sync_policy.Missing_content_evidence ->
-                    "no-content-evidence") in
-        Printf.printf "published_revision=%Ld generation=%Ld; candidates require live revalidation\n"
-          cursor.revision cursor.generation;
-        List.iter (fun (item:Imap_sync.Plan.deletion_preview) ->
-          Printf.printf "pair=%S remote_uid=%Ld remote=%s local_id=%S local=%s decision=%s\n"
-            item.pair_id (Imap.Uid.to_int64 item.remote_uid)
-            (presence item.remote_present) item.local_id
-            (if item.local_present then "present" else "absent")
-            (decision item.decision)) (List.rev !shown);
-        Printf.printf "one_sided=%d candidate=%d held=%d pending=%d shown=%d capped=%b\n%!"
-          !count !candidate !held !pending !shown_count
-          (!count>config.max_inspect);
-        0
+type tally = {
+  mutable events : int;
+  mutable copy_remote : int;
+  mutable copy_local : int;
+  mutable flags : int;
+  mutable delete : int;
+  mutable held : int;
+  mutable pending : int;
+  mutable shown : Imap_sync.Plan.sync_preview list;
+}
 
-let plan_sync config ~fs =
-  let db_path=Eio.Path.(fs / config.db) in
-  let maildir_path=Eio.Path.(fs / config.maildir) in
-  if Eio.Path.kind ~follow:false db_path<>`Regular_file ||
-     not (Eio.Path.is_directory maildir_path) then (
-    prerr_endline "existing SQLite database and Maildir required for plan";
-    5)
-  else Eio.Switch.run @@ fun sw ->
-    let store=Imap_store.open_readonly ~sw db_path in
-    with_maildir maildir_path @@ fun maildir ->
-    let scope=local_scope config store in
-    let count=ref 0 and shown=ref [] and shown_count=ref 0 in
-    let remote_copies=ref 0 and local_copies=ref 0
-    and flags=ref 0 and deletes=ref 0
-    and holds=ref 0 and pending=ref 0 in
-    let on_preview (item:Imap_sync.Plan.sync_preview) =
-      incr count;
-      if !shown_count<config.max_inspect then (
-        shown:=item::!shown; incr shown_count);
-      match item with
-      | Imap_sync.Plan.Preview_copy_remote _ -> incr remote_copies
-      | Imap_sync.Plan.Preview_copy_local _ -> incr local_copies
-      | Imap_sync.Plan.Preview_flags _ -> incr flags
-      | Imap_sync.Plan.Preview_pending _ -> incr pending
-      | Imap_sync.Plan.Preview_bootstrap_hold |
-        Imap_sync.Plan.Preview_pair_hold _ -> incr holds
-      | Imap_sync.Plan.Preview_deletion item ->
-          (match item.decision with
-           | `Plan (Imap.Sync_policy.Delete_local |
-               Imap.Sync_policy.Delete_remote) -> incr deletes
-           | `Pending _ -> incr pending
-           | `Stale_epoch | `Plan (Imap.Sync_policy.Hold_deletion _ |
-               Imap.Sync_policy.No_deletion) -> incr holds) in
-    match Imap_sync.Plan.preview_sync
-      ~allow_bootstrap_duplicates:config.allow_bootstrap_duplicates
-      ~min_absence_scans:config.min_absence_scans
-      ~store ~maildir ~scope ~policy:(deletion_policy config)
-      ~spool_dir:(spool_path config ~fs) ~on_preview () with
-    | Error Imap_sync.Error.Writer_busy ->
-        prerr_endline "Maildir writer lease is busy"; 8
-    | Error (Imap_sync.Error.Maildir error) ->
-        local_failure error
-    | Error error ->
-        Format.eprintf "sync plan failed: %a@."
-          Imap_sync.Error.pp error; 4
-    | Ok cursor ->
-        let wires xs=String.concat ","
-          (List.map Mail_flag.Imap_flag.to_wire xs) in
-        let delta (x:Imap.Sync_policy.flag_delta) =
-          Printf.sprintf "+[%s]-[%s]" (wires x.add) (wires x.remove) in
-        let line = function
-          | Imap_sync.Plan.Preview_pending id ->
-              Printf.sprintf "pending operation=%S" id
-          | Imap_sync.Plan.Preview_bootstrap_hold ->
-              "hold: both endpoints have unpaired messages; bootstrap opt-in required"
-          | Imap_sync.Plan.Preview_copy_remote uid ->
-              Printf.sprintf "candidate:copy-remote uid=%Ld"
-                (Imap.Uid.to_int64 uid)
-          | Imap_sync.Plan.Preview_copy_local id ->
-              Printf.sprintf "candidate:copy-local id=%S" id
-          | Imap_sync.Plan.Preview_flags flags ->
-              Printf.sprintf "candidate:flags pair=%S remote=%s local=%s"
-                flags.pair_id (delta flags.to_remote)
-                (delta flags.to_local)
-          | Imap_sync.Plan.Preview_pair_hold (id,reason) ->
-              Printf.sprintf "hold pair=%S reason=%S" id reason
-          | Imap_sync.Plan.Preview_deletion item ->
-              let decision=match item.decision with
-                | `Pending id -> "pending:" ^ id
-                | `Stale_epoch -> "hold:stale-uidvalidity"
-                | `Plan Imap.Sync_policy.Delete_local ->
-                    "candidate:delete-local"
-                | `Plan Imap.Sync_policy.Delete_remote ->
-                    "candidate:delete-remote"
-                | `Plan Imap.Sync_policy.No_deletion -> "none"
-                | `Plan (Imap.Sync_policy.Hold_deletion _) -> "hold:policy" in
-              Printf.sprintf "pair=%S remote_uid=%Ld local_id=%S %s"
-                item.pair_id (Imap.Uid.to_int64 item.remote_uid)
-                item.local_id decision in
-        Printf.printf "published_revision=%Ld generation=%Ld; all candidates require live revalidation\n"
-          cursor.revision cursor.generation;
-        List.iter (fun item -> Printf.printf "%s\n" (line item))
-          (List.rev !shown);
-        Printf.printf "events=%d copy_remote=%d copy_local=%d flags=%d delete=%d held=%d pending=%d shown=%d capped=%b\n%!"
-          !count !remote_copies !local_copies !flags !deletes !holds
-          !pending !shown_count (!count>config.max_inspect);
-        0
+let count_deletion t (item:Imap_sync.Plan.deletion_preview) =
+  match item.decision with
+  | `Plan (Imap.Sync_policy.Delete_local | Delete_remote) ->
+      t.delete<-t.delete+1
+  | `Pending _ -> t.pending<-t.pending+1
+  | `Stale_epoch | `Plan (Hold_deletion _ | No_deletion) ->
+      t.held<-t.held+1
 
-let repair_local_delete config ~net ~fs ~random ~getenv =
-  with_password config ~getenv @@ fun password ->
-      let db_path=Eio.Path.(fs / config.db) in
-      let maildir_path=Eio.Path.(fs / config.maildir) in
-      if Eio.Path.kind ~follow:false db_path<>`Regular_file ||
-         not (Eio.Path.is_directory maildir_path) then (
-        prerr_endline "existing SQLite database and Maildir required for repair";
-        5)
-      else Eio.Switch.run @@ fun sw ->
-      let store=Imap_store.open_path ~sw db_path in
-      with_maildir maildir_path @@ fun maildir ->
-      with_context config ~sw ~net ~password ~store
-        ~spool_dir:Eio.Path.(fs / config.spool_dir)
-        ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
-          (try
-            match Imap_sync.Repair.local_delete ~ctx ~maildir
-                ~id:config.operation_id ~evidence:config.evidence () with
-            | Ok (Imap_sync.Deletion.Deleted _) ->
-                prerr_endline "local deletion repaired and committed"; 0
-            | Ok _ ->
-                prerr_endline "local deletion was not repaired"; 4
-            | Error Imap_sync.Error.Writer_busy ->
-                prerr_endline "Maildir writer lease is busy"; 8
-            | Error (Imap_sync.Error.Client _) ->
-                prerr_endline "IMAP verification failed; deletion unchanged"; 6
-            | Error (Imap_sync.Error.Maildir error) ->
-                local_failure error
-            | Error error ->
-                Format.eprintf "local deletion unchanged: %a@."
-                  Imap_sync.Error.pp error; 4
-           with Maildir.Writer_lock_busy _ ->
-             prerr_endline "Maildir writer lease is busy"; 8)
+let count_preview t (item:Imap_sync.Plan.sync_preview) =
+  match item with
+  | Preview_copy_remote _ -> t.copy_remote<-t.copy_remote+1
+  | Preview_copy_local _ -> t.copy_local<-t.copy_local+1
+  | Preview_flags _ -> t.flags<-t.flags+1
+  | Preview_pending _ -> t.pending<-t.pending+1
+  | Preview_bootstrap_hold | Preview_pair_hold _ -> t.held<-t.held+1
+  | Preview_deletion item -> count_deletion t item
 
-let remote_delete_repair config ~finish ~net ~fs ~random ~getenv =
-  with_password config ~getenv @@ fun password ->
-      let db_path=Eio.Path.(fs / config.db) in
-      let maildir_path=Eio.Path.(fs / config.maildir) in
-      let spool_dir=Eio.Path.(fs / config.spool_dir) in
-      if Eio.Path.kind ~follow:false db_path<>`Regular_file ||
-         not (Eio.Path.is_directory maildir_path) ||
-         not (Eio.Path.is_directory spool_dir) then (
-        prerr_endline "existing SQLite database, Maildir and spool directory required for repair";
-        5)
-      else Eio.Switch.run @@ fun sw ->
-      let store=Imap_store.open_path ~sw db_path in
-      with_maildir maildir_path @@ fun maildir ->
-      with_context config ~sw ~net ~password ~store ~spool_dir
-        ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
-          (try
-            let result=if finish then
-              (match Imap_sync.Repair.finish_remote_delete
-                ~ctx ~maildir ~id:config.operation_id
-                ~evidence:config.evidence () with
-               | Ok (Imap_sync.Deletion.Deleted _) -> Ok ()
-               | Ok _ -> Error (Imap_sync.Error.Diverged
-                   "targeted UID EXPUNGE did not commit")
-               | Error error -> Error error)
-              else Imap_sync.Repair.reject_remote_delete
-                ~ctx ~maildir ~id:config.operation_id
-                ~evidence:config.evidence () in
-            match result with
-            | Ok () ->
-                prerr_endline (if finish then
-                  "targeted remote deletion committed" else
-                  "unchanged remote target verified; pending deletion rejected");
-                0
-            | Error (Imap_sync.Error.Pending_operations _) ->
-                prerr_endline "targeted deletion remains pending; run inspect";
-                3
-            | Error Imap_sync.Error.Writer_busy ->
-                prerr_endline "Maildir writer lease is busy"; 8
-            | Error (Imap_sync.Error.Client _) ->
-                prerr_endline "IMAP verification failed; deletion remains pending";
-                6
-            | Error (Imap_sync.Error.Maildir error) ->
-                local_failure error
-            | Error error ->
-                Format.eprintf "remote deletion remains pending: %a@."
-                  Imap_sync.Error.pp error; 4
-           with Maildir.Writer_lock_busy _ ->
-             prerr_endline "Maildir writer lease is busy"; 8)
+(* [preview c ~fs ~keep ~count] runs the plan, tallying each event with
+   [count] and keeping the first [c.max_inspect] events for which [keep]
+   holds. *)
+let preview (c:plan) ~fs ~keep ~count =
+  let db=require_db ~fs c.scope.db in
+  let maildir_path=require_dir ~fs "Maildir" c.maildir in
+  let spool_dir=make_dir ~fs c.spool_dir in
+  Eio.Switch.run @@ fun sw ->
+  let store=Imap_store.open_readonly ~sw db in
+  let maildir=open_maildir maildir_path in
+  let scope=local_scope c.scope c.encoding store in
+  let t={events=0; copy_remote=0; copy_local=0; flags=0; delete=0; held=0;
+         pending=0; shown=[]} in
+  let on_preview item =
+    if keep item then (
+      if t.events<c.max_inspect then t.shown<-item::t.shown;
+      t.events<-t.events+1);
+    count t item in
+  let cursor=check "plan failed"
+      (Imap_sync.Plan.preview_sync
+        ~allow_bootstrap_duplicates:c.allow_bootstrap_duplicates
+        ~min_absence_scans:c.min_absence_scans ~store ~maildir ~scope
+        ~policy:c.deletion_policy ~spool_dir ~on_preview ()) in
+  cursor,{t with shown=List.rev t.shown}
 
-let repair_local_append config ~net ~fs ~random ~getenv =
-  with_password config ~getenv @@ fun password ->
-      let db_path=Eio.Path.(fs / config.db) in
-      let maildir_path=Eio.Path.(fs / config.maildir) in
-      let blob_dir=Eio.Path.(fs / config.blob_dir) in
-      let spool_dir=Eio.Path.(fs / config.spool_dir) in
-      if Eio.Path.kind ~follow:false db_path<>`Regular_file ||
-         not (Eio.Path.is_directory maildir_path) ||
-         not (Eio.Path.is_directory blob_dir) ||
-         not (Eio.Path.is_directory spool_dir) then (
-        prerr_endline "existing SQLite database, Maildir, blob and spool directories required for repair";
-        5)
-      else Eio.Switch.run @@ fun sw ->
-      let store=Imap_store.open_path ~sw ~blob_dir db_path in
-      with_maildir maildir_path @@ fun maildir ->
-      with_context config ~sw ~net ~password ~store ~spool_dir
-        ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
-          match Imap_sync.Repair.local_append ~ctx ~maildir
-              ~id:config.operation_id ~evidence:config.evidence () with
-          | Ok () ->
-              prerr_endline "local append repaired and committed"; 0
-          | Error Imap_sync.Error.Writer_busy ->
-              prerr_endline "Maildir writer lease is busy"; 8
-          | Error (Imap_sync.Error.Client _) ->
-              prerr_endline "IMAP verification failed; local append unchanged"; 6
-          | Error (Imap_sync.Error.Invalid_operation _) ->
-              prerr_endline "pending local append not found in this scope"; 9
-          | Error (Imap_sync.Error.Maildir error) ->
-              local_failure error
-          | Error error ->
-              Format.eprintf "local append unchanged: %a@."
-                Imap_sync.Error.pp error; 4
+let presence = function
+  | None -> "unknown" | Some true -> "present" | Some false -> "absent"
 
-let settle_flags config ~net ~fs ~random ~getenv =
-  with_password config ~getenv @@ fun password ->
-      let db_path=Eio.Path.(fs / config.db) in
-      let maildir_path=Eio.Path.(fs / config.maildir) in
-      if Eio.Path.kind ~follow:false db_path<>`Regular_file ||
-         not (Eio.Path.is_directory maildir_path) then (
-        prerr_endline "existing SQLite database and Maildir required for FLAGS settlement";
-        5)
-      else Eio.Switch.run @@ fun sw ->
-      let store=Imap_store.open_path ~sw db_path in
-      with_maildir maildir_path @@ fun maildir ->
-      with_context config ~sw ~net ~password ~store
-        ~spool_dir:Eio.Path.(fs / config.spool_dir)
-        ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
-          (try match Imap_sync.Repair.settle_flags ~ctx ~maildir
-              ~id:config.operation_id ~evidence:config.evidence () with
-           | Ok (Imap_sync.Flags.Updated _) ->
-               prerr_endline "matching endpoint flags adopted; old intent rejected";
-               0
-           | Ok Imap_sync.Flags.Unchanged ->
-               prerr_endline "FLAGS settlement made no change"; 4
-           | Error Imap_sync.Error.Writer_busy ->
-               prerr_endline "Maildir writer lease is busy"; 8
-           | Error (Imap_sync.Error.Client _) ->
-               prerr_endline "IMAP verification failed; FLAGS intent unchanged";
-               6
-           | Error Imap_sync.Error.No_pending_operation ->
-               prerr_endline "pending FLAGS operation not found in this scope";
-               9
-           | Error (Imap_sync.Error.Maildir error) ->
-               local_failure error
-           | Error error ->
-               Format.eprintf "FLAGS intent unchanged: %a@."
-                 Imap_sync.Error.pp error; 4
-           with Maildir.Writer_lock_busy _ ->
-             prerr_endline "Maildir writer lease is busy"; 8)
+let plan_deletions (c:plan) ~fs =
+  let keep = function Imap_sync.Plan.Preview_deletion _ -> true | _ -> false in
+  let count t : Imap_sync.Plan.sync_preview -> unit = function
+    | Preview_deletion item -> count_deletion t item
+    | Preview_pending _ -> t.pending<-t.pending+1
+    | _ -> () in
+  let cursor,t=preview c ~fs ~keep ~count in
+  Printf.printf ("published_revision=%Ld generation=%Ld; " ^^
+    "candidates require live revalidation\n")
+    cursor.revision cursor.generation;
+  List.iter (function
+    | Imap_sync.Plan.Preview_deletion item ->
+        Printf.printf ("pair=%S remote_uid=%Ld remote=%s local_id=%S " ^^
+          "local=%s decision=%s\n")
+          item.pair_id (Imap.Uid.to_int64 item.remote_uid)
+          (presence item.remote_present) item.local_id
+          (if item.local_present then "present" else "absent")
+          (decision_label item.decision)
+    | _ -> ()) t.shown;
+  Printf.printf ("one_sided=%d candidate=%d held=%d pending=%d shown=%d " ^^
+    "capped=%b\n%!")
+    t.events t.delete t.held t.pending (List.length t.shown)
+    (t.events>c.max_inspect);
+  converged
 
-let inspect_append_candidates config ~net ~fs ~random ~getenv =
-  with_password config ~getenv @@ fun password ->
-      let db_path=Eio.Path.(fs / config.db) in
-      let spool_dir=Eio.Path.(fs / config.spool_dir) in
-      if Eio.Path.kind ~follow:false db_path<>`Regular_file ||
-         not (Eio.Path.is_directory spool_dir) then (
-        prerr_endline "existing SQLite database and spool directory required";
-        5)
-      else Eio.Switch.run @@ fun sw ->
-      let store=Imap_store.open_readonly ~sw db_path in
-      with_context config ~sw ~net ~password ~store ~spool_dir
-        ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
-          match Imap_sync.Repair.inspect_append_candidates ~ctx
-              ~id:config.operation_id ~max_uids:config.max_inspect
-              ~max_body_bytes:config.max_candidate_bytes () with
-          | Ok report ->
-              Printf.printf "inspected %d UIDs in UIDVALIDITY %Ld\n%!"
-                report.inspected_uids
-                (Imap.Uidvalidity.to_int64 report.uidvalidity);
-              List.iter (fun uid -> Printf.printf "candidate UID %Ld\n%!"
-                (Imap.Uid.to_int64 uid)) report.matching_uids;
-              prerr_endline
-                "matching bytes do not attribute APPEND; independent APPENDUID evidence is required";
-              0
-          | Error (Imap_sync.Error.Invalid_operation _) ->
-              prerr_endline "pending APPEND operation not found in this scope";
-              9
-          | Error (Imap_sync.Error.Client error) ->
-              Format.eprintf "IMAP candidate inspection failed: %a@."
-                Imap_eio.Client.pp_error error; 6
-          | Error error ->
-              Format.eprintf "APPEND candidate inspection failed: %a@."
-                Imap_sync.Error.pp error; 4
+let plan_sync (c:plan) ~fs =
+  let cursor,t=preview c ~fs ~keep:(fun _ -> true) ~count:count_preview in
+  let wires xs=String.concat "," (List.map Mail_flag.Imap_flag.to_wire xs) in
+  let delta (x:Imap.Sync_policy.flag_delta) =
+    Printf.sprintf "+[%s]-[%s]" (wires x.add) (wires x.remove) in
+  let line : Imap_sync.Plan.sync_preview -> string = function
+    | Preview_pending id -> Printf.sprintf "pending operation=%S" id
+    | Preview_bootstrap_hold ->
+        "hold: both endpoints have unpaired messages; bootstrap opt-in required"
+    | Preview_copy_remote uid ->
+        Printf.sprintf "candidate:copy-remote uid=%Ld" (Imap.Uid.to_int64 uid)
+    | Preview_copy_local id -> Printf.sprintf "candidate:copy-local id=%S" id
+    | Preview_flags flags ->
+        Printf.sprintf "candidate:flags pair=%S remote=%s local=%s"
+          flags.pair_id (delta flags.to_remote) (delta flags.to_local)
+    | Preview_pair_hold (id,reason) ->
+        Printf.sprintf "hold pair=%S reason=%S" id reason
+    | Preview_deletion item ->
+        Printf.sprintf "pair=%S remote_uid=%Ld local_id=%S %s"
+          item.pair_id (Imap.Uid.to_int64 item.remote_uid)
+          item.local_id (decision_label item.decision) in
+  Printf.printf ("published_revision=%Ld generation=%Ld; " ^^
+    "all candidates require live revalidation\n")
+    cursor.revision cursor.generation;
+  List.iter (fun item -> print_endline (line item)) t.shown;
+  Printf.printf ("events=%d copy_remote=%d copy_local=%d flags=%d " ^^
+    "delete=%d held=%d pending=%d shown=%d capped=%b\n%!")
+    t.events t.copy_remote t.copy_local t.flags t.delete t.held t.pending
+    (List.length t.shown) (t.events>c.max_inspect);
+  converged
 
-let run config ~net ~fs ~random ~getenv =
-  try match config.command with
-    | Sync -> sync config ~net ~fs ~random ~getenv
-    | Hydrate -> hydrate config ~net ~fs ~random ~getenv
-    | Audit_cache -> audit_cache config ~fs
-    | Inspect -> inspect config ~fs
-    | Inspect_append_candidates ->
-        inspect_append_candidates config ~net ~fs ~random ~getenv
-    | Repair_appenduid -> repair_appenduid config ~fs
-    | Mark_local_retention -> mark_local_retention config ~fs
-    | Plan_deletions -> plan_deletions config ~fs
-    | Plan_sync -> plan_sync config ~fs
-    | Verify_local -> verify_local config ~fs ~random
-    | Repair_local_delete ->
-        repair_local_delete config ~net ~fs ~random ~getenv
-    | Reject_remote_delete -> remote_delete_repair config ~finish:false
-        ~net ~fs ~random ~getenv
-    | Finish_remote_delete -> remote_delete_repair config ~finish:true
-        ~net ~fs ~random ~getenv
-    | Repair_local_append ->
-        repair_local_append config ~net ~fs ~random ~getenv
-    | Settle_flags -> settle_flags config ~net ~fs ~random ~getenv
+let online_repair (r:repair) ~env ~secret ~net ~fs ~random ?blob_dir
+    ~spool_required f =
+  let password=password r.connection ~env ~secret in
+  let db=require_db ~fs r.scope.db in
+  let maildir_path=require_dir ~fs "Maildir" r.maildir in
+  let blob_dir=Option.map (require_dir ~fs "blob directory") blob_dir in
+  let spool_dir=if spool_required then
+      require_dir ~fs "spool directory" r.spool_dir
+    else path ~fs r.spool_dir in
+  Eio.Switch.run @@ fun sw ->
+  let store=Imap_store.open_path ~sw ?blob_dir db in
+  let maildir=open_maildir maildir_path in
+  with_context r.connection r.scope ~password ~sw ~net ~store ~spool_dir
+    ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
+  ignore (find_operation store ~scope:ctx.scope r.operation_id);
+  f ~ctx ~maildir ~id:r.operation_id ~evidence:r.evidence
+
+let repair_local_delete r ~env ~secret ~net ~fs ~random =
+  online_repair r ~env ~secret ~net ~fs ~random ~spool_required:false
+  @@ fun ~ctx ~maildir ~id ~evidence ->
+  match check "local deletion unchanged"
+      (Imap_sync.Repair.local_delete ~ctx ~maildir ~id ~evidence ()) with
+  | Imap_sync.Deletion.Deleted _ ->
+      prerr_endline "local deletion repaired and committed"; converged
+  | _ -> prerr_endline "local deletion was not repaired"; conflict
+
+let remote_delete_repair r ~finish ~env ~secret ~net ~fs ~random =
+  online_repair r ~env ~secret ~net ~fs ~random ~spool_required:true
+  @@ fun ~ctx ~maildir ~id ~evidence ->
+  let what="remote deletion remains pending" in
+  if finish then
+    match check what (Imap_sync.Repair.finish_remote_delete ~ctx ~maildir
+        ~id ~evidence ()) with
+    | Imap_sync.Deletion.Deleted _ ->
+        prerr_endline "targeted remote deletion committed"; converged
+    | _ ->
+        prerr_endline "targeted UID EXPUNGE did not commit; run inspect";
+        conflict
+  else (
+    check what (Imap_sync.Repair.reject_remote_delete ~ctx ~maildir ~id
+      ~evidence ());
+    prerr_endline
+      "unchanged remote target verified; pending deletion rejected";
+    converged)
+
+let repair_local_append r ~blob_dir ~env ~secret ~net ~fs ~random =
+  online_repair r ~env ~secret ~net ~fs ~random ~blob_dir ~spool_required:true
+  @@ fun ~ctx ~maildir ~id ~evidence ->
+  check "local append unchanged"
+    (Imap_sync.Repair.local_append ~ctx ~maildir ~id ~evidence ());
+  prerr_endline "local append repaired and committed";
+  converged
+
+let settle_flags r ~env ~secret ~net ~fs ~random =
+  online_repair r ~env ~secret ~net ~fs ~random ~spool_required:false
+  @@ fun ~ctx ~maildir ~id ~evidence ->
+  match check "FLAGS intent unchanged"
+      (Imap_sync.Repair.settle_flags ~ctx ~maildir ~id ~evidence ()) with
+  | Imap_sync.Flags.Updated _ ->
+      prerr_endline "matching endpoint flags adopted; old intent rejected";
+      converged
+  | Imap_sync.Flags.Unchanged ->
+      prerr_endline "FLAGS settlement made no change"; conflict
+
+let inspect_append_candidates (c:append_candidates) ~env ~secret ~net ~fs
+    ~random =
+  let password=password c.connection ~env ~secret in
+  let db=require_db ~fs c.scope.db in
+  let spool_dir=require_dir ~fs "spool directory" c.spool_dir in
+  Eio.Switch.run @@ fun sw ->
+  let store=Imap_store.open_readonly ~sw db in
+  with_context c.connection c.scope ~password ~sw ~net ~store ~spool_dir
+    ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
+  ignore (find_operation store ~scope:ctx.scope c.operation_id);
+  let report=check "APPEND candidate inspection failed"
+      (Imap_sync.Repair.inspect_append_candidates ~ctx ~id:c.operation_id
+        ~max_uids:c.max_inspect ~max_body_bytes:c.max_candidate_bytes ()) in
+  Printf.printf "inspected %d UIDs in UIDVALIDITY %Ld\n%!"
+    report.inspected_uids (Imap.Uidvalidity.to_int64 report.uidvalidity);
+  List.iter (fun uid -> Printf.printf "candidate UID %Ld\n%!"
+    (Imap.Uid.to_int64 uid)) report.matching_uids;
+  prerr_endline
+    ("matching bytes do not attribute APPEND; independent APPENDUID " ^
+     "evidence is required");
+  converged
+
+let run job ~env ~net ~fs ~random =
+  let secret=ref "" in
+  try match job with
+    | Sync c -> sync c ~env ~secret ~net ~fs ~random
+    | Hydrate c -> hydrate c ~env ~secret ~net ~fs ~random
+    | Audit_cache c -> audit_cache c ~fs
+    | Inspect c -> inspect c ~fs
+    | Inspect_append_candidates c ->
+        inspect_append_candidates c ~env ~secret ~net ~fs ~random
+    | Repair_appenduid c -> repair_appenduid c ~fs
+    | Repair_local_delete r ->
+        repair_local_delete r ~env ~secret ~net ~fs ~random
+    | Repair_local_append { repair; blob_dir } ->
+        repair_local_append repair ~blob_dir ~env ~secret ~net ~fs ~random
+    | Settle_flags r -> settle_flags r ~env ~secret ~net ~fs ~random
+    | Reject_remote_delete r ->
+        remote_delete_repair r ~finish:false ~env ~secret ~net ~fs ~random
+    | Finish_remote_delete r ->
+        remote_delete_repair r ~finish:true ~env ~secret ~net ~fs ~random
+    | Mark_local_retention c -> mark_local_retention c ~fs
+    | Plan_deletions c -> plan_deletions c ~fs
+    | Plan_sync c -> plan_sync c ~fs
+    | Verify_local c -> verify_local c ~fs ~random
   with
   | Eio.Cancel.Cancelled _ as exn -> raise exn
-  | Invalid_argument message ->
-      Printf.eprintf "configuration: %s\n%!" message; 5
   | exn ->
-      let secret=Option.value ~default:"" (getenv config.password_env) in
-      Printf.eprintf "local filesystem or SQLite operation failed: %s\n%!"
-        (redact secret (Printexc.to_string exn));
-      7
+      let code,message=classify exn in
+      prerr_endline (redact !secret message);
+      code
+
+let eval ?help ?err ~env ~argv ~net ~fs ~random () =
+  match Cmd.eval_value' ?help ?err ~env ~argv ~term_err:configuration cmd with
+  | `Ok job -> run job ~env ~net ~fs ~random
+  | `Exit code when code=Cmd.Exit.cli_error -> configuration
+  | `Exit code -> code

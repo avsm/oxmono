@@ -79,9 +79,10 @@ val copy_once :
     defaults to zero; a positive value also holds legacy local tombstones
     without first-observed generation metadata.
     [max_transfers] covers copies, flag updates, and deletions. The entire
-    cycle holds a cross-process Maildir writer lease;
-    another writer yields [Writer_busy]. All direct Maildir writers must honor
-    the same lease. Store/Maildir I/O exceptions and Eio cancellation
+    cycle holds the cross-process Maildir writer lease, and failing to
+    acquire it yields [Writer_busy]. All direct Maildir writers must honor
+    the same lease. [Imap_maildir.Metadata_lock_busy] from a contended
+    Dovecot lock, other Store and Maildir exceptions, and Eio cancellation
     propagate. [flags_held] and [deletions_held] count policy/survivor holds;
     [held_pair_ids] includes at most 100 IDs for diagnostics. A hold means the
     requested policy has not fully converged, even when [more=false]. *)

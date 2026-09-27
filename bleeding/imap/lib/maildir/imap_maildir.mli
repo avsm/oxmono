@@ -28,7 +28,14 @@ type occurrence = private {
 }
 
 exception Writer_lock_busy of string
-(** Another process or handle holds the requested writer or metadata lock. *)
+(** [Writer_lock_busy path] is raised by {!with_writer_lock} when another
+    process or handle holds the application writer lease on the Maildir at
+    [path]. *)
+
+exception Metadata_lock_busy of string
+(** [Metadata_lock_busy path] is raised by {!scan}, {!find},
+    {!with_inventory_pages}, {!append}, {!set_flags} and {!remove} when the
+    Dovecot metadata lock at [path] already exists. *)
 
 exception Metadata_lock_lost of string
 (** [Metadata_lock_lost path] is raised when the metadata lock at [path] was

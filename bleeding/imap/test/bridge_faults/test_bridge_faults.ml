@@ -1226,6 +1226,28 @@ let test_writer_lease_blocks_bridge () =
           Imap_sync.Bridge.pp_error error
       | Ok _ -> Alcotest.fail "bridge ignored competing writer lease"))
 
+let test_metadata_lock_is_not_writer_lease () =
+  let dir=root () in
+  Fun.protect ~finally:(fun () -> remove_tree dir) @@ fun () ->
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let fs=Eio.Stdenv.fs env in
+  let store=open_store ~sw ~database:Eio.Path.(fs / dir / "sync.db")
+    ~blob_dir:Eio.Path.(fs / dir / "blob") in
+  let root=Eio.Path.(fs / dir / "maildir") in
+  let maildir=Imap_maildir.open_dir root in
+  Eio.Path.save ~create:(`Exclusive 0o600)
+    Eio.Path.(root / "dovecot-uidlist.lock") "1 other.example\n";
+  let client=scripted_scan ~sw ~has_message:false () in
+  match run_bridge ~client ~store ~maildir
+      ~spool_dir:Eio.Path.(fs / dir / "spool") with
+  | exception Imap_maildir.Metadata_lock_busy _ -> ()
+  | Error Imap_sync.Bridge.Writer_busy ->
+      Alcotest.fail "metadata lock reported as a busy writer lease"
+  | Error error -> Alcotest.failf "wrong metadata lock result: %a"
+      Imap_sync.Bridge.pp_error error
+  | Ok _ -> Alcotest.fail "bridge ignored the metadata lock"
+
 let test_prepared_copies_rejected_without_send () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run (fun sw ->
@@ -2308,6 +2330,8 @@ else Alcotest.run "imap-bridge-faults" [
       test_watch_keepalive_does_not_rescan;
     Alcotest.test_case "watch IDLE renewal limit" `Quick
       test_watch_rejects_long_idle_renewal;
+    Alcotest.test_case "metadata lock is not the writer lease" `Quick
+      test_metadata_lock_is_not_writer_lease;
     Alcotest.test_case "remote source vanishes before archival" `Quick
       test_remote_source_vanishes_before_archive;
     Alcotest.test_case "local source changes before archival" `Quick

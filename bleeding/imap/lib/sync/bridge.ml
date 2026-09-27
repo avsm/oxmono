@@ -60,6 +60,11 @@ let ( let* ) result f = match result with Ok value -> f value | Error _ as e -> 
 let network = function Ok value -> Ok value | Error error -> Error (Client error)
 let sync = function Ok value -> Ok value | Error error -> Error (Sync error)
 
+let with_lease maildir f =
+  let entered=ref false in
+  try Imap_maildir.with_writer_lock maildir (fun () -> entered:=true; f ())
+  with Imap_maildir.Writer_lock_busy _ when not !entered -> Error Writer_busy
+
 let durable_flags = F.durable
 let same_flags = F.equal_durable
 
@@ -932,13 +937,12 @@ let copy_once ?max_transfers ?min_absence_scans
     ?allow_bootstrap_duplicates ?deletion_policy
     ~client ~store ~maildir ~scope ~mailbox ~stage_id ~next_id
     ~spool_dir () =
-  try Imap_maildir.with_writer_lock maildir (fun () ->
+  with_lease maildir (fun () ->
     copy_once_unlocked ?max_transfers ?min_absence_scans
       ?allow_bootstrap_duplicates
       ?deletion_policy
       ~client ~store ~maildir ~scope ~mailbox ~stage_id ~next_id
       ~spool_dir ())
-  with Imap_maildir.Writer_lock_busy _ -> Error Writer_busy
 
 type local_verification = {
   checked : int64;
@@ -949,7 +953,7 @@ type local_verification = {
 }
 
 let verify_local_content ~store ~maildir ~scope ~next_id ~on_issue () =
-  try Imap_maildir.with_writer_lock maildir (fun () ->
+  with_lease maildir (fun () ->
     Imap_maildir.with_inventory_pages maildir (fun inventory ->
       let checked=ref 0L and mismatched=ref 0L and restored=ref 0L in
       let missing=ref 0L and unverified=ref 0L in
@@ -1014,7 +1018,6 @@ let verify_local_content ~store ~maildir ~scope ~next_id ~on_issue () =
       Ok {checked= !checked;mismatched= !mismatched;
           restored= !restored;missing= !missing;
           unverified= !unverified}))
-  with Imap_maildir.Writer_lock_busy _ -> Error Writer_busy
 
 let mark_local_retention ~store ~maildir ~scope ~pair_id ~evidence () =
   let printable=String.for_all (fun c ->
@@ -1022,7 +1025,7 @@ let mark_local_retention ~store ~maildir ~scope ~pair_id ~evidence () =
   if pair_id="" || String.trim evidence="" ||
      String.length evidence>1024 || not printable then
     Error (Invalid_configuration "retention requires a pair ID and 1..1024 printable evidence bytes")
-  else try Imap_maildir.with_writer_lock maildir (fun () ->
+  else with_lease maildir (fun () ->
     Imap_maildir.with_inventory_pages maildir (fun inventory ->
       match J.find_pair store ~id:pair_id with
       | None -> Error (Invalid_operation "retention pair does not exist")
@@ -1052,7 +1055,6 @@ let mark_local_retention ~store ~maildir ~scope ~pair_id ~evidence () =
                     Error (Invalid_operation "invalid local tombstone"))
           | _ -> Error (Invalid_operation
               "retention requires an active paired remote binding")))
-  with Imap_maildir.Writer_lock_busy _ -> Error Writer_busy
 
 type deletion_preview = {
   pair_id : string;
@@ -1117,7 +1119,7 @@ let preview_deletions ?(min_absence_scans=0) ~store ~maildir ~scope
     ~policy ~on_preview () =
   if min_absence_scans<0 then
     invalid_arg "Bridge.preview_deletions: negative absence grace";
-  try Imap_maildir.with_writer_lock maildir (fun () ->
+  with_lease maildir (fun () ->
     let cursor=Imap_store.load_cursor store ~scope in
     match cursor.phase,cursor.uidvalidity,cursor.inventory_ref with
     | Imap.Mirror.Live,Some current_epoch,Some _ ->
@@ -1154,7 +1156,6 @@ let preview_deletions ?(min_absence_scans=0) ~store ~maildir ~scope
         pages None)
     | _ -> Error (Invalid_configuration
         "deletion preview requires a complete published remote inventory"))
-  with Imap_maildir.Writer_lock_busy _ -> Error Writer_busy
 
 type sync_preview =
   | Preview_pending of string
@@ -1174,7 +1175,7 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
     ~scope ~policy ~on_preview () =
   if min_absence_scans<0 then
     invalid_arg "Bridge.preview_sync: negative absence grace";
-  try Imap_maildir.with_writer_lock maildir (fun () ->
+  with_lease maildir (fun () ->
     let cursor=Imap_store.load_cursor store ~scope in
     match cursor.phase,cursor.uidvalidity,cursor.inventory_ref with
     | Imap.Mirror.Live,Some current_epoch,Some _ ->
@@ -1306,7 +1307,6 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
               Error Stale_revision else Ok cursor)
     | _ -> Error (Invalid_configuration
         "sync preview requires a complete published remote inventory"))
-  with Imap_maildir.Writer_lock_busy _ -> Error Writer_busy
 
 let repair_local_append ~client ~store ~maildir ~scope ~mailbox ~id
     ~evidence ~spool_dir () =
@@ -1317,7 +1317,7 @@ let repair_local_append ~client ~store ~maildir ~scope ~mailbox ~id
     Error (Invalid_operation
       "repair evidence must be 1..1024 printable bytes")
   else
-    try Imap_maildir.with_writer_lock maildir (fun () ->
+    with_lease maildir (fun () ->
       let* op=match J.find_operation store ~id with
         | Some op -> Ok op
         | None -> Error (Invalid_operation "unknown sync operation ID") in
@@ -1381,7 +1381,6 @@ let repair_local_append ~client ~store ~maildir ~scope ~mailbox ~id
         commit_pair store ~id
           (pair ~id ~scope ~uidvalidity ~uid ~local_id ~sha256 ~length
             ~internal_date ~flags ())))
-    with Imap_maildir.Writer_lock_busy _ -> Error Writer_busy
 
 let record_appenduid_evidence ~store ~maildir ~scope ~id
     ~uidvalidity ~uid ~evidence () =
@@ -1392,7 +1391,7 @@ let record_appenduid_evidence ~store ~maildir ~scope ~id
     Error (Invalid_operation
       "APPENDUID evidence must be 1..1024 printable bytes")
   else
-    try Imap_maildir.with_writer_lock maildir (fun () ->
+    with_lease maildir (fun () ->
       let* operation=match J.find_operation store ~id with
         | Some operation -> Ok operation
         | None -> Error (Invalid_operation "unknown sync operation ID") in
@@ -1443,7 +1442,6 @@ let record_appenduid_evidence ~store ~maildir ~scope ~id
              ~destination_uid:(Some uid);
            Ok ()
        | _ -> assert false))
-    with Imap_maildir.Writer_lock_busy _ -> Error Writer_busy
 
 type append_candidates = {
   uidvalidity : P.Uidvalidity.t;

@@ -16,7 +16,8 @@ type t = { root : directory; tmp : directory; new_dir : directory;
            cur : directory;
            mutable keywords : (keywords_key * Keywords.t) option }
 type recovery = { removed_temporary : string list }
-exception Writer_lock_busy = Dotlock.Busy
+exception Writer_lock_busy of string
+exception Metadata_lock_busy = Dotlock.Busy
 exception Metadata_lock_lost = Dotlock.Lost
 exception Stale_occurrence
 module Sql = Sqlite3

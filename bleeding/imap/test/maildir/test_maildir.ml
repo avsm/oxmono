@@ -53,7 +53,7 @@ let test_standard_format env = with_root (fun root ->
   Eio.Path.save ~create:(`Exclusive 0o600) lock
     (Printf.sprintf "%d %s\n" (Unix.getpid ()) (Unix.gethostname ()));
   (try ignore (M.set_flags m changed []); Alcotest.fail "live metadata lock ignored"
-   with M.Writer_lock_busy _ -> ());
+   with M.Metadata_lock_busy _ -> ());
   Eio.Path.unlink lock;
   Alcotest.(check string) "content survives lock contention" "x"
     (Eio.Path.load Eio.Path.(path / "cur" / changed.filename)))
@@ -561,7 +561,7 @@ let test_metadata_lock_recovery env = with_root (fun root ->
   let busy label =
     let before=Unix.lstat lock in
     (try ignore (M.scan m); Alcotest.fail (label ^ " was reclaimed")
-     with M.Writer_lock_busy _ -> ());
+     with M.Metadata_lock_busy _ -> ());
     let after=Unix.lstat lock in
     Alcotest.(check int) (label ^ " inode retained") before.Unix.st_ino after.Unix.st_ino in
   let pid=Unix.create_process "/bin/true" [|"/bin/true"|]

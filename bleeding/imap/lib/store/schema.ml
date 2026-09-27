@@ -106,7 +106,8 @@ let validate_schema t =
     | _ -> fail ("incompatible unique occurrence index: " ^ name))
     ["sync_pairs_remote","endpoint,account,mailbox_key,remote_epoch,remote_uid",
        "remote_uid IS NOT NULL";
-     "sync_pairs_local","endpoint,account,mailbox_key,local_id","local_id IS NOT NULL"];
+     "sync_pairs_local","endpoint,account,mailbox_key,local_id",
+       "local_id IS NOT NULL"];
   version
 
 let initialize db f =

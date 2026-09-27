@@ -62,8 +62,10 @@ let run env =
       let raw=Sqlite3.db_open path in
       Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close raw)) (fun () ->
         Sqlite3.Rc.check (Sqlite3.exec raw
-          "UPDATE intents SET digest='sha256:abc',expected_internal_date='legacy-invalid-date' WHERE id='legacy'; \
-           UPDATE intents SET message_id=NULL,digest=NULL,spool_ref=NULL WHERE id='legacy-null'"));
+          "UPDATE intents SET digest='sha256:abc',\
+           expected_internal_date='legacy-invalid-date' WHERE id='legacy'; \
+           UPDATE intents SET message_id=NULL,digest=NULL,spool_ref=NULL \
+           WHERE id='legacy-null'"));
       Eio.Switch.run (fun sw ->
         let db=Store.open_path ~sw location in
         (match Store.find_intent db ~id:"legacy" with

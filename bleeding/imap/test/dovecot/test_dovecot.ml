@@ -1742,7 +1742,7 @@ let test_flags_recovery () =
   let restarted=open_store restart_sw in
   let recover operation=Imap_maildir.with_writer_lock maildir (fun () ->
     Imap_sync.Flags.recover_operation ~client ~store:restarted ~maildir
-      ~mailbox ~operation) in
+      ~mailbox ~operation ()) in
   let pending=Option.get (Imap_store.Sync.find_operation restarted
     ~id:first.id) in
   (match recover pending with

@@ -1,6 +1,8 @@
 (** Durable three-way flag reconciliation for one paired IMAP/Maildir occurrence.
-    This module does not discover pairs or publish mailbox inventories. The
-    caller must serialize writers for the Maildir and SQLite store. *)
+    This module does not discover pairs or publish mailbox inventories.
+    [reconcile_pair] and [recover_operation] require the caller to hold the
+    Maildir writer lease. [settle_operation] takes the lease itself, so the
+    caller must not hold it. *)
 
 type error =
   | Client of Imap_eio.Error.t
@@ -8,11 +10,13 @@ type error =
   | Stale_pair
   | Missing_occurrence
   | Uidvalidity_changed
-  | Deleted_flag_held
   | Conditional_store_unavailable
   | Permanent_flag_unavailable of Mail_flag.Imap_flag.t
   | Modified
+      (** [Modified] is returned when an endpoint changed after it was read
+          and before any write, so the operation was rejected unapplied. *)
   | Pending_operation of string
+  | No_pending_operation
   | Content_mismatch of string
   | Diverged of string
 
@@ -22,72 +26,113 @@ type outcome = Unchanged | Updated of Imap_store.Sync.pair
 
 type plan = No_change | Apply of Mail_flag.Imap_flag.t list
 
+type decision = {
+  plan : plan;
+      (** [Apply merged] carries the new common flags. [merged] keeps the
+          base state of a held [\\Deleted], and each endpoint keeps its own
+          [\\Deleted] state while its other flags move to [merged]. *)
+  deleted_held : bool;
+      (** [deleted_held] is [true] when the endpoints disagree on
+          [\\Deleted] and propagation was not requested. *)
+}
+
 val plan_flags :
   ?propagate_deleted:bool -> base:Mail_flag.Imap_flag.t list ->
   remote:Mail_flag.Imap_flag.t list -> local:Mail_flag.Imap_flag.t list ->
   condstore:bool -> remote_modseq:int64 option ->
-  unit -> (plan, error) result
-(** Pure decision for the observed flags. Remote mutation requires a usable
-    MODSEQ and conditional STORE support; local-only changes do not. *)
+  unit -> (decision, error) result
+(** [plan_flags ~base ~remote ~local ~condstore ~remote_modseq ()] is the
+    pure decision for the observed flags. Every flag other than [\\Deleted]
+    merges. [propagate_deleted] defaults to [false], which holds a
+    [\\Deleted] change and reports it in [deleted_held]. A remote write
+    requires [condstore] and a positive [remote_modseq], and otherwise
+    returns [Conditional_store_unavailable]. Local-only changes need
+    neither. *)
 
 val validate_permanent_flags :
-  available:string list option ->
+  available:string list option -> defined:string list option ->
   remote:Mail_flag.Imap_flag.t list ->
   merged:Mail_flag.Imap_flag.t list -> (unit, error) result
-(** Pure SELECT PERMANENTFLAGS preflight. The special [\\*] permits adding
-    new keywords; removing a flag still requires its explicit listing. *)
+(** [validate_permanent_flags ~available ~defined ~remote ~merged] checks
+    that moving the remote flags from [remote] to [merged] is permitted by
+    SELECT's PERMANENTFLAGS [available] and FLAGS [defined]. When
+    [available] is [None] every flag is permanent, as RFC 9051 section 6.3.2
+    requires. Otherwise every added or removed flag must be listed, except
+    that [\\*] permits adding a keyword absent from [defined]. A keyword in
+    [defined] but not in [available] is never settable. *)
+
+type reconciled = {
+  outcome : outcome;
+  deleted_held : bool;
+      (** [deleted_held] is [true] when a [\\Deleted] change was held while
+          the other flags reconciled. *)
+}
 
 val reconcile_pair :
-  ?propagate_deleted:bool -> client:Imap_eio.Client.t ->
+  ?propagate_deleted:bool -> ?inventory:Imap_maildir.paged_inventory ->
+  client:Imap_eio.Client.t ->
   store:Imap_store.t -> maildir:Imap_maildir.t -> mailbox:string ->
   pair:Imap_store.Sync.pair -> next_id:(unit -> string) ->
-  unit -> (outcome, error) result
-(** Fetch current UID FLAGS/MODSEQ and Maildir flags, merge against
-    [pair.common_flags], and journal an intent before changing either side.
-    Remote writes use UID STORE FLAGS with UNCHANGEDSINCE; if a remote write
-    is needed without CONDSTORE/QRESYNC and a usable message MODSEQ, return
-    [Conditional_store_unavailable]. The driver also refuses remote changes
-    that SELECT's PERMANENTFLAGS does not permit. The default holds changes
-    to [\\Deleted].
-    The local occurrence must match the pair's saved body digest and length
-    before dispatch. A mismatch creates a durable [Content_conflict] without
-    creating a FLAGS operation. Its content is checked again around the local
-    flag update, so a concurrent replacement leaves the journal pending
-    instead of advancing the common baseline.
+  unit -> (reconciled, error) result
+(** [reconcile_pair ~client ~store ~maildir ~mailbox ~pair ~next_id ()]
+    fetches the current UID FLAGS and MODSEQ and the Maildir flags, merges
+    them against [pair.common_flags] as {!plan_flags} does, and journals an
+    intent before changing either side. [inventory], when given, is the live
+    paged view the caller holds, and the local occurrence is read from it.
+
+    Remote writes use UID STORE FLAGS with UNCHANGEDSINCE, and a remote
+    change not permitted by SELECT's PERMANENTFLAGS returns
+    [Permanent_flag_unavailable]. When both endpoints already hold the merge,
+    the common baseline advances without an operation.
+
+    The local occurrence must match the pair's saved body digest and length.
+    A mismatch creates a durable [Content_conflict] and returns
+    [Content_mismatch] without creating a FLAGS operation. An observation
+    that is stale because the file changed returns [Modified]. For a
+    local-only change, a concurrent change on either side before the local
+    write rejects the operation and returns [Modified]. A STORE rejected or
+    refused before dispatch rejects the operation and returns [Client].
+
     A successful call verifies both endpoints before atomically committing
-    the new pair revision and operation. A mutation with uncertain outcome
-    remains pending with a durable [Flag_conflict] record describing verified
-    divergence; callers must call [recover_operation] or investigate it
-    before issuing a new write for this pair. Store/Maildir I/O exceptions and
-    Eio cancellation propagate. The caller must hold the Maildir writer
-    lease across the operation; [Bridge.copy_once] does this. *)
+    the new pair revision and operation. A mutation with uncertain outcome,
+    including a failed read after STORE, remains pending with a durable
+    [Flag_conflict] record. Callers must call [recover_operation] or
+    investigate it before issuing a new write for this pair. A pending
+    operation of another kind returns [Diverged]. Store and Maildir
+    exceptions and Eio cancellation propagate. *)
 
 val recover_operation :
+  ?inventory:Imap_maildir.paged_inventory ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   maildir:Imap_maildir.t -> mailbox:string ->
-  operation:Imap_store.Sync.operation ->
+  operation:Imap_store.Sync.operation -> unit ->
   (outcome, error) result
-(** Verify the saved pair revision, UIDVALIDITY, remote target and paired
-    local body hash/length. If local flags are still the saved preimage,
-    finish the local write and commit; if both sides already match, just
-    commit. Never replay an uncertain remote STORE. Divergence, missing
-    preimage or missing content evidence holds the operation for repair and
-    records a stable-ID flag conflict. A changed local body is held before
-    any remote read, and repeated recovery preserves the conflict ID. A
-    verified pair commit resolves that
-    conflict atomically with the operation and new common flags.
-    Prepared intents can be rejected because dispatch has not begun. The
-    caller must hold the Maildir writer lease across recovery. *)
+(** [recover_operation ~client ~store ~maildir ~mailbox ~operation ()] verifies
+    the saved pair revision, UIDVALIDITY, remote target and paired local body
+    hash and length. [inventory], when given, is the live paged view the
+    caller holds. If local flags are still the saved preimage, it finishes
+    the local write and commits. If both sides already match, it commits.
+    It never replays an uncertain remote STORE. Divergence, a missing
+    preimage or missing content evidence holds the operation and records a
+    stable-ID flag conflict. A changed local body is held before any remote
+    read, and repeated recovery preserves the conflict ID. A verified pair
+    commit resolves that conflict atomically with the operation and new
+    common flags. A [Prepared] intent is rejected because dispatch had not
+    begun. A pair in another scope returns [Stale_pair]. *)
 
 val settle_operation :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   maildir:Imap_maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
   id:string -> evidence:string -> unit -> (outcome, error) result
-(** Explicit operator repair of a sent, ambiguous or observed FLAGS intent
-    after both endpoints have been manually brought to the same flags. Holds
-    the Maildir writer lease, verifies the operation and pair revision,
-    OBJECTID+ binding when present, UIDVALIDITY, paired local content and
-    date, and stable remote MODSEQ across two reads. It sends no STORE and
-    changes no Maildir flags. An atomic SQLite transition adopts the agreed
-    flags as common, rejects the superseded intent with operator evidence,
-    and resolves its flag conflict. Divergence leaves all state pending. *)
+(** [settle_operation ~client ~store ~maildir ~scope ~mailbox ~id ~evidence ()]
+    is the explicit operator repair of a sent, ambiguous or observed FLAGS
+    intent after both endpoints have been brought to the same flags by hand.
+    It takes the Maildir writer lease and verifies the operation and pair
+    revision, a saved OBJECTID+ binding, UIDVALIDITY, the paired local content
+    and date, and a stable remote MODSEQ across two reads. It sends no STORE
+    and changes no Maildir flags. An atomic SQLite transition adopts the
+    agreed flags as common, rejects the superseded intent with operator
+    evidence, and resolves its flag conflict. Divergence leaves all state
+    pending. An unknown or finished operation returns [No_pending_operation],
+    a pair in another scope [Stale_pair], and a changed local body
+    [Content_mismatch]. *)

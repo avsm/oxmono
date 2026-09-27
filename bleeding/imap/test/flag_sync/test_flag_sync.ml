@@ -8,8 +8,8 @@ let keyword=match F.of_wire "customKey" with
   | Ok flag -> flag | Error e -> failwith e
 
 let apply = function
-  | Ok (S.Apply flags) -> flags
-  | Ok S.No_change -> Alcotest.fail "expected flag changes"
+  | Ok {S.plan=S.Apply flags;_} -> flags
+  | Ok {plan=S.No_change;_} -> Alcotest.fail "expected flag changes"
   | Error e -> Alcotest.fail (Format.asprintf "%a" S.pp_error e)
 
 let test_remote_add_to_local () =
@@ -38,8 +38,15 @@ let test_local_add_requires_modseq () =
 let test_deleted_hold () =
   (match S.plan_flags ~base:[] ~remote:[deleted] ~local:[]
     ~condstore:true ~remote_modseq:(Some 1L) () with
-   | Error S.Deleted_flag_held -> ()
+   | Ok {plan=S.No_change;deleted_held=true} -> ()
    | _ -> Alcotest.fail "\\Deleted must be held by default");
+  (match S.plan_flags ~base:[] ~remote:[deleted;seen] ~local:[flagged]
+    ~condstore:true ~remote_modseq:(Some 1L) () with
+   | Ok {plan=S.Apply merged;deleted_held=true} ->
+       Alcotest.(check bool) "other flags merge while \\Deleted is held" true
+         (List.mem seen merged && List.mem flagged merged &&
+          not (List.mem deleted merged))
+   | _ -> Alcotest.fail "held \\Deleted blocked the other flags");
   let flags=S.plan_flags ~propagate_deleted:true ~base:[]
     ~remote:[deleted] ~local:[] ~condstore:false ~remote_modseq:None ()
     |> apply in
@@ -63,7 +70,7 @@ let test_three_way_and_recent () =
 let test_no_change () =
   match S.plan_flags ~base:[seen] ~remote:[seen]
     ~local:[seen] ~condstore:false ~remote_modseq:None () with
-  | Ok S.No_change -> ()
+  | Ok {plan=S.No_change;deleted_held=false} -> ()
   | _ -> Alcotest.fail "equal observations should be a no-op"
 
 let test_common_baseline_advances () =
@@ -74,20 +81,25 @@ let test_common_baseline_advances () =
 
 let test_permanent_flags () =
   (match S.validate_permanent_flags ~available:(Some ["\\Seen";"\\*"])
-    ~remote:[seen] ~merged:[seen;keyword] with
+    ~defined:None ~remote:[seen] ~merged:[seen;keyword] with
    | Ok () -> () | _ -> Alcotest.fail "wildcard should permit new keyword");
   (match S.validate_permanent_flags ~available:(Some ["\\Seen";"\\*"])
-    ~remote:[seen;keyword] ~merged:[seen] with
+    ~defined:None ~remote:[seen;keyword] ~merged:[seen] with
    | Error (S.Permanent_flag_unavailable flag) when F.equal flag keyword -> ()
    | _ -> Alcotest.fail "wildcard does not authorize keyword removal");
   (match S.validate_permanent_flags ~available:(Some ["\\Seen"])
-    ~remote:[seen] ~merged:[seen;flagged] with
+    ~defined:None ~remote:[seen] ~merged:[seen;flagged] with
    | Error (S.Permanent_flag_unavailable flag) when F.equal flag flagged -> ()
    | _ -> Alcotest.fail "unlisted system flag must be held");
-  (match S.validate_permanent_flags ~available:None
-    ~remote:[] ~merged:[seen] with
-   | Error (S.Diverged _) -> ()
-   | _ -> Alcotest.fail "missing PERMANENTFLAGS cannot prove persistence")
+  (match S.validate_permanent_flags ~available:None ~defined:None
+    ~remote:[] ~merged:[seen;keyword] with
+   | Ok () -> ()
+   | _ -> Alcotest.fail "missing PERMANENTFLAGS means every flag is permanent");
+  (match S.validate_permanent_flags ~available:(Some ["\\Seen";"\\*"])
+    ~defined:(Some ["\\Seen";"customKey"]) ~remote:[seen]
+    ~merged:[seen;keyword] with
+   | Error (S.Permanent_flag_unavailable flag) when F.equal flag keyword -> ()
+   | _ -> Alcotest.fail "wildcard licenses only keywords absent from FLAGS")
 
 let test_case_only_is_unchanged () =
   let flag wire = match F.of_wire wire with
@@ -96,7 +108,7 @@ let test_case_only_is_unchanged () =
     ~remote:[flag "$LABEL";flag "\\x-custom"]
     ~local:[flag "$label";flag "\\X-CUSTOM"]
     ~condstore:false ~remote_modseq:None () with
-  | Ok S.No_change -> ()
+  | Ok {plan=S.No_change;_} -> ()
   | _ -> Alcotest.fail "case-only differences must not create FLAGS operations"
 
 let () = Alcotest.run "imap flag sync" ["planning",[

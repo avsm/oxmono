@@ -587,7 +587,7 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
               ~maildir ~scope ~mailbox ~spool_dir ~cursor operation in
             let* ()=if operation.kind<>J.Flags then Ok () else
               match Flags.recover_operation ~client:remote_client
-                ~store ~maildir ~mailbox ~operation with
+                ~store ~maildir ~mailbox ~operation () with
               | Ok _ | Error (Flags.Pending_operation _) -> Ok ()
               | Error error -> Error (Flag_sync error) in
             reconcile rest in
@@ -806,16 +806,22 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                       let* ()=resolve_policy_conflict pair in
                       process rest) else
                       (match Flags.reconcile_pair
+                        ~inventory:local_inventory
                         ~client:remote_client ~store ~maildir ~mailbox
                         ~pair ~next_id () with
-                       | Ok Flags.Unchanged ->
-                           let* ()=resolve_policy_conflict pair in
+                       | Ok {outcome;deleted_held} ->
+                           let current=match outcome with
+                             | Flags.Unchanged -> pair
+                             | Flags.Updated updated ->
+                                 incr flags_updated; updated in
+                           let* ()=if deleted_held then (
+                               let* ()=hold_deleted_flag current in
+                               incr flags_held;
+                               record_hold pair.id;
+                               Ok ())
+                             else resolve_policy_conflict current in
                            process rest
-                       | Ok (Flags.Updated updated) ->
-                           let* ()=resolve_policy_conflict updated in
-                           incr flags_updated; process rest
-                       | Error Flags.Deleted_flag_held ->
-                           let* ()=hold_deleted_flag pair in
+                       | Error Flags.Modified ->
                            incr flags_held;
                            record_hold pair.id;
                            process rest
@@ -1253,23 +1259,24 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
                              if not date_matches then
                                on_preview (Preview_pair_hold (pair.id,
                                  "local INTERNALDATE differs from paired baseline"))
-                             else (match Imap.Sync_policy.reconcile_flags
-                               ~base:pair.common_flags
-                               ~remote:remote.flags ~local:local.flags () with
-                               | flags when flags.deleted_held ->
-                                   on_preview (Preview_pair_hold (pair.id,
-                                     "\\Deleted differs from paired baseline"))
-                               | flags ->
-                                   let nonempty (delta:Imap.Sync_policy.flag_delta) =
-                                     delta.add<>[] || delta.remove<>[] in
-                                   if nonempty flags.to_remote ||
-                                      nonempty flags.to_local then
-                                     if not (J.has_open_conflict store ~pair
-                                         ~kind:J.Content_conflict) then
-                                     on_preview (Preview_flags {
-                                       pair_id=pair.id;
-                                       to_remote=flags.to_remote;
-                                       to_local=flags.to_local}));
+                             else (
+                               let flags=Imap.Sync_policy.reconcile_flags
+                                 ~base:pair.common_flags
+                                 ~remote:remote.flags ~local:local.flags () in
+                               if flags.deleted_held then
+                                 on_preview (Preview_pair_hold (pair.id,
+                                   "\\Deleted differs from paired baseline"));
+                               let nonempty
+                                   (delta:Imap.Sync_policy.flag_delta) =
+                                 delta.add<>[] || delta.remove<>[] in
+                               if (nonempty flags.to_remote ||
+                                   nonempty flags.to_local) &&
+                                  not (J.has_open_conflict store ~pair
+                                    ~kind:J.Content_conflict) then
+                                 on_preview (Preview_flags {
+                                   pair_id=pair.id;
+                                   to_remote=flags.to_remote;
+                                   to_local=flags.to_local}));
                              Ok ()
                          | Some _,Some _ ->
                              on_preview (Preview_pair_hold (pair.id,

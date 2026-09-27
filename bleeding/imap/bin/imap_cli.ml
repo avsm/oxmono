@@ -1106,8 +1106,7 @@ let settle_flags config ~net ~fs ~getenv =
            | Error (Imap_sync.Flags.Client _) ->
                prerr_endline "IMAP verification failed; FLAGS intent unchanged";
                6
-           | Error (Imap_sync.Flags.Diverged
-               "no pending FLAGS operation in this scope") ->
+           | Error Imap_sync.Flags.No_pending_operation ->
                prerr_endline "pending FLAGS operation not found in this scope";
                9
            | Error error ->

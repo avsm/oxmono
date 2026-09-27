@@ -462,7 +462,8 @@ let test_candidate_inspection_rejects_replaced_objectid () =
      (Option.get (Imap_store.find_intent store ~id:op.id)).state=
        Imap_store.Sent)
 
-let scripted_client ?(caps="IMAP4rev1 UNSELECT UIDPLUS") ~sw name lines =
+let scripted_client ?(caps="IMAP4rev1 UNSELECT UIDPLUS") ?(tail=[]) ~sw name
+    lines =
   let wire=Buffer.create 512 in
   let pp ppf data=
     Buffer.add_string wire data;
@@ -473,7 +474,7 @@ let scripted_client ?(caps="IMAP4rev1 UNSELECT UIDPLUS") ~sw name lines =
     `Return ("* CAPABILITY " ^ caps ^ "\r\nA00000001 OK done\r\n");
     `Return "A00000002 OK logged in\r\n";
     `Return ("* CAPABILITY " ^ caps ^ "\r\nA00000003 OK done\r\n")]
-    @ List.map (fun line -> `Return line) lines);
+    @ List.map (fun line -> `Return line) lines @ tail);
   let auth=Imap_eio.Auth.password ~username:"alice" ~password:"secret"
     ~allow_insecure_transport:true () in
   match Imap_eio.Client.of_flow ~sw ~auth flow with
@@ -2189,7 +2190,7 @@ let test_sent_flags_recovery_holds_replaced_local_body () =
   let op=Option.get (J.find_operation store ~id:op.id) in
   let client=scripted_scan ~sw ~has_message:true () in
   let recover ()=match Imap_sync.Flags.recover_operation ~client ~store
-      ~maildir ~mailbox:"INBOX" ~operation:op with
+      ~maildir ~mailbox:"INBOX" ~operation:op () with
     | Error (Imap_sync.Flags.Pending_operation id) when id=op.id -> ()
     | Error error -> Alcotest.failf "sent FLAGS body mismatch: %a"
         Imap_sync.Flags.pp_error error
@@ -2206,6 +2207,159 @@ let test_sent_flags_recovery_holds_replaced_local_body () =
   Alcotest.(check bool) "sent operation remains pending" true
     (match J.find_operation store ~id:op.id with
      | Some {state=J.Sent;_} -> true | _ -> false)
+
+let seen=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Seen
+let flagged=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Flagged
+let deleted=Mail_flag.Imap_flag.system Mail_flag.Imap_flag.Deleted
+
+let flag_pair ~store ~maildir ?(local_flags=[]) ?(body=message) id =
+  let local=Imap_maildir.append maildir
+    ~source:(Eio.Flow.string_source body) ~length ~flags:local_flags () in
+  let blob=Imap_store.Blob.put store
+    ~source:(Eio.Flow.string_source message) ~length () in
+  let pair : J.pair = {
+    id;scope;remote_uidvalidity=Some (epoch 11L);remote_uid=Some (uid 1L);
+    local_id=Some local.id;content_sha256=Some blob.sha256;
+    content_length=Some length;internal_date=None;common_flags=[];
+    remote_tombstone=None;local_tombstone=None;revision=0L} in
+  match J.put_pair store ~expected_revision:None pair with
+  | `Committed pair -> pair,local
+  | `Stale_revision -> Alcotest.fail "new flag pair was stale"
+
+let condstore_select=
+  "* 1 EXISTS\r\n* OK [UIDVALIDITY 11] valid\r\n* OK [UIDNEXT 2] next\r\n\
+   * OK [HIGHESTMODSEQ 20] modseq\r\n* FLAGS (\\Seen \\Flagged \\Deleted)\r\n\
+   * OK [PERMANENTFLAGS (\\Seen \\Flagged \\Deleted \\*)] permanent\r\n\
+   A00000004 OK [READ-WRITE] selected\r\n"
+
+let flag_fetch ~tag flags=Printf.sprintf
+  "* 1 FETCH (UID 1 FLAGS (%s) MODSEQ (20))\r\nA%08d OK fetched\r\n"
+  flags tag
+
+let reconcile ~client ~store ~maildir pair=
+  Imap_sync.Flags.reconcile_pair ~client ~store ~maildir ~mailbox:"INBOX"
+    ~pair ~next_id:(fun () -> "flag-op") ()
+
+let operation_state store id=
+  (Option.get (J.find_operation store ~id)).state
+
+let test_rejected_store_rejects_operation () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let pair,_=flag_pair ~store ~maildir ~local_flags:[seen] "rejected-store" in
+  let client,_=scripted_client ~caps:"IMAP4rev1 UNSELECT CONDSTORE" ~sw
+    "rejected-store" [
+    condstore_select; flag_fetch ~tag:5 "";
+    "A00000006 NO [CANNOT] refused\r\n";
+    "A00000007 OK unselected\r\n"] in
+  (match reconcile ~client ~store ~maildir pair with
+   | Error (Imap_sync.Flags.Client (Imap_eio.Error.Rejected _)) -> ()
+   | Error error -> Alcotest.failf "wrong rejected STORE error: %a"
+       Imap_sync.Flags.pp_error error
+   | Ok _ -> Alcotest.fail "rejected STORE committed");
+  Alcotest.(check bool) "rejected STORE rejects the operation" true
+    (match J.find_operation store ~id:"flag-op" with
+     | Some {state=J.Rejected;receipt=Some receipt;_} ->
+         String.starts_with ~prefix:"UID STORE not applied" receipt
+     | _ -> false);
+  Alcotest.(check int) "rejected STORE opens no conflict" 0
+    (List.length (J.open_conflicts store ~scope))
+
+let test_uncertain_store_leaves_conflict () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let pair,_=flag_pair ~store ~maildir ~local_flags:[seen] "uncertain-store" in
+  let client,_=scripted_client ~caps:"IMAP4rev1 UNSELECT CONDSTORE" ~sw
+    ~tail:[`Raise End_of_file] "uncertain-store" [
+    condstore_select; flag_fetch ~tag:5 ""] in
+  (match reconcile ~client ~store ~maildir pair with
+   | Error (Imap_sync.Flags.Client _) -> ()
+   | Error error -> Alcotest.failf "wrong uncertain STORE error: %a"
+       Imap_sync.Flags.pp_error error
+   | Ok _ -> Alcotest.fail "uncertain STORE committed");
+  Alcotest.(check bool) "uncertain STORE is ambiguous with a reason" true
+    (match J.find_operation store ~id:"flag-op" with
+     | Some {state=J.Ambiguous;receipt=Some receipt;_} ->
+         String.starts_with ~prefix:"UID STORE outcome unknown" receipt
+     | _ -> false);
+  Alcotest.(check bool) "uncertain STORE leaves a flag conflict" true
+    (match J.open_conflicts store ~scope with
+     | [{kind=J.Flag_conflict;_}] -> true
+     | _ -> false)
+
+let test_local_only_race_rejects_prepared () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let pair,local=flag_pair ~store ~maildir "local-only-race" in
+  let client,_=scripted_client ~caps:"IMAP4rev1 UNSELECT CONDSTORE" ~sw
+    "local-only-race" [
+    condstore_select; flag_fetch ~tag:5 "\\Seen";
+    "* 1 FETCH (UID 1 FLAGS (\\Seen \\Flagged))\r\n\
+     A00000006 OK fetched\r\n";
+    "A00000007 OK unselected\r\n"] in
+  (match reconcile ~client ~store ~maildir pair with
+   | Error Imap_sync.Flags.Modified -> ()
+   | Error error -> Alcotest.failf "wrong local-only race error: %a"
+       Imap_sync.Flags.pp_error error
+   | Ok _ -> Alcotest.fail "local-only write ignored a remote change");
+  Alcotest.(check bool) "race rejected before dispatch" true
+    (operation_state store "flag-op"=J.Rejected);
+  Alcotest.(check int) "race opens no conflict" 0
+    (List.length (J.open_conflicts store ~scope));
+  Alcotest.(check bool) "local flags untouched" true
+    ((Option.get (Imap_maildir.find maildir ~id:local.id)).flags=[])
+
+let test_held_deleted_merges_other_flags () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let pair,local=flag_pair ~store ~maildir "held-deleted" in
+  let client,_=scripted_client ~caps:"IMAP4rev1 UNSELECT CONDSTORE" ~sw
+    "held-deleted" [
+    condstore_select; flag_fetch ~tag:5 "\\Deleted \\Seen";
+    "* 1 FETCH (UID 1 FLAGS (\\Deleted \\Seen))\r\n\
+     A00000006 OK fetched\r\n";
+    "A00000007 OK unselected\r\n"] in
+  (match reconcile ~client ~store ~maildir pair with
+   | Ok {outcome=Imap_sync.Flags.Updated updated;deleted_held=true} ->
+       Alcotest.(check bool) "common flags gain Seen only" true
+         (Mail_flag.Imap_flag.equal_durable updated.common_flags [seen])
+   | Ok _ -> Alcotest.fail "held \\Deleted blocked the Seen merge"
+   | Error error -> Alcotest.failf "held \\Deleted merge: %a"
+       Imap_sync.Flags.pp_error error);
+  Alcotest.(check bool) "local gains Seen without Deleted" true
+    (Mail_flag.Imap_flag.equal_durable
+      (Option.get (Imap_maildir.find maildir ~id:local.id)).flags [seen])
+
+let test_settle_reports_content_mismatch () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let changed=String.mapi (fun i c -> if i=0 then 'X' else c) message in
+  let pair,local=flag_pair ~store ~maildir ~body:changed "settle-content" in
+  let op : J.operation = {
+    id="settle-content-op";pair_id=Some pair.id;local_id=Some local.id;
+    scope;kind=J.Flags;state=J.Prepared;
+    source_uidvalidity=pair.remote_uidvalidity;source_uid=pair.remote_uid;
+    destination=None;destination_uidvalidity=None;blob_sha256=None;
+    blob_length=None;desired_flags=Some [];receipt=None;
+    receipt_uidvalidity=None;receipt_uid=None} in
+  J.prepare_operation ~local_flags:[] store op;
+  J.mark_sent store ~id:op.id;
+  let client,_=scripted_client ~sw "settle-content" [] in
+  let settle id=Imap_sync.Flags.settle_operation ~client ~store ~maildir
+    ~scope ~mailbox:"INBOX" ~id ~evidence:"operator audit" () in
+  (match settle op.id with
+   | Error (Imap_sync.Flags.Content_mismatch id) when id=pair.id -> ()
+   | Error error -> Alcotest.failf "wrong settle content error: %a"
+       Imap_sync.Flags.pp_error error
+   | Ok _ -> Alcotest.fail "settled a changed local body");
+  match settle "unknown-op" with
+  | Error Imap_sync.Flags.No_pending_operation -> ()
+  | _ -> Alcotest.fail "unknown settle operation not typed"
 
 let test_verify_local_content_without_flag_change () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
@@ -2539,6 +2693,16 @@ else Alcotest.run "imap-bridge-faults" [
       test_audit_skips_blob_above_budget;
     Alcotest.test_case "digest checks receipt epoch" `Quick
       test_digest_checks_receipt_epoch;
+    Alcotest.test_case "rejected STORE rejects the operation" `Quick
+      test_rejected_store_rejects_operation;
+    Alcotest.test_case "uncertain STORE leaves a conflict" `Quick
+      test_uncertain_store_leaves_conflict;
+    Alcotest.test_case "local-only race rejects before dispatch" `Quick
+      test_local_only_race_rejects_prepared;
+    Alcotest.test_case "held Deleted merges other flags" `Quick
+      test_held_deleted_merges_other_flags;
+    Alcotest.test_case "settle reports content mismatch" `Quick
+      test_settle_reports_content_mismatch;
     Alcotest.test_case "remote source vanishes before archival" `Quick
       test_remote_source_vanishes_before_archive;
     Alcotest.test_case "local source changes before archival" `Quick

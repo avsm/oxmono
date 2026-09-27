@@ -48,6 +48,9 @@ type deletion_hold =
   | Retention_policy
   | Unverified_absence
   | Grace_period
+  | Missing_content_evidence
+      (** [Missing_content_evidence] holds a legacy pair that saved no
+          content digest or length, so its survivor cannot be verified. *)
 type deletion_plan =
   | No_deletion
   | Hold_deletion of deletion_hold

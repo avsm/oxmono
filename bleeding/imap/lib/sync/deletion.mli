@@ -1,10 +1,14 @@
 (** Policy-gated deletion of an established IMAP/Maildir occurrence pair.
 
-    The caller must hold [Imap_maildir.with_writer_lock] across the remote
-    scan, local inventory, and this call. A missing side is actionable only
-    when a complete published inventory proves absence. The survivor must
-    still have its paired byte digest, length, and last-common flags. No
-    mailbox-wide EXPUNGE or retry of an uncertain remote mutation occurs. *)
+    [reconcile_pair] and [recover_operation] require the caller to hold
+    [Imap_maildir.with_writer_lock] across the remote scan, the local
+    inventory and the call. The three operator repairs take the lease
+    themselves, so the caller must not hold it. A missing side is actionable
+    only when a complete published inventory proves absence. The survivor
+    must still have its paired byte digest, length, and last-common flags.
+    No mailbox-wide EXPUNGE or retry of an uncertain remote mutation occurs.
+    Journal writes and spool files are handled outside the mailbox
+    selection. A pair in another scope is [Stale_pair] throughout. *)
 
 type error =
   | Client of Imap_eio.Error.t
@@ -26,9 +30,11 @@ type outcome =
 val expunge_preflight :
   before_flags:Mail_flag.Imap_flag.t list -> before_modseq:int64 ->
   (Mail_flag.Imap_flag.t list * int64 option) option -> bool
-(** Require the target to retain exactly the expected [\\Deleted] flags and
-    a non-regressing MODSEQ after conditional STORE, immediately before
-    issuing a targeted UID EXPUNGE. *)
+(** [expunge_preflight ~before_flags ~before_modseq after] is [true] when
+    [after] holds exactly [before_flags] plus [\\Deleted] and a MODSEQ
+    above [before_modseq], or equal to it when [before_flags] already held
+    [\\Deleted]. It is checked after the conditional STORE, immediately
+    before a targeted UID EXPUNGE. *)
 
 val reconcile_pair :
   ?min_absence_scans:int ->
@@ -43,20 +49,28 @@ val reconcile_pair :
     survivor when the remote UID is absent, or an unchanged remote survivor
     when the local occurrence is absent. [Propagate_remote] and
     [Propagate_local] enable only the corresponding direction. A local
-    [Retention] tombstone always holds remote deletion. A local delete is
-    held until [min_absence_scans] later complete remote scan generations
-    have passed since the missing side's first durable absence tombstone.
-    Legacy local tombstones without a generation stay held if this setting
-    is positive. A saved content or identity conflict holds either deletion
-    direction.
-    The local delete is journaled before [Maildir.remove]. A remote delete
-    requires UIDPLUS and CONDSTORE, uses
-    conditional UID STORE to add [\\Deleted], then UID EXPUNGE for exactly the
-    paired UID. Before expunging, it fetches the target again and requires the
-    expected flags and MODSEQ progression. It verifies UID absence before
-    atomically committing the
-    tombstone and journal. An uncertain result stays pending. [spool_dir] is
-    used for bounded-memory remote body verification. *)
+    [Retention] tombstone always holds remote deletion. Either direction is
+    held until [min_absence_scans] (default 0) later complete scan
+    generations have passed since the missing side's first durable absence
+    tombstone. Legacy tombstones without a generation stay held if this
+    setting is positive. A saved content or identity conflict holds either
+    direction, and a legacy pair without a content digest and length is held
+    as [Missing_content_evidence].
+
+    The local delete is journaled before [Imap_maildir.remove]. A survivor
+    whose bytes, flags or file changed is held as [Survivor_changed]. A
+    remote delete requires UIDPLUS, CONDSTORE, a [spool_dir] directory,
+    [\\Deleted] in PERMANENTFLAGS and a nonzero MODSEQ on the target, and
+    otherwise returns [Unsupported]. It verifies the remote body through
+    [spool_dir] with bounded memory, uses conditional UID STORE to add
+    [\\Deleted], then UID EXPUNGE for exactly the paired UID. Before
+    expunging it fetches the target again and requires {!expunge_preflight}.
+    It verifies UID absence before atomically committing the tombstone and
+    journal. A concurrent flag change, including MODIFIED on the conditional
+    STORE, rejects the operation and is held as [Survivor_changed]. A
+    concurrent expunge of the target is [Stale_inventory]. A STORE refused
+    before dispatch rejects the operation. An uncertain result stays pending
+    with its cause recorded. *)
 
 val recover_operation :
   store:Imap_store.t -> maildir:Imap_maildir.t ->
@@ -64,11 +78,13 @@ val recover_operation :
   local_inventory:Imap_maildir.paged_inventory ->
   operation:Imap_store.Sync.operation -> unit ->
   (outcome, error) result
-(** Reconcile a pending deletion using complete newly published inventories.
-    A [Prepared] operation is rejected because no send began. A [Sent] or
-    [Ambiguous] deletion is committed only when the exact target is absent;
-    otherwise it remains pending and is never replayed. This must run before
-    new copies or flag changes. *)
+(** [recover_operation ~store ~maildir ~cursor ~local_inventory ~operation ()]
+    reconciles a pending deletion using complete newly published
+    inventories. A [Prepared] operation is rejected because no send began. A
+    [Sent], [Ambiguous] or [Observed] deletion is committed only when both
+    sides are absent and the pair carries the absence tombstone for the side
+    the operation did not delete. Otherwise it remains pending and is never
+    replayed. This must run before new copies or flag changes. *)
 
 val repair_local_delete :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
@@ -81,7 +97,8 @@ val repair_local_delete :
     UID absence, and local bytes, length, and flags before unlinking and
     committing the journal. A saved OBJECTID+ binding is checked and pinned
     before the live UID check. It never retries a remote mutation. The caller
-    must provide printable operator evidence; [Writer_lock_busy] may escape. *)
+    must provide printable operator evidence. [Imap_maildir.Writer_lock_busy]
+    propagates when the lease is held. *)
 
 val reject_unchanged_remote_delete :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
@@ -93,8 +110,9 @@ val reject_unchanged_remote_delete :
     current complete published UID membership, local absence, saved pair
     revision and exact journal identity, and a matching OBJECTID+ mailbox
     binding when one is saved. Holds the Maildir writer lease throughout.
-    It sends no STORE or EXPUNGE; a changed or already-expunged UID remains
-    pending. [Writer_lock_busy] may escape. *)
+    It sends no STORE or EXPUNGE, and a changed or already-expunged UID
+    remains pending. [Imap_maildir.Writer_lock_busy] propagates when the
+    lease is held. *)
 
 val finish_marked_remote_delete :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
@@ -108,5 +126,6 @@ val finish_marked_remote_delete :
     the Maildir writer lease. Persists operator evidence and [Ambiguous]
     state before sending only targeted UID EXPUNGE. A lost result remains
     pending for complete-inventory recovery, never automatic replay. The
-    unavoidable concurrent remote-edit window between final FETCH and
-    EXPUNGE remains; [Writer_lock_busy] may escape. *)
+    unavoidable concurrent remote-edit window between the final FETCH and
+    EXPUNGE remains. [Imap_maildir.Writer_lock_busy] propagates when the
+    lease is held. *)

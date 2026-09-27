@@ -2361,6 +2361,153 @@ let test_settle_reports_content_mismatch () =
   | Error Imap_sync.Flags.No_pending_operation -> ()
   | _ -> Alcotest.fail "unknown settle operation not typed"
 
+let delete_select tag=Printf.sprintf
+  "* 2 EXISTS\r\n* OK [UIDVALIDITY 11] valid\r\n* OK [UIDNEXT 3] next\r\n\
+   * OK [HIGHESTMODSEQ 20] modseq\r\n* FLAGS (\\Seen \\Deleted)\r\n\
+   * OK [PERMANENTFLAGS (\\Seen \\Deleted \\*)] permanent\r\n\
+   A%08d OK [READ-WRITE] selected\r\n" tag
+
+let remote_delete_pair ~store ?(evidence=true) id =
+  let blob=Imap_store.Blob.put store
+    ~source:(Eio.Flow.string_source message) ~length () in
+  let pair : J.pair = {
+    id;scope;remote_uidvalidity=Some (epoch 11L);remote_uid=Some (uid 1L);
+    local_id=Some (id ^ "-local");
+    content_sha256=(if evidence then Some blob.sha256 else None);
+    content_length=(if evidence then Some length else None);
+    internal_date=None;common_flags=[];remote_tombstone=None;
+    local_tombstone=Some {J.reason=J.Local_absence;
+      evidence="complete-local-inventory";generation=None};revision=0L} in
+  match J.put_pair store ~expected_revision:None pair with
+  | `Committed pair -> pair
+  | `Stale_revision -> Alcotest.fail "new deletion pair was stale"
+
+let delete_pair ~client ~store ~maildir ~spool_dir pair =
+  Imap_maildir.with_inventory_pages maildir (fun local_inventory ->
+    Imap_sync.Deletion.reconcile_pair ~client ~store ~maildir
+      ~mailbox:"INBOX" ~cursor:(Imap_store.load_cursor store ~scope)
+      ~local_inventory ~pair ~policy:Imap.Sync_policy.Propagate
+      ~next_id:(fun () -> "delete-op") ~spool_dir ())
+
+let held_survivor = function
+  | Ok (Imap_sync.Deletion.Held Imap.Sync_policy.Survivor_changed) -> true
+  | _ -> false
+
+let test_modified_delete_is_held () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store;
+  let pair=remote_delete_pair ~store "modified-delete" in
+  let size=String.length message in
+  let meta tag=Printf.sprintf
+    "* 1 FETCH (UID 1 FLAGS () MODSEQ (20))\r\nA%08d OK fetched\r\n" tag in
+  let client,_=scripted_client
+    ~caps:"IMAP4rev1 UNSELECT UIDPLUS CONDSTORE" ~sw "modified-delete" [
+    delete_select 4; meta 5;
+    Printf.sprintf "* 1 FETCH (UID 1 BODY[] {%d}\r\n" size;
+    message ^ ")\r\nA00000006 OK fetched\r\n";
+    meta 7; "A00000008 OK unselected\r\n";
+    delete_select 9; meta 10;
+    "A00000011 OK [MODIFIED 1] conditional STORE failed\r\n";
+    "A00000012 OK unselected\r\n"] in
+  let result=delete_pair ~client ~store ~maildir ~spool_dir pair in
+  Alcotest.(check bool) "MODIFIED is a survivor hold" true
+    (held_survivor result);
+  Alcotest.(check bool) "MODIFIED rejects the operation" true
+    (operation_state store "delete-op"=J.Rejected)
+
+let test_longer_remote_body_is_held () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store;
+  let pair=remote_delete_pair ~store "longer-delete" in
+  let longer=message ^ "extra" in
+  let client,_=scripted_client
+    ~caps:"IMAP4rev1 UNSELECT UIDPLUS CONDSTORE" ~sw "longer-delete" [
+    delete_select 4;
+    "* 1 FETCH (UID 1 FLAGS () MODSEQ (20))\r\nA00000005 OK fetched\r\n";
+    Printf.sprintf "* 1 FETCH (UID 1 BODY[] {%d}\r\n"
+      (String.length longer);
+    longer ^ ")\r\nA00000006 OK fetched\r\n";
+    "A00000007 OK unselected\r\n"] in
+  let result=delete_pair ~client ~store ~maildir ~spool_dir pair in
+  Alcotest.(check bool) "longer body is a survivor hold" true
+    (held_survivor result);
+  Alcotest.(check bool) "longer body prepared no operation" true
+    (J.find_operation store ~id:"delete-op"=None)
+
+let test_expunged_during_body_fetch_is_stale () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store;
+  let pair=remote_delete_pair ~store "expunged-delete" in
+  let client,_=scripted_client
+    ~caps:"IMAP4rev1 UNSELECT UIDPLUS CONDSTORE" ~sw "expunged-delete" [
+    delete_select 4;
+    "* 1 FETCH (UID 1 FLAGS () MODSEQ (20))\r\nA00000005 OK fetched\r\n";
+    "A00000006 OK fetched\r\n";
+    "A00000007 OK unselected\r\n"] in
+  match delete_pair ~client ~store ~maildir ~spool_dir pair with
+  | Error Imap_sync.Deletion.Stale_inventory -> ()
+  | Error error -> Alcotest.failf "wrong expunge race error: %a"
+      Imap_sync.Deletion.pp_error error
+  | Ok _ -> Alcotest.fail "expunge race was not stale"
+
+let test_legacy_pair_holds_without_evidence () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store;
+  let pair=remote_delete_pair ~store ~evidence:false "legacy-delete" in
+  let client,_=scripted_client ~sw "legacy-delete" [] in
+  match delete_pair ~client ~store ~maildir ~spool_dir pair with
+  | Ok (Imap_sync.Deletion.Held
+      Imap.Sync_policy.Missing_content_evidence) -> ()
+  | Ok _ -> Alcotest.fail "legacy pair not held for content evidence"
+  | Error error -> Alcotest.failf "legacy pair: %a"
+      Imap_sync.Deletion.pp_error error
+
+let test_changed_local_survivor_is_held () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let empty,_=scripted_client ~sw "empty-scan" [
+    examine ~tag:4 ~exists:0 ~uidnext:2 ();
+    "A00000005 OK fetched\r\n";
+    "* SEARCH\r\nA00000006 OK searched\r\n";
+    "A00000007 OK unselected\r\n"] in
+  (match Imap_sync.Engine.run_once_staged ~client:empty ~store ~scope
+      ~mailbox:"INBOX" ~stage_id:"empty-scan" () with
+   | Ok _ -> ()
+   | Error error -> Alcotest.failf "empty scan: %a"
+       Imap_sync.Engine.pp_error error);
+  let cursor=Imap_store.load_cursor store ~scope in
+  let pair,local=flag_pair ~store ~maildir "local-survivor" in
+  let pair=match J.put_pair store ~expected_revision:(Some pair.revision)
+      {pair with remote_tombstone=Some {J.reason=J.Inventory_absence;
+        evidence=Option.get cursor.inventory_ref;
+        generation=Some cursor.generation}} with
+    | `Committed pair -> pair
+    | `Stale_revision -> Alcotest.fail "remote absence was stale" in
+  let client,_=scripted_client ~sw "local-survivor" [
+    examine ~tag:4 ~exists:0 ~uidnext:2 ();
+    "A00000005 OK fetched\r\n";
+    "A00000006 OK unselected\r\n"] in
+  let result=Imap_maildir.with_inventory_pages maildir
+    (fun local_inventory ->
+      ignore (Imap_maildir.set_flags maildir local [seen]);
+      Imap_sync.Deletion.reconcile_pair ~client ~store ~maildir
+        ~mailbox:"INBOX" ~cursor ~local_inventory ~pair
+        ~policy:Imap.Sync_policy.Propagate
+        ~next_id:(fun () -> "delete-op") ~spool_dir ()) in
+  Alcotest.(check bool) "changed local survivor is held" true
+    (held_survivor result);
+  Alcotest.(check bool) "changed survivor was not unlinked" true
+    (Imap_maildir.find maildir ~id:local.id<>None)
+
 let test_verify_local_content_without_flag_change () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir ->
   Eio.Switch.run @@ fun sw ->
@@ -2703,6 +2850,16 @@ else Alcotest.run "imap-bridge-faults" [
       test_held_deleted_merges_other_flags;
     Alcotest.test_case "settle reports content mismatch" `Quick
       test_settle_reports_content_mismatch;
+    Alcotest.test_case "MODIFIED delete is held" `Quick
+      test_modified_delete_is_held;
+    Alcotest.test_case "longer remote body is held" `Quick
+      test_longer_remote_body_is_held;
+    Alcotest.test_case "expunge during body fetch is stale" `Quick
+      test_expunged_during_body_fetch_is_stale;
+    Alcotest.test_case "legacy pair holds without content evidence" `Quick
+      test_legacy_pair_holds_without_evidence;
+    Alcotest.test_case "changed local survivor is held" `Quick
+      test_changed_local_survivor_is_held;
     Alcotest.test_case "remote source vanishes before archival" `Quick
       test_remote_source_vanishes_before_archive;
     Alcotest.test_case "local source changes before archival" `Quick

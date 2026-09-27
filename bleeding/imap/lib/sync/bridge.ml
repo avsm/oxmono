@@ -692,7 +692,10 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
               | Imap.Sync_policy.Unpaired_identity ->
                   "one paired side is absent; pair identity is incomplete"
               | Imap.Sync_policy.Grace_period ->
-                  "one paired side is absent; configured complete-scan grace period has not elapsed" in
+                  "one paired side is absent; configured complete-scan grace period has not elapsed"
+              | Imap.Sync_policy.Missing_content_evidence ->
+                  "one paired side is absent; the pair has no content \
+                   evidence to verify the survivor" in
             hold_deletion_evidence pair evidence in
           let verify_pair_date (pair:J.pair) =
             let resolve ()=match J.resolve_open_conflicts store ~pair
@@ -894,16 +897,6 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                     incr deletions_held;
                     record_hold pair.id;
                     process rest
-                | (pair:J.pair)::rest when
-                    J.has_open_conflict store ~pair
-                      ~kind:J.Content_conflict ||
-                    J.has_open_conflict store ~pair
-                      ~kind:J.Identity_conflict ->
-                    let* ()=hold_deletion pair
-                      Imap.Sync_policy.Survivor_changed in
-                    incr deletions_held;
-                    record_hold pair.id;
-                    process rest
                 | (pair:J.pair)::rest ->
                     (match Deletion.reconcile_pair
                       ~min_absence_scans ~client:remote_client ~store
@@ -1102,9 +1095,13 @@ let deletion_preview_of ~store ~policy ~min_absence_scans
                ~local_present ~local_complete:true
                ~local_retained:(match pair.local_tombstone with
                  | Some {reason=J.Retention;_} -> true | _ -> false)
-               ~survivor_unchanged:(pair.content_sha256<>None &&
-                 pair.content_length<>None) in
+               ~survivor_unchanged:true in
              let plan=match plan with
+               | (Imap.Sync_policy.Delete_local |
+                  Imap.Sync_policy.Delete_remote) when
+                   pair.content_sha256=None || pair.content_length=None ->
+                   Imap.Sync_policy.Hold_deletion
+                     Imap.Sync_policy.Missing_content_evidence
                | Imap.Sync_policy.Delete_local ->
                    (match pair.remote_tombstone with
                     | Some {reason=J.Inventory_absence;

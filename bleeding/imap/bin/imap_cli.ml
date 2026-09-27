@@ -877,7 +877,9 @@ let plan_deletions config ~fs =
                 | Imap.Sync_policy.Direction_policy -> "direction-policy"
                 | Imap.Sync_policy.Retention_policy -> "local-retention"
                 | Imap.Sync_policy.Unverified_absence -> "unverified-absence"
-                | Imap.Sync_policy.Grace_period -> "grace-period") in
+                | Imap.Sync_policy.Grace_period -> "grace-period"
+                | Imap.Sync_policy.Missing_content_evidence ->
+                    "no-content-evidence") in
         Printf.printf "published_revision=%Ld generation=%Ld; candidates require live revalidation\n"
           cursor.revision cursor.generation;
         List.iter (fun (item:Imap_sync.Bridge.deletion_preview) ->

@@ -56,6 +56,7 @@ type deletion_hold =
   | Retention_policy
   | Unverified_absence
   | Grace_period
+  | Missing_content_evidence
 type deletion_plan =
   | No_deletion
   | Hold_deletion of deletion_hold

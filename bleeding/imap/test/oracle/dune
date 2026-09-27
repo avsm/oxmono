@@ -3,7 +3,7 @@
  (modules test_oracle corpus)
  (package imap)
  (locks oracle)
- (libraries imap imap.eio imap.store imap.sync imap.maildir mail-flag eio eio_main alcotest unix))
+ (libraries imap imap.eio imap.store imap.sync maildir mail-flag eio eio_main alcotest unix))
 
 (test
  (name test_cross_protocol)

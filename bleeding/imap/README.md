@@ -4,7 +4,8 @@ The library is organized by purpose under `lib/`:
 
 - `imap` contains pure protocol values, codecs, mirror planning and sync policy.
 - `imap.eio` owns authenticated connections, selected mailbox leases and pools.
-- `imap.maildir` provides local message storage.
+- The sibling [`maildir`](../maildir/README.md) package provides local
+  message storage.
 - `imap.store` provides SQLite snapshots, journals and blob archives.
 - `imap.sync` contains `Engine`, `Bridge`, `Reconcile`, `Flags`, `Deletion` and
   `Watch` modules for durable synchronization.

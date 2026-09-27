@@ -1,3 +1,0 @@
-(test
- (name test_maildir)
- (libraries imap.maildir imap mail-flag eio eio_main cstruct digestif alcotest unix))

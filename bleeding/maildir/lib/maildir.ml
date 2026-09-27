@@ -1,3 +1,6 @@
+module Dotlock = Dotlock
+module Keywords = Keywords
+
 type location = New | Cur
 type occurrence = {
   id : string;

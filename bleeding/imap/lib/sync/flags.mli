@@ -69,9 +69,9 @@ type reconciled = {
 }
 
 val reconcile_pair :
-  ?propagate_deleted:bool -> ?inventory:Imap_maildir.paged_inventory ->
+  ?propagate_deleted:bool -> ?inventory:Maildir.paged_inventory ->
   client:Imap_eio.Client.t ->
-  store:Imap_store.t -> maildir:Imap_maildir.t -> mailbox:string ->
+  store:Imap_store.t -> maildir:Maildir.t -> mailbox:string ->
   pair:Imap_store.Journal.pair -> next_id:(unit -> string) ->
   unit -> (reconciled, error) result
 (** [reconcile_pair ~client ~store ~maildir ~mailbox ~pair ~next_id ()]
@@ -102,9 +102,9 @@ val reconcile_pair :
     exceptions and Eio cancellation propagate. *)
 
 val recover_operation :
-  ?inventory:Imap_maildir.paged_inventory ->
+  ?inventory:Maildir.paged_inventory ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Imap_maildir.t -> mailbox:string ->
+  maildir:Maildir.t -> mailbox:string ->
   operation:Imap_store.Journal.operation -> unit ->
   (outcome, error) result
 (** [recover_operation ~client ~store ~maildir ~mailbox ~operation ()] verifies
@@ -122,7 +122,7 @@ val recover_operation :
 
 val settle_operation :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Imap_maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
+  maildir:Maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
   id:string -> evidence:string -> unit -> (outcome, error) result
 (** [settle_operation ~client ~store ~maildir ~scope ~mailbox ~id ~evidence ()]
     is the explicit operator repair of a sent, ambiguous or observed FLAGS

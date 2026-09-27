@@ -65,8 +65,8 @@ let sync = function
 
 let with_lease maildir f =
   let entered=ref false in
-  try Imap_maildir.with_writer_lock maildir (fun () -> entered:=true; f ())
-  with Imap_maildir.Writer_lock_busy _ when not !entered -> Error Writer_busy
+  try Maildir.with_writer_lock maildir (fun () -> entered:=true; f ())
+  with Maildir.Writer_lock_busy _ when not !entered -> Error Writer_busy
 
 let durable_flags = F.durable
 let same_flags = F.equal_durable
@@ -145,19 +145,19 @@ let copy_remote_to_local ~client:remote_client ~store ~maildir
     ~mailbox ~spool_dir ~next_id ~uidvalidity (row:Imap.Mirror.row) =
   let uid=row.uid in
   let* internal_date=remote_date remote_client ~mailbox ~uid ~uidvalidity in
-  let spool=Eio.Path.(spool_dir / ("imap-" ^ Imap_maildir.reserve_id ())) in
+  let spool=Eio.Path.(spool_dir / ("imap-" ^ Maildir.reserve_id ())) in
   let* blob=match Engine.archive_uid ~client:remote_client ~store ~scope
     ~mailbox ~uid ~spool () with
     | Error (Engine.Client (Imap_eio.Error.Missing_uid raw)) when
         raw=P.Uid.to_int64 uid -> Error (Source_vanished uid)
     | result -> sync result in
-  let id=next_id () and local_id=Imap_maildir.reserve_id () in
+  let id=next_id () and local_id=Maildir.reserve_id () in
   let flags=durable_flags row.flags in
   let intent=operation ~kind:J.Local_append ~id ~scope ~local_id
     ~source_uidvalidity:(Some uidvalidity) ~source_uid:(Some uid)
     ~destination:None ~destination_uidvalidity:None ~blob ~flags in
   J.prepare_operation ~source_internal_date:internal_date store intent;
-  match Imap_maildir.check_append maildir ~flags ~internal_date () with
+  match Maildir.check_append maildir ~flags ~internal_date () with
   | Error reason ->
       J.reject_prepared_operation store ~id
         ~receipt:("Maildir cannot store the message: " ^ reason);
@@ -168,11 +168,11 @@ let copy_remote_to_local ~client:remote_client ~store ~maildir
   J.mark_sent store ~id;
   let local=Eio.Switch.run @@ fun sw ->
     let source=Imap_store.Blob.open_in store ~sw blob in
-    Imap_maildir.append ~inventory:local_inventory maildir
+    Maildir.append ~inventory:local_inventory maildir
       ~id:local_id ~source
       ~length:blob.length ~flags ~internal_date () in
   if local.length<>blob.length ||
-     Imap_maildir.sha256 ~inventory:local_inventory maildir local<>
+     Maildir.sha256 ~inventory:local_inventory maildir local<>
        blob.sha256 then
     Error (Content_diverged id)
   else (
@@ -186,18 +186,18 @@ let copy_remote_to_local ~client:remote_client ~store ~maildir
 let copy_local_to_remote ~client:remote_client ~store ~maildir
     ~local_inventory ~scope
     ~mailbox ~spool_dir ~next_id ~uidvalidity
-    (local:Imap_maildir.occurrence) =
-  let* internal_date=match Imap_maildir.upload_internal_date local with
+    (local:Maildir.occurrence) =
+  let* internal_date=match Maildir.upload_internal_date local with
     | Ok date -> Ok date
     | Error reason -> Error (Invalid_operation
         ("local occurrence " ^ local.id ^ ": " ^ reason)) in
-  let* blob = match Imap_maildir.with_unchanged_occurrence
+  let* blob = match Maildir.with_unchanged_occurrence
       ~inventory:local_inventory maildir local
       (fun () ->
-        let digest=Imap_maildir.sha256 ~inventory:local_inventory
+        let digest=Maildir.sha256 ~inventory:local_inventory
           maildir local in
         Eio.Switch.run @@ fun sw ->
-          let source=Imap_maildir.open_message
+          let source=Maildir.open_message
             ~inventory:local_inventory maildir ~sw local in
           Imap_store.Blob.put store ~source ~length:local.length
             ~expected_sha256:digest ()) with
@@ -222,7 +222,7 @@ let copy_local_to_remote ~client:remote_client ~store ~maildir
         ~destination_uidvalidity:(Some receipt.uidvalidity)
         ~destination_uid:(Some receipt.uid);
       let spool=Eio.Path.(spool_dir /
-        ("imap-upload-verify-" ^ Imap_maildir.reserve_id ())) in
+        ("imap-upload-verify-" ^ Maildir.reserve_id ())) in
       let* remote_blob=sync (Engine.fetch_uid_digest
         ~client:remote_client ~store ~scope ~mailbox
         ~uidvalidity:receipt.uidvalidity ~uid:receipt.uid ~spool ()) in
@@ -236,9 +236,9 @@ let copy_local_to_remote ~client:remote_client ~store ~maildir
       else let* ()=
         if Imap.Internal_date.equal_instant internal_date actual then Ok ()
         else Error (Date_diverged id) in
-      let* ()=match Imap_maildir.with_unchanged_occurrence
+      let* ()=match Maildir.with_unchanged_occurrence
           ~inventory:local_inventory maildir local (fun () ->
-            Imap_maildir.sha256 ~inventory:local_inventory maildir local) with
+            Maildir.sha256 ~inventory:local_inventory maildir local) with
         | Ok digest when digest=blob.sha256 -> Ok ()
         | Ok _ -> Error (Content_diverged id)
         | Error `Changed -> Error (Local_source_changed local.id) in
@@ -293,13 +293,13 @@ let reconcile_local_append ~client ~mailbox ~store ~maildir ~scope
   | J.Local_append,(J.Sent|J.Ambiguous|J.Observed),
     Some local_id,Some uidvalidity,Some uid,Some sha256,
     Some length,Some flags when cursor.uidvalidity=Some uidvalidity ->
-      (match Imap_maildir.find maildir ~id:local_id with
+      (match Maildir.find maildir ~id:local_id with
        | None -> Ok ()
        | Some local ->
            let* present=snapshot_has_uid store ~scope ~cursor uid in
            if not present then Ok ()
            else if local.length<>length ||
-              Imap_maildir.sha256 maildir local<>sha256 then
+              Maildir.sha256 maildir local<>sha256 then
              Error (Content_diverged operation.id)
            else if not (same_flags local.flags flags) then
              Error (Flags_diverged operation.id)
@@ -356,7 +356,7 @@ let reconcile_remote_append ~client ~store ~maildir ~scope ~mailbox
            let* present=snapshot_has_uid store ~scope ~cursor uid in
            if not present then Ok ()
            else
-             (match Imap_maildir.find maildir ~id:local_id with
+             (match Maildir.find maildir ~id:local_id with
               | None -> Ok ()
               | Some local ->
                   let* ()=match J.operation_source_mtime store
@@ -380,13 +380,13 @@ let reconcile_remote_append ~client ~store ~maildir ~scope ~mailbox
                               | _ -> Ok (Some intended)))
                     | _ -> Ok local.internal_date in
                   if local.length<>length ||
-                     Imap_maildir.sha256 maildir local<>sha256 then
+                     Maildir.sha256 maildir local<>sha256 then
                     Error (Content_diverged operation.id)
                   else if not (same_flags flags local.flags) then
                     Error (Flags_diverged operation.id)
                   else
                     let spool=Eio.Path.(spool_dir /
-                      ("imap-recover-" ^ Imap_maildir.reserve_id ())) in
+                      ("imap-recover-" ^ Maildir.reserve_id ())) in
                     let* blob=sync (Engine.fetch_uid_digest ~client ~store
                       ~scope ~mailbox ~uidvalidity ~uid ~spool ()) in
                     if blob.length<>length || blob.sha256<>sha256 then
@@ -439,7 +439,7 @@ let reject_unsent_copy ~store ~maildir (operation:J.operation) =
   | (J.Append | J.Local_append),J.Prepared ->
       let local_exists=match operation.kind,operation.local_id with
         | J.Local_append,Some id ->
-            Imap_maildir.find maildir ~id<>None
+            Maildir.find maildir ~id<>None
         | _ -> false in
       if local_exists then Error (Pending_operations [operation.id])
       else
@@ -475,7 +475,7 @@ let record_absences ~store ~maildir ~scope ~(cursor:Imap.Mirror.cursor)
                 Ok (Some present)
             | _ -> Ok None in
           let local_occurrence=Option.bind pair.local_id
-            (fun id -> Imap_maildir.inventory_find local_inventory ~id) in
+            (fun id -> Maildir.inventory_find local_inventory ~id) in
           let local_present=local_occurrence<>None in
           let* ()=match remote_present,pair.remote_tombstone with
             | Some true,Some {reason=J.Inventory_absence;_} ->
@@ -494,16 +494,16 @@ let record_absences ~store ~maildir ~scope ~(cursor:Imap.Mirror.cursor)
             | Some {reason=J.Local_absence;_},Some local,
               Some digest,Some length ->
                 let verified=local.length=length &&
-                  (match Imap_maildir.with_unchanged_occurrence
+                  (match Maildir.with_unchanged_occurrence
                     ~inventory:local_inventory maildir local (fun () ->
-                      Imap_maildir.sha256 ~inventory:local_inventory
+                      Maildir.sha256 ~inventory:local_inventory
                         maildir local=digest) with
                    | Ok equal -> equal | Error `Changed -> false) in
                 if verified then
                   let date_matches=match pair.internal_date with
                     | None -> true
                     | Some expected ->
-                        (match Imap_maildir.upload_internal_date local with
+                        (match Maildir.upload_internal_date local with
                          | Ok actual -> Imap.Internal_date.equal_instant
                              expected actual
                          | Error _ -> false) in
@@ -608,7 +608,7 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
       let* uidvalidity=match cursor.uidvalidity with
         | Some value -> Ok value
         | None -> Error (Invalid_configuration "published scan has no epoch") in
-      Imap_maildir.with_inventory_pages maildir (fun local_inventory ->
+      Maildir.with_inventory_pages maildir (fun local_inventory ->
         let rec recover_deletions = function
           | [] -> Ok ()
           | (operation:J.operation)::rest ->
@@ -652,7 +652,7 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
           ~next_id
           local_inventory in
         if not had_pairs && published.row_count>0L &&
-            Imap_maildir.inventory_count local_inventory>0L &&
+            Maildir.inventory_count local_inventory>0L &&
             not allow_bootstrap_duplicates then
           Error Bootstrap_requires_pairing
         else
@@ -725,11 +725,11 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
               | `Stale_revision -> Error Stale_revision in
             match pair.internal_date,pair.local_id with
             | Some expected,Some local_id ->
-                (match Imap_maildir.inventory_find local_inventory
+                (match Maildir.inventory_find local_inventory
                     ~id:local_id with
                  | None -> Ok true
                  | Some local ->
-                     let observed=Imap_maildir.upload_internal_date local in
+                     let observed=Maildir.upload_internal_date local in
                      (match observed with
                       | Ok observed when
                           Imap.Internal_date.equal_instant expected observed ->
@@ -749,7 +749,7 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
             | Some epoch,Some uid,Some local_id
               when cursor.uidvalidity=Some epoch ->
                 let* remote=snapshot_has_uid store ~scope ~cursor uid in
-                Ok (remote && Imap_maildir.inventory_find local_inventory
+                Ok (remote && Maildir.inventory_find local_inventory
                   ~id:local_id<>None)
             | _ -> Ok false in
           let rec remote_pages after_uid =
@@ -780,7 +780,7 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
           let rec local_pages after =
             if budget_used ()>=max_transfers then Ok ()
             else
-              let page=Imap_maildir.inventory_page local_inventory
+              let page=Maildir.inventory_page local_inventory
                 ?after ~limit:1000 () in
               let rec process = function
                 | [] ->
@@ -789,7 +789,7 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                      | Some after -> local_pages (Some after))
                 | _ when budget_used ()>=max_transfers ->
                     Ok ()
-                | (local:Imap_maildir.occurrence)::rest ->
+                | (local:Maildir.occurrence)::rest ->
                     (match J.find_local store ~scope ~local_id:local.id with
                      | Some _ -> process rest
                      | None ->
@@ -827,7 +827,7 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                       | Some uid,Some local_id ->
                           let* remote=snapshot_row_for_uid store ~scope
                             ~cursor uid in
-                          let local=Imap_maildir.inventory_find
+                          let local=Maildir.inventory_find
                             local_inventory ~id:local_id in
                           (match remote,local with
                            | Some remote,Some local ->
@@ -894,12 +894,12 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                   let matches=match pair.local_id,
                       pair.content_sha256,pair.content_length with
                     | Some local_id,Some digest,Some length ->
-                        (match Imap_maildir.inventory_find local_inventory
+                        (match Maildir.inventory_find local_inventory
                             ~id:local_id with
                          | Some local when local.length=length ->
-                             (match Imap_maildir.with_unchanged_occurrence
+                             (match Maildir.with_unchanged_occurrence
                                ~inventory:local_inventory maildir local
-                               (fun () -> Imap_maildir.sha256
+                               (fun () -> Maildir.sha256
                                  ~inventory:local_inventory maildir local=digest) with
                               | Ok equal -> equal | Error `Changed -> false)
                          | _ -> false)
@@ -994,7 +994,7 @@ type local_verification = {
 
 let verify_local_content ~store ~maildir ~scope ~next_id ~on_issue () =
   with_lease maildir (fun () ->
-    Imap_maildir.with_inventory_pages maildir (fun inventory ->
+    Maildir.with_inventory_pages maildir (fun inventory ->
       let checked=ref 0L and mismatched=ref 0L and restored=ref 0L in
       let missing=ref 0L and unverified=ref 0L in
       let bump counter=counter:=Int64.succ !counter in
@@ -1009,7 +1009,7 @@ let verify_local_content ~store ~maildir ~scope ~next_id ~on_issue () =
                   pair.content_sha256,pair.content_length with
                 | Some _,_,_,_ -> Ok ()
                 | None,Some local_id,Some digest,Some length ->
-                    (match Imap_maildir.inventory_find inventory
+                    (match Maildir.inventory_find inventory
                         ~id:local_id with
                      | None ->
                          bump missing;
@@ -1019,9 +1019,9 @@ let verify_local_content ~store ~maildir ~scope ~next_id ~on_issue () =
                          bump checked;
                          let verified=if local.length<>length then
                            Ok false
-                         else match Imap_maildir.with_unchanged_occurrence
+                         else match Maildir.with_unchanged_occurrence
                              ~inventory maildir local (fun () ->
-                               Imap_maildir.sha256 ~inventory
+                               Maildir.sha256 ~inventory
                                  maildir local=digest) with
                            | Ok equal -> Ok equal
                            | Error `Changed -> Error `Changed in
@@ -1066,7 +1066,7 @@ let mark_local_retention ~store ~maildir ~scope ~pair_id ~evidence () =
      String.length evidence>1024 || not printable then
     Error (Invalid_configuration "retention requires a pair ID and 1..1024 printable evidence bytes")
   else with_lease maildir (fun () ->
-    Imap_maildir.with_inventory_pages maildir (fun inventory ->
+    Maildir.with_inventory_pages maildir (fun inventory ->
       match J.find_pair store ~id:pair_id with
       | None -> Error (Invalid_operation "retention pair does not exist")
       | Some pair when pair.scope<>scope ->
@@ -1077,7 +1077,7 @@ let mark_local_retention ~store ~maildir ~scope ~pair_id ~evidence () =
               pair.remote_tombstone=None ->
               if J.active_operation_for_pair store ~pair_id<>None then
                 Error (Invalid_operation "retention pair has a pending operation")
-              else if Imap_maildir.inventory_find inventory ~id:local_id<>None then
+              else if Maildir.inventory_find inventory ~id:local_id<>None then
                 Error (Invalid_operation "retention local occurrence is present")
               else (match pair.local_tombstone with
                 | Some {reason=J.Explicit_delete;_} ->
@@ -1167,7 +1167,7 @@ let preview_deletions ?(min_absence_scans=0) ~store ~maildir ~scope
     let cursor=Imap_store.load_cursor store ~scope in
     match cursor.phase,cursor.uidvalidity,cursor.inventory_ref with
     | Imap.Mirror.Live,Some current_epoch,Some _ ->
-      Imap_maildir.with_inventory_pages maildir (fun inventory ->
+      Maildir.with_inventory_pages maildir (fun inventory ->
         let rec pages after =
           let rows=J.pairs_page store ~scope ?after ~limit:1000 () in
           let rec process = function
@@ -1177,7 +1177,7 @@ let preview_deletions ?(min_absence_scans=0) ~store ~maildir ~scope
             | (pair:J.pair)::rest ->
                 (match pair.remote_uidvalidity,pair.remote_uid,pair.local_id with
                  | Some epoch,Some uid,Some local_id ->
-                     let local_present=Imap_maildir.inventory_find inventory
+                     let local_present=Maildir.inventory_find inventory
                        ~id:local_id<>None in
                      let remote_presence=if epoch<>current_epoch then
                        Ok None
@@ -1223,7 +1223,7 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
     let cursor=Imap_store.load_cursor store ~scope in
     match cursor.phase,cursor.uidvalidity,cursor.inventory_ref with
     | Imap.Mirror.Live,Some current_epoch,Some _ ->
-      Imap_maildir.with_inventory_pages maildir (fun inventory ->
+      Maildir.with_inventory_pages maildir (fun inventory ->
         let pending=J.active_operations_page store ~scope ~limit:1 () in
         if pending<>[] then (
           on_preview (Preview_pending (List.hd pending).id);
@@ -1235,7 +1235,7 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
             | `Stale_revision -> Error Stale_revision
             | `Rows rows -> Ok (rows<>[]) in
           if not had_pairs && has_remote &&
-             Imap_maildir.inventory_count inventory>0L &&
+             Maildir.inventory_count inventory>0L &&
              not allow_bootstrap_duplicates then (
             on_preview Preview_bootstrap_hold;
             Ok cursor)
@@ -1253,9 +1253,9 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
                   remote_pages (Some (List.hd (List.rev rows)).uid) in
             let* ()=remote_pages None in
             let rec local_pages after =
-              let page=Imap_maildir.inventory_page inventory ?after
+              let page=Maildir.inventory_page inventory ?after
                 ~limit:1000 () in
-              List.iter (fun (local:Imap_maildir.occurrence) ->
+              List.iter (fun (local:Maildir.occurrence) ->
                 if J.find_local store ~scope ~local_id:local.id=None then
                   on_preview (Preview_copy_local local.id))
                 page.occurrences;
@@ -1273,7 +1273,7 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
                     let* ()=match pair.remote_uidvalidity,pair.remote_uid,
                       pair.local_id with
                     | Some epoch,Some uid,Some local_id ->
-                        let local=Imap_maildir.inventory_find inventory
+                        let local=Maildir.inventory_find inventory
                           ~id:local_id in
                         let* remote=if epoch<>current_epoch then Ok None
                           else snapshot_row_for_uid store ~scope
@@ -1288,7 +1288,7 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
                              let date_matches=match pair.internal_date with
                                | None -> true
                                | Some expected ->
-                                   (match Imap_maildir.upload_internal_date
+                                   (match Maildir.upload_internal_date
                                      local with
                                     | Ok actual ->
                                         Imap.Internal_date.equal_instant
@@ -1375,7 +1375,7 @@ let repair_local_append ~client ~store ~maildir ~scope ~mailbox ~id
             Ok (local_id,uidvalidity,uid,sha256,length,flags)
         | _ -> Error (Invalid_operation
             "operation is not a pending local append in this scope") in
-      let* ()=if Imap_maildir.find maildir ~id:local_id=None then Ok ()
+      let* ()=if Maildir.find maildir ~id:local_id=None then Ok ()
         else Error (Invalid_operation
           "reserved Maildir occurrence already exists; run sync to reconcile it") in
       let* ()=if J.find_remote store ~scope ~uidvalidity ~uid=None &&
@@ -1398,7 +1398,7 @@ let repair_local_append ~client ~store ~maildir ~scope ~mailbox ~id
             saved internal_date -> Ok saved
         | Some _ -> Error (Date_diverged id) in
       let spool=Eio.Path.(spool_dir /
-        ("imap-repair-" ^ Imap_maildir.reserve_id ())) in
+        ("imap-repair-" ^ Maildir.reserve_id ())) in
       let* blob=match Engine.archive_uid ~client ~store ~scope
         ~mailbox ~uid ~spool () with
         | Error (Engine.Client (Imap_eio.Error.Missing_uid raw))
@@ -1413,16 +1413,16 @@ let repair_local_append ~client ~store ~maildir ~scope ~mailbox ~id
         then Ok () else Error (Date_diverged id) in
       let* ()=if Imap_store.load_cursor store ~scope=cursor then Ok ()
         else Error Stale_revision in
-      let* ()=match Imap_maildir.check_append maildir ~flags ~internal_date
+      let* ()=match Maildir.check_append maildir ~flags ~internal_date
           () with
         | Ok () -> Ok ()
         | Error reason -> Error (Invalid_operation
             ("Maildir cannot store the message: " ^ reason)) in
       let local=Eio.Switch.run @@ fun sw ->
         let source=Imap_store.Blob.open_in store ~sw blob in
-        Imap_maildir.append maildir ~id:local_id ~source ~length
+        Maildir.append maildir ~id:local_id ~source ~length
           ~flags ~internal_date () in
-      if local.length<>length || Imap_maildir.sha256 maildir local<>sha256
+      if local.length<>length || Maildir.sha256 maildir local<>sha256
          then Error (Content_diverged id)
       else if not (same_flags flags local.flags) then Error (Flags_diverged id)
       else (
@@ -1593,7 +1593,7 @@ let inspect_append_candidates ?(max_uids=1000)
                                else Ok () in
                              body_bytes:=Int64.add !body_bytes length;
                              let spool=Eio.Path.(spool_dir /
-                               ("imap-candidate-" ^ Imap_maildir.reserve_id ())) in
+                               ("imap-candidate-" ^ Maildir.reserve_id ())) in
                              let fetched=Spool.with_spool spool
                                (fun sink ->
                                  let fetched=Imap_eio.Selected.fetch_to selected

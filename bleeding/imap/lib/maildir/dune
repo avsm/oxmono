@@ -1,5 +1,0 @@
-(library
- (name imap_maildir)
- (public_name imap.maildir)
- (private_modules keywords dotlock)
- (libraries eio eio.unix unix threads cstruct optint digestif mail-flag imap sqlite3-eio))

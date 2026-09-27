@@ -210,7 +210,7 @@ let test_bridge () =
   Eio.Switch.run @@ fun store_sw ->
   let store = Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  let maildir = Imap_maildir.open_dir Eio.Path.(fs / maildir_path) in
+  let maildir = Maildir.open_dir Eio.Path.(fs / maildir_path) in
   let counter = ref 0 in
   let next_id () = incr counter; Printf.sprintf "stalwart-%s-%d" n !counter in
   let copy stage_id = match Imap_sync.Bridge.copy_once ~client ~store ~maildir
@@ -220,16 +220,16 @@ let test_bridge () =
     | Error e -> Alcotest.fail (Format.asprintf "%a" Imap_sync.Bridge.pp_error e) in
   let imported = copy ("stalwart-import-" ^ n) in
   Alcotest.(check int) "remote imported" 1 imported.remote_to_local;
-  let imported_local = match Imap_maildir.scan maildir with
+  let imported_local = match Maildir.scan maildir with
     | [x] -> x | _ -> Alcotest.fail "expected one imported local message" in
   let imported_bytes = Buffer.create (String.length remote) in
   Eio.Switch.run @@ fun read_sw ->
-  Eio.Flow.copy (Imap_maildir.open_message maildir ~sw:read_sw imported_local)
+  Eio.Flow.copy (Maildir.open_message maildir ~sw:read_sw imported_local)
     (Eio.Flow.buffer_sink imported_bytes);
   Alcotest.(check string) "import exact bytes" remote
     (Buffer.contents imported_bytes);
   let local_body = raw n "local" in
-  let local = Imap_maildir.append maildir
+  let local = Maildir.append maildir
     ~source:(Eio.Flow.string_source local_body)
     ~length:(Int64.of_int (String.length local_body)) ~flags:[] () in
   let uploaded = copy ("stalwart-upload-" ^ n) in

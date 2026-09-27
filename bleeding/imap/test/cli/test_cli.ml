@@ -343,7 +343,7 @@ let test_readonly_inspect () =
         remove (Filename.concat path child)); Unix.rmdir path)
       else Sys.remove path in
     remove maildir) @@ fun () ->
-  ignore (Imap_maildir.open_dir Eio.Path.(fs / maildir));
+  ignore (Maildir.open_dir Eio.Path.(fs / maildir));
   let plan=parse ["plan-deletions";"--db";filename;
     "--maildir";maildir;"--propagate-deletions"] in
   Alcotest.(check int) "plan requires complete published inventory" 4
@@ -424,7 +424,7 @@ let test_sync_recovers_before_connect () =
   Fun.protect ~finally:(fun () -> remove root) @@ fun () ->
   let maildir=Filename.concat root "maildir" in
   let fs=Eio.Stdenv.fs eio in
-  ignore (Imap_maildir.open_dir Eio.Path.(fs / maildir));
+  ignore (Maildir.open_dir Eio.Path.(fs / maildir));
   let abandoned=Filename.concat (Filename.concat maildir "tmp")
     ".tmp-0123456789abcdef0123456789abcdef" in
   let output=open_out_bin abandoned in
@@ -452,7 +452,7 @@ let test_mark_local_retention () =
   let fs=Eio.Stdenv.fs eio in
   let database=Filename.concat root "sync.db"
   and local_path=Filename.concat root "Maildir" in
-  let maildir=Imap_maildir.open_dir Eio.Path.(fs / local_path) in
+  let maildir=Maildir.open_dir Eio.Path.(fs / local_path) in
   let scope:Imap.Mirror.scope={endpoint="server-id";account="account-id";
     mailbox_key="INBOX";raw_name="INBOX";
     encoding=Imap.Mailbox_name.Rev1;mailbox_id=None} in

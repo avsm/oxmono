@@ -132,26 +132,26 @@ let current_pair store (pair:J.pair) =
 
 let local ?inventory maildir id =
   let found=match inventory with
-    | Some inventory -> Imap_maildir.inventory_find inventory ~id
-    | None -> Imap_maildir.find maildir ~id in
+    | Some inventory -> Maildir.inventory_find inventory ~id
+    | None -> Maildir.find maildir ~id in
   match found with
   | None -> Error Missing_occurrence
   | Some occurrence -> Ok occurrence
 
 let unchanged ?inventory maildir occurrence =
-  match Imap_maildir.with_unchanged_occurrence ?inventory maildir occurrence
+  match Maildir.with_unchanged_occurrence ?inventory maildir occurrence
       ignore with
   | Ok () -> true
   | Error `Changed -> false
 
 (* [`Changed] means the observation is stale, not that the bytes differ. *)
 let content ?inventory maildir (pair:J.pair)
-    (occurrence:Imap_maildir.occurrence) =
+    (occurrence:Maildir.occurrence) =
   match pair.content_sha256,pair.content_length with
   | Some sha256,Some length when occurrence.length=length ->
-      (match Imap_maildir.with_unchanged_occurrence ?inventory maildir
+      (match Maildir.with_unchanged_occurrence ?inventory maildir
           occurrence (fun () ->
-            Imap_maildir.sha256 ?inventory maildir occurrence) with
+            Maildir.sha256 ?inventory maildir occurrence) with
        | Ok digest when digest=sha256 -> `Matches
        | Ok _ -> `Differs
        | Error `Changed -> `Changed)
@@ -282,9 +282,9 @@ let recover_sent ~inventory ~client ~store ~maildir ~mailbox
                  verified target and the unchanged Maildir preimage are
                  enough to finish locally, without replaying STORE. *)
               let* _=current_pair store pair in
-              (match Imap_maildir.set_flags maildir local_before local_target
+              (match Maildir.set_flags maildir local_before local_target
                with
-               | exception Imap_maildir.Stale_occurrence ->
+               | exception Maildir.Stale_occurrence ->
                    pending
                      "uncertain FLAGS write: local message changed during \
                       recovery"
@@ -332,7 +332,7 @@ let settle_operation ~client ~store ~maildir ~scope ~mailbox ~id ~evidence () =
      not (String.for_all (fun c -> let n=Char.code c in
        n>=32 && n<>127) evidence) then
     Error (Diverged "operator evidence must be 1..1024 printable bytes")
-  else Imap_maildir.with_writer_lock maildir (fun () ->
+  else Maildir.with_writer_lock maildir (fun () ->
     let* operation=match J.find_operation store ~id with
       | Some op when op.scope=scope && op.kind=J.Flags &&
           List.mem op.state [J.Sent;J.Ambiguous;J.Observed] -> Ok op
@@ -360,7 +360,7 @@ let settle_operation ~client ~store ~maildir ~scope ~mailbox ~id ~evidence () =
         else match pair.internal_date with
           | None -> Ok occurrence
           | Some date ->
-              (match Imap_maildir.upload_internal_date occurrence with
+              (match Maildir.upload_internal_date occurrence with
                | Ok observed when
                    Imap.Internal_date.equal_instant observed date ->
                    Ok occurrence
@@ -440,9 +440,9 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~client ~store
           if not local_needed then
             if unchanged ?inventory maildir local_before then Ok local_before
             else stale ()
-          else match Imap_maildir.set_flags maildir local_before local_target
+          else match Maildir.set_flags maildir local_before local_target
           with
-          | exception Imap_maildir.Stale_occurrence -> stale ()
+          | exception Maildir.Stale_occurrence -> stale ()
           | written when content maildir pair written=`Matches -> Ok written
           | _ -> pending
               "local message content changed during the FLAGS update" in

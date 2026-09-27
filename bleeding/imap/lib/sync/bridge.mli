@@ -45,7 +45,7 @@ val copy_once :
   ?allow_bootstrap_duplicates:bool ->
   ?deletion_policy:Imap.Sync_policy.deletion_policy ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Imap_maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
+  maildir:Maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
   stage_id:string -> next_id:(unit -> string) -> spool_dir:_ Eio.Path.t ->
   unit -> (receipt, error) result
 (** Publish a complete remote inventory, then copy unpaired occurrences up
@@ -88,7 +88,7 @@ val copy_once :
     [max_transfers] covers copies, flag updates, and deletions. The entire
     cycle holds the cross-process Maildir writer lease, and failing to
     acquire it yields [Writer_busy]. All direct Maildir writers must honor
-    the same lease. [Imap_maildir.Metadata_lock_busy] from a contended
+    the same lease. [Maildir.Metadata_lock_busy] from a contended
     Dovecot lock, other Store and Maildir exceptions, and Eio cancellation
     propagate. [flags_held] and [deletions_held] count flag and deletion
     holds, and [held_pair_ids] includes at most 100 IDs for diagnostics. A
@@ -104,7 +104,7 @@ type local_verification = {
 }
 
 val verify_local_content :
-  store:Imap_store.t -> maildir:Imap_maildir.t ->
+  store:Imap_store.t -> maildir:Maildir.t ->
   scope:Imap.Mirror.scope -> next_id:(unit -> string) ->
   on_issue:(string -> string -> unit) -> unit ->
   (local_verification, error) result
@@ -118,7 +118,7 @@ val verify_local_content :
     each mismatch, absence, or unverified pair. *)
 
 val mark_local_retention :
-  store:Imap_store.t -> maildir:Imap_maildir.t ->
+  store:Imap_store.t -> maildir:Maildir.t ->
   scope:Imap.Mirror.scope -> pair_id:string -> evidence:string ->
   unit -> (unit, error) result
 (** Attest that a missing local paired occurrence was removed by local
@@ -139,7 +139,7 @@ type deletion_preview = {
 
 val preview_deletions :
   ?min_absence_scans:int ->
-  store:Imap_store.t -> maildir:Imap_maildir.t ->
+  store:Imap_store.t -> maildir:Maildir.t ->
   scope:Imap.Mirror.scope -> policy:Imap.Sync_policy.deletion_policy ->
   on_preview:(deletion_preview -> unit) ->
   unit -> (Imap.Mirror.cursor, error) result
@@ -170,7 +170,7 @@ type sync_preview =
 val preview_sync :
   ?allow_bootstrap_duplicates:bool ->
   ?min_absence_scans:int ->
-  store:Imap_store.t -> maildir:Imap_maildir.t ->
+  store:Imap_store.t -> maildir:Maildir.t ->
   scope:Imap.Mirror.scope -> policy:Imap.Sync_policy.deletion_policy ->
   on_preview:(sync_preview -> unit) ->
   unit -> (Imap.Mirror.cursor, error) result
@@ -188,7 +188,7 @@ val preview_sync :
 
 val repair_local_append :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Imap_maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
+  maildir:Maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
   id:string -> evidence:string -> spool_dir:_ Eio.Path.t ->
   unit -> (unit, error) result
 (** Explicitly finish a pending remote-to-Maildir append whose reserved
@@ -202,7 +202,7 @@ val repair_local_append :
     repaired again. [evidence] is a printable operator audit note. *)
 
 val record_appenduid_evidence :
-  store:Imap_store.t -> maildir:Imap_maildir.t ->
+  store:Imap_store.t -> maildir:Maildir.t ->
   scope:Imap.Mirror.scope -> id:string ->
   uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
   evidence:string -> unit -> (unit, error) result

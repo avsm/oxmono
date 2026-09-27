@@ -52,7 +52,7 @@ remain, sync exits 2 so a scheduler can invoke it again. Hydration does not
 run when the bridge itself still has more transfers or a conflict to resolve.
 
 `imap-sync` drives one bounded IMAP↔Maildir bridge cycle at a time. It uses
-`imap.store` for the SQLite journal and `imap.maildir` for exact message files.
+`imap.store` for the SQLite journal and `maildir` for exact message files.
 The command defaults to preserving messages that disappear on one side. Set
 `--propagate-deletions` only for a mailbox where that policy is intended.
 For one-way propagation, use `--propagate-remote-deletions` to remove a

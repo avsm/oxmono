@@ -84,7 +84,7 @@ The script discovers INBOX through `doveadm mailbox path` and exports
 `IMAP_DOVECOT_SHARED_MAILDIR`; it does not assume a mailbox directory layout.
 Only the generated fixture tree is shared, and `down.sh` removes it.
 
-The shared-filesystem test publishes a message through `Imap_maildir`, verifies
+The shared-filesystem test publishes a message through `Maildir`, verifies
 Dovecot reads its exact bytes, system flags, keyword and INTERNALDATE, changes
 flags and adds a keyword through IMAP, and verifies the local reader sees those
 changes. A further local rename preserves both programs' keyword mappings and

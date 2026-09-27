@@ -1,4 +1,4 @@
-module M = Imap_maildir
+module M = Maildir
 let flag s = match Mail_flag.Imap_flag.of_wire s with
   | Ok flag -> flag | Error e -> Alcotest.fail e
 let wires flags = List.map Mail_flag.Imap_flag.to_wire flags

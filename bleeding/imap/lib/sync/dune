@@ -19,7 +19,7 @@
   imap
   imap.eio
   imap.store
-  imap.maildir
+  maildir
   imap_sync_spool
   mail-flag
   eio

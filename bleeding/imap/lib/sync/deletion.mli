@@ -1,7 +1,7 @@
 (** Policy-gated deletion of an established IMAP/Maildir occurrence pair.
 
     [reconcile_pair] and [recover_operation] require the caller to hold
-    [Imap_maildir.with_writer_lock] across the remote scan, the local
+    [Maildir.with_writer_lock] across the remote scan, the local
     inventory and the call. The three operator repairs take the lease
     themselves, so the caller must not hold it. A missing side is actionable
     only when a complete published inventory proves absence. The survivor
@@ -39,9 +39,9 @@ val expunge_preflight :
 val reconcile_pair :
   ?min_absence_scans:int ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Imap_maildir.t -> mailbox:string ->
+  maildir:Maildir.t -> mailbox:string ->
   cursor:Imap.Mirror.cursor ->
-  local_inventory:Imap_maildir.paged_inventory ->
+  local_inventory:Maildir.paged_inventory ->
   pair:Imap_store.Journal.pair -> policy:Imap.Sync_policy.deletion_policy ->
   next_id:(unit -> string) -> spool_dir:_ Eio.Path.t -> unit ->
   (outcome, error) result
@@ -57,7 +57,7 @@ val reconcile_pair :
     direction, and a legacy pair without a content digest and length is held
     as [Missing_content_evidence].
 
-    The local delete is journaled before [Imap_maildir.remove]. A survivor
+    The local delete is journaled before [Maildir.remove]. A survivor
     whose bytes, flags or file changed is held as [Survivor_changed]. A
     remote delete requires UIDPLUS, CONDSTORE, a [spool_dir] directory,
     [\\Deleted] in PERMANENTFLAGS and a nonzero MODSEQ on the target, and
@@ -73,9 +73,9 @@ val reconcile_pair :
     with its cause recorded. *)
 
 val recover_operation :
-  store:Imap_store.t -> maildir:Imap_maildir.t ->
+  store:Imap_store.t -> maildir:Maildir.t ->
   cursor:Imap.Mirror.cursor ->
-  local_inventory:Imap_maildir.paged_inventory ->
+  local_inventory:Maildir.paged_inventory ->
   operation:Imap_store.Journal.operation -> unit ->
   (outcome, error) result
 (** [recover_operation ~store ~maildir ~cursor ~local_inventory ~operation ()]
@@ -88,7 +88,7 @@ val recover_operation :
 
 val repair_local_delete :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Imap_maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
+  maildir:Maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
   id:string -> evidence:string -> unit -> (outcome, error) result
 (** Explicit operator repair of a [Sent] or [Ambiguous] local unlink whose
     exact Maildir occurrence is still present. Acquires the writer lease and
@@ -97,12 +97,12 @@ val repair_local_delete :
     UID absence, and local bytes, length, and flags before unlinking and
     committing the journal. A saved OBJECTID+ binding is checked and pinned
     before the live UID check. It never retries a remote mutation. The caller
-    must provide printable operator evidence. [Imap_maildir.Writer_lock_busy]
+    must provide printable operator evidence. [Maildir.Writer_lock_busy]
     propagates when the lease is held. *)
 
 val reject_unchanged_remote_delete :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Imap_maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
+  maildir:Maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
   id:string -> evidence:string -> spool_dir:_ Eio.Path.t -> unit ->
   (unit, error) result
 (** Explicitly reject a sent/ambiguous remote DELETE whose original UID
@@ -111,12 +111,12 @@ val reject_unchanged_remote_delete :
     revision and exact journal identity, and a matching OBJECTID+ mailbox
     binding when one is saved. Holds the Maildir writer lease throughout.
     It sends no STORE or EXPUNGE, and a changed or already-expunged UID
-    remains pending. [Imap_maildir.Writer_lock_busy] propagates when the
+    remains pending. [Maildir.Writer_lock_busy] propagates when the
     lease is held. *)
 
 val finish_marked_remote_delete :
   client:Imap_eio.Client.t -> store:Imap_store.t ->
-  maildir:Imap_maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
+  maildir:Maildir.t -> scope:Imap.Mirror.scope -> mailbox:string ->
   id:string -> evidence:string -> spool_dir:_ Eio.Path.t -> unit ->
   (outcome, error) result
 (** Explicit operator completion of a sent/ambiguous remote DELETE when
@@ -127,5 +127,5 @@ val finish_marked_remote_delete :
     state before sending only targeted UID EXPUNGE. A lost result remains
     pending for complete-inventory recovery, never automatic replay. The
     unavoidable concurrent remote-edit window between the final FETCH and
-    EXPUNGE remains. [Imap_maildir.Writer_lock_busy] propagates when the
+    EXPUNGE remains. [Maildir.Writer_lock_busy] propagates when the
     lease is held. *)

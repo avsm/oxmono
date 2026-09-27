@@ -29,7 +29,7 @@ let with_fixture f =
   Eio.Switch.run @@ fun sw ->
   let fs=Eio.Stdenv.fs env in
   let store=Imap_store.open_path ~sw Eio.Path.(fs / root / "state.db") in
-  let maildir=Imap_maildir.open_dir Eio.Path.(fs / root / "maildir") in
+  let maildir=Maildir.open_dir Eio.Path.(fs / root / "maildir") in
   f store maildir
 
 let publish store ~stage rows =
@@ -82,7 +82,7 @@ let outcome = function
 let test_local_sent_recovery_after_new_scan () =
   with_fixture @@ fun store maildir ->
   let cursor=publish store ~stage:"empty-1" [] in
-  let local=Imap_maildir.append maildir
+  let local=Maildir.append maildir
     ~source:(Eio.Flow.string_source body) ~length ~flags:[] () in
   let remote_tombstone=Some {
     J.reason=J.Inventory_absence;
@@ -94,10 +94,10 @@ let test_local_sent_recovery_after_new_scan () =
   let op=operation pair ~id:"op-local" ~kind:J.Local_delete in
   J.prepare_operation store op;
   J.mark_sent store ~id:op.id;
-  Imap_maildir.remove maildir local;
+  Maildir.remove maildir local;
   let cursor=publish store ~stage:"empty-2" [] in
   let op=Option.get (J.find_operation store ~id:op.id) in
-  Imap_maildir.with_inventory_pages maildir (fun local_inventory ->
+  Maildir.with_inventory_pages maildir (fun local_inventory ->
     let pair=outcome (Imap_sync.Deletion.recover_operation ~store ~maildir
       ~cursor ~local_inventory ~operation:op ()) in
     Alcotest.(check bool) "local tombstone" true
@@ -111,7 +111,7 @@ let test_local_sent_recovery_after_new_scan () =
 let test_local_sent_without_unlink_is_held () =
   with_fixture @@ fun store maildir ->
   let cursor=publish store ~stage:"empty-pending" [] in
-  let local=Imap_maildir.append maildir
+  let local=Maildir.append maildir
     ~source:(Eio.Flow.string_source body) ~length ~flags:[] () in
   let pair=put_pair store (pair ~id:"pair-local-pending"
     ~local_id:local.id
@@ -121,13 +121,13 @@ let test_local_sent_without_unlink_is_held () =
   let op=operation pair ~id:"op-local-pending" ~kind:J.Local_delete in
   J.prepare_operation store op;
   J.mark_sent store ~id:op.id;
-  Imap_maildir.with_inventory_pages maildir (fun local_inventory ->
+  Maildir.with_inventory_pages maildir (fun local_inventory ->
     (match Imap_sync.Deletion.recover_operation ~store ~maildir ~cursor
       ~local_inventory ~operation:op () with
      | Error (Imap_sync.Deletion.Pending_operation id) when id=op.id -> ()
      | _ -> Alcotest.fail "uncertain local unlink was replayed"));
   Alcotest.(check bool) "local occurrence remains present" true
-    (Option.is_some (Imap_maildir.find maildir ~id:local.id));
+    (Option.is_some (Maildir.find maildir ~id:local.id));
   Alcotest.(check bool) "journal remains Sent" true
     ((Option.get (J.find_operation store ~id:op.id)).state=J.Sent)
 
@@ -144,14 +144,14 @@ let test_remote_ambiguous_needs_complete_absence () =
   J.mark_sent store ~id:op.id;
   J.mark_ambiguous store ~id:op.id;
   let op=Option.get (J.find_operation store ~id:op.id) in
-  Imap_maildir.with_inventory_pages maildir (fun local_inventory ->
+  Maildir.with_inventory_pages maildir (fun local_inventory ->
     Alcotest.(check bool) "still pending while UID present" true
       (match Imap_sync.Deletion.recover_operation ~store ~maildir
         ~cursor ~local_inventory ~operation:op () with
        | Error (Imap_sync.Deletion.Pending_operation _) -> true
        | _ -> false));
   let cursor=publish store ~stage:"absent" [] in
-  Imap_maildir.with_inventory_pages maildir (fun local_inventory ->
+  Maildir.with_inventory_pages maildir (fun local_inventory ->
     let pair=outcome (Imap_sync.Deletion.recover_operation ~store ~maildir
       ~cursor ~local_inventory ~operation:op ()) in
     Alcotest.(check bool) "inventory-proven remote tombstone" true
@@ -171,7 +171,7 @@ let test_prepared_never_dispatched () =
     ~local_tombstone:None) in
   let op=operation pair ~id:"op-prepared" ~kind:J.Local_delete in
   J.prepare_operation store op;
-  Imap_maildir.with_inventory_pages maildir (fun local_inventory ->
+  Maildir.with_inventory_pages maildir (fun local_inventory ->
     Alcotest.(check bool) "prepared rejected" true
       (match Imap_sync.Deletion.recover_operation ~store ~maildir
         ~cursor ~local_inventory ~operation:op () with
@@ -192,7 +192,7 @@ let test_prepared_stale_pair_is_rejected () =
   (match J.put_pair store ~expected_revision:(Some pair.revision) pair with
    | `Committed _ -> ()
    | `Stale_revision -> Alcotest.fail "pair advance was stale");
-  Imap_maildir.with_inventory_pages maildir (fun local_inventory ->
+  Maildir.with_inventory_pages maildir (fun local_inventory ->
     (match Imap_sync.Deletion.recover_operation ~store ~maildir ~cursor
       ~local_inventory ~operation:op () with
      | Ok Imap_sync.Deletion.Unchanged -> ()

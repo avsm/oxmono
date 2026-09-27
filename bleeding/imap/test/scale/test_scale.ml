@@ -1,4 +1,4 @@
-module M = Imap_maildir
+module M = Maildir
 module S = Imap_store
 module P = Imap.Proto
 

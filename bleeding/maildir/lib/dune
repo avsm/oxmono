@@ -1,0 +1,13 @@
+(library
+ (name maildir)
+ (public_name maildir)
+ (libraries
+  eio
+  eio.unix
+  unix
+  cstruct
+  optint
+  digestif
+  mail-flag
+  imap
+  sqlite3-eio))

@@ -123,12 +123,12 @@ let commit store (pair:J.pair) ~id ~remote_tombstone ~local_tombstone =
   | `Committed pair -> Ok (Deleted pair)
   | `Stale_revision -> Error Stale_pair
 
-let local_unchanged ?inventory maildir (occurrence:Imap_maildir.occurrence)
+let local_unchanged ?inventory maildir (occurrence:Maildir.occurrence)
     ~digest ~length ~common_flags =
   occurrence.length=length &&
   same_flags occurrence.flags common_flags &&
-  match Imap_maildir.with_unchanged_occurrence ?inventory maildir occurrence
-      (fun () -> Imap_maildir.sha256 ?inventory maildir occurrence) with
+  match Maildir.with_unchanged_occurrence ?inventory maildir occurrence
+      (fun () -> Maildir.sha256 ?inventory maildir occurrence) with
   | Ok found -> found=digest
   | Error `Changed -> false
 
@@ -201,7 +201,7 @@ let remote_evidence ?(precheck=fun _ -> Ok ()) client ~mailbox ~mode ~spool
     | (`Absent | `Changed) as seen -> Ok seen)
 
 let delete_local ~client ~store ~maildir ~local_inventory ~mailbox
-    (pair:J.pair) ~epoch ~uid ~(local:Imap_maildir.occurrence) ~digest
+    (pair:J.pair) ~epoch ~uid ~(local:Maildir.occurrence) ~digest
     ~length ~next_id =
   let* absent=remote_absent client ~mailbox ~epoch ~uid in
   if not absent then Error Stale_inventory
@@ -219,12 +219,12 @@ let delete_local ~client ~store ~maildir ~local_inventory ~mailbox
         Error error
     | Ok _ ->
         J.mark_sent store ~id;
-        match Imap_maildir.remove maildir local with
-        | exception Imap_maildir.Stale_occurrence ->
+        match Maildir.remove maildir local with
+        | exception Maildir.Stale_occurrence ->
             J.reject_operation store ~id
               ~receipt:"local occurrence changed before unlink";
             Ok survivor_changed
-        | () when Imap_maildir.find maildir ~id:local.id<>None ->
+        | () when Maildir.find maildir ~id:local.id<>None ->
             J.mark_ambiguous store ~id
               ~reason:"Maildir ID still present after unlink";
             Error (Pending_operation id)
@@ -248,11 +248,11 @@ let delete_remote ~client ~store ~maildir ~mailbox (pair:J.pair) ~epoch
     Error (Unsupported "CONDSTORE required for conditional UID STORE")
   else if not (Eio.Path.is_directory spool_dir) then
     Error (Unsupported "spool_dir is not a directory")
-  else if Imap_maildir.find maildir ~id:local_id<>None then
+  else if Maildir.find maildir ~id:local_id<>None then
     Error Stale_inventory
   else
     let spool=Eio.Path.(spool_dir /
-      ("imap-delete-" ^ Imap_maildir.reserve_id ())) in
+      ("imap-delete-" ^ Maildir.reserve_id ())) in
     let precheck (info:Imap.Response.select_metadata) =
       match Flags.validate_permanent_flags
           ~available:info.permanentflags ~defined:info.flags
@@ -369,7 +369,7 @@ let reconcile_pair ?(min_absence_scans=0) ~client ~store ~maildir ~mailbox
       Ok survivor_changed
   | None ->
       let* remote_present=published_presence store ~cursor pair epoch uid in
-      let local=Imap_maildir.inventory_find local_inventory ~id:local_id in
+      let local=Maildir.inventory_find local_inventory ~id:local_id in
       let first_generation=if remote_present then
         Option.bind pair.local_tombstone (fun x -> x.generation)
         else Option.bind pair.remote_tombstone (fun x -> x.generation) in
@@ -433,13 +433,13 @@ let recover_operation ~store ~maildir ~cursor ~local_inventory
       else
         let* remote_present=published_presence store ~cursor pair
           epoch uid in
-        let local_present=Imap_maildir.inventory_find local_inventory
+        let local_present=Maildir.inventory_find local_inventory
           ~id:local_id<>None in
         let tombstoned=if kind=J.Delete then check_local_absence_tombstone pair
           else check_remote_absence_tombstone pair in
         match cursor.inventory_ref with
         | _ when remote_present || local_present || not tombstoned ||
-            Imap_maildir.find maildir ~id:local_id<>None ->
+            Maildir.find maildir ~id:local_id<>None ->
             Error (Pending_operation operation.id)
         | None -> Error Stale_inventory
         | Some inventory_ref ->
@@ -486,7 +486,7 @@ let repair_local_delete ~client ~store ~maildir ~scope ~mailbox ~id
     ~evidence () =
   if not (printable evidence) then
     Error (Diverged "operator evidence must be 1..1024 printable bytes")
-  else Imap_maildir.with_writer_lock maildir (fun () ->
+  else Maildir.with_writer_lock maildir (fun () ->
     let* operation=pending_delete store ~scope ~id ~kind:J.Local_delete in
     let* pair=operation_pair store operation in
     let* epoch,uid,local_id,digest,length=identity pair in
@@ -506,16 +506,16 @@ let repair_local_delete ~client ~store ~maildir ~scope ~mailbox ~id
         let* absent=remote_absent client ~mailbox ~epoch ~uid in
         if not absent then Error Stale_inventory
         else
-          let* occurrence=match Imap_maildir.find maildir ~id:local_id with
+          let* occurrence=match Maildir.find maildir ~id:local_id with
             | Some occurrence when local_unchanged maildir occurrence
                 ~digest ~length ~common_flags:pair.common_flags ->
                 Ok occurrence
             | _ -> Error Identity_changed in
           (* A crash after the unlink is recovered from the next complete
              inventory, and the uncertain unlink is never replayed. *)
-          match Imap_maildir.remove maildir occurrence with
-          | exception Imap_maildir.Stale_occurrence -> Error Identity_changed
-          | () when Imap_maildir.find maildir ~id:local_id<>None ->
+          match Maildir.remove maildir occurrence with
+          | exception Maildir.Stale_occurrence -> Error Identity_changed
+          | () when Maildir.find maildir ~id:local_id<>None ->
               Error (Pending_operation id)
           | () ->
               J.observe_operation store ~id
@@ -536,7 +536,7 @@ let pending_remote_delete store ~scope ~maildir ~id =
        ~length) ||
      pair.remote_tombstone<>None ||
      not (check_local_absence_tombstone pair) then Error Stale_pair
-  else if Imap_maildir.find maildir ~id:local_id<>None then
+  else if Maildir.find maildir ~id:local_id<>None then
     Error Stale_inventory
   else Ok (pair,epoch,uid,local_id,digest,length)
 
@@ -546,7 +546,7 @@ let reject_unchanged_remote_delete ~client ~store ~maildir ~scope
     Error (Diverged "operator evidence must be 1..1024 printable bytes")
   else if not (Eio.Path.is_directory spool_dir) then
     Error (Unsupported "spool_dir is not a directory")
-  else Imap_maildir.with_writer_lock maildir (fun () ->
+  else Maildir.with_writer_lock maildir (fun () ->
     let* pair,epoch,uid,local_id,digest,length=
       pending_remote_delete store ~scope ~maildir ~id in
     let* ()=guard ~client ~store ~scope ~mailbox in
@@ -558,12 +558,12 @@ let reject_unchanged_remote_delete ~client ~store ~maildir ~scope
       Error (Unsupported "CONDSTORE required for stable remote verification")
     else
       let spool=Eio.Path.(spool_dir /
-        ("imap-delete-reject-" ^ Imap_maildir.reserve_id ())) in
+        ("imap-delete-reject-" ^ Maildir.reserve_id ())) in
       let* seen=remote_evidence client ~mailbox ~mode:`Read_only ~spool
         ~epoch ~uid ~digest ~length ~expected:pair.common_flags in
       match seen with
       | `Unchanged (Some modseq) when modseq>0L ->
-          if Imap_maildir.find maildir ~id:local_id<>None ||
+          if Maildir.find maildir ~id:local_id<>None ||
              Imap_store.load_cursor store ~scope<>cursor then
             Error Stale_inventory
           else (match J.reject_unchanged_delete_operation store
@@ -585,7 +585,7 @@ let finish_marked_remote_delete ~client ~store ~maildir ~scope
   else if not (has_capability client Imap.Capability.Condstore ||
                has_capability client Imap.Capability.Qresync) then
     Error (Unsupported "CONDSTORE required for stable remote verification")
-  else Imap_maildir.with_writer_lock maildir (fun () ->
+  else Maildir.with_writer_lock maildir (fun () ->
     let* pair,epoch,uid,local_id,digest,length=
       pending_remote_delete store ~scope ~maildir ~id in
     let* ()=guard ~client ~store ~scope ~mailbox in
@@ -593,13 +593,13 @@ let finish_marked_remote_delete ~client ~store ~maildir ~scope
     let* present=published_presence store ~cursor pair epoch uid in
     if not present then Error Stale_inventory else
     let spool=Eio.Path.(spool_dir /
-      ("imap-delete-finish-" ^ Imap_maildir.reserve_id ())) in
+      ("imap-delete-finish-" ^ Maildir.reserve_id ())) in
     let expected=flags (deleted :: pair.common_flags) in
     let* seen=remote_evidence client ~mailbox ~mode:`Read_only ~spool
       ~epoch ~uid ~digest ~length ~expected in
     match seen with
     | `Unchanged (Some modseq) when modseq>0L ->
-        if Imap_maildir.find maildir ~id:local_id<>None ||
+        if Maildir.find maildir ~id:local_id<>None ||
            Imap_store.load_cursor store ~scope<>cursor then
           Error Stale_inventory
         else (match J.attest_targeted_expunge store ~id pair ~evidence with

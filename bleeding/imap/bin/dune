@@ -2,7 +2,7 @@
  (name imap_cli)
  (package imap)
  (modules imap_cli)
- (libraries imap imap.eio imap.store imap.sync imap.maildir mail-flag eio eio.unix cstruct))
+ (libraries imap imap.eio imap.store imap.sync maildir mail-flag eio eio.unix cstruct))
 
 (executable
  (name main)

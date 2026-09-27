@@ -1,4 +1,4 @@
 (test
  (name test_bridge_faults)
  (package imap)
- (libraries imap imap.eio imap.store imap.sync imap.maildir mail-flag eio eio_main eio.mock alcotest unix))
+ (libraries imap imap.eio imap.store imap.sync maildir mail-flag eio eio_main eio.mock alcotest unix))

@@ -1,3 +1,5 @@
+module Dotlock = Maildir.Dotlock
+
 let check predicate message = if not predicate then failwith message
 let exists path = try ignore (Unix.lstat path); true with
   Unix.Unix_error (Unix.ENOENT,_,_) -> false

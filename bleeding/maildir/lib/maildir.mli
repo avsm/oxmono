@@ -13,6 +13,9 @@
     whole sync cycles. External writers must respect the Dovecot lock for
     complete inventories to establish absence. *)
 
+module Dotlock = Dotlock
+module Keywords = Keywords
+
 type t
 type location = New | Cur
 type occurrence = private {

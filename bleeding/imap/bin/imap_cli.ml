@@ -598,12 +598,12 @@ let sync config ~net ~fs ~random ~getenv =
     Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 spool_dir;
     Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_path ~sw ~blob_dir Eio.Path.(fs / config.db) in
-    let maildir=Imap_maildir.open_dir Eio.Path.(fs / config.maildir) in
+    let maildir=Maildir.open_dir Eio.Path.(fs / config.maildir) in
     let recovered=try
-      Imap_maildir.with_writer_lock maildir (fun () ->
-        ignore (Imap_maildir.recover maildir));
+      Maildir.with_writer_lock maildir (fun () ->
+        ignore (Maildir.recover maildir));
       true
-    with Imap_maildir.Writer_lock_busy _ -> false in
+    with Maildir.Writer_lock_busy _ -> false in
     if not recovered then (
       prerr_endline "Maildir writer lease is busy"; 8)
     else
@@ -757,7 +757,7 @@ let repair_appenduid config ~fs =
     5)
   else
   let store=Imap_store.open_path ~sw db_path in
-  let maildir=Imap_maildir.open_dir Eio.Path.(fs / config.maildir) in
+  let maildir=Maildir.open_dir Eio.Path.(fs / config.maildir) in
   let scope=local_scope config store in
   match Imap_sync.Bridge.record_appenduid_evidence ~store ~maildir ~scope
     ~id:config.operation_id ~uidvalidity ~uid ~evidence:config.evidence () with
@@ -779,7 +779,7 @@ let mark_local_retention config ~fs =
     5)
   else Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_path ~sw db_path in
-    let maildir=Imap_maildir.open_dir maildir_path in
+    let maildir=Maildir.open_dir maildir_path in
     let scope=local_scope config store in
     match Imap_sync.Bridge.mark_local_retention ~store ~maildir ~scope
       ~pair_id:config.pair_id ~evidence:config.evidence () with
@@ -801,7 +801,7 @@ let verify_local config ~fs ~random =
     5)
   else Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_path ~sw db_path in
-    let maildir=Imap_maildir.open_dir maildir_path in
+    let maildir=Maildir.open_dir maildir_path in
     let scope=local_scope config store in
     let shown=ref [] and shown_count=ref 0 and issues=ref 0L in
     let on_issue pair_id reason=
@@ -836,7 +836,7 @@ let plan_deletions config ~fs =
     5)
   else Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_readonly ~sw db_path in
-    let maildir=Imap_maildir.open_dir maildir_path in
+    let maildir=Maildir.open_dir maildir_path in
     let scope=local_scope config store in
     let count=ref 0 and shown=ref [] and shown_count=ref 0
     and candidate=ref 0
@@ -902,7 +902,7 @@ let plan_sync config ~fs =
     5)
   else Eio.Switch.run @@ fun sw ->
     let store=Imap_store.open_readonly ~sw db_path in
-    let maildir=Imap_maildir.open_dir maildir_path in
+    let maildir=Maildir.open_dir maildir_path in
     let scope=local_scope config store in
     let count=ref 0 and shown=ref [] and shown_count=ref 0 in
     let remote_copies=ref 0 and local_copies=ref 0
@@ -989,7 +989,7 @@ let repair_local_delete config ~net ~fs ~getenv =
         5)
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw db_path in
-      let maildir=Imap_maildir.open_dir maildir_path in
+      let maildir=Maildir.open_dir maildir_path in
       with_connected config ~sw ~net ~password @@ fun client scope ->
           (try
             match Imap_sync.Deletion.repair_local_delete ~client ~store
@@ -1004,7 +1004,7 @@ let repair_local_delete config ~net ~fs ~getenv =
             | Error error ->
                 Format.eprintf "local deletion unchanged: %a@."
                   Imap_sync.Deletion.pp_error error; 4
-           with Imap_maildir.Writer_lock_busy _ ->
+           with Maildir.Writer_lock_busy _ ->
              prerr_endline "Maildir writer lease is busy"; 8)
 
 let remote_delete_repair config ~finish ~net ~fs ~getenv =
@@ -1019,7 +1019,7 @@ let remote_delete_repair config ~finish ~net ~fs ~getenv =
         5)
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw db_path in
-      let maildir=Imap_maildir.open_dir maildir_path in
+      let maildir=Maildir.open_dir maildir_path in
       with_connected config ~sw ~net ~password @@ fun client scope ->
           (try
             let result=if finish then
@@ -1050,7 +1050,7 @@ let remote_delete_repair config ~finish ~net ~fs ~getenv =
             | Error error ->
                 Format.eprintf "remote deletion remains pending: %a@."
                   Imap_sync.Deletion.pp_error error; 4
-           with Imap_maildir.Writer_lock_busy _ ->
+           with Maildir.Writer_lock_busy _ ->
              prerr_endline "Maildir writer lease is busy"; 8)
 
 let repair_local_append config ~net ~fs ~getenv =
@@ -1067,7 +1067,7 @@ let repair_local_append config ~net ~fs ~getenv =
         5)
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw ~blob_dir db_path in
-      let maildir=Imap_maildir.open_dir maildir_path in
+      let maildir=Maildir.open_dir maildir_path in
       with_connected config ~sw ~net ~password @@ fun client scope ->
           match Imap_sync.Bridge.repair_local_append ~client ~store ~maildir
               ~scope ~mailbox:config.mailbox ~id:config.operation_id
@@ -1095,7 +1095,7 @@ let settle_flags config ~net ~fs ~getenv =
         5)
       else Eio.Switch.run @@ fun sw ->
       let store=Imap_store.open_path ~sw db_path in
-      let maildir=Imap_maildir.open_dir maildir_path in
+      let maildir=Maildir.open_dir maildir_path in
       with_connected config ~sw ~net ~password @@ fun client scope ->
           (try match Imap_sync.Flags.settle_operation ~client ~store ~maildir
               ~scope ~mailbox:config.mailbox ~id:config.operation_id
@@ -1114,7 +1114,7 @@ let settle_flags config ~net ~fs ~getenv =
            | Error error ->
                Format.eprintf "FLAGS intent unchanged: %a@."
                  Imap_sync.Flags.pp_error error; 4
-           with Imap_maildir.Writer_lock_busy _ ->
+           with Maildir.Writer_lock_busy _ ->
              prerr_endline "Maildir writer lease is busy"; 8)
 
 let inspect_append_candidates config ~net ~fs ~getenv =

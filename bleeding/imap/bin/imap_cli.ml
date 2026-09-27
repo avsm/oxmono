@@ -114,6 +114,13 @@ type verify_local = {
   max_inspect : int;
 }
 
+type gc = { db : string; blob_dir : string; maildir : string option }
+
+type forget_epochs = {
+  scope : scope;
+  encoding : Imap.Mailbox_name.mode option;
+}
+
 type job =
   | Sync of sync
   | Hydrate of hydrate
@@ -130,6 +137,8 @@ type job =
   | Plan_deletions of plan
   | Plan_sync of plan
   | Verify_local of verify_local
+  | Gc of gc
+  | Forget_epochs of forget_epochs
 
 let converged = 0
 let more_work = 2
@@ -156,8 +165,8 @@ let exits = [
   Cmd.Exit.info local_failure
     ~doc:"on a local filesystem, Maildir or SQLite failure.";
   Cmd.Exit.info busy
-    ~doc:"when the Maildir writer lease or the Maildir metadata lock is \
-          busy.";
+    ~doc:"when the Maildir writer lease, the Maildir metadata lock or the \
+          database lock is busy.";
   Cmd.Exit.info not_found
     ~doc:"when the targeted operation or pair is not in the mailbox scope.";
   Cmd.Exit.info Cmd.Exit.internal_error
@@ -188,6 +197,7 @@ let hint : Imap_sync.Error.t -> string = function
 
 exception Failed of int * string
 exception Sync_failed of string * Imap_sync.Error.t
+exception Lock_busy of string
 
 let fail code fmt = Format.kasprintf (fun m -> raise (Failed (code, m))) fmt
 
@@ -204,6 +214,7 @@ let classify = function
       busy, "Maildir writer lease is busy: " ^ path
   | Maildir.Metadata_lock_busy path ->
       busy, "Maildir metadata lock is busy: " ^ path
+  | Lock_busy path -> busy, "database lock is busy: " ^ path
   | Imap_store.Scope_mismatch ->
       configuration,
       "stored mailbox scope differs from the requested scope; check \
@@ -476,10 +487,11 @@ let sync_cmd =
   command ~online:true "sync" term
     ~doc:"Run bounded IMAP and Maildir bridge cycles."
     ~man:[`S Manpage.s_description;
-      `P "Recovers interrupted Maildir and spool files, then runs up to \
-          $(b,--max-cycles) cycles. Each cycle publishes a complete remote \
-          inventory and copies, flags and deletes under the deletion \
-          policy."]
+      `P "Recovers interrupted Maildir and spool files, removes orphan \
+          body blobs, then runs up to $(b,--max-cycles) cycles. Each cycle \
+          publishes a complete remote inventory and copies, flags and \
+          deletes under the deletion policy. The command holds the \
+          database lock for its whole run."]
 
 let hydrate_cmd =
   let term =
@@ -642,6 +654,33 @@ let verify_local_cmd =
     ~doc:"Rehash paired Maildir bodies against their saved digests."
     ~man:[`S Manpage.s_description; `P "Offline."]
 
+let gc_cmd =
+  let term =
+    let+ db = db_t and+ blob_dir = blob_dir_t
+    and+ maildir = path_opt ["maildir"] ~env:"IMAP_MAILDIR"
+        ~absent:"no Maildir lease"
+        ~doc:"Maildir whose writer lease is also held." in
+    Gc { db; maildir;
+      blob_dir=Option.value blob_dir ~default:(db ^ ".blobs") } in
+  command "gc" term
+    ~doc:"Remove body blobs that nothing references."
+    ~man:[`S Manpage.s_description;
+      `P "Holds the database lock, and the Maildir writer lease when \
+          $(b,--maildir) is given. Every other writer of the blob \
+          directory must be stopped, including one in another process \
+          that does not take these locks."]
+
+let forget_epochs_cmd =
+  let term =
+    let+ scope = scope_t and+ encoding = encoding_t in
+    Forget_epochs { scope; encoding } in
+  command "forget-epochs" term
+    ~doc:"Drop the snapshots of every UIDVALIDITY but the current one."
+    ~man:[`S Manpage.s_description;
+      `P "Offline. Blobs referenced only by a dropped epoch become \
+          orphans for $(b,gc). Exits 4 when the cursor changes \
+          concurrently."]
+
 let cmd =
   let man = [
     `S Manpage.s_description;
@@ -668,6 +707,7 @@ let cmd =
     repair_cmd "finish-remote-delete" (fun r -> Finish_remote_delete r)
       ~doc:"Expunge the one UID of a pending remote deletion.";
     retention_cmd; plan_deletions_cmd; plan_sync_cmd; verify_local_cmd;
+    gc_cmd; forget_epochs_cmd;
   ]
 
 let id ~random prefix =
@@ -702,6 +742,20 @@ let open_maildir p =
   match Maildir.open_dir p with
   | Ok maildir -> maildir
   | Error e -> raise (Sync_failed ("Maildir", Imap_sync.Error.Maildir e))
+
+let with_db_lock ~fs db f =
+  let name=db ^ ".lock" in
+  Eio.Switch.run ~name:"imap-sync-lock" @@ fun sw ->
+  let file=Eio.Path.open_out ~sw ~create:(`If_missing 0o600) (path ~fs name) in
+  let fd=match Eio_unix.Resource.fd_opt file with
+    | Some fd -> fd
+    | None -> fail local_failure "database lock has no descriptor: %s" name in
+  (* Eio has no record locks. *)
+  (try Eio_unix.Fd.use_exn "lockf" fd (fun fd ->
+     Unix.lockf fd Unix.F_TLOCK 0) with
+   | Unix.Unix_error ((Unix.EACCES | Unix.EAGAIN), _, _) ->
+       raise (Lock_busy name));
+  f ()
 
 let mirror_scope (s:scope) encoding =
   match Imap.Mailbox_name.encode ~mode:encoding s.mailbox with
@@ -881,6 +935,7 @@ let hydrate (c:hydrate) ~env ~secret ~net ~fs ~random =
   let password=password c.connection ~env ~secret in
   let db=require_db ~fs c.scope.db in
   let blob_dir=make_dir ~fs c.blob_dir and spool_dir=make_dir ~fs c.spool_dir in
+  with_db_lock ~fs c.scope.db @@ fun () ->
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_path ~sw ~blob_dir db in
   with_context c.connection c.scope ~password ~sw ~net ~store ~spool_dir
@@ -908,14 +963,22 @@ let audit_cache (c:audit_cache) ~fs =
     receipt.more receipt.cursor.revision;
   if receipt.more then more_work else converged
 
+let reap store =
+  let removed=ref 0 in
+  Imap_store.Blob.reap_orphans_iter store ~removed:(fun _ -> incr removed);
+  !removed
+
 let sync (c:sync) ~env ~secret ~net ~fs ~random =
   let password=password c.connection ~env ~secret in
   let blob_dir=make_dir ~fs c.blob_dir and spool_dir=make_dir ~fs c.spool_dir in
+  with_db_lock ~fs c.scope.db @@ fun () ->
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_path ~sw ~blob_dir (path ~fs c.scope.db) in
   let maildir=open_maildir (path ~fs c.maildir) in
   check "startup recovery"
     (Imap_sync.Bridge.recover_local ~maildir ~spool_dir ());
+  let removed=Maildir.with_writer maildir (fun _ -> reap store) in
+  if removed>0 then Printf.printf "orphans_removed=%d\n%!" removed;
   with_context c.connection c.scope ~password ~sw ~net ~store ~spool_dir
     ~next_id:(fun () -> id ~random "op-") @@ fun ctx ->
   let finish (receipt:Imap_sync.Bridge.receipt) =
@@ -1267,6 +1330,32 @@ let inspect_append_candidates (c:append_candidates) ~env ~secret ~net ~fs
      "evidence is required");
   converged
 
+let gc (c:gc) ~fs =
+  let db=require_db ~fs c.db in
+  let blob_dir=require_dir ~fs "blob directory" c.blob_dir in
+  let maildir=Option.map (require_dir ~fs "Maildir") c.maildir in
+  with_db_lock ~fs c.db @@ fun () ->
+  Eio.Switch.run @@ fun sw ->
+  let store=Imap_store.open_path ~sw ~blob_dir db in
+  let removed=match maildir with
+    | None -> reap store
+    | Some p -> Maildir.with_writer (open_maildir p) (fun _ -> reap store) in
+  Printf.printf "orphans_removed=%d\n%!" removed;
+  converged
+
+let forget_epochs (c:forget_epochs) ~fs =
+  let db=require_db ~fs c.scope.db in
+  Eio.Switch.run @@ fun sw ->
+  let store=Imap_store.open_path ~sw db in
+  let scope=local_scope c.scope c.encoding store in
+  let cursor=Imap_store.load_cursor store ~scope in
+  if cursor.uidvalidity=None then
+    fail conflict "no published UIDVALIDITY epoch to keep; run sync first";
+  match Imap_store.forget_epochs store ~scope ~cursor with
+  | `Dropped n -> Printf.printf "epochs_dropped=%d\n%!" n; converged
+  | `Stale_revision ->
+      fail conflict "published cursor changed concurrently; run again"
+
 let run job ~env ~net ~fs ~random =
   let secret=ref "" in
   try match job with
@@ -1290,6 +1379,8 @@ let run job ~env ~net ~fs ~random =
     | Plan_deletions c -> plan_deletions c ~fs
     | Plan_sync c -> plan_sync c ~fs
     | Verify_local c -> verify_local c ~fs ~random
+    | Gc c -> gc c ~fs
+    | Forget_epochs c -> forget_epochs c ~fs
   with
   | Eio.Cancel.Cancelled _ as exn -> raise exn
   | exn ->

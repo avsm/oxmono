@@ -11,6 +11,8 @@
   mail-flag
   cmdliner
   eio
+  eio.unix
+  unix
   cstruct))
 
 (executable

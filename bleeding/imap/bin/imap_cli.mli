@@ -133,6 +133,13 @@ type verify_local = private {
   max_inspect : int;
 }
 
+type gc = private { db : string; blob_dir : string; maildir : string option }
+
+type forget_epochs = private {
+  scope : scope;
+  encoding : Imap.Mailbox_name.mode option;
+}
+
 type job = private
   | Sync of sync
   | Hydrate of hydrate
@@ -149,6 +156,8 @@ type job = private
   | Plan_deletions of plan
   | Plan_sync of plan
   | Verify_local of verify_local
+  | Gc of gc
+  | Forget_epochs of forget_epochs
 (** A [job] is one parsed command. Unset directory options default to the
     database path with [.blobs] or [.spool] appended. *)
 
@@ -173,7 +182,8 @@ val run :
     - 5 on invalid configuration,
     - 6 on an IMAP connection or protocol failure,
     - 7 on a local filesystem, Maildir or SQLite failure,
-    - 8 when the Maildir writer lease or the Maildir metadata lock is busy,
+    - 8 when the Maildir writer lease, the Maildir metadata lock or the
+      database lock is busy,
     - 9 when the targeted operation or pair is not in the scope. *)
 
 val eval :

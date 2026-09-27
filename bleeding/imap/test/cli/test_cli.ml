@@ -400,12 +400,22 @@ let test_targeted_inspect () =
   Alcotest.(check int) "two active operations listed" 3
     (run eio ["inspect";"--db";filename;"--max-inspect";"2"])
 
+let orphan blob_dir =
+  let name=Filename.concat blob_dir ".tmp-0123456789abcdef" in
+  let output=open_out_bin name in
+  output_string output "orphan";
+  close_out output;
+  name
+
 let test_sync_recovers_before_connect () =
   Eio_main.run @@ fun eio ->
   with_root "imap-cli-recover" @@ fun root ->
   let maildir=Filename.concat root "maildir" in
+  let blob_dir=Filename.concat root "blob" in
   let fs=Eio.Stdenv.fs eio in
   ignore (Md.open_dir Eio.Path.(fs / maildir));
+  Unix.mkdir blob_dir 0o700;
+  let orphan=orphan blob_dir in
   let abandoned=Filename.concat (Filename.concat maildir "tmp")
     ".tmp-0123456789abcdef0123456789abcdef" in
   let output=open_out_bin abandoned in
@@ -414,10 +424,12 @@ let test_sync_recovers_before_connect () =
   Alcotest.(check int) "refused connection is an IMAP failure" 6
     (run eio ["sync";"--host";"127.0.0.1";"--port";"1";
       "--tls";"plain";"--db";Filename.concat root "sync.db";
-      "--maildir";maildir;"--blob-dir";Filename.concat root "blob";
+      "--maildir";maildir;"--blob-dir";blob_dir;
       "--spool-dir";Filename.concat root "spool"]);
   Alcotest.(check bool) "startup removed abandoned Maildir tmp" false
-    (Sys.file_exists abandoned)
+    (Sys.file_exists abandoned);
+  Alcotest.(check bool) "startup removed orphan blob" false
+    (Sys.file_exists orphan)
 
 let test_missing_password () =
   Eio_main.run @@ fun eio ->
@@ -429,6 +441,50 @@ let test_missing_password () =
       "--maildir";Filename.concat root "maildir"]);
   Alcotest.(check bool) "nothing created before the password" false
     (Sys.file_exists database)
+
+let test_gc () =
+  Eio_main.run @@ fun eio ->
+  with_root "imap-cli-gc" @@ fun root ->
+  let fs=Eio.Stdenv.fs eio in
+  let database=Filename.concat root "sync.db" in
+  let blob_dir=database ^ ".blobs" in
+  Alcotest.(check int) "gc requires an existing database" 5
+    (run eio ["gc";"--db";database]);
+  Eio.Switch.run (fun sw ->
+    ignore (Imap_store.open_path ~sw Eio.Path.(fs / database)));
+  Alcotest.(check int) "gc requires an existing blob directory" 5
+    (run eio ["gc";"--db";database]);
+  Unix.mkdir blob_dir 0o700;
+  let first=orphan blob_dir in
+  let no_maildir = function "IMAP_MAILDIR" -> None | name -> env name in
+  Alcotest.(check int) "gc without Maildir" 0
+    (run ~env:no_maildir eio ["gc";"--db";database]);
+  Alcotest.(check bool) "orphan removed" false (Sys.file_exists first);
+  let maildir=Filename.concat root "Maildir" in
+  let m=Md.open_dir Eio.Path.(fs / maildir) in
+  let second=orphan blob_dir in
+  Maildir.with_writer m (fun _ ->
+    Alcotest.(check int) "busy lease" 8
+      (run eio ["gc";"--db";database;"--maildir";maildir]));
+  Alcotest.(check bool) "busy lease kept the orphan" true
+    (Sys.file_exists second);
+  Alcotest.(check int) "gc under the lease" 0
+    (run eio ["gc";"--db";database;"--maildir";maildir]);
+  Alcotest.(check bool) "orphan removed under the lease" false
+    (Sys.file_exists second);
+  rejects "gc accepted a scope option" ["gc";"--mailbox";"INBOX"]
+
+let test_forget_epochs () =
+  Eio_main.run @@ fun eio ->
+  with_root "imap-cli-forget" @@ fun root ->
+  let fs=Eio.Stdenv.fs eio in
+  let database=Filename.concat root "sync.db" in
+  Alcotest.(check int) "forget-epochs requires an existing database" 5
+    (run eio ["forget-epochs";"--db";database]);
+  Eio.Switch.run (fun sw ->
+    ignore (Imap_store.open_path ~sw Eio.Path.(fs / database)));
+  Alcotest.(check int) "no current epoch to keep" 4
+    (run eio ["forget-epochs";"--db";database])
 
 let test_mark_local_retention () =
   Eio_main.run @@ fun eio ->
@@ -506,4 +562,8 @@ let () = Alcotest.run "imap-cli" [
       test_missing_password;
     Alcotest.test_case "mark local retention" `Quick
       test_mark_local_retention;
+  ];
+  "reclamation", [
+    Alcotest.test_case "gc" `Quick test_gc;
+    Alcotest.test_case "forget-epochs" `Quick test_forget_epochs;
   ]]

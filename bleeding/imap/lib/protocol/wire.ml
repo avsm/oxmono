@@ -24,42 +24,44 @@ let create ?(max_control=1_048_576) ?(max_literal=1_073_741_824L) () =
    offset=0L; after_literal=false; response_data=false; failed=None}
 
 let is_digit c = c >= '0' && c <= '9'
-let starts s prefix =
-  let n = String.length prefix in
-  String.length s >= n && String.sub s 0 n = prefix
 
-let has_prefix_ci s prefix =
+let prefix_ci s ~at prefix =
   let n = String.length prefix in
-  String.length s >= n &&
-  String.uppercase_ascii (String.sub s 0 n) = prefix
+  at + n <= String.length s &&
+  let rec same i =
+    i = n || (Char.uppercase_ascii s.[at+i] = prefix.[i] && same (i+1)) in
+  same 0
 
 (* Only data response grammars may contain literals. A response-text suffix
    such as "* OK explanation {123}" is plain text. *)
 let data_response s =
-  if not (starts s "* ") then false else
-  let u = String.uppercase_ascii s in
-  let words = ["LIST";"LSUB";"XLIST";"STATUS";"NAMESPACE";"ID";"METADATA";
-               "QUOTA";"QUOTAROOT";"ACL";"LISTRIGHTS";"MYRIGHTS"] in
-  List.exists (fun word -> has_prefix_ci u ("* " ^ word ^ " ")) words ||
-  let len = String.length s in
-  let rec digits i = if i < len && is_digit s.[i] then digits (i+1) else i in
-  let j = digits 2 in
-  j > 2 && j < len && s.[j] = ' ' &&
-  List.exists (fun word -> has_prefix_ci (String.sub u (j+1) (len-j-1)) (word ^ " "))
-    ["FETCH";"UIDFETCH"]
+  String.starts_with ~prefix:"* " s &&
+  (List.exists (prefix_ci s ~at:2)
+     ["LIST ";"LSUB ";"XLIST ";"STATUS ";"NAMESPACE ";"ID ";"METADATA ";
+      "QUOTA ";"QUOTAROOT ";"ACL ";"LISTRIGHTS ";"MYRIGHTS ";"ESEARCH ";
+      "LANGUAGE "] ||
+   let len = String.length s in
+   let rec digits i = if i < len && is_digit s.[i] then digits (i+1) else i in
+   let j = digits 2 in
+   j > 2 && j < len && s.[j] = ' ' &&
+   (prefix_ci s ~at:(j+1) "FETCH " || prefix_ci s ~at:(j+1) "UIDFETCH "))
 
-let literal_suffix s =
+type marker = No_literal | Literal_size of int64 | Oversized | Non_sync
+
+(* RFC 3516 BINARY uses the same framing with a leading tilde. *)
+let literal_marker s =
   let n = String.length s in
-  if n < 5 || s.[n-2] <> '\r' || s.[n-1] <> '\n' then None else
-  let close = n-3 in
-  if s.[close] <> '}' then None else
-  let rec back i =
-    if i >= 0 && is_digit s.[i] then back (i-1) else i in
-  let k = back (close-1) in
-  if k = close-1 || k < 0 || s.[k] <> '{' then None else
-  (* RFC 3516 BINARY uses the same framing with a leading tilde. *)
-  (* RFC 9051 literals are tokens. A quoted "{n}" is not a literal.
-     Track quoted strings and backslash escapes through this physical line. *)
+  if n < 5 || s.[n-2] <> '\r' || s.[n-1] <> '\n' || s.[n-3] <> '}' then
+    No_literal
+  else
+  let non_sync = s.[n-4] = '+' in
+  let last = if non_sync then n-5 else n-4 in
+  let rec back i = if i >= 0 && is_digit s.[i] then back (i-1) else i in
+  let k = back last in
+  if k = last || k < 0 || s.[k] <> '{' then No_literal
+  else if non_sync then Non_sync
+  else
+  (* RFC 9051 literals are tokens. A quoted "{n}" is not a literal. *)
   let rec outside i quoted escaped =
     if i >= k then not quoted else
     let c = s.[i] in
@@ -67,21 +69,10 @@ let literal_suffix s =
     else if quoted && c = '\\' then outside (i+1) quoted true
     else if c = '"' then outside (i+1) (not quoted) false
     else outside (i+1) quoted false in
-  if not (outside 0 false false) then None else
-  let digits = String.sub s (k+1) (close-k-1) in
-  match Int64.of_string_opt digits with
-  | Some v when v >= 0L -> Some v
-  | _ -> None
-
-let non_synchronizing_server_literal s =
-  let n=String.length s in
-  if n < 6 || s.[n-2] <> '\r' || s.[n-1] <> '\n' ||
-     s.[n-3] <> '}' || s.[n-4] <> '+' then false
-  else
-    let rec back i =
-      if i >= 0 && is_digit s.[i] then back (i-1) else i in
-    let k=back (n-5) in
-    k < n-5 && k >= 0 && s.[k]='{'
+  if not (outside 0 false false) then No_literal
+  else match Int64.of_string_opt (String.sub s (k+1) (last-k)) with
+    | Some v -> Literal_size v
+    | None -> Oversized
 
 let feed t input =
   match t.failed with Some e -> Error e | None ->
@@ -89,24 +80,21 @@ let feed t input =
   let events = ref [] in
   let emit e = events := e :: !events in
   let err message =
-    let e = {offset=t.offset; message} in t.failed <- Some e; Error e in
+    let e = {offset=t.offset; message} in
+    t.failed <- Some e;
+    if !events = [] then Error e else Ok (List.rev !events) in
   let rec loop i =
     if i = len then Ok (List.rev !events) else
     match t.state with
     | Literal remaining ->
-        if remaining = 0L then (
-          emit Literal_end; t.state <- Line; t.after_literal <- true; loop i
-        ) else (
-          let available = Int64.of_int (len-i) in
-          let take = Int64.to_int (Int64.min remaining available) in
-          if take = 0 then Ok (List.rev !events) else (
-            emit (Literal_chunk (String.sub input i take));
-            t.offset <- Int64.add t.offset (Int64.of_int take);
-            let left = Int64.sub remaining (Int64.of_int take) in
-            if left = 0L then (
-              emit Literal_end; t.state <- Line; t.after_literal <- true
-            ) else t.state <- Literal left;
-            loop (i+take)))
+        let take = Int64.to_int (Int64.min remaining (Int64.of_int (len-i))) in
+        emit (Literal_chunk (String.sub input i take));
+        t.offset <- Int64.add t.offset (Int64.of_int take);
+        let left = Int64.sub remaining (Int64.of_int take) in
+        if left = 0L then (
+          emit Literal_end; t.state <- Line; t.after_literal <- true
+        ) else t.state <- Literal left;
+        loop (i+take)
     | Line ->
         let c = input.[i] in
         let current = Buffer.length t.line in
@@ -122,18 +110,20 @@ let feed t input =
           let line = Buffer.contents t.line in
           Buffer.clear t.line;
           if not t.after_literal then t.response_data <- data_response line;
-          if t.response_data && non_synchronizing_server_literal line then
-            err "server literal may not use non-synchronizing marker"
-          else match (if t.response_data then literal_suffix line else None) with
-          | Some size ->
-              if size > t.max_literal then err "literal exceeds limit"
-              else (
-                emit (Text line); emit (Literal_start size);
-                if size = 0L then (
-                  emit Literal_end; t.after_literal <- true
-                ) else t.state <- Literal size;
-                loop (i+1))
-          | None ->
+          match (if t.response_data then literal_marker line else No_literal)
+          with
+          | Non_sync ->
+              err "server literal may not use non-synchronizing marker"
+          | Oversized -> err "literal exceeds limit"
+          | Literal_size size when size > t.max_literal ->
+              err "literal exceeds limit"
+          | Literal_size size ->
+              emit (Text line); emit (Literal_start size);
+              if size = 0L then (
+                emit Literal_end; t.after_literal <- true
+              ) else t.state <- Literal size;
+              loop (i+1)
+          | No_literal ->
               emit (Text line); emit End_of_response;
               t.after_literal <- false; t.response_data <- false;
               loop (i+1))

@@ -79,7 +79,17 @@ let test_notification_flood () =
     "A00000001 OK done\r\n"]
     (fun session -> expect_limit session (fun () -> Session.idle_once session))
 
+let test_deferred_wire_error () =
+  with_session ["* BYE going\r\nbad\n"] (fun session ->
+    (match Session.read_response session with
+     | [Imap.Wire.Text "* BYE going\r\n"; Imap.Wire.End_of_response] -> ()
+     | _ -> failwith "lost the BYE framed before a wire error");
+    match Session.read_response session with
+    | exception Session.Failure (Imap_eio_core.Error.Protocol _) -> ()
+    | _ -> failwith "lost the deferred wire error")
+
 let () =
+  test_deferred_wire_error ();
   test_notification_flood ();
   test_logout_budget ();
   test_multiappend_budget ();

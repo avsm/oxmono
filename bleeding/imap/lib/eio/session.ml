@@ -64,17 +64,22 @@ let next_tag t =
   Printf.sprintf "A%08d" t.tag_number
 
 let read_event t =
+  let feed chunk =
+    match Imap.Wire.feed t.wire chunk with
+    | Error e -> raise (Failure (Protocol
+        (Printf.sprintf "wire offset %Ld: %s" e.offset e.message)))
+    | Ok events -> t.queued <- events in
   let rec take () = match t.queued with
   | x :: xs -> t.queued <- xs; x
   | [] ->
       check_open t;
+      (* The decoder defers an error found after framed events. Surface it
+         before blocking on another read. *)
+      feed "";
       let n = Transport.read t.flow (Cstruct.sub t.input 0 t.read_size) in
       if n = 0 then raise End_of_file;
-      let chunk = Cstruct.to_string (Cstruct.sub t.input 0 n) in
-      (match Imap.Wire.feed t.wire chunk with
-       | Error e -> raise (Failure (Protocol
-           (Printf.sprintf "wire offset %Ld: %s" e.offset e.message)))
-       | Ok events -> t.queued <- events; take ())
+      feed (Cstruct.to_string (Cstruct.sub t.input 0 n));
+      take ()
   in take ()
 
 let read_response ?(on_literal=(fun _ -> ())) ?(on_literal_start=(fun _ -> ()))

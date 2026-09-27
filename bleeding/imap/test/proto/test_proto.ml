@@ -88,6 +88,31 @@ let test_list_literal () =
       Alcotest.(check (option string)) "delimiter" (Some "/") x.delimiter
   | _ -> fail "expected LIST")
 
+let test_wire_errors () =
+  (match Imap.Wire.feed (Imap.Wire.create ())
+     "* 1 FETCH (BODY[] {99999999999999999999}\r\n" with
+   | Error e ->
+       Alcotest.(check string) "int64 overflow" "literal exceeds limit"
+         e.message
+   | Ok _ -> fail "framed an overflowing literal length");
+  let d=Imap.Wire.create () in
+  let events=wire_ok (Imap.Wire.feed d "* BYE going\r\nbad\n") in
+  Alcotest.(check bool) "events before the error survive" true
+    (events=[Imap.Wire.Text "* BYE going\r\n";Imap.Wire.End_of_response]);
+  (match Imap.Wire.feed d "" with
+   | Error e -> Alcotest.(check string) "deferred error" "LF without CR"
+                  e.message
+   | Ok _ -> fail "lost the deferred error");
+  (match Imap.Wire.finish d with
+   | Error _ -> () | Ok () -> fail "error is not sticky");
+  List.iter (fun (line,payload) ->
+    let d=Imap.Wire.create () in
+    let events=wire_ok (Imap.Wire.feed d (line ^ payload ^ ")\r\n")) in
+    Alcotest.(check bool) (line ^ " frames a literal") true
+      (List.mem (Imap.Wire.Literal_start 2L) events))
+    ["* ESEARCH (TAG {2}\r\n","A1";
+     "* LANGUAGE ({2}\r\n","EN"]
+
 let test_bad_values () =
   (match Imap.Response.parse "* 1 FETCH (UID 0 FLAGS (\\Seen))\r\n" with
   | Error _ -> () | Ok _ -> fail "accepted UID zero");
@@ -1093,6 +1118,7 @@ let () =
               Alcotest.test_case "status text" `Quick test_literal_status_text;
               Alcotest.test_case "BINARY literal" `Quick test_binary_literal;
               Alcotest.test_case "LIST literal" `Quick test_list_literal;
+              Alcotest.test_case "framing errors" `Quick test_wire_errors;
               Alcotest.test_case "invalid values" `Quick test_bad_values;
               Alcotest.test_case "sync metadata" `Quick test_sync_metadata];
      "extensions", [Alcotest.test_case "SELECT/QRESYNC" `Quick test_select_and_qresync;

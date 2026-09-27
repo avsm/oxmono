@@ -1,11 +1,9 @@
-(** Pure, storage-independent mailbox reconciliation.
+(** Pure mailbox cursor planning.
 
-    [complete] only accepts a full finite inventory with a completed command
-    receipt. It prepares a replacement snapshot; [publish] then produces the
-    cursor and typed delta to commit atomically with that snapshot. Until that
-    transaction commits, the old cursor and published snapshot remain valid.
-    This is a baseline full-inventory planner, not a QRESYNC implementation.
-    Large mailboxes should stage rows outside this in-memory reference model. *)
+    A cursor records the last complete inventory published for a mailbox
+    scope. [plan] fixes the UID range and mode of the next scan from the
+    cursor and the SELECT response. [Imap_store] stages the scanned rows
+    and publishes the next cursor with them in one transaction. *)
 
 type scope = {
   endpoint : string;
@@ -19,12 +17,7 @@ type scope = {
 type mode = Baseline | Condstore
 type phase = New | Live
 type restart_reason = Uidvalidity_changed | Modseq_regressed | Nomodseq
-type error =
-  | Invalid of string
-  | Stale_revision
-  | Wrong_action
-  | Incomplete_coverage
-  | Modseq_regression
+type error = Invalid of string
 
 type cursor = private {
   schema_version : int;
@@ -86,44 +79,3 @@ val snapshot : uidvalidity:Uidvalidity.t -> row list ->
   (snapshot, error) result
 val rows : snapshot -> row list
 val snapshot_uidvalidity : snapshot -> Uidvalidity.t
-
-type completed = {
-  action_id : string;
-  uidvalidity : Uidvalidity.t;
-  covered_upper : int64;
-  inventory_complete : bool;
-  commands_complete : bool;
-  rows : row list;
-  explicit_highestmodseq : Modseq.t option;
-  nomodseq : bool;
-}
-
-type staged
-val complete : cursor -> action -> completed -> (staged, error) result
-(** [complete cursor action done_] stages the inventory [done_] reports for
-    [action]. It is [Error Incomplete_coverage] for interrupted work and
-    [Error (Invalid _)] for coverage or rows beyond [action.upper_uid]. The
-    next MODSEQ anchor is [done_.explicit_highestmodseq] in CONDSTORE mode
-    and [None] otherwise. The staged value is provisional. Callers may
-    discard it after a crash without advancing a checkpoint. *)
-
-type flag_change = { before : row; after : row }
-type transition = {
-  cursor : cursor;
-  snapshot : snapshot;
-  added : row list;
-  changed : flag_change list;
-  removed : Uid.t list;
-  invalidated_epoch : bool;
-  restart : restart_reason option;
-  stage_id : string;
-  more : bool;
-}
-
-val publish : cursor -> published:snapshot option -> staged ->
-  (transition, error) result
-(** Apply [transition] under a revision check in one store transaction: replace
-    the snapshot, install the new cursor and revision, and expose deltas together.
-    [removed] is empty on UIDVALIDITY changes, and the old epoch is quarantined.
-    [changed] compares durable flags, so a [\Recent]-only difference is not a
-    change. *)

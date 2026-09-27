@@ -7,8 +7,8 @@ The library is organized by purpose under `lib/`:
 - The sibling [`maildir`](../maildir/README.md) package provides local
   message storage.
 - `imap.store` provides SQLite snapshots, journals and blob archives.
-- `imap.sync` contains `Engine`, `Bridge`, `Reconcile`, `Flags`, `Deletion` and
-  `Watch` modules for durable synchronization.
+- `imap.sync` contains `Engine`, `Bridge`, `Flags`, `Deletion` and `Watch`
+  modules for durable synchronization.
 
 Maildir system flags live in filenames; custom keywords use lowercase filename
 letters and the standard `dovecot-keywords` mapping. INTERNALDATE lives in file
@@ -81,7 +81,8 @@ recovery.
 Bridge receipts count held flag and deletion decisions, and `imap-sync`
 returns a conflict exit status with affected pair IDs when requested work is
 held.
-`Imap_sync.Reconcile` inspects uncertain APPEND outcomes without replaying them.
+`Imap_sync.Bridge.inspect_append_candidates` inspects uncertain APPEND
+outcomes without replaying them.
 The [imap-sync command](bin/README.md) runs bounded bridge cycles with
 CRAM-MD5 or the client's negotiated authentication, inspects journal work
 through a read-only SQLite connection, and records an operator-supplied
@@ -281,23 +282,18 @@ revision-pinned UID pages. It conditionally invalidates missing or corrupt
 references, which a later hydration pass can refill from IMAP.
 `Imap_sync.Engine.append_blob_journaled` verifies a durable source blob and records
 the pre-send UID frontier, byte length and wire flags before APPEND.
-`Imap_sync.Reconcile.inspect_append` can scan later UIDs and compare exact body
-digests after a lost receipt. Its report is evidence, not an automatic commit:
-another client may have appended identical bytes, or the original may already
-have been expunged.
-`Imap_sync.Engine.run_once` scans a finite UID range,
-reconciles complete membership, excludes session-only `\Recent`, and publishes
-through that store only after every command succeeds. It uses an opening
-HIGHESTMODSEQ as a conservative checkpoint when CONDSTORE is available. On a
-subsequent QRESYNC selection, it applies changed rows and fetches new UIDs,
-then verifies complete UID membership before publication. Its
-in-memory row/window limits are explicit. `Imap_sync.Engine.run_once_staged` uses
-SQLite staging for larger mailboxes and atomically publishes a cursor plus row
-count without returning a full OCaml snapshot. It currently performs a full
-UID membership scan. With a same-epoch CONDSTORE anchor it seeds prior rows
-inside SQLite and fetches only changed and new metadata; otherwise it fetches
-all metadata. Abandoned stages remain inert after a crash until explicitly
-discarded.
+`Imap_sync.Bridge.inspect_append_candidates` can scan later UIDs and compare
+exact body digests after a lost receipt. Its report is evidence, not an
+automatic commit: another client may have appended identical bytes, or the
+original may already have been expunged.
+`Imap_sync.Engine.scan_once` scans a finite UID range, stages FETCH and SEARCH
+windows in SQLite, excludes session-only `\Recent`, and atomically publishes a
+cursor plus row count only after every command succeeds. It always proves
+complete UID membership with SEARCH. With a same-epoch CONDSTORE anchor it
+seeds prior rows inside SQLite and fetches only metadata changed since the
+anchor with CHANGEDSINCE, plus new UIDs; otherwise it fetches all metadata.
+It never uses QRESYNC. Abandoned stages remain inert after a crash until
+explicitly discarded.
 `Imap_sync.Watch.run` reconnects for each scan and IDLE wait, compares the new
 selection against its published cursor to close the scan-to-watch gap, and
 renews IDLE on a timer. A wakeup always triggers durable reconciliation before

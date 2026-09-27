@@ -2089,7 +2089,7 @@ let test_operator_local_append_repair () =
   let store=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
   let maildir=Md.open_dir Eio.Path.(fs / maildir_path) in
-  (match Imap_sync.Engine.run_once_staged ~client ~store ~scope ~mailbox
+  (match Imap_sync.Engine.scan_once ~client ~store ~scope ~mailbox
       ~stage_id:("append-repair-scan-" ^ nonce) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "repair setup scan: %a"
@@ -2467,7 +2467,7 @@ let test_bounded_hydration () =
   Eio.Switch.run @@ fun store_sw ->
   let store=Imap_store.open_path ~sw:store_sw
     ~blob_dir:Eio.Path.(fs / blobdir) Eio.Path.(fs / dbfile) in
-  (match Imap_sync.Engine.run_once_staged ~client ~store ~scope ~mailbox
+  (match Imap_sync.Engine.scan_once ~client ~store ~scope ~mailbox
       ~stage_id:("hydrate-scan-" ^ nonce) () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "hydration setup scan: %a"

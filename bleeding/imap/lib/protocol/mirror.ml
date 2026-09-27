@@ -5,9 +5,7 @@ type scope = {
 type mode = Baseline | Condstore
 type phase = New | Live
 type restart_reason = Uidvalidity_changed | Modseq_regressed | Nomodseq
-type error =
-  | Invalid of string | Stale_revision | Wrong_action
-  | Incomplete_coverage | Modseq_regression
+type error = Invalid of string
 type cursor = {
   schema_version:int; scope:scope; phase:phase;
   uidvalidity:Uidvalidity.t option; generation:int64; revision:int64;
@@ -93,100 +91,3 @@ let snapshot ~uidvalidity rows =
   add Uid_map.empty rows
 let rows snap = Uid_map.bindings snap.by_uid |> List.map snd
 let snapshot_uidvalidity snap = snap.validity
-
-type completed = {
-  action_id:string; uidvalidity:Uidvalidity.t;
-  covered_upper:int64; inventory_complete:bool; commands_complete:bool;
-  rows:row list; explicit_highestmodseq:Modseq.t option; nomodseq:bool
-}
-type staged = {
-  action:action; replacement:snapshot; next_anchor:Modseq.t option;
-  resolved_mode:mode; resolved_restart:restart_reason option
-}
-
-let complete (cursor:cursor) (action:action) done_ =
-  if cursor.scope<>action.scope then Error Wrong_action
-  else if cursor.revision<>action.expected_revision ||
-     cursor.generation<>action.expected_generation
-  then Error Stale_revision
-  else if done_.action_id<>action.id ||
-          done_.uidvalidity<>action.uidvalidity
-  then Error Wrong_action
-  else if done_.covered_upper>action.upper_uid
-  then Error (Invalid "coverage beyond fixed upper UID bound")
-  else if not done_.inventory_complete || not done_.commands_complete ||
-          done_.covered_upper<>action.upper_uid
-  then Error Incomplete_coverage
-  else if List.exists (fun row ->
-    Uid.to_int64 row.uid > action.upper_uid) done_.rows
-  then Error (Invalid "inventory row above fixed upper UID bound")
-  else
-    match snapshot ~uidvalidity:action.uidvalidity done_.rows with
-    | Error _ as e -> e
-    | Ok replacement ->
-        let resolved_mode=if done_.nomodseq then Baseline else action.mode in
-        let resolved_restart=match action.restart with
-          | None when done_.nomodseq && action.mode=Condstore -> Some Nomodseq
-          | restart -> restart in
-        let next_anchor =
-          if resolved_mode=Baseline then None
-          else done_.explicit_highestmodseq in
-        (match action.previous_anchor,next_anchor with
-         | Some old,Some now when Modseq.compare now old < 0 ->
-             Error Modseq_regression
-         | _ -> Ok {action;replacement;next_anchor;
-                    resolved_mode;resolved_restart})
-
-type flag_change = {before:row;after:row}
-type transition = {
-  cursor:cursor; snapshot:snapshot; added:row list;
-  changed:flag_change list; removed:Uid.t list;
-  invalidated_epoch:bool; restart:restart_reason option;
-  stage_id:string; more:bool
-}
-
-let publish (cursor:cursor) ~published staged =
-  let action=staged.action in
-  if cursor.scope<>action.scope then Error Wrong_action
-  else if cursor.revision<>action.expected_revision ||
-     cursor.generation<>action.expected_generation
-  then Error Stale_revision
-  else
-    let old_validity =
-      match published with None -> None | Some snap -> Some snap.validity in
-    if old_validity<>cursor.uidvalidity then
-      Error (Invalid "published snapshot does not match cursor epoch")
-    else
-      let epoch_changed =
-        match old_validity with
-        | Some old -> old<>action.uidvalidity
-        | None -> false in
-      let old =
-        if epoch_changed then Uid_map.empty
-        else match published with None -> Uid_map.empty
-          | Some snap -> snap.by_uid in
-      let added =
-        Uid_map.fold (fun uid row acc ->
-          if Uid_map.mem uid old then acc else row::acc)
-          staged.replacement.by_uid [] |> List.rev in
-      let changed =
-        Uid_map.fold (fun uid row acc ->
-          match Uid_map.find_opt uid old with
-          | Some before when not (Mail_flag.Imap_flag.equal_durable
-                                    before.flags row.flags) ->
-              {before;after=row}::acc
-          | _ -> acc) staged.replacement.by_uid [] |> List.rev in
-      let removed =
-        if epoch_changed then [] else
-        Uid_map.fold (fun uid row acc ->
-          if Uid_map.mem uid staged.replacement.by_uid then acc
-          else row.uid::acc) old [] |> List.rev in
-      let cursor =
-        {cursor with phase=Live;uidvalidity=Some action.uidvalidity;
-         generation=Int64.succ cursor.generation;
-         revision=Int64.succ cursor.revision;
-         anchor=staged.next_anchor;frontier=action.upper_uid;
-         inventory_ref=Some action.id;mode=staged.resolved_mode} in
-      Ok {cursor;snapshot=staged.replacement;added;changed;removed;
-          invalidated_epoch=epoch_changed;restart=staged.resolved_restart;
-          stage_id=action.id;more=false}

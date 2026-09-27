@@ -25,3 +25,7 @@
 (test
  (name test_store_outcomes)
  (libraries imap imap.store eio eio_main sqlite3 unix))
+
+(test
+ (name test_stage_publication)
+ (libraries imap imap.store mail-flag eio eio_main alcotest))

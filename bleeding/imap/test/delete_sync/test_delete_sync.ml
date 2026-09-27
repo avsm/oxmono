@@ -47,23 +47,22 @@ let with_fixture f =
   f store maildir
 
 let publish store ~stage rows =
-  let loaded=Imap_store.load store ~scope in
+  let cursor=Imap_store.load_cursor store ~scope in
   let selected : M.selected = {
     uidvalidity=epoch 11L;uidnext=2L;
     highestmodseq=None;nomodseq=true;
   } in
-  let action=ok (M.plan loaded.cursor ~stage_id:stage selected) in
-  let completed : M.completed = {
-    action_id=action.id;uidvalidity=action.uidvalidity;
-    covered_upper=action.upper_uid;inventory_complete=true;
-    commands_complete=true;rows;explicit_highestmodseq=None;
-    nomodseq=true;
-  } in
-  let staged=ok (M.complete loaded.cursor action completed) in
-  let transition=ok (M.publish loaded.cursor ~published:loaded.snapshot staged) in
+  let action=ok (M.plan cursor ~stage_id:stage selected) in
+  Imap_store.begin_stage store ~cursor ~action;
+  let last=action.upper_uid in
+  Imap_store.stage_rows store ~stage_id:stage ~first:1L ~last rows;
+  Imap_store.stage_membership store ~stage_id:stage ~first:1L ~last
+    (List.map (fun (r:M.row) -> r.uid) rows);
   Alcotest.(check bool) "published" true
-    (Imap_store.publish store transition=`Committed);
-  (Imap_store.load store ~scope).cursor
+    (match Imap_store.publish_stage store ~cursor ~action
+       ~explicit_highestmodseq:None ~nomodseq:true with
+     | `Committed _ -> true | `Stale_revision -> false);
+  Imap_store.load_cursor store ~scope
 
 let pair ~id ~local_id ~remote_tombstone ~local_tombstone : J.pair = {
   id;scope;remote_uidvalidity=Some (epoch 11L);remote_uid=Some (uid 1L);

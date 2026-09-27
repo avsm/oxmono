@@ -1994,8 +1994,8 @@ crash-safe bidirectional synchronization or proxy readiness.
 
 The source tree now has five public libraries under `bleeding/imap/lib/`:
 `protocol` (`imap`), `eio`, `maildir`, `store` and `sync`. The former separate
-workflow libraries are modules in `Imap_sync`: Engine, Bridge, Reconcile,
-Flags, Deletion and Watch. Pure policy is `Imap.Sync_policy`; Spool is private.
+workflow libraries are modules in `Imap_sync`: Engine, Bridge, Flags,
+Deletion and Watch. Pure policy is `Imap.Sync_policy`; Spool is private.
 The CLI support library is private under `bin/`, with the same installed
 `imap-sync` executable. Unit and integration tests are grouped under `test/`.
 This supersedes the original directory proposal in section 3. Detailed review

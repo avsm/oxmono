@@ -14,24 +14,23 @@ let scope : M.scope = {
 let renamed = { scope with raw_name="Renamed" }
 let row n : M.row = { uid=uid n; flags=[]; modseq=Some (modseq 17L) }
 
-let transition cursor published ~stage ~epoch_value rows =
+(* [publish db ~stage ~epoch_value rows] stages [rows] from the stored
+   cursor as one FETCH and one SEARCH window and publishes them. *)
+let publish db ~stage ~epoch_value rows =
+  let cursor=Store.load_cursor db ~scope in
   let selected : M.selected = {
     uidvalidity=epoch epoch_value; uidnext=5L;
     highestmodseq=Some (modseq 17L); nomodseq=false } in
   let action=ok (M.plan cursor ~stage_id:stage selected) in
-  let completed : M.completed = {
-    action_id=action.id; uidvalidity=action.uidvalidity;
-    covered_upper=action.upper_uid; inventory_complete=true;
-    commands_complete=true; rows; explicit_highestmodseq=Some (modseq 17L);
-    nomodseq=false } in
-  let staged=ok (M.complete cursor action completed) in
-  ok (M.publish cursor ~published staged)
-
-let publish db ~stage ~epoch_value rows =
-  let current=Store.load db ~scope in
-  let next=transition current.cursor current.snapshot ~stage ~epoch_value
-    rows in
-  check (Store.publish db next=`Committed) ("publish " ^ stage)
+  Store.begin_stage db ~cursor ~action;
+  let last=action.upper_uid in
+  if last>0L then (
+    Store.stage_rows db ~stage_id:stage ~first:1L ~last rows;
+    Store.stage_membership db ~stage_id:stage ~first:1L ~last
+      (List.map (fun (r:M.row) -> r.uid) rows));
+  check (match Store.publish_stage db ~cursor ~action
+      ~explicit_highestmodseq:(Some (modseq 17L)) ~nomodseq:false with
+    | `Committed _ -> true | `Stale_revision -> false) ("publish " ^ stage)
 
 (* [as_scope scope cursor] is [cursor] with the same counters under
    another scope, as a caller holding an outdated scope would have. *)
@@ -86,9 +85,6 @@ let scope_mismatch env = with_store env (fun ~path:_ ~dir:_ db ->
   (match Store.load_cursor db ~scope:renamed with
    | exception Store.Scope_mismatch -> ()
    | _ -> failwith "load_cursor accepted a renamed scope");
-  (match Store.load db ~scope:renamed with
-   | exception Store.Scope_mismatch -> ()
-   | _ -> failwith "load accepted a renamed scope");
   let cursor=as_scope renamed (Store.load_cursor db ~scope) in
   check (Store.snapshot_page db ~scope:renamed ~cursor ~limit:10 ()
     =`Stale_revision) "snapshot_page on renamed scope";

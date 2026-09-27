@@ -593,7 +593,7 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
       J.active_operations_page store ~scope ~limit:1 ()<>[] in
     let expected_uidvalidity=if has_durable_identity then
       prior_cursor.uidvalidity else None in
-    let* published=sync (Engine.run_once_staged ~client:remote_client
+    let* published=sync (Engine.scan_once ~client:remote_client
         ~store ~scope ~mailbox ~stage_id ?expected_uidvalidity ()) in
       let cursor=published.cursor in
       let rec reconcile_pages after =

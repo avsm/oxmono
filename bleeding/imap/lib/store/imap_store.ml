@@ -3,7 +3,6 @@ open Database
 module M = Imap.Mirror
 
 type t = Database.t
-type mailbox = { cursor : M.cursor; snapshot : M.snapshot option }
 include Operation_intent
 
 let open_readonly = Schema.open_readonly
@@ -16,24 +15,6 @@ let snapshot_rows rows =
   |> List.map (fun (r,flags) ->
     {M.uid=uid (int r.(0));modseq=Option.map modseq (nullable_int r.(1));
      flags})
-
-let load t ~scope =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
-    let cursor=cursor_exn t scope in
-    let snapshot=match cursor.uidvalidity with
-      | None -> None
-      | Some epoch ->
-        let found=rows t "SELECT m.uid,m.modseq,f.flag FROM snapshots AS m \
-          LEFT JOIN snapshot_flags AS f ON f.endpoint=m.endpoint \
-          AND f.account=m.account AND f.mailbox_key=m.mailbox_key \
-          AND f.uidvalidity=m.uidvalidity AND f.uid=m.uid WHERE \
-          m.endpoint=? AND m.account=? AND m.mailbox_key=? \
-          AND m.uidvalidity=? ORDER BY m.uid,f.ord"
-          (scope_key scope @ [i (Imap.Uidvalidity.to_int64 epoch)]) in
-        match M.snapshot ~uidvalidity:epoch (snapshot_rows found) with
-        | Ok snapshot -> Some snapshot
-        | Error e -> fail ("persisted snapshot: " ^ mirror_error e) in
-    {cursor;snapshot})
 
 type object_identity = { account_id:string; mailbox_id:string }
 
@@ -285,31 +266,6 @@ let replace_epoch t scope epoch fill =
     AND m.account=blob_refs.account AND m.mailbox_key=blob_refs.mailbox_key \
     AND m.uidvalidity=blob_refs.uidvalidity AND m.uid=blob_refs.uid)" key;
   result
-
-let publish t (change:M.transition) =
-  transaction t (fun () ->
-    let c = change.cursor and scope = change.cursor.scope in
-    if stale_revision t scope ~revision:(Int64.pred c.revision) then
-      `Stale_revision else (
-      let epoch=M.snapshot_uidvalidity change.snapshot in
-      if c.uidvalidity<>Some epoch then
-        invalid_arg "Imap_store.publish: cursor/snapshot epoch mismatch";
-      write_cursor t c;
-      replace_epoch t scope epoch (fun key ->
-        with_stmt t "INSERT INTO snapshots VALUES (?,?,?,?,?,?)"
-        @@ fun snap_stmt ->
-        with_stmt t "INSERT INTO snapshot_flags VALUES (?,?,?,?,?,?,?)"
-        @@ fun flag_stmt ->
-        List.iter (fun (row:M.row) ->
-          let row_key = key @ [i (Imap.Uid.to_int64 row.uid)] in
-          run_prepared t snap_stmt
-            (row_key @ [ni (Option.map Imap.Modseq.to_int64 row.modseq)]);
-          List.iteri (fun ord flag ->
-            run_prepared t flag_stmt
-              (row_key @ [i (Int64.of_int ord);
-                s (Mail_flag.Imap_flag.to_wire flag)])) row.flags)
-          (M.rows change.snapshot));
-      `Committed))
 
 let forget_epochs t ~(scope:M.scope) ~(cursor:M.cursor) =
   if cursor.scope<>scope then

@@ -11,21 +11,38 @@ let scope : M.scope = {
   raw_name="INBOX"; encoding=Imap.Mailbox_name.Rev1; mailbox_id=None
 }
 let row n flags : M.row = { uid=uid n; flags; modseq=Some (modseq 17L) }
-let transition cursor published ~stage ~epoch_value rows =
+
+(* [transition db cursor ~stage ~epoch_value rows] stages [rows] as one
+   FETCH and one SEARCH window over the planned UID range and publishes
+   them. A stale stage is discarded. *)
+let transition db (cursor:M.cursor) ~stage ~epoch_value rows =
   let selected : M.selected = {
     uidvalidity=epoch epoch_value; uidnext=5L;
     highestmodseq=Some (modseq 17L); nomodseq=false } in
   let action=ok (M.plan cursor ~stage_id:stage selected) in
-  let completed : M.completed = {
-    action_id=action.id; uidvalidity=action.uidvalidity;
-    covered_upper=action.upper_uid; inventory_complete=true;
-    commands_complete=true; rows; explicit_highestmodseq=Some (modseq 17L);
-    nomodseq=false } in
-  let staged=ok (M.complete cursor action completed) in
-  ok (M.publish cursor ~published staged)
+  Store.begin_stage db ~cursor ~action;
+  let last=action.upper_uid in
+  if last>0L then (
+    Store.stage_rows db ~stage_id:stage ~first:1L ~last rows;
+    Store.stage_membership db ~stage_id:stage ~first:1L ~last
+      (List.map (fun (r:M.row) -> r.uid) rows));
+  match Store.publish_stage db ~cursor ~action
+    ~explicit_highestmodseq:(Some (modseq 17L)) ~nomodseq:false with
+  | `Committed (receipt:Store.staged_receipt) -> `Committed receipt.cursor
+  | `Stale_revision -> Store.discard_stage db ~stage_id:stage; `Stale_revision
 
-let uids snap =
-  M.rows snap |> List.map (fun (r:M.row) -> Imap.Uid.to_int64 r.uid)
+let is_committed = function `Committed _ -> true | `Stale_revision -> false
+let committed what = function
+  | `Committed cursor -> cursor
+  | `Stale_revision -> Alcotest.fail (what ^ ": stale revision")
+
+let snapshot db (cursor:M.cursor) =
+  match Store.snapshot_page db ~scope:cursor.scope ~cursor ~limit:10_000 ()
+  with
+  | `Rows rows -> rows
+  | `Stale_revision -> Alcotest.fail "snapshot page stale"
+
+let uids rows = List.map (fun (r:M.row) -> Imap.Uid.to_int64 r.uid) rows
 let test_object_identity env =
   let path=Filename.temp_file "imap-object-id-" ".db" in
   let cleanup ()=List.iter (fun p -> try Sys.remove p with Sys_error _ -> ())
@@ -120,35 +137,32 @@ let test_reopen env =
   let cleanup () =
     List.iter (fun p -> try Sys.remove p with Sys_error _ -> ())
       [path;path^"-wal";path^"-shm"] in
+  let first_rows=[row 1L [flag "\\Seen";flag "custom"];
+                  row 2L [flag "\\Flagged"]] in
   Fun.protect ~finally:cleanup (fun () ->
     let first = Eio.Switch.run (fun sw ->
       let fs=Eio.Stdenv.fs env in
       let db=Store.open_path ~sw Eio.Path.(fs / path) in
       let rival=Store.open_path ~sw Eio.Path.(fs / path) in
-      let initial=Store.load db ~scope in
-      let rival_initial=Store.load rival ~scope in
-      Alcotest.(check int64) "initial revision" 0L initial.cursor.revision;
-      let next=transition initial.cursor initial.snapshot ~stage:"first"
-        ~epoch_value:5L [row 1L [flag "\\Seen";flag "custom"];
-                         row 2L [flag "\\Flagged"]] in
-      Alcotest.(check bool) "committed" true
-        (Store.publish db next=`Committed);
-      let rival_next=transition rival_initial.cursor rival_initial.snapshot
-        ~stage:"rival" ~epoch_value:5L [row 4L []] in
+      let initial=Store.load_cursor db ~scope in
+      let rival_initial=Store.load_cursor rival ~scope in
+      Alcotest.(check int64) "initial revision" 0L initial.revision;
+      let c=committed "committed" (transition db initial ~stage:"first"
+        ~epoch_value:5L first_rows) in
       Alcotest.(check bool) "cross-connection CAS" true
-        (Store.publish rival rival_next=`Stale_revision);
+        (transition rival rival_initial ~stage:"rival" ~epoch_value:5L
+          [row 4L []]=`Stale_revision);
       let altered_scope = {scope with raw_name="Different"} in
-      let c=next.cursor in
       let altered_cursor = ok (M.restore ~schema_version:c.schema_version
         ~scope:altered_scope ~phase:c.phase ~uidvalidity:c.uidvalidity
         ~generation:c.generation ~revision:c.revision ~anchor:c.anchor
         ~frontier:c.frontier ~inventory_ref:c.inventory_ref ~mode:c.mode) in
-      let altered=transition altered_cursor (Some next.snapshot)
-        ~stage:"wrong-scope" ~epoch_value:5L [row 1L []] in
       Alcotest.(check bool) "same-revision scope mismatch" true
-        (Store.publish rival altered=`Stale_revision);
+        (transition rival altered_cursor ~stage:"wrong-scope" ~epoch_value:5L
+          [row 1L []]=`Stale_revision);
       Alcotest.(check bool) "CAS rejects replay" true
-        (Store.publish db next=`Stale_revision);
+        (transition db initial ~stage:"first-replay" ~epoch_value:5L
+          first_rows=`Stale_revision);
       let intent : Store.intent = {
         id="append-1";scope;
         kind=Append {message_id="<a@x>";content_digest=String.make 64 'a';
@@ -163,15 +177,15 @@ let test_reopen env =
            Alcotest.fail "duplicate intent accepted"
        with Sqlite3.SqliteError _ | Sqlite3.Error _ -> ());
       Store.set_intent_state db ~id:intent.id Sent;
-      next) in
+      initial) in
     Eio.Switch.run (fun sw ->
       let fs=Eio.Stdenv.fs env in
       let db=Store.open_path ~sw Eio.Path.(fs / path) in
-      let loaded=Store.load db ~scope in
-      Alcotest.(check int64) "revision survives reopen" 1L loaded.cursor.revision;
-      Alcotest.(check (list int64)) "UIDs survive reopen" [1L;2L]
-        (uids (Option.get loaded.snapshot));
-      let flags=(List.hd (M.rows (Option.get loaded.snapshot))).flags in
+      let loaded=Store.load_cursor db ~scope in
+      Alcotest.(check int64) "revision survives reopen" 1L loaded.revision;
+      let rows=snapshot db loaded in
+      Alcotest.(check (list int64)) "UIDs survive reopen" [1L;2L] (uids rows);
+      let flags=(List.hd rows).flags in
       Alcotest.(check (list string)) "flags survive reopen"
         ["\\Seen";"custom"] (List.map Mail_flag.Imap_flag.to_wire flags);
       let pending=Store.pending_intents db ~scope in
@@ -193,12 +207,12 @@ let test_reopen env =
            (Some "26-Sep-2026 12:00:00 +0000")
            metadata.expected_internal_date
        | _ -> Alcotest.fail "APPEND decoded as another intent");
-      let second=transition loaded.cursor loaded.snapshot ~stage:"epoch"
-        ~epoch_value:6L [row 1L []] in
       Alcotest.(check bool) "epoch published" true
-        (Store.publish db second=`Committed);
+        (is_committed (transition db loaded ~stage:"epoch" ~epoch_value:6L
+          [row 1L []]));
       Alcotest.(check bool) "old transition stale" true
-        (Store.publish db first=`Stale_revision);
+        (transition db first ~stage:"first-replay-reopen" ~epoch_value:5L
+          first_rows=`Stale_revision);
       Store.set_intent_state db ~id:"append-1" Ambiguous;
       Store.confirm_intent db ~id:"append-1"
         ~uidvalidity:(Some (epoch 5L)) ~uid:(Some (uid 3L));
@@ -239,11 +253,10 @@ let test_blobs env =
     let digest=Digestif.SHA256.(to_hex (digest_string content)) in
     let saved=Eio.Switch.run (fun sw ->
       let db=Store.open_path ~sw ~blob_dir:dir Eio.Path.(fs / path) in
-      let initial=Store.load db ~scope in
-      let first=transition initial.cursor initial.snapshot ~stage:"blob"
-        ~epoch_value:19L [row 1L []] in
+      let initial=Store.load_cursor db ~scope in
       Alcotest.(check bool) "message published" true
-        (Store.publish db first=`Committed);
+        (is_committed (transition db initial ~stage:"blob" ~epoch_value:19L
+          [row 1L []]));
       let blob=Store.Blob.put db ~source:(Eio.Flow.string_source content)
         ~length:(Int64.of_int (String.length content))
         ~expected_sha256:digest () in
@@ -317,18 +330,15 @@ let test_blobs env =
         (List.mem ".tmp-crash" names);
       Alcotest.(check bool) "referenced file excluded" false
         (List.mem ("sha256-"^blob.sha256) names);
-      let loaded=Store.load db ~scope in
-      let refresh=transition loaded.cursor loaded.snapshot ~stage:"refresh"
-        ~epoch_value:19L [row 1L []] in
-      Alcotest.(check bool) "refresh committed" true
-        (Store.publish db refresh=`Committed);
+      let loaded=Store.load_cursor db ~scope in
+      let refresh=committed "refresh committed"
+        (transition db loaded ~stage:"refresh" ~epoch_value:19L [row 1L []]) in
       Alcotest.(check bool) "reference retained across refresh" true
         (Store.Blob.find db ~scope ~uidvalidity:(epoch 19L) ~uid:(uid 1L)
          = Some blob);
-      let removed=transition refresh.cursor (Some refresh.snapshot)
-        ~stage:"removed" ~epoch_value:19L [] in
       Alcotest.(check bool) "removal committed" true
-        (Store.publish db removed=`Committed);
+        (is_committed (transition db refresh ~stage:"removed"
+          ~epoch_value:19L []));
       Alcotest.(check bool) "reference pruned with UID" true
         (Store.Blob.find db ~scope ~uidvalidity:(epoch 19L) ~uid:(uid 1L)
          = None);
@@ -371,14 +381,13 @@ let test_missing_blob_pages env =
         | `Stale_revision -> Alcotest.fail "unexpected stale blob page" in
       Alcotest.(check (list int64)) "new mailbox missing page" []
         (page initial ~limit:2 ());
-      let first=transition initial None ~stage:"missing-blob-first"
-        ~epoch_value:91L [row 1L [];row 2L [];row 3L [];row 4L []] in
-      Alcotest.(check bool) "published inventory" true
-        (Store.publish db first=`Committed);
+      let first=committed "published inventory"
+        (transition db initial ~stage:"missing-blob-first" ~epoch_value:91L
+          [row 1L [];row 2L [];row 3L [];row 4L []]) in
       Alcotest.(check (list int64)) "first bounded page" [1L;2L]
-        (page first.cursor ~limit:2 ());
+        (page first ~limit:2 ());
       Alcotest.(check (list int64)) "second bounded page" [3L;4L]
-        (page first.cursor ~after_uid:(uid 2L) ~limit:2 ());
+        (page first ~after_uid:(uid 2L) ~limit:2 ());
       let blob=Store.Blob.put db ~source:(Eio.Flow.string_source "body")
         ~length:4L () in
       Store.Blob.attach db ~scope ~uidvalidity:(epoch 91L)
@@ -386,31 +395,27 @@ let test_missing_blob_pages env =
       Store.Blob.attach db ~scope ~uidvalidity:(epoch 91L)
         ~uid:(uid 4L) blob;
       Alcotest.(check (list int64)) "references filter missing page"
-        [1L;3L] (page first.cursor ~limit:2 ());
+        [1L;3L] (page first ~limit:2 ());
       Store.Blob.attach db ~scope ~uidvalidity:(epoch 91L)
         ~uid:(uid 3L) blob;
       Alcotest.(check (list int64)) "attachment shrinks later page" []
-        (page first.cursor ~after_uid:(uid 1L) ~limit:2 ());
-      let second=transition first.cursor (Some first.snapshot)
-        ~stage:"missing-blob-second" ~epoch_value:91L
-        [row 1L [];row 2L [];row 3L [];row 4L []] in
-      Alcotest.(check bool) "same-epoch revision published" true
-        (Store.publish db second=`Committed);
+        (page first ~after_uid:(uid 1L) ~limit:2 ());
+      let second=committed "same-epoch revision published"
+        (transition db first ~stage:"missing-blob-second" ~epoch_value:91L
+          [row 1L [];row 2L [];row 3L [];row 4L []]) in
       Alcotest.(check bool) "stale revision refused" true
-        (Store.Blob.missing_page db ~scope ~cursor:first.cursor
+        (Store.Blob.missing_page db ~scope ~cursor:first
           ~limit:2 ()=`Stale_revision);
       Alcotest.(check (list int64)) "same epoch references survive"
-        [1L] (page second.cursor ~limit:2 ());
-      let third=transition second.cursor (Some second.snapshot)
-        ~stage:"missing-blob-third" ~epoch_value:92L
-        [row 1L [];row 2L []] in
-      Alcotest.(check bool) "new epoch published" true
-        (Store.publish db third=`Committed);
+        [1L] (page second ~limit:2 ());
+      let third=committed "new epoch published"
+        (transition db second ~stage:"missing-blob-third" ~epoch_value:92L
+          [row 1L [];row 2L []]) in
       Alcotest.(check bool) "stale epoch refused" true
-        (Store.Blob.missing_page db ~scope ~cursor:second.cursor
+        (Store.Blob.missing_page db ~scope ~cursor:second
           ~limit:2 ()=`Stale_revision);
       Alcotest.(check (list int64)) "new epoch has no blob refs"
-        [1L;2L] (page third.cursor ~limit:2 ());
+        [1L;2L] (page third ~limit:2 ());
       Store.Blob.attach db ~scope ~uidvalidity:(epoch 92L)
         ~uid:(uid 1L) blob;
       Store.Blob.attach db ~scope ~uidvalidity:(epoch 92L)
@@ -421,35 +426,35 @@ let test_missing_blob_pages env =
         | `Refs rows -> List.map (fun (uid,_) -> Imap.Uid.to_int64 uid) rows
         | `Stale_revision -> Alcotest.fail "unexpected stale reference page" in
       Alcotest.(check (list int64)) "first bounded reference page" [1L]
-        (refs third.cursor ~limit:1 ());
+        (refs third ~limit:1 ());
       Alcotest.(check (list int64)) "second bounded reference page" [2L]
-        (refs third.cursor ~after_uid:(uid 1L) ~limit:1 ());
+        (refs third ~after_uid:(uid 1L) ~limit:1 ());
       Alcotest.(check bool) "stale reference page refused" true
-        (Store.Blob.referenced_page db ~scope ~cursor:second.cursor
+        (Store.Blob.referenced_page db ~scope ~cursor:second
           ~limit:1 ()=`Stale_revision);
       Alcotest.(check bool) "stale detach refused" true
-        (Store.Blob.detach_if_matches db ~scope ~cursor:second.cursor
+        (Store.Blob.detach_if_matches db ~scope ~cursor:second
           ~uid:(uid 1L) blob=`Stale_revision);
       let replacement=Store.Blob.put db
         ~source:(Eio.Flow.string_source "new body") ~length:8L () in
       Store.Blob.attach db ~scope ~uidvalidity:(epoch 92L)
         ~uid:(uid 1L) replacement;
       Alcotest.(check bool) "changed reference retained" true
-        (Store.Blob.detach_if_matches db ~scope ~cursor:third.cursor
+        (Store.Blob.detach_if_matches db ~scope ~cursor:third
           ~uid:(uid 1L) blob=`Unchanged);
       Alcotest.(check bool) "exact corrupt reference detached" true
-        (Store.Blob.detach_if_matches db ~scope ~cursor:third.cursor
+        (Store.Blob.detach_if_matches db ~scope ~cursor:third
           ~uid:(uid 2L) blob=`Detached);
       Alcotest.(check (list int64)) "detached reference is missing"
-        [2L] (page third.cursor ~limit:2 ());
+        [2L] (page third ~limit:2 ());
       Alcotest.(check (list int64)) "replacement reference remains"
-        [1L] (refs third.cursor ~limit:2 ());
+        [1L] (refs third ~limit:2 ());
       (try ignore (Store.Blob.missing_page db ~scope
-        ~cursor:third.cursor ~limit:0 ());
+        ~cursor:third ~limit:0 ());
        Alcotest.fail "zero page limit accepted" with Invalid_argument _ -> ());
       (try ignore (Store.Blob.missing_page db
         ~scope:{scope with raw_name="other"}
-        ~cursor:third.cursor ~limit:1 ());
+        ~cursor:third ~limit:1 ());
        Alcotest.fail "cursor/scope mismatch accepted"
        with Invalid_argument _ -> ())))
 
@@ -549,7 +554,7 @@ let test_schema_upgrade env ~from_version =
     Eio.Switch.run (fun sw ->
       let db=Store.open_path ~sw Eio.Path.(fs / path) in
       Alcotest.(check int64) "pre-blob cursor still loads" 0L
-        (Store.load db ~scope).cursor.revision;
+        (Store.load_cursor db ~scope).revision;
       if from_version>=8 then Alcotest.(check bool)
         "migrated pair retains unknown date" true
         (match Store.Journal.find_pair db ~id:"legacy-pair" with
@@ -684,11 +689,10 @@ let test_stage_blob_refs env =
   Fun.protect ~finally:cleanup (fun () ->
     Eio.Switch.run (fun sw ->
       let db=Store.open_path ~sw ~blob_dir:dir Eio.Path.(fs / path) in
-      let initial=Store.load db ~scope in
-      let first=transition initial.cursor initial.snapshot ~stage:"blob-stage-base"
-        ~epoch_value:56L [row 1L [];row 2L []] in
+      let initial=Store.load_cursor db ~scope in
       Alcotest.(check bool) "base published" true
-        (Store.publish db first=`Committed);
+        (is_committed (transition db initial ~stage:"blob-stage-base"
+          ~epoch_value:56L [row 1L [];row 2L []]));
       let blob=Store.Blob.put db
         ~source:(Eio.Flow.string_source "same-content") ~length:12L () in
       Store.Blob.attach db ~scope ~uidvalidity:(epoch 56L) ~uid:(uid 1L) blob;
@@ -734,27 +738,25 @@ let test_sync_journal env =
   Fun.protect ~finally:cleanup (fun () ->
     Eio.Switch.run (fun sw ->
       let db=Store.open_path ~sw db_path in
-      let initial=Store.load db ~scope in
-      let published=transition initial.cursor initial.snapshot
-        ~stage:"inventory-1" ~epoch_value:67L
-        [row 1L [];row 2L []] in
-      Alcotest.(check bool) "initial inventory" true
-        (Store.publish db published=`Committed);
-      let page=match Store.snapshot_page db ~scope ~cursor:published.cursor
+      let initial=Store.load_cursor db ~scope in
+      let published=committed "initial inventory"
+        (transition db initial ~stage:"inventory-1" ~epoch_value:67L
+          [row 1L [];row 2L []]) in
+      let page=match Store.snapshot_page db ~scope ~cursor:published
           ~limit:1 () with
         | `Rows rows -> rows | `Stale_revision -> Alcotest.fail "fresh page stale" in
       Alcotest.(check (list int64)) "bounded snapshot first page" [1L]
         (List.map (fun (r:M.row) -> Imap.Uid.to_int64 r.uid) page);
-      let page=match Store.snapshot_page db ~scope ~cursor:published.cursor
+      let page=match Store.snapshot_page db ~scope ~cursor:published
           ~after_uid:(uid 1L) ~limit:1 () with
         | `Rows rows -> rows | `Stale_revision -> Alcotest.fail "fresh page stale" in
       Alcotest.(check (list int64)) "bounded snapshot second page" [2L]
         (List.map (fun (r:M.row) -> Imap.Uid.to_int64 r.uid) page);
       Alcotest.(check bool) "indexed published UID membership" true
-        (Store.snapshot_contains_uid db ~scope ~cursor:published.cursor
+        (Store.snapshot_contains_uid db ~scope ~cursor:published
           ~uid:(uid 2L) = `Present true);
       Alcotest.(check bool) "indexed published UID absence" true
-        (Store.snapshot_contains_uid db ~scope ~cursor:published.cursor
+        (Store.snapshot_contains_uid db ~scope ~cursor:published
           ~uid:(uid 3L) = `Present false);
       let first=match J.put_pair db ~expected_revision:None
           {(pair "occ-1" 1L "maildir-base-a") with
@@ -882,18 +884,17 @@ let test_sync_journal env =
       (try J.commit_operation db ~id:append.id;
        Alcotest.fail "ambiguous operation committed"
        with Invalid_argument _ -> ());
-      let vanished=transition published.cursor (Some published.snapshot)
-        ~stage:"inventory-2" ~epoch_value:67L [row 1L []] in
-      Alcotest.(check bool) "new complete inventory" true
-        (Store.publish db vanished=`Committed);
+      let vanished=committed "new complete inventory"
+        (transition db published ~stage:"inventory-2" ~epoch_value:67L
+          [row 1L []]) in
       Alcotest.(check bool) "stale snapshot page rejected" true
-        (Store.snapshot_page db ~scope ~cursor:published.cursor ~limit:1 ()
+        (Store.snapshot_page db ~scope ~cursor:published ~limit:1 ()
          = `Stale_revision);
       Alcotest.(check bool) "stale indexed membership rejected" true
-        (Store.snapshot_contains_uid db ~scope ~cursor:published.cursor
+        (Store.snapshot_contains_uid db ~scope ~cursor:published
           ~uid:(uid 1L) = `Stale_revision);
       let tombstone : J.tombstone = {reason=Inventory_absence;
-        evidence="inventory-2";generation=Some vanished.cursor.generation} in
+        evidence="inventory-2";generation=Some vanished.generation} in
       (try ignore (J.put_pair db ~expected_revision:(Some updated.revision)
         {updated with remote_tombstone=Some tombstone});
        Alcotest.fail "live UID tombstoned"
@@ -1238,12 +1239,10 @@ let test_seeded_stage_modseq_and_membership env =
   Fun.protect ~finally:cleanup @@ fun () ->
   Eio.Switch.run @@ fun sw ->
   let db=Store.open_path ~sw Eio.Path.(Eio.Stdenv.fs env / path) in
-  let initial=Store.load db ~scope in
-  let first=transition initial.cursor initial.snapshot ~stage:"seed-base"
-    ~epoch_value:5L
-    [row 1L [flag "\\Seen"];row 2L [];row 3L []] in
+  let initial=Store.load_cursor db ~scope in
   Alcotest.(check bool) "seed base committed" true
-    (Store.publish db first=`Committed);
+    (is_committed (transition db initial ~stage:"seed-base" ~epoch_value:5L
+      [row 1L [flag "\\Seen"];row 2L [];row 3L []]));
   let cursor=Store.load_cursor db ~scope in
   let selected : M.selected = {
     uidvalidity=epoch 5L;uidnext=5L;
@@ -1263,10 +1262,9 @@ let test_seeded_stage_modseq_and_membership env =
     ~explicit_highestmodseq:(Some (modseq 18L)) ~nomodseq:false with
    | `Committed _ -> ()
    | `Stale_revision -> Alcotest.fail "seeded stage was stale");
-  let snapshot=Option.get (Store.load db ~scope).snapshot in
-  let rows=M.rows snapshot in
+  let rows=snapshot db (Store.load_cursor db ~scope) in
   Alcotest.(check (list int64)) "SEARCH pruned vanished UID" [1L;2L]
-    (uids snapshot);
+    (uids rows);
   let row1=List.hd rows and row2=List.nth rows 1 in
   Alcotest.(check (list string)) "older MODSEQ did not replace flags"
     ["\\Seen"] (List.map Mail_flag.Imap_flag.to_wire row1.flags);
@@ -1305,12 +1303,10 @@ let test_seed_stage_process_crash env =
   Fun.protect ~finally:cleanup @@ fun () ->
   Eio.Switch.run (fun sw ->
     let db=Store.open_path ~sw Eio.Path.(Eio.Stdenv.fs env / path) in
-    let initial=Store.load db ~scope in
-    let first=transition initial.cursor initial.snapshot
-      ~stage:"seed-crash-base" ~epoch_value:5L
-      [row 1L [flag "\\Seen"]] in
+    let initial=Store.load_cursor db ~scope in
     Alcotest.(check bool) "base published before seed crash" true
-      (Store.publish db first=`Committed));
+      (is_committed (transition db initial ~stage:"seed-crash-base"
+        ~epoch_value:5L [row 1L [flag "\\Seen"]])));
   let executable=if Filename.is_relative Sys.executable_name then
     Filename.concat (Sys.getcwd ()) Sys.executable_name
     else Sys.executable_name in
@@ -1325,10 +1321,9 @@ let test_seed_stage_process_crash env =
   let cursor=Store.load_cursor db ~scope in
   Alcotest.(check int64) "seeded crash retained old revision" 1L
     cursor.revision;
-  let snapshot=Option.get (Store.load db ~scope).snapshot in
   Alcotest.(check (list string)) "seeded crash retained old flags"
     ["\\Seen"] (List.map Mail_flag.Imap_flag.to_wire
-      (List.hd (M.rows snapshot)).flags);
+      (List.hd (snapshot db cursor)).flags);
   Alcotest.(check (list string)) "seeded stage is inert" ["seed-crash"]
     (Store.abandoned_stages db);
   let action=seed_crash_action cursor in

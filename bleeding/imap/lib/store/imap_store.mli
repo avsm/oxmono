@@ -9,9 +9,9 @@
 type t
 
 exception Scope_mismatch
-(** Raised by {!load} and {!load_cursor} when the stored cursor for the
-    scope's endpoint, account and mailbox key names a different raw name,
-    encoding or mailbox ID than the requested scope. *)
+(** Raised by {!load_cursor} when the stored cursor for the scope's
+    endpoint, account and mailbox key names a different raw name, encoding
+    or mailbox ID than the requested scope. *)
 
 val open_path : sw:Eio.Switch.t -> ?blob_dir:_ Eio.Path.t -> _ Eio.Path.t -> t
 (** Opens or creates a versioned database. [blob_dir], when supplied, must
@@ -26,17 +26,6 @@ val open_readonly : sw:Eio.Switch.t -> _ Eio.Path.t -> t
     existing readable [-wal] and [-shm] pair, or a writable containing directory
     so SQLite can create [-shm]; for a strict no-file-write inspection, inspect
     a checkpointed database or a snapshot that includes those sidecars. *)
-
-type mailbox = {
-  cursor : Imap.Mirror.cursor;
-  snapshot : Imap.Mirror.snapshot option;
-}
-
-val load : t -> scope:Imap.Mirror.scope -> mailbox
-(** [load t ~scope] is the stored cursor and snapshot for [scope]. A missing
-    mailbox yields [Mirror.initial scope] and no snapshot. A mismatched
-    stored scope raises {!Scope_mismatch}. A corrupt row raises
-    [Failure]. *)
 
 type object_identity = { account_id:string; mailbox_id:string }
 
@@ -55,8 +44,9 @@ val observe_object_identity : t -> scope:Imap.Mirror.scope ->
     state. Invalid draft identifiers raise [Invalid_argument]. *)
 
 val load_cursor : t -> scope:Imap.Mirror.scope -> Imap.Mirror.cursor
-(** [load_cursor t ~scope] is the cursor of {!load} without the snapshot.
-    It raises as {!load} does. *)
+(** [load_cursor t ~scope] is the stored cursor for [scope]. A missing
+    mailbox yields [Mirror.initial scope]. A mismatched stored scope raises
+    {!Scope_mismatch}, and a corrupt row raises [Failure]. *)
 
 val snapshot_page : t -> scope:Imap.Mirror.scope ->
   cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
@@ -131,11 +121,6 @@ val discard_stage : t -> stage_id:string -> unit
 val abandoned_stages : t -> string list
 (** Inspect and explicitly remove incomplete stages, e.g. after restart.
     A stage is never automatically resumed or published. *)
-
-val publish : t -> Imap.Mirror.transition -> [ `Committed | `Stale_revision ]
-(** Compare-and-swap on the cursor revision, replacing the snapshot and
-    cursor atomically. Old UIDVALIDITY epochs are retained for diagnosis
-    until {!forget_epochs}. A stale write leaves the database untouched. *)
 
 val forget_epochs : t -> scope:Imap.Mirror.scope ->
   cursor:Imap.Mirror.cursor -> [ `Dropped of int | `Stale_revision ]

@@ -218,7 +218,7 @@ let test_objectid_binding_guards_reconnect () =
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let first,_=scripted_objectid_empty ~sw ~mailbox_id:"F_box" () in
-  (match Imap_sync.Engine.run_once_staged ~client:first ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:first ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"objectid-first" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "first OBJECTID+ scan: %a"
@@ -227,7 +227,7 @@ let test_objectid_binding_guards_reconnect () =
     (Imap_store.object_identity store ~scope=
       `Bound {Imap_store.account_id="u_account";mailbox_id="F_box"});
   let downgraded=scripted_scan ~sw ~has_message:false () in
-  (match Imap_sync.Engine.run_once_staged ~client:downgraded ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:downgraded ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"objectid-downgraded" () with
    | Error (Imap_sync.Engine.Invalid_scope
        "saved OBJECTID+ identity cannot be verified") -> ()
@@ -236,7 +236,7 @@ let test_objectid_binding_guards_reconnect () =
    | Ok _ -> Alcotest.fail "capability loss bypassed durable identity");
   let second,wire=scripted_objectid_empty ~sw ~mailbox_id:"F_box"
     ~status_mailbox_id:"F_box" () in
-  (match Imap_sync.Engine.run_once_staged ~client:second ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:second ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"objectid-second" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "second OBJECTID+ scan: %a"
@@ -252,7 +252,7 @@ let test_objectid_binding_guards_reconnect () =
   let replacement,_=scripted_objectid_empty ~sw
     ~status_mailbox_id:"F_replacement"
     ~mailbox_id:"F_replacement" () in
-  (match Imap_sync.Engine.run_once_staged ~client:replacement ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:replacement ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"objectid-replaced" () with
    | Error (Imap_sync.Engine.Invalid_scope
        "configured mailbox name no longer matches saved OBJECTID+") -> ()
@@ -294,7 +294,7 @@ let test_objectid_first_binding_requires_stable_epoch () =
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let baseline=scripted_scan ~sw ~has_message:false () in
-  (match Imap_sync.Engine.run_once_staged ~client:baseline ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:baseline ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"pre-objectid" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "baseline scan: %a"
@@ -303,7 +303,7 @@ let test_objectid_first_binding_requires_stable_epoch () =
   let scan stage_id=
     let client,_=scripted_objectid_empty ~sw ~mailbox_id:"F_unknown"
       ~uidvalidity:12L () in
-    match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+    match Imap_sync.Engine.scan_once ~client ~store ~scope
       ~mailbox:"INBOX" ~stage_id () with
     | Ok _ -> ()
     | Error error -> Alcotest.failf "%s: %a" stage_id
@@ -329,7 +329,7 @@ let test_objectid_missing_select_identity_cannot_publish () =
           ~select_objectid:false ()
       | `Partial -> scripted_objectid_empty ~sw ~mailbox_id:"F_partial"
           ~select_account_id:false () in
-    (match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+    (match Imap_sync.Engine.scan_once ~client ~store ~scope
       ~mailbox:"INBOX" ~stage_id:("objectid-" ^ name) () with
      | Error (Imap_sync.Engine.Invalid_scope
          "OBJECTID+ SELECT omitted account/mailbox identity") -> ()
@@ -513,7 +513,7 @@ let publish_two ~sw ~store =
      A00000005 OK fetched\r\n";
     "* SEARCH 1 2\r\nA00000006 OK searched\r\n";
     "A00000007 OK unselected\r\n"] in
-  match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+  match Imap_sync.Engine.scan_once ~client ~store ~scope
       ~mailbox:"INBOX" ~stage_id:"two-messages" () with
   | Ok _ -> ()
   | Error error -> Alcotest.failf "two-message scan: %a"
@@ -596,7 +596,7 @@ let test_hydration_keeps_counts_after_concurrent_publish () =
       "* 1 FETCH (UID 1 FLAGS ())\r\nA00000005 OK fetched\r\n";
       "* SEARCH 1\r\nA00000006 OK searched\r\n";
       "A00000007 OK unselected\r\n"] in
-    match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+    match Imap_sync.Engine.scan_once ~client ~store ~scope
         ~mailbox:"INBOX" ~stage_id:"one-message" () with
     | Ok _ -> ""
     | Error error -> Alcotest.failf "concurrent scan: %a"
@@ -676,17 +676,25 @@ let test_digest_checks_receipt_epoch () =
       Imap_sync.Engine.pp_error error
   | Ok _ -> Alcotest.fail "digest ignored the receipt epoch"
 
+
+(* [published_rows store] is every row of the published snapshot. *)
+let published_rows store =
+  let cursor=Imap_store.load_cursor store ~scope in
+  match Imap_store.snapshot_page store ~scope ~cursor ~limit:10_000 () with
+  | `Rows rows -> rows
+  | `Stale_revision -> Alcotest.fail "published snapshot changed"
+
 let test_staged_condstore_wire () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir:_ ~maildir:_ ->
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let initial,first_wire=scripted_condstore ~sw ~modseq:20L ~seen:false () in
-  (match Imap_sync.Engine.run_once_staged ~client:initial ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:initial ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"condstore-first" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "first scan: %a" Imap_sync.Engine.pp_error error);
   let second,second_wire=scripted_condstore ~sw ~modseq:21L ~seen:true () in
-  (match Imap_sync.Engine.run_once_staged ~client:second ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:second ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"condstore-second" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "second scan: %a" Imap_sync.Engine.pp_error error);
@@ -699,13 +707,13 @@ let test_staged_condstore_wire () =
     (contains (Buffer.contents first_wire) "UID FETCH 1:1 (UID FLAGS MODSEQ)");
   Alcotest.(check bool) "follow-up sends CHANGEDSINCE" true
     (contains (Buffer.contents second_wire) "CHANGEDSINCE 20");
-  let snapshot=Option.get (Imap_store.load store ~scope).snapshot in
+  let snapshot=published_rows store in
   Alcotest.(check (list string)) "delta flags published" ["\\Seen"]
     (List.map Mail_flag.Imap_flag.to_wire
-      (List.hd (M.rows snapshot)).flags);
+      (List.hd snapshot).flags);
   let baseline,baseline_wire=scripted_condstore ~nomodseq:true
     ~sw ~modseq:22L ~seen:false () in
-  (match Imap_sync.Engine.run_once_staged ~client:baseline ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:baseline ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"condstore-nomodseq" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "NOMODSEQ scan: %a"
@@ -745,18 +753,18 @@ let test_staged_messagelimit_continuation () =
     | Ok client -> client
     | Error error -> Alcotest.fail
         (Imap_eio.Client.error_to_string error) in
-  let published=match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+  let published=match Imap_sync.Engine.scan_once ~client ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"partial-complete" () with
     | Ok published -> published
     | Error error -> Alcotest.failf "partial staged scan: %a"
         Imap_sync.Engine.pp_error error in
   Alcotest.(check int64) "all partial rows published" 3L
     published.row_count;
-  let snapshot=Option.get (Imap_store.load store ~scope).snapshot in
+  let snapshot=published_rows store in
   Alcotest.(check (list int64)) "all UIDs survived continuation"
     [1L;2L;3L]
     (List.map (fun (row:M.row) -> Imap.Uid.to_int64 row.uid)
-      (M.rows snapshot));
+      snapshot);
   let transcript=Buffer.contents wire in
   Alcotest.(check bool) "FETCH resumed below processed UID" true
     (contains_substring transcript "UID FETCH 1:1 (UID FLAGS)");
@@ -801,25 +809,25 @@ let test_staged_changedsince_messagelimit () =
           (Imap_eio.Client.error_to_string error) in
     client,wire in
   let initial,_=make_client ~delta:false in
-  (match Imap_sync.Engine.run_once_staged ~client:initial ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:initial ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"changes-baseline" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "baseline scan: %a"
        Imap_sync.Engine.pp_error error);
   let changed,wire=make_client ~delta:true in
-  (match Imap_sync.Engine.run_once_staged ~client:changed ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:changed ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"changes-partial" () with
    | Ok receipt ->
        Alcotest.(check int64) "complete incremental inventory" 3L
          receipt.row_count
    | Error error -> Alcotest.failf "partial CHANGEDSINCE scan: %a"
        Imap_sync.Engine.pp_error error);
-  let snapshot=Option.get (Imap_store.load store ~scope).snapshot in
+  let snapshot=published_rows store in
   Alcotest.(check (list (list string))) "changed flags published"
     [["\\Seen"];[];["\\Seen"]]
     (List.map (fun (row:M.row) ->
       List.map Mail_flag.Imap_flag.to_wire row.flags)
-      (M.rows snapshot));
+      snapshot);
   Alcotest.(check bool) "CHANGEDSINCE resumed below processed UID" true
     (contains_substring (Buffer.contents wire)
       "UID FETCH 1:1 (UID FLAGS MODSEQ) (CHANGEDSINCE 20)")
@@ -855,7 +863,7 @@ let test_staged_timeout_discards_stage () =
         (Imap_eio.Client.error_to_string error) in
   (try
      ignore (Eio.Time.with_timeout_exn clock 0.02 (fun () ->
-       Imap_sync.Engine.run_once_staged ~client ~store ~scope
+       Imap_sync.Engine.scan_once ~client ~store ~scope
          ~mailbox:"INBOX" ~stage_id:"timeout-stage" ()));
      Alcotest.fail "staged FETCH did not time out"
    with Eio.Time.Timeout -> ());
@@ -2047,7 +2055,7 @@ let test_readonly_sync_plan () =
   let local=Md.append maildir
     ~source:(Eio.Flow.string_source message) ~length ~flags:[seen] () in
   let client=scripted_scan ~sw ~has_message:true () in
-  (match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"plan-source" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "plan source scan: %a"
@@ -2561,7 +2569,7 @@ let test_changed_local_survivor_is_held () =
     "A00000005 OK fetched\r\n";
     "* SEARCH\r\nA00000006 OK searched\r\n";
     "A00000007 OK unselected\r\n"] in
-  (match Imap_sync.Engine.run_once_staged ~client:empty ~store ~scope
+  (match Imap_sync.Engine.scan_once ~client:empty ~store ~scope
       ~mailbox:"INBOX" ~stage_id:"empty-scan" () with
    | Ok _ -> ()
    | Error error -> Alcotest.failf "empty scan: %a"
@@ -2767,7 +2775,7 @@ let local_delete_crash_child dir =
   let maildir=Md.open_dir Eio.Path.(fs / dir / "maildir") in
   let store=open_store ~sw ~database ~blob_dir in
   let client=scripted_scan ~sw ~has_message:false () in
-  let published=match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+  let published=match Imap_sync.Engine.scan_once ~client ~store ~scope
     ~mailbox:"INBOX" ~stage_id:"delete-crash-initial" () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "initial scan: %a"
@@ -2904,7 +2912,7 @@ let test_epoch_reset_preserves_published_snapshot () =
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let initial=scripted_scan ~sw ~has_message:true () in
-  let published=match Imap_sync.Engine.run_once_staged ~client:initial ~store
+  let published=match Imap_sync.Engine.scan_once ~client:initial ~store
       ~scope ~mailbox:"INBOX" ~stage_id:"old-epoch" () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "initial scan: %a"
@@ -2939,7 +2947,7 @@ let test_epoch_reset_preserves_pending_journal_view () =
   Eio.Switch.run @@ fun sw ->
   let store=open_store ~sw ~database ~blob_dir in
   let initial=scripted_scan ~sw ~has_message:true () in
-  let published=match Imap_sync.Engine.run_once_staged ~client:initial ~store
+  let published=match Imap_sync.Engine.scan_once ~client:initial ~store
       ~scope ~mailbox:"INBOX" ~stage_id:"pending-old-epoch" () with
     | Ok receipt -> receipt
     | Error error -> Alcotest.failf "initial scan: %a"

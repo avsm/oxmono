@@ -199,13 +199,19 @@ let round_trip () =
     Eio.Switch.run @@ fun store_sw ->
     let store = Imap_store.open_path ~sw:store_sw ~blob_dir:blobpath dbpath in
     let scan stage_id =
-      match Imap_sync.Engine.run_once ~client ~store ~scope ~mailbox ~stage_id () with
-      | Ok transition -> transition
+      match Imap_sync.Engine.scan_once ~client ~store ~scope ~mailbox
+        ~stage_id () with
+      | Ok receipt -> receipt
       | Error error -> Alcotest.fail (Format.asprintf "%a"
           Imap_sync.Engine.pp_error error) in
+    let published_rows () =
+      let cursor = Imap_store.load_cursor store ~scope in
+      match Imap_store.snapshot_page store ~scope ~cursor ~limit:10_000 () with
+      | `Rows rows -> rows
+      | `Stale_revision -> Alcotest.fail "published snapshot changed" in
     let first = scan "initial" in
-    Alcotest.(check int) "initial mirror rows" 3
-      (List.length (Imap.Mirror.rows first.snapshot));
+    let first_rows = published_rows () in
+    Alcotest.(check int64) "initial mirror rows" 3L first.row_count;
     let advertised capability =
       Imap.Capability.Set.mem capability (Client.capabilities client) in
     if advertised Imap.Capability.Condstore then
@@ -214,7 +220,7 @@ let round_trip () =
     if advertised Imap.Capability.Qresync then
       Alcotest.(check bool) "QRESYNC enabled for next scan" true
         (Client.is_enabled client Imap.Capability.Qresync);
-    let first_uid = (List.hd (Imap.Mirror.rows first.snapshot)).uid in
+    let first_uid = (List.hd first_rows).uid in
     let spool = Eio.Path.(Eio.Stdenv.fs env / (dbfile ^ ".spool")) in
     let archived = match Imap_sync.Engine.archive_uid ~client ~store ~scope
       ~mailbox ~uid:first_uid ~spool () with
@@ -239,10 +245,16 @@ let round_trip () =
             Ok ()
         | [] -> Alcotest.fail "no UID to flag"));
     let second = scan "after-flags" in
-    Alcotest.(check int) "flag delta" 1 (List.length second.changed);
-    let persisted = Imap_store.load store ~scope in
-    Alcotest.(check int64) "durable revision" 2L
-      persisted.cursor.revision;
+    let second_rows = published_rows () in
+    let changed = List.filter (fun (row : Imap.Mirror.row) ->
+      match List.find_opt (fun (before : Imap.Mirror.row) ->
+          Imap.Uid.equal before.uid row.uid) first_rows with
+      | Some before ->
+          not (Mail_flag.Imap_flag.equal_durable before.flags row.flags)
+      | None -> false) second_rows in
+    Alcotest.(check int) "flag delta" 1 (List.length changed);
+    let persisted = Imap_store.load_cursor store ~scope in
+    Alcotest.(check int64) "durable revision" 2L persisted.revision;
     let duplicate = List.hd messages in
     let blob = Imap_store.Blob.put store
       ~source:(Eio.Flow.string_source duplicate.raw)
@@ -259,6 +271,15 @@ let round_trip () =
       uidvalidity=second.cursor.uidvalidity; uid=None} in
     Imap_store.prepare_intent store probe;
     Imap_store.set_intent_state store ~id:probe_id Imap_store.Sent;
+    Imap_store.Journal.prepare_operation store {
+      id=probe_id; pair_id=None; local_id=None; scope;
+      kind=Imap_store.Journal.Append; state=Imap_store.Journal.Prepared;
+      source_uidvalidity=None; source_uid=None; destination=Some scope;
+      destination_uidvalidity=second.cursor.uidvalidity;
+      blob_sha256=Some blob.sha256; blob_length=Some blob.length;
+      desired_flags=Some []; receipt=None; receipt_uidvalidity=None;
+      receipt_uid=None};
+    Imap_store.Journal.mark_sent store ~id:probe_id;
     let outcome = match Imap_sync.Engine.append_blob_journaled
       ~client ~store ~scope ~mailbox ~id:("append-" ^ nonce)
       ~message_id:("duplicate-" ^ nonce) blob with
@@ -281,32 +302,40 @@ let round_trip () =
          Alcotest.(check bool) "known empty APPEND flags" true
            (metadata.expected_flags = Some [])
      | Imap_store.Other _ -> Alcotest.fail "wrong APPEND intent kind");
-    let probe_spool = Eio.Path.(Eio.Stdenv.fs env / (dbfile ^ ".probe")) in
-    let evidence = match Imap_sync.Reconcile.inspect_append
-      ~client ~store ~scope ~mailbox ~id:probe_id ~spool:probe_spool () with
+    let evidence = match Imap_sync.Bridge.inspect_append_candidates
+      ~client ~store ~scope ~mailbox ~id:probe_id
+      ~spool_dir:Eio.Path.(Eio.Stdenv.fs env / spooldir) () with
       | Ok report -> report
       | Error error -> Alcotest.fail (Format.asprintf "%a"
-          Imap_sync.Reconcile.pp_error error) in
-    (match evidence with
-     | Imap_sync.Reconcile.Inspected {matches=[candidate]; _} ->
-         Alcotest.(check int64) "uncertain APPEND candidate"
-           (Imap.Uid.to_int64 receipt.uid)
-           (Imap.Uid.to_int64 candidate.uid);
-         Alcotest.(check (option bool)) "candidate wire flags"
-           (Some true) candidate.flags_match
-     | _ -> Alcotest.fail "expected one current exact-body candidate");
+          Imap_sync.Bridge.pp_error error) in
+    (* The inspection admits only candidates whose flags equal the journaled
+       flags, so one match also proves the candidate's wire flags. *)
+    Alcotest.(check (list int64)) "uncertain APPEND candidate"
+      [Imap.Uid.to_int64 receipt.uid]
+      (List.map Imap.Uid.to_int64 evidence.matching_uids);
     Alcotest.(check bool) "inspection leaves intent pending" true
       (List.exists (fun (x : Imap_store.intent) -> x.id=probe_id)
         (Imap_store.pending_intents store ~scope));
+    Alcotest.(check bool) "inspection leaves operation pending" true
+      (match Imap_store.Journal.find_operation store ~id:probe_id with
+       | Some {state=Imap_store.Journal.Sent;_} -> true
+       | _ -> false);
     Imap_store.set_intent_state store ~id:probe_id Imap_store.Rejected;
+    Imap_store.Journal.reject_operation store ~id:probe_id
+      ~receipt:"oracle probe inspected";
+    let before_append = published_rows () in
     let third = scan "after-journaled-append" in
+    let added = List.filter (fun (row : Imap.Mirror.row) ->
+      not (List.exists (fun (before : Imap.Mirror.row) ->
+        Imap.Uid.equal before.uid row.uid) before_append))
+      (published_rows ()) in
     Alcotest.(check int) "journaled APPEND added one UID" 1
-      (List.length third.added);
+      (List.length added);
     Imap_store.Blob.attach store ~scope ~uidvalidity:receipt.uidvalidity
       ~uid:receipt.uid blob;
     Alcotest.(check bool) "archived body hash and length" true
       (Imap_store.Blob.verify store blob);
-    let staged = match Imap_sync.Engine.run_once_staged ~client ~store ~scope
+    let staged = match Imap_sync.Engine.scan_once ~client ~store ~scope
       ~mailbox ~stage_id:("disk-stage-" ^ nonce) () with
       | Ok receipt -> receipt
       | Error error -> Alcotest.fail (Format.asprintf "%a"

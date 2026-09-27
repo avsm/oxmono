@@ -23,12 +23,7 @@ let dec_mode = function
   | other -> fail (Printf.sprintf "unknown mode %Ld" other)
 let scope_key (x:M.scope) = [s x.endpoint; s x.account; s x.mailbox_key]
 
-let mirror_error = function
-  | M.Invalid why -> why
-  | Stale_revision -> "stale revision"
-  | Wrong_action -> "wrong action"
-  | Incomplete_coverage -> "incomplete coverage"
-  | Modseq_regression -> "MODSEQ regression"
+let mirror_error (M.Invalid why) = why
 
 let is_sha256_hex x =
   String.length x = 64 && String.for_all (function

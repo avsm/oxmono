@@ -313,7 +313,7 @@ let test_objectid_binding () =
     raw_name; encoding = mode; mailbox_id = None } in
   Eio.Switch.run @@ fun store_sw ->
   let store = Imap_store.open_path ~sw:store_sw Eio.Path.(fs / dbfile) in
-  let scan stage_id = Imap_sync.Engine.run_once_staged ~client ~store ~scope
+  let scan stage_id = Imap_sync.Engine.scan_once ~client ~store ~scope
     ~mailbox ~stage_id () in
   let first = match scan ("identity-first-" ^ n) with
     | Ok receipt -> receipt

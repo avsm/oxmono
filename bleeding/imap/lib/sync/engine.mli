@@ -1,16 +1,12 @@
-(** A conservative, durable baseline mailbox scan.
+(** Mailbox scans, body transfers and journaled APPEND for one IMAP mailbox.
 
-    Every successful call covers a finite UID interval with completed FETCH and
-    SEARCH commands, then atomically publishes a replacement snapshot through
-    {!Imap_store}. It does not claim snapshot isolation across commands. When
-    CONDSTORE supplies HIGHESTMODSEQ on selection, that opening value is a
-    conservative checkpoint; later FETCH values do not advance it. If QRESYNC
-    is enabled and a saved checkpoint exists, the scan applies SELECT changes
-    and fetches only new UIDs, then verifies complete membership. Incomplete
-    deltas fall back to a full metadata scan before publication. Run it again
-    to catch concurrent edits.
-    The in-memory planner is deliberately bounded; use [run_once_staged] for
-    a disk-backed full scan of larger mailboxes. *)
+    {!scan_once} publishes a complete UID inventory through a disk-backed
+    stage in {!Imap_store}. With a published CONDSTORE anchor in the same
+    epoch it fetches only the metadata changed since that anchor with UID
+    FETCH CHANGEDSINCE, plus the UIDs above the published frontier, and
+    still proves membership with a complete UID SEARCH. It never uses
+    QRESYNC. FETCH and SEARCH are separate commands, so a scan is not a
+    snapshot of one instant, and a later scan catches concurrent edits. *)
 
 type error =
   | Client of Imap_eio.Error.t
@@ -41,37 +37,32 @@ val guard_bound_mailbox :
     binding needs no action. A missing capability or changed name fails
     before any repair mutation. *)
 
-val run_once :
-  ?max_windows:int -> ?max_rows:int ->
-  client:Imap_eio.Client.t -> store:Imap_store.t ->
-  scope:Imap.Mirror.scope -> mailbox:string -> stage_id:string -> unit ->
-  (Imap.Mirror.transition, error) result
-(** [mailbox] is UTF-8; [scope.raw_name] must match the active client's wire
-    encoding. [stage_id] must uniquely identify this attempted scan. A failed
-    scan never publishes a partial replacement. Store I/O exceptions propagate,
-    as do Eio cancellations. *)
-
-val run_once_staged :
+val scan_once :
   ?max_windows:int -> ?expected_uidvalidity:Imap.Uidvalidity.t ->
   client:Imap_eio.Client.t -> store:Imap_store.t ->
   scope:Imap.Mirror.scope -> mailbox:string -> stage_id:string -> unit ->
   (Imap_store.staged_receipt, error) result
-(** Disk-backed baseline scan for large mailboxes. FETCH and SEARCH windows
-    are durably staged in SQLite and the complete membership is published by
-    a single cursor CAS transaction, without materializing a full OCaml
-    snapshot. The returned receipt contains only the new cursor and row
-    count. Normal protocol errors discard the stage; process crashes leave
-    an inert stage that can be inspected and discarded on restart. With a
-    same-epoch CONDSTORE anchor, it seeds the stage from published SQLite
-    rows, fetches changed metadata and new UID ranges, then verifies every
-    live UID with a complete SEARCH inventory. Other cases use full FETCH
-    and SEARCH. The anchor advances only with the complete publication.
-    [expected_uidvalidity] rejects a changed mailbox epoch with
-    [Uidvalidity_changed] before staging or publishing any rows. When
-    OBJECTID+ is offered and no binding is saved, the scan binds the mailbox
-    identity only if the selected UIDVALIDITY equals the published one. A
-    scan that publishes a new epoch leaves the scope unbound, and the next
-    scan binds it. *)
+(** [scan_once ~client ~store ~scope ~mailbox ~stage_id ()] selects
+    [mailbox] read-only, stages its FETCH and SEARCH windows of 1,000 UIDs
+    in SQLite under [stage_id], and publishes the complete membership in
+    one cursor compare-and-swap transaction. The receipt carries the new
+    cursor and row count. No OCaml snapshot of the mailbox is built.
+
+    With a CONDSTORE anchor from a complete scan of the same epoch, the
+    stage is seeded from the published rows, only rows changed since the
+    anchor are fetched below the published frontier, and every UID above it
+    is fetched in full. Every other case fetches every window in full. The
+    anchor advances only with a complete publication. [max_windows]
+    defaults to 100,000 and bounds the number of windows, and a larger
+    range returns [Limit]. [expected_uidvalidity] rejects a changed epoch
+    with [Uidvalidity_changed] before any row is staged.
+
+    A protocol error discards the stage. A crash leaves an inert stage that
+    {!Imap_store.abandoned_stages} lists. When OBJECTID+ is offered and no
+    binding is saved, the scan binds the mailbox identity only when the
+    selected UIDVALIDITY equals the published one, so a scan that publishes
+    a new epoch leaves the scope unbound and the next scan binds it.
+    [stage_id] must be unique. *)
 
 type append_outcome =
   | Identified of Imap_eio.Client.append_receipt

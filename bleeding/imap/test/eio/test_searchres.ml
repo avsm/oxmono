@@ -240,7 +240,9 @@ let test_saved_failures () =
       ok (C.with_mailbox client ~mode:`Read_write "INBOX" (fun selected ->
         let saved=ok (search_save selected ~criteria:Imap.Search.All) in
         expect "IDLE epoch reset" protocol
-          (Result.bind (S.Idle.require selected) S.Idle.wait_for_change);
+          (Result.bind (S.Idle.require selected)
+             (S.Idle.wait_for_change ~clock:(Eio_mock.Clock.make ())
+                ~timeout:1500.));
         expect "IDLE reset expires saved handle" state (fetch saved);
         expect "IDLE reset expires lease info" state (S.info selected);
         Ok ())))

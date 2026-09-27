@@ -480,12 +480,21 @@ let logout t =
           receive seen_bye
     in receive false)
 
-let idle_once t =
+let idle_once t ~clock ~timeout =
   check_open t;
+  if not (Float.is_finite timeout && timeout > 0. && timeout <= 1740.) then
+    raise (Failure (State "IDLE timeout must be positive and at most 1740 \
+      seconds"));
   let tag = next_tag t in
   let sent = ref false in
+  let done_sent = ref false in
   let budget = budget "IDLE" in
   let response () = next t budget in
+  (* The timer fiber and the reader both run under the caller's lock in one
+     domain, and nothing yields between the test and the set, so exactly
+     one DONE is written. *)
+  let finish () =
+    if not !done_sent then (done_sent := true; write t "DONE\r\n") in
   let fail_tagged got status code text =
     if got <> tag then
       raise (Failure (Protocol ("unexpected tagged completion " ^ got)))
@@ -504,27 +513,30 @@ let idle_once t =
           fail_tagged got status code text
     in
     let initial = continuation [] in
-    let changed = match initial with
-      | _::_ -> initial
-      | [] ->
-          (match response () with
-           | Imap.Response.Untagged _ as item -> add [] item
-           | Imap.Response.Tagged {tag=got; status; code; text} ->
-               fail_tagged got status code text
-           | Imap.Response.Continuation _ ->
-               raise (Failure (Protocol "duplicate IDLE continuation"))) in
-    write t "DONE\r\n";
+    if initial <> [] then finish ();
     let rec completion acc = match response () with
-      | Imap.Response.Tagged {tag=got; status=`Ok; _} when got=tag ->
-          List.rev acc
-      | Imap.Response.Tagged {tag=got; status=(`No | `Bad as status); code; text}
-        when got=tag -> raise (Failure (Rejected {tag; status; code; text}))
-      | Imap.Response.Tagged {tag=got; _} ->
-          raise (Failure (Protocol ("unexpected tagged completion " ^ got)))
-      | Imap.Response.Untagged _ as item -> completion (add acc item)
+      | Imap.Response.Tagged {tag=got; status=`Ok; _}
+        when got=tag && !done_sent -> List.rev acc
+      | Imap.Response.Tagged {tag=got; status; code; text} ->
+          fail_tagged got status code text
+      | Imap.Response.Untagged _ as item ->
+          let acc = add acc item in
+          finish ();
+          completion acc
       | Imap.Response.Continuation _ ->
-          raise (Failure (Protocol "unexpected IDLE continuation"))
-    in completion changed
+          raise (Failure (Protocol (if !done_sent
+            then "unexpected IDLE continuation"
+            else "duplicate IDLE continuation")))
+    in
+    (* Interrupting the read would lose the framer's state, so the deadline
+       ends IDLE by writing DONE and the read completes normally. *)
+    Eio.Switch.run (fun sw ->
+      if not !done_sent then
+        Eio.Fiber.fork_daemon ~sw (fun () ->
+          Eio.Time.sleep clock timeout;
+          finish ();
+          `Stop_daemon);
+      completion initial)
   with ex ->
     let bt = Printexc.get_raw_backtrace () in
     abandon t ~sent:!sent ex bt

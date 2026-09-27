@@ -142,7 +142,9 @@ let test_protect_reraises () =
 
 let test_idle_rejection_keeps_session () =
   with_session ["A00000001 NO [UNAVAILABLE] later\r\n"] (fun session ->
-    match Session.protect session (fun () -> Session.idle_once session) with
+    match Session.protect session (fun () ->
+      Session.idle_once session ~clock:(Eio_mock.Clock.make ())
+        ~timeout:1500.) with
     | Error (Core_error.Rejected _) when not session.closed -> ()
     | _ -> failwith "IDLE rejection closed the session")
 
@@ -275,7 +277,8 @@ let test_rev2_base_extensions () =
     ok (S.Uidplus.uid_expunge uidplus ~set:(uid_set "1"));
     ignore (ok (S.Searchres.uid_search_save searchres
       ~criteria:Imap.Search.All));
-    ignore (ok (S.Idle.wait_for_change idle));
+    ignore (ok (S.Idle.wait_for_change idle
+      ~clock:(Eio_mock.Clock.make ()) ~timeout:1500.));
     Ok ())
 
 let test_metadata_fetch_row () =

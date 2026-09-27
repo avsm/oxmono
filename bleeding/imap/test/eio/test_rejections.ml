@@ -80,7 +80,9 @@ let test_idle_rejections () =
       " [" ^ wire ^ "] refused\r\n")]) (fun client ->
       ignore (rejected ~tag:(tag 5) ~status ~code:(Some code)
         (C.with_mailbox client ~mode:`Read_only "INBOX" (fun selected ->
-          Result.bind (S.Idle.require selected) S.Idle.wait_for_change)))))
+          Result.bind (S.Idle.require selected)
+            (S.Idle.wait_for_change ~clock:(Eio_mock.Clock.make ())
+               ~timeout:1500.))))))
     [false;true]
 
 let secret="synthetic-auth-secret"

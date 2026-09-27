@@ -881,7 +881,7 @@ let test_idle ~compress () =
                  ~length:(Int64.of_int (String.length raw))
                  (Eio.Flow.string_source raw))))) in
           let result = Result.bind (Imap_eio.Selected.Idle.require selected)
-            Imap_eio.Selected.Idle.wait_for_change in
+            (Imap_eio.Selected.Idle.wait_for_change ~clock ~timeout:60.) in
           Eio.Promise.await_exn writer;
           result))) in
     Alcotest.(check bool) "IDLE woke on EXISTS" true

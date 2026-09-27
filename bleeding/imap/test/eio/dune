@@ -77,3 +77,7 @@
 (test
  (name test_modes)
  (libraries imap imap.eio alcotest))
+
+(test
+ (name test_idle)
+ (libraries imap.eio imap eio eio.mock cstruct))

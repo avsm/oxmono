@@ -1,6 +1,9 @@
 (* Internal session tests use small limits instead of allocating production-sized
    transcripts. The public client intentionally does not expose Session. *)
-module Session = Imap_eio_core.Session
+module Session = struct
+  include Imap_eio_core.Session
+  let idle_once t = idle_once t ~clock:(Eio_mock.Clock.make ()) ~timeout:1500.
+end
 module Transport = Imap_eio_core.Transport
 
 let with_session ?(max_responses=8) replies f =

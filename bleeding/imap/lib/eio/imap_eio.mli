@@ -868,14 +868,23 @@ module Selected : sig
     val require : selected -> (t, Error.t) result
     (** [require s] is a witness for [s], or [Error.Unsupported Idle]. *)
 
-    val wait_for_change : t -> (Imap.Response.t list, Error.t) result
-    (** [wait_for_change t] enters IDLE, waits for an untagged response,
-        sends DONE and waits for tagged completion, and is the untagged
-        responses that arrived. A tagged NO or BAD is [Error.Rejected] and
-        leaves the connection open. It has no timeout, and cancelling it
-        closes the connection, so it needs a dedicated connection and a
-        reconciliation from durable state after cancellation. A response
-        is a wakeup hint, not a durable change receipt. A
+    val wait_for_change : t -> clock:_ Eio.Time.clock -> timeout:float ->
+      (Imap.Response.t list, Error.t) result
+    (** [wait_for_change t ~clock ~timeout] enters IDLE and waits for an
+        untagged response, or for [timeout] seconds on [clock] after the
+        server's continuation, whichever comes first. It then sends one
+        DONE, waits for tagged completion and is the untagged responses
+        that arrived, which is [Ok []] when the timeout passed without
+        one. [timeout] must be positive and at most 1740 seconds, since
+        RFC 2177 asks clients to re-issue IDLE at least every 29 minutes.
+        Any other value is [Error.State] and sends nothing. A tagged NO or
+        BAD is [Error.Rejected] and leaves the connection open.
+
+        The timeout is the way to bound the wait. Cancelling the call
+        closes the connection, because interrupting the read would lose
+        its framing, and needs a reconnection and a reconciliation from
+        durable state. [wait_for_change] needs a dedicated connection. A
+        response is a wakeup hint, not a durable change receipt. A
         NOTIFICATIONOVERFLOW is kept in the result and means the server
         cancelled the NOTIFY registration, which needs reconciliation
         before it is registered again. *)
@@ -1573,24 +1582,29 @@ module Mailbox : sig
       {!Client.with_mailbox} on the same connection is [Error.State] and
       sends nothing. *)
 
-  val wait : t -> clock:_ Eio.Time.clock -> poll_seconds:float ->
-    (Imap.Response.t list, [ `Idle | `Poll ]) outcome
-  (** [wait t ~clock ~poll_seconds] blocks until the server reports a
-      change and is the responses of the round that reported it, in wire
-      order. It uses [`Idle], repeated {!Selected.Idle.wait_for_change},
+  val wait : ?timeout:float -> t -> clock:_ Eio.Time.clock ->
+    poll_seconds:float -> (Imap.Response.t list, [ `Idle | `Poll ]) outcome
+  (** [wait ?timeout t ~clock ~poll_seconds] blocks until the server
+      reports a change and is the responses of the round that reported it,
+      in wire order. It uses [`Idle], repeated
+      {!Selected.Idle.wait_for_change} with [timeout] seconds on [clock],
       when the server offers IDLE, and otherwise [`Poll], a
       {!Selected.noop} after each sleep of [poll_seconds] on [clock]. A
       change is an EXISTS, EXPUNGE, FETCH or VANISHED response, or an
       untagged status response with a response code. A round without one,
-      such as a bare [* OK] keepalive, is dropped and the wait continues,
-      and a bare [* OK] is removed from the result.
+      such as a bare [* OK] keepalive or an IDLE that timed out, is dropped
+      and the wait continues, and a bare [* OK] is removed from the
+      result. [timeout] defaults to 1500. Under [`Idle] a [timeout] that is
+      not positive or exceeds 1740 is [Error.State], and [`Poll] ignores
+      it.
 
-      [wait] has no timeout, so the caller applies its own, for instance
-      with [Eio.Time.with_timeout]. Cancelling [`Idle] closes the
-      connection, as {!Selected.Idle.wait_for_change} documents, and needs
-      a reconnection and reconciliation afterwards. Cancelling [`Poll]
-      during a sleep leaves the connection usable. [wait] needs a
-      dedicated connection. *)
+      [timeout] renews IDLE and does not end [wait], so the caller applies
+      its own deadline, for instance with [Eio.Time.with_timeout].
+      Cancelling [`Idle] closes the connection, as
+      {!Selected.Idle.wait_for_change} documents, and needs a reconnection
+      and reconciliation afterwards. Cancelling [`Poll] during a sleep
+      leaves the connection usable. [wait] needs a dedicated
+      connection. *)
 end
 
 (** {1 Connection pools} *)

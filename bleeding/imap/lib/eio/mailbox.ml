@@ -246,11 +246,11 @@ let rec until_change next =
     Ok (List.filter (fun r -> not (keepalive r)) responses)
   else until_change next
 
-let wait t ~clock ~poll_seconds =
+let wait ?(timeout = 1500.) t ~clock ~poll_seconds =
   match Selected.Idle.require t with
   | Ok idle ->
-      outcome `Idle
-        (until_change (fun () -> Selected.Idle.wait_for_change idle))
+      outcome `Idle (until_change (fun () ->
+        Selected.Idle.wait_for_change idle ~clock ~timeout))
   | Error (Error.Unsupported _) ->
       outcome `Poll (until_change (fun () ->
         Eio.Time.sleep clock poll_seconds;

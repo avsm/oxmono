@@ -96,7 +96,13 @@ type append_part = {
 val append_many : t -> append_part list -> Imap.Response.t
 val append : ?synchronizing:bool -> t -> prefix:string -> length:int64 ->
   _ Eio.Flow.source -> Imap.Response.t
-val idle_once : t -> Imap.Response.t list
+val idle_once : t -> clock:_ Eio.Time.clock -> timeout:float ->
+  Imap.Response.t list
+(** [idle_once t ~clock ~timeout] runs one IDLE exchange and is the untagged
+    responses that arrived. DONE follows the first untagged response, or
+    [timeout] seconds on [clock] after the continuation, whichever is first.
+    A [timeout] that is not positive or exceeds 1740 raises
+    [Failure (State _)] before any byte is written. *)
 
 val io_failure : exn -> bool
 (** [io_failure ex] holds for [Eio.Io], [Unix.Unix_error], [End_of_file] and

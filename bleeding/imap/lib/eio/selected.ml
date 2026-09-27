@@ -804,8 +804,8 @@ let uid_expunge_saved saved =
     check_saved saved;
     expunge_unlocked t Imap.Command.uid_expunge_saved)
 
-let wait_for_change t =
-  run t (fun () -> Session.idle_once t.session)
+let wait_for_change t ~clock ~timeout =
+  run t (fun () -> Session.idle_once t.session ~clock ~timeout)
 
 let fetch_changes t ~set ~since ~vanished =
   run t (fun () ->

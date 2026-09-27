@@ -43,5 +43,6 @@ val list_with_status : Client.t -> ?reference:string -> pattern:string ->
 (** [list_with_status] runs on the connection and is refused inside
     [Client.with_mailbox]. *)
 
-val wait : t -> clock:_ Eio.Time.clock -> poll_seconds:float ->
+val wait : ?timeout:float -> t -> clock:_ Eio.Time.clock ->
+  poll_seconds:float ->
   (Imap.Response.t list, [ `Idle | `Poll ]) outcome

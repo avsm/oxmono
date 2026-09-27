@@ -234,7 +234,8 @@ let test_idle_fragmented () =
   let updates = ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only
     "INBOX" (fun selected ->
       Result.bind (Imap_eio.Selected.Idle.require selected)
-        Imap_eio.Selected.Idle.wait_for_change)) in
+        (Imap_eio.Selected.Idle.wait_for_change
+           ~clock:(Eio_mock.Clock.make ()) ~timeout:1500.))) in
   (match updates with
    | [Imap.Response.Untagged (Imap.Response.Exists 1L)] -> ()
    | _ -> failwith "fragmented IDLE response lost");

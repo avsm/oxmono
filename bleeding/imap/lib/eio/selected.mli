@@ -234,7 +234,9 @@ end
 module Idle : sig
   type t
   val require : selected -> (t, Error.t) result
-  val wait_for_change : t -> (Imap.Response.t list, Error.t) result
-  (** [wait_for_change t] runs one IDLE exchange and returns the unsolicited
-      responses that ended it. *)
+  val wait_for_change : t -> clock:_ Eio.Time.clock -> timeout:float ->
+    (Imap.Response.t list, Error.t) result
+  (** [wait_for_change t ~clock ~timeout] runs one IDLE exchange that ends
+      at the first unsolicited response or after [timeout] seconds, and is
+      the unsolicited responses that arrived. *)
 end

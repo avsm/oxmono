@@ -72,7 +72,8 @@ let test_idle_notification_overflow () =
         ignore (ok (S.Notify.notify_set notify
           ~groups:[Imap.Notify.Selected,
             [Imap.Notify.Message_new;Imap.Notify.Message_expunge]] ()));
-        (match ok (S.Idle.wait_for_change idle) with
+        (match ok (S.Idle.wait_for_change idle
+                     ~clock:(Eio_mock.Clock.make ()) ~timeout:1500.) with
          | [Imap.Response.Untagged (Imap.Response.Ok
               (Some Imap.Response.Notificationoverflow,_));
             Imap.Response.Untagged (Imap.Response.Exists 1L)] -> ()

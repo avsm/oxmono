@@ -360,3 +360,8 @@ those fields.
 Each flag list is one text column of wire spellings on its row, and the
 single-valued operation side tables are columns of `sync_operations`, so
 the schema has 10 tables instead of 19 and reads join no flag rows.
+
+`Selected.Idle.wait_for_change` takes `~clock` and `~timeout`, at most
+1740 seconds, and sends DONE when the timeout passes, so a deadline no
+longer needs cancellation. `Mailbox.wait` takes `?timeout`, default
+1500, and renews IDLE at each timeout.

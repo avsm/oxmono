@@ -73,7 +73,8 @@ let run ~clock ~connect ~next_stage_id ~on_publish
                 | Ok info when needs_rescan cursor info -> Ok `Changed
                 | Ok _ ->
                     match Result.bind (Imap_eio.Selected.Idle.require selected)
-                        Imap_eio.Selected.Idle.wait_for_change with
+                        (Imap_eio.Selected.Idle.wait_for_change ~clock
+                           ~timeout:idle_renew_seconds) with
                     | Ok _ -> Ok `Woken
                     | Error _ as error -> error) in
           let rec watch () =

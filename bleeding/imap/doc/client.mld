@@ -119,5 +119,33 @@ let archive selected ~set =
   | Error e -> Error e
 ]}
 
+{1 Letting Mailbox choose}
+
+{!Imap_eio.Mailbox} makes these choices for a client that is not a
+syncer. {!Imap_eio.Mailbox.move} uses MOVE where the server offers it,
+else COPY, a STORE adding [\Deleted] and a UIDPLUS UID EXPUNGE of the
+same set, else COPY and the STORE alone, which leaves the expunge to the
+caller. It returns the strategy with the result. A failure after the
+copy is [`Copied] or [`Copied_and_flagged], so the caller knows what to
+reconcile. The function below can replace [archive] in [archive_old].
+
+{[
+let archive_any selected ~set =
+  let open Imap_eio in
+  let moved =
+    Mailbox.move (Mailbox.of_selected selected) ~set ~mailbox:"Archive"
+  in
+  let strategy =
+    match moved.strategy with
+    | `Move -> "MOVE"
+    | `Copy_then_expunge -> "COPY, STORE and UID EXPUNGE"
+    | `Copy_then_flag -> "COPY and STORE, expunge pending"
+    | `Copied _ -> "COPY, then a failed STORE"
+    | `Copied_and_flagged _ -> "COPY and STORE, then a failed EXPUNGE"
+  in
+  Format.printf "archive used %s@." strategy;
+  Result.map ignore moved.result
+]}
+
 [Error (Uncertain _)] means the server may have applied a command, so
 reconcile the mailbox before retrying.

@@ -25,6 +25,22 @@ let archive selected ~set =
       Ok ()
   | Error e -> Error e
 
+let archive_any selected ~set =
+  let open Imap_eio in
+  let moved =
+    Mailbox.move (Mailbox.of_selected selected) ~set ~mailbox:"Archive"
+  in
+  let strategy =
+    match moved.strategy with
+    | `Move -> "MOVE"
+    | `Copy_then_expunge -> "COPY, STORE and UID EXPUNGE"
+    | `Copy_then_flag -> "COPY and STORE, expunge pending"
+    | `Copied _ -> "COPY, then a failed STORE"
+    | `Copied_and_flagged _ -> "COPY and STORE, then a failed EXPUNGE"
+  in
+  Format.printf "archive used %s@." strategy;
+  Result.map ignore moved.result
+
 let archive_old selected =
   let criteria =
     Imap.Search.(And [ Seen; Before { day = 1; month = 1; year = 2025 } ])

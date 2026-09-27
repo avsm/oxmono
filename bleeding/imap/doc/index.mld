@@ -56,6 +56,14 @@ constructors of {!Imap_eio.Error.t}. Neither sends anything, so a
 fallback is one match arm. [require] succeeds where effective IMAP4rev2
 folds the extension in, and a lease witness expires with its lease.
 
+{!Imap_eio.Mailbox} is the layer for clients that are not syncers, such
+as a mail user agent or a proxy. It wraps a lease, chooses the commands
+for a search, a fetch of any size, a store, a move, a change scan and a
+wait from what the server offers, lists mailboxes with STATUS on the
+connection, and reports the strategy it chose with every result.
+{!Imap_sync} keeps using [Selected] directly, since a durable checkpoint
+depends on exactly which commands ran.
+
 {1 Guides}
 
 {!page-client} connects, searches, fetches and moves messages with a

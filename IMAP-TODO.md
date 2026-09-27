@@ -124,7 +124,7 @@ run only once everything else works.
 | 11 | Sync moves: `Ctx` record, single `Imap_sync.Error.t`, `Repair` module, `Plan` module, one APPEND inspection, drop `Engine.run_once` if unused | done | 533f506c0 |
 | 12 | CLI on cmdliner with one term per command and a single `deletion_policy` option; also applies every `bin/imap_cli.ml` finding from 0.R and wires the blob orphan collector and `forget_epochs` into startup under the writer lease | done | e03ce0e85 |
 | 13 | `imap.mli` facade, `.mld` pages, `(documentation)` stanza, dune-project dependency fixes | done | 796c75184 |
-| 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | todo | |
+| 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | done | b6957cba1 |
 | 15 | Redocumentation pass under doc-style over every public interface | todo | |
 | 16 | OxCaml pass after everything works: load the `oxcaml` skill, then annotate `portable`, `contended` and `local` modes and stack-allocate hot-path values where the compiler proves it and a measurement shows a gain; every `.mli` mode claim comes from a compiler probe, never from memory | todo | |
 
@@ -608,6 +608,44 @@ reaches them through `jmap.eio`, and `eio.unix` from test_dotlock. Both
 READMEs point at the pages and examples. Build and runtest are clean, 17
 suites and 235 test cases.
 
+Step 14. Done: `Imap_eio.Mailbox` in lib/eio/mailbox.ml wraps a
+`Selected.t` through `of_selected`, and every operation returns
+`{ strategy; result }`, with the strategy reported on failure too.
+`search` checks `Imap.Search.capabilities` first and is `` `Search ``.
+`fetch` removes repeated UIDs, sends one `Selected.fetch` per 1,000 in
+request order and is `` `Fetch n `` for `n` round trips, and
+`?drop_unsupported` (default false) leaves out items the server cannot
+serve instead of failing. `store ?unchangedsince` is `` `Conditional ``
+through `Condstore` or `Unsupported Condstore`, never unconditional, and
+`` `Unconditional `` otherwise. `move` is `` `Move ``, else
+`` `Copy_then_expunge `` with UIDPLUS, else `` `Copy_then_flag `` with
+no EXPUNGE. The fallbacks check writability before the copy, and a
+failure after it is `` `Copied receipt `` or `` `Copied_and_flagged
+receipt ``, the partial strategy with the COPYUID the caller needs to
+reconcile. `changes_since` is `` `Qresync `` over 1:4294967295 with
+VANISHED, `` `Condstore `` in 1,000-UID windows below the SELECT
+UIDNEXT, or `` `Full `` FLAGS windows. It gained `?uidnext`, the
+caller's recorded UIDNEXT, because without it no row can be told apart
+as `New`. `list_with_status` takes the `Client.t` and is
+`` `List_status `` with LIST-EXTENDED and LIST-STATUS or effective
+IMAP4rev2, else `` `List_then_status ``, where a non-selectable row, an
+undecodable name or a STATUS NO pairs with `None`. `wait` is `` `Idle ``
+or `` `Poll ``, a NOOP after each sleep, and both repeat until a round
+holds a change. Core `Selected` gained `check_gate` and
+`check_writable`, which the facade hides and test/api/check.sh now
+checks. Nothing in lib/sync uses `Mailbox`. test/eio/test_mailbox.ml
+asserts the exact commands for both `store` branches and the
+CONDSTORE refusal, the three `move` strategies and a failed STORE after
+COPY, `Condstore` and `Full` changes including `New` and two windows,
+`list_with_status` both ways, a 1,001-UID fetch in two round trips, a
+refused and a dropped PREVIEW, a refused MODSEQ search, and `wait`
+skipping a keepalive under IDLE and under polling on the mock clock.
+doc/index.mld names `Mailbox` as the layer for clients that are not
+syncers, and doc/client.mld shows `archive_any` from
+test/examples/client.ml, which prints the strategy of a
+`Mailbox.move`. Build and runtest are clean, 17 suites and 235 test
+cases plus the new executable.
+
 ### Step F notes
 
 Each fix agent writes under its own heading only: what it fixed, what it
@@ -961,7 +999,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] session.ml:98 [high] with `on_literal` set, every `Literal_chunk` of every response in the command goes to the body sink and none reaches `parse_parts`, so an ENVELOPE or PREVIEW literal in the same FETCH, or a literal in an unsolicited LIST or STATUS, lands in the caller's sink and parses as an empty string.
 - [x] session.ml:86 [medium] `on_literal_start` runs before the PREVIEW limit check at :91, and `on_literal` streams chunks before `parse_active` at :188 or a tagged NO can reject the response, leaving the sink with a partial or foreign payload. A partial body before a tagged failure is inherent to streaming and is documented as provisional.
 - [x] session.ml:460 [medium] `idle_once` closes the session on a tagged NO or BAD, unlike every other rejection path at :240, :359, :520 and :575.
-- [ ] session.ml:460 [medium] cancelling IDLE closes the session instead of sending DONE, so a timeout cannot bound `wait_for_change` without losing the connection; and any untagged line at :441 and :456 counts as a change, including `* OK Still here`. (left for step 14)
+- [ ] session.ml:460 [medium] cancelling IDLE closes the session instead of sending DONE, so a timeout cannot bound `wait_for_change` without losing the connection; and any untagged line at :441 and :456 counts as a change, including `* OK Still here`. (step 14: `Mailbox.wait` drops a round without EXISTS, EXPUNGE, FETCH, VANISHED or a coded status, such as a bare `* OK`, and enters IDLE again, so the keepalive half is settled for clients of the strategy layer while `Selected.Idle` stays exact for the syncer. Cancellation still closes the session, since interrupting the blocked read would lose the parser's framing state, and sending DONE after a timeout needs a deadline inside `Session.idle_once`. `Mailbox.wait` documents that the caller applies its own timeout and that cancelling IDLE closes the connection)
 - [x] session.ml:469 [medium] `protect` relabels every non-`Session.Failure` exception as `Transport`, including `Stdlib.Failure`, `Invalid_argument`, `Out_of_memory` and `Stack_overflow`, and loses identity and backtrace; the local `Failure` at :33 shadows the stdlib one.
 - [x] session.ml:89 [low] the PREVIEW 1024-byte check rebuilds the marker as `{%Ld}` while `Wire.literal_suffix` at wire.ml:71 accepts leading zeros, so `{0010}` bypasses it and `parse_parts` at response.ml:1604 misses it too; memory stays bounded by `max_metadata`.
 - [x] session.ml:471 [confirmed] reentrancy deadlocks: `with_mailbox` holds the mutex for the callback at client.ml:634 and every other entry point relocks through `locked`; Eio mutexes have no owner tracking, so the second lock parks forever until cancellation, which then closes the session at client.ml:686. Plan step 10. (step 10: an `Eio.Fiber` key lists the sessions a fiber leases, and `locked` returns `State` for one of them)

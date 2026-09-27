@@ -26,15 +26,16 @@ A message's modification time is its date. {!Maildir.append} sets and
 verifies [mtime] before it publishes the file, and a time that is not
 finite or that the filesystem cannot store exactly is
 [Unrepresentable_date]. {!Maildir.set_flags} renames the file and keeps
-its basename, times, Passed letter and extra filename fields.
+its basename, modification time, Passed letter and extra filename
+fields.
 
 A nonempty legacy [.imap-flags] or [.imap-dates] directory is
 [Legacy_metadata]. It needs offline migration and is never removed.
 
 {1 Locks}
 
-Scans, keyword map updates and mutations take the Dovecot metadata lock
-[dovecot-uidlist.lock]. An existing lock raises
+Scans, lookups, keyword map updates and mutations take the Dovecot
+metadata lock [dovecot-uidlist.lock]. An existing lock raises
 {!Maildir.Metadata_lock_busy} at once, including a stale one. No stale
 lock is reclaimed automatically, since a pathname check and unlink can
 remove another writer's fresh lock. Remove a stale lock offline, with
@@ -59,8 +60,8 @@ raise [Eio.Io], and the exceptions above report concurrency.
 The program below creates a Maildir, delivers one message with the Seen
 flag, a keyword and a fixed date, adds the Flagged flag, and counts the
 messages. It is [test/examples/writer.ml], which the build compiles and
-never runs. {!Maildir.open_dir} creates [new], [cur] and [tmp] but not
-the Maildir itself.
+never runs. {!Maildir.open_dir} creates the Maildir and its [new], [cur]
+and [tmp] when they are missing, but not a missing parent directory.
 
 {[
 let ( let* ) = Result.bind

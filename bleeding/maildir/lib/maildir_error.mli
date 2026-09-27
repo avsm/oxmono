@@ -1,5 +1,7 @@
-(** The format and policy failures of Maildir operations. {!Maildir.error}
-    re-exports this type. *)
+(** Maildir format and policy failures.
+
+    {!Maildir.error} re-exports this type and documents each
+    constructor. *)
 
 type t =
   | Legacy_metadata of string
@@ -14,6 +16,7 @@ type t =
   | Unrepresentable_date of float
   | Target_exists of string
   | Vanished of string
+(** The type for format and policy failures. *)
 
 val pp : Format.formatter -> t -> unit
-(** [pp ppf e] prints a one-line description of [e]. *)
+(** [pp ppf e] prints a one-line description of [e] on [ppf]. *)

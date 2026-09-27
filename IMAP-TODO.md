@@ -966,6 +966,39 @@ Each redocumentation agent writes only under its own heading.
 
 #### Step 15: protocol and maildir
 
+Done: every `.mli` in lib/protocol and bleeding/maildir/lib opens with a
+NAME-line synopsis, documents each type by what its values represent, and
+gives each `val` its own `[f x] is` comment naming every argument, with
+defaults for every optional argument and failures as `@raise` tags or
+described results. `imap.mli` already met the standard and is unchanged.
+`Response`, `Command`, `Mirror`, `Sync_policy` and `Maildir` gained
+`{1}` sections. The group comments after `Command.done_idle`,
+`deleteacl`, `uid_fetch_binary_size`, `uid_expunge_saved`,
+`Uid.equal`, `Uid_set.mem` and `Response.parse` became one comment per
+value. Every limit and default was checked against the implementation
+and several gained their numbers. These are Wire's line and literal
+bounds and recognised data responses, Response's 64 KiB string, 1,024-address,
+256-part, 4,096-extension and 1 MiB row bounds, Search's 100-level `Raw`
+nesting, Command's accepted `uid_fetch` items and UIDBATCHES range, and
+the `reserve_id` form. `Messagelimit` now names the lowest processed UID,
+as RFC 9738 §3 says. Five docs that disagreed with the code were
+corrected. `Maildir.open_dir` creates the Maildir root, not only its
+subdirectories (doc/index.mld said otherwise), `append` checks only the
+form of a supplied ID, `append` raises `End_of_file` on a short source,
+a nested `with_writer` in one process is `Writer_lock_busy`, and
+`Dotlock.with_lock` raises `Eio.Io` when release fails after the
+callback returns. `-w +50` is clean on all 26 interfaces, down from 4 in
+response.mli and 23 in command.mli, and every line is within 80 columns.
+No `[drift]` or step 15 finding for these libraries was open. Build and
+runtest are clean, 17 suites and 235 test cases.
+
+Follow-ups, code unchanged. `Response.parse_status` takes any token as
+the mailbox, so `* STATUS ((MESSAGES 1)` yields the mailbox `(`.
+ESEARCH `MODSEQ 0` is accepted, although RFC 7162 `mod-sequence-value`
+is positive. `Response.fetch_objectid` skips the 1 MiB and
+balanced-quote guards the other FETCH extractors apply.
+`Maildir.check_append` reads the keyword map without the metadata lock.
+
 #### Step 15: eio and store facades
 
 #### Step 15: sync, cli and pages

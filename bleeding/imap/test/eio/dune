@@ -1,18 +1,18 @@
 (test
  (name test_client)
- (libraries imap_eio_core imap.eio imap eio eio.mock cstruct base64))
+ (libraries imap_eio_core imap.eio imap eio eio.mock base64))
 
 (test
  (name test_sasl)
- (libraries imap_eio_core imap.eio imap eio eio.mock cstruct base64))
+ (libraries imap_eio_core imap.eio eio eio.mock base64))
 
 (test
  (name test_pool)
- (libraries imap.eio imap eio eio.mock cstruct))
+ (libraries imap.eio eio eio.mock))
 
 (test
  (name test_session_limits)
- (libraries imap_eio_core imap.eio eio eio.mock))
+ (libraries imap_eio_core eio eio.mock))
 
 (test
  (name test_sort_thread)
@@ -36,7 +36,7 @@
 
 (test
  (name test_deflate_flow)
- (libraries imap_eio_core imap.eio eio eio.mock cstruct))
+ (libraries imap_eio_core eio eio.mock cstruct))
 
 (test
  (name test_compress)
@@ -68,4 +68,4 @@
 
 (test
  (name test_reentrancy)
- (libraries imap.eio imap eio eio.mock cstruct))
+ (libraries imap.eio eio eio.mock cstruct))

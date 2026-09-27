@@ -23,7 +23,11 @@
   mirage-crypto-rng
   base64
   decompress
+  sqlite3
   sqlite3-eio
   digestif
+  optint
   cmdliner
-  (alcotest :with-test)))
+  (alcotest :with-test)
+  (ptime :with-test)
+  (jmap :with-test)))

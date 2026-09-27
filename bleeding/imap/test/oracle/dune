@@ -12,6 +12,7 @@
  (locks oracle)
  (deps (env_var IMAP_ORACLE_REQUIRED) (env_var IMAP_ORACLE_HOST)
        (env_var IMAP_ORACLE_PORT) (env_var JMAP_ORACLE_URL))
- (libraries imap imap.eio jmap jmap.eio mail-flag eio eio.unix eio_main fetch fetch-httpz alcotest fmt uri))
+ (libraries imap imap.eio jmap jmap.eio mail-flag eio eio.unix eio_main
+  alcotest))
 
 (copy_files ../../../jmap/test/oracle/oracle_harness.ml*)

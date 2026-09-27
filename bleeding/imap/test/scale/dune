@@ -7,7 +7,6 @@
   imap.store
   imap_sync_local
   maildir
-  mail-flag
   eio
   eio_main
   alcotest

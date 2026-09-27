@@ -2,4 +2,4 @@
  (name test_io)
  (flags
   (:standard -open Imap_sync_spool))
- (libraries imap_sync_spool eio cstruct digestif eio_main alcotest))
+ (libraries imap_sync_spool eio eio_main alcotest))

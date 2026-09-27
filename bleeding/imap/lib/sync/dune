@@ -31,6 +31,4 @@
   imap_sync_local
   mail-flag
   eio
-  cstruct
-  digestif
   optint))

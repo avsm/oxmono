@@ -36,4 +36,4 @@
 (executable
  (name body_memory)
  (modules body_memory)
- (libraries imap imap.eio eio eio_main cstruct digestif unix x509 ptime.clock.os))
+ (libraries imap.eio eio eio_main cstruct digestif unix x509 ptime.clock.os))

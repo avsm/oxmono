@@ -12,6 +12,7 @@ depends: [
   "optint"
   "digestif"
   "mail-flag"
+  "eio_main" {with-test}
   "alcotest" {with-test}
   "odoc" {with-doc}
 ]

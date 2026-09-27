@@ -98,14 +98,48 @@ let test_invalid_mapping env = with_root (fun root ->
   List.iter (fun text ->
     Eio.Path.save ~create:(`Or_truncate 0o600) Eio.Path.(path / "dovecot-keywords") text;
     (try ignore (M.scan m); Alcotest.fail "invalid keyword map accepted"
-     with Failure _ -> ())) ["0 A\n0 B\n";"0 A\n1 a\n";"26 A\n";"0 A"];
+     with Failure _ -> ()))
+    ["0 A\n0 B\n";"0 A\n1 a\n";"26 A\n";"00 A\n";"0\n";"0 A\nx\n"];
   Eio.Path.unlink Eio.Path.(path / "dovecot-keywords");
   Eio.Path.save ~create:(`Exclusive 0o600) Eio.Path.(path / "cur" / "external:2,a") "x";
-  (try ignore (M.scan m); Alcotest.fail "unmapped keyword accepted" with Failure _ -> ());
+  (try ignore (M.scan m); Alcotest.fail "unmapped keyword accepted"
+   with Failure message ->
+     Alcotest.(check string) "unmapped letter names file and letter"
+       "Imap_maildir: external:2,a references unmapped keyword letter a"
+       message);
+  Eio.Path.unlink Eio.Path.(path / "cur" / "external:2,a");
+  Eio.Path.save ~create:(`Exclusive 0o600) Eio.Path.(path / "cur" / "external:2,S!") "x";
+  (try ignore (M.scan m); Alcotest.fail "unknown letter accepted"
+   with Failure message ->
+     Alcotest.(check string) "unknown letter names file and letter"
+       "Imap_maildir: external:2,S! has invalid Maildir flag letter '!'"
+       message);
+  Eio.Path.unlink Eio.Path.(path / "cur" / "external:2,S!");
   Eio.Path.mkdir ~perm:0o700 Eio.Path.(path / ".imap-flags");
   Eio.Path.save ~create:(`Exclusive 0o600) Eio.Path.(path / ".imap-flags" / "old") "data";
   (try ignore (M.open_dir path); Alcotest.fail "legacy metadata silently ignored"
    with Failure _ -> ()))
+
+let test_keyword_file_tolerance env = with_root (fun root ->
+  let path=Eio.Path.(Eio.Stdenv.fs env / root) in
+  let m=M.open_dir path in
+  let keywords=Eio.Path.(path / "dovecot-keywords") in
+  Eio.Path.save ~create:(`Exclusive 0o600) Eio.Path.(path / "cur" / "ext:2,TSDFRab") "x";
+  List.iter (fun text ->
+    Eio.Path.save ~create:(`Or_truncate 0o600) keywords text;
+    match M.scan m with
+    | [o] ->
+      Alcotest.(check (list string)) ("flags sorted for " ^ String.escaped text)
+        ["\\Seen";"\\Answered";"\\Flagged";"\\Deleted";"\\Draft";"A";"B"]
+        (wires o.flags)
+    | _ -> Alcotest.fail "one occurrence expected")
+    ["0 A\n1 B";"\n0 A\n\n1 B\n\n";"1 B\n0 A\n"];
+  let o=List.hd (M.scan m) in
+  let changed=M.set_flags m o [flag "B";flag "\\Seen";flag "C";flag "A"] in
+  Alcotest.(check string) "letters sorted with system letters first"
+    "ext:2,Sabc" changed.filename;
+  Alcotest.(check string) "added keyword appended"
+    "0 A\n1 B\n2 C\n" (Eio.Path.load keywords))
 
 let test_restart env = with_root (fun root ->
   let fs=Eio.Stdenv.fs env in
@@ -435,6 +469,8 @@ Eio_main.run (fun env ->
       Alcotest.test_case "standard Dovecot metadata" `Quick (fun () -> test_standard_format env);
       Alcotest.test_case "keyword and date limits" `Quick (fun () -> test_keyword_limits env);
       Alcotest.test_case "invalid maps and legacy metadata" `Quick (fun () -> test_invalid_mapping env);
+      Alcotest.test_case "keyword file tolerance and letter order" `Quick
+        (fun () -> test_keyword_file_tolerance env);
       Alcotest.test_case "flag order and duplicate identity" `Quick (fun () -> test_flag_order env);
       Alcotest.test_case "restart and flags" `Quick (fun () -> test_restart env);
       Alcotest.test_case "failure recovery" `Quick

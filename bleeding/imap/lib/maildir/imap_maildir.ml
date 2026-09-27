@@ -34,7 +34,7 @@ let release_writer key =
   Fun.protect ~finally:(fun () -> Mutex.unlock writer_locks_mutex) (fun () ->
     Hashtbl.remove writer_locks key)
 
-let fail message = failwith ("Imap_maildir: " ^ message)
+let fail = Keywords.fail
 let child (Dir p) name = Dir Eio.Path.(p / name)
 let kind (Dir p) = Eio.Path.kind ~follow:false p
 let is_directory (Dir p) = Eio.Path.is_directory p
@@ -149,14 +149,6 @@ let split_filename name =
           | None -> rest | Some stop -> String.sub rest 0 stop in
     Some (id,letters)
 
-let standard_flags letters =
-  let f=Mail_flag.Imap_flag.system in
-  let maybe c flag = if String.contains letters c then [f flag] else [] in
-  maybe 'D' Mail_flag.Imap_flag.Draft @
-  maybe 'F' Mail_flag.Imap_flag.Flagged @
-  maybe 'R' Mail_flag.Imap_flag.Answered @
-  maybe 'S' Mail_flag.Imap_flag.Seen @
-  maybe 'T' Mail_flag.Imap_flag.Deleted
 let with_metadata_lock t f =
   let Dir path=child t.root "dovecot-uidlist.lock" in
   Dotlock.with_lock (Eio.Path.native_exn path) f
@@ -165,14 +157,15 @@ let read_keywords t =
   let path=child t.root "dovecot-keywords" in
   let raw=match kind path with
     | `Not_found -> ""
-    | `Regular_file when size path<=65536L -> load path
+    | `Regular_file when size path<=Int64.of_int Keywords.max_size ->
+        load path
     | _ -> fail "invalid or oversized dovecot-keywords" in
   Keywords.parse raw
 
 let ensure_keywords t flags =
   let before=read_keywords t in
   let after=Keywords.add before flags in
-  if before<>after then (
+  if not (Keywords.equal before after) then (
     let temporary=child t.tmp (".tmp-" ^ random_id ()) in
     let owned=ref false in
     Fun.protect ~finally:(fun () -> if !owned then Eio.Cancel.protect (fun () ->
@@ -186,16 +179,8 @@ let ensure_keywords t flags =
       sync_directory t.tmp));
   after
 
-let filename mapping base flags =
-  let has flag = List.exists (Mail_flag.Imap_flag.equal
-    (Mail_flag.Imap_flag.system flag)) flags in
-  let letters=List.filter_map (fun (c,flag) ->
-    if has flag then Some c else None)
-    ['D',Mail_flag.Imap_flag.Draft; 'F',Mail_flag.Imap_flag.Flagged;
-     'R',Mail_flag.Imap_flag.Answered; 'S',Mail_flag.Imap_flag.Seen;
-     'T',Mail_flag.Imap_flag.Deleted] in
-  let letters=List.sort_uniq Char.compare (letters @ Keywords.letters mapping flags) in
-  base ^ ":2," ^ String.of_seq (List.to_seq letters)
+let filename ?passed mapping base flags =
+  base ^ ":2," ^ Keywords.letters ?passed mapping flags
 
 let date_of_mtime mtime =
   let seconds=Float.floor mtime in
@@ -210,7 +195,7 @@ let one_with_keywords t mapping location name =
   match split_filename name with
   | None -> None
   | Some (id,letters) ->
-    let keywords=Keywords.flags mapping letters in
+    let flags=Keywords.flags mapping ~file:name letters in
     let p=child (dir t location) name in
     if kind p = `Not_found then None
     else if kind p <> `Regular_file then fail "non-regular Maildir entry"
@@ -218,7 +203,7 @@ let one_with_keywords t mapping location name =
     let stat=match p with Dir path -> Eio.Path.stat ~follow:false path in
     let length=Optint.Int63.to_int64 stat.size in
     Some {id;filename=name;location;length;mtime=stat.mtime;inode=stat.ino;ctime=stat.ctime;
-          flags=standard_flags letters @ keywords;
+          flags;
           internal_date=Some (date_of_mtime stat.mtime)}
 let one t = one_with_keywords t (read_keywords t)
 let scan t = with_metadata_lock t (fun refresh ->
@@ -576,14 +561,9 @@ let set_flags t occurrence flags =
           let suffix=match String.index_opt rest ',' with
             | None -> "" | Some j -> String.sub rest j (String.length rest-j) in
           String.sub occurrence.filename 0 i,suffix in
-    let name=filename mapping base flags in
     let _,old_letters=Option.get (split_filename occurrence.filename) in
-    let name=if String.contains old_letters 'P' then (
-      let i=Option.get (index_sub name ":2,") in
-      let letters=String.sub name (i+3) (String.length name-i-3) in
-      let chars='P'::List.of_seq (String.to_seq letters) |> List.sort_uniq Char.compare in
-      base ^ ":2," ^ String.of_seq (List.to_seq chars)) else name in
-    let name=name ^ suffix in
+    let passed=String.contains old_letters 'P' in
+    let name=filename ~passed mapping base flags ^ suffix in
     if occurrence.location=Cur && occurrence.filename=name then occurrence else (
       let target=child t.cur name in
       if kind target<>`Not_found then fail "flag target already exists";

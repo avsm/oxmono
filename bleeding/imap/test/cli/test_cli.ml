@@ -69,6 +69,8 @@ let test_default_policy () =
         (config.deletion_policy=Imap.Sync_policy.Preserve);
       Alcotest.(check bool) "no duplicate bootstrap" false
         config.allow_bootstrap_duplicates;
+      Alcotest.(check bool) "Deleted flag held" false
+        config.propagate_deleted;
       Alcotest.(check bool) "CRAM-MD5" true
         (config.connection.auth=`Cram_md5);
       Alcotest.(check int) "one cycle" 1 config.max_cycles;
@@ -199,6 +201,21 @@ let test_deletion_direction_and_retention () =
   rejects "accepted unknown deletion policy"
     ["sync";"--deletion-policy";"remote"];
   rejects "accepted removed deletion flag" ["sync";"--propagate-deletions"]
+
+let test_propagate_deleted_flag () =
+  let propagate args = match parse args with
+    | Sync c -> c.propagate_deleted
+    | Plan_deletions c | Plan_sync c -> c.propagate_deleted
+    | _ -> Alcotest.fail "unexpected command" in
+  List.iter (fun command ->
+    Alcotest.(check bool) (command ^ " holds Deleted by default") false
+      (propagate [command]);
+    Alcotest.(check bool) (command ^ " propagates Deleted") true
+      (propagate [command;"--propagate-deleted-flag"]))
+    ["sync";"plan-sync";"plan-deletions"];
+  rejects "repair accepted Deleted propagation"
+    ["settle-flags";"--operation-id";"op";"--evidence";"ok";
+     "--propagate-deleted-flag"]
 
 let test_remote_delete_rejection_guards () =
   let command="reject-remote-delete" in
@@ -539,6 +556,8 @@ let () = Alcotest.run "imap-cli" [
       test_cache_audit_config;
     Alcotest.test_case "deletion direction and retention" `Quick
       test_deletion_direction_and_retention;
+    Alcotest.test_case "Deleted flag propagation option" `Quick
+      test_propagate_deleted_flag;
     Alcotest.test_case "remote delete rejection guards" `Quick
       test_remote_delete_rejection_guards;
     Alcotest.test_case "repair attestation" `Quick

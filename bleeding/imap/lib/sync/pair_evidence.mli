@@ -96,6 +96,10 @@ val describe : Imap_eio.Error.t -> string
 (** [describe e] is the text of [e], cut to 512 bytes for a journal
     receipt. *)
 
+val describe_error : Error.t -> string
+(** [describe_error e] is the text of [e], cut to 512 bytes for a journal
+    receipt. *)
+
 val unchanged :
   ?inventory:Local_inventory.t -> Maildir.t -> Maildir.occurrence -> bool
 (** [unchanged maildir o] is [true] when [o] is still the current

@@ -30,6 +30,7 @@ type sync = {
   min_absence_scans : int;
   deletion_policy : Imap.Sync_policy.deletion_policy;
   allow_bootstrap_duplicates : bool;
+  propagate_deleted : bool;
   hydrate_bodies : budget option;
 }
 
@@ -104,6 +105,7 @@ type plan = {
   min_absence_scans : int;
   deletion_policy : Imap.Sync_policy.deletion_policy;
   allow_bootstrap_duplicates : bool;
+  propagate_deleted : bool;
 }
 
 type verify_local = {
@@ -420,6 +422,12 @@ let bootstrap_t =
     ~doc:"Import both populated sides of a new database without pairing \
           them. Messages are never paired because their bytes match.")
 
+let propagate_deleted_t =
+  Arg.(value & flag & info ["propagate-deleted-flag"]
+    ~doc:"Merge a changed \\\\Deleted flag like any other flag. By \
+          default a changed \\\\Deleted is held while the other flags \
+          merge.")
+
 let total_bytes_t =
   Arg.(value & opt bytes gib & info ["max-total-bytes"]
     ~doc:"Bytes read in one pass, from 1 to 1099511627776.")
@@ -478,10 +486,11 @@ let sync_cmd =
     and+ min_absence_scans = min_absence_scans_t
     and+ deletion_policy = deletion_policy_t
     and+ allow_bootstrap_duplicates = bootstrap_t
+    and+ propagate_deleted = propagate_deleted_t
     and+ hydrate_bodies = sync_hydration_t in
     Sync { scope; connection; maildir; max_transfers; max_cycles;
       min_absence_scans; deletion_policy; allow_bootstrap_duplicates;
-      hydrate_bodies;
+      propagate_deleted; hydrate_bodies;
       blob_dir=default_dir scope ".blobs" blob_dir;
       spool_dir=default_dir scope ".spool" spool_dir } in
   command ~online:true "sync" term
@@ -622,9 +631,10 @@ let plan_t ~bootstrap =
   and+ max_inspect = max_inspect_shown
   and+ min_absence_scans = min_absence_scans_t
   and+ deletion_policy = deletion_policy_t
-  and+ allow_bootstrap_duplicates = bootstrap in
+  and+ allow_bootstrap_duplicates = bootstrap
+  and+ propagate_deleted = propagate_deleted_t in
   { scope; encoding; maildir; max_inspect; min_absence_scans;
-    deletion_policy; allow_bootstrap_duplicates;
+    deletion_policy; allow_bootstrap_duplicates; propagate_deleted;
     spool_dir=default_dir scope ".spool" spool_dir }
 
 let plan_deletions_cmd =
@@ -995,6 +1005,7 @@ let sync (c:sync) ~env ~secret ~net ~fs ~random =
     match Imap_sync.Bridge.copy_once ~max_transfers:c.max_transfers
       ~min_absence_scans:c.min_absence_scans
       ~allow_bootstrap_duplicates:c.allow_bootstrap_duplicates
+      ~propagate_deleted:c.propagate_deleted
       ~deletion_policy:c.deletion_policy ~ctx ~maildir
       ~stage_id:(id ~random "stage-") () with
     | Ok receipt ->
@@ -1179,6 +1190,7 @@ let preview (c:plan) ~fs ~keep ~count =
   let cursor=check "plan failed"
       (Imap_sync.Plan.preview_sync
         ~allow_bootstrap_duplicates:c.allow_bootstrap_duplicates
+        ~propagate_deleted:c.propagate_deleted
         ~min_absence_scans:c.min_absence_scans ~store ~maildir ~scope
         ~policy:c.deletion_policy ~spool_dir ~on_preview ()) in
   cursor,{t with shown=List.rev t.shown}

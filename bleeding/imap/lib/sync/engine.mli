@@ -29,7 +29,8 @@ val scan_once :
     concurrent edit. The anchor advances only with a complete publication.
 
     [max_windows] defaults to 100,000 and bounds the number of windows. A
-    value below 1 or a larger UID range returns [Limit]. When
+    value below 1 returns [Invalid_configuration], and a larger UID range
+    [Limit]. When
     [expected_uidvalidity] is given, a selected UIDVALIDITY that differs
     from it returns [Uidvalidity_changed] before any row is staged.
 
@@ -163,7 +164,8 @@ val hydrate_once :
     with [more] set.
 
     A [max_messages] outside 1 to 10,000, a budget below 1, a [ctx.spool_dir]
-    that is not a directory or an unusable [ctx.next_id] returns [Limit]. The
+    that is not a directory or an unusable [ctx.next_id] returns
+    [Invalid_configuration]. The
     OBJECTID+ rule of {!archive_uid} applies. A scope without a complete
     published inventory, or a published UID the server no longer reports,
     returns [Incomplete]. A selected UIDVALIDITY other than the published
@@ -209,8 +211,8 @@ val audit_cache_once :
     rehashed. A blob larger than [max_total_bytes] is skipped and listed in
     [skipped]. A blob larger than the remaining budget ends the pass before
     it with [more] set. A [max_messages] outside 1 to 10,000 or a budget
-    below 1 returns [Limit], and a scope without a complete published
-    inventory returns [Incomplete].
+    below 1 returns [Invalid_configuration], and a scope without a complete
+    published inventory returns [Incomplete].
 
     [expected_revision] pins a continued audit to the revision of its first
     pass, and a different revision returns [Store_stale_revision] before any

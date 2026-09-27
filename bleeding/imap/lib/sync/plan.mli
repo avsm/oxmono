@@ -54,7 +54,8 @@ type sync_preview =
 (** The type for the events of a preview. *)
 
 val preview_sync :
-  ?allow_bootstrap_duplicates:bool -> ?min_absence_scans:int ->
+  ?allow_bootstrap_duplicates:bool -> ?propagate_deleted:bool ->
+  ?min_absence_scans:int ->
   store:Imap_store.t -> maildir:Maildir.t -> scope:Imap.Mirror.scope ->
   policy:Imap.Sync_policy.deletion_policy -> spool_dir:_ Eio.Path.t ->
   on_preview:(sync_preview -> unit) -> unit ->
@@ -70,8 +71,10 @@ val preview_sync :
     A pending journal operation or a first cycle with unpaired messages on
     both endpoints is reported and ends the preview, as in
     {!Bridge.copy_once}. [allow_bootstrap_duplicates] defaults to [false].
-    A saved content conflict appears as a pair hold and suppresses the flag
-    change of its pair. [min_absence_scans] defaults to 0.
+    [propagate_deleted] defaults to [false], and a changed [\\Deleted] then
+    appears as a pair hold, as in {!Bridge.copy_once}. A saved content
+    conflict appears as a pair hold and suppresses the flag change of its
+    pair. [min_absence_scans] defaults to 0.
 
     A negative [min_absence_scans], a [spool_dir] that is not a directory or
     a scope without a complete published inventory returns

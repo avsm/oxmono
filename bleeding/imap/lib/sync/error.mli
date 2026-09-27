@@ -38,10 +38,8 @@ type t =
           a call that needs a complete published inventory before one
           exists. A later scan or retry can succeed. *)
   | Limit of string
-      (** [Limit why] is a scan, transfer or audit budget that is invalid or
-          too small for the mailbox, or a spool directory or identifier the
-          call cannot use. A retry with the same arguments fails the same
-          way. *)
+      (** [Limit why] is a scan budget too small for the mailbox. A retry
+          with the same arguments fails the same way. *)
   | Uidvalidity_changed
       (** [Uidvalidity_changed] is a selected UIDVALIDITY that differs from
           the epoch the call must preserve. No retry in the same epoch
@@ -91,7 +89,8 @@ type t =
           evidence settles, and an operator repairs the rest. *)
   | No_pending_operation
       (** [No_pending_operation] is a repair whose operation is unknown,
-          finished or of another kind. The operator checks the ID. *)
+          finished, of another kind or of another scope. The operator checks
+          the ID. *)
   | Bootstrap_requires_pairing
       (** [Bootstrap_requires_pairing] is a first cycle with unpaired
           messages on both endpoints and duplicate import not allowed. An
@@ -127,8 +126,9 @@ type t =
           cannot store. No retry changes the outcome. *)
   | Invalid_configuration of string
       (** [Invalid_configuration why] is an invalid argument, such as a
-          negative budget, a missing spool directory or malformed operator
-          evidence. The caller corrects it. *)
+          budget out of range, a missing spool directory, an unusable
+          identifier or malformed operator evidence. The caller corrects
+          it. *)
 (** The type for sync errors. *)
 
 val pp : Format.formatter -> t -> unit

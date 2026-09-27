@@ -23,7 +23,7 @@ The per-command options are these, with their defaults.
 
 | Command | Options |
 |---|---|
-| `sync` | `--max-transfers N` (100), `--max-cycles N` (1), `--min-absence-scans N` (0), `--deletion-policy POLICY` (`preserve`), `--allow-bootstrap-duplicates`, `--hydrate-bodies`, `--max-body-bytes N` and `--max-total-bytes N` (1 GiB, with `--hydrate-bodies` only) |
+| `sync` | `--max-transfers N` (100), `--max-cycles N` (1), `--min-absence-scans N` (0), `--deletion-policy POLICY` (`preserve`), `--allow-bootstrap-duplicates`, `--propagate-deleted-flag`, `--hydrate-bodies`, `--max-body-bytes N` and `--max-total-bytes N` (1 GiB, with `--hydrate-bodies` only) |
 | `hydrate` | `--max-transfers N` (100), `--max-body-bytes N` (1 GiB), `--max-total-bytes N` (1 GiB) |
 | `audit-cache` | `--max-transfers N` (100), `--max-total-bytes N` (1 GiB), `--after-uid N` with `--expected-revision N` |
 | `inspect` | `--max-inspect N` (100), `--operation-id ID` |
@@ -31,7 +31,7 @@ The per-command options are these, with their defaults.
 | `repair-appenduid` | `--operation-id ID`, `--uidvalidity N`, `--uid N`, `--evidence TEXT` |
 | `repair-local-delete`, `repair-local-append`, `settle-flags`, `reject-remote-delete`, `finish-remote-delete` | `--operation-id ID`, `--evidence TEXT` |
 | `mark-local-retention` | `--pair-id ID`, `--evidence TEXT` |
-| `plan-deletions` | `--max-inspect N` (100), `--min-absence-scans N` (0), `--deletion-policy POLICY` (`preserve`) |
+| `plan-deletions` | `--max-inspect N` (100), `--min-absence-scans N` (0), `--deletion-policy POLICY` (`preserve`), `--propagate-deleted-flag` |
 | `plan-sync` | the `plan-deletions` options and `--allow-bootstrap-duplicates` |
 | `verify-local` | `--max-inspect N` (100) |
 | `gc` | `--db PATH`, `--blob-dir PATH`, `--maildir PATH` (optional) |
@@ -174,6 +174,9 @@ A pair whose write the server cannot make is held. A changed `\Deleted` is
 held while the other flags merge, and a durable `policy` conflict keeps its
 pair ID and evidence across restarts. Removing the held change or
 tombstoning the pair resolves it after the next complete scan.
+`--propagate-deleted-flag` on `sync`, `plan-sync` and `plan-deletions`
+merges a changed `\Deleted` like any other flag instead. It sets the flag
+only and never expunges.
 
 A sent FLAGS operation whose target cannot be verified stays pending, which
 exits 3, with a durable `flags` conflict describing the mismatch. Its ID

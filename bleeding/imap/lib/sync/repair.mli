@@ -49,7 +49,8 @@ val local_delete :
     it.
 
     An operation that is not a pending local deletion of the scope returns
-    [Diverged], a changed or locally tombstoned pair [Stale_pair], a
+    [No_pending_operation], a changed or locally tombstoned pair
+    [Stale_pair], a
     present UID or a missing remote tombstone [Stale_inventory], and an
     absent or changed occurrence [Identity_changed]. *)
 
@@ -64,9 +65,10 @@ val reject_remote_delete :
     CONDSTORE. It stages the body in [ctx.spool_dir] and sends no STORE or
     EXPUNGE.
 
-    A [ctx.spool_dir] that is not a directory or a server without CONDSTORE
-    returns [Unsupported]. An operation that is not a pending remote
-    deletion of the scope returns [Diverged], a changed pair or one without
+    A [ctx.spool_dir] that is not a directory returns
+    [Invalid_configuration], and a server without CONDSTORE [Unsupported].
+    An operation that is not a pending remote deletion of the scope returns
+    [No_pending_operation], a changed pair or one without
     a recorded local absence [Stale_pair], a local occurrence that is
     present, a UID absent from the published inventory or a publication
     during the check [Stale_inventory], and a changed or expunged target
@@ -122,7 +124,8 @@ val local_append :
     the pair together. A crash after publication is reconciled by
     {!Bridge.copy_once}, so the repair must not run again.
 
-    An operation that is not a pending local append of the scope, a
+    An operation that is not a pending local append of the scope returns
+    [No_pending_operation]. An operation without its source or target, a
     reserved occurrence that exists, a source or occurrence already paired
     and a message Maildir cannot store return [Invalid_operation]. Another
     epoch returns [Uidvalidity_changed], a publication during the repair
@@ -159,8 +162,9 @@ val inspect_append_candidates :
     shared by every body read and must be positive. A budget out of range, a
     range or body total over budget, or a [ctx.spool_dir] that is not a
     directory returns [Invalid_configuration]. An operation that is not a
-    pending APPEND of the scope, or a UIDNEXT below the saved frontier,
-    returns [Invalid_operation], and another epoch [Uidvalidity_changed]. *)
+    pending APPEND of the scope returns [No_pending_operation], a UIDNEXT
+    below the saved frontier [Invalid_operation], and another epoch
+    [Uidvalidity_changed]. *)
 
 val record_appenduid :
   store:Imap_store.t -> scope:Imap.Mirror.scope -> maildir:Maildir.t ->
@@ -176,5 +180,6 @@ val record_appenduid :
     again succeeds. The next {!Bridge.copy_once} must find [uid] in a
     complete scan and verify its bytes, length and flags against the
     unchanged local occurrence before it commits, and a missing or different
-    UID stays pending. An operation or intent that does not match returns
-    [Invalid_operation]. *)
+    UID stays pending. An operation that is unknown or not an APPEND of
+    [scope] returns [No_pending_operation], and an operation or intent that
+    does not otherwise match returns [Invalid_operation]. *)

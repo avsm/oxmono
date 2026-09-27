@@ -51,7 +51,7 @@ type sync_preview =
   | Preview_deletion of deletion_preview
 
 let preview_sync ?(allow_bootstrap_duplicates=false)
-    ?(min_absence_scans=0) ~store ~maildir
+    ?(propagate_deleted=false) ?(min_absence_scans=0) ~store ~maildir
     ~scope ~policy ~spool_dir ~on_preview () =
   if min_absence_scans<0 then
     Error (Invalid_configuration "min_absence_scans must be nonnegative")
@@ -127,7 +127,7 @@ let preview_sync ?(allow_bootstrap_duplicates=false)
                                  "local INTERNALDATE differs from paired baseline"))
                              else (
                                let flags=Imap.Sync_policy.reconcile_flags
-                                 ~base:pair.common_flags
+                                 ~propagate_deleted ~base:pair.common_flags
                                  ~remote:remote.flags ~local:local.flags () in
                                if flags.deleted_held then
                                  on_preview (Preview_pair_hold (pair.id,

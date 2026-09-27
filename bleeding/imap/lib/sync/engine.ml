@@ -90,7 +90,8 @@ let row_of_selected (item : Imap_eio.Selected.row) =
 let scan_once ?(max_windows=100_000) ?expected_uidvalidity ~(ctx:Ctx.t)
     ~stage_id () =
   let {Ctx.client;store;scope;mailbox;_}=ctx in
-  if max_windows<1 then Error (Limit "scan window budget must be positive")
+  if max_windows<1 then
+    Error (Invalid_configuration "scan window budget must be positive")
   else
     let* objectid=E.enable_object_identity ~ctx in
     let cursor=Imap_store.load_cursor store ~scope in
@@ -350,7 +351,8 @@ type cache_audit_receipt = {
 let audit_cache_once ?after_uid ?expected_revision ?(max_messages=100)
     ?(max_total_bytes=1_073_741_824L) ~store ~scope () =
   if max_messages<1 || max_messages>10_000 || max_total_bytes<1L then
-    Error (Limit "invalid cache audit count or byte budget")
+    Error (Invalid_configuration
+      "invalid cache audit count or byte budget")
   else
     let cursor=Imap_store.load_cursor store ~scope in
     if (match expected_revision with
@@ -435,7 +437,8 @@ let hydrate_once ?after_uid ?(max_messages=100)
   let {Ctx.client;store;scope;mailbox;spool_dir;next_id}=ctx in
   if max_messages<1 || max_messages>10_000 || max_body_bytes<1L ||
      max_total_bytes<1L || not (Eio.Path.is_directory spool_dir) then
-    Error (Limit "invalid hydration count, byte budget or spool directory")
+    Error (Invalid_configuration
+      "invalid hydration count, byte budget or spool directory")
   else
     let* ()=E.guard_bound_mailbox ~ctx in
     let cursor=Imap_store.load_cursor store ~scope in
@@ -451,7 +454,8 @@ let hydrate_once ?after_uid ?(max_messages=100)
       let hydrate_uid selected uid ~size =
         let id=next_id () in
         if not (valid_spool_id id) then
-          Error (Limit "invalid hydration spool identifier")
+          Error (Invalid_configuration
+            "invalid hydration spool identifier")
         else
           let spool=Eio.Path.(spool_dir / ("imap-hydrate-" ^ id)) in
           Spool.with_spool spool (fun output ->

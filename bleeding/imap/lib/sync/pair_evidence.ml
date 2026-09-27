@@ -114,9 +114,13 @@ let finish_expunge store (pair:J.pair) ~id ~receipt =
       generation=None})
     ~local_tombstone:pair.local_tombstone
 
-let describe error =
-  let text=Format.asprintf "%a" Imap_eio.Client.pp_error error in
+let truncate text =
   if String.length text<=512 then text else String.sub text 0 512
+
+let describe error =
+  truncate (Format.asprintf "%a" Imap_eio.Client.pp_error error)
+
+let describe_error error = truncate (Error.to_string error)
 
 let live_target (pair:J.pair) =
   match pair.remote_uidvalidity,pair.remote_uid,pair.local_id,

@@ -55,6 +55,9 @@ type sync = private {
   min_absence_scans : int;
   deletion_policy : Imap.Sync_policy.deletion_policy;
   allow_bootstrap_duplicates : bool;
+  propagate_deleted : bool;
+      (** [propagate_deleted] merges a changed [\\Deleted] flag like any
+          other flag instead of holding it. It is [false] by default. *)
   hydrate_bodies : budget option;
       (** [hydrate_bodies] is the budget of the hydration pass after a
           converged cycle, or [None] for no hydration. *)
@@ -153,6 +156,9 @@ type plan = private {
   allow_bootstrap_duplicates : bool;
       (** [allow_bootstrap_duplicates] is always [true] for
           [plan-deletions], so an unpaired bootstrap does not stop it. *)
+  propagate_deleted : bool;
+      (** [propagate_deleted] previews a changed [\\Deleted] flag as a
+          flag change instead of a hold. It is [false] by default. *)
 }
 (** The type for the options of [plan-deletions] and [plan-sync]. *)
 

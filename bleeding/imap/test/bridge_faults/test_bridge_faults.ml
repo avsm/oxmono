@@ -2156,6 +2156,77 @@ let test_readonly_sync_plan () =
   Alcotest.(check int64) "held preview kept pair revision" pair.revision
     (Option.get (J.find_pair store ~id:pair.id)).revision
 
+let test_unknown_operation_is_not_pending () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let client,_=scripted_client ~caps:"IMAP4rev1 UNSELECT UIDPLUS CONDSTORE"
+    ~sw "unknown-operation" [] in
+  let ctx=context ~store ~spool_dir client in
+  let id="unknown-op" and evidence="operator audit" in
+  let expect what = function
+    | Error Imap_sync.Error.No_pending_operation -> ()
+    | Error error -> Alcotest.failf "%s: wrong unknown ID error: %a" what
+        Imap_sync.Error.pp error
+    | Ok _ -> Alcotest.failf "%s accepted an unknown ID" what in
+  expect "local_delete"
+    (Imap_sync.Repair.local_delete ~ctx ~maildir ~id ~evidence ());
+  expect "reject_remote_delete"
+    (Imap_sync.Repair.reject_remote_delete ~ctx ~maildir ~id ~evidence ());
+  expect "finish_remote_delete"
+    (Imap_sync.Repair.finish_remote_delete ~ctx ~maildir ~id ~evidence ());
+  expect "local_append"
+    (Imap_sync.Repair.local_append ~ctx ~maildir ~id ~evidence ());
+  expect "record_appenduid"
+    (Imap_sync.Repair.record_appenduid ~store ~scope ~maildir ~id
+      ~uidvalidity:(epoch 11L) ~uid:(uid 1L) ~evidence ());
+  expect "inspect_append_candidates"
+    (Imap_sync.Repair.inspect_append_candidates ~ctx ~id ())
+
+let test_remote_repairs_missing_spool_is_configuration () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let client,_=scripted_client ~caps:"IMAP4rev1 UNSELECT UIDPLUS CONDSTORE"
+    ~sw "repair-missing-spool" [] in
+  let ctx=context ~store ~spool_dir:Eio.Path.(spool_dir / "missing") client in
+  let id="unknown-op" and evidence="operator audit" in
+  let expect what = function
+    | Error (Imap_sync.Error.Invalid_configuration _) -> ()
+    | Error error -> Alcotest.failf "%s: wrong missing spool error: %a" what
+        Imap_sync.Error.pp error
+    | Ok _ -> Alcotest.failf "%s ran without a spool directory" what in
+  expect "reject_remote_delete"
+    (Imap_sync.Repair.reject_remote_delete ~ctx ~maildir ~id ~evidence ());
+  expect "finish_remote_delete"
+    (Imap_sync.Repair.finish_remote_delete ~ctx ~maildir ~id ~evidence ())
+
+let test_engine_budgets_are_configuration () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir:_ ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let client,_=scripted_client ~sw "engine-budgets" [] in
+  let ctx=context ~store ~spool_dir client in
+  let expect what = function
+    | Error (Imap_sync.Error.Invalid_configuration _) -> ()
+    | Error error -> Alcotest.failf "%s: wrong budget error: %a" what
+        Imap_sync.Error.pp error
+    | Ok _ -> Alcotest.failf "%s accepted an invalid budget" what in
+  expect "scan window budget"
+    (Imap_sync.Engine.scan_once ~max_windows:0 ~ctx ~stage_id:"budget" ());
+  expect "hydration count"
+    (Imap_sync.Engine.hydrate_once ~max_messages:0 ~ctx ());
+  expect "hydration body budget"
+    (Imap_sync.Engine.hydrate_once ~max_body_bytes:0L ~ctx ());
+  expect "hydration spool directory"
+    (Imap_sync.Engine.hydrate_once
+      ~ctx:(context ~store ~spool_dir:Eio.Path.(spool_dir / "missing")
+        client) ());
+  expect "audit count"
+    (Imap_sync.Engine.audit_cache_once ~max_messages:0 ~store ~scope ());
+  expect "audit byte budget"
+    (Imap_sync.Engine.audit_cache_once ~max_total_bytes:0L ~store ~scope ())
+
 let test_incompatible_absence_tombstone_holds () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
@@ -2408,7 +2479,7 @@ let test_uncertain_store_leaves_conflict () =
     ~tail:[`Raise End_of_file] "uncertain-store" [
     condstore_select; flag_fetch ~tag:5 ""] in
   (match reconcile ~client ~store ~maildir ~spool_dir pair with
-   | Error (Imap_sync.Error.Client _) -> ()
+   | Error (Imap_sync.Error.Pending_operations ["flag-op"]) -> ()
    | Error error -> Alcotest.failf "wrong uncertain STORE error: %a"
        Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "uncertain STORE committed");
@@ -2418,6 +2489,33 @@ let test_uncertain_store_leaves_conflict () =
          String.starts_with ~prefix:"UID STORE outcome unknown" receipt
      | _ -> false);
   Alcotest.(check bool) "uncertain STORE leaves a flag conflict" true
+    (match J.open_conflicts store ~scope with
+     | [{kind=J.Flag_conflict;_}] -> true
+     | _ -> false)
+
+let test_failed_verification_read_is_pending () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let pair,_=flag_pair ~store ~maildir ~local_flags:[seen] "verify-read" in
+  let client,_=scripted_client ~caps:"IMAP4rev1 UNSELECT CONDSTORE" ~sw
+    ~tail:[`Raise End_of_file] "verify-read" [
+    condstore_select; flag_fetch ~tag:5 "";
+    "* 1 FETCH (UID 1 FLAGS (\\Seen) MODSEQ (21))\r\n\
+     A00000006 OK stored\r\n"] in
+  (match reconcile ~client ~store ~maildir ~spool_dir pair with
+   | Error (Imap_sync.Error.Pending_operations ["flag-op"]) -> ()
+   | Error error -> Alcotest.failf "wrong verification read error: %a"
+       Imap_sync.Error.pp error
+   | Ok _ -> Alcotest.fail "unverified STORE committed");
+  Alcotest.(check bool) "failed verification read is ambiguous" true
+    (match J.find_operation store ~id:"flag-op" with
+     | Some {state=J.Ambiguous;receipt=Some receipt;_} ->
+         String.starts_with
+           ~prefix:"FLAGS write returned but its verification read failed"
+           receipt
+     | _ -> false);
+  Alcotest.(check bool) "failed verification read leaves a conflict" true
     (match J.open_conflicts store ~scope with
      | [{kind=J.Flag_conflict;_}] -> true
      | _ -> false)
@@ -2554,6 +2652,84 @@ let test_modified_delete_is_held () =
   Alcotest.(check bool) "MODIFIED rejects the operation" true
     (operation_state store "delete-op"=J.Rejected)
 
+let test_uncertain_delete_dispatch_is_pending ~expunge () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store ~spool_dir;
+  let pair=remote_delete_pair ~store "uncertain-dispatch" in
+  let size=String.length message in
+  let meta tag=Printf.sprintf
+    "* 1 FETCH (UID 1 FLAGS () MODSEQ (20))\r\nA%08d OK fetched\r\n" tag in
+  let stored=if not expunge then [] else [
+    "* 1 FETCH (UID 1 FLAGS (\\Deleted) MODSEQ (21))\r\n\
+     A00000011 OK stored\r\n";
+    "* 1 FETCH (UID 1 FLAGS (\\Deleted) MODSEQ (21))\r\n\
+     A00000012 OK fetched\r\n"] in
+  let client,_=scripted_client
+    ~caps:"IMAP4rev1 UNSELECT UIDPLUS CONDSTORE" ~sw
+    ~tail:[`Raise End_of_file] "uncertain-dispatch" ([
+    delete_select 4; meta 5;
+    Printf.sprintf "* 1 FETCH (UID 1 BODY[] {%d}\r\n" size;
+    message ^ ")\r\nA00000006 OK fetched\r\n";
+    meta 7; "A00000008 OK unselected\r\n";
+    delete_select 9; meta 10] @ stored) in
+  (match delete_pair ~client ~store ~maildir ~spool_dir pair with
+   | Error (Imap_sync.Error.Pending_operations ["delete-op"]) -> ()
+   | Error error -> Alcotest.failf "wrong uncertain dispatch error: %a"
+       Imap_sync.Error.pp error
+   | Ok _ -> Alcotest.fail "uncertain dispatch was not pending");
+  let prefix=if expunge then "UID EXPUNGE outcome unknown"
+    else "conditional STORE outcome unknown" in
+  Alcotest.(check bool) "uncertain dispatch is ambiguous" true
+    (match J.find_operation store ~id:"delete-op" with
+     | Some {state=J.Ambiguous;receipt=Some receipt;_} ->
+         String.starts_with ~prefix receipt
+     | _ -> false)
+
+let test_foreign_scope_pair_is_stale () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let other={scope with mailbox_key="Archive";raw_name="Archive"} in
+  let pair : J.pair = {
+    id="foreign-pair";scope=other;remote_uidvalidity=Some (epoch 11L);
+    remote_uid=Some (uid 1L);local_id=Some "foreign-local";
+    content_sha256=None;content_length=None;internal_date=None;
+    common_flags=[];remote_tombstone=None;local_tombstone=None;
+    revision=0L} in
+  let pair=match J.put_pair store ~expected_revision:None pair with
+    | `Committed pair -> pair
+    | `Stale_revision -> Alcotest.fail "new foreign pair was stale" in
+  let client,_=scripted_client ~sw "foreign-scope" [] in
+  match delete_pair ~client ~store ~maildir ~spool_dir pair with
+  | Error Imap_sync.Error.Stale_pair -> ()
+  | Error error -> Alcotest.failf "wrong foreign pair error: %a"
+      Imap_sync.Error.pp error
+  | Ok _ -> Alcotest.fail "reconciled a pair of another scope"
+
+let test_remote_delete_missing_spool_is_configuration () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  publish_two ~sw ~store ~spool_dir;
+  let pair=remote_delete_pair ~store "missing-spool" in
+  let client,_=scripted_client
+    ~caps:"IMAP4rev1 UNSELECT UIDPLUS CONDSTORE" ~sw "missing-spool" [] in
+  let missing=Eio.Path.(spool_dir / "missing") in
+  let result=Md.with_writer maildir (fun writer ->
+    Md.ok @@ Local_inventory.with_pages ~spool_dir maildir
+      (fun local_inventory ->
+        Imap_sync.Deletion.reconcile_pair
+          ~ctx:(context ~store ~spool_dir:missing client) ~writer
+          ~cursor:(Imap_store.load_cursor store ~scope) ~local_inventory
+          ~pair ~policy:Imap.Sync_policy.Propagate ())) in
+  match result with
+  | Error (Imap_sync.Error.Invalid_configuration _) -> ()
+  | Error error -> Alcotest.failf "wrong missing spool error: %a"
+      Imap_sync.Error.pp error
+  | Ok _ -> Alcotest.fail "remote deletion ran without a spool directory"
+
 let test_longer_remote_body_is_held () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
   Eio.Switch.run @@ fun sw ->
@@ -2687,6 +2863,103 @@ let test_unconditional_store_is_bridge_hold () =
         (J.has_open_conflict store ~pair ~kind:J.Policy_conflict)
   | Error error -> Alcotest.failf "missing CONDSTORE aborted the cycle: %a"
       Imap_sync.Error.pp error
+
+let test_preview_deleted_flag_propagation () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let pair,_=flag_pair ~store ~maildir "preview-deleted-flag" in
+  let client=scripted_scan ~sw ~has_message:true ~flags:"\\Deleted" () in
+  (match Imap_sync.Engine.scan_once ~ctx:(context ~store ~spool_dir client)
+    ~stage_id:"preview-deleted-flag" () with
+   | Ok _ -> ()
+   | Error error -> Alcotest.failf "preview source scan: %a"
+       Imap_sync.Error.pp error);
+  let preview ?propagate_deleted () =
+    let events=ref [] in
+    match Imap_sync.Plan.preview_sync ?propagate_deleted ~spool_dir ~store
+      ~maildir ~scope ~policy:Imap.Sync_policy.Preserve
+      ~on_preview:(fun event -> events:=event::!events) () with
+    | Ok _ -> List.rev !events
+    | Error error -> Alcotest.failf "deleted flag preview: %a"
+        Imap_sync.Error.pp error in
+  Alcotest.(check bool) "default previews a Deleted hold" true
+    (match preview () with
+     | [Imap_sync.Plan.Preview_pair_hold (id,_)] -> id=pair.id
+     | _ -> false);
+  Alcotest.(check bool) "propagation previews a local Deleted change" true
+    (match preview ~propagate_deleted:true () with
+     | [Imap_sync.Plan.Preview_flags flags] ->
+         flags.pair_id=pair.id && flags.to_local.add=[deleted] &&
+         flags.to_local.remove=[] && flags.to_remote.add=[] &&
+         flags.to_remote.remove=[]
+     | _ -> false)
+
+let test_deleted_flag_propagation ~propagate () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let pair,local=flag_pair ~store ~maildir "bridge-deleted-flag" in
+  let remote tag=Printf.sprintf
+    "* 1 FETCH (UID 1 FLAGS (\\Deleted) MODSEQ (20))\r\n\
+     A%08d OK fetched\r\n" tag in
+  let select tag=Printf.sprintf
+    "* 1 EXISTS\r\n* OK [UIDVALIDITY 11] valid\r\n\
+     * OK [UIDNEXT 2] next\r\n* OK [HIGHESTMODSEQ 20] modseq\r\n\
+     * FLAGS (\\Seen \\Deleted)\r\n\
+     * OK [PERMANENTFLAGS (\\Seen \\Deleted \\*)] permanent\r\n\
+     A%08d OK [READ-WRITE] selected\r\n" tag in
+  let flag_phase=if propagate then [
+      select 8; remote 9;
+      "* 1 FETCH (UID 1 FLAGS (\\Deleted))\r\nA00000010 OK fetched\r\n";
+      "A00000011 OK unselected\r\n"]
+    else [select 8; remote 9; "A00000010 OK unselected\r\n"] in
+  let client,_=scripted_client ~caps:"IMAP4rev1 UNSELECT CONDSTORE" ~sw
+    "bridge-deleted-flag" ([
+    examine ~tag:4 ~exists:1 ~uidnext:2
+      ~extra:"* OK [HIGHESTMODSEQ 20] modseq\r\n" ();
+    remote 5;
+    "* SEARCH 1\r\nA00000006 OK searched\r\n";
+    "A00000007 OK unselected\r\n"] @ flag_phase) in
+  let ids=ref 0 in
+  let next_id ()=incr ids; Printf.sprintf "deleted-flag-%d" !ids in
+  let receipt=match Imap_sync.Bridge.copy_once ~propagate_deleted:propagate
+      ~ctx:(context ~store ~spool_dir ~next_id client) ~maildir
+      ~stage_id:"deleted-flag" () with
+    | Ok receipt -> receipt
+    | Error error -> Alcotest.failf "deleted flag cycle: %a"
+        Imap_sync.Error.pp error in
+  let local_flags=(Option.get (Md.find maildir ~id:local.id)).flags in
+  let common=(Option.get (J.find_pair store ~id:pair.id)).common_flags in
+  if propagate then (
+    Alcotest.(check (pair int int)) "Deleted merged, not held" (1,0)
+      (receipt.flags_updated,receipt.flags_held);
+    Alcotest.(check bool) "local and common flags gain Deleted" true
+      (Mail_flag.Imap_flag.equal_durable local_flags [deleted] &&
+       Mail_flag.Imap_flag.equal_durable common [deleted]);
+    Alcotest.(check bool) "no policy hold" false
+      (J.has_open_conflict store ~pair ~kind:J.Policy_conflict))
+  else (
+    Alcotest.(check (pair int int)) "Deleted held by default" (0,1)
+      (receipt.flags_updated,receipt.flags_held);
+    Alcotest.(check bool) "local and common flags unchanged" true
+      (local_flags=[] && common=[]);
+    Alcotest.(check bool) "durable policy hold" true
+      (J.has_open_conflict store ~pair ~kind:J.Policy_conflict))
+
+let test_invalid_configuration_before_lease () =
+  with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
+  Eio.Switch.run @@ fun sw ->
+  let store=open_store ~sw ~database ~blob_dir in
+  let client,_=scripted_client ~sw "configuration-before-lease" [] in
+  let ctx=context ~store ~spool_dir client in
+  Md.with_writer maildir (fun _ ->
+    match Imap_sync.Bridge.copy_once ~max_transfers:0 ~ctx ~maildir
+        ~stage_id:"configuration-before-lease" () with
+    | Error (Imap_sync.Error.Invalid_configuration _) -> ()
+    | Error error -> Alcotest.failf "wrong busy-lease configuration: %a"
+        Imap_sync.Error.pp error
+    | Ok _ -> Alcotest.fail "cycle ran with a zero transfer budget")
 
 let test_tombstoned_pair_present_is_hold () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
@@ -3084,6 +3357,8 @@ else Alcotest.run "imap-bridge-faults" [
       test_rejected_store_rejects_operation;
     Alcotest.test_case "uncertain STORE leaves a conflict" `Quick
       test_uncertain_store_leaves_conflict;
+    Alcotest.test_case "failed verification read is pending" `Quick
+      test_failed_verification_read_is_pending;
     Alcotest.test_case "local-only race rejects before dispatch" `Quick
       test_local_only_race_rejects_prepared;
     Alcotest.test_case "held Deleted merges other flags" `Quick
@@ -3092,6 +3367,14 @@ else Alcotest.run "imap-bridge-faults" [
       test_settle_reports_content_mismatch;
     Alcotest.test_case "MODIFIED delete is held" `Quick
       test_modified_delete_is_held;
+    Alcotest.test_case "uncertain conditional STORE is pending" `Quick
+      (test_uncertain_delete_dispatch_is_pending ~expunge:false);
+    Alcotest.test_case "uncertain UID EXPUNGE is pending" `Quick
+      (test_uncertain_delete_dispatch_is_pending ~expunge:true);
+    Alcotest.test_case "pair of another scope is stale" `Quick
+      test_foreign_scope_pair_is_stale;
+    Alcotest.test_case "remote delete without spool is configuration" `Quick
+      test_remote_delete_missing_spool_is_configuration;
     Alcotest.test_case "longer remote body is held" `Quick
       test_longer_remote_body_is_held;
     Alcotest.test_case "expunge during body fetch is stale" `Quick
@@ -3104,6 +3387,12 @@ else Alcotest.run "imap-bridge-faults" [
       test_content_mismatch_is_bridge_hold;
     Alcotest.test_case "missing CONDSTORE is a bridge hold" `Quick
       test_unconditional_store_is_bridge_hold;
+    Alcotest.test_case "changed Deleted is held by default" `Quick
+      (test_deleted_flag_propagation ~propagate:false);
+    Alcotest.test_case "propagate_deleted merges Deleted" `Quick
+      (test_deleted_flag_propagation ~propagate:true);
+    Alcotest.test_case "invalid configuration before the lease" `Quick
+      test_invalid_configuration_before_lease;
     Alcotest.test_case "tombstoned present pair is a hold" `Quick
       test_tombstoned_pair_present_is_hold;
     Alcotest.test_case "unstorable remote copy is rejected" `Quick
@@ -3168,6 +3457,14 @@ else Alcotest.run "imap-bridge-faults" [
       test_retention_holds_remote_delete;
     Alcotest.test_case "read-only sync plan" `Quick
       test_readonly_sync_plan;
+    Alcotest.test_case "preview of Deleted propagation" `Quick
+      test_preview_deleted_flag_propagation;
+    Alcotest.test_case "unknown repair operation is not pending" `Quick
+      test_unknown_operation_is_not_pending;
+    Alcotest.test_case "remote repairs without spool are configuration"
+      `Quick test_remote_repairs_missing_spool_is_configuration;
+    Alcotest.test_case "engine budgets are configuration" `Quick
+      test_engine_budgets_are_configuration;
     Alcotest.test_case "incompatible absence tombstone holds" `Quick
       test_incompatible_absence_tombstone_holds;
     Alcotest.test_case "stale pair cannot wedge Prepared FLAGS" `Quick

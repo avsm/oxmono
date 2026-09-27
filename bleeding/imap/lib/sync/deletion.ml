@@ -119,7 +119,7 @@ let delete_remote ~(ctx:Ctx.t) ~maildir (pair:J.pair) ~epoch ~uid ~local_id
                has Imap.Capability.Qresync) then
     Error (Unsupported "CONDSTORE required for conditional UID STORE")
   else if not (Eio.Path.is_directory spool_dir) then
-    Error (Unsupported "spool_dir is not a directory")
+    Error (Invalid_configuration "spool_dir must exist")
   else
     let* local_present=E.present maildir ~id:local_id in
     if local_present then Error Stale_inventory else
@@ -215,12 +215,12 @@ let delete_remote ~(ctx:Ctx.t) ~maildir (pair:J.pair) ~epoch ~uid ~local_id
                 J.mark_ambiguous store ~id
                   ~reason:("conditional STORE outcome unknown: " ^
                     E.describe error);
-                Error (Client error)
+                Error (Pending_operations [id])
             | Ok (`Expunge_failed error) ->
                 J.mark_ambiguous store ~id
                   ~reason:("UID EXPUNGE outcome unknown: " ^
                     E.describe error);
-                Error (Client error)
+                Error (Pending_operations [id])
             | Ok (`Uncertain reason) ->
                 J.mark_ambiguous store ~id ~reason;
                 Error (Pending_operations [id])
@@ -235,6 +235,7 @@ let reconcile_pair ?(min_absence_scans=0) ~(ctx:Ctx.t) ~writer ~cursor
   if min_absence_scans<0 then
     invalid_arg "Deletion.reconcile_pair: negative absence grace";
   let* pair=E.current_pair store pair in
+  let* ()=if pair.scope=ctx.scope then Ok () else Error Stale_pair in
   let* epoch,uid,local_id=bound pair in
   match J.active_operation_for_pair store ~pair_id:pair.id with
   | Some op -> Error (Pending_operations [op.id])

@@ -44,7 +44,7 @@ type receipt = {
 
 val copy_once :
   ?max_transfers:int -> ?min_absence_scans:int ->
-  ?allow_bootstrap_duplicates:bool ->
+  ?allow_bootstrap_duplicates:bool -> ?propagate_deleted:bool ->
   ?deletion_policy:Imap.Sync_policy.deletion_policy ->
   ctx:Ctx.t -> maildir:Maildir.t -> stage_id:string -> unit ->
   (receipt, Error.t) result
@@ -54,10 +54,10 @@ val copy_once :
     [max_transfers] defaults to 100 and bounds the copies, flag updates and
     deletions together. A [max_transfers] below 1, a negative
     [min_absence_scans] or a [ctx.spool_dir] that is not a directory returns
-    [Invalid_configuration] before the scan. When the journal holds pairs or
-    operations, a selected UIDVALIDITY other than the published one returns
-    [Uidvalidity_changed], and so does an untombstoned pair of another
-    epoch.
+    [Invalid_configuration] before the lease is taken. When the journal
+    holds pairs or operations, a selected UIDVALIDITY other than the
+    published one returns [Uidvalidity_changed], and so does an
+    untombstoned pair of another epoch.
 
     A remote-to-Maildir copy archives the exact bytes with their flags and
     INTERNALDATE, reserves a Maildir ID and journals it before the write. A
@@ -86,12 +86,13 @@ val copy_once :
     [true]. It defaults to [false].
 
     Paired flags reconcile with {!Flags.reconcile_pair}, whose remote writes
-    use conditional UID STORE and so require CONDSTORE. A changed
-    [\\Deleted] is always held while the other flags merge. A pair is held
-    rather than failing the cycle when its local date or content differs
-    from the pair, a remote write lacks CONDSTORE, a MODSEQ or a permanent
-    flag, an endpoint changed concurrently, or it is tombstoned while both
-    endpoints are present.
+    use conditional UID STORE and so require CONDSTORE. [propagate_deleted]
+    defaults to [false], and a changed [\\Deleted] is then held while the
+    other flags merge. With [true] it merges like any other flag. A pair is
+    held rather than failing the cycle when its local date or content
+    differs from the pair, a remote write lacks CONDSTORE, a MODSEQ or a
+    permanent flag, an endpoint changed concurrently, or it is tombstoned
+    while both endpoints are present.
 
     [deletion_policy] defaults to [Preserve]. [Propagate] and its
     directional forms permit a targeted deletion with

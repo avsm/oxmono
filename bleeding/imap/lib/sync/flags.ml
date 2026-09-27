@@ -337,8 +337,7 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~(ctx:Ctx.t)
             | Error error ->
                 let reason="UID STORE outcome unknown: " ^ E.describe error in
                 J.mark_ambiguous ~reason store ~id;
-                let* ()=flag_conflict store pair ~id reason in
-                Error (Client error)
+                pending reason
             | Ok receipt when Imap.Uid_set.mem uid receipt.modified ->
                 J.reject_operation store ~id ~receipt:"MODIFIED";
                 Error Modified
@@ -349,9 +348,11 @@ let reconcile_pair ?(propagate_deleted=false) ?inventory ~(ctx:Ctx.t)
             | Ok _ ->
                 match remote selected ~uid ~modseq:false with
                 | Error error ->
-                    let* ()=flag_conflict store pair ~id
-                      "FLAGS write returned but its verification read failed" in
-                    Error error
+                    let reason=
+                      "FLAGS write returned but its verification read \
+                       failed: " ^ E.describe_error error in
+                    J.mark_ambiguous ~reason store ~id;
+                    pending reason
                 | Ok (observed,_) when not (same observed remote_target) ->
                     pending
                       "FLAGS write returned but remote flags differ from the \

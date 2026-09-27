@@ -72,9 +72,10 @@ val reconcile_pair :
     occurrence present is marked ambiguous and returns
     [Pending_operations].
 
-    A remote deletion requires UIDPLUS, CONDSTORE, a [ctx.spool_dir]
-    directory, [\\Deleted] in PERMANENTFLAGS and a nonzero MODSEQ on the
-    target, and otherwise returns [Unsupported]. A local occurrence that is
+    A remote deletion requires UIDPLUS, CONDSTORE, [\\Deleted] in
+    PERMANENTFLAGS and a nonzero MODSEQ on the target, and otherwise returns
+    [Unsupported]. A [ctx.spool_dir] that is not a directory returns
+    [Invalid_configuration]. A local occurrence that is
     present again, or a target that is already gone, returns
     [Stale_inventory]. It verifies the remote body through [ctx.spool_dir]
     with bounded memory, adds [\\Deleted] with a conditional UID STORE,
@@ -84,12 +85,12 @@ val reconcile_pair :
     change, including MODIFIED on the STORE, rejects the operation and is
     held as [Survivor_changed]. A STORE rejected or refused before dispatch
     rejects the operation and returns [Client]. Any other STORE or EXPUNGE
-    failure marks the operation ambiguous and returns [Client]. Any other
-    uncertain result marks it ambiguous with its cause and returns
-    [Pending_operations].
+    failure, and any other uncertain result, marks the operation ambiguous
+    with its cause and returns [Pending_operations] naming it.
 
     A pending operation for the pair returns [Pending_operations]. A pair
-    that changed returns [Stale_pair] or [Missing_pair], a pair without a
+    that changed returns [Stale_pair] or [Missing_pair], a pair of a scope
+    other than [ctx.scope] [Stale_pair], a pair without a
     remote and local identity [Identity_changed], and a [cursor] that is not
     the current complete inventory of the pair's scope and epoch
     [Stale_inventory].

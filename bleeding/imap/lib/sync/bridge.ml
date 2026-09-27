@@ -435,17 +435,11 @@ let record_absences ~store ~maildir ~scope ~(cursor:Imap.Mirror.cursor)
     process rows in
   pages None
 
-let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
-    ?(allow_bootstrap_duplicates=false)
-    ?(deletion_policy=Imap.Sync_policy.Preserve)
+let copy_once_unlocked ~max_transfers ~min_absence_scans
+    ~allow_bootstrap_duplicates ~propagate_deleted ~deletion_policy
     ~(ctx:Ctx.t) ~writer ~stage_id () =
   let {Ctx.store;scope;spool_dir;next_id;_}=ctx in
   let maildir=Maildir.of_writer writer in
-  if max_transfers<1 || min_absence_scans<0 ||
-      not (Eio.Path.is_directory spool_dir) then
-    Error (Invalid_configuration
-      "max_transfers must be positive, min_absence_scans nonnegative, and spool_dir must exist")
-  else
     let prior_cursor=Imap_store.load_cursor store ~scope in
     let has_durable_identity=
       J.pairs_page store ~scope ~limit:1 ()<>[] ||
@@ -703,7 +697,7 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
                     if not needs_check then (
                       let* ()=resolve_policy_conflict pair in
                       process rest) else
-                      (match Flags.reconcile_pair
+                      (match Flags.reconcile_pair ~propagate_deleted
                         ~inventory:local_inventory ~ctx ~writer ~pair () with
                        | Ok {outcome;deleted_held} ->
                            let current=match outcome with
@@ -823,11 +817,20 @@ let copy_once_unlocked ?(max_transfers=100) ?(min_absence_scans=0)
               held_pair_ids=List.rev !held_pair_ids;
               more=budget_used ()>=max_transfers})
 
-let copy_once ?max_transfers ?min_absence_scans
-    ?allow_bootstrap_duplicates ?deletion_policy ~ctx ~maildir ~stage_id () =
-  with_lease maildir (fun writer ->
-    copy_once_unlocked ?max_transfers ?min_absence_scans
-      ?allow_bootstrap_duplicates ?deletion_policy ~ctx ~writer ~stage_id ())
+let copy_once ?(max_transfers=100) ?(min_absence_scans=0)
+    ?(allow_bootstrap_duplicates=false) ?(propagate_deleted=false)
+    ?(deletion_policy=Imap.Sync_policy.Preserve) ~(ctx:Ctx.t) ~maildir
+    ~stage_id () =
+  if max_transfers<1 || min_absence_scans<0 ||
+      not (Eio.Path.is_directory ctx.spool_dir) then
+    Error (Invalid_configuration
+      "max_transfers must be positive, min_absence_scans nonnegative, and \
+       spool_dir must exist")
+  else
+    with_lease maildir (fun writer ->
+      copy_once_unlocked ~max_transfers ~min_absence_scans
+        ~allow_bootstrap_duplicates ~propagate_deleted ~deletion_policy ~ctx
+        ~writer ~stage_id ())
 
 let recover_local ~maildir ~spool_dir () =
   with_lease maildir (fun writer ->

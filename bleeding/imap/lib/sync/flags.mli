@@ -90,13 +90,12 @@ val reconcile_pair :
     A concurrent change seen before any write, or MODIFIED for the pair's
     UID, rejects the operation and returns [Modified]. A STORE rejected or
     refused before dispatch rejects the operation and returns [Client]. Any
-    other STORE failure marks the operation ambiguous, records a durable
-    flag conflict and returns [Client]. A failed read after the STORE
-    records a flag conflict, leaves the operation sent and returns the
-    read's error. A write that cannot be verified on both endpoints leaves
-    the operation pending with a flag conflict and returns
-    [Pending_operations]. Call {!recover_operation} or an operator repair
-    before a new write for the pair.
+    other STORE failure, and a failed read after the STORE, marks the
+    operation ambiguous with its cause, records a durable flag conflict
+    and returns [Pending_operations] naming it. A write that cannot be
+    verified on both endpoints leaves the operation pending with a flag
+    conflict and returns [Pending_operations]. Call {!recover_operation} or
+    an operator repair before a new write for the pair.
 
     A verified write commits the new pair revision and the operation
     together. A pair that changed returns [Stale_pair] or [Missing_pair], a

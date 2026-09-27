@@ -63,9 +63,7 @@ let pending_delete store ~scope ~id ~kind =
   let* operation=match J.find_operation store ~id with
     | Some op when op.scope=scope && op.kind=kind &&
         (op.state=J.Sent || op.state=J.Ambiguous) -> Ok op
-    | _ -> Error (Diverged (if kind=J.Delete then
-        "no pending remote deletion in this scope"
-        else "no pending local deletion in this scope")) in
+    | _ -> Error No_pending_operation in
   let* pair=E.operation_pair store operation in
   let* epoch,uid,local_id,digest,length=E.content_identity pair in
   if not (E.journaled_at store operation pair &&
@@ -150,9 +148,8 @@ let verified_remote (ctx:Ctx.t) ~maildir ~epoch ~uid ~local_id ~digest
 let reject_remote_delete ~(ctx:Ctx.t) ~maildir ~id ~evidence () =
   let {Ctx.client;store;scope;spool_dir;_}=ctx in
   let* ()=E.check_evidence evidence in
-  if not (Eio.Path.is_directory spool_dir) then
-    Error (Unsupported "spool_dir is not a directory")
-  else E.with_lease maildir (fun _ ->
+  let* ()=E.require_spool_dir spool_dir in
+  E.with_lease maildir (fun _ ->
     let* pair,epoch,uid,local_id,digest,length=
       pending_remote_delete store ~scope ~maildir ~id in
     let* ()=E.guard_bound_mailbox ~ctx in
@@ -174,9 +171,8 @@ let reject_remote_delete ~(ctx:Ctx.t) ~maildir ~id ~evidence () =
 let finish_remote_delete ~(ctx:Ctx.t) ~maildir ~id ~evidence () =
   let {Ctx.client;store;scope;spool_dir;_}=ctx in
   let* ()=E.check_evidence evidence in
-  if not (Eio.Path.is_directory spool_dir) then
-    Error (Unsupported "spool_dir is not a directory")
-  else if not (Imap_eio.Client.has client Imap.Capability.Uidplus) then
+  let* ()=E.require_spool_dir spool_dir in
+  if not (Imap_eio.Client.has client Imap.Capability.Uidplus) then
     Error (Unsupported "UIDPLUS required for targeted UID EXPUNGE")
   else if not (condstore client) then
     Error (Unsupported "CONDSTORE required for stable remote verification")
@@ -218,17 +214,18 @@ let local_append ~(ctx:Ctx.t) ~maildir ~id ~evidence () =
   let* ()=E.check_evidence evidence in
   E.with_lease maildir (fun writer ->
     let* op=match J.find_operation store ~id with
-      | Some op -> Ok op
-      | None -> Error (Invalid_operation "unknown sync operation ID") in
+      | Some op when op.scope=scope && op.kind=J.Local_append &&
+          (op.state=J.Sent || op.state=J.Ambiguous) -> Ok op
+      | _ -> Error No_pending_operation in
     let* local_id,uidvalidity,uid,sha256,length,flags=
       match op.kind,op.state,op.local_id,op.source_uidvalidity,
             op.source_uid,op.blob_sha256,op.blob_length,op.desired_flags with
       | J.Local_append,(J.Sent|J.Ambiguous),Some local_id,
         Some uidvalidity,Some uid,Some sha256,Some length,Some flags
-        when op.scope=scope && op.pair_id=None && op.destination=None ->
+        when op.pair_id=None && op.destination=None ->
           Ok (local_id,uidvalidity,uid,sha256,length,flags)
       | _ -> Error (Invalid_operation
-          "operation is not a pending local append in this scope") in
+          "local append operation lacks its source or target") in
     let* found=E.find maildir ~id:local_id in
     let* ()=if Option.is_none found then Ok ()
       else Error (Invalid_operation
@@ -293,10 +290,10 @@ let record_appenduid ~store ~scope ~maildir ~id ~uidvalidity ~uid ~evidence
   let* ()=E.check_evidence evidence in
   E.with_lease maildir (fun _ ->
     let* operation=match J.find_operation store ~id with
-      | Some operation -> Ok operation
-      | None -> Error (Invalid_operation "unknown sync operation ID") in
-    let* ()=if operation.kind=J.Append && operation.scope=scope &&
-        operation.pair_id=None && operation.destination=Some scope &&
+      | Some operation when operation.kind=J.Append &&
+          operation.scope=scope -> Ok operation
+      | _ -> Error No_pending_operation in
+    let* ()=if operation.pair_id=None && operation.destination=Some scope &&
         operation.destination_uidvalidity=Some uidvalidity &&
         operation.blob_sha256<>None && operation.blob_length<>None &&
         operation.desired_flags<>None then Ok ()
@@ -391,8 +388,7 @@ let inspect_append_candidates ?(max_uids=1000)
       | Some op when op.scope=scope && op.kind=J.Append &&
           op.pair_id=None && op.destination=Some scope &&
           (op.state=J.Sent || op.state=J.Ambiguous) -> Ok op
-      | _ -> Error (Invalid_operation
-          "operation is not a pending APPEND in this scope") in
+      | _ -> Error No_pending_operation in
     let* epoch,digest,length,expected_flags,expected_date,frontier=
       match operation.destination_uidvalidity,operation.blob_sha256,
         operation.blob_length,operation.desired_flags,

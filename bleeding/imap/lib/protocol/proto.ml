@@ -7,6 +7,9 @@ module Uid = struct
     else Ok n
   let to_int64 n = n
   let to_string = Int64.to_string
+  let equal = Int64.equal
+  let compare = Int64.compare
+  let pp ppf n = Format.fprintf ppf "%Ld" n
 end
 
 module Uidvalidity = struct
@@ -15,6 +18,9 @@ module Uidvalidity = struct
     if n < 1L || n > max_uid then Error "UIDVALIDITY must be in 1..4294967295"
     else Ok n
   let to_int64 n = n
+  let equal = Int64.equal
+  let compare = Int64.compare
+  let pp ppf n = Format.fprintf ppf "%Ld" n
 end
 
 module Seq = struct
@@ -30,6 +36,9 @@ module Modseq = struct
   let of_int64 n =
     if n < 1L then Error "MODSEQ must be positive" else Ok n
   let to_int64 n = n
+  let equal = Int64.equal
+  let compare = Int64.compare
+  let pp ppf n = Format.fprintf ppf "%Ld" n
 end
 
 module Uid_set = struct
@@ -46,13 +55,15 @@ module Uid_set = struct
           (c, Int64.max b d)::rest
       | _ -> (a,b)::acc) [] xs)
   let of_intervals = normalize
-  let of_wire s =
+  let of_wire ?(allow_star=false) s =
     let endpoint x =
-      if x="" || not (String.for_all (fun c -> c >= '0' && c <= '9') x)
-      then Error "invalid UID set endpoint"
+      if allow_star && x="*" then Ok max_uid
+      else if x="" || x.[0]='0' ||
+              not (String.for_all (fun c -> c >= '0' && c <= '9') x)
+      then Error ("invalid UID set endpoint " ^ x)
       else match Int64.of_string_opt x with
-        | Some n -> Uid.of_int64 n
-        | None -> Error "UID set endpoint outside range" in
+        | Some n when n <= max_uid -> Ok n
+        | _ -> Error ("UID set endpoint " ^ x ^ " outside range") in
     if s="" then Error "empty UID set"
     else
       let rec parse acc = function
@@ -66,8 +77,9 @@ module Uid_set = struct
                  (match endpoint first,endpoint last with
                   | Ok a,Ok b -> parse ((a,b)::acc) rest
                   | Error e,_ | _,Error e -> Error e)
-             | _ -> Error "invalid UID range") in
+             | _ -> Error ("invalid UID range " ^ part)) in
       parse [] (String.split_on_char ',' s)
+  let is_empty t = t = []
   let union a b = normalize (a @ b)
   let mem x t = List.exists (fun (a,b) -> a <= x && x <= b) t
   let cardinality t = List.fold_left (fun acc (a,b) ->
@@ -76,4 +88,9 @@ module Uid_set = struct
     String.concat "," (List.map (fun (a,b) ->
       if a=b then Int64.to_string a
       else Int64.to_string a ^ ":" ^ Int64.to_string b) t)
+  let equal = List.equal (fun (a,b) (c,d) -> a=c && b=d)
+  let compare = List.compare (fun (a,b) (c,d) ->
+    match Int64.compare a c with 0 -> Int64.compare b d | n -> n)
+  let pp ppf t =
+    Format.pp_print_string ppf (if t=[] then "(empty)" else to_wire t)
 end

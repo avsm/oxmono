@@ -11,6 +11,31 @@ let test_uid_set () =
     (Imap.Proto.Uid_set.to_wire set);
   Alcotest.(check bool) "hole" false (Imap.Proto.Uid_set.mem (u 6L) set)
 
+let test_uid_set_syntax () =
+  let module S = Imap.Proto.Uid_set in
+  let rejected ?allow_star s =
+    Alcotest.(check bool) ("reject " ^ s) true
+      (Result.is_error (S.of_wire ?allow_star s)) in
+  List.iter rejected ["01";"1:007";"+1";"0x10";"1_0";"0b11";"0u5";"0o7";
+                      "0";"*";"1:*";"4294967296";""];
+  rejected ~allow_star:true "*:0";
+  (match S.of_wire "1:9,x" with
+   | Error message ->
+       Alcotest.(check bool) "error names token" true
+         (String.ends_with ~suffix:" x" message)
+   | Ok _ -> fail "accepted a non-numeric endpoint");
+  let star=expect_ok (S.of_wire ~allow_star:true "5:*") in
+  Alcotest.(check string) "star reads as the top UID" "5:4294967295"
+    (S.to_wire star);
+  Alcotest.(check bool) "empty" true (S.is_empty S.empty);
+  Alcotest.(check bool) "nonempty" false (S.is_empty star);
+  Alcotest.(check bool) "equal after normalisation" true
+    (S.equal (expect_ok (S.of_wire "3,1:2")) (expect_ok (S.of_wire "1:3")));
+  Alcotest.(check bool) "ordered" true
+    (S.compare (expect_ok (S.of_wire "1")) (expect_ok (S.of_wire "2")) < 0);
+  Alcotest.(check string) "pp" "1:3"
+    (Format.asprintf "%a" S.pp (expect_ok (S.of_wire "1,2,3")))
+
 let test_fragmented_literal () =
   let d=Imap.Wire.create () in
   let a=wire_ok (Imap.Wire.feed d "* 3 FETCH (BODY[] {5}\r") in
@@ -1097,5 +1122,7 @@ let () =
      "bodystructure", [Alcotest.test_case "RFC 3501/9051" `Quick
        test_bodystructure];
      "scalars", [Alcotest.test_case "UID set" `Quick test_uid_set;
+                 Alcotest.test_case "UID set syntax" `Quick
+                   test_uid_set_syntax;
                  Alcotest.test_case "INTERNALDATE" `Quick test_internal_date;
                  Alcotest.test_case "modified UTF-7" `Quick test_modified_utf7]]

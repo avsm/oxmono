@@ -123,6 +123,16 @@ val exec_no_headers :
 
     @return the SQLite return code for the operation. *)
 
+val run : t -> ?label:string -> (Sqlite3.db -> 'a) -> 'a
+(** [run t ?label f] is [f (db t)] evaluated in a system thread, cancelled
+    as {!step} is. [f] runs outside Eio, so it may call [Sqlite3] directly
+    but must not perform an Eio operation. An exception raised by [f] is
+    raised again in the calling fiber. Each call to {!exec}, {!prepare},
+    {!step} or {!reset} costs a thread hop and several kilobytes of
+    allocation, so a loop of statements is cheaper inside one [run].
+    [label] names the operation in Eio traces and defaults to
+    ["sqlite3_run"]. *)
+
 (** {2 Prepared statements} *)
 
 val prepare : t -> string -> Sqlite3.stmt

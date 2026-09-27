@@ -4,6 +4,8 @@
 
 ### Added
 
+- `Sqlite3_eio.run` evaluates a function over the handle in one system
+  thread, so a loop of statements costs one thread hop instead of one each.
 - Makefile target to generate `compile_commands.json` for improved LSP support
   in editors.
 

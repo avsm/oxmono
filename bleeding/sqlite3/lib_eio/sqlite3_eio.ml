@@ -68,7 +68,7 @@ let check_open t =
     worker skips the statement and an active worker is interrupted until it
     has returned. The completion flag is set in the system thread because
     the waiting Eio fiber itself may already be cancelled. *)
-let run t ~label fn =
+let run t ?(label = "sqlite3_run") fn =
   let st = check_open t in
   let cancelled = Atomic.make false in
   let started = Atomic.make false in

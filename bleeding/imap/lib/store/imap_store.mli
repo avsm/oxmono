@@ -122,8 +122,17 @@ val abandoned_stages : t -> string list
 
 val publish : t -> Imap.Mirror.transition -> [ `Committed | `Stale_revision ]
 (** Compare-and-swap on the cursor revision, replacing the snapshot and
-    cursor atomically. Old UIDVALIDITY epochs are retained for diagnosis.
-    A stale write leaves the database untouched. *)
+    cursor atomically. Old UIDVALIDITY epochs are retained for diagnosis
+    until {!forget_epochs}. A stale write leaves the database untouched. *)
+
+val forget_epochs : t -> scope:Imap.Mirror.scope ->
+  cursor:Imap.Mirror.cursor -> [ `Dropped of int | `Stale_revision ]
+(** [forget_epochs t ~scope ~cursor] deletes the snapshot rows and blob
+    references of every UIDVALIDITY epoch of [scope] other than [cursor]'s,
+    and is [`Dropped n] for the [n] epochs removed. Unless [cursor] is still
+    the current cursor it changes nothing and is [`Stale_revision]. Blobs
+    referenced only by a dropped epoch become orphan candidates. A [cursor]
+    for another scope raises [Invalid_argument]. *)
 
 type intent_kind =
   | Append of {
@@ -422,12 +431,15 @@ module Blob : sig
 
   val put : t -> source:_ Eio.Flow.source -> length:int64 ->
     ?expected_sha256:string -> unit -> blob
-  (** Read exactly [length] octets, hash them with SHA-256, write a unique
-      temporary file, sync it, rename to the content-addressed name and sync
-      the containing directory. [expected_sha256], if set, must match or
-      [Digest_mismatch] is raised.
-      Requires [blob_dir]. Does not consume bytes beyond [length]. A failed
-      operation never creates a DB reference, but may leave an orphan file. *)
+  (** Read exactly [length] octets into a unique temporary file while hashing
+      them with SHA-256. [expected_sha256], if set, must match or
+      [Digest_mismatch] is raised and the temporary file is removed. The file
+      is then synced, renamed to the content-addressed name and the containing
+      directory synced. Requires [blob_dir]. Does not consume bytes beyond
+      [length]. A negative [length] or an [expected_sha256] that is not 64
+      lowercase hexadecimal digits raises [Invalid_argument]. I/O failures
+      raise [Eio.Io]. A failed operation never creates a DB reference, but may
+      leave an orphan file. *)
 
   val verify : t -> blob -> bool
   (** Rehash the complete file and check its length. Missing or non-regular
@@ -437,11 +449,14 @@ module Blob : sig
   (** Open exact blob bytes for reading. Call [verify] if corruption detection
       is required; opening alone does not rehash the file. *)
 
-  val attach : t -> scope:Imap.Mirror.scope ->
+  val attach : ?verify:bool -> t -> scope:Imap.Mirror.scope ->
     uidvalidity:Imap.Proto.Uidvalidity.t -> uid:Imap.Proto.Uid.t ->
     blob -> unit
-  (** Verify and atomically reference [blob] from an existing message in the
-      current mailbox epoch. An unknown UID or mismatched scope/epoch raises
+  (** Atomically reference [blob] from an existing message in the current
+      mailbox epoch. With [verify], which defaults to [true], the blob is
+      first rehashed as by {!verify} and a missing or corrupt file raises
+      [Invalid_argument]. Pass [~verify:false] only for a blob just returned
+      by {!put}. An unknown UID or mismatched scope/epoch raises
       [Invalid_argument]. Replacing a reference is atomic. *)
 
   val find : t -> scope:Imap.Mirror.scope ->
@@ -480,13 +495,18 @@ module Blob : sig
       and checks references using indexed database lookups. The callback runs
       without a database lock; exceptions and cancellation close the directory.
       All blob writers, including other processes, must remain quiescent until
-      iteration finishes. The callback must not create files or references. *)
+      iteration finishes. The callback must not create files or references.
+      References from every retained UIDVALIDITY epoch keep their blobs, so a
+      quarantined epoch's blobs become candidates only after
+      [Imap_store.forget_epochs] drops it. Directory I/O failures raise
+      [Eio.Io]. *)
 
   val reap_orphans_iter : t -> removed:(string -> unit) -> unit
   (** [reap_orphans_iter t ~removed] removes orphan candidates with bounded
       inventory memory. [removed name] runs after unlinking each candidate.
       The directory is synced on return, exception or cancellation if any unlink
-      was attempted. Callbacks precede this sync and do not prove durability.
+      was attempted. A failed sync after an exception or cancellation does not
+      replace it. Callbacks precede this sync and do not prove durability.
       The same writer-quiescence requirement as [iter_orphan_candidates] applies. *)
 
   val orphan_candidates : t -> string list

@@ -576,7 +576,8 @@ let archive_uid ?(max_bytes=1_073_741_824L) ~client ~store ~scope
       let blob=Eio.Path.with_open_in spool (fun input ->
         let length=Optint.Int63.to_int64 (Eio.File.size input) in
         Imap_store.Blob.put store ~source:input ~length ()) in
-      Imap_store.Blob.attach store ~scope ~uidvalidity:epoch ~uid blob;
+      Imap_store.Blob.attach ~verify:false store ~scope ~uidvalidity:epoch
+        ~uid blob;
       Ok blob) ()
 
 type hydration_receipt = {
@@ -725,8 +726,8 @@ let hydrate_once ?(max_messages=100) ?(max_body_bytes=1_073_741_824L)
                             let blob=Eio.Path.with_open_in spool
                               (fun input -> Imap_store.Blob.put store
                                 ~source:input ~length ()) in
-                            Imap_store.Blob.attach store ~scope
-                              ~uidvalidity:epoch ~uid blob;
+                            Imap_store.Blob.attach ~verify:false store
+                              ~scope ~uidvalidity:epoch ~uid blob;
                             Ok length) in
                         process (Some uid) (hydrated+1)
                           (Int64.add bytes length) rest in

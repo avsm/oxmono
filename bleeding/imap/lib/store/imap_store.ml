@@ -337,6 +337,25 @@ let publish t (change:M.transition) =
         AND m.uidvalidity=blob_refs.uidvalidity AND m.uid=blob_refs.uid)" snap_key;
       `Committed))
 
+let forget_epochs t ~(scope:M.scope) ~(cursor:M.cursor) =
+  if cursor.scope<>scope then
+    invalid_arg "Imap_store.forget_epochs: scope/cursor mismatch";
+  transaction t (fun () ->
+    if stale t cursor then `Stale_revision else (
+      let key=scope_key scope @
+        [ni (Option.map P.Uidvalidity.to_int64 cursor.uidvalidity)] in
+      let others="endpoint=? AND account=? AND mailbox_key=? \
+        AND uidvalidity IS NOT ?" in
+      let dropped=match rows t ("SELECT count(*) FROM (\
+          SELECT uidvalidity FROM snapshots WHERE " ^ others ^ " UNION \
+          SELECT uidvalidity FROM blob_refs WHERE " ^ others ^ ")")
+          (key @ key) with
+        | r :: _ -> Int64.to_int (int r.(0))
+        | [] -> 0 in
+      run t ("DELETE FROM snapshots WHERE " ^ others) key;
+      run t ("DELETE FROM blob_refs WHERE " ^ others) key;
+      `Dropped dropped))
+
 let publish_stage t ~(cursor:M.cursor) ~(action:M.action)
     ~explicit_highestmodseq ~nomodseq =
   if action.scope<>cursor.scope ||

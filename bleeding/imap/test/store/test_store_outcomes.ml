@@ -54,14 +54,15 @@ let with_store env f =
   Sys.remove dir;
   Unix.mkdir dir 0o700;
   Fun.protect ~finally:(fun () ->
-    Array.iter (fun name -> Sys.remove (Filename.concat dir name))
-      (Sys.readdir dir);
-    Unix.rmdir dir;
+    if Sys.file_exists dir then (
+      Array.iter (fun name -> Sys.remove (Filename.concat dir name))
+        (Sys.readdir dir);
+      Unix.rmdir dir);
     List.iter (fun p -> try Sys.remove p with Sys_error _ -> ())
       [path;path^"-wal";path^"-shm"])
     (fun () -> Eio.Switch.run (fun sw ->
       let fs=Eio.Stdenv.fs env in
-      f ~path (Store.open_path ~sw ~blob_dir:Eio.Path.(fs / dir)
+      f ~path ~dir (Store.open_path ~sw ~blob_dir:Eio.Path.(fs / dir)
         Eio.Path.(fs / path))))
 
 let mutate path sql =
@@ -69,7 +70,7 @@ let mutate path sql =
   Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db))
     (fun () -> Sqlite3.Rc.check (Sqlite3.exec db sql))
 
-let decode_reasons env = with_store env (fun ~path db ->
+let decode_reasons env = with_store env (fun ~path ~dir:_ db ->
   publish db ~stage:"first" ~epoch_value:5L [row 1L];
   let expect_reason needle =
     match Store.load_cursor db ~scope with
@@ -81,7 +82,7 @@ let decode_reasons env = with_store env (fun ~path db ->
   mutate path "UPDATE mailboxes SET generation=revision, encoding='bogus'";
   expect_reason "\"bogus\"")
 
-let scope_mismatch env = with_store env (fun ~path:_ db ->
+let scope_mismatch env = with_store env (fun ~path:_ ~dir:_ db ->
   publish db ~stage:"first" ~epoch_value:5L [row 1L; row 2L];
   (match Store.load_cursor db ~scope:renamed with
    | exception Store.Scope_mismatch -> ()
@@ -104,7 +105,88 @@ let scope_mismatch env = with_store env (fun ~path:_ db ->
   check (Store.Blob.detach_if_matches db ~scope:renamed ~cursor
     ~uid:(uid 1L) blob=`Stale_revision) "detach_if_matches on renamed scope")
 
+let put db content =
+  Store.Blob.put db ~source:(Eio.Flow.string_source content)
+    ~length:(Int64.of_int (String.length content)) ()
+
+let count path sql =
+  let db=Sqlite3.db_open ~mode:`READONLY path in
+  Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close db)) (fun () ->
+    let n=ref (-1) in
+    Sqlite3.Rc.check (Sqlite3.exec_not_null_no_headers db
+      ~cb:(fun row -> n := int_of_string row.(0)) sql);
+    !n)
+
+let forget_epochs env = with_store env (fun ~path ~dir:_ db ->
+  publish db ~stage:"old" ~epoch_value:5L [row 1L];
+  let blob=put db "old epoch body" in
+  Store.Blob.attach db ~scope ~uidvalidity:(epoch 5L) ~uid:(uid 1L) blob;
+  let old_cursor=Store.load_cursor db ~scope in
+  publish db ~stage:"reset" ~epoch_value:6L [row 1L];
+  let name="sha256-" ^ blob.sha256 in
+  check (not (List.mem name (Store.Blob.orphan_candidates db)))
+    "retained epoch reference not a GC root";
+  check (Store.forget_epochs db ~scope ~cursor:old_cursor=`Stale_revision)
+    "stale cursor dropped epochs";
+  check (count path "SELECT count(*) FROM blob_refs"=1)
+    "stale forget changed references";
+  let cursor=Store.load_cursor db ~scope in
+  check (Store.forget_epochs db ~scope ~cursor=`Dropped 1)
+    "old epoch not dropped";
+  check (count path "SELECT count(*) FROM snapshots WHERE uidvalidity=5"=0)
+    "old snapshot rows kept";
+  check (count path "SELECT count(*) FROM snapshots WHERE uidvalidity=6"=1)
+    "current snapshot rows dropped";
+  check (List.mem name (Store.Blob.orphan_candidates db))
+    "dropped epoch still roots its blob";
+  check (Store.forget_epochs db ~scope ~cursor=`Dropped 0)
+    "second forget found epochs")
+
+let attach_without_verify env = with_store env (fun ~path:_ ~dir db ->
+  publish db ~stage:"attach" ~epoch_value:5L [row 1L; row 2L];
+  let blob=put db "attached body" in
+  Sys.remove (Filename.concat dir ("sha256-" ^ blob.sha256));
+  (match Store.Blob.attach db ~scope ~uidvalidity:(epoch 5L) ~uid:(uid 1L)
+     blob with
+   | exception Invalid_argument _ -> ()
+   | () -> failwith "missing blob attached with verification");
+  Store.Blob.attach ~verify:false db ~scope ~uidvalidity:(epoch 5L)
+    ~uid:(uid 2L) blob;
+  check (Store.Blob.find db ~scope ~uidvalidity:(epoch 5L) ~uid:(uid 2L)
+    =Some blob) "unverified attach lost";
+  (match Store.Blob.put db ~source:(Eio.Flow.string_source "body")
+     ~length:4L ~expected_sha256:(String.make 64 '0') () with
+   | exception Store.Blob.Digest_mismatch -> ()
+   | _ -> failwith "wrong digest accepted");
+  check (Array.for_all (fun name ->
+    not (String.starts_with ~prefix:".tmp-" name)) (Sys.readdir dir))
+    "digest mismatch left a temporary file")
+
+(* Removing the blob directory inside the callback makes the directory
+   sync in the finaliser fail. The callback's exception must survive. *)
+let finaliser_keeps_exception env = with_store env (fun ~path:_ ~dir db ->
+  ignore (put db "orphan one");
+  ignore (put db "orphan two");
+  (match Store.Blob.reap_orphans_iter db ~removed:(fun _ ->
+     Array.iter (fun name -> Sys.remove (Filename.concat dir name))
+       (Sys.readdir dir);
+     Unix.rmdir dir;
+     raise Exit) with
+   | exception Exit -> ()
+   | exception other ->
+       failwith ("finaliser replaced exception: " ^
+         Printexc.to_string other)
+   | () -> failwith "callback exception lost");
+  match Store.Blob.orphan_candidates db with
+  | exception Eio.Io _ -> ()
+  | exception other ->
+      failwith ("directory failure not Eio.Io: " ^ Printexc.to_string other)
+  | _ -> failwith "missing blob directory listed")
+
 let () =
   Eio_main.run (fun env ->
     scope_mismatch env;
-    decode_reasons env)
+    decode_reasons env;
+    forget_epochs env;
+    attach_without_verify env;
+    finaliser_keeps_exception env)

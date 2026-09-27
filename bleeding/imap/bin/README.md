@@ -325,7 +325,7 @@ with active operations and 0 otherwise.
 one, after the cursor. It exits 3 for an active operation (`prepared`,
 `sent`, `ambiguous` or `observed`), 0 for a terminal one (`committed` or
 `rejected`) and 9 for an ID outside the scope. `inspect` never creates or
-migrates the database, although SQLite may create `-wal` and `-shm`
+changes the database, although SQLite may create `-wal` and `-shm`
 sidecars that are absent.
 
 ## Operator repairs

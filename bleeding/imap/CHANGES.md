@@ -342,3 +342,7 @@ first three words instead of splitting the whole line.
 `ed4ac2d2e` `Search.to_wire` encodes dates and sizes without
 `Printf`, cutting its allocation from 424 MB to 363 MB over 100,000
 encoded criteria.
+
+The store has one schema at SQLite `user_version` 1 and no migrations.
+`open_path` and `open_readonly` reject a database at another version or
+whose tables or indexes differ from it, and `sync_pairs_scope` is gone.

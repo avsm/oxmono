@@ -35,8 +35,7 @@ let stored_identity t (scope:M.scope) =
     else `Bound {account_id=text r.(2);mailbox_id=text r.(3)}
 
 let object_identity t ~scope =
-  if t.schema_version<12L then `Unbound
-  else transaction ~begin_sql:"BEGIN" t (fun () -> stored_identity t scope)
+  transaction ~begin_sql:"BEGIN" t (fun () -> stored_identity t scope)
 
 let observe_object_identity t ~(scope:M.scope) identity =
   if not (valid_object_id identity.account_id &&

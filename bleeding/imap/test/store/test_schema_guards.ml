@@ -45,7 +45,54 @@ let run env =
        pair_id,side,generation,PRIMARY KEY(pair_id))";
      "DROP TABLE mailboxes; CREATE TABLE mailboxes(endpoint,account,\
        mailbox_key,raw_name,encoding,mailbox_id,phase,uidvalidity,generation,\
-       revision,anchor,frontier,inventory_ref,mode)"];
+       revision,anchor,frontier,inventory_ref,mode)";
+     (* Another user_version, with and without the current tables. *)
+     "PRAGMA user_version=2";
+     "PRAGMA user_version=0";
+     (* The same columns under another primary key. *)
+     "DROP TABLE snapshots; CREATE TABLE snapshots ( \
+       endpoint TEXT NOT NULL, account TEXT NOT NULL, \
+       mailbox_key TEXT NOT NULL, uidvalidity INTEGER NOT NULL, \
+       uid INTEGER NOT NULL, modseq INTEGER, \
+       PRIMARY KEY(endpoint,account,mailbox_key,uid))";
+     "DROP INDEX sync_operations_scope_id";
+     "DROP INDEX sync_conflicts_open_id";
+     "CREATE INDEX sync_pairs_scope ON \
+       sync_pairs(endpoint,account,mailbox_key)";
+     "CREATE TABLE extra(a)"];
+  (* The failure names the violated rule. *)
+  let reason f = match f () with
+    | exception Failure message -> message
+    | _ -> failwith "damaged schema accepted" in
+  List.iter (fun (sql,read_write,read_only) -> with_database env
+    (fun path location ->
+      mutate path sql;
+      Eio.Switch.run (fun sw ->
+        let expect what expected actual =
+          if actual<>"Imap_store: " ^ expected then
+            failwith (Printf.sprintf "%s after %S: %S" what sql actual) in
+        expect "open_path" read_write
+          (reason (fun () -> Imap_store.open_path ~sw location));
+        expect "open_readonly" read_only
+          (reason (fun () -> Imap_store.open_readonly ~sw location)))))
+    ["PRAGMA user_version=2","unsupported schema version",
+       "unsupported schema version";
+     "PRAGMA user_version=0","unversioned database already contains tables",
+       "unsupported schema version";
+     "DROP TABLE blob_refs; CREATE TABLE blob_refs ( \
+       endpoint TEXT NOT NULL, account TEXT NOT NULL, \
+       mailbox_key TEXT NOT NULL, uidvalidity INTEGER NOT NULL, \
+       uid INTEGER NOT NULL, sha256 TEXT NOT NULL, length INTEGER NOT NULL, \
+       PRIMARY KEY(endpoint,account,mailbox_key,uid)); \
+       CREATE INDEX blob_refs_hash ON blob_refs(sha256)",
+       "incompatible table: blob_refs","incompatible table: blob_refs";
+     "DROP INDEX sync_operations_pair_id",
+       "missing index: sync_operations_pair_id",
+       "missing index: sync_operations_pair_id";
+     "CREATE INDEX sync_pairs_scope ON \
+       sync_pairs(endpoint,account,mailbox_key)",
+       "unexpected index: sync_pairs_scope",
+       "unexpected index: sync_pairs_scope"];
   (* A table whose name only resembles SQLite's reserved prefix is foreign. *)
   let path=Filename.temp_file "imap-schema-foreign-" ".db" in
   Fun.protect ~finally:(fun () -> List.iter (fun path ->

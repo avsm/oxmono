@@ -37,8 +37,9 @@ exception Scope_mismatch
 
 val open_path : sw:Eio.Switch.t -> ?blob_dir:_ Eio.Path.t -> _ Eio.Path.t -> t
 (** [open_path ~sw ~blob_dir path] opens the database at [path] for reading
-    and writing, creating it when absent and migrating an older schema to
-    the current one, and is the store, which [sw] owns. [blob_dir] is
+    and writing, creating it and its schema when absent, and is the store,
+    which [sw] owns. An existing database must hold exactly the schema of
+    this library, recorded as SQLite [user_version] 1. [blob_dir] is
     omitted by default, and then the {!Blob} operations that touch files
     raise [Invalid_argument]. When given it is an existing directory on a
     native filesystem.
@@ -48,26 +49,24 @@ val open_path : sw:Eio.Switch.t -> ?blob_dir:_ Eio.Path.t -> _ Eio.Path.t -> t
 
     @raise Eio.Io if [path] cannot be opened.
 
-    @raise Failure if the schema is newer than this library or invalid, if
-    the database has tables but no schema version, or if WAL mode,
+    @raise Failure if the database has another [user_version], if a table
+    or index differs from the schema, is missing or is not part of it, if
+    the database has tables but no [user_version], or if WAL mode,
     [synchronous=FULL] or foreign keys cannot be enabled. *)
 
 val open_readonly : sw:Eio.Switch.t -> _ Eio.Path.t -> t
 (** [open_readonly ~sw path] opens the existing database at [path] with
     SQLite's read-only flag, validates its schema, and is the store, which
-    [sw] owns. It never creates, migrates or changes the database, and
-    opens no blob directory. An older database opens when this library can
-    still validate its schema, and a value that needs a newer schema then
-    reads as absent, as that value states. Reading a live WAL database
-    needs readable [-wal] and [-shm] files, or a writable containing
-    directory where SQLite can create [-shm]. An inspection that must write
-    no file reads a checkpointed database or a copy that includes those
-    files.
+    [sw] owns. It never creates or changes the database, and opens no blob
+    directory. Reading a live WAL database needs readable [-wal] and [-shm]
+    files, or a writable containing directory where SQLite can create
+    [-shm]. An inspection that must write no file reads a checkpointed
+    database or a copy that includes those files.
 
     @raise Eio.Io if [path] cannot be opened.
 
-    @raise Failure if the schema is too old to validate, newer than this
-    library, or invalid. *)
+    @raise Failure if the database has another [user_version] or its schema
+    differs from that of this library, as for {!open_path}. *)
 
 (** {1 Mailbox identity} *)
 
@@ -78,9 +77,8 @@ type object_identity = { account_id:string; mailbox_id:string }
 val object_identity : t -> scope:Imap.Mirror.scope ->
   [ `Bound of object_identity | `Unbound | `Conflict ]
 (** [object_identity t ~scope] is the OBJECTID+ identity bound to [scope].
-    It is [`Unbound] when none is bound or [t] is an older database opened
-    with {!open_readonly}, and [`Conflict] when the binding was made under
-    another raw name or encoding. *)
+    It is [`Unbound] when none is bound, and [`Conflict] when the binding
+    was made under another raw name or encoding. *)
 
 val observe_object_identity : t -> scope:Imap.Mirror.scope ->
   object_identity -> [ `Bound | `Matched | `Conflict ]
@@ -267,10 +265,8 @@ type intent_kind =
     the message. [pre_send_uid_frontier] is the last published UID bound
     before the send, not proof of server state at the send.
     [expected_internal_date] is an unquoted IMAP date-time. A [None] field
-    is a value an older store did not record, while [Some []] flags are
-    known empty flags, and an older intent without a message ID, digest or
-    spool reference reads that field as the empty string. [Other] carries
-    an opaque payload. *)
+    was not recorded, while [Some []] flags are known empty flags. [Other]
+    carries an opaque payload. *)
 
 type intent_state = Prepared | Sent | Ambiguous | Confirmed | Rejected
 (** The type for intent states. [Prepared] is recorded before the command
@@ -389,9 +385,9 @@ module Journal : sig
   (** The type for pairs. [remote_uidvalidity] and [remote_uid] are given
       together, and at least one side is bound. [content_sha256],
       [content_length] and [internal_date] are the common content evidence,
-      [None] on an older pair that never recorded it. [common_flags] is the
-      last flag state both sides agreed on. [revision] is the
-      compare-and-swap revision. *)
+      [None] when it was not recorded. [common_flags] is the last flag
+      state both sides agreed on. [revision] is the compare-and-swap
+      revision. *)
 
   val put_pair : t -> expected_revision:int64 option -> pair ->
     [ `Committed of pair | `Stale_revision ]
@@ -403,8 +399,8 @@ module Journal : sig
       [`Stale_revision] with nothing changed.
 
       The ID and scope never change, and neither does an occurrence
-      identity or content evidence once bound. An older pair without
-      content evidence may keep [None], and the caller then holds deletion
+      identity or content evidence once bound. A pair without content
+      evidence may keep [None], and the caller then holds deletion
       propagation for it. A tombstone is never cleared, and is replaced
       only by one with the same or a more permanent reason, in the order
       absence, then [Expunge_receipt] or [Retention], then
@@ -444,8 +440,7 @@ module Journal : sig
     side:[ `Remote | `Local ] -> int64 option
   (** [last_presence_generation t ~pair_id ~side] is the highest
       generation at which {!note_presence} recorded the [side] occurrence
-      of [pair_id], or [None] if it never did. An older database opened
-      with {!open_readonly} yields [None]. *)
+      of [pair_id], or [None] if it never did. *)
 
   val reactivate_local : t -> pair:pair -> generation:int64 ->
     [ `Reactivated of pair | `Stale_revision ]
@@ -624,13 +619,11 @@ module Journal : sig
 
   val operation_source_mtime : t -> id:string -> float option
   (** [operation_source_mtime t ~id] is the Maildir file time saved when
-      the APPEND [id] was prepared. It is [None] when none was saved or [t]
-      is an older database opened with {!open_readonly}. *)
+      the APPEND [id] was prepared, or [None] when none was saved. *)
 
   val operation_source_date : t -> id:string -> Imap.Internal_date.t option
   (** [operation_source_date t ~id] is the remote INTERNALDATE saved when
-      the local append [id] was prepared. It is [None] when none was saved
-      or [t] is an older database opened with {!open_readonly}. *)
+      the local append [id] was prepared, or [None] when none was saved. *)
 
   val local_flags_preimage : t -> id:string ->
     Mail_flag.Imap_flag.t list option
@@ -639,8 +632,7 @@ module Journal : sig
 
   val operation_pair_revision : t -> id:string -> int64 option
   (** [operation_pair_revision t ~id] is the pair revision saved when [id]
-      was prepared, or [None] for an unpaired operation or one prepared
-      without that precondition. *)
+      was prepared, or [None] for an unpaired operation. *)
 
   val mark_sent : t -> id:string -> unit
   (** [mark_sent t ~id] moves the prepared operation [id] to [Sent].
@@ -705,8 +697,7 @@ module Journal : sig
       [None] creates the pair of an unpaired operation. For a paired
       operation it must equal both the revision {!prepare_operation} saved
       and the stored revision, else the result is [`Stale_revision] and the
-      operation stays observed. A paired operation with no saved revision
-      therefore never commits this way. A committed FLAGS operation also
+      operation stays observed. A committed FLAGS operation also
       resolves the pair's open flag conflicts when no other FLAGS operation
       on the pair is active.
 

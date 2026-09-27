@@ -2,8 +2,7 @@ module S = Sqlite3
 module SE = Sqlite3_eio
 
 type blob_dir = Dir : _ Eio.Path.t -> blob_dir
-type t = { db : SE.t; mutex : Eio.Mutex.t; blob_dir : blob_dir option;
-           schema_version : int64 }
+type t = { db : SE.t; mutex : Eio.Mutex.t; blob_dir : blob_dir option }
 
 let fail what = failwith ("Imap_store: " ^ what)
 let check t rc =

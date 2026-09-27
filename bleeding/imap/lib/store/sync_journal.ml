@@ -107,13 +107,12 @@ let read_flags t what sql id =
 
 (* Pair and operation rows are read joined with their flag rows, so one
    statement decodes a whole page. The flag column follows the record. *)
-let pair_columns t =
+let pair_columns =
   "id,endpoint,account,mailbox_key,raw_name,encoding,mailbox_id,\
    remote_epoch,remote_uid,local_id,revision,remote_tombstone_kind,\
    remote_tombstone_evidence,remote_tombstone_generation,\
    local_tombstone_kind,local_tombstone_evidence,\
-   local_tombstone_generation,content_sha256,content_length," ^
-  (if t.schema_version>=10L then "internal_date" else "NULL")
+   local_tombstone_generation,content_sha256,content_length,internal_date"
 let decode_pair (r,common_flags) =
   {id=text r.(0);scope=decode_scope r 1;
    remote_uidvalidity=Option.map validity (nullable_int r.(7));
@@ -126,7 +125,7 @@ let decode_pair (r,common_flags) =
    remote_tombstone=dec_tombstone r.(11) r.(12) r.(13);
    local_tombstone=dec_tombstone r.(14) r.(15) r.(16)}
 let select_pairs t where values =
-  rows t ("SELECT p.*,f.flag FROM (SELECT " ^ pair_columns t ^
+  rows t ("SELECT p.*,f.flag FROM (SELECT " ^ pair_columns ^
     " FROM sync_pairs WHERE " ^ where ^ ") AS p \
     LEFT JOIN sync_pair_flags AS f ON f.pair_id=p.id ORDER BY p.id,f.ord")
     values
@@ -152,8 +151,7 @@ let in_snapshot t scope ~epoch ~uid =
       i (Imap.Uid.to_int64 uid)])<>[]
 let side_name = function `Remote -> "remote" | `Local -> "local"
 let last_presence_generation t ~pair_id ~side =
-  if t.schema_version<13L then None
-  else transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun () ->
     match rows t "SELECT generation FROM sync_pair_presence \
       WHERE pair_id=? AND side=?" [s pair_id;s (side_name side)] with
     | [] -> None
@@ -577,8 +575,7 @@ let saved_pair_revision t id =
 let operation_pair_revision t ~id =
   transaction ~begin_sql:"BEGIN" t (fun () -> saved_pair_revision t id)
 let operation_source_mtime t ~id =
-  if t.schema_version<9L then None
-  else transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun () ->
     match rows t "SELECT mtime FROM sync_operation_local_sources \
       WHERE operation_id=?" [s id] with
     | [] -> None
@@ -593,8 +590,7 @@ let source_date t id =
   | r :: _ -> Some (of_checked "operation source INTERNALDATE"
       Imap.Internal_date.of_string (text r.(0)))
 let operation_source_date t ~id =
-  if t.schema_version<11L then None
-  else transaction ~begin_sql:"BEGIN" t (fun () -> source_date t id)
+  transaction ~begin_sql:"BEGIN" t (fun () -> source_date t id)
 let operation_columns = "id,pair_id,local_id,endpoint,account,mailbox_key,\
   raw_name,encoding,mailbox_id,kind,state,source_epoch,source_uid,\
   dest_endpoint,dest_account,dest_mailbox_key,dest_raw_name,dest_encoding,\

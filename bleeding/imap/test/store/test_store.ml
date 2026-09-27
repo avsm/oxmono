@@ -458,137 +458,6 @@ let test_missing_blob_pages env =
        Alcotest.fail "cursor/scope mismatch accepted"
        with Invalid_argument _ -> ())))
 
-let test_schema_upgrade env ~from_version =
-  let path=Filename.temp_file "imap-upgrade-" ".db" in
-  let fs=Eio.Stdenv.fs env in
-  let cleanup () =
-    List.iter (fun p -> try Sys.remove p with Sys_error _ -> ())
-      [path;path^"-wal";path^"-shm"] in
-  Fun.protect ~finally:cleanup (fun () ->
-    Eio.Switch.run (fun sw ->
-      let db=Store.open_path ~sw Eio.Path.(fs / path) in
-      if List.mem from_version [5;7;8;9;10;11;12] then (
-        let module J=Store.Journal in
-        let pair : J.pair = {
-          id="legacy-pair";scope;remote_uidvalidity=Some (epoch 5L);
-          remote_uid=Some (uid 1L);local_id=Some "legacy-local";
-          content_sha256=None;content_length=None;internal_date=None;
-          common_flags=[];remote_tombstone=None;local_tombstone=None;
-          revision=0L} in
-        let pair=match J.put_pair db ~expected_revision:None pair with
-          | `Committed pair -> pair
-          | `Stale_revision -> Alcotest.fail "legacy pair create failed" in
-        if from_version=5 || from_version=7 then (
-        let operation : J.operation = {
-          id="legacy-flags";pair_id=Some pair.id;
-          local_id=pair.local_id;scope;kind=Flags;state=Prepared;
-          source_uidvalidity=pair.remote_uidvalidity;
-          source_uid=pair.remote_uid;destination=None;
-          destination_uidvalidity=None;blob_sha256=None;blob_length=None;
-          desired_flags=Some [flag "\\Seen"];receipt=None;
-          receipt_uidvalidity=None;receipt_uid=None} in
-        J.prepare_operation db operation;
-        J.mark_sent db ~id:operation.id;
-        J.observe_operation db ~id:operation.id ~receipt:"legacy observed"
-          ~destination_uidvalidity:None ~destination_uid:None)));
-    Eio.Switch.run (fun sw ->
-      let db=Sqlite3_eio.open_path ~sw Eio.Path.(fs / path) in
-      Sqlite3.Rc.check (Sqlite3_eio.exec db
-        "DROP TABLE sync_pair_presence");
-      if from_version<=11 then Sqlite3.Rc.check (Sqlite3_eio.exec db
-        "DROP TABLE mailbox_object_ids");
-      if from_version<=10 then Sqlite3.Rc.check (Sqlite3_eio.exec db
-        "DROP TABLE sync_operation_source_dates");
-      if from_version<=9 then Sqlite3.Rc.check (Sqlite3_eio.exec db
-        "ALTER TABLE sync_pairs DROP COLUMN internal_date");
-      if from_version<=8 then Sqlite3.Rc.check (Sqlite3_eio.exec db
-        "DROP TABLE sync_operation_local_sources");
-      if from_version<=7 then List.iter (fun table ->
-        Sqlite3.Rc.check (Sqlite3_eio.exec db ("DROP TABLE "^table)))
-        ["sync_operation_local_preimage_flags";
-         "sync_operation_local_preimages"];
-      if from_version<=5 then
-        Sqlite3.Rc.check (Sqlite3_eio.exec db
-          "DROP TABLE sync_operation_preconditions");
-      if from_version=5 || from_version=6 then (
-        Sqlite3.Rc.check (Sqlite3_eio.exec db
-          "ALTER TABLE sync_pairs DROP COLUMN content_sha256");
-        Sqlite3.Rc.check (Sqlite3_eio.exec db
-          "ALTER TABLE sync_pairs DROP COLUMN content_length"));
-      if from_version<5 then List.iter (fun table ->
-        Sqlite3.Rc.check (Sqlite3_eio.exec db ("DROP TABLE "^table)))
-        ["sync_operation_flags";"sync_operations";"sync_conflicts";
-         "sync_pair_flags";"sync_pairs"];
-      if from_version<4 then List.iter (fun table ->
-        Sqlite3.Rc.check (Sqlite3_eio.exec db ("DROP TABLE "^table)))
-        ["scan_flags";"scan_rows";"scan_stages"];
-      if from_version<3 then (
-        if from_version=1 then
-          Sqlite3.Rc.check (Sqlite3_eio.exec db "DROP TABLE blob_refs");
-        Sqlite3.Rc.check (Sqlite3_eio.exec db "DROP TABLE intent_flags");
-        Sqlite3.Rc.check (Sqlite3_eio.exec db "DROP TABLE intents");
-        Sqlite3.Rc.check (Sqlite3_eio.exec db
-          "CREATE TABLE intents (id TEXT PRIMARY KEY, endpoint TEXT NOT NULL, \
-           account TEXT NOT NULL, mailbox_key TEXT NOT NULL, \
-           raw_name TEXT NOT NULL, encoding TEXT NOT NULL, mailbox_id TEXT, \
-           kind TEXT NOT NULL, message_id TEXT, digest TEXT, spool_ref TEXT, \
-           state TEXT NOT NULL, uidvalidity INTEGER, uid INTEGER)");
-        Sqlite3.Rc.check (Sqlite3_eio.exec db
-          "INSERT INTO intents VALUES ('legacy-append','imap.example','alice', \
-           'inbox','INBOX','mutf7',NULL,'append','<legacy@x>', \
-           'sha256:old','/spool/old','ambiguous',5,NULL)"));
-      Sqlite3.Rc.check (Sqlite3_eio.exec db
-        ("PRAGMA user_version=" ^ string_of_int from_version)));
-    (if from_version>=8 then Eio.Switch.run (fun sw ->
-      let db=Store.open_readonly ~sw Eio.Path.(fs / path) in
-      if from_version=12 then Alcotest.(check (option int64))
-        "v12 has no presence witness table" None
-        (Store.Journal.last_presence_generation db ~pair_id:"legacy-pair"
-          ~side:`Local);
-      Alcotest.(check bool) "older pair readable before migration" true
-        (match Store.Journal.find_pair db ~id:"legacy-pair" with
-         | Some pair -> pair.internal_date=None
-         | None -> false);
-      Alcotest.(check bool) "older source date is unknown" true
-        (Store.Journal.operation_source_date db ~id:"legacy-flags"=None)));
-    Eio.Switch.run (fun sw ->
-      let db=Store.open_path ~sw Eio.Path.(fs / path) in
-      Alcotest.(check int64) "pre-blob cursor still loads" 0L
-        (Store.load_cursor db ~scope).revision;
-      if from_version>=8 then Alcotest.(check bool)
-        "migrated pair retains unknown date" true
-        (match Store.Journal.find_pair db ~id:"legacy-pair" with
-         | Some pair -> pair.internal_date=None
-         | None -> false);
-      if from_version=5 then (
-        let module J=Store.Journal in
-        let pair=Option.get (J.find_pair db ~id:"legacy-pair") in
-        Alcotest.(check bool) "v5 pending operation lacks safe precondition"
-          true (J.commit_operation_with_pair db ~id:"legacy-flags"
-            ~expected_pair_revision:(Some pair.revision)
-            {pair with common_flags=[flag "\\Seen"]}=`Stale_revision));
-      if from_version=7 then (
-        let module J=Store.Journal in
-        Alcotest.(check bool) "v7 FLAGS preimage remains unknown" true
-          (J.local_flags_preimage db ~id:"legacy-flags"=None);
-        Alcotest.(check (option int64)) "v7 pair precondition retained"
-          (Some 1L) (J.operation_pair_revision db ~id:"legacy-flags"));
-      if from_version<3 then (
-      let old=Option.get (Store.find_intent db ~id:"legacy-append") in
-      (match old.kind with
-       | Append metadata ->
-         Alcotest.(check (option int64)) "legacy frontier unknown" None
-           metadata.pre_send_uid_frontier;
-         Alcotest.(check (option int64)) "legacy length unknown" None
-           metadata.expected_length;
-         Alcotest.(check (option (list string))) "legacy flags unknown" None
-           (Option.map (List.map Mail_flag.Imap_flag.to_wire)
-             metadata.expected_flags);
-         Alcotest.(check (option string)) "legacy date unknown" None
-           metadata.expected_internal_date
-       | _ -> Alcotest.fail "legacy APPEND changed kind"))));
-  ()
-
 let test_disk_stage env =
   let path=Filename.temp_file "imap-stage-" ".db" in
   let fs=Eio.Stdenv.fs env in
@@ -1126,12 +995,6 @@ let test_readonly_and_conflict_pages env =
         Store.Journal.record_conflict db conflict
       done;
       Store.Journal.resolve_conflict db ~id:"conflict-03");
-    let legacy_v7=Sqlite3.db_open path in
-    List.iter (fun name ->
-      Alcotest.(check bool) (name ^ " dropped") true
-        (Sqlite3.exec legacy_v7 ("DROP INDEX " ^ name)=Sqlite3.Rc.OK))
-      ["sync_operations_scope_id";"sync_operations_pair_id"];
-    ignore (Sqlite3.db_close legacy_v7 : bool);
     let before=Digest.file path in
     Eio.Switch.run (fun sw ->
       let db=Store.open_readonly ~sw Eio.Path.(fs / path) in
@@ -1167,17 +1030,17 @@ let test_readonly_and_conflict_pages env =
     let old_before=Digest.file old in
     (try Eio.Switch.run (fun sw ->
        ignore (Store.open_readonly ~sw Eio.Path.(fs / old)));
-       Alcotest.fail "older schema opened read-only"
+       Alcotest.fail "other user_version opened read-only"
      with Failure _ -> ());
-    Alcotest.(check string) "older schema not migrated" old_before
+    Alcotest.(check string) "other user_version not modified" old_before
       (Digest.file old);
     let malformed_db=Sqlite3.db_open malformed in
-    ignore (Sqlite3.exec malformed_db "PRAGMA user_version=7" : Sqlite3.Rc.t);
+    ignore (Sqlite3.exec malformed_db "PRAGMA user_version=1" : Sqlite3.Rc.t);
     ignore (Sqlite3.db_close malformed_db : bool);
     let malformed_before=Digest.file malformed in
     (try Eio.Switch.run (fun sw ->
        ignore (Store.open_readonly ~sw Eio.Path.(fs / malformed)));
-       Alcotest.fail "malformed v7 schema opened read-only"
+       Alcotest.fail "malformed schema opened read-only"
      with Failure _ -> ());
     Alcotest.(check string) "malformed schema not modified"
       malformed_before (Digest.file malformed));
@@ -1354,30 +1217,6 @@ let () =
       (fun () -> test_blobs env);
     Alcotest.test_case "paged missing blobs, CAS and epoch" `Quick
       (fun () -> test_missing_blob_pages env);
-    Alcotest.test_case "v1 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:1);
-    Alcotest.test_case "v2 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:2);
-    Alcotest.test_case "v3 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:3);
-    Alcotest.test_case "v4 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:4);
-    Alcotest.test_case "v5 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:5);
-    Alcotest.test_case "v6 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:6);
-    Alcotest.test_case "v7 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:7);
-    Alcotest.test_case "v8 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:8);
-    Alcotest.test_case "v9 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:9);
-    Alcotest.test_case "v10 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:10);
-    Alcotest.test_case "v11 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:11);
-    Alcotest.test_case "v12 to v13 schema migration" `Quick
-      (fun () -> test_schema_upgrade env ~from_version:12);
     Alcotest.test_case "sync occurrence journal and restart" `Quick
       (fun () -> test_sync_journal env);
     Alcotest.test_case "active operation pages and mixed states" `Quick

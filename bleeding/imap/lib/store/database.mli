@@ -5,7 +5,6 @@ type t = {
   db : Sqlite3_eio.t;
   mutex : Eio.Mutex.t;
   blob_dir : blob_dir option;
-  schema_version : int64;
 }
 
 val fail : string -> 'a

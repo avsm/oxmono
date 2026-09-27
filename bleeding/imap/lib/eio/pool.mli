@@ -20,4 +20,5 @@ val use : t -> (Client.t -> ('a, Error.t) result) -> ('a, Error.t) result
     uncertain-outcome error closes the borrowed client before returning it to
     the pool; a tagged rejection leaves it reusable. Exceptions and
     cancellation close the client and propagate. Never retain [Client.t]
-    beyond the callback. *)
+    beyond the callback. Once the pool's switch is released, [use] returns
+    [Error.Closed], including for a caller already waiting for a client. *)

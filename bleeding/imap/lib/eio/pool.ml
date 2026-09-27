@@ -10,7 +10,9 @@ let create ~sw ~max_connections ~connect =
   if max_connections < 1 then invalid_arg "IMAP pool size must be positive";
   let closed=ref false in
   Eio.Switch.on_release sw (fun () -> closed:=true);
+  (* A fiber can wait for a slot across the release of [sw]. *)
   let alloc () =
+    if !closed then raise (Connect_failed Error.Closed);
     match connect ~sw with
     | Ok client when Client.is_open client -> client
     | Ok client -> Client.close client; raise (Connect_failed Error.Closed)
@@ -33,6 +35,7 @@ let use t callback =
          | _ -> ());
         result
       with ex ->
+        let bt=Printexc.get_raw_backtrace () in
         Client.close client;
-        raise ex)
+        Printexc.raise_with_backtrace ex bt)
     with Connect_failed error -> Error error

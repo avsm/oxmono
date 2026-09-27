@@ -346,6 +346,38 @@ let test_copyuid_source_checked () =
       (S.uid_copy selected ~set:(uid_set "1") ~mailbox:"Archive");
     Ok ())
 
+let test_pool_waiter_after_release () =
+  Eio_mock.Backend.run @@ fun () ->
+  Eio.Switch.run @@ fun outer ->
+  let connects = ref 0 in
+  let connect ~sw =
+    incr connects;
+    let flow = Eio_mock.Flow.make "review-pool" in
+    Eio_mock.Flow.on_read flow [`Return "* PREAUTH ready\r\n";
+      `Return ("* CAPABILITY IMAP4rev1\r\n" ^ tag 1 ^ " OK caps\r\n")];
+    C.of_flow ~sw flow in
+  let entered, mark_entered = Eio.Promise.create () in
+  let hold, release_hold = Eio.Promise.create () in
+  let waiter, finish_waiter = Eio.Promise.create () in
+  Eio.Switch.run (fun sw ->
+    let pool = Imap_eio.Pool.create ~sw ~max_connections:1 ~connect in
+    Eio.Fiber.fork ~sw:outer (fun () ->
+      ignore (Imap_eio.Pool.use pool (fun _ ->
+        Eio.Promise.resolve mark_entered ();
+        Eio.Promise.await hold;
+        Ok ())));
+    Eio.Promise.await entered;
+    Eio.Fiber.fork ~sw:outer (fun () ->
+      Eio.Promise.resolve finish_waiter
+        (Imap_eio.Pool.use pool (fun _ -> Ok ())));
+    Eio.Fiber.yield ());
+  Eio.Promise.resolve release_hold ();
+  (match Eio.Promise.await waiter with
+   | Error E.Closed -> ()
+   | Error e -> failwith ("pool waiter after release: " ^ C.error_to_string e)
+   | Ok () -> failwith "pool waiter used a released switch");
+  if !connects <> 1 then failwith "pool connected on a released switch"
+
 let connect_and_close ~sw collected =
   let flow = Eio_mock.Flow.make "released" in
   Eio_mock.Flow.on_read flow [`Return "* PREAUTH ready\r\n";
@@ -386,4 +418,5 @@ let () =
   test_changes_keep_complete_rows ();
   test_search_page_at_uid_one ();
   test_metadata_modseq_needs_condstore ();
-  test_copyuid_source_checked ()
+  test_copyuid_source_checked ();
+  test_pool_waiter_after_release ()

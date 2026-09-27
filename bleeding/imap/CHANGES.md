@@ -128,7 +128,7 @@ lease. The Dovecot metadata lock reports Maildir's own
 `c8945a2a6` `Engine.hydrate_once` takes `?after_uid` and skips a
 body over either size budget into a new `skipped` count instead of
 failing the pass, and `audit_cache_once` skips an oversized blob the
-same way; both report `more=true` after a concurrent publication.
+same way. Both report `more=true` after a concurrent publication.
 An epoch change no longer fails every scan waiting for its first
 OBJECTID+ binding.
 
@@ -206,7 +206,7 @@ reported as `Protocol`.
 `b03f5b918` `Client.append` replaces `append_flow`,
 `append_flow_receipt`, `append_binary_flow` and
 `append_binary_flow_receipt`, and `append_many` replaces
-`append_messages`; both take typed `Mail_flag.Imap_flag.t` flags.
+`append_messages`. Both take typed `Mail_flag.Imap_flag.t` flags.
 
 `42eb28cab` Extension-only operations move into lease and client
 witness submodules (`Condstore`, `Qresync`, `Uidplus`, `Move`,
@@ -218,7 +218,7 @@ same connection now returns `State "call inside with_mailbox on the
 same connection"` instead of deadlocking.
 
 `92270326b` `Engine.run_once`, `scan` and `scan_qresync` are
-removed; `run_once_staged` is renamed `scan_once`. `Reconcile` is
+removed. `run_once_staged` is renamed `scan_once`. `Reconcile` is
 removed.
 
 `fb96b9170` `Imap_sync.Error.t` replaces four separate module error
@@ -236,7 +236,7 @@ three separate deletion flags.
 
 `494effca3` `imap-sync` gains `gc`, which removes orphan blobs, and
 `forget-epochs`, which drops quarantined epochs and prints
-`epochs_dropped=N`; `sync` runs the orphan collector at startup and
+`epochs_dropped=N`. `sync` runs the orphan collector at startup and
 prints its count when nonzero.
 
 `e03ce0e85` Offline `imap-sync` commands load the stored cursor once
@@ -253,7 +253,7 @@ protocol modules under one documented facade.
 `test/examples`.
 
 `62d068812` `imap.opam` lists `sqlite3`, `optint`, and `ptime` and
-`jmap` as test-only dependencies; several unused library
+`jmap` as test-only dependencies. Several unused library
 dependencies are dropped.
 
 `796c75184` The README points at the odoc pages and examples.
@@ -269,7 +269,7 @@ chosen strategy.
 the doc-style rules, stating every limit and default against the
 implementation. No signature changed.
 
-`1e8032fdd` Every `lib/sync` interface is fully documented; `Error`
+`1e8032fdd` Every `lib/sync` interface is fully documented. `Error`
 now states, for each constructor, whether a retry, a later
 reconciliation or an operator action follows.
 
@@ -315,7 +315,7 @@ checks staleness before stage coverage.
 
 `132c6c04a` `test/bench` adds six benchmark executables (`bench_wire`,
 `bench_uid_set`, `bench_encode`, `bench_session`, `bench_maildir`,
-`bench_store`) that `@all` builds; `runtest` does not run them.
+`bench_store`) that `@all` builds. `runtest` does not run them.
 
 `5974c418b` `Uid.t`, `Uidvalidity.t` and `Seq.t` are declared
 `immediate`.

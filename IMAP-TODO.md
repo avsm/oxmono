@@ -181,6 +181,62 @@ Evidence: `dune build --root . @bleeding/imap/all` clean and
 
 #### F: store
 
+Commits 88693549a, e710b45c5, 8fae853c6, d26a71a5e, 20c80d652, a219531ee,
+8e311c54f, f470eaf93, 0bf6184bd on the step F store branch.
+
+Fixed. Database: `bind` checks the parameter count, statements are reset
+and cleared on every path, `check` carries SQLite's `errmsg`, a nested
+`transaction` or `locked` raises `Invalid_argument` through a per-fiber
+`Eio.Fiber` key. Schema: primary keys and UNIQUE constraints are validated,
+the reserved-name guard escapes `_`, one `current_version`, the new
+`sync_conflicts_open_id` partial index joins the unversioned group.
+Record_codec: shared cursor read, stale checks, SHA-256 validator, flag
+grouping and `Scope_mismatch`. Journal: `equal_durable` everywhere, stale
+repairs are `Stale_revision`, one `verify_repair`, batched page reads,
+`resolve_open_conflicts` uses `changes()`. Intents: NULL legacy fields read
+as `""`, UID without UIDVALIDITY rejected, confirmation keeps the stored
+UIDVALIDITY. Blobs: finalisers no longer mask the body exception, Unix
+directory errors become `Eio.Io`, one reachability statement, fsync after
+the digest check, one temp-name retry. Imap_store: seeding checks the
+epoch, OBJECTID+ name mismatch is `Conflict`, CONDSTORE publish without
+HIGHESTMODSEQ anchors at the largest staged MODSEQ as `Mirror.complete`
+does, publish paths share the cursor upsert and epoch replacement.
+
+Deviation. The decision that a tombstone can never be replaced by
+`put_pair` breaks bridge.ml:539 and :1048, which renew an absence tombstone
+after the side vanishes again and escalate `Local_absence` to `Retention`;
+bridge_faults cases 35 and 36 failed under it. `put_pair` instead forbids
+clearing and allows replacement only by the same or a more permanent reason
+(absence, then `Expunge_receipt` or `Retention`, then `Explicit_delete`),
+which closes the laundering path the finding describes.
+`object_identity` follows the Imap_store decision (a `Conflict` outcome),
+not the Record_codec one (raise `Scope_mismatch`), since both name the same
+check. The temp-name retry has no directed test: names cannot be forced to
+collide without an injection point.
+
+Interface changes. `Imap_store` gains `exception Scope_mismatch`,
+`forget_epochs` and `Blob.attach ?verify`, and `object_identity` returns
+`` [ `Bound of object_identity | `Unbound | `Conflict ] ``. In the private
+modules `Database.check` and `bind` take the handle, `locked`,
+`rows_prepared` and `changes` are new, and `Record_codec` drops
+`dec_phase`, `dec_mode` and `decode_cursor` for the shared helpers. Consumers edited: bin/imap_cli.ml (match `Scope_mismatch`,
+`object_identity` outcome), lib/sync/engine.ml (`load_cursor` at the APPEND
+path, `object_identity` outcome, `attach ~verify:false` after `put`),
+test/bridge_faults, test/stalwart and test/store/test_store.ml for the
+`object_identity` type; test_store.ml "stale pair cannot settle" now
+expects `Stale_revision` as decided.
+
+Left. `publish`, `load` and the test-only list readers (step 11), the
+orphan collector in the CLI (step 12), the receipt epoch column (v14),
+`sync_pairs_scope` (migration), full-epoch rewrites per publish, column
+types and foreign keys in `validate_schema`.
+
+Evidence. New directed tests: test/store/database (private Database via
+copy_files), test_store_outcomes, test_journal_outcomes, and additions to
+test_schema_guards and test_intent_validation. `dune build
+@bleeding/imap/all` and `dune build @bleeding/imap/runtest --force` are
+clean.
+
 #### F: maildir
 
 Branch `worktree-agent-a8b4ff22560c66080`: Keywords, Dotlock and
@@ -375,34 +431,34 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/store/imap_store.ml
 
-- [ ] engine.ml:503 [medium] `append_journaled` calls `Imap_store.load` only to read `cursor.frontier` and `cursor.uidvalidity`, so the production APPEND path materialises the whole destination snapshot per APPEND; use `load_cursor`.
-- [ ] imap_store.ml:239 [low] `seed_stage_from_published` checks stored revision and scope but not `uidvalidity`, unlike `snapshot_page` at :145 and `snapshot_contains_uid` at :191, so a cursor rebuilt with the current revision and an older epoch seeds rows from a quarantined epoch.
-- [ ] imap_store.ml:411 [low] `publish_stage` sets `anchor = None` in Condstore mode when no explicit HIGHESTMODSEQ arrives, while `Mirror.complete` at mirror.ml:136 falls back to the largest observed MODSEQ, so the two publish paths persist different anchors.
-- [ ] imap_store.ml:69 [low] `load` at :69, `publish_stage` at :425 and `decode_cursor` at record_codec.ml:131 discard the `Mirror.error` payload for a fixed string.
-- [ ] imap_store.ml:92 [low] a stored raw_name or encoding mismatch raises `Failure` in `object_identity` but returns `Conflict` in `observe_object_identity` at :107.
-- [ ] imap_store.ml:274 [low] with `preserve_newer` the `(None, None)` MODSEQ case reports "incremental row lacks MODSEQ" although the seeded row is at fault.
-- [ ] imap_store.ml:210 [dead] `action.id = ""` is unreachable since `Mirror.action` is private; the duplicate-cursor and duplicate-stage arms at :71, :133, :144, :190, :207 and :343 are unreachable on primary-key lookups; `load_unlocked` at :28 has one caller.
-- [ ] imap_store.ml:337 [dead] `publish` has one caller, `Engine.run_once` at engine.ml:337, whose only caller is test/oracle/test_oracle.ml:183; `load` has callers at engine.ml:281 (run_once) and :503 (should be `load_cursor`). After those two changes both survive only through a test-only path. Plan step 11.
-- [ ] imap_store.ml:29 [redundant] the cursor read plus `decode_cursor` appears at :29, :130, :141 and :187 and again as blob_store.ml:116 `current_cursor_unlocked`; the stale test at :145 and :191 duplicates blob_store.ml:122; the stale-header check at :239, :333 and :402 disagrees on the missing-row case; the mailbox upsert SQL at :348 and :427; epoch replacement at :363 and :436; row grouping at :46 and :160; stage header checks at :230 and :393; the action-versus-cursor precondition at :210, :222 and :386; intent types restated at :10.
-- [ ] imap_store.ml:271 [optimisation] `stage_rows` prepares a SELECT per row under `preserve_newer` and a DELETE per row always, about 2,000,000 prepares at 1,000,000 rows; hoist into `with_stmt`. Both publish paths delete and reinsert the whole epoch even for incremental scans, so a 1,000,000-row mailbox writes over 2,000,000 rows per sync. `load` at 1,000,000 rows peaks near 0.5 GB and matters from about 50,000. The `count(*)` at :443 re-scans the stage where `changes()` suffices. Indexes are all present.
-- [ ] imap_store.mli:54 [drift] `snapshot_page` and `snapshot_contains_uid` promise a scope check yielding `Stale_revision` but a stored-scope mismatch raises `Failure` via record_codec.ml:124 and a mismatched cursor argument raises `Invalid_argument` at :138 and :184; `object_identity` raises `Failure` at :94; `stage_rows` raises `Invalid_argument` on missing MODSEQ; `begin_stage` raises `SqliteError` on a duplicate stage; `publish_stage` raises `Invalid_argument` at :399, :401 and :415. None is documented.
+- [x] engine.ml:503 [medium] `append_journaled` calls `Imap_store.load` only to read `cursor.frontier` and `cursor.uidvalidity`, so the production APPEND path materialises the whole destination snapshot per APPEND; use `load_cursor`.
+- [x] imap_store.ml:239 [low] `seed_stage_from_published` checks stored revision and scope but not `uidvalidity`, unlike `snapshot_page` at :145 and `snapshot_contains_uid` at :191, so a cursor rebuilt with the current revision and an older epoch seeds rows from a quarantined epoch.
+- [x] imap_store.ml:411 [low] `publish_stage` sets `anchor = None` in Condstore mode when no explicit HIGHESTMODSEQ arrives, while `Mirror.complete` at mirror.ml:136 falls back to the largest observed MODSEQ, so the two publish paths persist different anchors.
+- [x] imap_store.ml:69 [low] `load` at :69, `publish_stage` at :425 and `decode_cursor` at record_codec.ml:131 discard the `Mirror.error` payload for a fixed string.
+- [x] imap_store.ml:92 [low] a stored raw_name or encoding mismatch raises `Failure` in `object_identity` but returns `Conflict` in `observe_object_identity` at :107.
+- [x] imap_store.ml:274 [low] with `preserve_newer` the `(None, None)` MODSEQ case reports "incremental row lacks MODSEQ" although the seeded row is at fault.
+- [x] imap_store.ml:210 [dead] `action.id = ""` is unreachable since `Mirror.action` is private; the duplicate-cursor and duplicate-stage arms at :71, :133, :144, :190, :207 and :343 are unreachable on primary-key lookups; `load_unlocked` at :28 has one caller.
+- [ ] imap_store.ml:337 [dead] `publish` has one caller, `Engine.run_once` at engine.ml:337, whose only caller is test/oracle/test_oracle.ml:183; `load` has callers at engine.ml:281 (run_once) and :503 (should be `load_cursor`). After those two changes both survive only through a test-only path. Plan step 11. (left for step 11)
+- [x] imap_store.ml:29 [redundant] the cursor read plus `decode_cursor` appears at :29, :130, :141 and :187 and again as blob_store.ml:116 `current_cursor_unlocked`; the stale test at :145 and :191 duplicates blob_store.ml:122; the stale-header check at :239, :333 and :402 disagrees on the missing-row case; the mailbox upsert SQL at :348 and :427; epoch replacement at :363 and :436; row grouping at :46 and :160; stage header checks at :230 and :393; the action-versus-cursor precondition at :210, :222 and :386; intent types restated at :10. (intent types restated at :10 left for step 1)
+- [x] imap_store.ml:271 [optimisation] `stage_rows` prepares a SELECT per row under `preserve_newer` and a DELETE per row always, about 2,000,000 prepares at 1,000,000 rows; hoist into `with_stmt`. Both publish paths delete and reinsert the whole epoch even for incremental scans, so a 1,000,000-row mailbox writes over 2,000,000 rows per sync. `load` at 1,000,000 rows peaks near 0.5 GB and matters from about 50,000. The `count(*)` at :443 re-scans the stage where `changes()` suffices. Indexes are all present. (left: the full-epoch rewrite per publish needs an incremental publish design; `load` memory goes with step 11)
+- [x] imap_store.mli:54 [drift] `snapshot_page` and `snapshot_contains_uid` promise a scope check yielding `Stale_revision` but a stored-scope mismatch raises `Failure` via record_codec.ml:124 and a mismatched cursor argument raises `Invalid_argument` at :138 and :184; `object_identity` raises `Failure` at :94; `stage_rows` raises `Invalid_argument` on missing MODSEQ; `begin_stage` raises `SqliteError` on a duplicate stage; `publish_stage` raises `Invalid_argument` at :399, :401 and :415. None is documented.
 - Facts for steps 1 and 11: `Sync` and `Blob` are module aliases at :454 and the intent values are aliases at :448 with types restated at :10, so docs can live in the facade only. `open_path` failures are `Failure` with the messages listed in the review transcript, plus `SqliteError` and `Invalid_argument` for the blob directory. Schema: `validate_schema` accepts 8..13, `open_path` migrates 0..13 and writes 13; migration steps 0 to 13 are at schema.ml:137 to :286; read gates at schema.ml:45, :62 and :71, imap_store.ml:85, sync_journal.ml:92, :116, :555 and :569; record_codec.ml:127 carries a cursor format version 1 unrelated to the schema. The two APPEND models are bridged only by a shared ID in bridge.ml:195, :243, :326, :409 and :1412 and by Blob_store orphan checks at blob_store.ml:255. Comments are clean.
 
 #### lib/store/sync_journal.ml
 
-- [ ] sync_journal.ml:814 [high] the DELETE repair guards at :814 and :850 compare stored `desired_flags` structurally with `Some (List.sort_uniq compare pair.common_flags)`, but flags are stored in caller order at :516 and read back in that order at :584, so any unsorted list or a DELETE prepared with `desired_flags = None` returns `Invalid_operation` forever. Use `Imap_flag.equal_durable`.
-- [ ] sync_journal.ml:497 [high] flag sets at :497, :695, :814 and :850 are normalised with the case-insensitive `Imap_flag.compare` and then compared with structural equality, which disagrees with `Imap_flag.equal` for keywords whose case changed, so `commit_operation_with_pair` raises "pair contradicts operation evidence".
-- [ ] sync_journal.ml:772 [medium] `settle_flag_operation` at :772, `reject_unchanged_delete_operation` at :808 and `attest_targeted_expunge` at :844 return `Invalid_operation` for a stale pair because `current = pair` is a guard conjunct; the interface documents `Stale_revision`.
-- [ ] sync_journal.ml:255 [medium] `put_pair` forbids clearing a tombstone but allows replacing one, so a `Retention` or `Explicit_delete` tombstone can be rewritten to `Local_absence` and then cleared by `reactivate_local`.
-- [ ] sync_journal.ml:241 [medium] a scope change in `put_pair` returns `Stale_revision` where every other immutability violation raises `Invalid_argument`, so a retrying caller loops.
-- [ ] sync_journal.ml:138 [medium] `note_presence` does not check the pair has an occurrence on the named side; `Remote` on a local-only pair reports a misleading generation error or raises the stdlib `Option.get` exception at :140.
-- [ ] sync_journal.ml:719 [low] `commit_operation_with_pair` returns `Stale_revision` for a paired operation called with `expected_pair_revision = None`, a caller error that never succeeds on retry.
-- [ ] sync_journal.ml:869 [low] `attest_targeted_expunge` uses `""` as an overflow sentinel and returns `Invalid_operation` with no reason once the 4096-byte evidence bound is hit.
-- [ ] sync_journal.ml:45 [low] validation errors name `put_pair` when raised via :754 and :787 from settle and commit.
-- [ ] sync_journal.ml:797 [dead] duplicates the wildcard at :798; `assert false` at :741 is unreachable given :736; :327 and :640 behind `LIMIT 1`; :566 since `sqlite_master` names are unique.
-- [ ] sync_journal.ml:799 [redundant] `reject_unchanged_delete_operation` and `attest_targeted_expunge` at :835 are identical through the active-op check, about thirty lines; `settle_flag_operation` at :763 shares eight guard conjuncts; the precondition read appears five times at :548, :722, :778, :820 and :856; the active-state list seven times; the scope-mismatch check at :183, :199 and :215; the SHA-256 validator at :74 and :452; flag insert loops at :283, :516 and :526 and decoders at :97, :541 and :584; the list variants `pairs`, `open_conflicts` and `active_operations` are called only from tests; `put_pair_unlocked` builds the same columns for INSERT at :269 and UPDATE at :274; `operation_source_mtime` probes `sqlite_master` at :555 where a version check would do; the pair is re-read at :237 after the caller read it. Plan step 11.
-- [ ] sync_journal.ml:194 [optimisation] `pairs_page` selects ids then issues two statements per pair via `find_pair_unlocked`, so a 1000-page costs 2001 prepares and a 100,000-message scan about 200,000; `decode_operation` at :584 has the same N+1 shape; `open_conflicts_page` at :366 has no index on id restricted by scope and resolved conflicts are never deleted, so paging is O(n^2/limit). Add a partial index `sync_conflicts(id) WHERE resolved = 0`.
-- [ ] sync_journal.mli:46 [drift] `last_presence_generation` promises presence after an earlier absence but `note_presence` requires no tombstone; `local_source_mtime` at :121 is documented for an unpaired APPEND but the code never checks `pair_id = None`; the three repair docs at :175, :186 and :195 promise `Stale_revision`; `reject_unchanged_delete_operation` does not document exact blob equality, non-None sorted flags; the scope immutability at :29 is enforced as `Stale_revision`; the tombstone immutability at :53 does not hold through `put_pair`.
+- [x] sync_journal.ml:814 [high] the DELETE repair guards at :814 and :850 compare stored `desired_flags` structurally with `Some (List.sort_uniq compare pair.common_flags)`, but flags are stored in caller order at :516 and read back in that order at :584, so any unsorted list or a DELETE prepared with `desired_flags = None` returns `Invalid_operation` forever. Use `Imap_flag.equal_durable`.
+- [x] sync_journal.ml:497 [high] flag sets at :497, :695, :814 and :850 are normalised with the case-insensitive `Imap_flag.compare` and then compared with structural equality, which disagrees with `Imap_flag.equal` for keywords whose case changed, so `commit_operation_with_pair` raises "pair contradicts operation evidence".
+- [x] sync_journal.ml:772 [medium] `settle_flag_operation` at :772, `reject_unchanged_delete_operation` at :808 and `attest_targeted_expunge` at :844 return `Invalid_operation` for a stale pair because `current = pair` is a guard conjunct; the interface documents `Stale_revision`.
+- [x] sync_journal.ml:255 [medium] `put_pair` forbids clearing a tombstone but allows replacing one, so a `Retention` or `Explicit_delete` tombstone can be rewritten to `Local_absence` and then cleared by `reactivate_local`. (replacement allowed only by the same or a more permanent reason, see F: store)
+- [x] sync_journal.ml:241 [medium] a scope change in `put_pair` returns `Stale_revision` where every other immutability violation raises `Invalid_argument`, so a retrying caller loops.
+- [x] sync_journal.ml:138 [medium] `note_presence` does not check the pair has an occurrence on the named side; `Remote` on a local-only pair reports a misleading generation error or raises the stdlib `Option.get` exception at :140.
+- [x] sync_journal.ml:719 [low] `commit_operation_with_pair` returns `Stale_revision` for a paired operation called with `expected_pair_revision = None`, a caller error that never succeeds on retry.
+- [x] sync_journal.ml:869 [low] `attest_targeted_expunge` uses `""` as an overflow sentinel and returns `Invalid_operation` with no reason once the 4096-byte evidence bound is hit.
+- [x] sync_journal.ml:45 [low] validation errors name `put_pair` when raised via :754 and :787 from settle and commit.
+- [x] sync_journal.ml:797 [dead] duplicates the wildcard at :798; `assert false` at :741 is unreachable given :736; :327 and :640 behind `LIMIT 1`; :566 since `sqlite_master` names are unique.
+- [x] sync_journal.ml:799 [redundant] `reject_unchanged_delete_operation` and `attest_targeted_expunge` at :835 are identical through the active-op check, about thirty lines; `settle_flag_operation` at :763 shares eight guard conjuncts; the precondition read appears five times at :548, :722, :778, :820 and :856; the active-state list seven times; the scope-mismatch check at :183, :199 and :215; the SHA-256 validator at :74 and :452; flag insert loops at :283, :516 and :526 and decoders at :97, :541 and :584; the list variants `pairs`, `open_conflicts` and `active_operations` are called only from tests; `put_pair_unlocked` builds the same columns for INSERT at :269 and UPDATE at :274; `operation_source_mtime` probes `sqlite_master` at :555 where a version check would do; the pair is re-read at :237 after the caller read it. Plan step 11. (test-only `pairs`, `open_conflicts` and `active_operations` left for step 11)
+- [x] sync_journal.ml:194 [optimisation] `pairs_page` selects ids then issues two statements per pair via `find_pair_unlocked`, so a 1000-page costs 2001 prepares and a 100,000-message scan about 200,000; `decode_operation` at :584 has the same N+1 shape; `open_conflicts_page` at :366 has no index on id restricted by scope and resolved conflicts are never deleted, so paging is O(n^2/limit). Add a partial index `sync_conflicts(id) WHERE resolved = 0`.
+- [x] sync_journal.mli:46 [drift] `last_presence_generation` promises presence after an earlier absence but `note_presence` requires no tombstone; `local_source_mtime` at :121 is documented for an unpaired APPEND but the code never checks `pair_id = None`; the three repair docs at :175, :186 and :195 promise `Stale_revision`; `reject_unchanged_delete_operation` does not document exact blob equality, non-None sorted flags; the scope immutability at :29 is enforced as `Stale_revision`; the tombstone immutability at :53 does not hold through `put_pair`.
 - Facts for later steps: every CAS runs inside one `BEGIN IMMEDIATE`; pages are ordered and limit-checked; statements are finalised; flag storage round-trips spelling and order. The interface paragraph at :3 attaches to `tombstone_reason`. Creation-input design: `pair.revision` duplicates `expected_revision` and is stored as `revision + 1`; on update `scope.raw_name`, `encoding` and `mailbox_id` are not written; `conflict.resolved` is hard-coded and `pair_revision` is only a CAS token, and `ensure_open_conflict` ignores `id` when one is open; `operation.state` must be `Prepared` and the three receipt fields `None`. This module never touches the intent tables; unifying the two APPEND models is a schema migration since `spool_ref`, `message_id`, `pre_send_frontier` and `expected_internal_date` have no operation columns and the state sets differ. Version gates: v10 at :92, v11 at :569, v13 at :116, v9 implicitly at :555.
 
 #### lib/sync/flags.ml
@@ -489,18 +545,18 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/store/blob_store.ml, operation_intent.ml
 
-- [ ] blob_store.ml:280 [high] the directory sync in `Fun.protect ~finally` at :280 has no `try`, so an fsync failure or a cancellation replaces the body's exception with `Finally_raised`; `iter_directory` at :224 has the same shape for `closedir`.
-- [ ] blob_store.ml:250 [high] `referenced` counts any `blob_refs` row regardless of epoch while `publish` at imap_store.ml:377 and :441 deletes stale refs only for the new epoch, so after a UIDVALIDITY reset every old blob stays live forever.
-- [ ] blob_store.ml:271 [high] nothing in lib or bin runs the orphan collector; the only callers of all four functions are test/store/test_store.ml:269 and test_blob_gc.ml:46, so crash temp files and detached blobs accumulate without bound. Wire `reap_orphans_iter` into the CLI at startup under the writer lease.
-- [ ] blob_store.ml:116 [medium] `missing_page`, `referenced_page` and `detach_if_matches` raise `Failure` via record_codec.ml:24 when the stored raw_name, encoding or mailbox_id changed, where the interface at :41, :51 and :59 promises `Stale_revision`; imap_store.ml:340 treats the same change as stale.
-- [ ] operation_intent.ml:117 [medium] `confirm_intent` overwrites the pre-send `uidvalidity` that engine.ml:512 stores and reconcile.ml:69 reads as `journal_uidvalidity`; a receipt from another epoch replaces it and `None` nulls it. Latent since both callers pass `Some`.
-- [ ] operation_intent.ml:90 [medium] a NULL in the nullable `message_id`, `digest` or `spool_ref` columns raises `Failure "expected TEXT"` at :90, :142 and :165, so one legacy row breaks `pending_intents` for the scope; the interface at :36 promises legacy rows stay readable. Use `nullable_text`.
-- [ ] operation_intent.ml:32 [low] `prepare_intent` accepts `uid = Some _` with `uidvalidity = None`, which `confirm_intent` at :112 rejects.
-- [ ] blob_store.ml:33 [low] a temp-name collision across PID namespaces makes `put` fail on EEXIST instead of retrying.
-- [ ] blob_store.ml:21 [dead] `valid_hash` in `filename` and at :84 is unreachable since `blob` is private and every constructor validates; `count < 0L` at :94; `ignore (dec_state ...)` at operation_intent.ml:121; `orphan_candidates` and `reap_orphans` at :271 and :287 once the tests use the iterators.
-- [ ] blob_store.ml:116 [redundant] the 14-column cursor read plus `decode_cursor` repeats imap_store.ml:29, :130, :141 and :187, and `checked_cursor` at :122 repeats imap_store.ml:146 and :192; the SHA-256 hex check is at blob_store.ml:16, operation_intent.ml:42, sync_journal.ml:74 and :452; `checked_page_args` at :127 duplicates imap_store.ml:138; blob row decode at :110 and :173; intent row decode at operation_intent.ml:128 and :150 with two column orders.
-- [ ] blob_store.ml:260 [optimisation] the per-name reference check prepares a statement per name, about 30 to 50 seconds at 1,000,000 blobs and seconds from 100,000; keep one prepared statement or check each 256-name batch in one query. `attach` at :199 re-reads and re-hashes every freshly written message after `put` at engine.ml:578 and :726, doubling fetch I/O. `Cstruct.to_string` at :64 and :96 copies each chunk. `put` fsyncs at :66 before the digest comparison.
-- [ ] blob_store.mli:8 [drift] `put` raises `Invalid_argument` for a negative length or malformed digest at :39; `attach` raises `Invalid_argument` when `verify` fails at :199; reusing an intent ID raises `SqliteError`; `sync_directory` raises `Unix_error`, not `Eio.Io`. None documented.
+- [x] blob_store.ml:280 [high] the directory sync in `Fun.protect ~finally` at :280 has no `try`, so an fsync failure or a cancellation replaces the body's exception with `Finally_raised`; `iter_directory` at :224 has the same shape for `closedir`.
+- [x] blob_store.ml:250 [high] `referenced` counts any `blob_refs` row regardless of epoch while `publish` at imap_store.ml:377 and :441 deletes stale refs only for the new epoch, so after a UIDVALIDITY reset every old blob stays live forever.
+- [ ] blob_store.ml:271 [high] nothing in lib or bin runs the orphan collector; the only callers of all four functions are test/store/test_store.ml:269 and test_blob_gc.ml:46, so crash temp files and detached blobs accumulate without bound. Wire `reap_orphans_iter` into the CLI at startup under the writer lease. (left for step 12)
+- [x] blob_store.ml:116 [medium] `missing_page`, `referenced_page` and `detach_if_matches` raise `Failure` via record_codec.ml:24 when the stored raw_name, encoding or mailbox_id changed, where the interface at :41, :51 and :59 promises `Stale_revision`; imap_store.ml:340 treats the same change as stale.
+- [x] operation_intent.ml:117 [medium] `confirm_intent` overwrites the pre-send `uidvalidity` that engine.ml:512 stores and reconcile.ml:69 reads as `journal_uidvalidity`; a receipt from another epoch replaces it and `None` nulls it. Latent since both callers pass `Some`. (receipt versus pre-send epoch left for the v14 migration, step 11)
+- [x] operation_intent.ml:90 [medium] a NULL in the nullable `message_id`, `digest` or `spool_ref` columns raises `Failure "expected TEXT"` at :90, :142 and :165, so one legacy row breaks `pending_intents` for the scope; the interface at :36 promises legacy rows stay readable. Use `nullable_text`.
+- [x] operation_intent.ml:32 [low] `prepare_intent` accepts `uid = Some _` with `uidvalidity = None`, which `confirm_intent` at :112 rejects.
+- [x] blob_store.ml:33 [low] a temp-name collision across PID namespaces makes `put` fail on EEXIST instead of retrying.
+- [x] blob_store.ml:21 [dead] `valid_hash` in `filename` and at :84 is unreachable since `blob` is private and every constructor validates; `count < 0L` at :94; `ignore (dec_state ...)` at operation_intent.ml:121; `orphan_candidates` and `reap_orphans` at :271 and :287 once the tests use the iterators. (`orphan_candidates` and `reap_orphans` left for step 12)
+- [x] blob_store.ml:116 [redundant] the 14-column cursor read plus `decode_cursor` repeats imap_store.ml:29, :130, :141 and :187, and `checked_cursor` at :122 repeats imap_store.ml:146 and :192; the SHA-256 hex check is at blob_store.ml:16, operation_intent.ml:42, sync_journal.ml:74 and :452; `checked_page_args` at :127 duplicates imap_store.ml:138; blob row decode at :110 and :173; intent row decode at operation_intent.ml:128 and :150 with two column orders.
+- [x] blob_store.ml:260 [optimisation] the per-name reference check prepares a statement per name, about 30 to 50 seconds at 1,000,000 blobs and seconds from 100,000; keep one prepared statement or check each 256-name batch in one query. `attach` at :199 re-reads and re-hashes every freshly written message after `put` at engine.ml:578 and :726, doubling fetch I/O. `Cstruct.to_string` at :64 and :96 copies each chunk. `put` fsyncs at :66 before the digest comparison.
+- [x] blob_store.mli:8 [drift] `put` raises `Invalid_argument` for a negative length or malformed digest at :39; `attach` raises `Invalid_argument` when `verify` fails at :199; reusing an intent ID raises `SqliteError`; `sync_directory` raises `Unix_error`, not `Eio.Io`. None documented.
 - Facts for later steps: the temp-file sequence, prefix disjointness, `verify` under concurrent `put`, epoch check in `attach`, batch correctness, the intent state table and digest validation are clean; comments are clean. Indexes are all present. The `intents` table has 18 columns and `sync_operations` 26; the column mapping and the three intent-only fields `message_id`, `spool_ref` and `pre_send_frontier` are in the review transcript. `intents.uidvalidity`/`uid` conflate pre-send epoch and receipt.
 
 #### lib/eio/deflate_flow.ml, pool.ml
@@ -534,18 +590,18 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/store/database.ml, schema.ml, record_codec.ml
 
-- [ ] database.ml:18 [high] `bind` never compares the value count with the parameter count, so fewer values leave trailing parameters NULL on first use and, on `run_prepared` reuse at :32 after `reset`, keep the previous row's values; `bind_parameter_count` and `clear_bindings` exist.
-- [ ] database.ml:9 [medium] `check` discards SQLite's error message, so a constraint failure is reported as "CONSTRAINT" with no table or constraint name; attach `errmsg`.
-- [ ] record_codec.ml:32 [medium] `decode_cursor` drops the seven distinct reasons `Mirror.restore` gives at mirror.ml:26; `dec_enc` at :14 fails without printing the value.
-- [ ] database.ml:53 [medium] a nested `transaction` hangs on the non-reentrant mutex instead of failing; the interface forbids nesting but nothing checks it.
-- [ ] schema.ml:4 [medium] `validate_schema` compares column names and order only, not types, NOT NULL, primary keys, foreign keys, CHECK or the UNIQUE at :284, although the upserts at imap_store.ml:263, :427 and sync_journal.ml:147 depend on those keys.
-- [ ] database.ml:26 [low] `run_prepared` leaves the statement without `reset` on any failure path; harmless today since every caller lets the exception reach `with_stmt`.
-- [ ] schema.ml:134 [low] `NOT LIKE 'sqlite_%'` treats `_` as a wildcard, so a table named `sqliteX` escapes the unversioned-database guard; needs `ESCAPE`.
-- [ ] database.ml:42 [low] `check rc; assert false` raises `Assert_failure` if step ever returns `OK`; use `fail`.
-- [ ] record_codec.mli:10 [dead] `dec_phase` and `dec_mode` are used only inside `decode_cursor`; drop from the interface. `IF NOT EXISTS` in the v0 block at schema.ml:138 has no effect.
-- [ ] database.ml:19 [redundant] `run` repeats `run_prepared`; `PRAGMA user_version` is read at schema.ml:14, :102 and :131; the six comparisons at :16 are a range test and the literal 13 appears at :117, :133 and :292; index `sync_pairs_scope` at :215 is a prefix of `sync_pairs_scope_id` at :297 and needs a DROP INDEX migration to remove.
-- [ ] schema.ml:298 [comment] justifies the unversioned index group but sits between the third and fourth statement; move above :293. Keep :71 and :249.
-- [ ] schema.mli:7 [drift] says the switch releases the handle on failure but `initialize` at :93 closes it immediately; database.mli:13 sits between two vals without blank lines; database.mli:33 reads as if the mutex lock were cancellation-protected.
+- [x] database.ml:18 [high] `bind` never compares the value count with the parameter count, so fewer values leave trailing parameters NULL on first use and, on `run_prepared` reuse at :32 after `reset`, keep the previous row's values; `bind_parameter_count` and `clear_bindings` exist.
+- [x] database.ml:9 [medium] `check` discards SQLite's error message, so a constraint failure is reported as "CONSTRAINT" with no table or constraint name; attach `errmsg`.
+- [x] record_codec.ml:32 [medium] `decode_cursor` drops the seven distinct reasons `Mirror.restore` gives at mirror.ml:26; `dec_enc` at :14 fails without printing the value.
+- [x] database.ml:53 [medium] a nested `transaction` hangs on the non-reentrant mutex instead of failing; the interface forbids nesting but nothing checks it.
+- [x] schema.ml:4 [medium] `validate_schema` compares column names and order only, not types, NOT NULL, primary keys, foreign keys, CHECK or the UNIQUE at :284, although the upserts at imap_store.ml:263, :427 and sync_journal.ml:147 depend on those keys. (primary keys and UNIQUE checked; types, NOT NULL, foreign keys and CHECK left: no upsert depends on them)
+- [x] database.ml:26 [low] `run_prepared` leaves the statement without `reset` on any failure path; harmless today since every caller lets the exception reach `with_stmt`.
+- [x] schema.ml:134 [low] `NOT LIKE 'sqlite_%'` treats `_` as a wildcard, so a table named `sqliteX` escapes the unversioned-database guard; needs `ESCAPE`.
+- [x] database.ml:42 [low] `check rc; assert false` raises `Assert_failure` if step ever returns `OK`; use `fail`.
+- [x] record_codec.mli:10 [dead] `dec_phase` and `dec_mode` are used only inside `decode_cursor`; drop from the interface. `IF NOT EXISTS` in the v0 block at schema.ml:138 has no effect.
+- [x] database.ml:19 [redundant] `run` repeats `run_prepared`; `PRAGMA user_version` is read at schema.ml:14, :102 and :131; the six comparisons at :16 are a range test and the literal 13 appears at :117, :133 and :292; index `sync_pairs_scope` at :215 is a prefix of `sync_pairs_scope_id` at :297 and needs a DROP INDEX migration to remove. (`sync_pairs_scope` left: dropping it needs a migration)
+- [x] schema.ml:298 [comment] justifies the unversioned index group but sits between the third and fourth statement; move above :293. Keep :71 and :249.
+- [x] schema.mli:7 [drift] says the switch releases the handle on failure but `initialize` at :93 closes it immediately; database.mli:13 sits between two vals without blank lines; database.mli:33 reads as if the mutex lock were cancellation-protected.
 - Facts for later steps: migration is crash-safe in one `BEGIN IMMEDIATE` with the version bump; `open_readonly` is correct; `with_stmt` finalises once on every path; version gates are consistent with v13 writes except the `sqlite_master` probe at sync_journal.ml:555; `of_checked` cannot reject a legitimately written value. `Database.t` has no mutable fields; `db`, `mutex`, `blob_dir` and `schema_version` are read by the other store modules; `Database` is private so the one-letter helpers never leave the library. The full DDL by version 1 to 13 with columns is in the review transcript; 21 tables; five auxiliary indexes are created unversioned on every read-write open; no index is created twice and every index matches a query.
 
 #### lib/maildir/keywords.ml, dotlock.ml

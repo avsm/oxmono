@@ -2,11 +2,12 @@
 
     A view is staged in a file in the caller's spool directory, so memory is
     bounded by one directory batch, the SQLite cache and the requested pages.
-    The wrappers below take an optional view and check that it is live and
-    staged from the same Maildir handle before they delegate to [Maildir]. *)
+    A function below that takes an optional view raises [Invalid_argument]
+    before it calls [Maildir] unless the view is live and staged from the
+    same Maildir handle. *)
 
 type t
-(** The type of a staged inventory view. *)
+(** The type for staged inventory views. *)
 
 type page = {
   occurrences : Maildir.occurrence list;

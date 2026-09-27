@@ -230,10 +230,10 @@ val stable_remote_body :
 val published_presence :
   Imap_store.t -> cursor:Imap.Mirror.cursor -> Imap_store.Journal.pair ->
   Imap.Uidvalidity.t -> Imap.Uid.t -> (bool, Error.t) result
-(** [published_presence store ~cursor pair epoch uid] is whether [uid] is in
-    the complete inventory [cursor] published for [epoch], and
-    [Stale_inventory] when [cursor] is not a complete inventory of that
-    epoch or is no longer current. *)
+(** [published_presence store ~cursor pair epoch uid] is [true] when [uid]
+    is in the complete inventory [cursor] published for [epoch], and
+    [Stale_inventory] when [cursor] is not a complete inventory of [pair]'s
+    scope in that epoch or is no longer current. *)
 
 val snapshot_has_uid :
   Imap_store.t -> scope:Imap.Mirror.scope -> cursor:Imap.Mirror.cursor ->

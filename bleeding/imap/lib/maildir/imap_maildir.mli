@@ -34,35 +34,43 @@ exception Metadata_lock_lost of string
 (** [Metadata_lock_lost path] is raised when the metadata lock at [path] was
     removed or replaced by another party while an operation held it. *)
 
+exception Stale_occurrence
+(** [Stale_occurrence] is raised when the file an occurrence names no longer
+    matches that observation. *)
+
 val open_dir : _ Eio.Path.t -> t
 (** [open_dir path] is the Maildir at [path]. Missing standard directories are
-    created and synced. A native filesystem is required. Unsupported legacy
-    metadata and malformed paths raise [Failure]. *)
+    created and synced. A path without a native filename raises [Eio.Io].
+    Unsupported legacy metadata and a non-directory path raise [Failure]. *)
 
 val with_writer_lock : t -> (unit -> 'a) -> 'a
-(** [with_writer_lock t f] is [f ()] under an exclusive application writer lease.
-    The lease is released on return, exception or cancellation. Its permanent
-    [.imap-writer.lock] inode must not be removed. External Maildir programs
-    do not acquire this application lease. Do not fork while holding it.
+(** [with_writer_lock t f] is [f ()] under an exclusive application writer
+    lease. The lease is released on return, exception or cancellation. Its
+    permanent [.imap-writer.lock] inode must not be removed. External Maildir
+    programs do not acquire this application lease. Do not fork while holding
+    it.
 
     @raise Writer_lock_busy if another application writer holds the lease. *)
 
 val scan : t -> occurrence list
-(** [scan t] is the complete ID-ordered inventory. Duplicate IDs, invalid
-    filenames and unknown keyword letters raise [Failure]. *)
+(** [scan t] is the complete ID-ordered inventory. Entries whose names begin
+    with a dot and entries that are not regular files are skipped. Duplicate
+    IDs, unrecognised filenames, unknown flag letters and modification times
+    outside the supported range raise [Failure]. *)
 val find : t -> id:string -> occurrence option
 (** [find t ~id] is the published occurrence with identity [id], if present.
-    This operation scans the Maildir. *)
+    It tests [new/id] and lists the names in [cur], but inspects only entries
+    whose names carry [id]. An [id] published twice raises [Failure]. *)
 val reserve_id : unit -> string
-(** [reserve_id ()] is a fresh occurrence identity. Persist it before publication
-    when recovery must attribute a local write to its journal operation. *)
-
-type inventory = { occurrences : occurrence list; complete : bool }
-val inventory : t -> inventory
-(** [inventory t] is a complete scan. A failed scan raises. *)
+(** [reserve_id ()] is a fresh occurrence identity. Persist it before
+    publication when recovery must attribute a local write to its journal
+    operation. *)
 
 type paged_inventory
-type inventory_page = { occurrences : occurrence list; next_after : string option }
+type inventory_page = {
+  occurrences : occurrence list;
+  next_after : string option;
+}
 val with_inventory_pages : t -> (paged_inventory -> 'a) -> 'a
 (** [with_inventory_pages t f] is [f view] for a complete disk-staged inventory.
     Memory is bounded by directory batches, the SQLite cache and requested pages.
@@ -86,13 +94,20 @@ val upload_internal_date : occurrence -> (Imap.Internal_date.t, string) result
 (** [upload_internal_date occurrence] is its UTC whole-second modification time
     as an IMAP date. Unsupported timestamps return an error. *)
 val sha256 : ?inventory:paged_inventory -> t -> occurrence -> string
-(** [sha256 t occurrence] is its lowercase SHA-256 digest. The observation must
-    still match. Content is streamed and length changes raise. *)
+(** [sha256 t occurrence] is its lowercase SHA-256 digest. Content is
+    streamed.
+
+    @raise Stale_occurrence if the file no longer matches [occurrence] or
+    holds more than [occurrence.length] bytes.
+    @raise End_of_file if the file shrinks while it is read. *)
 val append : ?inventory:paged_inventory -> t -> ?id:string ->
   source:_ Eio.Flow.source -> length:int64 -> flags:Mail_flag.Imap_flag.t list ->
   ?internal_date:Imap.Internal_date.t -> unit -> occurrence
 (** [append t ~source ~length ~flags ()] is the durably published occurrence.
     Exactly [length] bytes are consumed. [id] defaults to a fresh reserved ID.
+    A supplied [id] already published in [new] or [cur] under any flags, or
+    recorded in [inventory], raises [Failure] before publication. Publication
+    never replaces an existing file.
     [internal_date] defaults to the new file's modification time. Supplied dates
     are set and verified before file sync and publication. Leap seconds and
     unrepresentable timestamps fail. Unknown system flags, Recent and keyword
@@ -102,13 +117,20 @@ val append : ?inventory:paged_inventory -> t -> ?id:string ->
 val open_message : ?inventory:paged_inventory -> t -> sw:Eio.Switch.t -> occurrence ->
   Eio.File.ro_ty Eio.Resource.t
 (** [open_message t ~sw occurrence] is its read-only file owned by [sw].
-    A stale observation raises. *)
+
+    @raise Stale_occurrence if the file no longer matches [occurrence]. *)
 val set_flags : t -> occurrence -> Mail_flag.Imap_flag.t list -> occurrence
 (** [set_flags t occurrence flags] is the updated occurrence in [cur].
     The basename, modification time, Passed flag and filename extension fields
-    are preserved. A stale observation or unsupported flag set raises. *)
+    are preserved. An unsupported flag set raises [Failure]. An existing file
+    at the new name is never replaced and raises [Eio.Io].
+
+    @raise Stale_occurrence if the file no longer matches [occurrence]. *)
 val remove : t -> occurrence -> unit
-(** [remove t occurrence] unlinks the exact occurrence and syncs its directory. *)
+(** [remove t occurrence] unlinks the exact occurrence and syncs its
+    directory.
+
+    @raise Stale_occurrence if the file no longer matches [occurrence]. *)
 type recovery = { removed_temporary : string list }
 val recover : t -> recovery
 (** [recover t] removes abandoned owned temporary files and inventory indexes.

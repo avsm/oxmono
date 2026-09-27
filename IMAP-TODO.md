@@ -133,6 +133,69 @@ consumers it touched, and the test evidence.
 
 #### F: maildir
 
+Branch `worktree-agent-a8b4ff22560c66080`, three commits: Keywords,
+Dotlock, Imap_maildir.
+
+Fixed. `Stale_occurrence` is exported and documented on `open_message`,
+`sha256`, `set_flags` and `remove`. A supplied `?id` is checked inside the
+publication lock against `new/<id>`, every `cur` name that parses to the ID
+and, when given, the paged view. Publication and flag renames use `link`
+then `unlink`, so an existing target raises `Eio.Io Already_exists` instead
+of being replaced. Entries named with a leading dot and entries that are not
+regular files are skipped in scan, staging and `find`. One
+`stat ~follow:false` per entry replaces three to four, and an entry gone
+before that stat counts as vanished. An epoch INTERNALDATE works. Cleanup
+unlinks can no longer replace the body's exception. `find` probes
+`new/<id>` and prefix-matches `cur`, stat-ing only matches, so it no longer
+fails on unrelated malformed entries. Staging stores flags in one text
+column, so a page is one query. `sha256` feeds the bigstring. The keywords
+map is cached per handle and keyed by the file's inode, size, mtime and
+ctime. A flagless append takes one lock and reads no keywords. Keywords owns
+the letter table in both directions, tolerates blank lines and a missing
+final newline, names the offending value in every message and adds `equal`.
+Occurrence flags are now in `Imap_flag.durable` order. Dotlock runs on Eio,
+raises `Lost` for a removed or replaced lock, checks without writing after
+the callback, survives any stat failure on release, takes the refresh mutex
+on release and unlinks the lock when `fstat` fails after creation.
+
+Fsyncs removed: the `tmp` directory after writing a message, after
+publishing it, after installing `dovecot-keywords`, after removing the
+staging database and in `recover`. Each only made the removal or presence
+of a `tmp` name durable, and `recover` handles a surviving name. Kept: the
+message and keywords files before publication, the target directory after
+each link, rename or unlink, and the parent after `mkdir`. A flag change now
+syncs `cur` after the link and the source directory after the unlink, so a
+`cur` to `cur` change syncs `cur` twice. A crash between that link and
+unlink leaves two names for one inode, which `scan` reports as a duplicate
+identity.
+
+Remaining `Unix`: `lockf` for the writer lease, `link`, `utimes`, directory
+fsync (`openfile`, `fstat`, `fsync`, `close`), `/dev/urandom` in
+`random_id` because `reserve_id` takes no environment, and `getpid` and
+`gethostname` for the lock body. Each carries a comment naming the missing
+Eio operation. The blocking calls run in a systhread and map `Unix_error` to
+`Eio.Io` with context.
+
+Interface changes. `Imap_maildir` gains `Stale_occurrence` and
+`Metadata_lock_lost` (`= Dotlock.Lost`) and loses the dead `inventory`
+function and type. `Dotlock.with_lock` takes an `Eio.Path.t` and raises
+`Lost`. `Keywords` gains `fail`, `max_size`, `empty` and `equal`, `letters`
+takes `?passed` and returns the sorted string with system letters, and
+`flags` takes `~file`. No consumer outside `test/maildir` used the removed
+values, and no consumer file changed.
+
+Left. The writer-lease check on mutations, the `with_writer` capability,
+typed results, prefix renames and the Dovecot lock body, as annotated
+above. With a paged view, a supplied-ID append now also reads the `cur`
+listing once.
+
+Evidence. `dune build @bleeding/imap/all` and
+`dune build @bleeding/imap/runtest --force` are clean. `test_maildir` has
+21 cases, 9 of them new. Against the previous implementation the
+supplied-ID, ignored-entry, find, epoch, no-replace and cleanup cases fail.
+`test_dotlock` adds deleted-lock, post-callback no-write and release stat
+failure cases.
+
 #### F: sync
 
 #### F: cli
@@ -246,22 +309,22 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/maildir/imap_maildir.ml
 
-- [ ] imap_maildir.ml:18 [high] `Stale_occurrence` is raised by `open_message` at :545, `sha256` at :562, `set_flags` at :569, `remove` at :598 and `with_unchanged_occurrence` at :468 but is not exported, so callers can only catch it with a wildcard. Plan step 4 typed errors.
-- [ ] imap_maildir.ml:490 [high] the duplicate-ID check for a supplied `?id` runs via `find` outside the metadata lock, and the in-lock check at :533 tests only the exact target name, so `id:2,S` in cur plus a flagless append of `id` to new succeeds and every later scan fails with "duplicate occurrence identity".
-- [ ] imap_maildir.ml:229 [high] `id_of_filename` at :229 and :400 accepts dotfiles, so `.DS_Store` in new or cur becomes a message occurrence; Maildir readers including Dovecot skip names starting with a dot.
-- [ ] imap_maildir.ml:523 [medium] an INTERNALDATE of exactly the Unix epoch always fails because `Unix.utimes p 0.0 0.0` sets both times to now and the check at :524 then raises.
-- [ ] imap_maildir.ml:535 [medium] `rename` at :535 and :591 overwrites an existing target; the `kind target <> Not_found` checks at :533 and :589 only protect against writers honouring the uidlist lock. Use link plus unlink or `RENAME_NOREPLACE`.
-- [ ] imap_maildir.ml:215 [medium] a rename by an external MUA between the lstat at :215 and the stat at :218 raises `Eio.Io Not_found` and aborts the whole scan, while a disappearance before :215 is tolerated.
-- [ ] imap_maildir.ml:233 [medium] a symlink or subdirectory with a valid-looking name fails at :216 while one with an unparsable name is skipped silently at :234.
-- [ ] imap_maildir.ml:483 [confirmed] no mutation path checks the writer lease: `append`, `set_flags`, `remove`, `recover`, `ensure_keywords`, `with_inventory_pages` and `open_dir` all skip it; `writer_locks` is read only by `with_writer_lock`. Plan step 4.
-- [ ] imap_maildir.ml:65 [low] `open_dir` raises `Eio.Io` for a non-native path where the interface says `Failure`.
-- [ ] imap_maildir.ml:257 [low] the "expired Maildir inventory" message lacks the module prefix the others carry.
-- [ ] imap_maildir.ml:505 [low] `Fun.protect ~finally` unlink at :505 and :178 can replace the original exception with `Finally_raised`.
-- [ ] imap_maildir.ml:246 [dead] `inventory` is `scan` with a constant `complete = true`; `random_occurrence_id` at :120 exists only to be aliased; `internal_date` is always `Some` at :222, so :413, :274, :445, :447 and :476 are unreachable; `.r<32hex>` alias stripping at :133 has no writer in the tree; `one_current` at :436 never consults the staged row; `assert false` at :315, :338 and :355 cannot be reached.
-- [ ] imap_maildir.ml:224 [redundant] `scan` and staging at :388 duplicate the refresh counter and unrecognised-name check and differ only in sink and walk; `iter_directory_batched` at :281 reimplements `Eio.Path.with_dir_entries`, which also returns the kind and saves a stat; the letter table appears at :152 and :194; `index_sub name ":2,"` runs at :131, :144 and :571 and :582 re-parses `filename` output; `index_sub` at :125 allocates a `String.sub` per position; the Hashtbl duplicate check at :238 is redundant with the sort at :242; `ensure_keywords` runs at :502 and :529; the mtime conversion at :200 and :477.
-- [ ] imap_maildir.ml:244 [optimisation] `find` scans the whole Maildir under the Dovecot lock and is called about twenty times per message from bridge.ml and deletion.ml, so a sync of N messages costs O(N^2) stats and blocks Dovecot; beyond about 10,000 messages it dominates. Locate an ID by testing `new/<id>` and prefix-matching cur names.
-- [ ] imap_maildir.ml:215 [optimisation] three to four stats per entry at :215, :216, :218 and :234 where one `stat ~follow:false` suffices; at 1,000,000 messages that is 3,000,000 syscalls. `scan` at that size peaks at roughly 0.6 to 1 GB. The paged inventory issues N+1 queries per page at :305. `with_unchanged_occurrence` plus `sha256` re-read dovecot-keywords three to four times per message. Fsyncs at :527, :373 and :186 are unneeded, only :527 matters at scale. `Cstruct.to_string` at :559 copies each 64 KiB chunk where `feed_bigstring` would not. The metadata lock is taken for a flagless append at :502.
-- [ ] imap_maildir.mli:47 [drift] `scan` also raises for non-regular entries at :216 and out-of-range mtimes at :203.
+- [x] imap_maildir.ml:18 [high] `Stale_occurrence` is raised by `open_message` at :545, `sha256` at :562, `set_flags` at :569, `remove` at :598 and `with_unchanged_occurrence` at :468 but is not exported, so callers can only catch it with a wildcard. Plan step 4 typed errors.
+- [x] imap_maildir.ml:490 [high] the duplicate-ID check for a supplied `?id` runs via `find` outside the metadata lock, and the in-lock check at :533 tests only the exact target name, so `id:2,S` in cur plus a flagless append of `id` to new succeeds and every later scan fails with "duplicate occurrence identity".
+- [x] imap_maildir.ml:229 [high] `id_of_filename` at :229 and :400 accepts dotfiles, so `.DS_Store` in new or cur becomes a message occurrence; Maildir readers including Dovecot skip names starting with a dot.
+- [x] imap_maildir.ml:523 [medium] an INTERNALDATE of exactly the Unix epoch always fails because `Unix.utimes p 0.0 0.0` sets both times to now and the check at :524 then raises.
+- [x] imap_maildir.ml:535 [medium] `rename` at :535 and :591 overwrites an existing target; the `kind target <> Not_found` checks at :533 and :589 only protect against writers honouring the uidlist lock. Use link plus unlink or `RENAME_NOREPLACE`.
+- [x] imap_maildir.ml:215 [medium] a rename by an external MUA between the lstat at :215 and the stat at :218 raises `Eio.Io Not_found` and aborts the whole scan, while a disappearance before :215 is tolerated.
+- [x] imap_maildir.ml:233 [medium] a symlink or subdirectory with a valid-looking name fails at :216 while one with an unparsable name is skipped silently at :234.
+- [ ] imap_maildir.ml:483 [confirmed] no mutation path checks the writer lease: `append`, `set_flags`, `remove`, `recover`, `ensure_keywords`, `with_inventory_pages` and `open_dir` all skip it; `writer_locks` is read only by `with_writer_lock`. Plan step 4. (left for step 4)
+- [x] imap_maildir.ml:65 [low] `open_dir` raises `Eio.Io` for a non-native path where the interface says `Failure`.
+- [x] imap_maildir.ml:257 [low] the "expired Maildir inventory" message lacks the module prefix the others carry.
+- [x] imap_maildir.ml:505 [low] `Fun.protect ~finally` unlink at :505 and :178 can replace the original exception with `Finally_raised`.
+- [x] imap_maildir.ml:246 [dead] `inventory` is `scan` with a constant `complete = true`; `random_occurrence_id` at :120 exists only to be aliased; `internal_date` is always `Some` at :222, so :413, :274, :445, :447 and :476 are unreachable; `.r<32hex>` alias stripping at :133 has no writer in the tree; `one_current` at :436 never consults the staged row; `assert false` at :315, :338 and :355 cannot be reached. (the `internal_date` `None` branches and the `.r<32hex>` alias are annotated and left for step 4)
+- [x] imap_maildir.ml:224 [redundant] `scan` and staging at :388 duplicate the refresh counter and unrecognised-name check and differ only in sink and walk; `iter_directory_batched` at :281 reimplements `Eio.Path.with_dir_entries`, which also returns the kind and saves a stat; the letter table appears at :152 and :194; `index_sub name ":2,"` runs at :131, :144 and :571 and :582 re-parses `filename` output; `index_sub` at :125 allocates a `String.sub` per position; the Hashtbl duplicate check at :238 is redundant with the sort at :242; `ensure_keywords` runs at :502 and :529; the mtime conversion at :200 and :477.
+- [x] imap_maildir.ml:244 [optimisation] `find` scans the whole Maildir under the Dovecot lock and is called about twenty times per message from bridge.ml and deletion.ml, so a sync of N messages costs O(N^2) stats and blocks Dovecot; beyond about 10,000 messages it dominates. Locate an ID by testing `new/<id>` and prefix-matching cur names.
+- [x] imap_maildir.ml:215 [optimisation] three to four stats per entry at :215, :216, :218 and :234 where one `stat ~follow:false` suffices; at 1,000,000 messages that is 3,000,000 syscalls. `scan` at that size peaks at roughly 0.6 to 1 GB. The paged inventory issues N+1 queries per page at :305. `with_unchanged_occurrence` plus `sha256` re-read dovecot-keywords three to four times per message. Fsyncs at :527, :373 and :186 are unneeded, only :527 matters at scale. `Cstruct.to_string` at :559 copies each 64 KiB chunk where `feed_bigstring` would not. The metadata lock is taken for a flagless append at :502. (scan memory at 1,000,000 messages left for step 4, which replaces `scan` with a bounded fold)
+- [x] imap_maildir.mli:47 [drift] `scan` also raises for non-regular entries at :216 and out-of-range mtimes at :203.
 - Facts for step 4: `Imap.` is used at :11, :204, :322, :412, :446, :481 and :500, all `Internal_date`, so switching `internal_date` to Unix seconds removes the dependency. `Sqlite3` is used only by the paged inventory at :19, :250, :265, :305, :327, :340 and :365. The inventory database is `tmp/.inventory-<32hex>.sqlite3` with `journal_mode=OFF`, `synchronous=OFF`, `cache_size=-2048`, tables `occurrences(id PK, filename, location 0|1, length, mtime REAL, internal_date TEXT nullable, inode, ctime REAL)` and `flags(id, ord, wire, PK(id, ord))`, staged in one BEGIN/COMMIT; `recover` at :604 knows the filename pattern. Every `Failure` message and its site is listed in the review transcript, prefixed "Imap_maildir: ", plus the Keywords and Dotlock messages; `Invalid_argument` at :257, :261, :342, :343, :484, :489; untyped `Unix_error`, `SqliteError`, `Eio.Io`, `End_of_file` and `Finally_raised` also escape. `inventory.complete` is never false. `threads` is not needed in dune; `unix` is. Filename grammar, keyword-map ordering, mtime ordering, directory fsyncs, `same_occurrence` coverage, `reserve_id` entropy and cancellation handling are clean; comments are clean.
 
 #### lib/store/imap_store.ml
@@ -441,19 +504,19 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### lib/maildir/keywords.ml, dotlock.ml
 
-- [ ] keywords.ml:58 [high] `flags` raises on a filename letter with no mapping or outside `a-z` and `DFPRST`, and `scan` runs it per entry at imap_maildir.ml:213, so one message renamed by another client with an unknown letter makes the whole mailbox unreadable; Dovecot tolerates unknown letters.
-- [ ] keywords.ml:13 [medium] `parse` rejects a file without a trailing newline, and one blank, malformed or duplicate line at :18, :24, :26 and :28 fails `read_keywords` and blocks every read and `set_flags`; Dovecot skips bad lines.
-- [ ] dotlock.ml:3 [medium] the lock body is `"%d %s\n"` while Dovecot writes and parses `pid:host`, so Dovecot cannot run its same-host dead-pid check on our lock and the "Dovecot-compatible" claim holds only partly. Verify against Dovecot's file-dotlock.c before changing.
-- [ ] dotlock.ml:12 [low] a lock deleted by another party makes `refresh` raise a raw `Unix_error ENOENT` while a replaced lock raises `Failure`, two exceptions for one event.
-- [ ] dotlock.ml:59 [low] after `f` returns, `touch ()` rewrites a byte and re-checks identity, so a committed callback can still end in an exception; undocumented, and `check ()` alone would do.
-- [ ] dotlock.ml:42 [low] only `ENOENT` from `lstat` is caught in the release path, so `EACCES` or a racing unlink escapes as `Finally_raised` and hides the callback's result.
-- [ ] dotlock.ml:28 [low] release does not take the refresh mutex; the interface rule that the callback joins its fibers is what prevents a write to a closed fd, so keep that sentence prominent.
-- [ ] dotlock.ml:50 [low] a failed `fstat` after `owned_fd` is set leaves `acquired = None`, so the finally closes the fd and never unlinks the lock.
-- [ ] keywords.ml:6 [low] error messages at :6, :54, :62, :24 and :26 drop the offending flag, keyword, letter or line.
-- [ ] keywords.ml:2 [low] both modules prefix messages with "Imap_maildir: ", wrong once they live in the `maildir` package; a public `Dotlock` needs a named exception for lost ownership. Plan step 4.
-- [ ] keywords.ml:63 [redundant] the `DFPRST` table appears at keywords.ml:63, imap_maildir.ml:152 and :192, and imap_maildir.ml:221 appends unsorted system flags to the sorted keywords; Keywords should own both directions. The 64 KiB limit at keywords.ml:37 and imap_maildir.ml:168; `fail` three times; the `ref` plus `String.iter` at :57 is `String.fold_left`; imap_maildir.ml:175 compares `Keywords.t` structurally.
-- [ ] keywords.ml:21 [format] lines over 80 columns at keywords.ml:21, dotlock.ml:41, :55 and dotlock.mli:13.
-- [ ] dotlock.mli:1 [drift] "Dovecot-compatible" is contradicted by the lock body; `refresh` raising `Failure` or `Unix_error` on lost ownership and the post-callback check are undocumented. keywords.mli has no value docs; one-sentence contracts for all six values are in the review transcript.
+- [ ] keywords.ml:58 [high] `flags` raises on a filename letter with no mapping or outside `a-z` and `DFPRST`, and `scan` runs it per entry at imap_maildir.ml:213, so one message renamed by another client with an unknown letter makes the whole mailbox unreadable; Dovecot tolerates unknown letters. (left: by decision an unknown letter still fails the scan so the syncer never reads an unreadable entry as absent, and the message now names the file and the letter)
+- [x] keywords.ml:13 [medium] `parse` rejects a file without a trailing newline, and one blank, malformed or duplicate line at :18, :24, :26 and :28 fails `read_keywords` and blocks every read and `set_flags`; Dovecot skips bad lines. (malformed and duplicate lines still fail by decision)
+- [ ] dotlock.ml:3 [medium] the lock body is `"%d %s\n"` while Dovecot writes and parses `pid:host`, so Dovecot cannot run its same-host dead-pid check on our lock and the "Dovecot-compatible" claim holds only partly. Verify against Dovecot's file-dotlock.c before changing. (left: no Dovecot source is in the tree, so the `pid:host` body could not be confirmed)
+- [x] dotlock.ml:12 [low] a lock deleted by another party makes `refresh` raise a raw `Unix_error ENOENT` while a replaced lock raises `Failure`, two exceptions for one event.
+- [x] dotlock.ml:59 [low] after `f` returns, `touch ()` rewrites a byte and re-checks identity, so a committed callback can still end in an exception; undocumented, and `check ()` alone would do.
+- [x] dotlock.ml:42 [low] only `ENOENT` from `lstat` is caught in the release path, so `EACCES` or a racing unlink escapes as `Finally_raised` and hides the callback's result.
+- [x] dotlock.ml:28 [low] release does not take the refresh mutex; the interface rule that the callback joins its fibers is what prevents a write to a closed fd, so keep that sentence prominent.
+- [x] dotlock.ml:50 [low] a failed `fstat` after `owned_fd` is set leaves `acquired = None`, so the finally closes the fd and never unlinks the lock.
+- [x] keywords.ml:6 [low] error messages at :6, :54, :62, :24 and :26 drop the offending flag, keyword, letter or line.
+- [ ] keywords.ml:2 [low] both modules prefix messages with "Imap_maildir: ", wrong once they live in the `maildir` package; a public `Dotlock` needs a named exception for lost ownership. Plan step 4. (left for step 4, `Dotlock.Lost` is the named exception)
+- [x] keywords.ml:63 [redundant] the `DFPRST` table appears at keywords.ml:63, imap_maildir.ml:152 and :192, and imap_maildir.ml:221 appends unsorted system flags to the sorted keywords; Keywords should own both directions. The 64 KiB limit at keywords.ml:37 and imap_maildir.ml:168; `fail` three times; the `ref` plus `String.iter` at :57 is `String.fold_left`; imap_maildir.ml:175 compares `Keywords.t` structurally.
+- [x] keywords.ml:21 [format] lines over 80 columns at keywords.ml:21, dotlock.ml:41, :55 and dotlock.mli:13.
+- [x] dotlock.mli:1 [drift] "Dovecot-compatible" is contradicted by the lock body; `refresh` raising `Failure` or `Unix_error` on lost ownership and the post-callback check are undocumented. keywords.mli has no value docs; one-sentence contracts for all six values are in the review transcript.
 - Facts for step 4: `parse` rejects index above 25, non-canonical indexes and case-insensitive duplicate names; `add` reuses the lowest freed slot; only `Keyword` values are stored; `find` uses `Imap_flag.equal`; the lock is created with O_EXCL directly, so a crash leaves only the `.lock` itself; existing locks always raise `Busy` with the path; release skips unlink when dev or ino differ; acquire and release run under `Cancel.protect`. Dead code and optimisation are clean.
 
 #### lib/protocol/internal_date.ml, sync_policy.ml, mirror.ml

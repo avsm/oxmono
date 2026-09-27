@@ -122,7 +122,7 @@ run only once everything else works.
 | 9 | Plan item 4: extension witness submodules on `Client` and `Selected`, each with `require` | done | 42eb28cab |
 | 10 | Plan item 9: `with_mailbox` reentrancy returns `State` instead of blocking | done | 286cc6993 |
 | 11 | Sync moves: `Ctx` record, single `Imap_sync.Error.t`, `Repair` module, `Plan` module, one APPEND inspection, drop `Engine.run_once` if unused | done | 533f506c0 |
-| 12 | CLI on cmdliner with one term per command and a single `deletion_policy` option; also applies every `bin/imap_cli.ml` finding from 0.R and wires the blob orphan collector and `forget_epochs` into startup under the writer lease | todo | |
+| 12 | CLI on cmdliner with one term per command and a single `deletion_policy` option; also applies every `bin/imap_cli.ml` finding from 0.R and wires the blob orphan collector and `forget_epochs` into startup under the writer lease | done | e03ce0e85 |
 | 13 | `imap.mli` facade, `.mld` pages, `(documentation)` stanza, dune-project dependency fixes | todo | |
 | 14 | Plan item 7: `Imap_eio.Mailbox` strategy layer | todo | |
 | 15 | Redocumentation pass under doc-style over every public interface | todo | |
@@ -520,6 +520,59 @@ tests publish through stages, the oracle checks row counts and published
 rows from `scan_once`, and error matches name the flat constructors. The
 bridge_faults wire scripts read the archived metadata in the body's
 selection. Build and runtest are clean, 17 suites and 232 test cases.
+
+Step 12. Done: `imap-sync` is a cmdliner group of seventeen commands, the
+fifteen existing ones plus `gc` and `forget-epochs`. Each command combines
+only the option groups it uses: mailbox scope (`--endpoint`, `--account`,
+`--mailbox`, `--mailbox-key`, `--db`), stored encoding for the offline
+commands, connection (`--host`, `--port`, `--tls`, `--user`,
+`--password-env`, `--auth`) for the online ones, and the path options.
+Every `IMAP_*` default goes through `Cmd.Env.info`, and the password is read
+from the `--password-env` variable before any side effect of an online
+command and never by an offline one. `--deletion-policy
+preserve|propagate|propagate-remote|propagate-local` replaces the three
+deletion flags. `Imap_cli.mli` exposes private per-command records under a
+private `job` variant, `cmd`, `run` and `eval ~env ~argv`, which `main.ml`
+and test/cli call. One `error_code` maps every `Imap_sync.Error.t`
+constructor and one `classify` every exception, documented through
+`Cmd.Exit.info`: 0 converged, 2 more work, 3 pending, 4 conflict, held or
+unsafe, 5 configuration including a command line error, 6 IMAP, 7 local
+storage including an escaping `Invalid_argument`, 8 writer lease, Maildir
+metadata lock or database lock busy, 9 target not in scope. Every repair
+checks the operation, and `mark-local-retention` the pair, against the scope
+first, so an unknown ID exits 9 everywhere. `Source_vanished` and
+`Local_source_changed` are 2, `Limit` is 5, `Invalid_scope` 4,
+`Unsupported`, `Mirror`, `Incomplete` and the two flag capability errors 6,
+and `Imap_store.Scope_mismatch` 5. `--tls plain` sets
+`allow_insecure_transport`, connect failures print the redacted client
+error, and every printed error is redacted once a password was read.
+`repair-appenduid` and `inspect` check their Maildir and database, and every
+pre-check follows symlinks. Offline plans, `verify-local` and
+`mark-local-retention` default the spool to `DB.spool` instead of the
+working directory. A held decision no
+longer stops the cycle loop, so remaining work exits 2 and a hold exits 4
+only once the cycles converge. Hydration continues after a pass that only
+skipped oversized bodies, reports `skipped=N`, and ignores skipped UIDs in
+`more`. `plan-sync` prints the hold reason as `plan-deletions` does.
+`--max-inspect` reports `capped=true` only when more items exist than it
+shows. `gc` removes orphan blobs under `DB.lock`, a `lockf` file that
+`sync` and `hydrate` also hold for their whole run, and under the Maildir
+writer lease when a Maildir is configured. `sync` runs the collector at
+startup under both and prints the count when nonzero. `forget-epochs` calls
+`Imap_store.forget_epochs` with the current cursor, prints
+`epochs_dropped=N`, and exits 4 on `Stale_revision` or with no published
+epoch. Assertions changed: the two plan-without-inventory cases exit 5, the
+library's `Invalid_configuration`, instead of 4. The deletion flags are
+`--deletion-policy` values, and a repeated option is rejected where the last
+repeat used to win. The Dovecot hydration test no longer repeats
+`--max-transfers`. test/cli gained checks that an offline command reads no
+password, that a missing password creates nothing, a missing Maildir and an
+unknown operation in `repair-appenduid`, an unknown pair in
+`mark-local-retention`, a missing database in `inspect`, the default plan
+spool, the list-mode exit status, the startup orphan collection, `gc` with and
+without a lease and `forget-epochs`. README and IMAP-SPEC name the new
+grammar. The cross-module error payload item stays open for its other
+modules. Build and runtest are clean, 17 suites and 235 test cases.
 
 ### Step F notes
 
@@ -1106,19 +1159,19 @@ severity in `[]`. Fixes applied in step F are ticked here.
 
 #### bin/imap_cli.ml, main.ml
 
-- [ ] imap_cli.ml:1081 [high] every `Bridge.Invalid_operation` at :1081 and :1144 is reported as exit 9 "not found in this scope" and its message dropped, although bridge.ml:1331 returns it for "reserved Maildir occurrence already exists; run sync" and bridge.ml:1466 for "UIDNEXT regressed".
-- [ ] imap_cli.ml:761 [high] `repair-appenduid` never checks that `--maildir` exists, so `open_dir` creates a new Maildir at a mistyped path and the writer lease locks the wrong inode.
-- [ ] imap_cli.ml:666 [medium] every `Sync`, `Flag_sync`, `Delete_sync` and `Client` error becomes exit 6 with a fixed message at :666, :556 and :642, although `Uidvalidity_changed`, `Modified`, `Stale_pair`, `Identity_changed`, `Stale_revision` and `Invalid_scope` are conflict or configuration outcomes that :591, :1003 and :677 map to 4 or 5; sync prints no `pp_error` detail.
-- [ ] imap_cli.ml:429 [medium] a connect or authentication error is discarded although `Imap_eio.Error` already sanitises it; and `Auth.password` at :426 never passes `~allow_insecure_transport`, so `--tls plain` with `--auth plain`, `login` or `auto` without CRAM-MD5 always fails despite the usage text.
-- [ ] imap_cli.ml:705 [medium] an unknown operation ID gives 9 in inspect and settle-flags, 3 in repair-appenduid at :770 and 4 in the three delete repairs at :1003 and :1049.
-- [ ] imap_cli.ml:1110 [medium] :1110 and :442 match on library error strings "no pending FLAGS operation in this scope" and "Imap_store: stored mailbox scope differs from requested scope"; a wording change silently falls through to 4 or 7.
-- [ ] imap_cli.ml:1176 [low] any `Invalid_argument` becomes exit 5 "configuration", including library programming errors.
-- [ ] imap_cli.ml:1179 [low] `run` reads the password variable for every command on the exception path, contradicting imap_cli.mli:1.
-- [ ] imap_cli.ml:772 [low] `Error _ -> 4` discards the bridge error; :125 and :255 validate `IMAP_PORT`, `IMAP_TLS` and `IMAP_AUTH` for offline commands; :1147, :1003, :1049, :1083, :1114 and :1150 print post-authentication `pp_error` including server text without `redact`; :744 `capped` is true at exactly `max_inspect` while :827, :892 and :978 use strict greater; inspect has no DB pre-check and :536 and :565 follow symlinks while the repairs reject them; main.ml:2 treats `-h` anywhere in argv as help even as an option value; :207 and :193 do not name the offending token; :624 returns 4 on a hold before checking `more`, so one persistent hold under Preserve stops every run after its first cycle.
-- [ ] imap_cli.ml:574 [dead] `invalid_arg` at :574, :751 and :753 is unreachable once the receipt fields are typed; :208 binds `dst` unused.
-- [ ] imap_cli.ml:238 [redundant] :238 duplicates `bounded_bytes` at :241; hydrate output at :546 and :630; the decision string at :866 and :960 where plan-sync loses the hold reason; preview counting at :850 and :922; the two paging loops at :717; `local_scope` loads the cursor and inspect loads it again at :687; the Maildir requirement at :289, :307 and :329; the operation-id rejection at :342 and :346; evidence validation at :304 and :325; `String.sub ... = "--"` is `starts_with`; `List.hd (List.rev page)` at :726 and :740; the lease-busy to 8 mapping eleven times. Plan step 12.
-- [ ] imap_cli.ml:422 [comment] restates the `Fun.protect`; delete.
-- [ ] bin/README.md:334 [drift] says `--max-inspect` defaults to 1000 for inspect-append-candidates but :140 defaults to 100; imap_cli.mli:59 says hydrate requires blob and spool directories but :541 creates them; :53 omits audit-cache, mark-local-retention and plan-* from the offline list and the two remote-delete repairs from the online list; usage :48 says `--encoding` is inspect only but six commands accept it; README:321 says the UTF-8 retry follows a different stored encoding but :442 retries on any stored-scope difference and a pinned mismatch exits 7.
+- [x] imap_cli.ml:1081 [high] every `Bridge.Invalid_operation` at :1081 and :1144 is reported as exit 9 "not found in this scope" and its message dropped, although bridge.ml:1331 returns it for "reserved Maildir occurrence already exists; run sync" and bridge.ml:1466 for "UIDNEXT regressed". (step 12)
+- [x] imap_cli.ml:761 [high] `repair-appenduid` never checks that `--maildir` exists, so `open_dir` creates a new Maildir at a mistyped path and the writer lease locks the wrong inode. (step 12)
+- [x] imap_cli.ml:666 [medium] every `Sync`, `Flag_sync`, `Delete_sync` and `Client` error becomes exit 6 with a fixed message at :666, :556 and :642, although `Uidvalidity_changed`, `Modified`, `Stale_pair`, `Identity_changed`, `Stale_revision` and `Invalid_scope` are conflict or configuration outcomes that :591, :1003 and :677 map to 4 or 5; sync prints no `pp_error` detail. (step 12)
+- [x] imap_cli.ml:429 [medium] a connect or authentication error is discarded although `Imap_eio.Error` already sanitises it; and `Auth.password` at :426 never passes `~allow_insecure_transport`, so `--tls plain` with `--auth plain`, `login` or `auto` without CRAM-MD5 always fails despite the usage text. (step 12)
+- [x] imap_cli.ml:705 [medium] an unknown operation ID gives 9 in inspect and settle-flags, 3 in repair-appenduid at :770 and 4 in the three delete repairs at :1003 and :1049. (step 12)
+- [x] imap_cli.ml:1110 [medium] :1110 and :442 match on library error strings "no pending FLAGS operation in this scope" and "Imap_store: stored mailbox scope differs from requested scope"; a wording change silently falls through to 4 or 7. (step 12)
+- [x] imap_cli.ml:1176 [low] any `Invalid_argument` becomes exit 5 "configuration", including library programming errors. (step 12)
+- [x] imap_cli.ml:1179 [low] `run` reads the password variable for every command on the exception path, contradicting imap_cli.mli:1. (step 12)
+- [x] imap_cli.ml:772 [low] `Error _ -> 4` discards the bridge error; :125 and :255 validate `IMAP_PORT`, `IMAP_TLS` and `IMAP_AUTH` for offline commands; :1147, :1003, :1049, :1083, :1114 and :1150 print post-authentication `pp_error` including server text without `redact`; :744 `capped` is true at exactly `max_inspect` while :827, :892 and :978 use strict greater; inspect has no DB pre-check and :536 and :565 follow symlinks while the repairs reject them; main.ml:2 treats `-h` anywhere in argv as help even as an option value; :207 and :193 do not name the offending token; :624 returns 4 on a hold before checking `more`, so one persistent hold under Preserve stops every run after its first cycle. (step 12)
+- [x] imap_cli.ml:574 [dead] `invalid_arg` at :574, :751 and :753 is unreachable once the receipt fields are typed; :208 binds `dst` unused. (step 12)
+- [x] imap_cli.ml:238 [redundant] :238 duplicates `bounded_bytes` at :241; hydrate output at :546 and :630; the decision string at :866 and :960 where plan-sync loses the hold reason; preview counting at :850 and :922; the two paging loops at :717; `local_scope` loads the cursor and inspect loads it again at :687; the Maildir requirement at :289, :307 and :329; the operation-id rejection at :342 and :346; evidence validation at :304 and :325; `String.sub ... = "--"` is `starts_with`; `List.hd (List.rev page)` at :726 and :740; the lease-busy to 8 mapping eleven times. Plan step 12. (step 12)
+- [x] imap_cli.ml:422 [comment] restates the `Fun.protect`; delete. (step 12)
+- [x] bin/README.md:334 [drift] says `--max-inspect` defaults to 1000 for inspect-append-candidates but :140 defaults to 100; imap_cli.mli:59 says hydrate requires blob and spool directories but :541 creates them; :53 omits audit-cache, mark-local-retention and plan-* from the offline list and the two remote-delete repairs from the online list; usage :48 says `--encoding` is inspect only but six commands accept it; README:321 says the UTF-8 retry follows a different stored encoding but :442 retries on any stored-scope difference and a pinned mismatch exits 7. (step 12)
 - Facts for step 12: `int_of_string_opt` everywhere, cancellation re-raised at :1175, client closed under `Fun.protect` plus `Cancel.protect` at :431, the cycle loop bounded. The three deletion booleans combine at :523 into `Propagate`, `Propagate_remote`, `Propagate_local` or `Preserve`, and mixing is rejected at :363. Grammar: long options only, `--opt value` only, subcommand at argv.(1), no positionals, last repeat wins, fourteen `IMAP_*` environment defaults, `IMAP_PASSWORD_ENV` names the password variable defaulting to `IMAP_PASSWORD`, a "seen" set tracks five options. The exit-code table by condition, the per-command boilerplate table, the config-field usage table and the list of flags accepted but ignored per command are in the review transcript; every field is read by some command. Offline `local_scope` at :435 tries the configured encoding, retries once in UTF-8 on the exact scope-mismatch `Failure`, and online commands take the mode from `Client.mailbox_mode` at :433.
 
 #### lib/store/database.ml, schema.ml, record_codec.ml
@@ -1201,7 +1254,7 @@ These are visible only across modules. Each names the step that absorbs it.
 - [ ] [store helpers, step F] the SHA-256 hex validator is at blob_store.ml:16, operation_intent.ml:42, sync_journal.ml:74 and :452; the cursor read plus decode at imap_store.ml:29, :130, :141, :187 and blob_store.ml:116; the stale check at imap_store.ml:239, :333, :402 and blob_store.ml:122 with three disagreeing missing-row cases. Move to Record_codec.
 - [x] [capability idiom, step 2 and step 9] the `List.mem cap` then `State "X unavailable"` pattern is at about fifteen client.ml sites, twenty selected.ml sites and session.ml:256; the effective-rev2 predicate is written four ways at client.ml:57, :692, selected.ml:748, :979; `Capability` and `Enabled` are raw uppercase words with no dedup. (step 2 replaced the pattern with `Session.require` returning `Unsupported`, the predicates with `Session.has`, and the words with `Imap.Capability`. The extension witnesses are left for step 9. Step 9 added them)
 - [x] [two APPEND journals, decision in step 11] `intents` (18 columns) and `sync_operations` (26 columns) are bridged only by a shared ID at bridge.ml:195, :243, :326, :409, :1412; `intents.uidvalidity` conflates the pre-send epoch with the receipt epoch (operation_intent.ml:117). Unification is a schema v14 migration. Recommendation: keep both tables this round, add a separate receipt epoch column in v14, and record the unification as follow-up. (step 11: both tables stay this round. The receipt epoch column and the unification are a schema v14 follow-up)
-- [ ] [blob reclamation, step F and step 12] nothing in lib or bin runs the orphan collector (blob_store.ml:271), and `referenced` at blob_store.ml:250 counts refs from superseded epochs that `publish` retains at imap_store.ml:377, so no blob is ever reclaimed. Run `reap_orphans_iter` from the CLI at startup under the writer lease, and add an explicit epoch-drop operation so quarantined epochs can release their blobs.
+- [x] [blob reclamation, step F and step 12] nothing in lib or bin runs the orphan collector (blob_store.ml:271), and `referenced` at blob_store.ml:250 counts refs from superseded epochs that `publish` retains at imap_store.ml:377, so no blob is ever reclaimed. Run `reap_orphans_iter` from the CLI at startup under the writer lease, and add an explicit epoch-drop operation so quarantined epochs can release their blobs. (step 12: `gc` runs `reap_orphans_iter` under a database lock file and, with a Maildir, the writer lease. `sync` runs it at startup, and `forget-epochs` drops the other epochs)
 - [ ] [finally clobbering, step F] `Fun.protect ~finally` with a raising finaliser at blob_store.ml:280, :224 and imap_maildir.ml:505, :178 replaces the original exception with `Finally_raised`.
 - [x] [non-reentrant locks, step 10 and step F] `with_mailbox` deadlocks on a nested call (client.ml:634) and `Database.transaction` hangs on a nested call (database.ml:53); both need owner tracking through a fiber-local key or a flag on the record. (step F made a nested transaction `Invalid_argument`, and step 10 gave `with_mailbox` a fiber-local key)
 - [ ] [error payload loss, step F] session.ml:244, :363, command.ml:263, response.ml:1623, :1691, record_codec.ml:32, imap_store.ml:69, deflate_flow.ml:75, database.ml:9, imap_cli.ml:429, :772 all replace a specific message with a fixed one.

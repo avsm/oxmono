@@ -1,5 +1,72 @@
 # Operational IMAP sync command
 
+`imap-sync` keeps one IMAP mailbox and one Maildir in step through a SQLite
+journal. Each invocation does bounded work and exits, so a scheduler can
+invoke it again with its own backoff. `imap-sync --help` lists the commands,
+and `imap-sync COMMAND --help` lists the options that command accepts.
+
+## Command line
+
+Every command is `imap-sync COMMAND [OPTION]...`. Options are long options,
+written `--name value` or `--name=value`. A command rejects an option it does
+not use, an unknown option and a repeated option. Each option below falls
+back to the environment variable named beside it.
+
+| Group | Options | Commands |
+|---|---|---|
+| Mailbox scope | `--endpoint ID` (`IMAP_ENDPOINT`), `--account ID` (`IMAP_ACCOUNT`), `--mailbox NAME` (`IMAP_MAILBOX`), `--mailbox-key ID` (`IMAP_MAILBOX_KEY`, default the mailbox name), `--db PATH` (`IMAP_DB`) | all but `gc`, which takes only `--db` |
+| Stored encoding | `--encoding rev1\|utf8` | the offline commands `audit-cache`, `inspect`, `repair-appenduid`, `mark-local-retention`, `plan-deletions`, `plan-sync`, `verify-local`, `forget-epochs` |
+| Connection | `--host HOST` (`IMAP_HOST`), `--port N` (`IMAP_PORT`), `--tls implicit\|starttls\|plain` (`IMAP_TLS`), `--user USER` (`IMAP_USER`), `--password-env NAME` (`IMAP_PASSWORD_ENV`, default `IMAP_PASSWORD`), `--auth auto\|cram-md5\|plain\|login` (`IMAP_AUTH`) | the online commands `sync`, `hydrate`, `inspect-append-candidates`, `repair-local-delete`, `repair-local-append`, `settle-flags`, `reject-remote-delete`, `finish-remote-delete` |
+| Paths | `--blob-dir PATH` (`IMAP_BLOB_DIR`, default `DB.blobs`), `--spool-dir PATH` (`IMAP_SPOOL_DIR`, default `DB.spool`), `--maildir PATH` (`IMAP_MAILDIR`) | each command that reads or writes that directory |
+
+The per-command options are these.
+
+| Command | Options |
+|---|---|
+| `sync` | `--max-transfers N` (100), `--max-cycles N` (1), `--min-absence-scans N` (0), `--deletion-policy POLICY` (preserve), `--allow-bootstrap-duplicates`, `--hydrate-bodies`, `--max-body-bytes N` and `--max-total-bytes N` (1 GiB, with `--hydrate-bodies` only) |
+| `hydrate` | `--max-transfers N`, `--max-body-bytes N`, `--max-total-bytes N` |
+| `audit-cache` | `--max-transfers N`, `--max-total-bytes N`, `--after-uid N` with `--expected-revision N` |
+| `inspect` | `--max-inspect N` (100), `--operation-id ID` |
+| `inspect-append-candidates` | `--operation-id ID`, `--max-inspect N` (100), `--max-candidate-bytes N` (1 GiB) |
+| `repair-appenduid` | `--operation-id ID`, `--uidvalidity N`, `--uid N`, `--evidence TEXT` |
+| `repair-local-delete`, `repair-local-append`, `settle-flags`, `reject-remote-delete`, `finish-remote-delete` | `--operation-id ID`, `--evidence TEXT` |
+| `mark-local-retention` | `--pair-id ID`, `--evidence TEXT` |
+| `plan-deletions` | `--max-inspect N`, `--min-absence-scans N`, `--deletion-policy POLICY` |
+| `plan-sync` | the `plan-deletions` options and `--allow-bootstrap-duplicates` |
+| `verify-local` | `--max-inspect N` |
+| `gc` | `--db PATH`, `--blob-dir PATH`, `--maildir PATH` (optional) |
+| `forget-epochs` | none beyond the mailbox scope |
+
+`--deletion-policy` is one of `preserve`, `propagate`, `propagate-remote` and
+`propagate-local`. Evidence is 1 to 1024 printable bytes. `--max-inspect`
+caps what is printed and reports `capped=true` only when more items exist
+than it shows.
+
+The password is never an option. A command that connects reads it from the
+variable `--password-env` names when it runs, and an offline command never
+reads it. No output includes the password. An error printed after
+authentication has the password replaced by `[REDACTED]`.
+
+## Exit status
+
+| Status | Meaning |
+|---|---|
+| 0 | The command converged, or a targeted operation is terminal. |
+| 2 | Bounded work remains. Run the command again. |
+| 3 | Pending journal work needs operator inspection. |
+| 4 | A conflict, a held flag or deletion decision, or an unsafe state such as a changed pair, a changed UIDVALIDITY or an unpaired bootstrap. |
+| 5 | Invalid configuration, including a command line error, a missing database or directory, a missing password and a stored scope that differs from the requested one. |
+| 6 | An IMAP connection, authentication or protocol failure. |
+| 7 | A local filesystem, Maildir or SQLite failure. |
+| 8 | The Maildir writer lease, the Maildir metadata lock or the database lock is busy. |
+| 9 | The targeted operation or pair is not in the requested mailbox scope. |
+
+A nonzero exit never authorizes automatically replaying a possibly sent
+APPEND or delete. An unknown operation ID exits 9 in every command that takes
+one, whatever the repair would have said about it.
+
+## Operations
+
 `imap-sync audit-cache` checks stored body blobs without connecting to IMAP.
 It rehashes a bounded page of references from the published inventory and
 removes an exact SQLite reference if its file is missing or corrupt. It leaves
@@ -26,8 +93,11 @@ every cached body.
 published SQLite mailbox inventory. It does not need a Maildir and does not
 change message flags. Each invocation is bounded by `--max-transfers`,
 `--max-body-bytes` and `--max-total-bytes`; it exits 2 when another pass is
-needed. Set the total byte budget large enough for the next message, or a
-pass can correctly make no progress. For example, after a successful scan:
+needed. A body larger than `--max-body-bytes` or `--max-total-bytes` is
+skipped and counted in `skipped=N`, with the first 100 UIDs on standard
+error. Skipped bodies do not make the exit status 2, and a pass that only
+skipped bodies continues after them, so they never stall later UIDs. Raise
+the budgets to hydrate them. For example, after a successful scan:
 
 ```sh
 opam exec -- dune exec bleeding/imap/bin/main.exe -- hydrate \
@@ -40,7 +110,8 @@ opam exec -- dune exec bleeding/imap/bin/main.exe -- hydrate \
   --max-total-bytes 1073741824
 ```
 
-The password comes from `IMAP_PASSWORD` by default. The command verifies
+The password comes from `IMAP_PASSWORD` by default. `hydrate` holds the
+database lock described under blob reclamation. The command verifies
 the published mailbox identity and UIDVALIDITY, preflights RFC822.SIZE, and
 attaches each exact body only after a completed FETCH and synced blob write.
 It leaves already attached bodies in place if a later message fails.
@@ -53,13 +124,12 @@ run when the bridge itself still has more transfers or a conflict to resolve.
 
 `imap-sync` drives one bounded IMAP↔Maildir bridge cycle at a time. It uses
 `imap.store` for the SQLite journal and `maildir` for exact message files.
-The command defaults to preserving messages that disappear on one side. Set
-`--propagate-deletions` only for a mailbox where that policy is intended.
-For one-way propagation, use `--propagate-remote-deletions` to remove a
-local survivor after verified remote disappearance, or
-`--propagate-local-deletions` to remove a remote survivor after verified local
-disappearance. The two directional flags together have the same effect as
-`--propagate-deletions`; combining either with the latter is rejected.
+The command defaults to `--deletion-policy preserve`, which keeps messages
+that disappear on one side. Set `--deletion-policy propagate` only for a
+mailbox where that policy is intended. For one-way propagation,
+`propagate-remote` removes a local survivor after verified remote
+disappearance, and `propagate-local` removes a remote survivor after
+verified local disappearance.
 For propagation, `--min-absence-scans N` waits for N additional complete
 remote scan generations after an absence is first recorded before deleting
 the survivor. For example, `--min-absence-scans 1` holds deletion in the
@@ -91,7 +161,7 @@ opam exec -- dune exec bleeding/imap/bin/main.exe -- mark-local-retention \
 The command requires the paired local occurrence to be absent, an active
 remote binding, and no pending operation for that pair. It records a durable
 retention tombstone under the Maildir writer lease. Subsequent sync cycles
-hold remote deletion for that pair even under `--propagate-deletions`.
+hold remote deletion for that pair even under `--deletion-policy propagate`.
 It does not perform server I/O. Record retention before a sync cycle with
 local-to-remote deletion propagation runs; an already completed remote
 deletion cannot be reversed by this marker.
@@ -103,7 +173,7 @@ candidate planner with the intended direction:
 opam exec -- dune exec bleeding/imap/bin/main.exe -- plan-deletions \
   --endpoint personal-dovecot --account alice --mailbox INBOX \
   --db /var/lib/imap-sync/inbox.sqlite --maildir /home/alice/Maildir \
-  --propagate-local-deletions --max-inspect 100
+  --deletion-policy propagate-local --max-inspect 100
 ```
 
 The planner reads the latest complete *published* remote inventory and stages
@@ -124,7 +194,7 @@ three-way flag changes, including the default `\Deleted` hold:
 opam exec -- dune exec bleeding/imap/bin/main.exe -- plan-sync \
   --endpoint personal-dovecot --account alice --mailbox INBOX \
   --db /var/lib/imap-sync/inbox.sqlite --maildir /home/alice/Maildir \
-  --propagate-remote-deletions --max-inspect 100
+  --deletion-policy propagate-remote --max-inspect 100
 ```
 
 It pages the published remote inventory, a fresh disk-staged Maildir
@@ -137,8 +207,9 @@ without existing pairs yields only a bootstrap hold unless
 does not connect to IMAP or change the journal; current server capabilities,
 message bodies, and concurrent changes are checked by the later live sync.
 
-Set credentials through an environment variable; the command has no password
-argument and never prints the password or server authentication text:
+Set credentials through an environment variable. The command has no
+password argument and never prints the password or server authentication
+text:
 
 ```sh
 export IMAP_PASSWORD='your secret'
@@ -153,10 +224,11 @@ opam exec -- dune exec bleeding/imap/bin/main.exe -- sync \
 ```
 
 `--auth auto` is the default and negotiates a server-advertised mechanism.
-`--auth cram-md5` requests CRAM-MD5 explicitly. Implicit TLS is the default;
-`--tls starttls` requires STARTTLS. `--tls plain` should be used only for a
-trusted local fixture. CRAM-MD5 authenticates the password exchange but does
-not encrypt subsequent mail traffic.
+`--auth cram-md5` requests CRAM-MD5 explicitly. Implicit TLS is the default,
+and `--tls starttls` requires STARTTLS. `--tls plain` sends everything in
+clear text and permits every mechanism, including PLAIN and LOGIN, over it.
+Use it only for a trusted local fixture. CRAM-MD5 authenticates the password
+exchange but does not encrypt subsequent mail traffic.
 
 The database parent directory must exist. The command creates the blob and
 spool directories with owner-only permissions. The Maildir root's parent must
@@ -166,17 +238,13 @@ with messages on both sides stops before copying unless
 `--allow-bootstrap-duplicates` is explicitly set. Inspect the mailboxes first:
 the bridge never pairs messages merely because their bytes match.
 
-Each invocation is bounded by `--max-transfers` and `--max-cycles`. Exit 0
-means this invocation reached a converged pass. Exit 2 means more bounded
-work remains; call it again. Exit 3 means pending journal work needs operator
-inspection, 4 is a conflict or unsafe bootstrap, 5 is configuration, 6 is an
-IMAP/protocol failure, 7 is local storage failure, and 8 is a busy Maildir
-writer lease. A nonzero exit never authorizes automatically replaying a
-possibly-sent APPEND or delete. An external scheduler can invoke the command
-again with its own backoff; there is no endless in-process retry loop.
-Exit 4 also reports a held flag or deletion policy decision; the command
-prints up to 100 affected pair IDs so that a quiet no-op is not mistaken for
-convergence.
+Each invocation is bounded by `--max-transfers` and `--max-cycles`, with the
+exit statuses of the table above. There is no endless in-process retry loop.
+A cycle that holds a flag or deletion decision does not stop later cycles.
+When the cycles end with no work remaining, a held decision exits 4, and the
+command prints up to 100 affected pair IDs so that a quiet no-op is not
+mistaken for convergence. Remaining work exits 2 even while a decision is
+held.
 If a remote UID vanishes after inventory but before body archival, sync leaves
 no local transfer journal and rescans within `--max-cycles`. When the cycle
 budget is exhausted, it exits 2 so the scheduler can retry.
@@ -312,15 +380,16 @@ To inspect one operation, including a committed or rejected row, add
 `--operation-id ID` to `inspect`. This uses a direct journal lookup and does
 not page the active operations or conflicts. It prints the same operation
 identity and context as the list view. Exit 3 means the operation is active
-(`prepared`, `sent`, `ambiguous`, or `observed`); exit 0 means it is terminal
-(`committed` or `rejected`); exit 9 means the ID does not exist in the
+(`prepared`, `sent`, `ambiguous`, or `observed`). Exit 0 means it is terminal
+(`committed` or `rejected`). Exit 9 means the ID does not exist in the
 requested mailbox scope. IDs in another scope are reported as absent. The
 targeted view prints the current cursor first, as the list view does.
 SQLite read-only WAL access may create `-wal` or `-shm` sidecars if they are
-absent; it does not migrate or create the main database. Local commands first
-resolve the stored scope in rev1 and, if the store reports a different
-encoding, retry UTF-8. `--encoding rev1|utf8` pins the expected encoding and
-makes a mismatch an error.
+absent. It does not migrate or create the main database. Offline commands
+first resolve the stored scope in rev1 and, if the stored scope differs in
+any way, retry once in UTF-8. A difference in UTF-8 too exits 5.
+`--encoding rev1|utf8` pins the expected encoding, and a stored scope that
+differs from it exits 5.
 
 When an APPEND lost its tagged receipt, an operator may recover the exact
 APPENDUID from a trusted server log or protocol trace.
@@ -332,7 +401,7 @@ operation and can be attempted afresh after repairing the local storage.
 Before reviewing the log, a bounded read-only candidate scan can narrow the
 UID range. It checks the saved pre-send frontier, current UIDVALIDITY, flags,
 exact body length and digest. It refuses a range larger than `--max-inspect`
-(default 1000, maximum 10000) or an aggregate body read larger than
+(default 100, maximum 10000) or an aggregate body read larger than
 `--max-candidate-bytes` (default 1 GiB) instead of truncating it:
 
 ```sh
@@ -418,7 +487,51 @@ file, changed flags, changed bytes, missing UID, or changed epoch. If the
 process exits after publishing the file, the next regular `sync` reconciles
 that file; do not invoke repair again. This action is never automatic.
 
-The OCaml `Imap_cli.config` record is private: use `Imap_cli.parse` to construct
-validated configurations; its fields remain readable. Online commands share a
-scoped connection helper that closes the client on callback exit, including
-cancellation. Credentials are resolved only when an online command runs.
+## Blob reclamation
+
+A blob stays on disk until nothing references it. A superseded UIDVALIDITY
+epoch keeps its snapshot rows, and so its blobs, until it is dropped
+explicitly:
+
+```sh
+opam exec -- dune exec bleeding/imap/bin/main.exe -- forget-epochs \
+  --endpoint personal-dovecot --account alice --mailbox INBOX \
+  --db /var/lib/imap-sync/inbox.sqlite
+```
+
+`forget-epochs` deletes the snapshot rows and blob references of every epoch
+of the scope other than the current cursor's, and prints `epochs_dropped=N`.
+It exits 4 when no epoch is published yet, or when the cursor changes while
+it runs. It does not remove files.
+
+`gc` removes blob files that no snapshot or pending journal operation
+references, and temporary files left by an interrupted write, then prints
+`orphans_removed=N`:
+
+```sh
+opam exec -- dune exec bleeding/imap/bin/main.exe -- gc \
+  --db /var/lib/imap-sync/inbox.sqlite \
+  --blob-dir /var/lib/imap-sync/inbox.blobs \
+  --maildir /home/alice/Maildir
+```
+
+A blob written but not yet referenced is indistinguishable from an orphan,
+so every writer of the blob directory must be stopped while `gc` runs,
+including writers in other processes. `gc` holds a lock file at `DB.lock` and,
+when a Maildir is configured, the Maildir writer lease. `sync` and `hydrate`
+hold `DB.lock` for their whole run, so a concurrent one exits 8 instead of
+racing the collector. A program that writes blobs through the library
+without these locks must not run alongside `gc`. The blob directory must
+belong to this database alone, since `gc` consults only its references.
+
+`sync` runs the same collector at startup under the database lock and the
+Maildir writer lease, and prints `orphans_removed=N` when it removes any.
+
+## OCaml interface
+
+`Imap_cli.cmd` is the command tree, and each command parses into an
+`Imap_cli.job` whose private records hold only validated options.
+`Imap_cli.eval` parses an argument vector against an environment lookup and
+runs the job, which is what `main.exe` and the tests call. Online commands
+share a scoped connection helper that closes the client on callback exit,
+including cancellation.

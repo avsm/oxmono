@@ -15,6 +15,7 @@ type t = { root : directory; tmp : directory; new_dir : directory;
            cur : directory }
 type recovery = { removed_temporary : string list }
 exception Writer_lock_busy = Dotlock.Busy
+exception Metadata_lock_lost = Dotlock.Lost
 exception Stale_occurrence
 module Sql = Sqlite3
 module Db = Sqlite3_eio
@@ -151,7 +152,7 @@ let split_filename name =
 
 let with_metadata_lock t f =
   let Dir path=child t.root "dovecot-uidlist.lock" in
-  Dotlock.with_lock (Eio.Path.native_exn path) f
+  Dotlock.with_lock path f
 
 let read_keywords t =
   let path=child t.root "dovecot-keywords" in

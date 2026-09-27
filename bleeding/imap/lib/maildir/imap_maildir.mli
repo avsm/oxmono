@@ -30,6 +30,10 @@ type occurrence = private {
 exception Writer_lock_busy of string
 (** Another process or handle holds the requested writer or metadata lock. *)
 
+exception Metadata_lock_lost of string
+(** [Metadata_lock_lost path] is raised when the metadata lock at [path] was
+    removed or replaced by another party while an operation held it. *)
+
 val open_dir : _ Eio.Path.t -> t
 (** [open_dir path] is the Maildir at [path]. Missing standard directories are
     created and synced. A native filesystem is required. Unsupported legacy

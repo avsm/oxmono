@@ -1,62 +1,66 @@
 exception Busy of string
-let fail message = failwith ("Imap_maildir: " ^ message)
+exception Lost of string
 
-let with_lock native f =
-  let content=Printf.sprintf "%d %s\n" (Unix.getpid ()) (Unix.gethostname ()) in
-  let refresh_mutex=Eio.Mutex.create () in
-  let acquired=ref None in
-  let owned_fd=ref None in
+let same (a : Eio.File.Stat.t) (b : Eio.File.Stat.t) =
+  a.dev = b.dev && a.ino = b.ino
+
+let with_lock path f =
+  let name = Option.value (Eio.Path.native path) ~default:(snd path) in
+  (* Eio has no getpid or gethostname. *)
+  let content =
+    Printf.sprintf "%d %s\n" (Unix.getpid ()) (Unix.gethostname ()) in
+  let mutex = Eio.Mutex.create () in
+  let held = ref None in
   let check () =
-    match !acquired with
-    | None -> fail "metadata lock is not held"
-    | Some expected ->
-        let actual=Unix.lstat native in
-        if actual.Unix.st_dev<>expected.Unix.st_dev ||
-           actual.Unix.st_ino<>expected.Unix.st_ino then
-          fail "Dovecot metadata lock was replaced" in
-  let touch () = Eio.Mutex.use_ro refresh_mutex (fun () ->
-    Eio.Cancel.protect (fun () -> Eio_unix.run_in_systhread (fun () ->
+    match !held with
+    | None -> raise (Lost name)
+    | Some (_, expected) ->
+        match Eio.Path.stat ~follow:false path with
+        | actual when same actual expected -> ()
+        | _ | exception Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) ->
+            raise (Lost name) in
+  let refresh () = Eio.Mutex.use_ro mutex (fun () ->
+    Eio.Cancel.protect (fun () ->
       check ();
-      let fd=Option.get !owned_fd in
-      ignore (Unix.lseek fd 0 Unix.SEEK_SET);
-      let rec write () =
-        match Unix.write_substring fd content 0 1 with
-        | 1 -> ()
-        | _ -> fail "short lock refresh"
-        | exception Unix.Unix_error (Unix.EINTR,_,_) -> write () in
-      write ();
-      check ()))) in
-  Fun.protect ~finally:(fun () -> Eio.Cancel.protect (fun () ->
-    let expected= !acquired in
-    acquired:=None;
-    Eio_unix.run_in_systhread (fun () ->
-      Fun.protect ~finally:(fun () ->
-        Option.iter Unix.close !owned_fd;
-        owned_fd:=None) (fun () ->
-        match expected with
-        | None -> ()
-        | Some expected ->
-            match Unix.lstat native with
-            | actual when actual.Unix.st_dev=expected.Unix.st_dev &&
-                          actual.Unix.st_ino=expected.Unix.st_ino -> Unix.unlink native
-            | _ -> ()
-            | exception Unix.Unix_error (Unix.ENOENT,_,_) -> ())))) (fun () ->
-    let fd=Eio.Cancel.protect (fun () -> Eio_unix.run_in_systhread (fun () ->
-      let open_lock () = Unix.openfile native
-        [Unix.O_WRONLY;Unix.O_CREAT;Unix.O_EXCL;Unix.O_CLOEXEC] 0o600 in
-      let fd=try open_lock () with
-        | Unix.Unix_error (Unix.EEXIST,_,_) ->
-            raise (Busy native) in
-      owned_fd:=Some fd;
-      acquired:=Some (Unix.fstat fd);
-      fd)) in
-    Eio_unix.run_in_systhread (fun () ->
-      let rec write offset = if offset<String.length content then
-        match Unix.write_substring fd content offset (String.length content-offset) with
-        | 0 -> fail "short lock write"
-        | n -> write (offset+n)
-        | exception Unix.Unix_error (Unix.EINTR,_,_) -> write offset in
-      write 0);
-    let result=f touch in
-    touch ();
-    result)
+      let file, _ = Option.get !held in
+      Eio.File.pwrite_all file ~file_offset:Optint.Int63.zero
+        [Cstruct.of_string ~len:1 content];
+      check ())) in
+  let release () = Eio.Cancel.protect (fun () ->
+    Eio.Mutex.use_ro mutex (fun () ->
+      match !held with
+      | None -> ()
+      | Some (_, expected) ->
+          held := None;
+          match Eio.Path.stat ~follow:false path with
+          | actual when same actual expected ->
+              Eio.Path.unlink ~missing_ok:true path
+          | _ | exception Eio.Io _ -> ())) in
+  Eio.Switch.run ~name:"dotlock" @@ fun sw ->
+  Eio.Cancel.protect (fun () ->
+    let file =
+      try Eio.Path.open_out ~sw ~create:(`Exclusive 0o600) path with
+      | Eio.Io (Eio.Fs.E (Eio.Fs.Already_exists _), _) -> raise (Busy name) in
+    match Eio.File.stat file with
+    | stat -> held := Some (file, stat)
+    | exception exn ->
+        let bt = Printexc.get_raw_backtrace () in
+        (try Eio.Path.unlink ~missing_ok:true path with Eio.Io _ -> ());
+        Printexc.raise_with_backtrace exn bt);
+  match
+    let file, _ = Option.get !held in
+    Eio.File.pwrite_all file ~file_offset:Optint.Int63.zero
+      [Cstruct.of_string content];
+    let result = f refresh in
+    check ();
+    result
+  with
+  | result ->
+      (try release () with Eio.Io _ as exn ->
+        Eio.Exn.reraise_with_context exn (Printexc.get_raw_backtrace ())
+          "releasing lock %s" name);
+      result
+  | exception exn ->
+      let bt = Printexc.get_raw_backtrace () in
+      (try release () with Eio.Io _ -> ());
+      Printexc.raise_with_backtrace exn bt

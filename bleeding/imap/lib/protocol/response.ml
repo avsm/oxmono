@@ -1488,8 +1488,8 @@ let parse raw =
             | Result.Error _ -> Result.Error "invalid VANISHED UID set")
        | _ when is_digits kind ->
            let n=parse_i64 kind in
-           (match List.map up rest with
-            | ("FETCH" | "UIDFETCH" as typ)::_ ->
+           (match (match rest with [] -> "" | word::_ -> up word) with
+            | "FETCH" | "UIDFETCH" as typ ->
                 (match n with
                  | Some n when valid_seq n ->
                      let uid_only=typ="UIDFETCH" in
@@ -1497,7 +1497,7 @@ let parse raw =
                        Untagged (if uid_only then Uidfetch f else Fetch f))
                        (fetch ~uid_only n (drop_words raw 2))
                  | _ -> Result.Error "invalid FETCH sequence")
-            | ("EXISTS" | "RECENT" | "EXPUNGE" as typ)::_ ->
+            | "EXISTS" | "RECENT" | "EXPUNGE" as typ ->
                 (match n with
                  | Some n when valid_uint32 n && (typ<>"EXPUNGE" || n<>0L) ->
                      Result.Ok (Untagged (match typ with
@@ -1566,6 +1566,9 @@ let scan_fetch st s =
 
 let parse_parts ?(max_control_literal=16_777_216) parts =
   if max_control_literal < 0 then invalid_arg "Imap.Response.parse_parts";
+  match parts with
+  | [Wire.Text s; Wire.End_of_response] -> parse s
+  | parts ->
   let b=Buffer.create 128 in
   let complete=ref false in
   let control=ref false in

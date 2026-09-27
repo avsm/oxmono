@@ -83,7 +83,9 @@ type staged_receipt = {
 val begin_stage : t -> cursor:Imap.Mirror.cursor ->
   action:Imap.Mirror.action -> unit
 (** Create a uniquely named, durable scan stage. Stages surviving a crash are
-    inert until explicitly discarded. *)
+    inert until explicitly discarded. An [action] planned from another
+    cursor raises [Invalid_argument], and reusing a stage ID raises
+    [Sqlite3.SqliteError]. *)
 
 val seed_stage_from_published : t -> cursor:Imap.Mirror.cursor ->
   action:Imap.Mirror.action -> [ `Seeded | `Stale_revision ]
@@ -169,16 +171,17 @@ type intent = {
 
 val prepare_intent : t -> intent -> unit
 (** The caller supplies a globally unique ID. [Prepared] is committed before
-    the network command is sent. Reusing an ID fails. APPEND reconciliation
-    metadata is immutable once prepared; [None] fields mark legacy unknown
-    values, while [Some []] flags mean known empty flags. The frontier is the
-    last published UID bound before send, not proof of server state at send.
-    New APPEND intents require a 64-character lowercase SHA-256 digest and,
-    when supplied, a valid unquoted IMAP date-time. A [uid] requires a
-    [uidvalidity]. Invalid metadata raises [Invalid_argument] without
-    inserting an intent. Existing legacy metadata remains readable for
-    inspection and explicit recovery. A legacy row with no stored message
-    ID, digest or spool reference reads that field as the empty string. *)
+    the network command is sent. Reusing an ID raises [Sqlite3.SqliteError].
+    APPEND reconciliation metadata is immutable once prepared; [None] fields
+    mark legacy unknown values, while [Some []] flags mean known empty flags.
+    The frontier is the last published UID bound before send, not proof of
+    server state at send. New APPEND intents require a 64-character
+    lowercase SHA-256 digest and, when supplied, a valid unquoted IMAP
+    date-time. A [uid] requires a [uidvalidity]. Invalid metadata raises
+    [Invalid_argument] without inserting an intent. Existing legacy
+    metadata remains readable for inspection and explicit recovery. A
+    legacy row with no stored message ID, digest or spool reference reads
+    that field as the empty string. *)
 
 val set_intent_state : t -> id:string -> intent_state -> unit
 (** Legal transitions are Prepared -> Sent/Ambiguous/Rejected and

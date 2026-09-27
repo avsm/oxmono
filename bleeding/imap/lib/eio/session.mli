@@ -37,6 +37,16 @@ val create : ?max_metadata:int -> ?max_responses:int ->
   ?max_command_metadata:int -> Transport.flow -> t
 val close : t -> unit
 val check_open : t -> unit
+val has : t -> string -> bool
+(** [has t name] holds when the latest CAPABILITY response listed [name],
+    which must be uppercase. *)
+val revision_two : t -> bool
+(** [revision_two t] holds when IMAP4rev2 is in effect. The server advertises
+    it and either omits IMAP4rev1 or accepted ENABLE IMAP4rev2. *)
+val mailbox_mode : t -> Imap.Mailbox_name.mode
+val mailbox_wire : t -> string -> string
+(** [mailbox_wire t name] encodes the UTF-8 mailbox [name] for the wire in
+    {!mailbox_mode}. It raises [Failure (State _)] for an invalid name. *)
 val read_response : ?on_literal:(string -> unit) ->
   ?on_literal_start:(int64 -> unit) -> ?collect_literals:bool ->
   t -> Imap.Wire.event list
@@ -60,6 +70,9 @@ val append_many : t -> append_part list -> Imap.Response.t
 val append : ?synchronizing:bool -> t -> prefix:string -> length:int64 ->
   _ Eio.Flow.source -> Imap.Response.t
 val idle_once : t -> Imap.Response.t list
+val io_failure : exn -> bool
+(** [io_failure ex] holds for [Eio.Io], [Unix.Unix_error], [End_of_file] and
+    TLS alerts and failures. *)
 val protect : t -> (unit -> 'a) -> ('a, error) result
 val locked : t -> (unit -> 'a) -> ('a, error) result
 val authentication_rejected : tag:string -> status:[ `No | `Bad ] ->

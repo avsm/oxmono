@@ -48,26 +48,26 @@ let with_client caps replies f =
   let flow=Eio_mock.Flow.make "client-review" in
   let caps="* CAPABILITY IMAP4rev1 UNSELECT " ^ caps ^ "\r\n" in
   Eio_mock.Flow.on_read flow ([`Return "* PREAUTH ready\r\n";
-    `Return (caps ^ "A00000001 OK done\r\n");
-    `Return (caps ^ "A00000002 OK done\r\n")] @ replies);
+    `Return (caps ^ "A00000001 OK done\r\n")] @ replies);
   let client=ok (C.of_flow ~sw flow) in f client
 
 let test_selection_cleanup () =
-  with_client "" [`Return "A00000003 OK selected\r\n"] (fun client ->
+  with_client "" [`Return "A00000002 OK selected\r\n"] (fun client ->
     (match C.with_mailbox client ~mode:`Read_only "INBOX"
       (fun _ -> failwith "invalid selection exposed a lease") with
      | Error (E.Protocol _) -> () | _ -> failwith "invalid selection succeeded");
     if C.is_open client then failwith "invalid selection remained open");
   with_client "" [
-    `Return "* 0 EXISTS\r\n* OK [UIDVALIDITY 1] valid\r\n* OK [UIDNEXT 1] next\r\nA00000003 OK selected\r\n";
-    `Return "A00000004 NO cannot unselect\r\n"] (fun client ->
-    (match C.with_mailbox client ~mode:`Read_only "INBOX" (fun _ -> Ok ()) with
-     | Error (E.Rejected _) -> () | _ -> failwith "UNSELECT rejection disappeared");
+    `Return "* 0 EXISTS\r\n* OK [UIDVALIDITY 1] valid\r\n* OK [UIDNEXT 1] next\r\nA00000002 OK selected\r\n";
+    `Return "A00000003 NO cannot unselect\r\n"] (fun client ->
+    (match C.with_mailbox client ~mode:`Read_only "INBOX" (fun _ -> Ok 7) with
+     | Ok 7 -> ()
+     | _ -> failwith "failed UNSELECT replaced the callback outcome");
     if C.is_open client then failwith "failed lease release remained open")
 
 let test_metadata_scope () =
   with_client "METADATA-SERVER" [
-    `Return "* METADATA \"\" (/shared/comment \"ok\")\r\nA00000003 OK done\r\n"]
+    `Return "* METADATA \"\" (/shared/comment \"ok\")\r\nA00000002 OK done\r\n"]
     (fun client ->
       ignore (ok (C.get_metadata client ~mailbox:"" ~entries:["/shared/comment"] ()));
       match C.get_metadata client ~mailbox:"INBOX" ~entries:["/shared/comment"] () with
@@ -76,9 +76,9 @@ let test_metadata_scope () =
 
 let with_selected ?(caps="") reply f =
   with_client caps [
-    `Return "* 9 EXISTS\r\n* OK [UIDVALIDITY 1] valid\r\n* OK [UIDNEXT 10] next\r\nA00000003 OK selected\r\n";
-    `Return (reply ^ (if String.starts_with ~prefix:"A00000004 " reply then "" else "A00000004 OK done\r\n"));
-    `Return "A00000005 OK unselected\r\n"] (fun client ->
+    `Return "* 9 EXISTS\r\n* OK [UIDVALIDITY 1] valid\r\n* OK [UIDNEXT 10] next\r\nA00000002 OK selected\r\n";
+    `Return (reply ^ (if String.starts_with ~prefix:"A00000003 " reply then "" else "A00000003 OK done\r\n"));
+    `Return "A00000004 OK unselected\r\n"] (fun client ->
       f (C.with_mailbox client ~mode:`Read_write "INBOX"))
 
 let test_search_evidence () =
@@ -106,7 +106,7 @@ let test_search_evidence () =
 
 let test_copy_correspondence () =
   List.iter (fun (source,destination,expected) ->
-    with_selected ("A00000004 OK [COPYUID 7 " ^ source ^ " " ^ destination ^ "] copied\r\n")
+    with_selected ("A00000003 OK [COPYUID 7 " ^ source ^ " " ^ destination ^ "] copied\r\n")
       (fun with_mailbox ->
         let set=Result.get_ok (Imap.Proto.Uid_set.of_wire source) in
         let receipt=ok (with_mailbox (fun selected ->

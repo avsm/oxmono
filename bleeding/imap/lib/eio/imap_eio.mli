@@ -446,7 +446,11 @@ module Client : sig
   val status : t -> mailbox:string -> items:Imap.Command.status_item list ->
     (Imap.Response.mailbox_status, error) result
   (** The draft [Objectid] item requires prior [enable_objectid_plus]; its
-      account and mailbox identifiers are in [mailbox_status.objectid]. *)
+      account and mailbox identifiers are in [mailbox_status.objectid].
+      [Highestmodseq] requires CONDSTORE or QRESYNC, [Mailboxid] requires
+      OBJECTID, [Size] requires STATUS=SIZE or IMAP4rev2, [Deleted] requires
+      QUOTA or IMAP4rev2 and [Deleted_storage] requires QUOTA. A missing
+      capability is [Error.State] and sends nothing. *)
   val get_jmap_access : t -> (string, error) result
   (** Returns the server's advertised JMAP access data verbatim. A proxy must
       apply its own endpoint trust policy before using it. *)
@@ -513,9 +517,10 @@ module Client : sig
       client from inside [callback] wait for that lease and therefore must be
       avoided. The selected handle becomes stale when [callback] returns. A
       normal exit sends UNSELECT where negotiated, otherwise closes safely; an
-      exceptional exit closes the connection. Selected commands are serialized;
-      join their fibers before returning. An escaped in-flight command closes the
-      connection at lease exit. Mailbox arguments are UTF-8.
+      exceptional exit closes the connection. If UNSELECT fails, the connection
+      closes and the callback's result is still returned. Selected commands
+      are serialized. Join their fibers before returning. An escaped in-flight
+      command closes the connection at lease exit. Mailbox arguments are UTF-8.
       [qresync] is a saved UIDVALIDITY and completed MODSEQ checkpoint, and is
       accepted only when QRESYNC was successfully enabled. [objectid] is the
       draft [(account_id, mailbox_id)] identity of the intended mailbox. The

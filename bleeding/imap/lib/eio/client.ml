@@ -1,30 +1,29 @@
 type t = {
   session : Session.t;
-  mutable objectid_pins : (string * (string * string)) list
+  mutable objectid_pins : (string * (string * string)) list;
+  release : Eio.Switch.hook;
 }
 type error = Error.t
 
-let pp_error ppf = function
-| Session.Closed -> Format.pp_print_string ppf "IMAP connection closed"
-| Protocol s -> Format.fprintf ppf "IMAP protocol error: %s" s
-| Transport s -> Format.fprintf ppf "IMAP transport error: %s" s
-| Rejected {tag; status; code; text} ->
-    let label=Option.bind code Imap.Response.response_code_name in
-    Format.fprintf ppf "IMAP %s %s%s: %s" tag
-      (match status with `No -> "NO" | `Bad -> "BAD")
-      (match label with None -> "" | Some name -> " [" ^ name ^ "]") text
-| State s -> Format.fprintf ppf "IMAP state error: %s" s
-| Missing_uid uid -> Format.fprintf ppf "IMAP UID %Ld vanished" uid
-| Limit s -> Format.fprintf ppf "IMAP limit error: %s" s
-| Uncertain s -> Format.fprintf ppf "IMAP uncertain outcome: %s" s
-
-let error_to_string e = Format.asprintf "%a" pp_error e
+let pp_error = Error.pp
+let error_to_string = Error.to_string
 
 let upper = String.uppercase_ascii
-let same_mailbox expected received =
-  expected=received || (upper expected="INBOX" && upper received="INBOX")
-let begins s p =
-  String.length s >= String.length p && upper (String.sub s 0 (String.length p)) = p
+let canonical name = if upper name = "INBOX" then "INBOX" else name
+let same_mailbox expected received = canonical expected = canonical received
+let has = Session.has
+let mailbox_wire = Session.mailbox_wire
+
+let syntax = function
+  | Ok syntax -> syntax
+  | Error message -> raise (Session.Failure (Session.State message))
+
+let one_response name items = match items with
+  | [item] -> item
+  | [] -> raise (Session.Failure (Session.Protocol
+      ("missing " ^ name ^ " response")))
+  | _ -> raise (Session.Failure (Session.Protocol
+      ("duplicate " ^ name ^ " response")))
 
 let greeting session =
   let response = Session.parse (Session.read_response session) in
@@ -42,60 +41,39 @@ let capability session =
     | _ -> []) responses in
   session.Session.capabilities <- caps
 
-let has session name = List.mem name session.Session.capabilities
+(* RFC 9051 makes ENABLE a base command, so advertising IMAP4rev2 suffices
+   before IMAP4rev2 itself is enabled. *)
+let can_enable session = has session "ENABLE" || has session "IMAP4REV2"
 
-let enable_revision session =
-  if has session "IMAP4REV2" && has session "IMAP4REV1" then (
-    let responses = try Session.command session "ENABLE IMAP4rev2" with
-      | Session.Failure (Session.Rejected _) -> [] in
-    let enabled = List.concat_map (function
+let enable session name =
+  let accepted = Session.command session ("ENABLE " ^ name)
+    |> List.concat_map (function
       | Imap.Response.Untagged (Imap.Response.Enabled names) ->
           List.map upper names
-      | _ -> []) responses in
-    session.Session.enabled <- enabled)
+      | _ -> []) in
+  session.Session.enabled <-
+    List.sort_uniq String.compare (accepted @ session.Session.enabled);
+  accepted
 
-let revision_two session =
-  has session "IMAP4REV2" &&
-  (not (has session "IMAP4REV1") ||
-   List.mem "IMAP4REV2" session.Session.enabled)
-
-let enable_utf8 session =
-  if not (revision_two session) && has session "UTF8=ACCEPT" then (
-    let responses = try Session.command session "ENABLE UTF8=ACCEPT" with
-      | Session.Failure (Session.Rejected _) -> [] in
-    let enabled = List.concat_map (function
-      | Imap.Response.Untagged (Imap.Response.Enabled names) ->
-          List.map upper names
-      | _ -> []) responses in
-    session.Session.enabled <- enabled @ session.Session.enabled)
-
-let enable_qresync session =
-  if has session "QRESYNC" then (
-    let responses = try Session.command session "ENABLE QRESYNC" with
-      | Session.Failure (Session.Rejected _) -> [] in
-    let enabled = List.concat_map (function
-      | Imap.Response.Untagged (Imap.Response.Enabled names) ->
-          List.map upper names
-      | _ -> []) responses in
-    session.Session.enabled <- enabled @ session.Session.enabled)
-
-let mailbox_mode session =
-  if revision_two session || List.mem "UTF8=ACCEPT" session.Session.enabled
-  then Imap.Mailbox_name.Utf8 else Imap.Mailbox_name.Rev1
-
-let mailbox_wire session utf8 =
-  match Imap.Mailbox_name.encode ~mode:(mailbox_mode session) utf8 with
-  | Ok raw -> raw
-  | Error e -> raise (Session.Failure (Session.State
-      ("invalid mailbox name: " ^ e)))
+let enable_optional session name =
+  if can_enable session then
+    try ignore (enable session name) with
+    | Session.Failure (Session.Rejected _) -> ()
 
 let login session auth =
-  if has session "LOGINDISABLED" then
-    raise (Session.Failure (Session.State "LOGIN disabled by server"));
   let password = Auth.resolve_password auth in
-  let syntax = match Imap.Command.login ~username:(Auth.username auth) ~password with
-  | Ok x -> x | Error e -> raise (Session.Failure (Session.State e)) in
-  ignore (Session.command session syntax)
+  ignore (Session.command session
+    (syntax (Imap.Command.login ~username:(Auth.username auth) ~password)))
+
+let authentication_rejected ~tag ~status ~code =
+  let code=match code with
+    | Some (Imap.Response.Unavailable | Authenticationfailed
+        | Authorizationfailed | Expired | Privacyrequired | Contactadmin
+        | Noperm | Inuse | Serverbug | Clientbug | Cannot | Limit as code) ->
+        Some code
+    | _ -> None in
+  Session.Failure (Session.Rejected {tag;status;code;
+    text="authentication rejected"})
 
 let authenticate session auth ~secure =
   let mechanism = match Auth.mechanism auth with
@@ -113,7 +91,7 @@ let authenticate session auth ~secure =
    | `Cram_md5 ->
        if not (has session "AUTH=CRAM-MD5") then
          raise (Session.Failure (Session.State "server does not advertise AUTH=CRAM-MD5"))
-   | (`Plain | `Oauthbearer) as mechanism ->
+   | `Plain | `Oauthbearer ->
        let name=if mechanism=`Plain then "PLAIN" else "OAUTHBEARER" in
        if not (has session ("AUTH=" ^ name)) then
          raise (Session.Failure (Session.State ("server does not advertise AUTH=" ^ name)));
@@ -122,16 +100,18 @@ let authenticate session auth ~secure =
   try match mechanism with
   | `Login -> login session auth
   | `Cram_md5 -> Session.authenticate_cram_md5 session auth
-  | (`Plain | `Oauthbearer) as mechanism ->
-      let name=if mechanism=`Plain then "PLAIN" else "OAUTHBEARER" in
-      let encoded=if mechanism=`Plain then Auth.plain_response auth
-        else Auth.oauthbearer_response auth in
-      Session.authenticate_initial session ~mechanism:name ~encoded
-        ~sasl_ir:(has session "SASL-IR") ~oauthbearer:(mechanism=`Oauthbearer)
+  | `Plain ->
+      Session.authenticate_initial session ~mechanism:"PLAIN"
+        ~encoded:(Auth.plain_response auth)
+        ~sasl_ir:(has session "SASL-IR") ~oauthbearer:false
+  | `Oauthbearer ->
+      Session.authenticate_initial session ~mechanism:"OAUTHBEARER"
+        ~encoded:(Auth.oauthbearer_response auth)
+        ~sasl_ir:(has session "SASL-IR") ~oauthbearer:true
   with
   | Eio.Cancel.Cancelled _ as ex -> raise ex
   | Session.Failure (Session.Rejected {tag; status; code; _}) ->
-      raise (Session.authentication_rejected ~tag ~status ~code)
+      raise (authentication_rejected ~tag ~status ~code)
   | Session.Failure Session.Closed -> raise (Session.Failure Session.Closed)
   | Session.Failure (Session.Limit _) ->
       raise (Session.Failure (Session.Limit "authentication exchange exceeded limits"))
@@ -143,7 +123,6 @@ let authenticate session auth ~secure =
 
 let start ~sw ?auth ?endpoint flow =
   let session = Session.create flow in
-  let fail ex = Session.close session; raise ex in
   try
     let preauth = greeting session in
     capability session;
@@ -173,84 +152,71 @@ let start ~sw ?auth ?endpoint flow =
     if not preauth then (
       match auth with
       | None -> raise (Session.Failure (Session.State "authentication required"))
-      | Some auth -> authenticate session auth ~secure);
-    capability session;
-    enable_revision session;
-    enable_utf8 session;
-    enable_qresync session;
-    Eio.Switch.on_release sw (fun () -> Session.close session);
-    {session; objectid_pins=[]}
-  with ex -> fail ex
+      | Some auth -> authenticate session auth ~secure; capability session);
+    if has session "IMAP4REV2" && has session "IMAP4REV1" then
+      enable_optional session "IMAP4rev2";
+    if not (Session.revision_two session) && has session "UTF8=ACCEPT" then
+      enable_optional session "UTF8=ACCEPT";
+    if has session "QRESYNC" then enable_optional session "QRESYNC";
+    let release = Eio.Switch.on_release_cancellable sw (fun () ->
+      Session.close session) in
+    Ok {session; objectid_pins=[]; release}
+  with
+  | Session.Failure e -> Session.close session; Error e
+  | Eio.Cancel.Cancelled _ as ex ->
+      let bt = Printexc.get_raw_backtrace () in
+      Session.close session;
+      Printexc.raise_with_backtrace ex bt
+  | ex ->
+      Session.close session;
+      Error (Session.Transport (Printexc.to_string ex))
 
 let connect ~sw ?auth transport =
-  try
-    let flow = Transport.connect ~sw transport in
-    Ok (start ~sw ?auth ~endpoint:transport flow)
-  with
-  | Session.Failure e -> Error e
-  | Eio.Cancel.Cancelled _ as ex -> raise ex
-  | ex -> Error (Session.Transport (Printexc.to_string ex))
+  match Transport.connect ~sw transport with
+  | flow -> start ~sw ?auth ~endpoint:transport flow
+  | exception (Eio.Cancel.Cancelled _ as ex) -> raise ex
+  | exception ex -> Error (Session.Transport (Printexc.to_string ex))
 
-let of_flow ~sw ?auth flow =
-  let flow = Transport.of_flow flow in
-  try Ok (start ~sw ?auth flow) with
-  | Session.Failure e -> Error e
-  | Eio.Cancel.Cancelled _ as ex -> raise ex
-  | ex -> Error (Session.Transport (Printexc.to_string ex))
+let of_flow ~sw ?auth flow = start ~sw ?auth (Transport.of_flow flow)
 
 let capabilities t = t.session.Session.capabilities
 let enabled t = t.session.Session.enabled
-let mailbox_mode t = mailbox_mode t.session
+let mailbox_mode t = Session.mailbox_mode t.session
 let noop t = Session.locked t.session (fun () ->
   Session.command t.session Imap.Command.noop)
 let logout t = Session.locked t.session (fun () -> Session.logout t.session)
 
-let close t = Session.close t.session
+let close t =
+  Eio.Switch.remove_hook t.release;
+  Session.close t.session
 let is_open t = not t.session.Session.closed
 
 let compress_deflate t =
   Session.locked t.session (fun () -> Session.compress_deflate t.session)
 
-let enable_uidonly t =
+let enable_required t name ~selected =
   Session.locked t.session (fun () ->
-    if not (has t.session "UIDONLY" && has t.session "ENABLE") then
+    if not (has t.session name && can_enable t.session) then
       raise (Session.Failure (Session.State
-        "UIDONLY and ENABLE must both be advertised"));
+        (name ^ " and ENABLE must both be available")));
     if Option.is_some t.session.Session.selected then
-      raise (Session.Failure (Session.State
-        "UIDONLY must be enabled before selecting a mailbox"));
-    if not (List.mem "UIDONLY" t.session.Session.enabled) then (
-      let responses = Session.command t.session "ENABLE UIDONLY" in
-      let accepted = List.concat_map (function
-        | Imap.Response.Untagged (Imap.Response.Enabled names) ->
-            List.map upper names
-        | _ -> []) responses in
-      if not (List.mem "UIDONLY" accepted) then
-        raise (Session.Failure (Session.Protocol
-          "UIDONLY ENABLE completed without ENABLED UIDONLY"));
-      t.session.Session.enabled <-
-        List.sort_uniq String.compare (accepted @ t.session.Session.enabled)))
+      raise (Session.Failure (Session.State selected));
+    if not (List.mem name t.session.Session.enabled) &&
+       not (List.mem name (enable t.session name)) then
+      raise (Session.Failure (Session.Protocol
+        (name ^ " ENABLE completed without ENABLED " ^ name))))
+
+let enable_uidonly t =
+  enable_required t "UIDONLY"
+    ~selected:"UIDONLY must be enabled before selecting a mailbox"
 
 let enable_objectid_plus t =
-  Session.locked t.session (fun () ->
-    if not (has t.session "OBJECTID+" && has t.session "ENABLE") then
-      raise (Session.Failure (Session.State
-        "OBJECTID+ and ENABLE must both be advertised"));
-    if Option.is_some t.session.Session.selected then
-      raise (Session.Failure (Session.State
-        "OBJECTID+ must be enabled outside a selected lease"));
-    if not (List.mem "OBJECTID+" t.session.Session.enabled) then (
-      let responses=Session.command t.session "ENABLE OBJECTID+" in
-      let accepted=List.concat_map (function
-        | Imap.Response.Untagged (Imap.Response.Enabled names) ->
-            List.map upper names
-        | _ -> []) responses in
-      if not (List.mem "OBJECTID+" accepted) then
-        raise (Session.Failure (Session.Protocol
-          "OBJECTID+ ENABLE completed without ENABLED OBJECTID+"));
-      t.session.Session.enabled <-
-        List.sort_uniq String.compare
-          (accepted @ t.session.Session.enabled)))
+  enable_required t "OBJECTID+"
+    ~selected:"OBJECTID+ must be enabled outside a selected lease"
+
+let pinned t mailbox =
+  List.find_opt (fun (name,_) -> same_mailbox name mailbox) t.objectid_pins
+  |> Option.map snd
 
 let pin_mailbox_objectid t ~mailbox ~account_id ~mailbox_id =
   Session.locked t.session (fun () ->
@@ -260,13 +226,10 @@ let pin_mailbox_objectid t ~mailbox ~account_id ~mailbox_id =
       raise (Session.Failure (Session.State
         "cannot pin OBJECTID+ during a selected lease"));
     let identity=(account_id,mailbox_id) in
-    (match Imap.Command.select ~objectid:identity mailbox with
-     | Ok _ -> ()
-     | Error message -> raise (Session.Failure (Session.State message)));
-    match List.find_opt (fun (name,_) -> same_mailbox name mailbox)
-      t.objectid_pins with
+    ignore (syntax (Imap.Command.select ~objectid:identity mailbox));
+    match pinned t mailbox with
     | None -> t.objectid_pins <- (mailbox,identity)::t.objectid_pins
-    | Some (_,existing) when existing=identity -> ()
+    | Some existing when existing=identity -> ()
     | Some _ -> raise (Session.Failure (Session.State
         "OBJECTID+ mailbox pin changed on one connection")))
 
@@ -274,9 +237,7 @@ let list t ?(reference="") ~pattern () =
   Session.locked t.session (fun () ->
     let reference = mailbox_wire t.session reference in
     let pattern = mailbox_wire t.session pattern in
-    let syntax = match Imap.Command.list ~reference ~pattern with
-    | Ok s -> s | Error e -> raise (Session.Failure (Session.State e)) in
-    Session.command t.session syntax
+    Session.command t.session (syntax (Imap.Command.list ~reference ~pattern))
     |> List.filter_map (function
         | Imap.Response.Untagged (Imap.Response.List item) -> Some item
         | _ -> None))
@@ -285,9 +246,7 @@ let lsub t ?(reference="") ~pattern () =
   Session.locked t.session (fun () ->
     let reference=mailbox_wire t.session reference in
     let pattern=mailbox_wire t.session pattern in
-    let syntax=match Imap.Command.lsub ~reference ~pattern with
-      | Ok s -> s | Error e -> raise (Session.Failure (Session.State e)) in
-    Session.command t.session syntax
+    Session.command t.session (syntax (Imap.Command.lsub ~reference ~pattern))
     |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.List item)
           when item.subscribed -> Some item
@@ -295,30 +254,46 @@ let lsub t ?(reference="") ~pattern () =
 
 let namespace t =
   Session.locked t.session (fun () ->
-    if not (has t.session "NAMESPACE" || revision_two t.session) then
+    if not (has t.session "NAMESPACE" || Session.revision_two t.session) then
       raise (Session.Failure (Session.State "NAMESPACE unavailable"));
-    let responses=Session.command t.session Imap.Command.namespace in
-    match List.filter_map (function
+    Session.command t.session Imap.Command.namespace
+    |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Namespace item) -> Some item
-      | _ -> None) responses with
-    | [item] -> item
-    | [] -> raise (Session.Failure (Session.Protocol
-        "missing NAMESPACE response"))
-    | _ -> raise (Session.Failure (Session.Protocol
-        "duplicate NAMESPACE response")))
+      | _ -> None)
+    |> one_response "NAMESPACE")
 
 type discovery = {
   mailboxes:(Imap.Response.list_result * Imap.Response.mailbox_status option) list;
   unpaired_status:Imap.Response.mailbox_status list
 }
 
+let has_quota session = has session "QUOTA" ||
+  List.exists (String.starts_with ~prefix:"QUOTA=RES-")
+    session.Session.capabilities
+
+(* RFC 7162 ties HIGHESTMODSEQ to CONDSTORE, RFC 8474 ties MAILBOXID to
+   OBJECTID, RFC 8438 and RFC 9051 define SIZE, RFC 9051 defines DELETED and
+   RFC 9208 defines both deleted items. *)
+let check_status_items session items =
+  let require item available name =
+    if List.mem item items && not available then
+      raise (Session.Failure (Session.State
+        ("STATUS " ^ name ^ " unavailable"))) in
+  let rev2 = Session.revision_two session in
+  require Imap.Command.Highestmodseq
+    (has session "CONDSTORE" || has session "QRESYNC") "HIGHESTMODSEQ";
+  require Imap.Command.Mailboxid (has session "OBJECTID") "MAILBOXID";
+  require Imap.Command.Size (has session "STATUS=SIZE" || rev2) "SIZE";
+  require Imap.Command.Deleted (has_quota session || rev2) "DELETED";
+  require Imap.Command.Deleted_storage (has_quota session) "DELETED-STORAGE"
+
 let list_extended t ?(reference="") ~patterns ?(selection=[])
     ?(returns=[]) ?status () =
   Session.locked t.session (fun () ->
+    let rev2 = Session.revision_two t.session in
     let extended=selection<>[] || returns<>[] || status<>None ||
       List.length patterns<>1 in
-    if extended && not (has t.session "LIST-EXTENDED" ||
-                        revision_two t.session) then
+    if extended && not (has t.session "LIST-EXTENDED" || rev2) then
       raise (Session.Failure (Session.State "LIST-EXTENDED unavailable"));
     if List.length patterns>1 && not (has t.session "LIST-EXTENDED") then
       raise (Session.Failure (Session.State
@@ -327,9 +302,9 @@ let list_extended t ?(reference="") ~patterns ?(selection=[])
         List.mem Imap.Command.Return_special_use returns) &&
         not (has t.session "SPECIAL-USE") then
       raise (Session.Failure (Session.State "SPECIAL-USE unavailable"));
-    if status<>None && not (has t.session "LIST-STATUS" ||
-                            revision_two t.session) then
+    if status<>None && not (has t.session "LIST-STATUS" || rev2) then
       raise (Session.Failure (Session.State "LIST-STATUS unavailable"));
+    Option.iter (check_status_items t.session) status;
     if (match status with Some items -> List.mem Imap.Command.Objectid items
         | None -> false) &&
        not (List.mem "OBJECTID+" t.session.Session.enabled) then
@@ -337,12 +312,9 @@ let list_extended t ?(reference="") ~patterns ?(selection=[])
         "LIST-STATUS OBJECTID requires enabled OBJECTID+"));
     let reference=mailbox_wire t.session reference in
     let patterns=List.map (mailbox_wire t.session) patterns in
-    let syntax=match Imap.Command.list_extended ~reference ~patterns
-        ~selection ~returns ?status () with
-      | Ok syntax -> syntax
-      | Error e -> raise (Session.Failure (Session.State e)) in
-    let responses=Session.command t.session syntax in
-    let canonical name=if upper name="INBOX" then "INBOX" else name in
+    let responses=Session.command t.session
+      (syntax (Imap.Command.list_extended ~reference ~patterns
+        ~selection ~returns ?status ())) in
     let seen=Hashtbl.create 32 in
     let rec collect mailboxes unpaired_status = function
       | Imap.Response.Untagged (Imap.Response.List listing)::rest ->
@@ -364,22 +336,18 @@ let list_extended t ?(reference="") ~patterns ?(selection=[])
     collect [] [] responses)
 
 let status_locked t ~mailbox ~items =
+    check_status_items t.session items;
     if List.mem Imap.Command.Objectid items &&
        not (List.mem "OBJECTID+" t.session.Session.enabled) then
       raise (Session.Failure (Session.State
         "STATUS OBJECTID requires enabled OBJECTID+"));
     let mailbox = mailbox_wire t.session mailbox in
-    let syntax = match Imap.Command.status ~mailbox ~items with
-      | Ok s -> s
-      | Error message -> raise (Session.Failure (Session.State message)) in
-    let responses = Session.command t.session syntax in
-    match List.filter_map (function
+    Session.command t.session (syntax (Imap.Command.status ~mailbox ~items))
+    |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Status status)
         when same_mailbox mailbox status.mailbox -> Some status
-      | _ -> None) responses with
-    | [status] -> status
-    | [] -> raise (Session.Failure (Session.Protocol "missing STATUS response"))
-    | _ -> raise (Session.Failure (Session.Protocol "duplicate STATUS response"))
+      | _ -> None)
+    |> one_response "STATUS"
 
 let status t ~mailbox ~items =
   Session.locked t.session (fun () -> status_locked t ~mailbox ~items)
@@ -388,37 +356,21 @@ let get_jmap_access t =
   Session.locked t.session (fun () ->
     if not (has t.session "JMAPACCESS") then
       raise (Session.Failure (Session.State "JMAPACCESS unavailable"));
-    let responses = Session.command t.session Imap.Command.get_jmap_access in
-    match List.filter_map (function
+    Session.command t.session Imap.Command.get_jmap_access
+    |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Jmapaccess value) -> Some value
-      | _ -> None) responses with
-    | [value] -> value
-    | [] -> raise (Session.Failure (Session.Protocol
-        "missing JMAPACCESS response"))
-    | _ -> raise (Session.Failure (Session.Protocol
-        "duplicate JMAPACCESS response")))
+      | _ -> None)
+    |> one_response "JMAPACCESS")
 
 let require_capability session name =
   if not (has session name) then
     raise (Session.Failure (Session.State (name ^ " unavailable")))
 
-let command_syntax = function
-  | Ok syntax -> syntax
-  | Error message -> raise (Session.Failure (Session.State message))
-
-let one_response name items = match items with
-  | [item] -> item
-  | [] -> raise (Session.Failure (Session.Protocol
-      ("missing " ^ name ^ " response")))
-  | _ -> raise (Session.Failure (Session.Protocol
-      ("duplicate " ^ name ^ " response")))
-
 let get_acl t ~mailbox =
   Session.locked t.session (fun () ->
     require_capability t.session "ACL";
     let mailbox = mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.getacl ~mailbox) in
-    Session.command t.session syntax
+    Session.command t.session (syntax (Imap.Command.getacl ~mailbox))
     |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Acl x)
         when same_mailbox mailbox x.mailbox -> Some x
@@ -429,8 +381,8 @@ let list_rights t ~mailbox ~identifier =
   Session.locked t.session (fun () ->
     require_capability t.session "ACL";
     let mailbox = mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.listrights ~mailbox ~identifier) in
-    Session.command t.session syntax
+    Session.command t.session
+      (syntax (Imap.Command.listrights ~mailbox ~identifier))
     |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.List_rights x)
         when same_mailbox mailbox x.mailbox && x.identifier=identifier -> Some x
@@ -441,8 +393,7 @@ let my_rights t ~mailbox =
   Session.locked t.session (fun () ->
     require_capability t.session "ACL";
     let mailbox = mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.myrights ~mailbox) in
-    Session.command t.session syntax
+    Session.command t.session (syntax (Imap.Command.myrights ~mailbox))
     |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.My_rights x)
         when same_mailbox mailbox x.mailbox -> Some x
@@ -453,27 +404,21 @@ let set_acl t ~mailbox ~identifier ~operation ~rights =
   Session.locked t.session (fun () ->
     require_capability t.session "ACL";
     let mailbox=mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.setacl ~mailbox ~identifier
-      ~operation ~rights) in
-    ignore (Session.command ~mutation:true t.session syntax))
+    ignore (Session.command ~mutation:true t.session
+      (syntax (Imap.Command.setacl ~mailbox ~identifier ~operation ~rights))))
 
 let delete_acl t ~mailbox ~identifier =
   Session.locked t.session (fun () ->
     require_capability t.session "ACL";
     let mailbox=mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.deleteacl ~mailbox ~identifier) in
-    ignore (Session.command ~mutation:true t.session syntax))
-
-let has_quota session = has session "QUOTA" ||
-  List.exists (fun capability -> begins capability "QUOTA=RES-")
-    session.Session.capabilities
+    ignore (Session.command ~mutation:true t.session
+      (syntax (Imap.Command.deleteacl ~mailbox ~identifier))))
 
 let get_quota t ~root =
   Session.locked t.session (fun () ->
     if not (has_quota t.session) then
       raise (Session.Failure (Session.State "QUOTA unavailable"));
-    let syntax=command_syntax (Imap.Command.getquota ~root) in
-    Session.command t.session syntax
+    Session.command t.session (syntax (Imap.Command.getquota ~root))
     |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Quota x)
         when x.root=root -> Some x
@@ -485,8 +430,8 @@ let get_quota_root t ~mailbox =
     if not (has_quota t.session) then
       raise (Session.Failure (Session.State "QUOTA unavailable"));
     let mailbox=mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.getquotaroot ~mailbox) in
-    let responses=Session.command t.session syntax in
+    let responses=Session.command t.session
+      (syntax (Imap.Command.getquotaroot ~mailbox)) in
     let mapping=responses |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Quota_root x)
         when same_mailbox mailbox x.mailbox -> Some x
@@ -500,8 +445,8 @@ let get_quota_root t ~mailbox =
 let set_quota t ~root ~limits =
   Session.locked t.session (fun () ->
     require_capability t.session "QUOTASET";
-    let syntax=command_syntax (Imap.Command.setquota ~root ~limits) in
-    let responses=Session.command ~mutation:true t.session syntax in
+    let responses=Session.command ~mutation:true t.session
+      (syntax (Imap.Command.setquota ~root ~limits)) in
     match List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Quota x)
         when x.root=root -> Some x
@@ -526,9 +471,9 @@ let get_metadata t ~mailbox ~entries ?maxsize ?depth () =
   Session.locked t.session (fun () ->
     metadata_capability t.session mailbox;
     let mailbox=mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.getmetadata ~mailbox ~entries
-      ?maxsize ?depth ()) in
-    let result=Session.command_result t.session syntax in
+    let result=Session.command_result t.session
+      (syntax (Imap.Command.getmetadata ~mailbox ~entries ?maxsize ?depth
+        ())) in
     let responses=result.untagged |> List.filter_map (function
       | Imap.Response.Untagged (Imap.Response.Metadata x)
         when same_mailbox mailbox x.mailbox -> Some x
@@ -543,8 +488,8 @@ let set_metadata t ~mailbox ~values =
   Session.locked t.session (fun () ->
     metadata_capability t.session mailbox;
     let mailbox=mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.setmetadata ~mailbox ~values) in
-    ignore (Session.command ~mutation:true t.session syntax))
+    ignore (Session.command ~mutation:true t.session
+      (syntax (Imap.Command.setmetadata ~mailbox ~values))))
 
 let notify_set t ?(status=false) ~groups () =
   Session.locked t.session (fun () ->
@@ -554,8 +499,8 @@ let notify_set t ?(status=false) ~groups () =
       | _ -> false) groups then
       raise (Session.Failure (Session.State
         "selected NOTIFY filters require a selected-session API"));
-    let syntax=command_syntax (Imap.Command.notify_set ~status ~groups ()) in
-    let responses=Session.command ~mutation:true t.session syntax in
+    let responses=Session.command ~mutation:true t.session
+      (syntax (Imap.Command.notify_set ~status ~groups ())) in
     if List.exists (function
       | Imap.Response.Untagged (Imap.Response.Ok
           (Some Imap.Response.Notificationoverflow,_)) -> true
@@ -571,12 +516,13 @@ let notify_none t =
     require_capability t.session "NOTIFY";
     ignore (Session.command ~mutation:true t.session Imap.Command.notify_none))
 
-let create_mailbox t mailbox =
+let mailbox_mutation t command =
   Session.locked t.session (fun () ->
-    let mailbox = mailbox_wire t.session mailbox in
-    let syntax = match Imap.Command.create mailbox with
-    | Ok s -> s | Error e -> raise (Session.Failure (Session.State e)) in
-    ignore (Session.command ~mutation:true t.session syntax))
+    ignore (Session.command ~mutation:true t.session (syntax (command ()))))
+
+let create_mailbox t mailbox =
+  mailbox_mutation t (fun () ->
+    Imap.Command.create (mailbox_wire t.session mailbox))
 
 let objectid_mutation_receipt t syntax =
   if not (List.mem "OBJECTID+" t.session.Session.enabled) then
@@ -594,78 +540,81 @@ let objectid_mutation_receipt t syntax =
 let create_mailbox_objectid t mailbox =
   Session.locked t.session (fun () ->
     let mailbox=mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.create mailbox) in
-    objectid_mutation_receipt t syntax)
+    objectid_mutation_receipt t (syntax (Imap.Command.create mailbox)))
 
 let delete_mailbox t mailbox =
-  Session.locked t.session (fun () ->
-    let mailbox = mailbox_wire t.session mailbox in
-    let syntax = match Imap.Command.delete mailbox with
-    | Ok s -> s | Error e -> raise (Session.Failure (Session.State e)) in
-    ignore (Session.command ~mutation:true t.session syntax))
+  mailbox_mutation t (fun () ->
+    Imap.Command.delete (mailbox_wire t.session mailbox))
 
 let rename_mailbox t ~old_name ~new_name =
-  Session.locked t.session (fun () ->
+  mailbox_mutation t (fun () ->
     let old_name=mailbox_wire t.session old_name in
     let new_name=mailbox_wire t.session new_name in
-    let syntax=command_syntax (Imap.Command.rename ~old_name ~new_name) in
-    ignore (Session.command ~mutation:true t.session syntax))
+    Imap.Command.rename ~old_name ~new_name)
 
 let rename_mailbox_objectid t ~old_name ~new_name =
   Session.locked t.session (fun () ->
     let old_name=mailbox_wire t.session old_name in
     let new_name=mailbox_wire t.session new_name in
-    let syntax=command_syntax (Imap.Command.rename ~old_name ~new_name) in
-    objectid_mutation_receipt t syntax)
+    objectid_mutation_receipt t
+      (syntax (Imap.Command.rename ~old_name ~new_name)))
 
 let subscribe_mailbox t mailbox =
-  Session.locked t.session (fun () ->
-    let mailbox=mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.subscribe mailbox) in
-    ignore (Session.command ~mutation:true t.session syntax))
+  mailbox_mutation t (fun () ->
+    Imap.Command.subscribe (mailbox_wire t.session mailbox))
 
 let unsubscribe_mailbox t mailbox =
-  Session.locked t.session (fun () ->
-    let mailbox=mailbox_wire t.session mailbox in
-    let syntax=command_syntax (Imap.Command.unsubscribe mailbox) in
-    ignore (Session.command ~mutation:true t.session syntax))
+  mailbox_mutation t (fun () ->
+    Imap.Command.unsubscribe (mailbox_wire t.session mailbox))
+
+(* A failed UNSELECT leaves the mailbox selected on the server. Closing the
+   connection is the only safe release, and the callback's outcome stands
+   because every command it issued has completed. *)
+let release_selection session =
+  if has session "UNSELECT" || Session.revision_two session then
+    match Session.command session "UNSELECT" with
+    | _ -> ()
+    | exception (Eio.Cancel.Cancelled _ as ex) -> raise ex
+    | exception (Session.Failure _) -> Session.close session
+    | exception ex when Session.io_failure ex -> Session.close session
+  else Session.close session
 
 let with_mailbox t ?qresync ?objectid ~mode mailbox callback =
-  Eio.Mutex.use_ro t.session.Session.mutex (fun () ->
-    let result = Session.protect t.session (fun () ->
-      let mailbox_wire = mailbox_wire t.session mailbox in
-      let pinned=List.find_opt (fun (name,_) -> same_mailbox name mailbox)
-        t.objectid_pins |> Option.map snd in
-      let objectid=match objectid,pinned with
+  let session = t.session in
+  Eio.Mutex.use_ro session.Session.mutex (fun () ->
+    Session.protect session (fun () ->
+      Fun.protect ~finally:(fun () -> session.Session.selected <- None)
+      (fun () ->
+      let mailbox_wire = mailbox_wire session mailbox in
+      let objectid=match objectid,pinned t mailbox with
         | None,pinned -> pinned
         | Some requested,Some pinned when requested<>pinned ->
             raise (Session.Failure (Session.State
               "OBJECTID+ selection differs from pinned mailbox identity"))
         | Some requested,_ -> Some requested in
       if Option.is_some qresync &&
-         not (List.mem "QRESYNC" t.session.Session.enabled) then
+         not (List.mem "QRESYNC" session.Session.enabled) then
         raise (Session.Failure (Session.State "QRESYNC not enabled"));
       if Option.is_some objectid &&
-         not (List.mem "OBJECTID+" t.session.Session.enabled) then
+         not (List.mem "OBJECTID+" session.Session.enabled) then
         raise (Session.Failure (Session.State "OBJECTID+ not enabled"));
       let condstore = Option.is_none qresync &&
-        (has t.session "CONDSTORE" || has t.session "QRESYNC") in
-      let syntax = match Imap.Command.select
+        (has session "CONDSTORE" || has session "QRESYNC") in
+      let syntax = syntax (Imap.Command.select
         ~readonly:(mode = `Read_only) ~condstore ?qresync ?objectid
-        mailbox_wire with
-      | Ok s -> s | Error e -> raise (Session.Failure (Session.State e)) in
-      t.session.Session.generation <- t.session.Session.generation + 1;
-      t.session.Session.selected <- None;
-      let selected_result = Session.command_result t.session syntax in
+        mailbox_wire) in
+      session.Session.generation <- session.Session.generation + 1;
+      session.Session.selected <- None;
+      let selected_result = Session.command_result session syntax in
       let info = match Imap.Response.select_metadata
         (selected_result.untagged @ [selected_result.completion]) with
       | Ok info -> info
       | Error message ->
-          Session.close t.session;
+          Session.close session;
           raise (Session.Failure (Session.Protocol
             ("invalid SELECT metadata: " ^ message))) in
       if info.uidnotsticky then (
-        Session.close t.session;
+        Session.close session;
         raise (Session.Failure (Session.State
           "UIDNOTSTICKY mailbox cannot be mirrored with persistent UIDs")));
       (match objectid with
@@ -675,31 +624,26 @@ let with_mailbox t ?qresync ?objectid ~mode mailbox callback =
             | Some ids when ids.account_id=Some account_id &&
                 ids.mailbox_id=Some mailbox_id -> ()
             | _ ->
-                Session.close t.session;
+                Session.close session;
                 raise (Session.Failure (Session.State
                   "OBJECTID+ SELECT fell back to another mailbox"))));
-      t.session.Session.selected <- Some mailbox;
-      t.session.Session.readonly <- mode = `Read_only || info.readonly = Some true;
-      let selected = Selected.create t.session t.session.Session.generation
+      session.Session.selected <- Some mailbox;
+      session.Session.readonly <-
+        mode = `Read_only || info.readonly = Some true;
+      let selected = Selected.create session session.Session.generation
         info selected_result.untagged in
       let outcome =
         try callback selected with ex ->
+          let bt = Printexc.get_raw_backtrace () in
           Selected.invalidate selected;
-          Session.close t.session;
-          raise ex in
+          Session.close session;
+          Printexc.raise_with_backtrace ex bt in
       Selected.invalidate selected;
-      if not t.session.Session.closed then (
-        if has t.session "UNSELECT" ||
-           (has t.session "IMAP4REV2" && not (has t.session "IMAP4REV1")) ||
-           List.mem "IMAP4REV2" t.session.Session.enabled then
-          (try ignore (Session.command t.session "UNSELECT") with ex ->
-             Session.close t.session;
-             raise ex)
-        else Session.close t.session;
-        t.session.Session.selected <- None;
-        t.session.Session.generation <- t.session.Session.generation + 1);
-      outcome)
-    in match result with Ok result -> result | Error e -> Error e)
+      if not session.Session.closed then (
+        release_selection session;
+        session.Session.generation <- session.Session.generation + 1);
+      outcome))
+    |> Result.join)
 
 type append_receipt = {
   uidvalidity : Imap.Proto.Uidvalidity.t;
@@ -707,45 +651,45 @@ type append_receipt = {
 }
 
 let check_append_destination t ~mailbox =
-  (match List.find_opt (fun (name,_) -> same_mailbox name mailbox)
-       t.objectid_pins with
-     | None -> ()
-     | Some (_, (account_id,mailbox_id)) ->
-         let status=status_locked t ~mailbox
-           ~items:[Imap.Command.Objectid] in
-         (match status.objectid with
-          | Some ids when ids.account_id=Some account_id &&
-              ids.mailbox_id=Some mailbox_id -> ()
-          | _ -> raise (Session.Failure (Session.State
-              "APPEND destination differs from pinned OBJECTID+ identity"))))
+  match pinned t mailbox with
+  | None -> ()
+  | Some (account_id,mailbox_id) ->
+      let status=status_locked t ~mailbox ~items:[Imap.Command.Objectid] in
+      (match status.objectid with
+       | Some ids when ids.account_id=Some account_id &&
+           ids.mailbox_id=Some mailbox_id -> ()
+       | _ -> raise (Session.Failure (Session.State
+           "APPEND destination differs from pinned OBJECTID+ identity")))
 
 let non_sync_literal session length =
   length<=4096L && (has session "LITERAL-" || has session "LITERAL+" ||
-    revision_two session)
+    Session.revision_two session)
+
+(* [Imap.Response] bounds APPENDUID values, so a failed conversion means the
+   response contract changed. *)
+let proto_value = function
+  | Ok value -> value
+  | Error message -> raise (Session.Failure (Session.Protocol message))
 
 let append_receipt ~binary t ~mailbox ?flags ?internal_date ~length source =
   Session.locked t.session (fun () ->
     if binary && not (has t.session "BINARY") then
       raise (Session.Failure (Session.State "binary APPEND requires BINARY capability"));
-    check_append_destination t ~mailbox;
+    let destination = mailbox in
     let mailbox = mailbox_wire t.session mailbox in
     let command=if binary then Imap.Command.append_binary_prefix
       else Imap.Command.append_prefix in
     let non_sync=non_sync_literal t.session length in
-    let prefix = match command ~mailbox ~non_sync ?flags
-      ?internal_date ~size:length () with
-    | Ok s -> s | Error e -> raise (Session.Failure (Session.State e)) in
+    let prefix = syntax (command ~mailbox ~non_sync ?flags
+      ?internal_date ~size:length ()) in
+    check_append_destination t ~mailbox:destination;
     let completion = Session.append ~synchronizing:(not non_sync) t.session ~prefix ~length source in
     match completion with
     | Imap.Response.Tagged {
         code=Some (Imap.Response.Appenduid (v,u)); _} ->
-        let require result = match result with
-          | Ok value -> value
-          | Error message ->
-              raise (Session.Failure (Session.Protocol message)) in
         Some {
-          uidvalidity=require (Imap.Proto.Uidvalidity.of_int64 v);
-          uid=require (Imap.Proto.Uid.of_int64 u)
+          uidvalidity=proto_value (Imap.Proto.Uidvalidity.of_int64 v);
+          uid=proto_value (Imap.Proto.Uid.of_int64 u)
         }
     | Imap.Response.Tagged {code=Some (Imap.Response.Appenduid_set _);_} ->
         Session.close t.session;
@@ -760,15 +704,12 @@ let append_binary_flow_receipt t ~mailbox ?flags ?internal_date ~length source =
   append_receipt ~binary:true t ~mailbox ?flags ?internal_date ~length source
 
 let append_flow t ~mailbox ?flags ?internal_date ~length source =
-  match append_flow_receipt t ~mailbox ?flags ?internal_date
-    ~length source with
-  | Ok _ -> Ok ()
-  | Error _ as e -> e
+  Result.map ignore
+    (append_flow_receipt t ~mailbox ?flags ?internal_date ~length source)
 
 let append_binary_flow t ~mailbox ?flags ?internal_date ~length source =
-  Result.map (fun _ -> ())
+  Result.map ignore
     (append_binary_flow_receipt t ~mailbox ?flags ?internal_date ~length source)
-
 
 type append_message = {
   flags : string list;
@@ -793,7 +734,6 @@ let append_messages t ~mailbox messages =
     if count>1 && not (has t.session "MULTIAPPEND") then
       state "MULTIAPPEND capability unavailable";
     List.iter (fun capability ->
-      let capability=String.uppercase_ascii capability in
       List.iter (fun prefix ->
         if String.starts_with ~prefix capability then (
           let raw=String.sub capability (String.length prefix)
@@ -817,7 +757,7 @@ let append_messages t ~mailbox messages =
           ~flags:message.flags ?internal_date:message.internal_date ~size:message.length ()
         else Imap.Command.append_part_prefix ~non_sync ~flags:message.flags
           ?internal_date:message.internal_date ~size:message.length () in
-      let prefix=match result with Ok prefix -> prefix | Error message -> state message in
+      let prefix=syntax result in
       if String.length prefix>65000 then state "MULTIAPPEND argument exceeds syntax limit";
       bytes:= !bytes+String.length prefix;
       if !bytes>1_048_576 then state "MULTIAPPEND syntax exceeds 1 MiB";
@@ -832,7 +772,7 @@ let append_messages t ~mailbox messages =
         | Ok epoch -> epoch | Error _ -> invalid () in
       let seen=Hashtbl.create count and result=ref [] and total=ref 0 in
       let number raw=match Int64.of_string_opt raw with
-        | Some n when n>0L && n<=4_294_967_295L -> n | _ -> invalid () in
+        | Some n -> n | None -> invalid () in
       List.iter (fun item ->
         let first,last=match String.split_on_char ':' item with
           | [n] -> let n=number n in n,n

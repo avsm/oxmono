@@ -2,7 +2,8 @@
  (name imap_eio_core)
  (package imap)
  (modules (:standard \ imap_eio))
- (libraries imap eio cstruct tls tls-eio x509 ca-certs domain-name ipaddr mirage-crypto-rng.unix base64 decompress.de))
+ (libraries imap eio unix cstruct tls tls-eio x509 ca-certs domain-name ipaddr
+  mirage-crypto-rng.unix base64 decompress.de))
 
 (library
  (name imap_eio)

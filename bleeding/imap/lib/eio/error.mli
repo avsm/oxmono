@@ -17,3 +17,9 @@ type t =
     failures retain only a whitelist of standard codes without payloads and
     replace server text with a fixed diagnostic, so echoed credentials cannot
     enter the public error through arbitrary code parameters or text. *)
+
+val pp : Format.formatter -> t -> unit
+(** [pp ppf e] prints [e] for diagnostics. *)
+
+val to_string : t -> string
+(** [to_string e] is [e] printed by {!pp}. *)

@@ -1053,8 +1053,7 @@ let lease_connection ~sw flow replies =
   Eio_mock.Flow.on_read flow ([
     `Return "* PREAUTH ready\r\n";
     `Return "* CAPABILITY IMAP4rev1 UNSELECT\r\nA00000001 OK done\r\n";
-    `Return "* CAPABILITY IMAP4rev1 UNSELECT\r\nA00000002 OK done\r\n";
-    `Return "* 0 EXISTS\r\n* OK [UIDVALIDITY 1] valid\r\n* OK [UIDNEXT 2] next\r\nA00000003 OK selected\r\n";
+    `Return "* 0 EXISTS\r\n* OK [UIDVALIDITY 1] valid\r\n* OK [UIDNEXT 2] next\r\nA00000002 OK selected\r\n";
   ] @ replies);
   ok (Imap_eio.Client.of_flow ~sw flow)
 
@@ -1068,11 +1067,11 @@ let test_selected_serialization () =
       reading:=true;
       Eio.Fiber.yield ();
       reading:=false;
-      "* SEARCH 1\r\nA00000004 OK searched\r\n");
+      "* SEARCH 1\r\nA00000003 OK searched\r\n");
     `Run (fun () ->
       if !reading then failwith "two commands read the same connection";
-      "* SEARCH 2\r\nA00000005 OK searched\r\n");
-    `Return "A00000006 OK unselected\r\n";
+      "* SEARCH 2\r\nA00000004 OK searched\r\n");
+    `Return "A00000005 OK unselected\r\n";
   ] in
   ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected ->
@@ -1097,7 +1096,7 @@ let test_escaped_selected_command () =
     `Run (fun () ->
       Eio.Promise.resolve mark_entered ();
       Eio.Promise.await release;
-      "* SEARCH 1\r\nA00000004 OK searched\r\n");
+      "* SEARCH 1\r\nA00000003 OK searched\r\n");
   ] in
   ok (Imap_eio.Client.with_mailbox client ~mode:`Read_only "INBOX"
     (fun selected ->
@@ -1126,9 +1125,8 @@ let test_append_unsolicited_continuation () =
   Eio_mock.Flow.on_read flow [
     `Return "* PREAUTH ready\r\n";
     `Return "* CAPABILITY IMAP4rev1 UIDPLUS\r\nA00000001 OK done\r\n";
-    `Return "* CAPABILITY IMAP4rev1 UIDPLUS\r\nA00000002 OK done\r\n";
     `Return "* OK maintenance notice\r\n+ ready\r\n";
-    `Return "A00000003 OK [APPENDUID 1 4] appended\r\n";
+    `Return "A00000002 OK [APPENDUID 1 4] appended\r\n";
   ];
   let client=ok (Imap_eio.Client.of_flow ~sw flow) in
   match ok (Imap_eio.Client.append_flow_receipt client ~mailbox:"INBOX"

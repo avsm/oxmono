@@ -53,6 +53,21 @@ let close t =
 
 let check_open t = if t.closed then raise (Failure Closed)
 
+let has t name = List.mem name t.capabilities
+
+let revision_two t =
+  has t "IMAP4REV2" &&
+  (not (has t "IMAP4REV1") || List.mem "IMAP4REV2" t.enabled)
+
+let mailbox_mode t =
+  if revision_two t || List.mem "UTF8=ACCEPT" t.enabled
+  then Imap.Mailbox_name.Utf8 else Imap.Mailbox_name.Rev1
+
+let mailbox_wire t name =
+  match Imap.Mailbox_name.encode ~mode:(mailbox_mode t) name with
+  | Ok raw -> raw
+  | Error e -> raise (Failure (State ("invalid mailbox name: " ^ e)))
+
 let write t s =
   check_open t;
   if String.length s > 65536 then raise (Failure (Limit "command syntax exceeds 64 KiB"));
@@ -465,6 +480,11 @@ let idle_once t =
   with ex ->
     if !sent then close t;
     raise ex
+
+let io_failure = function
+  | Eio.Io _ | Unix.Unix_error _ | End_of_file
+  | Tls_eio.Tls_alert _ | Tls_eio.Tls_failure _ -> true
+  | _ -> false
 
 let protect t f =
   try Ok (f ()) with

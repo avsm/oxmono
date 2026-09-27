@@ -57,3 +57,7 @@
 (test
  (name test_literal_modes)
  (libraries imap.eio imap eio eio.mock cstruct))
+
+(test
+ (name test_review_fixes)
+ (libraries imap_eio_core imap.eio imap eio eio.mock cstruct))

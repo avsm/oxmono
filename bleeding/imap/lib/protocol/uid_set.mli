@@ -46,8 +46,8 @@ val cardinality : t -> int64
 (** [cardinality s] is the number of UIDs in [s]. *)
 
 val mem : Uid.t -> t -> bool
-(** [mem u s] is [true] if [u] is in [s]. It takes time linear in the
-    number of intervals of [s]. *)
+(** [mem u s] is [true] if [u] is in [s]. It takes time logarithmic in
+    the number of intervals of [s]. *)
 
 val add : Uid.t -> t -> t
 (** [add u s] is [s] with [u] added. *)

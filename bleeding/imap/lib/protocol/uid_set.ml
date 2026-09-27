@@ -1,29 +1,71 @@
-type t = (Uid.t * Uid.t) list
+module A = Stdlib_stable.Iarray
 
-let empty = []
-let is_empty t = t = []
-let singleton u = [u,u]
-let intervals t = t
+(* Interval [i] runs from [t.:(2i)] to [t.:(2i+1)]. Intervals are sorted,
+   disjoint and non-adjacent, so equal sets have equal arrays and [mem]
+   can bisect. *)
+type t = Uid.t iarray
+
+let empty : t = [: :]
+let is_empty t = A.length t = 0
+let singleton u : t = [: u; u :]
+let count t = A.length t / 2
+let lo t i = A.get t (2 * i)
+let hi t i = A.get t (2 * i + 1)
+let intervals t = List.init (count t) (fun i -> lo t i, hi t i)
 
 let lt a b = Uid.compare a b < 0
-let umin a b = if lt b a then b else a
-let umax a b = if lt a b then b else a
 
-let adjacent last next =
-  match Uid.succ last with Some n -> Uid.equal n next | None -> false
+(* A builder appends intervals in ascending order of their lower bound and
+   merges each with the last one when they overlap or touch. *)
+type builder = { mutable bounds : Uid.t array; mutable len : int }
 
-let normalize xs =
-  let xs = List.map (fun (a,b) -> if lt b a then b,a else a,b) xs in
-  let xs = List.sort (fun (a,_) (b,_) -> Uid.compare a b) xs in
-  List.rev (List.fold_left (fun acc (a,b) ->
-    match acc with
-    | (c,d)::rest when not (lt d a) || adjacent d a -> (c, umax b d)::rest
-    | _ -> (a,b)::acc) [] xs)
+let builder n u = { bounds = Array.make (max 2 (2 * n)) u; len = 0 }
+
+let push b first last =
+  let n = b.len in
+  if n > 0 &&
+     (let top = b.bounds.(n - 1) in
+      not (lt top first) ||
+      match Uid.succ top with Some s -> Uid.equal s first | None -> false)
+  then (if lt b.bounds.(n - 1) last then b.bounds.(n - 1) <- last)
+  else begin
+    if n = Array.length b.bounds then begin
+      let grown = Array.make (2 * n) first in
+      Array.blit b.bounds 0 grown 0 n;
+      b.bounds <- grown
+    end;
+    b.bounds.(n) <- first;
+    b.bounds.(n + 1) <- last;
+    b.len <- n + 2
+  end
+
+let build b : t = A.init b.len (fun i -> b.bounds.(i))
+
+let normalize = function
+  | [] -> empty
+  | ((u, _) :: _) as xs ->
+      let xs = List.map (fun (a, b) -> if lt b a then b, a else a, b) xs in
+      let xs = List.sort (fun (a, _) (b, _) -> Uid.compare a b) xs in
+      let b = builder (List.length xs) u in
+      List.iter (fun (first, last) -> push b first last) xs;
+      build b
 
 let of_intervals = normalize
-let of_list l = normalize (List.map (fun u -> u,u) l)
-let union a b = normalize (a @ b)
-let add u t = union [u,u] t
+let of_list l = normalize (List.map (fun u -> u, u) l)
+
+let union a b =
+  let na = count a and nb = count b in
+  if na = 0 then b else if nb = 0 then a else
+  let out = builder (na + nb) (lo a 0) in
+  let rec merge i j =
+    if i = na && j = nb then ()
+    else if j = nb || (i < na && not (lt (lo b j) (lo a i))) then
+      (push out (lo a i) (hi a i); merge (i + 1) j)
+    else (push out (lo b j) (hi b j); merge i (j + 1)) in
+  merge 0 0;
+  build out
+
+let add u t = union (singleton u) t
 
 let star = match Uid.of_int64 4_294_967_295L with
   | Ok u -> u
@@ -56,38 +98,77 @@ let of_wire ?(allow_star=false) s =
     parse [] (String.split_on_char ',' s)
 
 let to_wire t =
-  if t = [] then invalid_arg "Uid_set.to_wire: empty set";
-  String.concat "," (List.map (fun (a,b) ->
-    if Uid.equal a b then Uid.to_string a
-    else Uid.to_string a ^ ":" ^ Uid.to_string b) t)
+  if is_empty t then invalid_arg "Uid_set.to_wire: empty set";
+  let buf = Buffer.create (count t * 16) in
+  for i = 0 to count t - 1 do
+    if i > 0 then Buffer.add_char buf ',';
+    let a = lo t i and b = hi t i in
+    Buffer.add_string buf (Uid.to_string a);
+    if not (Uid.equal a b) then begin
+      Buffer.add_char buf ':';
+      Buffer.add_string buf (Uid.to_string b)
+    end
+  done;
+  Buffer.contents buf
 
-let cardinality t = List.fold_left (fun acc (a,b) ->
-  Int64.add acc (Int64.succ (Int64.sub (Uid.to_int64 b) (Uid.to_int64 a))))
-  0L t
+let cardinality t =
+  let rec sum i acc =
+    if i = count t then acc
+    else sum (i + 1) (Int64.add acc (Int64.succ (Int64.sub
+      (Uid.to_int64 (hi t i)) (Uid.to_int64 (lo t i))))) in
+  sum 0 0L
 
-let mem x t = List.exists (fun (a,b) -> not (lt x a) && not (lt b x)) t
+(* [mem] bisects for the last interval whose lower bound is at most [x]. *)
+let mem x t =
+  let rec search low high =
+    if low >= high then low - 1
+    else
+      let mid = (low + high) / 2 in
+      if lt x (lo t mid) then search low mid else search (mid + 1) high in
+  let i = search 0 (count t) in
+  i >= 0 && not (lt (hi t i) x)
 
-let rec inter a b = match a,b with
-  | [],_ | _,[] -> []
-  | (a1,a2)::ra,(b1,b2)::rb ->
-      let lo = umax a1 b1 and hi = umin a2 b2 in
-      let rest = if lt a2 b2 then inter ra b else inter a rb in
-      if lt hi lo then rest else (lo,hi)::rest
+let inter a b =
+  let na = count a and nb = count b in
+  if na = 0 || nb = 0 then empty else
+  let out = builder (na + nb) (lo a 0) in
+  let rec go i j =
+    if i < na && j < nb then begin
+      let a1 = lo a i and a2 = hi a i and b1 = lo b j and b2 = hi b j in
+      let low = if lt a1 b1 then b1 else a1
+      and high = if lt a2 b2 then a2 else b2 in
+      if not (lt high low) then push out low high;
+      if lt a2 b2 then go (i + 1) j else go i (j + 1)
+    end in
+  go 0 0;
+  build out
 
-let rec diff a b = match a,b with
-  | [],_ -> []
-  | a,[] -> a
-  | (a1,a2)::ra,(b1,b2)::rb ->
-      if lt b2 a1 then diff a rb
-      else if lt a2 b1 then (a1,a2)::diff ra b
-      else
-        let left = match Uid.pred b1 with
-          | Some p when lt a1 b1 -> [a1,p]
-          | _ -> [] in
-        let rest = match Uid.succ b2 with
-          | Some n when lt b2 a2 -> diff ((n,a2)::ra) rb
-          | _ -> diff ra b in
-        left @ rest
+let diff a b =
+  let na = count a and nb = count b in
+  if na = 0 || nb = 0 then a else
+  let out = builder (na + nb) (lo a 0) in
+  (* [go i first j] emits what remains of interval [i] of [a] from [first]
+     on, then the rest of [a], less the intervals of [b] from [j] on. *)
+  let rec go i first j =
+    if i = na then ()
+    else if j = nb then begin
+      push out first (hi a i);
+      for k = i + 1 to na - 1 do push out (lo a k) (hi a k) done
+    end else
+      let last = hi a i and b1 = lo b j and b2 = hi b j in
+      if lt b2 first then go i first (j + 1)
+      else if lt last b1 then (push out first last; next (i + 1) j)
+      else begin
+        (match Uid.pred b1 with
+         | Some p when lt first b1 -> push out first p
+         | _ -> ());
+        match Uid.succ b2 with
+        | Some n when lt b2 last -> go i n (j + 1)
+        | _ -> next (i + 1) j
+      end
+  and next i j = if i < na then go i (lo a i) j in
+  go 0 (lo a 0) 0;
+  build out
 
 let fold f t acc =
   let rec span u last acc =
@@ -96,13 +177,25 @@ let fold f t acc =
     else match Uid.succ u with
       | Some n -> span n last acc
       | None -> acc in
-  List.fold_left (fun acc (a,b) -> span a b acc) acc t
+  let rec go i acc = if i = count t then acc else go (i + 1)
+      (span (lo t i) (hi t i) acc) in
+  go 0 acc
 
 let iter f t = fold (fun u () -> f u) t ()
 let to_list t = List.rev (fold List.cons t [])
 
-let equal = List.equal (fun (a,b) (c,d) -> Uid.equal a c && Uid.equal b d)
-let compare = List.compare (fun (a,b) (c,d) ->
-  match Uid.compare a c with 0 -> Uid.compare b d | n -> n)
+let equal a b =
+  A.length a = A.length b && A.for_all2 Uid.equal a b
+
+let compare a b =
+  let na = A.length a and nb = A.length b in
+  let rec go i =
+    if i = na then (if i = nb then 0 else -1)
+    else if i = nb then 1
+    else match Uid.compare (A.get a i) (A.get b i) with
+      | 0 -> go (i + 1)
+      | n -> n in
+  go 0
+
 let pp ppf t =
-  Format.pp_print_string ppf (if t=[] then "(empty)" else to_wire t)
+  Format.pp_print_string ppf (if is_empty t then "(empty)" else to_wire t)

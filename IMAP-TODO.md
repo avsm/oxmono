@@ -50,7 +50,7 @@ comments unless the code cannot say it.
 | R | Phase 2 implementation review by subagent, one per module, findings in section 0.R | done, 21 reviews, 336 findings | |
 | F | Apply Phase 2 correctness fixes in severity order, then dead code, redundancy, comments | done; 235 findings fixed, the remainder annotated to their steps; CLI findings fold into step 12 | e449db4a4 |
 | 1 | Plan item 8: strip duplicated docs from core Eio `.mli` and private store `.mli` to one-line internal contracts; rename `Imap_store.Sync` to `Journal` | done | d948dc830 |
-| 2 | Plan items 1 to 3: `Imap.Capability`, typed `Response.Capability`/`Enabled`, `Error.Unsupported`, typed `Client.capabilities`/`enabled`/`has`/`enable` | todo | |
+| 2 | Plan items 1 to 3: `Imap.Capability`, typed `Response.Capability`/`Enabled`, `Error.Unsupported`, typed `Client.capabilities`/`enabled`/`has`/`enable` | done | a21c8b091 |
 | 3 | Plan item 12: `spool` and `database` as private support libraries shared by their library and their tests; drop the copy_files rules in test/io and test/store/database | done | 722b25c41 |
 | 4 | Plan item 10: standalone `maildir` package at `bleeding/maildir/`; no `imap` or `sqlite3-eio` dependency; `Local_inventory` in sync; `with_writer` capability; typed errors; `Dotlock` public | todo | |
 | 5 | Plan item 5a: dissolve `Proto` into `Imap.Uid`, `Uidvalidity`, `Modseq`, `Uid_set` with `equal`, `compare`, `pp`; unify identifier shapes across `Selected` | todo | |
@@ -104,6 +104,39 @@ constructor list from the capability strings enumerated by the Phase 2
 reviews of `client.ml` and `selected.ml`. `Error.Unsupported of
 Imap.Capability.t` replaces every `State`/`Limit` text returned for a missing
 or unenabled extension. `Client.enable` is the general RFC 5161 ENABLE.
+
+Done: `Imap.Capability` types every token the reviews named plus the
+standard ones, keeps anything else as `Other` in its received spelling, and
+compares tokens case-insensitively. Its `Set` stores an `Other` token as
+`of_wire` reads it. The typed lookups are `messagelimit`, `savelimit`,
+`auth_mechanisms`, `thread_algorithms` and `quota_resources`.
+`implied_by_rev2` holds for ENABLE, IDLE, NAMESPACE, UIDPLUS, MOVE,
+SEARCHRES, ESEARCH, LIST-EXTENDED, LIST-STATUS, UNSELECT, SASL-IR and
+LITERAL- (RFC 9051 Appendix E item 2) and STATUS=SIZE (item 3). BINARY is
+excluded, and the FETCH side of BINARY keeps its own rev2 gate in
+`Selected`. `malformed_limit` keeps the `Protocol` error for an invalid
+advertised MESSAGELIMIT or SAVELIMIT. `Response.Capability` and `Enabled`
+carry deduplicated typed lists, and `[CAPABILITY ...]` is a typed code.
+`Command.enable` encodes ENABLE and refuses a token that is not an atom.
+Session stores typed sets, and `Session.has`, `require` and
+`require_enabled` are the one gate in lib/eio. Every missing-extension
+`State` text is now `Error.Unsupported c` and every missing mode
+`Error.Not_enabled c`. A missing MESSAGELIMIT is `Unsupported (Other
+"MESSAGELIMIT")`. `Client` gains `has`, `is_enabled` and `enable`, and
+`enable_uidonly`, `enable_objectid_plus` and the three automatic enables
+go through it. Every gate now folds effective IMAP4rev2 the same way, so
+SASL-IR, several LIST patterns and the lib/sync UIDPLUS test accept a
+rev2 server without the token. ENABLE sends the canonical uppercase
+spelling, and ENABLE while selected is one `State` message. lib/sync
+engine, deletion, flags and watch use `Client.has` and `is_enabled`.
+Deletion and flags treat `Unsupported` and `Not_enabled` from a
+conditional STORE as not applied, as they treated `State`. test/stalwart,
+test/dovecot and test/oracle read the typed sets. Twenty-one assertions
+in test/eio and one in test/stalwart that matched `State` now match the
+typed variant naming the capability. test/eio/test_capability.ml covers
+MOVE on rev1 and rev2, QRESYNC not enabled and the `enable` result.
+`test/api/check.sh` passes. Build and runtest are clean, 15 suites and
+218 test cases plus the new executable.
 
 Step 3. Move `lib/sync/spool.ml{,i}` into a private library stanza
 (`(library (name imap_sync_spool) (package imap))`) that `imap.sync` and
@@ -524,7 +557,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] selected.ml:452 [dead] the `> 50` test cannot fire after the Hashtbl check at :448; the `supports_limit` conjuncts at :661, :666, :917 and :922 are redundant since `accept_partial:false` never yields `partial = Some`; the SEARCHRES recheck at :83 cannot fail; `bytes = 0L` at :1102 is implied.
 - [ ] selected.ml:476 [redundant] the six `uid_fetch_<x>s` functions repeat UID-list validation, comma join, `Map.Make(Int64)` fold with `List.mem`, and projection; only the UID-list policy, result order, duplicate policy and unrequested-UID policy vary. Plan step 7. (left for step 7)
 - [x] selected.ml:642 [redundant] `fetch_metadata_range` and `fetch_changes_range` at :897 run near-identical MESSAGELIMIT loops; the prefix test is written three ways at :322, :357 and :639.
-- [ ] selected.ml:679 [redundant] the `List.mem cap` then `raise (State "X unavailable")` pattern appears about twenty times and `has` is defined only at :679; the encoder unwrap about thirty times; `Fetch row | Uidfetch row` extraction twelve times; the tagged-tag match six times; the correlated-ESEARCH filter four times. Plan step 2 and step 9. (left for steps 2 and 9: the capability idiom; `syntax`, fetch-row, completion-tag and correlated-ESEARCH helpers now replace the other copies)
+- [x] selected.ml:679 [redundant] the `List.mem cap` then `raise (State "X unavailable")` pattern appears about twenty times and `has` is defined only at :679; the encoder unwrap about thirty times; `Fetch row | Uidfetch row` extraction twelve times; the tagged-tag match six times; the correlated-ESEARCH filter four times. Plan step 2 and step 9. (the capability idiom is `Session.require` and `require_enabled` since step 2. The witness submodules are left for step 9. `syntax`, fetch-row, completion-tag and correlated-ESEARCH helpers now replace the other copies)
 - [ ] selected.ml:43 [redundant] `uid < 1L || uid > 4_294_967_295L` is written nine times at :43, :327, :453, :507, :546, :594, :1004, :1060 and :1089 although `Proto.Uid.of_int64` exists; the 1000-UID window check three times at :352, :631 and :888. Plan step 5. (left for step 5)
 - [x] selected.ml:748 [redundant] the rev2 predicate is duplicated in `mailbox_wire` at :748, `require_binary` at :979 and `Client.revision_two`; `Selected.mailbox_wire` duplicates `Client.mailbox_wire` except for the error prefix.
 - [x] selected.ml:442 [comment] restates the code; delete. At :38 keep the RFC 5267 sentence and delete "SEARCH retains its existing expansion."
@@ -562,7 +595,7 @@ severity in `[]`. Fixes applied in step F are ticked here.
 - [x] client.ml:55 [low] `enable_revision` overwrites `enabled` instead of merging; correct only because it runs first on the empty list at :178.
 - [x] client.ml:367 [low] `status` and `list_extended` gate only the `Objectid` item; `Highestmodseq`, `Mailboxid`, `Size`, `Deleted` and `Deleted_storage` are sent without checking CONDSTORE, OBJECTID, STATUS=SIZE, rev2 or QUOTA. DELETED also accepts IMAP4rev2, which RFC 9051 includes in STATUS.
 - [x] client.ml:93 [dead] the LOGINDISABLED check in `login` is preceded by the same check in `authenticate` at :111; the `require` error branch at :742 and the range test at :831 and :835 are unreachable because response.ml:287 already bounds APPENDUID and the set passes `Uid_set.of_wire`. The range test is gone; the result conversions stay because they are the only way to obtain typed values.
-- [ ] client.ml:51 [redundant] ENABLED extraction appears five times at :51, :66, :76, :224 and :244; the three optional enables at :47, :62 and :72 and the two required enables at :214 and :234 differ only in name; the effective-rev2 test at :692 bypasses `revision_two`; syntax unwrapping is inlined at :96, :277, :288, :577, :603, :656 and :737 while `command_syntax` at :405 exists; `one_response` at :409 is rewritten in `namespace`, `status_locked` and `get_jmap_access`; the OBJECTID+ enabled check repeats at :257, :335, :368, :582 and :649; the pin lookup at :266, :637 and :710; `canonical` at :345 duplicates `same_mailbox` at :24; `begins` at :26 duplicates `String.starts_with`; the mechanism name is computed twice at :117 and :126; `connect` and `of_flow` handlers at :189 and :196 are identical; :702 is `Result.join`. (left for step 2: the OBJECTID+ enabled check; every other listed duplicate is factored)
+- [x] client.ml:51 [redundant] ENABLED extraction appears five times at :51, :66, :76, :224 and :244; the three optional enables at :47, :62 and :72 and the two required enables at :214 and :234 differ only in name; the effective-rev2 test at :692 bypasses `revision_two`; syntax unwrapping is inlined at :96, :277, :288, :577, :603, :656 and :737 while `command_syntax` at :405 exists; `one_response` at :409 is rewritten in `namespace`, `status_locked` and `get_jmap_access`; the OBJECTID+ enabled check repeats at :257, :335, :368, :582 and :649; the pin lookup at :266, :637 and :710; `canonical` at :345 duplicates `same_mailbox` at :24; `begins` at :26 duplicates `String.starts_with`; the mechanism name is computed twice at :117 and :126; `connect` and `of_flow` handlers at :189 and :196 are identical; :702 is `Result.join`. (the OBJECTID+ enabled check is `Session.require_enabled` since step 2, and every other listed duplicate is factored)
 - [ ] client.ml:763 [redundant] `append_flow` and `append_binary_flow` are one-line wrappers over `append_receipt ~binary`; `append_messages` at :793 duplicates receipt decoding and Uncertain handling from `append_receipt`. Plan step 8. (left for step 8)
 - [x] client.ml:149 [optimisation] a PREAUTH connection sends CAPABILITY twice at :149 and :177; `append_receipt` runs the pinned STATUS at :730 before validating syntax at :735.
 - [ ] client.mli:8 [drift] `connect` silently ENABLEs IMAP4rev2, UTF8=ACCEPT and QRESYNC at :178, which changes `mailbox_mode` and replaces EXPUNGE with VANISHED, while the interface calls `enable_uidonly` and `enable_objectid_plus` the explicit modes; `of_flow` is always treated as insecure at :150; `capabilities` and `enabled` return uppercased tokens; `with_mailbox` closes on UIDNOTSTICKY at :667 and a failed UNSELECT replaces the callback result. (left for step 15, except the UNSELECT sentence, which is fixed)
@@ -825,7 +858,7 @@ These are visible only across modules. Each names the step that absorbs it.
 - [x] [flag equality, step F] structural equality after `sort_uniq compare` at sync_journal.ml:497, :695, :814, :850 and bridge.ml:330 disagrees with `Imap_flag.equal_durable` used everywhere else. Use `equal_durable` and consider an `Imap_flag.Set`. (journal by the store fixes, bridge.ml:330 by the sync fixes)
 - [ ] [hand-coded UID ranges, step 5] the literal `4_294_967_295L` check is at sixteen response.ml sites, nine selected.ml sites, command.ml:317 and imap_cli.ml:574, :751, :753 although `Proto.Uid.of_int64` exists.
 - [ ] [store helpers, step F] the SHA-256 hex validator is at blob_store.ml:16, operation_intent.ml:42, sync_journal.ml:74 and :452; the cursor read plus decode at imap_store.ml:29, :130, :141, :187 and blob_store.ml:116; the stale check at imap_store.ml:239, :333, :402 and blob_store.ml:122 with three disagreeing missing-row cases. Move to Record_codec.
-- [ ] [capability idiom, step 2 and step 9] the `List.mem cap` then `State "X unavailable"` pattern is at about fifteen client.ml sites, twenty selected.ml sites and session.ml:256; the effective-rev2 predicate is written four ways at client.ml:57, :692, selected.ml:748, :979; `Capability` and `Enabled` are raw uppercase words with no dedup.
+- [x] [capability idiom, step 2 and step 9] the `List.mem cap` then `State "X unavailable"` pattern is at about fifteen client.ml sites, twenty selected.ml sites and session.ml:256; the effective-rev2 predicate is written four ways at client.ml:57, :692, selected.ml:748, :979; `Capability` and `Enabled` are raw uppercase words with no dedup. (step 2 replaced the pattern with `Session.require` returning `Unsupported`, the predicates with `Session.has`, and the words with `Imap.Capability`. The extension witnesses are left for step 9)
 - [ ] [two APPEND journals, decision in step 11] `intents` (18 columns) and `sync_operations` (26 columns) are bridged only by a shared ID at bridge.ml:195, :243, :326, :409, :1412; `intents.uidvalidity` conflates the pre-send epoch with the receipt epoch (operation_intent.ml:117). Unification is a schema v14 migration. Recommendation: keep both tables this round, add a separate receipt epoch column in v14, and record the unification as follow-up.
 - [ ] [blob reclamation, step F and step 12] nothing in lib or bin runs the orphan collector (blob_store.ml:271), and `referenced` at blob_store.ml:250 counts refs from superseded epochs that `publish` retains at imap_store.ml:377, so no blob is ever reclaimed. Run `reap_orphans_iter` from the CLI at startup under the writer lease, and add an explicit epoch-drop operation so quarantined epochs can release their blobs.
 - [ ] [finally clobbering, step F] `Fun.protect ~finally` with a raising finaliser at blob_store.ml:280, :224 and imap_maildir.ml:505, :178 replaces the original exception with `Finally_raised`.

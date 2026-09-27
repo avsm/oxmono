@@ -467,10 +467,6 @@ module Journal : sig
   (** [find_local t ~scope ~local_id] is the pair of [scope] bound to the
       local occurrence [local_id], or [None]. *)
 
-  val pairs : t -> scope:Imap.Mirror.scope -> pair list
-  (** [pairs t ~scope] is every pair of [scope] in ascending ID order, held
-      in memory at once. {!pairs_page} bounds the memory. *)
-
   val pairs_page : t -> scope:Imap.Mirror.scope -> ?after:string ->
     limit:int -> unit -> pair list
   (** [pairs_page t ~scope ~after ~limit ()] is at most [limit] pairs of
@@ -530,10 +526,6 @@ module Journal : sig
   (** [resolve_conflict t ~id] resolves the open conflict [id].
 
       @raise Invalid_argument if no open conflict is [id]. *)
-
-  val open_conflicts : t -> scope:Imap.Mirror.scope -> conflict list
-  (** [open_conflicts t ~scope] is every open conflict of the pairs of
-      [scope], in ascending ID order, held in memory at once. *)
 
   val open_conflicts_page : t -> scope:Imap.Mirror.scope -> ?after:string ->
     limit:int -> unit -> conflict list
@@ -776,11 +768,6 @@ module Journal : sig
   (** [find_operation t ~id] is the operation [id] in any state, or
       [None]. *)
 
-  val active_operations : t -> scope:Imap.Mirror.scope -> operation list
-  (** [active_operations t ~scope] is every [Prepared], [Sent], [Ambiguous]
-      and [Observed] operation of [scope], in the order they were prepared,
-      held in memory at once. Active operations survive a restart. *)
-
   val active_operations_page : t -> scope:Imap.Mirror.scope ->
     ?after:string -> limit:int -> unit -> operation list
   (** [active_operations_page t ~scope ~after ~limit ()] is at most [limit]
@@ -922,17 +909,6 @@ module Blob : sig
       attempted, the directory is synced on return, exception or
       cancellation, and a failed sync after an exception does not replace
       it. [removed] runs before that sync, so it does not prove
-      durability. *)
-
-  val orphan_candidates : t -> string list
-  (** [orphan_candidates t] is the sorted names {!iter_orphan_candidates}
-      visits, held in memory at once. It removes nothing. A name can become
-      referenced as soon as it returns. *)
-
-  val reap_orphans : t -> string list
-  (** [reap_orphans t] is the sorted names {!reap_orphans_iter} removed,
-      held in memory at once. It runs at startup while every blob writer,
-      including one in another process, is quiescent, and never
-      concurrently with {!put} or {!attach}. A crash during reaping leaves
-      the remaining candidates for the next startup. *)
+      durability. A crash during reaping leaves the remaining candidates
+      for the next call. *)
 end

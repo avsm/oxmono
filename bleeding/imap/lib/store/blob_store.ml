@@ -262,11 +262,6 @@ let iter_orphan_candidates t f =
         else false in
       if candidate && Eio.Path.is_file Eio.Path.(dir / name) then f name))
 
-let orphan_candidates t =
-  let names=ref [] in
-  iter_orphan_candidates t (fun name -> names := name :: !names);
-  List.sort String.compare !names
-
 let reap_orphans_iter t ~removed =
   let Dir dir=directory t in
   let native=Eio.Path.native_exn dir in
@@ -278,8 +273,3 @@ let reap_orphans_iter t ~removed =
       removed name))
     (fun () ->
       if !dirty then Eio.Cancel.protect (fun () -> sync_directory native))
-
-let reap_orphans t =
-  let names=ref [] in
-  reap_orphans_iter t ~removed:(fun name -> names := name :: !names);
-  List.sort String.compare !names

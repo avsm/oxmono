@@ -1,3 +1,9 @@
+let orphan_candidates db =
+  let names=ref [] in
+  Imap_store.Blob.iter_orphan_candidates db (fun name ->
+    names := name :: !names);
+  List.sort String.compare !names
+
 let check condition message = if not condition then failwith message
 let directory_handles path =
   if not (Sys.file_exists "/proc/self/fd") then 0 else
@@ -69,7 +75,7 @@ let run env =
       check (directory_handles archive=0) "cancelled reaper leaked directory";
       Imap_store.Blob.reap_orphans_iter db ~removed:(fun _ -> incr removed);
       check (!removed=count) "restart after interruption lost candidates";
-      check (Imap_store.Blob.orphan_candidates db=[]) "candidates remain";
+      check (orphan_candidates db=[]) "candidates remain";
       check (Sys.file_exists (Filename.concat archive "unrelated")) "unknown file removed";
       check (Sys.file_exists (Filename.concat archive ".tmp-directory")) "directory removed"))
 let () = Eio_main.run run

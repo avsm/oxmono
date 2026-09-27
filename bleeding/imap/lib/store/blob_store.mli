@@ -49,11 +49,3 @@ val iter_orphan_candidates : t -> (string -> unit) -> unit
 val reap_orphans_iter : t -> removed:(string -> unit) -> unit
 (** [reap_orphans_iter t ~removed] unlinks every orphan candidate under the same
     quiescence rule as {!iter_orphan_candidates}. *)
-
-val orphan_candidates : t -> string list
-(** [orphan_candidates t] is the sorted list that {!iter_orphan_candidates}
-    visits. *)
-
-val reap_orphans : t -> string list
-(** [reap_orphans t] is the sorted list of names that {!reap_orphans_iter}
-    removed. *)

@@ -1,6 +1,29 @@
 module M = Imap.Mirror
 module J = Imap_store.Journal
 
+(* [all_pages page id] concatenates the pages of 1,000 that [page] reads
+   after the ID of the last row of the previous page. *)
+let all_pages page id =
+  let rec go after acc =
+    let rows=page after in
+    let acc=List.rev_append rows acc in
+    if List.length rows<1000 then List.rev acc
+    else go (Some (id (List.nth rows (List.length rows-1)))) acc in
+  go None []
+let all_pairs store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.pairs_page store ~scope ?after ~limit:1000 ())
+    (fun (p:Imap_store.Journal.pair) -> p.id)
+let all_open_conflicts store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.open_conflicts_page store ~scope ?after ~limit:1000 ())
+    (fun (c:Imap_store.Journal.conflict) -> c.id)
+let all_active_operations store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.active_operations_page store ~scope ?after
+      ~limit:1000 ())
+    (fun (o:Imap_store.Journal.operation) -> o.id)
+
 let ok = function Ok x -> x | Error e -> Alcotest.fail e
 let uid n = ok (Imap.Uid.of_int64 n)
 let epoch n = ok (Imap.Uidvalidity.of_int64 n)
@@ -1062,9 +1085,9 @@ let test_remote_source_vanishes_before_archive () =
        Imap_sync.Error.pp error
    | Ok _ -> Alcotest.fail "vanished source reported convergence");
   Alcotest.(check int) "vanished source made no journal" 0
-    (List.length (J.active_operations store ~scope));
+    (List.length (all_active_operations store ~scope));
   Alcotest.(check int) "vanished source made no pair" 0
-    (List.length (J.pairs store ~scope));
+    (List.length (all_pairs store ~scope));
   Alcotest.(check int) "vanished source made no Maildir file" 0
     (List.length (Md.scan maildir));
   let absent=scripted_scan ~sw ~has_message:false () in
@@ -1125,7 +1148,7 @@ let test_invalid_blob_rejects_unsent_append () =
      | Some operation -> operation.state=J.Rejected
      | None -> false);
   Alcotest.(check int) "no active APPEND work" 0
-    (List.length (J.active_operations store ~scope));
+    (List.length (all_active_operations store ~scope));
   Alcotest.(check int) "local source retained" 1
     (List.length (Md.scan maildir));
   Alcotest.(check string) "same local occurrence" local.id
@@ -1162,7 +1185,7 @@ let test_missing_appenduid_keeps_reason () =
        | Some intent -> intent.state=Imap_store.Ambiguous
        | None -> false);
     Alcotest.(check int) "no pair committed" 0
-      (List.length (J.pairs store ~scope)));
+      (List.length (all_pairs store ~scope)));
   Alcotest.(check int) "local occurrence remains" 1
     (List.length (Md.scan maildir))
 
@@ -1216,7 +1239,7 @@ let test_appenduid_readback_rejects_changed_body () =
      | Some {state=J.Observed;receipt_uid=Some _;_} -> true
      | _ -> false);
   Alcotest.(check int) "no corrupt pair committed" 0
-    (List.length (J.pairs store ~scope));
+    (List.length (all_pairs store ~scope));
   let changed_hash=Digestif.SHA256.(to_hex (digest_string changed)) in
   Alcotest.(check bool) "readback made no orphan changed-body blob" false
     (Sys.file_exists (Filename.concat (Eio.Path.native_exn blob_dir)
@@ -1330,14 +1353,14 @@ let test_ambiguous_append_survives_restart () =
   Eio.Switch.run (fun sw ->
     let store=open_store ~sw ~database ~blob_dir in
     Alcotest.(check int) "pending survived restart" 1
-      (List.length (J.active_operations store ~scope));
+      (List.length (all_active_operations store ~scope));
     let client=scripted_scan ~sw ~has_message:false () in
     (match run_bridge ~client ~store ~maildir ~spool_dir with
      | Error (Imap_sync.Error.Pending_operations ["ambiguous-append"]) -> ()
      | Error e -> Alcotest.failf "wrong error: %a" Imap_sync.Error.pp e
      | Ok _ -> Alcotest.fail "ambiguous APPEND was replayed");
     Alcotest.(check int) "no pair published" 0
-      (List.length (J.pairs store ~scope));
+      (List.length (all_pairs store ~scope));
     Alcotest.(check bool) "operation remains ambiguous" true
       (match J.find_operation store ~id:"ambiguous-append" with
        | Some {state=J.Ambiguous;_} -> true | _ -> false))
@@ -1760,7 +1783,7 @@ let test_unsupported_targeted_delete_is_durable_hold () =
   let first=copy "unsupported-first" in
   Alcotest.(check int) "missing UIDPLUS reports a hold" 1
     first.deletions_held;
-  let conflicts=J.open_conflicts store ~scope in
+  let conflicts=all_open_conflicts store ~scope in
   let conflict=match conflicts with
     | [conflict] when conflict.kind=J.Deletion_hold -> conflict
     | _ -> Alcotest.fail "unsupported delete has no durable hold" in
@@ -1770,9 +1793,9 @@ let test_unsupported_targeted_delete_is_durable_hold () =
   Alcotest.(check (list string)) "unsupported hold ID stable"
     [conflict.id]
     (List.map (fun (x:J.conflict) -> x.id)
-      (J.open_conflicts store ~scope));
+      (all_open_conflicts store ~scope));
   Alcotest.(check int) "unsupported delete sent no operation" 0
-    (List.length (J.active_operations store ~scope));
+    (List.length (all_active_operations store ~scope));
   let preview=ref [] in
   (match preview_deletions ~spool_dir ~store ~maildir ~scope
     ~policy:Imap.Sync_policy.Propagate_local
@@ -1919,7 +1942,7 @@ let test_changed_reappearance_blocks_delete () =
   let restored=Md.append maildir ~id:local_id
     ~source:(Eio.Flow.string_source changed) ~length ~flags:[] () in
   ignore (copy "changed-present");
-  let content_conflicts ()=J.open_conflicts store ~scope
+  let content_conflicts ()=all_open_conflicts store ~scope
     |> List.filter (fun (x:J.conflict) -> x.kind=J.Content_conflict) in
   let conflict=match content_conflicts () with
     | [conflict] -> conflict
@@ -2003,7 +2026,7 @@ let test_wrong_date_reappearance_blocks_delete () =
          (receipt.flags_held=1 && receipt.held_pair_ids=[pair.id])
    | Error error -> Alcotest.failf "wrong date: %a"
        Imap_sync.Error.pp error);
-  let identity_conflicts ()=J.open_conflicts store ~scope
+  let identity_conflicts ()=all_open_conflicts store ~scope
     |> List.filter (fun (x:J.conflict) -> x.kind=J.Identity_conflict) in
   Alcotest.(check int) "date conflict is durable" 1
     (List.length (identity_conflicts ()));
@@ -2066,7 +2089,7 @@ let test_retention_holds_remote_delete () =
   Alcotest.(check int) "no deletion" 0 receipt.deletions;
   Alcotest.(check int) "retention hold" 1 receipt.deletions_held;
   Alcotest.(check bool) "retention conflict explains hold" true
-    (match J.open_conflicts store ~scope with
+    (match all_open_conflicts store ~scope with
      | [{kind=J.Deletion_hold;evidence;_}] ->
          String.equal evidence
            "local copy was retained or evicted; remote deletion is held"
@@ -2253,7 +2276,7 @@ let test_incompatible_absence_tombstone_holds () =
   Alcotest.(check int) "incompatible evidence held" 1
     receipt.deletions_held;
   Alcotest.(check int) "no deletion operation" 0
-    (List.length (J.active_operations store ~scope));
+    (List.length (all_active_operations store ~scope));
   let planned=ref [] in
   (match preview_deletions ~spool_dir ~store ~maildir ~scope
     ~policy:Imap.Sync_policy.Propagate
@@ -2335,16 +2358,16 @@ let test_flag_write_rejects_replaced_local_body () =
         Imap_sync.Error.pp error
     | Ok _ -> Alcotest.fail "FLAGS update accepted replaced body" in
   reject ();
-  let first=J.open_conflicts store ~scope in
+  let first=all_open_conflicts store ~scope in
   reject ();
-  let second=J.open_conflicts store ~scope in
+  let second=all_open_conflicts store ~scope in
   Alcotest.(check bool) "stable pre-dispatch content conflict" true
     (match first,second with
      | [{id=a;kind=J.Content_conflict;_}],
        [{id=b;kind=J.Content_conflict;_}] -> a=b
      | _ -> false);
   Alcotest.(check int) "body mismatch created no FLAGS intent" 0
-    (List.length (J.active_operations store ~scope));
+    (List.length (all_active_operations store ~scope));
   Alcotest.(check bool) "pair baseline unchanged" true
     (match J.find_pair store ~id:pair.id with
      | Some current -> current.revision=pair.revision &&
@@ -2359,7 +2382,7 @@ let test_flag_write_rejects_replaced_local_body () =
    | Error error -> Alcotest.failf "restored content scan: %a"
        Imap_sync.Error.pp error);
   Alcotest.(check int) "restored body clears content hold" 0
-    (List.length (J.open_conflicts store ~scope))
+    (List.length (all_open_conflicts store ~scope))
 
 let test_sent_flags_recovery_holds_replaced_local_body () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
@@ -2399,9 +2422,9 @@ let test_sent_flags_recovery_holds_replaced_local_body () =
         Imap_sync.Error.pp error
     | Ok _ -> Alcotest.fail "sent FLAGS committed with replaced body" in
   recover ();
-  let first=J.open_conflicts store ~scope in
+  let first=all_open_conflicts store ~scope in
   recover ();
-  let second=J.open_conflicts store ~scope in
+  let second=all_open_conflicts store ~scope in
   Alcotest.(check bool) "stable durable FLAGS conflict" true
     (match first,second with
      | [{id=first_id;kind=J.Flag_conflict;_}],
@@ -2468,7 +2491,7 @@ let test_rejected_store_rejects_operation () =
          String.starts_with ~prefix:"UID STORE not applied" receipt
      | _ -> false);
   Alcotest.(check int) "rejected STORE opens no conflict" 0
-    (List.length (J.open_conflicts store ~scope))
+    (List.length (all_open_conflicts store ~scope))
 
 let test_uncertain_store_leaves_conflict () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->
@@ -2489,7 +2512,7 @@ let test_uncertain_store_leaves_conflict () =
          String.starts_with ~prefix:"UID STORE outcome unknown" receipt
      | _ -> false);
   Alcotest.(check bool) "uncertain STORE leaves a flag conflict" true
-    (match J.open_conflicts store ~scope with
+    (match all_open_conflicts store ~scope with
      | [{kind=J.Flag_conflict;_}] -> true
      | _ -> false)
 
@@ -2516,7 +2539,7 @@ let test_failed_verification_read_is_pending () =
            receipt
      | _ -> false);
   Alcotest.(check bool) "failed verification read leaves a conflict" true
-    (match J.open_conflicts store ~scope with
+    (match all_open_conflicts store ~scope with
      | [{kind=J.Flag_conflict;_}] -> true
      | _ -> false)
 
@@ -2539,7 +2562,7 @@ let test_local_only_race_rejects_prepared () =
   Alcotest.(check bool) "race rejected before dispatch" true
     (operation_state store "flag-op"=J.Rejected);
   Alcotest.(check int) "race opens no conflict" 0
-    (List.length (J.open_conflicts store ~scope));
+    (List.length (all_open_conflicts store ~scope));
   Alcotest.(check bool) "local flags untouched" true
     ((Option.get (Md.find maildir ~id:local.id)).flags=[])
 
@@ -3039,14 +3062,14 @@ let test_verify_local_content_without_flag_change () =
     first.mismatched;
   Alcotest.(check bool) "issue identifies paired occurrence" true
     (List.exists (fun (id,_) -> id=pair.id) !issues);
-  let conflict=match J.open_conflicts store ~scope with
+  let conflict=match all_open_conflicts store ~scope with
     | [{id;kind=J.Content_conflict;_}] -> id
     | _ -> Alcotest.fail "silent change lacked content conflict" in
   let second=verify () in
   Alcotest.(check int64) "repeat detects mismatch" 1L
     second.mismatched;
   Alcotest.(check string) "silent change conflict ID stable" conflict
-    (List.hd (J.open_conflicts store ~scope)).id;
+    (List.hd (all_open_conflicts store ~scope)).id;
   Md.remove maildir local;
   ignore (Md.append maildir ~id:local.id
     ~source:(Eio.Flow.string_source message) ~length ~flags:[] ());
@@ -3056,7 +3079,7 @@ let test_verify_local_content_without_flag_change () =
   Alcotest.(check int64) "restored conflict resolved" 1L
     restored.restored;
   Alcotest.(check int) "no remaining content conflict" 0
-    (List.length (J.open_conflicts store ~scope));
+    (List.length (all_open_conflicts store ~scope));
   Alcotest.(check int64) "verification does not revise pair" pair.revision
     (Option.get (J.find_pair store ~id:pair.id)).revision
 
@@ -3227,7 +3250,7 @@ let test_real_process_crash phase () =
      | Some {state;_} -> state=expected_terminal | None -> false);
   Alcotest.(check int) "recovered pair count"
     (if phase="maildir" || phase="observed" then 1 else 0)
-    (List.length (J.pairs store ~scope))
+    (List.length (all_pairs store ~scope))
 
 let test_epoch_reset_preserves_published_snapshot () =
   with_fixture @@ fun ~database ~blob_dir ~spool_dir ~maildir ->

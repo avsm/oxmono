@@ -1,3 +1,26 @@
+(* [all_pages page id] concatenates the pages of 1,000 that [page] reads
+   after the ID of the last row of the previous page. *)
+let all_pages page id =
+  let rec go after acc =
+    let rows=page after in
+    let acc=List.rev_append rows acc in
+    if List.length rows<1000 then List.rev acc
+    else go (Some (id (List.nth rows (List.length rows-1)))) acc in
+  go None []
+let all_pairs store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.pairs_page store ~scope ?after ~limit:1000 ())
+    (fun (p:Imap_store.Journal.pair) -> p.id)
+let all_open_conflicts store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.open_conflicts_page store ~scope ?after ~limit:1000 ())
+    (fun (c:Imap_store.Journal.conflict) -> c.id)
+let all_active_operations store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.active_operations_page store ~scope ?after
+      ~limit:1000 ())
+    (fun (o:Imap_store.Journal.operation) -> o.id)
+
 let unwrap = function
   | Ok x -> x
   | Error e -> Alcotest.fail (Imap_eio.Client.error_to_string e)
@@ -1039,7 +1062,7 @@ let test_bridge_cram () =
     (Option.is_some (Imap_store.Journal.find_local store ~scope
       ~local_id:local.id));
   Alcotest.(check int) "Dovecot durable pairs" 2
-    (List.length (Imap_store.Journal.pairs store ~scope));
+    (List.length (all_pairs store ~scope));
   let pair=
     match Imap_store.Journal.find_local store ~scope ~local_id:local.id with
     | Some pair -> pair | None -> Alcotest.fail "upload pair missing" in
@@ -1101,7 +1124,7 @@ let test_bridge_cram () =
       ~random:(Eio.Stdenv.secure_random env_io)
       ~env:Sys.getenv_opt);
   Alcotest.(check bool) "CLI persists content conflict" true
-    (match Imap_store.Journal.open_conflicts store ~scope with
+    (match all_open_conflicts store ~scope with
      | [{pair_id;kind=Imap_store.Journal.Content_conflict;_}] ->
          pair_id=pair.id
      | _ -> false);
@@ -1115,7 +1138,7 @@ let test_bridge_cram () =
   Alcotest.(check int) "restored body needs no flag update" 0
     restored.flags_updated;
   Alcotest.(check int) "restored body clears content conflict" 0
-    (List.length (Imap_store.Journal.open_conflicts store ~scope));
+    (List.length (all_open_conflicts store ~scope));
   let current=Option.get (Md.find maildir ~id:local.id) in
   Md.remove maildir current;
   ignore (Md.append maildir ~id:local.id
@@ -1133,7 +1156,7 @@ let test_bridge_cram () =
   Alcotest.(check int) "offline scrub detects silent same-length edit" 4
     (verify ());
   Alcotest.(check bool) "silent edit persisted as content conflict" true
-    (match Imap_store.Journal.open_conflicts store ~scope with
+    (match all_open_conflicts store ~scope with
      | [{pair_id;kind=Imap_store.Journal.Content_conflict;_}] ->
          pair_id=pair.id
      | _ -> false);
@@ -1153,7 +1176,7 @@ let test_bridge_cram () =
         ~operation:`Add ~flags:[deleted] in Ok ()));
   let held=copy ("dovecot-deleted-hold-" ^ nonce) in
   Alcotest.(check int) "deleted flag held" 1 held.flags_held;
-  let policy_conflicts ()=Imap_store.Journal.open_conflicts store ~scope
+  let policy_conflicts ()=all_open_conflicts store ~scope
     |> List.filter (fun (x:Imap_store.Journal.conflict) ->
       x.kind=Imap_store.Journal.Policy_conflict) in
   let conflict=match policy_conflicts () with
@@ -1164,7 +1187,7 @@ let test_bridge_cram () =
       Eio.Path.(fs / dbfile) in
     Alcotest.(check (list string)) "policy hold visible after reopen"
       [conflict.id]
-      (Imap_store.Journal.open_conflicts reopened ~scope
+      (all_open_conflicts reopened ~scope
        |> List.map (fun (x:Imap_store.Journal.conflict) -> x.id)));
   let held_again=copy ("dovecot-deleted-hold-again-" ^ nonce) in
   Alcotest.(check int) "repeated deleted flag held" 1
@@ -1262,7 +1285,7 @@ let test_bridge_cram () =
         Imap_sync.Error.pp error
     | Ok _ -> Alcotest.fail "paired date drift was accepted" in
   drift ("dovecot-date-drift-" ^ nonce);
-  let date_conflicts ()=Imap_store.Journal.open_conflicts store ~scope
+  let date_conflicts ()=all_open_conflicts store ~scope
     |> List.filter (fun (x:Imap_store.Journal.conflict) ->
       x.kind=Imap_store.Journal.Identity_conflict) in
   let conflict=match date_conflicts () with
@@ -1337,9 +1360,9 @@ let test_shared_mailbox_bootstrap () =
   Alcotest.(check int) "refusal did not make local copies" 1
     (List.length (Md.scan maildir));
   Alcotest.(check int) "refusal did not journal mutations" 0
-    (List.length (Imap_store.Journal.active_operations store ~scope));
+    (List.length (all_active_operations store ~scope));
   Alcotest.(check int) "refusal did not publish pairs" 0
-    (List.length (Imap_store.Journal.pairs store ~scope));
+    (List.length (all_pairs store ~scope));
   let server_uids ()=unwrap (Imap_eio.Client.with_mailbox client
     ~mode:`Read_only mailbox (fun selected ->
       Imap_eio.Selected.uid_search selected ~criteria:Imap.Search.All)) in
@@ -1355,7 +1378,7 @@ let test_shared_mailbox_bootstrap () =
   Alcotest.(check int) "explicit local upload" 1
     accepted.local_to_remote;
   Alcotest.(check int) "two occurrence pairs" 2
-    (List.length (Imap_store.Journal.pairs store ~scope));
+    (List.length (all_pairs store ~scope));
   Alcotest.(check int) "two remote UIDs" 2
     (List.length (server_uids ()));
   let stable=match copy ("bootstrap-stable-" ^ nonce) with
@@ -1581,7 +1604,7 @@ let test_append_process_crash () =
     Alcotest.(check int) "attested APPEND not uploaded again" 0
       completed.local_to_remote;
     Alcotest.(check int) "one paired occurrence" 1
-      (List.length (Imap_store.Journal.pairs store ~scope));
+      (List.length (all_pairs store ~scope));
     Alcotest.(check bool) "local occurrence paired to witnessed UID" true
       (match Imap_store.Journal.find_local store ~scope ~local_id:local.id with
        | Some {remote_uid=Some paired_uid;_} -> paired_uid=uid
@@ -1697,7 +1720,7 @@ let test_delete_process_crash () =
       Imap.Sync_policy.Preserve in
     Alcotest.(check int) "two remote occurrences imported" 2
       imported.remote_to_local;
-    let pairs=Imap_store.Journal.pairs store ~scope in
+    let pairs=all_pairs store ~scope in
     let by_uid=List.sort (fun a b -> compare
       (Option.get a.Imap_store.Journal.remote_uid)
       (Option.get b.Imap_store.Journal.remote_uid)) pairs in
@@ -1713,7 +1736,7 @@ let test_delete_process_crash () =
       held.deletions;
     Alcotest.(check int) "preserve policy reports one hold" 1
       held.deletions_held;
-    let conflicts=Imap_store.Journal.open_conflicts store ~scope in
+    let conflicts=all_open_conflicts store ~scope in
     Alcotest.(check int) "preserve hold is durable" 1
       (List.length (List.filter (fun (x:Imap_store.Journal.conflict) ->
         x.kind=Imap_store.Journal.Deletion_hold) conflicts));
@@ -1725,7 +1748,7 @@ let test_delete_process_crash () =
     Alcotest.(check (list string)) "deletion hold ID stays stable"
       [hold_id]
       (List.map (fun (x:Imap_store.Journal.conflict) -> x.id)
-        (Imap_store.Journal.open_conflicts store ~scope));
+        (all_open_conflicts store ~scope));
     let target=Option.get (Imap_store.Journal.find_pair store ~id:target.id) in
     Alcotest.(check bool) "local absence tombstone durable" true
       (match target.local_tombstone with
@@ -1761,7 +1784,7 @@ let test_delete_process_crash () =
       (match Imap_store.Journal.find_operation store ~id:operation_id with
        | Some {state=Imap_store.Journal.Committed;_} -> true | _ -> false);
     Alcotest.(check int) "deletion hold resolved after target absent" 0
-      (List.length (Imap_store.Journal.open_conflicts store ~scope));
+      (List.length (all_open_conflicts store ~scope));
     Alcotest.(check bool) "target has inventory tombstone" true
       (match Imap_store.Journal.find_pair store ~id:pair_id with
        | Some {remote_tombstone=Some
@@ -1819,7 +1842,7 @@ let test_flags_recovery () =
        receipt.remote_to_local
    | Error error -> Alcotest.failf "import: %a"
        Imap_sync.Error.pp error);
-  let pair=match Imap_store.Journal.pairs store ~scope with
+  let pair=match all_pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one pair" in
   let local_id=Option.get pair.local_id in
   let uid=Option.get pair.remote_uid in
@@ -1885,7 +1908,7 @@ let test_flags_recovery () =
   Alcotest.(check bool) "divergent operation remains pending" true
     ((Option.get (Imap_store.Journal.find_operation restarted
       ~id:second.id)).state=Imap_store.Journal.Sent);
-  let flag_conflicts ()=Imap_store.Journal.open_conflicts restarted ~scope
+  let flag_conflicts ()=all_open_conflicts restarted ~scope
     |> List.filter (fun (conflict:Imap_store.Journal.conflict) ->
       conflict.kind=Imap_store.Journal.Flag_conflict) in
   let conflict=match flag_conflicts () with
@@ -2010,7 +2033,7 @@ let test_operator_local_delete_repair () =
     | Error error -> Alcotest.failf "local repair setup: %a"
         Imap_sync.Error.pp error in
   ignore (copy ("local-repair-import-" ^ nonce));
-  let pair=match Imap_store.Journal.pairs store ~scope with
+  let pair=match all_pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
   let uid=Option.get pair.remote_uid in
   unwrap (Imap_eio.Client.with_mailbox client ~mode:`Read_write mailbox
@@ -2184,7 +2207,7 @@ let test_operator_local_append_repair () =
     ((Option.get (Imap_store.Journal.find_operation store ~id)).state=
       Imap_store.Journal.Committed);
   Alcotest.(check int) "one pair" 1
-    (List.length (Imap_store.Journal.pairs store ~scope));
+    (List.length (all_pairs store ~scope));
   (match copy ("append-repair-resume-" ^ nonce) with
    | Ok result -> Alcotest.(check int) "no duplicate import" 0
        result.remote_to_local
@@ -2236,7 +2259,7 @@ let test_deletion_grace_live () =
     | Error error -> Alcotest.failf "grace bridge: %a"
         Imap_sync.Error.pp error in
   ignore (copy ("grace-import-" ^ nonce));
-  let pair=match Imap_store.Journal.pairs store ~scope with
+  let pair=match all_pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
   Md.remove maildir
     (Option.get (Md.find maildir
@@ -2257,7 +2280,7 @@ let test_deletion_grace_live () =
     ~flags:pair.common_flags ?mtime:(Option.map mtime pair.internal_date)
     () in
   ignore (copy ~grace:1 ("grace-changed-" ^ nonce));
-  let content_conflicts ()=Imap_store.Journal.open_conflicts store ~scope
+  let content_conflicts ()=all_open_conflicts store ~scope
     |> List.filter (fun (x:Imap_store.Journal.conflict) ->
       x.kind=Imap_store.Journal.Content_conflict) in
   Alcotest.(check int) "changed restoration creates content conflict" 1
@@ -2345,7 +2368,7 @@ let test_reject_unchanged_remote_delete () =
     | Error error -> Alcotest.failf "delete reject setup: %a"
         Imap_sync.Error.pp error in
   ignore (copy ("delete-reject-import-" ^ nonce));
-  let pair=match Imap_store.Journal.pairs store ~scope with
+  let pair=match all_pairs store ~scope with
     | [pair] -> pair | _ -> Alcotest.fail "expected one imported pair" in
   let uid=Option.get pair.remote_uid in
   let local_id=Option.get pair.local_id in

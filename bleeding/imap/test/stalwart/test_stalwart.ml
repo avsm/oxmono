@@ -17,6 +17,20 @@ module Md = struct
   let remove m o = with_writer m (fun w -> remove w o)
 end
 
+(* [all_pages page id] concatenates the pages of 1,000 that [page] reads
+   after the ID of the last row of the previous page. *)
+let all_pages page id =
+  let rec go after acc =
+    let rows=page after in
+    let acc=List.rev_append rows acc in
+    if List.length rows<1000 then List.rev acc
+    else go (Some (id (List.nth rows (List.length rows-1)))) acc in
+  go None []
+let all_pairs store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.pairs_page store ~scope ?after ~limit:1000 ())
+    (fun (p:Imap_store.Journal.pair) -> p.id)
+
 let unwrap = function
   | Ok x -> x
   | Error e -> Alcotest.fail (Client.error_to_string e)
@@ -288,7 +302,7 @@ let test_bridge () =
         (Buffer.contents output);
       Ok ()));
   Alcotest.(check int) "durable pairs" 2
-    (List.length (Imap_store.Journal.pairs store ~scope))
+    (List.length (all_pairs store ~scope))
 
 let test_objectid_binding () =
   configured ();

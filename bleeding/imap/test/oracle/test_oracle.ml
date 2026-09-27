@@ -18,6 +18,25 @@ module Md = struct
   let remove m o = with_writer m (fun w -> remove w o)
 end
 
+(* [all_pages page id] concatenates the pages of 1,000 that [page] reads
+   after the ID of the last row of the previous page. *)
+let all_pages page id =
+  let rec go after acc =
+    let rows=page after in
+    let acc=List.rev_append rows acc in
+    if List.length rows<1000 then List.rev acc
+    else go (Some (id (List.nth rows (List.length rows-1)))) acc in
+  go None []
+let all_pairs store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.pairs_page store ~scope ?after ~limit:1000 ())
+    (fun (p:Imap_store.Journal.pair) -> p.id)
+let all_active_operations store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.active_operations_page store ~scope ?after
+      ~limit:1000 ())
+    (fun (o:Imap_store.Journal.operation) -> o.id)
+
 let getenv name default =
   match Sys.getenv_opt name with Some s when s <> "" -> s | _ -> default
 
@@ -379,7 +398,7 @@ let round_trip () =
     Alcotest.(check int) "Maildir occurrences" 4
       (List.length (Md.scan maildir));
     Alcotest.(check int) "durable occurrence pairs" 4
-      (List.length (Imap_store.Journal.pairs store ~scope));
+      (List.length (all_pairs store ~scope));
     let local_bytes = "From: local@example.test\r\nSubject: Local bridge " ^ nonce ^
       "\r\n\r\nUnique local payload\r\n" in
     let local = Md.append maildir
@@ -389,12 +408,12 @@ let round_trip () =
     Alcotest.(check int) "local occurrence uploaded" 1
       uploaded.local_to_remote;
     Alcotest.(check int) "durable pair after upload" 5
-      (List.length (Imap_store.Journal.pairs store ~scope));
+      (List.length (all_pairs store ~scope));
     Alcotest.(check bool) "local upload paired" true
       (Option.is_some (Imap_store.Journal.find_local store ~scope
         ~local_id:local.id));
     Alcotest.(check bool) "no pending bridge operations" true
-      (Imap_store.Journal.active_operations store ~scope = []);
+      (all_active_operations store ~scope = []);
     let stable = copy ("bridge-stable-" ^ nonce) in
     Alcotest.(check int) "stable remote copies" 0 stable.remote_to_local;
     Alcotest.(check int) "stable local copies" 0 stable.local_to_remote;
@@ -493,7 +512,7 @@ let round_trip () =
     Alcotest.(check int) "recovered write not duplicated" 0
       recovered.remote_to_local;
     Alcotest.(check int) "recovered pair count" 6
-      (List.length (Imap_store.Journal.pairs store ~scope));
+      (List.length (all_pairs store ~scope));
     Alcotest.(check bool) "recovered operation committed" true
       (match Imap_store.Journal.find_operation store ~id:recovery_id with
        | Some {state=Imap_store.Journal.Committed;_} -> true
@@ -530,7 +549,7 @@ let round_trip () =
     Alcotest.(check int) "confirmed APPEND not duplicated" 0
       recovered_append.local_to_remote;
     Alcotest.(check int) "APPEND recovery pair count" 7
-      (List.length (Imap_store.Journal.pairs store ~scope));
+      (List.length (all_pairs store ~scope));
     Alcotest.(check bool) "APPEND recovery committed" true
       (match Imap_store.Journal.find_operation store ~id:append_id with
        | Some {state=Imap_store.Journal.Committed;_} -> true
@@ -615,7 +634,7 @@ let round_trip () =
           Ok (List.exists (fun (row:Selected.row) ->
             Imap.Uid.equal row.uid flag_uid) rows))));
     Alcotest.(check bool) "no pending deletion operations" true
-      (Imap_store.Journal.active_operations store ~scope = []);
+      (all_active_operations store ~scope = []);
     let ambiguous_bytes = "From: ambiguous@example.test\r\nSubject: " ^
       "Ambiguous " ^ nonce ^ "\r\n\r\nMust not replay\r\n" in
     let ambiguous_length = Int64.of_int (String.length ambiguous_bytes) in
@@ -668,7 +687,7 @@ let round_trip () =
     Alcotest.(check int) "ambiguous APPEND not replayed"
       count_before (count_remote ());
     Alcotest.(check int) "ambiguous APPEND not paired" 7
-      (List.length (Imap_store.Journal.pairs store ~scope));
+      (List.length (all_pairs store ~scope));
     (match Imap_sync.Repair.record_appenduid ~store ~maildir ~scope
       ~id:ambiguous_id ~uidvalidity:ambiguous_receipt.uidvalidity
       ~uid:ambiguous_receipt.uid

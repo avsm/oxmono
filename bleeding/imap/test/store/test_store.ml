@@ -1,6 +1,39 @@
 module M = Imap.Mirror
 module Store = Imap_store
 
+(* [all_pages page id] concatenates the pages of 1,000 that [page] reads
+   after the ID of the last row of the previous page. *)
+let all_pages page id =
+  let rec go after acc =
+    let rows=page after in
+    let acc=List.rev_append rows acc in
+    if List.length rows<1000 then List.rev acc
+    else go (Some (id (List.nth rows (List.length rows-1)))) acc in
+  go None []
+let all_pairs store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.pairs_page store ~scope ?after ~limit:1000 ())
+    (fun (p:Imap_store.Journal.pair) -> p.id)
+let all_open_conflicts store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.open_conflicts_page store ~scope ?after ~limit:1000 ())
+    (fun (c:Imap_store.Journal.conflict) -> c.id)
+let all_active_operations store ~scope =
+  all_pages (fun after ->
+    Imap_store.Journal.active_operations_page store ~scope ?after
+      ~limit:1000 ())
+    (fun (o:Imap_store.Journal.operation) -> o.id)
+let orphan_candidates db =
+  let names=ref [] in
+  Imap_store.Blob.iter_orphan_candidates db (fun name ->
+    names := name :: !names);
+  List.sort String.compare !names
+let reap_orphans db =
+  let names=ref [] in
+  Imap_store.Blob.reap_orphans_iter db ~removed:(fun name ->
+    names := name :: !names);
+  List.sort String.compare !names
+
 let ok = function Ok x -> x | Error _ -> Alcotest.fail "unexpected error"
 let uid n = ok (Imap.Uid.of_int64 n)
 let epoch n = ok (Imap.Uidvalidity.of_int64 n)
@@ -120,7 +153,7 @@ let test_flag_settlement_transaction env =
     Alcotest.(check bool) "superseded intent rejected" true
       ((Option.get (J.find_operation db ~id:operation.id)).state=Rejected);
     Alcotest.(check int) "flag conflict resolved atomically" 0
-      (List.length (J.open_conflicts db ~scope)));
+      (List.length (all_open_conflicts db ~scope)));
   Eio.Switch.run (fun sw ->
     let db=Store.open_readonly ~sw Eio.Path.(fs / path) in
     let pair=Option.get (J.find_pair db ~id:"settle-pair") in
@@ -279,7 +312,7 @@ let test_blobs env =
       Store.Blob.attach db ~scope ~uidvalidity:(epoch 19L) ~uid:(uid 1L)
         blob;
       Alcotest.(check (list string)) "failed writes leave no temp files" []
-        (Store.Blob.orphan_candidates db);
+        (orphan_candidates db);
       let pending=Store.Blob.put db ~source:(Eio.Flow.string_source "pending")
         ~length:7L () in
       Store.prepare_intent db {id="gc-pending-intent";scope;
@@ -323,7 +356,7 @@ let test_blobs env =
         ~expected_sha256:digest () in
       Alcotest.(check bool) "repair retains content address" true
         (repaired=blob && Store.Blob.verify db blob);
-      let names=Store.Blob.orphan_candidates db in
+      let names=orphan_candidates db in
       Alcotest.(check bool) "unreferenced final detected" true
         (List.mem ("sha256-"^orphan.sha256) names);
       Alcotest.(check bool) "crashed temp detected" true
@@ -342,7 +375,7 @@ let test_blobs env =
       Alcotest.(check bool) "reference pruned with UID" true
         (Store.Blob.find db ~scope ~uidvalidity:(epoch 19L) ~uid:(uid 1L)
          = None);
-      let reaped=Store.Blob.reap_orphans db in
+      let reaped=reap_orphans db in
       List.iter (fun content ->
         let sha256=Digestif.SHA256.(to_hex (digest_string content)) in
         Alcotest.(check string) "journal body survives restart and collection" content
@@ -353,7 +386,7 @@ let test_blobs env =
       Alcotest.(check bool) "crashed temp reaped" true
         (List.mem ".tmp-crash" reaped);
       Alcotest.(check (list string)) "no remaining candidates" []
-        (Store.Blob.orphan_candidates db);
+        (orphan_candidates db);
       Alcotest.(check bool) "missing blob fails verification" false
         (Store.Blob.verify db blob)));
   ()
@@ -790,13 +823,13 @@ let test_sync_journal env =
         (Option.map Imap.Internal_date.to_string
           (J.operation_source_date db ~id:"op-local-append"));
       Alcotest.(check int) "pairs survive reopen" 2
-        (List.length (J.pairs db ~scope));
+        (List.length (all_pairs db ~scope));
       Alcotest.(check bool) "verified tombstone survives" true
         (Option.is_some (Option.get (J.find_pair db ~id:"occ-2")).remote_tombstone);
       Alcotest.(check int) "open conflict survives" 1
-        (List.length (J.open_conflicts db ~scope));
+        (List.length (all_open_conflicts db ~scope));
       Alcotest.(check int) "active operations survive" 4
-        (List.length (J.active_operations db ~scope));
+        (List.length (all_active_operations db ~scope));
       Alcotest.(check bool) "typed local deletion survives restart" true
         ((Option.get (J.find_operation db ~id:"op-local-delete")).kind
          = Local_delete);
@@ -881,7 +914,7 @@ let test_sync_journal env =
        Alcotest.fail "immutable content digest changed"
        with Invalid_argument _ -> ());
       Alcotest.(check int) "paired FLAGS commit resolved conflict" 0
-        (List.length (J.open_conflicts db ~scope))));
+        (List.length (all_open_conflicts db ~scope))));
   ()
 
 let test_active_operation_pages env =

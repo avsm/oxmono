@@ -224,9 +224,6 @@ let find_remote t ~scope ~uidvalidity ~uid =
     [i (Imap.Uidvalidity.to_int64 uidvalidity);i (Imap.Uid.to_int64 uid)]
 let find_local t ~scope ~local_id =
   find_by t ~scope "local_id=?" [s local_id]
-let pairs t ~scope =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
-    scoped_pairs t scope " ORDER BY id" [])
 let pairs_page t ~scope ?after ~limit () =
   check_limit "Imap_store.Journal.pairs_page" limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
@@ -401,10 +398,6 @@ let conflicts_query = "SELECT c.id,c.pair_id,c.kind,c.evidence,\
   c.pair_revision,c.resolved,p.raw_name,p.encoding,p.mailbox_id \
   FROM sync_conflicts AS c CROSS JOIN sync_pairs AS p ON p.id=c.pair_id \
   WHERE c.resolved=0 AND p.endpoint=? AND p.account=? AND p.mailbox_key=? "
-let open_conflicts t ~(scope:M.scope) =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
-    decode_conflicts scope
-      (rows t (conflicts_query ^ "ORDER BY c.id") (scope_key scope)))
 let open_conflicts_page t ~(scope:M.scope) ?after ~limit () =
   check_limit "Imap_store.Journal.open_conflicts_page" limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->
@@ -615,14 +608,14 @@ let decode_operation (r,flags) =
    receipt_uid=Option.map uid (nullable_int r.(21));
    blob_sha256=nullable_text r.(22);blob_length=nullable_int r.(23);
    desired_flags;receipt=nullable_text r.(25)}
-let select_operations t ?(order="id") where values =
+let select_operations t where values =
   rows t ("SELECT o.*,f.flag FROM (SELECT " ^ operation_columns ^
-    ",rowid AS rid FROM sync_operations WHERE " ^ where ^ ") AS o \
+    " FROM sync_operations WHERE " ^ where ^ ") AS o \
     LEFT JOIN sync_operation_flags AS f ON f.operation_id=o.id \
-    ORDER BY o." ^ order ^ ",f.ord") values
-  |> group_flags "operation flag" ~flag:27 |> List.map decode_operation
-let scoped_operations t ?order (scope:M.scope) where values =
-  select_operations t ?order (scope_where ^ " AND " ^ where)
+    ORDER BY o.id,f.ord") values
+  |> group_flags "operation flag" ~flag:26 |> List.map decode_operation
+let scoped_operations t (scope:M.scope) where values =
+  select_operations t (scope_where ^ " AND " ^ where)
     (scope_key scope @ values)
   |> List.map (fun x ->
     if x.scope<>scope then fail "sync operation scope mismatch";
@@ -631,10 +624,6 @@ let find_operation_unlocked t ~id =
   match select_operations t "id=?" [s id] with [] -> None | x :: _ -> Some x
 let find_operation t ~id =
   transaction ~begin_sql:"BEGIN" t (fun () -> find_operation_unlocked t ~id)
-let active_operations t ~scope =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
-    scoped_operations t ~order:"rid" scope
-      (active_states ^ " ORDER BY rowid") [])
 let active_operations_page t ~scope ?after ~limit () =
   check_limit "Imap_store.Journal.active_operations_page" limit;
   transaction ~begin_sql:"BEGIN" t (fun () ->

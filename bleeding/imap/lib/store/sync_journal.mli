@@ -51,7 +51,6 @@ val reactivate_local : t -> pair:pair -> generation:int64 ->
 val find_remote : t -> scope:Imap.Mirror.scope ->
   uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t -> pair option
 val find_local : t -> scope:Imap.Mirror.scope -> local_id:string -> pair option
-val pairs : t -> scope:Imap.Mirror.scope -> pair list
 val pairs_page : t -> scope:Imap.Mirror.scope -> ?after:string ->
   limit:int -> unit -> pair list
 
@@ -73,7 +72,6 @@ val resolve_open_conflicts : t -> pair:pair -> kind:conflict_kind ->
   [ `Resolved of int | `Stale_revision ]
 val has_open_conflict : t -> pair:pair -> kind:conflict_kind -> bool
 val resolve_conflict : t -> id:string -> unit
-val open_conflicts : t -> scope:Imap.Mirror.scope -> conflict list
 val open_conflicts_page : t -> scope:Imap.Mirror.scope -> ?after:string ->
   limit:int -> unit -> conflict list
 
@@ -154,7 +152,6 @@ val attest_targeted_expunge : t -> id:string -> pair ->
     authorization for a targeted UID EXPUNGE of an uncertain DELETE. *)
 
 val find_operation : t -> id:string -> operation option
-val active_operations : t -> scope:Imap.Mirror.scope -> operation list
 val active_operations_page : t -> scope:Imap.Mirror.scope ->
   ?after:string -> limit:int -> unit -> operation list
 val active_operation_for_pair : t -> pair_id:string -> operation option

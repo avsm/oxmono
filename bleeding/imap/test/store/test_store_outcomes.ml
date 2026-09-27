@@ -3,6 +3,12 @@
 module M = Imap.Mirror
 module Store = Imap_store
 
+let orphan_candidates db =
+  let names=ref [] in
+  Imap_store.Blob.iter_orphan_candidates db (fun name ->
+    names := name :: !names);
+  List.sort String.compare !names
+
 let ok = function Ok x -> x | Error _ -> failwith "unexpected error"
 let check condition message = if not condition then failwith message
 let uid n = ok (Imap.Uid.of_int64 n)
@@ -119,7 +125,7 @@ let forget_epochs env = with_store env (fun ~path ~dir:_ db ->
   let old_cursor=Store.load_cursor db ~scope in
   publish db ~stage:"reset" ~epoch_value:6L [row 1L];
   let name="sha256-" ^ blob.sha256 in
-  check (not (List.mem name (Store.Blob.orphan_candidates db)))
+  check (not (List.mem name (orphan_candidates db)))
     "retained epoch reference not a GC root";
   check (Store.forget_epochs db ~scope ~cursor:old_cursor=`Stale_revision)
     "stale cursor dropped epochs";
@@ -132,7 +138,7 @@ let forget_epochs env = with_store env (fun ~path ~dir:_ db ->
     "old snapshot rows kept";
   check (count path "SELECT count(*) FROM snapshots WHERE uidvalidity=6"=1)
     "current snapshot rows dropped";
-  check (List.mem name (Store.Blob.orphan_candidates db))
+  check (List.mem name (orphan_candidates db))
     "dropped epoch still roots its blob";
   check (Store.forget_epochs db ~scope ~cursor=`Dropped 0)
     "second forget found epochs")
@@ -172,7 +178,7 @@ let finaliser_keeps_exception env = with_store env (fun ~path:_ ~dir db ->
        failwith ("finaliser replaced exception: " ^
          Printexc.to_string other)
    | () -> failwith "callback exception lost");
-  match Store.Blob.orphan_candidates db with
+  match orphan_candidates db with
   | exception Eio.Io _ -> ()
   | exception other ->
       failwith ("directory failure not Eio.Io: " ^ Printexc.to_string other)

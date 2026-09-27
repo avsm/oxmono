@@ -346,3 +346,7 @@ encoded criteria.
 The store has one schema at SQLite `user_version` 1 and no migrations.
 `open_path` and `open_readonly` reject a database at another version or
 whose tables or indexes differ from it, and `sync_pairs_scope` is gone.
+
+`Journal.pairs`, `open_conflicts` and `active_operations` and
+`Blob.orphan_candidates` and `reap_orphans` are gone. Use the paged
+readers and the orphan iterators.

@@ -767,8 +767,7 @@ let mirror_scope (s:scope) encoding =
 let local_scope (s:scope) encoding store =
   let load mode =
     let scope=mirror_scope s mode in
-    ignore (Imap_store.load_cursor store ~scope);
-    scope in
+    scope, Imap_store.load_cursor store ~scope in
   match encoding with
   | Some mode -> load mode
   | None ->
@@ -947,7 +946,7 @@ let audit_cache (c:audit_cache) ~fs =
   let blob_dir=require_dir ~fs "blob directory" c.blob_dir in
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_path ~sw ~blob_dir db in
-  let scope=local_scope c.scope c.encoding store in
+  let scope,_=local_scope c.scope c.encoding store in
   let receipt=check "cache audit failed"
       (Imap_sync.Engine.audit_cache_once
         ?after_uid:(Option.map fst c.continuation)
@@ -1012,8 +1011,7 @@ let inspect (c:inspect) ~fs =
   let db=require_db ~fs c.scope.db in
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_readonly ~sw db in
-  let scope=local_scope c.scope c.encoding store in
-  let cursor=Imap_store.load_cursor store ~scope in
+  let scope,cursor=local_scope c.scope c.encoding store in
   Printf.printf "cursor revision=%Ld generation=%Ld frontier=%Ld\n%!"
     cursor.revision cursor.generation cursor.frontier;
   (match Imap_store.object_identity store ~scope with
@@ -1062,7 +1060,7 @@ let repair_appenduid (c:appenduid) ~fs =
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_path ~sw db in
   let maildir=open_maildir maildir_path in
-  let scope=local_scope c.scope c.encoding store in
+  let scope,_=local_scope c.scope c.encoding store in
   ignore (find_operation store ~scope c.operation_id);
   check "APPENDUID evidence was not recorded"
     (Imap_sync.Repair.record_appenduid ~store ~scope ~maildir
@@ -1079,7 +1077,7 @@ let mark_local_retention (c:retention) ~fs =
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_path ~sw db in
   let maildir=open_maildir maildir_path in
-  let scope=local_scope c.scope c.encoding store in
+  let scope,_=local_scope c.scope c.encoding store in
   (match Imap_store.Journal.find_pair store ~id:c.pair_id with
    | Some pair when pair.scope=scope -> ()
    | _ -> fail not_found "pair id=%S not found in requested scope" c.pair_id);
@@ -1096,7 +1094,7 @@ let verify_local (c:verify_local) ~fs ~random =
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_path ~sw db in
   let maildir=open_maildir maildir_path in
-  let scope=local_scope c.scope c.encoding store in
+  let scope,_=local_scope c.scope c.encoding store in
   let shown=ref [] and issues=ref 0 in
   let on_issue pair_id reason=
     if !issues<c.max_inspect then shown:=(pair_id,reason)::!shown;
@@ -1170,7 +1168,7 @@ let preview (c:plan) ~fs ~keep ~count =
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_readonly ~sw db in
   let maildir=open_maildir maildir_path in
-  let scope=local_scope c.scope c.encoding store in
+  let scope,_=local_scope c.scope c.encoding store in
   let t={events=0; copy_remote=0; copy_local=0; flags=0; delete=0; held=0;
          pending=0; shown=[]} in
   let on_preview item =
@@ -1347,8 +1345,7 @@ let forget_epochs (c:forget_epochs) ~fs =
   let db=require_db ~fs c.scope.db in
   Eio.Switch.run @@ fun sw ->
   let store=Imap_store.open_path ~sw db in
-  let scope=local_scope c.scope c.encoding store in
-  let cursor=Imap_store.load_cursor store ~scope in
+  let scope,cursor=local_scope c.scope c.encoding store in
   if cursor.uidvalidity=None then
     fail conflict "no published UIDVALIDITY epoch to keep; run sync first";
   match Imap_store.forget_epochs store ~scope ~cursor with

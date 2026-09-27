@@ -175,6 +175,91 @@ let test_command_validation () =
     (expect_ok (C.list_status ~reference:"" ~pattern:"*"
       ~items:[C.Messages]))
 
+let test_response_review () =
+  let module R = Imap.Response in
+  let parse s=expect_ok (R.parse s) in
+  let rejected s = match R.parse s with
+    | Error _ -> () | Ok _ -> fail ("accepted: " ^ String.escaped s) in
+  (match parse "* 1 FETCH (UID 3 PREVIEW \"a    b\")\r\n" with
+   | R.Untagged (Fetch f) ->
+       Alcotest.(check (option (option string))) "quoted spaces kept"
+         (Some (Some "a    b")) f.preview;
+       Alcotest.(check string) "raw is the untouched suffix"
+         "FETCH (UID 3 PREVIEW \"a    b\")" f.raw
+   | _ -> fail "missing FETCH");
+  let started=Sys.time () in
+  let braces=String.concat " " (List.init 100_000 (fun _ -> "{")) in
+  ignore (R.parse ("* LIST () \"/\" x (" ^ braces ^ ")\r\n"));
+  let events=Imap.Wire.Text "* 1 FETCH (UID 1" ::
+    List.concat (List.init 20_000 (fun i ->
+      [Imap.Wire.Text (Printf.sprintf " X%d {0}\r\n" i);
+       Imap.Wire.Literal_start 0L; Imap.Wire.Literal_end])) @
+    [Imap.Wire.Text ")\r\n"; Imap.Wire.End_of_response] in
+  (match expect_ok (R.parse_parts events) with
+   | R.Untagged (Fetch f) ->
+       Alcotest.(check int) "streamed literals" 20_000 (List.length f.literals)
+   | _ -> fail "missing many-literal FETCH");
+  Alcotest.(check bool) "linear tokenizing and literal handling" true
+    (Sys.time () -. started < 5.0);
+  let metadata=wire_ok (Imap.Wire.feed (Imap.Wire.create ())
+    "* METADATA INBOX (/a {3}\r\nabc /b {3}\r\ndef)\r\n") in
+  ignore (expect_ok (R.parse_parts ~max_control_literal:6 metadata));
+  (match R.parse_parts ~max_control_literal:5 metadata with
+   | Error e -> Alcotest.(check string) "aggregate bound"
+                  "retained literals exceed aggregate limit" e
+   | Ok _ -> fail "retained literals exceeded the aggregate bound");
+  (match R.parse_parts ~max_control_literal:4
+     [Imap.Wire.Text "* METADATA INBOX (/a {10}\r\n";
+      Imap.Wire.Literal_start 10L; Imap.Wire.Literal_chunk "0123456789";
+      Imap.Wire.Literal_end; Imap.Wire.Text " /b x\r\n";
+      Imap.Wire.Literal_start 3L; Imap.Wire.Literal_chunk "abc";
+      Imap.Wire.Literal_end; Imap.Wire.Text ")\r\n";
+      Imap.Wire.End_of_response] with
+   | Error e -> Alcotest.(check string) "first failure wins"
+                  "control literal exceeds limit" e
+   | Ok _ -> fail "oversized control literal accepted");
+  (match expect_ok (R.parse_parts (wire_ok (Imap.Wire.feed
+     (Imap.Wire.create ()) "* ESEARCH (TAG {2}\r\nA1) UID COUNT 3\r\n"))) with
+   | R.Untagged (Esearch x) ->
+       Alcotest.(check (option string)) "literal ESEARCH tag" (Some "A1") x.tag
+   | _ -> fail "missing literal-tag ESEARCH");
+  (match parse "* SEARCH 2 5 (MODSEQ 917)\r\n" with
+   | R.Untagged (Search [2L;5L]) -> ()
+   | _ -> fail "SEARCH MODSEQ suffix");
+  (match parse "* SORT 5 2 (modseq 917)\r\n" with
+   | R.Untagged (Sort [5L;2L]) -> ()
+   | _ -> fail "SORT MODSEQ suffix");
+  List.iter rejected ["* SEARCH (MODSEQ 917)\r\n";"* SEARCH 2 (MODSEQ 0)\r\n";
+                      "* SEARCH 2 (MODSEQ x)\r\n";"* SORT 2 (MODSEQ 9) 3\r\n";
+                      "* SORT (MODSEQ 9)\r\n"];
+  (match parse "* VANISHED (earlier) 8:9\r\n" with
+   | R.Untagged (Vanished {earlier=true;uids="8:9"}) -> ()
+   | _ -> fail "lowercase EARLIER");
+  List.iter rejected [
+    "* 99999999999999999999 FETCH (UID 1)\r\n";
+    "* 99999999999999999999 EXISTS\r\n";
+    "* 99999999999999999999 EXPUNGE\r\n";
+    "* 1 FETCH garbage\r\n";
+    "* 1 FETCH (UID 1) trailing\r\n";
+    "* 1 FETCH (UID 1\r\n";
+    "* 1 FETCH (FLAGS () FLAGS (\\Seen))\r\n";
+    "* 1 FETCH (RFC822.SIZE 1 RFC822.SIZE 2)\r\n";
+    "* 1 FETCH (INTERNALDATE \" 1-Jan-2024 00:00:00 +0000\" " ^
+    "INTERNALDATE \" 1-Jan-2024 00:00:00 +0000\")\r\n";
+    "* 1 FETCH (MODSEQ (1) MODSEQ (2))\r\n";
+    "* 1 FETCH (EMAILID (M1) EMAILID (M2))\r\n";
+    "* 1 FETCH (THREADID NIL THREADID (T1))\r\n";
+    "* STATUS INBOX (MESSAGES 1 MESSAGES 2)\r\n";
+    "* STATUS INBOX (MAILBOXID (F1) MAILBOXID (F2))\r\n"];
+  (match parse "* ESEARCH (TAG \"A1\") UID FUTURE (1 (2)) COUNT 3\r\n" with
+   | R.Untagged (Esearch {count=Some 3L;_}) -> ()
+   | _ -> fail "ESEARCH skipped a parenthesised extension badly");
+  (match R.select_metadata [parse "A1 NO [NONEXISTENT] no such mailbox\r\n"]
+   with
+   | Error e -> Alcotest.(check string) "SELECT rejection kept"
+                  "SELECT rejected with NO [NONEXISTENT]: no such mailbox" e
+   | Ok _ -> fail "rejected SELECT produced metadata")
+
 let test_bad_values () =
   (match Imap.Response.parse "* 1 FETCH (UID 0 FLAGS (\\Seen))\r\n" with
   | Error _ -> () | Ok _ -> fail "accepted UID zero");
@@ -854,9 +939,16 @@ let test_envelope () =
     ["BODY[]",4L] with_body.literals;
   (match expect_ok (Imap.Response.fetch_envelope with_body) with
    | Some _ -> () | None -> fail "ENVELOPE before body absent");
-  (match Imap.Response.fetch_envelope
-    (row "* 1 FETCH (ENVELOPE (NIL \"unterminated NIL NIL NIL NIL NIL NIL NIL NIL))\r\n") with
-   | Error _ -> () | Ok _ -> fail "unterminated ENVELOPE quote accepted")
+  (* The unterminated quote swallows the closing parentheses, so the FETCH
+     row itself is rejected before ENVELOPE decoding. *)
+  (match Imap.Response.parse
+    ("* 1 FETCH (ENVELOPE (NIL \"unterminated NIL NIL NIL NIL NIL NIL NIL " ^
+     "NIL))\r\n") with
+   | Error _ -> ()
+   | Ok (Imap.Response.Untagged (Fetch value)) ->
+       (match Imap.Response.fetch_envelope value with
+        | Error _ -> () | Ok _ -> fail "unterminated ENVELOPE quote accepted")
+   | Ok _ -> fail "unterminated ENVELOPE quote accepted")
 
 let test_bodystructure () =
   let row source=match expect_ok (Imap.Response.parse source) with
@@ -961,8 +1053,21 @@ let test_sort_thread_invalid () =
   let chain n="* THREAD (" ^ String.concat " "
     (List.init n (fun i -> string_of_int (i+1))) ^ ")" in
   ignore (expect_ok (Imap.Response.parse (chain 100)));
-  (match Imap.Response.parse (chain 101) with
-   | Error _ -> () | Ok _ -> fail "THREAD expanded depth limit ignored");
+  (* A chain is one wire level, so its length is bounded by the node limit
+     rather than the nesting limit. *)
+  let rec chain_length n = function
+    | [] -> n
+    | [{Imap.Response.children;_}] -> chain_length (n+1) children
+    | _ -> fail "THREAD chain branched" in
+  (match expect_ok (Imap.Response.parse (chain 5000)) with
+   | Imap.Response.Untagged (Thread [root]) ->
+       Alcotest.(check int) "long THREAD chain" 5000 (chain_length 0 [root])
+   | _ -> fail "long THREAD chain rejected");
+  (match expect_ok (Imap.Response.parse "* THREAD (1 2 (3)(4 5))") with
+   | Imap.Response.Untagged (Thread [{uid=Some 1L;children=[
+       {uid=Some 2L;children=[{uid=Some 3L;children=[]};
+         {uid=Some 4L;children=[{uid=Some 5L;children=[]}]}]}]}]) -> ()
+   | _ -> fail "chain before a branch misparsed");
   let rec dummy depth =
     if depth=1 then "(1)"
     else "(" ^ dummy (depth-1) ^ "(" ^ string_of_int depth ^ "))" in
@@ -1217,6 +1322,8 @@ let () =
               Alcotest.test_case "invalid values" `Quick test_bad_values;
               Alcotest.test_case "command validation" `Quick
                 test_command_validation;
+              Alcotest.test_case "response review" `Quick
+                test_response_review;
               Alcotest.test_case "sync metadata" `Quick test_sync_metadata];
      "extensions", [Alcotest.test_case "SELECT/QRESYNC" `Quick test_select_and_qresync;
                     Alcotest.test_case "mutation receipts" `Quick test_mutation_extensions;

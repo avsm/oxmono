@@ -1,6 +1,7 @@
 (** Typed response metadata. [parse_parts] accepts all events from exactly one
-    framed response, including any streamed literals. It never retains literal
-    payloads in [Fetch]. *)
+    framed response, including any streamed literals. In [Fetch] it retains
+    only PREVIEW, ENVELOPE and BODYSTRUCTURE literals, as quoted strings in
+    [raw]. Message body literals are streamed and never retained. *)
 
 type compound_object_id = {
   account_id : string option;
@@ -79,6 +80,10 @@ type fetch = {
       Preview strings are bounded to 256 Unicode characters and 1024 bytes. *)
   literals : (string * int64) list;
   raw : string;
+  (** [raw] is the response line from the [FETCH] or [UIDFETCH] keyword on,
+      without the final CRLF and otherwise unaltered. A retained literal
+      appears as a quoted string. A streamed literal keeps its [{n}] marker
+      and CRLF but not its payload. *)
 }
 
 type envelope_address = {
@@ -280,10 +285,13 @@ type untagged =
   | Vanished of { earlier : bool; uids : string }
   | Search of int64 list
   | Sort of int64 list
+  (** An RFC 7162 [(MODSEQ n)] suffix on SEARCH or SORT is validated and
+      dropped. *)
   | Thread of thread list
-  (** RFC 5256 ordered results, bounded to 100000 nodes, depth 100 (including
-      chains), and 2 MiB of syntax. Duplicate message numbers are rejected.
-      An empty THREAD may have one trailing space for interoperability. *)
+  (** RFC 5256 ordered results, bounded to 100000 nodes, 100 levels of
+      parenthesised nesting, and 2 MiB of syntax. A chain of members is one
+      level however long it is. Duplicate message numbers are rejected. An
+      empty THREAD may have one trailing space for interoperability. *)
   | Esearch of esearch
   | Other of string
 
@@ -310,12 +318,20 @@ type select_metadata = {
 
 val select_metadata : t list -> (select_metadata, string) result
 (** Extract a completed SELECT/EXAMINE prelude, including its tagged OK.
-    Mandatory EXISTS, UIDVALIDITY and UIDNEXT data must be present.
+    Mandatory EXISTS, UIDVALIDITY and UIDNEXT data must be present. A tagged
+    NO or BAD yields an error naming its response code and text.
     [uidnotsticky] records the untagged NO response code that makes UIDs
     unsafe for a persistent mirror. *)
 
 val parse : string -> (t, string) result
 val parse_parts : ?max_control_literal:int -> Wire.event list ->
   (t, string) result
-(** Control literals, including METADATA values, default to a 16 MiB bound.
-    Message body literals are streamed and not retained here. *)
+(** [parse_parts events] parses one framed response. [max_control_literal]
+    bounds each retained literal and also their combined size, and defaults
+    to 16 MiB. Retained literals are those of LIST, LSUB, STATUS, NAMESPACE,
+    ACL, LISTRIGHTS, MYRIGHTS, QUOTA, QUOTAROOT, METADATA, ESEARCH and
+    LANGUAGE responses, and the FETCH items named in the module header.
+    Message body literals are streamed and not retained here. When several
+    limits are exceeded the error names the first.
+
+    @raise Invalid_argument if [max_control_literal] is negative. *)

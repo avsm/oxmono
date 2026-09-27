@@ -193,9 +193,6 @@ type mailbox_status = {
   deleted:int64 option;deleted_storage:int64 option;raw:string
 }
 type thread = { uid : int64 option; children : thread list }
-(** A THREAD node. [None] preserves a dummy parent. A sequence of message
-    numbers becomes a chain of single-child nodes. Response numbers are UIDs
-    only when the command was UID THREAD. *)
 type untagged =
   | Ok of code option * string | No of code option * string
   | Bad of code option * string | Bye of code option * string
@@ -217,12 +214,18 @@ type t =
 
 let trim = String.trim
 let split_words s = String.split_on_char ' ' (trim s) |> List.filter ((<>) "")
-let parse_i64 s =
-  if s="" || not (String.for_all (fun c -> c >= '0' && c <= '9') s)
-  then None else Int64.of_string_opt s
+let is_digits s = s<>"" && String.for_all (fun c -> c >= '0' && c <= '9') s
+let parse_i64 s = if is_digits s then Int64.of_string_opt s else None
 let up = String.uppercase_ascii
-let prefix s p = String.length s >= String.length p && String.sub s 0 (String.length p) = p
 let after s n = String.sub s n (String.length s-n)
+let valid_uid n = Result.is_ok (Proto.Uid.of_int64 n)
+let valid_uidvalidity n = Result.is_ok (Proto.Uidvalidity.of_int64 n)
+let valid_modseq n = Result.is_ok (Proto.Modseq.of_int64 n)
+let valid_seq n = Result.is_ok (Proto.Seq.of_int64 n)
+(* UIDNEXT may name the slot after the largest possible UID. *)
+let valid_uidnext n = n = 4_294_967_296L || valid_uid n
+let valid_uint32 n = n = 0L || valid_uid n
+let valid_flag flag = Result.is_ok (Mail_flag.Imap_flag.of_wire flag)
 let object_id s =
   let n=String.length s in
   n>0 && n<=255 && String.for_all (function
@@ -276,20 +279,19 @@ let response_code text =
                   | Result.Error _ -> None)
              | _ -> None)
         | ["UIDVALIDITY"; n] ->
-            (match parse_i64 n with Some n when n >= 1L && n <= 4_294_967_295L ->
+            (match parse_i64 n with Some n when valid_uidvalidity n ->
               Some (Uidvalidity n) | _ -> None)
         | ["UIDNEXT"; n] ->
-            (match parse_i64 n with Some n when n >= 1L && n <= 4_294_967_296L ->
+            (match parse_i64 n with Some n when valid_uidnext n ->
               Some (Uidnext n) | _ -> None)
         | ["HIGHESTMODSEQ"; n] ->
-            (match parse_i64 n with Some n when n >= 1L ->
+            (match parse_i64 n with Some n when valid_modseq n ->
               Some (Highestmodseq n) | _ -> None)
         | ["APPENDUID"; v; u] ->
             (match parse_i64 v, parse_i64 u with
-             | Some v, Some u when v >= 1L && v <= 4_294_967_295L &&
-                                   u >= 1L && u <= 4_294_967_295L ->
+             | Some v, Some u when valid_uidvalidity v && valid_uid u ->
                  Some (Appenduid(v,u))
-             | Some v, _ when v >= 1L && v <= 4_294_967_295L ->
+             | Some v, _ when valid_uidvalidity v ->
                  (match Proto.Uid_set.of_wire u with
                   | Result.Ok set when Proto.Uid_set.cardinality set > 1L ->
                       Some (Appenduid_set (v,u))
@@ -299,7 +301,7 @@ let response_code text =
             (match parse_i64 v, Proto.Uid_set.of_wire src,
                    Proto.Uid_set.of_wire dst with
              | Some v, Result.Ok source, Result.Ok target
-               when v >= 1L && v <= 4_294_967_295L &&
+               when valid_uidvalidity v &&
                     Proto.Uid_set.cardinality source =
                     Proto.Uid_set.cardinality target ->
                  Some (Copyuid(v,src,dst))
@@ -315,21 +317,17 @@ let response_code text =
             else None
         | ["MESSAGELIMIT"; count] ->
             (match parse_i64 count with
-             | Some n when n>=1L && n<=4_294_967_295L ->
-                 Some (Messagelimit (n,None))
+             | Some n when valid_uid n -> Some (Messagelimit (n,None))
              | _ -> None)
         | ["MESSAGELIMIT"; count; last] ->
             (match parse_i64 count,parse_i64 last with
-             | Some n,Some uid when n>=1L && n<=4_294_967_295L &&
-                                  uid>=1L && uid<=4_294_967_295L ->
+             | Some n,Some uid when valid_uid n && valid_uid uid ->
                  Some (Messagelimit (n,Some uid))
              | _ -> None)
         | ["METADATA"; kind; n] when up kind="LONGENTRIES" ->
-            (match parse_i64 n with Some n when n>=0L ->
-              Some (Metadata_longentries n) | _ -> None)
+            Option.map (fun n -> Metadata_longentries n) (parse_i64 n)
         | ["METADATA"; kind; n] when up kind="MAXSIZE" ->
-            (match parse_i64 n with Some n when n>=0L ->
-              Some (Metadata_maxsize n) | _ -> None)
+            Option.map (fun n -> Metadata_maxsize n) (parse_i64 n)
         | ["METADATA"; kind] when up kind="TOOMANY" -> Some Metadata_toomany
         | ["METADATA"; kind] when up kind="NOPRIVATE" -> Some Metadata_noprivate
         | "BADEVENT"::items ->
@@ -349,13 +347,11 @@ let response_code text =
             if len>=2 && atoms.[0]='(' && atoms.[len-1]=')' then
               let inner=String.sub atoms 1 (len-2) in
               let values=split_words inner in
-              if List.for_all (fun flag ->
-                flag="\\*" || match Mail_flag.Imap_flag.of_wire flag with
-                | Result.Ok _ -> true | Result.Error _ -> false) values
+              if List.for_all (fun flag -> flag="\\*" || valid_flag flag) values
               then Some (Permanentflags values) else None
             else None
         | ["UNSEEN"; n] ->
-            (match parse_i64 n with Some n when n >= 1L ->
+            (match parse_i64 n with Some n when valid_seq n ->
               Some (Unseen n) | _ -> None)
         | name::args when List.mem_assoc name no_argument_codes ->
             if args=[] then List.assoc_opt name no_argument_codes else None
@@ -363,17 +359,20 @@ let response_code text =
         | _ -> Some (Other_code inner) in
       code, rest
 
-let malformed_known_code text =
-  if not (prefix text "[") then false else
-  match String.index_opt text ']' with
-  | None -> true
+let checked_response_code text =
+  let invalid = Result.Error "invalid IMAP response code" in
+  if not (String.starts_with ~prefix:"[" text) then Result.Ok (None, text)
+  else match String.index_opt text ']' with
+  | None -> invalid
   | Some k ->
-      let inner=String.sub text 1 (k-1) in
-      (match split_words inner with
-       | name::_ when List.mem (up name) parameter_code_names ||
-           List.mem_assoc (up name) no_argument_codes ->
-           (match fst (response_code text) with None -> true | Some _ -> false)
-       | _ -> false)
+      let known=match split_words (String.sub text 1 (k-1)) with
+        | name::_ -> let name=up name in
+            List.mem name parameter_code_names ||
+            List.mem_assoc name no_argument_codes
+        | [] -> false in
+      (match response_code text with
+       | None,_ when known -> invalid
+       | result -> Result.Ok result)
 
 type tok = A of string | Q of string | L | R | Lit of int64
 
@@ -394,21 +393,18 @@ let tokenize s =
           | '\\' when j+1 < n -> Buffer.add_char b s.[j+1]; quoted (j+2)
           | c -> Buffer.add_char b c; quoted (j+1) in
         let j=quoted (i+1) in scan j (Q(Buffer.contents b)::acc)
-    | '{' ->
-        (match String.index_from_opt s (i+1) '}' with
-         | Some j when j+2 < n && s.[j+1]='\r' && s.[j+2]='\n' ->
-             (match parse_i64 (String.sub s (i+1) (j-i-1)) with
-              | Some k -> scan (j+3) (Lit k::acc)
-              | None -> atom i acc)
-         | _ -> atom i acc)
-    | '~' when i+1 < n && s.[i+1]='{' ->
-        (match String.index_from_opt s (i+2) '}' with
-         | Some j when j+2 < n && s.[j+1]='\r' && s.[j+2]='\n' ->
-             (match parse_i64 (String.sub s (i+2) (j-i-2)) with
-              | Some k -> scan (j+3) (Lit k::acc)
-              | None -> atom i acc)
-         | _ -> atom i acc)
+    | '{' -> literal i (i+1) acc
+    | '~' when i+1 < n && s.[i+1]='{' -> literal i (i+2) acc
     | _ -> atom i acc
+  and literal i start acc =
+    let rec digits j =
+      if j < n && s.[j] >= '0' && s.[j] <= '9' then digits (j+1) else j in
+    let j=digits start in
+    if j > start && j+2 < n && s.[j]='}' && s.[j+1]='\r' && s.[j+2]='\n' then
+      match Int64.of_string_opt (String.sub s start (j-start)) with
+      | Some k -> scan (j+3) (Lit k::acc)
+      | None -> atom i acc
+    else atom i acc
   and atom i acc =
     let rec boundary j brackets =
       if j >= n then j else
@@ -453,32 +449,29 @@ let list_atoms = function
         | _ -> None,[] in gather [] rest
   | _ -> None,[]
 
-let valid_flag flag =
-  match Mail_flag.Imap_flag.of_wire flag with
-  | Result.Ok _ -> true | Result.Error _ -> false
-
 let valid_preview s =
   let n=String.length s in
-  if n>1024 then false else
-  let continuation i = i<n && Char.code s.[i] land 0xc0 = 0x80 in
   let rec scan i count =
-    if count>256 then false else if i=n then true else
-    let a=Char.code s.[i] in
-    if a<0x80 then scan (i+1) (count+1)
-    else if a>=0xc2 && a<=0xdf && continuation (i+1) then
-      scan (i+2) (count+1)
-    else if a>=0xe0 && a<=0xef && continuation (i+1) &&
-      continuation (i+2) &&
-      (a<>0xe0 || Char.code s.[i+1]>=0xa0) &&
-      (a<>0xed || Char.code s.[i+1]<0xa0) then
-      scan (i+3) (count+1)
-    else if a>=0xf0 && a<=0xf4 && continuation (i+1) &&
-      continuation (i+2) && continuation (i+3) &&
-      (a<>0xf0 || Char.code s.[i+1]>=0x90) &&
-      (a<>0xf4 || Char.code s.[i+1]<0x90) then
-      scan (i+4) (count+1)
-    else false in
-  scan 0 0
+    if i=n then true
+    else if count=256 then false
+    else
+      let d=String.get_utf_8_uchar s i in
+      Uchar.utf_decode_is_valid d &&
+      scan (i+Uchar.utf_decode_length d) (count+1) in
+  n<=1024 && scan 0 0
+
+let rec fetch_fields = function
+  | A name::L::rest when up name="FETCH" || up name="UIDFETCH" -> Some rest
+  | _::rest -> fetch_fields rest
+  | [] -> None
+
+let compound_list toks =
+  let rec pairs acc = function
+    | R::rest ->
+        Result.map (fun value -> value,rest) (compound_of_pairs (List.rev acc))
+    | A key::A id::rest -> pairs ((key,id)::acc) rest
+    | _ -> Result.Error "invalid compound OBJECTID" in
+  pairs [] toks
 
 let parse_flags raw =
   let rec find = function
@@ -491,38 +484,42 @@ let parse_flags raw =
   find (tokenize raw)
 
 let fetch ?(uid_only=false) seq raw =
-  let toks=tokenize raw in
-  let rec seek = function
-    | A a::A b::L::rest when
-        (up a="FETCH" || up a="UIDFETCH") && b="" -> rest
-    | A a::L::rest when up a="FETCH" || up a="UIDFETCH" -> rest
-    | _::rest -> seek rest | [] -> [] in
-  let field_tokens=seek toks in
   let rec fields uid flags modseq size internal_date email_id thread_id
       preview literals = function
-    | [] | R::_ ->
+    | [R] ->
         if uid_only && (match uid with Some value -> value <> seq | None -> false) then
           Result.Error "UIDFETCH leading UID disagrees with UID data item"
         else Result.Ok {seq;uid=(if uid_only then Some seq else uid);
                         flags;modseq;size;internal_date;email_id;thread_id;
                         preview;
                         literals=List.rev literals;raw}
+    | [] -> Result.Error "unterminated FETCH attribute list"
+    | R::_ -> Result.Error "trailing FETCH data"
     | A name::value ->
         let key=up name in
         (match key,value with
-         | "UID", _ when Option.is_some uid -> Result.Error "duplicate FETCH UID"
+         | _ when (match key with
+             | "UID" -> Option.is_some uid
+             | "FLAGS" -> Option.is_some flags
+             | "MODSEQ" -> Option.is_some modseq
+             | "RFC822.SIZE" -> Option.is_some size
+             | "INTERNALDATE" -> Option.is_some internal_date
+             | "EMAILID" -> Option.is_some email_id
+             | "THREADID" -> Option.is_some thread_id
+             | "PREVIEW" -> Option.is_some preview
+             | _ -> false) -> Result.Error ("duplicate FETCH " ^ key)
          | "UID", v::rest ->
              (match num v with
-              | Some n when n >= 1L && n <= 4_294_967_295L ->
+              | Some n when valid_uid n ->
                   fields (Some n) flags modseq size internal_date email_id
                     thread_id preview literals rest
               | _ -> Result.Error "invalid FETCH UID")
          | "RFC822.SIZE", v::rest ->
              (match num v with
-              | Some n when n >= 0L ->
+              | Some n ->
                   fields uid flags modseq (Some n) internal_date email_id
                     thread_id preview literals rest
-              | _ -> Result.Error "invalid FETCH RFC822.SIZE")
+              | None -> Result.Error "invalid FETCH RFC822.SIZE")
          | "INTERNALDATE", Q value::rest ->
              (match Internal_date.of_string value with
               | Result.Ok value ->
@@ -531,19 +528,16 @@ let fetch ?(uid_only=false) seq raw =
               | Result.Error _ -> Result.Error "invalid FETCH INTERNALDATE")
          | "INTERNALDATE", _ -> Result.Error "invalid FETCH INTERNALDATE"
          | "FLAGS", _ ->
-             let f,rest=list_atoms value in
-             (match f with
-              | None -> Result.Error "invalid FETCH FLAGS"
-              | Some flags ->
-                  if List.for_all (fun flag ->
-                    match Mail_flag.Imap_flag.of_wire flag with
-                    | Result.Ok _ -> true | Result.Error _ -> false) flags
+             (match list_atoms value with
+              | None,_ -> Result.Error "invalid FETCH FLAGS"
+              | Some flags,rest ->
+                  if List.for_all valid_flag flags
                   then fields uid (Some flags) modseq size internal_date
                     email_id thread_id preview literals rest
                   else Result.Error "invalid FETCH flag atom")
          | "MODSEQ", L::v::R::rest ->
              (match num v with
-              | Some n when n >= 1L ->
+              | Some n when valid_modseq n ->
                   fields uid flags (Some n) size internal_date email_id
                     thread_id preview literals rest
               | _ -> Result.Error "invalid FETCH MODSEQ")
@@ -558,10 +552,10 @@ let fetch ?(uid_only=false) seq raw =
              fields uid flags modseq size internal_date email_id
                (Some (Some id)) preview literals rest
          | "THREADID", _ -> Result.Error "invalid FETCH THREADID"
-         | "PREVIEW", (A nil)::rest when up nil="NIL" && preview=None ->
+         | "PREVIEW", (A nil)::rest when up nil="NIL" ->
              fields uid flags modseq size internal_date email_id thread_id
                (Some None) literals rest
-         | "PREVIEW", (Q s)::rest when preview=None && valid_preview s ->
+         | "PREVIEW", (Q s)::rest when valid_preview s ->
              fields uid flags modseq size internal_date email_id thread_id
                (Some (Some s)) literals rest
          | "PREVIEW", _ -> Result.Error "invalid FETCH PREVIEW"
@@ -573,7 +567,9 @@ let fetch ?(uid_only=false) seq raw =
                   (skip_value value))
     | _::rest -> fields uid flags modseq size internal_date email_id thread_id
                    preview literals rest in
-  fields None None None None None None None None [] field_tokens
+  match fetch_fields (tokenize raw) with
+  | None -> Result.Error "missing FETCH attribute list"
+  | Some tokens -> fields None None None None None None None None [] tokens
 
 let decode_envelope_tokens =
   let invalid = Result.Error "invalid FETCH ENVELOPE" in
@@ -651,7 +647,8 @@ type binary = Nil | Inline of string | Literal of int64
 let binary_attribute_name name =
   let name=up name in
   let size,prefix_length =
-    if prefix name "BINARY.SIZE" then true,11 else false,6 in
+    if String.starts_with ~prefix:"BINARY.SIZE" name then true,11
+    else false,6 in
   let invalid=Result.Error "invalid FETCH BINARY section or offset" in
   let n=String.length name in
   if n<=prefix_length || name.[prefix_length]<>'[' then invalid
@@ -661,7 +658,7 @@ let binary_attribute_name name =
       let path=String.sub name (prefix_length+1) (close-prefix_length-1) in
       let parts=if path="" then [] else String.split_on_char '.' path in
       let component s = match parse_i64 s with
-        | Some value when value>=1L && value<=4_294_967_295L && s.[0]<>'0' ->
+        | Some value when valid_uid value && s.[0]<>'0' ->
             Some (Int64.to_int value)
         | _ -> None in
       let section=List.filter_map component parts in
@@ -675,13 +672,13 @@ let binary_attribute_name name =
 let fetch_binary_attribute (row:fetch) ~size ~section ~offset decode =
   let invalid=Result.Error "invalid FETCH BINARY attribute" in
   if String.length row.raw>1_048_576 || not (balanced_quotes row.raw) ||
-     List.length section>100 || List.exists (fun n ->
-       n<1 || Int64.of_int n>4_294_967_295L) section ||
+     List.length section>100 ||
+     List.exists (fun n -> not (valid_uid (Int64.of_int n))) section ||
      (match offset with Some n -> n<0L | None -> false)
   then invalid else
   let rec fields found = function
     | [R] -> Result.Ok found
-    | A key::value when prefix (up key) "BINARY" ->
+    | A key::value when String.starts_with ~prefix:"BINARY" (up key) ->
         (match binary_attribute_name key with
          | Result.Error _ as error -> error
          | Result.Ok (got_size,got_section,got_offset) ->
@@ -699,18 +696,16 @@ let fetch_binary_attribute (row:fetch) ~size ~section ~offset decode =
                | _ -> invalid)
     | A _::value -> fields found (skip_value value)
     | _ -> invalid in
-  let rec seek = function
-    | A name::L::rest when up name="FETCH" || up name="UIDFETCH" -> fields None rest
-    | _::rest -> seek rest
-    | [] -> invalid in
-  seek (tokenize row.raw)
+  match fetch_fields (tokenize row.raw) with
+  | None -> invalid
+  | Some rest -> fields None rest
 
 let fetch_binary row ~section ~offset =
   fetch_binary_attribute row ~size:false ~section ~offset (function
     | A nil when up nil="NIL" -> Result.Ok Nil
     | Q value when not (String.exists (fun c ->
         c='\000' || c='\r' || c='\n') value) -> Result.Ok (Inline value)
-    | Lit length when length>=0L -> Result.Ok (Literal length)
+    | Lit length -> Result.Ok (Literal length)
     | _ -> Result.Error "invalid FETCH BINARY data")
 
 (* RFC 9051's BINARY.SIZE ABNF retains [number], but Appendix D requires
@@ -718,8 +713,8 @@ let fetch_binary row ~section ~offset =
 let fetch_binary_size row ~section =
   fetch_binary_attribute row ~size:true ~section ~offset:None (fun value ->
     match num value with
-    | Some size when size>=0L -> Result.Ok size
-    | _ -> Result.Error "invalid FETCH BINARY.SIZE")
+    | Some size -> Result.Ok size
+    | None -> Result.Error "invalid FETCH BINARY.SIZE")
 
 let fetch_envelope (row:fetch) =
   let invalid = Result.Error "invalid FETCH ENVELOPE" in
@@ -737,12 +732,9 @@ let fetch_envelope (row:fetch) =
               | Result.Error e -> Result.Error e))
     | A _::value -> fields found (skip_value value)
     | _ -> Result.Error "invalid FETCH fields" in
-  let rec seek = function
-    | A name::L::rest when up name="FETCH" || up name="UIDFETCH" ->
-        fields None rest
-    | _::rest -> seek rest
-    | [] -> Result.Error "missing FETCH fields" in
-  seek (tokenize row.raw)
+  match fetch_fields (tokenize row.raw) with
+  | None -> Result.Error "missing FETCH fields"
+  | Some rest -> fields None rest
 
 let fetch_bodystructure (row:fetch) =
   let error = "invalid FETCH BODYSTRUCTURE" in
@@ -882,40 +874,27 @@ let fetch_bodystructure (row:fetch) =
              fields (Some value) rest)
     | A _::value -> fields found (skip_value value)
     | _ -> Result.Error "invalid FETCH fields" in
-  let rec seek = function
-    | A name::L::rest when up name="FETCH" || up name="UIDFETCH" ->
-        fields None rest
-    | _::rest -> seek rest
-    | [] -> Result.Error "missing FETCH fields" in
-  seek (tokenize row.raw)
+  match fetch_fields (tokenize row.raw) with
+  | None -> Result.Error "missing FETCH fields"
+  | Some rest -> fields None rest
 
 let fetch_objectid (row:fetch) =
-  let rec pairs acc = function
-    | R::rest ->
-        (match compound_of_pairs (List.rev acc) with
-         | Result.Ok value -> Result.Ok (value,rest)
-         | Result.Error message -> Result.Error message)
-    | A key::A id::rest -> pairs ((key,id)::acc) rest
-    | _ -> Result.Error "invalid FETCH OBJECTID" in
   let rec fields found = function
     | R::_ -> Result.Ok found
     | A key::L::rest when up key="OBJECTID" ->
         (match found with
          | Some _ -> Result.Error "duplicate FETCH OBJECTID"
          | None ->
-             (match pairs [] rest with
+             (match compound_list rest with
               | Result.Ok (value,rest) -> fields (Some value) rest
-              | Result.Error message -> Result.Error message))
+              | Result.Error _ -> Result.Error "invalid FETCH OBJECTID"))
     | A key::_ when up key="OBJECTID" ->
         Result.Error "invalid FETCH OBJECTID"
     | A _::value -> fields found (skip_value value)
     | _ -> Result.Error "invalid FETCH fields" in
-  let rec seek = function
-    | A name::L::rest when up name="FETCH" || up name="UIDFETCH" ->
-        fields None rest
-    | _::rest -> seek rest
-    | [] -> Result.Error "missing FETCH fields" in
-  seek (tokenize row.raw)
+  match fetch_fields (tokenize row.raw) with
+  | None -> Result.Error "missing FETCH fields"
+  | Some rest -> fields None rest
 
 let delimiter = function
   | A nil when up nil="NIL" -> Result.Ok None
@@ -1034,7 +1013,7 @@ let parse_esearch raw =
       let negative=String.length x>0 && x.[0]='-' in
       let digits=if negative then after x 1 else x in
       match parse_i64 digits with
-      | Some n when n>=1L && n<=4_294_967_295L -> Some negative
+      | Some n when valid_uid n -> Some negative
       | _ -> None in
     match String.split_on_char ':' s with
     | [first;last] ->
@@ -1073,9 +1052,9 @@ let parse_esearch raw =
          | "MIN" | "MAX" | "COUNT" | "MODSEQ" ->
              (match num v with
               | Some n when (match up key with
-                  | "MIN" | "MAX" -> n>=1L && n<=4_294_967_295L
-                  | "COUNT" -> n>=0L && n<=4_294_967_295L
-                  | _ -> n>=0L) ->
+                  | "MIN" | "MAX" -> valid_uid n
+                  | "COUNT" -> valid_uint32 n
+                  | _ -> true) ->
                   (match up key with
                    | "MIN" -> loop (Some n) max count all modseq partial rest
                    | "MAX" -> loop min (Some n) count all modseq partial rest
@@ -1089,73 +1068,62 @@ let parse_esearch raw =
                               | Result.Ok _ -> true | Result.Error _ -> false) ->
                   loop min max count (Some x) modseq partial rest
               | _ -> Result.Error "invalid ESEARCH ALL")
-         | _ -> loop min max count all modseq partial rest)
+         | _ -> loop min max count all modseq partial (skip_value (v::rest)))
     | _ -> Result.Error "invalid ESEARCH result" in
   loop None None None None None None tokens
 
 let parse_status raw =
+  let numeric=["MESSAGES";"UNSEEN";"UIDNEXT";"UIDVALIDITY";"HIGHESTMODSEQ";
+               "SIZE";"DELETED";"DELETED-STORAGE"] in
   let rec start = function
     | A s::mailbox::L::rest when up s="STATUS" ->
         let mailbox=token_string mailbox in
-        let rec compound acc = function
-          | R::rest ->
-              (match compound_of_pairs (List.rev acc) with
-               | Result.Ok value -> Result.Ok (value,rest)
-               | Result.Error message -> Result.Error message)
-          | A key::A id::rest -> compound ((key,id)::acc) rest
-          | _ -> Result.Error "invalid STATUS OBJECTID" in
-        let rec fields messages unseen uidnext uidvalidity highestmodseq
+        let rec fields seen messages unseen uidnext uidvalidity highestmodseq
             mailbox_id objectid size deleted deleted_storage = function
           | R::_ ->
               Result.Ok {mailbox;messages;unseen;uidnext;uidvalidity;
                          highestmodseq;mailbox_id;objectid;size;deleted;
                          deleted_storage;raw}
+          | A name::_ when List.mem (up name) seen ->
+              Result.Error ("duplicate STATUS " ^ up name)
           | A name::L::rest when up name="OBJECTID" ->
-              if objectid<>None then Result.Error "duplicate STATUS OBJECTID"
-              else (match compound [] rest with
-                | Result.Error message -> Result.Error message
-                | Result.Ok (ids,rest) ->
-                    fields messages unseen uidnext uidvalidity highestmodseq
-                      mailbox_id (Some ids) size deleted deleted_storage rest)
+              (match compound_list rest with
+               | Result.Error _ -> Result.Error "invalid STATUS OBJECTID"
+               | Result.Ok (ids,rest) ->
+                   fields ("OBJECTID"::seen) messages unseen uidnext
+                     uidvalidity highestmodseq mailbox_id (Some ids) size
+                     deleted deleted_storage rest)
           | A name::L::A id::R::rest when up name="MAILBOXID" ->
               if object_id id then
-                fields messages unseen uidnext uidvalidity highestmodseq
-                  (Some id) objectid size deleted deleted_storage rest
+                fields ("MAILBOXID"::seen) messages unseen uidnext uidvalidity
+                  highestmodseq (Some id) objectid size deleted
+                  deleted_storage rest
               else Result.Error "invalid STATUS MAILBOXID"
           | A name::v::rest ->
               let name=up name in
               if name="MAILBOXID" || name="OBJECTID" then
                 Result.Error ("invalid STATUS " ^ name)
-              else if not (List.mem name
-                ["MESSAGES";"UNSEEN";"UIDNEXT";"UIDVALIDITY";
-                 "HIGHESTMODSEQ";"SIZE";"DELETED";
-                 "DELETED-STORAGE"])
-              then fields messages unseen uidnext uidvalidity highestmodseq
-                     mailbox_id objectid size deleted deleted_storage
-                     (skip_value (v::rest))
+              else if not (List.mem name numeric)
+              then fields seen messages unseen uidnext uidvalidity
+                     highestmodseq mailbox_id objectid size deleted
+                     deleted_storage (skip_value (v::rest))
               else (match num v with
-               | None -> Result.Error ("invalid STATUS " ^ name)
-               | Some n ->
-                   if n < 0L || ((name="UIDVALIDITY" || name="UIDNEXT") &&
-                                  (n < 1L ||
-                                   n > (if name="UIDNEXT" then
-                                     4_294_967_296L else 4_294_967_295L)))
-                   then Result.Error ("invalid STATUS " ^ name)
-                   else
-                     fields
-                       (if name="MESSAGES" then Some n else messages)
-                       (if name="UNSEEN" then Some n else unseen)
-                       (if name="UIDNEXT" then Some n else uidnext)
-                       (if name="UIDVALIDITY" then Some n else uidvalidity)
-                       (if name="HIGHESTMODSEQ" then Some n else highestmodseq)
-                       mailbox_id objectid
-                       (if name="SIZE" then Some n else size)
-                       (if name="DELETED" then Some n else deleted)
-                       (if name="DELETED-STORAGE" then Some n
-                        else deleted_storage)
-                       rest)
+               | Some n when (match name with
+                   | "UIDVALIDITY" -> valid_uidvalidity n
+                   | "UIDNEXT" -> valid_uidnext n
+                   | _ -> true) ->
+                   let set field current =
+                     if name=field then Some n else current in
+                   fields (name::seen)
+                     (set "MESSAGES" messages) (set "UNSEEN" unseen)
+                     (set "UIDNEXT" uidnext) (set "UIDVALIDITY" uidvalidity)
+                     (set "HIGHESTMODSEQ" highestmodseq)
+                     mailbox_id objectid (set "SIZE" size)
+                     (set "DELETED" deleted)
+                     (set "DELETED-STORAGE" deleted_storage) rest
+               | _ -> Result.Error ("invalid STATUS " ^ name))
           | _ -> Result.Error "invalid STATUS fields" in
-        fields None None None None None None None None None None rest
+        fields [] None None None None None None None None None None rest
     | _::rest -> start rest
     | [] -> Result.Error "invalid STATUS response" in
   start (tokenize raw)
@@ -1190,8 +1158,8 @@ let parse_uidbatches raw =
         let range item = match String.split_on_char ':' item with
           | [first;last] ->
               (match parse_i64 first,parse_i64 last with
-               | Some hi,Some lo when hi>=lo && hi<=4_294_967_295L &&
-                    lo>=1L -> Some (hi,lo)
+               | Some hi,Some lo when hi>=lo && valid_uid hi && valid_uid lo ->
+                   Some (hi,lo)
                | _ -> None)
           | _ -> None in
         let rec collect previous acc = function
@@ -1271,7 +1239,7 @@ let parse_quota raw =
              | [R] -> Result.Ok {root;resources=List.rev acc;raw}
              | A name::A usage::A limit::rest ->
                  (match parse_i64 usage,parse_i64 limit with
-                  | Some usage,Some limit when usage>=0L && limit>=0L ->
+                  | Some usage,Some limit ->
                       resources ((name,usage,limit)::acc) rest
                   | _ -> Result.Error "invalid QUOTA resource values")
              | _ -> Result.Error "invalid QUOTA resource list" in
@@ -1330,7 +1298,8 @@ let parse_metadata raw =
 
 (* SORT and THREAD have strict ordered grammars. Scan directly rather than
    tokenizing away whitespace, so malformed trees never become plausible ones.
-   Bound both wire nesting and expanded chains for safe downstream traversal. *)
+   Wire nesting is bounded for safe downstream traversal. A chain of members
+   is built iteratively and is bounded only by the node limit. *)
 let parse_ordered_result ~threaded raw =
   let exception Invalid of string in
   let invalid message = raise (Invalid message) in
@@ -1357,10 +1326,20 @@ let parse_ordered_result ~threaded raw =
     done;
     if !pos-start>10 then invalid "SORT/THREAD message number outside range";
     let uid=Int64.of_string (String.sub raw start (!pos-start)) in
-    if uid>4_294_967_295L then invalid "SORT/THREAD message number outside range";
+    if not (valid_uid uid) then
+      invalid "SORT/THREAD message number outside range";
     if Hashtbl.mem seen uid then invalid "duplicate SORT/THREAD message number";
     Hashtbl.add seen uid ();
     uid in
+  (* RFC 7162 search-sort-mod-seq ends a nonempty SORT result. *)
+  let modseq_suffix () =
+    let rest=up (after raw !pos) and prefix="(MODSEQ " in
+    let n=String.length rest and k=String.length prefix in
+    if not (String.starts_with ~prefix rest) || n<k+2 || rest.[n-1]<>')' then
+      invalid "invalid SORT MODSEQ";
+    match parse_i64 (String.sub rest k (n-k-1)) with
+    | Some modseq when valid_modseq modseq -> pos := length
+    | _ -> invalid "invalid SORT MODSEQ" in
   let rec tree depth =
     take '(';
     let result=match peek () with
@@ -1371,17 +1350,20 @@ let parse_ordered_result ~threaded raw =
     take ')';
     result
   and members depth =
-    node depth;
-    let uid=number () in
-    let children=match peek () with
-      | Some ')' -> []
+    let rec chain before =
+      node depth;
+      let uid=number () in
+      match peek () with
+      | Some ')' -> uid,before,[]
       | Some ' ' ->
           incr pos;
           (match peek () with
-           | Some '(' -> nested (depth+1)
-           | _ -> [members (depth+1)])
+           | Some '(' -> uid,before,nested (depth+1)
+           | _ -> chain (uid::before))
       | _ -> invalid "invalid THREAD member separator" in
-    {uid=Some uid;children}
+    let last,before,children=chain [] in
+    List.fold_left (fun child uid -> {uid=Some uid;children=[child]})
+      {uid=Some last;children} before
   and nested depth =
     let rec collect count acc =
       match peek () with
@@ -1410,151 +1392,165 @@ let parse_ordered_result ~threaded raw =
           node 1;
           let uid=number () in
           if !pos=length then List.rev (uid::acc)
-          else (take ' '; numbers (uid::acc)) in
+          else (
+            take ' ';
+            if peek ()=Some '(' then (modseq_suffix (); List.rev (uid::acc))
+            else numbers (uid::acc)) in
         Result.Ok (Sort (numbers []))))
   with Invalid message -> Result.Error message
 
+let parse_search words =
+  let modseq_suffix = function
+    | [key;value] when up key="(MODSEQ" &&
+        String.ends_with ~suffix:")" value ->
+        (match parse_i64 (String.sub value 0 (String.length value-1)) with
+         | Some modseq -> valid_modseq modseq
+         | None -> false)
+    | _ -> false in
+  let rec numbers acc = function
+    | [] -> Result.Ok (Search (List.rev acc))
+    | suffix when acc<>[] && modseq_suffix suffix ->
+        Result.Ok (Search (List.rev acc))
+    | word::rest ->
+        (match parse_i64 word with
+         | Some n when valid_uid n -> numbers (n::acc) rest
+         | _ -> Result.Error "invalid SEARCH result") in
+  numbers [] words
+
+(* [drop_words s n] is [s] after its first [n] space-separated words. *)
+let drop_words s n =
+  let len=String.length s in
+  let rec spaces i = if i<len && s.[i]=' ' then spaces (i+1) else i in
+  let rec word i = if i<len && s.[i]<>' ' then word (i+1) else i in
+  let rec drop i n = if n=0 then i else drop (spaces (word (spaces i))) (n-1) in
+  after s (drop 0 n)
+
 let parse raw =
-  let raw = if String.length raw >= 2 &&
-    String.sub raw (String.length raw-2) 2 = "\r\n"
+  let raw = if String.ends_with ~suffix:"\r\n" raw
     then String.sub raw 0 (String.length raw-2) else raw in
-  if raw="" then Error "empty IMAP response"
-  else if prefix raw "+ " then Ok (Continuation (after raw 2))
-  else if raw="+" then Ok (Continuation "")
+  if raw="" then Result.Error "empty IMAP response"
+  else if String.starts_with ~prefix:"+ " raw then
+    Result.Ok (Continuation (after raw 2))
+  else if raw="+" then Result.Ok (Continuation "")
   else
-  let words=split_words raw in
-  match words with
+  match split_words raw with
   | "*"::kind::rest ->
-      let u=up kind in
       let body = if String.length raw >= 2+String.length kind
                  then trim (after raw (2+String.length kind)) else "" in
-      let status ctor = let code,text=response_code body in Untagged (ctor (code,text)) in
-      let value = match u with
-        | "OK" -> status (fun (c,t) -> Ok (c,t))
-        | "NO" -> status (fun (c,t) -> No (c,t))
-        | "BAD" -> status (fun (c,t) -> Bad (c,t))
-        | "BYE" -> status (fun (c,t) -> Bye (c,t))
-        | "PREAUTH" -> status (fun (c,t) -> Preauth (c,t))
-        | "CAPABILITY" -> Untagged (Capability rest)
-        | "ENABLED" -> Untagged (Enabled rest)
-        | "FLAGS" -> Untagged (Other raw)
-        | "LIST" | "LSUB" | "NAMESPACE" -> Untagged (Other raw)
-        | "STATUS" -> Untagged (Other raw)
-        | "JMAPACCESS" | "UIDBATCHES" | "ACL" | "LISTRIGHTS" |
-          "MYRIGHTS" | "QUOTA" | "QUOTAROOT" | "METADATA" ->
-            Untagged (Other raw)
-        | "VANISHED" ->
-            let earlier,uids=match rest with
-              | "(EARLIER)"::xs -> true,String.concat " " xs
-              | _ -> false,String.concat " " rest in
-            Untagged (Vanished {earlier;uids})
-        | "SEARCH" ->
-            Untagged (Search (List.filter_map parse_i64 rest))
-        | "ESEARCH" -> Untagged (Other raw)
-        | _ ->
-            (match parse_i64 kind,rest with
-             | Some n, typ::_ ->
-                 (match up typ with
-                  | "EXISTS" -> Untagged (Exists n)
-                  | "RECENT" -> Untagged (Recent n)
-                  | "EXPUNGE" -> Untagged (Expunge n)
-                  | "FETCH" | "UIDFETCH" -> Untagged (Other raw)
-                  | _ -> Untagged (Other raw))
-             | _ -> Untagged (Other raw)) in
-      (if List.mem u ["OK";"NO";"BAD";"BYE";"PREAUTH"] &&
-          malformed_known_code body then Result.Error "invalid IMAP response code"
-       else match parse_i64 kind,rest with
-       | Some n, typ::_ when up typ="FETCH" || up typ="UIDFETCH" ->
-           if n < 1L || n > 4_294_967_295L then Result.Error "invalid FETCH sequence"
-           else (match fetch ~uid_only:(up typ="UIDFETCH") n
-                    (String.concat " " rest) with
-            | Result.Ok f -> Result.Ok (Untagged
-                (if up typ="UIDFETCH" then Uidfetch f else Fetch f))
-            | Result.Error e -> Result.Error e)
-       | _ ->
-           if u="FLAGS" then
-             (match parse_flags raw with
-              | Result.Ok x -> Result.Ok (Untagged (Flags x))
-              | Result.Error e -> Result.Error e)
-           else if u="VANISHED" then
-             (match value with
-              | Untagged (Vanished {uids;_}) ->
-                  (match Proto.Uid_set.of_wire uids with
-                   | Result.Ok _ -> Result.Ok value
-                   | Result.Error _ -> Result.Error "invalid VANISHED UID set")
-              | _ -> assert false)
-           else if u="SORT" || u="THREAD" then
-             (match parse_ordered_result ~threaded:(u="THREAD") raw with
-              | Result.Ok result -> Result.Ok (Untagged result)
-              | Result.Error _ as error -> error)
-           else if u="SEARCH" then
-             if List.length rest <> List.length (List.filter_map parse_i64 rest) ||
-                List.exists (fun s -> match parse_i64 s with
-                  | Some n -> n < 1L || n > 4_294_967_295L | None -> true) rest
-             then Result.Error "invalid SEARCH result" else Result.Ok value
-           else if u="LIST" || u="LSUB" then
-             (match parse_list (u="LSUB") raw with
-              | Result.Ok item -> Result.Ok (Untagged (List item))
-              | Result.Error e -> Result.Error e)
-           else if u="NAMESPACE" then
-             (match parse_namespace raw with
-              | Result.Ok item -> Result.Ok (Untagged (Namespace item))
-              | Result.Error e -> Result.Error e)
-           else if u="JMAPACCESS" then
-             (match parse_jmapaccess raw with
-              | Result.Ok x -> Result.Ok (Untagged (Jmapaccess x))
-              | Result.Error e -> Result.Error e)
-           else if u="UIDBATCHES" then
-             (match parse_uidbatches raw with
-              | Result.Ok x -> Result.Ok (Untagged (Uidbatches x))
-              | Result.Error e -> Result.Error e)
-           else if u="ACL" then
-             (match parse_acl raw with
-              | Result.Ok x -> Result.Ok (Untagged (Acl x))
-              | Result.Error e -> Result.Error e)
-           else if u="LISTRIGHTS" then
-             (match parse_list_rights raw with
-              | Result.Ok x -> Result.Ok (Untagged (List_rights x))
-              | Result.Error e -> Result.Error e)
-           else if u="MYRIGHTS" then
-             (match parse_my_rights raw with
-              | Result.Ok x -> Result.Ok (Untagged (My_rights x))
-              | Result.Error e -> Result.Error e)
-           else if u="QUOTA" then
-             (match parse_quota raw with
-              | Result.Ok x -> Result.Ok (Untagged (Quota x))
-              | Result.Error e -> Result.Error e)
-           else if u="QUOTAROOT" then
-             (match parse_quota_root raw with
-              | Result.Ok x -> Result.Ok (Untagged (Quota_root x))
-              | Result.Error e -> Result.Error e)
-           else if u="METADATA" then
-             (match parse_metadata raw with
-              | Result.Ok x -> Result.Ok (Untagged (Metadata x))
-              | Result.Error e -> Result.Error e)
-           else if u="STATUS" then
-             (match parse_status raw with
-              | Result.Ok x -> Result.Ok (Untagged (Status x))
-              | Result.Error e -> Result.Error e)
-           else if u="ESEARCH" then
-             (match parse_esearch raw with
-              | Result.Ok x -> Result.Ok (Untagged (Esearch x))
-              | Result.Error e -> Result.Error e)
-           else (match parse_i64 kind,rest with
-             | Some n,typ::_ when List.mem (up typ)
-                 ["EXISTS";"RECENT";"EXPUNGE"] &&
-                 (n < 0L || n > 4_294_967_295L ||
-                  (up typ="EXPUNGE" && n=0L)) ->
-                 Result.Error "invalid message sequence or count"
-             | _ -> Result.Ok value))
-  | tag::status::rest when up status="OK" || up status="NO" || up status="BAD" ->
+      let status ctor =
+        Result.map (fun result -> Untagged (ctor result))
+          (checked_response_code body) in
+      let data ctor parser =
+        Result.map (fun value -> Untagged (ctor value)) (parser raw) in
+      (match up kind with
+       | "OK" -> status (fun (c,t) -> Ok (c,t))
+       | "NO" -> status (fun (c,t) -> No (c,t))
+       | "BAD" -> status (fun (c,t) -> Bad (c,t))
+       | "BYE" -> status (fun (c,t) -> Bye (c,t))
+       | "PREAUTH" -> status (fun (c,t) -> Preauth (c,t))
+       | "CAPABILITY" -> Result.Ok (Untagged (Capability rest))
+       | "ENABLED" -> Result.Ok (Untagged (Enabled rest))
+       | "FLAGS" -> data (fun x -> Flags x) parse_flags
+       | "LIST" -> data (fun x -> List x) (parse_list false)
+       | "LSUB" -> data (fun x -> List x) (parse_list true)
+       | "NAMESPACE" -> data (fun x -> Namespace x) parse_namespace
+       | "STATUS" -> data (fun x -> Status x) parse_status
+       | "JMAPACCESS" -> data (fun x -> Jmapaccess x) parse_jmapaccess
+       | "UIDBATCHES" -> data (fun x -> Uidbatches x) parse_uidbatches
+       | "ACL" -> data (fun x -> Acl x) parse_acl
+       | "LISTRIGHTS" -> data (fun x -> List_rights x) parse_list_rights
+       | "MYRIGHTS" -> data (fun x -> My_rights x) parse_my_rights
+       | "QUOTA" -> data (fun x -> Quota x) parse_quota
+       | "QUOTAROOT" -> data (fun x -> Quota_root x) parse_quota_root
+       | "METADATA" -> data (fun x -> Metadata x) parse_metadata
+       | "ESEARCH" -> data (fun x -> Esearch x) parse_esearch
+       | "SORT" -> data Fun.id (parse_ordered_result ~threaded:false)
+       | "THREAD" -> data Fun.id (parse_ordered_result ~threaded:true)
+       | "SEARCH" -> Result.map (fun x -> Untagged x) (parse_search rest)
+       | "VANISHED" ->
+           let earlier,uids=match rest with
+             | flag::xs when up flag="(EARLIER)" -> true,String.concat " " xs
+             | _ -> false,String.concat " " rest in
+           (match Proto.Uid_set.of_wire uids with
+            | Result.Ok _ -> Result.Ok (Untagged (Vanished {earlier;uids}))
+            | Result.Error _ -> Result.Error "invalid VANISHED UID set")
+       | _ when is_digits kind ->
+           let n=parse_i64 kind in
+           (match List.map up rest with
+            | ("FETCH" | "UIDFETCH" as typ)::_ ->
+                (match n with
+                 | Some n when valid_seq n ->
+                     let uid_only=typ="UIDFETCH" in
+                     Result.map (fun f ->
+                       Untagged (if uid_only then Uidfetch f else Fetch f))
+                       (fetch ~uid_only n (drop_words raw 2))
+                 | _ -> Result.Error "invalid FETCH sequence")
+            | ("EXISTS" | "RECENT" | "EXPUNGE" as typ)::_ ->
+                (match n with
+                 | Some n when valid_uint32 n && (typ<>"EXPUNGE" || n<>0L) ->
+                     Result.Ok (Untagged (match typ with
+                       | "EXISTS" -> Exists n
+                       | "RECENT" -> Recent n
+                       | _ -> Expunge n))
+                 | _ -> Result.Error "invalid message sequence or count")
+            | _ -> Result.Ok (Untagged (Other raw)))
+       | _ -> Result.Ok (Untagged (Other raw)))
+  | tag::status::rest when
+      (match up status with "OK" | "NO" | "BAD" -> true | _ -> false) ->
       let status=match up status with "OK" -> `Ok | "NO" -> `No | _ -> `Bad in
-      let body=String.concat " " rest in
-      if malformed_known_code body then Result.Error "invalid IMAP response code"
-      else
-        let code,text=response_code body in
-        Ok (Tagged {tag;status;code;text})
-  | _ -> Error "invalid IMAP response prefix"
+      Result.map (fun (code,text) -> Tagged {tag;status;code;text})
+        (checked_response_code (String.concat " " rest))
+  | _ -> Result.Error "invalid IMAP response prefix"
+
+let control_prefixes =
+  ["* LIST ";"* LSUB ";"* STATUS ";"* NAMESPACE ";"* ACL ";"* LISTRIGHTS ";
+   "* MYRIGHTS ";"* QUOTA ";"* QUOTAROOT ";"* METADATA ";"* ESEARCH ";
+   "* LANGUAGE "]
+
+(* The top-level FETCH item enclosing the scanned position, maintained
+   incrementally so each literal is classified without re-reading the
+   response. It follows the tokenizer's quoting and bracket rules. *)
+type fetch_scan = {
+  mutable depth : int;
+  mutable quoted : bool;
+  mutable escaped : bool;
+  mutable brackets : int;
+  atom : Buffer.t;
+  mutable last_atom : string;
+  mutable item : string;
+}
+
+let scan_fetch st s =
+  let finish () =
+    if Buffer.length st.atom > 0 then (
+      st.last_atom <- up (Buffer.contents st.atom);
+      Buffer.clear st.atom) in
+  (* Only short atoms can name an item of interest. *)
+  let add c = if Buffer.length st.atom < 32 then Buffer.add_char st.atom c in
+  String.iter (fun c ->
+    if st.quoted then (
+      if st.escaped then st.escaped <- false
+      else if c='\\' then st.escaped <- true
+      else if c='"' then st.quoted <- false)
+    else if st.brackets > 0 then (
+      add c;
+      if c='[' then st.brackets <- st.brackets+1
+      else if c=']' then st.brackets <- st.brackets-1)
+    else match c with
+      | '"' -> finish (); st.last_atom <- ""; st.quoted <- true
+      | '(' ->
+          finish ();
+          if st.depth=1 then st.item <- st.last_atom;
+          st.last_atom <- "";
+          st.depth <- st.depth+1
+      | ')' ->
+          finish ();
+          st.last_atom <- "";
+          st.depth <- st.depth-1;
+          if st.depth<2 then st.item <- ""
+      | ' ' | '\r' | '\n' | '\t' -> finish ()
+      | '[' -> add c; st.brackets <- 1
+      | c -> add c) s
 
 let parse_parts ?(max_control_literal=16_777_216) parts =
   if max_control_literal < 0 then invalid_arg "Imap.Response.parse_parts";
@@ -1562,96 +1558,85 @@ let parse_parts ?(max_control_literal=16_777_216) parts =
   let complete=ref false in
   let control=ref false in
   let fetch_response=ref false in
+  let scan={depth=0;quoted=false;escaped=false;brackets=0;
+            atom=Buffer.create 32;last_atom="";item=""} in
   let collecting=ref false in
   let current_limit=ref max_control_literal in
+  let retained=ref 0 in
   let envelope_literal_bytes=ref 0 in
   let bodystructure_literal_bytes=ref 0 in
   let literal_len=ref 0 in
   let failure=ref None in
+  let fail message = if !failure=None then failure := Some message in
   let append_quoted s =
     String.iter (fun c ->
       if c='\\' || c='"' then Buffer.add_char b '\\';
       Buffer.add_char b c) s in
-  let inside_fetch_item item s =
-    let rec seek = function
-      | A name::L::rest when up name="FETCH" || up name="UIDFETCH" ->
-          scan 1 false rest
-      | _::rest -> seek rest
-      | [] -> false
-    and scan depth inside = function
-      | [] -> inside
-      | A name::L::rest when depth=1 && up name=item ->
-          scan 2 true rest
-      | L::rest -> scan (depth+1) inside rest
-      | R::rest -> scan (depth-1) (inside && depth<>2) rest
-      | _::rest -> scan depth inside rest in
-    seek (tokenize s) in
   List.iter (function
     | Wire.Text s ->
         if Buffer.length b=0 then (
           let u=up s in
-          control := List.exists (prefix u)
-            ["* LIST ";"* LSUB ";"* STATUS ";"* NAMESPACE ";
-             "* ACL ";"* LISTRIGHTS ";"* MYRIGHTS ";"* QUOTA ";
-             "* QUOTAROOT ";"* METADATA "];
+          control := List.exists (fun prefix -> String.starts_with ~prefix u)
+            control_prefixes;
           fetch_response := match String.split_on_char ' ' s with
-            | "*"::seq::kind::_ when parse_i64 seq<>None ->
+            | "*"::seq::kind::_ when is_digits seq ->
                 up kind="FETCH" || up kind="UIDFETCH"
             | _ -> false);
+        if !fetch_response then scan_fetch scan s;
         Buffer.add_string b s
     | Wire.End_of_response -> complete := true
     | Wire.Literal_start n ->
         let marker=Printf.sprintf "{%Ld}\r\n" n in
-        let have=Buffer.contents b in
-        let h=String.length have and m=String.length marker in
-        let start=h-m in
+        let m=String.length marker in
+        let start=Buffer.length b-m in
         let preview= !fetch_response && start>=8 &&
-          up (String.sub have (start-8) 8)="PREVIEW " in
-        let envelope= !fetch_response && inside_fetch_item "ENVELOPE" have in
-        let bodystructure= !fetch_response &&
-          inside_fetch_item "BODYSTRUCTURE" have in
+          up (Buffer.sub b (start-8) 8)="PREVIEW " in
+        let inside item= !fetch_response && scan.depth>=2 && scan.item=item in
+        let envelope=inside "ENVELOPE" in
+        let bodystructure=inside "BODYSTRUCTURE" in
         if !control || preview || envelope || bodystructure then (
           let limit=if preview then 1024 else if envelope || bodystructure then
             min 65_536 max_control_literal else max_control_literal in
-          if envelope then envelope_literal_bytes :=
-            !envelope_literal_bytes + (if n > 262_144L then 262_145
-              else Int64.to_int n);
-          if bodystructure then bodystructure_literal_bytes :=
-            !bodystructure_literal_bytes + (if n > 262_144L then 262_145
-              else Int64.to_int n);
+          let size=if n > 262_144L then 262_145 else Int64.to_int n in
+          if envelope then
+            envelope_literal_bytes := !envelope_literal_bytes + size;
+          if bodystructure then
+            bodystructure_literal_bytes := !bodystructure_literal_bytes + size;
           if n > Int64.of_int limit then
-            failure := Some (if preview then "PREVIEW literal exceeds limit"
+            fail (if preview then "PREVIEW literal exceeds limit"
               else if envelope then "ENVELOPE literal exceeds limit"
               else if bodystructure then "BODYSTRUCTURE literal exceeds limit"
               else "control literal exceeds limit")
           else if envelope && !envelope_literal_bytes > 262_144 then
-            failure := Some "ENVELOPE literals exceed aggregate limit"
+            fail "ENVELOPE literals exceed aggregate limit"
           else if bodystructure && !bodystructure_literal_bytes > 262_144 then
-            failure := Some "BODYSTRUCTURE literals exceed aggregate limit"
+            fail "BODYSTRUCTURE literals exceed aggregate limit"
+          else if Int64.to_int n > max_control_literal - !retained then
+            fail "retained literals exceed aggregate limit"
+          else if start<0 || Buffer.sub b start m <> marker then
+            fail "literal marker mismatch"
           else (
-            if start<0 || String.sub have start m <> marker ||
-               (preview && start>0 && have.[start-1]='~')
-              then failure := Some "literal marker mismatch"
-            else (
-              Buffer.truncate b (if start>0 && have.[start-1]='~'
-                                 then start-1 else start);
-              Buffer.add_char b '"';
-              collecting := true;
-              current_limit := limit;
-              literal_len := 0)))
+            retained := !retained + Int64.to_int n;
+            Buffer.truncate b (if start>0 && Buffer.nth b (start-1)='~'
+                               then start-1 else start);
+            Buffer.add_char b '"';
+            scan.last_atom <- "";
+            collecting := true;
+            current_limit := limit;
+            literal_len := 0))
     | Wire.Literal_chunk s ->
         if !collecting then (
           literal_len := !literal_len + String.length s;
           if !literal_len > !current_limit then
-            failure := Some "retained literal exceeds limit"
+            fail "retained literal exceeds limit"
           else append_quoted s)
     | Wire.Literal_end ->
         if !collecting then (
           Buffer.add_char b '"'; collecting := false)) parts;
   match !failure with
-  | Some e -> Error e
-  | None when not !complete -> Error "incomplete IMAP response"
-  | None when !collecting -> Error "incomplete control literal"
+  | Some e -> Result.Error e
+  | None when not !complete -> Result.Error "incomplete IMAP response"
+  | None when !collecting -> Result.Error "incomplete control literal"
   | None -> parse (Buffer.contents b)
 
 type select_metadata = {
@@ -1667,7 +1652,7 @@ let select_metadata responses =
       next=ref None and highest=ref None and nomodseq=ref false and
       flags=ref None and permanentflags=ref None and readonly=ref None and
       mailbox_id=ref None and objectid=ref None and completed=ref false and
-      uidnotsticky=ref false in
+      uidnotsticky=ref false and rejected=ref None in
   let code = function
     | Uidvalidity n -> validity:=Some n
     | Uidnext n -> next:=Some n
@@ -1687,15 +1672,27 @@ let select_metadata responses =
     | Untagged (No (Some Uidnotsticky,_)) -> uidnotsticky:=true
     | Tagged {status=`Ok;code=c;_} ->
         completed:=true; Option.iter code c
+    | Tagged {status=(`No | `Bad) as status;code;text;_} ->
+        rejected:=Some (status,code,text)
     | _ -> ()) responses;
-  if not !completed then Error "SELECT lacks tagged OK completion"
+  match !rejected with
+  | Some (status,code,text) when not !completed ->
+      let code=match code with
+        | None -> ""
+        | Some (Other_code inner) -> " [" ^ inner ^ "]"
+        | Some code ->
+            " [" ^ Option.value ~default:"" (response_code_name code) ^ "]" in
+      Result.Error (Printf.sprintf "SELECT rejected with %s%s: %s"
+        (match status with `No -> "NO" | `Bad -> "BAD") code text)
+  | _ ->
+  if not !completed then Result.Error "SELECT lacks tagged OK completion"
   else if !nomodseq && !highest<>None then
-    Error "SELECT advertised both NOMODSEQ and HIGHESTMODSEQ"
+    Result.Error "SELECT advertised both NOMODSEQ and HIGHESTMODSEQ"
   else match !exists,!validity,!next with
     | Some exists,Some uidvalidity,Some uidnext ->
-        Ok {exists;recent= !recent;uidvalidity;uidnext;
+        Result.Ok {exists;recent= !recent;uidvalidity;uidnext;
             highestmodseq= !highest;nomodseq= !nomodseq;
             flags= !flags;permanentflags= !permanentflags;
             mailbox_id= !mailbox_id;objectid= !objectid;
             readonly= !readonly;uidnotsticky= !uidnotsticky}
-    | _ -> Error "SELECT lacks mandatory EXISTS, UIDVALIDITY or UIDNEXT"
+    | _ -> Result.Error "SELECT lacks mandatory EXISTS, UIDVALIDITY or UIDNEXT"

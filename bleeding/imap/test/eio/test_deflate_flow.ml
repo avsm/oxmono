@@ -76,6 +76,22 @@ let test_incompressible () =
     failwith "encoder output refill corrupted incompressible bytes";
   D.close flow;D.close reader
 
+(* One LZ77 state spans every buffer and slice of a write, and the window is
+   reused by the next write. *)
+let test_buffer_lists () =
+  let raw,flow=connection "" in
+  let random=Random.State.make [|17|] in
+  let large=String.init 150_000 (fun i ->
+    if i mod 7=0 then Char.chr (Random.State.int random 256) else 'a') in
+  let writes=[[""];["abc";"";large;"abc"];[""];[large]] in
+  List.iter (fun parts ->
+    D.write flow (List.map Cstruct.of_string parts)) writes;
+  let expected=String.concat "" (List.concat writes) in
+  let _,reader=connection (Buffer.contents raw.written) in
+  if read_exact reader (String.length expected)<>expected then
+    failwith "buffer lists did not round-trip";
+  D.close flow;D.close reader
+
 let test_invalid_and_end () =
   List.iter (fun data ->
     let raw,flow=connection data in
@@ -112,5 +128,6 @@ let () = Eio_mock.Backend.run (fun () ->
     Printf.eprintf "%d\n%!" first_length;
     output_string stdout encoded)
   else (
-    test_external_vectors ();test_outbound ();test_incompressible ();test_invalid_and_end ();
+    test_external_vectors ();test_outbound ();test_incompressible ();
+    test_buffer_lists ();test_invalid_and_end ();
     test_no_output_budget ();test_cancel ()))

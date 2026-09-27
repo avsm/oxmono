@@ -1,15 +1,16 @@
 (** Internal RFC 4978 raw DEFLATE transport. Each direction is an independent,
     continuous stream. Writes sync-flush without emitting a final block.
     Input/output buffers are 64 KiB, with bounded codec queues and windows.
-    Outbound LZ77 history restarts per 64 KiB chunk (the upstream API has no
-    LZ77 sync-flush); inbound history persists across all blocks and reads.
-    At most 16 MiB of compressed input may pass without decoded output. *)
+    Outbound LZ77 history spans one write and restarts at the next, because
+    the upstream API has no LZ77 sync-flush. Inbound history persists across
+    all blocks and reads. At most 16 MiB of compressed input may pass without
+    decoded output. *)
 type t
 
 type Eio.Exn.err += Deflate of string
 (** [Deflate message] reports a malformed or final compressed block, an
-    exhausted input budget or use of a closed flow. [read] and [write] raise
-    it as [Eio.Io]. *)
+    exhausted input budget or use of a closed flow. [read] raises it as
+    [Eio.Io], and [write] raises it for a closed flow. *)
 
 val create :
   [> Eio.Flow.two_way_ty | Eio.Resource.close_ty] Eio.Resource.t -> t

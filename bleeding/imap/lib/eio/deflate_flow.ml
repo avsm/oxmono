@@ -19,6 +19,7 @@ type t = {
   decoder : De.Inf.decoder;
   encoder : De.Def.encoder;
   queue : De.Queue.t;
+  window : De.Lz77.window;
   reads : Eio.Mutex.t;
   writes : Eio.Mutex.t;
   mutable needs_input : bool;
@@ -37,6 +38,7 @@ let create raw =
   De.Def.dst encoder (Cstruct.to_bigarray encoded) 0 buffer_size;
   {raw=(raw :> [Eio.Flow.two_way_ty | Eio.Resource.close_ty] Eio.Resource.t);
    input;decoded;encoded;decoder;encoder;queue;
+   window=De.Lz77.make_window ~bits:15;
    reads=Eio.Mutex.create ();writes=Eio.Mutex.create ();
    needs_input=false;decoded_pos=0;no_output=0;closed=false}
 
@@ -95,26 +97,28 @@ let write t buffers =
       match De.Def.encode t.encoder action with
       | `Partial -> drain (); encode `Await
       | `Ok | `Block -> () in
-    let fixed () =
-      encode (`Block {De.Def.kind=De.Def.Fixed;last=false});
-      if not (De.Queue.is_empty t.queue) then
-        fail "encoder did not consume its bounded block" in
-    let chunk bytes =
-      let lz=De.Lz77.state ~level:4 ~q:t.queue
-        ~w:(De.Lz77.make_window ~bits:15) (`String bytes) in
+    let fixed () = encode (`Block {De.Def.kind=De.Def.Fixed;last=false}) in
+    (* A state ends at end of input, so each write needs a fresh one. The
+       window is scratch space that a new state never reads before filling,
+       so one per flow suffices. *)
+    if Cstruct.lenv buffers>0 then (
+      let lz=De.Lz77.state ~level:4 ~q:t.queue ~w:t.window `Manual in
       let rec compress () = match De.Lz77.compress lz with
         | `Flush -> fixed (); compress ()
         | `End -> fixed ()
-        | `Await -> assert false in
-      compress ();
-      Eio.Fiber.yield () in
-    List.iter (fun buffer ->
-      let rec chunks offset =
-        if offset<Cstruct.length buffer then (
-          let count=min buffer_size (Cstruct.length buffer-offset) in
-          chunk (Cstruct.to_string (Cstruct.sub buffer offset count));
-          chunks (offset+count)) in
-      chunks 0) buffers;
+        | `Await -> () in
+      List.iter (fun buffer ->
+        let data=Cstruct.to_bigarray buffer in
+        let rec slices offset =
+          if offset<Cstruct.length buffer then (
+            let count=min buffer_size (Cstruct.length buffer-offset) in
+            De.Lz77.src lz data offset count;
+            compress ();
+            Eio.Fiber.yield ();
+            slices (offset+count)) in
+        slices 0) buffers;
+      De.Lz77.src lz De.bigstring_empty 0 0;
+      compress ());
     (* An empty stored block completes pending Huffman bits and byte-aligns
        the stream: RFC 1951/Z_SYNC_FLUSH, without BFINAL or a zlib header. *)
     encode (`Block {De.Def.kind=De.Def.Flat;last=false});

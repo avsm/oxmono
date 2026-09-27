@@ -74,14 +74,6 @@ let sync_directory d =
         fail ("expected directory " ^ native);
       Unix.fsync fd))
 
-(* Eio has no hard link. Unlike rename, link refuses to replace an existing
-   target, so a concurrent writer that ignores the lock is never clobbered. *)
-let link source target =
-  let source = native source and target = native target in
-  in_systhread ~label:"imap-maildir-link"
-    (Printf.sprintf "linking %s to %s" source target)
-    (fun () -> Unix.link source target)
-
 let ensure_directory (Dir p as d) =
   if kind d = `Not_found then (
     Eio.Path.mkdir ~perm:0o700 p;
@@ -551,12 +543,12 @@ let append ?inventory t ?id ~source ~length ~flags ?internal_date () =
       let mapping=if keywords then read_keywords t else Keywords.empty in
       let location,name=
         if flags=[] then New,id else Cur,filename mapping id flags in
+      let target=child (dir t location) name in
+      if kind target<>`Not_found then
+        fail ("message target " ^ name ^ " already exists");
       refresh ();
-      link temporary (child (dir t location) name);
+      rename temporary target;
       sync_directory (dir t location);
-      (* Unlinking changes the ctime of the published inode, so it precedes
-         the observation. *)
-      discard temporary;
       Option.iter (fun view -> Hashtbl.replace view.appended_ids id ())
         inventory;
       match observe t (Lazy.from_val mapping) location name with
@@ -600,12 +592,13 @@ let set_flags t occurrence flags =
     let name=filename ~passed mapping old.base flags ^ old.suffix in
     if occurrence.location=Cur && occurrence.filename=name then occurrence
     else (
-      let source=message_path t occurrence in
+      let target=child t.cur name in
+      if kind target<>`Not_found then
+        fail ("flag target " ^ name ^ " already exists");
       refresh ();
-      link source (child t.cur name);
+      rename (message_path t occurrence) target;
       sync_directory t.cur;
-      unlink source;
-      sync_directory (dir t occurrence.location);
+      if occurrence.location=New then sync_directory t.new_dir;
       match observe t (Lazy.from_val mapping) Cur name with
       | Some current -> current
       | None -> fail ("renamed Maildir message " ^ name ^ " vanished")))

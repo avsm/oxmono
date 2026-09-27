@@ -442,15 +442,15 @@ let test_epoch_date env = with_root (fun root ->
     (Some " 1-Jan-1970 00:00:00 +0000")
     (Option.map Imap.Internal_date.to_string o.internal_date))
 
-let test_no_overwrite env = with_root (fun root ->
+let test_duplicate_refused env = with_root (fun root ->
   let path=Eio.Path.(Eio.Stdenv.fs env / root) in
   let m=M.open_dir path in
   let o=append_x m [] in
+  rejects "republication of a published ID" (fun () -> append_x m ~id:o.id []);
   let occupied=Eio.Path.(path / "cur" / (o.id ^ ":2,S")) in
   save occupied "other";
-  (match M.set_flags m o [flag "\\Seen"] with
-   | exception Eio.Io (Eio.Fs.E (Eio.Fs.Already_exists _), _) -> ()
-   | _ -> Alcotest.fail "flag change replaced an existing file");
+  rejects "flag change onto a duplicate identity" (fun () ->
+    M.set_flags m o [flag "\\Seen"]);
   Alcotest.(check string) "existing file kept" "other" (Eio.Path.load occupied);
   Alcotest.(check string) "source kept" "x"
     (Eio.Path.load Eio.Path.(path / "new" / o.filename)))
@@ -635,8 +635,8 @@ Eio_main.run (fun env ->
         (fun () -> test_find_by_name env);
       Alcotest.test_case "epoch INTERNALDATE" `Quick
         (fun () -> test_epoch_date env);
-      Alcotest.test_case "publication never replaces" `Quick
-        (fun () -> test_no_overwrite env);
+      Alcotest.test_case "duplicate identity refused under the lock" `Quick
+        (fun () -> test_duplicate_refused env);
       Alcotest.test_case "stale occurrence exception" `Quick
         (fun () -> test_stale_occurrence env);
       Alcotest.test_case "external keyword file change" `Quick

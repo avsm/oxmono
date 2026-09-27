@@ -106,8 +106,7 @@ val append : ?inventory:paged_inventory -> t -> ?id:string ->
 (** [append t ~source ~length ~flags ()] is the durably published occurrence.
     Exactly [length] bytes are consumed. [id] defaults to a fresh reserved ID.
     A supplied [id] already published in [new] or [cur] under any flags, or
-    recorded in [inventory], raises [Failure] before publication. Publication
-    never replaces an existing file.
+    recorded in [inventory], raises [Failure] before publication.
     [internal_date] defaults to the new file's modification time. Supplied dates
     are set and verified before file sync and publication. Leap seconds and
     unrepresentable timestamps fail. Unknown system flags, Recent and keyword
@@ -122,8 +121,8 @@ val open_message : ?inventory:paged_inventory -> t -> sw:Eio.Switch.t -> occurre
 val set_flags : t -> occurrence -> Mail_flag.Imap_flag.t list -> occurrence
 (** [set_flags t occurrence flags] is the updated occurrence in [cur].
     The basename, modification time, Passed flag and filename extension fields
-    are preserved. An unsupported flag set raises [Failure]. An existing file
-    at the new name is never replaced and raises [Eio.Io].
+    are preserved. An unsupported flag set or an existing file at the new
+    name raises [Failure].
 
     @raise Stale_occurrence if the file no longer matches [occurrence]. *)
 val remove : t -> occurrence -> unit

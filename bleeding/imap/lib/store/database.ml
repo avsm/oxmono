@@ -2,12 +2,17 @@ module S = Sqlite3
 module SE = Sqlite3_eio
 
 type blob_dir = Dir : _ Eio.Path.t -> blob_dir
-type t = { db : SE.t; mutex : Eio.Mutex.t; blob_dir : blob_dir option }
+type t = {
+  db : SE.t;
+  handle : S.db;
+  mutex : Eio.Mutex.t;
+  blob_dir : blob_dir option;
+}
 
 let fail what = failwith ("Imap_store: " ^ what)
 let check t rc =
   if not (S.Rc.is_success rc) then
-    raise (S.SqliteError (S.Rc.to_string rc ^ ": " ^ S.errmsg (SE.db t.db)))
+    raise (S.SqliteError (S.Rc.to_string rc ^ ": " ^ S.errmsg t.handle))
 let sql t statement = check t (SE.exec t.db statement)
 let with_stmt t statement f =
   let stmt = Eio.Cancel.protect (fun () -> SE.prepare t.db statement) in
@@ -81,7 +86,7 @@ let run t statement values =
   with_stmt t statement (fun stmt -> run_prepared t stmt values)
 let rows t statement values =
   with_stmt t statement (fun stmt -> rows_prepared t stmt values)
-let changes t = S.changes (SE.db t.db)
+let changes t = S.changes t.handle
 let text = function S.Data.TEXT x -> x | _ -> fail "expected TEXT"
 let int = function S.Data.INT x -> x | _ -> fail "expected INTEGER"
 let nullable_int = function S.Data.NULL -> None | x -> Some (int x)

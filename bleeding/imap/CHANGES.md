@@ -384,3 +384,7 @@ list, cutting the staging benchmark from 93 MB to 37 MB for 100,000 rows.
 `stage_membership` marks each UID with one UPDATE and reads its change
 count instead of a SELECT before it, cutting the membership phase from
 259 to 187 bytes and from two statements to one per UID.
+
+The store looks up its SQLite handle once per connection instead of on
+each change count, cutting the membership phase from 187 to 107 bytes
+per UID.

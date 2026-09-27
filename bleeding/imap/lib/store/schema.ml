@@ -156,7 +156,8 @@ let initialize db f =
 let open_readonly ~sw path =
   let db = SE.open_path ~sw ~busy_timeout:5000 ~mode:`READONLY path in
   initialize db (fun () ->
-  let t = { db; mutex = Eio.Mutex.create (); blob_dir = None } in
+  let t = { db; handle = SE.db db; mutex = Eio.Mutex.create ();
+    blob_dir = None } in
   transaction ~begin_sql:"BEGIN" t (fun () -> validate_schema t);
   t)
 
@@ -168,7 +169,7 @@ let open_path ~sw ?blob_dir path =
     Dir dir) blob_dir in
   let db = SE.open_path ~sw ~busy_timeout:5000 path in
   initialize db (fun () ->
-  let t = { db; mutex = Eio.Mutex.create (); blob_dir } in
+  let t = { db; handle = SE.db db; mutex = Eio.Mutex.create (); blob_dir } in
   sql t "PRAGMA journal_mode=WAL";
   sql t "PRAGMA synchronous=FULL";
   sql t "PRAGMA foreign_keys=ON";

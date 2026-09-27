@@ -3,9 +3,12 @@
 type blob_dir = Dir : _ Eio.Path.t -> blob_dir
 type t = {
   db : Sqlite3_eio.t;
+  handle : Sqlite3.db;
   mutex : Eio.Mutex.t;
   blob_dir : blob_dir option;
 }
+(** [handle] is [Sqlite3_eio.db db], looked up once because each lookup
+    allocates. *)
 
 val fail : string -> 'a
 

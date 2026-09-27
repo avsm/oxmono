@@ -16,7 +16,8 @@ let contains ~needle haystack =
 let with_db f =
   Eio.Switch.run (fun sw ->
     let db = Sqlite3_eio.open_memory ~sw () in
-    let t = { D.db; mutex = Eio.Mutex.create (); blob_dir = None } in
+    let t = { D.db; handle = Sqlite3_eio.db db; mutex = Eio.Mutex.create ();
+              blob_dir = None } in
     D.sql t "CREATE TABLE kv (k INTEGER PRIMARY KEY, v TEXT NOT NULL)";
     f t)
 

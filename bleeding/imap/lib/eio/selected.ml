@@ -669,6 +669,9 @@ let store_flags t ~set ~operation ~flags ?unchangedsince () =
 let uid_store_flags t ~set ~operation ~flags =
   store_flags t ~set ~operation ~flags ()
 
+let check_gate t capability = run t (fun () -> gate t capability)
+let check_writable t = run t (fun () -> writable t)
+
 let uid_store_saved saved ~operation ~flags ?unchangedsince () =
   let t=saved.owner in
   run t (fun () ->

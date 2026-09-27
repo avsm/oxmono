@@ -13,10 +13,12 @@ let require_move = Imap_eio.Selected.Move.require
 let move = Imap_eio.Selected.Move.uid_move
 let endpoint = Imap_eio.Transport.v
 let credentials = Imap_eio.Auth.password
+let strategy_move = Imap_eio.Mailbox.move
 ML
 "$compiler" -I "$scratch" -c "$scratch/check.ml"
 for hidden in \
   Selected.create Selected.invalidate Selected.uid_move \
+  Selected.check_gate Selected.check_writable \
   Transport.of_flow Transport.connect Transport.upgrade Transport.compress_deflate \
   Auth.resolve_password Auth.resolve_token Auth.plain_response \
   Auth.cram_md5_response Auth.oauthbearer_response; do

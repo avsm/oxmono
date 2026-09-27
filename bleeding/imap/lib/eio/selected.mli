@@ -79,6 +79,15 @@ val uid_store_flags : t -> set:Imap.Uid_set.t ->
   operation:[ `Add | `Remove | `Replace ] ->
   flags:Mail_flag.Imap_flag.t list -> (store_receipt, Error.t) result
 
+val check_gate : t -> Imap.Capability.t -> (unit, Error.t) result
+(** [check_gate t c] is [Ok ()] when a search criterion or fetch item that
+    needs [c] may be sent on [t], and otherwise the error {!uid_search} and
+    {!fetch} would return. It sends nothing. *)
+
+val check_writable : t -> (unit, Error.t) result
+(** [check_writable t] is [Ok ()] when [t] accepts a STORE, and otherwise
+    the error {!uid_store_flags} would return. It sends nothing. *)
+
 type copy_mapping = {
   source_first : Imap.Uid.t;
   destination_first : Imap.Uid.t;

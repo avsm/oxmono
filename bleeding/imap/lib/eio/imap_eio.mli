@@ -1158,6 +1158,152 @@ module Client : sig
   end
 end
 
+module Mailbox : sig
+  (** Mailbox operations that choose their commands from the server's
+      extensions, for mail user agents and proxies that must work across
+      servers. Each operation reports the strategy it chose, so a caller can
+      log it or assert it. A durable syncer that needs exact commands uses
+      {!Selected} directly.
+
+      Obtain a [t] inside {!Client.with_mailbox} with {!of_selected}. It is
+      the lease under another interface and expires with it. *)
+
+  type t
+
+  val of_selected : Selected.t -> t
+  (** [of_selected s] is the strategy layer over the lease [s]. *)
+
+  type ('a, 's) outcome = { strategy : 's; result : ('a, Error.t) result }
+  (** The result of an operation and the strategy that produced it.
+      [strategy] is reported on failure too. It names the strategy chosen,
+      or for {!move} how far the strategy got. *)
+
+  val search : t -> criteria:Imap.Search.t ->
+    (Imap.Uid.t list, [ `Search ]) outcome
+  (** [search t ~criteria] is {!Selected.uid_search}. When [criteria] needs
+      an extension the server lacks, the result is [Error.Unsupported]
+      naming the first such extension in {!Imap.Search.capabilities} order,
+      and nothing is sent. *)
+
+  val fetch : ?drop_unsupported:bool -> t -> uids:Imap.Uid.t list ->
+    items:Imap.Fetch_item.t list ->
+    (Selected.row list, [ `Fetch of int ]) outcome
+  (** [fetch t ~uids ~items] is {!Selected.fetch} over any number of UIDs.
+      It removes repeated UIDs, sends one UID FETCH per 1,000 distinct UIDs
+      in request order and concatenates their rows, and [`Fetch n] reports
+      the [n] round trips. An empty [uids] is [Ok []] with [`Fetch 0].
+      [drop_unsupported] defaults to [false], and then the first item of
+      [items] whose extension the server lacks is the error
+      {!Selected.fetch} would give, before anything is sent. When [true]
+      such items are left out and their fields stay empty. A failed round
+      trip ends the call, discards the rows of earlier ones and counts in
+      [n]. *)
+
+  val store : ?unchangedsince:int64 -> t -> set:Imap.Uid_set.t ->
+    operation:[ `Add | `Remove | `Replace ] ->
+    flags:Mail_flag.Imap_flag.t list ->
+    (Selected.store_receipt, [ `Conditional | `Unconditional ]) outcome
+  (** [store t ~set ~operation ~flags] is {!Selected.uid_store_flags},
+      reported as [`Unconditional]. [unchangedsince] is omitted by default.
+      When given the STORE is {!Selected.Condstore.uid_store_flags},
+      reported as [`Conditional], and a server without CONDSTORE or QRESYNC
+      is [Error.Unsupported Condstore]. A conditional STORE never falls back
+      to an unconditional one. *)
+
+  type move_strategy = [
+    | `Move
+    | `Copy_then_expunge
+    | `Copy_then_flag
+    | `Copied of Selected.copy_receipt option
+    | `Copied_and_flagged of Selected.copy_receipt option ]
+  (** How {!move} ran. [`Move] is one UID MOVE. [`Copy_then_expunge] is
+      UID COPY, a STORE adding [\Deleted] and a UIDPLUS UID EXPUNGE of the
+      same set. [`Copy_then_flag] is UID COPY and a STORE adding
+      [\Deleted], with no EXPUNGE. [`Copied r] and [`Copied_and_flagged r]
+      come only with an error. Each means the copy succeeded with receipt
+      [r], and [`Copied_and_flagged] that the STORE did too, before the
+      next command failed. *)
+
+  val move : t -> set:Imap.Uid_set.t -> mailbox:string ->
+    (Selected.copy_receipt option, move_strategy) outcome
+  (** [move t ~set ~mailbox] moves [set] to the UTF-8 name [mailbox] and is
+      the COPYUID receipt, or [None] when the server sent none. It uses
+      [`Move] when the server offers MOVE, else [`Copy_then_expunge] when
+      it offers UIDPLUS, else [`Copy_then_flag]. The fallbacks check that
+      the mailbox is writable before copying.
+
+      [`Copy_then_flag] leaves the source messages marked [\Deleted] and
+      never sends a mailbox-wide EXPUNGE, which would also remove every
+      other message already marked. The caller must expunge deliberately.
+      A failure of the first command is reported with the strategy chosen.
+      A failure after the copy is reported as [`Copied] or
+      [`Copied_and_flagged], so the caller can reconcile the destination
+      and the source's [\Deleted] flags. *)
+
+  type change =
+    | Flags of Imap.Uid.t * Mail_flag.Imap_flag.t list
+        (** The message's current flags. *)
+    | Vanished of Imap.Uid_set.t  (** UIDs the server reported expunged. *)
+    | New of Imap.Uid.t  (** A message at or above the caller's UIDNEXT. *)
+
+  val changes_since : ?uidnext:Imap.Uid.t -> t -> Imap.Modseq.t option ->
+    (change list, [ `Qresync | `Condstore | `Full ]) outcome
+  (** [changes_since t since] is the changes after the MODSEQ [since].
+
+      With [Some m] and QRESYNC enabled it is [`Qresync], one
+      {!Selected.Qresync.fetch_changes} with VANISHED over every UID, in
+      wire order. With [Some m] and CONDSTORE or QRESYNC offered but
+      QRESYNC not enabled it is [`Condstore], a
+      {!Selected.Condstore.fetch_changes_range} per window. It reports no
+      [Vanished], so confirm that a message is absent separately, for
+      instance with {!search}. Otherwise it is [`Full], a
+      {!Selected.fetch_range} of FLAGS per window, and every message is a
+      [Flags] change. Windows span 1,000 UIDs from UID 1 to below the
+      UIDNEXT that SELECT reported, so a message delivered during the lease
+      waits for the next call.
+
+      [uidnext] is omitted by default. When given it is the UIDNEXT the
+      caller recorded with [since], and a change for a UID at or above it
+      is [New uid] rather than [Flags]. A row without FLAGS is left out. *)
+
+  val list_with_status : Client.t -> ?reference:string -> pattern:string ->
+    Imap.Status_item.t list ->
+    ((Client.mailbox_entry * Imap.Response.mailbox_status option) list,
+     [ `List_status | `List_then_status ]) outcome
+  (** [list_with_status c ~pattern items] is every LIST row matching
+      [pattern] under [reference], which defaults to [""], each paired with
+      the STATUS of [items] for its mailbox. It uses [`List_status], one
+      {!Client.list_extended} with RFC 5819 STATUS, when the server offers
+      LIST-EXTENDED and LIST-STATUS or is in effective IMAP4rev2. Otherwise
+      it uses [`List_then_status], one {!Client.list} and then one
+      {!Client.status} per selectable row. [None] means no STATUS. Under
+      [`List_then_status] that is a row that is not selectable, whose name
+      does not decode, or whose STATUS the server answered with NO, and any
+      other failure ends the call. An empty [items] is [Error.State].
+
+      It takes the connection, not a lease. A call inside
+      {!Client.with_mailbox} on the same connection is [Error.State] and
+      sends nothing. *)
+
+  val wait : t -> clock:_ Eio.Time.clock -> poll_seconds:float ->
+    (Imap.Response.t list, [ `Idle | `Poll ]) outcome
+  (** [wait t ~clock ~poll_seconds] blocks until the server reports a
+      change and is the responses of the round that reported it, in wire
+      order. It uses [`Idle], repeated {!Selected.Idle.wait_for_change},
+      when the server offers IDLE, and otherwise [`Poll], a
+      {!Selected.noop} after each sleep of [poll_seconds] on [clock]. A
+      change is an EXISTS, EXPUNGE, FETCH or VANISHED response, or an
+      untagged status response with a response code. A round without one,
+      such as a bare [* OK] keepalive, is dropped and the wait continues,
+      and a bare [* OK] is removed from the result.
+
+      [wait] has no timeout, so the caller applies its own, for instance
+      with [Eio.Time.with_timeout]. Cancelling [`Idle] closes the
+      connection, as {!Selected.Idle.wait_for_change} documents, so
+      reconnect and reconcile afterwards. Cancelling [`Poll] during a sleep
+      leaves the connection usable. Use a dedicated connection. *)
+end
+
 module Pool : sig
   (** A bounded Eio pool of authenticated IMAP connections.
 

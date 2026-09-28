@@ -428,3 +428,8 @@ The store's SQLite connection sits behind its mutex: `Database.locked`
 and `transaction` hand it to their callback, and nothing else reaches
 it. `Database` is portable, and its `t` crosses portability and
 contention.
+
+`Imap_store.t` crosses portability and contention, and every store
+function is portable except `open_path` and the `Blob` functions that
+read or write the blob directory. A probe opens a store and reads it
+from a portable closure in a second domain.

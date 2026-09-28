@@ -42,4 +42,4 @@
 (test
  (name test_modes)
  (modules test_modes)
- (libraries imap imap.store mail-flag alcotest))
+ (libraries imap imap.store mail-flag eio eio_main alcotest))

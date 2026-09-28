@@ -1,3 +1,5 @@
+@@ portable
+
 (** Durable IMAP mailbox snapshots, sync journal and message blobs.
 
     A store is one SQLite database and, when one is given, a directory of
@@ -26,20 +28,26 @@
     [Failure], and a blob I/O failure raises [Eio.Io].
 
     Every type other than {!t} is immutable data, so a portable closure
-    may capture the records a store returns. No function is portable,
-    since each calls [Sqlite3], [Sqlite3_eio] or [Eio]. *)
+    may capture the records a store returns. It may also capture a store
+    and call its functions, except {!open_path} and the {!Blob} functions
+    that read or write the blob directory. *)
 
 (** {1 Stores} *)
 
-type t
-(** The type for open stores. *)
+type t : value mod portable contended
+(** The type for open stores. A store crosses portability and contention,
+    since its mutex, which Eio makes safe to share between domains, guards
+    every use of its SQLite connection. Its blob directory is used only by
+    the nonportable functions, so it stays in the domain that opened the
+    store. *)
 
 exception Scope_mismatch
 (** Raised by {!load_cursor} when the stored cursor for the scope's
     endpoint, account and mailbox key names another raw name, encoding or
     mailbox ID. *)
 
-val open_path : sw:Eio.Switch.t -> ?blob_dir:_ Eio.Path.t -> _ Eio.Path.t -> t
+val open_path : sw:Eio.Switch.t -> ?blob_dir:_ Eio.Path.t -> _ Eio.Path.t ->
+  t @@ nonportable
 (** [open_path ~sw ~blob_dir path] opens the database at [path] for reading
     and writing, creating it and its schema when absent, and is the store,
     which [sw] owns. An existing database must hold exactly the schema of
@@ -779,14 +787,14 @@ module Blob : sig
 
   val find : t -> scope:Imap.Mirror.scope ->
     uidvalidity:Imap.Uidvalidity.t -> uid:Imap.Uid.t ->
-    blob option
+    blob option @@ portable
   (** [find t ~scope ~uidvalidity ~uid] is the blob the message [uid] of
       epoch [uidvalidity] of [scope] references, or [None]. *)
 
   val missing_page : t -> scope:Imap.Mirror.scope ->
     cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
     limit:int -> unit ->
-    [ `Uids of Imap.Uid.t list | `Stale_revision ]
+    [ `Uids of Imap.Uid.t list | `Stale_revision ] @@ portable
   (** [missing_page t ~scope ~cursor ~after_uid ~limit ()] is at most
       [limit] UIDs of the published snapshot of [scope] above [after_uid],
       in ascending order, whose messages have no blob reference, with
@@ -800,7 +808,7 @@ module Blob : sig
   val referenced_page : t -> scope:Imap.Mirror.scope ->
     cursor:Imap.Mirror.cursor -> ?after_uid:Imap.Uid.t ->
     limit:int -> unit ->
-    [ `Refs of (Imap.Uid.t * blob) list | `Stale_revision ]
+    [ `Refs of (Imap.Uid.t * blob) list | `Stale_revision ] @@ portable
   (** [referenced_page t ~scope ~cursor ~after_uid ~limit ()] is at most
       [limit] messages of the published snapshot of [scope] above
       [after_uid] with their blobs, in ascending UID order, for the
@@ -813,7 +821,7 @@ module Blob : sig
 
   val detach_if_matches : t -> scope:Imap.Mirror.scope ->
     cursor:Imap.Mirror.cursor -> uid:Imap.Uid.t -> blob ->
-    [ `Detached | `Unchanged | `Stale_revision ]
+    [ `Detached | `Unchanged | `Stale_revision ] @@ portable
   (** [detach_if_matches t ~scope ~cursor ~uid blob] removes the reference
       from the message [uid] to [blob], after the caller found the file
       missing or corrupt, and is [`Detached]. It does not remove the file.
@@ -844,4 +852,4 @@ module Blob : sig
       it. [removed] runs before that sync, so it does not prove
       durability. A crash during reaping leaves the remaining candidates
       for the next call. *)
-end
+end @@ nonportable

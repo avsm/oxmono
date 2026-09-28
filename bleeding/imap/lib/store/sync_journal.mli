@@ -1,3 +1,5 @@
+@@ portable
+
 (** Durable pairs, conflicts and operations for the bidirectional driver,
     documented in [Imap_store.Journal]. *)
 

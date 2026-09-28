@@ -1,13 +1,16 @@
-(* Compile-time probes of the kind claims in the store facade. Each
-   abbreviation in [Kinds] compiles only when its kind holds. The probe is
-   a closure bound at portable mode, as in [let (f @ portable) = fun () ->
-   ...], that captures module-level records and reads them, so it compiles
-   only when their types cross portability and contention. No store
-   function is portable, since each calls Sqlite3, Sqlite3_eio or Eio. *)
+(* Compile-time probes of the kind and mode claims in the store facade.
+   Each abbreviation in [Kinds] compiles only when its kind holds. Each
+   probe is a closure bound at portable mode, as in [let (f @ portable) =
+   fun () -> ...]. [records] captures module-level records and reads them,
+   so it compiles only when their types cross portability and contention.
+   [lookup] captures an open store and calls store functions, so it
+   compiles only when [Imap_store.t] crosses both and the functions are
+   portable. It runs here and in a second domain. *)
 
 module J = Imap_store.Journal
 
 module Kinds = struct
+  type store : value mod portable contended = Imap_store.t
   type object_identity : immutable_data = Imap_store.object_identity
   type staged_receipt : immutable_data = Imap_store.staged_receipt
   type tombstone_reason : immutable_data = J.tombstone_reason
@@ -75,6 +78,32 @@ let test_records () =
   Alcotest.(check string) "operation" "append sent" operation;
   Alcotest.(check int64) "append" 6L frontier
 
+let shared_store env store =
+  let created = match J.put_pair store ~expected_revision:None
+      { pair with remote_tombstone = None; revision = 0L } with
+    | `Committed p -> p
+    | `Stale_revision -> failwith "pair not created" in
+  let (lookup @ portable) = fun () ->
+    (Imap_store.load_cursor store ~scope).revision,
+    J.find_pair store ~id:"p1" in
+  let here = lookup () in
+  let there =
+    Eio.Domain_manager.run (Eio.Stdenv.domain_mgr env) lookup in
+  Alcotest.(check bool) "same in both domains" true (here = there);
+  Alcotest.(check int64) "initial revision" 0L (fst here);
+  Alcotest.(check bool) "pair found" true (snd here = Some created)
+
+let test_store () =
+  Eio_main.run @@ fun env ->
+  let path = Filename.temp_file "imap-store-modes-" ".db" in
+  Fun.protect ~finally:(fun () -> List.iter (fun path ->
+      try Sys.remove path with Sys_error _ -> ())
+      [ path; path ^ "-wal"; path ^ "-shm" ])
+    (fun () -> Eio.Switch.run @@ fun sw ->
+      shared_store env
+        (Imap_store.open_path ~sw Eio.Path.(Eio.Stdenv.fs env / path)))
+
 let () =
   Alcotest.run "Imap_store kinds and modes" [
-    "portable", [ Alcotest.test_case "records" `Quick test_records ] ]
+    "portable", [ Alcotest.test_case "records" `Quick test_records;
+                  Alcotest.test_case "store" `Quick test_store ] ]

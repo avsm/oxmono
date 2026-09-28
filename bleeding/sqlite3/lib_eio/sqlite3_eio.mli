@@ -1,3 +1,5 @@
+@@ portable
+
 (** Eio-friendly wrapper for SQLite3.
 
     This module wraps blocking SQLite3 operations so they run in system
@@ -22,6 +24,14 @@
 
     SQLite defaults to serialized threading mode ([SQLITE_THREADSAFE=1]),
     so multiple fibers sharing a handle via system threads are safe.
+
+    {2 Portability}
+
+    Every value is portable, so a portable closure may call it, and such a
+    closure recognises the exceptions raised here with {!Eio.Exn.is_io}.
+    [t] is an Eio resource of kind [value], so a portable closure cannot
+    capture a handle. Pass the handle to it as an argument. Every operation
+    takes its handle uncontended.
 
     {2 Non-blocking operations}
 

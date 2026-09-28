@@ -42,7 +42,9 @@ let close_state st =
     st.closed <- true;
     ignore (Sqlite3.db_close st.handle : bool))
 
-let handler =
+(* A handler has no kind, so a module-level one would keep every function
+   that captures it nonportable. Each open builds its own. *)
+let handler () =
   Eio.Resource.handler
     [
       H (Sqlite3_db, Fun.id);
@@ -111,14 +113,14 @@ let open_db ~sw ?busy_timeout ?mode ?uri ?mutex ?cache ?vfs filename =
   in
   Option.iter (Sqlite3.busy_timeout handle) busy_timeout;
   let st = { handle; closed = false } in
-  let t : t = Eio.Resource.T (st, handler) in
+  let t : t = Eio.Resource.T (st, handler ()) in
   Eio.Switch.on_release sw (fun () -> close_state st);
   t
 
 let open_path ~sw ?busy_timeout ?mode ?uri ?mutex ?cache ?vfs path =
   let filename = Eio.Path.native_exn path in
   try open_db ~sw ?busy_timeout ?mode ?uri ?mutex ?cache ?vfs filename
-  with Eio.Exn.Io _ as ex ->
+  with ex when Eio.Exn.is_io ex ->
     let bt = Printexc.get_raw_backtrace () in
     Eio.Exn.reraise_with_context ex bt "opening database %a" Eio.Path.pp path
 

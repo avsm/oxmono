@@ -17,6 +17,8 @@
   portability. Functions and collations a handle stores must be portable.
 - An aggregate accumulator's type must cross contention and portability.
 - The README states the portability contract for handles and callbacks.
+- Every `Sqlite3_eio` value is portable. A portable closure takes a handle
+  as an argument, since an Eio resource cannot be captured.
 
 ### Fixed
 

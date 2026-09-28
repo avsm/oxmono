@@ -10,7 +10,7 @@ type t = {
 (** [handle] is [Sqlite3_eio.db db], looked up once because each lookup
     allocates. *)
 
-val fail : string -> 'a
+val fail : string -> 'a @@ portable
 
 val check : t -> Sqlite3.Rc.t -> unit
 (** [check t rc] raises [Sqlite3.SqliteError] carrying the name of [rc] and
@@ -71,14 +71,17 @@ val batch_row : t -> Sqlite3.stmt -> Sqlite3.Data.t array option
 val changes : t -> int
 (** [changes t] is the number of rows changed by the last write. *)
 
-val text : Sqlite3.Data.t -> string
-val int : Sqlite3.Data.t -> int64
-val nullable_int : Sqlite3.Data.t -> int64 option
-val nullable_text : Sqlite3.Data.t -> string option
-val i : int64 -> Sqlite3.Data.t
-val s : string -> Sqlite3.Data.t
-val ni : int64 option -> Sqlite3.Data.t
-val ns : string option -> Sqlite3.Data.t
+val text : Sqlite3.Data.t -> string @@ portable
+val int : Sqlite3.Data.t -> int64 @@ portable
+val nullable_int : Sqlite3.Data.t -> int64 option @@ portable
+val nullable_text : Sqlite3.Data.t -> string option @@ portable
+val i : int64 -> Sqlite3.Data.t @@ portable
+val s : string -> Sqlite3.Data.t @@ portable
+val ni : int64 option -> Sqlite3.Data.t @@ portable
+val ns : string option -> Sqlite3.Data.t @@ portable
+(** [fail] and the value codecs are portable, so a portable closure may
+    call them. The other operations call [Sqlite3], [Sqlite3_eio] or [Eio]
+    and are not. *)
 
 val locked : t -> (unit -> 'a) -> 'a
 (** [locked t f] runs [f] holding [t.mutex] without opening an SQL

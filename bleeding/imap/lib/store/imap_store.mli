@@ -23,7 +23,11 @@
 
     Unless a value says otherwise, a SQLite failure raises
     [Sqlite3.SqliteError], a stored row that cannot be decoded raises
-    [Failure], and a blob I/O failure raises [Eio.Io]. *)
+    [Failure], and a blob I/O failure raises [Eio.Io].
+
+    Every type other than {!t} is immutable data, so a portable closure
+    may capture the records a store returns. No function is portable,
+    since each calls [Sqlite3], [Sqlite3_eio] or [Eio]. *)
 
 (** {1 Stores} *)
 

@@ -407,3 +407,7 @@ both types now cross portability and contention. `Uid` and
 
 `Selected` folds FETCH rows and paged SEARCH results into `Base` maps
 and sets instead of stdlib ones.
+
+The store interface states that its records are immutable data a
+portable closure may capture, and a probe test checks it. No store
+function is portable, since each calls `Sqlite3`, `Sqlite3_eio` or `Eio`.

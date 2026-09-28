@@ -92,7 +92,16 @@ let nested t =
   if List.rev !order <> ["first"; "second"] then
     failwith "concurrent transactions did not serialize"
 
+(* The binding compiles only while [fail] and the value codecs are
+   portable. *)
+let (codecs @ portable) = fun () ->
+  D.text (D.s "x"), D.int (D.i 3L), D.nullable_int (D.ni None),
+  D.nullable_text (D.ns (Some "y")),
+  (match D.fail "probe" with exception Failure m -> m | () -> "")
+
 let () =
+  if codecs () <> ("x", 3L, None, Some "y", "Imap_store: probe") then
+    failwith "value codecs";
   Eio_main.run (fun _ ->
     with_db bind_count;
     with_db prepared_reuse;

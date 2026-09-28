@@ -270,7 +270,7 @@ run only once everything else works.
 | 21 | Portable collections: replace stdlib `Set`, `Map` and module-level `Hashtbl` with `Base.Set`, `Base.Map` and iarrays so the store, sync and remaining eio types carry kinds, then annotate `@@ portable` wherever the compiler accepts, with probes | done; ten commits, `Uid.to_int` halves the staging allocation, Base collections, portable values in every library except behind Sqlite3, Eio I/O and decompress | 43b1f5428 |
 | 22 | Portable sqlite3 binding: `@@ portable` on `bleeding/sqlite3/lib` with the callback-taking functions requiring portable closures, `db` and `stmt` declared `value mod portable`, probe tests | done; four commits, every value portable, stored callbacks portable, aggregate accumulators kinded, a captured handle is contended and so unusable | fdcadd25d |
 | 23 | Portable vendored Eio: a kind on `Exn.err` and `Fiber.key`, `@@ portable` on `run_in_systhread`, `Fiber.first`, `Cancel.protect` and `Time.with_timeout_exn`, recorded in `vendor/eio/VENDORED.md`, every `err +=` site in the tree still building, probes outside vendor | done; the compiler rejects a kind on `err`, so `Exn.is_io` instead, `Fiber.key` crosses, five values made portable, no payload changed | b7063e175 |
-| 24 | Portable sqlite3-eio on top of steps 22 and 23, probes | todo | |
+| 24 | Portable sqlite3-eio on top of steps 22 and 23, probes | done; every value portable, a handle is an Eio resource of kind `value` and is passed rather than captured | 07f4e3e03 |
 | 25 | Flip `@@ portable` on the store, sync and Eio-client values that steps 22 to 24 unblock, with probes, and record what still blocks | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
@@ -1354,6 +1354,28 @@ and 264 cases plus the plain executables and the new probe.
 `bleeding/sqlite3`'s `test_win` flake failed three of five runs on this
 branch. The pristine base in a scratch worktree failed three of four, and
 the test links only `str` and `sqlite3`.
+
+Step 24. Done: in one commit, 07f4e3e03. sqlite3_eio.mli is floating
+`@@ portable` with no value exempt. The compiler rejected two things in
+the module. `open_db` captured the module-level Eio resource `handler`,
+whose type has no kind, so each open now builds its own handler.
+`open_path` matched `Eio.Exn.Io _` to add the path to the context, and now
+guards with `Eio.Exn.is_io`. `err` and `prepare` already raised through
+`Eio.Exn.create`. The systhread race in `run` and its cancellation are
+unchanged, and `run_in_systhread`, `Fiber.first` and `Cancel.protect`
+accepted their closures as they stand. No kind is declared on `t`:
+``[ `Sqlite3 | `Close ] Eio.Resource.t`` has kind `value non_float`, and
+declaring `value mod portable` fails with ``The kind of type "[ `Close |
+`Sqlite3 ] Eio.Resource.t" is value non_float``. So no portable closure
+can capture a handle, and the interface says to pass one as an argument,
+uncontended. The probe bleeding/sqlite3/test_eio/test_portable.ml binds
+portable closures: `query` takes a handle and runs a statement through
+`run`, plus `exec`, `prepare`, `step`, `reset`, `fold` and `finalize`;
+`round_trip` opens its own handle and also runs under
+`Eio.Domain_manager.run`; `unopenable` recognises the open failure with
+`Eio.Exn.is_io`. Removing the floating attribute fails it with `The value
+"Sqlite3_eio.exec" is "nonportable"`. Build and runtest are clean, 22
+alcotest suites and 264 cases plus the plain executables.
 
 ### Step F notes
 

@@ -271,7 +271,7 @@ run only once everything else works.
 | 22 | Portable sqlite3 binding: `@@ portable` on `bleeding/sqlite3/lib` with the callback-taking functions requiring portable closures, `db` and `stmt` declared `value mod portable`, probe tests | done; four commits, every value portable, stored callbacks portable, aggregate accumulators kinded, a captured handle is contended and so unusable | fdcadd25d |
 | 23 | Portable vendored Eio: a kind on `Exn.err` and `Fiber.key`, `@@ portable` on `run_in_systhread`, `Fiber.first`, `Cancel.protect` and `Time.with_timeout_exn`, recorded in `vendor/eio/VENDORED.md`, every `err +=` site in the tree still building, probes outside vendor | done; the compiler rejects a kind on `err`, so `Exn.is_io` instead, `Fiber.key` crosses, five values made portable, no payload changed | b7063e175 |
 | 24 | Portable sqlite3-eio on top of steps 22 and 23, probes | done; every value portable, a handle is an Eio resource of kind `value` and is passed rather than captured | 07f4e3e03 |
-| 25 | Flip `@@ portable` on the store, sync and Eio-client values that steps 22 to 24 unblock, with probes, and record what still blocks | todo | |
+| 25 | Flip `@@ portable` on the store, sync and Eio-client values that steps 22 to 24 unblock, with probes, and record what still blocks | done; the connection sits behind the store mutex and a store crosses portability and contention, 135 of 150 store values portable, every client exchange still blocked by three decompress values | 524b6af90 |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
 becomes its own package now; the `imap` package split into protocol, eio and
@@ -1376,6 +1376,132 @@ portable closures: `query` takes a handle and runs a statement through
 `Eio.Exn.is_io`. Removing the floating attribute fails it with `The value
 "Sqlite3_eio.exec" is "nonportable"`. Build and runtest are clean, 22
 alcotest suites and 264 cases plus the plain executables.
+
+Step 25. Done: in four commits, 4583a957b (the connection behind the
+lock), b107a8351 (store), ddb135cf7 (eio) and 524b6af90 (sync). Counts
+are value declarations in each library's interfaces, portable over total,
+at a314f8ae5 and after this step. The facade `imap_eio.mli` repeats the
+claims of the core modules and is counted apart.
+
+| Library | Before | After |
+|---|---|---|
+| sqlite3 | 105/105 | 105/105 |
+| sqlite3-eio | 0/13 | 13/13 |
+| imap (protocol) | 199/199 | 199/199 |
+| imap.store, 6 interfaces | 26/147 | 135/150 |
+| imap.eio core, 9 interfaces | 56/171 | 79/171 |
+| imap.eio facade `Imap_eio` | 31/124 | 48/124 |
+| imap.sync with its private libraries, 13 interfaces | 24/87 | 36/87 |
+| maildir | 12/27 | 12/27 |
+
+Handle access. The vendored `Eio.Mutex` only locks: `use_rw` and
+`use_ro` take `unit -> 'a`, and `t` carries no kind, so a contended holder
+gets nothing uncontended from it. `Base` has no such cell. The switch's
+`capsule` library protects data behind a blocking mutex and builds and
+reads it only through portable closures, while a store is opened from a
+switch and an `Eio.Path` and read by nonportable callbacks, so it does not
+fit. `Database` therefore became the cell. `conn = { db; handle }` is the
+connection and every statement operation takes one. `t` is abstract and
+holds the `conn`, the Eio mutex and the blob directory. `locked t f` and
+`transaction t f` hand the `conn` to `f` under the mutex, so store code
+reads `transaction t (fun t -> ...)` with the connection shadowing the
+store. The orphan scan kept one statement across many lock sections, and
+now uses `with_stmt_across_locks`, which takes the lock, protected from
+cancellation, to prepare and to finalize. The schema setup PRAGMAs run
+under `locked` on the fresh store. `blob_dir : t -> blob_dir option @@
+nonportable` is the one reader of the directory.
+
+Kind. `Database.t` and `Imap_store.t` are `value mod portable contended`,
+asserted with `[@@unsafe_allow_any_mode_crossing]` because no field
+crosses: an Eio resource is `value non_float`, `Eio.Mutex.t` has no kind
+and a path holds closures. Contention is claimed because every access to
+the connection goes through `locked`, which holds the mutex, and the
+vendored README says Eio's mutexes "are all safe to use in parallel from
+multiple domains", which eio_mutex.ml keeps with a `Stdlib.Mutex` around
+its state. The directory needs no lock: a portable closure cannot name
+the nonportable `blob_dir` or any function that calls it, so only the
+opening domain touches it. One path stays outside the lock. The switch
+that opened the store closes the handle on release, in its own domain,
+and a store used after that fails with `Closed` as before. Probes:
+test/store/database/test_database.ml has `Kinds.t` and `shared`, a
+portable closure over a `t` that writes through `transaction`, `batch`
+and `with_stmt_across_locks`, run here and under
+`Eio.Domain_manager.run`. test/store/test_modes.ml has `Kinds.store` and
+the "store" case, a portable closure over an open store that calls
+`load_cursor` and `Journal.find_pair`, also run in a second domain. The
+store is bound inside the test, not at module level, because opening
+needs a switch and a running event loop. Removing each claim fails its
+probe: `The kind of type "Imap_store.t" is value`, `The value
+"Imap_store.load_cursor" is "nonportable"`, `The kind of type "D.t" is
+value mod portable`, `The value "D.transaction" is "nonportable"`.
+
+Store. Schema, Sync_journal, Blob_store and Imap_store are floating, and
+Record_codec lost its four exemptions. A floating attribute makes a nested
+signature portable and a value inside cannot opt out, so `Imap_store.Blob`
+is `end @@ nonportable` with `find`, `missing_page`, `referenced_page` and
+`detach_if_matches` claimed each. Exempt: `open_path` in Schema and
+Imap_store (`Eio.Path.is_directory`), `Blob.put`, `verify` and `attach`
+(`Eio.Path.( / )`), `open_in` (`Eio.Path.open_in`), and
+`iter_orphan_candidates` and `reap_orphans_iter` (`Eio_unix.Err.v`).
+
+Eio. `Session.io_failure` ends in `ex -> Eio.Exn.is_io ex` and the dial
+retry in `Transport.v` guards with `Eio.Exn.is_io`. Nothing built `Eio.Io`
+directly, and `Deflate_flow` already raised through `Eio.Exn.create`.
+Session, Transport, Client, Selected, Mailbox and Deflate_flow are
+floating with each rejected value exempt, and a witness submodule with a
+rejected value is `end @@ nonportable` with its `require` claimed. Newly
+portable are `Session.io_failure` and `protect`, freed by `is_io`,
+`Session.with_lease`, freed by the fiber-key patch, `Session.locked`,
+which needed both,
+`Selected.info`, `select_updates`, `check_gate`, `check_writable` and all
+fourteen witness `require`s, and `Client.Objectid_plus.pin_mailbox`. The
+facade claims the public ones.
+test/eio/test_modes.ml gains the "lease state" case, running
+`lease_state` on a core lease and `session_guards` on a session, and the
+compile-only `facade_lease` and `pin`. `Transport.v` is still exempt,
+now for `Ca_certs.system_authenticator`.
+
+Sync. Deletion, Flags, Local_inventory and Pair_evidence are floating.
+Newly portable: `Local_inventory.find` and `page`, probed by `staged`, and
+ten private `Pair_evidence` helpers that read only the store
+(`commit_new_pair`, `commit_tombstones`, `current_pair`,
+`finish_expunge`, `finish_unlink`, `journaled_at`, `operation_pair`,
+`published_presence`, `snapshot_has_uid`, `snapshot_row`), proved by
+their own ml/mli check. Bridge, Engine, Plan, Repair, Spool and Watch
+have no portable value and stay unannotated.
+
+Remaining blockers, each a dependency value, all with `The value "…" is
+"nonportable" but is expected to be "portable"`:
+
+- decompress. `De.Queue.create` blocks `Deflate_flow.create`, hence
+  `Transport.compress_deflate`, `Session.compress_deflate` and
+  `Client.Compress.activate`. `De.Inf.dst_rem` blocks
+  `Deflate_flow.read`, hence `Transport.read`, `Session.read_response`,
+  `append`, `append_many`, `idle_once` and `authenticate_initial`, and
+  through the greeting `Client.connect` and `of_flow`.
+  `De.Def.dst_rem` blocks `Deflate_flow.write`, hence `Transport.write`,
+  `Session.command_result`, `command`, `authenticate_cram_md5` and
+  `logout`. Every other Client and Selected command ends at
+  `Session.command` or `command_result`, and every `Mailbox` strategy but
+  `of_selected` at a Selected command. Annotating those three values is
+  the next lever for the whole client.
+- ca-certs: `Ca_certs.system_authenticator` (`Transport.v`).
+- Eio: `Eio.Path.( / )`, `open_in`, `is_directory`, `unlink`
+  (`Spool.with_spool`), `with_open_in` (`Spool.hash_file`) and `read_dir`
+  (`Local_inventory.recover`), and `Eio_unix.Err.v`.
+- digestif: `Digestif.SHA256.empty`, `init`, `feed_string`,
+  `feed_bigstring`, `get` and `to_hex`, each rejected by a scratch probe.
+  They sit behind the path blockers in Spool, Blob_store and Maildir.
+- maildir, which this step did not annotate: `Maildir.find`,
+  `with_writer`, `with_unchanged_occurrence`, `sha256`, `open_message`,
+  `append` and `check_append` block `Local_inventory` and
+  `Pair_evidence`, hence every Flags, Deletion, Bridge, Repair and Engine
+  driver. A scratch flip of maildir.mli traced them to `Eio.Path.( / )`,
+  `stat`, `native` and `read_dir`, `Eio_unix.Err.v`, and for
+  `check_append` the module-level partial application `has_keywords`.
+
+Build and runtest are clean, 22 alcotest suites and 266 cases plus the
+plain executables.
 
 ### Step F notes
 

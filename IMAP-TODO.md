@@ -269,7 +269,7 @@ run only once everything else works.
 | 20 | IDLE with a deadline: `Selected.Idle.wait_for_change` takes a clock and timeout and sends DONE from a timer fiber instead of cancelling the read, `Watch` renews without reconnecting, `Mailbox.wait` uses it | done | 4d164450e |
 | 21 | Portable collections: replace stdlib `Set`, `Map` and module-level `Hashtbl` with `Base.Set`, `Base.Map` and iarrays so the store, sync and remaining eio types carry kinds, then annotate `@@ portable` wherever the compiler accepts, with probes | done; ten commits, `Uid.to_int` halves the staging allocation, Base collections, portable values in every library except behind Sqlite3, Eio I/O and decompress | 43b1f5428 |
 | 22 | Portable sqlite3 binding: `@@ portable` on `bleeding/sqlite3/lib` with the callback-taking functions requiring portable closures, `db` and `stmt` declared `value mod portable`, probe tests | done; four commits, every value portable, stored callbacks portable, aggregate accumulators kinded, a captured handle is contended and so unusable | fdcadd25d |
-| 23 | Portable vendored Eio: a kind on `Exn.err` and `Fiber.key`, `@@ portable` on `run_in_systhread`, `Fiber.first`, `Cancel.protect` and `Time.with_timeout_exn`, recorded in `vendor/eio/VENDORED.md`, every `err +=` site in the tree still building, probes outside vendor | todo | |
+| 23 | Portable vendored Eio: a kind on `Exn.err` and `Fiber.key`, `@@ portable` on `run_in_systhread`, `Fiber.first`, `Cancel.protect` and `Time.with_timeout_exn`, recorded in `vendor/eio/VENDORED.md`, every `err +=` site in the tree still building, probes outside vendor | done; the compiler rejects a kind on `err`, so `Exn.is_io` instead, `Fiber.key` crosses, five values made portable, no payload changed | b7063e175 |
 | 24 | Portable sqlite3-eio on top of steps 22 and 23, probes | todo | |
 | 25 | Flip `@@ portable` on the store, sync and Eio-client values that steps 22 to 24 unblock, with probes, and record what still blocks | todo | |
 
@@ -1289,6 +1289,71 @@ without its annotation (`Sqlite3 accepts a nonportable ...`). For step 25,
 `Rc.t` has kind `value` because `Rc.unknown` is abstract. Build and runtest
 are clean for sqlite3, imap, maildir and jmap, 22 alcotest suites and 264
 cases plus the sqlite3 inline tests, test_portable and check_portable.sh.
+
+Step 23. Done: in two commits, b7063e175 (the vendored Eio patch and its
+probe) and 98d2021e6 (its record in vendor/eio/VENDORED.md). The target
+set is every Eio value that sqlite3_eio.ml and database.ml use:
+`Cancel.protect`; `Fiber.create_key`, `get`, `with_binding`, `first`,
+`await_cancel` and the `key` type; `Mutex.use_ro`; `Path.native_exn` and
+`pp`; `Exn.create`, `reraise_with_context`, `register_pp`,
+`Backend.register_pp`, `Backend.pp` and the `Io` and `X` constructors;
+`Resource.get`, `handler` and the `T` and `Close` constructors;
+`Switch.on_release`; `Eio_unix.run_in_systhread` and `sleep`. Of these,
+`Cancel.protect`, every `Fiber` value, `Mutex.use_ro`, `Resource`,
+`Switch.on_release`, `Exn.create` and `reraise_with_context` were already
+portable through ebcc086d0.
+
+A kind on an extensible variant is rejected. `type err : value mod
+portable contended = ..` fails with `The kind of type "err" is value
+non_float because it's an extensible variant type. But the kind of type
+"err" must be a subkind of value mod portable contended because of the
+annotation on the declaration of the type err.` `mod portable` alone fails
+the same way, and `[@@unsafe_allow_any_mode_crossing]` is refused with
+"Only records, unboxed products, and variants are supported." The probes
+show the crossing rule binds only exception constructors. A portable
+function may build and match `err` and `Backend.t` constructors whose
+payloads do not cross, `Eio.Exn.X` of a backend error among them, so no
+`err +=` or `Backend.t +=` payload needed a change and none was edited.
+Matching `Eio.Io` needs both its arguments to cross. The modality
+`exception Io of err @@ portable * context`, with `context :
+immutable_data`, lets portable code match `Io`, but it makes
+`Exn.create`, `Net.err` and `Process.err` take `err @ portable`. The build
+then failed in `Sqlite3_eio.err`, `Atp.Eio_error.raise_` and
+`Fetch.Middleware.err`, and one round later in fetch's `decode_failure`
+through `Httpz_media.error`, so it was reverted. Building `Io` inside a
+portable function also needs `@@ contended`, and a scratch probe showed
+that makes every matched payload contended. Chosen instead:
+`Eio.Exn.is_io : exn -> bool @@ portable`. Step 25 rewrites the `Eio.Io _`
+arms of `Session.io_failure` and `Transport.v` as `ex when Eio.Exn.is_io
+ex`, and raises through `Eio.Exn.create`.
+
+Annotated: `Fiber.key` is an unboxed record whose `Hmap.key` field carries
+`@@ portable contended`, declared `value mod portable contended`, since a
+key is an immutable identifier. `Path.pp` and `native_exn` call
+`Format.fprintf` and `Format.asprintf`, which `Fmt.pf` and `Fmt.str`
+alias. `Time.with_timeout_exn` is annotation only. `run_in_systhread` and
+`Eio_unix.sleep` perform through a portable `%perform` external, and the
+idle-thread timer, which reaches the unannotated `Zzz` and `Psq`, is
+asserted portable in `Thread_pool.schedule_drop`. The closure
+`run_in_systhread` runs stays nonportable, because a system thread shares
+the domain and its runtime lock. No signature is tightened. The probe is
+bleeding/imap/test/vendor_modes, linking only `eio`, `eio.unix` and
+`eio_main`: a `Kinds.key` abbreviation and portable closures that raise
+and recognise `Io`, read a module-level key, and call each value above.
+Removing any one claim fails the probe with `The value "…" is
+"nonportable" but is expected to be "portable"`, or for the kind `The kind
+of type "int Eio.Fiber.key" is value mod portable`. Removing `Fiber.first`
+or `Cancel.protect` from the portable signature fails the Eio build first,
+in `Domain_manager.run` and `Eio_mutex.use_rw` respectively.
+
+Left unannotated: `Exn.register_pp`, `Backend.register_pp` and
+`Backend.pp`, which are `@@ nonportable` over mutable printer lists and run
+only at module initialisation, and `Path.native` and `Time.with_timeout`,
+outside the target set. Build and runtest are clean, 22 alcotest suites
+and 264 cases plus the plain executables and the new probe.
+`bleeding/sqlite3`'s `test_win` flake failed three of five runs on this
+branch. The pristine base in a scratch worktree failed three of four, and
+the test links only `str` and `sqlite3`.
 
 ### Step F notes
 

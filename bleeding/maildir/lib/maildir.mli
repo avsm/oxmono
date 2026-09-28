@@ -150,8 +150,9 @@ val with_writer : t -> (writer -> 'a) -> 'a
     @raise Eio.Io with {!Unusable_file} if the lease file is not a singly
     linked regular file. *)
 
-val of_writer : writer -> t
-(** [of_writer w] is the Maildir that [w] changes.
+val of_writer : writer -> t @@ portable
+(** [of_writer w] is the Maildir that [w] changes. It is portable, so a
+    portable function may call it on a writer it is passed.
 
     @raise Writer_expired if [w] has expired. *)
 

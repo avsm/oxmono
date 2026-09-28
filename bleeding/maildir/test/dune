@@ -11,4 +11,4 @@
 (test
  (name test_modes)
  (modules test_modes)
- (libraries maildir mail-flag alcotest))
+ (libraries maildir mail-flag eio eio_main alcotest))

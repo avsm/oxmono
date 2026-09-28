@@ -69,3 +69,6 @@ can still fill the free slots after it returns.
 
 The in-process writer registry is an atomic `Base.Set` of directory
 inodes instead of a mutex-guarded `Hashtbl`.
+
+`of_writer` is portable. `Dotlock` and the other `Maildir` functions
+are not, since they call `Eio.Path` or `Eio_unix.run_in_systhread`.

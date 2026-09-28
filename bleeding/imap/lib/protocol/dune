@@ -2,6 +2,26 @@
  (name imap)
  (public_name imap)
  (libraries mail-flag stdlib_stable base)
- (modules imap uid uidvalidity modseq seq uid_set mailbox_name internal_date
-  wire response command capability search fetch_item status_item
-  mailbox_list sort thread notify metadata mirror sync_policy))
+ (modules
+  imap
+  uid
+  uidvalidity
+  modseq
+  seq
+  uid_set
+  mailbox_name
+  internal_date
+  wire
+  response
+  command
+  capability
+  search
+  fetch_item
+  status_item
+  mailbox_list
+  sort
+  thread
+  notify
+  metadata
+  mirror
+  sync_policy))

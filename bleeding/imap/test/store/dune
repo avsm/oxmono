@@ -1,6 +1,15 @@
 (test
  (name test_store)
- (libraries imap imap.store mail-flag sqlite3 sqlite3-eio digestif eio eio_main alcotest))
+ (libraries
+  imap
+  imap.store
+  mail-flag
+  sqlite3
+  sqlite3-eio
+  digestif
+  eio
+  eio_main
+  alcotest))
 
 (test
  (name test_operation_evidence)

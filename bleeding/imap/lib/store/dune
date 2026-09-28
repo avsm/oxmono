@@ -13,11 +13,7 @@
  (public_name imap.store)
  (modules
   (:standard \ database))
- (private_modules
-  schema
-  record_codec
-  sync_journal
-  blob_store)
+ (private_modules schema record_codec sync_journal blob_store)
  (flags
   (:standard -open Imap_store_database))
  (libraries

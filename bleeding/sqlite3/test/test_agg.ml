@@ -1,8 +1,13 @@
 open Sqlite3
 
+(* An aggregate accumulator must cross contention and portability. Under
+   -principal the compiler proves that for a named list type but not for a
+   [string list] annotation. *)
+type acc = string list
+
 let%test "test_agg" =
   let db = db_open "t_agg" in
-  Aggregate.create_fun2 db "STRREPEAT" ~init:[]
+  Aggregate.create_fun2 db "STRREPEAT" ~init:([] : acc)
     ~step:(fun l s i ->
       match (s, i) with
       | Data.TEXT s, Data.INT i ->

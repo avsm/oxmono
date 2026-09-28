@@ -3,20 +3,19 @@ open Sqlite3
 
 let%test "test_fun" =
   let db = db_open "t_fun" in
-  create_fun2 db "REGEX" (fun s rex ->
-      match (rex, s) with
-      | Data.TEXT rex, Data.BLOB s | Data.TEXT rex, Data.TEXT s ->
-          let r = Str.regexp rex in
-          if Str.string_match r s 0 then Data.INT 1L else Data.INT 0L
-      | _ -> raise (Sqlite3.Error "wrong types to 'REGEX'"));
+  create_fun2 db "PREFIX" (fun s prefix ->
+      match (prefix, s) with
+      | Data.TEXT prefix, Data.BLOB s | Data.TEXT prefix, Data.TEXT s ->
+          if String.starts_with ~prefix s then Data.INT 1L else Data.INT 0L
+      | _ -> raise (Sqlite3.Error "wrong types to 'PREFIX'"));
   let sqls =
     [
       "DROP TABLE IF EXISTS tbl";
       "CREATE TABLE tbl (a varchar(10), b INTEGER, c FLOAT)";
       "INSERT INTO tbl VALUES ('pippo', 3, 3.14)";
-      "SELECT * FROM tbl where REGEX(a,'^pippo$')";
-      "SELECT * FROM tbl where REGEX(a,'^ippo')";
-      "SELECT * FROM tbl where REGEX(a,'[^z]*')";
+      "SELECT * FROM tbl where PREFIX(a,'pippo')";
+      "SELECT * FROM tbl where PREFIX(a,'ippo')";
+      "SELECT * FROM tbl where PREFIX(a,'')";
     ]
   in
   List.iter

@@ -9,6 +9,12 @@
 - Makefile target to generate `compile_commands.json` for improved LSP support
   in editors.
 
+### Changed
+
+- Every value is portable under OxCaml, and `db` and `stmt` cross
+  portability. Functions and collations a handle stores must be portable.
+- An aggregate accumulator's type must cross contention and portability.
+
 ### Fixed
 
 - The window function test uses its own database file, so it no longer fails

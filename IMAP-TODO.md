@@ -268,7 +268,7 @@ run only once everything else works.
 | 19 | Publish allocation: find and fix the 61 KB per staged row on the stage and publish path, measured with `bench_store` | done; eight commits, 3,926 MB to 9.4 MB and 6.2 s to 0.38 s | 42548d20c |
 | 20 | IDLE with a deadline: `Selected.Idle.wait_for_change` takes a clock and timeout and sends DONE from a timer fiber instead of cancelling the read, `Watch` renews without reconnecting, `Mailbox.wait` uses it | done | 4d164450e |
 | 21 | Portable collections: replace stdlib `Set`, `Map` and module-level `Hashtbl` with `Base.Set`, `Base.Map` and iarrays so the store, sync and remaining eio types carry kinds, then annotate `@@ portable` wherever the compiler accepts, with probes | done; ten commits, `Uid.to_int` halves the staging allocation, Base collections, portable values in every library except behind Sqlite3, Eio I/O and decompress | 43b1f5428 |
-| 22 | Portable sqlite3 binding: `@@ portable` on `bleeding/sqlite3/lib` with the callback-taking functions requiring portable closures, `db` and `stmt` declared `value mod portable`, probe tests | todo | |
+| 22 | Portable sqlite3 binding: `@@ portable` on `bleeding/sqlite3/lib` with the callback-taking functions requiring portable closures, `db` and `stmt` declared `value mod portable`, probe tests | done; four commits, every value portable, stored callbacks portable, aggregate accumulators kinded, a captured handle is contended and so unusable | fdcadd25d |
 | 23 | Portable vendored Eio: a kind on `Exn.err` and `Fiber.key`, `@@ portable` on `run_in_systhread`, `Fiber.first`, `Cancel.protect` and `Time.with_timeout_exn`, recorded in `vendor/eio/VENDORED.md`, every `err +=` site in the tree still building, probes outside vendor | todo | |
 | 24 | Portable sqlite3-eio on top of steps 22 and 23, probes | todo | |
 | 25 | Flip `@@ portable` on the store, sync and Eio-client values that steps 22 to 24 unblock, with probes, and record what still blocks | todo | |
@@ -1210,6 +1210,85 @@ Portable already, so not blockers: `Base64.encode_string`,
 `Cstruct.create`, `Unix.lockf` and the tls calls in `Transport.upgrade`.
 Build and runtest are clean, 22 alcotest suites and 264 cases plus the
 plain executables.
+
+Step 22. Done: in four commits, 42aaa298d (the window test opens `t_win`
+instead of sharing `t_fun`), ef900ab79 (annotations), 9776130e8 (probes)
+and fdcadd25d (README). sqlite3.mli is floating `@@ portable` with no
+value exempt, every `external` in sqlite3.ml carries `@@ portable` in type
+position, and `db` and `stmt` are `value mod portable` in both files.
+`Backup.t` keeps kind `value`, and its functions are portable.
+
+Audit of sqlite3_stubs.c. Global C state is three `static const value *`
+exception pointers and the `user_exception_key` pthread key, all set once by
+`caml_sqlite3_init` during module initialisation and read-only after. The
+key's slot holds an exception raised by a user function until the stub
+that called SQLite re-raises it. It is per thread, and OCaml 5 domains and
+systhreads are distinct pthreads. Per-handle state is `db_wrap.rc`, the
+`user_functions` and `user_collations` lists, mutated without a lock on
+registration and deletion, and the atomic `ref_count`. One domain at a time
+per handle covers them. Global roots are safe to register from several
+domains, since runtime/globroots.c guards them with `roots_mutex`. The
+`caml_callback*` sites: the four `exec` callbacks hold the closure in a
+`CAMLlocal` for the duration of `sqlite3_exec`. The scalar function, the
+aggregate `step`, `inverse`, `value` and `final` macros and the collation
+call closures stored in cells on the handle's lists as generational global
+roots. The aggregate cell also stores `init`, and each running aggregate
+keeps its accumulator in `agg_ctx.v_acc` as a global root. Every callback
+re-enters the runtime with `caml_leave_blocking_section` and leaves it
+again before returning to SQLite, on the exception path too. Blocking
+sections wrap open, the four `exec` variants, `step`, `sleep`,
+`backup_init` and `backup_step`, each paired. The default `mutex` flag
+passes neither `SQLITE_OPEN_NOMUTEX` nor `FULLMUTEX`, and the vendored
+3.51.2 amalgamation is built without `SQLITE_THREADSAFE`, which defaults to
+1, so handles are serialized unless opened with ``~mutex:`NO``. That
+matters beyond domains: `stmt_wrap_finalize_gc` calls `sqlite3_finalize`
+from whichever thread the GC runs on, possibly while another thread uses
+the handle. Observed and left alone: `db_close` clears `dbw->db` without
+dropping the handle's reference, so after an explicit close the `db_wrap`
+and the roots of its registered callbacks are never freed. A collation
+that raises hands SQLite `Int_val` of the exception result.
+
+Callbacks. Stored, now `@ portable`: `create_funN` and `create_fun0` to
+`create_fun3`, `Aggregate.create_fun0` to `create_fun3` and `create_funN`
+for `step`, `final` and the optional `inverse` and `value`, and
+`create_collation`. The registration externals take the closures `@
+portable` too. Consumed during the call, left unannotated: the `exec`,
+`exec_no_headers`, `exec_not_null` and `exec_not_null_no_headers` row
+callbacks and the `iter` and `fold` functions. There are no busy handler,
+authorizer, trace, progress or hook registrations. `busy_timeout` installs
+SQLite's own C handler. The aggregate `init` is stored and can escape
+through an exception raised by `step` or `final`, so a portable closure is
+not enough. Its type is bound as `('a : value mod contended portable)`,
+which rules out mutable and function-valued accumulators. Under the
+package's `-principal`, the kind check rejects an annotated `string list`
+or tuple literal but accepts a named alias, so test_agg.ml names
+`type acc = string list`. test_fun.ml registered a `REGEX` function built
+on `Str`, which is nonportable and keeps global match state, and now
+registers `PREFIX` over `String.starts_with`. The test library no longer
+links `str`.
+
+Probes. test/test_portable.ml binds closures at portable mode: two that
+capture the module-level `db` and `stmt`, one that binds, steps, reads a
+column and resets a statement passed to it, and `round_trip`, which opens
+a database, registers a portable `create_fun1`, prepares, queries,
+finalizes and closes, run once in the main domain and once under
+`Domain.Safe.spawn`. A portable closure sees a captured value as
+contended, and no Sqlite3 function takes a contended handle, so the
+capturing closures return their handle rather than use it. Using a
+captured handle would need `mod contended`, which is never claimed. Step
+24 and 25 code must pass a handle to a portable closure as an argument.
+test/check_portable.sh compiles against sqlite3.cmi, requires a control
+`create_fun1` to compile, and requires a closure over a module-level `ref`
+to fail with `which is expected to be "portable"` for `create_fun1`, an
+aggregate `inverse` and `create_collation`, and an `int ref` accumulator to
+fail its kind. Each claim was removed in turn and the probe failed: `db`
+or `stmt` without the kind (`The value "db" is "nonportable"`), the
+floating attribute (`The value "Rc.check" is "nonportable"`), and
+`create_fun1`, `inverse`, the accumulator kind or `create_collation`
+without its annotation (`Sqlite3 accepts a nonportable ...`). For step 25,
+`Rc.t` has kind `value` because `Rc.unknown` is abstract. Build and runtest
+are clean for sqlite3, imap, maildir and jmap, 22 alcotest suites and 264
+cases plus the sqlite3 inline tests, test_portable and check_portable.sh.
 
 ### Step F notes
 

@@ -24,7 +24,7 @@ val with_pages : spool_dir:_ Eio.Path.t -> Maildir.t -> (t -> 'a) ->
     duplicate identity and the errors of {!Maildir.fold} are returned
     without calling [f]. *)
 
-val count : t -> int64
+val count : t -> int64 @@ portable
 (** [count view] is the number of staged occurrences. *)
 
 val find : t -> id:string -> Maildir.occurrence option

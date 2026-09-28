@@ -1,3 +1,5 @@
+@@ portable
+
 (** The connection, store and mailbox of an online sync call.
 
     Every online entry point of [Imap_sync] takes a context in place of
@@ -34,4 +36,5 @@ val v :
     [mailbox] on [client] with [store], [scope], [spool_dir] and [next_id].
     It is [Error (Invalid_scope _)] unless [scope.encoding] is [client]'s
     current mailbox name encoding and [mailbox] encodes to [scope.raw_name]
-    under it. It does no I/O. *)
+    under it. It does no I/O, and it is portable, so a portable function
+    may build a context from the arguments it is passed. *)

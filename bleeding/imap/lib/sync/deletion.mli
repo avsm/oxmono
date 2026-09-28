@@ -20,19 +20,20 @@ type outcome =
 
 val expunge_preflight :
   before_flags:Mail_flag.Imap_flag.t list -> before_modseq:int64 ->
-  (Mail_flag.Imap_flag.t list * int64 option) option -> bool
+  (Mail_flag.Imap_flag.t list * int64 option) option -> bool @@ portable
 (** [expunge_preflight ~before_flags ~before_modseq after] is [true] when
     [after] holds exactly [before_flags] plus [\\Deleted] and a MODSEQ
     above [before_modseq], or equal to it when [before_flags] already held
     [\\Deleted]. It is checked after the conditional STORE, immediately
-    before a targeted UID EXPUNGE. *)
+    before a targeted UID EXPUNGE. It is portable, so it may run on any
+    domain. *)
 
 val plan :
   policy:Imap.Sync_policy.deletion_policy -> min_absence_scans:int ->
   current_generation:int64 ->
   last_presence:([ `Remote | `Local ] -> int64 option) ->
   remote_present:bool -> local_present:bool -> Imap_store.Journal.pair ->
-  Imap.Sync_policy.deletion_plan
+  Imap.Sync_policy.deletion_plan @@ portable
 (** [plan ~policy ~min_absence_scans ~current_generation ~last_presence
     ~remote_present ~local_present pair] is the deletion decision under
     [policy] for [pair] when complete inventories of generation
@@ -45,6 +46,7 @@ val plan :
     held as [Missing_content_evidence] when [pair] saved no digest or
     length, and as [Unverified_absence] when the missing side lacks its
     absence tombstone. It reads no state except through [last_presence].
+    It is portable, so it may run on any domain.
 
     @raise Invalid_argument if [min_absence_scans] is negative. *)
 

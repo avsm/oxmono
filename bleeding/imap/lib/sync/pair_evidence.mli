@@ -3,7 +3,7 @@
 
     This module is private to [imap.sync]. *)
 
-val check_evidence : string -> (unit, Error.t) result
+val check_evidence : string -> (unit, Error.t) result @@ portable
 (** [check_evidence s] is [Ok ()] when [s] is 1 to 1024 printable bytes that
     are not all spaces, and [Invalid_configuration] otherwise. *)
 
@@ -19,6 +19,7 @@ val with_lease :
     [f] propagates. *)
 
 val maildir_result : ('a, Maildir.error) result -> ('a, Error.t) result
+  @@ portable
 (** [maildir_result r] is [r] with a Maildir error as [Maildir]. *)
 
 val find : Maildir.t -> id:string -> (Maildir.occurrence option, Error.t) result
@@ -41,6 +42,7 @@ val storable :
     and [date] would use, or the reason Maildir cannot store them. *)
 
 val local_date : Maildir.occurrence -> (Imap.Internal_date.t, Error.t) result
+  @@ portable
 (** [local_date o] is the INTERNALDATE of [o]'s mtime, or
     [Invalid_operation] when it cannot be represented. *)
 
@@ -53,6 +55,7 @@ val local_content :
     current occurrence. [inventory] is checked as {!Local_inventory} does. *)
 
 val local_date_matches : Imap_store.Journal.pair -> Maildir.occurrence -> bool
+  @@ portable
 (** [local_date_matches pair o] is [true] when [pair] saved no INTERNALDATE
     or [o]'s mtime is the same instant. *)
 
@@ -62,11 +65,11 @@ val current_pair :
 (** [current_pair store pair] is [pair] when it is still the stored pair,
     [Missing_pair] when it is gone and [Stale_pair] when it changed. *)
 
-val remote_absence_proven : Imap_store.Journal.pair -> bool
+val remote_absence_proven : Imap_store.Journal.pair -> bool @@ portable
 (** [remote_absence_proven pair] is [true] when a complete inventory
     recorded the remote side's absence with its generation. *)
 
-val local_absence_recorded : Imap_store.Journal.pair -> bool
+val local_absence_recorded : Imap_store.Journal.pair -> bool @@ portable
 (** [local_absence_recorded pair] is [true] when a complete local
     inventory recorded the local side's absence. *)
 
@@ -92,11 +95,11 @@ val finish_expunge :
     with [receipt] and commits it with an expunge-receipt remote
     tombstone. *)
 
-val describe : Imap_eio.Error.t -> string
+val describe : Imap_eio.Error.t -> string @@ portable
 (** [describe e] is the text of [e], cut to 512 bytes for a journal
     receipt. *)
 
-val describe_error : Error.t -> string
+val describe_error : Error.t -> string @@ portable
 (** [describe_error e] is the text of [e], cut to 512 bytes for a journal
     receipt. *)
 
@@ -107,7 +110,7 @@ val unchanged :
 
 val live_target :
   Imap_store.Journal.pair ->
-  (Imap.Uidvalidity.t * Imap.Uid.t * string, Error.t) result
+  (Imap.Uidvalidity.t * Imap.Uid.t * string, Error.t) result @@ portable
 (** [live_target pair] is the epoch, UID and local ID of an untombstoned
     [pair], and [Missing_occurrence] otherwise. *)
 
@@ -126,20 +129,20 @@ val journaled_at :
 val content_identity :
   Imap_store.Journal.pair ->
   (Imap.Uidvalidity.t * Imap.Uid.t * string * string * int64, Error.t)
-    result
+    result @@ portable
 (** [content_identity pair] is the epoch, UID, local ID, digest and length
     of [pair], or [Identity_changed] when one is missing. *)
 
 val same_target :
   Imap_store.Journal.operation -> epoch:Imap.Uidvalidity.t ->
-  uid:Imap.Uid.t -> local_id:string -> bool
+  uid:Imap.Uid.t -> local_id:string -> bool @@ portable
 (** [same_target op ~epoch ~uid ~local_id] is [true] when [op] names that
     remote and local occurrence. *)
 
 val same_identity :
   Imap_store.Journal.operation -> Imap_store.Journal.pair ->
   epoch:Imap.Uidvalidity.t -> uid:Imap.Uid.t -> local_id:string ->
-  digest:string -> length:int64 -> bool
+  digest:string -> length:int64 -> bool @@ portable
 (** [same_identity op pair ~epoch ~uid ~local_id ~digest ~length] is
     [same_target] with the journaled digest, length and flags equal to the
     content and common flags of [pair]. *)
@@ -250,7 +253,7 @@ val new_pair :
   id:string -> scope:Imap.Mirror.scope -> uidvalidity:Imap.Uidvalidity.t ->
   uid:Imap.Uid.t -> local_id:string -> sha256:string -> length:int64 ->
   ?internal_date:Imap.Internal_date.t -> flags:Mail_flag.Imap_flag.t list ->
-  unit -> Imap_store.Journal.pair
+  unit -> Imap_store.Journal.pair @@ portable
 (** [new_pair ~id ~scope ~uidvalidity ~uid ~local_id ~sha256 ~length ~flags
     ()] is an untombstoned pair at revision 0 with durable [flags] as its
     common flags. *)

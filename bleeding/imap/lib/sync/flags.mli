@@ -35,19 +35,20 @@ val plan_flags :
   ?propagate_deleted:bool -> base:Mail_flag.Imap_flag.t list ->
   remote:Mail_flag.Imap_flag.t list -> local:Mail_flag.Imap_flag.t list ->
   condstore:bool -> remote_modseq:int64 option ->
-  unit -> (decision, Error.t) result
+  unit -> (decision, Error.t) result @@ portable
 (** [plan_flags ~base ~remote ~local ~condstore ~remote_modseq ()] is the
     decision for a pair whose common flags are [base] and whose endpoints
     hold [remote] and [local]. Every flag other than [\\Deleted] merges.
     [propagate_deleted] defaults to [false], which holds a [\\Deleted]
     change and reports it in [deleted_held]. A remote write requires
     [condstore] and a positive [remote_modseq], and otherwise the result is
-    [Conditional_store_unavailable]. A local-only change needs neither. *)
+    [Conditional_store_unavailable]. A local-only change needs neither. It
+    is portable, so it may run on any domain. *)
 
 val validate_permanent_flags :
   available:string list option -> defined:string list option ->
   remote:Mail_flag.Imap_flag.t list ->
-  merged:Mail_flag.Imap_flag.t list -> (unit, Error.t) result
+  merged:Mail_flag.Imap_flag.t list -> (unit, Error.t) result @@ portable
 (** [validate_permanent_flags ~available ~defined ~remote ~merged] is
     [Ok ()] when SELECT's PERMANENTFLAGS [available] and FLAGS [defined]
     permit moving the remote flags from [remote] to [merged]. When
@@ -56,7 +57,8 @@ val validate_permanent_flags :
     except that [\\*] permits adding a keyword absent from [defined]. A
     keyword in [defined] but not in [available] is never settable. The
     first flag that is not permitted is [Permanent_flag_unavailable], and a
-    malformed [available] is [Diverged]. *)
+    malformed [available] is [Diverged]. It is portable, so it may run on
+    any domain. *)
 
 type reconciled = {
   outcome : outcome;  (** [outcome] is the result for the pair. *)

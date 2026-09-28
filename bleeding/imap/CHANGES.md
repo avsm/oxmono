@@ -416,3 +416,7 @@ The `Imap_eio` values that perform no I/O are portable. They are the
 `Transport` endpoint accessors, the `Client` capability and state
 queries, `append_message`, `close` and six extension `require`s,
 `saved_search_count`, `Mailbox.of_selected` and all of `Pool`.
+
+`Imap_sync` errors, `Ctx.v`, `Deletion.plan`, `expunge_preflight`,
+`Flags.plan_flags` and `validate_permanent_flags` are portable, and a
+probe test checks that the sync result records are immutable data.

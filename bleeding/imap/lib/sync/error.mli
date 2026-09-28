@@ -1,3 +1,5 @@
+@@ portable
+
 (** Errors of every [Imap_sync] call.
 
     Every [Imap_sync] call that changes IMAP or the Maildir journals the
@@ -11,7 +13,10 @@
     records a durable conflict for a pair it cannot settle safely, counts it
     in its receipt and continues with the next pair. Each constructor below
     says whether a retry, a later reconciliation or an operator action
-    follows it. *)
+    follows it.
+
+    An error is immutable data and {!pp} and {!to_string} are portable, so
+    an error may be reported from any domain. *)
 
 type t =
   | Client of Imap_eio.Error.t

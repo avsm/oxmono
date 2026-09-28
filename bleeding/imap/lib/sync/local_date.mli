@@ -1,3 +1,5 @@
+@@ portable
+
 (** Conversions between Maildir modification times and IMAP INTERNALDATE. *)
 
 val of_mtime : float -> (Imap.Internal_date.t, string) result

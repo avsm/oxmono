@@ -58,13 +58,13 @@ val await_readable : Unix.file_descr -> unit
 val await_writable : Unix.file_descr -> unit
 (** [await_writable fd] blocks until [fd] is writable (or has an error). *)
 
-val sleep : float -> unit
+val sleep : float -> unit @@ portable
 (** [sleep d] sleeps for [d] seconds, allowing other fibers to run.
     This is can be useful for debugging (e.g. to introduce delays to trigger a race condition)
     without having to plumb {!Eio.Stdenv.mono_clock} through your code.
     It can also be used in programs that don't care about tracking determinism. *)
 
-val run_in_systhread : ?label:string -> (unit -> 'a) -> 'a
+val run_in_systhread : ?label:string -> (unit -> 'a) -> 'a @@ portable
 (** [run_in_systhread fn] runs the function [fn] using a pool of system threads ({! Thread.t}).
 
     This pool creates a new system thread if all threads are busy, it does not wait.

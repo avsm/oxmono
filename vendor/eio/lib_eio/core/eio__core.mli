@@ -371,7 +371,7 @@ module Fiber : sig @@ portable
       include in all logged messages.
       *)
 
-  type 'a key
+  type 'a key : value mod portable contended
   (** ['a key] is a fiber-local variable of type ['a].
 
       Since the key is required to get or set a variable, a library can keep its
@@ -422,6 +422,11 @@ module Exn : sig
       and is similar to {!Unix.Unix_error}, but more general.
       An unknown [Io] error should typically be reported to the user, but does
       not generally indicate a bug in the program. *)
+
+  val is_io : exn -> bool @@ portable
+  (** [is_io ex] is [true] if [ex] is an {!Io} exception. A portable
+      function cannot match [Io], because [err] is extensible and so cannot
+      cross portability, but it can call [is_io]. *)
 
   type err += Multiple_io of (err * context * Printexc.raw_backtrace) list
   (** Error code used when multiple IO errors occur.

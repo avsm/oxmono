@@ -279,19 +279,24 @@ module List = struct
 
 end
 
-type 'a key = 'a Hmap.key
+(* An [Hmap] key is an immutable identifier, an integer and a type witness,
+   so sharing one between domains is sound. [Hmap.key] carries no kind, so
+   the modalities and the coercions below assert what [Hmap] cannot. *)
+type 'a key = { key : 'a Hmap.key @@ portable contended } [@@unboxed]
 
-let create_key () = Hmap.Key.create ()
+let hmap_key k : _ Hmap.key = Obj.magic_uncontended k.key
 
-let get key = Hmap.find key (Cancel.Fiber_context.get_vars ())
+let create_key () = { key = Obj.magic_portable (Hmap.Key.create ()) }
+
+let get key = Hmap.find (hmap_key key) (Cancel.Fiber_context.get_vars ())
 
 let with_binding var value fn =
   let ctx = Peff.perform Cancel.Get_context in
-  Cancel.Fiber_context.with_vars ctx (Hmap.add var value ctx.vars) fn
+  Cancel.Fiber_context.with_vars ctx (Hmap.add (hmap_key var) value ctx.vars) fn
 
 let without_binding var fn =
   let ctx = Peff.perform Cancel.Get_context in
-  Cancel.Fiber_context.with_vars ctx (Hmap.rem var ctx.vars) fn
+  Cancel.Fiber_context.with_vars ctx (Hmap.rem (hmap_key var) ctx.vars) fn
 
 (* Coroutines.
 

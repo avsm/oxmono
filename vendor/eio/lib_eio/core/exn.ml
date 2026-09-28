@@ -21,6 +21,12 @@ let create : err -> exn =
 
 let empty_backtrace = Printexc.get_callstack 0
 
+(* A portable function can match [Io] only if its arguments cross
+   portability, and [err] is extensible, so it cannot carry a kind. The test
+   reads no payload, so the assertion is sound. *)
+let is_io : exn -> bool =
+  Obj.magic_portable (function Io _ -> true | _ -> false)
+
 (* These match on [Io] and format with Fmt, neither of which is possible
    in a portable function. The record wrappers keep the assertions
    polymorphic despite the value restriction. *)

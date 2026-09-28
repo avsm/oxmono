@@ -119,16 +119,26 @@ let submit t ~ctx ~enqueue fn =
     let mbox = Free_pool.get_thread t.free in
     Mailbox.put mbox (Job { fn; enqueue })
 
-let run_in_systhread ?(label="systhread") fn =
-  Eio.Private.Trace.suspend_fiber label;
-  let r, t = Effect.perform (Run_in_systhread fn) in
-  if t.timeout = None then (
+(* [Effect.perform] predates the mode system. The calling domain's own
+   scheduler handles the effect, so performing it shares no state. *)
+external perform : 'a Effect.t -> 'a @@ portable = "%perform"
+
+(* [Zzz] and the priority queue under it are not annotated. [schedule_drop t]
+   touches only [t], which the calling domain's scheduler returned through
+   the effect, so the assertion is sound. *)
+let schedule_drop : t -> unit =
+  Obj.magic_portable (fun t ->
     let time =
       Mtime.add_span (Mtime_clock.now ()) Mtime.Span.(20 * ms)
       |> Option.value ~default:Mtime.max_stamp
     in
-    t.timeout <- Some (Zzz.add t.sleep_q time (Fn (fun () -> Free_pool.drop t.free; t.timeout <- None)))
-  );
+    let drop () = Free_pool.drop t.free; t.timeout <- None in
+    t.timeout <- Some (Zzz.add t.sleep_q time (Fn drop)))
+
+let run_in_systhread ?(label="systhread") fn =
+  Eio.Private.Trace.suspend_fiber label;
+  let r, t = perform (Run_in_systhread fn) in
+  if t.timeout = None then schedule_drop t;
   match r with
   | Ok x -> x
   | Error (ex, bt) -> Printexc.raise_with_backtrace ex bt

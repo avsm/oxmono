@@ -237,11 +237,11 @@ module Selected : sig
   type t
   (** The type for leases on a selected mailbox. *)
 
-  val info : t -> (Imap.Response.select_metadata, Error.t) result
+  val info : t -> (Imap.Response.select_metadata, Error.t) result @@ portable
   (** [info t] is the metadata of the SELECT or EXAMINE that created
       [t]. *)
 
-  val select_updates : t -> (Imap.Response.t list, Error.t) result
+  val select_updates : t -> (Imap.Response.t list, Error.t) result @@ portable
   (** [select_updates t] is the untagged responses of the SELECT or EXAMINE
       that created [t], in wire order, including the FETCH and VANISHED
       responses of a QRESYNC selection. *)
@@ -439,7 +439,7 @@ module Selected : sig
     type t
     (** The type for CONDSTORE witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported
         Condstore]. *)
 
@@ -477,7 +477,7 @@ module Selected : sig
     type t
     (** The type for QRESYNC witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s]. It is [Error.Unsupported Qresync]
         when the server does not offer QRESYNC and [Error.Not_enabled
         Qresync] when ENABLE has not confirmed it. *)
@@ -502,7 +502,7 @@ module Selected : sig
     type t
     (** The type for UIDPLUS witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported
         Uidplus]. *)
 
@@ -522,7 +522,7 @@ module Selected : sig
     type t
     (** The type for MOVE witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported Move]. *)
 
     val uid_move : t -> set:Imap.Uid_set.t -> mailbox:string ->
@@ -542,7 +542,7 @@ module Selected : sig
     type t
     (** The type for BINARY FETCH witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported Binary]. *)
 
     val fetch_binary_to : t -> ?max_bytes:int64 ->
@@ -581,7 +581,7 @@ module Selected : sig
     type t
     (** The type for SEARCHRES witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported
         Searchres]. *)
 
@@ -674,7 +674,7 @@ module Selected : sig
     type t
     (** The type for SORT witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported Sort]. *)
 
     val uid_sort : t -> keys:(Imap.Sort.key * Imap.Sort.order) list ->
@@ -698,7 +698,7 @@ module Selected : sig
     type t
     (** The type for ESORT witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported Esort]. *)
 
     val uid_sort_extended : t -> returns:Imap.Sort.return list ->
@@ -731,7 +731,8 @@ module Selected : sig
     type t
     (** The type for THREAD witnesses, each bound to one algorithm. *)
 
-    val require : selected -> Imap.Thread.algorithm -> (t, Error.t) result
+    val require : selected -> Imap.Thread.algorithm ->
+      (t, Error.t) result @@ portable
     (** [require s algorithm] is a witness for [s] and [algorithm], or
         [Error.Unsupported (Thread algorithm)] unless the server offers
         THREAD=[algorithm]. *)
@@ -760,7 +761,7 @@ module Selected : sig
     type t
     (** The type for PARTIAL witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported
         Partial]. *)
 
@@ -793,7 +794,7 @@ module Selected : sig
     type t
     (** The type for MESSAGELIMIT witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported (Other
         "MESSAGELIMIT")]. *)
 
@@ -820,7 +821,7 @@ module Selected : sig
     type t
     (** The type for UIDBATCHES witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported
         Uidbatches]. *)
 
@@ -846,7 +847,7 @@ module Selected : sig
     type t
     (** The type for NOTIFY witnesses on a lease. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported Notify]. *)
 
     val notify_set : t -> ?status:bool -> groups:Imap.Notify.group list ->
@@ -871,7 +872,7 @@ module Selected : sig
     type t
     (** The type for IDLE witnesses. *)
 
-    val require : selected -> (t, Error.t) result
+    val require : selected -> (t, Error.t) result @@ portable
     (** [require s] is a witness for [s], or [Error.Unsupported Idle]. *)
 
     val wait_for_change : t -> clock:_ Eio.Time.clock -> timeout:float ->
@@ -1408,7 +1409,7 @@ module Client : sig
         OBJECTID. *)
 
     val pin_mailbox : t -> mailbox:string -> account_id:string ->
-      mailbox_id:string -> (unit, error) result
+      mailbox_id:string -> (unit, error) result @@ portable
     (** [pin_mailbox t ~mailbox ~account_id ~mailbox_id] binds [mailbox] to
         the verified compound identity [(account_id, mailbox_id)] for the
         connection. Later {!with_mailbox} calls select by that identity and

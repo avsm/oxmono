@@ -433,3 +433,8 @@ contention.
 function is portable except `open_path` and the `Blob` functions that
 read or write the blob directory. A probe opens a store and reads it
 from a portable closure in a second domain.
+
+`Imap_eio.Selected.info`, `select_updates`, every `Selected` witness
+`require` and `Client.Objectid_plus.pin_mailbox` are portable. No command
+is, since each reads or writes through the DEFLATE layer, which calls
+decompress.

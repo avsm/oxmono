@@ -1,3 +1,5 @@
+@@ portable
+
 (** A mailbox lease with commands serialized across fibers, documented in
     [Imap_eio.Selected]. *)
 
@@ -6,11 +8,11 @@ type t
 type selected := t
 
 val create : Session.t -> int -> Imap.Response.select_metadata ->
-  Imap.Response.t list -> t @@ portable
+  Imap.Response.t list -> t
 (** [create session generation info updates] is a lease valid while the
     session generation is [generation]. *)
 
-val invalidate : t -> unit @@ portable
+val invalidate : t -> unit
 (** [invalidate t] expires [t] and closes the session if a command on [t]
     is still running. *)
 
@@ -33,7 +35,8 @@ type row = {
 }
 
 val uid_search :
-  t -> criteria:Imap.Search.t -> (Imap.Uid.t list, Error.t) result
+  t -> criteria:Imap.Search.t ->
+  (Imap.Uid.t list, Error.t) result @@ nonportable
 
 type sort_result = {
   count : int64;
@@ -53,20 +56,20 @@ type search_page = {
 }
 
 val uid_search_range : t -> first:Imap.Uid.t -> last:Imap.Uid.t ->
-  (Imap.Uid.t list, Error.t) result
+  (Imap.Uid.t list, Error.t) result @@ nonportable
 
 val fetch_to : t -> ?max_bytes:int64 -> uid:Imap.Uid.t ->
-  _ Eio.Flow.sink -> (unit, Error.t) result
+  _ Eio.Flow.sink -> (unit, Error.t) result @@ nonportable
 (** [fetch_to t ~uid sink] streams the message body into [sink], which stays
     provisional until the call returns [Ok ()]. *)
 
 val fetch : t -> uids:Imap.Uid.t list -> items:Imap.Fetch_item.t list ->
-  (row list, Error.t) result
+  (row list, Error.t) result @@ nonportable
 (** [fetch t ~uids ~items] is one row per requested UID that the server
     reported, in request order. *)
 
 val fetch_range : t -> first:Imap.Uid.t -> last:Imap.Uid.t ->
-  items:Imap.Fetch_item.t list -> (row list, Error.t) result
+  items:Imap.Fetch_item.t list -> (row list, Error.t) result @@ nonportable
 (** [fetch_range t ~first ~last ~items] is one row per UID reported in the
     window, in ascending order, continuing RFC 9738 partial results. *)
 
@@ -77,7 +80,8 @@ type store_receipt = {
 
 val uid_store_flags : t -> set:Imap.Uid_set.t ->
   operation:[ `Add | `Remove | `Replace ] ->
-  flags:Mail_flag.Imap_flag.t list -> (store_receipt, Error.t) result
+  flags:Mail_flag.Imap_flag.t list ->
+  (store_receipt, Error.t) result @@ nonportable
 
 val check_gate : t -> Imap.Capability.t -> (unit, Error.t) result
 (** [check_gate t c] is [Ok ()] when a search criterion or fetch item that
@@ -102,54 +106,54 @@ type copy_receipt = {
 }
 
 val uid_copy : t -> set:Imap.Uid_set.t -> mailbox:string ->
-  (copy_receipt option, Error.t) result
-val noop : t -> (Imap.Response.t list, Error.t) result
+  (copy_receipt option, Error.t) result @@ nonportable
+val noop : t -> (Imap.Response.t list, Error.t) result @@ nonportable
 
 (** Each submodule's [t] is a witness that its extension is usable on one
     lease, and expires with that lease. *)
 
 module Condstore : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val uid_store_flags : t -> set:Imap.Uid_set.t ->
     operation:[ `Add | `Remove | `Replace ] ->
     flags:Mail_flag.Imap_flag.t list -> unchangedsince:int64 ->
     (store_receipt, Error.t) result
   val fetch_changes_range : t -> first:Imap.Uid.t -> last:Imap.Uid.t ->
     since:Imap.Modseq.t -> (Imap.Response.fetch list, Error.t) result
-end
+end @@ nonportable
 
 module Qresync : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val fetch_changes : t -> set:Imap.Uid_set.t ->
     since:Imap.Modseq.t -> vanished:bool ->
     (Imap.Response.t list, Error.t) result
-end
+end @@ nonportable
 
 module Uidplus : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val uid_expunge : t -> set:Imap.Uid_set.t -> (unit, Error.t) result
-end
+end @@ nonportable
 
 module Move : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val uid_move : t -> set:Imap.Uid_set.t -> mailbox:string ->
     (copy_receipt option, Error.t) result
-end
+end @@ nonportable
 
 module Binary : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val fetch_binary_to : t -> ?max_bytes:int64 -> ?partial:(int64 * int64) ->
     uid:Imap.Uid.t -> section:int list -> _ Eio.Flow.sink ->
     (int64 option, Error.t) result
   (** [fetch_binary_to t ~uid ~section sink] streams decoded BINARY.PEEK
       bytes into [sink], which stay provisional until the call returns
       [Ok]. *)
-end
+end @@ nonportable
 
 module Searchres : sig
   type t
@@ -157,7 +161,7 @@ module Searchres : sig
   (** An RFC 5182 saved result that the next ordinary UID SEARCH on the
       connection invalidates. *)
 
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val uid_search_save :
     t -> criteria:Imap.Search.t -> (saved_search, Error.t) result
   val uid_search_saved : saved_search -> criteria:Imap.Search.t ->
@@ -174,69 +178,70 @@ module Searchres : sig
     saved_search -> mailbox:string -> (copy_receipt option, Error.t) result
   val uid_expunge_saved : saved_search -> (unit, Error.t) result
   val saved_search_count : saved_search -> int64 @@ portable
-end
+end @@ nonportable
 
 module Sort : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val uid_sort : t -> keys:(Imap.Sort.key * Imap.Sort.order) list ->
     charset:string -> criteria:Imap.Search.t ->
     (Imap.Uid.t list, Error.t) result
-end
+end @@ nonportable
 
 module Esort : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val uid_sort_extended : t -> returns:Imap.Sort.return list ->
     keys:(Imap.Sort.key * Imap.Sort.order) list ->
     charset:string -> criteria:Imap.Search.t -> (sort_result, Error.t) result
-end
+end @@ nonportable
 
 module Thread : sig
   type t
-  val require : selected -> Imap.Thread.algorithm -> (t, Error.t) result
+  val require : selected -> Imap.Thread.algorithm ->
+    (t, Error.t) result @@ portable
   val uid_thread : t -> charset:string -> criteria:Imap.Search.t ->
     (thread list, Error.t) result
-end
+end @@ nonportable
 
 module Partial : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val uid_search_partial : t -> range:(int64 * int64) ->
     criteria:Imap.Search.t -> (Imap.Response.esearch, Error.t) result
   val uid_fetch_partial : t -> set:Imap.Uid_set.t ->
     items:Imap.Fetch_item.t list -> range:(int64 * int64) ->
     (row list, Error.t) result
-end
+end @@ nonportable
 
 module Messagelimit : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val uid_search_page : ?before:Imap.Uid.t -> t -> criteria:Imap.Search.t ->
     (search_page, Error.t) result
-end
+end @@ nonportable
 
 module Uidbatches : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val uid_batches : t -> ?range:(int64 * int64) -> size:int64 ->
     unit -> (Imap.Response.uidbatches, Error.t) result
-end
+end @@ nonportable
 
 module Notify : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val notify_set : t -> ?status:bool -> groups:Imap.Notify.group list ->
     unit -> (Imap.Response.mailbox_status list, Error.t) result
   val notify_none : t -> (unit, Error.t) result
-end
+end @@ nonportable
 
 module Idle : sig
   type t
-  val require : selected -> (t, Error.t) result
+  val require : selected -> (t, Error.t) result @@ portable
   val wait_for_change : t -> clock:_ Eio.Time.clock -> timeout:float ->
     (Imap.Response.t list, Error.t) result
   (** [wait_for_change t ~clock ~timeout] runs one IDLE exchange that ends
       at the first unsolicited response or after [timeout] seconds, and is
       the unsolicited responses that arrived. *)
-end
+end @@ nonportable

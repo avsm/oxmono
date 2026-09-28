@@ -1,3 +1,5 @@
+@@ portable
+
 (** Private connection state and serialized wire exchanges. *)
 type error = Error.t =
   | Closed
@@ -36,41 +38,41 @@ type t = {
 exception Failure of error
 
 val create : ?max_metadata:int -> ?max_responses:int ->
-  ?max_command_metadata:int -> Transport.flow -> t @@ portable
-val close : t -> unit @@ portable
-val check_open : t -> unit @@ portable
+  ?max_command_metadata:int -> Transport.flow -> t
+val close : t -> unit
+val check_open : t -> unit
 
-val has : t -> Imap.Capability.t -> bool @@ portable
+val has : t -> Imap.Capability.t -> bool
 (** [has t c] holds when the latest CAPABILITY response listed [c], or
     {!revision_two} holds and [Imap.Capability.implied_by_rev2 c]. *)
 
-val is_enabled : t -> Imap.Capability.t -> bool @@ portable
+val is_enabled : t -> Imap.Capability.t -> bool
 (** [is_enabled t c] holds when an ENABLED response confirmed [c]. *)
 
-val require : t -> Imap.Capability.t -> unit @@ portable
+val require : t -> Imap.Capability.t -> unit
 (** [require t c] raises [Failure (Unsupported c)] unless [has t c]. *)
 
-val require_enabled : t -> Imap.Capability.t -> unit @@ portable
+val require_enabled : t -> Imap.Capability.t -> unit
 (** [require_enabled t c] raises [Failure (Not_enabled c)] unless
     [is_enabled t c]. *)
 
-val revision_two : t -> bool @@ portable
+val revision_two : t -> bool
 (** [revision_two t] holds when IMAP4rev2 is advertised and either IMAP4rev1
     is not or ENABLE IMAP4rev2 succeeded. *)
 
-val mailbox_mode : t -> Imap.Mailbox_name.mode @@ portable
+val mailbox_mode : t -> Imap.Mailbox_name.mode
 
-val mailbox_wire : t -> string -> string @@ portable
+val mailbox_wire : t -> string -> string
 (** [mailbox_wire t name] encodes the UTF-8 [name] in {!mailbox_mode}, or
     raises [Failure (State _)] for an invalid name. *)
 
 val read_response : ?on_literal:(string -> unit) ->
-  ?on_literal_start:(int64 -> unit) -> t -> Imap.Wire.event list
+  ?on_literal_start:(int64 -> unit) -> t -> Imap.Wire.event list @@ nonportable
 (** [read_response ?on_literal ?on_literal_start t] reads one response,
     passing each FETCH [BODY[...]] or [BINARY[...]] literal to [on_literal]
     after its length to [on_literal_start] instead of returning it. *)
 
-val parse : Imap.Wire.event list -> Imap.Response.t @@ portable
+val parse : Imap.Wire.event list -> Imap.Response.t
 
 type command_result = {
   untagged : Imap.Response.t list;
@@ -80,11 +82,11 @@ type command_result = {
 
 val command_result : ?on_literal:(string -> unit) ->
   ?on_literal_start:(int64 -> unit) -> ?mutation:bool -> ?accept_partial:bool ->
-  ?saved_search_criterion:string -> t -> string -> command_result
+  ?saved_search_criterion:string -> t -> string -> command_result @@ nonportable
 val command : ?on_literal:(string -> unit) ->
   ?on_literal_start:(int64 -> unit) -> ?mutation:bool ->
-  t -> string -> Imap.Response.t list
-val compress_deflate : t -> unit
+  t -> string -> Imap.Response.t list @@ nonportable
+val compress_deflate : t -> unit @@ nonportable
 
 type append_part = {
   prefix : string;
@@ -93,11 +95,11 @@ type append_part = {
   synchronizing : bool;
 }
 
-val append_many : t -> append_part list -> Imap.Response.t
+val append_many : t -> append_part list -> Imap.Response.t @@ nonportable
 val append : ?synchronizing:bool -> t -> prefix:string -> length:int64 ->
-  _ Eio.Flow.source -> Imap.Response.t
+  _ Eio.Flow.source -> Imap.Response.t @@ nonportable
 val idle_once : t -> clock:_ Eio.Time.clock -> timeout:float ->
-  Imap.Response.t list
+  Imap.Response.t list @@ nonportable
 (** [idle_once t ~clock ~timeout] runs one IDLE exchange and is the untagged
     responses that arrived. DONE follows the first untagged response, or
     [timeout] seconds on [clock] after the continuation, whichever is first.
@@ -122,8 +124,8 @@ val with_lease : t -> (unit -> 'a) -> 'a
 (** [with_lease t f] runs [f] with [t] marked as leased by the calling
     fiber and the fibers it forks. *)
 
-val authenticate_cram_md5 : t -> Auth.t -> unit
+val authenticate_cram_md5 : t -> Auth.t -> unit @@ nonportable
 val authenticate_initial : t -> mechanism:string -> encoded:string ->
-  sasl_ir:bool -> oauthbearer:bool -> unit
+  sasl_ir:bool -> oauthbearer:bool -> unit @@ nonportable
 
-val logout : t -> unit
+val logout : t -> unit @@ nonportable

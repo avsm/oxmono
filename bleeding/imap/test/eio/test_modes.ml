@@ -102,6 +102,55 @@ let (lease @ portable) = fun session info ->
   let selected = Core.Selected.create session 0 info [] in
   Core.Selected.invalidate selected
 
+(* A lease answers these from the SELECT it was created from, so none sends
+   a command. [lease_state] runs on a core lease. [facade_lease] repeats it
+   against the facade, whose lease type is abstract, and is only
+   compiled. *)
+let (lease_state @ portable) = fun selected ->
+  let module S = Core.Selected in
+  let ok = Result.is_ok in
+  ok (S.info selected), ok (S.select_updates selected),
+  ok (S.check_gate selected capability), ok (S.check_writable selected),
+  [ ok (S.Condstore.require selected); ok (S.Qresync.require selected);
+    ok (S.Uidplus.require selected); ok (S.Move.require selected);
+    ok (S.Binary.require selected); ok (S.Searchres.require selected);
+    ok (S.Sort.require selected); ok (S.Esort.require selected);
+    ok (S.Thread.require selected Imap.Thread.References);
+    ok (S.Partial.require selected); ok (S.Messagelimit.require selected);
+    ok (S.Uidbatches.require selected); ok (S.Notify.require selected);
+    ok (S.Idle.require selected) ]
+
+let (facade_lease @ portable) = fun selected ->
+  let module S = Imap_eio.Selected in
+  let ok = Result.is_ok in
+  ok (S.info selected), ok (S.select_updates selected),
+  [ ok (S.Condstore.require selected); ok (S.Qresync.require selected);
+    ok (S.Uidplus.require selected); ok (S.Move.require selected);
+    ok (S.Binary.require selected); ok (S.Searchres.require selected);
+    ok (S.Sort.require selected); ok (S.Esort.require selected);
+    ok (S.Thread.require selected Imap.Thread.References);
+    ok (S.Partial.require selected); ok (S.Messagelimit.require selected);
+    ok (S.Uidbatches.require selected); ok (S.Notify.require selected);
+    ok (S.Idle.require selected) ]
+
+let (session_guards @ portable) = fun session ->
+  let module S = Core.Session in
+  let failures = List.map S.io_failure [
+    End_of_file; Exit; Eio.Exn.create (Core.Deflate_flow.Deflate "x") ] in
+  failures, S.protect session (fun () -> 1),
+  S.with_lease session (fun () -> Result.is_error (S.locked session Fun.id)),
+  S.locked session (fun () -> 3)
+
+let (pin @ portable) = fun witness ->
+  Imap_eio.Client.Objectid_plus.pin_mailbox witness ~mailbox:"INBOX"
+    ~account_id:"a1" ~mailbox_id:"m1"
+
+let metadata : Imap.Response.select_metadata = {
+  exists = 0L; recent = None; uidvalidity = 1L; uidnext = 1L;
+  highestmodseq = None; nomodseq = false; flags = None;
+  permanentflags = None; mailbox_id = None; objectid = None;
+  readonly = None; uidnotsticky = false }
+
 let with_client f =
   Eio_mock.Backend.run @@ fun () ->
   Eio.Switch.run @@ fun sw ->
@@ -162,6 +211,24 @@ let test_session () =
     (parsed = Imap.Response.Untagged (Imap.Response.Exists 2L));
   Alcotest.(check bool) "require_enabled" true not_enabled
 
+let test_lease () =
+  Eio_mock.Backend.run @@ fun () ->
+  let session = session_of_flow (Eio_mock.Flow.make "modes-lease") in
+  let selected = Core.Selected.create session 0 metadata [] in
+  let info, updates, gate, writable, witnesses = lease_state selected in
+  Alcotest.(check bool) "info" true info;
+  Alcotest.(check bool) "select_updates" true updates;
+  Alcotest.(check bool) "check_gate" false gate;
+  Alcotest.(check bool) "check_writable" true writable;
+  Alcotest.(check int) "witnesses" 14 (List.length witnesses);
+  Alcotest.(check bool) "none supported" true
+    (List.for_all not witnesses);
+  let failures, protected, leased, locked = session_guards session in
+  Alcotest.(check (list bool)) "io_failure" [ true; false; true ] failures;
+  Alcotest.(check bool) "protect" true (protected = Ok 1);
+  Alcotest.(check bool) "locked under lease" true leased;
+  Alcotest.(check bool) "locked" true (locked = Ok 3)
+
 let test_credentials () =
   let mechanisms = List.map (fun (u, m, insecure) ->
     Alcotest.(check string) "username" "alice" u;
@@ -194,4 +261,5 @@ let () =
       Alcotest.test_case "Auth responses" `Quick test_responses;
       Alcotest.test_case "client state" `Quick test_client;
       Alcotest.test_case "endpoint" `Quick test_endpoint;
-      Alcotest.test_case "session state" `Quick test_session ] ]
+      Alcotest.test_case "session state" `Quick test_session;
+      Alcotest.test_case "lease state" `Quick test_lease ] ]

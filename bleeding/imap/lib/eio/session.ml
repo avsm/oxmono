@@ -244,9 +244,9 @@ let charge t budget =
   budget.count <- budget.count + 1
 
 let io_failure = function
-  | Eio.Io _ | Unix.Unix_error _ | End_of_file
+  | Unix.Unix_error _ | End_of_file
   | Tls_eio.Tls_alert _ | Tls_eio.Tls_failure _ -> true
-  | _ -> false
+  | ex -> Eio.Exn.is_io ex
 
 (* A tagged rejection leaves [t] in step with the server. Any other failure
    after bytes were sent, and any exception that is not a [Failure], closes

@@ -19,7 +19,7 @@ let v ~net ~host ?port ?(tls=`Implicit)
     let rec attempt = function
     | [] -> failwith "IMAP host has no reachable addresses"
     | addr :: rest -> (try Eio.Net.connect ~sw net addr with
-        | Eio.Io _ when rest <> [] -> attempt rest)
+        | ex when rest <> [] && Eio.Exn.is_io ex -> attempt rest)
     in
     (attempt (Eio.Net.getaddrinfo_stream net host ~service:(string_of_int port))
       :> raw)

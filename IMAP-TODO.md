@@ -204,7 +204,7 @@ run only once everything else works.
 | 18 | Schema reset and one journal: delete the migration ladder for one version-1 schema, fold the APPEND intents into `Journal.operation`, collapse single-valued side tables into columns and flag lists into text columns, drop the redundant index, remove the test-only list readers | done; four commits | a091fa2ef |
 | 19 | Publish allocation: find and fix the 61 KB per staged row on the stage and publish path, measured with `bench_store` | done; eight commits, 3,926 MB to 9.4 MB and 6.2 s to 0.38 s | 42548d20c |
 | 20 | IDLE with a deadline: `Selected.Idle.wait_for_change` takes a clock and timeout and sends DONE from a timer fiber instead of cancelling the read, `Watch` renews without reconnecting, `Mailbox.wait` uses it | done | 4d164450e |
-| 21 | Portable collections: replace stdlib `Set`, `Map` and module-level `Hashtbl` with `Base.Set`, `Base.Map` and iarrays so the store, sync and remaining eio types carry kinds, then annotate `@@ portable` wherever the compiler accepts, with probes | todo | |
+| 21 | Portable collections: replace stdlib `Set`, `Map` and module-level `Hashtbl` with `Base.Set`, `Base.Map` and iarrays so the store, sync and remaining eio types carry kinds, then annotate `@@ portable` wherever the compiler accepts, with probes | done; ten commits, `Uid.to_int` halves the staging allocation, Base collections, portable values in every library except behind Sqlite3, Eio I/O and decompress | 43b1f5428 |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
 becomes its own package now; the `imap` package split into protocol, eio and
@@ -1002,6 +1002,147 @@ with one LOGIN and the two handshake CAPABILITY commands, and opens no
 third connection. Removing the single-DONE guard fails test_idle, and
 the previous watch fails test_watch. Build and runtest are clean, 20
 alcotest suites and 263 cases plus the plain executables.
+
+Step 21. Done: in ten commits, aefb1da70 (`of_int` and `to_int`),
+c31e39acd (UIDs bound as ints), 8d642b845 (protocol collections),
+d83d3e03d (Selected collections), 1e95d18c9 (Maildir registry), 401048e68
+(store), b40a8f48a (eio), 53c502b09 (maildir), 50e46203c (sync) and
+43b1f5428 (dune formatting). `Uid`, `Uidvalidity` and `Seq` gain `of_int`
+and `to_int`. `Database.bind_int` binds an `int`, and `stage_rows` and
+`stage_membership` bind `Uid.to_int` and compare against bounds converted
+once. The store decodes UIDs from `Sqlite3.Data.INT`, whose `int64` the
+sqlite3 library has already boxed, so decoding gains nothing from `of_int`
+and is unchanged. `bench_store`, three runs, bytes per row:
+
+| Phase | Before | After |
+|---|---|---|
+| stage_rows | 24.9 | 0.9 |
+| stage_membership | 67.3 | 43.3 |
+| stage and publish | 9.4 MB, 0.38 s | 4.6 MB, 0.375 to 0.386 s |
+
+What membership still allocates is the duplicate table's entry and
+bucket array.
+
+Collections replaced. `Capability.Set` was `Stdlib.Set.MakePortable` and
+is `Base.Set` over `Capability.comparator`. `Mirror.snapshot` held
+`Map.MakePortable (Uid)` and holds `Base.Map` over `Uid.comparator`.
+`Sync_policy`'s flag map was `Map.MakePortable` and is `Base.Map` over
+`Flag_order`, a comparator private to sync_policy.ml, because
+`Mail_flag.Imap_flag` lives in mail-flag, which does not depend on `base`,
+and this is its only keyed use. `Selected` had a function-local
+`Set.Make (Imap.Uid)` in the MESSAGELIMIT SEARCH pager and a module-level
+`Uids = Map.Make (Imap.Uid)` for FETCH rows, now `Base.Set` and `Base.Map`
+over `(module Imap.Uid)`. Maildir's module-level `writer_locks` Hashtbl
+and its mutex are an `Atomic.t` holding a `Base.Set` over `Inode`, a
+comparator of the `(dev, ino)` pair private to maildir.ml, updated by
+compare-and-set. `Uid.comparator_witness`, `Uid.comparator`,
+`Capability.comparator_witness` and `Capability.comparator` are exported
+next to their types, with the witnesses declared `value mod portable`,
+so `(module Imap.Uid)` and `(module Imap.Capability)` are comparator
+modules for callers. No `string` or `int64` keyed set or map remained, so
+none uses `Base.String` or `Base.Int64`. Kept, as function-local
+deduplication: the Hashtbls in client.ml (LIST names, APPENDUID numbers),
+selected.ml (ESORT), mailbox.ml (`distinct`), response.ml (SORT and
+THREAD) and imap_store.ml (`stage_membership`). Also kept is
+`Local_inventory.t.appended_ids`, a Hashtbl field of a record that also
+holds a SQLite handle and `mutable live`, so it can never be portable.
+No module-level array remained in either package.
+
+Kinds. `Base.Set.t` and `Base.Map.t` cannot be `immutable_data`, since
+their kind is `immutable_data with ('elt, 'cmp) Comparator.t` and
+`Comparator.t` crosses only portability and contention. Declaring
+`Capability.Set.t : immutable_data` fails with "The kind of the first is
+immutable_data with (elt, comparator_witness) Base.Comparator.t. But the
+kind of the first must be a subkind of immutable_data." So
+`Capability.Set.t` and `Mirror.snapshot` are declared `value mod contended
+portable`, which lets a portable closure capture them, and imap.mli says
+so. Probes, each confirmed to fail when its claim is removed:
+test/proto/test_modes.ml gains six `Kinds` abbreviations (the two types,
+both witnesses, a `Base.Map` over `Uid` and a `Base.Set` over
+`Capability`) and the "collections" case. test/store/test_modes.ml
+("Imap_store kinds and modes") holds twelve `immutable_data`
+abbreviations for the store records and a portable closure over one of
+each, and a `mutable` field made it fail. test/sync/test_modes.ml
+("Imap_sync kinds and modes") holds eighteen `immutable_data`
+abbreviations for the sync error and result records.
+bleeding/maildir/test/test_modes.ml adds `Maildir.recovery`.
+
+Portability, one library at a time, with `@@ portable` first and each
+rejected value removed. An interface where most values pass keeps the
+floating attribute with `@@ nonportable` on the rest. Otherwise the passing
+values carry `@@ portable` each. A floating attribute also makes every
+nested module signature portable, and a value inside one cannot opt out,
+so a nested module with a failing value takes `end @@ nonportable` or,
+as here, per-value annotations.
+
+- Store. `Imap_store`, `Sync_journal`, `Blob_store` and `Schema` have no
+  portable value and stay unannotated. `Database.fail` and its eight value
+  codecs are portable, probed by the `codecs` binding in
+  test/store/database/test_database.ml. `Record_codec` is floating with
+  `current_cursor`, `cursor_exn`, `stale` and `stale_revision` exempt. It
+  is private, so only its own ml/mli check proves it.
+- Eio. `Session` create, close, check_open, has, is_enabled, require,
+  require_enabled, revision_two, mailbox_mode, mailbox_wire and parse.
+  `Transport` is floating with `v`, `read`, `write` and `compress_deflate`
+  exempt. `Deflate_flow.close`. `Client` capabilities, enabled, has,
+  is_enabled, is_open, mailbox_mode, append_message, close and the
+  `require` of Acl, Quota, Metadata, Notify, Multiappend and Compress.
+  `Selected` create, invalidate and `Searchres.saved_search_count`.
+  `Mailbox.of_selected`. All of `Pool`. `Auth` resolve_password,
+  cram_md5_response, plain_response and oauthbearer_response, which step
+  16 thought Base64 blocked. The facade repeats the claims for the public
+  values and says once what they allow. test/eio/test_modes.ml gains the
+  cases "client state", "endpoint", "session state" and "Auth responses"
+  and compile-only probes for the rest. Removing any one claim fails the
+  probe or a dependent unit.
+- Maildir. `of_writer` only, probed by the "of_writer" case. `Dotlock`
+  has no portable value and stays unannotated.
+- Sync. `Error`, `Ctx` and `Local_date` are floating.
+  `Deletion.expunge_preflight` and `plan`, `Flags.plan_flags` and
+  `validate_permanent_flags`, and `Local_inventory.count` carry it each,
+  probed in test/sync/test_modes.ml. Thirteen private `Pair_evidence`
+  helpers carry it, proved only by their own ml/mli check. `Bridge`,
+  `Engine`, `Plan`, `Repair`, `Spool` and `Watch` stay unannotated.
+
+Blockers, each a dependency value, with the message a portable closure
+over it gets. Every other rejected value reaches one of these.
+
+- sqlite3: `Sqlite3.Rc.is_success` (`Database.check`), `Sqlite3.step`,
+  `Sqlite3.changes`, `Sqlite3.bind_parameter_count`. sqlite3-eio:
+  `Sqlite3_eio.prepare`, `run`, `open_path`. Each is `The value
+  "Sqlite3.Rc.is_success" is "nonportable" but is expected to be
+  "portable"`, with its own name.
+- Eio exception: the `Eio.Io` constructor, matched in
+  `Session.io_failure` and `Transport.v`. `This value is "nonportable"
+  but is expected to be "portable". Hint: All arguments of the
+  constructor "Eio.Io" must cross this axis to use it in this position.`
+  It blocks `Session.protect` and `command_result`, hence every
+  `Selected` command and witness `require`, which run under `protect`.
+- Eio fiber keys: `Session.leases` and `Database.held` are module-level
+  `Eio.Fiber.key` values, and the key type has no kind. `The value "k"
+  is "nonportable" but is expected to be "portable"`. It blocks
+  `Session.locked` and `with_lease`, hence every `Client` command, and
+  `Database.locked` and `transaction`.
+  `Eio.Fiber.create_key` and `get` are themselves portable.
+- Eio paths and time: `Eio.Path.native`, `native_exn`, `is_directory`,
+  `open_in`, `( / )`, `read_dir`, `stat`, `unlink` and `with_open_in`,
+  `Eio.Time.with_timeout_exn` (`Watch.run`),
+  `Eio_unix.run_in_systhread` (Maildir fsync and random IDs) and
+  `Eio_unix.Fd.use_exn`, each `The value "Eio.Path.native_exn" is
+  "nonportable" but is expected to be "portable"` with its own name.
+- decompress: `De.Queue.create` (`Deflate_flow.create`), `De.Inf.dst_rem`
+  (`read`) and `De.Def.dst_rem` (`write`), same message. Through
+  `Transport.read` and `write` they block every `Session` exchange.
+- digestif: `Digestif.SHA256.init` and `feed_string`, same message, behind
+  the Eio path blockers in `Spool` and `Blob_store`.
+
+Portable already, so not blockers: `Base64.encode_string`,
+`Digestif.SHA256.digest_string`, `Eio.Mutex.create` and `use_rw`,
+`Eio.Flow.single_read` and `write`, `Eio.Net.connect`, `Eio.Switch.run`,
+`Eio.Fiber.both`, `Eio.Cancel.protect`, `Eio.Exn.reraise_with_context`,
+`Cstruct.create`, `Unix.lockf` and the tls calls in `Transport.upgrade`.
+Build and runtest are clean, 22 alcotest suites and 264 cases plus the
+plain executables.
 
 ### Step F notes
 

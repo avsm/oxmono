@@ -44,6 +44,22 @@ full sentences, no colons or em dashes joining clauses, defaults stated for
 every optional argument, no history in the prose. Implementations carry no
 comments unless the code cannot say it.
 
+### Portability round, 2026-09-28: steps 22 to 25
+
+The user asked for the sqlite3-eio binding to be made portable. The
+assessment: functions can be portable once their callees are; handle
+types can cross `portable` only if the callback-registering functions take
+portable closures; `contended` is never claimed because one domain uses a
+handle at a time, which the store's mutex enforces. The vendored Eio is
+the costly layer because `Exn.err` is an unkinded extensible variant, so a
+kind on it constrains every `err +=` and `Backend.t +=` payload in the
+tree: sqlite3_eio, matrix_eio (`qr_login`, `oauth`, `error`), `tls_eio`
+under vendor/tls, tomlt_eio, openrouter, maildir, three jmap tests and
+`deflate_flow`. Steps 22 and 23 run in parallel worktrees, 24 and 25
+after them in the main checkout. Vendored patches follow CLAUDE.md: each
+hunk recorded with provenance in `vendor/eio/VENDORED.md`, guard tests
+outside `vendor/`.
+
 ### Review pause, 2026-09-28, after the follow-up round
 
 Steps 18 to 21 are done. Tree state: `minus39` at b4aaef3d8, nothing
@@ -252,6 +268,10 @@ run only once everything else works.
 | 19 | Publish allocation: find and fix the 61 KB per staged row on the stage and publish path, measured with `bench_store` | done; eight commits, 3,926 MB to 9.4 MB and 6.2 s to 0.38 s | 42548d20c |
 | 20 | IDLE with a deadline: `Selected.Idle.wait_for_change` takes a clock and timeout and sends DONE from a timer fiber instead of cancelling the read, `Watch` renews without reconnecting, `Mailbox.wait` uses it | done | 4d164450e |
 | 21 | Portable collections: replace stdlib `Set`, `Map` and module-level `Hashtbl` with `Base.Set`, `Base.Map` and iarrays so the store, sync and remaining eio types carry kinds, then annotate `@@ portable` wherever the compiler accepts, with probes | done; ten commits, `Uid.to_int` halves the staging allocation, Base collections, portable values in every library except behind Sqlite3, Eio I/O and decompress | 43b1f5428 |
+| 22 | Portable sqlite3 binding: `@@ portable` on `bleeding/sqlite3/lib` with the callback-taking functions requiring portable closures, `db` and `stmt` declared `value mod portable`, probe tests | todo | |
+| 23 | Portable vendored Eio: a kind on `Exn.err` and `Fiber.key`, `@@ portable` on `run_in_systhread`, `Fiber.first`, `Cancel.protect` and `Time.with_timeout_exn`, recorded in `vendor/eio/VENDORED.md`, every `err +=` site in the tree still building, probes outside vendor | todo | |
+| 24 | Portable sqlite3-eio on top of steps 22 and 23, probes | todo | |
+| 25 | Flip `@@ portable` on the store, sync and Eio-client values that steps 22 to 24 unblock, with probes, and record what still blocks | todo | |
 
 Decisions taken: extension witnesses rather than plain submodules; `maildir`
 becomes its own package now; the `imap` package split into protocol, eio and

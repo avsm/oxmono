@@ -75,7 +75,9 @@ let (dates @ portable) = fun () ->
   Imap.Internal_date.to_string date, Imap_sync_local.Local_date.to_mtime date
 
 let (staged @ portable) = fun inventory ->
-  Imap_sync_local.Local_inventory.count inventory
+  let module L = Imap_sync_local.Local_inventory in
+  L.count inventory, L.find inventory ~id:"im-1",
+  (L.page inventory ~limit:10 ()).next_after
 
 let test_report () =
   let s, p = report () in

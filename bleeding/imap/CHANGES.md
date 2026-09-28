@@ -438,3 +438,8 @@ from a portable closure in a second domain.
 `require` and `Client.Objectid_plus.pin_mailbox` are portable. No command
 is, since each reads or writes through the DEFLATE layer, which calls
 decompress.
+
+`Local_inventory.find` and `page` are portable, as are the journal
+checks in `Pair_evidence` that read only the store. Every sync driver
+still reads Maildir or an `Eio.Path`, or sends an IMAP command, and is
+not.

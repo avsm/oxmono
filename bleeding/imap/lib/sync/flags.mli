@@ -1,3 +1,5 @@
+@@ portable
+
 (** Three-way flag reconciliation of one IMAP and Maildir pair.
 
     The module merges the flags of an established pair against the pair's
@@ -35,7 +37,7 @@ val plan_flags :
   ?propagate_deleted:bool -> base:Mail_flag.Imap_flag.t list ->
   remote:Mail_flag.Imap_flag.t list -> local:Mail_flag.Imap_flag.t list ->
   condstore:bool -> remote_modseq:int64 option ->
-  unit -> (decision, Error.t) result @@ portable
+  unit -> (decision, Error.t) result
 (** [plan_flags ~base ~remote ~local ~condstore ~remote_modseq ()] is the
     decision for a pair whose common flags are [base] and whose endpoints
     hold [remote] and [local]. Every flag other than [\\Deleted] merges.
@@ -48,7 +50,7 @@ val plan_flags :
 val validate_permanent_flags :
   available:string list option -> defined:string list option ->
   remote:Mail_flag.Imap_flag.t list ->
-  merged:Mail_flag.Imap_flag.t list -> (unit, Error.t) result @@ portable
+  merged:Mail_flag.Imap_flag.t list -> (unit, Error.t) result
 (** [validate_permanent_flags ~available ~defined ~remote ~merged] is
     [Ok ()] when SELECT's PERMANENTFLAGS [available] and FLAGS [defined]
     permit moving the remote flags from [remote] to [merged]. When
@@ -71,7 +73,7 @@ type reconciled = {
 val reconcile_pair :
   ?propagate_deleted:bool -> ?inventory:Local_inventory.t -> ctx:Ctx.t ->
   writer:Maildir.writer -> pair:Imap_store.Journal.pair -> unit ->
-  (reconciled, Error.t) result
+  (reconciled, Error.t) result @@ nonportable
 (** [reconcile_pair ~ctx ~writer ~pair ()] reads the UID FLAGS and MODSEQ of
     [pair] in a read-write selection of [ctx.mailbox] and its Maildir flags
     through [writer], merges them against [pair.common_flags] as
@@ -110,7 +112,7 @@ val reconcile_pair :
 val recover_operation :
   ?inventory:Local_inventory.t -> ctx:Ctx.t -> writer:Maildir.writer ->
   operation:Imap_store.Journal.operation -> unit ->
-  (outcome, Error.t) result
+  (outcome, Error.t) result @@ nonportable
 (** [recover_operation ~ctx ~writer ~operation ()] settles the pending FLAGS
     [operation] without replaying an uncertain remote STORE. [inventory] is
     as for {!reconcile_pair} and defaults to reading the Maildir.

@@ -1,3 +1,5 @@
+@@ portable
+
 (** Policy-gated deletion of one IMAP and Maildir pair.
 
     A missing side is actionable only when a complete published inventory
@@ -20,7 +22,7 @@ type outcome =
 
 val expunge_preflight :
   before_flags:Mail_flag.Imap_flag.t list -> before_modseq:int64 ->
-  (Mail_flag.Imap_flag.t list * int64 option) option -> bool @@ portable
+  (Mail_flag.Imap_flag.t list * int64 option) option -> bool
 (** [expunge_preflight ~before_flags ~before_modseq after] is [true] when
     [after] holds exactly [before_flags] plus [\\Deleted] and a MODSEQ
     above [before_modseq], or equal to it when [before_flags] already held
@@ -33,7 +35,7 @@ val plan :
   current_generation:int64 ->
   last_presence:([ `Remote | `Local ] -> int64 option) ->
   remote_present:bool -> local_present:bool -> Imap_store.Journal.pair ->
-  Imap.Sync_policy.deletion_plan @@ portable
+  Imap.Sync_policy.deletion_plan
 (** [plan ~policy ~min_absence_scans ~current_generation ~last_presence
     ~remote_present ~local_present pair] is the deletion decision under
     [policy] for [pair] when complete inventories of generation
@@ -54,7 +56,7 @@ val reconcile_pair :
   ?min_absence_scans:int -> ctx:Ctx.t -> writer:Maildir.writer ->
   cursor:Imap.Mirror.cursor -> local_inventory:Local_inventory.t ->
   pair:Imap_store.Journal.pair -> policy:Imap.Sync_policy.deletion_policy ->
-  unit -> (outcome, Error.t) result
+  unit -> (outcome, Error.t) result @@ nonportable
 (** [reconcile_pair ~ctx ~writer ~cursor ~local_inventory ~pair ~policy ()]
     plans with {!plan} from the complete inventories [cursor] and
     [local_inventory], and deletes the surviving side of [pair] when the
@@ -104,7 +106,7 @@ val recover_operation :
   cursor:Imap.Mirror.cursor ->
   local_inventory:Local_inventory.t ->
   operation:Imap_store.Journal.operation -> unit ->
-  (outcome, Error.t) result
+  (outcome, Error.t) result @@ nonportable
 (** [recover_operation ~store ~writer ~cursor ~local_inventory ~operation ()]
     settles the pending deletion [operation] from the complete inventories
     [cursor] and [local_inventory] without connecting to IMAP. A [Prepared]

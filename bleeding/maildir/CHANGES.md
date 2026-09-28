@@ -72,3 +72,6 @@ inodes instead of a mutex-guarded `Hashtbl`.
 
 `of_writer` is portable. `Dotlock` and the other `Maildir` functions
 are not, since they call `Eio.Path` or `Eio_unix.run_in_systhread`.
+
+The library stanza lists its dependencies one per line, as `dune fmt`
+writes them.

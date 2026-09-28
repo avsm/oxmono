@@ -1,4 +1,12 @@
 (test
  (name test_modes)
- (libraries imap imap.sync imap.store imap.eio imap_sync_local maildir
-  mail-flag eio alcotest))
+ (libraries
+  imap
+  imap.sync
+  imap.store
+  imap.eio
+  imap_sync_local
+  maildir
+  mail-flag
+  eio
+  alcotest))

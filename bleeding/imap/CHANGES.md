@@ -420,3 +420,6 @@ queries, `append_message`, `close` and six extension `require`s,
 `Imap_sync` errors, `Ctx.v`, `Deletion.plan`, `expunge_preflight`,
 `Flags.plan_flags` and `validate_permanent_flags` are portable, and a
 probe test checks that the sync result records are immutable data.
+
+The sync probe test stanza lists its dependencies one per line, as
+`dune fmt` writes them.

@@ -44,6 +44,57 @@ full sentences, no colons or em dashes joining clauses, defaults stated for
 every optional argument, no history in the prose. Implementations carry no
 comments unless the code cannot say it.
 
+### Review pause, 2026-09-28, after the portability round
+
+Steps 22 to 25 are done. Tree state: `minus39` at fd18c71d0, nothing
+uncommitted. The eight packages that vendor Eio or extend its errors build
+(`@avsm/arod/all @bleeding/imap/all @bleeding/maildir/all @bleeding/jmap/all
+@bleeding/sqlite3/all @bleeding/matrix/all @bleeding/tomlt/all
+@bleeding/openrouter/all`), the arod, imap, maildir and sqlite3 test aliases
+pass with `--force`, 22 suites and 264 alcotest cases plus the plain
+executables, and the imap, maildir and sqlite3 dune stanzas are formatted.
+The sqlite3 fork pins ocamlformat 0.28.1, which no switch here provides, so
+its OCaml formatting is unchecked like the rest of the tree.
+
+What this round delivered:
+
+- sqlite3: every value portable, `db` and `stmt` cross `portable`, stored
+  callbacks must be portable closures, aggregate accumulators are kinded,
+  an audit of the C stubs is recorded in the step 22 note, and the
+  `test_win` and `test_fun` file collision is fixed.
+- vendored Eio: `Fiber.key` crosses portability and contention through an
+  unboxed field modality, `run_in_systhread`, `sleep`,
+  `Time.with_timeout_exn`, `Path.native_exn` and `Path.pp` are portable, and
+  `Eio.Exn.is_io` lets portable code test for an I/O exception, because the
+  compiler refuses a kind on the extensible `Exn.err`. Recorded in
+  `vendor/eio/VENDORED.md`; guard probe under
+  `bleeding/imap/test/vendor_modes/`.
+- sqlite3-eio: every value portable; a handle cannot be captured by a
+  portable closure and is passed as an argument.
+- store: the connection is reachable only through the lock, which hands it
+  to callbacks uncontended; `Database.t` and `Imap_store.t` are
+  `value mod portable contended`, and a portable closure can capture an
+  open store and use it from another domain, proved in
+  `test/store/test_modes.ml`. Portable values went from 26 to 135 of 150
+  in the store, 56 to 79 in the Eio core, 24 to 36 in sync.
+
+Decisions for the user:
+
+- The store's `contended` crossing is asserted with
+  `[@@unsafe_allow_any_mode_crossing]` in `bleeding/imap/lib/store/database.ml`,
+  the only such assertion in the two packages. Its grounds: every
+  connection access goes through the store's `Eio.Mutex`, which the
+  vendored Eio documents as safe across domains; the blob directory is
+  reachable only through a value marked nonportable; the one path outside
+  the lock is the owning switch closing the handle on release. If you
+  prefer no unchecked claim, drop `contended` and pass stores as arguments.
+- The next lever for the client is decompress: `De.Queue.create`,
+  `De.Inf.dst_rem` and `De.Def.dst_rem` sit under `Transport.read` and
+  `write` and therefore under every exchange; `Ca_certs.system_authenticator`
+  blocks `Transport.v`. The next lever for Maildir and the sync drivers is
+  `Eio.Path` (`( / )`, `open_in`, `is_directory`, `unlink`, `with_open_in`,
+  `read_dir`) and `Eio_unix.Err.v`, then digestif.
+
 ### Portability round, 2026-09-28: steps 22 to 25
 
 The user asked for the sqlite3-eio binding to be made portable. The

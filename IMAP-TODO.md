@@ -44,6 +44,53 @@ full sentences, no colons or em dashes joining clauses, defaults stated for
 every optional argument, no history in the prose. Implementations carry no
 comments unless the code cannot say it.
 
+### Review pause, 2026-09-28, after the follow-up round
+
+Steps 18 to 21 are done. Tree state: `minus39` at b4aaef3d8, nothing
+uncommitted. Both packages build with
+`dune build @bleeding/imap/all @bleeding/maildir/all`, `dune build
+@bleeding/imap/fmt @bleeding/maildir/fmt` is clean, and all 22 test
+suites pass with `--force`, 261 alcotest cases plus the plain executables.
+
+What changed in this round, with the entries in the two `CHANGES.md`:
+
+- Step 18: one version-1 schema of ten tables and no migrations; one
+  journal, with the APPEND intents folded into `Journal.operation`; flag
+  lists as text columns; the test-only list readers removed.
+- Step 19: staging and publishing 100,000 rows fell from 3,926 MB and
+  6.2 s to 4.6 MB and 0.38 s, through a new `Sqlite3_eio.run` that runs a
+  statement loop in one system-thread hop (shared library, entry in
+  `bleeding/sqlite3/CHANGELOG.md`), index binding without value lists,
+  and `Uid.to_int`.
+- Step 20: `Selected.Idle.wait_for_change ~clock ~timeout` ends IDLE by a
+  DONE timer, `Mailbox.wait` renews, and `Watch` renews on one connection.
+- Step 21: `Base.Set` and `Base.Map` over per-type comparators replace
+  every stdlib collection; `Capability.Set.t` and `Mirror.snapshot` are
+  `value mod contended portable` (Base's kinds do not reach
+  `immutable_data`); `@@ portable` is declared on every value the
+  compiler accepts, with probe tests per library.
+
+Decisions for the user:
+
+- Portability of the store, sync and Eio command paths is blocked only by
+  dependency values, listed with their compiler messages in the step 21
+  Done paragraph: `Sqlite3.Rc.is_success`, `step`, `changes`,
+  `bind_parameter_count`; `Sqlite3_eio.prepare`, `run`, `open_path`; the
+  `Eio.Io` constructor; module-level `Eio.Fiber.key` values whose type has
+  no kind; `Eio.Path.native` and friends, `Eio.Time.with_timeout_exn`,
+  `Eio_unix.run_in_systhread`; `De.Queue.create`; `Digestif.SHA256.init`
+  and `feed_string`. Annotating the vendored Eio, sqlite3 and decompress is
+  the next lever, and a separate decision.
+- `bleeding/sqlite3`'s upstream `runtest` fails intermittently in
+  `test_win.ml` with "database is locked" because `test_win` and
+  `test_fun` share the file `t_fun`; nothing in this round touched those
+  tests. Worth fixing upstream or serialising the two tests.
+- A follow-up left: `Database.run` and `rows` still cost four
+  system-thread hops each, so ordinary journal transactions could use the
+  same one-hop path as staging.
+- odoc still cannot run in the ox switch, so the `{!...}` links in the
+  pages remain unchecked.
+
 ### Follow-up round, 2026-09-27: steps 18 to 21
 
 The user asked for the recorded follow-ups to be fixed with the cleanest

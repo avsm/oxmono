@@ -16,6 +16,7 @@
 - Every value is portable under OxCaml, and `db` and `stmt` cross
   portability. Functions and collations a handle stores must be portable.
 - An aggregate accumulator's type must cross contention and portability.
+- The README states the portability contract for handles and callbacks.
 
 ### Fixed
 

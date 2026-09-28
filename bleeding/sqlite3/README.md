@@ -23,6 +23,20 @@ The `test`-directory in this distribution contains simple examples for
 testing features of this library. You can execute the tests by running:
 `dune runtest`.
 
+### Portability under OxCaml
+
+Every function is portable, so portable code may call it. `db` and `stmt`
+cross portability but not contention. A portable closure may capture a
+handle but cannot use it, and a handle must be used from one domain at a
+time. A handle stores the functions, aggregates and collations registered
+on it and calls them from whichever domain uses it, so they must be
+portable, and an aggregate accumulator's type must cross contention and
+portability. Callbacks to `exec`, `iter` and `fold` run only during the call
+and need not be portable. Keep the default serialized threading mode, and do
+not pass ``~mutex:`NO``, for a handle that more than one thread or domain
+uses, because a statement's finaliser may run on another thread while the
+handle is in use.
+
 ### Build issues
 
 SQLite3-OCaml depends on `pkg-config` to locate and compile against an

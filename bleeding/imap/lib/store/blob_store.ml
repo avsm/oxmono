@@ -8,7 +8,7 @@ type blob = { sha256:string; length:int64 }
 exception Digest_mismatch
 module Hash = Digestif.SHA256
 
-let directory t = match t.blob_dir with
+let directory t = match blob_dir t with
   | Some (Dir dir) -> Dir dir
   | None -> invalid_arg "Imap_store.Blob: open store with blob_dir"
 
@@ -121,7 +121,7 @@ let verify t blob =
 let verify_blob = verify
 
 let find t ~scope ~uidvalidity ~uid =
-  locked t (fun () ->
+  locked t (fun t ->
     match rows t "SELECT sha256,length FROM blob_refs WHERE endpoint=? \
       AND account=? AND mailbox_key=? AND uidvalidity=? AND uid=?"
       (scope_key scope @ [i (Imap.Uidvalidity.to_int64 uidvalidity);
@@ -131,7 +131,7 @@ let find t ~scope ~uidvalidity ~uid =
 
 let missing_page t ~scope ~(cursor:M.cursor) ?after_uid ~limit () =
   check_page_args "Imap_store.Blob.missing_page" scope cursor limit;
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     if stale t cursor then `Stale_revision
     else match cursor.uidvalidity with
       | None -> `Uids []
@@ -152,7 +152,7 @@ let missing_page t ~scope ~(cursor:M.cursor) ?after_uid ~limit () =
 
 let referenced_page t ~scope ~(cursor:M.cursor) ?after_uid ~limit () =
   check_page_args "Imap_store.Blob.referenced_page" scope cursor limit;
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     if stale t cursor then `Stale_revision
     else match cursor.uidvalidity with
     | None -> `Refs []
@@ -174,7 +174,7 @@ let detach_if_matches t ~(scope:M.scope) ~(cursor:M.cursor) ~uid:target
     blob =
   if cursor.scope<>scope then
     invalid_arg "Imap_store.Blob.detach_if_matches: scope/cursor mismatch";
-  transaction t (fun () ->
+  transaction t (fun t ->
     if stale t cursor then `Stale_revision
     else match cursor.uidvalidity with
     | None -> `Unchanged
@@ -189,7 +189,7 @@ let detach_if_matches t ~(scope:M.scope) ~(cursor:M.cursor) ~uid:target
 let attach ?(verify=true) t ~(scope:M.scope) ~uidvalidity ~uid blob =
   if verify && not (verify_blob t blob) then
     invalid_arg "Imap_store.Blob.attach: blob missing or corrupt";
-  transaction t (fun () ->
+  transaction t (fun t ->
     let current=rows t "SELECT raw_name,encoding,mailbox_id,uidvalidity \
       FROM mailboxes WHERE endpoint=? AND account=? AND mailbox_key=?"
       (scope_key scope) in
@@ -244,10 +244,9 @@ let reachability = "SELECT EXISTS (SELECT 1 FROM blob_refs WHERE sha256=?) \
 
 let iter_orphan_candidates t f =
   let Dir dir=directory t in
-  (* The statement outlives the lock. Each execution takes the lock. *)
-  with_stmt t reachability (fun stmt ->
+  with_stmt_across_locks t reachability (fun stmt ->
     let referenced hash =
-      locked t (fun () ->
+      locked t (fun t ->
         match rows_prepared t stmt [s hash;s hash] with
         | r :: _ -> int r.(0)<>0L
         | [] -> fail "invalid blob reachability result") in

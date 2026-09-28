@@ -128,7 +128,7 @@ let scoped_pairs t (scope:M.scope) where values =
 let find_pair_unlocked t ~id =
   match select_pairs t "id=?" [s id] with [] -> None | x :: _ -> Some x
 let find_pair t ~id =
-  transaction ~begin_sql:"BEGIN" t (fun () -> find_pair_unlocked t ~id)
+  transaction ~begin_sql:"BEGIN" t (fun t -> find_pair_unlocked t ~id)
 let published_state t scope =
   match rows t "SELECT generation,inventory_ref,uidvalidity FROM mailboxes \
     WHERE endpoint=? AND account=? AND mailbox_key=?" (scope_key scope) with
@@ -141,7 +141,7 @@ let in_snapshot t scope ~epoch ~uid =
       i (Imap.Uid.to_int64 uid)])<>[]
 let side_name = function `Remote -> "remote" | `Local -> "local"
 let last_presence_generation t ~pair_id ~side =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     match rows t "SELECT generation FROM sync_pair_presence \
       WHERE pair_id=? AND side=?" [s pair_id;s (side_name side)] with
     | [] -> None
@@ -154,7 +154,7 @@ let note_presence t ~pair ~side ~generation =
     | `Remote,Some epoch,Some uid,_ -> Some (epoch,uid)
     | `Local,_,_,Some _ -> None
     | _ -> invalid_arg (who ^ ": pair has no occurrence on that side") in
-  transaction t (fun () ->
+  transaction t (fun t ->
     match find_pair_unlocked t ~id:pair.id with
     | Some current when current=pair ->
         (match published_state t pair.scope with
@@ -180,7 +180,7 @@ let note_presence t ~pair ~side ~generation =
              `Recorded)
     | _ -> `Stale_revision)
 let reactivate_local t ~pair ~generation =
-  transaction t (fun () ->
+  transaction t (fun t ->
     match find_pair_unlocked t ~id:pair.id with
     | Some current when current=pair ->
         let allowed=match pair.local_tombstone with
@@ -205,7 +205,7 @@ let reactivate_local t ~pair ~generation =
           revision=Int64.succ pair.revision}
     | _ -> `Stale_revision)
 let find_by t ~scope clause values =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     match scoped_pairs t scope (" AND " ^ clause) values with
     | [] -> None
     | x :: _ -> Some x)
@@ -216,7 +216,7 @@ let find_local t ~scope ~local_id =
   find_by t ~scope "local_id=?" [s local_id]
 let pairs_page t ~scope ?after ~limit () =
   check_limit "Imap_store.Journal.pairs_page" limit;
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     scoped_pairs t scope (page_where ?after "") (page_values ?after [] limit))
 let check_inventory_tombstone t who x =
   match x.remote_tombstone,x.remote_uidvalidity,x.remote_uid with
@@ -303,7 +303,7 @@ let put_pair_unlocked t ~who ~previous ~expected_revision x =
         flags x.common_flags]);
     `Committed next)
 let put_pair t ~expected_revision x =
-  transaction t (fun () ->
+  transaction t (fun t ->
     put_pair_unlocked t ~who:"Imap_store.Journal.put_pair"
       ~previous:(find_pair_unlocked t ~id:x.id) ~expected_revision x)
 
@@ -325,7 +325,7 @@ let dec_conflict_kind = function
 let record_conflict t x =
   if x.id="" || x.evidence="" || x.resolved || x.pair_revision<0L then
     invalid_arg "Imap_store.Journal.record_conflict: invalid conflict";
-  transaction t (fun () ->
+  transaction t (fun t ->
     match find_pair_unlocked t ~id:x.pair_id with
     | Some pair when pair.revision=x.pair_revision ->
       run t "INSERT INTO sync_conflicts VALUES (?,?,?,?,?,0)"
@@ -335,7 +335,7 @@ let record_conflict t x =
 let ensure_open_conflict t ~(pair:pair) ~kind ~id ~evidence =
   if id="" || evidence="" then
     invalid_arg "Imap_store.Journal.ensure_open_conflict: empty ID/evidence";
-  transaction t (fun () ->
+  transaction t (fun t ->
     match find_pair_unlocked t ~id:pair.id with
     | Some current when current=pair ->
         let conflict_id=match rows t "SELECT id FROM sync_conflicts \
@@ -355,7 +355,7 @@ let ensure_open_conflict t ~(pair:pair) ~kind ~id ~evidence =
           pair_revision=pair.revision;resolved=false}
     | _ -> `Stale_revision)
 let resolve_open_conflicts t ~(pair:pair) ~kind =
-  transaction t (fun () ->
+  transaction t (fun t ->
     match find_pair_unlocked t ~id:pair.id with
     | Some current when current=pair ->
         run t "UPDATE sync_conflicts SET resolved=1 \
@@ -364,12 +364,12 @@ let resolve_open_conflicts t ~(pair:pair) ~kind =
         `Resolved (changes t)
     | _ -> `Stale_revision)
 let has_open_conflict t ~(pair:pair) ~kind =
-  locked t (fun () ->
+  locked t (fun t ->
     rows t "SELECT 1 FROM sync_conflicts \
       WHERE pair_id=? AND kind=? AND resolved=0 LIMIT 1"
       [s pair.id;s (conflict_kind kind)]<>[])
 let resolve_conflict t ~id =
-  transaction t (fun () ->
+  transaction t (fun t ->
     run t "UPDATE sync_conflicts SET resolved=1 WHERE id=? AND resolved=0"
       [s id];
     if changes t=0 then
@@ -390,7 +390,7 @@ let conflicts_query = "SELECT c.id,c.pair_id,c.kind,c.evidence,\
   WHERE c.resolved=0 AND p.endpoint=? AND p.account=? AND p.mailbox_key=? "
 let open_conflicts_page t ~(scope:M.scope) ?after ~limit () =
   check_limit "Imap_store.Journal.open_conflicts_page" limit;
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     let query=conflicts_query ^
       (match after with None -> "" | Some _ -> "AND c.id>? ") ^
       "ORDER BY c.id LIMIT ?" in
@@ -502,7 +502,7 @@ let prepare_operation ?local_flags ?local_source_mtime t x =
    | Some mtime when x.kind=Append && x.local_id<>None &&
        Float.is_finite mtime -> ()
    | Some _ -> invalid_arg (who ^ ": invalid local source mtime"));
-  transaction t (fun () ->
+  transaction t (fun t ->
     let pair_revision=Option.map (fun id -> match find_pair_unlocked t ~id with
       | Some pair when pair.scope=x.scope &&
           pair.local_id=x.local_id &&
@@ -546,7 +546,7 @@ let prepare_operation ?local_flags ?local_source_mtime t x =
         (match local_source_mtime with
          | None -> S.Data.NULL | Some mtime -> S.Data.FLOAT mtime)]))
 let operation_value t id column =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     match rows t ("SELECT " ^ column ^ " FROM sync_operations WHERE id=?")
       [s id] with
     | [] -> S.Data.NULL
@@ -560,7 +560,7 @@ let saved_pair_revision t id =
   | [] -> None
   | r :: _ -> nullable_int r.(0)
 let operation_pair_revision t ~id =
-  transaction ~begin_sql:"BEGIN" t (fun () -> saved_pair_revision t id)
+  transaction ~begin_sql:"BEGIN" t (fun t -> saved_pair_revision t id)
 let operation_source_mtime t ~id =
   match operation_value t id "local_source_mtime" with
   | S.Data.NULL -> None
@@ -608,21 +608,21 @@ let scoped_operations t (scope:M.scope) where values =
 let find_operation_unlocked t ~id =
   match select_operations t "id=?" [s id] with [] -> None | x :: _ -> Some x
 let find_operation t ~id =
-  transaction ~begin_sql:"BEGIN" t (fun () -> find_operation_unlocked t ~id)
+  transaction ~begin_sql:"BEGIN" t (fun t -> find_operation_unlocked t ~id)
 let active_operations_page t ~scope ?after ~limit () =
   check_limit "Imap_store.Journal.active_operations_page" limit;
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     scoped_operations t scope (page_where ?after active_states)
       (page_values ?after [] limit))
 let active_operation_for_pair t ~pair_id =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     match select_operations t
       ("pair_id=? AND " ^ active_states ^ " ORDER BY id LIMIT 1")
       [s pair_id] with
     | [] -> None
     | x :: _ -> Some x)
 let transition t ~id ~allowed ~next ~receipt ~epoch ~uid =
-  transaction t (fun () ->
+  transaction t (fun t ->
     match find_operation_unlocked t ~id with
     | Some x when List.mem x.state allowed ->
       run t "UPDATE sync_operations SET state=?,receipt=?,receipt_epoch=?,\
@@ -659,7 +659,7 @@ let observe_operation t ~id ~receipt ~destination_uidvalidity
     ~receipt:(Some receipt) ~epoch:destination_uidvalidity
     ~uid:destination_uid
 let commit_operation t ~id =
-  transaction t (fun () ->
+  transaction t (fun t ->
     match find_operation_unlocked t ~id with
     | Some x when x.state=Observed && x.pair_id=None ->
       run t "UPDATE sync_operations SET state='committed' WHERE id=?" [s id]
@@ -696,7 +696,7 @@ let check_operation_pair who (x:operation) (pair:pair) =
 
 let commit_operation_with_pair t ~id ~expected_pair_revision (pair:pair) =
   let who="Imap_store.Journal.commit_operation_with_pair" in
-  transaction t (fun () ->
+  transaction t (fun t ->
     let x=match find_operation_unlocked t ~id with
       | Some x when x.state=Observed -> x
       | _ -> invalid_arg (who ^ ": invalid operation or pair") in
@@ -778,7 +778,7 @@ let verify_repair t ~id ~kind ~states (pair:pair) ~matches =
 let settle_flag_operation t ~id (pair:pair) ~flags ~evidence =
   let who="Imap_store.Journal.settle_flag_operation" in
   check_evidence who evidence;
-  transaction t (fun () ->
+  transaction t (fun t ->
     match verify_repair t ~id ~kind:Flags ~states:[Sent;Ambiguous;Observed]
         pair ~matches:(fun _ ->
           pair.remote_tombstone=None && pair.local_tombstone=None) with
@@ -810,7 +810,7 @@ let unchanged_delete_target (pair:pair) (op:operation) =
 let reject_unchanged_delete_operation t ~id (pair:pair) ~evidence =
   check_evidence "Imap_store.Journal.reject_unchanged_delete_operation"
     evidence;
-  transaction t (fun () ->
+  transaction t (fun t ->
     match verify_repair t ~id ~kind:Delete ~states:[Sent;Ambiguous] pair
         ~matches:(unchanged_delete_target pair) with
     | Error e -> e
@@ -824,7 +824,7 @@ let reject_unchanged_delete_operation t ~id (pair:pair) ~evidence =
 let attest_targeted_expunge t ~id (pair:pair) ~evidence =
   let who="Imap_store.Journal.attest_targeted_expunge" in
   check_evidence who evidence;
-  transaction t (fun () ->
+  transaction t (fun t ->
     match verify_repair t ~id ~kind:Delete ~states:[Sent;Ambiguous] pair
         ~matches:(unchanged_delete_target pair) with
     | Error e -> e

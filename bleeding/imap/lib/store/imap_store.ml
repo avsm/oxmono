@@ -32,13 +32,13 @@ let stored_identity t (scope:M.scope) =
     else `Bound {account_id=text r.(2);mailbox_id=text r.(3)}
 
 let object_identity t ~scope =
-  transaction ~begin_sql:"BEGIN" t (fun () -> stored_identity t scope)
+  transaction ~begin_sql:"BEGIN" t (fun t -> stored_identity t scope)
 
 let observe_object_identity t ~(scope:M.scope) identity =
   if not (valid_object_id identity.account_id &&
           valid_object_id identity.mailbox_id) then
     invalid_arg "Imap_store.observe_object_identity: invalid OBJECTID+";
-  transaction t (fun () ->
+  transaction t (fun t ->
     match stored_identity t scope with
     | `Bound stored when stored=identity -> `Matched
     | `Bound _ | `Conflict -> `Conflict
@@ -58,11 +58,11 @@ let observe_object_identity t ~(scope:M.scope) identity =
          | _ :: _ -> `Conflict))
 
 let load_cursor t ~scope =
-  transaction ~begin_sql:"BEGIN" t (fun () -> cursor_exn t scope)
+  transaction ~begin_sql:"BEGIN" t (fun t -> cursor_exn t scope)
 
 let snapshot_page t ~(scope:M.scope) ~(cursor:M.cursor) ?after_uid ~limit () =
   check_page_args "Imap_store.snapshot_page" scope cursor limit;
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     if stale t cursor then `Stale_revision else
     match cursor.uidvalidity with
     | None -> `Rows []
@@ -78,7 +78,7 @@ let snapshot_page t ~(scope:M.scope) ~(cursor:M.cursor) ?after_uid ~limit () =
 let snapshot_contains_uid t ~(scope:M.scope) ~(cursor:M.cursor) ~uid:target =
   if cursor.scope<>scope then
     invalid_arg "Imap_store.snapshot_contains_uid: scope/cursor mismatch";
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     if stale t cursor then `Stale_revision
     else match cursor.uidvalidity with
       | None -> `Present false
@@ -121,7 +121,7 @@ let stage_for who t (cursor:M.cursor) (action:M.action) =
 
 let begin_stage t ~(cursor:M.cursor) ~(action:M.action) =
   check_action "Imap_store.begin_stage" cursor action;
-  transaction t (fun () ->
+  transaction t (fun t ->
     run t "INSERT INTO scan_stages (id,endpoint,account,mailbox_key,\
       raw_name,encoding,mailbox_id,uidvalidity,upper_uid,expected_revision) \
       VALUES (?,?,?,?,?,?,?,?,?,?)"
@@ -136,7 +136,7 @@ let seed_stage_from_published t ~(cursor:M.cursor) ~(action:M.action) =
   check_action who cursor action;
   if cursor.uidvalidity<>Some action.uidvalidity then
     invalid_arg (who ^ ": action/cursor mismatch");
-  transaction t (fun () ->
+  transaction t (fun t ->
     let h=stage_for who t cursor action in
     if int h.(9)<>0L || int h.(10)<>0L then
       invalid_arg (who ^ ": stage already has coverage");
@@ -155,7 +155,7 @@ let uid_bound x = if x > Int64.of_int max_int then max_int else Int64.to_int x
 let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last fetched =
   let who="Imap_store.stage_rows" in
   if first < 1L || last < first then invalid_arg (who ^ ": range");
-  transaction t (fun () ->
+  transaction t (fun t ->
     let h=stage_header t stage_id in
     let upper=int h.(7) and prior=int h.(9) in
     if first<>Int64.succ prior || last>upper then
@@ -209,7 +209,7 @@ let stage_rows ?(preserve_newer=false) t ~stage_id ~first ~last fetched =
 let stage_membership t ~stage_id ~first ~last uids =
   let who="Imap_store.stage_membership" in
   if first<1L || last<first then invalid_arg (who ^ ": range");
-  transaction t (fun () ->
+  transaction t (fun t ->
     let h=stage_header t stage_id in
     let upper=int h.(7) and prior=int h.(10) in
     if first<>Int64.succ prior || last>upper || int h.(9)<last then
@@ -233,11 +233,11 @@ let stage_membership t ~stage_id ~first ~last uids =
       [i last;s stage_id])
 
 let discard_stage t ~stage_id =
-  transaction t (fun () ->
+  transaction t (fun t ->
     run t "DELETE FROM scan_stages WHERE id=?" [s stage_id])
 
 let abandoned_stages t =
-  transaction ~begin_sql:"BEGIN" t (fun () ->
+  transaction ~begin_sql:"BEGIN" t (fun t ->
     rows t "SELECT id FROM scan_stages ORDER BY id" []
     |> List.map (fun r -> text r.(0)))
 
@@ -276,7 +276,7 @@ let replace_epoch t scope epoch fill =
 let forget_epochs t ~(scope:M.scope) ~(cursor:M.cursor) =
   if cursor.scope<>scope then
     invalid_arg "Imap_store.forget_epochs: scope/cursor mismatch";
-  transaction t (fun () ->
+  transaction t (fun t ->
     if stale t cursor then `Stale_revision else (
       let key=scope_key scope @
         [ni (Option.map Imap.Uidvalidity.to_int64 cursor.uidvalidity)] in
@@ -296,7 +296,7 @@ let publish_stage t ~(cursor:M.cursor) ~(action:M.action)
     ~explicit_highestmodseq ~nomodseq =
   let who="Imap_store.publish_stage" in
   check_action who cursor action;
-  transaction t (fun () ->
+  transaction t (fun t ->
     let h=stage_for who t cursor action in
     let scope=cursor.scope in
     if stale_revision t scope ~revision:cursor.revision then `Stale_revision

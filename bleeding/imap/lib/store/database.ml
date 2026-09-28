@@ -2,12 +2,22 @@ module S = Sqlite3
 module SE = Sqlite3_eio
 
 type blob_dir = Dir : _ Eio.Path.t -> blob_dir
-type t = {
-  db : SE.t;
-  handle : S.db;
+type conn = { db : SE.t; handle : S.db }
+
+(* None of the fields crosses a mode, so the crossing is asserted. It holds
+   because [t] is abstract outside this module: [conn] is reached only
+   through [locked], which holds [mutex], an Eio mutex safe to share
+   between domains, and [dir] only through the nonportable
+   [blob_dir], so no portable code touches the directory. *)
+type t : value mod portable contended = {
+  conn : conn;
   mutex : Eio.Mutex.t;
-  blob_dir : blob_dir option;
-}
+  dir : blob_dir option;
+} [@@unsafe_allow_any_mode_crossing]
+
+let v db dir =
+  { conn = { db; handle = SE.db db }; mutex = Eio.Mutex.create (); dir }
+let blob_dir t = t.dir
 
 let fail what = failwith ("Imap_store: " ^ what)
 let check t rc =
@@ -110,17 +120,27 @@ let locked t f =
   if List.memq t.mutex owned then
     invalid_arg "Imap_store: nested database transaction";
   Eio.Mutex.use_ro t.mutex (fun () ->
-    Eio.Fiber.with_binding held (t.mutex :: owned) f)
+    Eio.Fiber.with_binding held (t.mutex :: owned) (fun () -> f t.conn))
+
+let with_stmt_across_locks t statement f =
+  let under_lock g = Eio.Cancel.protect (fun () -> locked t g) in
+  let stmt = under_lock (fun c -> SE.prepare c.db statement) in
+  match f stmt with
+  | x -> under_lock (fun c -> check c (SE.finalize c.db stmt)); x
+  | exception ex ->
+    (try under_lock (fun c -> ignore (SE.finalize c.db stmt : S.Rc.t))
+     with _ -> ());
+    raise ex
 
 let transaction ?(begin_sql="BEGIN IMMEDIATE") t f =
-  locked t (fun () ->
+  locked t (fun t ->
     let committed = ref false in
     Fun.protect
       ~finally:(fun () -> if not !committed then
         try Eio.Cancel.protect (fun () -> sql t "ROLLBACK") with _ -> ())
       (fun () ->
         Eio.Cancel.protect (fun () -> sql t begin_sql);
-        let result = f () in
+        let result = f t in
         Eio.Cancel.protect (fun () -> sql t "COMMIT");
         committed := true;
         result))

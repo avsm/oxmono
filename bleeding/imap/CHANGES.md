@@ -423,3 +423,8 @@ probe test checks that the sync result records are immutable data.
 
 The sync probe test stanza lists its dependencies one per line, as
 `dune fmt` writes them.
+
+The store's SQLite connection sits behind its mutex: `Database.locked`
+and `transaction` hand it to their callback, and nothing else reaches
+it. `Database` is portable, and its `t` crosses portability and
+contention.

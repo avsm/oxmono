@@ -156,9 +156,8 @@ let initialize db f =
 let open_readonly ~sw path =
   let db = SE.open_path ~sw ~busy_timeout:5000 ~mode:`READONLY path in
   initialize db (fun () ->
-  let t = { db; handle = SE.db db; mutex = Eio.Mutex.create ();
-    blob_dir = None } in
-  transaction ~begin_sql:"BEGIN" t (fun () -> validate_schema t);
+  let t = v db None in
+  transaction ~begin_sql:"BEGIN" t (fun t -> validate_schema t);
   t)
 
 let open_path ~sw ?blob_dir path =
@@ -169,7 +168,8 @@ let open_path ~sw ?blob_dir path =
     Dir dir) blob_dir in
   let db = SE.open_path ~sw ~busy_timeout:5000 path in
   initialize db (fun () ->
-  let t = { db; handle = SE.db db; mutex = Eio.Mutex.create (); blob_dir } in
+  let t = v db blob_dir in
+  locked t (fun t ->
   sql t "PRAGMA journal_mode=WAL";
   sql t "PRAGMA synchronous=FULL";
   sql t "PRAGMA foreign_keys=ON";
@@ -181,8 +181,8 @@ let open_path ~sw ?blob_dir path =
    | _ -> fail "synchronous=FULL unavailable");
   (match rows t "PRAGMA foreign_keys" [] with
    | [r] when int r.(0) = 1L -> ()
-   | _ -> fail "foreign keys unavailable");
-  transaction t (fun () ->
+   | _ -> fail "foreign keys unavailable"));
+  transaction t (fun t ->
     if user_version t=0L then (
       if stored_objects t<>[] then
         fail "unversioned database already contains tables";

@@ -76,7 +76,7 @@
 
 (test
  (name test_modes)
- (libraries imap imap.eio alcotest))
+ (libraries imap_eio_core imap imap.eio eio eio.mock base64 alcotest))
 
 (test
  (name test_idle)

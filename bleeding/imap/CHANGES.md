@@ -411,3 +411,8 @@ and sets instead of stdlib ones.
 The store interface states that its records are immutable data a
 portable closure may capture, and a probe test checks it. No store
 function is portable, since each calls `Sqlite3`, `Sqlite3_eio` or `Eio`.
+
+The `Imap_eio` values that perform no I/O are portable. They are the
+`Transport` endpoint accessors, the `Client` capability and state
+queries, `append_message`, `close` and six extension `require`s,
+`saved_search_count`, `Mailbox.of_selected` and all of `Pool`.

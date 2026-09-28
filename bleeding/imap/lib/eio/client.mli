@@ -15,11 +15,11 @@ val of_flow :
   [> Eio.Flow.two_way_ty | Eio.Resource.close_ty ] Eio.Resource.t ->
   (t, error) result
 
-val capabilities : t -> Imap.Capability.Set.t
-val enabled : t -> Imap.Capability.Set.t
-val has : t -> Imap.Capability.t -> bool
-val is_enabled : t -> Imap.Capability.t -> bool
-val is_open : t -> bool
+val capabilities : t -> Imap.Capability.Set.t @@ portable
+val enabled : t -> Imap.Capability.Set.t @@ portable
+val has : t -> Imap.Capability.t -> bool @@ portable
+val is_enabled : t -> Imap.Capability.t -> bool @@ portable
+val is_open : t -> bool @@ portable
 val enable : t -> Imap.Capability.t list ->
   (Imap.Capability.t list, error) result
 
@@ -43,7 +43,7 @@ val list_extended : t -> ?reference:string -> patterns:string list ->
   ?selection:Imap.Mailbox_list.selection list ->
   ?returns:Imap.Mailbox_list.return list ->
   ?status:Imap.Status_item.t list -> unit -> (discovery, error) result
-val mailbox_mode : t -> Imap.Mailbox_name.mode
+val mailbox_mode : t -> Imap.Mailbox_name.mode @@ portable
 val status : t -> mailbox:string -> items:Imap.Status_item.t list ->
   (Imap.Response.mailbox_status, error) result
 val get_jmap_access : t -> (string, error) result
@@ -76,7 +76,7 @@ type append_message
 
 val append_message :
   ?flags:Mail_flag.Imap_flag.t list -> ?internal_date:Imap.Internal_date.t ->
-  length:int64 -> _ Eio.Flow.source -> append_message
+  length:int64 -> _ Eio.Flow.source -> append_message @@ portable
 (** [append_message ~length source] borrows [source] without closing it. *)
 
 val append : t -> mailbox:string -> ?binary:bool -> append_message ->
@@ -84,7 +84,7 @@ val append : t -> mailbox:string -> ?binary:bool -> append_message ->
 (** [append t ~mailbox message] is [Error.Uncertain] for any failure after
     the final CRLF other than a tagged rejection. *)
 
-val close : t -> unit
+val close : t -> unit @@ portable
 
 type multiappend_receipt = {
   uidvalidity : Imap.Uidvalidity.t;
@@ -100,7 +100,7 @@ val logout : t -> (unit, error) result
 module Acl : sig
   type client := t
   type t
-  val require : client -> (t, error) result
+  val require : client -> (t, error) result @@ portable
   val get_acl : t -> mailbox:string -> (Imap.Response.acl, error) result
   val list_rights : t -> mailbox:string -> identifier:string ->
     (Imap.Response.list_rights, error) result
@@ -116,7 +116,7 @@ end
 module Quota : sig
   type client := t
   type t
-  val require : client -> (t, error) result
+  val require : client -> (t, error) result @@ portable
   val get_quota : t -> root:string -> (Imap.Response.quota, error) result
   val get_quota_root : t -> mailbox:string ->
     ((Imap.Response.quota_root * Imap.Response.quota list), error) result
@@ -127,7 +127,7 @@ end
 module Metadata : sig
   type client := t
   type t
-  val require : client -> (t, error) result
+  val require : client -> (t, error) result @@ portable
   val get_metadata : t -> mailbox:string -> entries:string list ->
     ?maxsize:int64 -> ?depth:Imap.Metadata.depth -> unit ->
     (metadata_result, error) result
@@ -138,7 +138,7 @@ end
 module Notify : sig
   type client := t
   type t
-  val require : client -> (t, error) result
+  val require : client -> (t, error) result @@ portable
   val notify_set : t -> ?status:bool -> groups:Imap.Notify.group list ->
     unit -> (Imap.Response.mailbox_status list, error) result
   val notify_none : t -> (unit, error) result
@@ -147,7 +147,7 @@ end
 module Multiappend : sig
   type client := t
   type t
-  val require : client -> (t, error) result
+  val require : client -> (t, error) result @@ portable
   val append_many : t -> mailbox:string -> append_message list ->
     (multiappend_receipt option, error) result
   (** [append_many t ~mailbox messages] sends [messages] as one RFC 3502
@@ -157,7 +157,7 @@ end
 module Compress : sig
   type client := t
   type t
-  val require : client -> (t, error) result
+  val require : client -> (t, error) result @@ portable
   val activate : t -> (unit, error) result
 end
 

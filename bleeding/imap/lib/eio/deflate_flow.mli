@@ -15,7 +15,7 @@ val create :
 val read : t -> Cstruct.t -> int
 val write : t -> Cstruct.t list -> unit
 
-val close : t -> unit
+val close : t -> unit @@ portable
 (** [close t] closes the original resource once, as does a codec or I/O
     failure or a cancelled operation, and an operation running in another
     fiber then fails. *)

@@ -36,31 +36,31 @@ type t = {
 exception Failure of error
 
 val create : ?max_metadata:int -> ?max_responses:int ->
-  ?max_command_metadata:int -> Transport.flow -> t
-val close : t -> unit
-val check_open : t -> unit
+  ?max_command_metadata:int -> Transport.flow -> t @@ portable
+val close : t -> unit @@ portable
+val check_open : t -> unit @@ portable
 
-val has : t -> Imap.Capability.t -> bool
+val has : t -> Imap.Capability.t -> bool @@ portable
 (** [has t c] holds when the latest CAPABILITY response listed [c], or
     {!revision_two} holds and [Imap.Capability.implied_by_rev2 c]. *)
 
-val is_enabled : t -> Imap.Capability.t -> bool
+val is_enabled : t -> Imap.Capability.t -> bool @@ portable
 (** [is_enabled t c] holds when an ENABLED response confirmed [c]. *)
 
-val require : t -> Imap.Capability.t -> unit
+val require : t -> Imap.Capability.t -> unit @@ portable
 (** [require t c] raises [Failure (Unsupported c)] unless [has t c]. *)
 
-val require_enabled : t -> Imap.Capability.t -> unit
+val require_enabled : t -> Imap.Capability.t -> unit @@ portable
 (** [require_enabled t c] raises [Failure (Not_enabled c)] unless
     [is_enabled t c]. *)
 
-val revision_two : t -> bool
+val revision_two : t -> bool @@ portable
 (** [revision_two t] holds when IMAP4rev2 is advertised and either IMAP4rev1
     is not or ENABLE IMAP4rev2 succeeded. *)
 
-val mailbox_mode : t -> Imap.Mailbox_name.mode
+val mailbox_mode : t -> Imap.Mailbox_name.mode @@ portable
 
-val mailbox_wire : t -> string -> string
+val mailbox_wire : t -> string -> string @@ portable
 (** [mailbox_wire t name] encodes the UTF-8 [name] in {!mailbox_mode}, or
     raises [Failure (State _)] for an invalid name. *)
 
@@ -70,7 +70,7 @@ val read_response : ?on_literal:(string -> unit) ->
     passing each FETCH [BODY[...]] or [BINARY[...]] literal to [on_literal]
     after its length to [on_literal_start] instead of returning it. *)
 
-val parse : Imap.Wire.event list -> Imap.Response.t
+val parse : Imap.Wire.event list -> Imap.Response.t @@ portable
 
 type command_result = {
   untagged : Imap.Response.t list;

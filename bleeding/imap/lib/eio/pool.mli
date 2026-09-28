@@ -1,3 +1,5 @@
+@@ portable
+
 (** A bounded pool of IMAP clients, documented in [Imap_eio.Pool]. *)
 
 type t

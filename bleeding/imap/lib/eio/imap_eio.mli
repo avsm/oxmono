@@ -28,7 +28,13 @@
     is [Error.Not_enabled c]. Neither sends anything or affects the
     connection. {!Client.has} folds in the extensions that IMAP4rev2 makes
     part of the base protocol, so their [require] succeeds on an
-    IMAP4rev2 server that does not advertise them. *)
+    IMAP4rev2 server that does not advertise them.
+
+    A value declared [@@ portable] may be called from a portable function
+    on a client, lease or endpoint that function is passed. Connections,
+    leases and endpoints hold Eio resources and mutable state, so they
+    are not portable themselves, and neither is any function that performs
+    I/O. *)
 
 (** {1 Credentials} *)
 
@@ -202,13 +208,13 @@ module Transport : sig
       @raise Failure if [authenticator] is omitted, [tls] is not [`Plain]
       and the system trust store cannot be loaded. *)
 
-  val host : t -> string
+  val host : t -> string @@ portable
   (** [host t] is the host name or address of [t]. *)
 
-  val port : t -> int
+  val port : t -> int @@ portable
   (** [port t] is the TCP port of [t]. *)
 
-  val tls : t -> tls
+  val tls : t -> tls @@ portable
   (** [tls t] is the transport security of [t]. *)
 
 end
@@ -654,7 +660,7 @@ module Selected : sig
         offers UIDPLUS or is in effective IMAP4rev2. The expunge shrinks
         the saved set without making [saved] stale. *)
 
-    val saved_search_count : saved_search -> int64
+    val saved_search_count : saved_search -> int64 @@ portable
     (** [saved_search_count saved] is the COUNT reported when [saved] was
         saved, not the current size of its live set. *)
   end
@@ -959,26 +965,26 @@ module Client : sig
       needs [allow_insecure_transport]. [auth] is omitted by default, as in
       {!connect}. *)
 
-  val capabilities : t -> Imap.Capability.Set.t
+  val capabilities : t -> Imap.Capability.Set.t @@ portable
   (** [capabilities t] is the set the latest CAPABILITY response
       advertised. The client sends CAPABILITY after the greeting, after
       STARTTLS and after authentication. *)
 
-  val enabled : t -> Imap.Capability.Set.t
+  val enabled : t -> Imap.Capability.Set.t @@ portable
   (** [enabled t] is every capability an ENABLED response confirmed on
       [t]. *)
 
-  val has : t -> Imap.Capability.t -> bool
+  val has : t -> Imap.Capability.t -> bool @@ portable
   (** [has t c] holds when [capabilities t] contains [c], or when [t] is in
       effective IMAP4rev2 and {!Imap.Capability.implied_by_rev2} [c] holds.
       Effective IMAP4rev2 means the server advertises IMAP4rev2 and either
       does not advertise IMAP4rev1 or confirmed ENABLE IMAP4rev2. Every
       extension gate of this library uses this predicate. *)
 
-  val is_enabled : t -> Imap.Capability.t -> bool
+  val is_enabled : t -> Imap.Capability.t -> bool @@ portable
   (** [is_enabled t c] is [Imap.Capability.Set.mem c (enabled t)]. *)
 
-  val is_open : t -> bool
+  val is_open : t -> bool @@ portable
   (** [is_open t] holds while [t] is not closed. A later command can still
       close it, so a pool checks again at each checkout. *)
 
@@ -1047,7 +1053,7 @@ module Client : sig
       twice is [Error.Protocol]. A selectable row can lack STATUS even
       after tagged OK, so [None] means incomplete, never empty. *)
 
-  val mailbox_mode : t -> Imap.Mailbox_name.mode
+  val mailbox_mode : t -> Imap.Mailbox_name.mode @@ portable
   (** [mailbox_mode t] is [Utf8] when IMAP4rev2 or UTF8=ACCEPT is in effect
       on [t], and [Rev1] otherwise. *)
 
@@ -1145,7 +1151,7 @@ module Client : sig
 
   val append_message :
     ?flags:Mail_flag.Imap_flag.t list -> ?internal_date:Imap.Internal_date.t ->
-    length:int64 -> _ Eio.Flow.source -> append_message
+    length:int64 -> _ Eio.Flow.source -> append_message @@ portable
   (** [append_message ~flags ~internal_date ~length source] is a message of
       exactly [length] octets read from [source]. [flags] defaults to none
       and is sent in {!Mail_flag.Imap_flag.to_wire} spelling.
@@ -1180,7 +1186,7 @@ module Client : sig
       server cannot have run the command, and closes the connection if
       bytes were sent. *)
 
-  val close : t -> unit
+  val close : t -> unit @@ portable
   (** [close t] closes the transport of [t] at once, without LOGOUT.
       Closing a closed client has no effect. *)
 
@@ -1215,7 +1221,7 @@ module Client : sig
     type t
     (** The type for ACL witnesses. *)
 
-    val require : client -> (t, error) result
+    val require : client -> (t, error) result @@ portable
     (** [require c] is a witness for [c], or [Error.Unsupported Acl]. *)
 
     val get_acl : t -> mailbox:string -> (Imap.Response.acl, error) result
@@ -1254,7 +1260,7 @@ module Client : sig
     type t
     (** The type for QUOTA witnesses. *)
 
-    val require : client -> (t, error) result
+    val require : client -> (t, error) result @@ portable
     (** [require c] is a witness for [c], or [Error.Unsupported Quota]. *)
 
     val get_quota : t -> root:string -> (Imap.Response.quota, error) result
@@ -1283,7 +1289,7 @@ module Client : sig
     type t
     (** The type for METADATA witnesses. *)
 
-    val require : client -> (t, error) result
+    val require : client -> (t, error) result @@ portable
     (** [require c] is a witness for [c], or [Error.Unsupported
         Metadata_server] when the server offers neither. *)
 
@@ -1314,7 +1320,7 @@ module Client : sig
     type t
     (** The type for NOTIFY witnesses on a connection. *)
 
-    val require : client -> (t, error) result
+    val require : client -> (t, error) result @@ portable
     (** [require c] is a witness for [c], or [Error.Unsupported Notify]. *)
 
     val notify_set : t -> ?status:bool -> groups:Imap.Notify.group list ->
@@ -1337,7 +1343,7 @@ module Client : sig
     type t
     (** The type for MULTIAPPEND witnesses. *)
 
-    val require : client -> (t, error) result
+    val require : client -> (t, error) result @@ portable
     (** [require c] is a witness for [c], or [Error.Unsupported
         Multiappend]. *)
 
@@ -1367,7 +1373,7 @@ module Client : sig
     type t
     (** The type for COMPRESS=DEFLATE witnesses. *)
 
-    val require : client -> (t, error) result
+    val require : client -> (t, error) result @@ portable
     (** [require c] is a witness for [c], or [Error.Unsupported (Compress
         `Deflate)]. *)
 
@@ -1462,7 +1468,7 @@ module Mailbox : sig
   type t
   (** The type for strategy views of a lease. *)
 
-  val of_selected : Selected.t -> t
+  val of_selected : Selected.t -> t @@ portable
   (** [of_selected s] is the strategy view of the lease [s]. *)
 
   type ('a, 's) outcome = { strategy : 's; result : ('a, Error.t) result }
@@ -1622,7 +1628,7 @@ module Pool : sig
 
   val create :
     sw:Eio.Switch.t -> max_connections:int ->
-    connect:(sw:Eio.Switch.t -> (Client.t, Error.t) result) -> t
+    connect:(sw:Eio.Switch.t -> (Client.t, Error.t) result) -> t @@ portable
   (** [create ~sw ~max_connections ~connect] is a pool of at most
       [max_connections] live clients, each opened on demand by [connect],
       which receives [sw]. Releasing [sw] closes the clients. A failed
@@ -1630,10 +1636,11 @@ module Pool : sig
 
       @raise Invalid_argument if [max_connections] is less than 1. *)
 
-  val max_connections : t -> int
+  val max_connections : t -> int @@ portable
   (** [max_connections t] is the capacity of [t]. *)
 
-  val use : t -> (Client.t -> ('a, Error.t) result) -> ('a, Error.t) result
+  val use : t -> (Client.t -> ('a, Error.t) result) ->
+    ('a, Error.t) result @@ portable
   (** [use t callback] is the result of [callback] applied to a client
       borrowed from [t]. It waits while every client is in use. A
       [Protocol], [Transport] or [Uncertain] error closes the borrowed

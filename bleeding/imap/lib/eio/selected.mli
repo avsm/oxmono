@@ -6,11 +6,11 @@ type t
 type selected := t
 
 val create : Session.t -> int -> Imap.Response.select_metadata ->
-  Imap.Response.t list -> t
+  Imap.Response.t list -> t @@ portable
 (** [create session generation info updates] is a lease valid while the
     session generation is [generation]. *)
 
-val invalidate : t -> unit
+val invalidate : t -> unit @@ portable
 (** [invalidate t] expires [t] and closes the session if a command on [t]
     is still running. *)
 
@@ -173,7 +173,7 @@ module Searchres : sig
   val uid_move_saved :
     saved_search -> mailbox:string -> (copy_receipt option, Error.t) result
   val uid_expunge_saved : saved_search -> (unit, Error.t) result
-  val saved_search_count : saved_search -> int64
+  val saved_search_count : saved_search -> int64 @@ portable
 end
 
 module Sort : sig

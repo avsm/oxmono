@@ -22,17 +22,17 @@ val username : t -> string @@ portable
 val mechanism : t -> mechanism @@ portable
 val allow_insecure_transport : t -> bool @@ portable
 
-val resolve_password : t -> string
+val resolve_password : t -> string @@ portable
 (** [resolve_password t] is the current password, or raises
     {!Invalid_credentials}. *)
 
-val cram_md5_response : t -> string -> string
+val cram_md5_response : t -> string -> string @@ portable
 (** [cram_md5_response t] resolves the credentials, raising
     {!Invalid_credentials}, and maps a challenge to its RFC 2195 response. *)
 
-val plain_response : t -> string
+val plain_response : t -> string @@ portable
 (** [plain_response t] is the Base64 RFC 4616 response, or raises
     {!Invalid_credentials}. *)
 
-val oauthbearer_response : t -> string
+val oauthbearer_response : t -> string @@ portable
 (** [oauthbearer_response t] is the Base64 RFC 7628 initial response. *)

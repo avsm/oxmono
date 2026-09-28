@@ -3,7 +3,7 @@
 
 type t
 
-val of_selected : Selected.t -> t
+val of_selected : Selected.t -> t @@ portable
 
 type ('a, 's) outcome = { strategy : 's; result : ('a, Error.t) result }
 

@@ -1,3 +1,5 @@
+@@ portable
+
 (** IMAP endpoints and their owned byte flows, documented in
     [Imap_eio.Transport]. *)
 
@@ -10,7 +12,7 @@ val v :
   ?port:int ->
   ?tls:tls ->
   ?authenticator:X509.Authenticator.t @ portable ->
-  unit -> t
+  unit -> t @@ nonportable
 
 val host : t -> string
 val port : t -> int
@@ -18,8 +20,8 @@ val tls : t -> tls
 
 type flow
 
-val read : flow -> Cstruct.t -> int
-val write : flow -> Cstruct.t list -> unit
+val read : flow -> Cstruct.t -> int @@ nonportable
+val write : flow -> Cstruct.t list -> unit @@ nonportable
 
 val close : flow -> unit
 (** [close flow] closes the owned resource once, protected from
@@ -27,7 +29,7 @@ val close : flow -> unit
 
 val compressed : flow -> bool
 
-val compress_deflate : flow -> unit
+val compress_deflate : flow -> unit @@ nonportable
 (** [compress_deflate flow] wraps the current layers in DEFLATE for the rest
     of the connection, and a later call to it or to {!upgrade} raises
     [Invalid_argument]. *)

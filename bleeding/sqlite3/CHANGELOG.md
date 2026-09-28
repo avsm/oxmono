@@ -8,6 +8,8 @@
   thread, so a loop of statements costs one thread hop instead of one each.
 - Makefile target to generate `compile_commands.json` for improved LSP support
   in editors.
+- Tests probe the portability claims, run a query in a second domain and
+  check that a callback over a mutable `ref` is rejected.
 
 ### Changed
 

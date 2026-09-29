@@ -1,0 +1,39 @@
+(test
+ (name test_oracle)
+ (modules test_oracle corpus)
+ (package imap)
+ (locks oracle)
+ (libraries
+  imap
+  imap.eio
+  imap.store
+  imap.sync
+  maildir
+  mail-flag
+  eio
+  eio_main
+  alcotest
+  unix))
+
+(test
+ (name test_cross_protocol)
+ (modules test_cross_protocol oracle_harness)
+ (package imap)
+ (locks oracle)
+ (deps
+  (env_var IMAP_ORACLE_REQUIRED)
+  (env_var IMAP_ORACLE_HOST)
+  (env_var IMAP_ORACLE_PORT)
+  (env_var JMAP_ORACLE_URL))
+ (libraries
+  imap
+  imap.eio
+  jmap
+  jmap.eio
+  mail-flag
+  eio
+  eio.unix
+  eio_main
+  alcotest))
+
+(copy_files ../../../jmap/test/oracle/oracle_harness.ml*)

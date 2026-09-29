@@ -1,0 +1,122 @@
+{0 A durable sync cycle}
+
+This page reads one program that runs a single IMAP to Maildir cycle
+with {!Imap_sync.Bridge.copy_once}. The program is
+[test/examples/sync.ml], which the build compiles and never runs, and
+every block below is copied from it.
+
+{1 Local state}
+
+{!Imap_store} is a SQLite database of the published remote inventory,
+the pairs and the operation journal, beside a directory of archived
+bodies. The {!Maildir} holds the local copies, and the spool directory
+the provisional files of transfers. The blob and spool directories must
+exist before use.
+
+{!Imap_sync.Bridge.recover_local} removes the temporary files an
+interrupted process left in the Maildir and the spool. Call it once at
+startup, before the first cycle. Removing unreferenced bodies with
+{!Imap_store.Blob.reap_orphans_iter} requires every writer to be
+quiescent, so it runs under {!Maildir.with_writer}, the exclusive
+application lease that every Maildir writer takes.
+
+{[
+let open_state ~sw fs =
+  let state = Eio.Path.(fs / "state") in
+  let blob_dir = Eio.Path.(state / "blobs")
+  and spool_dir = Eio.Path.(state / "spool") in
+  List.iter
+    (Eio.Path.mkdirs ~exists_ok:true ~perm:0o700)
+    [ blob_dir; spool_dir ];
+  let store =
+    Imap_store.open_path ~sw ~blob_dir Eio.Path.(state / "sync.sqlite3")
+  in
+  let* maildir =
+    Maildir.open_dir Eio.Path.(fs / "Mail" / "INBOX")
+    |> Result.map_error (fun e -> Imap_sync.Error.Maildir e)
+  in
+  let* () = Imap_sync.Bridge.recover_local ~maildir ~spool_dir () in
+  Maildir.with_writer maildir (fun _writer ->
+      Imap_store.Blob.reap_orphans_iter store ~removed:ignore);
+  Ok (store, maildir, spool_dir)
+]}
+
+{1 One cycle}
+
+{!Imap_sync.Ctx.v} binds the client, the store, the mailbox scope, the
+spool directory and a source of unique, filename-safe identifiers, which
+[fresh] draws from the secure random source. It checks the scope against
+the client's current mailbox name encoding, so build it after any ENABLE
+that changes the encoding.
+
+{!Imap_sync.Bridge.copy_once} takes the Maildir writer lease itself for
+the whole cycle and returns [Error Writer_busy] when another writer
+holds it. Do not call it inside {!Maildir.with_writer}. It publishes a
+complete remote inventory, copies unpaired messages in both directions,
+reconciles the flags of each pair and applies the deletion policy, which
+defaults to keeping both sides. Each mutation is journaled before it is
+sent and committed only after it verifies. An ambiguous outcome stays
+pending, and the next cycle reconciles it before any new transfer.
+
+The {!Imap_sync.Bridge.receipt} counts the copies, flag updates and
+deletions. [flags_held] and [deletions_held] count the holds, which mean
+the policy has not converged, and [held_pair_ids] names up to 100 held
+pairs.
+[more] is [true] when the transfer budget ran out, and the caller runs
+another cycle.
+
+{[
+let cycle ~random ~store ~maildir ~spool_dir client =
+  let scope =
+    { Imap.Mirror.endpoint = "imaps://imap.example.org"; account = "alice";
+      mailbox_key = "inbox"; raw_name = "INBOX";
+      encoding = Imap_eio.Client.mailbox_mode client; mailbox_id = None }
+  in
+  let* ctx =
+    Imap_sync.Ctx.v ~client ~store ~scope ~mailbox:"INBOX" ~spool_dir
+      ~next_id:(fresh random "op-")
+  in
+  let* receipt =
+    Imap_sync.Bridge.copy_once ~ctx ~maildir
+      ~stage_id:(fresh random "stage-" ()) ()
+  in
+  Format.printf "to Maildir %d, to IMAP %d, flags %d, deletions %d@."
+    receipt.remote_to_local receipt.local_to_remote receipt.flags_updated
+    receipt.deletions;
+  if receipt.flags_held > 0 || receipt.deletions_held > 0 then
+    Format.printf "held pairs: %s@." (String.concat " " receipt.held_pair_ids);
+  Ok receipt.more
+]}
+
+{1 Running it}
+
+The client is closed on every exit. The Maildir and connection errors
+are lifted into {!Imap_sync.Error.t}, the error type of the
+[Imap_sync] calls, so one match reports every failure.
+
+{[
+let () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let random = Eio.Stdenv.secure_random env in
+  let transport =
+    Imap_eio.Transport.v ~net:(Eio.Stdenv.net env) ~host:"imap.example.org" ()
+  in
+  let auth =
+    Imap_eio.Auth.password ~username:"alice" ~password:"secret" ()
+  in
+  let result =
+    let* store, maildir, spool_dir = open_state ~sw (Eio.Stdenv.fs env) in
+    let* client =
+      Imap_eio.Client.connect ~sw ~auth transport
+      |> Result.map_error (fun e -> Imap_sync.Error.Client e)
+    in
+    Fun.protect ~finally:(fun () -> Imap_eio.Client.close client) (fun () ->
+        cycle ~random ~store ~maildir ~spool_dir client)
+  in
+  match result with
+  | Ok more -> if more then print_endline "more work remains"
+  | Error e ->
+      Format.eprintf "sync: %a@." Imap_sync.Error.pp e;
+      exit 1
+]}

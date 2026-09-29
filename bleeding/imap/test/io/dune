@@ -1,0 +1,5 @@
+(test
+ (name test_io)
+ (flags
+  (:standard -open Imap_sync_spool))
+ (libraries imap_sync_spool eio eio_main alcotest))

@@ -1,0 +1,12 @@
+(test
+ (name test_cli)
+ (libraries
+  imap_cli
+  imap.store
+  imap
+  maildir
+  cmdliner
+  eio
+  eio_main
+  unix
+  alcotest))

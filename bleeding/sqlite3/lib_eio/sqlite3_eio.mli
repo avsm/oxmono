@@ -1,3 +1,5 @@
+@@ portable
+
 (** Eio-friendly wrapper for SQLite3.
 
     This module wraps blocking SQLite3 operations so they run in system
@@ -22,6 +24,14 @@
 
     SQLite defaults to serialized threading mode ([SQLITE_THREADSAFE=1]),
     so multiple fibers sharing a handle via system threads are safe.
+
+    {2 Portability}
+
+    Every value is portable, so a portable closure may call it, and such a
+    closure recognises the exceptions raised here with {!Eio.Exn.is_io}.
+    [t] is an Eio resource of kind [value], so a portable closure cannot
+    capture a handle. Pass the handle to it as an argument. Every operation
+    takes its handle uncontended.
 
     {2 Non-blocking operations}
 
@@ -122,6 +132,16 @@ val exec_no_headers :
     only the row data, without column headers. Runs in a system thread.
 
     @return the SQLite return code for the operation. *)
+
+val run : t -> ?label:string -> (Sqlite3.db -> 'a) -> 'a
+(** [run t ?label f] is [f (db t)] evaluated in a system thread, cancelled
+    as {!step} is. [f] runs outside Eio, so it may call [Sqlite3] directly
+    but must not perform an Eio operation. An exception raised by [f] is
+    raised again in the calling fiber. Each call to {!exec}, {!prepare},
+    {!step} or {!reset} costs a thread hop and several kilobytes of
+    allocation, so a loop of statements is cheaper inside one [run].
+    [label] names the operation in Eio traces and defaults to
+    ["sqlite3_run"]. *)
 
 (** {2 Prepared statements} *)
 

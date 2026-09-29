@@ -7,10 +7,12 @@ let ( / ) (d, p1) p2 =
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
   (d, X.join p1 p2)
 
+(* [Fmt.pf] and [Fmt.str] are [Format.fprintf] and [Format.asprintf], which
+   are portable where Fmt's aliases are not. *)
 let pp f (Resource.T (t, ops), p) =
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
-  if p = "" then Fmt.pf f "<%a>" X.pp t
-  else Fmt.pf f "<%a:%s>" X.pp t (String.escaped p)
+  if p = "" then Format.fprintf f "<%a>" X.pp t
+  else Format.fprintf f "<%a:%s>" X.pp t (String.escaped p)
 
 let native (Resource.T (t, ops), p) =
   let module X = (val (Resource.get ops Fs.Pi.Dir)) in
@@ -19,7 +21,7 @@ let native (Resource.T (t, ops), p) =
 let native_exn t =
   match native t with
   | Some p -> p
-  | None -> raise (Fs.err (Not_native (Fmt.str "%a" pp t)))
+  | None -> raise (Fs.err (Not_native (Format.asprintf "%a" pp t)))
 
 let split (d, p) =
   let (Resource.T (_, ops)) = d in

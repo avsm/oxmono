@@ -1,0 +1,14 @@
+(test
+ (name test_maildir)
+ (modules test_maildir)
+ (libraries maildir mail-flag eio eio_main cstruct digestif alcotest unix))
+
+(test
+ (name test_dotlock)
+ (modules test_dotlock)
+ (libraries maildir eio eio_main unix))
+
+(test
+ (name test_modes)
+ (modules test_modes)
+ (libraries maildir mail-flag eio eio_main alcotest))

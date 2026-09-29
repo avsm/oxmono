@@ -1,0 +1,34 @@
+# Hermetic Stalwart v0.15.5 IMAP interoperability fixture.
+# See ../stalwart at tag v0.15.5, resources/config/config.toml.
+[server]
+hostname = "mail.example.test"
+
+[server.listener.imap]
+bind = ["0.0.0.0:143"]
+protocol = "imap"
+
+[storage]
+data = "rocksdb"
+fts = "rocksdb"
+blob = "rocksdb"
+lookup = "rocksdb"
+directory = "fixture"
+
+[store.rocksdb]
+type = "rocksdb"
+path = "/opt/stalwart/data"
+
+[directory.fixture]
+type = "memory"
+
+[[directory.fixture.principals]]
+name = "imap-test-user"
+class = "individual"
+secret = "imap-test-password"
+email = ["imap-test-user@example.test"]
+
+[tracer.stdout]
+type = "stdout"
+level = "info"
+ansi = false
+enable = true

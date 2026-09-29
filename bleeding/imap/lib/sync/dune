@@ -1,0 +1,34 @@
+; The private libraries stay wrapped so their units, such as
+; Imap_sync_spool__Spool, cannot clash with another Spool in a linked
+; program. The -open flags keep the references unqualified.
+
+(library
+ (name imap_sync_spool)
+ (package imap)
+ (modules spool)
+ (libraries eio cstruct digestif))
+
+(library
+ (name imap_sync_local)
+ (package imap)
+ (modules local_date local_inventory)
+ (libraries imap maildir mail-flag eio sqlite3 sqlite3-eio))
+
+(library
+ (name imap_sync)
+ (public_name imap.sync)
+ (modules
+  (:standard \ spool local_date local_inventory))
+ (private_modules pair_evidence)
+ (flags
+  (:standard -open Imap_sync_spool -open Imap_sync_local))
+ (libraries
+  imap
+  imap.eio
+  imap.store
+  maildir
+  imap_sync_spool
+  imap_sync_local
+  mail-flag
+  eio
+  optint))

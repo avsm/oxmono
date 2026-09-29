@@ -50,7 +50,7 @@ val ( / ) : 'a t -> string -> 'a t
     - [(fd, "foo") / "bar" = (fd, "foo/bar")]
     - [(fd, "foo") / "/bar" = (fd, "/bar")] *)
 
-val pp : _ t Fmt.t
+val pp : _ t Fmt.t @@ portable
 (** [pp] formats a [_ t] as "<label:path>", suitable for logging. *)
 
 val native : _ t -> string option
@@ -67,7 +67,7 @@ val native : _ t -> string option
     try to write to "/home/mal/output.txt" just as mal replaces "output.txt"
     with a symlink to "/etc/passwd". *)
 
-val native_exn : _ t -> string
+val native_exn : _ t -> string @@ portable
 (** Like {!native}, but raise a suitable exception if the path is not a native path. *)
 
 val split : 'a t -> ('a t * string) option

@@ -4,8 +4,26 @@
 
 ### Added
 
+- `Sqlite3_eio.run` evaluates a function over the handle in one system
+  thread, so a loop of statements costs one thread hop instead of one each.
 - Makefile target to generate `compile_commands.json` for improved LSP support
   in editors.
+- Tests probe the portability claims, run a query in a second domain and
+  check that a callback over a mutable `ref` is rejected.
+
+### Changed
+
+- Every value is portable under OxCaml, and `db` and `stmt` cross
+  portability. Functions and collations a handle stores must be portable.
+- An aggregate accumulator's type must cross contention and portability.
+- The README states the portability contract for handles and callbacks.
+- Every `Sqlite3_eio` value is portable. A portable closure takes a handle
+  as an argument, since an Eio resource cannot be captured.
+
+### Fixed
+
+- The window function test uses its own database file, so it no longer fails
+  with "database is locked" against the scalar function test.
 
 ## [5.3.1] - 2025-03-07
 

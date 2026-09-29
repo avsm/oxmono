@@ -13,8 +13,11 @@ let pipe = Private.pipe
 
 type Eio.Exn.Backend.t += Unix_error = Err.Unix_error
 
+(* See [Thread_pool.perform]. *)
+external perform : 'a Effect.t -> 'a @@ portable = "%perform"
+
 let sleep d =
-  Eio.Time.Mono.sleep (Effect.perform Private.Get_monotonic_clock) d
+  Eio.Time.Mono.sleep (perform Private.Get_monotonic_clock) d
 
 let run_in_systhread = Thread_pool.run_in_systhread
 

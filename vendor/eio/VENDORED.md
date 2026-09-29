@@ -22,6 +22,9 @@ This record covers `eio`, `eio_main`, `eio_linux`, `eio_posix` and `eio_windows`
 - 2026-09-07: refresh to `0ee73e48b566e7cd09cd3c1fc08ef1da199558b0`
   (`v1.5-5-g0ee73e4`), incorporating all upstream changes since the original
   base while retaining the local patches below.
+- 2026-09-28: local portability patch
+  `b7063e1750018e47b39a6ef038d0927ba2ad9ad1`, described below. The upstream
+  base is unchanged.
 
 The current base includes the complete [v1.5 release](https://github.com/ocaml-multicore/eio/releases/tag/v1.5),
 including `Eio.Net.connect ?bind_to ?options`, plus the subsequent
@@ -36,6 +39,40 @@ source version.
   for the fiber core and public interfaces, effect and shared-state adaptations,
   and a portable callback requirement for `Domain_manager.run`, with an explicit
   `unsafe_run` escape hatch.
+- `b7063e1750018e47b39a6ef038d0927ba2ad9ad1`: portability for fiber keys, `Io`
+  tests, system threads, timeouts and native paths. No signature is
+  tightened, since every closure argument keeps its legacy mode. The guard
+  test is `bleeding/imap/test/vendor_modes/`, and each claim below was
+  confirmed to fail it, or the Eio build, when removed.
+  - [Fiber keys](lib_eio/core/fiber.ml): `'a key` is an unboxed record whose
+    `Hmap.key` field carries `@@ portable contended`, and
+    [the interface](lib_eio/core/eio__core.mli) declares it
+    `value mod portable contended`. An Hmap key is an immutable identifier,
+    so the identity coercions at creation and lookup are sound. The
+    representation is unchanged.
+  - [Io test](lib_eio/core/exn.ml): new `Exn.is_io : exn -> bool @@ portable`.
+    A portable function can match an exception constructor only if its
+    arguments cross portability, and this compiler rejects a kind on the
+    extensible `err` with `The kind of type "err" is value non_float because
+    it's an extensible variant type`. Portable code calls `is_io` instead.
+    The patch adds a function and changes no existing behaviour.
+  - [Paths](lib_eio/path.ml): `pp` and `native_exn` call `Format.fprintf` and
+    `Format.asprintf` in place of `Fmt.pf` and `Fmt.str`, which Fmt defines
+    as exactly those functions, and [the interface](lib_eio/path.mli)
+    declares both `@@ portable`. Output is unchanged.
+  - [Timeouts](lib_eio/time.mli): `with_timeout_exn` is declared
+    `@@ portable`. Annotation only.
+  - [System threads](lib_eio/unix/thread_pool.ml): `run_in_systhread`
+    performs its effect through a portable `%perform` external, the same
+    primitive as `Effect.perform`. The idle-thread timer registration moves
+    unchanged into `schedule_drop`, asserted portable because `Zzz` and
+    `Psq` are unannotated and it touches only the pool that the calling
+    domain's scheduler returns. [Eio_unix](lib_eio/unix/eio_unix.mli) and
+    [Thread_pool](lib_eio/unix/thread_pool.mli) declare it `@@ portable`.
+    The closure it runs is not required to be portable, because a system
+    thread shares the domain and its runtime lock.
+  - [Sleep](lib_eio/unix/eio_unix.ml): `Eio_unix.sleep` performs through the
+    same external and is declared `@@ portable`.
 - `a26b70c6ecc1285ba635103353e5c97350ca1d5a`: remove an obsolete repro reference
   from a Resource implementation comment.
 - `425513abac8639a57cf9c809a4a7e0ed06ce0286`: adapt Flow, Resource and backend
@@ -69,6 +106,11 @@ the complete upstream snapshot has been incorporated. Update the corresponding
 entry in [../upstreams.json](../upstreams.json) too. Keep this file when replacing
 the upstream tree. The shared checking workflow and validation limitations are
 in [../README.md](../README.md).
+
+Verify the local patches through consumer aliases, since the vendored tests
+are inert. `dune build @bleeding/imap/test/vendor_modes/runtest --force`
+guards the portability claims of `b7063e17`, and the IMAP, Maildir and
+sqlite3 `runtest` aliases exercise fiber keys, system threads and paths.
 
 On macOS and other POSIX systems, the current backend requires `iomux >= 0.2`.
 The vendored sources do not install their external dependencies. An older

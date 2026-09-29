@@ -1,0 +1,39 @@
+(test
+ (name test_dovecot)
+ (modules test_dovecot)
+ (package imap)
+ (locks dovecot)
+ (deps
+  (env_var IMAP_DOVECOT_HOST)
+  (env_var IMAP_DOVECOT_PORT)
+  (env_var IMAP_DOVECOT_TLS_PORT)
+  (env_var IMAP_DOVECOT_USER)
+  (env_var IMAP_DOVECOT_PASSWORD)
+  (env_var IMAP_DOVECOT_REQUIRED)
+  (env_var IMAP_DOVECOT_CA_CERT)
+  (env_var IMAP_DOVECOT_WRONG_CA_CERT)
+  (env_var IMAP_DOVECOT_SHARED_MAILDIR))
+ (flags
+  (:standard -open Imap_sync_local))
+ (libraries
+  imap
+  imap.eio
+  imap.store
+  imap.sync
+  imap_sync_local
+  imap_cli
+  cmdliner
+  maildir
+  mail-flag
+  sqlite3
+  eio
+  eio_main
+  alcotest
+  unix
+  x509
+  ptime.clock.os))
+
+(executable
+ (name body_memory)
+ (modules body_memory)
+ (libraries imap.eio eio eio_main cstruct digestif unix x509 ptime.clock.os))

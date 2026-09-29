@@ -1,0 +1,38 @@
+; Benchmarks for the hot paths. They build with @all and never run under
+; runtest. Run one with dune exec and read its wall, allocation and
+; minor-word figures.
+
+(library
+ (name bench_measure)
+ (modules bench_measure)
+ (libraries unix))
+
+(executable
+ (name bench_wire)
+ (modules bench_wire)
+ (libraries imap bench_measure))
+
+(executable
+ (name bench_uid_set)
+ (modules bench_uid_set)
+ (libraries imap bench_measure))
+
+(executable
+ (name bench_encode)
+ (modules bench_encode)
+ (libraries imap mail-flag bench_measure))
+
+(executable
+ (name bench_session)
+ (modules bench_session)
+ (libraries imap imap.eio eio eio.mock bench_measure))
+
+(executable
+ (name bench_maildir)
+ (modules bench_maildir)
+ (libraries maildir eio eio_main unix bench_measure))
+
+(executable
+ (name bench_store)
+ (modules bench_store)
+ (libraries imap imap.store mail-flag eio eio_main bench_measure))

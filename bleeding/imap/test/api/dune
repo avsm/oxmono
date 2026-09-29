@@ -1,0 +1,5 @@
+(rule
+ (alias runtest)
+ (deps check.sh)
+ (action
+  (run bash %{dep:check.sh} %{ocamlc} %{lib:imap.eio:imap_eio.cmi})))

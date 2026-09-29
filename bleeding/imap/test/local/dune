@@ -1,0 +1,14 @@
+(test
+ (name test_local)
+ (flags
+  (:standard -open Imap_sync_local))
+ (libraries
+  imap_sync_local
+  maildir
+  imap
+  mail-flag
+  eio
+  eio_main
+  digestif
+  alcotest
+  unix))

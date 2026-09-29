@@ -119,5 +119,27 @@ let () =
    | _ -> assert false
    | exception Eio.Exn.Io (Sqlite3_eio.E Sqlite3_eio.Closed, _) -> ());
 
+  (* Test 9: run evaluates a loop of statements in one system thread and
+     raises the function's exception in the caller *)
+  let ins = Sqlite3_eio.prepare t "INSERT INTO test VALUES (?, ?)" in
+  Sqlite3_eio.run t (fun _db ->
+    List.iter (fun (id, name) ->
+      Sqlite3.Rc.check (Sqlite3.bind_int ins 1 id);
+      Sqlite3.Rc.check (Sqlite3.bind_text ins 2 name);
+      assert (Sqlite3.step ins = Sqlite3.Rc.DONE);
+      Sqlite3.Rc.check (Sqlite3.reset ins))
+      [ (3, "carol"); (4, "dave") ]);
+  Sqlite3.Rc.check (Sqlite3_eio.finalize t ins);
+  let stmt4 = Sqlite3_eio.prepare t "SELECT name FROM test ORDER BY id" in
+  let names = ref [] in
+  assert (Sqlite3_eio.iter t stmt4 ~f:(fun row ->
+    match row.(0) with
+    | Sqlite3.Data.TEXT s -> names := s :: !names
+    | _ -> assert false) = Sqlite3.Rc.DONE);
+  assert (List.rev !names = [ "alice"; "bob"; "carol"; "dave" ]);
+  (match Sqlite3_eio.run t (fun _db -> failwith "inside run") with
+   | () -> assert false
+   | exception Failure msg -> assert (msg = "inside run"));
+
   ignore (db : Sqlite3.db);
   Printf.printf "All tests passed.\n"

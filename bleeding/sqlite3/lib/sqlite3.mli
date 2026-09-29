@@ -24,6 +24,8 @@
 (*  SOFTWARE.                                                             *)
 (**************************************************************************)
 
+@@ portable
+
 (** API for Sqlite 3.* databases *)
 
 (** {2 Exceptions} *)
@@ -68,7 +70,7 @@ val sqlite_version_info : unit -> string
 
 (** {2 Types} *)
 
-type db
+type db : value mod portable
 (** Database handle. Used to store information regarding open databases and the
     error code from the last operation if the function implementing that
     operation takes a database handle as a parameter.
@@ -78,13 +80,19 @@ type db
     user. It is good practice to manually close database handles to free
     resources as quickly as possible.
 
+    A handle crosses portability but not contention. A portable closure may
+    capture it but cannot use it, since no function here takes a contended
+    handle. Use a handle from one domain at a time. Every callback it stores
+    is portable.
+
     @see <https://sqlite.org/threadsafe.html>
       about thread safety when accessing database handles and also consider
       using the [mutex] flag with {!db_open} if necessary. *)
 
-type stmt
+type stmt : value mod portable
 (** Compiled statement handle. Stores information about compiled statements
-    created by the [prepare] or [prepare_tail] functions.
+    created by the [prepare] or [prepare_tail] functions. It crosses
+    portability but not contention, as {!db} does.
 
     @see <https://sqlite.org/threadsafe.html>
       about thread safety when accessing statement handles. *)
@@ -816,33 +824,41 @@ val row_decltypes : stmt -> string option array
 
     @raise SqliteError if the statement is invalid. *)
 
-(** {2 User-defined functions} *)
+(** {2 User-defined functions}
 
-val create_funN : db -> string -> (Data.t array -> Data.t) -> unit
+    The handle keeps each registered function and calls it from whichever
+    domain uses the handle, so the function must be portable. *)
+
+val create_funN : db -> string -> (Data.t array -> Data.t) @ portable -> unit
 (** [create_funN db name f] registers function [f] under name [name] with
     database handle [db]. The function has arity [N].
 
     @raise SqliteError if an invalid database handle is passed. *)
 
-val create_fun0 : db -> string -> (unit -> Data.t) -> unit
+val create_fun0 : db -> string -> (unit -> Data.t) @ portable -> unit
 (** [create_funN db name f] registers function [f] under name [name] with
     database handle [db]. The function has arity [0].
 
     @raise SqliteError if an invalid database handle is passed. *)
 
-val create_fun1 : db -> string -> (Data.t -> Data.t) -> unit
+val create_fun1 : db -> string -> (Data.t -> Data.t) @ portable -> unit
 (** [create_fun1 db name f] registers function [f] under name [name] with
     database handle [db]. The function has arity [1].
 
     @raise SqliteError if an invalid database handle is passed. *)
 
-val create_fun2 : db -> string -> (Data.t -> Data.t -> Data.t) -> unit
+val create_fun2 :
+  db -> string -> (Data.t -> Data.t -> Data.t) @ portable -> unit
 (** [create_fun2 db name f] registers function [f] under name [name] with
     database handle [db]. The function has arity [2].
 
     @raise SqliteError if an invalid database handle is passed. *)
 
-val create_fun3 : db -> string -> (Data.t -> Data.t -> Data.t -> Data.t) -> unit
+val create_fun3 :
+  db ->
+  string ->
+  (Data.t -> Data.t -> Data.t -> Data.t) @ portable ->
+  unit
 (** [create_fun3 db name f] registers function [f] under name [name] with
     database handle [db]. The function has arity [3].
 
@@ -865,16 +881,21 @@ module Aggregate : sig
       versions a normal aggregate function is created), the additional [inverse]
       function, which removes a value from the window, and [value], which can be
       called many times and returns the current computed value of the window,
-      must both be included. *)
+      must both be included.
+
+      The handle keeps [init] and the functions. The functions must be
+      portable, and the type of [init] must cross contention and
+      portability, which rules out mutable accumulators. *)
 
   val create_fun0 :
-    ?inverse:('a -> 'a) ->
-    ?value:('a -> Data.t) ->
+    ('a : value mod contended portable).
+    ?inverse:('a -> 'a) @ portable ->
+    ?value:('a -> Data.t) @ portable ->
     db ->
     string ->
     init:'a ->
-    step:('a -> 'a) ->
-    final:('a -> Data.t) ->
+    step:('a -> 'a) @ portable ->
+    final:('a -> Data.t) @ portable ->
     unit
   (** [create_fun0 ?inverse ?value db name ~init ~step ~final] registers the
       step and finalizer functions and optional inverse and value functions
@@ -883,13 +904,14 @@ module Aggregate : sig
       @raise SqliteError if an invalid database handle is passed. *)
 
   val create_fun1 :
-    ?inverse:('a -> Data.t -> 'a) ->
-    ?value:('a -> Data.t) ->
+    ('a : value mod contended portable).
+    ?inverse:('a -> Data.t -> 'a) @ portable ->
+    ?value:('a -> Data.t) @ portable ->
     db ->
     string ->
     init:'a ->
-    step:('a -> Data.t -> 'a) ->
-    final:('a -> Data.t) ->
+    step:('a -> Data.t -> 'a) @ portable ->
+    final:('a -> Data.t) @ portable ->
     unit
   (** [create_fun1 ?inverse ?value db name ~init ~step ~final] registers the
       step and finalizer functions and optional inverse and value functions
@@ -898,13 +920,14 @@ module Aggregate : sig
       @raise SqliteError if an invalid database handle is passed. *)
 
   val create_fun2 :
-    ?inverse:('a -> Data.t -> Data.t -> 'a) ->
-    ?value:('a -> Data.t) ->
+    ('a : value mod contended portable).
+    ?inverse:('a -> Data.t -> Data.t -> 'a) @ portable ->
+    ?value:('a -> Data.t) @ portable ->
     db ->
     string ->
     init:'a ->
-    step:('a -> Data.t -> Data.t -> 'a) ->
-    final:('a -> Data.t) ->
+    step:('a -> Data.t -> Data.t -> 'a) @ portable ->
+    final:('a -> Data.t) @ portable ->
     unit
   (** [create_fun2 ?inverse ?value db name ~init ~step ~final] registers the
       step and finalizer functions and optional inverse and value functions
@@ -913,13 +936,14 @@ module Aggregate : sig
       @raise SqliteError if an invalid database handle is passed. *)
 
   val create_fun3 :
-    ?inverse:('a -> Data.t -> Data.t -> Data.t -> 'a) ->
-    ?value:('a -> Data.t) ->
+    ('a : value mod contended portable).
+    ?inverse:('a -> Data.t -> Data.t -> Data.t -> 'a) @ portable ->
+    ?value:('a -> Data.t) @ portable ->
     db ->
     string ->
     init:'a ->
-    step:('a -> Data.t -> Data.t -> Data.t -> 'a) ->
-    final:('a -> Data.t) ->
+    step:('a -> Data.t -> Data.t -> Data.t -> 'a) @ portable ->
+    final:('a -> Data.t) @ portable ->
     unit
   (** [create_fun3 ?inverse ?value db name ~init ~step ~final] registers the
       step and finalizer functions and optional inverse and value functions
@@ -928,13 +952,14 @@ module Aggregate : sig
       @raise SqliteError if an invalid database handle is passed. *)
 
   val create_funN :
-    ?inverse:('a -> Data.t array -> 'a) ->
-    ?value:('a -> Data.t) ->
+    ('a : value mod contended portable).
+    ?inverse:('a -> Data.t array -> 'a) @ portable ->
+    ?value:('a -> Data.t) @ portable ->
     db ->
     string ->
     init:'a ->
-    step:('a -> Data.t array -> 'a) ->
-    final:('a -> Data.t) ->
+    step:('a -> Data.t array -> 'a) @ portable ->
+    final:('a -> Data.t) @ portable ->
     unit
   (** [create_funN ?inverse ?value db name ~init ~step ~final] registers the
       step and finalizer functions and optional inverse and value functions
@@ -943,11 +968,13 @@ module Aggregate : sig
       @raise SqliteError if an invalid database handle is passed. *)
 end
 
-val create_collation : db -> string -> (string -> string -> int) -> unit
+val create_collation :
+  db -> string -> (string -> string -> int) @ portable -> unit
 (** [create_collation db name func] creates a collation with [name] in database
     handle [db]. [func] is called when the collation is needed, it must return
     an integer that is negative, zero, or positive if the first string is less
-    than, equal to, or greater than the second, respectively
+    than, equal to, or greater than the second, respectively. The handle
+    keeps [func], so it must be portable.
 
     @raise SqliteError if an invalid database handle is passed. *)
 

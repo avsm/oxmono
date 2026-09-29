@@ -3,7 +3,7 @@ open Sqlite3
 let%test "test_window" =
   Printf.printf "Using version %s\n" (sqlite_version_info ());
   if sqlite_version () >= 3025000 then (
-    let db = db_open "t_fun" in
+    let db = db_open "t_win" in
     let getval p = Data.FLOAT p in
     Aggregate.create_fun1 db "product" ~init:1.0
       ~step:(fun p v -> p *. Data.to_float_exn v)

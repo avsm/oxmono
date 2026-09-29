@@ -1,6 +1,18 @@
 (library
  (name sqlite3_test)
+ (modules :standard \ test_portable)
  (inline_tests)
- (libraries str sqlite3)
+ (libraries sqlite3)
  (preprocess
   (pps ppx_inline_test)))
+
+(test
+ (name test_portable)
+ (modules test_portable)
+ (libraries sqlite3))
+
+(rule
+ (alias runtest)
+ (deps check_portable.sh)
+ (action
+  (run bash %{dep:check_portable.sh} %{ocamlc} %{lib:sqlite3:sqlite3.cmi})))

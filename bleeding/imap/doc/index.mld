@@ -1,0 +1,76 @@
+{0 IMAP for OCaml and Eio}
+
+{!modules: Imap Imap_eio Imap_store Imap_sync}
+
+The [imap] package is an IMAP4rev1 and IMAP4rev2 client with a durable
+IMAP to Maildir synchronizer and the [imap-sync] command.
+
+{1 Libraries}
+
+[imap], whose module is {!Imap}, holds the protocol values, response
+framing and parsing, command encoders, the extension vocabularies, and
+the scan and reconciliation planners. It performs no I/O.
+
+[imap.eio], whose module is {!Imap_eio}, runs the protocol over Eio.
+{!Imap_eio.Auth} and {!Imap_eio.Transport} describe a login and an
+endpoint, {!Imap_eio.Client} is one authenticated connection,
+{!Imap_eio.Selected} is a mailbox selection lease, and {!Imap_eio.Pool}
+bounds a set of connections.
+
+[imap.store], whose module is {!Imap_store}, keeps SQLite cursors and
+UID snapshots, the pair and operation journal, and a content-addressed
+archive of message bodies.
+
+[maildir], a separate package whose module is {!Maildir}, stores
+messages in the Dovecot Maildir layout. It depends on no IMAP library.
+
+[imap.sync], whose modules are under [Imap_sync], synchronizes one
+mailbox with one Maildir. {!Imap_sync.Ctx} binds a connection, a store
+and a mailbox. {!Imap_sync.Engine} scans, archives and appends,
+{!Imap_sync.Bridge} runs a cycle in both directions,
+{!Imap_sync.Flags} and {!Imap_sync.Deletion} reconcile one pair,
+{!Imap_sync.Plan} previews a cycle offline, {!Imap_sync.Repair} holds the
+operator repairs, and {!Imap_sync.Watch} reacts to IDLE. A failing call
+reports an {!Imap_sync.Error.t}, which {!Imap_sync.Watch.error} wraps.
+{!Imap_sync.Error} states the contract every call keeps. A mutation is
+journaled before it is sent, an uncertain outcome stays pending and is
+never replayed, and a pair a cycle cannot settle safely is held rather
+than failing the cycle.
+
+{1 Layering}
+
+[imap] depends only on [mail-flag]. [imap.eio] and [imap.store] each
+depend on [imap] and not on each other. [maildir] stands alone.
+[imap.sync] depends on all four and is the only library that performs
+both network and local storage I/O. A program that speaks IMAP without
+synchronizing links [imap.eio] alone.
+
+{1 Extensions}
+
+{!Imap.Capability.t} types each capability token, and
+{!Imap_eio.Client.capabilities} and {!Imap_eio.Client.enabled} are the
+sets the server advertised and ENABLE confirmed. An operation that exists
+only because of an extension lives in a submodule named for it, such as
+{!Imap_eio.Selected.Move} on a lease or {!Imap_eio.Client.Quota} on a
+connection. The submodule's [require] checks the capability once and
+returns a witness that its operations take in place of the lease or
+client. A missing extension [c] is [Error (Unsupported c)] and a mode
+that ENABLE has not confirmed is [Error (Not_enabled c)], both
+constructors of {!Imap_eio.Error.t}. Neither sends anything, so a
+fallback is one match arm. [require] succeeds where effective IMAP4rev2
+folds the extension in, and a lease witness expires with its lease.
+
+{!Imap_eio.Mailbox} is the layer for clients that are not syncers, such
+as a mail user agent or a proxy. It wraps a lease, chooses the commands
+for a search, a fetch of any size, a store, a move, a change scan and a
+wait from what the server offers, lists mailboxes with STATUS on the
+connection, and reports the strategy it chose with every result.
+{!Imap_sync} keeps using [Selected] directly, since a durable checkpoint
+depends on exactly which commands ran.
+
+{1 Guides}
+
+{!page-client} connects, searches, fetches and moves messages with a
+fallback for servers without MOVE. {!page-sync} runs one durable sync
+cycle and reads its receipt. Their programs live under
+[test/examples/], which the build compiles and never runs.

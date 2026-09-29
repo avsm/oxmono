@@ -1,0 +1,83 @@
+(test
+ (name test_client)
+ (libraries imap_eio_core imap.eio imap eio eio.mock base64))
+
+(test
+ (name test_sasl)
+ (libraries imap_eio_core imap.eio eio eio.mock base64))
+
+(test
+ (name test_pool)
+ (libraries imap.eio eio eio.mock))
+
+(test
+ (name test_session_limits)
+ (libraries imap_eio_core eio eio.mock))
+
+(test
+ (name test_sort_thread)
+ (libraries imap.eio imap eio eio.mock))
+
+(test
+ (name test_searchres)
+ (libraries imap.eio imap mail-flag eio eio.mock))
+
+(test
+ (name test_binary)
+ (libraries imap.eio imap eio eio.mock))
+
+(test
+ (name test_rejections)
+ (libraries imap.eio imap eio eio.mock base64))
+
+(test
+ (name test_binary_append)
+ (libraries imap.eio imap mail-flag eio eio.mock cstruct))
+
+(test
+ (name test_deflate_flow)
+ (libraries imap_eio_core eio eio.mock cstruct))
+
+(test
+ (name test_compress)
+ (libraries imap_eio_core imap.eio imap eio eio.mock cstruct))
+
+(test
+ (name test_client_review)
+ (libraries imap.eio imap eio eio.mock))
+
+(test
+ (name test_multiappend)
+ (libraries imap.eio imap mail-flag eio eio.mock cstruct))
+
+(test
+ (name test_lifecycle)
+ (libraries imap.eio imap eio eio.mock))
+
+(test
+ (name test_literal_modes)
+ (libraries imap.eio imap eio eio.mock cstruct))
+
+(test
+ (name test_review_fixes)
+ (libraries imap_eio_core imap.eio imap eio eio.mock cstruct))
+
+(test
+ (name test_capability)
+ (libraries imap.eio imap eio eio.mock cstruct))
+
+(test
+ (name test_reentrancy)
+ (libraries imap.eio eio eio.mock cstruct))
+
+(test
+ (name test_mailbox)
+ (libraries imap.eio imap mail-flag eio eio.mock cstruct))
+
+(test
+ (name test_modes)
+ (libraries imap_eio_core imap imap.eio eio eio.mock base64 alcotest))
+
+(test
+ (name test_idle)
+ (libraries imap.eio imap eio eio.mock cstruct))

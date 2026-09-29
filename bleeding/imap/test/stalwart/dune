@@ -1,0 +1,17 @@
+(test
+ (name test_stalwart)
+ (package imap)
+ (locks stalwart)
+ (libraries
+  imap
+  imap.eio
+  imap.store
+  imap.sync
+  maildir
+  mail-flag
+  eio
+  eio_main
+  alcotest
+  unix
+  x509
+  ptime.clock.os))

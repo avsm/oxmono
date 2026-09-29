@@ -1,0 +1,26 @@
+(library
+ (name imap_eio_core)
+ (package imap)
+ (modules
+  (:standard \ imap_eio))
+ (libraries
+  imap
+  eio
+  unix
+  cstruct
+  tls
+  tls-eio
+  x509
+  ca-certs
+  domain-name
+  ipaddr
+  mirage-crypto-rng.unix
+  base64
+  decompress.de
+  base))
+
+(library
+ (name imap_eio)
+ (public_name imap.eio)
+ (modules imap_eio)
+ (libraries imap_eio_core imap eio x509 mail-flag))

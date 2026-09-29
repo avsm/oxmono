@@ -1,0 +1,12 @@
+(test
+ (name test_watch)
+ (libraries
+  imap
+  imap.eio
+  imap.store
+  imap.sync
+  eio
+  eio_main
+  eio.mock
+  cstruct
+  unix))

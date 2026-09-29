@@ -13,5 +13,6 @@
 *)
 
 module Keyword = Keyword
+module Imap_flag = Imap_flag
 module Mailbox_attr = Mailbox_attr
 module Flag_color = Flag_color

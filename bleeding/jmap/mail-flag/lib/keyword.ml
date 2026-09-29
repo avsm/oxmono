@@ -100,7 +100,7 @@ let to_string = function
   | `New -> "$new"
   | `Notify -> "$notify"
   (* The Apple flag bits are registered with this exact mixed-case spelling in
-     draft-ietf-mailmaint-messageflag-mailboxattribute Section 4.1.14-4.1.16, so
+     RFC 9979 Section 9.1.9-9.1.11, so
      that is what we emit.  RFC 8621 Section 4.1.1's "servers MUST return
      keywords in lowercase" binds servers; {!of_string} is case-insensitive, so
      either spelling interoperates. *)

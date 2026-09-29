@@ -1,0 +1,100 @@
+{0 Maildir for OCaml and Eio}
+
+{!modules: Maildir}
+
+The [maildir] package stores messages in the Dovecot Maildir layout, so
+Dovecot and other Maildir programs can share a directory with it. Its
+module is {!Maildir}, with {!Maildir.Keywords} for the keyword map and
+{!Maildir.Dotlock} for scoped dotlocks.
+
+{1 Format limits}
+
+A message is one file in [new] or [cur]. Its flags live in the letters
+after [:2,] in its filename. The system flags are [D] for Draft, [F] for
+Flagged, [R] for Answered, [S] for Seen and [T] for Deleted. [P], for
+Passed, has no IMAP flag and is kept across flag changes. The IMAP
+Recent flag and unknown system flags cannot be stored and are
+[Unsupported_flag].
+
+A keyword takes one of the 26 lowercase letters [a] to [z]. The
+[dovecot-keywords] file maps each letter to its keyword by index 0 to
+25. A mapping, once written, is never reassigned. A keyword with no free
+letter is [Too_many_keywords]. A filename letter that is neither a
+system letter nor a mapped keyword fails the scan with [Unknown_letter].
+
+A message's modification time is its date. {!Maildir.append} sets and
+verifies [mtime] before it publishes the file, and a time that is not
+finite or that the filesystem cannot store exactly is
+[Unrepresentable_date]. {!Maildir.set_flags} renames the file and keeps
+its basename, modification time, Passed letter and extra filename
+fields.
+
+A nonempty legacy [.imap-flags] or [.imap-dates] directory is
+[Legacy_metadata]. It needs offline migration and is never removed.
+
+{1 Locks}
+
+Scans, lookups, keyword checks, keyword map updates and mutations take
+the Dovecot metadata lock [dovecot-uidlist.lock]. An existing lock raises
+{!Maildir.Metadata_lock_busy} at once, including a stale one. No stale
+lock is reclaimed automatically, since a pathname check and unlink can
+remove another writer's fresh lock. Remove a stale lock offline, with
+every user of the Maildir stopped.
+
+{1 The writer}
+
+Every mutation takes a {!Maildir.writer}. {!Maildir.with_writer} grants
+one under an exclusive application lease on [.imap-writer.lock], which
+serializes whole sync cycles. A second lease on the same Maildir, from
+this process or another, raises {!Maildir.Writer_lock_busy}, and a writer
+used after its callback returns raises {!Maildir.Writer_expired}. Do not
+remove the lease file or fork while holding it. Dovecot and other
+external programs do not take the lease, and they must honour the
+metadata lock for a complete scan to prove a message absent.
+
+Format and policy failures are {!Maildir.error} results. I/O failures
+raise [Eio.Io], and the exceptions above report concurrency.
+
+{1 Example}
+
+The program below creates a Maildir, delivers one message with the Seen
+flag, a keyword and a fixed date, adds the Flagged flag, and counts the
+messages. It is [test/examples/writer.ml], which the build compiles and
+never runs. {!Maildir.open_dir} creates the Maildir and its [new], [cur]
+and [tmp] when they are missing, but not a missing parent directory.
+
+{[
+let ( let* ) = Result.bind
+
+let important =
+  match Mail_flag.Imap_flag.keyword "$Important" with
+  | Ok keyword -> keyword
+  | Error message -> invalid_arg message
+
+let deliver maildir message =
+  Maildir.with_writer maildir @@ fun writer ->
+  let* occurrence =
+    Maildir.append writer ~source:(Eio.Flow.string_source message)
+      ~length:(Int64.of_int (String.length message))
+      ~flags:[ Mail_flag.Imap_flag.system Seen; important ]
+      ~mtime:1_700_000_000. ()
+  in
+  Maildir.set_flags writer occurrence
+    (Mail_flag.Imap_flag.system Flagged :: occurrence.flags)
+
+let () =
+  Eio_main.run @@ fun env ->
+  let path = Eio.Path.(Eio.Stdenv.fs env / "Mail" / "INBOX") in
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 path;
+  let result =
+    let* maildir = Maildir.open_dir path in
+    let* occurrence = deliver maildir "Subject: hello\r\n\r\nHello.\r\n" in
+    print_endline occurrence.filename;
+    Maildir.fold maildir ~init:0 ~f:(fun n _ -> n + 1)
+  in
+  match result with
+  | Ok count -> Printf.printf "%d messages\n" count
+  | Error e ->
+      Format.eprintf "maildir: %a@." Maildir.pp_error e;
+      exit 1
+]}

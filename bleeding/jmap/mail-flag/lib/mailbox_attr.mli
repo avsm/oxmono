@@ -105,13 +105,13 @@ type special_use =
     *)
   | `Snoozed
     (** [snoozed] holds messages snoozed until a later time
-        (draft-ietf-mailmaint-special-use-extensions). *)
+        (RFC 9979 Section 8.1). *)
   | `Scheduled
     (** [scheduled] holds messages scheduled to be sent at a future time
-        (draft-ietf-mailmaint-special-use-extensions). *)
+        (RFC 9979 Section 8.2). *)
   | `Memos
     (** [memos] holds memo or note messages
-        (draft-ietf-mailmaint-special-use-extensions). *) ]
+        (RFC 9979 Section 8.3). *) ]
 
 (** {1 Unified Attribute Type} *)
 
@@ -158,7 +158,7 @@ val to_string : t -> string
     Attributes" registry {i without} an implied backslash and are emitted bare:
 
     - [`Snoozed], [`Scheduled] and [`Memos], because
-      draft-ietf-mailmaint-messageflag-mailboxattribute Section 4.2 states that
+      RFC 9979 Section 9.2 states that
       "none of the attribute names in this section have an implied backslash.
       This sets them apart from those specified in Section 2 of [RFC 6154]";
     - [`Inbox], registered by

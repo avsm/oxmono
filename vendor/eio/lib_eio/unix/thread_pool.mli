@@ -22,4 +22,4 @@ val submit :
     Systhreads do not respond to cancellation once running. *)
 
 type _ Effect.t += Run_in_systhread : (unit -> 'a) -> (('a, Eio.Exn.with_bt) result * t) Effect.t
-val run_in_systhread : ?label:string -> (unit -> 'a) -> 'a
+val run_in_systhread : ?label:string -> (unit -> 'a) -> 'a @@ portable

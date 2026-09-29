@@ -1,0 +1,19 @@
+(lang dune 3.21)
+(name maildir)
+(generate_opam_files true)
+(license ISC)
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(package
+ (name maildir)
+ (synopsis "Dovecot-compatible Maildir storage for Eio")
+ (depends
+  (ocaml (>= 5.2))
+  base
+  eio
+  cstruct
+  optint
+  digestif
+  mail-flag
+  (eio_main :with-test)
+  (alcotest :with-test)))

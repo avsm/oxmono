@@ -1,0 +1,9 @@
+(test
+ (name test_proto)
+ (modules test_proto)
+ (libraries imap mail-flag alcotest))
+
+(test
+ (name test_modes)
+ (modules test_modes)
+ (libraries imap mail-flag base alcotest))

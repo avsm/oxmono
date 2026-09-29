@@ -1,0 +1,181 @@
+{
+  "probed_on": "2026-09-26",
+  "image_digest": "ghcr.io/cyrusimap/cyrus-docker-test-server@sha256:fd71ef73ba0104077e4b87493fc8a4730a8cffe0a2522f0616d78ee0ac66ad7c",
+  "purpose": "Independent Python probe of the existing test image; no OCaml IMAP implementation exists yet. Isolated container removed after probe.",
+  "capabilities": [
+    "IMAP4rev1",
+    "IMAP4rev2",
+    "ACL",
+    "ANNOTATE-EXPERIMENT-1",
+    "APPENDLIMIT=209715200",
+    "BINARY",
+    "CATENATE",
+    "CHILDREN",
+    "COMPRESS=DEFLATE",
+    "CONDSTORE",
+    "CREATE-SPECIAL-USE",
+    "ENABLE",
+    "ESEARCH",
+    "ESORT",
+    "ID",
+    "IDLE",
+    "INPROGRESS",
+    "JMAPACCESS",
+    "LIST-EXTENDED",
+    "LIST-METADATA",
+    "LIST-MYRIGHTS",
+    "LIST-STATUS",
+    "LITERAL+",
+    "LOGINDISABLED",
+    "MAILBOX-REFERRALS",
+    "METADATA",
+    "MOVE",
+    "MULTIAPPEND",
+    "MULTISEARCH",
+    "NAMESPACE",
+    "OBJECTID",
+    "PARTIAL",
+    "PREVIEW",
+    "QRESYNC",
+    "QUOTA",
+    "QUOTA=RES-STORAGE",
+    "QUOTA=RES-MESSAGE",
+    "QUOTA=RES-ANNOTATION-STORAGE",
+    "QUOTA=RES-MAILBOX",
+    "QUOTASET",
+    "REPLACE",
+    "RIGHTS=kxten",
+    "SAVEDATE",
+    "SEARCH=FUZZY",
+    "SEARCHRES",
+    "SORT",
+    "SORT=DISPLAY",
+    "SPECIAL-USE",
+    "STATUS=SIZE",
+    "THREAD=ORDEREDSUBJECT",
+    "THREAD=REFERENCES",
+    "UIDBATCHES",
+    "UIDONLY",
+    "UIDPLUS",
+    "UNSELECT",
+    "URL-PARTIAL",
+    "URLAUTH",
+    "URLAUTH=BINARY",
+    "WITHIN",
+    "DIGEST=SHA1",
+    "NO_ATOMIC_RENAME",
+    "SORT=MODSEQ",
+    "SORT=UID",
+    "THREAD=REFS",
+    "X-CREATEDMODSEQ",
+    "X-REPLICATION",
+    "X-REPLICATION-ARCHIVE",
+    "X-SIEVE-MAILBOX",
+    "XLIST"
+  ],
+  "checks": {
+    "append_and_peek_byte_equality": true,
+    "peek_did_not_set_seen": true,
+    "jmap_saw_five_appended_messages": true,
+    "objectid_equals_jmap_email_id": true,
+    "qresync_flag_and_vanished": true,
+    "lmtp_to_jmap": true
+  },
+  "fixtures": [
+    {
+      "uid": "1",
+      "bytes": 221,
+      "sha256": "c6c25ad7cb297c6697700a729516b1e2ec0ab7c76995a05503ad337a36af7600"
+    },
+    {
+      "uid": "2",
+      "bytes": 418,
+      "sha256": "5b7bba153f746fa3d572ab8866d16cc0533ace7bdc7939140b6066c17d1e2eaa"
+    },
+    {
+      "uid": "3",
+      "bytes": 220,
+      "sha256": "7f4928832a0239632f288b45f5ef54e75b658b67bceee9ee5d4d43c73fa2da88"
+    },
+    {
+      "uid": "4",
+      "bytes": 269,
+      "sha256": "0452c5b5e595fcbfade5a7f25f8e407ff222688202c64b6bdbb1311da3dfaf5e"
+    },
+    {
+      "uid": "5",
+      "bytes": 2106180,
+      "sha256": "05f91173679aec017f9c06b388177c266389d8d267abbeb6a79364e63807e782"
+    }
+  ],
+  "appenduid": [
+    "1790417132 1",
+    "1790417132 2",
+    "1790417132 3",
+    "1790417132 4",
+    "1790417132 5"
+  ],
+  "copyuid": [
+    "1790417133 2 1"
+  ],
+  "qresync": {
+    "CAPABILITY": [
+      "IMAP4rev1 IMAP4rev2 ACL ANNOTATE-EXPERIMENT-1 APPENDLIMIT=209715200 BINARY CATENATE CHILDREN COMPRESS=DEFLATE CONDSTORE CREATE-SPECIAL-USE ENABLE ESEARCH ESORT ID IDLE INPROGRESS JMAPACCESS LIST-EXTENDED LIST-METADATA LIST-MYRIGHTS LIST-STATUS LITERAL+ LOGINDISABLED MAILBOX-REFERRALS METADATA MOVE MULTIAPPEND MULTISEARCH NAMESPACE OBJECTID PARTIAL PREVIEW QRESYNC QUOTA QUOTA=RES-STORAGE QUOTA=RES-MESSAGE QUOTA=RES-ANNOTATION-STORAGE QUOTA=RES-MAILBOX QUOTASET REPLACE RIGHTS=kxten SAVEDATE SEARCH=FUZZY SEARCHRES SORT SORT=DISPLAY SPECIAL-USE STATUS=SIZE THREAD=ORDEREDSUBJECT THREAD=REFERENCES UIDBATCHES UIDONLY UIDPLUS UNSELECT URL-PARTIAL URLAUTH URLAUTH=BINARY WITHIN DIGEST=SHA1 NO_ATOMIC_RENAME SORT=MODSEQ SORT=UID THREAD=REFS X-CREATEDMODSEQ X-REPLICATION X-REPLICATION-ARCHIVE X-SIEVE-MAILBOX XLIST"
+    ],
+    "ENABLED": [
+      "CONDSTORE QRESYNC"
+    ],
+    "EXISTS": [
+      "4"
+    ],
+    "RECENT": [
+      "0"
+    ],
+    "FLAGS": [
+      "(\\Answered \\Flagged \\Draft \\Deleted \\Seen $custom)"
+    ],
+    "OK": [
+      "[PERMANENTFLAGS (\\Answered \\Flagged \\Draft \\Deleted \\Seen $custom \\*)] Ok",
+      "[UNSEEN 2] Ok",
+      "[UIDVALIDITY 1790417132] Ok",
+      "[UIDNEXT 6] Ok",
+      "[HIGHESTMODSEQ 47] Ok",
+      "[MAILBOXID (37bb14c1-7239-40f6-b587-0d70db68a20f)] Ok",
+      "[URLMECH INTERNAL] Ok",
+      "[ANNOTATIONS 65536] Ok"
+    ],
+    "PERMANENTFLAGS": [
+      "(\\Answered \\Flagged \\Draft \\Deleted \\Seen $custom \\*)"
+    ],
+    "UNSEEN": [
+      "2"
+    ],
+    "UIDVALIDITY": [
+      "1790417132"
+    ],
+    "UIDNEXT": [
+      "6"
+    ],
+    "HIGHESTMODSEQ": [
+      "47"
+    ],
+    "MAILBOXID": [
+      "(37bb14c1-7239-40f6-b587-0d70db68a20f)"
+    ],
+    "URLMECH": [
+      "INTERNAL"
+    ],
+    "ANNOTATIONS": [
+      "65536"
+    ],
+    "VANISHED": [
+      "(EARLIER) 3"
+    ],
+    "FETCH": [
+      "1 (FLAGS (\\Seen $custom) UID 1 MODSEQ (44))"
+    ],
+    "READ-WRITE": [
+      ""
+    ]
+  }
+}

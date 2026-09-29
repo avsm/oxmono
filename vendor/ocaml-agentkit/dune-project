@@ -1,0 +1,144 @@
+(lang dune 3.21)
+(cram enable)
+(name agentkit)
+
+(generate_opam_files true)
+(implicit_transitive_deps false)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-agentkit))
+
+(package
+ (name agentkit)
+ (synopsis "Durable stores and a journal browser for local agents")
+ (tags (org:blacksun llm agent))
+ (description
+  "Backend-neutral event types, line framing, journals, memory and schedules for local agents, and a journal browser that loads no model runtime.")
+ (depends
+  (ocaml (>= 5.2.0))
+  cstruct
+  (eio (>= 1.4))
+  eio_main
+  (jsont (>= 0.2.0))
+  (bytesrw (>= 0.2.0))
+  (cmdliner (>= 1.1.0))
+  (xdge (>= 1.0.0))))
+
+(package
+ (name agentkit-ds4)
+ (synopsis "DS4 adapter for Agentkit")
+ (tags (org:blacksun ds4 llm agent))
+ (description
+  "Lossless conversion of DS4 agent events to Agentkit's backend-neutral event stream.")
+ (depends
+  (ocaml (>= 5.2.0))
+  ds4
+  (agentkit (= :version))))
+
+(package
+ (name agentkit-apple-fm)
+ (synopsis "Apple Foundation Models adapter for Agentkit")
+ (tags (org:blacksun apple foundation-models llm agent))
+ (description
+  "An Agentkit agent over Apple's on-device Foundation Models framework, with instrumented tools, streaming events, transcripts, accounting, cancellation, and compaction.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (apple-fm (>= 0.1))
+  (agentkit (= :version))
+  cstruct
+  (eio (>= 1.5))))
+
+(package
+ (name agentkit-apple-tools)
+ (synopsis "Apple Foundation Models bindings for Agentkit workspace tools")
+ (description
+  "Specialised Apple tool schemas over the workspace, network, and memory handlers used by Agentkit commands.")
+ (depends
+  (ocaml (>= 5.2.0))
+  ds4
+  (apple-fm (>= 0.1))
+  (eio (>= 1.5))
+  (agentkit (= :version))
+  (agentkit-apple-fm (= :version))))
+
+(package
+ (name humpty)
+ (synopsis "A terminal agent over a local DS4 model")
+ (tags (org:blacksun ds4 llm agent tui))
+ (description
+  "humpty runs a DeepSeek or GLM model on your own machine, as a single prompt or as an agent with tools, in a terminal interface.")
+ (depends
+  (ocaml (>= 5.2.0))
+  ds4
+  (agentkit (= :version))
+  (agentkit-ds4 (= :version))
+  dune-rpc-eio
+  (dune-rpc (>= 3.24))
+  (csexp (>= 1.5))
+  (pp (>= 2.0.0))
+  (eio (>= 1.4))
+  eio_main
+  (jsont (>= 0.2.0))
+  (mosaic (>= 0.1.0))
+  (matrix (>= 0.1.0))
+  (logs (>= 0.7.0))
+  (cmdliner (>= 1.1.0))
+  (xdge (>= 1.0.0))
+  (merlin :with-test)))
+
+(package
+ (name numpty)
+ (synopsis "A headless agent daemon over a local DS4 model")
+ (tags (org:blacksun ds4 llm agent daemon))
+ (description
+  "numpty runs a DeepSeek or GLM model unattended on your own machine. It wakes on a schedule you write, reaches the network through a child process, keeps what it learned in a durable memory, and records every prompt, reply and tool call in an append-only journal.")
+ (depends
+  (ocaml (>= 5.2.0))
+  ds4
+  (agentkit (= :version))
+  (agentkit-ds4 (= :version))
+  (eio (>= 1.4))
+  eio_main
+  (jsont (>= 0.2.0))
+  (bytesrw (>= 0.2.0))
+  (logs (>= 0.7.0))
+  (cmdliner (>= 1.1.0))
+  (xdge (>= 1.0.0))))
+
+(package
+ (name dumpty)
+ (synopsis "A one-shot agent over a local DS4 model")
+ (tags (org:blacksun ds4 llm agent oneshot))
+ (description
+  "dumpty runs one prompt through the same tool-using loop humpty holds interactively, streams its journal to standard error, prints one JSON object on standard output, and exits.")
+ (depends
+  (ocaml (>= 5.2.0))
+  ds4
+  (agentkit (= :version))
+  (agentkit-ds4 (= :version))
+  (humpty (= :version))
+  (eio (>= 1.4))
+  eio_main
+  (jsont (>= 0.2.0))
+  (bytesrw (>= 0.2.0))
+  (logs (>= 0.7.0))
+  (cmdliner (>= 1.1.0))
+  (xdge (>= 1.0.0))))
+
+(package
+ (name agentkit-openrouter)
+ (synopsis "OpenRouter adapter for Agentkit")
+ (description "Streaming OpenRouter conversations through Agentkit's backend-neutral event interface.")
+ (depends
+  (ocaml (>= 5.2.0))
+  openrouter
+  (agentkit (= :version))))
+
+(package
+ (name agentkit-backends)
+ (synopsis "Combined Agentkit provider registry")
+ (depends
+  (ocaml (>= 5.2.0))
+  (agentkit (= :version))))

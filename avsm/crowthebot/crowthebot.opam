@@ -32,6 +32,9 @@ depends: [
   "uri"
   "cmarkit"
   "cstruct"
+  "tomlt"
+  "agentkit"
+  "agentkit-openrouter"
   "odoc" {with-doc}
 ]
 build: [

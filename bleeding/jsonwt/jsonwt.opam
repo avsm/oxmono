@@ -9,6 +9,8 @@ bug-reports: "https://tangled.org/anil.recoil.org/ocaml-jsonwt/issues"
 depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.2"}
+  "dune-configurator"
+  "conf-pkg-config"
   "jsont"
   "bytesrw"
   "digestif"

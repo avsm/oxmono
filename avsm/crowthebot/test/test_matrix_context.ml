@@ -51,7 +51,7 @@ let () =
         (List.length tools = 9);
       ( None,
         [
-          Openrouter.Tool.
+          Agentkit.Agent.
             { id = "room-info"; name = "matrix_room_info"; arguments = "{}" };
         ] )
     end

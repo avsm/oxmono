@@ -112,3 +112,50 @@ let watch_room ~sw ~self ~cache ~room =
       in
       loop ());
   fun () -> O.unsubscribe subscription
+
+let configure_level level =
+  let level =
+    match String.lowercase_ascii level with
+    | "quiet" -> None
+    | "error" -> Some Logs.Error
+    | "warning" -> Some Logs.Warning
+    | "debug" -> Some Logs.Debug
+    | "info" -> Some Logs.Info
+    | _ -> invalid_arg "log_level must be quiet, error, warning, info or debug"
+  in
+  Logs.set_level level;
+  Logs.Src.set_level src level;
+  Logs.Src.set_level tools_src level
+
+let log_channel : out_channel option ref = ref None
+
+let configure_file path =
+  (* Logs contain Matrix identities, room IDs and operational metadata. Refuse
+     a pre-existing symlink or a file writable by another account, and verify
+     the descriptor after opening before installing it as the process-wide
+     reporter. *)
+  (match Unix.lstat path with
+  | stat
+    when stat.Unix.st_kind <> Unix.S_REG
+         || stat.st_uid <> Unix.getuid ()
+         || stat.st_perm land 0o077 <> 0 ->
+      invalid_arg "log file must be an owned regular file with mode 0600"
+  | _ -> ()
+  | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ());
+  let fd =
+    Unix.openfile path [ Unix.O_WRONLY; Unix.O_CREAT; Unix.O_APPEND; Unix.O_CLOEXEC ]
+      0o600
+  in
+  let stat = Unix.fstat fd in
+  if
+    stat.Unix.st_kind <> Unix.S_REG
+    || stat.st_uid <> Unix.getuid ()
+    || stat.st_perm land 0o077 <> 0
+  then begin
+    Unix.close fd;
+    invalid_arg "log file must be an owned regular file with mode 0600"
+  end;
+  let channel = Unix.out_channel_of_descr fd in
+  Option.iter close_out !log_channel;
+  log_channel := Some channel;
+  Logs.set_reporter (Logs_fmt.reporter ~dst:(Format.formatter_of_out_channel channel) ())

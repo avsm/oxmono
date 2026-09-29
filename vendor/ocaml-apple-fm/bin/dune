@@ -1,0 +1,4 @@
+(executable
+ (public_name apple-fm-agent)
+ (name agent)
+ (libraries apple-fm cmdliner eio eio_main))

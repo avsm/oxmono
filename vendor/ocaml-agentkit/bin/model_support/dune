@@ -1,0 +1,10 @@
+(library
+ (name agentkit_model_support)
+ (libraries
+  agentkit
+  agentkit-ds4
+  agentkit_apple_support
+  ds4.cli
+  eio
+  eio_main
+  xdge))

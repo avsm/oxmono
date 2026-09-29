@@ -1,0 +1,4 @@
+(test
+ (name test_dsml)
+ (libraries ds4.dsml bytesrw)
+ (modules test_dsml))

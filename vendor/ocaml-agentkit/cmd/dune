@@ -1,0 +1,3 @@
+(library
+ (name humpty_cmd)
+ (public_name humpty.cmd))

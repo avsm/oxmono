@@ -16,7 +16,7 @@ val with_workspace :
     plugin code remains trusted; this does not sandbox arbitrary native code.
     Tools without file operations need no workspace capability. *)
 
-val tool : t -> Openrouter.Tool.t
+val tool : t -> Agentkit.Agent.Tool.t
 
 val invoke : t -> string -> string
 (** [invoke plugin arguments] validates the JSON query argument and bounds tool

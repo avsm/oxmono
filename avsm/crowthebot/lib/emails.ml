@@ -87,8 +87,7 @@ let thread_json (page : R.thread_page) =
 
 let tools t =
   let tool name description schema =
-    Openrouter.Tool.v ~name ~description ~parameters:(decode Jsont.json schema)
-      ()
+    Agentkit.Agent.Tool.v ~name ~description ~parameters:(decode Jsont.json schema)
   in
   [
     tool "email_sources"

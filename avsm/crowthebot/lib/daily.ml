@@ -1,7 +1,7 @@
 type complete =
   Openrouter.Message.t list ->
-  Openrouter.Tool.t list ->
-  string option * Openrouter.Tool.call list
+  Agentkit.Agent.Tool.t list ->
+  string option * Agentkit.Agent.tool_call list
 
 let render (note : Store.daily_note) =
   Printf.sprintf "%s UTC: %d tool calls\n%s" note.day note.tool_count note.body

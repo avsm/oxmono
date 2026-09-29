@@ -25,7 +25,7 @@ let () =
       ~complete:(fun messages tools ->
         let text, tool_calls = App.complete env config client messages tools in
         List.iter
-          (fun (call : Openrouter.Tool.call) ->
+          (fun (call : Agentkit.Agent.tool_call) ->
             if call.name = "feeds_list" then incr calls)
           tool_calls;
         (text, tool_calls))

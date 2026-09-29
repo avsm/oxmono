@@ -6,7 +6,7 @@ let tools =
     let parameters =
       Result.get_ok (Jsont_bytesrw.decode_string Jsont.json parameters)
     in
-    Openrouter.Tool.v ~name ~description ~parameters ()
+    Agentkit.Agent.Tool.v ~name ~description ~parameters
   in
   [
     tool "memory_store"

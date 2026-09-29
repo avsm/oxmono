@@ -235,3 +235,7 @@ val locations : t -> Location_store.t
 val calendars : t -> Calendar_store.t
 val caldav : t -> Caldav_store.t
 val emails : t -> Email_cache.t
+
+val admin_snapshot : t -> string
+(** [admin_snapshot] returns bounded, body-free counts and recent session keys.
+    It is intended for the primary administrator only. *)

@@ -268,7 +268,7 @@ let () =
                 );
               ( None,
                 [
-                  Openrouter.Tool.
+                  Agentkit.Agent.
                     {
                       id = "email-call";
                       name = "email_read";

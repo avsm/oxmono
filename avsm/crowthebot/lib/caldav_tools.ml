@@ -142,8 +142,7 @@ let opt f = Option.fold ~none:(Jsont.Json.null ()) ~some:f
 
 let tools =
   let tool name description schema =
-    Openrouter.Tool.v ~name ~description ~parameters:(decode Jsont.json schema)
-      ()
+    Agentkit.Agent.Tool.v ~name ~description ~parameters:(decode Jsont.json schema)
   in
   [
     tool "caldav_sources"

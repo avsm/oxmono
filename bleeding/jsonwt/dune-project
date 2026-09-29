@@ -19,6 +19,8 @@
  (depends
   (ocaml
    (>= 5.2))
+  dune-configurator
+  conf-pkg-config
   jsont
   bytesrw
   digestif

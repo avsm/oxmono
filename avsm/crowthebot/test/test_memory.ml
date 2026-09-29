@@ -89,7 +89,7 @@ let () =
     if !stage = 1 then
       ( None,
         [
-          Openrouter.Tool.
+          Agentkit.Agent.
             {
               id = "remember";
               name = "memory_store";
@@ -139,7 +139,7 @@ let () =
     check "bots receive no memory tools" (tools = []);
     ( None,
       [
-        Openrouter.Tool.
+        Agentkit.Agent.
           {
             id = "forge";
             name = "memory_store";

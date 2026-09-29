@@ -1,0 +1,1 @@
+available: (os = "linux" & (arch = "x86_64" | arch = "arm64")) | (os = "macos" & arch = "arm64")

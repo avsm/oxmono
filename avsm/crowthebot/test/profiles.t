@@ -1,10 +1,10 @@
   $ export XDG_DATA_HOME="$PWD/data" XDG_CONFIG_HOME="$PWD/config" XDG_CACHE_HOME="$PWD/cache" XDG_STATE_HOME="$PWD/state"
   $ ../bin/main.exe init --profile one --admin @admin:example.org --homeserver https://matrix.example.org | sed 's|Created .*|Created profile|'
   Created profile
-  Edit crowthebot.json to choose a model, prompt or plugins.
+  Edit crowthebot.toml to choose a model, prompt or plugins.
   $ ../bin/main.exe init --profile two --admin @other:example.org --homeserver https://matrix.example.org | sed 's|Created .*|Created profile|'
   Created profile
-  Edit crowthebot.json to choose a model, prompt or plugins.
+  Edit crowthebot.toml to choose a model, prompt or plugins.
   $ ../bin/main.exe people --profile one
   @admin:example.org: friend, allowed
   $ ../bin/main.exe people --profile two
@@ -32,11 +32,11 @@
   [('memory_store', 'ok'), ('memory_search', 'ok'), ('memory_get', 'ok'), ('memory_erase', 'ok'), ('memory_search', 'ok')]
   0
   $ ../bin/main.exe init --profile one --admin @other:example.org --homeserver https://matrix.example.org
-  profile already initialized. Edit crowthebot.json to configure it
+  profile already initialized. Edit crowthebot.toml to configure it
   [1]
   $ python3 - <<'PY'
   > import os, stat
-  > for name in ['', '/crowthebot.json', '/crowthebot.sqlite3']:
+  > for name in ['', '/crowthebot.toml', '/crowthebot.sqlite3']:
   >     print(oct(stat.S_IMODE(os.stat('data/matrix/profiles/one' + name).st_mode))[2:])
   > PY
   700

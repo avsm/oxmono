@@ -176,7 +176,7 @@ let () =
           check "tools available through sixth call" (tools <> []);
           ( None,
             [
-              Openrouter.Tool.
+              Agentkit.Agent.
                 { id = string_of_int !round; name = "step"; arguments = "{}" };
             ] )
         end

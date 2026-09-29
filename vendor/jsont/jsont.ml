@@ -670,6 +670,7 @@ let iter ?(kind = "") ?(doc = "") ?(dec @ portable) ?(enc @ portable) dom =
   Repr.Map { kind; doc; dom; dec; enc }
 
 let rec' t = Repr.Rec t
+let rec_legacy (t : 'a t lazy_t) : 'a t = Repr.Rec (Obj.magic t)
 
 (* Nulls and options *)
 

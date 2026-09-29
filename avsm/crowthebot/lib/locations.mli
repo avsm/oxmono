@@ -12,7 +12,7 @@ val create :
 type access
 
 val for_request : t -> actor:string -> room:string -> event:string -> access
-val tools : Openrouter.Tool.t list
+val tools : Agentkit.Agent.Tool.t list
 val is_tool : string -> bool
 val system_prompt : string
 val invoke : access -> string -> string -> (string, string) result

@@ -1,0 +1,16 @@
+(library
+ (name okit)
+ (public_name humpty.okit)
+ (libraries
+  csexp
+  ds4
+  agentkit
+  ds4.dsml
+  dune-rpc
+  dune-rpc-eio
+  eio
+  eio.unix
+  jsont
+  logs
+  pp
+  unix))

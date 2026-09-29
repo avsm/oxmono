@@ -196,7 +196,7 @@ let () =
           check "tools remain available for all six calls" (tools <> []);
           ( None,
             [
-              Openrouter.Tool.
+              Agentkit.Agent.
                 {
                   id = string_of_int !step;
                   name = List.nth sequence (!step - 1);

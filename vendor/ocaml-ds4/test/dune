@@ -1,0 +1,74 @@
+; test_toolbox: pure Eio-mock unit test of the tool/codec path (CPU default).
+
+(test
+ (name test_toolbox)
+ (libraries ds4 ds4.dsml eio eio.mock)
+ (modules test_toolbox))
+
+; test_agent_ctx: the agent's window arithmetic, which decides when a turn has
+; room to reply and how far the context grows. Pure, and needs no engine.
+
+(test
+ (name test_agent_ctx)
+ (libraries ds4)
+ (modules test_agent_ctx))
+
+; live_agent_mock: drives the real engine with mocked tool I/O. This is the CPU
+; build (links ds4.cpu); macOS runs the Metal build in ./metal instead.
+; Model loads are skipped unless DS4_LIVE is set.
+
+(test
+ (name live_agent_mock)
+ (enabled_if
+  (<> %{system} macosx))
+ (deps
+  (env_var DS4_LIVE)
+  (env_var DS4_MODEL)
+  (env_var DS4_SPEC_MODEL)
+  (env_var XDG_DATA_HOME)
+  (env_var XDG_CACHE_HOME)
+  (env_var HOME))
+ (locks %{workspace_root}/test/live-model)
+ (libraries ds4 ds4.cpu ds4.cli ds4.dsml eio eio.mock eio_main xdge)
+ (modules live_agent_mock))
+
+; test_gguf: reading a model's metadata for a draft head, over headers the test
+; writes. Needs no model.
+
+(test
+ (name test_gguf)
+ (libraries ds4 eio eio_main)
+ (modules test_gguf))
+
+; test_scan_tools: the filesystem scanning tools against a real temp tree,
+; including that an Eio subtree capability confines them.
+
+(test
+ (name test_scan_tools)
+ (libraries ds4 ds4.dsml eio eio_main unix)
+ (modules test_scan_tools))
+
+; live_lifetime: engine/session finalizer ordering against the real engine.
+; Skips unless DS4_LIVE is set, like live_agent_mock.
+
+(test
+ (name live_lifetime)
+ (enabled_if
+  (<> %{system} macosx))
+ (deps
+  (env_var DS4_LIVE)
+  (env_var DS4_MODEL)
+  (env_var DS4_SPEC_MODEL)
+  (env_var XDG_DATA_HOME)
+  (env_var XDG_CACHE_HOME)
+  (env_var HOME))
+ (locks %{workspace_root}/test/live-model)
+ (libraries ds4 ds4.cli eio eio_main xdge)
+ (modules live_lifetime))
+
+; CPU backend build/link smoke test.
+
+(test
+ (name cpu_smoke)
+ (libraries ds4 ds4.cpu)
+ (modules cpu_smoke))

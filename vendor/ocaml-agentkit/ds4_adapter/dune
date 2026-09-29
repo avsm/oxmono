@@ -1,0 +1,5 @@
+(library
+ (name agentkit_ds4)
+ (public_name agentkit-ds4)
+ (modes native)
+ (libraries agentkit ds4 ds4.cli ds4.dsml))

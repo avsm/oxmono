@@ -1,0 +1,13 @@
+;; The [ds4-agent] binary selects its inference backend by linking an
+;; implementation of the virtual [ds4] library: [ds4.metal] here. Because Metal
+;; is macOS-only, this executable is gated to macOS. The portable CPU build of
+;; the same program lives in ./cpu and builds everywhere.
+
+(executable
+ (name ds4_agent)
+ (package ds4)
+ (modules ds4_agent)
+ (public_name ds4-agent-metal)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries cmdliner ds4 ds4.metal ds4.cli))

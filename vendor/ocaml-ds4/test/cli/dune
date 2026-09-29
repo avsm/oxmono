@@ -1,0 +1,6 @@
+; What ds4-agent refuses before it loads anything. The cpu binary, since no
+; model is loaded and the backend shows only in the name of the download
+; command a refusal points at.
+
+(cram
+ (deps %{bin:ds4-agent-cpu}))

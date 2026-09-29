@@ -112,10 +112,9 @@ let is_tool name = List.mem name names
 
 let tools =
   let tool name description schema =
-    Openrouter.Tool.v ~name ~description
+    Agentkit.Agent.Tool.v ~name ~description
       ~parameters:
         (Result.get_ok (Jsont_bytesrw.decode_string Jsont.json schema))
-      ()
   in
   [
     tool "feeds_add"

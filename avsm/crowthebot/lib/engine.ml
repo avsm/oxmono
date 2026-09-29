@@ -4,8 +4,8 @@ module Log = Diagnostics.Log
 
 type complete =
   Openrouter.Message.t list ->
-  Openrouter.Tool.t list ->
-  string option * Openrouter.Tool.call list
+  Agentkit.Agent.Tool.t list ->
+  string option * Agentkit.Agent.tool_call list
 
 type t = {
   config : Config.t;
@@ -689,7 +689,7 @@ let answer t e ?(active = fun () -> true) ?source_event prompt =
               m "Model exceeded tool budget event=%S calls=%d budget=%d" e.id
                 (List.length calls) budget);
           List.iter
-            (fun (call : Openrouter.Tool.call) ->
+            (fun (call : Agentkit.Agent.tool_call) ->
               ignore
                 (invoke t e ~on_finish:record ~source:"model" ~call_id:call.id
                    ~name:call.name ~arguments:call.arguments (fun () ->
@@ -705,7 +705,7 @@ let answer t e ?(active = fun () -> true) ?source_event prompt =
         | _ ->
             let results =
               List.map
-                (fun (call : Openrouter.Tool.call) ->
+                (fun (call : Agentkit.Agent.tool_call) ->
                   let result =
                     invoke t e ~on_finish:record ~source:"model"
                       ~call_id:call.id ~name:call.name ~arguments:call.arguments
@@ -769,7 +769,10 @@ let answer t e ?(active = fun () -> true) ?source_event prompt =
               (budget - List.length calls)
               (messages
               @ [
-                  Openrouter.Message.assistant ~tool_calls:calls
+                  Openrouter.Message.assistant
+                    ~tool_calls:(List.map (fun (call : Agentkit.Agent.tool_call) ->
+                      { Openrouter.Tool.id = call.id; name = call.name;
+                        arguments = call.arguments }) calls)
                     (Plugin.clip ~bytes:4096 (Option.value ~default:"" text));
                 ]
               @ results))
@@ -859,6 +862,25 @@ let handle_locked t ~mentioned ~direct ~on_accept ~send e =
                 (Plugin.clip ~bytes:12000
                    (String.concat "\n"
                       (List.map person_line (Store.people t.store))))
+          | "inspect", [ "sessions" ] when admin && direct ->
+              reply (Plugin.clip ~bytes:12000 (Store.admin_snapshot t.store))
+          | "inspect", [ "memory" ] when admin && direct ->
+              reply
+                (invoke t e ~source:"inspect" ~call_id:"" ~name:"memory_list"
+                   ~arguments:"{}" (fun () ->
+                     Memory.invoke
+                       (Memory.for_request t.store ~actor:e.sender ~room:e.room ~event:e.id
+                          ~source:"inspect") "memory_list" "{}"))
+          | "inspect", [ "tools" ] when admin && direct ->
+              let uses = Store.tool_uses t.store ~day:(Store.today t.store)
+                  ~after:0 ~through:max_int ~limit:20 in
+              reply (Plugin.clip ~bytes:12000
+                (if uses = [] then "No tool calls recorded today."
+                 else String.concat "\n\n" (List.map Audit.line uses)))
+          | "inspect", _ when not (admin && direct) ->
+              ignored "inspect-requires-admin-dm"
+          | "inspect", _ ->
+              reply "Usage: inspect sessions|memory|tools (admin DM only)"
           | ("allow" | "deny" | "people"), _ -> reply help
           | "help", _ -> reply help
           | "reset", [] ->

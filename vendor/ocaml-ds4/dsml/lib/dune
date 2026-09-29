@@ -1,0 +1,4 @@
+(library
+ (name dsml)
+ (public_name ds4.dsml)
+ (libraries jsont jsont.bytesrw bytesrw))

@@ -2,8 +2,8 @@
 
 type complete =
   Openrouter.Message.t list ->
-  Openrouter.Tool.t list ->
-  string option * Openrouter.Tool.call list
+  Agentkit.Agent.Tool.t list ->
+  string option * Agentkit.Agent.tool_call list
 
 val generate :
   store:Store.t ->

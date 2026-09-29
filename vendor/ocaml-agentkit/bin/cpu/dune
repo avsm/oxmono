@@ -1,0 +1,91 @@
+;; CPU build of the bin/ program, from the SAME source. The .ml file lives once
+;; in ../; here it is copied at build time and linked against [ds4.cpu]
+;; instead of [ds4.metal]. Result: bin/cpu/humpty.exe — identical code,
+;; CPU backend.
+
+(copy_files
+ (files ../humpty.ml))
+
+(copy_files
+ (files ../tui.ml))
+
+(copy_files
+ (files ../numpty.ml))
+
+(copy_files
+ (files ../dumpty.ml))
+
+(executable
+ (name humpty)
+ (package humpty)
+ (modules humpty tui)
+ (public_name humpty-cpu)
+ (libraries
+  ds4
+  ds4.cpu
+  agentkit
+  agentkit-ds4
+  agentkit_apple_support
+  agentkit_model_support
+  ds4.cli
+  humpty.cmd
+  humpty.okit
+  ds4.dsml
+  eio
+  eio_main
+  mosaic
+  matrix
+  jsont
+  matrix.input
+  matrix-eio
+  cmdliner
+  logs
+  xdge
+  unix))
+
+(executable
+ (name numpty)
+ (package numpty)
+ (modules numpty)
+ (public_name numpty-cpu)
+ (libraries
+  ds4
+  ds4.cpu
+  agentkit
+  agentkit-ds4
+  agentkit_apple_support
+  agentkit_model_support
+  ds4.cli
+  ds4.dsml
+  numpty.net
+  numpty.daemon
+  eio
+  eio_main
+  cmdliner
+  logs
+  xdge
+  unix))
+
+(executable
+ (name dumpty)
+ (package dumpty)
+ (modules dumpty)
+ (public_name dumpty-cpu)
+ (libraries
+  ds4
+  ds4.cpu
+  agentkit
+  agentkit-ds4
+  agentkit_apple_support
+  agentkit_model_support
+  ds4.cli
+  ds4.dsml
+  humpty.okit
+  eio
+  eio_main
+  jsont
+  jsont.bytesrw
+  cmdliner
+  logs
+  xdge
+  unix))

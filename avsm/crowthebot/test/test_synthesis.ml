@@ -162,7 +162,7 @@ let () =
         | 1 ->
             ( None,
               [
-                Openrouter.Tool.
+                Agentkit.Agent.
                   {
                     id = "fact";
                     name = "memory_store";
@@ -214,7 +214,7 @@ let () =
           check "recovery tools unavailable" (tools = []);
           ( None,
             [
-              Openrouter.Tool.
+              Agentkit.Agent.
                 {
                   id = "rogue";
                   name = "memory_store";

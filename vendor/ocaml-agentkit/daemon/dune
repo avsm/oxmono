@@ -1,0 +1,23 @@
+;; The daemon side of numpty: the store it owns, the tools it gives the model
+;; over that store, the brief a wake-up starts from, the schedule loop and the
+;; control socket. It is a sublibrary of the numpty package.
+;;
+;; It depends on the virtual ds4 library for the agent loop, so whichever
+;; executable links it still chooses the backend.
+
+(library
+ (name numpty_daemon)
+ (public_name numpty.daemon)
+ (libraries
+  ds4
+  agentkit
+  agentkit-ds4
+  ds4.dsml
+  numpty.net
+  eio
+  eio.unix
+  jsont
+  jsont.bytesrw
+  logs
+  unix
+  xdge))

@@ -1,0 +1,20 @@
+; The transcripts of 'humpty expect'. The cpu binary, because no model is
+; loaded and the backend does not show in a transcript.
+
+(cram
+ (package humpty)
+ (deps %{bin:humpty-cpu}))
+
+; A transcript whose okit is active names on its status line whether an
+; ocamlmerlin answered for the workspace, so these need one to be installed and
+; not only the merlin scenarios do. The other two record a workspace okit
+; refused and one it was never asked about, neither of which mentions merlin.
+;
+; humpty builds and runs in a switch without merlin, which is why the gate is
+; here at all. humpty's test dependencies name merlin, so it is there wherever
+; the suite is meant to run and the gate never fires.
+
+(cram
+ (package humpty)
+ (applies_to basic diagnostics promote merlin)
+ (enabled_if %{bin-available:ocamlmerlin}))

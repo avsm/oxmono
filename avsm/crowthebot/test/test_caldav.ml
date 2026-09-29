@@ -181,14 +181,14 @@ let () =
             if !round = 1 then
               ( None,
                 [
-                  Openrouter.Tool.
+                  Agentkit.Agent.
                     {
                       id = "delete";
                       name = "caldav_delete";
                       arguments =
                         {|{"url":"https://example.test/home/calendar/one.ics"}|};
                     };
-                  Openrouter.Tool.
+                  Agentkit.Agent.
                     {
                       id = "override";
                       name = "caldav_sync";

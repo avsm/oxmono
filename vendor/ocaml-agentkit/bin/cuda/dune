@@ -1,0 +1,120 @@
+;; CUDA build of the bin/ program, from the SAME source. The .ml files live
+;; once in ../; here they are copied at build time and linked against
+;; [ds4.cuda] instead of [ds4.cpu]. Result: bin/cuda/humpty.exe —
+;; identical code, CUDA backend. Built only when DS4_CUDA=yes selects that
+;; backend; see ../../lib_cuda/dune.
+
+(copy_files
+ (files ../humpty.ml)
+ (enabled_if
+  (and
+   (= %{system} linux)
+   (= %{env:DS4_CUDA=no} yes))))
+
+(copy_files
+ (files ../tui.ml)
+ (enabled_if
+  (and
+   (= %{system} linux)
+   (= %{env:DS4_CUDA=no} yes))))
+
+(executable
+ (name humpty)
+ (package humpty)
+ (modules humpty tui)
+ (public_name humpty-cuda)
+ (enabled_if
+  (and
+   (= %{system} linux)
+   (= %{env:DS4_CUDA=no} yes)))
+ (libraries
+  ds4
+  ds4.cuda
+  agentkit
+  agentkit-ds4
+  agentkit_apple_support
+  agentkit_model_support
+  ds4.cli
+  humpty.cmd
+  humpty.okit
+  ds4.dsml
+  eio
+  eio_main
+  mosaic
+  matrix
+  jsont
+  matrix.input
+  matrix-eio
+  cmdliner
+  logs
+  xdge
+  unix))
+
+(copy_files
+ (files ../numpty.ml)
+ (enabled_if
+  (and
+   (= %{system} linux)
+   (= %{env:DS4_CUDA=no} yes))))
+
+(executable
+ (name numpty)
+ (package numpty)
+ (modules numpty)
+ (public_name numpty-cuda)
+ (enabled_if
+  (and
+   (= %{system} linux)
+   (= %{env:DS4_CUDA=no} yes)))
+ (libraries
+  ds4
+  ds4.cuda
+  agentkit
+  agentkit-ds4
+  agentkit_apple_support
+  agentkit_model_support
+  ds4.cli
+  ds4.dsml
+  numpty.net
+  numpty.daemon
+  eio
+  eio_main
+  cmdliner
+  logs
+  xdge
+  unix))
+
+(copy_files
+ (files ../dumpty.ml)
+ (enabled_if
+  (and
+   (= %{system} linux)
+   (= %{env:DS4_CUDA=no} yes))))
+
+(executable
+ (name dumpty)
+ (package dumpty)
+ (modules dumpty)
+ (public_name dumpty-cuda)
+ (enabled_if
+  (and
+   (= %{system} linux)
+   (= %{env:DS4_CUDA=no} yes)))
+ (libraries
+  ds4
+  ds4.cuda
+  agentkit
+  agentkit-ds4
+  agentkit_apple_support
+  agentkit_model_support
+  ds4.cli
+  ds4.dsml
+  humpty.okit
+  eio
+  eio_main
+  jsont
+  jsont.bytesrw
+  cmdliner
+  logs
+  xdge
+  unix))

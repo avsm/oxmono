@@ -1,0 +1,29 @@
+;; Backend C-flag discovery (discover.ml): writes core_cflags / engram_cflags /
+;; objc_cflags,
+;; which the engine-archive rules in ../lib_metal and ../lib_cpu read via
+;; %{read-lines:...} so the native-arch flags differ correctly per platform, and
+;; cuda_nvcc / cuda_cflags / cuda_link_flags.sexp, which ../lib_cuda reads the
+;; same way.
+;;
+;; The env_var deps are what make a change to any of them rebuild the flags:
+;; dune re-runs a rule only for the variables that rule declares.
+
+(executable
+ (name discover)
+ (libraries dune-configurator))
+
+(rule
+ (targets
+  core_cflags
+  engram_cflags
+  objc_cflags
+  cuda_nvcc
+  cuda_cflags
+  cuda_link_flags.sexp)
+ (deps
+  (env_var DS4_CUDA)
+  (env_var DS4_CUDA_HOME)
+  (env_var DS4_CUDA_ARCH)
+  (env_var DS4_NVCC))
+ (action
+  (run ./discover.exe)))

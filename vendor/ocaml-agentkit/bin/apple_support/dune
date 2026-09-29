@@ -1,0 +1,11 @@
+(library
+ (name agentkit_apple_support)
+ (libraries
+  agentkit
+  ds4
+  eio
+  (select
+   agentkit_apple_support.ml
+   from
+   (agentkit-apple-tools -> agentkit_apple_support.enabled.ml)
+   (-> agentkit_apple_support.disabled.ml))))

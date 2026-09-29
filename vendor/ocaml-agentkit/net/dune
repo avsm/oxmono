@@ -1,0 +1,9 @@
+;; numptyd's protocol, the child that serves it, and the network tools numpty
+;; gives the model. It is a sublibrary of the numpty package, and it holds no
+;; engine: numptyd is spawned before the model is loaded and forks everything
+;; the run afterwards needs.
+
+(library
+ (name numpty_net)
+ (public_name numpty.net)
+ (libraries ds4 agentkit ds4.dsml eio eio.unix jsont))

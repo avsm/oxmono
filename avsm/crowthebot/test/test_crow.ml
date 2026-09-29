@@ -59,7 +59,7 @@ let () =
         check "plugin, memory and cron tools advertised" (List.length tools = 8);
         ( None,
           [
-            Openrouter.Tool.
+            Agentkit.Agent.
               { id = "call1"; name = "test"; arguments = {|{"query":"hi"}|} };
           ] )
       end
@@ -163,6 +163,9 @@ let () =
     (bad (fun () ->
          Config.validate
            { config with base_url = "https://key@api.example.org" }));
+  check "HTTP model endpoint rejected"
+    (bad (fun () ->
+         Config.validate { config with base_url = "http://model.example/v1" }));
   check "disabled plugin rejected"
     (bad (fun () ->
          ignore
@@ -205,7 +208,7 @@ let () =
       forged := true;
       ( None,
         [
-          Openrouter.Tool.
+          Agentkit.Agent.
             {
               id = "forge";
               name = "allow";
@@ -223,7 +226,7 @@ let () =
   let before = !plugin_calls in
   let repeat _ _ =
     ( None,
-      [ Openrouter.Tool.{ id = "repeat"; name = "test"; arguments = "{}" } ] )
+      [ Agentkit.Agent.{ id = "repeat"; name = "test"; arguments = "{}" } ] )
   in
   let looping =
     Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete:repeat

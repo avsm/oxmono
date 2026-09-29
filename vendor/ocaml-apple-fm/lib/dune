@@ -1,0 +1,18 @@
+(rule
+ (targets libapple_fm_bridge.a)
+ (deps AppleFMBridge.swift build_swift.sh)
+ (action
+  (run bash %{dep:build_swift.sh} %{dep:AppleFMBridge.swift} %{targets})))
+
+(library
+ (public_name apple-fm)
+ (name apple_fm)
+ (private_modules Apple_fm_base)
+ (modes native)
+ (libraries eio eio.unix jsont jsont.bytesrw)
+ (foreign_archives apple_fm_bridge)
+ (foreign_stubs
+  (language c)
+  (names apple_fm_stubs)
+  (flags
+   (:standard -Wall -Wextra -Werror))))

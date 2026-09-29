@@ -91,3 +91,11 @@ opam exec --switch=5.2.0+ox -- dune build --profile release-check @all
 4. Update the version, commit, and checked date here, in `jsont.opam`, and in
    the root `VENDORED.md`.
 5. Run all three commands in the validation section.
+
+## Legacy recursive codecs
+
+Oxmono exposes `Jsont.rec_legacy` as a narrow compatibility bridge for
+older clients that still construct recursive descriptions with `Stdlib.Lazy.t`.
+New code should use `Jsont.Portable_lazy.from_fun_fixed` with `Jsont.rec'`.
+The bridge contains the only isolated representation cast needed by the vendored Apple
+Foundation Models binding while it is migrated to the newer API; it must not be used for new codecs.

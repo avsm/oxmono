@@ -1,0 +1,164 @@
+(library
+ (name ds4_cpu)
+ (public_name ds4.cpu)
+ (implements ds4)
+ (modes native)
+ (modules backend)
+ (foreign_archives ds4_core_cpu)
+ (foreign_stubs
+  (language c)
+  (names ds4_stubs)
+  (include_dirs ../csrc))
+ (c_library_flags
+  (-lm -pthread)))
+
+;; The shared, backend-agnostic FFI stub, compiled into this implementation.
+
+(copy_files ../csrc/ds4_stubs.c)
+
+;; --- Engine archive: CPU core objects only (no GPU backend object). ---
+
+(rule
+ (target ds4_cpu.o)
+ (deps
+  ../csrc/ds4.c
+  ../csrc/ds4.h
+  ../csrc/ds4_image.h
+  ../csrc/ds4_ssd.h
+  ../csrc/ds4_distributed.h
+  ../csrc/ds4_gpu.h
+  ../csrc/ds4_gpu_mgpu.h
+  ../csrc/ds4_gpu_tp.h
+  ../csrc/ds4_deepseek41_gpu.h
+  ../csrc/ds4_engram.h
+  ../csrc/ds4_linux_memory.h
+  ../csrc/ds4_tool_text.h
+  ../csrc/ds4_tp.h
+  ../csrc/ds4_layer_pack.h
+  ../csrc/ds4_streaming_hotlist.inc
+  ../csrc/ds4_streaming_hotlist_glm52.inc
+  ../csrc/ds4_qwen4_unicode.inc
+  ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -DDS4_NO_GPU
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4.c
+   -o
+   ds4_cpu.o)))
+
+(rule
+ (target ds4_image.o)
+ (deps
+  ../csrc/ds4_image.c
+  ../csrc/ds4_image.h
+  ../csrc/third_party/iris/jpeg.h
+  ../csrc/third_party/iris/png.h
+  ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_image.c
+   -o
+   ds4_image.o)))
+
+(rule
+ (target ds4_ssd.o)
+ (deps ../csrc/ds4_ssd.c ../csrc/ds4_ssd.h ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_ssd.c
+   -o
+   ds4_ssd.o)))
+
+(rule
+ (target ds4_distributed.o)
+ (deps
+  ../csrc/ds4_distributed.c
+  ../csrc/ds4_distributed.h
+  ../csrc/ds4.h
+  ../csrc/ds4_ssd.h
+  ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_distributed.c
+   -o
+   ds4_distributed.o)))
+
+(rule
+ (target ds4_tp.o)
+ (deps
+  ../csrc/ds4_tp.c
+  ../csrc/ds4_tp.h
+  ../csrc/ds4.h
+  ../csrc/ds4_gpu.h
+  ../csrc/ds4_deepseek41_gpu.h
+  ../csrc/ds4_gpu_tp.h
+  ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -DDS4_NO_GPU
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_tp.c
+   -o
+   ds4_tp.o)))
+
+(rule
+ (target ds4_layer_pack.o)
+ (deps
+  ../csrc/ds4_layer_pack.c
+  ../csrc/ds4_layer_pack.h
+  ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_layer_pack.c
+   -o
+   ds4_layer_pack.o)))
+
+(rule
+ (target libds4_core_cpu.a)
+ (deps
+  ds4_cpu.o
+  ds4_image.o
+  ds4_ssd.o
+  ds4_distributed.o
+  ds4_tp.o
+  ds4_layer_pack.o)
+ (action
+  (run
+   ar
+   rcs
+   libds4_core_cpu.a
+   ds4_cpu.o
+   ds4_image.o
+   ds4_ssd.o
+   ds4_distributed.o
+   ds4_tp.o
+   ds4_layer_pack.o)))

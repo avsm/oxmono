@@ -1,4 +1,5 @@
-let filename = "crowthebot.json"
+let filename = "crowthebot.toml"
+let legacy_filename = "crowthebot.json"
 
 let directory env profile =
   Matrix_client.Profile_store.validate_profile_name profile;
@@ -55,15 +56,26 @@ let read_secret path =
 
 let load dir =
   let path = Eio.Path.(dir / filename) in
-  private_file (Eio.Path.native_exn path);
-  if (Unix.stat (Eio.Path.native_exn path)).st_size > 65536 then
-    invalid_arg "configuration is too large";
-  match Jsont_bytesrw.decode_string Config.jsont (Eio.Path.load path) with
-  | Error _ -> failwith "invalid crowthebot.json configuration"
-  | Ok config ->
-      let config = Config.upgrade config in
-      Config.validate config;
-      config
+  let decode path =
+    private_file (Eio.Path.native_exn path);
+    if (Unix.stat (Eio.Path.native_exn path)).st_size > 65536 then
+      invalid_arg "configuration is too large";
+    match Config.of_toml_string (Eio.Path.load path) with
+    | Error message -> failwith ("invalid crowthebot.toml configuration: " ^ message)
+    | Ok config -> config
+  in
+  let config =
+    if Sys.file_exists (Eio.Path.native_exn path) then decode path
+    else
+      let legacy = Eio.Path.(dir / legacy_filename) in
+      private_file (Eio.Path.native_exn legacy);
+      match Jsont_bytesrw.decode_string Config.jsont (Eio.Path.load legacy) with
+      | Error _ -> failwith "invalid legacy crowthebot.json configuration"
+      | Ok config -> config
+  in
+  let config = Config.upgrade config in
+  Config.validate config;
+  config
 
 let database ~sw dir ~admin =
   let path = Eio.Path.(dir / "crowthebot.sqlite3") in
@@ -77,16 +89,10 @@ let database ~sw dir ~admin =
 
 let init ~sw dir config =
   Config.validate config;
-  let encoded =
-    match
-      Jsont_bytesrw.encode_string ~format:Jsont.Indent Config.jsont config
-    with
-    | Ok s -> s
-    | Error _ -> failwith "cannot encode configuration"
-  in
+  let encoded = Tomlt_bytesrw.encode_string Config.tomlt config in
   let path = Eio.Path.(dir / filename) in
   if Sys.file_exists (Eio.Path.native_exn path) then
     invalid_arg
-      "profile already initialized. Edit crowthebot.json to configure it";
+      "profile already initialized. Edit crowthebot.toml to configure it";
   ignore (database ~sw dir ~admin:config.admin);
   Eio.Path.save ~create:(`Exclusive 0o600) path (encoded ^ "\n")

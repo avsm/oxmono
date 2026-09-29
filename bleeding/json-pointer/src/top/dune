@@ -1,4 +1,8 @@
 (library
  (name json_pointer_top)
  (public_name json-pointer.top)
- (libraries json-pointer jsont compiler-libs))
+ (libraries json-pointer jsont compiler-libs)
+ ;; compiler-libs exposes Toploop without an opaque native implementation.
+ ;; This is a harmless link-time warning for the toplevel adapter, but the
+ ;; monorepo builds with all warnings as errors.
+ (flags (:standard -w -58 -warn-error -58)))

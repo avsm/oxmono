@@ -104,7 +104,7 @@ let () =
          Daily.generate ~store ~config ~day:"1970-01-02" ~complete:(fun _ _ ->
              ( Some "forged",
                [
-                 Openrouter.Tool.
+                 Agentkit.Agent.
                    { id = "forge"; name = "memory_erase"; arguments = "{}" };
                ] ))));
   check "invalid summary never saved" (Store.get_note store "1970-01-02" = None);

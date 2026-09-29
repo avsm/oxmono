@@ -1,0 +1,244 @@
+;; Metal backend implementation of the virtual [ds4] library — macOS only.
+;;
+
+(library
+ (name ds4_metal)
+ (public_name ds4.metal)
+ (implements ds4)
+ (enabled_if
+  (= %{system} macosx))
+ (modes native)
+ (modules backend shaders)
+ (private_modules shaders)
+ (foreign_archives ds4_core_metal)
+ (foreign_stubs
+  (language c)
+  (names ds4_stubs)
+  (include_dirs ../csrc))
+ (c_library_flags
+  (-lm -pthread -framework Foundation -framework Metal)))
+
+;; The shared, backend-agnostic FFI stub, compiled into this implementation.
+
+(copy_files
+ (files ../csrc/ds4_stubs.c)
+ (enabled_if
+  (= %{system} macosx)))
+
+;; Embed the Metal kernels into the generated Shaders module (Backend.sources).
+
+(rule
+ (target shaders.ml)
+ (enabled_if
+  (= %{system} macosx))
+ (deps
+  ../gen/gen_shaders.exe
+  (glob_files ../csrc/metal/*.metal))
+ (action
+  (with-stdout-to
+   shaders.ml
+   (run %{deps}))))
+
+;; --- Engine archive: core (GPU) objects + the Metal backend object. ---
+
+(rule
+ (target ds4.o)
+ (enabled_if
+  (= %{system} macosx))
+ (deps
+  ../csrc/ds4.c
+  ../csrc/ds4.h
+  ../csrc/ds4_image.h
+  ../csrc/ds4_ssd.h
+  ../csrc/ds4_distributed.h
+  ../csrc/ds4_gpu.h
+  ../csrc/ds4_gpu_mgpu.h
+  ../csrc/ds4_gpu_tp.h
+  ../csrc/ds4_deepseek41_gpu.h
+  ../csrc/ds4_engram.h
+  ../csrc/ds4_linux_memory.h
+  ../csrc/ds4_tool_text.h
+  ../csrc/ds4_tp.h
+  ../csrc/ds4_layer_pack.h
+  ../csrc/ds4_streaming_hotlist.inc
+  ../csrc/ds4_streaming_hotlist_glm52.inc
+  ../csrc/ds4_qwen4_unicode.inc
+  ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4.c
+   -o
+   ds4.o)))
+
+(rule
+ (target ds4_image.o)
+ (enabled_if
+  (= %{system} macosx))
+ (deps
+  ../csrc/ds4_image.c
+  ../csrc/ds4_image.h
+  ../csrc/third_party/iris/jpeg.h
+  ../csrc/third_party/iris/png.h
+  ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_image.c
+   -o
+   ds4_image.o)))
+
+(rule
+ (target ds4_ssd.o)
+ (enabled_if
+  (= %{system} macosx))
+ (deps ../csrc/ds4_ssd.c ../csrc/ds4_ssd.h ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_ssd.c
+   -o
+   ds4_ssd.o)))
+
+(rule
+ (target ds4_distributed.o)
+ (enabled_if
+  (= %{system} macosx))
+ (deps
+  ../csrc/ds4_distributed.c
+  ../csrc/ds4_distributed.h
+  ../csrc/ds4.h
+  ../csrc/ds4_ssd.h
+  ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_distributed.c
+   -o
+   ds4_distributed.o)))
+
+(rule
+ (target ds4_tp.o)
+ (enabled_if
+  (= %{system} macosx))
+ (deps
+  ../csrc/ds4_tp.c
+  ../csrc/ds4_tp.h
+  ../csrc/ds4.h
+  ../csrc/ds4_gpu.h
+  ../csrc/ds4_deepseek41_gpu.h
+  ../csrc/ds4_gpu_tp.h
+  ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_tp.c
+   -o
+   ds4_tp.o)))
+
+(rule
+ (target ds4_layer_pack.o)
+ (enabled_if
+  (= %{system} macosx))
+ (deps
+  ../csrc/ds4_layer_pack.c
+  ../csrc/ds4_layer_pack.h
+  ../config/core_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/core_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_layer_pack.c
+   -o
+   ds4_layer_pack.o)))
+
+(rule
+ (target ds4_engram.o)
+ (enabled_if
+  (= %{system} macosx))
+ (deps ../csrc/ds4_engram.c ../csrc/ds4_engram.h ../config/engram_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/engram_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_engram.c
+   -o
+   ds4_engram.o)))
+
+(rule
+ (target ds4_metal.o)
+ (enabled_if
+  (= %{system} macosx))
+ (deps
+  ../csrc/ds4_metal.m
+  ../csrc/ds4.h
+  ../csrc/ds4_gpu.h
+  ../csrc/ds4_deepseek41_gpu.h
+  ../csrc/ds4_gpu_tp.h
+  ../csrc/ds4_image.h
+  ../csrc/ds4_ssd.h
+  (glob_files ../csrc/metal/*.metal)
+  ../config/objc_cflags)
+ (action
+  (run
+   %{cc}
+   %{read-lines:../config/objc_cflags}
+   -I
+   ../csrc
+   -c
+   ../csrc/ds4_metal.m
+   -o
+   ds4_metal.o)))
+
+(rule
+ (target libds4_core_metal.a)
+ (enabled_if
+  (= %{system} macosx))
+ (deps
+  ds4.o
+  ds4_image.o
+  ds4_ssd.o
+  ds4_distributed.o
+  ds4_tp.o
+  ds4_layer_pack.o
+  ds4_engram.o
+  ds4_metal.o)
+ (action
+  (run
+   ar
+   rcs
+   libds4_core_metal.a
+   ds4.o
+   ds4_image.o
+   ds4_ssd.o
+   ds4_distributed.o
+   ds4_tp.o
+   ds4_layer_pack.o
+   ds4_engram.o
+   ds4_metal.o)))

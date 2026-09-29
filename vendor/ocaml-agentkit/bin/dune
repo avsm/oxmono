@@ -1,0 +1,101 @@
+;; The [humpty] binary selects its inference backend by linking an
+;; implementation of the virtual [ds4] library: [ds4.metal] here.
+;; Because Metal is macOS-only, this executable is gated to macOS; the portable
+;; CPU build of the same program lives in ./cpu and builds everywhere.
+
+(executable
+ (name humpty)
+ (package humpty)
+ (modules humpty tui)
+ (public_name humpty-metal)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries
+  ds4
+  ds4.metal
+  agentkit
+  agentkit-ds4
+  agentkit_apple_support
+  agentkit_model_support
+  ds4.cli
+  humpty.cmd
+  humpty.okit
+  ds4.dsml
+  eio
+  eio_main
+  mosaic
+  matrix
+  jsont
+  matrix.input
+  matrix-eio
+  cmdliner
+  logs
+  xdge
+  unix))
+
+;; The [numpty] binary selects its backend the same way, and is gated to macOS
+;; for the same reason. The CPU build of the same program lives in ./cpu.
+
+(executable
+ (name numpty)
+ (package numpty)
+ (modules numpty)
+ (public_name numpty-metal)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries
+  ds4
+  ds4.metal
+  agentkit
+  agentkit-ds4
+  agentkit_apple_support
+  agentkit_model_support
+  ds4.cli
+  ds4.dsml
+  numpty.net
+  numpty.daemon
+  eio
+  eio_main
+  cmdliner
+  logs
+  xdge
+  unix))
+
+;; The [agentkit] journal browser holds no model, so there is one portable build
+;; and no inference backend in its link closure.
+
+(executable
+ (name akit)
+ (package agentkit)
+ (modules akit)
+ (public_name agentkit)
+ (libraries agentkit eio eio_main cmdliner xdge unix))
+
+;; The [dumpty] binary, gated to macOS for the same reason. The CPU build of
+;; the same program lives in ./cpu.
+
+(executable
+ (name dumpty)
+ (package dumpty)
+ (modules dumpty)
+ (public_name dumpty-metal)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries
+  ds4
+  ds4.metal
+  agentkit
+  agentkit-ds4
+  agentkit_apple_support
+  agentkit_model_support
+  ds4.cli
+  ds4.dsml
+  humpty.okit
+  eio
+  eio_main
+  jsont
+  jsont.bytesrw
+  cmdliner
+  logs
+  xdge
+  unix))

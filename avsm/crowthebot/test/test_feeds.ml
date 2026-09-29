@@ -375,7 +375,7 @@ let () =
           check "memory, cron and feed tools available" (List.length tools = 15);
           ( None,
             [
-              Openrouter.Tool.
+              Agentkit.Agent.
                 {
                   id = "subscribe";
                   name = "feeds_add";

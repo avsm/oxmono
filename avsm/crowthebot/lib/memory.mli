@@ -2,7 +2,7 @@
 
 val names : string list
 val is_tool : string -> bool
-val tools : Openrouter.Tool.t list
+val tools : Agentkit.Agent.Tool.t list
 val system_prompt : string
 val help : string
 val fact_line : Store.fact -> string

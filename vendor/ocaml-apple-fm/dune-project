@@ -1,0 +1,22 @@
+(lang dune 3.22)
+(name apple-fm)
+(generate_opam_files true)
+(implicit_transitive_deps false)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(source (tangled anil.recoil.org/ocaml-apple-fm))
+
+(package
+ (name apple-fm)
+ (synopsis "OCaml bindings to Apple's on-device Foundation Models framework")
+ (tags (org:blacksun apple foundation-models llm eio))
+ (description
+  "Eio-native OCaml sessions, streaming, structured generation, transcripts, multimodal prompts, and tool calling for Apple's on-device Foundation Models framework.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (eio (>= 1.5))
+  (eio_main (>= 1.5))
+  (jsont (>= 0.3.0))
+  (cmdliner (>= 1.1.0))))

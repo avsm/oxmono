@@ -1,0 +1,4 @@
+;; Build-time tool that embeds metal/*.metal into a generated Shaders module.
+
+(executable
+ (name gen_shaders))

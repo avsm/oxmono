@@ -1,5 +1,5 @@
 {
-  "verified_on": "2026-09-07",
+  "verified_on": "2026-09-26",
   "vendors": [
     {
       "name": "asn1-combinators",
@@ -287,6 +287,30 @@
       "revision": "7bbc77f0080bc66acf49daff5a9a170266f0b616",
       "base_version": "release-1.14-20-g7bbc77f",
       "scope": "OCaml and C library sources with retained OxCaml patches and Dune build integration. The upstream Makefile is omitted; the imported configure script still supplies C flags."
+    },
+    {
+      "name": "ocaml-agentkit",
+      "url": "/Users/avsm/src/git/knot/ocaml-deepseek/ocaml-agentkit",
+      "branch": "HEAD",
+      "revision": "f7f89910a5cb0ab77f7b81b632a6daee942aecc9",
+      "base_version": "0.1.0-143-gf7f8991",
+      "scope": "Agentkit core and DS4/Apple adapters copied from the upstream repository; daemon, terminal and tests are retained as source but not part of the Oxmono build."
+    },
+    {
+      "name": "ocaml-ds4",
+      "url": "git@git.recoil.org:did:plc:m7yloopxm7mu43usylvfw52g",
+      "branch": "HEAD",
+      "revision": "b19ad8460f0a80b913f441157c07d4ade4dd6f87",
+      "base_version": "0.1.0-188-gb19ad84",
+      "scope": "Complete DS4 OCaml binding and native engine sources, excluding upstream build artifacts."
+    },
+    {
+      "name": "ocaml-apple-fm",
+      "url": "git@git.recoil.org:did:plc:m7yloopxm7mu43usylvfw52g",
+      "branch": "HEAD",
+      "revision": "f9c546ec406de09c2ab428d78d8bc1bddcce4b1c",
+      "base_version": "f9c546e",
+      "scope": "Complete Apple Foundation Models binding and Swift bridge sources, excluding upstream build artifacts."
     }
   ]
 }

@@ -1,0 +1,13 @@
+;; Parts an agent needs that are not the engine: the framing shared by the line
+;; protocols in this repository and the durable stores an unattended agent
+;; keeps.
+;;
+;; Model adapters translate their event streams to [Agent.event]. This library
+;; therefore stays usable by a journal browser without linking a model runtime.
+
+(library
+ (name agentkit)
+ (public_name agentkit)
+ (modes native)
+ (modules agent driver)
+ (libraries cmdliner cstruct eio jsont jsont.bytesrw unix))

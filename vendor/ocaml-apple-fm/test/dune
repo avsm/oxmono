@@ -1,0 +1,7 @@
+(test
+ (name test_schema)
+ (libraries apple-fm eio jsont))
+
+(executable
+ (name live_cancel)
+ (libraries apple-fm eio eio_main))

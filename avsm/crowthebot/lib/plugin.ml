@@ -34,7 +34,7 @@ let parameters =
   | Error message -> failwith message
 
 let tool t =
-  Openrouter.Tool.v ~name:t.name ~description:t.description ~parameters ()
+  Agentkit.Agent.Tool.v ~name:t.name ~description:t.description ~parameters
 
 let invoke_result t arguments =
   match Jsont_bytesrw.decode_string query_jsont arguments with

@@ -16,7 +16,7 @@ val for_request : t -> actor:string -> room:string -> event:string -> access
 val names : string list
 val is_tool : string -> bool
 
-val tools : t -> Openrouter.Tool.t list
+val tools : t -> Agentkit.Agent.Tool.t list
 (** [tools t] advertises reads only with RO connections and label updates only
     with RW connections. Credentials are never tool arguments or results. *)
 

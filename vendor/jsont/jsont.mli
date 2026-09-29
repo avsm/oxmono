@@ -1318,6 +1318,9 @@ val iter :
     facility for debugging. *)
 
 val rec' : 'a t Portable_lazy.t -> 'a t
+val rec_legacy : 'a t lazy_t -> 'a t
+(** [rec_legacy] adapts an OCaml [lazy] recursive codec from older clients.
+    New code should use {!rec'}; the cast is isolated at this compatibility boundary. *)
 (** [rec'] maps recursive JSON values. See the {{!page-cookbook.recursion}
     cookbook}. The lazy value is a {!Portable_lazy.t}, so one recursive
     description may be forced safely from several domains. *)

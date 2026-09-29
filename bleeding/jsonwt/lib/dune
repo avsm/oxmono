@@ -13,5 +13,11 @@
   mirage-crypto-ec)
  (foreign_stubs
   (language c)
-  (names crypto_stubs))
- (c_library_flags -lcrypto))
+  (names crypto_stubs)
+  (flags (:standard (:include c_flags.sexp))))
+ (c_library_flags (:include c_library_flags.sexp)))
+
+(rule
+ (targets c_flags.sexp c_library_flags.sexp)
+ (action
+  (run ./config/discover.exe)))

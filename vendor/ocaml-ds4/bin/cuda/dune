@@ -1,0 +1,21 @@
+;; CUDA build of the bin/ program, from the same source. The .ml file lives
+;; once in ../, is copied here at build time, and is linked against [ds4.cuda].
+;; Built only when DS4_CUDA=yes selects that backend. See ../../lib_cuda/dune.
+
+(copy_files
+ (files ../ds4_agent.ml)
+ (enabled_if
+  (and
+   (= %{system} linux)
+   (= %{env:DS4_CUDA=no} yes))))
+
+(executable
+ (name ds4_agent)
+ (package ds4)
+ (modules ds4_agent)
+ (public_name ds4-agent-cuda)
+ (enabled_if
+  (and
+   (= %{system} linux)
+   (= %{env:DS4_CUDA=no} yes)))
+ (libraries cmdliner ds4 ds4.cuda ds4.cli))

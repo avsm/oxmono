@@ -14,6 +14,8 @@
   matrix-chat.bot
   matrix-chat.eio
   openrouter
+  agentkit
+  agentkit-openrouter
   fetch
   fetch-httpz
   sortal.feed
@@ -31,6 +33,8 @@
   uri
   jsont
   jsont.bytesrw
+  tomlt
+  tomlt.bytesrw
   ptime
   syndic
   xmlm

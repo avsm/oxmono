@@ -1,0 +1,27 @@
+;; What every command over the engine repeats: the model catalogue, the logging
+;; and seed arguments, and the list, download and chat subcommands. It is a
+;; sublibrary of the ds4 package rather than part of the ds4 library, so the
+;; engine bindings depend on no command line.
+;;
+;; It depends on the virtual ds4 library, so whichever executable links it
+;; still chooses the backend.
+
+(library
+ (name ds4_cli)
+ (public_name ds4.cli)
+ (modes native)
+ (libraries
+  cmdliner
+  ds4
+  ds4.dsml
+  eio
+  eio.unix
+  eio_main
+  fmt.cli
+  fmt.tty
+  logs
+  logs.cli
+  logs.fmt
+  logs.threaded
+  unix
+  xdge))

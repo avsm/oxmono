@@ -26,10 +26,9 @@ let is_tool name = List.mem name names
 
 let tools =
   let tool name description parameters =
-    Openrouter.Tool.v ~name ~description
+    Agentkit.Agent.Tool.v ~name ~description
       ~parameters:
         (Result.get_ok (Jsont_bytesrw.decode_string Jsont.json parameters))
-      ()
   in
   [
     tool "location_sources"

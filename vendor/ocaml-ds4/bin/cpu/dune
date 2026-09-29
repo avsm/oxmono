@@ -1,0 +1,13 @@
+;; CPU build of the bin/ program, from the same source. The .ml file lives once
+;; in ../, is copied here at build time, and is linked against [ds4.cpu] instead
+;; of [ds4.metal].
+
+(copy_files
+ (files ../ds4_agent.ml))
+
+(executable
+ (name ds4_agent)
+ (package ds4)
+ (modules ds4_agent)
+ (public_name ds4-agent-cpu)
+ (libraries cmdliner ds4 ds4.cpu ds4.cli))

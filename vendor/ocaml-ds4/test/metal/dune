@@ -1,0 +1,118 @@
+; Metal builds of the live tests, from the same sources in ../ (mirrors
+; bin/cpu). They link ds4.metal and so are macOS-only. On other systems this
+; whole directory is inert and only the CPU builds in ../ run. Each skips the
+; multi-GB model load unless DS4_LIVE is set.
+;
+; NOTE: this is an (executable), not a (test), on purpose. `enabled_if` on a
+; `test` stanza only gates whether the test is *run* (@runtest); the executable
+; is still pulled into @all/@default and would fail to link ds4.metal on
+; non-macOS. An (executable) with enabled_if is suppressed entirely off-macOS.
+; The (rule (alias runtest)) below restores `dune runtest` coverage on macOS.
+
+(copy_files
+ (files ../live_agent_mock.ml))
+
+(copy_files
+ (files ../live_lifetime.ml))
+
+(executable
+ (name live_lifetime)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries ds4 ds4.metal ds4.cli eio eio_main xdge)
+ (modules live_lifetime))
+
+(rule
+ (alias runtest)
+ (deps
+  (env_var DS4_LIVE)
+  (env_var DS4_MODEL)
+  (env_var DS4_SPEC_MODEL)
+  (env_var XDG_DATA_HOME)
+  (env_var XDG_CACHE_HOME)
+  (env_var HOME))
+ (locks %{workspace_root}/test/live-model)
+ (enabled_if
+  (= %{system} macosx))
+ (action
+  (run %{exe:live_lifetime.exe})))
+
+(executable
+ (name live_agent_mock)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries ds4 ds4.metal ds4.cli ds4.dsml eio eio.mock eio_main xdge)
+ (modules live_agent_mock))
+
+(rule
+ (alias runtest)
+ (deps
+  (env_var DS4_LIVE)
+  (env_var DS4_MODEL)
+  (env_var DS4_SPEC_MODEL)
+  (env_var XDG_DATA_HOME)
+  (env_var XDG_CACHE_HOME)
+  (env_var HOME))
+ (locks %{workspace_root}/test/live-model)
+ (enabled_if
+  (= %{system} macosx))
+ (action
+  (run %{exe:live_agent_mock.exe})))
+
+; live_speculative: speculative decoding and rewinding against a model with a
+; draft head. It has no CPU registration, since the draft head needs a GPU.
+
+(copy_files
+ (files ../live_speculative.ml))
+
+(executable
+ (name live_speculative)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries ds4 ds4.metal ds4.cli eio eio_main unix xdge)
+ (modules live_speculative))
+
+(rule
+ (alias runtest)
+ (deps
+  (env_var DS4_LIVE)
+  (env_var DS4_MODEL)
+  (env_var DS4_SPEC_MODEL)
+  (env_var XDG_DATA_HOME)
+  (env_var XDG_CACHE_HOME)
+  (env_var HOME))
+ (locks %{workspace_root}/test/live-model)
+ (enabled_if
+  (= %{system} macosx))
+ (action
+  (run %{exe:live_speculative.exe})))
+
+; live_compaction: compaction against the real engine, with a small ctx_size
+; equal to max_ctx_size so growth never rescues a turn. Every downloaded model
+; here is 90 GB or more, so this runs the Metal build for its throughput; it
+; has no CPU registration for the same reason live_speculative has none.
+
+(copy_files
+ (files ../live_compaction.ml))
+
+(executable
+ (name live_compaction)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries ds4 ds4.metal ds4.dsml ds4.cli eio eio_main xdge)
+ (modules live_compaction))
+
+(rule
+ (alias runtest)
+ (deps
+  (env_var DS4_LIVE)
+  (env_var DS4_MODEL)
+  (env_var DS4_SPEC_MODEL)
+  (env_var XDG_DATA_HOME)
+  (env_var XDG_CACHE_HOME)
+  (env_var HOME))
+ (locks %{workspace_root}/test/live-model)
+ (enabled_if
+  (= %{system} macosx))
+ (action
+  (run %{exe:live_compaction.exe})))

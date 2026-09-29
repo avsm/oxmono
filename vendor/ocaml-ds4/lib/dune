@@ -1,0 +1,20 @@
+;; Virtual library: pure OCaml, backend-agnostic. The C FFI stub, the engine
+;; archive, and the backend-specific link flags all live in the implementation
+;; libraries (../lib_metal, ../lib_cpu), each of which (implements ds4) and
+;; supplies the virtual [Backend] module. A consumer links one implementation;
+;; with no explicit choice it gets (default_implementation ds4_cpu). CPU is
+;; the default because it builds everywhere — the Metal implementation is gated
+;; to macOS, so it cannot be the portable default. macOS consumers that want
+;; Metal depend on [ds4.metal] explicitly (see ../bin).
+;;
+;; Dune does not allow foreign_stubs/foreign_archives in a virtual library, so
+;; none appear here — that is exactly why the C moves down into the variants.
+
+(library
+ (name ds4)
+ (public_name ds4)
+ (modes native)
+ (libraries eio optint unix logs ds4.dsml)
+ (virtual_modules backend)
+ (default_implementation ds4_cpu)
+ (modules ds4 v4 agent tool toolbox camel backend))

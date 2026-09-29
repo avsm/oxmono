@@ -1,0 +1,76 @@
+; Metal builds of the live tests, from the SAME sources in ../ (mirrors
+; bin/cpu). macOS-only, since they link ds4.metal or spawn a Metal binary. On
+; other systems this whole directory is inert. Each skips the multi-GB model
+; load unless DS4_LIVE is set.
+;
+; NOTE: this is an (executable), not a (test), on purpose. `enabled_if` on a
+; `test` stanza only gates whether the test is *run* (@runtest); the executable
+; is still pulled into @all/@default and would fail to link ds4.metal on
+; non-macOS. An (executable) with enabled_if is suppressed entirely off-macOS.
+; The (rule (alias runtest)) below restores `dune runtest` coverage on macOS.
+
+(copy_files
+ (files ../live_okit_fork.ml))
+
+(copy_files
+ (files ../live_expect_prompts.ml))
+
+(executable
+ (name live_okit_fork)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries ds4 ds4.metal humpty.okit ds4.cli eio eio_main unix xdge)
+ (modules live_okit_fork))
+
+(rule
+ (alias runtest)
+ (package humpty)
+ (enabled_if
+  (= %{system} macosx))
+ (deps %{bin:humpty-cpu})
+ (action
+  (run %{exe:live_okit_fork.exe} %{bin:humpty-cpu})))
+
+; live_expect_prompts: prompt lines in `humpty expect` against a real model.
+; This one has no CPU registration, unlike the tests above. The spawned humpty
+; is what loads the model, and generation on the CPU build would take longer
+; than anyone would wait, so only the Metal build registers it.
+
+(executable
+ (name live_expect_prompts)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries ds4.cli eio eio_main xdge)
+ (modules live_expect_prompts))
+
+(rule
+ (alias runtest)
+ (package humpty)
+ (enabled_if
+  (= %{system} macosx))
+ (deps %{bin:humpty-metal})
+ (action
+  (run %{exe:live_expect_prompts.exe} %{bin:humpty-metal})))
+
+; live_dumpty: one whole dumpty run against a real model, checked against its
+; stream contract. As with live_expect_prompts, the spawned binary is what
+; loads the model, so only the Metal build registers it.
+
+(copy_files
+ (files ../live_dumpty.ml))
+
+(executable
+ (name live_dumpty)
+ (enabled_if
+  (= %{system} macosx))
+ (libraries agentkit ds4.cli eio eio_main jsont jsont.bytesrw unix xdge)
+ (modules live_dumpty))
+
+(rule
+ (alias runtest)
+ (package dumpty)
+ (enabled_if
+  (= %{system} macosx))
+ (deps %{bin:dumpty-metal})
+ (action
+  (run %{exe:live_dumpty.exe} %{bin:dumpty-metal})))

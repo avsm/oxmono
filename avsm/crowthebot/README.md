@@ -135,16 +135,26 @@ by you with mode 0700. A process lock prevents simultaneous Crow processes
 from sharing a profile. Do not use the same Matrix profile in another client
 while Crow runs.
 
-Edit `crowthebot.json` while the bot is stopped. The defaults are:
+Edit `crowthebot.toml` while the bot is stopped. Existing `crowthebot.json`
+profiles are read as a compatibility fallback. The defaults are:
 
 | Setting | Default |
 | --- | --- |
-| `base_url` | `http://sequoia.cl.cam.ac.uk:8000/v1` |
+| `base_url` | `https://sequoia.cl.cam.ac.uk:8000/v1` |
 | `model` | `Qwen/Qwen3.8-27B-FP8` |
 | `plugins` | `[]` |
 | `context_messages` | 20 |
 | `context_bytes` | 40000 |
 | `max_tokens` | 1024 |
+| `backend` | `openrouter` |
+| `model_path` | unset |
+| `cache_dir` | unset |
+| `log_level` | `info` |
+
+Crow's tool catalogue uses `Agentkit.Agent.Tool.t` and model tool calls use
+`Agentkit.Agent.tool_call`, so the tool schemas and call records are shared by
+all Agentkit adapters. The OpenRouter wire representation is created only at
+the transport boundary.
 
 Conversation context compacts automatically near 75% of either context limit,
 counting the incoming exchange or observation. A tool-free model call merges an
@@ -1211,3 +1221,28 @@ an existing profile. This opt-in probe has not been rerun for the feed changes.
 opam exec --switch=5.2.0+ox -- dune exec --profile release-check \
   avsm/crowthebot/test/live/probe.exe
 ```
+
+## Profiles and operator DMs
+
+Each profile now uses `crowthebot.toml` in its private Matrix profile
+ directory. Existing `crowthebot.json` profiles remain readable and can be
+migrated by renaming the file after `crowthebot init` writes a TOML template.
+The important model settings are:
+
+```toml
+backend = "openrouter" # Crow currently runs OpenRouter; other adapters are Agentkit-only
+model = "Qwen/Qwen3.8-27B-FP8"
+model_path = ""         # local GGUF path for ds4
+cache_dir = ""          # optional DS4 cache directory
+log_level = "info"      # quiet, error, warning, info, debug
+
+[...]
+```
+
+The selected log level is applied after the profile is loaded. Crow currently
+requires `backend = "openrouter"`; selecting `ds4` or `apple-fm` fails closed
+until their native tool codecs are connected to Crow's dynamic tool catalogue.
+In the primary
+administrator's confirmed direct Matrix chat, `inspect sessions`, `inspect
+memory`, and `inspect tools` return bounded, body-safe operational views. They
+never expose message or memory bodies in the session summary.

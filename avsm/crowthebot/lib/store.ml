@@ -774,3 +774,26 @@ let caldav t =
 
 let emails t =
   Email_cache.create ~db:t.db ~mutex:t.mutex ~admin:t.admin ~now:t.now
+
+let admin_snapshot t =
+  locked t (fun () ->
+    let count table =
+      match rows t.db ("SELECT count(*) FROM " ^ table) []
+          (fun s -> Sqlite3.column_int s 0) with
+      | [ n ] -> n | _ -> 0
+    in
+    let sessions =
+      rows t.db
+        "SELECT room,user,count(*) FROM history GROUP BY room,user ORDER BY max(id) DESC LIMIT 20"
+        [] (fun s ->
+          (Sqlite3.column_text s 0, Sqlite3.column_text s 1,
+           Sqlite3.column_int s 2))
+    in
+    let session_lines =
+      List.map (fun (room, user, n) -> Printf.sprintf "%s %s (%d messages)" room user n) sessions
+    in
+    String.concat "\n"
+      ([ Printf.sprintf "people=%d rooms=%d direct_rooms=%d history=%d facts=%d tools=%d"
+          (count "people") (count "rooms") (count "direct_rooms")
+          (count "history") (count "facts") (count "tool_uses") ]
+       @ if session_lines = [] then [ "sessions: none" ] else "sessions:" :: session_lines))

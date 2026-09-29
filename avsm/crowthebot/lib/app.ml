@@ -20,7 +20,7 @@ let init ~env ~sw ~profile ~admin ~homeserver =
   Profile.with_lock dir (fun () ->
       Profile.init ~sw dir (Config.default ~admin ~homeserver));
   Printf.printf
-    "Created %s\nEdit crowthebot.json to choose a model, prompt or plugins.\n"
+    "Created %s\nEdit crowthebot.toml to choose a model, prompt or plugins.\n"
     (Eio.Path.native_exn dir)
 
 let password_prompt () =
@@ -130,6 +130,11 @@ let configure ~env ~sw ~profile action =
   with_secrets ~env ~sw ~profile ~dir action
 
 let model ~env ~sw ~profile ~dir ~store config client api_key_file =
+  (match config.Config.backend with
+  | Config.Openrouter -> ()
+  | Config.Ds4 | Config.Apple_fm ->
+      invalid_arg
+        "This Crow runtime supports the OpenRouter backend only; DS4 and Apple FM are available through Agentkit but are not wired to Crow's dynamic tool catalogue yet.");
   let client = Trace.wrap (Store.trace store) client in
   let fallback () =
     Openrouter.of_fetch ~base_url:config.Config.base_url
@@ -257,9 +262,10 @@ let complete env (config : Config.t) client =
       let max_tokens =
         if compacting then max 4096 config.max_tokens else config.max_tokens
       in
+      let request_tools = List.map Agentkit_openrouter.Tool.to_openrouter tools in
       let request =
         Openrouter.Chat.request ~model:config.Config.model ~max_tokens ~messages
-          ?tools:(if tools = [] then None else Some tools)
+          ?tools:(if request_tools = [] then None else Some request_tools)
           ?parallel_tool_calls:(if tools = [] then None else Some false)
           ()
       in
@@ -289,7 +295,10 @@ let complete env (config : Config.t) client =
                 | None -> "absent"));
           if compacting && choice.finish_reason = Some Openrouter.Chat.Length
           then raise Diagnostics.Model_output_limit;
-          (choice.text, choice.tool_calls)
+          (choice.text,
+           List.map (fun (call : Openrouter.Tool.call) ->
+             { Agentkit.Agent.id = call.id; name = call.name;
+               arguments = call.arguments }) choice.tool_calls)
     with exn ->
       let bt = Printexc.get_raw_backtrace () in
       Log.err (fun m -> m "Model request failed: %s" (Diagnostics.error exn));
@@ -523,6 +532,10 @@ let verify ~env ~sw ~profile ~user ~listen ~room ~recovery_key_file =
 let run ~env ~sw ~profile ~api_key_file =
   Log.info (fun m -> m "Starting Crow profile=%S" profile);
   with_profile ~env ~sw ~profile @@ fun dir config store ->
+  if config.log_level <> "warning" then Diagnostics.configure_level config.log_level;
+  Option.iter (fun path ->
+    let path = if Filename.is_relative path then Eio.Path.native_exn Eio.Path.(dir / path) else path in
+    Diagnostics.configure_file path) config.log_file;
   Log.info (fun m ->
       m "Profile loaded admin=%S enabled_rooms=%d" config.admin
         (List.length (Store.rooms store)));
@@ -550,7 +563,10 @@ let run ~env ~sw ~profile ~api_key_file =
     Engine.with_matrix engine
       (Matrix_rooms.create ~store ~state:(fun () -> !matrix_state ()))
   in
-  Log.info (fun m -> m "Model and tool configurations loaded");
+  Log.info (fun m ->
+    m "Model and tool configurations loaded backend=%s model=%S log_level=%s"
+      (match config.backend with Config.Openrouter -> "openrouter" | Config.Ds4 -> "ds4" | Config.Apple_fm -> "apple-fm")
+      config.model config.log_level);
   let self = Id.User_id.to_string (Context.user_id ctx) in
   let direct_peer bot room ~actor =
     let room_id = Matrix_bot.Room.id room in

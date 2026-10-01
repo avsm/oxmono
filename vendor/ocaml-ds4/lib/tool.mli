@@ -37,6 +37,12 @@ val v : description:string -> 'a Dsml.Codec.t -> ('a -> string) -> t
     arguments and ordinary handler exceptions become error observations. Eio
     cancellation, [Out_of_memory], and [Stack_overflow] are re-raised. *)
 
+val raw :
+  name:string -> description:string -> schema:Dsml.Json.t ->
+  (Dsml.tool_call -> string) -> t
+(** [raw] adapts a backend-independent tool with an existing JSON schema and
+    invocation handler. *)
+
 val v_result : description:string -> 'a Dsml.Codec.t -> ('a -> result) -> t
 (** [v_result ~description args handler] is like {!v}, but [handler] may add
     encoded images to its observation. *)

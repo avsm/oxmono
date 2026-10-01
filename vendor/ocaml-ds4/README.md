@@ -199,3 +199,9 @@ prompt encoding and reply parsing. See the interface files in `lib/`, `cli/` and
 
 See [ARCH.md](ARCH.md) for the repository layout, the vendored engine and how to
 update it, the FFI, and how to quantise a DeepSeek release yourself.
+
+## Local patches in oxmono
+
+- `Tool.raw` in `lib/tool.ml` and `lib/tool.mli` wraps a tool that already has
+  a JSON schema and a string handler. `Agentkit_ds4` uses it to run Agentkit's
+  backend-neutral tools. It is not upstream.

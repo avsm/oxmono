@@ -258,6 +258,21 @@ let set_feed_paused t handle url paused =
              (Contact.source contact));
         Ok ()
 
+let add_feed t handle feed =
+  match lookup t handle with
+  | None -> Error (Printf.sprintf "Contact not found: %s" handle)
+  | Some contact ->
+      let url = Contact.Feed.url feed in
+      if List.exists (fun f -> Contact.Feed.url f = url) (Contact.feeds contact)
+      then Error (Printf.sprintf "Feed already configured for @%s: %s" handle url)
+      else begin
+        save t
+          (Contact.with_source
+             (with_feeds contact (Contact.feeds contact @ [ feed ]))
+             (Contact.source contact));
+        Ok ()
+      end
+
 let thumbnail_path t contact =
   match Contact.photo contact with
   | None -> None

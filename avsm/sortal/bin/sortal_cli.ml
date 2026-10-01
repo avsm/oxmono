@@ -664,6 +664,38 @@ let () =
       ~doc:"Resume polling a paused feed"
   in
 
+  let feed_add_cmd =
+    let type_arg = Arg.(value & opt string "rss" & info ["type"] ~docv:"TYPE"
+      ~doc:"Feed type: rss, atom, json or manual") in
+    let name_arg = Arg.(value & opt (some string) None & info ["name"] ~docv:"NAME"
+      ~doc:"Optional feed name") in
+    let hint_arg = Arg.(value & opt (some string) None & info ["hint"] ~docv:"HINT"
+      ~doc:"Optional discovery hint") in
+    let term =
+      let open Term.Syntax in
+      let+ (xdg, _) = xdg_term
+      and+ handle = Sortal.Cmd.handle_arg
+      and+ url = feed_url_arg
+      and+ feed_type = type_arg
+      and+ name = name_arg
+      and+ hint = hint_arg
+      and+ log_level = Logs_cli.level () in
+      Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
+      Logs.set_level log_level;
+      let kind =
+        match Sortal_schema.Feed.feed_type_of_string feed_type with
+        | Some kind -> kind
+        | None -> invalid_arg "Feed type must be rss, atom, json or manual"
+      in
+      let store = Sortal.Store.create_from_xdg xdg in
+      let feed = Sortal_schema.Feed.make ~feed_type:kind ~url ?name ?hint () in
+      match Sortal.Store.add_feed store handle feed with
+      | Ok () -> Logs.app (fun m -> m "Added %s feed to @%s: %s" feed_type handle url); 0
+      | Error msg -> Logs.err (fun m -> m "%s" msg); 1
+    in
+    Cmd.v (Cmd.info "add" ~doc:"Add a feed to a contact") term
+  in
+
   let feed_group =
     let info = Cmd.info "feed" ~doc:"Feed content management"
       ~man:[
@@ -681,7 +713,7 @@ let () =
     in
     Cmd.group info [
       feed_sync_cmd; feed_list_cmd; feed_show_cmd; feed_discover_cmd;
-      feed_pause_cmd; feed_resume_cmd;
+      feed_add_cmd; feed_pause_cmd; feed_resume_cmd;
     ]
   in
 

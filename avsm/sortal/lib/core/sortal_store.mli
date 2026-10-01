@@ -76,6 +76,9 @@ val set_feed_paused : t -> string -> string -> bool -> (unit, string) result
     [url] belonging to the contact named [handle]. It is [Error why] if no such
     contact exists, or if [handle]'s contact has no feed at [url]. *)
 
+val add_feed : t -> string -> Contact.Feed.t -> (unit, string) result
+(** [add_feed t handle feed] adds [feed] to a contact, refusing duplicate URLs. *)
+
 val update_contact :
   t -> string -> (Contact.t -> Contact.t) -> (unit, string) result
 (** [update_contact t handle f] updates a contact by applying function [f].

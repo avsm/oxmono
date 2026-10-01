@@ -1,0 +1,8 @@
+(executable
+ (name main)
+ (public_name apple-speech)
+ (package apple-speech)
+ (enabled_if
+  (= %{system} macosx))
+ (modes native)
+ (libraries apple-speech cmdliner eio_main))

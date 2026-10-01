@@ -1,0 +1,21 @@
+(rule
+ (enabled_if
+  (= %{system} macosx))
+ (targets libapple_speech_bridge.a)
+ (deps AppleSpeechBridge.swift build_swift.sh)
+ (action
+  (run bash %{dep:build_swift.sh} %{dep:AppleSpeechBridge.swift} %{targets})))
+
+(library
+ (public_name apple-speech)
+ (name apple_speech)
+ (enabled_if
+  (= %{system} macosx))
+ (modes native)
+ (libraries eio eio.unix jsont jsont.bytesrw)
+ (foreign_archives apple_speech_bridge)
+ (foreign_stubs
+  (language c)
+  (names apple_speech_stubs)
+  (flags
+   (:standard -Wall -Wextra -Werror))))

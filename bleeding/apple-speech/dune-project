@@ -1,0 +1,22 @@
+(lang dune 3.21)
+(name apple-speech)
+(generate_opam_files true)
+(implicit_transitive_deps false)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(package
+ (name apple-speech)
+ (synopsis "OCaml bindings to Apple's on-device speech transcription")
+ (tags (org:blacksun apple speech transcription eio))
+ (description
+  "Eio-native transcription of audio files with the Speech framework's SpeechAnalyzer and SpeechTranscriber on macOS 26 or later.")
+ (depends
+  (ocaml (>= 5.2.0))
+  (eio (>= 1.5))
+  (eio_main (>= 1.5))
+  (jsont (>= 0.3.0))
+  (cmdliner (>= 1.1.0))
+  (alcotest :with-test)))

@@ -85,8 +85,11 @@ let () =
   let store = Store.create ~now:(fun () -> 0.) db ~admin in
   Store.add_room store room;
   Store.set_person store ~actor:admin ~user:bot ~role:Bot ~allowed:true;
-  let offered = ref [] and calls = ref 0 in
-  let complete _messages (tools : Agentkit.Agent.Tool.t list) =
+  let offered = ref [] and calls = ref 0 and system = ref "" in
+  let complete messages (tools : Agentkit.Agent.Tool.t list) =
+    (match messages with
+    | Agentkit.Chat.System s :: _ -> system := s
+    | _ -> ());
     offered := List.map Agentkit.Agent.Tool.name tools;
     incr calls;
     if !calls = 1 then
@@ -114,6 +117,8 @@ let () =
   handle admin "$engine" "please add a weather tool";
   check "admin is offered improvement tools"
     (List.mem "improvement_record" !offered);
+  check "the model is told it receives voice messages"
+    (contains !system "[voice message] is the sender's voice note");
   check "engine call recorded"
     (contains
        (In_channel.with_open_bin file In_channel.input_all)

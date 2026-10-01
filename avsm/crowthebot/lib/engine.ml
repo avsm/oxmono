@@ -447,8 +447,19 @@ let answer t e ?(active = fun () -> true) ?source_event prompt =
       (Store.role_string person.role)
       (Store.admin t.store) e.room
   in
+  (* Without this the model treats the marker as an attachment it cannot
+     read, and tells the sender voice messages are unsupported. *)
+  let voice =
+    if not t.config.voice_messages then ""
+    else
+      "\nYou can receive Matrix voice messages. A message that begins \
+       [voice message] is the sender's voice note, transcribed on this \
+       machine by speech recognition. Treat it as their words. It may \
+       contain recognition errors, such as misheard names. Never say you \
+       cannot hear or transcribe voice messages."
+  in
   let system_prompt =
-    t.config.system_prompt ^ identity
+    t.config.system_prompt ^ identity ^ voice
     ^
     if has_memory then
       Memory.system_prompt ^ Cron.system_prompt

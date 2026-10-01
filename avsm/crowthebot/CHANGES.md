@@ -1,5 +1,8 @@
 # Changes
 
+- Tell the model that `[voice message]` text is a transcribed voice note, so
+  it stops claiming it cannot hear voice messages.
+
 - Accept a greeting before Crow's name, as in "Hey, Crow." from a voice
   transcript, and log each voice transcript with its sender.
 

@@ -41,6 +41,60 @@ let event : Ds4.Agent.event -> Agentkit.Agent.event = function
   | Compacted value -> Agentkit.Agent.Compacted (compaction value)
   | Done -> Agentkit.Agent.Done
 
+let tools generic =
+  List.map
+    (fun tool ->
+      Ds4.Tool.raw ~name:(Agentkit.Agent.Tool.name tool)
+        ~description:(Agentkit.Agent.Tool.description tool)
+        ~schema:(Agentkit.Agent.Tool.parameters tool)
+        (fun (call : Dsml.tool_call) ->
+          Agentkit.Agent.Tool.invoke tool
+            {
+              Agentkit.Agent.id = Option.value ~default:"" call.id;
+              name = call.name;
+              arguments = call.arguments;
+            }))
+    generic
+
+let transcript messages =
+  let messages =
+    match messages with Agentkit.Chat.System _ :: rest -> rest | m -> m
+  in
+  List.map
+    (function
+      | Agentkit.Chat.System s -> "System: " ^ s
+      | User s -> "User: " ^ s
+      | Assistant { text; calls } ->
+          "Assistant: " ^ text
+          ^ String.concat ""
+              (List.map
+                 (fun (c : Agentkit.Agent.tool_call) ->
+                   "\n[called " ^ c.name ^ " " ^ c.arguments ^ "]")
+                 calls)
+      | Tool_result { id; content } -> "Tool result " ^ id ^ ": " ^ content)
+    messages
+  |> String.concat "\n\n"
+
+let complete engine ~ctx_size ?max_tokens () (r : Agentkit.Chat.request) =
+  let max_tokens =
+    match r.max_tokens with Some _ as n -> n | None -> max_tokens
+  in
+  let agent =
+    Ds4.Agent.create ?system:(Agentkit.Chat.system_text r.messages) ~ctx_size
+      ?max_tokens ~tools:(tools r.tools) engine
+  in
+  let output = Buffer.create 256 and cut = ref false in
+  Fun.protect
+    ~finally:(fun () -> Ds4.Agent.close agent)
+    (fun () ->
+      Ds4.Agent.send agent (transcript r.messages) ~on_event:(function
+        | Ds4.Agent.Content text -> Buffer.add_string output text
+        | Ds4.Agent.Cut_off { tool_call = false; _ } -> cut := true
+        | _ -> ()));
+  Agentkit.Chat.response
+    ~finish:(if !cut then Agentkit.Chat.Length else Agentkit.Chat.Stop)
+    (if Buffer.length output = 0 then None else Some (Buffer.contents output))
+
 module Agent = struct
   type t = Ds4.Agent.t
 

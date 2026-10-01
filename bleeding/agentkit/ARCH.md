@@ -62,6 +62,18 @@ outlives its context keeps, being the journal, the memory and the schedule.
                               every command that prints one prints through
     agentkit/utc.ml           reading back the times the journal writes
 
+`Agentkit.Chat` is the other way to drive a model. A bot that keeps its own
+history sends the whole transcript with each request and chooses its tools,
+budget and reasoning per request. `Agentkit.Turn` runs one user turn over a
+`Chat.complete`: tool calls pass a guard before dispatch, results are clipped,
+and a spent allowance ends in one tool-free answer request whose instruction is
+also the final user message. `Agentkit.Summary` is the tool-free request
+compaction needs. Crow in `avsm/crowthebot` uses all three.
+
+In the oxmono tree only `agentkit/`, `ds4_adapter/`, `openrouter_adapter/` and
+`test_core/` build. The root `dune` file lists them. The other directories need
+libraries the monorepo does not provide.
+
 `Agentkit.Agent.S` is the small operation set a backend supplies. Construction
 stays in the adapter because models, generation options, and tool codecs are
 backend-specific. `Agentkit.Driver` selects a qualified model and calls that

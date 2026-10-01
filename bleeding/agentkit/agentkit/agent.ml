@@ -1,8 +1,20 @@
+type tool_call = { id : string; name : string; arguments : string }
+
 module Tool = struct
-  type t = { name : string; description : string; parameters : Jsont.json }
+  type t = {
+    name : string;
+    description : string;
+    parameters : Jsont.json;
+    invoke : (tool_call -> string) option;
+  }
   let v ~name ~description ~parameters =
     if name = "" then invalid_arg "Agentkit.Tool.v: empty name";
-    { name; description; parameters }
+    { name; description; parameters; invoke = None }
+  let with_invoke t invoke = { t with invoke = Some invoke }
+  let invoke t call =
+    match t.invoke with
+    | Some invoke -> invoke call
+    | None -> "Error: tool execution is not available in this adapter."
   let name t = t.name
   let description t = t.description
   let parameters t = t.parameters
@@ -27,7 +39,6 @@ type stats = {
   total_generate_seconds : float;
 }
 
-type tool_call = { id : string; name : string; arguments : string }
 type cut = { tokens : int; tool_call : bool }
 type compaction = { before : int; after : int; summary : string }
 

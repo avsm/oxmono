@@ -9,5 +9,5 @@
  (name agentkit)
  (public_name agentkit)
  (modes native)
- (modules agent driver)
+ (modules agent chat driver summary turn)
  (libraries cmdliner cstruct eio jsont jsont.bytesrw unix))

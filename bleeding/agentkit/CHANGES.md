@@ -1,5 +1,16 @@
 # unreleased
 
+- Add `Agentkit.Chat`, one model request over a supplied transcript with
+  per-request tools, token budget and reasoning effort, and `complete`
+  functions in the OpenRouter and DS4 adapters.
+- Add `Agentkit.Turn`, a tool loop with a call allowance, a fail-closed guard,
+  bounded results, a tool-free answer request and a fallback that is never
+  blank.
+- Add `Agentkit.Summary`, a bounded summary request that disables reasoning,
+  asks for words and accepts fenced JSON.
+- Fix the streaming OpenRouter agent, which split a tool call whose later
+  fragments omit its id. It now runs tools and reports cut-off replies.
+
 - Color model statuses on terminals and add `--color=auto|always|never` to the
   shared `models` subcommands. Piped output and `NO_COLOR` remain plain.
 

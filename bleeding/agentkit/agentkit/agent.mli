@@ -10,9 +10,17 @@
     model turn, and {!Done} finishes the exchange. {!Trace} turns this stream
     into durable journal records. *)
 
+type tool_call = {
+  id : string;  (** backend call identifier, when supplied *)
+  name : string;
+  arguments : string;
+}
+
 module Tool : sig
   type t
   val v : name:string -> description:string -> parameters:Jsont.json -> t
+  val with_invoke : t -> (tool_call -> string) -> t
+  val invoke : t -> tool_call -> string
   val name : t -> string
   val description : t -> string
   val parameters : t -> Jsont.json
@@ -34,11 +42,6 @@ type stats = {
 (** Model-independent accounting for one exchange. An adapter uses zero for a
     measurement its backend does not provide. *)
 
-type tool_call = {
-  id : string;  (** backend call identifier, when supplied *)
-  name : string;  (** the tool name *)
-  arguments : string;  (** its canonical JSON argument object *)
-}
 (** A request to run one tool. *)
 
 type cut = {

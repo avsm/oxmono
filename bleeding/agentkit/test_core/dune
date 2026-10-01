@@ -1,0 +1,13 @@
+(test
+ (name test_agentkit_core)
+ (libraries
+  agentkit
+  agentkit-openrouter
+  openrouter
+  alcotest
+  eio
+  eio.mock
+  fetch
+  fetch.mock
+  http
+  jsont))

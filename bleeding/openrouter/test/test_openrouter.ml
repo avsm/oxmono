@@ -41,6 +41,7 @@ let final_chunk =
 
 let request () =
   O.Chat.request ~model:"test/model" ~max_tokens:16 ~temperature:0.
+    ~reasoning_effort:"none"
     ~messages:[ O.Message.system "Be brief"; O.Message.user "Hello" ]
     ()
 
@@ -78,6 +79,9 @@ let test_complete () =
            check "native token budget"
              (field "max_completion_tokens" (body req)
              = Some (Jsont.Json.int 16));
+           check "reasoning effort"
+             (field "reasoning_effort" (body req)
+             = Some (Jsont.Json.string "none"));
            json response req))
   in
   let result = O.Chat.complete c (request ()) in

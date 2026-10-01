@@ -134,14 +134,17 @@ module Chat : sig
     ?tools:Tool.t list ->
     ?tool_choice:tool_choice ->
     ?parallel_tool_calls:bool ->
+    ?reasoning_effort:string ->
     model:string ->
     messages:Message.t list ->
     unit ->
     request
   (** [request ~model ~messages ()] builds a request usable with both
       {!complete} and {!stream}. [max_tokens] is the completion-token
-      budget. Invalid sampling options, empty models and empty messages are
-      rejected before I/O. *)
+      budget, which includes any reasoning tokens. [reasoning_effort] is sent
+      as the top-level [reasoning_effort] field, such as ["none"] to disable
+      reasoning. OpenRouter and vLLM both accept that field. Invalid sampling
+      options, empty models and empty messages are rejected before I/O. *)
 
   type usage = {
     prompt_tokens : int;

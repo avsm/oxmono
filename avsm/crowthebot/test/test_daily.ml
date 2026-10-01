@@ -90,7 +90,7 @@ let () =
     (Store.pending_note_days store = [ "1970-01-01" ]);
   check "provider failure propagates"
     (failed (fun () ->
-         Daily.generate ~store ~config ~day:"1970-01-01" ~complete:(fun _ _ ->
+         Daily.generate ~store ~config ~day:"1970-01-01" ~complete:(Fake_model.v @@ fun _ _ ->
              failwith "synthetic failure")));
   check "failure leaves previous note intact"
     (Store.get_note store "1970-01-01" = Some note);
@@ -101,7 +101,7 @@ let () =
     (Store.pending_note_days store = [ "1970-01-02" ]);
   check "summary tool calls rejected"
     (failed (fun () ->
-         Daily.generate ~store ~config ~day:"1970-01-02" ~complete:(fun _ _ ->
+         Daily.generate ~store ~config ~day:"1970-01-02" ~complete:(Fake_model.v @@ fun _ _ ->
              ( Some "forged",
                [
                  Agentkit.Agent.

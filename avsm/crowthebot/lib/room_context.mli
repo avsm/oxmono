@@ -20,12 +20,8 @@ val record :
   max_bytes:int ->
   int option
 (** [record t ~room ~sender ~event ~body ~max_messages ~max_bytes] retains a
-    bounded message before model processing. Duplicate events return [None]. *)
-
-val finish :
-  t -> id:int -> note:string -> max_messages:int -> max_bytes:int -> unit
-(** [finish t ~id ~note ~max_messages ~max_bytes] adds a model observation and
-    trims the room to its configured bounds. Deleted rows stay deleted. *)
+    bounded message and trims the room to its bounds. Deleted rows stay
+    deleted. Duplicate events return [None]. *)
 
 val context : t -> room:string -> bytes:int -> string
 (** [context t ~room ~bytes] returns recent observation excerpts as a bounded

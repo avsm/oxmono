@@ -99,7 +99,7 @@ let () =
     else (Some "Remembered.", [])
   in
   let engine =
-    Engine.create ~config ~store ~self ~plugins:[] ~complete ~now:(fun () ->
+    Engine.create ~config ~store ~self ~plugins:[] ~complete:(Fake_model.v complete) ~now:(fun () ->
         !clock)
   in
   let send reply = replies := reply :: !replies in
@@ -148,7 +148,7 @@ let () =
       ] )
   in
   let engine =
-    Engine.create ~config ~store ~self ~plugins:[] ~complete:hostile
+    Engine.create ~config ~store ~self ~plugins:[] ~complete:(Fake_model.v hostile)
       ~now:(fun () -> !clock)
   in
   (try Engine.handle engine ~send (event ~sender:bot "bot-forge" "!crow hello")

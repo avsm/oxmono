@@ -84,24 +84,6 @@ let record t ~room ~sender ~event ~body ~max_messages ~max_bytes =
     id
   end
 
-let finish t ~id ~note ~max_messages ~max_bytes =
-  if max_messages < 1 || max_bytes < 2 then
-    invalid_arg "Invalid room context bounds.";
-  locked t.mutex @@ fun () ->
-  transaction t.db @@ fun () ->
-  let rooms =
-    rows t.db "SELECT room FROM room_observations WHERE id=?"
-      [ integer id ]
-      (fun s -> Sqlite3.column_text s 0)
-  in
-  execute t.db "UPDATE room_observations SET note=? WHERE id=?"
-    [ text (excerpt ~bytes:(min 1024 (max_bytes / 2)) note); integer id ];
-  List.iter
-    (fun room ->
-      Compaction.touch t.db (Room room);
-      trim t ~room ~max_messages ~max_bytes)
-    rooms
-
 let context t ~room ~bytes =
   if bytes < 2 then invalid_arg "Room context needs at least two bytes.";
   locked t.mutex @@ fun () ->
@@ -111,19 +93,19 @@ let context t ~room ~bytes =
        room=? ORDER BY id DESC"
       [ text room ]
       (fun s ->
-        let keys =
-          [ "sender"; "event"; "observed_at"; "message"; "observation" ]
-        in
+        let field key value = ((key, Jsont.Meta.none), Jsont.Json.string value)
+        and long i =
+          excerpt ~bytes:(min 2048 (bytes / 8)) (Sqlite3.column_text s i)
+        and note = Sqlite3.column_text s 4 in
+        (* Notes come only from profiles that called the model per message. *)
         Jsont.Json.object'
-          (List.mapi
-             (fun i key ->
-               let value = Sqlite3.column_text s i in
-               let value =
-                 if i >= 3 then excerpt ~bytes:(min 2048 (bytes / 8)) value
-                 else value
-               in
-               ((key, Jsont.Meta.none), Jsont.Json.string value))
-             keys))
+          ([
+             field "sender" (Sqlite3.column_text s 0);
+             field "event" (Sqlite3.column_text s 1);
+             field "observed_at" (Sqlite3.column_text s 2);
+             field "message" (long 3);
+           ]
+          @ if note = "" then [] else [ field "observation" (long 4) ]))
   in
   let encode entries =
     Result.get_ok

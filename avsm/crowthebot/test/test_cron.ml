@@ -211,7 +211,7 @@ let () =
   in
   let engine =
     Engine.create ~config ~store ~self:"@crow:example.org" ~plugins:[]
-      ~complete:(fun _ _ ->
+      ~complete:(Fake_model.v @@ fun _ _ ->
         ignore (Store.cancel_reminder store ~actor:admin cancelled);
         (Some "must not deliver", []))
       ~now:(fun () -> !clock)
@@ -220,6 +220,28 @@ let () =
   Cron.run_due store ~fire:(fun job ~run_id ->
       Engine.fire engine ~send:(fun s -> sent := s :: !sent) job ~run_id);
   check "cancellation during inference prevents delivery" (List.length !sent = 6);
+  let dead =
+    Store.add_reminder store ~actor:admin ~room ~event:"$dead" ~fact_id
+      ~instruction:"poll a dead feed" ~cron:(Some "* * * * *") ~until_at:None
+      ~next_at:1020.
+  in
+  clock := 1020.;
+  let failing _ ~run_id:_ = failwith "feed unreachable" in
+  Cron.run_due store ~fire:failing;
+  let next () = (Option.get (Store.get_reminder store dead)).next_at in
+  check "first failure backs off two minutes" (next () = 1020. +. 120.);
+  let rec fail_until n =
+    let job = Option.get (Store.get_reminder store dead) in
+    if job.state = "active" && n < 20 then begin
+      clock := job.next_at;
+      Cron.run_due store ~fire:failing;
+      fail_until (n + 1)
+    end
+    else n
+  in
+  let runs = fail_until 1 in
+  check "repeated failures suspend the reminder"
+    (runs = 8 && (Option.get (Store.get_reminder store dead)).state = "cancelled");
   print_endline
     "crowthebot: cron calendar, reminder actions, persistence and cancellation \
      passed"

@@ -90,8 +90,16 @@ let wire_synthesis env ~mode =
                     (fun m -> field "role" m = Some (string "tool"))
                     messages)
               = 6);
-            check "tool result remains last"
-              (field "role" (List.hd (List.rev messages)) = Some (string "tool"));
+            (match List.rev messages with
+            | notice :: result :: _ ->
+                check "runtime notice follows the last tool result"
+                  (field "role" notice = Some (string "user")
+                  && (match field "content" notice with
+                     | Some (Jsont.String (s, _)) ->
+                         String.starts_with ~prefix:"Runtime notice" s
+                     | _ -> false)
+                  && field "role" result = Some (string "tool"))
+            | _ -> check "terminal transcript" false);
             if mode = "empty" && !terminal = 1 then completed ""
             else if (mode = "http" && !terminal = 1) || mode = "http-fallback"
             then
@@ -156,7 +164,7 @@ let () =
   let engine =
     Engine.create ~config ~store ~self:"@crow:example.test" ~plugins:[]
       ~now:(fun () -> 0.)
-      ~complete:(fun messages tools ->
+      ~complete:(Fake_model.v @@ fun messages tools ->
         incr round;
         match !round with
         | 1 ->
@@ -207,7 +215,7 @@ let () =
   let empty =
     Engine.create ~config ~store ~self:"@crow:example.test" ~plugins:[]
       ~now:(fun () -> 0.)
-      ~complete:(fun _ tools ->
+      ~complete:(Fake_model.v @@ fun _ tools ->
         incr calls;
         if !calls = 1 then (None, [])
         else (

@@ -22,13 +22,13 @@ let () =
   let calls = ref 0 in
   let engine =
     Engine.create ~config ~store ~self:"@crow:example.org" ~plugins:[]
-      ~complete:(fun messages tools ->
-        let text, tool_calls = App.complete env config client messages tools in
+      ~complete:(fun r ->
+        let response = App.complete env config client r in
         List.iter
           (fun (call : Agentkit.Agent.tool_call) ->
             if call.name = "feeds_list" then incr calls)
-          tool_calls;
-        (text, tool_calls))
+          response.Agentkit.Chat.calls;
+        response)
       ~now:(fun () -> 0.)
     |> fun engine -> Engine.with_feeds engine feeds
   in

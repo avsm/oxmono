@@ -2,11 +2,6 @@
 
 type event = { room : string; sender : string; id : string; body : string }
 
-type complete =
-  Openrouter.Message.t list ->
-  Agentkit.Agent.Tool.t list ->
-  string option * Agentkit.Agent.tool_call list
-
 type t
 
 val create :
@@ -14,7 +9,7 @@ val create :
   store:Store.t ->
   self:string ->
   plugins:Plugin.t list ->
-  complete:complete ->
+  complete:Agentkit.Chat.complete ->
   now:(unit -> float) ->
   t
 (** [create ~config ~store ~self ~plugins ~complete ~now] builds an assistant.
@@ -56,6 +51,10 @@ val handle :
 val with_feeds : t -> Feeds.t -> t
 (** [with_feeds t feeds] adds feed tools and scheduled polling before serving
     requests. The tools remain restricted to the admin and allowed friends. *)
+
+val with_improvements : t -> Improvements.t -> t
+(** [with_improvements t improvements] lets the admin and allowed friends ask
+    Crow to record and list requests to improve itself. *)
 
 val with_room_observation : t -> t
 (** [with_room_observation t] enables a separate tool-free model call for every

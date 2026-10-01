@@ -192,6 +192,34 @@ url="https://maps.example/custom/interpreter"
   in
   check "Wi-Fi fields preserve complete history pagination"
     (List.length (collect 0 []) = 26);
+  let newest =
+    Result.get_ok
+      (invoke "location_history"
+         {|{"person":"Alice","from":"2026-09-08T23:55:50Z","to":"2026-09-09T00:00:00Z","order":"newest"}|})
+  in
+  check "newest order starts at the latest fix"
+    (List.hd
+       (field "positions"
+          (Jsont.list (Jsont.mem "recorded_at" Jsont.string))
+          newest)
+    = "2026-09-09T00:00:00Z");
+  let stays =
+    Result.get_ok
+      (invoke "location_history"
+         {|{"person":"Alice","from":"2026-09-08T23:55:50Z","to":"2026-09-09T00:00:00Z","group":"stays"}|})
+  in
+  check "stays account for every fix"
+    (List.fold_left ( + ) 0
+       (field "stays" (Jsont.list (Jsont.mem "fixes" Jsont.int)) stays)
+    = 26);
+  check "end up to an hour ahead is clamped to now"
+    (Result.is_ok
+       (invoke "location_history"
+          {|{"person":"Alice","from":"2026-09-08T23:55:50Z","to":"2026-09-09T00:30:00Z"}|}));
+  check "unknown group rejected"
+    (Result.is_error
+       (invoke "location_history"
+          {|{"person":"Alice","from":"2026-09-08T23:55:50Z","to":"2026-09-09T00:00:00Z","group":"days"}|}));
   check "history does not update cached point or memory"
     ((Option.get (Location_store.get state ~actor:admin ~person:"Alice")).point
      = None

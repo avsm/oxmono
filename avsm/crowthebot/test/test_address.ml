@@ -100,7 +100,7 @@ let () =
   in
   let engine =
     Engine.create ~config ~store ~self ~plugins:[]
-      ~complete:(fun _ _ ->
+      ~complete:(Fake_model.v @@ fun _ _ ->
         incr calls;
         (Some "hello", []))
       ~now:(fun () -> !clock)

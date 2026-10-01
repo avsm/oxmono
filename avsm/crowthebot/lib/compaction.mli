@@ -30,9 +30,9 @@ val prepare :
   plan option
 (** [prepare t scope ~max_messages ~max_bytes ~incoming_messages
      ~incoming_bytes] snapshots an older prefix near the configured bounds. It
-    retains up to eight recent messages, preserving complete chat exchanges when
-    they fit. Incoming data is counted for capacity but is absent from the
-    snapshot. *)
+    retains up to eight recent messages, or two fifths of [max_messages] when
+    that is more, preserving complete chat exchanges when they fit. Incoming
+    data is counted for capacity but is absent from the snapshot. *)
 
 val input : plan -> string
 (** [input plan] is the bounded JSON snapshot for a tool-free model request. *)

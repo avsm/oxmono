@@ -38,4 +38,8 @@ val run_due :
     transports can defer work without consuming an occurrence. Recurrences skip
     missed intervals and advance from now. Expired jobs do not fire. A crash may
     lose a claimed occurrence but cannot replay it. [fire] must recheck current
-    authority, linked memory and delivery access. *)
+    authority, linked memory and delivery access.
+
+    A recurring reminder that fails waits 2, 4, 8, 16, 32 and then 60 minutes
+    before its next run, or until its next occurrence if that is later. After
+    8 consecutive failures any reminder is cancelled and the log says so. *)

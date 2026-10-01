@@ -132,9 +132,7 @@ let configure ~env ~sw ~profile action =
 let model ~env ~sw ~profile ~dir ~store config client api_key_file =
   (match config.Config.backend with
   | Config.Openrouter -> ()
-  | Config.Ds4 | Config.Apple_fm ->
-      invalid_arg
-        "This Crow runtime supports the OpenRouter backend only; DS4 and Apple FM are available through Agentkit but are not wired to Crow's dynamic tool catalogue yet.");
+  | Config.Ds4 | Config.Apple_fm -> invalid_arg "wrong model backend");
   let client = Trace.wrap (Store.trace store) client in
   let fallback () =
     Openrouter.of_fetch ~base_url:config.Config.base_url
@@ -153,6 +151,24 @@ let model ~env ~sw ~profile ~dir ~store config client api_key_file =
                 "Select a named OpenRouter configuration with crowthebot \
                  config openrouter select.";
             fallback ())
+
+let ds4_model ~env ~sw ~dir config =
+  let model_path =
+    match config.Config.model_path with
+    | None -> invalid_arg "DS4 requires model_path in crowthebot.toml"
+    | Some path ->
+        if Filename.is_relative path then Eio.Path.(dir / path)
+        else Eio.Path.(Eio.Stdenv.fs env / path)
+  in
+  let cache_path =
+    match config.Config.cache_dir with
+    | Some path when Filename.is_relative path -> Eio.Path.(dir / path)
+    | Some path -> Eio.Path.(Eio.Stdenv.fs env / path)
+    | None -> Eio.Path.(dir / ".ds4-cache")
+  in
+  Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 cache_path;
+  Ds4.V4.forward_logs ();
+  Ds4.V4.create ~sw ~cache:cache_path ~model:model_path ()
 
 let calendar_tools ~env ~sw ~profile ~dir store =
   let fetch = fetch env and clock = Eio.Stdenv.clock env in
@@ -245,64 +261,60 @@ let location_tools ~env ~sw ~profile ~dir store =
       in
       Locations.create ~state:(Store.locations store) ~sources ~default)
 
-let complete env (config : Config.t) client =
+let finish_name = function
+  | None -> "absent"
+  | Some Agentkit.Chat.Stop -> "stop"
+  | Some Length -> "length"
+  | Some Tool_calls -> "tool_calls"
+  | Some (Other s) -> s
+
+(* Every model request is logged and bounded the same way, whatever the
+   backend. *)
+let logged env (config : Config.t) ~label (complete : Agentkit.Chat.complete)
+    (r : Agentkit.Chat.request) =
   let clock = Eio.Stdenv.mono_clock env in
-  fun messages tools ->
-    let started = Eio.Time.Mono.now clock in
+  let started = Eio.Time.Mono.now clock in
+  Log.info (fun m ->
+      m "%s request started model=%S messages=%d tools=%d" label config.model
+        (List.length r.messages) (List.length r.tools));
+  try
+    let response =
+      Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 90.) (fun () ->
+          complete r)
+    in
     Log.info (fun m ->
-        m "Model request started model=%S messages=%d tools=%d" config.model
-          (List.length messages) (List.length tools));
-    try
-      Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 90.) @@ fun () ->
-      let compacting =
-        match Trace.current () with
-        | Some context -> context.source = "context-compaction"
-        | None -> false
-      in
-      let max_tokens =
-        if compacting then max 4096 config.max_tokens else config.max_tokens
-      in
-      let request_tools = List.map Agentkit_openrouter.Tool.to_openrouter tools in
-      let request =
-        Openrouter.Chat.request ~model:config.Config.model ~max_tokens ~messages
-          ?tools:(if request_tools = [] then None else Some request_tools)
-          ?parallel_tool_calls:(if tools = [] then None else Some false)
-          ()
-      in
-      let result = Openrouter.Chat.complete client request in
-      match
-        List.find_opt
-          (fun (c : Openrouter.Chat.choice) -> c.index = 0)
-          result.choices
-      with
-      | None -> failwith "no model choice"
-      | Some choice ->
-          Log.info (fun m ->
-              m
-                "Model request completed elapsed_ms=%.0f text_bytes=%d \
-                 tool_calls=%d finish_reason=%s"
-                (Mtime.Span.to_float_ns
-                   (Mtime.span started (Eio.Time.Mono.now clock))
-                /. 1e6)
-                (Option.fold ~none:0 ~some:String.length choice.text)
-                (List.length choice.tool_calls)
-                (match choice.finish_reason with
-                | Some Openrouter.Chat.Stop -> "stop"
-                | Some Length -> "length"
-                | Some Tool_calls -> "tool_calls"
-                | Some Content_filter -> "content_filter"
-                | Some (Other _) -> "other"
-                | None -> "absent"));
-          if compacting && choice.finish_reason = Some Openrouter.Chat.Length
-          then raise Diagnostics.Model_output_limit;
-          (choice.text,
-           List.map (fun (call : Openrouter.Tool.call) ->
-             { Agentkit.Agent.id = call.id; name = call.name;
-               arguments = call.arguments }) choice.tool_calls)
-    with exn ->
-      let bt = Printexc.get_raw_backtrace () in
-      Log.err (fun m -> m "Model request failed: %s" (Diagnostics.error exn));
-      Printexc.raise_with_backtrace exn bt
+        m
+          "%s request completed elapsed_ms=%.0f text_bytes=%d tool_calls=%d \
+           finish_reason=%s"
+          label
+          (Mtime.Span.to_float_ns (Mtime.span started (Eio.Time.Mono.now clock))
+          /. 1e6)
+          (Option.fold ~none:0 ~some:String.length response.text)
+          (List.length response.calls)
+          (finish_name response.finish));
+    response
+  with exn ->
+    let bt = Printexc.get_raw_backtrace () in
+    Log.err (fun m -> m "Model request failed: %s" (Diagnostics.error exn));
+    Printexc.raise_with_backtrace exn bt
+
+let complete env (config : Config.t) client =
+  logged env config ~label:"Model"
+    (Agentkit_openrouter.complete client ~model:config.model)
+
+let complete_ds4 env (config : Config.t) engine =
+  logged env config ~label:"DS4 model"
+    (Agentkit_ds4.complete engine
+       ~ctx_size:(max 4096 (config.context_messages * 2048))
+       ())
+
+let complete_for_config ~env ~sw ~profile ~dir ~store ~api_key_file config =
+  match config.Config.backend with
+  | Config.Ds4 -> complete_ds4 env config (ds4_model ~env ~sw ~dir config)
+  | Config.Apple_fm -> invalid_arg "Apple Foundation Models are not yet wired to Crow"
+  | Config.Openrouter ->
+      complete env config
+        (model ~env ~sw ~profile ~dir ~store config (fetch env) api_key_file)
 
 let people ~env ~sw ~profile =
   with_profile ~env ~sw ~profile @@ fun _ _ store ->
@@ -338,12 +350,10 @@ let note ~env ~sw ~profile ~day ~generate ~api_key_file =
   let day = Option.value ~default:(Store.yesterday store) day in
   let note =
     if generate then
-      let client =
-        model ~env ~sw ~profile ~dir ~store config (fetch env) api_key_file
-      in
       Some
         (Daily.generate ~store ~config
-           ~complete:(complete env config client)
+           ~complete:(complete_for_config ~env ~sw ~profile ~dir ~store
+                        ~api_key_file config)
            ~day)
     else Store.get_note store day
   in
@@ -373,8 +383,8 @@ let feeds ~env ~sw ~profile ~command =
 let probe ~env ~sw ~profile ~api_key_file ~target =
   with_profile ~env ~sw ~profile @@ fun dir config store ->
   let model_check () =
-    let client =
-      model ~env ~sw ~profile ~dir ~store config (fetch env) api_key_file
+    let complete_model =
+      complete_for_config ~env ~sw ~profile ~dir ~store ~api_key_file config
     in
     Trace.with_context
       {
@@ -385,14 +395,13 @@ let probe ~env ~sw ~profile ~api_key_file ~target =
         source = "probe";
       }
     @@ fun () ->
-    let text, calls =
-      complete env config client
-        [ Openrouter.Message.user "Reply with CROW_OK." ]
-        []
+    let r =
+      complete_model
+        (Agentkit.Chat.request ~max_tokens:config.max_tokens
+           [ Agentkit.Chat.User "Reply with CROW_OK." ])
     in
-    match (text, calls) with
-    | Some text, [] when String.trim text <> "" ->
-        print_endline (Plugin.clip ~bytes:1024 text)
+    match (Agentkit.Chat.text_of_response r, r.calls) with
+    | Some text, [] -> print_endline (Plugin.clip ~bytes:1024 text)
     | _ -> failwith "Model probe returned no text or unexpected tool calls."
   in
   let caldav_check selected =
@@ -540,14 +549,16 @@ let run ~env ~sw ~profile ~api_key_file =
       m "Profile loaded admin=%S enabled_rooms=%d" config.admin
         (List.length (Store.rooms store)));
   let ctx = connect ~env ~sw ~profile config () in
-  let client = fetch env in
-  let model = model ~env ~sw ~profile ~dir ~store config client api_key_file in
+  let complete_model =
+    complete_for_config ~env ~sw ~profile ~dir ~store ~api_key_file config
+  in
   let matrix_state = ref (fun () -> None) in
+  let matrix_sender = ref (fun () -> None) in
   let engine =
     Engine.create ~config ~store
       ~self:(Id.User_id.to_string (Context.user_id ctx))
       ~plugins:[]
-      ~complete:(complete env config model)
+      ~complete:complete_model
       ~now:(now env)
     |> fun engine ->
     Engine.with_feeds engine (feed_tools env store) |> fun engine ->
@@ -561,7 +572,21 @@ let run ~env ~sw ~profile ~api_key_file =
     |> Engine.with_room_observation
     |> fun engine ->
     Engine.with_matrix engine
-      (Matrix_rooms.create ~store ~state:(fun () -> !matrix_state ()))
+      (Matrix_rooms.create ~store
+         ~self:(Id.User_id.to_string (Context.user_id ctx))
+         ~state:(fun () -> !matrix_state ())
+         ~send:(fun () -> !matrix_sender ())
+         ())
+    |> fun engine ->
+    match config.improvements_file with
+    | None -> engine
+    | Some path ->
+        let path =
+          if Filename.is_relative path then Eio.Path.(dir / path)
+          else Eio.Path.(Eio.Stdenv.fs env / path)
+        in
+        Engine.with_improvements engine
+          (Improvements.create ~path ~now:(fun () -> Store.now store))
   in
   Log.info (fun m ->
     m "Model and tool configurations loaded backend=%s model=%S log_level=%s"
@@ -625,16 +650,63 @@ let run ~env ~sw ~profile ~api_key_file =
       else None
     end
   in
+  (* Audio is fetched only where Crow would read text from the same sender, so
+     a stranger's voice note in a room Crow does not serve is never downloaded.
+     The transcript then follows the text path and its addressing rules. *)
+  let voice bot (e : Matrix_bot.Event.envelope) content =
+    let room = Id.Room_id.to_string (Matrix_bot.Room.id e.room)
+    and sender = Id.User_id.to_string e.sender
+    and id = Id.Event_id.to_string e.event_id in
+    if
+      sender = self
+      || not
+           (List.mem room (Store.rooms store)
+           || direct_peer bot e.room ~actor:sender = Some sender)
+    then None
+    else begin
+      Log.info (fun m -> m "Transcribing voice message event=%S" id);
+      match
+        with_timeout env 120. (fun () ->
+            Voice.transcribe
+              ~download:(Voice.download (Context.client ctx))
+              ?locale:config.voice_locale content)
+      with
+      | Ok text ->
+          Log.info (fun m ->
+              m "Voice message transcribed event=%S sender=%S text=%S" id sender
+                text);
+          Some text
+      | Error reason ->
+          Log.warn (fun m ->
+              m "Voice message not transcribed event=%S reason=%s" id reason);
+          None
+      | exception Eio.Time.Timeout ->
+          Log.warn (fun m ->
+              m "Voice message transcription timed out event=%S" id);
+          None
+    end
+  in
   let on_message bot ({ message; original } : Matrix_input.t) =
-    if message.content.kind = Matrix_ui.Presentation.Text then begin
+    let body =
+      match message.content.kind with
+      | Matrix_ui.Presentation.Text ->
+          Some
+            (Address.body
+               ~reply:(message.reply_to <> None)
+               message.content.body)
+      | Audio when config.voice_messages ->
+          voice bot message.envelope message.presentation.raw.content
+      | _ -> None
+    in
+    match body with
+    | Some body -> (
       let e = message.envelope in
       let event : Engine.event =
         {
           room = Id.Room_id.to_string (Matrix_bot.Room.id e.room);
           sender = Id.User_id.to_string e.sender;
           id = Id.Event_id.to_string e.event_id;
-          body =
-            Address.body ~reply:(message.reply_to <> None) message.content.body;
+          body;
         }
       in
       Log.info (fun m ->
@@ -698,9 +770,8 @@ let run ~env ~sw ~profile ~api_key_file =
               m
                 "Crow request failed event=%S room=%S error=%s; context was \
                  not advanced"
-                event.id event.room (Diagnostics.error exn))
-    end
-    else
+                event.id event.room (Diagnostics.error exn)))
+    | None ->
       Log.info (fun m ->
           m "Ignored non-text message event=%S"
             (Id.Event_id.to_string message.envelope.event_id))
@@ -828,6 +899,25 @@ let run ~env ~sw ~profile ~api_key_file =
         "Starting Matrix sync; messages in the initial timeline are skipped. \
          Send a fresh message once sync is live");
   Matrix_bot.Bot.run ctx spec ~on_start:(fun bot ->
+      (matrix_sender :=
+         fun () ->
+           Some
+             (fun room_id text ->
+               match Matrix_bot.Bot.find_room bot room_id with
+               | None -> Error "room is not available"
+               | Some room -> (
+                   match
+                     Matrix_bot.Sent.await
+                       (Matrix_bot.Room.send_notice room
+                          ~html:(Rich_text.html text) text)
+                   with
+                   | Matrix_bot.Sent.Sent id ->
+                       Log.info (fun m ->
+                           m "Requested message sent room=%S event=%S"
+                             (Id.Room_id.to_string room_id)
+                             (Id.Event_id.to_string id));
+                       Ok (Id.Event_id.to_string id)
+                   | outcome -> Error (Diagnostics.sent outcome))));
       (matrix_state :=
          fun () ->
            Some
@@ -920,7 +1010,7 @@ let run ~env ~sw ~profile ~api_key_file =
                    Log.info (fun m -> m "Generating daily note day=%s" day);
                    ignore
                      (Daily.generate ~store ~config
-                        ~complete:(complete env config model)
+                        ~complete:complete_model
                         ~day))
                  (Store.pending_note_days store)
              with

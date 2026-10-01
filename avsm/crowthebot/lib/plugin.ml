@@ -9,15 +9,7 @@ let with_workspace ~sw ~profile_dir build =
     invalid_arg "tool workspace must be a private directory, not a symlink";
   build (Eio.Path.open_subtree ~sw path)
 
-let clip ~bytes text =
-  if String.length text <= bytes then text
-  else begin
-    let last = ref bytes in
-    while !last > 0 && Char.code text.[!last] land 0xc0 = 0x80 do
-      decr last
-    done;
-    String.sub text 0 !last ^ "\n[truncated]"
-  end
+let clip = Agentkit.Turn.clip
 
 let query_jsont =
   Jsont.Object.map ~kind:"tool arguments" Fun.id

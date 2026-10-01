@@ -81,7 +81,6 @@ let () =
           in
           requests := body :: !requests;
           let compacting = contains body "Compact this Matrix conversation" in
-          let observing = contains body "Observe a Matrix room silently" in
           let message =
             if compacting then begin
               summaries := body :: !summaries;
@@ -97,6 +96,8 @@ let () =
                   if !mode = "truncated" then {|{"summary":"cut off|}
                   else if !mode = "malformed" then "not JSON"
                   else if !mode = "empty" then {|{"summary":""}|}
+                  else if !mode = "fenced" then
+                    "```json\n{\"summary\":\"FENCED_SUMMARY\"}\n```"
                   else if !mode = "oversized" then
                     "{\"summary\":" ^ quote (String.make 6001 'x') ^ "}"
                   else if contains body "$ambient-1" then
@@ -106,23 +107,31 @@ let () =
                 in
                 "{\"role\":\"assistant\",\"content\":" ^ quote summary ^ "}"
             end
-            else if observing then
-              "{\"role\":\"assistant\",\"content\":"
-              ^ quote
-                  {|{"observation":"The speaker is planning an outing.","addressed":false}|}
-              ^ "}"
             else {|{"role":"assistant","content":"Delivered answer."}|}
           in
           let reason =
-            if compacting && !mode = "truncated" then "length" else "stop"
+            if
+              (compacting && !mode = "truncated")
+              || ((not compacting) && !mode = "long")
+            then "length"
+            else "stop"
+          in
+          let json =
+            Result.get_ok (Jsont_bytesrw.decode_string Jsont.json body)
           in
           if compacting then begin
-            let json =
-              Result.get_ok (Jsont_bytesrw.decode_string Jsont.json body)
-            in
             check "compaction has a separate completion budget"
-              (member "max_completion_tokens" json = Some (Jsont.Json.int 4096))
-          end;
+              (member "max_completion_tokens" json
+              = Some (Jsont.Json.int 4096));
+            check "compaction disables reasoning"
+              (member "reasoning_effort" json
+              = Some (Jsont.Json.string "none"));
+            check "compaction asks for words, not bytes"
+              (contains body "words" && not (contains body "UTF-8 bytes"))
+          end
+          else
+            check "replies keep the configured reasoning"
+              (member "reasoning_effort" json = None);
           Fetch_mock.respond
             ~headers:
               (Http.Header.of_list [ ("content-type", "application/json") ])
@@ -255,6 +264,43 @@ let () =
       check "reset invalidates in-flight summaries"
         ((not (Compaction.commit state plan ~body:"stale result"))
         && summary store (Thread { room = dm; user = admin }) = None);
+      let scale =
+        Compaction.Thread { room = other; user = "@scale:example.org" }
+      in
+      Store.append store ~room:other ~user:"@scale:example.org"
+        ~max_messages:100 ~max_bytes:100000
+        (List.init 50 (fun i ->
+             Store.
+               {
+                 role = (if i mod 2 = 0 then "user" else "assistant");
+                 body = "scaled " ^ string_of_int i;
+               }));
+      let plan =
+        Option.get
+          (Compaction.prepare state scale ~max_messages:60 ~max_bytes:100000
+             ~incoming_messages:0 ~incoming_bytes:0)
+      in
+      check "larger windows keep two fifths verbatim after compaction"
+        (Compaction.commit state plan ~body:"scaled summary"
+        && List.length
+             (Store.history store ~room:other ~user:"@scale:example.org")
+           = 24);
+      mode := "fenced";
+      for i = 1 to 10 do
+        handle engine ("$fenced" ^ string_of_int i) "continue"
+      done;
+      check "fenced summary JSON is accepted"
+        (contains
+           (Option.get (summary store (Thread { room = dm; user = admin })))
+           "FENCED_SUMMARY");
+      mode := "long";
+      handle engine "$long" "tell me everything";
+      check "truncated replies are marked"
+        (List.exists
+           (fun (m : Store.message) ->
+             m.role = "assistant" && contains m.body "[Reply cut off")
+           (Store.history store ~room:dm ~user:admin));
+      mode := "normal";
       Store.set_person store ~actor:admin ~user:friend ~role:Friend
         ~allowed:false;
       check

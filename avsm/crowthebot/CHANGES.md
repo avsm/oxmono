@@ -1,5 +1,37 @@
 # Changes
 
+- Accept a greeting before Crow's name, as in "Hey, Crow." from a voice
+  transcript, and log each voice transcript with its sender.
+
+- Transcribe Matrix voice messages on this machine with Apple's speech
+  recogniser and handle them as text. `voice_messages` and `voice_locale`
+  configure it.
+
+- Add `matrix_send`, which posts a requested message to a joined room the
+  requester belongs to, or to an existing DM with the admin or a friend.
+
+- Store room messages as context without a model call and send them with the
+  next addressed request. Addressing Crow by name opens or closes a message.
+- Back off failing recurring reminders and cancel a reminder after 8
+  consecutive failures.
+- Run model turns, compaction and probes through Agentkit's `Chat`, `Turn` and
+  `Summary`, so DS4 sees roles and its system prompt and every tool call
+  passes one fail-closed guard.
+
+- Repeat the tool-free synthesis directive as a final user message, so models
+  that were mid-way through tool calls still answer instead of returning nothing.
+- Add `group=stays` and `order=newest` to `location_history`, clamp an end time
+  up to an hour ahead to now, and report the current time on interval errors.
+
+- Add `improvement_record` and `improvement_list`, which let Crow append
+  requests to improve itself to a Markdown file that coding agents can read.
+
+- Disable reasoning for compaction requests and ask for words instead of bytes,
+  so reasoning models no longer exhaust the budget. Accept fenced summary JSON.
+- Raise the default `max_tokens` to 4096, mark replies cut off at the limit and
+  keep two fifths of larger `context_messages` windows verbatim after compaction.
+- Accept plain HTTP `base_url` values on loopback hosts.
+
 - Reject fractional or string IDs and pagination offsets in calendar, email,
   feed and location tools instead of silently coercing them to integers.
 

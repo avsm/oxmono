@@ -1,4 +1,5 @@
 open Crowthebot
+
 module Id = Matrix_proto.Id
 module Bot = Matrix_bot.Bot
 
@@ -33,9 +34,16 @@ let () =
   let store = Store.create db ~admin in
   Store.add_room store room;
   let state = ref None in
+  let sent = ref [] in
   let matrix =
-    Matrix_rooms.create ~store ~state:(fun () ->
-        !state |> Option.map (fun read -> read ()))
+    Matrix_rooms.create ~store ~self
+      ~state:(fun () -> !state |> Option.map (fun read -> read ()))
+      ~send:(fun () ->
+        Some
+          (fun id text ->
+            sent := (Id.Room_id.to_string id, text) :: !sent;
+            Ok "$sent"))
+      ()
   in
   let query ?(actor = admin) name args =
     Matrix_rooms.invoke matrix ~actor ~room name args
@@ -48,7 +56,7 @@ let () =
     if !rounds mod 2 = 0 then (Some "Reply", [])
     else begin
       check "Matrix tools exposed to approved model requests"
-        (List.length tools = 9);
+        (List.length tools = 10);
       ( None,
         [
           Agentkit.Agent.
@@ -59,7 +67,7 @@ let () =
   let engine =
     Engine.create
       ~config:(Config.default ~admin ~homeserver:"https://matrix.example.org")
-      ~store ~self ~plugins:[] ~complete ~now:(fun () -> 0.)
+      ~store ~self ~plugins:[] ~complete:(Fake_model.v complete) ~now:(fun () -> 0.)
     |> fun engine -> Engine.with_matrix engine matrix
   in
   let input _ ({ message; original } : Matrix_input.t) =
@@ -92,7 +100,7 @@ let () =
   in
   let initial =
     Printf.sprintf
-      {|{"next_batch":"initial","rooms":{"join":{%s,"!room:example.org":{"state":{"events":[{"type":"m.room.topic","state_key":"","content":{"topic":"Robot workshop"}},{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}}}}}|}
+      {|{"next_batch":"initial","rooms":{"join":{%s,"!room:example.org":{"state":{"events":[{"type":"m.room.topic","state_key":"","content":{"topic":"Robot workshop"}},{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}},"!dm:example.org":{"state":{"events":[{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}}}}}|}
       (String.concat "," rooms)
   in
   let pending = ref [ initial ] in
@@ -146,7 +154,7 @@ let () =
               (fun () ->
                 Matrix_eio.Sync_service.state
                   (Matrix_ui.Runtime.sync_service (Bot.runtime bot)));
-          until (fun () -> List.length (Bot.rooms bot) = 8);
+          until (fun () -> List.length (Bot.rooms bot) = 9);
           let first = Result.get_ok (query "matrix_rooms" "{}") in
           check "room list paginated"
             (List.length (field "rooms" (Jsont.list Jsont.json) first) = 5);
@@ -157,7 +165,7 @@ let () =
                  ("{\"after\":" ^ encode Jsont.string cursor ^ "}"))
           in
           check "room list ends explicitly"
-            (List.length (field "rooms" (Jsont.list Jsont.json) last) = 3
+            (List.length (field "rooms" (Jsont.list Jsont.json) last) = 4
             && field "next_after" (Jsont.option Jsont.string) last = None);
           let info = Result.get_ok (query "matrix_room_info" "{}") in
           check "live topic and current room"
@@ -180,6 +188,52 @@ let () =
           check "revocation takes effect"
             (Result.is_error
                (query ~actor:"@guest:example.org" "matrix_rooms" "{}"));
+          let post ?actor args = query ?actor "matrix_send" args in
+          check "requester posts to a room they belong to"
+            (Result.is_ok
+               (post {|{"room":"!room:example.org","text":"Read **this**."}|})
+            && (match !sent with
+               | [ ("!room:example.org", text) ] ->
+                   String.starts_with ~prefix:"Read **this**." text
+                   && String.ends_with
+                        ~suffix:"(sent at the request of @admin:example.org)"
+                        text
+               | _ -> false));
+          Store.set_person store ~actor:admin ~user:"@guest:example.org"
+            ~role:Friend ~allowed:true;
+          check "friends cannot post into rooms they are not in"
+            (Result.is_error
+               (post ~actor:"@guest:example.org"
+                  {|{"room":"!room:example.org","text":"hi"}|}));
+          check "unjoined rooms refused"
+            (Result.is_error
+               (post {|{"room":"!absent:example.org","text":"hi"}|}));
+          Store.add_direct_room store ~room:"!dm:example.org" ~peer:admin;
+          check "a friend can DM the admin through an existing DM"
+            (Result.is_ok
+               (post ~actor:"@guest:example.org"
+                  {|{"user":"@admin:example.org","text":"Paper for you."}|})
+            && fst (List.hd !sent) = "!dm:example.org");
+          List.iter
+            (fun (label, args) ->
+              check label (Result.is_error (post args)))
+            [
+              ( "DMs only go to approved people",
+                {|{"user":"@stranger:example.org","text":"hi"}|} );
+              ( "DMs need an existing DM room",
+                {|{"user":"@guest:example.org","text":"hi"}|} );
+              ( "exactly one target",
+                {|{"room":"!room:example.org","user":"@admin:example.org","text":"hi"}|}
+              );
+              ("blank text refused", {|{"room":"!room:example.org","text":" "}|});
+            ];
+          check "refused posts send nothing" (List.length !sent = 2);
+          Store.set_person store ~actor:admin ~user:"@guest:example.org"
+            ~role:Friend ~allowed:false;
+          check "revoked friends cannot post"
+            (Result.is_error
+               (post ~actor:"@guest:example.org"
+                  {|{"user":"@admin:example.org","text":"hi"}|}));
           let edit id new_content =
             message id
               (Printf.sprintf

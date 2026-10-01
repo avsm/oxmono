@@ -277,6 +277,32 @@ let command input =
       | _ -> Error "Reminder ID must be positive.")
   | _ -> Error help
 
+let max_failures = 8
+
+(* Minutes before a failing reminder runs again: 2, 4, 8, 16, 32, then 60. *)
+let backoff failures = min 60 (1 lsl min failures 6)
+
+(* A reminder that keeps failing, such as a poll of a dead feed, would otherwise
+   fail on every occurrence forever. *)
+let failed store (job : Store.reminder) =
+  let failures = Store.reminder_failures store job.reminder_id in
+  if failures >= max_failures then begin
+    Store.suspend_reminder store job.reminder_id;
+    Diagnostics.Log.err (fun m ->
+        m "Reminder %d cancelled after %d consecutive failures"
+          job.reminder_id failures)
+  end
+  else if job.cron <> None then begin
+    let minutes = backoff failures in
+    Store.defer_reminder store job.reminder_id
+      ~until:(Store.now store +. (60. *. float_of_int minutes));
+    Diagnostics.Log.warn (fun m ->
+        m
+          "Reminder %d failed %d times in a row; next run in %d minutes or \
+           later"
+          job.reminder_id failures minutes)
+  end
+
 let run_due ?(ready = fun () -> true) store ~fire =
   List.iter
     (fun (job : Store.reminder) ->
@@ -319,6 +345,7 @@ let run_due ?(ready = fun () -> true) store ~fire =
                 finish "error";
                 Diagnostics.Log.err (fun m ->
                     m "Scheduled action failed for reminder %d: %s"
-                      job.reminder_id (Diagnostics.error exn)))
+                      job.reminder_id (Diagnostics.error exn));
+                Eio.Cancel.protect (fun () -> failed store job))
       end)
     (Store.due_reminders store)

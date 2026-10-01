@@ -327,10 +327,10 @@ password="unrelated-mqtt-secret"
   let engine =
     Engine.create ~config ~store ~self:"@crow:example.org" ~plugins:[]
       ~now:(fun () -> !current)
-      ~complete:(fun messages tools ->
+      ~complete:(fun r ->
         check "location tools available alongside memory and cron"
-          (List.length tools = 15);
-        App.complete env config model messages tools)
+          (List.length r.Agentkit.Chat.tools = 15);
+        App.complete env config model r)
     |> fun engine -> Engine.with_locations engine locations
   in
   let replies = ref [] in

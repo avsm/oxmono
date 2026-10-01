@@ -15,7 +15,11 @@
   matrix-chat.eio
   openrouter
   agentkit
+  agentkit-ds4
+  ds4
+  ds4.metal
   agentkit-openrouter
+  apple-speech
   fetch
   fetch-httpz
   sortal.feed

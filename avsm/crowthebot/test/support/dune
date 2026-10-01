@@ -1,0 +1,3 @@
+(library
+ (name fake_model)
+ (libraries agentkit))

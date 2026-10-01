@@ -289,6 +289,12 @@ let initialize ~load ~fetch ~clock ~now json =
     history =
       (fun ~from ~until ->
         let current = now () in
+        (* Models estimate the current time, so an end slightly in the future
+           means now. It cannot reach data the lookback excludes. *)
+        let until =
+          if until > current && until <= current +. 3600. then current
+          else until
+        in
         if
           (not (Float.is_finite from && Float.is_finite until))
           || from < 0. || from > until || until > current
@@ -296,8 +302,9 @@ let initialize ~load ~fetch ~clock ~now json =
         then
           invalid_arg
             (Printf.sprintf
-               "History needs from <= to <= now, within the last %d days."
-               lookback_days);
+               "History needs from <= to <= now, within the last %d days. The \
+                current time is %s."
+               lookback_days (Store.timestamp current));
         points ~current ~from ~until);
     latest =
       (fun () ->

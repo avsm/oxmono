@@ -111,7 +111,7 @@ val probe :
     does not connect to Matrix. The profile must be stopped. *)
 
 val complete :
-  Eio_unix.Stdenv.base -> Config.t -> Openrouter.t -> Engine.complete
+  Eio_unix.Stdenv.base -> Config.t -> Openrouter.t -> Agentkit.Chat.complete
 (** [complete env config client messages tools] runs one native model request
     with a 90-second deadline. Empty tool lists omit the wire tool fields. *)
 

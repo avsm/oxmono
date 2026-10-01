@@ -43,8 +43,6 @@ val watch_room :
 (** [watch_room ~sw ~self ~cache ~room] logs changes to the room's cached event
     counts until [sw] closes. The returned function stops the subscription. *)
 
-exception Model_output_limit
-
 val configure_level : string -> unit
 (** [configure_level] applies the profile's quiet/error/warning/info/debug level. *)
 

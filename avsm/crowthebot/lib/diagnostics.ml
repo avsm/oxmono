@@ -33,10 +33,8 @@ let matrix_error (error : Matrix_eio.Error.err) =
   | No_content -> "Matrix response empty"
   | Cancelled -> "cancelled"
 
-exception Model_output_limit
 
 let error = function
-  | Model_output_limit -> "model output token limit reached"
   | Eio.Io (Matrix_eio.Error.E e, _) -> matrix_error e
   | Eio.Io (Openrouter.E (Openrouter.Http_error { status; _ }), _) ->
       Printf.sprintf "model HTTP %d" status

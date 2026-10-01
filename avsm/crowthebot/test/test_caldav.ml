@@ -1,4 +1,5 @@
 open Crowthebot
+
 module S = Caldav_store
 module R = Caldav_source
 
@@ -176,7 +177,7 @@ let () =
       let engine =
         Engine.create ~config ~store ~self:"@crow:example.test" ~plugins:[]
           ~now:(fun () -> 100000.)
-          ~complete:(fun _ _ ->
+          ~complete:(Fake_model.v @@ fun _ _ ->
             incr round;
             if !round = 1 then
               ( None,
@@ -296,7 +297,7 @@ let () =
       let engine =
         Engine.create ~config ~store ~self:"@crow:example.test" ~plugins:[]
           ~now:(fun () -> 100000.)
-          ~complete:(fun _ _ ->
+          ~complete:(Fake_model.v @@ fun _ _ ->
             failwith "CalDAV cron must not invoke the model")
         |> fun e -> Engine.with_caldav e tools
       in

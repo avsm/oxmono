@@ -186,7 +186,7 @@ let () =
         end
       in
       let engine =
-        Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete
+        Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete:(Fake_model.v complete)
           ~now:(fun () -> 0.)
       in
       emitted := [];
@@ -221,7 +221,7 @@ let () =
   let engine =
     Engine.create ~config ~store ~self ~plugins:[ plugin ]
       ~now:(fun () -> 0.)
-      ~complete:(fun _ _ ->
+      ~complete:(Fake_model.v @@ fun _ _ ->
         incr models;
         if !models = 1 then begin
           Eio.Promise.resolve enter ();

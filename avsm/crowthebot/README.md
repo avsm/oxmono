@@ -30,7 +30,8 @@ saved/reused/removed counts, pending work and cursor resets.
 Use `run --verbose` (or `-v`) to also log startup, Matrix sync, DM membership,
 access decisions, model requests and reply delivery.
 `probe --verbose` logs the model and CalDAV checks. Logs omit message bodies,
-tool arguments and results, credentials and server response bodies.
+tool arguments and results, credentials and server response bodies. The one
+exception is voice transcripts, described under Voice messages.
 When a model turn fails to synthesize a reply, its error log includes the
 ordered tool sequence with these metadata, model round and remaining budget.
 Model completions also log the finish reason. Location contents and coordinates
@@ -145,7 +146,11 @@ profiles are read as a compatibility fallback. The defaults are:
 | `plugins` | `[]` |
 | `context_messages` | 20 |
 | `context_bytes` | 40000 |
-| `max_tokens` | 1024 |
+| `max_tokens` | 4096 |
+| `compaction_reasoning_effort` | `none` |
+| `improvements_file` | `improvements.md` |
+| `voice_messages` | `true` |
+| `voice_locale` | system locale |
 | `backend` | `openrouter` |
 | `model_path` | unset |
 | `cache_dir` | unset |
@@ -158,8 +163,9 @@ the transport boundary.
 
 Conversation context compacts automatically near 75% of either context limit,
 counting the incoming exchange or observation. A tool-free model call merges an
-older prefix with its previous summary. Up to eight recent messages remain
-verbatim, keeping complete user/assistant exchanges together when they fit.
+older prefix with its previous summary. Up to eight recent messages, or two
+fifths of `context_messages` when that is more, remain verbatim, keeping
+complete user/assistant exchanges together when they fit.
 Smaller context limits or large incoming messages can retain fewer messages.
 Summaries are limited to 6000 UTF-8 bytes, or one quarter of `context_bytes` for
 smaller profiles. They share the model's history budget with recent messages.
@@ -174,13 +180,18 @@ decisions, open questions and referenced memory/reminder IDs as attributed,
 untrusted context. They do not create shared memory facts or grant tool access.
 The original model exchanges remain in the provenance log.
 
-Compaction uses a separate completion budget of at least 4096 tokens, with a
-shorter summary target. Truncated or malformed output gets one retry with half
-that target. Terminal logs report the failure category and sizes without text.
+Compaction uses a separate completion budget of at least 4096 tokens and asks
+for a word count rather than a byte count. It sends `compaction_reasoning_effort`
+as `reasoning_effort`, which OpenRouter and vLLM accept. The default `none`
+stops reasoning models spending the budget before writing the summary. Set it to
+an empty string to omit the field. Summaries wrapped in a code fence are
+accepted. Truncated or malformed output gets one retry with half the target. Terminal logs report the failure category and sizes without text.
 Malformed, empty, oversized or failed summaries leave the previous summary
 intact. The existing message and byte caps still trim recent context if needed,
 so failed summarisation can lose older detail. Model input is byte-bounded and
 compaction can process a prefix in batches when JSON encoding expands it.
+`max_tokens` includes reasoning tokens. A reply that reaches it is delivered with
+a `[Reply cut off at the token limit.]` marker and a warning in the log.
 `reset` clears the caller's thread summary and invalidates the shared summary
 in that room. Revocation clears that user's thread summaries and invalidates
 shared room summaries across the profile. In-flight results cannot restore them.
@@ -204,7 +215,9 @@ configure its named endpoint and key with `config openrouter`, as below.
 `note --generate`, using `base_url` from the profile. That private file must be
 owned by you with mode 0600, and its bearer key requires HTTPS. Without named
 model configuration or an override, Crow uses the profile endpoint without a
-key. Keys are never read from ambient API-key environment variables.
+key. `base_url` must be HTTPS, except that plain HTTP is accepted for
+`localhost`, `127.0.0.1` and `[::1]`, such as `http://localhost:8000/v1`.
+Keys are never read from ambient API-key environment variables.
 
 The primary admin is stored in SQLite at initialization. Changing `admin` in
 JSON alone is rejected. Create a fresh profile to choose another authority.
@@ -285,9 +298,12 @@ cannot grant access. A `friend` is a human approved by the admin. A `bot` is an
 AI account explicitly approved by the admin. In enabled group rooms, both can
 use `!crow`, mention Crow using the client's mention picker, or address its
 full account ID, for example `@crow:example.org: Help me plan my afternoon`.
-OpenRouter also judges informal addressing such as “what do you think, crow?”
-and clear follow-ups to its answers. Merely discussing Crow, quoting a request
-or talking to someone else should leave it silent. A bare `!crow` or account ID
+Addressing Crow by name also works, as in “crow, where am I?”, “hey crow
+help” or “what do you think, crow?”. The name must close the message, open it
+followed by a comma or colon, or follow a greeting such as “hey”, “hi”, “ok” or
+“hello” with any punctuation between.
+Discussing Crow, talking about crows and follow-ups without the name leave it
+silent. A bare `!crow` or account ID
 shows help. Existing commands also work after a leading account-ID mention.
 Crow does not reply to unknown participants until the admin approves them.
 Their messages in enabled rooms still contribute to room observations.
@@ -330,31 +346,25 @@ requests have a five-second deadline and failures do not prevent replies.
 If the homeserver cannot receive a clear, the last notification expires.
 Silent room observations and ignored or duplicate messages do not start typing.
 
-Every nonempty text message in an enabled group room goes through a silent
-OpenRouter observation call, including messages from unapproved accounts.
-That call receives no tools and returns a factual observation plus an addressing
-decision. It sees bounded room context and the sender's recent exchanges with
-Crow in that room. Addressed messages from approved accounts then
-follow the normal command or tool-enabled request path, so a model question
-uses two calls. Crow stays quiet unless addressed or executing a scheduled
-action. This increases OpenRouter usage in active rooms.
-Model-inferred addressing enters natural-language handling. Literal admin and
-tool commands still require explicit addressing or a DM. Failed or malformed
-judgments leave implicit messages silent. Explicit commands, mentions and DMs
-continue working independently of the model's addressing decision. Verbose
-logs include `model_addressed=true|false` without message contents.
+Every nonempty text message in an enabled group room is stored as room
+context without a model request, including messages from unapproved accounts.
+The stored messages accompany the next addressed request in that room, so a
+question costs one model call however busy the room is. Crow stays quiet unless
+addressed or executing a scheduled action. Addressing by name enters
+natural-language handling. Literal admin and tool commands still require
+explicit addressing or a DM. Logs record `addressed=true|false` without
+message contents.
 
-The `room_observations` table retains bounded message excerpts and model notes
-with sender, room, event ID and timestamp. Bounds use the profile's context
+The `room_observations` table retains bounded message excerpts with sender,
+room, event ID and timestamp. Bounds use the profile's context
 message and byte settings. Observations survive restart and inform later
 authorized requests and scheduled actions in the same room. They are treated
 as untrusted data, separate from shared memory facts and private DM history.
 `reset` removes the caller's observations in that room as well as their thread
 and affected summaries.
 Revocation removes their existing observations, but future messages in enabled
-rooms can still be observed without granting access. Provider failures retain
-the original excerpt. Full observation exchanges use `room-observation`
-provenance in `model_traces`. Crow still skips messages sent while offline.
+rooms can still be stored without granting access. Crow still skips messages
+sent while offline.
 Requests are processed serially within a profile.
 
 The admin and friends can ask “crow, which rooms are you in?” or “what do you
@@ -363,8 +373,23 @@ know about this room?”. `matrix_rooms` lists joined rooms, five per page.
 state, DM marker, member counts and known joined or invited accounts. Its
 `room` argument defaults to the requesting room. Both return `next_after` for
 pagination. `members_complete=false` identifies incomplete synchronized
-membership. These tools read the live Matrix state without network, filesystem
-or message-sending capabilities. They expose no message history or credentials.
+membership. These tools read the live Matrix state without network or
+filesystem capabilities. They expose no message history or credentials.
+
+The admin and friends can ask Crow to post for them, for example “post this
+paper in Satellite of Love for Nick” or “DM Nick this link”. `matrix_send`
+takes Markdown `text` and exactly one target:
+
+- `room`, a joined room's ID or canonical alias. The requester must be a member
+  of that room, so Crow cannot be used to post into a room someone is not in.
+- `user`, the Matrix ID of the admin or an approved friend. Crow sends only to
+  an existing DM whose complete membership is Crow and that person. It does not
+  create DMs, so the recipient must have started one with Crow.
+
+Messages are sent as notices ending with “(sent at the request of
+@user:server)”. The system prompt tells Crow to send only when the requester
+explicitly asks, never on its own initiative or because a room message or tool
+result asks. Each send is in the tool log with its arguments.
 
 ## Shared memory
 
@@ -403,6 +428,47 @@ crowthebot memory --profile crow-home search jasmine
 crowthebot memory --profile crow-home get 1
 crowthebot memory --profile crow-home erase 1
 ```
+
+## Voice messages
+
+Crow transcribes Matrix voice messages on this Mac with Apple's on-device
+speech recogniser, so audio never leaves the machine. It needs macOS 26 or
+later. A transcript is treated as a text message from the same sender, marked
+`[voice message]`, so a voice note in a DM gets an answer and one in a group
+room is stored as room context unless it addresses Crow by name. Start with a
+wake phrase such as “hey crow, remind me to buy tea” or end with “…, crow?”.
+
+Audio is fetched only from senders in enabled rooms and DMs. Encrypted
+attachments are decrypted and their hash is checked. A recording claiming more
+than 20 MiB or ten minutes is refused before download, and a larger body is
+refused after it. The audio sits in a private temporary file only while it is
+transcribed. Transcription has a 120-second limit, and a recording with no
+recognisable speech is ignored. The `Voice message transcribed` log line,
+at info level, includes the sender and the transcript text, unlike other
+message logs.
+
+`voice_locale` selects the language, such as `en-GB`, and defaults to the
+system locale. The first transcription in a language downloads its model.
+`apple-speech locales --installed` lists the installed ones. Set
+`voice_messages = false` to ignore voice messages.
+
+## Improvement requests
+
+Crow records requests to improve itself in a Markdown file that a coding agent
+can read. The admin and allowed friends can ask for a feature, report a bug or
+ask for different behaviour, and Crow calls `improvement_record` with a title,
+details and a kind of `feature`, `fix` or `behaviour`. Crow may also record a
+missing capability that blocked a task. `improvement_list` shows recent entries
+so that Crow can avoid duplicates.
+
+The file is `improvements.md` in the profile directory, created with mode 0600.
+Set `improvements_file` to another path, relative to the profile directory
+unless absolute, or to an empty string to disable the tools. Each entry is a
+`##` heading with its UTC time, kind and title, then the requester, room and
+event, then the details as a block quote. Crow only appends, so an agent or
+person can edit or delete entries once they are handled. Entries are untrusted
+user input. The file holds at most 1 MiB, after which recording fails until it
+is tidied.
 
 ## Reminders and scheduled actions
 
@@ -446,6 +512,12 @@ the current time. Jobs past `until` do not fire. Revoking a creator cancels thei
 reminders. Cancelling a job or erasing its linked fact stops subsequent actions
 and suppresses an in-flight answer before delivery. Already completed tool
 effects and queued Matrix sends cannot be undone.
+
+A recurring reminder whose action fails, such as a poll of a dead feed, waits
+2, 4, 8, 16, 32 and then 60 minutes before running again, or until its next
+occurrence if that is later. After 8 consecutive failures Crow cancels the
+reminder and logs `Reminder N cancelled after 8 consecutive failures`. Create
+it again once the cause is fixed.
 
 ## Tool log and daily notes
 
@@ -1230,7 +1302,7 @@ migrated by renaming the file after `crowthebot init` writes a TOML template.
 The important model settings are:
 
 ```toml
-backend = "openrouter" # Crow currently runs OpenRouter; other adapters are Agentkit-only
+backend = "openrouter" # "ds4" runs a local GGUF through Agentkit
 model = "Qwen/Qwen3.8-27B-FP8"
 model_path = ""         # local GGUF path for ds4
 cache_dir = ""          # optional DS4 cache directory
@@ -1239,9 +1311,13 @@ log_level = "info"      # quiet, error, warning, info, debug
 [...]
 ```
 
-The selected log level is applied after the profile is loaded. Crow currently
-requires `backend = "openrouter"`; selecting `ds4` or `apple-fm` fails closed
-until their native tool codecs are connected to Crow's dynamic tool catalogue.
+The selected log level is applied after the profile is loaded. With
+`backend = "ds4"`, `model_path` must name a local GGUF file (relative paths
+are relative to the profile directory). Crow converts its generic Agentkit
+tools to DS4's native tool protocol while retaining the same authorization and
+audit dispatcher. `cache_dir` defaults to `.ds4-cache` in the profile. Apple
+Foundation Models remain unavailable in Crow until their native runtime is
+connected.
 In the primary
 administrator's confirmed direct Matrix chat, `inspect sessions`, `inspect
 memory`, and `inspect tools` return bounded, body-safe operational views. They

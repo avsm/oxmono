@@ -368,7 +368,7 @@ let () =
   let assistant =
     Engine.create ~config ~store ~self:"@crow:example.org" ~plugins:[]
       ~now:(fun () -> !time)
-      ~complete:(fun _ tools ->
+      ~complete:(Fake_model.v @@ fun _ tools ->
         if !issued then (Some "Subscribed to your feed.", [])
         else begin
           issued := true;
@@ -402,7 +402,7 @@ let () =
   let cancelled =
     Engine.create ~config ~store ~self:"@crow:example.org" ~plugins:[]
       ~now:(fun () -> !time)
-      ~complete:(fun _ _ ->
+      ~complete:(Fake_model.v @@ fun _ _ ->
         ignore (Feed_store.remove state ~actor:admin model_sub.subscription_id);
         (Some "must not send", []))
     |> fun e -> Engine.with_feeds e feeds

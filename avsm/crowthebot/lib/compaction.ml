@@ -148,15 +148,17 @@ let entries t scope =
         size = String.length body + String.length note;
         json =
           object_
-            [
+            ([
               ("id", Jsont.Json.int id);
               ("event", Jsont.Json.string event);
               (role_key, Jsont.Json.string role);
               ("at", Jsont.Json.string (str 3));
               ("message", Jsont.Json.string body);
-              ("observation", Jsont.Json.string note);
               ("source_event", Jsont.Json.string (str 5));
-            ];
+            ]
+            @
+            if note = "" then []
+            else [ ("observation", Jsont.Json.string note) ]);
       })
 
 let groups scope entries =
@@ -201,7 +203,10 @@ let prepare t scope ~max_messages ~max_bytes ~incoming_messages ~incoming_bytes
   then None
   else
     let limit = min 6000 (max_bytes / 4) in
-    let keep_messages = min 8 (max 0 (max_messages - incoming_messages))
+    let keep_messages =
+      min
+        (max 8 (max_messages * 2 / 5))
+        (max 0 (max_messages - incoming_messages))
     and keep_bytes = max 0 ((max_bytes * 3 / 4) - limit - incoming_bytes) in
     let rec older count bytes = function
       | [] -> []

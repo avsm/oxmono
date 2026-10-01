@@ -258,7 +258,7 @@ let () =
           ~config:(Config.default ~admin ~homeserver:"https://example.test")
           ~store ~self:"@crow:example.test" ~plugins:[]
           ~now:(fun () -> !now)
-          ~complete:(fun _ tools ->
+          ~complete:(Fake_model.v @@ fun _ tools ->
             incr round;
             if !round = 1 then (
               check "engine advertises only configured tool modes"

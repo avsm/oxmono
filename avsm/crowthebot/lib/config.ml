@@ -13,8 +13,12 @@ type t = {
   context_messages : int;
   context_bytes : int;
   max_tokens : int;
+  compaction_reasoning_effort : string option;
   log_level : string;
   log_file : string option;
+  improvements_file : string option;
+  voice_messages : bool;
+  voice_locale : string option;
 }
 
 let legacy_prompt =
@@ -51,9 +55,13 @@ let default ~admin ~homeserver =
     plugins = [];
     context_messages = 20;
     context_bytes = 40000;
-    max_tokens = 1024;
+    max_tokens = 4096;
+    compaction_reasoning_effort = Some "none";
     log_level = "warning";
     log_file = None;
+    improvements_file = Some "improvements.md";
+    voice_messages = true;
+    voice_locale = None;
   }
 
 let upgrade t =
@@ -85,8 +93,12 @@ let jsont =
       context_messages
       context_bytes
       max_tokens
+      compaction_reasoning_effort
       log_level
       log_file
+      improvements_file
+      voice_messages
+      voice_locale
     ->
       {
         admin;
@@ -106,8 +118,15 @@ let jsont =
         context_messages;
         context_bytes;
         max_tokens;
+        compaction_reasoning_effort =
+          (if compaction_reasoning_effort = "" then None
+           else Some compaction_reasoning_effort);
         log_level;
         log_file;
+        improvements_file =
+          (if improvements_file = "" then None else Some improvements_file);
+        voice_messages;
+        voice_locale = (if voice_locale = "" then None else Some voice_locale);
       })
   |> mem "admin" Jsont.string ~enc:(fun t -> t.admin)
   |> mem "homeserver" Jsont.string ~enc:(fun t -> t.homeserver)
@@ -121,14 +140,27 @@ let jsont =
   |> mem "context_messages" Jsont.int ~enc:(fun t -> t.context_messages)
   |> mem "context_bytes" Jsont.int ~enc:(fun t -> t.context_bytes)
   |> mem "max_tokens" Jsont.int ~enc:(fun t -> t.max_tokens)
+  |> mem "compaction_reasoning_effort" Jsont.string
+       ~dec_absent:(fun () -> "none")
+       ~enc:(fun t -> Option.value ~default:"" t.compaction_reasoning_effort)
   |> mem "log_level" Jsont.string ~dec_absent:(fun () -> "info") ~enc:(fun t -> t.log_level)
   |> mem "log_file" (Jsont.option Jsont.string) ~dec_absent:(fun () -> None) ~enc:(fun t -> t.log_file)
+  |> mem "improvements_file" Jsont.string
+       ~dec_absent:(fun () -> "improvements.md")
+       ~enc:(fun t -> Option.value ~default:"" t.improvements_file)
+  |> mem "voice_messages" Jsont.bool
+       ~dec_absent:(fun () -> true)
+       ~enc:(fun t -> t.voice_messages)
+  |> mem "voice_locale" Jsont.string
+       ~dec_absent:(fun () -> "")
+       ~enc:(fun t -> Option.value ~default:"" t.voice_locale)
   |> finish
 
 let tomlt =
   let open Tomlt.Table in
   obj (fun admin homeserver base_url backend model model_path cache_dir system_prompt plugins
-      context_messages context_bytes max_tokens log_level log_file ->
+      context_messages context_bytes max_tokens compaction_reasoning_effort
+      log_level log_file improvements_file voice_messages voice_locale ->
     let backend =
       match backend with
       | "openrouter" -> Openrouter
@@ -137,8 +169,16 @@ let tomlt =
       | _ -> invalid_arg "backend must be openrouter, ds4 or apple-fm"
     in
     { admin; homeserver; base_url; backend; model; model_path = if model_path = "" then None else Some model_path; cache_dir = if cache_dir = "" then None else Some cache_dir; system_prompt; plugins = Array.to_list plugins;
-      context_messages; context_bytes; max_tokens; log_level;
-      log_file = if log_file = "" then None else Some log_file })
+      context_messages; context_bytes; max_tokens;
+      compaction_reasoning_effort =
+        (if compaction_reasoning_effort = "" then None
+         else Some compaction_reasoning_effort);
+      log_level;
+      log_file = if log_file = "" then None else Some log_file;
+      improvements_file =
+        (if improvements_file = "" then None else Some improvements_file);
+      voice_messages;
+      voice_locale = (if voice_locale = "" then None else Some voice_locale) })
   |> mem "admin" Tomlt.string ~enc:(fun t -> t.admin)
   |> mem "homeserver" Tomlt.string ~enc:(fun t -> t.homeserver)
   |> mem "base_url" Tomlt.string ~enc:(fun t -> t.base_url)
@@ -151,9 +191,17 @@ let tomlt =
   |> mem "plugins" (Tomlt.array Tomlt.string) ~dec_absent:[||] ~enc:(fun t -> Array.of_list t.plugins)
   |> mem "context_messages" Tomlt.int ~dec_absent:20 ~enc:(fun t -> t.context_messages)
   |> mem "context_bytes" Tomlt.int ~dec_absent:40000 ~enc:(fun t -> t.context_bytes)
-  |> mem "max_tokens" Tomlt.int ~dec_absent:1024 ~enc:(fun t -> t.max_tokens)
+  |> mem "max_tokens" Tomlt.int ~dec_absent:4096 ~enc:(fun t -> t.max_tokens)
+  |> mem "compaction_reasoning_effort" Tomlt.string ~dec_absent:"none"
+       ~enc:(fun t -> Option.value ~default:"" t.compaction_reasoning_effort)
   |> mem "log_level" Tomlt.string ~dec_absent:"info" ~enc:(fun t -> t.log_level)
   |> mem "log_file" Tomlt.string ~dec_absent:"" ~enc:(fun t -> Option.value ~default:"" t.log_file)
+  |> mem "improvements_file" Tomlt.string ~dec_absent:"improvements.md"
+       ~enc:(fun t -> Option.value ~default:"" t.improvements_file)
+  |> mem "voice_messages" Tomlt.bool ~dec_absent:true
+       ~enc:(fun t -> t.voice_messages)
+  |> mem "voice_locale" Tomlt.string ~dec_absent:""
+       ~enc:(fun t -> Option.value ~default:"" t.voice_locale)
   |> finish
 
 let of_toml_string s =
@@ -163,7 +211,7 @@ let of_toml_string s =
 
 let validate t =
   ignore (Matrix_proto.Id.User_id.of_string_exn t.admin);
-  let http_url ~secure text =
+  let http_url ~loopback text =
     match Uriz.of_string text with
     | Null -> invalid_arg "invalid server URL"
     | This url -> (
@@ -176,18 +224,21 @@ let validate t =
         with
         | This scheme, This host, Null, Null, Null
           when host <> ""
-               && (scheme = "https" || (scheme = "http" && not secure)) ->
+               && (scheme = "https"
+                  || scheme = "http" && loopback
+                     && List.mem host
+                          [ "localhost"; "127.0.0.1"; "::1"; "[::1]" ]) ->
             ()
         | _ ->
             invalid_arg
-              "server URL requires HTTP(S), no credentials, query or fragment")
+              "server URL requires HTTPS, or HTTP to a loopback base_url, \
+               with no credentials, query or fragment")
   in
-  http_url ~secure:true t.homeserver;
-  (* The fallback model endpoint carries private Matrix and tool context. HTTP
-     is deliberately unavailable here; a local or otherwise explicitly
-     trusted HTTP model must be configured as a named [openrouter] secret with
-     its [allow_http] setting. *)
-  http_url ~secure:true t.base_url;
+  http_url ~loopback:false t.homeserver;
+  (* The fallback model endpoint carries private Matrix and tool context, so
+     plain HTTP is accepted only when it cannot leave the host. Other trusted
+     HTTP models need a named [openrouter] secret with [allow_http]. *)
+  http_url ~loopback:true t.base_url;
   if not (List.mem t.log_level ["quiet"; "error"; "warning"; "info"; "debug"]) then
     invalid_arg "invalid log level";
   if
@@ -196,4 +247,13 @@ let validate t =
     || t.context_messages < 2 || t.context_messages > 100
     || t.context_bytes < 1024 || t.context_bytes > 100000 || t.max_tokens < 1
     || t.max_tokens > 8192
-  then invalid_arg "invalid model or context limits"
+  then invalid_arg "invalid model or context limits";
+  let effort_char = function
+    | 'a' .. 'z' | '0' .. '9' | '_' | '-' -> true
+    | _ -> false
+  in
+  Option.iter
+    (fun e ->
+      if String.length e > 32 || not (String.for_all effort_char e) then
+        invalid_arg "invalid compaction_reasoning_effort")
+    t.compaction_reasoning_effort

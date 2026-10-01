@@ -1,4 +1,5 @@
 open Crowthebot
+
 module R = Jmap_eio.Calendars
 module S = Calendar_store
 
@@ -255,7 +256,7 @@ let () =
       in
       let engine =
         Engine.create ~config ~store ~self:"@crow:example.test" ~plugins:[]
-          ~complete:(fun _ _ -> failwith "mechanical sync must not call model")
+          ~complete:(Fake_model.v @@ fun _ _ -> failwith "mechanical sync must not call model")
           ~now:(fun () -> !clock)
         |> fun engine -> Engine.with_calendars engine calendars
       in

@@ -1,14 +1,9 @@
 (** Daily notes generated from bounded batches of persisted tool-use records. *)
 
-type complete =
-  Openrouter.Message.t list ->
-  Agentkit.Agent.Tool.t list ->
-  string option * Agentkit.Agent.tool_call list
-
 val generate :
   store:Store.t ->
   config:Config.t ->
-  complete:complete ->
+  complete:Agentkit.Chat.complete ->
   day:string ->
   Store.daily_note
 (** [generate ~store ~config ~complete ~day] summarizes a completed UTC day.

@@ -225,6 +225,18 @@ val claim_reminder : t -> reminder -> next_at:float option -> int option
 
 val finish_reminder : t -> int -> status:string -> unit
 
+val reminder_failures : t -> int -> int
+(** [reminder_failures t id] is the number of consecutive failed runs ending
+    with the most recent, at most 32. *)
+
+val defer_reminder : t -> int -> until:float -> unit
+(** [defer_reminder t id ~until] moves an active reminder's next run to no
+    earlier than [until]. *)
+
+val suspend_reminder : t -> int -> unit
+(** [suspend_reminder t id] cancels an active reminder without an actor, for the
+    scheduler's own failure policy. *)
+
 val feeds : t -> Feed_store.t
 (** [feeds t] is the typed feed-state capability for this profile. Its SQL
     transactions share the authority store's lock. *)

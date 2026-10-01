@@ -131,7 +131,7 @@ let () =
     Engine.create
       ~config:(Config.default ~admin ~homeserver:"https://example.org")
       ~store ~self ~plugins:[]
-      ~complete:(fun _ _ ->
+      ~complete:(Fake_model.v @@ fun _ _ ->
         incr calls;
         (Some secret, []))
       ~now:(fun () -> !clock)
@@ -190,7 +190,7 @@ let () =
       ~config:(Config.default ~admin ~homeserver:"https://example.org")
       ~store ~self ~plugins:[]
       ~now:(fun () -> 0.)
-      ~complete:(fun _ tools ->
+      ~complete:(Fake_model.v @@ fun _ tools ->
         incr step;
         if !step <= 6 then begin
           check "tools remain available for all six calls" (tools <> []);

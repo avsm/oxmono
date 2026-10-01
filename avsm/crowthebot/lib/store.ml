@@ -752,6 +752,34 @@ let claim_reminder t (job : reminder) ~next_at =
     sql t.db "ROLLBACK";
     raise exn
 
+let reminder_failures t reminder_id =
+  locked t (fun () ->
+      let statuses =
+        rows t.db
+          "SELECT status FROM reminder_runs WHERE reminder_id=? ORDER BY id \
+           DESC LIMIT 32"
+          [ integer reminder_id ]
+          (fun s -> Sqlite3.column_text s 0)
+      in
+      let rec count n = function
+        | "error" :: rest -> count (n + 1) rest
+        | _ -> n
+      in
+      count 0 statuses)
+
+let defer_reminder t reminder_id ~until =
+  locked t (fun () ->
+      execute t.db
+        "UPDATE reminders SET next_at=max(next_at,?) WHERE id=? AND \
+         state='active'"
+        [ Sqlite3.Data.FLOAT until; integer reminder_id ])
+
+let suspend_reminder t reminder_id =
+  locked t (fun () ->
+      execute t.db
+        "UPDATE reminders SET state='cancelled' WHERE id=? AND state='active'"
+        [ integer reminder_id ])
+
 let finish_reminder t id ~status =
   locked t (fun () ->
       execute t.db "UPDATE reminder_runs SET status=?,finished_at=? WHERE id=?"

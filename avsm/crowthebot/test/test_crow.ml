@@ -78,7 +78,7 @@ let () =
       }
   in
   let engine =
-    Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete
+    Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete:(Fake_model.v complete)
       ~now:(fun () -> !clock)
   in
   let send s = replies := s :: !replies in
@@ -166,11 +166,39 @@ let () =
   check "HTTP model endpoint rejected"
     (bad (fun () ->
          Config.validate { config with base_url = "http://model.example/v1" }));
+  check "HTTP loopback model endpoint accepted"
+    (List.for_all
+       (fun base_url ->
+         not (bad (fun () -> Config.validate { config with base_url })))
+       [
+         "http://localhost:8000/v1";
+         "http://127.0.0.1:8000/v1";
+         "http://[::1]:8000/v1";
+       ]);
+  check "compaction reasoning defaults to none for older profiles"
+    (match
+       Config.of_toml_string
+         {|admin = "@admin:example.org"
+homeserver = "https://matrix.example.org"
+base_url = "https://model.example/v1"
+model = "m"
+system_prompt = "p"|}
+     with
+    | Ok c -> c.compaction_reasoning_effort = Some "none" && c.max_tokens = 4096
+    | Error _ -> false);
+  check "invalid compaction reasoning rejected"
+    (bad (fun () ->
+         Config.validate
+           { config with compaction_reasoning_effort = Some "high\nmax" }));
+  check "HTTP loopback lookalike rejected"
+    (bad (fun () ->
+         Config.validate
+           { config with base_url = "http://localhost.example:8000/v1" }));
   check "disabled plugin rejected"
     (bad (fun () ->
          ignore
            (Engine.create ~config:{ config with plugins = [ "missing" ] }
-              ~store ~self ~plugins:[ plugin ] ~complete ~now:(fun () -> 0.))));
+              ~store ~self ~plugins:[ plugin ] ~complete:(Fake_model.v complete) ~now:(fun () -> 0.))));
   let native =
     Openrouter.of_fetch ~base_url:"https://model.example/v1"
       (Fetch_mock.client (fun req ->
@@ -197,10 +225,11 @@ let () =
              {|{"id":"1","model":"test","created":1,"object":"chat.completion","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"CROW_OK"}}]}|}
              req))
   in
-  let text, calls =
-    App.complete env config native [ Openrouter.Message.user "hi" ] []
+  let r =
+    App.complete env config native
+      (Agentkit.Chat.request [ Agentkit.Chat.User "hi" ])
   in
-  check "native model adapter" (text = Some "CROW_OK" && calls = []);
+  check "native model adapter" (r.text = Some "CROW_OK" && r.calls = []);
   let forged = ref false in
   let hostile _ _ =
     if !forged then (Some "Granted", [])
@@ -218,7 +247,7 @@ let () =
     end
   in
   let attacker =
-    Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete:hostile
+    Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete:(Fake_model.v hostile)
       ~now:(fun () -> 0.)
   in
   Engine.handle attacker ~send (event ~sender:admin "forgery" "!crow ask hello");
@@ -229,7 +258,7 @@ let () =
       [ Agentkit.Agent.{ id = "repeat"; name = "test"; arguments = "{}" } ] )
   in
   let looping =
-    Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete:repeat
+    Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete:(Fake_model.v repeat)
       ~now:(fun () -> 0.)
   in
   check "tool budget rejects infinite rounds"
@@ -245,7 +274,7 @@ let () =
     if !hung then Eio.Promise.await pending else (Some "recovered", [])
   in
   let cancellable =
-    Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete
+    Engine.create ~config ~store ~self ~plugins:[ plugin ] ~complete:(Fake_model.v complete)
       ~now:(fun () -> !tick)
   in
   check "cancellation propagates"

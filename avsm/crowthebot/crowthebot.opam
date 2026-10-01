@@ -35,6 +35,7 @@ depends: [
   "tomlt"
   "agentkit"
   "agentkit-openrouter"
+  "apple-speech"
   "odoc" {with-doc}
 ]
 build: [

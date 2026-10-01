@@ -39,6 +39,7 @@
 
 (package
  (name agentkit-apple-fm)
+ (allow_empty)
  (synopsis "Apple Foundation Models adapter for Agentkit")
  (tags (org:blacksun apple foundation-models llm agent))
  (description
@@ -52,6 +53,7 @@
 
 (package
  (name agentkit-apple-tools)
+ (allow_empty)
  (synopsis "Apple Foundation Models bindings for Agentkit workspace tools")
  (description
   "Specialised Apple tool schemas over the workspace, network, and memory handlers used by Agentkit commands.")
@@ -65,6 +67,7 @@
 
 (package
  (name humpty)
+ (allow_empty)
  (synopsis "A terminal agent over a local DS4 model")
  (tags (org:blacksun ds4 llm agent tui))
  (description
@@ -90,6 +93,7 @@
 
 (package
  (name numpty)
+ (allow_empty)
  (synopsis "A headless agent daemon over a local DS4 model")
  (tags (org:blacksun ds4 llm agent daemon))
  (description
@@ -109,6 +113,7 @@
 
 (package
  (name dumpty)
+ (allow_empty)
  (synopsis "A one-shot agent over a local DS4 model")
  (tags (org:blacksun ds4 llm agent oneshot))
  (description
@@ -138,6 +143,7 @@
 
 (package
  (name agentkit-backends)
+ (allow_empty)
  (synopsis "Combined Agentkit provider registry")
  (depends
   (ocaml (>= 5.2.0))

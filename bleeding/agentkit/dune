@@ -1,0 +1,5 @@
+; Only the core library and the adapters Crow links build in this tree. The
+; daemon, terminal, network tools and their tests need libraries the monorepo
+; does not provide, so they remain source only.
+
+(dirs agentkit ds4_adapter openrouter_adapter test_core)

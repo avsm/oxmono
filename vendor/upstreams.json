@@ -289,14 +289,6 @@
       "scope": "OCaml and C library sources with retained OxCaml patches and Dune build integration. The upstream Makefile is omitted; the imported configure script still supplies C flags."
     },
     {
-      "name": "ocaml-agentkit",
-      "url": "/Users/avsm/src/git/knot/ocaml-deepseek/ocaml-agentkit",
-      "branch": "HEAD",
-      "revision": "f7f89910a5cb0ab77f7b81b632a6daee942aecc9",
-      "base_version": "0.1.0-143-gf7f8991",
-      "scope": "Agentkit core and DS4/Apple adapters copied from the upstream repository; daemon, terminal and tests are retained as source but not part of the Oxmono build."
-    },
-    {
       "name": "ocaml-ds4",
       "url": "git@git.recoil.org:did:plc:m7yloopxm7mu43usylvfw52g",
       "branch": "HEAD",

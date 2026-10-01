@@ -219,9 +219,10 @@ let cmd =
       and+ dry_run = dry_run
       and+ apply = apply in
       guard (fun () ->
-          let _, bundle, report, server, username, password_file =
+          let _, bundle, configured_report, server, username, password_file =
             settings ?bundle ?server ?username ?password_file ()
           in
+          let report = setting report configured_report in
           let collection =
             Option.value collection
               ~default:(Option.value (configured ()).collection ~default:"")

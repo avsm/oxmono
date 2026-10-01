@@ -205,3 +205,6 @@ update it, the FFI, and how to quantise a DeepSeek release yourself.
 - `Tool.raw` in `lib/tool.ml` and `lib/tool.mli` wraps a tool that already has
   a JSON schema and a string handler. `Agentkit_ds4` uses it to run Agentkit's
   backend-neutral tools. It is not upstream.
+- `spawn_worker` in `lib/v4.ml` runs engine jobs on the calling domain rather
+  than through `Eio.Domain_manager`, because a stream captured by the worker
+  domain is not portable under OxCaml. It is not upstream.

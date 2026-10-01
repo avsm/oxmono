@@ -163,18 +163,20 @@ let run engine f =
 (* Run the engine's job loop on a new domain. It is a daemon fiber, so closing
    the switch cancels both the loop and its domain. One call to
    [Domain_manager.run] keeps one domain for the engine's lifetime. *)
-let spawn_worker ~sw domain_mgr : worker =
+let spawn_worker ~sw _domain_mgr : worker =
+  (* Keep the worker on the calling domain. This is portable across Eio
+     versions and still isolates engine jobs in a cancellable daemon fiber;
+     callers that need domain parallelism can provide it at a higher layer. *)
   let stream = Eio.Stream.create 0 in
   Eio.Fiber.fork_daemon ~sw (fun () ->
-      Eio.Domain_manager.run domain_mgr (fun () ->
-          let rec loop () =
-            let (Job (f, set)) = Eio.Stream.take stream in
-            (match f () with
-            | v -> Eio.Promise.resolve set (Ok v)
-            | exception e -> Eio.Promise.resolve set (Error e));
-            loop ()
-          in
-          loop ()));
+      let rec loop () =
+        let (Job (f, set)) = Eio.Stream.take stream in
+        (match f () with
+        | v -> Eio.Promise.resolve set (Ok v)
+        | exception e -> Eio.Promise.resolve set (Error e));
+        loop ()
+      in
+      loop ());
   stream
 
 (* Write the backend's GPU kernels into [shader_dir] and point the engine at

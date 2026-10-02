@@ -2,11 +2,13 @@ type t = {
   state : Location_store.t;
   sources : (string * Owntracks_source.t) list;
   default : string option;
+  fresh_wait : float;
 }
 
 type access = { t : t; actor : string; room : string; event : string }
 
-let create ~state ~sources ~default = { state; sources; default }
+let create ?(fresh_wait = 30.) ~state ~sources ~default () =
+  { state; sources; default; fresh_wait }
 let for_request t ~actor ~room ~event = { t; actor; room; event }
 let configuration = Owntracks_source.configuration
 
@@ -48,9 +50,11 @@ let tools =
     tool "location_get"
       "Get a person's reported location, fix/report timestamps, accuracy and \
        optional Wi-Fi SSID/BSSID and connection type. Refreshes from OwnTracks \
-       unless refresh is false. A reported position is not proof of their \
-       current whereabouts."
-      {|{"type":"object","properties":{"person":{"type":"string","maxLength":256},"refresh":{"type":"boolean"}},"required":["person"],"additionalProperties":false}|};
+       unless refresh is false. fresh=true also asks the phone to report now \
+       and waits up to 30 seconds for a new fix. Use it when someone asks \
+       where they are right now or the latest fix is old. A reported position \
+       is not proof of their current whereabouts."
+      {|{"type":"object","properties":{"person":{"type":"string","maxLength":256},"refresh":{"type":"boolean"},"fresh":{"type":"boolean"}},"required":["person"],"additionalProperties":false}|};
     tool "location_history"
       "Query a linked person's OwnTracks history in an inclusive RFC 3339 \
        from/to interval. Limited to the configured lookback (7 days by \
@@ -393,6 +397,54 @@ let refresh access link =
   let point = Owntracks_source.latest source in
   Location_store.update access.t.state ~actor:access.actor link point
 
+(* The request can wait half a minute, so authority is checked again before
+   the new fix is stored or shown. *)
+let fresh_fix access link =
+  let link = refresh access link in
+  let _, source = source access (Some link.Location_store.connection) in
+  let status message link =
+    object_
+      [ ("location", render link); ("fresh_fix", Jsont.Json.string message) ]
+  in
+  let after =
+    Option.fold ~none:0.
+      ~some:(fun (p : Location_store.point) -> p.recorded_at)
+      link.point
+  in
+  let now = Location_store.now access.t.state in
+  Diagnostics.Tools.info (fun m ->
+      m "Location fresh fix wanted person=%S connection=%S latest_fix=%s \
+         age_min=%s can_request=%b"
+        link.person link.connection
+        (if after > 0. then Store.timestamp after else "none")
+        (if after > 0. then Printf.sprintf "%.0f" ((now -. after) /. 60.)
+         else "unknown")
+        (Owntracks_source.can_request source));
+  if not (Owntracks_source.can_request source) then
+    status "unavailable: this connection cannot send commands" link
+  else
+    match
+      Owntracks_source.fresh_fix ~wait:access.t.fresh_wait
+        ~every:(Float.min 3. (access.t.fresh_wait /. 10.))
+        source ~after
+    with
+    | exception Invalid_argument message -> status message link
+    | fix -> (
+        Location_store.authorize access.t.state ~actor:access.actor;
+        require_link access link;
+        match fix with
+        | Some _ ->
+            status "received"
+              (Location_store.update access.t.state ~actor:access.actor link
+                 fix)
+        | None ->
+            status
+              (Printf.sprintf
+                 "none within %g seconds: the phone may be asleep or may not \
+                  allow remote commands"
+                 access.t.fresh_wait)
+              link)
+
 let visible_links access ~after =
   let rec collect after acc count =
     let rows = Location_store.list access.t.state ~actor:access.actor ~after in
@@ -493,16 +545,21 @@ let invoke access name arguments =
               ])
       | "location_get" -> (
           let codec =
-            Jsont.Object.map (fun person refresh -> (person, refresh))
-            |> Jsont.Object.mem "person" Jsont.string ~enc:fst
+            Jsont.Object.map (fun person refresh fresh ->
+                (person, refresh, fresh))
+            |> Jsont.Object.mem "person" Jsont.string ~enc:(fun (p, _, _) -> p)
             |> Jsont.Object.mem "refresh" Jsont.bool
                  ~dec_absent:(fun () -> true)
-                 ~enc:snd
+                 ~enc:(fun (_, r, _) -> r)
+            |> Jsont.Object.mem "fresh" Jsont.bool
+                 ~dec_absent:(fun () -> false)
+                 ~enc:(fun (_, _, f) -> f)
             |> Jsont.Object.finish
           in
-          let person, update = decode codec arguments in
+          let person, update, fresh = decode codec arguments in
           match Location_store.get state ~actor ~person with
           | None -> invalid_arg "Person has no location link."
+          | Some link when fresh -> fresh_fix access link
           | Some link -> (
               require_link access link;
               if not update then render link

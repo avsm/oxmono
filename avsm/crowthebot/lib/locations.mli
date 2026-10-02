@@ -4,10 +4,15 @@ val configuration : Tool_config.t
 (** [configuration] contributes named Recorder setup to the local CLI. *)
 
 val create :
+  ?fresh_wait:float ->
   state:Location_store.t ->
   sources:(string * Owntracks_source.t) list ->
   default:string option ->
+  unit ->
   t
+(** [create ~state ~sources ~default ()] serves the location tools.
+    [location_get] with [fresh] waits up to [fresh_wait] seconds, 30 by
+    default, for the phone to answer a request. *)
 
 type access
 

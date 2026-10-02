@@ -126,7 +126,8 @@ password="unrelated-mqtt-secret"
   in
   let state = Store.locations store in
   let locations =
-    Locations.create ~state ~sources:[ ("home", source) ] ~default:(Some "home")
+    Locations.create ~state ~sources:[ ("home", source) ]
+      ~default:(Some "home") ()
   in
   let access actor =
     Locations.for_request locations ~actor ~room ~event:"$attach"
@@ -161,6 +162,7 @@ password="unrelated-mqtt-secret"
       ~sources:
         (List.init 37 (fun i ->
              (Printf.sprintf "%02d-%s" i (String.make 60 'x'), source)))
+      ()
   in
   let page_codec =
     Jsont.Object.map (fun users next -> (users, next))

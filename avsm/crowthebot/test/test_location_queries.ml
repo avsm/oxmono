@@ -148,7 +148,7 @@ url="https://maps.example/custom/interpreter"
     let locations =
       Locations.create ~state
         ~sources:[ ("home", source ?config ()) ]
-        ~default:(Some "home")
+        ~default:(Some "home") ()
     in
     Locations.invoke
       (Locations.for_request locations ~actor ~room ~event:"$query")

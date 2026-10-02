@@ -35,6 +35,8 @@ type link = {
 let create ~db ~mutex ~admin ~now ~timestamp =
   { db; mutex; admin; now; timestamp }
 
+let now t = t.now ()
+
 let init db =
   sql db
     {|

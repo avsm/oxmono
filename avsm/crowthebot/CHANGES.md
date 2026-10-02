@@ -1,5 +1,8 @@
 # Changes
 
+- Add `fresh` to `location_get`, which asks the phone for a new OwnTracks fix
+  over MQTT and waits up to 30 seconds for it.
+
 - Pass images to the model when Crow answers, fetched only then.
   `image_messages` turns this off.
 - Send no text reply when a tool already posted to the requesting room.

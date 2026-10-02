@@ -871,6 +871,21 @@ For example, DM Crow: "Use my location history for the last three hours and
 OpenStreetMap to describe the places I passed through, with timestamps and
 source links."
 
+### Fresh fixes
+
+OwnTracks on iOS reports only after significant movement by default, so the
+latest fix can be hours old. `location_get` with `fresh` asks the phone to
+report now: Crow publishes `{"_type":"cmd","action":"reportLocation"}` to
+`owntracks/USER/DEVICE/cmd` using the `[mqtt]` settings in the linked
+OwnTracks config, then checks the Recorder every 3 seconds for up to 30
+seconds. The device identifier in the topic comes from that config's
+`[[owntracks.devices]]` list, because the phone listens with its own casing and
+the Recorder lowercases it. The result says `received` with the new fix, or
+gives the latest fix with the reason none arrived. The phone answers only while
+the app is connected and allows remote commands, which on iOS often means it
+answers on its next wake instead. Each request is a short MQTT connection under
+its own client ID.
+
 ## Read-only CalDAV calendars
 
 Fastmail calendars use CalDAV at `https://caldav.fastmail.com/`. Set up a

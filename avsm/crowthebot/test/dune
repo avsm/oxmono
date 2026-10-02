@@ -257,3 +257,16 @@
  (enabled_if
   (= %{system} macosx))
  (libraries crowthebot eio eio_main jsont jsont.bytesrw matrix-chat.eio))
+
+(test
+ (name test_fresh_fix)
+ (modules test_fresh_fix)
+ (libraries
+  crowthebot
+  logs
+  owntracks.config
+  sqlite3-eio
+  eio_main
+  fetch.mock
+  jsont
+  jsont.bytesrw))

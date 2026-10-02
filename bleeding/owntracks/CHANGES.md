@@ -1,5 +1,8 @@
 # Unreleased
 
+Read `ssid` and `bssid` in lower case too, as the iOS app and the Recorder
+send them, preferring the specified `SSID` and `BSSID` when both appear.
+
 Preserve optional location SSID, BSSID and report creation time through message
 and Recorder codecs. Display them in location output when present.
 

@@ -35,6 +35,9 @@ val create :
   timestamp:(float -> string) ->
   t
 
+val now : t -> float
+(** [now t] is the profile's current time. *)
+
 val authorize : t -> actor:string -> unit
 val validate_label : string -> unit
 val valid_point : now:float -> point -> bool

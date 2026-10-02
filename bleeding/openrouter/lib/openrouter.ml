@@ -234,6 +234,14 @@ end
 module Message = struct
   type t = Api.ChatMessages.T.t
 
+  let to_prompt messages =
+    let encode message =
+      Openapi.Runtime.Json.encode_json Api.ChatMessages.T.jsont message
+      |> Jsont_bytesrw.encode_string Jsont.json
+      |> Result.get_ok
+    in
+    String.concat "\n" (List.map encode messages)
+
   let system content =
     Api.ChatMessages.T.SystemMessage
       (Api.ChatSystemMessage.T.v ~role:"system"

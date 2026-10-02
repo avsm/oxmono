@@ -34,6 +34,10 @@
   owntracks
   owntracks.config
   owntracks.recorder
+  mqttz
+  mqttz.eio
+  mqttz.config
+  mqttz.tls
   uri
   jsont
   jsont.bytesrw

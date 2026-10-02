@@ -51,6 +51,36 @@ let test_messages () =
     "SSID survives codec" (Some "Office Wi-Fi") (O.Location.ssid wifi);
   Alcotest.(check (option string))
     "BSSID survives codec" (Some "02:00:00:00:00:01") (O.Location.bssid wifi);
+  let lower =
+    location_of
+      (O.Message.of_string
+         {|{"_type":"location","lat":51.5,"lon":-0.1,"tst":1700000000,"ssid":"Home","bssid":"02:00:00:00:00:02","conn":"w"}|})
+  in
+  Alcotest.(check (option string))
+    "lower-case ssid from the iOS app and Recorder" (Some "Home")
+    (O.Location.ssid lower);
+  Alcotest.(check (option string))
+    "lower-case bssid from the iOS app and Recorder" (Some "02:00:00:00:00:02")
+    (O.Location.bssid lower);
+  let both =
+    location_of
+      (O.Message.of_string
+         {|{"_type":"location","lat":51.5,"lon":-0.1,"tst":1700000000,"SSID":"Upper","ssid":"lower"}|})
+  in
+  Alcotest.(check (option string))
+    "the specified spelling wins when both appear" (Some "Upper")
+    (O.Location.ssid both);
+  Alcotest.(check bool)
+    "encoding writes only the specified spelling" true
+    (let s = get (O.Message.to_string (O.Message.Location lower)) in
+     let has p =
+       let rec go i =
+         i + String.length p <= String.length s
+         && (String.sub s i (String.length p) = p || go (i + 1))
+       in
+       go 0
+     in
+     has {|"SSID":"Home"|} && not (has {|"ssid"|}));
   Alcotest.(check (option int))
     "report time distinct from fix" (Some 2)
     (O.Location.created_at wifi)

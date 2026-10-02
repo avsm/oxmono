@@ -74,8 +74,12 @@ let topic t = t.topic
 let with_topic topic t = { t with topic = Some topic }
 
 let jsont_bare : t Jsont.t =
-  let make tid tst lat lon alt acc vel cog batt bs conn ssid bssid created_at t
-      m poi inregions addr topic =
+  let make tid tst lat lon alt acc vel cog batt bs conn ssid bssid ssid_lower
+      bssid_lower created_at t m poi inregions addr topic =
+    (* The specification spells these SSID and BSSID, but the iOS app and the
+       Recorder deliver them in lower case. *)
+    let ssid = match ssid with Some _ -> ssid | None -> ssid_lower
+    and bssid = match bssid with Some _ -> bssid | None -> bssid_lower in
     {
       tid;
       tst;
@@ -113,6 +117,8 @@ let jsont_bare : t Jsont.t =
   |> Jsont.Object.opt_mem "conn" Jsont.string ~enc:(fun l -> l.conn)
   |> Jsont.Object.opt_mem "SSID" Jsont.string ~enc:(fun l -> l.ssid)
   |> Jsont.Object.opt_mem "BSSID" Jsont.string ~enc:(fun l -> l.bssid)
+  |> Jsont.Object.opt_mem "ssid" Jsont.string ~enc:(fun _ -> None)
+  |> Jsont.Object.opt_mem "bssid" Jsont.string ~enc:(fun _ -> None)
   |> Jsont.Object.opt_mem "created_at" Owntracks_codec.integer ~enc:(fun l ->
       l.created_at)
   |> Jsont.Object.opt_mem "t" Jsont.string ~enc:(fun l -> l.t)

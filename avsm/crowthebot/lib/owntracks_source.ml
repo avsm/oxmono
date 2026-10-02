@@ -142,9 +142,13 @@ let configuration =
   Tool_config.v ~name:"owntracks"
     ~doc:"Link an existing OwnTracks config and allow one user/device." term
 
+type publish = Mqttz_config.t -> topic:string -> string -> unit
+
 type t = {
   user : string;
   device : string;
+  request : (unit -> unit) option;
+  sleep : float -> unit;
   latest : unit -> Location_store.point option;
   history : from:float -> until:float -> Location_store.point list;
   map : Overpass.t;
@@ -154,10 +158,50 @@ let user t = t.user
 let device t = t.device
 let permits t ~user ~device = t.user = user && t.device = device
 let latest t = t.latest ()
+let can_request t = t.request <> None
+
+let request_fix t =
+  match t.request with
+  | None -> invalid_arg "This OwnTracks connection cannot send commands."
+  | Some request -> request ()
+
+let fresh_fix ?(wait = 30.) ?(every = 3.) t ~after =
+  request_fix t;
+  let newer = function
+    | Some (p : Location_store.point) when p.recorded_at > after -> Some p
+    | _ -> None
+  in
+  let rec poll waited polls =
+    if waited >= wait then begin
+      Diagnostics.Tools.warn (fun m ->
+          m
+            "Location fix not received user=%S device=%S waited_s=%g \
+             polls=%d previous_fix=%s"
+            t.user t.device waited polls
+            (if after > 0. then Store.timestamp after else "none"));
+      None
+    end
+    else begin
+      t.sleep every;
+      let waited = waited +. every in
+      match newer (latest t) with
+      | Some p as fix ->
+          Diagnostics.Tools.info (fun m ->
+              m
+                "Location fix received user=%S device=%S after_s=%g \
+                 recorded_at=%s previous_fix=%s"
+                t.user t.device waited
+                (Store.timestamp p.recorded_at)
+                (if after > 0. then Store.timestamp after else "none"));
+          fix
+      | None -> poll waited (polls + 1)
+    end
+  in
+  poll 0. 1
 let history t ~from ~until = t.history ~from ~until
 let resolve t request = Overpass.resolve t.map request
 
-let initialize ~load ~fetch ~clock ~now json =
+let initialize ?publish ~load ~fetch ~clock ~now json =
   let s =
     try Tool_config.decode jsont json
     with Invalid_argument _ ->
@@ -172,6 +216,42 @@ let initialize ~load ~fetch ~clock ~now json =
   let url, auth = recorder s config in
   let url = if String.ends_with ~suffix:"/" url then url else url ^ "/" in
   let user = s.user and device = s.device in
+  (* The Recorder lowercases device names, but the phone listens on its
+     command topic with the identifier as configured. *)
+  let topic_device =
+    match
+      List.find_opt
+        (fun (d : Owntracks_config.device) ->
+          String.lowercase_ascii d.id = String.lowercase_ascii device)
+        config.owntracks.devices
+    with
+    | Some d -> d.id
+    | None -> device
+  in
+  let request =
+    Option.map
+      (fun (publish : publish) () ->
+        let topic = Printf.sprintf "owntracks/%s/%s/cmd" user topic_device in
+        try
+          Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 15.)
+            (fun () ->
+              publish config.mqtt ~topic
+                {|{"_type":"cmd","action":"reportLocation"}|});
+          Diagnostics.Tools.info (fun m ->
+              m "Location fix requested topic=%S broker=%s:%d" topic
+                config.mqtt.host config.mqtt.port)
+        with
+        | Eio.Cancel.Cancelled _ as exn -> raise exn
+        | exn ->
+            Diagnostics.Tools.warn (fun m ->
+                m "Location fix request failed topic=%S broker=%s:%d error=%s"
+                  topic config.mqtt.host config.mqtt.port
+                  (match exn with
+                  | Eio.Time.Timeout -> "timeout after 15 seconds"
+                  | exn -> Printexc.to_string exn));
+            invalid_arg "Could not send the location request over MQTT.")
+      publish
+  in
   let fetch =
     Fetch.restrict ~methods:[ `GET ]
       ~under:[ url ^ "api/0/locations" ]
@@ -285,6 +365,8 @@ let initialize ~load ~fetch ~clock ~now json =
   {
     user;
     device;
+    request;
+    sleep = Eio.Time.Mono.sleep clock;
     map;
     history =
       (fun ~from ~until ->

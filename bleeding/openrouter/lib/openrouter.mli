@@ -93,6 +93,10 @@ end
 module Message : sig
   type t
 
+  val to_prompt : t list -> string
+  (** [to_prompt] renders a bounded, provider-independent transcript for local
+      model adapters that do not consume OpenRouter wire messages directly. *)
+
   val system : string -> t
   val developer : string -> t
   val user : string -> t

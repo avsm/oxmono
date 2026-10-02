@@ -245,6 +245,30 @@ let location_tools ~env ~sw ~profile ~dir store =
          workspaces.";
     Owntracks_source.load_config path
   in
+  (* One short connection per request, under its own client ID, so it cannot
+     displace another client's session on the broker. *)
+  let publish (mqtt : Mqttz_config.t) ~topic payload =
+    Eio.Switch.run @@ fun sw ->
+    let config =
+      {
+        mqtt.client with
+        client_id = Printf.sprintf "crowthebot-%d-request" (Unix.getpid ());
+      }
+    in
+    let connect =
+      if mqtt.tls then Mqttz_tls.connect ?authenticator:None
+      else Mqttz_eio.connect
+    in
+    let client =
+      connect ~sw ~net:(Eio.Stdenv.net env) ~clock ~config ~host:mqtt.host
+        ~port:mqtt.port ()
+    in
+    Fun.protect
+      ~finally:(fun () -> Mqttz_eio.disconnect client)
+      (fun () ->
+        Mqttz_eio.publish ~qos:`At_least_once client ~topic
+          (Mqttz.Slice.of_string payload))
+  in
   with_secrets ~env ~sw ~profile ~dir (fun secrets ->
       let sources = Secret_store.list secrets ~tool:"owntracks" in
       let default = List.find_opt snd sources |> Option.map fst in
@@ -255,11 +279,11 @@ let location_tools ~env ~sw ~profile ~dir store =
               Option.get (Secret_store.get secrets ~tool:"owntracks" ~name)
             in
             ( name,
-              Owntracks_source.initialize ~load ~fetch:client ~clock ~now
-                settings ))
+              Owntracks_source.initialize ~publish ~load ~fetch:client ~clock
+                ~now settings ))
           sources
       in
-      Locations.create ~state:(Store.locations store) ~sources ~default)
+      Locations.create ~state:(Store.locations store) ~sources ~default ())
 
 let finish_name = function
   | None -> "absent"

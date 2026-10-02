@@ -19,6 +19,8 @@ type t = {
   improvements_file : string option;
   voice_messages : bool;
   voice_locale : string option;
+  speech_voice : string option;
+  image_messages : bool;
 }
 
 let legacy_prompt =
@@ -42,6 +44,8 @@ let default_prompt =
    Act only through your listed tools. Report tool failures honestly. Access \
    grants and role changes belong to the application."
 
+let default_speech_voice = "Grandpa (English (UK))"
+
 let default ~admin ~homeserver =
   {
     admin;
@@ -62,6 +66,8 @@ let default ~admin ~homeserver =
     improvements_file = Some "improvements.md";
     voice_messages = true;
     voice_locale = None;
+    speech_voice = Some default_speech_voice;
+    image_messages = true;
   }
 
 let upgrade t =
@@ -99,6 +105,8 @@ let jsont =
       improvements_file
       voice_messages
       voice_locale
+      speech_voice
+      image_messages
     ->
       {
         admin;
@@ -127,6 +135,8 @@ let jsont =
           (if improvements_file = "" then None else Some improvements_file);
         voice_messages;
         voice_locale = (if voice_locale = "" then None else Some voice_locale);
+        speech_voice = (if speech_voice = "" then None else Some speech_voice);
+        image_messages;
       })
   |> mem "admin" Jsont.string ~enc:(fun t -> t.admin)
   |> mem "homeserver" Jsont.string ~enc:(fun t -> t.homeserver)
@@ -154,13 +164,20 @@ let jsont =
   |> mem "voice_locale" Jsont.string
        ~dec_absent:(fun () -> "")
        ~enc:(fun t -> Option.value ~default:"" t.voice_locale)
+  |> mem "speech_voice" Jsont.string
+       ~dec_absent:(fun () -> default_speech_voice)
+       ~enc:(fun t -> Option.value ~default:"" t.speech_voice)
+  |> mem "image_messages" Jsont.bool
+       ~dec_absent:(fun () -> true)
+       ~enc:(fun t -> t.image_messages)
   |> finish
 
 let tomlt =
   let open Tomlt.Table in
   obj (fun admin homeserver base_url backend model model_path cache_dir system_prompt plugins
       context_messages context_bytes max_tokens compaction_reasoning_effort
-      log_level log_file improvements_file voice_messages voice_locale ->
+      log_level log_file improvements_file voice_messages voice_locale
+      speech_voice image_messages ->
     let backend =
       match backend with
       | "openrouter" -> Openrouter
@@ -178,7 +195,9 @@ let tomlt =
       improvements_file =
         (if improvements_file = "" then None else Some improvements_file);
       voice_messages;
-      voice_locale = (if voice_locale = "" then None else Some voice_locale) })
+      voice_locale = (if voice_locale = "" then None else Some voice_locale);
+      speech_voice = (if speech_voice = "" then None else Some speech_voice);
+      image_messages })
   |> mem "admin" Tomlt.string ~enc:(fun t -> t.admin)
   |> mem "homeserver" Tomlt.string ~enc:(fun t -> t.homeserver)
   |> mem "base_url" Tomlt.string ~enc:(fun t -> t.base_url)
@@ -202,6 +221,10 @@ let tomlt =
        ~enc:(fun t -> t.voice_messages)
   |> mem "voice_locale" Tomlt.string ~dec_absent:""
        ~enc:(fun t -> Option.value ~default:"" t.voice_locale)
+  |> mem "speech_voice" Tomlt.string ~dec_absent:default_speech_voice
+       ~enc:(fun t -> Option.value ~default:"" t.speech_voice)
+  |> mem "image_messages" Tomlt.bool ~dec_absent:true
+       ~enc:(fun t -> t.image_messages)
   |> finish
 
 let of_toml_string s =

@@ -1,5 +1,16 @@
 # Changes
 
+- Pass images to the model when Crow answers, fetched only then.
+  `image_messages` turns this off.
+- Send no text reply when a tool already posted to the requesting room.
+
+- Send voice notes as Opus in Ogg with a waveform, which voice players expect,
+  instead of bare AAC.
+
+- Add `matrix_voice_note`, which speaks a requested reply with the
+  `speech_voice` voice, Grandpa (English (UK)) by default, and posts it as a
+  Matrix voice message.
+
 - Tell the model that `[voice message]` text is a transcribed voice note, so
   it stops claiming it cannot hear voice messages.
 

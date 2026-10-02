@@ -12,15 +12,18 @@ val create :
   self:string ->
   state:(unit -> Matrix_client.Base_client.state option) ->
   ?send:(unit -> sender option) ->
+  ?speak:(unit -> sender option) ->
   unit ->
   t
-(** [create ~store ~self ~state ?send ()] retains an authorization store, Crow's
-    own Matrix ID and a read-only state callback. Without [send], or while it
-    returns [None], [matrix_send] fails. *)
+(** [create ~store ~self ~state ?send ?speak ()] retains an authorization
+    store, Crow's own Matrix ID and a read-only state callback. Without [send],
+    or while it returns [None], [matrix_send] fails. [speak] turns text into a
+    voice note and sends it. Without it [matrix_voice_note] is not offered. *)
 
 val names : string list
 val is_tool : string -> bool
-val tools : Agentkit.Agent.Tool.t list
+val tools : t -> Agentkit.Agent.Tool.t list
+(** [tools t] omits [matrix_voice_note] when [t] cannot speak. *)
 val system_prompt : string
 
 val invoke :
@@ -38,4 +41,6 @@ val invoke :
     [matrix_send] posts to a joined room that [actor] is a member of, or to an
     existing DM whose complete membership is exactly Crow and the recipient. The
     recipient must be the admin or an approved friend. Each message ends with a
-    line naming [actor]. *)
+    line naming [actor].
+
+    [matrix_voice_note] follows the same rules and defaults to [room]. *)

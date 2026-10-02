@@ -25,8 +25,15 @@ type t = {
   voice_messages : bool;  (** transcribe incoming voice messages *)
   voice_locale : string option;
       (** speech locale such as ["en-GB"]. [None] uses the system locale. *)
+  speech_voice : string option;
+      (** voice for spoken notes, as [apple-speech voices] names it. [None]
+          disables them. *)
+  image_messages : bool;  (** pass images to a model that accepts them *)
 }
 (** Non-secret, operator-edited profile settings. *)
+
+val default_speech_voice : string
+(** [default_speech_voice] is ["Grandpa (English (UK))"]. *)
 
 val default : admin:string -> homeserver:string -> t
 val jsont : t Jsont.t

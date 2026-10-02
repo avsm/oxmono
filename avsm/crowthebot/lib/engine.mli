@@ -31,6 +31,7 @@ val handle :
   ?mentioned:bool ->
   ?direct:bool ->
   ?on_accept:(unit -> unit) ->
+  ?attachments:(unit -> Agentkit.Chat.image list) ->
   send:(string -> unit) ->
   event ->
   unit
@@ -46,7 +47,12 @@ val handle :
     events are intentionally skipped. The adapter must supply authentic Matrix
     sender IDs, ignore notices, use an edit's new content and its own event ID,
     strip reply fallbacks, check DM membership, and provide a bounded delivery
-    operation. *)
+    operation.
+
+    [attachments] supplies the event's images and runs only if the model
+    answers, so an image that is never answered is never fetched. When a tool
+    posts to the requesting room during the answer, that post is the reply and
+    [send] is not called. *)
 
 val with_feeds : t -> Feeds.t -> t
 (** [with_feeds t feeds] adds feed tools and scheduled polling before serving

@@ -554,6 +554,7 @@ let run ~env ~sw ~profile ~api_key_file =
   in
   let matrix_state = ref (fun () -> None) in
   let matrix_sender = ref (fun () -> None) in
+  let matrix_speaker = ref (fun () -> None) in
   let engine =
     Engine.create ~config ~store
       ~self:(Id.User_id.to_string (Context.user_id ctx))
@@ -576,6 +577,10 @@ let run ~env ~sw ~profile ~api_key_file =
          ~self:(Id.User_id.to_string (Context.user_id ctx))
          ~state:(fun () -> !matrix_state ())
          ~send:(fun () -> !matrix_sender ())
+         ?speak:
+           (Option.map
+              (fun _ () -> !matrix_speaker ())
+              config.speech_voice)
          ())
     |> fun engine ->
     match config.improvements_file with
@@ -686,7 +691,42 @@ let run ~env ~sw ~profile ~api_key_file =
           None
     end
   in
+  (* An image is fetched only when the engine decides to answer, and only
+     where Crow would read text from the same sender. *)
+  let image bot (e : Matrix_bot.Event.envelope) content () =
+    let room = Id.Room_id.to_string (Matrix_bot.Room.id e.room)
+    and sender = Id.User_id.to_string e.sender
+    and id = Id.Event_id.to_string e.event_id in
+    if
+      sender = self
+      || not
+           (List.mem room (Store.rooms store)
+           || direct_peer bot e.room ~actor:sender = Some sender)
+    then []
+    else
+      match
+        with_timeout env 60. (fun () ->
+            Voice.image ~download:(Voice.download (Context.client ctx)) content)
+      with
+      | Ok image ->
+          Log.info (fun m ->
+              m "Image fetched event=%S bytes=%d" id
+                (String.length image.data));
+          [ image ]
+      | Error reason ->
+          Log.warn (fun m ->
+              m "Image not fetched event=%S reason=%s" id reason);
+          []
+      | exception Eio.Time.Timeout ->
+          Log.warn (fun m -> m "Image fetch timed out event=%S" id);
+          []
+  in
   let on_message bot ({ message; original } : Matrix_input.t) =
+    let attachments =
+      if message.content.kind = Matrix_ui.Presentation.Image then
+        image bot message.envelope message.presentation.raw.content
+      else fun () -> []
+    in
     let body =
       match message.content.kind with
       | Matrix_ui.Presentation.Text ->
@@ -696,6 +736,16 @@ let run ~env ~sw ~profile ~api_key_file =
                message.content.body)
       | Audio when config.voice_messages ->
           voice bot message.envelope message.presentation.raw.content
+      | Image when config.image_messages ->
+          (* With a caption the body is the caption, and the file name is
+             separate. Without one the body is only the file name. *)
+          let caption =
+            match message.content.filename with
+            | Some name when name <> message.content.body ->
+                " " ^ message.content.body
+            | _ -> ""
+          in
+          Some ("[image]" ^ caption)
       | _ -> None
     in
     match body with
@@ -762,7 +812,7 @@ let run ~env ~sw ~profile ~api_key_file =
             in
             Engine.handle engine ~mentioned ~direct
               ~on_accept:(fun () -> Typing.start typing)
-              ~send event)
+              ~attachments ~send event)
       with
       | Eio.Cancel.Cancelled _ as exn -> raise exn
       | exn ->
@@ -918,6 +968,37 @@ let run ~env ~sw ~profile ~api_key_file =
                              (Id.Event_id.to_string id));
                        Ok (Id.Event_id.to_string id)
                    | outcome -> Error (Diagnostics.sent outcome))));
+      (matrix_speaker :=
+         fun () ->
+           Option.map
+             (fun voice room_id text ->
+               match Matrix_bot.Bot.find_room bot room_id with
+               | None -> Error "room is not available"
+               | Some room -> (
+                   match
+                     Voice.speak ~process_mgr:(Eio.Stdenv.process_mgr env)
+                       ~voice text
+                   with
+                   | exception Failure m -> Error m
+                   | note -> (
+                       match
+                         Matrix_bot.Sent.await
+                           (Matrix_bot.Room.send_audio room ~voice:true
+                              ~duration:note.duration ~waveform:note.waveform
+                              ~content_type:note.content_type
+                              ~filename:note.filename note.audio)
+                       with
+                       | Matrix_bot.Sent.Sent id ->
+                           Log.info (fun m ->
+                               m
+                                 "Voice note sent room=%S event=%S type=%s \
+                                  bytes=%d duration_ms=%d"
+                                 (Id.Room_id.to_string room_id)
+                                 (Id.Event_id.to_string id) note.content_type
+                                 (String.length note.audio) note.duration);
+                           Ok (Id.Event_id.to_string id)
+                       | outcome -> Error (Diagnostics.sent outcome))))
+             config.speech_voice);
       (matrix_state :=
          fun () ->
            Some

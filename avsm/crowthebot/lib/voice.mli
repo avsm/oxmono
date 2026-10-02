@@ -26,6 +26,31 @@ val transcribe :
     in a private temporary file that is removed afterwards. It must run inside
     Eio. *)
 
+type note = {
+  audio : string;
+  content_type : string;  (** ["audio/ogg"], or ["audio/mp4"] *)
+  filename : string;
+  duration : int;  (** milliseconds *)
+  waveform : int list;  (** at most 100 levels from 0 to 1024 *)
+}
+(** A spoken voice note ready to upload. *)
+
+val speak : process_mgr:_ Eio.Process.mgr -> voice:string -> string -> note
+(** [speak ~process_mgr ~voice text] synthesises [text] with [voice]. The audio
+    is Opus in Ogg, which Matrix clients expect for a voice message, when
+    [ffmpeg] is installed, and AAC in MPEG-4 otherwise. The duration and
+    waveform come from the synthesised samples. Intermediate files are private
+    and removed. Raises [Failure] if synthesis or encoding fails or the voice is
+    unknown. *)
+
+val image :
+  download:(source -> string) ->
+  Jsont.json ->
+  (Agentkit.Chat.image, string) result
+(** [image ~download content] fetches the image of an [m.image] message,
+    within 20 MiB, and recognises its format from its bytes rather than the
+    sender's claimed type. *)
+
 val download : Matrix_eio.Client.t -> source -> string
 (** [download client source] fetches and, for encrypted media, decrypts and
     verifies the attachment. Raises [Failure] on any error. *)

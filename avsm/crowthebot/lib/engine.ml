@@ -243,10 +243,13 @@ let remember t e ?source_event messages =
 let vocative t body =
   let body = String.lowercase_ascii (String.trim body) in
   let drop n s = String.sub s n (String.length s - n) in
+  (* A transcript or attachment arrives as "[voice message] ..." or
+     "[image] ...", and the address follows the marker. *)
   let body =
-    if String.starts_with ~prefix:Voice.marker body then
-      drop (String.length Voice.marker) body
-    else body
+    match String.index_opt body ']' with
+    | Some i when body <> "" && body.[0] = '[' && i < 32 ->
+        String.trim (drop (i + 1) body)
+    | _ -> body
   in
   let local =
     match String.index_opt t.self ':' with
@@ -397,7 +400,13 @@ let locations t e name arguments =
            ~event:e.id)
         name arguments
 
-let answer t e ?(active = fun () -> true) ?source_event prompt =
+let posted_room =
+  Jsont.Object.map Fun.id
+  |> Jsont.Object.mem "room" Jsont.string ~enc:Fun.id
+  |> Jsont.Object.skip_unknown |> Jsont.Object.finish
+
+let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
+    =
   let source_event = Option.value ~default:e.id source_event in
   Trace.with_context
     {
@@ -458,8 +467,15 @@ let answer t e ?(active = fun () -> true) ?source_event prompt =
        contain recognition errors, such as misheard names. Never say you \
        cannot hear or transcribe voice messages."
   in
+  let image =
+    if not t.config.image_messages then ""
+    else
+      "\nYou can see images. A message that begins [image] has the sender's \
+       image attached, followed by any caption. Answer from what the image \
+       shows. An earlier [image] in the conversation is no longer attached."
+  in
   let system_prompt =
-    t.config.system_prompt ^ identity ^ voice
+    t.config.system_prompt ^ identity ^ voice ^ image
     ^
     if has_memory then
       Memory.system_prompt ^ Cron.system_prompt
@@ -487,7 +503,10 @@ let answer t e ?(active = fun () -> true) ?source_event prompt =
             Agentkit.Chat.Assistant { text = m.body; calls = [] }
           else Agentkit.Chat.User m.body)
         history
-    @ [ Agentkit.Chat.User prompt ]
+    @ [
+        (if images = [] then Agentkit.Chat.User prompt
+         else Agentkit.Chat.User_images { text = prompt; images });
+      ]
   in
   let tools =
     List.map Plugin.tool t.plugins
@@ -499,7 +518,7 @@ let answer t e ?(active = fun () -> true) ?source_event prompt =
       @ (if t.calendars = None then [] else Calendars.tools)
       @ (if t.caldav = None then [] else Caldav_tools.tools)
       @ Option.fold ~none:[] ~some:Emails.tools t.emails
-      @ (if t.matrix = None then [] else Matrix_rooms.tools)
+      @ Option.fold ~none:[] ~some:Matrix_rooms.tools t.matrix
       @ if t.improvements = None then [] else Improvements.tools
     else []
   in
@@ -564,9 +583,21 @@ let answer t e ?(active = fun () -> true) ?source_event prompt =
         Printf.sprintf "%d:%s" (i + 1) (Audit.summary_line summary))
     |> String.concat "; "
   in
+  (* A post to the requesting room is already the reply, so the final text is
+     not sent as well. *)
+  let posted_here = ref false in
   let around (call : Agentkit.Agent.tool_call) f =
     invoke t e ~on_finish:record ~source:"model" ~call_id:call.id
-      ~name:call.name ~arguments:call.arguments f
+      ~name:call.name ~arguments:call.arguments (fun () ->
+        let result = f () in
+        (match result with
+        | Ok output
+          when List.mem call.name [ "matrix_send"; "matrix_voice_note" ] -> (
+            match Jsont_bytesrw.decode_string posted_room output with
+            | Ok room when room = e.room -> posted_here := true
+            | _ -> ())
+        | _ -> ());
+        result)
   in
   let tools =
     match t.config.backend with
@@ -607,8 +638,12 @@ let answer t e ?(active = fun () -> true) ?source_event prompt =
   in
   try
     try
-      Agentkit.Turn.run ~complete:t.complete ~tools ~guard ~dispatch ~around
-        ~check:check_access ~on_event ~max_tokens:t.config.max_tokens messages
+      let text =
+        Agentkit.Turn.run ~complete:t.complete ~tools ~guard ~dispatch ~around
+          ~check:check_access ~on_event ~max_tokens:t.config.max_tokens
+          messages
+      in
+      (text, !posted_here)
     with Agentkit.Turn.Budget_exceeded ->
       failwith "model exceeded the tool-call budget"
   with exn ->
@@ -621,7 +656,7 @@ let answer t e ?(active = fun () -> true) ?source_event prompt =
           (sequence_text ()));
     Printexc.raise_with_backtrace exn bt
 
-let handle_locked t ~mentioned ~direct ~on_accept ~send e =
+let handle_locked t ~mentioned ~direct ~on_accept ~attachments ~send e =
   let observation =
     lazy
       (t.observe_rooms
@@ -795,25 +830,32 @@ let handle_locked t ~mentioned ~direct ~on_accept ~send e =
               if String.length input > min 8192 (t.config.context_bytes / 2)
               then reply "Message too long for this profile's context window."
               else begin
-                let output =
+                let output, posted =
                   match
                     List.find_opt
                       (fun (p : Plugin.t) -> p.name = name)
                       t.plugins
                   with
                   | Some plugin ->
-                      invoke t e ~source:"command" ~call_id:"" ~name
-                        ~arguments:args (fun () ->
-                          if String.length args > 256 then
-                            Error "Query is too long."
-                          else
-                            Ok
-                              (Plugin.clip ~bytes:4096 (plugin.run ~query:args)))
-                  | None -> answer t e (if name = "ask" then args else input)
+                      ( invoke t e ~source:"command" ~call_id:"" ~name
+                          ~arguments:args (fun () ->
+                            if String.length args > 256 then
+                              Error "Query is too long."
+                            else
+                              Ok
+                                (Plugin.clip ~bytes:4096
+                                   (plugin.run ~query:args))),
+                        false )
+                  | None ->
+                      answer t e ~images:(attachments ())
+                        (if name = "ask" then args else input)
                 in
                 (* Recheck authority after any network effects. *)
                 if (Store.person t.store e.sender).allowed then begin
-                  reply output;
+                  if posted then
+                    Log.info (fun m ->
+                        m "Reply already posted by a tool event=%S" e.id)
+                  else reply output;
                   remember t e
                     Store.
                       [
@@ -826,11 +868,14 @@ let handle_locked t ~mentioned ~direct ~on_accept ~send e =
         end
 
 let handle t ?(mentioned = false) ?(direct = false) ?(on_accept = fun () -> ())
-    ~send e =
+    ?(attachments = fun () -> []) ~send e =
   Log.info (fun m -> m "Waiting for agent event=%S room=%S" e.id e.room);
   let result =
     Eio.Mutex.use_rw ~protect:false t.mutex (fun () ->
-        try Ok (handle_locked t ~mentioned ~direct ~on_accept ~send e)
+        try
+          Ok
+            (handle_locked t ~mentioned ~direct ~on_accept ~attachments ~send
+               e)
         with exn -> Error (exn, Printexc.get_raw_backtrace ()))
   in
   match result with
@@ -941,9 +986,11 @@ let fire t ~send (job : Store.reminder) ~run_id =
             body = prompt;
           }
         in
-        let output = answer t e ~active ~source_event:job.event prompt in
+        let output, posted =
+          answer t e ~active ~source_event:job.event prompt
+        in
         if not (active ()) then failwith "reminder cancelled during its action";
-        send output;
+        if not posted then send output;
         acknowledge ();
         remember t e ~source_event:job.event
           Store.

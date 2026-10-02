@@ -151,6 +151,8 @@ profiles are read as a compatibility fallback. The defaults are:
 | `improvements_file` | `improvements.md` |
 | `voice_messages` | `true` |
 | `voice_locale` | system locale |
+| `speech_voice` | `Grandpa (English (UK))` |
+| `image_messages` | `true` |
 | `backend` | `openrouter` |
 | `model_path` | unset |
 | `cache_dir` | unset |
@@ -447,10 +449,40 @@ recognisable speech is ignored. The `Voice message transcribed` log line,
 at info level, includes the sender and the transcript text, unlike other
 message logs.
 
+Crow can also answer with a voice note, but only when asked, as in “hey crow,
+reply with a voice note” or “send Nick a voice note saying I'm running late”.
+`matrix_voice_note` speaks the text with `speech_voice`, which defaults to
+`Grandpa (English (UK))`, and posts it as a Matrix voice message with its
+duration and waveform. Notes are Opus in Ogg, which Matrix clients expect for
+voice messages, when `ffmpeg` is installed, because macOS cannot write Ogg
+itself. Without `ffmpeg` they fall back to AAC in MPEG-4, which some voice
+players show as empty. It goes to the
+requesting room unless another room or a person is named, with the same rules
+as `matrix_send`. In an encrypted room the audio is encrypted before upload.
+`apple-speech voices` lists the voice names. Set `speech_voice = ""` to turn
+voice notes off.
+
 `voice_locale` selects the language, such as `en-GB`, and defaults to the
 system locale. The first transcription in a language downloads its model.
 `apple-speech locales --installed` lists the installed ones. Set
 `voice_messages = false` to ignore voice messages.
+
+## Images
+
+Crow can see images sent to it, if the model accepts them. An image message
+becomes `[image]` followed by any caption, so the usual addressing rules apply:
+an image in a DM gets an answer, and one in a group room is stored as room
+context unless its caption addresses Crow, as in “crow, what is this?”.
+
+The image is fetched only when Crow answers, and only from senders in enabled
+rooms and DMs, with encrypted attachments decrypted and checked. It must be at
+most 20 MiB and a PNG, JPEG, WebP or GIF, recognised from its bytes rather than
+its claimed type. It is sent to the model with the request and not stored.
+Later turns see only the `[image]` text. Set `image_messages = false` for a
+model without vision.
+
+When Crow posts to the requesting room with `matrix_send` or
+`matrix_voice_note`, that post is its reply and it sends no separate text.
 
 ## Improvement requests
 

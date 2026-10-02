@@ -104,11 +104,31 @@ let () =
       (String.concat "," rooms)
   in
   let pending = ref [ initial ] in
+  let uploads = ref [] and events = ref [] in
+  let contains text part =
+    let rec loop i =
+      i + String.length part <= String.length text
+      && (String.sub text i (String.length part) = part || loop (i + 1))
+    in
+    loop 0
+  in
   let fetch =
     Fetch_mock.client (fun request ->
         let url = Fetch.Middleware.Url.to_string request.url in
+        let body =
+          match request.body with Fetch.String s -> s | _ -> ""
+        in
         if String.ends_with ~suffix:"/versions" url then
           Fetch_mock.respond {|{"versions":["v1.11"]}|} request
+        else if contains url "/upload" then begin
+          uploads := body :: !uploads;
+          Fetch_mock.respond {|{"content_uri":"mxc://example.org/voice"}|}
+            request
+        end
+        else if contains url "/send/m.room.message/" then begin
+          events := body :: !events;
+          Fetch_mock.respond {|{"event_id":"$audio"}|} request
+        end
         else
           match !pending with
           | next :: rest ->
@@ -234,6 +254,148 @@ let () =
             (Result.is_error
                (post ~actor:"@guest:example.org"
                   {|{"user":"@admin:example.org","text":"hi"}|}));
+          check "voice notes are offered only when Crow can speak"
+            (not
+               (List.mem "matrix_voice_note"
+                  (List.map Agentkit.Agent.Tool.name
+                     (Matrix_rooms.tools matrix))));
+          let spoken = ref [] in
+          let speaking =
+            Matrix_rooms.create ~store ~self
+              ~state:(fun () -> !state |> Option.map (fun read -> read ()))
+              ~speak:(fun () ->
+                Some
+                  (fun id text ->
+                    spoken := (Id.Room_id.to_string id, text) :: !spoken;
+                    Ok "$voice"))
+              ()
+          in
+          let speak ?(actor = admin) args =
+            Matrix_rooms.invoke speaking ~actor ~room "matrix_voice_note" args
+          in
+          check "voice notes are offered when Crow can speak"
+            (List.mem "matrix_voice_note"
+               (List.map Agentkit.Agent.Tool.name
+                  (Matrix_rooms.tools speaking)));
+          check "a voice note goes to the requesting room by default"
+            (Result.is_ok (speak {|{"text":"Tea at nine."}|})
+            && !spoken = [ (room, "Tea at nine.") ]);
+          check "a voice note can go to an existing DM"
+            (Result.is_ok
+               (speak {|{"user":"@admin:example.org","text":"Hello."}|})
+            && fst (List.hd !spoken) = "!dm:example.org");
+          List.iter
+            (fun (label, actor, args) ->
+              check label (Result.is_error (speak ~actor args)))
+            [
+              ( "voice notes need a member of the room",
+                "@guest:example.org",
+                {|{"text":"hi"}|} );
+              ("voice notes refuse long text", admin,
+                Printf.sprintf {|{"text":"%s"}|} (String.make 2001 'a'));
+              ("voice notes refuse blank text", admin, {|{"text":" "}|});
+            ];
+          check "refused voice notes are never spoken"
+            (List.length !spoken = 2);
+          let replies_here = ref 0 and requests = ref [] in
+          let scripted script =
+            let script = ref script in
+            fun (r : Agentkit.Chat.request) ->
+              requests := r :: !requests;
+              match !script with
+              | next :: rest ->
+                  script := rest;
+                  next
+              | [] -> Agentkit.Chat.response (Some "Done.")
+          in
+          let engine_with complete =
+            Engine.create
+              ~config:
+                (Config.default ~admin ~homeserver:"https://matrix.example.org")
+              ~store ~self ~plugins:[] ~complete ~now:(fun () -> 0.)
+            |> (fun e -> Engine.with_matrix e matrix)
+            |> Engine.with_room_observation
+          in
+          let poster =
+            engine_with
+              (scripted
+                 [
+                   Agentkit.Chat.response
+                     ~calls:
+                       [
+                         {
+                           Agentkit.Agent.id = "post";
+                           name = "matrix_send";
+                           arguments =
+                             {|{"room":"!room:example.org","text":"Paper link."}|};
+                         };
+                       ]
+                     None;
+                   Agentkit.Chat.response (Some "Posted it.");
+                 ])
+          in
+          let posted_before = List.length !sent in
+          Engine.handle poster
+            ~send:(fun _ -> incr replies_here)
+            Engine.
+              {
+                room;
+                sender = admin;
+                id = "$post-here";
+                body = "!crow post the paper here";
+              };
+          check "a post to the requesting room is the reply"
+            (!replies_here = 0 && List.length !sent = posted_before + 1);
+          let fetched = ref 0 in
+          let png = "\x89PNG\r\n\x1a\n" ^ String.make 16 'x' in
+          let attachments () =
+            incr fetched;
+            [ Option.get (Agentkit.Chat.image_of_string png) ]
+          in
+          let viewer = engine_with (scripted []) in
+          let show id body =
+            Engine.handle viewer ~attachments
+              ~send:(fun _ -> incr replies_here)
+              Engine.{ room; sender = admin; id; body }
+          in
+          show "$image-chatter" "[image] lunch was great";
+          check "unaddressed images are never fetched"
+            (!fetched = 0 && !replies_here = 0);
+          show "$image-question" "[image] crow, what is this?";
+          check "addressed images reach the model"
+            (!fetched = 1 && !replies_here = 1
+            &&
+            match List.rev (List.hd !requests).messages with
+            | Agentkit.Chat.User_images { text; images = [ _ ] } :: _ ->
+                text = "[image] crow, what is this?"
+            | _ -> false);
+          (* The library half: one upload, then an m.audio voice message
+             that points at it. *)
+          let target =
+            Option.get (Bot.find_room bot (Id.Room_id.of_string_exn room))
+          in
+          (match
+             Matrix_bot.Sent.await ~timeout:10.
+               (Matrix_bot.Room.send_audio target ~voice:true ~duration:1500
+                  ~waveform:[ 0; 512; 1024 ] ~content_type:"audio/ogg"
+                  ~filename:"Voice message.ogg" "AUDIO-BYTES")
+           with
+          | Matrix_bot.Sent.Sent _ -> ()
+          | outcome ->
+              failwith
+                ("send_audio did not complete: " ^ Diagnostics.sent outcome));
+          check "the audio is uploaded as is in a clear room"
+            (List.mem "AUDIO-BYTES" !uploads);
+          check "the event is a voice message pointing at the upload"
+            (match !events with
+            | body :: _ ->
+                contains body {|"msgtype":"m.audio"|}
+                && contains body {|"url":"mxc://example.org/voice"|}
+                && contains body "org.matrix.msc3245.voice"
+                && contains body {|"duration":1500|}
+                && contains body {|"waveform":[0,512,1024]|}
+                && contains body {|"mimetype":"audio/ogg"|}
+            | [] -> false);
           let edit id new_content =
             message id
               (Printf.sprintf

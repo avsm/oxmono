@@ -42,7 +42,8 @@ let contains text part =
   loop 0
 
 let () =
-  Eio_main.run @@ fun _ ->
+  Eio_main.run @@ fun env ->
+  let process_mgr = Eio.Stdenv.process_mgr env in
   check "plain media source"
     (match Voice.source plain with
     | Ok (Matrix_eio.Media.Plain _) -> true
@@ -104,4 +105,31 @@ let () =
        (Voice.transcribe
           ~download:(serve (String.make (21 * 1024 * 1024) 'x'))
           plain));
-  print_endline "crowthebot: voice message transcription passed"
+  let note =
+    Voice.speak ~process_mgr ~voice:Config.default_speech_voice
+      "Remind me to buy tea tomorrow."
+  in
+  check "the default voice speaks a plausible length"
+    (note.duration > 500 && note.duration < 10000
+    && String.length note.audio > 1000);
+  check "voice notes are Opus in Ogg when ffmpeg is installed"
+    (if Sys.file_exists "/opt/homebrew/bin/ffmpeg" then
+       note.content_type = "audio/ogg"
+       && String.starts_with ~prefix:"OggS" note.audio
+       && note.filename = "Voice message.ogg"
+     else note.content_type = "audio/mp4");
+  check "the waveform has bounded levels and some speech"
+    (List.length note.waveform = 100
+    && List.for_all (fun v -> v >= 0 && v <= 1024) note.waveform
+    && List.exists (fun v -> v > 100) note.waveform);
+  check "the spoken note transcribes back"
+    (match
+       Voice.transcribe ~download:(serve note.audio) ~locale:"en-GB" plain
+     with
+    | Ok text -> contains (String.lowercase_ascii text) "tea"
+    | Error _ -> false);
+  check "an unknown voice is a failure, not the system voice"
+    (match Voice.speak ~process_mgr ~voice:"No Such Voice" "hello" with
+    | _ -> false
+    | exception Failure _ -> true);
+  print_endline "crowthebot: voice message transcription and synthesis passed"

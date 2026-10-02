@@ -256,4 +256,4 @@
  (modules test_voice)
  (enabled_if
   (= %{system} macosx))
- (libraries crowthebot eio_main jsont jsont.bytesrw matrix-chat.eio))
+ (libraries crowthebot eio eio_main jsont jsont.bytesrw matrix-chat.eio))

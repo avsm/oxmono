@@ -20,7 +20,7 @@ val tools : Agentkit.Agent.Tool.t list -> Ds4.Tool.t list
 val transcript : Agentkit.Chat.message list -> string
 (** [transcript messages] renders the messages after a leading system message
     as one prompt, labelling each with its role and each tool result with its
-    call id. *)
+    call id. Images are replaced by a note saying how many were omitted. *)
 
 val complete :
   Ds4.V4.engine ->

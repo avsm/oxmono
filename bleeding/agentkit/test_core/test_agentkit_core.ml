@@ -283,6 +283,49 @@ let test_stream () =
        (function Agentkit.Agent.Cut_off { tokens = 5; _ } -> true | _ -> false)
        !events)
 
+let png = "\x89PNG\r\n\x1a\n" ^ String.make 16 'x'
+
+let test_images () =
+  let format data = Option.map (fun (i : Chat.image) -> i.format)
+      (Chat.image_of_string data) in
+  check "formats come from the bytes"
+    (format png = Some Chat.Png
+    && format "\xff\xd8\xff\xe0rest" = Some Chat.Jpeg
+    && format "GIF89a..." = Some Chat.Gif
+    && format "RIFF\x00\x00\x00\x00WEBPVP8 " = Some Chat.Webp
+    && format "<html>not an image" = None
+    && format "" = None);
+  let seen = ref "" in
+  let fetch =
+    Fetch_mock.client (fun req ->
+        (match req.Fetch.Middleware.body with
+        | Fetch.String s -> seen := s
+        | _ -> ());
+        Fetch_mock.respond
+          ~headers:
+            (Http.Header.of_list [ ("Content-Type", "application/json") ])
+          {|{"id":"c","model":"m","created":1,"object":"chat.completion","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":"red"}}]}|}
+          req)
+  in
+  let client = Openrouter.of_fetch ~base_url:"https://example.test/v1" fetch in
+  let image = Option.get (Chat.image_of_string png) in
+  let r =
+    Agentkit_openrouter.complete client ~model:"m"
+      (Chat.request
+         [ Chat.User_images { text = "What colour?"; images = [ image ] } ])
+  in
+  let contains part =
+    let rec loop i =
+      i + String.length part <= String.length !seen
+      && (String.sub !seen i (String.length part) = part || loop (i + 1))
+    in
+    loop 0
+  in
+  check "images reach the wire as data URLs after the text"
+    (r.text = Some "red"
+    && contains {|"type":"text"|}
+    && contains "data:image/png;base64,")
+
 let () =
   Alcotest.run "agentkit core"
     [
@@ -297,6 +340,12 @@ let () =
           ("bind", `Quick, test_bind);
         ] );
       ("summary", [ ("summary", `Quick, test_summary) ]);
+      ( "images",
+        [
+          ( "images",
+            `Quick,
+            fun () -> Eio_mock.Backend.run_full (fun _ -> test_images ()) );
+        ] );
       ( "openrouter",
         [
           ( "stream",

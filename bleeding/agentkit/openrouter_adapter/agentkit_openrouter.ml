@@ -21,6 +21,21 @@ let messages ms =
     (function
       | Chat.System s -> Openrouter.Message.system s
       | Chat.User s -> Openrouter.Message.user s
+      | Chat.User_images { text; images } ->
+          let format = function
+            | Chat.Png -> Openrouter.Image.Png
+            | Jpeg -> Openrouter.Image.Jpeg
+            | Webp -> Openrouter.Image.Webp
+            | Gif -> Openrouter.Image.Gif
+          in
+          Openrouter.Message.user_parts
+            (Openrouter.Content.text text
+            :: List.map
+                 (fun (i : Chat.image) ->
+                   Openrouter.Content.image
+                     (Openrouter.Image.of_string ~format:(format i.format)
+                        i.data))
+                 images)
       | Chat.Assistant { text; calls } ->
           Openrouter.Message.assistant ~tool_calls:(wire_calls calls) text
       | Chat.Tool_result { id; content } ->

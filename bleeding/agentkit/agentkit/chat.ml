@@ -1,6 +1,25 @@
+type image_format = Png | Jpeg | Webp | Gif
+type image = { format : image_format; data : string }
+
+let image_of_string data =
+  let starts p = String.starts_with ~prefix:p data in
+  let format =
+    if starts "\x89PNG\r\n\x1a\n" then Some Png
+    else if starts "\xff\xd8\xff" then Some Jpeg
+    else if starts "GIF87a" || starts "GIF89a" then Some Gif
+    else if
+      String.length data >= 12
+      && starts "RIFF"
+      && String.sub data 8 4 = "WEBP"
+    then Some Webp
+    else None
+  in
+  Option.map (fun format -> { format; data }) format
+
 type message =
   | System of string
   | User of string
+  | User_images of { text : string; images : image list }
   | Assistant of { text : string; calls : Agent.tool_call list }
   | Tool_result of { id : string; content : string }
 

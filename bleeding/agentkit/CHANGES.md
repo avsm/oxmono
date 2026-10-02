@@ -1,5 +1,7 @@
 # unreleased
 
+- Add `Chat.User_images` and `Chat.image_of_string`, which the OpenRouter
+  adapter sends as image parts and the DS4 adapter notes as omitted.
 - Add `Agentkit.Chat`, one model request over a supplied transcript with
   per-request tools, token budget and reasoning effort, and `complete`
   functions in the OpenRouter and DS4 adapters.

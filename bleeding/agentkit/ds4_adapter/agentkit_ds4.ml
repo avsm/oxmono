@@ -64,6 +64,9 @@ let transcript messages =
     (function
       | Agentkit.Chat.System s -> "System: " ^ s
       | User s -> "User: " ^ s
+      | User_images { text; images } ->
+          Printf.sprintf "User: %s\n[%d image(s) omitted: DS4 reads text only]"
+            text (List.length images)
       | Assistant { text; calls } ->
           "Assistant: " ^ text
           ^ String.concat ""

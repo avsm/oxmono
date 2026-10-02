@@ -11,9 +11,19 @@
     and budget per request, and is told how the reply ended. An adapter provides
     a {!complete} function for that. *)
 
+type image_format = Png | Jpeg | Webp | Gif
+
+type image = { format : image_format; data : string  (** the encoded file *) }
+
+val image_of_string : string -> image option
+(** [image_of_string data] recognises PNG, JPEG, WebP or GIF from the leading
+    bytes of [data], whatever a sender claimed its type to be. *)
+
 type message =
   | System of string
   | User of string
+  | User_images of { text : string; images : image list }
+      (** a user message with images, for a model that accepts them *)
   | Assistant of { text : string; calls : Agent.tool_call list }
   | Tool_result of { id : string; content : string }
       (** the result of the call with that [id], following its assistant

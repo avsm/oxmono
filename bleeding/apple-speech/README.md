@@ -25,11 +25,30 @@ it uses the user's current locale.
 All functions except `available` block on a system thread and must run inside
 Eio.
 
+## Synthesis
+
+```ocaml
+Eio_main.run @@ fun env ->
+Apple_speech.synthesize (Eio.Stdenv.process_mgr env) ~voice:"Daniel"
+  ~text:"Remind me to buy tea at nine." "reply.m4a"
+```
+
+`synthesize` writes M4A (AAC), WAV or AIFF with any installed voice, including
+enhanced and premium voices downloaded in System Settings. `voices` lists them.
+It runs `/usr/bin/say` in a separate process, because Apple's synthesis APIs
+deliver audio only through the main thread's run loop, which an OCaml program
+does not run. The text goes to `say` on standard input, never as an argument,
+and square brackets become parentheses so text cannot carry `say`'s embedded
+`[[...]]` commands. An unknown voice is an error, since `say` itself silently
+falls back to the default.
+
 ## Command
 
     apple-speech transcribe [--locale en-GB] [--timings] [--no-install] FILE...
     apple-speech locales [--installed]
     apple-speech install [--locale en-GB]
+    apple-speech say [--voice NAME] [--rate WPM] [--format m4a|wav|aiff] -o FILE TEXT
+    apple-speech voices
 
 ## Tests
 

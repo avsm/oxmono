@@ -70,9 +70,70 @@ let install =
     (Cmd.info "install" ~doc:"Download a locale's transcription model.")
     Term.(const go $ locale)
 
+let run_env f =
+  Eio_main.run @@ fun env ->
+  try
+    f (Eio.Stdenv.process_mgr env);
+    0
+  with Apple_speech.Error e ->
+    Format.eprintf "apple-speech: %a@." Apple_speech.pp_error e;
+    1
+
+let say =
+  let text =
+    Arg.(
+      required & pos 0 (some string) None & info [] ~docv:"TEXT" ~doc:"Text.")
+  and output =
+    Arg.(
+      required
+      & opt (some string) None
+      & info [ "o"; "output" ] ~docv:"FILE" ~doc:"Audio file to write.")
+  and voice =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "v"; "voice" ] ~docv:"VOICE" ~doc:"Voice name from $(b,voices).")
+  and rate =
+    Arg.(
+      value
+      & opt (some int) None
+      & info [ "r"; "rate" ] ~docv:"WPM" ~doc:"Words per minute, 50 to 700.")
+  and format =
+    Arg.(
+      value
+      & opt
+          (enum
+             [
+               ("m4a", Apple_speech.M4a);
+               ("wav", Apple_speech.Wav);
+               ("aiff", Apple_speech.Aiff);
+             ])
+          Apple_speech.M4a
+      & info [ "f"; "format" ] ~docv:"FORMAT" ~doc:"m4a, wav or aiff.")
+  in
+  let go text output voice rate format =
+    run_env (fun mgr ->
+        Apple_speech.synthesize mgr ?voice ?rate ~format ~text output)
+  in
+  Cmd.v
+    (Cmd.info "say" ~doc:"Synthesise speech into an audio file.")
+    Term.(const go $ text $ output $ voice $ rate $ format)
+
+let voices =
+  let go () =
+    run_env (fun mgr ->
+        List.iter
+          (fun (v : Apple_speech.voice) ->
+            Printf.printf "%-28s %s\n" v.name v.locale)
+          (Apple_speech.voices mgr))
+  in
+  Cmd.v
+    (Cmd.info "voices" ~doc:"List speech voices.")
+    Term.(const go $ const ())
+
 let () =
   exit
     (Cmd.eval'
        (Cmd.group
           (Cmd.info "apple-speech" ~doc:"On-device speech transcription.")
-          [ transcribe; locales; install ]))
+          [ transcribe; locales; install; say; voices ]))

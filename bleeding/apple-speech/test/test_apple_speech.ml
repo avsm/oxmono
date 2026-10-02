@@ -137,8 +137,71 @@ let test_text () =
        ]
     = "Hello. World.")
 
+let mgr = ref None
+
+let process () =
+  match !mgr with Some m -> m | None -> Alcotest.fail "no process manager"
+
+let test_voices () =
+  let voices = Apple_speech.voices (process ()) in
+  check "English voices are installed"
+    (List.exists
+       (fun (v : Apple_speech.voice) ->
+         String.starts_with ~prefix:"en" v.locale && v.name <> "")
+       voices);
+  check "names with spaces keep their locale apart"
+    (List.for_all
+       (fun (v : Apple_speech.voice) ->
+         String.length v.locale >= 4 && not (String.contains v.locale ' '))
+       voices)
+
+let test_round_trip () =
+  List.iter
+    (fun (format, suffix) ->
+      let path = file ("synth." ^ suffix) in
+      Apple_speech.synthesize (process ()) ~format
+        ~text:"Remind me to buy tea at nine." path;
+      check
+        ("synthesised " ^ suffix ^ " has a plausible duration")
+        (let d = Apple_speech.duration path in
+         d > 0.5 && d < 10.);
+      check
+        ("synthesised " ^ suffix ^ " transcribes back")
+        (mentions_tea (Apple_speech.transcribe ~locale:"en-GB" path)))
+    [ (Apple_speech.M4a, "m4a"); (Apple_speech.Wav, "wav") ]
+
+let test_synthesis_input () =
+  let path = file "dash.m4a" and decoy = file "decoy.m4a" in
+  Apple_speech.synthesize (process ()) ~text:("-o " ^ decoy ^ " hello") path;
+  check "leading dashes are text, not options"
+    (Sys.file_exists path && not (Sys.file_exists decoy));
+  check "unknown voices are refused"
+    (match
+       error (fun () ->
+           Apple_speech.synthesize (process ()) ~voice:"No Such Voice"
+             ~text:"hi" (file "x.m4a"))
+     with
+    | Some (Failed _) -> true
+    | _ -> false);
+  List.iter
+    (fun (label, f) ->
+      check label
+        (match f () with
+        | () -> false
+        | exception Invalid_argument _ -> true))
+    [
+      ( "blank text refused",
+        fun () ->
+          Apple_speech.synthesize (process ()) ~text:" " (file "x.m4a") );
+      ( "rate out of range refused",
+        fun () ->
+          Apple_speech.synthesize (process ()) ~rate:5 ~text:"hi"
+            (file "x.m4a") );
+    ]
+
 let () =
-  Eio_main.run @@ fun _ ->
+  Eio_main.run @@ fun env ->
+  mgr := Some (Eio.Stdenv.process_mgr env);
   Alcotest.run "apple-speech"
     [
       ( "speech",
@@ -150,5 +213,8 @@ let () =
           ("silence", `Quick, test_silence);
           ("errors", `Quick, test_errors);
           ("text", `Quick, test_text);
+          ("voices", `Quick, test_voices);
+          ("round trip", `Quick, test_round_trip);
+          ("synthesis input", `Quick, test_synthesis_input);
         ] );
     ]

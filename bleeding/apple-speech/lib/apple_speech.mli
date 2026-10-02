@@ -1,4 +1,4 @@
-(** On-device speech transcription with Apple's Speech framework.
+(** On-device speech transcription and synthesis on macOS.
 
     Transcription uses [SpeechAnalyzer] with a [SpeechTranscriber] module on
     macOS 26 or later. Audio never leaves the machine. Any file that
@@ -62,5 +62,47 @@ val transcribe : ?locale:string -> ?install:bool -> string -> segment list
     model is downloaded first. Otherwise a missing model raises {!Error} with
     {!Assets_missing}. Raises {!Error} for any other failure. *)
 
+val duration : string -> float
+(** [duration path] is the length in seconds of the audio file at [path].
+    Raises {!Error} with {!Unreadable} when it is not audio. *)
+
 val text : segment list -> string
 (** [text segments] joins the segments' text with single spaces. *)
+
+(** {1 Synthesis}
+
+    Speech synthesis runs the system's [/usr/bin/say], which uses the same
+    voices as the rest of macOS, including any enhanced or premium voices
+    downloaded in System Settings. A separate process is needed because
+    Apple's synthesis APIs deliver audio only on the main thread's run loop,
+    which an OCaml program does not run. *)
+
+type voice = {
+  name : string;  (** such as ["Daniel"] or ["Eddy (English (UK))"] *)
+  locale : string;  (** such as ["en_GB"] *)
+  sample : string;  (** the voice's sample sentence *)
+}
+
+val voices : _ Eio.Process.mgr -> voice list
+(** [voices mgr] lists the installed voices. *)
+
+type format =
+  | M4a  (** AAC in MPEG-4, which Matrix clients play *)
+  | Wav  (** 16-bit PCM at 22.05 kHz *)
+  | Aiff
+
+val synthesize :
+  _ Eio.Process.mgr ->
+  ?voice:string ->
+  ?rate:int ->
+  ?format:format ->
+  text:string ->
+  string ->
+  unit
+(** [synthesize mgr ~text path] speaks [text] into the audio file [path],
+    replacing it. [voice] is a name from {!voices} and defaults to the system
+    voice. [rate] is in words per minute, 50 to 700. [format] defaults to
+    {!M4a}. Square brackets in [text] become parentheses, because [say] reads
+    [[[...]]] as embedded commands. Raises [Invalid_argument] for blank text or
+    a rate out of range, and {!Error} for an unknown voice or a failed
+    synthesis. *)

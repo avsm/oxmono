@@ -139,6 +139,25 @@ public func aspInstall(
     }, output)
 }
 
+@_cdecl("asp_duration")
+public func aspDuration(
+  _ path: UnsafePointer<CChar>?, _ output: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?
+) -> Int32 {
+  do {
+    let audio = try AVAudioFile(forReading: URL(fileURLWithPath: try string(path)))
+    let seconds = Double(audio.length) / audio.fileFormat.sampleRate
+    return finish(.success(String(seconds)), output)
+  } catch let error as BridgeError {
+    return finish(.failure(error), output)
+  } catch {
+    return finish(
+      .failure(
+        BridgeError(
+          code: codeUnreadable, message: "cannot read audio: \(error.localizedDescription)")),
+      output)
+  }
+}
+
 @_cdecl("asp_transcribe")
 public func aspTranscribe(
   _ path: UnsafePointer<CChar>?, _ locale: UnsafePointer<CChar>?, _ install: Int32,

@@ -13,6 +13,7 @@ extern int32_t asp_locales(int32_t, char **);
 extern int32_t asp_status(const char *, char **);
 extern int32_t asp_install(const char *, char **);
 extern int32_t asp_transcribe(const char *, const char *, int32_t, char **);
+extern int32_t asp_duration(const char *, char **);
 
 /* Every bridge call returns a code and one string: the result when the code
    is 0, otherwise the error message. */
@@ -85,5 +86,17 @@ CAMLprim value caml_apple_speech_transcribe(value path, value locale,
   caml_leave_blocking_section();
   free(path_copy);
   free(locale_copy);
+  CAMLreturn(pair(code, output));
+}
+
+CAMLprim value caml_apple_speech_duration(value path) {
+  CAMLparam1(path);
+  char *output = NULL;
+  char *copy = strdup(String_val(path));
+  if (copy == NULL) caml_raise_out_of_memory();
+  caml_enter_blocking_section();
+  int32_t code = asp_duration(copy, &output);
+  caml_leave_blocking_section();
+  free(copy);
   CAMLreturn(pair(code, output));
 }

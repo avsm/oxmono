@@ -98,6 +98,81 @@ let send_notice t ?html ?reply_to body =
 
 let send_emote t body = send ~msgtype:`Emote t body
 
+let send_audio t ?(voice = false) ?duration ?waveform ?reply_to ~content_type
+    ~filename data =
+  let obj fields =
+    Jsont.Json.object'
+      (List.map (fun (k, v) -> ((k, Jsont.Meta.none), v)) fields)
+  in
+  let duration_field =
+    Option.fold ~none:[] ~some:(fun ms -> [ ("duration", Jsont.Json.int ms) ])
+      duration
+  in
+  let info =
+    obj
+      ([
+         ("mimetype", Jsont.Json.string content_type);
+         ("size", Jsont.Json.int (String.length data));
+       ]
+      @ duration_field)
+  in
+  let base_content =
+    obj
+      ([
+         ("msgtype", Jsont.Json.string "m.audio");
+         ("body", Jsont.Json.string filename);
+         ("info", info);
+       ]
+      @ (if voice then
+           [
+             ("org.matrix.msc3245.voice", obj []);
+             ( "org.matrix.msc1767.audio",
+               obj
+                 (duration_field
+                 @ Option.fold ~none:[]
+                     ~some:(fun levels ->
+                       [
+                         ( "waveform",
+                           Jsont.Json.list (List.map Jsont.Json.int levels) );
+                       ])
+                     waveform) );
+           ]
+         else [])
+      @ Option.fold ~none:[]
+          ~some:(fun id ->
+            [
+              ( "m.relates_to",
+                obj
+                  [
+                    ( "m.in_reply_to",
+                      obj
+                        [
+                          ( "event_id",
+                            Jsont.Json.string (Id.Event_id.to_string id) );
+                        ] );
+                  ] );
+            ])
+          reply_to)
+  in
+  (* The upload must match the room: a clear upload in an encrypted room would
+     leave the audio readable by the homeserver. *)
+  let original =
+    if encrypted t then
+      Matrix_client.Send_queue.attachment_upload_encrypted ~content_type
+        ~encrypted:
+          (Matrix_client.Encrypted_attachment.encrypt
+             ~random:(Matrix_client.Client.random (base t))
+             data)
+        ~filename ()
+    else
+      Matrix_client.Send_queue.attachment_upload ~content_type ~data ~filename
+        ()
+  in
+  sent t
+    (Matrix_client.Send_queue.send_attachment
+       (Ui.Runtime.send_queue t.runtime)
+       ~room_id:t.room_id ~base_content ~original ())
+
 let react t target key =
   sent t (Ui.Room_timeline.send_reaction (timeline t) ~relates_to:target ~key)
 

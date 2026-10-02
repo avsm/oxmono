@@ -1,5 +1,9 @@
 ## unreleased
 
+`Matrix_bot.Room.send_audio` uploads audio and sends it as an `m.audio`
+message, optionally marked as a voice message with a waveform, encrypting the
+upload in encrypted rooms.
+
 Bot invitations now identify their sender from stripped membership state,
 including pending invitations returned at startup and later invitations.
 

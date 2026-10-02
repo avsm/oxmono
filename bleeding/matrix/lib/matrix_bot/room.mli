@@ -73,6 +73,28 @@ val send_notice :
 (** [send_notice t body] is {!send_text} with an [m.notice] message type, which
     is what a bot's own output should be. *)
 
+val send_audio :
+  t ->
+  ?voice:bool ->
+  ?duration:int ->
+  ?waveform:int list ->
+  ?reply_to:Matrix_proto.Id.Event_id.t ->
+  content_type:string ->
+  filename:string ->
+  string ->
+  Sent.t
+(** [send_audio t ~content_type ~filename data] uploads [data] and queues an
+    [m.audio] message for it, as one send. In an encrypted room the upload is
+    encrypted first and the message carries the key, so the homeserver holds
+    only ciphertext. [duration] is in milliseconds. [voice] marks it as a voice
+    message, which clients show with a player rather than as a file.
+    [waveform] is the shape a voice player draws, as levels from 0 to 1024.
+    Clients expect Opus in Ogg for a voice message.
+    [reply_to] adds the [m.in_reply_to] relation.
+
+    @see <https://github.com/matrix-org/matrix-spec-proposals/pull/3245>
+      MSC3245 voice messages *)
+
 val send_emote : t -> string -> Sent.t
 (** [send_emote t body] queues an [m.emote], the message a client renders as the
     sender doing something. *)

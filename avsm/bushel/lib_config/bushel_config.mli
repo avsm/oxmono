@@ -13,6 +13,22 @@ type peertube_server = {
 }
 (** A PeerTube server configuration. *)
 
+type releases = {
+  github_user : string option;
+      (** The GitHub login whose releases count as the author's. *)
+  github : string list;  (** GitHub repositories to scan, as [org/name]. *)
+  tangled : string list;
+      (** Tangled repositories to scan, as [handle/name]. *)
+  registries : string list;
+      (** The registries a release is attached to, as ecosyste.ms names them. *)
+  projects : (string * string) list;
+      (** Repository to project slug, where the sync cannot infer it. *)
+}
+(** The releases section of the configuration. *)
+
+val default_registries : string list
+(** [default_registries] is the registries used when none are configured. *)
+
 type t = {
   data_dir : string;
   images_dir : string;
@@ -23,6 +39,7 @@ type t = {
   paper_pdfs_dir : string;
   peertube_servers : peertube_server list;
   zotero_translation_server : string;
+  releases : releases;
   sync : Gitops.Sync.Config.t;
   images_sync : Gitops.Sync.Config.t;
 }

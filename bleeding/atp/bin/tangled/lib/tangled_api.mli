@@ -131,8 +131,9 @@ val list_artifacts :
 (** [list_artifacts t ~did ~repo] is the release artifacts that [did] attached
     to its repository called [repo], as [(rkey, artifact)] in the order the
     server returns them. A repository is named by the [name] of its record, or
-    by its record key if the record has no name. An artifact whose repository
-    record cannot be read is left out. *)
+    by its record key if the record has no name. An artifact is left out if its
+    repository record cannot be read or decoded, or if it points at a repository
+    of another account. *)
 
 val artifact_version : string -> string option
 (** [artifact_version name] is the version in the file name [name] of a release

@@ -32,19 +32,30 @@ let json body req =
 
 (* Answers listRecords with the recorded artifacts and an empty second page,
    getRecord with the recorded repository record, and counts the latter. *)
-let data_server gets =
+let replace ~sub ~by s =
+  match after ~sub s with
+  | None -> s
+  | Some rest ->
+    let n = String.length s - String.length rest - String.length sub in
+    String.sub s 0 n ^ by ^ rest
+
+let data_server ?artifacts ?(bad = []) gets =
   Fetch_mock.client (fun req ->
       let url = Fetch.Middleware.Url.to_string req.Fetch.Middleware.url in
       if contains ~sub:"com.atproto.repo.listRecords" url then
         json
           (if contains ~sub:"cursor=" url then {|{"records":[]}|}
-           else read "artifacts.json")
+           else Option.value artifacts ~default:(read "artifacts.json"))
           req
       else
         match after ~sub:"rkey=" url with
         | Some rkey ->
             incr gets;
-            json (read ("repo_" ^ rkey ^ ".json")) req
+            json
+              (if List.mem rkey bad then
+                 {|{"uri":"u","cid":"c","value":{"bogus":1}}|}
+               else read ("repo_" ^ rkey ^ ".json"))
+              req
         | None -> Fetch_mock.respond ~status:404 "" req)
 
 let names artifacts =
@@ -79,4 +90,30 @@ let () =
     = [ "jsonfeed-1.1.0.tbz"; "jsonfeed-1.0.0.tbz" ]);
   check "an unknown repository has none" (artifacts "nothing" = []);
   check "each repository record is read once per call" (!gets = 5 * 9);
+  (* One repository record that does not decode must not hide the others. *)
+  let api_with ?artifacts ?bad () =
+    Tangled.Api.create ~sw ~env ~app_name:"tangled-test"
+      ~pds:"https://pds.example"
+      ~http:(data_server ?artifacts ?bad (ref 0))
+      ()
+  in
+  let broken = api_with ~bad:[ "ocaml-tdmrep" ] () in
+  check "the other repositories are still listed"
+    (names (Tangled.Api.list_artifacts broken ~did ~repo:"ocaml-json-pointer")
+    = [ "json-pointer-1.0.tbz" ]);
+  check "the unreadable repository has none"
+    (Tangled.Api.list_artifacts broken ~did ~repo:"ocaml-tdmrep" = []);
+
+  (* An artifact that points at another account's repository is not ours, even
+     when one of our repositories has the same record key. *)
+  let foreign =
+    replace
+      ~sub:("at://" ^ did ^ "/sh.tangled.repo/dune-rpc-eio")
+      ~by:"at://did:plc:somebodyelse/sh.tangled.repo/dune-rpc-eio"
+      (read "artifacts.json")
+  in
+  check "the replacement changed the data" (foreign <> read "artifacts.json");
+  let other = api_with ~artifacts:foreign () in
+  check "another account's repository is not attributed to us"
+    (Tangled.Api.list_artifacts other ~did ~repo:"dune-rpc-eio" = []);
   print_endline "ok"

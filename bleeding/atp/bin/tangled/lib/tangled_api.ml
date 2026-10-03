@@ -234,6 +234,7 @@ let list_artifacts t ~did ~repo =
     | None ->
         let name =
           match get_repo t ~did ~rkey with
+          | exception Failure _ -> None
           | Some { Lex.Repo.name = Some name; _ } -> Some name
           | Some { name = None; _ } -> Some rkey
           | None -> None
@@ -246,13 +247,11 @@ let list_artifacts t ~did ~repo =
       match decode Lex.Repo.Artifact.main_jsont r.value with
       | exception Failure _ -> None
       | artifact -> (
-          match Option.map rkey_of_uri artifact.repo with
-          | exception Invalid_argument _ -> None
-          | None -> None
-          | Some rkey ->
-              if repo_name rkey = Some repo then
-                Some (rkey_of_uri r.uri, artifact)
-              else None))
+          match Option.bind artifact.repo Tangled_types.parse_at_uri with
+          | Some { did = owner; rkey; _ }
+            when owner = did && repo_name rkey = Some repo ->
+              Some (rkey_of_uri r.uri, artifact)
+          | _ -> None))
     (list_records t ~did ~collection:artifact_collection)
 
 type repository = {

@@ -30,6 +30,10 @@ let route _ target =
         (200, "", fixture "dependents.json")
     | "/registries/opam.ocaml.org/packages/eio" ->
         (200, "", fixture "opam_package.json")
+    | "/registries/opam.ocaml.org/packages/cohttp/versions" ->
+        (200, "", fixture "opam_versions.json")
+    | "/registries/opam.ocaml.org/packages/cohttp/versions/6.1.1" ->
+        (200, "", fixture "opam_version.json")
     | "/packages/lookup" -> (200, "", fixture "lookup.json")
     | "/registries/crates.io/maintainers/slaxxarn" ->
         (200, "", fixture "maintainer.json")
@@ -190,3 +194,13 @@ let () =
   check env
     [ "package"; "opam.ocaml.org"; "eio" ]
     ~expect:[ "eio"; "downloads    -" ]
+
+let () =
+  Eio_main.run @@ fun env ->
+  (* opam versions carry no related tag. *)
+  check env
+    [ "versions"; "opam.ocaml.org"; "cohttp" ]
+    ~expect:[ "6.3.0"; "6.2.2"; "6.2.1" ];
+  check env
+    [ "version"; "opam.ocaml.org"; "cohttp"; "6.1.1" ]
+    ~expect:[ "6.1.1"; "dependencies (14)" ]

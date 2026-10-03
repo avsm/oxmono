@@ -96,7 +96,7 @@ module Version : sig
     type t
 
     (** Construct a value *)
-    val v : created_at:Ptime.t -> id:int -> number:string -> purl:string -> related_tag:Jsont.json -> updated_at:Ptime.t -> version_url:string -> ?codemeta_url:string -> ?documentation_url:string -> ?download_url:string -> ?install_command:string -> ?integrity:string -> ?licenses:string -> ?metadata:Jsont.json -> ?published_at:string -> ?registry_url:string -> ?status:string -> unit -> t
+    val v : created_at:Ptime.t -> id:int -> number:string -> purl:string -> updated_at:Ptime.t -> version_url:string -> ?codemeta_url:string -> ?documentation_url:string -> ?download_url:string -> ?install_command:string -> ?integrity:string -> ?licenses:string -> ?metadata:Jsont.json -> ?published_at:string -> ?registry_url:string -> ?related_tag:Jsont.json -> ?status:string -> unit -> t
 
     val codemeta_url : t -> string option
 
@@ -124,7 +124,7 @@ module Version : sig
 
     val registry_url : t -> string option
 
-    val related_tag : t -> Jsont.json
+    val related_tag : t -> Jsont.json option
 
     val status : t -> string option
 
@@ -362,7 +362,7 @@ module VersionWithDependencies : sig
     type t
 
     (** Construct a value *)
-    val v : codemeta_url:string -> created_at:Ptime.t -> dependencies:Dependency.T.t list -> latest:bool -> number:string -> purl:string -> related_tag:Jsont.json -> updated_at:Ptime.t -> version_url:string -> ?documentation_url:string -> ?download_url:string -> ?id:int -> ?install_command:string -> ?integrity:string -> ?licenses:string -> ?metadata:Jsont.json -> ?published_at:string -> ?registry_url:string -> ?status:string -> unit -> t
+    val v : codemeta_url:string -> created_at:Ptime.t -> dependencies:Dependency.T.t list -> latest:bool -> number:string -> purl:string -> updated_at:Ptime.t -> version_url:string -> ?documentation_url:string -> ?download_url:string -> ?id:int -> ?install_command:string -> ?integrity:string -> ?licenses:string -> ?metadata:Jsont.json -> ?published_at:string -> ?registry_url:string -> ?related_tag:Jsont.json -> ?status:string -> unit -> t
 
     val codemeta_url : t -> string
 
@@ -394,7 +394,7 @@ module VersionWithDependencies : sig
 
     val registry_url : t -> string option
 
-    val related_tag : t -> Jsont.json
+    val related_tag : t -> Jsont.json option
 
     val status : t -> string option
 
@@ -812,7 +812,7 @@ module VersionLookup : sig
     type t
 
     (** Construct a value *)
-    val v : codemeta_url:string -> created_at:Ptime.t -> dependencies:Dependency.T.t list -> latest:bool -> number:string -> purl:string -> related_tag:Jsont.json -> updated_at:Ptime.t -> version_url:string -> package:PackageWithRegistry.T.t -> ?documentation_url:string -> ?download_url:string -> ?id:int -> ?install_command:string -> ?integrity:string -> ?licenses:string -> ?metadata:Jsont.json -> ?published_at:string -> ?registry_url:string -> ?status:string -> unit -> t
+    val v : codemeta_url:string -> created_at:Ptime.t -> dependencies:Dependency.T.t list -> latest:bool -> number:string -> purl:string -> updated_at:Ptime.t -> version_url:string -> package:PackageWithRegistry.T.t -> ?documentation_url:string -> ?download_url:string -> ?id:int -> ?install_command:string -> ?integrity:string -> ?licenses:string -> ?metadata:Jsont.json -> ?published_at:string -> ?registry_url:string -> ?related_tag:Jsont.json -> ?status:string -> unit -> t
 
     val codemeta_url : t -> string
 
@@ -844,7 +844,7 @@ module VersionLookup : sig
 
     val registry_url : t -> string option
 
-    val related_tag : t -> Jsont.json
+    val related_tag : t -> Jsont.json option
 
     val status : t -> string option
 

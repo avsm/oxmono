@@ -2090,6 +2090,7 @@ components:
           type: string
         related_tag:
           type: object
+          nullable: true
     VersionWithDependencies:
       required:
       - number
@@ -2157,6 +2158,7 @@ components:
           type: string
         related_tag:
           type: object
+          nullable: true
         latest:
           type: boolean
         dependencies:

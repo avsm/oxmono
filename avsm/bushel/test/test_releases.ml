@@ -18,6 +18,66 @@ let cand =
     prerelease = false;
   }
 
+let read p = In_channel.with_open_bin ("fixtures/" ^ p) In_channel.input_all
+
+let contains ~sub s =
+  let n = String.length sub in
+  let rec go i =
+    i + n <= String.length s && (String.sub s i n = sub || go (i + 1))
+  in
+  go 0
+
+let ok = function
+  | Ok v -> v
+  | Error e ->
+    prerr_endline e;
+    exit 1
+
+(* A GitHub whose answers come from [respond], recording each URL asked for. *)
+let github respond =
+  let seen = ref [] in
+  let http =
+    Fetch_mock.client (fun req ->
+        let url = Fetch.Middleware.Url.to_string req.Fetch.Middleware.url in
+        seen := url :: !seen;
+        Fetch_mock.respond (respond url) req)
+  in
+  (http, seen)
+
+let () =
+  Eio_mock.Backend.run @@ fun () ->
+  (* A tag is one path segment, so its separators are encoded. *)
+  let http, seen = github (fun _ -> read "github_release_tag.json") in
+  ignore
+    (ok (R.github_release ~http ~token:None ~repo:"o/r" ~tag:"feature/x#1"));
+  check "the tag is encoded in the url"
+    (List.exists (contains ~sub:"releases/tags/feature%2Fx%231") !seen);
+
+  (* Every page of releases is read, and no more than there are. *)
+  let one_more = "[" ^ read "github_release_tag.json" ^ "]" in
+  let pages url =
+    if contains ~sub:"&page=1" url then read "github_releases.json"
+    else if contains ~sub:"&page=2" url then one_more
+    else "[]"
+  in
+  let http, seen = github pages in
+  let all = ok (R.github_releases ~http ~token:None ~repo:"o/r") in
+  check "releases from every page" (List.length all = 5);
+  check "it stops at the first empty page" (List.length !seen = 3);
+  check "pages are numbered from one"
+    (List.exists (contains ~sub:"&page=3") !seen);
+
+  (* A server that ignores the page number does not loop. *)
+  let http, seen = github (fun _ -> read "github_releases.json") in
+  let all = ok (R.github_releases ~http ~token:None ~repo:"o/r") in
+  check "a repeated page adds nothing" (List.length all = 4);
+  check "a repeated page ends the walk" (List.length !seen = 2);
+  check "an error is returned, not raised"
+    (let http, _ = github (fun _ -> "{") in
+     match R.github_releases ~http ~token:None ~repo:"o/r" with
+     | Error _ -> true
+     | Ok _ -> false)
+
 let () =
   let reg =
     {

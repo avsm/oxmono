@@ -76,8 +76,8 @@ val github_releases :
   token:string option ->
   repo:string ->
   (Bushel_forge.candidate list, string) result
-(** [github_releases ~http ~token ~repo] is the 100 most recent releases of
-    [repo]. *)
+(** [github_releases ~http ~token ~repo] is the releases of [repo], newest
+    first, up to 1000 of them. *)
 
 val github_events :
   http:Bushel_http.t ->

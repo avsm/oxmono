@@ -116,17 +116,35 @@ let github_release ~http ~token ~repo ~tag =
   let* body =
     github_get ~http ~token
       (Printf.sprintf "https://api.github.com/repos/%s/releases/tags/%s" repo
-         tag)
+         (Bushel.Release.encode_segment tag))
   in
   Bushel_forge.github_release ~repo body
 
+(* Releases come 100 to a page. The walk ends at an empty page, at a page with
+   nothing new, which covers a server that ignores the page number, and after
+   [github_pages] pages. *)
+let github_pages = 10
+
 let github_releases ~http ~token ~repo =
-  let* body =
-    github_get ~http ~token
-      (Printf.sprintf "https://api.github.com/repos/%s/releases?per_page=100"
-         repo)
+  let rec pages n acc =
+    let* body =
+      github_get ~http ~token
+        (Printf.sprintf
+           "https://api.github.com/repos/%s/releases?per_page=100&page=%d" repo
+           n)
+    in
+    let* found = Bushel_forge.github_releases ~repo body in
+    let fresh =
+      List.filter
+        (fun (c : Bushel_forge.candidate) ->
+          let same (a : Bushel_forge.candidate) = a.tag = c.tag in
+          not (List.exists same acc))
+        found
+    in
+    if fresh = [] || n >= github_pages then Ok acc
+    else pages (n + 1) (acc @ fresh)
   in
-  Bushel_forge.github_releases ~repo body
+  pages 1 []
 
 let github_events ~http ~token ~user =
   let* body =

@@ -23,4 +23,6 @@
 (test
  (name test_releases)
  (modules test_releases)
- (libraries bushel bushel.sync))
+ (deps
+  (glob_files fixtures/*.json))
+ (libraries bushel bushel.sync fetch fetch.mock eio.mock))

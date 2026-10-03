@@ -178,4 +178,8 @@ let () =
     (Sys.readdir dir = [| "releases.yml" |]);
   Sys.remove file;
   Sys.rmdir dir;
+  check "a path segment is encoded"
+    (R.encode_segment "feature/x#1" = "feature%2Fx%231");
+  check "unreserved characters stay"
+    (R.encode_segment "v1.2-rc_3~x" = "v1.2-rc_3~x");
   Printf.printf "ok: %d checks\n" !checks

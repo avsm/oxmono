@@ -63,6 +63,10 @@ val forge_to_string : forge -> string
 val forge_of_string : string -> forge option
 (** [forge_of_string s] is the forge [s] names, or [None]. *)
 
+val encode_segment : string -> string
+(** [encode_segment s] is [s] as one URL path segment. Letters, digits and
+    [-._~] stay and every other byte is percent-encoded. *)
+
 val metadata_url : registry -> release -> string
 (** [metadata_url reg r] is the ecosyste.ms page for version [r] of [reg]'s
     package. It is derived and never stored. *)

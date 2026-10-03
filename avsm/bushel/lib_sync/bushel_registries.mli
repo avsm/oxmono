@@ -47,14 +47,23 @@ val pick_description :
     registry, taking a package named in [prefer] before another. A registry that
     is not in [allowed] is never used. *)
 
+type cache
+(** Repositories already looked up. *)
+
+val create_cache : unit -> cache
+(** [create_cache ()] is an empty cache. *)
+
 val lookup :
+  ?cache:cache ->
   Ecosystems.t ->
   allowed:string list ->
   forge:Bushel.Release.forge ->
   repo:string ->
   version:string ->
   (Bushel.Release.registry list * string option, string) result
-(** [lookup eco ~allowed ~forge ~repo ~version] is the registries that carry
-    [version] of [repo], and a description of the package from
+(** [lookup ?cache eco ~allowed ~forge ~repo ~version] is the registries that
+    carry [version] of [repo], and a description of the package from
     {!pick_description}, which a release no registry carries yet still has. A
-    registry that answers that it has no such version is left out. *)
+    registry that answers that it has no such version is left out. With
+    [cache], a repository is looked up once however many versions are asked
+    for. *)

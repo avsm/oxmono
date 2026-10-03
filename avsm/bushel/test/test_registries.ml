@@ -5,6 +5,13 @@ let check name b =
     prerr_endline ("FAIL: " ^ name);
     exit 1)
 
+let contains_sub ~sub s =
+  let n = String.length sub in
+  let rec go i =
+    i + n <= String.length s && (String.sub s i n = sub || go (i + 1))
+  in
+  go 0
+
 let () =
   check "github url"
     (B.repository_url Bushel.Release.Github "ucam-eo/geotessera"
@@ -125,4 +132,42 @@ let () =
     (B.summary_of_description "Version 1.5 of the thing. Next."
     = "Version 1.5 of the thing.");
   check "empty stays empty" (B.summary_of_description "  " = "");
+  (* One lookup of a repository serves every version asked for. *)
+  Eio_mock.Backend.run @@ fun () ->
+  let lookups = ref 0 in
+  let http =
+    Fetch_mock.client (fun req ->
+        let url = Fetch.Middleware.Url.to_string req.Fetch.Middleware.url in
+        let headers =
+          Http.Header.of_list [ ("Content-Type", "application/json") ]
+        in
+        if contains_sub ~sub:"/packages/lookup" url then (
+          incr lookups;
+          Fetch_mock.respond ~headers
+            (In_channel.with_open_bin "fixtures/ecosystems_lookup.json"
+               In_channel.input_all)
+            req)
+        else Fetch_mock.respond ~status:404 ~headers "{}" req)
+  in
+  let eco =
+    Ecosystems.of_fetch ~base_url:"https://packages.ecosyste.ms/api/v1" http
+  in
+  let find ?cache version =
+    match
+      B.lookup ?cache eco ~allowed:[ "npmjs.org" ]
+        ~forge:Bushel.Release.Github ~repo:"minimistjs/minimist" ~version
+    with
+    | Ok (_, description) -> description
+    | Error e -> failwith e
+  in
+  ignore (find "1.2.8");
+  ignore (find "1.2.7");
+  check "without a cache each lookup asks again" (!lookups = 2);
+  lookups := 0;
+  let cache = B.create_cache () in
+  let d1 = find ~cache "1.2.8" in
+  let d2 = find ~cache "1.2.7" in
+  check "with a cache the repository is looked up once" (!lookups = 1);
+  check "the description still comes through"
+    (d1 = Some "parse argument options" && d2 = d1);
   print_endline "ok"

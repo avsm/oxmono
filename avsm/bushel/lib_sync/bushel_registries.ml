@@ -113,11 +113,27 @@ let pick_description ?(prefer = []) ~allowed
         | None -> ( match here with (_, d) :: _ -> Some d | [] -> None))
       allowed
 
-let lookup eco ~allowed ~forge ~repo ~version =
-  let repository_url = repository_url forge repo in
-  match
+type cache = (string, Ecosystems.PackageWithRegistry.T.t list) Hashtbl.t
+
+let create_cache () = Hashtbl.create 8
+
+let packages_of ?cache eco ~repository_url =
+  let fetch () =
     Ecosystems.PackageWithRegistry.lookup_package ~repository_url eco ()
-  with
+  in
+  match cache with
+  | None -> fetch ()
+  | Some c -> (
+    match Hashtbl.find_opt c repository_url with
+    | Some found -> found
+    | None ->
+      let found = fetch () in
+      Hashtbl.replace c repository_url found;
+      found)
+
+let lookup ?cache eco ~allowed ~forge ~repo ~version =
+  let repository_url = repository_url forge repo in
+  match packages_of ?cache eco ~repository_url with
   | exception ex -> Error (Printexc.to_string ex)
   | found -> (
     let module P = Ecosystems.PackageWithRegistry.T in

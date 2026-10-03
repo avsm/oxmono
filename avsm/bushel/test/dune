@@ -18,7 +18,9 @@
 (test
  (name test_registries)
  (modules test_registries)
- (libraries bushel bushel.sync))
+ (deps
+  (glob_files fixtures/*.json))
+ (libraries bushel bushel.sync ecosystems fetch fetch.mock eio.mock http))
 
 (test
  (name test_releases)

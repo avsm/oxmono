@@ -1342,9 +1342,10 @@ let release_refresh_cmd =
            | Some t -> Ptime.to_date t
            | None -> (1970, 1, 1)
          in
+         let cache = Bushel_sync.Registries.create_cache () in
          let lookup (t : Bushel.Release.t) (r : Bushel.Release.release) =
            Result.map fst
-             (Bushel_sync.Registries.lookup eco ~allowed:rc.registries
+             (Bushel_sync.Registries.lookup ~cache eco ~allowed:rc.registries
                 ~forge:t.forge ~repo:t.repo ~version:r.version)
          in
          let updated, attached, failed =

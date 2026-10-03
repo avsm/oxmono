@@ -28,6 +28,10 @@ let route _ target =
         (200, "", fixture "version.json")
     | "/registries/crates.io/packages/serde/dependent_packages" ->
         (200, "", fixture "dependents.json")
+    | "/packages/lookup" -> (200, "", fixture "lookup.json")
+    | "/registries/crates.io/maintainers/slaxxarn" ->
+        (200, "", fixture "maintainer.json")
+    | "/keywords/rust" -> (200, "", fixture "keyword.json")
     | "/registries/npmjs.org/packages/minimist" ->
         (200, "", fixture "advisories.json")
     | _ -> (404, "", {|{"error":"not found"}|})
@@ -92,3 +96,20 @@ let () =
   (* A scoped npm name is one path segment, so its separators are encoded. *)
   let _, _, _, targets = run env [ "package"; "npmjs.org"; "@types/node" ] in
   assert (targets = [ "/registries/npmjs.org/packages/%40types%2Fnode" ])
+
+let () =
+  Eio_main.run @@ fun env ->
+  check env [ "maintainer"; "crates.io"; "slaxxarn" ] ~expect:[ "slaxxarn" ];
+  check env [ "keyword"; "rust" ] ~expect:[ "rust" ];
+  (* A purl and a repository URL select different query parameters. *)
+  let purl_args = [ "lookup"; "pkg:npm/minimist" ] in
+  check env purl_args ~expect:[ "minimist"; "npmjs.org" ];
+  let _, _, _, targets = run env purl_args in
+  assert (List.length targets = 1);
+  assert (contains ~sub:"purl=" (List.hd targets));
+  assert (not (contains ~sub:"repository_url=" (List.hd targets)));
+  let _, _, _, targets =
+    run env [ "lookup"; "https://github.com/minimistjs/minimist" ]
+  in
+  assert (contains ~sub:"repository_url=" (List.hd targets));
+  assert (not (contains ~sub:"purl=" (List.hd targets)))

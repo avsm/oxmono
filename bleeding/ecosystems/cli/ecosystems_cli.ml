@@ -216,10 +216,91 @@ let advisories ~env ~out ~err =
           |> emit_list ~out ~json Ecosystems.Advisory.T.jsont advisory_row)
       $ registry $ package_name)
 
+let target =
+  Arg.(
+    required
+    & pos 0 (some string) None
+    & info [] ~docv:"TARGET"
+        ~doc:
+          "A package URL starting with pkg:, or the URL of a source \
+           repository.")
+
+let maintainer_login =
+  Arg.(
+    required
+    & pos 1 (some string) None
+    & info [] ~docv:"LOGIN" ~doc:"Maintainer login or UUID.")
+
+let keyword_name =
+  Arg.(
+    required
+    & pos 0 (some string) None
+    & info [] ~docv:"KEYWORD" ~doc:"Keyword name.")
+
+let lookup_row p =
+  let module P = Ecosystems.PackageWithRegistry.T in
+  Printf.sprintf "%-14s %-30s %-12s %s"
+    (Ecosystems.Registry.T.name (P.registry p))
+    (P.name p)
+    (opt (P.latest_release_number p))
+    (truncate 50 (opt (P.description p)))
+
+let maintainer_detail out m =
+  let module M = Ecosystems.Maintainer.T in
+  let f = field out in
+  f "login" (opt (M.login m));
+  f "name" (opt (M.name m));
+  f "email" (opt (M.email m));
+  f "uuid" (M.uuid m);
+  f "packages" (string_of_int (M.packages_count m));
+  f "url" (opt (M.url m))
+
+let keyword_detail out k =
+  let module K = Ecosystems.KeywordWithPackages.T in
+  let f = field out in
+  f "name" (K.name k);
+  f "packages"
+    (match K.packages_count k with Some n -> string_of_int n | None -> "-");
+  List.iter (fun p -> Format.fprintf out "%s@." (package_row p)) (K.packages k)
+
+let lookup ~env ~out ~err =
+  make ~env ~err ~name:"lookup"
+    ~doc:"Find packages by package URL or repository URL."
+    Term.(
+      const (fun target json c ->
+          (if String.starts_with ~prefix:"pkg:" target then
+             Ecosystems.PackageWithRegistry.lookup_package ~purl:target c ()
+           else
+             Ecosystems.PackageWithRegistry.lookup_package
+               ~repository_url:target c ())
+          |> emit_list ~out ~json Ecosystems.PackageWithRegistry.T.jsont
+               lookup_row)
+      $ target)
+
+let maintainer ~env ~out ~err =
+  make ~env ~err ~name:"maintainer" ~doc:"Show a maintainer."
+    Term.(
+      const (fun registry_name maintainer_login_or_uuid json c ->
+          Ecosystems.Maintainer.get_registry_maintainer ~registry_name
+            ~maintainer_login_or_uuid c ()
+          |> emit ~out ~json Ecosystems.Maintainer.T.jsont maintainer_detail)
+      $ registry $ maintainer_login)
+
+let keyword ~env ~out ~err =
+  make ~env ~err ~name:"keyword" ~doc:"Show a keyword and some of its packages."
+    Term.(
+      const (fun keyword_name json c ->
+          Ecosystems.KeywordWithPackages.get_keyword ~keyword_name c ()
+          |> emit ~out ~json Ecosystems.KeywordWithPackages.T.jsont
+               keyword_detail)
+      $ keyword_name)
+
 let main ~out ~err env =
   Cmd.group
     (Cmd.info "oecosystems" ~version:"0.1.0"
        ~doc:"Query the packages.ecosyste.ms API.")
     [ registries ~env ~out ~err; package ~env ~out ~err;
       versions ~env ~out ~err; version ~env ~out ~err;
-      dependents ~env ~out ~err; advisories ~env ~out ~err ]
+      dependents ~env ~out ~err; advisories ~env ~out ~err;
+      lookup ~env ~out ~err; maintainer ~env ~out ~err;
+      keyword ~env ~out ~err ]

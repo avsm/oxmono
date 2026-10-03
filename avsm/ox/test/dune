@@ -1,0 +1,5 @@
+(rule
+ (alias runtest)
+ (deps integration.py)
+ (action
+  (run python3 %{dep:integration.py} %{exe:../bin/main.exe})))

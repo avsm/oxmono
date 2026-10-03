@@ -108,4 +108,8 @@ for the HTTP libraries.
 
 The [oi constituent libraries](bleeding/oi-libs/README.md) provide platform
 detection, binary layers, build recipes and distro packaging. Their import
-review and the [staged ox plan](docs/ox-plan.md) precede the new runner.
+review is recorded alongside the sources. The [ox plan](docs/ox-plan.md)
+describes the workspace roadmap.
+
+The [ox runner](avsm/ox/README.md) runs committed monorepo packages through opam
+with generated snapshot versions and a local OxCaml binary cache.

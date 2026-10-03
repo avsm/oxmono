@@ -1,0 +1,4 @@
+(executable
+ (name main)
+ (public_name ox)
+ (libraries ox.lib cmdliner eio_main))

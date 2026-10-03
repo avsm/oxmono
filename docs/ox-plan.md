@@ -1,10 +1,23 @@
 # ox: staged import and design
 
-## Stage boundary
+## Implemented stages
 
-Stage 1 imports and reviews oi's independent libraries in
-`bleeding/oi-libs`, plus their dependency sources. Review this branch before
-starting stage 2, the new `avsm/ox` tool. The current branch has no ox executable.
+The oi library import and compatibility review are in `bleeding/oi-libs`.
+The first runner is in [`avsm/ox`](../avsm/ox/README.md): `ox stamp`, installed
+binary `ox run`, exact snapshot roots, local binary caching and explicit Git
+refresh. Package versions are generated from Git snapshots and metadata
+selection uses local opam overlays.
+
+The runner delegates resolution, fetching and package actions to an isolated
+opam CLI root. This keeps normal opam recipe semantics without importing oi's
+registry or toolchain machinery. Opam-format handles metadata and D10 supplies
+process locks. An existing OxCaml switch supplies the compiler. There is no
+opam-0install dependency in this implementation.
+
+The sections below describe the broader workspace roadmap. Script execution,
+`plan`, `sync`, `env`, dirty builds, incremental workspaces and compiler
+bootstrapping remain future increments. See the runner README for the current
+interface and its tested limits.
 
 ## Product goal
 
@@ -154,7 +167,7 @@ No S3 configuration, upload code, remote binary cache, or public registry index.
 1. Add `avsm/ox`: opam workspace discovery, package/source grouping, XDG layout,
    repository snapshots, local overlay precedence, explicit OxCaml selection,
    solver and `ox plan`/`run -n`. Validate this monorepo and a fork as fixtures.
-   Vendor opam-0install and only the additional opam libraries actually required.
+   Keep the isolated opam CLI backend until there is evidence for replacing it.
 2. Implement one package runner through the complete-environment cache, source
    verification, subprocess environments, `--with`, argument forwarding and
    deterministic binary lookup. Reuse selected oi modules after reducing their

@@ -1,0 +1,15 @@
+(lang dune 3.21)
+(name ox)
+(version 0.1.0)
+(generate_opam_files true)
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(package
+ (name ox)
+ (synopsis "Run opam packages from a local OxCaml source and binary cache")
+ (depends
+  (ocaml (>= 5.2))
+  (opam-format (>= 2.5))
+  eio eio_main d10 cmdliner parsexp sexplib0
+  (conf-python-3 :with-test)))

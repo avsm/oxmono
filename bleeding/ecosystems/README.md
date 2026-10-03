@@ -28,6 +28,50 @@ labels and its query parameters as optional arguments.
 - `bulk_lookup_packages` takes `~body:Jsont.json`. The generator leaves the
   spec's inline request object opaque.
 
+## Command line
+
+`oecosystems` queries the API from a shell. Run it with
+`dune exec oecosystems -- COMMAND`. It is in the `ecosystems-cli` package.
+
+| Command | Shows |
+| --- | --- |
+| `registries` | the registries |
+| `package REGISTRY NAME` | one package |
+| `versions REGISTRY NAME` | the versions of a package |
+| `version REGISTRY NAME NUMBER` | one version and its dependencies |
+| `dependents REGISTRY NAME` | the packages that depend on a package |
+| `advisories REGISTRY NAME` | the advisories on a package |
+| `lookup TARGET` | packages for a `pkg:` URL or a repository URL |
+| `maintainer REGISTRY LOGIN` | one maintainer |
+| `keyword NAME` | a keyword and some of its packages |
+
+Output is a short summary. `--json` prints the full response instead.
+`--limit N` stops a listing after N items. `--base-url` and `--user-agent`
+override the defaults. A failed request prints one line on stderr and exits
+with code 1.
+
+```
+$ oecosystems advisories npmjs.org minimist
+CRITICAL   Prototype Pollution in minimist (GHSA-xvch-5gv4-984h, CVE-2021-44906)
+MODERATE   Prototype Pollution in minimist (GHSA-vh95-rmgr-6w4m, CVE-2020-7598)
+MODERATE   Withdrawn: ESLint dependencies are vulnerable (ReDoS and Prototype Pollution) (GHSA-7fhm-mqm4-2wp7)
+
+$ oecosystems lookup pkg:npm/minimist
+npmjs.org      minimist                       1.2.8        parse argument options
+
+$ oecosystems package crates.io itoa
+name         itoa
+ecosystem    cargo
+latest       1.0.18
+licenses     MIT OR Apache-2.0
+description  Fast integer primitive to string conversion
+homepage     -
+downloads    1409199747 total
+dependents   291 packages, 76076 repositories
+advisories   0
+purl         pkg:cargo/itoa
+```
+
 ## Regenerating
 
 `ecosystems.ml` and `ecosystems.mli` are targets of the `@gen` rule, so every

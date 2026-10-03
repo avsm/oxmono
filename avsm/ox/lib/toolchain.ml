@@ -108,6 +108,8 @@ let write_repository_contents t ~guards path =
         OpamFile.OPAM.create pkg
         |> OpamFile.OPAM.with_synopsis ("External OxCaml component " ^ name)
         |> OpamFile.OPAM.with_conflicts (OpamFile.OPAM.conflicts original)
+        |> OpamFile.OPAM.with_conflict_class
+             (OpamFile.OPAM.conflict_class original)
         |> OpamFile.OPAM.with_env (OpamFile.OPAM.env original)
       in
       write_package name version (OpamFile.OPAM.write_to_string supplied))
@@ -168,7 +170,7 @@ let install proc t ~prefix =
               copy (i + 1))
         in
         copy 0;
-        write (prefix / rel) (Buffer.contents buf)))
+        write (prefix / ".ox/config" / (name ^ ".config")) (Buffer.contents buf)))
     t.packages
 
 let write_repository t ~guards path =

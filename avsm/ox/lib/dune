@@ -1,4 +1,14 @@
 (library
  (name ox_lib)
  (public_name ox.lib)
- (libraries opam-format d10 eio eio.unix parsexp sexplib0 unix))
+ (libraries
+  opam-format
+  opam-0install
+  d10
+  d10.ir
+  fmt
+  eio
+  eio.unix
+  parsexp
+  sexplib0
+  unix))

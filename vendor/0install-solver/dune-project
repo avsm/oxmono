@@ -1,0 +1,4 @@
+(lang dune 3.21)
+(name 0install-solver)
+(version 2.18)
+(package (name 0install-solver))

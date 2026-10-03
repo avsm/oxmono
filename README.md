@@ -111,5 +111,6 @@ detection, binary layers, build recipes and distro packaging. Their import
 review is recorded alongside the sources. The [ox plan](docs/ox-plan.md)
 describes the workspace roadmap.
 
-The [ox runner](avsm/ox/README.md) runs committed monorepo packages through opam
-with generated snapshot versions and a local OxCaml binary cache.
+The [ox runner](avsm/ox/README.md) builds and runs committed monorepo packages from opam
+metadata, with generated snapshot versions and local day10 layers. It builds
+the OxCaml toolchain from source without invoking opam or creating switches.

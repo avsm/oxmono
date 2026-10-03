@@ -1,5 +1,7 @@
 # Changes
 
+- Expose the standalone opam `.install` file handler through `D10ir.Install_file`.
+
 ## OxMono import
 
 Import osrel, d10, d10.ir and osdist with OxCaml adaptations and Fetch downloads.

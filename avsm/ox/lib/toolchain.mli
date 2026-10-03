@@ -4,7 +4,7 @@ type t = {
   packages : OpamPackage.t list;
   tools : string list;
 }
-(** Supply a fixed, existing OxCaml compiler to a private opam switch. *)
+(** Import an explicitly supplied OxCaml compiler into a day10 layer. *)
 
 val inspect : Support.proc -> string -> t
 (** [inspect proc prefix] verifies OxCaml and fingerprints compiler artifacts. *)

@@ -366,6 +366,34 @@
       "base_version": "0.1",
       "scope": "Upstream library and tests, unchanged.",
       "verified_on": "2026-10-03"
+    },
+    {
+      "name": "0install-solver",
+      "version": "2.18",
+      "archive_url": "https://github.com/0install/0install/releases/download/v2.18/0install-2.18.tbz",
+      "archive_checksums": [
+        "sha256=648c4b318c1a26dfcb44065c226ab8ca723795924ad80a3bf39ae1ce0e9920c3"
+      ],
+      "revision": "b58af5db6afd496cfd4a5f85fb23f30ba8dfbc87",
+      "url": "https://github.com/0install/0install.git",
+      "branch": "HEAD",
+      "base_version": "v2.18",
+      "verified_on": "2026-10-03",
+      "scope": "Generic solver library only. Retained implementation sources are unchanged. Application CLIs and switch contexts are omitted."
+    },
+    {
+      "name": "opam-0install",
+      "version": "0.6.0",
+      "archive_url": "https://github.com/ocaml-opam/opam-0install-solver/releases/download/v0.6.0/opam-0install-0.6.0.tbz",
+      "archive_checksums": [
+        "sha256=637aa8f87acfe76c8dd2d9f86bee42fac161523aecbfa06f208c45b93c1a5e39"
+      ],
+      "revision": "4b66206f9fa8df5eecf7d463ea18f7f8abc3e275",
+      "url": "https://github.com/ocaml-opam/opam-0install-solver.git",
+      "branch": "HEAD",
+      "base_version": "v0.6.0",
+      "verified_on": "2026-10-03",
+      "scope": "Generic solver library only. Retained implementation sources are unchanged. Application CLIs and switch contexts are omitted."
     }
   ]
 }

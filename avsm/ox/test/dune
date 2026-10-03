@@ -3,3 +3,9 @@
  (deps integration.py)
  (action
   (run python3 %{dep:integration.py} %{exe:../bin/main.exe})))
+
+(rule
+ (alias runtest)
+ (deps day10.py)
+ (action
+  (run python3 %{dep:day10.py} %{exe:../bin/main.exe})))

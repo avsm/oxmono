@@ -1,0 +1,9 @@
+{
+  "name": "opam-0install",
+  "version": "0.6.0",
+  "archive_url": "https://github.com/ocaml-opam/opam-0install-solver/releases/download/v0.6.0/opam-0install-0.6.0.tbz",
+  "archive_checksums": [
+    "sha256=637aa8f87acfe76c8dd2d9f86bee42fac161523aecbfa06f208c45b93c1a5e39"
+  ],
+  "revision": "4b66206f9fa8df5eecf7d463ea18f7f8abc3e275"
+}

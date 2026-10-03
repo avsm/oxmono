@@ -1,0 +1,4 @@
+(lang dune 3.21)
+(name opam-0install)
+(version 0.6.0)
+(package (name opam-0install))

@@ -11,5 +11,6 @@
  (depends
   (ocaml (>= 5.2))
   (opam-format (>= 2.5))
-  eio eio_main d10 cmdliner parsexp sexplib0
+  (opam-0install (>= 0.6))
+  eio eio_main d10 fmt cmdliner parsexp sexplib0
   (conf-python-3 :with-test)))

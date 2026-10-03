@@ -1,9 +1,10 @@
-"""Exercise Git snapshots and isolated opam builds without network access."""
+"""Exercise source snapshots and day10 builds with an unusable opam CLI."""
 import concurrent.futures
 import os
 from pathlib import Path
 import shutil
 import signal
+import json
 import subprocess
 import sys
 import tempfile
@@ -58,6 +59,14 @@ def library(path, name, module, text):
 
 with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     root = Path(temp)
+    forbidden = root / "forbidden"
+    write(forbidden / "opam", '#!/bin/sh\necho "unexpected opam CLI invocation" >&2\nexit 97\n')
+    (forbidden / "opam").chmod(0o755)
+    os.environ["PATH"] = str(forbidden) + os.pathsep + os.environ["PATH"]
+    os.environ["HOME"] = str(root / "home")
+    (root / "home").mkdir()
+    os.environ.pop("OPAMROOT", None)
+    os.environ.pop("OPAM_SWITCH_PREFIX", None)
     source = root / "source"
     external = root / "external"
     base = root / "base"
@@ -141,34 +150,42 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     command = args + ["greet", "--", "hello", "two words", "--literal"]
     dry = call(args + ["--dry-run", "greet"], cwd=root)
     assert "hello-app" in dry.stderr
-    assert not list((root / "cache").glob("opam/env-*/.ox-ready"))
-    assert not list((root / "cache").glob("opam/env-*/lib/hello-lib"))
-    assert not list((root / "cache").glob("opam/env-*/bin/greet"))
+    assert not (root / "cache/layers").exists()
+    assert not (root / "cache/prefixes").exists()
+    assert not (root / "cache/runs").exists()
     # Both processes race for an incomplete environment left by the dry run. Only one may publish it.
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: call(command, cwd=root), range(2)))
     expected = f"cloned dependency|external Git dependency|{root.resolve()}|hello|two words|--literal\n"
     assert all(p.stdout == expected for p in results), [p.stdout for p in results]
-    assert sum("Using cached environment" in p.stderr for p in results) == 1
-    ready = list((root / "cache").glob("opam/env-*/.ox-ready"))
-    assert len(ready) == 1
-    prefix = ready[0].parent
-    assert (prefix / "ox.locked").is_file()
-    assert not (prefix / "bin/ocamlc").is_symlink()
-    assert str(prefix) in (prefix / ".opam-switch/config/ocaml.config").read_text()
-    assert COMPILER not in (prefix / ".opam-switch/config/ocaml.config").read_text()
+    assert sum("Using cached day10 layers" in p.stderr for p in results) == 1
+    receipts = list((root / "cache/requests").glob("*.sexp"))
+    assert len(receipts) == 1
+    assert not list((root / "cache").rglob(".opam-switch"))
+    layers = list((root / "cache/layers").glob("*/*/layer.json"))
+    metadata = [(p, json.loads(p.read_text())) for p in layers]
+    for package_name in ["hello-app.", "hello-lib.", "external-lib."]:
+        assert any(m["package"].startswith(package_name) for _, m in metadata)
+    app_layer = next(p.parent for p, m in metadata if m["package"].startswith("hello-app."))
+    assert (app_layer / "recipe.json").exists()
+    assert (app_layer / "fs/bin/greet").exists()
+    external_layer = next(p.parent for p, m in metadata if m["package"].startswith("external-lib."))
+    external_digest = (external_layer / "fs/lib/external-lib/outside.cma").read_bytes()
+    # Reconstruct an application prefix and the run prefix from actual day10 layers.
+    shutil.rmtree(root / "cache/prefixes" / app_layer.parent.name / app_layer.name)
+    shutil.rmtree(root / "cache/runs")
     # Remove both upstream source repositories. Warm execution must stay offline.
     source.rename(root / "source-offline")
     external.rename(root / "external-offline")
     p = call(command, cwd=root)
-    assert p.stdout == expected and "Using cached environment" in p.stderr
+    assert p.stdout == expected and "Using cached day10 layers" in p.stderr
     p = call(args + ["greet-byte", "--", "hello", "two words", "--literal"], cwd=root)
-    assert p.stdout == expected and "Using cached environment" in p.stderr
+    assert p.stdout == expected and "Using cached day10 layers" in p.stderr
     p = call(args + ["greet", "--", "exit7"], cwd=root, code=7)
-    assert "Using cached environment" in p.stderr
+    assert "Using cached day10 layers" in p.stderr
     # An explicit provider can expose another binary in the same cached closure.
     p = call(args + ["--with", "hello-app", "greet-byte"], cwd=root)
-    assert "Using cached environment" in p.stderr
+    assert "Using cached day10 layers" in p.stderr
     p = call(args + ["--with", "hello-app", "absent"], code=124)
     assert "no binary absent" in p.stderr
     child = subprocess.Popen(args + ["greet", "--", "wait"], cwd=root,
@@ -194,14 +211,17 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     refreshed[refreshed.index("--ref") + 1] = "HEAD"
     refreshed += ["--refresh", "greet"]
     p = call(refreshed, cwd=root, code=124)
-    assert "Preparing environment" in p.stderr
-    assert len(list((root / "cache").glob("opam/env-*/.ox-ready"))) == 1
+    assert "Building hello-app" in p.stderr
+    assert len(list((root / "cache/requests").glob("*.sexp"))) == 1
     sentinel.touch()
     p = call(refreshed, cwd=root)
     assert p.stdout.startswith("changed fork|external Git dependency|")
-    assert len(list((root / "cache").glob("opam/env-*/.ox-ready"))) == 2
-    # A damaged marker is rejected, rather than passed to opam exec.
-    ready[0].write_text("invalid\n")
+    assert len(list((root / "cache/requests").glob("*.sexp"))) == 2
+    assert (external_layer / "fs/lib/external-lib/outside.cma").read_bytes() == external_digest
+    assert sum(json.loads(p.read_text())["package"].startswith("external-lib.")
+               for p in (root / "cache/layers").glob("*/*/layer.json")) == 1
+    # A damaged receipt is rejected, rather than passed to opam exec.
+    receipts[0].write_text("invalid\n")
     p = call(command, code=124)
-    assert "Invalid cache marker" in p.stderr
+    assert "Invalid cache receipt" in p.stderr
 print("ox integration: stamps, fork precedence, Git dependencies, concurrent builds, offline native/bytecode, exit status: OK")

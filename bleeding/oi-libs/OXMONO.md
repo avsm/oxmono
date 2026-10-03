@@ -29,6 +29,8 @@ No default remote registry or S3 publisher is configured by these libraries.
 - Assemble cached prefixes through `Layer.restore` so the upstream
   `dune-package` relocation pass also runs during prefix assembly. Include
   `os_key` in the prefix path to prevent reuse across platforms.
+- Expose the existing `.install` file handler as `D10ir.Install_file` for
+  callers building into permanent prefixes. Its implementation is unchanged.
 - Retry interrupted `waitpid` calls in the upstream lock test harness.
 - Keep upstream `OI_*` controls and on-disk metadata names in this library
   stage. The future ox frontend will define its own configuration boundary.
@@ -48,7 +50,8 @@ Opam has explicit callback wrappers for OxCaml's local argument modes.
 The other new library implementations match their upstream release sources.
 Optional GUI tools and packaging CLIs are omitted. SHA's optional OUnit2
 tests are excluded from workspace traversal. Existing workspace libraries supply the remaining dependencies.
-The solver and opam state/repository libraries are deferred to the ox stage.
+The ox frontend vendors the generic opam-0install and 0install-solver libraries.
+Opam state/repository libraries are not required.
 
 ## Review findings for ox
 
@@ -78,7 +81,7 @@ execution and relocation policy is suitable unchanged for ox.
 7. Osdist retains oi's distribution targets, including its stock-OCaml Alpine
    builder image. Packaging generation is tested, not an OxCaml deployment path.
 
-These constraints are part of the next-stage design in
+The ox runner addresses these cache and prefix constraints as described in
 [docs/ox-plan.md](../../docs/ox-plan.md).
 
 ## Validation

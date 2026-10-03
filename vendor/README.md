@@ -194,3 +194,17 @@ The [oi library import](../bleeding/oi-libs/OXMONO.md) adds opam core/format,
 opam-file-format, ocamlgraph, SHA, swhid_core, patch and Dockerfile sources.
 Their individual `OXMONO.md` and `OXMONO.json` files record release checksums,
 compiler adaptations and scoped validation.
+
+## Runner solver libraries
+
+`opam-0install` 0.6.0 and `0install-solver` 2.18 supply the in-process solver
+for ox. Only generic solver libraries are retained. Implementations match the
+checksum-verified upstream archives. Directory/switch contexts and application
+CLIs are omitted, so the library depends on opam-format without opam-state.
+See each directory's `OXMONO.md` and `OXMONO.json` for scope and provenance.
+Validate through `dune runtest avsm/ox --force` and
+`dune build --profile release-check @avsm/ox/all`.
+
+Upstream source, changelog and license whitespace is preserved. The two new
+solver imports contribute eight unchanged whitespace diagnostics to
+`git diff --check`.

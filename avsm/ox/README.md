@@ -1,15 +1,20 @@
 # ox
 
-Run binaries from opam packages with an existing OxCaml compiler. Ox clones
-sources, installs the dependency closure, and keeps the resulting environment
-in a local per-user cache. It uses the opam CLI for solving and building.
+Run binaries from opam packages using OxCaml and a local day10 cache. Ox
+resolves opam metadata in-process, fetches sources, builds the compiler and
+dependency closure, and executes the binary. It does not invoke the opam CLI
+or create switches.
 
 ## Requirements
 
-Use opam 2.5 or newer, Git, a C toolchain, and an installed OxCaml opam
-switch. Select that switch or pass `--compiler-prefix /path/to/switch`. Ox
-reads the compiler switch and copies its compiler artifacts into private
-environments. It does not install packages into the selected switch.
+An installed `ox` executable, Git, tar, patch, make, a C/C++ toolchain and
+system dependencies required by the selected recipes are needed. The OxCaml
+compiler recipe also requires autoconf. On a new machine, the default
+`oxcaml` package builds the compiler from source into the day10 cache. No
+existing OCaml compiler installation is required to run `ox`.
+
+To build the `ox` executable in this workspace, use the repository's OxCaml
+build environment:
 
 ```sh
 dune build @avsm/ox/all
@@ -39,9 +44,8 @@ name. An unconstrained root from a stamped repository selects its exact
 snapshot version, even when an upstream repository contains a newer release.
 
 Arguments after `--`, the working directory, exit status and signals are
-preserved. Build diagnostics go to stderr. A dry run prepares compiler
-metadata and shows opam's installation actions. It does not build application
-packages.
+preserved. Build diagnostics go to stderr. A dry run resolves and lists selected packages without fetching package
+sources or building them. Repository metadata may be cloned.
 
 ## Snapshot versions
 
@@ -65,8 +69,9 @@ prevents external dependencies from selecting upstream versions of local
 package names. Only the requested dependency closure is installed. Constraints
 referring to a dependency's base version are translated to its snapshot
 version. Local `pin-depends` entries are replaced by these exact dependencies.
-External pins are retained. Build and install commands remain those in the
-opam files.
+External `pin-depends` entries are retained in exports. To run those packages,
+provide pinned package definitions through an explicit overlay. Build and
+install commands remain those in the opam files.
 
 The output directory must be new. Empty opam placeholders are reported and
 skipped. Duplicate package names are errors. Executable discovery reads
@@ -88,20 +93,34 @@ Data lives in `${XDG_DATA_HOME:-~/.local/share}/ox`. Build environments and
 source downloads live in `${XDG_CACHE_HOME:-~/.cache}/ox`. Override these with
 `--data-dir` and `--cache-dir`. The cache must be on a local filesystem.
 
-A cache entry is a complete environment at its final absolute path. Its key
-includes compiler artifact hashes, compiler configuration, metadata and extra
-file contents, source snapshot identities, solver roots, platform, the C
-compiler version and common build flags. Changing the cache path rebuilds the
-environment. Use `--cache-tag TAG` after changing external system libraries,
-custom tool executables or mutable external source references. These inputs
-cannot all be detected automatically.
+Each package has a day10 layer and a permanent installation prefix. Keys
+include effective opam metadata, source contents, patches, dependency layers,
+platform, C compiler version, common build flags and the absolute cache root.
+Different programs reuse matching dependency layers. Generated `.install` and
+`.config` files are handled locally. Build logs and resolved recipes are kept
+under the cache. A run prefix combines the selected layers and exported
+package environments.
 
-Metadata and build mutations hold process locks. Failed builds have no
-completion marker and are retried in a fresh environment. Completed entries
-contain `ox.locked`, a full frozen opam switch export. Warm execution does not
-fetch or solve. Completed environments are retained, including their runtime
-data. There is no remote binary cache, upload path, S3 configuration or
-relocation.
+Moving the cache causes a rebuild. Keep its original prefixes available:
+compiled artifacts may contain absolute paths. Use `--cache-tag TAG` after
+changing external system libraries or custom build tools. Use `--refresh` to
+resolve again and fetch mutable source references. Checksummed archives and
+Git sources pinned to full commits remain reusable.
+
+Metadata and build mutations hold process locks. Failed builds publish no
+completed layer or request receipt and are retried in a fresh build tree.
+Successful requests retain their layer list and runtime environment. Warm
+execution neither fetches nor solves. Missing installation prefixes are
+reconstructed from completed layers. Dependency files are detached before
+installers can modify them. File content and modes determine the installed
+delta. Deleting dependency files is rejected.
+
+`--toolchain PACKAGE` selects another OxCaml toolchain package atom. For an
+optional shortcut, `--compiler-prefix /path/to/oxcaml-switch` imports an
+existing compiler and its metadata into a day10 layer. It reads that prefix
+without modifying it or invoking opam. Keep the original compiler prefix
+available when using this shortcut, since its tools may embed original paths.
+The default source bootstrap needs no supplied prefix.
 
 The supplied compiler metadata fixes the compiler version and preserves its
 conflicts and environment variables. Optional `oxcaml-*-patches` and guard
@@ -116,24 +135,27 @@ packages require.
 
 ## Scope and tests
 
-This first implementation runs installed binaries. It does not yet provide
-compiler bootstrapping, script execution, dirty-worktree builds, environment
-activation, incremental workspace builds or cache cleanup. Keep the original
-compiler installation available, since embedded compiler paths may refer to
-it.
+The runner supports installed binaries and committed source snapshots. Script
+execution, dirty-worktree builds, environment activation, incremental workspace
+builds and cache cleanup remain future work. System dependencies are not
+installed automatically. Source backends are Git and tar archives. Git
+submodules currently require an explicit source archive.
 
 ```sh
 dune runtest avsm/ox --force
 ```
 
-The integration test uses temporary local Git repositories and a private opam
-root. It checks source stamping, fork precedence, native and bytecode
-dependency builds, concurrent invocations, offline reuse,
-argument/cwd/exit/signal handling, C stubs, patch guards, refresh,
-failed-build retry and damaged cache rejection. It requires Python 3 and the
-tools above. Set `OX_TEST_COMPILER_PREFIX` to choose the compiler under test.
+Tests use temporary Git repositories and put a failing `opam` executable on
+PATH. They cover stamping, fork precedence, default toolchain builds, native
+and bytecode execution with C stubs, concurrent builds, offline layer
+restoration, runtime environment updates, source refresh, checksums, argument
+and signal forwarding, failed-build retry and damaged receipt rejection.
+The compiler integration test uses a supplied OxCaml prefix to avoid rebuilding
+the compiler on every test run. Set `OX_TEST_COMPILER_PREFIX` to select it.
 
-The runner has also built this monorepo's `yamlcat` and patched `bytesrw` from
-commit `863001fa385480fde4306c5b1300942cebef9dbf`, using the OxCaml and ordinary
-opam repository checkouts for external dependencies. Validation ran on macOS
-arm64 with the `5.2.0+ox` switch. Linux execution remains unverified.
+A clean-cache validation built OxCaml 5.2.0minus39 from its repository recipe
+and ran this monorepo's `yamlcat`. Snapshot `551112fee9a2`, containing the
+`origin/minus39` merge, reused the compiler and external dependency layers.
+With cached sources and run prefixes removed, the runner restored layers and
+successfully processed YAML offline. Validation is on macOS arm64. Linux
+execution remains unverified.

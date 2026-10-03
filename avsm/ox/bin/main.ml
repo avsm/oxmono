@@ -65,19 +65,15 @@ let stamp_cmd =
        ~doc:"Export committed monorepo packages as an opam repository.")
     Term.(ret (const stamp $ repo $ revision $ source $ output $ data))
 
-let run cache data compiler repositories overlays from revision refresh jobs
-    cache_tag with_packages dry_run target args =
+let run cache data compiler toolchain repositories overlays from revision
+    refresh jobs cache_tag with_packages dry_run target args =
   guard @@ fun () ->
-  let compiler =
-    match compiler with
-    | Some p -> p
-    | None -> Ox_lib.Runner.default_compiler ()
-  in
   let config : Ox_lib.Runner.config =
     {
       cache;
       data;
       compiler;
+      toolchain;
       repositories;
       overlays;
       from;
@@ -89,7 +85,13 @@ let run cache data compiler repositories overlays from revision refresh jobs
   in
   let prepared =
     Eio_main.run @@ fun env ->
-    Ox_lib.Runner.prepare
+    let sys =
+      D10.Sysops.v
+        ~proc_mgr:(Eio.Stdenv.process_mgr env)
+        ~fs:(Eio.Stdenv.fs env) ~net:(Eio.Stdenv.net env)
+        ~clock:(Eio.Stdenv.clock env) ()
+    in
+    Ox_lib.Runner.prepare ~sys
       (Eio.Stdenv.process_mgr env)
       ~clock:(Eio.Stdenv.clock env) ~fs:(Eio.Stdenv.fs env) config ~target
       ~with_packages ~dry_run
@@ -103,7 +105,16 @@ let run_cmd =
       & opt (some string) None
       & info [ "compiler-prefix" ] ~docv:"DIR"
           ~doc:
-            "Existing OxCaml opam switch. Defaults to the selected opam switch.")
+            "Optional existing OxCaml compiler prefix. By default the \
+             toolchain is built from sources.")
+  in
+  let toolchain =
+    Arg.(
+      value & opt string "oxcaml"
+      & info [ "toolchain" ] ~docv:"PACKAGE"
+          ~doc:
+            "OxCaml toolchain package atom to build when no compiler prefix is \
+             supplied.")
   in
   let repositories =
     Arg.(
@@ -156,8 +167,8 @@ let run_cmd =
       value & flag
       & info [ "n"; "dry-run" ]
           ~doc:
-            "Prepare repository/compiler metadata and display opam's build \
-             actions.")
+            "Resolve and display day10 build actions without fetching or \
+             building packages.")
   in
   let target =
     Arg.(required & pos 0 (some string) None & info [] ~docv:"BINARY")
@@ -167,8 +178,9 @@ let run_cmd =
     (Cmd.info "run" ~doc:"Fetch dependencies, build, cache and run a binary.")
     Term.(
       ret
-        (const run $ cache $ data $ compiler $ repositories $ overlays $ from
-       $ revision $ refresh $ jobs $ tag $ with_packages $ dry $ target $ args))
+        (const run $ cache $ data $ compiler $ toolchain $ repositories
+       $ overlays $ from $ revision $ refresh $ jobs $ tag $ with_packages $ dry
+       $ target $ args))
 
 let () =
   let cmd =

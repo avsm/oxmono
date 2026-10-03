@@ -1,0 +1,19 @@
+(test
+ (name compat_tests)
+ (modules compat_tests)
+ (libraries d10.ir osrel alcotest eio_main))
+
+(executable
+ (name opam_probe)
+ (modules opam_probe)
+ (libraries opam-format))
+
+(rule
+ (alias runtest)
+ (deps opam.expected)
+ (action
+  (progn
+   (with-stdout-to
+    opam.actual
+    (run ./opam_probe.exe))
+   (diff opam.expected opam.actual))))

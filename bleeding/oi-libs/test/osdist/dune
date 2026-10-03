@@ -1,0 +1,3 @@
+(test
+ (name osdist_tests)
+ (libraries osdist alcotest))

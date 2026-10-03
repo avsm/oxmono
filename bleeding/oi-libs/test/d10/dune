@@ -1,0 +1,3 @@
+(test
+ (name d10_unit_tests)
+ (libraries d10 alcotest eio eio_main))

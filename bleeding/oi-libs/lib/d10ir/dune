@@ -1,0 +1,4 @@
+(library
+ (name d10ir)
+ (public_name d10.ir)
+ (libraries d10 eio opam-format jsont jsont.bytesrw fmt logs))

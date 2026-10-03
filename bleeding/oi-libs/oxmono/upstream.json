@@ -1,0 +1,15 @@
+{
+  "url": "https://github.com/avsm/oi.git",
+  "revision": "ca8c59ff26bd7350e909324dc804982f0e4cee5b",
+  "version": "0.14.2",
+  "imported_on": "2026-10-03",
+  "scope": [
+    "lib/osrel",
+    "lib/d10",
+    "lib/d10ir (excluding cmd)",
+    "lib/osdist",
+    "test/d10",
+    "test/oi/test_osdist.ml (library tests only)",
+    "LICENSE.md"
+  ]
+}

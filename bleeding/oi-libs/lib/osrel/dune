@@ -1,0 +1,4 @@
+(library
+ (name osrel)
+ (public_name osrel)
+ (libraries eio fmt))

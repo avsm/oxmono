@@ -27,6 +27,7 @@
 
 (test
  (name test_cli)
+ (package ecosystems-cli)
  (modules test_cli)
  (deps
   (glob_files fixtures/*.json))

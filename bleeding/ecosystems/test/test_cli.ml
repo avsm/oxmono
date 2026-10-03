@@ -38,12 +38,16 @@ let route _ target =
 
 (* [run env args] is the exit code, stdout and stderr of [oecosystems args]
    against the loopback server, and the request targets seen. *)
-let run ?base_url env args =
+let run ?base_url ?(route = route) ?(out_fun = None) env args =
   Loopback.with_server env route (fun ~sw:_ ~base_url:served seen ->
       let base_url = Option.value base_url ~default:served in
       let out = Buffer.create 256 and err = Buffer.create 256 in
       let fmt b = Format.formatter_of_buffer b in
-      let o = fmt out and e = fmt err in
+      let o =
+        match out_fun with
+        | Some f -> Format.make_formatter f (fun () -> ())
+        | None -> fmt out
+      and e = fmt err in
       let cmd = Ecosystems_cli.main ~out:o ~err:e env in
       let argv =
         Array.of_list (("oecosystems" :: args) @ [ "--base-url"; base_url ])
@@ -145,3 +149,35 @@ let () =
     run env [ "versions"; "crates.io"; "serde"; "--limit"; "1" ]
   in
   assert (String.ends_with ~suffix:" -" (String.trim out))
+
+let () =
+  Eio_main.run @@ fun env ->
+  (* [dependents] stops at 100 items by default, even if the server keeps
+     answering. *)
+  let endless n _ =
+    if n > 150 then (200, "", "[]") else (200, "", fixture "dependents.json")
+  in
+  let code, out, _, targets =
+    run ~route:endless env [ "dependents"; "crates.io"; "serde" ]
+  in
+  assert (code = 0);
+  assert (List.length (lines out) = 100);
+  assert (List.length targets = 100);
+  (* Inputs the client rejects are one-line errors, not backtraces. *)
+  let one_line_error ?base_url args =
+    let code, out, err, _ = run ?base_url env args in
+    assert (code = 1);
+    assert (out = "");
+    assert (List.length (lines err) = 1)
+  in
+  one_line_error ~base_url:"notaurl" [ "registries" ];
+  one_line_error [ "package"; "npmjs.org"; ".." ];
+  (* A non-positive limit is a usage error. *)
+  let code, _, _, targets = run env [ "registries"; "--limit=-1" ] in
+  assert (code = Cmdliner.Cmd.Exit.cli_error);
+  assert (targets = []);
+  (* A closed pipe ends the command quietly. *)
+  let broken _ _ _ = raise (Sys_error "Broken pipe") in
+  let code, _, err, _ = run ~out_fun:(Some broken) env [ "registries" ] in
+  assert (code = 0);
+  assert (err = "")

@@ -26,11 +26,25 @@ let common =
     const (fun json base_url user_agent -> { json; base_url; user_agent })
     $ json $ base_url $ user_agent)
 
-let limit =
+let positive =
+  Arg.conv
+    ( (fun s ->
+        match int_of_string_opt s with
+        | Some n when n >= 1 -> Ok n
+        | _ -> Error (`Msg "must be a positive integer")),
+      Format.pp_print_int )
+
+let limit ?default () =
+  let doc =
+    match default with
+    | None -> "Print at most $(docv) items."
+    | Some n ->
+        Printf.sprintf "Print at most $(docv) items. The default is %d." n
+  in
   Arg.(
     value
-    & opt (some int) None
-    & info [ "limit"; "n" ] ~docv:"N" ~doc:"Print at most $(docv) items.")
+    & opt (some positive) default
+    & info [ "limit"; "n" ] ~docv:"N" ~doc)
 
 let registry =
   Arg.(
@@ -48,9 +62,11 @@ let to_json codec v =
   | Ok s -> s
   | Error e -> failwith e
 
+(* Rows are printed as they arrive. JSON is one array, so it waits for all. *)
 let emit_list ~out ~json codec row items =
-  if json then Format.fprintf out "%s@." (to_json (Jsont.list codec) items)
-  else List.iter (fun v -> Format.fprintf out "%s@." (row v)) items
+  if json then
+    Format.fprintf out "%s@." (to_json (Jsont.list codec) (List.of_seq items))
+  else Seq.iter (fun v -> Format.fprintf out "%s@." (row v)) items
 
 (* [per_page] is the page size to ask for when at most [limit] items are
    wanted. *)
@@ -58,7 +74,7 @@ let per_page = function Some n when n >= 1 && n < 100 -> n | _ -> 100
 
 let listing limit f =
   let seq = Ecosystems_client.pages ~per_page:(per_page limit) f in
-  (match limit with Some n -> Seq.take n seq | None -> seq) |> List.of_seq
+  match limit with Some n -> Seq.take n seq | None -> seq
 
 (* [one_line s] joins the lines of [s] with single spaces. *)
 let one_line s =
@@ -72,6 +88,14 @@ let guard ~err f =
   | () -> 0
   | exception Openapi.Runtime.Api_error { status; operation; _ } ->
       Format.fprintf err "oecosystems: %s: HTTP %d@." operation status;
+      1
+  | exception Invalid_argument msg ->
+      Format.fprintf err "oecosystems: %s@." msg;
+      1
+  | exception Sys_error msg when String.ends_with ~suffix:"Broken pipe" msg ->
+      0
+  | exception Sys_error msg ->
+      Format.fprintf err "oecosystems: %s@." msg;
       1
   | exception (Eio.Io _ as ex) ->
       Format.fprintf err "oecosystems: %s@." (one_line (Printexc.to_string ex));
@@ -101,7 +125,7 @@ let registries ~env ~out ~err =
           listing limit (fun ~page ~per_page ->
               Ecosystems.Registry.get_registries ~page ~per_page c ())
           |> emit_list ~out ~json Ecosystems.Registry.T.jsont registry_row)
-      $ limit)
+      $ limit ())
 
 let package_name =
   Arg.(
@@ -189,7 +213,7 @@ let versions ~env ~out ~err =
               Ecosystems.Version.get_registry_package_versions ~registry_name
                 ~package_name ~page ~per_page c ())
           |> emit_list ~out ~json Ecosystems.Version.T.jsont version_row)
-      $ registry $ package_name $ limit)
+      $ registry $ package_name $ limit ())
 
 let version ~env ~out ~err =
   make ~env ~err ~name:"version"
@@ -211,7 +235,7 @@ let dependents ~env ~out ~err =
               Ecosystems.Package.get_registry_package_dependent_packages
                 ~registry_name ~package_name ~page ~per_page c ())
           |> emit_list ~out ~json Ecosystems.Package.T.jsont package_row)
-      $ registry $ package_name $ limit)
+      $ registry $ package_name $ limit ~default:100 ())
 
 let advisories ~env ~out ~err =
   make ~env ~err ~name:"advisories" ~doc:"List the advisories on a package."
@@ -219,7 +243,7 @@ let advisories ~env ~out ~err =
       const (fun registry_name package_name json c ->
           Ecosystems.Package.get_registry_package ~registry_name ~package_name c
             ()
-          |> Ecosystems.Package.T.advisories
+          |> Ecosystems.Package.T.advisories |> List.to_seq
           |> emit_list ~out ~json Ecosystems.Advisory.T.jsont advisory_row)
       $ registry $ package_name)
 
@@ -280,6 +304,7 @@ let lookup ~env ~out ~err =
            else
              Ecosystems.PackageWithRegistry.lookup_package
                ~repository_url:target c ())
+          |> List.to_seq
           |> emit_list ~out ~json Ecosystems.PackageWithRegistry.T.jsont
                lookup_row)
       $ target)

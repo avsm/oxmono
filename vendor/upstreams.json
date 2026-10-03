@@ -1,5 +1,5 @@
 {
-  "verified_on": "2026-09-26",
+  "verified_on": "2026-10-03",
   "vendors": [
     {
       "name": "asn1-combinators",
@@ -85,8 +85,8 @@
       "name": "eio",
       "url": "https://github.com/ocaml-multicore/eio.git",
       "branch": "HEAD",
-      "revision": "0ee73e48b566e7cd09cd3c1fc08ef1da199558b0",
-      "base_version": "v1.5-5-g0ee73e4"
+      "revision": "1fc0efa41ccfb3818b09f54feec90ec29b47f1b6",
+      "base_version": "v1.6"
     },
     {
       "name": "eqaf",

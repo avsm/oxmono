@@ -1,18 +1,18 @@
 # Vendored Eio provenance
 
-This directory is based on upstream `main` after Eio 1.5, with local OxCaml
-patches. The exact revision below was the latest upstream main when fetched.
+This directory is based on the upstream Eio 1.6 release, with local OxCaml
+patches.
 This record covers `eio`, `eio_main`, `eio_linux`, `eio_posix` and `eio_windows`.
 
 | Field | Value |
 | --- | --- |
 | Upstream repository | <https://github.com/ocaml-multicore/eio> |
-| Upstream branch | `main` |
-| Upstream revision | [`0ee73e48b566e7cd09cd3c1fc08ef1da199558b0`](https://github.com/ocaml-multicore/eio/commit/0ee73e48b566e7cd09cd3c1fc08ef1da199558b0) |
-| Upstream version (`git describe --tags --abbrev=7`) | `v1.5-5-g0ee73e4` |
-| Upstream commit date | 2026-09-05 |
-| Refresh date | 2026-09-07 |
-| Provenance last verified | 2026-09-07 |
+| Upstream tag | `v1.6` |
+| Upstream revision | [`1fc0efa41ccfb3818b09f54feec90ec29b47f1b6`](https://github.com/ocaml-multicore/eio/commit/1fc0efa41ccfb3818b09f54feec90ec29b47f1b6) |
+| Upstream version (`git describe --tags --abbrev=7`) | `v1.6` |
+| Upstream commit date | 2026-09-21 |
+| Refresh date | 2026-10-03 |
+| Provenance last verified | 2026-10-03 |
 
 ## Import history
 
@@ -25,13 +25,14 @@ This record covers `eio`, `eio_main`, `eio_linux`, `eio_posix` and `eio_windows`
 - 2026-09-28: local portability patch
   `b7063e1750018e47b39a6ef038d0927ba2ad9ad1`, described below. The upstream
   base is unchanged.
+- 2026-10-03: refresh to `1fc0efa41ccfb3818b09f54feec90ec29b47f1b6`
+  (`v1.6`), retaining the local patches below. Upstream's removal of the
+  unused `Switch.run_in` also removes its local effect-call adaptation.
 
-The current base includes the complete [v1.5 release](https://github.com/ocaml-multicore/eio/releases/tag/v1.5),
-including `Eio.Net.connect ?bind_to ?options`, plus the subsequent
-`Eio.Process.Env` API and documentation index. The upstream [changelog](CHANGES.md)
-still starts at v1.5; use the exact revision above to identify this development
-snapshot. Dependency constraints in the opam files do not identify the vendored
-source version.
+The current base includes the complete [v1.6 release](https://github.com/ocaml-multicore/eio/releases/tag/v1.6).
+See the upstream [changelog](CHANGES.md) for its environment, file descriptor,
+symlink and Windows changes. Dependency constraints in the opam files do not
+identify the vendored source version.
 
 ## Local patch set
 
@@ -84,7 +85,9 @@ source version.
 - [Test dependencies](tests/dune): explicitly include the vendored package
   closure for MDX, avoiding incompatible installed interfaces.
 - [Refresh regression](tests/test_upstream_refresh.ml): check connection
-  options, source binding and `Process.Env` through Linux and POSIX backends.
+  options, source binding, `Process.Env`, environment snapshots, symlink
+  rejection and imported file descriptor ownership through Linux and POSIX
+  backends.
 - [Mainloop dependencies](lib_main/dune): declare `eio.unix` and `fmt`
   directly, with matching package dependencies in `dune-project`. Upstream
   obtains them only through optional backends. When none is available,
@@ -95,6 +98,26 @@ source version.
 These patches do not advance the upstream base. The complete local history is
 available with `git log -- vendor/eio`; include working-tree changes when
 comparing against upstream.
+
+## 1.6 validation
+
+With the `5.2.0+ox` switch and `release-check` profile, the HTTPz, Fetch,
+Proffer, IMAP, Maildir, SQLite, examples, Arod and Bushel builds pass.
+Forced HTTPz, Fetch, Proffer, IMAP, Maildir and SQLite Eio tests pass,
+including the IMAP portability guard. The HTTPz cookie test's filesystem
+wrapper forwards the new required `follow` argument.
+
+Run `tests/test_upstream_refresh.exe` and `tests/test_local_flow.exe` explicitly
+through `dune exec`. Both pass. The refresh regression also passes against
+pristine `v1.6` with OCaml 5.5.0 after removing its OxCaml-only portable
+annotation. Its output matches the patched build byte for byte.
+
+The workspace-wide `@all` is blocked by unavailable Apple Speech and Bonsai
+dependencies on this Linux host. HTTPz's `@fmt` encounters existing Dune
+formatting differences and an ocamlformat that cannot parse OxCaml syntax.
+Windows and the optional MDX suites were not run. The upstream Windows test
+file retains its CRLF endings, so use `git -c core.whitespace=cr-at-eol diff
+--check` when checking this import.
 
 ## Updating this vendor
 

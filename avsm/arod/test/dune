@@ -142,4 +142,6 @@
 (test
  (name test_notes_releases)
  (modules test_notes_releases)
+ (deps
+  (glob_files fixtures/notes/notes_no_releases.html))
  (libraries arod arod.component bushel htmlit))

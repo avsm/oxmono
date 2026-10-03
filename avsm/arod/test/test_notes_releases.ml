@@ -26,17 +26,23 @@ let cfg : Arod.Config.t =
   { Arod.Config.default with
     site = { Arod.Config.default.site with base_url = "https://example.com" } }
 
-let note slug title date : Bushel.Note.t =
+let note ?(weeknote = false) ?(featured = false) ?(perma = false) slug title
+    date : Bushel.Note.t =
   { Bushel.Note.title; date; slug; body = "Body."; tags = []; draft = false;
-    updated = None; sidebar = None; index_page = false; perma = false;
-    weeknote = false; featured = false; doi = None; synopsis = None;
+    updated = None; sidebar = None; index_page = false; perma;
+    weeknote; featured; doi = None; synopsis = None;
     titleimage = None; via = None; slug_ent = None; source = None; url = None;
     author = None; category = None; standardsite = None; social = None;
     source_file = None }
 
+(* Journal notes, a weeknote, a featured note and a permanent one, so that the
+   page without releases has every kind of section to compare. *)
 let notes =
   [ note "august" "An August note" (2026, 8, 10);
-    note "june" "A June note" (2026, 6, 1) ]
+    note "june" "A June note" (2026, 6, 1);
+    note ~weeknote:true "week-28" ".plan-2026w28: Week 28" (2026, 7, 8);
+    note ~featured:true "featured" "A featured note" (2026, 5, 2);
+    note ~perma:true "perma" "A permanent note" (2026, 4, 2) ]
 
 let release ?(registries = []) ~version ~date summary url =
   { Bushel.Release.version; tag = None; date; summary; url; registries }
@@ -104,6 +110,11 @@ let () =
     (contains escaped "&lt;b&gt;" && not (contains escaped "<b> &"));
   check "no releases leaves the page as it was"
     (render () = render ~releases:[] ());
+  (* The golden was rendered by the code from before releases existed. *)
+  check "the page matches the one rendered before releases existed"
+    (render ()
+    = In_channel.with_open_bin "fixtures/notes/notes_no_releases.html"
+        In_channel.input_all);
   check "no releases means no release lines"
     (not (contains (render ()) "release-row"));
   print_endline "ok"

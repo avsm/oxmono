@@ -12,6 +12,8 @@
   mqttz.config
   eio
   eio_main
+  console
+  console-eio
   fetch-httpz
   cmdliner
   unix))

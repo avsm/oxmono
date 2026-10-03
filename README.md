@@ -6,6 +6,7 @@ under development live in `bleeding/`; application projects live in `avsm/`.
 ## Repository layout
 
 - [`bleeding/`](bleeding/) contains libraries, including Httpz, Proffer and Fetch.
+- [`samoht/`](samoht/) contains imported libraries adapted to this workspace.
 - [`avsm/`](avsm/) contains applications such as Sortal, Bushel and Arod.
 - [`vendor/`](vendor/) contains dependency sources with OxCaml adaptations.
 - [`example/`](example/README.md) contains the HTTP server and client examples.

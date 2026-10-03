@@ -2,6 +2,10 @@
 open Cmdliner
 module Config = Owntracks_config
 module Recorder = Owntracks_recorder_client
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
 
 let with_timeout clock seconds f =
   Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock seconds) f
@@ -162,7 +166,14 @@ let list_recorder path options user =
           | None -> Recorder.list_users client
           | Some user -> Recorder.list_devices client ~user))
   in
-  List.iter print_endline items
+  if Console_eio.is_tty () then begin
+    let title = match user with None -> "Recorder users" | Some _ -> "Devices" in
+    Format.printf "%a  %a@." C.Span.pp (styled accent title)
+      C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length items)));
+    List.iter (fun item ->
+      Format.printf "  %a %a@." C.Span.pp (styled muted "•")
+        C.Span.pp (styled accent item)) items
+  end else List.iter print_endline items
 
 let today () =
   let tm = Unix.gmtime (Unix.gettimeofday ()) in
@@ -284,9 +295,19 @@ let geojson path options topic device duration track max_points from_date
 let devices path =
   run @@ fun _env ->
   let config = load path in
-  List.iter
-    (fun (d : Config.device) -> Printf.printf "%s\t%s\n" d.id d.name)
-    config.owntracks.devices
+  if Console_eio.is_tty () then
+    let rows = List.map
+      (fun (d : Config.device) ->
+        [styled accent d.id; C.Span.sanitize (C.Span.text d.name)])
+      config.owntracks.devices in
+    Format.printf "%a@.%a@." C.Span.pp (styled accent "Devices")
+      C.Table.pp
+      (C.Table.of_rows ~border:C.Border.rounded
+         C.Table.[column "Device"; column "Name"] rows)
+  else
+    List.iter
+      (fun (d : Config.device) -> Printf.printf "%s\t%s\n" d.id d.name)
+      config.owntracks.devices
 
 let init path force =
   run @@ fun _env ->
@@ -397,6 +418,7 @@ let commands =
   ]
 
 let () =
+  Console_eio.setup ();
   Sys.catch_break true;
   exit
     (Cmd.eval'

@@ -1,0 +1,5 @@
+(library
+ (name console_eio)
+ (public_name console-eio)
+ (private_modules display terminal)
+ (libraries console eio eio.unix fmt logs cstruct optint unix))

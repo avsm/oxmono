@@ -19,4 +19,4 @@
  (name main)
  (public_name imap-sync)
  (modules main)
- (libraries imap_cli eio_main))
+ (libraries imap_cli eio_main console-eio))

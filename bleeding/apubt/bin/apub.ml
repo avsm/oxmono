@@ -7,10 +7,17 @@
 
 open Cmdliner
 
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
+let detail label value = C.Span.concat [styled muted (label ^ "  ");
+  C.Span.sanitize (C.Span.text value)]
+
 let app_name = "apub"
 
 let setup_log style_renderer level =
-  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Console_eio.setup ?style_renderer ();
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 
@@ -52,6 +59,35 @@ module Webfinger_cmd = struct
         match Jsont_bytesrw.encode_string Apubt.Proto.Webfinger.jsont jrd with
         | Ok s -> print_endline s
         | Error e -> Fmt.epr "JSON encoding error: %s@." e
+      end else if Console_eio.is_tty () then begin
+        Fmt.pr "%a@." C.Panel.pp
+          (C.Panel.v ~title:(styled accent "WebFinger")
+             (C.Span.sanitize (C.Span.text
+                (Apubt.Proto.Webfinger.subject jrd))));
+        Option.iter (fun aliases ->
+          if aliases <> [] then begin
+            Fmt.pr "@.%a@." C.Span.pp (styled accent "Aliases");
+            List.iter (fun alias ->
+              Fmt.pr "  %a@." C.Span.pp (styled muted alias)) aliases
+          end) (Apubt.Proto.Webfinger.aliases jrd);
+        Option.iter (fun links ->
+          if links <> [] then begin
+            let rows = List.map (fun link ->
+              [styled accent (Apubt.Proto.Webfinger.Jrd_link.rel link);
+               styled muted (Option.value ~default:""
+                 (Apubt.Proto.Webfinger.Jrd_link.type_ link));
+               C.Span.sanitize (C.Span.text
+                 (Option.fold ~none:"" ~some:Uriz.to_string
+                   (Apubt.Proto.Webfinger.Jrd_link.href link)))]) links in
+            Fmt.pr "@.%a@.%a@." C.Span.pp (styled accent "Links")
+              C.Table.pp
+              (C.Table.of_rows ~border:C.Border.rounded
+                 C.Table.[column "Relation"; column "Type"; column "URL"] rows)
+          end) (Apubt.Proto.Webfinger.links jrd);
+        Option.iter (fun uri ->
+          Fmt.pr "@.%a@." C.Span.pp
+            (detail "ActivityPub actor" (Uriz.to_string uri)))
+          (Apubt.Webfinger.actor_uri jrd)
       end else begin
         Fmt.pr "@[<v>";
         Fmt.pr "Subject: %s@," (Apubt.Proto.Webfinger.subject jrd);
@@ -128,6 +164,27 @@ module Actor_cmd = struct
         match Jsont_bytesrw.encode_string Apubt.Proto.Actor.jsont actor with
         | Ok s -> print_endline s
         | Error e -> Fmt.epr "JSON encoding error: %s@." e
+      end else if Console_eio.is_tty () then begin
+        let module A = Apubt.Proto.Actor in
+        let lines =
+          [detail "ID" (Uriz.to_string (A.id actor));
+           detail "Type" (Apubt.Proto.Actor_type.to_string (A.type_ actor))]
+          @ (match A.preferred_username actor with
+             | None -> [] | Some value -> [detail "Username" value])
+          @ (match A.summary actor with
+             | None -> [] | Some value -> [detail "Summary" value])
+          @ (match A.url actor with
+             | None -> [] | Some value -> [detail "URL" (Uriz.to_string value)])
+          @ [detail "Inbox" (Uriz.to_string (A.inbox actor));
+             detail "Outbox" (Uriz.to_string (A.outbox actor))]
+          @ (match A.followers actor with
+             | None -> [] | Some value -> [detail "Followers" (Uriz.to_string value)])
+          @ (match A.following actor with
+             | None -> [] | Some value -> [detail "Following" (Uriz.to_string value)]) in
+        Fmt.pr "%a@." C.Panel.pp
+          (C.Panel.lines
+             ~title:(styled accent
+               (Option.value ~default:"Actor" (A.name actor))) lines)
       end else begin
         Fmt.pr "@[<v>";
         Fmt.pr "ID: %s@," (Uriz.to_string (Apubt.Proto.Actor.id actor));
@@ -197,7 +254,12 @@ module Outbox_cmd = struct
         | Error e -> Fmt.epr "JSON encoding error: %s@." e
       end else begin
         Fmt.pr "@[<v>";
-        Fmt.pr "Outbox for: %s@," (Uriz.to_string (Apubt.Proto.Actor.id actor));
+        if Console_eio.is_tty () then
+          Fmt.pr "%a@,%a@," C.Span.pp (styled accent "Outbox")
+            C.Span.pp
+            (detail "Actor" (Uriz.to_string (Apubt.Proto.Actor.id actor)))
+        else Fmt.pr "Outbox for: %s@,"
+          (Uriz.to_string (Apubt.Proto.Actor.id actor));
         Option.iter (fun n -> Fmt.pr "Total items: %d@," n) (Apubt.Proto.Collection.total_items outbox);
         Fmt.pr "@,";
         (* Try to get items from collection or first page *)
@@ -217,7 +279,10 @@ module Outbox_cmd = struct
           else items
         in
         List.iteri (fun i activity ->
-          Fmt.pr "--- Activity %d ---@," (i + 1);
+          if Console_eio.is_tty () then
+            Fmt.pr "%a@," C.Span.pp
+              (styled accent (Printf.sprintf "Activity %d" (i + 1)))
+          else Fmt.pr "--- Activity %d ---@," (i + 1);
           Option.iter (fun id -> Fmt.pr "ID: %s@," (Uriz.to_string id)) (Apubt.Proto.Activity.id activity);
           Fmt.pr "Type: %s@," (Apubt.Proto.Activity_type.to_string (Apubt.Proto.Activity.type_ activity));
           Option.iter (fun p -> Fmt.pr "Published: %s@," (Apubt.Proto.Datetime.to_string p)) (Apubt.Proto.Activity.published activity);

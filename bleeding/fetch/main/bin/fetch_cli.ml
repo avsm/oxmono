@@ -5,6 +5,7 @@
 let usage = "fetch [options] URL\n\nOptions:"
 
 let () =
+  Console_eio.setup ();
   let meth = ref None in
   let headers = ref [] in
   let data = ref None in

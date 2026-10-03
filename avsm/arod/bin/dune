@@ -20,6 +20,8 @@
   ptime.clock
   uriz
   eio_main
+  console-eio
+  console
   unix
   cmdliner
   xdge

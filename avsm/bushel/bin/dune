@@ -8,6 +8,8 @@
   bushel.sync
   cmdliner
   eio_main
+  console
+  console-eio
   logs
   logs.cli
   logs.fmt

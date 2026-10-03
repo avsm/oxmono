@@ -5,11 +5,102 @@
 
 open Cmdliner
 
+module C = Console
+
+let accent = C.Color.rgb 0x4b 0xc9 0xc3
+let highlight = C.Style.(bold + fg accent)
+let muted = C.Style.fg C.Color.bright_black
+
+let styled style value = C.Span.sanitize (C.Span.styled style value)
+
+let list_contacts xdg =
+  if not (Console_eio.is_tty ()) then Sortal.Cmd.list_cmd xdg
+  else
+    let contacts =
+      Sortal.list (Sortal.create_from_xdg xdg)
+      |> List.sort Sortal.Contact.compare
+    in
+    let rows = List.map (fun contact ->
+      [ styled highlight ("@" ^ Sortal.Contact.handle contact);
+        C.Span.sanitize (C.Span.text (Sortal.Contact.name contact)) ])
+      contacts in
+    let summary = C.Span.concat
+      [ styled highlight "Contacts";
+        C.Span.text "  ";
+        styled muted (Fmt.str "%d total" (List.length contacts)) ] in
+    Fmt.pr "%a@.%a@." C.Span.pp summary C.Table.pp
+      (C.Table.of_rows ~border:C.Border.rounded
+         C.Table.[column "Handle"; column "Name"] rows);
+    0
+
+let show_contact handle xdg =
+  if not (Console_eio.is_tty ()) then Sortal.Cmd.show_cmd handle xdg
+  else
+    let store = Sortal.create_from_xdg xdg in
+    match Sortal.lookup store handle with
+    | None -> Sortal.Cmd.show_cmd handle xdg
+    | Some contact ->
+      let module Contact = Sortal.Contact in
+      let name = Contact.name contact in
+      let uid = Sortal.Store.filename store handle
+        |> Filename.basename |> Filename.chop_extension in
+      let kind = match Contact.kind contact with
+        | Contact.Person -> "person"
+        | Contact.Organization -> "organization" in
+      let identity = C.Panel.lines
+        ~title:(styled highlight name)
+        [ styled highlight ("@" ^ Contact.handle contact);
+          C.Span.concat
+            [ styled muted "UID  "; C.Span.text uid;
+              styled muted "   Kind  "; C.Span.text kind ] ] in
+      Fmt.pr "%a@." C.Panel.pp identity;
+      let section title values =
+        if values <> [] then begin
+          Fmt.pr "@.%a@." C.Span.pp (styled highlight title);
+          List.iter (fun value ->
+            Fmt.pr "  %a %a@."
+              C.Span.pp (styled muted "•") C.Span.pp value) values
+        end in
+      let plain values = List.map (fun value ->
+        C.Span.sanitize (C.Span.text value)) values in
+      section "Names" (plain (Contact.names contact));
+      section "Emails" (List.map (fun email ->
+        styled C.Style.underline email) (Contact.emails contact));
+      section "Accounts" (List.map (fun account ->
+        C.Span.concat
+          [ styled muted
+              (Sortal_schema.Platform.key
+                 (Contact.Account.platform account) ^ "  ");
+            styled highlight (Contact.Account.handle account) ])
+        (Contact.accounts contact));
+      section "Links" (List.map (fun (link : Contact.link) ->
+        let label = match link.label with
+          | None -> link.url
+          | Some description -> description ^ "  " ^ link.url in
+        let link_span =
+          try C.Span.link ~style:C.Style.underline ~uri:link.url label
+          with Invalid_argument _ -> C.Span.text label in
+        C.Span.sanitize link_span) (Contact.links contact));
+      section "Affiliations" (List.map (fun (a : Contact.affiliation) ->
+        C.Span.sanitize (C.Span.text
+          (a.org ^ Option.fold ~none:"" ~some:(fun title -> " · " ^ title)
+             a.title))) (Contact.affiliations contact));
+      section "Feeds" (List.map (fun feed ->
+        C.Span.concat
+          [ styled C.Style.underline (Sortal.Feed.url feed);
+            (if Sortal.Feed.paused feed then styled muted "  paused"
+             else C.Span.empty) ]) (Contact.feeds contact));
+      Option.iter (fun photo -> section "Photo" (plain [photo]))
+        (Contact.photo contact);
+      section "Passthrough properties" (List.map (fun (key, value) ->
+        C.Span.concat [styled muted (key ^ "  "); C.Span.text value]
+        |> C.Span.sanitize) (Contact.vcard contact));
+      0
+
 (* Main command *)
 let () =
   Random.self_init ();
-  Fmt.set_style_renderer Fmt.stdout `Ansi_tty;
-  Fmt.set_style_renderer Fmt.stderr `Ansi_tty;
+  Console_eio.setup ();
 
   let exit_code = Eio_main.run @@ fun env ->
 
@@ -32,7 +123,9 @@ let () =
       let open Term.Syntax in
       let+ (xdg, _) = xdg_term
       and+ main = main_term
-      and+ log_level = Logs_cli.level () in
+      and+ log_level = Logs_cli.level ()
+      and+ style_renderer = Fmt_cli.style_renderer () in
+      Console_eio.setup ?style_renderer ();
       Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
       Logs.set_level log_level;
       main xdg
@@ -40,8 +133,8 @@ let () =
     Cmd.v info term
   in
 
-  let list_cmd = make_term Sortal.Cmd.list_info (Term.const Sortal.Cmd.list_cmd) in
-  let show_cmd = make_term Sortal.Cmd.show_info Term.(const Sortal.Cmd.show_cmd $ Sortal.Cmd.handle_arg) in
+  let list_cmd = make_term Sortal.Cmd.list_info (Term.const list_contacts) in
+  let show_cmd = make_term Sortal.Cmd.show_info Term.(const show_contact $ Sortal.Cmd.handle_arg) in
   let thumbnail_cmd = make_term Sortal.Cmd.thumbnail_info Term.(const Sortal.Cmd.thumbnail_cmd $ Sortal.Cmd.handle_arg) in
   let search_cmd = make_term Sortal.Cmd.search_info Term.(const Sortal.Cmd.search_cmd $ Sortal.Cmd.query_arg) in
   let stats_cmd = make_term Sortal.Cmd.stats_info Term.(const (fun () -> Sortal.Cmd.stats_cmd ()) $ const ()) in

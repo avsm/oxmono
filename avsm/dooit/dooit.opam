@@ -9,6 +9,8 @@ depends: [
   "ocaml" {>= "5.1.0"}
   "eio"
   "eio_main"
+  "console-eio"
+  "console"
   "cmdliner"
   "xdge"
   "tomlt"

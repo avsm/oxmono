@@ -10,6 +10,6 @@
  (synopsis "OwnTracks messages, mqttz client and GeoJSON export")
  (depends
   (ocaml (>= 5.2))
-  mqttz jsont bytesrw bytesrw-eio eio eio_main codec fetch fetch-httpz
+  mqttz jsont bytesrw bytesrw-eio eio eio_main console console-eio codec fetch fetch-httpz
   uri cmdliner
   (alcotest :with-test)))

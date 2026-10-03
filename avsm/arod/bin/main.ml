@@ -11,8 +11,13 @@ module Log = (val Logs.src_log src : Logs.LOG)
 
 open Cmdliner
 
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
+
 let setup_logging style_renderer level =
-  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Console_eio.setup ?style_renderer ();
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 
@@ -168,6 +173,8 @@ let search_cmd =
         Printf.printf "No results.\n";
         0
       end else begin
+        if Console_eio.is_tty () then
+          Fmt.pr "%a@." C.Span.pp (styled accent "Search results");
         Fmt.pr "%a@." Arod_search.pp_results results;
         0
       end
@@ -705,8 +712,22 @@ let standardsite_cmd =
         Printf.printf "No documents found.\n";
         0
       end else begin
-        Printf.printf "Documents:\n\n";
-        List.iter (fun d -> Fmt.pr "%a@.@." pp_document d) docs;
+        if Console_eio.is_tty () then begin
+          let rows = List.map (fun (rkey, (d : Document.main)) ->
+            [styled accent rkey;
+             C.Span.sanitize (C.Span.text d.title);
+             styled muted d.site;
+             styled muted d.published_at]) docs in
+          Fmt.pr "%a  %a@.%a@." C.Span.pp (styled accent "Documents")
+            C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length docs)))
+            C.Table.pp
+            (C.Table.of_rows ~border:C.Border.rounded
+               C.Table.[column "Key"; column "Title"; column "Site";
+                        column "Published"] rows)
+        end else begin
+          Printf.printf "Documents:\n\n";
+          List.iter (fun d -> Fmt.pr "%a@.@." pp_document d) docs
+        end;
         0
       end
     in
@@ -730,7 +751,12 @@ let standardsite_cmd =
       in
       match Standard_site.Api.get_document api ~did ~rkey with
       | Some doc ->
-        Fmt.pr "%a@." pp_document_detail (rkey, doc);
+        if Console_eio.is_tty () then
+          Fmt.pr "%a@." C.Panel.pp
+            (C.Panel.v ~title:(styled accent doc.title)
+               (C.Span.sanitize (C.Span.text
+                  (Fmt.str "%a" pp_document_detail (rkey, doc)))))
+        else Fmt.pr "%a@." pp_document_detail (rkey, doc);
         0
       | None ->
         Printf.eprintf "Document not found: %s\n" rkey;

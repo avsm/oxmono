@@ -41,4 +41,5 @@
   yamlrw
   cmdliner
   eio_main
+  console console-eio
   (odoc :with-doc)))

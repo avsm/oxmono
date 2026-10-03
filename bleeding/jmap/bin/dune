@@ -14,11 +14,11 @@
  (public_name jmap)
  (package jmap)
  (modules jmap)
- (libraries jmap.eio jmap_cli_util jscontact eio_main fmt.tty))
+ (libraries jmap.eio jmap_cli_util jscontact eio_main console-eio fmt.tty))
 
 (executable
  (name jmapq)
  (public_name jmapq)
  (package jmap)
  (modules jmapq)
- (libraries jmap.eio jmap_cli_util eio_main fmt.tty jmapq_subject jsont))
+ (libraries jmap.eio jmap_cli_util eio_main console-eio fmt.tty jmapq_subject jsont))

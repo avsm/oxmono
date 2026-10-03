@@ -1,0 +1,12 @@
+(library
+ (name console)
+ (public_name console)
+ (libraries fmt logs uucp uuseg uutf)
+ ; Low-level ANSI, Matrix rain, formatter conversion and widget resolution
+ ; helpers. None is part of the public API.
+ (private_modules ansi glyph paint rain render widget))
+
+(mdx
+ (package console)
+ (files tree.mli display.mli console.mli)
+ (libraries console console-eio fmt logs logs.fmt eio eio.core eio.unix))

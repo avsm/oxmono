@@ -27,6 +27,8 @@ depends: [
   "xdge" {>= "0.1"}
   "cmdliner" {>= "1.2"}
   "eio_main"
+  "console-eio"
+  "console"
   "fmt"
   "odoc" {with-doc}
 ]

@@ -18,6 +18,8 @@ depends: [
   "bytesrw"
   "eio" {>= "1.0"}
   "eio_main" {>= "1.0"}
+  "console-eio"
+  "console"
   "fetch"
   "fetch-curl"
   "uriz"

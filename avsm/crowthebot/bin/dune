@@ -1,4 +1,5 @@
 (executable
  (name main)
  (public_name crowthebot)
- (libraries crowthebot cmdliner eio_main logs.fmt))
+ (libraries crowthebot cmdliner eio_main
+  console-eio logs.fmt))

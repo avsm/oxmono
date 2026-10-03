@@ -29,5 +29,5 @@ let main_cmd =
     ]
 
 let () =
-  Fmt_tty.setup_std_outputs ();
+  Console_eio.setup ();
   exit (Cmd.eval main_cmd)

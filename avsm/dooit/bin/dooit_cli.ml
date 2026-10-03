@@ -3,6 +3,11 @@ open Dooit
 open Common
 open Cmdliner
 
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
+
 let opt names doc = Arg.(value & opt (some string) None & info names ~doc)
 let flag names doc = Arg.(value & flag & info names ~doc)
 let pos n name = Arg.(required & pos n (some string) None & info [] ~docv:name)
@@ -42,6 +47,15 @@ let context environment =
 
 let output json note =
   if json then print_endline (json_string ~pretty:true (Doc.public note))
+  else if Console_eio.is_tty () then
+    Fmt.pr "%a  %a  %a%a@."
+      C.Span.pp (styled muted (Doc.id note))
+      C.Span.pp (styled accent ("[" ^ Doc.status note ^ "]"))
+      C.Span.pp (C.Span.sanitize (C.Span.text (Doc.title note)))
+      C.Span.pp
+        (styled muted
+           (if Doc.tags note = [] then ""
+            else "  #" ^ String.concat " #" (Doc.tags note)))
   else
     Printf.printf "%s  [%s] %s%s\n" (Doc.id note) (Doc.status note)
       (Doc.title note)
@@ -57,7 +71,11 @@ let outputs json notes =
               ("schema", str "dooit.list/v1");
               ("notes", arr (List.map Doc.public notes));
             ]))
-  else List.iter (output false) notes
+  else if Console_eio.is_tty () then begin
+    Fmt.pr "%a  %a@.@." C.Span.pp (styled accent "Tasks")
+      C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length notes)));
+    List.iter (output false) notes
+  end else List.iter (output false) notes
 
 let diagnostics errors =
   List.iter
@@ -204,7 +222,14 @@ let commands environment =
         const (fun c id json ->
             guard (fun () ->
                 let d = Store.get (Store.open_ c.Config.root) id in
-                if json then output true d else print_string d.raw))
+                if json then output true d
+                else if Console_eio.is_tty () then begin
+                  Fmt.pr "%a@.@." C.Panel.pp
+                    (C.Panel.lines ~title:(styled accent (Doc.title d))
+                       [ styled muted (Doc.id d);
+                         styled accent (Doc.status d) ]);
+                  print_string d.raw
+                end else print_string d.raw))
         $ ctx $ pos 0 "ID" $ json_arg)
   in
   let list_cmd name search =
@@ -627,6 +652,7 @@ let commands environment =
   ]
 
 let () =
+  Console_eio.setup ();
   Eio_main.run (fun environment ->
       let cmd =
         Cmd.group

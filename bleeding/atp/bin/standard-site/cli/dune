@@ -11,7 +11,7 @@
   fmt
   fmt.tty
   eio
-  eio_main
+  eio_main console console-eio
   ptime
   ptime.clock.os
   uriz))

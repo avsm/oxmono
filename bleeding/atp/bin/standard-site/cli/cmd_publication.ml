@@ -5,6 +5,11 @@
 
 open Cmdliner
 
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
+
 (* Type alias for convenience *)
 module Publication = Atp_lexicon_standard_site.Site.Standard.Publication
 
@@ -52,6 +57,16 @@ let list_action ~user env =
   in
   let pubs = Standard_site.Api.list_publications api ~did () in
   if pubs = [] then Fmt.pr "No publications found.@."
+  else if Console_eio.is_tty () then begin
+    let rows = List.map (fun (rkey, (pub : Publication.main)) ->
+      [styled accent rkey; C.Span.sanitize (C.Span.text pub.name);
+       C.Span.sanitize (C.Span.text pub.url)]) pubs in
+    Fmt.pr "%a  %a@.%a@." C.Span.pp (styled accent "Publications")
+      C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length pubs)))
+      C.Table.pp
+      (C.Table.of_rows ~border:C.Border.rounded
+         C.Table.[column "Key"; column "Name"; column "URL"] rows)
+  end
   else begin
     Fmt.pr "Publications:@.@.";
     List.iter (fun p -> Fmt.pr "%a@.@." (pp_publication ~did) p) pubs

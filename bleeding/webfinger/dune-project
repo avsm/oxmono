@@ -23,6 +23,8 @@
   bytesrw
   (eio (>= 1.0))
   (eio_main (>= 1.0))
+  console
+  console-eio
   fetch
   fetch-curl
   uriz

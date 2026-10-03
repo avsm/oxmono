@@ -11,7 +11,7 @@
   jsont
   jsont.bytesrw
   eio
-  eio_main
+  eio_main console-eio
   fmt
   fmt.tty
   cmdliner))

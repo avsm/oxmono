@@ -9,6 +9,11 @@
 
 open Cmdliner
 
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
+
 (** {1 Command-line Arguments} *)
 
 let resource =
@@ -30,7 +35,7 @@ let show_links_only =
 (** {1 Logging Setup} *)
 
 let setup_log style_renderer level =
-  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Console_eio.setup ?style_renderer ();
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ());
   (* Return whether we should be quiet (log level is None) *)
@@ -71,6 +76,40 @@ let pp_jrd_compact ppf jrd =
 let pp_links_only ppf jrd =
   List.iter (fun link -> Format.fprintf ppf "%a@," pp_link_compact link) (Webfinger.Jrd.links jrd)
 
+let print_styled_jrd ~links_only jrd =
+  let section title values =
+    if values <> [] then begin
+      Format.printf "@.%a@." C.Span.pp (styled accent title);
+      List.iter (fun value ->
+        Format.printf "  %a %a@." C.Span.pp (styled muted "•")
+          C.Span.pp value) values
+    end
+  in
+  if not links_only then begin
+    Option.iter (fun subject ->
+      Format.printf "%a@." C.Panel.pp
+        (C.Panel.v ~title:(styled accent "WebFinger")
+           (C.Span.sanitize (C.Span.text subject))))
+      (Webfinger.Jrd.subject jrd);
+    section "Aliases"
+      (List.map (styled muted) (Webfinger.Jrd.aliases jrd));
+    section "Properties" (List.map (fun (key, value) ->
+      C.Span.concat [styled muted (key ^ "  ");
+        C.Span.sanitize (C.Span.text (Option.value ~default:"null" value))])
+      (Webfinger.Jrd.properties jrd))
+  end;
+  section "Links"
+    (List.map (fun link ->
+      let href = Option.value ~default:"(no href)" (Webfinger.Link.href link) in
+      let target =
+        try C.Span.link ~style:C.Style.underline ~uri:href href
+        with Invalid_argument _ -> C.Span.text href in
+      C.Span.concat
+        [styled muted (Webfinger.Link.rel link ^ "  "); target;
+         styled muted (Option.fold ~none:"" ~some:(fun t -> "  [" ^ t ^ "]")
+           (Webfinger.Link.type_ link))]
+      |> C.Span.sanitize) (Webfinger.Jrd.links jrd))
+
 (** {1 Main Command} *)
 
 let run quiet resource rels json_output links_only =
@@ -85,6 +124,8 @@ let run quiet resource rels json_output links_only =
       if not quiet then begin
         if json_output then
           Format.printf "%s@." (Webfinger.Jrd.to_string jrd)
+        else if Console_eio.is_tty () then
+          print_styled_jrd ~links_only jrd
         else if links_only then
           Format.printf "%a" pp_links_only jrd
         else

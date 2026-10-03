@@ -99,4 +99,6 @@ let command =
   in
   Cmd.v (Cmd.info "spindle" ~doc:"Run an OCaml Tangled inspection job") term
 
-let () = exit (Cmd.eval command)
+let () =
+  Console_eio.setup ();
+  exit (Cmd.eval command)

@@ -7,6 +7,11 @@
 
 open Cmdliner
 
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
+
 module Table = struct
   type row = string list
   type t = { headers : string list; rows : row list }
@@ -31,17 +36,28 @@ module Table = struct
     else s ^ String.make (width - len) ' '
 
   let print t =
-    let widths = column_widths t in
-    let print_row row =
-      List.iter2 (fun cell width ->
-        Printf.printf "%s  " (pad cell width)
-      ) row widths;
-      print_newline ()
-    in
-    print_row t.headers;
-    List.iter (fun w -> Printf.printf "%s  " (String.make w '-')) widths;
-    print_newline ();
-    List.iter print_row t.rows
+    if Console_eio.is_tty () then
+      let columns = List.map C.Table.column t.headers in
+      let rows = List.map (function
+        | kind :: slug :: rest ->
+          styled muted kind :: styled accent slug
+          :: List.map (fun value -> C.Span.sanitize (C.Span.text value)) rest
+        | row -> List.map (fun value -> C.Span.sanitize (C.Span.text value)) row
+      ) t.rows in
+      Fmt.pr "%a@." C.Table.pp
+        (C.Table.of_rows ~border:C.Border.rounded columns rows)
+    else
+      let widths = column_widths t in
+      let print_row row =
+        List.iter2 (fun cell width ->
+          Printf.printf "%s  " (pad cell width)
+        ) row widths;
+        print_newline ()
+      in
+      print_row t.headers;
+      List.iter (fun w -> Printf.printf "%s  " (String.make w '-')) widths;
+      print_newline ();
+      List.iter print_row t.rows
 end
 
 let truncate max_len s =
@@ -68,7 +84,7 @@ let config_file =
   Arg.(value & opt (some string) None & info ["c"; "config"] ~docv:"FILE" ~doc)
 
 let setup_log style_renderer level =
-  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Console_eio.setup ?style_renderer ();
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 
@@ -153,7 +169,10 @@ let list_cmd =
         rows
       in
       Table.print table;
-      Printf.printf "\nTotal: %d entries\n" (List.length limited);
+      if Console_eio.is_tty () then
+        Fmt.pr "@.%a  %a@." C.Span.pp (styled accent "Entries")
+          C.Span.pp (styled muted (string_of_int (List.length limited)))
+      else Printf.printf "\nTotal: %d entries\n" (List.length limited);
       0
   in
   let doc = "List all entries in the knowledge base." in
@@ -177,7 +196,9 @@ let stats_cmd =
       let contacts = List.length (Bushel.Entry.contacts entries) in
       let images = List.length (Bushel_eio.Bushel_loader.load_images fs
         ~output_dir:config.Bushel_config.images_output_dir) in
-      Printf.printf "Bushel Statistics\n";
+      if Console_eio.is_tty () then
+        Fmt.pr "%a@." C.Span.pp (styled accent "Bushel Statistics")
+      else Printf.printf "Bushel Statistics\n";
       Printf.printf "=================\n";
       Printf.printf "Papers:   %4d\n" papers;
       Printf.printf "Notes:    %4d\n" notes;
@@ -210,14 +231,25 @@ let show_cmd =
         Printf.eprintf "Entry not found: %s\n" slug;
         1
       | Some entry ->
-        let pp = match entry with
-          | `Note n -> Bushel.Note.pp Fmt.stdout n
-          | `Paper p -> Bushel.Paper.pp Fmt.stdout p
-          | `Video v -> Bushel.Video.pp Fmt.stdout v
-          | `Idea i -> Bushel.Idea.pp Fmt.stdout i
-          | `Project p -> Bushel.Project.pp Fmt.stdout p
-        in
-        ignore pp;
+        if Console_eio.is_tty () then begin
+          let content = match entry with
+            | `Note n -> Fmt.str "%a" Bushel.Note.pp n
+            | `Paper p -> Fmt.str "%a" Bushel.Paper.pp p
+            | `Video v -> Fmt.str "%a" Bushel.Video.pp v
+            | `Idea i -> Fmt.str "%a" Bushel.Idea.pp i
+            | `Project p -> Fmt.str "%a" Bushel.Project.pp p
+          in
+          Fmt.pr "%a@." C.Panel.pp
+            (C.Panel.v ~title:(styled accent (Bushel.Entry.title entry))
+               (C.Span.sanitize (C.Span.text content)))
+        end else begin
+          (match entry with
+           | `Note n -> Bushel.Note.pp Fmt.stdout n
+           | `Paper p -> Bushel.Paper.pp Fmt.stdout p
+           | `Video v -> Bushel.Video.pp Fmt.stdout v
+           | `Idea i -> Bushel.Idea.pp Fmt.stdout i
+           | `Project p -> Bushel.Project.pp Fmt.stdout p)
+        end;
         0
   in
   let doc = "Show details of a specific entry." in

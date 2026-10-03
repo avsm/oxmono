@@ -1,5 +1,10 @@
 open Cmdliner
 
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
+
 let locale =
   Arg.(
     value
@@ -54,9 +59,16 @@ let locales =
   in
   let go installed =
     run (fun () ->
-        List.iter print_endline
-          (if installed then Apple_speech.installed_locales ()
-           else Apple_speech.supported_locales ()))
+        let locales =
+          if installed then Apple_speech.installed_locales ()
+          else Apple_speech.supported_locales () in
+        if Console_eio.is_tty () then begin
+          Format.printf "%a  %a@." C.Span.pp (styled accent "Locales")
+            C.Span.pp (styled muted
+              (Printf.sprintf "%d total" (List.length locales)));
+          List.iter (fun locale ->
+            Format.printf "  %a@." C.Span.pp (styled accent locale)) locales
+        end else List.iter print_endline locales)
   in
   Cmd.v
     (Cmd.info "locales" ~doc:"List locales with a transcription model.")
@@ -122,16 +134,25 @@ let say =
 let voices =
   let go () =
     run_env (fun mgr ->
-        List.iter
+        let voices = Apple_speech.voices mgr in
+        if Console_eio.is_tty () then begin
+          let rows = List.map (fun (v : Apple_speech.voice) ->
+            [styled accent v.name; styled muted v.locale]) voices in
+          Format.printf "%a  %a@.%a@." C.Span.pp (styled accent "Voices")
+            C.Span.pp (styled muted
+              (Printf.sprintf "%d total" (List.length voices)))
+            C.Table.pp (C.Table.of_rows ~border:C.Border.rounded
+              C.Table.[column "Name"; column "Locale"] rows)
+        end else List.iter
           (fun (v : Apple_speech.voice) ->
-            Printf.printf "%-28s %s\n" v.name v.locale)
-          (Apple_speech.voices mgr))
+            Printf.printf "%-28s %s\n" v.name v.locale) voices)
   in
   Cmd.v
     (Cmd.info "voices" ~doc:"List speech voices.")
     Term.(const go $ const ())
 
 let () =
+  Console_eio.setup ();
   exit
     (Cmd.eval'
        (Cmd.group

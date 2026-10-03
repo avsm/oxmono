@@ -1,0 +1,51 @@
+(lang dune 3.21)
+(using mdx 0.4)
+
+(name console)
+
+(generate_opam_files true)
+(implicit_transitive_deps false)
+
+(license ISC)
+(authors "Thomas Gazagnaire <thomas@gazagnaire.org>")
+(maintainers "Thomas Gazagnaire <thomas@gazagnaire.org>")
+
+(source (tangled gazagnaire.org/ocaml-console))
+
+(package
+ (name console)
+ (synopsis "Terminal styling and layout widgets")
+ (tags (org:blacksun cli format))
+ (description
+  "Type-safe terminal styling (colors, bold, italic) and layout widgets
+   (tables, trees, panels) for OCaml CLI applications. Inspired by
+   Python's Rich and Go's Charm/lipgloss.")
+ (depends
+  (ocaml (>= 5.1))
+  (fmt (>= 0.9))
+  logs
+  uucp
+  uuseg
+  (uutf (>= 1.0))
+  (alcotest :with-test)
+  (mdx :with-test)
+  (alcobar :with-test)
+  (eio_main :with-test)
+  (re :with-test)))
+
+(package
+ (name console-eio)
+ (synopsis "Eio backend for console")
+ (tags (org:blacksun cli format eio))
+ (description
+  "Helpers that animate Console.Display bars from an Eio fiber. Split out
+   so the core tty library stays scheduler-agnostic.")
+ (depends
+  (ocaml (>= 5.1))
+  console
+  (eio (>= 1.0))
+  fmt
+  logs
+  cstruct
+  optint
+  (alcotest :with-test)))

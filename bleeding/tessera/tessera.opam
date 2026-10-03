@@ -22,6 +22,8 @@ depends: [
   "cmdliner"
   "fetch-curl"
   "eio_main"
+  "console-eio"
+  "console"
   "odoc" {with-doc}
   "alcotest" {with-test}
 ]

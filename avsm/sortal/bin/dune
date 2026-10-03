@@ -13,6 +13,8 @@
   proffer-httpz
   eio
   eio_main
+  console-eio
+  console
   xdge
   cmdliner
   logs

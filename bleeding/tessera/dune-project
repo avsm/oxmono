@@ -26,5 +26,6 @@ reads and dequantisation, over any zarrz store backend.")
   cmdliner
   fetch-curl
   eio_main
+  console console-eio
   (odoc :with-doc)
   (alcotest :with-test)))

@@ -683,6 +683,7 @@ let stats_cmd env =
 (* Main command *)
 
 let () =
+  Console_eio.setup ();
   let exit_code =
     try
       Eio_main.run @@ fun env ->

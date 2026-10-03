@@ -19,6 +19,7 @@ depends: [
   "fetch-curl"
   "eio" {>= "1.2"}
   "eio_main"
+  "console-eio"
   "jsont" {>= "0.2.0"}
   "bytesrw"
   "ptime" {>= "1.0.0"}

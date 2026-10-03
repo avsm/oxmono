@@ -2,6 +2,10 @@
 open Cmdliner
 module Api = Tangled.Api
 module Repo = Atp_lexicon_tangled.Sh.Tangled.Repo
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
 
 let repo =
   Common.positional 0 "REPO" "Repository DID, owner/name, or record URI."
@@ -37,6 +41,23 @@ let list_cmd =
             let repos = Api.list_repos api ~did:(Common.did api user) () in
             if json then
               Common.print (Jsont.list Repo.main_jsont) (List.map snd repos)
+            else if Console_eio.is_tty () then begin
+              let rows = List.map (fun (rkey, (r : Repo.main)) ->
+                [styled accent (Option.value ~default:rkey r.name);
+                 styled muted r.knot;
+                 styled muted (Option.value ~default:"(no DID)" r.repo_did);
+                 C.Span.sanitize (C.Span.text
+                   (Option.value ~default:"" r.description));
+                 styled muted (Option.value ~default:"" r.spindle)]) repos in
+              Fmt.pr "%a  %a@.%a@." C.Span.pp (styled accent "Repositories")
+                C.Span.pp
+                  (styled muted (Printf.sprintf "%d total" (List.length repos)))
+                C.Table.pp
+                (C.Table.of_rows ~border:C.Border.rounded
+                   C.Table.[column "Name"; column "Knot"; column "DID";
+                            column ~max_width:32 "Description";
+                            column "Spindle"] rows)
+            end
             else List.iter (fun r -> Fmt.pr "%a" pp_repository r) repos))
   in
   Cmd.v

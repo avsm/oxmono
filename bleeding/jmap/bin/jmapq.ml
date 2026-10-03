@@ -315,5 +315,5 @@ let main_cmd =
   Cmd.group info [ zulip_list_cmd; zulip_timeout_cmd; zulip_view_cmd ]
 
 let () =
-  Fmt_tty.setup_std_outputs ();
+  Console_eio.setup ();
   exit (Cmd.eval main_cmd)

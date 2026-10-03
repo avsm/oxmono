@@ -11,7 +11,7 @@
   bytesrw
   xrpc-auth
   cmdliner
-  eio_main
+  eio_main console console-eio
   fmt
   fmt.tty
   xdge

@@ -9,6 +9,6 @@
  (synopsis "Editable task notes with WebDAV synchronization and JMAP sources")
  (depends
   (ocaml (>= 5.1.0))
-  eio eio_main cmdliner xdge tomlt yamlrw jsont bytesrw frontmatter
+  eio eio_main console console-eio cmdliner xdge tomlt yamlrw jsont bytesrw frontmatter
   digestif ptime fetch fetch-curl httpz jmap sqlite3 uunf uucp
   (alcotest :with-test)))

@@ -11,6 +11,10 @@
 
 module Ext = Zarrz.Ext
 module Metadata = Zarrz.Metadata
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
 
 (* {1 Numbers, shapes and sizes} *)
 
@@ -199,15 +203,34 @@ let pad_to n s =
   let len = String.length s in
   if len >= n then s ^ " " else s ^ String.make (n - len) ' '
 
-let field name fmt = Printf.printf ("%s" ^^ fmt ^^ "\n") (pad_to 22 name)
+let field name fmt =
+  Printf.ksprintf (fun value ->
+    if Console_eio.is_tty () then
+      Format.printf "%a  %a@." C.Span.pp (styled muted name)
+        C.Span.pp (styled accent value)
+    else Printf.printf "%s%s\n" (pad_to 22 name) value) fmt
 
 let sub name fmt =
-  Printf.printf ("%s" ^^ fmt ^^ "\n") (pad_to 22 ("  " ^ name))
+  Printf.ksprintf (fun value ->
+    if Console_eio.is_tty () then
+      Format.printf "  %a  %a@." C.Span.pp (styled muted name)
+        C.Span.pp (C.Span.sanitize (C.Span.text value))
+    else Printf.printf "%s%s\n" (pad_to 22 ("  " ^ name)) value) fmt
 
 (* The first column is a name and is left aligned. Every other column is
    a number and is right aligned, so that magnitudes compare down the
    page. *)
 let table ~headers rows =
+  if Console_eio.is_tty () then begin
+    let columns = List.mapi (fun i name ->
+      C.Table.column ~align:(if i = 0 then `Left else `Right) name) headers in
+    let rows = List.map (function
+      | name :: values ->
+          styled accent name :: List.map (styled muted) values
+      | [] -> []) rows in
+    Format.printf "%a@." C.Table.pp
+      (C.Table.of_rows ~border:C.Border.rounded columns rows)
+  end else begin
   let cols = List.length headers in
   let w = Array.make cols 0 in
   let measure r =
@@ -225,3 +248,4 @@ let table ~headers rows =
   in
   line headers;
   List.iter line rows
+  end

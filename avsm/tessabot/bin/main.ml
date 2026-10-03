@@ -5,8 +5,13 @@
 
 open Cmdliner
 
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
+
 let setup_logging style_renderer level =
-  Fmt_tty.setup_std_outputs ?style_renderer ();
+  Console_eio.setup ?style_renderer ();
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 
@@ -51,6 +56,24 @@ let feed_list_run () =
   let entries = load_entries env cfg in
   if entries = [] then
     Fmt.pr "No feed entries found. Run 'sortal feed sync' first.@."
+  else if Console_eio.is_tty () then begin
+    let columns = C.Table.[
+      column "Date";
+      column "Handle";
+      column ~max_width:48 ~overflow:`Truncate "Title";
+      column ~max_width:24 ~overflow:`Truncate "ID";
+    ] in
+    let rows = List.map (fun (handle, _name, (entry : Sortal_feed.Entry.t)) ->
+      [ styled muted (Fmt.str "%a" pp_date entry.date);
+        styled accent handle;
+        C.Span.sanitize (C.Span.text
+          (Option.value ~default:"(no title)" entry.title));
+        styled muted entry.id ]) entries in
+    Fmt.pr "%a  %a@.%a@." C.Span.pp (styled accent "Feed entries")
+      C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length entries)))
+      C.Table.pp
+      (C.Table.of_rows ~border:C.Border.rounded columns rows)
+  end
   else begin
     Fmt.pr "@[<v>%d entries:@,@," (List.length entries);
     List.iter (fun (handle, _name, (entry : Sortal_feed.Entry.t)) ->
@@ -245,11 +268,17 @@ let buffer_orgs_run () =
   let session = Tessabot.Buffer.session ~sw ~token:cfg.buffer.api_key env in
   match Tessabot.Buffer.list_organizations ~session with
   | Ok orgs ->
-    Fmt.pr "@[<v>%d organization(s):@," (List.length orgs);
-    List.iter (fun (org : Tessabot.Buffer.organization) ->
-      Fmt.pr "  %s@," org.id
-    ) orgs;
-    Fmt.pr "@]"
+    if Console_eio.is_tty () then begin
+      Fmt.pr "%a  %a@." C.Span.pp (styled accent "Organizations")
+        C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length orgs)));
+      List.iter (fun (org : Tessabot.Buffer.organization) ->
+        Fmt.pr "  %a@." C.Span.pp (styled accent org.id)) orgs
+    end else begin
+      Fmt.pr "@[<v>%d organization(s):@," (List.length orgs);
+      List.iter (fun (org : Tessabot.Buffer.organization) ->
+        Fmt.pr "  %s@," org.id) orgs;
+      Fmt.pr "@]"
+    end
   | Error msg ->
     Fmt.epr "Error: %s@." msg;
     exit 1
@@ -268,11 +297,21 @@ let buffer_channels_run () org_id =
   let session = Tessabot.Buffer.session ~sw ~token:cfg.buffer.api_key env in
   match Tessabot.Buffer.list_channels ~session ~org_id with
   | Ok channels ->
-    Fmt.pr "@[<v>%d channel(s):@," (List.length channels);
-    List.iter (fun (ch : Tessabot.Buffer.channel) ->
-      Fmt.pr "  %-20s %-12s %s@," ch.id ch.service ch.name
-    ) channels;
-    Fmt.pr "@]"
+    if Console_eio.is_tty () then begin
+      let rows = List.map (fun (ch : Tessabot.Buffer.channel) ->
+        [styled accent ch.id; styled muted ch.service;
+         C.Span.sanitize (C.Span.text ch.name)]) channels in
+      Fmt.pr "%a  %a@.%a@." C.Span.pp (styled accent "Channels")
+        C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length channels)))
+        C.Table.pp
+        (C.Table.of_rows ~border:C.Border.rounded
+           C.Table.[column "ID"; column "Service"; column "Name"] rows)
+    end else begin
+      Fmt.pr "@[<v>%d channel(s):@," (List.length channels);
+      List.iter (fun (ch : Tessabot.Buffer.channel) ->
+        Fmt.pr "  %-20s %-12s %s@," ch.id ch.service ch.name) channels;
+      Fmt.pr "@]"
+    end
   | Error msg ->
     Fmt.epr "Error: %s@." msg;
     exit 1

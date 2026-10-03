@@ -5,6 +5,11 @@
 
 open Cmdliner
 
+module C = Console
+let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
+let muted = C.Style.fg C.Color.bright_black
+let styled style value = C.Span.sanitize (C.Span.styled style value)
+
 (* Type alias for convenience *)
 module Document = Atp_lexicon_standard_site.Site.Standard.Document
 
@@ -107,6 +112,17 @@ let list_action ~user env =
   in
   let docs = Standard_site.Api.list_documents api ~did () in
   if docs = [] then Fmt.pr "No documents found.@."
+  else if Console_eio.is_tty () then begin
+    let rows = List.map (fun (rkey, (doc : Document.main)) ->
+      [styled accent rkey; C.Span.sanitize (C.Span.text doc.title);
+       styled muted doc.site; styled muted doc.published_at]) docs in
+    Fmt.pr "%a  %a@.%a@." C.Span.pp (styled accent "Documents")
+      C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length docs)))
+      C.Table.pp
+      (C.Table.of_rows ~border:C.Border.rounded
+         C.Table.[column "Key"; column "Title"; column "Site";
+                  column "Published"] rows)
+  end
   else begin
     Fmt.pr "Documents:@.@.";
     List.iter (fun d -> Fmt.pr "%a@.@." pp_document d) docs
@@ -134,7 +150,13 @@ let show_action ~rkey ~user env =
     | None -> Standard_site.Api.get_did api
   in
   match Standard_site.Api.get_document api ~did ~rkey with
-  | Some doc -> Fmt.pr "%a@." pp_document_detail (rkey, doc)
+  | Some doc ->
+      if Console_eio.is_tty () then
+        Fmt.pr "%a@." C.Panel.pp
+          (C.Panel.v ~title:(styled accent doc.title)
+             (C.Span.sanitize (C.Span.text
+                (Fmt.str "%a" pp_document_detail (rkey, doc)))))
+      else Fmt.pr "%a@." pp_document_detail (rkey, doc)
   | None ->
       Fmt.epr "Document not found: %s@." rkey;
       exit 1

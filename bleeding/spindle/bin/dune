@@ -1,4 +1,4 @@
 (executable
  (name main)
  (public_name spindle)
- (libraries spindle cmdliner eio_main))
+ (libraries spindle cmdliner eio_main console-eio))

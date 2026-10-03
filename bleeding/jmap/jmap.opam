@@ -22,6 +22,7 @@ depends: [
   "ptime" {>= "1.0.0"}
   "eio"
   "eio_main"
+  "console-eio"
   "fetch"
   "fetch-httpz"
   "httpz"

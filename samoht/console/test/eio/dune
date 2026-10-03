@@ -1,0 +1,14 @@
+(test
+ (name test)
+ (package console-eio)
+ (libraries
+  console
+  console-eio
+  cstruct
+  eio
+  eio.unix
+  eio_main
+  alcotest
+  fmt
+  logs
+  unix))

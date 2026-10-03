@@ -10,6 +10,6 @@
   fetch-cmdliner
   jsont
   eio
-  eio_main
+  eio_main console-eio
   fmt
   cmdliner))

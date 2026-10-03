@@ -37,6 +37,11 @@ let () =
   check "web document url"
     (I.document_url "did:web:example.com"
     = Ok "https://example.com/.well-known/did.json");
+  check "web document url with an encoded port"
+    (I.document_url "did:web:localhost%3A8080"
+    = Ok "https://localhost:8080/.well-known/did.json");
+  check "a web host that tries to leave the host is rejected"
+    (is_error (I.document_url "did:web:evil.example%2Fpath"));
   check "an unsupported method" (is_error (I.document_url "did:key:zQ3"));
   check "not a did" (is_error (I.document_url "alice"));
 

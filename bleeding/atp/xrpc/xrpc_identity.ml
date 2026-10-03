@@ -37,14 +37,50 @@ let pds_of_document json =
             services
       | _ -> None)
 
+(* The host of a [did:web] is a domain, with its port written as [%3A]. Nothing
+   else may be encoded, so the host cannot reach another host or a path. *)
+let web_host encoded =
+  let is_host_char c =
+    (c >= 'a' && c <= 'z')
+    || (c >= 'A' && c <= 'Z')
+    || (c >= '0' && c <= '9')
+    || c = '.' || c = '-'
+  in
+  let is_port p = p <> "" && String.for_all (fun c -> c >= '0' && c <= '9') p in
+  let is_host h = h <> "" && String.for_all is_host_char h in
+  let b = Buffer.create (String.length encoded) in
+  let n = String.length encoded in
+  let rec decode i =
+    if i < n then
+      if
+        i + 2 < n
+        && encoded.[i] = '%'
+        && encoded.[i + 1] = '3'
+        && (encoded.[i + 2] = 'A' || encoded.[i + 2] = 'a')
+      then (
+        Buffer.add_char b ':';
+        decode (i + 3))
+      else (
+        Buffer.add_char b encoded.[i];
+        decode (i + 1))
+  in
+  decode 0;
+  match String.split_on_char ':' (Buffer.contents b) with
+  | [ host ] when is_host host -> Some host
+  | [ host; port ] when is_host host && is_port port -> Some (host ^ ":" ^ port)
+  | _ -> None
+
 let document_url did =
   match Atp.Did.of_string did with
   | Error _ -> Error (Printf.sprintf "%S is not a DID" did)
   | Ok _ -> (
       match String.split_on_char ':' did with
       | [ "did"; "plc"; _ ] -> Ok ("https://plc.directory/" ^ did)
-      | [ "did"; "web"; host ] ->
-          Ok (Printf.sprintf "https://%s/.well-known/did.json" host)
+      | [ "did"; "web"; host ] -> (
+          match web_host host with
+          | Some host ->
+              Ok (Printf.sprintf "https://%s/.well-known/did.json" host)
+          | None -> Error (Printf.sprintf "%s: invalid did:web host" did))
       | _ -> Error (Printf.sprintf "%s: unsupported DID method" did))
 
 let did_of_handle http handle =

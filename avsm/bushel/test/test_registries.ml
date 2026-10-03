@@ -13,12 +13,23 @@ let contains_sub ~sub s =
   go 0
 
 let () =
-  check "github url"
-    (B.repository_url Bushel.Release.Github "ucam-eo/geotessera"
-    = "https://github.com/ucam-eo/geotessera");
-  check "tangled url uses the form ecosyste.ms stores"
-    (B.repository_url Bushel.Release.Tangled "anil.recoil.org/dune-rpc-eio"
-    = "git+https://tangled.org/anil.recoil.org/dune-rpc-eio");
+  check "github has one url"
+    (B.repository_urls Bushel.Release.Github "ucam-eo/geotessera"
+    = [ "https://github.com/ucam-eo/geotessera" ]);
+  let tangled =
+    B.repository_urls Bushel.Release.Tangled "anil.recoil.org/ocaml-jsonfeed"
+  in
+  check "tangled has every spelling an opam file uses"
+    (List.for_all
+       (fun u -> List.mem u tangled)
+       [ "git+https://tangled.org/anil.recoil.org/ocaml-jsonfeed";
+         "git+https://tangled.org/anil.recoil.org/ocaml-jsonfeed.git";
+         "git+https://tangled.org/@anil.recoil.org/ocaml-jsonfeed";
+         "git+https://tangled.sh/anil.recoil.org/ocaml-jsonfeed";
+         "git+https://tangled.sh/@anil.recoil.org/ocaml-jsonfeed";
+         "git+https://tangled.sh/@anil.recoil.org/ocaml-jsonfeed.git" ]);
+  check "the spellings are distinct"
+    (List.length (List.sort_uniq compare tangled) = List.length tangled);
   let packages =
     [
       ("nixpkgs-unstable", "ocamlPackages.mdx");
@@ -170,4 +181,41 @@ let () =
   check "with a cache the repository is looked up once" (!lookups = 1);
   check "the description still comes through"
     (d1 = Some "parse argument options" && d2 = d1);
+  (* ecosyste.ms matches a repository URL exactly, so a tangled repository is
+     found under whichever spelling its opam file used. *)
+  let asked = ref [] in
+  let spelled =
+    Fetch_mock.client (fun req ->
+        let url = Fetch.Middleware.Url.to_string req.Fetch.Middleware.url in
+        let headers =
+          Http.Header.of_list [ ("Content-Type", "application/json") ]
+        in
+        if contains_sub ~sub:"/packages/lookup" url then (
+          asked := url :: !asked;
+          if
+            contains_sub ~sub:"tangled.sh" url
+            && (contains_sub ~sub:"%40anil" url
+               || contains_sub ~sub:"@anil" url)
+            && not (contains_sub ~sub:".git" url)
+          then
+            Fetch_mock.respond ~headers
+              (In_channel.with_open_bin "fixtures/ecosystems_lookup.json"
+                 In_channel.input_all)
+              req
+          else Fetch_mock.respond ~headers "[]" req)
+        else Fetch_mock.respond ~status:404 ~headers "{}" req)
+  in
+  let eco2 =
+    Ecosystems.of_fetch ~base_url:"https://packages.ecosyste.ms/api/v1" spelled
+  in
+  (match
+     B.lookup eco2 ~allowed:[ "npmjs.org" ] ~forge:Bushel.Release.Tangled
+       ~repo:"anil.recoil.org/minimist" ~version:"1.2.8"
+   with
+  | Ok (_, description) ->
+    check "found under the tangled.sh spelling"
+      (description = Some "parse argument options")
+  | Error e -> failwith e);
+  check "every spelling was tried"
+    (List.length !asked = List.length tangled);
   print_endline "ok"

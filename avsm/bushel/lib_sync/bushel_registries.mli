@@ -5,10 +5,12 @@
 
 (** The package registries that carry a release, found through ecosyste.ms. *)
 
-val repository_url : Bushel.Release.forge -> string -> string
-(** [repository_url forge repo] is the repository URL in the form ecosyste.ms
-    indexes it by. Tangled repositories are indexed as
-    [git+https://tangled.org/handle/name]. *)
+val repository_urls : Bushel.Release.forge -> string -> string list
+(** [repository_urls forge repo] is the URLs ecosyste.ms may index [repo] under.
+    It matches a URL exactly. A GitHub repository has one. A tangled repository
+    is written [git+https://tangled.org/handle/name] or with [tangled.sh], with
+    or without an [@] before the handle and a [.git] suffix, depending on its
+    opam file, so it has eight. *)
 
 val summary_of_description : string -> string
 (** [summary_of_description d] is the first sentence of [d] on one line, cut to

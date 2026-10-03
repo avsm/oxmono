@@ -3,10 +3,28 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
-let repository_url forge repo =
+let repository_urls forge repo =
   match forge with
-  | Bushel.Release.Github -> "https://github.com/" ^ repo
-  | Bushel.Release.Tangled -> "git+https://tangled.org/" ^ repo
+  | Bushel.Release.Github -> [ "https://github.com/" ^ repo ]
+  | Bushel.Release.Tangled ->
+    let handle, name =
+      match String.rindex_opt repo '/' with
+      | Some i ->
+        let n = String.length repo - i - 1 in
+        (String.sub repo 0 i, String.sub repo (i + 1) n)
+      | None -> ("", repo)
+    in
+    let paths = [ handle ^ "/" ^ name; "@" ^ handle ^ "/" ^ name ] in
+    List.concat_map
+      (fun host ->
+        List.concat_map
+          (fun path ->
+            List.map
+              (fun suffix ->
+                Printf.sprintf "git+https://%s/%s%s" host path suffix)
+              [ ""; ".git" ])
+          paths)
+      [ "tangled.org"; "tangled.sh" ]
 
 let squash s =
   String.split_on_char ' '
@@ -131,9 +149,25 @@ let packages_of ?cache eco ~repository_url =
       Hashtbl.replace c repository_url found;
       found)
 
+(* ecosyste.ms matches a repository URL exactly and an opam file may spell it
+   several ways, so every spelling is asked for. A package found under more
+   than one is one package. *)
+let packages_under ?cache eco urls =
+  List.fold_left
+    (fun acc repository_url ->
+      let found = packages_of ?cache eco ~repository_url in
+      let same p q =
+        let module P = Ecosystems.PackageWithRegistry.T in
+        P.name p = P.name q
+        && Ecosystems.Registry.T.name (P.registry p)
+           = Ecosystems.Registry.T.name (P.registry q)
+      in
+      acc
+      @ List.filter (fun p -> not (List.exists (same p) acc)) found)
+    [] urls
+
 let lookup ?cache eco ~allowed ~forge ~repo ~version =
-  let repository_url = repository_url forge repo in
-  match packages_of ?cache eco ~repository_url with
+  match packages_under ?cache eco (repository_urls forge repo) with
   | exception ex -> Error (Printexc.to_string ex)
   | found -> (
     let module P = Ecosystems.PackageWithRegistry.T in

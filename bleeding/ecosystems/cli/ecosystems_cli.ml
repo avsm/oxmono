@@ -160,7 +160,9 @@ let package_detail out p =
   f "description" (opt (P.description p));
   f "homepage" (opt (P.homepage p));
   f "downloads"
-    (Printf.sprintf "%d %s" (P.downloads p) (opt (P.downloads_period p)));
+    (match P.downloads p with
+    | Some n -> Printf.sprintf "%d %s" n (opt (P.downloads_period p))
+    | None -> "-");
   f "dependents"
     (Printf.sprintf "%d packages, %d repositories"
        (P.dependent_packages_count p)

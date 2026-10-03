@@ -28,6 +28,8 @@ let route _ target =
         (200, "", fixture "version.json")
     | "/registries/crates.io/packages/serde/dependent_packages" ->
         (200, "", fixture "dependents.json")
+    | "/registries/opam.ocaml.org/packages/eio" ->
+        (200, "", fixture "opam_package.json")
     | "/packages/lookup" -> (200, "", fixture "lookup.json")
     | "/registries/crates.io/maintainers/slaxxarn" ->
         (200, "", fixture "maintainer.json")
@@ -181,3 +183,10 @@ let () =
   let code, _, err, _ = run ~out_fun:(Some broken) env [ "registries" ] in
   assert (code = 0);
   assert (err = "")
+
+let () =
+  Eio_main.run @@ fun env ->
+  (* Registries that do not count downloads leave the field null. *)
+  check env
+    [ "package"; "opam.ocaml.org"; "eio" ]
+    ~expect:[ "eio"; "downloads    -" ]

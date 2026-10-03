@@ -1960,6 +1960,7 @@ components:
           type: integer
         downloads:
           type: integer
+          nullable: true
         downloads_period:
           type: string
           nullable: true

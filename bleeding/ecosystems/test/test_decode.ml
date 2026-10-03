@@ -22,6 +22,8 @@ let () =
   ok "keywords" (dec (list Ecosystems.Keyword.T.jsont) (read "keywords.json"));
   ok "keyword"
     (dec Ecosystems.KeywordWithPackages.T.jsont (read "keyword.json"));
+  ok "opam package"
+    (dec Ecosystems.Package.T.jsont (read "opam_package.json"));
   ok "advisories" (dec Ecosystems.Package.T.jsont (read "advisories.json"));
   ok "lookup"
     (dec (list Ecosystems.PackageWithRegistry.T.jsont) (read "lookup.json"));

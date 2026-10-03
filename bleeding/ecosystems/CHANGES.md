@@ -2,10 +2,14 @@
 
 ## Unreleased
 
+- `oecosystems dependents` prints at most 100 packages unless `--limit` says
+  otherwise, rows appear as they arrive, and bad input is a one-line error.
+
 - Add `oecosystems`, a command-line tool for registries, packages, versions,
   dependents, advisories, maintainers and keywords, with `--json` output.
 
-- Patch the pinned spec to accept a null `Package.issue_metadata`.
+- Patch the pinned spec to accept a null `Package.issue_metadata` and
+  `Package.downloads`, which opam packages have.
 
 - Patch the pinned spec where live responses violate it. The hunks are listed
   in the README.

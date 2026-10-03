@@ -91,8 +91,8 @@ that prove each one. No fixture covers `VersionWithPackage`, because
 2026-10-03.
 
 - `Registry`: `downloads` and `purl_type` are no longer required.
-- `Package`: `docker_dependents_count`, `docker_downloads_count`, `critical`
-  and `issue_metadata` are nullable.
+- `Package`: `docker_dependents_count`, `docker_downloads_count`, `critical`,
+  `downloads` and `issue_metadata` are nullable.
 - `Version`: `codemeta_url` is no longer required.
 - `Maintainer`: `total_downloads` and `role` are no longer required.
 - `Namespace`: `uuid` is no longer required.

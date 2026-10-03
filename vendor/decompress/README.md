@@ -1,5 +1,14 @@
 # Decompress - Pure OCaml implementation of decompression algorithms
 
+## Vendored base (2026-10-03)
+
+Based on `v1.6.1-1-gd0e4478`, commit
+`d0e44781ed329c7ebde7bf6dbcbe547c87554303`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh restores 32-bit support and binary I/O on Windows. Local portable
+interfaces, buffer operations and Dune integration are retained.
+
 `decompress` is a library which implements:
 - [RFC1951](https://tools.ietf.org/html/rfc1951)
 - [Zlib](https://zlib.net/)

@@ -1,6 +1,19 @@
+## Vendored base (2026-10-03)
+
+Based on `v1.2.0-10-g6f4baca`, commit
+`6f4bacaec0454bbd8f2d89966cba3b202ef4f729`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh includes typed distinguished names, SAN-only service identities,
+name-constraint union semantics and PKCS#12 iteration limits. Local portable
+decoders, validation and fresh empty sets are retained. The new attribute
+value helpers and comparisons carry compiler-checked portable annotations,
+and the internal encoding functor requires immutable encoding values. HTTPz
+and Fetch certificate tests construct CN values with `Common_name.v`.
+
 ## X.509 - Public Key Infrastructure purely in OCaml
 
-v1.1.1
+v1.2.0
 X.509 is a public key infrastructure used mostly on the Internet.  It consists
 of certificates which include public keys and identifiers, signed by an
 authority.  Authorities must be exchanged over a second channel to establish the

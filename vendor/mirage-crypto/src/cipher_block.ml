@@ -403,7 +403,7 @@ module Modes = struct
       Bytes.unsafe_to_string cs
 
     let (counter @ portable) ~hkey nonce = match String.length nonce with
-      | 0 -> Stdlib.invalid_arg "GCM: empty nonce"
+      | 0 -> invalid_arg "GCM: invalid nonce of length 0"
       | 12 ->
         let (w1, w2) = String.get_int64_be nonce 0, String.get_int32_be nonce 8 in
         (w1, Int64.(shift_left (of_int32 w2) 32 |> add 1L))

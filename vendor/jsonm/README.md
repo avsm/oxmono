@@ -1,9 +1,17 @@
 # Jsonm 1.0.2
 
-Imported `src/jsonm.ml` and `src/jsonm.mli` from the pristine opam 1.0.2
-archive. Upstream tag `v1.0.2` resolves to
-`6e32959c508bba67e6e4e773ca8160b4723f3ee0` in
-https://github.com/dbuenzli/jsonm. JMAP uses its token stream to validate I-JSON.
+## Vendored base (2026-10-03)
+
+Based on `v1.0.2-2-g8582f4d`, commit
+`8582f4de4e4ef30705b5ac8e11586784d386fc1d`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh clarifies source locations and records upstream deprecation in
+favour of Jsont. The codec is unchanged. JMAP still uses its token stream for
+I-JSON validation. Local portability annotations and packaging are retained.
+
+The import contains `src/jsonm.ml` and `src/jsonm.mli`, with a minimal
+Dune build.
 
 ## Local changes
 

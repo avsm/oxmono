@@ -11,7 +11,9 @@ module type BUFFER = sig
   val sub : t -> int -> int -> t
   val copy : t -> t
   val benat_to_cpu : t -> int -> nativeint
+  val byte_to_cpu : t -> int -> int
   val cpu_to_benat : t -> int -> nativeint -> unit
+  val cpu_to_byte : t -> int -> int -> unit
 end
 
 let imin (a : int) (b : int) = if a < b then a else b
@@ -33,16 +35,14 @@ module Make (B : BUFFER) = struct
       i := !i + size_of_long
     done ;
     while !n > 0 do
-      B.cpu_to_benat dst (dst_off + !i)
-        Nat.(
-          B.benat_to_cpu src (src_off + !i)
-          lxor B.benat_to_cpu dst (dst_off + !i)) ;
+      B.cpu_to_byte dst (dst_off + !i)
+        (B.byte_to_cpu src (src_off + !i) lxor B.byte_to_cpu dst (dst_off + !i)) ;
       incr i ;
       decr n
     done
 
   let xor_into a b n =
-    if n > imin (B.length a) (B.length b)
+    if n < 0 || n > imin (B.length a) (B.length b)
     then raise (Invalid_argument "Baijiu.Xor.xor_inrot: buffers to small")
     else xor_into a 0 b 0 n
 

@@ -1,5 +1,19 @@
 # OCaml cryptographic primitives library
 
+## Vendored base (2026-10-03)
+
+Based on `v2.4.1-2-g5cf7fc9`, commit
+`5cf7fc9c32f67f66702801c1e1a96efd4c606b96`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh makes formatted errors domain-safe and moves Wycheproof fixtures
+to Jsont. Local portable cipher and EC interfaces are retained. GCM and CCM
+invalid-input diagnostics now use the upstream formatter, replacing the local
+constant-message workaround.
+
+Later commits are deferred: upstream removal of ARC4 breaks the current X.509
+PKCS#12 implementation (`Unbound module ARC4` in `lib/p12.ml`).
+
 This repository contains a small cryptographic library that puts emphasis on the
 applicative style and ease of use. It includes basic ciphers (AES, 3DES, RC4,
 ChaCha20/Poly1305), AEAD primitives (AES-GCM, AES-CCM, ChaCha20/Poly1305),

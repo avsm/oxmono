@@ -12,7 +12,8 @@ let key =
 let certificate ~dns ~ips =
   let subject =
     let open X509.Distinguished_name in
-    [ Relative_distinguished_name.singleton (CN "httpz.tls test") ]
+    [ Relative_distinguished_name.singleton
+        (CN (Common_name.v "httpz.tls test")) ]
   in
   let key = Lazy.force key in
   let csr = X509.Signing_request.create subject key |> get in
@@ -167,7 +168,7 @@ let test_invalid_peers () =
 
 let distinguished_name cn_value =
   let open X509.Distinguished_name in
-  [ Relative_distinguished_name.singleton (CN cn_value) ]
+  [ Relative_distinguished_name.singleton (CN (Common_name.v cn_value)) ]
 
 let test_chain_tls12 () =
   let valid_from = Option.get (Ptime.of_float_s 0.) in

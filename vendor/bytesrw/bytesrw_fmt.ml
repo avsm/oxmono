@@ -20,7 +20,7 @@ let pp_head_hex count ~first ~len ppf b =
       pp_hex_char ppf (Bytes.get_uint8 b i);
       i <- i + 1
     done;
-    if first + len - 1 > max_idx then Format.fprintf ppf "@<1>%s" "…"
+    if count < len then Format.fprintf ppf "@<1>%s" "…"
   end
 
 let pp_head_raw count ~first ~len ppf b =
@@ -32,7 +32,7 @@ let pp_head_raw count ~first ~len ppf b =
       Format.pp_print_char ppf (Bytes.get b i);
       i <- i + 1
     done;
-    if first + len - 1 > max_idx then Format.fprintf ppf "@<1>%s" "…";
+    if count < len then Format.fprintf ppf "@<1>%s" "…";
     Format.pp_print_char ppf '"'
   end
 

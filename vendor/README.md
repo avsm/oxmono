@@ -77,6 +77,68 @@ Eio's detailed import and patch history is in [eio/VENDORED.md](eio/VENDORED.md)
 Libraries embedded inside HTTPz are tracked separately in
 [bleeding/httpz/VENDORED.md](../bleeding/httpz/VENDORED.md).
 
+## 2026-10-03 refresh and validation
+
+All 41 vendor remotes were checked. The following 12 bases were updated,
+retaining their local OxCaml patches and documented import scopes. Versions
+with a commit suffix include reviewed changes after the named release.
+
+| Vendor | Updated base | Changes |
+| --- | --- | --- |
+| asn1-combinators | `v0.3.3` | Domain-safe error formatting. |
+| bytesrw | `v0.4.1-1-g2883530` | Writer positions, writer callbacks and slice formatting. |
+| checkseum | `v0.5.3-3-gfef8888` | FreeBSD 32-bit header fix. |
+| cmarkit | `v0.4.0-8-g247a041` | Public unique heading ID generator. |
+| decompress | `v1.6.1-1-gd0e4478` | 32-bit support and Windows binary I/O. |
+| digestif | `v1.3.1-16-g35e5c1c` | XOR bounds and OCaml hash counter fixes. |
+| jsonm | `v1.0.2-2-g8582f4d` | Source-location and deprecation documentation. |
+| kdf | `v1.1.2` | Scrypt allocation bound. |
+| mirage-crypto | `v2.4.1-2-g5cf7fc9` | Domain-safe errors and Jsont test fixtures. |
+| tls | `v2.1.3-9-g5913e4c` | X.509 1.2 support and handshake validation fixes. |
+| uunf | `v18.0.0` | Unicode 18 normalization data. |
+| x509 | `v1.2.0-10-g6f4baca` | Typed names, SAN-only identities and validation fixes. |
+
+The final check reports 39 bases at their upstream tips. Eio remains at the
+requested 1.6 release. Mirage Crypto stops before ARC4 removal, which breaks
+the current X.509 PKCS#12 implementation. Later Mirage Crypto commits must
+be reconsidered with an X.509 update that handles that removal.
+
+The DS4 and Apple Foundation Models entries now use their distinct Tangled
+repository URLs. DS4 previously pointed at the Apple Foundation Models
+repository. Both copies are current. The unchanged `ocaml-codec` base was
+verified through SSH because its HTTPS remote requires authentication.
+
+Validation with `5.2.0+ox` and `release-check` passed:
+
+- HTTPz, Fetch, Proffer, Arod, Bushel, Sortal, Matrix and JMAP consumer tests,
+  including the existing Markdown goldens and portability guards.
+- X.509's 2,218 tests, TLS's 477 unit tests and 22 key-derivation tests,
+  Digestif's 685 C-backend tests, and the HKDF, PBKDF and scrypt suites.
+  The same 2,218 X.509 tests also pass on pristine upstream with OCaml 5.5.0.
+- Mirage Crypto's domain-error regression, 70 symmetric-cipher tests and
+  70 elliptic-curve tests. The domain-safe formatter permits restoring the
+  upstream GCM and CCM invalid-input messages.
+- Bytesrw writer-position and callback regressions on both the local port
+  and pristine upstream. Jsonm's 5,013 differential comparisons and Uunf's
+  84,356 comparisons pass. Cmarkit's four Markdown fixtures produce identical
+  HTML with pristine upstream in strict/extended and safe/unsafe modes.
+
+Validation limits:
+
+- Workspace `@all` remains blocked by Apple Speech and missing Bonsai
+  dependencies on Linux. Live Arod route capture needs a local configuration
+  and data corpus, which are absent here. Checked-in rendering goldens pass.
+- Checkseum's bibliography Adler-32 test fails identically in both backends
+  before and after this refresh. An isolated build of the unchanged base
+  reproduces the same values. The other 20 cases pass in each backend.
+- Decompress's direct suite needs `bstr`. Mirage Crypto's PK suite needs
+  `randomconv`; its new Wycheproof decoder captures nonportable `Ohex`
+  operations through this workspace's portable Jsont interface. The ASN.1
+  recursive-combinator test also has an existing OxCaml mode mismatch.
+- Digestif's optional OCaml backend and the platform-specific Windows and
+  32-bit paths were not run. Formatting checks retain the existing limitations
+  of stock ocamlformat on OxCaml sources and unrelated Dune formatting diffs.
+
 ## 2026-09-07 refresh and validation
 
 The refresh verified 37 bases against their upstream default-branch tips. Refreshes

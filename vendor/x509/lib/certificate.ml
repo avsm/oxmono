@@ -60,11 +60,18 @@ module Asn = struct
   let tBSCertificate =
     let f = fun (a, (b, (c, (d, (e, (f, (g, (h, (i, j))))))))) ->
       let extn = match j with None -> Extension.fresh_empty () | Some xs -> xs in
-      { version    = Option.value ~default:`V1 a ; serial     = b ;
-        signature  = c         ; issuer     = d ;
-        validity   = e         ; subject    = f ;
-        pk_info    = g         ; issuer_id  = h ;
-        subject_id = i         ; extensions = extn }
+      let version = Option.value ~default:`V1 a in
+      (match version, j with
+        | (`V1 | `V2), None -> ()
+        | `V3, _ -> ()
+        | (`V1 | `V2), Some _ ->
+          parse_error "version %u with extensions, must be version 3"
+            (match version with `V1 -> 1 | `V2 -> 2 | `V3 -> 3));
+      { version    = version ; serial     = b ;
+        signature  = c       ; issuer     = d ;
+        validity   = e       ; subject    = f ;
+        pk_info    = g       ; issuer_id  = h ;
+        subject_id = i       ; extensions = extn }
     and g = fun
       { version    = a ; serial     = b ;
         signature  = c ; issuer     = d ;
@@ -72,6 +79,14 @@ module Asn = struct
         pk_info    = g ; issuer_id  = h ;
         subject_id = i ; extensions = j } ->
       let extn = if Extension.is_empty j then None else Some j in
+      let extn = match a, extn with
+        | (`V1 | `V2), None -> None
+        | `V3, x -> x
+        | (`V1 | `V2), Some _ ->
+          Log.warn (fun m -> m "certificate with version %u, dropping extensions"
+                       (match a with `V1 -> 1 | `V2 -> 2 | `V3 -> 3));
+          None
+      in
       ((if a = `V1 then None else Some a),
        (b, (c, (d, (e, (f, (g, (h, (i, extn)))))))))
     in
@@ -217,29 +232,14 @@ let supports_keytype c t =
 
 let (extensions @ portable) { asn = cert ; _ } = cert.tbs_cert.extensions
 
-(* RFC 6125, 6.4.4:
-   Therefore, if and only if the presented identifiers do not include a
-   DNS-ID, SRV-ID, URI-ID, or any application-specific identifier types
-   supported by the client, then the client MAY as a last resort check
-   for a string whose form matches that of a fully qualified DNS domain
-   name in a Common Name field of the subject field (i.e., a CN-ID).  If
-   the client chooses to compare a reference identifier of type CN-ID
-   against that string, it MUST follow the comparison rules for the DNS
-   domain name portion of an identifier of type DNS-ID, SRV-ID, or
-   URI-ID, as described under Section 6.4.1, Section 6.4.2, and
-   Section 6.4.3. *)
-let hostnames : _ @ portable = fun { asn = cert ; _ } ->
-  let subj =
-    match Distinguished_name.common_name cert.tbs_cert.subject with
-    | None -> Host.Set.of_list []
-    | Some x ->
-      match Host.host x with
-      | Some (wild, d) -> Host.Set.singleton (wild, d)
-      | None -> Host.Set.of_list []
-  in
-  match Extension.hostnames cert.tbs_cert.extensions with
-  | Some names -> names
-  | None -> subj
+(* RFC 9525, Section 2:
+
+   The Common Name RDN MUST NOT be used to identify a service because it is not
+   strongly typed (it is essentially free-form text) and therefore suffers from
+   ambiguities in interpretation. *)
+let (hostnames @ portable) { asn = cert ; _ } =
+  Option.value ~default:(Host.Set.of_list [])
+    (Extension.hostnames cert.tbs_cert.extensions)
 
 let supports_hostname : _ @ portable = fun cert name ->
   let names = hostnames cert in

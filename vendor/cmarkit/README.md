@@ -1,9 +1,17 @@
-> Refreshed to the upstream branch tip recorded in [../upstreams.json](../upstreams.json) on 2026-09-07. The import and port notes below include historical release numbers; the manifest records the current base.
+## Vendored base (2026-10-03)
+
+Based on `v0.4.0-8-g247a041`, commit
+`247a041aa63affa6166f0dce6efce6b157c0e803`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh exposes `Cmarkit_html.generate_unique_id`. Local immutable tables,
+portable interfaces and the linear bracket-matching correction are retained.
+The import still includes only the core parser and renderers.
 
 ## cmarkit - CommonMark parser and renderer for OCaml
 
-This is cmarkit 0.3.0, vendored from https://erratique.ch/software/cmarkit and
-patched for OxCaml portability.
+The initial cmarkit 0.3.0 import came from https://erratique.ch/software/cmarkit
+and was patched for OxCaml portability.
 
 The copy was taken from `~/.opam/5.2.0+ox/lib/cmarkit`, which the switch built
 from `cmarkit.0.3.0+ox`. That package applies one patch to upstream, in

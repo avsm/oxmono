@@ -14,3 +14,8 @@
  (deps
   (glob_files fixtures/*.json))
  (libraries bushel bushel.sync))
+
+(test
+ (name test_registries)
+ (modules test_registries)
+ (libraries bushel bushel.sync))

@@ -20,6 +20,9 @@ module Karakeep = Bushel_karakeep
 (** Releases as GitHub and tangled report them. *)
 module Forge = Bushel_forge
 
+(** The package registries that carry a release. *)
+module Registries = Bushel_registries
+
 let src = Logs.Src.create "bushel.sync" ~doc:"Bushel sync pipeline"
 module Log = (val Logs.src_log src : Logs.LOG)
 

@@ -20,6 +20,9 @@
   srcsetter-cmd
   fetch
   fetch-curl
+  ecosystems
+  ecosystems.client
+  openapi
   peertube
   karakeep
   karakeep.auth))

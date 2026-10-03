@@ -39,6 +39,7 @@
   (astring (>= 0.8))
   (logs (>= 0.7))
   yamlrw
+  ecosystems
   cmdliner
   eio_main
   console console-eio

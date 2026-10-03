@@ -16,7 +16,9 @@ type candidate = {
   version : string;  (** The tag with a leading [v] removed. *)
   date : Ptime.date;  (** When the forge published the release. *)
   title : string option;  (** The release title, where there is one. *)
-  url : string;  (** The release page. *)
+  url : string;
+      (** The release page, or the repository page on tangled, which has no
+          release pages. *)
   author : string option;
       (** The GitHub login that published it. Tangled artifacts have none. *)
   prerelease : bool;

@@ -22,7 +22,7 @@ type releases = {
   registries : string list;
       (** The registries a release is attached to, as ecosyste.ms names them. *)
   projects : (string * string) list;
-      (** Repository to project slug, where the sync cannot infer it. *)
+      (** Repository to the slug of the bushel project it serves. *)
 }
 (** The releases section of the configuration. *)
 

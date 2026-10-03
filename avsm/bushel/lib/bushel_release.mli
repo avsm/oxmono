@@ -33,7 +33,9 @@ type release = {
   tag : string option;  (** The forge's tag, where it differs from [version]. *)
   date : Ptime.date;  (** When the forge published the release. *)
   summary : string;  (** One line describing the release. *)
-  url : string;  (** The release page on the forge. *)
+  url : string;
+      (** The release page on the forge, or the repository page on tangled,
+          which has no release pages. *)
   registries : registry list;  (** The registries that carry this version. *)
 }
 (** One release made on a forge. *)
@@ -90,8 +92,9 @@ val latest : t -> release option
 (** {1 Files} *)
 
 val of_yaml : Yamlrw.value -> t
-(** [of_yaml v] is the repository [v] describes. A version may be written
-    without quotes. The forge defaults to GitHub.
+(** [of_yaml v] is the repository [v] describes. The forge defaults to GitHub.
+    A version that looks like a number must be quoted, because an unquoted
+    [1.0] reads as [1].
 
     @raise Failure if a required field is missing or malformed. *)
 

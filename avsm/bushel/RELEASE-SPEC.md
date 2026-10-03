@@ -60,7 +60,7 @@ type release = {
   tag : string option;    (* the forge's tag, where it differs from version *)
   date : Ptime.date;      (* when the forge published it *)
   summary : string;       (* one line *)
-  url : string;           (* the release page on the forge *)
+  url : string;           (* the release page, or the repository on tangled *)
   registries : registry list;
 }
 

@@ -7,7 +7,8 @@ let fake ~cap ~total ~calls ~page ~per_page =
 let run ?cap total per_page =
   let calls = ref 0 in
   let items =
-    Ecosystems_client.pages ~per_page (fake ~cap:(Option.value cap ~default:max_int) ~total ~calls) |> List.of_seq
+    let cap = Option.value cap ~default:max_int in
+    Ecosystems_client.pages ~per_page (fake ~cap ~total ~calls) |> List.of_seq
   in
   (items, !calls)
 
@@ -20,7 +21,9 @@ let () =
   (* A server that returns fewer items than asked for loses nothing. *)
   assert (run ~cap:4 8 10 = (List.init 8 succ, 3));
   let calls = ref 0 in
-  let seq = Ecosystems_client.pages ~per_page:10 (fake ~cap:max_int ~total:100 ~calls) in
+  let seq =
+    Ecosystems_client.pages ~per_page:10 (fake ~cap:max_int ~total:100 ~calls)
+  in
   ignore (Seq.take 5 seq |> List.of_seq);
   assert (!calls = 1);
   assert (

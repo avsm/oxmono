@@ -23,6 +23,6 @@ val create :
   Ecosystems.t
 (** [create ?user_agent ?base_url ~sw env] is a client for the public API.
     Requests are paced per origin, and a 429, 500, 502, 503 or 504 response is
-    retried up to three times, honouring Retry-After. No cookies are kept. [user_agent]
-    defaults to ["ocaml-ecosystems"]. [base_url] defaults to
+    retried up to three times, honouring Retry-After. No cookies are kept.
+    [user_agent] defaults to ["ocaml-ecosystems"]. [base_url] defaults to
     {!default_base_url}. *)

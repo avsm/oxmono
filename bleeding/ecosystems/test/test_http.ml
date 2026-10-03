@@ -33,7 +33,8 @@ let header name hs =
     (fun l ->
       let l' = String.lowercase_ascii l in
       if String.starts_with ~prefix:p l' then
-        Some (String.sub l (String.length p) (String.length l - String.length p))
+        let n = String.length p in
+        Some (String.sub l n (String.length l - n))
       else None)
     hs
 
@@ -46,7 +47,9 @@ let () =
   Eio_main.run @@ fun env ->
   (* The User-Agent given to [create] reaches the server. *)
   with_server env (fun _ -> (200, "", "[]")) (fun ~sw ~base_url seen ->
-      let c = Ecosystems_client.create ~user_agent:"probe-ua/1" ~base_url ~sw env in
+      let c =
+        Ecosystems_client.create ~user_agent:"probe-ua/1" ~base_url ~sw env
+      in
       assert (Ecosystems.Registry.get_registries c () = []);
       assert (header "user-agent" (List.hd !seen) = Some "probe-ua/1"));
   (* A 404 is the client's error and not a decode failure. *)
@@ -55,7 +58,8 @@ let () =
       let c = Ecosystems_client.create ~base_url ~sw env in
       match Ecosystems.Registry.get_registry ~registry_name:"x" c () with
       | _ -> assert false
-      | exception Openapi.Runtime.Api_error { status; _ } -> assert (status = 404));
+      | exception Openapi.Runtime.Api_error { status; _ } ->
+          assert (status = 404));
   (* A 503 is retried, so a walk survives transient failures. *)
   with_server env
     (function

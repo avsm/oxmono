@@ -143,7 +143,19 @@ let format_number n =
     Buffer.contents buf
 
 (** [compact ~ctx note] is a compact journal card for [note]. *)
-let compact ?(cls="") ~ctx note =
+(** [timeline_thumb ~ctx ~url entry] is the thumbnail of [entry] linking to
+    [url], or an empty block of the same size if it has none. *)
+let timeline_thumb ~ctx ~url entry =
+  match Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) entry with
+  | Some src ->
+    El.a ~at:[At.href url; At.class' "tl-thumb-link";
+              At.v "tabindex" "-1"; At.v "aria-hidden" "true"]
+      [El.img ~at:[At.src src; At.v "alt" ""; At.v "loading" "lazy";
+                   At.class' "tl-thumb"] ()]
+  | None ->
+    El.span ~at:[At.class' "tl-thumb tl-thumb-none"; At.v "aria-hidden" "true"] []
+
+let compact ?(cls="") ?(timeline=false) ~ctx note =
   let (y, m, d) = Bushel.Entry.date (`Note note) in
   let date_str = Printf.sprintf "%d %s %d" d (Common.month_name m) y in
   let url = Bushel.Entry.site_url (`Note note) in
@@ -168,6 +180,7 @@ let compact ?(cls="") ~ctx note =
   in
   let is_perma = Note.perma note in
   let card_cls = "note-compact hover:bg-surface note-item h-entry px-1 py-1 md:px-2 md:py-1"
+    ^ (if timeline then " tl-item tl-note" else "")
     ^ (if is_perma then " note-perma" else "")
     ^ (if cls = "" then "" else " " ^ cls) in
   let display_title = Note.title note in
@@ -185,10 +198,7 @@ let compact ?(cls="") ~ctx note =
        | None -> El.void)
     | None -> El.void
   in
-  El.div ~at:[At.id note_id;
-              At.class' card_cls;
-              At.v "data-tags" tags_data;
-              At.v "data-month" month_data] [
+  let body = [
     El.div ~at:[At.class' "note-compact-row"] [
       El.a ~at:[At.href url; At.class' "note-compact-title flex-1 min-w-0 font-medium !text-text !no-underline p-name u-url"]
         [El.txt display_title];
@@ -201,6 +211,19 @@ let compact ?(cls="") ~ctx note =
      else El.void);
     ref_el;
     tag_chips]
+  in
+  (* On the timeline a note's image is on the left, before its text. A note
+     without one keeps the place so that the titles stay aligned. *)
+  let children =
+    if timeline then
+      [timeline_thumb ~ctx ~url (`Note note);
+       El.div ~at:[At.class' "tl-body min-w-0 flex-1"] body]
+    else body
+  in
+  El.div ~at:[At.id note_id;
+              At.class' card_cls;
+              At.v "data-tags" tags_data;
+              At.v "data-month" month_data] children
 
 (** [strip_weeknote_prefix t] is [t] without its weeknote prefix. *)
 let strip_weeknote_prefix t =
@@ -211,90 +234,62 @@ let strip_weeknote_prefix t =
     | _ -> t
   else t
 
-(** [weeknote_ledger ~ctx weeknotes] is the weeknote ledger. *)
-let weeknote_ledger ~ctx weeknotes =
-  match weeknotes with
-  | [] -> El.void
-  | _ ->
-    let sorted =
-      List.sort (fun a b -> compare (Note.week_number b) (Note.week_number a))
-        weeknotes
-    in
-    let by_week = Hashtbl.create 64 in
-    List.iter (fun n -> Hashtbl.replace by_week (Note.week_number n) n) sorted;
-    let newest = List.hd sorted in
-    let oldest_week = Note.week_number (List.nth sorted (List.length sorted - 1)) in
-    let current_week = Note.iso_week_number (Ptime_clock.now () |> Ptime.to_date) in
-    let entries = Arod.Ctx.entries ctx in
-    let week_step pt =
-      Option.get (Ptime.sub_span pt (Ptime.Span.of_int_s (7 * 86400))) in
-    let rows =
-      let rec go pt quiet =
-        let wk = Note.iso_week_number (Ptime.to_date pt) in
-        if compare wk oldest_week < 0 then []
-        else
-          match Hashtbl.find_opt by_week wk with
-          | Some n ->
-            let qrows = if quiet > 0 then [`Quiet quiet] else [] in
-            qrows @ (`Week n :: go (week_step pt) 0)
-          | None -> go (week_step pt) (quiet + 1)
-      in
-      go (Note.datetime newest) 0
-    in
-    let week_row n =
-      let week = Note.week_number n in
-      let (_, wk) = week in
-      let (y, m, d) = Note.date n in
-      let is_current = week = current_week in
-      let all_tags = Bushel.Entry.tags_of_ent (`Note n) in
-      let tags_data =
-        String.concat "," (List.map Bushel.Tags.to_raw_string all_tags) in
-      let range_str =
-        if is_current then "ongoing"
-        else Printf.sprintf "%s %d" (Note.week_date_range_string n) y in
-      let url = Bushel.Entry.site_url (`Note n) in
-      let slice_el = match Bushel.Entry.thumbnail entries (`Note n) with
-        | Some src ->
-          El.a ~at:[At.href url; At.class' "week-slice-link";
-                    At.v "tabindex" "-1"; At.v "aria-hidden" "true"]
-            [El.img ~at:[At.src src; At.v "alt" "";
-                         At.v "loading" "lazy";
-                         At.class' "week-slice"] ()]
-        | None -> El.void
-      in
-      let cls = "week-row note-item h-entry"
-        ^ (if is_current then " week-current" else "") in
-      El.div ~at:[At.class' cls;
-                  At.v "data-tags" tags_data;
-                  At.v "title" (Printf.sprintf "%s words" (format_number (Note.words n)))] [
-        El.div ~at:[At.class' "week-row-body min-w-0"] [
-          El.div ~at:[At.class' "week-meta"] [
-            El.txt (Printf.sprintf "W%02d" wk);
-            El.txt " \xC2\xB7 ";
-            El.time ~at:[At.class' "week-range dt-published";
-                         At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
-              [El.txt range_str]];
-          El.a ~at:[At.href url; At.class' "week-title p-name u-url"]
-            [El.txt (strip_weeknote_prefix (Note.title n))]];
-        slice_el]
-    in
-    let row_el = function
-      | `Week n -> week_row n
-      | `Quiet 1 -> El.div ~at:[At.class' "week-quiet"] [El.txt "1 quiet week"]
-      | `Quiet q ->
-        El.div ~at:[At.class' "week-quiet"]
-          [El.txt (Printf.sprintf "%d quiet weeks" q)]
-    in
-    El.div ~at:[At.class' "week-rail hidden lg:block"] [
-      El.div ~at:[At.class' "paper-year-header"] [El.txt "Weeknotes"];
-      El.div ~at:[At.class' "week-rail-list"] (List.map row_el rows)]
+let week_step pt =
+  Option.get (Ptime.sub_span pt (Ptime.Span.of_int_s (7 * 86400)))
 
-(** [release_line t r] is the single line for release [r] of repository [t]. It
-    is laid out as a note is, with its date at the right, and a rocket in front
-    marks it as a code release and not as a day of the month. Each registry that
-    carries the release is an icon linking to its ecosyste.ms metadata. A
-    release is a [note-item] with no tags, so a tag filter hides it. *)
-let release_line (t : Bushel.Release.t) (r : Bushel.Release.release) =
+(** [quiet_weeks ~newer ~older] is the number of weeks between the weeks of two
+    weeknotes that have none. *)
+let quiet_weeks ~newer ~older =
+  let target = Note.week_number older in
+  if Note.week_number newer = target then 0
+  else
+    let rec go pt steps =
+      if steps > 520 then 0
+      else if Note.iso_week_number (Ptime.to_date pt) = target then steps - 1
+      else go (week_step pt) (steps + 1)
+    in
+    max 0 (go (week_step (Note.datetime newer)) 1)
+
+(** [quiet_marker n] is the mark on the line for [n] weeks with no weeknote. *)
+let quiet_marker n =
+  El.div ~at:[At.class' "tl-quiet"]
+    [El.txt (if n = 1 then "1 quiet week"
+             else Printf.sprintf "%d quiet weeks" n)]
+
+(** [week_item ~ctx n] is weeknote [n] as a small entry on the timeline. *)
+let week_item ~ctx n =
+  let (y, m, d) = Note.date n in
+  let (_, wk) = Note.week_number n in
+  let url = Bushel.Entry.site_url (`Note n) in
+  let tags_data =
+    String.concat ","
+      (List.map Bushel.Tags.to_raw_string (Bushel.Entry.tags_of_ent (`Note n)))
+  in
+  El.div ~at:[At.class' "tl-item tl-week note-item h-entry";
+              At.v "data-tags" tags_data;
+              At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
+              At.v "title" (Printf.sprintf "%s words" (format_number (Note.words n)))] [
+    timeline_thumb ~ctx ~url (`Note n);
+    El.div ~at:[At.class' "tl-body min-w-0 flex-1"] [
+      El.div ~at:[At.class' "tl-week-meta"] [
+        El.txt (Printf.sprintf "W%02d" wk);
+        El.txt " \xC2\xB7 ";
+        El.time ~at:[At.class' "dt-published";
+                     At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+          [El.txt (Printf.sprintf "%d %s %d" d (Common.month_name m) y)]];
+      El.a ~at:[At.href url; At.class' "tl-week-title p-name u-url"]
+        [El.txt (strip_weeknote_prefix (Note.title n))]]]
+
+(** [release_item t rs] is the line for the releases [rs] of repository [t],
+    newest first, made in one month. It is the smallest entry on the timeline.
+    A rocket marks it as a code release, and a month's releases of one
+    repository are one line, the newest named and the rest counted. Each
+    registry that carries the newest is an icon linking to its ecosyste.ms
+    metadata. A release is a [note-item] with no tags, so a tag filter hides
+    it. *)
+let release_item (t : Bushel.Release.t) (rs : Bushel.Release.release list) =
+  let r = List.hd rs in
+  let earlier = List.tl rs in
   let (y, m, d) = r.date in
   let name =
     match String.rindex_opt t.repo '/' with
@@ -306,28 +301,48 @@ let release_line (t : Bushel.Release.t) (r : Bushel.Release.release) =
     El.a ~at:[At.href (Bushel.Release.metadata_url reg r);
               At.class' "release-registry";
               At.v "title" label; At.v "aria-label" label]
-      [El.unsafe_raw (Arod.Icons.registry_icon reg.Bushel.Release.name)]
+      [El.unsafe_raw (Arod.Icons.registry_icon ~size:11 reg.Bushel.Release.name)]
   in
-  El.div ~at:[At.class' "release-row note-compact hover:bg-surface note-item px-1 py-1 md:px-2 md:py-1";
+  El.div ~at:[At.class' "tl-item tl-release note-item";
               At.v "data-kind" "release";
               At.v "data-tags" "";
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m)] [
-    El.div ~at:[At.class' "note-compact-row"] [
-      El.span ~at:[At.class' "release-mark"; At.v "role" "img";
-                   At.v "aria-label" "Code release";
-                   At.v "title" "Code release"]
-        [El.unsafe_raw (Arod.Icons.outline ~size:14 Arod.Icons.rocket_o)];
-      El.a ~at:[At.href r.url;
-                At.class' "release-name !text-text !no-underline"]
-        [El.txt (name ^ " " ^ r.version)];
-      El.span ~at:[At.class' "release-summary"] [El.txt r.summary];
-      (match r.registries with
-       | [] -> El.void
-       | regs ->
-         El.span ~at:[At.class' "release-registries"] (List.map registry regs));
-      El.time ~at:[At.class' "note-compact-meta shrink-0 text-[0.82rem] text-secondary whitespace-nowrap tabular-nums";
-                   At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
-        [El.txt (Printf.sprintf "%d %s %d" d (Common.month_name m) y)]]]
+    El.span ~at:[At.class' "release-mark"; At.v "role" "img";
+                 At.v "aria-label" "Code release";
+                 At.v "title" "Code release"]
+      [El.unsafe_raw (Arod.Icons.outline ~size:10 Arod.Icons.rocket_o)];
+    El.a ~at:[At.href r.url;
+              At.class' "release-name !text-text !no-underline"]
+      [El.txt (name ^ " " ^ r.version)];
+    (match earlier with
+     | [] -> El.void
+     | _ ->
+       El.span ~at:[At.class' "release-earlier";
+                    At.v "title"
+                      (String.concat ", "
+                         (List.rev_map (fun (e : Bushel.Release.release) ->
+                            e.version) earlier))]
+         [El.txt (Printf.sprintf "+%d earlier" (List.length earlier))]);
+    El.span ~at:[At.class' "release-summary"] [El.txt r.summary];
+    (match r.registries with
+     | [] -> El.void
+     | regs ->
+       El.span ~at:[At.class' "release-registries"] (List.map registry regs));
+    El.time ~at:[At.class' "release-date shrink-0 whitespace-nowrap tabular-nums";
+                 At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+      [El.txt (Printf.sprintf "%d %s %d" d (Common.month_name m) y)]]
+
+(** [group_releases rs] is the [(repository, releases)] of [rs], one per
+    repository, with each repository's releases newest first. *)
+let group_releases rs =
+  let repos =
+    List.sort_uniq String.compare
+      (List.map (fun ((t : Bushel.Release.t), _) -> t.repo) rs)
+  in
+  List.map (fun repo ->
+    let mine = List.filter (fun ((t : Bushel.Release.t), _) -> t.repo = repo) rs in
+    (fst (List.hd mine),
+     List.sort Bushel.Release.compare_release (List.map snd mine))) repos
 
 (** [notes_list ~ctx] is the journal article and its sidebar. *)
 let notes_list ~ctx =
@@ -352,6 +367,17 @@ let notes_list ~ctx =
         try Hashtbl.find releases_by_month (y, m) with Not_found -> [] in
       Hashtbl.replace releases_by_month (y, m) ((t, r) :: cur)) t.releases)
     (Arod.Ctx.releases ctx);
+  (* The weeks with no weeknote after each weeknote, newest first. They are
+     marked on the line where the gap begins. *)
+  let quiet_after = Hashtbl.create 32 in
+  let rec note_gaps = function
+    | newer :: (older :: _ as rest) ->
+      Hashtbl.replace quiet_after (Note.slug newer)
+        (quiet_weeks ~newer ~older);
+      note_gaps rest
+    | _ -> ()
+  in
+  note_gaps weeknotes;
   let months =
     let keys tbl = Hashtbl.fold (fun k _ acc -> k :: acc) tbl [] in
     List.sort_uniq (fun (y1, m1) (y2, m2) ->
@@ -363,38 +389,39 @@ let notes_list ~ctx =
       List.rev (try Hashtbl.find by_month (y, m) with Not_found -> []) in
     let releases =
       try Hashtbl.find releases_by_month (y, m) with Not_found -> [] in
-    let has_journal =
-      releases <> [] || List.exists (fun n -> not (Note.weeknote n)) notes in
     let section_id = Printf.sprintf "month-%04d-%02d" y m in
     let month_id = Printf.sprintf "%04d-%02d" y m in
-    (* Notes and releases run together, newest first. On one day a note comes
-       before a release. *)
+    (* Notes, weeknotes and releases run together down the line, newest first.
+       On one day a note comes before a release. *)
     let items =
-      List.map (fun n -> (Bushel.Entry.date (`Note n), `Note n)) notes
-      @ List.map (fun ((_, (r : Bushel.Release.release)) as tr) ->
-          (r.date, `Release tr)) releases
+      List.map (fun n ->
+        (Bushel.Entry.date (`Note n),
+         if Note.weeknote n then `Week n else `Note n)) notes
+      @ List.map (fun (t, rs) ->
+          ((List.hd rs).Bushel.Release.date, `Release (t, rs)))
+          (group_releases releases)
       |> List.stable_sort (fun (d1, _) (d2, _) -> compare d2 d1)
     in
-    let note_cards = List.map (fun (_, item) ->
+    let entries = List.concat_map (fun (_, item) ->
       match item with
-      | `Note n ->
-        if Note.weeknote n then compact ~cls:"lg:hidden" ~ctx n
-        else compact ~ctx n
-      | `Release (t, r) -> release_line t r) items in
-    let section_cls = if has_journal then "mb-6" else "mb-6 lg:hidden" in
+      | `Note n -> [compact ~timeline:true ~ctx n]
+      | `Week n ->
+        week_item ~ctx n
+        :: (match Hashtbl.find_opt quiet_after (Note.slug n) with
+            | Some q when q > 0 -> [quiet_marker q]
+            | _ -> [])
+      | `Release (t, rs) -> [release_item t rs]) items in
     El.div ~at:[At.id section_id;
                 At.v "data-month-id" month_id;
-                At.class' section_cls] [
-      El.div ~at:[At.class' "paper-year-header sticky top-0 bg-bg z-10 py-0.5"] [
+                At.class' "tl-month"] [
+      El.div ~at:[At.class' "tl-month-head paper-year-header sticky top-0 bg-bg z-10 py-0.5"] [
         El.txt (Printf.sprintf "%s %d" (Common.month_name_full m) y)];
-      El.div ~at:[At.class' "note-month-list"] note_cards]
+      El.div ~at:[At.class' "tl-list"] entries]
   ) months in
   let article =
     El.article ~at:[At.class' "h-feed"] [
       Common.hidden_feed_meta ~ctx "Notes";
-      El.div ~at:[At.class' "notes-split"] [
-        weeknote_ledger ~ctx weeknotes;
-        El.div ~at:[At.class' "notes-journal min-w-0"] month_sections]]
+      El.div ~at:[At.class' "timeline notes-journal min-w-0"] month_sections]
   in
   let featured_rail =
     let featured =

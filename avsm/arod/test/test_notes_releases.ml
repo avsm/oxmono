@@ -37,10 +37,15 @@ let note ?(weeknote = false) ?(featured = false) ?(perma = false) slug title
 
 (* Journal notes, a weeknote, a featured note and a permanent one, so that the
    page without releases has every kind of section to compare. *)
+let picture =
+  Srcsetter.v "pic.webp" "pic" "pic.jpg" Srcsetter.MS.empty (800, 600)
+
 let notes =
-  [ note "august" "An August note" (2026, 8, 10);
+  [ { (note "august" "An August note" (2026, 8, 10)) with
+      Bushel.Note.titleimage = Some "pic" };
     note "june" "A June note" (2026, 6, 1);
     note ~weeknote:true "week-28" ".plan-2026w28: Week 28" (2026, 7, 8);
+    note ~weeknote:true "week-30" ".plan-2026w30: Week 30" (2026, 7, 22);
     note ~featured:true "featured" "A featured note" (2026, 5, 2);
     note ~perma:true "perma" "A permanent note" (2026, 4, 2) ]
 
@@ -59,7 +64,7 @@ let render ?releases () =
   let ctx =
     Arod.Ctx.of_entries ~config:cfg ?releases
       (Bushel.Entry.v ~papers:[] ~notes ~projects:[] ~ideas:[] ~videos:[]
-         ~contacts:[] ~data_dir:"." ())
+         ~contacts:[] ~images:[ picture ] ~data_dir:"." ())
   in
   let article, _sidebar = Arod_component.Note.notes_list ~ctx in
   Htmlit.El.to_string ~doctype:false article
@@ -93,12 +98,36 @@ let () =
   check "a tag filter can hide it"
     (contains html {|data-tags=""|} && contains html "note-item");
   check "the date is written in full, as a note's is"
-    (contains html "22 Jul 2026" && contains html "note-compact-meta");
+    (contains html "22 Jul 2026" && contains html "release-date");
   check "a registry is an icon that names it"
     (contains html {|aria-label="opam.ocaml.org on ecosyste.ms"|}
     && contains html {|title="opam.ocaml.org on ecosyste.ms"|});
   check "the registry icon is the one for that registry"
-    (contains html (Arod.Icons.registry_icon "opam.ocaml.org"));
+    (contains html (Arod.Icons.registry_icon ~size:11 "opam.ocaml.org"));
+  (* The page is one timeline. The weeknote rail is folded into it. *)
+  check "the page is a single timeline"
+    (contains html {|class="timeline|}
+    && not (contains html "week-rail")
+    && not (contains html "notes-split")
+    && not (contains html "lg:hidden"));
+  check "a weeknote is an entry on the line"
+    (contains html "tl-week" && contains html "W28" && contains html "Week 28"
+    && contains html "W30");
+  check "the weeknote prefix is not shown" (not (contains html ".plan-"));
+  check "a weeknote can be hidden by a tag filter"
+    (contains html "tl-week note-item");
+  check "a missing week is marked on the line"
+    (contains html "1 quiet week");
+  check "a note's thumbnail is on the left, before its title"
+    (before html {|src="/images/pic.webp"|} "An August note"
+    && contains html {|class="tl-thumb"|});
+  check "a note without an image keeps the thumbnail's place"
+    (contains html "tl-thumb-none");
+  check "each month is a section the page script can track"
+    (contains html {|data-month-id="2026-08"|}
+    && contains html {|data-month-id="2026-07"|});
+  check "a release is the smallest entry on the line"
+    (contains html "tl-release");
   check "a release-only month appears" (contains html {|id="month-2026-07"|});
   check "months run newest first"
     (before html {|id="month-2026-08"|} {|id="month-2026-07"|}
@@ -129,7 +158,7 @@ let () =
       ()
   in
   check "an unknown registry gets the generic package icon"
-    (contains other (Arod.Icons.registry_icon "rubygems.org")
+    (contains other (Arod.Icons.registry_icon ~size:11 "rubygems.org")
     && Arod.Icons.registry_icon "rubygems.org"
        = Arod.Icons.registry_icon "something-else.example");
   check "the generic icon is not one of the brand icons"
@@ -143,6 +172,35 @@ let () =
      in
      List.length (List.sort_uniq compare icons) = 4
      && List.for_all (fun i -> contains i "<svg") icons);
+  (* Releases of one repository in a month are one line. *)
+  let busy =
+    render
+      ~releases:
+        [ repo_of ~repo:"ucam-eo/geotessera"
+            [ release ~version:"0.10.0" ~date:(2026, 8, 3) "Python library"
+                "https://example.org/0.10.0";
+              release ~version:"0.10.1" ~date:(2026, 8, 12) "Python library"
+                "https://example.org/0.10.1";
+              release ~version:"0.10.2" ~date:(2026, 8, 20) "Python library"
+                "https://example.org/0.10.2";
+              release ~version:"0.9.0" ~date:(2026, 7, 1) "Python library"
+                "https://example.org/0.9.0" ] ]
+      ()
+  in
+  let count sub =
+    let n = String.length sub in
+    let rec go i acc =
+      if i + n > String.length busy then acc
+      else go (i + 1) (if String.sub busy i n = sub then acc + 1 else acc)
+    in
+    go 0 0
+  in
+  check "one line for a repository's releases in a month"
+    (count "geotessera 0.10.2" = 1 && count "geotessera 0.10.1" = 0
+    && count "geotessera 0.10.0" = 0);
+  check "the line says how many more there were" (contains busy "+2 earlier");
+  check "the earlier versions are named" (contains busy "0.10.0, 0.10.1");
+  check "another month is its own line" (count "geotessera 0.9.0" = 1);
   let hostile =
     [ repo_of [ release ~version:"1.0.0" ~date:(2026, 8, 20)
                   {|<b> & "quoted"|} "https://example.org/1" ] ]
@@ -152,7 +210,9 @@ let () =
     (contains escaped "&lt;b&gt;" && not (contains escaped "<b> &"));
   check "no releases leaves the page as it was"
     (render () = render ~releases:[] ());
-  (* The golden was rendered by the code from before releases existed. *)
+  (* The page without releases is pinned. It was first rendered by the code from
+     before releases existed and was regenerated once, deliberately, when the
+     notes view became a single timeline. *)
   check "the page matches the one rendered before releases existed"
     (render ()
     = In_channel.with_open_bin "fixtures/notes/notes_no_releases.html"

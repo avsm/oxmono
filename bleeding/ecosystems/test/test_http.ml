@@ -42,4 +42,12 @@ let () =
       in
       match Ecosystems.Registry.get_registries c () with
       | _ -> assert false
-      | exception _ -> ())
+      | exception (Eio.Io _ as e) ->
+          let msg = Printexc.to_string e in
+          let sub = "50-byte limit" in
+          let n = String.length sub in
+          let rec has i =
+            i + n <= String.length msg
+            && (String.sub msg i n = sub || has (i + 1))
+          in
+          assert (has 0))

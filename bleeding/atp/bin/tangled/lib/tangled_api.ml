@@ -200,6 +200,61 @@ let get_profile t ~did =
       decode Lex.Actor.Profile.main_jsont r.value)
     (get_record t ~did ~collection:"sh.tangled.actor.profile" ~rkey:"self")
 
+let artifact_collection = "sh.tangled.repo.artifact"
+
+let archive_suffixes =
+  [ ".tbz"; ".tar.bz2"; ".tar.gz"; ".tgz"; ".tar.xz"; ".zip" ]
+
+let artifact_version name =
+  let base =
+    List.find_map
+      (fun suffix ->
+        if String.ends_with ~suffix name then
+          Some (String.sub name 0 (String.length name - String.length suffix))
+        else None)
+      archive_suffixes
+  in
+  match base with
+  | None -> None
+  | Some base ->
+      let n = String.length base in
+      let rec first_dash_digit i =
+        if i + 1 >= n then None
+        else if base.[i] = '-' && base.[i + 1] >= '0' && base.[i + 1] <= '9'
+        then Some (String.sub base (i + 1) (n - i - 1))
+        else first_dash_digit (i + 1)
+      in
+      first_dash_digit 0
+
+let list_artifacts t ~did ~repo =
+  let names = Hashtbl.create 8 in
+  let repo_name rkey =
+    match Hashtbl.find_opt names rkey with
+    | Some name -> name
+    | None ->
+        let name =
+          match get_repo t ~did ~rkey with
+          | Some { Lex.Repo.name = Some name; _ } -> Some name
+          | Some { name = None; _ } -> Some rkey
+          | None -> None
+        in
+        Hashtbl.add names rkey name;
+        name
+  in
+  List.filter_map
+    (fun (r : Atproto.Repo.ListRecords.record) ->
+      match decode Lex.Repo.Artifact.main_jsont r.value with
+      | exception Failure _ -> None
+      | artifact -> (
+          match Option.map rkey_of_uri artifact.repo with
+          | exception Invalid_argument _ -> None
+          | None -> None
+          | Some rkey ->
+              if repo_name rkey = Some repo then
+                Some (rkey_of_uri r.uri, artifact)
+              else None))
+    (list_records t ~did ~collection:artifact_collection)
+
 type repository = {
   owner : string;
   rkey : string;

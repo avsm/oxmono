@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Add `Tangled.Api.list_artifacts` and `artifact_version`, which list the
+  release artifacts of a repository and read the version from a file name.
+
+- Read `$bytes` base64 with or without padding and write it without, as the
+  data model specifies. Records with a bytes field, such as a Tangled
+  artifact's tag, no longer fail to decode.
+
 - Add `Xrpc.Identity`, which resolves a handle to a DID and a DID to the
   personal data server that holds its records.
 

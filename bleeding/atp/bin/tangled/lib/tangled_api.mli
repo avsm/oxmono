@@ -125,6 +125,20 @@ val list_public_keys :
 
 val list_stars : t -> ?did:string -> unit -> (string * Lex.Feed.Star.main) list
 val get_repo : t -> did:string -> rkey:string -> Lex.Repo.main option
+
+val list_artifacts :
+  t -> did:string -> repo:string -> (string * Lex.Repo.Artifact.main) list
+(** [list_artifacts t ~did ~repo] is the release artifacts that [did] attached
+    to its repository called [repo], as [(rkey, artifact)] in the order the
+    server returns them. A repository is named by the [name] of its record, or
+    by its record key if the record has no name. An artifact whose repository
+    record cannot be read is left out. *)
+
+val artifact_version : string -> string option
+(** [artifact_version name] is the version in the file name [name] of a release
+    artifact, which is written [package-version.tbz]. The version starts at the
+    first dash that is followed by a digit. It is [None] if [name] is not a
+    known archive or has no version. *)
 val get_profile : t -> did:string -> Lex.Actor.Profile.main option
 
 type repository = {

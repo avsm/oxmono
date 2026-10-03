@@ -7,3 +7,10 @@
  (deps test_cli.py ../cli/main.exe)
  (action
   (run python3 %{dep:test_cli.py} %{exe:../cli/main.exe})))
+
+(test
+ (name test_artifacts)
+ (modules test_artifacts)
+ (deps
+  (glob_files fixtures/*.json))
+ (libraries tangled atp-lexicon-tangled fetch.mock http eio_main))

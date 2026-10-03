@@ -1,0 +1,12 @@
+{
+  "name": "ocamlgraph",
+  "package": "ocamlgraph.2.2.0",
+  "archive_url": "https://github.com/backtracking/ocamlgraph/releases/download/2.2.0/ocamlgraph-2.2.0.tbz",
+  "archive_checksums": [
+    "sha256=b0956210863cc24f480203ba3c2ef06dfae5579536a05744364e7de58822b230",
+    "sha512=257cdd5fb90337b3e3682cade1269c1d181f3124e569a731909f49bbfbe581ab529ac401472fb9ef57166ac34d8ebadfa6a32c93665f38f5a335982d5e5dc0e1"
+  ],
+  "url": "https://github.com/backtracking/ocamlgraph.git",
+  "tag": "2.2.0",
+  "revision": "710007690fb2286f9f2ce10e19fa47a67b634670"
+}

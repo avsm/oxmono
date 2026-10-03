@@ -1,0 +1,12 @@
+{
+  "name": "swhid_core",
+  "package": "swhid_core.0.1",
+  "archive_url": "https://github.com/OCamlPro/swhid_core/archive/refs/tags/0.1.tar.gz",
+  "archive_checksums": [
+    "sha256=8718b4eb97c9f0acd6d9162a9efa2f6af82474a0bd186f622fda3294f773bccf",
+    "sha512=ec72cc946c662dc8230f4ef8c85bb41df56c3f46bc49276feca434199cd482f11901be902fc5c243244866d4a167474f18245f83ad0b0cf46eb35406ad1f1b5c"
+  ],
+  "url": "https://github.com/ocamlpro/swhid_core.git",
+  "tag": "0.1",
+  "revision": "1eff590933290be2b565306c89a28b2537a0659f"
+}

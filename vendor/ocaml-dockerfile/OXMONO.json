@@ -1,0 +1,12 @@
+{
+  "name": "ocaml-dockerfile",
+  "package": "dockerfile.8.3.9",
+  "archive_url": "https://github.com/ocurrent/ocaml-dockerfile/releases/download/8.3.9/ocaml-dockerfile-8.3.9.tbz",
+  "archive_checksums": [
+    "md5=57b9cd5627b77d8ad2480c797dd59635",
+    "sha512=a92448db5cc0be1ffb3e70578f7909b7ddcf21898f4d71ef6c25c85573b633ec31fdcd9f9b35998b443a85a2d4cc2905353bd5bb970aa7564285bc6fcb89df40"
+  ],
+  "url": "https://github.com/ocurrent/ocaml-dockerfile.git",
+  "tag": "8.3.9",
+  "revision": "e13814efe2e53f9b7cb344e20ce13c6c705a0259"
+}

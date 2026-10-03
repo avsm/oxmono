@@ -1,0 +1,5 @@
+(lang dune 3.21)
+(name opam)
+(version 2.5.2)
+(package (name opam-core))
+(package (name opam-format))

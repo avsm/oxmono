@@ -1,0 +1,12 @@
+{
+  "name": "opam",
+  "package": "opam-core.2.5.2",
+  "archive_url": "https://github.com/ocaml/opam/archive/refs/tags/2.5.2.tar.gz",
+  "archive_checksums": [
+    "md5=708dfb9799ebb5b9fccbdac63d0bf1e8",
+    "sha512=0b15627c4a31d3abcdbb5885bf2e7f4dee9ffddad2144855d1e1e18d66edc379e3a2b0a378097c35897e571f856b61aadabb47672d75401f6f6231f33ae475c8"
+  ],
+  "url": "https://github.com/ocaml/opam.git",
+  "tag": "2.5.2",
+  "revision": "ad0564f20c6306bc83085fe663cab903fe887208"
+}

@@ -303,6 +303,69 @@
       "revision": "f9c546ec406de09c2ab428d78d8bc1bddcce4b1c",
       "base_version": "f9c546e",
       "scope": "Complete Apple Foundation Models binding and Swift bridge sources, excluding upstream build artifacts."
+    },
+    {
+      "name": "ocaml-dockerfile",
+      "url": "https://github.com/ocurrent/ocaml-dockerfile.git",
+      "branch": "HEAD",
+      "revision": "e13814efe2e53f9b7cb344e20ce13c6c705a0259",
+      "base_version": "8.3.9",
+      "scope": "Dockerfile and Dockerfile-opam libraries and tests. The CLI is omitted from this import.",
+      "verified_on": "2026-10-03"
+    },
+    {
+      "name": "ocamlgraph",
+      "url": "https://github.com/backtracking/ocamlgraph.git",
+      "branch": "HEAD",
+      "revision": "710007690fb2286f9f2ce10e19fa47a67b634670",
+      "base_version": "2.2.0",
+      "scope": "Library and tests. GUI tools and examples omitted from this import.",
+      "verified_on": "2026-10-03"
+    },
+    {
+      "name": "opam",
+      "url": "https://github.com/ocaml/opam.git",
+      "branch": "HEAD",
+      "revision": "ad0564f20c6306bc83085fe663cab903fe887208",
+      "base_version": "2.5.2",
+      "scope": "Core and format libraries and shell build support only. No opam CLI, state, repository or solver libraries. OxCaml eta expansions in opamConsole.ml, opamProcess.ml and get_version.ml. See OXMONO.md.",
+      "verified_on": "2026-10-03"
+    },
+    {
+      "name": "opam-file-format",
+      "url": "https://github.com/ocaml/opam-file-format",
+      "branch": "HEAD",
+      "revision": "59d9a6b585ac3fd141004f155a459e78f39993ac",
+      "base_version": "2.2.0",
+      "scope": "Upstream library, parser generator and tests, unchanged.",
+      "verified_on": "2026-10-03"
+    },
+    {
+      "name": "patch",
+      "url": "https://github.com/hannesm/patch.git",
+      "branch": "HEAD",
+      "revision": "1b977a11d5e3c80c325aed6ea8a85a9801cbe57c",
+      "base_version": "v3.1.2",
+      "scope": "Library and tests. The opatch CLI is omitted from this import.",
+      "verified_on": "2026-10-03"
+    },
+    {
+      "name": "sha",
+      "url": "https://github.com/djs55/ocaml-sha.git",
+      "branch": "HEAD",
+      "revision": "c743398abee8f822fc0d12f229121e431d60dd5d",
+      "base_version": "v1.15.4",
+      "scope": "Upstream SHA C bindings, unchanged. Optional OUnit2 tests excluded from workspace traversal. SHA algorithms exercised by the oi-libs opam differential fixture.",
+      "verified_on": "2026-10-03"
+    },
+    {
+      "name": "swhid_core",
+      "url": "https://github.com/ocamlpro/swhid_core.git",
+      "branch": "HEAD",
+      "revision": "1eff590933290be2b565306c89a28b2537a0659f",
+      "base_version": "0.1",
+      "scope": "Upstream library and tests, unchanged.",
+      "verified_on": "2026-10-03"
     }
   ]
 }

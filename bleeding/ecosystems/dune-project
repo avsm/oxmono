@@ -21,8 +21,24 @@
   fetch
   fetch-curl
   (eio (>= "1.2"))
-  eio_main
+  (eio_main :with-test)
   (jsont (>= "0.2.0"))
   bytesrw
   (ptime (>= "1.0.0"))
+  (odoc :with-doc)))
+
+(package
+ (name ecosystems-cli)
+ (synopsis "Command-line tool for the packages.ecosyste.ms API")
+ (description
+  "oecosystems queries registries, packages, versions, dependents,
+   advisories, maintainers and keywords on packages.ecosyste.ms.")
+ (depends
+  (ocaml (>= "5.2.0"))
+  (ecosystems (= :version))
+  (openapi (>= "0.4.0"))
+  (eio (>= "1.2"))
+  eio_main
+  (jsont (>= "0.2.0"))
+  (cmdliner (>= "1.3.0"))
   (odoc :with-doc)))

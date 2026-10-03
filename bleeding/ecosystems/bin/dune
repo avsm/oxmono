@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name oecosystems)
+ (package ecosystems-cli)
+ (libraries ecosystems_cli cmdliner eio_main))

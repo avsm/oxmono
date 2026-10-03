@@ -1,3 +1,8 @@
+(library
+ (name loopback)
+ (modules loopback)
+ (libraries eio))
+
 (test
  (name test)
  (modules test)
@@ -18,4 +23,11 @@
 (test
  (name test_http)
  (modules test_http)
- (libraries ecosystems ecosystems.client openapi fetch-curl eio_main))
+ (libraries ecosystems ecosystems.client loopback openapi fetch-curl eio_main))
+
+(test
+ (name test_cli)
+ (modules test_cli)
+ (deps
+  (glob_files fixtures/*.json))
+ (libraries ecosystems_cli loopback eio_main))

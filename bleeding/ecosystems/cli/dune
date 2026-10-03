@@ -1,0 +1,4 @@
+(library
+ (name ecosystems_cli)
+ (public_name ecosystems-cli)
+ (libraries ecosystems ecosystems.client openapi jsont cmdliner eio))

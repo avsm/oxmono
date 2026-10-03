@@ -7,3 +7,10 @@
  (name test_config_releases)
  (modules test_config_releases)
  (libraries bushel.config))
+
+(test
+ (name test_forge)
+ (modules test_forge)
+ (deps
+  (glob_files fixtures/*.json))
+ (libraries bushel bushel.sync))

@@ -105,3 +105,7 @@ Generating API documentation requires an OxCaml-compatible `odoc`.
 
 [HTTPZ_SYNC.md](HTTPZ_SYNC.md) records the source revision and update procedure
 for the HTTP libraries.
+
+The [oi constituent libraries](bleeding/oi-libs/README.md) provide platform
+detection, binary layers, build recipes and distro packaging. Their import
+review and the [staged ox plan](docs/ox-plan.md) precede the new runner.

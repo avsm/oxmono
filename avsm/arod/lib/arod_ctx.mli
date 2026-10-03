@@ -26,9 +26,14 @@ val create :
   config:Arod_config.t -> Eio.Fs.dir_ty Eio.Path.t -> t @@ nonportable
 (** [create ~config fs] is the context loaded from [config]'s data directory. *)
 
-val of_entries : config:Arod_config.t -> Bushel.Entry.t -> t @@ nonportable
-(** [of_entries ~config entries] is a filesystem-free context over [entries].
-    Feed items, backlinks and link metadata are empty. *)
+val of_entries :
+  config:Arod_config.t ->
+  ?releases:Bushel.Release.t list ->
+  Bushel.Entry.t ->
+  t @@ nonportable
+(** [of_entries ~config ?releases entries] is a filesystem-free context over
+    [entries]. Feed items, backlinks and link metadata are empty. [releases]
+    defaults to none. *)
 
 (** {1 Config Accessors} *)
 
@@ -143,6 +148,12 @@ val link_for_url : t -> string -> Bushel.Link.t option
 val all_links : t -> Bushel.Link.t list
 (** [all_links t] is every link loaded from links.yml, in increasing URL
     order. *)
+
+(** {1 Releases} *)
+
+val releases : t -> Bushel.Release.t list
+(** [releases t] is the repositories and releases registered in releases.yml,
+    newest first. It is empty if the file does not exist. *)
 
 (** {1 Entry Filtering} *)
 

@@ -26,6 +26,7 @@ type t = {
   forward_slugs : string list Bushel.Smap.t;
   outbound_feed : feed_backlink list Bushel.Smap.t;
   links_by_url : Bushel.Link.t Bushel.Smap.t;
+  releases : Bushel.Release.t list;
   note_references :
     (string * string * Bushel.Md.reference_source) list Bushel.Smap.t;
 }
@@ -295,6 +296,12 @@ let create ~config fs =
     in
     Bushel.Smap.of_list (List.map (fun (l : Bushel.Link.t) -> (l.url, l)) links)
   in
+  (* A malformed releases.yml stops startup with its message, because serving
+     the site without the file would hide the fault. *)
+  let releases =
+    Bushel.Release.load_file (Filename.concat data_dir "releases.yml")
+    |> List.sort Bushel.Release.compare
+  in
   {
     config;
     entries;
@@ -304,10 +311,11 @@ let create ~config fs =
     forward_slugs;
     outbound_feed;
     links_by_url;
+    releases;
     note_references = build_note_references ~config entries;
   }
 
-let of_entries ~config entries =
+let of_entries ~config ?(releases = []) entries =
   {
     config;
     entries;
@@ -317,6 +325,7 @@ let of_entries ~config entries =
     forward_slugs = Bushel.Smap.empty;
     outbound_feed = Bushel.Smap.empty;
     links_by_url = Bushel.Smap.empty;
+    releases;
     note_references = build_note_references ~config entries;
   }
 
@@ -388,6 +397,7 @@ let forward_slugs t url =
 let link_for_url t url = Bushel.Smap.find_opt url t.links_by_url
 
 let all_links t = List.map snd (Bushel.Smap.bindings t.links_by_url)
+let releases t = t.releases
 
 type entry_type = [ `Paper | `Note | `Video | `Idea | `Project ]
 

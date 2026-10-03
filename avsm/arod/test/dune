@@ -133,3 +133,8 @@
  (name test_markdown_export)
  (modules test_markdown_export)
  (libraries arod arod.component bushel))
+
+(test
+ (name test_ctx_releases)
+ (modules test_ctx_releases)
+ (libraries arod bushel))

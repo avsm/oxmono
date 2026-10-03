@@ -22,6 +22,23 @@ let () =
     (match decode Atp.Lex.bytes_jsont (wrap "!!!!") with
     | Error _ -> true
     | Ok _ -> false);
+  (* Input that cannot be base64 is rejected, as it was before padding became
+     optional. *)
+  let rejected s =
+    match decode Atp.Lex.bytes_jsont (wrap s) with
+    | Error _ -> true
+    | Ok _ -> false
+  in
+  check "one character is not base64" (rejected "a");
+  check "too much padding is rejected" (rejected "aGk===");
+  check "padding in the middle is rejected" (rejected "aG=k");
+  check "a length of one more than a multiple of four is rejected"
+    (rejected "aGVsb");
+  check "a short unpadded final group is accepted"
+    (get (decode Atp.Lex.bytes_jsont (wrap "aGk")) = "hi");
+  (match decode Atp.Lex.jsont (wrap "a") with
+  | Ok (`Bytes _) -> failwith "a malformed $bytes became bytes"
+  | _ -> ());
   (* The generic value path takes the same two forms. *)
   (match get (decode Atp.Lex.jsont (wrap unpadded)) with
   | `Bytes b -> check "a generic value holds the bytes" (b = bytes)

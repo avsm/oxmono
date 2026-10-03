@@ -15,13 +15,32 @@ type value =
   | `List of value list
   | `Map of (string * value) list ]
 
+(* Base64 as the data model writes it, without padding, which is also read with
+   it. Anything that is not canonical is rejected, so a stray character or
+   trailing bits cannot be silently dropped. *)
+let decode_base64 s =
+  let n = String.length s in
+  let rec body_length i =
+    if i > 0 && s.[i - 1] = '=' then body_length (i - 1) else i
+  in
+  let body_len = body_length n in
+  let padding = n - body_len in
+  if padding > 2 || (padding > 0 && n mod 4 <> 0) then
+    Error "invalid base64 padding"
+  else
+    let body = String.sub s 0 body_len in
+    match Base64.decode ~pad:false body with
+    | Error (`Msg error) -> Error error
+    | Ok bytes ->
+      if Base64.encode_string ~pad:false bytes = body then Ok bytes
+      else Error "non-canonical base64"
+
 (** AT Protocol JSON bytes use a base64 wrapper, not a hex JSON string. The
     data model writes the base64 without padding, so it is written that way and
     read with or without it. *)
 let bytes_jsont =
   let base64 = Jsont.of_of_string ~kind:"base64 bytes"
-    (fun value -> match Base64.decode ~pad:false value with
-      | Ok bytes -> Ok bytes | Error (`Msg error) -> Error error)
+    decode_base64
     ~enc:(fun bytes -> Base64.encode_string ~pad:false bytes) in
   Jsont.Object.map Fun.id
   |> Jsont.Object.mem "$bytes" base64 ~enc:Fun.id
@@ -96,7 +115,7 @@ let classify_map : (value String_map.t -> value) @ portable = fun m ->
   match entries with
   | [ ("$bytes", `String b64) ] -> (
       (* Bytes encoding *)
-      match Base64.decode ~pad:false b64 with
+      match decode_base64 b64 with
       | Ok bytes -> `Bytes bytes
       | Error _ -> `Map entries)
   | [ ("$link", `String cid_str) ] ->

@@ -1,7 +1,7 @@
 (test
  (name test)
  (modules test)
- (libraries ecosystems eio_main))
+ (libraries ecosystems ecosystems.client eio_main))
 
 (test
  (name test_pages)

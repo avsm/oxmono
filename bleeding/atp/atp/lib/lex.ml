@@ -15,12 +15,14 @@ type value =
   | `List of value list
   | `Map of (string * value) list ]
 
-(** AT Protocol JSON bytes use a base64 wrapper, not a hex JSON string. *)
+(** AT Protocol JSON bytes use a base64 wrapper, not a hex JSON string. The
+    data model writes the base64 without padding, so it is written that way and
+    read with or without it. *)
 let bytes_jsont =
   let base64 = Jsont.of_of_string ~kind:"base64 bytes"
-    (fun value -> match Base64.decode value with
+    (fun value -> match Base64.decode ~pad:false value with
       | Ok bytes -> Ok bytes | Error (`Msg error) -> Error error)
-    ~enc:(fun bytes -> Base64.encode_string bytes) in
+    ~enc:(fun bytes -> Base64.encode_string ~pad:false bytes) in
   Jsont.Object.map Fun.id
   |> Jsont.Object.mem "$bytes" base64 ~enc:Fun.id
   |> Jsont.Object.finish
@@ -94,7 +96,7 @@ let classify_map : (value String_map.t -> value) @ portable = fun m ->
   match entries with
   | [ ("$bytes", `String b64) ] -> (
       (* Bytes encoding *)
-      match Base64.decode b64 with
+      match Base64.decode ~pad:false b64 with
       | Ok bytes -> `Bytes bytes
       | Error _ -> `Map entries)
   | [ ("$link", `String cid_str) ] ->
@@ -133,7 +135,9 @@ let classify_map : (value String_map.t -> value) @ portable = fun m ->
 
 (* Encoder for special values that encode as objects *)
 let encode_object_value : (value -> value String_map.t) @ portable = function
-  | `Bytes b -> String_map.singleton "$bytes" (`String (Base64.encode_string b))
+  | `Bytes b ->
+      String_map.singleton "$bytes"
+        (`String (Base64.encode_string ~pad:false b))
   | `Link cid -> String_map.singleton "$link" (`String (Cid.to_string cid))
   | `Blob blob ->
       List.fold_left (fun m (k, v) -> String_map.add k v m) (String_map.create ())

@@ -289,10 +289,12 @@ let weeknote_ledger ~ctx weeknotes =
       El.div ~at:[At.class' "paper-year-header"] [El.txt "Weeknotes"];
       El.div ~at:[At.class' "week-rail-list"] (List.map row_el rows)]
 
-(** [release_line ?cls t r] is the single line for release [r] of repository
-    [t]. *)
-let release_line ?(cls = "") (t : Bushel.Release.t)
-    (r : Bushel.Release.release) =
+(** [release_line t r] is the single line for release [r] of repository [t]. It
+    is laid out as a note is, with its date at the right, and a rocket in front
+    marks it as a code release and not as a day of the month. Each registry that
+    carries the release is an icon linking to its ecosyste.ms metadata. A
+    release is a [note-item] with no tags, so a tag filter hides it. *)
+let release_line (t : Bushel.Release.t) (r : Bushel.Release.release) =
   let (y, m, d) = r.date in
   let name =
     match String.rindex_opt t.repo '/' with
@@ -300,24 +302,32 @@ let release_line ?(cls = "") (t : Bushel.Release.t)
     | None -> t.repo
   in
   let registry reg =
+    let label = reg.Bushel.Release.name ^ " on ecosyste.ms" in
     El.a ~at:[At.href (Bushel.Release.metadata_url reg r);
               At.class' "release-registry";
-              At.v "title" "ecosyste.ms metadata"]
-      [El.txt reg.Bushel.Release.name]
+              At.v "title" label; At.v "aria-label" label]
+      [El.unsafe_raw (Arod.Icons.registry_icon reg.Bushel.Release.name)]
   in
-  El.div ~at:[At.class' (String.trim ("release-row " ^ cls));
-              At.v "data-kind" "release"] [
-    El.time ~at:[At.class' "release-date";
-                 At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
-      [El.txt (Printf.sprintf "%d %s" d (Common.month_name m))];
-    El.a ~at:[At.href r.url; At.class' "release-name"]
-      [El.txt (name ^ " " ^ r.version)];
-    El.span ~at:[At.class' "release-summary"] [El.txt r.summary];
-    (match r.registries with
-     | [] -> El.void
-     | regs ->
-       El.span ~at:[At.class' "release-registries"]
-         (List.map registry regs))]
+  El.div ~at:[At.class' "release-row note-compact hover:bg-surface note-item px-1 py-1 md:px-2 md:py-1";
+              At.v "data-kind" "release";
+              At.v "data-tags" "";
+              At.v "data-month" (Printf.sprintf "%04d-%02d" y m)] [
+    El.div ~at:[At.class' "note-compact-row"] [
+      El.span ~at:[At.class' "release-mark"; At.v "role" "img";
+                   At.v "aria-label" "Code release";
+                   At.v "title" "Code release"]
+        [El.unsafe_raw (Arod.Icons.outline ~size:14 Arod.Icons.rocket_o)];
+      El.a ~at:[At.href r.url;
+                At.class' "release-name !text-text !no-underline"]
+        [El.txt (name ^ " " ^ r.version)];
+      El.span ~at:[At.class' "release-summary"] [El.txt r.summary];
+      (match r.registries with
+       | [] -> El.void
+       | regs ->
+         El.span ~at:[At.class' "release-registries"] (List.map registry regs));
+      El.time ~at:[At.class' "note-compact-meta shrink-0 text-[0.82rem] text-secondary whitespace-nowrap tabular-nums";
+                   At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+        [El.txt (Printf.sprintf "%d %s %d" d (Common.month_name m) y)]]]
 
 (** [notes_list ~ctx] is the journal article and its sidebar. *)
 let notes_list ~ctx =

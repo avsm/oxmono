@@ -83,6 +83,22 @@ let () =
        ("https://packages.ecosyste.ms/registries/opam.ocaml.org/packages/mdx/"
        ^ "versions/2.6.0"));
   check "the registry is named" (contains html "opam.ocaml.org");
+  check "a code release has a marker icon, not a day of the month"
+    (contains html {|class="release-mark"|}
+    && contains html "Code release"
+    && not (contains html {|>22 Jul<|}));
+  check "the marker is described for a screen reader"
+    (contains html {|role="img"|}
+    && contains html {|aria-label="Code release"|});
+  check "a tag filter can hide it"
+    (contains html {|data-tags=""|} && contains html "note-item");
+  check "the date is written in full, as a note's is"
+    (contains html "22 Jul 2026" && contains html "note-compact-meta");
+  check "a registry is an icon that names it"
+    (contains html {|aria-label="opam.ocaml.org on ecosyste.ms"|}
+    && contains html {|title="opam.ocaml.org on ecosyste.ms"|});
+  check "the registry icon is the one for that registry"
+    (contains html (Arod.Icons.registry_icon "opam.ocaml.org"));
   check "a release-only month appears" (contains html {|id="month-2026-07"|});
   check "months run newest first"
     (before html {|id="month-2026-08"|} {|id="month-2026-07"|}
@@ -101,6 +117,32 @@ let () =
     && not (contains forge_only "packages.ecosyste.ms"));
   check "a release with no registries has no empty tag list"
     (not (contains forge_only "release-registries"));
+  let rubygems =
+    { opam with Bushel.Release.name = "rubygems.org"; package = "rake" }
+  in
+  let other =
+    render
+      ~releases:
+        [ repo_of
+            [ release ~version:"1.0.0" ~date:(2026, 8, 20)
+                ~registries:[ rubygems ] "Ruby" "https://example.org/r" ] ]
+      ()
+  in
+  check "an unknown registry gets the generic package icon"
+    (contains other (Arod.Icons.registry_icon "rubygems.org")
+    && Arod.Icons.registry_icon "rubygems.org"
+       = Arod.Icons.registry_icon "something-else.example");
+  check "the generic icon is not one of the brand icons"
+    (List.for_all
+       (fun r -> Arod.Icons.registry_icon r <> Arod.Icons.registry_icon "x.y")
+       [ "pypi.org"; "npmjs.org"; "crates.io"; "opam.ocaml.org" ]);
+  check "each known registry has its own icon"
+    (let icons =
+       List.map Arod.Icons.registry_icon
+         [ "pypi.org"; "npmjs.org"; "crates.io"; "opam.ocaml.org" ]
+     in
+     List.length (List.sort_uniq compare icons) = 4
+     && List.for_all (fun i -> contains i "<svg") icons);
   let hostile =
     [ repo_of [ release ~version:"1.0.0" ~date:(2026, 8, 20)
                   {|<b> & "quoted"|} "https://example.org/1" ] ]

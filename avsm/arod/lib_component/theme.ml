@@ -1477,31 +1477,41 @@ let custom_css = {|
     flex-direction: column;
     gap: 0.1rem;
   }
-  .release-row {
-    display: flex;
-    gap: 0.5rem;
-    align-items: baseline;
-    white-space: nowrap;
-    overflow: hidden;
-    font-size: 0.8125rem;
-    color: var(--color-muted, inherit);
-    padding: 0.125rem 0;
+  /* A release line in the notes list is a note's row with a rocket in front. */
+  .release-row .note-compact-row { align-items: center; }
+  .release-mark {
+    flex: none;
+    display: inline-flex;
+    color: var(--color-muted);
+    opacity: 0.8;
   }
-  .release-date { flex: none; }
-  .release-name { flex: none; font-weight: 600; }
+  .release-name { flex: none; font-size: 0.85rem; font-weight: 500; }
+  .release-name:hover {
+    color: var(--color-link) !important;
+    text-decoration: underline dotted !important;
+    text-decoration-color: var(--color-link-ul) !important;
+  }
   .release-summary {
     flex: 1 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.82rem;
+    color: var(--color-secondary);
   }
-  .release-registries { flex: none; display: inline-flex; gap: 0.25rem; }
+  .release-registries {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
   .release-registry {
-    font-size: 0.6875rem;
-    border: 1px solid currentColor;
-    border-radius: 0.25rem;
-    padding: 0 0.25rem;
+    display: inline-flex;
+    color: var(--color-muted) !important;
+    text-decoration: none !important;
   }
+  .release-registry:hover { color: var(--color-accent) !important; }
   .project-activity-row {
     display: flex;
     align-items: flex-start;

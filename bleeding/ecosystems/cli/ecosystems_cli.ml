@@ -96,8 +96,130 @@ let registries ~env ~out ~err =
           |> emit_list ~out ~json Ecosystems.Registry.T.jsont registry_row)
       $ limit)
 
+let package_name =
+  Arg.(
+    required
+    & pos 1 (some string) None
+    & info [] ~docv:"PACKAGE" ~doc:"Package name.")
+
+let version_number =
+  Arg.(
+    required
+    & pos 2 (some string) None
+    & info [] ~docv:"VERSION" ~doc:"Version number.")
+
+let emit ~out ~json codec detail v =
+  if json then Format.fprintf out "%s@." (to_json codec v) else detail out v
+
+let field out label v = Format.fprintf out "%-12s %s@." label v
+
+let package_row p =
+  let module P = Ecosystems.Package.T in
+  Printf.sprintf "%-30s %-12s %s" (P.name p)
+    (opt (P.latest_release_number p))
+    (truncate 60 (opt (P.description p)))
+
+let package_detail out p =
+  let module P = Ecosystems.Package.T in
+  let f = field out in
+  f "name" (P.name p);
+  f "ecosystem" (P.ecosystem p);
+  f "latest" (opt (P.latest_release_number p));
+  f "licenses" (opt (P.licenses p));
+  f "description" (opt (P.description p));
+  f "homepage" (opt (P.homepage p));
+  f "downloads"
+    (Printf.sprintf "%d %s" (P.downloads p) (opt (P.downloads_period p)));
+  f "dependents"
+    (Printf.sprintf "%d packages, %d repositories"
+       (P.dependent_packages_count p)
+       (P.dependent_repos_count p));
+  f "advisories" (string_of_int (List.length (P.advisories p)));
+  f "purl" (P.purl p)
+
+let version_row v =
+  let module V = Ecosystems.Version.T in
+  Printf.sprintf "%-14s %-26s %s" (V.number v)
+    (opt (V.published_at v))
+    (opt (V.licenses v))
+
+let dependency_row d =
+  let module D = Ecosystems.Dependency.T in
+  Printf.sprintf "  %-10s %-30s %s" (opt (D.kind d)) (D.package_name d)
+    (opt (D.requirements d))
+
+let version_detail out v =
+  let module V = Ecosystems.VersionWithDependencies.T in
+  let f = field out in
+  f "number" (V.number v);
+  f "published" (opt (V.published_at v));
+  f "licenses" (opt (V.licenses v));
+  f "integrity" (opt (V.integrity v));
+  f "purl" (V.purl v);
+  let deps = V.dependencies v in
+  Format.fprintf out "dependencies (%d)@." (List.length deps);
+  List.iter (fun d -> Format.fprintf out "%s@." (dependency_row d)) deps
+
+let advisory_row a =
+  let module A = Ecosystems.Advisory.T in
+  Printf.sprintf "%-10s %s (%s)" (opt (A.severity a)) (opt (A.title a))
+    (String.concat ", " (List.filter_map Fun.id (A.identifiers a)))
+
+let package ~env ~out ~err =
+  make ~env ~err ~name:"package" ~doc:"Show a package."
+    Term.(
+      const (fun registry_name package_name json c ->
+          Ecosystems.Package.get_registry_package ~registry_name ~package_name c
+            ()
+          |> emit ~out ~json Ecosystems.Package.T.jsont package_detail)
+      $ registry $ package_name)
+
+let versions ~env ~out ~err =
+  make ~env ~err ~name:"versions" ~doc:"List the versions of a package."
+    Term.(
+      const (fun registry_name package_name limit json c ->
+          listing limit (fun ~page ~per_page ->
+              Ecosystems.Version.get_registry_package_versions ~registry_name
+                ~package_name ~page ~per_page c ())
+          |> emit_list ~out ~json Ecosystems.Version.T.jsont version_row)
+      $ registry $ package_name $ limit)
+
+let version ~env ~out ~err =
+  make ~env ~err ~name:"version"
+    ~doc:"Show one version of a package, with its dependencies."
+    Term.(
+      const (fun registry_name package_name version_number json c ->
+          Ecosystems.VersionWithDependencies.get_registry_package_version
+            ~registry_name ~package_name ~version_number c ()
+          |> emit ~out ~json Ecosystems.VersionWithDependencies.T.jsont
+               version_detail)
+      $ registry $ package_name $ version_number)
+
+let dependents ~env ~out ~err =
+  make ~env ~err ~name:"dependents"
+    ~doc:"List the packages that depend on a package."
+    Term.(
+      const (fun registry_name package_name limit json c ->
+          listing limit (fun ~page ~per_page ->
+              Ecosystems.Package.get_registry_package_dependent_packages
+                ~registry_name ~package_name ~page ~per_page c ())
+          |> emit_list ~out ~json Ecosystems.Package.T.jsont package_row)
+      $ registry $ package_name $ limit)
+
+let advisories ~env ~out ~err =
+  make ~env ~err ~name:"advisories" ~doc:"List the advisories on a package."
+    Term.(
+      const (fun registry_name package_name json c ->
+          Ecosystems.Package.get_registry_package ~registry_name ~package_name c
+            ()
+          |> Ecosystems.Package.T.advisories
+          |> emit_list ~out ~json Ecosystems.Advisory.T.jsont advisory_row)
+      $ registry $ package_name)
+
 let main ~out ~err env =
   Cmd.group
     (Cmd.info "oecosystems" ~version:"0.1.0"
        ~doc:"Query the packages.ecosyste.ms API.")
-    [ registries ~env ~out ~err ]
+    [ registries ~env ~out ~err; package ~env ~out ~err;
+      versions ~env ~out ~err; version ~env ~out ~err;
+      dependents ~env ~out ~err; advisories ~env ~out ~err ]

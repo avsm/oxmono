@@ -20,12 +20,22 @@ let route _ target =
   else
     match path with
     | "/registries" -> (200, "", fixture "registries.json")
+    | "/registries/crates.io/packages/serde" ->
+        (200, "", fixture "package.json")
+    | "/registries/crates.io/packages/serde/versions" ->
+        (200, "", fixture "versions.json")
+    | "/registries/crates.io/packages/serde/versions/1.0.0" ->
+        (200, "", fixture "version.json")
+    | "/registries/crates.io/packages/serde/dependent_packages" ->
+        (200, "", fixture "dependents.json")
+    | "/registries/npmjs.org/packages/minimist" ->
+        (200, "", fixture "advisories.json")
     | _ -> (404, "", {|{"error":"not found"}|})
 
 (* [run env args] is the exit code, stdout and stderr of [oecosystems args]
    against the loopback server, and the request targets seen. *)
 let run env args =
-  Loopback.with_server env route (fun ~sw:_ ~base_url _ ->
+  Loopback.with_server env route (fun ~sw:_ ~base_url seen ->
       let out = Buffer.create 256 and err = Buffer.create 256 in
       let fmt b = Format.formatter_of_buffer b in
       let o = fmt out and e = fmt err in
@@ -36,10 +46,49 @@ let run env args =
       let code = Cmdliner.Cmd.eval' ~argv ~err:e cmd in
       Format.pp_print_flush o ();
       Format.pp_print_flush e ();
-      (code, Buffer.contents out, Buffer.contents err))
+      let target hs =
+        match String.split_on_char ' ' (List.nth hs (List.length hs - 1)) with
+        | _ :: t :: _ -> t
+        | _ -> ""
+      in
+      ( code,
+        Buffer.contents out,
+        Buffer.contents err,
+        List.rev_map target !seen ))
+
+let lines s = List.filter (( <> ) "") (String.split_on_char (Char.chr 10) s)
+
+let check env args ~expect =
+  let code, out, err, _ = run env args in
+  let missing = List.filter (fun sub -> not (contains ~sub out)) expect in
+  if code <> 0 || missing <> [] then (
+    Printf.eprintf "FAIL %s\nexit %d, missing [%s]\nstdout: %s\nstderr: %s\n"
+      (String.concat " " args) code (String.concat "; " missing) out err;
+    exit 1)
 
 let () =
   Eio_main.run @@ fun env ->
-  let code, out, _ = run env [ "registries" ] in
+  check env [ "registries" ] ~expect:[ "npmjs.org" ];
+  check env [ "package"; "crates.io"; "serde" ] ~expect:[ "serde" ];
+  check env [ "versions"; "crates.io"; "serde" ] ~expect:[ "1.0.229" ];
+  check env [ "version"; "crates.io"; "serde"; "1.0.0" ] ~expect:[ "1.0.0" ];
+  check env
+    [ "dependents"; "crates.io"; "serde" ]
+    ~expect:[ "image-color-service" ];
+  check env
+    [ "advisories"; "npmjs.org"; "minimist" ]
+    ~expect:[ "Prototype Pollution in minimist"; "CVE-2021-44906" ];
+  (* --limit 1 prints one item and asks for one page of one item. *)
+  let code, out, _, targets =
+    run env [ "versions"; "crates.io"; "serde"; "--limit"; "1" ]
+  in
   assert (code = 0);
-  assert (contains ~sub:"npmjs.org" out)
+  assert (List.length (lines out) = 1);
+  assert (List.length targets = 1);
+  assert (contains ~sub:"per_page=1" (List.hd targets))
+
+let () =
+  Eio_main.run @@ fun env ->
+  (* A scoped npm name is one path segment, so its separators are encoded. *)
+  let _, _, _, targets = run env [ "package"; "npmjs.org"; "@types/node" ] in
+  assert (targets = [ "/registries/npmjs.org/packages/%40types%2Fnode" ])

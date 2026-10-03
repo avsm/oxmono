@@ -157,13 +157,13 @@ module Registry : sig
     type t
 
     (** Construct a value *)
-    val v : created_at:Ptime.t -> default:bool -> downloads:int64 -> ecosystem:string -> icon_url:string -> keywords_count:int64 -> maintainers_count:int64 -> maintainers_url:string -> name:string -> namespaces_count:int64 -> packages_count:int64 -> packages_url:string -> purl_type:string -> updated_at:Ptime.t -> url:string -> ?github:string -> ?metadata:Jsont.json -> ?versions_count:int64 -> unit -> t
+    val v : created_at:Ptime.t -> default:bool -> ecosystem:string -> icon_url:string -> keywords_count:int64 -> maintainers_count:int64 -> maintainers_url:string -> name:string -> namespaces_count:int64 -> packages_count:int64 -> packages_url:string -> updated_at:Ptime.t -> url:string -> ?downloads:int64 -> ?github:string -> ?metadata:Jsont.json -> ?purl_type:string -> ?versions_count:int64 -> unit -> t
 
     val created_at : t -> Ptime.t
 
     val default : t -> bool
 
-    val downloads : t -> int64
+    val downloads : t -> int64 option
 
     val ecosystem : t -> string
 
@@ -187,7 +187,7 @@ module Registry : sig
 
     val packages_url : t -> string
 
-    val purl_type : t -> string
+    val purl_type : t -> string option
 
     val updated_at : t -> Ptime.t
 

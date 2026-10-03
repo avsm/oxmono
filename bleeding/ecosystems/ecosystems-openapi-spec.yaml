@@ -1781,7 +1781,6 @@ components:
       - maintainers_count
       - namespaces_count
       - keywords_count
-      - downloads
       - github
       - metadata
       - created_at
@@ -1789,7 +1788,6 @@ components:
       - packages_url
       - maintainers_url
       - icon_url
-      - purl_type
       type: object
       properties:
         name:

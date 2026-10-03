@@ -125,9 +125,11 @@ Validation with `5.2.0+ox` and `release-check` passed:
 
 Validation limits:
 
-- Workspace `@all` remains blocked by Apple Speech and missing Bonsai
-  dependencies on Linux. Live Arod route capture needs a local configuration
-  and data corpus, which are absent here. Checked-in rendering goldens pass.
+- The full workspace `dune build` passes on Linux after adding unsupported
+  platform fallbacks for Apple Speech, Foundation Models, and DS4 Metal, and
+  installing the missing Bonsai dependencies. Live Arod route capture needs a
+  local configuration and data corpus, which are absent here. Checked-in
+  rendering goldens pass.
 - Checkseum's bibliography Adler-32 test fails identically in both backends
   before and after this refresh. An isolated build of the unchanged base
   reproduces the same values. The other 20 cases pass in each backend.

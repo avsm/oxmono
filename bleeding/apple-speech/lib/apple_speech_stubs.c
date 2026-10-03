@@ -8,6 +8,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+CAMLprim value caml_apple_speech_is_macos(value unit) {
+  (void)unit;
+#ifdef __APPLE__
+  return Val_true;
+#else
+  return Val_false;
+#endif
+}
+
 extern int32_t asp_available(void);
 extern int32_t asp_locales(int32_t, char **);
 extern int32_t asp_status(const char *, char **);

@@ -11,7 +11,8 @@ type t =
 val get : unit -> t
 (** [get ()] reports the current
     {{:https://developer.apple.com/documentation/foundationmodels/systemlanguagemodel/availability-swift.property}
-      model availability}. *)
+      model availability}. On non-macOS platforms it returns
+    [`Unavailable "Apple Foundation Models requires macOS"]. *)
 
 val pp : Format.formatter -> t -> unit
 (** [pp formatter availability] prints [availability]. *)

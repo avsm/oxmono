@@ -1,5 +1,8 @@
 # unreleased
 
+- Build the Apple adapters on non-macOS platforms. Model operations report
+  that Foundation Models requires macOS.
+
 - Add `Chat.User_images` and `Chat.image_of_string`, which the OpenRouter
   adapter sends as image parts and the DS4 adapter notes as omitted.
 - Add `Agentkit.Chat`, one model request over a supplied transcript with

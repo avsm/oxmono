@@ -2,8 +2,11 @@
 
 OCaml bindings to Apple's on-device speech transcription, the Speech
 framework's `SpeechAnalyzer` and `SpeechTranscriber`. Audio never leaves the
-machine. Requires macOS 26 or later and the Xcode command line tools. The
-package builds only on macOS.
+machine. Transcription requires macOS 26 or later and the Xcode command line
+tools. The package also builds on other platforms without Swift or Apple SDKs.
+There, `available ()` returns `false` and transcription, synthesis, locale,
+asset, voice, and duration operations raise `Error Unavailable`. Pure helpers
+such as `text` remain usable.
 
 ```ocaml
 Eio_main.run @@ fun _ ->

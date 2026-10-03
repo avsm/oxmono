@@ -7,5 +7,5 @@
   (select
    agentkit_apple_support.ml
    from
-   (agentkit-apple-tools -> agentkit_apple_support.enabled.ml)
+   (agentkit-apple-tools apple-fm -> agentkit_apple_support.enabled.ml)
    (-> agentkit_apple_support.disabled.ml))))

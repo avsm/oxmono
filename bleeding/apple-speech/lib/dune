@@ -6,11 +6,16 @@
  (action
   (run bash %{dep:build_swift.sh} %{dep:AppleSpeechBridge.swift} %{targets})))
 
+(foreign_library
+ (archive_name apple_speech_bridge)
+ (language c)
+ (names apple_speech_bridge_unsupported)
+ (enabled_if
+  (<> %{system} macosx)))
+
 (library
  (public_name apple-speech)
  (name apple_speech)
- (enabled_if
-  (= %{system} macosx))
  (modes native)
  (libraries eio eio.unix jsont jsont.bytesrw)
  (foreign_archives apple_speech_bridge)

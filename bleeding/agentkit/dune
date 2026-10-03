@@ -2,4 +2,4 @@
 ; daemon, terminal, network tools and their tests need libraries the monorepo
 ; does not provide, so they remain source only.
 
-(dirs agentkit ds4_adapter openrouter_adapter test_core)
+(dirs agentkit ds4_adapter openrouter_adapter apple_adapter apple_tools test_core)

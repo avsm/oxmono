@@ -50,7 +50,8 @@ val create :
   engine
 (** [create ~cache ~model ()] opens the GGUF model at [model], writing the
     backend's GPU kernels under [cache] first. It raises [Failure] if the model
-    cannot be opened.
+    cannot be opened. Linking [ds4.metal] on a non-macOS platform is supported,
+    but opening an engine raises [Failure] saying that Metal requires macOS.
 
     [vision] loads the vision sidecar matching the model, which exists for GLM
     5.3, DeepSeek V4 Vision Experimental, DeepSeek V4.1 Flash and Qwen3.8 Flash

@@ -7,9 +7,14 @@ schemas, model-initiated calls to OCaml tools, persistent transcripts,
 structured responses, token accounting, and multimodal prompts.
 `apple-fm-agent` is a small coding agent built on the library.
 
-The package requires macOS 26 or later, Apple Silicon with Apple Intelligence,
+Model operations require macOS 26 or later, Apple Silicon with Apple Intelligence,
 and an Apple SDK containing `FoundationModels.framework`. Apple Intelligence
 must be enabled and the system model must be ready.
+
+The package also builds on other platforms without Swift or Apple SDKs.
+`Availability.get ()` returns `Unavailable`, and model operations raise
+``Eio.Io (Error.E (`Unsupported_version _), _)``. Schema, codec, prompt, and
+transcript helpers remain usable.
 
 ## Build
 
@@ -23,9 +28,9 @@ On a machine with Apple Intelligence enabled, the cancellation lifecycle probe
 can be run explicitly with `dune exec ./test/live_cancel.exe`. This is a good
 test to make sure nothing weird is going on.
 
-The build compiles `AppleFMBridge.swift` into a static archive. Dune links that
-archive into native consumers, so the package has no private dynamic library or
-runtime search path. The OCaml library is native-code only.
+On macOS, the build compiles `AppleFMBridge.swift` into a static archive. Dune
+links that archive into native consumers, so the package has no private dynamic
+library or runtime search path. The OCaml library is native-code only.
 
 See [DESIGN.md](DESIGN.md) for the API selection, concurrency model, and the
 reason a Swift shim is necessary.
@@ -83,3 +88,14 @@ Apple references: [prompting an on-device foundation
 model](https://developer.apple.com/documentation/foundationmodels/prompting-an-on-device-foundation-model),
 [tool calling](https://developer.apple.com/documentation/foundationmodels/expanding-generation-with-tool-calling),
 and [`LanguageModelSession`](https://developer.apple.com/documentation/foundationmodels/languagemodelsession).
+
+## Local patches in oxmono
+
+- The non-macOS C bridge reports unavailability through the existing error
+  protocol. The macOS build retains the Swift bridge.
+- Codec interfaces retain the portability and contention requirements of
+  oxmono's Jsont. Recursive schemas and values use `Portable_lazy` instead of
+  casting `Stdlib.Lazy` values to a different representation.
+- Run `dune build --force @@vendor/ocaml-apple-fm/test/runtest` after updating
+  these patches. Agentkit's `test_core` alias also checks the unsupported
+  platform error through the adapter.

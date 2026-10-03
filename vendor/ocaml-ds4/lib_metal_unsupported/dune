@@ -1,0 +1,13 @@
+(library
+ (name ds4_metal)
+ (public_name ds4.metal)
+ (implements ds4)
+ (enabled_if
+  (<> %{system} macosx))
+ (modes native)
+ (modules backend)
+ (foreign_stubs
+  (language c)
+  (names ds4_unsupported_stubs)
+  (flags
+   (:standard -Wall -Wextra -Werror))))

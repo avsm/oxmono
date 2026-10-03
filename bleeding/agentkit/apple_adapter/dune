@@ -2,6 +2,4 @@
  (name agentkit_apple_fm)
  (public_name agentkit-apple-fm)
  (modes native)
- (enabled_if
-  (= %{system} macosx))
  (libraries agentkit apple-fm cstruct eio))

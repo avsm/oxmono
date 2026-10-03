@@ -34,4 +34,3 @@ build: [
 ]
 dev-repo: "git+https://tangled.org/anil.recoil.org/ocaml-apple-fm"
 x-maintenance-intent: ["(latest)"]
-available: os = "macos" & arch = "arm64"

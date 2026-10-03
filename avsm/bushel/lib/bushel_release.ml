@@ -7,24 +7,25 @@ type forge =
   | Github
   | Tangled
 
-type source =
-  | Forge
-  | Registry of string
+type registry = {
+  name : string;
+  package : string;
+  url : string;
+}
 
 type release = {
-  source : source;
   version : string;
   tag : string option;
   date : Ptime.date;
-  name : string option;
-  url : string option;
+  summary : string;
+  url : string;
+  registries : registry list;
 }
 
 type t = {
   repo : string;
   forge : forge;
   project : string option;
-  synced_at : Ptime.date option;
   releases : release list;
 }
 
@@ -41,10 +42,6 @@ let forge_of_string = function
   | "github" -> Some Github
   | "tangled" -> Some Tangled
   | _ -> None
-
-let source_to_string = function Forge -> "forge" | Registry r -> r
-let source_of_string = function "forge" -> Forge | r -> Registry r
-let is_own r = r.source = Forge
 
 let compare_release a b =
   match
@@ -71,6 +68,33 @@ let compare a b =
   | None, Some _ -> 1
   | None, None -> String.compare a.repo b.repo
 
+(* Unreserved characters stay and the rest are percent-encoded, so a scoped
+   npm name is a single path segment. *)
+let encode_segment s =
+  let b = Buffer.create (String.length s) in
+  String.iter
+    (fun c ->
+      match c with
+      | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '-' | '.' | '_' | '~' ->
+        Buffer.add_char b c
+      | c -> Buffer.add_string b (Printf.sprintf "%%%02X" (Char.code c)))
+    s;
+  Buffer.contents b
+
+let metadata_url reg r =
+  Printf.sprintf
+    "https://packages.ecosyste.ms/registries/%s/packages/%s/versions/%s"
+    (encode_segment reg.name) (encode_segment reg.package)
+    (encode_segment r.version)
+
+let add_registries r regs =
+  let fresh =
+    List.filter
+      (fun n -> not (List.exists (fun h -> h.name = n.name) r.registries))
+      regs
+  in
+  { r with registries = r.registries @ fresh }
+
 (* The same shape the other yaml-backed files parse with: a lookup over the
    association list, failing loudly on a field that has to be there. *)
 let string_field ?default key fields =
@@ -91,7 +115,8 @@ let version_field key fields =
   match List.assoc_opt key fields with
   | Some (`String v) -> v
   | Some (`Float f) ->
-    if Float.is_integer f then Printf.sprintf "%.0f" f else Printf.sprintf "%g" f
+    if Float.is_integer f then Printf.sprintf "%.0f" f
+    else Printf.sprintf "%g" f
   | _ -> failwith ("release: missing or invalid " ^ key)
 
 let date_of_value ~what value =
@@ -110,20 +135,27 @@ let date_field key fields =
   | Some v -> date_of_value ~what:key v
   | None -> failwith ("release: missing or invalid " ^ key)
 
-let date_opt_field key fields =
-  match List.assoc_opt key fields with
-  | Some v -> ( try Some (date_of_value ~what:key v) with Failure _ -> None)
-  | None -> None
+let registry_of_yaml = function
+  | `O fields ->
+    {
+      name = string_field "name" fields;
+      package = string_field "package" fields;
+      url = string_field "url" fields;
+    }
+  | _ -> failwith "release: invalid registry"
 
 let release_of_yaml = function
   | `O fields ->
     {
-      source = source_of_string (string_field ~default:"forge" "source" fields);
       version = version_field "version" fields;
       tag = string_opt_field "tag" fields;
       date = date_field "date" fields;
-      name = string_opt_field "name" fields;
-      url = string_opt_field "url" fields;
+      summary = string_field "summary" fields;
+      url = string_field "url" fields;
+      registries =
+        (match List.assoc_opt "registries" fields with
+        | Some (`A values) -> List.map registry_of_yaml values
+        | _ -> []);
     }
   | _ -> failwith "release: invalid yaml"
 
@@ -145,7 +177,6 @@ let of_yaml = function
       repo;
       forge;
       project = string_opt_field "project" fields;
-      synced_at = date_opt_field "synced_at" fields;
       releases = List.sort compare_release releases;
     }
   | _ -> failwith "release: invalid yaml"
@@ -155,26 +186,34 @@ let date_to_string (year, month, day) =
 
 let opt_field key = function None -> [] | Some v -> [ (key, `String v) ]
 
+let registry_to_yaml r =
+  `O
+    [
+      ("name", `String r.name);
+      ("package", `String r.package);
+      ("url", `String r.url);
+    ]
+
 let release_to_yaml r =
   `O
-    ((match r.source with
-     | Forge -> []
-     | Registry name -> [ ("source", `String name) ])
     (* Written as a string. yamlrw quotes the ones that would otherwise read
        back as numbers, so 4.10 survives rather than becoming 4.1. *)
-    @ [ ("version", `String r.version) ]
+    ([ ("version", `String r.version) ]
     @ opt_field "tag" r.tag
-    @ [ ("date", `String (date_to_string r.date)) ]
-    @ opt_field "name" r.name
-    @ opt_field "url" r.url)
+    @ [
+        ("date", `String (date_to_string r.date));
+        ("summary", `String r.summary);
+        ("url", `String r.url);
+      ]
+    @
+    match r.registries with
+    | [] -> []
+    | l -> [ ("registries", `A (List.map registry_to_yaml l)) ])
 
 let to_yaml t =
   `O
     ([ ("repo", `String t.repo); ("forge", `String (forge_to_string t.forge)) ]
     @ opt_field "project" t.project
-    @ (match t.synced_at with
-      | None -> []
-      | Some d -> [ ("synced_at", `String (date_to_string d)) ])
     @ [
         ( "releases",
           `A (List.map release_to_yaml (List.sort compare_release t.releases))
@@ -182,7 +221,7 @@ let to_yaml t =
       ])
 
 (* A missing file is an empty list, but a malformed one is an error rather
-   than an empty list. The sync merges onto what it loads and writes the
+   than an empty list. The commands merge onto what they load and write the
    result back, so swallowing a parse failure here would replace a good file
    with nothing. *)
 let load_file path =
@@ -193,15 +232,36 @@ let load_file path =
     | `A values -> List.map of_yaml values
     | `Null -> []
     | _ -> failwith "releases: expected a list at the top level"
+    | exception _ -> failwith "releases: not valid yaml"
 
 let save_file path ts =
   let yaml = `A (List.map to_yaml (List.sort compare ts)) in
   let s = Yamlrw.to_string yaml in
   Out_channel.with_open_bin path (fun oc -> output_string oc s)
 
-let merge existing incoming =
-  let replaced = List.map (fun t -> (t.repo, t)) incoming in
+let union_releases existing incoming =
   let kept =
-    List.filter (fun t -> not (List.mem_assoc t.repo replaced)) existing
+    List.filter
+      (fun e -> not (List.exists (fun i -> i.version = e.version) incoming))
+      existing
   in
-  List.sort compare (kept @ incoming)
+  List.sort compare_release (kept @ incoming)
+
+let merge existing incoming =
+  let combine (t : t) =
+    match List.find_opt (fun e -> e.repo = t.repo) existing with
+    | None -> { t with releases = List.sort compare_release t.releases }
+    | Some e ->
+      {
+        t with
+        project = (match t.project with None -> e.project | p -> p);
+        releases = union_releases e.releases t.releases;
+      }
+  in
+  let incoming' = List.map combine incoming in
+  let kept =
+    List.filter
+      (fun e -> not (List.exists (fun t -> t.repo = e.repo) incoming))
+      existing
+  in
+  List.sort compare (kept @ incoming')

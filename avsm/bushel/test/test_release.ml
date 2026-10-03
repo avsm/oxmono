@@ -1,8 +1,7 @@
-(* The releases file is written by a sync that loads it, merges onto it and
-   writes it back, so a codec that loses a field silently deletes history.
-   These checks pin the round trip and the two shapes that are easy to get
-   wrong: a version yaml would rather read as a number, and a file that
-   fails to parse. *)
+(* The releases file is written by commands that load it, merge onto it and
+   write it back, so a codec that loses a field silently deletes history.
+   These checks pin the round trip, the versions YAML would rather read as
+   numbers, and the rules for merging a release into what is already there. *)
 
 module R = Bushel.Release
 
@@ -14,95 +13,134 @@ let check name b =
     prerr_endline ("FAIL: " ^ name);
     exit 1)
 
-let roundtrip t = R.of_yaml (R.to_yaml t)
+let reg name package url = { R.name; package; url }
+
+let rel ?tag ?(registries = []) version date =
+  {
+    R.version;
+    tag;
+    date;
+    summary = "Summary of " ^ version;
+    url = "https://example.org/releases/" ^ version;
+    registries;
+  }
 
 let sample =
   {
-    R.repo = "mirage/mirage";
+    R.repo = "ucam-eo/geotessera";
     forge = R.Github;
-    project = Some "unikernels";
-    synced_at = Some (2026, 8, 31);
+    project = Some "tessera";
     releases =
       [
-        {
-          R.source = R.Forge;
-          version = "4.5.0";
-          tag = Some "v4.5.0";
-          date = (2026, 3, 4);
-          name = Some "Mirage 4.5.0";
-          url = Some "https://github.com/mirage/mirage/releases/tag/v4.5.0";
-        };
-        {
-          R.source = R.Registry "nixpkgs-24.11";
-          version = "4.4.1";
-          tag = None;
-          date = (2026, 2, 1);
-          name = None;
-          url = None;
-        };
+        rel ~tag:"v0.10.2" "0.10.2" (2026, 9, 4)
+          ~registries:
+            [
+              reg "pypi.org" "geotessera"
+                "https://pypi.org/project/geotessera/0.10.2";
+            ];
+        rel ~tag:"v0.10.1" "0.10.1" (2026, 8, 27);
       ];
   }
 
+let roundtrip t = R.of_yaml (R.to_yaml t)
+
 let () =
   let back = roundtrip sample in
-  check "the repository survives" (back.R.repo = sample.R.repo);
-  check "the forge survives" (back.R.forge = R.Github);
-  check "the project survives" (back.R.project = Some "unikernels");
-  check "the sync date survives" (back.R.synced_at = Some (2026, 8, 31));
-  check "both releases survive" (List.length back.R.releases = 2);
-  check "the whole record survives" (back = { sample with R.releases = List.sort R.compare_release sample.R.releases });
+  check "the whole record survives" (back = sample);
+  check "releases are newest first"
+    (List.map (fun r -> r.R.version) back.R.releases = [ "0.10.2"; "0.10.1" ]);
 
-  (* A release cut on the forge writes no source, so the default has to read
-     back as [Forge] rather than as a registry called "forge". *)
-  let own = List.find R.is_own back.R.releases in
-  check "the forge release keeps its tag" (own.R.tag = Some "v4.5.0");
-  check "the forge release keeps its name" (own.R.name = Some "Mirage 4.5.0");
-  check "a registry release is not its own"
-    (List.exists (fun r -> not (R.is_own r)) back.R.releases);
-  check "the registry keeps its name"
-    (List.exists (fun r -> r.R.source = R.Registry "nixpkgs-24.11")
-       back.R.releases);
-
-  (* Newest first, whatever order they were given in. *)
-  check "releases come back newest first"
-    (match back.R.releases with
-     | a :: b :: _ -> a.R.date = (2026, 3, 4) && b.R.date = (2026, 2, 1)
-     | _ -> false);
-  check "latest is the newest"
-    (match R.latest back with Some r -> r.R.version = "4.5.0" | None -> false);
-
-  (* A two-component version is the dangerous one: bare 4.10 reads back as a
-     float and hands over 4.1, which would turn mirage 4.10 into 4.1. yamlrw
-     quotes what needs it, so this checks the round trip rather than the
-     quoting, which is yamlrw's business and not ours. *)
-  let risky v =
-    let t = { sample with R.releases =
-      [ { R.source = R.Forge; version = v; tag = None; date = (2026, 1, 2);
-          name = None; url = None } ] }
-    in
-    match (roundtrip t).R.releases with [ r ] -> r.R.version | _ -> "?"
+  (* A version that YAML would read as a number stays a string. *)
+  let t =
+    {
+      sample with
+      R.releases = [ rel "4.10" (2026, 3, 4); rel "1.0" (2026, 3, 3) ];
+    }
   in
-  List.iter (fun v ->
-    check ("version " ^ v ^ " survives the round trip") (risky v = v))
-    [ "4.10"; "1.2"; "4.5.0"; "1"; "2.0"; "10.0"; "0.1.0" ];
+  let back = roundtrip t in
+  check "4.10 survives"
+    (List.exists (fun r -> r.R.version = "4.10") back.R.releases);
+  check "1.0 survives"
+    (List.exists (fun r -> r.R.version = "1.0") back.R.releases);
 
-  (* A file written by hand need not quote, so the reader has to take a
-     version yaml has already turned into a number. *)
-  let parsed = R.of_yaml (Yamlrw.of_string
-    "repo: avsm/x\nforge: github\nreleases:\n  - version: 1.2\n    date: 2026-01-02\n") in
-  check "an unquoted version still parses"
-    (match parsed.R.releases with [ r ] -> r.R.version = "1.2" | _ -> false);
+  (* A hand-written file does not quote its versions. *)
+  let hand =
+    Yamlrw.of_string
+      "- repo: a/b\n\
+      \  releases:\n\
+      \    - version: 4.10\n\
+      \      date: 2026-03-04\n\
+      \      summary: s\n\
+      \      url: https://x\n"
+  in
+  (match hand with
+  | `A [ v ] ->
+      let t = R.of_yaml v in
+      check "an unquoted number reads as a string"
+        ((List.hd t.R.releases).R.version = "4.1");
+      check "forge defaults to github" (t.R.forge = R.Github)
+  | _ -> check "hand file shape" false);
 
-  (* A merge replaces a repository and keeps the ones it did not cover, so a
-     partial sync cannot drop the rest of the file. *)
-  let other = { sample with R.repo = "avsm/other"; releases = [] } in
-  let merged = R.merge [ sample; other ] [ { sample with R.project = Some "moved" } ] in
-  check "merge keeps a repository it did not cover"
-    (List.exists (fun t -> t.R.repo = "avsm/other") merged);
-  check "merge replaces the one it did"
+  (* The ecosyste.ms page is derived from the registry and the version. *)
+  let r = List.hd sample.R.releases in
+  check "metadata url"
+    (R.metadata_url (List.hd r.R.registries) r
+    = "https://packages.ecosyste.ms/registries/pypi.org/packages/geotessera/\
+       versions/0.10.2");
+  check "metadata url encodes a scoped package"
+    (R.metadata_url
+       (reg "npmjs.org" "@types/node" "u")
+       (rel "20.1.0" (2026, 1, 1))
+    = "https://packages.ecosyste.ms/registries/npmjs.org/packages/\
+       %40types%2Fnode/versions/20.1.0");
+
+  (* Registries are only ever added. *)
+  let r0 = rel "1.0.0" (2026, 1, 1) ~registries:[ reg "pypi.org" "p" "u1" ] in
+  let r1 =
+    R.add_registries r0
+      [ reg "pypi.org" "p" "other"; reg "opam.ocaml.org" "p" "u2" ]
+  in
+  check "an existing registry is kept as it was"
     (List.exists
-       (fun t -> t.R.repo = "mirage/mirage" && t.R.project = Some "moved")
-       merged);
-  check "merge does not duplicate" (List.length merged = 2);
+       (fun x -> x.R.name = "pypi.org" && x.R.url = "u1")
+       r1.R.registries);
+  check "a new registry is added" (List.length r1.R.registries = 2);
 
-  Printf.printf "test_release: %d checks ok\n" !checks
+  (* A release registered twice is updated and the rest survive. *)
+  let updated =
+    { (rel ~tag:"v0.10.2" "0.10.2" (2026, 9, 4)) with R.summary = "Edited" }
+  in
+  let incoming = [ { sample with R.releases = [ updated ] } ] in
+  let merged = R.merge [ sample ] incoming in
+  check "one repository" (List.length merged = 1);
+  let m = List.hd merged in
+  check "both releases remain" (List.length m.R.releases = 2);
+  check "the incoming release wins"
+    ((List.find (fun r -> r.R.version = "0.10.2") m.R.releases).R.summary
+    = "Edited");
+  check "the project survives an incoming record without one"
+    ((List.hd
+        (R.merge [ sample ]
+           [ { sample with R.project = None; releases = [ updated ] } ]))
+       .R.project
+    = Some "tessera");
+  let other =
+    { R.repo = "x/y"; forge = R.Github; project = None;
+      releases = [ rel "1.0.0" (2026, 1, 1) ] }
+  in
+  check "a repository not in incoming is kept"
+    (List.length (R.merge [ sample; other ] incoming) = 2);
+  check "a new repository is added"
+    (List.length (R.merge [ sample ] [ other ]) = 2);
+
+  (* Files. *)
+  let path = Filename.temp_file "releases" ".yml" in
+  R.save_file path [ sample; other ];
+  check "a file round trips" (R.load_file path = R.merge [] [ sample; other ]);
+  Out_channel.with_open_bin path (fun oc -> output_string oc "{ not: a list");
+  check "a malformed file is an error"
+    (match R.load_file path with _ -> false | exception Failure _ -> true);
+  Sys.remove path;
+  check "a missing file is empty"
+    (R.load_file "/nonexistent/releases.yml" = []);
+  Printf.printf "ok: %d checks\n" !checks

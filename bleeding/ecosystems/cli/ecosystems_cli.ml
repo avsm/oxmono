@@ -118,7 +118,7 @@ let guard ~err f =
   | exception Openapi.Runtime.Api_error { status; operation; _ } ->
       Format.fprintf err "oecosystems: %s: HTTP %d@." operation status;
       1
-  | exception Invalid_argument msg ->
+  | exception (Invalid_argument msg | Failure msg) ->
       Format.fprintf err "oecosystems: %s@." msg;
       1
   | exception Sys_error msg when String.ends_with ~suffix:"Broken pipe" msg ->

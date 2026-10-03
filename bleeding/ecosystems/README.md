@@ -91,12 +91,14 @@ and patched in the places below. Each patch makes the schema accept a response
 the live API sends. Test fixtures in `test/fixtures/` are recorded responses
 that prove each one. No fixture covers `VersionWithPackage`, because
 `/registries/{registryName}/versions` answered 500 for every registry on
-2026-10-03.
+2026-10-03. `VersionWithPackage` also requires `related_tag` without declaring
+it, and that is left as upstream wrote it for the same reason.
 
 - `Registry`: `downloads` and `purl_type` are no longer required.
 - `Package`: `docker_dependents_count`, `docker_downloads_count`, `critical`,
   `downloads` and `issue_metadata` are nullable.
-- `Version`: `codemeta_url` is no longer required and `related_tag` is nullable.
+- `Version`: `codemeta_url` is no longer required, `related_tag` is nullable
+  and `latest` is declared, because the schema required it without a property.
 - `VersionWithDependencies`: `related_tag` is nullable.
 - `Maintainer`: `total_downloads` and `role` are no longer required.
 - `Namespace`: `uuid` is no longer required.

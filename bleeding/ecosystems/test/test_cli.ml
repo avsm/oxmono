@@ -259,3 +259,24 @@ let () =
     !c
   in
   assert (count = 57)
+
+let () =
+  Eio_main.run @@ fun env ->
+  (* Every command can print its result as JSON. *)
+  List.iter
+    (fun args ->
+      let code, out, err, _ = run env (args @ [ "--json" ]) in
+      let decoded = Openapi.Runtime.Json.decode Jsont.json out in
+      if code <> 0 || Result.is_error decoded then (
+        Printf.eprintf "FAIL --json %s: exit %d\n%s\n" (String.concat " " args)
+          code err;
+        exit 1))
+    [ [ "registries" ];
+      [ "package"; "crates.io"; "serde" ];
+      [ "versions"; "crates.io"; "serde" ];
+      [ "version"; "crates.io"; "serde"; "1.0.0" ];
+      [ "dependents"; "crates.io"; "serde" ];
+      [ "advisories"; "npmjs.org"; "minimist" ];
+      [ "lookup"; "pkg:npm/minimist" ];
+      [ "maintainer"; "crates.io"; "slaxxarn" ];
+      [ "keyword"; "rust" ] ]

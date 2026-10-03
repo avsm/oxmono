@@ -2088,6 +2088,8 @@ components:
           type: string
         codemeta_url:
           type: string
+        latest:
+          type: boolean
         related_tag:
           type: object
           nullable: true

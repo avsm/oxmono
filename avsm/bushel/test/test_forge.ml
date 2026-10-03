@@ -57,33 +57,29 @@ let () =
     (F.github_events (read "github_events.json")
     = [ ("realworldocaml/mdx", "2.7.0") ]);
 
-  check "tangled name"
-    (F.tangled_version ~repo_name:"dune-rpc-eio" "dune-rpc-eio-0.1.0.tbz"
-    = Some "0.1.0");
-  check "tangled name with a short version"
-    (F.tangled_version ~repo_name:"json-pointer" "json-pointer-1.0.tbz"
-    = Some "1.0");
-  check "tangled name without the repo prefix"
-    (F.tangled_version ~repo_name:"x" "y-1.0.tbz" = None);
-  check "tangled name with an unknown suffix"
-    (F.tangled_version ~repo_name:"x" "x-1.0.exe" = None);
-  let arts repo =
-    ok (F.tangled_artifacts ~repo (read "tangled_artifacts.json"))
-  in
-  let d = arts "anil.recoil.org/dune-rpc-eio" in
-  check "only the repository's own artifacts"
-    (List.map (fun c -> c.F.version) d = [ "0.1.0" ]);
-  let d = List.hd d in
-  check "tangled date from createdAt" (d.F.date = (2026, 8, 9));
-  check "tangled forge" (d.F.forge = Bushel.Release.Tangled);
-  check "tangled tag is the version" (d.F.tag = "0.1.0");
-  check "tangled url"
-    (d.F.url = "https://tangled.org/anil.recoil.org/dune-rpc-eio");
-  check "an artifact on an opaque repo record is still found by its name"
-    (List.map (fun c -> c.F.version) (arts "anil.recoil.org/xdge")
-    = [ "1.1.0" ]);
-  check "a repository with no matching artifact has none"
-    (arts "anil.recoil.org/nothing" = []);
+  (* A Tangled artifact is a release once its name gives a version. *)
+  (match
+     F.tangled_candidate ~repo:"anil.recoil.org/dune-rpc-eio"
+       ~name:"dune-rpc-eio-0.1.0.tbz" ~created_at:"2026-08-09T13:21:57+03:00"
+   with
+  | None -> check "an artifact with a version is a release" false
+  | Some d ->
+    check "tangled version" (d.F.version = "0.1.0");
+    check "tangled date from createdAt" (d.F.date = (2026, 8, 9));
+    check "tangled forge" (d.F.forge = Bushel.Release.Tangled);
+    check "tangled tag is the version" (d.F.tag = "0.1.0");
+    check "a file name is not a title" (d.F.title = None);
+    check "tangled url"
+      (d.F.url = "https://tangled.org/anil.recoil.org/dune-rpc-eio");
+    check "tangled has no author" (d.F.author = None));
+  check "an artifact with no version is no release"
+    (F.tangled_candidate ~repo:"h/x" ~name:"readme.tbz"
+       ~created_at:"2026-08-09T13:21:57+03:00"
+    = None);
+  check "an unreadable date is no release"
+    (F.tangled_candidate ~repo:"h/x" ~name:"x-1.0.tbz" ~created_at:"soon"
+    = None);
+
 
   (* [unregistered] keeps the author's releases that are not registered. *)
   let mk ?(author = Some "avsm") ?(prerelease = false) tag =

@@ -71,6 +71,41 @@ let () =
     (B.preferred_packages "mirage/ocaml-cohttp" = [ "ocaml-cohttp"; "cohttp" ]);
   check "a repository name without the prefix"
     (B.preferred_packages "ucam-eo/geotessera" = [ "geotessera" ]);
+  (* The description comes from the attached package, and otherwise from an
+     allowed registry, so a release no registry carries yet still has one. *)
+  let found =
+    [
+      ("nixpkgs-unstable", "ocamlPackages.mdx", Some "Nix description.");
+      ("pypi.org", "mdx", None);
+      ("opam.ocaml.org", "mdx-extras", Some "Other package.");
+      ("opam.ocaml.org", "mdx", Some "Executable code blocks.");
+    ]
+  in
+  let attached =
+    [
+      {
+        Bushel.Release.name = "opam.ocaml.org";
+        package = "mdx-extras";
+        url = "u";
+      };
+    ]
+  in
+  check "the attached package's description wins"
+    (B.pick_description ~allowed ~attached ~found () = Some "Other package.");
+  check "with nothing attached the preferred package is used"
+    (B.pick_description ~prefer:[ "mdx" ] ~allowed ~attached:[] ~found ()
+    = Some "Executable code blocks.");
+  check "with no preference the first allowed package with one is used"
+    (B.pick_description ~allowed ~attached:[] ~found ()
+    = Some "Other package.");
+  check "a repackaging's description is never used"
+    (B.pick_description ~allowed
+       ~attached:[]
+       ~found:[ ("nixpkgs-unstable", "x", Some "Nix description.") ]
+       ()
+    = None);
+  check "no packages, no description"
+    (B.pick_description ~allowed ~attached:[] ~found:[] () = None);
   check "first sentence"
 
     (B.summary_of_description

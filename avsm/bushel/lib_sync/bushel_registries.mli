@@ -33,6 +33,20 @@ val attach :
     that is one of them and the first package otherwise. A registry that is not
     in [allowed], such as a repackaging by nixpkgs, is never attached. *)
 
+val pick_description :
+  ?prefer:string list ->
+  allowed:string list ->
+  attached:Bushel.Release.registry list ->
+  found:(string * string * string option) list ->
+  unit ->
+  string option
+(** [pick_description ~allowed ~attached ~found ()] is the description to
+    summarise a release with. [found] is the [(registry, package, description)]
+    triples ecosyste.ms reports for a repository. The description of an attached
+    package is used first. Otherwise it is the first description in an allowed
+    registry, taking a package named in [prefer] before another. A registry that
+    is not in [allowed] is never used. *)
+
 val lookup :
   Ecosystems.t ->
   allowed:string list ->
@@ -41,6 +55,6 @@ val lookup :
   version:string ->
   (Bushel.Release.registry list * string option, string) result
 (** [lookup eco ~allowed ~forge ~repo ~version] is the registries that carry
-    [version] of [repo], and the description of the first package ecosyste.ms
-    knows for it. A registry that answers that it has no such version is left
-    out. *)
+    [version] of [repo], and a description of the package from
+    {!pick_description}, which a release no registry carries yet still has. A
+    registry that answers that it has no such version is left out. *)

@@ -86,6 +86,33 @@ let preferred_packages repo =
   | Some short when short <> "" -> [ name; short ]
   | _ -> [ name ]
 
+let pick_description ?(prefer = []) ~allowed
+    ~(attached : Bushel.Release.registry list) ~found () =
+  let described registry package =
+    List.find_map
+      (fun (r, p, d) -> if r = registry && p = package then d else None)
+      found
+  in
+  match
+    List.find_map
+      (fun (g : Bushel.Release.registry) -> described g.name g.package)
+      attached
+  with
+  | Some _ as d -> d
+  | None ->
+    List.find_map
+      (fun registry ->
+        let here =
+          List.filter_map
+            (fun (r, p, d) ->
+              if r = registry then Option.map (fun d -> (p, d)) d else None)
+            found
+        in
+        match List.find_opt (fun (p, _) -> List.mem p prefer) here with
+        | Some (_, d) -> Some d
+        | None -> ( match here with (_, d) :: _ -> Some d | [] -> None))
+      allowed
+
 let lookup eco ~allowed ~forge ~repo ~version =
   let repository_url = repository_url forge repo in
   match
@@ -114,16 +141,14 @@ let lookup eco ~allowed ~forge ~repo ~version =
     | exception ex -> Error (Printexc.to_string ex)
     | registries ->
       let description =
-        List.find_map
-          (fun (r : Bushel.Release.registry) ->
-            List.find_map
-              (fun p ->
-                if
-                  Ecosystems.Registry.T.name (P.registry p) = r.name
-                  && P.name p = r.package
-                then P.description p
-                else None)
-              found)
-          registries
+        pick_description ~prefer:(preferred_packages repo) ~allowed
+          ~attached:registries
+          ~found:
+            (List.map
+               (fun p ->
+                 (Ecosystems.Registry.T.name (P.registry p), P.name p,
+                  P.description p))
+               found)
+          ()
       in
       Ok (registries, description))

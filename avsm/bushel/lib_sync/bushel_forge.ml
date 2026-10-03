@@ -100,73 +100,22 @@ let github_events json =
         else None)
       (items (Some v))
 
-let archive_suffixes = [ ".tbz"; ".tar.bz2"; ".tar.gz"; ".tgz"; ".zip" ]
-
-let strip_prefix ~prefix s =
-  if String.starts_with ~prefix s then
-    let n = String.length prefix in
-    Some (String.sub s n (String.length s - n))
-  else None
-
-let strip_suffix s =
-  List.find_map
-    (fun suffix ->
-      if String.ends_with ~suffix s then
-        Some (String.sub s 0 (String.length s - String.length suffix))
-      else None)
-    archive_suffixes
-
-let tangled_version ~repo_name name =
-  match strip_prefix ~prefix:(repo_name ^ "-") name with
-  | None -> None
-  | Some rest -> (
-    match strip_suffix rest with Some "" | None -> None | Some v -> Some v)
-
-let last_segment repo =
-  match String.rindex_opt repo '/' with
-  | Some i -> String.sub repo (i + 1) (String.length repo - i - 1)
-  | None -> repo
-
-let tangled_artifacts ~repo json =
-  let repo_name = last_segment repo in
-  match parse json with
-  | Error e -> Error e
-  | Ok v ->
-    let cands =
-      List.filter_map
-        (fun r ->
-          let value = member "value" r in
-          match
-            ( Option.bind value (fun v -> str (member "name" v)),
-              Option.bind value (fun v ->
-                  Option.bind (str (member "createdAt" v)) date_of) )
-          with
-          | Some name, Some date -> (
-            match tangled_version ~repo_name name with
-            | None -> None
-            | Some version ->
-              Some
-                {
-                  repo;
-                  forge = Bushel.Release.Tangled;
-                  tag = version;
-                  version;
-                  date;
-                  title = Some name;
-                  url = "https://tangled.org/" ^ repo;
-                  author = None;
-                  prerelease = false;
-                })
-          | _ -> None)
-        (items (member "records" v))
-    in
-    (* Several artifacts of one version are one release. *)
-    Ok
-      (List.fold_left
-         (fun acc c ->
-           if List.exists (fun a -> a.version = c.version) acc then acc
-           else acc @ [ c ])
-         [] cands)
+let tangled_candidate ~repo ~name ~created_at =
+  match (Tangled.Api.artifact_version name, date_of created_at) with
+  | Some version, Some date ->
+    Some
+      {
+        repo;
+        forge = Bushel.Release.Tangled;
+        tag = version;
+        version;
+        date;
+        title = None;
+        url = "https://tangled.org/" ^ repo;
+        author = None;
+        prerelease = false;
+      }
+  | _ -> None
 
 let unregistered ~author ~registered candidates =
   let known repo version =

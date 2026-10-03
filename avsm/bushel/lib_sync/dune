@@ -22,6 +22,9 @@
   fetch-curl
   ecosystems
   ecosystems.client
+  tangled
+  atp-xrpc
+  atp-lexicon-tangled
   openapi
   peertube
   karakeep

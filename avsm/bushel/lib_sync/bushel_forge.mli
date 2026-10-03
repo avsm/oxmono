@@ -5,8 +5,9 @@
 
 (** Releases as the forges report them.
 
-    These functions read the JSON of the GitHub API and of atproto and do no
-    I/O. The date of a release is the forge's own publication date. *)
+    These functions read the JSON of the GitHub API and the artifacts of a
+    Tangled repository and do no I/O. The date of a release is the forge's own
+    publication date. *)
 
 type candidate = {
   repo : string;  (** [org/name] on GitHub, [handle/name] on tangled. *)
@@ -38,16 +39,11 @@ val github_events : string -> (string * string) list
 (** [github_events json] is the [(repo, tag)] of each published release in the
     body [json] of [GET /users/{login}/events/public]. *)
 
-val tangled_version : repo_name:string -> string -> string option
-(** [tangled_version ~repo_name name] is the version of the artifact called
-    [name], which has the shape [repo_name-version.tbz]. It is [None] if [name]
-    has another shape. *)
-
-val tangled_artifacts : repo:string -> string -> (candidate list, string) result
-(** [tangled_artifacts ~repo json] is the releases of [repo] in the body [json]
-    of [com.atproto.repo.listRecords] for [sh.tangled.repo.artifact]. An
-    artifact belongs to [repo] if its name has the repository's name as a
-    prefix. Artifacts of one version are one release. *)
+val tangled_candidate :
+  repo:string -> name:string -> created_at:string -> candidate option
+(** [tangled_candidate ~repo ~name ~created_at] is the release that the artifact
+    called [name] in [repo] is, with the date of [created_at]. It is [None] if
+    [name] has no version or [created_at] is not a date. *)
 
 val unregistered :
   author:string ->

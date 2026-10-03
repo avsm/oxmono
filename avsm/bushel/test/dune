@@ -19,3 +19,8 @@
  (name test_registries)
  (modules test_registries)
  (libraries bushel bushel.sync))
+
+(test
+ (name test_releases)
+ (modules test_releases)
+ (libraries bushel bushel.sync))

@@ -1064,6 +1064,325 @@ let links_cmd =
   let info = Cmd.info "links" ~doc in
   Cmd.group info [links_list_cmd; links_add_cmd; links_generate_cmd]
 
+(* Release commands *)
+
+let releases_file data_dir = Filename.concat data_dir "releases.yml"
+
+(* A tangled repository is [handle/name], and a handle is a domain name. *)
+let forge_of_repo repo =
+  match String.index_opt repo '/' with
+  | Some i when String.contains (String.sub repo 0 i) '.' ->
+    Bushel.Release.Tangled
+  | _ -> Bushel.Release.Github
+
+let load_releases data_dir =
+  match Bushel.Release.load_file (releases_file data_dir) with
+  | ts -> Ok ts
+  | exception Failure e -> Error (releases_file data_dir ^ ": " ^ e)
+
+let release_dry_run =
+  let doc = "Report what would change without writing releases.yml." in
+  Arg.(value & flag & info ["dry-run"] ~doc)
+
+let registry_names (r : Bushel.Release.release) =
+  match r.registries with
+  | [] -> ""
+  | l ->
+    let names = List.map (fun (g : Bushel.Release.registry) -> g.name) l in
+    "  [" ^ String.concat ", " names ^ "]"
+
+let release_list_cmd =
+  let run () config_file data_dir =
+    match load_config config_file with
+    | Error e -> Printf.eprintf "Config error: %s\n" e; 1
+    | Ok config ->
+      let data_dir = get_data_dir config data_dir in
+      (match load_releases data_dir with
+       | Error e -> prerr_endline e; 1
+       | Ok [] -> print_endline "No releases registered."; 0
+       | Ok ts ->
+         List.iter (fun (t : Bushel.Release.t) ->
+           print_endline t.repo;
+           List.iter (fun (r : Bushel.Release.release) ->
+             Printf.printf "  %s  %-10s  %s%s\n" (format_date r.date)
+               r.version r.summary (registry_names r)) t.releases) ts;
+         0)
+  in
+  let doc = "List the registered releases." in
+  Cmd.v (Cmd.info "list" ~doc)
+    Term.(const run $ logging_t $ config_file $ data_dir)
+
+let release_discover_cmd =
+  let repo_arg =
+    let doc = "Scan only $(docv) and list its whole release history." in
+    Arg.(value & opt (some string) None & info ["repo"] ~docv:"REPO" ~doc)
+  in
+  let since =
+    let doc = "List only releases on or after $(docv), written YYYY-MM-DD." in
+    Arg.(value & opt (some string) None & info ["since"] ~docv:"DATE" ~doc)
+  in
+  let run () config_file data_dir repo since =
+    match load_config config_file with
+    | Error e -> Printf.eprintf "Config error: %s\n" e; 1
+    | Ok config ->
+      let rc = config.Bushel_config.releases in
+      (match rc.github_user with
+       | None ->
+         prerr_endline
+           "Set github_user in the [releases] section of the config.";
+         1
+       | Some author ->
+         let data_dir = get_data_dir config data_dir in
+         (match load_releases data_dir with
+          | Error e -> prerr_endline e; 1
+          | Ok registered ->
+            Eio_main.run @@ fun env ->
+            Eio.Switch.run @@ fun sw ->
+            let http = Bushel_sync.Http.create ~sw env in
+            let token = Bushel_sync.Releases.token () in
+            let warn what e = Printf.eprintf "warning: %s: %s\n" what e in
+            let repos =
+              match repo with
+              | Some r -> [ r ]
+              | None ->
+                let events =
+                  match
+                    Bushel_sync.Releases.github_events ~http ~token ~user:author
+                  with
+                  | Ok l -> List.map fst l
+                  | Error e -> warn "GitHub events" e; []
+                in
+                List.sort_uniq String.compare (rc.github @ rc.tangled @ events)
+            in
+            let candidates =
+              List.concat_map (fun r ->
+                let found =
+                  match forge_of_repo r with
+                  | Bushel.Release.Github ->
+                    Bushel_sync.Releases.github_releases ~http ~token ~repo:r
+                  | Bushel.Release.Tangled ->
+                    Bushel_sync.Releases.tangled_artifacts ~sw ~env ~http
+                      ~repo:r
+                in
+                match found with
+                | Ok l -> l
+                | Error e -> warn r e; []) repos
+            in
+            let found =
+              Bushel_sync.Forge.unregistered ~author ~registered candidates
+            in
+            let found =
+              let parse s =
+                Result.to_option (Bushel.Types.date_of_string ~kind:"date" s)
+              in
+              match Option.bind since parse with
+              | None -> found
+              | Some d ->
+                List.filter
+                  (fun (c : Bushel_sync.Forge.candidate) -> c.date >= d)
+                  found
+            in
+            let found =
+              List.sort (fun (a : Bushel_sync.Forge.candidate) b ->
+                  compare b.date a.date) found
+            in
+            if found = [] then print_endline "Nothing to register."
+            else
+              List.iter (fun (c : Bushel_sync.Forge.candidate) ->
+                Printf.printf "%s  %-32s %-12s %s\n" (format_date c.date) c.repo
+                  c.tag (Bushel.Release.forge_to_string c.forge)) found;
+            0))
+  in
+  let doc = "List releases you published that are not registered yet." in
+  let man = [
+    `S Manpage.s_description;
+    `P "Scans the repositories named in the [releases] section of the \
+        configuration, the repositories you released from recently, and \
+        $(b,--repo) if given. A release is listed if you published it and \
+        it is not in releases.yml.";
+    `P "Register one with $(b,bushel release add).";
+  ] in
+  Cmd.v (Cmd.info "discover" ~doc ~man)
+    Term.(const run $ logging_t $ config_file $ data_dir $ repo_arg $ since)
+
+let release_add_cmd =
+  let repo_arg =
+    let doc = "Repository, as org/name on GitHub or handle/name on tangled." in
+    Arg.(required & pos 0 (some string) None & info [] ~docv:"REPO" ~doc)
+  in
+  let tag_arg =
+    let doc = "The git tag on GitHub, or the version of a tangled artifact." in
+    Arg.(required & pos 1 (some string) None & info [] ~docv:"TAG" ~doc)
+  in
+  let summary =
+    let doc = "One-line summary. Defaults to the package description." in
+    Arg.(value & opt (some string) None & info ["summary"] ~docv:"TEXT" ~doc)
+  in
+  let project =
+    let doc = "Slug of the bushel project this repository serves." in
+    Arg.(value & opt (some string) None & info ["project"] ~docv:"SLUG" ~doc)
+  in
+  let force =
+    let doc = "Register a release that someone else published." in
+    Arg.(value & flag & info ["force"] ~doc)
+  in
+  let run () config_file data_dir dry_run repo tag summary project force =
+    match load_config config_file with
+    | Error e -> Printf.eprintf "Config error: %s\n" e; 1
+    | Ok config ->
+      let rc = config.Bushel_config.releases in
+      let data_dir = get_data_dir config data_dir in
+      (match load_releases data_dir with
+       | Error e -> prerr_endline e; 1
+       | Ok existing ->
+         Eio_main.run @@ fun env ->
+         Eio.Switch.run @@ fun sw ->
+         let http = Bushel_sync.Http.create ~sw env in
+         let eco = Ecosystems_client.create ~sw env in
+         let token = Bushel_sync.Releases.token () in
+         let forge = forge_of_repo repo in
+         let candidate =
+           match forge with
+           | Bushel.Release.Github ->
+             Bushel_sync.Releases.github_release ~http ~token ~repo ~tag
+           | Bushel.Release.Tangled ->
+             Result.bind
+               (Bushel_sync.Releases.tangled_artifacts ~sw ~env ~http ~repo)
+               (fun l ->
+                  let has (c : Bushel_sync.Forge.candidate) = c.version = tag in
+                  match List.find_opt has l with
+                  | Some c -> Ok c
+                  | None -> Error ("no artifact of version " ^ tag))
+         in
+         (match candidate with
+          | Error e -> Printf.eprintf "%s %s: %s\n" repo tag e; 1
+          | Ok c ->
+            let foreign =
+              match c.author with
+              | Some a -> Some a <> rc.github_user
+              | None -> false
+            in
+            if foreign && not force then begin
+              Printf.eprintf
+                "%s %s was published by %s, not you. Use --force.\n"
+                repo tag (Option.value ~default:"?" c.author);
+              1
+            end else begin
+              let registries, description =
+                match
+                  Bushel_sync.Registries.lookup eco ~allowed:rc.registries
+                    ~forge ~repo ~version:c.version
+                with
+                | Ok found -> found
+                | Error e ->
+                  Printf.eprintf "warning: ecosyste.ms: %s\n" e;
+                  ([], None)
+              in
+              let release =
+                Bushel_sync.Releases.build c ~registries ~description ~summary
+              in
+              let project =
+                match project with
+                | Some _ as p -> p
+                | None -> List.assoc_opt repo rc.projects
+              in
+              let record =
+                { Bushel.Release.repo; forge; project; releases = [ release ] }
+              in
+              let merged = Bushel.Release.merge existing [ record ] in
+              if not dry_run then
+                Bushel.Release.save_file (releases_file data_dir) merged;
+              Printf.printf "%sRegistered %s %s (%s): %s\n"
+                (if dry_run then "[dry-run] " else "")
+                repo release.version (format_date release.date) release.summary;
+              List.iter (fun (g : Bushel.Release.registry) ->
+                Printf.printf "  %s: %s\n" g.name g.url) release.registries;
+              0
+            end))
+  in
+  let doc = "Register a release." in
+  let man = [
+    `S Manpage.s_description;
+    `P "Fetches the release from its forge, which gives its date and page, \
+        and asks ecosyste.ms which of the configured registries carry that \
+        version. Registering a release again updates it.";
+    `P "The summary defaults to the first sentence of the package description. \
+        Set GITHUB_TOKEN to raise the GitHub rate limit.";
+  ] in
+  Cmd.v (Cmd.info "add" ~doc ~man)
+    Term.(const run $ logging_t $ config_file $ data_dir $ release_dry_run
+          $ repo_arg $ tag_arg $ summary $ project $ force)
+
+let release_refresh_cmd =
+  let days =
+    let doc = "Refresh releases made in the last $(docv) days." in
+    Arg.(value & opt int 90 & info ["days"] ~docv:"N" ~doc)
+  in
+  let run () config_file data_dir dry_run days =
+    match load_config config_file with
+    | Error e -> Printf.eprintf "Config error: %s\n" e; 1
+    | Ok config ->
+      let rc = config.Bushel_config.releases in
+      let data_dir = get_data_dir config data_dir in
+      (match load_releases data_dir with
+       | Error e -> prerr_endline e; 1
+       | Ok existing ->
+         Eio_main.run @@ fun env ->
+         Eio.Switch.run @@ fun sw ->
+         let eco = Ecosystems_client.create ~sw env in
+         let cutoff =
+           let seconds = float_of_int (days * 86400) in
+           match Ptime.of_float_s (Unix.gettimeofday () -. seconds) with
+           | Some t -> Ptime.to_date t
+           | None -> (1970, 1, 1)
+         in
+         let attached = ref 0 in
+         let refresh (t : Bushel.Release.t) =
+           let releases =
+             List.map (fun (r : Bushel.Release.release) ->
+               if r.date < cutoff then r
+               else
+                 match
+                   Bushel_sync.Registries.lookup eco ~allowed:rc.registries
+                     ~forge:t.forge ~repo:t.repo ~version:r.version
+                 with
+                 | Error e ->
+                   Printf.eprintf "warning: %s %s: %s\n" t.repo r.version e; r
+                 | Ok (found, _) ->
+                   let r' = Bushel.Release.add_registries r found in
+                   let had (g : Bushel.Release.registry) =
+                     List.exists
+                       (fun (h : Bushel.Release.registry) -> h.name = g.name)
+                       r.registries
+                   in
+                   List.iter (fun (g : Bushel.Release.registry) ->
+                     if not (had g) then begin
+                       incr attached;
+                       Printf.printf "%s %s: attached %s\n" t.repo r.version
+                         g.name
+                     end) r'.registries;
+                   r') t.releases
+           in
+           { t with releases }
+         in
+         let updated = List.map refresh existing in
+         if !attached = 0 then print_endline "Nothing to attach."
+         else if not dry_run then
+           Bushel.Release.save_file (releases_file data_dir) updated;
+         0)
+  in
+  let doc = "Attach registries that have gained a registered version." in
+  Cmd.v (Cmd.info "refresh" ~doc)
+    Term.(const run $ logging_t $ config_file $ data_dir $ release_dry_run
+          $ days)
+
+let release_cmd =
+  let doc = "Code release commands." in
+  let info = Cmd.info "release" ~doc in
+  Cmd.group info
+    [release_list_cmd; release_discover_cmd; release_add_cmd;
+     release_refresh_cmd]
+
 let yaml_keys_of_frontmatter fm =
   match Frontmatter.yaml fm with
   | `O fields -> List.map fst fields
@@ -1197,6 +1516,7 @@ let main_cmd =
     list_cmd;
     lint_cmd;
     links_cmd;
+    release_cmd;
     images_cmd;
     stats_cmd;
     show_cmd;

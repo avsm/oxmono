@@ -16,6 +16,7 @@
   fmt.tty
   fmt.cli
   gitops
+  ecosystems.client
   ptime
   srcsetter
   unix))

@@ -36,6 +36,8 @@ depends: [
   "logs" {>= "0.7"}
   "yamlrw"
   "ecosystems"
+  "tangled"
+  "atp-xrpc"
   "cmdliner"
   "eio_main"
   "console"

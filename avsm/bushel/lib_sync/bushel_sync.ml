@@ -23,6 +23,9 @@ module Forge = Bushel_forge
 (** The package registries that carry a release. *)
 module Registries = Bushel_registries
 
+(** Finding and registering releases. *)
+module Releases = Bushel_releases
+
 let src = Logs.Src.create "bushel.sync" ~doc:"Bushel sync pipeline"
 module Log = (val Logs.src_log src : Logs.LOG)
 

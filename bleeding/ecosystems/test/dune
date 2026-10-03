@@ -2,3 +2,8 @@
  (name test)
  (modules test)
  (libraries ecosystems eio_main))
+
+(test
+ (name test_pages)
+ (modules test_pages)
+ (libraries ecosystems.client))

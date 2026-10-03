@@ -1,0 +1,4 @@
+(library
+ (name ecosystems_client)
+ (public_name ecosystems.client)
+ (libraries ecosystems eio fetch fetch-curl))

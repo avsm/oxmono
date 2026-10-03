@@ -234,10 +234,17 @@ let load_file path =
     | _ -> failwith "releases: expected a list at the top level"
     | exception _ -> failwith "releases: not valid yaml"
 
+(* The new contents are written beside the file and renamed over it, so a write
+   that fails part way leaves the file as it was. *)
 let save_file path ts =
   let yaml = `A (List.map to_yaml (List.sort compare ts)) in
   let s = Yamlrw.to_string yaml in
-  Out_channel.with_open_bin path (fun oc -> output_string oc s)
+  let tmp = path ^ ".tmp" in
+  match Out_channel.with_open_bin tmp (fun oc -> output_string oc s) with
+  | () -> Sys.rename tmp path
+  | exception e ->
+    (try Sys.remove tmp with Sys_error _ -> ());
+    raise e
 
 let union_releases existing incoming =
   let kept =

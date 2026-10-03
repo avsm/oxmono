@@ -154,4 +154,28 @@ let () =
   Sys.remove path;
   check "a missing file is empty"
     (R.load_file "/nonexistent/releases.yml" = []);
+  (* A write that cannot complete leaves the file as it was. The directory is
+     made read-only so that nothing new can be created in it, which stops a
+     writer that goes through a temporary file. *)
+  let dir = Filename.temp_file "releases" ".d" in
+  Sys.remove dir;
+  Sys.mkdir dir 0o755;
+  let file = Filename.concat dir "releases.yml" in
+  R.save_file file [ sample ];
+  let before = In_channel.with_open_bin file In_channel.input_all in
+  Unix.chmod dir 0o555;
+  let failed =
+    match R.save_file file [ other ] with
+    | () -> false
+    | exception Sys_error _ -> true
+  in
+  Unix.chmod dir 0o755;
+  check "a write that cannot complete is an error" failed;
+  check "the file is untouched after a failed write"
+    (In_channel.with_open_bin file In_channel.input_all = before);
+  R.save_file file [ other ];
+  check "no temporary file is left behind"
+    (Sys.readdir dir = [| "releases.yml" |]);
+  Sys.remove file;
+  Sys.rmdir dir;
   Printf.printf "ok: %d checks\n" !checks

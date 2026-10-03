@@ -1,7 +1,7 @@
 (tests
  (names test_release test_link_graph)
  (modules test_release test_link_graph)
- (libraries bushel bushel.eio yamlrw))
+ (libraries bushel bushel.eio yamlrw unix))
 
 (test
  (name test_config_releases)

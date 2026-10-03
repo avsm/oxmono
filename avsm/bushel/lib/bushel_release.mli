@@ -100,7 +100,10 @@ val load_file : string -> ts @@ nonportable
     @raise Failure if the file is not valid releases data. *)
 
 val save_file : string -> ts -> unit @@ nonportable
-(** [save_file path ts] writes [ts] to [path], newest first. *)
+(** [save_file path ts] writes [ts] to [path], newest first. The file is
+    replaced whole, so a write that fails leaves it as it was.
+
+    @raise Sys_error if the file cannot be written. *)
 
 val merge : ts -> ts -> ts
 (** [merge existing incoming] is [existing] updated with [incoming], matching on

@@ -19,8 +19,8 @@ depends: [
   "base_bigstring"
   "fetch-curl"
   "eio_main"
-  "console-eio"
   "console"
+  "console-eio"
   "cmdliner"
   "jsont"
   "odoc" {with-doc}

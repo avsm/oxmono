@@ -18,7 +18,6 @@ depends: [
   "sqlite3-eio"
   "eio"
   "eio_main"
-  "console-eio"
   "xdge"
   "jsont"
   "ptime"

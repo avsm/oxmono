@@ -17,7 +17,6 @@ depends: [
   "cmdliner"
   "eio"
   "eio_main"
-  "console-eio"
   "odoc" {with-doc}
 ]
 build: [

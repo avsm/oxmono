@@ -15,7 +15,6 @@ depends: [
   "fetch-httpz"
   "eio"
   "eio_main"
-  "console-eio"
   "jsont"
   "bytesrw"
   "multibase"

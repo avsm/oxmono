@@ -13,8 +13,8 @@ depends: [
   "ocaml" {>= "5.2.0"}
   "eio" {>= "1.5"}
   "eio_main" {>= "1.5"}
-  "console-eio"
   "console"
+  "console-eio"
   "jsont" {>= "0.3.0"}
   "cmdliner" {>= "1.1.0"}
   "alcotest" {with-test}

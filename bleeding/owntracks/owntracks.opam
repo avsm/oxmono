@@ -13,6 +13,8 @@ depends: [
   "bytesrw-eio"
   "eio"
   "eio_main"
+  "console"
+  "console-eio"
   "codec"
   "fetch"
   "fetch-httpz"

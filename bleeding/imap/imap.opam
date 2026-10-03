@@ -12,7 +12,6 @@ depends: [
   "maildir"
   "eio"
   "eio_main"
-  "console-eio"
   "tls"
   "tls-eio"
   "x509"

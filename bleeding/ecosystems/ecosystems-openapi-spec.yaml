@@ -1991,8 +1991,10 @@ components:
           type: string
         docker_dependents_count:
           type: integer
+          nullable: true
         docker_downloads_count:
           type: integer
+          nullable: true
         usage_url:
           type: string
         dependent_repositories_url:
@@ -2010,6 +2012,7 @@ components:
             "$ref": "#/components/schemas/Maintainer"
         critical:
           type: boolean
+          nullable: true
         issue_metadata:
           type: object
     PackageWithRegistry:
@@ -2038,7 +2041,6 @@ components:
       - updated_at
       - purl
       - version_url
-      - codemeta_url
       - related_tag
       - latest
       type: object
@@ -2276,9 +2278,7 @@ components:
       - updated_at
       - packages_count
       - packages_url
-      - total_downloads
       - html_url
-      - role
       type: object
       properties:
         uuid:
@@ -2315,7 +2315,6 @@ components:
           nullable: true
     Namespace:
       required:
-      - uuid
       - name
       - packages_count
       - packages_url
@@ -2405,7 +2404,6 @@ components:
       required:
       - name
       - packages_count
-      - packages_url
       type: object
       properties:
         name:
@@ -2418,7 +2416,6 @@ components:
       required:
       - name
       - packages_count
-      - packages_url
       - related_keywords
       - packages
       type: object
@@ -2427,6 +2424,7 @@ components:
           type: string
         packages_count:
           type: integer
+          nullable: true
         packages_url:
           type: string
         related_keywords:
@@ -2558,17 +2556,17 @@ components:
                 nullable: true
         dateCreated:
           type: string
-          format: date-time
+          format: date
           description: Creation date (ISO 8601)
           nullable: true
         dateModified:
           type: string
-          format: date-time
+          format: date
           description: Last modification date (ISO 8601)
           nullable: true
         datePublished:
           type: string
-          format: date-time
+          format: date
           description: Publication date (ISO 8601)
           nullable: true
         copyrightYear:

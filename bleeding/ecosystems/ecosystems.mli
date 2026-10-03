@@ -96,9 +96,9 @@ module Version : sig
     type t
 
     (** Construct a value *)
-    val v : codemeta_url:string -> created_at:Ptime.t -> id:int -> number:string -> purl:string -> related_tag:Jsont.json -> updated_at:Ptime.t -> version_url:string -> ?documentation_url:string -> ?download_url:string -> ?install_command:string -> ?integrity:string -> ?licenses:string -> ?metadata:Jsont.json -> ?published_at:string -> ?registry_url:string -> ?status:string -> unit -> t
+    val v : created_at:Ptime.t -> id:int -> number:string -> purl:string -> related_tag:Jsont.json -> updated_at:Ptime.t -> version_url:string -> ?codemeta_url:string -> ?documentation_url:string -> ?download_url:string -> ?install_command:string -> ?integrity:string -> ?licenses:string -> ?metadata:Jsont.json -> ?published_at:string -> ?registry_url:string -> ?status:string -> unit -> t
 
-    val codemeta_url : t -> string
+    val codemeta_url : t -> string option
 
     val created_at : t -> Ptime.t
 
@@ -248,7 +248,7 @@ module Maintainer : sig
     type t
 
     (** Construct a value *)
-    val v : created_at:Ptime.t -> packages_count:int -> packages_url:string -> total_downloads:int -> updated_at:Ptime.t -> uuid:string -> ?email:string -> ?html_url:string -> ?login:string -> ?name:string -> ?role:string -> ?url:string -> unit -> t
+    val v : created_at:Ptime.t -> packages_count:int -> packages_url:string -> updated_at:Ptime.t -> uuid:string -> ?email:string -> ?html_url:string -> ?login:string -> ?name:string -> ?role:string option -> ?total_downloads:int -> ?url:string -> unit -> t
 
     val created_at : t -> Ptime.t
 
@@ -264,9 +264,9 @@ module Maintainer : sig
 
     val packages_url : t -> string
 
-    val role : t -> string option
+    val role : t -> string option option
 
-    val total_downloads : t -> int
+    val total_downloads : t -> int option
 
     val updated_at : t -> Ptime.t
 
@@ -300,13 +300,13 @@ module Keyword : sig
     type t
 
     (** Construct a value *)
-    val v : name:string -> packages_count:int -> packages_url:string -> unit -> t
+    val v : name:string -> packages_count:int -> ?packages_url:string -> unit -> t
 
     val name : t -> string
 
     val packages_count : t -> int
 
-    val packages_url : t -> string
+    val packages_url : t -> string option
 
     val jsont : t Jsont.t
   end
@@ -455,7 +455,7 @@ module CodeMeta : sig
         @param url Homepage URL
         @param version Version number
     *)
-    val v : context:string -> type_:string -> identifier:string -> name:string -> ?application_category:string option -> ?author:Jsont.json list option -> ?code_repository:string option -> ?copyright_holder:Jsont.json list option -> ?copyright_year:int option -> ?date_created:Ptime.t option -> ?date_modified:Ptime.t option -> ?date_published:Ptime.t option -> ?description:string option -> ?development_status:string option -> ?download_url:string option -> ?funder:Jsont.json list option -> ?https__forgefed_org_nsforks:int option -> ?https__www_w3_org_ns_activitystreamslikes:int option -> ?issue_tracker:string option -> ?keywords:string list option -> ?license:Jsont.json option -> ?maintainer:Jsont.json list option -> ?programming_language:Jsont.json option -> ?runtime_platform:string option -> ?same_as:string list option -> ?software_help:Jsont.json option -> ?software_version:string option -> ?url:string option -> ?version:string option -> unit -> t
+    val v : context:string -> type_:string -> identifier:string -> name:string -> ?application_category:string option -> ?author:Jsont.json list option -> ?code_repository:string option -> ?copyright_holder:Jsont.json list option -> ?copyright_year:int option -> ?date_created:string option -> ?date_modified:string option -> ?date_published:string option -> ?description:string option -> ?development_status:string option -> ?download_url:string option -> ?funder:Jsont.json list option -> ?https__forgefed_org_nsforks:int option -> ?https__www_w3_org_ns_activitystreamslikes:int option -> ?issue_tracker:string option -> ?keywords:string list option -> ?license:Jsont.json option -> ?maintainer:Jsont.json list option -> ?programming_language:Jsont.json option -> ?runtime_platform:string option -> ?same_as:string list option -> ?software_help:Jsont.json option -> ?software_version:string option -> ?url:string option -> ?version:string option -> unit -> t
 
     (** JSON-LD context URL *)
     val context : t -> string
@@ -479,13 +479,13 @@ module CodeMeta : sig
     val copyright_year : t -> int option option
 
     (** Creation date (ISO 8601) *)
-    val date_created : t -> Ptime.t option option
+    val date_created : t -> string option option
 
     (** Last modification date (ISO 8601) *)
-    val date_modified : t -> Ptime.t option option
+    val date_modified : t -> string option option
 
     (** Publication date (ISO 8601) *)
-    val date_published : t -> Ptime.t option option
+    val date_published : t -> string option option
 
     (** Package description *)
     val description : t -> string option option
@@ -652,7 +652,7 @@ module PackageWithRegistry : sig
     type t
 
     (** Construct a value *)
-    val v : advisories:Advisory.T.t list -> codemeta_url:string -> created_at:Ptime.t -> critical:bool -> dependent_packages_count:int -> dependent_packages_url:string -> dependent_repos_count:int -> dependent_repositories_url:string -> docker_dependents_count:int -> docker_downloads_count:int -> docker_usage_url:string -> downloads:int -> ecosystem:string -> funding_links:string list -> id:int -> issue_metadata:Jsont.json -> keywords_array:string list -> latest_version_url:string -> maintainers:Maintainer.T.t list -> name:string -> normalized_licenses:string list -> purl:string -> rankings:Jsont.json -> related_packages_url:string -> updated_at:Ptime.t -> usage_url:string -> versions_count:int -> versions_url:string -> registry:Registry.T.t -> ?description:string -> ?documentation_url:string -> ?downloads_period:string -> ?first_release_published_at:Ptime.t -> ?homepage:string -> ?install_command:string -> ?last_synced_at:Ptime.t -> ?latest_release_number:string -> ?latest_release_published_at:Ptime.t -> ?licenses:string -> ?metadata:Jsont.json -> ?namespace:string -> ?registry_url:string -> ?repo_metadata:Jsont.json -> ?repo_metadata_updated_at:Ptime.t -> ?repository_url:string -> ?status:string -> ?version_numbers_url:string -> unit -> t
+    val v : advisories:Advisory.T.t list -> codemeta_url:string -> created_at:Ptime.t -> dependent_packages_count:int -> dependent_packages_url:string -> dependent_repos_count:int -> dependent_repositories_url:string -> docker_usage_url:string -> downloads:int -> ecosystem:string -> funding_links:string list -> id:int -> issue_metadata:Jsont.json -> keywords_array:string list -> latest_version_url:string -> maintainers:Maintainer.T.t list -> name:string -> normalized_licenses:string list -> purl:string -> rankings:Jsont.json -> related_packages_url:string -> updated_at:Ptime.t -> usage_url:string -> versions_count:int -> versions_url:string -> registry:Registry.T.t -> ?critical:bool -> ?description:string -> ?docker_dependents_count:int -> ?docker_downloads_count:int -> ?documentation_url:string -> ?downloads_period:string -> ?first_release_published_at:Ptime.t -> ?homepage:string -> ?install_command:string -> ?last_synced_at:Ptime.t -> ?latest_release_number:string -> ?latest_release_published_at:Ptime.t -> ?licenses:string -> ?metadata:Jsont.json -> ?namespace:string -> ?registry_url:string -> ?repo_metadata:Jsont.json -> ?repo_metadata_updated_at:Ptime.t -> ?repository_url:string -> ?status:string -> ?version_numbers_url:string -> unit -> t
 
     val advisories : t -> Advisory.T.t list
 
@@ -660,7 +660,7 @@ module PackageWithRegistry : sig
 
     val created_at : t -> Ptime.t
 
-    val critical : t -> bool
+    val critical : t -> bool option
 
     val dependent_packages_count : t -> int
 
@@ -672,9 +672,9 @@ module PackageWithRegistry : sig
 
     val description : t -> string option
 
-    val docker_dependents_count : t -> int
+    val docker_dependents_count : t -> int option
 
-    val docker_downloads_count : t -> int
+    val docker_downloads_count : t -> int option
 
     val docker_usage_url : t -> string
 
@@ -873,7 +873,7 @@ module Package : sig
     type t
 
     (** Construct a value *)
-    val v : advisories:Advisory.T.t list -> codemeta_url:string -> created_at:Ptime.t -> critical:bool -> dependent_packages_count:int -> dependent_packages_url:string -> dependent_repos_count:int -> dependent_repositories_url:string -> docker_dependents_count:int -> docker_downloads_count:int -> docker_usage_url:string -> downloads:int -> ecosystem:string -> funding_links:string list -> id:int -> issue_metadata:Jsont.json -> keywords_array:string list -> latest_version_url:string -> maintainers:Maintainer.T.t list -> name:string -> normalized_licenses:string list -> purl:string -> rankings:Jsont.json -> related_packages_url:string -> updated_at:Ptime.t -> usage_url:string -> versions_count:int -> versions_url:string -> ?description:string -> ?documentation_url:string -> ?downloads_period:string -> ?first_release_published_at:Ptime.t -> ?homepage:string -> ?install_command:string -> ?last_synced_at:Ptime.t -> ?latest_release_number:string -> ?latest_release_published_at:Ptime.t -> ?licenses:string -> ?metadata:Jsont.json -> ?namespace:string -> ?registry_url:string -> ?repo_metadata:Jsont.json -> ?repo_metadata_updated_at:Ptime.t -> ?repository_url:string -> ?status:string -> ?version_numbers_url:string -> unit -> t
+    val v : advisories:Advisory.T.t list -> codemeta_url:string -> created_at:Ptime.t -> dependent_packages_count:int -> dependent_packages_url:string -> dependent_repos_count:int -> dependent_repositories_url:string -> docker_usage_url:string -> downloads:int -> ecosystem:string -> funding_links:string list -> id:int -> issue_metadata:Jsont.json -> keywords_array:string list -> latest_version_url:string -> maintainers:Maintainer.T.t list -> name:string -> normalized_licenses:string list -> purl:string -> rankings:Jsont.json -> related_packages_url:string -> updated_at:Ptime.t -> usage_url:string -> versions_count:int -> versions_url:string -> ?critical:bool -> ?description:string -> ?docker_dependents_count:int -> ?docker_downloads_count:int -> ?documentation_url:string -> ?downloads_period:string -> ?first_release_published_at:Ptime.t -> ?homepage:string -> ?install_command:string -> ?last_synced_at:Ptime.t -> ?latest_release_number:string -> ?latest_release_published_at:Ptime.t -> ?licenses:string -> ?metadata:Jsont.json -> ?namespace:string -> ?registry_url:string -> ?repo_metadata:Jsont.json -> ?repo_metadata_updated_at:Ptime.t -> ?repository_url:string -> ?status:string -> ?version_numbers_url:string -> unit -> t
 
     val advisories : t -> Advisory.T.t list
 
@@ -881,7 +881,7 @@ module Package : sig
 
     val created_at : t -> Ptime.t
 
-    val critical : t -> bool
+    val critical : t -> bool option
 
     val dependent_packages_count : t -> int
 
@@ -893,9 +893,9 @@ module Package : sig
 
     val description : t -> string option
 
-    val docker_dependents_count : t -> int
+    val docker_dependents_count : t -> int option
 
-    val docker_downloads_count : t -> int
+    val docker_downloads_count : t -> int option
 
     val docker_usage_url : t -> string
 
@@ -1038,15 +1038,15 @@ module KeywordWithPackages : sig
     type t
 
     (** Construct a value *)
-    val v : name:string -> packages:Package.T.t list -> packages_count:int -> packages_url:string -> related_keywords:Keyword.T.t list -> unit -> t
+    val v : name:string -> packages:Package.T.t list -> related_keywords:Keyword.T.t list -> ?packages_count:int -> ?packages_url:string -> unit -> t
 
     val name : t -> string
 
     val packages : t -> Package.T.t list
 
-    val packages_count : t -> int
+    val packages_count : t -> int option
 
-    val packages_url : t -> string
+    val packages_url : t -> string option
 
     val related_keywords : t -> Keyword.T.t list
 

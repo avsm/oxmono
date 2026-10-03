@@ -7,3 +7,10 @@
  (name test_pages)
  (modules test_pages)
  (libraries ecosystems.client))
+
+(test
+ (name test_decode)
+ (modules test_decode)
+ (deps
+  (glob_files fixtures/*.json))
+ (libraries ecosystems openapi jsont))

@@ -38,8 +38,9 @@ let route _ target =
 
 (* [run env args] is the exit code, stdout and stderr of [oecosystems args]
    against the loopback server, and the request targets seen. *)
-let run env args =
-  Loopback.with_server env route (fun ~sw:_ ~base_url seen ->
+let run ?base_url env args =
+  Loopback.with_server env route (fun ~sw:_ ~base_url:served seen ->
+      let base_url = Option.value base_url ~default:served in
       let out = Buffer.create 256 and err = Buffer.create 256 in
       let fmt b = Format.formatter_of_buffer b in
       let o = fmt out and e = fmt err in
@@ -113,3 +114,34 @@ let () =
   in
   assert (contains ~sub:"repository_url=" (List.hd targets));
   assert (not (contains ~sub:"purl=" (List.hd targets)))
+
+let () =
+  Eio_main.run @@ fun env ->
+  (* An API error is one line on stderr and exit code 1. *)
+  let code, out, err, _ = run env [ "package"; "crates.io"; "missing" ] in
+  assert (code = 1);
+  assert (out = "");
+  assert (List.length (lines err) = 1);
+  assert (contains ~sub:"404" err);
+  assert (not (contains ~sub:"Raised" err));
+  (* So is a connection failure. *)
+  let code, out, err, _ =
+    run ~base_url:"http://127.0.0.1:1" env [ "registries" ]
+  in
+  assert (code = 1);
+  assert (out = "");
+  assert (List.length (lines err) = 1);
+  (* --json prints the typed value, which decodes through its own codec. *)
+  let code, out, _, _ = run env [ "package"; "crates.io"; "serde"; "--json" ] in
+  assert (code = 0);
+  let decode = Openapi.Runtime.Json.decode in
+  assert (Result.is_ok (decode Ecosystems.Package.T.jsont out));
+  let _, out, _, _ = run env [ "registries"; "--json" ] in
+  assert (
+    Result.is_ok
+      (decode (Jsont.list Ecosystems.Registry.T.jsont) out));
+  (* A null field is shown as a dash. *)
+  let _, out, _, _ =
+    run env [ "versions"; "crates.io"; "serde"; "--limit"; "1" ]
+  in
+  assert (String.ends_with ~suffix:" -" (String.trim out))

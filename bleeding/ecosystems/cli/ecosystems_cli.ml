@@ -60,6 +60,13 @@ let listing limit f =
   let seq = Ecosystems_client.pages ~per_page:(per_page limit) f in
   (match limit with Some n -> Seq.take n seq | None -> seq) |> List.of_seq
 
+(* [one_line s] joins the lines of [s] with single spaces. *)
+let one_line s =
+  String.split_on_char (Char.chr 10) s
+  |> List.map String.trim
+  |> List.filter (fun l -> l <> "")
+  |> String.concat " "
+
 let guard ~err f =
   match f () with
   | () -> 0
@@ -67,7 +74,7 @@ let guard ~err f =
       Format.fprintf err "oecosystems: %s: HTTP %d@." operation status;
       1
   | exception (Eio.Io _ as ex) ->
-      Format.fprintf err "oecosystems: %s@." (Printexc.to_string ex);
+      Format.fprintf err "oecosystems: %s@." (one_line (Printexc.to_string ex));
       1
 
 let make ~env ~err ~name ~doc term =

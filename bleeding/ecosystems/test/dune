@@ -30,4 +30,4 @@
  (modules test_cli)
  (deps
   (glob_files fixtures/*.json))
- (libraries ecosystems_cli loopback eio_main))
+ (libraries ecosystems ecosystems_cli loopback openapi jsont eio_main))

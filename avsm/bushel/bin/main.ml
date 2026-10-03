@@ -1117,9 +1117,19 @@ let release_discover_cmd =
     let doc = "Scan only $(docv) and list its whole release history." in
     Arg.(value & opt (some string) None & info ["repo"] ~docv:"REPO" ~doc)
   in
+  let date =
+    let parse s =
+      match Bushel.Types.date_of_string ~kind:"date" s with
+      | Ok d -> Ok d
+      | Error _ ->
+        Error (`Msg (Printf.sprintf "%S is not a date, use YYYY-MM-DD" s))
+    in
+    let print ppf (y, m, d) = Format.fprintf ppf "%04d-%02d-%02d" y m d in
+    Arg.conv (parse, print)
+  in
   let since =
     let doc = "List only releases on or after $(docv), written YYYY-MM-DD." in
-    Arg.(value & opt (some string) None & info ["since"] ~docv:"DATE" ~doc)
+    Arg.(value & opt (some date) None & info ["since"] ~docv:"DATE" ~doc)
   in
   let run () config_file data_dir repo since =
     match load_config config_file with
@@ -1172,10 +1182,7 @@ let release_discover_cmd =
               Bushel_sync.Forge.unregistered ~author ~registered candidates
             in
             let found =
-              let parse s =
-                Result.to_option (Bushel.Types.date_of_string ~kind:"date" s)
-              in
-              match Option.bind since parse with
+              match since with
               | None -> found
               | Some d ->
                 List.filter
@@ -1196,10 +1203,11 @@ let release_discover_cmd =
   let doc = "List releases you published that are not registered yet." in
   let man = [
     `S Manpage.s_description;
-    `P "Scans the repositories named in the [releases] section of the \
-        configuration, the repositories you released from recently, and \
-        $(b,--repo) if given. A release is listed if you published it and \
-        it is not in releases.yml.";
+    `P "Without $(b,--repo) it scans the repositories named in the \
+        [releases] section of the configuration and the repositories you \
+        released from recently. With $(b,--repo) it scans only that \
+        repository and lists every release in its history. A release is \
+        listed if you published it and it is not in releases.yml.";
     `P "Register one with $(b,bushel release add).";
   ] in
   Cmd.v (Cmd.info "discover" ~doc ~man)

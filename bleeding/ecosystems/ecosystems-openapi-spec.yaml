@@ -2013,6 +2013,7 @@ components:
           nullable: true
         issue_metadata:
           type: object
+          nullable: true
     PackageWithRegistry:
       allOf:
       - "$ref": "#/components/schemas/Package"

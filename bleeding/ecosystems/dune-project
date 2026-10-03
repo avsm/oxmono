@@ -1,0 +1,28 @@
+(lang dune 3.21)
+(name ecosystems)
+
+(generate_opam_files true)
+
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "anil@recoil.org")
+(source (tangled anil.recoil.org/ocaml-ecosystems))
+
+(package
+ (name ecosystems)
+ (synopsis "Client for the packages.ecosyste.ms API")
+ (description
+  "An OCaml client for the read-only packages.ecosyste.ms API, generated
+   from its OpenAPI specification. Covers registries, packages, versions,
+   dependents, maintainers, namespaces, advisories and keywords.")
+ (depends
+  (ocaml (>= "5.2.0"))
+  (openapi (>= "0.4.0"))
+  fetch
+  fetch-curl
+  (eio (>= "1.2"))
+  eio_main
+  (jsont (>= "0.2.0"))
+  bytesrw
+  (ptime (>= "1.0.0"))
+  (odoc :with-doc)))

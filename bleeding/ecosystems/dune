@@ -1,0 +1,7 @@
+(library
+ (name ecosystems)
+ (public_name ecosystems)
+ (libraries openapi jsont jsont.bytesrw fetch fetch-curl ptime eio)
+ (wrapped true))
+
+(include dune.inc)

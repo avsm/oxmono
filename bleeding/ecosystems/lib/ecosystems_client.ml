@@ -9,9 +9,12 @@ let pages ?(per_page = 100) f =
 
 let default_base_url = "https://packages.ecosyste.ms/api/v1"
 
-let create ?(user_agent = "ocaml-ecosystems") ?(base_url = default_base_url)
-    ~sw env =
+let create ?session ?max_response_bytes ?(user_agent = "ocaml-ecosystems")
+    ?(base_url = default_base_url) ~sw env =
   let session =
-    Fetch_cookies.std ~cookies:`Off env (Fetch_curl.v ~sw ~user_agent ())
+    match session with
+    | Some s -> Fetch.restrict s
+    | None ->
+        Fetch_cookies.std ~cookies:`Off env (Fetch_curl.v ~sw ~user_agent ())
   in
-  Ecosystems.create ~session ~sw env ~base_url
+  Ecosystems.create ~session ?max_response_bytes ~sw env ~base_url

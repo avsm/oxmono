@@ -31,7 +31,8 @@ labels and its query parameters as optional arguments.
 ## Regenerating
 
 `ecosystems.ml` and `ecosystems.mli` are targets of the `@gen` rule, so every
-build regenerates them from `ecosystems-openapi-spec.yaml`. A hand edit is
+build regenerates them. `dune build @bleeding/ecosystems/gen --auto-promote`
+regenerates them on demand from `ecosystems-openapi-spec.yaml`. A hand edit is
 overwritten. To detect drift, build and then run
 `git diff --exit-code bleeding/ecosystems`.
 
@@ -45,18 +46,19 @@ that prove each one. No fixture covers `VersionWithPackage`, because
 `/registries/{registryName}/versions` answered 500 for every registry on
 2026-10-03.
 
-| Schema | Patch |
-| --- | --- |
-| `Registry` | `downloads` and `purl_type` are no longer required |
-| `Package` | `docker_dependents_count`, `docker_downloads_count` and `critical` are nullable |
-| `Version` | `codemeta_url` is no longer required |
-| `Maintainer` | `total_downloads` and `role` are no longer required |
-| `Namespace` | `uuid` is no longer required |
-| `Keyword` | `packages_url` is no longer required |
-| `KeywordWithPackages` | `packages_url` is no longer required and `packages_count` is nullable |
-| `CodeMeta` | `dateCreated`, `dateModified` and `datePublished` have `format: date` |
+- `Registry`: `downloads` and `purl_type` are no longer required.
+- `Package`: `docker_dependents_count`, `docker_downloads_count` and
+  `critical` are nullable.
+- `Version`: `codemeta_url` is no longer required.
+- `Maintainer`: `total_downloads` and `role` are no longer required.
+- `Namespace`: `uuid` is no longer required.
+- `Keyword`: `packages_url` is no longer required.
+- `KeywordWithPackages`: `packages_url` is no longer required and
+  `packages_count` is nullable.
+- `CodeMeta`: `dateCreated`, `dateModified` and `datePublished` have
+  `format: date`.
 
-To re-pin, fetch the new upstream file, reapply the table, run
+To re-pin, fetch the new upstream file, reapply the list, run
 `dune build @bleeding/ecosystems/all @bleeding/ecosystems/runtest --force`,
 and re-record any fixture that no longer decodes. Do not edit a fixture to
 make a test pass.

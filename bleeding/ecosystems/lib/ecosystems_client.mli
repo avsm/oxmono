@@ -13,6 +13,8 @@ val default_base_url : string
 (** [default_base_url] is ["https://packages.ecosyste.ms/api/v1"]. *)
 
 val create :
+  ?session:_ Fetch.t ->
+  ?max_response_bytes:int ->
   ?user_agent:string ->
   ?base_url:string ->
   sw:Eio.Switch.t ->
@@ -21,8 +23,18 @@ val create :
   ; secure_random : _ Eio.Flow.source
   ; .. > ->
   Ecosystems.t
-(** [create ?user_agent ?base_url ~sw env] is a client for the public API.
-    Requests are paced per origin, and a 429, 500, 502, 503 or 504 response is
-    retried up to three times, honouring Retry-After. No cookies are kept.
-    [user_agent] defaults to ["ocaml-ecosystems"]. [base_url] defaults to
-    {!default_base_url}. *)
+(** [create ?session ?max_response_bytes ?user_agent ?base_url ~sw env] is a
+    client for the public API.
+
+    Without [session], requests are paced per origin, and a 429, 500, 502, 503
+    or 504 response is retried up to three times, honouring Retry-After. No
+    cookies are kept. [user_agent] defaults to ["ocaml-ecosystems"] and applies
+    only to this default session.
+
+    With [session], that client is used as it stands and [user_agent] is
+    ignored. [max_response_bytes] bounds a response body and defaults to 16 MiB.
+    [base_url] defaults to {!default_base_url}.
+
+    The [Ecosystems.PackageWithRegistry.bulk_lookup_packages] body is a raw
+    [Jsont.json] object, because the generator leaves the spec's inline
+    request schema opaque. *)

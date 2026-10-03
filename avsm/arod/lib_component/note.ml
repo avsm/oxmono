@@ -289,6 +289,36 @@ let weeknote_ledger ~ctx weeknotes =
       El.div ~at:[At.class' "paper-year-header"] [El.txt "Weeknotes"];
       El.div ~at:[At.class' "week-rail-list"] (List.map row_el rows)]
 
+(** [release_line ?cls t r] is the single line for release [r] of repository
+    [t]. *)
+let release_line ?(cls = "") (t : Bushel.Release.t)
+    (r : Bushel.Release.release) =
+  let (y, m, d) = r.date in
+  let name =
+    match String.rindex_opt t.repo '/' with
+    | Some i -> String.sub t.repo (i + 1) (String.length t.repo - i - 1)
+    | None -> t.repo
+  in
+  let registry reg =
+    El.a ~at:[At.href (Bushel.Release.metadata_url reg r);
+              At.class' "release-registry";
+              At.v "title" "ecosyste.ms metadata"]
+      [El.txt reg.Bushel.Release.name]
+  in
+  El.div ~at:[At.class' (String.trim ("release-row " ^ cls));
+              At.v "data-kind" "release"] [
+    El.time ~at:[At.class' "release-date";
+                 At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+      [El.txt (Printf.sprintf "%d %s" d (Common.month_name m))];
+    El.a ~at:[At.href r.url; At.class' "release-name"]
+      [El.txt (name ^ " " ^ r.version)];
+    El.span ~at:[At.class' "release-summary"] [El.txt r.summary];
+    (match r.registries with
+     | [] -> El.void
+     | regs ->
+       El.span ~at:[At.class' "release-registries"]
+         (List.map registry regs))]
+
 (** [notes_list ~ctx] is the journal article and its sidebar. *)
 let notes_list ~ctx =
   let all_notes =
@@ -304,19 +334,43 @@ let notes_list ~ctx =
     let cur = try Hashtbl.find by_month key with Not_found -> [] in
     Hashtbl.replace by_month key (n :: cur)
   ) all_notes;
+  let releases_by_month = Hashtbl.create 32 in
+  List.iter (fun (t : Bushel.Release.t) ->
+    List.iter (fun (r : Bushel.Release.release) ->
+      let (y, m, _) = r.date in
+      let cur =
+        try Hashtbl.find releases_by_month (y, m) with Not_found -> [] in
+      Hashtbl.replace releases_by_month (y, m) ((t, r) :: cur)) t.releases)
+    (Arod.Ctx.releases ctx);
   let months =
-    Hashtbl.fold (fun k _ acc -> k :: acc) by_month []
-    |> List.sort (fun (y1, m1) (y2, m2) ->
+    let keys tbl = Hashtbl.fold (fun k _ acc -> k :: acc) tbl [] in
+    List.sort_uniq (fun (y1, m1) (y2, m2) ->
       let c = compare y2 y1 in if c <> 0 then c else compare m2 m1)
+      (keys by_month @ keys releases_by_month)
   in
   let month_sections = List.map (fun (y, m) ->
-    let notes = List.rev (Hashtbl.find by_month (y, m)) in
-    let has_journal = List.exists (fun n -> not (Note.weeknote n)) notes in
+    let notes =
+      List.rev (try Hashtbl.find by_month (y, m) with Not_found -> []) in
+    let releases =
+      try Hashtbl.find releases_by_month (y, m) with Not_found -> [] in
+    let has_journal =
+      releases <> [] || List.exists (fun n -> not (Note.weeknote n)) notes in
     let section_id = Printf.sprintf "month-%04d-%02d" y m in
     let month_id = Printf.sprintf "%04d-%02d" y m in
-    let note_cards = List.map (fun n ->
-      if Note.weeknote n then compact ~cls:"lg:hidden" ~ctx n
-      else compact ~ctx n) notes in
+    (* Notes and releases run together, newest first. On one day a note comes
+       before a release. *)
+    let items =
+      List.map (fun n -> (Bushel.Entry.date (`Note n), `Note n)) notes
+      @ List.map (fun ((_, (r : Bushel.Release.release)) as tr) ->
+          (r.date, `Release tr)) releases
+      |> List.stable_sort (fun (d1, _) (d2, _) -> compare d2 d1)
+    in
+    let note_cards = List.map (fun (_, item) ->
+      match item with
+      | `Note n ->
+        if Note.weeknote n then compact ~cls:"lg:hidden" ~ctx n
+        else compact ~ctx n
+      | `Release (t, r) -> release_line t r) items in
     let section_cls = if has_journal then "mb-6" else "mb-6 lg:hidden" in
     El.div ~at:[At.id section_id;
                 At.v "data-month-id" month_id;

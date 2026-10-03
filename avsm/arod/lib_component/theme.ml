@@ -1477,6 +1477,31 @@ let custom_css = {|
     flex-direction: column;
     gap: 0.1rem;
   }
+  .release-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: baseline;
+    white-space: nowrap;
+    overflow: hidden;
+    font-size: 0.8125rem;
+    color: var(--color-muted, inherit);
+    padding: 0.125rem 0;
+  }
+  .release-date { flex: none; }
+  .release-name { flex: none; font-weight: 600; }
+  .release-summary {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .release-registries { flex: none; display: inline-flex; gap: 0.25rem; }
+  .release-registry {
+    font-size: 0.6875rem;
+    border: 1px solid currentColor;
+    border-radius: 0.25rem;
+    padding: 0 0.25rem;
+  }
   .project-activity-row {
     display: flex;
     align-items: flex-start;

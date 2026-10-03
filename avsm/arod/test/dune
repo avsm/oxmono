@@ -138,3 +138,8 @@
  (name test_ctx_releases)
  (modules test_ctx_releases)
  (libraries arod bushel))
+
+(test
+ (name test_notes_releases)
+ (modules test_notes_releases)
+ (libraries arod arod.component bushel htmlit))

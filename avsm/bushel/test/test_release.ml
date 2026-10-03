@@ -137,6 +137,17 @@ let () =
   let path = Filename.temp_file "releases" ".yml" in
   R.save_file path [ sample; other ];
   check "a file round trips" (R.load_file path = R.merge [] [ sample; other ]);
+  (* The writer must keep a version that YAML would read as a number. *)
+  let numeric =
+    {
+      other with
+      R.releases = [ rel "4.10" (2026, 3, 4); rel "1.0" (2026, 3, 3) ];
+    }
+  in
+  R.save_file path [ numeric ];
+  let reread = List.hd (R.load_file path) in
+  check "4.10 survives the file"
+    (List.map (fun r -> r.R.version) reread.R.releases = [ "4.10"; "1.0" ]);
   Out_channel.with_open_bin path (fun oc -> output_string oc "{ not: a list");
   check "a malformed file is an error"
     (match R.load_file path with _ -> false | exception Failure _ -> true);

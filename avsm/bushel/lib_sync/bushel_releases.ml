@@ -47,6 +47,65 @@ let build (c : Bushel_forge.candidate) ~registries ~description ~summary =
     registries;
   }
 
+let reconcile ~existing ~summary_given (fresh : Bushel.Release.release) =
+  match existing with
+  | None -> fresh
+  | Some (old : Bushel.Release.release) ->
+    let kept =
+      if summary_given then fresh else { fresh with summary = old.summary }
+    in
+    Bushel.Release.add_registries
+      { kept with registries = old.registries }
+      fresh.registries
+
+let refusal ~github_user ~force (c : Bushel_forge.candidate) =
+  match c.author with
+  | None -> None
+  | Some _ when force -> None
+  | Some author -> (
+    match github_user with
+    | None ->
+      Some
+        "set github_user in the [releases] section of the config, or use \
+         --force"
+    | Some user
+      when String.lowercase_ascii user = String.lowercase_ascii author ->
+      None
+    | Some _ ->
+      Some
+        (Printf.sprintf "%s %s was published by %s, not you. Use --force."
+           c.repo c.tag author))
+
+let refresh ~cutoff ~lookup ts =
+  let attached = ref [] and failed = ref [] in
+  let refresh_release (t : Bushel.Release.t) (r : Bushel.Release.release) =
+    if r.date < cutoff then r
+    else
+      match lookup t r with
+      | Error e ->
+        failed := (t.repo, r.version, e) :: !failed;
+        r
+      | Ok found ->
+        let r' = Bushel.Release.add_registries r found in
+        List.iter
+          (fun (g : Bushel.Release.registry) ->
+            if
+              not
+                (List.exists
+                   (fun (h : Bushel.Release.registry) -> h.name = g.name)
+                   r.registries)
+            then attached := (t.repo, r.version, g.name) :: !attached)
+          r'.registries;
+        r'
+  in
+  let updated =
+    List.map
+      (fun (t : Bushel.Release.t) ->
+        { t with releases = List.map (refresh_release t) t.releases })
+      ts
+  in
+  (updated, List.rev !attached, List.rev !failed)
+
 let github_get ~http ~token url =
   match token with
   | Some t ->
@@ -95,11 +154,5 @@ let tangled_artifacts ~sw ~env ~http ~repo =
             ~created_at:a.created_at)
         artifacts
     in
-    (* Several artifacts of one version are one release. *)
-    Ok
-      (List.fold_left
-         (fun acc (c : Bushel_forge.candidate) ->
-           let same (a : Bushel_forge.candidate) = a.version = c.version in
-           if List.exists same acc then acc else acc @ [ c ])
-         [] candidates)
+    Ok (Bushel_forge.one_per_version candidates)
   with ex -> Error (Printexc.to_string ex)

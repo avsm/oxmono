@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Registering a release again keeps its summary and its registries.
+
 - Show registered releases as one line each in the arod notes view, inside the
   month they were made, with links to the release page and to ecosyste.ms.
 

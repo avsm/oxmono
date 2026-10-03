@@ -138,7 +138,9 @@ version. The command:
    allowed registry, so a release no registry carries yet still has one.
 5. Writes the summary it chose, so the author sees what was registered.
 
-Registering a release that is already registered updates it in place.
+Registering a release that is already registered updates it in place. The date
+and URL are refreshed. The summary is kept unless `--summary` is given, and the
+registries are kept and added to, so a lookup that fails removes nothing.
 
 `bushel release refresh [--days N]` re-queries ecosyste.ms for releases made in
 the last `N` days (default 90) and attaches registries that have appeared since.
@@ -253,8 +255,10 @@ With no `releases.yml`, every page renders byte-identically to before.
   recorded responses.
 - Registry attachment over ecosyste.ms fixtures, covering a registry that does
   not yet carry the version and a repackaging that is filtered out.
-- The commands over a loopback server serving recorded responses, in the manner
-  of the `oecosystems` tests.
+- The decisions of `add` and `refresh` as functions with stubbed lookups:
+  registering again, refusing a release that is not the author's, and the
+  refresh window. The commands themselves are checked by hand against live data
+  and not by a test.
 - A render test that a release appears in its month, that a release-only month
   appears, and that the page is unchanged without releases.
 
@@ -270,7 +274,7 @@ With no `releases.yml`, every page renders byte-identically to before.
 
 ## Status
 
-Implemented, with tests over recorded responses:
+Implemented, with tests over recorded responses and stubbed lookups:
 
 - `Bushel.Release`, its `releases.yml` codec and merge.
 - The `[releases]` configuration section.

@@ -25,6 +25,43 @@ val build :
     unless that is only the version, else the repository's name and the version.
     The tag is kept only if it differs from the version. *)
 
+val reconcile :
+  existing:Bushel.Release.release option ->
+  summary_given:bool ->
+  Bushel.Release.release ->
+  Bushel.Release.release
+(** [reconcile ~existing ~summary_given fresh] is the release to store when
+    [fresh] is registered and [existing] may already be. Its date, URL and tag
+    are [fresh]'s. Its summary is [existing]'s unless [summary_given], so
+    registering again does not overwrite a summary the author wrote. Its
+    registries are those of [existing] with the new ones of [fresh] added, so a
+    lookup that found none, because ecosyste.ms was down, removes nothing. *)
+
+val refusal :
+  github_user:string option ->
+  force:bool ->
+  Bushel_forge.candidate ->
+  string option
+(** [refusal ~github_user ~force c] is why [c] is not registered, or [None] if
+    it is. A release is accepted if [force], if it has no author, or if its
+    author is [github_user], compared without regard to case. *)
+
+val refresh :
+  cutoff:Ptime.date ->
+  lookup:
+    (Bushel.Release.t ->
+    Bushel.Release.release ->
+    (Bushel.Release.registry list, string) result) ->
+  Bushel.Release.ts ->
+  Bushel.Release.ts
+  * (string * string * string) list
+  * (string * string * string) list
+(** [refresh ~cutoff ~lookup ts] is [ts] with the registries that [lookup] finds
+    attached to each release dated on or after [cutoff], the [(repo, version,
+    registry)] of each one attached, and the [(repo, version, error)] of each
+    lookup that failed. It only adds registries. It never removes one and never
+    changes a summary, a date or a URL. *)
+
 val github_release :
   http:Bushel_http.t ->
   token:string option ->

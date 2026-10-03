@@ -76,4 +76,115 @@ let () =
   check "no token when the variable is empty" (R.token_of_env (Some "") = None);
   check "a token is read from the variable"
     (R.token_of_env (Some "abc") = Some "abc");
+  (* Registering a release again keeps what the author already had. *)
+  let stored =
+    {
+      (R.build cand ~registries:[ reg ] ~description:None
+         ~summary:(Some "Mine"))
+      with
+      Bushel.Release.date = (2026, 7, 21);
+    }
+  in
+  let fresh = R.build cand ~registries:[] ~description:None ~summary:None in
+  let again = R.reconcile ~existing:(Some stored) ~summary_given:false fresh in
+  check "a hand-written summary survives registering again"
+    (again.Bushel.Release.summary = "Mine");
+  check "registries survive a lookup that found none"
+    (again.Bushel.Release.registries = [ reg ]);
+  check "the forge's date and url are refreshed"
+    (again.Bushel.Release.date = (2026, 7, 22));
+  let given =
+    R.build cand ~registries:[] ~description:None ~summary:(Some "New")
+  in
+  check "an explicit summary replaces the old one"
+    ((R.reconcile ~existing:(Some stored) ~summary_given:true given)
+       .Bushel.Release.summary
+    = "New");
+  let more =
+    {
+      Bushel.Release.name = "pypi.org";
+      package = "mdx";
+      url = "https://pypi.org/p";
+    }
+  in
+  let widened =
+    R.reconcile ~existing:(Some stored) ~summary_given:false
+      { fresh with Bushel.Release.registries = [ more ] }
+  in
+  check "a new registry is added and the old one kept"
+    (List.map (fun r -> r.Bushel.Release.name) widened.Bushel.Release.registries
+    = [ "opam.ocaml.org"; "pypi.org" ]);
+  check "a first registration is unchanged"
+    (R.reconcile ~existing:None ~summary_given:false fresh = fresh);
+
+  (* Only your own releases are registered without --force. *)
+  let by author = { cand with Bushel_sync.Forge.author } in
+  let refusal ?(user = Some "avsm") ?(force = false) author =
+    R.refusal ~github_user:user ~force (by author)
+  in
+  check "your own release is accepted" (refusal (Some "avsm") = None);
+  check "the comparison ignores case"
+    (refusal ~user:(Some "AVSM") (Some "avsm") = None);
+  (match refusal (Some "Julow") with
+  | Some msg -> check "the refusal names the author" (String.contains msg 'J')
+  | None -> check "someone else's release is refused" false);
+  check "--force accepts it" (refusal ~force:true (Some "Julow") = None);
+  (match R.refusal ~github_user:None ~force:false (by (Some "avsm")) with
+  | Some msg ->
+    check "an unset github_user is reported"
+      (String.length msg > 0 && String.contains msg '_')
+  | None -> check "an unset github_user is refused" false);
+  check "a release with no author is accepted"
+    (R.refusal ~github_user:None ~force:false (by None) = None);
+
+  (* refresh only adds registries, inside the window. *)
+  let release_of version date registries =
+    {
+      Bushel.Release.version;
+      tag = None;
+      date;
+      summary = "Kept";
+      url = "u";
+      registries;
+    }
+  in
+  let repo =
+    { Bushel.Release.repo = "realworldocaml/mdx"; forge = Bushel.Release.Github;
+      project = None;
+      releases =
+        [ release_of "2.7.0" (2026, 10, 2) [];
+          release_of "2.6.0" (2026, 7, 22) [ reg ];
+          release_of "2.0.0" (2025, 1, 1) [] ] }
+  in
+  let calls = ref [] in
+  let lookup _ (r : Bushel.Release.release) =
+    calls := r.Bushel.Release.version :: !calls;
+    if r.Bushel.Release.version = "2.7.0" then Ok [ reg ] else Ok []
+  in
+  let updated, attached, failed =
+    R.refresh ~cutoff:(2026, 6, 1) ~lookup [ repo ]
+  in
+  check "no lookup outside the window" (not (List.mem "2.0.0" !calls));
+  check "a registry that appeared is attached"
+    (attached = [ ("realworldocaml/mdx", "2.7.0", "opam.ocaml.org") ]);
+  check "nothing failed" (failed = []);
+  let rs = (List.hd updated).Bushel.Release.releases in
+  let find v = List.find (fun r -> r.Bushel.Release.version = v) rs in
+  check "the new registry is stored"
+    ((find "2.7.0").Bushel.Release.registries = [ reg ]);
+  check "a registry is never removed"
+    ((find "2.6.0").Bushel.Release.registries = [ reg ]);
+  check "summaries and dates are untouched"
+    (List.for_all (fun r -> r.Bushel.Release.summary = "Kept") rs
+    && (find "2.7.0").Bushel.Release.date = (2026, 10, 2));
+  let again, attached, _ = R.refresh ~cutoff:(2026, 6, 1) ~lookup updated in
+  check "refreshing again attaches nothing" (attached = [] && again = updated);
+  let down _ _ = Error "ecosyste.ms is down" in
+  let kept, attached, failed =
+    R.refresh ~cutoff:(2026, 6, 1) ~lookup:down [ repo ]
+  in
+  check "a failed lookup changes nothing" (kept = [ repo ] && attached = []);
+  check "a failed lookup is reported"
+    (List.map (fun (r, v, _) -> (r, v)) failed
+    = [ ("realworldocaml/mdx", "2.7.0"); ("realworldocaml/mdx", "2.6.0") ]);
   print_endline "ok"

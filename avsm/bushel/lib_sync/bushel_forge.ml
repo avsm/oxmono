@@ -117,6 +117,13 @@ let tangled_candidate ~repo ~name ~created_at =
       }
   | _ -> None
 
+let one_per_version candidates =
+  List.fold_left
+    (fun acc c ->
+      if List.exists (fun a -> a.version = c.version) acc then acc
+      else acc @ [ c ])
+    [] candidates
+
 let unregistered ~author ~registered candidates =
   let known repo version =
     List.exists

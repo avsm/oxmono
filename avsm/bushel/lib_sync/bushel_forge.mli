@@ -45,6 +45,10 @@ val tangled_candidate :
     called [name] in [repo] is, with the date of [created_at]. It is [None] if
     [name] has no version or [created_at] is not a date. *)
 
+val one_per_version : candidate list -> candidate list
+(** [one_per_version candidates] is [candidates] with the first of each version.
+    Several artifacts of one version are one release. *)
+
 val unregistered :
   author:string ->
   registered:Bushel.Release.ts ->

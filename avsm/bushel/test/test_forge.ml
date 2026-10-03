@@ -81,6 +81,17 @@ let () =
     = None);
 
 
+  (* Artifacts of one version are one release. *)
+  let tc name =
+    Option.get
+      (F.tangled_candidate ~repo:"h/x" ~name
+         ~created_at:"2026-08-09T13:21:57+03:00")
+  in
+  check "one release per version"
+    (List.map
+       (fun c -> c.F.version)
+       (F.one_per_version [ tc "x-1.0.tbz"; tc "x-1.0.tar.gz"; tc "x-1.1.tbz" ])
+    = [ "1.0"; "1.1" ]);
   (* [unregistered] keeps the author's releases that are not registered. *)
   let mk ?(author = Some "avsm") ?(prerelease = false) tag =
     { r with F.tag; version = F.version_of_tag tag; author; prerelease }

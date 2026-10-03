@@ -1257,17 +1257,11 @@ let release_add_cmd =
          (match candidate with
           | Error e -> Printf.eprintf "%s %s: %s\n" repo tag e; 1
           | Ok c ->
-            let foreign =
-              match c.author with
-              | Some a -> Some a <> rc.github_user
-              | None -> false
-            in
-            if foreign && not force then begin
-              Printf.eprintf
-                "%s %s was published by %s, not you. Use --force.\n"
-                repo tag (Option.value ~default:"?" c.author);
-              1
-            end else begin
+            match
+              Bushel_sync.Releases.refusal ~github_user:rc.github_user ~force c
+            with
+            | Some reason -> prerr_endline reason; 1
+            | None -> begin
               let registries, description =
                 match
                   Bushel_sync.Registries.lookup eco ~allowed:rc.registries
@@ -1280,6 +1274,18 @@ let release_add_cmd =
               in
               let release =
                 Bushel_sync.Releases.build c ~registries ~description ~summary
+              in
+              let stored =
+                List.find_map (fun (t : Bushel.Release.t) ->
+                  if t.repo <> repo then None
+                  else
+                    List.find_opt
+                      (fun (r : Bushel.Release.release) ->
+                        r.version = c.version) t.releases) existing
+              in
+              let release =
+                Bushel_sync.Releases.reconcile ~existing:stored
+                  ~summary_given:(summary <> None) release
               in
               let project =
                 match project with
@@ -1336,37 +1342,21 @@ let release_refresh_cmd =
            | Some t -> Ptime.to_date t
            | None -> (1970, 1, 1)
          in
-         let attached = ref 0 in
-         let refresh (t : Bushel.Release.t) =
-           let releases =
-             List.map (fun (r : Bushel.Release.release) ->
-               if r.date < cutoff then r
-               else
-                 match
-                   Bushel_sync.Registries.lookup eco ~allowed:rc.registries
-                     ~forge:t.forge ~repo:t.repo ~version:r.version
-                 with
-                 | Error e ->
-                   Printf.eprintf "warning: %s %s: %s\n" t.repo r.version e; r
-                 | Ok (found, _) ->
-                   let r' = Bushel.Release.add_registries r found in
-                   let had (g : Bushel.Release.registry) =
-                     List.exists
-                       (fun (h : Bushel.Release.registry) -> h.name = g.name)
-                       r.registries
-                   in
-                   List.iter (fun (g : Bushel.Release.registry) ->
-                     if not (had g) then begin
-                       incr attached;
-                       Printf.printf "%s %s: attached %s\n" t.repo r.version
-                         g.name
-                     end) r'.registries;
-                   r') t.releases
-           in
-           { t with releases }
+         let lookup (t : Bushel.Release.t) (r : Bushel.Release.release) =
+           Result.map fst
+             (Bushel_sync.Registries.lookup eco ~allowed:rc.registries
+                ~forge:t.forge ~repo:t.repo ~version:r.version)
          in
-         let updated = List.map refresh existing in
-         if !attached = 0 then print_endline "Nothing to attach."
+         let updated, attached, failed =
+           Bushel_sync.Releases.refresh ~cutoff ~lookup existing
+         in
+         List.iter (fun (repo, version, e) ->
+           Printf.eprintf "warning: %s %s: %s\n" repo version e) failed;
+         let marker = if dry_run then "[dry-run] " else "" in
+         List.iter (fun (repo, version, name) ->
+           Printf.printf "%s%s %s: attached %s\n" marker repo version name)
+           attached;
+         if attached = [] then print_endline "Nothing to attach."
          else if not dry_run then
            Bushel.Release.save_file (releases_file data_dir) updated;
          0)

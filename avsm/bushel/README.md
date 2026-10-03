@@ -58,6 +58,43 @@ The `bushel` binary provides commands for:
 - `bushel config` - Show configuration
 - `bushel init` - Initialize configuration
 
+## Releases
+
+`bushel release` records code releases made on GitHub or tangled, with a
+one-line summary, in `releases.yml` beside `links.yml`. arod shows each as a
+line in the notes view. The date comes from the forge. ecosyste.ms says which
+package registries, such as PyPI and opam, carry the version.
+
+- `bushel release discover [--repo REPO] [--since DATE]` lists releases you
+  published that are not registered.
+- `bushel release add REPO TAG [--summary TEXT] [--project SLUG] [--force]`
+  registers one. `TAG` is the git tag on GitHub and the version on tangled.
+- `bushel release refresh [--days N]` attaches registries that have gained a
+  registered version since.
+- `bushel release list` shows what is registered.
+
+```
+$ bushel release add ucam-eo/geotessera v0.10.2
+Registered ucam-eo/geotessera 0.10.2 (2026-09-04): Python library interface to the Tessera geofoundation model embeddings
+  pypi.org: https://pypi.org/project/geotessera/0.10.2
+```
+
+Configure it in `config.toml`. `github_user` is the login whose GitHub releases
+count as yours. Set `GITHUB_TOKEN` to raise the GitHub rate limit.
+
+```toml
+[releases]
+github_user = "avsm"
+github = ["mirage/ocaml-cohttp"]
+tangled = ["anil.recoil.org/dune-rpc-eio"]
+registries = ["pypi.org", "opam.ocaml.org"]
+
+[releases.projects]
+"ucam-eo/geotessera" = "tessera"
+```
+
+See `RELEASE-SPEC.md` for the design.
+
 ## License
 
 ISC License. See [LICENSE.md](LICENSE.md).

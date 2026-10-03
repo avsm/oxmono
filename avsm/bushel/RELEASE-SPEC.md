@@ -115,7 +115,8 @@ back would otherwise replace a good file with nothing.
 
 ## Commands
 
-All take `--config`, `--data-dir` and `--dry-run` as other bushel commands do.
+All take `--config` and `--data-dir` as other bushel commands do. `add` and
+`refresh` also take `--dry-run`.
 
 `bushel release discover [--repo REPO] [--since DATE]` lists releases that the
 author published and that are not registered. It prints one line per candidate,
@@ -131,7 +132,10 @@ version. The command:
 3. Asks ecosyste.ms which configured registries carry that version, and
    attaches them.
 4. Takes `--summary`, else the package description from ecosyste.ms cut to one
-   sentence of at most 120 characters, else the release title.
+   sentence of at most 120 characters, else the release title unless that is
+   only the version, else the repository's name and the version. The
+   description is the attached package's, and otherwise the package of an
+   allowed registry, so a release no registry carries yet still has one.
 5. Writes the summary it chose, so the author sees what was registered.
 
 Registering a release that is already registered updates it in place.
@@ -149,8 +153,8 @@ It never removes a registry and never changes a summary or a date.
 - `GET /repos/{org}/{repo}/releases` lists releases. Each gives `tag_name`,
   `name`, `published_at`, `html_url`, `draft`, `prerelease` and `author.login`.
 - `GET /repos/{org}/{repo}/releases/tags/{tag}` gives one release.
-- Drafts are skipped. Prereleases are discoverable and are registered only when
-  asked for by tag.
+- Drafts are skipped. `discover` does not list prereleases and `add` registers
+  one when asked for by tag.
 - `date` is the date part of `published_at`.
 - `version` is `tag_name` with a leading `v` removed. `tag` is kept only when it
   differs.
@@ -162,29 +166,37 @@ It never removes a registry and never changes a summary or a date.
 ### Tangled
 
 Tangled has no release record. A release is an artifact attached to a tag, held
-as `sh.tangled.repo.artifact` in the author's atproto repository.
+as `sh.tangled.repo.artifact` in the author's atproto repository. The atp
+libraries in this repository read it.
 
-1. `https://<handle>/.well-known/atproto-did` gives the DID.
-2. `https://plc.directory/<did>` gives the PDS endpoint.
-3. `<pds>/xrpc/com.atproto.repo.listRecords?repo=<did>&collection=sh.tangled.repo.artifact`
-   lists the artifacts.
+1. `Xrpc.Identity.did_of_handle` resolves the handle with
+   `https://<handle>/.well-known/atproto-did`.
+2. `Xrpc.Identity.pds_of_did` reads the DID document for the data server.
+3. `Tangled.Api.list_artifacts` lists the artifacts of the repository.
 
-An artifact has `name`, such as `dune-rpc-eio-0.1.0.tbz`, and `createdAt`. The
-`tag` field is a raw object hash and carries no version. The version is the
-name with the repository name prefix and the archive suffix removed. An
-artifact whose name does not have that shape is not registerable without
-`--force`. Several artifacts sharing one version are one release. `date` is the
-date part of `createdAt`.
+An artifact points at a repository record. A repository is named by the `name`
+of that record, or by its record key if the record has none, so
+`ocaml-json-pointer` is a different name from the package `json-pointer` that
+it releases. `Tangled.Api.artifact_version` reads the version from the file
+name, which has the shape `package-version.tbz`. It starts at the first dash
+that is followed by a digit. An artifact whose name has no version is not a
+release. Several artifacts sharing one version are one release. `date` is the
+date part of `createdAt`. The `tag` field of the record is a hash, not a
+version, and is not used.
 
 ### ecosyste.ms
 
 The `ecosystems` library of this repository is used.
 
 - `Ecosystems.PackageWithRegistry.lookup_package ~repository_url` returns every
-  package built from a repository, across registries.
-- `Ecosystems.Version.get_registry_package_versions` confirms that a registry
-  carries the version.
+  package built from a repository, across registries. A GitHub repository is
+  looked up as `https://github.com/org/name` and a tangled repository as
+  `git+https://tangled.org/handle/name`, which is how ecosyste.ms stores it.
+- `Ecosystems.VersionWithDependencies.get_registry_package_version` confirms
+  that a registry carries the version, and a 404 means it does not.
 - A registry entry's `url` is the version's `registry_url`.
+- A registry with several packages for one repository uses the one named after
+  the repository, with or without a leading `ocaml-`, and otherwise the first.
 
 opam is indexed as `opam.ocaml.org`. Its dates are not used, because they differ
 from the forge's. mdx 2.6.0 was published on GitHub on 2026-07-22 and is dated
@@ -258,5 +270,19 @@ With no `releases.yml`, every page renders byte-identically to before.
 
 ## Status
 
-`Bushel.Release` and its tests exist in the old shape. Everything else in this
-document is not started.
+Implemented, with tests over recorded responses:
+
+- `Bushel.Release`, its `releases.yml` codec and merge.
+- The `[releases]` configuration section.
+- Parsers for GitHub releases and events, and Tangled artifacts as candidates.
+- Registry attachment through ecosyste.ms.
+- `bushel release list|discover|add|refresh`.
+- `Arod.Ctx.releases`, and the release line in the notes view.
+
+Added to the atp libraries because they are generally useful:
+`Xrpc.Identity`, `Tangled.Api.list_artifacts` and `artifact_version`, and a fix
+so that `$bytes` is read with or without base64 padding.
+
+Not verified: the served site. arod did not start on the author's data because
+the contact store needs a one-off sortal migration, so the page was checked by
+rendering the notes list in a test and not by fetching it.

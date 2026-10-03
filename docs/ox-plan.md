@@ -55,8 +55,8 @@ the imported day10 installer. Generated `.config` values feed later recipes.
 The package key includes sources, effective recipe metadata, dependency
 layers, platform, compiler inputs, common environment flags and absolute
 cache root. Different requested tools share matching dependency layers.
-The compiler is itself built and cached through this path. An explicitly
-supplied compiler prefix is an optional import shortcut.
+The compiler is itself built and cached through this path. A local overlay
+can provide a custom compiler recipe.
 
 A completed request records layers and runtime environment. Warm runs avoid
 network and solving. Missing prefixes can be reconstructed. Prefixes stay

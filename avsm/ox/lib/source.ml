@@ -63,24 +63,13 @@ let tree ~refresh proc d10 url ~dst =
   let source = OpamFile.URL.url url in
   match source.OpamUrl.backend with
   | `git ->
-      let raw = OpamUrl.to_string { source with hash = None } in
-      let raw =
-        if String.starts_with ~prefix:"git+" raw then
-          String.sub raw 4 (String.length raw - 4)
-        else raw
-      in
+      let raw = git_url (OpamUrl.to_string { source with hash = None }) in
       let mirror =
         Eio.Path.native_exn d10.D10.Config.root / "sources/git" / hash raw
       in
-      if not (exists mirror) then (
-        mkdir (Filename.dirname mirror);
-        let tmp = mirror ^ ".tmp" in
-        remove_tree tmp;
-        Fun.protect
-          ~finally:(fun () -> remove_tree tmp)
-          (fun () ->
-            command proc [ "git"; "clone"; "--mirror"; "--"; raw; tmp ];
-            Unix.rename tmp mirror));
+      if not (exists mirror) then
+        publish_dir mirror (fun tmp ->
+            command proc [ "git"; "clone"; "--mirror"; "--"; raw; tmp ]);
       if refresh && mutable_url url then
         command proc [ "git"; "-C"; mirror; "fetch"; "origin" ];
       let revision = Option.value source.hash ~default:"HEAD" in
@@ -107,16 +96,18 @@ let tree ~refresh proc d10 url ~dst =
         fail "Git submodules require an explicit source archive: %s" raw
   | `http | `rsync ->
       let archive = download ~refresh proc d10 url in
-      let listing = capture proc [ "tar"; "-tf"; archive ] |> lines in
+      let listing =
+        capture proc [ "tar"; "-tf"; archive ]
+        |> lines
+        |> List.map (fun p ->
+               if String.starts_with ~prefix:"./" p then
+                 String.sub p 2 (String.length p - 2)
+               else p)
+      in
       List.iter (fun p -> ignore (safe_relative p)) listing;
       let components =
         listing
         |> List.filter_map (fun p ->
-               let p =
-                 if String.starts_with ~prefix:"./" p then
-                   String.sub p 2 (String.length p - 2)
-                 else p
-               in
                match String.split_on_char '/' p with
                | name :: _ when name <> "" -> Some name
                | _ -> None)
@@ -126,13 +117,7 @@ let tree ~refresh proc d10 url ~dst =
         match components with
         | [ root ]
           when List.for_all
-                 (fun p ->
-                   let p =
-                     if String.starts_with ~prefix:"./" p then
-                       String.sub p 2 (String.length p - 2)
-                     else p
-                   in
-                   p = "" || String.starts_with ~prefix:(root ^ "/") p)
+                 (fun p -> p = "" || String.starts_with ~prefix:(root ^ "/") p)
                  listing ->
             "1"
         | _ -> "0"

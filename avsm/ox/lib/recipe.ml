@@ -156,14 +156,7 @@ let apply_env resolve env updates =
         OpamFilter.expand_string resolve update.OpamTypes.envu_value
       in
       let old =
-        Array.to_list env
-        |> List.find_map (fun line ->
-               let key = update.envu_var ^ "=" in
-               if String.starts_with ~prefix:key line then
-                 Some
-                   (String.sub line (String.length key)
-                      (String.length line - String.length key))
-               else None)
+        List.assoc_opt update.envu_var (env_bindings env)
         |> Option.value ~default:""
       in
       let join a b = if a = "" then b else if b = "" then a else a ^ ":" ^ b in
@@ -176,18 +169,19 @@ let apply_env resolve env updates =
       replace_env env [ (update.envu_var, value) ])
     env updates
 
+let package_environment ~solution ~installed ~prefix ~build_dir ~jobs =
+  List.fold_left
+    (fun env q ->
+      if List.mem (name q) installed then
+        apply_env
+          (resolver ~solution ~installed ~prefix ~build_dir ~jobs q)
+          env
+          (OpamFile.OPAM.env q.Solve.opam)
+      else env)
+    (environment ~prefix) solution.Solve.packages
+
 let build_environment ~solution ~installed ~prefix ~build_dir ~jobs p =
-  let env =
-    List.fold_left
-      (fun env q ->
-        if List.mem (name q) installed then
-          apply_env
-            (resolver ~solution ~installed ~prefix ~build_dir ~jobs q)
-            env
-            (OpamFile.OPAM.env q.Solve.opam)
-        else env)
-      (environment ~prefix) solution.Solve.packages
-  in
+  let env = package_environment ~solution ~installed ~prefix ~build_dir ~jobs in
   let env =
     apply_env
       (resolver ~solution ~installed ~prefix ~build_dir ~jobs p)
@@ -208,10 +202,4 @@ let shell commands =
 
 let runtime_environment ~solution ~prefix ~jobs =
   let installed = List.map name solution.Solve.packages in
-  List.fold_left
-    (fun env p ->
-      apply_env
-        (resolver ~solution ~installed ~prefix ~build_dir:prefix ~jobs p)
-        env
-        (OpamFile.OPAM.env p.Solve.opam))
-    (environment ~prefix) solution.packages
+  package_environment ~solution ~installed ~prefix ~build_dir:prefix ~jobs

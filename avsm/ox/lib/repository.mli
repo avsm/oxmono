@@ -1,4 +1,4 @@
-type t = { name : string; path : string; digest : string }
+type t = { path : string; digest : string }
 (** Ordered opam metadata repositories and executable ownership. *)
 
 val defaults : string list
@@ -11,7 +11,7 @@ val resolve_binary : t list -> string -> string list -> string * string list
 (** [resolve_binary repos target packages] returns the executable name and
     solver roots. Unconstrained snapshot roots select exact snapshot versions. *)
 
-val constrain : data:string -> t list -> bool * string list * t list
+val constrain : data:string -> t list -> string list * t list
 (** [constrain ~data repos] retains OxCaml patch guards for external packages.
     Explicitly stamped packages supply their own patched recipes, so generated
     guards omit constraints on those local package names. *)

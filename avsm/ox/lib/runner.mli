@@ -3,7 +3,6 @@
 type config = {
   cache : string;
   data : string;
-  compiler : string option;
   toolchain : string;
   repositories : string list;
   overlays : string list;
@@ -28,8 +27,7 @@ val prepare :
   prepared
 (** [prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run]
     resolves packages in-process and builds their day10 layers. No opam CLI or
-    switch is used. Without an explicit compiler prefix, the toolchain is built
-    too. *)
+    switch is used. The toolchain uses the same build path as other packages. *)
 
 val exec : prepared -> string list -> 'a
 (** [exec prepared args] directly executes the binary with its layer

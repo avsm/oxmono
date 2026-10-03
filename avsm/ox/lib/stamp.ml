@@ -4,7 +4,6 @@ open Sexplib0.Sexp
 type package = {
   name : string;
   project : string;
-  opam_path : string;
   base : string;
   version : string;
   source_hash : string;
@@ -12,12 +11,7 @@ type package = {
   binaries : string list;
 }
 
-type snapshot = {
-  root : string;
-  commit : string;
-  source : string;
-  packages : package list;
-}
+type snapshot = { commit : string; source : string; packages : package list }
 
 let sexps s = try Parsexp.Many.parse_string_exn s with _ -> []
 
@@ -89,7 +83,7 @@ let inspect proc ~repo ~revision ~source =
              None)
            else
              let name = Filename.basename path |> Filename.chop_extension in
-             if List.mem name [ "ox-host-toolchain"; "ox-local-snapshot" ] then
+             if name = "ox-local-snapshot" then
                fail "Reserved ox package name: %s" name;
              let opam =
                OpamFile.OPAM.read_from_string
@@ -119,7 +113,6 @@ let inspect proc ~repo ~revision ~source =
                {
                  name;
                  project;
-                 opam_path = path;
                  base;
                  version;
                  source_hash;
@@ -186,7 +179,7 @@ let inspect proc ~repo ~revision ~source =
         })
       metadata
   in
-  { root; commit; source = source_url root source; packages }
+  { commit; source = source_url root source; packages }
 
 let stamped_opam snapshot p =
   let rewrite formula =
@@ -262,11 +255,7 @@ let export proc ~repo ~revision ~source ~output =
   let snapshot = inspect proc ~repo ~revision ~source in
   if snapshot.packages = [] then
     fail "No project-root opam files found in %s" repo;
-  let staging = output ^ ".tmp." ^ string_of_int (Unix.getpid ()) in
-  if exists staging then fail "Staging directory already exists: %s" staging;
-  Fun.protect
-    ~finally:(fun () -> if exists staging then remove_tree staging)
-    (fun () ->
+  publish_dir output (fun staging ->
       write (staging / "repo") "opam-version: \"2.0\"\n";
       List.iter
         (fun p ->
@@ -275,7 +264,5 @@ let export proc ~repo ~revision ~source ~output =
             (stamped_opam snapshot p))
         snapshot.packages;
       write (staging / "ox-source")
-        (snapshot.source ^ "#" ^ snapshot.commit ^ "\n");
-      mkdir (Filename.dirname output);
-      Unix.rename staging output);
+        (snapshot.source ^ "#" ^ snapshot.commit ^ "\n"));
   snapshot

@@ -126,6 +126,22 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     assert "1.2.0+ox.2." + next_commit[:12] in p.stdout
     # Keep the run on the first revision to exercise --ref after cloning.
     write(base / "repo", 'opam-version: "2.0"\n')
+    # Supply test compiler artifacts through the ordinary recipe path. No
+    # switch metadata or dedicated compiler-import implementation is needed.
+    assert "ox: true" in call([str(Path(COMPILER) / "bin/ocamlc"), "-config"]).stdout
+    compiler_commands = [
+        ["cp", "-R", str(Path(COMPILER) / "lib/ocaml"), "%{lib}%/ocaml"],
+        ["cp", "-pL"] + [str(Path(COMPILER) / "bin" / name)
+                          for name in ["ocamlc", "ocamlopt", "ocamlrun", "ocamlmklib"]]
+        + ["%{bin}%"],
+    ]
+    actions = "\n".join("[" + " ".join(json.dumps(x) for x in cmd) + "]"
+                        for cmd in compiler_commands)
+    write(base / "packages/oxcaml/oxcaml.1/opam",
+          'opam-version: "2.0"\ndepends: ["oxcaml-patch-guards" {post}]\n'
+          + 'install: [' + actions + ']\n')
+    write(base / "packages/ocaml/ocaml.5.2.0/opam",
+          'opam-version: "2.0"\ndepends: ["oxcaml"]\n')
     ext_opam = (external / "external-lib.opam").read_text()
     write(base / "packages/external-lib/external-lib.1.0/opam", ext_opam +
           f'url {{ src: "git+file://{external}#{ext_commit}" }}\n')
@@ -146,7 +162,7 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
           'opam-version: "2.0"\nbuild: [["false"]]\n')
     args = [OX, "run", "--from", "file://" + str(source), "--ref", original,
             "--repository", str(base), "--cache-dir", str(root / "cache"),
-            "--data-dir", str(root / "data"), "--compiler-prefix", COMPILER]
+            "--data-dir", str(root / "data")]
     command = args + ["greet", "--", "hello", "two words", "--literal"]
     dry = call(args + ["--dry-run", "greet"], cwd=root)
     assert "hello-app" in dry.stderr
@@ -171,8 +187,8 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     assert (app_layer / "fs/bin/greet").exists()
     external_layer = next(p.parent for p, m in metadata if m["package"].startswith("external-lib."))
     external_digest = (external_layer / "fs/lib/external-lib/outside.cma").read_bytes()
-    # Reconstruct an application prefix and the run prefix from actual day10 layers.
-    shutil.rmtree(root / "cache/prefixes" / app_layer.parent.name / app_layer.name)
+    # Reconstruct every package prefix, including the compiler, from day10 metadata.
+    shutil.rmtree(root / "cache/prefixes")
     shutil.rmtree(root / "cache/runs")
     # Remove both upstream source repositories. Warm execution must stay offline.
     source.rename(root / "source-offline")
@@ -220,7 +236,7 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     assert (external_layer / "fs/lib/external-lib/outside.cma").read_bytes() == external_digest
     assert sum(json.loads(p.read_text())["package"].startswith("external-lib.")
                for p in (root / "cache/layers").glob("*/*/layer.json")) == 1
-    # A damaged receipt is rejected, rather than passed to opam exec.
+    # A damaged receipt is rejected.
     receipts[0].write_text("invalid\n")
     p = call(command, code=124)
     assert "Invalid cache receipt" in p.stderr

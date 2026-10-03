@@ -1,9 +1,4 @@
-type built = {
-  hash : string;
-  prefix : string;
-  closure : string list;
-  installed : string list;
-}
+type built
 (** Package builds and restoration through the local day10 layer store. *)
 
 type t = {
@@ -14,19 +9,17 @@ type t = {
   refresh : bool;
 }
 
-val unique : string list -> string list
-val prefix : t -> string -> string
-val marker : string -> string
+val layers : built list -> string list
+(** [layers built] returns their combined dependency layers in build order. *)
 
-val materialise : t -> string list -> string -> unit
-(** [materialise builder hashes destination] replaces [destination] with the
-    ordered layer union, rebasing dune-package files and detaching hardlinks. *)
+val assemble : t -> key:string -> layers:string list -> string -> unit
+(** [assemble builder ~key ~layers destination] restores a missing prefix,
+    rebases dune-package files and detaches hardlinks. [key] identifies the
+    ordered layer list. *)
 
-val restore : t -> built -> unit
-(** [restore builder built] reconstructs a missing package prefix from layers. *)
-
-val supplied : t -> Toolchain.t -> built
-(** [supplied builder compiler] imports an explicitly supplied compiler. *)
+val restore : t -> string -> unit
+(** [restore builder hash] reconstructs a missing package prefix using day10's
+    dependency metadata. *)
 
 val run : t -> solution:Solve.t -> deps:built list -> Solve.package -> built
 (** [run builder ~solution ~deps package] restores or builds a package at its

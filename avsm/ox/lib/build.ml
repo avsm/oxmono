@@ -1,11 +1,6 @@
 open Support
 
-type built = {
-  hash : string;
-  prefix : string;
-  closure : string list;
-  installed : string list;
-}
+type built = { hash : string; closure : string list; installed : string list }
 
 type t = {
   d10 : D10.Config.t;
@@ -55,9 +50,8 @@ let manifest root =
 let materialise t hashes destination =
   remove_tree destination;
   mkdir destination;
-  List.iter
-    (fun hash -> D10.Layer.restore t.d10 ~hash ~prefix:destination)
-    hashes;
+  D10.Prefix.assemble t.d10 ~layer_hashes:hashes
+    ~dst:Eio.Path.(t.d10.fs / destination);
   (* Restore applies dune-package rebasing at the final path. Detach all
      hardlinks before an installer can modify a dependency's cached files. *)
   let detached = destination ^ ".copy" in
@@ -71,43 +65,23 @@ let materialise t hashes destination =
     (fun sub -> mkdir (destination / sub))
     [ "bin"; "lib"; "share"; "etc"; "doc"; "man"; "sbin" ]
 
-let restore t built =
-  if not (complete t built.hash) then (
-    if not (D10.Layer.succeeded t.d10 ~hash:built.hash) then
-      fail "Missing day10 layer %s" built.hash;
-    materialise t built.closure built.prefix;
-    atomic_write (marker built.prefix) built.hash)
+let layers built = unique (List.concat_map (fun b -> b.closure) built)
 
-let supplied t compiler =
-  let hash =
-    hash_fields [ "ox-supplied-v1"; t.identity; compiler.Toolchain.fingerprint ]
-  in
-  let destination = prefix t hash in
-  let built =
-    {
-      hash;
-      prefix = destination;
-      closure = [ hash ];
-      installed =
-        List.map
-          (fun p -> OpamPackage.Name.to_string (OpamPackage.name p))
-          compiler.packages;
-    }
-  in
-  if not (D10.Layer.succeeded t.d10 ~hash) then (
-    remove_tree destination;
-    mkdir destination;
-    Toolchain.install t.proc compiler ~prefix:destination;
-    D10.Layer.store t.d10 ~hash ~prefix:destination
-      ~files:(List.map fst (manifest destination))
-      ~package:("ox-host-toolchain." ^ compiler.fingerprint)
-      ~deps:[] ~parent_hashes:[] ~exit_status:0 ();
-    atomic_write (marker destination) hash);
-  restore t built;
-  built
+let assemble t ~key ~layers destination =
+  if (not (exists (marker destination))) || read (marker destination) <> key
+  then (
+    materialise t layers destination;
+    atomic_write (marker destination) key)
+
+let restore t hash =
+  if not (complete t hash) then
+    match D10.Layer.load_meta (D10.Layer.json_path t.d10 ~hash) with
+    | Some { exit_status = 0; hashes; _ } ->
+        assemble t ~key:hash ~layers:(hashes @ [ hash ]) (prefix t hash)
+    | _ -> fail "Missing day10 layer %s" hash
 
 let run t ~solution ~deps p =
-  let layers = unique (List.concat_map (fun d -> d.closure) deps) in
+  let layers = layers deps in
   let installed = unique (List.concat_map (fun d -> d.installed) deps) in
   let source, source_hash = Source.prepare ~refresh:t.refresh t.proc t.d10 p in
   let hash =
@@ -125,13 +99,12 @@ let run t ~solution ~deps p =
   let built =
     {
       hash;
-      prefix = destination;
       closure = layers @ [ hash ];
       installed = unique (installed @ [ Recipe.name p ]);
     }
   in
   if D10.Layer.succeeded t.d10 ~hash then (
-    restore t built;
+    restore t hash;
     log "Cached %s" (OpamPackage.to_string p.id);
     built)
   else (

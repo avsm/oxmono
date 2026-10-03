@@ -38,6 +38,9 @@ let opam_file p = OpamFile.make (OpamFilename.raw p)
 let read_opam p = OpamFile.OPAM.read (opam_file p)
 let write_opam p opam = write p (OpamFile.OPAM.write_to_string opam)
 
+let env_bindings env =
+  Array.to_list env |> List.filter_map (fun s -> OpamStd.String.cut_at s '=')
+
 let replace_env env overrides =
   let key s =
     match String.index_opt s '=' with Some i -> String.sub s 0 i | None -> s
@@ -71,14 +74,7 @@ let clean_env () =
                 "OCAMLFIND_LDCONF=";
               ]))
   |> Array.of_list
-  |> fun env ->
-  replace_env env
-    [
-      ("GIT_TERMINAL_PROMPT", "0");
-      ("OPAMCOLOR", "never");
-      ("OPAMUTF8", "never");
-      ("OPAMYES", "1");
-    ]
+  |> fun env -> replace_env env [ ("GIT_TERMINAL_PROMPT", "0") ]
 
 type proc = Eio_unix.Process.mgr_ty Eio.Resource.t
 
@@ -121,6 +117,21 @@ let rec remove_tree path =
       List.iter (fun n -> remove_tree (path / n)) (sorted_dir path);
       Unix.rmdir path
   | _ -> Unix.unlink path
+
+let publish_dir path build =
+  let tmp = path ^ ".tmp." ^ string_of_int (Unix.getpid ()) in
+  mkdir (Filename.dirname path);
+  remove_tree tmp;
+  Fun.protect
+    ~finally:(fun () -> remove_tree tmp)
+    (fun () ->
+      build tmp;
+      Unix.rename tmp path)
+
+let git_url source =
+  if String.starts_with ~prefix:"git+" source then
+    String.sub source 4 (String.length source - 4)
+  else source
 
 let refresh_checkout proc path =
   if git proc path [ "status"; "--porcelain" ] <> "" then

@@ -65,14 +65,13 @@ let stamp_cmd =
        ~doc:"Export committed monorepo packages as an opam repository.")
     Term.(ret (const stamp $ repo $ revision $ source $ output $ data))
 
-let run cache data compiler toolchain repositories overlays from revision
-    refresh jobs cache_tag with_packages dry_run target args =
+let run cache data toolchain repositories overlays from revision refresh jobs
+    cache_tag with_packages dry_run target args =
   guard @@ fun () ->
   let config : Ox_lib.Runner.config =
     {
       cache;
       data;
-      compiler;
       toolchain;
       repositories;
       overlays;
@@ -99,22 +98,11 @@ let run cache data compiler toolchain repositories overlays from revision
   if not dry_run then Ox_lib.Runner.exec prepared args
 
 let run_cmd =
-  let compiler =
-    Arg.(
-      value
-      & opt (some string) None
-      & info [ "compiler-prefix" ] ~docv:"DIR"
-          ~doc:
-            "Optional existing OxCaml compiler prefix. By default the \
-             toolchain is built from sources.")
-  in
   let toolchain =
     Arg.(
       value & opt string "oxcaml"
       & info [ "toolchain" ] ~docv:"PACKAGE"
-          ~doc:
-            "OxCaml toolchain package atom to build when no compiler prefix is \
-             supplied.")
+          ~doc:"OxCaml toolchain package atom to build.")
   in
   let repositories =
     Arg.(
@@ -178,9 +166,8 @@ let run_cmd =
     (Cmd.info "run" ~doc:"Fetch dependencies, build, cache and run a binary.")
     Term.(
       ret
-        (const run $ cache $ data $ compiler $ toolchain $ repositories
-       $ overlays $ from $ revision $ refresh $ jobs $ tag $ with_packages $ dry
-       $ target $ args))
+        (const run $ cache $ data $ toolchain $ repositories $ overlays $ from
+       $ revision $ refresh $ jobs $ tag $ with_packages $ dry $ target $ args))
 
 let () =
   let cmd =

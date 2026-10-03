@@ -1,7 +1,6 @@
 type package = {
   name : string;
   project : string;
-  opam_path : string;
   base : string;
   version : string;
   source_hash : string;
@@ -10,12 +9,7 @@ type package = {
 }
 (** Export committed Dune projects through ordinary opam metadata. *)
 
-type snapshot = {
-  root : string;
-  commit : string;
-  source : string;
-  packages : package list;
-}
+type snapshot = { commit : string; source : string; packages : package list }
 
 val inspect :
   Support.proc ->

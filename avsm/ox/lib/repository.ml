@@ -1,6 +1,6 @@
 open Support
 
-type t = { name : string; path : string; digest : string }
+type t = { path : string; digest : string }
 
 let defaults =
   [
@@ -16,36 +16,22 @@ let prepare proc ~data ~refresh source =
         fail "Not an opam repository: %s" source;
       (path, tree_hash path))
     else
-      let url =
-        if String.starts_with ~prefix:"git+" source then
-          String.sub source 4 (String.length source - 4)
-        else source
-      in
+      let url = git_url source in
       let key = hash source in
       let path = data / "repositories" / key in
       if not (exists path) then (
-        mkdir (Filename.dirname path);
-        let tmp = path ^ ".tmp." ^ string_of_int (Unix.getpid ()) in
-        if exists tmp then remove_tree tmp;
         log "Cloning repository %s" url;
-        Fun.protect
-          ~finally:(fun () -> if exists tmp then remove_tree tmp)
-          (fun () ->
+        publish_dir path (fun tmp ->
             command proc [ "git"; "clone"; "--depth=1"; "--"; url; tmp ];
             if not (exists (tmp / "repo")) then
-              fail "No opam repo file in %s" url;
-            Unix.rename tmp path));
+              fail "No opam repo file in %s" url));
       if refresh then refresh_checkout proc path;
       if git proc path [ "status"; "--porcelain" ] <> "" then
         fail "Cached repository has local changes: %s. Use --overlay for edits."
           path;
       (path, git proc path [ "rev-parse"; "HEAD" ])
   in
-  {
-    name = "repo-" ^ String.sub (hash_fields [ source; digest ]) 0 20;
-    path;
-    digest;
-  }
+  { path; digest }
 
 let binaries opam =
   match
@@ -139,30 +125,21 @@ let resolve_binary repos target with_packages =
   (binary, List.map (snapshot_root repos) roots)
 
 let constrain ~data repos =
-  let available =
-    List.exists
-      (fun r -> exists (r.path / "packages/oxcaml-patch-guards"))
-      repos
-  in
   let locals =
     repos
     |> List.filter (fun r -> exists (r.path / "ox-source"))
     |> List.concat_map (fun r -> sorted_dir (r.path / "packages"))
     |> List.sort_uniq String.compare
   in
-  if locals = [] then (available, [], repos)
+  if locals = [] then ([], repos)
   else
     let digest =
       hash_fields
         (("ox-constraints-v3" :: locals) @ List.map (fun r -> r.digest) repos)
     in
     let path = data / "guards" / digest in
-    if not (exists path) then (
-      let tmp = path ^ ".tmp." ^ string_of_int (Unix.getpid ()) in
-      if exists tmp then remove_tree tmp;
-      Fun.protect
-        ~finally:(fun () -> remove_tree tmp)
-        (fun () ->
+    if not (exists path) then
+      publish_dir path (fun tmp ->
           write (tmp / "repo") "opam-version: \"2.0\"\n";
           let conflicts =
             List.map
@@ -222,8 +199,5 @@ let constrain ~data repos =
                                   let dst = tmp / "packages" / name / nv in
                                   copy_files ~src:(Filename.dirname src) ~dst;
                                   write_opam (dst / "opam") opam))))
-            repos;
-          Unix.rename tmp path));
-    ( available,
-      [ "ox-local-snapshot." ^ digest ],
-      { name = "guards-" ^ String.sub digest 0 20; path; digest } :: repos )
+            repos);
+    ([ "ox-local-snapshot." ^ digest ], { path; digest } :: repos)

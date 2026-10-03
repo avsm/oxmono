@@ -20,6 +20,7 @@ val cache_dir : unit -> string
 val opam_file : string -> 'a OpamFile.t
 val read_opam : string -> OpamFile.OPAM.t
 val write_opam : string -> OpamFile.OPAM.t -> unit
+val env_bindings : string array -> (string * string) list
 val replace_env : string array -> (string * string) list -> string array
 val clean_env : unit -> string array
 
@@ -37,3 +38,11 @@ val refresh_checkout : proc -> string -> unit
     its origin's default branch. Local changes cause failure. *)
 
 val copy_files : src:string -> dst:string -> unit
+
+val publish_dir : string -> (string -> unit) -> unit
+(** [publish_dir path build] calls [build] with a temporary sibling path and
+    renames it to [path] on success. The temporary path is removed on failure.
+    The caller must serialize writes and ensure [path] does not exist. *)
+
+val git_url : string -> string
+(** [git_url source] removes opam's optional [git+] transport prefix. *)

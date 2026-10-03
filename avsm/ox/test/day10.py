@@ -39,8 +39,8 @@ with tempfile.TemporaryDirectory(prefix="ox-day10-") as temp:
     repo = root / "repo"
     write(repo / "repo", 'opam-version: "2.0"\n')
 
-    def recipe(name, body):
-        directory = repo / "packages" / name / (name + ".1")
+    def recipe(name, body, version="1"):
+        directory = repo / "packages" / name / (name + "." + version)
         write(directory / "opam", 'opam-version: "2.0"\n' + body)
         return directory
 
@@ -109,6 +109,12 @@ install: [["sh" "-c" "printf changed > %{bin}%/fixture-cc"]]
     write(bad_file / "files/patch", "incorrect patch contents\n")
     p = call(args + ["--with", "hello", "--with", "bad-file", "hello"], code=124)
     assert "Repository file failed checksum verification" in p.stderr
+    # A version named dev still runs release recipes. The solver and builder
+    # must agree about disabled dev/test/doc dependencies and actions.
+    recipe("release", '''depends: ["oxcaml" "missing" {dev | with-test | with-doc}]
+build: [["false"] {dev | with-test | with-doc}]
+''', version="dev")
+    call(args + ["--with", "hello", "--with", "release.dev", "hello"])
     # An unresolved pin cannot silently select a release from another source.
     recipe("pinned", f'''depends: ["hello"]
 pin-depends: [["hello.1" "git+file://{source}#HEAD"]]

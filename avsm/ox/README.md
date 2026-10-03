@@ -109,25 +109,21 @@ Git sources pinned to full commits remain reusable.
 
 Metadata and build mutations hold process locks. Failed builds publish no
 completed layer or request receipt and are retried in a fresh build tree.
-Successful requests retain their layer list and runtime environment. Warm
+Successful requests retain only their ordered layer list and runtime
+environment. Day10 metadata supplies each package's dependency layers for
+prefix restoration. Warm
 execution neither fetches nor solves. Missing installation prefixes are
 reconstructed from completed layers. Dependency files are detached before
 installers can modify them. File content and modes determine the installed
 delta. Deleting dependency files is rejected.
 
-`--toolchain PACKAGE` selects another OxCaml toolchain package atom. For an
-optional shortcut, `--compiler-prefix /path/to/oxcaml-switch` imports an
-existing compiler and its metadata into a day10 layer. It reads that prefix
-without modifying it or invoking opam. Keep the original compiler prefix
-available when using this shortcut, since its tools may embed original paths.
-The default source bootstrap needs no supplied prefix.
+`--toolchain PACKAGE` selects another OxCaml toolchain package atom. Compilers
+and applications use the same opam recipe and day10 build path. Custom
+compiler definitions can be provided through an overlay.
 
-The supplied compiler metadata fixes the compiler version and preserves its
-conflicts and environment variables. Optional `oxcaml-*-patches` and guard
-packages from the original switch are not declared installed. The runner
-retains the OxCaml repository's patch guards for external packages. For
-explicitly stamped packages it generates guard metadata without constraints on
-those local names. Their opam recipes are the selected patched definitions.
+The runner retains the OxCaml repository's patch guards for external packages.
+For explicitly stamped packages it generates guard metadata without constraints
+on those local names. Their opam recipes are the selected patched definitions.
 Opam recipes in this workspace must describe all build dependencies and work
 from their project subdirectory. Ox does not infer undeclared sibling
 dependencies. A local snapshot must contain the OxCaml adaptations its
@@ -150,8 +146,9 @@ PATH. They cover stamping, fork precedence, default toolchain builds, native
 and bytecode execution with C stubs, concurrent builds, offline layer
 restoration, runtime environment updates, source refresh, checksums, argument
 and signal forwarding, failed-build retry and damaged receipt rejection.
-The compiler integration test uses a supplied OxCaml prefix to avoid rebuilding
-the compiler on every test run. Set `OX_TEST_COMPILER_PREFIX` to select it.
+The compiler integration test uses an overlay recipe that copies local OxCaml
+artifacts to avoid bootstrapping on every test run. Set
+`OX_TEST_COMPILER_PREFIX` to select the fixture's compiler installation.
 
 A clean-cache validation built OxCaml 5.2.0minus39 from its repository recipe
 and ran this monorepo's `yamlcat`. Snapshot `551112fee9a2`, containing the

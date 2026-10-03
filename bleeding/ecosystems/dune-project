@@ -31,8 +31,7 @@
  (name ecosystems-cli)
  (synopsis "Command-line tool for the packages.ecosyste.ms API")
  (description
-  "oecosystems queries registries, packages, versions, dependents,
-   advisories, maintainers and keywords on packages.ecosyste.ms.")
+  "oecosystems queries packages.ecosyste.ms for registries, packages, versions, dependents, advisories, maintainers and keywords.")
  (depends
   (ocaml (>= "5.2.0"))
   (ecosystems (= :version))

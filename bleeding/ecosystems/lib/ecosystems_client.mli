@@ -1,3 +1,9 @@
+(** Helpers for using {!Ecosystems} against the public API.
+
+    The body of [Ecosystems.PackageWithRegistry.bulk_lookup_packages] is a raw
+    [Jsont.json] object, because the generator leaves the spec's inline
+    request schema opaque. *)
+
 val pages :
   ?per_page:int -> (page:string -> per_page:string -> 'a list) -> 'a Seq.t
 (** [pages ?per_page f] is the items of every page of [f], in order.
@@ -33,8 +39,4 @@ val create :
 
     With [session], that client is used as it stands and [user_agent] is
     ignored. [max_response_bytes] bounds a response body and defaults to 16 MiB.
-    [base_url] defaults to {!default_base_url}.
-
-    The [Ecosystems.PackageWithRegistry.bulk_lookup_packages] body is a raw
-    [Jsont.json] object, because the generator leaves the spec's inline
-    request schema opaque. *)
+    [base_url] defaults to {!default_base_url}. *)

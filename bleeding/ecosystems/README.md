@@ -45,10 +45,12 @@ labels and its query parameters as optional arguments.
 | `maintainer REGISTRY LOGIN` | one maintainer |
 | `keyword NAME` | a keyword and some of its packages |
 
-Output is a short summary. `--json` prints the full response instead.
-`--limit N` stops a listing after N items. `--base-url` and `--user-agent`
-override the defaults. A failed request prints one line on stderr and exits
-with code 1.
+Output is a short summary. `--json` prints the decoded response instead, so
+fields the spec does not describe are left out. The commands that list items
+also take `--limit N`, which stops after N items. For `keyword` it limits the
+packages shown. `dependents` stops at 100 items unless `--limit` says
+otherwise. `--base-url` and `--user-agent` override the defaults. A failed
+request prints one line on stderr and exits with code 1.
 
 ```
 $ oecosystems advisories npmjs.org minimist
@@ -74,10 +76,11 @@ purl         pkg:cargo/itoa
 
 ## Regenerating
 
-`ecosystems.ml` and `ecosystems.mli` are targets of the `@gen` rule, so every
-build regenerates them. `dune build @bleeding/ecosystems/gen --auto-promote`
-regenerates them on demand from `ecosystems-openapi-spec.yaml`. A hand edit is
-overwritten. To detect drift, build and then run
+`ecosystems.ml` and `ecosystems.mli` are generated from
+`ecosystems-openapi-spec.yaml`. Any build of the library rebuilds them, so a
+hand edit is overwritten. `dune build @bleeding/ecosystems/gen --auto-promote`
+also copies the result into the source tree, which is how a new spec reaches
+the checked-in files. To detect drift, build and then run
 `git diff --exit-code bleeding/ecosystems`.
 
 ## Pinned spec

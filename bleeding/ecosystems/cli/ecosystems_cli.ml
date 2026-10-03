@@ -8,7 +8,9 @@ type common = {
 
 let common =
   let json =
-    Arg.(value & flag & info [ "json" ] ~doc:"Print the full response as JSON.")
+    Arg.(
+      value & flag
+      & info [ "json" ] ~doc:"Print the decoded response as JSON.")
   in
   let base_url =
     Arg.(
@@ -54,8 +56,20 @@ let registry =
 
 let opt = function Some s when s <> "" -> s | _ -> "-"
 
+(* [truncate n s] is [s] cut to at most [n] characters, ending in "..." when
+   it was cut. It never splits a UTF-8 sequence. *)
 let truncate n s =
-  if String.length s <= n then s else String.sub s 0 (n - 1) ^ "..."
+  let step i = i + Uchar.utf_decode_length (String.get_utf_8_uchar s i) in
+  let rec length i count =
+    if i >= String.length s then count else length (step i) (count + 1)
+  in
+  let rec prefix i count =
+    if count = 0 then i else prefix (step i) (count - 1)
+  in
+  if length 0 0 <= n then s else String.sub s 0 (prefix 0 (n - 3)) ^ "..."
+
+let take limit seq =
+  match limit with Some n -> Seq.take n seq | None -> seq
 
 let to_json codec v =
   match Openapi.Runtime.Json.encode codec v with
@@ -74,11 +88,26 @@ let per_page = function Some n when n >= 1 && n < 100 -> n | _ -> 100
 
 let listing limit f =
   let seq = Ecosystems_client.pages ~per_page:(per_page limit) f in
-  match limit with Some n -> Seq.take n seq | None -> seq
+  take limit seq
 
-(* [one_line s] joins the lines of [s] with single spaces. *)
+(* [one_line s] joins the lines of [s] with single spaces. Error payloads
+   print an embedded newline as the four characters backslash, x, 0, A, so
+   those count as line breaks too. *)
 let one_line s =
-  String.split_on_char (Char.chr 10) s
+  let escaped = String.make 1 (Char.chr 92) ^ "x0A" in
+  let n = String.length escaped in
+  let b = Buffer.create (String.length s) in
+  let rec go i =
+    if i >= String.length s then ()
+    else if i + n <= String.length s && String.sub s i n = escaped then (
+      Buffer.add_char b (Char.chr 10);
+      go (i + n))
+    else (
+      Buffer.add_char b s.[i];
+      go (i + 1))
+  in
+  go 0;
+  String.split_on_char (Char.chr 10) (Buffer.contents b)
   |> List.map String.trim
   |> List.filter (fun l -> l <> "")
   |> String.concat " "
@@ -98,7 +127,8 @@ let guard ~err f =
       Format.fprintf err "oecosystems: %s@." msg;
       1
   | exception (Eio.Io _ as ex) ->
-      Format.fprintf err "oecosystems: %s@." (one_line (Printexc.to_string ex));
+      Format.fprintf err "oecosystems: %s@."
+        (one_line (Format.asprintf "%a" Eio.Exn.pp ex));
       1
 
 let make ~env ~err ~name ~doc term =
@@ -242,12 +272,12 @@ let dependents ~env ~out ~err =
 let advisories ~env ~out ~err =
   make ~env ~err ~name:"advisories" ~doc:"List the advisories on a package."
     Term.(
-      const (fun registry_name package_name json c ->
+      const (fun registry_name package_name limit json c ->
           Ecosystems.Package.get_registry_package ~registry_name ~package_name c
             ()
-          |> Ecosystems.Package.T.advisories |> List.to_seq
+          |> Ecosystems.Package.T.advisories |> List.to_seq |> take limit
           |> emit_list ~out ~json Ecosystems.Advisory.T.jsont advisory_row)
-      $ registry $ package_name)
+      $ registry $ package_name $ limit ())
 
 let target =
   Arg.(
@@ -288,28 +318,29 @@ let maintainer_detail out m =
   f "packages" (string_of_int (M.packages_count m));
   f "url" (opt (M.url m))
 
-let keyword_detail out k =
+let keyword_detail limit out k =
   let module K = Ecosystems.KeywordWithPackages.T in
   let f = field out in
   f "name" (K.name k);
   f "packages"
     (match K.packages_count k with Some n -> string_of_int n | None -> "-");
-  List.iter (fun p -> Format.fprintf out "%s@." (package_row p)) (K.packages k)
+  K.packages k |> List.to_seq |> take limit
+  |> Seq.iter (fun p -> Format.fprintf out "%s@." (package_row p))
 
 let lookup ~env ~out ~err =
   make ~env ~err ~name:"lookup"
     ~doc:"Find packages by package URL or repository URL."
     Term.(
-      const (fun target json c ->
+      const (fun target limit json c ->
           (if String.starts_with ~prefix:"pkg:" target then
              Ecosystems.PackageWithRegistry.lookup_package ~purl:target c ()
            else
              Ecosystems.PackageWithRegistry.lookup_package
                ~repository_url:target c ())
-          |> List.to_seq
+          |> List.to_seq |> take limit
           |> emit_list ~out ~json Ecosystems.PackageWithRegistry.T.jsont
                lookup_row)
-      $ target)
+      $ target $ limit ())
 
 let maintainer ~env ~out ~err =
   make ~env ~err ~name:"maintainer" ~doc:"Show a maintainer."
@@ -323,15 +354,17 @@ let maintainer ~env ~out ~err =
 let keyword ~env ~out ~err =
   make ~env ~err ~name:"keyword" ~doc:"Show a keyword and some of its packages."
     Term.(
-      const (fun keyword_name json c ->
+      const (fun keyword_name limit json c ->
           Ecosystems.KeywordWithPackages.get_keyword ~keyword_name c ()
           |> emit ~out ~json Ecosystems.KeywordWithPackages.T.jsont
-               keyword_detail)
-      $ keyword_name)
+               (keyword_detail limit))
+      $ keyword_name $ limit ())
+
+let cli_version = if Version.v = "" then "dev" else Version.v
 
 let main ~out ~err env =
   Cmd.group
-    (Cmd.info "oecosystems" ~version:"0.1.0"
+    (Cmd.info "oecosystems" ~version:cli_version
        ~doc:"Query the packages.ecosyste.ms API.")
     [ registries ~env ~out ~err; package ~env ~out ~err;
       versions ~env ~out ~err; version ~env ~out ~err;

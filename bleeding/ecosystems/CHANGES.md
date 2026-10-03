@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Every `oecosystems` listing takes `--limit`. Long descriptions are cut on a
+  character boundary and error messages carry no escaped newlines.
+
 - `oecosystems dependents` prints at most 100 packages unless `--limit` says
   otherwise, rows appear as they arrive, and bad input is a one-line error.
 

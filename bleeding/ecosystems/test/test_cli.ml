@@ -34,6 +34,7 @@ let route _ target =
         (200, "", fixture "opam_versions.json")
     | "/registries/opam.ocaml.org/packages/cohttp/versions/6.1.1" ->
         (200, "", fixture "opam_version.json")
+    | "/registries/crates.io/packages/garbled" -> (200, "", "{\"id\": nope}")
     | "/packages/lookup" -> (200, "", fixture "lookup.json")
     | "/registries/crates.io/maintainers/slaxxarn" ->
         (200, "", fixture "maintainer.json")
@@ -204,3 +205,57 @@ let () =
   check env
     [ "version"; "opam.ocaml.org"; "cohttp"; "6.1.1" ]
     ~expect:[ "6.1.1"; "dependencies (14)" ]
+
+let () =
+  Eio_main.run @@ fun env ->
+  (* Every listing takes --limit. *)
+  let _, out, _, _ =
+    run env [ "advisories"; "npmjs.org"; "minimist"; "--limit"; "1" ]
+  in
+  assert (List.length (lines out) = 1);
+  let code, out, _, _ =
+    run env [ "lookup"; "pkg:npm/minimist"; "--limit"; "1" ]
+  in
+  assert (code = 0);
+  assert (List.length (lines out) = 1);
+  (* A keyword prints its name, its count and then at most N packages. *)
+  let _, out, _, _ = run env [ "keyword"; "rust"; "--limit"; "1" ] in
+  assert (List.length (lines out) = 3);
+  (* A malformed body is one clean line with no escaped newline. *)
+  let code, _, err, _ = run env [ "package"; "crates.io"; "garbled" ] in
+  assert (code = 1);
+  assert (List.length (lines err) = 1);
+  assert (not (contains ~sub:"\\x0A" err));
+  (* Truncation never splits a multibyte character. *)
+  let long = String.concat "" (List.init 70 (fun _ -> "\xc3\xa9")) in
+  let original =
+    "Small microservice which calculates the most dominant colors in an image."
+  in
+  let body = fixture "dependents.json" in
+  let i =
+    let n = String.length original in
+    let rec find i =
+      if String.sub body i n = original then i else find (i + 1)
+    in
+    find 0
+  in
+  let body =
+    String.sub body 0 i ^ long
+    ^ String.sub body (i + String.length original)
+        (String.length body - i - String.length original)
+  in
+  let route n target =
+    if n > 1 then (200, "", "[]") else (200, "", body)
+  in
+  let _, out, _, _ = run ~route env [ "dependents"; "crates.io"; "serde" ] in
+  assert (String.is_valid_utf_8 out);
+  assert (contains ~sub:"..." out);
+  let count =
+    let c = ref 0 in
+    String.iteri
+      (fun i ch ->
+        if ch = Char.chr 0xc3 && out.[i + 1] = Char.chr 0xa9 then incr c)
+      out;
+    !c
+  in
+  assert (count = 57)

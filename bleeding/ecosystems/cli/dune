@@ -2,3 +2,10 @@
  (name ecosystems_cli)
  (public_name ecosystems-cli)
  (libraries ecosystems ecosystems.client openapi jsont cmdliner eio))
+
+(rule
+ (targets version.ml)
+ (action
+  (with-stdout-to
+   %{targets}
+   (echo "let v = \"%{version:ecosystems-cli}\"\n"))))

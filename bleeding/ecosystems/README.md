@@ -41,10 +41,13 @@ The pinned file is upstream version 1.1.0 of
 `https://packages.ecosyste.ms/docs/api/v1/openapi.yaml`, fetched on 2026-10-03
 and patched in the places below. Each patch makes the schema accept a response
 the live API sends. Test fixtures in `test/fixtures/` are recorded responses
-that prove each one.
+that prove each one. No fixture covers `VersionWithPackage`, because
+`/registries/{registryName}/versions` answered 500 for every registry on
+2026-10-03.
 
 | Schema | Patch |
 | --- | --- |
+| `Registry` | `downloads` and `purl_type` are no longer required |
 | `Package` | `docker_dependents_count`, `docker_downloads_count` and `critical` are nullable |
 | `Version` | `codemeta_url` is no longer required |
 | `Maintainer` | `total_downloads` and `role` are no longer required |

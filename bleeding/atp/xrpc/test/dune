@@ -7,3 +7,10 @@
  (name test_credential)
  (modules test_credential)
  (libraries atp-xrpc fetch.mock eio.mock http jsont.bytesrw ptime jsonwt))
+
+(test
+ (name test_identity)
+ (modules test_identity)
+ (deps
+  (glob_files fixtures/*.json))
+ (libraries atp-xrpc fetch.mock eio.mock http))

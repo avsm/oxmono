@@ -8,6 +8,7 @@ module Jwt = Xrpc_jwt
 module Types = Xrpc_types
 module Client = Xrpc_client
 module Credential = Xrpc_cred
+module Identity = Xrpc_identity
 
 type client = Xrpc_client.t
 type session = Xrpc_types.session

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `Xrpc.Identity`, which resolves a handle to a DID and a DID to the
+  personal data server that holds its records.
+
 - Refresh all 231 Tangled lexicons and add current CI, repository identity,
   access-control, issue, key, record and complete API commands to the CLI.
 - Generate subscriptions and nullable fields correctly, fail on invalid input

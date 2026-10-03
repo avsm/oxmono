@@ -84,6 +84,9 @@ module Client = Xrpc_client
 module Credential = Xrpc_cred
 (** Credential manager with automatic token refresh. *)
 
+module Identity = Xrpc_identity
+(** Resolving handles and DIDs to the server that holds their records. *)
+
 (** {1 Type Aliases} *)
 
 type client = Xrpc_client.t

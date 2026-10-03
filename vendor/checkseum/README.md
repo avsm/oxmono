@@ -1,3 +1,12 @@
+## Vendored base (2026-10-03)
+
+Based on `v0.5.3-3-gfef8888`, commit
+`fef8888d9b9a7b48d243a5f444563b0467803da6`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh fixes the `ptrdiff_t` header on 32-bit FreeBSD. Local portable
+interfaces and both checksum implementations are retained.
+
 Checkseum
 =========
 

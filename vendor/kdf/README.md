@@ -1,5 +1,14 @@
 # kdf - Key Derivation Functions
 
+## Vendored base (2026-10-03)
+
+Based on `v1.1.2`, commit
+`6e2cad01ef7305ba6562a1a626d77e2da130970e`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh bounds scrypt allocation before constructing its working buffer.
+The existing portable interfaces and implementation annotations are retained.
+
 This repository provides multiple already specified key derivation functions in
 and for OCaml:
 

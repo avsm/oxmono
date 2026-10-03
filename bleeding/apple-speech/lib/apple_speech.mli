@@ -1,5 +1,8 @@
 (** On-device speech transcription and synthesis on macOS.
 
+    On other platforms, {!available} returns [false] and operations that use
+    Apple frameworks or [say] raise [Error Unavailable]. {!text} remains usable.
+
     Transcription uses [SpeechAnalyzer] with a [SpeechTranscriber] module on
     macOS 26 or later. Audio never leaves the machine. Any file that
     [AVAudioFile] reads is accepted, including WAV, AAC in MP4 or M4A, and Opus
@@ -15,7 +18,7 @@
     system supports. *)
 
 type error =
-  | Unavailable  (** this device cannot transcribe speech *)
+  | Unavailable  (** speech is unavailable on this device or platform *)
   | Unsupported_locale of string  (** no transcription model for the locale *)
   | Assets_missing of string
       (** the locale's model is missing and installation was not allowed *)

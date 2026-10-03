@@ -1,3 +1,13 @@
+## Vendored base (2026-10-03)
+
+Based on `v1.3.1-16-g35e5c1c`, commit
+`35e5c1ca984a80a72b4621a12fb108352f63d4eb`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh fixes XOR bounds and the OCaml backend's short-buffer handling
+and counter overflow. Local portable interfaces and byte-buffer adaptations
+are retained. The C backend remains the workspace default.
+
 Digestif - Hash algorithms in C and OCaml
 =========================================
 

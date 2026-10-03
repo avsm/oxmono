@@ -23,15 +23,17 @@ let run ?clear:(paths = []) fn =
   List.iter (fun p -> Eio.Path.rmtree ~missing_ok:true (cwd / p)) paths;
   fn env
 
-let try_read_file path =
-  match Path.load path with
-  | s -> traceln "read %a -> %S" Path.pp path s
-  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+let try_read_file ?(follow=true) path =
+  let pp_flags f = if not follow then Fmt.pf f " (no-follow)" in
+  match Path.load ~follow path with
+  | s -> traceln "read %a -> %S%t" Path.pp path s pp_flags
+  | exception ex -> traceln "@[<h>%a%t@]" Eio.Exn.pp ex pp_flags
 
-let try_write_file ~create ?append path content =
-  match Path.save ~create ?append path content with
-  | () -> traceln "write %a -> ok" Path.pp path
-  | exception ex -> traceln "@[<h>%a@]" Eio.Exn.pp ex
+let try_write_file ?(follow=true) ~create ?append path content =
+  let pp_flags f = if not follow then Fmt.pf f " (no-follow)" in
+  match Path.save ~follow ~create ?append path content with
+  | () -> traceln "write %a -> ok%t" Path.pp path pp_flags
+  | exception ex -> traceln "@[<h>%a%t@]" Eio.Exn.pp ex pp_flags
 
 let try_mkdir path =
   match Path.mkdir path ~perm:0o700 with
@@ -530,6 +532,70 @@ Components separated by "/" can come back separated by "\".
 ```ocaml
 # split "a/b" |> Option.map (fun (d, b) -> join d b);;
 - : string option = Some "a\\b"
+```
+
+# Win32 to NT paths
+
+`NtCreateFile` takes an NT object-manager path, so `to_nt` qualifies a Win32
+path, resolving a relative one against the current directory:
+
+```ocaml
+let to_nt = Eio_utils.Nt_path.to_nt ~cwd:"C:\\cwd\\dir"
+```
+
+```ocaml
+# to_nt "C:\\a\\b";;
+- : string = "\\??\\C:\\a\\b"
+
+# to_nt "a\\b";;
+- : string = "\\??\\C:\\cwd\\dir\\a\\b"
+
+# to_nt ".";;
+- : string = "\\??\\C:\\cwd\\dir"
+
+# to_nt "..";;
+- : string = "\\??\\C:\\cwd"
+
+# to_nt "\\x";;
+- : string = "\\??\\C:\\x"
+
+# to_nt "c:x";;
+- : string = "\\??\\C:\\cwd\\dir\\x"
+
+# to_nt "D:x";;
+- : string = "\\??\\D:\\x"
+
+# to_nt "\\\\srv\\share\\x";;
+- : string = "\\??\\UNC\\srv\\share\\x"
+
+# to_nt "\\\\.\\pipe\\x";;
+- : string = "\\??\\pipe\\x"
+```
+
+The NT namespace does no normalisation, so Win32's is applied first:
+
+```ocaml
+# to_nt "C:/a/./b//c/";;
+- : string = "\\??\\C:\\a\\b\\c"
+
+# to_nt "C:\\a\\..\\..\\b";;
+- : string = "\\??\\C:\\b"
+
+# to_nt "a\\..\\..\\b";;
+- : string = "\\??\\C:\\cwd\\b"
+```
+
+Verbatim and NT paths only have their prefix changed:
+
+```ocaml
+# to_nt "\\\\?\\C:\\a\\..\\b";;
+- : string = "\\??\\C:\\a\\..\\b"
+
+# to_nt "\\\\?\\UNC\\srv\\share\\x";;
+- : string = "\\??\\UNC\\srv\\share\\x"
+
+# to_nt "\\??\\C:\\a/b";;
+- : string = "\\??\\C:\\a/b"
 ```
 
 # Mkdirs
@@ -1481,5 +1547,66 @@ Exception: Failure "Simulated error".
 +"" / "" = ""
 +"" / "bar" = "bar"
 +"/" / "" = "/"
+- : unit = ()
+```
+
+# Importing files from FDs
+
+```ocaml
+# run ~clear:["unix-file"] @@ fun env ->
+  let path = env#cwd / "unix-file" in
+  Switch.run (fun sw ->
+     Unix.openfile (Eio.Path.native_exn path) [O_CREAT; O_RDWR] 0o600
+     |> Eio_unix.File.import_rw ~sw ~close_unix:true
+     |> Eio.Flow.copy_string "test-data"
+  );
+  Switch.run (fun sw ->
+     let file =
+       Unix.openfile (Eio.Path.native_exn path) [O_RDONLY] 0
+       |> Eio_unix.File.import_ro ~sw ~close_unix:true
+     in
+     let buf = Cstruct.create 6 in
+     Eio.File.pread_exact file ~file_offset:(Optint.Int63.of_int 1) [buf];
+     Cstruct.to_string buf
+  );;
+- : string = "est-da"
+```
+
+# Following symlinks
+
+```ocaml
+# run ~clear:["dir1"; "link1"] @@ fun env ->
+  let dir1 = env#cwd / "dir1" in
+  let link1 = env#cwd / "link1" in
+  Path.mkdir dir1 ~perm:0o700;
+  Path.symlink link1 ~link_to:"dir1";
+  let file = dir1 / "file" in
+  let link2 = link1 / "link" in
+  Path.save file "data1" ~create:(`Exclusive 0o600);
+  Path.symlink link2 ~link_to:"file";
+  try_write_file ~create:`Never file "data2";
+  try_write_file ~create:`Never (link1 / "file") "data3";
+  try_write_file ~create:`Never link2 "data4";
+  try_write_file ~follow:false ~create:`Never file "data2";
+  try_write_file ~follow:false ~create:`Never (link1 / "file") "data3";
+  try_write_file ~follow:false ~create:`Never link2 "data4";
+  try_read_file file;
+  try_read_file (link1 / "file");
+  try_read_file link2;
+  try_read_file ~follow:false file;
+  try_read_file ~follow:false (link1 / "file");
+  try_read_file ~follow:false link2;
++write <cwd:dir1/file> -> ok
++write <cwd:link1/file> -> ok
++write <cwd:link1/link> -> ok
++write <cwd:dir1/file> -> ok (no-follow)
++write <cwd:link1/file> -> ok (no-follow)
++Eio.Io Fs Symlink, opening <cwd:link1/link> (no-follow)
++read <cwd:dir1/file> -> "data3"
++read <cwd:link1/file> -> "data3"
++read <cwd:link1/link> -> "data3"
++read <cwd:dir1/file> -> "data3" (no-follow)
++read <cwd:link1/file> -> "data3" (no-follow)
++Eio.Io Fs Symlink, opening <cwd:link1/link> (no-follow)
 - : unit = ()
 ```

@@ -672,6 +672,11 @@ module Bytes = struct
     let make ?(pos = 0) ?(slice_length = Slice.default_length) write =
       { pos; slice_length = Slice.check_length slice_length; write }
 
+    let make' ?pos ?slice_length write =
+      let w = make ?pos ?slice_length (fun _ -> ()) in
+      let write slice = write w slice in
+      w.write <- write; w
+
     let[@inline][@zero_alloc] (pos @ portable) (w @ local) = w.pos
     let[@inline][@zero_alloc] slice_length (w @ local) = w.slice_length
     let[@inline][@zero_alloc] (written_length @ portable) (w @ local) = w.pos
@@ -691,6 +696,7 @@ module Bytes = struct
       let write = w.write in
       let n = Slice.length slice in
       (if n = 0 then w.write <- write_only_eod);
+      (* Note some functions rely on that order *)
       w.pos <- w.pos + n; write slice
 
     let write_eod w = write w (Slice.eod_value ())
@@ -792,9 +798,12 @@ module Bytes = struct
           left := !left - slen;
           if !left >= 0 then write w slice else
           begin
-            (match Slice.take_first (slen + !left) slice with
+            let n = slen + !left in
+            (match Slice.take_first n slice with
             | None -> () | Some s -> write w s);
             if eod then write_eod w;
+            (* Adjust the position made by [write w slice] *)
+            lw.pos <- lw.pos - slen + n;
             lw.write <- write_only_eod;
             triggered := true;
             action w n

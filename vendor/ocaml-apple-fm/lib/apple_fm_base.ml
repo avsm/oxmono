@@ -286,81 +286,81 @@ module Schema = struct
     | Document { root; _ } -> node_wire root
 
   let node_jsont =
-    let rec self =
-      lazy
-        (let node = Jsont.rec_legacy self in
-         let integer_bound =
-           Jsont.map Jsont.int ~enc:(function
-             | Integer_bound value -> value
-             | Number_bound _ -> assert false)
-         in
-         let number_bound =
-           Jsont.map Jsont.number ~enc:(function
-             | Number_bound value -> value
-             | Integer_bound _ -> assert false)
-         in
-         let bound =
-           Jsont.any ~kind:"schema bound"
-             ~enc:(function
-               | Integer_bound _ -> integer_bound
-               | Number_bound _ -> number_bound)
-             ()
-         in
-         let string_choices =
-           Jsont.map (Jsont.list Jsont.string) ~enc:(function
-             | String_choices values -> values
-             | Schema_choices _ -> assert false)
-         in
-         let schema_choices =
-           Jsont.map (Jsont.list node) ~enc:(function
-             | Schema_choices values -> values
-             | String_choices _ -> assert false)
-         in
-         let choices =
-           Jsont.any ~kind:"schema choices"
-             ~enc:(function
-               | String_choices _ -> string_choices
-               | Schema_choices _ -> schema_choices)
-             ()
-         in
-         let property =
-           Jsont.Object.enc_only ~kind:"schema property" ()
-           |> Jsont.Object.mem "name" Jsont.string
-                ~enc:(fun (property : property) -> property.name)
-           |> Jsont.Object.mem "optional" Jsont.bool
-                ~enc:(fun (property : property) -> property.optional)
-           |> Jsont.Object.mem "schema" node ~enc:(fun (property : property) ->
-                  property.schema)
-           |> Jsont.Object.opt_mem "description" Jsont.string
-                ~enc:(fun (property : property) -> property.description)
-           |> Jsont.Object.finish
-         in
-         Jsont.Object.enc_only ~kind:"schema" ()
-         |> Jsont.Object.mem "type" Jsont.string ~enc:(fun wire -> wire.kind)
-         |> Jsont.Object.opt_mem "constant" Jsont.string ~enc:(fun wire ->
-                wire.constant)
-         |> Jsont.Object.opt_mem "choices" choices ~enc:(fun wire ->
-                wire.choices)
-         |> Jsont.Object.opt_mem "pattern" Jsont.string ~enc:(fun wire ->
-                wire.pattern)
-         |> Jsont.Object.opt_mem "minimum" bound ~enc:(fun wire -> wire.minimum)
-         |> Jsont.Object.opt_mem "maximum" bound ~enc:(fun wire -> wire.maximum)
-         |> Jsont.Object.opt_mem "items" node ~enc:(fun wire -> wire.items)
-         |> Jsont.Object.opt_mem "minimum_items" Jsont.int ~enc:(fun wire ->
-                wire.minimum_items)
-         |> Jsont.Object.opt_mem "maximum_items" Jsont.int ~enc:(fun wire ->
-                wire.maximum_items)
-         |> Jsont.Object.opt_mem "name" Jsont.string ~enc:(fun wire ->
-                wire.name)
-         |> Jsont.Object.opt_mem "explicit_null" Jsont.bool ~enc:(fun wire ->
-                wire.explicit_null)
-         |> Jsont.Object.opt_mem "properties" (Jsont.list property)
-              ~enc:(fun wire -> wire.properties)
-         |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun wire ->
-                wire.description)
-         |> Jsont.Object.finish |> Jsont.map ~enc:node_wire)
+    let self =
+      Jsont.Portable_lazy.from_fun_fixed (fun self ->
+          let node = Jsont.rec' self in
+          let integer_bound =
+            Jsont.map Jsont.int ~enc:(function
+              | Integer_bound value -> value
+              | Number_bound _ -> assert false)
+          in
+          let number_bound =
+            Jsont.map Jsont.number ~enc:(function
+              | Number_bound value -> value
+              | Integer_bound _ -> assert false)
+          in
+          let bound =
+            Jsont.any ~kind:"schema bound"
+              ~enc:(function
+                | Integer_bound _ -> integer_bound
+                | Number_bound _ -> number_bound)
+              ()
+          in
+          let string_choices =
+            Jsont.map (Jsont.list Jsont.string) ~enc:(function
+              | String_choices values -> values
+              | Schema_choices _ -> assert false)
+          in
+          let schema_choices =
+            Jsont.map (Jsont.list node) ~enc:(function
+              | Schema_choices values -> values
+              | String_choices _ -> assert false)
+          in
+          let choices =
+            Jsont.any ~kind:"schema choices"
+              ~enc:(function
+                | String_choices _ -> string_choices
+                | Schema_choices _ -> schema_choices)
+              ()
+          in
+          let property =
+            Jsont.Object.enc_only ~kind:"schema property" ()
+            |> Jsont.Object.mem "name" Jsont.string
+                 ~enc:(fun (property : property) -> property.name)
+            |> Jsont.Object.mem "optional" Jsont.bool
+                 ~enc:(fun (property : property) -> property.optional)
+            |> Jsont.Object.mem "schema" node ~enc:(fun (property : property) ->
+                   property.schema)
+            |> Jsont.Object.opt_mem "description" Jsont.string
+                 ~enc:(fun (property : property) -> property.description)
+            |> Jsont.Object.finish
+          in
+          Jsont.Object.enc_only ~kind:"schema" ()
+          |> Jsont.Object.mem "type" Jsont.string ~enc:(fun wire -> wire.kind)
+          |> Jsont.Object.opt_mem "constant" Jsont.string ~enc:(fun wire ->
+                 wire.constant)
+          |> Jsont.Object.opt_mem "choices" choices ~enc:(fun wire ->
+                 wire.choices)
+          |> Jsont.Object.opt_mem "pattern" Jsont.string ~enc:(fun wire ->
+                 wire.pattern)
+          |> Jsont.Object.opt_mem "minimum" bound ~enc:(fun wire -> wire.minimum)
+          |> Jsont.Object.opt_mem "maximum" bound ~enc:(fun wire -> wire.maximum)
+          |> Jsont.Object.opt_mem "items" node ~enc:(fun wire -> wire.items)
+          |> Jsont.Object.opt_mem "minimum_items" Jsont.int ~enc:(fun wire ->
+                 wire.minimum_items)
+          |> Jsont.Object.opt_mem "maximum_items" Jsont.int ~enc:(fun wire ->
+                 wire.maximum_items)
+          |> Jsont.Object.opt_mem "name" Jsont.string ~enc:(fun wire ->
+                 wire.name)
+          |> Jsont.Object.opt_mem "explicit_null" Jsont.bool ~enc:(fun wire ->
+                 wire.explicit_null)
+          |> Jsont.Object.opt_mem "properties" (Jsont.list property)
+               ~enc:(fun wire -> wire.properties)
+          |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun wire ->
+                 wire.description)
+          |> Jsont.Object.finish |> Jsont.map ~enc:node_wire)
     in
-    Jsont.rec_legacy self
+    Jsont.rec' self
 
   let document_jsont =
     Jsont.Object.enc_only ~kind:"schema document" ()
@@ -514,8 +514,8 @@ module Codec = struct
   type 'b case =
     | Case : {
         value : 'a value;
-        inject : 'a -> 'b;
-        project : 'b -> 'a option;
+        inject : ('a -> 'b) @@ portable;
+        project : ('b -> 'a option) @@ portable;
       }
         -> 'b case
 
@@ -583,23 +583,28 @@ module Codec = struct
   let recursive ~name define =
     if not (Schema.valid_name name) then
       invalid_arg "Codec.recursive: invalid schema name";
-    let rec reference =
-      lazy
-        {
-          jsont = Jsont.rec_legacy definition_jsont;
-          schema = Schema.reference name;
-          dependencies = [];
-        }
-    and definition = lazy (define (Lazy.force reference))
-    and definition_jsont = lazy (Lazy.force definition).jsont in
-    let reference = Lazy.force reference in
-    let definition = Lazy.force definition in
+    let definition =
+      Jsont.Portable_lazy.from_fun_fixed (fun definition ->
+          let reference =
+            {
+              jsont =
+                Jsont.rec'
+                  (Jsont.Portable_lazy.map definition ~f:(fun value ->
+                       value.jsont));
+              schema = Schema.reference name;
+              dependencies = [];
+            }
+          in
+          define reference)
+      |> Jsont.Portable_lazy.force
+    in
     if not (Schema.defines name definition.schema) then
       invalid_arg
         "Codec.recursive: the definition must be a named schema with the same \
          name";
     {
-      reference with
+      jsont = definition.jsont;
+      schema = Schema.reference name;
       dependencies = definition.schema :: definition.dependencies;
     }
 

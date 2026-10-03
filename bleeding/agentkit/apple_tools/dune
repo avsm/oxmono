@@ -2,6 +2,4 @@
  (name agentkit_apple_tools)
  (public_name agentkit-apple-tools)
  (modes native)
- (enabled_if
-  (= %{system} macosx))
  (libraries agentkit agentkit-apple-fm apple-fm ds4 ds4.dsml eio))

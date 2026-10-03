@@ -1,12 +1,12 @@
 {
-  "verified_on": "2026-09-26",
+  "verified_on": "2026-10-03",
   "vendors": [
     {
       "name": "asn1-combinators",
       "url": "https://github.com/mirleft/ocaml-asn1-combinators.git",
       "branch": "HEAD",
-      "revision": "32b538790938211e43e8ea3d0688595a5072111e",
-      "base_version": "v0.3.2-1-g32b5387"
+      "revision": "2dc40ec4db5bad9fc0e4a45331c88a0b43d16131",
+      "base_version": "v0.3.3"
     },
     {
       "name": "base64",
@@ -19,8 +19,8 @@
       "name": "bytesrw",
       "url": "https://github.com/dbuenzli/bytesrw.git",
       "branch": "HEAD",
-      "revision": "29555bc760b7292b48397e9dd0460c9733583c48",
-      "base_version": "v0.4.0-15-g29555bc",
+      "revision": "2883530e4f2616994c710b4f3cd91beeaa26ab66",
+      "base_version": "v0.4.1-1-g2883530",
       "scope": "Core Bytesrw, formatter, hex and UTF modules from src/ at the vendor root; optional crypto, compression, random, TLS and backend libraries are omitted."
     },
     {
@@ -34,15 +34,15 @@
       "name": "checkseum",
       "url": "https://github.com/mirage/checkseum.git",
       "branch": "HEAD",
-      "revision": "55946864653f5a1f2018e23faac2b1ca0ee0e919",
-      "base_version": "v0.5.3-1-g5594686"
+      "revision": "fef8888d9b9a7b48d243a5f444563b0467803da6",
+      "base_version": "v0.5.3-3-gfef8888"
     },
     {
       "name": "cmarkit",
       "url": "https://erratique.ch/repos/cmarkit.git",
       "branch": "HEAD",
-      "revision": "fb09b1a234ffd4eca3fe8f2e742eddeb2d2ba92a",
-      "base_version": "v0.4.0-7-gfb09b1a",
+      "revision": "247a041aa63affa6166f0dce6efce6b157c0e803",
+      "base_version": "v0.4.0-8-g247a041",
       "scope": "Core modules directly under src/ are at the vendor root. Upstream CLI, generators and tests are omitted; Arod exercises the port."
     },
     {
@@ -57,15 +57,15 @@
       "name": "decompress",
       "url": "https://github.com/mirage/decompress.git",
       "branch": "HEAD",
-      "revision": "1b61f75864ff3fad88f6f4298df0cf2a6ed7b45f",
-      "base_version": "v1.6.0-1-g1b61f75"
+      "revision": "d0e44781ed329c7ebde7bf6dbcbe547c87554303",
+      "base_version": "v1.6.1-1-gd0e4478"
     },
     {
       "name": "digestif",
       "url": "https://github.com/mirage/digestif.git",
       "branch": "HEAD",
-      "revision": "ad75f68b2605a2a0c7e2cb6cbbbd555cbf73dac1",
-      "base_version": "v1.3.1-4-gad75f68"
+      "revision": "35e5c1ca984a80a72b4621a12fb108352f63d4eb",
+      "base_version": "v1.3.1-16-g35e5c1c"
     },
     {
       "name": "domain-name",
@@ -85,8 +85,8 @@
       "name": "eio",
       "url": "https://github.com/ocaml-multicore/eio.git",
       "branch": "HEAD",
-      "revision": "0ee73e48b566e7cd09cd3c1fc08ef1da199558b0",
-      "base_version": "v1.5-5-g0ee73e4"
+      "revision": "1fc0efa41ccfb3818b09f54feec90ec29b47f1b6",
+      "base_version": "v1.6"
     },
     {
       "name": "eqaf",
@@ -136,8 +136,8 @@
       "name": "jsonm",
       "url": "https://github.com/dbuenzli/jsonm.git",
       "branch": "HEAD",
-      "revision": "6e32959c508bba67e6e4e773ca8160b4723f3ee0",
-      "base_version": "v1.0.2",
+      "revision": "8582f4de4e4ef30705b5ac8e11586784d386fc1d",
+      "base_version": "v1.0.2-2-g8582f4d",
       "scope": "Core codec from src/, minimal Dune build. Imported release for JMAP on 2026-09-08."
     },
     {
@@ -152,8 +152,8 @@
       "name": "kdf",
       "url": "https://github.com/robur-coop/kdf.git",
       "branch": "HEAD",
-      "revision": "6200bb4d4a5ad47ffb98a7f1b7ce5a7749cc12fd",
-      "base_version": "v1.1.1"
+      "revision": "6e2cad01ef7305ba6562a1a626d77e2da130970e",
+      "base_version": "v1.1.2"
     },
     {
       "name": "lwt-dllist",
@@ -166,8 +166,8 @@
       "name": "mirage-crypto",
       "url": "https://github.com/mirage/mirage-crypto.git",
       "branch": "HEAD",
-      "revision": "1712bcb7b0b42ec3b67b3948d0e34b20beaf349b",
-      "base_version": "v2.4.1"
+      "revision": "5cf7fc9c32f67f66702801c1e1a96efd4c606b96",
+      "base_version": "v2.4.1-2-g5cf7fc9"
     },
     {
       "name": "mtime",
@@ -186,7 +186,7 @@
     },
     {
       "name": "ocaml-codec",
-      "url": "https://github.com/samoht/ocaml-codec.git",
+      "url": "git@github.com:samoht/ocaml-codec.git",
       "branch": "HEAD",
       "revision": "fd9ecc5dd4e1296cc2555c74461495e002e9683f",
       "base_version": "fd9ecc5",
@@ -247,8 +247,8 @@
       "name": "tls",
       "url": "https://github.com/mirleft/ocaml-tls.git",
       "branch": "HEAD",
-      "revision": "48a32204baed3d7664198097b8039a1ab4feeee6",
-      "base_version": "v2.1.2"
+      "revision": "5913e4c0d3235edc02e2cff3fcd67a97ac08d885",
+      "base_version": "v2.1.3-9-g5913e4c"
     },
     {
       "name": "uring",
@@ -261,16 +261,16 @@
       "name": "uunf",
       "url": "https://github.com/dbuenzli/uunf.git",
       "branch": "HEAD",
-      "revision": "90d53ea98504631e01cc76685cad1dffd3a42e5c",
-      "base_version": "v17.0.0",
-      "scope": "Released 17.0.0 core and string normalization from src/, with immutable lookup tables. Generator-only trie builders and unftrip are omitted."
+      "revision": "6cca783b3aea7cfa2432adf502a580cdee3897c7",
+      "base_version": "v18.0.0",
+      "scope": "Released 18.0.0 core and string normalization from src/, with immutable lookup tables. Generator-only trie builders and unftrip are omitted."
     },
     {
       "name": "x509",
       "url": "https://github.com/mirleft/ocaml-x509.git",
       "branch": "HEAD",
-      "revision": "308f80240005ac4cbc481255106ebb4a172d7f37",
-      "base_version": "v1.1.1-1-g308f802"
+      "revision": "6f4bacaec0454bbd8f2d89966cba3b202ef4f729",
+      "base_version": "v1.2.0-10-g6f4baca"
     },
     {
       "name": "xmlm",
@@ -290,7 +290,7 @@
     },
     {
       "name": "ocaml-ds4",
-      "url": "git@git.recoil.org:did:plc:m7yloopxm7mu43usylvfw52g",
+      "url": "https://tangled.org/anil.recoil.org/ocaml-ds4",
       "branch": "HEAD",
       "revision": "b19ad8460f0a80b913f441157c07d4ade4dd6f87",
       "base_version": "0.1.0-188-gb19ad84",
@@ -298,7 +298,7 @@
     },
     {
       "name": "ocaml-apple-fm",
-      "url": "git@git.recoil.org:did:plc:m7yloopxm7mu43usylvfw52g",
+      "url": "https://tangled.org/anil.recoil.org/ocaml-apple-fm",
       "branch": "HEAD",
       "revision": "f9c546ec406de09c2ab428d78d8bc1bddcce4b1c",
       "base_version": "f9c546e",

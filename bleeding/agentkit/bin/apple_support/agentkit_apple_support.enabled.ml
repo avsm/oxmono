@@ -1,4 +1,4 @@
-let available = true
+let available = Apple_fm.Availability.get () = `Available
 
 let models () =
   [ { Agentkit.Driver.name = "default"; description = "Apple system model" } ]

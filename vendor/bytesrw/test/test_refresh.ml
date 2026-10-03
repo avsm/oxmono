@@ -19,4 +19,19 @@ let () =
   B.Writer.write_eod limited;
   assert (!calls = 1);
   assert (Buffer.contents output = "");
+  assert (B.Writer.pos limited = 0);
+  let output = Buffer.create 8 in
+  let limited = B.Writer.limit ~action:(fun _ _ -> ()) 2 ~eod:false
+      (B.Writer.of_buffer output) in
+  B.Writer.write_string limited "1234";
+  assert (Buffer.contents output = "12");
+  assert (B.Writer.pos limited = 2);
+  assert (B.Writer.written_length limited = 2);
+  let positions = ref [] in
+  let writer = B.Writer.make' ~pos:7 (fun writer slice ->
+      positions := (B.Writer.pos writer, B.Slice.length slice) :: !positions)
+  in
+  B.Writer.write_string writer "data";
+  B.Writer.write_eod writer;
+  assert (List.rev !positions = [11, 4; 11, 0]);
   print_endline "Bytesrw upstream boundary regressions passed"

@@ -971,15 +971,15 @@ let with_faulting_writes ?collisions
   let module Faulting_dir = struct
     include Dir
 
-    let open_out state ~sw ~append ~create path =
+    let open_out state ~sw ~follow ~append ~create path =
       Option.iter
         (fun attempts ->
           incr attempts;
-          let file = Dir.open_out state ~sw ~append ~create path in
+          let file = Dir.open_out state ~sw ~follow ~append ~create path in
           Eio.Flow.copy_string "collision" file;
           Eio.Resource.close file)
         collisions;
-      let file = Dir.open_out state ~sw ~append ~create path in
+      let file = Dir.open_out state ~sw ~follow ~append ~create path in
       match !write_fault with
       | None -> file
       | Some _ ->

@@ -1,9 +1,17 @@
-> Refreshed to the upstream branch tip recorded in [../upstreams.json](../upstreams.json) on 2026-09-07. The import and port notes below include historical release numbers; the manifest records the current base.
+# Bytesrw 0.4.1 for OxCaml
 
-# Bytesrw 0.4.0 for OxCaml
+## Vendored base (2026-10-03)
 
-This directory is based on upstream Bytesrw `v0.4.0`, commit
-`6f2931e63b47ab854475f0759c38ceb6b689ef91`. It vendors the four pure-OCaml
+Based on `v0.4.1-1-g2883530`, commit
+`2883530e4f2616994c710b4f3cd91beeaa26ab66`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh adds `Writer.make'` and corrects limited writers' final positions.
+The formatter ellipsis fix is now upstream. Local slice lifetimes, allocation
+contracts, portable operations, empty-slice formatting and one-shot limit
+actions are retained. Optional upstream sublibraries remain excluded.
+
+This directory vendors the four pure-OCaml
 top-level modules `Bytesrw`, `Bytesrw_fmt`, `Bytesrw_utf`, and `Bytesrw_hex`.
 Optional compression, hashing, cryptography, Unix, sysrandom, and command-line
 sublibraries are not included.
@@ -17,8 +25,8 @@ The existing port keeps byte-slice inputs at `local` where they are only
 borrowed, marks verified accessors `zero_alloc`, uses `exclave_` for local slice
 construction, and replaces closure-captured references in hot loops with
 `let mutable`. `Bytesrw_utf` also uses an unboxed `char#` helper. The slice
-formatters retain the local fix that prints a truncation ellipsis correctly for
-slices whose first offset is not zero.
+formatters use the upstream ellipsis fix and retain the local empty-slice fix
+for slices whose first offset is not zero.
 
 The portable surface is intentionally selective. The operations needed to
 construct and run Jsont and Httpz media streams are portable, including slice
@@ -44,9 +52,8 @@ storage cannot be modified. The singleton is promoted once with
 ## Upstream behaviour
 
 Bytesrw 0.4.0 already contains the upstream fixes for comparing a slice's last
-byte and for `Reader.of_slice` with a non-zero starting offset. The local
-formatter-offset fix remains a behavioural delta and is covered by the Httpz
-Bytesrw tests.
+byte and for `Reader.of_slice` with a non-zero starting offset. The formatter-offset fix is included upstream as of 0.4.1 and remains
+covered by the Httpz Bytesrw tests.
 
 ## Validation
 

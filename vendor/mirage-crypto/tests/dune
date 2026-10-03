@@ -10,6 +10,18 @@
  (package mirage-crypto)
  (modules test_base test_cipher test_symmetric_runner))
 
+(executable
+ (name test_domains)
+ (modules test_domains)
+ (libraries mirage-crypto ounit2)
+ (enabled_if (>= %{ocaml_version} 5.0.0)))
+
+(rule
+ (alias runtest)
+ (package mirage-crypto)
+ (enabled_if (>= %{ocaml_version} 5.0.0))
+ (action (run %{exe:test_domains.exe})))
+
 (test
  (name test_random_runner)
  (libraries test_common mirage-crypto mirage-crypto-rng mirage-crypto-rng.unix
@@ -58,7 +70,7 @@
    ecdsa_secp384r1_sha384_test.json ecdsa_secp384r1_sha512_test.json
    ecdh_secp521r1_test.json ecdsa_secp521r1_sha512_test.json
    x25519_test.json eddsa_test.json)
- (libraries alcotest mirage-crypto-ec wycheproof digestif asn1-combinators)
+ (libraries alcotest mirage-crypto-ec digestif asn1-combinators jsont jsont.bytesrw bos ohex)
  (package mirage-crypto-ec))
 
 ;(tests

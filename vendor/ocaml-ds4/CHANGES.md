@@ -1,5 +1,7 @@
 # unreleased
 
+- Let `ds4.metal` link on non-macOS platforms and raise when the engine is used.
+
 - Tool codecs gain composable objects, bounded arrays, optional parameters, and
   canonical argument encoding. Tools also gain safer handlers and formatters.
 

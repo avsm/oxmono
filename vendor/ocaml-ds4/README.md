@@ -9,6 +9,10 @@ Requires OCaml 5. Metal needs macOS on Apple Silicon and the Xcode Metal
 toolchain; CUDA needs Linux and the CUDA toolkit. Downloading a model needs
 [`uv`](https://github.com/astral-sh/uv) or `hf` on your `PATH`.
 
+The `ds4.metal` library also links on non-macOS platforms. Its engine calls
+raise `Failure` with a message that Metal requires macOS. Pure helpers remain
+usable. Link `ds4.cpu` to run inference without Metal.
+
 ## Commands
 
 `ds4-agent` is built once per backend:
@@ -201,6 +205,11 @@ See [ARCH.md](ARCH.md) for the repository layout, the vendored engine and how to
 update it, the FFI, and how to quantise a DeepSeek release yourself.
 
 ## Local patches in oxmono
+
+- `lib_metal_unsupported` supplies `ds4.metal` on non-macOS systems. It keeps
+  the primitive signatures from `csrc/ds4_stubs.c` but raises on engine calls.
+  When updating the FFI, update both sets of signatures and run Agentkit's
+  `test_core` alias, which checks that repeated failed opens remain safe.
 
 - `Tool.raw` in `lib/tool.ml` and `lib/tool.mli` wraps a tool that already has
   a JSON schema and a string handler. `Agentkit_ds4` uses it to run Agentkit's

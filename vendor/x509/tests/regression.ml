@@ -11,13 +11,13 @@ let mmap file =
 let regression file =
   mmap ("./regression/" ^ file ^ ".pem")
 
-let cert file =
+let read_cert file =
   match Certificate.decode_pem (regression file) with
   | Ok cert -> cert
   | Error (`Msg m) -> Alcotest.failf "certificate %s decoding error %s" file m
 
-let jc = cert "jabber.ccc.de"
-let cacert = cert "cacert"
+let jc = read_cert "jabber.ccc.de"
+let cacert = read_cert "cacert"
 
 let time () = None
 
@@ -40,8 +40,8 @@ let test_jc_ca_all_hashes () =
   | Ok _ -> ()
   | _ -> Alcotest.fail "something went wrong with jc_ca"
 
-let telesec = cert "telesec"
-let jfd = [ cert "jabber.fu-berlin.de" ; cert "fu-berlin" ; cert "dfn" ]
+let telesec = read_cert "telesec"
+let jfd = [ read_cert "jabber.fu-berlin.de" ; read_cert "fu-berlin" ; read_cert "dfn" ]
 
 let test_jfd_ca () =
   match Validation.verify_chain_of_trust ~host:(host "jabber.fu-berlin.de") ~time ~anchors:[telesec] (jfd@[telesec]) with
@@ -54,7 +54,7 @@ let test_jfd_ca' () =
   | _ -> Alcotest.fail "something went wrong with jfd_ca'"
 
 let test_izenpe () =
-  let crt = cert "izenpe" in
+  let crt = read_cert "izenpe" in
   let _, san = Extension.(get Subject_alt_name (Certificate.extensions crt)) in
   Alcotest.(check int "two SAN (mail + dir)" 2 (General_name.cardinal san));
   Alcotest.(check (list string) "mail in SAN is correct" [ "info@izenpe.com" ]
@@ -66,35 +66,72 @@ let test_izenpe () =
   Alcotest.(check string "directory in SAN is correct" expected data)
 
 let test_name_constraints () =
-  ignore (cert "name-constraints")
+  ignore (read_cert "name-constraints")
+
+let dn_ok description = function
+  | Ok value -> value
+  | Error (`Msg message) -> Alcotest.failf "%s: %s" description message
+
+let dn_error description = function
+  | Error (`Msg _) -> ()
+  | Ok _ -> Alcotest.failf "%s: expected rejection" description
 
 let check_dn =
   (module Distinguished_name: Alcotest.TESTABLE with type t = Distinguished_name.t)
 
 let test_distinguished_name () =
   let open Distinguished_name in
-  let crt = cert "PostaCARoot" in
+  let crt = read_cert "PostaCARoot" in
   let expected = [
-    Relative_distinguished_name.singleton (DC "rs") ;
-    Relative_distinguished_name.singleton (DC "posta") ;
-    Relative_distinguished_name.singleton (DC "ca") ;
-    Relative_distinguished_name.singleton (CN "Configuration") ;
-    Relative_distinguished_name.singleton (CN "Services") ;
-    Relative_distinguished_name.singleton (CN "Public Key Services") ;
-    Relative_distinguished_name.singleton (CN "AIA") ;
-    Relative_distinguished_name.singleton (CN "Posta CA Root")
+    Relative_distinguished_name.singleton (DC (Encoded_string.of_string ~encoding:`IA5 "rs")) ;
+    Relative_distinguished_name.singleton (DC (Encoded_string.of_string ~encoding:`IA5 "posta")) ;
+    Relative_distinguished_name.singleton (DC (Encoded_string.of_string ~encoding:`IA5 "ca")) ;
+    Relative_distinguished_name.singleton (CN (Common_name.v ~encoding:`Printable "Configuration")) ;
+    Relative_distinguished_name.singleton (CN (Common_name.v ~encoding:`Printable "Services")) ;
+    Relative_distinguished_name.singleton (CN (Common_name.v ~encoding:`Printable "Public Key Services")) ;
+    Relative_distinguished_name.singleton (CN (Common_name.v ~encoding:`Printable "AIA")) ;
+    Relative_distinguished_name.singleton (CN (Common_name.v ~encoding:`Printable "Posta CA Root"))
   ] in
   Alcotest.(check check_dn "complex issuer is good"
               expected (Certificate.issuer crt)) ;
   Alcotest.(check check_dn "complex subject is good"
               expected (Certificate.subject crt))
 
+let test_common_name_lookup () =
+  let open Distinguished_name in
+  let rdn = Relative_distinguished_name.of_list in
+  let check description expected name =
+    Alcotest.(check (option string) description expected
+                (Option.map Common_name.to_string (common_name name)))
+  in
+  let attributes = [
+    CN (Common_name.v "a.example");
+    O (Organization_name.v "Example");
+    OU (Organizational_unit_name.v "Unit");
+    L (Locality_name.v "London")
+  ] in
+  List.iter (fun attributes ->
+      let set = List.fold_left (fun set attribute ->
+          Relative_distinguished_name.add attribute set)
+          Relative_distinguished_name.empty attributes in
+      check "CN in a multi-valued RDN" (Some "a.example") [set])
+    [attributes; List.rev attributes];
+  check "empty name" None [];
+  check "empty RDN" None [rdn []];
+  check "no CN" None [rdn [O (Organization_name.v "Example")]];
+  check "most specific CN" (Some "b")
+    [rdn [CN (Common_name.v "a")]; rdn [CN (Common_name.v "b")];
+     rdn [O (Organization_name.v "Example")]];
+  check "multiple CN values" (Some "a")
+    [rdn [CN (Common_name.v "z"); CN (Common_name.v "a")]]
+
 let test_distinguished_name_pp () =
   let module Dn = struct
     include Distinguished_name
-    let cn s = Relative_distinguished_name.singleton (CN s)
-    let o s = Relative_distinguished_name.singleton (O s)
-    let initials s = Relative_distinguished_name.singleton (Initials s)
+    let cn s = Relative_distinguished_name.singleton (CN (Common_name.v s))
+    let o s = Relative_distinguished_name.singleton (O (Organization_name.v s))
+    let initials s =
+      Relative_distinguished_name.singleton (Initials (Personal_name.v s))
     let (+) = Relative_distinguished_name.union
   end in
   let dn1 = "DN1", Dn.[o "Blanc";
@@ -120,8 +157,200 @@ let test_distinguished_name_pp () =
   check pp4 dn2 {|/O=\ Escapist/CN=\# 2/CN=\ \"\+,;\/\<\>\\ \ |} ;
   check pp5 dn1 "CN=John Doe+\nInitials=J.D.+\nInitials=N.N.,\nO=Blanc"
 
+let decode_name der =
+  match Distinguished_name.decode_der der with
+  | Ok dn -> dn
+  | Error (`Msg msg) -> Alcotest.failf "name decoding error: %s" msg
+
+let test_encoded_name_roundtrip () =
+  let open Distinguished_name in
+  (* These are content octets, not text passed through a tag-specific encoder.
+     In particular, A is two bytes in BMPString and four in UniversalString. *)
+  List.iter (fun (encoding, octets, hex) ->
+      let der = Ohex.decode hex in
+      let dn = decode_name der in
+      Alcotest.(check string "name DER" der (encode_der dn)) ;
+      match common_name dn with
+      | None -> Alcotest.fail "missing CN"
+      | Some value ->
+        Alcotest.(check string "CN content octets" octets
+                    (Common_name.to_string value)) ;
+        Alcotest.(check bool ("CN tag in " ^ hex) true
+                    (encoding = Encoded_string.encoding (Common_name.encoded value))))
+    [ `UTF8, "A", "300c310a300806035504030c0141" ;
+      `UTF8, "\xc3\xa9", "300d310b300906035504030c02c3a9" ;
+      `Printable, "A", "300c310a30080603550403130141" ;
+      `Teletex, "A", "300c310a30080603550403140141" ;
+      `Universal, "\x00\x00\x00A", "300f310d300b06035504031c0400000041" ;
+      `BMP, "\x00A", "300d310b300906035504031e020041" ] ;
+  dn_error "IA5String is not a DirectoryString"
+    (decode_der (Ohex.decode "300c310a30080603550403160141")) ;
+  let fresh = [Relative_distinguished_name.singleton
+                 (CN (Common_name.v "A"))] in
+  Alcotest.(check string "fresh CN defaults to UTF8String"
+              (Ohex.decode "300c310a300806035504030c0141") (encode_der fresh))
+
+(* DER fixtures are assembled independently of the library's name encoder. *)
+let der_tlv tag contents =
+  let octet n = String.make 1 (Char.chr n) in
+  let length = String.length contents in
+  assert (length < 128) ;
+  octet tag ^ octet length ^ contents
+
+let attribute_der oid tag octets =
+  der_tlv 0x30 (der_tlv 0x31
+      (der_tlv 0x30 (der_tlv 0x06 (Ohex.decode oid) ^ der_tlv tag octets)))
+
+let directory_attributes =
+  let open Distinguished_name in
+  [ "CN", "550403", (fun ?encoding x -> CN (Common_name.v ?encoding x)) ;
+    "L", "550407", (fun ?encoding x -> L (Locality_name.v ?encoding x)) ;
+    "ST", "550408", (fun ?encoding x -> ST (State_or_province_name.v ?encoding x)) ;
+    "O", "55040a", (fun ?encoding x -> O (Organization_name.v ?encoding x)) ;
+    "OU", "55040b", (fun ?encoding x -> OU (Organizational_unit_name.v ?encoding x)) ;
+    "T", "55040c", (fun ?encoding x -> T (Title.v ?encoding x)) ;
+    "Given_name", "55042a", (fun ?encoding x -> Given_name (Personal_name.v ?encoding x)) ;
+    "Surname", "550404", (fun ?encoding x -> Surname (Personal_name.v ?encoding x)) ;
+    "Initials", "55042b", (fun ?encoding x -> Initials (Personal_name.v ?encoding x)) ;
+    "Pseudonym", "550441", (fun ?encoding x -> Pseudonym (Pseudonym.v ?encoding x)) ;
+    "Generation", "55042c", (fun ?encoding x -> Generation (Personal_name.v ?encoding x)) ;
+    "Street", "550409", (fun ?encoding x -> Street (Street_address.v ?encoding x)) ;
+    "Userid", "0992268993f22c640101", (fun ?encoding x -> Userid (User_id.v ?encoding x)) ]
+
+let test_attribute_encodings () =
+  let open Distinguished_name in
+  let check_attribute description oid tag octets attribute =
+    let der = attribute_der oid tag octets in
+    let expected = [Relative_distinguished_name.singleton attribute] in
+    let decoded = decode_name der in
+    Alcotest.(check string (description ^ ": constructed DER") der (encode_der expected)) ;
+    Alcotest.(check string (description ^ ": parsed DER") der (encode_der decoded))
+  in
+  (* BMPString is permitted for DirectoryString attributes, not fixed-string schemas. *)
+  List.iter (fun (description, oid, attribute) ->
+      check_attribute description oid 0x0c "A" (attribute ?encoding:None "A") ;
+      check_attribute description oid 0x1e "\x00A" (attribute ?encoding:(Some `BMP) "\x00A"))
+    directory_attributes ;
+  let fixed = [
+    "Serialnumber", "550405", 0x13, "A", Serialnumber (Serial_number.v "A") ;
+    "C", "550406", 0x13, "GB", C (Country_name.v "GB") ;
+    "DNQ", "55042e", 0x13, "A", DNQ (Encoded_string.of_string ~encoding:`Printable "A") ;
+    "Mail", "2a864886f70d010901", 0x16, "a@example.com", Mail (Email_address.v "a@example.com") ;
+    "DC", "0992268993f22c640119", 0x16, "A", DC (Encoded_string.of_string ~encoding:`IA5 "A")
+  ] in
+  List.iter (fun (description, oid, tag, octets, attribute) ->
+      check_attribute description oid tag octets attribute)
+    fixed ;
+  dn_error "Country requires PrintableString"
+    (decode_der (attribute_der "550406" 0x0c "GB")) ;
+  dn_error "Mail requires IA5String"
+    (decode_der (attribute_der "2a864886f70d010901" 0x13 "A"))
+
+let test_other_attributes () =
+  let open Distinguished_name in
+  let other_oid = Asn.OID.(base 1 2 <| 3 <| 4) in
+  let known_oids =
+    List.map (fun arc -> Asn.OID.(base 2 5 <| 4 <| arc), `Printable)
+      [3; 5; 6; 7; 8; 10; 11; 12; 46; 42; 4; 43; 65; 44; 9] @
+    Asn.OID.[(base 1 2 <| 840 <| 113549 <| 1 <| 9 <| 1), `IA5 ;
+             (base 0 9 <| 2342 <| 19200300 <| 100 <| 1 <| 25), `IA5 ;
+             (base 0 9 <| 2342 <| 19200300 <| 100 <| 1 <| 1), `Printable]
+  in
+  List.iter (fun (oid, encoding) ->
+      let value = Encoded_string.of_string ~encoding "GB" in
+      dn_error (Fmt.str "known OID %a cannot use Other" Asn.OID.pp oid)
+        (Other_attribute.create oid value))
+    known_oids ;
+  List.iter (fun (encoding, tag, octets) ->
+      let value = Encoded_string.of_string ~encoding octets in
+      let other = dn_ok "unknown attribute" (Other_attribute.create other_oid value) in
+      let name = [Relative_distinguished_name.singleton (Other other)] in
+      let der = attribute_der "2a0304" tag octets in
+      let decoded = decode_name der in
+      Alcotest.(check string "Other independently constructed DER" der (encode_der name)) ;
+      Alcotest.(check string "Other DER roundtrip" der (encode_der decoded)))
+    [ `UTF8, 0x0c, "\xc3\xa9" ;
+      `Printable, 0x13, "A" ;
+      `IA5, 0x16, "@_" ;
+      `Teletex, 0x14, "A" ;
+      `Universal, 0x1c, "\x00\x00\x00A" ;
+      `BMP, 0x1e, "\x00A" ]
+
+let test_name_matching_and_storage () =
+  let open Distinguished_name in
+  let cn ?encoding text = CN (Common_name.v ?encoding text) in
+  let name attr = [Relative_distinguished_name.singleton attr] in
+  let rdn attributes = [Relative_distinguished_name.of_list attributes] in
+  let check description expected a b =
+    Alcotest.(check bool description expected (matches a b));
+    Alcotest.(check bool (description ^ " (reverse)") expected (matches b a))
+  in
+  let utf8 = cn "A" and printable = cn ~encoding:`Printable "A" in
+  Alcotest.(check bool "equal distinguishes string tags" false
+              (Distinguished_name.equal (name utf8) (name printable)));
+  check "PrintableString and UTF8String" true (name utf8) (name printable);
+  check "same bytes, different Unicode text" false
+    (name (cn "AB")) (name (cn ~encoding:`BMP "AB"));
+  let bmp = name (cn ~encoding:`BMP "\x00A") in
+  check "identical BMPString" true bmp bmp;
+  check "legacy tags must agree" false (name utf8) (name (cn ~encoding:`Teletex "A"));
+  check "case is not folded" false (name utf8) (name (cn "a"));
+  check "spaces are not normalized" false (name utf8) (name (cn " A "));
+  let mixed_der = Ohex.decode "30163114300806035504030c014130080603550403130141" in
+  let mixed = decode_name mixed_der in
+  Alcotest.(check string "multi-valued RDN DER" mixed_der (encode_der mixed));
+  check "attribute counts must agree" false mixed (name printable);
+  check "each matching attribute is counted" false mixed (rdn [utf8; cn "B"]);
+  check "equivalent encodings in a multi-valued RDN" true
+    (rdn [utf8; cn ~encoding:`Printable "B"])
+    (rdn [printable; cn "B"]);
+  let organization = name (O (Organization_name.v "Example")) in
+  check "RDN order matters" false (organization @ name utf8) (name utf8 @ organization);
+  check "attribute types matter" false (name utf8) (name (O (Organization_name.v "A")));
+  let oid = Asn.OID.(base 1 2 <| 3 <| 4) in
+  let other encoding = name (Other (dn_ok "other attribute"
+      (Other_attribute.create oid (Encoded_string.of_string ~encoding "A")))) in
+  check "unknown attributes require the same tag" false (other `UTF8) (other `Printable);
+  check "identical unknown attribute" true (other `UTF8) (other `UTF8)
+
+let test_crl_issuer_matching () =
+  let issuer = dn_ok "issuer" (Certificate.decode_pem (mmap "./ocsp/certificate.pem"))
+  and key = dn_ok "issuer key" (Private_key.decode_pem (mmap "./ocsp/key.pem"))
+  and leaf = dn_ok "leaf" (Certificate.decode_pem (mmap "./ocsp/test1.pem")) in
+  let name encoding = Distinguished_name.[
+      Relative_distinguished_name.singleton
+        (CN (Common_name.v ~encoding "example.com"))] in
+  Alcotest.(check check_dn "fixture issuer name" (name `UTF8) (Certificate.subject issuer));
+  let this_update, _ = Certificate.validity leaf in
+  let entry : CRL.revoked_cert =
+    { serial = Certificate.serial leaf; date = this_update; extensions = Extension.empty }
+  in
+  let revoke encoding =
+    let crl = dn_ok "create CRL"
+        (CRL.revoke ~issuer:(name encoding) ~this_update [entry] key) in
+    dn_ok "decode CRL" (CRL.decode_der (CRL.encode_der crl))
+  in
+  let printable_crl = revoke `Printable in
+  (match CRL.verify printable_crl issuer with
+   | Ok () -> ()
+   | Error error -> Alcotest.failf "PrintableString/UTF8String CRL issuer: %a"
+                      CRL.pp_verification_error error);
+  Alcotest.(check bool "matching CRL revokes the leaf" true
+              (CRL.is_revoked ~issuer ~cert:leaf [printable_crl]));
+  let legacy_crl = revoke `Teletex in
+  (match CRL.validate legacy_crl (Certificate.public_key issuer) with
+   | Ok () -> ()
+   | Error error -> Alcotest.failf "legacy CRL signature: %a"
+                      Validation.pp_signature_error error);
+  (match CRL.verify legacy_crl issuer with
+   | Error (`Issuer_subject_mismatch _) -> ()
+   | Error error -> Alcotest.failf "unexpected CRL error: %a" CRL.pp_verification_error error
+   | Ok () -> Alcotest.fail "different legacy issuer encoding matched");
+  Alcotest.(check bool "unmatched CRLs are ignored" false
+              (CRL.is_revoked ~issuer ~cert:leaf [legacy_crl]))
+
 let test_yubico () =
-  ignore (cert "yubico")
+  ignore (read_cert "yubico")
 
 let test_frac_s () =
   let file = "until_frac_s" in
@@ -233,7 +462,7 @@ let ed25519_cert () =
       Alcotest.failf "verifying 25519 ca certificate failed %a"
         Validation.pp_ca_error e
     | Ok () ->
-      match Validation.verify_chain ~host:(host "www.example.com") ~time ~anchors:[cert] [cert] with
+      match Validation.verify_chain ~host:None ~time ~anchors:[cert] [cert] with
       | Ok _ -> ()
       | Error e ->
         Alcotest.failf "verifying 25519 certificate failed %a"
@@ -260,8 +489,8 @@ let p256_key () =
   | Ok _ -> ()
 
 let ip_address () =
-  let c = cert "1.1.1.1" in
-  let ta = cert "digicert" in
+  let c = read_cert "1.1.1.1" in
+  let ta = read_cert "digicert" in
   match
     Validation.verify_chain ~ip:(Ipaddr.of_string_exn "1.1.1.1")
       ~host:None ~time:(fun () -> None) ~anchors:[ta] [c]
@@ -340,8 +569,9 @@ let ec_priv file pub_file () =
 
 let sign_with_intermediate () =
   let key () = `RSA (Mirage_crypto_pk.Rsa.generate ~bits:1024 ())
-  and name value =
-    Distinguished_name.[Relative_distinguished_name.singleton (CN value)]
+  and name ?encoding value =
+    Distinguished_name.[Relative_distinguished_name.singleton
+                          (CN (Common_name.v ?encoding value))]
   and get what = function
     | Ok value -> value
     | Error _ -> Alcotest.fail ("couldn't " ^ what)
@@ -368,20 +598,49 @@ let sign_with_intermediate () =
   and intermediate_key = key () in
   let root = sign_ca (name "root") root_key root_key (name "root") in
   let intermediate =
-    sign_ca (name "intermediate") intermediate_key root_key (Certificate.subject root)
+    sign_ca (name ~encoding:`Printable "intermediate") intermediate_key root_key
+      (Certificate.subject root)
   in
-  let request = Signing_request.create (name "leaf") (key ()) |> get "create leaf CSR" in
+  let intermediate = Certificate.decode_der (Certificate.encode_der intermediate)
+                     |> get "decode intermediate" in
+  let request = Signing_request.create (name ~encoding:`Printable "leaf.example") (key ())
+                |> get "create leaf CSR" in
+  let request = Signing_request.decode_der (Signing_request.encode_der request)
+                |> get "decode leaf CSR" in
   let leaf =
     Signing_request.sign_certificate request ~valid_from ~valid_until
       ~extensions:leaf_extensions intermediate_key intermediate |> get "sign leaf"
   in
+  let leaf = Certificate.decode_der (Certificate.encode_der leaf) |> get "decode leaf" in
+  Alcotest.(check string "intermediate subject encoding"
+              (Ohex.decode "3017311530130603550403130c696e7465726d656469617465")
+              (Distinguished_name.encode_der (Certificate.issuer leaf)));
+  Alcotest.(check string "leaf subject encoding"
+              (Ohex.decode "3017311530130603550403130c6c6561662e6578616d706c65")
+              (Distinguished_name.encode_der (Certificate.subject leaf)));
+  let hostnames = Alcotest.testable Host.Set.pp Host.Set.equal in
+  let expected = Host.Set.singleton
+      (`Strict, Domain_name.host_exn (Domain_name.of_string_exn "leaf.example")) in
+  Alcotest.check hostnames "CSR hostname fallback" expected (Signing_request.hostnames request);
   let dn = Alcotest.testable Distinguished_name.pp Distinguished_name.equal in
   Alcotest.check dn "issuer is intermediate subject"
     (Certificate.subject intermediate) (Certificate.issuer leaf);
-  match Validation.verify_chain ~host:None ~time ~anchors:[root] [leaf; intermediate] with
+  let check_chain leaf =
+    match Validation.verify_chain ~host:None ~time ~anchors:[root] [leaf; intermediate] with
+    | Ok _ -> ()
+    | Error error -> Alcotest.failf "expected chain to validate: %a"
+                       Validation.pp_chain_error error
+  in
+  check_chain leaf;
+  let mixed_leaf = Signing_request.sign request ~valid_from ~valid_until
+      ~extensions:leaf_extensions intermediate_key (name ~encoding:`UTF8 "intermediate")
+      |> get "sign mixed-encoding leaf" in
+  check_chain mixed_leaf;
+  match Validation.verify_chain_of_trust ~host:None ~time ~anchors:[root]
+          [mixed_leaf; intermediate] with
   | Ok _ -> ()
-  | Error error -> Alcotest.failf "expected chain to validate: %a"
-                     Validation.pp_chain_error error
+  | Error error -> Alcotest.failf "expected mixed-encoding path to validate: %a"
+                     Validation.pp_validation_error error
 
 let regression_tests = [
   "Sign with an intermediate CA", `Quick, sign_with_intermediate ;
@@ -393,7 +652,13 @@ let regression_tests = [
   "SAN dir explicit or implicit", `Quick, test_izenpe ;
   "name constraint parsing (DNS: .gr)", `Quick, test_name_constraints ;
   "complex distinguished name", `Quick, test_distinguished_name ;
+  "common name lookup", `Quick, test_common_name_lookup ;
   "distinguished name pp", `Quick, test_distinguished_name_pp ;
+  "encoded name roundtrip", `Quick, test_encoded_name_roundtrip ;
+  "attribute string encodings", `Quick, test_attribute_encodings ;
+  "unknown and reserved attribute OIDs", `Quick, test_other_attributes ;
+  "name matching and storage", `Quick, test_name_matching_and_storage ;
+  "CRL issuer name matching", `Quick, test_crl_issuer_matching ;
   "algorithm without null", `Quick, test_yubico ;
   "valid until generalized_time with fractional seconds", `Quick, test_frac_s ;
   "parse valid key where 1 <> d * e mod (p - 1) * (q - 1)", `Quick, test_gcloud_key ;
@@ -446,13 +711,169 @@ let host_set xs =
 
 let hostname_tests = [
   "cacert hostnames", `Quick, cert_hostnames cacert Host.Set.empty;
-  "izenpe hostnames", `Quick, cert_hostnames (cert "izenpe") (host_set ["izenpe.com"]);
+  "izenpe hostnames", `Quick, cert_hostnames (read_cert "izenpe") Host.Set.empty;
   "jabber.ccc.de hostnames", `Quick, cert_hostnames jc (host_set [ "jabber.ccc.de" ; "conference.jabber.ccc.de" ; "jabberd.jabber.ccc.de" ; "pubsub.jabber.ccc.de" ; "vjud.jabber.ccc.de" ]);
-  "jaber.fu-berlin.de hostnames", `Quick, cert_hostnames (cert "jabber.fu-berlin.de") (host_set [ "jabber.fu-berlin.de" ; "conference.jabber.fu-berlin.de" ; "proxy.jabber.fu-berlin.de" ; "echo.jabber.fu-berlin.de" ; "file.jabber.fu-berlin.de" ; "jitsi-videobridge.jabber.fu-berlin.de" ; "multicast.jabber.fu-berlin.de" ; "pubsub.jabber.fu-berlin.de" ]);
-  "pads.ccc.de hostnames", `Quick, cert_hostnames (cert "pads.ccc.de") (Host.Set.add (`Wildcard, Domain_name.(host_exn (of_string_exn "pads.ccc.de"))) (host_set ["pads.ccc.de"]));
-  "first hostnames", `Quick, cert_hostnames (cert "../testcertificates/first/first") (host_set ["foo.foobar.com"; "foobar.com"]);
+  "jaber.fu-berlin.de hostnames", `Quick, cert_hostnames (read_cert "jabber.fu-berlin.de") (host_set [ "jabber.fu-berlin.de" ; "conference.jabber.fu-berlin.de" ; "proxy.jabber.fu-berlin.de" ; "echo.jabber.fu-berlin.de" ; "file.jabber.fu-berlin.de" ; "jitsi-videobridge.jabber.fu-berlin.de" ; "multicast.jabber.fu-berlin.de" ; "pubsub.jabber.fu-berlin.de" ]);
+  "pads.ccc.de hostnames", `Quick, cert_hostnames (read_cert "pads.ccc.de") (Host.Set.add (`Wildcard, Domain_name.(host_exn (of_string_exn "pads.ccc.de"))) (host_set ["pads.ccc.de"]));
+  "first hostnames", `Quick, cert_hostnames (read_cert "first") (host_set ["foo.foobar.com"; "foobar.com"]);
   "CSR your_new_domain hostnames", `Quick, csr_hostnames (csr "your-new-domain") (host_set ["your-new-domain.com" ; "www.your-new-domain.com"]);
   "CSR your_new_domain_raw hostnames", `Quick, csr_hostnames (csr "your-new-domain-raw") (host_set ["your-new-domain.com" ; "www.your-new-domain.com"]);
   "CSR bar.com hostnames", `Quick, csr_hostnames (csr "wild-bar") (Host.Set.add (`Wildcard, Domain_name.(host_exn (of_string_exn "bar.com"))) (host_set ["your-new-domain.com" ; "www.your-new-domain.com"]));
   "CSR foo.com hostnames", `Quick, csr_hostnames (csr "wild-foo-cn") (Host.Set.singleton (`Wildcard, Domain_name.(host_exn (of_string_exn "foo.com"))));
+]
+
+let dns_subject_alt_names names =
+  let names = General_name.singleton General_name.DNS names in
+  Extension.add Extension.Subject_alt_name (false, names) Utils.leaf_exts
+
+let dns_name_constraints ~permitted ~excluded =
+  let subtrees names =
+    List.map (fun name -> General_name.B (General_name.DNS, [name]), 0, None) names
+  in
+  Extension.add Extension.Name_constraints
+    (true, (subtrees permitted, subtrees excluded)) (Utils.ca_exts ())
+
+let name_constraints_union () =
+  let now = Ptime_clock.now () in
+  let extensions =
+    dns_name_constraints ~permitted:["example.com" ; "example.net"] ~excluded:[]
+  in
+  let _, capriv = Utils.key () in
+  let ca = Utils.selfsigned ~now ~priv:capriv extensions in
+  let _, priv = Utils.key () in
+  List.iter (fun name ->
+      let example =
+        Utils.cert ~now ~ca_key:capriv ~priv ~name:(Utils.cn name) Utils.leaf_exts (Certificate.subject ca)
+      in
+      match Validation.verify_chain ~host:None ~time ~anchors:[ca] [example] with
+      | Ok _ -> ()
+      | Error _ -> Alcotest.fail "expected permitted name to validate")
+    ["www.example.com" ; "www.example.net"] ;
+  let other =
+    let extensions = Extension.(add Subject_alt_name (false, General_name.(singleton DNS ["www.other.org"])) Utils.leaf_exts) in
+    Utils.cert ~now ~ca_key:capriv ~priv ~name:(Utils.cn "www.other.org") extensions (Certificate.subject ca)
+  in
+  match Validation.verify_chain ~host:None ~time ~anchors:[ca] [other] with
+  | Error (`Msg "domain name is not permitted") -> ()
+  | Error _ -> Alcotest.fail "expected a name constraint error"
+  | Ok _ -> Alcotest.fail "expected other name to be rejected"
+
+let name_constraints_all_dns_names () =
+  let now = Ptime_clock.now () in
+  let extensions =
+    dns_name_constraints ~permitted:["example.com" ; "example.net"] ~excluded:[]
+  in
+  let _, capriv = Utils.key () in
+  let ca = Utils.selfsigned ~now ~priv:capriv extensions in
+  let _, priv = Utils.key () in
+  List.iter (fun (names, allowed) ->
+      let extensions = dns_subject_alt_names names in
+      let leaf =
+        Utils.cert ~now ~ca_key:capriv ~priv ~name:(Utils.cn "unused.invalid")
+          extensions (Certificate.subject ca)
+      in
+      match Validation.verify_chain ~host:None ~time ~anchors:[ca] [leaf], allowed with
+      | Ok _, true -> ()
+      | Error (`Msg "domain name is not permitted"), false -> ()
+      | _ -> Alcotest.failf "unexpected validation result for DNS SANs %s"
+               (String.concat ", " names))
+    [ ["www.example.com"], true ;
+      ["www.example.net"], true ;
+      ["www.example.com" ; "www.example.net"], true ;
+      ["www.example.com" ; "www.other.org"], false ]
+
+let name_constraints_excluded () =
+  let now = Ptime_clock.now () in
+  let extensions =
+    dns_name_constraints ~permitted:["example.com" ; "example.net"]
+      ~excluded:["blocked.example.com"]
+  in
+  let _, capriv = Utils.key () in
+  let ca = Utils.selfsigned ~now ~priv:capriv extensions in
+  let _, priv = Utils.key () in
+  List.iter (fun (name, allowed) ->
+      let extensions = dns_subject_alt_names [name] in
+      let leaf =
+        Utils.cert ~now ~ca_key:capriv ~priv extensions (Certificate.subject ca)
+      in
+      match Validation.verify_chain ~host:None ~time ~anchors:[ca] [leaf], allowed with
+      | Ok _, true -> ()
+      | Error (`Msg "domain name is excluded"), false -> ()
+      | _ -> Alcotest.failf "unexpected validation result for %s" name)
+    [ "www.example.com", true ;
+      "www.example.net", true ;
+      "blocked.example.com", false ;
+      "www.blocked.example.com", false ]
+
+let name_constraints_chain () =
+  let now = Ptime_clock.now () in
+  let root_extensions =
+    dns_name_constraints ~permitted:["example.com" ; "example.net"] ~excluded:[]
+  and intermediate_extensions =
+    dns_name_constraints ~permitted:["example.com" ; "example.org"] ~excluded:[]
+  in
+  let _, root_priv = Utils.key () in
+  let root =
+    Utils.selfsigned ~now ~priv:root_priv ~name:(Utils.cn "root") root_extensions
+  in
+  let _, intermediate_priv = Utils.key () in
+  let intermediate =
+    Utils.cert ~now ~ca_key:root_priv ~priv:intermediate_priv
+      ~name:(Utils.cn "intermediate") intermediate_extensions
+      (Certificate.subject root)
+  in
+  let _, priv = Utils.key () in
+  List.iter (fun (name, allowed) ->
+      let extensions = dns_subject_alt_names [name] in
+      let leaf =
+        Utils.cert ~now ~ca_key:intermediate_priv ~priv extensions
+          (Certificate.subject intermediate)
+      in
+      match Validation.verify_chain ~host:None ~time ~anchors:[root]
+              [leaf ; intermediate], allowed with
+      | Ok _, true -> ()
+      | Error (`Msg "domain name is not permitted"), false -> ()
+      | _ -> Alcotest.failf "unexpected validation result for %s" name)
+    [ "www.example.com", true ;
+      "www.example.net", false ;
+      "www.example.org", false ]
+
+let ip_name_constraints_union () =
+  let now = Ptime_clock.now () in
+  (* 192.0.2.0/24 and 198.51.100.0/24, encoded as address followed by mask. *)
+  let permitted =
+    List.map (fun prefix ->
+        General_name.B (General_name.IP, [Ohex.decode prefix]), 0, None)
+      ["c0000200ffffff00" ; "c6336400ffffff00"]
+  in
+  let extensions =
+    Extension.add Extension.Name_constraints (true, (permitted, [])) (Utils.ca_exts ())
+  in
+  let _, capriv = Utils.key () in
+  let ca = Utils.selfsigned ~now ~priv:capriv extensions in
+  let _, priv = Utils.key () in
+  let verify addresses =
+    let names = General_name.singleton General_name.IP (List.map Ohex.decode addresses) in
+    let extensions = Extension.add Extension.Subject_alt_name (false, names) Utils.leaf_exts in
+    let leaf =
+      Utils.cert ~now ~ca_key:capriv ~priv extensions (Certificate.subject ca)
+    in
+    Validation.verify_chain ~host:None ~time ~anchors:[ca] [leaf]
+  in
+  List.iter (fun addresses ->
+      match verify addresses with
+      | Ok _ -> ()
+      | Error _ -> Alcotest.fail "expected permitted IP addresses to validate")
+    [["c0000201"] ; ["c6336401"] ; ["c0000201" ; "c6336401"]] ;
+  match verify ["c0000201" ; "cb007101"] with
+  | Error (`Msg "ip address is not permitted") -> ()
+  | Error _ -> Alcotest.fail "expected an IP name constraint error"
+  | Ok _ -> Alcotest.fail "expected outside IP address to be rejected"
+
+let name_constraints_tests = [
+  "Permitted name constraints form a union", `Quick, name_constraints_union ;
+  "Permitted IP name constraints form a union", `Quick, ip_name_constraints_union ;
+  "Every DNS SAN must be permitted", `Quick, name_constraints_all_dns_names ;
+  "Excluded names take precedence", `Quick, name_constraints_excluded ;
+  "Permitted names intersect across CAs", `Quick, name_constraints_chain ;
 ]

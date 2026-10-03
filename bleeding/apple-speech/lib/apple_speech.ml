@@ -10,7 +10,7 @@ exception Error of error
 let pp_error ppf = function
   | Unavailable ->
       Format.pp_print_string ppf
-        "speech transcription is unavailable on this device"
+        "Apple speech is unavailable on this device or platform"
   | Unsupported_locale m | Assets_missing m | Unreadable m | Failed m ->
       Format.pp_print_string ppf m
 
@@ -20,6 +20,10 @@ let () =
     | _ -> None)
 
 external available : unit -> bool = "caml_apple_speech_available"
+external is_macos : unit -> bool = "caml_apple_speech_is_macos"
+
+let require_macos () = if not (is_macos ()) then raise (Error Unavailable)
+
 external raw_locales : bool -> int * string = "caml_apple_speech_locales"
 external raw_status : string option -> int * string = "caml_apple_speech_status"
 
@@ -42,6 +46,7 @@ let check (code, text) =
   | _ -> raise (Error (Failed text))
 
 let blocking label f =
+  require_macos ();
   check (Eio_unix.run_in_systhread ~label:("apple-speech." ^ label) f)
 
 let decode codec text =
@@ -101,6 +106,7 @@ type voice = { name : string; locale : string; sample : string }
 let say = "/usr/bin/say"
 
 let run mgr ?(stdin = "") args =
+  require_macos ();
   let out = Buffer.create 4096 and err = Buffer.create 256 in
   match
     Eio.Process.run mgr
@@ -153,6 +159,7 @@ let plain text =
   String.map (function '[' -> '(' | ']' -> ')' | c -> c) text
 
 let synthesize mgr ?voice ?rate ?(format = M4a) ~text path =
+  require_macos ();
   if String.trim text = "" then
     invalid_arg "Apple_speech.synthesize: empty text";
   Option.iter

@@ -1,5 +1,6 @@
 (test
  (name test_agentkit_core)
+ (modules test_agentkit_core)
  (libraries
   agentkit
   agentkit-openrouter
@@ -11,3 +12,10 @@
   fetch.mock
   http
   jsont))
+
+(test
+ (name test_apple_unsupported)
+ (modules test_apple_unsupported)
+ (enabled_if
+  (<> %{system} macosx))
+ (libraries agentkit-apple-fm apple-fm ds4 ds4.metal eio eio_main))

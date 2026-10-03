@@ -5,13 +5,13 @@ let block_size = 16
 let (valid_nonce @ portable) nonce =
   let nsize = String.length nonce in
   if nsize < 7 || nsize > 13 then
-    Stdlib.invalid_arg "CCM: nonce length not between 7 and 13"
+    invalid_arg "CCM: nonce length not between 7 and 13: %u" nsize
 
 let (valid_message_length @ portable) nonce len =
   let l = 15 - String.length nonce in
   let bits = 8 * l in
   if bits < Sys.int_size && len >= 1 lsl bits then
-    Stdlib.invalid_arg "CCM: message length does not fit nonce"
+    invalid_arg "CCM: message length %u does not fit in %u bytes" len l
 
 let (flags @ portable) bit6 len1 len2 =
   bit6 lsl 6 + len1 lsl 3 + len2

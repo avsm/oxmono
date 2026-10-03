@@ -1,6 +1,16 @@
+## Vendored base (2026-10-03)
+
+Based on `v2.1.3-9-g5913e4c`, commit
+`5913e4c0d3235edc02e2cff3fcd67a97ac08d885`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh follows X.509 1.2 and fixes ALPN acceptance, duplicate supported
+versions, early-data tag lengths and hostname validation in Unix adapters.
+Local portable handshake, buffer and Eio interfaces are retained.
+
 ## TLS - Transport Layer Security purely in OCaml
 
-v2.1.2
+v2.1.3
 
 Transport Layer Security (TLS) is probably the most widely deployed security
 protocol on the Internet. It provides communication privacy to prevent

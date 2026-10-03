@@ -111,7 +111,9 @@ let certificate () =
     X509.Private_key.generate ~seed:"fetch curl transport test" ~bits:2048 `RSA
   in
   let open X509.Distinguished_name in
-  let subject = [ Relative_distinguished_name.singleton (CN "localhost") ] in
+  let subject =
+    [ Relative_distinguished_name.singleton (CN (Common_name.v "localhost")) ]
+  in
   let csr = X509.Signing_request.create subject key |> get in
   let public_key = (X509.Signing_request.info csr).public_key in
   let names = X509.General_name.singleton DNS [ "localhost" ] in

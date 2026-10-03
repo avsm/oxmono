@@ -247,38 +247,157 @@ end
 (** X.500 distinguished name *)
 module Distinguished_name : sig
 
-  (** The variant of a relative distinguished name component, as defined in
-    X.500: an attribute type and value. *)
-  type attribute =
-    | CN of string
-    | Serialnumber of string
-    | C of string
-    | L of string
-    | ST of string
-    | O of string
-    | OU of string
-    | T of string
-    | DNQ of string
-    | Mail of string
-    | DC of string
-    | Given_name of string
-    | Surname of string
-    | Initials of string
-    | Pseudonym of string
-    | Generation of string
-    | Street of string
-    | Userid of string
-    | Other of Asn.oid * string
+  (** ASN.1 string contents and encoding. *)
+  module Encoded_string : sig
 
-  (** Relative_distinguished_name is a set of attributes. *)
+    (** The polymorphic variant of different string tags. *)
+    type encoding = [ `UTF8 | `Printable | `IA5 | `Universal | `Teletex | `BMP ]
+
+    (** The polymorphic variant of directory string tags. *)
+    type directory_encoding = [ `UTF8 | `Printable | `Universal | `Teletex | `BMP ]
+
+    (** The type of string values with their encoding. *)
+    type +'encoding t
+
+    (** [of_string ~encoding s] associates [s] with its encoding. [s] contains
+        the string contents in that encoding, without an ASN.1 tag or length.
+        The contents are not validated, transcoded or normalized. *)
+    val of_string :
+      encoding:([< encoding ] as 'encoding) -> string -> 'encoding t
+
+    (** [to_string t] is the content of [t] in its declared encoding, not
+        necessarily UTF-8. No transcoding is performed: a BMPString containing
+        ["A"] is returned as ["\x00A"]. *)
+    val to_string : 'encoding t -> string
+
+    (** [encoding t] is the encoding of [t]. *)
+    val encoding : 'encoding t -> 'encoding
+  end
+
+  (** Attribute values with encoding-specific constructors. String repertoires
+      and attribute-specific length bounds are not checked. *)
+  module type Attribute_value = sig
+    @@ portable
+    (** The variant of string tags. *)
+    type encoding
+
+    (** The type of an encoded value. *)
+    type t
+
+    (** [v ~encoding s] constructs an attribute value from the string contents
+        [s] in [encoding], without validation, transcoding or normalization.
+        The default is UTF8String for DirectoryString attributes, PrintableString
+        for country names and serial numbers, and IA5String for email addresses. *)
+    val v : ?encoding:encoding -> string -> t
+
+    (** [of_encoded value] retains the encoding and content octets. *)
+    val of_encoded : encoding Encoded_string.t -> t
+
+    (** [encoded t] is the [Encoded_string.t] of [t]. *)
+    val encoded : t -> encoding Encoded_string.t
+
+    (** [to_string t] is the content of [t] in its declared encoding, not
+        necessarily UTF-8. No transcoding is performed: a BMPString containing
+        ["A"] is returned as ["\x00A"]. *)
+    val to_string : t -> string
+  end
+
+  (** The module type for common name. *)
+  module Common_name : Attribute_value with type encoding = Encoded_string.directory_encoding
+
+  (** The module type for serial number. *)
+  module Serial_number : Attribute_value with type encoding = [ `Printable ]
+
+  (** The module type for country name. *)
+  module Country_name : Attribute_value with type encoding = [ `Printable ]
+
+  (** The module type for locality name. *)
+  module Locality_name : Attribute_value with type encoding = Encoded_string.directory_encoding
+
+  (** The module type for state or province name. *)
+  module State_or_province_name : Attribute_value with type encoding = Encoded_string.directory_encoding
+
+  (** The module type for organization name. *)
+  module Organization_name : Attribute_value with type encoding = Encoded_string.directory_encoding
+
+  (** The module type for organization unit name. *)
+  module Organizational_unit_name : Attribute_value with type encoding = Encoded_string.directory_encoding
+
+  (** The module type for title. *)
+  module Title : Attribute_value with type encoding = Encoded_string.directory_encoding
+
+  (** The module type for email address. *)
+  module Email_address : Attribute_value with type encoding = [ `IA5 ]
+
+  (** Values used by givenName, surname, initials and generationQualifier. *)
+  module Personal_name : Attribute_value with type encoding = Encoded_string.directory_encoding
+
+  (** The module type for pseudonym. *)
+  module Pseudonym : Attribute_value with type encoding = Encoded_string.directory_encoding
+
+  (** The module type for street address. *)
+  module Street_address : Attribute_value with type encoding = Encoded_string.directory_encoding
+
+  (** The module type for user id. *)
+  module User_id : Attribute_value with type encoding = Encoded_string.directory_encoding
+
+  (** Attributes whose OIDs have no named constructor. *)
+  module Other_attribute : sig
+    type t
+
+    (** [create oid value] rejects OIDs represented by a named constructor.
+        No attribute-specific constraints are checked for unknown OIDs. *)
+    val create : Asn.oid -> Encoded_string.encoding Encoded_string.t -> (t, [ `Msg of string ]) result
+
+    (** [oid t] is the ASN.1 OID of [t]. *)
+    val oid : t -> Asn.oid
+
+    (** [value t] is the value of [t] with the string encoding. *)
+    val value : t -> Encoded_string.encoding Encoded_string.t
+  end
+
+  (** An X.500 attribute type and value. *)
+  type attribute =
+    | CN of Common_name.t
+    | Serialnumber of Serial_number.t
+    | C of Country_name.t
+    | L of Locality_name.t
+    | ST of State_or_province_name.t
+    | O of Organization_name.t
+    | OU of Organizational_unit_name.t
+    | T of Title.t
+    | DNQ of [ `Printable ] Encoded_string.t
+    | Mail of Email_address.t
+    | DC of [ `IA5 ] Encoded_string.t
+    | Given_name of Personal_name.t
+    | Surname of Personal_name.t
+    | Initials of Personal_name.t
+    | Pseudonym of Pseudonym.t
+    | Generation of Personal_name.t
+    | Street of Street_address.t
+    | Userid of User_id.t
+    | Other of Other_attribute.t
+
+  (** A set of attributes. String encodings participate in comparison. *)
   module Relative_distinguished_name : Set.S with type elt = attribute
 
   (** A distinguished name is a list of relative distinguished names, starting
       with the most significant component. *)
   type t = Relative_distinguished_name.t list
 
-  (** [equal a b] is [true] if the distinguished names [a] and [b] are equal. *)
+  (** [equal a b] compares the stored RDN sequences, including the string
+      encodings and content octets of their attributes. *)
   val equal : t -> t -> bool
+
+  (** [matches a b] compares names using a restricted byte-based matching rule.
+      Attribute types, RDN order and stored attribute counts must agree. For known
+      DirectoryString attributes, PrintableString and UTF8String values with
+      identical content octets match. Other encodings and unknown attributes
+      require identical string tags and content octets.
+
+      This does not implement the StringPrep processing of RFC 5280 section 7.1:
+      no case folding, whitespace normalization or transcoding is performed. *)
+  val matches : t -> t -> bool
 
   (** [make_pp ()] creates a customized pretty-printer for {!t}.
 
@@ -308,7 +427,7 @@ module Distinguished_name : sig
 
       The pretty-printer can be wrapped in a box to control line breaking and
       set it apart, otherwise the RDN components will flow with the surrounding
-      text. *)
+      text. String contents are not transcoded, and encoding tags are omitted. *)
   val make_pp :
     format: [`RFC4514 | `OpenSSL | `OSF] ->
     ?spacing: [`Tight | `Medium | `Loose] ->
@@ -320,15 +439,18 @@ module Distinguished_name : sig
       {!make_pp} to guard against future changes to the default format. *)
   val pp : t Fmt.t
 
-  (** [common_name t] is [Some x] if the distinguished name [t] contains a
-      [CN x], [None] otherwise. *)
-  val common_name : t -> string option
+  (** [common_name t] is a CN value from the most specific RDN containing one,
+      or [None] if [t] has no CN. *)
+  val common_name : t -> Common_name.t option
 
-  (** [decode_der cs] is [dn], the ASN.1 decoded distinguished name of [cs]. *)
+  (** [decode_der cs] is [dn], the ASN.1 decoded distinguished name of [cs].
+      Known attributes must use their permitted string types. String contents
+      are decoded using the ASN.1 string primitives, without additional repertoire
+      or character-count checks. *)
   val decode_der : string -> (t, [> `Msg of string ]) result @@ portable
 
   (** [encode_der dn] is [octets], the ASN.1 encoded representation of the
-      distinguished name [dn]. *)
+      distinguished name [dn]. String encodings and content octets are preserved. *)
   val encode_der : t -> string
 end
 
@@ -546,10 +668,9 @@ module Certificate : sig
     (Key_type.signature_scheme * Digestif.hash') option
 
   (** [hostnames certficate] is the set of domain names this
-      [certificate] is valid for.  Currently, these are the DNS names of the
+      [certificate] is valid for. These are the DNS names of the
       {{:https://tools.ietf.org/html/rfc5280#section-4.2.1.6}Subject Alternative Name}
-      extension, if present, or otherwise the singleton set containing the common
-      name of the certificate subject. *)
+      extension. *)
   val hostnames : t -> Host.Set.t
 
   (** [supports_hostname certificate hostname] is [result], whether the
@@ -998,17 +1119,20 @@ module CRL : sig
   val pp_verification_error : verification_error Fmt.t
 
   (** [verify t ~allowed_hashes ~time cert] verifies that the issuer of [t]
-      matches the subject of [cert], and validates the digital signature of the
-      revocation list.  The used hash algorithm must be in the [allowed_hashes]
-      (defaults to SHA-2). If [time] is provided, it must be after [this_update]
+      matches the subject of [cert] using {!Distinguished_name.matches}, and
+      validates the digital signature of the revocation list. The used hash
+      algorithm must be in the [allowed_hashes] (defaults to SHA-2).
+      If [time] is provided, it must be after [this_update]
       and before [next_update] of [t]. *)
   val verify : t -> ?allowed_hashes:Digestif.hash' list ->
     ?time:Ptime.t -> Certificate.t -> (unit, [> verification_error ]) result
 
   (** [is_revoked ~allowed_hashes ~issuer ~cert crls] is [true] if there exists
       a revocation of [cert] in [crls] which is signed by the [issuer].  The
-      subject of [issuer] must match the issuer of the crl.  The hash algorithm
-      used for signing must be in the [allowed_hashes] (defaults to SHA-2).  *)
+      subject of [issuer] must match the issuer of the CRL using
+      {!Distinguished_name.matches}. Nonmatching CRLs are ignored; [false] does
+      not establish that [cert] is unrevoked. The hash algorithm used for signing
+      must be in [allowed_hashes] (defaults to SHA-2). *)
   val is_revoked : ?allowed_hashes:Digestif.hash' list ->
     issuer:Certificate.t -> cert:Certificate.t -> t list -> bool
 
@@ -1117,9 +1241,11 @@ module PKCS12 : sig
   (** [encode_der t] is [buf], the PKCS12 encoded archive of [t]. *)
   val encode_der : t -> string
 
-  (** [verify password t] verifies and decrypts the PKCS12 archive [t]. The
-      result is the contents of the archive. *)
-  val verify : string -> t ->
+  (** [verify ~max_iterations password t] verifies and decrypts the PKCS12
+      archive [t]. The result is the contents of the archive. The number of
+      iterations can be limited by [max_iterations] to limit CPU usage. By
+      default, the limit is 100_000. Use Int.max_int for it being unlimited. *)
+  val verify : ?max_iterations:int -> string -> t ->
     ([ `Certificate of Certificate.t | `Crl of CRL.t
      | `Private_key of Private_key.t | `Decrypted_private_key of Private_key.t ]
        list, [> `Msg of string ]) result
@@ -1128,7 +1254,7 @@ module PKCS12 : sig
       constructs a PKCS12 archive with [certificates] and [private_key]. They
       are encrypted with [algorithm] (using PBES2, PKCS5v2) and integrity
       protected using [mac]. A [local key id] is always embedded in the private
-      key and matching certificate. *)
+      key and matching certificate. The [iterations] defaults to 2048. *)
   val create : ?mac:[`SHA1 | `SHA224 | `SHA256 | `SHA384 | `SHA512 ] ->
     ?algorithm:[ `AES128_CBC | `AES192_CBC | `AES256_CBC ] ->
     ?iterations:int ->

@@ -8,6 +8,8 @@
       let rating = Codec.int_range ~minimum:1 ~maximum:10 ()
     ]} *)
 
+@@ portable
+
 type 'a value = 'a Apple_fm_base.Codec.value
 (** A generation schema and codec for an OCaml value of type ['a]. *)
 
@@ -44,33 +46,50 @@ val float_range : ?minimum:float -> ?maximum:float -> unit -> float value
 val array : ?minimum:int -> ?maximum:int -> 'a value -> 'a list value
 (** [array item] is a list of [item] values with optional length bounds. *)
 
-val enum : name:string -> ?description:string -> (string * 'a) list -> 'a value
+val enum :
+  ('a : value mod contended).
+  name:string ->
+  ?description:string ->
+  (string * 'a) list @ portable ->
+  'a value
 (** [enum ~name choices] maps each permitted JSON string to an OCaml value. *)
 
 type 'a case = 'a Apple_fm_base.Codec.case
 (** One typed alternative in an {!any_of} codec. *)
 
-val case : inject:('a -> 'b) -> project:('b -> 'a option) -> 'a value -> 'b case
+val case :
+  inject:('a -> 'b) @ portable ->
+  project:('b -> 'a option) @ portable ->
+  'a value ->
+  'b case
 (** [case ~inject ~project value] adds one alternative of an OCaml sum type. *)
 
-val any_of : name:string -> ?description:string -> 'a case list -> 'a value
+val any_of :
+  name:string -> ?description:string -> 'a case list @ portable -> 'a value
 (** [any_of ~name cases] accepts exactly one of [cases]. *)
 
-val recursive : name:string -> ('a value -> 'a value) -> 'a value
+val recursive :
+  name:string -> ('a value -> 'a value) @ portable -> 'a value
 (** [recursive ~name define] builds a named recursive value. *)
 
-val map_value : dec:('a -> 'b) -> enc:('b -> 'a) -> 'a value -> 'b value
+val map_value :
+  dec:('a -> 'b) @ portable ->
+  enc:('b -> 'a) @ portable ->
+  'a value ->
+  'b value
 (** [map_value ~dec ~enc value] changes the OCaml representation. *)
 
 module Object : sig
   type ('o, 'dec) map = ('o, 'dec) Apple_fm_base.Codec.Object.map
   (** An object codec under construction. *)
 
-  val map : string -> 'dec -> ('o, 'dec) map
+  val map :
+    ('dec : value mod contended) 'o.
+    string -> 'dec @ portable -> ('o, 'dec) map
   (** [map name constructor] starts a named object. *)
 
   val param :
-    enc:('o -> 'a) ->
+    enc:('o -> 'a) @ portable ->
     ?description:string ->
     ?default:'a ->
     string ->
@@ -80,7 +99,7 @@ module Object : sig
   (** [param ~enc name value map] adds a member. [default] permits omission. *)
 
   val optional :
-    enc:('o -> 'a option) ->
+    enc:('o -> 'a option) @ portable ->
     ?description:string ->
     string ->
     'a value ->
@@ -99,11 +118,13 @@ module Invoke : sig
   type ('o, 'dec) map = ('o, 'dec) Object.map
   (** Tool arguments under construction. *)
 
-  val map : string -> 'dec -> ('o, 'dec) map
+  val map :
+    ('dec : value mod contended) 'o.
+    string -> 'dec @ portable -> ('o, 'dec) map
   (** [map name constructor] starts the arguments for tool [name]. *)
 
   val param :
-    enc:('o -> 'a) ->
+    enc:('o -> 'a) @ portable ->
     ?description:string ->
     ?default:'a ->
     string ->
@@ -113,7 +134,7 @@ module Invoke : sig
   (** [param ~enc name value map] adds a parameter. [default] permits omission. *)
 
   val optional :
-    enc:('o -> 'a option) ->
+    enc:('o -> 'a option) @ portable ->
     ?description:string ->
     string ->
     'a value ->
@@ -125,7 +146,11 @@ module Invoke : sig
   (** [seal map] finishes the arguments. *)
 end
 
-val map : dec:('a -> 'b) -> enc:('b -> 'a) -> 'a t -> 'b t
+val map :
+  dec:('a -> 'b) @ portable ->
+  enc:('b -> 'a) @ portable ->
+  'a t ->
+  'b t
 (** [map ~dec ~enc codec] changes the OCaml argument type. *)
 
 val name : 'a t -> string

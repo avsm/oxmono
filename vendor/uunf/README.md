@@ -1,8 +1,17 @@
-# Uunf 17.0.0
+# Uunf 18.0.0
 
-The core and string normalization modules come from upstream tag `v17.0.0`,
-commit `90d53ea98504631e01cc76685cad1dffd3a42e5c`. The initial source was the
-opam switch's `uunf.17.0.0` archive. This is a release snapshot, not main's tip.
+## Vendored base (2026-10-03)
+
+Based on `v18.0.0`, commit
+`6cca783b3aea7cfa2432adf502a580cdee3897c7`. See [../upstreams.json](../upstreams.json)
+for the repository and import scope.
+
+The refresh updates normalization data to Unicode 18.0.0. Generated arrays
+are converted to immutable arrays without changing their contents. Local
+portable interfaces, lookup-only tries and mutable public `decomp` results
+are retained.
+
+The core and string normalization modules come from upstream tag `v18.0.0`.
 [../upstreams.json](../upstreams.json) records the base for future updates.
 
 ## OxCaml changes
@@ -22,7 +31,7 @@ normalization. Compiler checking verifies the portability annotations.
 
 ## Verify and update
 
-Run the differential against a pristine upstream 17.0.0 checkout or archive:
+Run the differential against a pristine upstream 18.0.0 checkout or archive:
 
 ```sh
 opam exec --switch=5.2.0+ox -- python3 vendor/uunf/check-port.py UPSTREAM

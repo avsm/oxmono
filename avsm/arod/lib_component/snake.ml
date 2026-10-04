@@ -181,11 +181,11 @@ let season_name = function
   | Summer -> "summer"
   | Autumn -> "autumn"
 
-(** The width of the strip that motifs fill, and how near the spine one may
-    be. *)
+(** The width of the strip that motifs fill. *)
 let season_width = card_x -. 0.3
 
-let season_clear = 0.6
+(** How far the edge of a motif keeps from the line of the spine. *)
+let season_gap = 0.15
 
 type motif = { cx : float; cy : float; r : float; a : float; season : season;
                variant : int }
@@ -199,8 +199,8 @@ let next_month m = (m mod 12) + 1
 
 (** [motifs ~month ~seed ~y0 ~height] is the motifs of the strip of [month],
     which begins [y0] down the timeline and is [height] tall. Each lies inside
-    the strip and at least [season_clear] from the spine. The page runs newest
-    first, so the top of a month meets the month after it. *)
+    the strip, and no part of it comes within [season_gap] of the spine. The
+    page runs newest first, so the top of a month meets the month after it. *)
 let motifs ~month ~seed ~y0 ~height =
   let state = ref ((seed * 7919) + 104729) in
   let next () =
@@ -242,12 +242,20 @@ let motifs ~month ~seed ~y0 ~height =
     let variant = int_of_float (next () *. 4.) mod 4 in
     let x = 0.3 +. (next () *. (season_width -. 0.6)) in
     let skip = next () < 0.2 in
-    let s = spine_x (y0 +. cy) in
+    (* The spine moves sideways across the height of a motif, so the motif is
+       placed against the nearest the spine comes to it on either side. *)
+    let near, far =
+      List.fold_left (fun (lo, hi) k ->
+        let sx = spine_x (y0 +. cy +. (r *. float_of_int k /. 4.)) in
+        (Float.min lo sx, Float.max hi sx)) (infinity, neg_infinity)
+        [ -4; -3; -2; -1; 0; 1; 2; 3; 4 ]
+    in
+    let reach = r +. season_gap in
     let x =
-      if Float.abs (x -. s) >= season_clear then Some x
-      else if s +. season_clear +. r < season_width -. 0.1 then
-        Some (s +. season_clear)
-      else if s -. season_clear -. r > 0.1 then Some (s -. season_clear)
+      if x <= near -. reach || x >= far +. reach then Some x
+      else if far +. reach +. r <= season_width -. 0.05 then
+        Some (far +. reach)
+      else if near -. reach -. r >= 0.05 then Some (near -. reach)
       else None
     in
     match x with

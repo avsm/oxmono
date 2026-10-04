@@ -110,11 +110,15 @@ let () =
                  && m.S.cy -. m.S.r >= 0.
                  && m.S.cy +. m.S.r <= height)
                ms);
-          check "motifs keep clear of the spine"
+          check "no part of a motif comes near the spine"
             (List.for_all
                (fun m ->
-                 Float.abs (m.S.cx -. S.spine_x (y0 +. m.S.cy))
-                 >= S.season_clear -. 1e-9)
+                 List.for_all
+                   (fun k ->
+                     let y = m.S.cy +. (m.S.r *. float_of_int k /. 4.) in
+                     Float.abs (m.S.cx -. S.spine_x (y0 +. y))
+                     >= m.S.r +. S.season_gap -. 1e-9)
+                   [ -4; -3; -2; -1; 0; 1; 2; 3; 4 ])
                ms);
           check "a month's motifs are the same each time"
             (ms = S.motifs ~month ~seed ~y0 ~height);

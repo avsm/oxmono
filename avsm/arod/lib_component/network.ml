@@ -89,6 +89,21 @@ let render_avatar ~entries contact =
       [El.span ~at:[At.class' "network-avatar-initials"]
          [El.txt initials]]
 
+(** [forward_entries ~ctx fe] is the entries that the post [fe] links to, which
+    the page lists under it. *)
+let forward_entries ~ctx fe =
+  let entries = Arod.Ctx.entries ctx in
+  match fe.FeedEntry.url with
+  | Some u ->
+    Arod.Ctx.forward_slugs ctx (Uriz.to_string u)
+    |> List.filter_map (fun slug -> Entry.lookup entries slug)
+  | None -> []
+
+(** [student_ideas ~idea_index contact] is the ideas, as slug and title, that
+    [contact] takes part in as a student. *)
+let student_ideas ~idea_index contact =
+  try Hashtbl.find idea_index (Contact.handle contact) with Not_found -> []
+
 (** [render_feed_item ~ctx ~entries ~idea_index item date] is a timeline row. *)
 let render_feed_item ~ctx ~entries ~idea_index (item : Arod.Ctx.feed_item) ((_y, _m, day) : int * int * int) =
   let fe = item.entry in
@@ -134,29 +149,20 @@ let render_feed_item ~ctx ~entries ~idea_index (item : Arod.Ctx.feed_item) ((_y,
         ) mentions)
   in
   let forward_els =
-    match fe.FeedEntry.url with
-    | Some u ->
-      let slugs = Arod.Ctx.forward_slugs ctx (Uriz.to_string u) in
-      let forward_entries = List.filter_map (fun slug ->
-        Entry.lookup entries slug
-      ) slugs in
-      (match forward_entries with
-       | [] -> El.void
-       | fwds ->
-         El.div ~at:[At.class' "feed-item-mentions pl-0"]
-           (List.map (fun entry ->
-             let fwd_icon = I.outline ~cl:"opacity-60" ~size:10 I.external_link_o in
-             El.a ~at:[At.href (Entry.site_url entry);
-                       At.class' "link-backlink-chip no-underline"]
-               [El.unsafe_raw fwd_icon;
-                El.txt (Entry.title entry)]
-           ) fwds))
-    | None -> El.void
+    match forward_entries ~ctx fe with
+    | [] -> El.void
+    | fwds ->
+      El.div ~at:[At.class' "feed-item-mentions pl-0"]
+        (List.map (fun entry ->
+          let fwd_icon = I.outline ~cl:"opacity-60" ~size:10 I.external_link_o in
+          El.a ~at:[At.href (Entry.site_url entry);
+                    At.class' "link-backlink-chip no-underline"]
+            [El.unsafe_raw fwd_icon;
+             El.txt (Entry.title entry)]
+        ) fwds)
   in
   let idea_els =
-    let handle = Contact.handle contact in
-    let ideas = try Hashtbl.find idea_index handle with Not_found -> [] in
-    match ideas with
+    match student_ideas ~idea_index contact with
     | [] -> El.void
     | ideas ->
       El.div ~at:[At.class' "feed-item-mentions pl-0"]
@@ -269,6 +275,52 @@ let all_months ~ctx = compute_month_sections ~ctx
 
 let page_size = 6
 
+(** The text that opens the network page, as the words before and after its two
+    links, which are to the blogroll as OPML and to an address for suggestions. *)
+let list_intro_first =
+  "I track a number of online blogs and connect relevant ones to things I am \
+   working on. You can grab my blogroll "
+
+let list_intro_opml = ("OPML here", "/network/blogroll.opml")
+
+let list_intro_middle =
+  ", or just browse it below. If you have your own blog that I've missed, do "
+
+let list_intro_mail = ("let me know", "mailto:anil@recoil.org")
+let list_intro_last = "!"
+
+(** [blogroll ~ctx] is the contacts with feeds that the sidebar lists, as
+    people and organisations. The people come most recently posting first,
+    those who have not posted last, and the organisations alphabetically. *)
+let blogroll ~ctx =
+  let contacts_with_feeds = Common.contacts_with_feeds (Arod.Ctx.contacts ctx) in
+  let people, orgs = List.partition (fun (contact, _) ->
+    match Contact.kind contact with
+    | Contact.Person -> true
+    | Contact.Organization -> false
+  ) contacts_with_feeds in
+  let latest_dates = Hashtbl.create 64 in
+  List.iter (fun (fi : Arod.Ctx.feed_item) ->
+    match fi.entry.Sortal_feed.Entry.date with
+    | None -> ()
+    | Some date ->
+      let handle = Contact.handle fi.contact in
+      match Hashtbl.find_opt latest_dates handle with
+      | Some old when Ptime.compare old date >= 0 -> ()
+      | _ -> Hashtbl.replace latest_dates handle date
+  ) (Arod.Ctx.feed_items ctx);
+  let latest_date_for handle = Hashtbl.find_opt latest_dates handle in
+  let people_sorted = List.sort (fun (a, _) (b, _) ->
+    let da = latest_date_for (Contact.handle a) in
+    let db = latest_date_for (Contact.handle b) in
+    match da, db with
+    | Some a, Some b -> Ptime.compare b a
+    | Some _, None -> -1
+    | None, Some _ -> 1
+    | None, None -> String.compare (Contact.name a) (Contact.name b)
+  ) people in
+  (people_sorted, orgs)
+
 (** [network_page ~ctx] is the network timeline and its sidebar. *)
 let network_page ~ctx =
   let entries = Arod.Ctx.entries ctx in
@@ -316,15 +368,15 @@ let network_page ~ctx =
 
   let intro =
     El.p ~at:[At.class' "text-sm text-gray-600 dark:text-gray-400 mb-6"] [
-      El.txt "I track a number of online blogs and connect relevant ones to things I am working on. You can grab my blogroll ";
-      El.a ~at:[At.href "/network/blogroll.opml";
+      El.txt list_intro_first;
+      El.a ~at:[At.href (snd list_intro_opml);
                 At.class' "text-accent hover:underline"] [
-        El.txt "OPML here"];
-      El.txt ", or just browse it below. If you have your own blog that I've missed, do ";
-      El.a ~at:[At.href "mailto:anil@recoil.org";
+        El.txt (fst list_intro_opml)];
+      El.txt list_intro_middle;
+      El.a ~at:[At.href (snd list_intro_mail);
                 At.class' "text-accent hover:underline"] [
-        El.txt "let me know"];
-      El.txt "!"]
+        El.txt (fst list_intro_mail)];
+      El.txt list_intro_last]
   in
 
   let article =
@@ -354,7 +406,6 @@ let network_page ~ctx =
        El.div ~at:[At.class' "cal-grid"] []]
   in
 
-  let blogroll_contacts = contacts_with_feeds in
   let render_blogroll_row (contact, feeds) =
     let name = Contact.name contact in
     let thumb = Entry.contact_thumbnail entries contact in
@@ -385,31 +436,7 @@ let network_page ~ctx =
       El.span ~at:[At.class' "sidebar-meta-val text-dim"] [name_el];
       El.span ~at:[At.class' "feed-blogroll-badges"] feed_badges]
   in
-  let people, orgs = List.partition (fun (contact, _) ->
-    match Contact.kind contact with
-    | Contact.Person -> true
-    | Contact.Organization -> false
-  ) blogroll_contacts in
-  let latest_dates = Hashtbl.create 64 in
-  List.iter (fun (fi : Arod.Ctx.feed_item) ->
-    match fi.entry.Sortal_feed.Entry.date with
-    | None -> ()
-    | Some date ->
-      let handle = Contact.handle fi.contact in
-      match Hashtbl.find_opt latest_dates handle with
-      | Some old when Ptime.compare old date >= 0 -> ()
-      | _ -> Hashtbl.replace latest_dates handle date
-  ) all_feed_items;
-  let latest_date_for handle = Hashtbl.find_opt latest_dates handle in
-  let people_sorted = List.sort (fun (a, _) (b, _) ->
-    let da = latest_date_for (Contact.handle a) in
-    let db = latest_date_for (Contact.handle b) in
-    match da, db with
-    | Some a, Some b -> Ptime.compare b a
-    | Some _, None -> -1
-    | None, Some _ -> 1
-    | None, None -> String.compare (Contact.name a) (Contact.name b)
-  ) people in
+  let people_sorted, orgs = blogroll ~ctx in
   let max_people = 5 in
   let total_people = List.length people_sorted in
   let people_blogroll = match people_sorted with

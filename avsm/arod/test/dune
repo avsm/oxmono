@@ -154,4 +154,4 @@
 (test
  (name test_markdown_pages)
  (modules test_markdown_pages)
- (libraries arod arod.component bushel))
+ (libraries arod arod.component bushel sortal.schema))

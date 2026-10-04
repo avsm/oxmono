@@ -28,9 +28,9 @@ let cfg : Arod.Config.t =
     site = { Arod.Config.default.site with base_url = "https://example.com" } }
 
 let ctx_of ?(papers = []) ?(notes = []) ?(projects = []) ?(ideas = [])
-    ?(videos = []) ?releases ?external_links () =
+    ?(videos = []) ?(contacts = []) ?releases ?external_links () =
   let entries =
-    Bushel.Entry.v ~papers ~notes ~projects ~ideas ~videos ~contacts:[]
+    Bushel.Entry.v ~papers ~notes ~projects ~ideas ~videos ~contacts
       ~data_dir:"." ()
   in
   let entries =
@@ -295,5 +295,45 @@ let () =
     (before md "https://alpha.example/c" "[Older Entry]"
     && before md "[Older Entry]" "https://alpha.example/a");
   check "a title with a line break and brackets stays on one line"
-    (contains md "[A title that \\[breaks\\] lines](");
+    (contains md "[A title that \\[breaks\\] lines](")
+
+(* {1 Network} *)
+
+module Contact = Sortal_schema.Contact
+
+let feed url =
+  Sortal_schema.Feed.make ~feed_type:Sortal_schema.Feed.Atom ~url ()
+
+let () =
+  let contacts =
+    [ Contact.make ~handle:"zed" ~names:[ "Zed Person" ]
+        ~feeds:[ feed "https://zed.example/feed.xml" ] ();
+      Contact.make ~handle:"acme" ~names:[ "Acme Org" ]
+        ~kind:Contact.Organization
+        ~feeds:[ feed "https://acme.example/feed.xml" ] ();
+      Contact.make ~handle:"amy" ~names:[ "Amy Person" ]
+        ~feeds:[ feed "https://amy.example/feed.xml" ] ();
+      Contact.make ~handle:"quiet" ~names:[ "No Feed" ] () ]
+  in
+  let md =
+    Arod_component.Markdown_export.network_md ~ctx:(ctx_of ~contacts ())
+  in
+  check "the introduction of the HTML page opens the page"
+    (before md "I track a number of online blogs" "0 posts"
+    && contains md "[OPML here](https://example.com/network/blogroll.opml)"
+    && contains md "[let me know](mailto:anil@recoil.org)");
+  check "the counts of the sidebar are given"
+    (contains md "0 posts, 3 contacts.");
+  check "the timeline comes before the blogroll, as the page does"
+    (before md "0 posts" "## People");
+  check "people come before organisations, as in the sidebar"
+    (before md "## People" "## Organisations"
+    && before md "- Amy Person" "## Organisations"
+    && before md "## Organisations" "- Acme Org");
+  check "people with no post are alphabetical"
+    (before md "- Amy Person" "- Zed Person");
+  check "a contact with no feed is not listed"
+    (not (contains md "No Feed"));
+  check "feeds are linked by type"
+    (contains md "[Atom](https://amy.example/feed.xml)");
   Printf.printf "test_markdown_pages: %d checks passed\n" !checks

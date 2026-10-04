@@ -15,6 +15,7 @@ module Idea_component = Idea
 module Video_component = Video
 module Note_component = Note
 module Links_component = Links
+module Network_component = Network
 module Entry = Bushel.Entry
 module Paper = Bushel.Paper
 module Contact = Sortal_schema.Contact
@@ -686,77 +687,107 @@ let links_list_md ~ctx =
   let footer = Printf.sprintf "\n---\nCanonical: %s/links\n%s" base license_line in
   header ^ "## Links by entry\n\n" ^ String.concat "\n" sections ^ "\n" ^ footer
 
+(* [network_md ~ctx] mirrors the HTML network page: its introduction, then the
+   timeline by month, newest first, each month with the people who appear in it
+   and its posts, each post with the entries that mention it, the entries it
+   links to and the ideas of its author. The blogroll of the sidebar follows,
+   with the people most recently posting first. *)
 let network_md ~ctx =
-  let all_contacts = Arod.Ctx.contacts ctx in
-  let entries = Arod.Ctx.entries ctx in
-  let contacts_with_feeds = List.filter_map (fun contact ->
-    match Contact.feeds contact with
-    | feeds when feeds <> [] -> Some (contact, feeds)
-    | _ -> None
-  ) all_contacts in
-  let contacts_with_feeds = List.sort (fun (a, _) (b, _) ->
-    String.compare (Contact.name a) (Contact.name b)
-  ) contacts_with_feeds in
   let base = Arod.Ctx.base_url ctx in
-  let header = "# Network\n\nUnified timeline of activity and contact feeds.\n\n" in
-  (* Blogroll *)
-  let blogroll_items = List.map (fun (contact, feeds) ->
-    let name = Contact.name contact in
-    let feed_links = List.map (fun feed ->
-      let ft = match Feed.feed_type feed with
-        | Feed.Atom -> "Atom" | Feed.Rss -> "RSS" | Feed.Json -> "JSON"
-        | Feed.Manual -> "Manual"
-      in
-      Printf.sprintf "[%s](%s)" ft (Feed.url feed)
-    ) feeds in
-    Printf.sprintf "- **%s**: %s" name (String.concat ", " feed_links)
-  ) contacts_with_feeds in
-  let blogroll_section = "## Blogroll\n\n" ^ String.concat "\n" blogroll_items ^ "\n\n" in
-  (* Feed timeline *)
-  let feed_items = Arod.Ctx.feed_items ctx in
-  let feed_lines = List.map (fun (item : Arod.Ctx.feed_item) ->
-    let fe = item.entry in
-    let name = Contact.name item.contact in
-    let title = match fe.FeedEntry.title with Some t -> t | None -> "(untitled)" in
-    let url_str = match fe.FeedEntry.url with
-      | Some u -> Uriz.to_string u | None -> "" in
-    let date_line = match fe.FeedEntry.date with
-      | Some d ->
-        let (y, m, d), _ = Ptime.to_date_time d in
-        Printf.sprintf " (%04d-%02d-%02d)" y m d
+  let sections = Network_component.compute_month_sections ~ctx in
+  let idea_index = Network_component.build_idea_index ~ctx in
+  let people, orgs = Network_component.blogroll ~ctx in
+  let all_feed_items = Arod.Ctx.feed_items ctx in
+  let intro =
+    let opml, opml_url = Network_component.list_intro_opml in
+    let mail, mail_url = Network_component.list_intro_mail in
+    Printf.sprintf "%s[%s](%s%s)%s[%s](%s)%s"
+      Network_component.list_intro_first opml base opml_url
+      Network_component.list_intro_middle mail mail_url
+      Network_component.list_intro_last
+  in
+  let header = Printf.sprintf "# Network\n\n%s\n\n" intro in
+  let contact_link contact =
+    let name = link_text (Contact.name contact) in
+    match Contact.best_url contact with
+    | Some url -> Printf.sprintf "[%s](%s)" name url
+    | None -> name
+  in
+  let entry_link ent =
+    Printf.sprintf "[%s](%s%s)" (link_text (Entry.title ent)) base
+      (Entry.site_url ent)
+  in
+  let feed_type_name = function
+    | Feed.Atom -> "Atom" | Feed.Rss -> "RSS" | Feed.Json -> "JSON"
+    | Feed.Manual -> "Manual"
+  in
+  let post (Network_component.Feed_item (item, (y, m, d))) =
+    let fe = item.Arod.Ctx.entry in
+    let title = link_text (Common.feed_entry_title_str fe) in
+    let linked =
+      match fe.FeedEntry.url with
+      | Some u -> Printf.sprintf "[%s](%s)" title (Uriz.to_string u)
+      | None -> title
+    in
+    let summary =
+      match Common.feed_entry_summary ~max_len:150 fe with
+      | Some text -> " \xe2\x80\x94 " ^ text
       | None -> ""
     in
-    let mention_strs = List.map (fun ent ->
-      Printf.sprintf "[%s](%s%s)" (link_text (Entry.title ent)) base
-        (Entry.site_url ent)
-    ) item.mentions in
-    let forward_strs = match fe.FeedEntry.url with
-      | Some u ->
-        let slugs = Arod.Ctx.forward_slugs ctx (Uriz.to_string u) in
-        List.filter_map (fun slug ->
-          match Entry.lookup entries slug with
-          | Some ent ->
-            Some (Printf.sprintf "[%s](%s%s)" (link_text (Entry.title ent)) base
-        (Entry.site_url ent))
-          | None -> None
-        ) slugs
-      | None -> []
-    in
-    let links_line =
-      let all_refs = mention_strs @ forward_strs in
-      match all_refs with
+    let refs label items =
+      match items with
       | [] -> ""
-      | refs -> "\n  Linked: " ^ String.concat ", " refs
+      | items -> "\n  " ^ label ^ ": " ^ String.concat ", " items
     in
-    if url_str <> "" then
-      Printf.sprintf "- **%s**: [%s](%s)%s%s" name (link_text title) url_str
-        date_line links_line
-    else
-      Printf.sprintf "- **%s**: %s%s%s" name title date_line links_line
-  ) feed_items in
-  let feed_section = "## Timeline\n\n" ^ String.concat "\n" feed_lines ^ "\n" in
-  let footer = Printf.sprintf "\n---\nCanonical: %s/network\n%s" base license_line in
-  header ^ blogroll_section ^ feed_section ^ footer
+    let ideas =
+      List.map (fun (slug, title) ->
+        Printf.sprintf "[%s](%s/ideas/%s)" (link_text title) base slug)
+        (Network_component.student_ideas ~idea_index item.Arod.Ctx.contact)
+    in
+    Printf.sprintf "- %s by %s (%s, %s)%s%s%s%s" linked
+      (contact_link item.Arod.Ctx.contact)
+      (feed_type_name fe.FeedEntry.source_type) (date_str (y, m, d)) summary
+      (refs "Mentioned in" (List.map entry_link item.Arod.Ctx.mentions))
+      (refs "Links to"
+         (List.map entry_link (Network_component.forward_entries ~ctx fe)))
+      (refs "Ideas of the author" ideas)
+  in
+  let month (section : Network_component.month_section) =
+    let people_line =
+      match section.collaborators with
+      | [] -> ""
+      | cs -> "People: " ^ String.concat ", " (List.map contact_link cs) ^ "\n\n"
+    in
+    Printf.sprintf "## %s %d\n\n%s%s"
+      (Common.month_name_full section.month) section.year people_line
+      (String.concat "\n" (List.map post section.items))
+  in
+  let blogroll_row (contact, feeds) =
+    let feed_links =
+      List.map (fun feed ->
+        Printf.sprintf "[%s](%s)" (feed_type_name (Feed.feed_type feed))
+          (Feed.url feed)) feeds
+    in
+    Printf.sprintf "- %s: %s" (contact_link contact)
+      (String.concat ", " feed_links)
+  in
+  let counts =
+    Printf.sprintf "%d posts, %d contacts.\n\n" (List.length all_feed_items)
+      (List.length people + List.length orgs)
+  in
+  let blogroll =
+    "\n\n## People\n\n" ^ String.concat "\n" (List.map blogroll_row people)
+    ^ (match orgs with
+       | [] -> ""
+       | _ ->
+         "\n\n## Organisations\n\n"
+         ^ String.concat "\n" (List.map blogroll_row orgs))
+  in
+  let footer =
+    Printf.sprintf "\n---\nCanonical: %s/network\n%s" base license_line
+  in
+  header ^ counts ^ String.concat "\n\n" (List.map month sections) ^ blogroll
+  ^ "\n" ^ footer
 
 let index_md ~ctx =
   match Arod.Ctx.lookup ctx "index" with

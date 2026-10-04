@@ -538,8 +538,10 @@ let build_one ?install_to ?source_dir ?(prepare = identity_prepare)
         now_s ~clock -. t0 )
 
 let run_node ~config ~(d10 : D10.Config.t) ~proc_mgr ?(prefix_policy = Staging)
-    ?source_dir ?prepare ?(reporter = null_reporter) ?(plan_dir = Sys.getcwd ())
-    n =
+    ?install_to ?source_dir ?prepare ?(reporter = null_reporter)
+    ?(plan_dir = Sys.getcwd ()) n =
+  if install_to <> None && prefix_policy = Permanent then
+    invalid_arg "Permanent prefixes cannot be combined with install_to";
   reporter.event (Node_queued { node = n });
   (* A single-node caller must have built all dependencies already. *)
   List.iter
@@ -548,9 +550,9 @@ let run_node ~config ~(d10 : D10.Config.t) ~proc_mgr ?(prefix_policy = Staging)
         Fmt.failwith "Missing day10 layer %s" (Layer_hash.to_string hash))
     n.Plan.dep_layer_hashes;
   match
-    build_one ~prefix_policy ?source_dir ?prepare ~config ~d10 ~fs:d10.fs
-      ~proc_mgr ~clock:d10.clock ~plan_dir ~archive_root:"." ~reporter
-      ~mount_env:[] n
+    build_one ?install_to ~prefix_policy ?source_dir ?prepare ~config ~d10
+      ~fs:d10.fs ~proc_mgr ~clock:d10.clock ~plan_dir ~archive_root:"."
+      ~reporter ~mount_env:[] n
   with
   | `Cached ->
       reporter.event (Node_cached { node = n });

@@ -42,3 +42,40 @@ val repositories :
 (** [repositories proc config ~target ~with_packages] prepares the ordered
     metadata repositories and resolves binary ownership and solver roots. The
     caller must hold the data directory's metadata lock. *)
+
+type action = Build | Test | Fetch | Depexts
+
+val packages :
+  Support.proc ->
+  clock:D10.Config.clk ->
+  fs:Eio.Fs.dir_ty Eio.Path.t ->
+  sys:D10.Sysops.t ->
+  config ->
+  roots:string list ->
+  all:bool ->
+  action:action ->
+  ?test_roots:string list ->
+  ?exclude:string list ->
+  dry_run:bool ->
+  unit ->
+  prepared
+(** [packages proc ~clock ~fs ~sys config ~roots ~all ~action ~dry_run ()]
+    prepares package roots without requiring an executable. [all] selects
+    stamped packages. [exclude] names working-tree packages supplied by Dune.
+    Local prerequisites needed by repository packages are still built.
+    [test_roots] limits [with-test] dependencies to those names, defaulting to
+    the requested package roots. It is used only with [Test]. *)
+
+val prefix : prepared -> string
+(** [prefix prepared] is the assembled installation directory. *)
+
+val environment : prepared -> string array
+(** [environment prepared] overlays the package environment on the cleaned
+    process environment, removing inherited opam switch variables. *)
+
+val exports : prepared -> unit
+(** [exports prepared] prints POSIX shell exports for the prepared prefix. *)
+
+val exec_command : prepared -> string list -> 'a
+(** [exec_command prepared argv] executes an arbitrary command in its
+    environment. *)

@@ -13,7 +13,8 @@ let path_var ~prefix ~name ~qualified = function
   | "toplevel" -> Some (prefix / "lib/toplevel")
   | _ -> None
 
-let resolver ?config_var ~solution ~installed ~prefix ~build_dir ~jobs p =
+let resolver ?(test = false) ?config_var ~solution ~installed ~prefix ~build_dir
+    ~jobs p =
   let configs = Hashtbl.create 16 in
   let config pkg var =
     let conf =
@@ -78,7 +79,8 @@ let resolver ?config_var ~solution ~installed ~prefix ~build_dir ~jobs p =
       | "jobs" -> str (string_of_int jobs)
       | "make" -> str "make"
       | "exe" -> str ""
-      | "with-test" | "with-doc" | "with-dev-setup" -> bool false
+      | "with-test" -> bool test
+      | "with-doc" | "with-dev-setup" -> bool false
       | "build" | "post" -> if var = "build" then str build_dir else bool false
       | "root" -> str prefix
       | _ -> (
@@ -185,15 +187,16 @@ let package_environment ?base_env ?config_var ~solution ~installed ~prefix
     (Option.value base_env ~default:(environment ~prefix))
     solution.Solve.packages
 
-let build_environment ?base_env ?config_var ~solution ~installed ~prefix
-    ~build_dir ~jobs p =
+let build_environment ?(test = false) ?base_env ?config_var ~solution ~installed
+    ~prefix ~build_dir ~jobs p =
   let env =
     package_environment ?base_env ?config_var ~solution ~installed ~prefix
       ~build_dir ~jobs ()
   in
   let env =
     apply_env
-      (resolver ?config_var ~solution ~installed ~prefix ~build_dir ~jobs p)
+      (resolver ~test ?config_var ~solution ~installed ~prefix ~build_dir ~jobs
+         p)
       env
       (OpamFile.OPAM.build_env p.Solve.opam)
   in
@@ -213,13 +216,13 @@ let runtime_environment ~solution ~prefix ~jobs =
   let installed = List.map name solution.Solve.packages in
   package_environment ~solution ~installed ~prefix ~build_dir:prefix ~jobs ()
 
-let compile ?base_env ?config_var ~solution ~installed ~jobs p ~prefix
-    ~build_dir (node : D10ir.Plan.node) =
+let compile ?(test = false) ?base_env ?config_var ~solution ~installed ~jobs p
+    ~prefix ~build_dir (node : D10ir.Plan.node) =
   let resolve =
-    resolver ?config_var ~solution ~installed ~prefix ~build_dir ~jobs p
+    resolver ~test ?config_var ~solution ~installed ~prefix ~build_dir ~jobs p
   in
   let env =
-    build_environment ?base_env ?config_var ~solution ~installed ~prefix
+    build_environment ~test ?base_env ?config_var ~solution ~installed ~prefix
       ~build_dir ~jobs p
   in
   let substs =
@@ -242,7 +245,9 @@ let compile ?base_env ?config_var ~solution ~installed ~jobs p ~prefix
   let commands =
     patches
     @ OpamFilter.commands resolve
-        (OpamFile.OPAM.build p.opam @ OpamFile.OPAM.install p.opam)
+        (OpamFile.OPAM.build p.opam
+        @ (if test then OpamFile.OPAM.run_test p.opam else [])
+        @ OpamFile.OPAM.install p.opam)
   in
   let conf_name = name p ^ ".config" in
   let config_dir = prefix / ".ox/config" in
@@ -257,9 +262,14 @@ let compile ?base_env ?config_var ~solution ~installed ~jobs p ~prefix
   in
   { node with script; env = Array.to_list env; substs }
 
-let prepare ~solution ~installed ~jobs p ~prefix ~build_dir node =
-  let node = compile ~solution ~installed ~jobs p ~prefix ~build_dir node in
-  let resolve = resolver ~solution ~installed ~prefix ~build_dir ~jobs p in
+let prepare ?(test = false) ~solution ~installed ~jobs p ~prefix ~build_dir node
+    =
+  let node =
+    compile ~test ~solution ~installed ~jobs p ~prefix ~build_dir node
+  in
+  let resolve =
+    resolver ~test ~solution ~installed ~prefix ~build_dir ~jobs p
+  in
   List.iter
     (fun base ->
       OpamFilter.expand_interpolations_in_file_full resolve

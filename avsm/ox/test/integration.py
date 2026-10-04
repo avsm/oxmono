@@ -47,13 +47,14 @@ def package(path, name, deps, build, install):
 def library(path, name, module, text):
     write(path / "dune-project", f'(lang dune 3.21)\n(name {name})\n(version 1.2.0)\n')
     write(path / (module + ".ml"), f'let text = "{text}"\n')
+    write(path / "META", f'archive(byte) = "{module}.cma"\narchive(native) = "{module}.cmxa"\n')
     package(path, name, '"ocaml" {>= "5.2"}',
             f'["ocamlc" "-c" "{module}.ml"] '
             f'["ocamlc" "-a" "{module}.cmo" "-o" "{module}.cma"] '
             f'["ocamlopt" "-c" "{module}.ml"] '
             f'["ocamlopt" "-a" "{module}.cmx" "-o" "{module}.cmxa"]',
             f'["mkdir" "-p" "%{{lib}}%/{name}"] '
-            f'["cp" "{module}.cmi" "{module}.cma" "{module}.cmx" '
+            f'["cp" "META" "{module}.cmi" "{module}.cma" "{module}.cmx" '
             f'"{module}.cmxa" "{module}.a" "%{{lib}}%/{name}"]')
 
 
@@ -140,7 +141,7 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     compiler_commands = [
         ["cp", "-R", str(Path(COMPILER) / "lib/ocaml"), "%{lib}%/ocaml"],
         ["cp", "-pL"] + [str(Path(COMPILER) / "bin" / name)
-                          for name in ["ocamlc", "ocamlopt", "ocamlrun", "ocamlmklib"]]
+                          for name in ["ocamlc", "ocamlopt", "ocamlrun", "ocamlmklib", "ocamldep"]]
         + ["%{bin}%"],
     ]
     actions = "\n".join("[" + " ".join(json.dumps(x) for x in cmd) + "]"
@@ -259,4 +260,23 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     receipts[0].write_text("invalid\n")
     p = call(args + ["--", "greet"], code=124)
     assert "Invalid cache receipt" in p.stderr
+    # Real Dune builds editable files against the externally installed library.
+    dune_bin = shutil.which("dune")
+    write(base / "packages/dune/dune.3.21/opam",
+          'opam-version: "2.0"\ndepends: ["ocaml"]\n'
+          'install: [["cp" ' + json.dumps(dune_bin) + ' "%{bin}%/dune"]]\n')
+    workspace = root / "workspace"
+    init(workspace)
+    write(workspace / ".gitignore", "_build/\n")
+    write(workspace / "dune-project", '(lang dune 3.21)\n(name local-app)\n')
+    write(workspace / "local-app.opam", 'opam-version: "2.0"\ndepends: ["ocaml" "external-lib"]\n')
+    write(workspace / "dune", '(executable (name main) (libraries external-lib))\n'
+          '(rule (alias runtest) (action (run %{exe:main.exe})))\n')
+    write(workspace / "main.ml", 'let () = print_endline ("dirty: " ^ Outside.text)\n')
+    workspace_config = args[6:]
+    call([OX, "build", *workspace_config], cwd=workspace)
+    assert call([str(workspace / "_build/default/main.exe")]).stdout == "dirty: external Git dependency\n"
+    write(workspace / "main.ml", 'let () = print_endline ("edited: " ^ Outside.text)\n')
+    p = call([OX, "test", *workspace_config], cwd=workspace)
+    assert "edited: external Git dependency" in p.stdout + p.stderr
 print("ox integration: stamps, fork precedence, Git dependencies, concurrent builds, offline native/bytecode, exit status: OK")

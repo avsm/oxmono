@@ -137,6 +137,7 @@ val run_node :
   d10:D10.Config.t ->
   proc_mgr:_ Eio.Process.mgr ->
   ?prefix_policy:prefix_policy ->
+  ?install_to:string ->
   ?source_dir:string ->
   ?prepare:(prefix:string -> build_dir:string -> Plan.node -> Plan.node) ->
   ?reporter:reporter ->
@@ -145,6 +146,11 @@ val run_node :
   ([ `Built | `Cached ], failure) Stdlib.result
 (** [run_node ~config ~d10 ~proc_mgr node] executes one node whose dependencies
     are already in the store. [prefix_policy] defaults to [Staging].
+
+    [install_to] uses a caller-prepared writable prefix, skipping dependency
+    staging, cache lookup and layer capture, as for {!run}. It is incompatible
+    with [Permanent]. This supports repeatable test runs without caching their
+    success. The caller owns the prefix's lifetime.
 
     [source_dir] supplies a source tree instead of [node.archive]. The tree is
     copied, then archived after preparation with its checksum recorded in the

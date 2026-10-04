@@ -1,5 +1,8 @@
 # Changes
 
+- Expose uncached installation into a caller-prepared prefix through `run_node`,
+  allowing frontends to rerun tests without capturing a successful layer.
+
 - Document public cache and executor contracts and declare direct dependencies.
 
 - Export resolved plans as standalone Makefile builds through `D10ir.Makefile`,

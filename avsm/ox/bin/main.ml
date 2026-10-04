@@ -69,20 +69,21 @@ let stamp_cmd =
        ~doc:"Export committed monorepo packages as an opam repository.")
     Term.(ret (const stamp $ repo $ revision $ source $ output $ data))
 
+let with_runtime f =
+  Eio_main.run @@ fun env ->
+  let proc = Eio.Stdenv.process_mgr env in
+  let fs = Eio.Stdenv.fs env and clock = Eio.Stdenv.clock env in
+  let sys =
+    D10.Sysops.v ~proc_mgr:proc ~fs ~net:(Eio.Stdenv.net env) ~clock ()
+  in
+  f proc fs clock sys
+
 let run config with_packages dry_run target args =
   guard @@ fun () ->
   let prepared =
-    Eio_main.run @@ fun env ->
-    let sys =
-      D10.Sysops.v
-        ~proc_mgr:(Eio.Stdenv.process_mgr env)
-        ~fs:(Eio.Stdenv.fs env) ~net:(Eio.Stdenv.net env)
-        ~clock:(Eio.Stdenv.clock env) ()
-    in
-    Ox_lib.Runner.prepare ~sys
-      (Eio.Stdenv.process_mgr env)
-      ~clock:(Eio.Stdenv.clock env) ~fs:(Eio.Stdenv.fs env) config ~target
-      ~with_packages ~dry_run
+    with_runtime @@ fun proc fs clock sys ->
+    Ox_lib.Runner.prepare ~sys proc ~clock ~fs config ~target ~with_packages
+      ~dry_run
   in
   if not dry_run then Ox_lib.Runner.exec prepared args
 
@@ -157,7 +158,7 @@ let with_packages =
   Arg.(
     value & opt_all string []
     & info [ "with" ] ~docv:"PACKAGE"
-        ~doc:"Package atoms providing the binary and additional dependencies.")
+        ~doc:"Package atoms to include in the prepared environment.")
 
 let run_cmd =
   let dry =
@@ -176,21 +177,146 @@ let run_cmd =
     (Cmd.info "run" ~doc:"Fetch dependencies, build, cache and run a binary.")
     Term.(ret (const run $ config_term $ with_packages $ dry $ target $ args))
 
+let dry_arg =
+  Arg.(
+    value & flag
+    & info [ "n"; "dry-run" ] ~doc:"Display selected packages without building.")
+
+let local_arg =
+  Arg.(
+    value & flag
+    & info [ "local" ]
+        ~doc:"Use the editable Git working tree and scoped Dune targets.")
+
+let roots_arg = Arg.(value & pos_all string [] & info [] ~docv:"PACKAGE")
+
+let all_arg =
+  Arg.(
+    value & flag
+    & info [ "all" ]
+        ~doc:"Build all packages from the selected source snapshot.")
+
+let build_command ~test config roots all local deps_only fetch depext dry
+    profile =
+  guard @@ fun () ->
+  if (fetch && depext) || ((test || deps_only) && (fetch || depext)) then
+    S.fail "--fetch and --depext are separate build actions";
+  let local =
+    local || (roots = [] && config.Ox_lib.Runner.from = None && not all)
+  in
+  let action =
+    if depext then Ox_lib.Runner.Depexts
+    else if fetch then Fetch
+    else if test then Test
+    else Build
+  in
+  if local then (
+    if all then S.fail "--local cannot be combined with --all";
+    let workspace =
+      with_runtime (fun proc fs clock sys ->
+          Ox_lib.Workspace.prepare proc ~clock ~fs ~sys config ~roots ~action
+            ~dry_run:dry)
+    in
+    if (not dry) && (action = Build || action = Test) then
+      if deps_only then print_endline (Ox_lib.Runner.prefix workspace.prepared)
+      else Ox_lib.Workspace.execute workspace ~test ~profile ~jobs:config.jobs)
+  else (
+    if deps_only then S.fail "--deps-only is for local project builds";
+    let prepared =
+      with_runtime (fun proc fs clock sys ->
+          Ox_lib.Runner.packages proc ~clock ~fs ~sys config ~roots ~all ~action
+            ~dry_run:dry ())
+    in
+    if (not dry) && (action = Build || action = Test) then
+      print_endline (Ox_lib.Runner.prefix prepared))
+
+let build_cmd test =
+  let deps =
+    Arg.(
+      value & flag
+      & info [ "deps-only" ]
+          ~doc:"Prepare the local project's dependencies without running Dune.")
+  in
+  let fetch =
+    Arg.(
+      value & flag
+      & info [ "fetch" ] ~doc:"Fetch selected package sources without building.")
+  in
+  let depext =
+    Arg.(
+      value & flag
+      & info [ "depext" ]
+          ~doc:"Print required system packages without building.")
+  in
+  let profile =
+    Arg.(
+      value & opt string "release"
+      & info [ "profile" ] ~docv:"PROFILE" ~doc:"Dune profile for local builds.")
+  in
+  Cmd.v
+    (Cmd.info
+       (if test then "test" else "build")
+       ~doc:
+         (if test then "Run package tests or local Dune tests."
+          else
+            "Build packages or the editable local project with day10 \
+             dependencies."))
+    Term.(
+      ret
+        (const (build_command ~test)
+        $ config_term $ roots_arg $ all_arg $ local_arg $ deps $ fetch $ depext
+        $ dry_arg $ profile))
+
+let environment_command config packages command =
+  guard @@ fun () ->
+  let prepared =
+    with_runtime (fun proc fs clock sys ->
+        if config.Ox_lib.Runner.from <> None || packages <> [] then
+          Ox_lib.Runner.packages proc ~clock ~fs ~sys config ~roots:packages
+            ~all:(packages = []) ~action:Build ~dry_run:false ()
+        else
+          (Ox_lib.Workspace.prepare proc ~clock ~fs ~sys config ~roots:[]
+             ~action:Build ~dry_run:false)
+            .prepared)
+  in
+  match command with
+  | [] -> Ox_lib.Runner.exports prepared
+  | args -> Ox_lib.Runner.exec_command prepared args
+
+let env_cmd =
+  Cmd.v
+    (Cmd.info "env"
+       ~doc:"Print shell exports for project or package dependencies.")
+    Term.(
+      ret
+        (const (fun config packages -> environment_command config packages [])
+        $ config_term $ with_packages))
+
+let exec_cmd =
+  let command = Arg.(non_empty & pos_all string [] & info [] ~docv:"COMMAND") in
+  Cmd.v
+    (Cmd.info "exec"
+       ~doc:"Execute a command with project or package dependencies.")
+    Term.(
+      ret (const environment_command $ config_term $ with_packages $ command))
+
+let show_cmd =
+  Cmd.v
+    (Cmd.info "show" ~doc:"Resolve and list package build dependencies.")
+    Term.(
+      ret
+        (const (fun config roots all local ->
+             build_command ~test:false config roots all local false false false
+               true "release")
+        $ config_term $ roots_arg $ all_arg $ local_arg))
+
 let dist config with_packages tags arch pkg_name pkg_version maintainer output
     build target =
   guard @@ fun () ->
   let targets = Ox_lib.Dist.targets tags arch in
-  Eio_main.run @@ fun env ->
-  let sys =
-    D10.Sysops.v
-      ~proc_mgr:(Eio.Stdenv.process_mgr env)
-      ~fs:(Eio.Stdenv.fs env) ~net:(Eio.Stdenv.net env)
-      ~clock:(Eio.Stdenv.clock env) ()
-  in
-  Ox_lib.Dist.run
-    (Eio.Stdenv.process_mgr env)
-    ~clock:(Eio.Stdenv.clock env) ~fs:(Eio.Stdenv.fs env) ~sys config ~target
-    ~with_packages ~targets ~pkg_name ~pkg_version ~maintainer ~output ~build
+  with_runtime @@ fun proc fs clock sys ->
+  Ox_lib.Dist.run proc ~clock ~fs ~sys config ~target ~with_packages ~targets
+    ~pkg_name ~pkg_version ~maintainer ~output ~build
 
 let dist_cmd =
   let tags =
@@ -261,7 +387,16 @@ let () =
   let cmd =
     Cmd.group
       (Cmd.info "ox" ~version:"0.1.0"
-         ~doc:"Run opam packages with OxCaml and a per-user local cache.")
-      [ run_cmd; stamp_cmd; dist_cmd ]
+         ~doc:"Build and run opam packages with OxCaml and a local day10 cache.")
+      [
+        run_cmd;
+        build_cmd false;
+        build_cmd true;
+        env_cmd;
+        exec_cmd;
+        show_cmd;
+        stamp_cmd;
+        dist_cmd;
+      ]
   in
   exit (Cmd.eval cmd)

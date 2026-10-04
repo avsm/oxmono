@@ -126,14 +126,60 @@ let tree ~refresh proc d10 url ~dst =
         [ "tar"; "-xf"; archive; "-C"; dst; "--strip-components"; strip ]
   | _ -> fail "Unsupported source backend for %s" (OpamUrl.to_string source)
 
+let worktree_files proc dir =
+  capture proc
+    [
+      "git";
+      "-C";
+      dir;
+      "ls-files";
+      "-z";
+      "--cached";
+      "--others";
+      "--exclude-standard";
+      "--";
+      ".";
+    ]
+  |> nul_lines
+  |> List.sort_uniq String.compare
+  |> List.filter (fun rel -> exists (dir / rel))
+
+let worktree opam =
+  match
+    OpamStd.String.Map.find_opt "x-ox-worktree" (OpamFile.OPAM.extensions opam)
+  with
+  | Some { OpamParserTypes.FullPos.pelem = String path; _ } -> Some path
+  | _ -> None
+
 let prepare ~refresh proc (d10 : D10.Config.t) p =
+  let local =
+    Option.map
+      (fun path -> (path, worktree_files proc path))
+      (worktree p.Solve.opam)
+  in
+  let local_key =
+    match local with
+    | None -> [ "ox-source-v2" ]
+    | Some (path, files) ->
+        let contents rel =
+          let path = path / rel in
+          let stat = Unix.lstat path in
+          let digest =
+            match stat.Unix.st_kind with
+            | Unix.S_REG -> hash_file path
+            | Unix.S_LNK -> Unix.readlink path
+            | _ -> fail "Unsupported working-tree source: %s" path
+          in
+          [ rel; digest; string_of_int stat.Unix.st_perm ]
+        in
+        [
+          "ox-worktree-source-v1"; hash_fields (List.concat_map contents files);
+        ]
+  in
   let key =
     hash_fields
-      [
-        "ox-source-v2";
-        OpamFile.OPAM.write_to_string p.Solve.opam;
-        tree_hash p.directory;
-      ]
+      (local_key
+      @ [ OpamFile.OPAM.write_to_string p.Solve.opam; tree_hash p.directory ])
   in
   let root = Eio.Path.native_exn d10.root / "sources/prepared" / key in
   let marker = root / ".source-hash" in
@@ -147,11 +193,23 @@ let prepare ~refresh proc (d10 : D10.Config.t) p =
     mkdir root;
     let unpack = root / "unpack" in
     mkdir unpack;
-    Option.iter
-      (fun url -> tree ~refresh proc d10 url ~dst:unpack)
-      (OpamFile.OPAM.url p.opam);
+    (match local with
+    | None ->
+        Option.iter
+          (fun url -> tree ~refresh proc d10 url ~dst:unpack)
+          (OpamFile.OPAM.url p.opam)
+    | Some (path, files) ->
+        List.iter
+          (fun rel ->
+            ignore (safe_relative rel);
+            mkdir (Filename.dirname (unpack / rel));
+            command proc [ "cp"; "-pP"; path / rel; unpack / rel ])
+          files);
     let subdir =
-      match Option.bind (OpamFile.OPAM.url p.opam) OpamFile.URL.subpath with
+      match
+        if local <> None then None
+        else Option.bind (OpamFile.OPAM.url p.opam) OpamFile.URL.subpath
+      with
       | None -> unpack
       | Some sub -> unpack / safe_relative (OpamFilename.SubPath.to_string sub)
     in

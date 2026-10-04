@@ -81,15 +81,17 @@ resolved day10 recipe records remain available for inspection.
 1. Add `ox plan` and a portable source lock containing repository revisions,
    selected package metadata and pinned sources. This would make a solve
    repeatable across machines even after repository updates.
-2. Expose the same resolver and layer store through `ox sync`, `ox env` and
-   `ox build`. Keep selected roots in workspace settings and dependencies in
-   opam files. Test the actual monorepo and a fork.
-3. Add dirty-worktree and incremental Dune builds. Keep mutable build trees
-   per checkout and reuse immutable dependency layers. Distinguish source
-   edits from dependency edits when invalidating the workspace environment.
-4. Add oi-style script dependency declarations and script-content cache keys.
-5. Add cache inspection and cleanup with leases for running programs, then
+2. Resolve external `pin-depends` automatically and add independent batch
+   builds with failure summaries.
+3. Add oi-style script dependency declarations and script-content cache keys.
+4. Add cache inspection and cleanup with leases for running programs, then
    finer build parallelism and Linux coverage.
+
+`ox build`, `test`, `show`, `env` and `exec` share the run resolver and layer
+store. Editable builds discover opam files in the Git checkout, prepare external
+dependencies and invoke scoped Dune aliases. Local prerequisites of external
+packages are built through day10 with content-based source identities. No
+second dependency manifest or workspace state machine is needed.
 
 ## Acceptance evidence
 
@@ -101,3 +103,9 @@ A clean cache built OxCaml 5.2.0minus39 and ran the monorepo's `yamlcat`.
 The merged `minus39` snapshot reused those external layers. Removing source
 caches and run prefixes still allowed offline restoration and execution.
 These checks ran on macOS arm64. Linux remains unverified.
+
+Working-tree tests build and test an uncommitted Dune project against a day10
+dependency prefix, without an opam CLI. Fixtures cover external patch guards,
+local prerequisites of external packages and source-edit invalidation. The
+actual monorepo's `ox` package resolves from working metadata with default
+repositories, selecting OxCaml 5.2.0minus39 and local Eio and Dockerfile versions.

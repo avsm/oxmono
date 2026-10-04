@@ -1,6 +1,6 @@
 # ox
 
-Run binaries from opam packages using OxCaml and a local day10 cache. Ox
+Build projects and run binaries using OxCaml and a local day10 cache. Ox
 resolves opam metadata in-process, fetches sources, builds the compiler and
 dependency closure, and executes the binary. It does not invoke the opam CLI
 or create switches.
@@ -60,6 +60,71 @@ signals are preserved. Build diagnostics go to stderr. A dry run resolves and
 lists selected packages without fetching package sources or building them.
 Repository metadata may be cloned.
 
+## Build, test and develop
+
+Package builds use the same solver, source fetcher and day10 executor as
+`ox run`. Libraries do not need an executable:
+
+```sh
+ox build yamlrw
+ox build --from=https://github.com/avsm/oxmono#minus39 yamlrw ox
+ox test --from . yamlrw
+ox show --from . ox
+ox build --from . --all
+ox build --fetch --from . yamlrw
+ox build --depext --from . yamlrw
+```
+
+Multiple roots and `--all` are solved together in one compatible environment.
+`--all` selects every stamped package, including vendors. Package builds print
+the assembled installation prefix. `--fetch` prepares sources without building.
+`--depext` prints the system packages required on the current platform without
+installing them. `ox show` and `--dry-run` resolve without fetching package
+sources or building.
+
+`ox test` enables `with-test` dependencies and actions for the requested
+packages, then runs their build, `run-test` and install commands in fresh
+writable prefixes. Dependency layers are reused. A successful test run is
+never cached.
+
+Inside a Git checkout, omit package arguments to build the editable project:
+
+```sh
+cd avsm/ox
+ox build
+ox test
+ox build --deps-only
+ox build --depext
+ox exec -- dune exec -- ox --help
+eval "$(ox env)"
+```
+
+Ox discovers project-root opam files beneath the current directory. At the
+Git root it selects non-vendor projects. `ox build --local ox` selects a local
+package explicitly. Working-tree commands include uncommitted and untracked
+files, excluding ignored untracked files. `--from` always uses committed
+snapshots and cannot be combined with `--local`.
+
+Local definitions take precedence over repository definitions. Dependencies
+absent from the checkout are built from the OxCaml and ordinary opam
+repositories, retaining the OxCaml patch guards. If an external package needs
+a local library, day10 builds that prerequisite from the working tree too.
+Source edits invalidate those layers. Remaining local packages are left for
+Dune to build incrementally in the checkout's `_build` directory.
+
+Ox runs scoped Dune `@PROJECT/all` or `@PROJECT/runtest` aliases from the Git
+root. Tests use `--force`. `--profile` defaults to `release`, and `-j` controls
+each recipe and the local Dune build. `--deps-only` prepares the environment
+without running Dune. Local package metadata must declare its dependencies,
+including test dependencies. Declare base versions for libraries whose users
+specify version bounds.
+
+`ox exec -- COMMAND ARG...` preserves the current directory and runs a command
+with the project's dependencies. `ox env` prints POSIX shell exports for the
+same environment. Add repeatable `--with PACKAGE` options to either command
+to build a package environment instead. No workspace configuration file is
+required.
+
 ## Snapshot versions
 
 ```sh
@@ -83,8 +148,9 @@ package names. Only the requested dependency closure is installed. Constraints
 referring to a dependency's base version are translated to its snapshot
 version. Local `pin-depends` entries are replaced by these exact dependencies.
 External `pin-depends` entries are retained in exports. To run those packages,
-provide pinned package definitions through an explicit overlay. Build and
-install commands remain those in the opam files.
+provide an overlay containing the pinned definitions and consuming metadata
+with those pins resolved into ordinary dependencies. Build and install
+commands remain those in the opam files.
 
 The output directory must be new. Empty opam placeholders are reported and
 skipped. Duplicate package names are errors. Executable discovery reads
@@ -219,9 +285,10 @@ packages require.
 
 ## Scope and tests
 
-The runner supports installed binaries and committed source snapshots. Script
-execution, dirty-worktree builds, environment activation, incremental workspace
-builds and cache cleanup remain future work. System dependencies are not
+The runner supports package builds, tests, installed binaries, committed source
+snapshots and editable Dune workspaces. Script dependency headers, automatic
+external pins, independent batch builds and cache cleanup remain future work.
+Package builds execute sequentially. System dependencies are not
 installed automatically. Source backends are Git and tar archives. Git
 submodules currently require an explicit source archive.
 
@@ -234,6 +301,8 @@ PATH. They cover stamping, fork precedence, default toolchain builds, native
 and bytecode execution with C stubs, concurrent builds, offline layer
 restoration, runtime environment updates, source refresh, checksums, argument
 and signal forwarding, failed-build retry and damaged receipt rejection.
+They also cover library-only builds, uncached test execution, shell environments,
+editable Dune projects and external packages with local prerequisites.
 The compiler integration test uses an overlay recipe that copies local OxCaml
 artifacts to avoid bootstrapping on every test run. Set
 `OX_TEST_COMPILER_PREFIX` to select the fixture's compiler installation.

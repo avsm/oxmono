@@ -15,3 +15,9 @@
  (deps dist.py)
  (action
   (run python3 %{dep:dist.py} %{exe:../bin/main.exe})))
+
+(rule
+ (alias runtest)
+ (deps workflows.py)
+ (action
+  (run python3 %{dep:workflows.py} %{exe:../bin/main.exe})))

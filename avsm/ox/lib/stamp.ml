@@ -37,21 +37,42 @@ let source_url root source =
     fail "Source URL must not contain a revision: %s" s;
   if String.starts_with ~prefix:"git+" s then s else "git+" ^ s
 
-let inspect proc ~repo ~revision ~source =
+let inspect ?(working = false) proc ~repo ~revision ~source =
   let root = git proc repo [ "rev-parse"; "--show-toplevel" ] in
-  if git proc root [ "rev-parse"; "--is-shallow-repository" ] = "true" then
+  if
+    (not working)
+    && git proc root [ "rev-parse"; "--is-shallow-repository" ] = "true"
+  then
     fail
       "Snapshot versioning requires complete Git history. Unshallow %s first."
       root;
   let commit =
-    git proc root [ "rev-parse"; "--verify"; revision ^ "^{commit}" ]
+    if working then ""
+    else git proc root [ "rev-parse"; "--verify"; revision ^ "^{commit}" ]
   in
   let files =
-    capture proc [ "git"; "-C"; root; "ls-tree"; "-rz"; "--name-only"; commit ]
+    (if working then
+       capture proc
+         [
+           "git";
+           "-C";
+           root;
+           "ls-files";
+           "-z";
+           "--cached";
+           "--others";
+           "--exclude-standard";
+         ]
+     else
+       capture proc
+         [ "git"; "-C"; root; "ls-tree"; "-rz"; "--name-only"; commit ])
     |> nul_lines
+    |> List.sort_uniq String.compare
+    |> List.filter (fun path -> (not working) || exists (root / path))
   in
   let blob path =
-    capture proc [ "git"; "-C"; root; "show"; commit ^ ":" ^ path ]
+    if working then read (root / path)
+    else capture proc [ "git"; "-C"; root; "show"; commit ^ ":" ^ path ]
   in
   let projects =
     files
@@ -69,7 +90,21 @@ let inspect proc ~repo ~revision ~source =
     | p :: _ -> Some p
     | [] -> None
   in
-  let count = git proc root [ "rev-list"; "--count"; commit ] in
+  let commit =
+    if working then
+      hash_fields
+        (root
+        :: (files
+           |> List.filter (fun path ->
+                  Filename.check_suffix path ".opam"
+                  || List.mem (Filename.basename path)
+                       [ "dune"; "dune-project" ])
+           |> List.concat_map (fun path -> [ path; blob path ])))
+    else commit
+  in
+  let count =
+    if working then "local" else git proc root [ "rev-list"; "--count"; commit ]
+  in
   let metadata =
     files
     |> List.filter_map (fun path ->
@@ -104,7 +139,9 @@ let inspect proc ~repo ~revision ~source =
                if project = "." then commit ^ "^{tree}"
                else commit ^ ":" ^ project
              in
-             let source_hash = git proc root [ "rev-parse"; tree ] in
+             let source_hash =
+               if working then commit else git proc root [ "rev-parse"; tree ]
+             in
              let version =
                base ^ "+ox." ^ count ^ "." ^ String.sub commit 0 12
              in
@@ -266,3 +303,23 @@ let export proc ~repo ~revision ~source ~output =
       write (staging / "ox-source")
         (snapshot.source ^ "#" ^ snapshot.commit ^ "\n"));
   snapshot
+
+let working proc ~repo ~data =
+  let root = git proc repo [ "rev-parse"; "--show-toplevel" ] in
+  let snapshot =
+    inspect ~working:true proc ~repo:root ~revision:"HEAD" ~source:None
+  in
+  let output = data / "workspaces" / snapshot.commit in
+  if not (exists output) then
+    publish_dir output (fun tmp ->
+        write (tmp / "repo") "opam-version: \"2.0\"\n";
+        List.iter
+          (fun p ->
+            write
+              (tmp / "packages" / p.name / (p.name ^ "." ^ p.version) / "opam")
+              (stamped_opam snapshot p
+              ^ Printf.sprintf "x-ox-worktree: %S\n" (root / p.project)))
+          snapshot.packages;
+        write (tmp / "ox-source") (root ^ "\n");
+        write (tmp / "ox-worktree") (root ^ "\n"));
+  (root, output, snapshot)

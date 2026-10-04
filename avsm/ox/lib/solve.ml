@@ -7,7 +7,11 @@ type package = {
   directory : string;
 }
 
-type t = { packages : package list; platform : Osrel.t }
+type t = {
+  packages : package list;
+  platform : Osrel.t;
+  test_roots : string list;
+}
 
 let platform_value p = function
   | "os" -> Some (OpamTypes.S (Osrel.OS.to_string p.Osrel.os))
@@ -28,9 +32,12 @@ let package_env platform id v =
       None
   | v -> platform_value platform v
 
-let dependency_formula platform id ~post formula =
+let dependency_formula platform id ~test_roots ~post formula =
+  let test =
+    List.mem (OpamPackage.Name.to_string (OpamPackage.name id)) test_roots
+  in
   OpamFilter.partial_filter_formula (package_env platform id) formula
-  |> OpamFilter.filter_deps ~build:true ~post ~test:false ~doc:false ~dev:false
+  |> OpamFilter.filter_deps ~build:true ~post ~test ~doc:false ~dev:false
        ~dev_setup:false ~default:false
 
 module Dir_context = struct
@@ -38,6 +45,7 @@ module Dir_context = struct
 
   type t = {
     platform : Osrel.t;
+    test_roots : string list;
     packages_dirs : string list;
     constraints : OpamFormula.version_constraint OpamTypes.name_map;
   }
@@ -56,7 +64,8 @@ module Dir_context = struct
   let user_restrictions t name =
     OpamPackage.Name.Map.find_opt name t.constraints
 
-  let filter_deps t pkg = dependency_formula t.platform pkg ~post:true
+  let filter_deps t pkg =
+    dependency_formula t.platform pkg ~test_roots:t.test_roots ~post:true
 
   let version_compare (v1, avoid1, _) (v2, avoid2, _) =
     match Bool.compare avoid1 avoid2 with
@@ -114,7 +123,7 @@ module Inst = Opam_0install.Solver.Make (Dir_context)
 
 let dependencies t p =
   let formula =
-    dependency_formula t.platform p.id ~post:false
+    dependency_formula t.platform p.id ~test_roots:t.test_roots ~post:false
       (OpamFile.OPAM.depends p.opam)
   in
   let selected name constraint_ =
@@ -144,7 +153,7 @@ let dependencies t p =
   in
   let optional =
     OpamFormula.atoms
-      (dependency_formula t.platform p.id ~post:false
+      (dependency_formula t.platform p.id ~test_roots:t.test_roots ~post:false
          (OpamFile.OPAM.depopts p.opam))
     |> List.filter_map (fun (n, _) ->
            List.find_opt
@@ -153,7 +162,7 @@ let dependencies t p =
   in
   List.sort_uniq (fun a b -> OpamPackage.compare a.id b.id) (required @ optional)
 
-let run ~platform ~repos roots =
+let run ?(test_roots = []) ~platform ~repos roots =
   let constraints, names =
     List.fold_left
       (fun (cs, ns) root ->
@@ -175,7 +184,9 @@ let run ~platform ~repos roots =
   let packages_dirs =
     List.map (fun r -> r.Repository.path / "packages") repos
   in
-  let ctx : Dir_context.t = { constraints; platform; packages_dirs } in
+  let ctx : Dir_context.t =
+    { constraints; platform; packages_dirs; test_roots }
+  in
   let ids =
     match Inst.solve ctx names with
     | Ok sels -> Inst.packages_of_result sels
@@ -197,7 +208,7 @@ let run ~platform ~repos roots =
         { id; opam; directory })
       ids
   in
-  let t = { packages; platform } in
+  let t = { packages; platform; test_roots } in
   let visiting = Hashtbl.create 64 and done_ = Hashtbl.create 64 in
   let ordered = ref [] in
   let rec visit p =

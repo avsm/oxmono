@@ -5,7 +5,11 @@ type package = {
 }
 (** In-process resolution of opam repository metadata. *)
 
-type t = { packages : package list; platform : Osrel.t }
+type t = {
+  packages : package list;
+  platform : Osrel.t;
+  test_roots : string list;
+}
 
 val platform_value : Osrel.t -> string -> OpamVariable.variable_contents option
 (** [platform_value platform name] resolves a platform variable. *)
@@ -14,6 +18,12 @@ val dependencies : t -> package -> package list
 (** [dependencies solution package] returns selected build dependencies,
     including installed optional dependencies and excluding post dependencies. *)
 
-val run : platform:Osrel.t -> repos:Repository.t list -> string list -> t
+val run :
+  ?test_roots:string list ->
+  platform:Osrel.t ->
+  repos:Repository.t list ->
+  string list ->
+  t
 (** [run ~platform ~repos roots] resolves package atoms and orders the result by
-    build dependencies. Earlier repositories take precedence. *)
+    build dependencies. Earlier repositories take precedence. [test_roots]
+    enables [with-test] dependencies for the named packages only. *)

@@ -15,3 +15,6 @@ val constrain : data:string -> t list -> string list * t list
 (** [constrain ~data repos] retains OxCaml patch guards for external packages.
     Explicitly stamped packages supply their own patched recipes, so generated
     guards omit constraints on those local package names. *)
+
+val snapshot_root : t list -> string -> string
+(** [snapshot_root repos atom] pins an unconstrained local root to its snapshot. *)

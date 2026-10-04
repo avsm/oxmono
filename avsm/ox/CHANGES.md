@@ -1,5 +1,8 @@
 # Changes
 
+- Add package and editable-workspace builds, tests, environments and source
+  preparation, combining local opam definitions with OxCaml repository dependencies.
+
 - Use d10 platform keys to separate local caches by distribution and version.
   Existing cache entries are retained but builds use new keys.
 

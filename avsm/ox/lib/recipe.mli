@@ -4,6 +4,7 @@ val name : Solve.package -> string
 val version : Solve.package -> string
 
 val resolver :
+  ?test:bool ->
   ?config_var:(string -> string -> OpamVariable.variable_contents option) ->
   solution:Solve.t ->
   installed:string list ->
@@ -14,13 +15,15 @@ val resolver :
   OpamFilter.env
 (** [resolver ~solution ~installed ~prefix ~build_dir ~jobs package] resolves
     platform, package and generated configuration variables for an action.
-    [config_var] supplies a fallback for unknown package variables. *)
+    [config_var] supplies a fallback for unknown package variables. [test]
+    enables the [with-test] variable and defaults to [false]. *)
 
 val environment : prefix:string -> string array
 (** [environment ~prefix] selects host build variables and package paths.
     Compiler paths inherited from an opam environment are removed. *)
 
 val build_environment :
+  ?test:bool ->
   ?base_env:string array ->
   ?config_var:(string -> string -> OpamVariable.variable_contents option) ->
   solution:Solve.t ->
@@ -33,7 +36,8 @@ val build_environment :
 (** [build_environment ~solution ~installed ~prefix ~build_dir ~jobs package]
     applies dependency environment updates and the package's build environment.
     [base_env] replaces the host environment and [config_var] supplies the
-    resolver's fallback for generated variables. *)
+    resolver's fallback for generated variables. [test] enables [with-test]
+    while evaluating this package's environment. *)
 
 val runtime_environment :
   solution:Solve.t -> prefix:string -> jobs:int -> string array
@@ -44,6 +48,7 @@ val shell : string list list -> string
 (** [shell commands] quotes each argument for a POSIX shell. *)
 
 val prepare :
+  ?test:bool ->
   solution:Solve.t ->
   installed:string list ->
   jobs:int ->
@@ -54,7 +59,8 @@ val prepare :
   D10ir.Plan.node
 (** [prepare ~solution ~installed ~jobs package ~prefix ~build_dir node]
     resolves opam actions and environment after dependencies are installed. It
-    expands source substitutions and adds package configuration capture. *)
+    expands source substitutions and adds package configuration capture. [test]
+    enables [with-test] actions and includes [run-test] commands. *)
 
 val export :
   solution:Solve.t ->

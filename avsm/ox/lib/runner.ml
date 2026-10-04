@@ -63,7 +63,7 @@ let source_overlay proc config source =
          ~output:path));
   path
 
-let repositories proc config ~target ~with_packages =
+let metadata proc config =
   let source_repos =
     Option.to_list config.from |> List.map (source_overlay proc config)
   in
@@ -81,13 +81,45 @@ let repositories proc config ~target ~with_packages =
       (Repository.prepare proc ~data:config.data ~refresh:config.refresh)
       (source_repos @ overlays @ bases)
   in
+  repos
+
+let repositories proc config ~target ~with_packages =
+  let repos = metadata proc config in
   let constraints, repos = Repository.constrain ~data:config.data repos in
   let binary, roots = Repository.resolve_binary repos target with_packages in
   if Filename.basename binary <> binary || List.mem binary [ "."; ".." ] then
     fail "Expected a binary name: %s" binary;
   (repos, binary, (config.toolchain :: constraints) @ roots)
 
-let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
+type action = Build | Test | Fetch | Depexts
+
+let package_names repos =
+  repos
+  |> List.filter (fun r -> exists (r.Repository.path / "ox-source"))
+  |> List.concat_map (fun r -> sorted_dir (r.Repository.path / "packages"))
+  |> List.sort_uniq String.compare
+
+let depexts (solution : Solve.t) =
+  solution.Solve.packages
+  |> List.concat_map (fun p ->
+         OpamFile.OPAM.depexts p.Solve.opam
+         |> List.filter_map (fun (names, filter) ->
+                if
+                  OpamFilter.eval_to_bool ~default:false
+                    (fun v ->
+                      Solve.platform_value solution.platform
+                        (OpamVariable.Full.to_string v))
+                    filter
+                then
+                  Some
+                    (OpamSysPkg.Set.elements names
+                    |> List.map OpamSysPkg.to_string)
+                else None)
+         |> List.concat)
+  |> List.sort_uniq String.compare
+
+let prepare_request proc ~clock ~fs ~sys ?test_roots config ~select ~action
+    ~exclude ~dry_run =
   if config.jobs < 1 then fail "--jobs must be positive";
   mkdir config.cache;
   mkdir config.data;
@@ -100,7 +132,19 @@ let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
   let d10 : D10.Config.t =
     { sys; fs; clock; root = Eio.Path.(fs / cache); os_key }
   in
-  let repos, binary, roots = repositories proc config ~target ~with_packages in
+  let repos = metadata proc config in
+  let binary, selected = select repos in
+  let constraints, repos = Repository.constrain ~data:config.data repos in
+  let roots = (config.toolchain :: constraints) @ selected in
+  let names =
+    List.map
+      (fun atom ->
+        OpamFormula.atom_of_string atom |> fst |> OpamPackage.Name.to_string)
+      selected
+  in
+  let test_roots =
+    if action = Test then Option.value test_roots ~default:names else []
+  in
   let cc =
     try capture proc [ "cc"; "--version" ] with Eio.Exn.Io _ -> "unavailable"
   in
@@ -122,7 +166,10 @@ let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
   in
   let request =
     hash_fields
-      ("ox-request-v4" :: identity
+      ("ox-request-v5" :: identity
+       :: (if action = Test then "test" else "build")
+       :: String.concat "," exclude
+       :: String.concat "," (List.sort_uniq String.compare test_roots)
        :: List.map (fun r -> r.Repository.digest) repos
       @ List.sort_uniq String.compare roots)
   in
@@ -134,12 +181,16 @@ let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
       List.iter (fun hash -> D10.Prefix.restore d10 ~hash) layers;
       D10.Prefix.ensure d10 ~key ~layer_hashes:layers
         ~dst:Eio.Path.(fs / run_prefix);
-      if not (exists (run_prefix / "bin" / binary)) then
+      if binary <> "" && not (exists (run_prefix / "bin" / binary)) then
         fail "Cached layers have no binary %s. Use --with PACKAGE." binary);
     run_prefix
   in
   let warm () =
-    if config.refresh || not (exists receipt) then None
+    if
+      dry_run || config.refresh || action <> Build
+      || List.exists (fun r -> exists (r.Repository.path / "ox-worktree")) repos
+      || not (exists receipt)
+    then None
     else
       try
         match Parsexp.Single.parse_string_exn (read receipt) with
@@ -163,8 +214,33 @@ let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
   match warm () with
   | Some p -> p
   | None ->
-      let solution = Solve.run ~platform ~repos roots in
-      if dry_run then (
+      let solution = Solve.run ~test_roots ~platform ~repos roots in
+      let is_local p = List.mem (Recipe.name p) exclude in
+      (* A repository package may itself need a library from the checkout.
+         Build those prerequisites through the same recipe path. *)
+      let required = Hashtbl.create 64 in
+      let rec require p =
+        if not (Hashtbl.mem required (Recipe.name p)) then (
+          Hashtbl.add required (Recipe.name p) ();
+          List.iter require (Solve.dependencies solution p))
+      in
+      List.iter (fun p -> if not (is_local p) then require p) solution.packages;
+      let build_packages =
+        if exclude = [] then solution.packages
+        else
+          List.filter
+            (fun p -> Hashtbl.mem required (Recipe.name p))
+            solution.packages
+      in
+      if action = Depexts && not dry_run then (
+        List.iter print_endline (depexts solution);
+        { prefix = ""; env = [||]; binary })
+      else if action = Fetch && not dry_run then (
+        List.iter
+          (fun p -> ignore (Source.prepare ~refresh:config.refresh proc d10 p))
+          build_packages;
+        { prefix = ""; env = [||]; binary })
+      else if dry_run then (
         List.iter
           (fun p -> log "Plan %s" (OpamPackage.to_string p.Solve.id))
           solution.packages;
@@ -181,13 +257,24 @@ let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
               let result = Build.run builder ~solution ~deps p in
               Hashtbl.replace by_name (Recipe.name p) result;
               result)
-            solution.packages
+            build_packages
         in
+        if action = Test && exclude = [] then
+          List.iter
+            (fun p ->
+              if List.mem (Recipe.name p) names then
+                let deps =
+                  Solve.dependencies solution p
+                  |> List.map (fun d -> Hashtbl.find by_name (Recipe.name d))
+                in
+                Build.test builder ~solution ~deps p)
+            solution.packages;
         let layers = Build.layers built in
         let run_prefix = assemble layers in
         let env =
-          Recipe.runtime_environment ~solution ~prefix:run_prefix
-            ~jobs:config.jobs
+          Recipe.runtime_environment
+            ~solution:{ solution with packages = build_packages }
+            ~prefix:run_prefix ~jobs:config.jobs
         in
         let p = { prefix = run_prefix; env; binary } in
         let open Sexplib0.Sexp in
@@ -195,6 +282,62 @@ let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
         atomic_write receipt
           (to_string_hum (List [ strings layers; strings (Array.to_list env) ]));
         p
+
+let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
+  let select repos =
+    let binary, roots = Repository.resolve_binary repos target with_packages in
+    if Filename.basename binary <> binary || List.mem binary [ "."; ".." ] then
+      fail "Expected a binary name: %s" binary;
+    (binary, roots)
+  in
+  prepare_request proc ~clock ~fs ~sys config ~select ~action:Build ~exclude:[]
+    ~dry_run
+
+let packages proc ~clock ~fs ~sys config ~roots ~all ~action ?test_roots
+    ?(exclude = []) ~dry_run () =
+  let select repos =
+    let roots = if all then roots @ package_names repos else roots in
+    if roots = [] then
+      fail "No package roots. Supply PACKAGE or --from SOURCE --all.";
+    ("", List.map (Repository.snapshot_root repos) roots)
+  in
+  prepare_request proc ~clock ~fs ~sys ?test_roots config ~select ~action
+    ~exclude ~dry_run
+
+let prefix p = p.prefix
+let environment p = replace_env (clean_env ()) (env_bindings p.env)
+
+let exports p =
+  Array.iter
+    (fun entry ->
+      match OpamStd.String.cut_at entry '=' with
+      | Some (k, v) -> Printf.printf "export %s=%s\n" k (Filename.quote v)
+      | None -> ())
+    p.env
+
+let exec_command p args =
+  match args with
+  | [] -> fail "Expected a command"
+  | cmd :: _ ->
+      let env = environment p in
+      let path =
+        List.assoc_opt "PATH" (env_bindings env) |> Option.value ~default:""
+      in
+      let executable =
+        if String.contains cmd '/' then cmd
+        else
+          String.split_on_char ':' path
+          |> List.find_map (fun dir ->
+                 let file = dir / cmd in
+                 try
+                   Unix.access file [ Unix.X_OK ];
+                   Some file
+                 with Unix.Unix_error _ -> None)
+          |> function
+          | Some p -> p
+          | None -> fail "Command not found: %s" cmd
+      in
+      Unix.execve executable (Array.of_list args) env
 
 let exec p args =
   let executable = p.prefix / "bin" / p.binary in

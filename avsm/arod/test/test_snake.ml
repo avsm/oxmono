@@ -47,11 +47,11 @@ let () =
     (fun kind ->
       List.iter
         (fun y_abs ->
-          let e = S.exit_ ~kind ~y_abs in
+          let e = S.exit_ ~plain:(kind = S.Release) ~kind ~y_abs in
           check "an exit starts on the spine"
             (near ~eps:1e-4 e.S.start_x (S.spine_x (y_abs +. e.S.start_y)));
           check "an exit ends at its node's edge, level with its centre"
-            (near e.S.end_x (S.arrive kind)
+            (near e.S.end_x (S.arrive ~plain:(kind = S.Release) kind)
             && near e.S.end_y (S.center kind));
           check "an exit comes with the stretch of spine it merges from"
             (String.length e.S.lane > 0 && e.S.lane.[0] = 'M'
@@ -61,6 +61,9 @@ let () =
         [ 0.; 3.7; 12.5; 27.1; 101.9 ])
     [ S.Note; S.Week; S.Release ];
 
+  check "an exit with no thumbnail runs on to the text"
+    (let e = S.exit_ ~plain:true ~kind:S.Note ~y_abs:10. in
+     e.S.end_x > S.node_left S.Note && e.S.end_x < S.text_left S.Note);
   check "no node touches the spine"
     (List.for_all
        (fun k -> S.node_left k > S.xr)

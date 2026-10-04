@@ -2906,7 +2906,7 @@ let custom_css = {|
 .sn-release { --sn-c: var(--sn-release); }
 .sn-exit { position: absolute; left: 0; overflow: visible; pointer-events: none; }
 /* A release has no thumbnail. Its line runs on towards the entry and fades. */
-.sn-release .sn-exit {
+.sn-release .sn-exit, .sn-exit-fade {
   -webkit-mask-image: linear-gradient(90deg, #000 40%, transparent);
   mask-image: linear-gradient(90deg, #000 40%, transparent);
 }
@@ -2958,7 +2958,7 @@ let custom_css = {|
   background: color-mix(in srgb, var(--sn-c) 10%, var(--color-bg));
 }
 .sn-node-img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.sn-week .sn-node-img { filter: grayscale(0.4); transition: filter 0.3s; }
+.sn-node-img { filter: sepia(0.45) saturate(0.75); transition: filter 0.3s; }
 .sn-text {
   position: absolute;
   right: 0.5em;
@@ -2972,17 +2972,19 @@ let custom_css = {|
 /* The reading column is kept to a comfortable measure, and the tags take the
    space beyond it. */
 .sn-body { flex: 0 1 42em; min-width: 0; }
-/* The tags take a column of their own at the end of the entry, in plain text. */
+/* The tags and the icons of an entry take a column of their own at its end, in
+   plain muted type. */
 .sn-tags {
   flex: 0 0 10em;
   margin-left: auto;
   align-self: stretch;
   display: flex;
-  flex-wrap: wrap;
-  align-content: center;
-  gap: 0.15em 0.8em;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.35em;
   overflow: hidden;
 }
+.sn-tag-list { display: flex; flex-wrap: wrap; gap: 0.15em 0.8em; }
 .sn-tag {
   font-size: 0.68em;
   line-height: 1.4;
@@ -2992,6 +2994,15 @@ let custom_css = {|
   transition: color 0.2s;
 }
 .sn-tag:hover { color: var(--color-accent) !important; }
+.sn-links { display: flex; align-items: center; gap: 0.7em; }
+.sn-links a {
+  display: inline-flex;
+  color: var(--color-muted) !important;
+  opacity: 0.8;
+  text-decoration: none !important;
+  transition: color 0.2s, opacity 0.2s;
+}
+.sn-links a:hover { color: var(--color-accent) !important; opacity: 1; }
 .sn-meta {
   display: block;
   font-size: 0.66em;

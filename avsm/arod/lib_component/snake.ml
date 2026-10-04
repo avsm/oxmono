@@ -58,12 +58,13 @@ let node_left _ = card_x
     weeknotes and releases lines up in one column. *)
 let text_left _ = card_x +. thumb_w +. 0.9
 
-(** The x where the exit of a row ends: the edge of a card, or for a release,
-    just short of its text, since a release has no thumbnail and its line runs
-    on to the entry itself. *)
-let arrive kind =
+(** [arrive ~plain kind] is the x where the exit of a row ends: the edge of its
+    thumbnail, or just short of its text when it has none, as a release never
+    does ([plain]), so that the line runs on to the entry itself. *)
+let arrive ~plain kind =
   match kind with
   | Release -> text_left kind -. 0.6
+  | _ when plain -> text_left kind -. 0.6
   | _ -> node_left kind
 
 (** How far above its node an exit leaves the spine. *)
@@ -136,11 +137,11 @@ let lane_path ~y_abs ~start_y =
    coordinates are relative to the top of the row. It leaves the spine along the
    spine's own direction, turns in one smooth elbow, and runs level into its
    node, so that the exits read as rails off a main line. *)
-let exit_ ~kind ~y_abs =
+let exit_ ~plain ~kind ~y_abs =
   let end_y = center kind in
   let start_y = end_y -. drop kind in
   let start_x = spine_x (y_abs +. start_y) in
-  let end_x = arrive kind in
+  let end_x = arrive ~plain kind in
   let slope =
     (spine_x (y_abs +. start_y +. 0.05) -. spine_x (y_abs +. start_y -. 0.05))
     /. 0.1

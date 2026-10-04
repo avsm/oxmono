@@ -268,13 +268,14 @@ let pos_style ~top ~height =
 
 (** [exit_svg kind ~y_abs] is the svg of the exit curve of a row of [kind] that
     begins [y_abs] down the timeline. It starts on the spine, above the row. *)
-let exit_svg kind ~y_abs =
-  let e = Snake.exit_ ~kind ~y_abs in
+let exit_svg ~plain kind ~y_abs =
+  let e = Snake.exit_ ~plain ~kind ~y_abs in
   let top = -5.0 in
-  let w = Float.max Snake.svg_width (Snake.arrive kind +. 0.5) in
+  let w = Float.max Snake.svg_width (Snake.arrive ~plain kind +. 0.5) in
   let h = Snake.height kind -. top in
   Printf.sprintf
-    {|<svg class="sn-exit" viewBox="0 %.2f %.2f %.2f" style="top:%.2fem;width:%.2fem;height:%.2fem" aria-hidden="true" focusable="false"><path class="sn-lane" d="%s"/><path class="sn-exit-path" d="%s"/><path class="sn-flow" d="%s"/></svg>|}
+    {|<svg class="sn-exit%s" viewBox="0 %.2f %.2f %.2f" style="top:%.2fem;width:%.2fem;height:%.2fem" aria-hidden="true" focusable="false"><path class="sn-lane" d="%s"/><path class="sn-exit-path" d="%s"/><path class="sn-flow" d="%s"/></svg>|}
+    (if plain then " sn-exit-fade" else "")
     top w h top w h e.Snake.lane e.Snake.path
     e.Snake.path
 
@@ -286,24 +287,18 @@ let node_style kind =
     (Snake.node_left kind) (Snake.center kind -. (h /. 2.))
     (Snake.node_width kind) h
 
-(** [sn_node ~ctx ~url ~kind ~label ~icon entry] is the node of a row, linking
-    to [url]. It is the image of [entry], and without one [icon]. *)
-let sn_node ~ctx ~url ~kind ~label ~icon ~size entry =
-  let cls = "sn-node sn-node-" ^ label in
-  let image =
-    Option.bind entry (fun e -> Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) e)
-  in
-  match image with
-  | Some src ->
-    El.a ~at:[At.href url; At.class' cls; At.v "style" (node_style kind);
-              At.v "tabindex" "-1"; At.v "aria-hidden" "true"]
-      [El.img ~at:[At.src src; At.v "alt" ""; At.v "loading" "lazy";
-                   At.class' "sn-node-img"] ()]
-  | None ->
-    El.a ~at:[At.href url; At.class' (cls ^ " sn-node-icon");
-              At.v "style" (node_style kind);
-              At.v "tabindex" "-1"; At.v "aria-hidden" "true"]
-      [El.unsafe_raw (Arod.Icons.outline ~size icon)]
+(** [sn_node ~url ~kind ~label src] is the thumbnail that begins a row, linking
+    to [url]. *)
+let sn_node ~url ~kind ~label src =
+  El.a ~at:[At.href url; At.class' ("sn-node sn-node-" ^ label);
+            At.v "style" (node_style kind);
+            At.v "tabindex" "-1"; At.v "aria-hidden" "true"]
+    [El.img ~at:[At.src src; At.v "alt" ""; At.v "loading" "lazy";
+                 At.class' "sn-node-img"] ()]
+
+(** [thumbnail ~ctx n] is the image of note [n], if it has one. *)
+let thumbnail ~ctx n =
+  Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) (`Note n)
 
 let text_style kind =
   Printf.sprintf "left:%.3fem" (Snake.text_left kind)
@@ -316,9 +311,10 @@ let title_stop title =
   | _ -> "."
   | exception Invalid_argument _ -> ""
 
-(** [sn_tags ?limit n] is the column of tags of [n], which fills the right of its row.
-    Only plain and set tags are shown, at most [limit] (default four). Each links to a search for
-    it. *)
+(** [sn_tags ?limit n] is the column at the right of the row of [n]. It holds
+    its plain and set tags, at most [limit] (default four), each linking to a
+    search for it, above the icons for its DOI, StandardSite page and social
+    discussions. *)
 let sn_tags ?(limit = 4) n =
   let tags =
     List.filter_map (function
@@ -326,10 +322,38 @@ let sn_tags ?(limit = 4) n =
       | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
   in
   let tags = List.filteri (fun i _ -> i < limit) tags in
+  let link ~icon ~label ?(cl = "") href =
+    El.a ~at:[At.href href; At.class' ("sn-link " ^ cl); At.v "title" label;
+              At.v "aria-label" label; At.v "rel" "noopener"]
+      [El.unsafe_raw (I.outline ~size:13 icon)]
+  in
+  let doi =
+    match Note.doi n with
+    | Some d ->
+      [link ~icon:I.fingerprint_o ~label:("DOI " ^ d) ("https://doi.org/" ^ d)]
+    | None -> []
+  in
+  let standardsite =
+    match Note.standardsite n with
+    | Some uri ->
+      [link ~icon:I.world_o ~label:"StandardSite" ("https://pdsls.dev/" ^ uri)]
+    | None -> []
+  in
+  let social =
+    match Note.social n with
+    | Some soc -> Sidebar.social_icon_links ~size:13 soc
+    | None -> []
+  in
+  let links = doi @ standardsite @ social in
   El.div ~at:[At.class' "sn-tags"]
-    (List.map (fun t ->
-       El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
-                 At.class' "sn-tag"] [El.txt ("#" ^ t)]) tags)
+    ((if tags = [] then []
+      else
+        [El.div ~at:[At.class' "sn-tag-list"]
+           (List.map (fun t ->
+              El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
+                        At.class' "sn-tag"] [El.txt ("#" ^ t)]) tags)])
+    @ (if links = [] then []
+       else [El.div ~at:[At.class' "sn-links"] links]))
 
 (** [sn_note ~ctx ~y_rel ~y_abs n] is journal note [n] as a row. *)
 let sn_note ~ctx ~y_rel ~y_abs n =
@@ -341,15 +365,17 @@ let sn_note ~ctx ~y_rel ~y_abs n =
   in
   let synopsis = Option.value (Note.synopsis n) ~default:"" in
   let title = Note.title n in
+  let image = thumbnail ~ctx n in
   El.div ~at:[At.id ("note-" ^ Bushel.Entry.slug (`Note n));
               At.class' "sn-item sn-note note-item h-entry";
               At.v "data-tags" tags_data;
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
               At.v "style"
                 (pos_style ~top:y_rel ~height:(Snake.height Snake.Note))] [
-    El.unsafe_raw (exit_svg Snake.Note ~y_abs);
-    sn_node ~ctx ~url ~kind:Snake.Note ~label:"note" ~icon:Arod.Icons.note_o
-      ~size:22 (Some (`Note n));
+    El.unsafe_raw (exit_svg ~plain:(image = None) Snake.Note ~y_abs);
+    (match image with
+     | Some src -> sn_node ~url ~kind:Snake.Note ~label:"note" src
+     | None -> El.void);
     El.div ~at:[At.class' "sn-text"; At.v "style" (text_style Snake.Note)] [
       El.div ~at:[At.class' "sn-body"] [
         El.time ~at:[At.class' "sn-meta dt-published";
@@ -372,6 +398,7 @@ let sn_week ~ctx ~y_rel ~y_abs n =
   let (_, wk) = Note.week_number n in
   let synopsis = Option.value (Note.synopsis n) ~default:"" in
   let title = strip_weeknote_prefix (Note.title n) in
+  let image = thumbnail ~ctx n in
   let url = Bushel.Entry.site_url (`Note n) in
   let tags_data =
     String.concat ","
@@ -383,9 +410,10 @@ let sn_week ~ctx ~y_rel ~y_abs n =
               At.v "title" (Printf.sprintf "%s words" (format_number (Note.words n)));
               At.v "style"
                 (pos_style ~top:y_rel ~height:(Snake.height Snake.Week))] [
-    El.unsafe_raw (exit_svg Snake.Week ~y_abs);
-    sn_node ~ctx ~url ~kind:Snake.Week ~label:"week"
-      ~icon:Arod.Icons.calendar_week_o ~size:18 (Some (`Note n));
+    El.unsafe_raw (exit_svg ~plain:(image = None) Snake.Week ~y_abs);
+    (match image with
+     | Some src -> sn_node ~url ~kind:Snake.Week ~label:"week" src
+     | None -> El.void);
     El.div ~at:[At.class' "sn-text"; At.v "style" (text_style Snake.Week)] [
       El.div ~at:[At.class' "sn-body"] [
         El.div ~at:[At.class' "sn-meta"] [
@@ -434,7 +462,7 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
               At.v "style"
                 (pos_style ~top:y_rel ~height:(Snake.height Snake.Release))] [
-    El.unsafe_raw (exit_svg Snake.Release ~y_abs);
+    El.unsafe_raw (exit_svg ~plain:true Snake.Release ~y_abs);
     El.div ~at:[At.class' "sn-text release-line";
                 At.v "style" (text_style Snake.Release)] [
       El.a ~at:[At.href r.url;

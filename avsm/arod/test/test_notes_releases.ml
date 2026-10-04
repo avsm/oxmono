@@ -109,7 +109,7 @@ let () =
     && not (contains html "notes-split")
     && not (contains html "lg:hidden"));
   check "a weeknote is a row of its own kind"
-    (contains html "sn-week" && contains html "sn-node-week"
+    (contains html "sn-week"
     && contains html "Week 28" && contains html "Week 30");
   check "the weeknote prefix is not shown" (not (contains html ".plan-"));
   check "a weeknote can be hidden by a tag filter"
@@ -120,8 +120,8 @@ let () =
     (before html {|src="/images/pic.webp"|} "An August note"
     && contains html {|class="sn-node-img"|}
     && contains html "sn-node-note");
-  check "a note without an image has an icon in its place"
-    (contains html "sn-node-icon");
+  check "a note without an image has no placeholder, only a line to its text"
+    (not (contains html "sn-node-icon") && contains html "sn-exit-fade");
   check "a note's date is a caption above its title"
     (before html {|>10 Aug<|} "An August note");
   let occurrences html sub =
@@ -140,7 +140,10 @@ let () =
     && contains html {|class="snake-line"|});
   check "every row has an exit curve from the spine"
     (let rows = occurrences html "sn-item " in
-     rows > 0 && rows = occurrences html {|class="sn-exit"|});
+     rows > 0
+     && rows
+        = occurrences html {|class="sn-exit"|}
+          + occurrences html {|class="sn-exit sn-exit-fade"|});
   check "no quiet week is a row with an exit"
     (contains html "sn-quiet");
   (* The first exit on the page starts exactly on the spine, which is drawn

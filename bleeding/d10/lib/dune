@@ -5,10 +5,14 @@
   osrel
   eio
   eio.unix
+  opam-core
   opam-format
   jsont
   jsont.bytesrw
   sqlite3
   fmt
   logs
+  unix
+  cstruct
+  fetch
   fetch-curl))

@@ -1,14 +1,11 @@
-(** Remote archive registry for d10ir consolidated source archives.
+(** Optional HTTP registry for prepared source archives.
 
-    Mirrors {!D10.Layer}'s remote-fetch pattern: each archive is
-    content-addressed by its sha256 and lives at
-    [<base_url>/d10ir-archives/<sha>.tar.zst]. Fetched archives drop into
-    [<cache>/d10ir/archives/<sha>.tar.zst] where {!D10ir.Direct} can pick them
-    up.
+    Archives are addressed by SHA-256 at
+    [<base_url>/d10ir-archives/<sha>.tar.zst] and downloaded to
+    [<cache_root>/d10ir/archives/<sha>.tar.zst]. No index is required.
 
-    The registry is a static HTTP server (CDN, S3 bucket, GitHub release tree,
-    …). No index file is needed — clients query by sha directly, since the
-    d10ir.Plan.t already lists every archive sha we need. *)
+    Callers serialize cache writes across processes. Concurrent fibers share
+    in-flight downloads by SHA, so use one cache root within one Eio domain. *)
 
 type remote = [ `Http_remote of string ]
 (** [`Http_remote base_url] fetches as
@@ -22,13 +19,14 @@ val pull :
   remote:remote ->
   sha:string ->
   bool
-(** [pull] downloads the archive with the given sha into
-    [<cache>/d10ir/archives/<sha>.tar.zst]. Verifies the downloaded content's
-    sha256 against [sha] before renaming into place. Returns [true] on success.
+(** [pull ~clock ~fs ~session ~cache_root ~remote ~sha] downloads and verifies
+    an archive before renaming it into place. Returns [true] when available.
+    Existing files are trusted without rechecking. HTTP failures and checksum
+    mismatches return [false]. Cancellation propagates.
 
-    No-op (returns [true]) if the archive already exists locally. Returns
-    [false] on HTTP failure or sha mismatch — caller decides whether to fall
-    back to inline bake or hard-error. *)
+    Failed downloads are retried three times with exponential backoff starting
+    at two seconds. [OI_ARCHIVE_RETRIES] sets the attempt count. An optional
+    JSON sidecar is fetched when available. *)
 
 type prefetch_summary = {
   fetched : int;  (** Newly downloaded. *)
@@ -48,6 +46,7 @@ val prefetch :
   ?max_fibers:int ->
   string list ->
   prefetch_summary
-(** [prefetch] pulls every archive in parallel, skipping those already present.
-    Used by the recipe runner to make all required sources available locally
-    before kicking off the d10ir build (which itself does no network I/O). *)
+(** [prefetch ~clock ~fs ~session ~cache_root ~remote shas] downloads missing
+    archives and reports counts and missing hashes. [max_fibers] must be
+    positive. It defaults to [OI_HTTP_PARALLEL] when that is a positive integer,
+    otherwise two. *)

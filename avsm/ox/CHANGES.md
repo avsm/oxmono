@@ -1,5 +1,8 @@
 # Changes
 
+- Use d10 platform keys to separate local caches by distribution and version.
+  Existing cache entries are retained but builds use new keys.
+
 - Add `ox dist pkg` to export standalone source bundles and osdist packaging
   for Debian, Ubuntu, Fedora and Alpine, with optional Docker Compose builds.
 

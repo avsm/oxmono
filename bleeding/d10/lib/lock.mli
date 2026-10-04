@@ -1,30 +1,15 @@
-(** Cross-process advisory locking primitive.
+(** Cross-process advisory locks on a local filesystem.
 
-    Backed by [Unix.lockf] (POSIX fcntl record locks). The lock is held while a
-    file descriptor to the lockfile remains open; it is released on explicit
-    {!release}, on the surrounding {!with_lock}'s exit (success or exception),
-    on switch teardown for the {!acquire} form, and on process termination — so
-    a crashed process never strands a held lock.
+    {!with_lock} releases on return or exception. {!acquire} releases when its
+    switch ends. Locks are also released when the process exits. The lockfile
+    records the holder's PID for diagnostics.
 
-    The single user of this primitive is {!Oi.Lock.acquire_global}, which takes
-    [<data_dir>/.oi.lock] at the top of every [oi] command in
-    {!Cmd.Harness.bootstrap}. The lockfile is a tiny sentinel created on first
-    use; we record the holder's pid into it as a debug aid.
-
-    {1 Modes}
-
-    Multiple {!Shared} holders coexist. An {!Exclusive} holder excludes every
-    other holder of any mode. The [oi] command lock uses {!Exclusive}.
-
-    {1 Limitations}
-
-    - Advisory: code that bypasses this primitive and writes the cache directly
-      can still corrupt it.
-    - Local-FS only. [Unix.lockf] over NFS is fragile in mixed-version clusters;
-      this is an unsupported configuration.
-    - Not re-entrant. A process that already holds [lock(R)] must not try to
-      acquire it again — closing the inner fd would release the outer's
-      kernel-side lock (POSIX fcntl record locks are owned per-process). *)
+    Shared holders coexist. An exclusive holder excludes other processes. POSIX
+    record locks belong to a process, so this API neither synchronizes fibers in
+    one process nor supports nested acquisition of the same lock. Closing
+    another descriptor for the same file can release the lock. Callers must
+    separately serialize fibers and keep all cache writers under the same lock.
+    Network filesystems are unsupported. *)
 
 type mode = Shared | Exclusive
 
@@ -33,7 +18,7 @@ type strategy =
       (** Wait indefinitely. Status logged every [log_interval_s] seconds via
           [on_wait]. *)
   | Block_timeout of float
-      (** Wait up to N seconds; raise {!Lock_unavailable} on timeout. *)
+      (** Wait up to N seconds. Raise {!Lock_unavailable} on timeout. *)
   | No_wait
       (** Fail immediately with {!Lock_unavailable} if the lock is held. *)
 
@@ -44,7 +29,7 @@ type t
 exception Lock_unavailable of { path : string; held_by_pid : int option }
 
 val release : t -> unit
-(** [release t] drops the lock and closes the file descriptor. Idempotent —
+(** [release t] drops the lock and closes the file descriptor. Idempotent
     calling twice is safe. *)
 
 val path : t -> string
@@ -67,7 +52,7 @@ val acquire :
 (** [acquire ~sw ~clock ~fs ~path ()] acquires the lockfile at [path] in [mode]
     (default {!Exclusive}) under [strategy] (default {!Block}) and returns the
     held lock. The lock is automatically released when [sw] ends (normal
-    completion or cancellation); call {!release} to release it earlier.
+    completion or cancellation). Call {!release} to release it earlier.
 
     Use this when the lock's lifetime spans several function calls, when you
     need to hold multiple locks side-by-side in one scope, or when integrating
@@ -94,10 +79,10 @@ val with_lock :
     [f]'s return or exception. Equivalent to:
 
     {[
-    Eio.Switch.run @@ fun sw ->
-    let t = acquire ~sw ~clock ~fs ~path () in
-    Fun.protect ~finally:(fun () -> release t) (fun () -> f t)
+      Eio.Switch.run @@ fun sw ->
+      let t = acquire ~sw ~clock ~fs ~path () in
+      Fun.protect ~finally:(fun () -> release t) (fun () -> f t)
     ]}
 
-    Prefer this for one-shot acquisitions; reach for {!acquire} when the lock
+    Prefer this for one-shot acquisitions. Reach for {!acquire} when the lock
     needs to outlive a single block. *)

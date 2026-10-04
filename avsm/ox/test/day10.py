@@ -79,6 +79,8 @@ build: [["test" "!" "-f" "hello.opam"] ["fixture-cc" "hello" "hello-built"]]
     assert not list((root / "cache").rglob(".opam-switch"))
     layers = list((root / "cache/layers").glob("*/*/layer.json"))
     compiler_layer = next(p.parent for p in layers if json.loads(p.read_text())["package"] == "oxcaml.1")
+    # Platform cache partitions include distribution/version, not just kernel.
+    assert len(compiler_layer.parent.name.split("~")) == 3
     original_compiler = (compiler_layer / "fs/bin/fixture-cc").read_bytes()
     # An unrelated root must reuse the compiler and hello, even if its installer
     # overwrites a dependency file. Cached layer hardlinks must stay intact.

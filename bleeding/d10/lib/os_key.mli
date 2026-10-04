@@ -13,7 +13,8 @@
 
     The components correspond to opam's platform variables: [os-distribution],
     [os-version], and [arch]. On macOS, the version is truncated to the major
-    version since minor releases maintain binary compatibility. *)
+    version. Alpine uses major.minor. These are cache partitioning conventions,
+    not guarantees that arbitrary binaries are compatible. *)
 
 type t = {
   os : string;  (** OS family (e.g. ["macos"], ["linux"]). *)
@@ -29,7 +30,11 @@ val to_string : t -> string
 (** [to_string t] serialises as [{distro}~{os_version}~{arch}]. *)
 
 val of_string : string -> t
-(** [of_string s] parses a key. Raises [Failure] if the format is invalid. *)
+(** [of_string s] parses three tilde-separated components. macOS aliases produce
+    [os = "macos"]. Other three-component keys produce [os = "linux"].
+    Unrecognized shapes are retained as [distro = s] with [os = "unknown"] and
+    empty version and architecture. This is a permissive decoder, not validation
+    or a round trip for non-Linux, non-macOS platforms. *)
 
 val pp : t Fmt.t
 (** [pp] renders a key in {!to_string} form ([distro~os_version~arch]). *)

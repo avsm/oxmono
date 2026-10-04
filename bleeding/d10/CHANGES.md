@@ -1,5 +1,7 @@
 # Changes
 
+- Document public cache and executor contracts and declare direct dependencies.
+
 - Export resolved plans as standalone Makefile builds through `D10ir.Makefile`,
   adapted from oi with build-path rebasing and static-build environment support.
 

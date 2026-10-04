@@ -33,3 +33,7 @@ metadata paths, preserve `TMPDIR` and `OI_STATIC`, clear failed layers before
 retrying, rebase prepared substitution files, and resolve deferred scalar opam
 configuration values from staged dependencies. Ox's distribution tests
 exercise standalone builds and installation without ox or opam.
+
+Public interfaces document caller locking, cache identities, source archive
+preparation and executor policies. Direct dependencies are declared explicitly.
+Retain these contracts and the platform-key regression tests when refreshing.

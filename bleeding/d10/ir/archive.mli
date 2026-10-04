@@ -1,13 +1,18 @@
-(** A pre-resolved source archive supplied by the recipe producer.
+(** Prepared source input supplied by a recipe producer.
 
-    The archive expands to the package's source tree with all extra sources
-    placed, all patches applied, and all opam substitutions performed. The d10ir
-    executor unpacks it; it does not fetch, patch, or substitute. *)
+    For {!Direct}, the archive contains sources with extra files and patches
+    already applied. The executor verifies and unpacks it, then applies the
+    node's [substs] using [subst_vars]. It does not fetch sources or patches.
+
+    {!Makefile} instead consumes unpacked sources under [sources/<sha256>/]. Its
+    source identifiers need not be archive checksums. Such exported plans cannot
+    be replayed by Direct without first supplying actual archives. *)
 
 type t = {
   path : string;
-      (** Path to the archive, relative to {!Plan.t.archive_root}. *)
-  sha256 : string;  (** Verified before unpack. *)
+      (** Path to the archive, relative to the plan's [archive_root]. *)
+  sha256 : string;
+      (** SHA-256 of the archive. Direct skips verification when empty. *)
   strip_components : int;  (** Passed to [tar --strip-components]. Default 1. *)
 }
 

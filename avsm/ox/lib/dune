@@ -2,10 +2,12 @@
  (name ox_lib)
  (public_name ox.lib)
  (libraries
+  opam-core
   opam-format
   opam-0install
   d10
   d10.ir
+  osrel
   osdist
   dockerfile
   dockerfile-opam

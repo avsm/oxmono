@@ -73,11 +73,11 @@ type failure = {
       (** Tidied human-readable summary of the underlying exception (e.g.
           ["exit 1"], not the full [Printexc.to_string] dump of [Eio.Io.E]). *)
 }
-(** A single build failure as accumulated in {!result.failures}. *)
+(** A single build failure as accumulated in [result.failures]. *)
 
 val pp_failures : failure list Fmt.t
-(** Print a header [Build failures (N):] followed by each failure via
-    {!pp_failure}. Empty list prints nothing. *)
+(** [pp_failures ppf failures] prints a count and each package's failed phase,
+    error and log path. An empty list prints nothing. *)
 
 type result = {
   built : int;
@@ -85,7 +85,7 @@ type result = {
   failed : int;
   skipped : int;
   failures : failure list;
-      (** Per-package details for {!failed}, in the order they finished. Empty
+      (** Per-package details for [failed], in the order they finished. Empty
           when [failed = 0]. *)
 }
 
@@ -120,29 +120,17 @@ val run :
     defaults to [Staging]. [Permanent] retains cached prefixes and is
     incompatible with [install_to].
 
-    [plan_dir] is the directory containing [plan] (and its [archive_root]);
-    defaults to the current working directory. Used to resolve [archive.path].
+    [plan_dir] is the directory containing [plan] and defaults to the current
+    working directory. It resolves relative [archive_root] and archive paths.
 
-    [install_to] redirects the per-node install destination from the normal
-    per-layer-hash [build/staging/<hash>] dir to a single shared user-owned
-    prefix (e.g. the toolchain prefix in {!Oi.Aux_install}'s flow). When set:
+    [install_to] builds every node directly into one shared prefix. It skips
+    dependency staging, cache lookup and layer capture. The prefix is retained
+    after execution. The caller must supply environments that find dependencies
+    in that prefix and arrange for concurrently scheduled nodes to install
+    without conflicts.
 
-    - opam's [%{prefix}%] expansion ([n.prefix] sentinel rebase at run time)
-      targets [install_to] for every node, so packages install directly into the
-      location they'll be consumed from — no staging-then-restore, no
-      baked-staging-path-in-binary problem.
-    - The dep-staging phase is skipped (siblings have installed to the same
-      prefix; the build env's PATH/OCAMLPATH already covers it via
-      {!Solver.Ctx.switch_env}).
-    - The layer-cache lookup is skipped: a prior cached entry was captured
-      against a per-node staging dir with that path baked into binaries, so
-      reusing it would leave [install_to] either empty or full of stale paths.
-    - The pre-build snapshot, post-build diff, and layer store are all skipped:
-      the snapshot would be of the whole toolchain prefix and the stored layer
-      would carry [install_to] baked into binaries, useless as a cache entry on
-      any other host.
-    - [install_to] is NOT cleaned up after the build; only [build_dir] (the
-      per-node sources/work area) is. *)
+    Call {!Plan.validate} before running a serialized plan. Execution does not
+    validate the graph or sandbox scripts. *)
 
 val run_node :
   config:Config.t ->

@@ -10,3 +10,6 @@ the `osrel` package. Platform normalization and detection tests live in `test/`.
 The [shared import review](../../docs/oi-library-import.md) records dependency
 provenance and validation. On refresh, compare the recorded `lib/osrel` sources,
 retain the package metadata and local tests, and run the README's scoped checks.
+
+Public ocamldoc records detection fallbacks, package-manager precedence and
+the broad OS formatter. Preserve these corrections when refreshing.

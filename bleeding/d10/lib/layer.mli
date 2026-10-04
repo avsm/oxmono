@@ -1,32 +1,9 @@
-(** Content-addressed binary package layers.
+(** Installed files and metadata stored under a caller-supplied hash.
 
-    Each layer is a directory containing a filesystem snapshot ([fs/]) and build
-    metadata ([layer.json]). The directory name is the layer's hash, computed
-    from the opam [effective_part] of the package and all its direct
-    dependencies.
-
-    Two sidecar files live next to [layer.json]: [provenance.json]
-    ({!Oi.Provenance.t}) carries the immutable content-addressed inputs that
-    produced the layer, and [audit.jsonl] (one per cache root, not per layer)
-    records every caller invocation that contributed a build attempt. The
-    [layer.json] tracked here is the d10-internal cache record; the richer audit
-    / provenance views are queried via the [oi] modules.
-
-    {2 On-disk structure}
-
-    {v
-    <cache>/layers/<os_key>/<hash>/
-      layer.json     # {!meta} record as JSON
-      fs/            # filesystem snapshot (hardlinked from build prefix)
-        bin/
-        lib/
-        share/
-        ...
-    v}
-
-    The [fs/] tree is a subset of the build prefix -- only files new or modified
-    by this package's install step are captured (via {!Prefix.diff}). Both
-    regular files and symlinks are preserved. *)
+    [<root>/layers/<os_key>/<hash>/] contains [layer.json], an optional opaque
+    [recipe.json], and [fs/] with the installed files. {!Prefix.diff} identifies
+    files to capture. Regular files are hardlinked and symlinks retain their
+    targets. Callers keep completed layers immutable and serialize writes. *)
 
 (** {1 Hash computation} *)
 
@@ -48,18 +25,13 @@ type meta = {
   hashes : string list;  (** Layer hashes of direct dependencies. *)
   created : float;  (** Unix timestamp of layer creation. *)
 }
-(** Cache-internal record; the richer per-caller event log and immutable content
-    provenance (which includes overlay attribution) live in [Oi.Audit] and
-    [Oi.Provenance] sidecars next to this file. *)
 
 val load_meta : _ Eio.Path.t -> meta option
 (** [load_meta path] reads and parses [layer.json] from [path]. Returns [None]
     if the file does not exist or cannot be parsed. *)
 
 val meta_codec : meta Jsont.t
-(** Codec [save_meta] / [load_meta] use for [layer.json]. Exposed so
-    higher-level commands can embed [meta] inside their own JSON envelopes (e.g.
-    [oi cache show --format=json]). *)
+(** [meta_codec] encodes and decodes [layer.json] metadata. *)
 
 (** {1 Paths and queries} *)
 
@@ -90,23 +62,19 @@ val store :
   ?recipe_json:string ->
   unit ->
   unit
-(** [store c ~hash ~prefix ~files ~package ~deps ~parent_hashes ~exit_status
-     ?recipe_json ()] creates a layer at [<root>/layers/<os_key>/<hash>/]. Each
-    file in [files] (relative paths within [prefix]) is hardlinked into [fs/].
-    Symlinks are preserved by recreating them with the same target. Writes
-    [layer.json] with the provided metadata.
+(** [store c ~hash ~prefix ~files ~package ~deps ~parent_hashes ~exit_status ?recipe_json ()]
+    creates a layer at [<root>/layers/<os_key>/<hash>/]. Each file in [files]
+    (relative paths within [prefix]) is hardlinked into [fs/]. Symlinks are
+    preserved by recreating them with the same target. Writes [layer.json] with
+    the provided metadata.
 
     [recipe_json], when supplied, is written verbatim to [recipe.json] in the
-    layer directory. The d10 layer is opaque to the IR — d10 just stores the
-    blob. The producer (typically [d10ir.Direct]) writes a single-node d10ir
-    [Plan.node] here so the layer is reconstructible from inputs (recipe +
-    content-addressed source archive + dep layers).
+    layer directory. D10 treats this as an opaque blob. An IR producer can store
+    a serialized [D10ir.Plan.node] for replay with its source archive and
+    dependency layers.
 
-    {b Cross-process safety} is handled by the {!Oi.Lock.acquire_global}
-    invocation in {!Cmd.Harness.bootstrap}: only one [oi] process touches the
-    cache at a time, so [store] needs no internal lock. In-process concurrency
-    is controlled by the build scheduler ({!D10ir.Direct}) and per-hash
-    in-flight tables ({!D10ir.Registry.In_flight}). *)
+    Callers must serialize writes to the same layer across processes and fibers.
+    This operation takes no lock internally. *)
 
 val load_recipe_json : Config.t -> hash:string -> string option
 (** [load_recipe_json c ~hash] reads the layer's [recipe.json] verbatim, or
@@ -122,25 +90,12 @@ val restore : Config.t -> hash:string -> prefix:string -> unit
 
 type remote = [ `Http_remote of string ]
 (** A remote layer source. [`Http_remote url] fetches layers as
-    [<url>/<os_key>/<hash>.tar.zst]. *)
-
-(** {2 Index}
-
-    Each os_key directory in the registry contains an [index.db] sqlite file
-    listing every layer available remotely, plus its tarball sha256 and size
-    when one is published (a "layer-cache" registry). Bin-index registries leave
-    the tarball columns NULL — restore is impossible from those, but the same
-    database still answers "what package provides binary X" / "what opam pkg
-    installs ocamlfind library Y". Clients fetch [index.db] once per command and
-    read its [layers] rows. *)
+    [<url>/<os_key>/layers/<hash>.tar.zst]. *)
 
 type index_entry = { sha256 : string; size : int64 }
 
 type remote_index = (string, index_entry) Hashtbl.t
-(** [remote_index] is built from [<remote>/<os_key>/index.db]'s [layers] rows
-    whose [tarball_sha256] / [tarball_size] columns are populated. The fetch
-    helper itself lives in {!Remote_index} (cycle break — [Index.rebuild] calls
-    [Layer.load_meta], so [Layer] can't import [Index] back). *)
+(** Checksums and sizes keyed by layer hash, as fetched by {!Remote_index}. *)
 
 type fetch_phase =
   | Fetching
@@ -161,28 +116,14 @@ val pull_remote :
     [remote] through [session]'s connection pool, optionally verifying the
     SHA-256 checksum of the downloaded archive. Returns [true] if the layer is
     now available with [exit_status = 0]. No-op (returns [true]) if the layer
-    already exists locally.
+    already succeeded locally.
 
-    Concurrent fibers sharing a [session] multiplex over the same HTTP/2
-    connection (one handshake per host regardless of how many layers are
-    pulled).
-
-    [on_progress] forwards through to {!Sysops.Http.fetch_session} for download
-    progress; see that function's docs.
-
-    [on_phase] is called once per phase boundary as the fiber transitions from
-    {!Fetching} to {!Verifying} to {!Extracting}. Drives the per-phase counters
-    in the [oi] progress bar so post-fetch CPU work (sha256, zstd-tar extract)
-    is visible instead of looking like a stall. *)
+    [on_progress] has the contract of {!Sysops.Http.fetch_session}. [on_phase]
+    reports download, verification and extraction boundaries. *)
 
 (** {1 Export} *)
 
 val export : Config.t -> hash:string -> dst:_ Eio.Path.t -> bool
 (** [export c ~hash ~dst] creates [<dst>/<os_key>/<hash>.tar.zst] from local
     layer [hash]. Returns [true] if a new archive was created. Returns [false]
-    if the layer doesn't exist locally or the archive already exists.
-
-    Used by the streaming uploader to stage one layer's tarball before it is PUT
-    to [<base>/<os_key>/layers/<hash>.tar.zst]. There is no bulk [export_all] /
-    [oi build --export] anymore — the registry is written exclusively by the
-    per-layer streaming upload. *)
+    if the layer doesn't exist locally or the archive already exists. *)

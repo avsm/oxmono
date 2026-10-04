@@ -10,56 +10,57 @@ type overlay = { handle : string; version : string }
 type node = {
   package : package;
   layer_hash : Layer_hash.t;
-      (** This node's output d10 layer hash (computed by the producer using
-          {!D10.Layer.hash}). *)
+      (** This node's output identifier, computed by the producer from all
+          inputs that affect the build. *)
   dep_layer_hashes : Layer_hash.t list;
       (** d10 layers required at staging time. Each must either be present in
-          the d10 store or produced by another node in the same plan. *)
+          the d10 store, produced by another node or listed in
+          [external_layers]. *)
   archive : Archive.t;
   script : string;
-      (** Shell script — fully resolved by the producer. The executor runs it
-          via [/bin/sh -e -c <script>] from the unpacked source root, with
-          [n.env] plus [OCAMLFIND_LDCONF=ignore] injected. *)
+      (** Shell script resolved by the producer. Direct runs it via
+          [/bin/sh -e -c <script>] in the unpacked source root with [env], mount
+          variables and {!Config.t} overrides. *)
   env : string list;
       (** Process environment as Docker-style [KEY=VALUE] entries,
-          order-preserving. May contain references to {!prefix} which the
-          executor rebases to the staging location at run time. *)
+          order-preserving. May contain references to [prefix] which the
+          executor rebases to the selected installation prefix at run time. *)
   depexts : string list;
-      (** System packages required, OS-resolved. Diagnostic / docker base only;
-          the executor doesn't install them. *)
+      (** System packages required, OS-resolved. Diagnostic / docker base only.
+          The executor doesn't install them. *)
   prefix : string;
-      (** Install destination — the path the script believes it is installing
-          to. The executor rebases this to a per-node staging dir before
-          running. *)
+      (** Install destination or sentinel. Direct replaces occurrences in
+          scripts and environment values with the destination selected by its
+          prefix policy. Makefile replaces them with its shared build prefix. *)
   substs : string list;
       (** Basenames (relative to the unpacked source root) of opam [substs:]
           entries. After unpacking the archive, the executor reads each
-          [<base>.in], substitutes [%{var}%] placeholders using {!subst_vars},
+          [<base>.in], substitutes [%{var}%] placeholders using [subst_vars],
           and writes the result to [<base>]. The archive itself contains the raw
-          [.in] files unchanged so archives stay byte-portable across machines.
-      *)
+          [.in] files unchanged so archives stay byte-portable across machines. *)
   subst_vars : string list;
       (** Resolved opam variables for substitution as Docker-style [KEY=VALUE]
           entries. Used by the executor's [.in]→outcome pass. Values may
-          reference the {!prefix} sentinel; the executor rebases each value
-          before applying it, just like {!script} and {!env}.
+          reference the [prefix] sentinel. The executor rebases each value
+          before applying it, just like [script] and [env].
 
-          Same wire format as {!env} for consistency. Keys can contain colons
+          Same wire format as [env] for consistency. Keys can contain colons
           (opam's [<pkg>:foo] qualified-variable syntax) but never [=], so
           split-on-first-[=] is unambiguous. *)
   overlay : overlay option;
-      (** Reporepo handle the package came from, for diagnostics. *)
+      (** Optional source overlay attribution, for diagnostics. *)
   opam_file_sha256 : string;
       (** Source opam file's hash, for audit / provenance. *)
 }
 
 type toolchain = {
   name : string;  (** e.g. ["ocaml-5.4"], diagnostics only. *)
-  base_layer : Layer_hash.t;  (** The toolchain root, present in {!t.nodes}. *)
+  base_layer : Layer_hash.t;  (** The toolchain root, present in [t.nodes]. *)
 }
 
 type metadata = {
   oi_version : string;
+      (** Producer version. Field name retained for compatibility. *)
   generated_at : float;  (** Unix time, diagnostics only. *)
   cli_invocation : string list;
 }
@@ -67,11 +68,11 @@ type metadata = {
 type mount = {
   name : string;
       (** Stable kebab-case identifier ([dune-cache], [ccache], ...). Diagnostic
-          only — the executor matches on no field but [source] and [env]. *)
+          only. The executor matches on no field but [source] and [env]. *)
   source : string;  (** Absolute host path. Created if missing. *)
   target : string;
       (** Path the build sees the mount at. Equal to [source] on the native
-          executor; differs only when the backend interposes a virtual
+          executor. Differs only when the backend interposes a virtual
           filesystem (sandbox / container). *)
   mode : [ `Ro | `Rw ];
   env : string list;
@@ -79,20 +80,11 @@ type mount = {
           this mount is active. Typical shape:
           [["DUNE_CACHE=enabled"; "DUNE_CACHE_ROOT=<target>"]]. *)
 }
-(** A persistent host directory that the recipe wants made available to every
-    node during execution.
+(** A persistent host directory used by node environments.
 
-    Used for shared build caches like dune's cache, ccache, and (later) sccache.
-    The native ({!Direct}) executor ensures [source] exists on the host and adds
-    {!env} entries to every node's process environment — no actual mounting
-    happens, since on macOS / Linux-host builds run on the host filesystem
-    already.
-
-    A future sandboxed backend (e.g. obuilder) will translate the same record
-    into a bind mount of [source] at [target] inside the sandbox, with the
-    sandbox-internal path appearing in the env entries. For Direct executions,
-    [source] and [target] are typically equal because there is no path
-    translation. *)
+    Direct attempts to create [source] and adds [env] to each node. It does not
+    mount directories, translate [source] to [target], or enforce [mode]. Use
+    equal source and target paths with Direct. *)
 
 type t = {
   schema_version : int;
@@ -104,19 +96,14 @@ type t = {
   nodes : node list;
   roots : Layer_hash.t list;
   mounts : mount list;
-      (** Shared host directories applied to every node. Order is preserved, but
-          the executor doesn't order-sensitively process them. Empty for older
-          recipes — defaults to [[]] on decode. *)
+      (** Shared host directories and environments, processed in order. Mount
+          variables override node variables. Supply distinct variable names
+          across mounts. Defaults to [[]] on decode. *)
   external_layers : Layer_hash.t list;
-      (** Layer hashes the host provides — typically a non-relocatable
-          toolchain's compiler-stack packages, which the executor doesn't build
-          but which still appear in consumer nodes' [dep_layer_hashes] because
-          consumer hashes mix the toolchain hash in for invalidation. The
-          executor and validator treat these as already-satisfied: no producer
-          needed in {!nodes}, no [{!D10.Layer.succeeded}] required in the d10
-          store, and no staging from a layer fs/ tree (the binaries are reached
-          via the build env's PATH). Empty for older recipes — defaults to [[]]
-          on decode. *)
+      (** Dependency hashes supplied by the host environment. These require no
+          producer or stored layer and are not staged. The caller must provide
+          their binaries through the node environment. Defaults to [[]] on
+          decode. *)
   metadata : metadata;
 }
 
@@ -133,7 +120,7 @@ val to_string : t -> string
 (** [to_string t] is the indented JSON serialisation of [t]. *)
 
 val of_string : string -> (t, string) result
-(** [of_string s] parses a JSON-encoded plan; errors carry a human message. *)
+(** [of_string s] parses a JSON-encoded plan. Errors carry a human message. *)
 
 val save : _ Eio.Path.t -> t -> unit
 (** [save path t] writes [to_string t] to [path] atomically. *)
@@ -147,12 +134,9 @@ val pp : t Fmt.t
 
 (** {2 Single-node form}
 
-    The d10 layer cache stores the {!node} that produced each layer alongside
-    the layer itself ({!D10.Layer.load_recipe_json}). This lets a layer be
-    reconstructed from inputs (recipe + content-addressed source archive + dep
-    layers) and audited end-to-end. Only the node is stored — not the full plan
-    — because dependencies are expressed by layer hash and chase through the d10
-    store recursively. *)
+    {!D10.Layer.load_recipe_json} reads the node stored with a layer. Its
+    dependency hashes identify other layers and recipes in the same store.
+    Replaying a node also requires its source archive and dependencies. *)
 
 val encode_node : node -> string
 (** [encode_node n] is the indented JSON serialisation of a single [node]. *)
@@ -190,12 +174,14 @@ val validate :
     - the graph is acyclic;
     - every [dep_layer_hash] is satisfiable (in-recipe producer or, when [d10]
       is provided, present and succeeded in the d10 store);
-    - every [archive.path] resolves under [plan_dir/archive_root] and has a
-      matching sha256, except for nodes whose layer is already succeeded in
-      [d10] (their archive is no longer needed to build).
+    - every required archive exists and has a matching SHA-256, except for nodes
+      whose layer is already succeeded in [d10] (their archive is no longer
+      needed to build). Dependencies listed in [external_layers] require neither
+      a producer nor a stored layer.
 
-    [plan_dir] is the directory containing [recipe.json]; archive paths are
-    joined with [archive_root] relative to it. *)
+    [plan_dir] is the directory containing [recipe.json]. Relative archive paths
+    are joined with [archive_root] relative to it. Absolute paths are accepted.
+    Validation does not confine filesystem access or make scripts safe. *)
 
 (** {1 Schedule} *)
 
@@ -208,12 +194,12 @@ val merge : t list -> (t, string) result
     can schedule across as one unified DAG.
 
     Nodes are deduplicated by [layer_hash] (if several input plans share a
-    transitive dep, only one copy survives). Roots and mounts are union'd;
-    mounts dedupe by [name]. Metadata's [cli_invocation] is concatenated so the
-    merged plan's audit trail records every batched invocation.
+    dependency, only one copy survives). Roots are combined without duplicates.
+    Mounts are deduplicated by [name]. Metadata's [cli_invocation] is
+    concatenated so the merged plan's audit trail records every batched
+    invocation.
 
     Returns [Error msg] when the inputs disagree on any field that must be
     globally consistent for the executor: schema version, [os_key],
-    [toolchain.base_layer], or [archive_root]. Two solve groups built against
-    different overlays or toolchains cannot be merged this way; build them in
-    separate runs. The empty list also returns [Error]. *)
+    [toolchain.base_layer], or [archive_root]. The empty list also returns
+    [Error]. *)

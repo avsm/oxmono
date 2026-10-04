@@ -1,12 +1,13 @@
-(** OS-abstracted system operations.
+(** Filesystem, subprocess and HTTP operations through Eio.
 
-    Wraps external tools (tar, git) with OS-specific tool selection. Tool paths
-    are resolved once at {!create} time: for example, [gtar] is preferred over
-    [tar] on macOS.
+    {!v} selects [gtar] when available, otherwise [tar]. Subprocesses inherit
+    the environment captured at construction with non-interactive Git settings.
+    HTTP downloads use Fetch with the Curl backend.
 
-    All local filesystem paths are {!Eio.Path.t} values. Source fetching,
-    checksum verification, and downloads are handled by opam's repository
-    libraries via {!Oi.Source.Mirror}. *)
+    [OI_CMD_TIMEOUT] and [OI_HTTP_TIMEOUT] set timeouts in seconds, defaulting
+    to 600. Zero disables the corresponding timeout. Command timeouts raise
+    [Failure]. HTTP timeouts return [false]. Cancellation propagates.
+    [OI_FORCE_HTTP1], when non-empty and different from [0], forces HTTP/1.1. *)
 
 (** {1 Initialisation} *)
 
@@ -14,9 +15,7 @@ type t
 (** System operations context with pre-resolved tool paths. *)
 
 val pp : t Fmt.t
-(** [pp] renders an opaque tag — the type is abstract, no fields to expose.
-    Provided for debugging contexts where {!t} needs to appear in a formatted
-    record. *)
+(** [pp ppf t] prints an opaque context identifier. *)
 
 type Eio.Exn.err +=
   | Cmd_failed of {
@@ -24,14 +23,9 @@ type Eio.Exn.err +=
       status : [ `Exited of int | `Signaled of int ];
       output : string;
     }
-        (** Raised (wrapped in [Eio.Io (_, ctx)]) by every subprocess wrapper in
-            this module when the child exits non-zero or is killed by a signal.
-            [argv] is the full command vector and [output] is whatever was
-            captured on stdout/stderr (empty for the inherit variant). Callers
-            that want to retry only on a subprocess failure — e.g. [link_tree]'s
-            [EXDEV] fallback — should pattern-match [Eio.Io (Cmd_failed _, _)].
-            Use [Eio.Exn.add_context] to layer higher-level context onto the
-            raised exception. *)
+        (** Raised inside [Eio.Io] by {!Cmd.run} and {!Cmd.run_inherit} for
+            non-zero exits and signals. Output is captured only by [run].
+            Output-reading commands use Eio's process errors instead. *)
 
 val v :
   ?stdout:_ Eio.Flow.sink ->
@@ -42,10 +36,10 @@ val v :
   clock:_ Eio.Time.clock ->
   unit ->
   t
-(** [v] detects tool paths (tar variant) by probing the system via [which]. Pass
-    the parent's [stdout] and [stderr] to enable {!Cmd.run_inherit}, which
-    streams subprocess output to the user's terminal. [net] and [clock] are
-    needed by {!Http.fetch} for in-process HTTP downloads. Call once at startup. *)
+(** [v ~proc_mgr ~fs ~net ~clock ()] selects tar and captures the child
+    environment. Supply [stdout] and [stderr] to stream {!Cmd.run_inherit}
+    output. [fs] and [net] are retained as API parameters but currently unused.
+    [clock] drives subprocess and HTTP timeouts. *)
 
 (** {1 File queries} *)
 
@@ -56,11 +50,13 @@ val file_exists : _ Eio.Path.t -> bool
 
 val copy_tree : t -> src:_ Eio.Path.t -> dst:_ Eio.Path.t -> unit
 (** [copy_tree t ~src ~dst] copies a directory tree. Attempts CoW clone
-    ([cp -ac]) first (zero-copy on APFS), falling back to [cp -a]. *)
+    ([cp -ac]) first (zero-copy on APFS), falling back to [cp -a]. [dst] must be
+    disposable: the fallback removes it before retrying. *)
 
 val link_tree : t -> src:_ Eio.Path.t -> dst:_ Eio.Path.t -> unit
 (** [link_tree t ~src ~dst] hardlinks all files from [src] into [dst]
-    recursively via [cp -Rfl]. Tolerates "identical file" errors. *)
+    recursively via [cp -Rfl]. Falls back to [cp -Rfa] when hardlinking fails,
+    including across filesystems. Creates [dst] if needed. *)
 
 (** {1 Archive operations} *)
 
@@ -92,8 +88,8 @@ module Http : sig
       [on_progress] is invoked periodically (throttled to ~20Hz) with the
       running byte count. [total] is [Some n] when the server sent a
       [Content-Length] header, [None] for chunked-transfer responses where the
-      size isn't known up front. The final invocation always fires with the
-      final byte count so a UI bar can settle at 100%. *)
+      size isn't known up front. A final invocation reports the byte count after
+      a completed transfer. Failed transfers need not emit a final callback. *)
 
   val head : t -> url:string -> bool
   (** [head t ~url] issues a HEAD request via the in-process HTTP client.
@@ -102,17 +98,13 @@ module Http : sig
       a presence probe for content-addressed remote objects where the body is
       irrelevant. *)
 
-  (** {2 Pooled HTTP sessions}
+  (** {2 Shared HTTP sessions}
 
-      One-shot calls create a fresh client per call. A [session] keeps a
-      connection pool across requests so concurrent fibers can multiplex on a
-      single HTTP/2 connection — turning N parallel layer fetches from N
-      handshakes into one. Use {!with_session} to scope a session to a switch,
-      and {!fetch_session} to issue requests against it. *)
+      Sessions reuse a Curl client across requests. Connection reuse and
+      protocol negotiation depend on the server and Curl configuration. *)
 
   type session
-  (** A pooled HTTP session. Carries connection pools for HTTP and HTTPS that
-      are shared across all calls made on the same session. *)
+  (** A client scoped to an Eio switch. Use from fibers in one domain. *)
 
   val with_session : sw:Eio.Switch.t -> t -> (session -> 'a) -> 'a
   (** [with_session ~sw t f] creates a session bound to [sw] and runs
@@ -137,8 +129,8 @@ module Cmd : sig
 
   val run_out : t -> string list -> string
   (** [run_out t args] executes [args] and returns its trimmed stdout.
-      Subprocess stderr is left attached to the parent's stderr — chatty
-      commands like [git ls-remote] (redirect warnings) will leak there. Use
+      Subprocess stderr is left attached to the parent's stderr. Chatty commands
+      like [git ls-remote] (redirect warnings) will leak there. Use
       {!run_out_quiet} when that's not desired. *)
 
   val run_out_quiet : t -> string list -> string
@@ -151,5 +143,5 @@ module Cmd : sig
       any progress or error output is shown to the user as the command runs. The
       failure message is short ("git exited 128") because git's own output
       already explained the problem. Requires [t] to have been created with
-      [~stdout] / [~stderr]; falls back silently to {!run} when they aren't set. *)
+      [~stdout] / [~stderr]. Falls back silently to {!run} when they aren't set. *)
 end

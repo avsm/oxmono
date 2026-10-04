@@ -1,5 +1,7 @@
 # Changes
 
+- Declare the opam-core dependency used by metadata extraction.
+
 - Attribute generated packaging files to osdist when used by other tools.
 
 - Add an explicit Osdist interface with API documentation and a usage example.

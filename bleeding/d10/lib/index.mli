@@ -1,39 +1,13 @@
-(** Layer index (SQLite).
+(** Optional SQLite index of locally stored layers.
 
-    Provides fast lookup of cached layers by package name, binary name, or
-    dependency chain. The index is a SQLite database stored at
-    [<cache>/layers/index.db] and is rebuilt on demand by scanning the layer
-    directories.
+    Open a caller-selected database path with {!open_}, populate it with
+    {!rebuild}, query it, and close it with {!close}. The index is derived data.
+    It is not automatically updated when layers change.
 
-    {2 Schema}
-
-    {v
-    layers:          hash, os_key, arch, os, distro, os_version,
-                     package_name, package_ver, exit_status, created,
-                     overlay_handle, overlay_version,
-                     tarball_sha256, tarball_size
-    layer_deps:      layer_hash, dep_name, dep_version, dep_hash
-    layer_binaries:  layer_hash, binary_name        -- files under bin/
-    layer_meta:      layer_hash, package_dir,       -- one row per
-                     findlib_pkg, archive             ocamlfind subpackage
-    layer_files:     layer_hash, path               -- only when [include_files]
-    v}
-
-    [overlay_handle] / [overlay_version] identify the reporepo overlay that
-    contributed the opam file used to build a layer. Both are NULL for layers
-    built before tagging was introduced or for packages that came from a
-    pin-depends tree.
-
-    [tarball_sha256] / [tarball_size] are legacy columns: they were only ever
-    filled by the deleted registry-export path. The live remote-resolution path
-    reads tarball sha/size from the server-published [index.json] instead, so
-    these are NULL in the purely-local cache index this module now backs.
-
-    [layer_binaries] enables [oi run <binary>] to look up the package providing
-    a binary without scanning layer trees. [layer_meta] is the equivalent for
-    ocamlfind: each [lib/<dir>/META] in a layer contributes one row per declared
-    subpackage so [oi search ppx_deriving] can route findlib lookups to the
-    producing opam package. *)
+    Queries cover packages, binaries, findlib metadata and dependencies. File
+    lists require [include_files = true] when rebuilding. Overlay attribution is
+    supplied by the caller. Archive checksum and size columns are retained for
+    compatibility but local rebuilds leave them empty. *)
 
 (** {1 Database lifecycle} *)
 
@@ -52,7 +26,7 @@ val close : db -> unit
 val indexer_version : string
 (** Stamp that {!rebuild} writes into the [index_meta] table per [os_key].
     Callers compare {!indexer_stamp} against this to decide whether the on-disk
-    index was produced by the current logic shape; a mismatch is the "force a
+    index was produced by the current logic shape. A mismatch is the "force a
     full rebuild" signal. *)
 
 val indexer_stamp : db -> os_key:string -> string option
@@ -60,16 +34,12 @@ val indexer_stamp : db -> os_key:string -> string option
     [os_key], or [None] when no rebuild has run for that platform yet (e.g. on a
     legacy [index.db] that pre-dates the [index_meta] table). *)
 
-(** {1 Layer-fs scanners}
-
-    Exposed so the [oi]-level layer manifest writer can reuse the same
-    findlib-meta parser the SQLite indexer uses, without duplicating the META
-    scanning logic. *)
+(** {1 Layer filesystem scanners} *)
 
 val parse_meta_file :
   package_dir:string -> string -> (string * string option) list
 (** [parse_meta_file ~package_dir contents] parses a findlib [META] file and
-    returns [(findlib_pkg, archive_opt)] pairs — one for the top-level
+    returns [(findlib_pkg, archive_opt)] pairs. One for the top-level
     [package_dir] package and one per nested [package "X" (...)] block. *)
 
 val scan_meta :
@@ -91,22 +61,16 @@ val rebuild :
 (** [rebuild c ?overlay_for ?include_files db] scans all layers under
     [<root>/layers/<os_key>/] and populates the index tables. Existing data for
     [c.os_key] is replaced atomically within a transaction. Each layer's
-    [layer.json] is parsed for metadata; its [fs/] tree is scanned for binary
+    [layer.json] is parsed for metadata. Its [fs/] tree is scanned for binary
     names ([fs/bin/], [fs/sbin/]) and findlib package metadata (every
     [fs/lib/<dir>/META] is parsed and its declared subpackages recorded in
     [layer_meta]).
 
-    [include_files] (default [false]) controls whether the full file path list
-    lands in [layer_files]. The bin-index registry shape leaves this off — the
-    table is the bulk of [index.db]'s on-disk size and is only needed by the
-    layer-cache shape (where [oi build] verifies tarball contents). [oi search]
-    / [binaries_for] / [meta_for] don't consult [layer_files] and work with
-    [include_files = false].
+    [include_files] defaults to [false]. Enable it for {!val-files} queries.
+    Binary and findlib queries do not require a full file list.
 
-    [overlay_for] supplies the per-layer overlay attribution (defaulted to
-    [fun ~hash:_ -> None]). The [oi] cache wires this to read from the layer's
-    [provenance.json] sidecar; tools that don't care about overlay routing can
-    leave it at the default. *)
+    [overlay_for] supplies per-layer source attribution and defaults to
+    [fun ~hash:_ -> None]. *)
 
 (** {1 Queries} *)
 
@@ -123,9 +87,8 @@ val binaries_for :
 (** [binaries_for db ~binary ~os_key] returns all layers that provide
     [bin/<binary>] or [sbin/<binary>], as
     [(package_name, package_version, layer_hash, overlay)], sorted by opam
-    version descending (latest version first). [overlay] is set when the layer
-    was tagged with a reporepo overlay; [None] otherwise (pin-depends, local
-    trees). *)
+    version descending (latest version first). [overlay] is the attribution
+    supplied to {!rebuild}, if any. *)
 
 val search_binary :
   db ->
@@ -135,9 +98,8 @@ val search_binary :
 (** [search_binary db ~pattern ~os_key] searches for binaries matching
     [pattern], returning
     [(binary_name, package_name, package_version, layer_hash, overlay)]. The
-    pattern is matched exactly by default; use [*] as a wildcard (mapped to SQL
-    [LIKE %]). Results are sorted by binary name then opam version descending.
-*)
+    pattern is matched exactly by default. Use [*] as a wildcard (mapped to SQL
+    [LIKE %]). Results are sorted by binary name then opam version descending. *)
 
 val search_package :
   db ->
@@ -181,7 +143,7 @@ type stats = {
 }
 (** Row counts for a single [os_key], scoped to that platform via the [layers]
     join. [files] is zero unless the index was rebuilt with
-    [include_files:true]; [tarballs] counts layers whose legacy [tarball_sha256]
+    [include_files:true]. [tarballs] counts layers whose legacy [tarball_sha256]
     column is non-NULL (always 0 for a fresh local index). *)
 
 val stats : db -> os_key:string -> stats
@@ -198,7 +160,7 @@ val dependents : db -> hashes:string list -> os_key:string -> string list
 
 val delete_layers : db -> hashes:string list -> unit
 (** [delete_layers db ~hashes] removes the layers and their associated rows from
-    [layers], [layer_deps], [layer_binaries], and [layer_files]. The on-disk
-    layer directories are not touched — the caller must
+    [layers], [layer_deps], [layer_binaries] and [layer_files]. The on-disk
+    layer directories are not touched. The caller must
     [rmtree <root>/layers/<os_key>/<hash>/] for each entry. No-op when [hashes]
     is empty. *)

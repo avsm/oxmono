@@ -8,7 +8,7 @@
 
     CPU architecture as reported by [uname -m]. Normalises common aliases (e.g.
     [amd64] to [x86_64], [aarch64] to [arm64]) and recognises ARM variants
-    ([armv7l], [earmv6hf], etc.) as {!`Arm32}. *)
+    ([armv7l], [earmv6hf], etc.) as [`Arm32]. *)
 
 module Arch : sig
   type t =
@@ -29,13 +29,15 @@ module Arch : sig
   (** [to_string t] is the canonical lowercase name (e.g. ["arm64"]). *)
 
   val pp : t Fmt.t
+  (** [pp ppf t] prints the canonical architecture name. *)
 end
 
 (** {1 Operating system}
 
-    Detects the OS kernel. The {!kind} type captures the full detail (e.g.
-    [`Linux `Ubuntu]), while {!os_to_string} gives the broad OS name (["linux"])
-    and {!kind_to_string} gives the specific distribution (["ubuntu"]). *)
+    Detects the OS kernel. The {!OS.type-kind} type captures the full detail
+    (e.g. [`Linux `Ubuntu]), while {!OS.os_to_string} gives the broad OS name
+    (["linux"]) and {!OS.kind_to_string} gives the specific distribution
+    (["ubuntu"]). *)
 
 module OS : sig
   type linux =
@@ -54,7 +56,8 @@ module OS : sig
   (** Linux distribution, identified from the [ID] field in [os-release]. *)
 
   type macos = [ `Homebrew | `MacPorts | `None ]
-  (** macOS package manager detected by probing for [brew] or [port]. *)
+  (** macOS package manager detected from standard paths or PATH. Homebrew takes
+      precedence when both managers are found. *)
 
   type kind =
     [ `Linux of linux
@@ -72,24 +75,26 @@ module OS : sig
     kind : kind;  (** Detailed OS identification. *)
     version : string;  (** OS version (e.g. ["24.04"], ["15.2"]). *)
     family : string;
-        (** OS family from [ID_LIKE] (e.g. ["debian"]), or the distribution name
-            if [ID_LIKE] is absent. *)
+        (** On Linux, the first space-separated word of [ID_LIKE], lowercased,
+            or the distribution name when absent. Else [kind_to_string kind]. *)
   }
 
   val kind_to_string : kind -> string
-  (** Distribution-level name: ["ubuntu"], ["homebrew"], ["freebsd"]. *)
+  (** [kind_to_string kind] is its distribution or package-manager name, such as
+      ["ubuntu"], ["homebrew"] or ["freebsd"]. *)
 
   val os_to_string : kind -> string
-  (** Broad OS name: ["linux"], ["macos"], ["freebsd"]. *)
+  (** [os_to_string kind] is its broad OS name, such as ["linux"], ["macos"] or
+      ["freebsd"]. *)
 
   val to_string : t -> string
-  (** Alias for [os_to_string t.kind]. *)
+  (** [to_string t] is [os_to_string t.kind]. *)
 
   val pp : t Fmt.t
-  (** [pp] renders the OS as [kind/version]. *)
+  (** [pp ppf t] prints the broad OS name, as {!to_string}. *)
 
   val pp_kind : kind Fmt.t
-  (** [pp_kind] renders a {!kind} as its short string form. *)
+  (** [pp_kind ppf kind] prints [kind_to_string kind]. *)
 end
 
 (** {1 Platform}
@@ -108,7 +113,9 @@ type t = {
 val detect : proc_mgr:_ Eio.Process.mgr -> fs:_ Eio.Path.t -> t
 (** [detect ~proc_mgr ~fs] probes the system for architecture, OS, distribution,
     version, and CPU count. Reads [/etc/os-release] for Linux distribution
-    identification. *)
+    identification, falling back to [/usr/lib/os-release]. Unknown architectures
+    and kernels retain their reported names. Missing version data yields
+    ["unknown"]. *)
 
 val pp : t Fmt.t
-(** Pretty-printer showing arch, OS, version, family, and job count. *)
+(** [pp ppf t] prints architecture, OS, version, family and job count. *)

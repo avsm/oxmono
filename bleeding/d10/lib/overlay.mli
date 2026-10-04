@@ -1,10 +1,8 @@
-(** Reporepo overlay context: a (handle, version) pair identifying which overlay
-    snapshot contributed an opam file or attributed an audit event.
+(** Optional source attribution for layer metadata and index queries.
 
-    Cross-cutting type used by {!Layer}, {!Index}, and the [oi] modules
-    {!Oi.Plan}, {!Oi.Origin}, {!Oi.Audit}. The pair is either fully present or
-    absent — callers wrap in [option] at the boundaries that may not have one.
-*)
+    The handle identifies an overlay and the version identifies its snapshot.
+    Neither field requires a registry. Callers use [t option] for untagged
+    packages. *)
 
 type t = { handle : string; version : string }
 

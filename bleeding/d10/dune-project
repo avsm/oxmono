@@ -14,10 +14,13 @@
   (ocaml (>= 5.2.0))
   (eio (>= 1.0))
   (osrel (= :version))
+  opam-core
   (opam-format (>= 2.2.0))
   (jsont (>= 0.2))
   (bytesrw (>= 0.2))
   sqlite3
+  cstruct
+  fetch
   fetch-curl
   (alcotest :with-test)
   (eio_main :with-test)

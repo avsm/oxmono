@@ -13,8 +13,9 @@ Each project records its import scope in `oxmono/upstream.json`:
 ## Scope
 
 The import contains `osrel`, `d10`, `d10.ir` and `osdist`. It excludes
-`lib/oi`, `lib/cmd`, `lib/d10ir/cmd`, executables, registry configuration,
-release scripts and tool integration tests. Fifteen independent osdist tests
+`lib/oi`, `lib/d10ir/cmd`, executables, registry configuration,
+release scripts and the CLI modules except the standalone Makefile exporter,
+now exposed as `D10ir.Makefile`. Fifteen independent osdist tests
 were extracted from the tool suite. Its four CLI signing-key tests are omitted.
 Generic remote-read and archive APIs remain in d10 and d10.ir for compatibility.
 No default remote registry or S3 publisher is configured by these libraries.
@@ -86,15 +87,41 @@ now provides permanent prefixes and safe layer capture for ox.
 6. Registry memo tables and Curl sessions are not advertised as portable.
    Use one Eio domain with concurrent fibers. Do not share these objects across
    domains or add blanket portable annotations.
-7. Osdist retains oi's distribution targets, including its stock-OCaml Alpine
-   builder image. Packaging generation is tested, not an OxCaml deployment path.
+7. Ox exports target-specific source bundles through `D10ir.Makefile` and
+   osdist, including an OxCaml compiler recipe. The native package generators
+   are tested. Docker package builds and deployment remain unverified.
 
 The ox runner addresses these cache and prefix constraints as described in
 [ox-plan.md](ox-plan.md).
 
+## Consumer wiring
+
+| Library API | Ox consumer |
+| --- | --- |
+| `Osrel.detect`, platform fields | `Runner` detects the host. `Solve` supplies opam platform variables. `Dist` supplies the selected target platform. |
+| `D10.Os_key` | `Runner` partitions native layers and prefixes by distribution, version and architecture. Old OS/architecture-only entries are retained but no longer selected. |
+| `D10.Lock` | `Runner` and `Dist` hold metadata and cache locks. Native builds execute sequentially within those locks. |
+| `D10.Sysops.Http` | `Source` downloads archives and verifies declared opam checksums. |
+| `D10.Layer`, `D10.Prefix` | `Build` checks layers. `Runner` restores dependency prefixes and assembles run prefixes. |
+| `D10ir.Direct.run_node` | `Build` executes prepared recipes with `Permanent` prefixes. `Recipe` resolves opam commands and generated dependency configuration. |
+| `D10ir.Plan`, `D10ir.Makefile` | `Dist` exports resolved builds with unpacked sources and deferred scalar configuration bindings. |
+| `Osdist.Spec`, `Target`, `Deb`, `Rpm`, `Alpine_static` | `Dist` generates metadata, target recipes and Docker build drivers. |
+
+`D10.Index`, `Remote_index`, `D10ir.Registry` and `Osdist.Repo_index` are
+optional library APIs. Ox uses opam overlays and local run receipts for
+resolution and has no remote binary registry or package-repository publisher.
+`D10ir.Direct.run` remains available for clients with a complete plan. Ox uses
+`run_node` because later opam recipes can require earlier packages' generated
+configuration. The frontend retains source selection, solving and recipe
+expansion. The executor owns prefix preparation, installation and layer capture.
+
+The public interfaces describe caller locking, cache identity, relocation,
+archive preparation and backend differences. Dependencies used directly are
+listed explicitly in Dune and generated opam metadata.
+
 ## Validation
 
-The dev and `release-check` library builds and 34 Alcotest cases cover platform
+The dev and `release-check` library builds and scoped tests cover platform
 normalization/detection, JSON defaults and round trips, cross-process locks,
 layer storage/restoration, cached-prefix rebasing and platform separation,
 HTTP behavior/cancellation, child environments and osdist generators.

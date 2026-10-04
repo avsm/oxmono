@@ -10,6 +10,7 @@ bug-reports: "https://github.com/avsm/oi/issues"
 depends: [
   "dune" {>= "3.20"}
   "ocaml" {>= "5.2.0"}
+  "opam-core"
   "opam-format" {>= "2.2.0"}
   "jsont" {>= "0.2"}
   "bytesrw" {>= "0.2"}

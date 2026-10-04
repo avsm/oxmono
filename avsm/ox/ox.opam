@@ -8,11 +8,13 @@ license: "ISC"
 depends: [
   "dune" {>= "3.21"}
   "ocaml" {>= "5.2"}
+  "opam-core"
   "opam-format" {>= "2.5"}
   "opam-0install" {>= "0.6"}
   "eio"
   "eio_main"
   "d10"
+  "osrel"
   "osdist"
   "dockerfile"
   "dockerfile-opam"

@@ -1,12 +1,19 @@
-(** d10ir: a build IR that produces d10 layers.
+(** Build recipes and executors for d10 layers.
 
-    A {!Plan.t} is a graph of nodes, each describing how to build one
-    {!D10.Layer.t}. The {!Direct} executor consumes a plan and a {!Config.t},
-    dispatches a fiber per node, and writes layers into a d10 store.
+    A {!Plan.t} describes packages, dependency hashes, prepared sources, shell
+    scripts and environments. Producers resolve packages and fetch and patch
+    sources before execution. Hashes and cache identities belong to the
+    producer. Plans contain executable code and must come from trusted sources.
 
-    Producers (like [oi]) emit plans by combining solver output with
-    pre-resolved source archives. Consumers can run a plan directly, or
-    serialise it to JSON and replay it elsewhere. *)
+    {!Direct.run} schedules a plan. {!Direct.run_node} executes a node whose
+    dependencies are already available. Both support temporary staging prefixes
+    and permanent prefixes for artifacts that embed their installation paths.
+    Callers serialize cache writes. {!Plan.validate} checks a serialized plan
+    and its source archives before execution.
+
+    {!Makefile} exports a standalone build from unpacked sources. Its bundles
+    build without the d10 libraries. {!Registry} optionally downloads prepared
+    archives from an explicitly configured HTTP server. *)
 
 module Layer_hash = Layer_hash
 module Archive = Archive

@@ -96,9 +96,7 @@ let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
   D10.Lock.with_lock ~clock ~fs ~path:(data / "metadata.lock") @@ fun _ ->
   D10.Lock.with_lock ~clock ~fs ~path:(cache / "lock") @@ fun _ ->
   let platform = Osrel.detect ~proc_mgr:proc ~fs in
-  let os_key =
-    Osrel.OS.to_string platform.os ^ "-" ^ Osrel.Arch.to_string platform.arch
-  in
+  let os_key = D10.Os_key.(to_string (of_platform platform)) in
   let d10 : D10.Config.t =
     { sys; fs; clock; root = Eio.Path.(fs / cache); os_key }
   in

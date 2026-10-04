@@ -1,8 +1,4 @@
-(** Executor configuration.
-
-    Decoupled from the producer (the d10ir library doesn't care how plans are
-    produced). Designed to be the public knob surface consumers like [oi] expose
-    to their CLI. *)
+(** Configuration shared by direct plan and single-node execution. *)
 
 type t = {
   build_parallelism : int;
@@ -19,16 +15,14 @@ type t = {
       (** Append the host PATH to recipe PATH entries. Default: true. *)
   inject_env : (string * string) list;
       (** Extra environment variables injected into every node's script
-          environment, in addition to whatever the node carries. The d10ir
-          library is opam-agnostic — defaults are empty. Consumers like [oi] add
-          their own (e.g. [OCAMLFIND_LDCONF=ignore] for opam build hardening).
-      *)
+          environment, overriding entries with the same key. Defaults to empty.
+          Producers can supply [OCAMLFIND_LDCONF=ignore] where needed. *)
 }
 
 val default : t
-(** Defaults: [build_parallelism = min(domain_count, 8)],
+(** [default] uses [build_parallelism = max(1, min(domain_count, 8))],
     [keep_staging = false], [log_dir = None], [inherit_path = true],
-    [inject_env = []]. *)
+    [inject_env = []]. [OI_DOMAINS] overrides the detected domain count. *)
 
 val with_env_overrides : t -> t
 (** [with_env_overrides t] applies environment-variable overrides:

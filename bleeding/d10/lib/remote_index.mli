@@ -1,26 +1,13 @@
-(** Fetch the per-os_key remote index files the registry publishes and project
-    them into the maps that [oi run] / [oi build] consume.
+(** Optional JSON indexes from an explicitly configured HTTP registry.
 
-    Two files are read, both shipped by a server-side Clickhouse query (see
-    [foo.sql] in the repo root):
-
-    - [<base>/<os_key>/index.json] — minimum index, hash → tarball sha256
-
-    + size only. Drives the layer-fetch path in
-      {!Build_pipeline.plan_remote_fetches}.
-
-    - [<base>/<os_key>/index-full.json] — adds package name/version, overlay,
-      binaries, findlib, deps. Drives the [oi run BARE_BINARY] resolution in
-      {!Layer_index.package_of_binary}.
-
-    There is no fallback to the legacy [index.db]; the streaming upload pipeline
-    never publishes one. *)
+    [<base>/<os_key>/index.json] maps layer hashes to archive checksums and
+    sizes. [index-full.json] adds package names, binaries, findlib metadata and
+    dependency information. These readers do not publish indexes or configure a
+    default remote. *)
 
 (** {1 Wire types}
 
-    These mirror the JSON shapes the Clickhouse query emits. Exposed so callers
-    ({!Layer_index}, future {!Oi.search}) can pattern-match the parsed records
-    directly rather than going through SQLite. *)
+    These records expose the registry wire format without requiring SQLite. *)
 
 type layer_min = {
   hash : string;
@@ -82,8 +69,10 @@ val index_full_codec : index_full Jsont.t
 
 (** {1 Fetch entry points}
 
-    Both functions memoise per [(remote, os_key)] so a multi-group solve pays
-    the HTTP cost once. *)
+    Both functions memoize successful results by [(remote, os_key)] for the
+    process lifetime. {!fetch} also caches failed downloads as empty maps. Calls
+    share temporary files and mutable tables. Serialize access and use one Eio
+    domain. *)
 
 val fetch :
   Config.t ->

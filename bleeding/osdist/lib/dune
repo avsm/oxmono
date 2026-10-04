@@ -1,4 +1,11 @@
 (library
  (name osdist)
  (public_name osdist)
- (libraries dockerfile dockerfile-opam opam-format jsont jsont.bytesrw fmt))
+ (libraries
+  dockerfile
+  dockerfile-opam
+  opam-core
+  opam-format
+  jsont
+  jsont.bytesrw
+  fmt))

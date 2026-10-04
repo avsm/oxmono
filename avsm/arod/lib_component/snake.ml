@@ -44,7 +44,7 @@ let center = function
 let radius = function Note -> 1.9 | Week -> 2.3 | Release -> 0.6 | Quiet -> 0.
 
 (** How far above its node an exit leaves the spine. *)
-let drop = function Note -> 3.0 | Week -> 2.4 | Release -> 1.3 | Quiet -> 0.
+let drop = function Note -> 4.4 | Week -> 3.6 | Release -> 1.8 | Quiet -> 0.
 
 let text_left kind =
   node_x +. radius kind
@@ -126,11 +126,17 @@ let exit_ ~kind ~y_abs =
     (spine_x (y_abs +. start_y +. 0.05) -. spine_x (y_abs +. start_y -. 0.05))
     /. 0.1
   in
-  let l1 = 0.5 *. dy and l2 = Float.max 0.6 (0.55 *. dx) in
+  let chord = Float.hypot dx dy in
+  let l1 = 0.4 *. chord and l2 = 0.4 *. chord in
+  (* It arrives sloping gently down into the node, as a slip road does. *)
+  let slope_in = 0.4 in
   let path =
     Printf.sprintf "M %.3f %.3f C %.3f %.3f %.3f %.3f %.3f %.3f" start_x
       start_y
       (start_x +. (slope *. l1))
-      (start_y +. l1) (end_x -. l2) end_y end_x end_y
+      (start_y +. l1)
+      (end_x -. l2)
+      (end_y -. (slope_in *. l2))
+      end_x end_y
   in
   { start_x; start_y; end_x; end_y; path; lane = lane_path ~y_abs ~start_y }

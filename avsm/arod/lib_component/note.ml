@@ -270,7 +270,7 @@ let pos_style ~top ~height =
     begins [y_abs] down the timeline. It starts on the spine, above the row. *)
 let exit_svg kind ~y_abs =
   let e = Snake.exit_ ~kind ~y_abs in
-  let top = -4.0 in
+  let top = -5.0 in
   let h = Snake.height kind -. top in
   Printf.sprintf
     {|<svg class="sn-exit" viewBox="0 %.2f %.2f %.2f" style="top:%.2fem;width:%.2fem;height:%.2fem" aria-hidden="true" focusable="false"><path class="sn-lane" d="%s"/><path class="sn-exit-path" d="%s"/><path class="sn-flow" d="%s"/><circle class="sn-port" cx="%.3f" cy="%.3f" r="0.2"/></svg>|}
@@ -306,16 +306,16 @@ let sn_node ~ctx ~url ~kind ~label ~icon ~size entry =
 let text_style kind =
   Printf.sprintf "left:%.3fem" (Snake.text_left kind)
 
-(** [sn_tags n] is the column of tags of [n], which fills the right of its row.
-    Only plain and set tags are shown, at most five. Each links to a search for
+(** [sn_tags ?limit n] is the column of tags of [n], which fills the right of its row.
+    Only plain and set tags are shown, at most [limit] (default five). Each links to a search for
     it. *)
-let sn_tags n =
+let sn_tags ?(limit = 5) n =
   let tags =
     List.filter_map (function
       | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
       | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
   in
-  let tags = List.filteri (fun i _ -> i < 5) tags in
+  let tags = List.filteri (fun i _ -> i < limit) tags in
   El.div ~at:[At.class' "sn-tags"]
     (List.map (fun t ->
        El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
@@ -385,7 +385,7 @@ let sn_week ~ctx ~y_rel ~y_abs n =
         (if synopsis <> "" then
            El.div ~at:[At.class' "sn-synopsis p-summary"] [El.txt synopsis]
          else El.void)];
-      sn_tags n]]
+      sn_tags ~limit:3 n]]
 
 (** [sn_release ~y_rel ~y_abs t rs] is the row for the releases [rs] of
     repository [t], newest first, made in one month. It is the smallest row: a

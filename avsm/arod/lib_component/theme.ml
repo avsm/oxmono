@@ -3010,6 +3010,7 @@ let custom_css = {|
   align-items: flex-end;
   gap: 0.1em;
   padding-top: 0.2em;
+  overflow: hidden;
 }
 .sn-week .sn-tags { justify-content: center; align-self: stretch; padding-top: 0; }
 .sn-tag {

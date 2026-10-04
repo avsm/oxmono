@@ -3002,8 +3002,8 @@ let custom_css = {|
 /* The reading column is kept to a comfortable measure, and the tags take the
    space beyond it. */
 .sn-body { flex: 0 1 42em; min-width: 0; }
-/* The tags and the icons of an entry run together as one wrapping line of muted
-   type, in a column of their own at its end. */
+/* The tags of an entry take a column of their own at its end, in plain muted
+   type. The icons of an entry sit on its heading line. */
 .sn-tags {
   flex: 0 0 10em;
   margin-left: auto;
@@ -3025,7 +3025,13 @@ let custom_css = {|
   transition: color 0.2s;
 }
 .sn-tag:hover { color: var(--color-accent) !important; }
-.sn-links { display: inline-flex; align-items: center; gap: 0.55em; }
+.sn-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55em;
+  margin-left: 1.1em;
+  vertical-align: -0.15em;
+}
 .sn-links a {
   display: inline-flex;
   color: var(--color-muted) !important;

@@ -311,19 +311,11 @@ let title_stop title =
   | _ -> "."
   | exception Invalid_argument _ -> ""
 
-(** [sn_tags ?limit n] is the column at the right of the row of [n]. It holds
-    its plain and set tags, at most [limit] (default four), each linking to a
-    search for it, above the icons for its DOI, StandardSite page and social
-    discussions. *)
-let sn_tags ?(limit = 4) n =
-  let tags =
-    List.filter_map (function
-      | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
-      | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
-  in
-  let tags = List.filteri (fun i _ -> i < limit) tags in
-  let link ~icon ~label ?(cl = "") href =
-    El.a ~at:[At.href href; At.class' ("sn-link " ^ cl); At.v "title" label;
+(** [sn_links n] is the icons for the DOI, StandardSite page and social
+    discussions of [n], as the line of its heading carries them. *)
+let sn_links n =
+  let link ~icon ~label href =
+    El.a ~at:[At.href href; At.class' "sn-link"; At.v "title" label;
               At.v "aria-label" label; At.v "rel" "noopener"]
       [El.unsafe_raw (I.outline ~size:11 icon)]
   in
@@ -344,16 +336,33 @@ let sn_tags ?(limit = 4) n =
     | Some soc -> Sidebar.social_icon_links ~size:11 soc
     | None -> []
   in
-  let links = doi @ standardsite @ social in
+  match doi @ standardsite @ social with
+  | [] -> []
+  | links -> [El.span ~at:[At.class' "sn-links"] links]
+
+(** [sn_words n] is the word count of [n] for its heading, or nothing for a note
+    with no words. *)
+let sn_words n =
+  match Note.words n with
+  | 0 -> []
+  | w ->
+    [El.txt (Printf.sprintf " \xC2\xB7 %s word%s" (format_number w)
+               (if w = 1 then "" else "s"))]
+
+(** [sn_tags ?limit n] is the column at the right of the row of [n]. It holds
+    its plain and set tags, at most [limit] (default four), each linking to a
+    search for it. *)
+let sn_tags ?(limit = 4) n =
+  let tags =
+    List.filter_map (function
+      | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
+      | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
+  in
+  let tags = List.filteri (fun i _ -> i < limit) tags in
   El.div ~at:[At.class' "sn-tags"]
-    ((if tags = [] then []
-      else
-        [El.div ~at:[At.class' "sn-tag-list"]
-           (List.map (fun t ->
-              El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
-                        At.class' "sn-tag"] [El.txt ("#" ^ t)]) tags)])
-    @ (if links = [] then []
-       else [El.div ~at:[At.class' "sn-links"] links]))
+    (List.map (fun t ->
+       El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
+                 At.class' "sn-tag"] [El.txt ("#" ^ t)]) tags)
 
 (** [sn_note ~ctx ~y_rel ~y_abs n] is journal note [n] as a row. *)
 let sn_note ~ctx ~y_rel ~y_abs n =
@@ -378,9 +387,11 @@ let sn_note ~ctx ~y_rel ~y_abs n =
      | None -> El.void);
     El.div ~at:[At.class' "sn-text"; At.v "style" (text_style Snake.Note)] [
       El.div ~at:[At.class' "sn-body"] [
-        El.time ~at:[At.class' "sn-meta dt-published";
-                     At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
-          [El.txt (short_date (y, m, d))];
+        El.div ~at:[At.class' "sn-meta"]
+          ([El.time ~at:[At.class' "dt-published";
+                         At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+              [El.txt (short_date (y, m, d))]]
+           @ sn_words n @ sn_links n);
         El.p ~at:[At.class' "sn-line"] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
             [El.txt (if synopsis = "" then title else title ^ title_stop title)];
@@ -407,7 +418,6 @@ let sn_week ~ctx ~y_rel ~y_abs n =
   El.div ~at:[At.class' "sn-item sn-week note-item h-entry";
               At.v "data-tags" tags_data;
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
-              At.v "title" (Printf.sprintf "%s words" (format_number (Note.words n)));
               At.v "style"
                 (pos_style ~top:y_rel ~height:(Snake.height Snake.Week))] [
     El.unsafe_raw (exit_svg ~plain:(image = None) Snake.Week ~y_abs);
@@ -416,12 +426,13 @@ let sn_week ~ctx ~y_rel ~y_abs n =
      | None -> El.void);
     El.div ~at:[At.class' "sn-text"; At.v "style" (text_style Snake.Week)] [
       El.div ~at:[At.class' "sn-body"] [
-        El.div ~at:[At.class' "sn-meta"] [
+        El.div ~at:[At.class' "sn-meta"] ([
           El.txt (Printf.sprintf "Week %d" wk);
           El.txt " \xC2\xB7 ";
           El.time ~at:[At.class' "dt-published";
                        At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
-            [El.txt (week_range (y, m, d))]];
+            [El.txt (week_range (y, m, d))]
+          ] @ sn_words n @ sn_links n);
         El.p ~at:[At.class' "sn-line"] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
             [El.txt (if synopsis = "" then title else title ^ title_stop title)];

@@ -127,6 +127,8 @@ let () =
     && contains html "sn-node-note");
   check "a note without an image has no placeholder, only a line to its text"
     (not (contains html "sn-node-icon") && contains html "sn-exit-fade");
+  check "a note's heading says how many words it has"
+    (before html ">10 Aug<" " word" && before html " word" "An August note");
   check "a note's date is a caption above its title"
     (before html {|>10 Aug<|} "An August note");
   let occurrences html sub =

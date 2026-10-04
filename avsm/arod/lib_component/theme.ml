@@ -3119,7 +3119,7 @@ let custom_css = {|
   gap: 0.5em;
   white-space: nowrap;
 }
-.release-name { flex: none; font-size: 0.8em; font-weight: 560; }
+.release-name { flex: none; font-size: 0.8em; font-weight: 500; }
 .release-name:hover {
   color: var(--sn-hl) !important;
   text-decoration: underline dotted !important;

@@ -52,20 +52,20 @@ let node_height = function
   | Release | Quiet -> 0.
 
 (** The x of the left edge of a node. *)
-let node_left _ = card_x
+let node_left = card_x
 
 (** The left of the text of every kind of row, so that the text of notes,
     weeknotes and releases lines up in one column. *)
-let text_left _ = card_x +. thumb_w +. 0.9
+let text_left = card_x +. thumb_w +. 0.9
 
 (** [arrive ~plain kind] is the x where the exit of a row ends: the edge of its
     thumbnail, or just short of its text when it has none, as a release never
     does ([plain]), so that the line runs on to the entry itself. *)
 let arrive ~plain kind =
   match kind with
-  | Release -> text_left kind -. 0.6
-  | _ when plain -> text_left kind -. 0.6
-  | _ -> node_left kind
+  | Release -> text_left -. 0.6
+  | _ when plain -> text_left -. 0.6
+  | _ -> node_left
 
 (** How far above its node an exit leaves the spine. *)
 let drop = function Note -> 1.6 | Week -> 1.6 | Release -> 1.1 | Quiet -> 0.

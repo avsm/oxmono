@@ -96,8 +96,6 @@ let () =
   check "a release's links go to the forge, not to arod's search"
     (not (contains html "data-kind")
     && contains html ({|href="|} ^ mdx_url ^ {|"|}));
-  check "a tag filter can hide it"
-    (contains html {|data-tags=""|} && contains html "note-item");
   check "a release's date follows its name, and is not in a column"
     (before html "mdx 2.6.0" {|>22 Jul<|}
     && contains html {|class="release-date"|}
@@ -117,8 +115,6 @@ let () =
     (contains html "sn-week"
     && contains html "Week 28" && contains html "Week 30");
   check "the weeknote prefix is not shown" (not (contains html ".plan-"));
-  check "a weeknote can be hidden by a tag filter"
-    (contains html "sn-week note-item");
   check "a missing week is marked on the line"
     (contains html "1 quiet week");
   check "a note's image begins its card, before its title"

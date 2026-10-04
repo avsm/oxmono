@@ -63,10 +63,10 @@ let () =
 
   check "an exit with no thumbnail runs on to the text"
     (let e = S.exit_ ~plain:true ~kind:S.Note ~y_abs:10. in
-     e.S.end_x > S.node_left S.Note && e.S.end_x < S.text_left S.Note);
+     e.S.end_x > S.node_left && e.S.end_x < S.text_left);
   check "no node touches the spine"
     (List.for_all
-       (fun k -> S.node_left k > S.xr)
+       (fun k -> S.node_left > S.xr)
        [ S.Note; S.Week; S.Release ]);
   check "an entry's size says how much it matters"
     (S.height S.Note >= S.height S.Week && S.height S.Week > S.height S.Release
@@ -79,7 +79,7 @@ let () =
        [ S.Note; S.Week; S.Release ]);
   check "text sits clear of its node"
     (List.for_all
-       (fun k -> S.text_left k > S.node_left k +. S.node_width k)
+       (fun k -> S.text_left > S.node_left +. S.node_width k)
        [ S.Note; S.Week; S.Release ]);
 
   let d = S.spine_path ~height:100. in

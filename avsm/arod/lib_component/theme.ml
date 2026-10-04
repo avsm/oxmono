@@ -1744,7 +1744,6 @@ let custom_css = {|
   }
   /* Extra room beneath the notes page section headers (month names in the
      journal, "Weeknotes" atop the rail). */
-  .notes-journal .paper-year-header,
   .week-rail > .paper-year-header,
   .notes-feat > .paper-year-header {
     margin-bottom: 0.65rem !important;
@@ -2942,7 +2941,7 @@ let custom_css = {|
 .sn-release { --sn-c: var(--sn-release); }
 .sn-exit { position: absolute; left: 0; overflow: visible; pointer-events: none; }
 /* A release has no thumbnail. Its line runs on towards the entry and fades. */
-.sn-release .sn-exit, .sn-exit-fade {
+.sn-exit-fade {
   -webkit-mask-image: linear-gradient(90deg, #000 40%, transparent);
   mask-image: linear-gradient(90deg, #000 40%, transparent);
 }
@@ -2967,12 +2966,8 @@ let custom_css = {|
 .sn-node {
   position: absolute;
   z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
-  color: var(--sn-c);
 }
 /* An entry is a thumbnail and its text. A card shows behind them only while
    the entry is pointed at, so that the page stays quiet. */
@@ -3038,7 +3033,6 @@ let custom_css = {|
   gap: 0.4em 0.4em;
   overflow: hidden;
 }
-.sn-tag-list { display: contents; }
 /* A tag is a small chip. How many notes carry it is in its tooltip, and the
    most popular tags come first. */
 .sn-tag {
@@ -3173,30 +3167,6 @@ let custom_css = {|
 @media (max-width: 860px) {
   .sn-tags { display: none; }
 }
-/* While a tag filter is on, hidden entries would leave holes in fixed rows, so
-   the timeline becomes a plain list. */
-.snake.is-filtered { height: auto !important; }
-.snake.is-filtered .snake-spine,
-.snake.is-filtered .sn-season,
-.snake.is-filtered .sn-exit,
-.snake.is-filtered .sn-quiet,
-.snake.is-filtered .sn-note::before,
-.snake.is-filtered .sn-week::before { display: none; }
-.snake.is-filtered .sn-month,
-.snake.is-filtered .sn-item,
-.snake.is-filtered .sn-pill,
-.snake.is-filtered .sn-node,
-.snake.is-filtered .sn-text {
-  position: relative;
-  left: auto !important;
-  top: auto !important;
-  right: auto;
-}
-.snake.is-filtered .sn-month,
-.snake.is-filtered .sn-item { height: auto !important; margin-bottom: 0.8em; }
-.snake.is-filtered .sn-item { display: flex; align-items: center; gap: 0.8em; }
-.snake.is-filtered .sn-node { flex: none; }
-.snake.is-filtered .sn-text { height: auto; flex: 1; }
 /* On a phone the text column is what is scarce. The heading keeps to the date,
    the thumbnail narrows and the text moves left to meet it. The inline
    positions of the rows are overridden, which is why these are important. */

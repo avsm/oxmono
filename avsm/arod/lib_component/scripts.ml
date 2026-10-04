@@ -992,8 +992,6 @@ let tag_cloud_filter_js = {|
 
   function applyFilter() {
     var items = document.querySelectorAll('.note-item');
-    var snake = document.querySelector('.snake');
-    if (snake) snake.classList.toggle('is-filtered', activeTags.size > 0);
     if (activeTags.size === 0) {
       items.forEach(function(item) { item.style.display = ''; });
       document.querySelectorAll('[data-month-id]').forEach(function(s) { s.style.display = ''; });

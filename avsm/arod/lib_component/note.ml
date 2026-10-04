@@ -145,66 +145,6 @@ let format_number n =
 (** [short_date (_, m, d)] is a date as ["28 Sep"]. *)
 let short_date (_, m, d) = Printf.sprintf "%d %s" d (Common.month_name m)
 
-(** [compact ~ctx note] is a compact journal card for [note]. *)
-let compact ?(cls="") ~ctx note =
-  let (y, m, d) = Bushel.Entry.date (`Note note) in
-  let date_str = Printf.sprintf "%d %s %d" d (Common.month_name m) y in
-  let url = Bushel.Entry.site_url (`Note note) in
-  let all_tags = Bushel.Entry.tags_of_ent (`Note note) in
-  let tag_strs = List.map Bushel.Tags.to_raw_string all_tags in
-  let tags_data = String.concat "," tag_strs in
-  let month_data = Printf.sprintf "%04d-%02d" y m in
-  let note_id = "note-" ^ Bushel.Entry.slug (`Note note) in
-  let synopsis = match Note.synopsis note with
-    | Some s -> s
-    | None -> ""
-  in
-  let tag_chips = match tag_strs with
-    | [] -> El.void
-    | tags ->
-      El.div ~at:[At.class' "note-compact-tags"] (
-        List.map (fun t ->
-          El.a ~at:[At.class' "note-tag-chip p-category"; At.v "data-tag" t;
-                    At.href ("#tag=" ^ t)]
-            [El.txt ("#" ^ t)]
-        ) tags)
-  in
-  let is_perma = Note.perma note in
-  let card_cls = "note-compact hover:bg-surface note-item h-entry px-1 py-1 md:px-2 md:py-1"
-    ^ (if is_perma then " note-perma" else "")
-    ^ (if cls = "" then "" else " " ^ cls) in
-  let display_title = Note.title note in
-  let ref_el = match Note.slug_ent note with
-    | Some slug ->
-      (match Arod.Ctx.lookup ctx slug with
-       | Some parent_ent ->
-         let type_icon = Sidebar.entry_type_icon ~opacity:"opacity-60" ~size:10 parent_ent in
-         El.div ~at:[At.class' "note-compact-ref"] [
-           El.a ~at:[At.href (Bushel.Entry.site_url parent_ent);
-                     At.class' "link-backlink-chip no-underline"]
-             [El.unsafe_raw type_icon;
-              El.span ~at:[At.class' "note-compact-ref-text"]
-                [El.txt (Bushel.Entry.title parent_ent)]]]
-       | None -> El.void)
-    | None -> El.void
-  in
-  El.div ~at:[At.id note_id;
-              At.class' card_cls;
-              At.v "data-tags" tags_data;
-              At.v "data-month" month_data] [
-    El.div ~at:[At.class' "note-compact-row"] [
-      El.a ~at:[At.href url; At.class' "note-compact-title flex-1 min-w-0 font-medium !text-text !no-underline p-name u-url"]
-        [El.txt display_title];
-      El.time ~at:[At.class' "note-compact-meta shrink-0 text-[0.82rem] text-secondary whitespace-nowrap tabular-nums dt-published";
-                   At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
-        [El.txt date_str]];
-    (if synopsis <> "" then
-       El.div ~at:[At.class' "note-compact-synopsis text-[0.85rem] text-secondary leading-[1.4] mt-[0.1rem] p-summary"]
-         [El.txt synopsis]
-     else El.void);
-    ref_el;
-    tag_chips]
-
 (** [strip_weeknote_prefix t] is [t] without its weeknote prefix. *)
 let strip_weeknote_prefix t =
   if String.length t >= 6 && String.sub t 0 6 = ".plan-" then
@@ -284,7 +224,7 @@ let exit_svg ~plain kind ~y_abs =
 let node_style kind =
   let h = Snake.node_height kind in
   Printf.sprintf "left:%.3fem;top:%.3fem;width:%.3fem;height:%.3fem"
-    (Snake.node_left kind) (Snake.center kind -. (h /. 2.))
+    Snake.node_left (Snake.center kind -. (h /. 2.))
     (Snake.node_width kind) h
 
 (** [sn_node ~url ~kind ~label src] is the thumbnail that begins a row, linking
@@ -301,7 +241,7 @@ let thumbnail ~ctx n =
   Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) (`Note n)
 
 let text_style kind =
-  Printf.sprintf "left:%.3fem" (Snake.text_left kind)
+  Printf.sprintf "left:%.3fem" Snake.text_left
 
 (** [title_stop title] is the full stop that ends [title] before the synopsis
     runs on after it, or nothing when [title] already ends in punctuation. *)

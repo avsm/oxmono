@@ -325,7 +325,7 @@ let sn_tags ?(limit = 4) n =
   let link ~icon ~label ?(cl = "") href =
     El.a ~at:[At.href href; At.class' ("sn-link " ^ cl); At.v "title" label;
               At.v "aria-label" label; At.v "rel" "noopener"]
-      [El.unsafe_raw (I.outline ~size:13 icon)]
+      [El.unsafe_raw (I.outline ~size:11 icon)]
   in
   let doi =
     match Note.doi n with
@@ -341,7 +341,7 @@ let sn_tags ?(limit = 4) n =
   in
   let social =
     match Note.social n with
-    | Some soc -> Sidebar.social_icon_links ~size:13 soc
+    | Some soc -> Sidebar.social_icon_links ~size:11 soc
     | None -> []
   in
   let links = doi @ standardsite @ social in

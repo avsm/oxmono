@@ -2972,19 +2972,20 @@ let custom_css = {|
 /* The reading column is kept to a comfortable measure, and the tags take the
    space beyond it. */
 .sn-body { flex: 0 1 42em; min-width: 0; }
-/* The tags and the icons of an entry take a column of their own at its end, in
-   plain muted type. */
+/* The tags and the icons of an entry run together as one wrapping line of muted
+   type, in a column of their own at its end. */
 .sn-tags {
   flex: 0 0 10em;
   margin-left: auto;
   align-self: stretch;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 0.35em;
+  flex-wrap: wrap;
+  align-content: center;
+  align-items: center;
+  gap: 0.2em 0.8em;
   overflow: hidden;
 }
-.sn-tag-list { display: flex; flex-wrap: wrap; gap: 0.15em 0.8em; }
+.sn-tag-list { display: contents; }
 .sn-tag {
   font-size: 0.68em;
   line-height: 1.4;
@@ -2994,7 +2995,7 @@ let custom_css = {|
   transition: color 0.2s;
 }
 .sn-tag:hover { color: var(--color-accent) !important; }
-.sn-links { display: flex; align-items: center; gap: 0.7em; }
+.sn-links { display: inline-flex; align-items: center; gap: 0.55em; }
 .sn-links a {
   display: inline-flex;
   color: var(--color-muted) !important;

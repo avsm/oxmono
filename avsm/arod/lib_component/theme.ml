@@ -2871,9 +2871,9 @@ let custom_css = {|
 .snake-line {
   fill: none;
   stroke: var(--sn-spine);
-  stroke-width: 2px;
+  stroke-width: 4px;
   stroke-linecap: round;
-  opacity: 0.55;
+  opacity: 0.5;
   vector-effect: non-scaling-stroke;
 }
 .sn-month { position: absolute; left: 0; right: 0; }
@@ -2889,7 +2889,6 @@ let custom_css = {|
   border-radius: 999px;
   background: var(--color-bg);
   color: var(--color-secondary);
-  box-shadow: inset 0 0 0 1px var(--color-border);
 }
 .sn-pill span {
   font-size: 0.7em;
@@ -2913,22 +2912,16 @@ let custom_css = {|
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
-.sn-exit-path { stroke-width: 1.6px; opacity: 0.5; transition: opacity 0.3s, stroke 0.3s; }
+.sn-exit-path { stroke-width: 2px; opacity: 0.5; transition: opacity 0.3s, stroke 0.3s; }
 /* On hover the stretch of spine that the exit leaves from takes the accent
    colour, and marks flow along the exit towards its card. */
-.sn-lane { stroke: var(--color-accent); stroke-width: 2.2px; opacity: 0; transition: opacity 0.3s; }
+.sn-lane { stroke: var(--color-accent); stroke-width: 4px; opacity: 0; transition: opacity 0.3s; }
 .sn-flow {
   stroke: var(--color-accent);
   stroke-width: 1.8px;
   stroke-dasharray: 1 10;
   opacity: 0;
   transition: opacity 0.3s;
-}
-.sn-port {
-  fill: var(--color-bg);
-  stroke: var(--sn-spine);
-  stroke-width: 1.2px;
-  vector-effect: non-scaling-stroke;
 }
 .sn-node {
   position: absolute;
@@ -2940,9 +2933,8 @@ let custom_css = {|
   overflow: hidden;
   color: var(--sn-c);
 }
-/* An entry is a card, and its thumbnail is the card's left end. A note's card is
-   tinted with the accent and a weeknote's is neutral, so the two are alike in
-   shape and differ in weight. */
+/* An entry is a thumbnail and its text. A card shows behind them only while
+   the entry is pointed at, so that the page stays quiet. */
 .sn-note::before, .sn-week::before {
   content: "";
   position: absolute;
@@ -2951,24 +2943,13 @@ let custom_css = {|
   top: 0.5em;
   bottom: 0.5em;
   border-radius: 0.7em;
-  transition: box-shadow 0.3s;
+  transition: background 0.3s;
 }
-.sn-note::before {
-  background: color-mix(in srgb, var(--color-accent) 2.5%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 11%, var(--color-border));
-}
-.sn-week::before {
+.sn-note:hover::before, .sn-week:hover::before {
   background: color-mix(in srgb, var(--color-muted) 7%, transparent);
-  box-shadow: inset 0 0 0 1px var(--color-border);
-}
-.sn-note:hover::before {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent);
-}
-.sn-week:hover::before {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-muted) 55%, transparent);
 }
 .sn-node-note, .sn-node-week {
-  border-radius: 0.7em 0 0 0.7em;
+  border-radius: 0.7em;
   background: color-mix(in srgb, var(--sn-c) 10%, var(--color-bg));
 }
 .sn-node-release {
@@ -2991,35 +2972,26 @@ let custom_css = {|
 /* The reading column is kept to a comfortable measure, and the tags take the
    space beyond it. */
 .sn-body { flex: 0 1 42em; min-width: 0; }
-/* The tags are a rail of their own at the end of the card, set off from the
-   text by a rule, and each is a small pill. */
+/* The tags take a column of their own at the end of the entry, in plain text. */
 .sn-tags {
-  flex: 0 0 11.5em;
+  flex: 0 0 10em;
   margin-left: auto;
   align-self: stretch;
   display: flex;
   flex-wrap: wrap;
   align-content: center;
-  gap: 0.3em;
-  padding-left: 1em;
-  border-left: 1px solid var(--color-border);
+  gap: 0.15em 0.8em;
   overflow: hidden;
 }
 .sn-tag {
-  font-size: 0.64em;
-  line-height: 1;
-  padding: 0.35em 0.75em;
-  border-radius: 999px;
-  color: var(--color-secondary) !important;
-  background: color-mix(in srgb, var(--color-muted) 10%, transparent);
+  font-size: 0.68em;
+  line-height: 1.4;
+  color: var(--color-muted) !important;
   text-decoration: none !important;
   white-space: nowrap;
-  transition: background 0.2s, color 0.2s;
+  transition: color 0.2s;
 }
-.sn-tag:hover {
-  color: var(--color-accent) !important;
-  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
-}
+.sn-tag:hover { color: var(--color-accent) !important; }
 .sn-meta {
   display: block;
   font-size: 0.66em;
@@ -3029,7 +3001,6 @@ let custom_css = {|
   text-transform: uppercase;
   color: var(--color-muted);
 }
-.sn-note .sn-meta { color: color-mix(in srgb, var(--color-accent) 35%, var(--color-secondary)); }
 /* A title and its synopsis run on as one paragraph. */
 .sn-line {
   display: -webkit-box;
@@ -3054,7 +3025,7 @@ let custom_css = {|
   text-decoration: underline dotted !important;
   text-decoration-color: var(--color-link-ul) !important;
 }
-.sn-synopsis { color: var(--color-secondary); }
+.sn-synopsis { margin-left: 0.2em; color: var(--color-secondary); }
 .sn-quiet {
   position: absolute;
   right: 0;
@@ -3109,7 +3080,6 @@ let custom_css = {|
 .sn-item:hover .sn-exit-path { stroke: var(--color-accent); opacity: 0.85; }
 .sn-item:hover .sn-lane { opacity: 0.7; }
 .sn-item:hover .sn-flow { opacity: 0.9; animation: sn-drive 1.4s linear infinite; }
-.sn-item:hover .sn-port { fill: var(--color-accent); stroke: var(--color-accent); }
 .sn-release:hover .sn-node-release { background: var(--color-accent); }
 .sn-item:hover .sn-node-img { filter: none; }
 @keyframes sn-drive { to { stroke-dashoffset: -11; } }

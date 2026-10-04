@@ -273,9 +273,9 @@ let exit_svg kind ~y_abs =
   let top = -5.0 in
   let h = Snake.height kind -. top in
   Printf.sprintf
-    {|<svg class="sn-exit" viewBox="0 %.2f %.2f %.2f" style="top:%.2fem;width:%.2fem;height:%.2fem" aria-hidden="true" focusable="false"><path class="sn-lane" d="%s"/><path class="sn-exit-path" d="%s"/><path class="sn-flow" d="%s"/><circle class="sn-port" cx="%.3f" cy="%.3f" r="0.2"/></svg>|}
+    {|<svg class="sn-exit" viewBox="0 %.2f %.2f %.2f" style="top:%.2fem;width:%.2fem;height:%.2fem" aria-hidden="true" focusable="false"><path class="sn-lane" d="%s"/><path class="sn-exit-path" d="%s"/><path class="sn-flow" d="%s"/></svg>|}
     top Snake.svg_width h top Snake.svg_width h e.Snake.lane e.Snake.path
-    e.Snake.path e.Snake.start_x e.Snake.start_y
+    e.Snake.path
 
 (** [node_style kind] is the position and size of the node of a row of
     [kind]. *)
@@ -307,6 +307,15 @@ let sn_node ~ctx ~url ~kind ~label ~icon ~size entry =
 let text_style kind =
   Printf.sprintf "left:%.3fem" (Snake.text_left kind)
 
+(** [title_stop title] is what separates [title] from the synopsis that runs on
+    after it: a full stop and a space, or just a space when [title] already ends
+    in punctuation. *)
+let title_stop title =
+  match title.[String.length title - 1] with
+  | '.' | '!' | '?' | ':' -> " "
+  | _ -> ". "
+  | exception Invalid_argument _ -> ". "
+
 (** [sn_tags ?limit n] is the column of tags of [n], which fills the right of its row.
     Only plain and set tags are shown, at most [limit] (default four). Each links to a search for
     it. *)
@@ -331,6 +340,7 @@ let sn_note ~ctx ~y_rel ~y_abs n =
       (List.map Bushel.Tags.to_raw_string (Bushel.Entry.tags_of_ent (`Note n)))
   in
   let synopsis = Option.value (Note.synopsis n) ~default:"" in
+  let title = Note.title n in
   El.div ~at:[At.id ("note-" ^ Bushel.Entry.slug (`Note n));
               At.class' "sn-item sn-note note-item h-entry";
               At.v "data-tags" tags_data;
@@ -347,10 +357,10 @@ let sn_note ~ctx ~y_rel ~y_abs n =
           [El.txt (short_date (y, m, d))];
         El.p ~at:[At.class' "sn-line"] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
-            [El.txt (Note.title n)];
+            [El.txt title];
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
-               [El.txt (" " ^ synopsis)]
+               [El.txt (title_stop title ^ synopsis)]
            else El.void)]];
       sn_tags n]]
 
@@ -361,6 +371,7 @@ let sn_week ~ctx ~y_rel ~y_abs n =
   let (y, m, d) = Note.date n in
   let (_, wk) = Note.week_number n in
   let synopsis = Option.value (Note.synopsis n) ~default:"" in
+  let title = strip_weeknote_prefix (Note.title n) in
   let url = Bushel.Entry.site_url (`Note n) in
   let tags_data =
     String.concat ","
@@ -385,10 +396,10 @@ let sn_week ~ctx ~y_rel ~y_abs n =
             [El.txt (week_range (y, m, d))]];
         El.p ~at:[At.class' "sn-line"] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
-            [El.txt (strip_weeknote_prefix (Note.title n))];
+            [El.txt title];
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
-               [El.txt (" " ^ synopsis)]
+               [El.txt (title_stop title ^ synopsis)]
            else El.void)]];
       sn_tags n]]
 

@@ -363,7 +363,7 @@ let sn_tags ?(limit = 4) n =
   El.div ~at:[At.class' "sn-tags"]
     (List.map (fun t ->
        El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
-                 At.class' "sn-tag"] [El.txt ("#" ^ t)]) tags)
+                 At.class' "sn-tag"] [El.txt t]) tags)
 
 (** [sn_note ~ctx ~y_rel ~y_abs n] is journal note [n] as a row. *)
 let sn_note ~ctx ~y_rel ~y_abs n =

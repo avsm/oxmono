@@ -3047,7 +3047,22 @@ let custom_css = {|
   white-space: nowrap;
   transition: color 0.2s;
 }
+/* A tag is its name after a small dot in the colour of the season, rather than
+   a hash. */
+.sn-tag::before {
+  content: "";
+  display: inline-block;
+  width: 0.4em;
+  height: 0.4em;
+  margin-right: 0.5em;
+  border-radius: 50%;
+  vertical-align: 0.08em;
+  background: var(--sn-hl);
+  opacity: 0.55;
+  transition: opacity 0.2s;
+}
 .sn-tag:hover { color: var(--sn-hl) !important; }
+.sn-tag:hover::before { opacity: 1; }
 .sn-links {
   display: inline-flex;
   align-items: center;

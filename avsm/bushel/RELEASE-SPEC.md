@@ -234,9 +234,11 @@ arod's notes view at `/notes`.
   tag per registry. The name and version link to the release page. Each registry
   tag links to the ecosyste.ms metadata for that registry. The summary truncates
   with an ellipsis rather than wrapping.
-- The weeknote rail is unchanged.
-- Releases do not appear in the Atom feed, the JSON feed, the search index, the
-  sitemap or the markdown export.
+- Weeknotes are rows of the same timeline.
+- The markdown of `/notes` reads the same timeline as the page, so it lists the
+  releases in the same order, with the summary and the registry links.
+- Releases do not appear in the Atom feed, the JSON feed, the search index or
+  the sitemap.
 
 ## Compatibility
 

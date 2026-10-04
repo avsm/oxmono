@@ -150,3 +150,8 @@
  (name test_snake)
  (modules test_snake)
  (libraries arod arod.component))
+
+(test
+ (name test_markdown_pages)
+ (modules test_markdown_pages)
+ (libraries arod arod.component bushel))

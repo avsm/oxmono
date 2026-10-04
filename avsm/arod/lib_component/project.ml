@@ -169,40 +169,60 @@ let full ~ctx proj =
     ideas_section;
     activity_section], sidenotes)
 
+(** [list_recent ~ctx proj] is the entries that the card of [proj] lists as
+    recent, each with its icon, newest first. They are up to three papers,
+    three notes and three ideas, cut to the newest five. *)
+let list_recent ~ctx proj =
+  let slug = proj.Project.slug in
+  let all_entries = Arod.Ctx.all_entries ctx in
+  let recent_papers = project_papers slug all_entries |> Common.take 3 in
+  let backlinks = backlink_set ctx slug in
+  let recent_notes =
+    List.filter (fun e ->
+      match e with
+      | `Note _ -> StringSet.mem (Bushel.Entry.slug e) backlinks
+      | _ -> false
+    ) all_entries
+    |> List.sort newest_first
+    |> Common.take 3
+  in
+  let recent_ideas = project_ideas slug all_entries |> Common.take 3 in
+  (List.map (fun e -> (I.paper_o, e)) recent_papers) @
+  (List.map (fun e -> (I.writing_o, e)) recent_notes) @
+  (List.map (fun e -> (I.bulb_o, e)) recent_ideas)
+  |> List.sort (fun (_, a) (_, b) -> newest_first a b)
+  |> Common.take 5
+
+(** [list_summary proj] is the markdown that the card of [proj] opens with. *)
+let list_summary proj =
+  fst (Bushel.Util.first_and_last_hunks (Project.body proj))
+
+(** [list_date_range proj] is the years of [proj] as its card shows them. *)
+let list_date_range proj =
+  match proj.Project.finish with
+  | Some y -> Printf.sprintf "%d\u{2013}%d" proj.Project.start y
+  | None -> Printf.sprintf "%d\u{2013}now" proj.Project.start
+
+(** The sentences that open the project list. The link is to the project
+    discussion forum. *)
+let list_intro_before =
+  "I work on a number of research projects and open source efforts, which you \
+   can find here. We often discuss these on our "
+
+let list_intro_link = ("EEG Zulip", "https://eeg.zulipchat.com")
+
+let list_intro_after =
+  " which is open for registration, so feel free to sign up and get involved."
+
 (** [projects_list ~ctx] is the project list. *)
 let projects_list ~ctx =
   let all_projects =
     Arod.Ctx.projects ctx |> List.sort Project.compare
   in
-  let all_entries = Arod.Ctx.all_entries ctx in
   let project_card proj =
     let project_slug = proj.Project.slug in
-    let start_year = proj.Project.start in
-    let date_range = match proj.Project.finish with
-      | Some y -> Printf.sprintf "%d\u{2013}%d" start_year y
-      | None -> Printf.sprintf "%d\u{2013}now" start_year
-    in
-    let recent_papers = project_papers project_slug all_entries |> Common.take 3 in
-    let backlinks = backlink_set ctx project_slug in
-    let recent_notes =
-      List.filter (fun e ->
-        match e with
-        | `Note _ -> StringSet.mem (Bushel.Entry.slug e) backlinks
-        | _ -> false
-      ) all_entries
-      |> List.sort newest_first
-      |> Common.take 3
-    in
-    let recent_ideas = project_ideas project_slug all_entries |> Common.take 3 in
-    let all_recent =
-      (List.map (fun e -> (I.paper_o, e)) recent_papers) @
-      (List.map (fun e -> (I.writing_o, e)) recent_notes) @
-      (List.map (fun e -> (I.bulb_o, e)) recent_ideas)
-    in
-    let all_recent =
-      List.sort (fun (_, a) (_, b) -> newest_first a b) all_recent
-      |> Common.take 5
-    in
+    let date_range = list_date_range proj in
+    let all_recent = list_recent ~ctx proj in
     let recent_items =
       if all_recent = [] then El.void
       else
@@ -220,8 +240,7 @@ let projects_list ~ctx =
         proj.Project.slug proj.Project.title
     in
     let thumbnail_html = El.unsafe_raw (fst (Arod.Md.to_html ~ctx thumbnail_md)) in
-    let body = Project.body proj in
-    let first, _ = Bushel.Util.first_and_last_hunks body in
+    let first = list_summary proj in
     let summary_html = El.unsafe_raw (Arod.Md.to_plain_html ~ctx first) in
     let tags_el = Common.card_tags (Project.tags proj) in
     El.div ~at:[At.class' "proj-card not-prose h-entry"] [
@@ -237,9 +256,9 @@ let projects_list ~ctx =
   in
   let cards = List.map project_card all_projects in
   let intro = El.p ~at:[At.class' "mb-6"] [
-    El.txt "I work on a number of research projects and open source efforts, which you can find here. We often discuss these on our ";
-    El.a ~at:[At.href "https://eeg.zulipchat.com"] [El.txt "EEG Zulip"];
-    El.txt " which is open for registration, so feel free to sign up and get involved."]
+    El.txt list_intro_before;
+    El.a ~at:[At.href (snd list_intro_link)] [El.txt (fst list_intro_link)];
+    El.txt list_intro_after]
   in
   let article = El.article ~at:[At.class' "h-feed"] [
     Common.hidden_feed_meta ~ctx "Projects";

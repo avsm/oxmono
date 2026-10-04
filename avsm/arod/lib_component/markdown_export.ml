@@ -10,6 +10,7 @@
     URLs via {!Bushel.Md.to_markdown}. *)
 
 module Paper_component = Paper
+module Project_component = Project
 module Entry = Bushel.Entry
 module Paper = Bushel.Paper
 module Contact = Sortal_schema.Contact
@@ -219,6 +220,10 @@ let list_header ~ctx ~title ~description ~path =
   in
   (Printf.sprintf "# %s\n\n%s\n\n" title description, footer)
 
+(* [entry_bullet_link ~ctx ent] is a link to [ent] in markdown. *)
+let entry_bullet_link ~ctx ent =
+  Printf.sprintf "- [%s](%s)" (Entry.title ent) (entry_url ~ctx ent)
+
 let entry_bullet ~ctx ent =
   let title = Entry.title ent in
   let url = entry_url ~ctx ent in
@@ -344,20 +349,55 @@ let ideas_list_md ~ctx =
   ) groups in
   header ^ String.concat "\n\n" sections ^ "\n" ^ footer
 
+(* [indented text] is [text] with each of its lines indented to sit inside a
+   list item. A blank line stays empty. *)
+let indented text =
+  String.split_on_char '\n' (String.trim text)
+  |> List.map (fun l -> if l = "" then l else "  " ^ l)
+  |> String.concat "\n"
+
+(* [projects_list_md ~ctx] mirrors the HTML list: the same introduction, the
+   projects in the order the cards use, and for each the years, the opening of
+   its body, its tags and its recent papers, notes and ideas. *)
 let projects_list_md ~ctx =
-  let projects = Arod.Ctx.projects ctx in
-  let header, footer = list_header ~ctx ~title:"Projects" ~description:"Research projects." ~path:"/projects" in
-  let items = List.map (fun proj ->
-    let bullet = entry_bullet ~ctx (`Project proj) in
-    let body = Bushel.Project.body proj in
-    if body <> "" then
-      let first_line = match String.split_on_char '\n' body with
-        | l :: _ -> String.trim l | [] -> "" in
-      if first_line <> "" then bullet ^ "\n  " ^ first_line
-      else bullet
-    else bullet
-  ) projects in
-  header ^ String.concat "\n" items ^ "\n" ^ footer
+  let projects = List.sort Bushel.Project.compare (Arod.Ctx.projects ctx) in
+  let intro =
+    let label, url = Project_component.list_intro_link in
+    Printf.sprintf "%s[%s](%s)%s" Project_component.list_intro_before label url
+      Project_component.list_intro_after
+  in
+  let header, footer =
+    list_header ~ctx ~title:"Projects" ~description:intro ~path:"/projects"
+  in
+  let item proj =
+    let bullet =
+      Printf.sprintf "%s (%s)" (entry_bullet_link ~ctx (`Project proj))
+        (Project_component.list_date_range proj)
+    in
+    let summary =
+      match String.trim (Project_component.list_summary proj) with
+      | "" -> ""
+      | text -> "\n" ^ indented (render_body ~ctx text)
+    in
+    let tags =
+      match Bushel.Project.tags proj with
+      | [] -> ""
+      | tags -> "\n  Tags: " ^ String.concat ", " tags
+    in
+    let recent =
+      match Project_component.list_recent ~ctx proj with
+      | [] -> ""
+      | recent ->
+        "\n  Recent:\n"
+        ^ String.concat "\n"
+            (List.map (fun (_, ent) ->
+               Printf.sprintf "  - [%s](%s) (%s, %s)" (Entry.title ent)
+                 (entry_url ~ctx ent) (Entry.to_type_string ent)
+                 (date_str (Entry.date ent))) recent)
+    in
+    bullet ^ summary ^ tags ^ recent
+  in
+  header ^ String.concat "\n" (List.map item projects) ^ "\n" ^ footer
 
 let videos_list_md ~ctx =
   let videos = Arod.Ctx.videos ctx in

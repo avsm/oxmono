@@ -390,7 +390,7 @@ let sn_week ~ctx ~y_rel ~y_abs n =
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt (" " ^ synopsis)]
            else El.void)]];
-      sn_tags ~limit:3 n]]
+      sn_tags n]]
 
 (** [sn_release ~y_rel ~y_abs t rs] is the row for the releases [rs] of
     repository [t], newest first, made in one month. It is the smallest row: a

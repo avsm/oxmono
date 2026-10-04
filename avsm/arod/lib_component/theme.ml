@@ -2914,7 +2914,6 @@ let custom_css = {|
   vector-effect: non-scaling-stroke;
 }
 .sn-exit-path { stroke-width: 1.6px; opacity: 0.5; transition: opacity 0.3s, stroke 0.3s; }
-.sn-release .sn-exit-path { stroke-width: 1.2px; stroke-dasharray: 0.5 4.5; opacity: 0.7; }
 /* On hover the stretch of spine that the exit leaves from takes the accent
    colour, and marks flow along the exit towards its card. */
 .sn-lane { stroke: var(--color-accent); stroke-width: 2.2px; opacity: 0; transition: opacity 0.3s; }
@@ -2955,15 +2954,15 @@ let custom_css = {|
   transition: box-shadow 0.3s;
 }
 .sn-note::before {
-  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 2.5%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 11%, var(--color-border));
 }
 .sn-week::before {
   background: color-mix(in srgb, var(--color-muted) 7%, transparent);
   box-shadow: inset 0 0 0 1px var(--color-border);
 }
 .sn-note:hover::before {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
 .sn-week:hover::before {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-muted) 55%, transparent);
@@ -2988,30 +2987,39 @@ let custom_css = {|
   align-items: center;
   padding-right: 0.9em;
 }
-.sn-note .sn-text { top: 0.5em; height: 5.2em; }
-.sn-week .sn-text { top: 0.5em; height: 3.8em; }
+.sn-note .sn-text, .sn-week .sn-text { top: 0.5em; height: 3.8em; }
 /* The reading column is kept to a comfortable measure, and the tags take the
    space beyond it. */
 .sn-body { flex: 0 1 42em; min-width: 0; }
+/* The tags are a rail of their own at the end of the card, set off from the
+   text by a rule, and each is a small pill. */
 .sn-tags {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 0 0 11.5em;
+  margin-left: auto;
   align-self: stretch;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: flex-end;
-  gap: 0.1em;
+  flex-wrap: wrap;
+  align-content: center;
+  gap: 0.3em;
+  padding-left: 1em;
+  border-left: 1px solid var(--color-border);
   overflow: hidden;
 }
 .sn-tag {
-  font-size: 0.7em;
-  line-height: 1.3;
-  color: var(--color-muted) !important;
+  font-size: 0.64em;
+  line-height: 1;
+  padding: 0.35em 0.75em;
+  border-radius: 999px;
+  color: var(--color-secondary) !important;
+  background: color-mix(in srgb, var(--color-muted) 10%, transparent);
   text-decoration: none !important;
   white-space: nowrap;
+  transition: background 0.2s, color 0.2s;
 }
-.sn-tag:hover { color: var(--color-link) !important; }
+.sn-tag:hover {
+  color: var(--color-accent) !important;
+  background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
 .sn-meta {
   display: block;
   font-size: 0.66em;
@@ -3021,7 +3029,7 @@ let custom_css = {|
   text-transform: uppercase;
   color: var(--color-muted);
 }
-.sn-note .sn-meta { color: color-mix(in srgb, var(--color-accent) 70%, var(--color-text)); }
+.sn-note .sn-meta { color: color-mix(in srgb, var(--color-accent) 35%, var(--color-secondary)); }
 /* A title and its synopsis run on as one paragraph. */
 .sn-line {
   display: -webkit-box;
@@ -3032,7 +3040,7 @@ let custom_css = {|
   font-size: 0.86em;
   line-height: 1.35;
 }
-.sn-note .sn-line { -webkit-line-clamp: 3; font-size: 0.92em; }
+.sn-note .sn-line { font-size: 0.92em; }
 .sn-line .sn-title, .sn-line .sn-synopsis { display: inline; }
 .sn-title {
   font-weight: 650;

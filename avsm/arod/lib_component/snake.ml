@@ -30,14 +30,14 @@ let svg_width = 5.7
 type kind = Note | Week | Release | Quiet
 
 let height = function
-  | Note -> 6.2
+  | Note -> 4.8
   | Week -> 4.8
   | Release -> 2.3
   | Quiet -> 1.9
 
 (** The height from the top of a row to the centre of its node. *)
 let center = function
-  | Note -> 3.1
+  | Note -> 2.4
   | Week -> 2.4
   | Release -> 1.15
   | Quiet -> 0.95
@@ -47,13 +47,20 @@ let center = function
 let node_width = function Note | Week -> thumb_w | Release -> 0.6 | Quiet -> 0.
 
 let node_height = function
-  | Note -> 5.2
+  | Note -> 3.8
   | Week -> 3.8
   | Release -> 0.6
   | Quiet -> 0.
 
 (** The x of the left edge of a node. *)
 let node_left _ = card_x
+
+(** The x where the exit of a row ends: the edge of a card, and the middle of a
+    release's dot, so that the line runs into the dot. *)
+let arrive kind =
+  match kind with
+  | Release -> node_left kind +. (node_width kind /. 2.)
+  | _ -> node_left kind
 
 (** How far above its node an exit leaves the spine. *)
 let drop = function Note -> 1.6 | Week -> 1.6 | Release -> 1.1 | Quiet -> 0.
@@ -133,7 +140,7 @@ let exit_ ~kind ~y_abs =
   let end_y = center kind in
   let start_y = end_y -. drop kind in
   let start_x = spine_x (y_abs +. start_y) in
-  let end_x = node_left kind in
+  let end_x = arrive kind in
   let slope =
     (spine_x (y_abs +. start_y +. 0.05) -. spine_x (y_abs +. start_y -. 0.05))
     /. 0.1

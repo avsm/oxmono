@@ -51,7 +51,7 @@ let () =
           check "an exit starts on the spine"
             (near ~eps:1e-4 e.S.start_x (S.spine_x (y_abs +. e.S.start_y)));
           check "an exit ends at its node's edge, level with its centre"
-            (near e.S.end_x (S.node_left kind)
+            (near e.S.end_x (S.arrive kind)
             && near e.S.end_y (S.center kind));
           check "an exit comes with the stretch of spine it merges from"
             (String.length e.S.lane > 0 && e.S.lane.[0] = 'M'
@@ -66,8 +66,7 @@ let () =
        (fun k -> S.node_left k > S.xr)
        [ S.Note; S.Week; S.Release ]);
   check "an entry's size says how much it matters"
-    (S.height S.Note > S.height S.Week && S.height S.Week > S.height S.Release
-    && S.node_height S.Note > S.node_height S.Week
+    (S.height S.Note >= S.height S.Week && S.height S.Week > S.height S.Release
     && S.node_height S.Week > S.node_height S.Release);
   check "a node fits in its row"
     (List.for_all

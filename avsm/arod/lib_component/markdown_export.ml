@@ -289,7 +289,8 @@ let entry_to_markdown ~ctx ent =
         | links -> "Links: " ^ String.concat ", " links ^ "\n\n"
       in
       Printf.sprintf "Authors: %s\n\n%s%s" authors links
-        (if abs <> "" then "## Abstract\n\n" ^ render_body ~ctx abs ^ "\n" else "")
+        (if abs = "" then ""
+         else "## Abstract\n\n" ^ render_body ~ctx abs ^ "\n")
     | `Video v ->
       let watch =
         match Bushel.Video.url v with
@@ -557,7 +558,8 @@ let ideas_list_md ~ctx =
   let live_item idea =
     let parts, discuss = Idea_component.card_meta_parts idea in
     let meta =
-      parts_md ~ctx parts ^ (if discuss then " " ^ Idea_component.discussion_note else "")
+      parts_md ~ctx parts
+      ^ (if discuss then " " ^ Idea_component.discussion_note else "")
     in
     let summary =
       match Idea_component.summary_text ~ctx ~max_len:240 idea with
@@ -640,8 +642,8 @@ let projects_list_md ~ctx =
         "\n  Recent:\n"
         ^ String.concat "\n"
             (List.map (fun (_, ent) ->
-               Printf.sprintf "  - [%s](%s) (%s, %s)" (link_text (Entry.title ent))
-                 (entry_url ~ctx ent) (Entry.to_type_string ent)
+               Printf.sprintf "  - [%s](%s) (%s, %s)"
+                 (link_text (Entry.title ent)) (entry_url ~ctx ent) (Entry.to_type_string ent)
                  (date_str (Entry.date ent))) recent)
     in
     bullet ^ summary ^ tags ^ recent
@@ -719,7 +721,8 @@ let links_list_md ~ctx =
     |> String.concat "\n"
   in
   let summary =
-    Printf.sprintf "%d links, %d domains.\n\nFilter: %s\n\n## Top domains\n\n%s\n\n"
+    Printf.sprintf
+      "%d links, %d domains.\n\nFilter: %s\n\n## Top domains\n\n%s\n\n"
       stats.Links_component.total_urls stats.Links_component.total_domains
       filters top_domains
   in
@@ -743,7 +746,8 @@ let links_list_md ~ctx =
           Printf.sprintf "  - [%s](%s)%s" (link_text label) link.url hint)
           g.links
       in
-      Printf.sprintf "- **[%s](%s)** (%s, %s %d)\n%s" (link_text (Entry.title g.ent))
+      Printf.sprintf "- **[%s](%s)** (%s, %s %d)\n%s"
+        (link_text (Entry.title g.ent))
         (entry_url ~ctx g.ent) (Entry.to_type_string g.ent)
         (Common.month_name m) y (String.concat "\n" lines)) groups
   in
@@ -819,7 +823,8 @@ let network_md ~ctx =
     let people_line =
       match section.collaborators with
       | [] -> ""
-      | cs -> "People: " ^ String.concat ", " (List.map contact_link cs) ^ "\n\n"
+      | cs ->
+        "People: " ^ String.concat ", " (List.map contact_link cs) ^ "\n\n"
     in
     Printf.sprintf "## %s %d\n\n%s%s"
       (Common.month_name_full section.month) section.year people_line

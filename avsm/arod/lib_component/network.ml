@@ -276,7 +276,8 @@ let all_months ~ctx = compute_month_sections ~ctx
 let page_size = 6
 
 (** The text that opens the network page, as the words before and after its two
-    links, which are to the blogroll as OPML and to an address for suggestions. *)
+    links, which are to the blogroll as OPML and to an address for
+    suggestions. *)
 let list_intro_first =
   "I track a number of online blogs and connect relevant ones to things I am \
    working on. You can grab my blogroll "

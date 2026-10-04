@@ -66,7 +66,9 @@ let () =
     List.sort Bushel.Project.compare projects |> List.map Bushel.Project.title
   in
   let positions =
-    List.map (fun t -> find md ("[" ^ t ^ "](https://example.com/projects/")) expected
+    List.map
+      (fun t -> find md ("[" ^ t ^ "](https://example.com/projects/"))
+      expected
   in
   check "every project is listed" (List.for_all (fun p -> p <> None) positions);
   check "projects come in the order of the HTML cards"
@@ -76,7 +78,8 @@ let () =
     (before md "I work on a number of research projects" "[Zeta]"
     && contains md "[EEG Zulip](https://eeg.zulipchat.com)");
   check "years are given as the card gives them"
-    (contains md "(2020\xE2\x80\x932022)" && contains md "(2024\xE2\x80\x93now)");
+    (contains md "(2020\xE2\x80\x932022)"
+    && contains md "(2024\xE2\x80\x93now)");
   check "a card opens with its summary"
     (contains md "Zeta opens here." && contains md "Alpha opens here.");
   check "tags are listed" (contains md "Tags: alpha, beta");
@@ -263,7 +266,8 @@ let linking ~slug ~title ~date body =
   { (note ~slug ~title ~date ()) with Bushel.Note.body }
 
 let ext source url : Bushel.Link_graph.external_link =
-  { Bushel.Link_graph.source; domain = List.nth (String.split_on_char '/' url) 2;
+  { Bushel.Link_graph.source;
+    domain = List.nth (String.split_on_char '/' url) 2;
     url }
 
 let () =
@@ -369,7 +373,9 @@ let link_between source target target_type =
   { Bushel.Link_graph.source; target; target_type }
 
 let () =
-  let paper = paper_entry ~slug:"p1" ~title:"A Paper" ~year:2025 ~projects:[ "big" ] () in
+  let paper =
+    paper_entry ~slug:"p1" ~title:"A Paper" ~year:2025 ~projects:[ "big" ] ()
+  in
   let early =
     { (note ~slug:"early" ~title:"Early Note" ~date:(2025, 1, 1)
          ~synopsis:(Some "Early synopsis.") ()) with
@@ -430,7 +436,9 @@ let () =
   check "a note that cites nothing has no references"
     (not (contains md_target "## References"));
   let md_project =
-    export (`Project (List.find (fun p -> Bushel.Project.slug p = "big") ideas_projects))
+    export
+      (`Project
+         (List.find (fun p -> Bushel.Project.slug p = "big") ideas_projects))
   in
   check "a project lists its ideas and then its activity"
     (before md_project "## Ideas" "## Activity"

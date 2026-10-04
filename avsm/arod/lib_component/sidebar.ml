@@ -435,7 +435,8 @@ let contact_inline ~ctx contact =
     El.span ~at:[At.class' "contact-inline-socials"] (social_icons)]
 
 (** [social_sites social] is the discussions of [social], each as its label, the
-    brand icon that draws it and its address, in the order the icons are shown. *)
+    brand icon that draws it and its address, in the order the icons are
+    shown. *)
 let social_sites (soc : Bushel.Types.social) =
   let site label brand urls = List.map (fun url -> (label, brand, url)) urls in
   site "Bluesky" I.bluesky_brand soc.bluesky

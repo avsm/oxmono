@@ -2855,11 +2855,11 @@ let custom_css = {|
    layered rules. */
 .snake {
   --sn-note: var(--color-accent);
-  --sn-week: #c58a2a;
-  --sn-release: #4f7fc0;
+  --sn-week: var(--color-muted);
+  --sn-release: var(--color-muted);
+  --sn-spine: color-mix(in srgb, var(--color-accent) 40%, var(--color-muted));
   position: relative;
 }
-.dark .snake { --sn-week: #e0b25f; --sn-release: #86aaea; }
 .snake-spine {
   position: absolute;
   left: 0;
@@ -2868,14 +2868,14 @@ let custom_css = {|
   -webkit-mask-image: linear-gradient(to bottom, transparent, #000 3em, #000 calc(100% - 6em), transparent);
   mask-image: linear-gradient(to bottom, transparent, #000 3em, #000 calc(100% - 6em), transparent);
 }
-.snake-line, .snake-halo {
+.snake-line {
   fill: none;
-  stroke: url(#snake-grad);
+  stroke: var(--sn-spine);
+  stroke-width: 2px;
   stroke-linecap: round;
+  opacity: 0.55;
   vector-effect: non-scaling-stroke;
 }
-.snake-line { stroke-width: 2px; opacity: 0.42; }
-.snake-halo { stroke-width: 7px; opacity: 0.06; }
 .sn-month { position: absolute; left: 0; right: 0; }
 .sn-pill {
   position: absolute;
@@ -2889,7 +2889,7 @@ let custom_css = {|
   border-radius: 999px;
   background: var(--color-bg);
   color: var(--color-secondary);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sn-note) 45%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-border);
 }
 .sn-pill span {
   font-size: 0.7em;
@@ -2908,41 +2908,28 @@ let custom_css = {|
 .sn-exit { position: absolute; left: 0; overflow: visible; pointer-events: none; }
 .sn-exit-path, .sn-lane, .sn-flow {
   fill: none;
-  stroke: var(--sn-c);
+  stroke: var(--sn-spine);
   stroke-linecap: round;
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
-.sn-exit-path {
-  stroke-width: 2px;
-  opacity: 0.4;
-  transition: opacity 0.3s;
-}
-.sn-week .sn-exit-path { stroke-width: 1.6px; }
-.sn-release .sn-exit-path {
-  stroke-width: 1.4px;
-  stroke-dasharray: 0.5 4.5;
-  opacity: 0.6;
-}
-/* On hover the stretch of spine that the exit leaves from takes the entry's
-   colour, and marks flow along the exit towards its node. */
-.sn-lane {
-  stroke-width: 2.4px;
-  opacity: 0;
-  transition: opacity 0.3s;
-}
+.sn-exit-path { stroke-width: 1.6px; opacity: 0.5; transition: opacity 0.3s, stroke 0.3s; }
+.sn-release .sn-exit-path { stroke-width: 1.2px; stroke-dasharray: 0.5 4.5; opacity: 0.7; }
+/* On hover the stretch of spine that the exit leaves from takes the accent
+   colour, and marks flow along the exit towards its card. */
+.sn-lane { stroke: var(--color-accent); stroke-width: 2.2px; opacity: 0; transition: opacity 0.3s; }
 .sn-flow {
-  stroke-width: 2px;
+  stroke: var(--color-accent);
+  stroke-width: 1.8px;
   stroke-dasharray: 1 10;
   opacity: 0;
   transition: opacity 0.3s;
 }
 .sn-port {
   fill: var(--color-bg);
-  stroke: var(--sn-c);
+  stroke: var(--sn-spine);
   stroke-width: 1.2px;
   vector-effect: non-scaling-stroke;
-  opacity: 0.6;
 }
 .sn-node {
   position: absolute;
@@ -2952,69 +2939,74 @@ let custom_css = {|
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
-  background: color-mix(in srgb, var(--sn-c) 10%, var(--color-bg));
   color: var(--sn-c);
-  transition: box-shadow 0.3s;
 }
-.sn-node-note {
-  border-radius: 50%;
-  box-shadow: 0 0 0 0.14em var(--color-bg),
-    0 0 0 0.22em color-mix(in srgb, var(--sn-c) 45%, transparent);
-}
-.sn-node-release {
-  border-radius: 50%;
-  box-shadow: 0 0 0 0.12em var(--color-bg),
-    0 0 0 0.18em color-mix(in srgb, var(--sn-c) 55%, transparent);
-}
-.sn-node-img { display: block; width: 100%; height: 100%; object-fit: cover; }
-/* A weeknote is a card. Its square thumbnail is the card's left end and shares
-   its height, so that the two read as one piece. */
-.sn-week::before {
+/* An entry is a card, and its thumbnail is the card's left end. A note's card is
+   tinted with the accent and a weeknote's is neutral, so the two are alike in
+   shape and differ in weight. */
+.sn-note::before, .sn-week::before {
   content: "";
   position: absolute;
-  left: 4.9em;
+  left: 4.4em;
   right: 0;
   top: 0.5em;
   bottom: 0.5em;
   border-radius: 0.7em;
-  background: color-mix(in srgb, var(--sn-week) 7%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sn-week) 22%, transparent);
   transition: box-shadow 0.3s;
 }
-.sn-node-week {
-  border-radius: 0.7em 0 0 0.7em;
+.sn-note::before {
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
 }
-.sn-week .sn-node-img { filter: sepia(0.35) saturate(0.9); transition: filter 0.3s; }
+.sn-week::before {
+  background: color-mix(in srgb, var(--color-muted) 7%, transparent);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+.sn-note:hover::before {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+.sn-week:hover::before {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-muted) 55%, transparent);
+}
+.sn-node-note, .sn-node-week {
+  border-radius: 0.7em 0 0 0.7em;
+  background: color-mix(in srgb, var(--sn-c) 10%, var(--color-bg));
+}
+.sn-node-release {
+  border-radius: 50%;
+  background: var(--sn-spine);
+  transition: background 0.3s;
+}
+.sn-node-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sn-week .sn-node-img { filter: grayscale(0.4); transition: filter 0.3s; }
 .sn-text {
   position: absolute;
   right: 0.5em;
   overflow: hidden;
   display: flex;
   gap: 1.2em;
-}
-.sn-note .sn-text { top: 0.4em; height: 7.3em; align-items: flex-start; }
-.sn-week .sn-text {
-  top: 0.5em;
-  height: 3.8em;
   align-items: center;
   padding-right: 0.9em;
 }
+.sn-note .sn-text { top: 0.5em; height: 5.2em; }
+.sn-week .sn-text { top: 0.5em; height: 3.8em; }
 /* The reading column is kept to a comfortable measure, and the tags take the
    space beyond it. */
-.sn-body { flex: 0 1 31em; min-width: 0; }
+.sn-body { flex: 0 1 42em; min-width: 0; }
 .sn-tags {
   flex: 1 1 0;
   min-width: 0;
+  align-self: stretch;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   align-items: flex-end;
   gap: 0.1em;
-  padding-top: 0.2em;
   overflow: hidden;
 }
-.sn-week .sn-tags { justify-content: center; align-self: stretch; padding-top: 0; }
 .sn-tag {
   font-size: 0.7em;
+  line-height: 1.3;
   color: var(--color-muted) !important;
   text-decoration: none !important;
   white-space: nowrap;
@@ -3027,23 +3019,10 @@ let custom_css = {|
   letter-spacing: 0.1em;
   line-height: 1.5;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--sn-c) 65%, var(--color-muted));
+  color: var(--color-muted);
 }
-.sn-title, .sn-synopsis {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.sn-title {
-  -webkit-line-clamp: 2;
-  font-size: 1.02em;
-  font-weight: 650;
-  line-height: 1.3;
-  color: var(--color-text) !important;
-  text-decoration: none !important;
-  transition: color 0.2s;
-}
-/* A weeknote's title and synopsis run on as one paragraph. */
+.sn-note .sn-meta { color: color-mix(in srgb, var(--color-accent) 70%, var(--color-text)); }
+/* A title and its synopsis run on as one paragraph. */
 .sn-line {
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -3053,26 +3032,21 @@ let custom_css = {|
   font-size: 0.86em;
   line-height: 1.35;
 }
-.sn-line .sn-title, .sn-line .sn-synopsis {
-  display: inline;
-  font-size: 1em;
-  line-height: inherit;
-  margin: 0;
+.sn-note .sn-line { -webkit-line-clamp: 3; font-size: 0.92em; }
+.sn-line .sn-title, .sn-line .sn-synopsis { display: inline; }
+.sn-title {
+  font-weight: 650;
+  color: var(--color-text) !important;
+  text-decoration: none !important;
+  transition: color 0.2s;
 }
-.sn-line .sn-title { font-weight: 600; }
-.sn-week .sn-body { flex-basis: 42em; }
+.sn-week .sn-title { font-weight: 600; }
 .sn-title:hover {
   color: var(--color-link) !important;
   text-decoration: underline dotted !important;
   text-decoration-color: var(--color-link-ul) !important;
 }
-.sn-synopsis {
-  -webkit-line-clamp: 3;
-  margin-top: 0.2em;
-  font-size: 0.85em;
-  line-height: 1.42;
-  color: var(--color-secondary);
-}
+.sn-synopsis { color: var(--color-secondary); }
 .sn-quiet {
   position: absolute;
   right: 0;
@@ -3087,11 +3061,11 @@ let custom_css = {|
   font-size: 0.7em;
   letter-spacing: 0.25em;
 }
-/* A release is one line, level with its small node. */
+/* A release is one line, level with its dot. */
 .sn-release .sn-text {
   top: 0;
   bottom: 0;
-  align-items: center;
+  padding-right: 0;
   gap: 0.5em;
   white-space: nowrap;
 }
@@ -3118,25 +3092,18 @@ let custom_css = {|
 .release-registries { flex: none; display: inline-flex; align-items: center; gap: 0.35em; }
 .release-registry {
   display: inline-flex;
-  color: color-mix(in srgb, var(--sn-release) 78%, var(--color-muted)) !important;
+  color: var(--color-muted) !important;
   text-decoration: none !important;
-  opacity: 0.9;
+  opacity: 0.85;
 }
-.release-registry:hover { color: var(--sn-release) !important; opacity: 1; }
+.release-registry:hover { color: var(--color-link) !important; opacity: 1; }
 /* Pointing at an entry lights only its own way off the spine. */
-.sn-item:hover .sn-exit-path { opacity: 0.9; }
-.sn-item:hover .sn-lane { opacity: 0.8; }
+.sn-item:hover .sn-exit-path { stroke: var(--color-accent); opacity: 0.85; }
+.sn-item:hover .sn-lane { opacity: 0.7; }
 .sn-item:hover .sn-flow { opacity: 0.9; animation: sn-drive 1.4s linear infinite; }
-.sn-item:hover .sn-port { opacity: 1; fill: var(--sn-c); }
-.sn-item:hover .sn-node-note,
-.sn-item:hover .sn-node-release,
-.sn-node:focus-visible {
-  box-shadow: 0 0 0 0.14em var(--color-bg), 0 0 0 0.26em var(--sn-c);
-}
+.sn-item:hover .sn-port { fill: var(--color-accent); stroke: var(--color-accent); }
+.sn-release:hover .sn-node-release { background: var(--color-accent); }
 .sn-item:hover .sn-node-img { filter: none; }
-.sn-week:hover::before {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sn-week) 55%, transparent);
-}
 @keyframes sn-drive { to { stroke-dashoffset: -11; } }
 @media (prefers-reduced-motion: reduce) {
   .sn-item:hover .sn-flow { animation: none; }
@@ -3150,6 +3117,7 @@ let custom_css = {|
 .snake.is-filtered .snake-spine,
 .snake.is-filtered .sn-exit,
 .snake.is-filtered .sn-quiet,
+.snake.is-filtered .sn-note::before,
 .snake.is-filtered .sn-week::before { display: none; }
 .snake.is-filtered .sn-month,
 .snake.is-filtered .sn-item,

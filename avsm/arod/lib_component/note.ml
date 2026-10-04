@@ -280,9 +280,10 @@ let exit_svg kind ~y_abs =
 (** [node_style kind] is the position and size of the node of a row of
     [kind]. *)
 let node_style kind =
-  let r = Snake.radius kind and c = Snake.center kind in
+  let h = Snake.node_height kind in
   Printf.sprintf "left:%.3fem;top:%.3fem;width:%.3fem;height:%.3fem"
-    (Snake.node_x -. r) (c -. r) (2. *. r) (2. *. r)
+    (Snake.node_left kind) (Snake.center kind -. (h /. 2.))
+    (Snake.node_width kind) h
 
 (** [sn_node ~ctx ~url ~kind ~label ~icon entry] is the node of a row, linking
     to [url]. It is the image of [entry], and without one [icon]. *)
@@ -307,9 +308,9 @@ let text_style kind =
   Printf.sprintf "left:%.3fem" (Snake.text_left kind)
 
 (** [sn_tags ?limit n] is the column of tags of [n], which fills the right of its row.
-    Only plain and set tags are shown, at most [limit] (default five). Each links to a search for
+    Only plain and set tags are shown, at most [limit] (default four). Each links to a search for
     it. *)
-let sn_tags ?(limit = 5) n =
+let sn_tags ?(limit = 4) n =
   let tags =
     List.filter_map (function
       | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
@@ -344,11 +345,13 @@ let sn_note ~ctx ~y_rel ~y_abs n =
         El.time ~at:[At.class' "sn-meta dt-published";
                      At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
           [El.txt (short_date (y, m, d))];
-        El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
-          [El.txt (Note.title n)];
-        (if synopsis <> "" then
-           El.div ~at:[At.class' "sn-synopsis p-summary"] [El.txt synopsis]
-         else El.void)];
+        El.p ~at:[At.class' "sn-line"] [
+          El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
+            [El.txt (Note.title n)];
+          (if synopsis <> "" then
+             El.span ~at:[At.class' "sn-synopsis p-summary"]
+               [El.txt (" " ^ synopsis)]
+           else El.void)]];
       sn_tags n]]
 
 (** [sn_week ~ctx ~y_rel ~y_abs n] is weeknote [n] as a row. Its node is a
@@ -425,7 +428,7 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
               At.v "style" (node_style Snake.Release);
               At.v "role" "img"; At.v "aria-label" "Code release";
               At.v "title" "Code release"; At.v "tabindex" "-1"]
-      [El.unsafe_raw (Arod.Icons.outline ~size:11 Arod.Icons.rocket_o)];
+      [];
     El.div ~at:[At.class' "sn-text release-line";
                 At.v "style" (text_style Snake.Release)] [
       El.a ~at:[At.href r.url;
@@ -605,8 +608,8 @@ let notes_list ~ctx =
     let d = Snake.spine_path ~height:total in
     El.unsafe_raw
       (Printf.sprintf
-         {|<svg class="snake-spine" viewBox="0 0 %.2f %.2f" style="width:%.2fem;height:%.3fem" aria-hidden="true" focusable="false"><defs><linearGradient id="snake-grad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="%.2f"><stop offset="0" style="stop-color:var(--sn-note)"/><stop offset="0.5" style="stop-color:var(--sn-release)"/><stop offset="1" style="stop-color:var(--sn-week)"/></linearGradient></defs><path class="snake-halo" d="%s"/><path class="snake-line" d="%s"/></svg>|}
-         Snake.svg_width total Snake.svg_width total total d d)
+         {|<svg class="snake-spine" viewBox="0 0 %.2f %.2f" style="width:%.2fem;height:%.3fem" aria-hidden="true" focusable="false"><path class="snake-line" d="%s"/></svg>|}
+         Snake.svg_width total Snake.svg_width total d)
   in
   let article =
     El.article ~at:[At.class' "h-feed"] [

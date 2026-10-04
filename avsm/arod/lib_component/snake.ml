@@ -15,40 +15,52 @@
    the page. The origin is the top left of the timeline. *)
 
 (** The lane the spine swings in, and the length of one swing. *)
-let xl = 1.2
+let xl = 1.0
 
-let xr = 3.4
+let xr = 3.0
 let seg = 13.0
 
-(** The column of nodes, and the width of the svg that holds the spine and the
-    exits. *)
-let node_x = 6.8
+(** The left edge of every entry's card, where its exit arrives, and the width
+    of the thumbnail that begins the card. *)
+let card_x = 4.4
 
+let thumb_w = 4.6
 let svg_width = 5.7
 
 type kind = Note | Week | Release | Quiet
 
 let height = function
-  | Note -> 7.8
+  | Note -> 6.2
   | Week -> 4.8
   | Release -> 2.3
   | Quiet -> 1.9
 
 (** The height from the top of a row to the centre of its node. *)
 let center = function
-  | Note -> 3.2
+  | Note -> 3.1
   | Week -> 2.4
   | Release -> 1.15
   | Quiet -> 0.95
 
-let radius = function Note -> 1.9 | Week -> 1.9 | Release -> 0.6 | Quiet -> 0.
+(** The size of the node of a row: the thumbnail of a card, or the dot of a
+    release. *)
+let node_width = function Note | Week -> thumb_w | Release -> 0.6 | Quiet -> 0.
+
+let node_height = function
+  | Note -> 5.2
+  | Week -> 3.8
+  | Release -> 0.6
+  | Quiet -> 0.
+
+(** The x of the left edge of a node. *)
+let node_left _ = card_x
 
 (** How far above its node an exit leaves the spine. *)
 let drop = function Note -> 1.6 | Week -> 1.6 | Release -> 1.1 | Quiet -> 0.
 
 (** The left of the text of every kind of row, so that the text of notes,
     weeknotes and releases lines up in one column. *)
-let text_left _ = node_x +. 2.5
+let text_left _ = card_x +. thumb_w +. 0.9
 
 let month_height = 3.6
 let month_gap = 0.5
@@ -121,7 +133,7 @@ let exit_ ~kind ~y_abs =
   let end_y = center kind in
   let start_y = end_y -. drop kind in
   let start_x = spine_x (y_abs +. start_y) in
-  let end_x = node_x -. radius kind in
+  let end_x = node_left kind in
   let slope =
     (spine_x (y_abs +. start_y +. 0.05) -. spine_x (y_abs +. start_y -. 0.05))
     /. 0.1

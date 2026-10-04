@@ -88,7 +88,7 @@ let () =
        ("https://packages.ecosyste.ms/registries/opam.ocaml.org/packages/mdx/"
        ^ "versions/2.6.0"));
   check "the registry is named" (contains html "opam.ocaml.org");
-  check "a code release is a rocket on the line"
+  check "a code release is a dot on the line"
     (contains html "release-mark" && contains html "Code release"
     && contains html "sn-node-release");
   check "the marker is described for a screen reader"
@@ -119,11 +119,11 @@ let () =
     (contains html "sn-week note-item");
   check "a missing week is marked on the line"
     (contains html "1 quiet week");
-  check "a note's image is a round bullet on the line, before its title"
+  check "a note's image begins its card, before its title"
     (before html {|src="/images/pic.webp"|} "An August note"
     && contains html {|class="sn-node-img"|}
     && contains html "sn-node-note");
-  check "a note without an image is a bullet with an icon"
+  check "a note without an image has an icon in its place"
     (contains html "sn-node-icon");
   check "a note's date is a caption above its title"
     (before html {|>10 Aug<|} "An August note");
@@ -138,9 +138,9 @@ let () =
   check "every month has a pill on the spine"
     (let months = occurrences html {|class="sn-month"|} in
      months > 0 && months = occurrences html {|class="sn-pill"|});
-  check "one spine, as an svg path with a gradient"
+  check "one spine, as an svg path"
     (occurrences html {|class="snake-spine"|} = 1
-    && contains html {|class="snake-line"|} && contains html "snake-grad");
+    && contains html {|class="snake-line"|});
   check "every row has an exit curve from the spine"
     (let rows = occurrences html "sn-item " in
      rows > 0 && rows = occurrences html {|class="sn-exit"|});

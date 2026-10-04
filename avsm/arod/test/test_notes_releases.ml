@@ -143,8 +143,9 @@ let () =
   check "a tag says how many notes carry it"
     (contains tags_html {|title="3 notes"|}
     && contains tags_html {|title="1 note"|});
-  check "a tag has no hash and its popularity sets its dot"
-    (contains tags_html {|>ocaml</a>|} && contains tags_html "--pop:1.00"
+  check "a tag is a chip with no hash, and its count and popularity are shown"
+    (contains tags_html {|>ocaml</span>|} && contains tags_html {|>3</span>|}
+    && contains tags_html "--pop:1.00"
     && contains tags_html "--pop:0.50");
   check "a note's heading says how many words it has"
     (before html ">10 Aug<" " word" && before html " word" "An August note");

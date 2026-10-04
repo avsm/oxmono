@@ -369,9 +369,10 @@ let tag_popularity ctx =
 
 (** [sn_tags ?limit ~popularity n] is the column at the right of the row of
     [n]. It holds its plain and set tags, the most popular first and at most
-    [limit] (default four), each linking to a search for it. A tag's dot is
-    stronger the more popular it is. *)
-let sn_tags ?(limit = 4) ~popularity n =
+    [limit] (default three), each a chip that links to a search for the tag.
+    The chip shows how many notes carry the tag, more strongly the more popular
+    it is. *)
+let sn_tags ?(limit = 3) ~popularity n =
   let tags =
     List.filter_map (function
       | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
@@ -389,7 +390,9 @@ let sn_tags ?(limit = 4) ~popularity n =
                  At.v "title"
                    (Printf.sprintf "%d note%s" count
                       (if count = 1 then "" else "s"))]
-         [El.txt t]) tags)
+         [El.span ~at:[At.class' "sn-tag-name"] [El.txt t];
+          El.span ~at:[At.class' "sn-tag-n"] [El.txt (string_of_int count)]])
+       tags)
 
 (** [sn_note ~ctx ~popularity ~y_rel ~y_abs n] is journal note [n] as a row. *)
 let sn_note ~ctx ~popularity ~y_rel ~y_abs n =

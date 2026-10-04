@@ -3028,41 +3028,45 @@ let custom_css = {|
 /* The tags of an entry take a column of their own at its end, in plain muted
    type. The icons of an entry sit on its heading line. */
 .sn-tags {
-  flex: 0 0 10em;
+  flex: 0 0 12em;
   margin-left: auto;
   align-self: stretch;
   display: flex;
   flex-wrap: wrap;
   align-content: center;
   align-items: center;
-  gap: 0.2em 0.8em;
+  gap: 0.4em 0.4em;
   overflow: hidden;
 }
 .sn-tag-list { display: contents; }
+/* A tag is a small chip: its name, and after a rule the number of notes that
+   carry it, which is stronger the more popular the tag is. */
 .sn-tag {
-  font-size: 0.68em;
-  line-height: 1.4;
-  color: var(--color-muted) !important;
+  display: inline-flex;
+  align-items: stretch;
+  font-size: 0.64em;
+  line-height: 1.2;
+  border-radius: 999px;
+  overflow: hidden;
+  color: var(--color-secondary) !important;
+  background: color-mix(in srgb, var(--color-muted) 9%, transparent);
   text-decoration: none !important;
   white-space: nowrap;
-  transition: color 0.2s;
+  transition: background 0.2s, color 0.2s;
 }
-/* A tag is its name after a small dot, rather than a hash. The dot is larger
-   and stronger the more notes carry the tag, and the most popular come first. */
-.sn-tag::before {
-  content: "";
-  display: inline-block;
-  width: calc(0.28em + 0.22em * var(--pop, 0.5));
-  height: calc(0.28em + 0.22em * var(--pop, 0.5));
-  margin-right: 0.5em;
-  border-radius: 50%;
-  vertical-align: 0.05em;
-  background: var(--color-accent);
-  opacity: calc(0.2 + 0.8 * var(--pop, 0.5));
-  transition: opacity 0.2s;
+.sn-tag-name { padding: 0.3em 0.6em 0.3em 0.8em; }
+.sn-tag-n {
+  padding: 0.3em 0.75em 0.3em 0.6em;
+  border-left: 1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+  opacity: calc(0.45 + 0.55 * var(--pop, 0.5));
 }
-.sn-tag:hover { color: var(--sn-hl) !important; }
-.sn-tag:hover::before { opacity: 1; }
+.sn-tag:hover {
+  color: var(--sn-hl) !important;
+  background: color-mix(in srgb, var(--sn-hl) 13%, transparent);
+}
+.sn-tag:hover .sn-tag-n { opacity: 1; }
 .sn-links {
   display: inline-flex;
   align-items: center;

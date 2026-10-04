@@ -133,5 +133,43 @@ let () =
     (contains md "An MPhil or Part III project, proposed in 2026."
     && contains md "A opens here.");
   check "a past idea has its sentence"
-    (contains md "An MPhil or Part III project, completed in 2021");
+    (contains md "An MPhil or Part III project, completed in 2021")
+
+(* {1 Talks} *)
+
+let ptime y m d =
+  match Ptime.of_date (y, m, d) with Some t -> t | None -> assert false
+
+let video ?(talk = true) ?(project = None) ?(tags = []) ~slug ~title ~date
+    description : Bushel.Video.t =
+  let y, m, d = date in
+  { Bushel.Video.slug; title; published_date = ptime y m d; uuid = slug;
+    description; url = "https://videos.example/" ^ slug; talk; vertical = false;
+    paper = None; project; tags; social = None }
+
+(* Loaded oldest first. Only talks are on the HTML page, and newest first. *)
+let videos =
+  [ video ~slug:"old" ~title:"Old Talk" ~date:(2019, 3, 1) "Old talk text.";
+    video ~slug:"clip" ~title:"A Plain Video" ~talk:false ~date:(2024, 1, 1) "";
+    video ~slug:"new" ~title:"New Talk" ~date:(2024, 6, 1)
+      ~project:(Some "big") ~tags:[ "one"; "two" ] "New talk text." ]
+
+let () =
+  let md =
+    Arod_component.Markdown_export.videos_list_md
+      ~ctx:(ctx_of ~projects:ideas_projects ~videos ())
+  in
+  check "a video that is not a talk is left out, as in the HTML"
+    (not (contains md "A Plain Video"));
+  check "talks come newest first, as in the HTML"
+    (before md "[New Talk]" "[Old Talk]");
+  check "a talk gives its month"
+    (contains md "(Jun 2024)" && contains md "(Mar 2019)");
+  check "a talk gives where to watch it"
+    (contains md "Watch: <https://videos.example/new>");
+  check "a talk gives the opening of its description and its tags"
+    (before md "[New Talk]" "New talk text."
+    && contains md "Tags: one, two");
+  check "a talk gives the references of its card"
+    (contains md "[Big Project](https://example.com/projects/big) (project)");
   Printf.printf "test_markdown_pages: %d checks passed\n" !checks

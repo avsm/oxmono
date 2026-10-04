@@ -12,6 +12,7 @@
 module Paper_component = Paper
 module Project_component = Project
 module Idea_component = Idea
+module Video_component = Video
 module Entry = Bushel.Entry
 module Paper = Bushel.Paper
 module Contact = Sortal_schema.Contact
@@ -474,13 +475,49 @@ let projects_list_md ~ctx =
   in
   header ^ String.concat "\n" (List.map item projects) ^ "\n" ^ footer
 
+(* [videos_list_md ~ctx] mirrors the HTML talks page: the talks, newest first,
+   and for each its month, the video, the opening of its description, its tags
+   and the references that the card shows under it. *)
 let videos_list_md ~ctx =
-  let videos = Arod.Ctx.videos ctx in
-  let header, footer = list_header ~ctx ~title:"Talks" ~description:"Conference talks and presentations." ~path:"/videos" in
-  let items = List.map (fun vid ->
-    entry_bullet ~ctx (`Video vid)
-  ) videos in
-  header ^ String.concat "\n" items ^ "\n" ^ footer
+  let talks = Video_component.list_talks ~ctx in
+  let header, footer =
+    list_header ~ctx ~title:"Talks"
+      ~description:"Conference talks and presentations." ~path:"/videos"
+  in
+  let item vid =
+    let (y, m, _) = Bushel.Video.date vid in
+    let bullet =
+      Printf.sprintf "%s (%s %d)" (entry_bullet_link ~ctx (`Video vid))
+        (Common.month_name m) y
+    in
+    let watch =
+      match Bushel.Video.url vid with
+      | "" -> ""
+      | url -> Printf.sprintf "\n  Watch: <%s>" url
+    in
+    let desc =
+      match String.trim (Video_component.card_desc vid) with
+      | "" -> ""
+      | text -> "\n" ^ indented (render_body ~ctx text)
+    in
+    let tags =
+      match Bushel.Video.tags vid with
+      | [] -> ""
+      | tags -> "\n  Tags: " ^ String.concat ", " tags
+    in
+    let refs =
+      match Video_component.card_refs ~ctx vid with
+      | [] -> ""
+      | refs ->
+        "\n  References:\n"
+        ^ String.concat "\n"
+            (List.map (fun (r : Video_component.reference) ->
+               Printf.sprintf "  - [%s](%s%s) (%s)" r.title
+                 (Arod.Ctx.base_url ctx) r.href r.kind) refs)
+    in
+    bullet ^ watch ^ desc ^ tags ^ refs
+  in
+  header ^ String.concat "\n" (List.map item talks) ^ "\n" ^ footer
 
 let links_list_md ~ctx =
   let entries = Arod.Ctx.entries ctx in

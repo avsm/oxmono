@@ -60,7 +60,7 @@ let opam =
   { Bushel.Release.name = "opam.ocaml.org"; package = "mdx";
     url = "https://opam.ocaml.org/packages/mdx/mdx.2.6.0/" }
 
-let render ?releases () =
+let render ?releases ?(notes = notes) () =
   let ctx =
     Arod.Ctx.of_entries ~config:cfg ?releases
       (Bushel.Entry.v ~papers:[] ~notes ~projects:[] ~ideas:[] ~videos:[]
@@ -127,6 +127,25 @@ let () =
     && contains html "sn-node-note");
   check "a note without an image has no placeholder, only a line to its text"
     (not (contains html "sn-node-icon") && contains html "sn-exit-fade");
+  (* Tags come most popular first, and say how many notes carry them. *)
+  let tagged =
+    [ { (note "t1" "First" (2026, 8, 3)) with
+        Bushel.Note.tags = [ "rare"; "eio"; "ocaml" ] };
+      { (note "t2" "Second" (2026, 8, 2)) with
+        Bushel.Note.tags = [ "eio"; "ocaml" ] };
+      { (note "t3" "Third" (2026, 8, 1)) with
+        Bushel.Note.tags = [ "ocaml" ] } ]
+  in
+  let tags_html = render ~notes:tagged () in
+  check "the most popular tag comes first"
+    (before tags_html {|data-tag="ocaml"|} {|data-tag="eio"|}
+    && before tags_html {|data-tag="eio"|} {|data-tag="rare"|});
+  check "a tag says how many notes carry it"
+    (contains tags_html {|title="3 notes"|}
+    && contains tags_html {|title="1 note"|});
+  check "a tag has no hash and its popularity sets its dot"
+    (contains tags_html {|>ocaml</a>|} && contains tags_html "--pop:1.00"
+    && contains tags_html "--pop:0.50");
   check "a note's heading says how many words it has"
     (before html ">10 Aug<" " word" && before html " word" "An August note");
   check "a note's date is a caption above its title"

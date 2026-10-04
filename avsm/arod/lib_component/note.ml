@@ -350,23 +350,49 @@ let sn_words n =
        [El.txt (Printf.sprintf " \xC2\xB7 %s word%s" (format_number w)
                   (if w = 1 then "" else "s"))]]
 
-(** [sn_tags ?limit n] is the column at the right of the row of [n]. It holds
-    its plain and set tags, at most [limit] (default four), each linking to a
-    search for it. *)
-let sn_tags ?(limit = 4) n =
+(** [tag_popularity ctx] is how many notes carry each plain or set tag, as a
+    function of the tag. It gives the count and a share from 0 to 1 on a log
+    scale, so that one very common tag does not flatten the rest. *)
+let tag_popularity ctx =
+  let counts = Hashtbl.create 64 in
+  List.iter (fun n ->
+    List.iter (function
+      | (`Text _ | `Set _) as t ->
+        let k = Bushel.Tags.to_raw_string t in
+        Hashtbl.replace counts k
+          (1 + Option.value (Hashtbl.find_opt counts k) ~default:0)
+      | _ -> ()) (Bushel.Entry.tags_of_ent (`Note n))) (Arod.Ctx.notes ctx);
+  let most = Hashtbl.fold (fun _ c acc -> max c acc) counts 1 in
+  fun tag ->
+    let c = Option.value (Hashtbl.find_opt counts tag) ~default:0 in
+    (c, log (1. +. float_of_int c) /. log (1. +. float_of_int most))
+
+(** [sn_tags ?limit ~popularity n] is the column at the right of the row of
+    [n]. It holds its plain and set tags, the most popular first and at most
+    [limit] (default four), each linking to a search for it. A tag's dot is
+    stronger the more popular it is. *)
+let sn_tags ?(limit = 4) ~popularity n =
   let tags =
     List.filter_map (function
       | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
       | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
+    |> List.map (fun t -> (t, popularity t))
+    |> List.stable_sort (fun (a, (ca, _)) (b, (cb, _)) ->
+         let c = compare cb ca in if c <> 0 then c else String.compare a b)
+    |> List.filteri (fun i _ -> i < limit)
   in
-  let tags = List.filteri (fun i _ -> i < limit) tags in
   El.div ~at:[At.class' "sn-tags"]
-    (List.map (fun t ->
+    (List.map (fun (t, (count, share)) ->
        El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
-                 At.class' "sn-tag"] [El.txt t]) tags)
+                 At.class' "sn-tag";
+                 At.v "style" (Printf.sprintf "--pop:%.2f" share);
+                 At.v "title"
+                   (Printf.sprintf "%d note%s" count
+                      (if count = 1 then "" else "s"))]
+         [El.txt t]) tags)
 
-(** [sn_note ~ctx ~y_rel ~y_abs n] is journal note [n] as a row. *)
-let sn_note ~ctx ~y_rel ~y_abs n =
+(** [sn_note ~ctx ~popularity ~y_rel ~y_abs n] is journal note [n] as a row. *)
+let sn_note ~ctx ~popularity ~y_rel ~y_abs n =
   let (y, m, d) = Bushel.Entry.date (`Note n) in
   let url = Bushel.Entry.site_url (`Note n) in
   let tags_data =
@@ -400,12 +426,12 @@ let sn_note ~ctx ~y_rel ~y_abs n =
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
            else El.void)]];
-      sn_tags n]]
+      sn_tags ~popularity n]]
 
-(** [sn_week ~ctx ~y_rel ~y_abs n] is weeknote [n] as a row. Its node is a
+(** [sn_week ~ctx ~popularity ~y_rel ~y_abs n] is weeknote [n] as a row. Its node is a
     rounded square and its row is tinted, so that it is not mistaken for a
     note. *)
-let sn_week ~ctx ~y_rel ~y_abs n =
+let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
   let (y, m, d) = Note.date n in
   let (_, wk) = Note.week_number n in
   let synopsis = Option.value (Note.synopsis n) ~default:"" in
@@ -441,7 +467,7 @@ let sn_week ~ctx ~y_rel ~y_abs n =
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
            else El.void)]];
-      sn_tags n]]
+      sn_tags ~popularity n]]
 
 (** [sn_release ~y_rel ~y_abs t rs] is the row for the releases [rs] of
     repository [t], newest first, made in one month. It is the smallest row: a
@@ -562,6 +588,7 @@ let notes_list ~ctx =
     |> List.rev
   in
   let weeknotes, journal_notes = List.partition Note.weeknote all_notes in
+  let popularity = tag_popularity ctx in
   let by_month = Hashtbl.create 32 in
   List.iter (fun n ->
     let (y, m, _d) = Bushel.Entry.date (`Note n) in
@@ -637,10 +664,10 @@ let notes_list ~ctx =
             match item with
             | `Note n ->
               (Snake.Note,
-               fun ~y_rel ~y_abs -> sn_note ~ctx ~y_rel ~y_abs n)
+               fun ~y_rel ~y_abs -> sn_note ~ctx ~popularity ~y_rel ~y_abs n)
             | `Week n ->
               (Snake.Week,
-               fun ~y_rel ~y_abs -> sn_week ~ctx ~y_rel ~y_abs n)
+               fun ~y_rel ~y_abs -> sn_week ~ctx ~popularity ~y_rel ~y_abs n)
             | `Release (t, rs) ->
               (Snake.Release,
                fun ~y_rel ~y_abs -> sn_release ~y_rel ~y_abs t rs)

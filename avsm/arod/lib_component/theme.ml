@@ -3047,18 +3047,18 @@ let custom_css = {|
   white-space: nowrap;
   transition: color 0.2s;
 }
-/* A tag is its name after a small dot in the colour of the season, rather than
-   a hash. */
+/* A tag is its name after a small dot, rather than a hash. The dot is larger
+   and stronger the more notes carry the tag, and the most popular come first. */
 .sn-tag::before {
   content: "";
   display: inline-block;
-  width: 0.4em;
-  height: 0.4em;
+  width: calc(0.28em + 0.22em * var(--pop, 0.5));
+  height: calc(0.28em + 0.22em * var(--pop, 0.5));
   margin-right: 0.5em;
   border-radius: 50%;
-  vertical-align: 0.08em;
-  background: var(--sn-hl);
-  opacity: 0.55;
+  vertical-align: 0.05em;
+  background: var(--color-accent);
+  opacity: calc(0.2 + 0.8 * var(--pop, 0.5));
   transition: opacity 0.2s;
 }
 .sn-tag:hover { color: var(--sn-hl) !important; }

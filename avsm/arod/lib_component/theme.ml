@@ -3040,7 +3040,8 @@ let custom_css = {|
 }
 .sn-tag-list { display: contents; }
 /* A tag is a small chip: its name, and after a rule the number of notes that
-   carry it, which is stronger the more popular the tag is. */
+   carry it, in the colour of the name and a little stronger the more popular
+   the tag is. */
 .sn-tag {
   display: inline-flex;
   align-items: stretch;
@@ -3058,9 +3059,8 @@ let custom_css = {|
 .sn-tag-n {
   padding: 0.3em 0.75em 0.3em 0.6em;
   border-left: 1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
-  color: var(--color-accent);
   font-variant-numeric: tabular-nums;
-  opacity: calc(0.45 + 0.55 * var(--pop, 0.5));
+  opacity: calc(0.6 + 0.4 * var(--pop, 0.5));
 }
 .sn-tag:hover {
   color: var(--sn-hl) !important;

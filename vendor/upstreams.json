@@ -355,7 +355,7 @@
       "branch": "HEAD",
       "revision": "c743398abee8f822fc0d12f229121e431d60dd5d",
       "base_version": "v1.15.4",
-      "scope": "Upstream SHA C bindings, unchanged. Optional OUnit2 tests excluded from workspace traversal. SHA algorithms exercised by the oi-libs opam differential fixture.",
+      "scope": "Upstream SHA C bindings, unchanged. Optional OUnit2 tests excluded from workspace traversal. SHA algorithms exercised by the d10 opam differential fixture.",
       "verified_on": "2026-10-03"
     },
     {

@@ -2,7 +2,8 @@
 
 ## Implemented foundation
 
-The reviewed oi constituent libraries live in `bleeding/oi-libs`. The
+The reviewed oi constituent libraries are the `bleeding/osrel`, `bleeding/d10`
+and `bleeding/osdist` projects. The
 [`ox` runner](../avsm/ox/README.md) uses opam metadata, an in-process
 opam-0install solver and day10 package layers. The generic solver libraries
 are vendored with provenance and unchanged implementation sources. Ox

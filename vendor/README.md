@@ -190,7 +190,7 @@ Uunf import, the manifest now records 38 vendors.
 
 ## oi library dependencies
 
-The [oi library import](../bleeding/oi-libs/OXMONO.md) adds opam core/format,
+The [oi library import](../docs/oi-library-import.md) adds opam core/format,
 opam-file-format, ocamlgraph, SHA, swhid_core, patch and Dockerfile sources.
 Their individual `OXMONO.md` and `OXMONO.json` files record release checksums,
 compiler adaptations and scoped validation.

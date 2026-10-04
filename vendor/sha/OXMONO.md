@@ -7,7 +7,7 @@ source was compared against the checksum-verified release archive on
 
 ## Scope and adaptations
 
-Upstream SHA C bindings, unchanged. Optional OUnit2 tests excluded from workspace traversal. SHA algorithms exercised by the oi-libs opam differential fixture.
+Upstream SHA C bindings, unchanged. Optional OUnit2 tests excluded from workspace traversal. SHA algorithms exercised by the d10 opam differential fixture.
 
 ## Refresh
 
@@ -16,8 +16,8 @@ Upstream SHA C bindings, unchanged. Optional OUnit2 tests excluded from workspac
 2. Preserve the documented build scope and compiler adaptations. Verify the
    downloaded archive checksum and record its commit in `OXMONO.json` and
    `../upstreams.json`.
-3. Build `@bleeding/oi-libs/all` with `release-check` and run
-   `dune runtest --profile release-check --force bleeding/oi-libs`.
+3. Build `@bleeding/d10/all` and `@bleeding/osdist/all` with `release-check`.
+   Run `dune runtest --profile release-check --force bleeding/d10 bleeding/osdist`.
    Use the `5.2.0+ox` switch. The HTTP regressions need loopback sockets.
 4. Run the explicit vendor test aliases listed in
-   `../../bleeding/oi-libs/OXMONO.md`. Recursive vendor aliases skip tests.
+   `../../docs/oi-library-import.md`. Recursive vendor aliases skip tests.

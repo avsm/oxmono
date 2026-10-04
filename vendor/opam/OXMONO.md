@@ -16,11 +16,11 @@ Core and format libraries and shell build support only. No opam CLI, state, repo
 2. Preserve the documented build scope and compiler adaptations. Verify the
    downloaded archive checksum and record its commit in `OXMONO.json` and
    `../upstreams.json`.
-3. Build `@bleeding/oi-libs/all` with `release-check` and run
-   `dune runtest --profile release-check --force bleeding/oi-libs`.
+3. Build `@bleeding/d10/all` and `@bleeding/osdist/all` with `release-check`.
+   Run `dune runtest --profile release-check --force bleeding/d10 bleeding/osdist`.
    Use the `5.2.0+ox` switch. The HTTP regressions need loopback sockets.
 4. Run the explicit vendor test aliases listed in
-   `../../bleeding/oi-libs/OXMONO.md`. Recursive vendor aliases skip tests.
+   `../../docs/oi-library-import.md`. Recursive vendor aliases skip tests.
 
 ## OxCaml patches
 
@@ -33,7 +33,7 @@ Core and format libraries and shell build support only. No opam CLI, state, repo
 - `src/core/dune`: omit the Windows opam CLI helper install stanza.
 
 The compiler diagnosed each eta expansion. No opam algorithm was changed.
-`bleeding/oi-libs/test/compat/opam_probe.ml` compares canonical effective
+`bleeding/d10/test/compat/opam_probe.ml` compares canonical effective
 opam output, MD5/SHA256/SHA512 hashes and child environment behavior against
 opam-format 2.5.2 built with stock OCaml. `opam.expected` is that baseline.
 The fixture does not prove equivalence of every opam API or Windows behavior.

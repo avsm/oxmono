@@ -12,6 +12,8 @@ depends: [
   "ocaml" {>= "5.2.0"}
   "eio" {>= "1.0"}
   "fmt"
+  "alcotest" {with-test}
+  "eio_main" {with-test}
   "odoc" {with-doc}
 ]
 build: [

@@ -2,7 +2,13 @@
 
 Imported oi 0.14.2 at `ca8c59ff26bd7350e909324dc804982f0e4cee5b` from
 `~/src/git/avsm/oi`. The source checkout was clean and was not modified.
-[oxmono/upstream.json](oxmono/upstream.json) records the import scope.
+Each project records its import scope in `oxmono/upstream.json`:
+
+| Project | Libraries | Upstream scope |
+| --- | --- | --- |
+| [osrel](../bleeding/osrel/README.md) | `osrel` | [manifest](../bleeding/osrel/oxmono/upstream.json) |
+| [d10](../bleeding/d10/README.md) | `d10`, `d10.ir` | [manifest](../bleeding/d10/oxmono/upstream.json) |
+| [osdist](../bleeding/osdist/README.md) | `osdist` | [manifest](../bleeding/osdist/oxmono/upstream.json) |
 
 ## Scope
 
@@ -82,7 +88,7 @@ execution and relocation policy is suitable unchanged for ox.
    builder image. Packaging generation is tested, not an OxCaml deployment path.
 
 The ox runner addresses these cache and prefix constraints as described in
-[docs/ox-plan.md](../../docs/ox-plan.md).
+[ox-plan.md](ox-plan.md).
 
 ## Validation
 
@@ -92,7 +98,17 @@ layer storage/restoration, cached-prefix rebasing and platform separation,
 HTTP behavior/cancellation, child environments and osdist generators.
 An additional differential fixture compares opam parsing, effective metadata,
 MD5/SHA256/SHA512 and child environment behavior with stock OCaml and
-opam-format 2.5.2. Its baseline is `test/compat/opam.expected`.
+opam-format 2.5.2. Its baseline is
+[`bleeding/d10/test/compat/opam.expected`](../bleeding/d10/test/compat/opam.expected).
+
+Build and test the projects in the workspace's OxCaml environment:
+
+```sh
+dune build --profile release-check \
+  @bleeding/osrel/all @bleeding/d10/all @bleeding/osdist/all
+dune runtest --profile release-check --force \
+  bleeding/osrel bleeding/d10 bleeding/osdist
+```
 
 The explicit vendor suites pass for the opam parser (64 cases), patch,
 swhid_core, ocamlgraph, Dockerfile and Dockerfile-opam:

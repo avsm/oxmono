@@ -1,0 +1,21 @@
+(lang dune 3.20)
+(name osdist)
+(version 0.14.2)
+(generate_opam_files true)
+(license ISC)
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(authors "Anil Madhavapeddy" "Mark Elvers" "Ryan Gibb")
+(source (github avsm/oi))
+
+(package
+ (name osdist)
+ (synopsis "Native distro packaging (deb/rpm/static) for OCaml projects")
+ (depends
+  (ocaml (>= 5.2.0))
+  (opam-format (>= 2.2.0))
+  (jsont (>= 0.2))
+  (bytesrw (>= 0.2))
+  (dockerfile (>= 8.3.9))
+  (dockerfile-opam (>= 8.3.9))
+  fmt
+  (alcotest :with-test)))

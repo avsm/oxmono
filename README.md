@@ -106,10 +106,11 @@ Generating API documentation requires an OxCaml-compatible `odoc`.
 [HTTPZ_SYNC.md](HTTPZ_SYNC.md) records the source revision and update procedure
 for the HTTP libraries.
 
-The [oi constituent libraries](bleeding/oi-libs/README.md) provide platform
-detection, binary layers, build recipes and distro packaging. Their import
-review is recorded alongside the sources. The [ox plan](docs/ox-plan.md)
-describes the workspace roadmap.
+The [osrel](bleeding/osrel/README.md), [d10](bleeding/d10/README.md) and
+[osdist](bleeding/osdist/README.md) projects provide platform detection,
+binary layers, build recipes and distro packaging. The
+[oi import review](docs/oi-library-import.md) records their provenance and
+OxCaml adaptations. The [ox plan](docs/ox-plan.md) describes the workspace roadmap.
 
 The [ox runner](avsm/ox/README.md) builds and runs committed monorepo packages from opam
 metadata, with generated snapshot versions and local day10 layers. It builds

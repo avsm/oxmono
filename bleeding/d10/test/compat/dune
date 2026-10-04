@@ -1,7 +1,7 @@
 (test
  (name compat_tests)
  (modules compat_tests)
- (libraries d10.ir osrel alcotest eio_main))
+ (libraries d10.ir alcotest))
 
 (executable
  (name opam_probe)

@@ -16,8 +16,8 @@ Dockerfile and Dockerfile-opam libraries and tests. The CLI and its package decl
 2. Preserve the documented build scope and compiler adaptations. Verify the
    downloaded archive checksum and record its commit in `OXMONO.json` and
    `../upstreams.json`.
-3. Build `@bleeding/oi-libs/all` with `release-check` and run
-   `dune runtest --profile release-check --force bleeding/oi-libs`.
+3. Build `@bleeding/d10/all` and `@bleeding/osdist/all` with `release-check`.
+   Run `dune runtest --profile release-check --force bleeding/d10 bleeding/osdist`.
    Use the `5.2.0+ox` switch. The HTTP regressions need loopback sockets.
 4. Run the explicit vendor test aliases listed in
-   `../../bleeding/oi-libs/OXMONO.md`. Recursive vendor aliases skip tests.
+   `../../docs/oi-library-import.md`. Recursive vendor aliases skip tests.

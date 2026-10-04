@@ -4,12 +4,8 @@
   "version": "0.14.2",
   "imported_on": "2026-10-03",
   "scope": [
-    "lib/osrel",
-    "lib/d10",
-    "lib/d10ir (excluding cmd)",
     "lib/osdist",
-    "test/d10",
-    "test/oi/test_osdist.ml (library tests only)",
-    "LICENSE.md"
+    "LICENSE.md",
+    "test/oi/test_osdist.ml (library tests only)"
   ]
 }

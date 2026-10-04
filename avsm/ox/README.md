@@ -5,6 +5,15 @@ resolves opam metadata in-process, fetches sources, builds the compiler and
 dependency closure, and executes the binary. It does not invoke the opam CLI
 or create switches.
 
+```sh
+ox run --from=https://github.com/avsm/oxmono#minus39 -- yamlcat --help
+```
+
+This clones the `minus39` branch, stamps its committed opam files, builds
+`yamlcat` and its dependencies with OxCaml, then runs `yamlcat --help`.
+Subsequent runs reuse the local cache. Add `--refresh` before `--` to fetch
+branch updates.
+
 ## Requirements
 
 An installed `ox` executable, Git, tar, patch, make, a C/C++ toolchain and
@@ -18,14 +27,16 @@ build environment:
 
 ```sh
 dune build @avsm/ox/all
-dune exec -- ox run --from . yamlcat -- --help
+dune exec -- ox run --from . -- yamlcat --help
 dune exec -- ox run utop -- -version
 ```
 
 `--from` accepts a local checkout or a Git URL. Only committed files are used.
 It supplies package definitions from that snapshot before other repositories.
-Use `--ref COMMIT` to select a revision. Git URL sources are cached, so
-subsequent runs can work offline. `--refresh` fetches cached sources and
+Append `#BRANCH`, `#TAG` or `#COMMIT` to select a revision. Without a revision,
+the default is `HEAD`. An explicit `--ref REV` overrides the fragment.
+Git URL sources are cached, so subsequent runs can work offline.
+`--refresh` fetches cached sources and
 repositories before resolving. It does not update a caller-owned local
 checkout.
 
@@ -43,9 +54,11 @@ is unambiguous. Otherwise a package name is also assumed to be its binary
 name. An unconstrained root from a stamped repository selects its exact
 snapshot version, even when an upstream repository contains a newer release.
 
-Arguments after `--`, the working directory, exit status and signals are
-preserved. Build diagnostics go to stderr. A dry run resolves and lists selected packages without fetching package
-sources or building them. Repository metadata may be cloned.
+Put ox options before `--`, followed by the binary and its arguments.
+`ox run BINARY -- ARG...` also works. The working directory, exit status and
+signals are preserved. Build diagnostics go to stderr. A dry run resolves and
+lists selected packages without fetching package sources or building them.
+Repository metadata may be cloned.
 
 ## Snapshot versions
 

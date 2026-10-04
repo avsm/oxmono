@@ -7,7 +7,7 @@ type config = {
   repositories : string list;
   overlays : string list;
   from : string option;
-  revision : string;
+  revision : string option;
   refresh : bool;
   jobs : int;
   cache_tag : string;
@@ -16,6 +16,18 @@ type config = {
 type prepared = { prefix : string; env : string array; binary : string }
 
 let source_overlay proc config source =
+  let source, fragment =
+    if exists source then (source, None)
+    else
+      match OpamStd.String.cut_at source '#' with
+      | None -> (source, None)
+      | Some (source, "") -> fail "Empty source revision in %s#" source
+      | Some (source, revision) -> (source, Some revision)
+  in
+  let revision =
+    Option.value config.revision
+      ~default:(Option.value fragment ~default:"HEAD")
+  in
   let local = exists source in
   let checkout =
     if local then Unix.realpath source
@@ -27,8 +39,18 @@ let source_overlay proc config source =
       if config.refresh then refresh_checkout proc path;
       path
   in
+  let revision =
+    if local then revision
+    else
+      let remote = "refs/remotes/origin/" ^ revision in
+      let refs =
+        git proc checkout [ "for-each-ref"; "--format=%(refname)"; remote ]
+      in
+      if List.mem remote (lines refs) then remote else revision
+  in
   let commit =
-    git proc checkout [ "rev-parse"; "--verify"; config.revision ^ "^{commit}" ]
+    git proc checkout
+      [ "rev-parse"; "--verify"; "--end-of-options"; revision ^ "^{commit}" ]
   in
   let path =
     config.data / "snapshots" / hash_fields [ source; checkout; commit; "v2" ]

@@ -7,7 +7,7 @@ type config = {
   repositories : string list;
   overlays : string list;
   from : string option;
-  revision : string;
+  revision : string option;
   refresh : bool;
   jobs : int;
   cache_tag : string;

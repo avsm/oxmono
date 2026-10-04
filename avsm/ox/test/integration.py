@@ -105,6 +105,8 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     write(source / "empty/dune-project", '(lang dune 3.21)\n(name placeholder)\n')
     write(source / "empty/placeholder.opam", "")
     original = commit(source)
+    call(["git", "-C", str(source), "branch", "minus39", original])
+    call(["git", "-C", str(source), "tag", "release", original])
     overlay = root / "stamped"
     p = call([OX, "stamp", str(source), "--output", str(overlay)])
     assert "Skipping empty opam placeholder" in p.stderr
@@ -124,7 +126,13 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     changed = root / "changed"
     p = call([OX, "stamp", str(source), "--output", str(changed)])
     assert "1.2.0+ox.2." + next_commit[:12] in p.stdout
-    # Keep the run on the first revision to exercise --ref after cloning.
+    # Exercise the public URL syntax without network access. minus39 is not
+    # the default branch and still points at the first revision.
+    source_url = "https://github.com/avsm/oxmono"
+    git_config = root / "gitconfig"
+    call(["git", "config", "--file", str(git_config),
+          "url.file://" + str(source) + ".insteadOf", source_url])
+    os.environ["GIT_CONFIG_GLOBAL"] = str(git_config)
     write(base / "repo", 'opam-version: "2.0"\n')
     # Supply test compiler artifacts through the ordinary recipe path. No
     # switch metadata or dedicated compiler-import implementation is needed.
@@ -160,12 +168,20 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     # This higher upstream version must not replace the selected fork snapshot.
     write(base / "packages/hello-app/hello-app.99/opam",
           'opam-version: "2.0"\nbuild: [["false"]]\n')
-    args = [OX, "run", "--from", "file://" + str(source), "--ref", original,
+    args = [OX, "run", "--from", source_url, "--ref", original,
             "--repository", str(base), "--cache-dir", str(root / "cache"),
             "--data-dir", str(root / "data")]
-    command = args + ["greet", "--", "hello", "two words", "--literal"]
-    dry = call(args + ["--dry-run", "greet"], cwd=root)
+    branch_args = [OX, "run", "--from=" + source_url + "#minus39"] + args[6:]
+    command = branch_args + ["--", "greet", "hello", "two words", "--literal"]
+    dry = call(branch_args + ["--dry-run", "--", "greet", "--help"], cwd=root)
     assert "hello-app" in dry.stderr
+    assert version in dry.stderr
+    for revision in ["release", original]:
+        p = call([OX, "run", "--from=" + source_url + "#" + revision]
+                 + args[6:] + ["--dry-run", "--", "greet"])
+        assert version in p.stderr
+    p = call(branch_args + ["--ref", next_commit, "--dry-run", "--", "greet"])
+    assert "1.2.0+ox.2." + next_commit[:12] in p.stderr
     assert not (root / "cache/layers").exists()
     assert not (root / "cache/prefixes").exists()
     assert not (root / "cache/runs").exists()
@@ -175,6 +191,9 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     expected = f"cloned dependency|external Git dependency|{root.resolve()}|hello|two words|--literal\n"
     assert all(p.stdout == expected for p in results), [p.stdout for p in results]
     assert sum("Using cached day10 layers" in p.stderr for p in results) == 1
+    p = call(branch_args + ["--", "greet", "--help"], cwd=root)
+    assert p.stdout == f"cloned dependency|external Git dependency|{root.resolve()}|--help\n"
+    assert "Using cached day10 layers" in p.stderr
     receipts = list((root / "cache/requests").glob("*.sexp"))
     assert len(receipts) == 1
     assert not list((root / "cache").rglob(".opam-switch"))
@@ -222,10 +241,10 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     recipe = app / "hello-app.opam"
     recipe.write_text(recipe.read_text().replace('build: [',
                       f'build: [["test" "-f" "{sentinel}"] '))
-    commit(source, "test retry")
-    refreshed = args.copy()
-    refreshed[refreshed.index("--ref") + 1] = "HEAD"
-    refreshed += ["--refresh", "greet"]
+    latest = commit(source, "test retry")
+    call(["git", "-C", str(source), "branch", "-f", "minus39", latest])
+    assert call(command, cwd=root).stdout == expected
+    refreshed = branch_args + ["--refresh", "--", "greet"]
     p = call(refreshed, cwd=root, code=124)
     assert "Building hello-app" in p.stderr
     assert len(list((root / "cache/requests").glob("*.sexp"))) == 1
@@ -238,6 +257,6 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
                for p in (root / "cache/layers").glob("*/*/layer.json")) == 1
     # A damaged receipt is rejected.
     receipts[0].write_text("invalid\n")
-    p = call(command, code=124)
+    p = call(args + ["--", "greet"], code=124)
     assert "Invalid cache receipt" in p.stderr
 print("ox integration: stamps, fork precedence, Git dependencies, concurrent builds, offline native/bytecode, exit status: OK")

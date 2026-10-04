@@ -23,6 +23,7 @@ let cache =
 let stamp repo revision source output data =
   guard @@ fun () ->
   Eio_main.run @@ fun env ->
+  let revision = Option.value revision ~default:"HEAD" in
   let output = Option.value output ~default:(Filename.concat data "overlay") in
   let snapshot =
     Ox_lib.Stamp.export
@@ -36,9 +37,12 @@ let stamp repo revision source output data =
 
 let revision =
   Arg.(
-    value & opt string "HEAD"
+    value
+    & opt (some string) None
     & info [ "ref" ] ~docv:"REV"
-        ~doc:"Committed source revision. Uncommitted files are not included.")
+        ~doc:
+          "Committed source revision. Overrides the --from URL fragment. \
+           Defaults to HEAD. Uncommitted files are not included.")
 
 let stamp_cmd =
   let repo = Arg.(value & pos 0 string "." & info [] ~docv:"REPO") in
@@ -123,10 +127,11 @@ let run_cmd =
     Arg.(
       value
       & opt (some string) None
-      & info [ "from" ] ~docv:"GIT-REPO"
+      & info [ "from" ] ~docv:"GIT-REPO[#REV]"
           ~doc:
-            "Stamp packages from a checkout or clone a Git URL, then resolve \
-             from that snapshot first.")
+            "Stamp packages from a checkout or clone a Git URL, optionally \
+             followed by #BRANCH, #TAG or #COMMIT, then resolve from that \
+             snapshot first.")
   in
   let refresh =
     Arg.(

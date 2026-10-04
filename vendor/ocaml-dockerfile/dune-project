@@ -1,5 +1,6 @@
 (lang dune 3.20)
 (name dockerfile)
+(version 8.3.9)
 
 (generate_opam_files true)
 (maintenance_intent "(latest)")

@@ -8,6 +8,8 @@ source was compared against the checksum-verified release archive on
 ## Scope and adaptations
 
 Dockerfile and Dockerfile-opam libraries and tests. The CLI and its package declaration are omitted from this import.
+The Dune project declares the recorded upstream version for generated opam
+metadata and ox snapshot versioning.
 
 ## Refresh
 

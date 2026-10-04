@@ -2994,6 +2994,23 @@ let custom_css = {|
   background: color-mix(in srgb, var(--sn-c) 10%, var(--color-bg));
 }
 .sn-node-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* A hairline over the picture keeps pale images from dissolving into the page,
+   and takes the season's colour when the entry is pointed at. */
+.sn-node::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-text) 14%, transparent);
+  transition: box-shadow 0.3s;
+}
+.sn-item:hover .sn-node::after {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sn-hl) 60%, transparent);
+}
 .sn-node-img { filter: sepia(0.45) saturate(0.75); transition: filter 0.3s; }
 .sn-text {
   position: absolute;

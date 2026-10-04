@@ -2862,6 +2862,11 @@ let custom_css = {|
   --sn-sp-summer: color-mix(in srgb, #e3b043 75%, var(--color-muted));
   --sn-sp-autumn: color-mix(in srgb, #d27a3a 75%, var(--color-muted));
   --sn-spine: color-mix(in srgb, var(--color-accent) 40%, var(--color-muted));
+  --sn-hl: var(--color-accent);
+  --sn-hl-winter: #5b8fce;
+  --sn-hl-spring: #3f9e5e;
+  --sn-hl-summer: #d99517;
+  --sn-hl-autumn: #c9631d;
   position: relative;
 }
 .snake-spine {
@@ -2881,11 +2886,12 @@ let custom_css = {|
   vector-effect: non-scaling-stroke;
 }
 .sn-month { position: absolute; left: 0; right: 0; }
-/* The exits of a month take its season's colour, as the spine does. */
-.sn-m-winter { --sn-spine: var(--sn-sp-winter); }
-.sn-m-spring { --sn-spine: var(--sn-sp-spring); }
-.sn-m-summer { --sn-spine: var(--sn-sp-summer); }
-.sn-m-autumn { --sn-spine: var(--sn-sp-autumn); }
+/* The exits of a month take its season's colour, as the spine does, and so
+   does whatever lights up when its entries are pointed at. */
+.sn-m-winter { --sn-spine: var(--sn-sp-winter); --sn-hl: var(--sn-hl-winter); }
+.sn-m-spring { --sn-spine: var(--sn-sp-spring); --sn-hl: var(--sn-hl-spring); }
+.sn-m-summer { --sn-spine: var(--sn-sp-summer); --sn-hl: var(--sn-hl-summer); }
+.sn-m-autumn { --sn-spine: var(--sn-sp-autumn); --sn-hl: var(--sn-hl-autumn); }
 /* Small vector motifs for the season of each month, set faintly beside the
    spine. */
 .sn-season {
@@ -2950,9 +2956,9 @@ let custom_css = {|
 .sn-exit-path { stroke-width: 2px; opacity: 0.5; transition: opacity 0.3s, stroke 0.3s; }
 /* On hover the stretch of spine that the exit leaves from takes the accent
    colour, and marks flow along the exit towards its card. */
-.sn-lane { stroke: var(--color-accent); stroke-width: 4px; opacity: 0; transition: opacity 0.3s; }
+.sn-lane { stroke: var(--sn-hl); stroke-width: 4px; opacity: 0; transition: opacity 0.3s; }
 .sn-flow {
-  stroke: var(--color-accent);
+  stroke: var(--sn-hl);
   stroke-width: 1.8px;
   stroke-dasharray: 1 10;
   opacity: 0;
@@ -3024,7 +3030,7 @@ let custom_css = {|
   white-space: nowrap;
   transition: color 0.2s;
 }
-.sn-tag:hover { color: var(--color-accent) !important; }
+.sn-tag:hover { color: var(--sn-hl) !important; }
 .sn-links {
   display: inline-flex;
   align-items: center;
@@ -3039,7 +3045,7 @@ let custom_css = {|
   text-decoration: none !important;
   transition: color 0.2s, opacity 0.2s;
 }
-.sn-links a:hover { color: var(--color-accent) !important; opacity: 1; }
+.sn-links a:hover { color: var(--sn-hl) !important; opacity: 1; }
 .sn-meta {
   display: block;
   font-size: 0.66em;
@@ -3069,9 +3075,9 @@ let custom_css = {|
 }
 .sn-week .sn-title { font-weight: 600; }
 .sn-title:hover {
-  color: var(--color-link) !important;
+  color: var(--sn-hl) !important;
   text-decoration: underline dotted !important;
-  text-decoration-color: var(--color-link-ul) !important;
+  text-decoration-color: var(--sn-hl) !important;
 }
 .sn-synopsis { margin-left: 0.4em; color: var(--color-secondary); }
 .sn-quiet {
@@ -3098,9 +3104,9 @@ let custom_css = {|
 }
 .release-name { flex: none; font-size: 0.8em; font-weight: 560; }
 .release-name:hover {
-  color: var(--color-link) !important;
+  color: var(--sn-hl) !important;
   text-decoration: underline dotted !important;
-  text-decoration-color: var(--color-link-ul) !important;
+  text-decoration-color: var(--sn-hl) !important;
 }
 .release-date, .release-earlier {
   flex: none;
@@ -3123,9 +3129,9 @@ let custom_css = {|
   text-decoration: none !important;
   opacity: 0.85;
 }
-.release-registry:hover { color: var(--color-link) !important; opacity: 1; }
+.release-registry:hover { color: var(--sn-hl) !important; opacity: 1; }
 /* Pointing at an entry lights only its own way off the spine. */
-.sn-item:hover .sn-exit-path { stroke: var(--color-accent); opacity: 0.85; }
+.sn-item:hover .sn-exit-path { stroke: var(--sn-hl); opacity: 0.85; }
 .sn-item:hover .sn-lane { opacity: 0.7; }
 .sn-item:hover .sn-flow { opacity: 0.9; animation: sn-drive 1.4s linear infinite; }
 .sn-item:hover .sn-node-img { filter: none; }

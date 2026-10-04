@@ -192,8 +192,11 @@ let () =
      && rows
         = occurrences html {|class="sn-exit"|}
           + occurrences html {|class="sn-exit sn-exit-fade"|});
-  check "no quiet week is a row with an exit"
-    (contains html "sn-quiet");
+  (* A site with nothing to show must still make a page. *)
+  let empty = render ~notes:[] () in
+  check "a page with no notes and no releases renders an empty timeline"
+    (contains empty {|class="snake notes-journal"|}
+    && not (contains empty "sn-item ") && not (contains empty "sn-month"));
   (* The first exit on the page starts exactly on the spine, which is drawn
      from the same geometry. The first row of the first month is one month
      header down. *)

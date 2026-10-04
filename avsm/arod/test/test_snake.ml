@@ -18,6 +18,11 @@ let near ?(eps = 1e-6) a b = Float.abs (a -. b) < eps
 
 let rec range a b step = if a > b then [] else a :: range (a +. step) b step
 
+let contains s sub =
+  let n = String.length sub in
+  let rec go i = i + n <= String.length s && (String.sub s i n = sub || go (i + 1)) in
+  go 0
+
 let () =
   check "the spine starts at the left of its lane" (near (S.spine_x 0.) S.xl);
   check "the spine reaches the right of its lane after a segment"
@@ -53,6 +58,10 @@ let () =
           check "an exit ends at its node's edge, level with its centre"
             (near e.S.end_x (S.arrive ~plain:(kind = S.Release) kind)
             && near e.S.end_y (S.center kind));
+          check "the stretch of spine is a short path with no negative zero"
+            (String.length e.S.lane < 130
+            && not (String.length e.S.lane = 0)
+            && not (contains e.S.lane "-0.00"));
           check "an exit comes with the stretch of spine it merges from"
             (String.length e.S.lane > 0 && e.S.lane.[0] = 'M'
             && String.contains e.S.lane 'L');

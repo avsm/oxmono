@@ -123,13 +123,15 @@ type exit_ = {
    exact enough for a stroke as thin as the spine. *)
 let lane_path ~y_abs ~start_y =
   let b = Buffer.create 128 in
-  let step = 0.2 in
+  let step = 0.4 in
   let n = int_of_float (3.2 /. step) in
+  (* A value that rounds to zero is written as zero, not as negative zero. *)
+  let num x = if Float.abs x < 0.005 then 0. else x in
   for i = 0 to n do
     let y = start_y -. 2.0 +. (float_of_int i *. step) in
     Buffer.add_string b
-      (Printf.sprintf "%s %.3f %.3f" (if i = 0 then "M" else " L")
-         (spine_x (y_abs +. y)) y)
+      (Printf.sprintf "%s%.2f %.2f" (if i = 0 then "M" else "L")
+         (num (spine_x (y_abs +. y))) (num y))
   done;
   Buffer.contents b
 

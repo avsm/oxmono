@@ -42,8 +42,8 @@ let center = function
   | Release -> 1.15
   | Quiet -> 0.95
 
-(** The size of the node of a row: the thumbnail of a card, or the dot of a
-    release. *)
+(** The size of the node of a row, which is the thumbnail of a note or weeknote.
+    A release has none. *)
 let node_width = function Note | Week -> thumb_w | Release | Quiet -> 0.
 
 let node_height = function

@@ -144,6 +144,21 @@ let () =
     && contains tags_html {|title="1 note"|});
   check "a tag is a chip with no hash"
     (contains tags_html {|>ocaml</a>|} && not (contains tags_html "#ocaml"));
+  (* A title that already ends in punctuation, even a multibyte one, is not
+     given a full stop before its synopsis. *)
+  let stops =
+    render
+      ~notes:
+        [ { (note "e1" "Trailing off\xE2\x80\xA6" (2026, 8, 3)) with
+            Bushel.Note.synopsis = Some "Then more." };
+          { (note "e2" "Plain title" (2026, 8, 2)) with
+            Bushel.Note.synopsis = Some "Then more." } ]
+      ()
+  in
+  check "a title ending in an ellipsis gets no full stop"
+    (contains stops "Trailing off\xE2\x80\xA6<" && not (contains stops "\xE2\x80\xA6."));
+  check "a plain title gets a full stop before its synopsis"
+    (contains stops "Plain title.<");
   check "a note's heading says how many words it has"
     (before html ">10 Aug<" " word" && before html " word" "An August note");
   check "a note's date is a caption above its title"

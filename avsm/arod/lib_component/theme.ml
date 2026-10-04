@@ -2844,10 +2844,12 @@ let custom_css = {|
   border-radius: 4px;
 }
 /* The notes view is one flowing timeline. A single spine snakes down the page
-   in smooth swings, and every entry has an exit curve from it to its node. The
-   rows have fixed heights, so the spine is drawn from the page's own layout
-   (see Snake) and needs no script. Notes are large round photographs, weeknotes
-   rounded squares on a tinted band, and releases small dotted branches.
+   in smooth swings, and every entry has an exit curve from it to its thumbnail,
+   or, for a release, to its text. The rows have fixed heights, so the spine is
+   drawn from the page's own layout (see Snake) and needs no script. Notes and
+   weeknotes share one shape, a rounded thumbnail beside a title and synopsis,
+   and a release is a single line. The spine and exits take the colour of the
+   season, and each month has small seasonal motifs beside the spine.
 
    Lengths are in em, so that the whole timeline scales with its font size. It
    is unlayered, because the Tailwind border and img resets would win over
@@ -3021,8 +3023,8 @@ let custom_css = {|
 /* The reading column is kept to a comfortable measure, and the tags take the
    space beyond it. */
 .sn-body { flex: 0 1 42em; min-width: 0; }
-/* The tags of an entry take a column of their own at its end, in plain muted
-   type. The icons of an entry sit on its heading line. */
+/* The tags of an entry take a column of their own at its end. The icons of an
+   entry sit on its heading line. */
 .sn-tags {
   flex: 0 0 12em;
   margin-left: auto;

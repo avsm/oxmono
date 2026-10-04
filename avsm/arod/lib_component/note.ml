@@ -240,14 +240,16 @@ let sn_node ~url ~kind ~label src =
 let thumbnail ~ctx n =
   Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) (`Note n)
 
-let text_style kind =
-  Printf.sprintf "left:%.3fem" Snake.text_left
+let text_style = Printf.sprintf "left:%.3fem" Snake.text_left
 
 (** [title_stop title] is the full stop that ends [title] before the synopsis
-    runs on after it, or nothing when [title] already ends in punctuation. *)
+    runs on after it, or nothing when [title] already ends in punctuation. A
+    title that ends in a multibyte character is left alone, since it is usually
+    punctuation such as an ellipsis or a closing quote. *)
 let title_stop title =
   match title.[String.length title - 1] with
   | '.' | '!' | '?' | ':' -> ""
+  | c when Char.code c >= 0x80 -> ""
   | _ -> "."
   | exception Invalid_argument _ -> ""
 
@@ -347,25 +349,26 @@ let sn_note ~ctx ~popularity ~y_rel ~y_abs n =
     (match image with
      | Some src -> sn_node ~url ~kind:Snake.Note ~label:"note" src
      | None -> El.void);
-    El.div ~at:[At.class' "sn-text"; At.v "style" (text_style Snake.Note)] [
+    El.div ~at:[At.class' "sn-text"; At.v "style" text_style] [
       El.div ~at:[At.class' "sn-body"] [
         El.div ~at:[At.class' "sn-meta"]
           ([El.time ~at:[At.class' "dt-published";
-                         At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+                         At.v "datetime"
+                           (Printf.sprintf "%04d-%02d-%02d" y m d)]
               [El.txt (short_date (y, m, d))]]
            @ sn_words n @ sn_links n);
         El.p ~at:[At.class' "sn-line"] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
-            [El.txt (if synopsis = "" then title else title ^ title_stop title)];
+            [El.txt
+               (if synopsis = "" then title else title ^ title_stop title)];
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
            else El.void)]];
       sn_tags ~popularity n]]
 
-(** [sn_week ~ctx ~popularity ~y_rel ~y_abs n] is weeknote [n] as a row. Its node is a
-    rounded square and its row is tinted, so that it is not mistaken for a
-    note. *)
+(** [sn_week ~ctx ~popularity ~y_rel ~y_abs n] is weeknote [n] as a row. It has
+    the shape of a note and is told apart by its "Week N" heading. *)
 let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
   let (y, m, d) = Note.date n in
   let (_, wk) = Note.week_number n in
@@ -386,7 +389,7 @@ let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
     (match image with
      | Some src -> sn_node ~url ~kind:Snake.Week ~label:"week" src
      | None -> El.void);
-    El.div ~at:[At.class' "sn-text"; At.v "style" (text_style Snake.Week)] [
+    El.div ~at:[At.class' "sn-text"; At.v "style" text_style] [
       El.div ~at:[At.class' "sn-body"] [
         El.div ~at:[At.class' "sn-meta"] ([
           El.txt (Printf.sprintf "Week %d" wk);
@@ -397,7 +400,8 @@ let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
           ] @ sn_words n @ sn_links n);
         El.p ~at:[At.class' "sn-line"] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
-            [El.txt (if synopsis = "" then title else title ^ title_stop title)];
+            [El.txt
+               (if synopsis = "" then title else title ^ title_stop title)];
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
@@ -406,11 +410,10 @@ let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
 
 (** [sn_release ~y_rel ~y_abs t rs] is the row for the releases [rs] of
     repository [t], newest first, made in one month. It is the smallest row: a
-    rocket on a small node, the name and version, the date, and one line of
-    summary. A month's releases of one repository are one row, the newest named
-    and the rest counted. Each registry that carries the newest is an icon
-    linking to its ecosyste.ms metadata. A release is a [note-item] with no
-    tags, so a tag filter hides it. *)
+    rail from the spine that fades out, the name and version, the date, and one
+    line of summary. A month's releases of one repository are one row, the
+    newest named and the rest counted. Each registry that carries the newest is
+    an icon linking to its ecosyste.ms metadata. *)
 let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
     (rs : Bushel.Release.release list) =
   let r = List.hd rs in
@@ -436,7 +439,7 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
                 (pos_style ~top:y_rel ~height:(Snake.height Snake.Release))] [
     El.unsafe_raw (exit_svg ~plain:true Snake.Release ~y_abs);
     El.div ~at:[At.class' "sn-text release-line";
-                At.v "style" (text_style Snake.Release)] [
+                At.v "style" text_style] [
       El.span ~at:[At.class' "sn-sr"] [El.txt "Code release: "];
       El.a ~at:[At.href r.url;
                 At.class' "release-name !text-text !no-underline"]
@@ -457,14 +460,15 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
       (match r.registries with
        | [] -> El.void
        | regs ->
-         El.span ~at:[At.class' "release-registries"] (List.map registry regs))]]
+         El.span ~at:[At.class' "release-registries"]
+           (List.map registry regs))]]
 
 (** [sn_quiet ~y_rel n] is the row that says [n] weeks had nothing in them. *)
 let sn_quiet ~y_rel n =
   El.div ~at:[At.class' "sn-quiet";
               At.v "style"
                 (pos_style ~top:y_rel ~height:(Snake.height Snake.Quiet)
-                 ^ ";" ^ text_style Snake.Release)]
+                 ^ ";" ^ text_style)]
     [El.span ~at:[At.class' "sn-quiet-text"]
        [El.txt (if n = 1 then "1 quiet week"
                 else Printf.sprintf "%d quiet weeks" n)]]
@@ -489,7 +493,8 @@ let sn_season ~year ~month ~y0 ~height =
 let sn_month_pill label =
   El.h2 ~at:[At.class' "sn-pill";
              At.v "style"
-               (Printf.sprintf "top:%.3fem" ((Snake.month_height /. 2.) -. 0.9))]
+               (Printf.sprintf "top:%.3fem"
+                  ((Snake.month_height /. 2.) -. 0.9))]
     [El.span [El.txt label]]
 
 (** [group_releases rs] is the [(repository, releases)] of [rs], one per

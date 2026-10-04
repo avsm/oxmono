@@ -171,5 +171,80 @@ let () =
     (before md "[New Talk]" "New talk text."
     && contains md "Tags: one, two");
   check "a talk gives the references of its card"
-    (contains md "[Big Project](https://example.com/projects/big) (project)");
+    (contains md "[Big Project](https://example.com/projects/big) (project)")
+
+(* {1 Notes} *)
+
+let note ?(weeknote = false) ?(featured = false) ?(tags = []) ?(doi = None)
+    ?(synopsis = None) ~slug ~title ~date () : Bushel.Note.t =
+  { Bushel.Note.title; date; slug; body = "One two three."; tags;
+    draft = false; updated = None; sidebar = None; index_page = false;
+    perma = false; weeknote; featured; doi; synopsis; titleimage = None;
+    via = None; slug_ent = None; source = None; url = None; author = None;
+    category = None; standardsite = None; social = None; source_file = None }
+
+let notes =
+  [ note ~slug:"old" ~title:"An Old Note" ~date:(2026, 6, 1) ();
+    note ~weeknote:true ~slug:"w28" ~title:".plan-2026w28: Week 28"
+      ~date:(2026, 7, 8) ();
+    note ~weeknote:true ~slug:"w30" ~title:".plan-2026w30: Week 30"
+      ~date:(2026, 7, 22) ~synopsis:(Some "A busy week.") ();
+    note ~slug:"late" ~title:"A Late Note" ~date:(2026, 8, 10)
+      ~tags:[ "rare"; "common" ] ~synopsis:(Some "Late synopsis.") ();
+    note ~slug:"other" ~title:"Another Note" ~date:(2026, 5, 20)
+      ~tags:[ "common" ] ();
+    note ~featured:true ~slug:"feat" ~title:"A Featured Note"
+      ~date:(2026, 5, 2) ~doi:(Some "10.1/feat") () ]
+
+let release ~version ~date ?(registries = []) summary =
+  { Bushel.Release.version; tag = None; date; summary;
+    url = "https://forge.example/mdx/" ^ version; registries }
+
+let opam =
+  { Bushel.Release.name = "opam.ocaml.org"; package = "mdx";
+    url = "https://opam.ocaml.org/packages/mdx/mdx.2.6.0/" }
+
+let releases =
+  [ { Bushel.Release.repo = "owner/mdx"; forge = Bushel.Release.Github;
+      project = None;
+      releases =
+        [ release ~version:"2.6.0" ~date:(2026, 7, 22) ~registries:[ opam ]
+            "Executable code blocks";
+          release ~version:"2.5.0" ~date:(2026, 7, 2) "Earlier release" ] } ]
+
+let () =
+  let md =
+    Arod_component.Markdown_export.notes_list_md
+      ~ctx:(ctx_of ~notes ~releases ())
+  in
+  check "months run newest first, as the timeline does"
+    (before md "## August 2026" "## July 2026"
+    && before md "## July 2026" "## June 2026"
+    && before md "## June 2026" "## May 2026");
+  check "notes and weeknotes are in one list, newest first"
+    (before md "[A Late Note]" "[Week 30]"
+    && before md "[Week 30]" "[Week 28]"
+    && before md "[Week 28]" "[An Old Note]");
+  check "a weeknote loses its prefix and says which week it is"
+    (not (contains md ".plan-") && contains md "(Week 30, "
+    && contains md "A busy week.");
+  check "on one day a note comes before a release"
+    (before md "[Week 30]" "[mdx 2.6.0]");
+  check "a release gives its date, its summary and its registries"
+    (contains md "(2026-07-22, code release)"
+    && contains md "Executable code blocks"
+    && contains md
+         "[opam.ocaml.org](https://packages.ecosyste.ms/registries/opam.ocaml.org/packages/mdx/versions/2.6.0)");
+  check "a release's other versions in the month are said to be earlier"
+    (contains md "1 earlier: 2.5.0");
+  check "the weeks with nothing in them are marked, as the timeline marks them"
+    (before md "[Week 30]" "- *1 quiet week*"
+    && before md "- *1 quiet week*" "[Week 28]");
+  check "tags come most popular first"
+    (before md "Tags: common, rare" "Late synopsis." |> not
+    && contains md "Tags: common, rare");
+  check "the featured notes follow the timeline"
+    (before md "[An Old Note]" "## Featured"
+    && before md "## Featured" "Canonical:"
+    && contains md "[DOI](https://doi.org/10.1/feat)");
   Printf.printf "test_markdown_pages: %d checks passed\n" !checks

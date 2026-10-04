@@ -425,20 +425,26 @@ let contact_inline ~ctx contact =
     El.span ~at:[At.class' "sidebar-meta-val text-dim"] [name_el];
     El.span ~at:[At.class' "contact-inline-socials"] (social_icons)]
 
+(** [social_sites social] is the discussions of [social], each as its label, the
+    brand icon that draws it and its address, in the order the icons are shown. *)
+let social_sites (soc : Bushel.Types.social) =
+  let site label brand urls = List.map (fun url -> (label, brand, url)) urls in
+  site "Bluesky" I.bluesky_brand soc.bluesky
+  @ site "Hacker News" I.ycombinator_brand soc.hn
+  @ site "Instagram" I.instagram_brand soc.instagram
+  @ site "LinkedIn" I.linkedin_brand soc.linkedin
+  @ site "Lobsters" I.lobsters_brand soc.lobsters
+  @ site "Mastodon" I.mastodon_brand soc.mastodon
+  @ site "X" I.x_brand soc.twitter
+
 (** [social_icon_links ~size social] is the linked icon list for [social]. *)
 let social_icon_links ~size (soc : Bushel.Types.social) =
-  let icon_link ~icon ~label urls = List.map (fun url ->
-    El.a ~at:[At.href url; At.class' "no-underline social-icon text-text opacity-70 hover:opacity-100 u-syndication";
-             At.v "title" label; At.v "rel" "noopener"]
-      [El.unsafe_raw icon]
-  ) urls in
-  icon_link ~label:"Bluesky" ~icon:(I.brand ~size I.bluesky_brand) soc.bluesky
-  @ icon_link ~label:"Hacker News" ~icon:(I.brand ~size I.ycombinator_brand) soc.hn
-  @ icon_link ~label:"Instagram" ~icon:(I.brand ~size I.instagram_brand) soc.instagram
-  @ icon_link ~label:"LinkedIn" ~icon:(I.brand ~size I.linkedin_brand) soc.linkedin
-  @ icon_link ~label:"Lobsters" ~icon:(I.brand ~size I.lobsters_brand) soc.lobsters
-  @ icon_link ~label:"Mastodon" ~icon:(I.brand ~size I.mastodon_brand) soc.mastodon
-  @ icon_link ~label:"X" ~icon:(I.brand ~size I.x_brand) soc.twitter
+  List.map (fun (label, brand, url) ->
+    El.a ~at:[At.href url;
+              At.class' "no-underline social-icon text-text opacity-70 hover:opacity-100 u-syndication";
+              At.v "title" label; At.v "rel" "noopener"]
+      [El.unsafe_raw (I.brand ~size brand)])
+    (social_sites soc)
 
 let social_icons_el (social : Bushel.Types.social option) =
   match social with

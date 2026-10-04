@@ -13,6 +13,7 @@ module Paper_component = Paper
 module Project_component = Project
 module Idea_component = Idea
 module Video_component = Video
+module Note_component = Note
 module Entry = Bushel.Entry
 module Paper = Bushel.Paper
 module Contact = Sortal_schema.Contact
@@ -299,24 +300,109 @@ let papers_list_md ~ctx =
   ) by_year in
   header ^ String.concat "\n\n" sections ^ "\n" ^ footer
 
+(* [notes_list_md ~ctx] mirrors the HTML timeline. It reads the same months and
+   rows, so a month holds its notes, weeknotes and code releases newest first
+   and the weeks with nothing in them, and the featured notes of the sidebar
+   follow. *)
 let notes_list_md ~ctx =
-  let notes = Arod.Ctx.notes ctx in
-  let weeknotes, journal = List.partition Bushel.Note.weeknote notes in
-  let header, footer = list_header ~ctx ~title:"Notes" ~description:"Notes and blog posts." ~path:"/notes" in
-  let bullet_of note =
-    let bullet = entry_bullet ~ctx (`Note note) in
-    match Bushel.Note.synopsis note with
-    | Some syn when syn <> "" -> bullet ^ "\n  " ^ syn
-    | _ -> bullet
+  let months = Note_component.timeline ~ctx in
+  let popularity = Note_component.tag_popularity ctx in
+  let header, footer =
+    list_header ~ctx ~title:"Notes" ~description:"Notes and blog posts."
+      ~path:"/notes"
   in
-  let items = List.map bullet_of journal in
-  let weeknote_section = match weeknotes with
+  let words n =
+    match Bushel.Note.words n with
+    | 0 -> ""
+    | w ->
+      Printf.sprintf ", %s word%s" (Note_component.format_number w)
+        (if w = 1 then "" else "s")
+  in
+  let synopsis n =
+    match Bushel.Note.synopsis n with
+    | Some text when text <> "" -> "\n  " ^ text
+    | _ -> ""
+  in
+  let tags n =
+    match Note_component.ranked_tags ~popularity n with
     | [] -> ""
-    | _ ->
-      "\n\n## Weeknotes\n\n"
-      ^ String.concat "\n" (List.map bullet_of weeknotes)
+    | tags -> "\n  Tags: " ^ String.concat ", " (List.map fst tags)
   in
-  header ^ String.concat "\n" items ^ weeknote_section ^ "\n" ^ footer
+  let links n =
+    match Note_component.heading_links n with
+    | [] -> ""
+    | links ->
+      "\n  Links: "
+      ^ String.concat ", "
+          (List.map (fun (label, url) -> Printf.sprintf "[%s](%s)" label url)
+             links)
+  in
+  let row = function
+    | Note_component.Journal n ->
+      Printf.sprintf "%s (%s%s)%s%s%s"
+        (entry_bullet_link ~ctx (`Note n))
+        (date_str (Entry.date (`Note n))) (words n) (synopsis n) (tags n)
+        (links n)
+    | Note_component.Weeknote n ->
+      let ((y, _, _) as date) = Entry.date (`Note n) in
+      let _, week = Bushel.Note.week_number n in
+      Printf.sprintf "- [%s](%s) (Week %d, %s %d%s)%s%s%s"
+        (Note_component.strip_weeknote_prefix (Entry.title (`Note n)))
+        (entry_url ~ctx (`Note n)) week (Note_component.week_range date) y
+        (words n) (synopsis n) (tags n) (links n)
+    | Note_component.Releases (t, rs) ->
+      let r = List.hd rs in
+      let earlier = List.tl rs in
+      let registries =
+        match r.Bushel.Release.registries with
+        | [] -> ""
+        | regs ->
+          "\n  Registries: "
+          ^ String.concat ", "
+              (List.map (fun reg ->
+                 Printf.sprintf "[%s](%s)" reg.Bushel.Release.name
+                   (Bushel.Release.metadata_url reg r)) regs)
+      in
+      Printf.sprintf "- [%s %s](%s) (%s, code release)\n  %s%s%s"
+        (Note_component.release_name t) r.Bushel.Release.version
+        r.Bushel.Release.url (date_str r.Bushel.Release.date)
+        r.Bushel.Release.summary
+        (match earlier with
+         | [] -> ""
+         | _ ->
+           Printf.sprintf "\n  %d earlier: %s" (List.length earlier)
+             (String.concat ", "
+                (List.rev_map (fun (e : Bushel.Release.release) -> e.version)
+                   earlier)))
+        registries
+    | Note_component.Quiet n ->
+      Printf.sprintf "- *%s*"
+        (if n = 1 then "1 quiet week" else Printf.sprintf "%d quiet weeks" n)
+  in
+  let sections =
+    List.map (fun (year, month, rows) ->
+      Printf.sprintf "## %s %d\n\n%s" (Common.month_name_full month) year
+        (String.concat "\n" (List.map row rows))) months
+  in
+  let featured =
+    let journal =
+      List.filter (fun n -> not (Bushel.Note.weeknote n)) (Arod.Ctx.notes ctx)
+    in
+    match Note_component.featured_notes journal with
+    | [] -> ""
+    | notes ->
+      "\n\n## Featured\n\n"
+      ^ String.concat "\n"
+          (List.map (fun n ->
+             let doi =
+               match Bushel.Note.doi n with
+               | Some d -> Printf.sprintf ", [DOI](https://doi.org/%s)" d
+               | None -> ""
+             in
+             Printf.sprintf "%s (%s%s)" (entry_bullet_link ~ctx (`Note n))
+               (date_str (Entry.date (`Note n))) doi) notes)
+  in
+  header ^ String.concat "\n\n" sections ^ featured ^ "\n" ^ footer
 
 (* [join_and items] is [items] as the HTML sentences give them: "a", "a and b",
    "a, b and c". *)

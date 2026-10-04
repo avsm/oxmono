@@ -305,20 +305,45 @@ let tag_popularity ctx =
       | _ -> ()) (Bushel.Entry.tags_of_ent (`Note n))) (Arod.Ctx.notes ctx);
   fun tag -> Option.value (Hashtbl.find_opt counts tag) ~default:0
 
+(** [ranked_tags ~popularity n] is the plain and set tags of [n], each with how
+    many notes carry it, the most popular first and then alphabetically. *)
+let ranked_tags ~popularity n =
+  List.filter_map (function
+    | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
+    | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
+  |> List.map (fun t -> (t, popularity t))
+  |> List.stable_sort (fun (a, ca) (b, cb) ->
+       let c = compare cb ca in if c <> 0 then c else String.compare a b)
+
+(** [heading_links n] is the DOI, the StandardSite page and the discussions of
+    [n] as label and address, in the order that the icons of its heading show
+    them. *)
+let heading_links n =
+  (match Note.doi n with
+   | Some d -> [ ("DOI", "https://doi.org/" ^ d) ]
+   | None -> [])
+  @ (match Note.standardsite n with
+     | Some uri -> [ ("StandardSite", "https://pdsls.dev/" ^ uri) ]
+     | None -> [])
+  @ (match Note.social n with
+     | Some soc ->
+       List.map (fun (label, _, url) -> (label, url)) (Sidebar.social_sites soc)
+     | None -> [])
+
+(** [featured_notes journal_notes] is the notes that the featured rail shows.
+    They are the ones marked as featured or, if none is, up to five permanent
+    ones. *)
+let featured_notes journal_notes =
+  match List.filter Note.featured journal_notes with
+  | [] -> List.filter Note.perma journal_notes |> Common.take 5
+  | marked -> marked
+
 (** [sn_tags ?limit ~popularity n] is the column at the right of the row of
     [n]. It holds its plain and set tags, the most popular first and at most
     [limit] (default three), each a chip that links to a search for the tag.
     A chip's tooltip says how many notes carry the tag. *)
 let sn_tags ?(limit = 3) ~popularity n =
-  let tags =
-    List.filter_map (function
-      | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
-      | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
-    |> List.map (fun t -> (t, popularity t))
-    |> List.stable_sort (fun (a, ca) (b, cb) ->
-         let c = compare cb ca in if c <> 0 then c else String.compare a b)
-    |> List.filteri (fun i _ -> i < limit)
-  in
+  let tags = List.filteri (fun i _ -> i < limit) (ranked_tags ~popularity n) in
   El.div ~at:[At.class' "sn-tags"]
     (List.map (fun (t, count) ->
        El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
@@ -408,6 +433,12 @@ let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
            else El.void)]];
       sn_tags ~popularity n]]
 
+(** [release_name t] is the name of the repository of [t] without its owner. *)
+let release_name (t : Bushel.Release.t) =
+  match String.rindex_opt t.repo '/' with
+  | Some i -> String.sub t.repo (i + 1) (String.length t.repo - i - 1)
+  | None -> t.repo
+
 (** [sn_release ~y_rel ~y_abs t rs] is the row for the releases [rs] of
     repository [t], newest first, made in one month. It is the smallest row: a
     rail from the spine that fades out, the name and version, the date, and one
@@ -419,11 +450,7 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
   let r = List.hd rs in
   let earlier = List.tl rs in
   let (y, m, d) = r.date in
-  let name =
-    match String.rindex_opt t.repo '/' with
-    | Some i -> String.sub t.repo (i + 1) (String.length t.repo - i - 1)
-    | None -> t.repo
-  in
+  let name = release_name t in
   let registry reg =
     let label = reg.Bushel.Release.name ^ " on ecosyste.ms" in
     El.a ~at:[At.href (Bushel.Release.metadata_url reg r);
@@ -521,15 +548,26 @@ let by_week items =
     | _ -> (key, [item]) :: acc) [] items
   |> List.rev_map (fun (k, run) -> (k, List.rev run))
 
-(** [notes_list ~ctx] is the journal article and its sidebar. *)
-let notes_list ~ctx =
+(** A row of the notes timeline. A release row is the releases of one
+    repository in one month. *)
+type row =
+  | Journal of Note.t
+  | Weeknote of Note.t
+  | Releases of Bushel.Release.t * Bushel.Release.release list
+  | Quiet of int
+
+(** [timeline ~ctx] is the months of the notes timeline, newest first, each as
+    its year, its month and its rows. Notes, weeknotes and releases run
+    together, newest first, and on one day a note comes before a release. A row
+    that says how many weeks had nothing in them follows the last week with
+    something. The page and its markdown both read the timeline, so they have
+    one order. *)
+let timeline ~ctx =
   let all_notes =
     Arod.Ctx.notes ctx
     |> List.sort (fun a b -> Bushel.Entry.compare (`Note a) (`Note b))
     |> List.rev
   in
-  let weeknotes, journal_notes = List.partition Note.weeknote all_notes in
-  let popularity = tag_popularity ctx in
   let by_month = Hashtbl.create 32 in
   List.iter (fun n ->
     let (y, m, _d) = Bushel.Entry.date (`Note n) in
@@ -574,55 +612,66 @@ let notes_list ~ctx =
       let c = compare y2 y1 in if c <> 0 then c else compare m2 m1)
       (keys by_month @ keys releases_by_month)
   in
-  (* Months run down the page, each a block of rows. [y] is how far down the
-     timeline the next block begins. *)
-  let y = ref 0. in
-  let marks = ref [] in
-  let month_sections = List.map (fun (yr, mo) ->
+  List.map (fun (yr, mo) ->
     let notes =
       List.rev (try Hashtbl.find by_month (yr, mo) with Not_found -> []) in
     let releases =
       try Hashtbl.find releases_by_month (yr, mo) with Not_found -> [] in
-    let section_id = Printf.sprintf "month-%04d-%02d" yr mo in
-    let month_id = Printf.sprintf "%04d-%02d" yr mo in
-    (* Notes, weeknotes and releases run together, newest first. On one day a
-       note comes before a release. *)
     let items =
       List.map (fun n ->
         (Bushel.Entry.date (`Note n),
-         if Note.weeknote n then `Week n else `Note n)) notes
+         if Note.weeknote n then Weeknote n else Journal n)) notes
       @ List.map (fun (t, rs) ->
-          ((List.hd rs).Bushel.Release.date, `Release (t, rs)))
+          ((List.hd rs).Bushel.Release.date, Releases (t, rs)))
           (group_releases releases)
       |> List.stable_sort (fun (d1, _) (d2, _) -> compare d2 d1)
     in
+    let rows =
+      List.concat_map (fun (key, group) ->
+        let rows = List.map snd group in
+        match Hashtbl.find_opt quiet_after key with
+        | Some q when q > 0 -> rows @ [Quiet q]
+        | _ -> rows) (by_week items)
+    in
+    (yr, mo, rows)) months
+
+(** [notes_list ~ctx] is the journal article and its sidebar. *)
+let notes_list ~ctx =
+  let all_notes =
+    Arod.Ctx.notes ctx
+    |> List.sort (fun a b -> Bushel.Entry.compare (`Note a) (`Note b))
+    |> List.rev
+  in
+  let weeknotes, journal_notes = List.partition Note.weeknote all_notes in
+  let popularity = tag_popularity ctx in
+  (* Months run down the page, each a block of rows. [y] is how far down the
+     timeline the next block begins. *)
+  let y = ref 0. in
+  let marks = ref [] in
+  let month_sections = List.map (fun (yr, mo, rows) ->
+    let section_id = Printf.sprintf "month-%04d-%02d" yr mo in
+    let month_id = Printf.sprintf "%04d-%02d" yr mo in
     let month_top = !y in
     let cursor = ref Snake.month_height in
     let rows =
-      List.concat_map (fun (key, group) ->
-        let rows = List.map (fun (_, item) ->
-          let kind, build =
-            match item with
-            | `Note n ->
-              (Snake.Note,
-               fun ~y_rel ~y_abs -> sn_note ~ctx ~popularity ~y_rel ~y_abs n)
-            | `Week n ->
-              (Snake.Week,
-               fun ~y_rel ~y_abs -> sn_week ~ctx ~popularity ~y_rel ~y_abs n)
-            | `Release (t, rs) ->
-              (Snake.Release,
-               fun ~y_rel ~y_abs -> sn_release ~y_rel ~y_abs t rs)
-          in
-          let y_rel = !cursor in
-          cursor := !cursor +. Snake.height kind;
-          build ~y_rel ~y_abs:(month_top +. y_rel)) group
+      List.map (fun row ->
+        let kind, build =
+          match row with
+          | Journal n ->
+            (Snake.Note,
+             fun ~y_rel ~y_abs -> sn_note ~ctx ~popularity ~y_rel ~y_abs n)
+          | Weeknote n ->
+            (Snake.Week,
+             fun ~y_rel ~y_abs -> sn_week ~ctx ~popularity ~y_rel ~y_abs n)
+          | Releases (t, rs) ->
+            (Snake.Release,
+             fun ~y_rel ~y_abs -> sn_release ~y_rel ~y_abs t rs)
+          | Quiet q ->
+            (Snake.Quiet, fun ~y_rel ~y_abs:_ -> sn_quiet ~y_rel q)
         in
-        match Hashtbl.find_opt quiet_after key with
-        | Some q when q > 0 ->
-          let y_rel = !cursor in
-          cursor := !cursor +. Snake.height Snake.Quiet;
-          rows @ [sn_quiet ~y_rel q]
-        | _ -> rows) (by_week items)
+        let y_rel = !cursor in
+        cursor := !cursor +. Snake.height kind;
+        build ~y_rel ~y_abs:(month_top +. y_rel)) rows
     in
     let month_h = !cursor +. Snake.month_gap in
     y := month_top +. month_h;
@@ -635,7 +684,7 @@ let notes_list ~ctx =
       (sn_season ~year:yr ~month:mo ~y0:month_top ~height:month_h
        :: sn_month_pill (Printf.sprintf "%s %d" (Common.month_name_full mo) yr)
        :: rows)
-  ) months in
+  ) (timeline ~ctx) in
   let total = !y in
   let spine =
     let d = Snake.spine_path ~height:total in
@@ -659,11 +708,7 @@ let notes_list ~ctx =
         (spine :: month_sections)]
   in
   let featured_rail =
-    let featured =
-      match List.filter Note.featured journal_notes with
-      | [] -> List.filter Note.perma journal_notes |> Common.take 5
-      | marked -> marked
-    in
+    let featured = featured_notes journal_notes in
     match featured with
     | [] -> El.void
     | _ ->

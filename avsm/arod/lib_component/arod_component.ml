@@ -14,6 +14,7 @@ module Entry = Entry
 module Sidebar = Sidebar
 module Paper = Paper
 module Note = Note
+module Snake = Snake
 module Video = Video
 module Idea = Idea
 module Project = Project

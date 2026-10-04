@@ -992,11 +992,12 @@ let tag_cloud_filter_js = {|
 
   function applyFilter() {
     var items = document.querySelectorAll('.note-item');
+    var snake = document.querySelector('.snake');
+    if (snake) snake.classList.toggle('is-filtered', activeTags.size > 0);
     if (activeTags.size === 0) {
       items.forEach(function(item) { item.style.display = ''; });
       document.querySelectorAll('[data-month-id]').forEach(function(s) { s.style.display = ''; });
       document.querySelectorAll('[data-year-id]').forEach(function(s) { s.style.display = ''; });
-      document.querySelectorAll('.tl-wk, .tl-quiet').forEach(function(s) { s.style.display = ''; });
       return;
     }
     items.forEach(function(item) {
@@ -1007,13 +1008,6 @@ let tag_cloud_filter_js = {|
       });
       item.style.display = match ? '' : 'none';
     });
-    // Hide the weeks of the timeline with no visible item, and its quiet
-    // markers, which say nothing once the list is filtered.
-    document.querySelectorAll('.tl-wk').forEach(function(week) {
-      var visible = week.querySelectorAll('.note-item:not([style*="display: none"])');
-      week.style.display = visible.length ? '' : 'none';
-    });
-    document.querySelectorAll('.tl-quiet').forEach(function(q) { q.style.display = 'none'; });
     // Hide sections with no visible items
     document.querySelectorAll('[data-month-id]').forEach(function(section) {
       var visible = section.querySelectorAll('.note-item:not([style*="display: none"])');

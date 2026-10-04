@@ -90,7 +90,7 @@ let () =
   check "the registry is named" (contains html "opam.ocaml.org");
   check "a code release is a rocket on the line"
     (contains html "release-mark" && contains html "Code release"
-    && contains html "tl-bullet-release");
+    && contains html "sn-node-release");
   check "the marker is described for a screen reader"
     (contains html {|role="img"|}
     && contains html {|aria-label="Code release"|});
@@ -104,27 +104,27 @@ let () =
     (contains html {|aria-label="opam.ocaml.org on ecosyste.ms"|}
     && contains html {|title="opam.ocaml.org on ecosyste.ms"|});
   check "the registry icon is the one for that registry"
-    (contains html (Arod.Icons.registry_icon ~size:11 "opam.ocaml.org"));
+    (contains html (Arod.Icons.registry_icon ~size:12 "opam.ocaml.org"));
   (* The page is one timeline. The weeknote rail is folded into it. *)
   check "the page is a single timeline"
-    (contains html {|class="timeline|}
+    (contains html {|class="snake|}
     && not (contains html "week-rail")
     && not (contains html "notes-split")
     && not (contains html "lg:hidden"));
-  check "a weeknote is an entry on the line"
-    (contains html "tl-week" && contains html "W28" && contains html "Week 28"
-    && contains html "W30");
+  check "a weeknote is a row of its own kind"
+    (contains html "sn-week" && contains html "sn-node-week"
+    && contains html "Week 28" && contains html "Week 30");
   check "the weeknote prefix is not shown" (not (contains html ".plan-"));
   check "a weeknote can be hidden by a tag filter"
-    (contains html "tl-week note-item");
+    (contains html "sn-week note-item");
   check "a missing week is marked on the line"
     (contains html "1 quiet week");
   check "a note's image is a round bullet on the line, before its title"
     (before html {|src="/images/pic.webp"|} "An August note"
-    && contains html {|class="tl-bullet-img"|}
-    && contains html "tl-bullet-note");
+    && contains html {|class="sn-node-img"|}
+    && contains html "sn-node-note");
   check "a note without an image is a bullet with an icon"
-    (contains html "tl-bullet-icon");
+    (contains html "sn-node-icon");
   check "a note's date is a caption above its title"
     (before html {|>10 Aug<|} "An August note");
   let occurrences html sub =
@@ -135,19 +135,40 @@ let () =
     in
     go 0 0
   in
-  check "each month has one container for its weeks"
-    (let weeks = occurrences html {|class="tl-weeks"|} in
-     weeks = occurrences html {|class="tl-month"|} && weeks > 0);
-  check "a week is a branch with entries" (contains html {|class="tl-wk"|});
-  check "a weeknote heads its week with the week's days"
-    (before html "W30" ">20\xE2\x80\x9326 Jul<");
-  check "a week without a weeknote is labelled with its days"
-    (contains html "tl-wk-label");
+  check "every month has a pill on the spine"
+    (let months = occurrences html {|class="sn-month"|} in
+     months > 0 && months = occurrences html {|class="sn-pill"|});
+  check "one spine, as an svg path with a gradient"
+    (occurrences html {|class="snake-spine"|} = 1
+    && contains html {|class="snake-line"|} && contains html "snake-grad");
+  check "every row has an exit curve from the spine"
+    (let rows = occurrences html "sn-item " in
+     rows > 0 && rows = occurrences html {|class="sn-exit"|});
+  check "no quiet week is a row with an exit"
+    (contains html "sn-quiet");
+  (* The first exit on the page starts exactly on the spine, which is drawn
+     from the same geometry. The first row of the first month is one month
+     header down. *)
+  check "an exit meets the spine"
+    (let marker = {|class="sn-exit-path" d="M |} in
+     let n = String.length marker in
+     let rec find i =
+       if i + n > String.length html then None
+       else if String.sub html i n = marker then Some (i + n)
+       else find (i + 1)
+     in
+     match find 0 with
+     | None -> false
+     | Some i ->
+       let rest = String.sub html i (String.length html - i) in
+       Scanf.sscanf rest "%f %f" (fun x y ->
+           Float.abs (x -. Arod_component.Snake.spine_x
+                         (Arod_component.Snake.month_height +. y)) < 1e-3));
   check "each month is a section the page script can track"
     (contains html {|data-month-id="2026-08"|}
     && contains html {|data-month-id="2026-07"|});
-  check "a release is the smallest entry on the line"
-    (contains html "tl-release");
+  check "a release is the smallest row"
+    (contains html "sn-release");
   check "a release-only month appears" (contains html {|id="month-2026-07"|});
   check "months run newest first"
     (before html {|id="month-2026-08"|} {|id="month-2026-07"|}
@@ -178,7 +199,7 @@ let () =
       ()
   in
   check "an unknown registry gets the generic package icon"
-    (contains other (Arod.Icons.registry_icon ~size:11 "rubygems.org")
+    (contains other (Arod.Icons.registry_icon ~size:12 "rubygems.org")
     && Arod.Icons.registry_icon "rubygems.org"
        = Arod.Icons.registry_icon "something-else.example");
   check "the generic icon is not one of the brand icons"
@@ -231,9 +252,9 @@ let () =
   check "no releases leaves the page as it was"
     (render () = render ~releases:[] ());
   (* The page without releases is pinned. It was first rendered by the code from
-     before releases existed. It was regenerated deliberately when the notes
-     view became a single timeline, and again when that timeline gained week
-     branches and round bullets. *)
+     before releases existed. It was regenerated deliberately each time the
+     notes view was redesigned: as a single timeline, with week branches and
+     round bullets, and as one snaking spine with exits. *)
   check "the page matches the one rendered before releases existed"
     (render ()
     = In_channel.with_open_bin "fixtures/notes/notes_no_releases.html"

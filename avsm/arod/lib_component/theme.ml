@@ -2844,207 +2844,204 @@ let custom_css = {|
   border: 1px solid var(--color-border);
   border-radius: 4px;
 }
-/* The notes view is one timeline. The main line carries the months, and each
-   week branches off it with an elbow and a line of its own. Notes,
-   weeknotes and releases hang on a week's line as bullets: a note is its image
-   in a circle, a weeknote a smaller one, and a code release a small disc with a
-   rocket. Each kind has a colour that tints its outline and its hover.
+/* The notes view is one flowing timeline. A single spine snakes down the page
+   in smooth swings, and every entry has an exit curve from it to its node. The
+   rows have fixed heights, so the spine is drawn from the page's own layout
+   (see Snake) and needs no script. Notes are large round photographs, weeknotes
+   rounded squares on a tinted band, and releases small dotted branches.
 
-   All of it is unlayered, because the Tailwind border reset and the img reset
-   would win over layered rules. */
-.timeline {
-  --tl-note: var(--color-accent);
-  --tl-week: #b8924f;
-  --tl-release: #5f84b8;
-  --tl-line: color-mix(in srgb, var(--color-muted) 55%, transparent);
-  --tl-spine: 0.55rem;
-  --tl-branch: 2.3rem;
-  --tl-text: 2.2rem;
+   Lengths are in em, so that the whole timeline scales with its font size. It
+   is unlayered, because the Tailwind border and img resets would win over
+   layered rules. */
+.snake {
+  --sn-note: var(--color-accent);
+  --sn-week: #c58a2a;
+  --sn-release: #4f7fc0;
+  --sn-line: color-mix(in srgb, var(--color-muted) 65%, transparent);
   position: relative;
 }
-.dark .timeline {
-  --tl-week: #d2ac6a;
-  --tl-release: #86a9dd;
-}
-.tl-month { position: relative; padding-bottom: 0.7rem; }
-.tl-month::before {
-  content: "";
+.dark .snake { --sn-week: #e0b25f; --sn-release: #86aaea; }
+.snake-spine {
   position: absolute;
-  left: var(--tl-spine);
-  top: 0.9rem;
-  bottom: -0.1rem;
-  width: 1px;
-  background: var(--tl-line);
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 3em, #000 calc(100% - 6em), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 3em, #000 calc(100% - 6em), transparent);
 }
-.tl-month-head { padding-left: 1.5rem; }
-.tl-month-head::before {
-  content: "";
+.snake-line, .snake-halo {
+  fill: none;
+  stroke: url(#snake-grad);
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.snake-line { stroke-width: 2.5px; opacity: 0.6; }
+.snake-halo { stroke-width: 9px; opacity: 0.16; }
+.sn-month { position: absolute; left: 0; right: 0; }
+.sn-pill {
   position: absolute;
-  left: var(--tl-spine);
-  top: 50%;
-  width: 13px;
-  height: 13px;
-  border-radius: 50%;
+  left: 0.3em;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  height: 1.8em;
+  margin: 0;
+  padding: 0 0.8em;
+  border-radius: 999px;
   background: var(--color-bg);
-  box-shadow: inset 0 0 0 2.5px var(--tl-note);
-  transform: translate(-50%, -50%);
+  color: var(--color-text);
+  box-shadow: inset 0 0 0 1.5px var(--sn-note),
+    0 0.25em 1em color-mix(in srgb, var(--sn-note) 28%, transparent);
 }
-.tl-weeks { padding-left: var(--tl-branch); }
-.tl-wk { position: relative; padding: 0.2rem 0 0.55rem; }
-/* The elbow from the main line to the week's own line, and that line. */
-.tl-wk::before {
-  content: "";
-  position: absolute;
-  left: calc(var(--tl-spine) - var(--tl-branch));
-  top: -0.5rem;
-  width: calc(var(--tl-branch) - var(--tl-spine));
-  height: 1.6rem;
-  border-left: 1px solid var(--tl-line);
-  border-bottom: 1px solid var(--tl-line);
-  border-bottom-left-radius: 0.9rem;
+.sn-pill span {
+  font-size: 0.72em;
+  font-weight: 650;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
 }
-.tl-wk::after {
-  content: "";
+.sn-item {
+  --sn-c: var(--sn-note);
   position: absolute;
   left: 0;
-  top: 1.1rem;
-  bottom: 0.1rem;
-  width: 1px;
-  background: var(--tl-line);
+  right: 0;
+  transition: opacity 0.25s;
 }
-.tl-item {
-  --tl-c: var(--tl-note);
-  position: relative;
-  display: flex;
-  align-items: flex-start;
-  padding: 0.2rem 0.5rem 0.2rem var(--tl-text);
-  border-radius: 8px;
-  transition: background 0.15s;
+.sn-week { --sn-c: var(--sn-week); }
+.sn-release { --sn-c: var(--sn-release); }
+.sn-exit { position: absolute; left: 0; overflow: visible; pointer-events: none; }
+.sn-exit-path {
+  fill: none;
+  stroke: var(--sn-c);
+  stroke-width: 3px;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.72;
+  transition: opacity 0.25s, stroke-width 0.25s, filter 0.25s;
 }
-.tl-item:hover { background: color-mix(in srgb, var(--tl-c) 7%, transparent); }
-.tl-week { --tl-c: var(--tl-week); }
-.tl-release { --tl-c: var(--tl-release); }
-.tl-bullet {
+.sn-week .sn-exit-path { stroke-width: 2px; }
+.sn-release .sn-exit-path {
+  stroke-width: 1.6px;
+  stroke-dasharray: 0.5 4.5;
+  opacity: 0.85;
+}
+/* A wider, fainter copy of the exit that shows when its entry is pointed at. */
+.sn-exit-glow {
+  fill: none;
+  stroke: var(--sn-c);
+  stroke-width: 10px;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.sn-port {
+  fill: var(--color-bg);
+  stroke: var(--sn-c);
+  stroke-width: 1.6px;
+  vector-effect: non-scaling-stroke;
+}
+.sn-node {
   position: absolute;
-  left: 0;
-  top: 0.2rem;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  border-radius: 50%;
   overflow: hidden;
-  background: var(--color-bg);
-  color: var(--tl-c);
-  transform: translateX(-50%);
-  box-shadow: 0 0 0 2px var(--tl-c), 0 0 0 5px var(--color-bg);
-  transition: box-shadow 0.15s, opacity 0.15s;
+  background: color-mix(in srgb, var(--sn-c) 14%, var(--color-bg));
+  color: var(--sn-c);
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s;
 }
-.tl-bullet-note { width: 2.6rem; height: 2.6rem; }
-.tl-bullet-week { width: 1.7rem; height: 1.7rem; top: 0.15rem; }
-.tl-bullet-release {
-  width: 1.15rem;
-  height: 1.15rem;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 1px var(--tl-c), 0 0 0 4px var(--color-bg);
-}
-.tl-bullet-icon {
-  background: color-mix(in srgb, var(--tl-c) 13%, var(--color-bg));
-}
-.tl-bullet-img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.sn-node-note {
   border-radius: 50%;
+  box-shadow: 0 0 0 0.16em var(--color-bg), 0 0 0 0.3em var(--sn-c),
+    0 0.5em 1em -0.3em color-mix(in srgb, var(--sn-c) 45%, transparent);
 }
-.tl-bullet-week .tl-bullet-img { filter: sepia(0.55) saturate(0.8); }
-.tl-item:hover .tl-bullet-img { filter: none; }
-.tl-body { padding-top: 0.05rem; }
-.tl-meta {
-  font-size: 0.64rem;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  line-height: 1.3;
-  color: var(--color-muted);
+.sn-node-week {
+  border-radius: 34%;
+  box-shadow: 0 0 0 0.14em var(--color-bg), 0 0 0 0.24em var(--sn-c);
 }
-.tl-note .tl-meta { color: color-mix(in srgb, var(--tl-c) 70%, var(--color-muted)); }
-.tl-week .tl-meta { color: color-mix(in srgb, var(--tl-c) 75%, var(--color-muted)); }
-.tl-title {
+.sn-node-release {
+  border-radius: 50%;
+  box-shadow: 0 0 0 0.12em var(--color-bg), 0 0 0 0.2em var(--sn-c);
+}
+.sn-node-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.sn-week .sn-node-img { filter: sepia(0.55) saturate(0.85); transition: filter 0.3s; }
+/* A weeknote's row is tinted from its node, which sets it apart from a note. */
+.sn-week::before {
+  content: "";
+  position: absolute;
+  left: 4.3em;
+  right: 0;
+  top: 0.25em;
+  bottom: 0.25em;
+  border-radius: 1.5em 0.6em 0.6em 1.5em;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--sn-week) 17%, transparent),
+    color-mix(in srgb, var(--sn-week) 5%, transparent) 65%, transparent);
+}
+.sn-text { position: absolute; right: 0.5em; overflow: hidden; }
+.sn-note .sn-text { top: 0.5em; height: 5.8em; }
+.sn-week .sn-text { top: 0.55em; height: 3.2em; }
+.sn-meta {
   display: block;
-  font-size: 0.98rem;
+  font-size: 0.66em;
   font-weight: 600;
-  line-height: 1.3;
+  letter-spacing: 0.1em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--sn-c) 70%, var(--color-muted));
+}
+.sn-title, .sn-synopsis {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.sn-title {
+  font-size: 1.05em;
+  font-weight: 650;
+  line-height: 1.28;
   color: var(--color-text) !important;
   text-decoration: none !important;
+  transition: color 0.2s;
 }
-.tl-week-title { font-size: 0.84rem; font-weight: 500; }
-.tl-title:hover {
+.sn-week-title { font-size: 0.9em; font-weight: 560; }
+.sn-title:hover {
   color: var(--color-link) !important;
   text-decoration: underline dotted !important;
   text-decoration-color: var(--color-link-ul) !important;
 }
-.tl-synopsis {
-  margin-top: 0.1rem;
-  font-size: 0.84rem;
-  line-height: 1.4;
+.sn-synopsis {
+  margin-top: 0.2em;
+  font-size: 0.85em;
+  line-height: 1.42;
   color: var(--color-secondary);
 }
-/* A week with no weeknote is a label on its line. */
-.tl-wk-label {
-  position: relative;
-  padding: 0.05rem 0 0.1rem var(--tl-text);
-  font-size: 0.64rem;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--color-muted);
-}
-.tl-wk-label::before {
-  content: "";
+.sn-quiet {
   position: absolute;
-  left: 0;
-  top: 0.4rem;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-bg);
-  box-shadow: inset 0 0 0 1.5px var(--tl-line);
-  transform: translateX(-50%);
-}
-/* Weeks with nothing in them break the line into dots. */
-.tl-quiet {
-  position: relative;
-  padding: 0.15rem 0 0.5rem var(--tl-text);
-  margin-left: var(--tl-branch);
-  font-size: 0.68rem;
-  font-style: italic;
-  color: var(--color-muted);
-}
-.tl-quiet::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: -0.3rem;
-  bottom: 0.1rem;
-  width: 1px;
-  background-image: linear-gradient(to bottom, var(--tl-line) 45%, transparent 0);
-  background-size: 1px 5px;
-}
-/* A release is one small line. The rocket sits on the line, the name and
-   date follow it, and the registries follow the summary. */
-.tl-release { align-items: center; padding-top: 0.05rem; padding-bottom: 0.05rem; }
-.release-line {
+  right: 0;
   display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  min-width: 0;
-  font-size: 0.74rem;
-  white-space: nowrap;
-  padding-top: 0;
+  align-items: center;
+  color: var(--color-muted);
 }
-.release-mark svg { display: block; }
-.release-name { flex: none; font-size: 0.78rem; font-weight: 500; }
+.sn-quiet-text { font-size: 0.7em; font-style: italic; }
+.sn-quiet::before {
+  content: "\00b7  \00b7  \00b7";
+  margin-right: 0.6em;
+  font-size: 0.7em;
+  letter-spacing: 0.25em;
+}
+/* A release is one line, level with its small node. */
+.sn-release .sn-text {
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  white-space: nowrap;
+}
+.release-name { flex: none; font-size: 0.8em; font-weight: 560; }
 .release-name:hover {
   color: var(--color-link) !important;
   text-decoration: underline dotted !important;
@@ -3052,36 +3049,60 @@ let custom_css = {|
 }
 .release-date, .release-earlier {
   flex: none;
-  font-size: 0.66rem;
+  font-size: 0.66em;
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
 }
 .release-summary {
   flex: 0 1 auto;
   min-width: 0;
+  font-size: 0.78em;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--color-muted);
 }
-.release-registries {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
+.release-registries { flex: none; display: inline-flex; align-items: center; gap: 0.35em; }
 .release-registry {
   display: inline-flex;
-  color: color-mix(in srgb, var(--tl-release) 75%, var(--color-muted)) !important;
+  color: color-mix(in srgb, var(--sn-release) 78%, var(--color-muted)) !important;
   text-decoration: none !important;
-  opacity: 0.85;
+  opacity: 0.9;
 }
-.release-registry:hover { color: var(--tl-release) !important; opacity: 1; }
+.release-registry:hover { color: var(--sn-release) !important; opacity: 1; }
+/* Pointing at an entry lifts its node, lights its exit and quietens the rest. */
+.sn-item:hover .sn-node, .sn-node:focus-visible {
+  transform: scale(1.1);
+  box-shadow: 0 0 0 0.16em var(--color-bg), 0 0 0 0.3em var(--sn-c),
+    0 0 1.8em 0.35em color-mix(in srgb, var(--sn-c) 50%, transparent);
+}
+.sn-item:hover .sn-exit-path { opacity: 1; stroke-width: 4px; }
+.sn-item:hover .sn-exit-glow { opacity: 0.24; }
+.sn-item:hover .sn-node-img { filter: none; }
+.snake:has(.sn-item:hover) .sn-item:not(:hover) { opacity: 0.5; }
+/* While a tag filter is on, hidden entries would leave holes in fixed rows, so
+   the timeline becomes a plain list. */
+.snake.is-filtered { height: auto !important; }
+.snake.is-filtered .snake-spine,
+.snake.is-filtered .sn-exit,
+.snake.is-filtered .sn-quiet,
+.snake.is-filtered .sn-week::before { display: none; }
+.snake.is-filtered .sn-month,
+.snake.is-filtered .sn-item,
+.snake.is-filtered .sn-pill,
+.snake.is-filtered .sn-node,
+.snake.is-filtered .sn-text {
+  position: relative;
+  left: auto !important;
+  top: auto !important;
+  right: auto;
+}
+.snake.is-filtered .sn-month,
+.snake.is-filtered .sn-item { height: auto !important; margin-bottom: 0.8em; }
+.snake.is-filtered .sn-item { display: flex; align-items: center; gap: 0.8em; }
+.snake.is-filtered .sn-node { flex: none; }
+.snake.is-filtered .sn-text { height: auto; flex: 1; }
 @media (max-width: 640px) {
-  .timeline { --tl-branch: 1.7rem; --tl-text: 1.7rem; --tl-spine: 0.4rem; }
-  .tl-bullet-note { width: 2rem; height: 2rem; }
-  .tl-bullet-week { width: 1.4rem; height: 1.4rem; }
-  .tl-title { font-size: 0.92rem; }
-  .release-summary { display: none; }
+  .snake { font-size: 0.84rem; }
 }
 .week-row:hover .week-slice {
   opacity: 1;

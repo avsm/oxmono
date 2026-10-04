@@ -142,28 +142,11 @@ let format_number n =
     done;
     Buffer.contents buf
 
-(** [compact ~ctx note] is a compact journal card for [note]. *)
 (** [short_date (_, m, d)] is a date as ["28 Sep"]. *)
 let short_date (_, m, d) = Printf.sprintf "%d %s" d (Common.month_name m)
 
-(** [tl_bullet ~ctx ~url ~kind ~icon entry] is the circle on the timeline that
-    marks [entry]. It is the image of [entry], and without one an icon on a
-    tinted disc. [kind] picks its size and colour. *)
-let tl_bullet ~ctx ~url ~kind ~icon entry =
-  let cls = "tl-bullet tl-bullet-" ^ kind in
-  match Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) entry with
-  | Some src ->
-    El.a ~at:[At.href url; At.class' cls;
-              At.v "tabindex" "-1"; At.v "aria-hidden" "true"]
-      [El.img ~at:[At.src src; At.v "alt" ""; At.v "loading" "lazy";
-                   At.class' "tl-bullet-img"] ()]
-  | None ->
-    El.span ~at:[At.class' (cls ^ " tl-bullet-icon");
-                 At.v "aria-hidden" "true"]
-      [El.unsafe_raw
-         (Arod.Icons.outline ~size:(if kind = "note" then 15 else 11) icon)]
-
-let compact ?(cls="") ?(timeline=false) ~ctx note =
+(** [compact ~ctx note] is a compact journal card for [note]. *)
+let compact ?(cls="") ~ctx note =
   let (y, m, d) = Bushel.Entry.date (`Note note) in
   let date_str = Printf.sprintf "%d %s %d" d (Common.month_name m) y in
   let url = Bushel.Entry.site_url (`Note note) in
@@ -188,7 +171,6 @@ let compact ?(cls="") ?(timeline=false) ~ctx note =
   in
   let is_perma = Note.perma note in
   let card_cls = "note-compact hover:bg-surface note-item h-entry px-1 py-1 md:px-2 md:py-1"
-    ^ (if timeline then " tl-item tl-note" else "")
     ^ (if is_perma then " note-perma" else "")
     ^ (if cls = "" then "" else " " ^ cls) in
   let display_title = Note.title note in
@@ -206,7 +188,10 @@ let compact ?(cls="") ?(timeline=false) ~ctx note =
        | None -> El.void)
     | None -> El.void
   in
-  let body = [
+  El.div ~at:[At.id note_id;
+              At.class' card_cls;
+              At.v "data-tags" tags_data;
+              At.v "data-month" month_data] [
     El.div ~at:[At.class' "note-compact-row"] [
       El.a ~at:[At.href url; At.class' "note-compact-title flex-1 min-w-0 font-medium !text-text !no-underline p-name u-url"]
         [El.txt display_title];
@@ -219,29 +204,6 @@ let compact ?(cls="") ?(timeline=false) ~ctx note =
      else El.void);
     ref_el;
     tag_chips]
-  in
-  (* On the timeline a note is a bullet on the line and its text beside it, with
-     its date as a small caption above the title and not in a column. *)
-  let children =
-    if timeline then
-      [tl_bullet ~ctx ~url ~kind:"note" ~icon:Arod.Icons.note_o (`Note note);
-       El.div ~at:[At.class' "tl-body min-w-0 flex-1"] [
-         El.time ~at:[At.class' "tl-meta dt-published";
-                      At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
-           [El.txt (short_date (y, m, d))];
-         El.a ~at:[At.href url; At.class' "tl-title p-name u-url"]
-           [El.txt display_title];
-         (if synopsis <> "" then
-            El.div ~at:[At.class' "tl-synopsis p-summary"] [El.txt synopsis]
-          else El.void);
-         ref_el;
-         tag_chips]]
-    else body
-  in
-  El.div ~at:[At.id note_id;
-              At.class' card_cls;
-              At.v "data-tags" tags_data;
-              At.v "data-month" month_data] children
 
 (** [strip_weeknote_prefix t] is [t] without its weeknote prefix. *)
 let strip_weeknote_prefix t =
@@ -296,16 +258,86 @@ let week_range date =
       Printf.sprintf "%d %s \xE2\x80\x93 %d %s" d1 (Common.month_name m1) d2
         (Common.month_name m2)
 
-(** [quiet_marker n] is the mark on the line for [n] weeks with nothing in
-    them. *)
-let quiet_marker n =
-  El.div ~at:[At.class' "tl-quiet"]
-    [El.txt (if n = 1 then "1 quiet week"
-             else Printf.sprintf "%d quiet weeks" n)]
+(* The timeline. Every entry is a row of fixed height, positioned by its [top]
+   and [height] in em, and the spine is drawn from those positions (see
+   [Snake]). A row holds the exit curve from the spine, the node on it, and the
+   text beside it. *)
 
-(** [week_head ~ctx n] is weeknote [n] as the head of its week on the
-    timeline. *)
-let week_head ~ctx n =
+let pos_style ~top ~height =
+  Printf.sprintf "top:%.3fem;height:%.3fem" top height
+
+(** [exit_svg kind ~y_abs] is the svg of the exit curve of a row of [kind] that
+    begins [y_abs] down the timeline. It starts on the spine, above the row. *)
+let exit_svg kind ~y_abs =
+  let e = Snake.exit_ ~kind ~y_abs in
+  let top = -3.2 in
+  let h = Snake.height kind -. top in
+  Printf.sprintf
+    {|<svg class="sn-exit" viewBox="0 %.2f %.2f %.2f" style="top:%.2fem;width:%.2fem;height:%.2fem" aria-hidden="true" focusable="false"><path class="sn-exit-glow" d="%s"/><path class="sn-exit-path" d="%s"/><circle class="sn-port" cx="%.3f" cy="%.3f" r="0.2"/></svg>|}
+    top Snake.svg_width h top Snake.svg_width h e.Snake.path e.Snake.path
+    e.Snake.start_x e.Snake.start_y
+
+(** [node_style kind] is the position and size of the node of a row of
+    [kind]. *)
+let node_style kind =
+  let r = Snake.radius kind and c = Snake.center kind in
+  Printf.sprintf "left:%.3fem;top:%.3fem;width:%.3fem;height:%.3fem"
+    (Snake.node_x -. r) (c -. r) (2. *. r) (2. *. r)
+
+(** [sn_node ~ctx ~url ~kind ~label ~icon entry] is the node of a row, linking
+    to [url]. It is the image of [entry], and without one [icon]. *)
+let sn_node ~ctx ~url ~kind ~label ~icon ~size entry =
+  let cls = "sn-node sn-node-" ^ label in
+  let image =
+    Option.bind entry (fun e -> Bushel.Entry.thumbnail (Arod.Ctx.entries ctx) e)
+  in
+  match image with
+  | Some src ->
+    El.a ~at:[At.href url; At.class' cls; At.v "style" (node_style kind);
+              At.v "tabindex" "-1"; At.v "aria-hidden" "true"]
+      [El.img ~at:[At.src src; At.v "alt" ""; At.v "loading" "lazy";
+                   At.class' "sn-node-img"] ()]
+  | None ->
+    El.a ~at:[At.href url; At.class' (cls ^ " sn-node-icon");
+              At.v "style" (node_style kind);
+              At.v "tabindex" "-1"; At.v "aria-hidden" "true"]
+      [El.unsafe_raw (Arod.Icons.outline ~size icon)]
+
+let text_style kind =
+  Printf.sprintf "left:%.3fem" (Snake.text_left kind)
+
+(** [sn_note ~ctx ~y_rel ~y_abs n] is journal note [n] as a row. *)
+let sn_note ~ctx ~y_rel ~y_abs n =
+  let (y, m, d) = Bushel.Entry.date (`Note n) in
+  let url = Bushel.Entry.site_url (`Note n) in
+  let tags_data =
+    String.concat ","
+      (List.map Bushel.Tags.to_raw_string (Bushel.Entry.tags_of_ent (`Note n)))
+  in
+  let synopsis = Option.value (Note.synopsis n) ~default:"" in
+  El.div ~at:[At.id ("note-" ^ Bushel.Entry.slug (`Note n));
+              At.class' "sn-item sn-note note-item h-entry";
+              At.v "data-tags" tags_data;
+              At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
+              At.v "style"
+                (pos_style ~top:y_rel ~height:(Snake.height Snake.Note))] [
+    El.unsafe_raw (exit_svg Snake.Note ~y_abs);
+    sn_node ~ctx ~url ~kind:Snake.Note ~label:"note" ~icon:Arod.Icons.note_o
+      ~size:22 (Some (`Note n));
+    El.div ~at:[At.class' "sn-text"; At.v "style" (text_style Snake.Note)] [
+      El.time ~at:[At.class' "sn-meta dt-published";
+                   At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+        [El.txt (short_date (y, m, d))];
+      El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
+        [El.txt (Note.title n)];
+      (if synopsis <> "" then
+         El.div ~at:[At.class' "sn-synopsis p-summary"] [El.txt synopsis]
+       else El.void)]]
+
+(** [sn_week ~ctx ~y_rel ~y_abs n] is weeknote [n] as a row. Its node is a
+    rounded square and its row is tinted, so that it is not mistaken for a
+    note. *)
+let sn_week ~ctx ~y_rel ~y_abs n =
   let (y, m, d) = Note.date n in
   let (_, wk) = Note.week_number n in
   let url = Bushel.Entry.site_url (`Note n) in
@@ -313,30 +345,34 @@ let week_head ~ctx n =
     String.concat ","
       (List.map Bushel.Tags.to_raw_string (Bushel.Entry.tags_of_ent (`Note n)))
   in
-  El.div ~at:[At.class' "tl-item tl-week note-item h-entry";
+  El.div ~at:[At.class' "sn-item sn-week note-item h-entry";
               At.v "data-tags" tags_data;
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
-              At.v "title" (Printf.sprintf "%s words" (format_number (Note.words n)))] [
-    tl_bullet ~ctx ~url ~kind:"week" ~icon:Arod.Icons.calendar_week_o
-      (`Note n);
-    El.div ~at:[At.class' "tl-body min-w-0 flex-1"] [
-      El.div ~at:[At.class' "tl-meta"] [
-        El.txt (Printf.sprintf "W%02d" wk);
+              At.v "title" (Printf.sprintf "%s words" (format_number (Note.words n)));
+              At.v "style"
+                (pos_style ~top:y_rel ~height:(Snake.height Snake.Week))] [
+    El.unsafe_raw (exit_svg Snake.Week ~y_abs);
+    sn_node ~ctx ~url ~kind:Snake.Week ~label:"week"
+      ~icon:Arod.Icons.calendar_week_o ~size:18 (Some (`Note n));
+    El.div ~at:[At.class' "sn-text"; At.v "style" (text_style Snake.Week)] [
+      El.div ~at:[At.class' "sn-meta"] [
+        El.txt (Printf.sprintf "Week %d" wk);
         El.txt " \xC2\xB7 ";
         El.time ~at:[At.class' "dt-published";
                      At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
           [El.txt (week_range (y, m, d))]];
-      El.a ~at:[At.href url; At.class' "tl-title tl-week-title p-name u-url"]
+      El.a ~at:[At.href url; At.class' "sn-title sn-week-title p-name u-url"]
         [El.txt (strip_weeknote_prefix (Note.title n))]]]
 
-(** [release_item t rs] is the line for the releases [rs] of repository [t],
-    newest first, made in one month. It is the smallest entry on the
-    timeline: a rocket on the line, the name and version, the date, and one
-    line of summary. A month's releases of one repository are one line, the
-    newest named and the rest counted. Each registry that carries the newest is
-    an icon linking to its ecosyste.ms metadata. A release is a [note-item]
-    with no tags, so a tag filter hides it. *)
-let release_item (t : Bushel.Release.t) (rs : Bushel.Release.release list) =
+(** [sn_release ~y_rel ~y_abs t rs] is the row for the releases [rs] of
+    repository [t], newest first, made in one month. It is the smallest row: a
+    rocket on a small node, the name and version, the date, and one line of
+    summary. A month's releases of one repository are one row, the newest named
+    and the rest counted. Each registry that carries the newest is an icon
+    linking to its ecosyste.ms metadata. A release is a [note-item] with no
+    tags, so a tag filter hides it. *)
+let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
+    (rs : Bushel.Release.release list) =
   let r = List.hd rs in
   let earlier = List.tl rs in
   let (y, m, d) = r.date in
@@ -350,17 +386,23 @@ let release_item (t : Bushel.Release.t) (rs : Bushel.Release.release list) =
     El.a ~at:[At.href (Bushel.Release.metadata_url reg r);
               At.class' "release-registry";
               At.v "title" label; At.v "aria-label" label]
-      [El.unsafe_raw (Arod.Icons.registry_icon ~size:11 reg.Bushel.Release.name)]
+      [El.unsafe_raw
+         (Arod.Icons.registry_icon ~size:12 reg.Bushel.Release.name)]
   in
-  El.div ~at:[At.class' "tl-item tl-release note-item";
+  El.div ~at:[At.class' "sn-item sn-release note-item";
               At.v "data-kind" "release";
               At.v "data-tags" "";
-              At.v "data-month" (Printf.sprintf "%04d-%02d" y m)] [
-    El.span ~at:[At.class' "tl-bullet tl-bullet-release release-mark";
-                 At.v "role" "img"; At.v "aria-label" "Code release";
-                 At.v "title" "Code release"]
-      [El.unsafe_raw (Arod.Icons.outline ~size:9 Arod.Icons.rocket_o)];
-    El.div ~at:[At.class' "tl-body release-line min-w-0 flex-1"] [
+              At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
+              At.v "style"
+                (pos_style ~top:y_rel ~height:(Snake.height Snake.Release))] [
+    El.unsafe_raw (exit_svg Snake.Release ~y_abs);
+    El.a ~at:[At.href r.url; At.class' "sn-node sn-node-release release-mark";
+              At.v "style" (node_style Snake.Release);
+              At.v "role" "img"; At.v "aria-label" "Code release";
+              At.v "title" "Code release"; At.v "tabindex" "-1"]
+      [El.unsafe_raw (Arod.Icons.outline ~size:11 Arod.Icons.rocket_o)];
+    El.div ~at:[At.class' "sn-text release-line";
+                At.v "style" (text_style Snake.Release)] [
       El.a ~at:[At.href r.url;
                 At.class' "release-name !text-text !no-underline"]
         [El.txt (name ^ " " ^ r.version)];
@@ -382,6 +424,23 @@ let release_item (t : Bushel.Release.t) (rs : Bushel.Release.release list) =
        | regs ->
          El.span ~at:[At.class' "release-registries"] (List.map registry regs))]]
 
+(** [sn_quiet ~y_rel n] is the row that says [n] weeks had nothing in them. *)
+let sn_quiet ~y_rel n =
+  El.div ~at:[At.class' "sn-quiet";
+              At.v "style"
+                (pos_style ~top:y_rel ~height:(Snake.height Snake.Quiet)
+                 ^ ";" ^ text_style Snake.Release)]
+    [El.span ~at:[At.class' "sn-quiet-text"]
+       [El.txt (if n = 1 then "1 quiet week"
+                else Printf.sprintf "%d quiet weeks" n)]]
+
+(** [sn_month_pill label] is the marker for a month, which sits on the spine. *)
+let sn_month_pill label =
+  El.h2 ~at:[At.class' "sn-pill";
+             At.v "style"
+               (Printf.sprintf "top:%.3fem" ((Snake.month_height /. 2.) -. 0.9))]
+    [El.span [El.txt label]]
+
 (** [group_releases rs] is the [(repository, releases)] of [rs], one per
     repository, with each repository's releases newest first. *)
 let group_releases rs =
@@ -390,7 +449,9 @@ let group_releases rs =
       (List.map (fun ((t : Bushel.Release.t), _) -> t.repo) rs)
   in
   List.map (fun repo ->
-    let mine = List.filter (fun ((t : Bushel.Release.t), _) -> t.repo = repo) rs in
+    let mine =
+      List.filter (fun ((t : Bushel.Release.t), _) -> t.repo = repo) rs
+    in
     (fst (List.hd mine),
      List.sort Bushel.Release.compare_release (List.map snd mine))) repos
 
@@ -456,35 +517,16 @@ let notes_list ~ctx =
       let c = compare y2 y1 in if c <> 0 then c else compare m2 m1)
       (keys by_month @ keys releases_by_month)
   in
-  let week_group (key, items) =
-    (* The weeknote heads its week. A week without one has a plain label. *)
-    let weeknote =
-      List.find_map (function (_, `Week n) -> Some n | _ -> None) items in
-    let rest = List.filter (function (_, `Week _) -> false | _ -> true) items in
-    let head =
-      match weeknote with
-      | Some n -> week_head ~ctx n
-      | None ->
-        El.div ~at:[At.class' "tl-wk-label"]
-          [El.txt (week_range (fst (List.hd items)))]
-    in
-    let entries = List.map (fun (_, item) ->
-      match item with
-      | `Note n -> compact ~timeline:true ~ctx n
-      | `Release (t, rs) -> release_item t rs
-      | `Week _ -> El.void) rest in
-    El.div ~at:[At.class' "tl-wk"] (head :: entries)
-    :: (match Hashtbl.find_opt quiet_after key with
-        | Some q when q > 0 -> [quiet_marker q]
-        | _ -> [])
-  in
-  let month_sections = List.map (fun (y, m) ->
+  (* Months run down the page, each a block of rows. [y] is how far down the
+     timeline the next block begins. *)
+  let y = ref 0. in
+  let month_sections = List.map (fun (yr, mo) ->
     let notes =
-      List.rev (try Hashtbl.find by_month (y, m) with Not_found -> []) in
+      List.rev (try Hashtbl.find by_month (yr, mo) with Not_found -> []) in
     let releases =
-      try Hashtbl.find releases_by_month (y, m) with Not_found -> [] in
-    let section_id = Printf.sprintf "month-%04d-%02d" y m in
-    let month_id = Printf.sprintf "%04d-%02d" y m in
+      try Hashtbl.find releases_by_month (yr, mo) with Not_found -> [] in
+    let section_id = Printf.sprintf "month-%04d-%02d" yr mo in
+    let month_id = Printf.sprintf "%04d-%02d" yr mo in
     (* Notes, weeknotes and releases run together, newest first. On one day a
        note comes before a release. *)
     let items =
@@ -496,18 +538,57 @@ let notes_list ~ctx =
           (group_releases releases)
       |> List.stable_sort (fun (d1, _) (d2, _) -> compare d2 d1)
     in
+    let month_top = !y in
+    let cursor = ref Snake.month_height in
+    let rows =
+      List.concat_map (fun (key, group) ->
+        let rows = List.map (fun (_, item) ->
+          let kind, build =
+            match item with
+            | `Note n ->
+              (Snake.Note,
+               fun ~y_rel ~y_abs -> sn_note ~ctx ~y_rel ~y_abs n)
+            | `Week n ->
+              (Snake.Week,
+               fun ~y_rel ~y_abs -> sn_week ~ctx ~y_rel ~y_abs n)
+            | `Release (t, rs) ->
+              (Snake.Release,
+               fun ~y_rel ~y_abs -> sn_release ~y_rel ~y_abs t rs)
+          in
+          let y_rel = !cursor in
+          cursor := !cursor +. Snake.height kind;
+          build ~y_rel ~y_abs:(month_top +. y_rel)) group
+        in
+        match Hashtbl.find_opt quiet_after key with
+        | Some q when q > 0 ->
+          let y_rel = !cursor in
+          cursor := !cursor +. Snake.height Snake.Quiet;
+          rows @ [sn_quiet ~y_rel q]
+        | _ -> rows) (by_week items)
+    in
+    let month_h = !cursor +. Snake.month_gap in
+    y := month_top +. month_h;
     El.div ~at:[At.id section_id;
                 At.v "data-month-id" month_id;
-                At.class' "tl-month"] [
-      El.div ~at:[At.class' "tl-month-head paper-year-header sticky top-0 bg-bg z-10 py-0.5"] [
-        El.txt (Printf.sprintf "%s %d" (Common.month_name_full m) y)];
-      El.div ~at:[At.class' "tl-weeks"]
-        (List.concat_map week_group (by_week items))]
+                At.class' "sn-month";
+                At.v "style" (pos_style ~top:month_top ~height:month_h)]
+      (sn_month_pill (Printf.sprintf "%s %d" (Common.month_name_full mo) yr)
+       :: rows)
   ) months in
+  let total = !y in
+  let spine =
+    let d = Snake.spine_path ~height:total in
+    El.unsafe_raw
+      (Printf.sprintf
+         {|<svg class="snake-spine" viewBox="0 0 %.2f %.2f" style="width:%.2fem;height:%.3fem" aria-hidden="true" focusable="false"><defs><linearGradient id="snake-grad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="%.2f"><stop offset="0" style="stop-color:var(--sn-note)"/><stop offset="0.5" style="stop-color:var(--sn-release)"/><stop offset="1" style="stop-color:var(--sn-week)"/></linearGradient></defs><path class="snake-halo" d="%s"/><path class="snake-line" d="%s"/></svg>|}
+         Snake.svg_width total Snake.svg_width total total d d)
+  in
   let article =
     El.article ~at:[At.class' "h-feed"] [
       Common.hidden_feed_meta ~ctx "Notes";
-      El.div ~at:[At.class' "timeline notes-journal min-w-0"] month_sections]
+      El.div ~at:[At.class' "snake notes-journal";
+                  At.v "style" (Printf.sprintf "height:%.3fem" total)]
+        (spine :: month_sections)]
   in
   let featured_rail =
     let featured =

@@ -145,3 +145,8 @@
  (deps
   (glob_files fixtures/notes/notes_no_releases.html))
  (libraries arod arod.component bushel htmlit))
+
+(test
+ (name test_snake)
+ (modules test_snake)
+ (libraries arod arod.component))

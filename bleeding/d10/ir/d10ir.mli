@@ -14,5 +14,5 @@ module Plan = Plan
 module Config = Config
 module Direct = Direct
 module Registry = Registry
-
 module Install_file = Install_file
+module Makefile = Makefile

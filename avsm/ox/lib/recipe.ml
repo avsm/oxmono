@@ -13,7 +13,7 @@ let path_var ~prefix ~name ~qualified = function
   | "toplevel" -> Some (prefix / "lib/toplevel")
   | _ -> None
 
-let resolver ~solution ~installed ~prefix ~build_dir ~jobs p =
+let resolver ?config_var ~solution ~installed ~prefix ~build_dir ~jobs p =
   let configs = Hashtbl.create 16 in
   let config pkg var =
     let conf =
@@ -67,7 +67,10 @@ let resolver ~solution ~installed ~prefix ~build_dir ~jobs p =
                  && List.mem var [ "native"; "native-tools"; "native-dynlink" ]
             ->
               bool true
-          | None -> Option.bind (path_var ~prefix ~name:pkg ~qualified var) str)
+          | None -> (
+              match path_var ~prefix ~name:pkg ~qualified var with
+              | Some path -> str path
+              | None -> Option.bind config_var (fun f -> f pkg var)))
     in
     if qualified then package_value ()
     else
@@ -169,22 +172,28 @@ let apply_env resolve env updates =
       replace_env env [ (update.envu_var, value) ])
     env updates
 
-let package_environment ~solution ~installed ~prefix ~build_dir ~jobs =
+let package_environment ?base_env ?config_var ~solution ~installed ~prefix
+    ~build_dir ~jobs () =
   List.fold_left
     (fun env q ->
       if List.mem (name q) installed then
         apply_env
-          (resolver ~solution ~installed ~prefix ~build_dir ~jobs q)
+          (resolver ?config_var ~solution ~installed ~prefix ~build_dir ~jobs q)
           env
           (OpamFile.OPAM.env q.Solve.opam)
       else env)
-    (environment ~prefix) solution.Solve.packages
+    (Option.value base_env ~default:(environment ~prefix))
+    solution.Solve.packages
 
-let build_environment ~solution ~installed ~prefix ~build_dir ~jobs p =
-  let env = package_environment ~solution ~installed ~prefix ~build_dir ~jobs in
+let build_environment ?base_env ?config_var ~solution ~installed ~prefix
+    ~build_dir ~jobs p =
+  let env =
+    package_environment ?base_env ?config_var ~solution ~installed ~prefix
+      ~build_dir ~jobs ()
+  in
   let env =
     apply_env
-      (resolver ~solution ~installed ~prefix ~build_dir ~jobs p)
+      (resolver ?config_var ~solution ~installed ~prefix ~build_dir ~jobs p)
       env
       (OpamFile.OPAM.build_env p.Solve.opam)
   in
@@ -202,22 +211,21 @@ let shell commands =
 
 let runtime_environment ~solution ~prefix ~jobs =
   let installed = List.map name solution.Solve.packages in
-  package_environment ~solution ~installed ~prefix ~build_dir:prefix ~jobs
+  package_environment ~solution ~installed ~prefix ~build_dir:prefix ~jobs ()
 
-let prepare ~solution ~installed ~jobs p ~prefix ~build_dir
-    (node : D10ir.Plan.node) =
-  let resolve = resolver ~solution ~installed ~prefix ~build_dir ~jobs p in
-  let env = build_environment ~solution ~installed ~prefix ~build_dir ~jobs p in
+let compile ?base_env ?config_var ~solution ~installed ~jobs p ~prefix
+    ~build_dir (node : D10ir.Plan.node) =
+  let resolve =
+    resolver ?config_var ~solution ~installed ~prefix ~build_dir ~jobs p
+  in
+  let env =
+    build_environment ?base_env ?config_var ~solution ~installed ~prefix
+      ~build_dir ~jobs p
+  in
   let substs =
     OpamFile.OPAM.substs p.opam
     |> List.map (fun b -> Source.safe_relative (OpamFilename.Base.to_string b))
   in
-  List.iter
-    (fun base ->
-      OpamFilter.expand_interpolations_in_file_full resolve
-        ~src:(OpamFilename.raw (build_dir / (base ^ ".in")))
-        ~dst:(OpamFilename.raw (build_dir / base)))
-    substs;
   let patches =
     OpamFile.OPAM.patches p.opam
     |> List.filter_map (fun (file, condition) ->
@@ -247,4 +255,95 @@ let prepare ~solution ~installed ~jobs p ~prefix ~build_dir
         ]
     ^ "\nfi\n"
   in
-  { node with script; env = Array.to_list env }
+  { node with script; env = Array.to_list env; substs }
+
+let prepare ~solution ~installed ~jobs p ~prefix ~build_dir node =
+  let node = compile ~solution ~installed ~jobs p ~prefix ~build_dir node in
+  let resolve = resolver ~solution ~installed ~prefix ~build_dir ~jobs p in
+  List.iter
+    (fun base ->
+      OpamFilter.expand_interpolations_in_file_full resolve
+        ~src:(OpamFilename.raw (build_dir / (base ^ ".in")))
+        ~dst:(OpamFilename.raw (build_dir / base)))
+    node.substs;
+  { node with substs = [] }
+
+let export ~solution ~installed ~jobs ~source_dir p node =
+  let prefix = node.D10ir.Plan.prefix in
+  let build_dir = prefix / ".build" in
+  let base_env =
+    [|
+      "PATH=" ^ prefix ^ "/bin:/usr/local/bin:/usr/bin:/bin";
+      "OCAMLPATH=" ^ prefix ^ "/lib";
+      "OCAMLFIND_DESTDIR=" ^ prefix ^ "/lib";
+      "CAML_LD_LIBRARY_PATH=" ^ prefix ^ "/lib/stublibs:" ^ prefix
+      ^ "/lib/ocaml/stublibs";
+      "OCAMLFIND_LDCONF=ignore";
+    |]
+  in
+  let bindings = Hashtbl.create 8 in
+  let config_var pkg variable =
+    if List.exists (fun p -> name p = pkg) solution.Solve.packages then (
+      let token = "D10_CONFIG_" ^ hash_fields [ pkg; variable ] in
+      Hashtbl.replace bindings token (".ox/config/" ^ pkg ^ ".config", variable);
+      Some (OpamTypes.S token))
+    else None
+  in
+  let p = { p with Solve.directory = prefix / ".opam-dir" } in
+  let resolve =
+    resolver ~config_var ~solution ~installed ~prefix ~build_dir ~jobs p
+  in
+  let static_resolve =
+    resolver ~solution ~installed ~prefix ~build_dir ~jobs p
+  in
+  let check_filter = function
+    | None -> ()
+    | Some f ->
+        List.iter
+          (fun v ->
+            if static_resolve v = None then
+              fail "Cannot export a filter depending on generated variable %s"
+                (OpamVariable.Full.to_string v))
+          (OpamFilter.variables f)
+  in
+  (* OpamFilter.commands substitutes undefined variables with empty strings.
+     A standalone export must reject those while the user can fix the recipe. *)
+  List.iter
+    (fun (args, condition) ->
+      check_filter condition;
+      if OpamFilter.opt_eval_to_bool resolve condition then
+        List.iter
+          (fun (arg, condition) ->
+            check_filter condition;
+            if OpamFilter.opt_eval_to_bool resolve condition then
+              match arg with
+              | OpamTypes.CString s ->
+                  ignore (OpamFilter.expand_string resolve s)
+              | CIdent s ->
+                  ignore
+                    (OpamFilter.ident_value resolve
+                       (OpamFilter.ident_of_string s)))
+          args)
+    (OpamFile.OPAM.build p.opam @ OpamFile.OPAM.install p.opam);
+  List.iter
+    (fun (_, filter) -> check_filter filter)
+    (OpamFile.OPAM.patches p.opam);
+  let node =
+    compile ~base_env ~config_var ~solution ~installed ~jobs p ~prefix
+      ~build_dir node
+  in
+  List.iter
+    (fun base ->
+      let input = source_dir / (base ^ ".in") in
+      let output = input ^ ".ox-subst" in
+      OpamFilter.expand_interpolations_in_file_full resolve
+        ~src:(OpamFilename.raw input) ~dst:(OpamFilename.raw output);
+      Unix.rename output input)
+    node.substs;
+  let bindings =
+    Hashtbl.fold
+      (fun token (file, variable) xs -> (token, file, variable) :: xs)
+      bindings []
+    |> List.sort compare
+  in
+  (node, bindings)

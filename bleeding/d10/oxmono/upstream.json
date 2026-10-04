@@ -7,6 +7,8 @@
     "lib/d10",
     "LICENSE.md",
     "lib/d10ir (excluding cmd)",
-    "test/d10"
+    "test/d10",
+    "lib/cmd/makefile_export.ml",
+    "test/oi/test_makefile_export.ml"
   ]
 }

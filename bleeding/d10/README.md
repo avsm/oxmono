@@ -22,6 +22,11 @@ Ox selects `Permanent` and disables host PATH augmentation.
 `snapshot` and `diff` compare contents, permissions and symlink targets, and
 reject deleted dependency files. Cached unions preserve layer order.
 
+[D10ir.Makefile](ir/makefile.mli) exports plans as standalone Makefiles with
+unpacked sources and shell helpers. It builds dependency layers at one shared
+prefix and installs selected application binaries and shared data. Deferred
+scalar configuration bindings are resolved from installed dependencies.
+
 ```sh
 dune build --profile release-check @bleeding/d10/all
 dune runtest --profile release-check --force bleeding/d10

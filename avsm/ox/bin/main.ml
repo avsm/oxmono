@@ -69,23 +69,8 @@ let stamp_cmd =
        ~doc:"Export committed monorepo packages as an opam repository.")
     Term.(ret (const stamp $ repo $ revision $ source $ output $ data))
 
-let run cache data toolchain repositories overlays from revision refresh jobs
-    cache_tag with_packages dry_run target args =
+let run config with_packages dry_run target args =
   guard @@ fun () ->
-  let config : Ox_lib.Runner.config =
-    {
-      cache;
-      data;
-      toolchain;
-      repositories;
-      overlays;
-      from;
-      revision;
-      refresh;
-      jobs;
-      cache_tag;
-    }
-  in
   let prepared =
     Eio_main.run @@ fun env ->
     let sys =
@@ -101,7 +86,7 @@ let run cache data toolchain repositories overlays from revision refresh jobs
   in
   if not dry_run then Ox_lib.Runner.exec prepared args
 
-let run_cmd =
+let config_term =
   let toolchain =
     Arg.(
       value & opt string "oxcaml"
@@ -149,12 +134,32 @@ let run_cmd =
           ~doc:
             "Additional cache identity, e.g. after changing system libraries.")
   in
-  let with_packages =
-    Arg.(
-      value & opt_all string []
-      & info [ "with" ] ~docv:"PACKAGE"
-          ~doc:"Package atoms providing the binary and additional dependencies.")
+  let make cache data toolchain repositories overlays from revision refresh jobs
+      cache_tag : Ox_lib.Runner.config =
+    {
+      cache;
+      data;
+      toolchain;
+      repositories;
+      overlays;
+      from;
+      revision;
+      refresh;
+      jobs;
+      cache_tag;
+    }
   in
+  Term.(
+    const make $ cache $ data $ toolchain $ repositories $ overlays $ from
+    $ revision $ refresh $ jobs $ tag)
+
+let with_packages =
+  Arg.(
+    value & opt_all string []
+    & info [ "with" ] ~docv:"PACKAGE"
+        ~doc:"Package atoms providing the binary and additional dependencies.")
+
+let run_cmd =
   let dry =
     Arg.(
       value & flag
@@ -169,16 +174,94 @@ let run_cmd =
   let args = Arg.(value & pos_right 0 string [] & info [] ~docv:"ARG") in
   Cmd.v
     (Cmd.info "run" ~doc:"Fetch dependencies, build, cache and run a binary.")
-    Term.(
-      ret
-        (const run $ cache $ data $ toolchain $ repositories $ overlays $ from
-       $ revision $ refresh $ jobs $ tag $ with_packages $ dry $ target $ args))
+    Term.(ret (const run $ config_term $ with_packages $ dry $ target $ args))
+
+let dist config with_packages tags arch pkg_name pkg_version maintainer output
+    build target =
+  guard @@ fun () ->
+  let targets = Ox_lib.Dist.targets tags arch in
+  Eio_main.run @@ fun env ->
+  let sys =
+    D10.Sysops.v
+      ~proc_mgr:(Eio.Stdenv.process_mgr env)
+      ~fs:(Eio.Stdenv.fs env) ~net:(Eio.Stdenv.net env)
+      ~clock:(Eio.Stdenv.clock env) ()
+  in
+  Ox_lib.Dist.run
+    (Eio.Stdenv.process_mgr env)
+    ~clock:(Eio.Stdenv.clock env) ~fs:(Eio.Stdenv.fs env) ~sys config ~target
+    ~with_packages ~targets ~pkg_name ~pkg_version ~maintainer ~output ~build
+
+let dist_cmd =
+  let tags =
+    Arg.(
+      value & opt string "debian-13"
+      & info [ "distros"; "target" ] ~docv:"TAGS"
+          ~doc:"Comma-separated osdist targets. Defaults to debian-13.")
+  in
+  let arch =
+    Arg.(
+      value & opt string "x86_64"
+      & info [ "arch" ] ~docv:"ARCH"
+          ~doc:
+            "Package architecture: x86_64 or aarch64. Containers use this \
+             platform.")
+  in
+  let pkg_name =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "pkg-name" ] ~docv:"NAME"
+          ~doc:"Native package name. Defaults to the first root package.")
+  in
+  let pkg_version =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "pkg-version" ] ~docv:"VERSION"
+          ~doc:"Override the resolved package version.")
+  in
+  let maintainer =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "maintainer" ] ~docv:"NAME <EMAIL>"
+          ~doc:"Override the opam package maintainer.")
+  in
+  let output =
+    Arg.(
+      required
+      & opt (some string) None
+      & info [ "o"; "output" ] ~docv:"DIR"
+          ~doc:"New directory for source bundles and packaging files.")
+  in
+  let build =
+    Arg.(
+      value & flag
+      & info [ "build" ]
+          ~doc:"Build the generated packages using Docker Compose.")
+  in
+  let target =
+    Arg.(required & pos 0 (some string) None & info [] ~docv:"BINARY")
+  in
+  let pkg =
+    Cmd.v
+      (Cmd.info "pkg"
+         ~doc:"Export source bundles and Debian, RPM or static packaging.")
+      Term.(
+        ret
+          (const dist $ config_term $ with_packages $ tags $ arch $ pkg_name
+         $ pkg_version $ maintainer $ output $ build $ target))
+  in
+  Cmd.group
+    (Cmd.info "dist" ~doc:"Generate native Linux distribution packages.")
+    [ pkg ]
 
 let () =
   let cmd =
     Cmd.group
       (Cmd.info "ox" ~version:"0.1.0"
          ~doc:"Run opam packages with OxCaml and a per-user local cache.")
-      [ run_cmd; stamp_cmd ]
+      [ run_cmd; stamp_cmd; dist_cmd ]
   in
   exit (Cmd.eval cmd)

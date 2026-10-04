@@ -95,6 +95,75 @@ declarations.
 Explicit `ox stamp` defaults to `$XDG_DATA_HOME/ox/overlay`. Use distinct `--output`
 directories to export further snapshots, then select them with `--overlay`.
 
+## Distribution packages
+
+```sh
+ox dist pkg --from=https://github.com/avsm/oxmono#minus39 \
+  --distros=debian-13,fedora-44 -o ./packages -- yamlcat
+sh ./packages/build.sh
+```
+
+This follows oi's source bundle workflow. Ox resolves each target's opam
+metadata, fetches the compiler and dependency sources, and exports the build
+plan through `D10ir.Makefile`. Osdist generates the native packaging files.
+The generated build uses GNU make and shell recipes. It requires neither ox
+nor the opam CLI, and includes its compiler sources.
+
+`ox dist pkg` generates files by default. Add `--build` to run the generated
+Docker Compose driver immediately. The driver tries every selected target
+and exits unsuccessfully if any build fails. It builds the container images,
+then runs them to compile and write packages under `artefacts/<tag>/`.
+Source export requires Python 3. Container builds require Docker Compose.
+
+The output directory must be new. Its layout is:
+
+```text
+packages/
+  bundle/<tag>/<package>-<version>.tar.gz
+  bundle/<tag>/<package>-<version>.tar.gz.sha256
+  bundle/<tag>/<package>-<version>.osdist.json
+  <tag>/Dockerfile
+  <tag>/debian/              # Debian and Ubuntu
+  <tag>/<package>.spec       # RPM
+  compose.yaml
+  build.sh
+  artefacts/<tag>/
+```
+
+Each build context contains its source archive. Each archive contains a
+Makefile, `build.sh`, resolved recipes, opam metadata and unpacked sources.
+Sources, patches and extra sources are fetched and checked during export.
+System dependencies and action filters are evaluated for the target Linux
+distribution. Bundles omit the exporting host's build environment and cache
+paths. Repeated exports of identical inputs produce identical archive hashes.
+
+The default target is `debian-13`. `--distros` also accepts `ubuntu-24.04`,
+`ubuntu-26.04`, `fedora-44` and `alpine-static`, separated by commas. Unknown
+tags are errors. `--arch` selects `x86_64` (default) or `aarch64` and sets the
+Docker platform. `--from`, `--ref`, `--repository`, `--overlay`, `--toolchain`,
+`--refresh`, `--with` and `-j` work as for `ox run`.
+
+Package metadata comes from the first requested opam package. Use `--pkg-name`,
+`--pkg-version` and `--maintainer` to override it. Versions starting with a
+letter receive a `0~` prefix. Hyphens become dots for RPM compatibility.
+Snapshot versions retain their `+ox` revision suffix. `SOURCE_DATE_EPOCH`
+sets the packaging changelog date when supplied.
+
+As in oi, installation copies the requested packages' `bin`, `sbin` and
+`share` files. This supports native applications whose OCaml dependencies are
+linked into their executables. Programs requiring a bytecode interpreter,
+private shared libraries or paths baked into their build prefix need additional
+packaging support. System shared libraries are handled by the native package
+tools. Generated scalar package configuration is read from the bundled build's
+installed dependencies. Action filters must be resolvable at export time. Alpine builds also require the project's recipes to honour
+`OI_STATIC=1` and an OxCaml toolchain that supports musl.
+
+Tests build and install an exported native fixture after removing its checkout
+and cache. They check target filters, patches, substitutions, symlinks, package
+metadata, archive reproducibility and driver failure propagation. A real
+`yamlcat` Debian export resolves 114 nodes including OxCaml 5.2.0minus39.
+Container builds and native package installation remain unverified.
+
 ## Repositories and cache
 
 Metadata order is the source snapshot, explicit overlays, the local data

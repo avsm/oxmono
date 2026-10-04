@@ -6,6 +6,9 @@
   opam-0install
   d10
   d10.ir
+  osdist
+  dockerfile
+  dockerfile-opam
   fmt
   eio
   eio.unix

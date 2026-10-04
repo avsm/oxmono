@@ -63,6 +63,30 @@ let source_overlay proc config source =
          ~output:path));
   path
 
+let repositories proc config ~target ~with_packages =
+  let source_repos =
+    Option.to_list config.from |> List.map (source_overlay proc config)
+  in
+  let overlays =
+    config.overlays
+    @
+    if exists (config.data / "overlay") then [ config.data / "overlay" ] else []
+  in
+  let bases =
+    if config.repositories = [] then Repository.defaults
+    else config.repositories
+  in
+  let repos =
+    List.map
+      (Repository.prepare proc ~data:config.data ~refresh:config.refresh)
+      (source_repos @ overlays @ bases)
+  in
+  let constraints, repos = Repository.constrain ~data:config.data repos in
+  let binary, roots = Repository.resolve_binary repos target with_packages in
+  if Filename.basename binary <> binary || List.mem binary [ "."; ".." ] then
+    fail "Expected a binary name: %s" binary;
+  (repos, binary, (config.toolchain :: constraints) @ roots)
+
 let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
   if config.jobs < 1 then fail "--jobs must be positive";
   mkdir config.cache;
@@ -78,27 +102,7 @@ let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
   let d10 : D10.Config.t =
     { sys; fs; clock; root = Eio.Path.(fs / cache); os_key }
   in
-  let source_repos =
-    Option.to_list config.from |> List.map (source_overlay proc config)
-  in
-  let overlays =
-    config.overlays
-    @ if exists (data / "overlay") then [ data / "overlay" ] else []
-  in
-  let bases =
-    if config.repositories = [] then Repository.defaults
-    else config.repositories
-  in
-  let repos =
-    List.map
-      (Repository.prepare proc ~data ~refresh:config.refresh)
-      (source_repos @ overlays @ bases)
-  in
-  let constraints, repos = Repository.constrain ~data repos in
-  let binary, roots = Repository.resolve_binary repos target with_packages in
-  if Filename.basename binary <> binary || List.mem binary [ "."; ".." ] then
-    fail "Expected a binary name: %s" binary;
-  let roots = (config.toolchain :: constraints) @ roots in
+  let repos, binary, roots = repositories proc config ~target ~with_packages in
   let cc =
     try capture proc [ "cc"; "--version" ] with Eio.Exn.Io _ -> "unavailable"
   in

@@ -32,3 +32,13 @@ val prepare :
 val exec : prepared -> string list -> 'a
 (** [exec prepared args] directly executes the binary with its layer
     environment. *)
+
+val repositories :
+  Support.proc ->
+  config ->
+  target:string ->
+  with_packages:string list ->
+  Repository.t list * string * string list
+(** [repositories proc config ~target ~with_packages] prepares the ordered
+    metadata repositories and resolves binary ownership and solver roots. The
+    caller must hold the data directory's metadata lock. *)

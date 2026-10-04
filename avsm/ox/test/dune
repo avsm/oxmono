@@ -9,3 +9,9 @@
  (deps day10.py)
  (action
   (run python3 %{dep:day10.py} %{exe:../bin/main.exe})))
+
+(rule
+ (alias runtest)
+ (deps dist.py)
+ (action
+  (run python3 %{dep:dist.py} %{exe:../bin/main.exe})))

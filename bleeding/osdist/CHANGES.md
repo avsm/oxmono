@@ -1,5 +1,7 @@
 # Changes
 
+- Attribute generated packaging files to osdist when used by other tools.
+
 - Add an explicit Osdist interface with API documentation and a usage example.
   Correct packaging, source bundle and repository documentation.
 - Give osdist its own project, package metadata and tests under `bleeding/osdist`.

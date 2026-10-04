@@ -1,5 +1,8 @@
 # Changes
 
+- Export resolved plans as standalone Makefile builds through `D10ir.Makefile`,
+  adapted from oi with build-path rebasing and static-build environment support.
+
 - Share recipe execution across staging and cached permanent prefixes, with
   safe writable assembly, content-based layer capture and source replay.
 

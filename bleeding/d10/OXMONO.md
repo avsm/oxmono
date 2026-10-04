@@ -24,3 +24,12 @@ adaptations, caller locking and cache immutability requirements. On refresh,
 map upstream `lib/d10` to `lib/` and `lib/d10ir` to `ir/`, preserve those
 adaptations and local tests, and run the README's scoped checks and the
 explicit vendor suites listed in the review.
+
+`ir/makefile.ml` and `test/unit/test_makefile.ml` are adapted from
+`lib/cmd/makefile_export.ml` and `test/oi/test_makefile_export.ml` at the same
+upstream commit. The exporter now lives in d10.ir and names its shell helpers
+`d10-build-node.sh` and `d10-install.sh`. Local changes rebase source and opam
+metadata paths, preserve `TMPDIR` and `OI_STATIC`, clear failed layers before
+retrying, rebase prepared substitution files, and resolve deferred scalar opam
+configuration values from staged dependencies. Ox's distribution tests
+exercise standalone builds and installation without ox or opam.

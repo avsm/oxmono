@@ -1,5 +1,8 @@
 # Changes
 
+- Add `ox dist pkg` to export standalone source bundles and osdist packaging
+  for Debian, Ubuntu, Fedora and Alpine, with optional Docker Compose builds.
+
 - Delegate recipe execution, prefix restoration and installed-file capture to
   d10, retaining permanent local prefixes and existing package cache keys.
 

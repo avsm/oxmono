@@ -3039,34 +3039,24 @@ let custom_css = {|
   overflow: hidden;
 }
 .sn-tag-list { display: contents; }
-/* A tag is a small chip: its name, and after a rule the number of notes that
-   carry it, in the colour of the name and a little stronger the more popular
-   the tag is. */
+/* A tag is a small chip. How many notes carry it is in its tooltip, and the
+   most popular tags come first. */
 .sn-tag {
-  display: inline-flex;
-  align-items: stretch;
+  display: inline-block;
+  padding: 0.3em 0.85em;
   font-size: 0.64em;
   line-height: 1.2;
   border-radius: 999px;
-  overflow: hidden;
   color: var(--color-secondary) !important;
   background: color-mix(in srgb, var(--color-muted) 9%, transparent);
   text-decoration: none !important;
   white-space: nowrap;
   transition: background 0.2s, color 0.2s;
 }
-.sn-tag-name { padding: 0.3em 0.6em 0.3em 0.8em; }
-.sn-tag-n {
-  padding: 0.3em 0.75em 0.3em 0.6em;
-  border-left: 1px solid color-mix(in srgb, var(--color-text) 12%, transparent);
-  font-variant-numeric: tabular-nums;
-  opacity: calc(0.6 + 0.4 * var(--pop, 0.5));
-}
 .sn-tag:hover {
   color: var(--sn-hl) !important;
   background: color-mix(in srgb, var(--sn-hl) 13%, transparent);
 }
-.sn-tag:hover .sn-tag-n { opacity: 1; }
 .sn-links {
   display: inline-flex;
   align-items: center;

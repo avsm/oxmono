@@ -351,8 +351,7 @@ let sn_words n =
                   (if w = 1 then "" else "s"))]]
 
 (** [tag_popularity ctx] is how many notes carry each plain or set tag, as a
-    function of the tag. It gives the count and a share from 0 to 1 on a log
-    scale, so that one very common tag does not flatten the rest. *)
+    function of the tag. *)
 let tag_popularity ctx =
   let counts = Hashtbl.create 64 in
   List.iter (fun n ->
@@ -362,37 +361,30 @@ let tag_popularity ctx =
         Hashtbl.replace counts k
           (1 + Option.value (Hashtbl.find_opt counts k) ~default:0)
       | _ -> ()) (Bushel.Entry.tags_of_ent (`Note n))) (Arod.Ctx.notes ctx);
-  let most = Hashtbl.fold (fun _ c acc -> max c acc) counts 1 in
-  fun tag ->
-    let c = Option.value (Hashtbl.find_opt counts tag) ~default:0 in
-    (c, log (1. +. float_of_int c) /. log (1. +. float_of_int most))
+  fun tag -> Option.value (Hashtbl.find_opt counts tag) ~default:0
 
 (** [sn_tags ?limit ~popularity n] is the column at the right of the row of
     [n]. It holds its plain and set tags, the most popular first and at most
     [limit] (default three), each a chip that links to a search for the tag.
-    The chip shows how many notes carry the tag, more strongly the more popular
-    it is. *)
+    A chip's tooltip says how many notes carry the tag. *)
 let sn_tags ?(limit = 3) ~popularity n =
   let tags =
     List.filter_map (function
       | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
       | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
     |> List.map (fun t -> (t, popularity t))
-    |> List.stable_sort (fun (a, (ca, _)) (b, (cb, _)) ->
+    |> List.stable_sort (fun (a, ca) (b, cb) ->
          let c = compare cb ca in if c <> 0 then c else String.compare a b)
     |> List.filteri (fun i _ -> i < limit)
   in
   El.div ~at:[At.class' "sn-tags"]
-    (List.map (fun (t, (count, share)) ->
+    (List.map (fun (t, count) ->
        El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
                  At.class' "sn-tag";
-                 At.v "style" (Printf.sprintf "--pop:%.2f" share);
                  At.v "title"
                    (Printf.sprintf "%d note%s" count
                       (if count = 1 then "" else "s"))]
-         [El.span ~at:[At.class' "sn-tag-name"] [El.txt t];
-          El.span ~at:[At.class' "sn-tag-n"] [El.txt (string_of_int count)]])
-       tags)
+         [El.txt t]) tags)
 
 (** [sn_note ~ctx ~popularity ~y_rel ~y_abs n] is journal note [n] as a row. *)
 let sn_note ~ctx ~popularity ~y_rel ~y_abs n =

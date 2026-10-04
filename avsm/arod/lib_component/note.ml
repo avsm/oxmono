@@ -380,11 +380,13 @@ let sn_week ~ctx ~y_rel ~y_abs n =
           El.time ~at:[At.class' "dt-published";
                        At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
             [El.txt (week_range (y, m, d))]];
-        El.a ~at:[At.href url; At.class' "sn-title sn-week-title p-name u-url"]
-          [El.txt (strip_weeknote_prefix (Note.title n))];
-        (if synopsis <> "" then
-           El.div ~at:[At.class' "sn-synopsis p-summary"] [El.txt synopsis]
-         else El.void)];
+        El.p ~at:[At.class' "sn-line"] [
+          El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
+            [El.txt (strip_weeknote_prefix (Note.title n))];
+          (if synopsis <> "" then
+             El.span ~at:[At.class' "sn-synopsis p-summary"]
+               [El.txt (" " ^ synopsis)]
+           else El.void)]];
       sn_tags ~limit:3 n]]
 
 (** [sn_release ~y_rel ~y_abs t rs] is the row for the releases [rs] of

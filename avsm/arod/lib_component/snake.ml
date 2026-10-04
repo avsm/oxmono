@@ -22,33 +22,33 @@ let seg = 13.0
 
 (** The column of nodes, and the width of the svg that holds the spine and the
     exits. *)
-let node_x = 6.4
+let node_x = 6.8
 
-let svg_width = 5.3
+let svg_width = 5.7
 
 type kind = Note | Week | Release | Quiet
 
 let height = function
   | Note -> 7.8
-  | Week -> 5.4
+  | Week -> 4.8
   | Release -> 2.3
   | Quiet -> 1.9
 
 (** The height from the top of a row to the centre of its node. *)
 let center = function
   | Note -> 3.2
-  | Week -> 2.7
+  | Week -> 2.4
   | Release -> 1.15
   | Quiet -> 0.95
 
-let radius = function Note -> 1.9 | Week -> 2.3 | Release -> 0.6 | Quiet -> 0.
+let radius = function Note -> 1.9 | Week -> 1.9 | Release -> 0.6 | Quiet -> 0.
 
 (** How far above its node an exit leaves the spine. *)
-let drop = function Note -> 4.4 | Week -> 3.6 | Release -> 1.8 | Quiet -> 0.
+let drop = function Note -> 1.6 | Week -> 1.6 | Release -> 1.1 | Quiet -> 0.
 
-let text_left kind =
-  node_x +. radius kind
-  +. (match kind with Note -> 0.6 | Week -> 0.8 | Release -> 0.5 | Quiet -> 0.)
+(** The left of the text of every kind of row, so that the text of notes,
+    weeknotes and releases lines up in one column. *)
+let text_left _ = node_x +. 2.5
 
 let month_height = 3.6
 let month_gap = 0.5
@@ -115,28 +115,25 @@ let lane_path ~y_abs ~start_y =
 
 (* The exit of the entry whose row begins [y_abs] down the timeline. Its
    coordinates are relative to the top of the row. It leaves the spine along the
-   spine's own direction and arrives level, so that it merges without a kink. *)
+   spine's own direction, turns in one smooth elbow, and runs level into its
+   node, so that the exits read as rails off a main line. *)
 let exit_ ~kind ~y_abs =
   let end_y = center kind in
   let start_y = end_y -. drop kind in
   let start_x = spine_x (y_abs +. start_y) in
   let end_x = node_x -. radius kind in
-  let dx = end_x -. start_x and dy = end_y -. start_y in
   let slope =
     (spine_x (y_abs +. start_y +. 0.05) -. spine_x (y_abs +. start_y -. 0.05))
     /. 0.1
   in
-  let chord = Float.hypot dx dy in
-  let l1 = 0.4 *. chord and l2 = 0.4 *. chord in
-  (* It arrives sloping gently down into the node, as a slip road does. *)
-  let slope_in = 0.4 in
+  let w = Float.min 1.8 (0.65 *. (end_x -. start_x)) in
+  let turn_x = start_x +. w in
   let path =
-    Printf.sprintf "M %.3f %.3f C %.3f %.3f %.3f %.3f %.3f %.3f" start_x
-      start_y
-      (start_x +. (slope *. l1))
-      (start_y +. l1)
-      (end_x -. l2)
-      (end_y -. (slope_in *. l2))
-      end_x end_y
+    Printf.sprintf "M %.3f %.3f C %.3f %.3f %.3f %.3f %.3f %.3f L %.3f %.3f"
+      start_x start_y
+      (start_x +. (slope *. 0.5 *. drop kind))
+      (start_y +. (0.55 *. drop kind))
+      (turn_x -. (0.6 *. w))
+      end_y turn_x end_y end_x end_y
   in
   { start_x; start_y; end_x; end_y; path; lane = lane_path ~y_abs ~start_y }

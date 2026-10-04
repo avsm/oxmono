@@ -2972,10 +2972,10 @@ let custom_css = {|
 .sn-week::before {
   content: "";
   position: absolute;
-  left: 4.1em;
+  left: 4.9em;
   right: 0;
-  top: 0.4em;
-  bottom: 0.4em;
+  top: 0.5em;
+  bottom: 0.5em;
   border-radius: 0.7em;
   background: color-mix(in srgb, var(--sn-week) 7%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sn-week) 22%, transparent);
@@ -2994,8 +2994,8 @@ let custom_css = {|
 }
 .sn-note .sn-text { top: 0.4em; height: 7.3em; align-items: flex-start; }
 .sn-week .sn-text {
-  top: 0.4em;
-  height: 4.6em;
+  top: 0.5em;
+  height: 3.8em;
   align-items: center;
   padding-right: 0.9em;
 }
@@ -3043,7 +3043,24 @@ let custom_css = {|
   text-decoration: none !important;
   transition: color 0.2s;
 }
-.sn-week-title { -webkit-line-clamp: 1; font-size: 0.92em; font-weight: 600; }
+/* A weeknote's title and synopsis run on as one paragraph. */
+.sn-line {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  margin: 0;
+  font-size: 0.86em;
+  line-height: 1.35;
+}
+.sn-line .sn-title, .sn-line .sn-synopsis {
+  display: inline;
+  font-size: 1em;
+  line-height: inherit;
+  margin: 0;
+}
+.sn-line .sn-title { font-weight: 600; }
+.sn-week .sn-body { flex-basis: 42em; }
 .sn-title:hover {
   color: var(--color-link) !important;
   text-decoration: underline dotted !important;
@@ -3056,7 +3073,6 @@ let custom_css = {|
   line-height: 1.42;
   color: var(--color-secondary);
 }
-.sn-week .sn-synopsis { -webkit-line-clamp: 2; font-size: 0.8em; line-height: 1.38; margin-top: 0.1em; }
 .sn-quiet {
   position: absolute;
   right: 0;

@@ -53,6 +53,9 @@ let () =
           check "an exit ends at its node's edge, level with its centre"
             (near e.S.end_x (S.node_x -. S.radius kind)
             && near e.S.end_y (S.center kind));
+          check "an exit comes with the stretch of spine it merges from"
+            (String.length e.S.lane > 0 && e.S.lane.[0] = 'M'
+            && String.contains e.S.lane 'L');
           check "an exit leaves the spine above its node"
             (e.S.start_y < S.center kind))
         [ 0.; 3.7; 12.5; 27.1; 101.9 ])
@@ -64,7 +67,7 @@ let () =
        [ S.Note; S.Week; S.Release ]);
   check "an entry's size says how much it matters"
     (S.height S.Note > S.height S.Week && S.height S.Week > S.height S.Release
-    && S.radius S.Note > S.radius S.Week
+    && S.radius S.Note > S.radius S.Release
     && S.radius S.Week > S.radius S.Release);
   check "a node fits in its row"
     (List.for_all

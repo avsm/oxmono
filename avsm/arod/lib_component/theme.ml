@@ -2857,7 +2857,6 @@ let custom_css = {|
   --sn-note: var(--color-accent);
   --sn-week: #c58a2a;
   --sn-release: #4f7fc0;
-  --sn-line: color-mix(in srgb, var(--color-muted) 65%, transparent);
   position: relative;
 }
 .dark .snake { --sn-week: #e0b25f; --sn-release: #86aaea; }
@@ -2875,8 +2874,8 @@ let custom_css = {|
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
 }
-.snake-line { stroke-width: 2.5px; opacity: 0.6; }
-.snake-halo { stroke-width: 9px; opacity: 0.16; }
+.snake-line { stroke-width: 2px; opacity: 0.42; }
+.snake-halo { stroke-width: 7px; opacity: 0.06; }
 .sn-month { position: absolute; left: 0; right: 0; }
 .sn-pill {
   position: absolute;
@@ -2889,13 +2888,12 @@ let custom_css = {|
   padding: 0 0.8em;
   border-radius: 999px;
   background: var(--color-bg);
-  color: var(--color-text);
-  box-shadow: inset 0 0 0 1.5px var(--sn-note),
-    0 0.25em 1em color-mix(in srgb, var(--sn-note) 28%, transparent);
+  color: var(--color-secondary);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sn-note) 45%, transparent);
 }
 .sn-pill span {
-  font-size: 0.72em;
-  font-weight: 650;
+  font-size: 0.7em;
+  font-weight: 600;
   letter-spacing: 0.15em;
   text-transform: uppercase;
 }
@@ -2904,41 +2902,47 @@ let custom_css = {|
   position: absolute;
   left: 0;
   right: 0;
-  transition: opacity 0.25s;
 }
 .sn-week { --sn-c: var(--sn-week); }
 .sn-release { --sn-c: var(--sn-release); }
 .sn-exit { position: absolute; left: 0; overflow: visible; pointer-events: none; }
+.sn-exit-path, .sn-lane, .sn-flow {
+  fill: none;
+  stroke: var(--sn-c);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
 .sn-exit-path {
-  fill: none;
-  stroke: var(--sn-c);
-  stroke-width: 3px;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
-  opacity: 0.72;
-  transition: opacity 0.25s, stroke-width 0.25s, filter 0.25s;
+  stroke-width: 2px;
+  opacity: 0.4;
+  transition: opacity 0.3s;
 }
-.sn-week .sn-exit-path { stroke-width: 2px; }
+.sn-week .sn-exit-path { stroke-width: 1.6px; }
 .sn-release .sn-exit-path {
-  stroke-width: 1.6px;
+  stroke-width: 1.4px;
   stroke-dasharray: 0.5 4.5;
-  opacity: 0.85;
+  opacity: 0.6;
 }
-/* A wider, fainter copy of the exit that shows when its entry is pointed at. */
-.sn-exit-glow {
-  fill: none;
-  stroke: var(--sn-c);
-  stroke-width: 10px;
-  stroke-linecap: round;
-  vector-effect: non-scaling-stroke;
+/* On hover the stretch of spine that the exit leaves from takes the entry's
+   colour, and marks flow along the exit towards its node. */
+.sn-lane {
+  stroke-width: 2.4px;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+.sn-flow {
+  stroke-width: 2px;
+  stroke-dasharray: 1 10;
   opacity: 0;
   transition: opacity 0.3s;
 }
 .sn-port {
   fill: var(--color-bg);
   stroke: var(--sn-c);
-  stroke-width: 1.6px;
+  stroke-width: 1.2px;
   vector-effect: non-scaling-stroke;
+  opacity: 0.6;
 }
 .sn-node {
   position: absolute;
@@ -2948,41 +2952,73 @@ let custom_css = {|
   justify-content: center;
   box-sizing: border-box;
   overflow: hidden;
-  background: color-mix(in srgb, var(--sn-c) 14%, var(--color-bg));
+  background: color-mix(in srgb, var(--sn-c) 10%, var(--color-bg));
   color: var(--sn-c);
-  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.3s;
+  transition: box-shadow 0.3s;
 }
 .sn-node-note {
   border-radius: 50%;
-  box-shadow: 0 0 0 0.16em var(--color-bg), 0 0 0 0.3em var(--sn-c),
-    0 0.5em 1em -0.3em color-mix(in srgb, var(--sn-c) 45%, transparent);
-}
-.sn-node-week {
-  border-radius: 34%;
-  box-shadow: 0 0 0 0.14em var(--color-bg), 0 0 0 0.24em var(--sn-c);
+  box-shadow: 0 0 0 0.14em var(--color-bg),
+    0 0 0 0.22em color-mix(in srgb, var(--sn-c) 45%, transparent);
 }
 .sn-node-release {
   border-radius: 50%;
-  box-shadow: 0 0 0 0.12em var(--color-bg), 0 0 0 0.2em var(--sn-c);
+  box-shadow: 0 0 0 0.12em var(--color-bg),
+    0 0 0 0.18em color-mix(in srgb, var(--sn-c) 55%, transparent);
 }
 .sn-node-img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.sn-week .sn-node-img { filter: sepia(0.55) saturate(0.85); transition: filter 0.3s; }
-/* A weeknote's row is tinted from its node, which sets it apart from a note. */
+/* A weeknote is a card. Its square thumbnail is the card's left end and shares
+   its height, so that the two read as one piece. */
 .sn-week::before {
   content: "";
   position: absolute;
-  left: 4.3em;
+  left: 4.1em;
   right: 0;
-  top: 0.25em;
-  bottom: 0.25em;
-  border-radius: 1.5em 0.6em 0.6em 1.5em;
-  background: linear-gradient(90deg,
-    color-mix(in srgb, var(--sn-week) 17%, transparent),
-    color-mix(in srgb, var(--sn-week) 5%, transparent) 65%, transparent);
+  top: 0.4em;
+  bottom: 0.4em;
+  border-radius: 0.7em;
+  background: color-mix(in srgb, var(--sn-week) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sn-week) 22%, transparent);
+  transition: box-shadow 0.3s;
 }
-.sn-text { position: absolute; right: 0.5em; overflow: hidden; }
-.sn-note .sn-text { top: 0.5em; height: 5.8em; }
-.sn-week .sn-text { top: 0.55em; height: 3.2em; }
+.sn-node-week {
+  border-radius: 0.7em 0 0 0.7em;
+}
+.sn-week .sn-node-img { filter: sepia(0.35) saturate(0.9); transition: filter 0.3s; }
+.sn-text {
+  position: absolute;
+  right: 0.5em;
+  overflow: hidden;
+  display: flex;
+  gap: 1.2em;
+}
+.sn-note .sn-text { top: 0.4em; height: 7.3em; align-items: flex-start; }
+.sn-week .sn-text {
+  top: 0.4em;
+  height: 4.6em;
+  align-items: center;
+  padding-right: 0.9em;
+}
+/* The reading column is kept to a comfortable measure, and the tags take the
+   space beyond it. */
+.sn-body { flex: 0 1 31em; min-width: 0; }
+.sn-tags {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1em;
+  padding-top: 0.2em;
+}
+.sn-week .sn-tags { justify-content: center; align-self: stretch; padding-top: 0; }
+.sn-tag {
+  font-size: 0.7em;
+  color: var(--color-muted) !important;
+  text-decoration: none !important;
+  white-space: nowrap;
+}
+.sn-tag:hover { color: var(--color-link) !important; }
 .sn-meta {
   display: block;
   font-size: 0.66em;
@@ -2990,34 +3026,36 @@ let custom_css = {|
   letter-spacing: 0.1em;
   line-height: 1.5;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--sn-c) 70%, var(--color-muted));
+  color: color-mix(in srgb, var(--sn-c) 65%, var(--color-muted));
 }
 .sn-title, .sn-synopsis {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
   overflow: hidden;
 }
 .sn-title {
-  font-size: 1.05em;
+  -webkit-line-clamp: 2;
+  font-size: 1.02em;
   font-weight: 650;
-  line-height: 1.28;
+  line-height: 1.3;
   color: var(--color-text) !important;
   text-decoration: none !important;
   transition: color 0.2s;
 }
-.sn-week-title { font-size: 0.9em; font-weight: 560; }
+.sn-week-title { -webkit-line-clamp: 1; font-size: 0.92em; font-weight: 600; }
 .sn-title:hover {
   color: var(--color-link) !important;
   text-decoration: underline dotted !important;
   text-decoration-color: var(--color-link-ul) !important;
 }
 .sn-synopsis {
+  -webkit-line-clamp: 3;
   margin-top: 0.2em;
   font-size: 0.85em;
   line-height: 1.42;
   color: var(--color-secondary);
 }
+.sn-week .sn-synopsis { -webkit-line-clamp: 2; font-size: 0.8em; line-height: 1.38; margin-top: 0.1em; }
 .sn-quiet {
   position: absolute;
   right: 0;
@@ -3036,7 +3074,6 @@ let custom_css = {|
 .sn-release .sn-text {
   top: 0;
   bottom: 0;
-  display: flex;
   align-items: center;
   gap: 0.5em;
   white-space: nowrap;
@@ -3069,16 +3106,27 @@ let custom_css = {|
   opacity: 0.9;
 }
 .release-registry:hover { color: var(--sn-release) !important; opacity: 1; }
-/* Pointing at an entry lifts its node, lights its exit and quietens the rest. */
-.sn-item:hover .sn-node, .sn-node:focus-visible {
-  transform: scale(1.1);
-  box-shadow: 0 0 0 0.16em var(--color-bg), 0 0 0 0.3em var(--sn-c),
-    0 0 1.8em 0.35em color-mix(in srgb, var(--sn-c) 50%, transparent);
+/* Pointing at an entry lights only its own way off the spine. */
+.sn-item:hover .sn-exit-path { opacity: 0.9; }
+.sn-item:hover .sn-lane { opacity: 0.8; }
+.sn-item:hover .sn-flow { opacity: 0.9; animation: sn-drive 1.4s linear infinite; }
+.sn-item:hover .sn-port { opacity: 1; fill: var(--sn-c); }
+.sn-item:hover .sn-node-note,
+.sn-item:hover .sn-node-release,
+.sn-node:focus-visible {
+  box-shadow: 0 0 0 0.14em var(--color-bg), 0 0 0 0.26em var(--sn-c);
 }
-.sn-item:hover .sn-exit-path { opacity: 1; stroke-width: 4px; }
-.sn-item:hover .sn-exit-glow { opacity: 0.24; }
 .sn-item:hover .sn-node-img { filter: none; }
-.snake:has(.sn-item:hover) .sn-item:not(:hover) { opacity: 0.5; }
+.sn-week:hover::before {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--sn-week) 55%, transparent);
+}
+@keyframes sn-drive { to { stroke-dashoffset: -11; } }
+@media (prefers-reduced-motion: reduce) {
+  .sn-item:hover .sn-flow { animation: none; }
+}
+@media (max-width: 860px) {
+  .sn-tags { display: none; }
+}
 /* While a tag filter is on, hidden entries would leave holes in fixed rows, so
    the timeline becomes a plain list. */
 .snake.is-filtered { height: auto !important; }

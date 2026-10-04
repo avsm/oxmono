@@ -22,33 +22,33 @@ let seg = 13.0
 
 (** The column of nodes, and the width of the svg that holds the spine and the
     exits. *)
-let node_x = 5.9
+let node_x = 6.4
 
-let svg_width = 4.8
+let svg_width = 5.3
 
 type kind = Note | Week | Release | Quiet
 
 let height = function
-  | Note -> 6.6
-  | Week -> 4.2
+  | Note -> 7.8
+  | Week -> 5.4
   | Release -> 2.3
   | Quiet -> 1.9
 
 (** The height from the top of a row to the centre of its node. *)
 let center = function
-  | Note -> 3.1
-  | Week -> 2.1
+  | Note -> 3.2
+  | Week -> 2.7
   | Release -> 1.15
   | Quiet -> 0.95
 
-let radius = function Note -> 1.9 | Week -> 1.2 | Release -> 0.6 | Quiet -> 0.
+let radius = function Note -> 1.9 | Week -> 2.3 | Release -> 0.6 | Quiet -> 0.
 
 (** How far above its node an exit leaves the spine. *)
-let drop = function Note -> 2.6 | Week -> 1.7 | Release -> 1.0 | Quiet -> 0.
+let drop = function Note -> 3.0 | Week -> 2.4 | Release -> 1.3 | Quiet -> 0.
 
 let text_left kind =
   node_x +. radius kind
-  +. (match kind with Note -> 0.6 | Week -> 0.55 | Release -> 0.5 | Quiet -> 0.)
+  +. (match kind with Note -> 0.6 | Week -> 0.8 | Release -> 0.5 | Quiet -> 0.)
 
 let month_height = 3.6
 let month_gap = 0.5
@@ -95,21 +95,42 @@ type exit_ = {
   end_x : float;
   end_y : float;
   path : string;
+  lane : string;
 }
 
+(* The stretch of the spine around [y] that an exit merges from, as a path in
+   coordinates relative to the row that begins [y_abs]. It is sampled, which is
+   exact enough for a stroke as thin as the spine. *)
+let lane_path ~y_abs ~start_y =
+  let b = Buffer.create 128 in
+  let step = 0.2 in
+  let n = int_of_float (3.2 /. step) in
+  for i = 0 to n do
+    let y = start_y -. 2.0 +. (float_of_int i *. step) in
+    Buffer.add_string b
+      (Printf.sprintf "%s %.3f %.3f" (if i = 0 then "M" else " L")
+         (spine_x (y_abs +. y)) y)
+  done;
+  Buffer.contents b
+
 (* The exit of the entry whose row begins [y_abs] down the timeline. Its
-   coordinates are relative to the top of the row. *)
+   coordinates are relative to the top of the row. It leaves the spine along the
+   spine's own direction and arrives level, so that it merges without a kink. *)
 let exit_ ~kind ~y_abs =
   let end_y = center kind in
   let start_y = end_y -. drop kind in
   let start_x = spine_x (y_abs +. start_y) in
   let end_x = node_x -. radius kind in
   let dx = end_x -. start_x and dy = end_y -. start_y in
+  let slope =
+    (spine_x (y_abs +. start_y +. 0.05) -. spine_x (y_abs +. start_y -. 0.05))
+    /. 0.1
+  in
+  let l1 = 0.5 *. dy and l2 = Float.max 0.6 (0.55 *. dx) in
   let path =
     Printf.sprintf "M %.3f %.3f C %.3f %.3f %.3f %.3f %.3f %.3f" start_x
-      start_y start_x
-      (start_y +. (0.65 *. dy))
-      (start_x +. (0.5 *. dx))
-      end_y end_x end_y
+      start_y
+      (start_x +. (slope *. l1))
+      (start_y +. l1) (end_x -. l2) end_y end_x end_y
   in
-  { start_x; start_y; end_x; end_y; path }
+  { start_x; start_y; end_x; end_y; path; lane = lane_path ~y_abs ~start_y }

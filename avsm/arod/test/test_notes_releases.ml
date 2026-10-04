@@ -254,7 +254,7 @@ let () =
   (* The page without releases is pinned. It was first rendered by the code from
      before releases existed. It was regenerated deliberately each time the
      notes view was redesigned: as a single timeline, with week branches and
-     round bullets, and as one snaking spine with exits. *)
+     round bullets, and as one snaking spine with exits, and again for a subtler look with cards. *)
   check "the page matches the one rendered before releases existed"
     (render ()
     = In_channel.with_open_bin "fixtures/notes/notes_no_releases.html"

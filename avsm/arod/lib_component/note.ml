@@ -270,12 +270,12 @@ let pos_style ~top ~height =
     begins [y_abs] down the timeline. It starts on the spine, above the row. *)
 let exit_svg kind ~y_abs =
   let e = Snake.exit_ ~kind ~y_abs in
-  let top = -3.2 in
+  let top = -4.0 in
   let h = Snake.height kind -. top in
   Printf.sprintf
-    {|<svg class="sn-exit" viewBox="0 %.2f %.2f %.2f" style="top:%.2fem;width:%.2fem;height:%.2fem" aria-hidden="true" focusable="false"><path class="sn-exit-glow" d="%s"/><path class="sn-exit-path" d="%s"/><circle class="sn-port" cx="%.3f" cy="%.3f" r="0.2"/></svg>|}
-    top Snake.svg_width h top Snake.svg_width h e.Snake.path e.Snake.path
-    e.Snake.start_x e.Snake.start_y
+    {|<svg class="sn-exit" viewBox="0 %.2f %.2f %.2f" style="top:%.2fem;width:%.2fem;height:%.2fem" aria-hidden="true" focusable="false"><path class="sn-lane" d="%s"/><path class="sn-exit-path" d="%s"/><path class="sn-flow" d="%s"/><circle class="sn-port" cx="%.3f" cy="%.3f" r="0.2"/></svg>|}
+    top Snake.svg_width h top Snake.svg_width h e.Snake.lane e.Snake.path
+    e.Snake.path e.Snake.start_x e.Snake.start_y
 
 (** [node_style kind] is the position and size of the node of a row of
     [kind]. *)
@@ -306,6 +306,21 @@ let sn_node ~ctx ~url ~kind ~label ~icon ~size entry =
 let text_style kind =
   Printf.sprintf "left:%.3fem" (Snake.text_left kind)
 
+(** [sn_tags n] is the column of tags of [n], which fills the right of its row.
+    Only plain and set tags are shown, at most five. Each links to a search for
+    it. *)
+let sn_tags n =
+  let tags =
+    List.filter_map (function
+      | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
+      | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
+  in
+  let tags = List.filteri (fun i _ -> i < 5) tags in
+  El.div ~at:[At.class' "sn-tags"]
+    (List.map (fun t ->
+       El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
+                 At.class' "sn-tag"] [El.txt ("#" ^ t)]) tags)
+
 (** [sn_note ~ctx ~y_rel ~y_abs n] is journal note [n] as a row. *)
 let sn_note ~ctx ~y_rel ~y_abs n =
   let (y, m, d) = Bushel.Entry.date (`Note n) in
@@ -325,14 +340,16 @@ let sn_note ~ctx ~y_rel ~y_abs n =
     sn_node ~ctx ~url ~kind:Snake.Note ~label:"note" ~icon:Arod.Icons.note_o
       ~size:22 (Some (`Note n));
     El.div ~at:[At.class' "sn-text"; At.v "style" (text_style Snake.Note)] [
-      El.time ~at:[At.class' "sn-meta dt-published";
-                   At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
-        [El.txt (short_date (y, m, d))];
-      El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
-        [El.txt (Note.title n)];
-      (if synopsis <> "" then
-         El.div ~at:[At.class' "sn-synopsis p-summary"] [El.txt synopsis]
-       else El.void)]]
+      El.div ~at:[At.class' "sn-body"] [
+        El.time ~at:[At.class' "sn-meta dt-published";
+                     At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+          [El.txt (short_date (y, m, d))];
+        El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
+          [El.txt (Note.title n)];
+        (if synopsis <> "" then
+           El.div ~at:[At.class' "sn-synopsis p-summary"] [El.txt synopsis]
+         else El.void)];
+      sn_tags n]]
 
 (** [sn_week ~ctx ~y_rel ~y_abs n] is weeknote [n] as a row. Its node is a
     rounded square and its row is tinted, so that it is not mistaken for a
@@ -340,6 +357,7 @@ let sn_note ~ctx ~y_rel ~y_abs n =
 let sn_week ~ctx ~y_rel ~y_abs n =
   let (y, m, d) = Note.date n in
   let (_, wk) = Note.week_number n in
+  let synopsis = Option.value (Note.synopsis n) ~default:"" in
   let url = Bushel.Entry.site_url (`Note n) in
   let tags_data =
     String.concat ","
@@ -355,14 +373,19 @@ let sn_week ~ctx ~y_rel ~y_abs n =
     sn_node ~ctx ~url ~kind:Snake.Week ~label:"week"
       ~icon:Arod.Icons.calendar_week_o ~size:18 (Some (`Note n));
     El.div ~at:[At.class' "sn-text"; At.v "style" (text_style Snake.Week)] [
-      El.div ~at:[At.class' "sn-meta"] [
-        El.txt (Printf.sprintf "Week %d" wk);
-        El.txt " \xC2\xB7 ";
-        El.time ~at:[At.class' "dt-published";
-                     At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
-          [El.txt (week_range (y, m, d))]];
-      El.a ~at:[At.href url; At.class' "sn-title sn-week-title p-name u-url"]
-        [El.txt (strip_weeknote_prefix (Note.title n))]]]
+      El.div ~at:[At.class' "sn-body"] [
+        El.div ~at:[At.class' "sn-meta"] [
+          El.txt (Printf.sprintf "Week %d" wk);
+          El.txt " \xC2\xB7 ";
+          El.time ~at:[At.class' "dt-published";
+                       At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
+            [El.txt (week_range (y, m, d))]];
+        El.a ~at:[At.href url; At.class' "sn-title sn-week-title p-name u-url"]
+          [El.txt (strip_weeknote_prefix (Note.title n))];
+        (if synopsis <> "" then
+           El.div ~at:[At.class' "sn-synopsis p-summary"] [El.txt synopsis]
+         else El.void)];
+      sn_tags n]]
 
 (** [sn_release ~y_rel ~y_abs t rs] is the row for the releases [rs] of
     repository [t], newest first, made in one month. It is the smallest row: a

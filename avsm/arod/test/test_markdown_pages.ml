@@ -335,5 +335,109 @@ let () =
   check "a contact with no feed is not listed"
     (not (contains md "No Feed"));
   check "feeds are linked by type"
-    (contains md "[Atom](https://amy.example/feed.xml)");
+    (contains md "[Atom](https://amy.example/feed.xml)")
+
+(* {1 Entries} *)
+
+let () =
+  let n =
+    { (note ~slug:"tagged" ~title:"Tagged" ~date:(2026, 1, 2) ()) with
+      Bushel.Note.body =
+        "On [systems](##systems) and [##fp], not [plain](https://x.example)." }
+  in
+  let md =
+    Arod_component.Markdown_export.entry_to_markdown
+      ~ctx:(ctx_of ~notes:[ n ] ()) (`Note n)
+  in
+  check "a tag link shows its hash, as the HTML shows it"
+    (contains md "[#systems](https://example.com/tags/systems)"
+    && contains md "[#fp](https://example.com/tags/fp)");
+  check "a link that is not a tag has no hash"
+    (contains md "[plain](https://x.example)")
+
+let paper_entry ?(projects = []) ~slug ~title ~year () : Bushel.Paper.t =
+  { Bushel.Paper.slug; ver = "1"; title; authors = [ "Ada Lovelace"; "B. Bee" ];
+    year; month = 6; bibtype = "article"; publisher = "A Publisher";
+    booktitle = ""; journal = "A Journal"; institution = ""; pages = "";
+    volume = Some "7"; number = None; doi = Some "10.1/paper";
+    url = Some "https://www.journal.example/paper"; video = None; isbn = "";
+    editor = ""; bib = ""; tags = []; projects; slides = [];
+    abstract = "The abstract text."; latest = true; selected = false;
+    classification = None; note = None; social = None }
+
+let link_between source target target_type =
+  { Bushel.Link_graph.source; target; target_type }
+
+let () =
+  let paper = paper_entry ~slug:"p1" ~title:"A Paper" ~year:2025 ~projects:[ "big" ] () in
+  let early =
+    { (note ~slug:"early" ~title:"Early Note" ~date:(2025, 1, 1)
+         ~synopsis:(Some "Early synopsis.") ()) with
+      Bushel.Note.body = "Early body." }
+  in
+  let late =
+    { (note ~slug:"late" ~title:"Late Note" ~date:(2025, 9, 1) ()) with
+      Bushel.Note.body = "Late body." }
+  in
+  let target =
+    { (note ~slug:"target" ~title:"Target" ~date:(2025, 5, 1) ()) with
+      Bushel.Note.body = "Target body." }
+  in
+  let vid =
+    video ~slug:"v1" ~title:"A Video" ~date:(2025, 2, 1) "The description."
+  in
+  let ctx_with_graph =
+    let entries =
+      Bushel.Entry.v ~papers:[ paper ] ~notes:[ early; late; target ]
+        ~projects:ideas_projects ~ideas ~videos:[ vid ] ~contacts:[]
+        ~data_dir:"." ()
+    in
+    let entries =
+      Bushel.Entry.with_graph entries
+        (Bushel.Link_graph.v
+           ~internal_links:
+             [ link_between "early" "target" `Note;
+               link_between "late" "target" `Note;
+               link_between "late" "big" `Project ]
+           ~external_links:[])
+    in
+    Arod.Ctx.of_entries ~config:cfg entries
+  in
+  let export ent =
+    Arod_component.Markdown_export.entry_to_markdown ~ctx:ctx_with_graph ent
+  in
+  let md_paper = export (`Paper paper) in
+  check "a paper gives its authors, its links and then its abstract"
+    (before md_paper "Authors:" "Links:"
+    && before md_paper "Links:" "## Abstract"
+    && before md_paper "## Abstract" "The abstract text.");
+  check "a paper's links are in the order of the page"
+    (before md_paper "[BIB]" "[DOI]" && before md_paper "[DOI]" "[URL]");
+  let md_video = export (`Video vid) in
+  check "a video says where to watch it before its description"
+    (before md_video "Watch: <https://videos.example/v1>" "The description.");
+  let md_idea =
+    export (`Idea (List.find (fun i -> Bushel.Idea.slug i = "a") ideas))
+  in
+  check "an idea gives its status line before its body"
+    (before md_idea "Status: Available" "A opens here.");
+  let md_target = export (`Note target) in
+  check "related content lists the entries that link to a note, newest first"
+    (before md_target "[Late Note]" "[Early Note]"
+    && before md_target "## Related" "[Late Note]");
+  check "a related entry has the detail line of its row"
+    (contains md_target "Early synopsis.");
+  check "a note that cites nothing has no references"
+    (not (contains md_target "## References"));
+  let md_project =
+    export (`Project (List.find (fun p -> Bushel.Project.slug p = "big") ideas_projects))
+  in
+  check "a project lists its ideas and then its activity"
+    (before md_project "## Ideas" "## Activity"
+    && before md_project "[Open Big A]" "## Activity");
+  check "a project's activity includes its papers and the notes that link to it"
+    (before md_project "## Activity" "[A Paper]"
+    && contains md_project "[Late Note]");
+  check "a project has no related section, as its page has none"
+    (not (contains md_project "## Related"));
   Printf.printf "test_markdown_pages: %d checks passed\n" !checks

@@ -195,9 +195,10 @@ let entry_links ~ctx slug =
 
 let ptime_date_short = Common.ptime_date_short
 
-(** [activity_row ~ctx ent] is an activity row for [ent]. *)
-let activity_row ~ctx ent =
-  let open Htmlit in
+(** [activity_detail ~ctx ent] is the line under the title of [ent] in an
+    activity row: the authors and venue of a paper, the status and level of an
+    idea, the synopsis or length of a note, or the opening of a video. *)
+let activity_detail ~ctx ent =
   let contacts = Arod.Ctx.contacts ctx in
   let contact_name handle =
     List.find_map (fun c ->
@@ -207,50 +208,47 @@ let activity_row ~ctx ent =
     ) contacts
   in
   let plain md = Bushel.Md.plain_text_of_markdown ~contact_name md in
+  match ent with
+  | `Paper paper ->
+    let authors = Paper.authors paper in
+    let author_str = match authors with
+      | [] -> ""
+      | [a] -> a
+      | a :: b :: _ -> a ^ ", " ^ b ^
+        (if List.length authors > 2 then " et al." else "")
+    in
+    let venue = Paper.booktitle paper in
+    let venue_str = if venue <> "" then venue else Paper.journal paper in
+    let parts = List.filter (fun s -> s <> "") [author_str; venue_str] in
+    if parts = [] then None else Some (String.concat " \xe2\x80\x94 " parts)
+  | `Idea i ->
+    let status = Bushel.Idea.status_to_string (Bushel.Idea.status i) in
+    let level = match Bushel.Idea.level i with
+      | Bushel.Idea.Any -> ""
+      | _ -> Common.idea_level_to_string (Bushel.Idea.level i)
+    in
+    Some (String.concat " \xc2\xb7 "
+            (List.filter (fun s -> s <> "") [status; level]))
+  | `Note n ->
+    (match Bushel.Note.synopsis n with
+     | Some syn -> Some (plain syn)
+     | None ->
+       let wc = Bushel.Note.words n in
+       if wc > 0 then Some (Printf.sprintf "%d words" wc) else None)
+  | `Video v ->
+    let desc = Bushel.Video.description v in
+    if desc <> "" then Some (plain desc) else None
+  | `Project _ -> None
+
+(** [activity_row ~ctx ent] is an activity row for [ent]. *)
+let activity_row ~ctx ent =
+  let open Htmlit in
   let type_icon = entry_type_icon ~size:12 ent in
   let date_str = ptime_date_short (Entry.date ent) in
-  let detail_el = match ent with
-    | `Paper paper ->
-      let authors = Paper.authors paper in
-      let author_str = match authors with
-        | [] -> ""
-        | [a] -> a
-        | a :: b :: _ -> a ^ ", " ^ b ^
-          (if List.length authors > 2 then " et al." else "")
-      in
-      let venue = Paper.booktitle paper in
-      let venue_str = if venue <> "" then venue else Paper.journal paper in
-      let parts = List.filter (fun s -> s <> "") [author_str; venue_str] in
-      if parts = [] then El.void
-      else El.div ~at:[At.class' "project-activity-detail"]
-        [El.txt (String.concat " \xe2\x80\x94 " parts)]
-    | `Idea i ->
-      let status = Bushel.Idea.status_to_string (Bushel.Idea.status i) in
-      let level = match Bushel.Idea.level i with
-        | Bushel.Idea.Any -> ""
-        | _ -> Common.idea_level_to_string (Bushel.Idea.level i)
-      in
-      let parts = List.filter (fun s -> s <> "") [status; level] in
-      El.div ~at:[At.class' "project-activity-detail"]
-        [El.txt (String.concat " \xc2\xb7 " parts)]
-    | `Note n ->
-      (match Bushel.Note.synopsis n with
-       | Some syn ->
-         El.div ~at:[At.class' "project-activity-detail"]
-           [El.txt (plain syn)]
-       | None ->
-         let wc = Bushel.Note.words n in
-         if wc > 0 then
-           El.div ~at:[At.class' "project-activity-detail"]
-             [El.txt (Printf.sprintf "%d words" wc)]
-         else El.void)
-    | `Video v ->
-      let desc = Bushel.Video.description v in
-      if desc <> "" then
-        El.div ~at:[At.class' "project-activity-detail"]
-          [El.txt (plain desc)]
-      else El.void
-    | `Project _ -> El.void
+  let detail_el = match activity_detail ~ctx ent with
+    | Some text ->
+      El.div ~at:[At.class' "project-activity-detail"] [El.txt text]
+    | None -> El.void
   in
   El.div ~at:[At.class' "project-activity-row"] [
     El.span ~at:[At.class' "project-activity-icon"]
@@ -264,6 +262,12 @@ let activity_row ~ctx ent =
           [El.txt date_str]];
       detail_el]]
 
+(** [feed_detail bl] is the author of the post of [bl] and the opening of the
+    post, which an activity row gives under the title. *)
+let feed_detail (bl : Arod.Ctx.feed_backlink) =
+  ( Sortal_schema.Contact.name bl.contact,
+    Common.feed_entry_summary ~max_len:300 bl.feed_entry )
+
 (** [feed_backlink_row bl] is an activity row for [bl]. *)
 let feed_backlink_row (bl : Arod.Ctx.feed_backlink) =
   let open Htmlit in
@@ -275,8 +279,7 @@ let feed_backlink_row (bl : Arod.Ctx.feed_backlink) =
       ptime_date_short (y, m, 0)
     | None -> ""
   in
-  let name = Sortal_schema.Contact.name bl.contact in
-  let summary_text = Common.feed_entry_summary ~max_len:300 fe in
+  let name, summary_text = feed_detail bl in
   El.div ~at:[At.class' "project-activity-row feed-activity-row"] [
     El.span ~at:[At.class' "project-activity-icon"]
       [El.unsafe_raw (I.brand ~cl:"opacity-50" ~size:12 I.rss_brand)];
@@ -298,10 +301,11 @@ type related_item =
   | Entry_item of Entry.entry * (int * int * int)
   | Feed_item of Arod.Ctx.feed_backlink * (int * int * int)
 
-(** [related_stream ~ctx slug] is the related-content stream for [slug],
-    newest first. *)
-let related_stream ~ctx slug =
-  let open Htmlit in
+(** [related_items ~ctx slug] is the related content of [slug], newest first. It
+    is the entries that link to it, then those it links to, each once, and the
+    posts of the feeds that link to it or that it links to, each once. The page
+    and its markdown both list it. *)
+let related_items ~ctx slug =
   let entries = Arod.Ctx.entries ctx in
   let backlink_slugs = Arod.Ctx.backlinks ctx slug in
   let outbound_slugs = Arod.Ctx.outbound ctx slug in
@@ -335,12 +339,17 @@ let related_stream ~ctx slug =
     in
     Feed_item (bl, d)
   ) all_feed_bls in
-  let all = List.sort (fun a b ->
+  List.sort (fun a b ->
     let da = match a with Entry_item (_, d) -> d | Feed_item (_, d) -> d in
     let db = match b with Entry_item (_, d) -> d | Feed_item (_, d) -> d in
     compare db da
-  ) (entry_items @ feed_items) in
-  match all with
+  ) (entry_items @ feed_items)
+
+(** [related_stream ~ctx slug] is the related-content stream for [slug],
+    newest first. *)
+let related_stream ~ctx slug =
+  let open Htmlit in
+  match related_items ~ctx slug with
   | [] -> El.void
   | items ->
     let rows = List.map (fun item ->

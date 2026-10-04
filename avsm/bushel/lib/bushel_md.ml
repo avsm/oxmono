@@ -467,6 +467,17 @@ let validate_references entries md =
   let contacts = Hashtbl.fold (fun k () a -> k :: a) broken_contacts [] in
   (slugs, contacts)
 
+(* [tag_label text] is the text of a tag link as the HTML page shows it: the
+   name of the tag after one hash. A tag may be written with its own hashes
+   in the label, as in [[##fp]], or without them. *)
+let tag_label text =
+  let t = String.trim text in
+  let n = String.length t in
+  let rec skip i = if i < n && t.[i] = '#' then skip (i + 1) else i in
+  let i = skip 0 in
+  "#" ^ String.sub t i (n - i)
+
+
 let make_to_markdown_mapper ?(base_url="") ?(image_base="/images") entries =
   let open Cmarkit in
   fun _m ->
@@ -477,7 +488,7 @@ let make_to_markdown_mapper ?(base_url="") ?(image_base="/images") entries =
          let s = strip_handle url in
          if is_tag_slug url then
            let dest = base_url ^ "/tags/" ^ s in
-           let txt = Inline.Text (title, meta) in
+           let txt = Inline.Text (tag_label title, meta) in
            let ld = Link_definition.make ~dest:(dest, meta) () in
            let ll = `Inline (ld, meta) in
            let link = Inline.Link.make txt ll in
@@ -570,7 +581,7 @@ let make_to_markdown_mapper ?(base_url="") ?(image_base="/images") entries =
                     let s = strip_handle slug in
                     let dest = base_url ^ "/tags/" ^ s in
                     let title = Inline.Link.text lb |> text_of_inline in
-                    let txt = Inline.Text (title, meta) in
+                    let txt = Inline.Text (tag_label title, meta) in
                     let ld = Link_definition.make ~dest:(dest, meta) () in
                     let ll = `Inline (ld, meta) in
                     let link = Inline.Link.make txt ll in

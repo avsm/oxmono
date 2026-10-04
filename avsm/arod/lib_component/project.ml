@@ -70,8 +70,11 @@ let card ~ctx proj =
     El.div ~at:[At.class' "mb-2"] [body_html];
     recent_items_display]
 
-(** [full ~ctx proj] is the full rendering of [proj]. *)
-let full ~ctx proj =
+(** [activity ~ctx proj] is what the page of [proj] lists under its body: the
+    ideas of the project, and its activity, which is its papers, ideas, the
+    entries that link to it or that it links to, and the posts of the feeds that
+    do, newest first. *)
+let activity ~ctx proj =
   let project_slug = proj.Project.slug in
   let outbound_slugs = Arod.Ctx.outbound ctx project_slug in
   let backlinks = backlink_set ctx project_slug in
@@ -127,6 +130,14 @@ let full ~ctx proj =
     let db = match b with Sidebar.Entry_item (_, d) -> d | Sidebar.Feed_item (_, d) -> d in
     compare db da
   ) (entry_items @ feed_items) in
+  let ideas = List.filter_map (fun e ->
+    match e with `Idea i -> Some i | _ -> None
+  ) project_ideas in
+  (ideas, all_items)
+
+(** [full ~ctx proj] is the full rendering of [proj]. *)
+let full ~ctx proj =
+  let ideas, all_items = activity ~ctx proj in
   let activity_section = match all_items with
     | [] -> El.void
     | items ->
@@ -140,10 +151,7 @@ let full ~ctx proj =
         El.div ~at:[At.class' "project-activity-list not-prose"] rows]
   in
   let ideas_section =
-    let idea_values = List.filter_map (fun e ->
-      match e with `Idea i -> Some i | _ -> None
-    ) project_ideas in
-    match idea_values with
+    match ideas with
     | [] -> El.void
     | ideas ->
       let cards = List.map (Idea.compact ~ctx) ideas in

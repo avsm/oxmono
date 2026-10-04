@@ -47,6 +47,11 @@ let link_text s =
 let entry_url ~ctx ent =
   Arod.Ctx.base_url ctx ^ Entry.site_url ent
 
+(* [entry_bullet_link ~ctx ent] is a link to [ent] in markdown. *)
+let entry_bullet_link ~ctx ent =
+  Printf.sprintf "- [%s](%s)" (link_text (Entry.title ent))
+    (entry_url ~ctx ent)
+
 let render_body ~ctx body =
   let base_url = Arod.Ctx.base_url ctx in
   let entries = Arod.Ctx.entries ctx in
@@ -85,53 +90,63 @@ let social_links (s : Bushel.Types.social) =
   | [] -> ""
   | _ -> "\nDiscussion:\n" ^ String.concat "\n" lines ^ "\n"
 
-let resolve_slug ~ctx slug =
-  let entries = Arod.Ctx.entries ctx in
-  match Entry.lookup entries slug with
-  | Some ent -> Some (Entry.title ent, entry_url ~ctx ent, Entry.to_type_string ent, Entry.date ent)
-  | None -> None
+(* [date_opt (y, m, d)] is a date as ISO text, or nothing for the zero date that
+   a post with no date has. *)
+let date_opt ((y, _, _) as d) = if y = 0 then "" else date_str d
 
+(* [related_item_md ~ctx item] is a line of the related content or the activity
+   of an entry, as the HTML row gives it: the title, what it is and its date,
+   and under it the detail line of the row. *)
+let related_item_md ~ctx = function
+  | Sidebar.Entry_item (ent, d) ->
+    let detail =
+      match Sidebar.activity_detail ~ctx ent with
+      | Some text when text <> "" -> "\n  " ^ one_line text
+      | _ -> ""
+    in
+    Printf.sprintf "- [%s](%s) (%s, %s)%s" (link_text (Entry.title ent))
+      (entry_url ~ctx ent) (Entry.to_type_string ent) (date_opt d) detail
+  | Sidebar.Feed_item (bl, d) ->
+    let fe = bl.Arod.Ctx.feed_entry in
+    let title = link_text (Common.feed_entry_title_str fe) in
+    let linked =
+      match fe.FeedEntry.url with
+      | Some u -> Printf.sprintf "[%s](%s)" title (Uriz.to_string u)
+      | None -> title
+    in
+    let name, summary = Sidebar.feed_detail bl in
+    let when_ = match date_opt d with "" -> "feed" | t -> "feed, " ^ t in
+    Printf.sprintf "- %s (%s)\n  %s.%s" linked when_ (one_line name)
+      (match summary with Some text -> " " ^ one_line text | None -> "")
+
+(* [related_entries ~ctx ent] is the related content of [ent], which the HTML
+   page lists after its body. *)
 let related_entries ~ctx ent =
-  let slug = Entry.slug ent in
-  let backlink_slugs = Arod.Ctx.backlinks ctx slug in
-  let outbound_slugs = Arod.Ctx.outbound ctx slug in
-  let feed_bls = Arod.Ctx.feed_backlinks_for_slug ctx slug in
-  let feed_items = List.map (fun (bl : Arod.Ctx.feed_backlink) ->
-    let name = Contact.name bl.contact in
-    let title = match bl.feed_entry.FeedEntry.title with Some t -> t | None -> name in
-    let url = match bl.feed_entry.FeedEntry.url with
-      | Some u -> Uriz.to_string u | None -> "" in
-    let date_str_s = match bl.feed_entry.FeedEntry.date with
-      | Some d -> let (y, m, dd), _ = Ptime.to_date_time d in
-        Printf.sprintf "%04d-%02d-%02d" y m dd
-      | None -> "" in
-    (title, url, "feed", date_str_s)
-  ) feed_bls in
-  let seen = Hashtbl.create 32 in
-  let all_slugs = backlink_slugs @ outbound_slugs in
-  let resolved = List.filter_map (fun s ->
-    if Hashtbl.mem seen s then None
-    else begin
-      Hashtbl.replace seen s ();
-      match resolve_slug ~ctx s with
-      | Some (title, url, typ, date) ->
-        Some (title, url, typ, date_str date)
-      | None -> None
-    end
-  ) all_slugs in
-  let all_items = resolved @ feed_items in
-  let all_items = List.sort (fun (_, _, _, d1) (_, _, _, d2) ->
-    String.compare d2 d1
-  ) all_items in
-  match all_items with
+  match Sidebar.related_items ~ctx (Entry.slug ent) with
   | [] -> ""
   | items ->
-    let lines = List.map (fun (title, url, typ, d) ->
-      if url <> "" then
-        Printf.sprintf "- [%s](%s) (%s, %s)" (link_text title) url typ d
-      else Printf.sprintf "- %s (%s, %s)" title typ d
-    ) items in
-    "\n## Related\n\n" ^ String.concat "\n" lines ^ "\n"
+    "\n## Related\n\n"
+    ^ String.concat "\n" (List.map (related_item_md ~ctx) items)
+    ^ "\n"
+
+(* [paper_link_set ~ctx paper] is the links of a paper as its HTML gives them:
+   the DOI, the BibTeX, the PDF if the site has one, and the address of its
+   publisher with the host of that address. *)
+let paper_link_set ~ctx paper =
+  let link l u = Printf.sprintf "[%s](%s)" l u in
+  let base = Arod.Ctx.base_url ctx in
+  let slug = Paper.slug paper in
+  let doi = Option.map (fun d -> link "DOI" ("https://doi.org/" ^ d))
+      (Paper.doi paper) in
+  let bib = Some (link "BIB" (Printf.sprintf "%s/papers/%s.bib" base slug)) in
+  let pdf = Option.map (fun _ ->
+      link "PDF" (Printf.sprintf "%s/papers/%s.pdf" base slug))
+      (Paper_component.pdf_path ~ctx paper) in
+  let ext = Option.map (fun u ->
+      let host = Paper_component.host_without_www u in
+      Printf.sprintf "%s (%s)" (link "URL" u) host)
+      (Paper.url paper) in
+  (doi, bib, pdf, ext)
 
 let infobox_md ~ctx ent =
   let buf = Buffer.create 256 in
@@ -194,8 +209,6 @@ let infobox_md ~ctx ent =
     add_social_opt (Bushel.Project.social proj)
   | `Video v ->
     add (Printf.sprintf "Type: %s\n" (if Bushel.Video.talk v then "Talk" else "Video"));
-    let url = Bushel.Video.url v in
-    if url <> "" then add (Printf.sprintf "URL: %s\n" url);
     (match Bushel.Video.project v with
     | Some slug -> add (Printf.sprintf "Project: %s\n" (resolve_to_title slug))
     | None -> ());
@@ -207,34 +220,100 @@ let infobox_md ~ctx ent =
 
 (** {1 Entry to Markdown} *)
 
+(* [references_md ~ctx n] is the works cited by note [n], which its page lists
+   after its body. *)
+let references_md ~ctx n =
+  match Arod.Ctx.note_references ctx (Bushel.Note.slug n) with
+  | [] -> ""
+  | refs ->
+    "\n## References\n\n"
+    ^ String.concat "\n"
+        (List.mapi (fun i (doi, citation, _) ->
+           Printf.sprintf "%d. %s <https://doi.org/%s>" (i + 1)
+             (one_line citation) doi) refs)
+    ^ "\n"
+
+(* [project_sections_md ~ctx proj] is what the page of project [proj] lists
+   under its body, which is its ideas and then its activity. *)
+let project_sections_md ~ctx proj =
+  let ideas, items = Project_component.activity ~ctx proj in
+  let ideas_md =
+    match ideas with
+    | [] -> ""
+    | ideas ->
+      "\n## Ideas\n\n"
+      ^ String.concat "\n"
+          (List.map (fun idea ->
+             Printf.sprintf "%s (%s, %d, %s)"
+               (entry_bullet_link ~ctx (`Idea idea))
+               (Bushel.Idea.status_to_string (Bushel.Idea.status idea))
+               (Bushel.Idea.year idea)
+               (Idea_component.level_label (Bushel.Idea.level idea))) ideas)
+      ^ "\n"
+  in
+  let activity_md =
+    match items with
+    | [] -> ""
+    | items ->
+      "\n## Activity\n\n"
+      ^ String.concat "\n" (List.map (related_item_md ~ctx) items)
+      ^ "\n"
+  in
+  ideas_md ^ activity_md
+
+(* [entry_to_markdown ~ctx ent] is the page of [ent] as markdown, in the order
+   of its HTML page. A paper gives its authors, its links and then its
+   abstract. A video gives where to watch it before its description. An idea
+   gives its status line before its body, as its page does. A note gives the
+   works it cites after its body. A project gives its ideas and its activity
+   after its body, and the others give what is related to them. *)
 let entry_to_markdown ~ctx ent =
   let title = Entry.title ent in
   let d = Entry.date ent in
   let type_str = Entry.to_type_string ent in
   let header =
-    Printf.sprintf "# %s\n\n*%s — %s*\n\n" (one_line title) (date_str d) type_str
+    Printf.sprintf "# %s\n\n*%s — %s*\n\n" (one_line title) (date_str d)
+      type_str
+  in
+  let infobox =
+    match infobox_md ~ctx ent with "" -> "" | box -> "\n" ^ box
   in
   let body_md = match ent with
     | `Paper p ->
       let abs = Paper.abstract p in
       let authors = String.concat ", " (Paper.authors p) in
-      let doi_line = match Paper.doi p with
-        | Some doi -> Printf.sprintf "DOI: %s\n" doi
-        | None -> ""
+      let doi, bib, pdf, ext = paper_link_set ~ctx p in
+      let links =
+        match List.filter_map Fun.id [ pdf; bib; doi; ext ] with
+        | [] -> ""
+        | links -> "Links: " ^ String.concat ", " links ^ "\n\n"
       in
-      Printf.sprintf "Authors: %s\n\n%s%s" authors
-        (if abs <> "" then render_body ~ctx abs ^ "\n\n" else "")
-        doi_line
+      Printf.sprintf "Authors: %s\n\n%s%s" authors links
+        (if abs <> "" then "## Abstract\n\n" ^ render_body ~ctx abs ^ "\n" else "")
     | `Video v ->
+      let watch =
+        match Bushel.Video.url v with
+        | "" -> ""
+        | url -> Printf.sprintf "Watch: <%s>\n\n" url
+      in
       let desc = Bushel.Video.description v in
-      if desc <> "" then render_body ~ctx desc else ""
+      watch ^ (if desc <> "" then render_body ~ctx desc else "")
     | _ ->
       let body = Entry.body ent in
       if body <> "" then render_body ~ctx body else ""
   in
-  let infobox = infobox_md ~ctx ent in
-  let related = related_entries ~ctx ent in
-  header ^ body_md ^ infobox ^ related ^ footer ~ctx ent
+  match ent with
+  | `Idea _ ->
+    header ^ infobox ^ "\n" ^ body_md ^ related_entries ~ctx ent
+    ^ footer ~ctx ent
+  | `Note n ->
+    header ^ body_md ^ references_md ~ctx n ^ infobox
+    ^ related_entries ~ctx ent ^ footer ~ctx ent
+  | `Project proj ->
+    header ^ body_md ^ infobox ^ project_sections_md ~ctx proj
+    ^ footer ~ctx ent
+  | `Paper _ | `Video _ ->
+    header ^ body_md ^ infobox ^ related_entries ~ctx ent ^ footer ~ctx ent
 
 (** {1 List Page Helpers} *)
 
@@ -244,11 +323,6 @@ let list_header ~ctx ~title ~description ~path =
     base path base base license_line
   in
   (Printf.sprintf "# %s\n\n%s\n\n" title description, footer)
-
-(* [entry_bullet_link ~ctx ent] is a link to [ent] in markdown. *)
-let entry_bullet_link ~ctx ent =
-  Printf.sprintf "- [%s](%s)" (link_text (Entry.title ent))
-    (entry_url ~ctx ent)
 
 let entry_bullet ~ctx ent =
   let title = Entry.title ent in
@@ -278,18 +352,7 @@ let paper_md ~ctx paper =
   in
   let link l u = Printf.sprintf "[%s](%s)" l u in
   let publisher = Paper_component.publisher_with ~link paper in
-  let base = Arod.Ctx.base_url ctx in
-  let slug = Paper.slug paper in
-  let doi = Option.map (fun d -> link "DOI" ("https://doi.org/" ^ d))
-      (Paper.doi paper) in
-  let bib = Some (link "BIB" (Printf.sprintf "%s/papers/%s.bib" base slug)) in
-  let pdf = Option.map (fun _ ->
-      link "PDF" (Printf.sprintf "%s/papers/%s.pdf" base slug))
-      (Paper_component.pdf_path ~ctx paper) in
-  let ext = Option.map (fun u ->
-      let host = Paper_component.host_without_www u in
-      Printf.sprintf "%s (%s)" (link "URL" u) host)
-      (Paper.url paper) in
+  let doi, bib, pdf, ext = paper_link_set ~ctx paper in
   let links = List.filter_map Fun.id [ doi; bib; pdf; ext ] in
   Printf.sprintf "- [%s](%s) (%s %d, %s)\n  %s%s.\n  %s"
     title url (Common.month_name m) y cls authors publisher

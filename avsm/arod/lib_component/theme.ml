@@ -3167,6 +3167,11 @@ let custom_css = {|
 .sn-item:hover .sn-lane { opacity: 0.7; }
 .sn-item:hover .sn-flow { opacity: 0.9; animation: sn-drive 1.4s linear infinite; }
 .sn-item:hover .sn-node-img { filter: none; }
+/* In the dark, pictures are dimmed so that they do not glare against the page,
+   and the month headings are brightened to read against it. */
+.dark .sn-node-img { filter: sepia(0.45) saturate(0.75) brightness(0.72); }
+.dark .sn-item:hover .sn-node-img { filter: brightness(0.92); }
+.dark .sn-pill { color: var(--color-text); }
 @keyframes sn-drive { to { stroke-dashoffset: -11; } }
 @media (prefers-reduced-motion: reduce) {
   .sn-item:hover .sn-flow { animation: none; }

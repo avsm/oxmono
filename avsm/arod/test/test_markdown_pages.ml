@@ -71,5 +71,67 @@ let () =
   check "a card opens with its summary"
     (contains md "Zeta opens here." && contains md "Alpha opens here.");
   check "tags are listed" (contains md "Tags: alpha, beta");
-  check "a project with no body is still listed" (contains md "[Mid]");
+  check "a project with no body is still listed" (contains md "[Mid]")
+
+(* {1 Ideas} *)
+
+let idea ?(level = Bushel.Idea.MPhil) ?(year = 2025) ~slug ~title ~project
+    ~status body : Bushel.Idea.t =
+  { Bushel.Idea.slug; title; level; project; status; month = 1; year;
+    supervisors = []; students = []; supervisor_handles = [];
+    student_handles = []; reading = ""; body; url = None; tags = [];
+    social = None }
+
+(* [small] has the fewer open ideas, so the HTML index puts it second even
+   though it is loaded first. In [big] the open ideas come first, then the one
+   under way, and the completed one is last. *)
+let ideas_projects =
+  [ project ~slug:"small" ~title:"Small Project" ~start:2019 "";
+    project ~slug:"big" ~title:"Big Project" ~start:2020 "" ]
+
+let ideas =
+  let open Bushel.Idea in
+  [ idea ~slug:"e" ~title:"Done Small" ~project:"small" ~status:Completed
+      ~year:2020 "E opens here.";
+    idea ~slug:"d" ~title:"Done Big" ~project:"big" ~status:Completed
+      ~year:2021 "D opens here.";
+    idea ~slug:"c" ~title:"Going Big" ~project:"big" ~status:Ongoing
+      "C opens here.";
+    idea ~slug:"b" ~title:"Open Big B" ~project:"big" ~status:Available
+      "B opens here.";
+    idea ~slug:"a" ~title:"Open Big A" ~project:"big" ~status:Available
+      ~year:2026 "A opens here." ]
+
+let () =
+  let md =
+    Arod_component.Markdown_export.ideas_list_md
+      ~ctx:(ctx_of ~projects:ideas_projects ~ideas ())
+  in
+  let at s = find md s in
+  check "the introduction of the HTML index opens the list"
+    (before md "These are research ideas" "## [Big Project]"
+    && contains md "*much*");
+  check "the status and level counts of the filters are given"
+    (contains md "Status: 2 open, 1 under way, 2 completed"
+    && contains md "Level: 5 MPhil");
+  check "the contents list the projects as the page does"
+    (before md "- Big Project: 4 (2 open, 1 under way, 1 completed)"
+       "- Small Project: 1 (1 completed)");
+  check "the project with more open ideas comes first"
+    (before md "## [Big Project]" "## [Small Project]");
+  check "a group states its counts as the HTML head does"
+    (contains md "2 open, 1 under way, 1 previous");
+  check "live ideas come before past ones, open before under way"
+    (let order =
+       List.map at
+         [ "(https://example.com/ideas/a)"; "(https://example.com/ideas/b)";
+           "(https://example.com/ideas/c)"; "(https://example.com/ideas/d)" ]
+     in
+     List.for_all (fun p -> p <> None) order
+     && order = List.sort compare order);
+  check "a live idea has its sentence and a summary"
+    (contains md "An MPhil or Part III project, proposed in 2026."
+    && contains md "A opens here.");
+  check "a past idea has its sentence"
+    (contains md "An MPhil or Part III project, completed in 2021");
   Printf.printf "test_markdown_pages: %d checks passed\n" !checks

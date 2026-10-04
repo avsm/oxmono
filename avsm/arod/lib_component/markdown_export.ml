@@ -11,6 +11,7 @@
 
 module Paper_component = Paper
 module Project_component = Project
+module Idea_component = Idea
 module Entry = Bushel.Entry
 module Paper = Bushel.Paper
 module Contact = Sortal_schema.Contact
@@ -316,38 +317,112 @@ let notes_list_md ~ctx =
   in
   header ^ String.concat "\n" items ^ weeknote_section ^ "\n" ^ footer
 
+(* [join_and items] is [items] as the HTML sentences give them: "a", "a and b",
+   "a, b and c". *)
+let rec join_and = function
+  | [] -> ""
+  | [ a ] -> a
+  | [ a; b ] -> a ^ " and " ^ b
+  | a :: rest -> a ^ ", " ^ join_and rest
+
+(* [parts_md ~ctx parts] is a sentence of an idea card, with the people it names
+   linked as the HTML links them. *)
+let parts_md ~ctx parts =
+  let who handle =
+    match Arod.Ctx.lookup_by_handle ctx handle with
+    | Some contact ->
+      let name = Contact.name contact in
+      (match Contact.best_url contact with
+       | Some url -> Printf.sprintf "[%s](%s)" name url
+       | None -> name)
+    | None -> "@" ^ handle
+  in
+  String.concat "" (List.map (function
+    | Idea_component.Say text -> text
+    | Idea_component.Who handles -> join_and (List.map who handles)) parts)
+
+(* [ideas_list_md ~ctx] mirrors the HTML index: its introduction, the counts of
+   the status and level filters, the contents by project, and then each project
+   in the order of the page with its live ideas, open ones first, and after
+   them its past ideas. *)
 let ideas_list_md ~ctx =
   let ideas = Arod.Ctx.ideas ctx in
-  let entries = Arod.Ctx.entries ctx in
-  let header, footer = list_header ~ctx ~title:"Research Ideas" ~description:"Research ideas." ~path:"/ideas" in
-  let by_project : (string, Bushel.Idea.t list) Hashtbl.t = Hashtbl.create 16 in
-  let order = ref [] in
-  List.iter (fun idea ->
-    let proj = Bushel.Idea.project idea in
-    let cur = try Hashtbl.find by_project proj with Not_found -> [] in
-    if cur = [] then order := proj :: !order;
-    Hashtbl.replace by_project proj (cur @ [idea])
-  ) ideas;
-  let groups = List.rev !order in
-  let sections = List.map (fun proj_slug ->
-    let ideas = Hashtbl.find by_project proj_slug in
-    let proj_title = match Entry.lookup entries proj_slug with
-      | Some ent -> Entry.title ent
-      | None -> if proj_slug <> "" then proj_slug else "Other"
+  let groups = Idea_component.list_groups ~ctx in
+  let before, emphasis, after = Idea_component.list_intro_second in
+  let intro =
+    Printf.sprintf "%s\n\n%s*%s*%s" Idea_component.list_intro_first before
+      emphasis after
+  in
+  let header, footer =
+    list_header ~ctx ~title:"Research Ideas" ~description:intro ~path:"/ideas"
+  in
+  let facets =
+    let status =
+      String.concat ", "
+        (List.map (fun (s, n) ->
+           Printf.sprintf "%d %s" n (Idea_component.status_label s))
+           (Idea_component.status_counts ideas))
     in
-    let items = List.map (fun idea ->
-      let bullet = entry_bullet ~ctx (`Idea idea) in
-      let body = Bushel.Idea.body idea in
-      if body <> "" then
-        let first_line = match String.split_on_char '\n' body with
-          | l :: _ -> String.trim l | [] -> "" in
-        if first_line <> "" then bullet ^ "\n  " ^ first_line
-        else bullet
-      else bullet
-    ) ideas in
-    Printf.sprintf "### %s\n\n%s" proj_title (String.concat "\n" items)
-  ) groups in
-  header ^ String.concat "\n\n" sections ^ "\n" ^ footer
+    let level =
+      String.concat ", "
+        (List.map (fun (l, n) ->
+           Printf.sprintf "%d %s" n (Idea_component.level_label l))
+           (Idea_component.level_counts ideas))
+    in
+    Printf.sprintf "Status: %s\nLevel: %s\n\n" status level
+  in
+  let slots = Idea_component.statuses_present ideas in
+  let contents =
+    "## By project\n\n"
+    ^ String.concat "\n"
+        (List.map (fun (proj, _, _, is) ->
+           Printf.sprintf "- %s: %d (%s)" proj.Bushel.Project.title
+             (List.length is) (Idea_component.spoken_counts ~slots is)) groups)
+    ^ "\n\n"
+  in
+  let live_item idea =
+    let parts, discuss = Idea_component.card_meta_parts idea in
+    let meta =
+      parts_md ~ctx parts ^ (if discuss then " " ^ Idea_component.discussion_note else "")
+    in
+    let summary =
+      match Idea_component.summary_text ~ctx ~max_len:240 idea with
+      | Some text -> "\n  " ^ text
+      | None -> ""
+    in
+    Printf.sprintf "%s (%s)\n  %s%s" (entry_bullet_link ~ctx (`Idea idea))
+      (Idea_component.status_label (Bushel.Idea.status idea)) meta summary
+  in
+  let past_item idea =
+    Printf.sprintf "%s (%s)\n  %s" (entry_bullet_link ~ctx (`Idea idea))
+      (Idea_component.status_label (Bushel.Idea.status idea))
+      (parts_md ~ctx (Idea_component.past_line_parts idea))
+  in
+  let section (proj, live, past, _) =
+    let open_n = List.length (List.filter Idea_component.is_open live) in
+    let going_n = List.length live - open_n in
+    let counts =
+      List.filter_map Fun.id
+        [ (if open_n = 0 then None else Some (Printf.sprintf "%d open" open_n));
+          (if going_n = 0 then None
+           else Some (Printf.sprintf "%d under way" going_n));
+          (if past = [] then None
+           else Some (Printf.sprintf "%d previous" (List.length past))) ]
+    in
+    let note =
+      match String.trim (Bushel.Project.ideas proj) with
+      | "" -> ""
+      | t -> t ^ "\n\n"
+    in
+    Printf.sprintf "## [%s](%s)\n\n%s\n\n%s%s"
+      proj.Bushel.Project.title
+      (entry_url ~ctx (`Project proj))
+      (String.concat ", " counts) note
+      (String.concat "\n" (List.map live_item live @ List.map past_item past))
+  in
+  header ^ facets ^ contents
+  ^ String.concat "\n\n" (List.map section groups)
+  ^ "\n" ^ footer
 
 (* [indented text] is [text] with each of its lines indented to sit inside a
    list item. A blank line stays empty. *)

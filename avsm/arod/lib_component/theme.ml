@@ -3183,8 +3183,15 @@ let custom_css = {|
 .snake.is-filtered .sn-item { display: flex; align-items: center; gap: 0.8em; }
 .snake.is-filtered .sn-node { flex: none; }
 .snake.is-filtered .sn-text { height: auto; flex: 1; }
+/* On a phone the text column is what is scarce. The heading keeps to the date,
+   the thumbnail narrows and the text moves left to meet it. The inline
+   positions of the rows are overridden, which is why these are important. */
 @media (max-width: 640px) {
   .snake { font-size: 0.84rem; }
+  .sn-words, .sn-links { display: none; }
+  .sn-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sn-note .sn-node, .sn-week .sn-node { width: 3.4em !important; }
+  .sn-text { left: 8.5em !important; right: 0; gap: 0; padding-right: 0; }
 }
 .week-row:hover .week-slice {
   opacity: 1;

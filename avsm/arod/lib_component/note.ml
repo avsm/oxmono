@@ -346,8 +346,9 @@ let sn_words n =
   match Note.words n with
   | 0 -> []
   | w ->
-    [El.txt (Printf.sprintf " \xC2\xB7 %s word%s" (format_number w)
-               (if w = 1 then "" else "s"))]
+    [El.span ~at:[At.class' "sn-words"]
+       [El.txt (Printf.sprintf " \xC2\xB7 %s word%s" (format_number w)
+                  (if w = 1 then "" else "s"))]]
 
 (** [sn_tags ?limit n] is the column at the right of the row of [n]. It holds
     its plain and set tags, at most [limit] (default four), each linking to a

@@ -417,7 +417,9 @@ let llms_txt ~ctx =
   in
   section "Notes" (function `Note _ -> true | _ -> false);
   section "Papers" (function `Paper _ -> true | _ -> false);
-  section "Talks" (function `Video _ -> true | _ -> false);
+  section "Talks" (function `Video v -> Bushel.Video.talk v | _ -> false);
+  section "Other videos"
+    (function `Video v -> not (Bushel.Video.talk v) | _ -> false);
   section "Projects" (function `Project _ -> true | _ -> false);
   section "Research Ideas" (function `Idea _ -> true | _ -> false);
   Buffer.contents buf

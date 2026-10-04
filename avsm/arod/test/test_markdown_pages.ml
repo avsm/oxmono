@@ -439,5 +439,21 @@ let () =
     (before md_project "## Activity" "[A Paper]"
     && contains md_project "[Late Note]");
   check "a project has no related section, as its page has none"
-    (not (contains md_project "## Related"));
+    (not (contains md_project "## Related"))
+
+(* {1 The index of the Markdown twins} *)
+
+let () =
+  let ctx =
+    ctx_of ~videos:[
+      video ~slug:"talk" ~title:"A Talk" ~date:(2025, 2, 1) "";
+      video ~slug:"clip" ~title:"A Plain Video" ~talk:false ~date:(2025, 3, 1)
+        "" ] ()
+  in
+  let txt = Arod_handlers.Render.llms_txt ~ctx in
+  check "llms.txt lists talks under talks, as the talks page does"
+    (before txt "## Talks" "[A Talk]"
+    && before txt "[A Talk]" "## Other videos");
+  check "llms.txt lists the videos that are not talks apart"
+    (before txt "## Other videos" "[A Plain Video]");
   Printf.printf "test_markdown_pages: %d checks passed\n" !checks

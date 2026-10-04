@@ -496,6 +496,17 @@ let sn_quiet ~y_rel n =
        [El.txt (if n = 1 then "1 quiet week"
                 else Printf.sprintf "%d quiet weeks" n)]]
 
+(** [sn_season ~year ~month ~y0 ~height] is the strip of seasonal motifs beside
+    the spine for a month that begins [y0] down the timeline. *)
+let sn_season ~year ~month ~y0 ~height =
+  let season = Snake.season_of_month month in
+  El.unsafe_raw
+    (Printf.sprintf
+       {|<svg class="sn-season sn-season-%s" viewBox="0 0 %.2f %.2f" style="width:%.2fem;height:%.3fem" aria-hidden="true" focusable="false"><path d="%s"/></svg>|}
+       (Snake.season_name season) Snake.season_width height Snake.season_width
+       height
+       (Snake.season_path season ~seed:((year * 12) + month) ~y0 ~height))
+
 (** [sn_month_pill label] is the marker for a month, which sits on the spine. *)
 let sn_month_pill label =
   El.h2 ~at:[At.class' "sn-pill";
@@ -634,7 +645,8 @@ let notes_list ~ctx =
                 At.v "data-month-id" month_id;
                 At.class' "sn-month";
                 At.v "style" (pos_style ~top:month_top ~height:month_h)]
-      (sn_month_pill (Printf.sprintf "%s %d" (Common.month_name_full mo) yr)
+      (sn_season ~year:yr ~month:mo ~y0:month_top ~height:month_h
+       :: sn_month_pill (Printf.sprintf "%s %d" (Common.month_name_full mo) yr)
        :: rows)
   ) months in
   let total = !y in

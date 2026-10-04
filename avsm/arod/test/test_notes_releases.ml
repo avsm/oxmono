@@ -132,6 +132,9 @@ let () =
     in
     go 0 0
   in
+  check "every month carries the motifs of its season"
+    (occurrences html "sn-season sn-season-" = occurrences html {|class="sn-pill"|}
+    && contains html "sn-season-summer" && contains html "sn-season-spring");
   check "every month has a pill on the spine"
     (let months = occurrences html {|class="sn-month"|} in
      months > 0 && months = occurrences html {|class="sn-pill"|});

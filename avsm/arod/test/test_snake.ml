@@ -91,4 +91,39 @@ let () =
      float_of_int !n *. S.seg >= 100.);
   check "a path is made of numbers that print the same way every time"
     (S.spine_path ~height:50. = S.spine_path ~height:50.);
+  (* The seasons. *)
+  check "the months make the four seasons"
+    (List.map S.season_of_month [ 12; 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11 ]
+    = [ S.Winter; S.Winter; S.Winter; S.Spring; S.Spring; S.Spring; S.Summer;
+        S.Summer; S.Summer; S.Autumn; S.Autumn; S.Autumn ]);
+  List.iter
+    (fun season ->
+      List.iter
+        (fun (seed, y0, height) ->
+          let ms = S.motifs season ~seed ~y0 ~height in
+          check "a month has motifs" (List.length ms > 0);
+          check "motifs lie inside the strip"
+            (List.for_all
+               (fun m ->
+                 m.S.cx -. m.S.r >= 0.
+                 && m.S.cx +. m.S.r <= S.season_width
+                 && m.S.cy -. m.S.r >= 0.
+                 && m.S.cy +. m.S.r <= height)
+               ms);
+          check "motifs keep clear of the spine"
+            (List.for_all
+               (fun m ->
+                 Float.abs (m.S.cx -. S.spine_x (y0 +. m.S.cy))
+                 >= S.season_clear -. 1e-9)
+               ms);
+          check "a month's motifs are the same each time"
+            (ms = S.motifs season ~seed ~y0 ~height);
+          check "another month's motifs differ"
+            (ms <> S.motifs season ~seed:(seed + 1) ~y0 ~height))
+        [ (24313, 0., 30.); (24320, 41.7, 22.); (24325, 130.2, 55.) ];
+      let d = S.season_path season ~seed:24313 ~y0:0. ~height:30. in
+      check "a season draws a path" (String.length d > 0 && d.[0] = 'M'))
+    [ S.Winter; S.Spring; S.Summer; S.Autumn ];
+  check "a month too short for motifs has none"
+    (S.motifs S.Summer ~seed:1 ~y0:0. ~height:S.month_height = []);
   Printf.printf "ok: %d checks\n" !checks

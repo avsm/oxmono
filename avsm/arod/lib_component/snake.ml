@@ -157,3 +157,117 @@ let exit_ ~plain ~kind ~y_abs =
       end_y turn_x end_y end_x end_y
   in
   { start_x; start_y; end_x; end_y; path; lane = lane_path ~y_abs ~start_y }
+
+(* The seasons. Each month's stretch of the timeline carries a few small
+   vector motifs beside the spine, so that the page changes with the year as
+   it is read downwards. They are scattered by a generator seeded from the
+   month, so that a page renders the same every time, and they keep clear of
+   the spine and inside the lane. *)
+
+type season = Winter | Spring | Summer | Autumn
+
+(** [season_of_month m] is the northern season of month [m], 1 to 12. *)
+let season_of_month = function
+  | 12 | 1 | 2 -> Winter
+  | 3 | 4 | 5 -> Spring
+  | 6 | 7 | 8 -> Summer
+  | _ -> Autumn
+
+let season_name = function
+  | Winter -> "winter"
+  | Spring -> "spring"
+  | Summer -> "summer"
+  | Autumn -> "autumn"
+
+(** The width of the strip that motifs fill, and how near the spine one may
+    be. *)
+let season_width = card_x -. 0.3
+
+let season_clear = 0.6
+
+type motif = { cx : float; cy : float; r : float; a : float }
+
+(** [motifs season ~seed ~y0 ~height] is the motifs of a month's strip, which
+    begins [y0] down the timeline and is [height] tall. Each lies inside the
+    strip and at least [season_clear] from the spine. *)
+let motifs season ~seed ~y0 ~height =
+  let state = ref ((seed * 7919) + 104729) in
+  let next () =
+    state := ((!state * 1103515245) + 12345) land 0x3fffffff;
+    float_of_int ((!state lsr 6) land 0xffff) /. 65536.
+  in
+  let rmin, rmax =
+    match season with
+    | Winter -> (0.3, 0.5)
+    | Spring -> (0.24, 0.38)
+    | Summer -> (0.26, 0.42)
+    | Autumn -> (0.34, 0.55)
+  in
+  let pitch = 1.9 in
+  let n = int_of_float ((height -. month_height -. 1.) /. pitch) in
+  let out = ref [] in
+  for k = 0 to n - 1 do
+    let cy =
+      month_height +. 1. +. (float_of_int k *. pitch) +. (next () *. 1.2)
+    in
+    let r = rmin +. (next () *. (rmax -. rmin)) in
+    let a = next () *. Float.pi in
+    let x = 0.3 +. (next () *. (season_width -. 0.6)) in
+    let skip = next () < 0.2 in
+    let s = spine_x (y0 +. cy) in
+    let x =
+      if Float.abs (x -. s) >= season_clear then Some x
+      else if s +. season_clear +. r < season_width -. 0.1 then
+        Some (s +. season_clear)
+      else if s -. season_clear -. r > 0.1 then Some (s -. season_clear)
+      else None
+    in
+    match x with
+    | Some cx
+      when (not skip) && cy +. r < height && cx -. r >= 0.05
+           && cx +. r <= season_width -. 0.05 ->
+      out := { cx; cy; r; a } :: !out
+    | _ -> ()
+  done;
+  List.rev !out
+
+(** [season_path season ~seed ~y0 ~height] is one svg path drawing the motifs
+    of [motifs]: snowflakes, blossoms, sun rays or leaves. *)
+let season_path season ~seed ~y0 ~height =
+  let b = Buffer.create 512 in
+  let line x1 y1 x2 y2 =
+    Buffer.add_string b (Printf.sprintf "M%.2f %.2f L%.2f %.2f " x1 y1 x2 y2)
+  in
+  let spokes m ~count ~inner =
+    for k = 0 to count - 1 do
+      let turn = 2. *. Float.pi /. float_of_int count in
+      let ang = m.a +. (float_of_int k *. turn) in
+      let dx = Float.cos ang and dy = Float.sin ang in
+      line (m.cx +. (inner *. m.r *. dx)) (m.cy +. (inner *. m.r *. dy))
+        (m.cx +. (m.r *. dx)) (m.cy +. (m.r *. dy))
+    done
+  in
+  List.iter (fun m ->
+    match season with
+    | Winter ->
+      for k = 0 to 2 do
+        let ang = m.a +. (float_of_int k *. Float.pi /. 3.) in
+        let dx = m.r *. Float.cos ang and dy = m.r *. Float.sin ang in
+        line (m.cx -. dx) (m.cy -. dy) (m.cx +. dx) (m.cy +. dy)
+      done
+    | Spring ->
+      spokes m ~count:5 ~inner:0.35;
+      line m.cx m.cy m.cx m.cy
+    | Summer ->
+      spokes m ~count:8 ~inner:0.55;
+      line m.cx m.cy m.cx m.cy
+    | Autumn ->
+      let dx = m.r *. Float.cos m.a and dy = m.r *. Float.sin m.a in
+      let nx = -0.7 *. dy and ny = 0.7 *. dx in
+      Buffer.add_string b
+        (Printf.sprintf
+           "M%.2f %.2f Q%.2f %.2f %.2f %.2f Q%.2f %.2f %.2f %.2f Z "
+           (m.cx -. dx) (m.cy -. dy) (m.cx +. nx) (m.cy +. ny) (m.cx +. dx)
+           (m.cy +. dy) (m.cx -. nx) (m.cy -. ny) (m.cx -. dx) (m.cy -. dy)))
+    (motifs season ~seed ~y0 ~height);
+  String.trim (Buffer.contents b)

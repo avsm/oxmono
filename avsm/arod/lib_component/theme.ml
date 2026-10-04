@@ -2877,6 +2877,30 @@ let custom_css = {|
   vector-effect: non-scaling-stroke;
 }
 .sn-month { position: absolute; left: 0; right: 0; }
+/* Small vector motifs for the season of each month, set faintly beside the
+   spine. */
+.sn-season {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  pointer-events: none;
+  opacity: 0.65;
+}
+.sn-season path {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.sn-season-winter { color: #86aad4; }
+.sn-season-winter path { stroke-width: 0.06; }
+.sn-season-spring { color: #dd8fb0; }
+.sn-season-spring path { stroke-width: 0.17; }
+.sn-season-summer { color: #e0aa3e; }
+.sn-season-summer path { stroke-width: 0.08; }
+.sn-season-autumn { color: #cb7a3f; }
+.sn-season-autumn path { fill: currentColor; stroke: none; }
 .sn-pill {
   position: absolute;
   left: 0.3em;
@@ -3104,6 +3128,7 @@ let custom_css = {|
    the timeline becomes a plain list. */
 .snake.is-filtered { height: auto !important; }
 .snake.is-filtered .snake-spine,
+.snake.is-filtered .sn-season,
 .snake.is-filtered .sn-exit,
 .snake.is-filtered .sn-quiet,
 .snake.is-filtered .sn-note::before,

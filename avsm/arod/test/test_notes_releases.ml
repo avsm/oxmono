@@ -91,6 +91,11 @@ let () =
   check "a code release is a line that runs on to its entry, with no marker"
     (contains html "sn-release" && not (contains html "sn-node-release")
     && not (contains html "release-mark"));
+  (* A [data-kind] attribute sends every click inside it to the search page,
+     so a release row must not carry one. *)
+  check "a release's links go to the forge, not to arod's search"
+    (not (contains html "data-kind")
+    && contains html ({|href="|} ^ mdx_url ^ {|"|}));
   check "a tag filter can hide it"
     (contains html {|data-tags=""|} && contains html "note-item");
   check "a release's date follows its name, and is not in a column"

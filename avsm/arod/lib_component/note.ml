@@ -457,7 +457,6 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
          (Arod.Icons.registry_icon ~size:12 reg.Bushel.Release.name)]
   in
   El.div ~at:[At.class' "sn-item sn-release note-item";
-              At.v "data-kind" "release";
               At.v "data-tags" "";
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
               At.v "style"

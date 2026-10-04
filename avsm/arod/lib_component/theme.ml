@@ -2862,6 +2862,7 @@ let custom_css = {|
   --sn-sp-autumn: color-mix(in srgb, #d27a3a 75%, var(--color-muted));
   --sn-spine: color-mix(in srgb, var(--color-accent) 40%, var(--color-muted));
   --sn-hl: var(--color-accent);
+  --sn-small: color-mix(in srgb, var(--color-muted) 70%, var(--color-text));
   --sn-hl-winter: #5b8fce;
   --sn-hl-spring: #3f9e5e;
   --sn-hl-summer: #d99517;
@@ -3061,11 +3062,19 @@ let custom_css = {|
 .sn-links a {
   display: inline-flex;
   color: var(--color-muted) !important;
-  opacity: 0.55;
+  opacity: 0.7;
   text-decoration: none !important;
   transition: color 0.2s, opacity 0.2s;
 }
 .sn-links a:hover { color: var(--sn-hl) !important; opacity: 1; }
+.sn-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .sn-meta {
   display: block;
   font-size: 0.66em;
@@ -3073,7 +3082,7 @@ let custom_css = {|
   letter-spacing: 0.1em;
   line-height: 1.5;
   text-transform: uppercase;
-  color: var(--color-muted);
+  color: var(--sn-small);
 }
 /* A title and its synopsis run on as one paragraph. */
 .sn-line {
@@ -3105,7 +3114,7 @@ let custom_css = {|
   right: 0;
   display: flex;
   align-items: center;
-  color: var(--color-muted);
+  color: var(--sn-small);
 }
 .sn-quiet-text { font-size: 0.7em; font-style: italic; }
 .sn-quiet::before {
@@ -3114,7 +3123,7 @@ let custom_css = {|
   font-size: 0.7em;
   letter-spacing: 0.25em;
 }
-/* A release is one line, level with its dot. */
+/* A release is one line, level with its rail. */
 .sn-release .sn-text {
   top: 0;
   bottom: 0;
@@ -3131,7 +3140,7 @@ let custom_css = {|
 .release-date, .release-earlier {
   flex: none;
   font-size: 0.66em;
-  color: var(--color-muted);
+  color: var(--sn-small);
   font-variant-numeric: tabular-nums;
 }
 .release-summary {
@@ -3140,25 +3149,28 @@ let custom_css = {|
   font-size: 0.78em;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: var(--color-muted);
+  color: var(--sn-small);
 }
 .release-registries { flex: none; display: inline-flex; align-items: center; gap: 0.35em; }
 .release-registry {
   display: inline-flex;
   color: var(--color-muted) !important;
   text-decoration: none !important;
-  opacity: 0.6;
+  opacity: 0.7;
 }
 .release-registry:hover { color: var(--sn-hl) !important; opacity: 1; }
-/* Pointing at an entry lights only its own way off the spine. */
-.sn-item:hover .sn-exit-path { stroke: var(--sn-hl); opacity: 0.85; }
-.sn-item:hover .sn-lane { opacity: 0.7; }
-.sn-item:hover .sn-flow { opacity: 0.9; animation: sn-drive 1.4s linear infinite; }
-.sn-item:hover .sn-node-img { filter: none; }
+/* Pointing at an entry lights only its own way off the spine. These need a
+   pointer, since a tap on a touch screen would leave them on. */
+@media (hover: hover) {
+  .sn-item:hover .sn-exit-path { stroke: var(--sn-hl); opacity: 0.85; }
+  .sn-item:hover .sn-lane { opacity: 0.7; }
+  .sn-item:hover .sn-flow { opacity: 0.9; animation: sn-drive 1.4s linear infinite; }
+  .sn-item:hover .sn-node-img { filter: none; }
+  .dark .sn-item:hover .sn-node-img { filter: brightness(0.92); }
+}
 /* In the dark, pictures are dimmed so that they do not glare against the page,
    and the month headings are brightened to read against it. */
 .dark .sn-node-img { filter: sepia(0.45) saturate(0.75) brightness(0.72); }
-.dark .sn-item:hover .sn-node-img { filter: brightness(0.92); }
 .dark .sn-pill { color: var(--color-text); }
 @keyframes sn-drive { to { stroke-dashoffset: -11; } }
 @media (prefers-reduced-motion: reduce) {
@@ -3175,7 +3187,8 @@ let custom_css = {|
   .sn-words, .sn-links { display: none; }
   .sn-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sn-note .sn-node, .sn-week .sn-node { width: 3.4em !important; }
-  .sn-text { left: 8.5em !important; right: 0; gap: 0; padding-right: 0; }
+  .sn-text, .sn-quiet { left: 8.5em !important; }
+  .sn-text { right: 0; gap: 0; padding-right: 0; }
 }
 .week-row:hover .week-slice {
   opacity: 1;

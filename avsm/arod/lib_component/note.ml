@@ -437,6 +437,7 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
     El.unsafe_raw (exit_svg ~plain:true Snake.Release ~y_abs);
     El.div ~at:[At.class' "sn-text release-line";
                 At.v "style" (text_style Snake.Release)] [
+      El.span ~at:[At.class' "sn-sr"] [El.txt "Code release: "];
       El.a ~at:[At.href r.url;
                 At.class' "release-name !text-text !no-underline"]
         [El.txt (name ^ " " ^ r.version)];

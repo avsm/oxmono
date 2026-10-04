@@ -2905,6 +2905,11 @@ let custom_css = {|
 .sn-week { --sn-c: var(--sn-week); }
 .sn-release { --sn-c: var(--sn-release); }
 .sn-exit { position: absolute; left: 0; overflow: visible; pointer-events: none; }
+/* A release has no thumbnail. Its line runs on towards the entry and fades. */
+.sn-release .sn-exit {
+  -webkit-mask-image: linear-gradient(90deg, #000 40%, transparent);
+  mask-image: linear-gradient(90deg, #000 40%, transparent);
+}
 .sn-exit-path, .sn-lane, .sn-flow {
   fill: none;
   stroke: var(--sn-spine);
@@ -2951,11 +2956,6 @@ let custom_css = {|
 .sn-node-note, .sn-node-week {
   border-radius: 0.7em;
   background: color-mix(in srgb, var(--sn-c) 10%, var(--color-bg));
-}
-.sn-node-release {
-  border-radius: 50%;
-  background: var(--sn-spine);
-  transition: background 0.3s;
 }
 .sn-node-img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .sn-week .sn-node-img { filter: grayscale(0.4); transition: filter 0.3s; }
@@ -3025,7 +3025,7 @@ let custom_css = {|
   text-decoration: underline dotted !important;
   text-decoration-color: var(--color-link-ul) !important;
 }
-.sn-synopsis { margin-left: 0.2em; color: var(--color-secondary); }
+.sn-synopsis { margin-left: 0.4em; color: var(--color-secondary); }
 .sn-quiet {
   position: absolute;
   right: 0;
@@ -3080,7 +3080,6 @@ let custom_css = {|
 .sn-item:hover .sn-exit-path { stroke: var(--color-accent); opacity: 0.85; }
 .sn-item:hover .sn-lane { opacity: 0.7; }
 .sn-item:hover .sn-flow { opacity: 0.9; animation: sn-drive 1.4s linear infinite; }
-.sn-release:hover .sn-node-release { background: var(--color-accent); }
 .sn-item:hover .sn-node-img { filter: none; }
 @keyframes sn-drive { to { stroke-dashoffset: -11; } }
 @media (prefers-reduced-motion: reduce) {

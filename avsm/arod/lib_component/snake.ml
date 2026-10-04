@@ -44,30 +44,30 @@ let center = function
 
 (** The size of the node of a row: the thumbnail of a card, or the dot of a
     release. *)
-let node_width = function Note | Week -> thumb_w | Release -> 0.6 | Quiet -> 0.
+let node_width = function Note | Week -> thumb_w | Release | Quiet -> 0.
 
 let node_height = function
   | Note -> 3.8
   | Week -> 3.8
-  | Release -> 0.6
-  | Quiet -> 0.
+  | Release | Quiet -> 0.
 
 (** The x of the left edge of a node. *)
 let node_left _ = card_x
 
-(** The x where the exit of a row ends: the edge of a card, and the middle of a
-    release's dot, so that the line runs into the dot. *)
+(** The left of the text of every kind of row, so that the text of notes,
+    weeknotes and releases lines up in one column. *)
+let text_left _ = card_x +. thumb_w +. 0.9
+
+(** The x where the exit of a row ends: the edge of a card, or for a release,
+    just short of its text, since a release has no thumbnail and its line runs
+    on to the entry itself. *)
 let arrive kind =
   match kind with
-  | Release -> node_left kind +. (node_width kind /. 2.)
+  | Release -> text_left kind -. 0.6
   | _ -> node_left kind
 
 (** How far above its node an exit leaves the spine. *)
 let drop = function Note -> 1.6 | Week -> 1.6 | Release -> 1.1 | Quiet -> 0.
-
-(** The left of the text of every kind of row, so that the text of notes,
-    weeknotes and releases lines up in one column. *)
-let text_left _ = card_x +. thumb_w +. 0.9
 
 let month_height = 3.6
 let month_gap = 0.5

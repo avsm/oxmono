@@ -88,12 +88,9 @@ let () =
        ("https://packages.ecosyste.ms/registries/opam.ocaml.org/packages/mdx/"
        ^ "versions/2.6.0"));
   check "the registry is named" (contains html "opam.ocaml.org");
-  check "a code release is a dot on the line"
-    (contains html "release-mark" && contains html "Code release"
-    && contains html "sn-node-release");
-  check "the marker is described for a screen reader"
-    (contains html {|role="img"|}
-    && contains html {|aria-label="Code release"|});
+  check "a code release is a line that runs on to its entry, with no marker"
+    (contains html "sn-release" && not (contains html "sn-node-release")
+    && not (contains html "release-mark"));
   check "a tag filter can hide it"
     (contains html {|data-tags=""|} && contains html "note-item");
   check "a release's date follows its name, and is not in a column"

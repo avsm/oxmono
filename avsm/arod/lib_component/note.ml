@@ -271,10 +271,11 @@ let pos_style ~top ~height =
 let exit_svg kind ~y_abs =
   let e = Snake.exit_ ~kind ~y_abs in
   let top = -5.0 in
+  let w = Float.max Snake.svg_width (Snake.arrive kind +. 0.5) in
   let h = Snake.height kind -. top in
   Printf.sprintf
     {|<svg class="sn-exit" viewBox="0 %.2f %.2f %.2f" style="top:%.2fem;width:%.2fem;height:%.2fem" aria-hidden="true" focusable="false"><path class="sn-lane" d="%s"/><path class="sn-exit-path" d="%s"/><path class="sn-flow" d="%s"/></svg>|}
-    top Snake.svg_width h top Snake.svg_width h e.Snake.lane e.Snake.path
+    top w h top w h e.Snake.lane e.Snake.path
     e.Snake.path
 
 (** [node_style kind] is the position and size of the node of a row of
@@ -307,14 +308,13 @@ let sn_node ~ctx ~url ~kind ~label ~icon ~size entry =
 let text_style kind =
   Printf.sprintf "left:%.3fem" (Snake.text_left kind)
 
-(** [title_stop title] is what separates [title] from the synopsis that runs on
-    after it: a full stop and a space, or just a space when [title] already ends
-    in punctuation. *)
+(** [title_stop title] is the full stop that ends [title] before the synopsis
+    runs on after it, or nothing when [title] already ends in punctuation. *)
 let title_stop title =
   match title.[String.length title - 1] with
-  | '.' | '!' | '?' | ':' -> " "
-  | _ -> ". "
-  | exception Invalid_argument _ -> ". "
+  | '.' | '!' | '?' | ':' -> ""
+  | _ -> "."
+  | exception Invalid_argument _ -> ""
 
 (** [sn_tags ?limit n] is the column of tags of [n], which fills the right of its row.
     Only plain and set tags are shown, at most [limit] (default four). Each links to a search for
@@ -357,10 +357,10 @@ let sn_note ~ctx ~y_rel ~y_abs n =
           [El.txt (short_date (y, m, d))];
         El.p ~at:[At.class' "sn-line"] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
-            [El.txt title];
+            [El.txt (if synopsis = "" then title else title ^ title_stop title)];
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
-               [El.txt (title_stop title ^ synopsis)]
+               [El.txt synopsis]
            else El.void)]];
       sn_tags n]]
 
@@ -396,10 +396,10 @@ let sn_week ~ctx ~y_rel ~y_abs n =
             [El.txt (week_range (y, m, d))]];
         El.p ~at:[At.class' "sn-line"] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
-            [El.txt title];
+            [El.txt (if synopsis = "" then title else title ^ title_stop title)];
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
-               [El.txt (title_stop title ^ synopsis)]
+               [El.txt synopsis]
            else El.void)]];
       sn_tags n]]
 
@@ -435,11 +435,6 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
               At.v "style"
                 (pos_style ~top:y_rel ~height:(Snake.height Snake.Release))] [
     El.unsafe_raw (exit_svg Snake.Release ~y_abs);
-    El.a ~at:[At.href r.url; At.class' "sn-node sn-node-release release-mark";
-              At.v "style" (node_style Snake.Release);
-              At.v "role" "img"; At.v "aria-label" "Code release";
-              At.v "title" "Code release"; At.v "tabindex" "-1"]
-      [];
     El.div ~at:[At.class' "sn-text release-line";
                 At.v "style" (text_style Snake.Release)] [
       El.a ~at:[At.href r.url;

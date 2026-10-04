@@ -1477,151 +1477,6 @@ let custom_css = {|
     flex-direction: column;
     gap: 0.1rem;
   }
-  /* The notes view is one timeline: a line down the left with each entry hung
-     on it. Nothing here uses a border, because the unlayered Tailwind border
-     reset would win. Months are rings, notes dots, weeknotes squares, and a code release
-     a small rocket. The line and the nodes are placed from two variables. */
-  .timeline {
-    --tl-pad: 1.6rem;
-    --tl-x: 0.45rem;
-    position: relative;
-    padding-left: var(--tl-pad);
-  }
-  .timeline::before {
-    content: "";
-    position: absolute;
-    left: var(--tl-x);
-    top: 0.5rem;
-    bottom: 0;
-    width: 1px;
-    background: var(--color-muted);
-    opacity: 0.55;
-  }
-  .tl-month { position: relative; margin-bottom: 1.1rem; }
-  .tl-month-head::before {
-    content: "";
-    position: absolute;
-    left: calc(var(--tl-x) - var(--tl-pad));
-    top: 50%;
-    width: 11px;
-    height: 11px;
-    box-sizing: border-box;
-    border-radius: 50%;
-    box-shadow: inset 0 0 0 2px var(--color-accent);
-    background: var(--color-bg);
-    transform: translate(-50%, -50%);
-  }
-  .tl-list { display: flex; flex-direction: column; gap: 0.15rem; }
-  .tl-item { position: relative; display: flex; align-items: flex-start; gap: 0.6rem; }
-  .tl-note::before {
-    content: "";
-    position: absolute;
-    left: calc(var(--tl-x) - var(--tl-pad));
-    top: 0.75rem;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    background: var(--color-accent);
-    transform: translateX(-50%);
-  }
-  .tl-week::before {
-    content: "";
-    position: absolute;
-    left: calc(var(--tl-x) - var(--tl-pad));
-    top: 0.5rem;
-    width: 7px;
-    height: 7px;
-    background: var(--color-muted);
-    transform: translateX(-50%);
-  }
-  .tl-week { padding: 0.15rem 0.25rem; }
-  .tl-week-meta { font-size: 0.68rem; color: var(--color-muted); }
-  .tl-week-title {
-    display: block;
-    font-size: 0.8rem;
-    font-weight: 500;
-    line-height: 1.35;
-    color: var(--color-text) !important;
-    text-decoration: none !important;
-  }
-  .tl-week-title:hover {
-    color: var(--color-link) !important;
-    text-decoration: underline dotted !important;
-    text-decoration-color: var(--color-link-ul) !important;
-  }
-  .tl-thumb-link { display: block; flex: none; }
-  /* Weeks with no weeknote break the line into dots. */
-  .tl-quiet {
-    position: relative;
-    font-size: 0.68rem;
-    font-style: italic;
-    color: var(--color-muted);
-    padding: 0.1rem 0;
-  }
-  .tl-quiet::before {
-    content: "";
-    position: absolute;
-    left: calc(var(--tl-x) - var(--tl-pad) - 2px);
-    top: -0.2rem;
-    bottom: -0.2rem;
-    width: 5px;
-    background: var(--color-bg);
-  }
-  .tl-quiet::after {
-    content: "";
-    position: absolute;
-    left: calc(var(--tl-x) - var(--tl-pad));
-    top: -0.2rem;
-    bottom: -0.2rem;
-    width: 1px;
-    background-image: linear-gradient(to bottom, var(--color-muted) 45%, transparent 0);
-    background-size: 1px 5px;
-  }
-  /* A release is the smallest entry: one muted line, no hover background. */
-  .tl-release {
-    align-items: center;
-    gap: 0.4rem;
-    padding: 0.05rem 0.25rem;
-    font-size: 0.72rem;
-    color: var(--color-muted);
-    white-space: nowrap;
-  }
-  .release-mark {
-    position: absolute;
-    left: calc(var(--tl-x) - var(--tl-pad));
-    top: 50%;
-    display: inline-flex;
-    padding: 1px 0;
-    color: var(--color-muted);
-    background: var(--color-bg);
-    transform: translate(-50%, -50%);
-  }
-  .release-name { flex: none; font-size: 0.72rem; font-weight: 500; }
-  .release-name:hover {
-    color: var(--color-link) !important;
-    text-decoration: underline dotted !important;
-    text-decoration-color: var(--color-link-ul) !important;
-  }
-  .release-earlier { flex: none; font-size: 0.66rem; }
-  .release-summary {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .release-registries {
-    flex: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-  }
-  .release-registry {
-    display: inline-flex;
-    color: var(--color-muted) !important;
-    text-decoration: none !important;
-  }
-  .release-registry:hover { color: var(--color-accent) !important; }
-  .release-date { font-size: 0.68rem; }
   .project-activity-row {
     display: flex;
     align-items: flex-start;
@@ -2989,29 +2844,244 @@ let custom_css = {|
   border: 1px solid var(--color-border);
   border-radius: 4px;
 }
-/* Timeline thumbnails sit left of a note's text. Unlayered, like the weeknote
-   slice, so that the fixed size wins over the Tailwind img reset. */
-.tl-thumb {
-  display: block;
-  flex: none;
+/* The notes view is one timeline. The main line carries the months, and each
+   week branches off it with an elbow and a line of its own. Notes,
+   weeknotes and releases hang on a week's line as bullets: a note is its image
+   in a circle, a weeknote a smaller one, and a code release a small disc with a
+   rocket. Each kind has a colour that tints its outline and its hover.
+
+   All of it is unlayered, because the Tailwind border reset and the img reset
+   would win over layered rules. */
+.timeline {
+  --tl-note: var(--color-accent);
+  --tl-week: #b8924f;
+  --tl-release: #5f84b8;
+  --tl-line: color-mix(in srgb, var(--color-muted) 55%, transparent);
+  --tl-spine: 0.55rem;
+  --tl-branch: 2.3rem;
+  --tl-text: 2.2rem;
+  position: relative;
+}
+.dark .timeline {
+  --tl-week: #d2ac6a;
+  --tl-release: #86a9dd;
+}
+.tl-month { position: relative; padding-bottom: 0.7rem; }
+.tl-month::before {
+  content: "";
+  position: absolute;
+  left: var(--tl-spine);
+  top: 0.9rem;
+  bottom: -0.1rem;
+  width: 1px;
+  background: var(--tl-line);
+}
+.tl-month-head { padding-left: 1.5rem; }
+.tl-month-head::before {
+  content: "";
+  position: absolute;
+  left: var(--tl-spine);
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--color-bg);
+  box-shadow: inset 0 0 0 2.5px var(--tl-note);
+  transform: translate(-50%, -50%);
+}
+.tl-weeks { padding-left: var(--tl-branch); }
+.tl-wk { position: relative; padding: 0.2rem 0 0.55rem; }
+/* The elbow from the main line to the week's own line, and that line. */
+.tl-wk::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--tl-spine) - var(--tl-branch));
+  top: -0.5rem;
+  width: calc(var(--tl-branch) - var(--tl-spine));
+  height: 1.6rem;
+  border-left: 1px solid var(--tl-line);
+  border-bottom: 1px solid var(--tl-line);
+  border-bottom-left-radius: 0.9rem;
+}
+.tl-wk::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 1.1rem;
+  bottom: 0.1rem;
+  width: 1px;
+  background: var(--tl-line);
+}
+.tl-item {
+  --tl-c: var(--tl-note);
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  padding: 0.2rem 0.5rem 0.2rem var(--tl-text);
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+.tl-item:hover { background: color-mix(in srgb, var(--tl-c) 7%, transparent); }
+.tl-week { --tl-c: var(--tl-week); }
+.tl-release { --tl-c: var(--tl-release); }
+.tl-bullet {
+  position: absolute;
+  left: 0;
+  top: 0.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   box-sizing: border-box;
-  width: 3.4rem;
-  height: 2.4rem;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--color-bg);
+  color: var(--tl-c);
+  transform: translateX(-50%);
+  box-shadow: 0 0 0 2px var(--tl-c), 0 0 0 5px var(--color-bg);
+  transition: box-shadow 0.15s, opacity 0.15s;
+}
+.tl-bullet-note { width: 2.6rem; height: 2.6rem; }
+.tl-bullet-week { width: 1.7rem; height: 1.7rem; top: 0.15rem; }
+.tl-bullet-release {
+  width: 1.15rem;
+  height: 1.15rem;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 1px var(--tl-c), 0 0 0 4px var(--color-bg);
+}
+.tl-bullet-icon {
+  background: color-mix(in srgb, var(--tl-c) 13%, var(--color-bg));
+}
+.tl-bullet-img {
+  display: block;
+  width: 100%;
+  height: 100%;
   object-fit: cover;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  opacity: 0.88;
-  transition: opacity 0.15s, filter 0.15s;
+  border-radius: 50%;
 }
-.tl-thumb-none { height: 0; border-color: transparent; }
-.tl-week .tl-thumb {
-  width: 2.4rem;
-  height: 1.7rem;
-  filter: sepia(0.7) saturate(0.7);
+.tl-bullet-week .tl-bullet-img { filter: sepia(0.55) saturate(0.8); }
+.tl-item:hover .tl-bullet-img { filter: none; }
+.tl-body { padding-top: 0.05rem; }
+.tl-meta {
+  font-size: 0.64rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  line-height: 1.3;
+  color: var(--color-muted);
 }
-.tl-item:hover .tl-thumb { opacity: 1; filter: none; }
+.tl-note .tl-meta { color: color-mix(in srgb, var(--tl-c) 70%, var(--color-muted)); }
+.tl-week .tl-meta { color: color-mix(in srgb, var(--tl-c) 75%, var(--color-muted)); }
+.tl-title {
+  display: block;
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--color-text) !important;
+  text-decoration: none !important;
+}
+.tl-week-title { font-size: 0.84rem; font-weight: 500; }
+.tl-title:hover {
+  color: var(--color-link) !important;
+  text-decoration: underline dotted !important;
+  text-decoration-color: var(--color-link-ul) !important;
+}
+.tl-synopsis {
+  margin-top: 0.1rem;
+  font-size: 0.84rem;
+  line-height: 1.4;
+  color: var(--color-secondary);
+}
+/* A week with no weeknote is a label on its line. */
+.tl-wk-label {
+  position: relative;
+  padding: 0.05rem 0 0.1rem var(--tl-text);
+  font-size: 0.64rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.tl-wk-label::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.4rem;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-bg);
+  box-shadow: inset 0 0 0 1.5px var(--tl-line);
+  transform: translateX(-50%);
+}
+/* Weeks with nothing in them break the line into dots. */
+.tl-quiet {
+  position: relative;
+  padding: 0.15rem 0 0.5rem var(--tl-text);
+  margin-left: var(--tl-branch);
+  font-size: 0.68rem;
+  font-style: italic;
+  color: var(--color-muted);
+}
+.tl-quiet::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -0.3rem;
+  bottom: 0.1rem;
+  width: 1px;
+  background-image: linear-gradient(to bottom, var(--tl-line) 45%, transparent 0);
+  background-size: 1px 5px;
+}
+/* A release is one small line. The rocket sits on the line, the name and
+   date follow it, and the registries follow the summary. */
+.tl-release { align-items: center; padding-top: 0.05rem; padding-bottom: 0.05rem; }
+.release-line {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  font-size: 0.74rem;
+  white-space: nowrap;
+  padding-top: 0;
+}
+.release-mark svg { display: block; }
+.release-name { flex: none; font-size: 0.78rem; font-weight: 500; }
+.release-name:hover {
+  color: var(--color-link) !important;
+  text-decoration: underline dotted !important;
+  text-decoration-color: var(--color-link-ul) !important;
+}
+.release-date, .release-earlier {
+  flex: none;
+  font-size: 0.66rem;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.release-summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-muted);
+}
+.release-registries {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.release-registry {
+  display: inline-flex;
+  color: color-mix(in srgb, var(--tl-release) 75%, var(--color-muted)) !important;
+  text-decoration: none !important;
+  opacity: 0.85;
+}
+.release-registry:hover { color: var(--tl-release) !important; opacity: 1; }
 @media (max-width: 640px) {
-  .tl-thumb, .tl-thumb-none { display: none; }
+  .timeline { --tl-branch: 1.7rem; --tl-text: 1.7rem; --tl-spine: 0.4rem; }
+  .tl-bullet-note { width: 2rem; height: 2rem; }
+  .tl-bullet-week { width: 1.4rem; height: 1.4rem; }
+  .tl-title { font-size: 0.92rem; }
+  .release-summary { display: none; }
 }
 .week-row:hover .week-slice {
   opacity: 1;

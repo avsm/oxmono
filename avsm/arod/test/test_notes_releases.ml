@@ -88,17 +88,18 @@ let () =
        ("https://packages.ecosyste.ms/registries/opam.ocaml.org/packages/mdx/"
        ^ "versions/2.6.0"));
   check "the registry is named" (contains html "opam.ocaml.org");
-  check "a code release has a marker icon, not a day of the month"
-    (contains html {|class="release-mark"|}
-    && contains html "Code release"
-    && not (contains html {|>22 Jul<|}));
+  check "a code release is a rocket on the line"
+    (contains html "release-mark" && contains html "Code release"
+    && contains html "tl-bullet-release");
   check "the marker is described for a screen reader"
     (contains html {|role="img"|}
     && contains html {|aria-label="Code release"|});
   check "a tag filter can hide it"
     (contains html {|data-tags=""|} && contains html "note-item");
-  check "the date is written in full, as a note's is"
-    (contains html "22 Jul 2026" && contains html "release-date");
+  check "a release's date follows its name, and is not in a column"
+    (before html "mdx 2.6.0" {|>22 Jul<|}
+    && contains html {|class="release-date"|}
+    && not (contains html "note-compact-meta"));
   check "a registry is an icon that names it"
     (contains html {|aria-label="opam.ocaml.org on ecosyste.ms"|}
     && contains html {|title="opam.ocaml.org on ecosyste.ms"|});
@@ -118,11 +119,30 @@ let () =
     (contains html "tl-week note-item");
   check "a missing week is marked on the line"
     (contains html "1 quiet week");
-  check "a note's thumbnail is on the left, before its title"
+  check "a note's image is a round bullet on the line, before its title"
     (before html {|src="/images/pic.webp"|} "An August note"
-    && contains html {|class="tl-thumb"|});
-  check "a note without an image keeps the thumbnail's place"
-    (contains html "tl-thumb-none");
+    && contains html {|class="tl-bullet-img"|}
+    && contains html "tl-bullet-note");
+  check "a note without an image is a bullet with an icon"
+    (contains html "tl-bullet-icon");
+  check "a note's date is a caption above its title"
+    (before html {|>10 Aug<|} "An August note");
+  let occurrences html sub =
+    let n = String.length sub in
+    let rec go i acc =
+      if i + n > String.length html then acc
+      else go (i + 1) (if String.sub html i n = sub then acc + 1 else acc)
+    in
+    go 0 0
+  in
+  check "each month has one container for its weeks"
+    (let weeks = occurrences html {|class="tl-weeks"|} in
+     weeks = occurrences html {|class="tl-month"|} && weeks > 0);
+  check "a week is a branch with entries" (contains html {|class="tl-wk"|});
+  check "a weeknote heads its week with the week's days"
+    (before html "W30" ">20\xE2\x80\x9326 Jul<");
+  check "a week without a weeknote is labelled with its days"
+    (contains html "tl-wk-label");
   check "each month is a section the page script can track"
     (contains html {|data-month-id="2026-08"|}
     && contains html {|data-month-id="2026-07"|});
@@ -211,8 +231,9 @@ let () =
   check "no releases leaves the page as it was"
     (render () = render ~releases:[] ());
   (* The page without releases is pinned. It was first rendered by the code from
-     before releases existed and was regenerated once, deliberately, when the
-     notes view became a single timeline. *)
+     before releases existed. It was regenerated deliberately when the notes
+     view became a single timeline, and again when that timeline gained week
+     branches and round bullets. *)
   check "the page matches the one rendered before releases existed"
     (render ()
     = In_channel.with_open_bin "fixtures/notes/notes_no_releases.html"

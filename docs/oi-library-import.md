@@ -38,8 +38,11 @@ No default remote registry or S3 publisher is configured by these libraries.
 - Expose the existing `.install` file handler as `D10ir.Install_file` for
   callers building into permanent prefixes. Its implementation is unchanged.
 - Retry interrupted `waitpid` calls in the upstream lock test harness.
-- Keep upstream `OI_*` controls and on-disk metadata names in this library
-  stage. The future ox frontend will define its own configuration boundary.
+- Keep upstream `OI_*` controls and layer metadata names. Ox defines its own
+  configuration boundary.
+- Add permanent-prefix and single-node execution to the shared IR executor.
+  Detach writable prefixes, compare file content and modes, reject dependency
+  deletions, preserve overlay order and record recipes for local replay.
 
 ## Dependencies
 
@@ -61,26 +64,25 @@ Opam state/repository libraries are not required.
 
 ## Review findings for ox
 
-The library import compiles on OxCaml. It does not establish that upstream's
-execution and relocation policy is suitable unchanged for ox.
+The initial review identified the following constraints. The shared executor
+now provides permanent prefixes and safe layer capture for ox.
 
 1. `Layer.store` and `Prefix.assemble_cached` rely on caller serialization.
    Upstream supplies this in the omitted oi harness. Ox must own a cache lock
    and serialize fibers as well as processes before using these writes.
-2. Ordinary layer files are hardlinked. Mutating an assembled prefix can mutate
-   cached files. Ox must copy or clone writable build inputs and keep completed
+2. Ordinary layer files are hardlinked. `Prefix.prepare` detaches writable
+   build inputs. Callers must keep completed
    store entries immutable by convention. A cache cleanup must not delete a
    prefix in use by a running command.
-3. The IR executor rebases prefixes into per-node staging directories. A
-   non-relocatable compiler and packages containing absolute paths require
-   stable final prefixes. Rewriting `dune-package` alone is insufficient for
-   binaries, META files, stubs, scripts and runtime data paths.
+3. The default IR policy uses staging directories. Its permanent-prefix policy
+   retains stable final paths for compilers and packages that embed them.
+   Rewriting `dune-package` alone does not relocate binaries, META files,
+   stubs, scripts or runtime data paths.
 4. Upstream layer hashes cover effective opam metadata and supplied dependency
    closures. Ox must additionally account for compiler build/configuration,
    source and local overlay contents, platform, build flags and absolute paths.
-5. `Prefix.diff` compares increasing mtimes. It can miss replacements with
-   preserved timestamps and does not describe deleted files. Use a complete
-   manifest when capturing ox builds.
+5. `Prefix.diff` now compares contents, modes and symlink targets, including
+   replacements that preserve timestamps. Deleted dependency files are rejected.
 6. Registry memo tables and Curl sessions are not advertised as portable.
    Use one Eio domain with concurrent fibers. Do not share these objects across
    domains or add blanket portable annotations.
@@ -126,8 +128,10 @@ The scoped `@fmt` gate checks Dune formatting. OCaml formatting is disabled
 without a project configuration, so the adapted codecs and new HTTP code were formatted explicitly
 with the switch's OxCaml-aware ocamlformat.
 
-Validation was on macOS arm64. Linux execution, TLS against an external
-server, full IR builds and native package installation remain untested.
+Executor tests cover permanent and staging builds, parallel scheduling,
+restoration, relocation of a simple shell program, archive replay and failed
+capture. Validation was on macOS arm64. Linux execution, TLS against an external
+server and native package installation remain untested.
 
 ## Refresh
 

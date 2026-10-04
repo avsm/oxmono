@@ -1,27 +1,16 @@
-(** Direct executor: builds plan nodes against the host filesystem using d10 for
-    layer storage and restore.
+(** Execute day10 recipes on the host filesystem. Both single-node and plan
+    execution use the same build phases. Callers serialize cache mutations. *)
 
-    No sandbox, no container. Works on Linux and macOS.
-
-    Per-node procedure (each step emits a {!Node_phase} event so callers can
-    drive a progress UI without polling):
-    + If d10 already has the layer (succeeded), emit {!Node_cached}.
-    + [Stage_deps]: hardlink each [dep_layer_hash]'s [fs/] subtree into a
-      per-node staging dir.
-    + [Unpack_archive]: untar the source archive into a per-node build dir.
-    + [Apply_substs]: walk [n.substs] and expand [%{var}%] placeholders against
-      [n.subst_vars] (rebased to staging).
-    + [Snapshot_pre]: snapshot the staging prefix for the post-build diff.
-    + [Run_script]: rebase the script's prefix sentinel and run
-      [/bin/sh -e -c <script>] from build dir, capturing output to a per-node
-      log.
-    + [Apply_install_file]: if [<build_dir>/<package.name>.install] exists,
-      apply it.
-    + [Diff_layer]: diff staging vs. snapshot.
-    + [Store_layer]: tar the diff into a d10 layer.
-
-    Events are emitted from the same fiber that performs the work, so they
-    reflect the actual execution order on each node. *)
+type prefix_policy =
+  | Staging
+  | Permanent
+      (** [Staging] builds in a temporary prefix and captures a layer before
+          cleanup. Recipes and outputs must support relocation to their
+          consumption prefix. [Permanent] builds at [D10.Prefix.path d10 ~hash],
+          retains the prefix and restores dependency prefixes on cache hits. The
+          caller must include that location and policy in the node's cache
+          identity. Neither policy makes arbitrary compiled artifacts
+          relocatable. *)
 
 (** A discrete step within a single node's build. Emitted both as a transition
     marker ({!Node_phase}) and, on failure, attached to {!Node_failed} so
@@ -55,7 +44,8 @@ val string_of_phase : phase -> string
 
     [Node_queued] fires as soon as the fiber is forked, before any dep wait.
     [Node_started] fires after the build slot is acquired, immediately before
-    [Stage_deps]. *)
+    [Stage_deps]. A cached permanent prefix may emit [Stage_deps] while being
+    restored before [Node_cached]. *)
 type event =
   | Plan_started of { total : int }
   | Plan_done of { built : int; cached : int; failed : int; skipped : int }
@@ -111,7 +101,7 @@ val unpack_archive :
     [build_dir], recreates it, and extracts [n]'s archive into it
     ([tar -x --strip-components=n.archive.strip_components]). The archive path
     is resolved relative to [plan_dir]/[archive_root] when not absolute. Raises
-    if the archive file is missing. *)
+    if the archive file is missing or its non-empty SHA256 does not match. *)
 
 val run :
   config:Config.t ->
@@ -122,10 +112,13 @@ val run :
   ?reporter:reporter ->
   ?plan_dir:string ->
   ?install_to:string ->
+  ?prefix_policy:prefix_policy ->
   Plan.t ->
   result
 (** [run ~config ~d10 ~fs ~proc_mgr ~clock ?reporter ?plan_dir ?install_to plan]
-    executes every node in [plan] and returns aggregate counts.
+    executes every node in [plan] and returns aggregate counts. [prefix_policy]
+    defaults to [Staging]. [Permanent] retains cached prefixes and is
+    incompatible with [install_to].
 
     [plan_dir] is the directory containing [plan] (and its [archive_root]);
     defaults to the current working directory. Used to resolve [archive.path].
@@ -150,3 +143,31 @@ val run :
       any other host.
     - [install_to] is NOT cleaned up after the build; only [build_dir] (the
       per-node sources/work area) is. *)
+
+val run_node :
+  config:Config.t ->
+  d10:D10.Config.t ->
+  proc_mgr:_ Eio.Process.mgr ->
+  ?prefix_policy:prefix_policy ->
+  ?source_dir:string ->
+  ?prepare:(prefix:string -> build_dir:string -> Plan.node -> Plan.node) ->
+  ?reporter:reporter ->
+  ?plan_dir:string ->
+  Plan.node ->
+  ([ `Built | `Cached ], failure) Stdlib.result
+(** [run_node ~config ~d10 ~proc_mgr node] executes one node whose dependencies
+    are already in the store. [prefix_policy] defaults to [Staging].
+
+    [source_dir] supplies a source tree instead of [node.archive]. The tree is
+    copied, then archived after preparation with its checksum recorded in the
+    stored recipe. The supplied archive fields are ignored in this case.
+
+    [prepare ~prefix ~build_dir node] runs after dependency assembly and source
+    extraction, before execution. It may refine the recipe and prepare source
+    files, but must preserve the package, hash, prefix and dependency
+    identities. It must not mutate the installation prefix. It is skipped on
+    cache hits. Source edits should use [source_dir] so the stored recipe can
+    replay them.
+
+    Cache keys remain the caller's responsibility. [config.inherit_path = false]
+    executes with the recipe PATH unchanged. *)

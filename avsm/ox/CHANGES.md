@@ -1,5 +1,8 @@
 # Changes
 
+- Delegate recipe execution, prefix restoration and installed-file capture to
+  d10, retaining permanent local prefixes and existing package cache keys.
+
 - Accept `ox run --from=URL#REV -- BINARY ARG...`, with cached branch, tag or
   commit selection and `--refresh` for branch updates.
 

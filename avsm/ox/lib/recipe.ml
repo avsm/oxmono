@@ -203,3 +203,48 @@ let shell commands =
 let runtime_environment ~solution ~prefix ~jobs =
   let installed = List.map name solution.Solve.packages in
   package_environment ~solution ~installed ~prefix ~build_dir:prefix ~jobs
+
+let prepare ~solution ~installed ~jobs p ~prefix ~build_dir
+    (node : D10ir.Plan.node) =
+  let resolve = resolver ~solution ~installed ~prefix ~build_dir ~jobs p in
+  let env = build_environment ~solution ~installed ~prefix ~build_dir ~jobs p in
+  let substs =
+    OpamFile.OPAM.substs p.opam
+    |> List.map (fun b -> Source.safe_relative (OpamFilename.Base.to_string b))
+  in
+  List.iter
+    (fun base ->
+      OpamFilter.expand_interpolations_in_file_full resolve
+        ~src:(OpamFilename.raw (build_dir / (base ^ ".in")))
+        ~dst:(OpamFilename.raw (build_dir / base)))
+    substs;
+  let patches =
+    OpamFile.OPAM.patches p.opam
+    |> List.filter_map (fun (file, condition) ->
+           if OpamFilter.opt_eval_to_bool resolve condition then
+             Some
+               [
+                 "patch";
+                 "-p1";
+                 "-i";
+                 Source.safe_relative (OpamFilename.Base.to_string file);
+               ]
+           else None)
+  in
+  let commands =
+    patches
+    @ OpamFilter.commands resolve
+        (OpamFile.OPAM.build p.opam @ OpamFile.OPAM.install p.opam)
+  in
+  let conf_name = name p ^ ".config" in
+  let config_dir = prefix / ".ox/config" in
+  let script =
+    shell commands ^ "\nif test -f " ^ Filename.quote conf_name ^ "; then\n"
+    ^ shell
+        [
+          [ "mkdir"; "-p"; config_dir ];
+          [ "cp"; conf_name; config_dir / conf_name ];
+        ]
+    ^ "\nfi\n"
+  in
+  { node with script; env = Array.to_list env }

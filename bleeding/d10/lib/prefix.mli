@@ -1,53 +1,50 @@
-(** Hardlink-assembled prefixes.
-
-    A prefix is a complete OCaml installation directory (with [bin/], [lib/],
-    etc.) assembled by hardlinking files from multiple {!Layer} [fs/]
-    directories. Layers are applied in topological order so that later packages
-    can overwrite files from earlier ones (e.g. [ld.conf]).
-
-    Assembled prefixes are cached by their {!solve_hash} -- the MD5 of all layer
-    hashes -- so identical dependency sets produce identical prefixes without
-    re-assembly. A [.ready] marker file indicates a complete prefix.
-
-    {2 Prefix diffing}
-
-    During builds, {!snapshot} and {!diff} are used to capture which files a
-    package installed. Before installing a package, {!snapshot} records mtimes
-    of all files in the prefix. After install, {!diff} compares against the
-    snapshot and returns the new or modified files, which are then stored as a
-    {!Layer}. Both regular files and symlinks are tracked. *)
-
-(** {1 Assembly} *)
+(** Layer assembly, writable installation prefixes and installed-file deltas.
+    Callers must serialize mutations to each prefix and the layer store. *)
 
 val assemble : Config.t -> layer_hashes:string list -> dst:_ Eio.Path.t -> unit
-(** [assemble c ~layer_hashes ~dst] hardlinks each layer's [fs/] directory into
-    [dst] in order and rebases [dune-package] metadata. Layers without an [fs/]
-    directory (virtual packages) are silently skipped. *)
+(** [assemble c ~layer_hashes ~dst] restores layers in order, hardlinking files
+    and rebasing dune-package metadata. The destination is not cleared. *)
+
+val path : Config.t -> hash:string -> string
+(** [path c ~hash] is the permanent installation prefix for [hash]. *)
+
+val prepare : Config.t -> layer_hashes:string list -> dst:_ Eio.Path.t -> unit
+(** [prepare c ~layer_hashes ~dst] replaces [dst] with a writable layer union.
+    Hardlinks to the store are detached before returning. *)
+
+val ready : fs:_ Eio.Path.t -> key:string -> string -> bool
+(** [ready ~fs ~key prefix] tests the prefix's completion marker. *)
+
+val mark_ready : fs:_ Eio.Path.t -> key:string -> string -> unit
+(** [mark_ready ~fs ~key prefix] atomically records successful completion. *)
+
+val ensure :
+  Config.t -> key:string -> layer_hashes:string list -> dst:_ Eio.Path.t -> unit
+(** [ensure c ~key ~layer_hashes ~dst] prepares and marks an incomplete prefix.
+    [key] must identify the ordered layer list. *)
+
+val closure : Config.t -> string list -> string list
+(** [closure c hashes] reads layer metadata and returns each layer once, with
+    dependencies first. Missing, failed and cyclic dependencies raise. *)
+
+val restore : Config.t -> hash:string -> unit
+(** [restore c ~hash] reconstructs missing permanent prefixes for the layer and
+    its dependencies using their stored metadata. *)
 
 val assemble_cached : Config.t -> layer_hashes:string list -> string
-(** [assemble_cached c ~layer_hashes] assembles a prefix and caches it at
-    [<root>/prefixes/<os_key>/<solve_hash>/]. Returns the native path to the
-    prefix. If a [.ready] marker exists, the cached prefix is returned
-    immediately without re-assembly. *)
+(** [assemble_cached c ~layer_hashes] returns a cached writable layer union. *)
 
 val solve_hash : string list -> string
-(** [solve_hash hashes] computes the prefix cache key: the MD5 of the sorted,
-    newline-joined layer hashes. *)
-
-(** {1 Prefix diff} *)
+(** [solve_hash hashes] identifies an ordered layer list. *)
 
 type snapshot
-(** An opaque snapshot of file modification times in a prefix, used to detect
-    newly installed files. *)
+(** File contents, permissions and symlink targets before installation. *)
 
 val snapshot : fs:_ Eio.Path.t -> string -> snapshot
-(** [snapshot ~fs prefix] captures the mtime of every regular file and symlink
-    under [prefix], traversing directories recursively. The [fs] capability is
-    used for directory listing and stat. *)
+(** [snapshot ~fs prefix] records files without following directory symlinks.
+    The prefix completion marker is excluded. *)
 
 val diff :
   fs:_ Eio.Path.t -> prefix:string -> before:snapshot -> (string * string) list
-(** [diff ~fs ~prefix ~before] returns [(rel_path, abs_path)] pairs for every
-    regular file or symlink in [prefix] that is either new (not in [before]) or
-    has a newer mtime than recorded in [before]. Used to determine which files a
-    package's install step added. *)
+(** [diff ~fs ~prefix ~before] returns changed or added files as relative and
+    absolute path pairs. Removing dependency files raises an exception. *)

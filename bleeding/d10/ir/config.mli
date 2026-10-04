@@ -15,6 +15,8 @@ type t = {
   log_dir : string option;
       (** Directory for per-node build logs. If [None], logs go to a subdir of
           the d10 cache root. *)
+  inherit_path : bool;
+      (** Append the host PATH to recipe PATH entries. Default: true. *)
   inject_env : (string * string) list;
       (** Extra environment variables injected into every node's script
           environment, in addition to whatever the node carries. The d10ir
@@ -25,7 +27,8 @@ type t = {
 
 val default : t
 (** Defaults: [build_parallelism = min(domain_count, 8)],
-    [keep_staging = false], [log_dir = None], [inject_env = []]. *)
+    [keep_staging = false], [log_dir = None], [inherit_path = true],
+    [inject_env = []]. *)
 
 val with_env_overrides : t -> t
 (** [with_env_overrides t] applies environment-variable overrides:

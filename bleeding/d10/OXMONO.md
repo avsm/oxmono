@@ -11,6 +11,14 @@ The existing install-file handler is public. Tests cover layers, locks,
 HTTP behavior and IR compatibility. `test/compat/opam.expected` preserves the
 stock-OCaml differential baseline for the vendored opam libraries.
 
+The executor also supports cached permanent prefixes and single-node execution
+with deferred recipe preparation. Prefix assembly detaches writable copies,
+restores dependencies in order and compares file contents and modes for layer
+capture. Saved recipes include the executed node and its source archive.
+Staging and uncached user-prefix execution remain supported. Tests in
+`test/executor` cover both policies, recipe replay, PATH isolation, dependency
+immutability, failed capture and parallel prefix restoration.
+
 The [shared import review](../../docs/oi-library-import.md) details these
 adaptations, caller locking and cache immutability requirements. On refresh,
 map upstream `lib/d10` to `lib/` and `lib/d10ir` to `ir/`, preserve those

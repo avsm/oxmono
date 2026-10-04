@@ -2,6 +2,7 @@ type t = {
   build_parallelism : int;
   keep_staging : bool;
   log_dir : string option;
+  inherit_path : bool;
   inject_env : (string * string) list;
 }
 
@@ -15,6 +16,7 @@ let default =
     build_parallelism = p;
     keep_staging = false;
     log_dir = None;
+    inherit_path = true;
     inject_env = [];
   }
 

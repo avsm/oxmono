@@ -12,15 +12,6 @@ type t = {
 val layers : built list -> string list
 (** [layers built] returns their combined dependency layers in build order. *)
 
-val assemble : t -> key:string -> layers:string list -> string -> unit
-(** [assemble builder ~key ~layers destination] restores a missing prefix,
-    rebases dune-package files and detaches hardlinks. [key] identifies the
-    ordered layer list. *)
-
-val restore : t -> string -> unit
-(** [restore builder hash] reconstructs a missing package prefix using day10's
-    dependency metadata. *)
-
 val run : t -> solution:Solve.t -> deps:built list -> Solve.package -> built
 (** [run builder ~solution ~deps package] restores or builds a package at its
     permanent prefix and captures a day10 layer. A failed build publishes no

@@ -36,3 +36,16 @@ val runtime_environment :
 
 val shell : string list list -> string
 (** [shell commands] quotes each argument for a POSIX shell. *)
+
+val prepare :
+  solution:Solve.t ->
+  installed:string list ->
+  jobs:int ->
+  Solve.package ->
+  prefix:string ->
+  build_dir:string ->
+  D10ir.Plan.node ->
+  D10ir.Plan.node
+(** [prepare ~solution ~installed ~jobs package ~prefix ~build_dir node]
+    resolves opam actions and environment after dependencies are installed. It
+    expands source substitutions and adds package configuration capture. *)

@@ -114,6 +114,12 @@ Different programs reuse matching dependency layers. Generated `.install` and
 under the cache. A run prefix combines the selected layers and exported
 package environments.
 
+Ox prepares opam recipes after dependencies have built. The shared
+`D10ir.Direct` executor runs them with its permanent-prefix policy, preserving
+the recipe PATH. D10 owns writable prefix assembly, installation and layer
+capture. Existing layers remain reusable. Prefixes made by older ox builds
+are reconstructed once to adopt d10's completion markers.
+
 Moving the cache causes a rebuild. Keep its original prefixes available:
 compiled artifacts may contain absolute paths. Use `--cache-tag TAG` after
 changing external system libraries or custom build tools. Use `--refresh` to

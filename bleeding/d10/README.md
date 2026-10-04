@@ -8,6 +8,20 @@ caches. The `d10` package provides two libraries:
 | `d10` | [lib/d10.mli](lib/d10.mli) | Local layers, prefixes, locks and system operations. |
 | `d10.ir` | [ir/d10ir.mli](ir/d10ir.mli) | Build recipes, dependency graphs and install files. |
 
+`D10ir.Direct.run` schedules a plan. `run_node` executes one recipe after its
+dependencies are available, with optional preparation for generated metadata.
+Both use the same execution and layer-capture implementation.
+
+The default `Staging` policy captures layers from temporary prefixes. Consumers
+must ensure the outputs can be relocated. `Permanent` builds at a stable
+per-layer prefix and restores missing dependency prefixes on cache hits.
+Producers must include the policy and permanent location in their cache keys.
+Ox selects `Permanent` and disables host PATH augmentation.
+
+`D10.Prefix.prepare` detaches restored hardlinks before installation.
+`snapshot` and `diff` compare contents, permissions and symlink targets, and
+reject deleted dependency files. Cached unions preserve layer order.
+
 ```sh
 dune build --profile release-check @bleeding/d10/all
 dune runtest --profile release-check --force bleeding/d10

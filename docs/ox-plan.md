@@ -53,6 +53,12 @@ building. Full content and mode manifests capture installed changes.
 Deleting dependency files fails the build. Generated `.install` files use
 the imported day10 installer. Generated `.config` values feed later recipes.
 
+Ox resolves opam variables and prepares recipes. `D10ir.Direct.run_node`
+executes them through the same machinery as plan builds, using the permanent
+prefix policy and the supplied PATH. `D10.Prefix` owns dependency restoration,
+writable assembly and content-based deltas. D10's default staging policy
+remains available for recipes whose output supports relocation.
+
 The package key includes sources, effective recipe metadata, dependency
 layers, platform, compiler inputs, common environment flags and absolute
 cache root. Different requested tools share matching dependency layers.

@@ -129,8 +129,9 @@ let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
     let key = hash_fields (request :: layers) in
     let run_prefix = cache / "runs" / key in
     if not dry_run then (
-      List.iter (Build.restore builder) layers;
-      Build.assemble builder ~key ~layers run_prefix;
+      List.iter (fun hash -> D10.Prefix.restore d10 ~hash) layers;
+      D10.Prefix.ensure d10 ~key ~layer_hashes:layers
+        ~dst:Eio.Path.(fs / run_prefix);
       if not (exists (run_prefix / "bin" / binary)) then
         fail "Cached layers have no binary %s. Use --with PACKAGE." binary);
     run_prefix

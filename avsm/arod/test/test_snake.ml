@@ -97,10 +97,10 @@ let () =
     = [ S.Winter; S.Winter; S.Winter; S.Spring; S.Spring; S.Spring; S.Summer;
         S.Summer; S.Summer; S.Autumn; S.Autumn; S.Autumn ]);
   List.iter
-    (fun season ->
+    (fun month ->
       List.iter
         (fun (seed, y0, height) ->
-          let ms = S.motifs season ~seed ~y0 ~height in
+          let ms = S.motifs ~month ~seed ~y0 ~height in
           check "a month has motifs" (List.length ms > 0);
           check "motifs lie inside the strip"
             (List.for_all
@@ -117,13 +117,53 @@ let () =
                  >= S.season_clear -. 1e-9)
                ms);
           check "a month's motifs are the same each time"
-            (ms = S.motifs season ~seed ~y0 ~height);
+            (ms = S.motifs ~month ~seed ~y0 ~height);
           check "another month's motifs differ"
-            (ms <> S.motifs season ~seed:(seed + 1) ~y0 ~height))
+            (ms <> S.motifs ~month ~seed:(seed + 1) ~y0 ~height))
         [ (24313, 0., 30.); (24320, 41.7, 22.); (24325, 130.2, 55.) ];
-      let d = S.season_path season ~seed:24313 ~y0:0. ~height:30. in
-      check "a season draws a path" (String.length d > 0 && d.[0] = 'M'))
-    [ S.Winter; S.Spring; S.Summer; S.Autumn ];
+      let paths = S.season_paths ~month ~seed:24313 ~y0:0. ~height:30. in
+      check "a season draws paths"
+        (paths <> []
+        && List.for_all
+             (fun (_, _, d) -> String.length d > 0 && d.[0] = 'M')
+             paths))
+    [ 1; 2; 3; 4; 5; 6; 7; 8; 9; 10; 11; 12 ];
   check "a month too short for motifs has none"
-    (S.motifs S.Summer ~seed:1 ~y0:0. ~height:S.month_height = []);
+    (S.motifs ~month:7 ~seed:1 ~y0:0. ~height:S.month_height = []);
+  (* Over many months the motifs of one season come in all four shapes. *)
+  List.iter
+    (fun month ->
+      let seen = Hashtbl.create 8 in
+      for seed = 1 to 40 do
+        List.iter
+          (fun m ->
+            if m.S.season = S.season_of_month month then
+              Hashtbl.replace seen m.S.variant ())
+          (S.motifs ~month ~seed ~y0:0. ~height:40.)
+      done;
+      check "each season has four motifs" (Hashtbl.length seen = 4))
+    [ 1; 4; 7; 10 ];
+  (* The first and last month of a season take on its neighbour near the edge
+     they share, and only there. The page runs newest first, so a month's top
+     meets the month after it. *)
+  let seasons_in ~month ~lo ~hi =
+    let found = ref [] in
+    for seed = 1 to 60 do
+      List.iter
+        (fun m ->
+          let u = m.S.cy /. 40. in
+          if u >= lo && u < hi && not (List.mem m.S.season !found) then
+            found := m.S.season :: !found)
+        (S.motifs ~month ~seed ~y0:0. ~height:40.)
+    done;
+    !found
+  in
+  check "the last month of winter opens into spring at its top"
+    (List.mem S.Spring (seasons_in ~month:2 ~lo:0. ~hi:0.25)
+    && not (List.mem S.Spring (seasons_in ~month:2 ~lo:0.65 ~hi:1.)));
+  check "the first month of spring runs back into winter at its foot"
+    (List.mem S.Winter (seasons_in ~month:3 ~lo:0.75 ~hi:1.)
+    && not (List.mem S.Winter (seasons_in ~month:3 ~lo:0. ~hi:0.35)));
+  check "the middle month of a season is its own"
+    (seasons_in ~month:1 ~lo:0. ~hi:1. = [ S.Winter ]);
   Printf.printf "ok: %d checks\n" !checks

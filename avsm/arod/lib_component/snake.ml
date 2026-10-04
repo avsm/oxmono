@@ -160,9 +160,11 @@ let exit_ ~plain ~kind ~y_abs =
 
 (* The seasons. Each month's stretch of the timeline carries a few small
    vector motifs beside the spine, so that the page changes with the year as
-   it is read downwards. They are scattered by a generator seeded from the
-   month, so that a page renders the same every time, and they keep clear of
-   the spine and inside the lane. *)
+   it is read downwards. Each season has four motifs. They are scattered by a
+   generator seeded from the month, so that a page renders the same every
+   time, and they keep clear of the spine and inside the lane. The first and
+   last month of a season mix in the motifs of the season beside it, thinning
+   out away from the shared edge, so that one season runs into the next. *)
 
 type season = Winter | Spring | Summer | Autumn
 
@@ -185,24 +187,27 @@ let season_width = card_x -. 0.3
 
 let season_clear = 0.6
 
-type motif = { cx : float; cy : float; r : float; a : float }
+type motif = { cx : float; cy : float; r : float; a : float; season : season;
+               variant : int }
 
-(** [motifs season ~seed ~y0 ~height] is the motifs of a month's strip, which
-    begins [y0] down the timeline and is [height] tall. Each lies inside the
-    strip and at least [season_clear] from the spine. *)
-let motifs season ~seed ~y0 ~height =
+(* Months run Dec Jan Feb, Mar Apr May, and so on: [position m] is 0 for the
+   first month of a season in time, and 2 for the last. *)
+let position m = m mod 12 mod 3
+
+let previous_month m = ((m + 10) mod 12) + 1
+let next_month m = (m mod 12) + 1
+
+(** [motifs ~month ~seed ~y0 ~height] is the motifs of the strip of [month],
+    which begins [y0] down the timeline and is [height] tall. Each lies inside
+    the strip and at least [season_clear] from the spine. The page runs newest
+    first, so the top of a month meets the month after it. *)
+let motifs ~month ~seed ~y0 ~height =
   let state = ref ((seed * 7919) + 104729) in
   let next () =
     state := ((!state * 1103515245) + 12345) land 0x3fffffff;
     float_of_int ((!state lsr 6) land 0xffff) /. 65536.
   in
-  let rmin, rmax =
-    match season with
-    | Winter -> (0.3, 0.5)
-    | Spring -> (0.24, 0.38)
-    | Summer -> (0.26, 0.42)
-    | Autumn -> (0.34, 0.55)
-  in
+  let own = season_of_month month in
   let pitch = 1.9 in
   let n = int_of_float ((height -. month_height -. 1.) /. pitch) in
   let out = ref [] in
@@ -210,8 +215,31 @@ let motifs season ~seed ~y0 ~height =
     let cy =
       month_height +. 1. +. (float_of_int k *. pitch) +. (next () *. 1.2)
     in
+    let u = cy /. height in
+    let chance =
+      (* The share of motifs that belong to the neighbouring season. *)
+      match position month with
+      | 2 -> Float.max 0. (0.5 *. (1. -. (u /. 0.6)))
+      | 0 -> Float.max 0. (0.5 *. (1. -. ((1. -. u) /. 0.6)))
+      | _ -> 0.
+    in
+    let season =
+      let other =
+        if position month = 2 then season_of_month (next_month month)
+        else season_of_month (previous_month month)
+      in
+      if next () < chance then other else own
+    in
+    let rmin, rmax =
+      match season with
+      | Winter -> (0.34, 0.52)
+      | Spring -> (0.3, 0.46)
+      | Summer -> (0.3, 0.46)
+      | Autumn -> (0.34, 0.52)
+    in
     let r = rmin +. (next () *. (rmax -. rmin)) in
     let a = next () *. Float.pi in
+    let variant = int_of_float (next () *. 4.) mod 4 in
     let x = 0.3 +. (next () *. (season_width -. 0.6)) in
     let skip = next () < 0.2 in
     let s = spine_x (y0 +. cy) in
@@ -226,48 +254,174 @@ let motifs season ~seed ~y0 ~height =
     | Some cx
       when (not skip) && cy +. r < height && cx -. r >= 0.05
            && cx +. r <= season_width -. 0.05 ->
-      out := { cx; cy; r; a } :: !out
+      out := { cx; cy; r; a; season; variant } :: !out
     | _ -> ()
   done;
   List.rev !out
 
-(** [season_path season ~seed ~y0 ~height] is one svg path drawing the motifs
-    of [motifs]: snowflakes, blossoms, sun rays or leaves. *)
-let season_path season ~seed ~y0 ~height =
-  let b = Buffer.create 512 in
-  let line x1 y1 x2 y2 =
-    Buffer.add_string b (Printf.sprintf "M%.2f %.2f L%.2f %.2f " x1 y1 x2 y2)
+(* A motif is drawn in a unit square about its centre, turned by its angle and
+   scaled by its radius. A motif is some strokes and some filled shapes. *)
+let draw m ~stroke ~fill =
+  let c = Float.cos m.a and s = Float.sin m.a in
+  let pt (x, y) =
+    (m.cx +. (m.r *. ((x *. c) -. (y *. s))),
+     m.cy +. (m.r *. ((x *. s) +. (y *. c))))
   in
-  let spokes m ~count ~inner =
+  let move b p = let x, y = pt p in
+    Buffer.add_string b (Printf.sprintf "M%.2f %.2f " x y) in
+  let line b p = let x, y = pt p in
+    Buffer.add_string b (Printf.sprintf "L%.2f %.2f " x y) in
+  let quad b q p =
+    let qx, qy = pt q and x, y = pt p in
+    Buffer.add_string b (Printf.sprintf "Q%.2f %.2f %.2f %.2f " qx qy x y) in
+  let cubic b c1 c2 p =
+    let ax, ay = pt c1 and bx, by = pt c2 and x, y = pt p in
+    Buffer.add_string b
+      (Printf.sprintf "C%.2f %.2f %.2f %.2f %.2f %.2f " ax ay bx by x y) in
+  let close b = Buffer.add_string b "Z " in
+  let polar ang d = (d *. Float.cos ang, d *. Float.sin ang) in
+  let spokes b ~count ~inner ~outer ~phase =
     for k = 0 to count - 1 do
       let turn = 2. *. Float.pi /. float_of_int count in
-      let ang = m.a +. (float_of_int k *. turn) in
-      let dx = Float.cos ang and dy = Float.sin ang in
-      line (m.cx +. (inner *. m.r *. dx)) (m.cy +. (inner *. m.r *. dy))
-        (m.cx +. (m.r *. dx)) (m.cy +. (m.r *. dy))
+      let ang = phase +. (float_of_int k *. turn) in
+      move b (polar ang inner);
+      line b (polar ang outer)
     done
   in
-  List.iter (fun m ->
-    match season with
-    | Winter ->
-      for k = 0 to 2 do
-        let ang = m.a +. (float_of_int k *. Float.pi /. 3.) in
-        let dx = m.r *. Float.cos ang and dy = m.r *. Float.sin ang in
-        line (m.cx -. dx) (m.cy -. dy) (m.cx +. dx) (m.cy +. dy)
-      done
-    | Spring ->
-      spokes m ~count:5 ~inner:0.35;
-      line m.cx m.cy m.cx m.cy
-    | Summer ->
-      spokes m ~count:8 ~inner:0.55;
-      line m.cx m.cy m.cx m.cy
-    | Autumn ->
-      let dx = m.r *. Float.cos m.a and dy = m.r *. Float.sin m.a in
-      let nx = -0.7 *. dy and ny = 0.7 *. dx in
-      Buffer.add_string b
-        (Printf.sprintf
-           "M%.2f %.2f Q%.2f %.2f %.2f %.2f Q%.2f %.2f %.2f %.2f Z "
-           (m.cx -. dx) (m.cy -. dy) (m.cx +. nx) (m.cy +. ny) (m.cx +. dx)
-           (m.cy +. dy) (m.cx -. nx) (m.cy -. ny) (m.cx -. dx) (m.cy -. dy)))
-    (motifs season ~seed ~y0 ~height);
-  String.trim (Buffer.contents b)
+  let dot b p = move b p; line b p in
+  let disc b (x, y) rr =
+    let px, py = pt (x -. rr, y) and qx, qy = pt (x +. rr, y) in
+    let ar = m.r *. rr in
+    Buffer.add_string b
+      (Printf.sprintf
+         "M%.2f %.2f A%.2f %.2f 0 1 0 %.2f %.2f A%.2f %.2f 0 1 0 %.2f %.2f Z "
+         px py ar ar qx qy ar ar px py)
+  in
+  (* A lens from [p0] to [p1], [bend] thick. *)
+  let lens b (x0, y0) (x1, y1) bend =
+    let mx = (x0 +. x1) /. 2. and my = (y0 +. y1) /. 2. in
+    let nx = -.(y1 -. y0) *. bend and ny = (x1 -. x0) *. bend in
+    move b (x0, y0);
+    quad b (mx +. nx, my +. ny) (x1, y1);
+    quad b (mx -. nx, my -. ny) (x0, y0);
+    close b
+  in
+  match (m.season, m.variant) with
+  | Winter, 0 ->
+    for k = 0 to 2 do
+      let ang = float_of_int k *. Float.pi /. 3. in
+      move stroke (polar ang (-1.));
+      line stroke (polar ang 1.)
+    done
+  | Winter, 1 ->
+    for k = 0 to 5 do
+      let ang = float_of_int k *. Float.pi /. 3. in
+      move stroke (0., 0.);
+      line stroke (polar ang 1.);
+      move stroke (polar ang 0.6);
+      line stroke (polar (ang +. 0.7) 0.85);
+      move stroke (polar ang 0.6);
+      line stroke (polar (ang -. 0.7) 0.85)
+    done
+  | Winter, 2 ->
+    move fill (0., -1.);
+    quad fill (0.14, -0.14) (1., 0.);
+    quad fill (0.14, 0.14) (0., 1.);
+    quad fill (-0.14, 0.14) (-1., 0.);
+    quad fill (-0.14, -0.14) (0., -1.);
+    close fill
+  | Winter, _ ->
+    List.iter (fun (w, y) ->
+      move stroke (-.w, y +. 0.5);
+      line stroke (0., y);
+      line stroke (w, y +. 0.5)) [ (0.55, -0.85); (0.8, -0.3); (1., 0.25) ];
+    move stroke (0., 0.7);
+    line stroke (0., 1.)
+  | Spring, 0 ->
+    for k = 0 to 4 do
+      let ang = float_of_int k *. 2. *. Float.pi /. 5. in
+      lens fill (0., 0.) (polar ang 1.) 0.55
+    done
+  | Spring, 1 ->
+    move fill (0., -1.);
+    cubic fill (0.15, -0.55) (0.65, -0.05) (0.65, 0.35);
+    cubic fill (0.65, 0.75) (0.35, 1.) (0., 1.);
+    cubic fill (-0.35, 1.) (-0.65, 0.75) (-0.65, 0.35);
+    cubic fill (-0.65, -0.05) (-0.15, -0.55) (0., -1.);
+    close fill
+  | Spring, 2 ->
+    move stroke (0., 1.);
+    quad stroke (0.2, 0.) (0., -0.95);
+    lens fill (0.05, 0.4) (0.95, -0.05) 0.4;
+    lens fill (0.02, -0.15) (-0.85, -0.55) 0.4
+  | Spring, _ ->
+    spokes stroke ~count:8 ~inner:0.45 ~outer:1. ~phase:0.;
+    dot stroke (0., 0.)
+  | Summer, 0 ->
+    disc fill (0., 0.) 0.4;
+    spokes stroke ~count:8 ~inner:0.65 ~outer:1. ~phase:0.
+  | Summer, 1 ->
+    List.iter (fun dy ->
+      move stroke (-1., dy +. 0.15);
+      quad stroke (-0.75, dy -. 0.45) (-0.5, dy +. 0.15);
+      quad stroke (-0.25, dy +. 0.75) (0., dy +. 0.15);
+      quad stroke (0.25, dy -. 0.45) (0.5, dy +. 0.15);
+      quad stroke (0.75, dy +. 0.75) (1., dy +. 0.15)) [ -0.45; 0.35 ]
+  | Summer, 2 ->
+    move stroke (-1., 0.2);
+    quad stroke (-0.5, -0.5) (0., 0.2);
+    quad stroke (0.5, -0.5) (1., 0.2);
+    move stroke (0.15, -0.75);
+    quad stroke (0.45, -1.) (0.7, -0.75);
+    quad stroke (0.95, -1.) (1., -0.75)
+  | Summer, _ ->
+    move fill (-0.6, 0.35);
+    cubic fill (-0.6, -0.4) (0.6, -0.4) (0.6, 0.35);
+    close fill;
+    move stroke (-1., 0.55);
+    line stroke (1., 0.55);
+    List.iter (fun ang ->
+      move stroke (polar ang 0.8);
+      line stroke (polar ang 1.05)) [ -1.57; -0.8; -2.34 ]
+  | Autumn, 0 -> lens fill (-1., 0.) (1., 0.) 0.35
+  | Autumn, 1 ->
+    move fill (-0.45, 0.05);
+    quad fill (-0.45, 1.) (0., 1.);
+    quad fill (0.45, 1.) (0.45, 0.05);
+    close fill;
+    move fill (-0.6, -0.05);
+    quad fill (0., -0.8) (0.6, -0.05);
+    close fill;
+    move stroke (0., -0.55);
+    line stroke (0.1, -1.)
+  | Autumn, 2 ->
+    move fill (-0.95, 0.1);
+    quad fill (-0.95, -0.95) (0., -0.95);
+    quad fill (0.95, -0.95) (0.95, 0.1);
+    close fill;
+    move fill (-0.28, 0.25);
+    line fill (-0.22, 1.);
+    line fill (0.22, 1.);
+    line fill (0.28, 0.25);
+    close fill
+  | Autumn, _ ->
+    move fill (0., -0.95);
+    quad fill (0.95, -0.35) (0., 0.7);
+    quad fill (-0.95, -0.35) (0., -0.95);
+    close fill;
+    move stroke (0., 0.7);
+    line stroke (0.12, 1.)
+
+(** [season_paths ~month ~seed ~y0 ~height] is the svg paths that draw the
+    motifs of [motifs], as [(season, filled, d)]: a path for each season and
+    each of stroke and fill that is used. *)
+let season_paths ~month ~seed ~y0 ~height =
+  let ms = motifs ~month ~seed ~y0 ~height in
+  List.concat_map (fun season ->
+    let stroke = Buffer.create 256 and fill = Buffer.create 256 in
+    List.iter (fun m -> if m.season = season then draw m ~stroke ~fill) ms;
+    let item filled b =
+      if Buffer.length b = 0 then []
+      else [ (season, filled, String.trim (Buffer.contents b)) ]
+    in
+    item false stroke @ item true fill) [ Winter; Spring; Summer; Autumn ]

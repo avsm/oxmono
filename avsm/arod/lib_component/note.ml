@@ -500,12 +500,17 @@ let sn_quiet ~y_rel n =
     the spine for a month that begins [y0] down the timeline. *)
 let sn_season ~year ~month ~y0 ~height =
   let season = Snake.season_of_month month in
+  let paths =
+    Snake.season_paths ~month ~seed:((year * 12) + month) ~y0 ~height
+    |> List.map (fun (s, filled, d) ->
+         Printf.sprintf {|<path class="sn-s-%s %s" d="%s"/>|}
+           (Snake.season_name s) (if filled then "sn-fl" else "sn-st") d)
+  in
   El.unsafe_raw
     (Printf.sprintf
-       {|<svg class="sn-season sn-season-%s" viewBox="0 0 %.2f %.2f" style="width:%.2fem;height:%.3fem" aria-hidden="true" focusable="false"><path d="%s"/></svg>|}
+       {|<svg class="sn-season sn-season-%s" viewBox="0 0 %.2f %.2f" style="width:%.2fem;height:%.3fem" aria-hidden="true" focusable="false">%s</svg>|}
        (Snake.season_name season) Snake.season_width height Snake.season_width
-       height
-       (Snake.season_path season ~seed:((year * 12) + month) ~y0 ~height))
+       height (String.concat "" paths))
 
 (** [sn_month_pill label] is the marker for a month, which sits on the spine. *)
 let sn_month_pill label =

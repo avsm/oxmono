@@ -2887,20 +2887,17 @@ let custom_css = {|
   pointer-events: none;
   opacity: 0.65;
 }
-.sn-season path {
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.sn-season-winter { color: #86aad4; }
-.sn-season-winter path { stroke-width: 0.06; }
-.sn-season-spring { color: #dd8fb0; }
-.sn-season-spring path { stroke-width: 0.17; }
-.sn-season-summer { color: #e0aa3e; }
-.sn-season-summer path { stroke-width: 0.08; }
-.sn-season-autumn { color: #cb7a3f; }
-.sn-season-autumn path { fill: currentColor; stroke: none; }
+.sn-season path { stroke-linecap: round; stroke-linejoin: round; }
+.sn-st { fill: none; stroke: var(--sn-c); }
+.sn-fl { fill: var(--sn-c); stroke: none; }
+.sn-s-winter { --sn-c: #86aad4; }
+.sn-s-spring { --sn-c: #dd8fb0; }
+.sn-s-summer { --sn-c: #e0aa3e; }
+.sn-s-autumn { --sn-c: #cb7a3f; }
+.sn-s-winter.sn-st { stroke-width: 0.06; }
+.sn-s-spring.sn-st { stroke-width: 0.09; }
+.sn-s-summer.sn-st { stroke-width: 0.08; }
+.sn-s-autumn.sn-st { stroke-width: 0.08; }
 .sn-pill {
   position: absolute;
   left: 0.3em;

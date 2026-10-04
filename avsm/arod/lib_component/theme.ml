@@ -2882,7 +2882,7 @@ let custom_css = {|
   stroke: url(#snake-grad);
   stroke-width: 4px;
   stroke-linecap: round;
-  opacity: 0.5;
+  opacity: 0.42;
   vector-effect: non-scaling-stroke;
 }
 .sn-month { position: absolute; left: 0; right: 0; }
@@ -2900,7 +2900,7 @@ let custom_css = {|
   top: 0;
   overflow: hidden;
   pointer-events: none;
-  opacity: 0.65;
+  opacity: 0.45;
 }
 .sn-season path { stroke-linecap: round; stroke-linejoin: round; }
 .sn-st { fill: none; stroke: var(--sn-c); }
@@ -2953,7 +2953,7 @@ let custom_css = {|
   stroke-linejoin: round;
   vector-effect: non-scaling-stroke;
 }
-.sn-exit-path { stroke-width: 2px; opacity: 0.5; transition: opacity 0.3s, stroke 0.3s; }
+.sn-exit-path { stroke-width: 2px; opacity: 0.35; transition: opacity 0.3s, stroke 0.3s; }
 /* On hover the stretch of spine that the exit leaves from takes the accent
    colour, and marks flow along the exit towards its card. */
 .sn-lane { stroke: var(--sn-hl); stroke-width: 4px; opacity: 0; transition: opacity 0.3s; }
@@ -3058,7 +3058,7 @@ let custom_css = {|
 .sn-links a {
   display: inline-flex;
   color: var(--color-muted) !important;
-  opacity: 0.8;
+  opacity: 0.55;
   text-decoration: none !important;
   transition: color 0.2s, opacity 0.2s;
 }
@@ -3144,7 +3144,7 @@ let custom_css = {|
   display: inline-flex;
   color: var(--color-muted) !important;
   text-decoration: none !important;
-  opacity: 0.85;
+  opacity: 0.6;
 }
 .release-registry:hover { color: var(--sn-hl) !important; opacity: 1; }
 /* Pointing at an entry lights only its own way off the spine. */

@@ -141,8 +141,13 @@ let () =
     (occurrences html "sn-season sn-season-" = occurrences html {|class="sn-pill"|}
     && contains html "sn-season-summer" && contains html "sn-season-spring"
     && contains html "sn-s-summer");
+  check "the spine takes the colour of each month's season"
+    (contains html {|id="snake-grad"|}
+    && contains html "stop-color:var(--sn-sp-summer)"
+    && contains html "stop-color:var(--sn-sp-spring)"
+    && contains html "sn-m-summer");
   check "every month has a pill on the spine"
-    (let months = occurrences html {|class="sn-month"|} in
+    (let months = occurrences html {|class="sn-month sn-m-|} in
      months > 0 && months = occurrences html {|class="sn-pill"|});
   check "one spine, as an svg path"
     (occurrences html {|class="snake-spine"|} = 1

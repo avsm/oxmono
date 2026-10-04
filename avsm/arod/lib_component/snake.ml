@@ -425,3 +425,13 @@ let season_paths ~month ~seed ~y0 ~height =
       else [ (season, filled, String.trim (Buffer.contents b)) ]
     in
     item false stroke @ item true fill) [ Winter; Spring; Summer; Autumn ]
+
+(** [season_stops marks ~total] is the colour stops of the spine for months laid
+    out as [marks], each [(month, top, height)] in order down a timeline
+    [total] tall. A stop sits at the middle of each month, as an offset from 0
+    to 1 with its season, so that the spine blends from one season into the
+    next. *)
+let season_stops marks ~total =
+  List.map (fun (month, top, h) ->
+    (Float.min 1. (Float.max 0. ((top +. (h /. 2.)) /. total)),
+     season_of_month month)) marks

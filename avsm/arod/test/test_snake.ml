@@ -166,4 +166,10 @@ let () =
     && not (List.mem S.Winter (seasons_in ~month:3 ~lo:0. ~hi:0.35)));
   check "the middle month of a season is its own"
     (seasons_in ~month:1 ~lo:0. ~hi:1. = [ S.Winter ]);
+  let stops =
+    S.season_stops [ (9, 0., 20.); (8, 20., 40.); (7, 60., 40.) ] ~total:100.
+  in
+  check "the spine has a colour stop in the middle of each month"
+    (List.map fst stops = [ 0.1; 0.4; 0.8 ]
+    && List.map snd stops = [ S.Autumn; S.Summer; S.Summer ]);
   Printf.printf "ok: %d checks\n" !checks

@@ -597,6 +597,7 @@ let notes_list ~ctx =
   (* Months run down the page, each a block of rows. [y] is how far down the
      timeline the next block begins. *)
   let y = ref 0. in
+  let marks = ref [] in
   let month_sections = List.map (fun (yr, mo) ->
     let notes =
       List.rev (try Hashtbl.find by_month (yr, mo) with Not_found -> []) in
@@ -645,9 +646,11 @@ let notes_list ~ctx =
     in
     let month_h = !cursor +. Snake.month_gap in
     y := month_top +. month_h;
+    marks := (mo, month_top, month_h) :: !marks;
     El.div ~at:[At.id section_id;
                 At.v "data-month-id" month_id;
-                At.class' "sn-month";
+                At.class' ("sn-month sn-m-"
+                           ^ Snake.season_name (Snake.season_of_month mo));
                 At.v "style" (pos_style ~top:month_top ~height:month_h)]
       (sn_season ~year:yr ~month:mo ~y0:month_top ~height:month_h
        :: sn_month_pill (Printf.sprintf "%s %d" (Common.month_name_full mo) yr)
@@ -656,10 +659,17 @@ let notes_list ~ctx =
   let total = !y in
   let spine =
     let d = Snake.spine_path ~height:total in
+    let stops =
+      Snake.season_stops (List.rev !marks) ~total
+      |> List.map (fun (offset, season) ->
+           Printf.sprintf {|<stop offset="%.4f" style="stop-color:var(--sn-sp-%s)"/>|}
+             offset (Snake.season_name season))
+      |> String.concat ""
+    in
     El.unsafe_raw
       (Printf.sprintf
-         {|<svg class="snake-spine" viewBox="0 0 %.2f %.2f" style="width:%.2fem;height:%.3fem" aria-hidden="true" focusable="false"><path class="snake-line" d="%s"/></svg>|}
-         Snake.svg_width total Snake.svg_width total d)
+         {|<svg class="snake-spine" viewBox="0 0 %.2f %.2f" style="width:%.2fem;height:%.3fem" aria-hidden="true" focusable="false"><defs><linearGradient id="snake-grad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="%.3f">%s</linearGradient></defs><path class="snake-line" d="%s"/></svg>|}
+         Snake.svg_width total Snake.svg_width total total stops d)
   in
   let article =
     El.article ~at:[At.class' "h-feed"] [

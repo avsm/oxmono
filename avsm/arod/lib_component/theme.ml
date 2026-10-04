@@ -2857,6 +2857,10 @@ let custom_css = {|
   --sn-note: var(--color-accent);
   --sn-week: var(--color-muted);
   --sn-release: var(--color-muted);
+  --sn-sp-winter: color-mix(in srgb, #7fa6d6 75%, var(--color-muted));
+  --sn-sp-spring: color-mix(in srgb, #7fbf8e 75%, var(--color-muted));
+  --sn-sp-summer: color-mix(in srgb, #e3b043 75%, var(--color-muted));
+  --sn-sp-autumn: color-mix(in srgb, #d27a3a 75%, var(--color-muted));
   --sn-spine: color-mix(in srgb, var(--color-accent) 40%, var(--color-muted));
   position: relative;
 }
@@ -2870,13 +2874,18 @@ let custom_css = {|
 }
 .snake-line {
   fill: none;
-  stroke: var(--sn-spine);
+  stroke: url(#snake-grad);
   stroke-width: 4px;
   stroke-linecap: round;
   opacity: 0.5;
   vector-effect: non-scaling-stroke;
 }
 .sn-month { position: absolute; left: 0; right: 0; }
+/* The exits of a month take its season's colour, as the spine does. */
+.sn-m-winter { --sn-spine: var(--sn-sp-winter); }
+.sn-m-spring { --sn-spine: var(--sn-sp-spring); }
+.sn-m-summer { --sn-spine: var(--sn-sp-summer); }
+.sn-m-autumn { --sn-spine: var(--sn-sp-autumn); }
 /* Small vector motifs for the season of each month, set faintly beside the
    spine. */
 .sn-season {

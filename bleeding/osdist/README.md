@@ -1,7 +1,8 @@
 # osdist
 
 Generate Debian, RPM and static distribution packaging for OCaml projects.
-Public interfaces are in `lib/*.mli`.
+Start with the [Osdist API](lib/osdist.mli) for a usage example, the source
+bundle contract and links to the packaging modules.
 
 ```sh
 dune build --profile release-check @bleeding/osdist/all

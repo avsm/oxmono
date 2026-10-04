@@ -1,65 +1,46 @@
-(** Package metadata flowing through [oi dist bundle → pkg → repo].
+(** Package metadata and JSON sidecars.
 
-    Built once in [oi dist bundle] from one of:
-    - {!of_local_project}: project mode — derive from cwd's [*.opam] and
-      [dune-project]. The package name comes from the "root" opam package: the
-      one in the cwd's [*.opam] set that no other local [*.opam] depends on. If
-      more than one such candidate exists, the caller must pass [--pkg-name].
-    - {!of_target_name}: a [TARGET] cmdline argument — name is the TARGET; the
-      caller fills in [maintainer]/[homepage]/[license] from cmdline overrides
-      or the defaults baked here.
-
-    Serialised next to the bundle tarball as [<pkg>-<ver>.osdist.json] and read
-    back by [oi dist pkg]. *)
+    Construct metadata from a package name, an opam file or a local project.
+    Sidecars store this metadata alongside source archives for later packaging.
+    Constructors leave [binaries] and [depexts] empty. *)
 
 type t = {
-  package : string;
-  version : string;
-  epoch : int option;
-  maintainer : string;
-  homepage : string;
-  license : string;
-  prefix : string;  (** Install prefix, e.g. ["/usr"]. *)
-  synopsis : string;
-  description : string;
+  package : string;  (** Native package name. *)
+  version : string;  (** Upstream version, without a distribution revision. *)
+  epoch : int option;  (** Version epoch. Only positive values are emitted. *)
+  maintainer : string;  (** Maintainer in [Name <email>] form. *)
+  homepage : string;  (** Project URL, or the empty string if unknown. *)
+  license : string;  (** License name or expression. *)
+  prefix : string;  (** Installation prefix, usually ["/usr"]. *)
+  synopsis : string;  (** One-line summary. *)
+  description : string;  (** Longer description, possibly multiline. *)
   binaries : string list;
-      (** Executables produced by the build, used for the [debian/install] and
-          [%files] lists. May be left empty; both family templates fall back to
-          a recursive glob of [bin/]. *)
+      (** Executable names recorded in the sidecar. Packaging generators use the
+          build's installed files rather than this list. *)
   depexts : (string * string list) list;
-      (** Per-{!Dockerfile_opam.Distro.tag_of_distro} overlay depexts, computed
-          at bundle time and consumed at pkg time. Keyed by the upstream distro
-          tag (e.g. ["ubuntu-26.04"], ["fedora-44"]); empty for the
-          [alpine-static] target (it builds inside the bundled musl chain). *)
+      (** System dependencies keyed by [Dockerfile_opam.Distro.tag_of_distro],
+          for example ["ubuntu-26.04"]. Callers select the appropriate list and
+          pass it to generators as [overlay_depexts]. *)
 }
 
-val codec : t Jsont.t
-(** JSON codec used for the sidecar file. *)
-
-val write_sidecar : path:string -> t -> unit
-(** [write_sidecar ~path t] serialises [t] to [path] (atomic via
-    [<path>.tmp.<pid> + rename]). The conventional [path] is
-    [<bundle-dir>/<pkg>-<ver>.osdist.json]. *)
-
-val read_sidecar : path:string -> (t, string) result
-
-val sidecar_path : bundle_path:string -> string
-(** [sidecar_path ~bundle_path] is the conventional sidecar location for a
-    bundle tarball ([bundle_path] with the [.tar.gz] suffix replaced by
-    [.osdist.json]). *)
-
-(** {1 Construction from external metadata} *)
+(** {1:construction Constructing metadata} *)
 
 val of_target_name : name:string -> version:string -> t
-(** Construct a {!t} with conservative defaults for a TARGET-mode bundle. The
-    caller will overlay any cmdliner overrides on top. *)
+(** [of_target_name ~name ~version] is metadata with the given package name and
+    version, an ISC license, a [/usr] prefix and generated descriptions. The
+    homepage is empty and the epoch is absent. The maintainer uses [DEBEMAIL]
+    with [DEBFULLNAME], defaulting to [Maintainer] for the name. Without
+    [DEBEMAIL], it is [Maintainer <maintainer@example.org>]. *)
 
 val of_opam_file :
   name:string -> version:string -> path:string -> (t, string) result
-(** [of_opam_file ~name ~version ~path] parses [path] as an opam file and
-    returns a {!t} with [maintainer], [homepage], [license], [synopsis] and
-    [description] taken from it. Useful in TARGET mode to enrich the spec with
-    the resolved package's opam metadata. *)
+(** [of_opam_file ~name ~version ~path] is metadata read from the opam file at
+    [path], using the supplied package name and version. It takes the first
+    maintainer and homepage, joins licenses with [" AND "], and copies the
+    synopsis and description. An absent description falls back to the synopsis.
+    An absent maintainer uses the defaults of {!of_target_name}. An absent
+    license defaults to ISC. The prefix is [/usr] and the epoch is absent. File
+    and parse errors are returned as [Error]. *)
 
 val override :
   ?package:string ->
@@ -70,36 +51,54 @@ val override :
   ?prefix:string ->
   t ->
   t
-(** [override ?package ?epoch ?maintainer ?homepage ?license ?prefix t] applies
-    optional cmdliner overrides to [t]. Each [None] argument leaves the field
-    untouched. *)
+(** [override ?package ?epoch ?maintainer ?homepage ?license ?prefix t] is [t]
+    with the supplied fields replaced. Omitted arguments preserve the existing
+    fields. To clear an epoch, use a record update. *)
 
-(** {1 Project mode — derive from *.opam DAG}
-
-    Reads every [*.opam] in [cwd] via {!OpamFile.OPAM}. The "root" package is
-    the unique [*.opam] in the cwd whose name appears in no other local
-    [*.opam]'s [depends:] formula — i.e. the top of the transitive-deps DAG.
-
-    On ambiguity (more than one root), the caller is expected to pass
-    [--pkg-name] and re-enter via {!of_target_name} (or in the future, a more
-    direct [select]).
-
-    The version is read from [dune-project]'s [(version …)] stanza, falling back
-    to the opam [version:] field, then to ["0.0.0"]. *)
+(** {1:projects Local projects} *)
 
 type derive_error =
   | No_opam_files
+      (** The directory is missing or contains no [*.opam] files. *)
   | Multiple_roots of string list
+      (** More than one package has no local dependents. Lists the candidates. *)
   | Cycle of string list
-
-val pp_derive_error : Format.formatter -> derive_error -> unit
-(** [pp_derive_error ppf e] renders [e] as a human-readable diagnostic. *)
+      (** Every package has a local dependent. Lists all local package names. *)
 
 val of_local_project : cwd:string -> (t, derive_error) result
-(** [of_local_project ~cwd] reads every [*.opam] in [cwd] and returns a {!t}
-    derived from the "root" package (the one no other local opam depends on).
-    Errors with {!Multiple_roots} when the project has more than one such
-    package (caller must disambiguate via [--pkg-name]). *)
+(** [of_local_project ~cwd] is metadata for the unique package whose name
+    appears in no local dependency formula. It reads [*.opam] files directly in
+    [cwd], using their basenames as package names. Dependency filters are not
+    evaluated. The version comes from [dune-project], then the package's opam
+    [version] field, then ["0.0.0"]. Other fields follow {!of_opam_file}.
+
+    Root selection errors are returned as [Error]. A missing directory returns
+    [Error No_opam_files]. Other directory access and opam file errors raise
+    exceptions. Use {!of_opam_file} to select a package explicitly when several
+    roots exist. *)
+
+val pp_derive_error : Format.formatter -> derive_error -> unit
+(** [pp_derive_error ppf e] prints a diagnostic for [e] on [ppf]. *)
+
+(** {1:sidecars JSON sidecars} *)
+
+val codec : t Jsont.t
+(** [codec] is the JSON codec for package metadata. Absent [binaries] and
+    [depexts] fields decode as empty lists. Empty lists are omitted on output. *)
+
+val sidecar_path : bundle_path:string -> string
+(** [sidecar_path ~bundle_path] is [bundle_path] with its [.tar.gz] suffix
+    replaced by [.osdist.json]. If no such suffix exists, [.osdist.json] is
+    appended. *)
+
+val write_sidecar : path:string -> t -> unit
+(** [write_sidecar ~path t] writes [t] as indented JSON, atomically replacing
+    [path]. The parent directory must exist. Encoding and file errors raise
+    exceptions. *)
+
+val read_sidecar : path:string -> (t, string) result
+(** [read_sidecar ~path] is the metadata decoded from [path]. Missing files,
+    read errors and invalid JSON are returned as [Error]. *)
 
 val pp : Format.formatter -> t -> unit
-(** [pp ppf t] renders [t] as [<package> <version>] for diagnostics. *)
+(** [pp ppf t] prints [<package> <version>] on [ppf]. *)

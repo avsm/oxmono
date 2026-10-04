@@ -1,31 +1,24 @@
-(** Per-target packaging metadata.
+(** Distribution targets and package naming metadata. *)
 
-    A {!t} pairs a {!Dockerfile_opam.Distro.t} with the bits the upstream distro
-    module does not carry (debian revision, rpm Release, codename string, the
-    base docker image we want to build in). The {!Static} family is the
-    odd-one-out: it produces a plain tarball of binaries built on Alpine with
-    [OI_STATIC=1], not a system package. *)
-
-type family = Deb | Rpm | Static
+type family =
+  | Deb  (** Debian packages. *)
+  | Rpm  (** RPM packages. *)
+  | Static  (** Archives of static binaries built on Alpine. *)
 
 type t = {
-  tag : string;
-      (** Short, filesystem-safe identifier, e.g. ["ubuntu-26.04"],
-          ["fedora-44"], ["alpine-static"]. Doubles as the [out/<tag>/]
-          subdirectory name and the dnf repo path. *)
-  family : family;
+  tag : string;  (** Target identifier, such as ["ubuntu-26.04"]. *)
+  family : family;  (** Packaging format. *)
   distro : Dockerfile_opam.Distro.t;
-      (** The distro whose package manager / depext filters apply. {!Static}
-          pins [`Alpine `V3_22] so alpine-keyed depexts in the bundle sidecar
-          are looked up for the static build. *)
-  base_image : string;  (** Docker image used by this target's build stage. *)
-  codename : string option;
-      (** Debian/Ubuntu series ([noble], [resolute], [trixie]); [None] for
-          rpm/static. *)
+      (** Distribution used to select the package manager and dependencies. *)
+  base_image : string;  (** Docker image used for the build. *)
+  codename : string option;  (** Debian or Ubuntu release name. *)
   debrev : string option;
-      (** Debian revision suffix ([1~resolute1]); [None] for non-deb. *)
-  rpmrel : string option;  (** rpm [Release:] prefix; [None] for non-rpm. *)
-  arch : string;  (** ["x86_64"] currently. *)
+      (** Debian revision, defaulting to ["1"] on output. *)
+  rpmrel : string option;  (** RPM release, defaulting to ["1"] on output. *)
+  arch : string;
+      (** Architecture name, such as ["x86_64"] or ["aarch64"]. Debian filenames
+          translate these to ["amd64"] and ["arm64"]. This field does not
+          configure cross-compilation or Docker's platform. *)
 }
 
 val make :
@@ -37,52 +30,56 @@ val make :
   ?base_image:string ->
   Dockerfile_opam.Distro.t ->
   t
-(** [make distro] builds a {!t} for [distro], deriving [tag] from
-    {!Dockerfile_opam.Distro.tag_of_distro}, [family] from the distro's package
-    manager (Apt -> Deb, Yum -> Rpm, Apk -> Static), and [base_image] from
-    {!Dockerfile_opam.Distro.base_distro_tag}. The optional arguments are
-    project-policy fields the upstream library doesn't carry: [codename] and
-    [debrev] for deb targets, [rpmrel] for rpm. [tag] and [base_image] are
-    overridable for unusual targets (notably {!alpine_static}, which keeps the
-    bare ["alpine-static"] tag and uses the [ocaml/opam:alpine-3.22-ocaml-5.4]
-    image). *)
+(** [make distro] is a target for [distro]. Its family follows the package
+    manager: Apt selects {!constructor-Deb}, Yum selects {!constructor-Rpm}, and
+    Apk selects {!constructor-Static}. The tag and base image come from
+    [Dockerfile_opam.Distro] unless overridden. The architecture defaults to
+    ["x86_64"]. The codename and package revisions default to [None].
+
+    Raises [Failure] if the distribution uses another package manager. *)
+
+(** {1:presets Predefined targets}
+
+    All predefined targets use ["x86_64"]. *)
 
 val ubuntu_24_04 : t
-(** [ubuntu_24_04] is the Ubuntu 24.04 (noble) [.deb] target on the
-    [ubuntu:noble] base image. *)
+(** [ubuntu_24_04] is Ubuntu 24.04 with image [ubuntu:noble], codename [noble]
+    and Debian revision [1~noble1]. *)
 
 val ubuntu_26_04 : t
-(** [ubuntu_26_04] is the Ubuntu 26.04 (resolute) [.deb] target on the
-    [ubuntu:resolute] base image. *)
+(** [ubuntu_26_04] is Ubuntu 26.04 with image [ubuntu:resolute], codename
+    [resolute] and Debian revision [1~resolute1]. *)
 
 val debian_13 : t
-(** [debian_13] is the Debian 13 (trixie) [.deb] target on the [debian:13] base
-    image. *)
+(** [debian_13] is Debian 13 with image [debian:13], codename [trixie] and
+    Debian revision [1~deb13]. *)
 
 val fedora_44 : t
-(** [fedora_44] is the Fedora 44 [.rpm] target on the [fedora:44] base image. *)
+(** [fedora_44] is Fedora 44 with image [fedora:44] and RPM release [1]. *)
 
 val alpine_static : t
-(** [alpine_static] is the statically-linked musl binary target, built on
-    [ocaml/opam:alpine-3.22-ocaml-5.4] with [OI_STATIC=1] in the env. *)
+(** [alpine_static] is the static musl target with tag [alpine-static] and image
+    [ocaml/opam:alpine-3.22-ocaml-5.4]. The image supplies stock OCaml 5.4. The
+    distribution is Alpine 3.22. *)
 
 val default_targets : t list
-(** [default_targets] is the default per-target build matrix:
-    [ubuntu-24.04, ubuntu-26.04, debian-13, fedora-44, alpine-static] — all
-    [x86_64]. Glibc distros come first so the more fragile [alpine-static]
-    failure mode doesn't poison their resilient-build summary. *)
+(** [default_targets] is the list of predefined targets in the order above. *)
+
+(** {1:lookup Lookup and display} *)
 
 val of_tag : string -> t option
-(** [of_tag s] looks up a default target by its [tag] field. Case-sensitive. *)
+(** [of_tag tag] is the predefined target with exactly this tag, if any.
+    Matching is case-sensitive. *)
 
 val parse_list : string -> t list
-(** [parse_list s] parses a comma-separated tag list (e.g.
-    ["ubuntu-26.04,fedora-44"]) into targets, dropping unknown tags. Raises
-    [Failure] if every entry is unknown. *)
+(** [parse_list s] is the list of predefined targets named by comma-separated
+    tags in [s]. Whitespace is trimmed and empty or unknown tags are dropped.
+    Order and duplicates are preserved.
+
+    Raises [Failure] if no known targets remain. *)
 
 val pp : Format.formatter -> t -> unit
-(** [pp ppf t] renders [t] as [<tag> [<family>, <base_image>]]. *)
+(** [pp ppf t] prints [<tag> [<family>, <base_image>]] on [ppf]. *)
 
 val string_of_family : family -> string
-(** [string_of_family f] is a short lowercase tag (["deb"], ["rpm"], ["static"])
-    for [f]. *)
+(** [string_of_family f] is ["deb"], ["rpm"] or ["static"] for [f]. *)

@@ -1,15 +1,26 @@
-(** Fedora/RHEL packaging generators.
+(** RPM packaging generators for distributions using DNF.
 
-    Pure string / {!Dockerfile.t} emitters — same shape as {!Deb}. *)
+    These functions generate files for targets in the {!Target.Rpm} family. The
+    build context must contain [Dockerfile], [<package>.spec] and the source
+    archive [<package>-<version>.tar.gz]. The archive must provide
+    [build.sh build JOBS] and [build.sh install PREFIX DESTDIR]. *)
 
 val spec :
   Spec.t -> Target.t -> overlay_depexts:string list -> date_rpm:string -> string
-(** [spec] renders the RPM specfile. [date_rpm] is the [%%changelog] entry's
-    date in the rpm-conventional form ([Wed May 21 2026]). *)
+(** [spec s t ~overlay_depexts ~date_rpm] is the RPM specfile for [s] on [t]. It
+    calls the source bundle's [build.sh] and packages all installed files and
+    symlinks. System dependencies are added to [BuildRequires] and, unless their
+    names begin with [-], to [Requires]. The release defaults to [1]. Supply the
+    changelog date in RPM form, such as [Sun Oct 04 2026]. *)
 
 val dockerfile :
   Spec.t -> Target.t -> overlay_depexts:string list -> Dockerfile.t
+(** [dockerfile s t ~overlay_depexts] is a Dockerfile using [t.base_image].
+    Building the image installs the toolchain and system dependencies and stages
+    the archive and specfile. Running it invokes [rpmbuild] as an unprivileged
+    user and copies the binary packages to [/artefacts]. *)
 
 val filename : Spec.t -> Target.t -> string
-(** [filename s t] is the conventional binary [.rpm] filename for [s] on [t],
-    e.g. [oi-0.13.5-1.fc44.x86_64.rpm]. *)
+(** [filename s t] is the binary package filename, without the epoch.
+    Distribution suffixes are included for Fedora, CentOS, Oracle Linux and RHEL
+    targets. For example, [hello-1.0.0-1.fc44.x86_64.rpm]. *)

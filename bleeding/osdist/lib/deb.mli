@@ -1,47 +1,49 @@
-(** Debian/Ubuntu packaging generators.
+(** Debian and Ubuntu packaging generators.
 
-    Pure string / {!Dockerfile.t} generators — no IO, no shell-out. The caller
-    (see [Osdist_cmd.Pkg]) is responsible for writing the strings to disk and
-    for actually invoking [docker build].
+    These functions generate files for targets in the {!Target.Deb} family.
+    Write them into the build context alongside [<package>-<version>.tar.gz]:
 
-    A single target's output directory looks like:
     {v
-    out/<target>/
-      Dockerfile          -- {!dockerfile}
-      debian/control      -- {!control}
-      debian/rules        -- {!rules}     (executable, 0755)
-      debian/changelog    -- {!changelog}
-      debian/copyright    -- {!copyright}
-      debian/source/format -- {!source_format}
-    v} *)
+    Dockerfile
+    debian/control
+    debian/rules
+    debian/changelog
+    debian/copyright
+    debian/source/format
+    v}
+
+    The source archive must provide [build.sh build JOBS] and
+    [build.sh install PREFIX DESTDIR]. *)
 
 val control : Spec.t -> Target.t -> overlay_depexts:string list -> string
-(** [control s t ~overlay_depexts] is the [debian/control] body for [s] on [t],
-    with [overlay_depexts] folded into [Build-Depends:]. *)
+(** [control s t ~overlay_depexts] is [debian/control] for [s] on [t]. The
+    supplied system dependencies are added to [Build-Depends]. *)
 
 val rules : Spec.t -> Target.t -> string
-(** [rules s t] is the [debian/rules] body: a debhelper-driven Makefile whose
-    [override_dh_auto_build] / [override_dh_auto_install] hooks delegate to the
-    bundle's [build.sh]. *)
+(** [rules s t] is [debian/rules], using debhelper to call the source bundle's
+    [build.sh] for building and installing under [s.prefix]. Write this file
+    with executable permissions. *)
 
 val changelog : Spec.t -> Target.t -> date_rfc2822:string -> string
-(** [changelog s t ~date_rfc2822] is the [debian/changelog] entry, encoding the
-    epoch, [s.version], [t.debrev], and [t.codename]. *)
+(** [changelog s t ~date_rfc2822] is a [debian/changelog] entry with the package
+    epoch, version and Debian revision. The revision defaults to [1] and the
+    codename to [unstable]. Supply the date in RFC 2822 form, such as
+    [Sun, 04 Oct 2026 12:00:00 +0000]. *)
 
 val copyright : Spec.t -> string
-(** [copyright s] is a minimal Machine-Readable [debian/copyright]. *)
+(** [copyright s] is a minimal machine-readable [debian/copyright] file. *)
 
 val source_format : string
-(** [source_format] is the body of [debian/source/format] — pinned to
-    [3.0 (quilt)]. *)
+(** [source_format] is ["3.0 (quilt)\n"], for [debian/source/format]. *)
 
 val dockerfile :
   Spec.t -> Target.t -> overlay_depexts:string list -> Dockerfile.t
-(** [dockerfile s t ~overlay_depexts] is the multi-stage build's [Dockerfile.t]:
-    a [build] stage that installs the toolchain + overlay depexts and runs
-    [dpkg-buildpackage -b], then a [scratch] final stage carrying just the
-    produced [.deb]. *)
+(** [dockerfile s t ~overlay_depexts] is a Dockerfile using [t.base_image].
+    Building the image installs the toolchain and system dependencies and stages
+    the source archive and [debian/] directory. Running it invokes
+    [dpkg-buildpackage -b -uc -us] and copies the binary packages to
+    [/artefacts]. *)
 
 val filename : Spec.t -> Target.t -> string
-(** [filename s t] is the conventional binary [.deb] filename for [s] on [t],
-    e.g. [oi_0.13.5-1~resolute1_amd64.deb]. *)
+(** [filename s t] is the binary package filename, without the epoch. For
+    example, [hello_1.0.0-1~deb13_amd64.deb]. *)

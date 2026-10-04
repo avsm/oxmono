@@ -1,30 +1,27 @@
-(** Static-musl binary build on Alpine.
+(** Static binary archives built on Alpine Linux.
 
-    Produces a {!Dockerfile.t} whose final stage is [scratch] carrying just the
-    statically-linked binaries from the bundle. The [build] stage runs the
-    bundle's own [make] with [OI_STATIC=1] in the environment (the project's
-    [bin/dune] picks that up and appends [-cclib -static] to the release
-    profile).
-
-    The packaging entry point ([Osdist_cmd.Pkg]) drives
-    [docker buildx build --output type=local,dest=…] to extract the binaries,
-    then tars them into {!tarball_filename}. *)
+    Use a target in the {!Target.Static} family with an Alpine image that
+    supplies an OCaml toolchain and an [opam] user, such as
+    {!Target.alpine_static}. The build context must contain
+    [<package>-<version>.tar.gz]. Its [build.sh] must support
+    [build.sh build JOBS] and [build.sh install PREFIX DESTDIR], and honour
+    [OI_STATIC=1] by linking executables statically. *)
 
 val dockerfile :
   ?overlay_depexts:string list -> Spec.t -> Target.t -> Dockerfile.t
-(** [dockerfile ?overlay_depexts s t] is the static-musl multi-stage
-    [Dockerfile.t] for [s] on [t]: an [oi-builder] alpine+ocaml stage that runs
-    the bundle's [build.sh] with [OI_STATIC=1], then a [scratch] final stage
-    carrying just [/bin]. [overlay_depexts] are extra alpine packages (evaluated
-    from the closure's [depexts:] filters against [os-distribution = "alpine"])
-    to install on top of the bootstrap toolchain. *)
+(** [dockerfile ?overlay_depexts s t] is a Dockerfile using [t.base_image].
+    Building the image installs the toolchain dependencies and unpacks the
+    sources. Running it builds with [OI_STATIC=1], installs with prefix [/usr]
+    under [/dist], and archives the contents of [/dist/usr/bin]. The tarball and
+    a [.sha256] checksum file are written to [/artefacts]. [overlay_depexts]
+    defaults to [[]] and adds Alpine system packages. *)
 
 val tarball_filename : Spec.t -> Target.t -> string
-(** [tarball_filename s t] is the basename of the static-binary tarball:
-    [<pkg>-<ver>-linux-<arch>-static.tar.gz]. *)
+(** [tarball_filename s t] is [<package>-<version>-linux-<arch>-static.tar.gz]. *)
 
 val build_sh : Spec.t -> Target.t -> string
-(** [build_sh s t] is a host-side helper script that runs
-    [docker buildx build --output type=local], tars the result into
-    {!tarball_filename}, and writes a sha256 sidecar. Written next to the
-    Dockerfile; invoked by the top-level [build.sh] driver. *)
+(** [build_sh s t] is a host-side shell script to write alongside the
+    Dockerfile. It runs [docker build], then [docker run] with the script's
+    directory mounted at [/artefacts]. The resulting archive and checksum are
+    written there. The script makes that directory world-writable so the
+    container's unprivileged user can write its output. *)

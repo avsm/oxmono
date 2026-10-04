@@ -28,10 +28,19 @@ let cfg : Arod.Config.t =
     site = { Arod.Config.default.site with base_url = "https://example.com" } }
 
 let ctx_of ?(papers = []) ?(notes = []) ?(projects = []) ?(ideas = [])
-    ?(videos = []) ?releases () =
-  Arod.Ctx.of_entries ~config:cfg ?releases
-    (Bushel.Entry.v ~papers ~notes ~projects ~ideas ~videos ~contacts:[]
-       ~data_dir:"." ())
+    ?(videos = []) ?releases ?external_links () =
+  let entries =
+    Bushel.Entry.v ~papers ~notes ~projects ~ideas ~videos ~contacts:[]
+      ~data_dir:"." ()
+  in
+  let entries =
+    match external_links with
+    | None -> entries
+    | Some links ->
+      Bushel.Entry.with_graph entries
+        (Bushel.Link_graph.v ~internal_links:[] ~external_links:links)
+  in
+  Arod.Ctx.of_entries ~config:cfg ?releases entries
 
 (* {1 Projects} *)
 
@@ -246,5 +255,45 @@ let () =
   check "the featured notes follow the timeline"
     (before md "[An Old Note]" "## Featured"
     && before md "## Featured" "Canonical:"
-    && contains md "[DOI](https://doi.org/10.1/feat)");
+    && contains md "[DOI](https://doi.org/10.1/feat)")
+
+(* {1 Links} *)
+
+let linking ~slug ~title ~date body =
+  { (note ~slug ~title ~date ()) with Bushel.Note.body }
+
+let ext source url : Bushel.Link_graph.external_link =
+  { Bushel.Link_graph.source; domain = List.nth (String.split_on_char '/' url) 2;
+    url }
+
+let () =
+  let notes =
+    [ linking ~slug:"older" ~title:"Older Entry" ~date:(2026, 3, 1)
+        "See [Alpha](https://alpha.example/a) and [Beta](https://beta.example/b).";
+      linking ~slug:"newer" ~title:"A title\nthat [breaks] lines"
+        ~date:(2026, 8, 1)
+        "See [Gamma](https://alpha.example/c)." ]
+  in
+  let md =
+    Arod_component.Markdown_export.links_list_md
+      ~ctx:
+        (ctx_of ~notes
+           ~external_links:
+             [ ext "older" "https://alpha.example/a";
+               ext "older" "https://beta.example/b";
+               ext "newer" "https://alpha.example/c" ]
+           ())
+  in
+  check "the introduction of the HTML page opens the list"
+    (before md "These are all the outbound links" "## Links by entry"
+    && contains md "[Karakeep](https://karakeep.app)");
+  check "the counts of the sidebar are given"
+    (contains md "3 links, 2 domains" && contains md "alpha.example: 2");
+  check "groups come newest entry first, as in the HTML"
+    (before md "(note, Aug 2026)" "(note, Mar 2026)");
+  check "each link is under the entry that makes it"
+    (before md "https://alpha.example/c" "[Older Entry]"
+    && before md "[Older Entry]" "https://alpha.example/a");
+  check "a title with a line break and brackets stays on one line"
+    (contains md "[A title that \\[breaks\\] lines](");
   Printf.printf "test_markdown_pages: %d checks passed\n" !checks

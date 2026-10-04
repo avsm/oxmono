@@ -384,6 +384,11 @@ let compute_groups ~ctx =
     compare (Entry.date b.ent) (Entry.date a.ent)
   ) groups
 
+(** [show_domain_hint display] is whether the page gives the domain of a link
+    beside its label. *)
+let show_domain_hint display =
+  (display.kind <> Web && display.kind <> Untitled) || display.favicon <> None
+
 (** [render_group ~contact_by_domain ~doi_entries ~entries ~ctx group] renders [group]. *)
 let render_group ~contact_by_domain ~doi_entries ~entries ~ctx group =
   let (y, m, d) = Entry.date group.ent in
@@ -418,7 +423,7 @@ let render_group ~contact_by_domain ~doi_entries ~entries ~ctx group =
                   At.v "rel" "noopener"]
           label_children
     in
-    let show_hint = (display.kind <> Web && display.kind <> Untitled) || display.favicon <> None in
+    let show_hint = show_domain_hint display in
     let domain_hint =
       if show_hint then
         El.span ~at:[At.class' "link-domain-hint"]
@@ -449,13 +454,28 @@ let all_groups ~ctx = compute_groups ~ctx
 
 let page_size = 25
 
-(** [links_list ~ctx] is the external-link list and its sidebar. *)
-let links_list ~ctx =
-  let groups = compute_groups ~ctx in
-  let entries = Arod.Ctx.entries ctx in
+(** The categories of the link filter, in display order, with their labels. *)
+let filter_categories = [
+  (Fp_paper, "paper");
+  (Fp_contact, "contact");
+  (Fp_code, "code");
+  (Fp_titled, "titled");
+  (Fp_untitled, "untitled");
+]
+
+type stats = {
+  total_urls : int;
+  total_domains : int;
+  domain_counts : (string * int) list;
+  filter_counts : (filter_kind, int) Hashtbl.t;
+}
+
+(** [stats ~ctx groups] is the counts that the sidebar of the links page gives:
+    how many distinct links, how many domains and how many links each domain
+    and each filter category has. Domains are most common first. *)
+let stats ~ctx groups =
   let contacts = Arod.Ctx.contacts ctx in
   let contact_by_domain = build_contact_by_domain contacts in
-
   let url_set = Hashtbl.create 256 in
   let domain_tbl : (string, int) Hashtbl.t = Hashtbl.create 64 in
   List.iter (fun group ->
@@ -495,8 +515,36 @@ let links_list ~ctx =
       | None -> bump_filter Fp_untitled
   ) url_set;
 
-  let total_urls = Hashtbl.length url_set in
-  let total_domains = List.length domain_counts in
+  { total_urls = Hashtbl.length url_set;
+    total_domains = List.length domain_counts; domain_counts; filter_counts }
+
+(** [displayer ~ctx] is the function that describes a link as the page shows
+    it: its label, secondary text and kind. *)
+let displayer ~ctx =
+  let contact_by_domain = build_contact_by_domain (Arod.Ctx.contacts ctx) in
+  let doi_entries = Entry.doi_entries (Arod.Ctx.entries ctx) in
+  fun url -> classify_url ~contact_by_domain ~doi_entries ~ctx url
+
+(** The paragraph that opens the links page. The link is to the archive. *)
+let list_intro_before =
+  "These are all the outbound links from my site, categorised here for \
+   convenient search. They are archived for offline use through "
+
+let list_intro_link = ("Karakeep", "https://karakeep.app")
+let list_intro_after = "."
+
+(** [links_list ~ctx] is the external-link list and its sidebar. *)
+let links_list ~ctx =
+  let groups = compute_groups ~ctx in
+  let entries = Arod.Ctx.entries ctx in
+  let contacts = Arod.Ctx.contacts ctx in
+  let contact_by_domain = build_contact_by_domain contacts in
+
+  let st = stats ~ctx groups in
+  let total_urls = st.total_urls in
+  let total_domains = st.total_domains in
+  let domain_counts = st.domain_counts in
+  let filter_counts = st.filter_counts in
   let total_groups = List.length groups in
 
   let month_links : (string, int list) Hashtbl.t = Hashtbl.create 64 in
@@ -532,11 +580,11 @@ let links_list ~ctx =
 
   let intro =
     El.p ~at:[At.class' "text-sm text-gray-600 dark:text-gray-400 mb-6"] [
-      El.txt "These are all the outbound links from my site, categorised here for convenient search. They are archived for offline use through ";
-      El.a ~at:[At.href "https://karakeep.app";
+      El.txt list_intro_before;
+      El.a ~at:[At.href (snd list_intro_link);
                 At.class' "text-accent hover:underline"] [
-        El.txt "Karakeep"];
-      El.txt "."]
+        El.txt (fst list_intro_link)];
+      El.txt list_intro_after]
   in
 
   let article =
@@ -623,13 +671,7 @@ let links_list ~ctx =
         {|<svg class="inline-block shrink-0" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">%s</svg>|}
         svg_inner)
     in
-    let categories = [
-      (Fp_paper, "paper");
-      (Fp_contact, "contact");
-      (Fp_code, "code");
-      (Fp_titled, "titled");
-      (Fp_untitled, "untitled");
-    ] in
+    let categories = filter_categories in
     let rows = List.filter_map (fun (kind, label) ->
       let count = try Hashtbl.find filter_counts kind with Not_found -> 0 in
       if count = 0 then None

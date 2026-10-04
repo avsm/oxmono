@@ -14,6 +14,7 @@ module Project_component = Project
 module Idea_component = Idea
 module Video_component = Video
 module Note_component = Note
+module Links_component = Links
 module Entry = Bushel.Entry
 module Paper = Bushel.Paper
 module Contact = Sortal_schema.Contact
@@ -24,6 +25,23 @@ module FeedEntry = Sortal_feed.Entry
 
 let date_str (y, m, d) =
   Printf.sprintf "%04d-%02d-%02d" y m d
+
+(** [one_line s] is [s] with each run of white space made one space. A title
+    with a line break would otherwise end a markdown heading or link early. *)
+let one_line s =
+  String.map (function '\n' | '\t' | '\r' -> ' ' | c -> c) s
+  |> String.split_on_char ' '
+  |> List.filter (fun w -> w <> "")
+  |> String.concat " "
+
+(** [link_text s] is [s] as the text of a markdown link: on one line, with its
+    square brackets escaped. *)
+let link_text s =
+  let b = Buffer.create (String.length s) in
+  String.iter (function
+    | ('[' | ']') as c -> Buffer.add_char b '\\'; Buffer.add_char b c
+    | c -> Buffer.add_char b c) (one_line s);
+  Buffer.contents b
 
 let entry_url ~ctx ent =
   Arod.Ctx.base_url ctx ^ Entry.site_url ent
@@ -108,7 +126,8 @@ let related_entries ~ctx ent =
   | [] -> ""
   | items ->
     let lines = List.map (fun (title, url, typ, d) ->
-      if url <> "" then Printf.sprintf "- [%s](%s) (%s, %s)" title url typ d
+      if url <> "" then
+        Printf.sprintf "- [%s](%s) (%s, %s)" (link_text title) url typ d
       else Printf.sprintf "- %s (%s, %s)" title typ d
     ) items in
     "\n## Related\n\n" ^ String.concat "\n" lines ^ "\n"
@@ -191,7 +210,9 @@ let entry_to_markdown ~ctx ent =
   let title = Entry.title ent in
   let d = Entry.date ent in
   let type_str = Entry.to_type_string ent in
-  let header = Printf.sprintf "# %s\n\n*%s — %s*\n\n" title (date_str d) type_str in
+  let header =
+    Printf.sprintf "# %s\n\n*%s — %s*\n\n" (one_line title) (date_str d) type_str
+  in
   let body_md = match ent with
     | `Paper p ->
       let abs = Paper.abstract p in
@@ -225,13 +246,14 @@ let list_header ~ctx ~title ~description ~path =
 
 (* [entry_bullet_link ~ctx ent] is a link to [ent] in markdown. *)
 let entry_bullet_link ~ctx ent =
-  Printf.sprintf "- [%s](%s)" (Entry.title ent) (entry_url ~ctx ent)
+  Printf.sprintf "- [%s](%s)" (link_text (Entry.title ent))
+    (entry_url ~ctx ent)
 
 let entry_bullet ~ctx ent =
   let title = Entry.title ent in
   let url = entry_url ~ctx ent in
   let d = date_str (Entry.date ent) in
-  Printf.sprintf "- [%s](%s) (%s)" title url d
+  Printf.sprintf "- [%s](%s) (%s)" (link_text title) url d
 
 (** {1 List Pages} *)
 
@@ -347,7 +369,8 @@ let notes_list_md ~ctx =
       let ((y, _, _) as date) = Entry.date (`Note n) in
       let _, week = Bushel.Note.week_number n in
       Printf.sprintf "- [%s](%s) (Week %d, %s %d%s)%s%s%s"
-        (Note_component.strip_weeknote_prefix (Entry.title (`Note n)))
+        (link_text
+           (Note_component.strip_weeknote_prefix (Entry.title (`Note n))))
         (entry_url ~ctx (`Note n)) week (Note_component.week_range date) y
         (words n) (synopsis n) (tags n) (links n)
     | Note_component.Releases (t, rs) ->
@@ -502,7 +525,7 @@ let ideas_list_md ~ctx =
       | t -> t ^ "\n\n"
     in
     Printf.sprintf "## [%s](%s)\n\n%s\n\n%s%s"
-      proj.Bushel.Project.title
+      (link_text proj.Bushel.Project.title)
       (entry_url ~ctx (`Project proj))
       (String.concat ", " counts) note
       (String.concat "\n" (List.map live_item live @ List.map past_item past))
@@ -553,7 +576,7 @@ let projects_list_md ~ctx =
         "\n  Recent:\n"
         ^ String.concat "\n"
             (List.map (fun (_, ent) ->
-               Printf.sprintf "  - [%s](%s) (%s, %s)" (Entry.title ent)
+               Printf.sprintf "  - [%s](%s) (%s, %s)" (link_text (Entry.title ent))
                  (entry_url ~ctx ent) (Entry.to_type_string ent)
                  (date_str (Entry.date ent))) recent)
     in
@@ -598,49 +621,70 @@ let videos_list_md ~ctx =
         "\n  References:\n"
         ^ String.concat "\n"
             (List.map (fun (r : Video_component.reference) ->
-               Printf.sprintf "  - [%s](%s%s) (%s)" r.title
+               Printf.sprintf "  - [%s](%s%s) (%s)" (link_text r.title)
                  (Arod.Ctx.base_url ctx) r.href r.kind) refs)
     in
     bullet ^ watch ^ desc ^ tags ^ refs
   in
   header ^ String.concat "\n" (List.map item talks) ^ "\n" ^ footer
 
+(* [links_list_md ~ctx] mirrors the HTML links page: its introduction, the
+   counts of its sidebar, and the groups of links under the entries that make
+   them, newest entry first, each link described as the page describes it. The
+   HTML loads the groups a page at a time, and this lists them all. *)
 let links_list_md ~ctx =
-  let entries = Arod.Ctx.entries ctx in
-  let all_links = Arod.Ctx.all_external_links ctx in
-  let by_source : (string, Bushel.Link_graph.external_link list) Hashtbl.t =
-    Hashtbl.create 128 in
-  List.iter (fun (link : Bushel.Link_graph.external_link) ->
-    let cur = try Hashtbl.find by_source link.source with Not_found -> [] in
-    if List.exists (fun (l : Bushel.Link_graph.external_link) -> l.url = link.url) cur then ()
-    else Hashtbl.replace by_source link.source (link :: cur)
-  ) all_links;
-  let groups = Hashtbl.fold (fun slug links acc ->
-    match Entry.lookup entries slug with
-    | Some ent -> (ent, links) :: acc
-    | None -> acc
-  ) by_source [] in
-  let groups = List.sort (fun (a, _) (b, _) ->
-    compare (Entry.date b) (Entry.date a)
-  ) groups in
+  let groups = Links_component.compute_groups ~ctx in
+  let stats = Links_component.stats ~ctx groups in
+  let describe = Links_component.displayer ~ctx in
   let base = Arod.Ctx.base_url ctx in
-  let header = "# Links\n\nOutbound links grouped by source entry.\n\n" in
-  let sections = List.map (fun (ent, links) ->
-    let title = Entry.title ent in
-    let url = entry_url ~ctx ent in
-    let link_lines = List.map (fun (link : Bushel.Link_graph.external_link) ->
-      let label = match Arod.Ctx.link_for_url ctx link.url with
-        | Some l ->
-          let meta = match l.karakeep with Some k -> k.metadata | None -> [] in
-          (match List.assoc_opt "title" meta with Some t -> t | None -> link.domain)
-        | None -> link.domain
+  let intro =
+    let label, url = Links_component.list_intro_link in
+    Printf.sprintf "%s[%s](%s)%s" Links_component.list_intro_before label url
+      Links_component.list_intro_after
+  in
+  let filters =
+    String.concat ", "
+      (List.filter_map (fun (kind, label) ->
+         match Hashtbl.find_opt stats.Links_component.filter_counts kind with
+         | Some n when n > 0 -> Some (Printf.sprintf "%s %d" label n)
+         | _ -> None) Links_component.filter_categories)
+  in
+  let top_domains =
+    List.filteri (fun i _ -> i < 50) stats.Links_component.domain_counts
+    |> List.map (fun (d, n) -> Printf.sprintf "- %s: %d" d n)
+    |> String.concat "\n"
+  in
+  let summary =
+    Printf.sprintf "%d links, %d domains.\n\nFilter: %s\n\n## Top domains\n\n%s\n\n"
+      stats.Links_component.total_urls stats.Links_component.total_domains
+      filters top_domains
+  in
+  let header = Printf.sprintf "# Links\n\n%s\n\n%s" intro summary in
+  let sections =
+    List.map (fun (g : Links_component.link_group) ->
+      let (y, m, _) = Entry.date g.ent in
+      let lines =
+        List.map (fun (link : Bushel.Link_graph.external_link) ->
+          let d = describe link.url in
+          let label =
+            match d.Links_component.secondary with
+            | Some sec -> d.Links_component.label ^ " " ^ sec
+            | None -> d.Links_component.label
+          in
+          let hint =
+            if Links_component.show_domain_hint d then
+              " (" ^ link.domain ^ ")"
+            else ""
+          in
+          Printf.sprintf "  - [%s](%s)%s" (link_text label) link.url hint)
+          g.links
       in
-      Printf.sprintf "  - [%s](%s)" label link.url
-    ) links in
-    Printf.sprintf "- **[%s](%s)**\n%s" title url (String.concat "\n" link_lines)
-  ) groups in
+      Printf.sprintf "- **[%s](%s)** (%s, %s %d)\n%s" (link_text (Entry.title g.ent))
+        (entry_url ~ctx g.ent) (Entry.to_type_string g.ent)
+        (Common.month_name m) y (String.concat "\n" lines)) groups
+  in
   let footer = Printf.sprintf "\n---\nCanonical: %s/links\n%s" base license_line in
-  header ^ String.concat "\n" sections ^ "\n" ^ footer
+  header ^ "## Links by entry\n\n" ^ String.concat "\n" sections ^ "\n" ^ footer
 
 let network_md ~ctx =
   let all_contacts = Arod.Ctx.contacts ctx in
@@ -683,7 +727,8 @@ let network_md ~ctx =
       | None -> ""
     in
     let mention_strs = List.map (fun ent ->
-      Printf.sprintf "[%s](%s%s)" (Entry.title ent) base (Entry.site_url ent)
+      Printf.sprintf "[%s](%s%s)" (link_text (Entry.title ent)) base
+        (Entry.site_url ent)
     ) item.mentions in
     let forward_strs = match fe.FeedEntry.url with
       | Some u ->
@@ -691,7 +736,8 @@ let network_md ~ctx =
         List.filter_map (fun slug ->
           match Entry.lookup entries slug with
           | Some ent ->
-            Some (Printf.sprintf "[%s](%s%s)" (Entry.title ent) base (Entry.site_url ent))
+            Some (Printf.sprintf "[%s](%s%s)" (link_text (Entry.title ent)) base
+        (Entry.site_url ent))
           | None -> None
         ) slugs
       | None -> []
@@ -703,7 +749,8 @@ let network_md ~ctx =
       | refs -> "\n  Linked: " ^ String.concat ", " refs
     in
     if url_str <> "" then
-      Printf.sprintf "- **%s**: [%s](%s)%s%s" name title url_str date_line links_line
+      Printf.sprintf "- **%s**: [%s](%s)%s%s" name (link_text title) url_str
+        date_line links_line
     else
       Printf.sprintf "- **%s**: %s%s%s" name title date_line links_line
   ) feed_items in

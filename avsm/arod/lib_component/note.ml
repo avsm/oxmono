@@ -338,23 +338,24 @@ let featured_notes journal_notes =
   | [] -> List.filter Note.perma journal_notes |> Common.take 5
   | marked -> marked
 
-(** [sn_tags ?limit ~popularity n] is the column at the right of the row of
-    [n]. It holds its plain and set tags, the most popular first and at most
-    [limit] (default three), each a chip that links to a search for the tag.
-    A chip's tooltip says how many notes carry the tag. *)
-let sn_tags ?(limit = 3) ~popularity n =
+(** [sn_tags ?limit ~art ~popularity n] is the column at the right of the row
+    of [n]. It holds the icons of its plain and set tags, the most popular
+    first and at most [limit] (default three). An icon links to a search for its
+    tag, and its tooltip and label give the tag and how many notes carry it. *)
+let sn_tags ?(limit = 3) ~art ~popularity n =
   let tags = List.filteri (fun i _ -> i < limit) (ranked_tags ~popularity n) in
   El.div ~at:[At.class' "sn-tags"]
     (List.map (fun (t, count) ->
-       El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
-                 At.class' "sn-tag";
-                 At.v "title"
-                   (Printf.sprintf "%d note%s" count
-                      (if count = 1 then "" else "s"))]
-         [El.txt t]) tags)
+       let tip =
+         Printf.sprintf "%s, %d note%s" t count (if count = 1 then "" else "s")
+       in
+       El.a ~at:[At.href (Tag_cloud.search_url t); At.v "data-tag" t;
+                 At.class' "sn-ico no-underline"; At.v "title" tip;
+                 At.v "aria-label" tip]
+         [Tag_cloud.icon ~art t]) tags)
 
-(** [sn_note ~ctx ~popularity ~y_rel ~y_abs n] is journal note [n] as a row. *)
-let sn_note ~ctx ~popularity ~y_rel ~y_abs n =
+(** [sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n] is journal note [n] as a row. *)
+let sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n =
   let (y, m, d) = Bushel.Entry.date (`Note n) in
   let url = Bushel.Entry.site_url (`Note n) in
   let tags_data =
@@ -390,11 +391,11 @@ let sn_note ~ctx ~popularity ~y_rel ~y_abs n =
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
            else El.void)]];
-      sn_tags ~popularity n]]
+      sn_tags ~art ~popularity n]]
 
-(** [sn_week ~ctx ~popularity ~y_rel ~y_abs n] is weeknote [n] as a row. It has
+(** [sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n] is weeknote [n] as a row. It has
     the shape of a note and is told apart by its "Week N" heading. *)
-let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
+let sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n =
   let (y, m, d) = Note.date n in
   let (_, wk) = Note.week_number n in
   let synopsis = Option.value (Note.synopsis n) ~default:"" in
@@ -431,7 +432,7 @@ let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
            else El.void)]];
-      sn_tags ~popularity n]]
+      sn_tags ~art ~popularity n]]
 
 (** [release_name t] is the name of the repository of [t] without its owner. *)
 let release_name (t : Bushel.Release.t) =
@@ -635,8 +636,9 @@ let timeline ~ctx =
     in
     (yr, mo, rows)) months
 
-(** [notes_list ~ctx] is the journal article and its sidebar. *)
-let notes_list ~ctx =
+(** [notes_list ~ctx ~art] is the journal article and its sidebar. [art tag]
+    is the coloured illustration of [tag], if it has one. *)
+let notes_list ~ctx ~art =
   let all_notes =
     Arod.Ctx.notes ctx
     |> List.sort (fun a b -> Bushel.Entry.compare (`Note a) (`Note b))
@@ -659,10 +661,10 @@ let notes_list ~ctx =
           match row with
           | Journal n ->
             (Snake.Note,
-             fun ~y_rel ~y_abs -> sn_note ~ctx ~popularity ~y_rel ~y_abs n)
+             fun ~y_rel ~y_abs -> sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n)
           | Weeknote n ->
             (Snake.Week,
-             fun ~y_rel ~y_abs -> sn_week ~ctx ~popularity ~y_rel ~y_abs n)
+             fun ~y_rel ~y_abs -> sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n)
           | Releases (t, rs) ->
             (Snake.Release,
              fun ~y_rel ~y_abs -> sn_release ~y_rel ~y_abs t rs)

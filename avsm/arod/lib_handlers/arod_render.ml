@@ -67,11 +67,7 @@ let tag_months = 6
 let tag_art tag = Arod_assets.read ("tag-art/" ^ tag ^ ".svg")
 
 let notes_list_html ~ctx =
-  let article, sidebar = C.Note.notes_list ~ctx in
-  let article =
-    Htmlit.El.div
-      [C.Tag_cloud.strip ~ctx ~art:tag_art ~months:tag_months ~limit:8; article]
-  in
+  let article, sidebar = C.Note.notes_list ~ctx ~art:tag_art in
   let cfg = Arod.Ctx.config ctx in
   let base_url = cfg.site.base_url in
   let count = List.length (Arod.Ctx.notes ctx) in

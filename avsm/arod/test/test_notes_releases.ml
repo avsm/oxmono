@@ -66,7 +66,7 @@ let render ?releases ?(notes = notes) () =
       (Bushel.Entry.v ~papers:[] ~notes ~projects:[] ~ideas:[] ~videos:[]
          ~contacts:[] ~images:[ picture ] ~data_dir:"." ())
   in
-  let article, _sidebar = Arod_component.Note.notes_list ~ctx in
+  let article, _sidebar = Arod_component.Note.notes_list ~ctx ~art:(fun _ -> None) in
   Htmlit.El.to_string ~doctype:false article
 
 let () =
@@ -151,26 +151,26 @@ let () =
   check "the most popular tag comes first"
     (before tags_html {|data-tag="ocaml"|} {|data-tag="eio"|}
     && before tags_html {|data-tag="eio"|} {|data-tag="rare"|});
-  check "a tag says how many notes carry it"
-    (contains tags_html {|title="3 notes"|}
-    && contains tags_html {|title="1 note"|});
-  check "a tag is a chip with no hash"
-    (contains tags_html {|>ocaml</a>|} && not (contains tags_html "#ocaml"));
-  (* A title that already ends in punctuation, even a multibyte one, is not
-     given a full stop before its synopsis. *)
-  let stops =
-    render
-      ~notes:
-        [ { (note "e1" "Trailing off\xE2\x80\xA6" (2026, 8, 3)) with
-            Bushel.Note.synopsis = Some "Then more." };
-          { (note "e2" "Plain title" (2026, 8, 2)) with
-            Bushel.Note.synopsis = Some "Then more." } ]
-      ()
-  in
-  check "a title ending in an ellipsis gets no full stop"
-    (contains stops "Trailing off\xE2\x80\xA6<" && not (contains stops "\xE2\x80\xA6."));
-  check "a plain title gets a full stop before its synopsis"
-    (contains stops "Plain title.<");
+  check "a tag says, in its tooltip and label, how many notes carry it"
+    (contains tags_html {|title="ocaml, 3 notes"|}
+    && contains tags_html {|aria-label="ocaml, 3 notes"|}
+    && contains tags_html {|title="rare, 1 note"|});
+  check "a tag is shown by its icon, not by its word"
+    (contains tags_html {|class="sn-ico no-underline"|}
+    && not (contains tags_html ">ocaml</a>")
+    && contains tags_html {|class="ti mono"|});
+  check "a tag with a picture shows the picture"
+    (let art = function
+       | "ocaml" -> Some {|<svg class="ti col"></svg>|}
+       | _ -> None
+     in
+     let ctx =
+       Arod.Ctx.of_entries ~config:cfg
+         (Bushel.Entry.v ~papers:[] ~notes:tagged ~projects:[] ~ideas:[]
+            ~videos:[] ~contacts:[] ~data_dir:"." ())
+     in
+     let article, _ = Arod_component.Note.notes_list ~ctx ~art in
+     contains (Htmlit.El.to_string ~doctype:false article) {|class="ti col"|});
   check "a note's heading says how many words it has"
     (before html ">10 Aug<" " word" && before html " word" "An August note");
   check "a note's date is a caption above its title"

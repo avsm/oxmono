@@ -509,19 +509,6 @@ let () =
     (contains page {|href="/search?q=%23ocaml"|});
   check "the cloud says how many notes carry a tag"
     (contains page {|title="3 notes"|} && contains page {|title="1 note"|});
-  let strip =
-    Htmlit.El.to_string ~doctype:false
-      (Arod_component.Tag_cloud.strip ~ctx ~art:(fun _ -> None) ~months:3
-         ~limit:2)
-  in
-  check "the strip on the notes page has the commonest tags and a link to all"
-    (contains strip "tag-strip" && contains strip ">ocaml<"
-    && contains strip ">ai<" && not (contains strip ">plainword<")
-    && contains strip {|href="/tags"|});
-  check "there is no strip when there are no tags"
-    (Htmlit.El.to_string ~doctype:false
-       (Arod_component.Tag_cloud.strip ~ctx:(ctx_of ()) ~art:(fun _ -> None)
-          ~months:3 ~limit:2) = "");
   let md =
     Arod_component.Markdown_export.tags_md ~ctx ~months:3
   in

@@ -78,28 +78,30 @@ let counts ~ctx ~months =
 (** [search_url tag] is the search page for the notes tagged [tag]. *)
 let search_url tag = "/search?q=%23" ^ Uriz.pct_encode ~component:`Query_value tag
 
-(** [tile ~art (tag, count)] is the tile of [tag]. Every tile is the
-    same size, so the icons sit evenly. A tag with no illustration and no line
-    icon has its initial in a circle in their place. *)
+(** [icon ~art tag] is the icon of [tag]: its coloured illustration if it has
+    one, else its line icon, else its initial in a circle. They are all one
+    square, sized by the page that shows them. *)
+let icon ~art tag =
+  match art tag with
+  | Some svg -> El.unsafe_raw svg
+  | None ->
+    (match line_icon tag with
+     | Some inner ->
+       El.unsafe_raw
+         ({|<svg class="ti line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">|}
+          ^ inner ^ "</svg>")
+     | None ->
+       El.span ~at:[At.class' "ti mono"; At.v "aria-hidden" "true"]
+         [El.txt (String.uppercase_ascii (String.sub tag 0 1))])
+
+(** [tile ~art (tag, count)] is the tile of [tag]. Every tile is the same
+    size, so the icons sit evenly. *)
 let tile ~art (tag, count) =
-  let icon =
-    match art tag with
-    | Some svg -> El.unsafe_raw svg
-    | None ->
-      (match line_icon tag with
-       | Some inner ->
-         El.unsafe_raw
-           ({|<svg class="ti line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">|}
-            ^ inner ^ "</svg>")
-       | None ->
-         El.span ~at:[At.class' "ti mono"; At.v "aria-hidden" "true"]
-           [El.txt (String.uppercase_ascii (String.sub tag 0 1))])
-  in
   El.a ~at:[At.href (search_url tag); At.class' "tc-tag no-underline";
             At.v "title"
               (Printf.sprintf "%d note%s" count
                  (if count = 1 then "" else "s"))]
-    [icon;
+    [icon ~art tag;
      El.span ~at:[At.class' "tc-name"] [El.txt tag];
      El.span ~at:[At.class' "tc-count"] [El.txt (string_of_int count)]]
 
@@ -118,17 +120,3 @@ let page ~ctx ~art ~months =
           else Printf.sprintf "The tags of the notes of the last %d months." months);
        El.txt " Point at one to see its colours."];
     El.div ~at:[At.class' "tag-cloud"] (List.map (tile ~art) tags)]
-
-(** [strip ~ctx ~art ~months ~limit] is the commonest [limit] tags of the last
-    [months] months as one row of tiles, with a link to all of them. It sits
-    above the notes timeline. *)
-let strip ~ctx ~art ~months ~limit =
-  let tags = List.filteri (fun i _ -> i < limit) (counts ~ctx ~months) in
-  if tags = [] then El.void
-  else
-    El.div ~at:[At.class' "tag-strip"] [
-      El.div ~at:[At.class' "tag-strip-head"] [
-        El.span ~at:[At.class' "tag-strip-title"] [El.txt "Tags"];
-        El.a ~at:[At.href "/tags"; At.class' "tag-strip-all no-underline"]
-          [El.txt "all tags"]];
-      El.div ~at:[At.class' "tag-cloud"] (List.map (tile ~art) tags)]

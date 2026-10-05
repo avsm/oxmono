@@ -3023,37 +3023,26 @@ let custom_css = {|
 /* The reading column is kept to a comfortable measure, and the tags take the
    space beyond it. */
 .sn-body { flex: 0 1 42em; min-width: 0; }
-/* The tags of an entry take a column of their own at its end. The icons of an
-   entry sit on its heading line. */
+/* The tags of an entry are small icons in a column of their own at its end.
+   The icons of an entry sit on its heading line. */
 .sn-tags {
-  flex: 0 0 12em;
+  flex: 0 0 8em;
   margin-left: auto;
   align-self: stretch;
   display: flex;
   flex-wrap: wrap;
   align-content: center;
+  justify-content: flex-end;
   align-items: center;
-  gap: 0.4em 0.4em;
-  overflow: hidden;
+  gap: 0.45em 0.5em;
 }
-/* A tag is a small chip. How many notes carry it is in its tooltip, and the
-   most popular tags come first. */
-.sn-tag {
-  display: inline-block;
-  padding: 0.3em 0.85em;
-  font-size: 0.64em;
-  line-height: 1.2;
-  border-radius: 999px;
-  color: var(--color-secondary) !important;
-  background: color-mix(in srgb, var(--color-muted) 9%, transparent);
-  text-decoration: none !important;
-  white-space: nowrap;
-  transition: background 0.2s, color 0.2s;
+.sn-ico {
+  --tc-size: 1.7em;
+  display: inline-flex;
+  color: var(--color-muted);
+  transition: color 0.25s, transform 0.25s;
 }
-.sn-tag:hover {
-  color: var(--sn-hl) !important;
-  background: color-mix(in srgb, var(--sn-hl) 13%, transparent);
-}
+.sn-ico:hover { color: var(--color-text); transform: translateY(-2px); }
 .sn-links {
   display: inline-flex;
   align-items: center;
@@ -3178,6 +3167,16 @@ let custom_css = {|
 @media (prefers-reduced-motion: reduce) {
   .sn-item:hover .sn-flow { animation: none; }
 }
+/* Pointing at an entry brings its tag icons to colour, as pointing at an icon
+   does. */
+@media (hover: hover) {
+  .sn-item:hover .sn-ico .ti.col .c-green { fill: var(--ti-green); fill-opacity: 1; }
+  .sn-item:hover .sn-ico .ti.col .c-amber { fill: var(--ti-amber); fill-opacity: 1; }
+  .sn-item:hover .sn-ico .ti.col .c-blue { fill: var(--ti-blue); fill-opacity: 1; }
+  .sn-item:hover .sn-ico .ti.col .c-coral { fill: var(--ti-coral); fill-opacity: 1; }
+  .sn-item:hover .sn-ico .ti.col .c-tan { fill: var(--ti-tan); fill-opacity: 1; }
+  .sn-item:hover .sn-ico .ti.line, .sn-item:hover .sn-ico .ti.mono { color: var(--ti-green); }
+}
 @media (max-width: 860px) {
   .sn-tags { display: none; }
 }
@@ -3185,7 +3184,7 @@ let custom_css = {|
    outline and a faint tone for each of its colours, and takes the colours of
    the palette when it is pointed at. The palette is the only place that colour
    is chosen, one set for each theme. */
-.tag-cloud {
+.tag-cloud, .snake {
   --ti-green: #6fae82;
   --ti-amber: #dba84e;
   --ti-blue: #7596c8;
@@ -3198,7 +3197,7 @@ let custom_css = {|
   justify-items: center;
   padding: 1rem 0 2rem;
 }
-.dark .tag-cloud {
+.dark .tag-cloud, .dark .snake {
   --ti-green: #7fbf93;
   --ti-amber: #e2b861;
   --ti-blue: #8aaadc;
@@ -3227,13 +3226,14 @@ let custom_css = {|
   color: var(--color-muted);
   font-variant-numeric: tabular-nums;
 }
-.tc-tag .ti {
+.tc-tag .ti, .sn-ico .ti {
   flex: none;
   width: var(--tc-size);
   height: var(--tc-size);
 }
-.tc-tag .ti.line { transition: color 0.3s; }
-.tc-tag:hover .ti.line { color: var(--ti-green); }
+.tc-tag .ti.line, .sn-ico .ti.line { transition: color 0.3s; }
+.tc-tag:hover .ti.line,
+.sn-ico:hover .ti.line { color: var(--ti-green); }
 /* A tag with no picture has its initial in a circle. */
 .ti.mono {
   display: inline-flex;
@@ -3248,35 +3248,8 @@ let custom_css = {|
   opacity: 0.5;
   transition: color 0.3s, opacity 0.3s;
 }
-.tc-tag:hover .ti.mono { color: var(--ti-green); opacity: 1; }
-/* On the notes page the tags are one quiet row above the timeline. */
-.tag-strip {
-  margin: 0 0 1.6rem;
-  padding-bottom: 0.4rem;
-  border-bottom: 1px solid var(--color-border);
-}
-.tag-strip-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-}
-.tag-strip-title {
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--color-secondary);
-}
-.tag-strip-all { font-size: 0.78rem; color: var(--color-muted); }
-.tag-strip-all:hover { color: var(--color-accent); }
-.tag-strip .tag-cloud {
-  --tc-size: 3.2rem;
-  grid-template-columns: repeat(auto-fit, minmax(5.2rem, 1fr));
-  gap: 1rem 0.5rem;
-  padding: 0.6rem 0 0.6rem;
-}
-.tag-strip .tc-name { font-size: 0.8rem; }
-.tag-strip .tc-count { display: none; }
+.tc-tag:hover .ti.mono,
+.sn-ico:hover .ti.mono { color: var(--ti-green); opacity: 1; }
 .ti.col path { transition: fill 0.4s, fill-opacity 0.4s; }
 .ti.col .c-ink { fill: currentColor; }
 .ti.col .c-green { fill: currentColor; fill-opacity: 0.22; }
@@ -3284,11 +3257,16 @@ let custom_css = {|
 .ti.col .c-blue { fill: currentColor; fill-opacity: 0.3; }
 .ti.col .c-coral { fill: currentColor; fill-opacity: 0.16; }
 .ti.col .c-tan { fill: currentColor; fill-opacity: 0.2; }
-.tc-tag:hover .ti.col .c-green { fill: var(--ti-green); fill-opacity: 1; }
-.tc-tag:hover .ti.col .c-amber { fill: var(--ti-amber); fill-opacity: 1; }
-.tc-tag:hover .ti.col .c-blue { fill: var(--ti-blue); fill-opacity: 1; }
-.tc-tag:hover .ti.col .c-coral { fill: var(--ti-coral); fill-opacity: 1; }
-.tc-tag:hover .ti.col .c-tan { fill: var(--ti-tan); fill-opacity: 1; }
+.tc-tag:hover .ti.col .c-green,
+.sn-ico:hover .ti.col .c-green { fill: var(--ti-green); fill-opacity: 1; }
+.tc-tag:hover .ti.col .c-amber,
+.sn-ico:hover .ti.col .c-amber { fill: var(--ti-amber); fill-opacity: 1; }
+.tc-tag:hover .ti.col .c-blue,
+.sn-ico:hover .ti.col .c-blue { fill: var(--ti-blue); fill-opacity: 1; }
+.tc-tag:hover .ti.col .c-coral,
+.sn-ico:hover .ti.col .c-coral { fill: var(--ti-coral); fill-opacity: 1; }
+.tc-tag:hover .ti.col .c-tan,
+.sn-ico:hover .ti.col .c-tan { fill: var(--ti-tan); fill-opacity: 1; }
 /* On a phone the text column is what is scarce. The heading keeps to the date,
    the thumbnail narrows and the text moves left to meet it. The inline
    positions of the rows are overridden, which is why these are important. */

@@ -52,11 +52,12 @@ let () =
     (fun kind ->
       List.iter
         (fun y_abs ->
-          let e = S.exit_ ~plain:(kind = S.Release) ~kind ~y_abs in
+          let plain = kind = S.Release || kind = S.Release_tight in
+          let e = S.exit_ ~plain ~kind ~y_abs in
           check "an exit starts on the spine"
             (near ~eps:1e-4 e.S.start_x (S.spine_x (y_abs +. e.S.start_y)));
           check "an exit ends at its node's edge, level with its centre"
-            (near e.S.end_x (S.arrive ~plain:(kind = S.Release) kind)
+            (near e.S.end_x (S.arrive ~plain kind)
             && near e.S.end_y (S.center kind));
           check "the stretch of spine is a short path with no negative zero"
             (String.length e.S.lane < 130

@@ -502,14 +502,17 @@ let release_name (t : Bushel.Release.t) =
   | Some i -> String.sub t.repo (i + 1) (String.length t.repo - i - 1)
   | None -> t.repo
 
-(** [sn_release ~y_rel ~y_abs t rs] is the row for the releases [rs] of
+(** [sn_release ?tight ~y_rel ~y_abs t rs] is the row for the releases [rs] of
     repository [t], newest first, made in one month. It is the smallest row: a
     rail from the spine that fades out, the name and version, the date, and one
     line of summary. A month's releases of one repository are one row, the
     newest named and the rest counted. Each registry that carries the newest is
-    an icon linking to its ecosyste.ms metadata. *)
-let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
+    an icon linking to its ecosyste.ms metadata. A row that [tight] is followed
+    by another release is shorter, so that a run of releases sits close
+    together. *)
+let sn_release ?(tight = false) ~y_rel ~y_abs (t : Bushel.Release.t)
     (rs : Bushel.Release.release list) =
+  let kind = if tight then Snake.Release_tight else Snake.Release in
   let r = List.hd rs in
   let earlier = List.tl rs in
   let (y, m, d) = r.date in
@@ -526,8 +529,8 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
               At.v "data-tags" "";
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
               At.v "style"
-                (pos_style ~top:y_rel ~height:(Snake.height Snake.Release))] [
-    El.unsafe_raw (exit_svg ~plain:true Snake.Release ~y_abs);
+                (pos_style ~top:y_rel ~height:(Snake.height kind))] [
+    El.unsafe_raw (exit_svg ~plain:true kind ~y_abs);
     El.div ~at:[At.class' "sn-text release-line";
                 At.v "style" text_style] [
       El.span ~at:[At.class' "sn-sr"] [El.txt "Code release: "];
@@ -718,7 +721,13 @@ let notes_list ~ctx ~art =
     let month_top = !y in
     let cursor = ref Snake.month_height in
     let rows =
-      List.map (fun row ->
+      let rows_a = Array.of_list rows in
+      let releases_at i =
+        i >= 0 && i < Array.length rows_a
+        && (match rows_a.(i) with Releases _ -> true | _ -> false)
+      in
+      List.mapi (fun i row ->
+        let tight = releases_at i && releases_at (i + 1) in
         let height, build =
           match row with
           | Journal n ->
@@ -728,8 +737,9 @@ let notes_list ~ctx ~art =
             (row_height n,
              fun ~y_rel ~y_abs -> sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n)
           | Releases (t, rs) ->
-            (Snake.height Snake.Release,
-             fun ~y_rel ~y_abs -> sn_release ~y_rel ~y_abs t rs)
+            ((if tight then Snake.height Snake.Release_tight
+              else Snake.height Snake.Release),
+             fun ~y_rel ~y_abs -> sn_release ~tight ~y_rel ~y_abs t rs)
           | Quiet q ->
             (Snake.height Snake.Quiet, fun ~y_rel ~y_abs:_ -> sn_quiet ~y_rel q)
         in

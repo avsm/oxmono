@@ -27,12 +27,13 @@ let card_x = 4.4
 let thumb_w = 4.6
 let svg_width = 5.7
 
-type kind = Note | Week | Release | Quiet
+type kind = Note | Week | Release | Release_tight | Quiet
 
 let height = function
   | Note -> 4.8
   | Week -> 4.8
   | Release -> 2.3
+  | Release_tight -> 1.55
   | Quiet -> 1.9
 
 (** The height from the top of a row to the centre of its node. *)
@@ -40,16 +41,19 @@ let center = function
   | Note -> 2.4
   | Week -> 2.4
   | Release -> 1.15
+  | Release_tight -> 0.78
   | Quiet -> 0.95
 
 (** The size of the node of a row, which is the thumbnail of a note or weeknote.
     A release has none. *)
-let node_width = function Note | Week -> thumb_w | Release | Quiet -> 0.
+let node_width = function
+  | Note | Week -> thumb_w
+  | Release | Release_tight | Quiet -> 0.
 
 let node_height = function
   | Note -> 3.8
   | Week -> 3.8
-  | Release | Quiet -> 0.
+  | Release | Release_tight | Quiet -> 0.
 
 (** The x of the left edge of a node. *)
 let node_left = card_x
@@ -63,12 +67,15 @@ let text_left = card_x +. thumb_w +. 0.9
     does ([plain]), so that the line runs on to the entry itself. *)
 let arrive ~plain kind =
   match kind with
-  | Release -> text_left -. 0.6
+  | Release | Release_tight -> text_left -. 0.6
   | _ when plain -> text_left -. 0.6
   | _ -> node_left
 
 (** How far above its node an exit leaves the spine. *)
-let drop = function Note -> 1.6 | Week -> 1.6 | Release -> 1.1 | Quiet -> 0.
+let drop = function
+  | Note | Week -> 1.6
+  | Release | Release_tight -> 1.1
+  | Quiet -> 0.
 
 let month_height = 3.6
 let month_gap = 0.5

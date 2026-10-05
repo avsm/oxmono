@@ -197,6 +197,36 @@ let () =
      in
      let lg = top_of {|id="note-lg"|} and sh = top_of {|id="note-sh"|} in
      lg >= 0. && sh -. lg > 4.8 +. 3.);
+  (* Releases that follow one another sit closer together than a release does
+     from the entry above it. *)
+  let run =
+    render
+      ~releases:
+        (List.map (fun (repo, d) ->
+           repo_of ~repo [ release ~version:"1.0.0" ~date:(2026, 8, d) "x" "https://example.org/r" ])
+           [ ("o/a", 20); ("o/b", 19); ("o/c", 18) ])
+      ~notes:[] ()
+  in
+  let release_tops =
+    let rec go from acc =
+      match index_of (String.sub run from (String.length run - from)) "sn-item sn-release" with
+      | None -> List.rev acc
+      | Some i ->
+        let at = from + i in
+        let rest = String.sub run at (String.length run - at) in
+        let j = Option.get (index_of rest "top:") in
+        let tail = String.sub rest (j + 4) 16 in
+        let top = float_of_string (String.sub tail 0 (String.index tail 'e')) in
+        go (at + 10) (top :: acc)
+    in
+    go 0 []
+  in
+  check "three releases in a row are found"
+    (List.length release_tops = 3);
+  check "releases in a run are closer together than the usual release row"
+    (match release_tops with
+     | [ a; b; c ] -> b -. a < 2.0 && c -. b < 2.0
+     | _ -> false);
   check "a note says how many words it has after its text, not in its heading"
     (before html "An August note" "1 word"
     && not (before html "1 word" ">10 Aug<"));

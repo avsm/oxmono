@@ -3199,7 +3199,6 @@ let custom_css = {|
   }
   .sn-item:hover .sn-ico .ti.line, .sn-item:hover .sn-ico .ti.mono { color: var(--ti-green); }
 }
-}
 /* The tag cloud. Every tile is the same size. An illustration rests as its
    outline and a faint tone for each of its colours, and takes the colours of
    the palette when it is pointed at. The palette is the only place that colour

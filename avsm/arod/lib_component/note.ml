@@ -338,35 +338,31 @@ let featured_notes journal_notes =
   | [] -> List.filter Note.perma journal_notes |> Common.take 5
   | marked -> marked
 
-(** [sn_tags ?limit ~art ~popularity n] is the circle of icons at the right of the row of
-    [n], about as tall as its thumbnail. It holds the icons of its plain and set tags, the most popular
-    first and at most [limit] (default five). A tag that only one note carries
-    is left out. An icon links to a search for its
-    tag, and its tooltip and label give the tag and how many notes carry it. *)
+(** [sn_tags ?limit ~art ~popularity n] is the icons of the plain and set tags of
+    [n], most popular first and at most [limit] (default five), for the end of
+    its heading, after a dividing bar. An icon links to a search for its tag,
+    and its tooltip and label give the tag and how many notes carry it. A tag
+    that only one note carries is left out, and a note with no such tags has
+    nothing. *)
 let sn_tags ?(limit = 5) ~art ~popularity n =
   let tags =
     ranked_tags ~popularity n
     |> List.filter (fun (_, count) -> count > 1)
     |> List.filteri (fun i _ -> i < limit)
   in
-  let n = List.length tags in
-  (* The icons sit on a circle, spread evenly from the top. The circle is wider
-     the more of them there are. *)
-  let radius = match n with 1 -> 0. | 2 -> 0.62 | 3 -> 0.8 | 4 -> 0.95 | _ -> 1.1 in
-  El.div ~at:[At.class' "sn-tags"]
-    (List.mapi (fun i (t, count) ->
-       let tip =
-         Printf.sprintf "%s, %d note%s" t count (if count = 1 then "" else "s")
-       in
-       let angle = -90. +. (360. *. float_of_int i /. float_of_int (max n 1)) in
-       El.a ~at:[At.href (Tag_cloud.search_url t); At.v "data-tag" t;
-                 At.class' "sn-ico no-underline"; At.v "title" tip;
-                 At.v "aria-label" tip;
-                 At.v "style"
-                   (let rad = angle *. Float.pi /. 180. in
-                    Printf.sprintf "--cx:%.3f;--cy:%.3f"
-                      (radius *. Float.cos rad) (radius *. Float.sin rad))]
-         [Tag_cloud.icon ~art t]) tags)
+  if tags = [] then []
+  else
+    [ El.span ~at:[At.class' "sn-bar"; At.v "aria-hidden" "true"] [];
+      El.span ~at:[At.class' "sn-tagrow"]
+        (List.map (fun (t, count) ->
+           let tip =
+             Printf.sprintf "%s, %d note%s" t count
+               (if count = 1 then "" else "s")
+           in
+           El.a ~at:[At.href (Tag_cloud.search_url t); At.v "data-tag" t;
+                     At.class' "sn-ico no-underline"; At.v "title" tip;
+                     At.v "aria-label" tip]
+             [Tag_cloud.icon ~art t]) tags) ]
 
 (** [text_lines ~title ~synopsis] is how many lines the title and synopsis of an
     entry are expected to take, from two to five. A line is about 88 characters
@@ -430,7 +426,7 @@ let sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n =
                          At.v "datetime"
                            (Printf.sprintf "%04d-%02d-%02d" y m d)]
               [El.txt (short_date (y, m, d))]]
-           @ sn_words n @ sn_links n);
+           @ sn_words n @ sn_links n @ sn_tags ~art ~popularity n);
         El.p ~at:[At.class' "sn-line";
                    At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
@@ -439,8 +435,7 @@ let sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n =
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
-           else El.void)]];
-      sn_tags ~art ~popularity n]]
+           else El.void)]]]]
 
 (** [sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n] is weeknote [n] as a row. It has
     the shape of a note and is told apart by its "Week N" heading. *)
@@ -472,7 +467,7 @@ let sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n =
           El.time ~at:[At.class' "dt-published";
                        At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
             [El.txt (week_range (y, m, d))]
-          ] @ sn_words n @ sn_links n);
+          ] @ sn_words n @ sn_links n @ sn_tags ~art ~popularity n);
         El.p ~at:[At.class' "sn-line";
                    At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
@@ -481,8 +476,7 @@ let sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n =
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
-           else El.void)]];
-      sn_tags ~art ~popularity n]]
+           else El.void)]]]]
 
 (** [release_name t] is the name of the repository of [t] without its owner. *)
 let release_name (t : Bushel.Release.t) =

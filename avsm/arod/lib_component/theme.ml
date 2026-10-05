@@ -3025,34 +3025,29 @@ let custom_css = {|
 .sn-body { flex: 0 1 42em; min-width: 0; }
 /* The tags of an entry are small icons in a column of their own at its end.
    The icons of an entry sit on its heading line. */
-.sn-tags {
-  position: relative;
-  flex: 0 0 3.8em;
-  height: 3.8em;
-  margin-left: auto;
-  align-self: center;
+/* The tags of an entry are small icons at the end of its heading, after a
+   dividing bar, the same size as the icons before them. */
+.sn-bar {
+  display: inline-block;
+  width: 1px;
+  height: 1.3em;
+  margin: 0 0.9em 0 0.8em;
+  vertical-align: middle;
+  background: var(--color-border);
 }
-/* The tag icons of an entry are a circle, centred on its text. They rest a
-   little smaller and reach full size when any part of the entry is pointed at, with a
-   spring. They are only a nicety, so they go when the page narrows. */
-.sn-ico {
-  --tc-size: 1.15em;
-  --s: 0.78;
-  position: absolute;
-  top: 50%;
-  left: 50%;
+.sn-tagrow {
   display: inline-flex;
-  margin: calc(var(--tc-size) / -2) 0 0 calc(var(--tc-size) / -2);
+  align-items: center;
+  gap: 0.5em;
+  vertical-align: -0.2em;
+}
+.sn-ico {
+  --tc-size: 11px;
+  display: inline-flex;
   color: var(--color-muted);
-  transform: translate(calc(var(--cx) * 1em), calc(var(--cy) * 1em))
-    scale(var(--s));
-  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s;
+  transition: color 0.25s;
 }
-.sn-item:hover .sn-ico, .sn-tags:focus-within .sn-ico { --s: 1; }
 .sn-ico:hover { color: var(--color-text); }
-@media (prefers-reduced-motion: reduce) {
-  .sn-ico { transition: color 0.25s; }
-}
 .sn-links {
   display: inline-flex;
   align-items: center;
@@ -3190,9 +3185,6 @@ let custom_css = {|
   .sn-item:hover .sn-ico .ti.line, .sn-item:hover .sn-ico .ti.mono { color: var(--ti-green); }
 }
 }
-@media (max-width: 1100px) {
-  .sn-tags { display: none; }
-}
 /* The tag cloud. Every tile is the same size. An illustration rests as its
    outline and a faint tone for each of its colours, and takes the colours of
    the palette when it is pointed at. The palette is the only place that colour
@@ -3292,7 +3284,7 @@ let custom_css = {|
    positions of the rows are overridden, which is why these are important. */
 @media (max-width: 640px) {
   .snake { font-size: 0.84rem; }
-  .sn-words, .sn-links { display: none; }
+  .sn-words, .sn-links, .sn-bar, .sn-tagrow { display: none; }
   .sn-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sn-note .sn-node, .sn-week .sn-node { width: 3.4em !important; }
   .sn-text, .sn-quiet { left: 8.5em !important; }

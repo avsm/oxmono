@@ -378,9 +378,10 @@ let sn_icons ~art ~popularity n =
        @ links)
 
 (** [text_lines ~title ~synopsis] is how many lines the title and synopsis of an
-    entry are expected to take, from two to five. A line is taken as about 92 characters, which
-    is what the reading column holds at 1024 pixels wide. It holds more when
-    the page is wider, and a row then has room to spare. The text is never cut. A narrower column wraps more, and the
+    entry are expected to take, from two to five. A line is taken as about 98 characters. The
+    reading column holds about 115 at its widest and about 88 on a page 1024
+    pixels wide, so a row has a little room to spare on a wide page and a
+    narrow page can wrap a line more than this. The text is never cut. A narrower column wraps more, and the
     text then runs past the estimate into the space below its row. The layout of the timeline is fixed before the page
     is shown, so this is an estimate, and a narrower column than the page's
     widest wraps more. *)
@@ -390,7 +391,7 @@ let text_lines ~title ~synopsis =
     + (if synopsis = "" then 0 else 2 + String.length synopsis)
     + 14
   in
-  min 5 (max 2 ((len + 91) / 92))
+  min 5 (max 2 ((len + 97) / 98))
 
 (** [line_extra lines] is how much taller than a two line row a row of [lines]
     lines is, in em. *)

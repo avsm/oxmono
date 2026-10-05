@@ -3030,19 +3030,41 @@ let custom_css = {|
   margin-left: auto;
   align-self: stretch;
   display: flex;
-  flex-wrap: wrap;
-  align-content: center;
-  justify-content: flex-end;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 0.45em 0.5em;
+  justify-content: flex-end;
+  padding-right: 0.3em;
 }
+/* The icons of an entry huddle together as a small overlapping crowd, each a
+   little askew. Pointing at the crowd moves them apart with a spring. */
 .sn-ico {
-  --tc-size: 1.7em;
+  --tc-size: 1.8em;
+  --r: 0deg;
+  --y: 0px;
+  position: relative;
   display: inline-flex;
+  margin-left: -0.6em;
   color: var(--color-muted);
-  transition: color 0.25s, transform 0.25s;
+  transform: rotate(var(--r)) translateY(var(--y));
+  transition: margin 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+    transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s;
 }
-.sn-ico:hover { color: var(--color-text); transform: translateY(-2px); }
+.sn-ico:first-child { margin-left: 0; }
+.sn-ico:nth-child(1) { --r: -6deg; --y: 1px; z-index: 3; }
+.sn-ico:nth-child(2) { --r: 5deg; --y: -3px; z-index: 2; }
+.sn-ico:nth-child(3) { --r: -3deg; --y: 3px; z-index: 1; }
+.sn-tags:hover .sn-ico, .sn-tags:focus-within .sn-ico {
+  --r: 0deg;
+  --y: 0px;
+  margin-left: 0.5em;
+}
+.sn-tags:hover .sn-ico:first-child, .sn-tags:focus-within .sn-ico:first-child {
+  margin-left: 0;
+}
+.sn-ico:hover { color: var(--color-text); z-index: 4; }
+@media (prefers-reduced-motion: reduce) {
+  .sn-ico { transition: color 0.25s; }
+}
 .sn-links {
   display: inline-flex;
   align-items: center;

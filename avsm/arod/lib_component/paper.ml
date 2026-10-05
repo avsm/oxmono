@@ -348,8 +348,14 @@ let classification_filter_box ~total ~counts =
              El.span [El.txt (Printf.sprintf "filter: %d papers" total)]]
     rows
 
-(** [compact_card ~ctx paper] is a compact list card for [paper]. *)
-let compact_card ~ctx paper =
+(** The tags that say what kind of publication a paper is. Its card already
+    shows that, so they have no icon. *)
+let publication_kinds = ["conference"; "journal"; "preprint"; "workshop"]
+
+(** [compact_card ~ctx ~art ~popularity paper] is a compact list card for
+    [paper]. Its tags that more than one paper carries are small icons at the
+    right of its links, commonest first, at most five. *)
+let compact_card ~ctx ~art ~popularity paper =
   let (y, m, _) = Bushel.Entry.date (`Paper paper) in
   let cls = Paper.classification paper in
   let cls_str = match cls with
@@ -375,10 +381,26 @@ let compact_card ~ctx paper =
        El.time ~at:[At.class' "md:hidden";
                     At.v "datetime" (Printf.sprintf "%04d-%02d" y m)]
          [El.txt (Printf.sprintf "%s %d" (Common.month_name m) y)]];
-    El.div ~at:[At.class' "paper-compact-links pl-0 md:pl-3"] [bar ~ctx paper]]
+    El.div ~at:[At.class' "paper-compact-links pl-0 md:pl-3 flex items-center"]
+      ([bar ~ctx paper]
+       @ (match
+            tag_strs
+            |> List.filter (fun t -> not (List.mem t publication_kinds))
+            |> List.map (fun t -> (t, popularity t))
+            |> List.filter (fun (_, c) -> c > 1)
+            |> List.stable_sort (fun (a, ca) (b, cb) ->
+                 let c = compare cb ca in if c <> 0 then c else String.compare a b)
+            |> List.filteri (fun i _ -> i < 5)
+          with
+          | [] -> []
+          | tags ->
+            [El.span ~at:[At.class' "paper-tags"]
+               (List.map (fun (t, count) ->
+                  Tag_cloud.icon_link ~art ~noun:"paper" ~count t) tags)]))]
 
-(** [papers_list ~ctx] is the paper list and its sidebar. *)
-let papers_list ~ctx =
+(** [papers_list ~ctx ~art] is the paper list and its sidebar. [art tag] is
+    the coloured illustration of [tag], if it has one. *)
+let papers_list ~ctx ~art =
   let entries = Arod.Ctx.entries ctx in
   let all_papers =
     Bushel.Entry.all_entries entries
@@ -399,11 +421,7 @@ let papers_list ~ctx =
       Hashtbl.replace tag_counts t (cur + 1)
     ) tags
   ) all_papers;
-  let sorted_tags =
-    Hashtbl.fold (fun t c acc -> (t, c) :: acc) tag_counts []
-    |> List.sort (fun (_, a) (_, b) -> compare b a)
-  in
-  let top_tags = List.filteri (fun i _ -> i < 20) sorted_tags in
+  let popularity t = try Hashtbl.find tag_counts t with Not_found -> 0 in
   let by_year = Hashtbl.create 32 in
   List.iter (fun p ->
     let y = Paper.year p in
@@ -425,7 +443,9 @@ let papers_list ~ctx =
   in
   let year_sections = List.map (fun y ->
     let papers = List.rev (Hashtbl.find by_year y) in
-    let paper_cards = List.map (fun p -> compact_card ~ctx p) papers in
+    let paper_cards =
+      List.map (fun p -> compact_card ~ctx ~art ~popularity p) papers
+    in
     El.div ~at:[At.id (Printf.sprintf "year-%d" y);
                 At.v "data-year-id" (string_of_int y);
                 At.v "data-filter-section" "";
@@ -457,23 +477,10 @@ let papers_list ~ctx =
        El.div ~at:[At.class' "cal-divider"] [];
        El.div ~at:[At.class' "cal-grid"] []]
   in
-  let tag_cloud_box = match top_tags with
-    | [] -> El.void
-    | _ ->
-      let tag_btns = List.map (fun (tag, count) ->
-        El.button ~at:[At.class' "tag-cloud-btn";
-                       At.v "data-tag" tag] [
-          El.txt tag;
-          El.span ~at:[At.class' "tag-count inline-flex items-center justify-center min-w-[0.95rem] h-[0.95rem] text-[0.5rem] font-semibold text-muted bg-surface-alt rounded-full leading-none tabular-nums"] [
-            El.txt (string_of_int count)]]
-      ) top_tags in
-      Common.meta_box ~body_cls:"sidebar-meta-body tag-cloud"
-        ~header:[El.txt " tags"] tag_btns
-  in
   let sidebar =
     El.aside ~at:[At.class' "hidden lg:block lg:w-72 shrink-0"]
       [El.div ~at:[At.class' "sticky top-16"]
-         [filter_box; calendar_box; tag_cloud_box]]
+         [filter_box; calendar_box]]
   in
   (article, sidebar)
 

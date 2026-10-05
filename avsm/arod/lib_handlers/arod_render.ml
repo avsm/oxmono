@@ -49,17 +49,6 @@ let index_html ~ctx =
 
 (** {1 List pages} *)
 
-let papers_list_html ~ctx =
-  let article, sidebar = C.Paper.papers_list ~ctx in
-  let cfg = Arod.Ctx.config ctx in
-  let base_url = cfg.site.base_url in
-  let count = List.length (Arod.Ctx.papers ctx) in
-  let jsonld = [
-    Arod.Jsonld.collection_page_jsonld ~base_url ~url:"/papers" ~title:"Papers" ~description:"Academic papers" ~count ();
-    Arod.Jsonld.breadcrumb_jsonld ~base_url [("Home", "/"); ("Papers", "/papers")];
-  ] in
-  C.Layout.page ~ctx ~title:"Papers" ~description:"Academic papers" ~url:"/papers" ~current_page:"Papers" ~jsonld ~page_scripts:[Calendar; Checkbox_filter; Tag_cloud_filter; Pagination; Toc] ~article ~sidebar ()
-
 (* The tag cloud shows the last six months of notes. Its coloured illustrations
    are embedded assets, one for each tag that has one. *)
 let tag_months = 6
@@ -78,6 +67,17 @@ let tag_sprite () =
          svg)) (Arod_assets.read path)
     else None) Arod_assets.file_list
   |> C.Tag_cloud.sprite_doc
+
+let papers_list_html ~ctx =
+  let article, sidebar = C.Paper.papers_list ~ctx ~art:tag_art in
+  let cfg = Arod.Ctx.config ctx in
+  let base_url = cfg.site.base_url in
+  let count = List.length (Arod.Ctx.papers ctx) in
+  let jsonld = [
+    Arod.Jsonld.collection_page_jsonld ~base_url ~url:"/papers" ~title:"Papers" ~description:"Academic papers" ~count ();
+    Arod.Jsonld.breadcrumb_jsonld ~base_url [("Home", "/"); ("Papers", "/papers")];
+  ] in
+  C.Layout.page ~ctx ~title:"Papers" ~description:"Academic papers" ~url:"/papers" ~current_page:"Papers" ~jsonld ~page_scripts:[Calendar; Checkbox_filter; Tag_cloud_filter; Pagination; Toc] ~article ~sidebar ()
 
 let notes_list_html ~ctx =
   let article, sidebar = C.Note.notes_list ~ctx ~art:tag_art in

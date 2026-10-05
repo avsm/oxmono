@@ -178,6 +178,18 @@ let icon ~art tag =
        El.span ~at:[At.class' "ti mono"; At.v "aria-hidden" "true"]
          [El.txt (String.uppercase_ascii (String.sub tag 0 1))])
 
+(** [icon_link ~art ~noun ~count tag] is the small icon of [tag] as a link to a
+    search for it. Its tooltip and label give the tag and how many of the
+    things called [noun] carry it. *)
+let icon_link ~art ~noun ~count tag =
+  let tip =
+    Printf.sprintf "%s, %d %s%s" tag count noun (if count = 1 then "" else "s")
+  in
+  El.a ~at:[At.href (search_url tag); At.v "data-tag" tag;
+            At.class' "sn-ico no-underline"; At.v "title" tip;
+            At.v "aria-label" tip]
+    [icon ~art tag]
+
 (** [tile ~art (tag, count)] is the tile of [tag]. Every tile is the same
     size, so the icons sit evenly. *)
 let tile ~art (tag, count) =
@@ -203,4 +215,4 @@ let page ~ctx ~art ~months =
          (if months = 0 then "The tags of every note."
           else Printf.sprintf "The tags of the notes of the last %d months." months);
        El.txt " Point at one to see its colours."];
-    El.div ~at:[At.class' "tag-cloud"] (List.map (tile ~art) tags)]
+    El.div ~at:[At.class' "tag-tiles"] (List.map (tile ~art) tags)]

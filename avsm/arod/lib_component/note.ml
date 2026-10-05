@@ -353,14 +353,7 @@ let sn_tags ?(limit = 5) ~art ~popularity n =
   else
     [ El.span ~at:[At.class' "sn-tagrow"]
         (List.map (fun (t, count) ->
-           let tip =
-             Printf.sprintf "%s, %d note%s" t count
-               (if count = 1 then "" else "s")
-           in
-           El.a ~at:[At.href (Tag_cloud.search_url t); At.v "data-tag" t;
-                     At.class' "sn-ico no-underline"; At.v "title" tip;
-                     At.v "aria-label" tip]
-             [Tag_cloud.icon ~art t]) tags) ]
+           Tag_cloud.icon_link ~art ~noun:"note" ~count t) tags) ]
 
 (** [sn_icons ~art ~popularity n] is the icons at the right end of the row of
     [n], from its tags on the left to its links on the right, with a bar

@@ -3196,25 +3196,30 @@ let custom_css = {|
 /* Pointing at an entry brings its tag icons to colour, as pointing at an icon
    does. */
 @media (hover: hover) {
-  .sn-item:hover .sn-ico {
+  .sn-item:hover .sn-ico, .paper-item:hover .sn-ico {
     --tf-green: var(--ti-green);
     --tf-amber: var(--ti-amber);
     --tf-blue: var(--ti-blue);
     --tf-coral: var(--ti-coral);
     --tf-tan: var(--ti-tan);
   }
-  .sn-item:hover .sn-ico .ti.line, .sn-item:hover .sn-ico .ti.mono { color: var(--ti-green); }
+  .sn-item:hover .sn-ico .ti.line, .sn-item:hover .sn-ico .ti.mono,
+  .paper-item:hover .sn-ico .ti.line, .paper-item:hover .sn-ico .ti.mono {
+    color: var(--ti-green);
+  }
 }
-/* The tag cloud. Every tile is the same size. An illustration rests as its
+/* The tag tiles. Every tile is the same size. An illustration rests as its
    outline and a faint tone for each of its colours, and takes the colours of
    the palette when it is pointed at. The palette is the only place that colour
    is chosen, one set for each theme. */
-.tag-cloud, .snake {
+.tag-tiles, .snake, .paper-item {
   --ti-green: #6fae82;
   --ti-amber: #dba84e;
   --ti-blue: #7596c8;
   --ti-coral: #dc918b;
   --ti-tan: #c9a67f;
+}
+.tag-tiles {
   --tc-size: 4.6rem;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(7.4rem, 1fr));
@@ -3222,7 +3227,7 @@ let custom_css = {|
   justify-items: center;
   padding: 1rem 0 2rem;
 }
-.dark .tag-cloud, .dark .snake {
+.dark .tag-tiles, .dark .snake, .dark .paper-item {
   --ti-green: #7fbf93;
   --ti-amber: #e2b861;
   --ti-blue: #8aaadc;
@@ -3964,5 +3969,13 @@ main .paper-item a:not(.no-underline):not(.heading-anchor):not(.lightbox-trigger
   .heading-number::after {
     content: "\2009\007C\2009";
   }
+}
+/* The icons of a paper are right-aligned on the line of its links. */
+.paper-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8em;
+  margin-left: auto;
+  line-height: 0;
 }
 |}

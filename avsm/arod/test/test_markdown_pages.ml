@@ -528,5 +528,35 @@ let () =
   in
   check "the markdown lists the tags with their counts"
     (before md "[ocaml]" "[ai]"
-    && contains md "ocaml](https://example.com/search?q=%23ocaml): 3 notes");
+    && contains md "ocaml](https://example.com/search?q=%23ocaml): 3 notes")
+
+(* {1 The papers list} *)
+
+let () =
+  let tagged ~slug ~year tags =
+    { (paper_entry ~slug ~title:("Paper " ^ slug) ~year ()) with
+      Bushel.Paper.tags }
+  in
+  let papers =
+    [ tagged ~slug:"p1" ~year:2025 [ "ocaml"; "ai"; "solo"; "journal" ];
+      tagged ~slug:"p2" ~year:2024 [ "ocaml"; "ai"; "journal" ];
+      tagged ~slug:"p3" ~year:2023 [ "ocaml"; "journal" ] ]
+  in
+  let article, sidebar =
+    Arod_component.Paper.papers_list
+      ~ctx:(ctx_of ~papers ()) ~art:(fun _ -> None)
+  in
+  let page = Htmlit.El.to_string ~doctype:false article in
+  let side = Htmlit.El.to_string ~doctype:false sidebar in
+  check "the papers sidebar has no list of tags"
+    (not (contains side "tag-cloud") && not (contains side " tags"));
+  check "each paper shows the icons of its tags, commonest first"
+    (before page {|data-tag="ocaml"|} {|data-tag="ai"|}
+    && contains page {|class="sn-ico no-underline"|});
+  check "a tag that says what kind of publication it is has no icon"
+    (not (contains page {|data-tag="journal"|}));
+  check "a tag only one paper carries has no icon"
+    (not (contains page {|data-tag="solo"|}));
+  check "an icon says how many papers carry its tag"
+    (contains page {|title="ocaml, 3 papers"|});
   Printf.printf "test_markdown_pages: %d checks passed\n" !checks

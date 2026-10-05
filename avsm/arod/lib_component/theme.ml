@@ -3181,6 +3181,63 @@ let custom_css = {|
 @media (max-width: 860px) {
   .sn-tags { display: none; }
 }
+/* The tag cloud. An illustration rests as its outline and a faint tone for each
+   of its colours, and takes the colours of the palette when it is pointed at.
+   The palette is the only place that colour is chosen, one set for each
+   theme. */
+.tag-cloud {
+  --ti-green: #6fae82;
+  --ti-amber: #dba84e;
+  --ti-blue: #7596c8;
+  --ti-coral: #dc918b;
+  --ti-tan: #c9a67f;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1.6rem 2.2rem;
+  padding: 1rem 0 2rem;
+}
+.dark .tag-cloud {
+  --ti-green: #7fbf93;
+  --ti-amber: #e2b861;
+  --ti-blue: #8aaadc;
+  --ti-coral: #e6a09b;
+  --ti-tan: #d4b690;
+}
+.tc-tag {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--color-muted);
+  transition: transform 0.25s, color 0.25s;
+}
+.tc-tag:hover { color: var(--color-text); transform: translateY(-3px); }
+.tc-name {
+  font-size: calc(0.85rem + var(--tc-s) * 0.95rem);
+  font-weight: 600;
+  line-height: 1.1;
+}
+.tc-tag .ti {
+  flex: none;
+  width: calc(2.6rem + var(--tc-s) * 4.4rem);
+  height: calc(2.6rem + var(--tc-s) * 4.4rem);
+}
+.tc-tag .ti.line { transition: color 0.3s; }
+.tc-tag:hover .ti.line { color: var(--ti-green); }
+.ti.col path { transition: fill 0.4s, fill-opacity 0.4s; }
+.ti.col .c-ink { fill: currentColor; }
+.ti.col .c-green { fill: currentColor; fill-opacity: 0.22; }
+.ti.col .c-amber { fill: currentColor; fill-opacity: 0.12; }
+.ti.col .c-blue { fill: currentColor; fill-opacity: 0.3; }
+.ti.col .c-coral { fill: currentColor; fill-opacity: 0.16; }
+.ti.col .c-tan { fill: currentColor; fill-opacity: 0.2; }
+.tc-tag:hover .ti.col .c-green { fill: var(--ti-green); fill-opacity: 1; }
+.tc-tag:hover .ti.col .c-amber { fill: var(--ti-amber); fill-opacity: 1; }
+.tc-tag:hover .ti.col .c-blue { fill: var(--ti-blue); fill-opacity: 1; }
+.tc-tag:hover .ti.col .c-coral { fill: var(--ti-coral); fill-opacity: 1; }
+.tc-tag:hover .ti.col .c-tan { fill: var(--ti-tan); fill-opacity: 1; }
 /* On a phone the text column is what is scarce. The heading keeps to the date,
    the thumbnail narrows and the text moves left to meet it. The inline
    positions of the rows are overridden, which is why these are important. */

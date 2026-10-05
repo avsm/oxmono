@@ -16,7 +16,8 @@ type listing =
   | `Projects
   | `Videos
   | `Links
-  | `Network ]
+  | `Network
+  | `Tags ]
 (** A page that lists a collection, or the front page. *)
 
 type entry_kind = [ `Paper | `Note | `Idea | `Project | `Video ]

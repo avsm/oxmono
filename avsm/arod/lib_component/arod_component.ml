@@ -21,5 +21,6 @@ module Project = Project
 module List_view = List_view
 module Links = Links
 module Network = Network
+module Tag_cloud = Tag_cloud
 module Markdown_export = Markdown_export
 module Search = Search

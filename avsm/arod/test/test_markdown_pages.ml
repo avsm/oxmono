@@ -463,5 +463,54 @@ let () =
     (before txt "## Talks" "[A Talk]"
     && before txt "[A Talk]" "## Other videos");
   check "llms.txt lists the videos that are not talks apart"
-    (before txt "## Other videos" "[A Plain Video]");
+    (before txt "## Other videos" "[A Plain Video]")
+
+(* {1 The tag cloud} *)
+
+let () =
+  let tagged ~slug ~date tags =
+    { (note ~slug ~title:slug ~date ()) with Bushel.Note.tags }
+  in
+  let notes =
+    [ tagged ~slug:"n1" ~date:(2026, 9, 3) [ "ocaml"; "ai"; "plainword" ];
+      tagged ~slug:"n2" ~date:(2026, 8, 3) [ "ocaml"; "ai" ];
+      tagged ~slug:"n3" ~date:(2026, 7, 3) [ "ocaml" ];
+      tagged ~slug:"old" ~date:(2025, 1, 3) [ "ancient"; "ocaml" ] ]
+  in
+  let ctx = ctx_of ~notes () in
+  let counts = Arod_component.Tag_cloud.counts ~ctx ~months:3 in
+  check "tags are counted over the last months of notes, most common first"
+    (counts = [ ("ocaml", 3); ("ai", 2); ("plainword", 1) ]);
+  check "a tag only an older note carries is left out"
+    (not (List.mem_assoc "ancient" counts));
+  check "no window counts every note"
+    (List.mem_assoc "ancient" (Arod_component.Tag_cloud.counts ~ctx ~months:0));
+  let html art =
+    Htmlit.El.to_string ~doctype:false
+      (Arod_component.Tag_cloud.page ~ctx ~art ~months:3)
+  in
+  let page =
+    html (function
+      | "ocaml" -> Some {|<svg class="ti col"><path class="c-ink" d="M0 0"/></svg>|}
+      | _ -> None)
+  in
+  check "a tag with an illustration shows it"
+    (contains page {|class="ti col"|});
+  check "a tag with a line icon and no illustration shows the line icon"
+    (contains page {|class="ti line"|});
+  check "a tag with neither is its word alone"
+    (contains page ">plainword<" && contains page "tc-name");
+  check "the biggest tag is the biggest and the others are smaller"
+    (contains page "--tc-s:1.00" && contains page "--tc-s:0.79"
+    && contains page "--tc-s:0.50");
+  check "a tag links to the search for it"
+    (contains page {|href="/search?q=%23ocaml"|});
+  check "the cloud says how many notes carry a tag"
+    (contains page {|title="3 notes"|} && contains page {|title="1 note"|});
+  let md =
+    Arod_component.Markdown_export.tags_md ~ctx ~months:3
+  in
+  check "the markdown lists the tags with their counts"
+    (before md "[ocaml]" "[ai]"
+    && contains md "ocaml](https://example.com/search?q=%23ocaml): 3 notes");
   Printf.printf "test_markdown_pages: %d checks passed\n" !checks

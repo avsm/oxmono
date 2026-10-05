@@ -16,6 +16,7 @@ module Video_component = Video
 module Note_component = Note
 module Links_component = Links
 module Network_component = Network
+module Tag_cloud_component = Tag_cloud
 module Entry = Bushel.Entry
 module Paper = Bushel.Paper
 module Contact = Sortal_schema.Contact
@@ -856,6 +857,25 @@ let network_md ~ctx =
   in
   header ^ counts ^ String.concat "\n\n" (List.map month sections) ^ blogroll
   ^ "\n" ^ footer
+
+(* [tags_md ~ctx ~months] mirrors the tag cloud: the tags of the notes of the
+   last [months] months, most common first, each with its count. *)
+let tags_md ~ctx ~months =
+  let base = Arod.Ctx.base_url ctx in
+  let tags = Tag_cloud_component.counts ~ctx ~months in
+  let description =
+    if months = 0 then "The tags of every note."
+    else Printf.sprintf "The tags of the notes of the last %d months." months
+  in
+  let header, footer =
+    list_header ~ctx ~title:"Tags" ~description ~path:"/tags"
+  in
+  let item (tag, count) =
+    Printf.sprintf "- [%s](%s%s): %d note%s" (link_text tag) base
+      (Tag_cloud_component.search_url tag) count
+      (if count = 1 then "" else "s")
+  in
+  header ^ String.concat "\n" (List.map item tags) ^ "\n" ^ footer
 
 let index_md ~ctx =
   match Arod.Ctx.lookup ctx "index" with

@@ -82,6 +82,7 @@ let projects_list = listing_page ~key:"/projects" `Projects
 let videos_list = listing_page ~key:"/videos" `Videos
 let links_list = listing_page ~key:"/links" `Links
 let network_page = listing_page ~key:"/network" `Network
+let tags_page = listing_page ~key:"/tags" `Tags
 let index_markdown = listing_markdown ~key:"/" `Index
 let papers_markdown = listing_markdown ~key:"/papers" `Papers
 let notes_markdown = listing_markdown ~key:"/notes" `Notes
@@ -90,6 +91,7 @@ let projects_markdown = listing_markdown ~key:"/projects" `Projects
 let videos_markdown = listing_markdown ~key:"/videos" `Videos
 let links_markdown = listing_markdown ~key:"/links" `Links
 let network_markdown = listing_markdown ~key:"/network" `Network
+let tags_markdown = listing_markdown ~key:"/tags" `Tags
 
 (** {1 Entry pages} *)
 

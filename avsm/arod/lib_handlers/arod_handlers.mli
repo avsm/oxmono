@@ -39,6 +39,8 @@ val links_list : handler @@ portable
 
 val network_page : handler @@ portable
 (** [network_page] is the network activity page. *)
+val tags_page : handler @@ portable
+(** [tags_page] is the tag cloud of recent notes. *)
 
 val paper : string -> handler @@ portable
 (** [paper slug] is the paper named by [slug]. The suffixes [".pdf"], [".bib"]
@@ -78,6 +80,8 @@ val links_markdown : handler @@ portable
 (** [links_markdown] is the outbound-link list as markdown. *)
 val network_markdown : handler @@ portable
 (** [network_markdown] is the network page as markdown. *)
+val tags_markdown : handler @@ portable
+(** [tags_markdown] is the tag cloud as markdown. *)
 
 (** {1 Feeds} *)
 

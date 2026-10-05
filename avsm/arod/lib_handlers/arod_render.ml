@@ -19,7 +19,8 @@ type listing =
   | `Projects
   | `Videos
   | `Links
-  | `Network ]
+  | `Network
+  | `Tags ]
 
 type entry_kind = [ `Paper | `Note | `Idea | `Project | `Video ]
 type feed = [ `Atom of string | `Json | `Perma_atom | `Perma_json ]
@@ -111,6 +112,16 @@ let network_html ~ctx =
   let article, sidebar = C.Network.network_page ~ctx in
   C.Layout.page ~ctx ~title:"Network" ~description:"Network activity" ~url:"/network" ~current_page:"Network" ~page_scripts:[Calendar; Links_modal; Pagination; Toc] ~article ~sidebar ()
 
+(* The tag cloud shows the last six months of notes. Its coloured illustrations
+   are embedded assets, one for each tag that has one. *)
+let tag_months = 6
+
+let tags_html ~ctx =
+  let art tag = Arod_assets.read ("tag-art/" ^ tag ^ ".svg") in
+  let article = C.Tag_cloud.page ~ctx ~art ~months:tag_months in
+  C.Layout.page ~ctx ~title:"Tags" ~description:"The tags of recent notes"
+    ~url:"/tags" ~current_page:"Notes" ~main_cls:"max-w-4xl" ~article ()
+
 let listing ~ctx (which : listing) (flavour : flavour) =
   match (which, flavour) with
   | `Index, `Html -> index_html ~ctx
@@ -129,6 +140,9 @@ let listing ~ctx (which : listing) (flavour : flavour) =
   | `Links, `Markdown -> C.Markdown_export.links_list_md ~ctx
   | `Network, `Html -> network_html ~ctx
   | `Network, `Markdown -> C.Markdown_export.network_md ~ctx
+  | `Tags, `Html -> tags_html ~ctx
+  | `Tags, `Markdown ->
+    C.Markdown_export.tags_md ~ctx ~months:tag_months
 
 (** {1 Entry pages} *)
 

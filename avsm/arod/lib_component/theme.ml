@@ -3033,7 +3033,7 @@ let custom_css = {|
   align-self: center;
 }
 /* The tag icons of an entry are a circle, centred on its text. They rest a
-   little smaller and reach full size when the circle is pointed at, with a
+   little smaller and reach full size when any part of the entry is pointed at, with a
    spring. They are only a nicety, so they go when the page narrows. */
 .sn-ico {
   --tc-size: 1.15em;
@@ -3048,7 +3048,7 @@ let custom_css = {|
     scale(var(--s));
   transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s;
 }
-.sn-tags:hover .sn-ico, .sn-tags:focus-within .sn-ico { --s: 1; }
+.sn-item:hover .sn-ico, .sn-tags:focus-within .sn-ico { --s: 1; }
 .sn-ico:hover { color: var(--color-text); }
 @media (prefers-reduced-motion: reduce) {
   .sn-ico { transition: color 0.25s; }

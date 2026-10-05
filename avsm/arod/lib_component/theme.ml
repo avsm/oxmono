@@ -3026,7 +3026,7 @@ let custom_css = {|
 /* The tags of an entry are small icons in a column of their own at its end.
    The icons of an entry sit on its heading line. */
 .sn-tags {
-  flex: 0 0 8em;
+  flex: 0 0 11em;
   margin-left: auto;
   align-self: stretch;
   display: flex;

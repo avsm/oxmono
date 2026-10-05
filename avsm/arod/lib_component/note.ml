@@ -340,10 +340,15 @@ let featured_notes journal_notes =
 
 (** [sn_tags ?limit ~art ~popularity n] is the column at the right of the row
     of [n]. It holds the icons of its plain and set tags, the most popular
-    first and at most [limit] (default three). An icon links to a search for its
+    first and at most [limit] (default five). A tag that only one note carries
+    is left out. An icon links to a search for its
     tag, and its tooltip and label give the tag and how many notes carry it. *)
-let sn_tags ?(limit = 3) ~art ~popularity n =
-  let tags = List.filteri (fun i _ -> i < limit) (ranked_tags ~popularity n) in
+let sn_tags ?(limit = 5) ~art ~popularity n =
+  let tags =
+    ranked_tags ~popularity n
+    |> List.filter (fun (_, count) -> count > 1)
+    |> List.filteri (fun i _ -> i < limit)
+  in
   El.div ~at:[At.class' "sn-tags"]
     (List.map (fun (t, count) ->
        let tip =

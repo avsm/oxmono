@@ -141,20 +141,21 @@ let () =
   (* Tags come most popular first, and say how many notes carry them. *)
   let tagged =
     [ { (note "t1" "First" (2026, 8, 3)) with
-        Bushel.Note.tags = [ "rare"; "eio"; "ocaml" ] };
+        Bushel.Note.tags = [ "rare"; "eio"; "ocaml"; "plainword" ] };
       { (note "t2" "Second" (2026, 8, 2)) with
-        Bushel.Note.tags = [ "eio"; "ocaml" ] };
+        Bushel.Note.tags = [ "eio"; "ocaml"; "plainword" ] };
       { (note "t3" "Third" (2026, 8, 1)) with
         Bushel.Note.tags = [ "ocaml" ] } ]
   in
   let tags_html = render ~notes:tagged () in
   check "the most popular tag comes first"
-    (before tags_html {|data-tag="ocaml"|} {|data-tag="eio"|}
-    && before tags_html {|data-tag="eio"|} {|data-tag="rare"|});
+    (before tags_html {|data-tag="ocaml"|} {|data-tag="eio"|});
   check "a tag says, in its tooltip and label, how many notes carry it"
     (contains tags_html {|title="ocaml, 3 notes"|}
     && contains tags_html {|aria-label="ocaml, 3 notes"|}
-    && contains tags_html {|title="rare, 1 note"|});
+    && not (contains tags_html "rare, 1 note"));
+  check "a tag only one note carries is left out"
+    (not (contains tags_html {|data-tag="rare"|}));
   check "a tag is shown by its icon, not by its word"
     (contains tags_html {|class="sn-ico no-underline"|}
     && not (contains tags_html ">ocaml</a>")

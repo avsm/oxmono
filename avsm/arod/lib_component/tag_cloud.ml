@@ -80,7 +80,7 @@ let search_url tag = "/search?q=%23" ^ Uriz.pct_encode ~component:`Query_value t
 
 (** [tile ~art (tag, count)] is the tile of [tag]. Every tile is the
     same size, so the icons sit evenly. A tag with no illustration and no line
-    icon has its initial in a ring in their place. *)
+    icon has its initial in a circle in their place. *)
 let tile ~art (tag, count) =
   let icon =
     match art tag with

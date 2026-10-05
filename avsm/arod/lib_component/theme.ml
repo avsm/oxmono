@@ -3234,7 +3234,7 @@ let custom_css = {|
 }
 .tc-tag .ti.line { transition: color 0.3s; }
 .tc-tag:hover .ti.line { color: var(--ti-green); }
-/* A tag with no picture has its initial in a ring. */
+/* A tag with no picture has its initial in a circle. */
 .ti.mono {
   display: inline-flex;
   align-items: center;

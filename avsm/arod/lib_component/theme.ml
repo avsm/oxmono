@@ -3030,39 +3030,25 @@ let custom_css = {|
   flex: 0 0 3.8em;
   height: 3.8em;
   margin-left: auto;
-  align-self: flex-start;
+  align-self: center;
 }
-/* The tag icons of an entry are a circle about as tall as its thumbnail.
-   Pointing at it straightens them into a row, which runs left over the text,
-   with a spring. [--t] is how far along that is, and it is registered so that
-   it can be animated. The icons are only a nicety, so they go when the page
-   narrows. */
-@property --t {
-  syntax: "<number>";
-  inherits: true;
-  initial-value: 0;
-}
+/* The tag icons of an entry are a circle, centred on its text. They rest a
+   little smaller and grow to full size when the circle is pointed at, with a
+   spring. They are only a nicety, so they go when the page narrows. */
 .sn-ico {
   --tc-size: 1.15em;
-  --t: 0;
+  --s: 0.78;
   position: absolute;
   top: 50%;
   left: 50%;
   display: inline-flex;
   margin: calc(var(--tc-size) / -2) 0 0 calc(var(--tc-size) / -2);
   color: var(--color-muted);
-  transform: translate(
-      calc((var(--cx) + (var(--rx) - var(--cx)) * var(--t)) * 1em),
-      calc(var(--cy) * (1 - var(--t)) * 1em))
-    scale(calc(1 + 0.2 * var(--t)));
-  transition: --t 0.55s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s;
+  transform: translate(calc(var(--cx) * 1em), calc(var(--cy) * 1em))
+    scale(var(--s));
+  transition: transform 0.45s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s;
 }
-.sn-tags:hover .sn-ico, .sn-tags:focus-within .sn-ico { --t: 1; }
-.sn-tags:hover, .sn-tags:focus-within { z-index: 3; }
-.sn-tags:hover .sn-ico, .sn-tags:focus-within .sn-ico {
-  background: var(--color-bg);
-  border-radius: 50%;
-}
+.sn-tags:hover .sn-ico, .sn-tags:focus-within .sn-ico { --s: 1; }
 .sn-ico:hover { color: var(--color-text); }
 @media (prefers-reduced-motion: reduce) {
   .sn-ico { transition: color 0.25s; }

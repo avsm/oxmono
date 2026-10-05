@@ -364,9 +364,8 @@ let sn_tags ?(limit = 5) ~art ~popularity n =
                  At.v "aria-label" tip;
                  At.v "style"
                    (let rad = angle *. Float.pi /. 180. in
-                    Printf.sprintf "--cx:%.3f;--cy:%.3f;--rx:%.3f"
-                      (radius *. Float.cos rad) (radius *. Float.sin rad)
-                      (0.9 -. (1.55 *. float_of_int (n - 1 - i))))]
+                    Printf.sprintf "--cx:%.3f;--cy:%.3f"
+                      (radius *. Float.cos rad) (radius *. Float.sin rad))]
          [Tag_cloud.icon ~art t]) tags)
 
 (** [text_lines ~title ~synopsis] is how many lines the title and synopsis of an

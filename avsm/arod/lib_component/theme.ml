@@ -3035,24 +3035,30 @@ let custom_css = {|
    text, on the line of its heading: tags on the left, a dividing bar, and the
    links on the right. The tag icons are drawn a little smaller than the link
    icons so that the two sets look the same size. */
+/* The group is the height of the date line, which it shares, so that the
+   icons are centred on the date. Its font size is the date line's. */
 .sn-icons {
   position: absolute;
-  top: 0.05em;
+  top: 0;
   right: 0.3em;
   display: flex;
   align-items: center;
-  gap: 0.5em;
+  gap: 0.8em;
+  font-size: 0.66em;
+  height: 1.5em;
+  line-height: 0;
 }
 .sn-bar {
   width: 1px;
-  height: 1.2em;
-  margin: 0 0.4em;
+  height: 1.1em;
+  margin: 0 0.5em;
   background: var(--color-border);
 }
 .sn-tagrow {
   display: inline-flex;
   align-items: center;
-  gap: 0.5em;
+  gap: 0.8em;
+  line-height: 0;
 }
 .sn-ico {
   --tc-size: 13px;

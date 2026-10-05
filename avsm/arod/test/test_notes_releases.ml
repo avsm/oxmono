@@ -106,6 +106,18 @@ let () =
   check "a registry is an icon that names it"
     (contains html {|aria-label="opam.ocaml.org on ecosyste.ms"|}
     && contains html {|title="opam.ocaml.org on ecosyste.ms"|});
+  (* The row of mdx 2.6.0 is read from its name onwards, since other rows have
+     dates and summaries of their own. *)
+  let row =
+    match index_of html "mdx 2.6.0" with
+    | Some i -> String.sub html i (String.length html - i)
+    | None -> ""
+  in
+  check "the registry icons sit beside the name, before the date and summary"
+    (before row {|aria-label="opam.ocaml.org on ecosyste.ms"|}
+       {|class="release-date"|}
+    && before row {|aria-label="opam.ocaml.org on ecosyste.ms"|}
+         "Executable code blocks");
   check "the registry icon is the one for that registry"
     (contains html (Arod.Icons.registry_icon ~size:12 "opam.ocaml.org"));
   (* The page is one timeline. The weeknote rail is folded into it. *)

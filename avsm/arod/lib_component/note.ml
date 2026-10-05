@@ -471,6 +471,11 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
       El.a ~at:[At.href r.url;
                 At.class' "release-name !text-text !no-underline"]
         [El.txt (name ^ " " ^ r.version)];
+      (match r.registries with
+       | [] -> El.void
+       | regs ->
+         El.span ~at:[At.class' "release-registries"]
+           (List.map registry regs));
       El.time ~at:[At.class' "release-date";
                    At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
         [El.txt (short_date (y, m, d))];
@@ -483,12 +488,7 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
                            (List.rev_map (fun (e : Bushel.Release.release) ->
                               e.version) earlier))]
            [El.txt (Printf.sprintf "+%d earlier" (List.length earlier))]);
-      El.span ~at:[At.class' "release-summary"] [El.txt r.summary];
-      (match r.registries with
-       | [] -> El.void
-       | regs ->
-         El.span ~at:[At.class' "release-registries"]
-           (List.map registry regs))]]
+      El.span ~at:[At.class' "release-summary"] [El.txt r.summary]]]
 
 (** [sn_quiet ~y_rel n] is the row that says [n] weeks had nothing in them. *)
 let sn_quiet ~y_rel n =

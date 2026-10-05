@@ -64,7 +64,20 @@ let papers_list_html ~ctx =
    are embedded assets, one for each tag that has one. *)
 let tag_months = 6
 
-let tag_art tag = Arod_assets.read ("tag-art/" ^ tag ^ ".svg")
+let tag_art tag =
+  Arod_assets.read ("tag-art/" ^ C.Tag_cloud.alias tag ^ ".svg")
+
+(* [tag_sprite ()] is the sprite of every tag illustration. *)
+let tag_sprite () =
+  let prefix = "tag-art/" in
+  let n = String.length prefix in
+  List.filter_map (fun path ->
+    if String.length path > n && String.sub path 0 n = prefix then
+      Option.map (fun svg ->
+        (Filename.chop_extension (String.sub path n (String.length path - n)),
+         svg)) (Arod_assets.read path)
+    else None) Arod_assets.file_list
+  |> C.Tag_cloud.sprite_doc
 
 let notes_list_html ~ctx =
   let article, sidebar = C.Note.notes_list ~ctx ~art:tag_art in

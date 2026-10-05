@@ -494,8 +494,22 @@ let () =
       | "ocaml" -> Some {|<svg class="ti col"><path class="c-ink" d="M0 0"/></svg>|}
       | _ -> None)
   in
-  check "a tag with an illustration shows it"
-    (contains page {|class="ti col"|});
+  check "a tag with an illustration shows it from the shared sprite"
+    (contains page {|class="ti col"|}
+    && contains page {|href="/tag-art.svg#ta-ocaml"|}
+    && not (contains page "<symbol"));
+  check "a tag that is another spelling shares the picture"
+    (Arod_component.Tag_cloud.alias "llm" = "llms"
+    && Arod_component.Tag_cloud.alias "ocaml" = "ocaml");
+  (let doc =
+     Arod_component.Tag_cloud.sprite_doc
+       [ ("ocaml", {|<svg class="ti col" viewBox="0 0 200 200"><path class="c-ink" d="M0 0"/><path class="c-green" d="M1 1"/></svg>|}) ]
+   in
+   check "the sprite holds each illustration once, with fills from variables"
+     (contains doc {|<symbol id="ta-ocaml" viewBox="0 0 200 200">|}
+     && contains doc {|style="fill:currentColor"|}
+     && contains doc {|style="fill:var(--tf-green)"|}
+     && not (contains doc "class=")));
   check "a tag with a line icon and no illustration shows the line icon"
     (contains page {|class="ti line"|});
   check "a tag with neither has its initial in a ring and its word"

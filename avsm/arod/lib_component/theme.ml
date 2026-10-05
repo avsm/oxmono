@@ -3186,12 +3186,15 @@ let custom_css = {|
 /* Pointing at an entry brings its tag icons to colour, as pointing at an icon
    does. */
 @media (hover: hover) {
-  .sn-item:hover .sn-ico .ti.col .c-green { fill: var(--ti-green); fill-opacity: 1; }
-  .sn-item:hover .sn-ico .ti.col .c-amber { fill: var(--ti-amber); fill-opacity: 1; }
-  .sn-item:hover .sn-ico .ti.col .c-blue { fill: var(--ti-blue); fill-opacity: 1; }
-  .sn-item:hover .sn-ico .ti.col .c-coral { fill: var(--ti-coral); fill-opacity: 1; }
-  .sn-item:hover .sn-ico .ti.col .c-tan { fill: var(--ti-tan); fill-opacity: 1; }
+  .sn-item:hover .sn-ico {
+    --tf-green: var(--ti-green);
+    --tf-amber: var(--ti-amber);
+    --tf-blue: var(--ti-blue);
+    --tf-coral: var(--ti-coral);
+    --tf-tan: var(--ti-tan);
+  }
   .sn-item:hover .sn-ico .ti.line, .sn-item:hover .sn-ico .ti.mono { color: var(--ti-green); }
+}
 }
 @media (max-width: 860px) {
   .sn-tags { display: none; }
@@ -3266,23 +3269,30 @@ let custom_css = {|
 }
 .tc-tag:hover .ti.mono,
 .sn-ico:hover .ti.mono { color: var(--ti-green); opacity: 1; }
-.ti.col path { transition: fill 0.4s, fill-opacity 0.4s; }
-.ti.col .c-ink { fill: currentColor; }
-.ti.col .c-green { fill: currentColor; fill-opacity: 0.22; }
-.ti.col .c-amber { fill: currentColor; fill-opacity: 0.12; }
-.ti.col .c-blue { fill: currentColor; fill-opacity: 0.3; }
-.ti.col .c-coral { fill: currentColor; fill-opacity: 0.16; }
-.ti.col .c-tan { fill: currentColor; fill-opacity: 0.2; }
-.tc-tag:hover .ti.col .c-green,
-.sn-ico:hover .ti.col .c-green { fill: var(--ti-green); fill-opacity: 1; }
-.tc-tag:hover .ti.col .c-amber,
-.sn-ico:hover .ti.col .c-amber { fill: var(--ti-amber); fill-opacity: 1; }
-.tc-tag:hover .ti.col .c-blue,
-.sn-ico:hover .ti.col .c-blue { fill: var(--ti-blue); fill-opacity: 1; }
-.tc-tag:hover .ti.col .c-coral,
-.sn-ico:hover .ti.col .c-coral { fill: var(--ti-coral); fill-opacity: 1; }
-.tc-tag:hover .ti.col .c-tan,
-.sn-ico:hover .ti.col .c-tan { fill: var(--ti-tan); fill-opacity: 1; }
+/* An illustration is drawn from the sprite of its page, so its colours cannot
+   be chosen by selectors on the icon. They are custom properties, which the
+   picture inherits: each layer rests as a faint tone of the text colour and
+   takes its palette colour when the tile, the icon or the entry is pointed at. */
+.tc-tag, .sn-ico {
+  --tf-green: color-mix(in srgb, currentColor 22%, transparent);
+  --tf-amber: color-mix(in srgb, currentColor 12%, transparent);
+  --tf-blue: color-mix(in srgb, currentColor 30%, transparent);
+  --tf-coral: color-mix(in srgb, currentColor 16%, transparent);
+  --tf-tan: color-mix(in srgb, currentColor 20%, transparent);
+}
+.c-ink { fill: currentColor; }
+.c-green { fill: var(--tf-green); }
+.c-amber { fill: var(--tf-amber); }
+.c-blue { fill: var(--tf-blue); }
+.c-coral { fill: var(--tf-coral); }
+.c-tan { fill: var(--tf-tan); }
+.tc-tag:hover, .sn-ico:hover {
+  --tf-green: var(--ti-green);
+  --tf-amber: var(--ti-amber);
+  --tf-blue: var(--ti-blue);
+  --tf-coral: var(--ti-coral);
+  --tf-tan: var(--ti-tan);
+}
 /* On a phone the text column is what is scarce. The heading keeps to the date,
    the thumbnail narrows and the text moves left to meet it. The inline
    positions of the rows are overridden, which is why these are important. */

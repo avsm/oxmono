@@ -78,12 +78,96 @@ let counts ~ctx ~months =
 (** [search_url tag] is the search page for the notes tagged [tag]. *)
 let search_url tag = "/search?q=%23" ^ Uriz.pct_encode ~component:`Query_value tag
 
+(** [symbol_id tag] is the id of the sprite symbol of [tag]. *)
+let symbol_id tag =
+  "ta-" ^ String.map (fun c ->
+    match c with 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '-' -> c | _ -> '_') tag
+
+(* [between s a b] is the text of [s] after the first [a] and before the next
+   [b] after it. *)
+let between s a b =
+  let find sub from =
+    let n = String.length sub in
+    let rec go i =
+      if i + n > String.length s then None
+      else if String.sub s i n = sub then Some i
+      else go (i + 1)
+    in
+    go from
+  in
+  match find a 0 with
+  | None -> None
+  | Some i ->
+    let start = i + String.length a in
+    Option.map (fun k -> String.sub s start (k - start)) (find b start)
+
+(** [alias tag] is the tag whose picture [tag] shares. A few tags are another
+    spelling of one. *)
+let alias = function
+  | "llm" -> "llms"
+  | "carbon-credits" | "carbon" -> "carboncredits"
+  | "forest" -> "forests"
+  | "network" | "networks" -> "networking"
+  | "packages" -> "packaging"
+  | "distributed-systems" -> "distributed"
+  | "programming-languages" -> "programming"
+  | "effects" -> "effect-handlers"
+  | "aoh" -> "aoah"
+  | tag -> tag
+
+(** The address of the sprite that holds every illustration. It is one file
+    for the whole site, so that a picture used a thousand times is sent once
+    and cached. *)
+let sprite_url = "/tag-art.svg"
+
+(** [sprite_doc files] is the sprite of [files], which are each the name of a
+    tag and its illustration. A layer takes its fill from a custom property
+    that the page sets, because the sprite is a file of its own and the style
+    sheet of the page does not reach into it. *)
+let sprite_doc files =
+  let layer = function
+    | "ink" -> "currentColor"
+    | c -> Printf.sprintf "var(--tf-%s)" c
+  in
+  let symbol (tag, svg) =
+    match (between svg {|viewBox="|} {|"|}, between svg ">" "</svg>") with
+    | Some vb, Some inner ->
+      let inner =
+        List.fold_left (fun acc c ->
+          let cls = Printf.sprintf {|class="c-%s"|} c in
+          let b = Buffer.create (String.length acc) in
+          let n = String.length cls in
+          let i = ref 0 in
+          while !i < String.length acc do
+            if !i + n <= String.length acc && String.sub acc !i n = cls then (
+              Buffer.add_string b
+                (Printf.sprintf {|style="fill:%s"|} (layer c));
+              i := !i + n)
+            else (
+              Buffer.add_char b acc.[!i];
+              incr i)
+          done;
+          Buffer.contents b) inner [ "ink"; "green"; "amber"; "blue"; "coral"; "tan" ]
+      in
+      Some (Printf.sprintf {|<symbol id="%s" viewBox="%s">%s</symbol>|}
+              (symbol_id tag) vb inner)
+    | _ -> None
+  in
+  {|<svg xmlns="http://www.w3.org/2000/svg">|}
+  ^ String.concat "" (List.filter_map symbol files)
+  ^ "</svg>"
+
 (** [icon ~art tag] is the icon of [tag]: its coloured illustration if it has
-    one, else its line icon, else its initial in a circle. They are all one
-    square, sized by the page that shows them. *)
+    one, which is drawn from the sprite, else its line icon, else its initial
+    in a circle. They are all one square, sized by the page that shows them,
+    and drawn with the same outline weight as the illustrations. *)
 let icon ~art tag =
   match art tag with
-  | Some svg -> El.unsafe_raw svg
+  | Some _ ->
+    El.unsafe_raw
+      (Printf.sprintf
+         {|<svg class="ti col" viewBox="0 0 200 200" aria-hidden="true" focusable="false"><use href="%s#%s"/></svg>|}
+         sprite_url (symbol_id (alias tag)))
   | None ->
     (match line_icon tag with
      | Some inner ->

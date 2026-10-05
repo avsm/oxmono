@@ -53,6 +53,9 @@ val feed : ctx:Arod.Ctx.t -> feed -> string
 val sitemap : ctx:Arod.Ctx.t -> string @@ portable
 (** [sitemap ~ctx] is the XML sitemap of every entry and listing page. *)
 
+val tag_sprite : unit -> string @@ portable
+(** [tag_sprite ()] is the sprite of every tag illustration, as one svg. *)
+
 val llms_txt : ctx:Arod.Ctx.t -> string @@ portable
 (** [llms_txt ~ctx] is the llms.txt index of every entry's Markdown twin. *)
 

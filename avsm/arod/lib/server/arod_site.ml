@@ -120,6 +120,7 @@ let routes =
       (H.embedded_file "apple-touch-icon.png");
     get (s "site.webmanifest") (H.embedded_file "site.webmanifest");
     get (s "tw.css") (H.embedded_file_immutable "tw.css");
+    get (s "tag-art.svg") H.tag_sprite;
     get (s "js" / segment) H.js_file;
     get (s "images" / rest) H.image_file;
     (* Stats dashboard, hidden, not cached and not in the sitemap *)

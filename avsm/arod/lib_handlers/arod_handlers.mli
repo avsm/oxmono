@@ -114,6 +114,9 @@ val blogroll_opml : handler @@ portable
 val robots_txt : handler @@ portable
 (** [robots_txt] allows every crawler and points at the sitemap. *)
 
+val tag_sprite : handler @@ portable
+(** [tag_sprite] is the sprite of tag illustrations, cached for a year. *)
+
 val llms_txt : handler @@ portable
 (** [llms_txt] is the llms.txt index of every entry's Markdown twin. *)
 

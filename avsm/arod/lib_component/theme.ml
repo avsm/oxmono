@@ -3035,33 +3035,27 @@ let custom_css = {|
   justify-content: flex-end;
   padding-right: 0.3em;
 }
-/* The icons of an entry huddle together as a small overlapping crowd, each a
-   little askew. Pointing at the crowd moves them apart with a spring. */
+/* The icons of an entry sit close together. Pointing at them makes each a
+   little larger and moves them apart, with a spring. */
 .sn-ico {
   --tc-size: 1.45em;
-  --r: 0deg;
-  --y: 0px;
-  position: relative;
+  --s: 1;
   display: inline-flex;
-  margin-left: -0.5em;
+  margin-left: 0.2em;
   color: var(--color-muted);
-  transform: rotate(var(--r)) translateY(var(--y));
+  transform: scale(var(--s));
   transition: margin 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
     transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s;
 }
 .sn-ico:first-child { margin-left: 0; }
-.sn-ico:nth-child(1) { --r: -6deg; --y: 1px; z-index: 3; }
-.sn-ico:nth-child(2) { --r: 5deg; --y: -3px; z-index: 2; }
-.sn-ico:nth-child(3) { --r: -3deg; --y: 3px; z-index: 1; }
 .sn-tags:hover .sn-ico, .sn-tags:focus-within .sn-ico {
-  --r: 0deg;
-  --y: 0px;
-  margin-left: 0.4em;
+  --s: 1.2;
+  margin-left: 0.7em;
 }
 .sn-tags:hover .sn-ico:first-child, .sn-tags:focus-within .sn-ico:first-child {
   margin-left: 0;
 }
-.sn-ico:hover { color: var(--color-text); z-index: 4; }
+.sn-ico:hover { color: var(--color-text); }
 @media (prefers-reduced-motion: reduce) {
   .sn-ico { transition: color 0.25s; }
 }

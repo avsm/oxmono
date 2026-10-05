@@ -43,7 +43,7 @@ let line_icon = function
   | "selfhosting" -> Some {|<rect x="4" y="4" width="16" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="16" height="6.5" rx="1.6"/><path d="M7.5 7.2h.01M7.5 16.8h.01"/><path d="M11.5 7.2h5M11.5 16.8h5"/>|}
   | "sensing" -> Some {|<circle cx="12" cy="12" r="1.5"/><path d="M8.6 8.6a4.8 4.8 0 000 6.8M15.4 8.6a4.8 4.8 0 010 6.8"/><path d="M5.8 5.8a8.8 8.8 0 000 12.4M18.2 5.8a8.8 8.8 0 010 12.4"/>|}
   | "spatial" -> Some {|<path d="M12 21s7-6.1 7-11.2a7 7 0 10-14 0C5 14.9 12 21 12 21z"/><circle cx="12" cy="10" r="2.4"/>|}
-  | "systems" -> Some {|<path d="M12 3.5l9 4.8-9 4.8-9-4.8z"/><path d="M3 12.2l9 4.8 9-4.8"/><path d="M3 16.2l9 4.8 9-4.8"/>|}
+  | "systems" -> Some {|<rect x="5" y="3" width="14" height="18" rx="2"/><rect x="7.5" y="5.5" width="9" height="7" rx="1"/><path d="M8 17h5M16 17h.01"/>|}
   | "teaching" -> Some {|<rect x="3" y="4" width="18" height="12" rx="1.6"/><path d="M8 20h8M12 16v4"/><path d="M7 8.5h6M7 11.5h4"/>|}
   | "tessera" -> Some {|<rect x="4" y="4" width="7" height="7" rx="1.2"/><rect x="13" y="4" width="7" height="7" rx="1.2"/><rect x="4" y="13" width="7" height="7" rx="1.2"/><path d="M16.5 13l3.5 3.5-3.5 3.5-3.5-3.5z"/>|}
   | "weather" -> Some {|<path d="M7.5 18.5a4.5 4.5 0 01-.6-8.960A6 6 0 0118.5 10.5a4 4 0 01-.5 8z"/><path d="M9 21.5v-1M13 21.5v-1M17 21.5v-1"/>|}

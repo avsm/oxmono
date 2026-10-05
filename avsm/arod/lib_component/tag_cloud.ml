@@ -88,7 +88,7 @@ let icon ~art tag =
     (match line_icon tag with
      | Some inner ->
        El.unsafe_raw
-         ({|<svg class="ti line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">|}
+         ({|<svg class="ti line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">|}
           ^ inner ^ "</svg>")
      | None ->
        El.span ~at:[At.class' "ti mono"; At.v "aria-hidden" "true"]

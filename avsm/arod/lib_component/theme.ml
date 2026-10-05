@@ -3038,12 +3038,12 @@ let custom_css = {|
 /* The icons of an entry huddle together as a small overlapping crowd, each a
    little askew. Pointing at the crowd moves them apart with a spring. */
 .sn-ico {
-  --tc-size: 1.8em;
+  --tc-size: 1.45em;
   --r: 0deg;
   --y: 0px;
   position: relative;
   display: inline-flex;
-  margin-left: -0.6em;
+  margin-left: -0.5em;
   color: var(--color-muted);
   transform: rotate(var(--r)) translateY(var(--y));
   transition: margin 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -3056,7 +3056,7 @@ let custom_css = {|
 .sn-tags:hover .sn-ico, .sn-tags:focus-within .sn-ico {
   --r: 0deg;
   --y: 0px;
-  margin-left: 0.5em;
+  margin-left: 0.4em;
 }
 .sn-tags:hover .sn-ico:first-child, .sn-tags:focus-within .sn-ico:first-child {
   margin-left: 0;
@@ -3262,7 +3262,7 @@ let custom_css = {|
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  border: 1.5px solid currentColor;
+  border: max(1px, calc(var(--tc-size) * 0.033)) solid currentColor;
   border-radius: 50%;
   font-size: calc(var(--tc-size) * 0.38);
   font-weight: 600;

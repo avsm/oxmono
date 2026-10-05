@@ -3022,10 +3022,12 @@ let custom_css = {|
 .sn-note .sn-text, .sn-week .sn-text {
   top: 0.5em;
   height: 3.8em;
+  max-width: 46em;
   align-items: flex-start;
   overflow: visible;
 }
-/* The reading column fills the room between the thumbnail and the sidebar. */
+/* The reading column fills the room between the thumbnail and the sidebar, up
+   to a comfortable width. On a very wide page the rest is left as space. */
 .sn-body { flex: 1 1 auto; min-width: 0; }
 /* The tags of an entry are small icons in a column of their own at its end.
    The icons of an entry sit on its heading line. */
@@ -3086,6 +3088,7 @@ let custom_css = {|
   font-weight: 600;
   letter-spacing: 0.1em;
   line-height: 1.5;
+  margin-bottom: 0.45em;
   text-transform: uppercase;
   color: var(--sn-small);
 }

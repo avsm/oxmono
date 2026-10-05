@@ -3033,7 +3033,7 @@ let custom_css = {|
   align-self: center;
 }
 /* The tag icons of an entry are a circle, centred on its text. They rest a
-   little smaller and grow to full size when the circle is pointed at, with a
+   little smaller and reach full size when the circle is pointed at, with a
    spring. They are only a nicety, so they go when the page narrows. */
 .sn-ico {
   --tc-size: 1.15em;

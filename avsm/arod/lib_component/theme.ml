@@ -3030,28 +3030,38 @@ let custom_css = {|
   flex: 0 0 3.8em;
   height: 3.8em;
   margin-left: auto;
-  align-self: center;
+  align-self: flex-start;
 }
-/* The tag icons of an entry are a circle about as tall as its thumbnail. Pointing
-   at the circle makes each icon a little larger and the circle wider, with a
-   spring. They are only a nicety, so they go when the page narrows. */
+/* The tag icons of an entry are a circle about as tall as its thumbnail.
+   Pointing at it straightens them into a row, which runs left over the text,
+   with a spring. [--t] is how far along that is, and it is registered so that
+   it can be animated. The icons are only a nicety, so they go when the page
+   narrows. */
+@property --t {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
 .sn-ico {
   --tc-size: 1.15em;
-  --scale: 1;
-  --spread: 1;
+  --t: 0;
   position: absolute;
   top: 50%;
   left: 50%;
   display: inline-flex;
   margin: calc(var(--tc-size) / -2) 0 0 calc(var(--tc-size) / -2);
   color: var(--color-muted);
-  transform: rotate(var(--a)) translateX(calc(var(--rad) * var(--spread)))
-    rotate(calc(var(--a) * -1)) scale(var(--scale));
-  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s;
+  transform: translate(
+      calc((var(--cx) + (var(--rx) - var(--cx)) * var(--t)) * 1em),
+      calc(var(--cy) * (1 - var(--t)) * 1em))
+    scale(calc(1 + 0.2 * var(--t)));
+  transition: --t 0.55s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s;
 }
+.sn-tags:hover .sn-ico, .sn-tags:focus-within .sn-ico { --t: 1; }
+.sn-tags:hover, .sn-tags:focus-within { z-index: 3; }
 .sn-tags:hover .sn-ico, .sn-tags:focus-within .sn-ico {
-  --scale: 1.2;
-  --spread: 1.35;
+  background: var(--color-bg);
+  border-radius: 50%;
 }
 .sn-ico:hover { color: var(--color-text); }
 @media (prefers-reduced-motion: reduce) {
@@ -3093,7 +3103,7 @@ let custom_css = {|
 .sn-line {
   display: -webkit-box;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: var(--lines, 2);
   overflow: hidden;
   margin: 0;
   font-size: 0.86em;

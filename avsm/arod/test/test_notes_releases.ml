@@ -172,6 +172,31 @@ let () =
      in
      let article, _ = Arod_component.Note.notes_list ~ctx ~art in
      contains (Htmlit.El.to_string ~doctype:false article) {|class="ti col"|});
+  (* A row is as tall as its text needs, so a long synopsis is not cut to two
+     lines, and the rows after it move down. *)
+  let long_text = String.concat " " (List.init 40 (fun _ -> "wordy words")) in
+  let tall =
+    render
+      ~notes:
+        [ { (note "lg" "Long One" (2026, 8, 3)) with
+            Bushel.Note.synopsis = Some long_text };
+          { (note "sh" "Short One" (2026, 8, 2)) with
+            Bushel.Note.synopsis = Some "Brief." } ]
+      ()
+  in
+  check "a long synopsis gets more lines than a short one"
+    (contains tall "--lines:5" && contains tall "--lines:2");
+  check "a row with a long synopsis is taller, and the next row is lower"
+    (let top_of marker =
+       match index_of tall marker with
+       | None -> -1.
+       | Some i ->
+         let j = Option.get (index_of (String.sub tall i (String.length tall - i)) "top:") in
+         let rest = String.sub tall (i + j + 4) 16 in
+         float_of_string (String.sub rest 0 (String.index rest 'e' - 0))
+     in
+     let lg = top_of {|id="note-lg"|} and sh = top_of {|id="note-sh"|} in
+     lg >= 0. && sh -. lg > 4.8 +. 3.);
   check "a note's heading says how many words it has"
     (before html ">10 Aug<" " word" && before html " word" "An August note");
   check "a note's date is a caption above its title"

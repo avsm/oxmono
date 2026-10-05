@@ -363,8 +363,45 @@ let sn_tags ?(limit = 5) ~art ~popularity n =
                  At.class' "sn-ico no-underline"; At.v "title" tip;
                  At.v "aria-label" tip;
                  At.v "style"
-                   (Printf.sprintf "--a:%.0fdeg;--rad:%.2fem" angle radius)]
+                   (let rad = angle *. Float.pi /. 180. in
+                    Printf.sprintf "--cx:%.3f;--cy:%.3f;--rx:%.3f"
+                      (radius *. Float.cos rad) (radius *. Float.sin rad)
+                      (0.9 -. (1.55 *. float_of_int (n - 1 - i))))]
          [Tag_cloud.icon ~art t]) tags)
+
+(** [text_lines ~title ~synopsis] is how many lines the title and synopsis of an
+    entry are expected to take, from two to five. A line is about 88 characters
+    in the reading column. The layout of the timeline is fixed before the page
+    is shown, so this is an estimate, and a narrower column than the page's
+    widest wraps more. *)
+let text_lines ~title ~synopsis =
+  let len =
+    String.length title + (if synopsis = "" then 0 else 2 + String.length synopsis)
+  in
+  min 5 (max 2 ((len + 87) / 88))
+
+(** [line_extra lines] is how much taller than a two line row a row of [lines]
+    lines is, in em. *)
+let line_extra lines = float_of_int (lines - 2) *. 1.25
+
+(** [note_lines n] is [text_lines] of the row of [n], which is a weeknote or a
+    note. *)
+let note_lines n =
+  let title =
+    if Note.weeknote n then strip_weeknote_prefix (Note.title n)
+    else Note.title n
+  in
+  text_lines ~title ~synopsis:(Option.value (Note.synopsis n) ~default:"")
+
+(** [row_height n] is the height of the row of note [n]. *)
+let row_height n =
+  (if Note.weeknote n then Snake.height Snake.Week else Snake.height Snake.Note)
+  +. line_extra (note_lines n)
+
+(** [extra_style n] is the style that makes the text of the row of [n] as tall
+    as its row, with the room that its extra lines need. *)
+let extra_style n =
+  Printf.sprintf ";height:%.2fem" (3.8 +. line_extra (note_lines n))
 
 (** [sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n] is journal note [n] as a row. *)
 let sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n =
@@ -382,12 +419,12 @@ let sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n =
               At.v "data-tags" tags_data;
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
               At.v "style"
-                (pos_style ~top:y_rel ~height:(Snake.height Snake.Note))] [
+                (pos_style ~top:y_rel ~height:(row_height n))] [
     El.unsafe_raw (exit_svg ~plain:(image = None) Snake.Note ~y_abs);
     (match image with
      | Some src -> sn_node ~url ~kind:Snake.Note ~label:"note" src
      | None -> El.void);
-    El.div ~at:[At.class' "sn-text"; At.v "style" text_style] [
+    El.div ~at:[At.class' "sn-text"; At.v "style" (text_style ^ extra_style n)] [
       El.div ~at:[At.class' "sn-body"] [
         El.div ~at:[At.class' "sn-meta"]
           ([El.time ~at:[At.class' "dt-published";
@@ -395,7 +432,8 @@ let sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n =
                            (Printf.sprintf "%04d-%02d-%02d" y m d)]
               [El.txt (short_date (y, m, d))]]
            @ sn_words n @ sn_links n);
-        El.p ~at:[At.class' "sn-line"] [
+        El.p ~at:[At.class' "sn-line";
+                   At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
             [El.txt
                (if synopsis = "" then title else title ^ title_stop title)];
@@ -422,12 +460,12 @@ let sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n =
               At.v "data-tags" tags_data;
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
               At.v "style"
-                (pos_style ~top:y_rel ~height:(Snake.height Snake.Week))] [
+                (pos_style ~top:y_rel ~height:(row_height n))] [
     El.unsafe_raw (exit_svg ~plain:(image = None) Snake.Week ~y_abs);
     (match image with
      | Some src -> sn_node ~url ~kind:Snake.Week ~label:"week" src
      | None -> El.void);
-    El.div ~at:[At.class' "sn-text"; At.v "style" text_style] [
+    El.div ~at:[At.class' "sn-text"; At.v "style" (text_style ^ extra_style n)] [
       El.div ~at:[At.class' "sn-body"] [
         El.div ~at:[At.class' "sn-meta"] ([
           El.txt (Printf.sprintf "Week %d" wk);
@@ -436,7 +474,8 @@ let sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n =
                        At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
             [El.txt (week_range (y, m, d))]
           ] @ sn_words n @ sn_links n);
-        El.p ~at:[At.class' "sn-line"] [
+        El.p ~at:[At.class' "sn-line";
+                   At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
             [El.txt
                (if synopsis = "" then title else title ^ title_stop title)];
@@ -669,22 +708,22 @@ let notes_list ~ctx ~art =
     let cursor = ref Snake.month_height in
     let rows =
       List.map (fun row ->
-        let kind, build =
+        let height, build =
           match row with
           | Journal n ->
-            (Snake.Note,
+            (row_height n,
              fun ~y_rel ~y_abs -> sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n)
           | Weeknote n ->
-            (Snake.Week,
+            (row_height n,
              fun ~y_rel ~y_abs -> sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n)
           | Releases (t, rs) ->
-            (Snake.Release,
+            (Snake.height Snake.Release,
              fun ~y_rel ~y_abs -> sn_release ~y_rel ~y_abs t rs)
           | Quiet q ->
-            (Snake.Quiet, fun ~y_rel ~y_abs:_ -> sn_quiet ~y_rel q)
+            (Snake.height Snake.Quiet, fun ~y_rel ~y_abs:_ -> sn_quiet ~y_rel q)
         in
         let y_rel = !cursor in
-        cursor := !cursor +. Snake.height kind;
+        cursor := !cursor +. height;
         build ~y_rel ~y_abs:(month_top +. y_rel)) rows
     in
     let month_h = !cursor +. Snake.month_gap in

@@ -338,7 +338,7 @@ let featured_notes journal_notes =
   | [] -> List.filter Note.perma journal_notes |> Common.take 5
   | marked -> marked
 
-(** [sn_tags ?limit ~art ~popularity n] is the ring at the right of the row of
+(** [sn_tags ?limit ~art ~popularity n] is the circle of icons at the right of the row of
     [n], about as tall as its thumbnail. It holds the icons of its plain and set tags, the most popular
     first and at most [limit] (default five). A tag that only one note carries
     is left out. An icon links to a search for its

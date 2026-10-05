@@ -3032,8 +3032,8 @@ let custom_css = {|
   margin-left: auto;
   align-self: center;
 }
-/* The tag icons of an entry are a ring about as tall as its thumbnail. Pointing
-   at the ring makes each icon a little larger and the ring wider, with a
+/* The tag icons of an entry are a circle about as tall as its thumbnail. Pointing
+   at the circle makes each icon a little larger and the circle wider, with a
    spring. They are only a nicety, so they go when the page narrows. */
 .sn-ico {
   --tc-size: 1.15em;

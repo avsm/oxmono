@@ -282,8 +282,8 @@ let sn_links n =
   | [] -> []
   | links -> [El.span ~at:[At.class' "sn-links"] links]
 
-(** [sn_words n] is the word count of [n] for its heading, or nothing for a note
-    with no words. *)
+(** [sn_words n] is the word count of [n] for the end of its text, or nothing
+    for a note with no words. *)
 let sn_words n =
   match Note.words n with
   | 0 -> []
@@ -378,15 +378,19 @@ let sn_icons ~art ~popularity n =
        @ links)
 
 (** [text_lines ~title ~synopsis] is how many lines the title and synopsis of an
-    entry are expected to take, from two to five. A line is about 118 characters
-    in the reading column, which fills the width of the page at its widest. The layout of the timeline is fixed before the page
+    entry are expected to take, from two to five. A line is taken as about 92 characters, which
+    is what the reading column holds at 1024 pixels wide. It holds more when
+    the page is wider, and a row then has room to spare. The text is never cut. A narrower column wraps more, and the
+    text then runs past the estimate into the space below its row. The layout of the timeline is fixed before the page
     is shown, so this is an estimate, and a narrower column than the page's
     widest wraps more. *)
 let text_lines ~title ~synopsis =
   let len =
-    String.length title + (if synopsis = "" then 0 else 2 + String.length synopsis)
+    String.length title
+    + (if synopsis = "" then 0 else 2 + String.length synopsis)
+    + 14
   in
-  min 5 (max 2 ((len + 117) / 118))
+  min 5 (max 2 ((len + 91) / 92))
 
 (** [line_extra lines] is how much taller than a two line row a row of [lines]
     lines is, in em. *)
@@ -438,17 +442,16 @@ let sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n =
           ([El.time ~at:[At.class' "dt-published";
                          At.v "datetime"
                            (Printf.sprintf "%04d-%02d-%02d" y m d)]
-              [El.txt (short_date (y, m, d))]]
-           @ sn_words n);
+              [El.txt (short_date (y, m, d))]]);
         El.p ~at:[At.class' "sn-line";
-                   At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] [
+                   At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] ([
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
             [El.txt
                (if synopsis = "" then title else title ^ title_stop title)];
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
-           else El.void)]];
+           else El.void)] @ sn_words n)];
       sn_icons ~art ~popularity n]]
 
 (** [sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n] is weeknote [n] as a row. It has
@@ -481,16 +484,16 @@ let sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n =
           El.time ~at:[At.class' "dt-published";
                        At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
             [El.txt (week_range (y, m, d))]
-          ] @ sn_words n);
+          ]);
         El.p ~at:[At.class' "sn-line";
-                   At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] [
+                   At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] ([
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
             [El.txt
                (if synopsis = "" then title else title ^ title_stop title)];
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
-           else El.void)]];
+           else El.void)] @ sn_words n)];
       sn_icons ~art ~popularity n]]
 
 (** [release_name t] is the name of the repository of [t] without its owner. *)

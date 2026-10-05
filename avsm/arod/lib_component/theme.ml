@@ -3019,7 +3019,12 @@ let custom_css = {|
   align-items: center;
   padding-right: 0.3em;
 }
-.sn-note .sn-text, .sn-week .sn-text { top: 0.5em; height: 3.8em; }
+.sn-note .sn-text, .sn-week .sn-text {
+  top: 0.5em;
+  height: 3.8em;
+  align-items: flex-start;
+  overflow: visible;
+}
 /* The reading column fills the room between the thumbnail and the sidebar. */
 .sn-body { flex: 1 1 auto; min-width: 0; }
 /* The tags of an entry are small icons in a column of their own at its end.
@@ -3053,10 +3058,7 @@ let custom_css = {|
   color: var(--color-muted);
   transition: color 0.25s, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.sn-ico:hover {
-  color: var(--color-text);
-  transform: scale(1.6);
-}
+.sn-ico:hover { transform: scale(1.6); }
 .sn-links {
   display: inline-flex;
   align-items: center;
@@ -3089,10 +3091,7 @@ let custom_css = {|
 }
 /* A title and its synopsis run on as one paragraph. */
 .sn-line {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: var(--lines, 2);
-  overflow: hidden;
+  display: block;
   margin: 0;
   font-size: 0.86em;
   line-height: 1.35;
@@ -3112,6 +3111,12 @@ let custom_css = {|
   text-decoration-color: var(--sn-hl) !important;
 }
 .sn-synopsis { margin-left: 0.4em; color: var(--color-secondary); }
+.sn-words {
+  margin-left: 0.5em;
+  font-size: 0.85em;
+  white-space: nowrap;
+  color: var(--sn-small);
+}
 .sn-quiet {
   position: absolute;
   right: 0;
@@ -3226,7 +3231,7 @@ let custom_css = {|
   color: var(--color-muted);
   transition: transform 0.25s, color 0.25s;
 }
-.tc-tag:hover { color: var(--color-text); transform: translateY(-3px); }
+.tc-tag:hover { transform: translateY(-3px); }
 .tc-tag .ti { transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
 .tc-tag:hover .ti { transform: scale(1.22); }
 .tc-name {

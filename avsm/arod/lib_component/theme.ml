@@ -3181,21 +3181,21 @@ let custom_css = {|
 @media (max-width: 860px) {
   .sn-tags { display: none; }
 }
-/* The tag cloud. An illustration rests as its outline and a faint tone for each
-   of its colours, and takes the colours of the palette when it is pointed at.
-   The palette is the only place that colour is chosen, one set for each
-   theme. */
+/* The tag cloud. Every tile is the same size. An illustration rests as its
+   outline and a faint tone for each of its colours, and takes the colours of
+   the palette when it is pointed at. The palette is the only place that colour
+   is chosen, one set for each theme. */
 .tag-cloud {
   --ti-green: #6fae82;
   --ti-amber: #dba84e;
   --ti-blue: #7596c8;
   --ti-coral: #dc918b;
   --ti-tan: #c9a67f;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 1.6rem 2.2rem;
+  --tc-size: 4.6rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.4rem, 1fr));
+  gap: 1.8rem 1rem;
+  justify-items: center;
   padding: 1rem 0 2rem;
 }
 .dark .tag-cloud {
@@ -3206,26 +3206,77 @@ let custom_css = {|
   --ti-tan: #d4b690;
 }
 .tc-tag {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.3rem;
+  width: 100%;
+  text-align: center;
   color: var(--color-muted);
   transition: transform 0.25s, color 0.25s;
 }
 .tc-tag:hover { color: var(--color-text); transform: translateY(-3px); }
 .tc-name {
-  font-size: calc(0.85rem + var(--tc-s) * 0.95rem);
+  font-size: 0.9rem;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.tc-count {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
 }
 .tc-tag .ti {
   flex: none;
-  width: calc(2.6rem + var(--tc-s) * 4.4rem);
-  height: calc(2.6rem + var(--tc-s) * 4.4rem);
+  width: var(--tc-size);
+  height: var(--tc-size);
 }
 .tc-tag .ti.line { transition: color 0.3s; }
 .tc-tag:hover .ti.line { color: var(--ti-green); }
+/* A tag with no picture has its initial in a ring. */
+.ti.mono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  font-size: calc(var(--tc-size) * 0.38);
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.5;
+  transition: color 0.3s, opacity 0.3s;
+}
+.tc-tag:hover .ti.mono { color: var(--ti-green); opacity: 1; }
+/* On the notes page the tags are one quiet row above the timeline. */
+.tag-strip {
+  margin: 0 0 1.6rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--color-border);
+}
+.tag-strip-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.tag-strip-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+.tag-strip-all { font-size: 0.78rem; color: var(--color-muted); }
+.tag-strip-all:hover { color: var(--color-accent); }
+.tag-strip .tag-cloud {
+  --tc-size: 3.2rem;
+  grid-template-columns: repeat(auto-fit, minmax(5.2rem, 1fr));
+  gap: 1rem 0.5rem;
+  padding: 0.6rem 0 0.6rem;
+}
+.tag-strip .tc-name { font-size: 0.8rem; }
+.tag-strip .tc-count { display: none; }
 .ti.col path { transition: fill 0.4s, fill-opacity 0.4s; }
 .ti.col .c-ink { fill: currentColor; }
 .ti.col .c-green { fill: currentColor; fill-opacity: 0.22; }

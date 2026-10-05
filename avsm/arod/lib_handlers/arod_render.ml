@@ -60,8 +60,18 @@ let papers_list_html ~ctx =
   ] in
   C.Layout.page ~ctx ~title:"Papers" ~description:"Academic papers" ~url:"/papers" ~current_page:"Papers" ~jsonld ~page_scripts:[Calendar; Checkbox_filter; Tag_cloud_filter; Pagination; Toc] ~article ~sidebar ()
 
+(* The tag cloud shows the last six months of notes. Its coloured illustrations
+   are embedded assets, one for each tag that has one. *)
+let tag_months = 6
+
+let tag_art tag = Arod_assets.read ("tag-art/" ^ tag ^ ".svg")
+
 let notes_list_html ~ctx =
   let article, sidebar = C.Note.notes_list ~ctx in
+  let article =
+    Htmlit.El.div
+      [C.Tag_cloud.strip ~ctx ~art:tag_art ~months:tag_months ~limit:8; article]
+  in
   let cfg = Arod.Ctx.config ctx in
   let base_url = cfg.site.base_url in
   let count = List.length (Arod.Ctx.notes ctx) in
@@ -112,12 +122,8 @@ let network_html ~ctx =
   let article, sidebar = C.Network.network_page ~ctx in
   C.Layout.page ~ctx ~title:"Network" ~description:"Network activity" ~url:"/network" ~current_page:"Network" ~page_scripts:[Calendar; Links_modal; Pagination; Toc] ~article ~sidebar ()
 
-(* The tag cloud shows the last six months of notes. Its coloured illustrations
-   are embedded assets, one for each tag that has one. *)
-let tag_months = 6
-
 let tags_html ~ctx =
-  let art tag = Arod_assets.read ("tag-art/" ^ tag ^ ".svg") in
+  let art = tag_art in
   let article = C.Tag_cloud.page ~ctx ~art ~months:tag_months in
   C.Layout.page ~ctx ~title:"Tags" ~description:"The tags of recent notes"
     ~url:"/tags" ~current_page:"Notes" ~main_cls:"max-w-4xl" ~article ()

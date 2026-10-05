@@ -498,15 +498,30 @@ let () =
     (contains page {|class="ti col"|});
   check "a tag with a line icon and no illustration shows the line icon"
     (contains page {|class="ti line"|});
-  check "a tag with neither is its word alone"
-    (contains page ">plainword<" && contains page "tc-name");
-  check "the biggest tag is the biggest and the others are smaller"
-    (contains page "--tc-s:1.00" && contains page "--tc-s:0.79"
-    && contains page "--tc-s:0.50");
+  check "a tag with neither has its initial in a ring and its word"
+    (contains page {|class="ti mono"|} && contains page ">P<"
+    && contains page ">plainword<");
+  check "every tile is the same size, so no tag carries a size of its own"
+    (not (contains page "--tc-s"));
+  check "a tile says how many notes carry the tag"
+    (contains page {|class="tc-count">3<|});
   check "a tag links to the search for it"
     (contains page {|href="/search?q=%23ocaml"|});
   check "the cloud says how many notes carry a tag"
     (contains page {|title="3 notes"|} && contains page {|title="1 note"|});
+  let strip =
+    Htmlit.El.to_string ~doctype:false
+      (Arod_component.Tag_cloud.strip ~ctx ~art:(fun _ -> None) ~months:3
+         ~limit:2)
+  in
+  check "the strip on the notes page has the commonest tags and a link to all"
+    (contains strip "tag-strip" && contains strip ">ocaml<"
+    && contains strip ">ai<" && not (contains strip ">plainword<")
+    && contains strip {|href="/tags"|});
+  check "there is no strip when there are no tags"
+    (Htmlit.El.to_string ~doctype:false
+       (Arod_component.Tag_cloud.strip ~ctx:(ctx_of ()) ~art:(fun _ -> None)
+          ~months:3 ~limit:2) = "");
   let md =
     Arod_component.Markdown_export.tags_md ~ctx ~months:3
   in

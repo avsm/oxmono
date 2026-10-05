@@ -78,15 +78,11 @@ let counts ~ctx ~months =
 (** [search_url tag] is the search page for the notes tagged [tag]. *)
 let search_url tag = "/search?q=%23" ^ Uriz.pct_encode ~component:`Query_value tag
 
-(** [page ~ctx ~art ~months] is the tag cloud of the last [months] months of
-    notes. [art tag] is the coloured illustration of [tag], as an svg, if it
-    has one. Each tag is sized by how many notes carry it, on a log scale so
-    that one very common tag does not flatten the others. *)
-let page ~ctx ~art ~months =
-  let tags = counts ~ctx ~months in
-  let most = List.fold_left (fun acc (_, c) -> max acc c) 1 tags in
-  let share c = log (1. +. float_of_int c) /. log (1. +. float_of_int most) in
-  let icon tag =
+(** [tile ~art (tag, count)] is the tile of [tag]. Every tile is the
+    same size, so the icons sit evenly. A tag with no illustration and no line
+    icon has its initial in a ring in their place. *)
+let tile ~art (tag, count) =
+  let icon =
     match art tag with
     | Some svg -> El.unsafe_raw svg
     | None ->
@@ -95,23 +91,24 @@ let page ~ctx ~art ~months =
          El.unsafe_raw
            ({|<svg class="ti line" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">|}
             ^ inner ^ "</svg>")
-       | None -> El.void)
+       | None ->
+         El.span ~at:[At.class' "ti mono"; At.v "aria-hidden" "true"]
+           [El.txt (String.uppercase_ascii (String.sub tag 0 1))])
   in
-  (* The cloud is shuffled by a fixed rule, not by chance, so that it looks
-     assembled and a page renders the same every time. *)
-  let arranged =
-    List.mapi (fun i t -> ((i * 7919) mod (List.length tags + 1), t)) tags
-    |> List.sort (fun (a, _) (b, _) -> compare a b)
-    |> List.map snd
-  in
-  let item (tag, count) =
-    El.a ~at:[At.href (search_url tag); At.class' "tc-tag no-underline";
-              At.v "title"
-                (Printf.sprintf "%d note%s" count
-                   (if count = 1 then "" else "s"));
-              At.v "style" (Printf.sprintf "--tc-s:%.2f" (share count))]
-      [icon tag; El.span ~at:[At.class' "tc-name"] [El.txt tag]]
-  in
+  El.a ~at:[At.href (search_url tag); At.class' "tc-tag no-underline";
+            At.v "title"
+              (Printf.sprintf "%d note%s" count
+                 (if count = 1 then "" else "s"))]
+    [icon;
+     El.span ~at:[At.class' "tc-name"] [El.txt tag];
+     El.span ~at:[At.class' "tc-count"] [El.txt (string_of_int count)]]
+
+(** [page ~ctx ~art ~months] is the tag page for the last [months] months of
+    notes. [art tag] is the coloured illustration of [tag], as an svg, if it
+    has one. The tags are in a grid of equal tiles, most common first, each
+    with how many notes carry it. *)
+let page ~ctx ~art ~months =
+  let tags = counts ~ctx ~months in
   El.article [
     El.h1 ~at:[At.class' "page-title text-xl font-semibold mb-2"]
       [El.txt "Tags"];
@@ -120,4 +117,18 @@ let page ~ctx ~art ~months =
          (if months = 0 then "The tags of every note."
           else Printf.sprintf "The tags of the notes of the last %d months." months);
        El.txt " Point at one to see its colours."];
-    El.div ~at:[At.class' "tag-cloud"] (List.map item arranged)]
+    El.div ~at:[At.class' "tag-cloud"] (List.map (tile ~art) tags)]
+
+(** [strip ~ctx ~art ~months ~limit] is the commonest [limit] tags of the last
+    [months] months as one row of tiles, with a link to all of them. It sits
+    above the notes timeline. *)
+let strip ~ctx ~art ~months ~limit =
+  let tags = List.filteri (fun i _ -> i < limit) (counts ~ctx ~months) in
+  if tags = [] then El.void
+  else
+    El.div ~at:[At.class' "tag-strip"] [
+      El.div ~at:[At.class' "tag-strip-head"] [
+        El.span ~at:[At.class' "tag-strip-title"] [El.txt "Tags"];
+        El.a ~at:[At.href "/tags"; At.class' "tag-strip-all no-underline"]
+          [El.txt "all tags"]];
+      El.div ~at:[At.class' "tag-cloud"] (List.map (tile ~art) tags)]

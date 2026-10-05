@@ -3025,24 +3025,31 @@ let custom_css = {|
 .sn-body { flex: 0 1 42em; min-width: 0; }
 /* The tags of an entry are small icons in a column of their own at its end.
    The icons of an entry sit on its heading line. */
-/* The tags of an entry are small icons at the end of its heading, after a
-   dividing bar, the same size as the icons before them. */
+/* The tags and the links of an entry are small icons at the right end of its
+   text, on the line of its heading: tags on the left, a dividing bar, and the
+   links on the right. The tag icons are drawn a little smaller than the link
+   icons so that the two sets look the same size. */
+.sn-icons {
+  position: absolute;
+  top: 0.05em;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
 .sn-bar {
-  display: inline-block;
   width: 1px;
-  height: 1.3em;
-  margin: 0 0.9em 0 0.8em;
-  vertical-align: middle;
+  height: 1.2em;
+  margin: 0 0.4em;
   background: var(--color-border);
 }
 .sn-tagrow {
   display: inline-flex;
   align-items: center;
   gap: 0.5em;
-  vertical-align: -0.2em;
 }
 .sn-ico {
-  --tc-size: 11px;
+  --tc-size: 13px;
   display: inline-flex;
   color: var(--color-muted);
   transition: color 0.25s;
@@ -3052,8 +3059,6 @@ let custom_css = {|
   display: inline-flex;
   align-items: center;
   gap: 0.55em;
-  margin-left: 1.1em;
-  vertical-align: -0.15em;
 }
 .sn-links a {
   display: inline-flex;
@@ -3284,7 +3289,7 @@ let custom_css = {|
    positions of the rows are overridden, which is why these are important. */
 @media (max-width: 640px) {
   .snake { font-size: 0.84rem; }
-  .sn-words, .sn-links, .sn-bar, .sn-tagrow { display: none; }
+  .sn-words, .sn-icons { display: none; }
   .sn-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sn-note .sn-node, .sn-week .sn-node { width: 3.4em !important; }
   .sn-text, .sn-quiet { left: 8.5em !important; }

@@ -259,7 +259,7 @@ let sn_links n =
   let link ~icon ~label href =
     El.a ~at:[At.href href; At.class' "sn-link"; At.v "title" label;
               At.v "aria-label" label; At.v "rel" "noopener"]
-      [El.unsafe_raw (I.outline ~size:11 icon)]
+      [El.unsafe_raw (I.outline ~size:13 icon)]
   in
   let doi =
     match Note.doi n with
@@ -275,7 +275,7 @@ let sn_links n =
   in
   let social =
     match Note.social n with
-    | Some soc -> Sidebar.social_icon_links ~size:11 soc
+    | Some soc -> Sidebar.social_icon_links ~size:13 soc
     | None -> []
   in
   match doi @ standardsite @ social with
@@ -339,8 +339,7 @@ let featured_notes journal_notes =
   | marked -> marked
 
 (** [sn_tags ?limit ~art ~popularity n] is the icons of the plain and set tags of
-    [n], most popular first and at most [limit] (default five), for the end of
-    its heading, after a dividing bar. An icon links to a search for its tag,
+    [n], most popular first and at most [limit] (default five). An icon links to a search for its tag,
     and its tooltip and label give the tag and how many notes carry it. A tag
     that only one note carries is left out, and a note with no such tags has
     nothing. *)
@@ -352,8 +351,7 @@ let sn_tags ?(limit = 5) ~art ~popularity n =
   in
   if tags = [] then []
   else
-    [ El.span ~at:[At.class' "sn-bar"; At.v "aria-hidden" "true"] [];
-      El.span ~at:[At.class' "sn-tagrow"]
+    [ El.span ~at:[At.class' "sn-tagrow"]
         (List.map (fun (t, count) ->
            let tip =
              Printf.sprintf "%s, %d note%s" t count
@@ -363,6 +361,21 @@ let sn_tags ?(limit = 5) ~art ~popularity n =
                      At.class' "sn-ico no-underline"; At.v "title" tip;
                      At.v "aria-label" tip]
              [Tag_cloud.icon ~art t]) tags) ]
+
+(** [sn_icons ~art ~popularity n] is the icons at the right end of the row of
+    [n], from its tags on the left to its links on the right, with a bar
+    between them when it has both. It is nothing when it has neither. *)
+let sn_icons ~art ~popularity n =
+  let tags = sn_tags ~art ~popularity n and links = sn_links n in
+  match (tags, links) with
+  | [], [] -> El.void
+  | _ ->
+    El.div ~at:[At.class' "sn-icons"]
+      (tags
+       @ (if tags <> [] && links <> []
+          then [El.span ~at:[At.class' "sn-bar"; At.v "aria-hidden" "true"] []]
+          else [])
+       @ links)
 
 (** [text_lines ~title ~synopsis] is how many lines the title and synopsis of an
     entry are expected to take, from two to five. A line is about 88 characters
@@ -426,7 +439,7 @@ let sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n =
                          At.v "datetime"
                            (Printf.sprintf "%04d-%02d-%02d" y m d)]
               [El.txt (short_date (y, m, d))]]
-           @ sn_words n @ sn_links n @ sn_tags ~art ~popularity n);
+           @ sn_words n);
         El.p ~at:[At.class' "sn-line";
                    At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
@@ -435,7 +448,8 @@ let sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n =
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
-           else El.void)]]]]
+           else El.void)]];
+      sn_icons ~art ~popularity n]]
 
 (** [sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n] is weeknote [n] as a row. It has
     the shape of a note and is told apart by its "Week N" heading. *)
@@ -467,7 +481,7 @@ let sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n =
           El.time ~at:[At.class' "dt-published";
                        At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
             [El.txt (week_range (y, m, d))]
-          ] @ sn_words n @ sn_links n @ sn_tags ~art ~popularity n);
+          ] @ sn_words n);
         El.p ~at:[At.class' "sn-line";
                    At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] [
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
@@ -476,7 +490,8 @@ let sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n =
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
-           else El.void)]]]]
+           else El.void)]];
+      sn_icons ~art ~popularity n]]
 
 (** [release_name t] is the name of the repository of [t] without its owner. *)
 let release_name (t : Bushel.Release.t) =

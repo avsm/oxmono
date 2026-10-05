@@ -3017,12 +3017,11 @@ let custom_css = {|
   display: flex;
   gap: 1.2em;
   align-items: center;
-  padding-right: 0.9em;
+  padding-right: 0.3em;
 }
 .sn-note .sn-text, .sn-week .sn-text { top: 0.5em; height: 3.8em; }
-/* The reading column is kept to a comfortable measure, and the tags take the
-   space beyond it. */
-.sn-body { flex: 0 1 42em; min-width: 0; }
+/* The reading column fills the room between the thumbnail and the sidebar. */
+.sn-body { flex: 1 1 auto; min-width: 0; }
 /* The tags of an entry are small icons in a column of their own at its end.
    The icons of an entry sit on its heading line. */
 /* The tags and the links of an entry are small icons at the right end of its
@@ -3032,7 +3031,7 @@ let custom_css = {|
 .sn-icons {
   position: absolute;
   top: 0.05em;
-  right: 0;
+  right: 0.3em;
   display: flex;
   align-items: center;
   gap: 0.5em;
@@ -3052,9 +3051,12 @@ let custom_css = {|
   --tc-size: 13px;
   display: inline-flex;
   color: var(--color-muted);
-  transition: color 0.25s;
+  transition: color 0.25s, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.sn-ico:hover { color: var(--color-text); }
+.sn-ico:hover {
+  color: var(--color-text);
+  transform: scale(1.6);
+}
 .sn-links {
   display: inline-flex;
   align-items: center;
@@ -3225,6 +3227,8 @@ let custom_css = {|
   transition: transform 0.25s, color 0.25s;
 }
 .tc-tag:hover { color: var(--color-text); transform: translateY(-3px); }
+.tc-tag .ti { transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.tc-tag:hover .ti { transform: scale(1.22); }
 .tc-name {
   font-size: 0.9rem;
   font-weight: 600;

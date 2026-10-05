@@ -174,7 +174,7 @@ let () =
      contains (Htmlit.El.to_string ~doctype:false article) {|class="ti col"|});
   (* A row is as tall as its text needs, so a long synopsis is not cut to two
      lines, and the rows after it move down. *)
-  let long_text = String.concat " " (List.init 40 (fun _ -> "wordy words")) in
+  let long_text = String.concat " " (List.init 60 (fun _ -> "wordy words")) in
   let tall =
     render
       ~notes:

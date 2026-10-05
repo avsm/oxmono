@@ -378,15 +378,15 @@ let sn_icons ~art ~popularity n =
        @ links)
 
 (** [text_lines ~title ~synopsis] is how many lines the title and synopsis of an
-    entry are expected to take, from two to five. A line is about 88 characters
-    in the reading column. The layout of the timeline is fixed before the page
+    entry are expected to take, from two to five. A line is about 118 characters
+    in the reading column, which fills the width of the page at its widest. The layout of the timeline is fixed before the page
     is shown, so this is an estimate, and a narrower column than the page's
     widest wraps more. *)
 let text_lines ~title ~synopsis =
   let len =
     String.length title + (if synopsis = "" then 0 else 2 + String.length synopsis)
   in
-  min 5 (max 2 ((len + 87) / 88))
+  min 5 (max 2 ((len + 117) / 118))
 
 (** [line_extra lines] is how much taller than a two line row a row of [lines]
     lines is, in em. *)

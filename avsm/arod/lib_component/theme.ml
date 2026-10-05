@@ -3026,34 +3026,32 @@ let custom_css = {|
 /* The tags of an entry are small icons in a column of their own at its end.
    The icons of an entry sit on its heading line. */
 .sn-tags {
-  flex: 0 0 11em;
+  position: relative;
+  flex: 0 0 3.8em;
+  height: 3.8em;
   margin-left: auto;
-  align-self: stretch;
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 0.3em;
+  align-self: center;
 }
-/* The icons of an entry sit close together. Pointing at them makes each a
-   little larger and moves them apart, with a spring. */
+/* The tag icons of an entry are a ring about as tall as its thumbnail. Pointing
+   at the ring makes each icon a little larger and the ring wider, with a
+   spring. They are only a nicety, so they go when the page narrows. */
 .sn-ico {
-  --tc-size: 1.45em;
-  --s: 1;
+  --tc-size: 1.15em;
+  --scale: 1;
+  --spread: 1;
+  position: absolute;
+  top: 50%;
+  left: 50%;
   display: inline-flex;
-  margin-left: 0.2em;
+  margin: calc(var(--tc-size) / -2) 0 0 calc(var(--tc-size) / -2);
   color: var(--color-muted);
-  transform: scale(var(--s));
-  transition: margin 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
-    transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s;
+  transform: rotate(var(--a)) translateX(calc(var(--rad) * var(--spread)))
+    rotate(calc(var(--a) * -1)) scale(var(--scale));
+  transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s;
 }
-.sn-ico:first-child { margin-left: 0; }
 .sn-tags:hover .sn-ico, .sn-tags:focus-within .sn-ico {
-  --s: 1.2;
-  margin-left: 0.7em;
-}
-.sn-tags:hover .sn-ico:first-child, .sn-tags:focus-within .sn-ico:first-child {
-  margin-left: 0;
+  --scale: 1.2;
+  --spread: 1.35;
 }
 .sn-ico:hover { color: var(--color-text); }
 @media (prefers-reduced-motion: reduce) {
@@ -3196,7 +3194,7 @@ let custom_css = {|
   .sn-item:hover .sn-ico .ti.line, .sn-item:hover .sn-ico .ti.mono { color: var(--ti-green); }
 }
 }
-@media (max-width: 860px) {
+@media (max-width: 1100px) {
   .sn-tags { display: none; }
 }
 /* The tag cloud. Every tile is the same size. An illustration rests as its

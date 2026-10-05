@@ -338,8 +338,8 @@ let featured_notes journal_notes =
   | [] -> List.filter Note.perma journal_notes |> Common.take 5
   | marked -> marked
 
-(** [sn_tags ?limit ~art ~popularity n] is the column at the right of the row
-    of [n]. It holds the icons of its plain and set tags, the most popular
+(** [sn_tags ?limit ~art ~popularity n] is the ring at the right of the row of
+    [n], about as tall as its thumbnail. It holds the icons of its plain and set tags, the most popular
     first and at most [limit] (default five). A tag that only one note carries
     is left out. An icon links to a search for its
     tag, and its tooltip and label give the tag and how many notes carry it. *)
@@ -349,14 +349,21 @@ let sn_tags ?(limit = 5) ~art ~popularity n =
     |> List.filter (fun (_, count) -> count > 1)
     |> List.filteri (fun i _ -> i < limit)
   in
+  let n = List.length tags in
+  (* The icons sit on a circle, spread evenly from the top. The circle is wider
+     the more of them there are. *)
+  let radius = match n with 1 -> 0. | 2 -> 0.62 | 3 -> 0.8 | 4 -> 0.95 | _ -> 1.1 in
   El.div ~at:[At.class' "sn-tags"]
-    (List.map (fun (t, count) ->
+    (List.mapi (fun i (t, count) ->
        let tip =
          Printf.sprintf "%s, %d note%s" t count (if count = 1 then "" else "s")
        in
+       let angle = -90. +. (360. *. float_of_int i /. float_of_int (max n 1)) in
        El.a ~at:[At.href (Tag_cloud.search_url t); At.v "data-tag" t;
                  At.class' "sn-ico no-underline"; At.v "title" tip;
-                 At.v "aria-label" tip]
+                 At.v "aria-label" tip;
+                 At.v "style"
+                   (Printf.sprintf "--a:%.0fdeg;--rad:%.2fem" angle radius)]
          [Tag_cloud.icon ~art t]) tags)
 
 (** [sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n] is journal note [n] as a row. *)

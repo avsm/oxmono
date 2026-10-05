@@ -647,21 +647,6 @@ module VideoLicenceSet : sig
   end
 end
 
-module VideoConstantNumberLicence : sig
-  module T : sig
-    type t
-
-    (** Construct a value *)
-    val v : ?id:VideoLicenceSet.T.t -> ?label:string -> unit -> t
-
-    val id : t -> VideoLicenceSet.T.t option
-
-    val label : t -> string option
-
-    val jsont : t Jsont.t
-  end
-end
-
 module VideoLanguageSet : sig
   module T : sig
     (** language id of the video (see [/videos/languages](#operation/getLanguages)) *)
@@ -673,14 +658,35 @@ module VideoLanguageSet : sig
   end
 end
 
+module VideoImportStateConstant : sig
+  module T : sig
+    type t
+
+    (** Construct a value
+        @param id The video import state (Pending = `1`, Success = `2`, Failed = `3`)
+    *)
+    val v : ?id:int -> ?label:string -> unit -> t
+
+    (** The video import state (Pending = `1`, Success = `2`, Failed = `3`) *)
+    val id : t -> int option
+
+    val label : t -> string option
+
+    val jsont : t Jsont.t
+  end
+end
+
 module VideoConstantStringLanguage : sig
   module T : sig
     type t
 
-    (** Construct a value *)
-    val v : ?id:VideoLanguageSet.T.t -> ?label:string -> unit -> t
+    (** Construct a value
+        @param id null when the video has none set, which is the usual case
+    *)
+    val v : ?id:string option -> ?label:string -> unit -> t
 
-    val id : t -> VideoLanguageSet.T.t option
+    (** null when the video has none set, which is the usual case *)
+    val id : t -> string option option
 
     val label : t -> string option
 
@@ -716,17 +722,35 @@ module VideoCaption : sig
   end
 end
 
-module VideoImportStateConstant : sig
+module VideoConstantNumberLicence : sig
   module T : sig
     type t
 
     (** Construct a value
-        @param id The video import state (Pending = `1`, Success = `2`, Failed = `3`)
+        @param id null when the video has none set, which is the usual case
     *)
-    val v : ?id:int -> ?label:string -> unit -> t
+    val v : ?id:int option -> ?label:string -> unit -> t
 
-    (** The video import state (Pending = `1`, Success = `2`, Failed = `3`) *)
-    val id : t -> int option
+    (** null when the video has none set, which is the usual case *)
+    val id : t -> int option option
+
+    val label : t -> string option
+
+    val jsont : t Jsont.t
+  end
+end
+
+module VideoConstantNumberCategory : sig
+  module T : sig
+    type t
+
+    (** Construct a value
+        @param id null when the video has none set, which is the usual case
+    *)
+    val v : ?id:int option -> ?label:string -> unit -> t
+
+    (** null when the video has none set, which is the usual case *)
+    val id : t -> int option option
 
     val label : t -> string option
 
@@ -924,21 +948,6 @@ module VideoCategorySet : sig
     val jsont : t Jsont.t
 
     val v : t -> t
-  end
-end
-
-module VideoConstantNumberCategory : sig
-  module T : sig
-    type t
-
-    (** Construct a value *)
-    val v : ?id:VideoCategorySet.T.t -> ?label:string -> unit -> t
-
-    val id : t -> VideoCategorySet.T.t option
-
-    val label : t -> string option
-
-    val jsont : t Jsont.t
   end
 end
 

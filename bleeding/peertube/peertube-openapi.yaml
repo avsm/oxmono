@@ -8531,7 +8531,9 @@ components:
     VideoConstantNumber-Category:
       properties:
         id:
-          $ref: '#/components/schemas/VideoCategorySet'
+          type: integer
+          nullable: true
+          description: null when the video has none set, which is the usual case
         label:
           type: string
           example: Science & Technology
@@ -8543,7 +8545,9 @@ components:
     VideoConstantNumber-Licence:
       properties:
         id:
-          $ref: '#/components/schemas/VideoLicenceSet'
+          type: integer
+          nullable: true
+          description: null when the video has none set, which is the usual case
         label:
           type: string
           example: Attribution - Share Alike
@@ -8555,7 +8559,9 @@ components:
     VideoConstantString-Language:
       properties:
         id:
-          $ref: '#/components/schemas/VideoLanguageSet'
+          type: string
+          nullable: true
+          description: null when the video has none set, which is the usual case
         label:
           type: string
           example: English

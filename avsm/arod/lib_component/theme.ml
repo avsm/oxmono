@@ -2977,11 +2977,11 @@ let custom_css = {|
 .sn-note::before, .sn-week::before {
   content: "";
   position: absolute;
-  left: 4.4em;
-  right: 0;
-  top: 0.5em;
-  bottom: 0.5em;
-  border-radius: 0.7em;
+  left: 4.1em;
+  right: -0.4em;
+  top: 0.2em;
+  bottom: -0.3em;
+  border-radius: 0.8em;
   transition: background 0.3s;
 }
 .sn-note:hover::before, .sn-week:hover::before {
@@ -3359,11 +3359,24 @@ let custom_css = {|
     padding: 0;
     overflow: visible;
   }
-  .sn-release { margin-bottom: 0.5rem; align-items: baseline; }
+  .sn-note::before, .sn-week::before {
+    left: -0.5rem;
+    right: -0.5rem;
+    top: -0.45rem;
+    bottom: -0.45rem;
+  }
+  /* A release lines up with the text of the entries, beside where their
+     thumbnails are. */
+  .sn-release {
+    margin-bottom: 0.5rem;
+    padding-left: 4.8rem;
+  }
   .sn-release .sn-text {
     display: flex;
     flex-wrap: wrap;
+    align-items: baseline;
     white-space: normal;
+    column-gap: 0.5rem;
     row-gap: 0.1rem;
   }
   .release-summary { flex: 1 1 100%; white-space: normal; }

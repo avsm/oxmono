@@ -75,8 +75,11 @@ let counts ~ctx ~months =
   |> List.sort (fun (a, ca) (b, cb) ->
        let c = compare cb ca in if c <> 0 then c else String.compare a b)
 
-(** [search_url tag] is the search page for the notes tagged [tag]. *)
-let search_url tag = "/search?q=%23" ^ Uriz.pct_encode ~component:`Query_value tag
+(** [search_url ?kind tag] is the search page for the entries tagged [tag],
+    only those of [kind] if it is given, such as ["paper"]. *)
+let search_url ?kind tag =
+  let q = "#" ^ tag ^ (match kind with Some k -> " kind:" ^ k | None -> "") in
+  "/search?q=" ^ Uriz.pct_encode ~component:`Query_value q
 
 (** [symbol_id tag] is the id of the sprite symbol of [tag]. *)
 let symbol_id tag =
@@ -181,11 +184,11 @@ let icon ~art tag =
 (** [icon_link ~art ~noun ~count tag] is the small icon of [tag] as a link to a
     search for it. Its tooltip and label give the tag and how many of the
     things called [noun] carry it. *)
-let icon_link ~art ~noun ~count tag =
+let icon_link ?kind ~art ~noun ~count tag =
   let tip =
     Printf.sprintf "%s, %d %s%s" tag count noun (if count = 1 then "" else "s")
   in
-  El.a ~at:[At.href (search_url tag); At.v "data-tag" tag;
+  El.a ~at:[At.href (search_url ?kind tag); At.v "data-tag" tag;
             At.class' "sn-ico no-underline"; At.v "title" tip;
             At.v "aria-label" tip]
     [icon ~art tag]

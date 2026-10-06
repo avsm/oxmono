@@ -348,10 +348,6 @@ let classification_filter_box ~total ~counts =
              El.span [El.txt (Printf.sprintf "filter: %d papers" total)]]
     rows
 
-(** The tags that say what kind of publication a paper is. Its card already
-    shows that, so they have no icon. *)
-let publication_kinds = ["conference"; "journal"; "preprint"; "workshop"]
-
 (** [compact_card ~ctx ~art ~popularity paper] is a compact list card for
     [paper]. Its tags that more than one paper carries are small icons at the
     right of its links, commonest first, at most five. *)
@@ -385,7 +381,6 @@ let compact_card ~ctx ~art ~popularity paper =
       ([bar ~ctx paper]
        @ (match
             tag_strs
-            |> List.filter (fun t -> not (List.mem t publication_kinds))
             |> List.map (fun t -> (t, popularity t))
             |> List.filter (fun (_, c) -> c > 1)
             |> List.stable_sort (fun (a, ca) (b, cb) ->
@@ -396,7 +391,7 @@ let compact_card ~ctx ~art ~popularity paper =
           | tags ->
             [El.span ~at:[At.class' "paper-tags"]
                (List.map (fun (t, count) ->
-                  Tag_cloud.icon_link ~art ~noun:"paper" ~count t) tags)]))]
+                  Tag_cloud.icon_link ~kind:"paper" ~art ~noun:"paper" ~count t) tags)]))]
 
 (** [papers_list ~ctx ~art] is the paper list and its sidebar. [art tag] is
     the coloured illustration of [tag], if it has one. *)

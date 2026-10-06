@@ -553,8 +553,10 @@ let () =
   check "each paper shows the icons of its tags, commonest first"
     (before page {|data-tag="ocaml"|} {|data-tag="ai"|}
     && contains page {|class="sn-ico no-underline"|});
-  check "a tag that says what kind of publication it is has no icon"
-    (not (contains page {|data-tag="journal"|}));
+  check "the kind of publication a paper is gets an icon like any tag"
+    (contains page {|data-tag="journal"|});
+  check "a tag icon on a paper searches papers only"
+    (contains page {|href="/search?q=%23ocaml%20kind:paper"|});
   check "a tag only one paper carries has no icon"
     (not (contains page {|data-tag="solo"|}));
   check "an icon says how many papers carry its tag"

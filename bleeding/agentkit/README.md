@@ -10,6 +10,44 @@ connects it to [DS4](https://tangled.org/anil.recoil.org/ocaml-deepseek).
 agent unattended, and `dumpty` runs one job and exits. Each can select DS4 or
 Apple Foundation Models at run time on a supported Mac.
 
+## Summary trees
+
+`Agentkit.Memo` is a pure OCaml summary tree inspired by
+[OptMem by Victor Taelin](https://github.com/VictorTaelin/OptMem). This is an
+independent implementation of its hierarchical, age-weighted memory idea.
+No upstream Python source or storage format is used.
+
+Supply original records oldest first, with stable IDs and revisions. The tree
+returns a complete overview with a node budget, retaining finer detail at the
+recent end. Each node has an opaque key. `expand` returns its children or its
+original source. Summaries are lossy, untrusted data. Read originals before
+relying on exact facts.
+
+`maintain` fills a bounded number of missing summaries. Small merges use raw
+records and larger merges use child summaries. Connect its `summarize` callback
+to `Agentkit.Summary.run ~instructions:Agentkit.Memo.instructions`. Cache keys
+include source IDs, revisions and contents. Store adapters must recheck keys
+and authorization when saving after inference. Missing summaries are explicit
+range pointers and do not prevent reading memory. `render` bounds UTF-8 bytes,
+including truncation notices. A byte limit is not a tokenizer limit.
+
+Numpty adds an `episode` memory kind for observations and completed activity.
+Its wake-up brief includes at most eight episode ranges within 3500 bytes.
+Current facts, procedures and open items remain in their own sections.
+Each enduring kind shows at most eight entries, most recently updated first,
+within a fixed section budget. Shortened bodies and omitted entries point to
+`memory_read` and `memory_list`. The complete brief fits 32768 UTF-8 bytes,
+including an 8000-byte journal digest and a task prompt of at most 8192 bytes. The
+agent can use `memory_overview`, `memory_expand` and `memory_summarize` to
+inspect episodes and fill the derived cache after reading sources. Summaries
+are limited to 512 bytes and stored separately from immutable memory versions.
+Editing or forgetting an episode makes dependent summaries unreachable.
+Historical memory versions retain their original contents.
+
+In oxmono the daemon remains source-only. Its brief and memory tools compile
+in `test_core`, which exercises persistence, corrections and pinned entries.
+The core tree, journal and memory modules are built as part of `agentkit`.
+
 ## Building
 
 Install the backend used by the packages being built. DS4 supports Linux and

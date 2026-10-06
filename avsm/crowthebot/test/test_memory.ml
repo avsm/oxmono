@@ -84,7 +84,7 @@ let () =
   let stage = ref 0 and replies = ref [] in
   let complete _ tools =
     check "memory and cron tools available without plugins"
-      (List.length tools = 7);
+      (List.length tools = 9);
     incr stage;
     if !stage = 1 then
       ( None,

@@ -1,3 +1,16 @@
 (executable
  (name probe)
+ (modules probe)
  (libraries crowthebot eio_main sqlite3-eio fetch-httpz))
+
+(executable
+ (name memo_probe)
+ (modules memo_probe)
+ (libraries
+  crowthebot
+  agentkit
+  agentkit-ds4
+  ds4
+  ds4.metal
+  eio_main
+  sqlite3-eio))

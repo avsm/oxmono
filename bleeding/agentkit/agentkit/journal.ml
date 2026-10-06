@@ -255,7 +255,7 @@ let stats_jsont =
   |> Jsont.Object.mem "turns" Jsont.int ~enc:(fun (s : stats) -> s.turns)
   (* Added after this shape shipped, so a journal written before it must still
      read: a record with no [drafted] member held nothing that was drafted. *)
-  |> Jsont.Object.mem "drafted" Jsont.int ~dec_absent:0 ~enc:(fun (s : stats) ->
+  |> Jsont.Object.mem "drafted" Jsont.int ~dec_absent:(fun () -> 0) ~enc:(fun (s : stats) ->
       s.drafted)
   |> Jsont.Object.mem "total_generated" Jsont.int ~enc:(fun (s : stats) ->
       s.total_generated)

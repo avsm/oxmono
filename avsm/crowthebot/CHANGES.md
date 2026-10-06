@@ -1,5 +1,14 @@
 # Changes
 
+- Include a cached memory overview in each authorized turn within the existing
+  context budget, with bounded tool results and request text.
+
+- Keep shared-room posts brief and direct. Remove automatic requester
+  attribution from messages sent through `matrix_send`.
+
+- Add bounded memory overviews and range expansion with model-written summaries.
+  Erasing a fact atomically clears the derived summary cache.
+
 - Add `fresh` to `location_get`, which asks the phone for a new OwnTracks fix
   over MQTT and waits up to 30 seconds for it.
 

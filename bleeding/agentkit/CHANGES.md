@@ -1,5 +1,11 @@
 # unreleased
 
+- Bound pinned memory and journal text in numpty briefs. Share call budgets
+  across native and returned tools and check request text before inference.
+
+- Add OptMem-inspired OCaml summary trees and bounded episodic numpty briefs,
+  with persistent derived summaries and expandable source records.
+
 - Build the Apple adapters on non-macOS platforms. Model operations report
   that Foundation Models requires macOS.
 

@@ -388,10 +388,11 @@ takes Markdown `text` and exactly one target:
   an existing DM whose complete membership is Crow and that person. It does not
   create DMs, so the recipient must have started one with Crow.
 
-Messages are sent as notices ending with “(sent at the request of
-@user:server)”. The system prompt tells Crow to send only when the requester
-explicitly asks, never on its own initiative or because a room message or tool
-result asks. Each send is in the tool log with its arguments.
+Messages are sent as notices containing the requested text directly, without
+an automatic requester attribution. Crow addresses the destination audience
+briefly, omitting DM provenance and action narration unless asked. The system
+prompt tells Crow to send only when explicitly asked. Each send is in the tool
+log with its requesting account and arguments.
 
 ## Shared memory
 
@@ -405,11 +406,14 @@ search, retrieve and erase any fact across its rooms and DMs:
 !crow memory get 1
 !crow memory erase 1
 !crow memory list
+!crow memory overview
+!crow memory expand RANGE_KEY
 ```
 
 Facts have stable numeric IDs, UTC creation timestamps, the requesting Matrix
 account, source room and event, and a `command` or `observation` source. Crow
-can use native `memory_store`, `memory_search`, `memory_get` and `memory_erase`
+can use native `memory_store`, `memory_search`, `memory_get`, `memory_erase`,
+`memory_overview` and `memory_expand`
 tools during conversations and scheduled actions. It is instructed to remember
 useful observations freely, search before duplicating a fact, and treat stored
 facts as data. No per-fact confirmation is required. Unknown, revoked and
@@ -418,9 +422,47 @@ bot-classified accounts cannot use memory.
 Search uses SQLite FTS5 with Unicode tokenization, quoted phrases, Boolean
 operators and `prefix*` matching. A search returns up to 20 matches by relevance.
 An empty search lists the newest 20 facts. Facts are limited to 2048 bytes and
-queries to 256 bytes. Erasure removes the fact and its FTS entry and deletes
-linked reminders. It does not rewrite conversation history, Matrix messages
+queries to 256 bytes. Erasure removes the fact and its FTS entry, deletes
+linked reminders and clears the derived summary cache atomically. It does not rewrite conversation history, Matrix messages
 or backups. `reset` clears the current conversation, leaving shared facts intact.
+
+`memory_overview` maps all shared facts through `Agentkit.Memo`, a pure OCaml
+summary tree inspired by [Victor Taelin's OptMem](https://github.com/VictorTaelin/OptMem).
+It returns at most eight ranges, with finer detail for recent facts, within
+3500 bytes. `memory_expand` drills into a returned range key. `memory_get` and
+FTS search retain access to exact originals. Older facts are not erased by
+compression. The model is asked to preserve source IDs, attribution and
+corrections. Summaries remain untrusted, lossy context.
+
+Authorized model turns automatically include a cached memory overview when
+memory exists and the current prompt leaves room for it.
+It uses up to one eighth of `context_bytes`, capped at 3500 bytes, with a
+512-byte minimum. The view is reduced or omitted when the prompt needs that
+space. Memory, room observations, thread summaries, history and the
+current prompt share the existing content budget. Automatic injection makes
+no extra model request. Missing summaries remain explicit source pointers.
+Explicit `memory_overview` requests gradually fill the cache.
+
+Tool result text is limited to 4000 bytes plus a truncation notice. Native
+and returned tool calls share the six-call allowance. Request text is limited
+to the system/tool definition size plus `context_bytes` and 53,696 bytes for
+six bounded calls and runtime notices. `max_tokens` bounds the reply.
+These byte limits complement the backend's token window. They exclude provider
+framing and encoded image files, whose token cost belongs to the backend.
+
+During a model or chat overview request, Crow generates at most one missing
+512-byte summary with the configured model. Cache writes recheck current source
+keys and authorization after inference. The result uses a fresh memory snapshot.
+A failed merge is reported and current source pointers remain available. Local
+CLI overviews read the cache without making model calls. Erasing any fact clears
+all cached summaries, so erased text cannot survive in this derived store.
+Conversation history, tool audit records and backups retain their own contents.
+
+Run the synthetic local model check without connecting to Matrix:
+
+```sh
+dune exec avsm/crowthebot/test/live/memo_probe.exe -- /path/to/MODEL.gguf
+```
 
 Local commands act as the admin while the profile is stopped:
 

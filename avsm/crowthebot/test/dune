@@ -270,3 +270,8 @@
   fetch.mock
   jsont
   jsont.bytesrw))
+
+(test
+ (name test_memo)
+ (modules test_memo)
+ (libraries crowthebot agentkit sqlite3-eio eio_main))

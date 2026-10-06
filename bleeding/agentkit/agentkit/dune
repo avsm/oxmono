@@ -9,5 +9,5 @@
  (name agentkit)
  (public_name agentkit)
  (modes native)
- (modules agent chat driver summary turn)
+ (modules agent chat driver summary turn memo journal line memory)
  (libraries cmdliner cstruct eio jsont jsont.bytesrw unix))

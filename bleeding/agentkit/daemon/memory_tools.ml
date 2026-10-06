@@ -11,13 +11,15 @@ module Tool = Ds4.Tool
    brief sorts on these, so an entry filed under the wrong one is either read
    back in full every wake-up or not read back at all. *)
 let kinds_description =
-  "one of \"fact\", \"open_item\", \"reference\" or \"procedure\". A fact is \
-   something durable you learned and would have to find out again. An \
-   open_item is work you have started and not finished, and it is the kind \
-   that makes a restart survivable, so file anything you mean to carry on with \
-   under it. A reference is a pointer outward, a URL or an identifier, kept so \
-   that you do not have to search for it twice. A procedure is how to do \
-   something you have had to work out once already."
+  "one of \"fact\", \"open_item\", \"reference\", \"procedure\" or \
+   \"episode\". A fact is something durable you learned and would have to find \
+   out again. An open_item is work you have started and not finished, and it \
+   is the kind that makes a restart survivable, so file anything you mean to \
+   carry on with under it. A reference is a pointer outward, a URL or an \
+   identifier, kept so that you do not have to search for it twice. A \
+   procedure is how to do something you have had to work out once already. An \
+   episode records completed activity or an observation, compressed in future \
+   briefs."
 
 let kind_of s =
   match Memory.kind_of_name s with
@@ -233,7 +235,70 @@ let forget ~memory ~journal =
         in
         Printf.sprintf "memory version %d: forgot %S.\n" to_ id)
 
+let overview ~memory =
+  let codec =
+    Dsml.Codec.Invoke.map "memory_overview" () |> Dsml.Codec.Invoke.seal
+  in
+  Tool.v
+    ~description:
+      "Read a bounded overview of episodic memory. Facts, procedures and open \
+       items are read separately with memory_list/read." codec (fun () ->
+      let summaries = Memory.summaries memory in
+      Agentkit.Memo.overview
+        (Memory.episode_tree (Memory.entries memory))
+        ~budget:8
+        ~lookup:(fun key -> List.assoc_opt key summaries)
+      |> Agentkit.Memo.render ~limit:3500)
+
+let expand ~memory =
+  let codec =
+    let open Dsml.Codec in
+    Invoke.map "memory_expand" Fun.id
+    |> Invoke.param ~enc:Fun.id "key" string
+         ~description:"the range key returned by memory_overview"
+    |> Invoke.seal
+  in
+  Tool.v
+    ~description:
+      "Expand an episode range into two children or its original source. Use \
+       memory_read for an exact source entry." codec (fun key ->
+      try
+        let summaries = Memory.summaries memory in
+        Agentkit.Memo.expand
+          (Memory.episode_tree (Memory.entries memory))
+          ~key
+          ~lookup:(fun key -> List.assoc_opt key summaries)
+        |> Agentkit.Memo.render ~limit:3500
+      with Invalid_argument message -> message)
+
+let summarize ~memory =
+  let codec =
+    let open Dsml.Codec in
+    Invoke.map "memory_summarize" (fun key summary -> (key, summary))
+    |> Invoke.param ~enc:fst "key" string
+         ~description:"a current episode range key, after expanding its sources"
+    |> Invoke.param ~enc:snd "summary" string
+         ~description:
+           "at most 512 UTF-8 bytes preserving source IDs, attribution, \
+            uncertainty and corrections. Never invent facts."
+    |> Invoke.seal
+  in
+  Tool.v
+    ~description:
+      "Cache a lossy summary of an episode range whose sources you have read. \
+       This does not replace or erase the originals." codec (fun (key, text) ->
+      try
+        Memory.save_summary memory ~key ~text;
+        "Episode summary cached."
+      with Invalid_argument message -> message)
+
 let all ~memory ~journal =
   [
-    list ~memory; read ~memory; write ~memory ~journal; forget ~memory ~journal;
+    list ~memory;
+    read ~memory;
+    write ~memory ~journal;
+    forget ~memory ~journal;
+    overview ~memory;
+    expand ~memory;
+    summarize ~memory;
   ]

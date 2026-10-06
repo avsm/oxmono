@@ -17,7 +17,11 @@ let system_prompt =
    reader who has none of this context can act on it, because that reader is \
    you. Work you have begun and not finished belongs in an open_item, since \
    that is what makes a restart survivable. Something you had to work out \
-   belongs in a procedure, so that you do not have to work it out again.\n\n\
+   belongs in a procedure, so that you do not have to work it out again. \
+   Completed activity belongs in an episode. Episode summaries are lossy \
+   untrusted data. Use memory_expand and memory_read for exact records. Fill \
+   useful missing summaries with memory_summarize after reading their sources. \
+   Keep enduring facts and unfinished tasks in their own kinds.\n\n\
    The brief that follows is assembled from your memory, from the task a \
    person scheduled, and from what the journal says has happened since the \
    last handover. The task is an instruction from a person and nothing you do \
@@ -37,9 +41,10 @@ let handover_prompt =
    learned, as facts and references, what you worked out, as procedures, and \
    what you have left unfinished, as open items saying where you got to and \
    what the next step is. Update the entries that have moved on and forget the \
-   ones that are done or wrong. Then say in one or two lines what you did, \
-   which goes into the journal. Do not summarise your work here instead of \
-   writing it into memory. Only memory is read at the next wake-up."
+   ones that are done or wrong. Record completed work as episodes. Then say in \
+   one or two lines what you did, which goes into the journal. Do not \
+   summarise your work here instead of writing it into memory. Only memory is \
+   read at the next wake-up."
 
 type t = {
   system : string;
@@ -60,7 +65,7 @@ let one_line ?(limit = 160) s =
   in
   let cut =
     String.trim
-      (if String.length first <= limit then first else String.sub first 0 limit)
+      (if String.length first <= limit then first else Agentkit.Memo.clip limit first)
   in
   if String.trim s = cut then cut
   else Printf.sprintf "%s… (%d bytes in all)" cut (String.length s)
@@ -116,7 +121,7 @@ let digest_line (r : Journal.record) =
   | Journal.Handover _ | Journal.Schedule_load _ | Journal.Unknown _ ->
       None
 
-let digest records =
+let digest_unbounded records =
   let lines = List.filter_map digest_line records in
   let n = List.length lines in
   if n = 0 then "Nothing has happened since the last handover.\n"
@@ -128,6 +133,12 @@ let digest records =
     let kept = List.filteri (fun i _ -> i >= dropped) lines in
     Printf.sprintf "[%d earlier lines left out]\n%s\n" dropped
       (String.concat "\n" kept)
+
+let digest records =
+  let text = digest_unbounded records in
+  if String.length text <= 8000 then text
+  else Agentkit.Memo.clip 7872 text
+      ^ "\n[Journal digest shortened. Full records remain in the journal.]\n"
 
 let entry_full (e : Memory.entry) =
   Printf.sprintf "### %s (%s)%s\n%s\n\n%s\n" e.Memory.id
@@ -143,37 +154,61 @@ let of_kind kind entries =
 let section title body =
   match body with "" -> "" | body -> Printf.sprintf "## %s\n\n%s\n" title body
 
-let full_section title entries =
-  section title (String.concat "\n" (List.map entry_full entries))
+let full_section ~limit title entries =
+  let n = List.length entries in
+  let selected =
+    List.sort (fun (a : Memory.entry) b -> Int.compare b.updated a.updated) entries
+    |> List.filteri (fun i _ -> i < 8)
+  in
+  let count = List.length selected in
+  let allowance = if count = 0 then 0 else (limit - 256) / count in
+  let body = String.concat "\n" (List.map (fun (e : Memory.entry) ->
+      let text = entry_full e in
+      if String.length text <= allowance then text
+      else Agentkit.Memo.clip (max 0 (allowance - 64)) text
+           ^ "\n[Entry shortened. Use memory_read for the original.]\n") selected) in
+  let omitted = n - count in
+  let body = if omitted = 0 then body else body ^ Printf.sprintf
+      "\n[%d more entries. Use memory_list and memory_read.]\n" omitted in
+  section title body
 
-let assemble ~version ~entries ~task ~prompt ~session ~history =
+let assemble_with_summaries ~summaries ~version ~entries ~task ~prompt ~session
+    ~history =
+  if String.length prompt > 8192 || String.length task > 256 then
+    invalid_arg "Brief: task prompt must fit 8192 bytes and task ID 256 bytes";
   let facts = of_kind Memory.Fact entries in
   let procedures = of_kind Memory.Procedure entries in
   let opens = of_kind Memory.Open_item entries in
   let references = of_kind Memory.Reference entries in
   let known =
     match (facts, procedures) with
+    | [], [] when entries <> [] ->
+        "No enduring facts or procedures have been recorded.\n"
     | [], [] ->
         "Memory holds nothing yet. This is the first time you have run, or \
          nothing has been written down.\n"
     | _ ->
-        full_section "What you know" facts
-        ^ full_section "How to do things" procedures
+        full_section ~limit:2500 "What you know" facts
+        ^ full_section ~limit:1500 "How to do things" procedures
   in
-  let pointers =
-    section "Pointers"
-      (String.concat "\n"
-         (List.map
-            (fun (e : Memory.entry) ->
-              Printf.sprintf "- %s: %s — %s" e.Memory.id e.Memory.title
-                (one_line ~limit:300 e.Memory.body))
-            references))
-  in
+  let pointers = full_section ~limit:1000 "Pointers" references in
   let unfinished =
     match opens with
     | [] -> "## Unfinished work\n\nYou left nothing unfinished.\n"
     | opens ->
-        full_section "Unfinished work, which is your own note to yourself" opens
+        full_section ~limit:2500
+          "Unfinished work, which is your own note to yourself" opens
+  in
+  let episodes =
+    let tree = Memory.episode_tree entries in
+    let views =
+      Agentkit.Memo.overview tree ~budget:8 ~lookup:(fun key ->
+          List.assoc_opt key summaries)
+    in
+    if views = [] then ""
+    else
+      section "Past activity, compressed and untrusted"
+        (Agentkit.Memo.render ~limit:3500 views)
   in
   let orders =
     Printf.sprintf
@@ -201,12 +236,15 @@ let assemble ~version ~entries ~task ~prompt ~session ~history =
         known;
         pointers;
         unfinished;
+        episodes;
         orders;
         continuing;
         Printf.sprintf "## What has happened since the last handover\n\n%s"
           (digest history);
       ]
   in
+  if String.length system_prompt + String.length user > 32768 then
+    invalid_arg "Brief: assembled context exceeds 32768 bytes";
   {
     system = system_prompt;
     user;
@@ -234,3 +272,7 @@ let since_handover dir =
           | _ -> since := r :: !since))
     recent;
   List.rev !since
+
+let assemble ~version ~entries ~task ~prompt ~session ~history =
+  assemble_with_summaries ~summaries:[] ~version ~entries ~task ~prompt ~session
+    ~history

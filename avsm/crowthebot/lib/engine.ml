@@ -117,10 +117,9 @@ let summary_context t scope ~bytes =
       let text = prefix ^ json in
       ([ Agentkit.Chat.User text ], String.length text)
 
-let room_context t room =
-  if not t.observe_rooms then []
+let room_context t ~bytes room =
+  if not t.observe_rooms || bytes < 256 then []
   else
-    let bytes = t.config.context_bytes / 3 in
     let summaries, used =
       summary_context t (Room room) ~bytes:(min bytes (max 256 (bytes / 2)))
     in
@@ -333,7 +332,7 @@ let help =
   "Talk to Crow, use !crow, mention my Matrix ID, or send a DM. Commands: ask \
    TEXT, reset, help. Primary admin: !crow allow @user:server friend|bot, deny \
    @user:server, people. Admin and friends: memory store|search|get|erase, \
-   memory list, cron create|list|cancel, tools [DAY [AFTER_ID]], note [DAY], \
+   memory list|overview|expand, cron create|list|cancel, tools [DAY [AFTER_ID]], note [DAY], \
    feeds add|list|status|poll|entries|remove. Dates and cron schedules use \
    UTC. Location commands: location sources|list|get|detach. Ask to attach a \
    person to an OwnTracks device."
@@ -348,7 +347,12 @@ let invoke t e ?on_finish ~source ~call_id ~name ~arguments f =
 
 let memory t e ~source name arguments =
   let access =
-    Memory.for_request t.store ~actor:e.sender ~room:e.room ~event:e.id ~source
+    Memory.for_request
+      ~summarize:(fun ~limit input ->
+        Agentkit.Summary.run ~complete:t.complete
+          ~instructions:Agentkit.Memo.instructions ~limit
+          ~reasoning:t.config.compaction_reasoning_effort input)
+      t.store ~actor:e.sender ~room:e.room ~event:e.id ~source
   in
   Memory.invoke access name arguments
 
@@ -407,6 +411,8 @@ let posted_room =
 
 let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
     =
+  if String.length prompt > t.config.context_bytes then
+    invalid_arg "Prompt exceeds this profile's content budget";
   let source_event = Option.value ~default:e.id source_event in
   Trace.with_context
     {
@@ -418,6 +424,18 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
     }
   @@ fun () ->
   let history = Store.history t.store ~room:e.room ~user:e.sender in
+  let person = Store.person t.store e.sender in
+  let has_memory = person.allowed && person.role = Store.Friend in
+  let memory_limit =
+    min (max 512 (min 3500 (t.config.context_bytes / 8)))
+      (t.config.context_bytes - String.length prompt)
+  in
+  let memory_context =
+    if not has_memory || memory_limit < 512 then None
+    else Memory.context t.store ~actor:e.sender
+        ~limit:memory_limit
+  in
+  let memory_bytes = Option.fold ~none:0 ~some:String.length memory_context in
   let rec recent n bytes acc = function
     | [] -> acc
     | (m : Store.message) :: rest ->
@@ -428,9 +446,13 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
         then acc
         else recent (n + 1) (bytes + String.length m.body) (m :: acc) rest
   in
-  let background = room_context t e.room in
+  let background = room_context t ~bytes:(min (t.config.context_bytes / 3)
+      (max 0 (t.config.context_bytes - String.length prompt - memory_bytes)))
+      e.room in
   let background_bytes =
-    if background = [] then 0 else t.config.context_bytes / 3
+    List.fold_left (fun n -> function
+        | Agentkit.Chat.User text | System text -> n + String.length text
+        | _ -> assert false) 0 background
   in
   let summaries, summary_bytes =
     summary_context t
@@ -439,13 +461,12 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
         (min
            (t.config.context_bytes / 4)
            (max 0
-              (t.config.context_bytes - String.length prompt - background_bytes)))
+              (t.config.context_bytes - String.length prompt - background_bytes
+                 - memory_bytes)))
   in
   let history =
-    recent 0 (summary_bytes + background_bytes) [] (List.rev history)
+    recent 0 (summary_bytes + background_bytes + memory_bytes) [] (List.rev history)
   in
-  let person = Store.person t.store e.sender in
-  let has_memory = person.allowed && person.role = Store.Friend in
   let identity =
     Printf.sprintf
       "\n\
@@ -496,6 +517,7 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
   in
   let messages =
     (Agentkit.Chat.System system_prompt :: background)
+    @ Option.fold ~none:[] ~some:(fun text -> [ Agentkit.Chat.User text ]) memory_context
     @ summaries
     @ List.map
         (fun (m : Store.message) ->
@@ -599,11 +621,6 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
         | _ -> ());
         result)
   in
-  let tools =
-    match t.config.backend with
-    | Config.Ds4 -> Agentkit.Turn.bind ~guard ~dispatch ~around tools
-    | Config.Openrouter | Config.Apple_fm -> tools
-  in
   let on_event = function
     | Agentkit.Turn.Request { round = r; budget } ->
         round := r;
@@ -640,12 +657,19 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
     try
       let text =
         Agentkit.Turn.run ~complete:t.complete ~tools ~guard ~dispatch ~around
+          ~max_result_bytes:4000
+          ~max_request_bytes:(Agentkit.Chat.text_bytes
+              (Agentkit.Chat.request ~tools [ Agentkit.Chat.System system_prompt ])
+              + t.config.context_bytes + (6 * (4096 + 4000 + 512)) + 2048)
           ~check:check_access ~on_event ~max_tokens:t.config.max_tokens
           messages
       in
       (text, !posted_here)
-    with Agentkit.Turn.Budget_exceeded ->
-      failwith "model exceeded the tool-call budget"
+    with
+    | Agentkit.Turn.Budget_exceeded -> failwith "model exceeded the tool-call budget"
+    | Agentkit.Turn.Context_exceeded { bytes; limit } ->
+        failwith (Printf.sprintf "model request text needs %d bytes, limit %d"
+            bytes limit)
   with exn ->
     let bt = Printexc.get_raw_backtrace () in
     Log.err (fun m ->

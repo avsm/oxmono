@@ -3,13 +3,14 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
-type kind = Fact | Open_item | Reference | Procedure
+type kind = Fact | Open_item | Reference | Procedure | Episode
 
 let kind_name = function
   | Fact -> "fact"
   | Open_item -> "open_item"
   | Reference -> "reference"
   | Procedure -> "procedure"
+  | Episode -> "episode"
 
 let kinds =
   [
@@ -17,6 +18,7 @@ let kinds =
     ("open_item", Open_item);
     ("reference", Reference);
     ("procedure", Procedure);
+    ("episode", Episode);
   ]
 
 let kind_of_name s = List.assoc_opt s kinds
@@ -223,3 +225,57 @@ let recover t ~journalled =
         Some highest
   in
   { adopted; removed }
+
+let episode_tree entries =
+  Memo.create
+    (List.filter_map
+       (fun (e : entry) ->
+         if e.kind <> Episode then None
+         else
+           Some
+             {
+               Memo.id = e.id;
+               revision = string_of_int e.updated;
+               text = e.title ^ "\n" ^ e.body;
+             })
+       entries)
+
+let summaries_jsont =
+  Jsont.list
+    (Jsont.Object.map (fun key text -> (key, text))
+    |> Jsont.Object.mem "key" Jsont.string ~enc:fst
+    |> Jsont.Object.mem "text" Jsont.string ~enc:snd
+    |> Jsont.Object.finish)
+
+let summaries_name = "summaries.json"
+
+let summaries t =
+  let path = Eio.Path.(t.dir / summaries_name) in
+  if not (Eio.Path.is_file path) then []
+  else
+    match Jsont_bytesrw.decode_string summaries_jsont (Eio.Path.load path) with
+    | Error msg -> raise (Corrupt { path = summaries_name; msg })
+    | Ok summaries ->
+        (try
+           List.iter
+             (fun (_, text) -> Memo.validate_summary ~limit:512 text)
+             summaries
+         with Invalid_argument msg ->
+           raise (Corrupt { path = summaries_name; msg }));
+        let keys = Memo.keys (episode_tree (entries t)) in
+        List.filter (fun (key, _) -> List.mem key keys) summaries
+
+let save_summary t ~key ~text =
+  Memo.validate_summary ~limit:512 text;
+  if not (List.mem key (Memo.keys (episode_tree (entries t)))) then
+    invalid_arg "Memory.save_summary: unknown or obsolete episode range";
+  let summaries = (key, text) :: List.remove_assoc key (summaries t) in
+  let data =
+    match Jsont_bytesrw.encode_string summaries_jsont summaries with
+    | Ok data -> data
+    | Error msg -> raise (Corrupt { path = summaries_name; msg })
+  in
+  save_sync t "summaries.pending" ~create:(`Or_truncate 0o600) data;
+  Eio.Path.rename
+    Eio.Path.(t.dir / "summaries.pending")
+    Eio.Path.(t.dir / summaries_name)

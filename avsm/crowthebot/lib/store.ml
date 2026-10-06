@@ -75,6 +75,12 @@ CREATE TABLE IF NOT EXISTS facts (
  id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
  author TEXT NOT NULL, room TEXT NOT NULL, event TEXT NOT NULL,
  source TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS memory_summaries (
+ key TEXT PRIMARY KEY, body TEXT NOT NULL);
+CREATE TRIGGER IF NOT EXISTS facts_invalidate_summaries
+AFTER DELETE ON facts BEGIN
+ DELETE FROM memory_summaries;
+END;
 CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
  body, content='facts', content_rowid='id', tokenize='unicode61');
 CREATE TRIGGER IF NOT EXISTS facts_insert AFTER INSERT ON facts BEGIN
@@ -432,6 +438,42 @@ let erase_fact t ~actor id =
   require_friend t actor;
   execute t.db "DELETE FROM facts WHERE id=?" [ integer id ];
   Sqlite3.changes (Sqlite3_eio.db t.db) > 0
+
+let memory_tree_unlocked t =
+  let facts = rows t.db "SELECT * FROM facts ORDER BY id" [] fact_row in
+  Agentkit.Memo.create
+    (List.map
+       (fun (f : fact) ->
+         {
+           Agentkit.Memo.id = string_of_int f.fact_id;
+           revision = f.created_at;
+           text =
+             Printf.sprintf "%s (%s, %s, room %s, event %s)\n%s" f.created_at
+               f.author f.source f.room f.event f.body;
+         })
+       facts)
+
+let memory_tree t ~actor =
+  locked t @@ fun () ->
+  require_friend t actor;
+  let tree = memory_tree_unlocked t in
+  let summaries =
+    rows t.db "SELECT key,body FROM memory_summaries" [] (fun s ->
+        (Sqlite3.column_text s 0, Sqlite3.column_text s 1))
+  in
+  (tree, summaries)
+
+let save_memory_summary t ~actor ~key ~body =
+  Agentkit.Memo.validate_summary ~limit:512 body;
+  locked t @@ fun () ->
+  require_friend t actor;
+  if List.mem key (Agentkit.Memo.keys (memory_tree_unlocked t)) then begin
+    execute t.db
+      "INSERT OR REPLACE INTO memory_summaries(key,body) VALUES (?,?)"
+      [ text key; text body ];
+    true
+  end
+  else false
 
 type tool_use = {
   log_id : int;

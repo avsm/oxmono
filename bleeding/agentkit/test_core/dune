@@ -19,3 +19,33 @@
  (enabled_if
   (<> %{system} macosx))
  (libraries agentkit-apple-fm apple-fm ds4 ds4.metal eio eio_main))
+
+(test
+ (name test_memo)
+ (modules test_memo)
+ (libraries agentkit))
+
+(copy_files ../daemon/brief.ml)
+
+(copy_files ../daemon/brief.mli)
+
+(copy_files ../daemon/memory_tools.ml)
+
+(copy_files ../daemon/memory_tools.mli)
+
+(copy_files ../test/agentkit_memory.ml)
+
+(test
+ (name agentkit_memory)
+ (modules agentkit_memory)
+ (libraries agentkit eio eio.mock eio_main))
+
+(test
+ (name test_memory_brief)
+ (modules test_memory_brief brief)
+ (libraries agentkit eio eio.mock eio_main))
+
+(library
+ (name numpty_memory_tools_check)
+ (modules memory_tools)
+ (libraries agentkit ds4 ds4.dsml jsont))

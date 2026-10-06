@@ -56,7 +56,7 @@ let () =
     if !rounds mod 2 = 0 then (Some "Reply", [])
     else begin
       check "Matrix tools exposed to approved model requests"
-        (List.length tools = 10);
+        (List.length tools = 12);
       ( None,
         [
           Agentkit.Agent.
@@ -214,10 +214,7 @@ let () =
                (post {|{"room":"!room:example.org","text":"Read **this**."}|})
             && (match !sent with
                | [ ("!room:example.org", text) ] ->
-                   String.starts_with ~prefix:"Read **this**." text
-                   && String.ends_with
-                        ~suffix:"(sent at the request of @admin:example.org)"
-                        text
+                   text = "Read **this**."
                | _ -> false));
           Store.set_person store ~actor:admin ~user:"@guest:example.org"
             ~role:Friend ~allowed:true;

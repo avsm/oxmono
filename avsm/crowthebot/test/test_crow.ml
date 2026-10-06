@@ -56,7 +56,7 @@ let () =
       check "bounded context" (List.length messages <= 10);
       if !tool_mode && !tool_step = 0 then begin
         incr tool_step;
-        check "plugin, memory and cron tools advertised" (List.length tools = 8);
+        check "plugin, memory and cron tools advertised" (List.length tools = 10);
         ( None,
           [
             Agentkit.Agent.

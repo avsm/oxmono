@@ -118,7 +118,7 @@ let people =
       $ profile)
 
 let memory =
-  command "memory" "Store, search, retrieve or erase shared profile facts."
+  command "memory" "Store, search, expand or erase shared profile memory."
     Term.(
       const (fun profile args ->
           run (fun env sw ->

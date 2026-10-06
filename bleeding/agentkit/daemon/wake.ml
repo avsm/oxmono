@@ -156,8 +156,9 @@ let run ~cancel_on_stop ~clock ~store ~create ~config ~fault ~stop ~publish
   in
   let rec session n =
     let brief =
-      Brief.assemble ~version:(Memory.version memory)
-        ~entries:(Memory.entries memory) ~task ~prompt ~session:n
+      Brief.assemble_with_summaries ~summaries:(Memory.summaries memory)
+        ~version:(Memory.version memory) ~entries:(Memory.entries memory) ~task
+        ~prompt ~session:n
         ~history:(Brief.since_handover journal_dir)
     in
     append

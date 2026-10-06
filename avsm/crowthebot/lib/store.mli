@@ -251,3 +251,13 @@ val emails : t -> Email_cache.t
 val admin_snapshot : t -> string
 (** [admin_snapshot] returns bounded, body-free counts and recent session keys.
     It is intended for the primary administrator only. *)
+
+val memory_tree : t -> actor:string -> Agentkit.Memo.t * (string * string) list
+(** [memory_tree t ~actor] snapshots all shared facts and their derived cache,
+    oldest first. Requires current admin or friend authorization. *)
+
+val save_memory_summary : t -> actor:string -> key:string -> body:string -> bool
+(** [save_memory_summary t ~actor ~key ~body] caches a summary of at most 512
+    UTF-8 bytes if [key] still names current sources. Returns [false] after a
+    source changed. Rechecks authorization. Erasing any fact atomically clears
+    the cache so erased text cannot survive in a derived summary. *)

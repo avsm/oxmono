@@ -262,10 +262,11 @@ let () =
             incr round;
             if !round = 1 then (
               check "engine advertises only configured tool modes"
-                (List.for_all (fun tool -> List.mem tool tools) read_tools
-                && not
-                     (List.exists (fun tool -> List.mem tool tools) write_tools)
-                );
+                (let offered = List.map Agentkit.Agent.Tool.name tools in
+                 List.for_all (fun tool -> List.mem (Agentkit.Agent.Tool.name tool)
+                     offered) read_tools
+                 && not (List.exists (fun tool ->
+                     List.mem (Agentkit.Agent.Tool.name tool) offered) write_tools));
               ( None,
                 [
                   Agentkit.Agent.

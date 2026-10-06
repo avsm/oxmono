@@ -70,3 +70,8 @@ val system_text : message list -> string option
 
 val text_of_response : response -> string option
 (** [text_of_response r] is [r.text] when it holds non-blank text. *)
+
+val text_bytes : request -> int
+(** [text_bytes request] counts message text, call IDs and arguments, and tool
+    names, descriptions and JSON schemas. Encoded image files and provider
+    framing are excluded. This is a byte budget, not a token estimate. *)

@@ -163,6 +163,54 @@ let test_bind () =
   check "bound tools are guarded"
     (Agentkit.Agent.Tool.invoke (List.hd tools) (call "t" "{}") = "Error: no")
 
+let test_native_budget () =
+  let ran = ref 0 and round = ref 0 in
+  let complete (r : Chat.request) =
+    incr round;
+    if !round = 1 then begin
+      ignore (Agentkit.Agent.Tool.invoke (List.hd r.tools) (call "t" "{}"));
+      Chat.response ~calls:[ call "t" "{}" ] None
+    end else begin
+      check "mixed calls exhaust the shared allowance" (r.tools = []);
+      Chat.response (Some "done")
+    end
+  in
+  ignore (Turn.run ~budget:2 ~complete ~tools:[ tool "t" ] ~guard:ok_guard
+      ~dispatch:(fun _ -> incr ran; Ok "ran") [ Chat.User "go" ]);
+  check "both native and returned calls execute" (!ran = 2);
+  ran := 0;
+  let complete (r : Chat.request) =
+    for _ = 1 to 3 do
+      ignore (Agentkit.Agent.Tool.invoke (List.hd r.tools) (call "t" "{}"))
+    done;
+    Chat.response (Some "impossible")
+  in
+  check "native overflow stops execution"
+    (match Turn.run ~budget:2 ~complete ~tools:[ tool "t" ] ~guard:ok_guard
+         ~dispatch:(fun _ -> incr ran; Ok "ran") [ Chat.User "go" ] with
+    | _ -> false | exception Turn.Budget_exceeded -> !ran = 2);
+  let complete (r : Chat.request) =
+    check "native guard enforced"
+      (Agentkit.Agent.Tool.invoke (List.hd r.tools) (call "t" "{}") = "Error: denied");
+    Chat.response (Some "denied")
+  in
+  ignore (Turn.run ~complete ~tools:[ tool "t" ]
+      ~guard:(fun _ -> Error "denied")
+      ~dispatch:(fun _ -> Alcotest.fail "unauthorized native dispatch")
+      [ Chat.User "go" ])
+
+let test_request_budget () =
+  let called = ref false in
+  let complete _ = called := true; Chat.response (Some "ok") in
+  check "oversized context refused before inference"
+    (match Turn.run ~max_request_bytes:4 ~complete ~tools:[] ~guard:ok_guard
+         ~dispatch [ Chat.User "hello" ] with
+    | _ -> false
+    | exception Turn.Context_exceeded { bytes = 5; limit = 4 } -> not !called);
+  check "exact context boundary accepted"
+    (Turn.run ~max_request_bytes:5 ~complete ~tools:[] ~guard:ok_guard
+       ~dispatch [ Chat.User "hello" ] = "ok")
+
 let summarise replies =
   let complete, seen = script replies in
   let retries = ref [] in
@@ -338,6 +386,8 @@ let () =
           ("budget and bounds", `Quick, test_budget_and_bounds);
           ("cut-off", `Quick, test_cut_off);
           ("bind", `Quick, test_bind);
+          ("native budget", `Quick, test_native_budget);
+          ("request budget", `Quick, test_request_budget);
         ] );
       ("summary", [ ("summary", `Quick, test_summary) ]);
       ( "images",

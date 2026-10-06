@@ -6,10 +6,12 @@
 (** What a wake-up starts from.
 
     A wake-up has no conversation to continue. It builds a fresh context out of
-    four things and discards it at the end:
+    six things and discards it at the end:
 
-    + the memory at its current version, [fact] and [procedure] entries in full
+    + bounded [fact] and [procedure] sections at the current memory version
     + the [open_item] entries, which are what was left unfinished
+    + bounded references pointing to supporting material
+    + a bounded summary tree over episodic observations and completed activity
     + the scheduled task that fired, with its prompt
     + a digest of the journal since the last handover, being what was done and
       what it returned rather than the full text of it
@@ -55,17 +57,28 @@ val assemble :
     for a wake-up on the task [task], whose instruction is [prompt].
 
     [entries] is the whole of memory at [version], sorted into its sections
-    here. [session] counts from 1 and is above it for a session that succeeded
-    another after a handover, which the brief says so that the model knows it is
-    carrying on rather than starting. [history] are the journal records since
-    the last handover, which {!digest} compresses. *)
+    here. Episodic entries use a bounded derived overview. Missing summaries
+    remain expandable source pointers. [session] counts from 1 and is above it
+    for a session that succeeded another after a handover, which the brief says
+    so that the model knows it is carrying on rather than starting. [history]
+    are the journal records since the last handover, which {!digest} compresses.
+
+    Each enduring-memory section selects up to eight recently updated entries.
+    Facts fit 2500 bytes, procedures 1500, open items 2500, references 1000,
+    and the episodic overview 3500. Shortened or omitted entries are marked
+    with instructions for reading their originals through memory tools.
+
+    [prompt] must fit 8192 bytes and [task] 256. The assembled system and user
+    text must fit 32768 bytes. Exceeding these limits raises [Invalid_argument].
+    These are UTF-8 byte limits, not model token counts.
+*)
 
 val digest : Agentkit.Journal.record list -> string
 (** [digest records] is what [records] say happened, one line each, as titles
     and outcomes rather than as the text of them. A tool result runs to
     kilobytes and a reply to paragraphs, and a digest that carried either whole
     would cost the context the work needs. It is bounded, and says how many
-    lines it left out. *)
+    lines it left out. Its text fits 8000 UTF-8 bytes. *)
 
 val since_handover : _ Eio.Path.t -> Agentkit.Journal.record list
 (** [since_handover dir] are the records of the journal in [dir] appended after
@@ -74,3 +87,16 @@ val since_handover : _ Eio.Path.t -> Agentkit.Journal.record list
     Only the two newest segments are read. A wake-up ends in a handover, so a
     day and the day before it hold one, and reading a year of journal to find
     what the last hour did would cost more each month. *)
+
+val assemble_with_summaries :
+  summaries:(string * string) list ->
+  version:int ->
+  entries:Agentkit.Memory.entry list ->
+  task:string ->
+  prompt:string ->
+  session:int ->
+  history:Agentkit.Journal.record list ->
+  t
+(** [assemble_with_summaries ~summaries ...] assembles the same brief with
+    cached episode summaries. Enduring entries remain in their own sections.
+    [assemble] uses explicit source pointers for unsummarized ranges. *)

@@ -3306,16 +3306,71 @@ let custom_css = {|
   --tf-coral: var(--ti-coral);
   --tf-tan: var(--ti-tan);
 }
-/* On a phone the text column is what is scarce. The heading keeps to the date,
-   the thumbnail narrows and the text moves left to meet it. The inline
-   positions of the rows are overridden, which is why these are important. */
+/* On a narrow screen the timeline is an ordinary list. The rows of the wide
+   layout are placed before the page is shown, from an estimate of how far the
+   text wraps, and on a narrow screen the text wraps far past any estimate. So
+   the spine, the exits and the motifs go, and each entry is a thumbnail beside
+   its text, one below another. The inline positions of the rows are
+   overridden, which is why these are important. */
+@media (max-width: 860px) {
+  .snake { height: auto !important; font-size: 0.9rem; }
+  .snake-spine, .sn-exit, .sn-season, .sn-quiet, .sn-icons, .sn-words {
+    display: none !important;
+  }
+  .sn-month {
+    position: relative;
+    top: auto !important;
+    height: auto !important;
+    padding-bottom: 0.4rem;
+  }
+  .sn-pill {
+    position: relative;
+    top: auto !important;
+    left: 0;
+    margin: 1.4rem 0 0.9rem;
+    padding: 0;
+  }
+  .sn-item {
+    position: relative;
+    top: auto !important;
+    height: auto !important;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    margin-bottom: 1.1rem;
+  }
+  .sn-node {
+    position: relative;
+    left: auto !important;
+    top: auto !important;
+    flex: none;
+    width: 4rem !important;
+    height: 3.4rem !important;
+  }
+  .sn-text {
+    position: relative;
+    left: auto !important;
+    right: auto;
+    top: auto !important;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+    height: auto !important;
+    padding: 0;
+    overflow: visible;
+  }
+  .sn-release { margin-bottom: 0.5rem; align-items: baseline; }
+  .sn-release .sn-text {
+    display: flex;
+    flex-wrap: wrap;
+    white-space: normal;
+    row-gap: 0.1rem;
+  }
+  .release-summary { flex: 1 1 100%; white-space: normal; }
+}
 @media (max-width: 640px) {
-  .snake { font-size: 0.84rem; }
-  .sn-words, .sn-icons { display: none; }
   .sn-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sn-note .sn-node, .sn-week .sn-node { width: 3.4em !important; }
-  .sn-text, .sn-quiet { left: 8.5em !important; }
-  .sn-text { right: 0; gap: 0; padding-right: 0; }
+}
 }
 .week-row:hover .week-slice {
   opacity: 1;

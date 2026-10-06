@@ -1,0 +1,4 @@
+(library
+ (name perma_proxy)
+ (public_name zarr-perma-proxy)
+ (libraries fetch proffer httpz eio cstruct optint jsont jsont.bytesrw zarrz))

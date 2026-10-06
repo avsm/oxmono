@@ -53,17 +53,17 @@ let rec chop_slash s =
 
 (* [run spec f] opens the store [spec] names and hands it to [f], under
    the one guard and the one switch every subcommand needs. *)
-let run spec f =
+let run spec depth f =
   guard @@ fun () ->
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let store =
     if is_url spec then
-      let client = Fetch_curl.std ~sw env in
+      let client = Fetch_httpz.std env in
       Zarrz_fetch.store ~base_url:(chop_slash spec) client
     else Zarrz_eio.store Eio.Path.(Eio.Stdenv.fs env / spec)
   in
-  f (Tessera.of_store store)
+  f (Tessera.of_store ?depth store)
 
 (* {1 Printing} *)
 
@@ -121,8 +121,8 @@ let write_npy path slab =
 
 (* {1 Commands} *)
 
-let info_cmd store =
-  run store @@ fun t ->
+let info_cmd store depth =
+  run store depth @@ fun t ->
   if Console_eio.is_tty () then
     Format.printf "%a@." C.Span.pp (styled accent "Tessera store");
   let g = Tessera.geoemb t in
@@ -134,7 +134,9 @@ let info_cmd store =
     (match g.Zarrz_geoemb.kind with
     | Zarrz_geoemb.Pixel -> "pixel"
     | Zarrz_geoemb.Chip -> "chip");
-  field "dimensions" "%d" g.Zarrz_geoemb.dimensions;
+  field "dimensions" "%d" (Tessera.bands t);
+  field "depths" "%s" (String.concat " "
+      (List.map string_of_int (Tessera.depths t)));
   field "build" "%s"
     (Option.value ~default:"unknown" g.Zarrz_geoemb.build_version);
   field "years" "%s"
@@ -148,8 +150,8 @@ let info_cmd store =
           (if List.length zones > List.length l then " ..." else ""));
   0
 
-let probe_cmd store lon lat year cross_zone search_px =
-  run store @@ fun t ->
+let probe_cmd store depth lon lat year cross_zone search_px =
+  run store depth @@ fun t ->
   if Console_eio.is_tty () then
     Format.printf "%a@." C.Span.pp (styled accent "Probe");
   let v, st = Tessera.probe t ~lon ~lat ~year ~cross_zone ~search_px () in
@@ -167,8 +169,8 @@ let probe_cmd store lon lat year cross_zone search_px =
       if Array.length v > n then field "" "%s" "...");
   if st = Tessera.Valid then 0 else exit_failure
 
-let region_cmd store min_lon min_lat max_lon max_lat year out =
-  run store @@ fun t ->
+let region_cmd store depth min_lon min_lat max_lon max_lat year out =
+  run store depth @@ fun t ->
   let r =
     Tessera.read_region t ~bbox:(min_lon, min_lat, max_lon, max_lat) ~year
   in
@@ -179,8 +181,8 @@ let region_cmd store min_lon min_lat max_lon max_lat year out =
   field "crs" "EPSG:%d" r.Tessera.Dataset.Region.epsg;
   0
 
-let patch_cmd store lon lat year size out =
-  run store @@ fun t ->
+let patch_cmd store depth lon lat year size out =
+  run store depth @@ fun t ->
   let p = Tessera.read_patch t ~lon ~lat ~year ~size_px:size in
   write_npy out p.Tessera.Patch.data;
   let v = f32 p.Tessera.Patch.data in
@@ -215,6 +217,10 @@ let store_t =
   Arg.(
     value & opt string Tessera.url
     & info [ "store" ] ~env ~docv:"URL_OR_DIR" ~doc)
+
+let depth_t =
+  Arg.(value & opt (some int) None & info [ "depth" ] ~docv:"N"
+       ~doc:"Read a published embedding prefix instead of all dimensions.")
 
 let year_t =
   let doc =
@@ -296,7 +302,7 @@ let info_cmd_t =
   in
   Cmd.v
     (Cmd.info "info" ~doc ~man ~exits)
-    Term.(const info_cmd $ store_t)
+    Term.(const info_cmd $ store_t $ depth_t)
 
 let probe_cmd_t =
   let doc = "Sample the embedding at a point." in
@@ -319,7 +325,7 @@ let probe_cmd_t =
   Cmd.v
     (Cmd.info "probe" ~doc ~man ~exits)
     Term.(
-      const probe_cmd $ store_t $ lon_t $ lat_t $ year_t $ cross_zone_t
+      const probe_cmd $ store_t $ depth_t $ lon_t $ lat_t $ year_t $ cross_zone_t
       $ search_px_t)
 
 let region_cmd_t =
@@ -343,7 +349,7 @@ let region_cmd_t =
   Cmd.v
     (Cmd.info "region" ~doc ~man ~exits)
     Term.(
-      const region_cmd $ store_t
+      const region_cmd $ store_t $ depth_t
       $ bbox_t 0 "MINLON" "Western edge of the box, WGS84 degrees east."
       $ bbox_t 1 "MINLAT" "Southern edge of the box, WGS84 degrees north."
       $ bbox_t 2 "MAXLON" "Eastern edge of the box, WGS84 degrees east."
@@ -370,7 +376,7 @@ let patch_cmd_t =
   in
   Cmd.v
     (Cmd.info "patch" ~doc ~man ~exits)
-    Term.(const patch_cmd $ store_t $ lon_t $ lat_t $ year_t $ size_t $ out_t)
+    Term.(const patch_cmd $ store_t $ depth_t $ lon_t $ lat_t $ year_t $ size_t $ out_t)
 
 let main =
   let doc = "Read Tessera geospatial embeddings." in

@@ -24,7 +24,7 @@ reads and dequantisation, over any zarrz store backend.")
   jsont
   base_bigstring
   cmdliner
-  fetch-curl
+  fetch-httpz
   eio_main
   console console-eio
   (odoc :with-doc)

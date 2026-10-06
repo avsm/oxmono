@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Default to v1.1-dclimate Zarr, read published embedding depths and interpret
+  source-nodata masks correctly. Use httpz for command-line HTTP reads.
+
 - Link the `proj.c` implementation of the virtual `proj` library from
   the tessera library itself, so every executable that links tessera
   builds without naming the implementation.

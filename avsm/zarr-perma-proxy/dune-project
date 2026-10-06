@@ -1,0 +1,13 @@
+(lang dune 3.21)
+(name zarr-perma-proxy)
+(generate_opam_files true)
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(package
+ (name zarr-perma-proxy)
+ (synopsis "Permanent HTTP range cache for Zarr stores")
+ (depends
+  (ocaml (>= 5.2.0))
+  fetch fetch-httpz proffer proffer-httpz eio eio_main
+  zarrz jsont base_bigstring http httpz cstruct optint cmdliner))

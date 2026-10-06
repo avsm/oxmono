@@ -17,7 +17,8 @@
     A [scales] value says what a pixel is. A finite one is real data and
     dequantises the [embeddings] column beneath it. [NaN] is open water,
     or nodata inside a tile the producer did write. The array's fill
-    value is [+inf], so a region no tile ever covered reads as [+inf]
+    value was [+inf] in legacy stores and is [NaN] in source-nodata stores,
+    so a region no tile ever covered reads as the declared fill value
     with no chunk stored at all. {!probe} tells the three apart.
 
     {2 Reads}
@@ -55,11 +56,17 @@ type t
 val open_ :
   ?cache_capacity:int ->
   ?consolidated:Consolidated.t ->
+  ?embeddings:string ->
+  ?expected_bands:int ->
   Zarrz.Store.t ->
   zone:int ->
   t
 (** [open_ store ~zone] binds the group [utm{zone}] of [store] and its
-    three arrays.
+    three arrays. [embeddings] selects the embedding array name, defaulting
+    to ["embeddings"]. [expected_bands], when given, checks its band count.
+    A group with [geotessera:mask_source = "source_nodata"] treats NaN
+    scales as nodata eligible for the same nearest-valid-pixel repair as
+    unwritten pixels. Other groups preserve the legacy water interpretation.
 
     [consolidated] is the root group's node map, which supplies the
     metadata of any node it holds so that opening the zone costs no
@@ -129,9 +136,9 @@ val probe :
     stops a distant point from snapping onto an edge pixel.
 
     The [(2 * search_px + 1)] squared window of [scales] around that
-    pixel then decides. A [NaN] centre is [Water] and is never searched
-    past, so a repair can never report land for a sea location. A finite
-    centre is the pixel itself. Otherwise the nearest finite scale in
+    pixel then decides. A [NaN] centre is [Water] in legacy stores and is
+    never searched past. With the source-nodata marker it is repairable
+    missing data. A finite centre is the pixel itself. Otherwise the nearest finite scale in
     the window wins by squared pixel distance, ties going to the first
     in row-major order, and a window with no finite scale is [Nodata].
 

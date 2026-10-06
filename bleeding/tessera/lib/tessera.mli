@@ -46,11 +46,14 @@ type t
 (** The type for open stores. *)
 
 val url : string
-(** [url] is ["https://data.source.coop/tessera/tessera/zarr/v1"], the
+(** [url] is ["https://data.source.coop/tessera/tessera/zarr/v1.1-dclimate"], the
     public store. *)
 
-val of_store : Zarrz.Store.t -> t
-(** [of_store store] reads the root group of [store] and binds it.
+val of_store : ?depth:int -> Zarrz.Store.t -> t
+(** [of_store ?depth store] reads the root group of [store] and binds it.
+    [depth] selects a prefix array advertised by [geoemb:depths]. An
+    unavailable depth raises [Invalid_argument]. By default reads use all
+    dimensions from [embeddings]. No Icechunk or NPY source is opened.
 
     @raise Zarrz.Error.E [(Store _)] when [store] has no root
     [zarr.json], and [(Metadata _)] when the root group does not
@@ -64,6 +67,12 @@ val geoemb : t -> Zarrz_geoemb.t
 (** [geoemb t] is the geo-embeddings convention block of the root
     group, which names the model, the build version and the length of
     an embedding vector. *)
+
+val depths : t -> int list
+(** [depths t] are the embedding prefix lengths published by [t]. *)
+
+val bands : t -> int
+(** [bands t] is the selected embedding length, including a requested depth. *)
 
 val consolidated : t -> Consolidated.t option
 (** [consolidated t] is the root group's inline node map, when it has

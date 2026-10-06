@@ -13,11 +13,14 @@ module Zone = Zone
 
 type status = Dataset.status = Valid | Water | Nodata | Outside
 
-let url = "https://data.source.coop/tessera/tessera/zarr/v1"
+let url = "https://data.source.coop/tessera/tessera/zarr/v1.1-dclimate"
 
 type t = {
   store : Zarrz.Store.t;
   geoemb : Zarrz_geoemb.t;
+  depths : (int * string) list;
+  embeddings : string;
+  bands : int;
   consolidated : Consolidated.t option;
   datasets : (int, Dataset.t option) Hashtbl.t;
   mutable zone_list : int list option;
@@ -27,7 +30,7 @@ type t = {
 let err fmt =
   Format.kasprintf (fun m -> Zarrz.Error.raise_ (Zarrz.Error.Metadata m)) fmt
 
-let of_store store =
+let of_store ?depth store =
   let g = Zarrz.Group.open_ store ~path:"/" in
   let geoemb =
     match Zarrz.Group.attributes g with
@@ -38,9 +41,38 @@ let of_store store =
         | Some (Error m) -> err "root attributes: %s" m
         | Some (Ok v) -> v)
   in
+  let depths =
+    match List.find_opt (fun ((k, _), _) -> k = "geoemb:depths") geoemb.unknown with
+    | None -> [ geoemb.dimensions, "embeddings" ]
+    | Some (_, Jsont.Array (items, _)) ->
+        List.map (function
+          | Jsont.Object (mems, _) ->
+              let n = match Jsont.Json.find_mem "dimensions" mems with
+                | Some (_, Jsont.Number (f, _)) when Float.is_integer f
+                    && f >= 1. && f <= float_of_int geoemb.dimensions -> int_of_float f
+                | _ -> err "geoemb:depths: invalid dimensions" in
+              let name = match Jsont.Json.find_mem "array" mems with
+                | Some (_, Jsont.String (s, _)) when s <> ""
+                    && not (String.contains s '/') && s <> "." && s <> ".." -> s
+                | _ -> err "geoemb:depths: invalid array name" in
+              n, name
+          | _ -> err "geoemb:depths: expected objects") items
+    | Some _ -> err "geoemb:depths: expected an array"
+  in
+  let bands, embeddings = match depth with
+    | None -> geoemb.dimensions, "embeddings"
+    | Some n -> match List.assoc_opt n depths with
+      | Some name -> n, name
+      | None -> invalid_arg (Printf.sprintf
+          "Tessera: depth %d unavailable. Published depths: %s" n
+          (String.concat ", " (List.map (fun (n, _) -> string_of_int n) depths)))
+  in
   {
     store;
     geoemb;
+    depths;
+    embeddings;
+    bands;
     consolidated = Consolidated.of_group (Zarrz.Group.metadata g);
     datasets = Hashtbl.create 8;
     zone_list = None;
@@ -49,6 +81,8 @@ let of_store store =
 
 let store t = t.store
 let geoemb t = t.geoemb
+let depths t = List.map fst t.depths
+let bands t = t.bands
 let consolidated t = t.consolidated
 
 (* Presence is asked of the store rather than inferred from a failed
@@ -68,7 +102,8 @@ let zone_opt t z =
   | None ->
       let d =
         if not (present t z) then None
-        else Some (Dataset.open_ ?consolidated:t.consolidated t.store ~zone:z)
+        else Some (Dataset.open_ ?consolidated:t.consolidated ~embeddings:t.embeddings
+            ~expected_bands:t.bands t.store ~zone:z)
       in
       Hashtbl.replace t.datasets z d;
       d

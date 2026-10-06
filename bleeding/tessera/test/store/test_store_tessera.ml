@@ -115,24 +115,29 @@ let root_attributes =
 
 let bands = 4
 
-let fake_root store =
-  ignore
-    (Group.create ~attributes:(json_of_string root_attributes) store ~path:"/")
+let fake_root ?(depths = false) store =
+  let attrs = if not depths then root_attributes else
+      String.sub root_attributes 0 (String.length root_attributes - 1)
+      ^ {|, "geoemb:depths":[{"dimensions":2,"array":"embeddings2"},
+                             {"dimensions":4,"array":"embeddings"}]}|} in
+  ignore (Group.create ~attributes:(json_of_string attrs) store ~path:"/")
 
 (* The fake zone of store_check.py: four bands, every embedding
    [1;2;3;4], and the caller's scale grid. [chunk] splits the grid so
    that a tile read has to assemble, [write_scales] false leaves the
    scales chunks absent so they read as the [+inf] fill. *)
 let fake_zone ?(px = 10.) ?(ox = 300000.) ?(oy = 4050000.) ?chunk
-    ?(write_scales = true) store ~zone ~scales =
+    ?(write_scales = true) ?(source_nodata = false) store ~zone ~scales =
   let h = Array.length scales and w = Array.length scales.(0) in
   let chy, chx = match chunk with Some c -> c | None -> (h, w) in
   let path = Printf.sprintf "/utm%02d" zone in
   let attrs =
     Printf.sprintf
       {|{"proj:code":"EPSG:%d",
-         "spatial:transform":[%.8g,0.0,%.8g,0.0,%.8g,%.8g]}|}
+         "spatial:transform":[%.8g,0.0,%.8g,0.0,%.8g,%.8g],
+         "geotessera:mask_source":"%s"}|}
       (32600 + zone) px ox (-.px) oy
+      (if source_nodata then "source_nodata" else "landmask")
   in
   ignore (Group.create ~attributes:(json_of_string attrs) store ~path);
   let emb =
@@ -684,6 +689,40 @@ let test_lazy_zone_probe () =
 
 (* -- Suite ---------------------------------------------------------- *)
 
+let test_current_store () =
+  Alcotest.(check string) "default dataset"
+    "https://data.source.coop/tessera/tessera/zarr/v1.1-dclimate" Tessera.url;
+  let store = Store.memory () in
+  fake_root ~depths:true store;
+  let scales = grid 3 3 nan in
+  scales.(1).(0) <- 2.;
+  fake_zone ~source_nodata:true store ~zone:53 ~scales;
+  let d = Dataset.open_ store ~zone:53 in
+  let e = Affine.x_of_col (Dataset.transform d) ~col:1.
+  and n = Affine.y_of_row (Dataset.transform d) ~row:1. in
+  let v, st = Dataset.probe d ~e ~n ~year:2024 () in
+  Alcotest.check status "source nodata repaired" Valid st;
+  check_vec "repair value" [|2.;4.;6.;8.|] v;
+  let _, st = Dataset.probe d ~e ~n ~year:2024 ~search_px:0 () in
+  Alcotest.check status "source nodata without repair" Nodata st;
+  let _, st = Dataset.probe d ~e:Float.nan ~n ~year:2024 () in
+  Alcotest.check status "nonfinite query" Outside st;
+  let prefix = Arr.create ~shape:[|1;2;3;3|] ~chunk_shape:[|1;2;3;3|]
+      ~dtype:Dtype.Int8 ~fill_value:(fill Dtype.Int8 "0") store
+      ~path:"/utm53/embeddings2" in
+  let slab = Slab.create Dtype.Int8 [:1;2;3;3:] in
+  A1.fill (i8 slab) 7;
+  Arr.write prefix {Subset.start=[:0;0;0;0:]; shape=[:1;2;3;3:]} slab;
+  let t = Tessera.of_store ~depth:2 store in
+  Alcotest.(check (list int)) "published depths" [2;4] (Tessera.depths t);
+  Alcotest.(check int) "selected band count" 2 (Tessera.bands t);
+  let d = Tessera.zone t 53 in
+  check_vec "selected prefix" [|14.;14.|]
+    (fst (Dataset.probe d ~e ~n ~year:2024 ()));
+  Alcotest.check_raises "unavailable depth"
+    (Invalid_argument "Tessera: depth 3 unavailable. Published depths: 2, 4")
+    (fun () -> ignore (Tessera.of_store ~depth:3 store))
+
 let () =
   Alcotest.run "tessera store"
     [
@@ -713,6 +752,7 @@ let () =
         ] );
       ( "dataset",
         [
+          Alcotest.test_case "current store and prefixes" `Quick test_current_store;
           Alcotest.test_case "properties" `Quick test_dataset_properties;
           Alcotest.test_case "non-canonical epsg" `Quick
             test_non_canonical_epsg;

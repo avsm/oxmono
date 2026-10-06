@@ -20,7 +20,7 @@ depends: [
   "jsont"
   "base_bigstring"
   "cmdliner"
-  "fetch-curl"
+  "fetch-httpz"
   "eio_main"
   "console"
   "console-eio"

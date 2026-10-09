@@ -1,5 +1,10 @@
 # Changes
 
+- Fetch and analyse public websites with User-Agent crowthebot, bounded text
+  paging and durable tool auditing plus HTTP request/status logs.
+- Add a separate audited HTTP POST tool with typed bodies, bounded responses
+  and no redirects or automatic retries.
+
 - Include a cached memory overview in each authorized turn within the existing
   context budget, with bounded tool results and request text.
 

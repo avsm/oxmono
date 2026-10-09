@@ -92,3 +92,11 @@ val fire : t -> send:(string -> unit) -> Store.reminder -> run_id:int -> string
 val with_calendars : t -> Calendars.t -> t
 val with_caldav : t -> Caldav_tools.t -> t
 val with_emails : t -> Emails.t -> t
+
+val with_website : t -> Website.t -> t
+(** [with_website t website] adds public website reads for the admin and allowed
+    friends. Each tool request goes through the durable audit log. *)
+
+val with_http_post : t -> Http_post.t -> t
+(** [with_http_post t http_post] adds explicitly requested public HTTP POSTs
+    for the admin and allowed friends. Every invocation is durably audited. *)

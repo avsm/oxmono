@@ -1,7 +1,7 @@
 (library
  (name crowthebot)
  (public_name crowthebot)
- (private_modules profile persistence email_http email_json tool_args)
+ (private_modules profile persistence email_http email_json tool_args public_http)
  (libraries
   caldav.eio
   caldav
@@ -30,6 +30,7 @@
   cmdliner
   logs
   cmarkit
+  markup
   cstruct
   owntracks
   owntracks.config

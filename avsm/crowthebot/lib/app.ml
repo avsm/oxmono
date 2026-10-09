@@ -111,16 +111,24 @@ let now env =
   let clock = Eio.Stdenv.mono_clock env in
   fun () -> Int64.to_float (Mtime.to_uint64_ns (Eio.Time.Mono.now clock)) /. 1e9
 
+let public_fetch ?retry env =
+  Fetch_httpz.std ?retry ~cookies:`Off
+    ~connect:(Feed_http.public_connect (Eio.Stdenv.net env))
+    ~connect_timeout:(Duration.of_sec 5) ~idle_timeout:(Duration.of_sec 15)
+    env
+
+let website_tools env =
+  Website.create ~fetch:(public_fetch env) ~clock:(Eio.Stdenv.mono_clock env)
+
+let http_post_tools env =
+  Http_post.create
+    ~fetch:(public_fetch ~retry:{Fetch.Retry.default with max_retries = 0} env)
+    ~clock:(Eio.Stdenv.mono_clock env)
+
 let feed_tools env store =
-  let client =
-    Fetch_httpz.std ~cookies:`Off
-      ~connect:(Feed_http.public_connect (Eio.Stdenv.net env))
-      ~connect_timeout:(Duration.of_sec 5) ~idle_timeout:(Duration.of_sec 15)
-      env
-  in
   Feeds.create ~state:(Store.feeds store)
-    ~download:
-      (Feed_http.create ~fetch:client ~clock:(Eio.Stdenv.mono_clock env))
+    ~download:(Feed_http.create ~fetch:(public_fetch env)
+        ~clock:(Eio.Stdenv.mono_clock env))
 
 let with_secrets ~env ~sw ~profile ~dir f =
   Secret_store.with_xdg ~sw ~fs:(Eio.Stdenv.fs env) ~profile ~profile_dir:dir f
@@ -586,6 +594,8 @@ let run ~env ~sw ~profile ~api_key_file =
       ~complete:complete_model
       ~now:(now env)
     |> fun engine ->
+    Engine.with_website engine (website_tools env) |> fun engine ->
+    Engine.with_http_post engine (http_post_tools env) |> fun engine ->
     Engine.with_feeds engine (feed_tools env store) |> fun engine ->
     Engine.with_calendars engine (calendar_tools ~env ~sw ~profile ~dir store)
     |> fun engine ->

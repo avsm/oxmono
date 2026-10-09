@@ -1411,3 +1411,50 @@ In the primary
 administrator's confirmed direct Matrix chat, `inspect sessions`, `inspect
 memory`, and `inspect tools` return bounded, body-safe operational views. They
 never expose message or memory bodies in the session summary.
+
+## Website analysis
+
+Admin and allowed friends can ask Crow to read or analyse a public URL.
+`website_fetch` uses GET with `User-Agent: crowthebot`, extracts HTML title,
+readable text and links, and returns a snapshot ID. `website_read` reads
+subsequent pages using `next_offset` without refetching. Plain text and JSON
+are also supported. JavaScript is not executed.
+
+Downloads are limited to 2 MiB, three redirects and 30 seconds. Eight
+snapshots are cached in memory. Results remain below the 4096-byte tool
+budget. Scripts, styles and hidden HTML elements are excluded. Private
+network addresses, including addresses returned by DNS or redirects, are
+refused. The client carries no cookies or configured credentials.
+
+Every tool request is written to the existing SQLite audit log before
+execution, with its arguments, actor, source event and completion status.
+Use `!crow tools` or the local tool-log inspection commands to review it.
+The `crowthebot.tools` logger records HTTP request URLs, response status,
+and tool start/finish metadata. Page bodies are not written to console logs.
+
+## HTTP POST
+
+`http_post` is a separate tool for the admin and allowed friends. Ask Crow
+explicitly to POST a payload to a public HTTP(S) endpoint. Its arguments are:
+
+```json
+{
+  "url": "https://api.example.net/events",
+  "body": "{\"event\":\"test\"}",
+  "content_type": "application/json"
+}
+```
+
+`content_type` defaults to `application/json`. `text/plain` and
+`application/x-www-form-urlencoded` are also accepted. Bodies are limited to
+2048 bytes and checked before sending. Arbitrary headers, configured
+credentials and cookies are not exposed.
+
+The result contains the HTTP status, response content type and a bounded
+response body, including for error statuses. Redirects and automatic retries
+are disabled. Timeouts and network failures report that the POST may already
+have been sent. Do not repeat it automatically.
+
+Every POST tool call is durably audited before sending. HTTP URLs and status
+are logged through `crowthebot.tools`. Request and response bodies are not
+written to console logs.

@@ -275,3 +275,13 @@
  (name test_memo)
  (modules test_memo)
  (libraries crowthebot agentkit sqlite3-eio eio_main))
+
+(test
+ (name test_website)
+ (modules test_website)
+ (libraries fake_model crowthebot eio_main sqlite3-eio fetch.mock http logs jsont jsont.bytesrw))
+
+(test
+ (name test_http_post)
+ (modules test_http_post)
+ (libraries fake_model crowthebot eio_main sqlite3-eio fetch.mock http logs jsont jsont.bytesrw))

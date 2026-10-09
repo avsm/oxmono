@@ -1254,7 +1254,16 @@ let link ?rel ?media_type ?title ?hreflang ?(params = []) target =
   check_link_target target;
   { target; rel; media_type; title; hreflang; params }
 
-let link_rel r links = List.find_opt (fun l -> l.rel = Some r) links
+let link_has_rel r l =
+  let equal a b =
+    if String.contains a ':' || String.contains b ':' then String.equal a b
+    else String.equal (String.lowercase_ascii a) (String.lowercase_ascii b)
+  in
+  match l.rel with
+  | None -> false
+  | Some rels -> List.exists (equal r) (String.split_on_char ' ' rels)
+
+let link_rel r links = List.find_opt (link_has_rel r) links
 
 (* RFC 8288's link-param grammar is [token BWS "=" BWS ( token / quoted-string
    )]: every param, including an unrecognized one such as [anchor], may be
@@ -1276,7 +1285,7 @@ let link_to_string l =
     Option.map (fun v -> "hreflang=" ^ token_or_quoted v) l.hreflang
   in
   String.concat "; "
-    (Fmt.str "<%s>" l.target
+    (("<" ^ l.target ^ ">")
      :: List.filter_map Fun.id
           [ param "rel" l.rel; param "title" l.title;
             param "type" l.media_type; hreflang ]
@@ -1345,13 +1354,12 @@ let parse_link_value str =
       { target; rel = take "rel"; title;
         media_type = take "type"; hreflang = take "hreflang"; params = rest }
 
-let links =
-  v ~list_valued:true "Link"
-    ~encode:(fun ls -> String.concat ", " (List.map link_to_string ls))
-    ~decode:(fun s ->
-        let* values = split_checked ~angles:true ',' s in
-        let* values = map_all parse_link_value values in
-        match values with [] -> None | values -> Some values)
+let encode_links ls = String.concat ", " (List.map link_to_string ls)
+let decode_links s =
+  let* values = split_checked ~angles:true ',' s in
+  let* values = map_all parse_link_value values in
+  match values with [] -> None | values -> Some values
+let links = v ~list_valued:true "Link" ~encode:encode_links ~decode:decode_links
 
 let allow =
   v ~list_valued:true "Allow"
@@ -1374,12 +1382,14 @@ let retry_after =
         | Some seconds -> Some (`Seconds seconds)
         | None -> Option.map (fun date -> `Date date) (canonical_http_date s))
 
-let location =
-  v "Location" ~encode:Fun.id
+let uri_reference name =
+  v name ~encode:Fun.id
     ~decode:(fun value ->
         if Httpz_uri.Scanner.is_valid (Httpz_uri.Scanner.parse value)
         then Some value
         else None)
+let location = uri_reference "Location"
+let content_location = uri_reference "Content-Location"
 let user_agent = text "User-Agent"
 
 type headers =

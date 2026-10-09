@@ -55,6 +55,7 @@ module Json : sig
     ?max_depth:int ->
     'a Jsont.t ->
     'a t
+    @@ portable
   (** [v t] is a codec for [application/json] carrying values described by [t].
       [media] names another type and [accept] defaults to
       [["application/*+json"]]. [locs] defaults to [true] so ordinary decoding
@@ -83,6 +84,7 @@ module Json : sig
     ?max_depth:int ->
     'a Jsont.t ->
     'a seq
+    @@ portable
   (** [lines t] is a sequence codec for JSON Lines. It defaults to
       [application/jsonl] and accepts the common NDJSON spellings,
       [application/ndjson] and [application/x-ndjson] among them. Each line is

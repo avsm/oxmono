@@ -1,5 +1,8 @@
 # Changes
 
+- Make Link encoding/decoding portable and match relation tokens in
+  multi-relation Link values. Add typed Content-Location decoding.
+
 - Remove fetch-httpz's decompress upper bound. The workspace uses its vendored
   decoder and verifies the gzip shim when refreshing it.
 

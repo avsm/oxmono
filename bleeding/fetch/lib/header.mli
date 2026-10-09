@@ -582,9 +582,15 @@ val link :
   ?hreflang:string ->
   ?params:(string * string) list ->
   string ->
-  link
+  link @@ portable
 (** [link target] is a link to [target], as in
     [link ~rel:"next" "/page/2"]. *)
+
+val encode_links : link list -> string @@ portable
+(** [encode_links links] encodes Link values from a portable closure. *)
+
+val decode_links : string -> link list option @@ portable
+(** [decode_links value] parses Link syntax from a portable closure. *)
 
 val links : link list t
 (** [links] is the [Link] header codec, used for API pagination ([rel="next"]), resource
@@ -592,8 +598,12 @@ val links : link list t
     relative references included; resolving one against the response URL is
     the caller's job. A comma inside the [<...>] target separates nothing. *)
 
-val link_rel : string -> link list -> link option
-(** [link_rel r ls] is the first link in [ls] whose relation is [r], as
+val link_has_rel : string -> link -> bool @@ portable
+(** [link_has_rel r link] matches one relation token in [link]. Registered
+    names match case-insensitively. Extension relation URIs match exactly. *)
+
+val link_rel : string -> link list -> link option @@ portable
+(** [link_rel r ls] is the first link in [ls] whose relation tokens include [r], as
     in [link_rel "next" ls]. *)
 
 (** {1 Other headers} *)
@@ -618,6 +628,11 @@ val retry_after : retry_after t
 val location : string t
 (** [location] is the [Location] header codec for 3xx and 201 responses. A 3xx is visible to
     the caller with [~redirects:0]. *)
+
+val content_location : string t
+(** [content_location] identifies the URI reference of a representation,
+    which can differ from the request URI. Decoding rejects invalid URI
+    syntax. Relative references require resolution against the response URI. *)
 
 val user_agent : string t
 (** [user_agent] is the [User-Agent] request-header codec. *)

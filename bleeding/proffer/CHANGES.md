@@ -1,5 +1,8 @@
 ## v0.1.0 (unreleased)
 
+- Add singleton header lookup for known and custom request fields, rejecting
+  repeated values instead of silently selecting the first.
+
 First release.
 
 - Verify WebSocket upgrades, buffered frames and close replies over TCP with

@@ -93,6 +93,9 @@ let[@zero_alloc] header (t : t @ local) name = exclave_ Headers.find t.headers n
 let[@zero_alloc] header_other (t : t @ local) (spelling : string @ local) =
   exclave_ Headers.find_other t.headers spelling
 
+let header_single (t : t @ local) (spelling : string @ local) =
+  exclave_ Headers.find_single t.headers spelling
+
 let[@zero_alloc] rec cookies_size (hs : Headers.t @ local) count size =
   match hs with
   | [] -> #(count, size)

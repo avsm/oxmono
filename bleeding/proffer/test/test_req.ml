@@ -247,4 +247,25 @@ let () =
   let r = request ~headers:[ ("Content-Type", "text/plain") ] ~body:"a=1" () in
   check "with_body form 415" (Status.code (Proffer_mock.status r) = 415)
 
+let singleton_probe : (unit -> bool) @ portable = fun () ->
+  let r = Req.v ~meth:M.Get ~target:"/"
+      ~headers:(Headers.of_list ["Accept-Datetime", "date"]) () in
+  match Req.header_single r "accept-datetime" with
+  | Ok (Some value) -> value = "date"
+  | _ -> false
+
+let () =
+  check "singleton custom field in portable handler" (singleton_probe ());
+  let r = req ~headers:["Content-Type", "application/json"] "/" in
+  check "singleton known field by spelling"
+    (Req.header_single r "CONTENT-TYPE" = Ok (Some "application/json"));
+  check "singleton absent" (Req.header_single r "X-Absent" = Ok None);
+  let r = req ~headers:["X-Custom", "one"; "x-custom", "one"] "/" in
+  check "singleton identical repetitions rejected"
+    (Req.header_single r "X-CUSTOM" = Error `Repeated);
+  let r = req ~headers:["Accept", "a"; "accept", "b"] "/" in
+  check "singleton known repetitions rejected"
+    (Req.header_single r "accept" = Error `Repeated);
+  check "existing first-field API preserved" (Req.header r H.Accept = Some "a")
+
 let () = Printf.printf "test_req: %d checks ok\n" !checks

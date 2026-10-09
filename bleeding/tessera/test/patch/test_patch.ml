@@ -295,13 +295,19 @@ let test_seam_patch_overlap () =
 (* What [numpy.save] writes for a 2 by 2 by 1 float32 array: the magic,
    version 1.0, a 118 byte header padded to a 128 byte preamble, then
    the elements little endian. *)
+let npy_string slab =
+  let bytes = Buffer.create 128 in
+  Nx_io.write_npy_genarray ~write:(fun s -> Buffer.add_string bytes s)
+    (Slab.to_genarray slab Bigarray.float32);
+  Buffer.contents bytes
+
 let test_npy_golden () =
   let s = Slab.create Dtype.Float32 [: 2; 2; 1 :] in
   let v = f32 s in
   for i = 0 to 3 do
     A1.set v i (float_of_int i)
   done;
-  let out = Npy.to_string s in
+  let out = npy_string s in
   let body =
     "{'descr': '<f4', 'fortran_order': False, 'shape': (2, 2, 1), }"
   in
@@ -312,14 +318,14 @@ let test_npy_golden () =
     ^ "\000\000\000\000\000\000\128\063\000\000\000\064\000\000\064\064"
   in
   Alcotest.(check int) "the preamble is 64 byte aligned" 0
-    (String.length (Npy.header s) mod 64);
+    (String.length (Nx_io.npy_header (Slab.to_genarray s Bigarray.float32)) mod 64);
   Alcotest.(check int) "the whole file" 144 (String.length out);
   Alcotest.(check string) "byte for byte" expect out
 
 let test_npy_shapes () =
   let header shape =
     let s = Slab.create Dtype.Float32 shape in
-    Npy.header s
+    Nx_io.npy_header (Slab.to_genarray s Bigarray.float32)
   in
   Alcotest.(check bool)
     "a one-dimensional shape keeps its comma" true
@@ -330,21 +336,12 @@ let test_npy_shapes () =
   Alcotest.(check int) "and stays aligned" 0
     (String.length (header [: 3; 4 :]) mod 64)
 
-let test_npy_rejects_other_types () =
-  let s = Slab.create Dtype.Int8 [: 4 :] in
-  match Npy.header s with
-  | _ -> Alcotest.fail "expected Invalid_argument"
-  | exception Invalid_argument m ->
-      Alcotest.(check bool)
-        ("names the type: " ^ m)
-        true (substring "float32" m)
-
 (* A patch is exactly what the CLI writes out. *)
 let test_npy_of_a_patch () =
   let t = of_store (flat_store ()) in
   let lon, lat = flat_centre () in
   let p = read_patch t ~lon ~lat ~year:2024 ~size_px:6 in
-  let out = Npy.to_string p.Patch.data in
+  let out = npy_string p.Patch.data in
   Alcotest.(check bool)
     "the shape reaches the header" true
     (substring "'shape': (6, 6, 4), }" out);
@@ -411,7 +408,6 @@ let () =
         [
           Alcotest.test_case "golden bytes" `Quick test_npy_golden;
           Alcotest.test_case "shape tuples" `Quick test_npy_shapes;
-          Alcotest.test_case "other types" `Quick test_npy_rejects_other_types;
           Alcotest.test_case "a patch" `Quick test_npy_of_a_patch;
         ] );
       ( "errors",

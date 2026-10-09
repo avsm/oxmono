@@ -105,19 +105,8 @@ let write_npy path slab =
   Fun.protect
     ~finally:(fun () -> close_out oc)
     (fun () ->
-      output_string oc (Tessera.Npy.header slab);
-      let b = Zarrz.Slab.bigstring slab in
-      let n = Base_bigstring.length b in
-      let step = 65536 in
-      let rec go pos =
-        if pos < n then begin
-          let len = min step (n - pos) in
-          output_string oc
-            (Base_bigstring.to_string (Base_bigstring.sub b ~pos ~len));
-          go (pos + len)
-        end
-      in
-      go 0)
+      Nx_io.write_npy_genarray ~write:(fun bytes -> output_string oc bytes)
+        (Zarrz.Slab.to_genarray slab Bigarray.float32))
 
 (* {1 Commands} *)
 

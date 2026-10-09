@@ -35,7 +35,6 @@ module Affine = Affine
 module Consolidated = Consolidated
 module Crs = Crs
 module Dataset = Dataset
-module Npy = Npy
 module Patch = Patch
 module Zone = Zone
 

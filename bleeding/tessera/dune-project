@@ -20,6 +20,8 @@ reads and dequantisation, over any zarrz store backend.")
   (zarrz (= :version))
   (zarrz-eio (= :version))
   (zarrz-fetch (= :version))
+  (nx (= 1.0.0~alpha3))
+  nx-oxcaml
   proj
   jsont
   base_bigstring

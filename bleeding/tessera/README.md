@@ -56,3 +56,13 @@ remaining gaps. Keep the cache between proxy restarts. The cache assumes
 immutable URLs and has no automatic revalidation or eviction.
 
 The read path follows [GeoTessera](https://github.com/ucam-eo/geotessera).
+
+## NumPy output
+
+The CLI calls `Nx_io.write_npy_genarray` directly on
+`Zarrz.Slab.to_genarray slab Bigarray.float32`. Region and patch output
+retains NumPy's 64-byte header alignment and streams in 64 KiB fragments.
+The CLI selects `nx-oxcaml` as the Nx backend. The Tessera library has no Nx
+dependency. See
+[the backend import](../nx-oxcaml/README.md) and
+[the Nx dependency](../../vendor/nx/README.md) for versions and local patches.

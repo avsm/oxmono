@@ -185,6 +185,19 @@
       "base_version": "v0.1.0"
     },
     {
+      "name": "nx",
+      "url": "https://github.com/raven-ml/raven.git",
+      "branch": "1.0.0_alpha3",
+      "revision": "f1c456f7161cfe3a57a9bd4083605175f72989b4",
+      "base_version": "1.0.0~alpha3",
+      "scope": "Nx lib/ and bundled vendor/ dependencies from the alpha3 release. Other Raven packages, mdx documentation, examples and upstream test frameworks are omitted.",
+      "verified_on": "2026-10-07",
+      "archive_url": "https://github.com/raven-ml/raven/releases/download/1.0.0_alpha3/raven-1.0.0.alpha3.tbz",
+      "archive_checksums": [
+        "sha256=96d35ce03dfbebd2313657273e24c2e2d20f9e6c7825b8518b69bd1d6ed5870f"
+      ]
+    },
+    {
       "name": "ocaml-codec",
       "url": "git@github.com:samoht/ocaml-codec.git",
       "branch": "HEAD",

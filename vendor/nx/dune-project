@@ -1,0 +1,4 @@
+(lang dune 3.21)
+(name nx)
+(version 1.0.0~alpha3)
+(package (name nx))

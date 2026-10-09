@@ -1,0 +1,4 @@
+(library
+ (name memento_wayback)
+ (public_name memento.wayback)
+ (libraries memento fetch httpz.uri jsont eio))

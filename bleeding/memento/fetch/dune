@@ -1,0 +1,4 @@
+(library
+ (name memento_fetch)
+ (public_name memento.fetch)
+ (libraries memento fetch eio httpz.media))

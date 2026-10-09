@@ -1,0 +1,5 @@
+(executable
+ (name memento_cli)
+ (public_name memento)
+ (libraries memento memento.wayback cmdliner eio_main fetch-httpz
+  jsont jsont.bytesrw))

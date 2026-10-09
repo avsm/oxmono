@@ -1,0 +1,5 @@
+(library
+ (name memento)
+ (public_name memento)
+ (libraries fetch httpz ptime httpz.uri jsont stdlib_stable
+  stdlib_upstream_compatible))

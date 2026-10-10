@@ -424,6 +424,12 @@ let hljs_init = {|
     }
   }
   updateHljsTheme();
+  // Untagged blocks are shell sessions when they start with a prompt and
+  // plain text otherwise, because auto-detection mislabels both.
+  document.querySelectorAll('pre code').forEach(function(c) {
+    if (/(^|\s)language-/.test(c.className)) return;
+    c.classList.add(/^\s*\$ /.test(c.textContent) ? 'language-shell' : 'language-plaintext');
+  });
   if (typeof hljs !== 'undefined') hljs.highlightAll();
 
   var copySvg = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';

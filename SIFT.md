@@ -15,6 +15,21 @@ The first usable release covers import, discovery, evaluation and interactive
 review. The complete workflow adds continuous classification, attention state
 and explicit Dooit task capture.
 
+## Implementation status
+
+The initial implementation is in `avsm/siftbot/`. See its
+[README](avsm/siftbot/README.md) for commands, configuration and verification.
+It includes the durable corpus, restricted JMAP transport, import and monitoring,
+FTS5 and sqlite-vec retrieval, bounded model classification, baseline discovery,
+frozen baseline evaluation, Bonsai review, Agentkit discussion, Memo overviews
+and explicit Dooit capture. Default tests use synthetic data.
+
+The complete design below is not yet implemented. Semantic area discovery,
+model-based frozen evaluation, reviewed identity associations, useful-question
+selection, split/list/future-rule review, and complete attention/task terminal
+flows remain. The current chronological evaluator measures the lexical/header
+baseline. No live account or real-model trial has been run.
+
 ## Agreed constraints
 
 - Labels and decisions live locally in SQLite.
@@ -402,7 +417,9 @@ areas, decisions, attention, jobs and recorded tool activity.
 Profile configuration names JMAP accounts, Sortal roots, chat and embedding
 providers, import/body limits, job budgets and optional Dooit integration. Use
 the shared JMAP profile store for authentication. Resolve configuration and
-data through XDG paths. Keep credentials out of worker messages and model input.
+data through XDG paths. Keep credentials out of review-worker messages and model input. Interactive
+profile setup uses a separate bounded local stdin channel to the credential
+helper, which writes the shared JMAP profile store and returns redacted metadata.
 
 Before a large run, report the account, date interval, available message counts,
 configured providers and work limits. Persist progress and cumulative work so
@@ -412,12 +429,12 @@ the operator can pause or resume without repeating completed inference.
 
 ### Phase 1: Corpus and protocol foundation
 
-- [ ] Add the package, domain records, explicit interfaces and profile layout.
-- [ ] Extract and test the shared read-only JMAP capability.
-- [ ] Implement atomic migrations, scoped identities and resumable year import.
-- [ ] Add headers, conversation hydration and incremental catch-up.
+- [x] Add the package, domain records, explicit interfaces and profile layout.
+- [x] Extract and test the shared read-only JMAP capability.
+- [x] Implement atomic migrations, scoped identities and resumable year import.
+- [x] Add headers, conversation hydration and incremental catch-up.
 - [ ] Add Sortal resolution, dated affiliations and duplicate relationships.
-- [ ] Add inspection commands and synthetic fixtures.
+- [x] Add inspection commands and synthetic fixtures.
 
 Acceptance: import resumes after interruption, published records remain
 consistent, updates and deletions invalidate derived data, and mocked requests
@@ -425,8 +442,8 @@ prove that no JMAP mutation is available.
 
 ### Phase 2: Retrieval, discovery and evaluation
 
-- [ ] Integrate FTS5 and the vector index with a configurable embedding adapter.
-- [ ] Add revisioned summaries, retrieval and candidate area proposals.
+- [x] Integrate FTS5 and the vector index with a configurable embedding adapter.
+- [x] Add revisioned summaries, retrieval and candidate area proposals.
 - [ ] Balance discovery across conversations, participants and active days.
 - [ ] Add chronological splitting, reviewed examples and frozen evaluations.
 - [ ] Produce evidence-linked assignments and per-label reports.
@@ -437,9 +454,9 @@ the trade-off between coverage and review burden.
 
 ### Phase 3: Bonsai review and Agentkit discussion
 
-- [ ] Add the frontend/worker protocol and synthetic demo.
+- [x] Add the frontend/worker protocol and synthetic demo.
 - [ ] Implement the three-pane UI, filters and keyboard actions.
-- [ ] Add Agentkit evidence tools and bounded admin discussion.
+- [x] Add Agentkit evidence tools and bounded admin discussion.
 - [ ] Implement useful-question selection and stored explanations.
 - [ ] Add scoped corrections, previews, revision checks and undo.
 
@@ -449,10 +466,10 @@ predictions and can be reversed. This is the first usable release.
 
 ### Phase 4: Continuous classification and actionable activity
 
-- [ ] Follow JMAP changes with durable monitoring checkpoints.
+- [x] Follow JMAP changes with durable monitoring checkpoints.
 - [ ] Add uncertainty, emerging-topic and area activity queues.
 - [ ] Maintain evidence-linked attention state and local snoozes.
-- [ ] Add explicit Dooit capture with source deduplication and receipts.
+- [x] Add explicit Dooit capture with source deduplication and receipts.
 - [ ] Re-evaluate classifier and rule revisions before adopting them.
 
 Acceptance: monitoring survives restart, reuses unchanged inference, exposes

@@ -19,6 +19,7 @@ depends: [
   "json-pointer"
   "jscontact"
   "mail-flag"
+  "markup"
   "ptime" {>= "1.0.0"}
   "eio"
   "eio_main"

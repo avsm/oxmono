@@ -1,0 +1,4 @@
+(library
+ (name siftbot_protocol)
+ (public_name siftbot.protocol)
+ (libraries siftbot.model sexplib))

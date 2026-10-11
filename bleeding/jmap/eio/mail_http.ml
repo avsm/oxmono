@@ -1,4 +1,4 @@
-module J = Email_json
+module J = Mail_json
 module U = Fetch.Middleware.Url
 
 let url s = match U.of_string s with Ok u -> u | Error _ -> J.invalid ()
@@ -36,7 +36,7 @@ let allowed ~writable ~account body =
   try
     if String.length body > 65536 then false
     else
-      let request = Jmap_eio.Codec.decode_exn ~max_depth:32 Jsont.json body in
+      let request = Codec.decode_exn ~max_depth:32 Jsont.json body in
       J.only [ "using"; "methodCalls" ] request;
       let using = List.map J.string (J.array (J.get "using" request)) in
       if
@@ -60,10 +60,11 @@ let allowed ~writable ~account body =
                     "properties";
                     "fetchTextBodyValues";
                     "fetchHTMLBodyValues";
+                    "maxBodyValueBytes";
                   ]
                   args;
                 let ids = J.ids (J.get "ids" args) in
-                ids <> [] && List.length ids <= 10
+                List.length ids <= 10
             | "Thread/get" ->
                 J.only [ "accountId"; "ids" ] args;
                 List.length (J.ids (J.get "ids" args)) = 1
@@ -84,6 +85,11 @@ let allowed ~writable ~account body =
                   args;
                 let n = J.int (J.get "limit" args) in
                 n > 0 && n <= 50
+            | "Email/changes" ->
+                J.only [ "accountId"; "sinceState"; "maxChanges" ] args;
+                ignore (J.string (J.get "sinceState" args));
+                let n = J.int (J.get "maxChanges" args) in
+                n > 0 && n <= 1000
             | "Email/set" -> writable && patch args
             | _ -> false)
         | _ -> false
@@ -110,9 +116,9 @@ let create ~url:session_url ~writable fetch =
     let headers =
       Http.Header.to_list r.headers
       |> List.for_all (fun (name, _) ->
-          List.mem
-            (String.lowercase_ascii name)
-            [ "authorization"; "accept"; "content-type" ])
+             List.mem
+               (String.lowercase_ascii name)
+               [ "authorization"; "accept"; "content-type" ])
     in
     let valid =
       match (r.meth, r.body, !destination) with

@@ -14,3 +14,7 @@ module Profile = Profile
 module Chain = Jmap.Chain
 module Calendars = Calendars
 module Mirror = Jmap.Mirror
+
+module Mail = Mail
+
+module Mail_text = Mail_text

@@ -1,0 +1,9 @@
+(lang dune 3.21)
+(name sqlite-vec)
+(generate_opam_files true)
+(version 0.1.6+oxmono)
+(license MIT)
+(package
+ (name sqlite-vec)
+ (synopsis "Static sqlite-vec bindings against the workspace SQLite")
+ (depends ocaml sqlite3))

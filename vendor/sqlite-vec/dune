@@ -1,0 +1,15 @@
+(copy_files ../../bleeding/sqlite3/vendor/sqlite3/sqlite3.h)
+
+(library
+ (name sqlite_vec)
+ (public_name sqlite-vec)
+ (libraries sqlite3)
+ (foreign_stubs
+  (language c)
+  (names sqlite-vec sqlite_vec_stubs)
+  (flags
+   :standard
+   -O2
+   -DSQLITE_CORE
+   -DSQLITE_VEC_STATIC
+   -DSQLITE_VEC_OMIT_FS)))

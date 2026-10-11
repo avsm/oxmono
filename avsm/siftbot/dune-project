@@ -1,0 +1,46 @@
+(lang dune 3.21)
+
+(name siftbot)
+
+(generate_opam_files true)
+
+(license ISC)
+
+(authors "Anil Madhavapeddy")
+
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(package
+ (name siftbot)
+ (synopsis "Local, read-only email learning and review")
+ (depends
+  (ocaml
+   (>= 5.2.0))
+  eio
+  eio_main
+  sqlite3-eio
+  jmap
+  fetch
+  fetch-curl
+  sortal
+  dooit
+  termanil
+  sqlite-vec
+  agentkit
+  agentkit-openrouter
+  openrouter
+  uutf
+  duration
+  jsont
+  ptime
+  digestif
+  sexplib
+  ppx_sexp_conv
+  cmdliner
+  bonsai_term
+  bonsai
+  core
+  async
+  ppx_jane
+  (bonsai_term_test :with-test)
+  (bonsai_test :with-test)))

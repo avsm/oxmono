@@ -1,0 +1,7 @@
+(library
+ (name siftbot_ui)
+ (public_name siftbot.ui)
+ (allow_overlapping_dependencies)
+ (libraries siftbot.model siftbot.setup termanil.ui bonsai_term bonsai core)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))

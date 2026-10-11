@@ -3,6 +3,7 @@
  (public_name jmap.eio)
  (libraries
   duration
+  markup
   jmap
   jsont
   eio
@@ -14,12 +15,16 @@
   mtime
   cmdliner
   eio_main)
- (private_modules error_context secret_file)
+ (private_modules error_context secret_file mail_http mail_json)
  (modules
   jmap_eio
   codec
   client
   calendars
+  mail
+  mail_http
+  mail_json
+  mail_text
   cli
   push
   auth

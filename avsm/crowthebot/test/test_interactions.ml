@@ -165,6 +165,7 @@ let () =
     {
       (Config.default ~admin ~homeserver:"https://matrix.example.org") with
       plugins = [ "step" ];
+      tool_calls = 6;
     }
   in
   List.iter

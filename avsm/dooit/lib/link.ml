@@ -63,7 +63,7 @@ let matches target note =
       field "type" l = "jmap-email" && key (get "target" l) = key target)
     (items "links" note.Doc.meta)
 
-let capture ?(new_task = false) ?(tags = []) ?(body = "") ?(hints = obj [])
+let capture ?(new_task = false) ?(tags = []) ?(body = "") ?due ?(hints = obj [])
     ~title store target =
   let notes, errors = Store.scan store in
   if errors <> [] then
@@ -75,7 +75,7 @@ let capture ?(new_task = false) ?(tags = []) ?(body = "") ?(hints = obj [])
       if new_task then new_uuid () else uuid5 store.Store.id (key target)
     in
     let doc =
-      Doc.create ~id ~title ~tags ~body ~links:[ source ~hints target ] ()
+      Doc.create ~id ~title ~tags ~body ?due ~links:[ source ~hints target ] ()
     in
     try [ Store.add store doc ]
     with Error _ as exn ->

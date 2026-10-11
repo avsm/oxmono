@@ -1,0 +1,35 @@
+(test
+ (name test_core)
+ (modules test_core)
+ (libraries siftbot siftbot.protocol eio_main unix))
+
+(test
+ (name test_vector)
+ (modules test_vector)
+ (libraries siftbot eio_main))
+
+(test
+ (name test_assistant)
+ (modules test_assistant)
+ (libraries siftbot agentkit eio_main))
+
+(library
+ (name siftbot_ui_tests)
+ (modules test_ui)
+ (inline_tests
+  (flags
+   (-source-tree-root .)))
+ (allow_overlapping_dependencies)
+ (libraries siftbot.ui siftbot.model siftbot.setup bonsai_term_test bonsai_test core)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))
+
+(test
+ (name test_lifecycle)
+ (modules test_lifecycle)
+ (libraries siftbot dooit eio_main unix))
+
+(test
+ (name test_setup)
+ (modules test_setup)
+ (libraries siftbot siftbot.setup siftbot.protocol jmap.eio eio_main unix))

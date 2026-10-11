@@ -1,5 +1,8 @@
 ## unreleased
 
+- Expose own-device cross-signing publication and signature refresh for bots
+  that manage local account identities.
+
 - Derive verification emojis and MACs from the wire request identifier for
   compatibility with other Matrix clients. Ignore unrelated room messages.
 

@@ -14,6 +14,10 @@ let optional names doc = Arg.(value & opt (some string) None & info names ~doc)
 let api_key_file =
   optional [ "api-key-file" ] "0600 file containing the model API key."
 
+let recovery_key_file =
+  optional [ "recovery-key-file" ]
+    "0600 file containing Crow's account recovery key for cross-signing."
+
 let verbose =
   Arg.(
     value & flag
@@ -83,10 +87,18 @@ let join =
 let serve =
   command "run" "Run Crow in enabled rooms and approved direct messages."
     Term.(
-      const (fun profile api_key_file verbose ->
+      const (fun profile api_key_file recovery_key_file verbose ->
           run ~verbose (fun env sw ->
-              Crowthebot.App.run ~env ~sw ~profile ~api_key_file))
-      $ profile $ api_key_file $ verbose)
+              Crowthebot.App.run ~env ~sw ~profile ~api_key_file ~recovery_key_file))
+      $ profile $ api_key_file $ recovery_key_file $ verbose)
+
+let setup_verification =
+  command "setup-verification" "Complete Crow's account cross-signing setup."
+    Term.(const (fun profile password_file ->
+      run (fun env sw ->
+        Crowthebot.App.setup_verification ~env ~sw ~profile ~password_file))
+      $ profile $ optional [ "password-file" ]
+          "0600 password file. Otherwise prompt only if the server requires it.")
 
 let verify =
   command "verify" "Verify Crow's saved Matrix device by comparing emoji."
@@ -107,8 +119,7 @@ let verify =
               ~doc:
                 "Wait for USER to request verification in their Matrix client.")
       $ optional [ "room" ] "Use this joined room ID for verification."
-      $ optional [ "recovery-key-file" ]
-          "0600 file containing Crow's account recovery key for cross-signing.")
+      $ recovery_key_file)
 
 let people =
   command "people" "List the whitelist and people awaiting admin approval."
@@ -240,6 +251,7 @@ let () =
             login;
             join;
             serve;
+            setup_verification;
             verify;
             people;
             memory;

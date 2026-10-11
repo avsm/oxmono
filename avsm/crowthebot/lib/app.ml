@@ -496,8 +496,73 @@ let probe ~env ~sw ~profile ~api_key_file ~target =
   if not (model_ok && caldav_ok) then
     failwith "One or more probe checks failed."
 
+let cross_signing_identity ~env ~dir ~ctx ~recovery_key_file =
+  let client = Context.client ctx in
+  match recovery_key_file with
+  | None ->
+      Option.map (fun encryption ->
+        with_timeout env 90. (fun () ->
+          let identity = Account_identity.setup ~dir ~client ~encryption
+              ~random:(Matrix_client.Random.of_source
+                         (Eio.Stdenv.secure_random env))
+              ~auth_callback:(fun challenge ->
+                if Matrix_client.Uiaa.has_dummy_flow challenge then
+                  Some (Matrix_client.Uiaa.dummy_auth
+                          ?session:challenge.session ())
+                else None)
+          in
+          Context.save ctx;
+          identity)) (Context.encryption ctx)
+  | Some path ->
+      let encryption = match Context.encryption ctx with
+        | Some encryption -> encryption
+        | None -> failwith "cross-signing requires an encrypted Matrix device"
+      in
+      Some (with_timeout env 90. (fun () ->
+        let secret_store = Matrix_eio.Secrets.open_secret_store client
+            ~credential:(Profile.read_secret path) in
+        let identity = Matrix_eio.Secrets.import_cross_signing secret_store
+            ~encryption in
+        let module Cs = Matrix_client.Cross_signing in
+        if Cs.master_secret identity = None
+           || Cs.self_signing_secret identity = None
+           || Cs.user_signing_secret identity = None then
+          failwith "Crow's recovery store has incomplete cross-signing keys";
+        Context.save ctx;
+        Log.info (fun m -> m "Crow device cross-signed user=%S device=%S"
+          (Id.User_id.to_string (Context.user_id ctx))
+          (Id.Device_id.to_string (Matrix_eio.Client.device_id client)));
+        identity))
+
+let setup_verification ~env ~sw ~profile ~password_file =
+  with_profile ~env ~sw ~profile @@ fun dir config _ ->
+  let ctx = connect ~env ~sw ~profile config () in
+  let encryption = match Context.encryption ctx with
+    | Some encryption -> encryption
+    | None -> failwith "cross-signing requires an encrypted Matrix device"
+  in
+  let password = lazy (match password_file with
+    | Some path -> Profile.read_secret path
+    | None -> password_prompt ()) in
+  let module U = Matrix_client.Uiaa in
+  let auth_callback (challenge : U.uiaa_response) =
+    if U.has_dummy_flow challenge then
+      Some (U.dummy_auth ?session:challenge.session ())
+    else if List.exists (fun (flow : U.auth_flow) -> flow.stages = [U.Password])
+              challenge.flows then
+      Some (U.password_auth ~user:(Id.User_id.to_string (Context.user_id ctx))
+              ~password:(Lazy.force password) ?session:challenge.session ())
+    else None
+  in
+  ignore (with_timeout env 90. (fun () ->
+    Account_identity.setup ~dir ~client:(Context.client ctx) ~encryption
+      ~random:(Matrix_client.Random.of_source (Eio.Stdenv.secure_random env))
+      ~auth_callback));
+  Context.save ctx;
+  print_endline "Crow's account identity and saved device are cross-signed."
+
 let verify ~env ~sw ~profile ~user ~listen ~room ~recovery_key_file =
-  with_profile ~env ~sw ~profile @@ fun _ config _ ->
+  with_profile ~env ~sw ~profile @@ fun dir config _ ->
   if not (Unix.isatty Unix.stdin) then
     invalid_arg "verification requires an interactive terminal";
   let target =
@@ -514,34 +579,10 @@ let verify ~env ~sw ~profile ~user ~listen ~room ~recovery_key_file =
     | None -> failwith "verification requires an encrypted Matrix device"
   in
   let client = Context.client ctx in
-  let private_identity =
-    Option.map
-      (fun path ->
-        with_timeout env 90. (fun () ->
-            let secret_store =
-              Matrix_eio.Secrets.open_secret_store client
-                ~credential:(Profile.read_secret path)
-            in
-            let identity =
-              Matrix_eio.Secrets.import_cross_signing secret_store ~encryption
-            in
-            let module Cs = Matrix_client.Cross_signing in
-            if
-              Cs.master_secret identity = None
-              || Cs.self_signing_secret identity = None
-              || Cs.user_signing_secret identity = None
-            then
-              failwith "Crow's recovery store has incomplete cross-signing keys";
-            identity))
-      recovery_key_file
-  in
+  let private_identity = cross_signing_identity ~env ~dir ~ctx ~recovery_key_file in
   Printf.printf "Crow account: %s\nSaved device: %s\n%!"
     (Id.User_id.to_string (Context.user_id ctx))
     (Id.Device_id.to_string (Matrix_eio.Client.device_id client));
-  if private_identity = None then
-    print_endline
-      "Device-only verification. For user verification across clients, supply \
-       --recovery-key-file with Crow's account recovery key.";
   let input = Eio.Buf_read.of_flow ~max_size:4096 (Eio.Stdenv.stdin env) in
   let ask question =
     print_string question;
@@ -570,7 +611,7 @@ let verify ~env ~sw ~profile ~user ~listen ~room ~recovery_key_file =
         ("Verification cancelled: "
         ^ Matrix_client.Verification.Cancel_code.reason code)
 
-let run ~env ~sw ~profile ~api_key_file =
+let run ~env ~sw ~profile ~api_key_file ~recovery_key_file =
   Log.info (fun m -> m "Starting Crow profile=%S" profile);
   with_profile ~env ~sw ~profile @@ fun dir config store ->
   if config.log_level <> "warning" then Diagnostics.configure_level config.log_level;
@@ -581,6 +622,7 @@ let run ~env ~sw ~profile ~api_key_file =
       m "Profile loaded admin=%S enabled_rooms=%d" config.admin
         (List.length (Store.rooms store)));
   let ctx = connect ~env ~sw ~profile config () in
+  let private_identity = cross_signing_identity ~env ~dir ~ctx ~recovery_key_file in
   let complete_model =
     complete_for_config ~env ~sw ~profile ~dir ~store ~api_key_file config
   in
@@ -607,7 +649,8 @@ let run ~env ~sw ~profile ~api_key_file =
     |> Engine.with_room_observation
     |> fun engine ->
     Engine.with_matrix engine
-      (Matrix_rooms.create ~store
+      (Matrix_rooms.create ~store ~client:(Context.client ctx)
+         ?encryption:(Context.encryption ctx)
          ~self:(Id.User_id.to_string (Context.user_id ctx))
          ~state:(fun () -> !matrix_state ())
          ~send:(fun () -> !matrix_sender ())
@@ -687,15 +730,24 @@ let run ~env ~sw ~profile ~api_key_file =
             List.length members > 2 && List.mem self members
             && List.mem (Store.admin store) members
   in
-  let onboarding = Onboarding.create ~store ~self ~now:(now env)
-      ~check_room ~send_admin ~verify
+  let onboarding = Onboarding.create ~store ~self
+      ~check_room
+      ~room_label:(fun room ->
+        match state () with
+        | None -> room
+        | Some snapshot ->
+            match Matrix_client.Base_client.find_room snapshot
+                    (Id.Room_id.of_string_exn room) with
+            | None -> room
+            | Some info -> Matrix_rooms.room_label info)
+      ~send_admin ~verify
       ~respond:(fun ~flow_id ~accept ->
         Option.iter (fun service ->
           Matrix_eio.Verification_service.respond service client ~flow_id ~accept)
           !verification)
   in
   verification := Option.map (fun encryption ->
-    Matrix_eio.Verification_service.create ~client ~encryption
+    Matrix_eio.Verification_service.create ~client ~encryption ?private_identity
       ~methods:[Matrix_client.Verification.Method.Sas_v1]
       ~on_prompt:(Onboarding.prompt onboarding)
       ~on_result:(fun result ->

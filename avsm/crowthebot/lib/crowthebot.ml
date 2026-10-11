@@ -50,3 +50,5 @@ module Caldav_tools = Caldav_tools
 module Caldav_agenda = Caldav_agenda
 module Caldav_agenda_store = Caldav_agenda_store
 module Caldav_text = Caldav_text
+
+module Account_identity = Account_identity

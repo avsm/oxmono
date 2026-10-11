@@ -299,7 +299,7 @@ let queried_device_keys (device : Encryption.device) : Keys.device_keys =
     unsigned = None;
   }
 
-let verify_own_device t ~encryption identity =
+let sign_own_device client ~encryption identity =
   match Cross_signing.self_signing_secret identity with
   | None -> Ok ()
   | Some signer -> (
@@ -318,7 +318,7 @@ let verify_own_device t ~encryption identity =
           let* json = encode_json Keys.device_keys_jsont signed in
           let target = Matrix_proto.Id.Device_id.to_string device_id in
           let* response =
-            Keys.upload_signatures t.store_client
+            Keys.upload_signatures client
               [ (user_id, [ (target, json) ]) ]
           in
           if response.failures <> [] then
@@ -327,7 +327,7 @@ let verify_own_device t ~encryption identity =
                own-device signature"
           else
             let* query =
-              Keys.query_keys t.store_client ~users:[ (user_id, []) ] ()
+              Keys.query_keys client ~users:[ (user_id, []) ] ()
             in
             Encryption.receive_keys_query encryption query;
             match
@@ -395,7 +395,7 @@ let import_cross_signing t ~encryption =
               ~user_signing:user_signing_secret
           with
           | Ok identity ->
-              let* () = verify_own_device t ~encryption identity in
+              let* () = sign_own_device t.store_client ~encryption identity in
               Ok identity
           | Error e -> import_error e)
       | _ ->

@@ -14,8 +14,12 @@ let () =
   let now = ref 0. and eligible = ref true and fail_send = ref false in
   let notices = ref [] and replies = ref [] and starts = ref 0 in
   let answers = ref [] in
-  let make () = Onboarding.create ~store ~self ~now:(fun () -> !now)
+  let make () = Onboarding.create ~store ~self
       ~check_room:(fun room -> room = group && !eligible)
+      ~room_label:(fun room ->
+        if room = group then "#group:example.org"
+        else if room = "!named:example.org" || room = "!duplicate:example.org"
+        then "Team Planning" else room)
       ~send_admin:(fun text ->
         if !fail_send then failwith "send failed";
         notices := text :: !notices)
@@ -49,19 +53,26 @@ let () =
   Onboarding.request t ~room:group;
   Onboarding.request t ~room:group;
   check "one notice and one verification" (!starts = 1 && List.length !notices = 1);
+  check "notice uses readable alias and command"
+    (String.starts_with
+       ~prefix:"I've joined #group:example.org. Reply `room approve #group:example.org`"
+       (List.hd !notices));
+  ignore (handle ~id:"$rooms" "rooms");
+  check "pending rooms use readable alias"
+    (List.hd !replies = "Pending rooms:\n#group:example.org");
   check "join never silently enables room" (Store.rooms store = []);
   check "group command consumed"
     (handle ~direct:false "!crow room approve !group:example.org");
   check "group cannot approve" (Store.rooms store = []);
-  ignore (handle ~sender:"@friend:example.org" "room approve !group:example.org");
+  ignore (handle ~sender:"@friend:example.org" "room approve #group:example.org");
   check "other user cannot approve" (Store.rooms store = []);
   ignore (handle ~id:"$unknown" "room approve !unknown:example.org");
   check "unknown room cannot be enabled" (Store.rooms store = []);
   eligible := false;
-  ignore (handle ~id:"$left" "room approve !group:example.org");
+  ignore (handle ~id:"$left" "room approve #group:example.org");
   check "membership rechecked at approval" (Store.rooms store = []);
   eligible := true;
-  ignore (handle ~id:"$approve" "room approve !group:example.org");
+  ignore (handle ~id:"$approve" "room approve #group:example.org");
   check "admin DM enables room" (Store.rooms store = [group]);
   group_help admin "$after";
   check "approved group accepts commands" (List.length !group_replies = 1);
@@ -74,7 +85,7 @@ let () =
   check "approved friends can use enabled group"
     (List.length !group_replies = 2);
   let before = List.length !replies in
-  ignore (handle ~id:"$approve" "room approve !group:example.org");
+  ignore (handle ~id:"$approve" "room approve #group:example.org");
   check "event deduplicated" (List.length !replies = before);
   check "conversation continues to engine" (not (handle "hello"));
   let prompt user = Matrix_eio.Verification_service.{
@@ -83,28 +94,33 @@ let () =
   in
   Onboarding.prompt t ~flow_id:"foreign" (prompt "@stranger:example.org");
   check "foreign prompt refused" (!answers = [("foreign",false)]);
+  fail_send := true;
+  (try Onboarding.prompt t ~flow_id:"undelivered" (prompt admin);
+       failwith "expected send failure"
+   with Failure message -> check "SAS send failed" (message = "send failed"));
+  check "undelivered SAS is not confirmed" (List.length !answers = 1);
+  fail_send := false;
   Onboarding.prompt t ~flow_id:"sas" (prompt admin);
-  ignore (handle ~direct:false ~id:"$group-sas" "!crow verify yes sas");
-  ignore (handle ~sender:"@friend:example.org" ~id:"$friend-sas" "verify yes sas");
-  check "only admin DM may answer SAS" (List.length !answers = 1);
-  ignore (handle ~id:"$bad-id" "verify yes wrong");
-  check "flow ID must match" (List.length !answers = 1);
-  ignore (handle ~id:"$sas" "verify yes sas");
-  ignore (handle ~id:"$sas-again" "verify yes sas");
-  check "SAS confirmed exactly once" (!answers = [("sas",true);("foreign",false)]);
-  Onboarding.prompt t ~flow_id:"old" (prompt admin);
-  now := 601.;
-  ignore (handle ~id:"$old" "verify yes old");
-  check "expired SAS cannot be confirmed" (List.length !answers = 2);
-  Onboarding.prompt t ~flow_id:"mismatch" (prompt admin);
-  ignore (handle ~id:"$mismatch" "verify no mismatch");
-  check "mismatch is sent" (List.hd !answers = ("mismatch",false));
-  Onboarding.prompt t ~flow_id:"cancelled" (prompt admin);
+  check "SAS posted and automatically confirmed"
+    (!answers = [("sas",true);("foreign",false)]
+     && String.ends_with
+          ~suffix:"Crow confirms its side automatically." (List.hd !notices));
+  ignore (handle ~id:"$obsolete" "verify yes sas");
+  check "obsolete command cannot confirm twice" (List.length !answers = 2);
   Onboarding.result t (Matrix_eio.Verification_service.Cancelled {
       user_id = Matrix_proto.Id.User_id.of_string_exn admin;
       code = Matrix_client.Verification.Cancel_code.User });
-  ignore (handle ~id:"$cancelled" "verify yes cancelled");
-  check "finished flows cannot be confirmed" (List.length !answers = 3);
+  check "client cancellation reported"
+    (String.starts_with ~prefix:"Verification cancelled:" (List.hd !notices));
+  Store.request_room store "!named:example.org";
+  Store.request_room store "!duplicate:example.org";
+  ignore (handle ~id:"$ambiguous" "room reject Team Planning");
+  check "ambiguous names cannot change room approval"
+    (List.length (Store.room_requests store) = 2);
+  ignore (handle ~id:"$remove-duplicate" "room reject !duplicate:example.org");
+  ignore (handle ~id:"$named" "room reject Team Planning");
+  check "unique names containing spaces accepted"
+    (Store.room_requests store = [] && List.hd !replies = "Rejected Team Planning");
   (* Reopen the store to exercise schema and pending/decision persistence. *)
   Store.request_room store "!reject:example.org";
   Store.decide_room store ~actor:admin ~room:"!reject:example.org" ~approve:false;

@@ -79,3 +79,9 @@ let import_cross_signing t ~encryption =
   (* A successful import also refreshed the validated public identity. *)
   Encryption.save encryption;
   identity
+
+let sign_own_device client ~encryption identity =
+  unwrap "cross-signing the current Matrix device" (fun () ->
+      S.sign_own_device (Client.base client)
+        ~encryption:(Encryption.machine encryption) identity);
+  Encryption.save encryption

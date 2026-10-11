@@ -129,3 +129,11 @@ val import_cross_signing :
 (** Imports the optional well-known cross-signing private seeds after a fresh
     validated [/keys/query], self-signs the current device when possible, and
     persists the resulting public-identity refresh. *)
+
+val sign_own_device :
+  Client.t -> encryption:Encryption.t ->
+  Matrix_client.Cross_signing.private_identity -> unit
+(** [sign_own_device client ~encryption identity] publishes a signature for the
+    queried current device and checks it with a fresh key query. The identity
+    must match this account's published keys. A missing device or private
+    self-signing key is a no-op. Rejected or absent signatures raise. *)

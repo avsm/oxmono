@@ -171,12 +171,24 @@ let scenario ?(live_bot = false) env ~cross_sign ~accept_request ~match_sas =
   let run_live () =
     let outcome, resolver = Eio.Promise.create () in
     let running = ref None in
+    let service = ref None in
+    let store = Crowthebot.Store.create (Sqlite3_eio.open_memory ~sw ())
+        ~admin:(Id.User_id.to_string admin) in
+    let onboarding = Crowthebot.Onboarding.create ~store
+        ~self:(Id.User_id.to_string crow) ~check_room:(fun _ -> false)
+        ~room_label:Fun.id
+        ~send_admin:(fun text -> crow_prompts := text :: !crow_prompts)
+        ~verify:(fun () -> ())
+        ~respond:(fun ~flow_id ~accept ->
+          V.respond (Option.get !service) crow_client ~flow_id ~accept) in
     let verification = V.create ~client:crow_client ~encryption:crow_enc
+        ?private_identity:(if cross_sign then Some crow_identity else None)
         ~methods:[Matrix_client.Verification.Method.Sas_v1]
-        ~confirm:(fun p -> ask crow_prompts (Crowthebot.Verification.prompt p))
+        ~on_prompt:(Crowthebot.Onboarding.prompt onboarding)
         ~on_result:(fun result ->
           Eio.Promise.resolve resolver result;
           Option.iter Matrix_bot.Bot.stop !running) () in
+    service := Some verification;
     let ctx = Matrix_bot.Context.v ~env ~sw ~client:crow_client
         ~encryption:crow_enc () in
     Matrix_bot.Bot.run ~verification ctx
@@ -222,6 +234,7 @@ let scenario ?(live_bot = false) env ~cross_sign ~accept_request ~match_sas =
 
 let () =
   Eio_main.run @@ fun env ->
+  scenario ~live_bot:true env ~cross_sign:true ~accept_request:true ~match_sas:true;
   scenario ~live_bot:true env ~cross_sign:false ~accept_request:true ~match_sas:true;
   scenario ~live_bot:true env ~cross_sign:false ~accept_request:true ~match_sas:false;
   scenario env ~cross_sign:false ~accept_request:true ~match_sas:true;

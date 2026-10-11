@@ -202,6 +202,15 @@ val import_backup :
     it does not download room keys. Validation completes before the encryption
     machine is changed. *)
 
+val sign_own_device :
+  Client.t -> encryption:Encryption.t ->
+  Cross_signing.private_identity -> (unit, Error.t) result
+(** [sign_own_device client ~encryption identity] signs the queried current
+    device with [identity]'s self-signing key, publishes its signature, and
+    checks that a fresh key query contains a valid signature. The identity must
+    match this account's published keys. A missing device or private
+    self-signing key is a no-op. *)
+
 val import_cross_signing :
   store ->
   encryption:Encryption.t ->

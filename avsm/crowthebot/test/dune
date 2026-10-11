@@ -28,7 +28,17 @@
 (test
  (name test_verification)
  (modules test_verification)
- (libraries crowthebot eio_main fetch.mock http jsont jsont.bytesrw))
+ (libraries crowthebot sqlite3-eio eio_main fetch.mock http jsont jsont.bytesrw))
+
+(test
+ (name test_account_identity)
+ (modules test_account_identity)
+ (libraries crowthebot eio_main fetch.mock jsont jsont.bytesrw unix))
+
+(test
+ (name test_matrix_history)
+ (modules test_matrix_history)
+ (libraries crowthebot sqlite3-eio eio_main fetch.mock jsont jsont.bytesrw))
 
 (test
  (name test_memory)

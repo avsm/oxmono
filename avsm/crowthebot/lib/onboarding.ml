@@ -4,20 +4,19 @@ module Log = Diagnostics.Log
 type t = {
   store : Store.t;
   self : string;
-  now : unit -> float;
   check_room : string -> bool;
+  room_label : string -> string;
   send_admin : string -> unit;
   verify : unit -> unit;
   respond : flow_id:string -> accept:bool -> unit;
   notified : (string, unit) Hashtbl.t;
-  prompts : (string, float) Hashtbl.t;
   mutable verification_started : bool;
   mutex : Eio.Mutex.t;
 }
 
-let create ~store ~self ~now ~check_room ~send_admin ~verify ~respond =
-  { store; self; now; check_room; send_admin; verify; respond;
-    notified = Hashtbl.create 8; prompts = Hashtbl.create 2;
+let create ~store ~self ~check_room ~room_label ~send_admin ~verify ~respond =
+  { store; self; check_room; room_label; send_admin; verify; respond;
+    notified = Hashtbl.create 8;
     verification_started = false; mutex = Eio.Mutex.create () }
 
 let request t ~room =
@@ -26,11 +25,12 @@ let request t ~room =
       Store.request_room t.store room;
       if List.mem room (Store.room_requests t.store)
          && not (Hashtbl.mem t.notified room) then begin
+        let label = t.room_label room in
         t.send_admin
           (Printf.sprintf
              "I've joined %s. Reply `room approve %s` to enable me there, or \
               `room reject %s`. Only approved people can use me."
-             room room room);
+             label label label);
         Hashtbl.replace t.notified room ();
         if not t.verification_started then begin
           t.verify ();
@@ -43,18 +43,17 @@ let prompt t ~flow_id (p : V.prompt) =
   if Matrix_proto.Id.User_id.to_string p.their_user_id <> Store.admin t.store
   then t.respond ~flow_id ~accept:false
   else begin
-    Hashtbl.replace t.prompts flow_id (t.now () +. 600.);
     t.send_admin
       (Verification.prompt p ~confirmation:
-        ("Compare all seven emoji or all three numbers in your Matrix client. "
-         ^ "Reply `verify yes " ^ flow_id ^ "` if they match, or `verify no "
-         ^ flow_id ^ "` otherwise."))
+        "Compare these with your Matrix client. Confirm there if they match, \
+         or cancel there if they differ. Crow confirms its side automatically.");
+    t.respond ~flow_id ~accept:true
   end
 
 let result t outcome =
   let user, message = match outcome with
     | V.Verified { user_id; _ } ->
-        user_id, "Device verified. Group rooms still need `room approve ID`."
+        user_id, "Device verified. Group rooms still need `room approve ROOM`."
     | V.Publication_failed { user_id; _ } ->
         user_id, "Verification publication failed. Reply `verify` to retry."
     | V.Cancelled { user_id; code } ->
@@ -63,7 +62,6 @@ let result t outcome =
                   ^ ". Reply `verify` to retry.")
   in
   if Matrix_proto.Id.User_id.to_string user = Store.admin t.store then begin
-    Hashtbl.clear t.prompts;
     t.send_admin message
   end
 
@@ -82,29 +80,34 @@ let handle t ~direct ~send (e : Engine.event) =
         | [ "rooms" ] ->
             let rooms = Store.room_requests t.store in
             send (if rooms = [] then "No pending rooms."
-                  else "Pending rooms:\n" ^ String.concat "\n" rooms)
-        | [ "room"; ("approve" | "reject" as decision); room ] ->
-            if not (List.mem room (Store.room_requests t.store)) then
-              send "No pending request for that room. Use `rooms`."
-            else if decision = "approve" && not (t.check_room room) then
-              send "Crow and the admin must still be members of that group."
-            else begin
-              Store.decide_room t.store ~actor:e.sender ~room
-                ~approve:(decision = "approve");
-              Log.info (fun m -> m "Room approval room=%S actor=%S approved=%b"
-                room e.sender (decision = "approve"));
-              send ((if decision = "approve" then "Enabled " else "Rejected ")
-                    ^ room)
-            end
+                  else "Pending rooms:\n"
+                    ^ String.concat "\n" (List.map t.room_label rooms))
+        | "room" :: ("approve" | "reject" as decision) :: target
+          when target <> [] ->
+            let target = String.concat " " target in
+            let pending = Store.room_requests t.store in
+            let matches =
+              if List.mem target pending then [target]
+              else List.filter (fun room -> t.room_label room = target) pending
+            in
+            (match matches with
+             | [] -> send "No pending request for that room. Use `rooms`."
+             | _ :: _ :: _ ->
+                 send "Several pending rooms have that name. Use the room ID."
+             | [room] ->
+                 if decision = "approve" && not (t.check_room room) then
+                   send "Crow and the admin must still be members of that group."
+                 else begin
+                   Store.decide_room t.store ~actor:e.sender ~room
+                     ~approve:(decision = "approve");
+                   Log.info (fun m ->
+                     m "Room approval room=%S actor=%S approved=%b"
+                       room e.sender (decision = "approve"));
+                   send ((if decision = "approve" then "Enabled " else "Rejected ")
+                         ^ t.room_label room)
+                 end)
         | [ "verify" ] -> t.verify ()
-        | [ "verify"; ("yes" | "no" as answer); flow_id ] ->
-            (match Hashtbl.find_opt t.prompts flow_id with
-             | Some until when t.now () < until ->
-                 Hashtbl.remove t.prompts flow_id;
-                 t.respond ~flow_id ~accept:(answer = "yes");
-                 send "Verification response sent."
-             | _ -> send "No current SAS prompt with that ID. Reply `verify`.")
-        | _ -> send "Usage: rooms | room approve|reject ID | verify [yes|no FLOW]"
+        | _ -> send "Usage: rooms | room approve|reject ROOM | verify"
       end;
       true
   | _ -> false

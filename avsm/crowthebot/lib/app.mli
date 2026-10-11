@@ -35,9 +35,22 @@ val run :
   sw:Eio.Switch.t ->
   profile:string ->
   api_key_file:string option ->
+  recovery_key_file:string option ->
   unit
-(** [run ~env ~sw ~profile ~api_key_file] runs until interrupted or the Matrix
-    runtime stops. It restores the profile's encrypted Matrix device. *)
+(** [run ~env ~sw ~profile ~api_key_file ~recovery_key_file] runs until
+    interrupted or the Matrix runtime stops. It restores the profile's
+    encrypted Matrix device. [recovery_key_file] imports Crow's existing
+    cross-signing identity. Otherwise Crow loads or creates its private account
+    keys in the profile. It signs the saved device and uses the account identity
+    for live verification. Existing remote identities are never replaced. *)
+
+val setup_verification :
+  env:Eio_unix.Stdenv.base -> sw:Eio.Switch.t -> profile:string ->
+  password_file:string option -> unit
+(** [setup_verification ~env ~sw ~profile ~password_file] completes first-time
+    account cross-signing when the server requires a password. It reuses saved
+    keys and never replaces an existing identity. Without [password_file], a
+    password challenge prompts without echo. Stop [run] first. *)
 
 val verify :
   env:Eio_unix.Stdenv.base ->

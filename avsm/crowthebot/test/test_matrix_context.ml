@@ -100,7 +100,7 @@ let () =
   in
   let initial =
     Printf.sprintf
-      {|{"next_batch":"initial","rooms":{"join":{%s,"!room:example.org":{"state":{"events":[{"type":"m.room.topic","state_key":"","content":{"topic":"Robot workshop"}},{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}},"!dm:example.org":{"state":{"events":[{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}}}}}|}
+      {|{"next_batch":"initial","rooms":{"join":{%s,"!room:example.org":{"state":{"events":[{"type":"m.room.canonical_alias","state_key":"","content":{"alias":"#workshop:example.org"}},{"type":"m.room.name","state_key":"","content":{"name":"Workshop"}},{"type":"m.room.topic","state_key":"","content":{"topic":"Robot workshop"}},{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}},"!dm:example.org":{"state":{"events":[{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}}}}}|}
       (String.concat "," rooms)
   in
   let pending = ref [ initial ] in
@@ -191,6 +191,28 @@ let () =
           check "live topic and current room"
             (field "topic" Jsont.string info = "Robot workshop"
             && field "current" Jsont.bool info);
+          let aliases =
+            field "rooms" (Jsont.list Jsont.json) last
+            |> List.map (encode Jsont.json)
+          in
+          check "room listing supplies readable aliases"
+            (List.exists (fun text ->
+               field "canonical_alias" (Jsont.option Jsont.string) text
+               = Some "#workshop:example.org") aliases);
+          let aliased = Result.get_ok
+              (query "matrix_room_info" {|{"room":"#workshop:example.org"}|}) in
+          check "room inspection accepts aliases"
+            (field "room" Jsont.string aliased = room);
+          let metadata = Option.get (Matrix_client.Base_client.find_room
+              ((Option.get !state) ()) (Id.Room_id.of_string_exn room)) in
+          check "alias preferred to name"
+            (Matrix_rooms.room_label metadata = "#workshop:example.org");
+          check "name fallback"
+            (Matrix_rooms.room_label {metadata with canonical_alias = None}
+             = "Workshop");
+          check "ID fallback for unnamed room"
+            (Matrix_rooms.room_label
+               {metadata with canonical_alias = None; name = None} = room);
           check "membership metadata" (field "known_members" Jsont.int info = 2);
           check "nonjoined room refused"
             (Result.is_error

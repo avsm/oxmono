@@ -1,5 +1,17 @@
 # Changes
 
+- Add paginated room-history review with current membership checks, encrypted
+  excerpts and message references for summaries.
+
+- Manage Crow's account cross-signing keys automatically, sign its saved device
+  and use the identity for live verification. Retain keys across setup retries.
+
+- Post verification emoji in the admin DM and confirm Crow's side automatically.
+  Complete or cancel verification in the Matrix client without a DM reply.
+
+- Use room aliases or names in onboarding notices and accept them in approval
+  commands. Include aliases in Matrix room listings for model replies.
+
 - DM the admin to approve invited groups, recover joined disabled rooms on
   startup, and perform live SAS device verification without stopping Crow.
 

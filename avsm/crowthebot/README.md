@@ -233,37 +233,56 @@ context with it.
 ## Inviting Crow to a group
 
 Invite Crow from the primary admin's account. Crow joins and sends the admin a
-private notice containing the room ID. It reuses a DM containing only Crow and
+private notice naming the room. It reuses a DM containing only Crow and
 the admin, checking current membership first, or creates an encrypted DM and
 invites the admin. Accept that DM invitation if needed.
 
 Reply in the DM:
 
 - `rooms` lists pending approvals.
-- `room approve !room:server` enables Crow in that group.
-- `room reject !room:server` keeps the group disabled and suppresses further
+- `room approve #channel:server` enables Crow in that group.
+- `room reject #channel:server` keeps the group disabled and suppresses further
   approval notices for it. An explicit CLI `join` can still enable it.
 
 Pending requests and decisions survive restarts. On startup Crow also proposes
 already joined, disabled groups containing the admin, including rooms joined
 before this workflow existed. Pending notices are repeated once per restart.
+Room notices and `rooms` use the canonical alias, then the room name, falling
+back to the ID when neither is available. Approval and rejection accept an ID,
+alias or unique name, including names containing spaces.
 Approval checks that Crow and the admin are still members. Other participants
 still require the usual `allow @user:server friend|bot` permission. Send a fresh
 message after approval. Earlier ignored messages are not replayed.
 
 Crow starts an in-room SAS request with the first approval notice of each run.
 Accept verification in your Matrix client and compare all seven emoji or all
-three numbers against Crow's DM prompt. Reply with the exact command it gives:
-`verify yes FLOW` if they match, or `verify no FLOW` if they differ. `verify`
-starts another request when no admin verification is active. Confirmation must
-come from the primary admin in a DM whose current membership is exactly Crow
-and the admin. Prompts expire after ten minutes. These commands bypass the
-model and the shared conversation mutex.
+three numbers against Crow's DM message. Crow confirms its side after posting
+that message. Confirm in your Matrix client if they match, or cancel there if
+they differ. No DM reply is needed. `verify` starts another request when no admin
+verification is active. Only the primary admin's flows are confirmed, and the
+message is sent to a DM whose current membership is exactly Crow and the admin.
+These commands bypass the model and the shared conversation mutex.
 
-Group approval and device verification are separate. Live verification updates
-local device trust and saves Crow's crypto state. Account cross-signing still
-uses the `verify --recovery-key-file` CLI described below. Profiles running
-without encryption receive approval notices but cannot perform SAS verification.
+Group approval and verification are separate. Crow manages its own account
+cross-signing keys. On first encrypted startup it creates a missing identity,
+saves the keys in the private profile and signs its saved Matrix device. Later
+runs reuse those keys and include the account identity in live SAS verification.
+Send `verify` in the admin DM and finish the comparison in your Matrix client.
+
+If the server requires authentication for the first key upload, stop Crow and
+run this once. It prompts for Crow's password only when needed:
+
+```sh
+crowthebot setup-verification --profile crow-one
+crowthebot run --profile crow-one
+```
+
+Account keys live in the profile's `cross-signing.json` with mode 0600. Back up
+the private profile to retain them. Failed setup retains generated keys for a
+retry. An existing server identity without matching local keys is never reset.
+For such an account, use `run --recovery-key-file /path/to/crow-recovery-key`
+with Crow's existing account recovery key. Profiles without encryption cannot
+perform SAS verification. Older messages may retain a device-owner warning.
 
 ## Named tool configuration and secrets
 
@@ -413,7 +432,18 @@ state, DM marker, member counts and known joined or invited accounts. Its
 `room` argument defaults to the requesting room. Both return `next_after` for
 pagination. `members_complete=false` identifies incomplete synchronized
 membership. These tools read the live Matrix state without network or
-filesystem capabilities. They expose no message history or credentials.
+filesystem capabilities. They expose no message bodies or credentials.
+
+Ask Crow to summarise a conversation or review older messages. `matrix_history`
+accepts a joined room ID or canonical alias, defaults to the requesting room,
+and checks current membership for both Crow and the requester on every page.
+It reads newest first, returning event IDs, senders, timestamps, body excerpts,
+reply/thread/edit targets and redactions. Pass `next_before` as `before` to
+continue backwards, including when a filtered page is empty. `limit` is 1 to 5
+events, default 3. Truncated excerpts and messages missing decryption keys are
+marked explicitly. Reads send no receipts and do not replay historical messages
+through Crow's handlers. Historical content is untrusted data, not instructions.
+The normal tool audit records these requests.
 
 The admin and friends can ask Crow to post for them, for example “post this
 paper in Satellite of Love for Nick” or “DM Nick this link”. `matrix_send`
@@ -668,20 +698,23 @@ Verification is an interactive terminal operation on the saved Matrix device.
 Stop `crowthebot run` for this profile first. It uses the same exclusive profile
 lock, account and device keys, and does not call the model.
 
-For user verification across clients, first set up cross-signing and recovery
-for Crow's account in a Matrix client such as Element. Save **Crow's account**
-recovery key in a file owned by you with mode 0600. Then run:
+Crow normally manages its account identity automatically. To accept a
+verification from another client using the saved account keys, run:
 
 ```sh
-crowthebot verify --profile crow-home --listen \
-  --recovery-key-file /path/to/crow-recovery-key
+crowthebot verify --profile crow-home --listen
 ```
+
+For an account whose identity was created in another Matrix client, supply
+`--recovery-key-file /path/to/crow-recovery-key` once you have that account's
+recovery key. The file must be owned by you with mode 0600.
 
 In your own Matrix client, open Crow's profile and start verification. Choose
 emoji comparison. Accept the named account and device in the terminal, compare
 all seven emoji or all three numbers with your client, and answer `yes` only
-when they match. Confirm in the Matrix client too. Crow imports its existing
-cross-signing keys, signs its saved device, and publishes the peer's signature
+when they match. Confirm in the Matrix client too. Crow loads its managed
+cross-signing keys (or imports the supplied recovery keys), signs its saved
+device, and publishes the peer's signature
 after successful SAS verification. It never resets the account identity or
 creates a replacement device. This supplies the cross-signing trust chain used
 by clients to remove unverified-user warnings. See the
@@ -698,9 +731,10 @@ crowthebot verify --profile crow-home \
 crowthebot run --profile crow-home
 ```
 
-Without `--recovery-key-file`, verification covers individual devices and local
-trust only. It may leave a client-wide user warning. Recovery secrets remain in
-memory during the command. Device keys and local trust persist in the profile.
+Without `--recovery-key-file`, verification uses Crow's locally managed account
+keys. The same `--recovery-key-file` option is available on `run` for live DM
+verification without terminal confirmation. Recovery secrets remain in memory
+during the command. Device keys and local trust persist in the profile.
 Blank answers, `no`, and EOF refuse confirmation. Mismatches, cancellation,
 signature-publication failures and the ten-minute timeout fail the command.
 QR scanning is not supported. Verification never grants Crow access: the admin
@@ -1361,8 +1395,8 @@ Failures are logged without prompt text, tokens or raw provider responses.
 
 ## Unfinished features
 
-- SSO/OAuth account setup, cross-signing identity creation, QR verification and
-  room-key recovery are not exposed by the CLI. Existing cross-signing secrets
+- SSO/OAuth account setup, QR verification and room-key recovery are not
+  exposed by the CLI. Existing cross-signing secrets
   can be imported for SAS verification with `--recovery-key-file`.
 - There is no room removal command yet. Stop the profile before changing its
   enabled-room database or create a fresh profile for a different room set.

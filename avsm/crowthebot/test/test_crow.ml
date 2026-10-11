@@ -184,7 +184,7 @@ base_url = "https://model.example/v1"
 model = "m"
 system_prompt = "p"|}
      with
-    | Ok c -> c.compaction_reasoning_effort = Some "none" && c.max_tokens = 4096
+    | Ok c -> c.compaction_reasoning_effort = Some "none" && c.max_tokens = 16384
     | Error _ -> false);
   check "invalid compaction reasoning rejected"
     (bad (fun () ->
@@ -199,6 +199,33 @@ system_prompt = "p"|}
          ignore
            (Engine.create ~config:{ config with plugins = [ "missing" ] }
               ~store ~self ~plugins:[ plugin ] ~complete:(Fake_model.v complete) ~now:(fun () -> 0.))));
+  let encoded = Result.get_ok (Jsont_bytesrw.encode_string Config.jsont config) in
+  let legacy = Result.get_ok (Jsont_bytesrw.decode_string Jsont.json encoded) in
+  let legacy = match legacy with
+    | Jsont.Object (members, meta) -> Jsont.Object
+        (List.filter (fun ((key, _), _) -> not (List.mem key
+          ["tool_calls"; "tool_result_bytes"; "tool_request_bytes";
+           "parallel_tool_calls"; "model_timeout_seconds";
+           "turn_timeout_seconds"])) members, meta)
+    | _ -> assert false in
+  let restored = Result.get_ok (Jsont.Json.decode Config.jsont legacy) in
+  check "existing JSON profiles get large tool defaults"
+    (restored.tool_calls = 256 && restored.parallel_tool_calls = 8
+     && restored.tool_result_bytes = 65536);
+  let restored = Result.get_ok (Config.of_toml_string
+    {|admin = "@admin:example.org"
+homeserver = "https://matrix.example.org"
+base_url = "https://model.example.org"
+model = "test"
+system_prompt = "hello"
+|}) in
+  Config.validate restored;
+  check "existing TOML profiles get large tool defaults"
+    (restored.tool_request_bytes = 8388608
+     && restored.turn_timeout_seconds = 3600);
+  Config.validate {restored with max_tokens = 65536; context_bytes = 2000000};
+  check "invalid tool limits refused"
+    (bad (fun () -> Config.validate {restored with parallel_tool_calls = 0}));
   let native =
     Openrouter.of_fetch ~base_url:"https://model.example/v1"
       (Fetch_mock.client (fun req ->
@@ -267,7 +294,8 @@ system_prompt = "p"|}
          (event ~sender:admin "loop" "!crow ask hello");
        false
      with Failure _ -> true);
-  check "at most six tool calls" (!plugin_calls = before + 6);
+  check "configured tool allowance"
+    (!plugin_calls = before + config.tool_calls);
   let hung = ref true and tick = ref 0. in
   let pending, _ = Eio.Promise.create () in
   let complete _ _ =

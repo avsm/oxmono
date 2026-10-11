@@ -13,6 +13,12 @@ type t = {
   context_messages : int;
   context_bytes : int;
   max_tokens : int;
+  tool_calls : int;
+  tool_result_bytes : int;
+  tool_request_bytes : int;
+  parallel_tool_calls : int;
+  model_timeout_seconds : int;
+  turn_timeout_seconds : int;
   compaction_reasoning_effort : string option;
   log_level : string;
   log_file : string option;
@@ -64,7 +70,13 @@ let default ~admin ~homeserver =
     plugins = [];
     context_messages = 20;
     context_bytes = 40000;
-    max_tokens = 4096;
+    max_tokens = 16384;
+    tool_calls = 256;
+    tool_result_bytes = 65536;
+    tool_request_bytes = 8388608;
+    parallel_tool_calls = 8;
+    model_timeout_seconds = 900;
+    turn_timeout_seconds = 3600;
     compaction_reasoning_effort = Some "none";
     log_level = "warning";
     log_file = None;
@@ -105,6 +117,12 @@ let jsont =
       context_messages
       context_bytes
       max_tokens
+      tool_calls
+      tool_result_bytes
+      tool_request_bytes
+      parallel_tool_calls
+      model_timeout_seconds
+      turn_timeout_seconds
       compaction_reasoning_effort
       log_level
       log_file
@@ -132,6 +150,12 @@ let jsont =
         context_messages;
         context_bytes;
         max_tokens;
+        tool_calls;
+        tool_result_bytes;
+        tool_request_bytes;
+        parallel_tool_calls;
+        model_timeout_seconds;
+        turn_timeout_seconds;
         compaction_reasoning_effort =
           (if compaction_reasoning_effort = "" then None
            else Some compaction_reasoning_effort);
@@ -156,6 +180,13 @@ let jsont =
   |> mem "context_messages" Jsont.int ~enc:(fun t -> t.context_messages)
   |> mem "context_bytes" Jsont.int ~enc:(fun t -> t.context_bytes)
   |> mem "max_tokens" Jsont.int ~enc:(fun t -> t.max_tokens)
+  |> mem "tool_calls" Jsont.int ~dec_absent:(fun () -> 256) ~enc:(fun t -> t.tool_calls)
+  |> mem "tool_result_bytes" Jsont.int ~dec_absent:(fun () -> 65536) ~enc:(fun t -> t.tool_result_bytes)
+  |> mem "tool_request_bytes" Jsont.int ~dec_absent:(fun () -> 8388608) ~enc:(fun t -> t.tool_request_bytes)
+  |> mem "parallel_tool_calls" Jsont.int ~dec_absent:(fun () -> 8) ~enc:(fun t -> t.parallel_tool_calls)
+  |> mem "model_timeout_seconds" Jsont.int ~dec_absent:(fun () -> 900) ~enc:(fun t -> t.model_timeout_seconds)
+  |> mem "turn_timeout_seconds" Jsont.int ~dec_absent:(fun () -> 3600)
+       ~enc:(fun t -> t.turn_timeout_seconds)
   |> mem "compaction_reasoning_effort" Jsont.string
        ~dec_absent:(fun () -> "none")
        ~enc:(fun t -> Option.value ~default:"" t.compaction_reasoning_effort)
@@ -181,7 +212,7 @@ let jsont =
 let tomlt =
   let open Tomlt.Table in
   obj (fun admin homeserver base_url backend model model_path cache_dir system_prompt plugins
-      context_messages context_bytes max_tokens compaction_reasoning_effort
+      context_messages context_bytes max_tokens tool_calls tool_result_bytes tool_request_bytes parallel_tool_calls model_timeout_seconds turn_timeout_seconds compaction_reasoning_effort
       log_level log_file improvements_file voice_messages voice_locale
       speech_voice image_messages ->
     let backend =
@@ -193,6 +224,7 @@ let tomlt =
     in
     { admin; homeserver; base_url; backend; model; model_path = if model_path = "" then None else Some model_path; cache_dir = if cache_dir = "" then None else Some cache_dir; system_prompt; plugins = Array.to_list plugins;
       context_messages; context_bytes; max_tokens;
+      tool_calls; tool_result_bytes; tool_request_bytes; parallel_tool_calls; model_timeout_seconds; turn_timeout_seconds;
       compaction_reasoning_effort =
         (if compaction_reasoning_effort = "" then None
          else Some compaction_reasoning_effort);
@@ -216,7 +248,14 @@ let tomlt =
   |> mem "plugins" (Tomlt.array Tomlt.string) ~dec_absent:[||] ~enc:(fun t -> Array.of_list t.plugins)
   |> mem "context_messages" Tomlt.int ~dec_absent:20 ~enc:(fun t -> t.context_messages)
   |> mem "context_bytes" Tomlt.int ~dec_absent:40000 ~enc:(fun t -> t.context_bytes)
-  |> mem "max_tokens" Tomlt.int ~dec_absent:4096 ~enc:(fun t -> t.max_tokens)
+  |> mem "max_tokens" Tomlt.int ~dec_absent:16384 ~enc:(fun t -> t.max_tokens)
+  |> mem "tool_calls" Tomlt.int ~dec_absent:256 ~enc:(fun t -> t.tool_calls)
+  |> mem "tool_result_bytes" Tomlt.int ~dec_absent:65536 ~enc:(fun t -> t.tool_result_bytes)
+  |> mem "tool_request_bytes" Tomlt.int ~dec_absent:8388608 ~enc:(fun t -> t.tool_request_bytes)
+  |> mem "parallel_tool_calls" Tomlt.int ~dec_absent:8 ~enc:(fun t -> t.parallel_tool_calls)
+  |> mem "model_timeout_seconds" Tomlt.int ~dec_absent:900 ~enc:(fun t -> t.model_timeout_seconds)
+  |> mem "turn_timeout_seconds" Tomlt.int ~dec_absent:3600
+       ~enc:(fun t -> t.turn_timeout_seconds)
   |> mem "compaction_reasoning_effort" Tomlt.string ~dec_absent:"none"
        ~enc:(fun t -> Option.value ~default:"" t.compaction_reasoning_effort)
   |> mem "log_level" Tomlt.string ~dec_absent:"info" ~enc:(fun t -> t.log_level)
@@ -273,9 +312,14 @@ let validate t =
   if
     t.model = ""
     || String.length t.system_prompt > 16000
-    || t.context_messages < 2 || t.context_messages > 100
-    || t.context_bytes < 1024 || t.context_bytes > 100000 || t.max_tokens < 1
-    || t.max_tokens > 8192
+    || t.context_messages < 2
+    || t.context_bytes < 1024 || t.context_bytes > max_int / 4
+    || t.max_tokens < 1
+    || t.tool_calls < 1 || t.tool_result_bytes < 1024
+    || t.tool_result_bytes > max_int / 4
+    || t.tool_request_bytes < 1024 || t.tool_request_bytes > max_int / 4
+    || t.parallel_tool_calls < 1 || t.model_timeout_seconds < 1
+    || t.turn_timeout_seconds < 1
   then invalid_arg "invalid model or context limits";
   let effort_char = function
     | 'a' .. 'z' | '0' .. '9' | '_' | '-' -> true

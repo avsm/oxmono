@@ -1,5 +1,8 @@
 # unreleased
 
+- Add bounded concurrent tool execution to `Turn.run` and optional parallel
+  tool requests to the OpenRouter adapter. Sequential execution stays default.
+
 - Bound pinned memory and journal text in numpty briefs. Share call budgets
   across native and returned tools and check request text before inference.
 

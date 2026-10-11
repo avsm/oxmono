@@ -68,7 +68,7 @@ let () = Eio_main.run @@ fun env -> Eio.Switch.run @@ fun sw ->
       user_id = uid self; device_id = Id.Device_id.of_string_exn "CROW";
       access_token = "synthetic"; refresh_token = None} in
   let tools = Matrix_rooms.create ~store ~self ~state:(fun () -> Some state)
-      ~client ~encryption () in
+      ~client ~encryption ~max_result_bytes:4000 () in
   let query ?(actor = user) args = Matrix_rooms.invoke tools ~actor ~room
       "matrix_history" args in
   let read args = decode (Result.get_ok (query args)) in
@@ -94,7 +94,7 @@ let () = Eio_main.run @@ fun env -> Eio.Switch.run @@ fun sw ->
     (Result.is_error (query ~actor:"@friend:example.org" "{}"));
   check "membership rejection fetches no messages" (List.length !fetched = before);
   check "unknown room is refused" (Result.is_error (query {|{"room":"!other:example.org"}|}));
-  check "invalid limits are refused" (Result.is_error (query {|{"limit":6}|}));
+  check "invalid limits are refused" (Result.is_error (query {|{"limit":101}|}));
   check "unknown options are refused" (Result.is_error (query {|{"delete":true}|}));
   members := [membership self];
   check "a requester who left is refused" (Result.is_error (query "{}"));
@@ -123,4 +123,37 @@ let () = Eio_main.run @@ fun env -> Eio.Switch.run @@ fun sw ->
      && String.length (encode output) <= 3900);
   check "edit targets preserved"
     (string "target" (field "relation" message) = "$new");
+  Store.add_room store room;
+  let config = Config.default ~admin:user ~homeserver:"https://matrix.example.org" in
+  let roomy = Matrix_rooms.create ~store ~self ~state:(fun () -> Some state)
+      ~client ~encryption ~max_result_bytes:config.tool_result_bytes () in
+  let batch = List.init 25 (fun i -> text ("$history" ^ string_of_int i)
+      (String.make 2000 'z' ^ " last bytes")) in
+  pages := List.init 12 (fun _ -> page batch);
+  let stage = ref 0 in
+  let complete (request : Agentkit.Chat.request) =
+    incr stage;
+    match !stage with
+    | 1 -> Agentkit.Chat.response ~calls:(List.init 12 (fun i ->
+        Agentkit.Agent.{id = string_of_int i; name = "matrix_history";
+          arguments = "{}"})) None
+    | 2 ->
+        let results = List.filter_map (function
+          | Agentkit.Chat.Tool_result {content; _} -> Some content
+          | _ -> None) request.messages in
+        check "large history pages survive audit and turn limits"
+          (List.length results = 12 && List.for_all (fun result ->
+             String.length result > 40000
+             && List.length (array "messages" (decode result)) = 25) results);
+        Agentkit.Chat.response ~calls:[Agentkit.Agent.{id = "remember";
+          name = "memory_store";
+          arguments = {|{"fact":"Use uniboot for the OpenBSD backend."}|}}] None
+    | _ -> Agentkit.Chat.response (Some "Stored.") in
+  let engine = Engine.create ~config ~store ~self ~plugins:[] ~complete
+      ~now:(fun () -> 0.) |> fun e -> Engine.with_matrix e roomy in
+  Engine.handle engine ~send:(fun _ -> ())
+    Engine.{sender = user; room; id = "$history-task";
+            body = "!crow summarise and remember"};
+  check "memory can be stored after more than six history calls"
+    (List.length (Store.search_facts store ~actor:user ~query:"uniboot") = 1);
   print_endline "crowthebot: paginated history, encrypted excerpts and current membership passed"

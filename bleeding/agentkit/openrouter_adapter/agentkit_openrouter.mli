@@ -9,10 +9,11 @@ end
 val messages : Agentkit.Chat.message list -> Openrouter.Message.t list
 (** [messages ms] is [ms] in OpenRouter's wire form. *)
 
-val complete : Openrouter.t -> model:string -> Agentkit.Chat.complete
+val complete : ?parallel_tool_calls:bool -> Openrouter.t -> model:string -> Agentkit.Chat.complete
 (** [complete client ~model] sends each request as one non-streaming chat
-    completion and returns the first choice. Tools are offered one call at a
-    time. A reasoning effort is sent as [reasoning_effort], which OpenRouter and
+    completion and returns the first choice. [parallel_tool_calls] permits
+    multiple calls in a response, false by default. A reasoning effort is sent
+    as [reasoning_effort], which OpenRouter and
     vLLM accept. Raises [Failure] when the response has no choice. *)
 
 module Agent : sig

@@ -351,7 +351,8 @@ let person_line (p : Store.person) =
     (if p.allowed then "allowed" else "awaiting admin approval")
 
 let invoke t e ?on_finish ~source ~call_id ~name ~arguments f =
-  Audit.run ?on_finish t.store ~actor:e.sender ~room:e.room ~event:e.id ~source
+  Audit.run ?on_finish ~max_result_bytes:t.config.tool_result_bytes
+    t.store ~actor:e.sender ~room:e.room ~event:e.id ~source
     ~call_id ~tool:name ~arguments f
 
 let memory t e ~source name arguments =
@@ -618,7 +619,8 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
       | None -> Error "This tool is unavailable."
       | Some plugin -> Plugin.invoke_result plugin call.arguments
   in
-  let sequence = ref [] and round = ref 0 and remaining = ref 6 in
+  let sequence = ref [] and round = ref 0
+  and remaining = ref t.config.tool_calls in
   let record summary = sequence := summary :: !sequence in
   let sequence_text () =
     List.rev !sequence
@@ -629,7 +631,9 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
   (* A post to the requesting room is already the reply, so the final text is
      not sent as well. *)
   let posted_here = ref false in
+  let effects = Eio.Mutex.create () in
   let around (call : Agentkit.Agent.tool_call) f =
+    let run () =
     invoke t e ~on_finish:record ~source:"model" ~call_id:call.id
       ~name:call.name ~arguments:call.arguments (fun () ->
         let result = f () in
@@ -641,6 +645,13 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
             | _ -> ())
         | _ -> ());
         result)
+    in
+    (* Read-only network queries can overlap. Other tools may update shared
+       state or perform an effect, so keep those calls in order. *)
+    if List.mem call.name
+         [ "matrix_history"; "matrix_rooms"; "matrix_room_info";
+           "website_fetch"; "website_read" ] then run ()
+    else Eio.Mutex.use_rw ~protect:false effects run
   in
   let on_event = function
     | Agentkit.Turn.Request { round = r; budget } ->
@@ -678,10 +689,12 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
     try
       let text =
         Agentkit.Turn.run ~complete:t.complete ~tools ~guard ~dispatch ~around
-          ~max_result_bytes:4000
+          ~budget:t.config.tool_calls
+          ~max_parallel_calls:t.config.parallel_tool_calls
+          ~max_result_bytes:t.config.tool_result_bytes
           ~max_request_bytes:(Agentkit.Chat.text_bytes
               (Agentkit.Chat.request ~tools [ Agentkit.Chat.System system_prompt ])
-              + t.config.context_bytes + (6 * (4096 + 4000 + 512)) + 2048)
+              + t.config.context_bytes + t.config.tool_request_bytes)
           ~check:check_access ~on_event ~max_tokens:t.config.max_tokens
           messages
       in

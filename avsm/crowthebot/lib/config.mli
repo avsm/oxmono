@@ -14,6 +14,18 @@ type t = {
   context_bytes : int;
   max_tokens : int;
       (** Completion budget per model call, including reasoning tokens. *)
+  tool_calls : int;
+      (** Tool calls allowed per user turn, including native adapter calls. *)
+  tool_result_bytes : int;
+      (** Maximum bytes returned by each tool to the model. *)
+  tool_request_bytes : int;
+      (** Additional bytes allowed for current-turn model requests. *)
+  parallel_tool_calls : int;
+      (** Maximum concurrent calls returned by the model in one batch. *)
+  model_timeout_seconds : int;
+      (** Timeout in seconds for each model request. *)
+  turn_timeout_seconds : int;
+      (** Timeout in seconds for a whole user or scheduled turn. *)
   compaction_reasoning_effort : string option;
       (** Reasoning effort sent with compaction requests. [None] omits the
           field. *)

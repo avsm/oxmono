@@ -100,7 +100,7 @@ let () =
   in
   let initial =
     Printf.sprintf
-      {|{"next_batch":"initial","rooms":{"join":{%s,"!room:example.org":{"state":{"events":[{"type":"m.room.canonical_alias","state_key":"","content":{"alias":"#workshop:example.org"}},{"type":"m.room.name","state_key":"","content":{"name":"Workshop"}},{"type":"m.room.topic","state_key":"","content":{"topic":"Robot workshop"}},{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}},"!dm:example.org":{"state":{"events":[{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}}}}}|}
+      {|{"next_batch":"initial","rooms":{"join":{%s,"!room:example.org":{"state":{"events":[{"type":"m.room.canonical_alias","state_key":"","content":{"alias":"#workshop:example.org"}},{"type":"m.room.name","state_key":"","content":{"name":"Workshop"}},{"type":"m.room.topic","state_key":"","content":{"topic":"Robot workshop"}},{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join","displayname":"Anil Madhavapeddy"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}},"!dm:example.org":{"state":{"events":[{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join","displayname":"Anil Madhavapeddy"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}}}}}|}
       (String.concat "," rooms)
   in
   let pending = ref [ initial ] in
@@ -214,6 +214,18 @@ let () =
             (Matrix_rooms.room_label
                {metadata with canonical_alias = None; name = None} = room);
           check "membership metadata" (field "known_members" Jsont.int info = 2);
+          let members = field "members" (Jsont.list Jsont.json) info
+              |> List.map (encode Jsont.json) in
+          check "member IDs retain room display names for mention resolution"
+            (List.exists (fun member ->
+               field "user" Jsont.string member = admin
+               && field "display_name" (Jsont.option Jsont.string) member
+                  = Some "Anil Madhavapeddy") members);
+          check "missing display names remain explicit"
+            (List.exists (fun member ->
+               field "user" Jsont.string member = self
+               && field "display_name" (Jsont.option Jsont.string) member = None)
+               members);
           check "nonjoined room refused"
             (Result.is_error
                (query "matrix_room_info" {|{"room":"!absent:example.org"}|}));
@@ -231,6 +243,12 @@ let () =
             (Result.is_error
                (query ~actor:"@guest:example.org" "matrix_rooms" "{}"));
           let post ?actor args = query ?actor "matrix_send" args in
+          let posted = Result.get_ok (post
+              {|{"room":"#workshop:example.org","text":"Link test."}|}) in
+          check "successful posts include an event permalink"
+            (field "permalink" Jsont.string posted =
+               "https://matrix.to/#/%21room%3Aexample.org/%24sent");
+          sent := [];
           check "requester posts to a room they belong to"
             (Result.is_ok
                (post {|{"room":"!room:example.org","text":"Read **this**."}|})

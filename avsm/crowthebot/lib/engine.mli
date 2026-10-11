@@ -17,7 +17,8 @@ val create :
     letters, digits and underscores, up to 64 characters. Command names such as
     [allow], [deny] and [reset] are reserved. [now] is retained for source
     compatibility and is unused. The model callback owns its transport and
-    deadline. A turn permits at most six tool calls. Empty answers and failed
+    deadline. A turn permits [config.tool_calls] calls. Independent reads may
+    overlap up to [config.parallel_tool_calls]. Empty answers and failed
     terminal requests get one tool-free synthesis retry, then a visible fallback
     without replaying tools. Turn directives extend the opening system message
     while preserving the tool transcript. Older conversation context is

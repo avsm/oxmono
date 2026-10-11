@@ -311,7 +311,9 @@ let logged env (config : Config.t) ~label (complete : Agentkit.Chat.complete)
         (List.length r.messages) (List.length r.tools));
   try
     let response =
-      Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 90.) (fun () ->
+      Eio.Time.Timeout.run_exn
+        (Eio.Time.Timeout.seconds clock (float config.model_timeout_seconds))
+        (fun () ->
           complete r)
     in
     Log.info (fun m ->
@@ -332,7 +334,9 @@ let logged env (config : Config.t) ~label (complete : Agentkit.Chat.complete)
 
 let complete env (config : Config.t) client =
   logged env config ~label:"Model"
-    (Agentkit_openrouter.complete client ~model:config.model)
+    (Agentkit_openrouter.complete
+       ~parallel_tool_calls:(config.parallel_tool_calls > 1)
+       client ~model:config.model)
 
 let complete_ds4 env (config : Config.t) engine =
   logged env config ~label:"DS4 model"
@@ -650,6 +654,7 @@ let run ~env ~sw ~profile ~api_key_file ~recovery_key_file =
     |> fun engine ->
     Engine.with_matrix engine
       (Matrix_rooms.create ~store ~client:(Context.client ctx)
+         ~max_result_bytes:config.tool_result_bytes
          ?encryption:(Context.encryption ctx)
          ~self:(Id.User_id.to_string (Context.user_id ctx))
          ~state:(fun () -> !matrix_state ())
@@ -939,7 +944,7 @@ let run ~env ~sw ~profile ~api_key_file ~recovery_key_file =
             failwith "Matrix reply could not be confirmed"
       in
       try
-        with_timeout env 180. (fun () ->
+        with_timeout env (float config.turn_timeout_seconds) (fun () ->
             Typing.with_session ~clock:(Eio.Stdenv.mono_clock env)
               ~room:event.room ~event:event.id ~set:(fun typing ->
                 Matrix_eio.Typing.set_typing (Context.client ctx)
@@ -1200,7 +1205,8 @@ let run ~env ~sw ~profile ~api_key_file ~recovery_key_file =
             Log.info (fun m ->
                 m "Reminder firing id=%d run_id=%d room=%S" job.reminder_id
                   run_id job.room);
-            Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 180.)
+            Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock
+               (float config.turn_timeout_seconds))
             @@ fun () ->
             let room =
               match

@@ -45,6 +45,7 @@ val run :
   ?max_request_bytes:int ->
   ?max_result_bytes:int ->
   ?max_answer_bytes:int ->
+  ?max_parallel_calls:int ->
   ?fallback:(tools_used:bool -> string) ->
   Chat.message list ->
   string
@@ -66,6 +67,10 @@ val run :
 
     [budget] is the number of calls allowed, 6 by default. Asking for more than
     remain runs [around] on each with an error and raises {!Budget_exceeded}.
+    [max_parallel_calls] bounds concurrent returned calls, 1 by default.
+    Results retain the model's call order. Dispatch and audit callbacks must
+    support concurrent fibers when this is greater than 1. Native adapter
+    calls follow the adapter's scheduling.
     When the allowance is spent the answer request has no tools. Its
     instruction is added to the system prompt and repeated as a final user
     message, because a model part way through a tool plan ignores a distant

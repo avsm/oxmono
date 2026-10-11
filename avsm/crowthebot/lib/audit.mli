@@ -14,6 +14,7 @@ val summary_line : summary -> string
 
 val run :
   ?on_finish:(summary -> unit) ->
+  ?max_result_bytes:int ->
   Store.t ->
   actor:string ->
   room:string ->
@@ -27,7 +28,8 @@ val run :
 (** [run store ... f] records the call before running [f]. [Ok] is a successful
     result and [Error] a rejected call. Exceptions and cancellation are recorded
     and propagated. Memory, cron and location payloads are omitted. Other
-    payloads are bounded to 4096 bytes. A logging failure prevents effects or
+    stored payloads are bounded to 4096 bytes. Returned results are bounded
+    to [max_result_bytes], 4096 by default. A logging failure prevents effects or
     propagates to the caller. [on_finish] receives sizes before clipping or
     redaction and the recorded status. Exceptions have zero result bytes. *)
 

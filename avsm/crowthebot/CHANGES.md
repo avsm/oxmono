@@ -1,5 +1,11 @@
 # Changes
 
+- Prefer message links for cross-room confirmations. Include member display
+  names for resolving informal names into Matrix mentions.
+
+- Raise configurable turn limits to 256 calls, 64 KiB results and 8 MiB of tool
+  context. Allow eight concurrent reads and larger Matrix history pages.
+
 - Add paginated room-history review with current membership checks, encrypted
   excerpts and message references for summaries.
 

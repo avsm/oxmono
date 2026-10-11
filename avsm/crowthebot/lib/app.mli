@@ -125,8 +125,10 @@ val probe :
 
 val complete :
   Eio_unix.Stdenv.base -> Config.t -> Openrouter.t -> Agentkit.Chat.complete
-(** [complete env config client messages tools] runs one native model request
-    with a 90-second deadline. Empty tool lists omit the wire tool fields. *)
+(** [complete env config client request] runs one native model request
+    with [config.model_timeout_seconds] as the deadline. Empty tool lists omit
+    the wire tool fields. Multiple calls are offered when
+    [config.parallel_tool_calls] is greater than one. *)
 
 val configure :
   env:Eio_unix.Stdenv.base ->

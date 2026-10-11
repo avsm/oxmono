@@ -54,6 +54,47 @@ let test_answer () =
         | _ -> false)
   | _ -> check "two requests" false
 
+let test_parallel_calls () =
+  Eio_mock.Backend.run_full @@ fun _ ->
+  let complete, seen =
+    script [ calls_reply 8; Chat.response (Some "done") ] in
+  let active = ref 0 and peak = ref 0 in
+  let dispatch (call : Agentkit.Agent.tool_call) =
+    incr active;
+    peak := max !peak !active;
+    Eio.Fiber.yield ();
+    decr active;
+    Ok call.id in
+  ignore (Turn.run ~budget:16 ~max_parallel_calls:2 ~complete
+    ~tools:[tool "t"] ~guard:ok_guard ~dispatch [Chat.User "hi"]);
+  check "calls overlap within the configured limit" (!peak = 2 && !active = 0);
+  let results = List.filter_map (function
+    | Chat.Tool_result {id; content} -> Some (id, content)
+    | _ -> None) (List.nth (seen ()) 1).messages in
+  check "parallel results retain call order"
+    (results = List.init 8 (fun i -> let id = string_of_int i in id, id));
+  check "invalid concurrency refused"
+    (try ignore (Turn.run ~max_parallel_calls:0 ~complete ~tools:[]
+      ~guard:ok_guard ~dispatch [Chat.User "hi"]); false
+     with Invalid_argument _ -> true);
+  let complete, _ = script [calls_reply 3] in
+  let pending, _ = Eio.Promise.create () in
+  let started = ref [] and finished = ref [] in
+  let around (call : Agentkit.Agent.tool_call) f =
+    started := call.id :: !started;
+    Fun.protect ~finally:(fun () -> finished := call.id :: !finished)
+      (fun () -> match f () with Ok s -> s | Error e -> e) in
+  let dispatch (call : Agentkit.Agent.tool_call) =
+    if call.id = "0" then Eio.Promise.await pending
+    else failwith "resource failure" in
+  check "parallel failure propagates"
+    (try ignore (Turn.run ~max_parallel_calls:2 ~complete ~tools:[tool "t"]
+       ~guard:ok_guard ~dispatch ~around [Chat.User "hi"]); false
+     with Failure _ -> true);
+  check "failed batch cancels siblings and finishes audit wrappers"
+    (List.sort String.compare !started = ["0"; "1"]
+     && List.sort String.compare !finished = ["0"; "1"])
+
 let test_synthesis_notice () =
   let complete, seen =
     script
@@ -372,7 +413,15 @@ let test_images () =
   check "images reach the wire as data URLs after the text"
     (r.text = Some "red"
     && contains {|"type":"text"|}
-    && contains "data:image/png;base64,")
+    && contains "data:image/png;base64,");
+  ignore (Agentkit_openrouter.complete ~parallel_tool_calls:true client ~model:"m"
+    (Chat.request ~tools:[tool "t"] [Chat.User "hi"]));
+  check "parallel tools enabled on the wire"
+    (contains {|"parallel_tool_calls":true|});
+  ignore (Agentkit_openrouter.complete client ~model:"m"
+    (Chat.request ~tools:[tool "t"] [Chat.User "hi"]));
+  check "existing adapters retain sequential default"
+    (contains {|"parallel_tool_calls":false|})
 
 let () =
   Alcotest.run "agentkit core"
@@ -380,6 +429,7 @@ let () =
       ( "turn",
         [
           ("answer", `Quick, test_answer);
+          ("parallel calls", `Quick, test_parallel_calls);
           ("synthesis notice", `Quick, test_synthesis_notice);
           ("recovery and fallback", `Quick, test_recovery_and_fallback);
           ("guard fails closed", `Quick, test_guard_fails_closed);

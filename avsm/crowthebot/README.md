@@ -146,7 +146,13 @@ profiles are read as a compatibility fallback. The defaults are:
 | `plugins` | `[]` |
 | `context_messages` | 20 |
 | `context_bytes` | 40000 |
-| `max_tokens` | 4096 |
+| `max_tokens` | 16384 |
+| `tool_calls` | 256 |
+| `tool_result_bytes` | 65536 |
+| `tool_request_bytes` | 8388608 |
+| `parallel_tool_calls` | 8 |
+| `model_timeout_seconds` | 900 |
+| `turn_timeout_seconds` | 3600 |
 | `compaction_reasoning_effort` | `none` |
 | `improvements_file` | `improvements.md` |
 | `voice_messages` | `true` |
@@ -157,6 +163,10 @@ profiles are read as a compatibility fallback. The defaults are:
 | `model_path` | unset |
 | `cache_dir` | unset |
 | `log_level` | `info` |
+
+Existing profiles get the new tool settings when those fields are absent.
+Explicit settings are preserved. To raise an existing completion limit, set
+`max_tokens = 16384` in `crowthebot.toml`.
 
 Crow's tool catalogue uses `Agentkit.Agent.Tool.t` and model tool calls use
 `Agentkit.Agent.tool_call`, so the tool schemas and call records are shared by
@@ -428,19 +438,25 @@ Requests are processed serially within a profile.
 The admin and friends can ask “crow, which rooms are you in?” or “what do you
 know about this room?”. `matrix_rooms` lists joined rooms, five per page.
 `matrix_room_info` returns a room's name, topic, canonical alias, encryption
-state, DM marker, member counts and known joined or invited accounts. Its
+state, DM marker, member counts and known joined or invited accounts with their
+room display names. Crow uses membership to resolve informal names into Matrix
+mentions and asks when a name is ambiguous. Its
 `room` argument defaults to the requesting room. Both return `next_after` for
 pagination. `members_complete=false` identifies incomplete synchronized
 membership. These tools read the live Matrix state without network or
 filesystem capabilities. They expose no message bodies or credentials.
+
+After posting to another room, Crow prefers a brief link to the sent event
+over repeating its contents in the requesting DM. Successful send tools return
+a Matrix permalink.
 
 Ask Crow to summarise a conversation or review older messages. `matrix_history`
 accepts a joined room ID or canonical alias, defaults to the requesting room,
 and checks current membership for both Crow and the requester on every page.
 It reads newest first, returning event IDs, senders, timestamps, body excerpts,
 reply/thread/edit targets and redactions. Pass `next_before` as `before` to
-continue backwards, including when a filtered page is empty. `limit` is 1 to 5
-events, default 3. Truncated excerpts and messages missing decryption keys are
+continue backwards, including when a filtered page is empty. `limit` is 1 to 100
+events, default 25. Truncated excerpts and messages missing decryption keys are
 marked explicitly. Reads send no receipts and do not replay historical messages
 through Crow's handlers. Historical content is untrusted data, not instructions.
 The normal tool audit records these requests.
@@ -510,10 +526,17 @@ current prompt share the existing content budget. Automatic injection makes
 no extra model request. Missing summaries remain explicit source pointers.
 Explicit `memory_overview` requests gradually fill the cache.
 
-Tool result text is limited to 4000 bytes plus a truncation notice. Native
-and returned tool calls share the six-call allowance. Request text is limited
-to the system/tool definition size plus `context_bytes` and 53,696 bytes for
-six bounded calls and runtime notices. `max_tokens` bounds the reply.
+`tool_result_bytes` bounds each model-facing result, 64 KiB by default.
+Native and returned calls share `tool_calls`, 256 per turn by default. Request
+text is limited to system/tool definitions plus `context_bytes` and
+`tool_request_bytes`, an additional 8 MiB by default. `max_tokens` bounds each
+completion, including reasoning. The provider enforces its actual context window.
+
+OpenRouter requests allow multiple tool calls. Up to `parallel_tool_calls`,
+eight by default, run concurrently in a returned batch. Matrix history and
+metadata reads and website reads may overlap. Other tools are serialized to
+preserve local state and effects. Dependent calls must be requested in separate
+batches. Audit storage still retains at most 4096 bytes per non-private payload.
 These byte limits complement the backend's token window. They exclude provider
 framing and encoded image files, whose token cost belongs to the backend.
 
@@ -640,7 +663,7 @@ calls the configured OpenRouter client with the linked fact, instruction,
 schedule and original source. The model may use its authorized tools, and its
 answer is sent as a notice replying to the source event. The source room and
 creator's access are checked again before delivery. Scheduled model turns share
-the conversation engine's serialization and 180-second deadline.
+the conversation engine's serialization and `turn_timeout_seconds` deadline.
 
 After a restart, the scheduler waits for live Matrix sync and restored room
 handles before claiming work. While sync is offline, due jobs remain pending.
@@ -1239,7 +1262,7 @@ description and `run ~query` function. Register it when constructing
 [`Engine.t`](lib/engine.mli), then enable its name in the profile. The engine
 exposes each plugin both as an explicit command and a native model tool with a
 string query argument. Tool arguments and outputs are bounded. A turn permits
-at most six tool calls, followed by a tool-free synthesis request if the budget
+up to `tool_calls` calls, followed by a tool-free synthesis request if the budget
 is exhausted. Synthesis directives extend the opening system message, keeping
 it first for providers that require that ordering. An empty answer or failed
 terminal request triggers one additional synthesis request with tools disabled.
@@ -1382,8 +1405,9 @@ The model receives recent context within both configured bounds, plus the
 system prompt, current request and bounded tool exchange. These are byte and
 message limits, not tokenizer-exact limits. Input is capped at 8192 bytes or
 half the configured context budget, whichever is smaller. Answers are capped
-at 12000 bytes. A model request has a 90-second deadline and a whole turn has
-a 180-second deadline, both measured with a monotonic clock.
+at 12000 bytes. `model_timeout_seconds` bounds each model request, 900 seconds
+by default. `turn_timeout_seconds` bounds a whole user or scheduled turn, 3600
+seconds by default. Both use a monotonic clock.
 
 Event IDs are claimed before effects. The last 2048 per room are retained.
 This suppresses retries but means a crash during a turn can lose its reply.

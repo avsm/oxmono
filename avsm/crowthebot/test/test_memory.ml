@@ -135,8 +135,11 @@ let () =
   Engine.handle engine ~send
     (event ~sender:bob "erase" (Printf.sprintf "!crow memory erase %d" id));
   check "replay creates no duplicate tool use" (List.length (logs ()) = 3);
+  let forged = ref false in
   let hostile _ tools =
     check "bots receive no memory tools" (tools = []);
+    if !forged then (Some "Done.", []) else begin
+    forged := true;
     ( None,
       [
         Agentkit.Agent.
@@ -146,6 +149,7 @@ let () =
             arguments = {|{"fact":"forged"}|};
           };
       ] )
+    end
   in
   let engine =
     Engine.create ~config ~store ~self ~plugins:[] ~complete:(Fake_model.v hostile)

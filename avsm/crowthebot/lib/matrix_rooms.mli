@@ -14,6 +14,7 @@ val create :
   ?send:(unit -> sender option) ->
   ?speak:(unit -> sender option) ->
   ?client:Matrix_eio.Client.t -> ?encryption:Matrix_eio.Encryption.t ->
+  ?max_result_bytes:int ->
   unit ->
   t
 (** [create ~store ~self ~state ?send ?speak ()] retains an authorization
@@ -21,7 +22,8 @@ val create :
     or while it returns [None], [matrix_send] fails. [speak] turns text into a
     voice note and sends it. Without it [matrix_voice_note] is not offered.
     [client] enables the read-only
-    [matrix_history] tool. [encryption] decrypts history using available keys. *)
+    [matrix_history] tool. [encryption] decrypts history using available keys. History pages fit
+    [max_result_bytes], 65536 by default, with room for the tool envelope. *)
 
 val room_label : Matrix_client.Base_client.room_info -> string
 (** [room_label room] is the canonical alias, nonblank room name, or room ID,
@@ -45,13 +47,17 @@ val invoke :
     an allowed friend. [room] is the default room for detail queries. Results
     contain at most five rooms or members and an explicit continuation cursor.
     Metadata queries return no bodies or arbitrary room state. [matrix_history]
-    reads up to five events per page after checking current membership remotely.
+    reads up to 100 events per page, 25 by default, after checking current membership remotely.
     It returns excerpts, timestamps, relations and an opaque backwards cursor.
     Missing keys and truncated bodies are explicit. Pages fit the tool's context
     budget and do not enter Crow's incoming-message handlers or send read receipts.
 
+    [matrix_room_info] member entries include each user's ID and room display
+    name. Names are untrusted labels and may be ambiguous.
+
     [matrix_send] posts to a joined room that [actor] is a member of, or to an
     existing DM whose complete membership is exactly Crow and the recipient. The
-    recipient must be the admin or an approved friend.
+    recipient must be the admin or an approved friend. Successful posts return
+    the event ID and a Matrix permalink for a brief confirmation link.
 
     [matrix_voice_note] follows the same rules and defaults to [room]. *)

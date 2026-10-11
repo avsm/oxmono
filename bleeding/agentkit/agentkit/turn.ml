@@ -80,8 +80,11 @@ let instruct instruction messages =
 let run ~complete ~tools ~guard ~dispatch ?(around = render)
     ?(check = fun () -> ()) ?(on_event = fun _ -> ()) ?(budget = 6) ?max_tokens
     ?max_request_bytes ?(max_result_bytes = 32768) ?(max_answer_bytes = 12000)
+    ?(max_parallel_calls = 1)
     ?(fallback = default_fallback) messages =
   if budget < 0 then invalid_arg "Agentkit.Turn.run: negative budget";
+  if max_parallel_calls < 1 then
+    invalid_arg "Agentkit.Turn.run: nonpositive parallel call limit";
   let complete request =
     Option.iter (fun limit ->
         if limit < 1 then invalid_arg "Agentkit.Turn.run: invalid request budget";
@@ -172,7 +175,8 @@ let run ~complete ~tools ~guard ~dispatch ?(around = render)
             | None -> recover messages)
         | calls ->
             let results =
-              List.map
+              (if max_parallel_calls = 1 then List.map
+               else Eio.Fiber.List.map ~max_fibers:max_parallel_calls)
                 (fun (call : Agent.tool_call) ->
                   Chat.Tool_result { id = call.id; content = run_call call })
                 calls

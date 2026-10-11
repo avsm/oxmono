@@ -1,5 +1,12 @@
 # Remaining OxCaml porting work
 
+## Matrix interoperability audit
+
+- [ ] On a Docker host, run the verification interoperability checklist in
+  [bleeding/matrix/TODO.md](bleeding/matrix/TODO.md#verification-interoperability-audit).
+  The SAS fix exposed a class of bugs where local identifiers enter protocol
+  or cryptographic inputs. Tests between two OCaml peers can hide them.
+
 State as of 2026-08-22, branch `minus39`. Every claim here was compiler-probed
 or measured in the session that wrote it. The per-field reasons in
 `avsm/arod/lib_handlers/arod_render.mli` and `arod_env.mli` are probe

@@ -388,8 +388,92 @@ let test_mac ~shared ~legacy ~info input =
   let raw = Digestif.SHA256.(to_raw_string (hmac_string ~key input)) in
   if legacy then test_mac_base64_libolm raw else b64e raw
 
+(* This peer derives SAS and MACs from the wire identifier specified by
+   Matrix, without using [Transaction.id] or a second [Sas] state machine. *)
+let test_sas_wire_identifier () =
+  List.iter
+    (fun (transaction, wire_id) ->
+      let ours, theirs = identities () in
+      let peer_secret, peer_public =
+        Crypto_key.Curve25519.generate ~random ()
+      in
+      let start = Sas.start ~random ~now ~transaction ~ours ~theirs () in
+      let responder =
+        Sas.from_start ~random ~now ~transaction ~ours:theirs ~theirs:ours
+          (start_content_of start)
+      in
+      let accept =
+        match Message.payload (one_message "accept" responder) with
+        | Message.Accept content ->
+            { content with
+              Ev.Key_verification_accept_content.commitment =
+                Sas.commitment ~public_key:peer_public
+                  ~start_json:(ok (Message.to_json (one_message "start" start))) }
+        | _ -> Alcotest.fail "expected an accept"
+      in
+      let first =
+        Sas.handle start.sas ~now
+          (Message.v transaction (Message.Accept accept))
+      in
+      let our_public =
+        match Message.payload (one_message "key" first) with
+        | Message.Key content ->
+            ok (Crypto_key.Curve25519.Public.of_base64
+                  (Ev.Key_verification_key_content.key content))
+        | _ -> Alcotest.fail "expected a key"
+      in
+      let shared =
+        ok (Crypto_key.Curve25519.key_exchange ~secret:peer_secret
+              ~public:our_public)
+      in
+      let ready =
+        Sas.handle first.sas ~now
+          (Message.v transaction
+             (Message.Key (Ev.Key_verification_key_content.make
+                ~key:(Crypto_key.Curve25519.Public.to_base64 peer_public) ())))
+      in
+      let info =
+        Printf.sprintf "MATRIX_KEY_VERIFICATION_SAS|%s|%s|%s|%s|%s|%s|%s"
+          (User_id.to_string ours.user_id) (Device_id.to_string ours.device_id)
+          (Crypto_key.Curve25519.Public.to_base64 our_public)
+          (User_id.to_string theirs.user_id)
+          (Device_id.to_string theirs.device_id)
+          (Crypto_key.Curve25519.Public.to_base64 peer_public) wire_id
+      in
+      let prk = Hkdf.extract ~hash:`SHA256 ~salt:"" shared in
+      let bytes = Hkdf.expand ~hash:`SHA256 ~prk ~info 6 in
+      Alcotest.(check (option (list int))) "wire-derived emoji"
+        (Some (Sas.emoji_indices bytes))
+        (Option.map (List.map (fun e -> e.Sas.number)) (Sas.emoji ready.sas));
+      let confirmed = Sas.confirm ready.sas in
+      let mac =
+        match Message.payload (one_message "mac" confirmed) with
+        | Message.Mac content -> content
+        | _ -> Alcotest.fail "expected a MAC"
+      in
+      let info =
+        "MATRIX_KEY_VERIFICATION_MAC"
+        ^ User_id.to_string ours.user_id ^ Device_id.to_string ours.device_id
+        ^ User_id.to_string theirs.user_id
+        ^ Device_id.to_string theirs.device_id ^ wire_id
+      in
+      List.iter
+        (fun (key_id, key) ->
+          check_string "wire-derived key MAC"
+            (test_mac ~shared ~legacy:false ~info:(info ^ Key_id.to_string key_id)
+               key)
+            (List.assoc (Key_id.to_string key_id)
+               (Ev.Key_verification_mac_content.mac mac)))
+        (Sas.identity_keys ours))
+    [
+      (txn, "txn-1");
+      ( Transaction.in_room ~room_id:(Room_id.of_string_exn "!dm:example.com")
+          ~event_id:(Event_id.of_string_exn "$request:example.com"),
+        "$request:example.com" );
+    ]
+
 let test_sas_vodozemac_oracle o =
-  let run method_ ~legacy =
+  let run txn wire_id method_ ~legacy =
     let created = call_oracle o (oracle_cmd "sas_create" []) in
     let sas_handle = jint created "sas" in
     let oracle_public =
@@ -522,7 +606,7 @@ let test_sas_vodozemac_oracle o =
       ^ Device_id.to_string ours.device_id
       ^ User_id.to_string theirs.user_id
       ^ Device_id.to_string theirs.device_id
-      ^ Transaction.id txn
+      ^ wire_id
     in
     let key_macs = Ev.Key_verification_mac_content.mac mac_content in
     List.iter
@@ -566,8 +650,17 @@ let test_sas_vodozemac_oracle o =
     check_string "flow key-id MAC agrees with vodozemac" expected_keys
       (Ev.Key_verification_mac_content.keys mac_content)
   in
-  run Sas.Mac_method.Hkdf_hmac_sha256_v2 ~legacy:false;
-  run Sas.Mac_method.Hkdf_hmac_sha256 ~legacy:true
+  List.iter
+    (fun (transaction, wire_id) ->
+      run transaction wire_id Sas.Mac_method.Hkdf_hmac_sha256_v2
+        ~legacy:false;
+      run transaction wire_id Sas.Mac_method.Hkdf_hmac_sha256 ~legacy:true)
+    [
+      (txn, "txn-1");
+      ( Transaction.in_room ~room_id:(Room_id.of_string_exn "!dm:example.com")
+          ~event_id:(Event_id.of_string_exn "$request:example.com"),
+        "$request:example.com" );
+    ]
 
 let test_sas_vodozemac_oracle () =
   match get_oracle () with
@@ -2020,6 +2113,7 @@ let () =
           case "unknown method" test_sas_unknown_method;
           case "mac v1 fallback" test_sas_mac_v1_fallback;
           case "full flow with the v1 MAC" test_sas_flow_with_v1_mac;
+          case "wire identifier for SAS and MAC" test_sas_wire_identifier;
           case "vodozemac SAS MAC oracle" test_sas_vodozemac_oracle;
           case "unexpected message" test_sas_unexpected_message;
           case "timeout" test_sas_timeout;

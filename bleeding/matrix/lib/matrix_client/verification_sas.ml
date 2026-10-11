@@ -246,7 +246,7 @@ type step = { sas : t; send : Message.t list }
 
 let stage t = t.stage
 let transaction t = t.transaction
-let flow_id t = Transaction.id t.transaction
+let flow_id t = Transaction.wire_id t.transaction
 let we_started t = t.we_started
 let our_identity t = t.ours
 let their_identity t = t.theirs

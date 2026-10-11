@@ -1,5 +1,8 @@
 ## unreleased
 
+- Derive verification emojis and MACs from the wire request identifier for
+  compatibility with other Matrix clients. Ignore unrelated room messages.
+
 - Allow bots to supply a verification service to their running sync loop.
 
 `Matrix_bot.Room.send_audio` uploads audio and sends it as an `m.audio`

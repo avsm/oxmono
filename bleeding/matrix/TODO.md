@@ -11,6 +11,60 @@ newly discovered correctness defects and duplicated infrastructure. Treat its
 unchecked boxes as the current implementation queue; the older area notes
 remain the detailed behavioural record.
 
+## Verification interoperability audit
+
+The Crow SAS failure exposed a protocol-boundary bug. `Transaction.id` is a
+namespaced local session key, whereas the cryptographic input must contain the
+raw transaction ID or request event ID. Two OCaml peers agreed on the wrong
+input, so their end-to-end tests passed. SAS now uses `Transaction.wire_id`.
+Mandatory tests check wire-derived emojis and MACs. The vodozemac oracle checks
+both transports and both supported MAC algorithms with raw identifiers.
+
+The remaining `Transaction.id` uses in the verification flow and service are
+local session lookup and confirmation handles. This focused check is not a
+complete protocol audit.
+
+On a host with Docker:
+
+- [ ] Run the existing real-server suite from `bleeding/matrix`:
+
+  ```sh
+  test/integration/run-both.sh
+  ```
+
+  This checks Synapse and Dendrite behaviour. Its verification peers are both
+  OCaml, so it does not replace the external-client checks below.
+- [ ] Test Crow against Element and a matrix-rust-sdk client on an isolated
+  Synapse, recording client and server versions. Exercise in-room encrypted
+  SAS and to-device SAS, with each side initiating. Compare all seven emojis
+  and decimals, confirm on both sides, and require a verified result.
+- [ ] Cover device-only and cross-signing identities, the v2 MAC and legacy MAC
+  where the external client supports it, same-user verification and two users.
+- [ ] Cover concurrent requests, another device answering first, cancellation,
+  mismatch, timeout, retry and restart. Ordinary messages and another user's
+  verification requests must not create flows or emit warnings.
+- [ ] Audit cryptographic context strings, key IDs, QR payload flow IDs, event
+  relations, transaction IDs and canonical signed JSON against independent
+  clients or published vectors. Local namespaces, encoded paths and persisted
+  handles must not enter wire values. Preserve local collision isolation.
+- [ ] Capture sanitised external exchanges as hermetic regression fixtures,
+  rather than deriving both expected and actual values through our helpers.
+  Require the oracle in interoperability CI. Do not count skipped tests as
+  interoperability evidence.
+- [ ] Reproduce the invitation `M_UNKNOWN` independently. Record the server's
+  join response and homeserver logs, room version and federation state. Confirm
+  encrypted invite acceptance persists after a successful join. The current
+  Crow log contains only the error code, so its cause is not established.
+
+For the independent cryptographic oracle, from `bleeding/matrix`:
+
+```sh
+cargo build --release --locked --manifest-path test/vodozemac-oracle/Cargo.toml
+VODOZEMAC_ORACLE="$PWD/test/vodozemac-oracle/target/release/vodozemac-oracle" \
+  MATRIX_REQUIRE_ORACLE=1 \
+  dune exec --profile release-check test/test_verification.exe -- --color=never
+```
+
 ## First-release gates (reviewed 2026-09-08)
 
 [RELEASE_REVIEW.md](RELEASE_REVIEW.md) reviews the current tree against Rust

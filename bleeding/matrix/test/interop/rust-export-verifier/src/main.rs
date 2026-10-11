@@ -25,7 +25,7 @@ fn main() {
         .and_then(|keys| keys.first())
         .expect("expected plaintext should contain one room key");
     assert_eq!(&actual, expected, "all decrypted room-key fields must match");
-    assert_eq!(actual["m.shared_history"], true);
+    assert_eq!(actual["shared_history"], true);
     assert_eq!(actual["forwarding_curve25519_key_chain"].as_array().unwrap().len(), 2);
     println!("verified Rust matrix-sdk-crypto room-key export interop");
 }

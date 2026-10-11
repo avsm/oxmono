@@ -78,6 +78,11 @@ val well_known_policy : t -> Matrix_client.Client.well_known_policy
     [t]'s configuration, preserved by {!with_session} and {!with_access_token}.
 *)
 
+val session_revision : t -> int
+(** [session_revision t] counts successful automatic credential refreshes.
+    Failed refreshes do not advance it; a new authenticated client starts at
+    zero. *)
+
 val session : t -> Matrix_client.Client.session option
 (** [session t] is the session [t] carries, and [None] before login. *)
 

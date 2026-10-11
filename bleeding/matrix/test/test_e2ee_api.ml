@@ -3463,6 +3463,74 @@ let check_exported_key (expected : Room_key_export.room_key)
     actual.forwarding_curve25519_key_chain;
   check_bool "shared history" expected.shared_history actual.shared_history
 
+let test_shared_history_wire_names () =
+  let check codec shared_history =
+    let decode json =
+      match Jsont_bytesrw.decode_string codec json with
+      | Ok value -> value
+      | Error message -> Alcotest.fail message
+    in
+    let base =
+      {|"algorithm":"m.megolm.v1.aes-sha2","room_id":"!r:x","session_id":"SID","session_key":"KEY","sender_key":"SENDER"|}
+    in
+    List.iter
+      (fun fields ->
+        let value = decode ("{" ^ base ^ "," ^ fields ^ "}") in
+        check_bool "shared history accepted" true (shared_history value);
+        let encoded = Result.get_ok (Jsont_bytesrw.encode_string codec value) in
+        let json =
+          Result.get_ok (Jsont_bytesrw.decode_string Jsont.json encoded)
+        in
+        let member name =
+          Result.to_option (Jsont.Json.decode (Jsont.mem name Jsont.bool) json)
+        in
+        Alcotest.(check (option bool))
+          "spec wire name" (Some true) (member "shared_history");
+        Alcotest.(check (option bool))
+          "legacy name omitted" None
+          (member "m.shared_history");
+        Alcotest.(check (option bool))
+          "unstable name omitted" None
+          (member "org.matrix.msc3061.shared_history"))
+      [
+        {|"shared_history":true|};
+        {|"m.shared_history":true|};
+        {|"org.matrix.msc3061.shared_history":true|};
+      ];
+    check_bool "absent defaults false" false
+      (shared_history (decode ("{" ^ base ^ "}")));
+    check_bool "canonical false takes precedence" false
+      (shared_history
+         (decode
+            ("{" ^ base
+           ^ {|,"shared_history":false,"m.shared_history":true,"org.matrix.msc3061.shared_history":true}|}
+            )));
+    check_bool "legacy false takes precedence over unstable" false
+      (shared_history
+         (decode
+            ("{" ^ base
+           ^ {|,"m.shared_history":false,"org.matrix.msc3061.shared_history":true}|}
+            )));
+    List.iter
+      (fun field ->
+        match
+          Jsont_bytesrw.decode_string codec
+            ("{" ^ base ^ ",\"" ^ field ^ "\":\"true\"}")
+        with
+        | Error _ -> ()
+        | Ok _ -> Alcotest.fail "wrong-typed shared history accepted")
+      [
+        "shared_history";
+        "m.shared_history";
+        "org.matrix.msc3061.shared_history";
+      ]
+  in
+  check Ev.Room_key_content.jsont (fun t ->
+      t.Ev.Room_key_content.shared_history);
+  check Room_key_export.room_key_jsont (fun t ->
+      t.Room_key_export.shared_history);
+  check Backup.backed_up_session_data_jsont (fun t -> t.Backup.shared_history)
+
 let test_room_key_export_round_trip () =
   let expected = exported_key () in
   let random_bytes = String.init 32 (fun i -> Char.chr (0x80 + i)) in
@@ -3747,6 +3815,8 @@ let () =
         ] );
       ( "portable room-key export",
         [
+          Alcotest.test_case "shared history wire names" `Quick
+            test_shared_history_wire_names;
           Alcotest.test_case "round trip and IV clamp" `Quick
             test_room_key_export_round_trip;
           Alcotest.test_case "wrong password and tampering" `Quick

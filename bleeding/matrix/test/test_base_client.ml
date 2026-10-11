@@ -4494,18 +4494,18 @@ let test_send_queue_backoff () =
     (match Send_queue.classify q r (Error.Network_error "offline") with
     | Send_queue.Retry_in _ -> true
     | _ -> false);
-  check_bool "5xx is retried" true
-    (match
-       Send_queue.classify q r (Error.Http_error { status = 502; body = "" })
-     with
-    | Send_queue.Retry_in _ -> true
-    | _ -> false);
-  check_bool "other 4xx is fatal" true
-    (match
-       Send_queue.classify q r (Error.Http_error { status = 404; body = "" })
-     with
-    | Send_queue.Failed _ -> true
-    | _ -> false);
+  for status = 100 to 699 do
+    let expected = List.mem status [ 408; 429; 500; 502; 503; 504; 507; 520 ] in
+    check_bool
+      (Printf.sprintf "HTTP %d retry policy" status)
+      expected
+      (match
+         Send_queue.classify q r (Error.Http_error { status; body = "" })
+       with
+      | Send_queue.Retry_in _ -> true
+      | Send_queue.Failed _ -> false
+      | _ -> Alcotest.fail "unexpected classification")
+  done;
   check_bool "a JSON failure is fatal" true
     (match Send_queue.classify q r (Error.Json_error "bad") with
     | Send_queue.Failed _ -> true

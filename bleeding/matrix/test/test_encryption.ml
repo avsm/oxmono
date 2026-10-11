@@ -4039,7 +4039,26 @@ let test_portable_room_key_export_import () =
   check_int "all supplied entries are counted" 5 import_result.total_count;
   check_bool "imported session is held" true
     (Encryption.has_inbound_session carol room ~session_id:key.session_id);
+  let raw = encrypted_raw ~sender:alice_id ~content:encrypted in
+  Encryption.set_trust_requirement carol Encryption.Cross_signed_or_legacy;
+  check_bool "imported key passes legacy policy before keys query" true
+    (Result.is_ok (Encryption.decrypt_room_event carol room raw));
   introduce ~from:alice ~into:carol;
+  check_bool "keys query preserves imported-key legacy compatibility" true
+    (Result.is_ok (Encryption.decrypt_room_event carol room raw));
+  let reloaded =
+    Encryption.of_snapshot
+      ~random:(random_of "portable-reloaded")
+      ~user_id:bob_id ~device_id:(did "CAROL")
+      (Encryption.snapshot carol)
+  in
+  Encryption.set_trust_requirement reloaded Encryption.Cross_signed_or_legacy;
+  introduce ~from:alice ~into:reloaded;
+  check_bool "imported-key compatibility survives restart and query" true
+    (Result.is_ok (Encryption.decrypt_room_event reloaded room raw));
+  Encryption.set_trust_requirement reloaded Encryption.Cross_signed;
+  check_bool "legacy compatibility does not grant cross-signed trust" false
+    (Result.is_ok (Encryption.decrypt_room_event reloaded room raw));
   (match
      Encryption.decrypt_room_event carol room
        (encrypted_raw ~sender:alice_id ~content:encrypted)

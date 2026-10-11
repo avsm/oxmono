@@ -313,6 +313,13 @@ val unwedge : t -> request -> unit
     count and last error cleared, so the queue moves again. A request in any
     other state is left alone. *)
 
+val retry_expired_tokens : t -> unit
+(** [retry_expired_tokens t] returns requests blocked by [M_UNKNOWN_TOKEN] to
+    {!Pending} after credentials recover. Other failures remain blocked. The
+    attempt count is preserved and exhausted retry budgets remain blocked;
+    {!unwedge} explicitly resets a budget. The expired-token reason survives
+    persistence without retaining credentials or the server's error text. *)
+
 val enabled : t -> bool
 (** [enabled t] is [false] when every room's sending is held. *)
 
@@ -436,6 +443,12 @@ val start :
     head is {!Wedged}. Releasing [sw] stops all of them. The store, if the queue
     has one, is flushed after every attempt, so an unsent queue survives a
     crash; a store that will not write is logged and the sending goes on.
+
+    Requests blocked by [M_UNKNOWN_TOKEN] are retried once at startup and after
+    successful credential refreshes, subject to their remaining retry budget.
+    Refreshes are observed within the one-second idle interval; a refresh racing
+    an in-flight rejection is checked at the end of that attempt. Other blocked
+    requests require explicit {!unwedge}.
 
     [encryption] wraps every request for a room the machine knows to be
     encrypted, sending it as [m.room.encrypted]. It needs [members], as

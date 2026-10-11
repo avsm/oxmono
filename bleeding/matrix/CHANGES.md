@@ -1,5 +1,24 @@
 ## unreleased
 
+- Resume sends blocked by expired access tokens after successful credential
+  refresh or worker restart. Persist the failure category without credentials,
+  cover refresh/rejection races, and preserve the automatic retry budget.
+- Apply the transient HTTP status list to Matrix's transport policy as well
+  as its send queue, retaining the replay-safe POST restrictions.
+- Verify transient refresh recovery, fail-closed handling of potentially
+  consumed persisted refresh tokens, and imported-key trust across key queries
+  and restart.
+
+- Refresh against matrix-rust-sdk `b3c07ea6b`: use the canonical
+  `shared_history` wire field while reading both legacy spellings, and restrict
+  HTTP send retries to transient statuses.
+- Accept server names and legacy URLs in QR-login failure messages and omit
+  absent homeserver suggestions. The `homeserver` fields of
+  `Qr_login.Msc4108.Messages.Login_failure` and `Application.Peer_failure`
+  change from `Uriz.t option` to `string option`.
+- Run the isolated Synapse/Dendrite fixtures with scoped OxMono builds and
+  refresh the portable-export verifier for the current Rust SDK.
+
 - Expose own-device cross-signing publication and signature refresh for bots
   that manage local account identities.
 

@@ -207,6 +207,12 @@ val with_access_token : t -> string -> t
     carries no {!type-session}; use this for a token before its user id is
     known, such as the OAuth [/account/whoami] request. *)
 
+val session_revision : t -> int
+(** [session_revision t] counts successful automatic credential refreshes on
+    this client. Failed refreshes leave it unchanged. Derived clients sharing
+    refresh state share the counter; constructing a new authenticated client
+    starts at zero. No credential material is exposed. *)
+
 val session : t -> session option
 (** The session the client carries, or [None] before login. *)
 

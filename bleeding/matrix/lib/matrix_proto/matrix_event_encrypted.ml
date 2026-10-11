@@ -205,6 +205,7 @@ module Room_key_content = struct
           session_id
           session_key
           stable_shared_history
+          legacy_shared_history
           unstable_shared_history
         ->
           {
@@ -213,7 +214,10 @@ module Room_key_content = struct
             session_key;
             shared_history =
               Option.value stable_shared_history
-                ~default:(Option.value unstable_shared_history ~default:false);
+                ~default:
+                  (Option.value legacy_shared_history
+                     ~default:
+                       (Option.value unstable_shared_history ~default:false));
           })
       |> mem "algorithm"
            (algorithm_jsont megolm_algorithm)
@@ -223,8 +227,9 @@ module Room_key_content = struct
       |> mem "session_id" Session_id.jsont ~enc:(fun t -> t.session_id)
       |> mem "session_key" Matrix_json.Codec.string ~enc:(fun t ->
           t.session_key)
-      |> opt_mem "m.shared_history" Jsont.bool ~enc:(fun t ->
+      |> opt_mem "shared_history" Jsont.bool ~enc:(fun t ->
           Some t.shared_history)
+      |> opt_mem "m.shared_history" Jsont.bool ~enc:(fun _ -> None)
       |> opt_mem "org.matrix.msc3061.shared_history" Jsont.bool ~enc:(fun _ ->
           None)
       |> finish)

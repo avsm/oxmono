@@ -335,6 +335,10 @@ let kind_jsont : persisted_kind Jsont.t =
            | _ -> None)
     |> finish)
 
+let expired_token_error = function
+  | Error.Matrix_error { errcode = Error.M_UNKNOWN_TOKEN; _ } -> true
+  | _ -> false
+
 type persisted = {
   p_id : int;
   p_room_id : Id.Room_id.t;
@@ -343,6 +347,7 @@ type persisted = {
   p_created_at : Event.Timestamp.t;
   p_attempts : int;
   p_wedged : bool;
+  p_expired_token : bool;
   p_dependencies : int list;
   p_resolved : persisted_resolution list;
   p_extra_content : Jsont.json option;
@@ -506,6 +511,7 @@ let persisted_jsont : persisted Jsont.t =
         p_created_at
         p_attempts
         p_wedged
+        p_expired_token
         p_dependencies
         p_resolved
         p_extra_content
@@ -526,6 +532,7 @@ let persisted_jsont : persisted Jsont.t =
           p_created_at;
           p_attempts;
           p_wedged;
+          p_expired_token;
           p_dependencies;
           p_resolved;
           p_extra_content;
@@ -553,6 +560,9 @@ let persisted_jsont : persisted Jsont.t =
     |> mem "wedged" Jsont.bool
          ~dec_absent:(fun () -> false)
          ~enc:(fun t -> t.p_wedged)
+    |> mem "expired_token" Jsont.bool
+         ~dec_absent:(fun () -> false)
+         ~enc:(fun t -> t.p_expired_token)
     |> mem "dependencies"
          (Jsont.list Matrix_proto.Json.Codec.Legacy.int)
          ~dec_absent:(fun () -> [])
@@ -616,6 +626,7 @@ let quarantine_persisted json =
     p_created_at = Event.Timestamp.of_ms 0L;
     p_attempts = 0;
     p_wedged = true;
+    p_expired_token = false;
     p_dependencies = [];
     p_resolved = [];
     p_extra_content = None;
@@ -1097,6 +1108,16 @@ let restore t =
                        Some
                          (Error.Policy_denied
                             "persisted upload cache URI is malformed")
+                     else if p.p_wedged && p.p_expired_token then
+                       Some
+                         (Error.Matrix_error
+                            {
+                              errcode = Error.M_UNKNOWN_TOKEN;
+                              error =
+                                "persisted request awaits renewed credentials";
+                              retry_after_ms = None;
+                              soft_logout = None;
+                            })
                      else None);
                   r_dependencies = p.p_dependencies;
                   r_resolved =
@@ -1271,6 +1292,7 @@ let to_persisted r =
             p_created_at = r.r_created_at;
             p_attempts = r.r_attempts;
             p_wedged = (match r.r_status with Wedged -> true | _ -> false);
+            p_expired_token = Option.exists expired_token_error r.r_last_error;
             p_dependencies = r.r_dependencies;
             p_resolved = List.map persisted_resolution_of_result r.r_resolved;
             p_extra_content = r.r_extra_content;
@@ -1803,6 +1825,21 @@ let unwedge t r =
       changed t r
   | _ -> ()
 
+let retry_expired_tokens t =
+  List.iter
+    (fun r ->
+      if
+        r.r_status = Wedged
+        && r.r_attempts <= t.q_max_retries
+        && Option.exists expired_token_error r.r_last_error
+      then begin
+        r.r_status <- Pending;
+        r.r_last_error <- None;
+        save t;
+        changed t r
+      end)
+    (all t)
+
 let enabled t = t.q_enabled
 let set_enabled t ~enabled = t.q_enabled <- enabled
 
@@ -1851,8 +1888,10 @@ let classify t r (e : Error.t) =
   match e with
   | Error.Network_error _ -> retry_or_wedge ()
   | Error.Policy_denied _ | Error.Tls_error _ | Error.Json_error _ -> Failed e
-  | Error.Http_error { status; _ } ->
-      if status = 429 || status >= 500 then retry_or_wedge () else Failed e
+  | Error.Http_error { status; _ } -> (
+      match status with
+      | 408 | 429 | 500 | 502 | 503 | 504 | 507 | 520 -> retry_or_wedge ()
+      | _ -> Failed e)
   | Error.Matrix_error m -> (
       match m.errcode with
       | Error.M_LIMIT_EXCEEDED -> retry_or_wedge ?after:m.retry_after_ms ()

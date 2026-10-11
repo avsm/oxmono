@@ -48,11 +48,14 @@ let room_key_jsont : room_key Jsont.t =
         sender_claimed_keys
         forwarding_curve25519_key_chain
         stable_shared_history
+        legacy_shared_history
         unstable_shared_history
       ->
         let shared_history =
           Option.value stable_shared_history
-            ~default:(Option.value unstable_shared_history ~default:false)
+            ~default:
+              (Option.value legacy_shared_history
+                 ~default:(Option.value unstable_shared_history ~default:false))
         in
         ({
            algorithm;
@@ -81,8 +84,9 @@ let room_key_jsont : room_key Jsont.t =
          (Jsont.list Matrix_proto.Json.Codec.string)
          ~dec_absent:(fun () -> [])
          ~enc:(fun (t : room_key) -> t.forwarding_curve25519_key_chain)
-    |> opt_mem "m.shared_history" Jsont.bool ~enc:(fun (t : room_key) ->
+    |> opt_mem "shared_history" Jsont.bool ~enc:(fun (t : room_key) ->
         Some t.shared_history)
+    |> opt_mem "m.shared_history" Jsont.bool ~enc:(fun _ -> None)
     |> opt_mem "org.matrix.msc3061.shared_history" Jsont.bool ~enc:(fun _ ->
         None)
     |> finish)

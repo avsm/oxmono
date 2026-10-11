@@ -194,7 +194,9 @@ module Msc4108 : sig
       | Login_declined
       | Login_failure of {
           reason : login_failure_reason;
-          homeserver : Uriz.t option;
+          homeserver : string option;
+              (** Suggested server name or legacy homeserver URL, retained
+                  verbatim. *)
         }
       | Login_secrets of secrets_bundle
 
@@ -455,7 +457,9 @@ module Msc4108 : sig
       | Unexpected_message of { expected : string; received : Messages.t }
       | Peer_failure of {
           reason : Messages.login_failure_reason;
-          homeserver : Uriz.t option;
+          homeserver : string option;
+              (** Suggested server name or legacy homeserver URL, retained
+                  verbatim. *)
         }
       | Unsupported_protocol of Messages.login_protocol
       | No_supported_protocol

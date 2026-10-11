@@ -383,6 +383,13 @@ val unwedge : t -> request -> unit
     count and last error cleared, so the queue moves again. A request in any
     other state is left alone. *)
 
+val retry_expired_tokens : t -> unit
+(** [retry_expired_tokens t] returns requests blocked by [M_UNKNOWN_TOKEN] to
+    {!Pending} after credentials recover. Other failures remain blocked. The
+    attempt count is preserved and exhausted retry budgets remain blocked;
+    {!unwedge} explicitly resets a budget. The expired-token reason survives
+    persistence without retaining credentials or the server's error text. *)
+
 val enabled : t -> bool
 (** [enabled t] is [false] when every room's sending is held. *)
 
@@ -448,13 +455,14 @@ val classify : t -> request -> Error.t -> outcome
 (** [classify t r e] is what {!send_one} does about [e].
 
     A transport failure, a [429] or [M_LIMIT_EXCEEDED] honouring its
-    [retry_after_ms], an [M_UNKNOWN] on its first failed attempt, and any 5xx
-    are {!Retry_in}, unless [r] has already used its [max_retries], which makes
-    them {!Failed}. An explicit [retry_after_ms] is authoritative and is not
-    jittered. Locally computed exponential delays have bounded random jitter in
-    [[0.5, 1.5)]] and remain capped at [max_delay_ms]. Everything else,
-    including [M_FORBIDDEN], [M_UNKNOWN_TOKEN], any other 4xx and a JSON
-    failure, is {!Failed}. It never returns {!Sent_ok}. *)
+    [retry_after_ms], an [M_UNKNOWN] on its first failed attempt, and HTTP
+    [408], [500], [502], [503], [504], [507] or [520] are {!Retry_in}, unless
+    [r] has already used its [max_retries], which makes them {!Failed}. An
+    explicit [retry_after_ms] is authoritative and is not jittered. Locally
+    computed exponential delays have bounded random jitter in [[0.5, 1.5)]] and
+    remain capped at [max_delay_ms]. Everything else, including [M_FORBIDDEN],
+    [M_UNKNOWN_TOKEN], any other HTTP status and a JSON failure, is {!Failed}.
+    It never returns {!Sent_ok}. *)
 
 val retry_delay : t -> request -> float
 (** [retry_delay t r] is the exponential backoff before [r]'s next attempt, in

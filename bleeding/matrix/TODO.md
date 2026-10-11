@@ -11,6 +11,70 @@ newly discovered correctness defects and duplicated infrastructure. Treat its
 unchecked boxes as the current implementation queue; the older area notes
 remain the detailed behavioural record.
 
+## Rust SDK refresh (2026-10-11)
+
+Reviewed the local Rust SDK at `b3c07ea6ba6e8e46e30811c0500b04505c4be9f9`.
+This is a focused correctness refresh, not a claim of complete current-SDK
+parity or completion of the deferred projects below.
+
+- [x] Port `63dbb7a61`: restrict send-queue HTTP retries to 408, 429, 500,
+  502, 503, 504, 507 and 520. Other HTTP statuses fail permanently. Keep the
+  existing bounded retry budget, Matrix error handling and jitter policy.
+  Regression coverage checks every status from 100 through 699.
+- [x] Align Matrix's transport policy with the same transient status list,
+  including 408, 507 and 520. Keep the replay-safe POST allowlist unchanged:
+  key query may retry; key claim, key upload and sync may not. Mock transport
+  tests exercise transient and permanent statuses through the actual middleware.
+- [x] Adapt `14f289ec7` and `d85be34c7`: Eio queue workers detect successful
+  credential refreshes using a revision counter and retry only requests blocked
+  by `M_UNKNOWN_TOKEN`. A late in-flight rejection rechecks the revision, so it
+  cannot miss recovery already observed by the supervisor. An expired-token
+  marker survives queue persistence; workers retry marked requests at startup.
+  No access/refresh tokens or server error bodies are stored in this marker.
+  Automatic recovery retains the attempt budget, preventing endless successful
+  refreshes followed by rejected sends; explicit `unwedge` resets that budget.
+  Older persisted blocked requests without a reason require manual retry.
+- [x] Recheck `d34e15190`: transient network refresh failures already use the
+  queue's bounded retry path. New worker regressions cover eventual recovery
+  and a lost response after persisted refresh starts: the latter must exchange
+  the potentially consumed token only once, then remain blocked by the profile
+  marker until login recovery. Policy denials and unrelated permanent errors
+  are never released by automatic token recovery.
+- [x] Recheck `a1ac22890`: the imported-key legacy policy already survives
+  device-list updates. A regression now decrypts an imported export under
+  `Cross_signed_or_legacy` before and after `/keys/query`, repeats after snapshot
+  reload, and confirms this does not satisfy the stricter `Cross_signed` policy.
+- [x] Port `78d2bbd4a`: emit `shared_history` for room keys and portable
+  exports; accept it plus `m.shared_history` and
+  `org.matrix.msc3061.shared_history` for room keys, exports and backups.
+  Prefer the canonical field when multiple spellings occur, including explicit
+  false; reject wrong-typed members. Regenerate the portable export fixture and
+  refresh its independent Rust verifier and lockfile. The current SDK
+  successfully decrypted and checked every exported field under Docker Rust
+  1.96 (the host Rust 1.93 cannot compile this SDK).
+- [x] Port `33efecbf3`: retain the suggested homeserver in QR-login failure
+  messages as a string, accepting server names and legacy URLs verbatim.
+  Omit an absent homeserver on output and accept explicit null on input.
+  `Messages.Login_failure.homeserver` and `Application.Peer_failure.homeserver`
+  are now `string option`, a source-level change for callers constructing them.
+- [x] Review `e3a21fd84`: the Rust duplicate-live-timeline defect does not
+  require the same patch here. `Room_timeline.create` subscribes before its
+  first projection and subsequent notifications rebuild from the current cache;
+  it does not replay stale subscriber diffs onto that snapshot.
+- [x] Review `161e46235`: `Id.Room_alias.of_string` already splits at the
+  first colon and validates the server name separately, including ports and IPv6.
+- [x] Make the Docker runner use the scoped OxMono build while preserving its
+  standalone entry point. Fresh Synapse 1.159.0 passed all 60 scenarios in
+  107.783s; Dendrite 0.15.2 passed all five core scenarios in 1.533s. Both
+  containers and their data were cleaned up. The unit suite passed with
+  `MATRIX_REQUIRE_ORACLE=1`, including the raw-wire-ID SAS oracle.
+
+The verification-flow changes in this Rust revision range are refactoring and
+comments; they do not supersede the raw transaction-ID fix above. Full external
+Element/Rust-client SAS validation, the invitation failure reproduction and
+OAuth/MAS validation remain open. MSC4388 protocol-message and secure-channel
+work remains outside the implemented MSC4108 flow.
+
 ## Verification interoperability audit
 
 The Crow SAS failure exposed a protocol-boundary bug. `Transaction.id` is a
@@ -26,12 +90,14 @@ complete protocol audit.
 
 On a host with Docker:
 
-- [ ] Run the existing real-server suite from `bleeding/matrix`:
+- [x] Run the existing real-server suite from `bleeding/matrix`:
 
   ```sh
   test/integration/run-both.sh
   ```
 
+  Revalidated 2026-10-11: 60 Synapse scenarios and five Dendrite core
+  scenarios passed. See `OXMONO.md` for the monorepo invocation.
   This checks Synapse and Dendrite behaviour. Its verification peers are both
   OCaml, so it does not replace the external-client checks below.
 - [ ] Test Crow against Element and a matrix-rust-sdk client on an isolated

@@ -157,8 +157,8 @@ module Room_key_content : sig
             the index the sender had reached, so the recipient can decrypt from
             there onwards and no earlier. *)
     shared_history : bool;
-        (** Stable MSC3061 [m.shared_history]. The legacy
-            [org.matrix.msc3061.shared_history] spelling is accepted. *)
+        (** The [shared_history] flag. Legacy [m.shared_history] and
+            [org.matrix.msc3061.shared_history] spellings are accepted. *)
   }
   (** The type for an [m.room_key] content. *)
 

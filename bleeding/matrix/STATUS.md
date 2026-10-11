@@ -3,6 +3,23 @@
 **Status: the original targeted endpoint/E2EE milestone is complete and runs
 against Synapse; parity with the current matrix-rust-sdk is not complete.**
 
+The 2026-10-11 OxMono refresh was checked against Rust SDK
+`b3c07ea6ba6e8e46e30811c0500b04505c4be9f9`. It corrects shared-history
+wire names, HTTP retry classification and QR-login failure homeserver hints.
+Queue workers additionally recover expired-token sends after credential
+refresh or restart, with bounded retries and persisted failure categories.
+Matrix's transport uses the same transient HTTP statuses as its send queue,
+with POST replay restrictions retained. Regression coverage confirms that
+ambiguous persisted refreshes fail closed and imported keys retain legacy
+compatibility across device queries and reload.
+The scoped OxCaml build and unit suite passed with the cryptographic oracle
+required; Docker validation passed 60 Synapse scenarios (107.783s) and five
+Dendrite core scenarios (1.533s). See `OXMONO.md` for reproducible commands and
+`TODO.md` for the external-client verification gates that remain open.
+The current SDK also decrypted the regenerated portable export and verified
+all fields under Docker Rust 1.96.
+
+The following standalone release counts are historical (2026-09-08).
 Builds clean on OCaml 5.5. The validated suite has 64 hermetic test
 executables, 1,457 cases/checks and three source guards. Synapse 1.159.0
 validation covers 60 scenarios in 109.397s when `MATRIX_TEST_HOMESERVER` names
@@ -519,6 +536,7 @@ Synapse harness.
 | `test_matrix_proto` | 100 | Checked Matrix JSON primitives/maps and hostile wire text, identifier grammar, event codec round trips, sync fixtures, pre-v11 redactions and typed stripped state events |
 | `test_signed_json` | 3 | Canonical Matrix integer/value validation, duplicate and UTF-8 rejection, negative zero and Unicode key ordering |
 | `test_session` | 24 | `Session` jsont codecs including current/previous fallback keys, Matrix/OAuth auth provenance, backward-compatible access-token expiry and legacy persisted integers, `Session_pickle` round trips and negative decodes, and commit-after-authentication Megolm ratcheting |
+| `test_send_queue_refresh` | 8 | Persisted expired-token failures, automatic selective resumption, unchanged-token refresh, late rejection races, ambiguous persisted-refresh protection, transient refresh retries, bounded repeated rejection, and worker stop/restart |
 | `test_matrix_client` | 118 | Relative v3 and authenticated absolute-path request construction including retained homeserver prefixes, checked HTTPz route-template expansion and adversarial Matrix path segments, canonical URL/origin validation and exact query preservation, redacted transport diagnostics, auth header, bounded checked response decoding including duplicate members and depth, streaming-response scope/error mapping, typed policy/TLS failures, whole-operation deadlines across response/stream consumption, retry backoff and refresh with parent-cancellation preservation, origin restriction, transaction-id safety, serialized reactive and expiry-aware proactive refresh (including boundary, retry, reentrancy and one-shot rules), expiry-aware `Auth`, capability-resolved MXC URLs, MSC2246 preallocated media, encrypted upload/download, recursive E2EE log redaction, and typed atomic/profile-store failure boundaries |
 | `test_composer_draft` | 3 | Room/thread draft isolation, lossless attachment and thumbnail metadata round trips, dirty-versus-flush persistence, restart recovery, clear semantics and missing-attachments compatibility |
 | `test_live_locations` | 5 | Exact beacon start/stop/location sends, timeout and state errors, reactive replacement/redaction/close behavior, expiry and reload without resurrection |

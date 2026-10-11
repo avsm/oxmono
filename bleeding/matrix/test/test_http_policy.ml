@@ -117,31 +117,58 @@ let post_status ~sw client url =
 
 let test_selective_status_retry () =
   Eio_mock.Backend.run_full @@ fun env ->
-  let probe path =
+  let probe code path =
     let attempts = ref 0 in
     let client =
       retry_client env (fun req ->
           incr attempts;
-          Fetch_mock.respond ~status:(if !attempts = 1 then 503 else 200) "" req)
+          Fetch_mock.respond
+            ~status:(if !attempts = 1 then code else 200)
+            "" req)
     in
     let status =
-      Eio.Switch.run @@ fun sw ->
-      post_status ~sw client ("https://hs.example" ^ path)
+      Eio.Switch.run (fun sw ->
+          post_status ~sw client ("https://hs.example" ^ path))
     in
     (!attempts, status)
   in
-  Alcotest.(check (pair int int))
-    "query retried" (2, 200)
-    (probe "/_matrix/client/v3/keys/query");
-  Alcotest.(check (pair int int))
-    "claim vetoed" (1, 503)
-    (probe "/_matrix/client/v3/keys/claim");
-  Alcotest.(check (pair int int))
-    "upload vetoed" (1, 503)
-    (probe "/_matrix/client/v3/keys/upload");
-  Alcotest.(check (pair int int))
-    "sync vetoed" (1, 503)
-    (probe "/_matrix/client/v3/sync")
+  List.iter
+    (fun code ->
+      let transient =
+        List.mem code [ 408; 429; 500; 502; 503; 504; 507; 520 ]
+      in
+      Alcotest.(check (pair int int))
+        (Printf.sprintf "key query HTTP %d" code)
+        (if transient then (2, 200) else (1, code))
+        (probe code "/_matrix/client/v3/keys/query");
+      List.iter
+        (fun path ->
+          Alcotest.(check (pair int int))
+            (Printf.sprintf "%s HTTP %d vetoed" path code)
+            (1, code) (probe code path))
+        [
+          "/_matrix/client/v3/keys/claim";
+          "/_matrix/client/v3/keys/upload";
+          "/_matrix/client/v3/sync";
+        ])
+    [
+      400;
+      401;
+      403;
+      404;
+      408;
+      429;
+      500;
+      501;
+      502;
+      503;
+      504;
+      505;
+      507;
+      508;
+      520;
+      599;
+    ]
 
 let test_selective_connection_retry () =
   Eio_mock.Backend.run_full @@ fun env ->

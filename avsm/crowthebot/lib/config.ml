@@ -4,6 +4,7 @@ type t = {
   admin : string;
   homeserver : string;
   base_url : string;
+  allow_http_model : bool;
   backend : backend;
   model : string;
   model_path : string option;
@@ -62,6 +63,7 @@ let default ~admin ~homeserver =
     admin;
     homeserver;
     base_url = "https://sequoia.cl.cam.ac.uk:8000/v1";
+    allow_http_model = false;
     backend = Openrouter;
     model = "Qwen/Qwen3.8-27B-FP8";
     model_path = None;
@@ -108,6 +110,7 @@ let jsont =
       admin
       homeserver
       base_url
+      allow_http_model
       backend
       model
       model_path
@@ -136,6 +139,7 @@ let jsont =
         admin;
         homeserver;
         base_url;
+        allow_http_model;
         backend =
           (match backend with
           | "openrouter" -> Openrouter
@@ -171,6 +175,8 @@ let jsont =
   |> mem "admin" Jsont.string ~enc:(fun t -> t.admin)
   |> mem "homeserver" Jsont.string ~enc:(fun t -> t.homeserver)
   |> mem "base_url" Jsont.string ~enc:(fun t -> t.base_url)
+  |> mem "allow_http_model" Jsont.bool ~dec_absent:(fun () -> false)
+       ~enc:(fun t -> t.allow_http_model)
   |> mem "backend" Jsont.string ~dec_absent:(fun () -> "openrouter") ~enc:(fun t -> match t.backend with Openrouter -> "openrouter" | Ds4 -> "ds4" | Apple_fm -> "apple-fm")
   |> mem "model" Jsont.string ~enc:(fun t -> t.model)
   |> mem "model_path" (Jsont.option Jsont.string) ~dec_absent:(fun () -> None) ~enc:(fun t -> t.model_path)
@@ -211,7 +217,7 @@ let jsont =
 
 let tomlt =
   let open Tomlt.Table in
-  obj (fun admin homeserver base_url backend model model_path cache_dir system_prompt plugins
+  obj (fun admin homeserver base_url allow_http_model backend model model_path cache_dir system_prompt plugins
       context_messages context_bytes max_tokens tool_calls tool_result_bytes tool_request_bytes parallel_tool_calls model_timeout_seconds turn_timeout_seconds compaction_reasoning_effort
       log_level log_file improvements_file voice_messages voice_locale
       speech_voice image_messages ->
@@ -222,7 +228,7 @@ let tomlt =
       | "apple" | "apple-fm" -> Apple_fm
       | _ -> invalid_arg "backend must be openrouter, ds4 or apple-fm"
     in
-    { admin; homeserver; base_url; backend; model; model_path = if model_path = "" then None else Some model_path; cache_dir = if cache_dir = "" then None else Some cache_dir; system_prompt; plugins = Array.to_list plugins;
+    { admin; homeserver; base_url; allow_http_model; backend; model; model_path = if model_path = "" then None else Some model_path; cache_dir = if cache_dir = "" then None else Some cache_dir; system_prompt; plugins = Array.to_list plugins;
       context_messages; context_bytes; max_tokens;
       tool_calls; tool_result_bytes; tool_request_bytes; parallel_tool_calls; model_timeout_seconds; turn_timeout_seconds;
       compaction_reasoning_effort =
@@ -239,6 +245,8 @@ let tomlt =
   |> mem "admin" Tomlt.string ~enc:(fun t -> t.admin)
   |> mem "homeserver" Tomlt.string ~enc:(fun t -> t.homeserver)
   |> mem "base_url" Tomlt.string ~enc:(fun t -> t.base_url)
+  |> mem "allow_http_model" Tomlt.bool ~dec_absent:false
+       ~enc:(fun t -> t.allow_http_model)
   |> mem "backend" Tomlt.string ~dec_absent:"openrouter" ~enc:(fun t ->
       match t.backend with Openrouter -> "openrouter" | Ds4 -> "ds4" | Apple_fm -> "apple-fm")
   |> mem "model" Tomlt.string ~enc:(fun t -> t.model)
@@ -279,7 +287,7 @@ let of_toml_string s =
 
 let validate t =
   ignore (Matrix_proto.Id.User_id.of_string_exn t.admin);
-  let http_url ~loopback text =
+  let http_url ?(allow_http = false) ~loopback text =
     match Uriz.of_string text with
     | Null -> invalid_arg "invalid server URL"
     | This url -> (
@@ -293,20 +301,22 @@ let validate t =
         | This scheme, This host, Null, Null, Null
           when host <> ""
                && (scheme = "https"
-                  || scheme = "http" && loopback
-                     && List.mem host
-                          [ "localhost"; "127.0.0.1"; "::1"; "[::1]" ]) ->
+                  || scheme = "http"
+                     && (allow_http || loopback
+                         && List.mem host
+                              [ "localhost"; "127.0.0.1"; "::1"; "[::1]" ])) ->
             ()
         | _ ->
             invalid_arg
               "server URL requires HTTPS, or HTTP to a loopback base_url, \
-               with no credentials, query or fragment")
+               or explicit allow_http_model, with no credentials, query or \
+               fragment")
   in
   http_url ~loopback:false t.homeserver;
   (* The fallback model endpoint carries private Matrix and tool context, so
-     plain HTTP is accepted only when it cannot leave the host. Other trusted
-     HTTP models need a named [openrouter] secret with [allow_http]. *)
-  http_url ~loopback:true t.base_url;
+     plain HTTP requires loopback or an explicit trusted-network opt-in.
+     HTTP credentials still need a named [openrouter] secret with [allow_http]. *)
+  http_url ~allow_http:t.allow_http_model ~loopback:true t.base_url;
   if not (List.mem t.log_level ["quiet"; "error"; "warning"; "info"; "debug"]) then
     invalid_arg "invalid log level";
   if

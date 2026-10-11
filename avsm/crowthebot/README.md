@@ -142,6 +142,7 @@ profiles are read as a compatibility fallback. The defaults are:
 | Setting | Default |
 | --- | --- |
 | `base_url` | `https://sequoia.cl.cam.ac.uk:8000/v1` |
+| `allow_http_model` | `false`. Enable for a trusted HTTP model endpoint, such as a Tailscale host. |
 | `model` | `Qwen/Qwen3.8-27B-FP8` |
 | `plugins` | `[]` |
 | `context_messages` | 20 |
@@ -229,6 +230,9 @@ owned by you with mode 0600, and its bearer key requires HTTPS. Without named
 model configuration or an override, Crow uses the profile endpoint without a
 key. `base_url` must be HTTPS, except that plain HTTP is accepted for
 `localhost`, `127.0.0.1` and `[::1]`, such as `http://localhost:8000/v1`.
+For a trusted network such as Tailscale, set `allow_http_model = true` to
+use a non-loopback HTTP endpoint. This does not enable HTTP Matrix servers
+or sending `--api-key-file` credentials over HTTP.
 Keys are never read from ambient API-key environment variables.
 
 The primary admin is stored in SQLite at initialization. Changing `admin` in

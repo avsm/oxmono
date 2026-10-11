@@ -166,6 +166,17 @@ let () =
   check "HTTP model endpoint rejected"
     (bad (fun () ->
          Config.validate { config with base_url = "http://model.example/v1" }));
+  let trusted = { config with base_url = "http://sequoia:8000/v1";
+                              allow_http_model = true } in
+  Config.validate trusted;
+  check "trusted HTTP opt-in survives TOML roundtrip"
+    (match Config.of_toml_string (Tomlt_bytesrw.encode_string Config.tomlt trusted) with
+     | Ok restored -> restored.allow_http_model && restored.base_url = trusted.base_url
+     | Error _ -> false);
+  check "trusted HTTP opt-in does not permit HTTP Matrix"
+    (bad (fun () -> Config.validate {trusted with homeserver = "http://matrix.example"}));
+  check "trusted HTTP opt-in still rejects URL credentials"
+    (bad (fun () -> Config.validate {trusted with base_url = "http://key@sequoia:8000/v1"}));
   check "HTTP loopback model endpoint accepted"
     (List.for_all
        (fun base_url ->
@@ -204,11 +215,12 @@ system_prompt = "p"|}
   let legacy = match legacy with
     | Jsont.Object (members, meta) -> Jsont.Object
         (List.filter (fun ((key, _), _) -> not (List.mem key
-          ["tool_calls"; "tool_result_bytes"; "tool_request_bytes";
+          ["allow_http_model"; "tool_calls"; "tool_result_bytes"; "tool_request_bytes";
            "parallel_tool_calls"; "model_timeout_seconds";
            "turn_timeout_seconds"])) members, meta)
     | _ -> assert false in
   let restored = Result.get_ok (Jsont.Json.decode Config.jsont legacy) in
+  check "legacy JSON keeps trusted HTTP disabled" (not restored.allow_http_model);
   check "existing JSON profiles get large tool defaults"
     (restored.tool_calls = 256 && restored.parallel_tool_calls = 8
      && restored.tool_result_bytes = 65536);
@@ -220,6 +232,7 @@ model = "test"
 system_prompt = "hello"
 |}) in
   Config.validate restored;
+  check "legacy TOML keeps trusted HTTP disabled" (not restored.allow_http_model);
   check "existing TOML profiles get large tool defaults"
     (restored.tool_request_bytes = 8388608
      && restored.turn_timeout_seconds = 3600);

@@ -4,6 +4,7 @@ type t = {
   admin : string;
   homeserver : string;
   base_url : string;
+  allow_http_model : bool;
   backend : backend;
   model : string;
   model_path : string option;

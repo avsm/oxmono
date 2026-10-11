@@ -1,5 +1,8 @@
 # Changes
 
+- Allow trusted HTTP model endpoints with an explicit `allow_http_model`
+  profile setting.
+
 - Share the restricted mail reader and label writer with the JMAP library.
 
 - Prefer message links for cross-room confirmations. Include member display

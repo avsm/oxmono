@@ -3,9 +3,10 @@
 val affirmative : string -> bool
 (** [affirmative text] accepts only [y] or [yes], ignoring case and space. *)
 
-val prompt : Matrix_eio.Verification_service.prompt -> string
-(** [prompt p] displays the exact peer, device, seven emoji and three numbers.
-*)
+val prompt : ?confirmation:string -> Matrix_eio.Verification_service.prompt -> string
+(** [prompt ?confirmation p] displays the exact peer, device, seven emoji and
+    three numbers. [confirmation] supplies the instructions after the SAS and
+    defaults to an interactive yes/no question. *)
 
 val run :
   env:Eio_unix.Stdenv.base ->

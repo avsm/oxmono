@@ -632,6 +632,75 @@ let run ~env ~sw ~profile ~api_key_file =
       (match config.backend with Config.Openrouter -> "openrouter" | Config.Ds4 -> "ds4" | Config.Apple_fm -> "apple-fm")
       config.model config.log_level);
   let self = Id.User_id.to_string (Context.user_id ctx) in
+  let running_bot = ref None in
+  let admin = Id.User_id.of_string_exn (Store.admin store) in
+  let client = Context.client ctx in
+  let state () =
+    match !running_bot with
+    | None -> None
+    | Some bot -> Some (Matrix_eio.Sync_service.state
+        (Matrix_ui.Runtime.sync_service (Matrix_bot.Bot.runtime bot)))
+  in
+  let admin_dm = Admin_dm.create ~client ?encryption:(Context.encryption ctx)
+      ~store ~state () in
+  let send_admin text =
+    with_timeout env 30. (fun () -> Admin_dm.send admin_dm text)
+  in
+  let verification = ref None in
+  let verify () =
+    with_timeout env 30. (fun () ->
+      match !verification, Context.encryption ctx with
+      | Some service, Some encryption ->
+          if List.exists (fun session ->
+              Id.User_id.equal admin
+                (Matrix_client.Verification.Flow.session_their_user_id session))
+              (Matrix_eio.Verification_service.sessions service) then
+            send_admin "Verification is already in progress."
+          else begin
+            let room = Admin_dm.room admin_dm in
+            Matrix_eio.Encryption.receive_keys_query encryption
+              (Matrix_eio.Keys.query_keys client
+                 ~users:[ (Context.user_id ctx, []); (admin, []) ] ());
+            ignore (Matrix_eio.Verification_service.request_in_room service client
+                      ~room_id:room
+                      ~methods:[Matrix_client.Verification.Method.Sas_v1] admin);
+            Log.info (fun m -> m "Started admin device verification room=%S"
+                (Id.Room_id.to_string room))
+          end
+      | _ -> send_admin "Device verification is unavailable without encryption.")
+  in
+  let check_room room_id =
+    match !running_bot with
+    | None -> false
+    | Some bot ->
+        let id = Id.Room_id.of_string_exn room_id in
+        match Matrix_bot.Bot.find_room bot id with
+        | None -> false
+        | Some room when Matrix_bot.Room.is_dm room
+                         || Store.direct_peer store room_id <> None -> false
+        | Some room ->
+            let snapshot = Matrix_eio.Rooms.get_members client ~room_id:id () in
+            Matrix_eio.Sync_service.replace_members
+              (Matrix_ui.Runtime.sync_service (Matrix_bot.Bot.runtime bot)) id snapshot;
+            let members = Matrix_bot.Room.members room
+                |> List.map Id.User_id.to_string in
+            List.length members > 2 && List.mem self members
+            && List.mem (Store.admin store) members
+  in
+  let onboarding = Onboarding.create ~store ~self ~now:(now env)
+      ~check_room ~send_admin ~verify
+      ~respond:(fun ~flow_id ~accept ->
+        Option.iter (fun service ->
+          Matrix_eio.Verification_service.respond service client ~flow_id ~accept)
+          !verification)
+  in
+  verification := Option.map (fun encryption ->
+    Matrix_eio.Verification_service.create ~client ~encryption
+      ~methods:[Matrix_client.Verification.Method.Sas_v1]
+      ~on_prompt:(Onboarding.prompt onboarding)
+      ~on_result:(fun result ->
+        Context.save ctx;
+        Onboarding.result onboarding result) ()) (Context.encryption ctx);
   let direct_peer bot room ~actor =
     let room_id = Matrix_bot.Room.id room in
     let saved = Store.direct_peer store (Id.Room_id.to_string room_id) in
@@ -844,9 +913,10 @@ let run ~env ~sw ~profile ~api_key_file =
               then failwith "DM membership changed during the request";
               send text
             in
-            Engine.handle engine ~mentioned ~direct
-              ~on_accept:(fun () -> Typing.start typing)
-              ~attachments ~send event)
+            if not (Onboarding.handle onboarding ~direct ~send event) then
+              Engine.handle engine ~mentioned ~direct
+                ~on_accept:(fun () -> Typing.start typing)
+                ~attachments ~send event)
       with
       | Eio.Cancel.Cancelled _ as exn -> raise exn
       | exn ->
@@ -889,7 +959,7 @@ let run ~env ~sw ~profile ~api_key_file =
                 | Error error ->
                     Log.err (fun m ->
                         m
-                          "DM join failed room=%S inviter=%S error=%s; \
+                          "Invitation join failed room=%S inviter=%S error=%s; \
                            invitation remains pending"
                           (Id.Room_id.to_string invitation.room_id)
                           (Id.User_id.to_string inviter)
@@ -908,6 +978,7 @@ let run ~env ~sw ~profile ~api_key_file =
                   "Ignored invitation: requires the admin or a direct invite \
                    from an approved account"))
     |> Matrix_bot.Bot.on_join (fun bot room ->
+        running_bot := Some bot;
         let id = Matrix_bot.Room.id room in
         Log.info (fun m ->
             m
@@ -927,6 +998,8 @@ let run ~env ~sw ~profile ~api_key_file =
           in
           Hashtbl.replace watchers id stop
         end;
+        with_timeout env 30. (fun () ->
+          Onboarding.request onboarding ~room:(Id.Room_id.to_string id));
         if
           List.mem
             (Id.Room_id.to_string (Matrix_bot.Room.id room))
@@ -982,7 +1055,8 @@ let run ~env ~sw ~profile ~api_key_file =
       m
         "Starting Matrix sync; messages in the initial timeline are skipped. \
          Send a fresh message once sync is live");
-  Matrix_bot.Bot.run ctx spec ~on_start:(fun bot ->
+  Matrix_bot.Bot.run ?verification:!verification ctx spec ~on_start:(fun bot ->
+      running_bot := Some bot;
       (matrix_sender :=
          fun () ->
            Some

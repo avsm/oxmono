@@ -161,6 +161,7 @@ val commands : spec -> command_info list
 val run :
   ?params:Matrix_client.Sync.params ->
   ?on_start:(t -> unit) ->
+  ?verification:Matrix_eio.Verification_service.t ->
   Context.t ->
   spec ->
   unit
@@ -168,7 +169,9 @@ val run :
     first response, joins invitations when the spec says so, and delivers events
     until {!stop} or a {!Event.Sync} {!Matrix_ui.Runtime.Stopped}. [params] is
     what each [/sync] asks for, and defaults to
-    {!Matrix_client.Sync.default_params}.
+    {!Matrix_client.Sync.default_params}. [verification] handles device and
+    in-room verification through the same sync loop. It must use the context
+    client and encryption machine.
 
     Each room has a fiber. The sync loop, the send queue and the collectors live
     on a switch [run] owns, so returning tears them all down. The encryption

@@ -285,3 +285,13 @@
  (name test_http_post)
  (modules test_http_post)
  (libraries fake_model crowthebot eio_main sqlite3-eio fetch.mock http logs jsont jsont.bytesrw))
+
+(test
+ (name test_onboarding)
+ (modules test_onboarding)
+ (libraries fake_model crowthebot sqlite3-eio eio_main))
+
+(test
+ (name test_admin_dm)
+ (modules test_admin_dm)
+ (libraries crowthebot sqlite3-eio eio_main fetch.mock http jsont jsont.bytesrw))

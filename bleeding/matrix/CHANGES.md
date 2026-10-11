@@ -1,5 +1,7 @@
 ## unreleased
 
+- Allow bots to supply a verification service to their running sync loop.
+
 `Matrix_bot.Room.send_audio` uploads audio and sends it as an `m.audio`
 message, optionally marked as a voice message with a waveform, encrypting the
 upload in encrypted rooms.

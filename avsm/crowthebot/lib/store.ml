@@ -42,7 +42,7 @@ let create ?(now = Unix.gettimeofday) db ~admin =
   if
     not
       (List.mem version
-         [ [ 0 ]; [ 1 ]; [ 2 ]; [ 3 ]; [ 4 ]; [ 5 ]; [ 6 ]; [ 7 ]; [ 8 ] ])
+         [ [ 0 ]; [ 1 ]; [ 2 ]; [ 3 ]; [ 4 ]; [ 5 ]; [ 6 ]; [ 7 ]; [ 8 ]; [ 9 ] ])
   then invalid_arg "unsupported crowthebot database version";
   sql db
     "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;";
@@ -55,6 +55,8 @@ CREATE TABLE IF NOT EXISTS people (
  user TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('friend','bot','unknown')),
  allowed INTEGER NOT NULL CHECK(allowed IN (0,1)));
 CREATE TABLE IF NOT EXISTS rooms (room TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS room_requests (
+ room TEXT PRIMARY KEY, approved INTEGER CHECK(approved IN (0,1)));
 CREATE TABLE IF NOT EXISTS direct_rooms (room TEXT PRIMARY KEY, peer TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS history (
  id INTEGER PRIMARY KEY, room TEXT NOT NULL, user TEXT NOT NULL,
@@ -106,7 +108,7 @@ CREATE TABLE IF NOT EXISTS reminder_runs (
  scheduled_at REAL NOT NULL, started_at TEXT NOT NULL, finished_at TEXT,
  status TEXT NOT NULL, UNIQUE(reminder_id,scheduled_at));
 |};
-    if not (List.mem version [ [ 5 ]; [ 6 ]; [ 7 ]; [ 8 ] ]) then
+    if not (List.mem version [ [ 5 ]; [ 6 ]; [ 7 ]; [ 8 ]; [ 9 ] ]) then
       sql db
         {|
 ALTER TABLE reminders RENAME TO reminders_v4;
@@ -133,7 +135,7 @@ CREATE INDEX reminders_due ON reminders(state,next_at);
     Caldav_agenda_store.init db;
     Email_cache.init db;
     Room_context.init db;
-    if version <> [ 8 ] then
+    if not (List.mem version [ [ 8 ]; [ 9 ] ]) then
       sql db
         {|
 ALTER TABLE history RENAME TO history_v7;
@@ -148,7 +150,7 @@ DROP TABLE history_v7;
 CREATE INDEX history_thread ON history(room,user,id);
 |};
     Compaction.init db;
-    sql db "PRAGMA user_version=8";
+    sql db "PRAGMA user_version=9";
     execute db "INSERT OR IGNORE INTO settings VALUES ('admin',?)"
       [ text admin ];
     let stored =
@@ -266,6 +268,29 @@ let rooms t =
   locked t (fun () ->
       rows t.db "SELECT room FROM rooms ORDER BY room" [] (fun s ->
           Sqlite3.column_text s 0))
+
+let request_room t room =
+  ignore (Matrix_proto.Id.Room_id.of_string_exn room);
+  locked t (fun () ->
+      execute t.db "INSERT OR IGNORE INTO room_requests VALUES (?,NULL)"
+        [ text room ])
+
+let room_requests t =
+  locked t (fun () ->
+      rows t.db
+        "SELECT room FROM room_requests WHERE approved IS NULL AND room NOT IN \
+         (SELECT room FROM rooms) ORDER BY room" []
+        (fun s -> Sqlite3.column_text s 0))
+
+let decide_room t ~actor ~room ~approve =
+  if actor <> t.admin then invalid_arg "room approval requires the primary admin";
+  ignore (Matrix_proto.Id.Room_id.of_string_exn room);
+  locked t (fun () ->
+      transaction t.db @@ fun () ->
+      execute t.db "UPDATE room_requests SET approved=? WHERE room=?"
+        [ Sqlite3.Data.INT (if approve then 1L else 0L); text room ];
+      if approve then
+        execute t.db "INSERT OR IGNORE INTO rooms VALUES (?)" [ text room ])
 
 let add_direct_room t ~room ~peer =
   ignore (Matrix_proto.Id.Room_id.of_string_exn room);

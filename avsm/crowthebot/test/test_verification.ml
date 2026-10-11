@@ -26,7 +26,7 @@ let admin = uid "@admin:example.org"
 
 (* Both real sync loops and SAS services communicate only through this server.
    There is no Matrix account or network access in these tests. *)
-let scenario env ~cross_sign ~accept_request ~match_sas =
+let scenario ?(live_bot = false) env ~cross_sign ~accept_request ~match_sas =
   Eio.Switch.run @@ fun sw ->
   let device_keys = Hashtbl.create 2 in
   let inbox = Hashtbl.create 2 in
@@ -157,23 +157,43 @@ let scenario env ~cross_sign ~accept_request ~match_sas =
   let crow_client, crow_enc = peer crow in
   let admin_client, admin_enc = peer admin in
   let crow_prompts = ref [] and admin_prompts = ref [] in
+  let ask prompts text =
+    prompts := text :: !prompts;
+    Eio.Time.Mono.sleep (Eio.Stdenv.mono_clock env) 0.01;
+    if String.starts_with ~prefix:"Accept" text then accept_request
+    else match_sas
+  in
   let run client encryption identity target listen prompts =
     Crowthebot.Verification.run ~env ~client ~encryption
       ?private_identity:(if cross_sign then Some identity else None)
-      ~target ~listen
-      ~ask:(fun text ->
-        prompts := text :: !prompts;
-        (* A waiting operator must not prevent the other sync loop advancing. *)
-        Eio.Time.Mono.sleep (Eio.Stdenv.mono_clock env) 0.01;
-        if String.starts_with ~prefix:"Accept" text then accept_request
-        else match_sas)
-      ()
+      ~target ~listen ~ask:(ask prompts) ()
+  in
+  let run_live () =
+    let outcome, resolver = Eio.Promise.create () in
+    let running = ref None in
+    let verification = V.create ~client:crow_client ~encryption:crow_enc
+        ~methods:[Matrix_client.Verification.Method.Sas_v1]
+        ~confirm:(fun p -> ask crow_prompts (Crowthebot.Verification.prompt p))
+        ~on_result:(fun result ->
+          Eio.Promise.resolve resolver result;
+          Option.iter Matrix_bot.Bot.stop !running) () in
+    let ctx = Matrix_bot.Context.v ~env ~sw ~client:crow_client
+        ~encryption:crow_enc () in
+    Matrix_bot.Bot.run ~verification ctx
+      (Matrix_bot.Bot.v ~name:"verification-test" ())
+      ~on_start:(fun bot ->
+        running := Some bot;
+        M.Encryption.receive_keys_query crow_enc
+          (M.Keys.query_keys crow_client ~users:[(admin, [])] ());
+        ignore (V.request verification crow_client admin));
+    Eio.Promise.await outcome
   in
   let a, b =
     Eio.Time.with_timeout_exn (Eio.Stdenv.clock env) 10. (fun () ->
         Eio.Fiber.pair
           (fun () ->
-            run crow_client crow_enc crow_identity admin false crow_prompts)
+            if live_bot then run_live ()
+            else run crow_client crow_enc crow_identity admin false crow_prompts)
           (fun () ->
             run admin_client admin_enc admin_identity crow true admin_prompts))
   in
@@ -202,6 +222,8 @@ let scenario env ~cross_sign ~accept_request ~match_sas =
 
 let () =
   Eio_main.run @@ fun env ->
+  scenario ~live_bot:true env ~cross_sign:false ~accept_request:true ~match_sas:true;
+  scenario ~live_bot:true env ~cross_sign:false ~accept_request:true ~match_sas:false;
   scenario env ~cross_sign:false ~accept_request:true ~match_sas:true;
   scenario env ~cross_sign:true ~accept_request:true ~match_sas:true;
   scenario env ~cross_sign:true ~accept_request:false ~match_sas:true;

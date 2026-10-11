@@ -223,10 +223,47 @@ Keys are never read from ambient API-key environment variables.
 
 The primary admin is stored in SQLite at initialization. Changing `admin` in
 JSON alone is rejected. Create a fresh profile to choose another authority.
-Rooms are enabled only by a successful `join`, which resolves an alias to a
-stable room ID. Direct-message invitations from the admin or an allowed account
-are accepted automatically. Other invitations require an explicit `join`.
-Joining another room does not share conversation context with it.
+Rooms are enabled by a successful `join`, which resolves an alias to a stable
+room ID, or by admin approval in a DM. Crow accepts group invitations from the
+primary admin and starts the approval workflow below. Direct-message
+invitations from allowed accounts are accepted automatically. Other invitations
+require an explicit `join`. Joining another room does not share conversation
+context with it.
+
+## Inviting Crow to a group
+
+Invite Crow from the primary admin's account. Crow joins and sends the admin a
+private notice containing the room ID. It reuses a DM containing only Crow and
+the admin, checking current membership first, or creates an encrypted DM and
+invites the admin. Accept that DM invitation if needed.
+
+Reply in the DM:
+
+- `rooms` lists pending approvals.
+- `room approve !room:server` enables Crow in that group.
+- `room reject !room:server` keeps the group disabled and suppresses further
+  approval notices for it. An explicit CLI `join` can still enable it.
+
+Pending requests and decisions survive restarts. On startup Crow also proposes
+already joined, disabled groups containing the admin, including rooms joined
+before this workflow existed. Pending notices are repeated once per restart.
+Approval checks that Crow and the admin are still members. Other participants
+still require the usual `allow @user:server friend|bot` permission. Send a fresh
+message after approval. Earlier ignored messages are not replayed.
+
+Crow starts an in-room SAS request with the first approval notice of each run.
+Accept verification in your Matrix client and compare all seven emoji or all
+three numbers against Crow's DM prompt. Reply with the exact command it gives:
+`verify yes FLOW` if they match, or `verify no FLOW` if they differ. `verify`
+starts another request when no admin verification is active. Confirmation must
+come from the primary admin in a DM whose current membership is exactly Crow
+and the admin. Prompts expire after ten minutes. These commands bypass the
+model and the shared conversation mutex.
+
+Group approval and device verification are separate. Live verification updates
+local device trust and saves Crow's crypto state. Account cross-signing still
+uses the `verify --recovery-key-file` CLI described below. Profiles running
+without encryption receive approval notices but cannot perform SAS verification.
 
 ## Named tool configuration and secrets
 

@@ -1,5 +1,8 @@
 # Changes
 
+- DM the admin to approve invited groups, recover joined disabled rooms on
+  startup, and perform live SAS device verification without stopping Crow.
+
 - Fetch and analyse public websites with User-Agent crowthebot, bounded text
   paging and durable tool auditing plus HTTP request/status logs.
 - Add a separate audited HTTP POST tool with typed bodies, bounded responses

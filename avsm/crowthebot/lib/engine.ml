@@ -339,7 +339,8 @@ let split text =
 let help =
   "Talk to Crow, use !crow, mention my Matrix ID, or send a DM. Commands: ask \
    TEXT, reset, help. Primary admin: !crow allow @user:server friend|bot, deny \
-   @user:server, people. Admin and friends: memory store|search|get|erase, \
+   @user:server, people. Admin DM: rooms, room approve|reject ID, verify \
+   [yes|no FLOW]. Admin and friends: memory store|search|get|erase, \
    memory list|overview|expand, cron create|list|cancel, tools [DAY [AFTER_ID]], note [DAY], \
    feeds add|list|status|poll|entries|remove. Dates and cron schedules use \
    UTC. Location commands: location sources|list|get|detach. Ask to attach a \

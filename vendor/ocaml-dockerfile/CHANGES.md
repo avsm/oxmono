@@ -1,3 +1,67 @@
+v8.4.4 2026-09-10
+-----------------
+
+- Add opam-2.6 (@kit-ty-kate #274)
+- Fix the Windows MSVC images. Since 17.14, the Visual Studio Build Tools
+  `VCTools` workload depends on the `Microsoft.WebView2` package, whose
+  bundled Edge WebView2 Runtime offline installer self-updates Edge Update
+  from the internet and then hands the offline install to the new Edge
+  Update, which can't find the offline payload and fails with 0x80070003,
+  failing the whole Build Tools install with exit code 1603. WebView2 is
+  only used by the IDE, so pre-seed the installer's detect condition in
+  the registry so the package is skipped (@mtelvers #273)
+
+v8.4.3 2026-09-04
+-----------------
+
+- Disable Windows Update in the Windows images. The `windows`,
+  `windows/server` and `windows/servercore` base images set the Automatic
+  Updates policy to "auto download and notify for install"
+  (microsoft/Windows-Containers#637), so the Update Orchestrator wakes
+  Windows Update inside the container and downloads patches into
+  `C:\Windows\SoftwareDistribution`. Those downloads are sparse files,
+  which the layer exporter rejects with "unknown stream ID 9". Set
+  `NoAutoUpdate` and stop the `wuauserv`, `UsoSvc` and `WaaSMedicSvc`
+  services from starting in every stage (@mtelvers #272)
+
+v8.4.2 2026-08-09
+-----------------
+
+- Add Alpine 3.24, deprecate Alpine 3.23 (@mtelvers #271)
+- Drop s390x from Debian 12; the `debian:12` image no longer publishes an
+  s390x manifest, so the builds fail with "no matching manifest for
+  linux/s390x". ppc64le is unaffected, as are Debian 13 and later
+  (@mtelvers #271)
+- Set `gc.autoDetach false` in the global git configuration of the base
+  images. `git fetch` spawns a detached `git maintenance run --auto`, and
+  since Git 2.55 that background run takes a lock file inside
+  `.git/objects`. The resulting change to the directory makes tar exit 1
+  with "file changed as we read it" as opam packs the repository it has
+  just fetched, so `opam repo add <git url>` fails on the distributions
+  now shipping Git 2.55: openSUSE Tumbleweed, Fedora 44 and Debian
+  unstable (@mtelvers #270)
+- Render a `tmpfs` mount as `--mount=type=tmpfs`; `string_of_mount` emitted
+  `--mount=type=bind` for the `` `Tmpfs `` case, so a tmpfs mount was
+  rendered as a bind mount (@samoht #269)
+
+v8.4.1 2026-06-10
+-----------------
+
+- Fix the `zstd` OCaml 5.1+ depext to install the headers package
+  (`zstd-dev` on Alpine, `libzstd-devel` on RHEL/SUSE) rather than
+  the CLI-only `zstd`, so the compiler is built with artifact
+  compression and switches aren't ~90MB larger than on Debian
+  (@frejsoya, #268)
+
+v8.4.0 2026-05-20
+-----------------
+
+- Add `Distro.gcc_version` to expose the default gcc major.minor version
+  shipped by each distribution. This lets consumers gate per-distro
+  workarounds (e.g. the GCC 15 default-`-std=gnu23` change that breaks
+  OCaml < 5.1) on the actual compiler version rather than maintaining a
+  hand-written list of affected distros (@mtelvers #267)
+
 v8.3.9 2026-05-12
 -----------------
 

@@ -1,9 +1,9 @@
 # OxMono import
 
-Imported dockerfile.8.3.9 at `e13814efe2e53f9b7cb344e20ce13c6c705a0259`.
+Imported dockerfile.8.4.5 at `5443a9c42cd4392da1d35cafc6eeb1bd3f62f87b`.
 `OXMONO.json` records the release archive URL and checksums. Every retained
 source was compared against the checksum-verified release archive on
-2026-10-03. Sources match except for the adaptations below.
+2026-10-15. Sources match except for the adaptations below.
 
 ## Scope and adaptations
 

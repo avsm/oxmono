@@ -5,8 +5,8 @@ set -ue
 # (c) Copyright Fabrice Le Fessant INRIA/OCamlPro 2013
 # (c) Copyright Louis Gesbert OCamlPro 2014-2017
 
-VERSION='2.4.1'
-DEV_VERSION='2.4.1'
+VERSION='2.5.2'
+DEV_VERSION='2.6.0~beta2'
 DEFAULT_BINDIR=/usr/local/bin
 
 bin_sha512() {
@@ -426,6 +426,127 @@ bin_sha512() {
     opam-2.4.1-x86_64-netbsd)         echo "d5912c34455476f32300122b6050d367f976782a734d3ccabcdeedb83be82a2eed1587bd217678efdb5da19cd1103338b47ba80569cddaf028c9197514d29b1f";;
     opam-2.4.1-x86_64-openbsd)        echo "44d5d700e59a7f50d4dccc6d24d729289b0fbfb7cce1f6d96711298ea0cb9b74fe594f609af9b84c1b53612425268876d31faae1f9ff2b86b660afb16853be9f";;
 
+    ### opam 2.5 series ###
+
+    opam-2.5.0-alpha1-arm64-linux)    echo "ee8da9c1e5a5d743b6ed21cf0f27847fb66d7c9e2f5d7edc48f5d60f17d02711e1ec99365917a928214b3ad614dbf8ec7e59336e2bf7d5ff23c3f20eac3bdbf8";;
+    opam-2.5.0-alpha1-arm64-macos)    echo "2ff068b67830cdd814a640b4518987d16842ddee3c5f40024e472a11dce71d9482ffc65fce67f94627e764ac483f15169b471a0bff69bca8bdeb659493ff5488";;
+    opam-2.5.0-alpha1-armhf-linux)    echo "51a4c00c674c37cc25c5582cd651d4a08dfa30ca90d5c63cb01b52d85a6eeaea644b384fb3ec56c5b28fe884b0b0c6238477d4ae19cadd4fdd5175fc9dbc2411";;
+    opam-2.5.0-alpha1-i686-linux)     echo "663d85efe7d7a29e7b1d8772395e3d9f51d02459bcfc9a392b887b5793c3f622abd67a128987734456b67dcc9c33f2cb73ece0efe6eaf282b0e8309e23065540";;
+    opam-2.5.0-alpha1-ppc64le-linux)  echo "de2d25547758210340d28121ca339afeeae2a10ced4e7b75ce1f1cfe76679a58b62a21ad235640848b2f6c0c452aa9916b3668735ca16226b829507d5b582b19";;
+    opam-2.5.0-alpha1-riscv64-linux)  echo "d4042375c4045a934b9e174f3b5e30d38261c8f1e6f6bac3a990f7197d675f8fdc5f0961eebaddf56ed77855e91eb3b6493b39d2ec0c5d39978326956d90830e";;
+    opam-2.5.0-alpha1-s390x-linux)    echo "8e1452b5e0275337008d925d08b460bbafb3794ab5977e0d7029833320c1149a27f5c6fe53f8d9a73d898644c7793f0d78acf33af6bec3e09ec809df6a840689";;
+    opam-2.5.0-alpha1-x86_64-freebsd) echo "8150a712ff8269f8cc0cd9d3c6e2c9310497d194d25b66cc02f4127af6c3eece1fc9abc79daacbaae23f85e582cda5ad08ab94e51f6e1795b901a3626744a8fe";;
+    opam-2.5.0-alpha1-x86_64-linux)   echo "50dca1d21b89f52164acf71d301b3b12223ea06ef3369cda78c8e8466593ea6cd2e21a44177b60f4fea46b11274b3c1045fe19aebd8d34eccc98d4db3c2247d5";;
+    opam-2.5.0-alpha1-x86_64-macos)   echo "12d8e224cfcc7a11b2eae19db0ef61d56798d4a0d9fb6633455e2a845dff9ea2a03eb5bef21b678a8f2a956cff5f622b2e0cda507de2b09ce5dc91cf407acffe";;
+    opam-2.5.0-alpha1-x86_64-netbsd)  echo "c67b7372009d0933498461c47ef0ee297c880e9d00145c5a2ef36208df4494e87eb9d0f5b541b0b60d2910cfd09ea8f0b41737c9809361090d0e35dfd2c7d6c5";;
+    opam-2.5.0-alpha1-x86_64-openbsd) echo "d9faedd339cb4bf615883438dd7cc67667f6eca3285979f62246a97fb0ccc4db2e49dd6a229a4f570fb32877b2003a6d87796a754ee633edcc0760bee41f1c7c";;
+
+    opam-2.5.0-beta1-arm64-linux)     echo "7a091cfe5e1a58f41e61b3a56d047a329e71bb010434edfed6b996f56a88e61c8945f10efaffff57bbce268f3a08b66b987ce183afe21465fc022dbdb080be54";;
+    opam-2.5.0-beta1-arm64-macos)     echo "83db7a12cd1f8b75cf9d11054532b68533c6eb5fe5c600a6ff18104c7108b64f2c8ccca52b33d7bfe28bd3c14294a99f930dcbaa021da5b6ac284a1f2c94d5a4";;
+    opam-2.5.0-beta1-armhf-linux)     echo "96fd012cf3f2bf609d1d9978f5212c5733de98c6a1eb234ab25c6e79ad1b75af0c5f287ae004b801612c5f3c546337b093a5f324d6b7a2acc8a144b89fab5d15";;
+    opam-2.5.0-beta1-i686-linux)      echo "d43dd6f0dfc2795a911650ce609ea3697f84e42de904c8de658dedfc8e705e6008ef9f55961cc31c828576552d4e4c566460226776c54db3e1e6f86e6d0b9750";;
+    opam-2.5.0-beta1-ppc64le-linux)   echo "cb524d0fd1b816b71bf0fcc45dd902446af9c9446d35eefab5815c534031a48e141a12b641f3d4896e9c6b73d1baf04d0f87b8376f633c0356b4ef6cf45e54bc";;
+    opam-2.5.0-beta1-riscv64-linux)   echo "cc5acd2e7360386fa674a29c1234e6e52e542668c65a02482e8fcb65ff71d5727dbc6ffd3071b2ad42f5465d25d6832e58f6c0aa5a17bddf2ffa6903c94bf524";;
+    opam-2.5.0-beta1-s390x-linux)     echo "e3a04a3cb13dff8adcdd0fcb50c8a9f18f42d16f7318267d46f57d2029ee50e28b05021284f5a4c259a7c0b2ff3b09d04f8f5a0a2c2eee996d7c79a9317308f9";;
+    opam-2.5.0-beta1-x86_64-freebsd)  echo "6676ee09446255c5a52f66006e7c819601b62a5f579e76298c8136663ecb3dd9c320a4ac9904ec5a68d0e9afadcbe90b75f694b5ad155108de081c2065baf291";;
+    opam-2.5.0-beta1-x86_64-linux)    echo "5d185d6415cbc656ad3830ed471a9ddf634533d621571b23c39b0a5853a4a6b8dd7fa6aaf22cd2a87ac7e67b34e3a941b0855149552658fa03e5d60a5dba252a";;
+    opam-2.5.0-beta1-x86_64-macos)    echo "148051f6cfb974c4132c74722bb2313ecba25addf7b218f775309a653ef63868328c1076f53f4b69a2af8e5b34a7513b65bf1e74496d33e72c99a1e22740f696";;
+    opam-2.5.0-beta1-x86_64-netbsd)   echo "f810950557eca4b8ce6ca0a61cc34faa1c52704508522bb83995a784e2800e183606de0573ad2d8563b927ce0358be5ca94b8cb0598bd900524ae5ae44232181";;
+    opam-2.5.0-beta1-x86_64-openbsd)  echo "137af61ae0a678998a9e20ffddb4c28a9ea9a1b9f8f8a4ccfd82a9eb970e95bc125b455547f00906150f18c6e2c4b1fbb120bd52ec032a3c37ed30b1baff3d5b";;
+
+    opam-2.5.0-rc1-arm64-linux)       echo "5875036e6bfe733c68fef583b944d0c5e90f228054a880d61b24f499f4772ee03949bd0664c526419fe99a0cebd351345ec2a2c02bd00922ab80962e3e1f65ef";;
+    opam-2.5.0-rc1-arm64-macos)       echo "811a76fc688e5d8e5665b7e5d3d8f1b5a0644c298554edc58f2150175d41abd6b775002eb1daeae1f45b0f679c42a77edc254d5a677473b1ea555c9b4d922ea3";;
+    opam-2.5.0-rc1-armhf-linux)       echo "b9c3edba883f097f71cf85ff4a123d3527aed393b5abd7ff60f6a708443ba9729850a35215ef76929f3a3a081610bb8043e24895f06e79fdbecad1b703833f5e";;
+    opam-2.5.0-rc1-i686-linux)        echo "c8efa458a31f5341b0f82c04b71b97a8238933ea569c5d2acee24011e703c55ba2a6d5a21e9c379a691dee9600cf499ac7ca887e60dc752c08c5f981aeb2147e";;
+    opam-2.5.0-rc1-ppc64le-linux)     echo "79ba88280ca79ccff55fe05c94d0d0be5b84ad8bdab47ac2087cd245dca9dfec947517cb2de4a5ed6818fc191b883756b743c64c79a4dfa885e9c06b4c57b4d2";;
+    opam-2.5.0-rc1-riscv64-linux)     echo "ac0dd021ed672de0c427d9d917d1c63968ed23d5ea3c42616375d4a1cb4134b9b04f4da81f8318d0e1ec0cea82907f51984b6439d880608145f291c1f5d18355";;
+    opam-2.5.0-rc1-s390x-linux)       echo "9c532c149735094b98c37dd6298c521649e70aa7a8fd4d3eb1e9e4efc6aa0f795f8f7c11a2fb0ca94eda86998b273dcd11d18903efb696079aa32bfea89830cb";;
+    opam-2.5.0-rc1-x86_64-freebsd)    echo "8b53cf00189372d4e8e171a380991715cacaab1a543db2dc932e50082bba378e0d84a75aa877c01c3154d6295f1a6c679003a951913e30d998ee9c6c98b02963";;
+    opam-2.5.0-rc1-x86_64-linux)      echo "c2f69410333054ea82a0db0cc43ef739fa00ff160f5a275866ef9a25d4e0dd3cda200bd5f3bd703bcb90b698bbcb39d1eb9c30c6145edce6712f2e342a7d8496";;
+    opam-2.5.0-rc1-x86_64-macos)      echo "05966742f1d2b379812ad4ecde0c3fc0a5253de41418b4eb8d8ff0877cba5def494509be945e900c46ed9e5c751c867d9f437e19f264124fac500483ced9663c";;
+    opam-2.5.0-rc1-x86_64-netbsd)     echo "89150e90c23b4f436ea270678b404a43cd9ec49a36afd9c3c758f8e82632459325b8942849cfab57f75966489e3899b583ede8fadc2108deb429e33fbc51ec96";;
+    opam-2.5.0-rc1-x86_64-openbsd)    echo "00a4e0f90d1b91f769f42818ae634e29745eb0824d61478aba74c90855345c6208d4bb569adad163227e534b56daf8651f9d81d31399ecaa66a879815e707951";;
+
+    opam-2.5.0-arm64-linux)           echo "7ad46611345ad41eda746e0c91f14b001d5f5273b9e72bc5f67ed1769bd654b07ab235c562062ff89e7e05fdcb63165a5313f84e8d208d92327da0ab766f9a63";;
+    opam-2.5.0-arm64-macos)           echo "603580ed3f5adb87bb4b349b259bf599217ec4829a317258020a415bd6ddbeb2c273b35621f2eab3d3c1f743ebfb81f131927078c50c281af486b8a57bdb47ee";;
+    opam-2.5.0-armhf-linux)           echo "3572ab078d3d57a1fa3ad1ea09a2b924056dccb5f111f16aa29cb46bd84db256d394e641bd81837ca3c309d2d943e84cfde2c536c54a69e161499fb954c51ca7";;
+    opam-2.5.0-i686-linux)            echo "086832833370f00c4302e5824742ed169c10922fa8f25c10c6abb74cb58563db06dbd1e69b57cc0fe1b28c40459ed1dccd5fabd76e4bf2f649cdbabe4938f701";;
+    opam-2.5.0-ppc64le-linux)         echo "57e245282c25ed98e8cf59a7cec23b1762982cca57f38b72562d6d27b5d26ba768f1def90bfbde41bf43eae5a7206ea671b8a280bd47a4ff49994a89dafeadde";;
+    opam-2.5.0-riscv64-linux)         echo "ca4df9a34901877d7898c2364604a833ed6e08f61e691f26a7e08442c35de5d7e448b9e3014f3ee2a6fccf7c267bff8205dd62cb727c0cea33b712311e6ece1f";;
+    opam-2.5.0-s390x-linux)           echo "fa76a7885033bc9c10fc813a7b03e4b62f799d2f9163b10bf00523d1b062d3855ed0802b31d72c4e9ff4abe28d08a74bf391dbe121c713907c7d023ee8983181";;
+    opam-2.5.0-x86_64-freebsd)        echo "f49602e430a51dfeb86ea163868aa2b98955b447a303c98f04b0f9c4ce7eac9215b4724189c0127da3b1ac699c737333e1e7b88c0686b1f1877c4b9a84833597";;
+    opam-2.5.0-x86_64-linux)          echo "475dafcc7c2efebb8a8678b14a530231c5fe13582bd9883e4d4f3230497136709856b054a94b8b8460215bb2920b67507378b4ed06a44fb25e3549d200f66a33";;
+    opam-2.5.0-x86_64-macos)          echo "cae77faf19bbbc9109f8a15fe9e684ebdd0c9837a120db73a6499cf630ee058bba94d62cb68a860043d04fa30325fee4dc109155d242ff911decd1bc5b703548";;
+    opam-2.5.0-x86_64-netbsd)         echo "d4a30b16b528b3c47a932ab3d6ea669ac48f96b7cf5db48fc966b1c43380bf6ba357a69faa764e962bf58469f62381cb536b3e6bf3e6f35b0a1e0f0fbc5c2f13";;
+    opam-2.5.0-x86_64-openbsd)        echo "0d3c0232379c4a4d43a6814c6a6bfa79b2ad08d38dff98aeb0e19659cf61b07fb0464300b48e4e57d423f02e5abd9a683c2bd3e481428995b9553f3dd9cc59ae";;
+
+    opam-2.5.1-arm64-linux)           echo "3681c9347875e9aaf2e785b4c2cfbdfd466f953770c14befed3ebae0624bd81603873444e73217a9e9bbbcd559753bc78f8228d6cba67e282e3f6d215370c04d";;
+    opam-2.5.1-arm64-macos)           echo "7813c39a9f283149762207ade8310c77d9a62ba39a07abbd03b1bb9c2378121aeedd5d81e40643558b178b7a9ffad59977446f1a7de0ad9d2262dfb9ec85a577";;
+    opam-2.5.1-armhf-linux)           echo "021d30838b2ea399741a0f2ba7ef75fa069ce84b6c0814f39378d58bfb1dcd8829c083495f4c7f1fac06922c714e4fb245088c541ba2f2c8b2e13bd9a1057c97";;
+    opam-2.5.1-i686-linux)            echo "5ff3ea186496201cc714d488062dd722c9bdfb6d16571d583b0add3406cf049101138b2a095843571bd9b064704819f884c5a1c45d93da2c954197b877443024";;
+    opam-2.5.1-ppc64le-linux)         echo "b53535d4870b56427afe6d37a658f9ea839aa684e02345bdba9d67407ee2da0861f8a3c95de22a38b249d7c138fe994cf7311916520428f19c643ff03a6b20cd";;
+    opam-2.5.1-riscv64-linux)         echo "1f3001431e0e14d93c94c493d258b905b0142143ed6ee00a785dde8b66917e31c1b37d1cc47cefd90e36ea9752ccbebca720d40e95a83fc0aa5e1c700c7f685d";;
+    opam-2.5.1-s390x-linux)           echo "1b5085a6679899aa4181d71d8090d4497c01aee3217860b8b81d54255c8b2fb8eb8a2753615bac9759074dea8cf5a18fec7dd8ff1d2dfab316137e626fee3c11";;
+    opam-2.5.1-x86_64-freebsd)        echo "ce9aee5d02df4b81534c6b51296140b5819482e529468d9a77a8ad3663c431edb780443060298a2efa9ec12ace3c1c873bb5313b7fe1d37f6be1a5b37c2749bc";;
+    opam-2.5.1-x86_64-linux)          echo "8c8bb8286d5453106e8b3997dde791fb338716d1ce9fbe692c22de25d2f0910990031e0b260fbca8d869197793b492ff9736bd240e2695fd54b91fabdaa3593d";;
+    opam-2.5.1-x86_64-macos)          echo "2140fabc194d7958fbf5a373dde99c1625f368617950bbcc09008bdd05d45221c44c375663b23ba847b11388dd5f09a29e9cec1b362bc95d110282408511deed";;
+    opam-2.5.1-x86_64-netbsd)         echo "79da46db94f07f90b3ca36659311841fb175fca77c7f83e5aa2ace9d2fcd9edd8070d3b1022870c726f95d8a4ac9de1168269d704aa0d1e7b7bee0286f5a31dd";;
+    opam-2.5.1-x86_64-openbsd)        echo "fa085dd86b9e21e90c02c2963f177412a371b140b483541cee24a5ed89876502c7cda08888a0e254951749539fa0e386927223a4546740239f51f040838c5f43";;
+
+    opam-2.5.2-arm64-linux)           echo "a8e2d121e4e6e50db6a4c241fdca4ab29a4aa4a7df12dc0bd9d85cda19c413175725099d4e734790654291c155e472c53d91659bd6e78cb3ce6c3fe8da9c5c89";;
+    opam-2.5.2-arm64-macos)           echo "6f0153f5867044894ab1b480586f92c8cb1ecac5658520265bc375fa32f213a2b6ecbf9c974cdbd5ff97c45c00b42d1cb72f71225d317f70d160586631906fdf";;
+    opam-2.5.2-armhf-linux)           echo "cafd8972276b05d2d1c40711624e690d0478b16c8543c4705d8724e194f2b07c0af52600edde891d517442aae558aedc2cc844e47fba32f8938bb2e18401a4c9";;
+    opam-2.5.2-i686-linux)            echo "e2cb64a9713adb983c76501b050487cb036ad40fb619399da99f84cd0b07da9fedcdd9d13162abea3e585ec0788db7702a1ec71ff5e45e4d6cc207e310e41a09";;
+    opam-2.5.2-ppc64le-linux)         echo "5fd611c33007b349d9027db456f40c773cd53624b66b3b1c518e57100a2bc8246a48aa9682991876093da8ebc5d242e1f1baef73a657de213d599b960056cf16";;
+    opam-2.5.2-riscv64-linux)         echo "d2c32412c29e6dc6ecd79204b24d31c63ba6061eb56d48b14539e5b4a010d24b0855039faa645753fcc167e204912cdaedf0eccc9b71b6af46bae839ea69486c";;
+    opam-2.5.2-s390x-linux)           echo "eeee49256d97102132c031a0e5e2a3eac8a226bb2622525f93f90bf76787c10dd219b1317b77818156bb0bce7043f7a49c04fed127713b9a0388b99de352a9cc";;
+    opam-2.5.2-x86_64-freebsd)        echo "d5628cfb3559ded1590f23248117dd8fdf1e26275ff4fd7ffb9c6fcc99956d349b81a66703cdc64bf6b0176adbc941e8beff25de5ced6c75dff5a72fb79869eb";;
+    opam-2.5.2-x86_64-linux)          echo "508a128cec8ddf06e763db56232818481a4eee7725fb725c08f543b4aefa0daa23042ec89a4dcb4fe8eac99c53c219196c715eec46b4f1f6769b47782f79943a";;
+    opam-2.5.2-x86_64-macos)          echo "3e0baaccebc736b31ced1e7085e609934c18402ef4630aa7d7d0b8f10437ed17a0fe92f2fd803fccc834a78a66a4ef798a76035ce6ba170ae7af0e9606f8c033";;
+    opam-2.5.2-x86_64-netbsd)         echo "053480010327cfb721de7352a44405f43efe03ab46be0c2275aefe3f18dd0e0d5e862dac32de1c7c9a3eeafc2ce3c6dd86decc07c5247ec35d585e91d840ea4e";;
+    opam-2.5.2-x86_64-openbsd)        echo "a8dec4ad0b51aaf15c4f81e204ace7d1c854e5a32232b34eb21a15c8ffbed82c8755db934d31cbf07d3eb0f863f2e1755f76207da08dba61648cdb98192b4139";;
+
+    ### opam 2.6 series ###
+
+    opam-2.6.0-alpha1-arm64-linux)    echo "d1a9985844d9164c7e5d9c71a5e4e2d214185b5025e7d87e679908e7e35d2d289e251cea4def8bf59df0e0be2121321b3b8ea4abc732f915258036e7d6ba6a5b";;
+    opam-2.6.0-alpha1-arm64-macos)    echo "163c3e6fefa6a06c8e42031aee9a0b5a7061a35992e7d1f0dcea0dc9c20ec964fa56f0e67fe698e18385badb3d414c88bd9b0662086f0577a691ee2cdc5c1a4b";;
+    opam-2.6.0-alpha1-armhf-linux)    echo "97ef2edfffe6a285e8cacdf6db8182a6369f57aa60e96608f78545cfe869b6fbdbb7ea22443d290dbaa545e589dbde7330ca6a44dacfa697a3ee74fe1c577bc3";;
+    opam-2.6.0-alpha1-i686-linux)     echo "e3e590d9d54e5d5f621eb76a8cc38362de9a56561aa60fb7c7b2b635c6d58ec4c62c0ba4a7a42a2b4b3d7693e72f7f37ab4d8ad06c3242684b1e0e7860d7e80a";;
+    opam-2.6.0-alpha1-ppc64le-linux)  echo "5ce283eff1cfe5ac15c744e9f85b469c161d104b46c560f2aa1592da777d3d0543ea3c0c1e065baffa56326a911b96c3e4de34437c509c1379e15fcf07bc506e";;
+    opam-2.6.0-alpha1-riscv64-linux)  echo "7a84be66fb6eedcdcac88e9d203431e0d155fa9f46a836aa77953597e68a96476ca607f4ebea6c90c44565de49e996bfcae8cac52b9a71de714b5bdae2e7e810";;
+    opam-2.6.0-alpha1-s390x-linux)    echo "afa1c48eb9a4671232610e511343273ccd6e3abd92c22fefba6fae4e4d3ee38c8674d7c797b7d655afade3725ae52f522c8d16bfca211517f9402990682c5963";;
+    opam-2.6.0-alpha1-x86_64-freebsd) echo "d9beeb77e40b817e6fc091920c70c3e82d694a01ed9c0d0bf80c1350c546e71e46d8b49dc4724b5905bb20bc2325fc58e2c6594c1ec76b92bc65610c083962cc";;
+    opam-2.6.0-alpha1-x86_64-linux)   echo "4c41eb30aeec6bdc2aa929f68dc436314d885f37697d94fa3e08901ebbc9126ef0de01a1f12331f65a9c12955ba2c31454946805e415c3b0e1b8f088e25f1360";;
+    opam-2.6.0-alpha1-x86_64-macos)   echo "c2308d4d5389cb99767d680f3afcf56fa76468006bf0198f52077981196128a3052cd7e4771032b3d93b7a822e330598067f828e10d66c98e4f26c082c4cb3b7";;
+    opam-2.6.0-alpha1-x86_64-netbsd)  echo "993d695c5eba89975b090635c59a0efa8a5aa621a4a88a0323eb666c1fec0d1d8a5bea971e59a38d59723a3ba232bf197ff96912f41165c6234bedfa6fed9c12";;
+    opam-2.6.0-alpha1-x86_64-openbsd) echo "91c5fbaba7f1c1d74e99ae47ab26ffce5138153a41bd40818646d83f191da87c1956069d3e5a2b85146caa141a6d1d36e73373545bd498d36e66f0c4bae3f31a";;
+
+    opam-2.6.0-beta1-arm64-linux)     echo "d7fdfe95ef159534883482a2d2d19c9151d4338bb103871945e52de568c0c6421b8189fb3b0cafcbb474fa75da1ecdcd5ed2737a97870bece78d31bca03f3ace";;
+    opam-2.6.0-beta1-arm64-macos)     echo "48059dadc769160625299914946798c2bf080a32af8506ca6866098c8ce90f2015b671e82101023b9bab5fe71235abdd69b0b77f579ca3ff68ec6f447cfc9fee";;
+    opam-2.6.0-beta1-armhf-linux)     echo "7c040d00ba236c3dc37400424a971d932563b18642a1e18042b1fa7204fc4deecc0055cbc5eaa66bf6838955b26eafbd54ab7cc9a58b9cd073cc1ddf2b4ff349";;
+    opam-2.6.0-beta1-i686-linux)      echo "8c0770317b7edf0823f7eb64dba7cbaabe305d715e54dc36483aaf979cffab701734a033b705ffd2206e6f123a4f259dc8ed5aa834d245e6ae7b389fe783c7dc";;
+    opam-2.6.0-beta1-ppc64le-linux)   echo "a244fc99d80477bd33f023f767f51855f5394c8740c4885462b5dc50c995dd0ae2de204e06536222dd7e19af1e745ffd62aa53b950dbfec1af73a42d764dd2a9";;
+    opam-2.6.0-beta1-riscv64-linux)   echo "0afb42181e361d0727f6951bc66a6284aa260ddf1eafbc2b2386d6d1a4582c9e95510c28d023a0570d2d2bf32715e51c71cb21c9d022dc1d01cb1af5185bcb7a";;
+    opam-2.6.0-beta1-s390x-linux)     echo "64583fe061c4c09be25fa46a197b7a95bcc269b8da8884f6ceeab3987b16d414aeed933f7532e8814fe52b716ad15e3f06ba799ee16a13aec64068a0a13e996c";;
+    opam-2.6.0-beta1-x86_64-freebsd)  echo "6b34d96e50178335892719bcf1030de9640e531210253424ef7ac2cdb9999f57856417b6da9bc0b73fad56cd958ae12e48f4da23c3a5d8d3bd88fd01de73609f";;
+    opam-2.6.0-beta1-x86_64-linux)    echo "1fb6aba96b6ea55d4e8c22add8288ee7cca3c17fefd33f2067360823ed9679bbdb0bc7d7937ddbb9579c7d0a48a9a390272bb62ae258c1b49a2f179da430afd5";;
+    opam-2.6.0-beta1-x86_64-macos)    echo "7cd58924bc2ec8a603e4962bfc9ba3c59db2c4c25635af7c22ad6c803e0e3f88a8d2803f8353a385413fb3c9520afbffb2cf5e1a96d95269dfd917d62e9dea36";;
+    opam-2.6.0-beta1-x86_64-netbsd)   echo "a08d45136c2b7ef4258d7c270e48156af9c353336636a079c7d2374acfefd7106216557633e94a68a71c25b42ac906f5304a0ba83c943071c3bbc9bbea2674eb";;
+    opam-2.6.0-beta1-x86_64-openbsd)  echo "6fbcdc9c8a40a6a47af9dcb4c930659e3e396a21264d77db7706733f0f6a8db1ae7814db989be32a1828e1e37256df3b770f8699338e0ba64e796ef9308a205b";;
+
+    opam-2.6.0-beta2-arm64-linux)     echo "3d404d99a1b9856045bace0e9f9ea837c30ef5be76bf41e685ad3073eeb6634edb8bf21cc267aca4118d3b747d816730e8852cbae7132836c607111798360d7d";;
+    opam-2.6.0-beta2-arm64-macos)     echo "a8f23e8fcdeddcf207215eee0b960a85cc230c7de07ec733d9447fd8b2c7d426ee7944a6d239d528873d2ae800eb42c011328432a399758a836e9ce16b8fceec";;
+    opam-2.6.0-beta2-armhf-linux)     echo "1d6799d9969c761896be3d7a1642b768b1e2294c68f9c03ef5c8194efb3f1b3fa0b0146512e137d5295403f0269bc73d31aa77881d58efe49dff742db01abd1f";;
+    opam-2.6.0-beta2-i686-linux)      echo "e8a325b43cf5b6357fafc73c92c630896af1ad22f744478eb45a2ddb17a6e359760797fffa7ad501fbf9666197eae0b16ed08ea081e2a9b66cdc9384be2d6e4d";;
+    opam-2.6.0-beta2-ppc64le-linux)   echo "ec3adef6ad7e71a29908d88e1afe8e922b163e91e875fb1dfce164dbba386994c92801f9e9ea8f4a20c86d269511d3378e99028225fca49192a5b21c0f4d49dc";;
+    opam-2.6.0-beta2-riscv64-linux)   echo "c84d65ef6a774861d27f66b4a03939c5f32401c404ec6fdbcd4a5a9ab604fbadbf610221c24cfa627114ad034e9471c05d04f14d460de10238366cfb8e1375fc";;
+    opam-2.6.0-beta2-s390x-linux)     echo "de196d99f99fa0da18d4d717a8877f18b3ba6305be36f8e4ed8ccb8825d8bad9fcb8887d070c438e3d7fca61b51a6ad905f123bd9b658891368fbe2437a0792d";;
+    opam-2.6.0-beta2-x86_64-freebsd)  echo "d7e2c68da07f18516cb562b6b6bf90e27ab387f80be778f7d9edf358555f266fb20087e417cdfcb9edbf4cf586754ad3460284da47ce2091b339f3b736dbc93d";;
+    opam-2.6.0-beta2-x86_64-linux)    echo "1ad1fca8f751125f4b46dbca72a2c0a74421516571de03ae96dfc764c712152d7c2061d9f089ed91c032f4d74ed6845589ab922c4591ce46b1f07300a9f0bd03";;
+    opam-2.6.0-beta2-x86_64-macos)    echo "88678feca3c0e52d2e98a6efeafe025323f1db53aa4071c91705bd3c31806bb8a091d87cccb4389ffe7a70cc3a75434a28d3274bfc848e410c479ddac15de03e";;
+    opam-2.6.0-beta2-x86_64-netbsd)   echo "4dc03893e24f3b40f1b9a62d0d85c5a3520b882edd008ff0b852223afc49429becf9381fd83f48a7ca8edda1e9aa99676d7b1f44e7b9bc90219ca87b0abc500a";;
+    opam-2.6.0-beta2-x86_64-openbsd)  echo "36f66c3f702ade90fce0ab2097815002162246021a5301745105dfa29b852980ef5156b68b5212c9041354f63bf1634ab029cdc23d4a3b491c7c73ead7b7ec93";;
+
     *) echo "no sha";;
   esac
 }
@@ -751,8 +872,11 @@ xsudo install -m 755 "$TMP/$OPAM_BIN" "$BINDIR/opam"
 echo "## opam $VERSION installed to $BINDIR"
 
 # Handle AppArmor which makes it impossible to use bwrap (e.g. Ubuntu >= 24.04)
-if [ -d /etc/apparmor.d ] && [ "$(aa-enabled 2> /dev/null)" = Yes ]; then
-  cat << EOF > /tmp/opam-local.aa.tmp
+if [ -f /etc/apparmor.d/abi/4.0 ] && [ "$(aa-enabled 2> /dev/null)" = Yes ]; then
+  TMP_APPARMOR_PROFILE=/tmp/opam-local.aa.tmp
+  APPARMOR_PROFILE=/etc/apparmor.d/opam-local
+  UPSTREAM_APPARMOR_PROFILE=/etc/apparmor.d/opam
+  cat << EOF > "$TMP_APPARMOR_PROFILE"
 # This profile allows everything and only exists to give the
 # application a name instead of having the label "unconfined"
 
@@ -768,8 +892,12 @@ profile opam-local "$BINDIR/opam" flags=(unconfined) {
 EOF
 
   SKIP_APPARMOR=0
-  if [ -e /etc/apparmor.d/opam-local ]; then
-    if diff -q /tmp/opam-local.aa.tmp /etc/apparmor.d/opam-local; then
+  APPARMOR_CREATION_OPTION="-a"
+  if [ -e "$APPARMOR_PROFILE" ]; then
+    if [ -f "$UPSTREAM_APPARMOR_PROFILE" ] && [ "$(realpath "$BINDIR")" = /usr/bin ]; then
+      APPARMOR_PROFILE=$UPSTREAM_APPARMOR_PROFILE
+      SKIP_APPARMOR=1
+    elif diff -q "$TMP_APPARMOR_PROFILE" "$APPARMOR_PROFILE"; then
       SKIP_APPARMOR=1
     else
       echo "## The opam-local AppArmor profile already exists and differs from the expected content."
@@ -777,6 +905,7 @@ EOF
       read -r R
       case "$R" in
       ""|"y"|"Y"|"yes")
+        APPARMOR_CREATION_OPTION="-r"
         ;;
       *)
         SKIP_APPARMOR=1;;
@@ -785,13 +914,14 @@ EOF
   fi
 
   if [ "$SKIP_APPARMOR" = 0 ]; then
-    xsudo mv /tmp/opam-local.aa.tmp /etc/apparmor.d/opam-local
-    xsudo chmod 644 /etc/apparmor.d/opam-local
-    xsudo chown root:root /etc/apparmor.d/opam-local
-    xsudo apparmor_parser -a /etc/apparmor.d/opam-local
+    xsudo install -m 644 "$TMP_APPARMOR_PROFILE" "$APPARMOR_PROFILE"
+    xsudo apparmor_parser $APPARMOR_CREATION_OPTION "$APPARMOR_PROFILE"
+    rm "$TMP_APPARMOR_PROFILE"
     echo "AppArmor profile successfully added."
   else
-    echo "Warning: Please make sure an AppArmor profile exists for opam. See /tmp/opam-local.aa.tmp"
+    echo "Warning: Please make sure an AppArmor profile exists for locally installed opam."
+    echo "  You can find our proposed profile in $TMP_APPARMOR_PROFILE,"
+    echo "  and see if there is any difference with the one installed in $APPARMOR_PROFILE."
   fi
 fi
 

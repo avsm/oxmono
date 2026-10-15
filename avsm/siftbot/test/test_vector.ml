@@ -5,7 +5,31 @@ let check name b = if not b then failwith name
 let first = List.hd Siftbot.Demo.messages
 let second = List.nth Siftbot.Demo.messages 2
 
+let metadata_deletion () =
+  Sqlite_vec.register ();
+  let db = Sqlite3.db_open ":memory:" in
+  Fun.protect
+    ~finally:(fun () -> ignore (Sqlite3.db_close db))
+    (fun () ->
+      let exec sql = Sqlite3.Rc.check (Sqlite3.exec db sql) in
+      exec
+        "CREATE VIRTUAL TABLE metadata_test USING vec0(v float[2], label text)";
+      exec
+        "INSERT INTO metadata_test(rowid, v, label) VALUES (1, '[1,0]', 'long \
+         metadata exceeding twelve characters')";
+      exec "DELETE FROM metadata_test WHERE rowid = 1";
+      let count = ref "" in
+      Sqlite3.Rc.check
+        (Sqlite3.exec db "SELECT count(*) FROM metadata_test" ~cb:(fun row _ ->
+             count := Option.get row.(0)));
+      check "long metadata deletion completes" (!count = "0");
+      exec
+        "INSERT INTO metadata_test(rowid, v, label) VALUES (1, '[0,1]', 'long \
+         metadata inserted again after deletion')";
+      exec "DELETE FROM metadata_test WHERE rowid = 1")
+
 let () =
+  metadata_deletion ();
   Eio_main.run (fun _ ->
       Eio.Switch.run (fun sw ->
           let db = S.memory ~sw () in

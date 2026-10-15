@@ -632,25 +632,25 @@ module OpamString = struct
         f acc next current last normal in
     f [] 0 "" 0 true
 
+  let rec compare_case_aux len s1 s2 i =
+    if i < (len : int) then
+      let c1 = String.unsafe_get s1 i and c2 = String.unsafe_get s2 i in
+      match Char.compare (Char.lowercase_ascii c1) (Char.lowercase_ascii c2)
+      with
+      | 0 ->
+        (match Char.compare c1 c2 with
+         | 0 -> compare_case_aux len s1 s2 (i+1)
+         | c -> c)
+      | c -> c
+    else
+      let l1 = String.length s1 and l2 = String.length s2 in
+      if l1 < (l2 : int) then -1
+      else if l1 > (l2 : int) then 1
+      else 0
+
   let compare_case s1 s2 =
-    let l1 = String.length s1 and l2 = String.length s2 in
-    let len = min l1 l2 in
-    let rec aux i =
-      if i < len then
-        let c1 = s1.[i] and c2 = s2.[i] in
-        match Char.compare (Char.lowercase_ascii c1) (Char.lowercase_ascii c2)
-        with
-        | 0 ->
-          (match Char.compare c1 c2 with
-           | 0 -> aux (i+1)
-           | c -> c)
-        | c -> c
-      else
-        if l1 < l2 then -1
-        else if l1 > l2 then 1
-        else 0
-    in
-    aux 0
+    let len = OpamCompat.Int.min (String.length s1) (String.length s2) in
+    compare_case_aux len s1 s2 0
 
   let is_prefix_of ~from ~full s =
     let length_s = String.length s in
@@ -741,14 +741,52 @@ module Env = struct
     module Map = Map.Make(M)
   end
 
+  type raw = string array
+
+  let raw_env = Unix.environment
+
+  let env_starts_with =
+    if Sys.win32 then
+      fun ~prefix x ->
+        let prefix = String.lowercase_ascii prefix in
+        let x = String.lowercase_ascii x in
+        OpamCompat.String.starts_with ~prefix x
+    else
+      OpamCompat.String.starts_with
+
+  let get_from_array env key =
+    let prefix = key ^ "=" in
+    let prefix_len = String.length prefix in
+    let exception Found of string in
+    try
+      for i = 0 to Array.length env - 1 do
+        let x = env.(i) in
+        if env_starts_with ~prefix x then
+          raise_notrace (Found x)
+      done;
+      None
+    with Found x ->
+      Some (String.sub x prefix_len (String.length x - prefix_len))
+
+  let add_and_replace env (key, value) =
+    let prefix = key ^ "=" in
+    let elem = prefix ^ value in
+    (* We always append [elem] to the environment instead of setting inplace
+       to avoid the double copy as we need to copy once anyway *)
+    let env = Array.append env [|elem|] in
+    for i = 0 to Array.length env - 2 do
+      let x = env.(i) in
+      if env_starts_with ~prefix x then
+        env.(i) <- elem;
+    done;
+    env
+
   let to_list env =
     List.rev_map (fun s ->
         match OpamString.cut_at s '=' with
         | None   -> s, ""
         | Some p -> p)
       (Array.to_list env)
-
-  let raw_env = Unix.environment
 
   let list =
     let lazy_env = lazy (to_list (raw_env ())) in
@@ -857,7 +895,7 @@ module OpamSys = struct
   let terminal_columns =
     let v = ref (lazy (get_terminal_columns ())) in
     let () =
-      try Sys.set_signal 28 (* SIGWINCH *)
+      try Sys.set_signal OpamCompat.Sys.sigwinch
             (Sys.Signal_handle
                (fun _ -> v := lazy (get_terminal_columns ())))
       with Invalid_argument _ -> ()
@@ -1198,7 +1236,7 @@ module OpamSys = struct
           Env.cyg_env ~env:(Env.raw_env ()) ~cygbin:(Filename.dirname cygcheck)
             ~git_location:None
         in
-        let cmd = OpamCompat.Filename.quote_command cygcheck [name] in
+        let cmd = Filename.quote_command cygcheck [name] in
         let ((c, _, _) as process) = Unix.open_process_full cmd env in
         let rec check_dll platform =
           match input_line c with
@@ -1222,7 +1260,7 @@ module OpamSys = struct
             else
               check_dll platform
           | exception e ->
-            Unix.close_process_full process |> ignore;
+            let _ : Unix.process_status = Unix.close_process_full process in
             fatal e;
             platform
         in
@@ -1422,15 +1460,17 @@ module Win32 = struct
     (* Update our environment *)
     Unix.putenv "HOME" dir;
     (* Update our parent's environment *)
-    ignore (parent_putenv "HOME" dir);
+    let _ : bool = parent_putenv "HOME" dir in
     (* Persist the value to the user's environment *)
     OpamStubs.(writeRegistry HKEY_CURRENT_USER "Environment" "HOME" REG_SZ dir);
     (* Broadcast the change (or a reboot would be required) *)
     (* These constants are defined in WinUser.h *)
     let hWND_BROADCAST = 0xffffn in
     let sMTO_ABORTIFHUNG = 0x2 in
-    OpamStubs.(sendMessageTimeout hWND_BROADCAST 5000 sMTO_ABORTIFHUNG
-                                  WM_SETTINGCHANGE 0 "Environment") |> ignore
+    let _ : int * int =
+      OpamStubs.(sendMessageTimeout hWND_BROADCAST 5000 sMTO_ABORTIFHUNG
+                   WM_SETTINGCHANGE 0 "Environment")
+    in ()
 end
 
 

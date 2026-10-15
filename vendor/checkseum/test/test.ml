@@ -45,7 +45,8 @@ let () =
                  "\x34\x4f\x64\xe9\xa8\x5a\x3e\xd9\x91\x1f\x44\x91\xc1\x5c";
                ])
             0xBDE50CD1l;
-          make ~name:"5" (module Checkseum.Adler32) bib 0xDE83A296l;
+          (* The data fixture is copied without a source-location directive. *)
+          make ~name:"5" (module Checkseum.Adler32) bib 0x4bd09e98l;
         ] );
       ( "crc32c",
         [

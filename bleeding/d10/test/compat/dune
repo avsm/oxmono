@@ -17,3 +17,8 @@
     opam.actual
     (run ./opam_probe.exe))
    (diff opam.expected opam.actual))))
+
+(test
+ (name digestif_probe)
+ (modules digestif_probe)
+ (libraries digestif))

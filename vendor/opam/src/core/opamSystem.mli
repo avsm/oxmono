@@ -36,9 +36,6 @@ val internal_error: ('a, unit, string, 'b) format4 -> 'a
     passes its name to [fn]. The directory is always removed on completion. *)
 val with_tmp_dir: (string -> 'a) -> 'a
 
-(** [in_tmp_dir fn] executes [fn] in a temporary directory. *)
-val in_tmp_dir: (unit -> 'a) -> 'a
-
 (** Runs a job with a temp dir that is cleaned up afterwards *)
 val with_tmp_dir_job: (string -> 'a OpamProcess.job) -> 'a OpamProcess.job
 
@@ -55,6 +52,12 @@ val with_tmp_file_job: (string -> 'a OpamProcess.job) -> 'a OpamProcess.job
 val verbose_for_base_commands: unit -> bool
 
 (** {2 Filesystem management} *)
+
+(** Check if directory [dir] is read only.
+    Check access and catch the read-only error ({Unix.EROFS}) and operation not
+    permitted ({Unix.EPERM}).
+    @raise Invalid_argument if the [dir] is not a directory or doesn't exist. *)
+val is_dir_read_only: string -> bool
 
 (** Returns a directory name, in the temporary directory, composed by {i opam}
     (if [prefix] is not set), pid, and random number. *)
@@ -158,12 +161,6 @@ val rmdir_cleanup : string -> unit
     exists and is not a symlink. Returns [false] otherwise. *)
 val is_reg_dir: string -> bool
 
-(** Change the current working directory *)
-val chdir: string -> unit
-
-(** [in_dir dir fn] evaluates [fn] in the directory [dir] *)
-val in_dir: string -> (unit -> 'a) -> 'a
-
 (** Returns the list of files and directories in the given directory (full
     names) *)
 val ls: string -> string list
@@ -174,8 +171,10 @@ val files_with_links: string -> string list
 
 (** [rec_files dir] returns the list of all files in [dir],
     recursively.
-    Links behaving like directory are crossed. *)
-val rec_files: string -> string list
+    Links behaving like directory are crossed.
+    Exclude VCS directories from selection if [except_vcs] is set to true. Keep
+    them otherwise. *)
+val rec_files: ?except_vcs:bool -> string -> string list
 
 (** Return the list of files in the current directory. *)
 val files: string -> string list
@@ -196,8 +195,10 @@ val dirs: string -> string list
 val dir_is_empty: string -> bool option
 
 (** [directories_with_links dir] returns the directories in the directory [dir].
-    Links pointing to directory are also returned. *)
-val directories_with_links: string -> string list
+    Links pointing to directory are also returned.
+    Exclude VCS directories from selection if [except_vcs] is set to true. Keep
+    them otherwise. *)
+val directories_with_links: ?except_vcs:bool -> string -> string list
 
 (** Make a comman suitable for OpamProcess.Job. if [verbose], is set,
     command and output will be displayed (at command end for the
@@ -245,14 +246,15 @@ val apply_cygpath: string -> string
 (** [command cmd] executes the command [cmd] in the correct OPAM
     environment. *)
 val command: ?verbose:bool -> ?env:string array -> ?name:string ->
-  ?metadata:(string * string) list -> ?allow_stdin:bool ->
+  ?metadata:(string * string) list -> ?dir: string -> ?allow_stdin:bool ->
   command -> unit
 
 (** [commands cmds] executes the commands [cmds] in the correct OPAM
     environment. It stops whenever one command fails unless [keep_going] is set
     to [true]. In this case, the first error is re-raised at the end. *)
 val commands: ?verbose:bool -> ?env:string array -> ?name:string ->
-  ?metadata:(string * string) list -> ?keep_going:bool -> command list -> unit
+  ?metadata:(string * string) list -> ?dir: string -> ?keep_going:bool ->
+  command list -> unit
 
 (** [read_command_output cmd] executes the command [cmd] in the
     correct OPAM environment and return the lines from output if the command
@@ -261,7 +263,7 @@ val commands: ?verbose:bool -> ?env:string array -> ?name:string ->
     It returns stdout and stder combiend, unless [ignore_stderr] is st to true.
     *)
 val read_command_output: ?verbose:bool -> ?env:string array ->
-  ?metadata:(string * string) list ->  ?allow_stdin:bool ->
+  ?metadata:(string * string) list -> ?dir: string -> ?allow_stdin:bool ->
   ?ignore_stderr:bool -> command -> string list
 
 (** END *)
@@ -288,8 +290,6 @@ val extract_in: dir:string -> string -> unit
 
 (** [extract_in_job] is similar to [extract_in], but as a job *)
 val extract_in_job: dir:string -> string -> exn option OpamProcess.job
-
-val make_tar_gz_job: dir:string -> string -> exn option OpamProcess.job
 
 (** Create a directory. Do not fail if the directory already
     exist. *)
@@ -348,35 +348,11 @@ val get_lock_fd: lock -> Unix.file_descr
 
 (** {2 Misc} *)
 
-(** [patch ~allow_unclean ?patch_filename ~dir diffs] applies a patch to
-    directory [dir].
-
-    @param allow_unclean decides if applying a patch on a directory which
-    differs slightly from the one described in the patch file is allowed.
-    Allowing unclean applications imitates the default behaviour of GNU Patch. *)
-val patch:
-  allow_unclean:bool -> ?patch_filename:string -> dir:string
-  -> Patch.t list -> unit
-
 (** Returns the end-of-line encoding style for the given file. [None] means that
     either the encoding of line endings is mixed, or the file contains no line
     endings at all (an empty file, or a file with one line and no EOL at EOF).
     Otherwise it returns [Some true] if all endings are encoded CRLF. *)
 val get_eol_encoding : string -> bool option
-
-(** [translate_patch ~dir input_patch output_patch] writes a copy of
-    [input_patch] to [output_patch] as though [input_patch] had been applied in
-    [dir]. The patch is rewritten such that if text files have different line
-    endings then the patch is transformed to patch using the encoding on disk.
-    In particular, this means that patches generated against Unix checkouts of
-    Git sources will correctly apply to Windows checkouts of the same sources.
-*)
-val translate_patch: dir:string -> string -> string -> unit
-
-(** [parse_patch ~dir patch_file] processes and parses a patch file.
-    Returns the parsed patch diffs or raises [Not_found] if the patch file
-    doesn't exist or can't be parsed. *)
-val parse_patch: dir:string -> file:string -> Patch.t list
 
 (** Create a temporary file in {i ~/.opam/logs/<name>XXX}, if [dir] is not set.
     ?auto_clean controls whether the file is automatically deleted when opam

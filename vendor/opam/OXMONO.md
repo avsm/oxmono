@@ -1,9 +1,9 @@
 # OxMono import
 
-Imported opam-core.2.5.2 at `ad0564f20c6306bc83085fe663cab903fe887208`.
+Imported opam-core.2.6.1 at `921b53bf7fca5467b65ccbe714b78618bebd5e97`.
 `OXMONO.json` records the release archive URL and checksums. Every retained
 source was compared against the checksum-verified release archive on
-2026-10-03. Sources match except for the adaptations below.
+2026-10-15. Sources match except for the adaptations below.
 
 ## Scope and adaptations
 
@@ -28,12 +28,13 @@ Core and format libraries and shell build support only. No opam CLI, state, repo
 - `src/core/opamConsole.ml`: eta-expand the Unix printing branches.
 - `src/core/opamProcess.ml`: eta-expand `Unix.create_process_env` and
   `Buffer.add_string` to preserve the upstream global callback signatures.
-- `dune-project`: declare only opam-core and opam-format at version 2.5.2.
+- `dune-project`: declare only opam-core and opam-format at version 2.6.1.
 - `src/dune`: remove the absent crowbar subtree declaration.
 - `src/core/dune`: omit the Windows opam CLI helper install stanza.
 
 The compiler diagnosed each eta expansion. No opam algorithm was changed.
 `bleeding/d10/test/compat/opam_probe.ml` compares canonical effective
 opam output, MD5/SHA256/SHA512 hashes and child environment behavior against
-opam-format 2.5.2 built with stock OCaml. `opam.expected` is that baseline.
+opam-format 2.6.1 built with stock OCaml 5.4.1. The output matches the
+existing `opam.expected` fixture byte for byte.
 The fixture does not prove equivalence of every opam API or Windows behavior.

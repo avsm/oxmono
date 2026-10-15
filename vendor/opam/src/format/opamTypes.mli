@@ -36,6 +36,9 @@ type filename = OpamFilename.t
 
 type subpath = OpamFilename.SubPath.t
 
+type unix_filename = OpamFilename.Unix.t
+type unix_dirname = OpamFilename.Unix.Dir.t
+
 (** Set of files *)
 type filename_set = OpamFilename.Set.t
 
@@ -277,7 +280,7 @@ type solution_result =
   | Partial_error of actions_result
 
 (** Solver result *)
-type ('a, 'b) result =
+type ('a, 'b) solver_result =
   | Success of 'a
   | Conflicts of 'b
 

@@ -1,3 +1,8 @@
+## OxMono vendored release
+
+Based on 8.4.5. See [OXMONO.md](OXMONO.md) for the import scope, local
+patches and validation, and [OXMONO.json](OXMONO.json) for provenance.
+
 dockerfile —  Dockerfile eDSL and distribution support
 -----------------------------------------------------
 %%VERSION%%

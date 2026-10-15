@@ -43,7 +43,8 @@ type distro =
     | `V3_20
     | `V3_21
     | `V3_22
-    | `V3_23 ]
+    | `V3_23
+    | `V3_24 ]
   | `Archlinux of [ `Latest ]
   | `CentOS of [ `V6 | `V7 | `V8 | `V9 | `V10 ]
   | `Debian of
@@ -141,6 +142,7 @@ type t =
     | `V3_21
     | `V3_22
     | `V3_23
+    | `V3_24
     | `Latest ]
   | `Archlinux of [ `Latest ]
   | `CentOS of [ `V6 | `V7 | `V8 | `V9 | `V10 | `Latest ]
@@ -301,6 +303,13 @@ val package_manager : t -> package_manager
 val bubblewrap_version : t -> (int * int * int) option
 (** [bubblewrap_version t] returns the version of bubblewrap available on that
     distribution. *)
+
+val gcc_version : t -> (int * int) option
+(** [gcc_version t] returns the default version of gcc shipped on that
+    distribution (i.e. what [gcc --version] reports after installing the
+    distribution's [gcc] / [gcc-c++] package). Returns [None] for distros where
+    gcc is not the default compiler (Windows, Cygwin) or where the image is no
+    longer pullable from Docker Hub. *)
 
 (** {2 Docker Hub addresses} *)
 

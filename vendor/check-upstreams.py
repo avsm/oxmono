@@ -15,13 +15,22 @@ MANIFEST = Path(__file__).with_name("upstreams.json")
 OID = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?\Z")
 
 
+def target_ref(branch):
+    if branch == "HEAD" or branch.startswith("refs/"):
+        return branch
+    return "refs/heads/" + branch
+
+
 def parse_tip(output, branch):
     """Return the advertised branch and commit, resolving HEAD's symbolic ref."""
-    target = "HEAD" if branch == "HEAD" else "refs/heads/" + branch
+    target = target_ref(branch)
     resolved = branch
     revision = None
+    peeled = None
     for line in output.splitlines():
         value, sep, name = line.partition("\t")
+        if sep and name == target + "^{}" and OID.fullmatch(value):
+            peeled = value
         if not sep or name != target:
             continue
         if value.startswith("ref: refs/heads/"):
@@ -30,16 +39,17 @@ def parse_tip(output, branch):
             revision = value
     if revision is None:
         raise ValueError(f"upstream did not advertise {target}")
-    return resolved, revision
+    return resolved, peeled or revision
 
 
 def check(entry, timeout):
     result = {"name": entry["name"], "base": entry.get("revision"),
               "branch": entry.get("branch", "HEAD"), "tip": None}
-    target = "HEAD" if result["branch"] == "HEAD" else "refs/heads/" + result["branch"]
+    target = target_ref(result["branch"])
+    targets = [target, target + "^{}"] if target.startswith("refs/tags/") else [target]
     try:
         output = subprocess.run(
-            ["git", "ls-remote", "--symref", "--", entry["url"], target],
+            ["git", "ls-remote", "--symref", "--", entry["url"], *targets],
             capture_output=True, text=True, check=True, timeout=timeout,
             env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
         ).stdout

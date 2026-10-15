@@ -34,8 +34,13 @@
       "name": "checkseum",
       "url": "https://github.com/mirage/checkseum.git",
       "branch": "HEAD",
-      "revision": "fef8888d9b9a7b48d243a5f444563b0467803da6",
-      "base_version": "v0.5.3-3-gfef8888"
+      "revision": "98141150a967041144cfafe2dbde7454af9dd9e1",
+      "base_version": "v0.5.4",
+      "verified_on": "2026-10-15",
+      "archive_url": "https://codeload.github.com/mirage/checkseum/tar.gz/v0.5.4",
+      "archive_checksums": [
+        "sha256=9d6aab9cb5f8519cc20035020466b59454a7cba9b0cdbcd6d45dd24eceb749ac"
+      ]
     },
     {
       "name": "cmarkit",
@@ -64,8 +69,13 @@
       "name": "digestif",
       "url": "https://github.com/mirage/digestif.git",
       "branch": "HEAD",
-      "revision": "35e5c1ca984a80a72b4621a12fb108352f63d4eb",
-      "base_version": "v1.3.1-16-g35e5c1c"
+      "revision": "adcc963fcf936ceb400082fbf552973a5afc73e6",
+      "base_version": "v1.4.0",
+      "verified_on": "2026-10-15",
+      "archive_url": "https://codeload.github.com/mirage/digestif/tar.gz/v1.4.0",
+      "archive_checksums": [
+        "sha256=aca9b1474e5a292f47b0b002a378301e299036b91718ef5eaa818fb413168d90"
+      ]
     },
     {
       "name": "domain-name",
@@ -187,7 +197,7 @@
     {
       "name": "nx",
       "url": "https://github.com/raven-ml/raven.git",
-      "branch": "1.0.0_alpha3",
+      "branch": "refs/tags/1.0.0_alpha3",
       "revision": "f1c456f7161cfe3a57a9bd4083605175f72989b4",
       "base_version": "1.0.0~alpha3",
       "scope": "Nx lib/ and bundled vendor/ dependencies from the alpha3 release. Other Raven packages, mdx documentation, examples and upstream test frameworks are omitted.",
@@ -321,10 +331,14 @@
       "name": "ocaml-dockerfile",
       "url": "https://github.com/ocurrent/ocaml-dockerfile.git",
       "branch": "HEAD",
-      "revision": "e13814efe2e53f9b7cb344e20ce13c6c705a0259",
-      "base_version": "8.3.9",
+      "revision": "5443a9c42cd4392da1d35cafc6eeb1bd3f62f87b",
+      "base_version": "8.4.5",
       "scope": "Dockerfile and Dockerfile-opam libraries and tests. The CLI is omitted from this import.",
-      "verified_on": "2026-10-03"
+      "verified_on": "2026-10-15",
+      "archive_url": "https://codeload.github.com/ocurrent/ocaml-dockerfile/tar.gz/8.4.5",
+      "archive_checksums": [
+        "sha256=402b902c65d1d2945784ef94fa7cae1e479c19a727c25d6befc10e0a5d3dec69"
+      ]
     },
     {
       "name": "ocamlgraph",
@@ -339,10 +353,14 @@
       "name": "opam",
       "url": "https://github.com/ocaml/opam.git",
       "branch": "HEAD",
-      "revision": "ad0564f20c6306bc83085fe663cab903fe887208",
-      "base_version": "2.5.2",
+      "revision": "921b53bf7fca5467b65ccbe714b78618bebd5e97",
+      "base_version": "2.6.1",
       "scope": "Core and format libraries and shell build support only. No opam CLI, state, repository or solver libraries. OxCaml eta expansions in opamConsole.ml, opamProcess.ml and get_version.ml. See OXMONO.md.",
-      "verified_on": "2026-10-03"
+      "verified_on": "2026-10-15",
+      "archive_url": "https://codeload.github.com/ocaml/opam/tar.gz/2.6.1",
+      "archive_checksums": [
+        "sha256=a1d89ca7110a28eaec59620b37c8138f58476ed8715f545e4adcadb4fa25f32b"
+      ]
     },
     {
       "name": "opam-file-format",
@@ -407,6 +425,19 @@
       "base_version": "v0.6.0",
       "verified_on": "2026-10-03",
       "scope": "Generic solver library only. Retained implementation sources are unchanged. Application CLIs and switch contexts are omitted."
+    },
+    {
+      "name": "sqlite-vec",
+      "url": "https://github.com/asg017/sqlite-vec.git",
+      "branch": "HEAD",
+      "revision": "e9f598abfa0c06b328d8fe5da9c3760cce74be10",
+      "base_version": "v0.1.9",
+      "verified_on": "2026-10-15",
+      "archive_url": "https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-amalgamation.tar.gz",
+      "archive_checksums": [
+        "sha256=3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61"
+      ],
+      "scope": "Unmodified release amalgamation. Local static OCaml bindings compile against the workspace SQLite with filesystem readers disabled."
     }
   ]
 }

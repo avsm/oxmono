@@ -53,7 +53,10 @@ module type IO_FILE = sig
 
   val read_from_channel: ?filename:t typed_file -> in_channel -> t
 
-  val read_from_string: ?filename:t typed_file -> string -> t
+  val read_from_string: ?loc:string -> ?filename:t typed_file -> string -> t
+
+  val safe_read_from_string:
+    ?loc:string -> ?filename:t typed_file -> string -> t
 
   val write_to_channel: ?filename:t typed_file -> out_channel -> t -> unit
 
@@ -68,7 +71,9 @@ module type BestEffortRead = sig
   val read_opt: t typed_file -> t option
   val safe_read: t typed_file -> t
   val read_from_channel: ?filename:t typed_file -> in_channel -> t
-  val read_from_string: ?filename:t typed_file -> string -> t
+  val read_from_string: ?loc:string -> ?filename:t typed_file -> string -> t
+  val safe_read_from_string:
+    ?loc:string -> ?filename:t typed_file -> string -> t
 end
 
 (** Lines of space-separated words. *)
@@ -297,7 +302,7 @@ module InitConfig: sig
 end
 
 (** Package descriptions: [$opam/descr/] *)
-module Descr: sig
+module Descr_legacy: sig
 
   include IO_FILE
 
@@ -317,10 +322,52 @@ module Descr: sig
 
 end
 
+module Descr: sig
+
+  type t
+
+  val empty: t
+  val create: string -> t
+
+  (** Return the first line *)
+  val synopsis: t -> string
+
+  (** Return the body *)
+  val body: t -> string
+
+  val of_legacy: Descr_legacy.t -> t
+
+end
+
 (** {2 Urls for OPAM repositories} *)
-module URL: sig
+module URL_legacy: sig
 
   include IO_FILE
+
+  val create:
+    ?mirrors:url list -> ?checksum:OpamHash.t list ->
+    url -> t
+
+  (** URL address *)
+  val url: t -> url
+
+  val mirrors: t -> url list
+
+  (** Archive checksum *)
+  val checksum: t -> OpamHash.t list
+
+  (** Constructor *)
+  val with_url: url -> t -> t
+  val with_checksum: OpamHash.t list -> t -> t
+  val with_mirrors: OpamUrl.t list -> t -> t
+
+end
+
+module URL: sig
+
+  type t
+
+  val empty: t
 
   val create:
     ?mirrors:url list -> ?checksum:OpamHash.t list ->
@@ -347,6 +394,7 @@ module URL: sig
 
   val subpath: t -> subpath option
 
+  val of_legacy: URL_legacy.t -> t
 end
 
 (** OPAM files *)
@@ -805,7 +853,12 @@ module Environment : sig
   val read_opt: t typed_file -> (spf_resolved, [> euok_writeable ]) env_update list option
   val safe_read: t typed_file -> (spf_resolved, [> euok_writeable ]) env_update list
   val read_from_channel: ?filename:t typed_file -> in_channel -> (spf_resolved, [> euok_writeable ]) env_update list
-  val read_from_string: ?filename:t typed_file -> string -> (spf_resolved, [> euok_writeable ]) env_update list
+  val read_from_string:
+    ?loc:string -> ?filename:t typed_file -> string
+    -> (spf_resolved, [> euok_writeable ]) env_update list
+  val safe_read_from_string:
+    ?loc:string -> ?filename:t typed_file -> string
+    -> (spf_resolved, [> euok_writeable ]) env_update list
 end
 
 (** Compiler version [$opam/compilers/]. Deprecated, only used to upgrade old
@@ -872,7 +925,7 @@ module Comp: sig
       created with "VARIANT" the part of the compiler name on the right of the
       "+". In both case, the version corresponds to the OCaml version and is
       [version comp]. *)
-  val to_package: ?package:package -> t -> Descr.t option -> OPAM.t
+  val to_package: ?package:package -> t -> Descr_legacy.t option -> OPAM.t
 
 end
 
@@ -882,6 +935,12 @@ end
 module Dot_install: sig
 
   include IO_FILE
+
+  (** List of files to install directly under the switch root. *)
+  val root: t -> (basename optional * basename option) list
+
+  (** List of files to install directly under the switch root, with +x set. *)
+  val rootexec: t -> (basename optional * basename option) list
 
   (** List of files to install in $bin/ *)
   val bin:  t -> (basename optional * basename option) list
@@ -924,6 +983,12 @@ module Dot_install: sig
 
   (** List of other files to install *)
   val misc: t -> (basename optional * filename) list
+
+  (** List of files to install directly under the switch root. *)
+  val with_root: (basename optional * basename option) list -> t -> t
+
+  (** List of files to install directly under the switch root, with +x set. *)
+  val with_rootexec: (basename optional * basename option) list -> t -> t
 
   (** List of files to install in $bin/ *)
   val with_bin : (basename optional * basename option) list -> t -> t

@@ -15,12 +15,12 @@ param (
   # Install the latest alpha, beta or rc
   [switch]$Dev,
   # Install this specific version of opam instead of the latest
-  [string]$Version = "2.4.1",
+  [string]$Version = "2.5.2",
   # Specify the installation directory for the opam binary
   [string]$OpamBinDir = $null
 )
 
-$DevVersion = "2.4.1"
+$DevVersion = "2.6.0~beta2"
 $IsAdmin = (New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 $DefaultBinDir = If ($IsAdmin) {"$Env:ProgramFiles\opam\bin"} Else {"$Env:LOCALAPPDATA\Programs\opam\bin"}
 
@@ -41,6 +41,15 @@ $SHA512s = @{
   "opam-2.4.0-rc1-x86_64-windows.exe"    = "418f0933d7c53a96f0a53e757d172e4e16df6927f7d668b119894c9775a573c3b3e13f20c4b173eafae633a590e9b71f04c8eca92be108755c310168646c1322";
   "opam-2.4.0-x86_64-windows.exe"        = "e28439bed67fc2b367114f0d5e176690117a0b045066584ca67ec852caaa951354c19892579083122b1c50cd27d323de3b9eb514e54bfd221227190765ede874";
   "opam-2.4.1-x86_64-windows.exe"        = "0b7bed0ea3b009aadb04882568b261c693395f400a79983a42b342b7d78536168dd0d5fab252382b622acbde61be40e3c0b036b974148e78be0edd6c1337d19c";
+  "opam-2.5.0-alpha1-x86_64-windows.exe" = "11f1ec33154967a3d625e9d06f1c11700a24b8b7262025e63b124e9a58100e0f75bbc9afbc8b35eaec5c40254b020cea7fec8dcaad98368ee463bab7074ae7f9";
+  "opam-2.5.0-beta1-x86_64-windows.exe"  = "e8d2f9f4c644f55399ed5899ec792e2cdb0adbe3f33fadbc3c8ce0496b65287668d1008ab0ae3a163f59e898c053bbd7a8be9730df3f2f15b09f60117e4438f3";
+  "opam-2.5.0-rc1-x86_64-windows.exe"    = "61d5883d0a2881e7d32989f4a68ae2f1ab2627356da42af903ec6164c589ee7627e968b401501d9f2cfdc49a52e6a42abb95a6856cf1b1c477f876a9786297cc";
+  "opam-2.5.0-x86_64-windows.exe"        = "b0852332457bef0b7de9e7d7112a5b0a2cd7c1535e371bf280902546079a4771bc53ec86ae7cd5543b5db6a57db70f09c36e4b81769af261a31687db1a5a7102";
+  "opam-2.5.1-x86_64-windows.exe"        = "a9bdece78b12948baf3524742c6f69f85b2dc87ad00f85294301eaac9bb33b1f5497639eee5d87bf43a6570c8250d58152d450eb3c441f4901465f61e2e32d09";
+  "opam-2.5.2-x86_64-windows.exe"        = "fd7f42a0b91787a62ba09ad8dc6bca0c474645f8ceb036df0453df12f1287f43534041dd453869e064662582f4e1d5342c70463422d310fcc9f2cf4a743d8640";
+  "opam-2.6.0-alpha1-x86_64-windows.exe" = "38cccf73cd2822376c5badd60eed52c8e60ad0cb77b30299a97f567f8cc7a2d6cb0ecc41898e002022186446069d72071e2b3e2e9ea65aa95e7fdd7d59e52ff4";
+  "opam-2.6.0-beta1-x86_64-windows.exe"  = "79d5a6131168320839734f5df0e77e34711e3cf10e6195bbac923dc4e8f7707f613720a2150781d6846c8fc4f437d5fa8c188f04f36bd5e31a9b1e5cfed801c5";
+  "opam-2.6.0-beta2-x86_64-windows.exe"  = "2a9df2a4266b54f07774efe9f135b816e67b4db39d174ba9b824cae59e7b12b311af26bbd319943fd435a07b5057a14bbeaa370a2221de893044255f1a0c2d1d";
 }
 
 Function DownloadAndCheck {

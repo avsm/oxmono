@@ -1,7 +1,7 @@
 (lang dune 3.21)
 (name sqlite-vec)
 (generate_opam_files true)
-(version 0.1.6+oxmono)
+(version 0.1.9+oxmono)
 (license MIT)
 (package
  (name sqlite-vec)

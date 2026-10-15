@@ -50,7 +50,9 @@ module Sys2 = struct
 end
 
 let file_or_symlink_exists f =
-  try ignore (Unix.lstat f); true
+  try
+    let _ : Unix.stats = (Unix.lstat f) in
+    true
   with Unix.Unix_error (Unix.ENOENT, _, _) -> false
 
 let (/) = Filename.concat
@@ -72,6 +74,7 @@ let rec real_path p =
     | x -> real_path dirname / x
 
 let temp_basename prefix =
+  (* Sync with tests/reftests/run.ml *)
   Printf.sprintf "%s-%d-%06x" prefix (OpamStubs.getpid ()) (Random.int 0xFFFFFF)
 
 let temp_name ?dir ?(prefix="opam") () =
@@ -111,13 +114,19 @@ let mkdir dir =
     end in
   aux dir
 
+let is_vcs = function
+  | ".git" | ".hg" | "_darcs" -> true
+  | _ -> false
+
 let get_files_t ~except_vcs dirname =
   let dir = Unix.opendir dirname in
   let rec aux files =
     match Unix.readdir dir with
     | "." | ".." -> aux files
-    | ".git" | ".hg" | "_darcs" when except_vcs -> aux files
-    | file -> aux (file :: files)
+    | file ->
+      if except_vcs && is_vcs file then aux files
+      else
+        aux (file :: files)
     | exception End_of_file -> files
   in
   let files = aux [] in
@@ -181,6 +190,14 @@ let remove_dir dir =
       remove_file_t ~with_log:true dir
   end
 
+let is_dir_read_only dir =
+  if not (is_reg_dir dir) then invalid_arg "OpamSystem.is_dir_read_only";
+  try
+    Unix.access dir [W_OK];
+    false
+  (* EROFS for linux and EPERM for osx *)
+  with Unix.Unix_error ((EROFS|EPERM), _, _) -> true
+
 let temp_files = Hashtbl.create 1024
 let logs_cleaner =
   let to_clean = ref OpamStd.String.Set.empty in
@@ -218,7 +235,10 @@ let rec temp_file ?(auto_clean=true) ?dir prefix =
 
 let remove_file file =
   if
-    try ignore (Unix.lstat file); true with Unix.Unix_error _ -> false
+    try
+      let _ : Unix.stats = Unix.lstat file in
+      true
+    with Unix.Unix_error _ -> false
   then (
     log "rm %s" file;
     try
@@ -322,36 +342,17 @@ let copy_file_aux ?chmod ~src ~dst () =
     (try Unix.unlink dst with Unix.Unix_error _ -> ());
     internal_error "Cannot copy %s to %s (%s)." src dst (Printexc.to_string e)
 
-let chdir dir =
-  try Unix.chdir dir
-  with Unix.Unix_error _ -> raise (File_not_found dir)
-
-let in_dir dir fn =
-  let reset_cwd =
-    let cwd =
-      try Some (Sys.getcwd ())
-      with Sys_error _ -> None in
-    fun () ->
-      match cwd with
-      | None     -> ()
-      | Some cwd -> try chdir cwd with File_not_found _ -> () in
-  chdir dir;
-  try
-    let r = fn () in
-    reset_cwd ();
-    r
-  with e ->
-    OpamStd.Exn.finalise e reset_cwd
-
 let list kind dir =
-  try
-    in_dir dir (fun () ->
-      let d = Sys.readdir (Sys.getcwd ()) in
-      let d = Array.to_list d in
-      let l = List.filter kind d in
-      List.map (Filename.concat dir) (List.sort compare l)
-    )
-  with File_not_found _ -> []
+  let d = try Sys.readdir dir with Sys_error _ -> [||] in
+  let filtered =
+    Array.fold_left
+      (fun acc base ->
+         let path = Filename.concat dir base in
+         if kind path then path::acc else acc)
+      []
+      d
+  in
+  List.sort String.compare filtered
 
 let ls dir = list (fun _ -> true) dir
 
@@ -364,26 +365,32 @@ let files_all_not_dir =
 let directories_strict =
   list (fun f -> try Sys2.is_directory f with Sys_error _ -> false)
 
-let directories_with_links =
-  list (fun f -> try Sys.is_directory f with Sys_error _ -> false)
+let directories_with_links ?(except_vcs=false) =
+  list (fun f ->
+  if except_vcs && is_vcs (Filename.basename f) then false else
+  try Sys.is_directory f with Sys_error _ -> false)
 
-let rec_files dir =
+let rec_files ?(except_vcs=false) dir =
+  log ~level:4 "scan files recursively (except_vcs: %b) in %s" except_vcs dir;
   let rec aux accu dir =
-    let d = directories_with_links dir in
+    let d = directories_with_links ~except_vcs dir in
     let f = files_with_links dir in
     List.fold_left aux (f @ accu) d in
   aux [] dir
 
 let files dir =
+  log ~level:4 "scan files in %s" dir;
   files_with_links dir
 
 let rec_dirs dir =
+  log ~level:4 "scan dirs recursively in %s" dir;
   let rec aux accu dir =
     let d = directories_with_links dir in
     List.fold_left aux (d @ accu) d in
   aux [] dir
 
 let dirs dir =
+  log ~level:4 "scan dirs in %s" dir;
   directories_with_links dir
 
 let dir_is_empty dir =
@@ -417,10 +424,6 @@ let with_tmp_dir fn =
   with e ->
     OpamStd.Exn.finalise e @@ fun () ->
     remove_dir dir
-
-let in_tmp_dir fn =
-  with_tmp_dir @@ fun dir ->
-    in_dir dir fn
 
 let with_tmp_dir_job fjob =
   let dir = mk_temp_dir () in
@@ -558,7 +561,7 @@ let make_command
   | `Denied -> permission_denied cmd
 
 let run_process
-    ?verbose ?env ~name ?metadata ?stdout ?allow_stdin command =
+    ?verbose ?env ~name ?metadata ?dir ?stdout ?allow_stdin command =
   let env = match env with None -> OpamProcess.default_env () | Some e -> e in
   let chrono = OpamConsole.timer () in
   match command with
@@ -573,7 +576,7 @@ let run_process
       let r =
         OpamProcess.run
           (OpamProcess.command
-             ~env ~name ~verbose ?metadata ?allow_stdin ?stdout
+             ~env ~name ~verbose ?metadata ?dir ?allow_stdin ?stdout
              full_cmd args)
       in
       let str = String.concat " " (cmd :: args) in
@@ -584,15 +587,15 @@ let run_process
     | `Not_found -> command_not_found cmd
     | `Denied -> permission_denied cmd
 
-let command ?verbose ?env ?name ?metadata ?allow_stdin cmd =
+let command ?verbose ?env ?name ?metadata ?dir ?allow_stdin cmd =
   let name = log_file name in
-  let r = run_process ?verbose ?env ~name ?metadata ?allow_stdin cmd in
+  let r = run_process ?verbose ?env ~name ?metadata ?dir ?allow_stdin cmd in
   OpamProcess.cleanup r;
   raise_on_process_error r
 
-let commands ?verbose ?env ?name ?metadata ?(keep_going=false) commands =
+let commands ?verbose ?env ?name ?metadata ?dir ?(keep_going=false) commands =
   let name = log_file name in
-  let run = run_process ?verbose ?env ~name ?metadata in
+  let run = run_process ?verbose ?env ~name ?metadata ?dir in
   let command r0 c =
     match r0, keep_going with
     | (`Error _ | `Exception _), false -> r0
@@ -610,12 +613,12 @@ let commands ?verbose ?env ?name ?metadata ?(keep_going=false) commands =
   | `Error e -> process_error e
   | `Exception e -> raise e
 
-let read_command_output ?verbose ?env ?metadata ?allow_stdin
+let read_command_output ?verbose ?env ?metadata ?dir ?allow_stdin
     ?(ignore_stderr=false) cmd =
   let name = log_file None in
   let stdout = name ^ (if ignore_stderr then ".stdout" else ".out") in
   let r =
-    run_process ?verbose ?env ~name ?metadata ?allow_stdin
+    run_process ?verbose ?env ~name ?metadata ?dir ?allow_stdin
       ~stdout
       cmd
   in
@@ -733,8 +736,10 @@ let classify_executable file =
         let is_pe =
           try
             (* Offset to PE header at 0x3c (but we've already read two bytes) *)
-            ignore (really_input_string c 0x3a);
-            ignore (really_input_string c (input_int_little c - 0x40));
+            let _ : string = really_input_string c 0x3a in
+            let _ : string =
+              really_input_string c (input_int_little c - 0x40)
+            in
             let magic = really_input_string c 4 in
             magic = "PE\000\000"
           with End_of_file ->
@@ -752,7 +757,7 @@ let classify_executable file =
               | _ ->
                   raise End_of_file
             in
-            ignore (really_input_string c 14);
+            let _ : string = really_input_string c 14 in
             let size_of_opt_header = input_short_little c in
             let characteristics = input_short_little c in
             (* Executable images must have a PE "optional" header and be marked executable *)
@@ -945,17 +950,6 @@ module Tar = struct
           make_command tar_cmd [ Printf.sprintf "xf%c" c ; f file; "-C" ; f dir ]
         in
         command (extract_option typ))
-
-  let compress_command =
-    fun file dir ->
-      let f = Lazy.force cygpath_tar in
-      let tar_cmd = Lazy.force tar_cmd in
-      make_command tar_cmd [
-        "cfz"; f file;
-        "-C" ; f (Filename.dirname dir);
-        f (Filename.basename dir)
-      ]
-
 end
 
 module Zip = struct
@@ -995,16 +989,6 @@ let is_archive file =
 let extract_command file =
   if Zip.is_archive file then Zip.extract_command file
   else Tar.extract_command file
-
-let make_tar_gz_job ~dir file =
-  let tmpfile = file ^ ".tmp" in
-  remove_file tmpfile;
-  Tar.compress_command tmpfile dir @@> fun r ->
-  OpamProcess.cleanup r;
-  if OpamProcess.is_success r then
-    (mv tmpfile file; Done None)
-  else
-    (remove_file tmpfile; Done (Some (Process_error r)))
 
 let extract_job ~dir file =
   if not (Sys.file_exists file) then
@@ -1274,401 +1258,6 @@ let get_eol_encoding file =
   | exception End_of_file ->
       close_in ch;
       None
-
-let translate_patch ~dir orig corrected =
-  (* It's unnecessarily complicated to infer whether the entire file is CRLF
-     encoded and also the status of individual files, so accept scanning the
-     file three times instead of two. *)
-  let log ?level fmt = OpamConsole.log "PATCH" ?level fmt in
-  let strip_cr = get_eol_encoding orig = Some true in
-  let ch =
-    try open_in_bin orig
-    with Sys_error _ -> raise (File_not_found orig)
-  in
-  (* CRLF detection with patching can be more complicated than that used here,
-     especially in the presence of files with mixed LF/CRLF endings. The
-     processing done here aims to allow patching to succeed on files which are
-     wholly encoded CRLF or LF against patches which may have been translated to
-     be the opposite.
-
-     The resulting patch will *always* have LF line endings for the patch
-     metadata (headers, chunk locations, etc.) but uses either CRLF or LF
-     depending on the target file. Endings in the patch are always preserved for
-     new files. The benefit of always using LF endings for the metadata is that
-     patch's "Stripping trailing CRs from patch" behaviour won't be triggered.
-
-     There are various patch formats, though only the Unified and Context
-     formats allow multiple files to be patched. I tired of trying to get
-     sufficient documented detail of Context diffs to be able to parse them
-     without resorting to reverse-engineering code. It is unusual to see them
-     these days, so for now opam just emits a warning if a Context diff file is
-     encountered and does no processing to it.
-
-     There are various semantic aspects of Unified diffs which are not handled
-     (at least at present) by this function which are documented in the code
-     with the marker "Weakness". *)
-  let process_chunk_header result line =
-    match OpamStd.String.split line ' ' with
-    | "@@"::a::b::"@@"::_ ->
-        (* Weakness: for a new file [a] should always be -0,0 (not checked) *)
-        let l_a = String.length a in
-        let l_b = String.length b in
-        if l_a > 1 && l_b > 1 && a.[0] = '-' && b.[0] = '+' then
-          try
-            let f (_, v) = int_of_string v in
-            let neg =
-              OpamStd.String.cut_at (String.sub a 1 (l_a - 1)) ','
-                      |> OpamStd.Option.map_default f 1
-            in
-            let pos =
-              OpamStd.String.cut_at (String.sub b 1 (l_b - 1)) ','
-                      |> OpamStd.Option.map_default f 1
-            in
-            result neg pos
-          with e ->
-            OpamStd.Exn.fatal e;
-            (* TODO Should display some kind of re-sync warning *)
-            `Header
-        else
-          (* TODO Should display some kind of re-sync warning *)
-          `Header
-    | _ ->
-        (* TODO Should display some kind of warning that there were no chunks *)
-        `Header
-  in
-  let process_state_transition next_state state transforms =
-    match (state, next_state) with
-    | (`Processing _, `Processing _) ->
-        transforms
-    | (`Processing (_, target, crlf, patch_crlf, chunks, _), _) ->
-        let compute_transform patch_crlf =
-          (* Emit the patch *)
-          let transform =
-            match (crlf, patch_crlf) with
-            | (None, _)
-            | (_, None) ->
-                log ~level:3 "CRLF adaptation skipped for %s" target;
-                None
-            | (Some crlf, Some patch_crlf) ->
-                if crlf = patch_crlf then begin
-                  log ~level:3 "No CRLF adaptation necessary for %s" target;
-                  None
-                end else if crlf then begin
-                  log ~level:3 "Adding \\r to patch chunks for %s" target;
-                  Some true
-                end else begin
-                  log ~level:3 "Stripping \\r to patch chunks for %s" target;
-                  Some false
-                end
-          in
-          let record_transform transform =
-            let augment_record (first_line, last_line) =
-              (first_line, last_line, transform)
-            in
-            List.rev_append (List.rev_map augment_record chunks) transforms
-          in
-          OpamStd.Option.map_default record_transform transforms transform
-        in
-        OpamStd.Option.map_default compute_transform transforms patch_crlf
-     | _ ->
-        transforms
-  in
-  let rec fold_lines state n transforms =
-    match input_line ch with
-    | line ->
-        let line =
-          if strip_cr then
-            String.sub line 0 (String.length line - 1)
-          else
-            line
-        in
-        let length = String.length line in
-        let next_state =
-          match state with
-          | `Header ->
-            begin
-              match (if length > 4 then String.sub line 0 4 else "") with
-              | "--- " ->
-                  (* Start of a unified diff header. *)
-                  let file =
-                    let file = String.sub line 4 (length - 4) in
-                    let open OpamStd in
-                    Option.map_default fst file (String.cut_at file '\t')
-                  in
-                  (* Weakness: new files are also marked with a time-stamp at
-                               the start of the epoch, however it's localised,
-                               making it a bit tricky to identify! New files are
-                               also identified by their absence on disk, so this
-                               weakness isn't particularly critical. *)
-                  if file = "/dev/null" then
-                    `NewHeader
-                  else
-                    let target =
-                      OpamStd.String.cut_at (back_to_forward file) '/'
-                      |> OpamStd.Option.map_default snd file
-                      |> Filename.concat dir
-                    in
-                    if Sys.file_exists target then
-                      let crlf = get_eol_encoding target in
-                      `Patching (file, crlf)
-                    else
-                      `NewHeader
-              | "*** " ->
-                  OpamConsole.warning "File %s uses context diffs which are \
-                                       less portable; consider using unified \
-                                       diffs" orig;
-                  `SkipFile
-              | _ ->
-                  (* Headers will contain other lines, which are ignored (e.g.
-                     the diff command which generated the diff, or Git commit
-                     messages) *)
-                  `Header
-            end
-          | `NewHeader ->
-              if (if length > 4 then String.sub line 0 4 else "") = "+++ " then
-                `New
-              else
-                (* TODO Should display some kind of re-sync warning *)
-                `Header
-          | `New ->
-              process_chunk_header (fun neg pos -> `NewChunk (neg, pos))
-                                   line
-          | `NewChunk (neg, pos) ->
-              (* Weakness: new files should only have + lines *)
-              let neg =
-                if line = "" || line.[0] = ' ' || line.[0] = '-' then
-                  neg - 1
-                else
-                  neg
-              in
-              let pos =
-                if line = "" || line.[0] = ' ' || line.[0] = '+' then
-                  pos - 1
-                else
-                  pos
-              in
-              if neg = 0 && pos = 0 then
-                `New
-              else
-                (* Weakness: there should only be one chunk for a new file *)
-                `NewChunk (neg, pos)
-          | `Patching (orig, crlf) ->
-              if (if length > 4 then String.sub line 0 4 else "") = "+++ " then
-                let file =
-                  let file = String.sub line 4 (length - 4) in
-                  let open OpamStd in
-                  Option.map_default fst file (String.cut_at file '\t')
-                in
-                `Processing (orig, file, crlf, None, [], `Head)
-              else
-                `Header
-          | `Processing (orig, target, crlf, patch_crlf, chunks, `Head) ->
-              if line = "\\ No newline at end of file" then
-                (* If the no eol-at-eof indicator is found, never add \r to
-                   final chunk line *)
-                let chunks =
-                  match chunks with
-                  | (a, b)::chunks ->
-                      (a, b - 1)::chunks
-                  | _ ->
-                      chunks
-                in
-                `Processing (orig, target, crlf, patch_crlf, chunks, `Head)
-             else
-                process_chunk_header
-                  (fun neg pos ->
-                     `Processing (orig, target, crlf, patch_crlf, chunks,
-                                  `Chunk (succ n, neg, pos)))
-                  line
-          | `Processing (orig, target, crlf, patch_crlf, chunks,
-                         `Chunk (first_line, neg, pos)) ->
-              let neg =
-                if line = "" || line.[0] = ' ' || line.[0] = '-' then
-                  neg - 1
-                else
-                  neg
-              in
-              let pos =
-                if line = "" || line.[0] = ' ' || line.[0] = '+' then
-                  pos - 1
-                else
-                  pos
-              in
-              let patch_crlf =
-                let has_cr = (length > 0 && line.[length - 1] = '\r') in
-                match patch_crlf with
-                | None ->
-                    Some (Some has_cr)
-                | Some (Some think_cr) when think_cr <> has_cr ->
-                    log ~level:2 "Patch adaptation disabled for %s: \
-                                  mixed endings or binary file" target;
-                    Some None
-                | _ ->
-                    patch_crlf
-              in
-              if neg = 0 && pos = 0 then
-                let chunks = (first_line, n)::chunks in
-                `Processing (orig, target, crlf, patch_crlf, chunks, `Head)
-              else
-                `Processing (orig, target, crlf, patch_crlf, chunks,
-                             `Chunk (first_line, neg, pos))
-          | `SkipFile ->
-              `SkipFile
-        in
-        if next_state = `SkipFile then
-          []
-        else
-          process_state_transition next_state state transforms
-            |> fold_lines next_state (succ n)
-    | exception End_of_file ->
-        process_state_transition `Header state transforms |> List.rev
-  in
-  let transforms = fold_lines `Header 1 [] in
-  if transforms = [] then begin
-    log ~level:1 "No patch translation needed for %s -> %s" orig corrected;
-    copy_file orig corrected
-  end else begin
-    seek_in ch 0;
-    log ~level:1 "Transforming patch %s to %s" orig corrected;
-    let ch_out =
-      try open_out_bin corrected
-      with Sys_error _ ->
-        close_in ch;
-        raise (File_not_found corrected)
-    in
-    let (normal, add_cr, strip_cr) =
-      let strip n s = String.sub s 0 (String.length s - n) in
-      let id x = x in
-      if strip_cr then
-        (strip 1, id, strip 2)
-      else
-        (id, (fun s -> s ^ "\r"), strip 1)
-    in
-    if OpamConsole.debug () then begin
-      let log_transform (first_line, last_line, add_cr) =
-         let indicator = if add_cr then '+' else '-' in
-         log ~level:3 "Transform %d-%d %c\\r" first_line last_line indicator
-      in
-      List.iter log_transform transforms
-    end;
-    let rec fold_lines n transforms =
-      match input_line ch with
-      | line ->
-          let (f, transforms) =
-            match transforms with
-            | (first_line, last_line, add_cr_to_chunks)::next_transforms ->
-                let transforms =
-                  if n = last_line then
-                    next_transforms
-                  else
-                    transforms
-                in
-                let f =
-                  if n >= first_line then
-                    if add_cr_to_chunks then
-                      add_cr
-                    else
-                      strip_cr
-                  else
-                    normal
-                in
-                (f, transforms)
-             | [] ->
-                 (normal, [])
-          in
-          output_string ch_out (f line);
-          output_char ch_out '\n';
-          fold_lines (succ n) transforms
-      | exception End_of_file ->
-          close_out ch_out
-    in
-    fold_lines 1 transforms
-  end;
-  close_in ch
-
-exception Internal_patch_error of string
-
-let patch ~allow_unclean ?patch_filename ~dir diffs =
-  let internal_patch_error fmt =
-    Printf.ksprintf (fun str -> raise (Internal_patch_error str)) fmt
-  in
-  let patch_info_path =
-    OpamStd.Option.default ("in directory "^dir) patch_filename
-  in
-  (* NOTE: It is important to keep this `concat dir ""` to ensure the
-     is_prefix_of below doesn't match another similarly named directory *)
-  let dir = Filename.concat (real_path dir) "" in
-  let get_path file =
-    let file = real_path (Filename.concat dir file) in
-    if not (OpamStd.String.is_prefix_of ~from:0 ~full:file dir) then
-      internal_patch_error "Patch %S tried to escape its scope."
-        patch_info_path;
-    file
-  in
-  let patch ~file content diff =
-    (* NOTE: The None case returned by [Patch.patch] is only returned
-       if [diff = Patch.Delete _]. This sub-function is not called in
-       this case so we [assert false] instead. *)
-    match Patch.patch ~cleanly:true content diff with
-    | Some x -> x
-    | None -> assert false (* See NOTE above *)
-    | exception _ when not allow_unclean ->
-      internal_patch_error "Patch %S does not apply cleanly."
-        patch_info_path
-    | exception _ ->
-      match Patch.patch ~cleanly:false content diff with
-      | Some x ->
-        Option.iter (write (file^".orig")) content;
-        x
-      | None -> assert false (* See NOTE above *)
-      | exception _ ->
-        Option.iter (write (file^".orig")) content;
-        write (file^".rej") (Format.asprintf "%a" Patch.pp diff);
-        internal_patch_error "Patch %S does not apply cleanly."
-          patch_info_path
-  in
-  let apply diff = match diff.Patch.operation with
-    | Patch.Edit (file1, file2) ->
-      let file1 = get_path file1 in
-      let file2 = get_path file2 in
-      let file1_exists = Sys.file_exists file1 in
-      (* That seems to be the GNU patch behaviour *)
-      let file = if file1_exists then file1 else file2 in
-      let content = read file in
-      let content = patch ~file:file (Some content) diff in
-      write file content;
-      if file1_exists && file1 <> (file2 : string) then
-        rmdir_cleanup (Filename.dirname file1)
-    | Patch.Delete file | Patch.Git_ext (file, _, Patch.Delete_only) ->
-      let file = get_path file in
-      remove_file_t ~with_log:false file;
-      rmdir_cleanup (Filename.dirname file)
-    | Patch.Create file | Patch.Git_ext (_, file, Patch.Create_only) ->
-      let file = get_path file in
-      let content = patch ~file None diff in
-      write file content
-    | Patch.Git_ext (_, _, Patch.Rename_only (src, dst)) ->
-      let src = get_path src in
-      let dst = get_path dst in
-      mv src dst;
-      let dirname_src = Filename.dirname src in
-      if dirname_src <> (Filename.dirname dst : string) then
-        rmdir_cleanup dirname_src
-  in
-  List.iter apply diffs
-
-let parse_patch ~dir ~file =
-  if not (Sys.file_exists file) then
-    (OpamConsole.error "Patch file %S not found." file;
-     raise Not_found);
-  let file' =
-    let file' = temp_file ~auto_clean:false "processed-patch" in
-    translate_patch ~dir file file';
-    file'
-  in
-  let content = read file' in
-  Fun.protect (fun () -> Patch.parse ~p:1 content)
-    ~finally:(fun () -> if not (OpamConsole.debug ()) then Sys.remove file')
 
 let register_printer () =
   Printexc.register_printer (function

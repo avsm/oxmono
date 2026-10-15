@@ -6,7 +6,7 @@
  (copy# ../test.ml test.ml))
 
 (rule
- (copy# ../bib bib))
+ (copy ../bib bib))
 
 (rule
  (alias runtest)

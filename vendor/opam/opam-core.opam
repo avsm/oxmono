@@ -1,6 +1,6 @@
 opam-version: "2.0"
-version: "2.5.2"
-synopsis: "Core library for opam 2.5"
+version: "2.6.1"
+synopsis: "Core library for opam 2.6"
 description:
   "Small standard library extensions, and generic system interaction modules used by opam."
 maintainer: "opam-devel@lists.ocaml.org"
@@ -8,7 +8,7 @@ authors: [
   "David Allsopp <david@tarides.com>"
   "Vincent Bernardoff <vb@luminar.eu.org>"
   "Raja Boujbel <raja.boujbel@ocamlpro.com>"
-  "Kate Deplaix <kit-ty-kate@outlook.com>"
+  "Kate Deplaix <kit-ty-kate@exn.st>"
   "Roberto Di Cosmo <roberto@dicosmo.org>"
   "Thomas Gazagnaire <thomas@gazagnaire.org>"
   "Louis Gesbert <louis.gesbert@ocamlpro.com>"
@@ -22,16 +22,16 @@ license: "LGPL-2.1-only WITH OCaml-LGPL-linking-exception"
 homepage: "https://opam.ocaml.org"
 bug-reports: "https://github.com/ocaml/opam/issues"
 depends: [
-  "ocaml" {>= "4.08.0"}
-  "base-unix"
-  "ocamlgraph"
-  "re" {>= "1.9.0"}
+  "ocaml" {>= "4.11.0"}
   "dune" {>= "2.8.0"}
+  "base-unix"
+  "ocamlgraph" {>= "1.8.8"}
+  "re" {>= "1.10.0"}
   "sha" {>= "1.13"}
-  "jsonm"
-  "swhid_core"
+  "jsonm" {>= "1.0.2"}
+  "swhid_core" {>= "0.1"}
   "patch" {>= "3.0.0"}
-  "uutf"
+  "uutf" {>= "1.0.3"}
   (("host-system-mingw" {os = "win32" & os-distribution != "cygwinports"} &
     "conf-mingw-w64-gcc-i686" {os = "win32" & os-distribution != "cygwinports"} &
     "conf-mingw-w64-gcc-x86_64" {os = "win32" & os-distribution != "cygwinports"}) |

@@ -1,12 +1,31 @@
-## Vendored base (2026-10-03)
+## Vendored base (2026-10-15)
 
-Based on `v1.3.1-16-g35e5c1c`, commit
-`35e5c1ca984a80a72b4621a12fb108352f63d4eb`. See [../upstreams.json](../upstreams.json)
+Based on `v1.4.0`, commit
+`adcc963fcf936ceb400082fbf552973a5afc73e6`. See [../upstreams.json](../upstreams.json)
 for the repository and import scope.
 
-The refresh fixes XOR bounds and the OCaml backend's short-buffer handling
-and counter overflow. Local portable interfaces and byte-buffer adaptations
-are retained. The C backend remains the workspace default.
+The refresh adds BLAKE3, exposes keyed BLAKE2 functors and optimizes the
+OCaml hash cores. The C backend remains the workspace default.
+
+Local patches are confined to four files:
+
+- `src/digestif.mli` retains the portable digest API and raw digest/HMAC helpers.
+- `src-c/digestif_native.ml` marks the C entry points portable, including
+  BLAKE3. The underlying C and header files are unchanged upstream sources.
+- `src-c/digestif.ml` preserves portable functor boundaries and implements
+  the raw helpers. BLAKE3 uses a 32-byte digest and 64-byte HMAC block.
+- `src-ocaml/digestif.ml` retains the corresponding helper interface. This
+  optional backend still fails the existing OxCaml local-buffer callback
+  checks. Its pristine release passes on stock OCaml.
+
+The compiler checks the C backend's portable declarations. Its 695 upstream
+cases pass on both OxCaml and pristine stock OCaml 5.4.1. The pristine OCaml
+backend passes 694 quick cases. `bleeding/d10/test/compat/digestif_probe.ml`
+checks the added portable BLAKE3 helpers against the upstream module API.
+
+On refresh, merge against the recorded upstream commit, retain these patches,
+run `@@vendor/digestif/test/c/runtest` explicitly and run the D10, Siftbot and
+HTTPz consumer tests. Recursive vendor aliases skip the upstream tests.
 
 Digestif - Hash algorithms in C and OCaml
 =========================================
@@ -20,6 +39,7 @@ Digestif is a toolbox which implements hashes:
  * WHIRLPOOL
  * BLAKE2B
  * BLAKE2S
+ * BLAKE3
  * RIPEMD160
 
 Digestif uses a trick about linking and let the end-user to choose which

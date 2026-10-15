@@ -50,6 +50,16 @@ class CheckerTests(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertIn("did not advertise", result["error"])
 
+    def test_release_tags(self):
+        self.git("tag", "lightweight")
+        self.git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                 "-c", "tag.gpgsign=false", "tag", "-a", "annotated", "-m", "release")
+        for tag in ["lightweight", "annotated"]:
+            result = checker.check({**self.entry, "branch": "refs/tags/" + tag}, 5)
+            self.assertEqual((result["status"], result["tip"]), ("current", self.base))
+        result = checker.check({**self.entry, "branch": "refs/tags/missing"}, 5)
+        self.assertEqual(result["status"], "error")
+
     def test_unknown_base_and_unreachable_remote(self):
         self.assertEqual(checker.check({**self.entry, "revision": None}, 5)["status"], "unknown-base")
         self.assertEqual(checker.check({**self.entry, "url": str(self.repo / "missing")}, 5)["status"], "error")

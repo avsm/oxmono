@@ -1,3 +1,8 @@
+## OxMono vendored release
+
+Based on 2.6.1. See [OXMONO.md](OXMONO.md) for the import scope, local
+patches and validation, and [OXMONO.json](OXMONO.json) for provenance.
+
 # opam - A Package Manager for OCaml
 
 |master|2.0|2.1|
@@ -21,9 +26,10 @@ Either from an existing opam installation, use
 
 * Make sure you have the required dependencies installed:
   - GNU make
-  - OCaml >= 4.08 (or see [below](#compiling-without-ocaml))
+  - OCaml >= 4.11 (or see [below](#compiling-without-ocaml))
   - A C++ compiler (unless building without a solver, see `./configure --without-mccs`)
-* Run `./configure`. If you don't have the dependencies installed, this will
+* Run `./configure` if you have all the OCaml dependencies installed.
+  If not, run `./configure --with-vendored-deps`, this will
   locally take care of all OCaml dependencies for you (downloading them, unless
   you used the inclusive archive we provide for each release).
 * Run `make`

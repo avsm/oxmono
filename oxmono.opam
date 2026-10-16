@@ -1,0 +1,85 @@
+opam-version: "2.0"
+synopsis: "Development dependencies for the OxMono workspace"
+maintainer: "Anil Madhavapeddy <anil@recoil.org>"
+authors: "Anil Madhavapeddy"
+license: "ISC"
+homepage: "https://github.com/avsm/oxmono"
+bug-reports: "https://github.com/avsm/oxmono/issues"
+dev-repo: "git+https://github.com/avsm/oxmono.git"
+description: """
+Dependency-only package for building the entire monorepo, including examples,
+test executables and MDX documentation tests. Libraries supplied by workspace
+projects and vendor/ are deliberately omitted.
+"""
+# Keep test tools unconditional: dune build @all builds test executables too.
+# The compiler supplies stdlib_stable and stdlib_upstream_compatible.
+depends: [
+  "oxcaml"
+  "oxcaml-compiler" {>= "5.2.0minus39"}
+  "dune" {>= "3.22"}
+  "dune-configurator"
+  "ocaml" {>= "5.2"}
+  "astring"
+  "async"
+  "base"
+  "base_bigstring"
+  "basement"
+  "bigstringaf" {>= "0.9.0"}
+  "bos"
+  "bonsai"
+  "bonsai_term"
+  "bonsai_term_components"
+  "bonsai_term_test"
+  "bonsai_test"
+  "cmdliner" {>= "1.3.0"}
+  "core"
+  "core_unix"
+  "ctypes"
+  "curl" {>= "0.10.0"}
+  "domain-local-await" {>= "0.1.0"}
+  "fmt" {>= "0.9.0"}
+  "fpath"
+  "http" {>= "6.0.0"}
+  "iomux" {>= "0.2"}
+  "logs" {>= "0.7.0"}
+  "lwt"
+  "markup" {>= "1.0.3"}
+  "ocaml-version" {>= "3.6.4"}
+  "ocaml_intrinsics_kernel"
+  "ohex" {>= "0.2.0"}
+  "parsexp"
+  "ppx_inline_test"
+  "ppx_jane"
+  "ppx_sexp_conv"
+  "ppx_template"
+  "psq" {>= "0.2.0"}
+  "re" {>= "1.11"}
+  "sexplib"
+  "sexplib0"
+  "stdio"
+  "stdlib-shims"
+  "uri"
+  "unboxed"
+  "uucp" {>= "17.0.0"}
+  "uuseg" {>= "17.0.0"}
+  "uutf" {>= "1.0.4"}
+  "xdg"
+  "yojson" {>= "2.0.2"}
+  "alcotest" {>= "1.7.0"}
+  "crowbar" {>= "0.2.1"}
+  "mdx" {>= "2.4.1"}
+  "qcheck-core" {>= "0.91"}
+  "qcheck-alcotest" {>= "0.91"}
+  "crunch"
+  "menhir" {>= "20211230"}
+  "conf-gmp"
+  "conf-pkg-config"
+  "conf-zlib"
+  "conf-zstd"
+]
+depexts: [
+  ["libproj-dev" "proj-data" "libblosc-dev" "libopenblas-dev"
+   "liblapacke-dev"] {os-family = "debian"}
+  ["proj" "c-blosc" "openblas" "lapack" "libomp"]
+    {os = "macos" & os-distribution = "homebrew"}
+]

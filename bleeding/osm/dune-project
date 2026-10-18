@@ -1,0 +1,13 @@
+(lang dune 3.21)
+(name osm)
+(generate_opam_files true)
+(implicit_transitive_deps false)
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "anil@recoil.org")
+(package
+ (name osm)
+ (synopsis "OpenStreetMap Overpass and Nominatim clients")
+ (depends
+  (ocaml (>= 5.2)) fetch fetch-httpz uri jsont eio eio_main
+  (http :with-test)))

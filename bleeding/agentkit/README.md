@@ -10,6 +10,32 @@ connects it to [DS4](https://tangled.org/anil.recoil.org/ocaml-deepseek).
 agent unattended, and `dumpty` runs one job and exits. Each can select DS4 or
 Apple Foundation Models at run time on a supported Mac.
 
+## Address lookup tools
+
+The [standalone package guide](osm/index.mld) documents setup, arguments,
+results and host-controlled dispatch.
+
+`agentkit-osm` provides `address_search` and `address_reverse` through the typed
+`osm` client. It links no model runtime. The default Nominatim base URL is
+`http://marpe:8888/nominatim/`.
+
+```ocaml
+let addresses =
+  Agentkit_osm.create ~fetch ~clock ()
+in
+let tools = Agentkit_osm.tools addresses in
+(* Supply tools to an Agentkit model adapter. *)
+ignore tools
+```
+
+`create` accepts an operator-selected `~nominatim_url` and `~max_result_bytes`.
+The model can supply search terms or coordinates, never a URL or credentials.
+Search returns at most five candidates. Results include address components,
+coordinates, OSM source links and attribution. An empty search differs from a
+service error. Calls have a 30-second deadline and a 1 MiB HTTP response limit.
+Cancellation propagates. Hosts with their own dispatch and audit loop can use
+`definitions` with `invoke` instead of the bound `tools` list.
+
 ## Summary trees
 
 `Agentkit.Memo` is a pure OCaml summary tree inspired by

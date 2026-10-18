@@ -640,6 +640,11 @@ let run ~env ~sw ~profile ~api_key_file ~recovery_key_file =
       ~complete:complete_model
       ~now:(now env)
     |> fun engine ->
+    Engine.with_addresses engine
+      (Agentkit_osm.create ~fetch:(fetch env)
+         ~clock:(Eio.Stdenv.mono_clock env)
+         ~max_result_bytes:config.tool_result_bytes ())
+    |> fun engine ->
     Engine.with_website engine (website_tools env) |> fun engine ->
     Engine.with_http_post engine (http_post_tools env) |> fun engine ->
     Engine.with_feeds engine (feed_tools env store) |> fun engine ->

@@ -31,7 +31,9 @@ let run ?(on_finish = fun _ -> ()) ?(max_result_bytes = 4096)
   in
   let payload text =
     if memory then "[memory content omitted]"
-    else if tool = "location" || String.starts_with ~prefix:"location_" tool
+    else if
+      Agentkit_osm.is_tool tool || tool = "location"
+      || String.starts_with ~prefix:"location_" tool
     then "[location content omitted]"
     else if
       String.starts_with ~prefix:"calendar_" tool

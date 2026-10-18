@@ -5,6 +5,7 @@
 (dirs
  agentkit
  ds4_adapter
+ osm
  openrouter_adapter
  apple_adapter
  apple_tools

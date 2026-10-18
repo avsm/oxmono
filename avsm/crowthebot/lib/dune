@@ -15,6 +15,7 @@
   matrix-chat.eio
   openrouter
   agentkit
+  agentkit-osm
   agentkit-ds4
   ds4
   ds4.metal

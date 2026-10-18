@@ -101,3 +101,7 @@ val with_website : t -> Website.t -> t
 val with_http_post : t -> Http_post.t -> t
 (** [with_http_post t http_post] adds explicitly requested public HTTP POSTs
     for the admin and allowed friends. Every invocation is durably audited. *)
+
+val with_addresses : t -> Agentkit_osm.t -> t
+(** [with_addresses t addresses] adds address search and reverse lookup for
+    the admin and allowed friends, with normal tool auditing and budgets. *)

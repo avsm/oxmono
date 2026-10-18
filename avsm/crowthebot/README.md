@@ -1026,6 +1026,34 @@ the app is connected and allows remote commands, which on iOS often means it
 answers on its next wake instead. Each request is a short MQTT connection under
 its own client ID.
 
+## Address lookup
+
+Crow registers the shared `agentkit-osm` tools on startup, independently of
+OwnTracks connections:
+
+- `address_search` takes `query`, optional `limit` (1..5, default 3), and
+  optional `language`.
+- `address_reverse` takes `latitude`, `longitude`, and optional `language`.
+
+For example: “Look up King's College, Cambridge, UK” or “What address is near
+52.2053, 0.1218?” Results contain candidate addresses, coordinates and OSM source
+links. A reverse result identifies the nearest mapped object, not an exact
+verified address or proof of someone's presence.
+
+The service defaults to `http://marpe:8888/nominatim/`. Model arguments cannot
+change it. Admins and allowed friends can use the tools, including scheduled
+model turns. Calls use normal tool budgets and audit records. Address queries
+and responses are omitted from audit payloads like other location data.
+Unmatched searches return no candidates. Service failures are explicit errors.
+Restart Crow after rebuilding to make the tools available to existing profiles.
+
+The opt-in live probe uses Sequoia and marpe with synthetic identities and an
+in-memory database. It makes no Matrix connection and sends no messages:
+
+```sh
+opam exec --switch=5.2.0+ox -- dune exec avsm/crowthebot/test/live/address_probe.exe
+```
+
 ## Read-only CalDAV calendars
 
 Fastmail calendars use CalDAV at `https://caldav.fastmail.com/`. Set up a

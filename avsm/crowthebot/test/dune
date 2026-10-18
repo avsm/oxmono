@@ -305,3 +305,8 @@
  (name test_admin_dm)
  (modules test_admin_dm)
  (libraries crowthebot sqlite3-eio eio_main fetch.mock http jsont jsont.bytesrw))
+
+(test
+ (name test_addresses)
+ (modules test_addresses)
+ (libraries fake_model crowthebot agentkit agentkit-osm sqlite3-eio eio eio_main fetch.mock jsont))

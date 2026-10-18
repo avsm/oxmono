@@ -1,0 +1,82 @@
+{0 agentkit-osm: address lookup tools}
+
+Link [agentkit-osm] to add Nominatim search and reverse geocoding to an
+Agentkit model adapter. This library uses [osm], Fetch and Eio. It has no model
+runtime or Crow dependency. It requires the same OxCaml toolchain as Agentkit.
+
+{1:setup Setup}
+
+{[
+let address_tools fetch clock =
+  let client = Agentkit_osm.create ~fetch ~clock () in
+  Agentkit_osm.tools client
+]}
+
+Pass an existing Fetch client and an Eio monotonic clock, for example
+[env#mono_clock]. The result is a list of bound [Agentkit.Agent.Tool.t] values.
+Include {!Agentkit_osm.system_prompt} in your model instructions to explain
+candidate ambiguity, attribution and the limits of reverse geocoding.
+
+The default base URL is [http://marpe:8888/nominatim/], a private service.
+Operators can override it with [~nominatim_url]. The model cannot select a URL,
+credentials or HTTP headers. Requests are restricted to GET under the configured
+base URL, including redirects. Credentials and retry policy belong to Fetch.
+No requests run until a tool is invoked.
+
+{1:arguments Tools}
+
+[address_search] accepts a JSON object with:
+{ul
+{- [query]: a nonblank string of at most 512 UTF-8 bytes.}
+{- [limit]: an optional integer from 1 to 5, default 3.}
+{- [language]: an optional nonblank language preference of at most 64 bytes.}}
+
+[address_reverse] accepts:
+{ul
+{- [latitude]: a finite number in -90..90 degrees.}
+{- [longitude]: a finite number in -180..180 degrees.}
+{- [language]: the same optional preference as search.}}
+
+Unknown properties are rejected. Neither tool accepts endpoint overrides.
+The complete argument JSON is limited to 4096 bytes. The schemas describe
+string lengths in characters; runtime byte limits also apply to UTF-8 input.
+
+{1:output Results and errors}
+
+Success returns a JSON object with [results], [attribution] and
+[attribution_url]. Each result contains [display_name], [latitude], [longitude],
+[source_url] and [address]. Address is a string-valued object, or [null] if the
+server omitted it. Search can return an empty list. Reverse lookup returns one
+result or an error. An OSM source URL identifies the matched object. Without an
+object reference it links to a map centered on the returned coordinates.
+
+Service failures are never converted into empty search results. A reverse
+result is the nearest suitable mapped object, not proof of an exact address or
+a person's presence. Names and address components are untrusted service data.
+
+Each call has a 30-second overall timeout, a 1 MiB HTTP response limit and an
+8192-byte result limit by default. [~max_result_bytes] changes the latter and
+must be at least 256. Oversized results fail rather than returning clipped JSON
+or silently dropping candidates. Search callers may retry with a lower limit.
+Cancellation propagates. Errors omit remote response bodies.
+
+{1:dispatch Host-controlled dispatch}
+
+{[
+let dispatch client (call : Agentkit.Agent.tool_call) =
+  Agentkit_osm.invoke client call.name call.arguments
+]}
+
+Hosts that own an audit and authorization loop can advertise
+{!Agentkit_osm.definitions} and call {!Agentkit_osm.invoke}. This returns
+[(string, string) result]. Bound {!Agentkit_osm.tools} adapt an error to a JSON
+object with an [error] member because Agentkit's invocation callback returns a
+string. Definitions alone are not bound implementations.
+
+The host must enforce user authority, call budgets and logging policy before
+invocation. Address queries and coordinates can be private. This library
+writes no logs and supplies no persistence or access-control mechanism.
+
+{1:api API}
+
+{!modules:Agentkit_osm}

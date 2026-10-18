@@ -35,6 +35,7 @@ depends: [
   "cstruct"
   "tomlt"
   "agentkit"
+  "agentkit-osm"
   "agentkit-openrouter"
   "apple-speech"
   "odoc" {with-doc}

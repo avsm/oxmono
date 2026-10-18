@@ -11,6 +11,7 @@ type t = {
   website : Website.t option;
   http_post : Http_post.t option;
   locations : Locations.t option;
+  addresses : Agentkit_osm.t option;
   calendars : Calendars.t option;
   caldav : Caldav_tools.t option;
   emails : Emails.t option;
@@ -58,6 +59,7 @@ let create ~config ~store ~self ~plugins ~complete ~now:_ =
              ]
         || String.starts_with ~prefix:"memory_" name
         || String.starts_with ~prefix:"cron_" name
+        || Agentkit_osm.is_tool name
         || name = "http_post"
         || String.starts_with ~prefix:"website_" name
         || String.starts_with ~prefix:"feeds_" name
@@ -84,6 +86,7 @@ let create ~config ~store ~self ~plugins ~complete ~now:_ =
     website = None;
     http_post = None;
     locations = None;
+    addresses = None;
     calendars = None;
     caldav = None;
     emails = None;
@@ -94,6 +97,7 @@ let create ~config ~store ~self ~plugins ~complete ~now:_ =
     mutex = Eio.Mutex.create ();
   }
 
+let with_addresses t addresses = { t with addresses = Some addresses }
 let with_http_post t http_post = { t with http_post = Some http_post }
 let with_website t website = { t with website = Some website }
 let with_feeds t feeds = { t with feeds = Some feeds }
@@ -513,6 +517,7 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
       ^ (if t.http_post = None then "" else Http_post.system_prompt)
       ^ (if t.website = None then "" else Website.system_prompt)
       ^ (if t.feeds = None then "" else Feeds.system_prompt)
+      ^ (if t.addresses = None then "" else Agentkit_osm.system_prompt)
       ^ (if t.locations = None then "" else Locations.system_prompt)
       ^ (if t.calendars = None then "" else Calendars.system_prompt)
       ^ Option.fold ~none:""
@@ -550,6 +555,7 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
       @ (if t.http_post = None then [] else Http_post.tools)
       @ (if t.website = None then [] else Website.tools)
       @ (if t.feeds = None then [] else Feeds.tools)
+      @ (if t.addresses = None then [] else Agentkit_osm.definitions)
       @ (if t.locations = None then [] else Locations.tools)
       @ (if t.calendars = None then [] else Calendars.tools)
       @ (if t.caldav = None then [] else Caldav_tools.tools)
@@ -582,6 +588,10 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
       memory t e ~source:"observation" call.name call.arguments
     else if Cron.is_tool call.name then
       cron t { e with id = source_event } call.name call.arguments
+    else if Agentkit_osm.is_tool call.name then
+      (match t.addresses with
+       | None -> Error "Address tools are unavailable."
+       | Some addresses -> Agentkit_osm.invoke addresses call.name call.arguments)
     else if Http_post.is_tool call.name then
       (match t.http_post with
        | None -> Error "HTTP POST tools are unavailable."
@@ -650,7 +660,8 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
        state or perform an effect, so keep those calls in order. *)
     if List.mem call.name
          [ "matrix_history"; "matrix_rooms"; "matrix_room_info";
-           "website_fetch"; "website_read" ] then run ()
+           "website_fetch"; "website_read"; "address_search";
+           "address_reverse" ] then run ()
     else Eio.Mutex.use_rw ~protect:false effects run
   in
   let on_event = function

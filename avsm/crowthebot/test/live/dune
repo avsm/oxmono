@@ -14,3 +14,8 @@
   ds4.metal
   eio_main
   sqlite3-eio))
+
+(executable
+ (name address_probe)
+ (modules address_probe)
+ (libraries crowthebot agentkit-osm eio eio_main sqlite3-eio fetch-httpz))

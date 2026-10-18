@@ -1,5 +1,8 @@
 # Changes
 
+- Add shared address search and reverse-geocoding tools using Nominatim,
+  with marpe defaults, bounded results and explicit service errors.
+
 - Allow trusted HTTP model endpoints with an explicit `allow_http_model`
   profile setting.
 

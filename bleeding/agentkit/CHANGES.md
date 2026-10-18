@@ -1,5 +1,8 @@
 # unreleased
 
+- Add shared address search and reverse-geocoding tools using Nominatim,
+  with marpe defaults, bounded results and explicit service errors.
+
 - Add bounded concurrent tool execution to `Turn.run` and optional parallel
   tool requests to the OpenRouter adapter. Sequential execution stays default.
 

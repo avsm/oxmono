@@ -10,6 +10,11 @@ connects it to [DS4](https://tangled.org/anil.recoil.org/ocaml-deepseek).
 agent unattended, and `dumpty` runs one job and exits. Each can select DS4 or
 Apple Foundation Models at run time on a supported Mac.
 
+`Agentkit_ds4.complete` preserves chat roles and returns tool calls for
+`Agentkit.Turn.run` to dispatch under its guard and budget. It accepts `none`,
+`high` and `max` reasoning and rejects image messages. The persistent
+`Agentkit_ds4.Agent` interface continues to execute its own tools.
+
 ## Address lookup tools
 
 The [standalone package guide](osm/index.mld) documents setup, arguments,
@@ -70,8 +75,9 @@ are limited to 512 bytes and stored separately from immutable memory versions.
 Editing or forgetting an episode makes dependent summaries unreachable.
 Historical memory versions retain their original contents.
 
-In oxmono the daemon remains source-only. Its brief and memory tools compile
-in `test_core`, which exercises persistence, corrections and pinned entries.
+In oxmono the daemon remains source-only. Its brief, memory tools and wake-up
+lifecycle compile in `test_core`, which exercises persistence, corrections,
+pinned entries and cleanup on failure.
 The core tree, journal and memory modules are built as part of `agentkit`.
 
 ## Building

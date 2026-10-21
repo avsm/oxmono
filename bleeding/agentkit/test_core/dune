@@ -54,3 +54,8 @@
  (name test_osm_tools)
  (modules test_osm_tools)
  (libraries agentkit agentkit-osm fetch fetch.mock http eio eio_main jsont jsont.bytesrw))
+
+(test
+ (name test_ds4_messages)
+ (modules test_ds4_messages)
+ (libraries agentkit agentkit-ds4 ds4 ds4.dsml))

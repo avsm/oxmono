@@ -147,37 +147,66 @@ external c_set_log_min_level : int -> unit = "caml_ds4_set_log_min_level"
    only the calling fiber, leaving the main domain free. The worker runs one job
    at a time, so the engine is never entered concurrently. *)
 type job = Job : (unit -> 'a) * ('a, exn) result Eio.Promise.u -> job
-type worker = job Eio.Stream.t
+type worker = { jobs : job Eio.Stream.t; stopped : unit Eio.Promise.t }
 type engine = { raw : raw_engine; worker : worker option }
 
 (* Run [f] on the worker domain and wait for its result, re-raising any
    exception on the calling domain. *)
+let while_worker w f =
+  Eio.Fiber.first f (fun () ->
+      Eio.Promise.await w.stopped;
+      invalid_arg "V4: the engine worker's switch is closed")
+
 let run_on (w : worker) f =
   let result, set = Eio.Promise.create () in
-  Eio.Stream.add w (Job (f, set));
-  match Eio.Promise.await result with Ok v -> v | Error e -> raise e
+  (* A submitted native call must finish before its caller can release its
+     handles or roll back engine ownership. *)
+  Eio.Cancel.protect (fun () ->
+      while_worker w (fun () ->
+          Eio.Stream.add w.jobs (Job (f, set));
+          match Eio.Promise.await result with Ok v -> v | Error e -> raise e))
 
 let run engine f =
   match engine.worker with None -> f () | Some w -> run_on w f
 
+let run_cancellable engine ~cancel f =
+  match engine.worker with
+  | None -> f ()
+  | Some worker ->
+      let result, set = Eio.Promise.create () in
+      Eio.Cancel.protect (fun () ->
+          while_worker worker (fun () -> Eio.Stream.add worker.jobs (Job (f, set))));
+      let result =
+        try Eio.Promise.await result with
+        | Eio.Cancel.Cancelled _ as exn ->
+            cancel ();
+            Eio.Cancel.protect (fun () -> ignore (Eio.Promise.await result));
+            raise exn
+      in
+      match result with Ok value -> value | Error exn -> raise exn
+
 (* Run the engine's job loop on a new domain. It is a daemon fiber, so closing
    the switch cancels both the loop and its domain. One call to
    [Domain_manager.run] keeps one domain for the engine's lifetime. *)
-let spawn_worker ~sw _domain_mgr : worker =
-  (* Keep the worker on the calling domain. This is portable across Eio
-     versions and still isolates engine jobs in a cancellable daemon fiber;
-     callers that need domain parallelism can provide it at a higher layer. *)
+let spawn_worker ~sw domain_mgr : worker =
   let stream = Eio.Stream.create 0 in
+  let stopped, stop = Eio.Promise.create () in
   Eio.Fiber.fork_daemon ~sw (fun () ->
-      let rec loop () =
-        let (Job (f, set)) = Eio.Stream.take stream in
-        (match f () with
-        | v -> Eio.Promise.resolve set (Ok v)
-        | exception e -> Eio.Promise.resolve set (Error e));
-        loop ()
-      in
-      loop ());
-  stream
+      Fun.protect ~finally:(fun () -> Eio.Promise.resolve stop ()) @@ fun () ->
+      (* Only the thread-safe queue crosses domains. Jobs transfer ownership
+         of their inputs until their promise is resolved. The FFI handles
+         cannot express this protocol with OxCaml portability modes. *)
+      Eio.Domain_manager.unsafe_run domain_mgr (fun () ->
+          let rec loop () =
+            let (Job (f, set)) = Eio.Stream.take stream in
+            Eio.Cancel.protect (fun () ->
+                match f () with
+                | v -> Eio.Promise.resolve set (Ok v)
+                | exception e -> Eio.Promise.resolve set (Error e));
+            loop ()
+          in
+          loop ()));
+  { jobs = stream; stopped }
 
 (* Write the backend's GPU kernels into [shader_dir] and point the engine at
    them through the environment variables it reads when opening a model. This is
@@ -409,7 +438,10 @@ let generate engine ?(system = "You are a helpful assistant") ?(ctx_size = 4096)
   Fun.protect ~finally:(fun () ->
       run engine (fun () -> c_session_close session))
   @@ fun () ->
-  run engine (fun () -> c_session_sync session toks);
+  let run_generation f =
+    run_cancellable engine ~cancel:(fun () -> c_session_cancel session) f
+  in
+  run_generation (fun () -> c_session_sync session toks);
   (* Never let generation reach the context bound. *)
   let room =
     run engine (fun () -> c_session_ctx session)
@@ -419,6 +451,7 @@ let generate engine ?(system = "You are a helpful assistant") ?(ctx_size = 4096)
   let speculative = draft_tokens engine > 0 in
   let sampling = [| temperature; top_p; min_p |] in
   let rec loop n =
+    Eio.Fiber.check ();
     if n < budget then begin
       let tok =
         run engine (fun () -> c_session_sample session temperature top_p min_p)
@@ -428,10 +461,10 @@ let generate engine ?(system = "You are a helpful assistant") ?(ctx_size = 4096)
            call, so drafted tokens past a stop need no rewinding. *)
         let committed =
           if speculative then
-            run engine (fun () ->
+            run_generation (fun () ->
                 c_session_eval_speculative session tok (budget - n) sampling)
           else begin
-            run engine (fun () -> c_session_eval session tok);
+            run_generation (fun () -> c_session_eval session tok);
             [| tok |]
           end
         in
@@ -465,7 +498,10 @@ module Session = struct
   let tokenize engine text =
     run engine (fun () -> c_tokenize_rendered engine.raw text)
 
-  let sync t tokens = run t.eng (fun () -> c_session_sync t.s tokens)
+  let run_session t f =
+    run_cancellable t.eng ~cancel:(fun () -> c_session_cancel t.s) f
+
+  let sync t tokens = run_session t (fun () -> c_session_sync t.s tokens)
 
   let sample t ~temperature ~top_p ~min_p =
     run t.eng (fun () -> c_session_sample t.s temperature top_p min_p)
@@ -487,12 +523,12 @@ module Session = struct
   let set_directional_steering_ffn t scale =
     run t.eng (fun () -> c_session_set_directional_steering_ffn t.s scale)
 
-  let eval t token = run t.eng (fun () -> c_session_eval t.s token)
+  let eval t token = run_session t (fun () -> c_session_eval t.s token)
 
   let eval_speculative t token ~max ~temperature ~top_p ~min_p =
     if max < 1 then
       invalid_arg "V4.Session.eval_speculative: max must be positive";
-    run t.eng (fun () ->
+    run_session t (fun () ->
         c_session_eval_speculative t.s token max [| temperature; top_p; min_p |])
 
   let rewind t pos = run t.eng (fun () -> c_session_rewind t.s pos)
@@ -569,7 +605,7 @@ module Transcript = struct
     t.images <- Array.append t.images appended
 
   let sync session t =
-    run t.engine (fun () ->
+    Session.run_session session (fun () ->
         c_session_sync_multimodal session.Session.s (tokens t) t.images)
 
   let append_rendered t text =

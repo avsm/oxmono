@@ -180,6 +180,32 @@ let run env xdg model_path =
         (List.exists (fun (c : Agent.cut) -> c.tool_call) !cut));
   Agent.close starved;
 
+
+  let interrupted = Eio.Cancel.Cancelled Exit in
+  List.iter (fun failure ->
+    let source = mock_read () in
+    let tool = Tool.raw ~name:"read" ~description:(Tool.description source)
+      ~schema:(Tool.schema source) (fun _ -> raise failure) in
+    let agent = Agent.create engine ~temperature:0.0 ~max_tokens:512
+      ~system:"You MUST call the read tool to read secret.txt before answering."
+      ~tools:[tool] in
+    Fun.protect ~finally:(fun () -> Agent.close agent) (fun () ->
+      check "raw tool abort propagates through the agent loop"
+        (match Agent.send agent ~on_event:ignore "Read secret.txt using read." with
+         | exception exn -> exn == failure
+         | () -> false))) [Exit; interrupted];
+  let completion = Ds4.Completion.complete engine ~ctx_size:4096 ~max_tokens:64
+      [Dsml.system "Answer briefly."; Dsml.user "Say hello."] in
+  check "structured completion returns visible text"
+    (String.trim completion.message.content <> "");
+  let tool = mock_read () in
+  let schema = Dsml.Tool.v ~name:(Tool.name tool) ~description:(Tool.description tool)
+      ~parameters:(Tool.schema tool) () in
+  let completion = Ds4.Completion.complete engine ~ctx_size:4096 ~max_tokens:256
+      [Dsml.system ~tools:[schema] "You MUST call read to read secret.txt before answering.";
+       Dsml.user "Read secret.txt using read."] in
+  check "structured completion returns tools without executing them"
+    (completion.finish = Ds4.Completion.Tool_calls && completion.message.tool_calls <> []);
   if !failures = 0 then print_string "\nLive mock test passed.\n"
   else begin
     Printf.printf "\n%d check(s) failed.\n" !failures;

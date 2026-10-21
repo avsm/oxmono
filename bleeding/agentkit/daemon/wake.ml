@@ -169,6 +169,13 @@ let run ~cancel_on_stop ~clock ~store ~create ~config ~fault ~stop ~publish
            bytes = brief.Brief.bytes;
          });
     let agent = create ~system:brief.Brief.system in
+    let fault, exhausted, filling =
+    Fun.protect
+      ~finally:(fun () ->
+        Eio.Cancel.protect (fun () ->
+            Fun.protect ~finally:(fun () -> prefill (fun () -> (0, 0)))
+              (fun () -> Driver.close agent)))
+      (fun () ->
     job :=
       Some
         {
@@ -235,8 +242,8 @@ let run ~cancel_on_stop ~clock ~store ~create ~config ~fault ~stop ~publish
         append (Journal.Error { Journal.where = "brief"; what });
         append (Journal.Handover (Memory.version memory))
     | None -> handover agent);
-    Driver.close agent;
-    prefill (fun () -> (0, 0));
+    (fault, exhausted, filling))
+    in
     match (fault, exhausted) with
     | Some why, _ -> Faulted why
     | None, Some _ -> Finished
@@ -265,7 +272,9 @@ let run ~cancel_on_stop ~clock ~store ~create ~config ~fault ~stop ~publish
           session (n + 1)
         end
   in
-  let outcome = session 1 in
-  job := None;
-  publish None;
-  outcome
+  Fun.protect
+    ~finally:(fun () ->
+      Eio.Cancel.protect (fun () ->
+          job := None;
+          publish None))
+    (fun () -> session 1)

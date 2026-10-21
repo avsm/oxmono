@@ -33,7 +33,9 @@ module Agent : sig
       {!Agentkit.Agent.Tool.invoke}, reporting [Tool_call] then [Tool_result],
       and asks again until the model answers. After [max_rounds] model
       requests, 8 by default, it asks once more without tools. A reply stopped
-      by [max_tokens] reports [Cut_off]. *)
+      by [max_tokens] reports [Cut_off]. [cancel] interrupts the active request
+      and prevents further tools from running. [close] cancels before closing.
+      Completed tool results survive a cancelled or failed later request. *)
 end
 
 val models : Openrouter.t -> unit -> Agentkit.Driver.model list

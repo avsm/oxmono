@@ -221,3 +221,7 @@ update it, the FFI, and how to quantise a DeepSeek release yourself.
 - `spawn_worker` in `lib/v4.ml` runs engine jobs on the calling domain rather
   than through `Eio.Domain_manager`, because a stream captured by the worker
   domain is not portable under OxCaml. It is not upstream.
+
+`Ds4.Completion.complete` accepts structured `Dsml.message` histories and returns
+one reply with a stop reason and any tool calls. It never executes tools. Use
+`Ds4.Agent` for a persistent conversation with automatic tool execution.

@@ -1,5 +1,9 @@
 # unreleased
 
+- Run inference on a worker domain, drain cancelled native calls before reuse,
+  and propagate tool aborts. Compact at message boundaries only when smaller.
+- Add structured single completions that return tool calls without executing them.
+
 - Move to `bleeding/ds4` and update the engine to upstream `5379c1c9`.
   Prefer DeepSeek V4.1 Flash 1017 and point the Q2 aliases at its calibrated weights.
 

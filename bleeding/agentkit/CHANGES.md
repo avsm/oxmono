@@ -1,5 +1,10 @@
 # unreleased
 
+- Preserve DS4 chat roles and reasoning, return calls for host execution, and
+  reject unsupported images. Discard truncated calls before tool dispatch.
+- Cancel OpenRouter requests and tool rounds, report truncated calls correctly,
+  and release daemon sessions and published state on failures.
+
 - Add shared address search and reverse-geocoding tools using Nominatim,
   with marpe defaults, bounded results and explicit service errors.
 

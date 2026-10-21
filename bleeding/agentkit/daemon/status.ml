@@ -60,7 +60,9 @@ let jobs (t : t) = { j_job = t.job; j_tasks = t.tasks }
 
 (* A model path and a fault message are bytes this process did not choose, so
    every string is scrubbed on the way out for the reason the journal's is. *)
-let string = Jsont.map ~dec:Fun.id ~enc:Line.utf_8 Jsont.string
+(* Line.utf_8 uses only local buffers. Its stock-OCaml interface cannot express
+   the portability that Jsont requires in this OxCaml build. *)
+let string = Jsont.map ~dec:Fun.id ~enc:(Obj.magic_portable Line.utf_8) Jsont.string
 
 let job_jsont =
   Jsont.Object.map ~kind:"job"

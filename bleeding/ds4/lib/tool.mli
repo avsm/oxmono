@@ -41,7 +41,8 @@ val raw :
   name:string -> description:string -> schema:Dsml.Json.t ->
   (Dsml.tool_call -> string) -> t
 (** [raw] adapts a backend-independent tool with an existing JSON schema and
-    invocation handler. *)
+    invocation handler. Exceptions from the handler propagate through the agent
+    loop. Return error text for a recoverable tool failure. *)
 
 val v_result : description:string -> 'a Dsml.Codec.t -> ('a -> result) -> t
 (** [v_result ~description args handler] is like {!v}, but [handler] may add

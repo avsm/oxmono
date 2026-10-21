@@ -423,11 +423,93 @@ let test_images () =
   check "existing adapters retain sequential default"
     (contains {|"parallel_tool_calls":false|})
 
+
+let test_truncated_calls () =
+  List.iter (fun budget ->
+    let executed = ref 0 in
+    let complete, _ = script [
+      Chat.response ~finish:Chat.Length ~calls:[call "echo" "{}"] None;
+      Chat.response (Some "incomplete") ] in
+    ignore (Turn.run ~complete ~budget ~tools:[tool "echo"] ~guard:ok_guard
+      ~dispatch:(fun _ -> incr executed; Ok "executed") [Chat.User "go"]);
+    Alcotest.(check int) "truncated calls never execute" 0 !executed) [0; 2]
+
+let stream_client wires =
+  let wires = ref wires in
+  let fetch = Fetch_mock.client (fun req ->
+    let wire = List.hd !wires in wires := List.tl !wires;
+    Fetch.Middleware.Pi.response ~status:200 ~version:`HTTP_1_1
+      ~headers:(Http.Header.of_list [("Content-Type", "text/event-stream")])
+      ~body:(Eio.Flow.string_source wire) ~close:(fun () -> ())
+      ~url:req.Fetch.Middleware.url ()) in
+  Openrouter.of_fetch ~base_url:"https://example.test/v1" fetch
+
+let one_call =
+  delta {|{"tool_calls":[{"index":0,"id":"a","type":"function","function":{"name":"echo","arguments":"{}"}}]}|}
+
+let test_stream_cancel () =
+  let client = stream_client [sse [delta {|{"content":"starting"}|}; one_call;
+    delta ~finish:{|"tool_calls"|} "{}"]; answer] in
+  let executed = ref 0 in
+  let echo = Agentkit.Agent.Tool.with_invoke (tool "echo")
+    (fun _ -> incr executed; "executed") in
+  let agent = Agentkit_openrouter.Agent.create ~client ~model:"m" ~tools:[echo] () in
+  let cancelled =
+    try Agentkit_openrouter.Agent.send agent ~on_event:(function
+      | Agentkit.Agent.Content _ -> Agentkit_openrouter.Agent.cancel agent
+      | _ -> ()) "go"; false
+    with Eio.Cancel.Cancelled _ -> true
+  in
+  check "cancellation propagates" cancelled;
+  Alcotest.(check int) "cancel stops subsequent tools" 0 !executed;
+  Agentkit_openrouter.Agent.send agent ~on_event:ignore "retry"
+
+let test_stream_cut_call () =
+  let client = stream_client [sse [one_call; delta ~finish:{|"length"|} "{}"]] in
+  let executed = ref false and cut = ref false in
+  let echo = Agentkit.Agent.Tool.with_invoke (tool "echo")
+    (fun _ -> executed := true; "executed") in
+  let agent = Agentkit_openrouter.Agent.create ~client ~model:"m" ~tools:[echo] () in
+  Agentkit_openrouter.Agent.send agent ~on_event:(function
+    | Agentkit.Agent.Cut_off {tool_call = true; _} -> cut := true
+    | _ -> ()) "go";
+  check "cut tool is reported and not executed" (!cut && not !executed)
+
+
+let test_stream_round_limit () =
+  let wire = sse [one_call; delta ~finish:{|"tool_calls"|} "{}"] in
+  let client = stream_client [wire; wire] in
+  let executed = ref 0 in
+  let echo = Agentkit.Agent.Tool.with_invoke (tool "echo")
+    (fun _ -> incr executed; "executed") in
+  let agent = Agentkit_openrouter.Agent.create ~client ~model:"m"
+      ~tools:[echo] ~max_rounds:1 () in
+  (match Agentkit_openrouter.Agent.send agent ~on_event:ignore "go" with
+   | exception Failure _ -> ()
+   | () -> Alcotest.fail "provider ignored tools-disabled request");
+  Alcotest.(check int) "disabled calls never execute" 1 !executed
+
+let test_stream_cancel_wait () =
+  let started, start = Eio.Promise.create () in
+  let never, _ = Eio.Promise.create () in
+  let fetch = Fetch_mock.client (fun _ ->
+      Eio.Promise.resolve start ();
+      Eio.Promise.await never) in
+  let client = Openrouter.of_fetch ~base_url:"https://example.test/v1" fetch in
+  let agent = Agentkit_openrouter.Agent.create ~client ~model:"m" () in
+  let cancelled, () = Eio.Fiber.pair
+      (fun () ->
+        try Agentkit_openrouter.Agent.send agent ~on_event:ignore "go"; false
+        with Eio.Cancel.Cancelled _ -> true)
+      (fun () -> Eio.Promise.await started; Agentkit_openrouter.Agent.cancel agent) in
+  check "cancel interrupts a blocked request" cancelled
+
 let () =
   Alcotest.run "agentkit core"
     [
       ( "turn",
         [
+          ("truncated calls", `Quick, test_truncated_calls);
           ("answer", `Quick, test_answer);
           ("parallel calls", `Quick, test_parallel_calls);
           ("synthesis notice", `Quick, test_synthesis_notice);
@@ -448,6 +530,10 @@ let () =
         ] );
       ( "openrouter",
         [
+          ("cancel wait", `Quick, fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream_cancel_wait ()));
+          ("round limit", `Quick, fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream_round_limit ()));
+          ("cancel", `Quick, fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream_cancel ()));
+          ("cut call", `Quick, fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream_cut_call ()));
           ( "stream",
             `Quick,
             fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream ()) );

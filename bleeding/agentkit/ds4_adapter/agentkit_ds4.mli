@@ -17,24 +17,28 @@ val event : Ds4.Agent.event -> Agentkit.Agent.event
 val tools : Agentkit.Agent.Tool.t list -> Ds4.Tool.t list
 (** [tools] converts generic Agentkit tools to DS4's native tool protocol. *)
 
+val messages :
+  dialect:Dsml.dialect -> tools:Agentkit.Agent.Tool.t list ->
+  Agentkit.Chat.message list -> Dsml.message list
+(** [messages ~dialect ~tools history] preserves roles and tool associations,
+    advertises [tools], and neutralises control tokens in message text. Image
+    messages raise [Invalid_argument] unless their image list is empty. *)
+
 val transcript : Agentkit.Chat.message list -> string
-(** [transcript messages] renders the messages after a leading system message
-    as one prompt, labelling each with its role and each tool result with its
-    call id. Images are replaced by a note saying how many were omitted. *)
+(** [transcript messages] renders structured [messages] in the DeepSeek V4
+    protocol without tools or reasoning. *)
+
+val reasoning : string option -> Dsml.thinking_mode * Dsml.reasoning_effort option
+(** [reasoning effort] maps none, high or max to DS4's reasoning mode. Other
+    effort names raise [Invalid_argument]. *)
 
 val complete :
-  Ds4.V4.engine ->
-  ctx_size:int ->
-  ?max_tokens:int ->
-  unit ->
-  Agentkit.Chat.complete
-(** [complete engine ~ctx_size ()] answers each request with a fresh DS4
-    agent. The leading system message becomes its system prompt and the rest
-    its {!transcript}. DS4 runs the request's tools itself through
-    {!Agentkit.Agent.Tool.invoke}, so the response never has calls. Attach
-    execution with {!Agentkit.Turn.bind}. The agent replies without reasoning.
-    A reply stopped by the token ceiling finishes with [Length].
-    [max_tokens] is the default when a request does not set one. *)
+  Ds4.V4.engine -> ctx_size:int -> ?max_tokens:int -> unit -> Agentkit.Chat.complete
+(** [complete engine ~ctx_size ()] generates one structured completion.
+    Tool calls are returned for the caller to execute. [max_tokens] is the
+    default when the request does not set one. Reasoning accepts none, high or
+    max. Image messages are rejected. A truncated reply finishes with [Length]
+    and has no executable calls. *)
 
 module Agent : Agentkit.Agent.S with type t = Ds4.Agent.t
 (** A DS4 agent exposed through Agentkit's common operations. *)

@@ -157,7 +157,7 @@ let run ~complete ~tools ~guard ~dispatch ?(around = render)
     | exception exn when budget = 0 -> recover ~error:exn messages
     | (r : Chat.response) -> (
         let budget = budget - !native_calls in
-        let n = List.length r.calls in
+        let n = if r.finish = Some Chat.Length then 0 else List.length r.calls in
         if n > budget then begin
           on_event (Budget_exceeded { calls = n; budget });
           List.iter
@@ -168,12 +168,17 @@ let run ~complete ~tools ~guard ~dispatch ?(around = render)
             r.calls;
           raise Budget_exceeded
         end;
-        match r.calls with
-        | [] -> (
+        (* A length stop does not establish that any returned call finished. *)
+        match (r.finish, r.calls) with
+        | Some Chat.Length, _ -> (
             match finished r with
             | Some text -> text
             | None -> recover messages)
-        | calls ->
+        | _, [] -> (
+            match finished r with
+            | Some text -> text
+            | None -> recover messages)
+        | _, calls ->
             let results =
               (if max_parallel_calls = 1 then List.map
                else Eio.Fiber.List.map ~max_fibers:max_parallel_calls)

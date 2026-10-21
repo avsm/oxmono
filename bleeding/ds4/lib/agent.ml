@@ -123,6 +123,7 @@ type t = {
   mutable messages : Dsml.message list; (* oldest first; head is system *)
   mutable transcript : V4.Transcript.t;
   system_length : int; (* tokens up to the end of the system prompt *)
+  mutable boundaries : int list;
   mutable pending : int; (* the transcript's length before its open turn *)
   mutable next_call_id : int;
   mutable exchange : exchange; (* the current or most recent [send] *)
@@ -170,6 +171,8 @@ let append_assistant_prefix t transcript =
    it, which is where a compaction cuts. *)
 let open_turn t =
   t.pending <- V4.Transcript.length t.transcript;
+  if not (List.mem t.pending t.boundaries) then
+    t.boundaries <- t.pending :: t.boundaries;
   append_assistant_prefix t t.transcript
 
 let fits_context t candidate =
@@ -270,6 +273,7 @@ let create ?(system = "You are a helpful assistant.") ?(thinking = Dsml.Chat)
     tools;
     messages = [ Dsml.system ~tools:tool_objs system ];
     system_length = V4.Transcript.length transcript;
+    boundaries = [ V4.Transcript.length transcript ];
     pending = V4.Transcript.length transcript;
     transcript;
     next_call_id = 0;
@@ -653,7 +657,13 @@ let cut_point t ~upto ~before ~budget =
   let safe = ctx - budget - summary_overhead in
   let upper = max t.system_length (min upto safe) in
   let lower = max t.system_length (before - tail_budget) in
-  if lower <= upper then lower else upper
+  let target = min lower upper in
+  (* Boundaries follow complete messages, including both halves of a tool
+     exchange. Never splice a bare token suffix into a different role. *)
+  List.fold_left
+    (fun best boundary ->
+      if boundary <= target && boundary > best then boundary else best)
+    t.system_length t.boundaries
 
 (* Replace the conversation before [cut_point]'s cut with a summary, keeping
    whatever follows it, [upto] included, as it is. Returns false, changing
@@ -690,6 +700,8 @@ let compact t ~upto ~on_event =
           let base = V4.Transcript.length rebuilt in
           V4.Transcript.append_tokens rebuilt
             (Array.sub tokens off (before - off));
+          if V4.Transcript.length rebuilt >= before then false
+          else begin
           (* The conversation before the summary is gone, and nothing
              outside this module reads [messages], so it is rebuilt bare.
              Where [off] reaches into [t.pending] (always true when [upto] is
@@ -701,11 +713,18 @@ let compact t ~upto ~on_event =
               List.hd t.messages;
               Dsml.user (summary_intro ^ summary ^ summary_outro);
             ];
+          t.boundaries <-
+            t.system_length :: base
+            :: List.filter_map
+                 (fun boundary ->
+                   if boundary > off then Some (base + boundary - off) else None)
+                 t.boundaries;
           t.pending <- base + max 0 (t.pending - off);
           t.transcript <- rebuilt;
           on_event
             (Compacted { before; after = V4.Transcript.length rebuilt; summary });
           true
+          end
 
 (* What the model is told when the ceiling cut its call in half. It cannot see
    the ceiling, and an exchange that ended here would report work as finished
@@ -738,6 +757,7 @@ let send t ~on_event prompt =
   (* A failed turn would otherwise leave a user message the model never
      answered, and one that overran the context would overrun it again on every
      later turn. Restoring the conversation keeps the session usable. *)
+  let committed_boundaries = ref t.boundaries in
   let committed_messages = ref t.messages in
   let committed_transcript = ref (V4.Transcript.copy t.transcript) in
   t.messages <- t.messages @ [ Dsml.user prompt ];
@@ -786,12 +806,7 @@ let send t ~on_event prompt =
                 match
                   List.find_opt (fun tl -> Tool.name tl = tc.name) t.tools
                 with
-                | Some tl -> (
-                    match Tool.invoke_result tl tc with
-                    | result -> result
-                    | exception e ->
-                        Tool.text ("Error: tool failed: " ^ Printexc.to_string e)
-                    )
+                | Some tl -> Tool.invoke_result tl tc
                 | None -> Tool.text ("Error: unknown tool " ^ tc.name)
               in
               t.exchange.tool_calls <- t.exchange.tool_calls + 1;
@@ -825,7 +840,8 @@ let send t ~on_event prompt =
              (fits_context t (Dsml.neutralise_specials ~dialect:t.dialect full)))
           && compact t ~upto:(V4.Transcript.length t.transcript) ~on_event
         then begin
-          committed_messages := t.messages;
+          committed_boundaries := t.boundaries;
+        committed_messages := t.messages;
           committed_transcript := V4.Transcript.copy t.transcript
         end;
         let stored = fit_tool_result t full in
@@ -850,6 +866,7 @@ let send t ~on_event prompt =
             ~text_parts:(List.rev (!remaining :: !parts))
             ~images
         end;
+        committed_boundaries := t.boundaries;
         committed_messages := t.messages;
         committed_transcript := V4.Transcript.copy t.transcript;
         open_turn t;
@@ -870,7 +887,8 @@ let send t ~on_event prompt =
              the rebuilt transcript and moves [t.pending] to sit just before
              it, so the turn is not reopened here: doing so would append a
              second prefix after the one already there. *)
-          committed_messages := t.messages;
+          committed_boundaries := t.boundaries;
+        committed_messages := t.messages;
           committed_transcript := V4.Transcript.copy t.transcript;
           attempt ~squeeze:false ~compacted:true ()
       (* The context is at its ceiling and the prompt still fits. Generate in
@@ -881,6 +899,7 @@ let send t ~on_event prompt =
   in
   try attempt ~squeeze:false ~compacted:false ()
   with e ->
+    t.boundaries <- !committed_boundaries;
     t.messages <- !committed_messages;
     t.transcript <- !committed_transcript;
     V4.Session.clear_cancel t.session;

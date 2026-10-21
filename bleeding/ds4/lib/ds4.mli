@@ -32,3 +32,6 @@ module Toolbox = Toolbox
 
 module Camel = Camel
 (** A camel that says things, for presenting a model's replies. *)
+
+module Completion = Completion
+(** Structured single completions with caller-managed tool execution. *)

@@ -17,4 +17,4 @@
  (libraries eio optint unix logs ds4.dsml)
  (virtual_modules backend)
  (default_implementation ds4_cpu)
- (modules ds4 v4 agent tool toolbox camel backend))
+ (modules ds4 v4 agent completion tool toolbox camel backend))

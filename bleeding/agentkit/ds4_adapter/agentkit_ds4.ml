@@ -30,7 +30,7 @@ let event : Ds4.Agent.event -> Agentkit.Agent.event = function
   | Content text -> Agentkit.Agent.Content text
   | Tool_call call ->
       Agentkit.Agent.Tool_call
-        { id = ""; name = call.Dsml.name; arguments = call.Dsml.arguments }
+        { id = Option.value call.Dsml.id ~default:""; name = call.name; arguments = call.arguments }
   | Tool_result (name, output) -> Agentkit.Agent.Tool_result (name, output)
   | Stats value -> Agentkit.Agent.Stats (stats value)
   | Expanded tokens -> Agentkit.Agent.Expanded tokens
@@ -56,47 +56,78 @@ let tools generic =
             }))
     generic
 
-let transcript messages =
-  let messages =
-    match messages with Agentkit.Chat.System _ :: rest -> rest | m -> m
+let messages ~dialect ~tools history =
+  let neutralise = Dsml.neutralise_specials ~dialect in
+  let tools =
+    List.map
+      (fun tool ->
+        Dsml.Tool.v ~name:(Agentkit.Agent.Tool.name tool)
+          ~description:(Agentkit.Agent.Tool.description tool)
+          ~parameters:(Agentkit.Agent.Tool.parameters tool) ())
+      tools
   in
-  List.map
-    (function
-      | Agentkit.Chat.System s -> "System: " ^ s
-      | User s -> "User: " ^ s
-      | User_images { text; images } ->
-          Printf.sprintf "User: %s\n[%d image(s) omitted: DS4 reads text only]"
-            text (List.length images)
-      | Assistant { text; calls } ->
-          "Assistant: " ^ text
-          ^ String.concat ""
-              (List.map
-                 (fun (c : Agentkit.Agent.tool_call) ->
-                   "\n[called " ^ c.name ^ " " ^ c.arguments ^ "]")
-                 calls)
-      | Tool_result { id; content } -> "Tool result " ^ id ^ ": " ^ content)
-    messages
-  |> String.concat "\n\n"
+  let system, history =
+    match history with
+    | Agentkit.Chat.System text :: rest -> (text, rest)
+    | history -> ("", history)
+  in
+  Dsml.system ~tools (neutralise system)
+  :: List.map
+       (function
+         | Agentkit.Chat.System text -> Dsml.system (neutralise text)
+         | User text -> Dsml.user (neutralise text)
+         | User_images { text; images = [] } -> Dsml.user (neutralise text)
+         | User_images _ ->
+             invalid_arg "Agentkit_ds4.complete: image messages are not supported"
+         | Assistant { text; calls } ->
+             let tool_calls =
+               List.map
+                 (fun (call : Agentkit.Agent.tool_call) ->
+                   Dsml.tool_call ~id:call.id ~name:call.name
+                     ~arguments:(neutralise call.arguments) ())
+                 calls
+             in
+             Dsml.assistant ~content:(neutralise text) ~tool_calls ()
+         | Tool_result { id; content } -> Dsml.tool ~id (neutralise content))
+       history
 
-let complete engine ~ctx_size ?max_tokens () (r : Agentkit.Chat.request) =
+let transcript history =
+  Dsml.encode_messages Dsml.Chat
+    (messages ~dialect:Dsml.Deepseek ~tools:[] history)
+
+let reasoning = function
+  | None | Some "none" -> (Dsml.Chat, None)
+  | Some "high" -> (Dsml.Thinking, Some Dsml.High)
+  | Some "max" -> (Dsml.Thinking, Some Dsml.Max)
+  | Some _ ->
+      invalid_arg "Agentkit_ds4.complete: reasoning must be none, high or max"
+
+let complete engine ~ctx_size ?max_tokens () =
+  let next_id = Atomic.make 0 in
+  fun (r : Agentkit.Chat.request) ->
   let max_tokens =
     match r.max_tokens with Some _ as n -> n | None -> max_tokens
   in
-  let agent =
-    Ds4.Agent.create ?system:(Agentkit.Chat.system_text r.messages) ~ctx_size
-      ?max_tokens ~tools:(tools r.tools) engine
+  let thinking, reasoning_effort = reasoning r.reasoning in
+  let history = messages ~dialect:(Ds4.Completion.dialect engine) ~tools:r.tools r.messages in
+  let response =
+    Ds4.Completion.complete engine ~ctx_size ?max_tokens ~thinking
+      ?reasoning_effort history
   in
-  let output = Buffer.create 256 and cut = ref false in
-  Fun.protect
-    ~finally:(fun () -> Ds4.Agent.close agent)
-    (fun () ->
-      Ds4.Agent.send agent (transcript r.messages) ~on_event:(function
-        | Ds4.Agent.Content text -> Buffer.add_string output text
-        | Ds4.Agent.Cut_off { tool_call = false; _ } -> cut := true
-        | _ -> ()));
-  Agentkit.Chat.response
-    ~finish:(if !cut then Agentkit.Chat.Length else Agentkit.Chat.Stop)
-    (if Buffer.length output = 0 then None else Some (Buffer.contents output))
+  let calls =
+    List.map
+      (fun (call : Dsml.tool_call) ->
+        { Agentkit.Agent.id = "ds4-call-" ^ string_of_int (Atomic.fetch_and_add next_id 1);
+          name = call.name; arguments = call.arguments })
+      response.message.tool_calls
+  in
+  let finish = match response.finish with
+    | Ds4.Completion.Stop -> Agentkit.Chat.Stop
+    | Length -> Agentkit.Chat.Length
+    | Tool_calls -> Agentkit.Chat.Tool_calls
+  in
+  Agentkit.Chat.response ~calls ~finish
+    (if response.message.content = "" then None else Some response.message.content)
 
 module Agent = struct
   type t = Ds4.Agent.t

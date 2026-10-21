@@ -1,0 +1,13 @@
+(copy_files ../../daemon/brief.ml)
+(copy_files ../../daemon/brief.mli)
+(copy_files ../../daemon/store.ml)
+(copy_files ../../daemon/store.mli)
+(copy_files ../../daemon/status.ml)
+(copy_files ../../daemon/status.mli)
+(copy_files ../../daemon/wake.ml)
+(copy_files ../../daemon/wake.mli)
+
+(test
+ (name test_wake)
+ (modules test_wake brief store status wake)
+ (libraries agentkit ds4 ds4.dsml eio eio.unix eio_main xdge jsont jsont.bytesrw logs unix))

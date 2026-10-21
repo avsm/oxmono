@@ -312,14 +312,6 @@
       "scope": "OCaml and C library sources with retained OxCaml patches and Dune build integration. The upstream Makefile is omitted; the imported configure script still supplies C flags."
     },
     {
-      "name": "ocaml-ds4",
-      "url": "https://tangled.org/anil.recoil.org/ocaml-ds4",
-      "branch": "HEAD",
-      "revision": "b19ad8460f0a80b913f441157c07d4ade4dd6f87",
-      "base_version": "0.1.0-188-gb19ad84",
-      "scope": "Complete DS4 OCaml binding and native engine sources, excluding upstream build artifacts."
-    },
-    {
       "name": "ocaml-apple-fm",
       "url": "https://tangled.org/anil.recoil.org/ocaml-apple-fm",
       "branch": "HEAD",

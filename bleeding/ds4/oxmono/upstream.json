@@ -1,0 +1,8 @@
+{
+  "name": "ocaml-ds4",
+  "url": "https://tangled.org/anil.recoil.org/ocaml-ds4",
+  "branch": "HEAD",
+  "revision": "b19ad8460f0a80b913f441157c07d4ade4dd6f87",
+  "base_version": "0.1.0-188-gb19ad84",
+  "scope": "Complete DS4 OCaml binding and native engine sources, excluding upstream build artifacts."
+}

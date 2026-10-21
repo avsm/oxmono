@@ -29,6 +29,7 @@
   ../csrc/ds4_gpu.h
   ../csrc/ds4_gpu_mgpu.h
   ../csrc/ds4_gpu_tp.h
+  ../csrc/ds4_deepseek41_dspark.h
   ../csrc/ds4_deepseek41_gpu.h
   ../csrc/ds4_engram.h
   ../csrc/ds4_linux_memory.h
@@ -110,6 +111,7 @@
   ../csrc/ds4_tp.h
   ../csrc/ds4.h
   ../csrc/ds4_gpu.h
+  ../csrc/ds4_deepseek41_dspark.h
   ../csrc/ds4_deepseek41_gpu.h
   ../csrc/ds4_gpu_tp.h
   ../config/core_cflags)

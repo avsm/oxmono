@@ -58,8 +58,10 @@
   ../csrc/ds4_ssd.h
   ../csrc/ds4_distributed.h
   ../csrc/ds4_gpu.h
+  ../csrc/ds4_gpu_copy.h
   ../csrc/ds4_gpu_mgpu.h
   ../csrc/ds4_gpu_tp.h
+  ../csrc/ds4_deepseek41_dspark.h
   ../csrc/ds4_deepseek41_gpu.h
   ../csrc/ds4_engram.h
   ../csrc/ds4_linux_memory.h
@@ -156,6 +158,7 @@
   ../csrc/ds4_tp.h
   ../csrc/ds4.h
   ../csrc/ds4_gpu.h
+  ../csrc/ds4_deepseek41_dspark.h
   ../csrc/ds4_deepseek41_gpu.h
   ../csrc/ds4_gpu_tp.h
   ../config/core_cflags)
@@ -218,6 +221,7 @@
  (deps
   ../csrc/ds4_cuda.cu
   ../csrc/ds4_gpu.h
+  ../csrc/ds4_gpu_copy.h
   ../csrc/ds4_gpu_mgpu.h
   ../csrc/ds4_iq2_tables_cuda.inc
   ../csrc/ds4_glm53_vision_gpu.cuh
@@ -225,6 +229,7 @@
   ../csrc/ds4_deepseek41_cuda.cuh
   ../csrc/ds4_qwen4_cuda.cuh
   ../csrc/ds4_qwen4_vision.h
+  ../csrc/ds4_deepseek41_dspark.h
   ../csrc/ds4_deepseek41_gpu.h
   ../csrc/ds4_gpu_tp.h
   ../csrc/ds4_linux_memory.h

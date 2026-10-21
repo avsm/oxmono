@@ -27,6 +27,16 @@ let qwen_vision_repo = "ggml-org/Qwen3.8-Flash-Next-GGUF"
    older build stays reachable under its own version. *)
 let all =
   [
+    {
+      name = "ds41-q2-1017";
+      aliases = [ "ds41-q2"; "v41-q2"; "ds41f-q2" ];
+      repo = deepseek41_repo;
+      files = [ "DeepSeek-V4.1-Flash-1017-IQ2_XXS-Q2_K-imatrix.gguf" ];
+      parts = [];
+      descr =
+        "V4.1 Flash 1017 2-bit, 341 GB on disk, 152 GB resident. For 256 GB.";
+      deprecated = false;
+    };
     (* DeepSeek V4.1 Flash is a model of its own rather than a Flash rebuild,
        and its Engram tables stay on disk. The Q4 is published in two parts
        that are joined into one file. *)
@@ -44,13 +54,15 @@ let all =
       deprecated = false;
     };
     {
-      name = "ds41-q2";
-      aliases = [ "v41-q2" ];
+      name = "ds41-q2-original";
+      aliases = [];
       repo = deepseek41_repo;
       files = [ "DeepSeek-V4.1-Flash-Q2.gguf" ];
       parts = [];
-      descr = "V4.1 Flash 2-bit, 341 GB on disk, 152 GB resident. For 256 GB.";
-      deprecated = false;
+      descr =
+        "V4.1 Flash original 2-bit, 341 GB on disk, 152 GB resident. For 256 \
+         GB.";
+      deprecated = true;
     };
     {
       name = "q2-imatrix-0731";
@@ -346,10 +358,11 @@ let download_command =
    than by quality. *)
 let preferred =
   [
+    "ds41-q2-1017";
     "ds41-q4";
     "q4-imatrix-0731";
     "mxfp4-0731";
-    "ds41-q2";
+    "ds41-q2-original";
     "q2-q4-imatrix-0731";
     "q2-imatrix-0731";
   ]
@@ -521,8 +534,8 @@ let arg =
         ~doc:
           "The model to use, given as a download target, an alias such as \
            '0731', or the path of a .gguf file. When omitted, DS4_MODEL is \
-           used, then the best downloaded DeepSeek V4.1 or V4 0731 model, then \
-           the first .gguf in the data directory.")
+           used, then downloaded DeepSeek V4.1 Flash 1017, older preferred \
+           models, then the first .gguf in the data directory.")
 
 let target_arg =
   let enum_assoc =

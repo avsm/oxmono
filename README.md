@@ -124,3 +124,6 @@ OxCaml adaptations. The [ox plan](docs/ox-plan.md) describes the workspace roadm
 The [ox runner](avsm/ox/README.md) builds and runs committed monorepo packages from opam
 metadata, with generated snapshot versions and local day10 layers. It builds
 the OxCaml toolchain from source without invoking opam or creating switches.
+
+The [DS4 bindings](bleeding/ds4/README.md) provide local DeepSeek, GLM and Qwen
+inference, with DeepSeek V4.1 Flash 1017 preferred when downloaded.

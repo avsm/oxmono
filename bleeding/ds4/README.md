@@ -42,7 +42,7 @@ at full speed, so size the card to the model or use `ds4-agent-cpu`.
 
     dune build
     dune exec -- ds4-agent-metal list                  # what models exist
-    dune exec -- ds4-agent-metal download q4           # fetch one
+    dune exec -- ds4-agent-metal download ds41-q2     # fetch Flash 1017
     dune exec -- ds4-agent-metal chat "Explain monads in one sentence."
     dune exec -- ds4-agent-metal agent -d ./workspace "Summarise README.md"
 
@@ -50,7 +50,11 @@ Run `ds4-agent-metal <command> --help` for the options of each.
 
 ## Choosing a model
 
-For DeepSeek, use the 0731 build of Flash, DeepSeek's 2026-07-31 retrain. Pick
+DeepSeek V4.1 Flash 1017 is the preferred downloaded model. Fetch it with
+`ds4-agent-metal download ds41-q2`. Explicit `--model` and `DS4_MODEL`
+settings take precedence. Older downloaded models remain fallbacks.
+
+For smaller machines, the V4 Flash 0731 build remains available. Pick
 the largest quantisation your machine has memory for.
 
 | Memory     | Alias  | Target               | Size    |
@@ -63,10 +67,10 @@ DeepSeek V4.1 Flash is newer and larger. Its Engram tables stay on disk and are
 read as needed, so it uses less memory than its size on disk. It runs on Metal
 only.
 
-| Memory     | Alias    | Target    | On disk | Resident |
-| ---------- | -------- | --------- | ------- | -------- |
-| 512 GB     | `v41-q4` | `ds41-q4` | 483 GB  | 294 GB   |
-| 256 GB     | `v41-q2` | `ds41-q2` | 341 GB  | 152 GB   |
+| Memory | Alias    | Target         | On disk | Resident |
+| ------ | -------- | -------------- | ------- | -------- |
+| 512 GB | `v41-q4` | `ds41-q4`      | 483 GB  | 294 GB   |
+| 256 GB | `v41-q2` | `ds41-q2-1017` | 341 GB  | 152 GB   |
 
 The Q4 is published in two parts, which `download` fetches and joins into one
 file. Joining needs another 37 GB free.

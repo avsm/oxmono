@@ -72,3 +72,8 @@
  (name cpu_smoke)
  (libraries ds4 ds4.cpu)
  (modules cpu_smoke))
+
+(test
+ (name test_model)
+ (libraries ds4.cli unix)
+ (modules test_model))

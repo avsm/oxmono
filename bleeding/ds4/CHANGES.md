@@ -1,5 +1,8 @@
 # unreleased
 
+- Move to `bleeding/ds4` and update the engine to upstream `5379c1c9`.
+  Prefer DeepSeek V4.1 Flash 1017 and point the Q2 aliases at its calibrated weights.
+
 - Let `ds4.metal` link on non-macOS platforms and raise when the engine is used.
 
 - Tool codecs gain composable objects, bounded arrays, optional parameters, and

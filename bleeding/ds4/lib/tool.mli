@@ -38,8 +38,11 @@ val v : description:string -> 'a Dsml.Codec.t -> ('a -> string) -> t
     cancellation, [Out_of_memory], and [Stack_overflow] are re-raised. *)
 
 val raw :
-  name:string -> description:string -> schema:Dsml.Json.t ->
-  (Dsml.tool_call -> string) -> t
+  name:string ->
+  description:string ->
+  schema:Dsml.Json.t ->
+  (Dsml.tool_call -> string) ->
+  t
 (** [raw] adapts a backend-independent tool with an existing JSON schema and
     invocation handler. Exceptions from the handler propagate through the agent
     loop. Return error text for a recoverable tool failure. *)

@@ -11,5 +11,4 @@ module Agent = Agent
 module Tool = Tool
 module Toolbox = Toolbox
 module Camel = Camel
-
 module Completion = Completion

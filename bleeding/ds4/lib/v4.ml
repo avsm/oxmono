@@ -172,18 +172,19 @@ let run engine f =
 let run_cancellable engine ~cancel f =
   match engine.worker with
   | None -> f ()
-  | Some worker ->
+  | Some worker -> (
       let result, set = Eio.Promise.create () in
       Eio.Cancel.protect (fun () ->
-          while_worker worker (fun () -> Eio.Stream.add worker.jobs (Job (f, set))));
+          while_worker worker (fun () ->
+              Eio.Stream.add worker.jobs (Job (f, set))));
       let result =
-        try Eio.Promise.await result with
-        | Eio.Cancel.Cancelled _ as exn ->
-            cancel ();
-            Eio.Cancel.protect (fun () -> ignore (Eio.Promise.await result));
-            raise exn
+        try Eio.Promise.await result
+        with Eio.Cancel.Cancelled _ as exn ->
+          cancel ();
+          Eio.Cancel.protect (fun () -> ignore (Eio.Promise.await result));
+          raise exn
       in
-      match result with Ok value -> value | Error exn -> raise exn
+      match result with Ok value -> value | Error exn -> raise exn)
 
 (* Run the engine's job loop on a new domain. It is a daemon fiber, so closing
    the switch cancels both the loop and its domain. One call to

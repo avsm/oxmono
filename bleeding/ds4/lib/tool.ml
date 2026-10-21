@@ -44,7 +44,7 @@ let v ~description codec handler =
 
 let raw ~name ~description ~schema handler =
   if name = "" then invalid_arg "Ds4.Tool.raw: empty name";
-  { name; description; schema; invoke = fun call -> text (handler call) }
+  { name; description; schema; invoke = (fun call -> text (handler call)) }
 
 let name t = t.name
 let description t = t.description

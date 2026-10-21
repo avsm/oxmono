@@ -1,5 +1,4 @@
 type finish = Stop | Length | Tool_calls
-
 type t = { message : Dsml.parsed_message; finish : finish }
 
 let dialect engine =
@@ -11,7 +10,8 @@ let dialect engine =
 
 let complete engine ~ctx_size ?(max_tokens = 2048) ?(thinking = Dsml.Chat)
     ?reasoning_effort messages =
-  if max_tokens < 1 then invalid_arg "Completion.complete: nonpositive max_tokens";
+  if max_tokens < 1 then
+    invalid_arg "Completion.complete: nonpositive max_tokens";
   if messages = [] then invalid_arg "Completion.complete: empty transcript";
   let dialect = dialect engine in
   let reasoning_effort =
@@ -24,13 +24,16 @@ let complete engine ~ctx_size ?(max_tokens = 2048) ?(thinking = Dsml.Chat)
     |> V4.Session.tokenize engine
   in
   if Array.length tokens >= ctx_size then
-    raise (Agent.Context_exhausted { needed = Array.length tokens; ctx = ctx_size });
+    raise
+      (Agent.Context_exhausted { needed = Array.length tokens; ctx = ctx_size });
   let session = V4.Session.create engine ~ctx_size ~seed:0x2545F4914F6CDD1DL in
   Fun.protect
     ~finally:(fun () -> Eio.Cancel.protect (fun () -> V4.Session.close session))
     (fun () ->
       V4.Session.sync session tokens;
-      let budget = min max_tokens (V4.Session.ctx session - V4.Session.pos session - 1) in
+      let budget =
+        min max_tokens (V4.Session.ctx session - V4.Session.pos session - 1)
+      in
       let decoder = Dsml.Stream.create ~dialect thinking in
       let content = Buffer.create 256 and reasoning = Buffer.create 256 in
       let calls = ref [] in
@@ -38,7 +41,8 @@ let complete engine ~ctx_size ?(max_tokens = 2048) ?(thinking = Dsml.Chat)
         | Dsml.Stream.Content text -> Buffer.add_string content text
         | Dsml.Stream.Reasoning text -> Buffer.add_string reasoning text
         | Dsml.Stream.Tool_call call -> calls := call :: !calls
-        | Dsml.Stream.Tool_error { message; _ } -> raise (Dsml.Parse_error message)
+        | Dsml.Stream.Tool_error { message; _ } ->
+            raise (Dsml.Parse_error message)
         | Dsml.Stream.Done -> ()
       in
       let rec loop n =
@@ -56,7 +60,8 @@ let complete engine ~ctx_size ?(max_tokens = 2048) ?(thinking = Dsml.Chat)
           if V4.token_is_stop engine token then Stop
           else begin
             V4.Session.eval session token;
-            Dsml.Stream.feed decoder (V4.token_text engine token) |> List.iter consume;
+            Dsml.Stream.feed decoder (V4.token_text engine token)
+            |> List.iter consume;
             loop (n + 1)
           end
       in
@@ -66,10 +71,11 @@ let complete engine ~ctx_size ?(max_tokens = 2048) ?(thinking = Dsml.Chat)
       if finish <> Length || not (Dsml.Stream.in_tool_call decoder) then
         List.iter consume (Dsml.Stream.finish decoder);
       {
-        message = {
-          Dsml.content = Buffer.contents content;
-          reasoning_content = Buffer.contents reasoning;
-          tool_calls = if finish = Length then [] else List.rev !calls;
-        };
+        message =
+          {
+            Dsml.content = Buffer.contents content;
+            reasoning_content = Buffer.contents reasoning;
+            tool_calls = (if finish = Length then [] else List.rev !calls);
+          };
         finish;
       })

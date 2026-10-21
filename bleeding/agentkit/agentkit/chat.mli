@@ -12,7 +12,6 @@
     a {!complete} function for that. *)
 
 type image_format = Png | Jpeg | Webp | Gif
-
 type image = { format : image_format; data : string  (** the encoded file *) }
 
 val image_of_string : string -> image option
@@ -26,8 +25,8 @@ type message =
       (** a user message with images, for a model that accepts them *)
   | Assistant of { text : string; calls : Agent.tool_call list }
   | Tool_result of { id : string; content : string }
-      (** the result of the call with that [id], following its assistant
-          message *)
+      (** the result of the call with that [id], following its assistant message
+      *)
 
 type finish =
   | Stop  (** the model ended its reply *)

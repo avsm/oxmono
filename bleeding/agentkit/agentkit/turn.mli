@@ -60,21 +60,20 @@ val run :
     The default renders [Error e] as ["Error: " ^ e]. Results are clipped to
     [max_result_bytes], 32768 by default.
 
-    [max_request_bytes] bounds {!Chat.text_bytes} for every model request.
-    An oversized request raises [Context_exceeded] before inference. During
-    the final tool-free answer request, this is handled by the same retry and
+    [max_request_bytes] bounds {!Chat.text_bytes} for every model request. An
+    oversized request raises [Context_exceeded] before inference. During the
+    final tool-free answer request, this is handled by the same retry and
     fallback as other completion failures.
 
     [budget] is the number of calls allowed, 6 by default. Asking for more than
     remain runs [around] on each with an error and raises {!Budget_exceeded}.
-    [max_parallel_calls] bounds concurrent returned calls, 1 by default.
-    Results retain the model's call order. Dispatch and audit callbacks must
-    support concurrent fibers when this is greater than 1. Native adapter
-    calls follow the adapter's scheduling.
-    When the allowance is spent the answer request has no tools. Its
-    instruction is added to the system prompt and repeated as a final user
-    message, because a model part way through a tool plan ignores a distant
-    system message and answers with nothing.
+    [max_parallel_calls] bounds concurrent returned calls, 1 by default. Results
+    retain the model's call order. Dispatch and audit callbacks must support
+    concurrent fibers when this is greater than 1. Native adapter calls follow
+    the adapter's scheduling. When the allowance is spent the answer request has
+    no tools. Its instruction is added to the system prompt and repeated as a
+    final user message, because a model part way through a tool plan ignores a
+    distant system message and answers with nothing.
 
     [check] runs before every request and call and may raise to abort, for
     example when the requester loses access. Transport failures raise, except

@@ -170,79 +170,81 @@ let run ~cancel_on_stop ~clock ~store ~create ~config ~fault ~stop ~publish
          });
     let agent = create ~system:brief.Brief.system in
     let fault, exhausted, filling =
-    Fun.protect
-      ~finally:(fun () ->
-        Eio.Cancel.protect (fun () ->
-            Fun.protect ~finally:(fun () -> prefill (fun () -> (0, 0)))
-              (fun () -> Driver.close agent)))
-      (fun () ->
-    job :=
-      Some
-        {
-          Status.task;
-          started;
-          session = n;
-          ctx_used = !ctx_used;
-          ctx_size = config.ctx_size;
-          turns = !turns;
-          tool_calls = !calls;
-          tool = None;
-          prefilled = 0;
-          prefill_total = 0;
-        };
-    publish !job;
-    (* The one live call the control fiber may make. It reads two atomics the
+      Fun.protect
+        ~finally:(fun () ->
+          Eio.Cancel.protect (fun () ->
+              Fun.protect
+                ~finally:(fun () -> prefill (fun () -> (0, 0)))
+                (fun () -> Driver.close agent)))
+        (fun () ->
+          job :=
+            Some
+              {
+                Status.task;
+                started;
+                session = n;
+                ctx_used = !ctx_used;
+                ctx_size = config.ctx_size;
+                turns = !turns;
+                tool_calls = !calls;
+                tool = None;
+                prefilled = 0;
+                prefill_total = 0;
+              };
+          publish !job;
+          (* The one live call the control fiber may make. It reads two atomics the
        engine's progress hook writes and does not wait for the engine, which is
        what lets a status answered during a four minute prefill say how far it
        has got. *)
-    prefill (fun () -> Driver.prefill_progress agent);
-    (* A wake-up that could not do its work still hands over, so the failure
+          prefill (fun () -> Driver.prefill_progress agent);
+          (* A wake-up that could not do its work still hands over, so the failure
        is carried rather than raised: the memory writes it did make and the
        record of why it stopped are worth more than the exception. *)
-    let exhausted =
-      match send agent brief.Brief.user with
-      | () -> None
-      | exception Agent.Context_exhausted { needed; ctx } ->
-          Some
-            (Printf.sprintf
-               "the brief needed %d tokens in a context of %d, so this wake-up \
-                did nothing. Memory has grown past what a context holds."
-               needed ctx)
-      | exception Agent.Tool_call_cut_off { tokens; attempts } ->
-          Some
-            (Printf.sprintf
-               "the model could not write a tool call inside its %d token \
-                reply, on %d turns running, so nothing those turns asked for \
-                was done. The work wants smaller steps."
-               tokens attempts)
-      | exception Agent.Empty_reply { attempts } ->
-          Some
-            (Printf.sprintf
-               "the model ended %d turns without a reply or a tool call, so \
-                this wake-up stopped. The work wants a smaller step."
-               attempts)
-      | exception Agent.Malformed_tool_call { message; attempts } ->
-          Some
-            (Printf.sprintf
-               "the model wrote malformed tool syntax on %d turns, so this \
-                wake-up stopped: %s"
-               attempts message)
-      | exception Stop_requested -> None
-    in
-    (* The turn boundary. Everything decided here is decided once the turn and
+          let exhausted =
+            match send agent brief.Brief.user with
+            | () -> None
+            | exception Agent.Context_exhausted { needed; ctx } ->
+                Some
+                  (Printf.sprintf
+                     "the brief needed %d tokens in a context of %d, so this \
+                      wake-up did nothing. Memory has grown past what a \
+                      context holds."
+                     needed ctx)
+            | exception Agent.Tool_call_cut_off { tokens; attempts } ->
+                Some
+                  (Printf.sprintf
+                     "the model could not write a tool call inside its %d \
+                      token reply, on %d turns running, so nothing those turns \
+                      asked for was done. The work wants smaller steps."
+                     tokens attempts)
+            | exception Agent.Empty_reply { attempts } ->
+                Some
+                  (Printf.sprintf
+                     "the model ended %d turns without a reply or a tool call, \
+                      so this wake-up stopped. The work wants a smaller step."
+                     attempts)
+            | exception Agent.Malformed_tool_call { message; attempts } ->
+                Some
+                  (Printf.sprintf
+                     "the model wrote malformed tool syntax on %d turns, so \
+                      this wake-up stopped: %s"
+                     attempts message)
+            | exception Stop_requested -> None
+          in
+          (* The turn boundary. Everything decided here is decided once the turn and
        its tool calls are over, since that is the granularity [Agent.send]
        works at. *)
-    let fault = fault () in
-    let filling =
-      float_of_int !ctx_used
-      >= config.handover_at *. float_of_int config.max_ctx_size
-    in
-    (match exhausted with
-    | Some what ->
-        append (Journal.Error { Journal.where = "brief"; what });
-        append (Journal.Handover (Memory.version memory))
-    | None -> handover agent);
-    (fault, exhausted, filling))
+          let fault = fault () in
+          let filling =
+            float_of_int !ctx_used
+            >= config.handover_at *. float_of_int config.max_ctx_size
+          in
+          (match exhausted with
+          | Some what ->
+              append (Journal.Error { Journal.where = "brief"; what });
+              append (Journal.Handover (Memory.version memory))
+          | None -> handover agent);
+          (fault, exhausted, filling))
     in
     match (fault, exhausted) with
     | Some why, _ -> Faulted why

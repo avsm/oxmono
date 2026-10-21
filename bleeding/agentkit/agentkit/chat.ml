@@ -8,9 +8,7 @@ let image_of_string data =
     else if starts "\xff\xd8\xff" then Some Jpeg
     else if starts "GIF87a" || starts "GIF89a" then Some Gif
     else if
-      String.length data >= 12
-      && starts "RIFF"
-      && String.sub data 8 4 = "WEBP"
+      String.length data >= 12 && starts "RIFF" && String.sub data 8 4 = "WEBP"
     then Some Webp
     else None
   in
@@ -36,8 +34,7 @@ let request ?(tools = []) ?max_tokens ?reasoning messages =
   if messages = [] then invalid_arg "Agentkit.Chat.request: empty transcript";
   Option.iter
     (fun n ->
-      if n <= 0 then
-        invalid_arg "Agentkit.Chat.request: nonpositive max_tokens")
+      if n <= 0 then invalid_arg "Agentkit.Chat.request: nonpositive max_tokens")
     max_tokens;
   { messages; tools; max_tokens; reasoning }
 
@@ -60,19 +57,29 @@ let text_bytes (r : request) =
   let call_bytes (c : Agent.tool_call) =
     String.length c.id + String.length c.name + String.length c.arguments
   in
-  let messages = List.fold_left (fun n -> function
-      | System s | User s -> n + String.length s
-      | User_images { text; _ } -> n + String.length text
-      | Assistant { text; calls } ->
-          n + String.length text + List.fold_left
-            (fun n c -> n + call_bytes c) 0 calls
-      | Tool_result { id; content } -> n + String.length id + String.length content)
-      0 r.messages in
-  List.fold_left (fun n tool ->
-      let schema = match Jsont_bytesrw.encode_string Jsont.json
-          (Agent.Tool.parameters tool) with
+  let messages =
+    List.fold_left
+      (fun n -> function
+        | System s | User s -> n + String.length s
+        | User_images { text; _ } -> n + String.length text
+        | Assistant { text; calls } ->
+            n + String.length text
+            + List.fold_left (fun n c -> n + call_bytes c) 0 calls
+        | Tool_result { id; content } ->
+            n + String.length id + String.length content)
+      0 r.messages
+  in
+  List.fold_left
+    (fun n tool ->
+      let schema =
+        match
+          Jsont_bytesrw.encode_string Jsont.json (Agent.Tool.parameters tool)
+        with
         | Ok schema -> schema
-        | Error error -> invalid_arg ("Chat.text_bytes: " ^ error) in
-      n + String.length (Agent.Tool.name tool)
-        + String.length (Agent.Tool.description tool) + String.length schema)
+        | Error error -> invalid_arg ("Chat.text_bytes: " ^ error)
+      in
+      n
+      + String.length (Agent.Tool.name tool)
+      + String.length (Agent.Tool.description tool)
+      + String.length schema)
     messages r.tools

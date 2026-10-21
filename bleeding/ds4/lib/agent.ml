@@ -702,28 +702,30 @@ let compact t ~upto ~on_event =
             (Array.sub tokens off (before - off));
           if V4.Transcript.length rebuilt >= before then false
           else begin
-          (* The conversation before the summary is gone, and nothing
+            (* The conversation before the summary is gone, and nothing
              outside this module reads [messages], so it is rebuilt bare.
              Where [off] reaches into [t.pending] (always true when [upto] is
              [t.pending] itself, never when a tool result's [upto] runs past
              it) the translated value is exact; the other case is overwritten
              by the next {!open_turn} before anything reads it. *)
-          t.messages <-
-            [
-              List.hd t.messages;
-              Dsml.user (summary_intro ^ summary ^ summary_outro);
-            ];
-          t.boundaries <-
-            t.system_length :: base
-            :: List.filter_map
-                 (fun boundary ->
-                   if boundary > off then Some (base + boundary - off) else None)
-                 t.boundaries;
-          t.pending <- base + max 0 (t.pending - off);
-          t.transcript <- rebuilt;
-          on_event
-            (Compacted { before; after = V4.Transcript.length rebuilt; summary });
-          true
+            t.messages <-
+              [
+                List.hd t.messages;
+                Dsml.user (summary_intro ^ summary ^ summary_outro);
+              ];
+            t.boundaries <-
+              t.system_length :: base
+              :: List.filter_map
+                   (fun boundary ->
+                     if boundary > off then Some (base + boundary - off)
+                     else None)
+                   t.boundaries;
+            t.pending <- base + max 0 (t.pending - off);
+            t.transcript <- rebuilt;
+            on_event
+              (Compacted
+                 { before; after = V4.Transcript.length rebuilt; summary });
+            true
           end
 
 (* What the model is told when the ceiling cut its call in half. It cannot see
@@ -841,7 +843,7 @@ let send t ~on_event prompt =
           && compact t ~upto:(V4.Transcript.length t.transcript) ~on_event
         then begin
           committed_boundaries := t.boundaries;
-        committed_messages := t.messages;
+          committed_messages := t.messages;
           committed_transcript := V4.Transcript.copy t.transcript
         end;
         let stored = fit_tool_result t full in
@@ -888,7 +890,7 @@ let send t ~on_event prompt =
              it, so the turn is not reopened here: doing so would append a
              second prefix after the one already there. *)
           committed_boundaries := t.boundaries;
-        committed_messages := t.messages;
+          committed_messages := t.messages;
           committed_transcript := V4.Transcript.copy t.transcript;
           attempt ~squeeze:false ~compacted:true ()
       (* The context is at its ceiling and the prompt still fits. Generate in

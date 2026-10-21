@@ -33,15 +33,15 @@ val run :
   ?on_retry:(failure -> words:int -> unit) ->
   string ->
   string
-(** [run ~complete ~instructions ~limit input] asks for a summary of [input]
-    of at most [limit] UTF-8 bytes. [instructions ~words] is the system prompt,
-    which must ask for a JSON object with one string field, [summary], and
-    about [words] words. The first attempt asks for [limit / 10] words, at
-    least 64. A {!Failed} attempt other than {!Tools} is retried once with half
-    as many words, and [on_retry] is told why.
+(** [run ~complete ~instructions ~limit input] asks for a summary of [input] of
+    at most [limit] UTF-8 bytes. [instructions ~words] is the system prompt,
+    which must ask for a JSON object with one string field, [summary], and about
+    [words] words. The first attempt asks for [limit / 10] words, at least 64. A
+    {!Failed} attempt other than {!Tools} is retried once with half as many
+    words, and [on_retry] is told why.
 
-    [max_tokens] defaults to 4096. [reasoning] defaults to [Some "none"].
-    Pass [None] to leave the backend default. Raises {!Failed} when no attempt
+    [max_tokens] defaults to 4096. [reasoning] defaults to [Some "none"]. Pass
+    [None] to leave the backend default. Raises {!Failed} when no attempt
     succeeds, and passes on transport failures. *)
 
 val json_object : string -> string

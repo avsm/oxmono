@@ -7,7 +7,8 @@ module Tool = struct
   let to_openrouter tool =
     Openrouter.Tool.v ~name:(Common.Tool.name tool)
       ~description:(Common.Tool.description tool)
-      ~parameters:(Common.Tool.parameters tool) ()
+      ~parameters:(Common.Tool.parameters tool)
+      ()
 end
 
 let wire_calls calls =
@@ -58,8 +59,9 @@ let wire_request ?(parallel_tool_calls = false) ~model (r : Chat.request) =
     ?reasoning_effort:r.reasoning ()
 
 let complete ?parallel_tool_calls client ~model (r : Chat.request) =
-  let result = Openrouter.Chat.complete client
-      (wire_request ?parallel_tool_calls ~model r) in
+  let result =
+    Openrouter.Chat.complete client (wire_request ?parallel_tool_calls ~model r)
+  in
   match
     List.find_opt
       (fun (c : Openrouter.Chat.choice) -> c.index = 0)
@@ -71,8 +73,11 @@ let complete ?parallel_tool_calls client ~model (r : Chat.request) =
         ~calls:
           (List.map
              (fun (call : Openrouter.Tool.call) ->
-               { Common.id = call.id; name = call.name;
-                 arguments = call.arguments })
+               {
+                 Common.id = call.id;
+                 name = call.name;
+                 arguments = call.arguments;
+               })
              choice.tool_calls)
         ?finish:(Option.map finish choice.finish_reason)
         choice.text
@@ -113,8 +118,8 @@ module Agent = struct
     mutable cancel_context : Eio.Cancel.t option;
   }
 
-  let create ~client ~model ?system ?max_tokens ?(tools = [])
-      ?(max_rounds = 8) () =
+  let create ~client ~model ?system ?max_tokens ?(tools = []) ?(max_rounds = 8)
+      () =
     if String.trim model = "" then
       invalid_arg "Agentkit_openrouter.Agent.create: empty model";
     if max_rounds < 1 then
@@ -206,76 +211,86 @@ module Agent = struct
     if Option.is_some t.cancel_context then
       invalid_arg "Agentkit_openrouter.Agent.send: already sending";
     Eio.Cancel.sub (fun context ->
-    t.cancel_context <- Some context;
-    let committed = ref t.messages in
-    Fun.protect ~finally:(fun () -> t.cancel_context <- None) @@ fun () ->
-    try
-    t.messages <- t.messages @ [ Chat.User prompt ];
-    let generated = ref 0 and prompt_tokens = ref 0 and calls_made = ref 0 in
-    let rec round n =
-      Eio.Fiber.check ();
-      let tools = if n > t.max_rounds then [] else t.tools in
-      let text, calls, reason, usage = stream t ~on_event ~tools in
-      Option.iter
-        (fun (u : Openrouter.Chat.usage) ->
-          generated := !generated + u.completion_tokens;
-          prompt_tokens := u.prompt_tokens)
-        usage;
-      Eio.Fiber.check ();
-      let cut = reason = Some Openrouter.Chat.Length in
-      let cut_tool_call = calls <> [] in
-      (* A call cut off mid-arguments is unusable, so it is dropped. *)
-      let calls = if cut then [] else calls in
-      if cut then
-        on_event
-          (Common.Cut_off
-             {
-               tokens = Option.value t.max_tokens ~default:0;
-               tool_call = cut_tool_call;
-             });
-      if calls <> [] && tools = [] then
-        failwith "Agentkit_openrouter.Agent: tool calls returned with tools disabled";
-      let before_calls = t.messages in
-      let completed_calls = ref [] and completed_results = ref [] in
-      t.messages <- before_calls @ [ Chat.Assistant { text; calls } ];
-      List.iter
-        (fun call ->
-          incr calls_made;
-          on_event (Common.Tool_call call);
-          Eio.Fiber.check ();
-          let result = invoke t call in
-          let result_message = Chat.Tool_result { id = call.id; content = result } in
-          completed_calls := call :: !completed_calls;
-          completed_results := result_message :: !completed_results;
-          committed := before_calls
-            @ (Chat.Assistant { text; calls = List.rev !completed_calls }
-               :: List.rev !completed_results);
-          t.messages <- t.messages @ [ result_message ];
-          on_event (Common.Tool_result (call.name, result)))
-        calls;
-      committed := t.messages;
-      if calls <> [] then round (n + 1) else n
-    in
-    let turns = round 1 in
-    t.stats <-
-      {
-        (zero_stats ()) with
-        prompt_tokens = !prompt_tokens;
-        generated = !generated;
-        total_generated = t.stats.total_generated + !generated;
-        turns;
-        tool_calls = !calls_made;
-      };
-    on_event (Common.Stats t.stats);
-    on_event Common.Done
-    with exn ->
-      t.messages <- !committed;
-      raise exn)
+        t.cancel_context <- Some context;
+        let committed = ref t.messages in
+        Fun.protect ~finally:(fun () -> t.cancel_context <- None) @@ fun () ->
+        try
+          t.messages <- t.messages @ [ Chat.User prompt ];
+          let generated = ref 0
+          and prompt_tokens = ref 0
+          and calls_made = ref 0 in
+          let rec round n =
+            Eio.Fiber.check ();
+            let tools = if n > t.max_rounds then [] else t.tools in
+            let text, calls, reason, usage = stream t ~on_event ~tools in
+            Option.iter
+              (fun (u : Openrouter.Chat.usage) ->
+                generated := !generated + u.completion_tokens;
+                prompt_tokens := u.prompt_tokens)
+              usage;
+            Eio.Fiber.check ();
+            let cut = reason = Some Openrouter.Chat.Length in
+            let cut_tool_call = calls <> [] in
+            (* A call cut off mid-arguments is unusable, so it is dropped. *)
+            let calls = if cut then [] else calls in
+            if cut then
+              on_event
+                (Common.Cut_off
+                   {
+                     tokens = Option.value t.max_tokens ~default:0;
+                     tool_call = cut_tool_call;
+                   });
+            if calls <> [] && tools = [] then
+              failwith
+                "Agentkit_openrouter.Agent: tool calls returned with tools \
+                 disabled";
+            let before_calls = t.messages in
+            let completed_calls = ref [] and completed_results = ref [] in
+            t.messages <- before_calls @ [ Chat.Assistant { text; calls } ];
+            List.iter
+              (fun call ->
+                incr calls_made;
+                on_event (Common.Tool_call call);
+                Eio.Fiber.check ();
+                let result = invoke t call in
+                let result_message =
+                  Chat.Tool_result { id = call.id; content = result }
+                in
+                completed_calls := call :: !completed_calls;
+                completed_results := result_message :: !completed_results;
+                committed :=
+                  before_calls
+                  @ Chat.Assistant { text; calls = List.rev !completed_calls }
+                    :: List.rev !completed_results;
+                t.messages <- t.messages @ [ result_message ];
+                on_event (Common.Tool_result (call.name, result)))
+              calls;
+            committed := t.messages;
+            if calls <> [] then round (n + 1) else n
+          in
+          let turns = round 1 in
+          t.stats <-
+            {
+              (zero_stats ()) with
+              prompt_tokens = !prompt_tokens;
+              generated = !generated;
+              total_generated = t.stats.total_generated + !generated;
+              turns;
+              tool_calls = !calls_made;
+            };
+          on_event (Common.Stats t.stats);
+          on_event Common.Done
+        with exn ->
+          t.messages <- !committed;
+          raise exn)
 
   let stats t = t.stats
+
   let cancel t =
-    Option.iter (fun context -> Eio.Cancel.cancel context (Failure "agent cancelled"))
+    Option.iter
+      (fun context -> Eio.Cancel.cancel context (Failure "agent cancelled"))
       t.cancel_context
+
   let close t =
     cancel t;
     t.closed <- true

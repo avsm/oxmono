@@ -71,20 +71,29 @@ let () =
            (Agentkit.Memory.entries memory));
       for i = 0 to 39 do
         write ("large-fact-" ^ string_of_int i) Fact (String.make 10000 'x');
-        write ("large-task-" ^ string_of_int i) Open_item (String.make 10000 'x')
+        write
+          ("large-task-" ^ string_of_int i)
+          Open_item (String.make 10000 'x')
       done;
-      let large = Brief.assemble ~version:(Agentkit.Memory.version memory)
-          ~entries:(Agentkit.Memory.entries memory) ~task:"test" ~prompt:"Act"
-          ~session:1 ~history:[] in
+      let large =
+        Brief.assemble
+          ~version:(Agentkit.Memory.version memory)
+          ~entries:(Agentkit.Memory.entries memory)
+          ~task:"test" ~prompt:"Act" ~session:1 ~history:[]
+      in
       check "large pinned memory remains bounded" (large.bytes <= 32768);
       check "original pinned records survive shortening"
-        (List.exists (fun (e : Agentkit.Memory.entry) ->
+        (List.exists
+           (fun (e : Agentkit.Memory.entry) ->
              e.id = "large-fact-0" && String.length e.body = 10000)
            (Agentkit.Memory.entries memory));
       check "oversized task is refused without truncating instructions"
-        (match Brief.assemble ~version:1 ~entries:[] ~task:"test"
-             ~prompt:(String.make 8193 'x') ~session:1 ~history:[] with
-        | _ -> false | exception Invalid_argument _ -> true);
+        (match
+           Brief.assemble ~version:1 ~entries:[] ~task:"test"
+             ~prompt:(String.make 8193 'x') ~session:1 ~history:[]
+         with
+        | _ -> false
+        | exception Invalid_argument _ -> true);
       Eio.Path.save ~create:(`Or_truncate 0o600)
         Eio.Path.(dir / "summaries.json")
         {|[{"key":"irrelevant","text":""}]|};

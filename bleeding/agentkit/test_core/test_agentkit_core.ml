@@ -38,7 +38,9 @@ let test_answer () =
     script [ calls_reply 1; Chat.response ~finish:Chat.Stop (Some "done") ]
   in
   let answer =
-    Turn.run ~complete ~tools:[ tool "t" ] ~guard:ok_guard ~dispatch
+    Turn.run ~complete
+      ~tools:[ tool "t" ]
+      ~guard:ok_guard ~dispatch
       [ Chat.System "sys"; Chat.User "hi" ]
   in
   check "answer" (answer = "done");
@@ -56,54 +58,72 @@ let test_answer () =
 
 let test_parallel_calls () =
   Eio_mock.Backend.run_full @@ fun _ ->
-  let complete, seen =
-    script [ calls_reply 8; Chat.response (Some "done") ] in
+  let complete, seen = script [ calls_reply 8; Chat.response (Some "done") ] in
   let active = ref 0 and peak = ref 0 in
   let dispatch (call : Agentkit.Agent.tool_call) =
     incr active;
     peak := max !peak !active;
     Eio.Fiber.yield ();
     decr active;
-    Ok call.id in
-  ignore (Turn.run ~budget:16 ~max_parallel_calls:2 ~complete
-    ~tools:[tool "t"] ~guard:ok_guard ~dispatch [Chat.User "hi"]);
+    Ok call.id
+  in
+  ignore
+    (Turn.run ~budget:16 ~max_parallel_calls:2 ~complete
+       ~tools:[ tool "t" ]
+       ~guard:ok_guard ~dispatch [ Chat.User "hi" ]);
   check "calls overlap within the configured limit" (!peak = 2 && !active = 0);
-  let results = List.filter_map (function
-    | Chat.Tool_result {id; content} -> Some (id, content)
-    | _ -> None) (List.nth (seen ()) 1).messages in
+  let results =
+    List.filter_map
+      (function
+        | Chat.Tool_result { id; content } -> Some (id, content) | _ -> None)
+      (List.nth (seen ()) 1).messages
+  in
   check "parallel results retain call order"
-    (results = List.init 8 (fun i -> let id = string_of_int i in id, id));
+    (results
+    = List.init 8 (fun i ->
+        let id = string_of_int i in
+        (id, id)));
   check "invalid concurrency refused"
-    (try ignore (Turn.run ~max_parallel_calls:0 ~complete ~tools:[]
-      ~guard:ok_guard ~dispatch [Chat.User "hi"]); false
+    (try
+       ignore
+         (Turn.run ~max_parallel_calls:0 ~complete ~tools:[] ~guard:ok_guard
+            ~dispatch [ Chat.User "hi" ]);
+       false
      with Invalid_argument _ -> true);
-  let complete, _ = script [calls_reply 3] in
+  let complete, _ = script [ calls_reply 3 ] in
   let pending, _ = Eio.Promise.create () in
   let started = ref [] and finished = ref [] in
   let around (call : Agentkit.Agent.tool_call) f =
     started := call.id :: !started;
-    Fun.protect ~finally:(fun () -> finished := call.id :: !finished)
-      (fun () -> match f () with Ok s -> s | Error e -> e) in
+    Fun.protect
+      ~finally:(fun () -> finished := call.id :: !finished)
+      (fun () -> match f () with Ok s -> s | Error e -> e)
+  in
   let dispatch (call : Agentkit.Agent.tool_call) =
     if call.id = "0" then Eio.Promise.await pending
-    else failwith "resource failure" in
+    else failwith "resource failure"
+  in
   check "parallel failure propagates"
-    (try ignore (Turn.run ~max_parallel_calls:2 ~complete ~tools:[tool "t"]
-       ~guard:ok_guard ~dispatch ~around [Chat.User "hi"]); false
+    (try
+       ignore
+         (Turn.run ~max_parallel_calls:2 ~complete
+            ~tools:[ tool "t" ]
+            ~guard:ok_guard ~dispatch ~around [ Chat.User "hi" ]);
+       false
      with Failure _ -> true);
   check "failed batch cancels siblings and finishes audit wrappers"
-    (List.sort String.compare !started = ["0"; "1"]
-     && List.sort String.compare !finished = ["0"; "1"])
+    (List.sort String.compare !started = [ "0"; "1" ]
+    && List.sort String.compare !finished = [ "0"; "1" ])
 
 let test_synthesis_notice () =
   let complete, seen =
     script
-      [
-        calls_reply 2; calls_reply 1; Chat.response (Some "summary answer");
-      ]
+      [ calls_reply 2; calls_reply 1; Chat.response (Some "summary answer") ]
   in
   let answer =
-    Turn.run ~budget:3 ~complete ~tools:[ tool "t" ] ~guard:ok_guard ~dispatch
+    Turn.run ~budget:3 ~complete
+      ~tools:[ tool "t" ]
+      ~guard:ok_guard ~dispatch
       [ Chat.System "sys"; Chat.User "hi" ]
   in
   check "synthesis answer" (answer = "summary answer");
@@ -147,12 +167,9 @@ let test_guard_fails_closed () =
   let guard (c : Agentkit.Agent.tool_call) =
     if c.id = "0" then Error "not yours" else failwith "guard bug"
   in
-  let complete, seen =
-    script [ calls_reply 2; Chat.response (Some "ok") ]
-  in
+  let complete, seen = script [ calls_reply 2; Chat.response (Some "ok") ] in
   ignore
-    (Turn.run ~complete ~tools:[ tool "t" ] ~guard ~dispatch
-       [ Chat.User "hi" ]);
+    (Turn.run ~complete ~tools:[ tool "t" ] ~guard ~dispatch [ Chat.User "hi" ]);
   check "denied calls never dispatch" (!ran = 0);
   check "refusals reach the model"
     (match List.rev (List.nth (seen ()) 1).messages with
@@ -170,8 +187,9 @@ let test_budget_and_bounds () =
   in
   let complete, _ = script [ calls_reply 7 ] in
   (match
-     Turn.run ~complete ~tools:[ tool "t" ] ~guard:ok_guard ~dispatch ~around
-       [ Chat.User "hi" ]
+     Turn.run ~complete
+       ~tools:[ tool "t" ]
+       ~guard:ok_guard ~dispatch ~around [ Chat.User "hi" ]
    with
   | _ -> check "over-budget raises" false
   | exception Turn.Budget_exceeded -> ());
@@ -179,8 +197,9 @@ let test_budget_and_bounds () =
   let big _ = Ok (String.make 100 'x') in
   let complete, seen = script [ calls_reply 1; Chat.response (Some "ok") ] in
   ignore
-    (Turn.run ~complete ~tools:[ tool "t" ] ~guard:ok_guard ~dispatch:big
-       ~max_result_bytes:10 [ Chat.User "hi" ]);
+    (Turn.run ~complete
+       ~tools:[ tool "t" ]
+       ~guard:ok_guard ~dispatch:big ~max_result_bytes:10 [ Chat.User "hi" ]);
   check "results clipped"
     (match List.rev (List.nth (seen ()) 1).messages with
     | Chat.Tool_result { content; _ } :: _ ->
@@ -198,9 +217,7 @@ let test_cut_off () =
     (answer = "partial\n\n[Reply cut off at the token limit.]")
 
 let test_bind () =
-  let tools =
-    Turn.bind ~guard:(fun _ -> Error "no") ~dispatch [ tool "t" ]
-  in
+  let tools = Turn.bind ~guard:(fun _ -> Error "no") ~dispatch [ tool "t" ] in
   check "bound tools are guarded"
     (Agentkit.Agent.Tool.invoke (List.hd tools) (call "t" "{}") = "Error: no")
 
@@ -211,13 +228,20 @@ let test_native_budget () =
     if !round = 1 then begin
       ignore (Agentkit.Agent.Tool.invoke (List.hd r.tools) (call "t" "{}"));
       Chat.response ~calls:[ call "t" "{}" ] None
-    end else begin
+    end
+    else begin
       check "mixed calls exhaust the shared allowance" (r.tools = []);
       Chat.response (Some "done")
     end
   in
-  ignore (Turn.run ~budget:2 ~complete ~tools:[ tool "t" ] ~guard:ok_guard
-      ~dispatch:(fun _ -> incr ran; Ok "ran") [ Chat.User "go" ]);
+  ignore
+    (Turn.run ~budget:2 ~complete
+       ~tools:[ tool "t" ]
+       ~guard:ok_guard
+       ~dispatch:(fun _ ->
+         incr ran;
+         Ok "ran")
+       [ Chat.User "go" ]);
   check "both native and returned calls execute" (!ran = 2);
   ran := 0;
   let complete (r : Chat.request) =
@@ -227,30 +251,47 @@ let test_native_budget () =
     Chat.response (Some "impossible")
   in
   check "native overflow stops execution"
-    (match Turn.run ~budget:2 ~complete ~tools:[ tool "t" ] ~guard:ok_guard
-         ~dispatch:(fun _ -> incr ran; Ok "ran") [ Chat.User "go" ] with
-    | _ -> false | exception Turn.Budget_exceeded -> !ran = 2);
+    (match
+       Turn.run ~budget:2 ~complete
+         ~tools:[ tool "t" ]
+         ~guard:ok_guard
+         ~dispatch:(fun _ ->
+           incr ran;
+           Ok "ran")
+         [ Chat.User "go" ]
+     with
+    | _ -> false
+    | exception Turn.Budget_exceeded -> !ran = 2);
   let complete (r : Chat.request) =
     check "native guard enforced"
-      (Agentkit.Agent.Tool.invoke (List.hd r.tools) (call "t" "{}") = "Error: denied");
+      (Agentkit.Agent.Tool.invoke (List.hd r.tools) (call "t" "{}")
+      = "Error: denied");
     Chat.response (Some "denied")
   in
-  ignore (Turn.run ~complete ~tools:[ tool "t" ]
-      ~guard:(fun _ -> Error "denied")
-      ~dispatch:(fun _ -> Alcotest.fail "unauthorized native dispatch")
-      [ Chat.User "go" ])
+  ignore
+    (Turn.run ~complete
+       ~tools:[ tool "t" ]
+       ~guard:(fun _ -> Error "denied")
+       ~dispatch:(fun _ -> Alcotest.fail "unauthorized native dispatch")
+       [ Chat.User "go" ])
 
 let test_request_budget () =
   let called = ref false in
-  let complete _ = called := true; Chat.response (Some "ok") in
+  let complete _ =
+    called := true;
+    Chat.response (Some "ok")
+  in
   check "oversized context refused before inference"
-    (match Turn.run ~max_request_bytes:4 ~complete ~tools:[] ~guard:ok_guard
-         ~dispatch [ Chat.User "hello" ] with
+    (match
+       Turn.run ~max_request_bytes:4 ~complete ~tools:[] ~guard:ok_guard
+         ~dispatch [ Chat.User "hello" ]
+     with
     | _ -> false
     | exception Turn.Context_exceeded { bytes = 5; limit = 4 } -> not !called);
   check "exact context boundary accepted"
-    (Turn.run ~max_request_bytes:5 ~complete ~tools:[] ~guard:ok_guard
-       ~dispatch [ Chat.User "hello" ] = "ok")
+    (Turn.run ~max_request_bytes:5 ~complete ~tools:[] ~guard:ok_guard ~dispatch
+       [ Chat.User "hello" ]
+    = "ok")
 
 let summarise replies =
   let complete, seen = script replies in
@@ -316,15 +357,16 @@ let fragmented =
         {|{"tool_calls":[{"index":1,"id":"b","type":"function","function":{"name":"echo","arguments":""}}]}|};
       delta
         {|{"tool_calls":[{"index":0,"id":"a","type":"function","function":{"name":"echo","arguments":""}}]}|};
-      delta {|{"tool_calls":[{"index":0,"function":{"arguments":"{\"text\":"}}]}|};
-      delta {|{"tool_calls":[{"index":1,"function":{"arguments":"{\"text\":\"two\"}"}}]}|};
+      delta
+        {|{"tool_calls":[{"index":0,"function":{"arguments":"{\"text\":"}}]}|};
+      delta
+        {|{"tool_calls":[{"index":1,"function":{"arguments":"{\"text\":\"two\"}"}}]}|};
       delta {|{"tool_calls":[{"index":0,"function":{"arguments":"\"one\"}"}}]}|};
       delta ~finish:{|"tool_calls"|} "{}";
     ]
 
 let answer =
-  sse
-    [ delta {|{"content":"fin"}|}; delta ~finish:{|"length"|} "{}" ]
+  sse [ delta {|{"content":"fin"}|}; delta ~finish:{|"length"|} "{}" ]
 
 let test_stream () =
   let wires = ref [ fragmented; answer ] in
@@ -369,14 +411,16 @@ let test_stream () =
        !events);
   check "cut-off reported"
     (List.exists
-       (function Agentkit.Agent.Cut_off { tokens = 5; _ } -> true | _ -> false)
+       (function
+         | Agentkit.Agent.Cut_off { tokens = 5; _ } -> true | _ -> false)
        !events)
 
 let png = "\x89PNG\r\n\x1a\n" ^ String.make 16 'x'
 
 let test_images () =
-  let format data = Option.map (fun (i : Chat.image) -> i.format)
-      (Chat.image_of_string data) in
+  let format data =
+    Option.map (fun (i : Chat.image) -> i.format) (Chat.image_of_string data)
+  in
   check "formats come from the bytes"
     (format png = Some Chat.Png
     && format "\xff\xd8\xff\xe0rest" = Some Chat.Jpeg
@@ -411,53 +455,90 @@ let test_images () =
     loop 0
   in
   check "images reach the wire as data URLs after the text"
-    (r.text = Some "red"
-    && contains {|"type":"text"|}
+    (r.text = Some "red" && contains {|"type":"text"|}
     && contains "data:image/png;base64,");
-  ignore (Agentkit_openrouter.complete ~parallel_tool_calls:true client ~model:"m"
-    (Chat.request ~tools:[tool "t"] [Chat.User "hi"]));
+  ignore
+    (Agentkit_openrouter.complete ~parallel_tool_calls:true client ~model:"m"
+       (Chat.request ~tools:[ tool "t" ] [ Chat.User "hi" ]));
   check "parallel tools enabled on the wire"
     (contains {|"parallel_tool_calls":true|});
-  ignore (Agentkit_openrouter.complete client ~model:"m"
-    (Chat.request ~tools:[tool "t"] [Chat.User "hi"]));
+  ignore
+    (Agentkit_openrouter.complete client ~model:"m"
+       (Chat.request ~tools:[ tool "t" ] [ Chat.User "hi" ]));
   check "existing adapters retain sequential default"
     (contains {|"parallel_tool_calls":false|})
 
-
 let test_truncated_calls () =
-  List.iter (fun budget ->
-    let executed = ref 0 in
-    let complete, _ = script [
-      Chat.response ~finish:Chat.Length ~calls:[call "echo" "{}"] None;
-      Chat.response (Some "incomplete") ] in
-    ignore (Turn.run ~complete ~budget ~tools:[tool "echo"] ~guard:ok_guard
-      ~dispatch:(fun _ -> incr executed; Ok "executed") [Chat.User "go"]);
-    Alcotest.(check int) "truncated calls never execute" 0 !executed) [0; 2]
+  List.iter
+    (fun budget ->
+      let executed = ref 0 in
+      let complete, _ =
+        script
+          [
+            Chat.response ~finish:Chat.Length ~calls:[ call "echo" "{}" ] None;
+            Chat.response (Some "incomplete");
+          ]
+      in
+      ignore
+        (Turn.run ~complete ~budget
+           ~tools:[ tool "echo" ]
+           ~guard:ok_guard
+           ~dispatch:(fun _ ->
+             incr executed;
+             Ok "executed")
+           [ Chat.User "go" ]);
+      Alcotest.(check int) "truncated calls never execute" 0 !executed)
+    [ 0; 2 ]
 
 let stream_client wires =
   let wires = ref wires in
-  let fetch = Fetch_mock.client (fun req ->
-    let wire = List.hd !wires in wires := List.tl !wires;
-    Fetch.Middleware.Pi.response ~status:200 ~version:`HTTP_1_1
-      ~headers:(Http.Header.of_list [("Content-Type", "text/event-stream")])
-      ~body:(Eio.Flow.string_source wire) ~close:(fun () -> ())
-      ~url:req.Fetch.Middleware.url ()) in
+  let fetch =
+    Fetch_mock.client (fun req ->
+        let wire = List.hd !wires in
+        wires := List.tl !wires;
+        Fetch.Middleware.Pi.response ~status:200 ~version:`HTTP_1_1
+          ~headers:
+            (Http.Header.of_list [ ("Content-Type", "text/event-stream") ])
+          ~body:(Eio.Flow.string_source wire)
+          ~close:(fun () -> ())
+          ~url:req.Fetch.Middleware.url ())
+  in
   Openrouter.of_fetch ~base_url:"https://example.test/v1" fetch
 
 let one_call =
-  delta {|{"tool_calls":[{"index":0,"id":"a","type":"function","function":{"name":"echo","arguments":"{}"}}]}|}
+  delta
+    {|{"tool_calls":[{"index":0,"id":"a","type":"function","function":{"name":"echo","arguments":"{}"}}]}|}
 
 let test_stream_cancel () =
-  let client = stream_client [sse [delta {|{"content":"starting"}|}; one_call;
-    delta ~finish:{|"tool_calls"|} "{}"]; answer] in
+  let client =
+    stream_client
+      [
+        sse
+          [
+            delta {|{"content":"starting"}|};
+            one_call;
+            delta ~finish:{|"tool_calls"|} "{}";
+          ];
+        answer;
+      ]
+  in
   let executed = ref 0 in
-  let echo = Agentkit.Agent.Tool.with_invoke (tool "echo")
-    (fun _ -> incr executed; "executed") in
-  let agent = Agentkit_openrouter.Agent.create ~client ~model:"m" ~tools:[echo] () in
+  let echo =
+    Agentkit.Agent.Tool.with_invoke (tool "echo") (fun _ ->
+        incr executed;
+        "executed")
+  in
+  let agent =
+    Agentkit_openrouter.Agent.create ~client ~model:"m" ~tools:[ echo ] ()
+  in
   let cancelled =
-    try Agentkit_openrouter.Agent.send agent ~on_event:(function
-      | Agentkit.Agent.Content _ -> Agentkit_openrouter.Agent.cancel agent
-      | _ -> ()) "go"; false
+    try
+      Agentkit_openrouter.Agent.send agent
+        ~on_event:(function
+          | Agentkit.Agent.Content _ -> Agentkit_openrouter.Agent.cancel agent
+          | _ -> ())
+        "go";
+      false
     with Eio.Cancel.Cancelled _ -> true
   in
   check "cancellation propagates" cancelled;
@@ -465,43 +546,63 @@ let test_stream_cancel () =
   Agentkit_openrouter.Agent.send agent ~on_event:ignore "retry"
 
 let test_stream_cut_call () =
-  let client = stream_client [sse [one_call; delta ~finish:{|"length"|} "{}"]] in
+  let client =
+    stream_client [ sse [ one_call; delta ~finish:{|"length"|} "{}" ] ]
+  in
   let executed = ref false and cut = ref false in
-  let echo = Agentkit.Agent.Tool.with_invoke (tool "echo")
-    (fun _ -> executed := true; "executed") in
-  let agent = Agentkit_openrouter.Agent.create ~client ~model:"m" ~tools:[echo] () in
-  Agentkit_openrouter.Agent.send agent ~on_event:(function
-    | Agentkit.Agent.Cut_off {tool_call = true; _} -> cut := true
-    | _ -> ()) "go";
+  let echo =
+    Agentkit.Agent.Tool.with_invoke (tool "echo") (fun _ ->
+        executed := true;
+        "executed")
+  in
+  let agent =
+    Agentkit_openrouter.Agent.create ~client ~model:"m" ~tools:[ echo ] ()
+  in
+  Agentkit_openrouter.Agent.send agent
+    ~on_event:(function
+      | Agentkit.Agent.Cut_off { tool_call = true; _ } -> cut := true | _ -> ())
+    "go";
   check "cut tool is reported and not executed" (!cut && not !executed)
 
-
 let test_stream_round_limit () =
-  let wire = sse [one_call; delta ~finish:{|"tool_calls"|} "{}"] in
-  let client = stream_client [wire; wire] in
+  let wire = sse [ one_call; delta ~finish:{|"tool_calls"|} "{}" ] in
+  let client = stream_client [ wire; wire ] in
   let executed = ref 0 in
-  let echo = Agentkit.Agent.Tool.with_invoke (tool "echo")
-    (fun _ -> incr executed; "executed") in
-  let agent = Agentkit_openrouter.Agent.create ~client ~model:"m"
-      ~tools:[echo] ~max_rounds:1 () in
+  let echo =
+    Agentkit.Agent.Tool.with_invoke (tool "echo") (fun _ ->
+        incr executed;
+        "executed")
+  in
+  let agent =
+    Agentkit_openrouter.Agent.create ~client ~model:"m" ~tools:[ echo ]
+      ~max_rounds:1 ()
+  in
   (match Agentkit_openrouter.Agent.send agent ~on_event:ignore "go" with
-   | exception Failure _ -> ()
-   | () -> Alcotest.fail "provider ignored tools-disabled request");
+  | exception Failure _ -> ()
+  | () -> Alcotest.fail "provider ignored tools-disabled request");
   Alcotest.(check int) "disabled calls never execute" 1 !executed
 
 let test_stream_cancel_wait () =
   let started, start = Eio.Promise.create () in
   let never, _ = Eio.Promise.create () in
-  let fetch = Fetch_mock.client (fun _ ->
-      Eio.Promise.resolve start ();
-      Eio.Promise.await never) in
+  let fetch =
+    Fetch_mock.client (fun _ ->
+        Eio.Promise.resolve start ();
+        Eio.Promise.await never)
+  in
   let client = Openrouter.of_fetch ~base_url:"https://example.test/v1" fetch in
   let agent = Agentkit_openrouter.Agent.create ~client ~model:"m" () in
-  let cancelled, () = Eio.Fiber.pair
+  let cancelled, () =
+    Eio.Fiber.pair
       (fun () ->
-        try Agentkit_openrouter.Agent.send agent ~on_event:ignore "go"; false
+        try
+          Agentkit_openrouter.Agent.send agent ~on_event:ignore "go";
+          false
         with Eio.Cancel.Cancelled _ -> true)
-      (fun () -> Eio.Promise.await started; Agentkit_openrouter.Agent.cancel agent) in
+      (fun () ->
+        Eio.Promise.await started;
+        Agentkit_openrouter.Agent.cancel agent)
+  in
   check "cancel interrupts a blocked request" cancelled
 
 let () =
@@ -530,10 +631,22 @@ let () =
         ] );
       ( "openrouter",
         [
-          ("cancel wait", `Quick, fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream_cancel_wait ()));
-          ("round limit", `Quick, fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream_round_limit ()));
-          ("cancel", `Quick, fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream_cancel ()));
-          ("cut call", `Quick, fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream_cut_call ()));
+          ( "cancel wait",
+            `Quick,
+            fun () ->
+              Eio_mock.Backend.run_full (fun _ -> test_stream_cancel_wait ()) );
+          ( "round limit",
+            `Quick,
+            fun () ->
+              Eio_mock.Backend.run_full (fun _ -> test_stream_round_limit ()) );
+          ( "cancel",
+            `Quick,
+            fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream_cancel ())
+          );
+          ( "cut call",
+            `Quick,
+            fun () ->
+              Eio_mock.Backend.run_full (fun _ -> test_stream_cut_call ()) );
           ( "stream",
             `Quick,
             fun () -> Eio_mock.Backend.run_full (fun _ -> test_stream ()) );

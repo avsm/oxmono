@@ -69,9 +69,6 @@ let () =
     Unix.putenv "SORTAL_DATA_DIR" (root ^ "/data/sortal");
     let t = M.defaults () in
     let text = M.encode t in
-    (match Tomlt_bytesrw.decode_string M.codec text with
-     | Ok _ -> ()
-     | Error e -> failwith (Tomlt.Error.to_string e ^ "\n" ^ text));
     check (M.decode text = t) "manifest round trip";
     check (not (contains text root)) "absolute home leaked into export";
     check (contains text "~/bushel/data") "portable paths absent";
@@ -79,7 +76,8 @@ let () =
     let arod = { t.arod with server =
       { t.arod.server with stats_password = Some secret } } in
     rejects (fun () -> M.encode { t with arod });
-    rejects (fun () -> M.decode ("version = 99\n" ^ text));
+    rejects (fun () -> M.decode
+      (Tomlt_bytesrw.encode_string M.codec { t with version = 99 }));
     let b = t.bushel in
     List.iter (fun remote ->
       rejects (fun () -> M.encode { t with bushel =
@@ -129,6 +127,11 @@ let () =
     check (M.read target = text) "export overwritten";
     check ((Unix.stat target).st_perm land 0o777 = 0o600)
       "export permissions";
+    let pdfs = root ^ "/pdf-check" in
+    P.mkdir (pdfs ^ "/directory.pdf");
+    check (not (P.pdfs_present pdfs)) "directory counted as a PDF";
+    write (pdfs ^ "/paper.pdf") "%PDF-1.4\n";
+    check (P.pdfs_present pdfs) "regular PDF not found";
     let source = root ^ "/source" and checkout = root ^ "/checkout" in
     run ["git"; "init"; "--initial-branch=main"; source];
     write (source ^ "/content") "first";

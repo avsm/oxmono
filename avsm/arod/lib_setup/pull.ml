@@ -158,8 +158,25 @@ let plan ~fs ?config t =
 
 let pdfs_present path =
   Sys.file_exists path && Sys.is_directory path &&
-  Array.exists (fun file -> Filename.check_suffix file ".pdf")
+  Array.exists (fun file ->
+    Filename.check_suffix file ".pdf" &&
+    (Unix.stat (Filename.concat path file)).st_kind = Unix.S_REG)
     (Sys.readdir path)
+
+let step name f =
+  Printf.printf "[%s] starting\n%!" name;
+  try f (); Printf.printf "[%s] ready\n%!" name; true
+  with
+  | Failure message ->
+      Printf.eprintf "[%s] blocked: %s\n%!" name message; false
+  | _ ->
+      (* Network and authentication exceptions can contain response data. *)
+      Printf.eprintf "[%s] failed; inspect with the owning CLI\n%!" name;
+      false
+
+let all_steps f items =
+  (* Run independent steps even if an earlier one fails. *)
+  List.map f items |> List.for_all Fun.id
 
 let run ~sw ~env ?config ~dry_run ~non_interactive ~skip_auth
     ~skip_process t =
@@ -169,34 +186,19 @@ let run ~sw ~env ?config ~dry_run ~non_interactive ~skip_auth
   check_configs ?config t;
   List.iter (fun (_, path, cfg) -> check_repo path cfg) (repos t);
   if dry_run then 0 else begin
-    let failures = ref [] in
-    let step name f =
-      Printf.printf "[%s] starting\n%!" name;
-      try f (); Printf.printf "[%s] ready\n%!" name; true
-      with
-      | Failure message ->
-          failures := name :: !failures;
-          Printf.eprintf "[%s] blocked: %s\n%!" name message; false
-      | _ ->
-          failures := name :: !failures;
-          (* Network and authentication exceptions can contain response data. *)
-          Printf.eprintf "[%s] failed; inspect with the owning CLI\n%!" name;
-          false
-    in
     List.iter (fun (path, text) ->
       if not (exists path) then write_new path text) (configurations ?config t);
-    let repo_results = List.map (fun (name, path, cfg) ->
+    let repos_ok = all_steps (fun (name, path, cfg) ->
       step ("repo:" ^ name) (fun () ->
         restore_repo ~non_interactive path cfg)) (repos t) in
-    let repos_ok = List.for_all Fun.id repo_results in
     let mapping_ok = repos_ok && step "sortal-mapping" (fun () ->
       map_sortal ~fs:env#fs t) in
-    if not skip_auth then List.iter (fun s ->
-      ignore (step ("auth:" ^ s.kind) (fun () ->
+    let auth_ok = skip_auth || all_steps (fun s ->
+      step ("auth:" ^ s.kind) (fun () ->
         (* Suppress all auth exception payloads, including Failure. *)
         try Auth.ensure ~sw ~env ~non_interactive s with _ ->
-          failwith "Login/verification incomplete. Check access or retry")))
-      t.services;
+          failwith "Login/verification incomplete. Check access or retry"))
+      t.services in
     let pdf_ok = step "pdfs" (fun () ->
       Option.iter (fun source ->
         mkdir t.bushel.paper_pdfs_dir;
@@ -206,8 +208,8 @@ let run ~sw ~env ?config ~dry_run ~non_interactive ~skip_auth
           expand source ^ "/"; t.bushel.paper_pdfs_dir ^ "/"])) t.pdf_source;
       if not (pdfs_present t.bushel.paper_pdfs_dir) then
         failwith "No PDFs. Set pdf_source in pull.toml or restore PDFs") in
-    let processed = if skip_process then false else
-      mapping_ok && pdf_ok && step "process" (fun () ->
+    let assets_ok = mapping_ok && pdf_ok &&
+      (skip_process || step "process" (fun () ->
         let entries = Bushel_eio.Bushel_loader.load env#fs t.bushel.data_dir in
         let steps = Bushel_sync.[Thumbs; Faces; Videos; Srcsetter; Dois] in
         let results = Bushel_sync.run ~dry_run:false ~retry_errors:true
@@ -218,8 +220,8 @@ let run ~sw ~env ?config ~dry_run ~non_interactive ~skip_auth
             (Bushel_sync.string_of_step r.Bushel_sync.step)
             (if r.success then "ready" else "failed")) results;
         if List.exists (fun r -> not r.Bushel_sync.success) results then
-          failwith "Processing incomplete") in
-    let ready = mapping_ok && pdf_ok && (processed || skip_process) &&
+          failwith "Processing incomplete")) in
+    let ready = assets_ok &&
       step "website" (fun () ->
         let ctx = Arod.Ctx.create ~config:t.arod env#fs in
         ignore (Arod.Ctx.author_exn ctx);
@@ -232,7 +234,6 @@ let run ~sw ~env ?config ~dry_run ~non_interactive ~skip_auth
     Printf.printf "Serving: %s. Authentication: %s.\n%!"
       (if ready then "ready" else "incomplete")
       (if skip_auth then "not checked" else
-       if List.exists (String.starts_with ~prefix:"auth:") !failures
-       then "incomplete" else "ready");
-    if ready && !failures = [] then 0 else 1
+       if auth_ok then "ready" else "incomplete");
+    if ready && auth_ok then 0 else 1
   end

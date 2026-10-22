@@ -58,6 +58,9 @@ val config_file : unit -> string
 
 (** {1 Loading} *)
 
+val config_codec : t Tomlt.t
+(** [config_codec] encodes and decodes the public Bushel configuration. *)
+
 val default : unit -> t
 (** [default ()] is the default configuration. *)
 

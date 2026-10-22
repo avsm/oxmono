@@ -330,7 +330,6 @@ let pull_cmd =
       Eio_main.run @@ fun env ->
       Eio.Switch.run @@ fun sw ->
       let fs = Eio.Stdenv.fs env in
-      let entries = Bushel_eio.Bushel_loader.load fs data_dir in
 
       Printf.printf "%s pull pipeline...\n" (if dry_run then "Dry-run" else "Running");
       List.iter (fun step ->
@@ -338,7 +337,20 @@ let pull_cmd =
       ) steps;
       Printf.printf "\n";
 
-      let results = Bushel_sync.run ~dry_run ~retry_errors ~sw ~env ~data_dir ~config ~steps ~entries in
+      let acquisition, processing = List.partition
+          (function Bushel_sync.Git | Images -> true | _ -> false) steps in
+      let acquired = List.map (function
+        | Bushel_sync.Git -> Bushel_sync.sync_git ~dry_run ~env ~data_dir config
+        | Images -> Bushel_sync.sync_images ~dry_run ~env config
+        | _ -> assert false) acquisition in
+      let results =
+        if List.exists (fun r -> not r.Bushel_sync.success) acquired then
+          acquired
+        else begin
+          let entries = Bushel_eio.Bushel_loader.load fs data_dir in
+          acquired @ Bushel_sync.run ~dry_run ~retry_errors ~sw ~env
+            ~data_dir ~config ~steps:processing ~entries
+        end in
 
       Printf.printf "\nResults:\n";
       List.iter (fun r ->

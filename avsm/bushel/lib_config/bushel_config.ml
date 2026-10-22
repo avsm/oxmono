@@ -149,7 +149,7 @@ let releases_codec =
   let open Tomlt.Table in
   obj (fun github_user github tangled registries projects ->
       { github_user; github; tangled; registries; projects })
-  |> mem "github_user" (option string) ~dec_absent:None
+  |> opt_mem "github_user" string
        ~enc:(fun r -> r.github_user)
   |> mem "github" (list string) ~dec_absent:[] ~enc:(fun r -> r.github)
   |> mem "tangled" (list string) ~dec_absent:[] ~enc:(fun r -> r.tangled)

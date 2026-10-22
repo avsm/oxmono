@@ -77,7 +77,7 @@ let default =
   }
 
 let path_string =
-  Tomlt.(map string ~dec:expand_path)
+  Tomlt.(map string ~dec:expand_path ~enc:Fun.id)
 
 let server_codec =
   Tomlt.(Table.(

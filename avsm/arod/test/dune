@@ -155,3 +155,8 @@
  (name test_markdown_pages)
  (modules test_markdown_pages)
  (libraries arod arod.component arod.handlers bushel sortal.schema))
+
+(test
+ (name test_pull)
+ (modules test_pull)
+ (libraries arod.setup arod bushel.config gitops tomlt.bytesrw eio_main unix))

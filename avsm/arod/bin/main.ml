@@ -811,6 +811,66 @@ let stats_cmd =
   let info = Cmd.info "stats" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ hours)
 
+let pull_cmd =
+  let run () config manifest scan export dry_run non_interactive skip_auth
+      skip_process =
+    try
+      if export <> None && not scan then
+        failwith "--export requires --scan";
+      if scan && manifest <> None then
+        failwith "--scan and --manifest are mutually exclusive";
+      if dry_run && export <> None then
+        failwith "--dry-run cannot export a file";
+      Eio_main.run @@ fun env ->
+      Eio.Switch.run @@ fun sw ->
+      let module M = Arod_setup.Manifest in
+      let module P = Arod_setup.Pull in
+      let saved = M.default_path () in
+      let t = match manifest with
+        | Some path -> M.load path
+        | None when not scan && Sys.file_exists saved -> M.load saved
+        | None -> M.scan ~fs:env#fs ?config () in
+      if scan then begin
+        P.report_scan t;
+        Option.iter (fun path -> P.write_new path (M.encode t);
+          Printf.printf "Exported public setup to %s\n" path) export;
+        0
+      end else begin
+        let result = P.run ~sw ~env ?config ~dry_run ~non_interactive
+            ~skip_auth ~skip_process t in
+        if not dry_run && not (P.exists saved) then
+          P.write_new saved (M.encode t);
+        result
+      end
+    with
+    | Failure message -> Printf.eprintf "Setup: %s\n" message; 1
+    | _ -> Printf.eprintf "Setup failed. Check paths and configuration.\n"; 1
+  in
+  let flag names doc = Arg.(value & flag & info names ~doc) in
+  let file names doc = Arg.(value & opt (some string) None
+    & info names ~docv:"FILE" ~doc) in
+  let info = Cmd.info "pull"
+      ~doc:"Restore or refresh website repositories, assets and service logins."
+      ~man:[`S Manpage.s_description;
+        `P "Scan a working machine with --scan --export website.toml. On a new \
+            machine use --manifest website.toml. Without a saved manifest, \
+            local configuration and Anil's public service defaults are used.";
+        `P "Credentials are never exported. Existing configuration and dirty \
+            repositories are preserved. PDF sources must be configured \
+            explicitly. Login prompts require a terminal. No content is \
+            published and Karakeep bookmark creation is not run.";
+        `P "The manifest is saved as $XDG_CONFIG_HOME/arod/pull.toml on first \
+            application. Edit it to change future pulls. An existing saved \
+            manifest is never replaced implicitly."] in
+  Cmd.v info Term.(const run $ logging_t $ config_file
+    $ file ["manifest"] "Read a portable setup manifest."
+    $ flag ["scan"] "Inspect local configuration without changing it."
+    $ file ["export"] "Write the scanned public setup to a new file."
+    $ flag ["n"; "dry-run"] "Show the plan without writes or network access."
+    $ flag ["non-interactive"] "Report missing logins without prompting."
+    $ flag ["skip-auth"] "Leave authentication unchanged and unchecked."
+    $ flag ["skip-process"] "Skip asset processing, but check serving readiness.")
+
 let main_cmd =
   let doc = "Arod - a webserver for Bushel content" in
   let man =
@@ -825,7 +885,7 @@ let main_cmd =
     ]
   in
   let info = Cmd.info "arod" ~version:"0.1.0" ~doc ~man in
-  Cmd.group info [ serve_cmd; init_cmd; config_cmd; index_cmd; search_cmd;
+  Cmd.group info [ serve_cmd; init_cmd; config_cmd; pull_cmd; index_cmd; search_cmd;
                    annotate_cmd; publish_cmd; publish_bulk_cmd;
                    standardsite_cmd; stats_cmd ]
 

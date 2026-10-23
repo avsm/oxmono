@@ -143,16 +143,29 @@ let named =
 
 let cube = [| 0; 95; 135; 175; 215; 255 |]
 
-let to_rgb = function
-  | Rgb (r, g, b) -> (r, g, b)
-  | Ansi a -> snd named.(ansi_position a + if is_bright a then 8 else 0)
-  | Palette n when n < 16 -> snd named.(n)
+let[@zero_alloc] to_rgb_unboxed = function
+  | Rgb (r, g, b) -> #(r, g, b)
+  | Ansi a ->
+      let r, g, b =
+        snd named.(ansi_position a + if is_bright a then 8 else 0)
+      in
+      #(r, g, b)
+  | Palette n when n < 16 ->
+      let r, g, b = snd named.(n) in
+      #(r, g, b)
   | Palette n when n < 232 ->
       let n = n - 16 in
-      (cube.(n / 36), cube.(n / 6 mod 6), cube.(n mod 6))
+      #(cube.(n / 36), cube.(n / 6 mod 6), cube.(n mod 6))
   | Palette n ->
       let v = 8 + (10 * (n - 232)) in
-      (v, v, v)
+      #(v, v, v)
+
+let to_rgb = function
+  | Ansi a -> snd named.(ansi_position a + if is_bright a then 8 else 0)
+  | Palette n when n < 16 -> snd named.(n)
+  | c ->
+      let #(r, g, b) = to_rgb_unboxed c in
+      (r, g, b)
 
 let nearest_level v =
   let best = ref 0 in
@@ -236,12 +249,13 @@ let clamp v = max 0 (min 255 v)
 
 let blend c0 c1 t =
   let t = Float.max 0. (Float.min 1. t) in
-  let r, g, b = to_rgb c0 and r', g', b' = to_rgb c1 in
+  let #(r, g, b) = to_rgb_unboxed c0
+  and #(r', g', b') = to_rgb_unboxed c1 in
   let mix a a' = a + int_of_float (Float.round (t *. float_of_int (a' - a))) in
   Rgb (mix r r', mix g g', mix b b')
 
 let scale f c =
-  let r, g, b = to_rgb c in
+  let #(r, g, b) = to_rgb_unboxed c in
   let s v = clamp (int_of_float (Float.round (float_of_int v *. f))) in
   Rgb (s r, s g, s b)
 

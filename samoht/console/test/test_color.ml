@@ -201,6 +201,66 @@ let test_rgb () =
   Alcotest.check color "scale clamps" (Color.rgb 255 255 255)
     (Color.scale 3. (Color.rgb 100 100 100))
 
+let test_blend_scale_reference () =
+  let cube = [| 0; 95; 135; 175; 215; 255 |] in
+  let palette n =
+    if n < 16 then snd named.(n)
+    else if n < 232 then
+      let n = n - 16 in
+      (cube.(n / 36), cube.(n / 6 mod 6), cube.(n mod 6))
+    else
+      let v = 8 + (10 * (n - 232)) in
+      (v, v, v)
+  in
+  let colors =
+    Array.concat
+      [
+        named;
+        Array.init 256 (fun i -> (Color.palette i, palette i));
+        [|
+          (Color.rgb 20 40 60, (20, 40, 60));
+          (Color.rgb 100 160 240, (100, 160, 240));
+        |];
+      ]
+  in
+  let fractions =
+    [
+      Float.neg_infinity; -1.; -0.; 0.; 0.001; 0.25; 0.499; 0.5; 0.501;
+      0.99; 1.; 2.; Float.infinity; Float.nan;
+    ]
+  in
+  let check label expected c =
+    let actual = Color.to_rgb c in
+    if actual <> expected then
+      Alcotest.(check (triple int int int)) label expected actual
+  in
+  Array.iter
+    (fun (c0, ((r, g, b) as rgb)) ->
+      check "RGB conversion" rgb c0;
+      List.iter
+        (fun f ->
+          let scale v =
+            max 0 (min 255 (int_of_float (Float.round (float_of_int v *. f))))
+          in
+          check "scale reference" (scale r, scale g, scale b)
+            (Color.scale f c0))
+        fractions;
+      Array.iter
+        (fun (c1, (r', g', b')) ->
+          List.iter
+            (fun t ->
+              let clamped = Float.max 0. (Float.min 1. t) in
+              let mix a a' =
+                a
+                + int_of_float
+                    (Float.round (clamped *. float_of_int (a' - a)))
+              in
+              check "blend reference" (mix r r', mix g g', mix b b')
+                (Color.blend c0 c1 t))
+            fractions)
+        colors)
+    colors
+
 (* A colour is written at the process's depth. *)
 let test_codes_at_depth () =
   Color.set_depth `Ansi_256;
@@ -230,5 +290,7 @@ let suite =
       Alcotest.test_case "downsample reference" `Quick
         test_downsample_reference;
       Alcotest.test_case "rgb" `Quick test_rgb;
+      Alcotest.test_case "blend and scale reference" `Quick
+        test_blend_scale_reference;
       Alcotest.test_case "codes at depth" `Quick test_codes_at_depth;
     ] )

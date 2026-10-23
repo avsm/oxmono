@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add allocation-free nullable lookup to immutable string maps.
+
 - Registering a release again keeps its summary and its registries.
 
 - Show registered releases as one line each in the arod notes view, inside the

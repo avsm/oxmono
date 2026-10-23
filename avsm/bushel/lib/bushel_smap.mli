@@ -24,6 +24,11 @@ val find : string -> 'a t -> 'a @@ portable
 
     @raise Not_found if [k] is not bound. *)
 
+val find_or_null : string @ local -> 'a t -> 'a or_null @@ portable
+[@@zero_alloc]
+(** [find_or_null k m] is the value bound to [k] in [m], or [Null] if
+    there is none. It does not allocate a wrapper for a found value. *)
+
 val bindings : 'a t -> (string * 'a) list @@ portable
 (** [bindings m] is the bindings of [m] in increasing key order. *)
 

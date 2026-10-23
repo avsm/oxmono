@@ -207,17 +207,15 @@ let well_known key env _req respond =
 (** {1 JSON APIs} *)
 
 let int_param req name ~default ~lo ~hi =
-  match Req.query_param req name with
+  match Req.query_param_local req name with
   | None -> default
   | Some v -> (
-    match int_of_string_opt v with
-    | Some n -> min hi (max lo n)
-    | None -> default)
+    try min hi (max lo (int_of_string v)) with Failure _ -> default)
 
 let pagination_api env req respond =
   let offset =
-    match Req.query_param req "offset" with
-    | Some o -> ( match int_of_string_opt o with Some n -> max 0 n | None -> 0)
+    match Req.query_param_local req "offset" with
+    | Some o -> (try max 0 (int_of_string o) with Failure _ -> 0)
     | None -> 0
   in
   let limit = int_param req "limit" ~default:25 ~lo:1 ~hi:100 in
@@ -238,7 +236,7 @@ let pagination_api env req respond =
        ~offset ~limit ~types)
 
 let sort_param req =
-  match Req.query_param req "sort" with
+  match Req.query_param_local req "sort" with
   | Some "date" -> `Date
   | _ -> `Relevance
 
@@ -263,7 +261,11 @@ let search_api env req respond =
 
 let search_page env req respond =
   let q, limit, link_limit, order = search_params req in
-  let fragment = Req.query_param req "fragment" = Some "1" in
+  let fragment =
+    match Req.query_param_local req "fragment" with
+    | Some "1" -> true
+    | _ -> false
+  in
   Resp.html respond
     (env.E.search_page ~q ~limit ~link_limit ~order ~fragment)
 

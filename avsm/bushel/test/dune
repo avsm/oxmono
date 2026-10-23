@@ -1,3 +1,8 @@
+(test
+ (name test_smap)
+ (modules test_smap)
+ (libraries bushel))
+
 (tests
  (names test_release test_link_graph)
  (modules test_release test_link_graph)

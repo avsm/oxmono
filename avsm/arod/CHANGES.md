@@ -1,5 +1,7 @@
 # Changes
 
+- Reduce allocations in query parsing and backlink lookups.
+
 - Simplify pull readiness reporting and require regular files when checking
   whether paper PDFs are present.
 

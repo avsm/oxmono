@@ -246,9 +246,9 @@ let build_outbound_feed entries feed_by_url =
     let seen = Hashtbl.create 16 in
     List.concat_map
       (fun url ->
-         match Bushel.Smap.find_opt (normalise_url url) feed_by_url with
-         | None -> []
-         | Some bls ->
+         match Bushel.Smap.find_or_null (normalise_url url) feed_by_url with
+         | Null -> []
+         | This bls ->
            List.filter
              (fun (bl : feed_backlink) ->
                 let fe_url =
@@ -373,7 +373,9 @@ let outbound t slug = Bushel.Entry.outbound t.entries slug
 let all_external_links t = Bushel.Entry.all_external_links t.entries
 
 let find_list map key =
-  Option.value (Bushel.Smap.find_opt key map) ~default:[]
+  match Bushel.Smap.find_or_null key map with
+  | Null -> []
+  | This values -> values
 
 let note_references t slug =
   find_list t.note_references slug

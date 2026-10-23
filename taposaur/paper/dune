@@ -1,0 +1,4 @@
+(library
+ (name taposaur_paper)
+ (public_name taposaur.paper)
+ (libraries taposaur))

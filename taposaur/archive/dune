@@ -1,0 +1,4 @@
+(library
+ (name taposaur_archive)
+ (public_name taposaur.archive)
+ (libraries taposaur eio optint cstruct))

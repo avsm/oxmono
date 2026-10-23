@@ -1,0 +1,21 @@
+(test
+ (name test_taposaur)
+ (deps
+  (glob_files fixtures/*))
+ (libraries
+  taposaur
+  taposaur.archive
+  taposaur.catalog
+  taposaur.indexing
+  taposaur.document
+  taposaur.paper
+  taposaur.reader
+  taposaur.web
+  proffer.mock
+  eio_main
+  alcotest
+  sqlite3
+  sqlite3-eio
+  unix
+  jsont
+  jsont.bytesrw))

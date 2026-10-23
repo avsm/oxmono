@@ -1,0 +1,5 @@
+(library
+ (name taposaur_document)
+ (public_name taposaur.document)
+ (private_modules xml)
+ (libraries taposaur eio xmlm htmlit fmt jsont jsont.bytesrw))

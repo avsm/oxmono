@@ -46,7 +46,9 @@ let project t ~direction ~x ~y =
   let tr = transformation t in
   let c = Proj.Coord.make ~x ~y ~z:0. ~t:0. in
   match Proj.Transformation.transform ~direction tr c with
-  | r -> (Proj.Coord.x r, Proj.Coord.y r)
+  | r ->
+      let v = Proj.Coord.v r in
+      (v.(0), v.(1))
   | exception Failure msg -> fail t msg
 
 let forward t ~lon ~lat = project t ~direction:Proj.Forward ~x:lon ~y:lat

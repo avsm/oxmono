@@ -232,10 +232,10 @@ let test_native_patch_is_nan_padded () =
    seam, as a real zone's tiles do. [shift] moves the data edge east,
    an overhang past the seam for the western zone and a gap after it
    for the eastern one. *)
-let seam_zone store ~zone ~west ~scale ~shift =
+let seam_zone ?(lon = 0.) store ~zone ~west ~scale ~shift =
   let h = 140 and w = 110 in
   let seam_e, seam_n =
-    Crs.forward (Crs.utm_north ~zone) ~lon:0. ~lat:52.
+    Crs.forward (Crs.utm_north ~zone) ~lon ~lat:52.
   in
   let ox, width =
     if west then (seam_e -. (float_of_int w *. px), w + shift)
@@ -288,6 +288,22 @@ let test_seam_patch_overlap () =
     (vec ~scale:0.05)
     (pixel p ~size:64 ~row:32 ~col:33);
   check_pixel "where the zones overlap the owner wins" (vec ~scale:0.07)
+    (pixel p ~size:64 ~row:32 ~col:36)
+
+let test_dateline_patch_overlap () =
+  let store = Store.memory () in
+  fake_root store;
+  seam_zone ~lon:180. store ~zone:60 ~west:true ~scale:0.05 ~shift:5;
+  seam_zone ~lon:180. store ~zone:1 ~west:false ~scale:0.07 ~shift:3;
+  let t = of_store store in
+  let p = read_patch t ~lon:180. ~lat:52. ~year:2024 ~size_px:64 in
+  check_pixel "zone 60 west of the dateline" (vec ~scale:0.05)
+    (pixel p ~size:64 ~row:32 ~col:5);
+  check_pixel "zone 1 east of the dateline" (vec ~scale:0.07)
+    (pixel p ~size:64 ~row:32 ~col:58);
+  check_pixel "dateline neighbour fills an owner gap" (vec ~scale:0.05)
+    (pixel p ~size:64 ~row:32 ~col:33);
+  check_pixel "dateline owner wins overlap" (vec ~scale:0.07)
     (pixel p ~size:64 ~row:32 ~col:36)
 
 (* -- npy ------------------------------------------------------------ *)
@@ -403,6 +419,8 @@ let () =
         [
           Alcotest.test_case "seam" `Quick test_seam_patch;
           Alcotest.test_case "overlap" `Quick test_seam_patch_overlap;
+          Alcotest.test_case "dateline overlap" `Quick
+            test_dateline_patch_overlap;
         ] );
       ( "npy",
         [

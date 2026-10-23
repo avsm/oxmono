@@ -1,5 +1,8 @@
 ## Unreleased
 
+- Reduce projection allocations and use one byte per pixel for zone ownership
+  in patches crossing a zone seam.
+
 - Call Nx directly for CLI NumPy output using the nx-oxcaml backend.
   Preserve existing file bytes and bounded streaming for large regions.
 

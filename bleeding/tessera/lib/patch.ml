@@ -169,7 +169,7 @@ let merged zone_of ~centre ~zones ~lon ~lat ~year ~size_px =
   (* One inverse projection per output pixel, kept: every zone needs the
      same longitudes and latitudes to project forward into its grid. *)
   let plon = Array.make n 0. and plat = Array.make n 0. in
-  let owner = Array.make n 0 in
+  let owner = Bytes.make n '\000' in
   for r = 0 to size_px - 1 do
     let y = oy -. ((float_of_int r +. 0.5) *. px) in
     for c = 0 to size_px - 1 do
@@ -178,7 +178,7 @@ let merged zone_of ~centre ~zones ~lon ~lat ~year ~size_px =
       let i = (r * size_px) + c in
       plon.(i) <- lo;
       plat.(i) <- la;
-      owner.(i) <- Zone.for_lon lo
+      Bytes.set owner i (Char.chr (Zone.for_lon lo))
     done
   done;
   let out = nan_slab [: size_px; size_px; bands :] in
@@ -227,7 +227,7 @@ let merged zone_of ~centre ~zones ~lon ~lat ~year ~size_px =
                   b <- b + 1
                 done;
                 if live then
-                  if owner.(i) = z then begin
+                  if Char.code (Bytes.get owner i) = z then begin
                     blit ~src:rv ~src_off:src ~dst:ov
                       ~dst_off:(i * bands) ~bands;
                     Bytes.unsafe_set owned i '\001'

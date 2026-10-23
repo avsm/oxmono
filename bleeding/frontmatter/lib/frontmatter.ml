@@ -58,8 +58,15 @@ let slug_of_fname fname =
     then extracts the body from the byte position. *)
 let of_string ?fname content =
   (* Check for opening delimiter *)
-  let content_trimmed = String.trim content in
-  if not (String.length content_trimmed >= 3 && String.sub content_trimmed 0 3 = "---") then
+  let length = String.length content in
+  let mutable first = 0 in
+  while first < length &&
+        (match content.[first] with
+         | ' ' | '\012' | '\n' | '\r' | '\t' -> true
+         | _ -> false)
+  do first <- first + 1 done;
+  if length - first < 3 || content.[first] <> '-'
+     || content.[first + 1] <> '-' || content.[first + 2] <> '-' then
     error_with_fname fname "Content does not start with '---' frontmatter delimiter"
   else
     let parser = Yamlrw.Parser.of_string content in

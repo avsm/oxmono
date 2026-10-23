@@ -277,6 +277,81 @@ let test_fragmented_literal () =
   | _ -> fail "expected FETCH");
   ignore (wire_ok (Imap.Wire.finish d))
 
+let test_literal_chunk_lifetime () =
+  let d = Imap.Wire.create () in
+  let header = "* 1 FETCH (UID 7 BODY[] {8}\r\n" in
+  let first = wire_ok (Imap.Wire.feed d header) in
+  let a = wire_ok (Imap.Wire.feed d "a\000bc") in
+  let b = wire_ok (Imap.Wire.feed d "defg)\r\n* 2 EXISTS\r\n") in
+  ignore (wire_ok (Imap.Wire.feed d "* OK reused control buffer\r\n"));
+  Gc.full_major ();
+  let chunks = List.filter_map (function
+    | Imap.Wire.Literal_chunk s -> Some s | _ -> None) (first @ a @ b) in
+  Alcotest.(check (list string)) "retained whole and partial chunks"
+    ["a\000bc"; "defg"] chunks;
+  (match first with
+   | Imap.Wire.Text text :: _ ->
+       Alcotest.(check string) "retained control line" header text
+   | _ -> fail "missing literal header");
+  ignore (wire_ok (Imap.Wire.finish d))
+
+let test_quoted_tokens () =
+  let quote s =
+    let b = Buffer.create (String.length s + 2) in
+    Buffer.add_char b '"';
+    String.iter (fun c ->
+      if c = '"' || c = '\\' then Buffer.add_char b '\\';
+      Buffer.add_char b c) s;
+    Buffer.add_char b '"';
+    Buffer.contents b in
+  List.iter (fun mailbox ->
+    let raw = "* LIST () \"/\" " ^ quote mailbox in
+    match expect_ok (Imap.Response.parse raw) with
+    | Imap.Response.Untagged (Imap.Response.List row) ->
+        Alcotest.(check string) "quoted mailbox" mailbox row.mailbox
+    | _ -> fail "missing LIST response")
+    [""; "INBOX"; "a b(c)[d]"; "a\\b"; "a\"b"; "\\\"";
+     String.make 4096 'x'; String.make 4096 'x' ^ "\\tail"; "caf\195\169"]
+
+let test_padded_literal_lengths () =
+  let parse_chunks text size =
+    let d = Imap.Wire.create () in
+    let rec feed offset events =
+      if offset = String.length text then (
+        ignore (wire_ok (Imap.Wire.finish d));
+        expect_ok (Imap.Response.parse_parts (List.rev events)))
+      else
+        let len = min size (String.length text - offset) in
+        let part = wire_ok (Imap.Wire.feed d (String.sub text offset len)) in
+        feed (offset + len) (List.rev_append part events)
+    in
+    feed 0 []
+  in
+  let fixtures =
+    [ "* LIST () \"/\" {0005}\r\nINBOX\r\n",
+      "* LIST () \"/\" \"INBOX\"\r\n";
+      "* LIST () {001}\r\n/ {0000}\r\n\r\n",
+      "* LIST () \"/\" \"\"\r\n";
+      "* STATUS {0005}\r\nINBOX (MESSAGES 2)\r\n",
+      "* STATUS \"INBOX\" (MESSAGES 2)\r\n";
+      "* 1 FETCH (PREVIEW {0005}\r\nhello)\r\n",
+      "* 1 FETCH (PREVIEW \"hello\")\r\n" ]
+  in
+  List.iter (fun (wire, quoted) ->
+    let expected = expect_ok (Imap.Response.parse quoted) in
+    for size = 1 to String.length wire do
+      Alcotest.(check bool) "padded length across chunk boundaries" true
+        (parse_chunks wire size = expected)
+    done) fixtures;
+  List.iter (fun (marker, size) ->
+    let events = Imap.Wire.[
+      Text ("* LIST () \"/\" " ^ marker); Literal_start size;
+      Literal_chunk "abc"; Literal_end; Text "\r\n"; End_of_response ] in
+    Alcotest.(check bool) "mismatched literal marker is rejected" true
+      (Result.is_error (Imap.Response.parse_parts events)))
+    [ "{0003}\r\n", 2L; "{0003}\r\n", -1L;
+      "{0003+}\r\n", 3L; "{003}\n", 3L ]
+
 let test_literal_status_text () =
   let d=Imap.Wire.create () in
   let events=wire_ok (Imap.Wire.feed d "* OK message ends {123}\r\n") in
@@ -1729,6 +1804,11 @@ let test_capability_responses () =
 let () =
   Alcotest.run "IMAP protocol"
     ["wire", [Alcotest.test_case "fragmented literal" `Quick test_fragmented_literal;
+              Alcotest.test_case "retained chunks" `Quick
+                test_literal_chunk_lifetime;
+              Alcotest.test_case "quoted tokens" `Quick test_quoted_tokens;
+              Alcotest.test_case "padded literal lengths" `Quick
+                test_padded_literal_lengths;
               Alcotest.test_case "status text" `Quick test_literal_status_text;
               Alcotest.test_case "BINARY literal" `Quick test_binary_literal;
               Alcotest.test_case "LIST literal" `Quick test_list_literal;

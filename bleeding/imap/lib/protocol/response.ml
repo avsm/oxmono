@@ -384,6 +384,29 @@ let checked_response_code text =
 
 type tok = A of string | Q of string | L | R | Lit of int64
 
+let[@zero_alloc] quoted_boundary s start =
+  let mutable j = start in
+  let n = String.length s in
+  while j < n && s.[j] <> '"' && s.[j] <> '\\' do j <- j + 1 done;
+  j
+
+let quoted_token s start =
+  let n = String.length s in
+  let stop = quoted_boundary s start in
+  if stop = n || s.[stop] = '"' then
+    #( (if stop = n then n else stop + 1), String.sub s start (stop-start) )
+  else
+    let b = Buffer.create (stop-start+16) in
+    Buffer.add_substring b s start (stop-start);
+    let rec quoted j =
+      if j >= n then j else
+      match s.[j] with
+      | '"' -> j+1
+      | '\\' when j+1 < n -> Buffer.add_char b s.[j+1]; quoted (j+2)
+      | c -> Buffer.add_char b c; quoted (j+1) in
+    let j = quoted stop in
+    #(j, Buffer.contents b)
+
 let tokenize s =
   let n = String.length s in
   let rec scan i acc =
@@ -393,14 +416,8 @@ let tokenize s =
     | '(' -> scan (i+1) (L::acc)
     | ')' -> scan (i+1) (R::acc)
     | '"' ->
-        let b=Buffer.create 16 in
-        let rec quoted j =
-          if j >= n then j else
-          match s.[j] with
-          | '"' -> j+1
-          | '\\' when j+1 < n -> Buffer.add_char b s.[j+1]; quoted (j+2)
-          | c -> Buffer.add_char b c; quoted (j+1) in
-        let j=quoted (i+1) in scan j (Q(Buffer.contents b)::acc)
+        let #(j, text) = quoted_token s (i+1) in
+        scan j (Q text::acc)
     | '{' -> literal i (i+1) acc
     | '~' when i+1 < n && s.[i+1]='{' -> literal i (i+2) acc
     | _ -> atom i acc
@@ -1564,6 +1581,25 @@ let scan_fetch st s =
       | '[' -> add c; st.brackets <- 1
       | c -> add c) s
 
+(* Compare decimal digits directly with the framed count. Literal lengths may
+   have leading zeroes, so formatting the count cannot recover marker bounds. *)
+let[@zero_alloc] literal_marker_start b expected =
+  let n = Buffer.length b in
+  if expected < 0L || n < 5 || Buffer.nth b (n-1) <> '\n' ||
+     Buffer.nth b (n-2) <> '\r' || Buffer.nth b (n-3) <> '}' then -1
+  else
+    let mutable i = n-4 in
+    let mutable rest = expected in
+    let mutable matches = true in
+    while i >= 0 && Buffer.nth b i >= '0' && Buffer.nth b i <= '9' do
+      let digit = Char.code (Buffer.nth b i) - Char.code '0' in
+      if digit <> Int64.to_int (Int64.rem rest 10L) then matches <- false;
+      rest <- Int64.div rest 10L;
+      i <- i-1
+    done;
+    if matches && rest = 0L && i >= 0 && i < n-4 && Buffer.nth b i = '{'
+    then i else -1
+
 let parse_parts ?(max_control_literal=16_777_216) parts =
   if max_control_literal < 0 then invalid_arg "Imap.Response.parse_parts";
   match parts with
@@ -1601,9 +1637,7 @@ let parse_parts ?(max_control_literal=16_777_216) parts =
         Buffer.add_string b s
     | Wire.End_of_response -> complete := true
     | Wire.Literal_start n ->
-        let marker=Printf.sprintf "{%Ld}\r\n" n in
-        let m=String.length marker in
-        let start=Buffer.length b-m in
+        let start=literal_marker_start b n in
         let preview= !fetch_response && start>=8 &&
           up (Buffer.sub b (start-8) 8)="PREVIEW " in
         let inside item= !fetch_response && scan.depth>=2 && scan.item=item in
@@ -1628,7 +1662,7 @@ let parse_parts ?(max_control_literal=16_777_216) parts =
             fail "BODYSTRUCTURE literals exceed aggregate limit"
           else if Int64.to_int n > max_control_literal - !retained then
             fail "retained literals exceed aggregate limit"
-          else if start<0 || Buffer.sub b start m <> marker then
+          else if start<0 then
             fail "literal marker mismatch"
           else (
             retained := !retained + Int64.to_int n;

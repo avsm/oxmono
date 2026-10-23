@@ -92,7 +92,9 @@ let feed t input =
     match t.state with
     | Literal remaining ->
         let take = Int64.to_int (Int64.min remaining (Int64.of_int (len-i))) in
-        events <- Literal_chunk (String.sub input i take) :: events;
+        let chunk =
+          if i = 0 && take = len then input else String.sub input i take in
+        events <- Literal_chunk chunk :: events;
         t.offset <- t.offset + take;
         let left = Int64.sub remaining (Int64.of_int take) in
         if left = 0L then (

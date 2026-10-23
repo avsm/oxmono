@@ -51,7 +51,8 @@ val feed : t -> string -> (event list, error) result
     [feed] and {!finish} returns the same error. When a chunk fails after
     framing some events, [feed] returns those events and the next call
     returns the error, so [feed t ""] reports a pending error without
-    consuming input. *)
+    consuming input. Returned strings remain valid after later calls to
+    [feed]. A literal chunk may share the immutable input string. *)
 
 val finish : t -> (unit, error) result
 (** [finish t] signals the end of the stream of [t]. It is an error if a

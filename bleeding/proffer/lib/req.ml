@@ -37,14 +37,14 @@ type t = {
   preconditions_handled : bool;
 }
 
-let split_target target =
-  match String.index_opt target '?' with
-  | None -> #(target, "")
-  | Some i ->
-      #( String.sub target 0 i,
-         String.sub target (i + 1) (String.length target - i - 1) )
+let[@zero_alloc] split_target (target : string @ local) = exclave_
+  match Pct.index_from target 0 (String.length target) '?' with
+  | -1 -> #(target, "")
+  | i ->
+      #( Pct.sub_local target 0 i,
+         Pct.sub_local target (i + 1) (String.length target - i - 1) )
 
-let v ~meth ~target ?(transport = Insecure) ?(version = Httpz.Version.Http_1_1)
+let[@zero_alloc] v ~meth ~target ?(transport = Insecure) ?(version = Httpz.Version.Http_1_1)
     ?(connection_upgrade = false) ?path ?query ?(headers = Headers.empty)
     ?(body = "") () =
   exclave_
@@ -53,8 +53,8 @@ let v ~meth ~target ?(transport = Insecure) ?(version = Httpz.Version.Http_1_1)
     | Some path, Some query -> #(path, query)
     | _ ->
       let #(default_path, default_query) = split_target target in
-      #( Option.value path ~default:default_path,
-         Option.value query ~default:default_query )
+      #( (match path with Some path -> path | None -> default_path),
+         (match query with Some query -> query | None -> default_query) )
   in
   {
     transport;
@@ -155,6 +155,9 @@ let handle_preconditions (t : t @ local) =
   exclave_ { t with preconditions_handled = true }
 let preconditions_handled (t : t @ local) = t.preconditions_handled
 let query_param (t : t @ local) (name : string @ local) = Pct.param ~plus:true t.qs name
+
+let[@zero_alloc] query_param_local (t : t @ local) (name : string @ local) =
+  exclave_ Pct.param_local ~plus:true t.qs name
 
 let globalize (s : string @ local) = Pct.copy_all s
 

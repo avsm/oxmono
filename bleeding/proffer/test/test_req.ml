@@ -16,6 +16,75 @@ let req ?headers ?body target = exclave_
   let headers = Option.map Headers.of_list headers in
   Req.v ~meth:M.Get ~target ?headers ?body ()
 
+let[@zero_alloc] query_length (r : Req.t @ local) (name : string @ local) =
+  match Req.query_param_local r name with
+  | None -> -1
+  | Some value -> String.length value
+
+let same_optional (actual : string option @ local) expected =
+  match actual, expected with
+  | None, None -> true
+  | Some a, Some b -> String.equal a b
+  | _ -> false
+
+let[@zero_alloc] request_path_length target =
+  let local_ r = Req.v ~meth:M.Get ~target () in
+  String.length (Req.path r)
+
+let () =
+  List.iter (fun (target, path, query) ->
+    let target = Sys.opaque_identity target in
+    let local_ r = Req.v ~meth:M.Get ~target () in
+    check "dynamic target path" (String.equal (Req.path r) path);
+    check "dynamic target query" (Req.query r = query);
+    check "allocation-checked request construction"
+      (request_path_length target = String.length path))
+    [ "/", "/", []; "?", "", []; "/x?", "/x", [];
+      "/x?a=b?c", "/x", ["a", "b?c"];
+      "/x%3Fy?a=%3F", "/x%3Fy", ["a", "?"] ];
+  let local_ r =
+    Req.v ~meth:M.Get ~target:"/original?a=1" ~path:"/override" ()
+  in
+  check "path-only override preserves parsed query"
+    (String.equal (Req.path r) "/override" && Req.query r = ["a", "1"]);
+  let local_ r =
+    Req.v ~meth:M.Get ~target:"/original?a=1" ~query:"b=2" ()
+  in
+  check "query-only override preserves parsed path"
+    (String.equal (Req.path r) "/original" && Req.query r = ["b", "2"])
+
+let () =
+  let cases =
+    [ ""; "&&"; "bare&bare=second"; "a=1&a=2"; "=empty";
+      "a+b=c+d&a%2Bb=c%2Bd"; "%zz=%4&x=%C3%A9";
+      "x=%00&x=second"; "a=b=c&bare&e=" ]
+  in
+  let names = [ ""; "a"; "a b"; "a+b"; "bare"; "e"; "%zz"; "x" ] in
+  List.iter (fun query ->
+    List.iter (fun name ->
+      let r = req ("/?" ^ query) in
+      let expected = List.assoc_opt name (Req.query r) in
+      check "local query lookup agrees with decoded query"
+        (same_optional (Req.query_param_local r name) expected);
+      check "owned query lookup agrees with decoded query"
+        (Req.query_param r name = expected);
+      check "local query consumer"
+        (query_length r name =
+         Option.fold ~none:(-1) ~some:String.length expected)) names) cases;
+  let random = Random.State.make [| 3401 |] in
+  let alphabet = "abx&=+%01249AZ\000" in
+  for _ = 1 to 2000 do
+    let query = String.init (Random.State.int random 100) (fun _ ->
+      alphabet.[Random.State.int random (String.length alphabet)]) in
+    List.iter (fun name ->
+      let r = req ("/?" ^ query) in
+      let expected = List.assoc_opt name (Req.query r) in
+      check "random local query differential"
+        (same_optional (Req.query_param_local r name) expected);
+      check "random owned query differential"
+        (Req.query_param r name = expected)) names
+  done
+
 (* The block's strings are local, so the list is walked rather than searched
    with [List.mem_assoc]. *)
 let rec mem_assoc_local name (l : (string * string) list @ local) =

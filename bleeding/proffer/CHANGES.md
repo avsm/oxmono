@@ -1,5 +1,9 @@
 ## v0.1.0 (unreleased)
 
+- Add allocation-checked local query parameter lookup for request handlers.
+- Construct request paths and queries in the caller's region without heap
+  allocation.
+
 - Add singleton header lookup for known and custom request fields, rejecting
   repeated values instead of silently selecting the first.
 

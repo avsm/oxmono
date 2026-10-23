@@ -263,6 +263,7 @@ module Req : sig
     unit ->
     t @ local
     @@ portable
+  [@@zero_alloc]
   (** [v ~meth ~target ()] is a request with the supplied method and raw target.
       [path] and [query] override the values normally derived from [target].
       [transport] defaults to [Insecure]. [version] defaults to HTTP/1.1.
@@ -305,6 +306,12 @@ module Req : sig
 
   val query_param : t @ local -> string -> string option @@ portable
   (** [query_param t name] is the first value of [name] in {!query}. *)
+
+  val query_param_local :
+    t @ local -> string @ local -> string option @ local @@ portable
+  [@@zero_alloc]
+  (** [query_param_local t name] is the first value of [name], decoded in
+      the caller's region. Copy a value that must outlive that region. *)
 
   val headers : t @ local -> Headers.t @ local @@ portable
   (** [headers t] is the request's field block. *)

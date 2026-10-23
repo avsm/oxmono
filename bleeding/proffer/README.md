@@ -26,3 +26,13 @@ mapping, insert its lowercase extension in sorted order and cover it in
 The [public interface](lib/proffer.mli) describes the API. The
 [repository guide](../../HTTPZ.md) describes library selection, setup
 and backend limits. All examples are under the top-level `example/` directory.
+
+Measure framework allocations with
+`dune exec --profile release-check bleeding/proffer/bench/bench_alloc.exe`.
+The writer discards output, so this excludes socket I/O. The
+`Req.query_param_local` rows measure lookup after subtracting request creation.
+
+Measure a real keep-alive connection with
+`dune exec --profile release-check bleeding/proffer/bench/bench_httpz_alloc.exe -- 1000`.
+This includes both the loopback client and server, Eio, clocks and socket I/O.
+Connection setup and 100 warmup requests are excluded.

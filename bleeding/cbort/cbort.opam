@@ -12,7 +12,7 @@ homepage: "https://tangled.org/anil.recoil.org/ocaml-cbort"
 bug-reports: "https://tangled.org/anil.recoil.org/ocaml-cbort/issues"
 depends: [
   "dune" {>= "3.21"}
-  "ocaml" {>= "5.1"}
+  "ocaml" {>= "5.2"}
   "bytesrw" {>= "0.2"}
   "zarith" {>= "1.12"}
   "odoc" {with-doc}

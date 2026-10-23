@@ -1,5 +1,11 @@
 (test
  (name test_cbort)
+ (modules test_cbort)
  (libraries cbort bytesrw zarith ohex)
  (deps
   (source_tree ../test-vectors)))
+
+(test
+ (name test_binary)
+ (modules test_binary)
+ (libraries cbort bytesrw zarith))

@@ -16,7 +16,7 @@
    approach. Define codecs once and use them for both encoding and decoding
    OCaml values to and from CBOR binary format.")
  (depends
-  (ocaml (>= 5.1))
+  (ocaml (>= 5.2))
   (bytesrw (>= 0.2))
   (zarith (>= 1.12))
   (odoc :with-doc)

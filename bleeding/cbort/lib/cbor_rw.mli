@@ -182,7 +182,8 @@ val write_bool : encoder -> bool -> unit
 (** [write_bool enc b] encodes a CBOR boolean value. *)
 
 val write_simple : encoder -> int -> unit
-(** [write_simple enc n] encodes simple value [n] (0-255). *)
+(** [write_simple enc n] encodes simple value [n].
+    @raise Invalid_argument unless [n] is in 0-23 or 32-255. *)
 
 val write_float16 : encoder -> float -> unit
 (** [write_float16 enc f] encodes a 16-bit half-precision float. *)
@@ -217,7 +218,7 @@ val write_bytes_data : encoder -> string -> unit
 val write_bytes_header : encoder -> int -> unit
 (** [write_bytes_header enc len] writes the header for a byte string of length
     [len]. The caller must then write exactly [len] bytes using {!write_bytes}.
-*)
+    @raise Invalid_argument if [len] is negative. *)
 
 val write_bytes_start : encoder -> unit
 (** [write_bytes_start enc] starts an indefinite-length byte string. *)
@@ -227,7 +228,8 @@ val write_bytes_chunk : encoder -> string -> unit
 
 val write_array_start : encoder -> int -> unit
 (** [write_array_start enc n] writes the header for a definite-length array of
-    [n] items. The caller must then encode exactly [n] data items. *)
+    [n] items. The caller must then encode exactly [n] data items.
+    @raise Invalid_argument if [n] is negative. *)
 
 val write_array_indef : encoder -> unit
 (** [write_array_indef enc] starts an indefinite-length array. Encode items then
@@ -236,7 +238,8 @@ val write_array_indef : encoder -> unit
 val write_map_start : encoder -> int -> unit
 (** [write_map_start enc n] writes the header for a definite-length map of [n]
     key-value pairs. The caller must then encode exactly [2*n] data items
-    (alternating keys and values). *)
+    (alternating keys and values).
+    @raise Invalid_argument if [n] is negative. *)
 
 val write_map_indef : encoder -> unit
 (** [write_map_indef enc] starts an indefinite-length map. Encode key-value
@@ -244,7 +247,8 @@ val write_map_indef : encoder -> unit
 
 val write_tag : encoder -> int -> unit
 (** [write_tag enc n] writes tag number [n]. The next item written is the tagged
-    content. *)
+    content.
+    @raise Invalid_argument if [n] is negative. *)
 
 val write_break : encoder -> unit
 (** [write_break enc] writes the break stop code (0xff) to terminate an
@@ -305,24 +309,29 @@ val read_header : decoder -> header
 val read_argument : decoder -> header -> int64
 (** [read_argument dec hdr] reads the argument value based on the additional
     info in [hdr]. For info 0-23, returns that value. For 24-27, reads the
-    following 1/2/4/8 bytes. Returns -1 for indefinite length (31). *)
+    following 1/2/4/8 bytes. Eight-byte arguments retain their raw bit pattern,
+    so unsigned values above [Int64.max_int] return negative values. Returns
+    -1 for indefinite length, identified by [hdr.info = 31]. *)
 
 (** {2 CBOR Value Decoding} *)
 
 val read_int : decoder -> int64
 (** [read_int dec] reads a CBOR integer (major type 0 or 1). Returns the signed
-    value.
-    @raise Failure if not an integer type. *)
+    value in [-2^63, 2^63-1]. Use {!read_cbor} for larger integers.
+    @raise Failure if not an integer, its header is indefinite, or the value
+    is outside the signed int64 range. *)
 
 val read_text : decoder -> string
 (** [read_text dec] reads a CBOR text string (major type 3). Handles both
     definite and indefinite-length strings.
-    @raise Failure if not a text string. *)
+    @raise Failure on an invalid string header or chunk, or a length above
+    [Sys.max_string_length]. *)
 
 val read_bytes_data : decoder -> string
 (** [read_bytes_data dec] reads a CBOR byte string (major type 2). Handles both
     definite and indefinite-length strings.
-    @raise Failure if not a byte string. *)
+    @raise Failure on an invalid string header or chunk, or a length above
+    [Sys.max_string_length]. *)
 
 val read_float : decoder -> float
 (** [read_float dec] reads a CBOR float (major type 7 with info 25-27). Handles
@@ -344,22 +353,23 @@ val read_undefined : decoder -> unit
 val read_simple : decoder -> int
 (** [read_simple dec] reads a CBOR simple value (major type 7 with info 0-24).
     Returns the simple value number.
-    @raise Failure if not a simple value. *)
+    @raise Failure if not a simple value or its encoding is reserved. *)
 
 val read_array_start : decoder -> int option
 (** [read_array_start dec] reads an array header (major type 4). Returns
     [Some n] for definite-length array of [n] items, or [None] for
     indefinite-length array.
-    @raise Failure if not an array. *)
+    @raise Failure if not an array or its definite length exceeds [max_int]. *)
 
 val read_map_start : decoder -> int option
 (** [read_map_start dec] reads a map header (major type 5). Returns [Some n] for
     definite-length map of [n] pairs, or [None] for indefinite-length map.
-    @raise Failure if not a map. *)
+    @raise Failure if not a map or its definite length exceeds [max_int]. *)
 
 val read_tag : decoder -> int
 (** [read_tag dec] reads a tag number (major type 6).
-    @raise Failure if not a tag. *)
+    @raise Failure if not a tag or its argument is indefinite or exceeds
+    [max_int]. *)
 
 val is_break : decoder -> bool
 (** [is_break dec] returns [true] if the next byte is the break code (0xff).
@@ -384,4 +394,7 @@ val write_cbor : encoder -> Cbor.t -> unit
 
 val read_cbor : decoder -> Cbor.t
 (** [read_cbor dec] reads a complete CBOR data item.
-    @raise Failure on invalid CBOR or unexpected end of input. *)
+    Integers retain their full range in [Z.t]. Lengths and tag numbers must
+    fit in [int], and strings must fit in [Sys.max_string_length].
+    @raise Failure on invalid CBOR or an unsupported length or tag.
+    @raise End_of_file on truncated input. *)

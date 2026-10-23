@@ -13,3 +13,7 @@
 (executable
  (name cookbook)
  (libraries tomlt tomlt.bytesrw unix))
+
+(test
+ (name test_utf8)
+ (libraries tomlt tomlt.bytesrw))

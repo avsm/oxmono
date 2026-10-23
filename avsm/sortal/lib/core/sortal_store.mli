@@ -197,3 +197,10 @@ val handle_of_name : string -> string
 
 val pp : Format.formatter -> t -> unit
 (** [pp ppf t] pretty prints the contact store showing statistics. *)
+
+val uid : Contact.t -> string option
+(** [uid contact] is the stable vCard UID of a loaded contact. It survives
+    handle changes. Unsaved contacts without source cards return [None]. *)
+
+val list_readonly : t -> Contact.t list
+(** [list_readonly t] reads contacts without materializing cached photographs. *)

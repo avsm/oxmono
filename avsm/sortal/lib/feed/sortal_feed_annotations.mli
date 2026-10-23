@@ -26,9 +26,10 @@ val slugs_for_url : t -> string -> string list
 (** [slugs_for_url t url] returns the slugs annotated for [url],
     or the empty list if none. *)
 
-val load : Eio.Fs.dir_ty Eio.Path.t -> t
+val load : ?strict:bool -> Eio.Fs.dir_ty Eio.Path.t -> t
 (** [load path] reads annotations from [path]. Returns [empty ()]
-    if the file does not exist or cannot be parsed. *)
+    if the file does not exist or cannot be parsed. [strict] raises on malformed
+    or unreadable existing files. *)
 
 val save : Eio.Fs.dir_ty Eio.Path.t -> t -> unit
 (** [save path t] writes annotations to [path] as JSON. *)

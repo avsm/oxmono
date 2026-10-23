@@ -61,9 +61,10 @@ val save_jsonfeed : Eio.Fs.dir_ty Eio.Path.t -> Jsonfeed.t -> unit
 
 val load_jsonfeed : Eio.Fs.dir_ty Eio.Path.t -> Jsonfeed.t option
 
-val entries_of_feed : t -> handle:string -> Sortal_schema.Feed.t -> Sortal_feed_entry.t list
+val entries_of_feed : ?strict:bool -> t -> handle:string -> Sortal_schema.Feed.t -> Sortal_feed_entry.t list
 (** [entries_of_feed t ~handle feed] is every entry stored for [feed],
     read via {!effective_type} rather than [feed]'s recorded type, so a
-    feed a sync has reclassified is still found. *)
+    feed a sync has reclassified is still found. [strict] raises when an existing
+    cached feed cannot be read or parsed. *)
 
 val all_entries : t -> handle:string -> Sortal_schema.Feed.t list -> Sortal_feed_entry.t list

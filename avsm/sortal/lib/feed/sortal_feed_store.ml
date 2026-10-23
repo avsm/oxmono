@@ -193,29 +193,32 @@ let relocate t handle feed to_type =
       end
     end
 
-let entries_of_feed t ~handle feed =
+let entries_of_feed ?(strict=false) t ~handle feed =
   let source_feed = Sortal_schema.Feed.url feed in
   (* Read from wherever [effective_type] finds content, not from [feed]'s
      recorded type: sync may have found a feed's real format to differ
      from what the contact YAML still records. *)
   let ft = effective_type t handle feed in
   let path = feed_file t handle (Sortal_schema.Feed.set_feed_type feed ft) in
+  let missing () =
+    if strict && Sys.file_exists (Eio.Path.native_exn path) then
+      failwith ("Cannot parse cached feed: " ^ source_feed) else [] in
   match ft with
   | Atom | Manual ->
     (match load_atom path with
      | Some atom_feed ->
        List.map (Sortal_feed_entry.of_atom_entry ~source_feed) atom_feed.entries
-     | None -> [])
+     | None -> missing ())
   | Rss ->
     (match load_rss path with
      | Some channel ->
        List.map (Sortal_feed_entry.of_rss2_item ~source_feed) channel.items
-     | None -> [])
+     | None -> missing ())
   | Json ->
     (match load_jsonfeed path with
      | Some jf ->
        List.map (Sortal_feed_entry.of_jsonfeed_item ~source_feed) (Jsonfeed.items jf)
-     | None -> [])
+     | None -> missing ())
 
 let all_entries t ~handle feeds =
   let all = List.concat_map (entries_of_feed t ~handle) feeds in

@@ -51,7 +51,7 @@ let materialize_photos t raw =
         Common.atomic_write path bytes)
     photos
 
-let documents t =
+let documents ?(materialize=true) t =
   if not (Common.exists (marker t)) then (
     if Common.exists (root t) then
       Array.iter
@@ -80,13 +80,15 @@ let documents t =
           if name <> uid ^ ".vcf" then
             Common.fail "vCard filename differs from UID: %s" name;
           let contact = Document.contact raw in
-          materialize_photos t raw;
+          if materialize then materialize_photos t raw;
           let handle = Contact.handle contact in
           if handle = "" || Hashtbl.mem handles handle || Hashtbl.mem uids uid
           then Common.fail "duplicate or empty contact identity: %s" handle;
           Hashtbl.add handles handle ();
           Hashtbl.add uids uid ();
           Some (name, contact))
+
+let list_readonly t = List.map snd (documents ~materialize:false t) |> List.sort Contact.compare
 
 let list t = List.map snd (documents t) |> List.sort Contact.compare
 
@@ -399,3 +401,9 @@ let pp ppf t =
   Fmt.pf ppf "@[<v>%a: %d contacts stored in XDG data directory@]"
     (Fmt.styled `Bold Fmt.string)
     "Sortal Store" (List.length all)
+
+let uid contact =
+  Option.map (fun raw ->
+    let props = Carddav.Mapping.parse raw in
+    Carddav.Mapping.untext (Carddav.Mapping.only props "UID").value)
+    (Contact.source contact)

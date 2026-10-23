@@ -15,60 +15,16 @@ module FeedEntry = Sortal_feed.Entry
 module Idea = Bushel.Idea
 module I = Arod.Icons
 
-type timeline_item = Feed_item of Arod.Ctx.feed_item * (int * int * int)
+type timeline_item = Arod.Collections.timeline_item = Feed_item of Arod.Ctx.feed_item * (int * int * int)
 
 let timeline_date (Feed_item (_, d)) = d
 
-type month_section = {
+type month_section = Arod.Collections.month_section = {
   year : int;
   month : int;
   collaborators : Contact.t list;
   items : timeline_item list;
 }
-
-(** [month_collaborators ~ctx entries feed_items] is the month's collaborator
-    list ordered by appearance count. *)
-let month_collaborators ~ctx bushel_entries feed_items =
-  let counts : (string, int) Hashtbl.t = Hashtbl.create 16 in
-  let contact_map : (string, Contact.t) Hashtbl.t = Hashtbl.create 16 in
-  let bump contact =
-    let h = Contact.handle contact in
-    Hashtbl.replace contact_map h contact;
-    let cur = Option.value ~default:0 (Hashtbl.find_opt counts h) in
-    Hashtbl.replace counts h (cur + 1)
-  in
-  List.iter (fun ent ->
-    let tags = Bushel.Entry.tags_of_ent ent in
-    List.iter (function
-      | `Contact handle ->
-        (match Arod.Ctx.lookup_by_handle ctx handle with
-         | Some c -> bump c
-         | None -> ())
-      | _ -> ()
-    ) tags
-  ) bushel_entries;
-  List.iter (fun ent ->
-    match ent with
-    | `Paper paper ->
-      List.iter (fun author_name ->
-        match Arod.Ctx.lookup_by_name ctx author_name with
-        | Some c -> bump c
-        | None -> ()
-      ) (Paper.authors paper)
-    | _ -> ()
-  ) bushel_entries;
-  List.iter (fun (item : Arod.Ctx.feed_item) ->
-    bump item.contact
-  ) feed_items;
-  let contacts_with_counts =
-    Hashtbl.fold (fun h count acc ->
-      match Hashtbl.find_opt contact_map h with
-      | Some c -> (c, count) :: acc
-      | None -> acc
-    ) counts []
-  in
-  let sorted = List.sort (fun (_, a) (_, b) -> compare b a) contacts_with_counts in
-  List.map fst sorted
 
 (** [render_avatar ~entries contact] is the avatar for [contact]. *)
 let render_avatar ~entries contact =
@@ -102,7 +58,9 @@ let forward_entries ~ctx fe =
 (** [student_ideas ~idea_index contact] is the ideas, as slug and title, that
     [contact] takes part in as a student. *)
 let student_ideas ~idea_index contact =
-  try Hashtbl.find idea_index (Contact.handle contact) with Not_found -> []
+  match Bushel.Smap.find_or_null (Contact.handle contact) idea_index with
+  | Null -> []
+  | This ideas -> ideas
 
 (** [render_feed_item ~ctx ~entries ~idea_index item date] is a timeline row. *)
 let render_feed_item ~ctx ~entries ~idea_index (item : Arod.Ctx.feed_item) ((_y, _m, day) : int * int * int) =
@@ -199,69 +157,10 @@ let render_month ~ctx ~entries ~idea_index section =
     El.div ~at:[At.class' "network-month-body"] item_els]
 
 let compute_month_sections ~ctx =
-  let all_entries = Arod.Ctx.all_entries ctx in
-  let all_feed_items = Arod.Ctx.feed_items ctx in
+  Arod.Collections.to_list (Arod.Collections.months (Arod.Ctx.collections ctx))
 
-  let bushel_by_month : (int * int, Entry.entry list) Hashtbl.t = Hashtbl.create 64 in
-  List.iter (fun ent ->
-    let (y, m, _d) = Entry.date ent in
-    let key = (y, m) in
-    let cur = Option.value ~default:[] (Hashtbl.find_opt bushel_by_month key) in
-    Hashtbl.replace bushel_by_month key (ent :: cur)
-  ) all_entries;
-
-  let feed_by_month : (int * int, Arod.Ctx.feed_item list) Hashtbl.t = Hashtbl.create 64 in
-  List.iter (fun (item : Arod.Ctx.feed_item) ->
-    match item.entry.FeedEntry.date with
-    | Some d ->
-      let (y, m, _d), _ = Ptime.to_date_time d in
-      let key = (y, m) in
-      let cur = Option.value ~default:[] (Hashtbl.find_opt feed_by_month key) in
-      Hashtbl.replace feed_by_month key (item :: cur)
-    | None -> ()
-  ) all_feed_items;
-
-  let months =
-    Hashtbl.fold (fun k _ acc -> k :: acc) feed_by_month []
-    |> List.sort (fun (y1, m1) (y2, m2) ->
-      let c = compare y2 y1 in if c <> 0 then c else compare m2 m1)
-  in
-
-  List.map (fun (y, m) ->
-    let bushel_ents =
-      Hashtbl.find_opt bushel_by_month (y, m)
-      |> Option.value ~default:[] |> List.rev
-    in
-    let feed_items =
-      Hashtbl.find_opt feed_by_month (y, m)
-      |> Option.value ~default:[] |> List.rev
-    in
-    let collaborators = month_collaborators ~ctx bushel_ents feed_items in
-    let timeline =
-      List.map (fun (item : Arod.Ctx.feed_item) ->
-        let d = match item.entry.FeedEntry.date with
-          | Some pt -> let (y, m, d), _ = Ptime.to_date_time pt in (y, m, d)
-          | None -> (y, m, 1)
-        in
-        Feed_item (item, d)
-      ) feed_items
-      |> List.sort (fun a b -> compare (timeline_date b) (timeline_date a))
-    in
-    { year = y; month = m; collaborators; items = timeline }
-  ) months
-
-(** [build_idea_index ~ctx] maps students to their ideas. *)
 let build_idea_index ~ctx =
-  let tbl : (string, (string * string) list) Hashtbl.t = Hashtbl.create 64 in
-  List.iter (fun idea ->
-    List.iter (fun handle ->
-      let cur = Option.value ~default:[] (Hashtbl.find_opt tbl handle) in
-      let pair = (Idea.slug idea, Idea.title idea) in
-      if not (List.mem pair cur) then
-        Hashtbl.replace tbl handle (pair :: cur)
-    ) (Idea.student_handles idea)
-  ) (Arod.Ctx.ideas ctx);
-  tbl
+  Arod.Collections.student_ideas (Arod.Ctx.collections ctx)
 
 (** [render_months_html ~ctx sections] is the pagination fragment for [sections]. *)
 let render_months_html ~ctx sections =

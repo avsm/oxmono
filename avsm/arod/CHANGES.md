@@ -1,5 +1,8 @@
 # Changes
 
+- Cache immutable link and network pagination indexes and reduce temporary
+  search-ranking allocations.
+
 - Reduce allocations in query parsing and backlink lookups.
 
 - Simplify pull readiness reporting and require regular files when checking

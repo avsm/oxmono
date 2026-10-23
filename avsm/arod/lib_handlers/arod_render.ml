@@ -541,12 +541,22 @@ let pagination ~ctx ~collection ~offset ~limit ~types =
     page_json ~html:(render slice) ~total ~offset ~limit ~count
       ~has_more:(offset + count < total)
   in
+  let paginate_array all render =
+    let total = Arod.Collections.length all in
+    let offset = min offset (max 0 (total - 1)) in
+    let slice = Arod.Collections.page all ~offset ~limit in
+    let count = List.length slice in
+    page_json ~html:(render slice) ~total ~offset ~limit ~count
+      ~has_more:(offset + count < total)
+  in
   match collection with
   | None -> error_json "Missing collection parameter"
   | Some "links" ->
-    paginate (C.Links.all_groups ~ctx) (C.Links.render_groups_html ~ctx)
+    paginate_array (Arod.Collections.links (Arod.Ctx.collections ctx))
+      (C.Links.render_groups_html ~ctx)
   | Some "network" ->
-    paginate (C.Network.all_months ~ctx) (C.Network.render_months_html ~ctx)
+    paginate_array (Arod.Collections.months (Arod.Ctx.collections ctx))
+      (C.Network.render_months_html ~ctx)
   | Some (("feed" | "entries") as collection_type) ->
     let types = List.filter_map C.List_view.entry_type_of_string types in
     let render =

@@ -140,6 +140,11 @@
  (libraries arod bushel))
 
 (test
+ (name test_collections)
+ (modules test_collections)
+ (libraries arod bushel sortal.schema))
+
+(test
  (name test_notes_releases)
  (modules test_notes_releases)
  (deps

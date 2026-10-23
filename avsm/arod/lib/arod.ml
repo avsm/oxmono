@@ -8,6 +8,9 @@
 module Config = Arod_config
 (** TOML-based configuration for the webserver. *)
 
+module Collections = Arod_collections
+(** Immutable pagination and lookup snapshots. *)
+
 module Ctx = Arod_ctx
 (** Context record holding entries and configuration. *)
 

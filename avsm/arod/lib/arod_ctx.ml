@@ -6,7 +6,7 @@
 let src = Logs.Src.create "arod.ctx" ~doc:"Arod context"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-type feed_item = {
+type feed_item = Arod_collections.feed_item = {
   contact : Sortal_schema.Contact.t;
   entry : Sortal_feed.Entry.t;
   mentions : Bushel.Entry.entry list;
@@ -19,6 +19,7 @@ type feed_backlink = {
 
 type t = {
   config : Arod_config.t;
+  collections : Arod_collections.t;
   entries : Bushel.Entry.t;
   feed_items : feed_item list;
   feed_backlinks : feed_backlink list Bushel.Smap.t;
@@ -304,6 +305,7 @@ let create ~config fs =
   in
   {
     config;
+    collections = Arod_collections.create ~entries ~feed_items;
     entries;
     feed_items;
     feed_backlinks;
@@ -318,6 +320,7 @@ let create ~config fs =
 let of_entries ~config ?(releases = []) entries =
   {
     config;
+    collections = Arod_collections.create ~entries ~feed_items:[];
     entries;
     feed_items = [];
     feed_backlinks = Bushel.Smap.empty;
@@ -329,6 +332,7 @@ let of_entries ~config ?(releases = []) entries =
     note_references = build_note_references ~config entries;
   }
 
+let collections t = t.collections
 let config t = t.config
 let base_url t = t.config.site.base_url
 

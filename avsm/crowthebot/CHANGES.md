@@ -1,5 +1,8 @@
 # Changes
 
+- Reuse memory summary trees while source content is unchanged. Recheck all
+  authoritative sources before accepting summaries after inference.
+
 - Add shared address search and reverse-geocoding tools using Nominatim,
   with marpe defaults, bounded results and explicit service errors.
 

@@ -172,6 +172,58 @@ let () =
                      ~summarize:(fun ~limit:_ _ -> "durable summary")
                      store admin))));
       Eio.Switch.run (fun sw ->
+          let db = Sqlite3_eio.open_path ~sw Eio.Path.(dir / "store.sqlite") in
+          let store = Store.create db ~admin in
+          let before, _ = Store.memory_tree store ~actor:admin in
+          let key = List.hd (Agentkit.Memo.keys before) in
+          let writer =
+            Sqlite3_eio.open_path ~sw Eio.Path.(dir / "store.sqlite")
+          in
+          Sqlite3.Rc.check
+            (Sqlite3_eio.exec writer
+               "UPDATE facts SET body='External correction' WHERE id=1");
+          check "same-revision external edit rejects stale summary"
+            (not
+               (Store.save_memory_summary store ~actor:admin ~key
+                  ~body:"stale external edit"));
+          let after, _ = Store.memory_tree store ~actor:admin in
+          check "external edit changes current keys"
+            (not (Agentkit.Memo.mem after key));
+          check "external edit reaches current source view"
+            (List.exists
+               (fun (v : Agentkit.Memo.view) ->
+                 contains v.text "External correction")
+               (Agentkit.Memo.overview after ~budget:8 ~lookup:(fun _ -> None)));
+          let key = List.hd (Agentkit.Memo.keys after) in
+          check "current summary is accepted after an external edit"
+            (Store.save_memory_summary store ~actor:admin ~key
+               ~body:"current external edit");
+          Sqlite3.Rc.check
+            (Sqlite3_eio.exec writer "DELETE FROM facts WHERE id=1");
+          check "external deletion rejects stale summary"
+            (not
+               (Store.save_memory_summary store ~actor:admin ~key
+                  ~body:"stale external deletion"));
+          check "external deletion clears cached summary text"
+            (snd (Store.memory_tree store ~actor:admin) = []);
+          Sqlite3.Rc.check
+            (Sqlite3_eio.exec writer
+               "INSERT INTO facts(id,created_at,author,room,event,source,body) \
+                VALUES(1,'restored','@admin:example.org','!memo:example.org', \
+                '$restored','command','Restored source')");
+          let restored, _ = Store.memory_tree store ~actor:admin in
+          check "external insertion restores the source count"
+            (List.fold_left
+               (fun n (v : Agentkit.Memo.view) -> n + v.count)
+               0
+               (Agentkit.Memo.overview restored ~budget:8
+                  ~lookup:(fun _ -> None))
+            = 2);
+          let key = List.hd (Agentkit.Memo.keys restored) in
+          check "restored current summary persists"
+            (Store.save_memory_summary store ~actor:admin ~key
+               ~body:"restored source summary"));
+      Eio.Switch.run (fun sw ->
           let store =
             Store.create
               (Sqlite3_eio.open_path ~sw Eio.Path.(dir / "store.sqlite"))

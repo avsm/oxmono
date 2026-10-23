@@ -19,6 +19,7 @@ type t = {
   admin : string;
   mutex : Eio.Mutex.t;
   now : unit -> float;
+  mutable memory : (Agentkit.Memo.source list * Agentkit.Memo.t) option;
 }
 
 let timestamp now =
@@ -172,7 +173,7 @@ CREATE INDEX history_thread ON history(room,user,id);
        status='running'"
       [ text started_at ];
     sql db "COMMIT";
-    { db; admin; mutex = Eio.Mutex.create (); now }
+    { db; admin; mutex = Eio.Mutex.create (); now; memory = None }
   with exn ->
     let bt = Printexc.get_raw_backtrace () in
     Eio.Cancel.protect (fun () -> sql db "ROLLBACK");
@@ -430,6 +431,7 @@ let add_fact t ~actor ~room ~event ~source ~body =
       text source;
       text body;
     ];
+  t.memory <- None;
   Int64.to_int (Sqlite3.last_insert_rowid (Sqlite3_eio.db t.db))
 
 let get_fact t ~actor id =
@@ -462,21 +464,31 @@ let erase_fact t ~actor id =
   locked t @@ fun () ->
   require_friend t actor;
   execute t.db "DELETE FROM facts WHERE id=?" [ integer id ];
+  t.memory <- None;
   Sqlite3.changes (Sqlite3_eio.db t.db) > 0
 
 let memory_tree_unlocked t =
   let facts = rows t.db "SELECT * FROM facts ORDER BY id" [] fact_row in
-  Agentkit.Memo.create
-    (List.map
-       (fun (f : fact) ->
-         {
-           Agentkit.Memo.id = string_of_int f.fact_id;
-           revision = f.created_at;
-           text =
-             Printf.sprintf "%s (%s, %s, room %s, event %s)\n%s" f.created_at
-               f.author f.source f.room f.event f.body;
-         })
-       facts)
+  let sources =
+    List.map
+      (fun (f : fact) ->
+        {
+          Agentkit.Memo.id = string_of_int f.fact_id;
+          revision = f.created_at;
+          text =
+            Printf.sprintf "%s (%s, %s, room %s, event %s)\n%s" f.created_at
+              f.author f.source f.room f.event f.body;
+        })
+      facts
+  in
+  (* Reload every source before reuse, so writes through other connections also
+     invalidate the snapshot. Summary writes do not change its source content. *)
+  match t.memory with
+  | Some (before, tree) when before = sources -> tree
+  | _ ->
+      let tree = Agentkit.Memo.create sources in
+      t.memory <- Some (sources, tree);
+      tree
 
 let memory_tree t ~actor =
   locked t @@ fun () ->
@@ -492,7 +504,7 @@ let save_memory_summary t ~actor ~key ~body =
   Agentkit.Memo.validate_summary ~limit:512 body;
   locked t @@ fun () ->
   require_friend t actor;
-  if List.mem key (Agentkit.Memo.keys (memory_tree_unlocked t)) then begin
+  if Agentkit.Memo.mem (memory_tree_unlocked t) key then begin
     execute t.db
       "INSERT OR REPLACE INTO memory_summaries(key,body) VALUES (?,?)"
       [ text key; text body ];

@@ -4,10 +4,9 @@
     matching offset or [limit]. The caller must ensure
     [0 <= pos <= limit <= Bytes.length buf].
 
-    On amd64 with [ocaml_simd] installed these examine sixteen bytes per step using SSE2,
-    falling back to eight-byte SWAR and then a byte loop for the tail. Otherwise
-    {!Scan_portable} is used throughout. Both implementations are exactly equivalent to
-    the corresponding byte loop. *)
+    The build selects {!Scan_portable} on every architecture. Its delimiter
+    scans examine eight bytes per step, followed by a byte loop for the tail.
+    Token classification uses a byte lookup table. *)
 
 (** [find_cr buf ~pos ~limit] is the first CR offset from [pos] up to but not including
     [limit], or [limit]. *)

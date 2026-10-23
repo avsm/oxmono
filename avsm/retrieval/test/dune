@@ -1,0 +1,14 @@
+(test
+ (name test_retrieval)
+ (modules test_retrieval)
+ (libraries retrieval eio_main))
+
+(test
+ (name test_http)
+ (modules test_http)
+ (libraries retrieval eio_main fetch.mock))
+
+(test
+ (name test_algorithms)
+ (modules test_algorithms)
+ (libraries retrieval))

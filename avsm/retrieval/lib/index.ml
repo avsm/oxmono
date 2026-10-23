@@ -1,0 +1,314 @@
+open Sql
+
+type document = {
+  id : string;
+  revision : string;
+  kind : string;
+  title : string;
+  text : string;
+  url : string;
+  date : string;
+  facets : (string * string) list;
+}
+
+type chunk = { document : document; id : string; ordinal : int; text : string }
+
+type filter = {
+  kind : string option;
+  since : string option;
+  until : string option;
+  facets : (string * string) list;
+}
+
+let all = { kind = None; since = None; until = None; facets = [] }
+
+type t = { sql : Sqlite3_eio.t; lock : Eio.Mutex.t }
+
+exception Conflict
+
+let run t f =
+  let result =
+    Eio.Mutex.use_rw ~protect:true t.lock (fun () ->
+        try Ok (Sqlite3_eio.run t.sql f)
+        with e -> Error (e, Printexc.get_raw_backtrace ()))
+  in
+  match result with
+  | Ok value -> value
+  | Error (e, bt) -> Printexc.raise_with_backtrace e bt
+
+let init sql =
+  let t = { sql; lock = Eio.Mutex.create () } in
+  run t (fun db ->
+      check (Sqlite3.exec db "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
+      transaction db (fun () ->
+          (match rows db "PRAGMA user_version" [] with
+          | [ r ] when num r.(0) <= 1 -> ()
+          | _ -> failwith "Knowledge index was written by a newer version");
+          check
+            (Sqlite3.exec db
+               {|
+CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, revision TEXT NOT NULL,
+ kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, url TEXT NOT NULL, date TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS facets(document TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ name TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(document,name,value));
+CREATE INDEX IF NOT EXISTS facet_lookup ON facets(name,value,document);
+CREATE TABLE IF NOT EXISTS chunks(id TEXT PRIMARY KEY, document TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+ ordinal INTEGER NOT NULL, body TEXT NOT NULL);
+CREATE VIRTUAL TABLE IF NOT EXISTS search USING fts5(id UNINDEXED,title,body);
+PRAGMA user_version=1;
+|});
+          Vector.init db));
+  t
+
+let open_db ~sw path =
+  Sqlite_vec.register ();
+  init (Sqlite3_eio.open_path ~sw ~busy_timeout:5000 path)
+
+let memory ~sw () =
+  Sqlite_vec.register ();
+  init (Sqlite3_eio.open_memory ~sw ())
+
+(* Paragraph boundaries keep headings with neighbouring prose where possible.
+   Oversized paragraphs are split at UTF-8 boundaries, never clipped away. *)
+let passages text =
+  let size = String.length text in
+  let rec loop offset acc =
+    if offset >= size then List.rev acc
+    else
+      let stop =
+        if size - offset <= 6000 then size
+        else begin
+          let mutable boundary = offset + 6000 in
+          while
+            boundary > offset && Char.code text.[boundary] land 0xc0 = 0x80
+          do
+            boundary <- boundary - 1
+          done;
+          (* Malformed continuation runs have no UTF-8 boundary. Retain their
+             bytes while ensuring that every chunk advances the cursor. *)
+          if boundary = offset then boundary <- offset + 6000;
+          let halfway = offset + ((boundary - offset) / 2) in
+          let mutable newline = boundary - 1 in
+          while newline > halfway && text.[newline] <> '\n' do
+            newline <- newline - 1
+          done;
+          if newline > halfway then newline + 1 else boundary
+        end
+      in
+      loop stop (String.sub text offset (stop - offset) :: acc)
+  in
+  match loop 0 [] with [] -> [ "" ] | xs -> xs
+
+let chunk_id id ordinal =
+  Json.encode (Jsont.list Jsont.string) [ id; string_of_int ordinal ]
+
+let chunks (d : document) =
+  List.mapi
+    (fun ordinal text ->
+      { document = d; id = chunk_id d.id ordinal; ordinal; text })
+    (passages d.text)
+
+let delete db id =
+  List.iter
+    (fun r ->
+      let key = str r.(0) in
+      Vector.invalidate db key;
+      execute db "DELETE FROM search WHERE id=?" [ txt key ])
+    (rows db "SELECT id FROM chunks WHERE document=?" [ txt id ]);
+  execute db "DELETE FROM documents WHERE id=?" [ txt id ]
+
+let replace t documents =
+  let ids = List.map (fun (d : document) -> d.id) documents in
+  if
+    List.exists (( = ) "") ids
+    || List.length ids <> List.length (List.sort_uniq String.compare ids)
+  then invalid_arg "Corpus IDs must be nonempty and unique";
+  let present = Hashtbl.create (List.length ids) in
+  List.iter (fun id -> Hashtbl.add present id ()) ids;
+  run t (fun db ->
+      transaction db (fun () ->
+          List.iter
+            (fun r ->
+              if not (Hashtbl.mem present (str r.(0))) then
+                delete db (str r.(0)))
+            (rows db "SELECT id FROM documents" []);
+          List.iter
+            (fun (d : document) ->
+              let fs = List.sort_uniq compare d.facets in
+              let old =
+                rows db
+                  "SELECT revision,kind,title,body,url,date FROM documents \
+                   WHERE id=?"
+                  [ txt d.id ]
+              in
+              let old_fs =
+                rows db
+                  "SELECT name,value FROM facets WHERE document=? ORDER BY \
+                   name,value"
+                  [ txt d.id ]
+                |> List.map (fun r -> (str r.(0), str r.(1)))
+              in
+              let values =
+                [
+                  txt d.revision;
+                  txt d.kind;
+                  txt d.title;
+                  txt d.text;
+                  txt d.url;
+                  txt d.date;
+                ]
+              in
+              if old <> [ Array.of_list values ] || old_fs <> fs then (
+                delete db d.id;
+                execute db "INSERT INTO documents VALUES(?,?,?,?,?,?,?)"
+                  (txt d.id :: values);
+                List.iter
+                  (fun (name, value) ->
+                    execute db "INSERT INTO facets VALUES(?,?,?)"
+                      [ txt d.id; txt name; txt value ])
+                  fs;
+                List.iter
+                  (fun c ->
+                    execute db "INSERT INTO chunks VALUES(?,?,?,?)"
+                      [ txt c.id; txt d.id; int c.ordinal; txt c.text ];
+                    execute db "INSERT INTO search VALUES(?,?,?)"
+                      [ txt c.id; txt d.title; txt c.text ])
+                  (chunks d)))
+            documents))
+
+let document db r =
+  let id = str r.(0) in
+  let facets =
+    rows db "SELECT name,value FROM facets WHERE document=? ORDER BY name,value"
+      [ txt id ]
+    |> List.map (fun r -> (str r.(0), str r.(1)))
+  in
+  {
+    id;
+    revision = str r.(1);
+    kind = str r.(2);
+    title = str r.(3);
+    text = str r.(4);
+    url = str r.(5);
+    date = str r.(6);
+    facets;
+  }
+
+let get t id =
+  run t (fun db ->
+      match rows db "SELECT * FROM documents WHERE id=?" [ txt id ] with
+      | [ r ] -> Some (document db r)
+      | _ -> None)
+
+let where f =
+  let clauses = ref [] and args = ref [] in
+  let add clause values =
+    clauses := !clauses @ [ clause ];
+    args := !args @ values
+  in
+  Option.iter (fun k -> add "d.kind=?" [ txt k ]) f.kind;
+  Option.iter (fun d -> add "d.date>=?" [ txt d ]) f.since;
+  Option.iter (fun d -> add "d.date<=?" [ txt d ]) f.until;
+  List.iter
+    (fun (k, v) ->
+      add
+        "EXISTS (SELECT 1 FROM facets f WHERE f.document=d.id AND f.name=? AND \
+         f.value=?)"
+        [ txt k; txt v ])
+    f.facets;
+  ((if !clauses = [] then "1" else String.concat " AND " !clauses), !args)
+
+let chunk db r =
+  let d = document db (Array.sub r 0 7) in
+  { document = d; id = str r.(7); ordinal = num r.(8); text = str r.(9) }
+
+let columns = "d.*,c.id,c.ordinal,c.body"
+
+let selected db filter =
+  let cond, args = where filter in
+  rows db
+    ("SELECT " ^ columns
+   ^ " FROM chunks c JOIN documents d ON d.id=c.document WHERE " ^ cond
+   ^ " ORDER BY d.id,c.ordinal")
+    args
+  |> List.map (chunk db)
+
+let lexical t filter query =
+  run t (fun db ->
+      let cond, args = where filter in
+      if String.trim query = "" then
+        rows db
+          ("SELECT " ^ columns
+         ^ " FROM chunks c JOIN documents d ON d.id=c.document WHERE " ^ cond
+         ^ " ORDER BY d.date DESC,d.id,c.ordinal LIMIT 100")
+          args
+        |> List.map (chunk db)
+      else
+        rows db
+          ("SELECT " ^ columns
+         ^ " FROM search JOIN chunks c ON c.id=search.id JOIN documents d ON \
+            d.id=c.document WHERE search MATCH ? AND " ^ cond
+         ^ " ORDER BY bm25(search),d.id,c.ordinal LIMIT 100")
+          (txt query :: args)
+        |> List.map (chunk db))
+
+let backend t filter =
+  Embedding.
+    {
+      documents = (fun () -> run t (fun db -> selected db filter));
+      key = (fun c -> c.id);
+      revision = (fun c -> c.document.revision);
+      passage = (fun c -> clip 2000 c.document.title ^ "\n" ^ c.text);
+      index =
+        (fun ~model ~dimensions ~normalization ->
+          run t (fun db ->
+              transaction db (fun () ->
+                  Vector.index db ~model ~dimensions ~normalization)));
+      current =
+        (fun ~index ~document:c ~input_hash ->
+          run t (fun db ->
+              Vector.current db ~index ~source:c.id
+                ~revision:c.document.revision ~input_hash));
+      put =
+        (fun ~index ~document:c ~input_hash vector ->
+          run t (fun db ->
+              transaction db (fun () ->
+                  match
+                    rows db
+                      "SELECT d.revision,c.body,d.title FROM chunks c JOIN \
+                       documents d ON d.id=c.document WHERE c.id=?"
+                      [ txt c.id ]
+                  with
+                  | [ r ]
+                    when str r.(0) = c.document.revision
+                         && str r.(1) = c.text
+                         && str r.(2) = c.document.title ->
+                      Vector.put db ~index ~source:c.id
+                        ~revision:c.document.revision ~input_hash vector
+                  | _ -> raise Conflict)));
+      nearest =
+        (fun ~index ~limit vector ->
+          run t (fun db ->
+              let cond, args = where filter in
+              (* Exact filtered distance ranking avoids losing eligible neighbours when
+       unrelated documents occupy the unfiltered top k. *)
+              rows db
+                ("SELECT " ^ columns
+               ^ ",vec_distance_L2(v.embedding,?) AS distance FROM "
+               ^ Vector.name index
+               ^ " v JOIN chunks c ON c.id=v.source JOIN documents d ON \
+                  d.id=c.document AND d.revision=v.revision WHERE " ^ cond
+               ^ " ORDER BY distance,c.id LIMIT ?")
+                ((txt (Vector.json vector) :: args) @ [ int limit ])
+              |> List.map (fun r ->
+                     ( chunk db r,
+                       match r.(10) with
+                       | D.FLOAT f -> f
+                       | _ -> failwith "Invalid distance" ))));
+      lexical = lexical t filter;
+    }
+
+let find_url t url =
+  run t (fun db ->
+      rows db "SELECT * FROM documents WHERE url=? ORDER BY id" [ txt url ]
+      |> List.map (document db))

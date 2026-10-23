@@ -1,0 +1,16 @@
+(lang dune 3.21)
+(name retrieval)
+(generate_opam_files true)
+(license ISC)
+(package
+ (name retrieval)
+ (synopsis "Revision-aware lexical and vector retrieval")
+ (depends
+  (ocaml (>= 5.2))
+  eio
+  (eio_main :with-test)
+  sqlite3-eio
+  sqlite-vec
+  fetch
+  jsont
+  digestif))

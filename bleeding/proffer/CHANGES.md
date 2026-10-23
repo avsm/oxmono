@@ -1,5 +1,7 @@
 ## v0.1.0 (unreleased)
 
+- Keep HTTP output views and buffer lists local across timed and partial writes.
+
 - Add allocation-checked local query parameter lookup for request handlers.
 - Construct request paths and queries in the caller's region without heap
   allocation.

@@ -5,7 +5,7 @@
     dependent key unreachable. No operation changes the original log. *)
 
 type source = { id : string; revision : string; text : string }
-type t
+type t : immutable_data
 
 type view = {
   key : string;
@@ -25,6 +25,10 @@ val create : source list -> t
 
 val keys : t -> string list
 (** [keys t] are all current node keys, for validating cache writes. *)
+
+val mem : t -> string -> bool
+[@@zero_alloc]
+(** [mem t key] is true if [key] identifies a current node of [t]. *)
 
 val overview : t -> budget:int -> lookup:(string -> string option) -> view list
 (** [overview t ~budget ~lookup] covers every source once with at most [budget]

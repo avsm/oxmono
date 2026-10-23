@@ -249,9 +249,9 @@ let summaries_jsont =
 
 let summaries_name = "summaries.json"
 
-let summaries t =
+let read_summaries t =
   let path = Eio.Path.(t.dir / summaries_name) in
-  if not (Eio.Path.is_file path) then []
+  if not (Eio.Path.is_file path) then None
   else
     match Jsont_bytesrw.decode_string summaries_jsont (Eio.Path.load path) with
     | Error msg -> raise (Corrupt { path = summaries_name; msg })
@@ -262,14 +262,35 @@ let summaries t =
              summaries
          with Invalid_argument msg ->
            raise (Corrupt { path = summaries_name; msg }));
-        let keys = Memo.keys (episode_tree (entries t)) in
-        List.filter (fun (key, _) -> List.mem key keys) summaries
+        Some summaries
+
+let filter_summaries tree summaries =
+  List.filter (fun (key, _) -> Memo.mem tree key) summaries
+
+let summaries t =
+  match read_summaries t with
+  | None -> []
+  | Some summaries ->
+      filter_summaries (episode_tree (entries t)) summaries
 
 let save_summary t ~key ~text =
   Memo.validate_summary ~limit:512 text;
-  if not (List.mem key (Memo.keys (episode_tree (entries t)))) then
+  let summaries =
+    try Ok (Option.value (read_summaries t) ~default:[]) with
+    | Eio.Cancel.Cancelled _ as exn -> raise exn
+    | exn -> Error (exn, Printexc.get_raw_backtrace ())
+  in
+  (* Read the authoritative sources after cache I/O, including after inference.
+     An obsolete key still takes precedence over a cache read failure. *)
+  let tree = episode_tree (entries t) in
+  if not (Memo.mem tree key) then
     invalid_arg "Memory.save_summary: unknown or obsolete episode range";
-  let summaries = (key, text) :: List.remove_assoc key (summaries t) in
+  let summaries =
+    match summaries with
+    | Ok summaries ->
+        (key, text) :: List.remove_assoc key (filter_summaries tree summaries)
+    | Error (exn, bt) -> Printexc.raise_with_backtrace exn bt
+  in
   let data =
     match Jsont_bytesrw.encode_string summaries_jsont summaries with
     | Ok data -> data

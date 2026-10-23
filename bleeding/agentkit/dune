@@ -3,6 +3,7 @@
 ; does not provide, so they remain source only.
 
 (dirs
+ bench
  agentkit
  ds4_adapter
  osm

@@ -1,3 +1,5 @@
+module Iarray = Stdlib_stable.Iarray
+
 type source = { id : string; revision : string; text : string }
 
 type node = {
@@ -7,7 +9,7 @@ type node = {
   children : (node * node) option;
 }
 
-type t = { sources : source array; roots : node list }
+type t = { sources : source iarray; roots : node list; index : node iarray }
 
 type view = {
   key : string;
@@ -38,6 +40,14 @@ let hash parts =
     parts;
   Digest.to_hex (Digest.string (Buffer.contents b))
 
+let nodes roots =
+  let rec walk n acc =
+    match n.children with
+    | None -> n :: acc
+    | Some (a, b) -> n :: walk a (walk b acc)
+  in
+  List.fold_right walk roots []
+
 let create sources =
   let seen = Hashtbl.create 16 in
   List.iter
@@ -48,10 +58,10 @@ let create sources =
         invalid_arg "Memo.create: invalid UTF-8";
       Hashtbl.add seen s.id ())
     sources;
-  let sources = Array.of_list sources in
+  let sources = Iarray.of_list sources in
   let rec build lo size =
     if size = 1 then
-      let s = sources.(lo) in
+      let s = Iarray.get sources lo in
       {
         key = hash [ "memo-v1"; s.id; s.revision; s.text ];
         lo;
@@ -90,23 +100,18 @@ let create sources =
           };
         ]
   in
-  { sources; roots = combine (forest 0 (Array.length sources)) }
+  let roots = combine (forest 0 (Iarray.length sources)) in
+  let index = Array.of_list (nodes roots) in
+  Array.stable_sort (fun (a : node) b -> String.compare a.key b.key) index;
+  { sources; roots; index = Iarray.of_array index }
 
-let nodes t =
-  let rec walk n acc =
-    match n.children with
-    | None -> n :: acc
-    | Some (a, b) -> n :: walk a (walk b acc)
-  in
-  List.fold_right walk t.roots []
-
-let keys t = List.map (fun (n : node) -> n.key) (nodes t)
+let keys t = List.map (fun (n : node) -> n.key) (nodes t.roots)
 
 let view t ~lookup (n : node) =
   let count = n.hi - n.lo in
   let text, summarized, missing =
     match n.children with
-    | None -> (t.sources.(n.lo).text, false, false)
+    | None -> ((Iarray.get t.sources n.lo).text, false, false)
     | Some _ -> (
         match lookup n.key with
         | Some text ->
@@ -120,8 +125,8 @@ let view t ~lookup (n : node) =
   in
   {
     key = n.key;
-    first = t.sources.(n.lo).id;
-    last = t.sources.(n.hi - 1).id;
+    first = (Iarray.get t.sources n.lo).id;
+    last = (Iarray.get t.sources (n.hi - 1)).id;
     count;
     text;
     summarized;
@@ -148,10 +153,25 @@ let overview t ~budget ~lookup =
   | [] -> []
   | root :: _ -> List.map (view t ~lookup) (split [ root ] (budget - 1))
 
+let find_index t key =
+  let length = Iarray.length t.index in
+  let rec search lo hi =
+    if lo = hi then lo
+    else
+      let mid = lo + ((hi - lo) / 2) in
+      if String.compare (Iarray.get t.index mid).key key < 0 then
+        search (mid + 1) hi
+      else search lo mid
+  in
+  let i = search 0 length in
+  if i < length && String.equal (Iarray.get t.index i).key key then i else -1
+
+let[@zero_alloc] mem t key = find_index t key >= 0
+
 let find t key =
-  match List.find_opt (fun (n : node) -> n.key = key) (nodes t) with
-  | Some n -> n
-  | None -> invalid_arg "Memo.expand: unknown or obsolete range key"
+  let i = find_index t key in
+  if i < 0 then invalid_arg "Memo.expand: unknown or obsolete range key";
+  Iarray.get t.index i
 
 let expand t ~key ~lookup =
   let n = find t key in
@@ -228,7 +248,7 @@ let raw t n =
   let rec loop i acc =
     if i = n.hi then String.concat "\n\n" (List.rev acc)
     else
-      let s = t.sources.(i) in
+      let s = Iarray.get t.sources i in
       loop (i + 1) (("Source " ^ s.id ^ "\n" ^ s.text) :: acc)
   in
   loop n.lo []
@@ -237,7 +257,7 @@ let maintain t ~max_merges ~limit ~lookup ~save ~summarize =
   if max_merges < 0 || limit < 1 then
     invalid_arg "Memo.maintain: invalid merge or byte limit";
   let candidates =
-    List.filter (fun n -> n.children <> None) (nodes t)
+    List.filter (fun n -> n.children <> None) (nodes t.roots)
     |> List.sort (fun a b ->
         let c = Int.compare (b.hi - b.lo) (a.hi - a.lo) in
         if c = 0 then Int.compare a.lo b.lo else c)

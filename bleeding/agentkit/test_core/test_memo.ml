@@ -20,9 +20,21 @@ let utf8 text =
   in
   loop 0
 
+let shared_tree = Agentkit.Memo.create (sources 3)
+let portable_tree = (fun () -> shared_tree : (unit -> Agentkit.Memo.t) @ portable)
+
 let () =
+  ignore (portable_tree ());
   for n = 0 to 150 do
     let tree = Agentkit.Memo.create (sources n) in
+    let keys = Agentkit.Memo.keys tree in
+    List.iter
+      (fun key -> check "key index contains every node" (Agentkit.Memo.mem tree key))
+      keys;
+    List.iter
+      (fun key ->
+        check "key index excludes absent keys" (not (Agentkit.Memo.mem tree key)))
+      [ ""; "!"; "ffffffffffffffffffffffffffffffff"; "unknown" ];
     for budget = 1 to 24 do
       let views = Agentkit.Memo.overview tree ~budget ~lookup in
       check "node budget" (List.length views <= budget);
@@ -66,9 +78,11 @@ let () =
       ({ (source 0) with revision = "2"; text = "corrected" }
       :: List.tl (sources 64))
   in
+  check "edited key absent from index" (not (Agentkit.Memo.mem edited stale));
   check "edit invalidates ancestor"
     (bad (fun () -> Agentkit.Memo.expand edited ~key:stale ~lookup));
   let erased = Agentkit.Memo.create (List.tl (sources 64)) in
+  check "erased key absent from index" (not (Agentkit.Memo.mem erased stale));
   check "erasure invalidates ancestor"
     (bad (fun () -> Agentkit.Memo.expand erased ~key:stale ~lookup));
   check "duplicate source rejected"

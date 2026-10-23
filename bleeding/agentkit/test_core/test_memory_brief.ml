@@ -69,6 +69,56 @@ let () =
            (fun (e : Agentkit.Memory.entry) ->
              e.id = "episode-00" && e.body = "Corrected observation.")
            (Agentkit.Memory.entries memory));
+      let current_tree =
+        Agentkit.Memory.episode_tree (Agentkit.Memory.entries memory)
+      in
+      let current_key = List.hd (Agentkit.Memo.keys current_tree) in
+      Agentkit.Memory.save_summary memory ~key:current_key ~text:"before edit";
+      let version = Agentkit.Memory.version memory in
+      let path = Eio.Path.(dir / Printf.sprintf "%06d.json" version) in
+      let data = Eio.Path.load path in
+      let before = "Corrected observation." in
+      let rec find i =
+        if i + String.length before > String.length data then
+          failwith "snapshot text not found"
+        else if String.sub data i (String.length before) = before then i
+        else find (i + 1)
+      in
+      let i = find 0 in
+      let after = i + String.length before in
+      Eio.Path.save ~create:(`Or_truncate 0o600) path
+        (String.sub data 0 i ^ "Externally corrected observation."
+        ^ String.sub data after (String.length data - after));
+      check "same-version source edit invalidates cached summaries"
+        (not (List.mem_assoc current_key (Agentkit.Memory.summaries memory)));
+      check "same-version stale write refused"
+        (match
+           Agentkit.Memory.save_summary memory ~key:current_key ~text:"stale"
+         with
+        | () -> false
+        | exception Invalid_argument _ -> true);
+      let changed_tree =
+        Agentkit.Memory.episode_tree (Agentkit.Memory.entries memory)
+      in
+      check "deletion during inference refuses stale save"
+        (match
+           Agentkit.Memo.maintain changed_tree ~max_merges:1 ~limit:512
+             ~lookup:(fun _ -> None)
+             ~save:(fun ~key ~text ->
+               Agentkit.Memory.save_summary memory ~key ~text)
+             ~summarize:(fun ~limit:_ _ ->
+               ignore
+                 (Agentkit.Memory.forget memory ~seq:1 ~cause:"during inference"
+                    ~journal:(fun _ -> ()) "episode-00");
+               "deleted source summary")
+         with
+        | _ -> false
+        | exception Invalid_argument _ -> true);
+      check "deleted source remains absent"
+        (not
+           (List.exists
+              (fun (e : Agentkit.Memory.entry) -> e.id = "episode-00")
+              (Agentkit.Memory.entries memory)));
       for i = 0 to 39 do
         write ("large-fact-" ^ string_of_int i) Fact (String.make 10000 'x');
         write
@@ -100,6 +150,20 @@ let () =
       check "invalid cache reports corruption"
         (match Agentkit.Memory.summaries memory with
         | _ -> false
+        | exception Agentkit.Memory.Corrupt _ -> true);
+      check "obsolete key takes precedence over corrupt cache"
+        (match
+           Agentkit.Memory.save_summary memory ~key:old_key ~text:"stale"
+         with
+        | () -> false
+        | exception Invalid_argument _ -> true);
+      let key =
+        Agentkit.Memory.episode_tree (Agentkit.Memory.entries memory)
+        |> Agentkit.Memo.keys |> List.hd
+      in
+      check "current key still reports corrupt cache"
+        (match Agentkit.Memory.save_summary memory ~key ~text:"current" with
+        | () -> false
         | exception Agentkit.Memory.Corrupt _ -> true));
   print_endline
     "Persistent episode summaries, correction and pinned brief passed."

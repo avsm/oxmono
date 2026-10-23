@@ -1,5 +1,8 @@
 # unreleased
 
+- Index memo keys for allocation-free membership checks and avoid rebuilding
+  the episode tree twice when saving a summary.
+
 - Preserve DS4 chat roles and reasoning, return calls for host execution, and
   reject unsupported images. Discard truncated calls before tool dispatch.
 - Cancel OpenRouter requests and tool rounds, report truncated calls correctly,

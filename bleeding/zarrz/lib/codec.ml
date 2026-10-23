@@ -1105,7 +1105,7 @@ and sharding ext ~dtype ~fill_value =
     let blank = Slab.create r.dtype cshape in
     Slab.fill blank (Fill_value.to_bytes fill_value);
     let cbytes = product chunk_shape * esize in
-    let payloads = Array.make (max n 1) None in
+    let payloads = Array.make (max n 1) Null in
     let coord = Array.make (max rank 1) 0 in
     let linear = ref 0 in
     let rec walk d =
@@ -1123,7 +1123,7 @@ and sharding ext ~dtype ~fill_value =
              = 0
         in
         if not blank_here then
-          payloads.(!linear) <- Some (encode_chunk inner chunk);
+          payloads.(!linear) <- This (encode_chunk inner chunk);
         incr linear
       end
       else
@@ -1136,7 +1136,7 @@ and sharding ext ~dtype ~fill_value =
     let payload_bytes =
       Array.fold_left
         (fun acc p ->
-          match p with Some b -> acc + Base_bigstring.length b | None -> acc)
+          match p with This b -> acc + Base_bigstring.length b | Null -> acc)
         0 payloads
     in
     let total = m + payload_bytes in
@@ -1148,10 +1148,10 @@ and sharding ext ~dtype ~fill_value =
     let pos = ref (if at_start then m else 0) in
     for i = 0 to n - 1 do
       match payloads.(i) with
-      | None ->
+      | Null ->
           shard_set_entry idx (2 * i) (-#1L);
           shard_set_entry idx ((2 * i) + 1) (-#1L)
-      | Some b ->
+      | This b ->
           let len = Base_bigstring.length b in
           Base_bigstring.blit ~src:b ~src_pos:0 ~dst:buf ~dst_pos:!pos ~len;
           shard_set_entry idx (2 * i) (I64u.of_int !pos);

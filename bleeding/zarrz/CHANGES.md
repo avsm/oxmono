@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Stage present shard payloads without allocating an option per chunk.
+
 - Accept zero-element shapes regardless of dimension order and reject
   unrepresentable unsigned zstd content sizes before allocation.
 

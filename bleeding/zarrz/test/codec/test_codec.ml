@@ -1277,9 +1277,29 @@ let test_shard_size_overflow () =
     (Invalid_argument "Zarrz.Codec: byte size overflows an int") (fun () ->
       ignore (Codec.encoded_size c (repr Dtype.Uint8 [| (max_int / 16) + 1 |])))
 
+let test_shard_payload_allocations () =
+  let codec = chain ~dtype:Dtype.Uint8 (shard_json [| 1 |]) in
+  let present = Slab.create Dtype.Uint8 [: 1024 :] in
+  let absent = Slab.create Dtype.Uint8 [: 1024 :] in
+  Slab.fill present "x";
+  Slab.fill absent "\000";
+  let words slab =
+    ignore (Sys.opaque_identity (Codec.encode_chunk codec slab));
+    Gc.full_major ();
+    let before = Gc.allocated_bytes () in
+    for _ = 1 to 10 do
+      ignore (Sys.opaque_identity (Codec.encode_chunk codec slab))
+    done;
+    (Gc.allocated_bytes () -. before) /. 80.
+  in
+  let absent_words = words absent and present_words = words present in
+  Alcotest.(check bool) "present payloads add no option wrappers" true
+    (present_words <= absent_words +. 128.)
+
 let shard_tests =
   [
     ("round trip", `Quick, test_shard_round_trip);
+    ("payload allocations", `Quick, test_shard_payload_allocations);
     ("omits fill chunks", `Quick, test_shard_omits_fill);
     ("all fill", `Quick, test_shard_all_fill);
     ("partial decode", `Quick, test_shard_partial);

@@ -62,7 +62,8 @@ export PKG_CONFIG_PATH="$(brew --prefix openblas)/lib/pkgconfig:$(brew --prefix 
 
 ## Build and test
 
-Build the workspace with allocation contracts checked.
+Build the workspace with allocation contracts checked, including
+`[@zero_alloc opt]`, using `-O3`.
 
 ```sh
 dune build --profile release-check @all

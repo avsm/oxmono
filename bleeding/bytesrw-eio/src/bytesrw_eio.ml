@@ -21,13 +21,12 @@ open Bytesrw
 let bytes_reader_of_flow ?(slice_length = Bytes.Slice.unix_io_buffer_size)
     (flow : _ Eio.Flow.source) : Bytes.Reader.t =
   let buf_size = Bytes.Slice.check_length slice_length in
+  let cstruct = Cstruct.create buf_size in
   let read () =
-    let cstruct = Cstruct.create buf_size in
     match Eio.Flow.single_read flow cstruct with
     | 0 -> Bytes.Slice.eod
     | count ->
-        let data_cs = Cstruct.sub cstruct 0 count in
-        let buf = Cstruct.to_bytes data_cs in
+        let buf = Cstruct.to_bytes ~len:count cstruct in
         Bytes.Slice.make buf ~first:0 ~length:count
     | exception End_of_file -> Bytes.Slice.eod
   in
@@ -42,16 +41,14 @@ let bytes_reader_of_flow ?(slice_length = Bytes.Slice.unix_io_buffer_size)
       {!Bytes.Slice.unix_io_buffer_size}) *)
 let bytes_writer_of_flow ?(slice_length = Bytes.Slice.unix_io_buffer_size)
     (flow : _ Eio.Flow.sink) : Bytes.Writer.t =
-  let rec write slice =
+  let write slice =
     if Bytes.Slice.is_eod slice then ()
     else begin
       let bytes = Bytes.Slice.bytes slice in
       let first = Bytes.Slice.first slice in
       let length = Bytes.Slice.length slice in
       let cstruct = Cstruct.of_bytes ~off:first ~len:length bytes in
-      match Eio.Flow.single_write flow [ cstruct ] with
-      | count when count = length -> ()
-      | count -> write (Option.get (Bytes.Slice.drop_first count slice))
+      match Eio.Flow.write flow (stack_ [ cstruct ]) with () -> ()
     end
   in
   Bytes.Writer.make ~slice_length write

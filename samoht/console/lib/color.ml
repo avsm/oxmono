@@ -23,6 +23,8 @@ type ansi =
 
 type t = Ansi of ansi | Rgb of int * int * int | Palette of int
 
+module Float_u = Stdlib_upstream_compatible.Float_u
+
 let ansi color = Ansi color
 
 let rgb r g b =
@@ -143,7 +145,7 @@ let cube = [| 0; 95; 135; 175; 215; 255 |]
 
 let to_rgb = function
   | Rgb (r, g, b) -> (r, g, b)
-  | Ansi a -> snd (List.find (fun (a', _) -> a' = a) (Array.to_list named))
+  | Ansi a -> snd named.(ansi_position a + if is_bright a then 8 else 0)
   | Palette n when n < 16 -> snd named.(n)
   | Palette n when n < 232 ->
       let n = n - 16 in
@@ -174,7 +176,7 @@ let xterm_256 (r, g, b) =
   else 16 + (36 * ri) + (6 * gi) + bi
 
 (* CIE 1976 L*a*b* of an sRGB colour, under the D65 white point. *)
-let lab (r, g, b) =
+let[@zero_alloc] lab (r, g, b) =
   let linear c =
     let c = float_of_int c /. 255. in
     if c <= 0.04045 then c /. 12.92 else Float.pow ((c +. 0.055) /. 1.055) 2.4
@@ -187,22 +189,39 @@ let lab (r, g, b) =
     if t > 0.008856 then Float.cbrt t else (7.787 *. t) +. (16. /. 116.)
   in
   let fx = f x and fy = f y and fz = f z in
-  ((116. *. fy) -. 16., 500. *. (fx -. fy), 200. *. (fy -. fz))
+  #( Float_u.of_float ((116. *. fy) -. 16.),
+     Float_u.of_float (500. *. (fx -. fy)),
+     Float_u.of_float (200. *. (fy -. fz)) )
+
+type lab = { lightness : float#; green_red : float#; blue_yellow : float# }
+
+let named_lab =
+  Array.map
+    (fun (_, rgb) ->
+      let #(lightness, green_red, blue_yellow) = lab rgb in
+      { lightness; green_red; blue_yellow })
+    named
 
 (* CIE76 colour difference, squared. *)
-let delta_e c c' =
-  let l, a, b = lab c and l', a', b' = lab c' in
-  ((l -. l') *. (l -. l'))
-  +. ((a -. a') *. (a -. a'))
-  +. ((b -. b') *. (b -. b'))
+let[@zero_alloc] delta_e #(l, a, b) other =
+  let open Float_u in
+  let dl = sub l other.lightness in
+  let da = sub a other.green_red in
+  let db = sub b other.blue_yellow in
+  add (add (mul dl dl) (mul da da)) (mul db db)
 
-let nearest_named rgb =
-  let best = ref named.(0) in
-  Array.iter
-    (fun ((_, rgb') as entry) ->
-      if delta_e rgb rgb' < delta_e rgb (snd !best) then best := entry)
-    named;
-  fst !best
+let[@zero_alloc] nearest_named rgb =
+  let lab = lab rgb in
+  let mutable best = 0 in
+  let mutable distance = delta_e lab named_lab.(0) in
+  for i = 1 to Array.length named_lab - 1 do
+    let candidate = delta_e lab named_lab.(i) in
+    if Float_u.compare candidate distance < 0 then begin
+      best <- i;
+      distance <- candidate
+    end
+  done;
+  fst named.(best)
 
 let downsample depth c =
   match (depth, c) with

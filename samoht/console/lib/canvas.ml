@@ -74,23 +74,28 @@ let map f c =
 
 (* A row as runs of cells that draw the same sequence. *)
 let row_span row cells =
-  let runs =
-    Array.fold_left
-      (fun (column, acc) cell ->
-        let style = Style.at ~row ~column cell.style in
-        let sgr = Style.to_ansi style in
-        let acc =
-          match acc with
-          | (text, style', sgr') :: rest when String.equal sgr sgr' ->
-              (text ^ cell.glyph, style', sgr') :: rest
-          | _ -> (cell.glyph, style, sgr) :: acc
-        in
-        (column + 1, acc))
-      (0, []) cells
-    |> snd
-  in
-  Span.concat
-    (List.rev_map (fun (text, style, _) -> Span.styled style text) runs)
+  if Array.length cells = 0 then Span.empty
+  else begin
+    let text = Buffer.create 80 in
+    let mutable style = Style.at ~row ~column:0 cells.(0).style in
+    let mutable sgr = Style.to_ansi style in
+    let mutable runs = [] in
+    Buffer.add_string text cells.(0).glyph;
+    for column = 1 to Array.length cells - 1 do
+      let cell = cells.(column) in
+      let next_style = Style.at ~row ~column cell.style in
+      let next_sgr = Style.to_ansi next_style in
+      if not (String.equal sgr next_sgr) then begin
+        runs <- Span.styled style (Buffer.contents text) :: runs;
+        Buffer.clear text;
+        style <- next_style;
+        sgr <- next_sgr
+      end;
+      Buffer.add_string text cell.glyph
+    done;
+    Span.concat
+      (List.rev (Span.styled style (Buffer.contents text) :: runs))
+  end
 
 let rows c = Array.to_list (Array.mapi row_span c.cells)
 

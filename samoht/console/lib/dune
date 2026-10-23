@@ -1,7 +1,7 @@
 (library
  (name console)
  (public_name console)
- (libraries fmt logs uucp uuseg uutf)
+ (libraries fmt logs uucp uuseg uutf stdlib_upstream_compatible)
  ; Low-level ANSI, Matrix rain, formatter conversion and widget resolution
  ; helpers. None is part of the public API.
  (private_modules ansi glyph paint rain render widget))

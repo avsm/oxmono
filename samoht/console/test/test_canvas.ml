@@ -96,6 +96,63 @@ let test_gradient () =
     [ "\027[48;2;255;0;0m  \027[0m"; "\027[48;2;0;0;255m  \027[0m" ]
     (ansi (Canvas.rows c))
 
+(* Retain the original run builder to check style retention as well as bytes. *)
+let reference_rows canvas =
+  List.init (Canvas.height canvas) (fun row ->
+      let runs = ref [] in
+      for column = 0 to Canvas.width canvas - 1 do
+        let cell = Canvas.get canvas ~row ~column in
+        let style = Style.at ~row ~column (Canvas.style cell) in
+        let sgr = Style.to_ansi style in
+        runs :=
+          match !runs with
+          | (text, style', sgr') :: rest when String.equal sgr sgr' ->
+              (text ^ Canvas.glyph cell, style', sgr') :: rest
+          | _ -> (Canvas.glyph cell, style, sgr) :: !runs
+      done;
+      Span.concat
+        (List.rev_map (fun (text, style, _) -> Span.styled style text) !runs))
+
+let test_runs_reference () =
+  let gradient = Gradient.v ~length:37 [ red; blue ] in
+  let styles =
+    [|
+      Style.none;
+      Style.fg red;
+      Style.fg (Color.rgb 250 0 0);
+      Style.bg_gradient gradient;
+    |]
+  in
+  List.iter
+    (fun width ->
+      let canvas =
+        Canvas.v ~width ~height:3 (fun ~row ~column ->
+            let style = styles.(((column / 23) + row) mod 4) in
+            let glyph = if column mod 5 = 0 then "e\xcc\x81" else "x" in
+            Canvas.cell ~style glyph)
+      in
+      List.iter
+        (fun build_depth ->
+          let expected, actual =
+            with_depth build_depth (fun () ->
+                (reference_rows canvas, Canvas.rows canvas))
+          in
+          List.iter
+            (fun render_depth ->
+              with_depth render_depth (fun () ->
+                  Alcotest.(check (list string)) "reference rows"
+                    (ansi expected) (ansi actual)))
+            [ `Ansi_16; `Ansi_256; `True_color ])
+        [ `Ansi_16; `Ansi_256; `True_color ])
+    [ 0; 1; 22; 23; 24; 1024 ]
+
+let test_long_run () =
+  let canvas =
+    Canvas.v ~width:16384 ~height:1 (fun ~row:_ ~column:_ -> Canvas.cell "x")
+  in
+  Alcotest.(check (list string)) "long run" [ String.make 16384 'x' ]
+    (ansi (Canvas.rows canvas))
+
 let test_pp () =
   let c = Canvas.of_rows [ Canvas.cells "abcdef"; Canvas.cells "ghijkl" ] in
   let buffer = Buffer.create 16 in
@@ -114,5 +171,7 @@ let suite =
       Alcotest.test_case "shape" `Quick test_shape;
       Alcotest.test_case "runs" `Quick test_runs;
       Alcotest.test_case "gradient" `Quick test_gradient;
+      Alcotest.test_case "runs reference" `Quick test_runs_reference;
+      Alcotest.test_case "long run" `Quick test_long_run;
       Alcotest.test_case "pp" `Quick test_pp;
     ] )

@@ -17,6 +17,8 @@ and the runnable unit tests are included.
   tests requiring `matrix.vte` are omitted. The retained core and Eio tests run
   under `samoht/console/test`.
 - The Dune and opam dependency declarations reflect these changes.
+- Named-colour matching caches the palette's Lab values and uses unboxed
+  distances. Canvas rows accumulate each styled run in a buffer.
 
 Refresh the source from the recorded upstream revision or a reviewed newer
 revision, reapply the local changes, then run:

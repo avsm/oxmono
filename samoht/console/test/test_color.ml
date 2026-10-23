@@ -109,6 +109,83 @@ let test_downsample_16 () =
   check "high palette entry" Color.bright_red (Color.palette 196);
   check "named stays" Color.cyan Color.cyan
 
+(* Keep the original conversion and palette search as a rounding oracle. *)
+let named =
+  [|
+    (Color.black, (0, 0, 0));
+    (Color.red, (205, 0, 0));
+    (Color.green, (0, 205, 0));
+    (Color.yellow, (205, 205, 0));
+    (Color.blue, (0, 0, 238));
+    (Color.magenta, (205, 0, 205));
+    (Color.cyan, (0, 205, 205));
+    (Color.white, (229, 229, 229));
+    (Color.bright_black, (127, 127, 127));
+    (Color.bright_red, (255, 0, 0));
+    (Color.bright_green, (0, 255, 0));
+    (Color.bright_yellow, (255, 255, 0));
+    (Color.bright_blue, (92, 92, 255));
+    (Color.bright_magenta, (255, 0, 255));
+    (Color.bright_cyan, (0, 255, 255));
+    (Color.bright_white, (255, 255, 255));
+  |]
+
+let reference_lab (r, g, b) =
+  let linear c =
+    let c = float_of_int c /. 255. in
+    if c <= 0.04045 then c /. 12.92
+    else Float.pow ((c +. 0.055) /. 1.055) 2.4
+  in
+  let r = linear r and g = linear g and b = linear b in
+  let x = ((0.4124 *. r) +. (0.3576 *. g) +. (0.1805 *. b)) /. 0.95047
+  and y = (0.2126 *. r) +. (0.7152 *. g) +. (0.0722 *. b)
+  and z = ((0.0193 *. r) +. (0.1192 *. g) +. (0.9505 *. b)) /. 1.08883 in
+  let f t =
+    if t > 0.008856 then Float.cbrt t
+    else (7.787 *. t) +. (16. /. 116.)
+  in
+  let fx = f x and fy = f y and fz = f z in
+  ((116. *. fy) -. 16., 500. *. (fx -. fy), 200. *. (fy -. fz))
+
+let reference_nearest rgb =
+  let distance rgb rgb' =
+    let l, a, b = reference_lab rgb in
+    let l', a', b' = reference_lab rgb' in
+    ((l -. l') *. (l -. l'))
+    +. ((a -. a') *. (a -. a'))
+    +. ((b -. b') *. (b -. b'))
+  in
+  let best = ref named.(0) in
+  Array.iter
+    (fun ((_, rgb') as entry) ->
+      if distance rgb rgb' < distance rgb (snd !best) then best := entry)
+    named;
+  fst !best
+
+let test_downsample_reference () =
+  let check c =
+    let rgb = Color.to_rgb c in
+    let expected = reference_nearest rgb in
+    let actual = Color.downsample `Ansi_16 c in
+    if not (Color.equal expected actual) then
+      Alcotest.check color "reference palette match" expected actual
+  in
+  for r = 0 to 15 do
+    for g = 0 to 15 do
+      for b = 0 to 15 do
+        check (Color.rgb (17 * r) (17 * g) (17 * b))
+      done
+    done
+  done;
+  for i = 0 to 255 do
+    check (Color.rgb i i i);
+    check (Color.palette i)
+  done;
+  Array.iter
+    (fun (c, rgb) ->
+      Alcotest.(check (triple int int int)) "named RGB" rgb (Color.to_rgb c))
+    named
+
 let test_rgb () =
   let rgb = Alcotest.(triple int int int) in
   Alcotest.check rgb "cube" (95, 135, 175) (Color.to_rgb (Color.palette 67));
@@ -150,6 +227,8 @@ let suite =
       Alcotest.test_case "depth of env" `Quick test_depth_of_env;
       Alcotest.test_case "downsample 256" `Quick test_downsample_256;
       Alcotest.test_case "downsample 16" `Quick test_downsample_16;
+      Alcotest.test_case "downsample reference" `Quick
+        test_downsample_reference;
       Alcotest.test_case "rgb" `Quick test_rgb;
       Alcotest.test_case "codes at depth" `Quick test_codes_at_depth;
     ] )

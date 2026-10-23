@@ -98,3 +98,30 @@ See `RELEASE-SPEC.md` for the design.
 ## License
 
 ISC License. See [LICENSE.md](LICENSE.md).
+
+## Knowledge retrieval and agent tools
+
+`bushel.knowledge` indexes a local Bushel/Sortal snapshot using the shared
+`retrieval` library. It reads entries, saved links, contacts and cached feeds,
+with typed identities for Bushel slugs, vCard UIDs, feed URL/item-ID pairs and
+external URLs. Contact handles remain lookup aliases. Recorded graph edges
+carry a relationship and evidence; semantic similarity does not create edges.
+Use `Bushel.Link_graph.all_internal_links` when target kinds matter. A contact
+and an entry with identical names are separate targets.
+
+`bushel.agent` supplies five typed `Agentkit.Agent.Tool` definitions and a
+`bind` function for direct use. Its `invoke` function returns bounded JSON for
+hosts such as Crowthebot that own dispatch and auditing. Supply an authorization
+and cancellation `check`, serialize calls sharing a corpus, and configure the
+embedding provider separately from the chat model. Crowthebot's README describes
+its operator configuration.
+
+The `retrieval` package contains a corpus-independent embedding backend,
+HTTP provider, vector validation, incremental batching and reciprocal-rank
+fusion extracted from Siftbot. Siftbot retains its authoritative email store
+and existing vector-index identities through a backend adapter. The generic
+`Retrieval.Index` supplies a separate SQLite FTS5/chunk/vector store for Bushel.
+It preserves full source text in UTF-8 passages, rejects stale vector writes,
+and filters before ranking. `replace` reconciles an entire snapshot atomically;
+its input is not an incremental batch. Model, dimensions, normalization and
+input hashes control embedding reuse.

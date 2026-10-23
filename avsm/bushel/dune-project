@@ -23,7 +23,7 @@
    - bushel.eio: Eio-based directory loading
    - bushel.config: XDG-compliant TOML configuration
    - bushel.sync: Sync pipeline for images and thumbnails")
- (depends
+ (depends retrieval agentkit markup sortal
   (ocaml (>= 5.2))
   (frontmatter (>= 0.1))
   (frontmatter-eio (>= 0.1))

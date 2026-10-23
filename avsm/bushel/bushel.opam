@@ -20,6 +20,10 @@ homepage: "https://tangled.org/anil.recoil.org/ocaml-bushel"
 bug-reports: "https://tangled.org/anil.recoil.org/ocaml-bushel/issues"
 depends: [
   "dune" {>= "3.21"}
+  "retrieval"
+  "agentkit"
+  "markup"
+  "sortal"
   "ocaml" {>= "5.2"}
   "frontmatter" {>= "0.1"}
   "frontmatter-eio" {>= "0.1"}

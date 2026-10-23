@@ -37,7 +37,7 @@ let list_md_files fs dir =
     Log.warn (fun m -> m "Directory not found: %s" dir);
     []
 
-let map_category fs base subdir parse_fn =
+let map_category ?(strict=false) fs base subdir parse_fn =
   let dir = Filename.concat base subdir in
   Log.debug (fun m -> m "Loading %s" subdir);
   let files = list_md_files fs dir in
@@ -47,9 +47,11 @@ let map_category fs base subdir parse_fn =
       (match parse_fn fm with
        | Ok entry -> Some entry
        | Error e ->
+         if strict then failwith (path ^ ": " ^ e);
          Log.err (fun m -> m "Error parsing %s: %s" path e);
          None)
     | Error e ->
+      if strict then failwith (path ^ ": " ^ e);
       Log.err (fun m -> m "Error reading %s: %s" path e);
       None
   ) files
@@ -58,22 +60,22 @@ let load_contacts fs =
   let store = Sortal.Store.create fs "sortal" in
   Sortal.Store.list store
 
-let load_projects fs base =
-  map_category fs base "projects" Bushel.Project.of_frontmatter
+let load_projects ?(strict=false) fs base =
+  map_category ~strict fs base "projects" Bushel.Project.of_frontmatter
 
-let load_notes fs base =
-  let notes_dir = map_category fs base "notes" Bushel.Note.of_frontmatter in
-  let news_dir = map_category fs base "news" Bushel.Note.of_frontmatter in
-  let weeklies_dir = map_category fs base "weeklies" Bushel.Note.of_frontmatter in
+let load_notes ?(strict=false) fs base =
+  let notes_dir = map_category ~strict fs base "notes" Bushel.Note.of_frontmatter in
+  let news_dir = map_category ~strict fs base "news" Bushel.Note.of_frontmatter in
+  let weeklies_dir = map_category ~strict fs base "weeklies" Bushel.Note.of_frontmatter in
   notes_dir @ news_dir @ weeklies_dir
 
-let load_ideas fs base =
-  map_category fs base "ideas" Bushel.Idea.of_frontmatter
+let load_ideas ?(strict=false) fs base =
+  map_category ~strict fs base "ideas" Bushel.Idea.of_frontmatter
 
-let load_videos fs base =
-  map_category fs base "videos" Bushel.Video.of_frontmatter
+let load_videos ?(strict=false) fs base =
+  map_category ~strict fs base "videos" Bushel.Video.of_frontmatter
 
-let load_papers fs base =
+let load_papers ?(strict=false) fs base =
   let papers_dir = Filename.concat base "papers" in
   Log.debug (fun m -> m "Loading papers from %s" papers_dir);
   let path = Eio.Path.(fs / papers_dir) in
@@ -84,8 +86,10 @@ let load_papers fs base =
            try
              let stat = Eio.Path.stat ~follow:true Eio.Path.(fs / papers_dir / slug) in
              stat.kind = `Directory
-           with _ -> false)
-    with _ -> []
+           with exn -> if strict then raise exn else false)
+    with
+    | Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> []
+    | exn -> if strict then raise exn else []
   in
   let papers = List.concat_map (fun slug ->
     let slug_path = Filename.concat papers_dir slug in
@@ -93,7 +97,7 @@ let load_papers fs base =
       try
         Eio.Path.(read_dir (fs / slug_path))
         |> List.filter (fun f -> Filename.check_suffix f ".md")
-      with _ -> []
+      with exn -> if strict then raise exn else []
     in
     List.filter_map (fun ver_file ->
       let ver = Filename.chop_extension ver_file in
@@ -103,9 +107,11 @@ let load_papers fs base =
         (match Bushel.Paper.of_frontmatter ~slug ~ver fm with
          | Ok paper -> Some paper
          | Error e ->
+           if strict then failwith (file_path ^ ": " ^ e);
            Log.err (fun m -> m "Error parsing paper %s/%s: %s" slug ver e);
            None)
       | Error e ->
+        if strict then failwith (file_path ^ ": " ^ e);
         Log.err (fun m -> m "Error reading paper %s/%s: %s" slug ver e);
         None
     ) ver_files
@@ -113,13 +119,13 @@ let load_papers fs base =
   Bushel.Paper.tv papers
 
 (** [load fs base] is the entry collection loaded from [base]. *)
-let rec load ?image_output_dir fs base =
+let rec load ?image_output_dir ?contacts ?(strict=false) fs base =
   Log.info (fun m -> m "Loading bushel data from %s" base);
-  let contacts = load_contacts fs in
+  let contacts = match contacts with Some cs -> cs | None -> load_contacts fs in
   Log.info (fun m -> m "Loaded %d contacts" (List.length contacts));
-  let projects = load_projects fs base in
+  let projects = load_projects ~strict fs base in
   Log.info (fun m -> m "Loaded %d projects" (List.length projects));
-  let notes = load_notes fs base in
+  let notes = load_notes ~strict fs base in
   let weeknotes = List.filter Bushel.Note.weeknote notes in
   let seen_weeks = Hashtbl.create 16 in
   List.iter (fun wn ->
@@ -134,12 +140,12 @@ let rec load ?image_output_dir fs base =
       Hashtbl.add seen_weeks key (Bushel.Note.slug wn)
   ) weeknotes;
   Log.info (fun m -> m "Loaded %d notes" (List.length notes));
-  let ideas = load_ideas fs base in
+  let ideas = load_ideas ~strict fs base in
   let ideas = Bushel.Idea.resolve_all_contacts contacts ideas in
   Log.info (fun m -> m "Loaded %d ideas" (List.length ideas));
-  let videos = load_videos fs base in
+  let videos = load_videos ~strict fs base in
   Log.info (fun m -> m "Loaded %d videos" (List.length videos));
-  let papers = load_papers fs base in
+  let papers = load_papers ~strict fs base in
   Log.info (fun m -> m "Loaded %d papers" (List.length papers));
   let images = match image_output_dir with
     | Some output_dir -> load_images fs ~output_dir
@@ -190,7 +196,8 @@ and build_link_graph entries =
   let contacts = Bushel.Entry.contacts entries in
   List.iter (fun entry ->
     let source_slug = Bushel.Entry.slug entry in
-    let md_content = Bushel.Entry.body entry in
+    let md_content = String.concat "\n\n" (Bushel.Entry.body entry ::
+      List.filter_map Fun.id [Bushel.Entry.synopsis entry; Bushel.Entry.sidebar entry]) in
     let all_links = Bushel.Md.extract_all_links md_content in
 
     List.iter (fun link ->
@@ -249,7 +256,8 @@ and build_link_graph entries =
   let compare_internal (a : Bushel.Link_graph.internal_link)
       (b : Bushel.Link_graph.internal_link) =
     match String.compare a.source b.source with
-    | 0 -> String.compare a.target b.target
+    | 0 -> (match String.compare a.target b.target with
+      | 0 -> compare a.target_type b.target_type | n -> n)
     | n -> n
   in
   let compare_external (a : Bushel.Link_graph.external_link)

@@ -1,0 +1,4 @@
+(library
+ (name bushel_agent)
+ (public_name bushel.agent)
+ (libraries bushel.knowledge agentkit retrieval ptime jsont jsont.bytesrw))

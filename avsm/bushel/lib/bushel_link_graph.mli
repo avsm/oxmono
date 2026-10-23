@@ -53,6 +53,10 @@ val external_urls : t -> string -> string list
 (** [external_urls g slug] is the web URLs that [slug] links to, sorted and
     without repeats. *)
 
+val all_internal_links : t -> internal_link list
+(** [all_internal_links g] preserves target kinds, including the distinction
+    between a contact handle and an entry slug with the same spelling. *)
+
 val all_external_links : t -> external_link list
 (** [all_external_links g] is every external link of [g], in the order it was
     built with. *)

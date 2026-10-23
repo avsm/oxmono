@@ -1,0 +1,4 @@
+(library
+ (name bushel_knowledge)
+ (public_name bushel.knowledge)
+ (libraries bushel bushel.eio sortal sortal.feed retrieval markup jsont jsont.bytesrw ptime))

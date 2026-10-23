@@ -33,3 +33,8 @@
  (deps
   (glob_files fixtures/*.json))
  (libraries bushel bushel.sync fetch fetch.mock eio.mock))
+
+(test
+ (name test_knowledge)
+ (modules test_knowledge)
+ (libraries bushel bushel.eio bushel.knowledge bushel.agent retrieval sortal.feed eio_main))

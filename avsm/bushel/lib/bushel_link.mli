@@ -62,9 +62,10 @@ val is_paper_url : string -> bool
 
 (** {1 Files and merging} *)
 
-val load_links_file : string -> t list @@ nonportable
+val load_links_file : ?strict:bool -> string -> t list @@ nonportable
 (** [load_links_file path] is the links recorded in the YAML file at [path],
-    or the empty list if the file is missing or does not parse. *)
+    or the empty list if the file is missing or does not parse. [strict] raises
+    for unreadable or malformed existing files. *)
 
 val save_links_file : string -> t list -> unit @@ nonportable
 (** [save_links_file path links] writes [links] to [path] as YAML,

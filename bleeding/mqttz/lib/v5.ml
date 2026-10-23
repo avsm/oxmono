@@ -1447,11 +1447,13 @@ module Packet = struct
     | Publish p -> [Slice.make (publish_header p); p.payload]
     | _ -> [Slice.make (P.to_bytes (fun w -> write w packet))]
   let to_bytes packet =
-    let parts = encode packet in
-    let size = List.fold_left (fun n s -> n + Slice.length s) 0 parts in
-    let b = Bytes.create size in
-    ignore (List.fold_left (fun off (s : Slice.t) ->
-      Bytes.blit s.bytes s.off b off s.len; off + s.len) 0 parts);
-    b
+    match encode packet with
+    | [s] when s.off = 0 && s.len = Bytes.length s.bytes -> s.bytes
+    | parts ->
+        let size = List.fold_left (fun n s -> n + Slice.length s) 0 parts in
+        let b = Bytes.create size in
+        ignore (List.fold_left (fun off (s : Slice.t) ->
+          Bytes.blit s.bytes s.off b off s.len; off + s.len) 0 parts);
+        b
 
 end

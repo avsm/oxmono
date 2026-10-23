@@ -5,6 +5,8 @@
 
 open Bytesrw
 
+module I64 = Stdlib_upstream_compatible.Int64_u
+
 (* CBOR constants *)
 let major_uint = 0
 let major_nint = 1
@@ -340,12 +342,15 @@ let read_u32_be d =
 let read_u64_be d =
   check_bytes d 8;
   if available d < 8 then begin
-    let hi = Int64.of_int (read_u32_be d) in
-    let lo = Int64.of_int32 (Int32.of_int (read_u32_be d)) in
-    Int64.(logor (shift_left hi 32) (logand lo 0xffffffffL))
+    let hi = I64.of_int (read_u32_be d) in
+    let lo = I64.of_int (read_u32_be d) in
+    I64.(logor (shift_left hi 32) lo)
   end
   else begin
-    let v = Stdlib.Bytes.get_int64_be (Bytes.Slice.bytes d.slice) d.pos in
+    let v =
+      I64.of_int64
+        (Stdlib.Bytes.get_int64_be (Bytes.Slice.bytes d.slice) d.pos)
+    in
     d.pos <- d.pos + 8;
     d.byte_count <- d.byte_count + 8;
     v
@@ -391,9 +396,12 @@ let read_arg d ai =
       v
   | _ when ai = ai_8byte ->
       let value = read_u64_be d in
-      if value < 0L || value > Int64.of_int max_int then
+      if
+        I64.compare value #0L < 0
+        || I64.compare value (I64.of_int max_int) > 0
+      then
         raise_error (`Dagcbor_decode_error "length exceeds OCaml integer range");
-      let v = Int64.to_int value in
+      let v = I64.to_int value in
       check_canonical 0xffffffff v;
       v
   | _ when ai = ai_indefinite -> raise_error `Dagcbor_indefinite_length
@@ -403,32 +411,37 @@ let read_arg d ai =
 
 let read_arg64 d ai =
   let check_canonical64 min v =
-    if d.strict && Int64.compare v min <= 0 then
+    if d.strict && I64.compare v min <= 0 then
       raise_error `Dagcbor_non_canonical_int
   in
   match ai with
-  | _ when ai <= 23 -> Int64.of_int ai
+  | _ when ai <= 23 -> I64.of_int ai
   | _ when ai = ai_1byte ->
       let v = read_byte d in
       if d.strict && v < 24 then raise_error `Dagcbor_non_canonical_int;
-      Int64.of_int v
+      I64.of_int v
   | _ when ai = ai_2byte ->
       let v = read_u16_be d in
-      check_canonical64 0xffL (Int64.of_int v);
-      Int64.of_int v
+      check_canonical64 #0xffL (I64.of_int v);
+      I64.of_int v
   | _ when ai = ai_4byte ->
       let v = read_u32_be d in
-      check_canonical64 0xffffL (Int64.of_int v);
-      Int64.of_int v
+      check_canonical64 #0xffffL (I64.of_int v);
+      I64.of_int v
   | _ when ai = ai_8byte ->
       let v = read_u64_be d in
-      if v < 0L then raise_error (`Dagcbor_decode_error "integer exceeds signed 64-bit range");
-      check_canonical64 0xffffffffL v;
+      if I64.compare v #0L < 0 then
+        raise_error
+          (`Dagcbor_decode_error "integer exceeds signed 64-bit range");
+      check_canonical64 #0xffffffffL v;
       v
-  | _ when ai = ai_indefinite -> raise_error `Dagcbor_indefinite_length
+  | _ when ai = ai_indefinite ->
+      I64.of_int64 (raise_error `Dagcbor_indefinite_length)
   | _ ->
-      raise_error
-        (`Dagcbor_decode_error (Printf.sprintf "invalid additional info: %d" ai))
+      I64.of_int64
+        (raise_error
+           (`Dagcbor_decode_error
+             (Printf.sprintf "invalid additional info: %d" ai)))
 
 (* Check if map keys are in canonical order *)
 let check_key_order d prev_key new_key =
@@ -448,10 +461,10 @@ let rec decode_value d depth : value =
     raise_error `Dagcbor_indefinite_length;
 
   match major with
-  | 0 -> `Int (read_arg64 d ai)
+  | 0 -> `Int (I64.to_int64 (read_arg64 d ai))
   | 1 ->
       let v = read_arg64 d ai in
-      `Int (Int64.sub (Int64.neg v) 1L)
+      `Int (I64.to_int64 (I64.sub (I64.neg v) #1L))
   | 2 ->
       let len = read_arg d ai in
       `Bytes (read_bytes_to_string d len)
@@ -547,7 +560,7 @@ let rec decode_value d depth : value =
           `Float f
       | 27 ->
           let bits = read_u64_be d in
-          let f = Int64.float_of_bits bits in
+          let f = I64.float_of_bits bits in
           if Float.is_nan f then raise_error (`Dagcbor_invalid_float "NaN");
           if Float.is_infinite f then
             raise_error (`Dagcbor_invalid_float "Infinity");

@@ -14,7 +14,7 @@
  (description
   "This library implements IPLD (InterPlanetary Linked Data) with specific support for the AT Protocol's data encoding conventions. It provides Content Identifiers (CID), DAG-CBOR encoding, Merkle Search Trees (MST), repository serialization (CAR format), and synchronization primitives.")
  (depends
-  (ocaml (>= 5.1))
+  (ocaml (>= 5.2))
   (bytesrw (>= 0.1))
   (jsont (>= 0.1))
   (digestif (>= 1.2))

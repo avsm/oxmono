@@ -3,6 +3,7 @@
  (public_name atp)
  (libraries
   bytesrw
+  stdlib_upstream_compatible
   jsont
   jsont.bytesrw
   digestif

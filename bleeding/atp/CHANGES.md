@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- CAR writers now accept blocks with empty content.
+
+- Reduce temporary allocation in DAG-CBOR numbers and CAR frame varints.
+  The core ATP library now requires OxCaml on OCaml 5.2 or later.
+
 - Add `Tangled.Api.list_artifacts` and `artifact_version`, which list the
   release artifacts of a repository and read the version from a file name.
 

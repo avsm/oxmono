@@ -1,0 +1,18 @@
+(library
+ (name taposaur_web)
+ (public_name taposaur.web)
+ (private_modules view artifact)
+ (libraries
+  taposaur
+  taposaur.archive
+  taposaur.catalog
+  taposaur.document
+  taposaur.paper
+  taposaur.reader
+  proffer
+  eio
+  htmlit
+  uriz
+  unix
+  cstruct
+  optint))

@@ -1,0 +1,26 @@
+(executable
+ (name main)
+ (modules main)
+ (public_name taposaur)
+ (libraries
+  taposaur
+  taposaur.archive
+  taposaur.catalog
+  taposaur.indexing
+  taposaur.document
+  taposaur.paper
+  taposaur.reader
+  eio_main
+  cmdliner))
+
+(executable
+ (name server)
+ (modules server)
+ (public_name taposaur-web)
+ (libraries
+  taposaur.archive
+  taposaur.catalog
+  taposaur.web
+  eio_main
+  cmdliner
+  proffer-httpz))

@@ -10,6 +10,8 @@ under development live in `bleeding/`; application projects live in `avsm/`.
 - [`avsm/`](avsm/) contains applications such as Sortal, Bushel and Arod.
 - [`vendor/`](vendor/) contains dependency sources with OxCaml adaptations.
 - [`example/`](example/README.md) contains the HTTP server and client examples.
+- [`taposaur/`](taposaur/README.md) contains paper archive readers, SQLite
+  search, inspection commands and a read-only Proffer browser.
 
 Each package declares its dependencies in a `dune-project` and an `.opam`
 file. Public OCaml interfaces are documented in `.mli` files. Dune builds

@@ -1,0 +1,35 @@
+(lang dune 3.21)
+
+(name taposaur)
+
+(generate_opam_files true)
+
+(license ISC)
+
+(authors "Anil Madhavapeddy <anil@recoil.org>")
+
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(package
+ (name taposaur)
+ (synopsis "Read, search and browse the Taposaur paper archive")
+ (depends
+  (ocaml
+   (>= 5.2))
+  (eio (>= 1.6))
+  eio_main
+  jsont
+  bytesrw
+  digestif
+  uriz
+  fmt
+  xmlm
+  htmlit
+  sqlite3
+  sqlite3-eio
+  cmdliner
+  proffer
+  proffer-httpz
+  optint
+  cstruct
+  (alcotest :with-test)))

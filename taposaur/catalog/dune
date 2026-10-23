@@ -1,0 +1,5 @@
+(library
+ (name taposaur_catalog)
+ (public_name taposaur.catalog)
+ (private_modules db schema search statistics shard metadata)
+ (libraries taposaur sqlite3 sqlite3-eio eio unix))

@@ -1,0 +1,4 @@
+(library
+ (name taposaur_reader)
+ (public_name taposaur.reader)
+ (libraries taposaur taposaur.archive taposaur.document taposaur.paper eio))

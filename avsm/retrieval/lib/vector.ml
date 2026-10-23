@@ -46,13 +46,37 @@ let json vector =
     invalid_arg "Embedding contains non-finite values";
   Json.encode (Jsont.list Jsont.number) vector
 
+let[@zero_alloc] rec fill bytes offset = function
+  | [] -> ()
+  | value :: rest ->
+      Bytes.set_int32_ne bytes offset (Int32.bits_of_float value);
+      fill bytes (offset + 4) rest
+
+let binding vector =
+  (* Retain the JSON parser's range and empty-vector behaviour for exceptional
+     inputs. Embedding.checked bounds normal inference values well inside this
+     range. The native-endian BLOB is sqlite-vec's float32 wire format. *)
+  if
+    vector = []
+    || List.exists
+         (fun f ->
+           (not (Float.is_finite f))
+           || abs_float f > 1e30
+           || (f <> 0. && abs_float f < 1e-30))
+         vector
+  then txt (json vector)
+  else
+    let bytes = Bytes.create (4 * List.length vector) in
+    fill bytes 0 vector;
+    D.BLOB (Bytes.unsafe_to_string bytes)
+
 let put db ~index ~source ~revision ~input_hash vector =
-  let value = json vector in
+  let value = binding vector in
   execute db ("DELETE FROM " ^ name index ^ " WHERE source=?") [ txt source ];
   execute db
     ("INSERT INTO " ^ name index
    ^ "(source,embedding,revision,input_hash) VALUES(?,?,?,?)")
-    [ txt source; txt value; txt revision; txt input_hash ]
+    [ txt source; value; txt revision; txt input_hash ]
 
 let invalidate db source =
   List.iter

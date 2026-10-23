@@ -30,8 +30,46 @@ let provider calls =
           List.map (fun _ -> [ 1.; 0. ]) inputs);
     }
 
+let snapshots env =
+  let file = Filename.temp_file "retrieval-snapshot" ".sqlite" in
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter (fun suffix ->
+          let path = file ^ suffix in
+          if Sys.file_exists path then Sys.remove path)
+        [ ""; "-wal"; "-shm" ])
+    (fun () ->
+      Eio.Switch.run (fun sw ->
+          let path = Eio.Path.(Eio.Stdenv.fs env / file) in
+          let writer = I.open_db ~sw path and reader = I.open_db ~sw path in
+          let version c =
+            let revision = String.make 1 c in
+            { (doc "shared" "note" (String.make 48000 c)) with
+              revision; facets = [ ("revision", revision) ] }
+          in
+          let a = version 'a' and b = version 'b' in
+          I.replace writer [ a ];
+          let backend = I.backend reader I.all in
+          Eio.Fiber.pair
+            (fun () ->
+              for n = 1 to 20 do
+                I.replace writer [ if n mod 2 = 0 then a else b ]
+              done)
+            (fun () ->
+              for _ = 1 to 50 do
+                let chunks = backend.documents () in
+                let document = (List.hd chunks).I.document in
+                check "concurrent reader sees one coherent snapshot"
+                  (document.facets = [ ("revision", document.revision) ]
+                  && document.text = String.make 48000 document.revision.[0]
+                  && String.concat ""
+                       (List.map (fun (c : I.chunk) -> c.text) chunks)
+                     = document.text)
+              done)
+          |> ignore))
+
 let () =
-  Eio_main.run @@ fun _ ->
+  Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let db = I.memory ~sw () in
   let calls = ref 0 in
@@ -40,7 +78,10 @@ let () =
     String.concat "\n" (List.init 4000 (fun _ -> "café repeated passage"))
     ^ "\nUNIQUE_TAIL"
   in
-  let d = doc "note" "note" long in
+  let d =
+    { (doc "note" "note" long) with
+      facets = [ ("z", "last"); ("topic", "test"); ("a", "first") ] }
+  in
   let chunks = I.chunks d in
   check "all long-note bytes survive chunking"
     (String.concat "" (List.map (fun (c : I.chunk) -> c.text) chunks) = long);
@@ -51,6 +92,27 @@ let () =
   in
   I.replace db (d :: distractors);
   let backend = I.backend db I.all in
+  let selected = backend.documents () in
+  let note_chunks =
+    List.filter (fun (c : I.chunk) -> c.document.id = "note") selected
+  in
+  let shared = (List.hd note_chunks).document in
+  check "chunk results share document bodies and facets"
+    (List.for_all (fun (c : I.chunk) -> c.document == shared) note_chunks);
+  check "shared document facets stay sorted"
+    (shared.facets = List.sort_uniq compare d.facets);
+  check "selected chunks retain full documents and ordinal order"
+    (List.map (fun (c : I.chunk) -> (c.ordinal, c.text)) note_chunks
+    = List.map (fun (c : I.chunk) -> (c.ordinal, c.text)) chunks
+    && shared.text = long);
+  let filter =
+    { I.all with kind = Some "note"; since = Some d.date;
+      until = Some d.date; facets = [ ("topic", "test") ] }
+  in
+  check "shared selection preserves combined filters"
+    ((I.backend db filter).documents () = note_chunks);
+  check "empty lexical query preserves date and ID ordering"
+    (I.lexical db I.all "" = selected);
   let legacy =
     backend.index ~model:p.model ~dimensions:p.dimensions
       ~normalization:"passage-8192-l2/v1"
@@ -138,4 +200,5 @@ let () =
      with Failure _ -> !calls = before);
   check "rank ties are stable"
     (E.fuse ~key:Fun.id ~limit:10 [ [ "b" ]; [ "a" ] ] = [ "a"; "b" ]);
+  snapshots env;
   print_endline "retrieval tests passed"

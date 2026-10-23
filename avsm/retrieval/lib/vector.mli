@@ -17,6 +17,10 @@ val current :
 
 val json : float list -> string
 
+val binding : float list -> Sqlite3.Data.t
+(** [binding vector] encodes a float32 SQLite vector. Exceptional magnitudes
+    retain the JSON parser's validation and rounding behaviour. *)
+
 val put :
   Sqlite3.db ->
   index:string ->

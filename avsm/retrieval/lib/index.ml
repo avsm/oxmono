@@ -36,6 +36,9 @@ let run t f =
   | Ok value -> value
   | Error (e, bt) -> Printexc.raise_with_backtrace e bt
 
+let read t f =
+  run t (fun db -> transaction ~immediate:false db (fun () -> f db))
+
 let init sql =
   let t = { sql; lock = Eio.Mutex.create () } in
   run t (fun db ->
@@ -195,7 +198,7 @@ let document db r =
   }
 
 let get t id =
-  run t (fun db ->
+  read t (fun db ->
       match rows db "SELECT * FROM documents WHERE id=?" [ txt id ] with
       | [ r ] -> Some (document db r)
       | _ -> None)
@@ -218,11 +221,74 @@ let where f =
     f.facets;
   ((if !clauses = [] then "1" else String.concat " AND " !clauses), !args)
 
-let chunk db r =
-  let d = document db (Array.sub r 0 7) in
-  { document = d; id = str r.(7); ordinal = num r.(8); text = str r.(9) }
+(* Each result set owns one immutable document per ID. Chunk queries omit
+   document bodies, which can be much larger than an individual passage. *)
+let chunk_reader db result =
+  let documents = Hashtbl.create 16 in
+  let seen = Hashtbl.create 16 in
+  let ids =
+    List.filter_map
+      (fun row ->
+        let id = str row.(0) in
+        if Hashtbl.mem seen id then None
+        else (
+          Hashtbl.add seen id ();
+          Some id))
+      result
+  in
+  let rec split remaining count acc =
+    match remaining with
+    | [] -> #(List.rev acc, [])
+    | _ when count = 0 -> #(List.rev acc, remaining)
+    | id :: rest -> split rest (count - 1) (id :: acc)
+  in
+  let rec load = function
+    | [] -> ()
+    | ids ->
+        let #(batch, rest) = split ids 128 [] in
+        let placeholders = String.concat "," (List.map (fun _ -> "?") batch) in
+        let args = List.map txt batch in
+        let facets = Hashtbl.create 16 in
+        rows db
+          ("SELECT document,name,value FROM facets WHERE document IN ("
+         ^ placeholders ^ ") ORDER BY document,name,value")
+          args
+        |> List.iter (fun r ->
+               let id = str r.(0) in
+               let old =
+                 Option.value ~default:[] (Hashtbl.find_opt facets id)
+               in
+               Hashtbl.replace facets id ((str r.(1), str r.(2)) :: old));
+        rows db
+          ("SELECT * FROM documents WHERE id IN (" ^ placeholders ^ ")")
+          args
+        |> List.iter (fun r ->
+               let id = str r.(0) in
+               let facets =
+                 Option.value ~default:[] (Hashtbl.find_opt facets id)
+                 |> List.rev
+               in
+               Hashtbl.add documents id
+                 {
+                   id;
+                   revision = str r.(1);
+                   kind = str r.(2);
+                   title = str r.(3);
+                   text = str r.(4);
+                   url = str r.(5);
+                   date = str r.(6);
+                   facets;
+                 });
+        load rest
+  in
+  load ids;
+  fun r ->
+    let document = Hashtbl.find documents (str r.(0)) in
+    { document; id = str r.(1); ordinal = num r.(2); text = str r.(3) }
 
-let columns = "d.*,c.id,c.ordinal,c.body"
+let read_chunks db result = List.map (chunk_reader db result) result
+
+let columns = "c.document,c.id,c.ordinal,c.body"
 
 let selected db filter =
   let cond, args = where filter in
@@ -231,10 +297,10 @@ let selected db filter =
    ^ " FROM chunks c JOIN documents d ON d.id=c.document WHERE " ^ cond
    ^ " ORDER BY d.id,c.ordinal")
     args
-  |> List.map (chunk db)
+  |> read_chunks db
 
 let lexical t filter query =
-  run t (fun db ->
+  read t (fun db ->
       let cond, args = where filter in
       if String.trim query = "" then
         rows db
@@ -242,7 +308,7 @@ let lexical t filter query =
          ^ " FROM chunks c JOIN documents d ON d.id=c.document WHERE " ^ cond
          ^ " ORDER BY d.date DESC,d.id,c.ordinal LIMIT 100")
           args
-        |> List.map (chunk db)
+        |> read_chunks db
       else
         rows db
           ("SELECT " ^ columns
@@ -250,12 +316,12 @@ let lexical t filter query =
             d.id=c.document WHERE search MATCH ? AND " ^ cond
          ^ " ORDER BY bm25(search),d.id,c.ordinal LIMIT 100")
           (txt query :: args)
-        |> List.map (chunk db))
+        |> read_chunks db)
 
 let backend t filter =
   Embedding.
     {
-      documents = (fun () -> run t (fun db -> selected db filter));
+      documents = (fun () -> read t (fun db -> selected db filter));
       key = (fun c -> c.id);
       revision = (fun c -> c.document.revision);
       passage = (fun c -> clip 2000 c.document.title ^ "\n" ^ c.text);
@@ -288,27 +354,29 @@ let backend t filter =
                   | _ -> raise Conflict)));
       nearest =
         (fun ~index ~limit vector ->
-          run t (fun db ->
+          read t (fun db ->
               let cond, args = where filter in
               (* Exact filtered distance ranking avoids losing eligible neighbours when
        unrelated documents occupy the unfiltered top k. *)
-              rows db
+              let result = rows db
                 ("SELECT " ^ columns
                ^ ",vec_distance_L2(v.embedding,?) AS distance FROM "
                ^ Vector.name index
                ^ " v JOIN chunks c ON c.id=v.source JOIN documents d ON \
                   d.id=c.document AND d.revision=v.revision WHERE " ^ cond
                ^ " ORDER BY distance,c.id LIMIT ?")
-                ((txt (Vector.json vector) :: args) @ [ int limit ])
-              |> List.map (fun r ->
-                     ( chunk db r,
-                       match r.(10) with
+                ((Vector.binding vector :: args) @ [ int limit ])
+              in
+              let chunk = chunk_reader db result in
+              List.map (fun r ->
+                     ( chunk r,
+                       match r.(4) with
                        | D.FLOAT f -> f
-                       | _ -> failwith "Invalid distance" ))));
+                       | _ -> failwith "Invalid distance" )) result));
       lexical = lexical t filter;
     }
 
 let find_url t url =
-  run t (fun db ->
+  read t (fun db ->
       rows db "SELECT * FROM documents WHERE url=? ORDER BY id" [ txt url ]
       |> List.map (document db))

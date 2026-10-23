@@ -12,3 +12,8 @@
  (name test_algorithms)
  (modules test_algorithms)
  (libraries retrieval))
+
+(test
+ (name test_vector)
+ (modules test_vector)
+ (libraries retrieval sqlite3 sqlite-vec))

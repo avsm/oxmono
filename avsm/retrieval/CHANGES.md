@@ -1,5 +1,8 @@
 # Unreleased
 
+- Share document bodies and facets across retrieved passages. Encode ordinary
+  vectors directly as float32 SQLite BLOBs.
+
 - Reduce allocation when chunking long documents and indexing large batches.
 - Normalize embedding vectors with fewer traversals and no intermediate float
   allocations.

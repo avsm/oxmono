@@ -30,8 +30,8 @@ let num = function D.INT n -> Int64.to_int n | _ -> failwith "Invalid integer"
 let txt s = D.TEXT s
 let int n = D.INT (Int64.of_int n)
 
-let transaction db f =
-  check (Sqlite3.exec db "BEGIN IMMEDIATE");
+let transaction ?(immediate = true) db f =
+  check (Sqlite3.exec db (if immediate then "BEGIN IMMEDIATE" else "BEGIN"));
   match f () with
   | x ->
       check (Sqlite3.exec db "COMMIT");

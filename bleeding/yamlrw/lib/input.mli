@@ -29,6 +29,14 @@ val of_string : string -> t
 val position : t -> Position.t
 (** Get current position *)
 
+val line : t -> int
+[@@zero_alloc]
+(** [line t] is the current one-based line number. *)
+
+val column : t -> int
+[@@zero_alloc]
+(** [column t] is the current one-based byte column. *)
+
 val is_eof : t -> bool
 (** Check if at end of input *)
 
@@ -40,11 +48,31 @@ val mark : t -> Position.t
 val peek : t -> char option
 (** Peek at current character without advancing *)
 
+val peek_or_null : t -> char or_null
+(** [peek_or_null t] is the current byte, or [Null] at end of input. Buffered
+    reads do not allocate. *)
+
+val peek_nth_or_null : t -> int -> char or_null
+(** [peek_nth_or_null t n] is the byte [n] positions ahead, or [Null] at end of
+    input. Looking within the current slice does not read ahead. Raises
+    [Invalid_argument] if [n] is negative or at least [Sys.max_string_length]. *)
+
+val peek_back_or_null : t -> char or_null
+[@@zero_alloc]
+(** [peek_back_or_null t] is the last consumed byte, or [Null] before the first
+    byte is consumed. It remains available across slice boundaries. *)
+
+val next_or_null : t -> char or_null
+(** [next_or_null t] consumes the current byte, or returns [Null] at end of
+    input. Buffered reads do not allocate. *)
+
 val peek_exn : t -> char
 (** Peek at current character, raising on EOF *)
 
 val peek_nth : t -> int -> char option
-(** Peek at nth character (0-indexed from current position) *)
+(** [peek_nth t n] is the byte [n] positions ahead, or [None] at end of input.
+    Raises [Invalid_argument] if [n] is negative or at least
+    [Sys.max_string_length]. *)
 
 val peek_string : t -> int -> string
 (** Peek at up to n characters as a string *)
@@ -88,7 +116,8 @@ val at_document_boundary : t -> bool
 (** {2 Utilities} *)
 
 val remaining : t -> string
-(** Get remaining content from current position *)
+(** [remaining t] consumes and returns all bytes from the current position. It
+    advances the cursor to end of input. *)
 
 val source : t -> string
 (** Get a sample of the source for encoding detection *)

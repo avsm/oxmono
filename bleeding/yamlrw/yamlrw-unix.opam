@@ -10,7 +10,7 @@ homepage: "https://tangled.org/anil.recoil.org/ocaml-yamlrw"
 bug-reports: "https://tangled.org/anil.recoil.org/ocaml-yamlrw/issues"
 depends: [
   "dune" {>= "3.21"}
-  "ocaml" {>= "4.14.0"}
+  "ocaml" {>= "5.2"}
   "yamlrw"
   "bytesrw"
   "odoc" {with-doc}

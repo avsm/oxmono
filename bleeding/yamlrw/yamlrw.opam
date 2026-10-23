@@ -2,7 +2,7 @@
 opam-version: "2.0"
 synopsis: "Pure OCaml YAML 1.2 parser and emitter"
 description:
-  "Yamlrw is a pure OCaml implementation of YAML 1.2 parsing and emission. It provides both a high-level JSON-compatible interface for simple data interchange and a lower-level streaming API for fine-grained control over parsing and emission. The library works on all OCaml platforms without C dependencies."
+  "Yamlrw is a pure OCaml implementation of YAML 1.2 parsing and emission. It provides both a high-level JSON-compatible interface for simple data interchange and a lower-level streaming API for fine-grained control over parsing and emission. Requires OxCaml based on OCaml 5.2 or later, without C dependencies."
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"
@@ -10,7 +10,7 @@ homepage: "https://tangled.org/anil.recoil.org/ocaml-yamlrw"
 bug-reports: "https://tangled.org/anil.recoil.org/ocaml-yamlrw/issues"
 depends: [
   "dune" {>= "3.21"}
-  "ocaml" {>= "4.14.0"}
+  "ocaml" {>= "5.2"}
   "bytesrw"
   "cmdliner"
   "odoc" {with-doc}

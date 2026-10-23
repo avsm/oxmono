@@ -23,7 +23,11 @@ type t = {
   mutable current_slice : Bytes.Slice.t option;
       (** Current slice being consumed *)
   mutable slice_pos : int;  (** Position within current slice *)
-  mutable position : Position.t;  (** Line/column tracking *)
+  mutable slice_owned : bool;
+  mutable index : int;
+  mutable line : int;
+  mutable column : int;
+  mutable previous : char or_null;
 }
 
 (** Ensure we have a current slice. Returns true if data available. *)
@@ -32,29 +36,36 @@ let ensure_slice t =
   | Some slice when t.slice_pos < Bytes.Slice.length slice -> true
   | _ ->
       let slice = Bytes.Reader.read t.reader in
-      if Bytes.Slice.is_eod slice then begin
+      if Bytes.Slice.is_eod slice then (
         t.current_slice <- None;
-        false
-      end
-      else begin
+        false)
+      else (
         t.current_slice <- Some slice;
         t.slice_pos <- 0;
-        true
-      end
+        t.slice_owned <- false;
+        true)
 
-(** Get current character without advancing *)
-let peek_current t =
+let[@zero_alloc] peek_current t =
   match t.current_slice with
   | Some slice when t.slice_pos < Bytes.Slice.length slice ->
       let bytes = Bytes.Slice.bytes slice in
       let first = Bytes.Slice.first slice in
-      Some (Stdlib.Bytes.get bytes (first + t.slice_pos))
-  | _ -> None
+      This (Stdlib.Bytes.get bytes (first + t.slice_pos))
+  | _ -> Null
 
 (** Create input from a Bytes.Reader.t *)
 let of_reader ?(initial_position = Position.initial) reader =
   let t =
-    { reader; current_slice = None; slice_pos = 0; position = initial_position }
+    {
+      reader;
+      current_slice = None;
+      slice_pos = 0;
+      slice_owned = false;
+      index = initial_position.Position.index;
+      line = initial_position.line;
+      column = initial_position.column;
+      previous = Null;
+    }
   in
   (* Use sniff for BOM detection - this is exactly what sniff is for *)
   let sample = Bytes.Reader.sniff 4 t.reader in
@@ -76,44 +87,65 @@ let of_string s =
   let reader = Bytes.Reader.of_string s in
   of_reader reader
 
-let position t = t.position
+let position t = { Position.index = t.index; line = t.line; column = t.column }
+let[@zero_alloc] line t = t.line
+let[@zero_alloc] column t = t.column
+
+let[@zero_alloc] advance t c =
+  t.previous <- This c;
+  t.index <- t.index + 1;
+  if c = '\n' then (
+    t.line <- t.line + 1;
+    t.column <- 1)
+  else t.column <- t.column + 1
+
 let is_eof t = not (ensure_slice t)
-let peek t = if ensure_slice t then peek_current t else None
+let peek_or_null t = if ensure_slice t then peek_current t else Null
+let peek t = match peek_or_null t with This c -> Some c | Null -> None
 
 let peek_exn t =
-  match peek t with
-  | Some c -> c
-  | None -> Error.raise_at t.position Unexpected_eof
+  match peek_or_null t with
+  | This c -> c
+  | Null -> Error.raise_at (position t) Unexpected_eof
 
-(** Peek at nth character (0-indexed from current position) *)
-let peek_nth t n =
-  if n = 0 then peek t
-  else begin
-    (* Use sniff for lookahead - it pushes back automatically *)
-    let sample = Bytes.Reader.sniff (n + 1) t.reader in
-    (* But sniff reads from reader, and we may have a current slice.
-       We need to account for what's already in current_slice *)
+(* A reader may reuse its buffer on the next read. Lookahead must preserve
+   the current slice before sniffing beyond it. *)
+let sniff t n =
+  (match t.current_slice with
+  | Some slice when not t.slice_owned ->
+      t.current_slice <- Some (Bytes.Slice.copy ~tight:true slice);
+      t.slice_owned <- true
+  | Some _ | None -> ());
+  Bytes.Reader.sniff n t.reader
+
+let peek_nth_or_null t n =
+  if n < 0 then invalid_arg "Yamlrw.Input.peek_nth: negative lookahead";
+  if n >= Sys.max_string_length then
+    invalid_arg "Yamlrw.Input.peek_nth: lookahead is too large";
+  if n = 0 then peek_or_null t
+  else
     match t.current_slice with
     | Some slice ->
-        let slice_bytes = Bytes.Slice.bytes slice in
-        let slice_first = Bytes.Slice.first slice in
-        let slice_remaining = Bytes.Slice.length slice - t.slice_pos in
-        if n < slice_remaining then
-          Some (Stdlib.Bytes.get slice_bytes (slice_first + t.slice_pos + n))
-        else begin
-          (* Need to look beyond current slice *)
-          let sample_offset = n - slice_remaining in
-          if sample_offset < String.length sample then
-            Some sample.[sample_offset]
-          else None
-        end
-    | None -> if n < String.length sample then Some sample.[n] else None
-  end
+        let remaining = Bytes.Slice.length slice - t.slice_pos in
+        if n < remaining then
+          This
+            (Stdlib.Bytes.get (Bytes.Slice.bytes slice)
+               (Bytes.Slice.first slice + t.slice_pos + n))
+        else
+          let offset = n - remaining in
+          let sample = sniff t (offset + 1) in
+          if offset < String.length sample then This sample.[offset] else Null
+    | None ->
+        let sample = Bytes.Reader.sniff (n + 1) t.reader in
+        if n < String.length sample then This sample.[n] else Null
+
+let peek_nth t n =
+  match peek_nth_or_null t n with This c -> Some c | Null -> None
 
 (** Peek at up to n characters as a string *)
 let rec peek_string t n =
   if n <= 0 then ""
-  else begin
+  else
     match t.current_slice with
     | Some slice ->
         let slice_bytes = Bytes.Slice.bytes slice in
@@ -122,59 +154,56 @@ let rec peek_string t n =
         if n <= slice_remaining then
           (* All within current slice *)
           Stdlib.Bytes.sub_string slice_bytes (slice_first + t.slice_pos) n
-        else begin
+        else
           (* Need data from beyond current slice - use sniff *)
           let needed_from_reader = n - slice_remaining in
-          let sample = Bytes.Reader.sniff needed_from_reader t.reader in
           let buf = Buffer.create n in
           Buffer.add_subbytes buf slice_bytes
             (slice_first + t.slice_pos)
             slice_remaining;
+          let sample = sniff t needed_from_reader in
           Buffer.add_string buf sample;
           Buffer.contents buf
-        end
     | None -> if ensure_slice t then peek_string t n else ""
-  end
 
-(** Consume next character *)
-let next t =
-  if ensure_slice t then begin
+let next_or_null t =
+  if ensure_slice t then
     match t.current_slice with
     | Some slice ->
         let bytes = Bytes.Slice.bytes slice in
         let first = Bytes.Slice.first slice in
         let c = Stdlib.Bytes.get bytes (first + t.slice_pos) in
         t.slice_pos <- t.slice_pos + 1;
-        t.position <- Position.advance_char c t.position;
-        (* Check if we've exhausted this slice *)
+        advance t c;
         if t.slice_pos >= Bytes.Slice.length slice then t.current_slice <- None;
-        Some c
-    | None -> None
-  end
-  else None
+        This c
+    | None -> Null
+  else Null
+
+let next t = match next_or_null t with This c -> Some c | Null -> None
 
 let next_exn t =
-  match next t with
-  | Some c -> c
-  | None -> Error.raise_at t.position Unexpected_eof
+  match next_or_null t with
+  | This c -> c
+  | Null -> Error.raise_at (position t) Unexpected_eof
 
 let skip t n =
   for _ = 1 to n do
-    ignore (next t)
+    match next_or_null t with This _ | Null -> ()
   done
 
 let skip_while t pred =
   let rec loop () =
-    match peek t with
-    | Some c when pred c ->
-        ignore (next t);
+    match peek_or_null t with
+    | This c when pred c ->
+        (match next_or_null t with This _ | Null -> ());
         loop ()
     | _ -> ()
   in
   loop ()
 
-(** Check if next char satisfies predicate *)
-let next_is pred t = match peek t with None -> false | Some c -> pred c
+let next_is pred t =
+  match peek_or_null t with Null -> false | This c -> pred c
 
 let next_is_break t = next_is is_break t
 let next_is_blank t = next_is is_blank t
@@ -186,52 +215,50 @@ let next_is_indicator t = next_is is_indicator t
 
 (** Check if at document boundary (--- or ...) *)
 let at_document_boundary t =
-  if t.position.column <> 1 then false
-  else begin
+  if t.column <> 1 then false
+  else
     let s = peek_string t 4 in
     let len = String.length s in
     if len < 3 then false
     else
       let prefix = String.sub s 0 3 in
       (prefix = "---" || prefix = "...") && (len = 3 || is_whitespace s.[3])
-  end
 
 (** Consume line break, handling \r\n as single break *)
 let consume_break t =
-  match peek t with
-  | Some '\r' -> (
-      ignore (next t);
-      match peek t with Some '\n' -> ignore (next t) | _ -> ())
-  | Some '\n' -> ignore (next t)
+  match peek_or_null t with
+  | This '\r' -> (
+      skip t 1;
+      match peek_or_null t with This '\n' -> skip t 1 | _ -> ())
+  | This '\n' -> skip t 1
   | _ -> ()
 
-(** Get remaining content from current position *)
 let remaining t =
   let buf = Buffer.create 256 in
-  (* Add current slice remainder *)
-  (match t.current_slice with
-  | Some slice ->
-      let bytes = Bytes.Slice.bytes slice in
-      let first = Bytes.Slice.first slice in
-      let remaining = Bytes.Slice.length slice - t.slice_pos in
-      if remaining > 0 then
-        Buffer.add_subbytes buf bytes (first + t.slice_pos) remaining
-  | None -> ());
-  (* Add remaining from reader *)
-  Bytes.Reader.add_to_buffer buf t.reader;
+  while ensure_slice t do
+    match t.current_slice with
+    | Some slice ->
+        let bytes = Bytes.Slice.bytes slice in
+        let first = Bytes.Slice.first slice in
+        let length = Bytes.Slice.length slice in
+        Buffer.add_subbytes buf bytes (first + t.slice_pos)
+          (length - t.slice_pos);
+        for i = t.slice_pos to length - 1 do
+          advance t (Stdlib.Bytes.get bytes (first + i))
+        done;
+        t.slice_pos <- length;
+        t.current_slice <- None
+    | None -> ()
+  done;
   Buffer.contents buf
 
 (** Mark current position for span creation *)
-let mark t = t.position
+let mark = position
 
-(** Get the character before the current position (limited lookahead) *)
+let[@zero_alloc] peek_back_or_null t = t.previous
+
 let peek_back t =
-  match t.current_slice with
-  | Some slice when t.slice_pos > 0 ->
-      let bytes = Bytes.Slice.bytes slice in
-      let first = Bytes.Slice.first slice in
-      Some (Stdlib.Bytes.get bytes (first + t.slice_pos - 1))
-  | _ -> None
+  match peek_back_or_null t with This c -> Some c | Null -> None
 
 (** Get a sample of the source for encoding detection. Uses sniff to peek
     without consuming. *)

@@ -4,6 +4,7 @@
  (libraries
   siftbot.model
   siftbot.setup
+  retrieval
   sqlite3-eio
   sqlite-vec
   eio_main

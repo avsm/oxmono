@@ -144,7 +144,11 @@ PRAGMA user_version=5;
 CREATE TABLE hydration(source TEXT PRIMARY KEY, service TEXT NOT NULL,
  account TEXT NOT NULL, position INTEGER NOT NULL);
 PRAGMA user_version=6;
-|})));
+|});
+          execute db
+            "CREATE INDEX IF NOT EXISTS messages_thread ON \
+             messages(service,account,thread)"
+            []));
   t
 
 let open_db ~sw path =
@@ -174,6 +178,23 @@ let messages_db db =
 
 let messages t = run t messages_db
 
+let message_ids_after t ~service ~account ~after ~limit =
+  if limit < 0 then invalid_arg "Negative message page limit";
+  run t (fun db ->
+      rows db
+        "SELECT id FROM messages WHERE service=? AND account=? AND id>? ORDER \
+         BY id LIMIT ?"
+        [ txt service; txt account; txt after; int limit ]
+      |> List.map (fun row -> str row.(0)))
+
+let has_thread t ~service ~account ~thread =
+  run t (fun db ->
+      rows db
+        "SELECT 1 FROM messages WHERE service=? AND account=? AND thread=? \
+         LIMIT 1"
+        [ txt service; txt account; txt thread ]
+      <> [])
+
 let checkpoint_db db job =
   match rows db "SELECT cursor FROM checkpoints WHERE job=?" [ txt job ] with
   | [ r ] -> Some (str r.(0))
@@ -181,22 +202,10 @@ let checkpoint_db db job =
 
 let checkpoint t job = run t (fun db -> checkpoint_db db job)
 
-let vector_name name =
-  if
-    (not (String.starts_with ~prefix:"vec_" name))
-    || not
-         (String.for_all
-            (function 'a' .. 'z' | '0' .. '9' | '_' -> true | _ -> false)
-            name)
-  then failwith "Invalid vector index name";
-  name
+let vector_name = Retrieval.Vector.name
 
 let invalidate db key =
-  List.iter
-    (fun row ->
-      let table = vector_name (str row.(0)) in
-      execute db ("DELETE FROM " ^ table ^ " WHERE source=?") [ txt key ])
-    (rows db "SELECT name FROM vector_indexes" []);
+  Retrieval.Vector.invalidate db key;
   execute db "DELETE FROM derived WHERE source=?" [ txt key ];
   execute db
     "DELETE FROM assignments WHERE origin<>'admin' AND (target=? OR EXISTS \
@@ -650,57 +659,23 @@ let audit t ~model ~prompt_version ~corpus_revision ~question ~answer ~outcome
           bump db))
 
 let vector_index t ~model ~dimensions ~normalization =
-  if dimensions < 1 || dimensions > 4096 || model = "" || normalization = ""
-  then invalid_arg "Invalid embedding identity or dimensions";
-  let identity =
-    Jmap_eio.Codec.encode_exn string_list
-      [ model; string_of_int dimensions; normalization ]
-  in
-  let name = "vec_" ^ Digestif.SHA256.(to_hex (digest_string identity)) in
-  run t (fun db ->
-      transaction db (fun () ->
-          execute db "INSERT OR IGNORE INTO vector_indexes VALUES(?,?,?,?)"
-            [ txt name; txt model; int dimensions; txt normalization ];
-          execute db
-            (Printf.sprintf
-               "CREATE VIRTUAL TABLE IF NOT EXISTS %s USING vec0(source TEXT \
-                PRIMARY KEY, embedding float[%d], +revision TEXT, +input_hash \
-                TEXT)"
-               name dimensions)
-            []));
-  name
+  run t (fun db -> transaction db (fun () ->
+    Retrieval.Vector.index db ~model ~dimensions ~normalization))
 
 let vector_current t ~index ~source ~revision ~input_hash =
-  run t (fun db ->
-      rows db
-        ("SELECT 1 FROM " ^ vector_name index
-       ^ " WHERE source=? AND revision=? AND input_hash=?")
-        [ txt (M.key source); txt revision; txt input_hash ]
-      <> [])
-
-let vector_json vector =
-  if List.exists (fun f -> not (Float.is_finite f)) vector then
-    invalid_arg "Embedding contains non-finite values";
-  Jmap_eio.Codec.encode_exn (Jsont.list Jsont.number) vector
+  run t (fun db -> Retrieval.Vector.current db ~index ~source:(M.key source)
+    ~revision ~input_hash)
 
 let vector_put t ~index ~source ~revision ~input_hash vector =
-  let value = vector_json vector in
-  run t (fun db ->
-      transaction db (fun () ->
-          match get_db db source with
-          | Some m when m.revision = revision ->
-              execute db
-                ("DELETE FROM " ^ vector_name index ^ " WHERE source=?")
-                [ txt (M.key source) ];
-              execute db
-                ("INSERT INTO " ^ vector_name index
-               ^ "(source,embedding,revision,input_hash) VALUES(?,?,?,?)")
-                [ txt (M.key source); txt value; txt revision; txt input_hash ]
-          | _ -> raise Conflict))
+  run t (fun db -> transaction db (fun () ->
+    match get_db db source with
+    | Some m when m.revision = revision ->
+      Retrieval.Vector.put db ~index ~source:(M.key source) ~revision ~input_hash vector
+    | _ -> raise Conflict))
 
 let vector_search t ~index ~limit vector =
   if limit < 1 || limit > 100 then invalid_arg "Vector result limit is 1 to 100";
-  let vector = vector_json vector in
+  let vector = Retrieval.Vector.binding vector in
   run t (fun db ->
       rows db
         ("WITH nearest AS MATERIALIZED (SELECT source,revision,distance FROM "
@@ -708,7 +683,7 @@ let vector_search t ~index ~limit vector =
        ^ " WHERE embedding MATCH ? AND k=?) SELECT m.payload,v.distance FROM \
           nearest v JOIN messages m ON m.key=v.source AND \
           m.revision=v.revision ORDER BY v.distance,m.key")
-        [ txt vector; int limit ]
+        [ vector; int limit ]
       |> List.map (fun r ->
              ( decode (str r.(0)),
                match r.(1) with

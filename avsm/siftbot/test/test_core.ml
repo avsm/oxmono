@@ -444,6 +444,47 @@ let import sw =
   check "new conversation hydration survives checkpoint"
     (S.hydration db ~service:remote.service ~account:remote.account = None)
 
+let keyset sw =
+  let db = S.memory ~sw () in
+  let ids = [ "z"; "a"; "A"; "é"; "aa"; "a\000b" ] in
+  let messages =
+    List.map (fun id -> { first with M.source = source id; thread = "shared" })
+      ids
+  in
+  let other =
+    { first with M.source = { (source "a0") with account = "other" };
+      thread = "foreign" }
+  in
+  S.commit_batch db ~job:"keyset" ~expected:None ~cursor:"1"
+    (other :: messages) [];
+  let service = first.source.service and account = first.source.account in
+  let page after limit =
+    S.message_ids_after db ~service ~account ~after ~limit
+  in
+  let rec collect after =
+    match page after 2 with
+    | [] -> []
+    | ids -> ids @ collect (List.hd (List.rev ids))
+  in
+  check "keyset pages preserve binary ID order and account scope"
+    (collect "" = List.sort String.compare ids);
+  check "zero keyset budget returns no IDs" (page "" 0 = []);
+  check "negative keyset budget rejected" (fails (fun () -> page "" (-1)));
+  check "thread lookup scoped by account"
+    (S.has_thread db ~service ~account ~thread:"shared"
+    && not (S.has_thread db ~service ~account ~thread:"foreign"));
+  let before = collect "" in
+  check "keyset checkpoint conflict leaves pages unchanged"
+    (conflict (fun () ->
+         S.commit_batch db ~job:"keyset" ~expected:None ~cursor:"bad" []
+           [ source "a" ])
+    && collect "" = before);
+  S.commit_batch db ~job:"keyset" ~expected:(Some "1") ~cursor:"2" []
+    (List.map source ids);
+  check "deletion empties keyset and thread membership"
+    (page "" 10 = []
+    && not (S.has_thread db ~service ~account ~thread:"shared"))
+
 let () =
   protocol ();
   html ();
@@ -452,5 +493,6 @@ let () =
   Eio_main.run (fun _ ->
       Eio.Switch.run (fun sw ->
           store sw;
+          keyset sw;
           import sw));
   print_endline "Siftbot core tests passed"

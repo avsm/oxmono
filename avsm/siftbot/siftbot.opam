@@ -9,6 +9,7 @@ depends: [
   "ocaml" {>= "5.2.0"}
   "eio"
   "eio_main"
+  "retrieval"
   "sqlite3-eio"
   "jmap"
   "fetch"

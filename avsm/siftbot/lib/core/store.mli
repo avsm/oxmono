@@ -8,6 +8,19 @@ val revision : t -> int
 val get : t -> Siftbot_model.source -> Siftbot_model.message option
 val messages : t -> Siftbot_model.message list
 
+val message_ids_after :
+  t ->
+  service:string ->
+  account:string ->
+  after:string ->
+  limit:int ->
+  string list
+(** [message_ids_after db ~service ~account ~after ~limit] returns at most
+    [limit] IDs strictly greater than [after], in bytewise order. *)
+
+val has_thread : t -> service:string -> account:string -> thread:string -> bool
+(** [has_thread db ~service ~account ~thread] tests for a live thread member. *)
+
 val search : t -> string -> Siftbot_model.message list
 (** [search db query] returns at most 100 live messages matching FTS5. *)
 

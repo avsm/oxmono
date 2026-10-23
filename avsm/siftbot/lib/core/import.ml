@@ -205,9 +205,6 @@ let start db r ~since ~until =
 
 let take n xs = List.filteri (fun i _ -> i < n) xs
 
-let scoped r (m : M.message) =
-  m.source.service = r.service && m.source.account = r.account
-
 let source (r : remote) id = M.{ service = r.service; account = r.account; id }
 
 let step db r =
@@ -279,12 +276,8 @@ let step db r =
           false
     | "reconcile" ->
         let ids =
-          Store.messages db
-          |> List.filter (scoped r)
-          |> List.map (fun m -> m.M.source.id)
-          |> List.sort String.compare
-          |> List.filter (fun id -> id > c.query_state)
-          |> take r.batch_size
+          Store.message_ids_after db ~service:r.service ~account:r.account
+            ~after:c.query_state ~limit:r.batch_size
         in
         (if ids = [] then
            save { c with phase = "listing"; query_state = "" } [] []
@@ -323,10 +316,8 @@ let step db r =
             (fun (m : M.message) ->
               Ptime.compare (date m.date) (date c.since) >= 0
               || Store.get db m.source <> None
-              || List.exists
-                   (fun (old : M.message) ->
-                     scoped r old && old.thread = m.thread)
-                   (Store.messages db))
+              || Store.has_thread db ~service:r.service ~account:r.account
+                   ~thread:m.thread)
             ms
         in
         let hydrate =

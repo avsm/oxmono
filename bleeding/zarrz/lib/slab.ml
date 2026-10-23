@@ -128,6 +128,9 @@ let elements_of_shape shape =
   let r = Ia.length shape in
   let acc = ref 1 in
   for d = 0 to r - 1 do
+    if Ia.get shape d = 0 then acc := 0
+  done;
+  for d = 0 to r - 1 do
     let dim = Ia.get shape d in
     if dim < 0 then invalid_arg "Zarrz.Slab: negative dimension";
     if dim <> 0 && !acc > max_int / dim then

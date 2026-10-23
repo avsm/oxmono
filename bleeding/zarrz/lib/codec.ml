@@ -48,6 +48,9 @@ let product a =
   let n = Array.length a in
   let acc = ref 1 in
   for d = 0 to n - 1 do
+    if a.(d) = 0 then acc := 0
+  done;
+  for d = 0 to n - 1 do
     let dim = a.(d) in
     if dim < 0 then invalid_arg "Zarrz.Codec: negative dimension";
     if dim <> 0 && !acc > max_int / dim then
@@ -55,6 +58,21 @@ let product a =
     acc := !acc * dim
   done;
   !acc
+
+let byte_size r =
+  let n = product r.shape in
+  let esize = Dtype.size r.dtype in
+  if esize < 0 then invalid_arg "Zarrz.Codec: negative element size";
+  if esize <> 0 && n > max_int / esize then
+    invalid_arg "Zarrz.Codec: byte size overflows an int";
+  n * esize
+
+(* A finite upper bound that cannot fit in an int becomes unbounded, rather
+   than wrapping into a smaller allocation or range request. *)
+let[@inline] add_size overhead = function
+  | Fixed n when n <= max_int - overhead -> Fixed (n + overhead)
+  | Bounded n when n <= max_int - overhead -> Bounded (n + overhead)
+  | Fixed _ | Bounded _ | Unbounded -> Unbounded
 
 let[@inline] u8 b off = Char.code (Base_bigstring.get b off)
 
@@ -294,7 +312,7 @@ module Bytes_codec = struct
         (Printf.sprintf "endian is required for data type %s"
            (Dtype.name dtype))
     else
-      let encoded_size r = Fixed (product r.shape * Dtype.size r.dtype) in
+      let encoded_size r = Fixed (byte_size r) in
       (* The result aliases the slab's buffer whenever the declared
          endianness is the host's, which is what makes a whole chunk
          write a single pass. A caller must not mutate the slab
@@ -313,7 +331,7 @@ module Bytes_codec = struct
          swap is needed, so the store's read lands in the slab with no
          copy at all. *)
       let decode buf r =
-        let want = product r.shape * Dtype.size r.dtype in
+        let want = byte_size r in
         let got = Base_bigstring.length buf in
         if got <> want then
           err "bytes: %d encoded bytes for a %d byte chunk" got want;
@@ -577,10 +595,10 @@ module Gzip = struct
     let* level = in_range "level" ~lo:0 ~hi:9 level in
     (* The oracle's bound, which is zlib's [deflateBound] plus the
        eighteen bytes of framing. *)
-    let ceil_div a b = (a + b - 1) / b in
+    let ceil_div a b = (a / b) + if a mod b = 0 then 0 else 1 in
     let encoded_size = function
       | Fixed n | Bounded n ->
-          Bounded (n + 18 + ceil_div n 8 + ceil_div n 64 + 5)
+          add_size (23 + ceil_div n 8 + ceil_div n 64) (Bounded n)
       | Unbounded -> Unbounded
     in
     Ok
@@ -635,27 +653,29 @@ module Zstd = struct
     in
     let decode src ~decoded_size =
       let src_len = Base_bigstring.length src in
-      let declared =
-        I64u.to_int64 (Zstdz.content_size src ~off:0 ~len:src_len)
-      in
-      if Int64.equal declared (-2L) then err "zstd: unreadable frame header";
+      let declared = Zstdz.content_size src ~off:0 ~len:src_len in
+      if I64u.equal declared (-#2L) then
+        err "zstd: unreadable frame header";
+      let unknown = I64u.equal declared (-#1L) in
+      if not unknown &&
+         (I64u.compare declared #0L < 0 ||
+          I64u.compare declared (I64u.of_int max_int) > 0) then
+        err "zstd: the frame declares more bytes than an int can hold";
       let known =
-        if Int64.compare declared 0L < 0 then None
-        else if Int64.compare declared (Int64.of_int max_int) > 0 then
-          err "zstd: the frame declares more bytes than an int can hold"
-        else Some (Int64.to_int declared)
+        if unknown then Null
+        else This (I64u.to_int declared)
       in
       let want =
         match (decoded_size, known) with
-        | Fixed m, Some d when d <> m ->
+        | Fixed m, This d when d <> m ->
             err "zstd: the frame declares %d bytes where %d were expected" d m
         | Fixed m, _ -> m
-        | Bounded m, Some d when d > m ->
+        | Bounded m, This d when d > m ->
             err "zstd: the frame declares %d bytes, at most %d allowed" d m
-        | Bounded _, Some d -> d
-        | Bounded m, None -> m
-        | Unbounded, Some d -> d
-        | Unbounded, None -> err "zstd: the frame does not declare its size"
+        | Bounded _, This d -> d
+        | Bounded m, Null -> m
+        | Unbounded, This d -> d
+        | Unbounded, Null -> err "zstd: the frame does not declare its size"
       in
       let dst = Base_bigstring.create want in
       let w =
@@ -671,7 +691,9 @@ module Zstd = struct
       | _ -> if w = want then dst else Base_bigstring.sub dst ~pos:0 ~len:w
     in
     let encoded_size = function
-      | Fixed n | Bounded n -> Bounded (Zstdz.compress_bound n)
+      | Fixed n | Bounded n ->
+          let bound = Zstdz.compress_bound n in
+          if bound < n then Unbounded else Bounded bound
       | Unbounded -> Unbounded
     in
     Ok (B2b { name = "zstd"; encoded_size; encode; decode })
@@ -800,7 +822,7 @@ module Blosc = struct
       dst
     in
     let encoded_size = function
-      | Fixed n | Bounded n -> Bounded (n + Bloscz.max_overhead)
+      | Fixed n | Bounded n -> add_size Bloscz.max_overhead (Bounded n)
       | Unbounded -> Unbounded
     in
     Ok (B2b { name = "blosc"; encoded_size; encode; decode })
@@ -814,11 +836,7 @@ module Crc32c = struct
 
   let make ext =
     let* () = check_members ~known:[] (Ext.config_mems ext) in
-    let encoded_size = function
-      | Fixed n -> Fixed (n + 4)
-      | Bounded n -> Bounded (n + 4)
-      | Unbounded -> Unbounded
-    in
+    let encoded_size = add_size 4 in
     let encode src =
       let n = Base_bigstring.length src in
       let dst = Base_bigstring.create (n + 4) in
@@ -848,7 +866,6 @@ end
    entry of all ones in both halves means the inner chunk was never
    written and reads as the fill value. *)
 
-let shard_absent = -1L
 let shard_sentinel = String.make 8 '\xff'
 
 (* [shard_grid ~chunk_shape shape] is the number of inner chunks along
@@ -873,21 +890,23 @@ let shard_index_repr grid =
   { dtype = Dtype.Uint64;
     shape = Array.init (r + 1) (fun i -> if i < r then grid.(i) else 2) }
 
-let shard_to_int i what v =
-  if Int64.compare v 0L < 0 || Int64.compare v (Int64.of_int max_int) > 0 then
-    err "sharding_indexed: inner chunk %d has an unusable %s" i what
-  else Int64.to_int v
+let[@zero_alloc] shard_to_int i what v =
+  if I64u.compare v #0L < 0 || I64u.compare v (I64u.of_int max_int) > 0 then
+    Error.raise_
+      (Error.Codec
+         (Printf.sprintf "sharding_indexed: inner chunk %d has an unusable %s" i
+            what))
+  else I64u.to_int v
 
-(* [shard_entry slab i] is the offset and length of inner chunk [i], or
-   [None] when the entry is the absent sentinel. *)
-let shard_entry slab i =
-  let off = I64u.to_int64 (Slab.U64.get slab (2 * i)) in
-  let len = I64u.to_int64 (Slab.U64.get slab ((2 * i) + 1)) in
-  if Int64.equal off shard_absent && Int64.equal len shard_absent then None
-  else Some (shard_to_int i "offset" off, shard_to_int i "length" len)
+(* [shard_entry slab i] is [#(present, offset, length)] for inner chunk [i].
+   Both fields must be the sentinel before an entry counts as absent. *)
+let[@zero_alloc] shard_entry slab i =
+  let off = Slab.U64.get slab (2 * i) in
+  let len = Slab.U64.get slab ((2 * i) + 1) in
+  if I64u.equal off (-#1L) && I64u.equal len (-#1L) then #(false, 0, 0)
+  else #(true, shard_to_int i "offset" off, shard_to_int i "length" len)
 
-let shard_set_entry slab i v =
-  Slab.U64.set slab i (I64u.of_int64 v)
+let[@zero_alloc] shard_set_entry slab i v = Slab.U64.set slab i v
 
 (* {1 The chain} *)
 
@@ -984,7 +1003,7 @@ and sharding ext ~dtype ~fill_value =
       Array.init rank (fun d ->
           let e = start.(d) + extent.(d) in
           if e <= start.(d) then lo.(d)
-          else ((e + chunk_shape.(d) - 1) / chunk_shape.(d)))
+          else 1 + ((e - 1) / chunk_shape.(d)))
     in
     let present = ref [] and any_absent = ref false in
     let rec walk d coord =
@@ -994,8 +1013,8 @@ and sharding ext ~dtype ~fill_value =
           linear := (!linear * grid.(k)) + coord.(k)
         done;
         match shard_entry idx !linear with
-        | None -> any_absent := true
-        | Some (off, len) ->
+        | #(false, _, _) -> any_absent := true
+        | #(true, off, len) ->
             (* The index is stored data like any other. An entry reaching
                past the shard means the shard is corrupt, and refusing it
                here is what keeps a ranged store from being asked for
@@ -1130,13 +1149,13 @@ and sharding ext ~dtype ~fill_value =
     for i = 0 to n - 1 do
       match payloads.(i) with
       | None ->
-          shard_set_entry idx (2 * i) shard_absent;
-          shard_set_entry idx ((2 * i) + 1) shard_absent
+          shard_set_entry idx (2 * i) (-#1L);
+          shard_set_entry idx ((2 * i) + 1) (-#1L)
       | Some b ->
           let len = Base_bigstring.length b in
           Base_bigstring.blit ~src:b ~src_pos:0 ~dst:buf ~dst_pos:!pos ~len;
-          shard_set_entry idx (2 * i) (Int64.of_int !pos);
-          shard_set_entry idx ((2 * i) + 1) (Int64.of_int len);
+          shard_set_entry idx (2 * i) (I64u.of_int !pos);
+          shard_set_entry idx ((2 * i) + 1) (I64u.of_int len);
           pos := !pos + len
     done;
     let ibytes = encode_chunk index idx in
@@ -1152,7 +1171,9 @@ and sharding ext ~dtype ~fill_value =
     let m = index_size grid in
     let n = product grid in
     match encoded_size inner (inner_repr r.dtype) with
-    | Fixed f | Bounded f -> Bounded (m + (n * f))
+    | Fixed f | Bounded f ->
+        if f <> 0 && n > (max_int - m) / f then Unbounded
+        else Bounded (m + (n * f))
     | Unbounded -> Unbounded
   in
   Ok

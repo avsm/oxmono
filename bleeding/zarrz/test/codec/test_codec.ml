@@ -353,6 +353,38 @@ let test_zstd () =
         (Printf.sprintf "zstd %d %b" level checksum))
     [ (0, false); (1, false); (3, true); (9, true); (-3, false); (-5, true) ]
 
+let test_zstd_size_errors () =
+  let c = chain ~dtype:Dtype.Uint8 (zstd_json 3 false) in
+  let encoded =
+    Codec.encode_chunk c (slab_of Dtype.Uint8 [| 16 |] (String.make 16 'x'))
+  in
+  Alcotest.check_raises "declared size mismatch"
+    (Error.E
+       (Error.Codec "zstd: the frame declares 16 bytes where 17 were expected"))
+    (fun () ->
+      ignore (Codec.decode_chunk c (repr Dtype.Uint8 [| 17 |]) encoded));
+  Alcotest.check_raises "truncated frame header"
+    (Error.E (Error.Codec "zstd: unreadable frame header")) (fun () ->
+      ignore
+        (Codec.decode_chunk c
+           (repr Dtype.Uint8 [| 16 |])
+           (Base_bigstring.sub encoded ~pos:0 ~len:2)));
+  List.iter (fun size ->
+      let frame = Bytes.make 13 '\000' in
+      Bytes.blit_string "\x28\xb5\x2f\xfd\xe0" 0 frame 0 5;
+      Bytes.set_int64_le frame 5 size;
+      Alcotest.check_raises "unsigned content size exceeds int range"
+        (Error.E
+           (Error.Codec
+              "zstd: the frame declares more bytes than an int can hold"))
+        (fun () -> ignore (Codec.decode_chunk c (repr Dtype.Uint8 [| 16 |])
+          (bs (Bytes.unsafe_to_string frame)))))
+    [Int64.succ (Int64.of_int max_int); Int64.min_int; -3L];
+  let unknown = bs "\x28\xb5\x2f\xfd\x00\x00\x01\x00\x00" in
+  Alcotest.(check int) "unknown content size remains supported" 0
+    (Slab.num_elements
+       (Codec.decode_chunk c (repr Dtype.Uint8 [| 0 |]) unknown))
+
 let test_compressor_config () =
   Alcotest.(check string)
     "gzip level required" "codec \"gzip\": level is required"
@@ -477,6 +509,7 @@ let compressor_tests =
     ("gzip header fields", `Quick, test_gzip_header_fields);
     ("gzip header errors", `Quick, test_gzip_header_errors);
     ("zstd", `Slow, test_zstd);
+    ("zstd size errors", `Quick, test_zstd_size_errors);
     ("configuration", `Quick, test_compressor_config);
     ("gzip corruption", `Quick, test_gzip_corrupt);
   ]
@@ -831,10 +864,55 @@ let test_chain_shape () =
     [ "transpose"; "bytes"; "crc32c" ]
     (List.map (fun (e : Ext.t) -> e.name) (Codec.chain_exts c))
 
+let test_byte_size_overflow () =
+  let c = chain ~dtype:Dtype.Uint64 (bytes_json "little") in
+  let shape = [| (max_int / 8) + 1 |] in
+  Alcotest.check_raises "decoded byte size cannot wrap"
+    (Invalid_argument "Zarrz.Codec: byte size overflows an int") (fun () ->
+      ignore (Codec.encoded_size c (repr Dtype.Uint64 shape)));
+  match Codec.encoded_size c (repr Dtype.Uint64 [| max_int / 8 |]) with
+  | Codec.Fixed n ->
+      Alcotest.(check int) "largest fitting byte count" (max_int / 8 * 8) n
+  | _ -> Alcotest.fail "bytes must have a fixed size"
+
+let test_empty_large_shape () =
+  let c = chain ~dtype:Dtype.Uint64 (bytes_json "little") in
+  List.iter (fun shape ->
+    match Codec.encoded_size c (repr Dtype.Uint64 shape) with
+    | Codec.Fixed 0 -> ()
+    | _ -> Alcotest.fail "empty shape must encode to zero bytes")
+    [[|max_int; 2; 0|]; [|0; max_int; 2|]];
+  Alcotest.check_raises "zero does not hide negative dimension"
+    (Invalid_argument "Zarrz.Codec: negative dimension")
+    (fun () -> ignore
+      (Codec.encoded_size c (repr Dtype.Uint64 [|0; -1|])))
+
+let test_bound_overflow json () =
+  let c = chain ~dtype:Dtype.Uint8 json in
+  match Codec.encoded_size c (repr Dtype.Uint8 [| max_int |]) with
+  | Codec.Unbounded -> ()
+  | Codec.Fixed n | Codec.Bounded n ->
+      Alcotest.failf "unrepresentable bound wrapped to %d" n
+
+let test_crc_bound_limit () =
+  let c = chain ~dtype:Dtype.Uint8 crc32c_json in
+  match Codec.encoded_size c (repr Dtype.Uint8 [| max_int - 4 |]) with
+  | Codec.Fixed n -> Alcotest.(check int) "largest fitting CRC bound" max_int n
+  | _ -> Alcotest.fail "representable CRC bound lost"
+
 let chain_tests =
   [
     ("full chains", `Quick, test_full_chains);
     ("chain shape", `Quick, test_chain_shape);
+    ("byte size overflow", `Quick, test_byte_size_overflow);
+    ("empty large shape", `Quick, test_empty_large_shape);
+    ("gzip bound overflow", `Quick, test_bound_overflow (gzip_json 6));
+    ("zstd bound overflow", `Quick, test_bound_overflow (zstd_json 3 false));
+    ( "blosc bound overflow",
+      `Quick,
+      test_bound_overflow (blosc_json ~typesize:1 ()) );
+    ("CRC bound overflow", `Quick, test_bound_overflow crc32c_json);
+    ("CRC bound limit", `Quick, test_crc_bound_limit);
   ]
 
 (* {1 Sharding} *)
@@ -1118,6 +1196,23 @@ let test_shard_bad_index () =
   (* Only both halves at 2^64-1 mean an absent chunk. One half alone is
      an unusable entry. *)
   fails "a half sentinel" (reindex (at 1 (-1L)));
+  let rejects_before_fetch what field value =
+    let bytes = bs (reindex (at field value)) in
+    let source, _, many, _ = counting (Byte_source.of_bigstring bytes) in
+    let sub = { Subset.start = [: 0; 0 :]; shape = [: 4; 4 :] } in
+    Alcotest.(check bool) what true
+      (match Codec.partial_decode c (repr dt shape) source sub with
+      | _ -> false
+      | exception Error.E (Error.Codec _) -> true);
+    Alcotest.(check int) "invalid index rejected before batched fetch" 0 !many
+  in
+  List.iter
+    (fun field ->
+      rejects_before_fetch "one sentinel half" field (-1L);
+      rejects_before_fetch "high unsigned bit" field Int64.min_int;
+      rejects_before_fetch "one past max_int" field
+        (Int64.succ (Int64.of_int max_int)))
+    [ 0; 1 ];
   (* A present entry of no bytes cannot hold an inner chunk. *)
   fails "a zero length entry" (reindex (at 1 0L));
   (* A shard too short to hold the index it must carry. *)
@@ -1126,6 +1221,61 @@ let test_shard_bad_index () =
        (Error.Codec
           "sharding_indexed: a 4 byte shard cannot hold its 68 byte index"))
     (fun () -> ignore (Codec.decode_chunk c (repr dt shape) (bs "abcd")))
+
+let test_shard_edge_shapes () =
+  List.iter
+    (fun loc ->
+      List.iter
+        (fun (chunk_shape, shape, data) ->
+          let _, decoded =
+            round_trip ~dtype:Dtype.Uint8 ~shape
+              (shard_json ~loc chunk_shape)
+              data
+          in
+          Alcotest.(check string) "scalar or empty shard" data decoded)
+        [
+          ([||], [||], "x"); ([||], [||], "\000"); ([| 2; 2 |], [| 0; 4 |], "");
+        ])
+    [ "start"; "end" ]
+
+let test_shard_sparse_large_shape () =
+  (* The shard has only 1024 index entries and no payload. Its logical shape
+     fits an int, but adding a chunk width to its endpoint does not. *)
+  let width = 4_503_599_627_370_495 in
+  let chunks = 1024 in
+  let shape = [| width * chunks |] in
+  let c =
+    chain ~dtype:Dtype.Uint8
+      ~fill:(Fill_value.of_bytes "\x7f")
+      (shard_json [| width |])
+  in
+  let index_chain = chain ~dtype:Dtype.Uint64 crc32c_json in
+  let index =
+    slab_of Dtype.Uint64 [| chunks; 2 |] (String.make (16 * chunks) '\xff')
+  in
+  let encoded = Codec.encode_chunk index_chain index in
+  let source, reads, many, _ = counting (Byte_source.of_bigstring encoded) in
+  let sub = { Subset.start = [: shape.(0) - 1 :]; shape = [: 1 :] } in
+  match Codec.partial_decode c (repr Dtype.Uint8 shape) source sub with
+  | None -> Alcotest.fail "shard does not support partial reads"
+  | Some slab ->
+      Alcotest.(check string)
+        "last absent chunk reads as fill" "\x7f"
+        (str (Slab.bigstring slab));
+      Alcotest.(check int) "only index read" 1 !reads;
+      Alcotest.(check int) "no absent payload fetch" 0 !many
+
+let test_shard_size_overflow () =
+  let width = 4_503_599_627_370_495 in
+  let c = chain ~dtype:Dtype.Uint8 (shard_json [| width |]) in
+  (match Codec.encoded_size c (repr Dtype.Uint8 [| width * 1024 |]) with
+  | Codec.Unbounded -> ()
+  | Codec.Fixed n | Codec.Bounded n ->
+      Alcotest.failf "shard payload bound wrapped to %d" n);
+  let c = chain ~dtype:Dtype.Uint8 (shard_json [| 1 |]) in
+  Alcotest.check_raises "index byte size cannot wrap"
+    (Invalid_argument "Zarrz.Codec: byte size overflows an int") (fun () ->
+      ignore (Codec.encoded_size c (repr Dtype.Uint8 [| (max_int / 16) + 1 |])))
 
 let shard_tests =
   [
@@ -1137,6 +1287,9 @@ let shard_tests =
     ("nested", `Quick, test_shard_nested);
     ("errors", `Quick, test_shard_errors);
     ("a corrupt index", `Quick, test_shard_bad_index);
+    ("scalar and empty shapes", `Quick, test_shard_edge_shapes);
+    ("large sparse shape", `Quick, test_shard_sparse_large_shape);
+    ("size overflow", `Quick, test_shard_size_overflow);
   ]
 
 (* {1 Golden fixtures} *)

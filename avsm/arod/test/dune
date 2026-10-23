@@ -160,3 +160,8 @@
  (name test_pull)
  (modules test_pull)
  (libraries arod.setup arod bushel.config gitops tomlt.bytesrw eio_main unix))
+
+(test
+ (name test_jsont_skip)
+ (modules test_jsont_skip)
+ (libraries jsont jsont.bytesrw bytesrw))

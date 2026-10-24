@@ -19,5 +19,9 @@ type stats = Statistics.t = {
   errors : int; last_import : float option;
   titles : int; abstracts : int; publishers : int;
   enriched : int; enrichment_errors : int;
+  partial : int; stale : int;
 }
 let stats = Statistics.get
+
+type journal = Journal.t = { name : string; papers : int }
+let journals = Journal.suggest

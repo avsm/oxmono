@@ -2,22 +2,39 @@ open Taposaur
 open Db
 module S = Sqlite3
 
-type candidate = { row : Index.t; raw : string; generation : int64 }
+type candidate = {
+  row : Index.t; raw : string; generation : int64; revision : int64;
+  source_stamp : string option;
+}
 let index candidate = candidate.row
+let source_stamp candidate = candidate.source_stamp
+let optional s column = match S.column s column with
+  | S.Data.TEXT value -> Some value | _ -> None
+let guard candidate = [text (Uid.to_string candidate.row.uid);
+  text candidate.raw; S.Data.INT candidate.generation;
+  S.Data.INT candidate.revision]
+let condition = "uid=? AND json=? AND generation=? AND metadata_revision=?"
 
-let pending ?(force = false) ?uid ?(after = "") ~limit ~version t =
+let pending ?(force = false) ?(retry_errors = false) ?(need_details = false)
+    ?uid ?(after = "")
+    ~limit ~version t =
   if limit < 1 || limit > 1000 then invalid_arg "limit must be 1..1000";
   if version < 1 then invalid_arg "version must be positive";
   run t (fun db ->
     let clauses = "uid>?" ^
-      (if force then "" else " AND metadata_version<>?") ^
+      (if force then "" else " AND (metadata_version<>? OR (metadata_stale=1 AND metadata_error IS NULL)" ^
+        (if need_details then
+           " OR (detail_json IS NULL AND metadata_error IS NULL)" else "") ^
+        (if retry_errors then
+           " OR metadata_error IS NOT NULL OR metadata_diagnostics<>'[]'"
+         else "") ^ ")") ^
       (if uid = None then "" else " AND uid=?") in
     let args = [text after] @
       (if force then [] else [int version]) @
       Option.fold ~none:[] ~some:(fun id -> [text (Uid.to_string id)]) uid @
       [int limit] in
-    with_stmt db ("SELECT json,generation FROM papers WHERE " ^ clauses ^
-      " ORDER BY uid LIMIT ?") (fun s ->
+    with_stmt db ("SELECT json,generation,metadata_revision,source_stamp \
+      FROM papers WHERE " ^ clauses ^ " ORDER BY uid LIMIT ?") (fun s ->
       bind s args;
       let rec loop acc = match S.step s with
         | S.Rc.ROW ->
@@ -25,43 +42,76 @@ let pending ?(force = false) ?uid ?(after = "") ~limit ~version t =
             let row = match Index.of_string raw with
               | Ok e -> e
               | Error e -> failwith ("Invalid catalogue row: " ^ e) in
-            loop ({row; raw; generation = S.column_int64 s 1} :: acc)
+            loop ({row; raw; generation = S.column_int64 s 1;
+              revision = S.column_int64 s 2;
+              source_stamp = optional s 3} :: acc)
         | S.Rc.DONE -> List.rev acc | rc -> check rc; assert false in
       loop []))
 
-let publish t candidate ~version result =
+let invalidate t candidate = run t (fun db ->
+  with_stmt db ("UPDATE papers SET metadata_stale=1,metadata_version=0, \
+    metadata_revision=metadata_revision+1 WHERE " ^ condition) (fun s ->
+    bind s (guard candidate); done_ s; S.changes db > 0))
+
+let diagnostics_codec = Jsont.list Jsont.string
+let publish ?source_stamp ?detail_cache ?(diagnostics = [])
+    t candidate ~version result =
   if version < 1 then invalid_arg "version must be positive";
-  let identity = Uid.to_string candidate.row.uid in
-  let guard = [text identity; text candidate.raw;
-    S.Data.INT candidate.generation] in
+  let diagnostics = match
+    Jsont_bytesrw.encode_string diagnostics_codec diagnostics with
+    | Ok s -> s | Error e -> failwith e in
   run t (fun db -> transaction db (fun () ->
     let version = int version in
     let now = S.Data.FLOAT (Unix.gettimeofday ()) in
+    let stamp = match source_stamp with
+      | None -> S.Data.NULL | Some s -> text s in
     (match result with
      | Error message -> with_stmt db
-         "UPDATE papers SET metadata_version=?,metadata_error=?,metadata_at=? \
-          WHERE uid=? AND json=? AND generation=?" (fun s ->
-         bind s ([version; text message; now] @ guard); done_ s)
+         ("UPDATE papers SET metadata_version=?,metadata_error=?,metadata_at=?, \
+          metadata_revision=metadata_revision+1 WHERE " ^ condition) (fun s ->
+         bind s ([version; text message; now] @ guard candidate); done_ s)
      | Ok (b : Bibliography.t) ->
          let encoded = match Bibliography.to_string b with
            | Ok s -> s | Error e -> failwith e in
          let author (a : Author.t) = String.trim
            (opt_text a.given ^ " " ^ a.family) in
-         with_stmt db {|
+         with_stmt db ({|
 UPDATE papers SET title=?,authors=?,journal=?,publisher=?,year=?,abstract=?,
- bibliography_json=?,resolved_json=NULL,metadata_version=?,
- metadata_error=NULL,metadata_at=? WHERE uid=? AND json=? AND generation=?|}
+ bibliography_json=?,resolved_json=NULL,detail_json=?,detail_at=?,metadata_version=?,
+ metadata_error=NULL,metadata_at=?,source_stamp=?,metadata_diagnostics=?,
+ metadata_stale=0,metadata_revision=metadata_revision+1 WHERE |} ^ condition)
            (fun s ->
            bind s ([text (opt_text b.title);
              text (String.concat "; " (List.map author b.authors));
              text (opt_text b.journal); text (opt_text b.publisher);
              (match b.year with None -> S.Data.NULL | Some n -> int n);
-             text (opt_text b.abstract); text encoded; version; now] @ guard);
+             text (opt_text b.abstract); text encoded;
+             Option.fold ~none:S.Data.NULL ~some:text detail_cache;
+             (if detail_cache = None then S.Data.NULL else now); version; now;
+             stamp; text diagnostics] @ guard candidate);
            done_ s));
     S.changes db > 0))
 
+type status = {
+  source_stamp : string option; stale : bool; diagnostics : string list;
+  error : string option;
+}
+let status t uid = run t (fun db -> with_stmt db
+  "SELECT source_stamp,metadata_stale,metadata_diagnostics,metadata_error \
+   FROM papers WHERE uid=?" (fun s ->
+    bind s [text (Uid.to_string uid)];
+    match S.step s with
+    | S.Rc.DONE -> None
+    | S.Rc.ROW ->
+        let diagnostics = match Jsont_bytesrw.decode_string diagnostics_codec
+          (S.column_text s 2) with Ok xs -> xs | Error e -> failwith e in
+        Some {source_stamp = optional s 0; stale = S.column_int s 1 <> 0;
+          diagnostics; error = optional s 3}
+    | rc -> check rc; assert false))
+
 let errors t = run t (fun db -> with_stmt db
-  "SELECT uid,metadata_error FROM papers WHERE metadata_error IS NOT NULL \
+  "SELECT uid,coalesce(metadata_error,metadata_diagnostics) FROM papers \
+   WHERE metadata_error IS NOT NULL OR metadata_diagnostics<>'[]' \
    ORDER BY metadata_at DESC LIMIT 100" (fun s ->
     let rec loop acc = match S.step s with
       | S.Rc.ROW ->
@@ -70,3 +120,28 @@ let errors t = run t (fun db -> with_stmt db
           loop ((uid, S.column_text s 1) :: acc)
       | S.Rc.DONE -> List.rev acc | rc -> check rc; assert false in
     loop []))
+
+type detail = {
+  index : Index.t; json : string; saved_at : float;
+  stale : bool; error : string option; diagnostics : string list;
+}
+
+let detail t uid = run t (fun db -> with_stmt db
+  "SELECT json,detail_json,detail_at,metadata_stale,metadata_error,\
+   metadata_diagnostics FROM papers WHERE uid=? AND detail_json IS NOT NULL"
+  (fun s ->
+    bind s [text (Uid.to_string uid)];
+    match S.step s with
+    | S.Rc.DONE -> None
+    | S.Rc.ROW ->
+        let index = match Index.of_string (S.column_text s 0) with
+          | Ok row -> row | Error e -> failwith e in
+        let diagnostics = match Jsont_bytesrw.decode_string diagnostics_codec
+          (S.column_text s 5) with Ok xs -> xs | Error e -> failwith e in
+        Some {index; json = S.column_text s 1; saved_at = S.column_double s 2;
+          stale = S.column_int s 3 <> 0; error = optional s 4; diagnostics}
+    | rc -> check rc; assert false))
+
+let detail_count t = run t (fun db -> with_stmt db
+  "SELECT papers FROM detail_counts WHERE singleton=1" (fun s ->
+    ignore (S.step s); S.column_int s 0))

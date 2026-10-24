@@ -73,7 +73,7 @@ val resolve :
     year retains its date's source.
 
     [preferred_tei] selects the highest-ranked successfully parsed TEI,
-    or the highest-ranked TEI when every header failed. [preferred_pdf]
+    or [None] when every header failed. [preferred_pdf]
     is the first PDF in manifest order. *)
 
 (** {1 Catalogue projection} *)
@@ -88,3 +88,12 @@ val bibliography : t -> Taposaur.Bibliography.t
 val presence : t -> Taposaur.Bibliography.presence
 (** [presence paper] reports selected title, abstract and publisher
     availability. *)
+
+val cache_string : t -> (string, string) result
+(** [cache_string paper] encodes its manifest and document observations.
+    The original index row is stored separately by the catalogue. *)
+val of_cache_string :
+  index:Taposaur.Index.t -> string -> (t, string) result
+(** [of_cache_string ~index json] reconstructs complete resolved details
+    without I/O. It checks the cache version, identity and artifact references.
+    Source freshness is checked separately by the indexing workflow. *)

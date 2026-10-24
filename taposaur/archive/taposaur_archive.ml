@@ -33,7 +33,9 @@ let read_bounded ?(max_bytes = 16 * 1024 * 1024) flow =
 let load archive dir =
   let path = archive.root / dir / "paper.json" in
   if not (Eio.Path.is_file path) then None else
-  let text = Eio.Path.with_open_in path read_bounded in
+  let text = try Eio.Path.with_open_in path read_bounded with
+    | Eio.Buf_read.Buffer_limit_exceeded ->
+        fail (label path) "Manifest exceeds 16 MiB" in
   match Manifest.of_string text with
   | Error e -> fail (label path) e
   | Ok manifest -> Some { archive; dir; manifest }
@@ -124,3 +126,27 @@ let iter_dois path f =
     else Result.map Option.some (Uid.of_id Uid.Scheme.Doi s)
   in
   iter_jsonl ~decode path (fun n -> Option.iter (f n))
+
+let fingerprint p =
+  let manifest = match Manifest.to_string p.manifest with
+    | Ok s -> s | Error e -> fail p.dir e in
+  let artifacts = p.manifest.artifacts in
+  List.iter (fun (a : Manifest.Artifact.t) -> component a.file) artifacts;
+  let stamps = if artifacts = [] then [] else
+    try Eio.Path.with_subtree (p.archive.root / p.dir) (fun dir ->
+      List.map (fun (a : Manifest.Artifact.t) ->
+        let stamp = try
+          (* Stat the directory entry without opening the artifact or
+             following links. Opening cold archive files dominated the
+             measured cost even when no contents were read. *)
+          let s = Eio.Path.stat ~follow:false (dir / a.file) in
+          if s.kind <> `Regular_file then "not a regular file" else
+            Printf.sprintf "%Ld:%.17g:%.17g"
+              (Optint.Int63.to_int64 s.size) s.mtime s.ctime
+        with Eio.Io _ as ex -> Printexc.to_string ex in
+        a.file ^ ":" ^ stamp) artifacts)
+    with Eio.Io _ as ex ->
+      List.map (fun (a : Manifest.Artifact.t) ->
+        a.file ^ ":" ^ Printexc.to_string ex) artifacts in
+  Digestif.SHA256.(to_hex (digest_string
+    (String.concat "\000" (manifest :: stamps))))

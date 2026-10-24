@@ -7,6 +7,10 @@
   taposaur.catalog
   taposaur.paper
   taposaur.reader
+  taposaur.document
+  digestif
+  jsont
+  jsont.bytesrw
   eio
   sqlite3
   optint))

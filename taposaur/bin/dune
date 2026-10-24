@@ -10,6 +10,15 @@
   taposaur.document
   taposaur.paper
   taposaur.reader
+  taposaur.services
+  taposaur.store
+  taposaur.download
+  fetch
+  fetch-main
+  duration
+  unix
+  jsont
+  jsont.bytesrw
   eio_main
   cmdliner))
 

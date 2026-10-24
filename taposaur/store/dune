@@ -1,0 +1,15 @@
+(library
+ (name taposaur_store)
+ (public_name taposaur.store)
+ (libraries
+  taposaur
+  eio
+  eio.unix
+  digestif
+  cstruct
+  optint
+  jsont
+  jsont.bytesrw)
+ (foreign_stubs
+  (language c)
+  (names lock_stubs)))

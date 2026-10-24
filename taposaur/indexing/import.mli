@@ -17,3 +17,9 @@ val sync :
 (** [sync catalog archive] inventories all index shards and imports changed
     shards matching [prefix]. [limit] bounds attempted imports, so repeated
     limited runs advance. Missing source shards retain their cached rows. *)
+
+val retire :
+  Taposaur_catalog.write Taposaur_catalog.t -> Taposaur_archive.t ->
+  shard:string -> unit
+(** [retire catalog archive ~shard] explicitly removes cached rows for a
+    missing shard. An existing or inaccessible source is refused. *)

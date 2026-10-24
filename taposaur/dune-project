@@ -32,4 +32,9 @@
   proffer-httpz
   optint
   cstruct
+  uri
+  fetch
+  fetch-main
+  ptime
+  duration
   (alcotest :with-test)))

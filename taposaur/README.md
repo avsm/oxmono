@@ -2,7 +2,8 @@
 
 Read, search and browse an existing Taposaur paper archive. This first
 milestone exposes read-only archive operations, a rebuildable SQLite
-catalogue, a CLI and a Proffer website. The archive format stays unchanged.
+catalogue, a CLI and a Proffer website. The archive format stays unchanged. [Roadmap](ROADMAP.md) records the
+remaining acquisition, conversion and review work.
 
 ## Libraries
 
@@ -15,6 +16,9 @@ catalogue, a CLI and a Proffer website. The archive format stays unchanged.
 | `taposaur.reader` | [Taposaur_reader](reader/taposaur_reader.mli) | Load and resolve one archive paper |
 | `taposaur.catalog` | [Taposaur_catalog](catalog/taposaur_catalog.mli) | Typed SQLite handles, queries and atomic publications |
 | `taposaur.indexing` | [Taposaur_indexing](indexing/taposaur_indexing.mli) | Import, enrichment and audit workflows |
+| `taposaur.services` | [Taposaur_services](services/taposaur_services.mli) | Explicitly configured Fetch clients |
+| `taposaur.store` | [Taposaur_store](store/taposaur_store.mli) | Recoverable staging publications |
+| `taposaur.download` | [Taposaur_download](download/taposaur_download.mli) | Single-paper acquisition |
 | `taposaur.web` | [Taposaur_web](web/taposaur_web.mli) | Proffer routes and views |
 
 [Architecture](ARCHITECTURE.md) describes the dependency boundaries,
@@ -94,11 +98,12 @@ previous shard intact. Errors remain visible until a successful retry.
 Cancellation interrupts loading. Final publication defers cancellation
 until the transaction completes.
 
-Size and modification time identify unchanged files. `--force` reloads
+Size, modification time and loader version identify unchanged files. `--force` reloads
 them, including after changes to parsing or projection code. Limits count
 changed shards, so repeating a limited import advances through the index.
-Missing source shards retain their existing rows. There is no implicit
-retirement operation.
+Missing source shards retain their existing rows. Explicitly retire one with
+`taposaur retire-shard --db catalog.db doi/10.1016/06.jsonl` after confirming
+it is no longer wanted. The command refuses an existing source shard.
 
 Normal imports list all index shards to record discovery coverage. That
 listing can be substantial on the production filesystem. `--shard` reads
@@ -110,6 +115,26 @@ authors, journals, publishers and abstracts. It uses UID ordering and a
 UID cursor, with pages capped at 100 records. SQL and FTS operators in
 user text have no special meaning. Publisher and journal filters are exact
 matches. Whole-document text search is outside this milestone.
+
+The journal selector suggests matching journals and their catalogue counts.
+Use the arrow keys and Enter to select a suggestion, or clear it to search all
+journals. Selecting a journal preserves the other search filters.
+
+Paper pages open Read TEI and History in a side panel. Switching tabs retains
+the selected TEI version and scroll position. Close the panel with Escape or
+use Open full page for a separate view. Without JavaScript these links open
+standalone pages.
+
+Paper pages use persisted complete details when available, including
+provenance, file links and reading controls. These requests need no archive
+reads. Details show when they were saved, with warnings for known stale data
+or failed refreshes. Source changes are checked by the freshness workflow.
+Until details have been cached, indexed pages show catalogue metadata while
+the full details load in the background. If that request fails, the saved metadata stays visible.
+The Load complete paper details link also works without JavaScript.
+`/paper?uid=IDENTIFIER&view=full` serves the complete page directly.
+Use `view=live` to explicitly inspect current archive metadata without
+updating the cache. Reading TEI, PDFs and history still accesses archive files.
 
 ## Resolve metadata
 
@@ -134,15 +159,73 @@ versioned, including unavailable manifests. `--force` refreshes them after
 archive changes or retries failures. Reimporting a shard invalidates its
 cached metadata. Failed refreshes retain the previous search projection.
 Up to eight papers are read concurrently by default, configurable with
-`--jobs`. Cancellation leaves completed papers available. Catalogues using schema versions 1 or 2 migrate when opened for writing,
+`--jobs`. Cancellation leaves completed papers available. Catalogues using
+schema versions 1 through 5 migrate when opened for writing,
 preserving existing cached metadata. `taposaur enrich --limit 0` upgrades
 a catalogue without scheduling any metadata reads.
+
+Enrichment also stores manifests and per-document metadata observations.
+The pure resolver reconstructs complete paper details, preserving alternatives,
+corrections and diagnostics. Existing enriched rows without this cache are
+automatically backfilled. Failed refreshes preserve the previous details and
+their saved timestamp. Reimporting a shard invalidates its details.
+
+Use `--progress-file /local/path/progress.json` to write atomic progress updates
+from the OCaml enrichment process. `stats` and the homepage report the total
+number of papers with saved details. The cache contains no PDF/TEI bodies or
+event logs.
 
 Search returns `Taposaur.Summary.t`, containing a UID, bibliography and
 holdings flags. The CLI serializes this summary as JSONL. The search page
 renders titles, authors, journal, publisher and abstract snippets. Its metadata filter selects papers with or without a title,
 abstract or publisher. `stats` and the homepage show availability counts
 and enrichment progress. These counts describe the loaded catalogue.
+
+### Freshness and diagnostics
+
+Check a bounded page of sources, then refresh the changed papers:
+
+```sh
+taposaur check-freshness --db catalog.db --limit 1000
+taposaur check-freshness --db catalog.db --after 'doi:10.1000/last' --limit 1000
+taposaur enrich --db catalog.db
+taposaur enrich --db catalog.db --retry-errors
+```
+
+Use the emitted cursor for the next page. Source stamps include the decoded
+manifest and artifact sizes, mtimes and ctimes. The check reads no artifact
+bodies and uses directory-entry metadata without opening artifact files.
+It marks missing or changed sources stale while preserving cached
+values. There is no background watcher. Paper pages compare their current
+source stamp with the cached stamp and identify stale or unchecked metadata.
+
+Enrichment checks the source before and after reading. A changed source is
+not published. Individual document errors produce partial, searchable metadata
+with retained diagnostics. `--retry-errors` retries partial resolutions and
+unavailable manifests. The homepage and `stats` distinguish complete, partial,
+stale and failed resolutions. Metadata counts use transactional counters.
+
+### Audit failed TEI conversions
+
+Validate the complete TEI documents for a work list of DOI or PMC identifiers:
+
+```sh
+taposaur audit-tei --work-list papers.txt --jobs 8 > tei-audit.jsonl
+```
+
+This read-only OCaml command emits one JSON object per TEI artifact. It
+recognises GROBID error text, records the artifact's SHA-256 and source stamp,
+and checks the selected source PDF's signature and size. PDF checks do not
+establish that its pages can be parsed. Complete XML validation is bounded to
+16 MiB and 256 nesting levels. It checks well-formedness, not a TEI schema.
+
+`grobid_error_NO_BLOCKS` requires PDF inspection for OCR or replacement.
+`grobid_error_GENERAL` with an available PDF is a regeneration candidate.
+Malformed XML, metadata-header limits, missing PDFs and changing sources
+remain separate findings. No conversion is started and no archive file is
+changed. Recheck the saved source stamp and failed-artifact digest before
+using a report to regenerate a file. Work-list coverage is explicit, so the
+report does not claim to validate the entire archive.
 
 ### Resolved paper interface
 
@@ -274,12 +357,77 @@ agreement, and bound TEI flow parsing. The archive, catalogue and Proffer
 libraries are new. Production service processes and source files are
 unchanged.
 
-## Next modules
+## Fetch into staging
 
-The next milestone extracts the production publisher and metadata clients
-into `services/`, using a caller-supplied Fetch capability, then builds
-single-paper downloading into staging. `store/` will own event append,
-projection, locking and atomic publication. Conversion, review state and
-persistent jobs follow as separate libraries with CLI entry points before
-web integration. The current package has no archive writer, downloader,
-conversion service client or Cap'n Proto dependency.
+Fetch one paper using metadata discovery, or supply an explicit URL:
+
+```sh
+taposaur fetch '10.1000/example' --staging /local/staging/batch-1
+taposaur fetch '10.1000/example' --staging /local/staging/batch-1 \
+  --url https://example.org/article.pdf --format pdf
+```
+
+Automatic discovery uses `GLUTTON_SERVER_URL`, with `DATACITE_SERVER_URL`
+optional for missing DOI records. Supported publisher routes are Elsevier,
+Springer, Wiley, Taylor & Francis, PLOS and Cambridge University Press.
+Configure `ELSEVIER_API_KEY`,
+optional `ELSEVIER_INST_TOKEN`, `SPRINGER_API_KEY`, and comma-separated
+`WILEY_TOKENS` as needed. `CORE_API_TOKEN` enables the CORE fallback.
+Environment loading belongs to the CLI. Library callers supply configured
+service capabilities. No credentials are read from dotenv files implicitly.
+
+Publisher clients space requests two seconds apart, or thirty seconds for
+Cambridge, independently of metadata lookups. Busy publisher responses
+(429, 500, 502, 503, 504) receive up to three retries, with five-minute waits
+outside the transfer deadline. Library callers can override the retry policy
+and supply their own pacing middleware. `--timeout` bounds each transfer,
+including its body (120 seconds by default); metadata lookups use at most
+15 seconds. `--max-bytes` bounds each artifact (128 MiB by default).
+
+Springer defaults to XML; `--publisher-pdf` also tries its PDF route using
+network entitlement. PLOS attempts both formats. Cambridge resolves the DOI
+to an article page before requesting its PDF. CORE prefers download URLs;
+its output-ID fallback first requires metadata with the requested DOI.
+Springer XML response wrappers are retained and must contain exactly one
+article. Live entitlement checks remain outstanding.
+
+`Taposaur_services.Grobid` and `Pub2tei` provide explicitly configured clients
+for PDF extraction and publisher XML conversion, using the shared Fetch HTTP
+libraries. They return HTTP responses for callers to validate. Conversion
+jobs, output publication and regeneration remain separate operations.
+
+Files appear beneath `STAGING/doi/PREFIX/SUB/SUFFIX`, with `paper.json` and
+`events.jsonl`. A PMCID resolved to a DOI is staged under that DOI. The writer
+accepts a dedicated local staging tree and refuses existing papers created
+by other writers. It does not merge into `papers/` or update archive indexes.
+
+Transfers stream to a temporary file. Publication requires a PDF signature
+and end marker, or well-formed publisher XML with a recognised root. These
+checks reject common login/error pages but do not establish bibliographic
+identity or complete PDF structural validity. Each artifact has a SHA-256
+digest. Identical retries reuse the original artifact; changed bytes receive
+another filename. Acquisition failures remain events with typed CLI outcomes.
+
+A per-paper lock excludes concurrent writers. Publication syncs a pending
+intent, finishes the artifact, appends the event and atomically replaces the
+manifest. Reopening recovers a partially appended event without duplicating it.
+The writer's projector handles acquisition events emitted by this package.
+Acceptance, merging, legacy event replay and conversion are future modules.
+
+Service clients were adapted from production under ISC. See
+[service provenance](services/PROVENANCE.md) and [roadmap](ROADMAP.md).
+
+## Catalogue measurement
+
+The synthetic benchmark requires a new database filename:
+
+```sh
+opam exec --switch=5.2.0+ox -- dune exec --profile release-check \
+  taposaur/bench/catalogue.exe -- /tmp/catalogue-benchmark.db 250000
+```
+
+It reports import time and warm p50/p95 latency for statistics, browsing and
+an FTS term shared by every paper. See [benchmark results](bench/README.md).
+Run `python3 taposaur/test/http_smoke.py` from the repository root to test
+the built CLI against synthetic loopback HTTP responses.
+A full production import and corpus-wide enrichment remain to be measured.

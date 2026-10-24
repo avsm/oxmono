@@ -6,3 +6,5 @@ val replace :
 val record_error : Db.write Db.t -> shard:string -> string -> unit
 val set_discovered : Db.write Db.t -> int -> unit
 val errors : 'a Db.t -> (string * string) list
+
+val retire : Db.write Db.t -> shard:string -> unit

@@ -59,3 +59,10 @@ val read_artifact : ?max_bytes:int -> paper -> string -> string
 (** [read_artifact paper file] loads at most 16 MiB by default. *)
 val iter_dois : _ Eio.Path.t -> (int -> Taposaur.Uid.t -> unit) -> unit
 (** [iter_dois path f] skips blank and comment lines in a DOI work list. *)
+
+val fingerprint : paper -> string
+(** [fingerprint paper] hashes the manifest snapshot and artifact size,
+    mtime and ctime. Missing, unstatable or nonregular artifacts contribute
+    an error marker. It neither opens artifacts nor follows their symlinks.
+    Find the paper again to include
+    manifest changes. This is a freshness stamp, not a content digest. *)

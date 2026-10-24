@@ -1,0 +1,31 @@
+(executable
+ (name catalogue)
+ (modules catalogue)
+ (libraries taposaur taposaur.catalog eio_main unix))
+
+(executable
+ (name enrichment)
+ (modules enrichment)
+ (libraries
+  taposaur
+  taposaur.archive
+  taposaur.catalog
+  taposaur.paper
+  taposaur.reader
+  eio_main
+  unix
+  digestif
+  optint))
+
+(executable
+ (name cache_size)
+ (modules cache_size)
+ (libraries
+  taposaur
+  taposaur.archive
+  taposaur.catalog
+  taposaur.paper
+  taposaur.reader
+  eio_main
+  jsont
+  jsont.bytesrw))

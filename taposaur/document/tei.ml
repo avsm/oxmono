@@ -208,6 +208,38 @@ let metadata ?(max_bytes = 1024 * 1024) flow =
   let input = Xml.input ~max_bytes flow in
   try parse_input input with Limit -> Error "TEI header exceeds byte limit"
 
+let validate_string ?(max_bytes = 16 * 1024 * 1024) text =
+  if max_bytes < 1 then invalid_arg "max_bytes must be positive";
+  if String.length text > max_bytes then Error "TEI exceeds validation limit"
+  else
+    let input = Xmlm.make_input (`String (0, text)) in
+    let depth = ref 0 and root = ref false in
+    try
+      while not (Xmlm.eoi input) do
+        match Xmlm.input input with
+        | `Dtd _ -> ()
+        | `El_start ((ns, name), _) ->
+            if !depth = 0 then begin
+              if !root then failwith "Multiple document roots";
+              if name <> "TEI" ||
+                 (ns <> "" && ns <> "http://www.tei-c.org/ns/1.0") then
+                failwith "Expected TEI root";
+              root := true
+            end;
+            incr depth;
+            if !depth > 256 then raise Limit
+        | `El_end -> decr depth
+        | `Data _ -> ()
+      done;
+      if not !root || !depth <> 0 then Error "Incomplete TEI document"
+      else Ok ()
+    with
+    | Limit -> Error "TEI exceeds validation nesting limit"
+    | Failure e -> Error e
+    | End_of_file -> Error "Truncated TEI document"
+    | Xmlm.Error ((line, col), e) ->
+        Error (Fmt.str "%d:%d: %s" line col (Xmlm.error_message e))
+
 let render_html ?(max_bytes = 16 * 1024 * 1024)
     ?(max_output = 32 * 1024 * 1024) flow =
   if max_output <= 0 then invalid_arg "max_output must be positive";

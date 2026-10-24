@@ -1,5 +1,6 @@
 (test
  (name test_taposaur)
+ (modules test_taposaur)
  (deps
   (glob_files fixtures/*))
  (libraries
@@ -16,6 +17,25 @@
   alcotest
   sqlite3
   sqlite3-eio
+  digestif
+  optint
+  unix
+  jsont
+  jsont.bytesrw))
+
+(test
+ (name test_acquisition)
+ (modules test_acquisition)
+ (libraries
+  taposaur
+  taposaur.archive
+  taposaur.services
+  taposaur.store
+  taposaur.download
+  fetch
+  fetch.mock
+  eio_main
+  alcotest
   unix
   jsont
   jsont.bytesrw))

@@ -1,0 +1,5 @@
+(library
+ (name taposaur_services)
+ (public_name taposaur.services)
+ (private_modules service)
+ (libraries taposaur fetch eio uri uriz jsont duration))

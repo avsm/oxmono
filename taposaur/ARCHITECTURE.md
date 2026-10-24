@@ -14,13 +14,20 @@ libraries. Neither is an implementation dependency of another library.
 | `taposaur.reader` | Loading document observations and resolving one archive paper | Database handles or persistence |
 | `taposaur.catalog` | SQLite queries, atomic publications and cache snapshots | Archive access, document readers or resolver policy |
 | `taposaur.indexing` | Import, enrichment and audit workflows | SQL implementation or HTML |
+| `taposaur.services` | Publisher and metadata HTTP clients | Environment loading or filesystem writes |
+| `taposaur.store` | Staging locks, events and recoverable publication | Accepted archive mutation or acquisition policy |
+| `taposaur.download` | Source selection, transfer and validation | Credentials from the environment or bulk scheduling |
 | `taposaur.web` | HTTP routing, artifact responses and views | Metadata selection or background indexing |
 
 Arrows show project dependencies. External dependencies are omitted.
 
 ```mermaid
 flowchart TD
-  paper --> core[taposaur]
+  services --> core[taposaur]
+  store --> core
+  download --> services
+  download --> store
+  paper --> core
   archive --> core
   document --> core
   catalog --> core
@@ -88,14 +95,24 @@ The callback performs source checks before returning. An exception leaves
 the previous shard intact. The callback must not reenter the same handle.
 
 `Catalog.Metadata.pending` returns opaque snapshots containing source
-rows. `publish` accepts bibliography or a failure. It checks the raw row
-and shard generation before committing. A shard replacement invalidates
+rows. `publish` accepts bibliography or a failure. It checks the raw row, shard generation
+and metadata revision before committing. A shard replacement invalidates
 old snapshots even when its rows are byte-identical. Success updates
-metadata and FTS atomically. Failure retains the last successful cache.
+metadata and FTS atomically. Failure retains the last successful cache. Partial resolutions preserve document
+diagnostics alongside the selected bibliography. Source checks invalidate
+snapshots without discarding cached values. Metadata counters are maintained
+by triggers in the publication transaction.
 
 Schema migration is private to the catalogue. Version 3 adds complete
 bibliography storage and shard generations. Legacy cached projections
 remain readable, so upgrading does not discard completed enrichment.
+Version 4 adds source stamps, document diagnostics, metadata revisions,
+loader versions and maintained metadata counters.
+Version 5 adds maintained journal counts for bounded autocomplete queries.
+Version 6 adds detail JSON, its saved timestamp and maintained cache counts.
+Detail publication uses the same transaction and generation/revision guard as
+search metadata. The payload contains a manifest and document observations.
+The pure paper library reconstructs provenance using the original index row.
 
 ## Workflows and applications
 
@@ -108,12 +125,21 @@ caller-supplied capabilities. The CLI owns switches, arguments and output.
 The web layer has a private HTML view interface and a separate artifact
 response module. Views accept records, not handles. HTTP code handles
 request parsing, range requests and status codes. It calls `Reader.load`
-for paper pages and `Catalog.search` for listings.
+for complete paper details and `Catalog.search` for listings. Indexed paper
+pages first use the complete detail cache without archive I/O. Uncached
+pages initially use `Catalog.find`. The browser fetches
+complete details separately, retaining the initial bibliography on failure.
+An external script adds journal autocomplete and cached TEI/history panels.
+The same reading routes serve fragments or standalone pages. Paper details
+remain visible while switching panels, including on narrow screens.
 
 New publisher formats belong in `document` and return `Bibliography.t`.
-New acquisition or conversion workflows should be separate libraries with
-CLI entry points before web integration. Archive mutation, review state
-and persistent job scheduling remain separate future responsibilities.
+Acquisition uses the separate services, download and store libraries. Store
+accepts only papers owned by the staging writer. Its durable intent records
+an event and its original append offset. Recovery finishes the artifact and
+any partial append, then rebuilds the manifest. No index publication or main
+archive acceptance is implicit. Conversion, archive acceptance, review state
+and persistent scheduling remain separate future responsibilities.
 
 ## Verification
 

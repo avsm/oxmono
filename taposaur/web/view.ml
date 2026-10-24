@@ -110,16 +110,66 @@ main{padding:0 16px 24px;margin-top:20px}h1{font-size:21px}
 .summary{gap:6px 20px}.actions{gap:8px 14px}}
 |}
 
-let page title body =
+let interface_css = {|
+[hidden]{display:none!important}.sr-only{position:absolute;width:1px;height:1px;
+padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap}
+.journal-field{position:relative;min-width:0}.journal-control{position:relative}
+.journal-control input{padding-right:30px}.journal-clear{position:absolute;
+right:1px;top:1px;height:30px;width:28px;padding:0;border:0;background:transparent;
+color:var(--muted)}.journal-clear:hover{background:#eef2ec;color:var(--ink)}
+.journal-menu{position:absolute;z-index:10;top:100%;right:0;margin-top:4px;
+width:min(460px,calc(100vw - 32px));min-width:100%;background:white;
+border:1px solid var(--line);border-radius:4px;box-shadow:0 6px 24px #23352e18}
+.journal-menu ul{padding:4px;margin:0;list-style:none;max-height:300px;overflow:auto}
+.journal-menu li{display:flex;justify-content:space-between;align-items:baseline;
+gap:16px;padding:8px 10px;border-radius:2px;cursor:pointer;font-size:13px}
+.journal-menu li span{overflow-wrap:anywhere}.journal-menu li small{white-space:nowrap}
+.journal-menu li:hover,.journal-menu li[aria-selected=true]{background:#eaf2e9}
+.journal-menu p{padding:8px 12px;margin:0;border-top:1px solid var(--line);
+font-size:11px;color:var(--muted)}.selected-journal{display:flex;gap:10px;
+align-items:baseline;padding:8px 0;margin-bottom:8px;border-bottom:1px solid var(--line)}
+.selected-journal a{font-size:12px}.journal-link{font-weight:500}
+.paper-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:28px}
+.paper-detail{min-width:0}.paper-page.panel-open{max-width:1600px}
+.paper-layout.panel-open{grid-template-columns:minmax(320px,.85fr) minmax(0,1.15fr)}
+.paper-panel{position:sticky;top:16px;align-self:start;background:white;
+border:1px solid var(--line);border-radius:4px;display:flex;flex-direction:column;
+height:calc(100vh - 100px);min-height:320px;overflow:hidden}
+.panel-heading{display:flex;align-items:center;justify-content:space-between;
+gap:12px;padding:10px 16px;border-bottom:1px solid var(--line)}
+.panel-heading h2{font-size:13px;margin:0;font-weight:500;color:var(--muted)}
+.panel-close{background:transparent;color:var(--muted);border:0;padding:2px 4px;
+font-size:12px;height:28px}.panel-close:hover{background:#eef2ec;color:var(--ink)}
+.panel-tabs{display:flex;gap:20px;padding:0 16px;border-bottom:1px solid var(--line)}
+.panel-tabs a{padding:10px 0 8px;border-bottom:2px solid transparent;
+text-decoration:none;font-size:13px;color:var(--muted)}
+.panel-tabs a[aria-selected=true]{border-bottom-color:var(--accent);color:var(--accent);
+font-weight:600}.panel-context{display:flex;justify-content:space-between;gap:12px;
+padding:8px 16px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--line)}
+#panel-filename{overflow-wrap:anywhere}.panel-context a{white-space:nowrap}
+.panel-body{padding:12px 20px 24px;overflow:auto;overscroll-behavior:contain;
+min-height:0;flex:1}.panel-body .tei{margin:0;font-size:16px}
+.panel-body pre{font-size:11px}.panel-body h2:first-child{margin-top:0}
+.actions a[aria-expanded=true]{font-weight:600}
+@media(max-width:900px){.paper-layout.panel-open{grid-template-columns:minmax(0,1fr)}
+.paper-panel{position:fixed;top:auto;bottom:0;left:0;right:0;height:55dvh;
+min-height:240px;z-index:20;border-radius:8px 8px 0 0;box-shadow:0 -4px 24px #23352e18}
+.paper-page.panel-open{padding-bottom:calc(55dvh + 24px)}
+.panel-body{padding:12px 16px 24px}.panel-heading{padding:6px 16px}}
+@media(max-width:700px){.journal-menu{left:0;right:auto}}
+|}
+
+let page ?(kind = "") title body =
   El.to_string ~doctype:true (El.v "html" ~at:[at "lang" "en"] [
     el "head" [El.v "meta" ~at:[at "charset" "utf-8"] [];
       El.v "meta" ~at:[at "name" "viewport";
         at "content" "width=device-width, initial-scale=1"] [];
       el "title" [txt (title ^ " · Taposaur")];
-      el "style" [El.unsafe_raw css]];
+      el "style" [El.unsafe_raw (css ^ interface_css)];
+      El.v "script" ~at:[at "src" "/assets/interface.js"; at "defer" ""] []];
     el "body" [el "header" [link "/" "taposaur";
       link "/search" "Browse & search"];
-      el "main" (el "h1" [txt title] :: body)]])
+      El.v "main" ~at:[at "class" kind] (el "h1" [txt title] :: body)]])
 
 let form params =
   let get k = Option.value (List.assoc_opt k params) ~default:"" in
@@ -144,10 +194,29 @@ let form params =
         "publisher","With publisher"; "no-title","Without title";
         "no-abstract","Without abstract"; "no-publisher","Without publisher"];
       input "publisher" "Publisher (exact)" "text";
-      input "journal" "Journal (exact)" "text";
+      classed "div" "journal-field" [
+        El.v "label" ~at:[at "for" "journal-input"] [txt "Journal"];
+        classed "div" "journal-control" [
+          El.v "input" ~at:[at "id" "journal-input"; at "name" "journal";
+            at "type" "text"; at "value" (get "journal");
+            at "placeholder" "Find a journal…"; at "autocomplete" "off";
+            at "maxlength" "256"; at "role" "combobox";
+            at "aria-autocomplete" "list"; at "aria-expanded" "false";
+            at "aria-controls" "journal-options";
+            at "aria-describedby" "journal-hint"] [];
+          El.v "button" ~at:[at "id" "journal-clear";
+            at "class" "journal-clear"; at "type" "button";
+            at "aria-label" "Clear journal"; at "hidden" ""] [txt "×"]];
+        El.v "span" ~at:[at "id" "journal-hint"; at "class" "sr-only"]
+          [txt "Type a journal name. Use arrow keys and Enter to select."];
+        El.v "div" ~at:[at "id" "journal-menu"; at "class" "journal-menu";
+          at "hidden" ""] [
+          El.v "ul" ~at:[at "id" "journal-options"; at "role" "listbox";
+            at "aria-label" "Journals"] [];
+          El.v "p" ~at:[at "id" "journal-status"; at "role" "status"] []]];
       input "from" "From year" "number"; input "to" "To year" "number"]]
 
-let home (s : C.stats) errors =
+let home ~details_cached (s : C.stats) errors =
   let metric name n = el "span"
     [el "strong" [txt (count n)]; txt (" " ^ name)] in
   let coverage = match s.discovered_shards with
@@ -158,15 +227,18 @@ let home (s : C.stats) errors =
   page "Catalogue" ([form [];
     classed "div" "summary" [metric "papers" s.papers;
       metric "PDF" s.pdf; metric "XML" s.xml;
-      metric "TEI" s.tei; metric "S2ORC" s.s2orc];
+      metric "TEI" s.tei; metric "S2ORC" s.s2orc;
+      metric "saved paper details" details_cached];
     classed "p" "status" [
       link "/search?metadata=title" (count s.titles ^ " titles"); txt " · ";
       link "/search?metadata=abstract" (count s.abstracts ^ " abstracts");
       txt " · ";
       link "/search?metadata=publisher" (count s.publishers ^ " publishers");
-      txt (" · Metadata resolved for " ^ count s.enriched ^ " papers");
+      txt (" · Complete metadata resolution for " ^ count s.enriched ^ " papers");
       (if s.enrichment_errors = 0 then El.void else
-        txt (" · " ^ count s.enrichment_errors ^ " metadata errors"))];
+        txt (" · " ^ count s.enrichment_errors ^ " metadata errors"));
+      txt (" · " ^ count s.partial ^ " partial resolutions · " ^
+        count s.stale ^ " stale")];
     classed "p" "status" [txt (coverage ^
       Option.fold ~none:"" ~some:(fun t -> " · Updated " ^ stamp t)
         s.last_import)]] @
@@ -188,15 +260,24 @@ let entry (summary : Summary.t) =
         format summary.holdings.s2orc "S2ORC"]];
     (if e.authors = [] then El.void else
       classed "p" "authors" [txt (authors e.authors)]);
-    classed "p" "citation" [txt (joined [empty e.journal;
-      Option.fold ~none:"" ~some:string_of_int e.year; empty e.publisher])];
+    classed "p" "citation" [
+      Option.fold ~none:El.void ~some:(fun journal ->
+        link (url "/search" ["journal",journal]) journal) e.journal;
+      txt (let rest = joined [
+        Option.fold ~none:"" ~some:string_of_int e.year; empty e.publisher] in
+        if e.journal <> None && rest <> "" then " · " ^ rest else rest)];
     (match e.abstract with
      | None | Some "" -> El.void
      | Some text -> classed "p" "abstract-snippet" [txt text]);
     classed "p" "identity" [code uid]]
 
 let search params (result : C.page) =
+  let journal = Option.value ~default:"" (List.assoc_opt "journal" params) in
+  let clear = List.filter (fun (key, _) -> key <> "journal" && key <> "after")
+    params in
   page "Browse & search" ([form params;
+    (if journal = "" then El.void else classed "div" "selected-journal"
+      [txt journal; link (url "/search" clear) "All journals"]);
     (if result.papers = [] then p "No matching papers."
      else classed "div" "results" (List.map entry result.papers))] @
     match result.next with None -> [] | Some after ->
@@ -208,7 +289,61 @@ let metadata rows =
     if value = "" then [] else [el "dt" [txt label]; el "dd" [txt value]])
     rows)
 
-let paper (paper : P.t) =
+let panel_link kind href label =
+  El.v "a" ~at:[at "href" href; at "data-panel" kind;
+    at "aria-controls" "paper-panel"; at "aria-expanded" "false"] [txt label]
+
+let side_panel uid tei =
+  let tab kind href label = El.v "a" ~at:[at "href" href;
+    at "id" ("panel-tab-" ^ kind); at "data-panel" kind;
+    at "role" "tab"; at "aria-selected" "false";
+    at "aria-controls" "panel-body"; at "tabindex" "-1"] [txt label] in
+  El.v "aside" ~at:[at "id" "paper-panel"; at "class" "paper-panel";
+    at "aria-labelledby" "panel-heading"; at "hidden" ""] [
+    classed "div" "panel-heading" [
+      El.v "h2" ~at:[at "id" "panel-heading"] [txt "Paper views"];
+      El.v "button" ~at:[at "id" "panel-close"; at "class" "panel-close";
+        at "type" "button"; at "aria-label" "Close side panel"] [txt "Close ×"]];
+    El.v "nav" ~at:[at "class" "panel-tabs"; at "role" "tablist";
+      at "aria-label" "Paper views"] [
+      Option.fold ~none:El.void ~some:(fun (a : Manifest.Artifact.t) ->
+        tab "tei" (url "/read" ["uid",uid; "file",a.file]) "Read TEI") tei;
+      tab "history" (url "/events" ["uid",uid]) "History"];
+    classed "div" "panel-context" [
+      El.v "span" ~at:[at "id" "panel-filename"] [];
+      El.v "a" ~at:[at "id" "panel-open-page"; at "href" (url "/paper" ["uid",uid]);
+        at "target" "_blank"; at "rel" "noopener"] [txt "Open full page ↗"]];
+    El.v "div" ~at:[at "id" "panel-body"; at "class" "panel-body";
+      at "role" "tabpanel"; at "tabindex" "0"] []]
+
+let fragment title body =
+  El.to_string ~doctype:false (El.v "div" ~at:[at "data-panel-content" "";
+    at "aria-label" title] body)
+
+let paper_preview (summary : Summary.t) =
+  let b = summary.bibliography in
+  let uid = Uid.to_string summary.uid in
+  let title = Option.value b.title ~default:uid in
+  let details = url "/paper" ["uid",uid;"view","full"] in
+  page ~kind:"paper-page" title [
+    classed "div" "actions" [classed "span" "identity" [code uid]];
+    metadata ["Authors", authors b.authors;
+      "Journal", empty b.journal; "Publisher", empty b.publisher;
+      "Year", Option.fold ~none:"" ~some:string_of_int b.year;
+      "Published", empty b.published; "Volume", empty b.volume;
+      "Issue", empty b.issue; "Pages", empty b.pages;
+      "ISSN", empty b.issn];
+    Option.fold ~none:El.void ~some:(fun abstract ->
+      el "section" [el "h2" [txt "Abstract"];
+        classed "p" "abstract" [txt abstract]]) b.abstract;
+    El.v "section" ~at:[at "id" "paper-loading";
+      at "data-details-url" details] [
+      El.v "p" ~at:[at "role" "status"]
+        [txt "Catalogue metadata. Load complete paper details for files, \
+          reading and source information."];
+      link details "Load complete paper details"]]
+
+let paper ?catalogue_status (paper : P.t) =
   let m = paper.manifest in
   let meta = paper.metadata in
   let value = P.Field.value in
@@ -242,7 +377,7 @@ let paper (paper : P.t) =
         at "title" (Int64.to_string a.bytes ^ " bytes")] [txt (size a.bytes)];
       classed "td" "file-actions"
         (if a.format = Manifest.Format.Tei then
-          [link (artifact_url "/read" a) "Read TEI"]
+          [panel_link "tei" (artifact_url "/read" a) "Read TEI"]
          else if a.format = Manifest.Format.Pdf then
           [link (artifact_url "/pdf" a) "View PDF"] else [])] in
   let abstract = string meta.abstract in
@@ -266,13 +401,15 @@ let paper (paper : P.t) =
     match d.bibliography with Ok _ -> None | Error e ->
       Some (el "li" [code d.artifact.file; txt (": " ^ e)]))
     paper.documents in
-  page title ([
+  let body = [
+    Option.fold ~none:El.void ~some:(fun s -> classed "p" "status" [txt s])
+      catalogue_status;
     classed "div" "actions" [classed "span" "identity" [code uid];
       Option.fold ~none:El.void ~some:(fun a ->
-        link (artifact_url "/read" a) "Read TEI") tei;
+        panel_link "tei" (artifact_url "/read" a) "Read TEI") tei;
       Option.fold ~none:El.void ~some:(fun _ ->
         link "#pdf" "PDF preview") pdf;
-      link (url "/events" ["uid",uid]) "History"];
+      panel_link "history" (url "/events" ["uid",uid]) "History"];
     metadata [
       "Authors", Option.fold ~none:"" ~some:authors (value meta.authors);
       "Journal", string meta.journal; "Publisher", string meta.publisher;
@@ -315,4 +452,6 @@ let paper (paper : P.t) =
         el "li" [txt (Manifest.Route.to_string f.route ^ ": " ^ f.reason);
           classed "p" "status" [txt (Printf.sprintf "%d attempts · %s%s"
             f.attempts f.at (if f.permanent then " · Permanent" else ""))]])
-        m.conversions_failed)]))
+        m.conversions_failed)]) in
+  page ~kind:"paper-page" title [classed "div" "paper-layout" [
+    classed "section" "paper-detail" body; side_panel uid tei]]

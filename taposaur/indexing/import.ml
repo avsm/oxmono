@@ -42,3 +42,9 @@ let sync ?(force = false) ?(limit = max_int) ?(prefix = "")
   C.Shard.set_discovered catalog !scanned;
   { scanned = !scanned; loaded = !loaded; unchanged = !unchanged;
     failed = !failed }
+
+let retire catalog archive ~shard =
+  let absent = try ignore (A.shard_stat archive shard); false with
+    | Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> true in
+  if not absent then invalid_arg "Source shard still exists";
+  C.Shard.retire catalog ~shard

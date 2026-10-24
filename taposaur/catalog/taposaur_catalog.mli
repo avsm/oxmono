@@ -44,6 +44,9 @@ module Shard : sig
       Returns the number of published rows. Replacements invalidate
       metadata snapshots even when raw rows are byte-identical. [read]
       runs with the handle held exclusively and must not reenter it. *)
+  val retire : write t -> shard:string -> unit
+  (** [retire catalog ~shard] removes a shard, its rows and diagnostics
+      atomically. The caller must verify that retirement is intended. *)
   val record_error : write t -> shard:string -> string -> unit
   (** [record_error catalog ~shard message] records an unsuccessful import. *)
   val set_discovered : write t -> int -> unit
@@ -59,21 +62,51 @@ module Metadata : sig
   type candidate
   val index : candidate -> Taposaur.Index.t
   (** [index candidate] is the original source row for this snapshot. *)
+  val source_stamp : candidate -> string option
+  (** [source_stamp candidate] is the last successfully read source stamp. *)
+  val invalidate : write t -> candidate -> bool
+  (** [invalidate catalog candidate] schedules a refresh while preserving
+      cached values. Returns [false] if another publication intervened. *)
+  type status = {
+    source_stamp : string option; stale : bool; diagnostics : string list;
+    error : string option;
+  }
+  val status : 'a t -> Taposaur.Uid.t -> status option
+  (** [status catalog uid] returns source freshness and parse diagnostics. *)
   val pending :
-    ?force:bool -> ?uid:Taposaur.Uid.t -> ?after:string ->
+    ?force:bool -> ?retry_errors:bool -> ?need_details:bool ->
+    ?uid:Taposaur.Uid.t -> ?after:string ->
     limit:int -> version:int -> 'a t -> candidate list
   (** [pending ~limit ~version catalog] selects at most [limit] snapshots
       in UID order. [limit] is 1..1000 and [version] is positive. Completed
-      attempts at this version are skipped unless [force] is set. *)
+      attempts at this version are skipped unless stale or [force] is set.
+      [retry_errors] includes manifest and document failures. [need_details]
+      also selects successful or partial rows without a detail cache. *)
   val publish :
+    ?source_stamp:string -> ?detail_cache:string -> ?diagnostics:string list ->
     write t -> candidate -> version:int ->
     (Taposaur.Bibliography.t, string) result -> bool
   (** [publish catalog candidate ~version result] atomically updates
       bibliography and FTS, or records an error while retaining the last
-      successful projection. Returns [false] when a shard replacement
-      invalidated the snapshot. It never changes holdings or raw rows. *)
+      successful projection. Returns [false] when a shard replacement or
+      metadata publication invalidated the snapshot. [diagnostics] records
+      document failures alongside partial metadata. [source_stamp] identifies
+      the source snapshot used for a successful publication. It never changes holdings or raw rows. *)
   val errors : 'a t -> (Taposaur.Uid.t * string) list
   (** [errors catalog] returns at most 100 recent metadata failures. *)
+
+  type detail = {
+    index : Taposaur.Index.t; json : string; saved_at : float;
+    stale : bool; error : string option; diagnostics : string list;
+  }
+  val detail : 'a t -> Taposaur.Uid.t -> detail option
+  (** [detail catalog uid] reads a cached detail payload and its original
+      index and status in one snapshot. Failed refreshes retain old details.
+      Shard replacement removes them. Successful publication sets the cache
+      to [detail_cache], or clears it if that argument is omitted. *)
+  val detail_count : 'a t -> int
+  (** [detail_count catalog] returns the maintained count of saved details,
+      including entries marked stale or whose latest refresh failed. *)
 
 end
 
@@ -85,8 +118,20 @@ type stats = {
   errors : int; last_import : float option;
   titles : int; abstracts : int; publishers : int;
   enriched : int; enrichment_errors : int;
+  partial : int; stale : int;
 }
 val stats : 'a t -> stats
 (** [stats catalog] combines shard counters and metadata coverage.
-    Metadata counts scan paper rows. [enriched] counts successful cached
-    attempts across resolver versions. *)
+    Metadata counts are maintained transactionally. [enriched] counts complete, non-stale cached
+    attempts across resolver versions. [partial] counts document failures. *)
+
+(** {1 Journal selection} *)
+
+type journal = { name : string; papers : int }
+val journals : ?limit:int -> 'a t -> text:string -> journal list
+(** [journals catalog ~text] suggests journal names from the loaded catalogue.
+    Matching uses literal substrings with ASCII case folding. Prefix matches
+    precede other matches, then journals are ordered by paper count and name.
+    An empty query returns the most represented journals. [limit] is 1..20
+    (default 12), and [text] is at most 256 bytes. Counts cover the catalogue,
+    independent of active search filters, and update with publication. *)

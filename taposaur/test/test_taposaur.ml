@@ -147,7 +147,8 @@ let setup root =
     abstract = Some "Seasonal movement and habitat";
     pdf_path = "/old/root/publisher.pdf"; pdf_size = Int64.of_int (String.length pdf);
     tei_path = "/old/root/tei.xml"; tei_source = Some "grobid";
-    publisher = Some "Example"; year = Some 2020 } in
+    publisher = Some "Example"; journal = Some "Journal of Birds";
+    year = Some 2020 } in
   let shard = Layout.index id in
   save root ("index/" ^ shard) (get (Index.to_string e) ^ "\n");
   id, shard, e
@@ -175,6 +176,47 @@ let archive_reads () = with_temp (fun _ sw root ->
   check "artifact symlink refused" true
     (try ignore (A.read_artifact p "publisher.pdf"); false with Eio.Io _ -> true))
 
+let fingerprints () = with_temp (fun _ sw root ->
+  let id, _, _ = setup root in
+  let archive = A.open_root ~sw root in
+  let paper = Option.get (A.find archive id) in
+  let manifest = A.manifest paper in
+  (* Existing healthy stamps must survive the change from open/fstat to
+     lstat so that the optimisation does not invalidate cached metadata. *)
+  let old_stamps = List.map (fun (a : Manifest.Artifact.t) ->
+    A.with_artifact paper a.file (fun file ->
+      let s = Eio.File.stat file in
+      Printf.sprintf "%s:%Ld:%.17g:%.17g" a.file
+        (Optint.Int63.to_int64 s.size) s.mtime s.ctime)) manifest.artifacts in
+  let encoded = get (Manifest.to_string manifest) in
+  let old = Digestif.SHA256.(to_hex (digest_string
+    (String.concat "\000" (encoded :: old_stamps)))) in
+  equal "healthy stamp compatibility" old (A.fingerprint paper);
+  let file = root / "papers" / Layout.paper id / "publisher.pdf" in
+  let native = Eio.Path.native_exn file in
+  let before = Eio.Path.stat ~follow:false file in
+  Unix.sleepf 0.002;
+  Unix.chmod native 0o400;
+  let after = Eio.Path.stat ~follow:false file in
+  check "permission change preserves size and mtime" true
+    (before.size = after.size && before.mtime = after.mtime);
+  check "ctime change invalidates stamp" true (A.fingerprint paper <> old);
+  Unix.chmod native 0o600;
+  Eio.Path.unlink file;
+  let missing = A.fingerprint paper in
+  check "missing artifact changes stamp" true (missing <> old);
+  Eio.Path.symlink ~link_to:"/etc/passwd" file;
+  let linked = A.fingerprint paper in
+  check "symlink differs from regular artifact" true (linked <> old);
+  check "symlink differs from missing artifact" true (linked <> missing);
+  Eio.Path.unlink file;
+  Eio.Path.symlink ~link_to:"/missing/outside/archive" file;
+  equal "symlink target is not inspected" linked (A.fingerprint paper);
+  Eio.Path.unlink file;
+  Eio.Path.mkdir ~perm:0o700 file;
+  check "directory cannot masquerade as regular file" true
+    (A.fingerprint paper <> old))
+
 let documents () =
   let h = get (Taposaur_document.Tei.metadata_string tei) in
   Alcotest.(check (option string)) "nested title" (Some "Bird migration") h.title;
@@ -194,6 +236,51 @@ let documents () =
     (Eio.Flow.string_source "<TEI><text>")));
   check "non-TEI" true (rejected (Taposaur_document.Tei.render_html
     (Eio.Flow.string_source "<html><body>hello</body></html>")))
+
+let tei_audit () = with_temp (fun _ sw root ->
+  let module T = Taposaur_document.Tei in
+  let module Audit = Taposaur_indexing.Tei_audit in
+  check "complete document" false (rejected (T.validate_string tei));
+  List.iter (fun text -> check "invalid complete document" true
+    (rejected (T.validate_string text)))
+    [""; "<TEI><text><body></text></TEI>"; "<html/>";
+     "<TEI/><TEI/>"; "<TEI xmlns='urn:wrong'/>";
+     "<!DOCTYPE TEI [<!ENTITY x SYSTEM 'file:///etc/passwd'>]>\
+      <TEI><text>&x;</text></TEI>"];
+  check "validation byte bound" true
+    (rejected (T.validate_string ~max_bytes:10 tei));
+  let id, _, _ = setup root in
+  let archive = A.open_root ~sw root in
+  let dir = "papers/" ^ Layout.paper id in
+  let manifest_path = dir ^ "/paper.json" in
+  let manifest = A.manifest (Option.get (A.find archive id)) in
+  let artifacts = List.map (fun (a : Manifest.Artifact.t) ->
+    if a.format = Manifest.Format.Tei then
+      {a with converter = Some "grobid"; from = Some "publisher.pdf"}
+    else a) manifest.artifacts in
+  save root manifest_path
+    (get (Manifest.to_string {manifest with artifacts}));
+  let report () = List.hd (Audit.paper archive id) in
+  equal "valid TEI stays valid" "well_formed_tei" (report ()).status;
+  let failure = "[NO_BLOCKS] PDF parsing resulted in empty content" in
+  save root (dir ^ "/tei.xml") failure;
+  let r = report () in
+  equal "GROBID refusal recognised" "grobid_error_NO_BLOCKS" r.status;
+  equal "source PDF checked" "pdf_signature_and_size_match" r.pdf_status;
+  equal "refusal requires input review"
+    "inspect_pdf_for_ocr_or_replacement" r.action;
+  equal "source unchanged" failure (Eio.Path.load (root / dir / "tei.xml"));
+  count "evidence digest" 64 (String.length r.sha256);
+  check "JSON evidence encodes" true (includes (Audit.to_json r) "NO_BLOCKS");
+  save root (dir ^ "/tei.xml")
+    "[GENERAL] An exception occurred while running Grobid.";
+  equal "general error candidate" "candidate_for_grobid_regeneration"
+    (report ()).action;
+  Eio.Path.unlink (root / dir / "publisher.pdf");
+  equal "missing PDF blocks retry" "repair_pdf_input_before_regeneration"
+    (report ()).action;
+  save root (dir ^ "/tei.xml") "<?xml version='1.0'?>";
+  equal "truncated XML is separate" "invalid_tei" (report ()).status)
 
 let publisher_metadata () = Eio_main.run (fun env ->
   let source = Eio.Path.load
@@ -356,9 +443,121 @@ let enrichment () = with_temp (fun _ sw root ->
   count "missing manifest recorded" 1 (E.run c a).unavailable;
   count "metadata error diagnostics" 1 (List.length (C.Metadata.errors c));
   count "failed attempt resumes" 0 (E.run c a).examined;
+  save root path (String.make (17 * 1024 * 1024) ' ');
+  count "oversized manifest recorded" 1 (E.run ~retry_errors:true c a).unavailable;
+  check "oversized manifest diagnostic" true
+    (includes (snd (List.hd (C.Metadata.errors c))) "Manifest exceeds 16 MiB");
+  count "oversized manifest skipped on resume" 0 (E.run c a).examined;
   save root path (get (Manifest.to_string m));
   count "explicit retry" 1 (E.run ~force:true c a).updated;
   count "error cleared" 0 (C.stats c).enrichment_errors)
+
+let detail_cache () = with_temp (fun _ sw root ->
+  let id, shard, index = setup root in
+  let archive = A.open_root ~sw root in
+  let c = C.open_write ~sw (root / "catalog.db") in
+  ignore (I.shard c archive ~shard);
+  let original = Taposaur_reader.load ~index
+    (Option.get (A.find archive id)) in
+  let json = get (P.cache_string original) in
+  let restored = get (P.of_cache_string ~index json) in
+  check "all evidence and preferred files survive round trip" true
+    (original = restored);
+  check "cache identity must match index" true
+    (rejected (P.of_cache_string
+      ~index:{index with uid = uid "doi:10.1000/other"} json));
+  let manifest = get (Manifest.to_string original.manifest) in
+  let invalid version documents = Printf.sprintf
+    {|{"version":%d,"manifest":%s,"documents":%s}|}
+    version manifest documents in
+  List.iter (fun json -> check "invalid cache rejected" true
+    (rejected (P.of_cache_string ~index json)))
+    [invalid 2 "[]"; invalid 1 {|[{"file":"unknown","error":"bad"}]|};
+     invalid 1 {|[{"file":"tei.xml","error":"bad","bibliography":{}}]|};
+     invalid 1 {|[{"file":"tei.xml","error":"a"},{"file":"tei.xml","error":"b"}]|}];
+  let candidate () = List.hd (C.Metadata.pending ~force:true ~limit:1
+    ~version:P.version c) in
+  let stale = candidate () in
+  ignore (E.run c archive);
+  count "detail counter" 1 (C.Metadata.detail_count c);
+  let saved = Option.get (C.Metadata.detail c id) in
+  check "atomic detail publication" true
+    (get (P.of_cache_string ~index:saved.index saved.json) = original);
+  check "stale detail publication refused" false
+    (C.Metadata.publish ~detail_cache:"invalid" c stale ~version:P.version
+      (Ok (P.bibliography original)));
+  equal "stale update preserved cache" saved.json
+    (Option.get (C.Metadata.detail c id)).json;
+  ignore (C.Metadata.publish c (candidate ()) ~version:P.version
+    (Error "Refresh failed"));
+  let failed = Option.get (C.Metadata.detail c id) in
+  equal "failed refresh preserved cache" saved.json failed.json;
+  check "failed refresh preserved cache timestamp" true
+    (saved.saved_at = failed.saved_at);
+  ignore (C.Metadata.publish c (candidate ()) ~version:P.version
+    (Ok (P.bibliography original)));
+  count "successful publication without details clears cache" 0
+    (C.Metadata.detail_count c);
+  count "previous metadata is backfilled" 1 (E.run c archive).updated;
+  count "backfill resumes" 0 (E.run c archive).examined;
+  let read = C.open_read ~sw (root / "catalog.db") in
+  let state = Taposaur_web.create ~archive ~catalog:read in
+  Eio.Path.rmtree (root / "papers");
+  let q = "?uid=" ^ Uriz.pct_encode ~component:`Unreserved (Uid.to_string id) in
+  let request target = W.request ~on_error:(fun ex -> raise ex)
+    Taposaur_web.site state Httpz.Method.Get target in
+  List.iter (fun suffix ->
+    let response = request ("/paper" ^ q ^ suffix) in
+    count "cached details work without archive" 200
+      (Proffer.Status.code (W.status response));
+    check "cached page includes files and panel" true
+      (includes (W.body response) "publisher.pdf" &&
+       includes (W.body response) {|id="paper-panel"|})) [""; "&view=full"];
+  ignore (I.shard ~force:true c archive ~shard);
+  count "reimport removes details" 0 (C.Metadata.detail_count c);
+  check "reimport invalidates cache" true (C.Metadata.detail c id = None))
+
+let freshness () = with_temp (fun _ sw root ->
+  let id, shard, _ = setup root in
+  let a = A.open_root ~sw root in
+  let c = C.open_write ~sw (root / "catalog.db") in
+  ignore (I.shard c a ~shard);
+  ignore (E.run c a);
+  count "unchanged source" 0 (E.check c a).stale;
+  let dir = "papers/" ^ Layout.paper id in
+  let m = get (Manifest.of_string (Eio.Path.load (root / dir / "paper.json"))) in
+  save root (dir ^ "/paper.json")
+    (get (Manifest.to_string {m with title = Some "New manifest title"}));
+  count "changed manifest" 1 (E.check c a).stale;
+  count "stale counter" 1 (C.stats c).stale;
+  count "stale excluded from complete" 0 (C.stats c).enriched;
+  count "stale automatically enriched" 1 (E.run c a).updated;
+  count "stale cleared" 0 (C.stats c).stale;
+  save root (dir ^ "/tei.xml") "<broken>";
+  count "changed document" 1 (E.check c a).stale;
+  count "partial result" 1 (E.run c a).partial;
+  count "partial counter" 1 (C.stats c).partial;
+  count "partial not complete" 0 (C.stats c).enriched;
+  count "document diagnostic retained" 1
+    (List.length (Option.get (C.Metadata.status c id)).diagnostics);
+  check "failed TEI not preferred" true
+    ((Taposaur_reader.load (Option.get (A.find a id))).preferred_tei = None);
+  save root (dir ^ "/tei.xml") tei;
+  count "targeted retry" 1 (E.run ~retry_errors:true c a).updated;
+  count "diagnostics cleared" 0 (C.stats c).partial;
+  count "complete restored" 1 (C.stats c).enriched;
+  let missing = dir ^ "/paper.json" in
+  Eio.Path.unlink (root / missing);
+  count "missing source stale" 1 (E.check c a).stale;
+  count "missing source attempt" 1 (E.run c a).unavailable;
+  count "failed stale source does not starve resume" 0 (E.run c a).examined;
+  check "existing shard retirement refused" true
+    (try I.retire c a ~shard; false with Invalid_argument _ -> true);
+  Eio.Path.unlink (root / "index" / shard);
+  I.retire c a ~shard;
+  count "retirement removes rows" 0 (C.stats c).papers;
+  count "retirement removes metadata counters" 0 (C.stats c).enriched;
+  count "retirement removes titles" 0 (C.stats c).titles)
 
 let storage_snapshots () = with_temp (fun _ sw root ->
   let c = C.open_write ~sw (root / "catalog.db") in
@@ -377,6 +576,11 @@ let storage_snapshots () = with_temp (fun _ sw root ->
     (C.Metadata.publish c stale ~version:1 (Ok bibliography));
   check "fresh snapshot publishes" true
     (C.Metadata.publish c (candidate ()) ~version:1 (Ok bibliography));
+  let snapshot = candidate () in
+  check "newer publication succeeds" true
+    (C.Metadata.publish c snapshot ~version:1 (Ok bibliography));
+  check "older publication cannot overwrite" false
+    (C.Metadata.publish c snapshot ~version:1 (Error "old failure"));
   let summary = Option.get (C.find c row.uid) in
   equal "full bibliography retained" "19"
     (Option.get summary.bibliography.volume);
@@ -397,15 +601,17 @@ let catalogue_migration () = with_temp (fun env sw root ->
   let legacy = Sqlite3_eio.open_path ~sw path in
   let row = get (Index.of_string
     (index_json (uid "doi:10.1000/migration"))) in
-  let raw = {row with title = Some "Original title"} in
-  let resolved = {row with title = Some "Resolved title"} in
+  let raw = {row with title = Some "Original title";
+    journal = Some "Legacy Journal"} in
+  let resolved = {row with title = Some "Resolved title";
+    journal = Some "Legacy Journal"} in
   let schema = Eio.Path.load (env#cwd / "fixtures" / "catalog-v2.sql") in
   Sqlite3_eio.run legacy (fun db ->
     Sqlite3.Rc.check (Sqlite3.exec db schema);
     let s = Sqlite3.prepare db
       "INSERT INTO papers(uid,shard,scheme,title,authors,journal,publisher,\
        year,abstract,pdf,xml,tei,s2orc,json,resolved_json,metadata_version) \
-       VALUES(?,?,?,'Resolved title','','','',NULL,'',0,0,0,0,?,?,1)" in
+       VALUES(?,?,?,'Resolved title','','Legacy Journal','',NULL,'',0,0,0,0,?,?,1)" in
     Fun.protect ~finally:(fun () -> ignore (Sqlite3.finalize s)) (fun () ->
       Sqlite3.Rc.check (Sqlite3.bind_values s
         (List.map (fun value -> Sqlite3.Data.TEXT value)
@@ -416,6 +622,8 @@ let catalogue_migration () = with_temp (fun env sw root ->
     (try ignore (C.open_read ~sw path); false with Failure _ -> true);
   let c = C.open_write ~sw path in
   let read = C.open_read ~sw path in
+  equal "migration seeds journals" "Legacy Journal"
+    (List.hd (C.journals read ~text:"legacy")).name;
   equal "migration retains raw row" "Original title"
     (Option.get (Option.get (C.find_index read row.uid)).title);
   equal "migration retains cached metadata" "Resolved title"
@@ -501,6 +709,45 @@ let incremental () = with_temp (fun _ sw root ->
      | I.Failed _ -> true | _ -> false);
   count "duplicate import preserves rows" 2 (C.stats c).papers)
 
+let journal_selection () = with_temp (fun _ sw root ->
+  let c = C.open_write ~sw (root / "catalog.db") in
+  let id = uid "doi:10.1000/journals" in
+  let shard = Layout.index id in
+  let rec second n =
+    let candidate = uid ("doi:10.1000/journal-" ^ string_of_int n) in
+    if Layout.index candidate = shard then candidate else second (n + 1) in
+  let row = get (Index.of_string (index_json id)) in
+  let row = {row with journal = Some "Journal of Birds"} in
+  let other = {row with uid = second 1} in
+  let stamp = {C.Shard.size = 10L; mtime = 1.} in
+  ignore (C.Shard.replace c ~shard stamp (fun emit -> emit row; emit other));
+  let suggestions text = C.journals c ~text in
+  count "journal grouping" 1 (List.length (suggestions ""));
+  count "paper count" 2 (List.hd (suggestions "birds")).papers;
+  equal "case-insensitive substring" "Journal of Birds"
+    (List.hd (suggestions "OF BIRDS")).name;
+  let candidate = List.hd (C.Metadata.pending ~uid:id ~limit:1 ~version:1 c) in
+  ignore (C.Metadata.publish c candidate ~version:1
+    (Ok {Bibliography.empty with journal = Some "Birds & 100% Ecology"}));
+  count "old journal decremented" 1 (List.hd (suggestions "Journal")).papers;
+  equal "prefix before substring" "Birds & 100% Ecology"
+    (List.hd (suggestions "birds")).name;
+  count "percent is literal" 1 (List.length (suggestions "%"));
+  count "underscore is literal" 0 (List.length (suggestions "_"));
+  count "SQL punctuation is literal" 0 (List.length (suggestions "' OR 1=1"));
+  count "bounded suggestions" 1 (List.length (C.journals ~limit:1 c ~text:""));
+  let candidate = List.hd (C.Metadata.pending ~force:true ~uid:id
+    ~limit:1 ~version:1 c) in
+  ignore (C.Metadata.publish c candidate ~version:1 (Error "unavailable"));
+  count "failed enrichment retains journal" 1 (List.length (suggestions "%"));
+  let exception Interrupted in
+  (try ignore (C.Shard.replace c ~shard stamp (fun emit ->
+    emit {row with journal = Some "Discarded"}; raise Interrupted))
+   with Interrupted -> ());
+  count "failed import retains journals" 2 (List.length (suggestions ""));
+  C.Shard.retire c ~shard;
+  count "retirement removes journals" 0 (List.length (suggestions "")))
+
 let corpus_fixtures () = Eio_main.run (fun env ->
   List.iter (fun prefix ->
     let file suffix = env#cwd / "fixtures" / (prefix ^ "-" ^ suffix) in
@@ -523,12 +770,45 @@ let website () = with_temp (fun env sw root ->
     W.request ?headers ~on_error:(fun ex -> raise ex) Taposaur_web.site state meth target in
   let code r = Proffer.Status.code (W.status r) in
   count "home" 200 (code (request "/"));
+  let journals = request "/journals?q=birds" in
+  count "journal suggestions" 200 (code journals);
+  check "journal suggestions contain count" true
+    (includes (W.body journals) {|"papers":1|});
+  check "journal suggestions contain name" true
+    (includes (W.body journals) "Journal of Birds");
+  count "journal query bound" 400
+    (code (request ("/journals?q=" ^ String.make 257 'x')));
+  count "interface script" 200 (code (request "/assets/interface.js"));
   let results = request "/search?q=bird" in
   count "search" 200 (code results);
   check "title escaped" true (includes (W.body results) "&lt;script&gt;");
   let q = "?uid=" ^ Uriz.pct_encode ~component:`Unreserved (Uid.to_string id) in
-  let paper = request ("/paper" ^ q) in
+  let preview = request ("/paper" ^ q) in
+  count "paper preview" 200 (code preview);
+  check "preview uses saved bibliography" true
+    (includes (W.body preview) "Bird migration &lt;script&gt;");
+  check "preview loads details progressively" true
+    (includes (W.body preview) "data-details-url");
+  let manifest_path = "papers/" ^ Layout.paper id ^ "/paper.json" in
+  let manifest = Eio.Path.load (root / manifest_path) in
+  Eio.Path.unlink (root / manifest_path);
+  count "preview survives unavailable archive paper" 200
+    (code (request ("/paper" ^ q)));
+  count "full details require archive paper" 404
+    (code (request ("/paper" ^ q ^ "&view=full")));
+  save root manifest_path manifest;
+  let paper = request ("/paper" ^ q ^ "&view=full") in
   count "paper" 200 (code paper);
+  check "sidebar available" true (includes (W.body paper) {|id="paper-panel"|});
+  check "history opens panel" true (includes (W.body paper) {|data-panel="history"|});
+  let panel = request ("/read" ^ q ^ "&file=tei.xml&view=panel") in
+  count "TEI panel" 200 (code panel);
+  check "panel content" true (includes (W.body panel) "data-panel-content");
+  check "panel omits page chrome" false (includes (W.body panel) "<header");
+  check "panel escapes source" false (includes (W.body panel) "<script");
+  let history = request ("/events" ^ q ^ "&view=panel") in
+  count "history panel" 200 (code history);
+  check "history fragment" true (includes (W.body history) "data-panel-content");
   check "embedded PDF" true
     (includes (W.body paper) ("src=\"/artifact" ^ q ^
       "&amp;file=publisher.pdf\""));
@@ -567,12 +847,12 @@ let website () = with_temp (fun env sw root ->
   save root (dir ^ "/publisher.xml") publisher;
   save root manifest_path (get (Manifest.to_string
     { m with artifacts = artifact :: m.artifacts }));
-  let rich = W.body (request ("/paper" ^ q)) in
+  let rich = W.body (request ("/paper" ^ q ^ "&view=full")) in
   check "index retained as alternative" true
     (includes rich "Bird migration &lt;script&gt;");
   save root ("index/" ^ shard) (index_json id);
   ignore (I.shard ~force:true c a ~shard);
-  let sparse = W.body (request ("/paper" ^ q)) in
+  let sparse = W.body (request ("/paper" ^ q ^ "&view=full")) in
   List.iter (fun value -> check ("publisher fallback: " ^ value) true
     (includes sparse value))
     ["Recherche des accidents"; "Per-Olov Roosmark"; "Rolf Fräki";
@@ -581,30 +861,35 @@ let website () = with_temp (fun env sw root ->
     value = "Corrected title"; by = "reviewer"; at = "now"; note = None } in
   save root manifest_path (get (Manifest.to_string
     { m with corrections = [corrected] }));
-  let corrected_page = W.body (request ("/paper" ^ q)) in
+  let corrected_page = W.body (request ("/paper" ^ q ^ "&view=full")) in
   check "correction priority" true
     (includes corrected_page "<h1>Corrected title</h1>");
   save root manifest_path (get (Manifest.to_string m));
-  let from_tei = W.body (request ("/paper" ^ q)) in
+  let from_tei = W.body (request ("/paper" ^ q ^ "&view=full")) in
   check "TEI title fallback" true
     (includes from_tei "<h1>Bird migration</h1>");
   check "TEI authors fallback" true (includes from_tei "Ada Bird");
   save root (dir ^ "/tei.xml") "<broken>";
   count "bad header preserves paper page" 200
-    (code (request ("/paper" ^ q))))
+    (code (request ("/paper" ^ q ^ "&view=full"))))
 
 let () = Alcotest.run "taposaur" [
   "core", [Alcotest.test_case "identities and layouts" `Quick identifiers;
     Alcotest.test_case "records" `Quick records;
     Alcotest.test_case "production fixtures" `Quick corpus_fixtures];
   "archive", [Alcotest.test_case "streaming" `Quick streaming;
-    Alcotest.test_case "confined reads" `Quick archive_reads];
+    Alcotest.test_case "confined reads" `Quick archive_reads;
+    Alcotest.test_case "confined compatible fingerprints" `Quick fingerprints];
   "document", [Alcotest.test_case "TEI parsing and rendering" `Quick documents;
+    Alcotest.test_case "TEI regeneration evidence" `Quick tei_audit;
     Alcotest.test_case "publisher metadata" `Quick publisher_metadata;
     Alcotest.test_case "TEI bibliography and S2ORC" `Quick extended_metadata];
   "paper", [Alcotest.test_case "field evidence and multiple TEIs"
     `Quick resolution];
   "catalogue", [
+    Alcotest.test_case "persistent paper details" `Quick detail_cache;
+    Alcotest.test_case "journal suggestions and publication" `Quick journal_selection;
+    Alcotest.test_case "freshness and partial resolution" `Quick freshness;
     Alcotest.test_case "storage snapshots" `Quick storage_snapshots;
     Alcotest.test_case "schema migration" `Quick catalogue_migration;
     Alcotest.test_case "metadata enrichment" `Quick enrichment;

@@ -9,6 +9,11 @@ val metadata :
     1 MiB and nesting is capped at 256 elements. XML and limit errors are
     returned. I/O errors and cancellation propagate. *)
 
+val validate_string : ?max_bytes:int -> string -> (unit, string) result
+(** [validate_string xml] checks the entire document for well-formed XML
+    with a TEI root. It does not validate against a TEI schema. Defaults
+    to 16 MiB and 256 nesting levels. External entities are not resolved. *)
+
 val render_html :
   ?max_bytes:int -> ?max_output:int -> _ Eio.Flow.source ->
   (string, string) result

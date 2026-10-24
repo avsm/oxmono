@@ -4,6 +4,7 @@ module A = Taposaur_archive
 module C = Taposaur_catalog
 
 type page = Home | Search | Paper | Events | Download | Pdf | Read
+  | Journals | Script
 
 type t = {
   handle : page -> (Req.t @ local -> Resp.respond @ local -> unit) @ local;
@@ -43,23 +44,74 @@ let search_query params =
 
 type response = Html of Status.t * string
   | Artifact of A.paper * Manifest.Artifact.t
+  | Media of string * string
+
+let journal_codec =
+  Jsont.Object.map (fun name papers -> {C.name; papers})
+  |> Jsont.Object.mem "name" Jsont.string ~enc:(fun (j : C.journal) -> j.name)
+  |> Jsont.Object.mem "papers" Jsont.int ~enc:(fun (j : C.journal) -> j.papers)
+  |> Jsont.Object.finish
 
 let create ~archive ~catalog =
-  let prepare page params =
+  let rec prepare page params =
     let html s = Html (Httpz.Res.Success, s) in
-    if page = Home then
-      html (View.home (C.stats catalog) (C.Shard.errors catalog))
+    let in_panel = get params "view" = "panel" in
+    let content title body =
+      if in_panel then View.fragment title body else View.page title body in
+    if page = Script then Media ("text/javascript; charset=utf-8", Client.source)
+    else if page = Journals then
+      let journals = C.journals catalog ~text:(get params "q") in
+      let body = match Jsont_bytesrw.encode_string (Jsont.list journal_codec)
+        journals with Ok body -> body | Error e -> failwith e in
+      Media ("application/json; charset=utf-8", body)
+    else if page = Home then
+      html (View.home ~details_cached:(C.Metadata.detail_count catalog)
+        (C.stats catalog) (C.Shard.errors catalog))
     else if page = Search then
       html (View.search params (C.search catalog (search_query params)))
+    else if page = Paper && get params "view" <> "live" then
+      let cached = Option.bind (C.Metadata.detail catalog (uid params))
+        (fun detail -> match Taposaur_paper.of_cache_string
+          ~index:detail.index detail.json with
+          | Ok paper -> Some (detail, paper) | Error _ -> None) in
+      (match cached with
+       | Some (detail, paper) ->
+           let at = Unix.gmtime detail.saved_at in
+           let saved = Printf.sprintf "Details saved %04d-%02d-%02d %02d:%02d UTC."
+             (at.tm_year + 1900) (at.tm_mon + 1) at.tm_mday at.tm_hour at.tm_min in
+           let status = if detail.error <> None then
+             " The latest refresh failed; saved details are shown."
+             else if detail.stale then " These details may be out of date."
+             else if detail.diagnostics <> [] then
+               " Some source documents could not be parsed." else "" in
+           html (View.paper ~catalogue_status:(saved ^ status) paper)
+       | None ->
+           let summary = if get params "view" = "full" then None
+             else C.find catalog (uid params) in
+           match summary with
+           | Some summary -> html (View.paper_preview summary)
+           | None -> prepare Paper (("view", "live") ::
+               List.remove_assoc "view" params))
     else
       let id = uid params in
       match A.find archive id with
       | None -> Html (Httpz.Res.Not_found, View.page "Paper not found" [])
       | Some paper ->
           let m = A.manifest paper in
-          if page = Paper then
-            html (View.paper (Taposaur_reader.load
+          if page = Paper then begin
+            let catalogue_status = match C.Metadata.status catalog id with
+              | None -> Some "This paper is not indexed for search."
+              | Some s when s.stale ||
+                  s.source_stamp <> Some (A.fingerprint paper) ->
+                  Some "Search metadata is stale or has not been checked."
+              | Some s when s.error <> None ->
+                  Some "The last search metadata refresh failed."
+              | Some s when s.diagnostics <> [] ->
+                  Some "Search metadata contains document parsing failures."
+              | Some _ -> None in
+            html (View.paper ?catalogue_status (Taposaur_reader.load
               ?index:(C.find_index catalog id) paper))
+          end
           else if page = Events then begin
             let events = ref [] and bytes = ref 0 in
             let exception Enough in
@@ -70,7 +122,7 @@ let create ~archive ~catalog =
               if !bytes > 1024 * 1024 then raise Enough;
               events := View.el "pre" [View.txt s] :: !events)
              with Enough -> ());
-            html (View.page "Event history" (View.p
+            html (content "Event history" (View.p
               "Up to 1,000 events or 1 MiB in file order. \
                Sequence numbers restart per run."
               :: List.rev !events))
@@ -89,9 +141,10 @@ let create ~archive ~catalog =
                 else if page = Read && a.format = Manifest.Format.Tei then
                   (match A.with_artifact paper file
                     Taposaur_document.Tei.render_html with
-                   | Ok body -> html (View.page "Read paper"
-                       [View.link (View.url "/paper" ["uid",Uid.to_string id])
-                          "← Paper and sources"; Htmlit.El.unsafe_raw body])
+                   | Ok body -> html (content "Read paper"
+                       ((if in_panel then [] else
+                         [View.link (View.url "/paper" ["uid",Uid.to_string id])
+                           "← Paper and sources"]) @ [Htmlit.El.unsafe_raw body]))
                    | Error e -> Html (Httpz.Res.Unprocessable_entity,
                        View.page "Cannot render TEI" [View.p e]))
                 else Html (Httpz.Res.Bad_request,
@@ -112,7 +165,11 @@ let create ~archive ~catalog =
         ~headers:[Resp.other "X-Content-Type-Options" "nosniff";
           Resp.other "Content-Security-Policy"
             "default-src 'none'; style-src 'unsafe-inline'; \
-             frame-src 'self'; form-action 'self'; base-uri 'none'"] body
+             script-src 'self'; connect-src 'self'; frame-src 'self'; \
+             form-action 'self'; base-uri 'none'; frame-ancestors 'self'"] body
+    | Media (content_type, body) -> Resp.media respond
+        ~headers:[Resp.other "X-Content-Type-Options" "nosniff";
+          Resp.other "Cache-Control" "no-store"] content_type body
     | Artifact (paper, a) ->
         Artifact.send paper a req respond
   in { handle }
@@ -121,6 +178,9 @@ let site =
   let open Route in
   Site.of_routes [
     get root (fun env req respond -> env.handle Home req respond);
+    get (s "journals") (fun env req respond -> env.handle Journals req respond);
+    get (s "assets" / s "interface.js")
+      (fun env req respond -> env.handle Script req respond);
     get (s "search") (fun env req respond -> env.handle Search req respond);
     get (s "paper") (fun env req respond -> env.handle Paper req respond);
     get (s "events") (fun env req respond -> env.handle Events req respond);

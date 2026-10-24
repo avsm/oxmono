@@ -148,12 +148,8 @@ let resolve ?index (manifest : Manifest.t) documents =
   let teis = List.filter (fun d ->
     d.artifact.format = Manifest.Format.Tei) documents in
   let preferred_tei =
-    match List.find_opt (fun d -> Result.is_ok d.bibliography) teis with Some d -> Some d.artifact
-    | None ->
-        List.filter (fun (a : Manifest.Artifact.t) ->
-          a.format = Manifest.Format.Tei) manifest.artifacts
-        |> List.stable_sort (fun a b -> compare (rank a) (rank b))
-        |> fun artifacts -> List.nth_opt artifacts 0 in
+    Option.map (fun d -> d.artifact)
+      (List.find_opt (fun d -> Result.is_ok d.bibliography) teis) in
   let preferred_pdf = List.find_opt (fun (a : Manifest.Artifact.t) ->
     a.format = Manifest.Format.Pdf) manifest.artifacts in
   { manifest; index; documents; preferred_tei; preferred_pdf;
@@ -172,3 +168,45 @@ let bibliography t =
     doi = value m.doi; pmcid = value m.pmcid; pmid = value m.pmid }
 
 let presence paper = Bibliography.presence (bibliography paper)
+
+let observation_codec =
+  Jsont.Object.map (fun file bibliography error -> file, bibliography, error)
+  |> Jsont.Object.mem "file" Jsont.string ~enc:(fun (f,_,_) -> f)
+  |> Jsont.Object.opt_mem "bibliography" Bibliography.jsont
+       ~enc:(fun (_,b,_) -> b)
+  |> Jsont.Object.opt_mem "error" Jsont.string ~enc:(fun (_,_,e) -> e)
+  |> Jsont.Object.finish
+
+let cache_codec =
+  Jsont.Object.map (fun version manifest documents -> version,manifest,documents)
+  |> Jsont.Object.mem "version" Jsont.int ~enc:(fun (v,_,_) -> v)
+  |> Jsont.Object.mem "manifest" Manifest.jsont ~enc:(fun (_,m,_) -> m)
+  |> Jsont.Object.mem "documents" (Jsont.list observation_codec)
+       ~enc:(fun (_,_,d) -> d)
+  |> Jsont.Object.finish
+
+let cache_string p =
+  let documents = List.map (fun d -> match d.bibliography with
+    | Ok b -> d.artifact.file, Some b, None
+    | Error e -> d.artifact.file, None, Some e) p.documents in
+  Jsont_bytesrw.encode_string cache_codec (1, p.manifest, documents)
+
+let of_cache_string ~index json =
+  match Jsont_bytesrw.decode_string cache_codec json with
+  | Error e -> Error e
+  | Ok (version, manifest, observations) ->
+      try
+        if version <> 1 then invalid_arg "Unsupported paper cache version";
+        let seen = Hashtbl.create 8 in
+        let documents = List.map (fun (file, bibliography, error) ->
+          if Hashtbl.mem seen file then invalid_arg "Duplicate cached document";
+          Hashtbl.add seen file ();
+          let artifact = match List.find_opt (fun (a : Manifest.Artifact.t) ->
+            a.file = file) manifest.artifacts with
+            | Some a -> a | None -> invalid_arg "Unlisted cached document" in
+          let bibliography = match bibliography, error with
+            | Some b, None -> Ok b | None, Some e -> Error e
+            | _ -> invalid_arg "Invalid cached document outcome" in
+          {artifact; bibliography}) observations in
+        Ok (resolve ~index manifest documents)
+      with Invalid_argument e -> Error e

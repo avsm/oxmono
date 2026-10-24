@@ -2,13 +2,15 @@ open Taposaur
 open Db
 module S = Sqlite3
 
+let loader_version = 1
+
 type stamp = { size : int64; mtime : float }
 
 let unchanged t ~shard stamp = run t (fun db ->
   with_stmt db
-    "SELECT size,mtime FROM shards WHERE path=? AND NOT EXISTS \
+    "SELECT size,mtime FROM shards WHERE path=? AND loader_version=? AND NOT EXISTS \
      (SELECT 1 FROM import_errors WHERE path=shards.path)" (fun s ->
-    bind s [text shard];
+    bind s [text shard; int loader_version];
     S.step s = S.Rc.ROW && S.column_int64 s 0 = stamp.size &&
       S.column_double s 1 = stamp.mtime))
 
@@ -65,9 +67,9 @@ let replace t ~shard {size; mtime} read =
     with_stmt db {|
 INSERT OR REPLACE INTO shards
  SELECT ?,?,?,count(*),coalesce(sum(pdf),0),coalesce(sum(xml),0),
- coalesce(sum(tei),0),coalesce(sum(s2orc),0),? FROM incoming|} (fun s ->
+ coalesce(sum(tei),0),coalesce(sum(s2orc),0),?,? FROM incoming|} (fun s ->
       bind s [text shard; S.Data.INT size; S.Data.FLOAT mtime;
-        S.Data.FLOAT (Unix.gettimeofday ())]; done_ s);
+        S.Data.FLOAT (Unix.gettimeofday ()); int loader_version]; done_ s);
     with_stmt db "DELETE FROM import_errors WHERE path=?" (fun s ->
       bind s [text shard]; done_ s))));
   !total
@@ -91,3 +93,10 @@ let errors t = run t (fun db ->
         | S.Rc.ROW -> loop ((S.column_text s 0, S.column_text s 1) :: acc)
         | S.Rc.DONE -> List.rev acc | rc -> check rc; assert false
       in loop []))
+
+let retire t ~shard = run t (fun db -> transaction db (fun () ->
+  List.iter (fun table -> with_stmt db
+    ("DELETE FROM " ^ table ^ " WHERE " ^
+     (if table = "papers" then "shard" else "path") ^ "=?")
+    (fun s -> bind s [text shard]; done_ s))
+    ["papers"; "shards"; "import_errors"]))

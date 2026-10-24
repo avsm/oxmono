@@ -3,6 +3,11 @@
  (modules test_smap)
  (libraries bushel))
 
+(test
+ (name test_cache_order)
+ (modules test_cache_order)
+ (libraries bushel bushel.sync))
+
 (tests
  (names test_release test_link_graph)
  (modules test_release test_link_graph)

@@ -44,16 +44,42 @@ let init ?id root =
     create_file path (json_string (metadata id) ^ "\n");
     t)
 
-let with_lock t f =
+let lock_registry = Mutex.create ()
+let process_locks = Hashtbl.create 8
+
+let process_lock root =
+  Mutex.lock lock_registry;
+  Fun.protect
+    ~finally:(fun () -> Mutex.unlock lock_registry)
+    (fun () ->
+      match Hashtbl.find_opt process_locks root with
+      | Some lock -> lock
+      | None ->
+          let lock = Mutex.create () in
+          Hashtbl.add process_locks root lock;
+          lock)
+
+let with_file_lock t f =
   ensure_state t;
   let path = state_path t "lock" in
   if exists path then regular path;
-  let fd = Unix.openfile path [ Unix.O_RDWR; Unix.O_CREAT ] 0o600 in
+  let fd =
+    Unix.openfile path [ Unix.O_RDWR; Unix.O_CREAT; Unix.O_CLOEXEC ] 0o600
+  in
   Fun.protect
     ~finally:(fun () -> Unix.close fd)
     (fun () ->
       Unix.lockf fd Unix.F_TLOCK 0;
       Fun.protect ~finally:(fun () -> Unix.lockf fd Unix.F_ULOCK 0) f)
+
+let with_lock t f =
+  (* POSIX locks belong to the process, not the thread. Do not block the Eio
+     domain if another fiber holds the lock while awaiting a subprocess. *)
+  let lock = process_lock t.root in
+  if not (Mutex.try_lock lock) then fail "store is busy: %s" t.root;
+  Fun.protect
+    ~finally:(fun () -> Mutex.unlock lock)
+    (fun () -> with_file_lock t f)
 
 let object_path t hash =
   if
@@ -121,62 +147,62 @@ let install t ~id ~expected candidate =
           fail "local revision changed: %s" id)
       path candidate
 
-let apply t ~id ~expected ~operation ~payload change =
+let request ~id ~expected ~payload =
+  digest (id ^ "\n" ^ Option.value expected ~default:"absent" ^ "\n" ^ payload)
+
+(* The caller must hold [with_lock] across this operation. *)
+let apply_locked t ~id ~expected ~operation ~payload change =
   check_uuid operation;
-  with_lock t (fun () ->
-      let ops = load_state t "operations.json" (obj []) in
-      let fingerprint =
-        digest
-          (id ^ "\n" ^ Option.value expected ~default:"absent" ^ "\n" ^ payload)
+  let ops = load_state t "operations.json" (obj []) in
+  let fingerprint = request ~id ~expected ~payload in
+  match find operation ops with
+  | Some op ->
+      if field "request" op <> fingerprint then
+        fail "operation UUID already used with different arguments";
+      let after = field "after" op in
+      let result = Doc.parse (object_ t after) in
+      if field "phase" op = "done" then result
+      else
+        let before = string_opt (Common.get "before" op)
+        and current = revision_opt (raw t id) in
+        if current = Some after then ()
+        else if current = before then install t ~id ~expected:before result.raw
+        else
+          fail
+            "interrupted operation conflicts with current note; retained as %s"
+            operation;
+        save_state t "operations.json"
+          (set operation (set "phase" (str "done") op) ops);
+        result
+  | None ->
+      let before = raw t id in
+      if revision_opt before <> expected then
+        fail "stale revision for %s (current %s)" id
+          (Option.value (revision_opt before) ~default:"absent");
+      Option.iter (fun raw -> ignore (keep t raw)) before;
+      let candidate = change (Option.map Doc.parse before) in
+      if Doc.id candidate <> id then fail "task identity changed";
+      Option.iter (fun raw -> Doc.immutable (Doc.parse raw) candidate) before;
+      let after = keep t candidate.raw in
+      let op =
+        obj
+          [
+            ("id", str id);
+            ("request", str fingerprint);
+            ("before", opt_string expected);
+            ("after", str after);
+            ("phase", str "prepared");
+          ]
       in
-      match find operation ops with
-      | Some op ->
-          if field "request" op <> fingerprint then
-            fail "operation UUID already used with different arguments";
-          let after = field "after" op in
-          let result = Doc.parse (object_ t after) in
-          if field "phase" op = "done" then result
-          else
-            let before = string_opt (Common.get "before" op)
-            and current = revision_opt (raw t id) in
-            if current = Some after then ()
-            else if current = before then
-              install t ~id ~expected:before result.raw
-            else
-              fail
-                "interrupted operation conflicts with current note; retained \
-                 as %s"
-                operation;
-            save_state t "operations.json"
-              (set operation (set "phase" (str "done") op) ops);
-            result
-      | None ->
-          let before = raw t id in
-          if revision_opt before <> expected then
-            fail "stale revision for %s (current %s)" id
-              (Option.value (revision_opt before) ~default:"absent");
-          Option.iter (fun raw -> ignore (keep t raw)) before;
-          let candidate = change (Option.map Doc.parse before) in
-          if Doc.id candidate <> id then fail "task identity changed";
-          Option.iter
-            (fun raw -> Doc.immutable (Doc.parse raw) candidate)
-            before;
-          let after = keep t candidate.raw in
-          let op =
-            obj
-              [
-                ("id", str id);
-                ("request", str fingerprint);
-                ("before", opt_string expected);
-                ("after", str after);
-                ("phase", str "prepared");
-              ]
-          in
-          save_state t "operations.json" (set operation op ops);
-          install t ~id ~expected candidate.raw;
-          save_state t "operations.json"
-            (set operation (set "phase" (str "done") op) ops);
-          candidate)
+      save_state t "operations.json" (set operation op ops);
+      install t ~id ~expected candidate.raw;
+      save_state t "operations.json"
+        (set operation (set "phase" (str "done") op) ops);
+      candidate
+
+let apply t ~id ~expected ~operation ~payload change =
+  with_lock t (fun () ->
+      apply_locked t ~id ~expected ~operation ~payload change)
 
 let add t doc =
   apply t ~id:(Doc.id doc) ~expected:None ~operation:(new_uuid ())

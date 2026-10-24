@@ -10,5 +10,5 @@
  (depends
   (ocaml (>= 5.1.0))
   eio eio_main console console-eio cmdliner xdge tomlt yamlrw jsont bytesrw frontmatter
-  digestif ptime fetch fetch-curl httpz jmap sqlite3 uunf uucp
+  digestif ptime fetch fetch-curl httpz jmap sqlite3 uunf uucp agentkit
   (alcotest :with-test)))

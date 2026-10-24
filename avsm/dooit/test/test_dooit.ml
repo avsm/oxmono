@@ -146,8 +146,8 @@ let backend s =
                  |> List.map (fun name -> entry name true None))
               @ (Hashtbl.to_seq s.files |> List.of_seq
                 |> List.filter_map (fun (name, (_, e)) ->
-                    if direct name then Some (entry name false (Some e))
-                    else None))
+                       if direct name then Some (entry name false (Some e))
+                       else None))
             in
             let body =
               if s.bad_listing then "<d:multistatus xmlns:d='DAV:'/>"
@@ -242,8 +242,10 @@ let tests environment =
         refuses (fun () -> yaml "a: &x hello\nb: *x\n");
         refuses (fun () ->
             Doc.change "status" (Some (str "surprise")) (original ()));
-        refuses (fun () ->
-            Doc.change "due" (Some (str "2026-02-30")) (original ())) );
+        List.iter
+          (fun due ->
+            refuses (fun () -> Doc.change "due" (Some (str due)) (original ())))
+          [ "2026-02-30"; "2026-+1-02"; "+026-01-02"; "2026-01-+2" ] );
     ( "merge independent fields",
       fun () ->
         let b = original () in
@@ -286,6 +288,27 @@ let tests environment =
           (fun subdir ->
             refuses (fun () -> Config.collection ~url:collection ~subdir))
           [ ""; "/escape"; "../escape"; "x/../../escape"; "x//y"; "x\\y" ] );
+    ( "Git configuration",
+      fun () ->
+        let parse =
+          Config.parse ~path:"/tmp/dooit/config.toml"
+            ~default_root:"/tmp/dooit/notes"
+        in
+        let c = parse "" in
+        eq "default remote" "fork.recoil.org:git/dooit" c.git.remote;
+        eq "default branch" "main" c.git.branch;
+        let c = parse "[git]\nremote='/tmp/tasks.git'\nbranch='tasks'\n" in
+        eq "custom remote" "/tmp/tasks.git" c.git.remote;
+        eq "custom branch" "tasks" c.git.branch;
+        List.iter
+          (fun raw -> refuses (fun () -> parse raw))
+          [
+            "[git]\nremote=''\n";
+            "[git]\nbranch=''\n";
+            "[git]\nremote=3\n";
+            "[git]\nunknown='value'\n";
+            "[git]\nbranch=\"bad\\nbranch\"\n";
+          ] );
     ( "TOML passwords and redaction",
       fun () ->
         temp (fun root ->
@@ -416,6 +439,30 @@ let tests environment =
         in
         check "accounts separate"
           (uuid5 store (k "one") <> uuid5 store (k "two")) );
+    ( "unfinished tasks precede completed search results",
+      fun () ->
+        temp (fun root ->
+            let store = local root in
+            List.iteri
+              (fun i status ->
+                let id = Printf.sprintf "00000000-0000-4000-8000-%012d" i in
+                let note =
+                  Doc.create ~id ~title:"Ordering task" ()
+                  |> Doc.change "status" (Some (str status))
+                in
+                ignore (Store.add store note))
+              [ "done"; "active"; "cancelled"; "open"; "blocked" ];
+            List.iter
+              (fun text ->
+                let notes, errors = Index.query ~text store in
+                check "no scan errors" (errors = []);
+                check "stable order within unfinished and finished groups"
+                  (List.map Doc.status notes
+                  = [ "active"; "open"; "blocked"; "done"; "cancelled" ]))
+              [ ""; "Ordering" ];
+            let notes, _ = Index.query ~status:"done" store in
+            check "completed tasks remain searchable by status"
+              (List.map Doc.status notes = [ "done" ])) );
     ( "search sees direct edits",
       fun () ->
         temp (fun root ->

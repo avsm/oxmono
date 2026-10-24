@@ -27,6 +27,7 @@ depends: [
   "sqlite3"
   "uunf"
   "uucp"
+  "agentkit"
   "alcotest" {with-test}
   "odoc" {with-doc}
 ]

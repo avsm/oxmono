@@ -1,3 +1,9 @@
 (test
  (name test_dooit)
+ (modules test_dooit)
  (libraries dooit alcotest eio_main fetch.mock))
+
+(test
+ (name test_config)
+ (modules test_config)
+ (libraries dooit eio_main))

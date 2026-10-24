@@ -17,3 +17,9 @@
  (name test_vector)
  (modules test_vector)
  (libraries retrieval sqlite3 sqlite-vec))
+
+(test
+ (name test_mlx)
+ (modules test_mlx)
+ (enabled_if %{lib-available:apple-mlx-embeddings})
+ (libraries retrieval.mlx retrieval jsont eio_main unix))

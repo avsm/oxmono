@@ -24,7 +24,7 @@ let provider calls =
       dimensions = 2;
       max_batch = 16;
       embed =
-        (fun ~check inputs ->
+        (fun ~task:_ ~check inputs ->
           check ();
           incr calls;
           List.map (fun _ -> [ 1.; 0. ]) inputs);
@@ -106,7 +106,7 @@ let () =
     = List.map (fun (c : I.chunk) -> (c.ordinal, c.text)) chunks
     && shared.text = long);
   let filter =
-    { I.all with kind = Some "note"; since = Some d.date;
+    { I.kind = Some "note"; since = Some d.date;
       until = Some d.date; facets = [ ("topic", "test") ] }
   in
   check "shared selection preserves combined filters"
@@ -174,7 +174,8 @@ let () =
         {
           p with
           model = "bad-values";
-          embed = (fun ~check:_ inputs -> List.map (fun _ -> values) inputs);
+          embed =
+            (fun ~task:_ ~check:_ inputs -> List.map (fun _ -> values) inputs);
         }
       in
       check "invalid vector values rejected"
@@ -185,7 +186,7 @@ let () =
          with Invalid_argument _ -> true))
     [ [ 0.; 0. ]; [ nan; 1. ]; [ infinity; 0. ] ];
   let short =
-    { p with model = "short-batch"; embed = (fun ~check:_ _ -> []) }
+    { p with model = "short-batch"; embed = (fun ~task:_ ~check:_ _ -> []) }
   in
   check "incomplete batch rejected"
     (try

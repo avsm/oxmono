@@ -1,0 +1,25 @@
+(lang dune 3.21)
+
+(name apple-mlx-embeddings)
+
+(generate_opam_files true)
+
+(implicit_transitive_deps false)
+
+(license ISC)
+
+(authors "Anil Madhavapeddy")
+
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(package
+ (name apple-mlx-embeddings)
+ (synopsis "Native MLX text embeddings through Swift")
+ (description
+  "Eio-native Qwen3 embedding inference on Apple silicon using MLX Swift. Models load from local directories without a Python runtime or server.")
+ (depends
+  (ocaml
+   (>= 5.2))
+  (eio
+   (>= 1.4))
+  (eio_main :with-test)))

@@ -22,8 +22,9 @@
    Subpackages:
    - bushel.eio: Eio-based directory loading
    - bushel.config: XDG-compliant TOML configuration
+   - bushel.knowledge.store: Shared corpus and embedding index sessions
    - bushel.sync: Sync pipeline for images and thumbnails")
- (depends retrieval agentkit markup sortal
+ (depends retrieval srcsetter digestif apple-mlx-embeddings agentkit markup sortal fetch fetch-curl duration
   (ocaml (>= 5.2))
   (frontmatter (>= 0.1))
   (frontmatter-eio (>= 0.1))

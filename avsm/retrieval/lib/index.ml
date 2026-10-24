@@ -71,6 +71,17 @@ let memory ~sw () =
   Sqlite_vec.register ();
   init (Sqlite3_eio.open_memory ~sw ())
 
+let counts t =
+  read t (fun db ->
+      match
+        rows db
+          "SELECT (SELECT count(*) FROM documents), \
+           (SELECT count(*) FROM chunks)"
+          []
+      with
+      | [ row ] -> (num row.(0), num row.(1))
+      | _ -> assert false)
+
 (* Paragraph boundaries keep headings with neighbouring prose where possible.
    Oversized paragraphs are split at UTF-8 boundaries, never clipped away. *)
 let passages text =

@@ -310,3 +310,13 @@
  (name test_addresses)
  (modules test_addresses)
  (libraries fake_model crowthebot agentkit agentkit-osm sqlite3-eio eio eio_main fetch.mock jsont))
+
+(test
+ (name test_knowledge)
+ (modules test_knowledge)
+ (libraries fake_model crowthebot bushel.agent bushel.knowledge retrieval agentkit sqlite3-eio eio_main))
+
+(test
+ (name test_knowledge_config)
+ (modules test_knowledge_config)
+ (libraries crowthebot sqlite3-eio eio_main fetch.mock unix))

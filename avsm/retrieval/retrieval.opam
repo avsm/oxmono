@@ -14,6 +14,7 @@ depends: [
   "digestif"
   "odoc" {with-doc}
 ]
+depopts: ["apple-mlx-embeddings"]
 build: [
   ["dune" "subst"] {dev}
   [

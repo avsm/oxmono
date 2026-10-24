@@ -86,3 +86,29 @@ CardDAV baseline.
 dune build @avsm/sortal/all
 dune runtest avsm/sortal --force
 ```
+
+## Shared knowledge search
+
+Bushel's knowledge commands search native Sortal contacts and cached feeds
+alongside Bushel notes and research entries:
+
+```sh
+bushel knowledge contacts 'Alice'
+bushel knowledge search 'conference' --mode lexical
+bushel knowledge status
+```
+
+Embedding configuration is shared through `[embeddings]` in the Bushel TOML
+configuration. Use `bushel knowledge configure` to set the endpoint, model,
+dimensions and optional API-key file, and `bushel knowledge index` to build
+vectors. There is no separate Sortal embedding configuration. The commands use
+Sortal's native configured paths and environment overrides and do not sync
+contacts or fetch feeds.
+
+The CLI and Crowthebot share one XDG database per canonical Bushel/Sortal source
+pair. `bushel knowledge status` reports its path and indexing coverage. Settings
+are read on every invocation. Existing Crow profile indexes are retained but
+unused; rebuild the shared index with `bushel knowledge index`.
+
+See [Bushel's knowledge commands](../bushel/README.md#shared-knowledge-commands)
+for filters, pagination, configuration and machine-readable JSON output.

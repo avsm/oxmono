@@ -1,0 +1,15 @@
+(library
+ (name bushel_knowledge_store)
+ (public_name bushel.knowledge.store)
+ (libraries
+  bushel.knowledge
+  bushel.config
+  sortal
+  sortal.carddav
+  retrieval
+  retrieval.mlx
+  fetch
+  eio
+  unix
+  jsont
+  jsont.bytesrw))

@@ -217,9 +217,11 @@ crowthebot inspect --profile crow-one --section summaries
 
 `system_prompt` controls Crow's personality. The default takes its cue from
 Crow T. Robot in Mystery Science Theater 3000: terse, wry robot banter, short
-fragments, useful answers first. No double negatives, rambling follow-ons or
-unsolicited offers. Existing profiles using the old built-in prompt adopt this
-default on restart. Custom prompts remain unchanged.
+fragments, useful answers first. Replies default to one to three short sentences
+in direct messages and shared rooms, with more detail when requested or needed.
+Markdown emphasis, inline code, short lists and links are welcome. No rambling
+follow-ons or unsolicited offers. Existing profiles using an old built-in
+prompt adopt this default on restart. Custom prompts remain unchanged.
 Set `plugins` to `[]` to disable
 compiled extension plugins. Shared memory, cron, feeds and location tools are
 built in for the admin and allowed friends. Choose a model in this file and
@@ -1463,8 +1465,8 @@ Failures are logged without prompt text, tokens or raw provider responses.
   execution plugins are registered. OpenRouter supports vision separately.
 - Plugins are compiled into the application. There is no dynamic loading,
   subprocess protocol or interactive approval workflow for future write tools.
-- Replies use plain `m.notice` bodies. Streaming display and Markdown-to-Matrix
-  formatting remain future work.
+- Replies use `m.notice` with sanitized Markdown-to-Matrix HTML and a plain
+  text fallback. Streaming display remains future work.
 - Administrative changes wait behind earlier events in the room. The initial
   implementation favors ordered processing over parallel model turns.
 - Matrix room delivery has not been tested against a live account for this
@@ -1585,3 +1587,82 @@ have been sent. Do not repeat it automatically.
 Every POST tool call is durably audited before sending. HTTP URLs and status
 are logged through `crowthebot.tools`. Request and response bodies are not
 written to console logs.
+
+## Personal knowledge: Bushel and Sortal
+
+Crow uses Bushel's shared knowledge runtime. It discovers Bushel's
+`data.local_dir` through `Bushel_config.load` (normally
+`~/.config/bushel/config.toml`) and Sortal's native store through `Sortal.Store`.
+Sortal's XDG paths and `SORTAL_DATA_DIR` override apply as usual. No additional
+knowledge configuration file is needed.
+
+The tools become available when both source directories exist. They use Crow's
+existing allowed users, enabled rooms and accepted direct rooms, including for
+scheduled work. This exposes the configured corpus, including drafts and contact
+addresses, to those authorized users. Source configuration is reread for each
+invocation. Restart Crow after installing a previously absent corpus.
+
+Use `bushel_search` for the configured owner's website and authored knowledge.
+It defaults to notes/blog posts, with `kind` selecting papers, projects, ideas
+or videos. It excludes Sortal contacts and syndicated feeds before ranking.
+Use `bushel_latest_posts` for “my latest post” or recent writing. It lists up
+to 100 notes by original publication date, excluding drafts, future dates and
+index pages. An edit to an old post does not make it the newest published post.
+Both tools read local sources without feed sync or subscriptions. Read the
+full text with `knowledge_get`. Existing embedding vectors remain reusable.
+
+The other tools are `contacts_resolve`, `contacts_get`, `knowledge_search`,
+`knowledge_get`, and `feeds_context`. Search accepts a query, a mode
+(`lexical`, `semantic`, or `hybrid`), and optional `kind`, `tag`, `contact`
+(Sortal handle), `project` (Bushel slug), `since`, and `until` filters.
+Dates use `YYYY-MM-DD`. Lexical queries use FTS5 syntax. Empty lexical queries
+browse by date. Results contain source IDs, revisions, citation URLs and
+passage snippets. Follow `next_offset` to read another page. If the returned
+corpus generation or source revision changes, restart pagination.
+
+For example, ask Crow: “What is my latest Bushel post? Give me its title and
+link.” Crow's tool instructions route this to `bushel_latest_posts`, not feed
+polling. For conceptual searches, ask it to use `bushel_search` in hybrid mode.
+
+`contacts_resolve` reports ambiguous names rather than choosing a person.
+`feeds_context` accepts either `id` or `url`. It returns recorded relationships
+and their evidence, including annotations, links and associated contacts.
+Feed association does not establish item authorship. Scheduled feed summaries
+can use the same tools under the job creator's current actor and room access.
+
+Lexical search, contacts and feed context need no model configuration. Configure
+vector and hybrid search through Bushel:
+
+```sh
+bushel knowledge configure --url http://127.0.0.1:8080/v1/embeddings --model your-embedding-model --dimensions 768
+bushel knowledge index
+bushel knowledge status
+bushel knowledge search --mode hybrid "your question"
+```
+
+Settings live in the `[embeddings]` section of Bushel's existing configuration.
+Add `--api-key-file /path/to/key` for an authenticated HTTPS endpoint. Corpus
+passages and queries are sent to that endpoint. Chat model selection remains
+independent. Crow reads updated source and embedding settings on each invocation.
+
+Bushel and every Crow profile share the derived SQLite index under
+`${XDG_DATA_HOME:-$HOME/.local/share}/bushel/knowledge/<corpus>/knowledge.sqlite3`.
+The corpus directory is identified by the canonical Bushel and Sortal source
+roots. Each operation refreshes local sources within a serialized shared
+session. Changed or deleted sources invalidate old vectors. Semantic requests
+index at most eight provider batches per call and return `embedding_coverage`
+with indexed and total passage counts. Further semantic calls continue indexing.
+Missing provider configuration is an explicit error for semantic/hybrid mode.
+Lexical search needs no provider.
+
+Legacy Crow embedding settings and profile-local `knowledge.sqlite3` files are
+neither used nor deleted. Reconfigure embeddings through Bushel and run
+`bushel knowledge index` to populate the shared index.
+
+The initial implementation uses exact distance ranking with filters applied
+before the result limit. Its vector-query cost grows with the eligible corpus.
+
+Source files are not changed and feeds are not fetched by these tools. Keep
+using Bushel and Sortal sync to refresh the source data. Corrupt existing notes,
+links, cached feeds or annotations fail the refresh instead of silently deleting
+them from the derived index. All model tool calls use Crow's existing audit log.

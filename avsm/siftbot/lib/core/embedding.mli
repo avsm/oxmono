@@ -4,7 +4,9 @@ type provider = {
   model : string;
   dimensions : int;
   max_batch : int;
-  embed : check:(unit -> unit) -> string list -> float list list;
+  embed :
+    task:Retrieval.Embedding.task ->
+    check:(unit -> unit) -> string list -> float list list;
 }
 
 val index :

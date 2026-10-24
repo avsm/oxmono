@@ -12,6 +12,7 @@ Bushel is a library for managing structured research entries including
    Subpackages:
    - bushel.eio: Eio-based directory loading
    - bushel.config: XDG-compliant TOML configuration
+   - bushel.knowledge.store: Shared corpus and embedding index sessions
    - bushel.sync: Sync pipeline for images and thumbnails"""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy <anil@recoil.org>"]
@@ -21,9 +22,15 @@ bug-reports: "https://tangled.org/anil.recoil.org/ocaml-bushel/issues"
 depends: [
   "dune" {>= "3.21"}
   "retrieval"
+  "srcsetter"
+  "digestif"
+  "apple-mlx-embeddings"
   "agentkit"
   "markup"
   "sortal"
+  "fetch"
+  "fetch-curl"
+  "duration"
   "ocaml" {>= "5.2"}
   "frontmatter" {>= "0.1"}
   "frontmatter-eio" {>= "0.1"}

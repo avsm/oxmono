@@ -1,0 +1,44 @@
+(rule
+ (enabled_if
+  (and
+   (= %{system} macosx)
+   (= %{architecture} arm64)))
+ (targets libapple_mlx_embeddings_bridge.a)
+ (deps
+  (source_tree swift)
+  build_swift.sh
+  Qwen3VLEmbeddings.swift.inc)
+ (action
+  (run bash %{dep:build_swift.sh} swift %{targets})))
+
+(foreign_library
+ (archive_name apple_mlx_embeddings_bridge)
+ (language c)
+ (names unsupported)
+ (enabled_if
+  (not
+   (and
+    (= %{system} macosx)
+    (= %{architecture} arm64)))))
+
+(library
+ (name apple_mlx_embeddings)
+ (public_name apple-mlx-embeddings)
+ (modes native)
+ (libraries eio eio.unix unix)
+ (c_library_flags
+  (:include link_flags.sexp))
+ (foreign_archives apple_mlx_embeddings_bridge)
+ (foreign_stubs
+  (language c)
+  (names apple_mlx_embeddings_stubs apple_mlx_vision_stubs)
+  (flags
+   (:standard -Wall -Wextra -Werror))))
+
+(rule
+ (targets link_flags.sexp)
+ (deps link_flags.sh)
+ (action
+  (with-stdout-to
+   %{targets}
+   (run sh %{dep:link_flags.sh}))))

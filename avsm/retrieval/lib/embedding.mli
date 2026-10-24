@@ -1,8 +1,11 @@
+type task = [ `Query | `Document ]
+(** Providers can distinguish document encoding from query instructions. *)
+
 type provider = {
   model : string;
   dimensions : int;
   max_batch : int;
-  embed : check:(unit -> unit) -> string list -> float list list;
+  embed : task:task -> check:(unit -> unit) -> string list -> float list list;
 }
 (** Corpus-independent embedding inference and rank fusion. *)
 
@@ -29,12 +32,16 @@ val checked : provider -> float list -> float list
 val index_name : 'a backend -> provider -> string
 
 val index :
+  ?on_progress:(int -> unit) ->
   'a backend -> provider -> check:(unit -> unit) -> max_batches:int -> int
 (** [index backend provider ~check ~max_batches] embeds changed passages in
     bounded batches, inspecting documents only until the budget is filled.
     Each stored hash identifies the exact passage passed to inference.
     [check] runs around inference. The backend must reject writes whose
-    document revision changed during inference. *)
+    document revision changed during inference. [on_progress] receives the
+    cumulative number written after each fully validated and stored batch.
+    It is not called when no passages are written. Callback exceptions
+    propagate. *)
 
 val search :
   'a backend -> provider -> check:(unit -> unit) -> string -> ('a * float) list

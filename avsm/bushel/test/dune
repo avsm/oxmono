@@ -43,3 +43,30 @@
  (name test_knowledge)
  (modules test_knowledge)
  (libraries bushel bushel.eio bushel.knowledge bushel.agent retrieval sortal.feed eio_main))
+
+(test
+ (name test_config_embeddings)
+ (modules test_config_embeddings)
+ (libraries bushel.config tomlt tomlt.bytesrw unix))
+
+(test
+ (name test_knowledge_store)
+ (modules test_knowledge_store)
+ (libraries
+  bushel.knowledge.store
+  bushel.knowledge
+  bushel.agent
+  retrieval
+  fetch.mock
+  eio_main
+  unix))
+
+(test
+ (name test_config_images)
+ (modules test_config_images)
+ (libraries bushel.config unix))
+
+(test
+ (name test_knowledge_images)
+ (modules test_knowledge_images)
+ (libraries bushel.knowledge bushel.knowledge.store retrieval srcsetter fetch.mock eio_main unix))

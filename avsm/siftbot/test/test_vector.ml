@@ -79,7 +79,7 @@ let () =
                 dimensions = 2;
                 max_batch = 2;
                 embed =
-                  (fun ~check inputs ->
+                  (fun ~task:_ ~check inputs ->
                     check ();
                     incr calls;
                     List.map (fun _ -> [ 1.; 1. ]) inputs);

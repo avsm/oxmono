@@ -79,6 +79,60 @@ let () =
     rejects (fun () -> M.decode
       (Tomlt_bytesrw.encode_string M.codec { t with version = 99 }));
     let b = t.bushel in
+    let embeddings = Bushel_config.{
+      url = "https://embeddings.example/v1/embeddings";
+      model = "fixture"; dimensions = 2;
+      api_key_file = Some (root ^ "/embedding-key") } in
+    let with_embeddings = { t with bushel =
+      { b with embeddings = Some (Bushel_config.Http embeddings) } } in
+    let embedding_text = M.encode with_embeddings in
+    check (not (contains embedding_text root))
+      "embedding key path leaked absolute home";
+    check (contains embedding_text "~/embedding-key")
+      "embedding key path is not portable";
+    check (M.decode embedding_text = with_embeddings)
+      "embedding configuration did not round trip";
+    let invalid_embeddings = { t with bushel =
+      { b with embeddings = Some (Bushel_config.Http { embeddings with
+        url = "https://user:secret@embeddings.example/" }) } } in
+    rejects (fun () -> M.encode invalid_embeddings);
+    rejects (fun () -> M.decode
+      (Tomlt_bytesrw.encode_string M.codec invalid_embeddings));
+    let mlx = Bushel_config.{
+      model_dir = root ^ "/models/qwen-embedding";
+      dimensions = 1024; max_tokens = 8192;
+      query_instruction = default_query_instruction } in
+    let with_mlx = { t with bushel =
+      { b with embeddings = Some (Bushel_config.Mlx mlx) } } in
+    let mlx_text = M.encode with_mlx in
+    check (not (contains mlx_text root))
+      "MLX model directory leaked absolute home";
+    check (contains mlx_text "~/models/qwen-embedding")
+      "MLX model directory is not portable";
+    check (M.decode mlx_text = with_mlx)
+      "MLX configuration did not round trip";
+    let vision = { mlx with
+      model_dir = root ^ "/models/qwen-vl";
+      dimensions = 2048;
+      query_instruction = Bushel_config.default_image_query_instruction } in
+    let with_vision = { with_mlx with bushel =
+      { with_mlx.bushel with image_embeddings = Some vision } } in
+    let vision_text = M.encode with_vision in
+    check (not (contains vision_text root))
+      "image model directory leaked absolute home";
+    check (contains vision_text "~/models/qwen-vl")
+      "image model directory is not portable";
+    check (M.decode vision_text = with_vision)
+      "image and text model configuration did not round trip independently";
+    rejects (fun () -> M.encode { with_vision with bushel =
+      { with_vision.bushel with image_embeddings = Some
+        { vision with dimensions = 32 } } });
+    let invalid_mlx = { t with bushel =
+      { b with embeddings = Some (Bushel_config.Mlx
+        { mlx with max_tokens = 32769 }) } } in
+    rejects (fun () -> M.encode invalid_mlx);
+    rejects (fun () -> M.decode
+      (Tomlt_bytesrw.encode_string M.codec invalid_mlx));
     List.iter (fun remote ->
       rejects (fun () -> M.encode { t with bushel =
         { b with sync = { b.sync with remote } } }))

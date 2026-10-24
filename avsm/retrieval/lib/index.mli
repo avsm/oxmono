@@ -28,6 +28,9 @@ exception Conflict
 val open_db : sw:Eio.Switch.t -> _ Eio.Path.t -> t
 val memory : sw:Eio.Switch.t -> unit -> t
 
+val counts : t -> int * int
+(** [counts t] is the document and passage count from one read transaction. *)
+
 val replace : t -> document list -> unit
 (** [replace t documents] atomically reconciles the complete snapshot, removing
     obsolete chunks and vectors. Unchanged sources retain cached vectors. IDs

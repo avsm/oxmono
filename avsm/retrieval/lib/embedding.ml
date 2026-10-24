@@ -1,10 +1,12 @@
 module F = Stdlib_upstream_compatible.Float_u
 
+type task = [ `Query | `Document ]
+
 type provider = {
   model : string;
   dimensions : int;
   max_batch : int;
-  embed : check:(unit -> unit) -> string list -> float list list;
+  embed : task:task -> check:(unit -> unit) -> string list -> float list list;
 }
 
 let normalization = "passage-8192-l2/v2"
@@ -107,7 +109,7 @@ let rec pending_batch db ~index remaining documents =
           in
           #({ document; input; input_hash } :: batch, rest)
 
-let index db provider ~check ~max_batches =
+let index ?on_progress db provider ~check ~max_batches =
   if max_batches < 0 || max_batches > 10000 then
     invalid_arg "Invalid embedding budget";
   let index = index_name db provider in
@@ -122,7 +124,7 @@ let index db provider ~check ~max_batches =
       | _ ->
           check ();
           let inputs = List.map (fun pending -> pending.input) batch in
-          let vectors = provider.embed ~check inputs in
+          let vectors = provider.embed ~task:`Document ~check inputs in
           check ();
           if List.length vectors <> List.length batch then
             invalid_arg "Embedding provider returned an incomplete batch";
@@ -132,14 +134,16 @@ let index db provider ~check ~max_batches =
               db.put ~index ~document:pending.document
                 ~input_hash:pending.input_hash vector)
             batch vectors;
-          loop (remaining - 1) (count + List.length batch) rest
+          let count = count + List.length batch in
+          Option.iter (fun progress -> progress count) on_progress;
+          loop (remaining - 1) count rest
   in
   if max_batches = 0 then 0 else loop max_batches 0 (db.documents ())
 
 let search db provider ~check query =
   let index = index_name db provider in
   check ();
-  let vectors = provider.embed ~check [ clip 8192 query ] in
+  let vectors = provider.embed ~task:`Query ~check [ clip 8192 query ] in
   check ();
   match vectors with
   | [ v ] -> db.nearest ~index ~limit:20 (checked provider v)
@@ -204,7 +208,7 @@ let http ~sw ~fetch ~url ?api_key ~model ~dimensions () =
     |> Jsont.Object.mem "data" (Jsont.list row_codec) ~enc:Fun.id
     |> Jsont.Object.finish
   in
-  let embed ~check inputs =
+  let embed ~task:_ ~check inputs =
     if
       inputs = []
       || List.length inputs > 16

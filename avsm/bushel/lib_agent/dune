@@ -1,4 +1,12 @@
 (library
  (name bushel_agent)
  (public_name bushel.agent)
- (libraries bushel.knowledge agentkit retrieval ptime jsont jsont.bytesrw))
+ (libraries
+  bushel.knowledge
+  bushel.knowledge.store
+  agentkit
+  retrieval
+  ptime
+  ptime.clock.os
+  jsont
+  jsont.bytesrw))

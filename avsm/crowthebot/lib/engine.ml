@@ -9,6 +9,7 @@ type t = {
   plugins : Plugin.t list;
   feeds : Feeds.t option;
   website : Website.t option;
+  knowledge : Knowledge.t option;
   http_post : Http_post.t option;
   locations : Locations.t option;
   addresses : Agentkit_osm.t option;
@@ -60,6 +61,7 @@ let create ~config ~store ~self ~plugins ~complete ~now:_ =
         || String.starts_with ~prefix:"memory_" name
         || String.starts_with ~prefix:"cron_" name
         || Agentkit_osm.is_tool name
+        || Bushel_agent.is_tool name
         || name = "http_post"
         || String.starts_with ~prefix:"website_" name
         || String.starts_with ~prefix:"feeds_" name
@@ -84,6 +86,7 @@ let create ~config ~store ~self ~plugins ~complete ~now:_ =
     plugins;
     feeds = None;
     website = None;
+    knowledge = None;
     http_post = None;
     locations = None;
     addresses = None;
@@ -99,6 +102,7 @@ let create ~config ~store ~self ~plugins ~complete ~now:_ =
 
 let with_addresses t addresses = { t with addresses = Some addresses }
 let with_http_post t http_post = { t with http_post = Some http_post }
+let with_knowledge t knowledge = { t with knowledge = Some knowledge }
 let with_website t website = { t with website = Some website }
 let with_feeds t feeds = { t with feeds = Some feeds }
 let with_locations t locations = { t with locations = Some locations }
@@ -517,6 +521,7 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
       ^ (if t.http_post = None then "" else Http_post.system_prompt)
       ^ (if t.website = None then "" else Website.system_prompt)
       ^ (if t.feeds = None then "" else Feeds.system_prompt)
+      ^ (match t.knowledge with Some k when Knowledge.available k ~actor:e.sender ~room:e.room -> Bushel_agent.system_prompt | _ -> "")
       ^ (if t.addresses = None then "" else Agentkit_osm.system_prompt)
       ^ (if t.locations = None then "" else Locations.system_prompt)
       ^ (if t.calendars = None then "" else Calendars.system_prompt)
@@ -554,6 +559,7 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
       Memory.tools @ Cron.tools
       @ (if t.http_post = None then [] else Http_post.tools)
       @ (if t.website = None then [] else Website.tools)
+      @ (match t.knowledge with Some k when Knowledge.available k ~actor:e.sender ~room:e.room -> Bushel_agent.tools | _ -> [])
       @ (if t.feeds = None then [] else Feeds.tools)
       @ (if t.addresses = None then [] else Agentkit_osm.definitions)
       @ (if t.locations = None then [] else Locations.tools)
@@ -596,6 +602,10 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
       (match t.http_post with
        | None -> Error "HTTP POST tools are unavailable."
        | Some http_post -> Http_post.invoke http_post call.name call.arguments)
+    else if Bushel_agent.is_tool call.name then
+      (match t.knowledge with
+       | None -> Error "Knowledge tools are unavailable."
+       | Some knowledge -> Knowledge.invoke knowledge ~actor:e.sender ~room:e.room ~check:check_access call.name call.arguments)
     else if Website.is_tool call.name then
       (match t.website with
        | None -> Error "Website tools are unavailable."

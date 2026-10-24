@@ -105,3 +105,7 @@ val with_http_post : t -> Http_post.t -> t
 val with_addresses : t -> Agentkit_osm.t -> t
 (** [with_addresses t addresses] adds address search and reverse lookup for
     the admin and allowed friends, with normal tool auditing and budgets. *)
+
+val with_knowledge : t -> Knowledge.t -> t
+(** [with_knowledge t knowledge] enables structured and hybrid personal corpus
+    retrieval in authorized rooms, including scheduled model actions. *)

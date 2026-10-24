@@ -14,6 +14,7 @@ type contact = { id : string; value : C.t }
 type candidate = { contact : contact; matched_on : string; exact : bool }
 
 type snapshot = {
+  posts : (string * string) list;
   contacts : contact list;
   edges : edge list;
   adjacency : edge list Bushel.Smap.t;
@@ -22,13 +23,19 @@ type snapshot = {
   generation : string;
 }
 
-type t = { index : I.t; mutable snapshot : snapshot }
+type t = {
+  index : I.t;
+  mutable snapshot : snapshot;
+  mutable skipped_images : int;
+}
 
 let create index =
   {
     index;
+    skipped_images = 0;
     snapshot =
       {
+        posts = [];
         contacts = [];
         edges = [];
         adjacency = Bushel.Smap.empty;
@@ -87,6 +94,7 @@ let plain_html html =
 let edges t = t.snapshot.edges
 let contacts t = t.snapshot.contacts
 let generation t = t.snapshot.generation
+let counts t = I.counts t.index
 let get t = I.get t.index
 let find_url t = I.find_url t.index
 let related t id = lookup id t.snapshot.adjacency
@@ -194,18 +202,21 @@ let refresh ?(base_url = "") ?(links = []) t ~entries ~contacts ~feeds =
   let internal_links = Bushel.Link_graph.all_internal_links graph in
   let external_links = Bushel.Link_graph.all_external_links graph in
   let internal_by_source =
-    List.map (fun (l : Bushel.Link_graph.internal_link) -> (l.source, l))
+    List.map
+      (fun (l : Bushel.Link_graph.internal_link) -> (l.source, l))
       internal_links
     |> group
   in
   let external_by_url =
-    List.map (fun (l : Bushel.Link_graph.external_link) -> (l.url, l))
+    List.map
+      (fun (l : Bushel.Link_graph.external_link) -> (l.url, l))
       external_links
     |> group
   in
   let all_entries = Bushel.Entry.all_entries entries in
   let entries_by_url =
-    List.map (fun ent -> (base_url ^ Bushel.Entry.site_url ent, ent))
+    List.map
+      (fun ent -> (base_url ^ Bushel.Entry.site_url ent, ent))
       all_entries
     |> group
   in
@@ -292,10 +303,10 @@ let refresh ?(base_url = "") ?(links = []) t ~entries ~contacts ~feeds =
       let linked =
         lookup slug internal_by_source
         |> List.filter_map (fun (l : Bushel.Link_graph.internal_link) ->
-                 match l.target_type with
-                 | `Contact -> Some ("contact", l.target)
-                 | `Project -> Some ("project", l.target)
-                 | _ -> None)
+               match l.target_type with
+               | `Contact -> Some ("contact", l.target)
+               | `Project -> Some ("project", l.target)
+               | _ -> None)
       in
       add_document ~id
         ~kind:(Bushel.Entry.to_type_string ent)
@@ -333,7 +344,8 @@ let refresh ?(base_url = "") ?(links = []) t ~entries ~contacts ~feeds =
       |> List.iter (fun link ->
              List.iter
                (fun ent ->
-                 add_edge id (entry_id (Bushel.Entry.slug ent))
+                 add_edge id
+                   (entry_id (Bushel.Entry.slug ent))
                    "links_entry" link)
                (lookup link entries_by_url));
       let date =
@@ -420,15 +432,31 @@ let refresh ?(base_url = "") ?(links = []) t ~entries ~contacts ~feeds =
     |> group
   in
   let exact, prefixes = contact_indexes contacts in
+  let posts =
+    List.filter_map
+      (function
+        | `Note n when (not n.Bushel.Note.draft) && not n.index_page ->
+            let y, m, d = n.date in
+            Some (entry_id n.slug, Printf.sprintf "%04d-%02d-%02d" y m d)
+        | _ -> None)
+      all_entries
+    |> List.sort (fun (a, da) (b, db) ->
+           let order = String.compare db da in
+           if order = 0 then String.compare a b else order)
+  in
   let generation =
     hash
       (key
          (List.map (fun (d : I.document) -> key [ d.id; d.revision ]) documents
          @ List.map
              (fun e -> key [ e.source; e.target; e.relation; e.evidence ])
-             edges))
+             edges
+         @ List.map (fun (id, date) -> key [ "published_post"; id; date ]) posts
+         ))
   in
-  let snapshot = { contacts; edges; adjacency; exact; prefixes; generation } in
+  let snapshot =
+    { posts; contacts; edges; adjacency; exact; prefixes; generation }
+  in
   I.replace t.index documents;
   t.snapshot <- snapshot
 
@@ -478,8 +506,17 @@ let load ?(base_url = "") t ~fs ~bushel_dir ~sortal_dir =
   in
   refresh ~base_url ~links t ~entries ~contacts ~feeds
 
-let index t provider ~check ~max_batches =
-  E.index (I.backend t.index I.all) provider ~check ~max_batches
+let latest_posts t ~until =
+  t.snapshot.posts
+  |> List.filter (fun (_, date) -> date <= until)
+  |> List.filteri (fun i _ -> i < 100)
+  |> List.map (fun (id, date) ->
+         match I.get t.index id with
+         | Some document -> { document with date }
+         | None -> failwith "Published Bushel post missing from knowledge index")
+
+let index ?on_progress ?(filter = I.all) t provider ~check ~max_batches =
+  E.index ?on_progress (I.backend t.index filter) provider ~check ~max_batches
 
 let search t ?provider ~check ~mode ~filter query =
   let backend = I.backend t.index filter in
@@ -491,8 +528,8 @@ let search t ?provider ~check ~mode ~filter query =
       invalid_arg "No embedding provider configured. Use lexical search."
   | _ -> invalid_arg "Search mode must be lexical, semantic or hybrid"
 
-let coverage t provider =
-  let backend = I.backend t.index I.all in
+let coverage ?(filter = I.all) t provider =
+  let backend = I.backend t.index filter in
   let index = E.index_name backend provider in
   let documents = backend.documents () in
   let ready =
@@ -503,3 +540,199 @@ let coverage t provider =
       documents
   in
   (List.length ready, List.length documents)
+
+let image_id name = key [ "image"; name ]
+let skipped_images t = t.skipped_images
+
+let pixel_hash path =
+  let fd =
+    Unix.openfile path [ Unix.O_RDONLY; Unix.O_CLOEXEC; Unix.O_NONBLOCK ] 0
+  in
+  Fun.protect
+    ~finally:(fun () -> Unix.close fd)
+    (fun () ->
+      let before = Unix.fstat fd in
+      if before.st_kind <> Unix.S_REG then
+        invalid_arg "Image pixels must be a regular file";
+      let bytes = Bytes.create 65536 in
+      let rec read hash =
+        match Unix.read fd bytes 0 (Bytes.length bytes) with
+        | 0 -> Digestif.SHA256.(to_hex (get hash))
+        | n -> read (Digestif.SHA256.feed_bytes hash ~len:n bytes)
+        | exception Unix.Unix_error (Unix.EINTR, _, _) -> read hash
+      in
+      let digest = read Digestif.SHA256.empty in
+      let stamp s =
+        Unix.(s.st_dev, s.st_ino, s.st_size, s.st_mtime, s.st_ctime)
+      in
+      if
+        stamp (Unix.fstat fd) <> stamp before
+        || stamp (Unix.stat path) <> stamp before
+      then raise I.Conflict;
+      digest)
+
+let load_images t ~fs ~output_dir ~check =
+  check ();
+  let root = Unix.realpath Eio.Path.(native_exn (fs / output_dir)) in
+  let index = Eio.Path.(fs / Filename.concat root "index.json") in
+  let entries =
+    match Srcsetter.list_of_json (Eio.Path.load index) with
+    | Ok entries -> entries
+    | Error error -> invalid_arg ("Invalid image index: " ^ error)
+  in
+  (* Different source extensions can share one generated WebP filename. *)
+  let groups =
+    List.map (fun (image : Srcsetter.t) -> (image.name, image)) entries
+    |> group |> Bushel.Smap.bindings
+  in
+  let groups, skipped =
+    List.partition
+      (fun (_, images) ->
+        List.for_all
+          (fun (image : Srcsetter.t) ->
+            let width, height = image.dims in
+            width >= 32 && height >= 32)
+          images)
+      groups
+  in
+  let documents =
+    List.map
+      (fun (name, images) ->
+        check ();
+        let metadata (image : Srcsetter.t) =
+          (image.slug, image.origin, image.dims)
+        in
+        let images =
+          List.sort_uniq (fun a b -> compare (metadata a) (metadata b)) images
+        in
+        let image = List.hd images and aliases = List.tl images in
+        if
+          (not (Filename.is_relative name))
+          || List.mem ".." (String.split_on_char '/' name)
+          || String.contains name '\000'
+        then
+          invalid_arg
+            "Image filenames must stay within the image output directory";
+        let path = Unix.realpath (Filename.concat root name) in
+        if not (String.starts_with ~prefix:(root ^ "/") path) then
+          invalid_arg "Image pixels must stay within the image output directory";
+        let digest = Eio_unix.run_in_systhread (fun () -> pixel_hash path) in
+        check ();
+        let text =
+          E.clip 5000
+            (String.concat "\n"
+               ([ image.slug; name; image.origin ]
+               @ (List.concat_map
+                    (fun (alias : Srcsetter.t) -> [ alias.slug; alias.origin ])
+                    aliases
+                 |> List.sort_uniq String.compare
+                 |> List.filter (fun value ->
+                        value <> image.slug && value <> name
+                        && value <> image.origin))))
+        in
+        let width, height = image.dims in
+        let facets =
+          [
+            ("pixel_path", path);
+            ("pixel_hash", digest);
+            ("width", string_of_int width);
+            ("height", string_of_int height);
+          ]
+          @ (List.map (fun (image : Srcsetter.t) -> image.origin) images
+            |> List.sort_uniq String.compare
+            |> List.map (fun origin -> ("source_path", origin)))
+        in
+        I.
+          {
+            id = image_id name;
+            revision =
+              hash
+                (key
+                   ([
+                      path;
+                      digest;
+                      image.slug;
+                      name;
+                      image.origin;
+                      string_of_int width;
+                      string_of_int height;
+                    ]
+                   @ List.map
+                       (fun (alias : Srcsetter.t) ->
+                         let width, height = alias.dims in
+                         key
+                           [
+                             alias.slug;
+                             alias.origin;
+                             string_of_int width;
+                             string_of_int height;
+                           ])
+                       aliases));
+            kind = "image";
+            title = E.clip 2000 image.slug;
+            text;
+            url = "/images/" ^ name;
+            date = "";
+            facets;
+          })
+      groups
+  in
+  I.replace t.index documents;
+  t.skipped_images <- List.length skipped;
+  t.snapshot <-
+    {
+      t.snapshot with
+      generation =
+        hash
+          (key
+             (List.map
+                (fun (d : I.document) -> key [ d.id; d.revision ])
+                documents));
+    }
+
+let image_backend t =
+  let backend = I.backend t.index { I.all with kind = Some "image" } in
+  let path_and_hash (chunk : I.chunk) =
+    let fields = chunk.document.facets in
+    (List.assoc "pixel_path" fields, List.assoc "pixel_hash" fields)
+  in
+  {
+    backend with
+    passage =
+      (fun chunk ->
+        let path, digest = path_and_hash chunk in
+        key [ path; digest ]);
+    put =
+      (fun ~index ~document ~input_hash vector ->
+        let path, expected = path_and_hash document in
+        if Eio_unix.run_in_systhread (fun () -> pixel_hash path) <> expected
+        then raise I.Conflict;
+        backend.put ~index ~document ~input_hash vector);
+  }
+
+let index_images ?on_progress t provider ~check ~max_batches =
+  E.index ?on_progress (image_backend t) provider ~check ~max_batches
+
+let image_coverage t provider =
+  let backend = image_backend t in
+  let index = E.index_name backend provider in
+  List.fold_left
+    (fun (ready, total) document ->
+      let current =
+        backend.current ~index ~document
+          ~input_hash:(E.hash (backend.passage document))
+      in
+      ((ready + if current then 1 else 0), total + 1))
+    (0, 0) (backend.documents ())
+
+let search_images t ?provider ~check ~mode query =
+  let backend = image_backend t in
+  match (mode, provider) with
+  | "lexical", _ -> backend.lexical query
+  | "semantic", Some provider ->
+      E.search backend provider ~check query |> List.map fst
+  | "hybrid", Some provider ->
+      E.hybrid backend provider ~check ~lexical:query ~semantic:query
+  | ("semantic" | "hybrid"), None ->
+      invalid_arg "Configure image embeddings before semantic image search"
+  | _ -> invalid_arg "Image search mode must be lexical, semantic or hybrid"

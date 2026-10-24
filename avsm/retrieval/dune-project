@@ -5,6 +5,7 @@
 (package
  (name retrieval)
  (synopsis "Revision-aware lexical and vector retrieval")
+ (depopts apple-mlx-embeddings)
  (depends
   (ocaml (>= 5.2))
   eio

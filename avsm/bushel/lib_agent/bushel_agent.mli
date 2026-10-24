@@ -9,6 +9,12 @@ val create :
   unit ->
   t
 
+val of_store : Bushel_knowledge_store.t -> max_bytes:int -> t
+(** [of_store store ~max_bytes] uses the shared store's refreshed corpus and
+    provider. Provider construction is deferred until semantic or hybrid search.
+    Lexical search, source reads and contact lookups do not fingerprint model
+    weights. Invoke its tools inside the store session. *)
+
 val names : string list
 val is_tool : string -> bool
 val tools : Agentkit.Agent.Tool.t list

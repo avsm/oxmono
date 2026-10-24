@@ -1,5 +1,8 @@
 # Unreleased
 
+- Distinguish query and document embedding tasks. Add optional native Qwen3
+  embeddings with lazy model reuse and content-versioned indexes.
+
 - Share document bodies and facets across retrieved passages. Encode ordinary
   vectors directly as float32 SQLite BLOBs.
 

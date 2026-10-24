@@ -45,6 +45,11 @@ secret settings such as `server.stats_password` in the local arod config.
 Scan output counts untracked and ignored repository files that need separate
 review. A Git clone cannot restore them.
 
+Bushel embedding settings are included. API-key paths and local MLX model
+paths under the home directory are exported with `~`. Restore the key files
+and model directories separately on the target machine. Pull does not copy
+credentials or download embedding models.
+
 The scanner uses each application's current profile, not every account on the
 machine. StandardSite and ActivityPub use their XDG config stores. Karakeep's
 existing library uses `~/.config/karakeep`, even with a custom XDG config root.

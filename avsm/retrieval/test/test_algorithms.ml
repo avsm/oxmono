@@ -145,16 +145,30 @@ let test_batches ~size ~max_batch ~max_batches =
         dimensions = 2;
         max_batch;
         embed =
-          (fun ~check:_ inputs ->
+          (fun ~task:_ ~check:_ inputs ->
             check "batch is nonempty and bounded"
               (inputs <> [] && List.length inputs <= max_batch);
             batches := inputs :: !batches;
             List.map (fun _ -> [ 3.; 4. ]) inputs);
       }
   in
+  let progress = ref [] in
   let count =
     E.index backend provider ~check:(fun () -> incr checks) ~max_batches
+      ~on_progress:(fun count ->
+        check "progress follows all writes in its batch"
+          (count = List.length !written);
+        progress := count :: !progress)
   in
+  let _, expected_progress =
+    List.fold_left
+      (fun (total, counts) batch ->
+        let total = total + List.length batch in
+        (total, total :: counts))
+      (0, []) (List.rev !batches)
+  in
+  check "progress reports cumulative completed batches only"
+    (!progress = expected_progress);
   check "batch count respects budget" (count = expected_count);
   check "batch order and current filtering preserved"
     (List.concat (List.rev !batches) = expected);
@@ -192,7 +206,7 @@ let test_normalization () =
           model = "fixture";
           dimensions;
           max_batch = 16;
-          embed = (fun ~check:_ _ -> assert false);
+          embed = (fun ~task:_ ~check:_ _ -> assert false);
         }
     in
     check "normalization preserves bits and validation failures"
@@ -231,7 +245,7 @@ let test_small_normalization () =
           model = "small";
           dimensions = List.length values;
           max_batch = 1;
-          embed = (fun ~check:_ _ -> assert false);
+          embed = (fun ~task:_ ~check:_ _ -> assert false);
         }
     in
     let actual = E.checked provider values in
@@ -275,7 +289,7 @@ let test_batch_snapshot () =
         dimensions = 2;
         max_batch = 2;
         embed =
-          (fun ~check:_ inputs ->
+          (fun ~task:_ ~check:_ inputs ->
             embedded := inputs;
             List.map (fun _ -> [ 3.; 4. ]) inputs);
       }
@@ -286,7 +300,8 @@ let test_batch_snapshot () =
     (List.map fst (List.rev !writes) = List.map E.hash !embedded);
   writes := [];
   let invalid =
-    { provider with embed = (fun ~check:_ _ -> [ [ 3.; 4. ]; [ 0.; 0. ] ]) }
+    { provider with
+      embed = (fun ~task:_ ~check:_ _ -> [ [ 3.; 4. ]; [ 0.; 0. ] ]) }
   in
   check "invalid later vector rejects the whole batch"
     (try
@@ -302,7 +317,123 @@ let test_batch_snapshot () =
        false
      with Failure _ -> !writes = [])
 
+let test_failed_progress () =
+  let writes = ref [] and progress = ref [] in
+  let backend =
+    E.
+      {
+        documents = (fun () -> [ "first"; "second" ]);
+        key = Fun.id;
+        revision = Fun.id;
+        passage = Fun.id;
+        index = (fun ~model:_ ~dimensions:_ ~normalization:_ -> "progress");
+        current = (fun ~index:_ ~document:_ ~input_hash:_ -> false);
+        put =
+          (fun ~index:_ ~document ~input_hash:_ _ ->
+            writes := document :: !writes);
+        nearest = (fun ~index:_ ~limit:_ _ -> []);
+        lexical = (fun _ -> []);
+      }
+  in
+  let provider =
+    E.
+      {
+        model = "progress";
+        dimensions = 2;
+        max_batch = 2;
+        embed =
+          (fun ~task:_ ~check:_ inputs ->
+            List.map (fun _ -> [ 1.; 0. ]) inputs);
+      }
+  in
+  let run backend provider check_call =
+    writes := [];
+    progress := [];
+    try
+      ignore
+        (E.index backend provider ~check:check_call ~max_batches:2
+           ~on_progress:(fun count -> progress := count :: !progress));
+      false
+    with Invalid_argument _ | Failure _ | I.Conflict -> true
+  in
+  let cached =
+    { backend with current = (fun ~index:_ ~document:_ ~input_hash:_ -> true) }
+  in
+  check "generic cache hit emits no initial progress"
+    (E.index cached provider ~check:(fun () -> ()) ~max_batches:2
+       ~on_progress:(fun count -> progress := count :: !progress) = 0
+    && !progress = [] && !writes = []);
+  let failing =
+    { provider with embed = (fun ~task:_ ~check:_ _ -> failwith "inference") }
+  in
+  check "inference failure emits no progress"
+    (run backend failing (fun () -> ()) && !writes = [] && !progress = []);
+  List.iter
+    (fun vectors ->
+      let invalid =
+        { provider with embed = (fun ~task:_ ~check:_ _ -> vectors) }
+      in
+      check "failed provider batch never reports progress"
+        (run backend invalid (fun () -> ())
+        && !writes = [] && !progress = []))
+    [ []; [ [ 1.; 0. ]; [ 0.; 0. ] ] ];
+  let checks = ref 0 in
+  check "cancellation after inference never reports progress"
+    (run backend provider (fun () ->
+         incr checks;
+         if !checks = 2 then failwith "cancel")
+    && !writes = [] && !progress = []);
+  let conflicting =
+    { backend with
+      put =
+        (fun ~index ~document ~input_hash vector ->
+          if document = "second" then raise I.Conflict;
+          backend.put ~index ~document ~input_hash vector) }
+  in
+  check "partially written failed batch never reports completion"
+    (run conflicting provider (fun () -> ())
+    && !writes = [ "first" ] && !progress = []);
+  let single = { provider with max_batch = 1 } in
+  check "later failed batch retains earlier completed progress only"
+    (run conflicting single (fun () -> ())
+    && !writes = [ "first" ] && !progress = [ 1 ])
+
+let test_task_roles () =
+  let calls = ref [] in
+  let provider =
+    E.
+      {
+        model = "tasks";
+        dimensions = 2;
+        max_batch = 1;
+        embed =
+          (fun ~task ~check:_ inputs ->
+            calls := (task, inputs) :: !calls;
+            List.map (fun _ -> [ 1.; 0. ]) inputs);
+      }
+  in
+  let backend =
+    E.
+      {
+        documents = (fun () -> [ "document" ]);
+        key = Fun.id;
+        revision = Fun.id;
+        passage = Fun.id;
+        index = (fun ~model:_ ~dimensions:_ ~normalization:_ -> "tasks");
+        current = (fun ~index:_ ~document:_ ~input_hash:_ -> false);
+        put = (fun ~index:_ ~document:_ ~input_hash:_ _ -> ());
+        nearest = (fun ~index:_ ~limit:_ _ -> []);
+        lexical = (fun _ -> []);
+      }
+  in
+  ignore (E.index backend provider ~check:(fun () -> ()) ~max_batches:1);
+  ignore (E.search backend provider ~check:(fun () -> ()) "question");
+  check "indexing and search identify their task to providers"
+    (List.rev !calls = [ (`Document, [ "document" ]); (`Query, [ "question" ]) ])
+
 let () =
+  test_task_roles ();
+  test_failed_progress ();
   test_passages ();
   test_malformed_passages ();
   test_clip ();

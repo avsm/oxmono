@@ -9,10 +9,13 @@ let () =
     ref
       {|{"data":[{"index":1,"embedding":[0,1]},{"index":0,"embedding":[1,0]}]}|}
   in
-  let calls = ref 0 in
+  let calls = ref 0 and payloads = ref [] in
   let fetch =
     Fetch_mock.client (fun req ->
         incr calls;
+        (match req.body with
+        | Fetch.String body -> payloads := body :: !payloads
+        | _ -> failwith "Expected JSON request body");
         Fetch_mock.respond !response req)
   in
   let p =
@@ -20,18 +23,27 @@ let () =
       ~model:"fixture" ~dimensions:2 ()
   in
   check "provider restores input order"
-    (p.embed ~check:(fun () -> ()) [ "one"; "two" ] = [ [ 1.; 0. ]; [ 0.; 1. ] ]);
+    (p.embed ~task:`Document ~check:(fun () -> ()) [ "one"; "two" ]
+    = [ [ 1.; 0. ]; [ 0.; 1. ] ]);
+  ignore (p.embed ~task:`Query ~check:(fun () -> ()) [ "one"; "two" ]);
+  check "HTTP task roles preserve the existing wire payload"
+    (match !payloads with
+    | query :: document :: _ -> query = document
+    | _ -> false);
   response :=
     {|{"data":[{"index":0,"embedding":[1,0]},{"index":0,"embedding":[0,1]}]}|};
   check "duplicate response indices rejected"
     (try
-       ignore (p.embed ~check:(fun () -> ()) [ "one"; "two" ]);
+       ignore (p.embed ~task:`Document ~check:(fun () -> ()) [ "one"; "two" ]);
        false
      with Invalid_argument _ -> true);
   let before = !calls in
   check "oversized inputs rejected before network"
     (try
-       ignore (p.embed ~check:(fun () -> ()) [ String.make 8193 'x' ]);
+       ignore
+         (p.embed ~task:`Document
+            ~check:(fun () -> ())
+            [ String.make 8193 'x' ]);
        false
      with Invalid_argument _ -> !calls = before);
   check "credentials require HTTPS"

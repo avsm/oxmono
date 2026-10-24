@@ -645,6 +645,13 @@ let run ~env ~sw ~profile ~api_key_file ~recovery_key_file =
          ~clock:(Eio.Stdenv.mono_clock env)
          ~max_result_bytes:config.tool_result_bytes ())
     |> fun engine ->
+    (match
+       Knowledge.load ~fs:(Eio.Stdenv.fs env) ~clock:(Eio.Stdenv.clock env)
+         ~fetch:(fetch env) ~store ~max_bytes:config.tool_result_bytes ()
+     with
+    | None -> engine
+    | Some knowledge -> Engine.with_knowledge engine knowledge)
+    |> fun engine ->
     Engine.with_website engine (website_tools env) |> fun engine ->
     Engine.with_http_post engine (http_post_tools env) |> fun engine ->
     Engine.with_feeds engine (feed_tools env store) |> fun engine ->

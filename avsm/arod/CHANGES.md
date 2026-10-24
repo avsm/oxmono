@@ -1,5 +1,8 @@
 # Changes
 
+- Keep shared embedding settings, key paths and MLX model directories portable
+  in setup exports.
+
 - Cache immutable link and network pagination indexes and reduce temporary
   search-ranking allocations.
 

@@ -1540,6 +1540,7 @@ let main_cmd =
     paper_add_cmd;
     video_fetch_cmd;
     config_cmd;
+    Knowledge_cli.cmd;
   ]
 
 let () =

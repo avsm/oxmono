@@ -1,0 +1,6 @@
+(library
+ (name retrieval_mlx)
+ (public_name retrieval.mlx)
+ (optional)
+ (modes native)
+ (libraries retrieval apple-mlx-embeddings eio eio.unix digestif jsont unix))

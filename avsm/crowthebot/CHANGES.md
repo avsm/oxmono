@@ -1,4 +1,13 @@
+Bushel/Sortal tools use Bushel’s shared index and embedding configuration,
+with Crow’s existing permissions rechecked for every invocation.
+
 # Changes
+
+- Keep default replies brief in direct messages and shared rooms, with light
+  Markdown formatting. Upgrade built-in prompts while preserving custom ones.
+
+- Route questions about the owner's website and latest posts to dedicated
+  Bushel tools, independently of subscribed feeds.
 
 - Reuse memory summary trees while source content is unchanged. Recheck all
   authoritative sources before accepting summaries after inference.

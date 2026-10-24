@@ -121,6 +121,14 @@ let validate t =
   if t.arod.server.stats_password <> None then
     failwith "stats_password belongs in local arod config, not the manifest";
   let b = t.bushel in
+  Option.iter (fun settings ->
+    match Bushel_config.validate_embeddings settings with
+    | Ok () -> ()
+    | Error message -> failwith message) b.embeddings;
+  Option.iter (fun settings ->
+    match Bushel_config.validate_image_embeddings settings with
+    | Ok () -> ()
+    | Error message -> failwith message) b.image_embeddings;
   List.iter (fun (cfg : Gitops.Sync.Config.t) ->
     let remote = cfg.remote in
     if String.contains remote ':' &&
@@ -183,7 +191,15 @@ let portable_config t =
     bushel = { b with data_dir = portable b.data_dir;
       images_dir = portable b.images_dir;
       images_output_dir = portable b.images_output_dir;
-      paper_pdfs_dir = portable b.paper_pdfs_dir };
+      paper_pdfs_dir = portable b.paper_pdfs_dir;
+      embeddings = Option.map (function
+        | Bushel_config.Http e -> Bushel_config.Http
+            { e with api_key_file = Option.map portable e.api_key_file }
+        | Bushel_config.Mlx e -> Bushel_config.Mlx
+            { e with model_dir = portable e.model_dir })
+        b.embeddings;
+      image_embeddings = Option.map (fun (e : Bushel_config.mlx_embeddings) ->
+        { e with model_dir = portable e.model_dir }) b.image_embeddings };
     sortal_dir = portable t.sortal_dir;
     pdf_source = Option.map portable t.pdf_source }
 

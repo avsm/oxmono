@@ -95,15 +95,23 @@ let () =
       (fun id ->
         check "adjacency preserves edge order and self-link multiplicity"
           (K.related corpus id
-          = List.filter (fun (e : K.edge) -> e.source = id || e.target = id)
+          = List.filter
+              (fun (e : K.edge) -> e.source = id || e.target = id)
               (K.edges corpus)))
-      [ K.entry_id "same"; K.entry_id "source"; K.contact_id a;
-        K.feed_id feed.source_feed feed.id; "missing" ]
+      [
+        K.entry_id "same";
+        K.entry_id "source";
+        K.contact_id a;
+        K.feed_id feed.source_feed feed.id;
+        "missing";
+      ]
   in
   check_adjacency ();
   check "contact exact fields retain precedence"
-    (List.map (fun (c : K.candidate) -> c.matched_on)
-       (K.resolve corpus " SAME ") = [ "handle" ]);
+    (List.map
+       (fun (c : K.candidate) -> c.matched_on)
+       (K.resolve corpus " SAME ")
+    = [ "handle" ]);
   check "contact prefix token lookup preserves ambiguity"
     (List.length (K.resolve corpus "smi") = 2);
   let candidates = K.resolve corpus "Alex Smith" in
@@ -213,4 +221,120 @@ let () =
              ~sortal_dir:path;
            false
          with Failure _ -> K.generation corpus = previous));
+  let published =
+    {
+      (note ~slug:"published" ~body:"bushelneedle latest post") with
+      date = (2022, 1, 1);
+    }
+  in
+  let updated =
+    {
+      (note ~slug:"updated" ~body:"bushelneedle older post") with
+      date = (2020, 1, 1);
+      updated = Some (2025, 1, 1);
+    }
+  in
+  let draft =
+    {
+      (note ~slug:"draft" ~body:"bushelneedle draft") with
+      draft = true;
+      date = (2024, 1, 1);
+    }
+  in
+  let index_page =
+    {
+      (note ~slug:"index" ~body:"bushelneedle index") with
+      index_page = true;
+      date = (2024, 1, 1);
+    }
+  in
+  let future =
+    {
+      (note ~slug:"future" ~body:"bushelneedle future") with
+      date = (9999, 1, 1);
+    }
+  in
+  let make_entries published =
+    Bushel.Entry.v ~papers:[]
+      ~notes:[ published; updated; draft; index_page; future ]
+      ~projects:[] ~ideas:[] ~videos:[] ~contacts:[] ~data_dir:"." ()
+  in
+  let feeds =
+    List.init 120 (fun i ->
+        ( "same",
+          {
+            feed with
+            id = string_of_int i;
+            title = Some "bushelneedle syndicated story";
+            content = Some "bushelneedle other person's post";
+          },
+          [] ))
+  in
+  let refresh_posts published =
+    K.refresh ~base_url:"https://mysite" corpus
+      ~entries:(make_entries published) ~contacts:[] ~feeds
+  in
+  refresh_posts published;
+  let latest = K.latest_posts corpus ~until:"2026-01-01" in
+  check "latest posts use original publication dates and exclude non-posts"
+    (List.map (fun (d : I.document) -> (d.id, d.date)) latest
+    = [
+        (K.entry_id "published", "2022-01-01");
+        (K.entry_id "updated", "2020-01-01");
+      ]);
+  let ids result =
+    Retrieval.Json.decode
+      (Jsont.mem "items" (Jsont.list (Jsont.mem "id" Jsont.string)))
+      result
+  in
+  let result = invoke "bushel_latest_posts" "{}" in
+  check "latest tool needs no model and excludes future and draft posts"
+    (ids result = [ K.entry_id "published"; K.entry_id "updated" ]);
+  check "latest post pagination retains publication order"
+    (ids (invoke "bushel_latest_posts" {|{"offset":1}|})
+    = [ K.entry_id "updated" ]);
+  check "Bushel scope is applied before the 100-result lexical limit"
+    (List.length (ids (invoke "bushel_search" {|{"query":"bushelneedle"}|})) = 5);
+  check "Bushel tool cannot search feed kinds"
+    (Result.is_error
+       (Bushel_agent.invoke tools ~check:noop "bushel_search"
+          {|{"query":"bushelneedle","kind":"feed"}|}));
+  check "latest tool rejects unsupported search arguments"
+    (Result.is_error
+       (Bushel_agent.invoke tools ~check:noop "bushel_latest_posts"
+          {|{"query":"latest"}|}));
+  let embedded = ref [] in
+  let provider =
+    Retrieval.Embedding.
+      {
+        model = "bushel-scope";
+        dimensions = 2;
+        max_batch = 128;
+        embed =
+          (fun ~task ~check inputs ->
+            check ();
+            embedded := (task, inputs) :: !embedded;
+            List.map (fun _ -> [ 1.; 0. ]) inputs);
+      }
+  in
+  let semantic = Bushel_agent.create ~corpus ~provider ~max_bytes:65536 () in
+  let result =
+    Bushel_agent.invoke semantic ~check:noop "bushel_search"
+      {|{"query":"bushelneedle","mode":"semantic"}|}
+    |> Result.get_ok
+  in
+  check "semantic Bushel search excludes feeds before ranking"
+    (List.length (ids result) = 5);
+  check "semantic Bushel search indexes only matching local site entries"
+    (K.coverage corpus provider = (5, 125));
+  let before = List.length !embedded in
+  let generation = K.generation corpus in
+  refresh_posts { published with draft = true };
+  check "publication visibility changes invalidate pagination generation"
+    (K.generation corpus <> generation);
+  check "publication metadata does not invalidate saved embedding vectors"
+    (K.coverage corpus provider = (5, 125));
+  check "changed draft status is reflected without inference"
+    (ids (invoke "bushel_latest_posts" "{}") = [ K.entry_id "updated" ]
+    && List.length !embedded = before);
   print_endline "knowledge tests passed"

@@ -51,10 +51,20 @@ let previous_default_prompt =
    Act only through your listed tools. Report tool failures honestly. Access \
    grants and role changes belong to the application."
 
-let default_prompt =
+let previous_shared_prompt =
   previous_default_prompt
   ^ " In shared rooms, lead with the point and keep to a few short sentences. \
       Address the people in the room directly."
+
+let default_prompt =
+  previous_shared_prompt
+  ^ " In direct messages too, default to one to three short sentences. Answer \
+      the question or report the result, then stop. Use a short list when \
+      several items are needed. Expand when asked or when necessary for \
+      correctness. Markdown is rendered in Matrix: use **emphasis**, `code`, \
+      short lists and links when helpful. Avoid headings and tables for \
+      simple answers. Do not wrap a whole reply in a code fence or write raw \
+      HTML."
 
 let default_speech_voice = "Grandpa (English (UK))"
 
@@ -99,6 +109,7 @@ let upgrade t =
   in
   let system_prompt =
     if system_prompt = legacy_prompt || system_prompt = previous_default_prompt
+       || system_prompt = previous_shared_prompt
     then default_prompt else system_prompt
   in
   { t with plugins = List.filter (( <> ) "blogroll") t.plugins; system_prompt }

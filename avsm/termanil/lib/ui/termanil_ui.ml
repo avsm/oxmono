@@ -216,7 +216,12 @@ let listing ~width ~height t =
                   Attr.fg
                     (match t.tab with
                     | People -> Theme.sky
-                    | Todos -> Theme.green
+                    | Todos ->
+                        if
+                          String.is_prefix row ~prefix:"[done]"
+                          || String.is_prefix row ~prefix:"[cancelled]"
+                        then Theme.muted
+                        else Theme.green
                     | Outbox ->
                         if String.is_substring row ~substring:"[uncertain]" then
                           Theme.red

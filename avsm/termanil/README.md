@@ -252,10 +252,11 @@ is made.
 Drafts are local files until sending. They are not synchronized to the
 server's Drafts mailbox during editing.
 
-Task sync uses Dooit's existing conflict detection and recovery journal.
-`s` creates no report files or sync state. `S` recomputes the plan against
-current files and ETags. Conflicts remain visible in the result and retained
-in Dooit's recovery directory. Refresh the task list after synchronization.
+Task sync uses Dooit's configured backend. `s` previews cached Git status or
+the WebDAV sync plan without writing. `S` synchronizes using Git or WebDAV.
+Conflicting edits are preserved and reported. Refresh the task list after
+synchronization. Unfinished tasks appear before done and cancelled tasks,
+with the most recently updated tasks first within each group.
 
 Attachment downloads, contact editing, background sync and offline live-mail
 caching remain future additions. The persistent demo is isolated from live mail.

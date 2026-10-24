@@ -211,3 +211,74 @@ let%expect_test
     ( "-- \
      \nAnil")
     |}]
+
+let%expect_test "task synchronization follows the configured backend" =
+  temp (fun root ->
+      let store = Dooit.Store.init (Filename.concat root "tasks") in
+      let task =
+        List.hd_exn
+          (Termanil_tasks.capture store (List.hd_exn Termanil_demo.messages))
+      in
+      let config_file = Filename.concat root "dooit.toml" in
+      let remote = Filename.concat root "remote.git" in
+      let config =
+        Termanil_backend.Config.parse
+          ~path:(Filename.concat root "termanil.toml")
+          (Printf.sprintf "[dooit]\nconfig = %S\n" config_file)
+      in
+      let write backend =
+        C.atomic_write config_file
+          (Printf.sprintf
+             "root = %S\nbackend = %S\n[git]\nremote = %S\nbranch = \"main\"\n"
+             store.root backend remote)
+      in
+      let execute dry_run =
+        match Termanil_backend.execute config (M.Sync_tasks { dry_run }) with
+        | Ok (M.Synced lines) -> lines
+        | Ok _ -> failwith "Expected sync response"
+        | Error message -> failwith message
+      in
+      write "local";
+      let lines = execute false in
+      printf "local result: %b, no Git setup: %b\n"
+        (List.exists lines ~f:(fun line ->
+             String.is_substring line ~substring:"Local backend"))
+        (not (C.exists (Filename.concat store.root ".git")));
+      write "git";
+      let lines = execute true in
+      printf "Git preview: %b, no Git setup: %b\n"
+        (List.exists lines ~f:(fun line ->
+             String.is_substring line ~substring:"not initialized"))
+        (not (C.exists (Filename.concat store.root ".git")));
+      let git args =
+        Eio_main.run (fun env ->
+            let output = Buffer.create 128 and errors = Buffer.create 128 in
+            Eio.Process.run
+              (Eio.Stdenv.process_mgr env)
+              ~stdout:(Eio.Flow.buffer_sink output)
+              ~stderr:(Eio.Flow.buffer_sink errors)
+              ("git" :: args);
+            String.strip (Buffer.contents output))
+      in
+      ignore (git [ "init"; "--bare"; remote ]);
+      ignore (git [ "init"; "--initial-branch=main"; store.root ]);
+      ignore (git [ "-C"; store.root; "config"; "user.name"; "Termanil test" ]);
+      ignore
+        (git [ "-C"; store.root; "config"; "user.email"; "test@example.org" ]);
+      ignore (execute false);
+      printf "Git task pushed: %b\n"
+        (String.equal
+           (git
+              [ "--git-dir=" ^ remote; "show"; "main:notes/" ^ task.id ^ ".md" ])
+           (String.strip (C.read (Dooit.Store.note_path store task.id))));
+      write "local";
+      File_time.rename remote (remote ^ ".unavailable");
+      printf "Local ignores unreachable Git remote: %b\n"
+        (not (List.is_empty (execute false))));
+  [%expect
+    {|
+    local result: true, no Git setup: true
+    Git preview: true, no Git setup: true
+    Git task pushed: true
+    Local ignores unreachable Git remote: true
+    |}]

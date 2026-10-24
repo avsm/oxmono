@@ -371,8 +371,8 @@ let%expect_test
     dirty: true
     |}]
 
-let%expect_test "completing an older task keeps its selection after reordering"
-    =
+let%expect_test
+    "completing the newest task preserves its selection below open tasks" =
   let demo = Termanil_demo.create () in
   let capture m =
     match demo (M.Capture m) with Ok (Captured [ n ]) -> n | _ -> assert false
@@ -385,7 +385,7 @@ let%expect_test "completing an older task keeps its selection after reordering"
       tab = Todos;
       focus = Detail;
       tasks = [ a; b ];
-      selected = 1;
+      selected = 0;
     }
   in
   let t = fst_update t Complete_selected in
@@ -395,8 +395,49 @@ let%expect_test "completing an older task keeps its selection after reordering"
          ( pending_id t,
            Ok
              (Completed
-                { a with status = "done"; updated = "2026-09-14T10:00:00Z" }) ))
+                { b with status = "done"; updated = "2026-09-14T10:00:00Z" }) ))
   in
   printf "selected: %s at row %d\n" (Option.value_exn (M.selected_task t)).title
     t.selected;
-  [%expect {| selected: Review the garden plan at row 0 |}]
+  [%expect {| selected: Lunch on Friday at row 1 |}]
+
+let%expect_test "unfinished tasks precede newer completed and cancelled tasks" =
+  let message = List.hd_exn Termanil_demo.messages in
+  let note id status updated : M.task =
+    {
+      id;
+      revision = "r1";
+      title = id;
+      updated;
+      status;
+      tags = [];
+      body = "";
+      sources = [ message.source ];
+      threads = [];
+    }
+  in
+  let tasks =
+    [
+      note "done" "done" "2026-10-24T12:00:00Z";
+      note "open" "open" "2026-10-20T12:00:00Z";
+      note "cancelled" "cancelled" "2026-10-25T12:00:00Z";
+      note "blocked" "blocked" "2026-10-18T12:00:00Z";
+      note "active" "active" "2026-10-19T12:00:00Z";
+      note "open-tie" "open" "2026-10-20T12:00:00Z";
+    ]
+  in
+  let t = { ready with tasks } in
+  let ids tasks = List.map tasks ~f:(fun (task : M.task) -> task.id) in
+  print_s [%sexp (ids (M.visible_tasks t) : string list)];
+  printf "linked order matches: %b\n"
+    (List.equal String.equal
+       (ids (M.visible_tasks t))
+       (ids (M.linked_tasks t message)));
+  let jumped = fst_update t Task_selected in
+  printf "email opens: %s\n" (Option.value_exn (M.selected_task jumped)).id;
+  [%expect
+    {|
+    (open open-tie active blocked cancelled done)
+    linked order matches: true
+    email opens: open
+    |}]

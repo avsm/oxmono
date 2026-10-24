@@ -114,6 +114,49 @@ let contacts sw (config : Config.t) =
   in
   Contacts_loaded (Termanil_contacts.combine local remote, warnings)
 
+let sync_tasks env sw (config : Dooit.Config.t) ~dry_run =
+  let store =
+    Eio_unix.run_in_systhread (fun () -> Dooit.Store.open_ config.root)
+  in
+  match config.backend with
+  | Dooit.Config.Local ->
+      [ "Local backend: tasks stay on this machine. Nothing to synchronize." ]
+  | Dooit.Config.Git ->
+      let process_mgr = env#process_mgr in
+      let git = Dooit.Config.require_git config in
+      if dry_run then
+        let status = Dooit.Git.status ~process_mgr store git in
+        if not status.initialized then
+          [ "Git repository not initialized. Run dooit init. No changes made." ]
+        else
+          let count = function
+            | None -> "unknown"
+            | Some n -> string_of_int n
+          in
+          [
+            "Git local status only. No changes or remote checks.";
+            "Branch: " ^ Option.value status.branch ~default:"detached";
+            "Dirty notes: " ^ string_of_bool status.dirty;
+            "Ahead: " ^ count status.ahead ^ ", behind: " ^ count status.behind;
+          ]
+          @ List.map (fun path -> "Conflict: " ^ path) status.conflicts
+      else (
+        ignore (Dooit.Git.setup ~process_mgr store git);
+        [ Dooit.Git.sync ~process_mgr store git ])
+  | Dooit.Config.Webdav ->
+      let fetch =
+        Fetch_curl.v ~sw ~timeout:(Duration.of_sec 60)
+          ~max_response:(16 * 1024 * 1024)
+          ()
+      in
+      let remote =
+        Dooit.Remote.make ~fetch
+          ~config:(Dooit.Config.require_webdav config)
+          ~readonly:dry_run
+      in
+      let lines = Termanil_tasks.sync ~dry_run store remote in
+      (if dry_run then "Dry run: no writes" else "Dooit sync results") :: lines
+
 let execute config request =
   protect (fun () ->
       Eio_main.run (fun env ->
@@ -210,7 +253,7 @@ let execute config request =
                   | Sync_tasks _ when config.demo_root <> None ->
                       Synced
                         [
-                          "Demo tasks are local. No WebDAV connection is made.";
+                          "Demo tasks are local. No remote connection is made.";
                         ]
                   | Mailboxes ->
                       mail (fun c ->
@@ -261,20 +304,5 @@ let execute config request =
                       Completed
                         (Termanil_tasks.complete (Dooit.Store.open_ c.root) n)
                   | Sync_tasks { dry_run } ->
-                      let c = tasks () in
-                      let store = Dooit.Store.open_ c.root in
-                      let fetch =
-                        Fetch_curl.v ~sw ~timeout:(Duration.of_sec 60)
-                          ~max_response:(16 * 1024 * 1024)
-                          ()
-                      in
-                      let remote =
-                        Dooit.Remote.make ~fetch
-                          ~config:(Dooit.Config.require_webdav c)
-                          ~readonly:dry_run
-                      in
-                      let lines = Termanil_tasks.sync ~dry_run store remote in
-                      Synced
-                        ((if dry_run then "Dry run: no writes"
-                          else "Dooit sync results")
-                        :: lines)))))
+                      let c = Eio_unix.run_in_systhread tasks in
+                      Synced (sync_tasks env sw c ~dry_run)))))

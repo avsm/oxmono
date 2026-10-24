@@ -7,18 +7,14 @@
 
 (** {1 Types} *)
 
-type peertube_server = {
-  name : string;
-  endpoint : string;
-}
+type peertube_server = { name : string; endpoint : string }
 (** A PeerTube server configuration. *)
 
 type releases = {
   github_user : string option;
       (** The GitHub login whose releases count as the author's. *)
   github : string list;  (** GitHub repositories to scan, as [org/name]. *)
-  tangled : string list;
-      (** Tangled repositories to scan, as [handle/name]. *)
+  tangled : string list;  (** Tangled repositories to scan, as [handle/name]. *)
   registries : string list;
       (** The registries a release is attached to, as ecosyste.ms names them. *)
   projects : (string * string) list;
@@ -42,8 +38,10 @@ type mlx_embeddings = {
 }
 (** A local MLX model and its input limits. *)
 
-type embeddings = Http of http_embeddings | Mlx of mlx_embeddings
-(** The shared embedding backend. A missing TOML backend selects HTTP. *)
+type embeddings =
+  | Http of http_embeddings
+  | Mlx of mlx_embeddings
+      (** The shared embedding backend. A missing TOML backend selects HTTP. *)
 
 val default_query_instruction : string
 (** [default_query_instruction] is the instruction used for MLX search queries
@@ -51,13 +49,13 @@ val default_query_instruction : string
 
 val validate_embeddings : embeddings -> (unit, string) result
 (** [validate_embeddings settings] checks the backend configuration. HTTP
-    requires a nonempty model, dimensions in [1..4096] and an HTTP(S) URL with
-    a host and no credentials, query or fragment. An API key path requires
-    HTTPS. MLX requires a nonempty model directory, dimensions in [32..4096]
-    and [max_tokens] in [32..32768]. Its default token limit is [8192].
-    The query instruction is at most [8192] bytes with no NUL. An empty
-    instruction disables the query prefix. Key files and model directories
-    need not exist yet. Their contents are checked at use. *)
+    requires a nonempty model, dimensions in [1..4096] and an HTTP(S) URL with a
+    host and no credentials, query or fragment. An API key path requires HTTPS.
+    MLX requires a nonempty model directory, dimensions in [32..4096] and
+    [max_tokens] in [32..32768]. Its default token limit is [8192]. The query
+    instruction is at most [8192] bytes with no NUL. An empty instruction
+    disables the query prefix. Key files and model directories need not exist
+    yet. Their contents are checked at use. *)
 
 val default_registries : string list
 (** [default_registries] is the registries used when none are configured. *)
@@ -103,15 +101,15 @@ val load : unit -> (t, string) result
 (** [load ()] is the default configuration file, or {!default} if absent. *)
 
 val load_file : string -> (t, string) result
-(** [load_file path] is the configuration in [path]. Relative API key and
-    model directory paths resolve against the directory of this config file,
-    producing absolute paths. Other configured paths retain their existing
-    semantics. File I/O is synchronous. *)
+(** [load_file path] is the configuration in [path]. Relative API key and model
+    directory paths resolve against the directory of this config file, producing
+    absolute paths. Other configured paths retain their existing semantics. File
+    I/O is synchronous. *)
 
 val of_string : string -> (t, string) result
-(** [of_string s] is the configuration encoded by TOML string [s]. Relative
-    API key and model directory paths remain relative because no config file
-    path is supplied. *)
+(** [of_string s] is the configuration encoded by TOML string [s]. Relative API
+    key and model directory paths remain relative because no config file path is
+    supplied. *)
 
 (** {1 Path Helpers} *)
 
@@ -146,20 +144,19 @@ val write_default_config : ?force:bool -> unit -> (string, string) result
 (** [write_default_config ()] writes the default configuration and returns its
     path. [force] permits replacing an existing file. *)
 
-val configure_embeddings :
-  ?file:string -> embeddings -> (string, string) result
+val configure_embeddings : ?file:string -> embeddings -> (string, string) result
 (** [configure_embeddings settings] updates the embeddings section of [file],
     which defaults to {!config_file}, and returns the written path. It expands
     leading [~] in the config, API key and model directory paths. Relative key
-    and model paths resolve against the current working directory and are
-    stored as absolute paths. Existing unrelated and unknown TOML values are
-    preserved. Standard section layouts retain unrelated comments.
-    Missing parent directories and files are created with permissions
-    [0700] and [0600]. Existing files are atomically replaced and keep their
-    permissions. Non-regular config files are refused. No API key is read.
-    Writers serialize within the process and use a persistent [.lock] sidecar.
-    An overlapping update from another process returns an error without writing.
-    File I/O and locking are synchronous. Eio callers should use a system thread. *)
+    and model paths resolve against the current working directory and are stored
+    as absolute paths. Existing unrelated and unknown TOML values are preserved.
+    Standard section layouts retain unrelated comments. Missing parent
+    directories and files are created with permissions [0700] and [0600].
+    Existing files are atomically replaced and keep their permissions.
+    Non-regular config files are refused. No API key is read. Writers serialize
+    within the process and use a persistent [.lock] sidecar. An overlapping
+    update from another process returns an error without writing. File I/O and
+    locking are synchronous. Eio callers should use a system thread. *)
 
 val default_image_query_instruction : string
 (** [default_image_query_instruction] is the default visual retrieval prompt. *)

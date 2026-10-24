@@ -89,9 +89,11 @@ let revision root =
         ~finally:(fun () -> Mutex.unlock revision_lock)
         (fun () ->
           let before = manifest root in
-          match List.find_opt
-                  (fun (path, previous, _) -> path = root && previous = before)
-                  !revisions with
+          match
+            List.find_opt
+              (fun (path, previous, _) -> path = root && previous = before)
+              !revisions
+          with
           | Some (_, _, digest) -> digest
           | None ->
               let digest =
@@ -104,9 +106,14 @@ let revision root =
               in
               if manifest root <> before then
                 failwith "Embedding model files changed while hashing";
-              revisions := (root, before, digest) ::
-                (match List.filter (fun (path, _, _) -> path <> root) !revisions with
-                 | first :: _ -> [first] | [] -> []);
+              revisions :=
+                (root, before, digest)
+                ::
+                (match
+                   List.filter (fun (path, _, _) -> path <> root) !revisions
+                 with
+                | first :: _ -> [ first ]
+                | [] -> []);
               digest))
 
 let model_lock = Eio.Mutex.create ()

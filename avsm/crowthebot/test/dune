@@ -320,3 +320,8 @@
  (name test_knowledge_config)
  (modules test_knowledge_config)
  (libraries crowthebot sqlite3-eio eio_main fetch.mock unix))
+
+(test
+ (name test_tasks)
+ (modules test_tasks)
+ (libraries fake_model crowthebot dooit.agent sqlite3-eio eio_main unix))

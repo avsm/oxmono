@@ -483,6 +483,32 @@ briefly, omitting DM provenance and action narration unless asked. The system
 prompt tells Crow to send only when explicitly asked. Each send is in the tool
 log with its requesting account and arguments.
 
+## Tasks
+
+Dooit is the primary task store. Crow discovers its existing XDG configuration
+and registers `dooit_search`, `dooit_get`, `dooit_create` and `dooit_update` when
+the local store exists. Run `dooit init` and `dooit sync`, or `dooit clone`,
+before starting Crow. An absent store disables these tools. Invalid
+configuration or store metadata is an error. Crow never initializes a store or
+migrates memory tasks. Startup and reads do not synchronize Git.
+
+Crow respects Dooit's selected backend. Git task writes pull first, then commit
+and push immediately. A pull failure prevents the write. A push failure is
+reported as locally saved with synchronization pending. Configure Git
+authentication for the account running Crow. With `backend = "local"`, writes
+remain local and return `sync=local_only`. WebDAV task reads are available, but
+writes fail explicitly. Use `dooit task` and `dooit sync` for WebDAV changes.
+Crow never silently substitutes a different backend.
+
+Task tools use the same allowed accounts and enabled rooms or accepted DMs as
+knowledge tools. Each call reloads Dooit configuration, rechecks authority before
+and after I/O, and enters Crow's audit log. Writes use host-generated operation
+IDs so retries do not duplicate tasks. Updates require the current revision.
+
+Memory keeps background context and task references. It is not a second task
+list, including when Dooit is unavailable. Cron remains for scheduled actions
+and reminders. Existing memory is unchanged.
+
 ## Shared memory
 
 The profile is the sharing boundary. The admin and allowed friends can store,

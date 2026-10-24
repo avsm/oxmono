@@ -1,5 +1,8 @@
 # Changes
 
+- Use existing Dooit tasks with audit, retries and current permissions. Git
+  writes synchronize, Local stays local, and WebDAV writes fail explicitly.
+
 - Use Bushel's shared index and embedding configuration for knowledge tools,
   rechecking Crow's existing permissions for every invocation.
 

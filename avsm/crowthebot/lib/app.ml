@@ -652,6 +652,16 @@ let run ~env ~sw ~profile ~api_key_file ~recovery_key_file =
     | None -> engine
     | Some knowledge -> Engine.with_knowledge engine knowledge)
     |> fun engine ->
+    (match
+       Tasks.load ~fs:(Eio.Stdenv.fs env)
+         ~process_mgr:(Eio.Stdenv.process_mgr env) ~store ~profile
+         ~max_bytes:config.tool_result_bytes ()
+     with
+    | None ->
+        Log.info (fun m -> m "Dooit task tools disabled: no existing store");
+        engine
+    | Some tasks -> Engine.with_tasks engine tasks)
+    |> fun engine ->
     Engine.with_website engine (website_tools env) |> fun engine ->
     Engine.with_http_post engine (http_post_tools env) |> fun engine ->
     Engine.with_feeds engine (feed_tools env store) |> fun engine ->

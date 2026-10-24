@@ -30,6 +30,7 @@ module Feed_http = Feed_http
 module Feed_parse = Feed_parse
 module Website = Website
 module Knowledge = Knowledge
+module Tasks = Tasks
 module Http_post = Http_post
 module Feeds = Feeds
 module Plugin = Plugin

@@ -15,6 +15,7 @@
   matrix-chat.eio
   openrouter
   agentkit
+  dooit.agent
   bushel.agent
   bushel.knowledge.store
   agentkit-osm

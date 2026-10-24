@@ -109,3 +109,7 @@ val with_addresses : t -> Agentkit_osm.t -> t
 val with_knowledge : t -> Knowledge.t -> t
 (** [with_knowledge t knowledge] enables structured and hybrid personal corpus
     retrieval in authorized rooms, including scheduled model actions. *)
+
+val with_tasks : t -> Tasks.t -> t
+(** [with_tasks t tasks] enables the existing Dooit task store in authorized
+    rooms. Writes use host-generated retry identifiers and the tool audit log. *)

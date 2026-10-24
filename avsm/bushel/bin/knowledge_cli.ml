@@ -206,24 +206,28 @@ let configure_command ~images =
          with
         | Ok () -> ()
         | Error message -> invalid_arg message);
-        let settings =
-          match (settings, download) with
-          | Bushel_config.Mlx settings, Some selected ->
-              let model_dir =
-                Eio_main.run (fun env ->
-                    Model.ensure
-                      ~proc:(Eio.Stdenv.process_mgr env)
-                      ~stderr:(Eio.Stdenv.stderr env) selected)
+        let saved =
+          Eio_main.run (fun env ->
+              let settings =
+                match (settings, download) with
+                | Bushel_config.Mlx settings, Some selected ->
+                    let model_dir =
+                      Model.ensure
+                        ~proc:(Eio.Stdenv.process_mgr env)
+                        ~stderr:(Eio.Stdenv.stderr env) selected
+                    in
+                    Bushel_config.Mlx { settings with model_dir }
+                | settings, _ -> settings
               in
-              Bushel_config.Mlx { settings with model_dir }
-          | settings, _ -> settings
+              Eio_unix.run_in_systhread ~label:"bushel.configure" (fun () ->
+                  match (images, settings) with
+                  | true, Bushel_config.Mlx native ->
+                      Bushel_config.configure_image_embeddings ?file:config
+                        native
+                  | _ ->
+                      Bushel_config.configure_embeddings ?file:config settings))
         in
-        match
-          match (images, settings) with
-          | true, Bushel_config.Mlx native ->
-              Bushel_config.configure_image_embeddings ?file:config native
-          | _ -> Bushel_config.configure_embeddings ?file:config settings
-        with
+        match saved with
         | Ok path ->
             ( json
                 [

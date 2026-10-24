@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Share lazy provider initialization safely across fibers and move synchronous
+  source reads off the scheduler. Use the supplied Eio clock for latest posts.
+
+- Reject malformed date filters and invalid CLI responses explicitly.
+
 - Serialize embedding configuration updates so text and image settings cannot
   overwrite each other during concurrent writes.
 

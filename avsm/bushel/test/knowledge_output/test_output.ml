@@ -155,4 +155,17 @@ let () =
        ignore (render "index" "{not-json");
        false
      with Failure _ -> true);
+  List.iter
+    (fun json ->
+      check "non-object response cannot masquerade as a successful empty result"
+        (try
+           ignore (render "status" json);
+           false
+         with Failure _ -> true))
+    [ "null"; "[]"; "true"; "42" ];
+  check "unknown human command fails instead of returning success"
+    (try
+       ignore (render "unknown-command" "{}");
+       false
+     with Failure _ -> true);
   print_endline "Human text and image knowledge output passed"

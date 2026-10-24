@@ -10,6 +10,7 @@
   retrieval.mlx
   fetch
   eio
+  eio.unix
   unix
   jsont
   jsont.bytesrw))

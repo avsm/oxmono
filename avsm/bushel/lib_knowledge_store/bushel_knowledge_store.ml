@@ -4,33 +4,36 @@ module J = Retrieval.Json
 
 type images = {
   corpus : K.t;
-  provider : E.provider option Lazy.t;
+  provider : E.provider option Eio.Lazy.t;
   settings : Bushel_config.mlx_embeddings option;
   database : string;
 }
 
 type t = {
   corpus : K.t;
-  provider : E.provider option Lazy.t;
+  provider : E.provider option Eio.Lazy.t;
   settings : Bushel_config.embeddings option;
-  images : images Lazy.t;
+  images : images Eio.Lazy.t;
+  clock : float Eio.Time.clock_ty Eio.Resource.t;
   database : string;
 }
 
 let corpus (t : t) = t.corpus
-let provider (t : t) = Lazy.force t.provider
+let provider (t : t) = Eio.Lazy.force t.provider
 let database (t : t) = t.database
-let image_corpus t = (Lazy.force t.images).corpus
-let image_provider t = Lazy.force (Lazy.force t.images).provider
+let clock (t : t) = t.clock
+let image_corpus t = (Eio.Lazy.force t.images).corpus
+let image_provider t = Eio.Lazy.force (Eio.Lazy.force t.images).provider
 
 let config config_file =
-  match
-    match config_file with
-    | None -> Bushel_config.load ()
-    | Some path -> Bushel_config.load_file path
-  with
-  | Ok config -> config
-  | Error error -> failwith ("Bushel configuration: " ^ error)
+  Eio_unix.run_in_systhread (fun () ->
+      match
+        match config_file with
+        | None -> Bushel_config.load ()
+        | Some path -> Bushel_config.load_file path
+      with
+      | Ok config -> config
+      | Error error -> failwith ("Bushel configuration: " ^ error))
 
 let roots ~fs config =
   let sortal = Sortal.Store.create fs "sortal" in
@@ -48,8 +51,9 @@ let is_directory path =
 let available ?config_file ~fs () =
   let bushel, sortal = sources ?config_file ~fs () in
   let bushel = Eio.Path.native_exn Eio.Path.(fs / bushel) in
-  let first = is_directory bushel and second = is_directory sortal in
-  first && second
+  Eio_unix.run_in_systhread (fun () ->
+      let first = is_directory bushel and second = is_directory sortal in
+      first && second)
 
 let rec mkdirs path =
   if path <> Filename.dirname path then (
@@ -134,8 +138,11 @@ let local_lock path =
 
 let with_lock ~clock ~check path f =
   Eio.Mutex.use_ro (local_lock path) (fun () ->
-      private_file path;
-      let fd = Unix.openfile path [ Unix.O_RDWR; Unix.O_CLOEXEC ] 0 in
+      let fd =
+        Eio_unix.run_in_systhread (fun () ->
+            private_file path;
+            Unix.openfile path [ Unix.O_RDWR; Unix.O_CLOEXEC ] 0)
+      in
       Fun.protect
         ~finally:(fun () -> Unix.close fd)
         (fun () ->
@@ -183,14 +190,19 @@ let http_provider ~sw ~fetch (settings : Bushel_config.http_embeddings) =
   in
   let identity = make () in
   let configured =
-    lazy (make ?api_key:(Option.map read_key settings.api_key_file) ())
+    Eio.Lazy.from_fun ~cancel:`Record (fun () ->
+        let api_key =
+          Eio_unix.run_in_systhread (fun () ->
+              Option.map read_key settings.api_key_file)
+        in
+        make ?api_key ())
   in
   {
     identity with
     embed =
       (fun ~task ~check inputs ->
         check ();
-        (Lazy.force configured).embed ~task ~check inputs);
+        (Eio.Lazy.force configured).embed ~task ~check inputs);
   }
 
 let make_provider ~sw ~fetch ~check = function
@@ -202,12 +214,15 @@ let make_provider ~sw ~fetch ~check = function
 
 let with_store ?config_file ~fs ~clock ~fetch ~check f =
   check ();
+  let clock = (clock :> float Eio.Time.clock_ty Eio.Resource.t) in
   let settings = config config_file in
   let bushel, sortal = roots ~fs settings in
-  let bushel, sortal, database = location ~fs ~bushel ~sortal in
+  let bushel, sortal, database =
+    Eio_unix.run_in_systhread (fun () -> location ~fs ~bushel ~sortal)
+  in
   with_lock ~clock ~check (database ^ ".lock") (fun () ->
       Eio.Switch.run @@ fun sw ->
-      private_file database;
+      Eio_unix.run_in_systhread (fun () -> private_file database);
       let index = Retrieval.Index.open_db ~sw Eio.Path.(fs / database) in
       let corpus = K.create index in
       (try K.load corpus ~fs ~bushel_dir:bushel ~sortal_dir:sortal
@@ -215,44 +230,54 @@ let with_store ?config_file ~fs ~clock ~fetch ~check f =
          failwith ("Sortal source: " ^ message));
       check ();
       let provider =
-        lazy (Option.map (make_provider ~sw ~fetch ~check) settings.embeddings)
+        Eio.Lazy.from_fun ~cancel:`Record (fun () ->
+            Option.map (make_provider ~sw ~fetch ~check) settings.embeddings)
       in
       let images =
-        lazy
-          (check ();
-           let output_dir =
-             Unix.realpath
-               Eio.Path.(native_exn (fs / settings.images_output_dir))
-           in
-           let image_database =
-             Filename.concat
-               (Filename.dirname database)
-               ("images-" ^ E.hash output_dir ^ ".sqlite3")
-           in
-           private_file image_database;
-           let image_index =
-             Retrieval.Index.open_db ~sw Eio.Path.(fs / image_database)
-           in
-           let image_corpus = K.create image_index in
-           K.load_images image_corpus ~fs ~output_dir ~check;
-           let image_provider =
-             lazy
-               (Option.map
-                  (fun (s : Bushel_config.mlx_embeddings) ->
-                    Retrieval_mlx.Vision.create ~model_dir:s.model_dir
-                      ~dimensions:s.dimensions ~max_tokens:s.max_tokens
-                      ~query_instruction:s.query_instruction ~check)
-                  settings.image_embeddings)
-           in
-           {
-             corpus = image_corpus;
-             provider = image_provider;
-             settings = settings.image_embeddings;
-             database = image_database;
-           })
+        Eio.Lazy.from_fun ~cancel:`Record (fun () ->
+            check ();
+            let output_dir =
+              Eio_unix.run_in_systhread (fun () ->
+                  Unix.realpath
+                    Eio.Path.(native_exn (fs / settings.images_output_dir)))
+            in
+            let image_database =
+              Filename.concat
+                (Filename.dirname database)
+                ("images-" ^ E.hash output_dir ^ ".sqlite3")
+            in
+            Eio_unix.run_in_systhread (fun () -> private_file image_database);
+            let image_index =
+              Retrieval.Index.open_db ~sw Eio.Path.(fs / image_database)
+            in
+            let image_corpus = K.create image_index in
+            K.load_images image_corpus ~fs ~output_dir ~check;
+            let image_provider =
+              Eio.Lazy.from_fun ~cancel:`Record (fun () ->
+                  Option.map
+                    (fun (s : Bushel_config.mlx_embeddings) ->
+                      Retrieval_mlx.Vision.create ~model_dir:s.model_dir
+                        ~dimensions:s.dimensions ~max_tokens:s.max_tokens
+                        ~query_instruction:s.query_instruction ~check)
+                    settings.image_embeddings)
+            in
+            {
+              corpus = image_corpus;
+              provider = image_provider;
+              settings = settings.image_embeddings;
+              database = image_database;
+            })
       in
       let result =
-        f { corpus; provider; settings = settings.embeddings; database; images }
+        f
+          {
+            corpus;
+            provider;
+            settings = settings.embeddings;
+            database;
+            images;
+            clock;
+          }
       in
       check ();
       result)
@@ -266,7 +291,7 @@ let obj fields =
 let status_fields (t : t) =
   let documents, passages = K.counts t.corpus in
   let coverage =
-    match Lazy.force t.provider with
+    match Eio.Lazy.force t.provider with
     | None -> Jsont.Json.null ()
     | Some provider ->
         let indexed, total = K.coverage t.corpus provider in
@@ -295,7 +320,8 @@ let status_fields (t : t) =
             ("max_tokens", Jsont.Json.int settings.max_tokens);
             ("query_instruction", Jsont.Json.string settings.query_instruction);
             ( "model_identity",
-              Jsont.Json.string (Option.get (Lazy.force t.provider)).model );
+              Jsont.Json.string (Option.get (Eio.Lazy.force t.provider)).model
+            );
           ]
   in
   [
@@ -310,7 +336,7 @@ let status_fields (t : t) =
 let status t = J.encode Jsont.json (obj (status_fields t))
 
 let index_provider (t : t) =
-  match Lazy.force t.provider with
+  match Eio.Lazy.force t.provider with
   | Some provider -> provider
   | None -> invalid_arg "Configure embeddings with bushel knowledge configure"
 
@@ -353,9 +379,9 @@ let index_all ?on_progress t ~check =
   index_result t (loop 0)
 
 let image_status_fields t =
-  let images = Lazy.force t.images in
+  let images = Eio.Lazy.force t.images in
   let documents, passages = K.counts images.corpus in
-  let provider = Lazy.force images.provider in
+  let provider = Eio.Lazy.force images.provider in
   let coverage =
     match provider with
     | None -> Jsont.Json.null ()
@@ -394,9 +420,9 @@ let image_status t = J.encode Jsont.json (obj (image_status_fields t))
 
 let run_image_index ?on_progress t ~check ~max_batches =
   check ();
-  let images = Lazy.force t.images in
+  let images = Eio.Lazy.force t.images in
   let provider =
-    match Lazy.force images.provider with
+    match Eio.Lazy.force images.provider with
     | Some provider -> provider
     | None -> invalid_arg "Configure image embeddings before indexing images"
   in
@@ -454,9 +480,9 @@ let image_hit (chunk : Retrieval.Index.chunk) =
 
 let images_search ?(mode = "semantic") ?(offset = 0) t ~check ~query =
   check ();
-  let images = Lazy.force t.images in
+  let images = Eio.Lazy.force t.images in
   let provider =
-    if mode = "lexical" then None else Lazy.force images.provider
+    if mode = "lexical" then None else Eio.Lazy.force images.provider
   in
   if offset < 0 then invalid_arg "Image offset must be nonnegative";
   let hits = K.search_images images.corpus ?provider ~check ~mode query in
@@ -495,7 +521,7 @@ let images_search ?(mode = "semantic") ?(offset = 0) t ~check ~query =
 let images_get t ~check ~id ~offset =
   check ();
   if offset < 0 then invalid_arg "Image offset must be nonnegative";
-  let images = Lazy.force t.images in
+  let images = Eio.Lazy.force t.images in
   let document =
     match K.get images.corpus id with
     | Some document -> document

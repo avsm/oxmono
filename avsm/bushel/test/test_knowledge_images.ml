@@ -468,6 +468,20 @@ let () =
       add_model model;
       let db =
         session (fun store ->
+            let first, second =
+              Eio.Fiber.pair
+                (fun () -> S.image_corpus store)
+                (fun () -> S.image_corpus store)
+            in
+            check "concurrent image access shares one refreshed corpus"
+              (first == second);
+            let first, second =
+              Eio.Fiber.pair
+                (fun () -> S.image_provider store)
+                (fun () -> S.image_provider store)
+            in
+            check "concurrent image provider access shares initialization"
+              (Option.get first == Option.get second);
             check "text counts exclude images"
               (number "documents" (S.status store) = 1);
             let status = S.image_status store in

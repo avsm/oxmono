@@ -2,18 +2,22 @@ type t
 (** Structured Agentkit tools over a Bushel knowledge corpus. *)
 
 val create :
+  clock:[> float Eio.Time.clock_ty ] Eio.Resource.t ->
   corpus:Bushel_knowledge.t ->
   ?provider:Retrieval.Embedding.provider ->
   ?refresh:(unit -> unit) ->
   max_bytes:int ->
   unit ->
   t
+(** [create ~clock ~corpus ~max_bytes ()] exposes bounded tools over [corpus].
+    [clock] supplies the UTC publication cutoff for latest-post queries.
+    [refresh] runs before each invocation. [max_bytes] must be at least 1024. *)
 
 val of_store : Bushel_knowledge_store.t -> max_bytes:int -> t
 (** [of_store store ~max_bytes] uses the shared store's refreshed corpus and
-    provider. Provider construction is deferred until semantic or hybrid search.
-    Lexical search, source reads and contact lookups do not fingerprint model
-    weights. Invoke its tools inside the store session. *)
+    provider and clock. Provider construction is deferred until semantic or
+    hybrid search. Lexical search, source reads and contact lookups do not
+    fingerprint model weights. Invoke its tools inside the store session. *)
 
 val names : string list
 val is_tool : string -> bool

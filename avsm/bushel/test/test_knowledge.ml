@@ -43,6 +43,8 @@ let contact uid handle names =
 let () =
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
+  let clock = Eio_mock.Clock.make () in
+  Eio_mock.Clock.set_time clock 1767225600.;
   let a = contact "id-a" "same" [ "Alex Smith"; "Alexander Smith" ] in
   let b = contact "id-b" "other" [ "Alex Smith" ] in
   let contacts = [ a; b ] in
@@ -136,7 +138,7 @@ let () =
        es);
   check "note links feed item"
     (List.exists (fun (e : K.edge) -> e.relation = "links_feed_item") es);
-  let tools = Bushel_agent.create ~corpus ~max_bytes:2048 () in
+  let tools = Bushel_agent.create ~clock ~corpus ~max_bytes:2048 () in
   let invoke name args =
     match Bushel_agent.invoke tools ~check:noop name args with
     | Ok s -> s
@@ -293,6 +295,32 @@ let () =
   check "latest post pagination retains publication order"
     (ids (invoke "bushel_latest_posts" {|{"offset":1}|})
     = [ K.entry_id "updated" ]);
+  check "latest posts report the injected clock's UTC date"
+    (Retrieval.Json.decode (Jsont.mem "as_of" Jsont.string) result
+    = "2026-01-01");
+  Eio_mock.Clock.set_time clock 1609459200.;
+  let earlier = invoke "bushel_latest_posts" "{}" in
+  check "publication cutoff follows the caller clock without refreshing sources"
+    (ids earlier = [ K.entry_id "updated" ]
+    && Retrieval.Json.decode (Jsont.mem "as_of" Jsont.string) earlier
+       = "2021-01-01"
+    && Retrieval.Json.decode (Jsont.mem "generation" Jsont.string) earlier
+       <> Retrieval.Json.decode (Jsont.mem "generation" Jsont.string) result);
+  Eio_mock.Clock.set_time clock 1767225600.;
+  List.iter
+    (fun date ->
+      check "search dates require decimal YYYY-MM-DD"
+        (Result.is_error
+           (Bushel_agent.invoke tools ~check:noop "bushel_search"
+              (Printf.sprintf {|{"query":"bushelneedle","since":%S}|} date))))
+    [
+      "2026-+1-01";
+      "2026-01-+1";
+      "2_26-01-01";
+      "2026-1_-01";
+      "2026-02-30";
+      "2026-1-01";
+    ];
   check "Bushel scope is applied before the 100-result lexical limit"
     (List.length (ids (invoke "bushel_search" {|{"query":"bushelneedle"}|})) = 5);
   check "Bushel tool cannot search feed kinds"
@@ -317,7 +345,9 @@ let () =
             List.map (fun _ -> [ 1.; 0. ]) inputs);
       }
   in
-  let semantic = Bushel_agent.create ~corpus ~provider ~max_bytes:65536 () in
+  let semantic =
+    Bushel_agent.create ~clock ~corpus ~provider ~max_bytes:65536 ()
+  in
   let result =
     Bushel_agent.invoke semantic ~check:noop "bushel_search"
       {|{"query":"bushelneedle","mode":"semantic"}|}

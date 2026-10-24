@@ -467,7 +467,9 @@ let load ?(base_url = "") t ~fs ~bushel_dir ~sortal_dir =
       then invalid_arg ("Knowledge source is not a directory: " ^ dir))
     [ bushel_dir; sortal_dir ];
   let store = Sortal.Store.create_at fs sortal_dir in
-  let contacts = Sortal.Store.list_readonly store in
+  let contacts =
+    Eio_unix.run_in_systhread (fun () -> Sortal.Store.list_readonly store)
+  in
   let entries =
     Bushel_eio.Bushel_loader.load ~strict:true ~contacts fs bushel_dir
   in
@@ -501,8 +503,9 @@ let load ?(base_url = "") t ~fs ~bushel_dir ~sortal_dir =
       contacts
   in
   let links =
-    Bushel.Link.load_links_file ~strict:true
-      (Filename.concat bushel_dir "links.yml")
+    Eio_unix.run_in_systhread (fun () ->
+        Bushel.Link.load_links_file ~strict:true
+          (Filename.concat bushel_dir "links.yml"))
   in
   refresh ~base_url ~links t ~entries ~contacts ~feeds
 
@@ -573,7 +576,10 @@ let pixel_hash path =
 
 let load_images t ~fs ~output_dir ~check =
   check ();
-  let root = Unix.realpath Eio.Path.(native_exn (fs / output_dir)) in
+  let root =
+    Eio_unix.run_in_systhread (fun () ->
+        Unix.realpath Eio.Path.(native_exn (fs / output_dir)))
+  in
   let index = Eio.Path.(fs / Filename.concat root "index.json") in
   let entries =
     match Srcsetter.list_of_json (Eio.Path.load index) with
@@ -613,10 +619,14 @@ let load_images t ~fs ~output_dir ~check =
         then
           invalid_arg
             "Image filenames must stay within the image output directory";
-        let path = Unix.realpath (Filename.concat root name) in
-        if not (String.starts_with ~prefix:(root ^ "/") path) then
-          invalid_arg "Image pixels must stay within the image output directory";
-        let digest = Eio_unix.run_in_systhread (fun () -> pixel_hash path) in
+        let path, digest =
+          Eio_unix.run_in_systhread (fun () ->
+              let path = Unix.realpath (Filename.concat root name) in
+              if not (String.starts_with ~prefix:(root ^ "/") path) then
+                invalid_arg
+                  "Image pixels must stay within the image output directory";
+              (path, pixel_hash path))
+        in
         check ();
         let text =
           E.clip 5000

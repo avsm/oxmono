@@ -1,7 +1,7 @@
-Bushel/Sortal tools use Bushel’s shared index and embedding configuration,
-with Crow’s existing permissions rechecked for every invocation.
-
 # Changes
+
+- Use Bushel's shared index and embedding configuration for knowledge tools,
+  rechecking Crow's existing permissions for every invocation.
 
 - Keep default replies brief in direct messages and shared rooms, with light
   Markdown formatting. Upgrade built-in prompts while preserving custom ones.

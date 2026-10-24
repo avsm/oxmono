@@ -42,7 +42,7 @@
 (test
  (name test_knowledge)
  (modules test_knowledge)
- (libraries bushel bushel.eio bushel.knowledge bushel.agent retrieval sortal.feed eio_main))
+ (libraries bushel bushel.eio bushel.knowledge bushel.agent retrieval sortal.feed eio_main eio.mock))
 
 (test
  (name test_config_embeddings)

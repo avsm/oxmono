@@ -15,13 +15,13 @@ let admin = "@admin:example.org"
 let room = "!private:example.org"
 
 let () =
-  Eio_main.run @@ fun _ ->
+  Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let index = Retrieval.Index.memory ~sw () in
   let corpus = Bushel_knowledge.create index in
   let refreshes = ref 0 and allow = ref true in
   let tools =
-    Bushel_agent.create ~corpus ~max_bytes:2048
+    Bushel_agent.create ~clock:(Eio.Stdenv.clock env) ~corpus ~max_bytes:2048
       ~refresh:(fun () -> incr refreshes)
       ()
   in
@@ -183,7 +183,10 @@ let () =
             List.map (fun _ -> [ 1.; 0. ]) inputs);
       }
   in
-  let tools = Bushel_agent.create ~corpus ~provider ~max_bytes:2048 () in
+  let tools =
+    Bushel_agent.create ~clock:(Eio.Stdenv.clock env) ~corpus ~provider
+      ~max_bytes:2048 ()
+  in
   let knowledge =
     Knowledge.create ~tools ~allowed:(fun ~actor:_ ~room:_ -> !allow)
   in
@@ -192,4 +195,13 @@ let () =
        (Knowledge.invoke knowledge ~actor:admin ~room ~check:noop
           "knowledge_search" {|{"query":"Alex","mode":"semantic"}|})
     && !calls = 1);
+  allow := true;
+  check "knowledge cancellation propagates instead of becoming a tool error"
+    (try
+       ignore
+         (Knowledge.invoke knowledge ~actor:admin ~room
+            ~check:(fun () -> raise (Eio.Cancel.Cancelled Exit))
+            "contacts_resolve" {|{"query":"Alex"}|});
+       false
+     with Eio.Cancel.Cancelled Exit -> true);
   print_endline "crowthebot knowledge access tests passed"

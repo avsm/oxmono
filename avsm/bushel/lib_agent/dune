@@ -7,6 +7,6 @@
   agentkit
   retrieval
   ptime
-  ptime.clock.os
+  eio
   jsont
   jsont.bytesrw))

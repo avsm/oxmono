@@ -313,7 +313,7 @@ let contacts value =
 let print ?elapsed ~command response =
   match Jsont_bytesrw.decode_string Jsont.json response with
   | Error _ -> failwith "Could not read the knowledge response."
-  | Ok value -> (
+  | Ok (Jsont.Object _ as value) -> (
       match member "error" value with
       | Jsont.String _ as error ->
           line ~ppf:Fmt.stderr ("Error: " ^ string error)
@@ -341,4 +341,5 @@ let print ?elapsed ~command response =
           | "get" -> get ~images:false value
           | "images-get" -> get ~images:true value
           | "contacts" -> contacts value
-          | _ -> line ~ppf:Fmt.stderr "Unknown knowledge command."))
+          | _ -> failwith "Unknown knowledge command."))
+  | Ok _ -> failwith "Knowledge response must be an object."

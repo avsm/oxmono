@@ -538,6 +538,13 @@ let run () =
       let before_native_status = List.length !calls in
       let model_identity () =
         session (fun store ->
+            let first, second =
+              Eio.Fiber.pair
+                (fun () -> S.provider store)
+                (fun () -> S.provider store)
+            in
+            check "concurrent native provider access shares initialization"
+              (Option.get first == Option.get second);
             let status = S.status store in
             check "native status preserves corpus coverage without inference"
               (coverage status = (0, 19));

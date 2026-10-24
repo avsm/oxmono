@@ -33,11 +33,15 @@ val with_store :
     loading GPU weights. Text and image provider identities are resolved
     independently when their APIs are used. Native models load on first
     inference and are reused across sessions while their contents and settings
-    remain unchanged. *)
+    remain unchanged. Concurrent provider and image accessors share one
+    initialization. Initialization failures are recorded for the session. *)
 
 val corpus : t -> Bushel_knowledge.t
 val provider : t -> Retrieval.Embedding.provider option
 val database : t -> string
+
+val clock : t -> float Eio.Time.clock_ty Eio.Resource.t
+(** [clock t] is the wall clock supplied to the current store session. *)
 
 val status : t -> string
 (** [status t] is JSON with the database path, corpus generation, document and

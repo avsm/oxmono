@@ -106,21 +106,36 @@ let system_prompt =
 
 type t = {
   corpus : K.t;
-  provider : Retrieval.Embedding.provider option Lazy.t;
+  provider : Retrieval.Embedding.provider option Eio.Lazy.t;
+  clock : float Eio.Time.clock_ty Eio.Resource.t;
   refresh : unit -> unit;
   max_bytes : int;
 }
 
-let create ~corpus ?provider ?(refresh = fun () -> ()) ~max_bytes () =
+let create ~clock ~corpus ?provider ?(refresh = fun () -> ()) ~max_bytes () =
   if max_bytes < 1024 then
     invalid_arg "Knowledge tool budget must be at least 1024 bytes";
-  { corpus; provider = Lazy.from_val provider; refresh; max_bytes }
+  {
+    corpus;
+    provider = Eio.Lazy.from_val provider;
+    clock :> float Eio.Time.clock_ty Eio.Resource.t;
+    refresh;
+    max_bytes;
+  }
 
 let of_store store ~max_bytes =
   let agent =
-    create ~corpus:(Bushel_knowledge_store.corpus store) ~max_bytes ()
+    create
+      ~clock:(Bushel_knowledge_store.clock store)
+      ~corpus:(Bushel_knowledge_store.corpus store)
+      ~max_bytes ()
   in
-  { agent with provider = lazy (Bushel_knowledge_store.provider store) }
+  {
+    agent with
+    provider =
+      Eio.Lazy.from_fun ~cancel:`Record (fun () ->
+          Bushel_knowledge_store.provider store);
+  }
 
 let integer =
   Jsont.map ~kind:"non-negative integer"
@@ -311,6 +326,30 @@ let read t id offset =
   in
   page (min 12000 (length - offset))
 
+let valid_date date =
+  let digit index =
+    let c = date.[index] in
+    c >= '0' && c <= '9'
+  in
+  if
+    String.length date <> 10
+    || date.[4] <> '-'
+    || date.[7] <> '-'
+    || (not (List.for_all digit [ 0; 1; 2; 3; 5; 6; 8; 9 ]))
+    || Option.is_none
+         (Ptime.of_date
+            ( int_of_string (String.sub date 0 4),
+              int_of_string (String.sub date 5 2),
+              int_of_string (String.sub date 8 2) ))
+  then invalid_arg "Dates must use YYYY-MM-DD"
+
+let today clock =
+  match Ptime.of_float_s (Eio.Time.now clock) with
+  | None -> invalid_arg "Clock is outside the supported date range"
+  | Some now ->
+      let year, month, day = Ptime.to_date now in
+      Printf.sprintf "%04d-%02d-%02d" year month day
+
 let invoke t ~check name arguments =
   try
     check ();
@@ -385,8 +424,7 @@ let invoke t ~check name arguments =
             (List.map edge edges)
       | "bushel_latest_posts" ->
           let offset = J.decode latest_args arguments in
-          let y, m, d = Ptime.to_date (Ptime_clock.now ()) in
-          let until = Printf.sprintf "%04d-%02d-%02d" y m d in
+          let until = today t.clock in
           let posts = K.latest_posts t.corpus ~until in
           let generation =
             Retrieval.Embedding.hash (K.key [ K.generation t.corpus; until ])
@@ -426,21 +464,6 @@ let invoke t ~check name arguments =
           then
             invalid_arg
               "Bushel kind must be note, paper, project, idea or video";
-          let valid_date s =
-            let valid =
-              try
-                String.length s = 10
-                && s.[4] = '-'
-                && s.[7] = '-'
-                && Option.is_some
-                     (Ptime.of_date
-                        ( int_of_string (String.sub s 0 4),
-                          int_of_string (String.sub s 5 2),
-                          int_of_string (String.sub s 8 2) ))
-              with _ -> false
-            in
-            if not valid then invalid_arg "Dates must use YYYY-MM-DD"
-          in
           Option.iter valid_date a.since;
           Option.iter valid_date a.until;
           (match (a.since, a.until) with
@@ -477,7 +500,7 @@ let invoke t ~check name arguments =
           in
           let provider =
             match a.mode with
-            | "semantic" | "hybrid" -> Lazy.force t.provider
+            | "semantic" | "hybrid" -> Eio.Lazy.force t.provider
             | _ -> None
           in
           let coverage =

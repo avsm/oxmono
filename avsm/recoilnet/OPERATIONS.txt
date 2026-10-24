@@ -1,0 +1,92 @@
+Recoilnet bootstrap
+
+inventory.json records the allocated addresses and public keys. Private keys
+are kept outside this repository. Import profiles contain private keys. Only fd96:57e3:eb75::/48 uses WireGuard. DNS settings
+and ordinary Internet routes are unchanged. There are no direct peer links.
+
+Public DNS records, TTL 300:
+dark.i.recoil.org. 300 IN AAAA fd96:57e3:eb75:1::1
+lack.i.recoil.org. 300 IN AAAA fd96:57e3:eb75:1::100
+buck.i.recoil.org. 300 IN AAAA fd96:57e3:eb75:1::101
+sleek.i.recoil.org. 300 IN AAAA fd96:57e3:eb75:1::103
+avsm-ip17.i.recoil.org. 300 IN AAAA fd96:57e3:eb75:1::102
+sequoia.i.recoil.org. 300 IN AAAA fd96:57e3:eb75:1::104
+
+Use ordinary DNS records without an HTTP proxy. Names and addresses are
+public, but the addresses require overlay connectivity. Some resolvers may
+filter public answers containing private addresses. Test the system resolver
+after publication, particularly on phones and networks with rebinding filters.
+The tunnel endpoint remains public dark.recoil.org, independent of these records.
+
+Dark
+
+Configuration: /etc/hostname.wg0, /etc/sysctl.conf, /etc/pf.conf.
+Private key: /etc/recoilnet/dark.key and /etc/hostname.wg0 (root-only).
+Original PF configuration: /etc/pf.conf.pre-recoilnet.
+Inspect: ifconfig wg0; pfctl -sr; route -n get -inet6 fd96:57e3:eb75:1::101
+IPv6 forwarding is enabled. IPv4 forwarding is unchanged. PF permits enrolled
+overlay peers, blocks other traffic on wg0, and blocks overlay source addresses
+on public interfaces. Existing public service policy is preserved.
+
+Buck
+
+Configuration: /etc/wireguard/recoilnet.conf (root-only).
+Private key: /etc/wireguard/recoilnet.key (root-only).
+Service: wg-quick@recoilnet, enabled at boot.
+Inspect: sudo wg show recoilnet; systemctl status wg-quick@recoilnet
+Stop/start: sudo systemctl stop/start wg-quick@recoilnet
+UFW allows overlay SSH to buck on recoilnet. Existing ICMPv6 rules permit ping.
+Other services retain the existing UFW policy.
+
+Lack
+
+Client: /Applications/WireGuard.app (official macOS app).
+The recoilnet profile was provided for import. Activate it in the app.
+Allow macOS to add the VPN configuration when prompted.
+The local import profile and original lack.key were deleted after transfer.
+The app manages the imported tunnel and key.
+Inspect handshakes and transfers in the app. Activate/deactivate there.
+No wg-quick configuration or launch daemon is used on this Mac.
+The profile omits DNS so existing resolvers remain in use.
+
+Sleek
+
+Address: fd96:57e3:eb75:1::103/128. Enrolled on dark.
+The recoilnet-sleek profile is active in the official WireGuard app with
+On-Demand enabled. The local import profile and private key were deleted
+after transfer. DNS settings are unchanged.
+
+Avsm-ip17
+
+Address: fd96:57e3:eb75:1::102/128. Enrolled on dark.
+The phone has connected to dark. Manage the avsm-ip17 profile in WireGuard.
+The local import profile, private key and QR code were deleted after transfer.
+DNS settings are unchanged.
+
+Sequoia
+
+Address: fd96:57e3:eb75:1::104/128. Enrolled on dark.
+The new /Users/avsm/.config/recoilnet/recoilnet-sequoia.conf is ready for
+secure transfer. Install as /etc/wireguard/recoilnet.conf with mode 600.
+Install wireguard-tools and enable wg-quick@recoilnet on systemd Linux.
+Delete the transfer copy after installation. This profile contains a private key.
+
+Host directory
+
+Authoritative records: /home/avsm/git/recoilnet/hosts.tsv on dark.
+All hosts belong to anil. The local JSON is a bootstrap inventory snapshot.
+Run ./generate.sh in that repository as avsm after editing records.
+The static page is http://dark.i.recoil.org/. OpenBSD httpd listens only on
+fd96:57e3:eb75:1::1 port 80. Its configuration is versioned in that repository.
+The Git repository is outside the web root.
+
+Rollback
+
+Stop and disable buck's service with systemctl disable --now wg-quick@recoilnet.
+Remove its UFW rule with:
+sudo ufw delete allow in on recoilnet from fd96:57e3:eb75::/48 to fd96:57e3:eb75:1::101 port 22 proto tcp
+Deactivate and delete lack's recoilnet tunnel in the WireGuard app.
+On dark, remove the overlay route, destroy wg0 and remove /etc/hostname.wg0.
+Remove the Recoilnet forwarding setting and restore net.inet6.ip6.forwarding=0.
+Remove the Recoilnet PF rules. Restore the backup only if no subsequent firewall
+edits have been made. Validate with pfctl -nf before loading with pfctl -f.

@@ -32,10 +32,13 @@ let int n = D.INT (Int64.of_int n)
 
 let transaction ?(immediate = true) db f =
   check (Sqlite3.exec db (if immediate then "BEGIN IMMEDIATE" else "BEGIN"));
-  match f () with
-  | x ->
-      check (Sqlite3.exec db "COMMIT");
-      x
+  match
+    let x = f () in
+    check (Sqlite3.exec db "COMMIT");
+    x
+  with
+  | x -> x
   | exception e ->
+      let backtrace = Printexc.get_raw_backtrace () in
       ignore (Sqlite3.exec db "ROLLBACK");
-      raise e
+      Printexc.raise_with_backtrace e backtrace

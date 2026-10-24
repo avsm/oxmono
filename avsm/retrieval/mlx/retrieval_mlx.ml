@@ -120,7 +120,8 @@ let clear () =
           loaded := None;
           Native.close model)
 
-let release () = Eio.Mutex.use_ro model_lock clear
+let release () =
+  Eio.Cancel.protect (fun () -> Eio.Mutex.use_ro model_lock clear)
 
 let create ~model_dir ~dimensions ~max_tokens ~query_instruction ~check =
   if
@@ -215,7 +216,8 @@ module Vision = struct
             loaded := None;
             Vision_native.close model)
 
-  let release () = Eio.Mutex.use_ro model_lock clear
+  let release () =
+    Eio.Cancel.protect (fun () -> Eio.Mutex.use_ro model_lock clear)
 
   let create ~model_dir ~dimensions ~max_tokens ~query_instruction ~check =
     if

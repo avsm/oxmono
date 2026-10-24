@@ -20,12 +20,16 @@ val create :
 
 val release : unit -> unit
 (** [release ()] closes the retained model after any active inference completes.
-    Existing providers reload it on their next request. *)
+    Cleanup waits even in a cancelled context. Existing providers reload the
+    model on their next request. This function requires an Eio scheduler. *)
 
 module Vision : sig
   val create :
-    model_dir:string -> dimensions:int -> max_tokens:int ->
-    query_instruction:string -> check:(unit -> unit) ->
+    model_dir:string ->
+    dimensions:int ->
+    max_tokens:int ->
+    query_instruction:string ->
+    check:(unit -> unit) ->
     Retrieval.Embedding.provider
   (** [create ...] makes an independent Qwen3-VL provider. Queries are text.
       Document inputs are JSON arrays containing the local image path and its
@@ -35,5 +39,6 @@ module Vision : sig
       model contents, instruction and dimensions. *)
 
   val release : unit -> unit
-  (** [release ()] closes the retained vision model after active inference. *)
+  (** [release ()] closes the retained vision model after active inference,
+      including in a cancelled context. This function requires an Eio scheduler. *)
 end

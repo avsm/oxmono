@@ -1,5 +1,8 @@
 # Unreleased
 
+- Finish releasing cached MLX models even when the caller is cancelled while
+  waiting for active inference. Roll back transactions when COMMIT fails.
+
 - Distinguish query and document embedding tasks. Add optional native Qwen3
   embeddings with lazy model reuse and content-versioned indexes.
 

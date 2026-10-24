@@ -19,6 +19,11 @@
  (libraries retrieval sqlite3 sqlite-vec))
 
 (test
+ (name test_sql)
+ (modules test_sql)
+ (libraries retrieval sqlite3))
+
+(test
  (name test_mlx)
  (modules test_mlx)
  (enabled_if %{lib-available:apple-mlx-embeddings})

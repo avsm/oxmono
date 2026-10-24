@@ -4,6 +4,32 @@ let noop () = ()
 let write path value =
   Out_channel.with_open_bin path (fun oc -> output_string oc value)
 
+let cancelled_release (provider : Retrieval.Embedding.provider) release =
+  let held, mark_held = Eio.Promise.create () in
+  let started, mark_started = Eio.Promise.create () in
+  let checks = ref 0 in
+  let hold_lock () =
+    incr checks;
+    if !checks = 2 then (
+      Eio.Promise.resolve mark_held ();
+      Eio.Promise.await started;
+      raise Exit)
+  in
+  ignore
+    (Eio.Fiber.pair
+       (fun () ->
+         match provider.embed ~task:`Query ~check:hold_lock [ "question" ] with
+         | _ -> failwith "Lock test unexpectedly reached native inference"
+         | exception Exit -> ())
+       (fun () ->
+         Eio.Promise.await held;
+         Eio.Cancel.sub (fun context ->
+             Eio.Cancel.cancel context Exit;
+             Eio.Promise.resolve mark_started ();
+             (* The provider lock is held until this call suspends. Cleanup
+                must wait for it despite the cancelled caller. *)
+             release ())))
+
 let () =
   let root = Filename.temp_file "retrieval-mlx-identity" "" in
   Sys.remove root;
@@ -88,22 +114,32 @@ let () =
             (image.model <> (make ~dimensions:64 ()).model);
           check "vision model remains lazy and reusable"
             (image.model = (vision ()).model && image.max_batch = 2);
+          cancelled_release (make ()) Retrieval_mlx.release;
+          cancelled_release image Retrieval_mlx.Vision.release;
           check "vision settings participate in identity"
             (image.model <> (vision ~max_tokens:256 ()).model
             && image.model <> (vision ~dimensions:128 ()).model
             && image.model <> (vision ~query_instruction:"other" ()).model);
           check "vision minimum dimensions validated before inference"
-            (try ignore (vision ~dimensions:32 ()); false
+            (try
+               ignore (vision ~dimensions:32 ());
+               false
              with Invalid_argument _ -> true);
           check "malformed image input rejected before native model load"
-            (try ignore (image.embed ~task:`Document ~check:noop ["[]"]); false
+            (try
+               ignore (image.embed ~task:`Document ~check:noop [ "[]" ]);
+               false
              with Invalid_argument _ -> true);
           let pixel = file "fixture.webp" in
           write pixel "pixel fixture";
-          let stale_input = Retrieval.Json.encode (Jsont.list Jsont.string)
-              [pixel; Retrieval.Embedding.hash "old pixels"] in
+          let stale_input =
+            Retrieval.Json.encode (Jsont.list Jsont.string)
+              [ pixel; Retrieval.Embedding.hash "old pixels" ]
+          in
           check "stale pixel revision rejected before native model load"
-            (try ignore (image.embed ~task:`Document ~check:noop [stale_input]); false
+            (try
+               ignore (image.embed ~task:`Document ~check:noop [ stale_input ]);
+               false
              with Failure _ -> true);
           write (file "preprocessor_config.json") "changed image processing";
           check "image preprocessing changes model identity"

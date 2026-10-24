@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Serialize embedding configuration updates so text and image settings cannot
+  overwrite each other during concurrent writes.
+
 - Add dedicated agent tools for searching Bushel site content and listing
   published posts by original publication date without feed synchronization.
 

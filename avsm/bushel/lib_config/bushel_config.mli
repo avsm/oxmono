@@ -105,8 +105,8 @@ val load : unit -> (t, string) result
 val load_file : string -> (t, string) result
 (** [load_file path] is the configuration in [path]. Relative API key and
     model directory paths resolve against the directory of this config file,
-    producing
-    absolute paths. Other configured paths retain their existing semantics. *)
+    producing absolute paths. Other configured paths retain their existing
+    semantics. File I/O is synchronous. *)
 
 val of_string : string -> (t, string) result
 (** [of_string s] is the configuration encoded by TOML string [s]. Relative
@@ -153,10 +153,13 @@ val configure_embeddings :
     leading [~] in the config, API key and model directory paths. Relative key
     and model paths resolve against the current working directory and are
     stored as absolute paths. Existing unrelated and unknown TOML values are
-    preserved. Standard section layouts also retain unrelated
-    comments. Missing parent directories and files are created with permissions
+    preserved. Standard section layouts retain unrelated comments.
+    Missing parent directories and files are created with permissions
     [0700] and [0600]. Existing files are atomically replaced and keep their
-    permissions. Non-regular config files are refused. No API key is read. *)
+    permissions. Non-regular config files are refused. No API key is read.
+    Writers serialize within the process and use a persistent [.lock] sidecar.
+    An overlapping update from another process returns an error without writing.
+    File I/O and locking are synchronous. Eio callers should use a system thread. *)
 
 val default_image_query_instruction : string
 (** [default_image_query_instruction] is the default visual retrieval prompt. *)

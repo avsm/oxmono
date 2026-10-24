@@ -421,7 +421,58 @@ value = 17
           (String.starts_with ~prefix:".bushel-config-")
           (Sys.readdir (Filename.dirname file))))
 
-let () =
+let hold_config_lock file =
+  let fd = Unix.openfile (file ^ ".lock") [ Unix.O_RDWR; Unix.O_CREAT ] 0o600 in
+  Fun.protect
+    ~finally:(fun () -> Unix.close fd)
+    (fun () ->
+      Unix.lockf fd Unix.F_LOCK 0;
+      output_char stdout 'r';
+      flush stdout;
+      try ignore (input_char stdin) with End_of_file -> ())
+
+let test_config_lock dir =
+  let file = Filename.concat dir "locked.toml" in
+  save file "custom=42\n";
+  let ready_read, ready_write = Unix.pipe ~cloexec:true () in
+  let release_read, release_write = Unix.pipe ~cloexec:true () in
+  let pid =
+    Unix.create_process Sys.executable_name
+      [| Sys.executable_name; "--hold-config-lock"; file |]
+      release_read ready_write Unix.stderr
+  in
+  Unix.close ready_write;
+  Unix.close release_read;
+  let rec wait () =
+    try snd (Unix.waitpid [] pid)
+    with Unix.Unix_error (Unix.EINTR, _, _) -> wait ()
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      Unix.close ready_read;
+      Unix.close release_write;
+      (try Unix.kill pid Sys.sigkill
+       with Unix.Unix_error (Unix.ESRCH, _, _) -> ());
+      ignore (wait ()))
+    (fun () ->
+      let readable, _, _ = Unix.select [ ready_read ] [] [] 10. in
+      check "config lock child starts" (readable <> []);
+      let signal = Bytes.create 1 in
+      check "config lock child acquired lock"
+        (Unix.read ready_read signal 0 1 = 1 && Bytes.get signal 0 = 'r');
+      check "overlapping config update reports contention"
+        (configure_http ~file settings
+        = Error "Another process is updating this configuration");
+      check "overlapping config update leaves file unchanged"
+        (read file = "custom=42\n"));
+  ignore (ok (Bushel_config.configure_image_embeddings ~file native));
+  ignore (ok (configure_http ~file settings));
+  let config = ok (Bushel_config.load_file file) in
+  check "updates succeed after lock release and preserve both backends"
+    (config.embeddings = Some (Bushel_config.Http settings)
+    && Option.is_some config.image_embeddings)
+
+let run () =
   test_validation ();
   test_native_validation ();
   let dir = Filename.temp_dir "bushel-embeddings-config" "" in
@@ -429,6 +480,12 @@ let () =
     ~finally:(fun () -> remove dir)
     (fun () ->
       test_files dir;
-      test_native_files dir);
+      test_native_files dir;
+      test_config_lock dir);
   print_endline
     "Bushel embeddings configuration, preservation and validation passed"
+
+let () =
+  match Array.to_list Sys.argv with
+  | [ _; "--hold-config-lock"; file ] -> hold_config_lock file
+  | _ -> run ()

@@ -9,7 +9,9 @@ let read path = In_channel.with_open_bin path In_channel.input_all
 let () =
   let file = Filename.temp_file "bushel-image-config" ".toml" in
   Fun.protect
-    ~finally:(fun () -> Sys.remove file)
+    ~finally:(fun () ->
+      Sys.remove file;
+      if Sys.file_exists (file ^ ".lock") then Sys.remove (file ^ ".lock"))
     (fun () ->
       let image : Bushel_config.mlx_embeddings =
         {

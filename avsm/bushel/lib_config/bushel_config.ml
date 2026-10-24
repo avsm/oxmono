@@ -351,18 +351,15 @@ let config_codec =
 let of_string s =
   match Tomlt_bytesrw.decode_string config_codec s with
   | Ok config ->
-      let settings =
-        List.filter_map Fun.id
-          [ config.embeddings; Option.map (fun e -> Mlx e) config.image_embeddings ]
+      let text =
+        Option.fold ~none:(Ok ()) ~some:validate_embeddings config.embeddings
       in
-      List.fold_left
-        (fun result settings ->
-          Result.bind result (fun () -> validate_embeddings settings))
-        (Ok ()) settings
-      |> fun result -> Result.bind result (fun () ->
-          match config.image_embeddings with
-          | None -> Ok config
-          | Some e -> Result.map (fun () -> config) (validate_image_embeddings e))
+      Result.bind text (fun () ->
+          let images =
+            Option.fold ~none:(Ok ()) ~some:validate_image_embeddings
+              config.image_embeddings
+          in
+          Result.map (fun () -> config) images)
   | Error e -> Error (Tomlt.Toml.Error.to_string e)
 
 let load_file path =
@@ -518,6 +515,30 @@ let atomic_config path content permissions =
       Unix.rename temporary path;
       renamed := true)
 
+(* POSIX record locks are process-wide. Serialize local writers as well so one
+   thread cannot release another's lock by closing the same lock file. *)
+let config_writer = Mutex.create ()
+
+let with_config_lock path f =
+  Mutex.protect config_writer (fun () ->
+      (match Unix.lstat path with
+      | stat when stat.Unix.st_kind <> Unix.S_REG ->
+          invalid_arg "Config path must name a regular file"
+      | _ -> ()
+      | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ());
+      private_parents (Filename.dirname path);
+      let fd =
+        Unix.openfile (path ^ ".lock")
+          [ Unix.O_RDWR; Unix.O_CREAT; Unix.O_NONBLOCK; Unix.O_CLOEXEC ] 0o600
+      in
+      Fun.protect ~finally:(fun () -> Unix.close fd) (fun () ->
+          if (Unix.fstat fd).Unix.st_kind <> Unix.S_REG then
+            invalid_arg "Config lock must name a regular file";
+          (try Unix.lockf fd Unix.F_TLOCK 0 with
+          | Unix.Unix_error ((Unix.EACCES | Unix.EAGAIN), _, _) ->
+              invalid_arg "Another process is updating this configuration");
+          f ()))
+
 let configure_embedding_section ~section_name ?file settings =
   match validate_embeddings settings with
   | Error message -> Error message
@@ -527,23 +548,26 @@ let configure_embedding_section ~section_name ?file settings =
         let settings =
           resolve_embedding_paths ~directory:(Sys.getcwd ()) settings
         in
-        let source, permissions =
-          match Unix.lstat path with
-          | stat when stat.Unix.st_kind = Unix.S_REG ->
-              (In_channel.with_open_bin path In_channel.input_all,
-               stat.Unix.st_perm land 0o777)
-          | _ -> invalid_arg "Config path must name a regular file"
-          | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ("", 0o600)
-        in
-        (match Tomlt_bytesrw.of_string source with
-        | Error error -> Error (Tomlt.Toml.Error.to_string error)
-        | Ok document ->
-            let content = replace_embeddings ~section_name source document settings in
-            match of_string content with
-            | Error message -> Error message
-            | Ok _ ->
-                atomic_config path content permissions;
-                Ok path)
+        with_config_lock path (fun () ->
+            let source, permissions =
+              match Unix.lstat path with
+              | stat when stat.Unix.st_kind = Unix.S_REG ->
+                  (In_channel.with_open_bin path In_channel.input_all,
+                   stat.Unix.st_perm land 0o777)
+              | _ -> invalid_arg "Config path must name a regular file"
+              | exception Unix.Unix_error (Unix.ENOENT, _, _) -> ("", 0o600)
+            in
+            match Tomlt_bytesrw.of_string source with
+            | Error error -> Error (Tomlt.Toml.Error.to_string error)
+            | Ok document ->
+                let content =
+                  replace_embeddings ~section_name source document settings
+                in
+                match of_string content with
+                | Error message -> Error message
+                | Ok _ ->
+                    atomic_config path content permissions;
+                    Ok path)
       with
       | Sys_error message | Invalid_argument message -> Error message
       | Unix.Unix_error (error, operation, _) ->

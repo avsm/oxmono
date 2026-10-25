@@ -138,36 +138,6 @@ let present ?cache_dir model =
       file_state (Filename.concat path name) size = `Complete)
     model.files
 
-let run ~proc ~stderr args =
-  Eio.Switch.run (fun sw ->
-      let source, sink = Eio_unix.pipe sw in
-      let output = Eio_unix.Resource.fd sink in
-      let child =
-        Eio.Cancel.protect (fun () ->
-            Eio_unix.Process.spawn_unix ~sw proc ~pgid:0
-              ~fds:
-                [
-                  (0, Eio_unix.Fd.stdin, `Blocking);
-                  (1, output, `Blocking);
-                  (2, output, `Blocking);
-                ]
-              args)
-      in
-      Fun.protect
-        ~finally:(fun () ->
-          (* uvx waits for a separate hf process. Killing only uvx leaves
-             that process downloading after its caller has cancelled. Also
-             close any inherited pipes if the wrapper exits before its child. *)
-          try Unix.kill (-Eio.Process.pid child) Sys.sigkill
-          with Unix.Unix_error (Unix.ESRCH, _, _) -> ())
-        (fun () ->
-          Eio.Flow.close sink;
-          Eio.Fiber.fork ~sw (fun () -> Eio.Flow.copy source stderr);
-          let status = Eio.Process.await child in
-          match status with
-          | `Exited 0 -> ()
-          | status -> raise (Eio.Process.err (Eio.Process.Child_error status))))
-
 let invalid_file path =
   match Unix.lstat path with
   | { Unix.st_kind = Unix.S_REG | Unix.S_LNK; _ } -> ()
@@ -204,18 +174,13 @@ let ensure ~proc ~stderr ?cache_dir model =
         ]
       @ if force then [ "--force-download" ] else []
     in
-    let invoke command = run ~proc ~stderr (command @ args) in
-    try invoke [ "hf" ]
-    with Eio.Io (Eio.Process.E _, _) -> (
-      Eio.Fiber.check ();
-      Eio.Flow.copy_string "hf unavailable or failed; retrying with uvx hf\n"
-        stderr;
-      try invoke [ "uvx"; "hf" ]
-      with Eio.Io (Eio.Process.E _, _) ->
-        Eio.Fiber.check ();
-        failwith
-          "Embedding model download failed. Install hf or uv, check network \
-           access and the downloader errors, then retry.")
+    try
+      Hf.run ~process_mgr:proc ~stdout:stderr ~stderr
+        ~retry_failed:true args
+    with Eio.Io (Eio.Process.E (Eio.Process.Child_error _), _) ->
+      failwith
+        "Embedding model download failed. Install hf or uv, check network \
+         access and the downloader errors, then retry."
   in
   if missing <> [] || invalid <> [] then (
     Eio.Flow.copy_string

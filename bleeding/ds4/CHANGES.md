@@ -1,5 +1,8 @@
 # unreleased
 
+- Share Hugging Face download handling. Keep tokens out of process arguments
+  and preserve cancellation without launching a fallback download.
+
 - Run inference on a worker domain, drain cancelled native calls before reuse,
   and propagate tool aborts. Compact at message boundaries only when smaller.
 - Add structured single completions that return tool calls without executing them.

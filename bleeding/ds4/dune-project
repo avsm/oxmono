@@ -18,6 +18,7 @@
  (description
   "Library and command to run the DeepSeek V4, DeepSeek V4.1 Flash, GLM 5.3 Flash and Qwen3.8 Flash Next models locally on the DS4 engine, with a selectable inference backend (Apple Metal, CUDA or CPU).")
  (depends
+  hf
   (ocaml (>= 5.2.0))
   (dune-configurator :build)
   (jsont (>= 0.3.0))

@@ -18,6 +18,7 @@
  (description
   "Eio-native Qwen3 embedding inference on Apple silicon using MLX Swift. Models load from local directories without a Python runtime or server.")
  (depends
+  hf
   (ocaml
    (>= 5.2))
   (eio

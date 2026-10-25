@@ -11,6 +11,7 @@ homepage: "https://tangled.org/anil.recoil.org/ocaml-deepseek"
 bug-reports: "https://tangled.org/anil.recoil.org/ocaml-deepseek/issues"
 depends: [
   "dune" {>= "3.21"}
+  "hf"
   "ocaml" {>= "5.2.0"}
   "dune-configurator" {build}
   "jsont" {>= "0.3.0"}

@@ -40,6 +40,7 @@ type git_error =
   | Nothing_to_commit     (** No changes to commit *)
   | Push_rejected         (** Push was rejected by remote *)
   | Command_not_found     (** Git executable not found *)
+  | Output_limit of int   (** Captured command output exceeds the byte limit *)
 
 type Eio.Exn.err += Git of git_error
 (** Eio exception for git errors. Raised with context via
@@ -60,7 +61,8 @@ val dry_run : t -> bool
 (** {1 Query Operations}
 
     These operations always execute, even in dry-run mode, since
-    subsequent control flow may depend on their results. *)
+    subsequent control flow may depend on their results. Operational failures
+    raise [Eio.Io], including when a query returns an option or list. *)
 
 val is_repo : t -> repo:Eio.Fs.dir_ty Eio.Path.t -> bool
 (** [is_repo t ~repo] returns [true] if [repo] is a git repository. *)
@@ -70,7 +72,7 @@ val rev_parse : t -> repo:Eio.Fs.dir_ty Eio.Path.t -> string -> string
     @raise Eio.Io on failure *)
 
 val rev_parse_opt : t -> repo:Eio.Fs.dir_ty Eio.Path.t -> string -> string option
-(** [rev_parse_opt t ~repo ref] resolves [ref] to a commit hash, or [None]. *)
+(** [rev_parse_opt t ~repo ref] resolves [ref] to a commit hash, or [None] when the revision is absent. *)
 
 val status : t -> repo:Eio.Fs.dir_ty Eio.Path.t -> [`Clean | `Dirty]
 (** [status t ~repo] checks if the working tree has uncommitted changes. *)

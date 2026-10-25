@@ -477,23 +477,14 @@ let join_parts ~dir ~out first rest =
 
 let download ~fs ~proc ~dir ?token m =
   Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 Eio.Path.(fs / dir);
-  let token = match token with None -> Sys.getenv_opt "HF_TOKEN" | t -> t in
-  (* Arguments shared by both ways of running hf. It inherits our streams, so
-     its progress bar is shown. *)
   let hf_args file =
     [ "download"; m.repo; file; "--repo-type"; "model"; "--local-dir"; dir ]
-    @ match token with Some t -> [ "--token"; t ] | None -> []
   in
   let fetch file =
     Printf.eprintf
       "Downloading %s\n  from https://huggingface.co/%s\n  into %s\n%!" file
       m.repo dir;
-    (* Prefer an installed hf. If it is missing, run it through uvx, which
-       fetches it on demand. *)
-    try Eio.Process.run proc ("hf" :: hf_args file)
-    with _ ->
-      Printf.eprintf "  ('hf' unavailable or failed; retrying via 'uvx hf')\n%!";
-      Eio.Process.run proc ("uvx" :: "hf" :: hf_args file)
+    Hf.run ~process_mgr:proc ?token (hf_args file)
   in
   match (m.files, m.parts) with
   | _, [] -> List.iter fetch m.files

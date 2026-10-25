@@ -1,5 +1,8 @@
 # Changes
 
+- Share Hugging Face process handling and terminate downloader descendants
+  when the wrapper exits or the operation is cancelled.
+
 - Limit reusable MLX buffers to 256 MiB for sustained text and image inference.
   Expose allocator statistics and test memory use across repeated batches.
 

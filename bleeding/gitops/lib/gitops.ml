@@ -16,6 +16,7 @@ type git_error =
   | Nothing_to_commit
   | Push_rejected
   | Command_not_found
+  | Output_limit of int
 
 type Eio.Exn.err += Git of git_error
 
@@ -29,6 +30,8 @@ let () =
     | Git Nothing_to_commit -> Fmt.pf f "Nothing to commit"; true
     | Git Push_rejected -> Fmt.pf f "Push rejected"; true
     | Git Command_not_found -> Fmt.pf f "Git command not found"; true
+    | Git (Output_limit limit) ->
+        Fmt.pf f "Git command output exceeds %d bytes" limit; true
     | _ -> false)
 
 (** {1 Context} *)
@@ -48,55 +51,36 @@ let dry_run t = t.dry_run
 let src = Logs.Src.create "gitops" ~doc:"Git operations"
 module Log = (val Logs.src_log src : Logs.LOG)
 
+let command ~repo args =
+  "git" :: "-C" :: Eio.Path.native_exn repo :: args
+
+let process_error = function
+  | `Exited 0 -> None
+  | `Exited n -> Some (Exit_code n)
+  | `Signaled n -> Some (Signaled n)
+
 let run_git_raw t ~repo args =
-  let repo_str = Eio.Path.native_exn repo in
-  let cmd = "git" :: "-C" :: repo_str :: args in
-  Log.debug (fun m -> m "Running: %s" (String.concat " " cmd));
-  Eio.Switch.run @@ fun sw ->
-  let mgr = t.env#process_mgr in
   try
-    let proc = Eio.Process.spawn ~sw mgr cmd in
-    match Eio.Process.await proc with
-    | `Exited 0 -> Ok ()
-    | `Exited n -> Error (Exit_code n)
-    | `Signaled n -> Error (Signaled n)
+    Eioext.Process.run ~process_mgr:t.env#process_mgr (command ~repo args);
+    Ok ()
   with
-  | Eio.Io _ as exn -> raise exn
-  | exn ->
-      let msg = Printexc.to_string exn in
-      if String.length msg >= 9 && String.sub msg 0 9 = "not found" then
-        Error Command_not_found
-      else if String.length msg >= 7 && String.sub msg 0 7 = "No such" then
-        Error Command_not_found
-      else
-        raise exn
+  | Eio.Io (Eio.Process.E (Eio.Process.Child_error status), _) ->
+      Error (Option.get (process_error status))
+  | Eio.Io (Eio.Process.E (Eio.Process.Executable_not_found _), _) ->
+      Error Command_not_found
 
 let run_git_output t ~repo args =
-  let repo_str = Eio.Path.native_exn repo in
-  let cmd = "git" :: "-C" :: repo_str :: args in
-  Log.debug (fun m -> m "Running: %s" (String.concat " " cmd));
-  Eio.Switch.run @@ fun sw ->
-  let mgr = t.env#process_mgr in
   try
-    let stdout_r, stdout_w = Eio.Process.pipe ~sw mgr in
-    let proc = Eio.Process.spawn ~sw ~stdout:stdout_w mgr cmd in
-    Eio.Flow.close stdout_w;
-    let output = Eio.Buf_read.of_flow ~max_size:max_int stdout_r
-                 |> Eio.Buf_read.take_all in
-    match Eio.Process.await proc with
-    | `Exited 0 -> Ok (String.trim output)
-    | `Exited n -> Error (Exit_code n)
-    | `Signaled n -> Error (Signaled n)
+    let result =
+      Eioext.Process.capture ~process_mgr:t.env#process_mgr (command ~repo args)
+    in
+    match process_error result.status with
+    | None -> Ok result.stdout
+    | Some error -> Error error
   with
-  | Eio.Io _ as exn -> raise exn
-  | exn ->
-      let msg = Printexc.to_string exn in
-      if String.length msg >= 9 && String.sub msg 0 9 = "not found" then
-        Error Command_not_found
-      else if String.length msg >= 7 && String.sub msg 0 7 = "No such" then
-        Error Command_not_found
-      else
-        raise exn
+  | Eioext.Process.Output_limit limit -> Error (Output_limit limit)
+  | Eio.Io (Eio.Process.E (Eio.Process.Executable_not_found _), _) ->
+      Error Command_not_found
 
 let raise_git_error ~context err =
   let exn = Eio.Exn.create (Git err) in
@@ -125,44 +109,42 @@ let is_repo t ~repo =
 
 let rev_parse t ~repo ref_ =
   run_git_for_output t ~repo ~context:(Printf.sprintf "rev-parse %s" ref_)
-    ["rev-parse"; ref_]
+    ["rev-parse"; ref_] |> String.trim
 
 let rev_parse_opt t ~repo ref_ =
   match run_git_output t ~repo ["rev-parse"; "--verify"; "--quiet"; ref_] with
   | Ok output -> Some (String.trim output)
-  | Error _ -> None
-
-let status t ~repo =
-  match run_git_output t ~repo ["status"; "--porcelain"] with
-  | Ok "" -> `Clean
-  | Ok _ -> `Dirty
-  | Error _ -> `Dirty  (* Conservative: assume dirty on error *)
-
-let status_files t ~repo =
-  match run_git_output t ~repo ["status"; "--porcelain"] with
-  | Ok "" -> []
-  | Ok output -> String.split_on_char '\n' output |> List.filter (fun s -> s <> "")
-  | Error _ -> []
+  | Error (Exit_code 1) -> None
+  | Error error -> raise_git_error ~context:"resolving revision" error
 
 let status_porcelain t ~repo =
-  match run_git_output t ~repo ["status"; "--porcelain"] with
-  | Ok output -> output
-  | Error _ -> ""
+  run_git_for_output t ~repo ~context:"reading status" ["status"; "--porcelain"]
+
+let status t ~repo =
+  if status_porcelain t ~repo = "" then `Clean else `Dirty
+
+let status_files t ~repo =
+  String.split_on_char '\n' (status_porcelain t ~repo)
+  |> List.filter (fun s -> s <> "")
 
 let remote_url t ~repo ~remote =
-  match run_git_output t ~repo ["remote"; "get-url"; remote] with
-  | Ok url -> Some (String.trim url)
-  | Error _ -> None
+  let names =
+    run_git_for_output t ~repo ~context:"listing remotes" ["remote"]
+    |> String.split_on_char '\n'
+  in
+  if List.mem remote names then
+    Some (run_git_for_output t ~repo ~context:"reading remote URL"
+            ["remote"; "get-url"; remote] |> String.trim)
+  else None
 
 let branch_exists t ~repo branch =
-  match run_git_output t ~repo ["rev-parse"; "--verify"; "--quiet"; "refs/heads/" ^ branch] with
-  | Ok _ -> true
-  | Error _ -> false
+  Option.is_some (rev_parse_opt t ~repo ("refs/heads/" ^ branch))
 
 let current_branch t ~repo =
-  match run_git_output t ~repo ["rev-parse"; "--abbrev-ref"; "HEAD"] with
+  match run_git_output t ~repo ["symbolic-ref"; "--quiet"; "--short"; "HEAD"] with
   | Ok branch -> Some (String.trim branch)
-  | Error _ -> None
+  | Error (Exit_code 1) -> None
+  | Error error -> raise_git_error ~context:"reading current branch" error
 
 (** {1 Mutating Operations} *)
 
@@ -204,15 +186,11 @@ let add_all t ~repo =
 let commit t ~repo ~msg =
   let args = ["commit"; "-m"; msg] in
   if t.dry_run then log_dry_run args
-  else begin
-    match run_git_raw t ~repo args with
-    | Ok () -> ()
-    | Error (Exit_code 1) ->
-        (* Exit code 1 often means nothing to commit *)
-        Log.debug (fun m -> m "Nothing to commit")
-    | Error err ->
-        raise_git_error ~context:"committing changes" err
-  end
+  else
+    match run_git_output t ~repo ["diff"; "--cached"; "--quiet"; "--exit-code"] with
+    | Ok _ -> ()
+    | Error (Exit_code 1) -> run_git t ~repo ~context:"committing changes" args
+    | Error error -> raise_git_error ~context:"inspecting staged changes" error
 
 let push t ~repo ~remote =
   let args = ["push"; remote] in
@@ -239,17 +217,14 @@ let clone t ~url ~target =
   let args = ["clone"; url; target_str] in
   if t.dry_run then
     Log.info (fun m -> m "Would run: git %s" (String.concat " " args))
-  else begin
-    Eio.Switch.run @@ fun sw ->
-    let mgr = t.env#process_mgr in
-    let cmd = "git" :: args in
-    Log.debug (fun m -> m "Running: %s" (String.concat " " cmd));
-    let proc = Eio.Process.spawn ~sw mgr cmd in
-    match Eio.Process.await proc with
-    | `Exited 0 -> ()
-    | `Exited n -> raise_git_error ~context:(Printf.sprintf "cloning %s" url) (Exit_code n)
-    | `Signaled n -> raise_git_error ~context:(Printf.sprintf "cloning %s" url) (Signaled n)
-  end
+  else
+    try Eioext.Process.run ~process_mgr:t.env#process_mgr ("git" :: args)
+    with
+    | Eio.Io (Eio.Process.E (Eio.Process.Child_error status), _) ->
+        raise_git_error ~context:"cloning repository"
+          (Option.get (process_error status))
+    | Eio.Io (Eio.Process.E (Eio.Process.Executable_not_found _), _) ->
+        raise_git_error ~context:"cloning repository" Command_not_found
 
 (** {1 Sync} *)
 
@@ -320,7 +295,8 @@ module Sync = struct
     end;
 
     (* Ensure remote is configured *)
-    begin match remote_url t ~repo ~remote:"origin" with
+    begin match (if t.dry_run && not (is_repo t ~repo) then None
+                 else remote_url t ~repo ~remote:"origin") with
     | None ->
         Log.info (fun m -> m "Adding remote origin -> %s" config.remote);
         remote_add t ~repo ~name:"origin" ~url:config.remote
@@ -341,14 +317,14 @@ module Sync = struct
 
     (* Fetch from remote *)
     Log.info (fun m -> m "Fetching from origin");
-    (try fetch t ~repo ~remote:"origin" with
-     | Eio.Io (Git (Exit_code 128), _) ->
-         Log.debug (fun m -> m "Fetch failed (remote may not exist yet)"));
+    fetch t ~repo ~remote:"origin";
 
     (* Check if we need to merge *)
     let remote_ref = Printf.sprintf "origin/%s" config.branch in
-    let local_head = rev_parse_opt t ~repo "HEAD" in
-    let remote_head = rev_parse_opt t ~repo remote_ref in
+    let local_head = if t.dry_run && not (is_repo t ~repo) then None
+      else rev_parse_opt t ~repo "HEAD" in
+    let remote_head = if t.dry_run && not (is_repo t ~repo) then None
+      else rev_parse_opt t ~repo remote_ref in
 
     match local_head, remote_head with
     | Some local, Some remote when local <> remote ->
@@ -382,7 +358,8 @@ module Sync = struct
 
     (* Auto-commit local changes *)
     if config.auto_commit then begin
-      match status t ~repo with
+      match (if t.dry_run && not (is_repo t ~repo) then `Clean
+             else status t ~repo) with
       | `Dirty ->
           let commit_msg = match msg with Some m -> m | None -> config.commit_message in
           Log.info (fun m -> m "Committing local changes");
@@ -393,14 +370,14 @@ module Sync = struct
     end;
 
     (* Fetch to update remote tracking refs *)
-    (try fetch t ~repo ~remote:"origin" with
-     | Eio.Io (Git (Exit_code 128), _) ->
-         Log.debug (fun m -> m "Fetch failed (remote may not exist yet)"));
+    fetch t ~repo ~remote:"origin";
 
     (* Push if needed *)
     let remote_ref = Printf.sprintf "origin/%s" config.branch in
-    let current_head = rev_parse_opt t ~repo "HEAD" in
-    let remote_head = rev_parse_opt t ~repo remote_ref in
+    let current_head = if t.dry_run && not (is_repo t ~repo) then None
+      else rev_parse_opt t ~repo "HEAD" in
+    let remote_head = if t.dry_run && not (is_repo t ~repo) then None
+      else rev_parse_opt t ~repo remote_ref in
 
     match current_head, remote_head with
     | Some current, Some remote when current <> remote ->

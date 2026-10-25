@@ -49,7 +49,7 @@ val present : dir:string -> t -> bool
 
 val download :
   fs:_ Eio.Path.t ->
-  proc:_ Eio.Process.mgr ->
+  proc:_ Eio_unix.Process.mgr ->
   dir:string ->
   ?token:string ->
   t ->
@@ -58,12 +58,13 @@ val download :
     Face into [dir], creating [dir] if needed, and reports its progress on
     standard error.
 
-    It runs [hf] and falls back to [uvx hf] when that fails, so one of the two
-    must be on the PATH. [token] defaults to [HF_TOKEN] and then to the local
-    Hugging Face login. A target published in parts is joined into its one file
-    and the parts removed. An interrupted join resumes rather than fetching the
-    first part again. It raises [Failure] when a join produces the wrong length,
-    and leaves the parts for a retry. *)
+    It runs [hf] and falls back to [uvx hf] when [hf] is absent, so one of the
+    two must be on the PATH. [token] is passed in the child environment,
+    defaults to [HF_TOKEN], and then to the local Hugging Face login. A target
+    published in parts is joined into its one file and the parts removed. An
+    interrupted join resumes rather than fetching the first part again. It
+    raises [Failure] when a join produces the wrong length, and leaves the parts
+    for a retry. *)
 
 val others : dir:string -> string list
 (** [others ~dir] are the GGUF files under [dir] that belong to no target, in

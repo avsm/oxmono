@@ -25,7 +25,7 @@
  (name apple_mlx_embeddings)
  (public_name apple-mlx-embeddings)
  (modes native)
- (libraries eio eio.unix unix)
+ (libraries hf eio eio.unix unix)
  (c_library_flags
   (:include link_flags.sexp))
  (foreign_archives apple_mlx_embeddings_bridge)

@@ -1,5 +1,11 @@
 # Changes
 
+- Share backend-aware writes and synchronization through `Dooit.Client`, with
+  explicit local, pushed and pending results and scoped store transactions.
+
+- Reject oversized Git objects before reading their bodies and bound subprocess
+  output while terminating abandoned descendant processes.
+
 - Show done and cancelled tasks in muted grey in coloured CLI output.
 
 - List unfinished tasks before done and cancelled tasks, including search

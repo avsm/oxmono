@@ -8,17 +8,9 @@ let receipt p = p ^ ".receipt.json"
 
 let locked root f =
   C.mkdir root;
-  let p = Filename.concat root ".lock" in
-  if C.exists p then C.regular p;
-  let fd =
-    Unix.openfile p [ Unix.O_CREAT; Unix.O_RDWR; Unix.O_CLOEXEC ] 0o600
-  in
-  Fun.protect
-    ~finally:(fun () -> Unix.close fd)
-    (fun () ->
-      (try Unix.lockf fd Unix.F_TLOCK 0
-       with Unix.Unix_error _ -> C.fail "Reply store is busy");
-      f ())
+  try Eioext.Native.with_lock ~path:(Filename.concat root ".lock") f with
+  | Eioext.Native.Busy _ -> C.fail "Reply store is busy"
+  | Eioext.Native.Error message -> C.fail "%s" message
 
 let split raw =
   if not (String.starts_with ~prefix:"---\n" raw) then

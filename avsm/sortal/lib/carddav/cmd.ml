@@ -61,24 +61,23 @@ let configured () =
   | Ok c -> c.Sortal_config.carddav
   | Error e -> fail "invalid Sortal configuration: %s" e
 
-let expand path =
-  if String.starts_with ~prefix:"~/" path then
-    match Sys.getenv_opt "HOME" with
-    | Some home ->
-        Filename.concat home (String.sub path 2 (String.length path - 2))
-    | None -> path
-  else path
-
+let expand path = Xdge.Paths.expand ~base:(Sys.getcwd ()) path
 let setting value default = expand (Option.value value ~default)
+
+let secret_setting value default =
+  let reference = Sekrit.Reference.of_string (Option.value value ~default) in
+  match Sekrit.Reference.source reference with
+  | `Named _ -> Sekrit.Reference.to_string reference
+  | `File path -> expand path
 
 let settings ?source ?bundle ?output ?server ?username ?password_file () =
   let c = configured () in
   ( setting source (Sortal_config.data_dir ()),
     setting bundle c.bundle,
     setting output c.report,
-    setting server c.server,
-    setting username c.username,
-    setting password_file c.password_file )
+    Option.value server ~default:c.server,
+    Option.value username ~default:c.username,
+    secret_setting password_file c.password_file )
 
 let guard f =
   try

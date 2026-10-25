@@ -255,7 +255,7 @@ let () =
       check "WebDAV sync dispatches to credential validation, not Git"
         (contains
            (dooit ~success:false [ "sync"; "--config"; webdav_config ])
-           "missing-secret");
+           "Secret file is missing");
       check "WebDAV push gives backend error, not a request for Git setup"
         (contains
            (dooit ~success:false [ "push"; "--config"; webdav_config ])

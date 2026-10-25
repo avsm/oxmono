@@ -35,6 +35,19 @@ let () =
       let path = Filename.concat base "config/config.toml" in
       let root = Filename.concat base "tasks" in
       let parse = C.parse ~path ~default_root:root in
+      let reference =
+        parse
+          "[webdav]\n\
+           url='https://example.invalid/'\n\
+           subdir='tasks'\n\
+           username='test'\n\
+           secret='sekrit:shared/dav'\n"
+      in
+      (match (C.require_webdav reference).secret with
+      | C.Reference reference ->
+          check "named reference remains independent of config directory"
+            (Sekrit.Reference.to_string reference = "sekrit:shared/dav")
+      | _ -> failwith "expected secret reference");
       check "empty config selects Git" ((parse "").backend = C.Git);
       check "Git section selects Git" ((parse "[git]\n").backend = C.Git);
       check "WebDAV section selects WebDAV" ((parse webdav).backend = C.Webdav);
@@ -109,7 +122,9 @@ let () =
         && saved.jmap_profile = dav.jmap_profile
         && saved.jmap_account = dav.jmap_account
         && saved.jmap_service = dav.jmap_service);
-      let variables = [ "HOME"; "XDG_CONFIG_HOME"; "XDG_DATA_HOME" ] in
+      let variables =
+        [ "HOME"; "XDG_CONFIG_HOME"; "XDG_DATA_HOME"; "XDG_RUNTIME_DIR" ]
+      in
       let previous =
         List.map (fun key -> (key, Sys.getenv_opt key)) variables
       in
@@ -123,7 +138,15 @@ let () =
           Unix.putenv "HOME" base;
           Unix.putenv "XDG_CONFIG_HOME" (Filename.concat base "xdg-config");
           Unix.putenv "XDG_DATA_HOME" (Filename.concat base "xdg-data");
+          let runtime = Filename.concat base "runtime" in
+          Unix.mkdir runtime 0o700;
+          Unix.putenv "XDG_RUNTIME_DIR" runtime;
           let defaults = C.defaults ~fs () and loaded = C.load ~fs () in
+          let worker_defaults =
+            Eio_unix.run_in_systhread (fun () -> C.defaults ~fs ())
+          in
+          check "native defaults are safe in a worker with a runtime directory"
+            (worker_defaults = defaults);
           check "missing default config agrees with defaults constructor"
             (defaults = loaded && loaded.backend = C.Git);
           check "default loading creates no directories"

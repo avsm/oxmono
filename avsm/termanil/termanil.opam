@@ -7,6 +7,7 @@ authors: ["Anil Madhavapeddy"]
 license: "ISC"
 depends: [
   "dune" {>= "3.21"}
+  "sekrit"
   "ocaml" {>= "5.2.0"}
   "bonsai_term"
   "bonsai_term_components"
@@ -16,6 +17,7 @@ depends: [
   "ppx_jane"
   "sexplib"
   "ppx_sexp_conv"
+  "eioext"
   "eio"
   "eio_main"
   "cmdliner"

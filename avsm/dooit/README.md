@@ -149,10 +149,14 @@ backend = "webdav"
 url = "https://dav.example.net/files/"
 subdir = "personal/dooit"
 username = "your-login"
-password_file = "webdav.password"
+secret = "sekrit:dooit/webdav"
+# Or use password_file = "webdav.password" for an owned mode-0600 file.
 ```
 
-Put the app password on one line in `~/.config/dooit/webdav.password`, then
+Initialize Sekrit with `sekrit init`, then import the password using
+`sekrit put dooit/webdav --file PRIVATE_FILE`. The reference resolves when
+constructing the WebDAV connection. To use a file directly, put the app password
+on one line in `~/.config/dooit/webdav.password`, then
 `chmod 600` that file. Alternatively use `password = "your-app-password"` in
 a configuration owned by you with mode 0600. Configure exactly one form.
 Credentials are omitted from `config show`, reports and synchronized files.
@@ -220,6 +224,22 @@ tasks, without replacing or reopening them. `--new` deliberately creates
 another task. Default capture on two devices chooses the same ID. Different
 initial drafts become a creation conflict with both retained.
 
+## Application library
+
+`Dooit.Client.of_config` binds an existing store to its configured backend.
+`apply` takes an explicit `Local_only` or `Synchronize` policy and returns
+`Applied (note, Local)`, `Applied (note, Pushed)`, or a `Pending` receipt with
+its task ID, revision and operation ID. Pending operations are saved locally.
+Retry the same operation to resume publication. `sync` and its read-only
+preview dispatch to the configured backend. WebDAV requires an injected
+transport factory and currently supports local edits plus explicit sync.
+
+The CLI explicitly chooses local edits. Termanil and `dooit.agent` request
+synchronized writes. The Local backend stays local under either policy.
+`Dooit_agent.of_client` adapts the service to Agentkit without owning backend
+selection. `Store` and `Doc` prevent constructing unvalidated handles and
+notes. Store transaction tokens expire when their callback finishes.
+
 ## Agent edits and retries
 
 The `dooit.agent` library exposes `dooit_search`, `dooit_get`, `dooit_create`
@@ -241,10 +261,10 @@ Crow discovers the configured store at startup and checks account and room
 permissions around each invocation. Restart Crow after initial setup. Git
 writes synchronize automatically. With `backend = "local"`, writes report
 `sync=local_only`. Crow can read WebDAV-backed local tasks, but rejects writes
-because its WebDAV agent adapter is not implemented. It never silently switches
+because synchronized WebDAV writes are not implemented. It never silently switches
 backends, initializes a store or migrates memory tasks. Dooit holds task state.
 Crow memory holds background context and references. Cron remains for scheduled
-actions and reminders. Termanil reads the same configured local store.
+actions and reminders. Termanil uses the same client for task writes.
 
 For direct revision-checked CLI writes, obtain the revision with
 `dooit task show ID --json`:

@@ -7,8 +7,9 @@
 (package
  (name dooit)
  (synopsis "Editable task notes with WebDAV synchronization and JMAP sources")
- (depends
+ (depends sekrit
+  eioext
   (ocaml (>= 5.1.0))
   eio eio_main console console-eio cmdliner xdge tomlt yamlrw jsont bytesrw frontmatter
-  digestif ptime fetch fetch-curl httpz jmap sqlite3 uunf uucp agentkit
+   digestif ptime fetch fetch-curl httpz jmap sqlite3 uunf uucp agentkit
   (alcotest :with-test)))

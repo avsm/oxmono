@@ -47,10 +47,8 @@ let make ~fetch ~root ~username ~password ~readonly =
   { root; origin; fetch; readonly }
 
 let password path =
-  let p = String.trim (read path) in
-  if p = "" || String.contains p '\n' || String.contains p '\r' then
-    fail "password file must contain one nonempty password";
-  p
+  try Sekrit.read_reference path
+  with Sekrit.Error message -> fail "%s" message
 
 let validate t s =
   if Url.origin (url s) <> t.origin then

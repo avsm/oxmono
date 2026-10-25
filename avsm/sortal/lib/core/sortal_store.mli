@@ -51,7 +51,7 @@ val save : t -> Contact.t -> unit
     revision. Saving that contact fails if it was edited or deleted meanwhile. A
     freshly constructed contact replaces the typed fields of the same handle.
     Retired [X-SORTAL-STORE] properties are removed on save. Concurrent Sortal
-    writers serialize through an advisory store lock. *)
+    writers exclude one another through a nonblocking advisory store lock. *)
 
 val lookup : t -> string -> Contact.t option
 (** [lookup t handle] is the contact with [handle], or [None] if absent. Corrupt
@@ -59,6 +59,20 @@ val lookup : t -> string -> Contact.t option
 
 val delete : t -> string -> unit
 (** [delete t handle] removes the card for [handle], if present. *)
+
+module Transaction : sig
+  type t
+  val save : t -> Contact.t -> unit
+  val delete : t -> string -> unit
+  val update_contact : t -> string -> (Contact.t -> Contact.t) -> (unit, string) result
+  val set_account : t -> string -> Contact.Account.t -> (unit, string) result
+  val unset_account : t -> string -> Contact.Platform.id -> (unit, string) result
+end
+
+val with_transaction : t -> (Transaction.t -> 'a) -> 'a
+(** [with_transaction store f] holds the store lock throughout [f], including
+    any Git commit. Transaction operations reject tokens retained after [f]
+    returns. Contention fails without blocking the Eio scheduler. *)
 
 (** {1 Contact Modification} *)
 

@@ -8,10 +8,10 @@
 (package
  (name termanil)
  (synopsis "Bonsai terminal workspace for JMAP mail, Sortal contacts and Dooit")
- (depends
+ (depends sekrit
   (ocaml (>= 5.2.0))
   bonsai_term bonsai_term_components bonsai core async ppx_jane sexplib ppx_sexp_conv
-  eio eio_main cmdliner xdge tomlt dooit sortal jmap
+  eioext eio eio_main cmdliner xdge tomlt dooit sortal jmap
   fetch fetch-curl jsont ptime markup uutf uunf uucp duration
   (bonsai_term_test :with-test)
   (bonsai_test :with-test)))

@@ -1,8 +1,23 @@
 (* Copyright (c) 2026 Anil Madhavapeddy. SPDX-License-Identifier: ISC *)
 module C = Dooit.Common
-module D = Dooit.Config
+module Fields = Tomlt.Fields
+
+let field f = try f () with Fields.Invalid message -> C.fail "%s" message
+let known keys table = field (fun () -> Fields.known keys table)
+let text key table = field (fun () -> Fields.string_opt key table)
+let required key table = field (fun () -> Fields.required_string key table)
+let nonempty key value = field (fun () -> Fields.nonempty key value)
+
 module T = Tomlt.Toml
 module U = Fetch.Middleware.Url
+
+let secret_reference ~base value =
+  try
+    let reference = Sekrit.Reference.of_string value in
+    match Sekrit.Reference.source reference with
+    | `Named _ -> Sekrit.Reference.to_string reference
+    | `File path -> Xdge.Paths.expand ~base path
+  with Sekrit.Error message -> C.fail "%s" message
 
 let parse_url s =
   if String.contains s '?' || String.contains s '#' then
@@ -41,12 +56,12 @@ let parse ~path raw =
     | Ok t -> t
     | Error _ -> C.fail "invalid TOML in %s" path
   in
-  D.known [ "mail"; "contacts"; "dooit" ] table;
+  known [ "mail"; "contacts"; "dooit" ] table;
   let section key allowed =
     match T.find_opt key table with
     | None -> T.table []
     | Some t ->
-        D.known allowed t;
+        known allowed t;
         t
   in
   let mail =
@@ -59,18 +74,19 @@ let parse ~path raw =
   let tasks = section "dooit" [ "config"; "root"; "capture_tags" ] in
   let path_value key t =
     Option.map
-      (fun p -> D.expand ~base:(Filename.dirname path) (D.nonempty key p))
-      (D.text key t)
+      (fun p ->
+        Xdge.Paths.expand ~base:(Filename.dirname path) (nonempty key p))
+      (text key t)
   in
   let carddav =
     Option.map
       (fun t ->
-        D.known [ "url"; "collection"; "username"; "password_file" ] t;
-        let url = D.required "url" t in
+        known [ "url"; "collection"; "username"; "password_file" ] t;
+        let url = required "url" t in
         ignore (parse_url url);
         if String.contains url '?' then
           C.fail "CardDAV URL cannot contain a query";
-        let collection = D.text "collection" t in
+        let collection = text "collection" t in
         Option.iter
           (fun c ->
             let module U = Fetch.Middleware.Url in
@@ -80,10 +96,10 @@ let parse ~path raw =
         {
           url;
           collection;
-          username = D.required "username" t;
+          username = required "username" t;
           password_file =
-            D.expand ~base:(Filename.dirname path)
-              (D.required "password_file" t);
+            secret_reference ~base:(Filename.dirname path)
+              (required "password_file" t);
         })
       (T.find_opt "carddav" contacts)
   in
@@ -109,11 +125,11 @@ let parse ~path raw =
     path;
     demo_root = None;
     draft_root = path_value "draft_root" mail;
-    identity = D.text "identity" mail;
-    signature = D.text "signature" mail;
-    profile = D.text "profile" mail;
-    account = D.text "account" mail;
-    service = Option.map Dooit.Link.service (D.text "service" mail);
+    identity = text "identity" mail;
+    signature = text "signature" mail;
+    profile = text "profile" mail;
+    account = text "account" mail;
+    service = Option.map Dooit.Link.service (text "service" mail);
     sortal_root = path_value "sortal_root" contacts;
     vcard_root = path_value "vcard_root" contacts;
     carddav;
@@ -122,20 +138,17 @@ let parse ~path raw =
     capture_tags;
   }
 
-let config_path ?path env =
+let config_path ?path () =
   match path with
-  | Some p -> D.expand ~base:(Sys.getcwd ()) p
-  | None ->
-      let x = Xdge.create ~create_dirs:false env#fs "termanil" in
-      Eio.Path.(native_exn (Xdge.config_dir x / "config.toml"))
+  | Some path -> Xdge.Paths.expand ~base:(Sys.getcwd ()) path
+  | None -> Filename.concat (Xdge.Paths.config_dir "termanil") "config.toml"
 
 let load ?path () =
-  Eio_main.run (fun env ->
-      let explicit = Option.is_some path in
-      let path = config_path ?path env in
-      if C.exists path then parse ~path (C.read ~limit:65536 path)
-      else if explicit then C.fail "config does not exist: %s" path
-      else parse ~path "")
+  let explicit = Option.is_some path in
+  let path = config_path ?path () in
+  if C.exists path then parse ~path (C.read ~limit:65536 path)
+  else if explicit then C.fail "config does not exist: %s" path
+  else parse ~path ""
 
 let example =
   {|# Credentials use the shared JMAP profile store. See termanil/README.md.
@@ -165,23 +178,20 @@ capture_tags = ["inbox"]
 |}
 
 let init ?path () =
-  Eio_main.run (fun env ->
-      let path = config_path ?path env in
-      C.mkdir (Filename.dirname path);
-      C.create_file path example;
-      path)
+  let path = config_path ?path () in
+  C.mkdir (Filename.dirname path);
+  C.create_file path example;
+  path
 
-let data_path name =
-  Eio_main.run (fun env ->
-      let x = Xdge.create ~create_dirs:false env#fs "termanil" in
-      Eio.Path.(native_exn (Xdge.data_dir x / name)))
+let data_path name = Filename.concat (Xdge.Paths.data_dir "termanil") name
 
-let replies t = Option.value t.draft_root ~default:(data_path "replies")
+let replies t =
+  match t.draft_root with Some root -> root | None -> data_path "replies"
 
 let demo ?root () =
   let root =
     match root with
-    | Some p -> D.expand ~base:(Sys.getcwd ()) p
+    | Some p -> Xdge.Paths.expand ~base:(Sys.getcwd ()) p
     | None -> data_path "demo"
   in
   let rec canonical p =

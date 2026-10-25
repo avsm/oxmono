@@ -222,10 +222,12 @@ let editor store id =
       get_ok (Merge.run ~base:original ~local:edited ~remote:current)
     in
     let result =
-      Store.apply store ~id
+      Client.apply (Client.local store) ~policy:Local_only
+        ~check:Eio.Fiber.check ~id
         ~expected:(Some (Doc.revision current))
         ~operation:(new_uuid ()) ~payload:edited.raw
         (fun _ -> merged)
+      |> Client.saved
     in
     Unix.unlink path;
     result
@@ -443,8 +445,11 @@ let commands environment =
                        ])
                 in
                 let d =
-                  Store.apply store ~id ~expected:None ~operation ~payload
-                    (fun _ -> Doc.create ~id ~title ~tags ~body ?due ())
+                  Client.apply (Client.local store) ~policy:Local_only
+                    ~check:Eio.Fiber.check ~id ~expected:None ~operation
+                    ~payload (fun _ ->
+                      Doc.create ~id ~title ~tags ~body ?due ())
+                  |> Client.saved
                 in
                 output json d))
         $ ctx $ pos 0 "TITLE" $ tags
@@ -530,10 +535,14 @@ let commands environment =
                 let payload = read path in
                 let patch = Common.json payload in
                 let d =
-                  Store.apply (open_store c) ~id ~expected ~operation ~payload
+                  Client.apply
+                    (Client.local (store c))
+                    ~policy:Local_only ~check:Eio.Fiber.check ~id ~expected
+                    ~operation ~payload
                     (function
-                    | Some n -> Doc.patch n patch
-                    | None -> fail "task does not exist")
+                      | Some n -> Doc.patch n patch
+                      | None -> fail "task does not exist")
+                  |> Client.saved
                 in
                 output json d))
         $ ctx $ pos 0 "ID" $ expected_arg
@@ -545,7 +554,12 @@ let commands environment =
     command name doc
       Term.(
         const (fun c id json ->
-            guard (fun () -> output json (Store.modify (open_store c) id f)))
+            guard (fun () ->
+                output json
+                  (Client.modify
+                     (Client.local (store c))
+                     ~policy:Local_only id f
+                  |> Client.saved)))
         $ ctx $ pos 0 "ID" $ json_arg)
   in
   let done_ =
@@ -614,8 +628,11 @@ let commands environment =
                     ]
                 in
                 output json
-                  (Store.modify (open_store c) id (fun note ->
-                       Doc.patch note patch))))
+                  (Client.modify
+                     (Client.local (store c))
+                     ~policy:Local_only id
+                     (fun note -> Doc.patch note patch)
+                  |> Client.saved)))
         $ ctx $ pos 0 "ID"
         $ opt [ "title" ] "New task title."
         $ opt [ "status" ]
@@ -632,7 +649,12 @@ let commands environment =
       Term.(
         const (fun c path json ->
             guard (fun () ->
-                output json (Store.add (open_store c) (Doc.parse (read path)))))
+                output json
+                  (Client.add
+                     (Client.local (store c))
+                     ~policy:Local_only
+                     (Doc.parse (read path))
+                  |> Client.saved)))
         $ ctx $ pos 0 "PATH" $ json_arg)
   in
   let from_email =
@@ -675,9 +697,11 @@ let commands environment =
                 in
                 let body = Option.fold ~none:"" ~some:read body_file in
                 outputs json
-                  (Link.capture ~new_task ~tags ~body ~hints
+                  (Client.capture ~new_task ~tags ~body ~hints
                      ~title:(Option.value title ~default:subject)
-                     (open_store c) target)))
+                     ~policy:Local_only
+                     (Client.local (store c))
+                     target)))
         $ ctx $ pos 0 "EMAIL_ID" $ profile_arg $ account_arg $ service_arg
         $ title_arg $ tags
         $ opt [ "body-file" ] "Markdown body or selected email excerpt."
@@ -746,16 +770,29 @@ let commands environment =
                     (Option.value body ~default:"")))
         $ ctx $ pos 0 "ID" $ profile_arg $ json_arg)
   in
-  let webdav_sync c ~dry ~report ~json =
+  let with_client c f =
     Eio.Switch.run (fun sw ->
-        let r = remote ~sw c ~readonly:dry in
-        let actions = Sync.run ?report ~dry_run:dry (store c) r in
+        let client =
+          Client.of_config ~process_mgr ~remote:(remote ~sw c) (store c) c
+        in
+        f client)
+  in
+  let show_sync c ~json = function
+    | Client.Webdav_synced actions ->
         sync_output json actions;
         if
           List.exists
             (fun a -> a.Sync.kind = "conflict" || a.kind = "invalid")
             actions
-        then fail "some tasks need review; see dooit maintenance conflicts")
+        then fail "some tasks need review; see dooit maintenance conflicts"
+    | result_ ->
+        result c ~action:"sync" ~json
+          (String.concat "\n" (Client.sync_lines result_))
+  in
+  let webdav_sync c ~dry ~report ~json =
+    ignore (Config.require_webdav c);
+    with_client c (fun client ->
+        show_sync c ~json (Client.sync ?report ~dry_run:dry client))
   in
   let sync =
     command "sync"
@@ -764,17 +801,8 @@ let commands environment =
       Term.(
         const (fun c json ->
             guard (fun () ->
-                match c.Config.backend with
-                | Config.Git ->
-                    let local, git = prepare_git c in
-                    result c ~action:"sync" ~json
-                      (Git.sync ~process_mgr local git)
-                | Config.Webdav -> webdav_sync c ~dry:false ~report:None ~json
-                | Config.Local ->
-                    ignore (store c);
-                    result c ~action:"sync" ~json
-                      "Local backend: tasks are saved locally; no remote to \
-                       synchronize."))
+                with_client c (fun client ->
+                    show_sync c ~json (Client.sync ~dry_run:false client))))
         $ ctx $ json_arg)
   in
   let preview =

@@ -11,28 +11,17 @@ type request = {
   change : D.t option -> D.t;
 }
 
-type t = {
-  store : S.t;
-  max_bytes : int;
-  apply : check:(unit -> unit) -> request -> D.t;
-}
+type t = { store : S.t; max_bytes : int; client : Dooit.Client.t }
 
-let make ~store ~max_bytes ~apply =
+let of_client ~max_bytes client =
   if max_bytes < 1024 then invalid_arg "Dooit tool budget must be at least 1024";
-  { store; max_bytes; apply }
+  { store = Dooit.Client.store client; max_bytes; client }
 
 let create ~process_mgr ~git ~store ~max_bytes =
-  make ~store ~max_bytes ~apply:(fun ~check request ->
-      Dooit.Git.apply ~process_mgr ~check store git ~id:request.id
-        ~expected:request.expected ~operation:request.operation
-        ~payload:request.payload request.change)
+  of_client ~max_bytes (Dooit.Client.git ~process_mgr store git)
 
 let create_local ~store ~max_bytes =
-  make ~store ~max_bytes ~apply:(fun ~check request ->
-      check ();
-      Eio_unix.run_in_systhread (fun () ->
-          S.apply store ~id:request.id ~expected:request.expected
-            ~operation:request.operation ~payload:request.payload request.change))
+  of_client ~max_bytes (Dooit.Client.local store)
 
 let names = [ "dooit_search"; "dooit_get"; "dooit_create"; "dooit_update" ]
 let is_tool name = List.mem name names
@@ -285,20 +274,23 @@ let invoke t ~check ~operation name arguments =
         (match prepared with
         | `Read result -> result
         | `Write request ->
-            let note = t.apply ~check:checked request in
-            bounded t (write_result note))
+            let outcome =
+              Dooit.Client.apply t.client ~policy:Synchronize ~check:checked
+                ~id:request.id ~expected:request.expected
+                ~operation:request.operation ~payload:request.payload
+                request.change
+            in
+            let note = Dooit.Client.saved outcome in
+            let publication =
+              match outcome with
+              | Applied (_, Local) -> "local_only"
+              | Applied (_, Pushed) -> "pushed"
+              | Pending _ -> assert false
+            in
+            bounded t (set "sync" (str publication) (write_result note)))
     with
     | Authority_failed (ex, backtrace) ->
         Printexc.raise_with_backtrace ex backtrace
-    | Dooit.Git.Pending pending ->
-        Error
-          (Printf.sprintf
-             "Task %s saved locally at revision %s, but its Git push is not \
-              confirmed. Do not create a duplicate. Read this task and report \
-              the synchronization failure. A host retry of operation %s can \
-              resume synchronization: %s"
-             pending.id pending.revision pending.operation
-             (clip 128 pending.message))
     | C.Error error | Invalid_argument error | Failure error ->
         Error (clip 512 error)
     | Unix.Unix_error (error, _, _) -> Error (Unix.error_message error)

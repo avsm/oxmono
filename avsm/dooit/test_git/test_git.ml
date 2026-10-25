@@ -541,12 +541,84 @@ let full_sync () =
             && (not (exists (Filename.concat c.root ".git/MERGE_HEAD")))
             && not (Git.status ~process_mgr c config).dirty)))
 
+let oversized_blob () =
+  let base = Filename.temp_file "dooit-git-large-" "" in
+  Unix.unlink base;
+  mkdir base;
+  let old_trace = Option.value (Sys.getenv_opt "GIT_TRACE") ~default:"" in
+  Fun.protect
+    ~finally:(fun () ->
+      Unix.putenv "GIT_TRACE" old_trace;
+      remove_tree base)
+    (fun () ->
+      Eio_main.run (fun env ->
+          let process_mgr = Eio.Stdenv.process_mgr env in
+          let source = Store.init (Filename.concat base "source") in
+          let git args =
+            Eio.Process.run process_mgr ([ "git"; "-C"; source.root ] @ args)
+          in
+          git [ "init"; "--initial-branch=main" ];
+          git [ "config"; "user.name"; "Test" ];
+          git [ "config"; "user.email"; "test@example.invalid" ];
+          atomic_write
+            (Store.note_path source id)
+            (String.make (2 * 1024 * 1024) 'x');
+          git [ "add"; "store.json"; "notes" ];
+          git [ "commit"; "-m"; "Oversized external note" ];
+          let trace = Filename.concat base "trace" in
+          Unix.putenv "GIT_TRACE" trace;
+          refuses (fun () ->
+              Git.clone ~process_mgr
+                ~root:(Filename.concat base "clone")
+                { remote = source.root; branch = "main" });
+          let trace = read trace in
+          let contains needle =
+            let rec loop i =
+              i + String.length needle <= String.length trace
+              && (String.sub trace i (String.length needle) = needle
+                 || loop (i + 1))
+            in
+            loop 0
+          in
+          check "preflight checks blob sizes"
+            (contains "cat-file --batch-check");
+          check "oversized blob body is never requested"
+            (not (contains "cat-file --batch\n"))))
+
+let failure_redaction () =
+  let base = Filename.temp_dir "dooit-git-redaction-" "" in
+  let old_path = Option.value (Sys.getenv_opt "PATH") ~default:"" in
+  Fun.protect
+    ~finally:(fun () ->
+      Unix.putenv "PATH" old_path;
+      remove_tree base)
+    (fun () ->
+      let executable = Filename.concat base "git" in
+      let secret = "FIXTURE-CREDENTIAL-MUST-NOT-LEAK" in
+      atomic_write executable
+        ("#!/bin/sh\nprintf '%s\\n' " ^ secret ^ "\nprintf '%s\\n' " ^ secret
+       ^ " >&2\nexit 17\n");
+      Unix.chmod executable 0o700;
+      Unix.putenv "PATH" base;
+      Eio_main.run (fun env ->
+          let process_mgr = Eio.Stdenv.process_mgr env in
+          let store = Store.init (Filename.concat base "store") in
+          match Git.setup ~process_mgr store Git.default with
+          | _ -> Alcotest.fail "failing Git unexpectedly succeeded"
+          | exception Error message ->
+              check "only status is included in failure"
+                (message = "Git check-ref-format failed: exit status 17")))
+
 let () =
   Alcotest.run "Dooit Git"
     [
       ( "local repositories",
         [
           Alcotest.test_case "safe synchronization" `Quick test;
+          Alcotest.test_case "Git diagnostics redact helper output" `Quick
+            failure_redaction;
+          Alcotest.test_case "oversized blobs are checked before reading" `Quick
+            oversized_blob;
           Alcotest.test_case "cancellation releases children and lock" `Quick
             cancellation;
           Alcotest.test_case "write sync and operation retry" `Quick apply_retry;

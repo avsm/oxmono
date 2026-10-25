@@ -1,5 +1,10 @@
 type t
 
+val of_client : max_bytes:int -> Dooit.Client.t -> t
+(** [of_client ~max_bytes client] exposes the backend-aware client as tools.
+    Writes request synchronization and report local-only or pushed outcomes.
+    WebDAV writes are refused before mutation. *)
+
 val create :
   process_mgr:_ Eio_unix.Process.mgr ->
   git:Dooit.Git.config ->

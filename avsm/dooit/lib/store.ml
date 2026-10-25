@@ -44,42 +44,20 @@ let init ?id root =
     create_file path (json_string (metadata id) ^ "\n");
     t)
 
-let lock_registry = Mutex.create ()
-let process_locks = Hashtbl.create 8
-
-let process_lock root =
-  Mutex.lock lock_registry;
-  Fun.protect
-    ~finally:(fun () -> Mutex.unlock lock_registry)
-    (fun () ->
-      match Hashtbl.find_opt process_locks root with
-      | Some lock -> lock
-      | None ->
-          let lock = Mutex.create () in
-          Hashtbl.add process_locks root lock;
-          lock)
-
-let with_file_lock t f =
-  ensure_state t;
-  let path = state_path t "lock" in
-  if exists path then regular path;
-  let fd =
-    Unix.openfile path [ Unix.O_RDWR; Unix.O_CREAT; Unix.O_CLOEXEC ] 0o600
-  in
-  Fun.protect
-    ~finally:(fun () -> Unix.close fd)
-    (fun () ->
-      Unix.lockf fd Unix.F_TLOCK 0;
-      Fun.protect ~finally:(fun () -> Unix.lockf fd Unix.F_ULOCK 0) f)
-
 let with_lock t f =
-  (* POSIX locks belong to the process, not the thread. Do not block the Eio
-     domain if another fiber holds the lock while awaiting a subprocess. *)
-  let lock = process_lock t.root in
-  if not (Mutex.try_lock lock) then fail "store is busy: %s" t.root;
-  Fun.protect
-    ~finally:(fun () -> Mutex.unlock lock)
-    (fun () -> with_file_lock t f)
+  ensure_state t;
+  try Eioext.Native.with_lock ~path:(state_path t "lock") f with
+  | Eioext.Native.Busy _ -> fail "store is busy: %s" t.root
+  | Eioext.Native.Error message -> fail "%s" message
+
+type transaction = { store : t; mutable active : bool }
+
+let with_transaction store f =
+  with_lock store (fun () ->
+      let transaction = { store; active = true } in
+      Fun.protect
+        ~finally:(fun () -> transaction.active <- false)
+        (fun () -> f transaction))
 
 let object_path t hash =
   if
@@ -199,6 +177,10 @@ let apply_locked t ~id ~expected ~operation ~payload change =
       save_state t "operations.json"
         (set operation (set "phase" (str "done") op) ops);
       candidate
+
+let apply_transaction transaction ~id ~expected ~operation ~payload change =
+  if not transaction.active then invalid_arg "expired Dooit transaction";
+  apply_locked transaction.store ~id ~expected ~operation ~payload change
 
 let apply t ~id ~expected ~operation ~payload change =
   with_lock t (fun () ->

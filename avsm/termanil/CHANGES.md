@@ -1,5 +1,8 @@
 # Changes
 
+- Pull before task edits and immediately commit and push with the Git backend.
+  Share backend policy, private-file writes and draft locking with the libraries.
+
 - Synchronize tasks through the selected Dooit backend, including Git and
   explicit local-only storage.
 

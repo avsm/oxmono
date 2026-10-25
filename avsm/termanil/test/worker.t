@@ -10,7 +10,7 @@ Use a temporary local configuration and no network settings.
   > root = "tasks"
   > EOF
   $ printf '(termanil/v4 Tasks)\n' | ../bin/termanil_worker.exe --config config.toml
-  (termanil/v4(ok(Tasks_loaded()("Store not initialized. Capture mail or run dooit init."))))
+  (termanil/v4(ok(Tasks_loaded()("Store not initialized. Run dooit init."))))
   $ test ! -e tasks
 
 The worker validates its protocol before loading credentials.

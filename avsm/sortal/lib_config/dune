@@ -1,4 +1,4 @@
 (library
  (name sortal_config)
  (public_name sortal.config)
- (libraries tomlt tomlt.bytesrw unix fmt gitops))
+ (libraries xdge tomlt tomlt.bytesrw unix fmt gitops))

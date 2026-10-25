@@ -6,4 +6,9 @@
 (test
  (name test_config)
  (modules test_config)
+ (libraries dooit eio_main sekrit))
+
+(test
+ (name test_client)
+ (modules test_client)
  (libraries dooit eio_main))

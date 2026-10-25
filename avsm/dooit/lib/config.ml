@@ -3,7 +3,11 @@ open Common
 module T = Tomlt.Toml
 module Url = Fetch.Middleware.Url
 
-type secret = File of string | Inline of string
+type secret =
+  | File of string
+  | Inline of string
+  | Reference of Sekrit.Reference.t
+
 type backend = Git | Webdav | Local
 
 let backend_name = function
@@ -30,39 +34,15 @@ type t = {
   jmap_service : string option;
 }
 
-let expand ~base p =
-  let p =
-    if String.starts_with ~prefix:"~/" p then
-      Filename.concat
-        (Option.value (Sys.getenv_opt "HOME")
-           ~default:(Unix.getpwuid (Unix.getuid ())).pw_dir)
-        (String.sub p 2 (String.length p - 2))
-    else p
-  in
-  if Filename.is_relative p then Filename.concat base p else p
+let expand = Xdge.Paths.expand
+let field f = try f () with Tomlt.Fields.Invalid message -> fail "%s" message
+let nonempty key value = field (fun () -> Tomlt.Fields.nonempty key value)
+let text key table = field (fun () -> Tomlt.Fields.string_opt key table)
 
-let nonempty key s =
-  if String.trim s = "" then fail "%s must not be empty" key;
-  s
+let required key table =
+  field (fun () -> Tomlt.Fields.required_string key table)
 
-let text key table =
-  match T.find_opt key table with
-  | None -> None
-  | Some v -> (
-      match T.to_string_opt v with
-      | Some s -> Some s
-      | None -> fail "config %s must be a string" key)
-
-let required k t =
-  match text k t with
-  | Some s -> nonempty k s
-  | None -> fail "missing config %s" k
-
-let known allowed t =
-  if not (T.is_table t) then fail "expected a TOML table";
-  List.iter
-    (fun k -> if not (List.mem k allowed) then fail "unknown config key: %s" k)
-    (T.keys t)
+let known keys table = field (fun () -> Tomlt.Fields.known keys table)
 
 let collection ~url ~subdir =
   if String.contains url '?' || String.contains url '#' then
@@ -128,18 +108,32 @@ let parse ~path ~default_root raw =
   let webdav =
     Option.map
       (fun w ->
-        known [ "url"; "subdir"; "username"; "password_file"; "password" ] w;
+        known
+          [ "url"; "subdir"; "username"; "password_file"; "password"; "secret" ]
+          w;
         let url = required "url" w
         and subdir = required "subdir" w
         and username = required "username" w in
         let secret =
-          match (text "password_file" w, text "password" w) with
-          | Some p, None -> File (expand ~base (nonempty "password_file" p))
-          | None, Some s -> Inline (nonempty "password" s)
+          match
+            (text "password_file" w, text "password" w, text "secret" w)
+          with
+          | Some p, None, None ->
+              File (expand ~base (nonempty "password_file" p))
+          | None, Some s, None -> Inline (nonempty "password" s)
+          | None, None, Some reference ->
+              let reference =
+                try Sekrit.Reference.of_string reference
+                with Sekrit.Error message -> fail "%s" message
+              in
+              Reference
+                (match Sekrit.Reference.source reference with
+                | `Named _ -> reference
+                | `File p -> Sekrit.Reference.file (expand ~base p))
           | _ ->
               fail
-                "configure exactly one of webdav.password_file or \
-                 webdav.password"
+                "configure exactly one of webdav.secret, webdav.password_file \
+                 or webdav.password"
         in
         { url; subdir; collection = collection ~url ~subdir; username; secret })
       (T.find_opt "webdav" t)
@@ -190,15 +184,17 @@ let private_file p =
 let defaults ~fs ?path ?root ?(backend = Git) () =
   if backend = Webdav then
     fail "configure [webdav] credentials in a config file before initializing";
-  let xdg = Xdge.create ~create_dirs:false fs "dooit" in
   let base = Sys.getcwd () in
   let path =
     Option.value path
-      ~default:Eio.Path.(native_exn (Xdge.config_dir xdg / "config.toml"))
+      ~default:
+        Eio.Path.(
+          native_exn (fs / Xdge.Paths.config_dir "dooit" / "config.toml"))
     |> nonempty "config path" |> expand ~base
   in
   let root =
-    Option.value root ~default:(Eio.Path.native_exn (Xdge.data_dir xdg))
+    Option.value root
+      ~default:Eio.Path.(native_exn (fs / Xdge.Paths.data_dir "dooit"))
     |> nonempty "root" |> expand ~base
   in
   {
@@ -246,6 +242,8 @@ let save_new c =
           ^
           match w.secret with
           | Inline password -> line "password" password
+          | Reference reference ->
+              line "secret" (Sekrit.Reference.to_string reference)
           | File file ->
               line "password_file" (expand ~base:(Filename.dirname path) file)))
     ^
@@ -268,17 +266,11 @@ let password w =
   let s =
     match w.secret with
     | Inline s -> s
-    | File p ->
-        private_file p;
-        let s = read ~limit:65536 p in
-        let s =
-          if String.ends_with ~suffix:"\n" s then
-            String.sub s 0 (String.length s - 1)
-          else s
-        in
-        if String.ends_with ~suffix:"\r" s then
-          String.sub s 0 (String.length s - 1)
-        else s
+    | File p -> (
+        try Sekrit.read_file p with Sekrit.Error message -> fail "%s" message)
+    | Reference reference -> (
+        try Sekrit.read_reference (Sekrit.Reference.to_string reference)
+        with Sekrit.Error message -> fail "%s" message)
   in
   if s = "" || String.exists (fun c -> Char.code c < 32 || Char.code c > 126) s
   then fail "app password must be one nonempty line of printable ASCII";

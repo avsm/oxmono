@@ -20,8 +20,9 @@
    - sortal: Core library with storage, git integration, and CLI support
    - sortal.carddav: Lossless vCard export and conservative CardDAV sync
    - sortal.web: The local web UI, as a proffer site")
- (depends
+ (depends sekrit
   (ocaml (>= 5.1.0))
+  eioext
   eio
   eio_main
   xdge

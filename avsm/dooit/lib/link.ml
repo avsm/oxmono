@@ -63,13 +63,13 @@ let matches target note =
       field "type" l = "jmap-email" && key (get "target" l) = key target)
     (items "links" note.Doc.meta)
 
-let capture ?(new_task = false) ?(tags = []) ?(body = "") ?due ?(hints = obj [])
-    ~title store target =
+let prepare_capture ?(new_task = false) ?(tags = []) ?(body = "") ?due
+    ?(hints = obj []) ~title store target =
   let notes, errors = Store.scan store in
   if errors <> [] then
     fail "repair invalid notes before email capture can check for duplicates";
   let found = List.filter (matches target) notes in
-  if found <> [] && not new_task then found
+  if found <> [] && not new_task then `Existing found
   else
     let id =
       if new_task then new_uuid () else uuid5 store.Store.id (key target)
@@ -77,10 +77,19 @@ let capture ?(new_task = false) ?(tags = []) ?(body = "") ?due ?(hints = obj [])
     let doc =
       Doc.create ~id ~title ~tags ~body ?due ~links:[ source ~hints target ] ()
     in
-    try [ Store.add store doc ]
-    with Error _ as exn ->
-      (* A concurrent local capture may have won conditional creation. *)
-      if (not new_task) && exists (Store.note_path store id) then
-        let current = Store.get store id in
-        if matches target current then [ current ] else raise exn
-      else raise exn
+    `Create doc
+
+let capture ?(new_task = false) ?tags ?body ?due ?hints ~title store target =
+  match
+    prepare_capture ~new_task ?tags ?body ?due ?hints ~title store target
+  with
+  | `Existing found -> found
+  | `Create doc -> (
+      try [ Store.add store doc ]
+      with Error _ as exn ->
+        (* A concurrent local capture may have won conditional creation. *)
+        let id = Doc.id doc in
+        if (not new_task) && exists (Store.note_path store id) then
+          let current = Store.get store id in
+          if matches target current then [ current ] else raise exn
+        else raise exn)

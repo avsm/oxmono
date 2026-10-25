@@ -2,6 +2,7 @@
  (public_name sortal)
  (name sortal)
  (libraries
+  eioext
   sortal.schema
   sortal.carddav
   immich

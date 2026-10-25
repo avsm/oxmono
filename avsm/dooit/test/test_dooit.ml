@@ -226,6 +226,27 @@ let tree path =
 
 let tests environment =
   [
+    ( "WebDAV sync excludes concurrent fibers across network I/O",
+      fun () ->
+        temp (fun root ->
+            let store, server, note = seeded root in
+            ignore (Store.modify store (Doc.id note) (set_title "Updated"));
+            let entered, enter = Eio.Promise.create ()
+            and released, release = Eio.Promise.create () in
+            server.before_put <-
+              (fun path ->
+                if path = note_path note then (
+                  Eio.Promise.resolve enter ();
+                  Eio.Promise.await released));
+            Eio.Time.with_timeout_exn environment#clock 5. (fun () ->
+                Eio.Fiber.both
+                  (fun () -> no_conflict (sync store server))
+                  (fun () ->
+                    Eio.Promise.await entered;
+                    refuses (fun () -> sync store server);
+                    Eio.Promise.resolve release ()));
+            eq "first synchronization completes" "Updated"
+              (Doc.title (remote_note server note))) );
     ( "note preservation",
       fun () ->
         let d = set_title "Changed" (original ()) in

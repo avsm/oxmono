@@ -5,86 +5,49 @@ type config = { remote : string; branch : string }
 
 let default = { remote = "fork.recoil.org:git/dooit"; branch = "main" }
 
-let run ~process_mgr root ?(input = "") args =
-  let output = Buffer.create 256 and errors = Buffer.create 256 in
-  let env =
-    Eio.Process.environment process_mgr
-    |> Eio.Process.Env.override
-         (List.map
-            (fun name -> (name, None))
-            [
-              "GIT_DIR";
-              "GIT_WORK_TREE";
-              "GIT_INDEX_FILE";
-              "GIT_COMMON_DIR";
-              "GIT_OBJECT_DIRECTORY";
-              "GIT_ALTERNATE_OBJECT_DIRECTORIES";
-              "GIT_NAMESPACE";
-            ])
-  in
-  let status =
-    Eio.Switch.run (fun sw ->
-        (* A missed SIGCHLD wakeup must not strand the store lock after Git
-           exits. Keep Eio's process reaper responsive without reaping its
-           children ourselves or changing the application's signal handler. *)
-        Eio.Fiber.fork_daemon ~sw (fun () ->
-            let rec poll () =
-              Eio_unix.sleep 0.25;
-              Eio.Condition.broadcast Eio_unix.Process.sigchld;
-              poll ()
-            in
-            poll ());
-        let stdin, writer = Eio_unix.pipe sw in
-        let reader, stdout = Eio_unix.pipe sw in
-        let error_reader, stderr = Eio_unix.pipe sw in
-        let fd = Eio_unix.Resource.fd in
-        let child =
-          Eio.Cancel.protect (fun () ->
-              Eio_unix.Process.spawn_unix ~sw process_mgr ~env ~pgid:0
-                ~fds:
-                  [
-                    (0, fd stdin, `Blocking);
-                    (1, fd stdout, `Blocking);
-                    (2, fd stderr, `Blocking);
-                  ]
-                ([
-                   "git";
-                   "--no-replace-objects";
-                   "--no-optional-locks";
-                   "-C";
-                   root;
-                   "-c";
-                   "core.hooksPath=/dev/null";
-                   "-c";
-                   "commit.gpgSign=false";
-                   "-c";
-                   "protocol.ext.allow=never";
-                 ]
-                @ args))
-        in
-        let completed = ref false in
-        Fun.protect
-          ~finally:(fun () ->
-            if not !completed then
-              try Unix.kill (-Eio.Process.pid child) Sys.sigkill
-              with Unix.Unix_error ((Unix.ESRCH | Unix.EPERM), _, _) -> ())
-          (fun () ->
-            Eio.Flow.close stdin;
-            Eio.Flow.close stdout;
-            Eio.Flow.close stderr;
-            Eio.Fiber.fork ~sw (fun () ->
-                Fun.protect
-                  ~finally:(fun () -> Eio.Flow.close writer)
-                  (fun () -> Eio.Flow.copy_string input writer));
-            Eio.Fiber.fork ~sw (fun () ->
-                Eio.Flow.copy reader (Eio.Flow.buffer_sink output));
-            Eio.Fiber.fork ~sw (fun () ->
-                Eio.Flow.copy error_reader (Eio.Flow.buffer_sink errors));
-            let status = Eio.Process.await child in
-            completed := true;
-            status))
-  in
-  (status, Buffer.contents output, String.trim (Buffer.contents errors))
+let environment process_mgr =
+  Eio.Process.environment process_mgr
+  |> Eio.Process.Env.override
+       (List.map
+          (fun name -> (name, None))
+          [
+            "GIT_DIR";
+            "GIT_WORK_TREE";
+            "GIT_INDEX_FILE";
+            "GIT_COMMON_DIR";
+            "GIT_OBJECT_DIRECTORY";
+            "GIT_ALTERNATE_OBJECT_DIRECTORIES";
+            "GIT_NAMESPACE";
+          ])
+
+let arguments root args =
+  [
+    "git";
+    "--no-replace-objects";
+    "--no-optional-locks";
+    "-C";
+    root;
+    "-c";
+    "core.hooksPath=/dev/null";
+    "-c";
+    "commit.gpgSign=false";
+    "-c";
+    "protocol.ext.allow=never";
+  ]
+  @ args
+
+let status_message = function
+  | `Exited code -> Printf.sprintf "exit status %d" code
+  | `Signaled signal -> Printf.sprintf "signal %d" signal
+
+let run ~process_mgr root ?input args =
+  try
+    let result =
+      Eioext.Process.capture ~process_mgr ~env:(environment process_mgr) ?input
+        (arguments root args)
+    in
+    (result.status, result.stdout, status_message result.status)
+  with Eioext.Process.Output_limit _ -> fail "Git output exceeds size limit"
 
 let command ~process_mgr root ?input args =
   match run ~process_mgr root ?input args with
@@ -248,61 +211,86 @@ let validate_tree ~process_mgr root ?id ?(against = []) ?(history = true)
   let objects = List.sort_uniq compare (List.concat (entries :: parents)) in
   if not (List.mem_assoc "store.json" entries) then
     fail "remote has no Dooit store metadata";
-  let raw =
-    command ~process_mgr root
-      ~input:(String.concat "" (List.map (fun (_, oid) -> oid ^ "\n") objects))
-      [ "cat-file"; "--batch" ]
+  let input =
+    String.concat "" (List.map (fun (_, oid) -> oid ^ "\n") objects)
   in
-  Eio_unix.run_in_systhread (fun () ->
-      let offset = ref 0 and store_id = ref "" in
-      let notes = Hashtbl.create (List.length objects) in
-      List.iter
-        (fun (name, oid) ->
-          let stop =
-            match String.index_from_opt raw !offset '\n' with
-            | Some stop -> stop
-            | None -> fail "incomplete Git object output"
-          in
-          let header = String.sub raw !offset (stop - !offset) in
-          let size =
-            match String.split_on_char ' ' header with
-            | [ _; "blob"; size ] -> int_of_string size
-            | _ -> fail "invalid Git object header"
-          in
-          if size < 0 || size > 1024 * 1024 || size >= String.length raw - stop
-          then fail "Git note or metadata exceeds size limit";
-          let body = String.sub raw (stop + 1) size in
-          offset := stop + size + 2;
-          if name = "store.json" then (
-            let parsed = Store.parse_metadata body in
-            if !store_id <> "" && !store_id <> parsed then
-              fail "Git synchronization changes store identity";
-            store_id := parsed)
-          else
-            let note = Doc.parse body in
-            if Doc.id note <> String.sub name 6 36 then
-              fail "remote note filename and identity disagree";
-            Hashtbl.replace notes oid note)
-        objects;
-      Option.iter
-        (fun expected ->
-          if expected <> !store_id then
-            fail "remote belongs to a different Dooit store")
-        id;
-      let candidate = Hashtbl.of_seq (List.to_seq entries) in
-      List.iter
-        (List.iter (fun (name, oid) ->
-             match Hashtbl.find_opt candidate name with
-             | None ->
-                 fail
-                   "Git synchronization refuses removed notes; use Dooit \
-                    tombstones"
-             | Some next when name <> "store.json" ->
-                 Doc.immutable (Hashtbl.find notes oid)
-                   (Hashtbl.find notes next)
-             | Some _ -> ()))
-        parents;
-      entries)
+  let header oid value =
+    match String.split_on_char ' ' value with
+    | [ got; "blob"; size ] when got = oid -> (
+        match int_of_string_opt size with
+        | Some size when size >= 0 && size <= 1024 * 1024 -> size
+        | _ -> fail "Git note or metadata exceeds size limit")
+    | _ -> fail "invalid Git object header"
+  in
+  (* Check every size before requesting any body. A fetched tree may contain
+     arbitrarily large blobs even when its filenames are valid. *)
+  let sizes =
+    command ~process_mgr root ~input [ "cat-file"; "--batch-check" ]
+    |> String.split_on_char '\n'
+    |> List.filter (( <> ) "")
+  in
+  if List.length objects <> List.length sizes then
+    fail "incomplete Git object size output";
+  let objects =
+    List.map2
+      (fun (name, oid) value -> (name, oid, header oid value))
+      objects sizes
+  in
+  let store_id = ref "" in
+  let notes = Hashtbl.create (List.length objects) in
+  let immutable = [ "schema"; "id"; "created_at" ] in
+  let status, (), _errors =
+    Eioext.Process.with_stdout ~process_mgr ~env:(environment process_mgr) ~input
+      (arguments root [ "cat-file"; "--batch" ])
+      (fun flow ->
+        let reader =
+          Eio.Buf_read.of_flow ~max_size:((1024 * 1024) + 256) flow
+        in
+        List.iter
+          (fun (name, oid, expected) ->
+            let size = header oid (Eio.Buf_read.line reader) in
+            if size <> expected then fail "Git object size changed";
+            let body = Eio.Buf_read.take size reader in
+            Eio.Buf_read.char '\n' reader;
+            Eio_unix.run_in_systhread (fun () ->
+                if name = "store.json" then (
+                  let parsed = Store.parse_metadata body in
+                  if !store_id <> "" && !store_id <> parsed then
+                    fail "Git synchronization changes store identity";
+                  store_id := parsed)
+                else
+                  let note = Doc.parse body in
+                  if Doc.id note <> String.sub name 6 36 then
+                    fail "remote note filename and identity disagree";
+                  Hashtbl.replace notes oid
+                    (List.map (fun key -> find key note.meta) immutable)))
+          objects;
+        Eio.Buf_read.end_of_input reader)
+  in
+  (match status with
+  | `Exited 0 -> ()
+  | status -> fail "Git cat-file failed: %s" (status_message status));
+  Option.iter
+    (fun expected ->
+      if expected <> !store_id then
+        fail "remote belongs to a different Dooit store")
+    id;
+  let candidate = Hashtbl.of_seq (List.to_seq entries) in
+  List.iter
+    (List.iter (fun (name, oid) ->
+         match Hashtbl.find_opt candidate name with
+         | None ->
+             fail
+               "Git synchronization refuses removed notes; use Dooit tombstones"
+         | Some next when name <> "store.json" ->
+             List.iter2
+               (fun key (before, after) ->
+                 if before <> after then fail "immutable field changed: %s" key)
+               immutable
+               (List.combine (Hashtbl.find notes oid) (Hashtbl.find notes next))
+         | Some _ -> ()))
+    parents;
+  entries
 
 let head ~process_mgr root =
   match run ~process_mgr root [ "rev-parse"; "--verify"; "HEAD" ] with
@@ -636,14 +624,14 @@ let sync ~process_mgr store config =
                      ]
                  with
                 | `Exited 0, _, _ -> ()
-                | _, output, error ->
+                | _, _, error ->
                     fail
                       "synchronization conflict; local changes remain \
                        committed. Run git -C %s merge %s, resolve the \
                        conflicts and commit, then run dooit sync. %s"
                       (Filename.quote root)
                       (Filename.quote ("origin/" ^ config.branch))
-                      (String.trim (output ^ "\n" ^ error)));
+                      error);
                 let candidate =
                   command ~process_mgr root [ "write-tree" ] |> line
                 in
@@ -684,7 +672,7 @@ let apply ~process_mgr ~check store config ~id ~expected ~operation ~payload
     change =
   check_uuid id;
   check_uuid operation;
-  Store.with_lock store (fun () ->
+  Store.with_transaction store (fun transaction ->
       check ();
       let prior =
         Eio_unix.run_in_systhread (fun () ->
@@ -725,8 +713,8 @@ let apply ~process_mgr ~check store config ~id ~expected ~operation ~payload
                 ignore (pull_locked ~check ~process_mgr store config);
                 check ();
                 Eio_unix.run_in_systhread (fun () ->
-                    Store.apply_locked store ~id ~expected ~operation ~payload
-                      change)
+                    Store.apply_transaction transaction ~id ~expected ~operation
+                      ~payload change)
             | Some (op, note) -> (
                 try
                   repo ~process_mgr store config;
@@ -743,8 +731,8 @@ let apply ~process_mgr ~check store config ~id ~expected ~operation ~payload
                         fail
                           "operation note changed after local application; \
                            resolve it before retrying";
-                      Store.apply_locked store ~id ~expected ~operation ~payload
-                        change)
+                      Store.apply_transaction transaction ~id ~expected
+                        ~operation ~payload change)
                 with
                 | Error message -> pending note message
                 | (Eio.Io _ | Unix.Unix_error _ | Sys_error _) as exn ->

@@ -6,6 +6,8 @@ authors: ["Anil Madhavapeddy"]
 license: "ISC"
 depends: [
   "dune" {>= "3.21"}
+  "sekrit"
+  "eioext"
   "ocaml" {>= "5.1.0"}
   "eio"
   "eio_main"

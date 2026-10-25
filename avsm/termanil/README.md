@@ -118,8 +118,8 @@ remote store on a new machine, run `dooit clone` first.
 | Mail | `p` | Find sender in contacts |
 | Dooit | `d` | Complete selected task |
 | Dooit | `o` | Read the first linked email |
-| Dooit | `s` | Preview WebDAV sync without writes |
-| Dooit | `S`, then Enter | Apply two-way WebDAV sync |
+| Dooit | `s` | Preview configured task synchronization |
+| Dooit | `S`, then Enter | Synchronize the configured task backend |
 | Details | PageUp / PageDown | Scroll ten lines |
 
 At 100 columns the client shows a list and detail pane together. Smaller
@@ -130,7 +130,8 @@ Bracketed paste inserts text into search or the focused reply editor.
 Tab and Shift-Tab switch views even inside search, help and send review.
 Switching cancels a pending search or review. Returning restores the tab's
 selection and reader or editor focus. Pasted tabs remain text in the editor.
-Dooit shows the most recently modified notes first, using local file times so
+Dooit shows unfinished tasks first, then done and cancelled tasks. Each group
+uses the most recently modified notes first, using local file times so
 direct human and agent edits appear on refresh. Completion keeps the same
 task selected as its position changes. A WebDAV download also updates the
 local file time, so this ordering is local recency rather than remote edit history.
@@ -251,6 +252,13 @@ is made.
 `sent` means the JMAP server accepted the submission, not confirmed delivery.
 Drafts are local files until sending. They are not synchronized to the
 server's Drafts mailbox during editing.
+
+Initialize the task store with `dooit init` and `dooit sync`, or `dooit clone`,
+before using it here. With Git, task capture and completion pull first, apply
+revision checks, and commit and push before reporting success. A failed push
+identifies the locally saved task. Use `dooit sync` to resolve publication.
+The Local backend performs local edits. Synchronized WebDAV edits are refused;
+use the Dooit CLI for local WebDAV edits followed by explicit synchronization.
 
 Task sync uses Dooit's configured backend. `s` previews cached Git status or
 the WebDAV sync plan without writing. `S` synchronizes using Git or WebDAV.

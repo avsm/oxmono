@@ -17,3 +17,8 @@
 (test
  (name test_utf8)
  (libraries tomlt tomlt.bytesrw))
+
+(test
+ (name test_fields)
+ (modules test_fields)
+ (libraries tomlt))

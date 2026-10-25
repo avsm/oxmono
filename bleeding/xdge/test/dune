@@ -1,10 +1,17 @@
 (executable
  (name xdg_example)
+ (modules xdg_example)
  (libraries xdge eio_main cmdliner fmt))
 
 (executable
  (name test_paths)
+ (modules test_paths)
  (libraries xdge eio eio_main))
 
 (cram
  (deps xdg_example.exe test_paths.exe))
+
+(test
+ (name test_native_paths)
+ (modules test_native_paths)
+ (libraries xdge eio_main unix))

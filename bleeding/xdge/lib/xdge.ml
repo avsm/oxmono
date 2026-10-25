@@ -3,6 +3,8 @@
   SPDX-License-Identifier: ISC
  ---------------------------------------------------------------------------*)
 
+module Paths = Paths
+
 type source = Default | Env of string | Cmdline
 
 type t = {
@@ -55,32 +57,14 @@ let ensure_runtime_dir _fs app_runtime_path =
      so we just create the app subdirectory *)
   ensure_dir app_runtime_path
 
-let get_home_dir fs =
-  let home_str =
-    match Sys.getenv_opt "HOME" with
-    | Some home -> home
-    | None -> (
-        match Sys.os_type with
-        | "Win32" | "Cygwin" -> (
-            match Sys.getenv_opt "USERPROFILE" with
-            | Some profile -> profile
-            | None -> failwith "Cannot determine home directory")
-        | _ -> (
-            try Unix.((getpwuid (getuid ())).pw_dir)
-            with _ -> failwith "Cannot determine home directory"))
-  in
-  Eio.Path.(fs / home_str)
+let get_home_dir fs = Eio.Path.(fs / Paths.home ())
 
 let make_env_var_name app_name suffix =
   String.uppercase_ascii app_name ^ "_" ^ suffix
 
-exception Invalid_xdg_path of string
+exception Invalid_xdg_path = Paths.Invalid_xdg_path
 
-let validate_absolute_path context path =
-  if Filename.is_relative path then
-    raise
-      (Invalid_xdg_path
-         (Printf.sprintf "%s must be an absolute path, got: %s" context path))
+let validate_absolute_path = Paths.validate_absolute
 
 let resolve_path fs home_path base_path =
   if Filename.is_relative base_path then Eio.Path.(home_path / base_path)
@@ -116,15 +100,13 @@ let resolve_system_dirs fs home_path app_name override_suffix xdg_var
 
 (* Helper to resolve a user directory with override precedence *)
 let resolve_user_dir fs home_path app_name xdg_ctx xdg_getter override_suffix =
-  let override_var = make_env_var_name app_name override_suffix in
-  match Sys.getenv_opt override_var with
-  | Some dir when dir <> "" ->
-      validate_absolute_path override_var dir;
-      (Eio.Path.(fs / dir / app_name), Env override_var)
-  | Some _ | None ->
-      let xdg_base = xdg_getter xdg_ctx in
-      let base_path = resolve_path fs home_path xdg_base in
-      (Eio.Path.(base_path / app_name), Default)
+  let base, source =
+    Paths.user_base ~app_name ~suffix:override_suffix
+      ~default:(fun () -> xdg_getter xdg_ctx)
+  in
+  let base_path = resolve_path fs home_path base in
+  (Eio.Path.(base_path / app_name),
+   match source with None -> Default | Some variable -> Env variable)
 
 (* Helper to resolve runtime directory (special case since it can be None) *)
 let resolve_runtime_dir fs home_path app_name xdg_ctx =

@@ -67,6 +67,27 @@ exception Invalid_xdg_path of string
     The XDG specification requires all paths in environment variables to be
     absolute. This exception is raised when a relative path is found. *)
 
+module Paths : sig
+  val home : unit -> string
+  val config_home : unit -> string
+  val data_home : unit -> string
+  val cache_home : unit -> string
+  val state_home : unit -> string
+  val config_dir : string -> string
+  val data_dir : string -> string
+  val cache_dir : string -> string
+  val state_dir : string -> string
+  (** [config_dir app] and its peers resolve native paths without creating
+      directories or starting an Eio scheduler. Nonempty [APP_CONFIG_DIR]
+      overrides [XDG_CONFIG_HOME], with [app] appended in both cases, matching
+      [create]. Empty environment values use the default. Relative environment
+      paths raise [Invalid_xdg_path]. *)
+
+  val expand : base:string -> string -> string
+  (** [expand ~base path] expands [~] and [~/], then resolves relative paths
+      against [base]. It does not interpret shell expressions or [~user]. *)
+end
+
 (** {1 Construction} *)
 
 val create : ?create_dirs:bool -> Eio.Fs.dir_ty Eio.Path.t -> string -> t

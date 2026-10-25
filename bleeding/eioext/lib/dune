@@ -1,0 +1,5 @@
+(library
+ (name eioext)
+ (public_name eioext)
+ (private_modules lock)
+ (libraries eio eio.unix unix cstruct))

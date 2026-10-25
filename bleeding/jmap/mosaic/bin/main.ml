@@ -24,7 +24,7 @@ let man =
     `P
       "A login that succeeds is saved as a named profile under \
        $(b,\\$XDG_CONFIG_HOME/jmap/profiles). Profile files include the bearer \
-       token or password and are created with mode 0600.";
+       token, password or secret reference and are created with mode 0600.";
     `S "KEYS";
     `Pre
       "Tab      move the focus between the two panes, and between the login \
@@ -80,13 +80,6 @@ let resolve_auth = function
                    "JMAP_AUTH: expected \"bearer\" or \"basic\", got %S" value))
       )
 
-let supplied_secret env = function
-  | None -> Ok None
-  | Some (`Key secret) -> Ok (Some secret)
-  | Some (`File path) ->
-      Result.map Option.some
-        (Jmap_eio.Auth.read_secret_file ~fs:(Eio.Stdenv.fs env) path)
-
 let split_supplied scheme value =
   match (scheme, String.index_opt value ':') with
   | Model.Bearer, _ -> Ok ("", value)
@@ -97,16 +90,28 @@ let split_supplied scheme value =
   | Model.Basic, None ->
       Error "a Basic --api-key or key file must be USER:PASSWORD"
 
-let form env ~(remembered : Model.login) ~url ~auth ~secret_source =
+let form _env ~(remembered : Model.login) ~url ~auth ~secret_source =
   let scheme = Option.value auth ~default:remembered.scheme in
-  let user, secret, error =
-    match supplied_secret env secret_source with
-    | Error error -> (remembered.user, "", error)
-    | Ok None -> (remembered.user, remembered.secret, remembered.error)
-    | Ok (Some value) -> (
+  let user, secret, secret_ref, error =
+    match secret_source with
+    | None ->
+        ( remembered.user,
+          remembered.secret,
+          remembered.secret_ref,
+          remembered.error )
+    | Some (`File source) ->
+        let source =
+          if
+            String.starts_with ~prefix:"sekrit:" source
+            || not (Filename.is_relative source)
+          then source
+          else Filename.concat (Sys.getcwd ()) source
+        in
+        ("", "", Some source, "")
+    | Some (`Key value) -> (
         match split_supplied scheme value with
-        | Ok (user, secret) -> (user, secret, "")
-        | Error error -> (remembered.user, "", error))
+        | Ok (user, secret) -> (user, secret, None, "")
+        | Error error -> (remembered.user, "", None, error))
   in
   {
     remembered with
@@ -114,6 +119,7 @@ let form env ~(remembered : Model.login) ~url ~auth ~secret_source =
     scheme;
     user;
     secret;
+    secret_ref;
     error;
   }
 

@@ -19,7 +19,7 @@ val profiles_path : Eio_unix.Stdenv.base -> string
 
 val read_profile : Eio_unix.Stdenv.base -> string -> Model.login option
 (** [read_profile env name] reads the complete named profile, including its
-    secret, from the shared store. It is [None] when the name is unsafe, the
+    literal secret or unresolved reference, from the shared store. It is [None] when the name is unsafe, the
     file cannot be read, or the profile is incomplete. A file that is not
     regular, exceeds 64 KiB, or grants any group or other permission is
     unreadable, as is every file of a store directory with those permissions. *)

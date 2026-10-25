@@ -52,12 +52,14 @@ let create ~sw ?account ?(timeout = default_timeout) ?transport
 
 let connection t = t.connection
 
-let credential (c : Model.credentials) =
+let credential ~fs (c : Model.credentials) =
   try
     Ok
-      (match c.scheme with
-      | Model.Bearer -> Auth.bearer c.secret
-      | Model.Basic -> Auth.basic ~user:c.user ~password:c.secret)
+      (match (c.scheme, c.secret_ref) with
+      | Model.Bearer, Some source -> Auth.bearer_from_file ~fs source
+      | Model.Basic, Some source -> Auth.basic_from_file ~fs source
+      | Model.Bearer, None -> Auth.bearer c.secret
+      | Model.Basic, None -> Auth.basic ~user:c.user ~password:c.secret)
   with Invalid_argument message -> Error message
 
 let account t client =
@@ -94,7 +96,7 @@ let account t client =
                      Proto.Id.pp id)))
 
 let connect t c dispatch =
-  match credential c with
+  match credential ~fs:(Eio.Stdenv.fs t.env) c with
   | Error message -> dispatch (Model.Login_failed message)
   | Ok auth -> (
       match

@@ -2,6 +2,9 @@
  (name jmap_eio)
  (public_name jmap.eio)
  (libraries
+  sekrit
+  sekrit.eio
+  eioext
   duration
   markup
   jmap

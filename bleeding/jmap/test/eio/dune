@@ -5,6 +5,7 @@
   httpz.uri
   jmap
   jmap.eio
+  sekrit
   fetch
   fetch.cookies
   fetch.mock

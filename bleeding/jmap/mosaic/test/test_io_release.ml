@@ -82,7 +82,14 @@ let with_io ?(max_calls = 16) reply f =
   in
   let io = Io.create ~sw ~transport env in
   let credentials =
-    Model.{ url = well_known; scheme = Bearer; user = ""; secret = "TOKEN" }
+    Model.
+      {
+        url = well_known;
+        scheme = Bearer;
+        user = "";
+        secret = "TOKEN";
+        secret_ref = None;
+      }
   in
   Io.perform io (Model.Connect credentials) (function
     | Model.Connected _ -> ()

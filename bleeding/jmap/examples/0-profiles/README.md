@@ -7,7 +7,7 @@ This example lists profiles, saves connection settings and connects using
 
 ## Save and use a login
 
-For a hosted service, put its bearer token on the first line of a private file,
+For a hosted service, put its bearer token on the single line of a private file,
 then save the profile. Substitute your service URL and token-file path:
 
 ```sh
@@ -115,3 +115,9 @@ read-only steps as above to browse an existing account. Running the whole suite
 also runs examples that write mail.
 
 Continue with [**`1-session`**](../1-session#readme) to read the session resource.
+
+Use `--api-key-file sekrit:jmap-work` to share an encrypted Sekrit value, or
+`--api-key-file /absolute/path/to/private-token` to retain a private file
+reference. Saving a profile keeps the reference, without reading or copying the
+secret. Basic references contain the complete `user:password` value. Existing
+profiles with `secret=` remain compatible; reference profiles use `secret_ref=`.

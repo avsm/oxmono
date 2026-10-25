@@ -11,10 +11,12 @@ let profiles_path env =
   | Error _ -> ""
 
 let login_of_profile profile =
-  let scheme, user, secret =
+  let scheme, user, secret, secret_ref =
     match Profile.credential profile with
-    | Profile.Bearer token -> (Model.Bearer, "", token)
-    | Profile.Basic { user; password } -> (Model.Basic, user, password)
+    | Profile.Bearer token -> (Model.Bearer, "", token, None)
+    | Profile.Basic { user; password } -> (Model.Basic, user, password, None)
+    | Profile.Bearer_ref source -> (Model.Bearer, "", "", Some source)
+    | Profile.Basic_ref source -> (Model.Basic, "", "", Some source)
   in
   {
     Model.blank with
@@ -23,13 +25,16 @@ let login_of_profile profile =
     scheme;
     user;
     secret;
+    secret_ref;
   }
 
 let profile_of_login (login : Model.login) =
   let credential =
-    match login.scheme with
-    | Model.Bearer -> Profile.Bearer login.secret
-    | Model.Basic ->
+    match (login.scheme, login.secret_ref) with
+    | Model.Bearer, Some source -> Profile.Bearer_ref source
+    | Model.Basic, Some source -> Profile.Basic_ref source
+    | Model.Bearer, None -> Profile.Bearer login.secret
+    | Model.Basic, None ->
         Profile.Basic { user = login.user; password = login.secret }
   in
   Profile.v ~name:login.profile ~session_url:login.url credential

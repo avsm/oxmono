@@ -42,6 +42,7 @@ type credentials = {
   scheme : scheme;
   user : string;  (** The user of a basic credential, empty for a bearer one. *)
   secret : string;  (** The password or the token. *)
+  secret_ref : string option; (** A secret source, resolved only when connecting. *)
 }
 (** The type for what a connection is made with. *)
 
@@ -59,6 +60,7 @@ type login = {
   scheme : scheme;
   user : string;
   secret : string;  (** The secret as typed or loaded from a saved profile. *)
+  secret_ref : string option; (** A named or file reference retained without reading it. *)
   field : field;  (** The field the keys edit. *)
   error : string;  (** Why the last attempt failed, empty until one has. *)
 }

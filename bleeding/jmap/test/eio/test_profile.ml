@@ -43,7 +43,7 @@ let check_bearer expected profile =
   match Profile.credential profile with
   | Profile.Bearer token ->
       Alcotest.(check string) "bearer token" expected token
-  | Profile.Basic _ -> Alcotest.fail "loaded a basic profile"
+  | _ -> Alcotest.fail "loaded a non-literal bearer profile"
 
 let test_round_trip () =
   with_store @@ fun env store directory ->
@@ -110,6 +110,55 @@ let test_round_trip () =
   | Error error -> fail_error "wrong file-bound error" error
   | Ok _ -> Alcotest.fail "loaded a profile larger than 64 KiB"
 
+let test_secret_references () =
+  with_store @@ fun env store directory ->
+  let source = "sekrit:missing-fixture-secret" in
+  let save name credential =
+    Profile.v ~name ~session_url:"https://example.test/jmap" credential
+    |> get_ok "reference profile" |> Profile.save store
+    |> get_ok "save reference"
+  in
+  save "bearer-ref" (Profile.Bearer_ref source);
+  save "basic-ref" (Profile.Basic_ref source);
+  List.iter
+    (fun name ->
+      let profile =
+        Profile.load store name |> get_ok "load unresolved reference"
+      in
+      let raw =
+        Eio.Path.load
+          Eio.Path.(Eio.Stdenv.fs env / Filename.concat directory name)
+      in
+      Alcotest.(check bool)
+        "stores reference only" true
+        (contains ~substring:("secret_ref=" ^ source) raw
+        && not (contains ~substring:"\nsecret=" raw));
+      ignore (Profile.auth ~fs:(Eio.Stdenv.fs env) profile);
+      ignore (Fmt.str "%a" Profile.pp profile);
+      Alcotest.(check bool)
+        "reference round trip" true
+        (Profile.credential profile
+        =
+        if name = "bearer-ref" then Profile.Bearer_ref source
+        else Profile.Basic_ref source))
+    [ "bearer-ref"; "basic-ref" ];
+  (match
+     Profile.v ~name:"relative" ~session_url:"https://example.test/jmap"
+       (Profile.Bearer_ref "relative-token")
+   with
+  | Error (Profile.Invalid_profile _) -> ()
+  | _ -> Alcotest.fail "relative reference accepted");
+  let malformed name fields =
+    Eio.Path.save ~create:(`Exclusive 0o600)
+      Eio.Path.(Eio.Stdenv.fs env / Filename.concat directory name)
+      ("url=https://example.test/jmap\n" ^ fields);
+    match Profile.load store name with
+    | Error (Profile.Invalid_profile _) -> ()
+    | _ -> Alcotest.fail "ambiguous credential accepted"
+  in
+  malformed "both" "auth=bearer\nsecret=TOKEN\nsecret_ref=sekrit:test\n";
+  malformed "basic-user" "auth=basic\nuser=alice\nsecret_ref=sekrit:test\n"
+
 let test_public_store_is_rejected () =
   with_store @@ fun env store directory ->
   let path = Eio.Path.(Eio.Stdenv.fs env / directory) in
@@ -153,8 +202,8 @@ let test_storage_error_context () =
         (Filename.concat directory "missing")
         path;
       Alcotest.(check bool)
-        "keeps open cause" true
-        (contains ~substring:"open" message);
+        "keeps inspection cause" true
+        (contains ~substring:"stat" message);
       Alcotest.(check bool)
         "adds load action" true
         (contains ~substring:"loading profile missing" message)
@@ -195,7 +244,7 @@ let test_basic_and_validation () =
   | Profile.Basic { user; password } ->
       Alcotest.(check string) "basic user" "alice" user;
       Alcotest.(check string) "basic password" "p:a ss" password
-  | Profile.Bearer _ -> Alcotest.fail "loaded a bearer profile");
+  | _ -> Alcotest.fail "loaded a non-literal basic profile");
   let rejects label result =
     match result with
     | Error (Profile.Invalid_profile _) -> ()
@@ -273,7 +322,7 @@ let test_connect_error_context () =
   match Profile.connect ~sw ~transport env profile with
   | Error
       (Profile.Connection_error
-         (Client.Transport (Fetch.Denied reason, message))) ->
+        (Client.Transport (Fetch.Denied reason, message))) ->
       Alcotest.(check string) "typed transport cause" "fixture denial" reason;
       Alcotest.(check bool)
         "connection names profile" true
@@ -384,8 +433,28 @@ let test_cli_profile () =
         | Error message -> Alcotest.failf "profile auth: %s" message
       in
       Alcotest.(check string)
-        "resolved authentication" "basic alice:secr***"
+        "resolved authentication" "basic alice:***"
         (Fmt.str "%a" Auth.pp auth);
+      let reference =
+        Profile.v ~name:"referenced"
+          ~session_url:"https://reference.example/jmap"
+          (Profile.Basic_ref "sekrit:unresolved-jmap")
+        |> get_ok "reference"
+      in
+      Profile.save store reference |> get_ok "save CLI reference";
+      let reference_config =
+        cli_config "reference selection" [ "--profile"; "referenced" ]
+      in
+      let reference_config =
+        match Cli.resolve env reference_config with
+        | Ok config -> config
+        | Error message -> Alcotest.fail message
+      in
+      Alcotest.(check string)
+        "no reference secret copied" "" reference_config.api_key;
+      Alcotest.(check (option string))
+        "lazy reference retained" (Some "sekrit:unresolved-jmap")
+        reference_config.api_key_file;
       let direct =
         cli_config "direct override"
           [
@@ -422,6 +491,8 @@ let () =
       ( "store",
         [
           Alcotest.test_case "round trip and safety" `Quick test_round_trip;
+          Alcotest.test_case "unresolved secret references" `Quick
+            test_secret_references;
           Alcotest.test_case "public store is rejected" `Quick
             test_public_store_is_rejected;
           Alcotest.test_case "storage error context" `Quick

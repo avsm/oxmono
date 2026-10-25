@@ -6,6 +6,8 @@
 type credential =
   | Bearer of string
   | Basic of { user : string; password : string }
+  | Bearer_ref of string
+  | Basic_ref of string
 
 type t = { name : string; session_url : string; credential : credential }
 
@@ -63,6 +65,19 @@ let v ~name ~session_url credential =
      through them. *)
   let* credential =
     match credential with
+    | (Bearer_ref source | Basic_ref source) as credential -> (
+        if (not (one_line source)) || contains_control source then
+          invalid "%s has an invalid secret reference" name
+        else
+          try
+            match
+              Sekrit.Reference.source (Sekrit.Reference.of_string source)
+            with
+            | `File path when Filename.is_relative path ->
+                invalid "%s secret_ref must be absolute or sekrit:NAME" name
+            | _ -> Ok credential
+          with Sekrit.Error _ ->
+            invalid "%s has an invalid secret reference" name)
     | Bearer token -> (
         match Auth.bearer token with
         | _ -> Ok (Bearer token)
@@ -84,14 +99,16 @@ let name t = t.name
 let session_url t = t.session_url
 let credential t = t.credential
 
-let auth_of_credential = function
+let auth_of_credential ?fs = function
   | Bearer token -> Auth.bearer token
   | Basic { user; password } -> Auth.basic ~user ~password
+  | Bearer_ref source -> Auth.bearer_from_file ?fs source
+  | Basic_ref source -> Auth.basic_from_file ?fs source
 
-let auth t = auth_of_credential t.credential
+let auth ?fs t = auth_of_credential ?fs t.credential
 
-(* A validated credential is one {!Auth.bearer} or {!Auth.basic} accepted, so
-   rebuilding it here cannot fail. *)
+(* References remain lazy while printing; literal credentials were validated
+   when the profile was constructed. *)
 let pp_credential ppf credential = Auth.pp ppf (auth_of_credential credential)
 
 let pp ppf t =
@@ -183,9 +200,11 @@ type fields = {
   scheme : Auth.scheme option;
   user : string option;
   secret : string option;
+  secret_ref : string option;
 }
 
-let empty_fields = { url = None; scheme = None; user = None; secret = None }
+let empty_fields =
+  { url = None; scheme = None; user = None; secret = None; secret_ref = None }
 
 let drop_cr value =
   if String.ends_with ~suffix:"\r" value then
@@ -215,6 +234,8 @@ let parse_fields contents =
         { fields with scheme }
     | Some ("user", value) -> { fields with user = Some (String.trim value) }
     | Some ("secret", value) -> { fields with secret = Some value }
+    | Some ("secret_ref", value) ->
+        { fields with secret_ref = Some (String.trim value) }
     | Some _ | None -> fields
   in
   List.fold_left set empty_fields (String.split_on_char '\n' contents)
@@ -232,18 +253,25 @@ let parse ~name contents =
     | Some scheme -> Ok scheme
     | None -> invalid "%s has no valid auth field" name
   in
-  let* secret =
-    match fields.secret with
-    | Some secret -> Ok secret
-    | None -> invalid "%s has no secret field" name
-  in
   let* credential =
-    match scheme with
-    | Auth.Bearer -> Ok (Bearer secret)
-    | Auth.Basic -> (
-        match fields.user with
-        | Some user -> Ok (Basic { user; password = secret })
-        | None -> invalid "%s has no user field for basic authentication" name)
+    match (fields.secret, fields.secret_ref) with
+    | Some _, Some _ | None, None ->
+        invalid "%s needs exactly one of secret and secret_ref" name
+    | None, Some source -> (
+        match scheme with
+        | Auth.Bearer -> Ok (Bearer_ref source)
+        | Auth.Basic ->
+            if Option.value fields.user ~default:"" <> "" then
+              invalid "%s basic secret_ref includes its user; omit user" name
+            else Ok (Basic_ref source))
+    | Some secret, None -> (
+        match scheme with
+        | Auth.Bearer -> Ok (Bearer secret)
+        | Auth.Basic -> (
+            match fields.user with
+            | Some user -> Ok (Basic { user; password = secret })
+            | None ->
+                invalid "%s has no user field for basic authentication" name))
   in
   v ~name ~session_url credential
 
@@ -299,13 +327,15 @@ let scheme_to_string = function
   | Auth.Basic -> "basic"
 
 let serialize t =
-  let scheme, user, secret =
+  let scheme, user, field, secret =
     match t.credential with
-    | Bearer token -> (Auth.Bearer, "", token)
-    | Basic { user; password } -> (Auth.Basic, user, password)
+    | Bearer token -> (Auth.Bearer, "", "secret", token)
+    | Basic { user; password } -> (Auth.Basic, user, "secret", password)
+    | Bearer_ref source -> (Auth.Bearer, "", "secret_ref", source)
+    | Basic_ref source -> (Auth.Basic, "", "secret_ref", source)
   in
-  Fmt.str "url=%s\nauth=%s\nuser=%s\nsecret=%s\n" t.session_url
-    (scheme_to_string scheme) user secret
+  Fmt.str "url=%s\nauth=%s\nuser=%s\n%s=%s\n" t.session_url
+    (scheme_to_string scheme) user field secret
 
 let save_serial = Atomic.make 0
 
@@ -347,11 +377,13 @@ let connect ~sw ?transport ?timeout ?(allow_insecure = false) env profile =
   let result =
     match transport with
     | Some transport ->
-        Client.connect ~sw ~auth:(auth profile) ?timeout ~allow_insecure
-          transport profile.session_url
+        Client.connect ~sw
+          ~auth:(auth ~fs:(Eio.Stdenv.fs env) profile)
+          ?timeout ~allow_insecure transport profile.session_url
     | None ->
-        Client.connect_env ~sw ~auth:(auth profile) ?timeout ~allow_insecure env
-          profile.session_url
+        Client.connect_env ~sw
+          ~auth:(auth ~fs:(Eio.Stdenv.fs env) profile)
+          ?timeout ~allow_insecure env profile.session_url
   in
   Result.map_error
     (fun error ->

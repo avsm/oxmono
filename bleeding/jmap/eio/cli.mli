@@ -56,7 +56,7 @@ type config = {
           or until {!resolve} supplies the selected profile's secret. *)
   api_key_source : source;
   api_key_file : string option;
-      (** The file holding the secret, when one was named. It is not read while
+      (** A private file or [sekrit:NAME] holding the secret. It is not read while
           the command line is parsed. {!connect} reads it through the
           environment's filesystem capability, so an unreadable file is a
           connection failure rather than a usage error. *)

@@ -121,7 +121,7 @@ Authentication is named by scheme, not by header:
   over plain `http://` need `~allow_insecure:true`; otherwise the client
   refuses to send them.
 - `Auth.bearer_from_file` / `Auth.basic_from_file` read the secret from the
-  first line of a file when a request needs it, `Auth.refreshing ~refresh`
+  single line of a private file when a request needs it, `Auth.refreshing ~refresh`
   calls a thunk per request (OAuth), and `Auth.of_env ()` reads
   `JMAP_API_KEY`, `JMAP_API_KEY_FILE` and `JMAP_AUTH`. `Auth.pp` redacts.
 

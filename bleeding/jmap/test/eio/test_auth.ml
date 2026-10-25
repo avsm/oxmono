@@ -271,17 +271,16 @@ let with_key_file env name contents f =
   Eio.Path.save ~create:(`Or_truncate 0o600) path contents;
   Fun.protect ~finally:(fun () -> Eio.Path.unlink path) (fun () -> f name)
 
-(* The first line only, trimmed: a key file usually ends in a newline. *)
+(* One line, with its optional terminal newline removed. *)
 let test_bearer_from_file () =
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
-  with_key_file env "test-auth-key.txt" "  FILE-TOKEN  \nignored second line\n"
-  @@ fun name ->
+  with_key_file env "test-auth-key.txt" "FILE-TOKEN\r\n" @@ fun name ->
   let fs = Eio.Stdenv.cwd env in
   let log, fetch = server () in
   let client = connect_exn ~sw ~auth:(Auth.bearer_from_file ~fs name) fetch in
   request_exn client;
-  check_headers "first line, trimmed"
+  check_headers "single line with CRLF removed"
     [ Some "Bearer FILE-TOKEN"; Some "Bearer FILE-TOKEN" ]
     !log
 
@@ -381,7 +380,7 @@ let test_fifo_is_rejected () =
         Alcotest.(check bool)
           (source ^ " identifies a non-regular file")
           true
-          (String.ends_with ~suffix:"is not a regular file" message)
+          (String.ends_with ~suffix:"Not a regular file" message)
     | Ok _ -> Alcotest.failf "%s accepted a FIFO" source
   in
   rejects "native" (Auth.read_secret_file name);
@@ -407,6 +406,45 @@ let test_file_refresh () =
   check_headers "re-read only after refresh"
     [ Some "Bearer FIRST"; Some "Bearer FIRST"; Some "Bearer SECOND" ]
     !log
+
+let test_named_secret_refresh () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let root = Filename.temp_dir "jmap-named-secret-" "" in
+  let fs = Eio.Stdenv.fs env in
+  let variables = [ "SEKRIT_STORE_DIR"; "SEKRIT_KEY_FILE" ] in
+  let saved =
+    List.map
+      (fun name -> (name, Option.value (Sys.getenv_opt name) ~default:""))
+      variables
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      List.iter (fun (name, value) -> Unix.putenv name value) saved;
+      Eio.Path.rmtree Eio.Path.(fs / root))
+    (fun () ->
+      Unix.putenv "SEKRIT_STORE_DIR" (Filename.concat root "vault");
+      Unix.putenv "SEKRIT_KEY_FILE" (Filename.concat root "key/master.key");
+      let store = Sekrit.Store.v () in
+      Sekrit.Store.init store;
+      let put value =
+        Sekrit.Store.put store ~name:"jmap" ~replace:true
+          (Sekrit.Secret.of_string value)
+      in
+      put "FIRST";
+      Alcotest.(check (result string string))
+        "native named reader" (Ok "FIRST")
+        (Auth.read_secret_file "sekrit:jmap");
+      let auth = Auth.bearer_from_file ~fs "sekrit:jmap" in
+      let log, fetch = server () in
+      let client = connect_exn ~sw ~auth fetch in
+      put "SECOND";
+      request_exn client;
+      Auth.refresh auth;
+      request_exn client;
+      check_headers "named source is re-read only after refresh"
+        [ Some "Bearer FIRST"; Some "Bearer FIRST"; Some "Bearer SECOND" ]
+        !log)
 
 (* An unreadable file is a failure of the request that needed it, reported
    like any other refusal to let a request out. *)
@@ -436,8 +474,8 @@ let test_loose_file_permissions () =
   with
   | Error (Client.Transport (Fetch.Denied msg, _)) ->
       check_string "permissions are named"
-        "the credential file test-auth-loose.txt has permissions 644; remove \
-         group and other access (for example, chmod 600)"
+        "the credential file test-auth-loose.txt: File must be owned and \
+         private (mode 0600)"
         msg
   | Error e ->
       Alcotest.failf "expected Denied, got %s" (Client.error_to_string e)
@@ -446,7 +484,7 @@ let test_loose_file_permissions () =
 let test_secret_file_bounds () =
   Eio_main.run @@ fun env ->
   let fs = Eio.Stdenv.cwd env in
-  let maximum = String.make (64 * 1024) 'A' ^ "\nignored" in
+  let maximum = String.make (64 * 1024) 'A' in
   with_key_file env "test-auth-maximum.txt" maximum @@ fun name ->
   let check_maximum source = function
     | Ok secret ->
@@ -464,11 +502,51 @@ let test_secret_file_bounds () =
         Alcotest.(check bool)
           ("size is reported: " ^ message)
           true
-          (String.starts_with ~prefix:"the first line" message)
+          (String.ends_with ~suffix:"File exceeds size limit" message)
     | Ok _ -> Alcotest.fail "expected an oversized credential to be refused"
   in
   check_too_large (Auth.read_secret_file ~fs name);
   check_too_large (Auth.read_secret_file name)
+
+let test_secret_line_policy () =
+  Eio_main.run @@ fun env ->
+  let fs = Eio.Stdenv.cwd env in
+  let both name check =
+    List.iter check
+      [ Auth.read_secret_file name; Auth.read_secret_file ~fs name ]
+  in
+  with_key_file env "test-auth-spaces.txt" "user: password \r\n" @@ fun name ->
+  both name (function
+    | Ok value ->
+        check_string "password spaces preserved" "user: password " value
+    | Error message -> Alcotest.fail message);
+  with_key_file env "test-auth-multiline.txt" "FIRST\nSECOND\n" @@ fun name ->
+  both name (function
+    | Error _ -> ()
+    | Ok _ -> Alcotest.fail "multiline secret accepted");
+  let link = "test-auth-link.txt" in
+  Unix.symlink name link;
+  Fun.protect
+    ~finally:(fun () -> Unix.unlink link)
+    (fun () ->
+      both link (function
+        | Error _ -> ()
+        | Ok _ -> Alcotest.fail "secret symlink accepted"))
+
+let test_secret_directory_capability () =
+  Eio_main.run @@ fun env ->
+  Eio.Switch.run @@ fun sw ->
+  let fs = Eio.Stdenv.cwd env in
+  with_key_file env "test-auth-outside.txt" "OUTSIDE\n" @@ fun name ->
+  let directory = "test-auth-confined" in
+  Unix.mkdir directory 0o700;
+  Fun.protect
+    ~finally:(fun () -> Unix.rmdir directory)
+    (fun () ->
+      let fs = Eio.Path.open_subtree ~sw Eio.Path.(fs / directory) in
+      match Auth.read_secret_file ~fs ("../" ^ name) with
+      | Error _ -> ()
+      | Ok _ -> Alcotest.fail "secret read escaped directory capability")
 
 (* {!Auth.pp} never opens the file, so it is neither a cancellation point nor
    a way for an unreadable file to fail a log line. *)
@@ -511,10 +589,9 @@ let test_pp_file_escapes_controls () =
 
 let test_pp () =
   check_string "none" "none" (pp_auth Auth.none);
-  check_string "long token" "bearer TOKE***"
-    (pp_auth (Auth.bearer "TOKEN-abcdef"));
+  check_string "long token" "bearer ***" (pp_auth (Auth.bearer "TOKEN-abcdef"));
   check_string "short token" "bearer ***" (pp_auth (Auth.bearer "abc"));
-  check_string "basic keeps the user" "basic user1:secr***"
+  check_string "basic keeps the user" "basic user1:***"
     (pp_auth (Auth.basic ~user:"user1" ~password:"secret"));
   check_string "short password" "basic user1:***"
     (pp_auth (Auth.basic ~user:"user1" ~password:"x"))
@@ -578,16 +655,14 @@ let test_of_env () =
   with_env
     [ ("JMAP_API_KEY", "TOKEN-abcdef") ]
     (fun () ->
-      check_string "bearer by default" "bearer TOKE***"
-        (pp_auth (of_env_exn ())));
+      check_string "bearer by default" "bearer ***" (pp_auth (of_env_exn ())));
   with_env
     [ ("JMAP_API_KEY", "user1:secret"); ("JMAP_AUTH", "basic") ]
-    (fun () ->
-      check_string "basic" "basic user1:secr***" (pp_auth (of_env_exn ())));
+    (fun () -> check_string "basic" "basic user1:***" (pp_auth (of_env_exn ())));
   with_env
     [ ("ORACLE_API_KEY", "TOKEN-abcdef") ]
     (fun () ->
-      check_string "prefix" "bearer TOKE***"
+      check_string "prefix" "bearer ***"
         (pp_auth (of_env_exn ~prefix:"ORACLE" ())));
   with_env
     [ ("JMAP_API_KEY", "TOKEN-abcdef"); ("JMAP_AUTH", "digest") ]
@@ -816,6 +891,8 @@ let () =
             test_invalid_basic_from_file_is_denied;
           Alcotest.test_case "FIFOs are rejected" `Quick test_fifo_is_rejected;
           Alcotest.test_case "file refresh" `Quick test_file_refresh;
+          Alcotest.test_case "named encrypted secret refresh" `Quick
+            test_named_secret_refresh;
           Alcotest.test_case "missing file" `Quick test_missing_file;
           Alcotest.test_case "loose file permissions" `Quick
             test_loose_file_permissions;
@@ -823,6 +900,10 @@ let () =
           Alcotest.test_case "pp of a file credential" `Quick test_pp_file;
           Alcotest.test_case "pp escapes file controls" `Quick
             test_pp_file_escapes_controls;
+          Alcotest.test_case "shared secret line policy" `Quick
+            test_secret_line_policy;
+          Alcotest.test_case "secret directory capability" `Quick
+            test_secret_directory_capability;
           Alcotest.test_case "redaction" `Quick test_pp;
           Alcotest.test_case "of_env" `Quick test_of_env;
           Alcotest.test_case "of_env key file" `Quick test_of_env_file;

@@ -59,3 +59,9 @@ The synchronous `sekrit` library supports native Unix consumers. Its
 using a stable authenticated context and the central master key. Applications
 own their schema and migration from plaintext. Reads never silently migrate or
 rewrite credentials.
+
+To migrate existing service configurations on a host, use
+the [migration script](scripts/migrate-services.sh), described in the
+[migration guide](scripts/README.md). It previews by default,
+imports and verifies credentials, retains private backups, and can restart
+explicitly named user services after a successful migration.

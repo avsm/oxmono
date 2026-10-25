@@ -1,7 +1,20 @@
 module K = Bushel_knowledge
 module I = Retrieval.Index
 module E = Retrieval.Embedding
-module S = Bushel_knowledge_store
+module S = struct
+  include Bushel_knowledge_store
+  let encode = Retrieval.Json.encode Response.status_codec
+  let status store = encode (status store)
+  let image_status store = encode (image_status store)
+  let index ?on_progress store ~check ~max_batches =
+    encode (index ?on_progress store ~check ~max_batches)
+  let index_all ?on_progress store ~check =
+    encode (index_all ?on_progress store ~check)
+  let images_search ?mode ?offset store ~check ~query =
+    Response.encode (Response.Search (images_search ?mode ?offset store ~check ~query))
+  let images_get store ~check ~id ~offset =
+    Response.encode (Response.Source (images_get store ~check ~id ~offset))
+end
 module J = Retrieval.Json
 
 let check name value = if not value then failwith name
@@ -160,7 +173,7 @@ let incremental_images ~fs ~clock ~root ~bushel =
     Fetch_mock.client (fun _ -> failwith "incremental fixture needs no HTTP")
   in
   let session f =
-    S.with_store ~config_file:config ~fs ~clock ~fetch ~check:noop (fun store ->
+    S.with_store ~refresh:true ~write:true ~config_file:config ~fs ~clock ~fetch ~check:noop (fun store ->
         f (S.image_corpus store))
   in
   let batches = ref [] and progress = ref [] and round = ref 0 in
@@ -446,7 +459,7 @@ let () =
         Fetch_mock.client (fun _ -> failwith "unexpected HTTP inference")
       in
       let session f =
-        S.with_store ~config_file:config ~fs ~clock ~fetch ~check:noop f
+        S.with_store ~refresh:true ~write:true ~config_file:config ~fs ~clock ~fetch ~check:noop f
       in
       configure (Filename.concat root "absent-images");
       let add_model path =

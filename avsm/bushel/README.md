@@ -22,6 +22,7 @@ processing with custom extensions, and search integration.
 - `bushel.config`: XDG-compliant TOML configuration
 - `bushel.sync`: Sync pipeline for images and thumbnails
 - `bushel.knowledge.store`: Shared local retrieval store and provider settings
+- `bushel.knowledge.service`: Typed search, source and contact queries
 - `bushel.agent`: Bounded knowledge and contact tools
 
 ## Installation
@@ -125,17 +126,29 @@ published notes by original publication date, excluding drafts, future dates
 and index pages. Read full sources with `knowledge_get`. Neither tool requires
 feed synchronization. `knowledge_search` remains the combined corpus search.
 
-Applications use `bushel.knowledge.store` to open the configured shared corpus.
-The store serializes operations across processes, refreshes sources, and closes
-its resources when the callback returns. Keep tool invocation inside that
-callback:
+Applications use `bushel.knowledge.store` to read a published snapshot.
+Readers keep one consistent SQLite generation while indexing proceeds in
+other processes. `knowledge refresh` publishes changed local sources without
+embedding them. `knowledge index` refreshes sources before indexing. Source
+manifests avoid reparsing unchanged files. A missing index is initialized once.
+
+`bushel.knowledge.service` supplies typed requests and results for native
+callers. `bushel.agent` adds Agentkit tool schemas and JSON dispatch. Keep
+invocations inside their store callback:
 
 ```ocaml
-Bushel_knowledge_store.with_store ~fs ~clock ~fetch ~check (fun store ->
-    let tools = Bushel_agent.of_store store ~max_bytes:65536 in
-    Bushel_agent.invoke tools ~check "knowledge_search"
-      {|{"query":"distributed storage","mode":"hybrid"}|})
+let runtime = Retrieval_mlx.Runtime.create ~sw in
+Bushel_knowledge_store.with_store ~runtime ~fs ~clock ~fetch ~check (fun store ->
+    let service = Bushel_knowledge_service.of_store store ~max_bytes:65536 in
+    Bushel_knowledge_service.call service ~check
+      (Bushel_knowledge_service.Latest_posts 0))
 ```
+
+The runtime retains text and vision models until its application switch closes.
+`Retrieval_mlx.Runtime.release runtime` explicitly releases idle weights.
+Omitting `runtime` creates a session-scoped runtime that releases weights when
+the callback returns. Search reads existing vectors and reports coverage. It
+never starts document indexing.
 
 The `retrieval` package contains a corpus-independent embedding backend,
 HTTP provider, vector validation, incremental batching and reciprocal-rank
@@ -254,9 +267,11 @@ above. Switching backend removes settings belonging to the previous backend.
 
 Settings are read on each invocation, including each Crowthebot knowledge tool
 call. The corpus combines the configured Bushel data directory with the native
-Sortal store, contacts, and cached feeds. Knowledge commands refresh local files;
-they do not synchronize either data source or fetch new feeds. Native Sortal
-configuration and its environment overrides still select the Sortal paths.
+Sortal store, contacts, and cached feeds. `refresh` and `index` ingest local
+files. Search, get and status read the published snapshot. Crow checks source
+manifests before each invocation to include newly added or edited posts.
+These commands do not synchronize either data source or fetch new feeds. Native
+Sortal configuration and its environment overrides still select the Sortal paths.
 
 The shared database lives at
 `$XDG_DATA_HOME/bushel/knowledge/<corpus-id>/knowledge.sqlite3`, with

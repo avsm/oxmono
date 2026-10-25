@@ -22,7 +22,7 @@ type filter = {
 
 let all = { kind = None; since = None; until = None; facets = [] }
 
-type t = { sql : Sqlite3_eio.t; lock : Eio.Mutex.t }
+type t = { sql : Sqlite3_eio.t; lock : Eio.Mutex.t; snapshot : bool }
 
 exception Conflict
 
@@ -37,19 +37,25 @@ let run t f =
   | Error (e, bt) -> Printexc.raise_with_backtrace e bt
 
 let read t f =
-  run t (fun db -> transaction ~immediate:false db (fun () -> f db))
+  run t (fun db ->
+      if t.snapshot then f db
+      else transaction ~immediate:false db (fun () -> f db))
+
+let check_version db =
+  match rows db "PRAGMA user_version" [] with
+  | [ row ] when num row.(0) <= 1 -> ()
+  | _ -> failwith "Knowledge index was written by a newer version"
 
 let init sql =
-  let t = { sql; lock = Eio.Mutex.create () } in
+  let t = { sql; lock = Eio.Mutex.create (); snapshot = false } in
   run t (fun db ->
       check (Sqlite3.exec db "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
       transaction db (fun () ->
-          (match rows db "PRAGMA user_version" [] with
-          | [ r ] when num r.(0) <= 1 -> ()
-          | _ -> failwith "Knowledge index was written by a newer version");
+          check_version db;
           check
             (Sqlite3.exec db
                {|
+CREATE TABLE IF NOT EXISTS metadata(name TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS documents(id TEXT PRIMARY KEY, revision TEXT NOT NULL,
  kind TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, url TEXT NOT NULL, date TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS facets(document TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -70,6 +76,27 @@ let open_db ~sw path =
 let memory ~sw () =
   Sqlite_vec.register ();
   init (Sqlite3_eio.open_memory ~sw ())
+
+let open_snapshot ~sw path =
+  Sqlite_vec.register ();
+  let sql = Sqlite3_eio.open_path ~sw ~mode:`READONLY ~busy_timeout:5000 path in
+  let t = { sql; lock = Eio.Mutex.create (); snapshot = true } in
+  run t (fun db ->
+      check (Sqlite3.exec db "BEGIN");
+      check_version db;
+      ignore (rows db "SELECT count(*) FROM sqlite_master" []));
+  t
+
+let metadata t name =
+  read t (fun db ->
+      if rows db "SELECT 1 FROM sqlite_master WHERE name='metadata'" [] = []
+      then None
+      else
+        match
+          rows db "SELECT value FROM metadata WHERE name=?" [ txt name ]
+        with
+        | [ row ] -> Some (str row.(0))
+        | _ -> None)
 
 let counts t =
   read t (fun db ->
@@ -131,7 +158,8 @@ let delete db id =
     (rows db "SELECT id FROM chunks WHERE document=?" [ txt id ]);
   execute db "DELETE FROM documents WHERE id=?" [ txt id ]
 
-let replace t documents =
+let replace ?(metadata = []) t documents =
+  if t.snapshot then invalid_arg "Cannot replace a read-only index snapshot";
   let ids = List.map (fun (d : document) -> d.id) documents in
   if
     List.exists (( = ) "") ids
@@ -188,7 +216,12 @@ let replace t documents =
                     execute db "INSERT INTO search VALUES(?,?,?)"
                       [ txt c.id; txt d.title; txt c.text ])
                   (chunks d)))
-            documents))
+            documents;
+          List.iter
+            (fun (name, value) ->
+              execute db "INSERT OR REPLACE INTO metadata VALUES(?,?)"
+                [ txt name; txt value ])
+            metadata))
 
 let document db r =
   let id = str r.(0) in
@@ -338,16 +371,20 @@ let backend t filter =
       passage = (fun c -> clip 2000 c.document.title ^ "\n" ^ c.text);
       index =
         (fun ~model ~dimensions ~normalization ->
-          run t (fun db ->
-              transaction db (fun () ->
-                  Vector.index db ~model ~dimensions ~normalization)));
+          if t.snapshot then Vector.identity ~model ~dimensions ~normalization
+          else
+            run t (fun db ->
+                transaction db (fun () ->
+                    Vector.index db ~model ~dimensions ~normalization)));
       current =
         (fun ~index ~document:c ~input_hash ->
           run t (fun db ->
-              Vector.current db ~index ~source:c.id
+              Vector.exists db index
+              && Vector.current db ~index ~source:c.id
                 ~revision:c.document.revision ~input_hash));
       put =
         (fun ~index ~document:c ~input_hash vector ->
+          if t.snapshot then invalid_arg "Cannot index a read-only snapshot";
           run t (fun db ->
               transaction db (fun () ->
                   match
@@ -366,6 +403,7 @@ let backend t filter =
       nearest =
         (fun ~index ~limit vector ->
           read t (fun db ->
+              if not (Vector.exists db index) then [] else
               let cond, args = where filter in
               (* Exact filtered distance ranking avoids losing eligible neighbours when
        unrelated documents occupy the unfiltered top k. *)

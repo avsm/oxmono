@@ -1,5 +1,8 @@
 # Changes
 
+- Keep knowledge searches responsive during indexing. Add explicit source refresh
+  and typed service results shared by the CLI and agent tools.
+
 ## Unreleased
 
 - Share lazy provider initialization safely across fibers and move synchronous

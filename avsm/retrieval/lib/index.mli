@@ -26,14 +26,23 @@ type t
 exception Conflict
 
 val open_db : sw:Eio.Switch.t -> _ Eio.Path.t -> t
+val open_snapshot : sw:Eio.Switch.t -> _ Eio.Path.t -> t
+(** [open_snapshot ~sw path] pins one read-only SQLite generation until [sw]
+    closes. Concurrent writers may publish updates without changing its reads.
+    Embedding queries over an absent model index return no vectors. *)
+
+val metadata : t -> string -> string option
+(** [metadata t name] is metadata published atomically with the corpus. *)
+
 val memory : sw:Eio.Switch.t -> unit -> t
 
 val counts : t -> int * int
 (** [counts t] is the document and passage count from one read transaction. *)
 
-val replace : t -> document list -> unit
+val replace : ?metadata:(string * string) list -> t -> document list -> unit
 (** [replace t documents] atomically reconciles the complete snapshot, removing
-    obsolete chunks and vectors. Unchanged sources retain cached vectors. IDs
+    obsolete chunks and vectors. Supplied metadata is published in the same
+    transaction. Unchanged sources retain cached vectors. IDs
     must be nonempty and unique. *)
 
 val chunks : document -> chunk list

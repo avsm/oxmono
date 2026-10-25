@@ -3,6 +3,7 @@
  (public_name bushel.agent)
  (libraries
   bushel.knowledge
+  bushel.knowledge.service
   bushel.knowledge.store
   agentkit
   retrieval

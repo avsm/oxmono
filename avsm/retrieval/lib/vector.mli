@@ -1,3 +1,6 @@
+val identity : model:string -> dimensions:int -> normalization:string -> string
+val exists : Sqlite3.db -> string -> bool
+
 val name : string -> string
 (** SQLite vector operations shared by corpus-specific stores. Callers own
     transactions and must check source revisions before [put]. *)

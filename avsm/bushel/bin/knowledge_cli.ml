@@ -6,20 +6,11 @@
 open Cmdliner
 module Store = Bushel_knowledge_store
 module Model = Apple_mlx_embeddings.Model
+module Service = Bushel_knowledge_service
+module Output = Knowledge_output
+module Response = Store.Response
 
-let object_json fields =
-  Jsont.Json.object'
-    (List.map
-       (fun (key, value) -> Jsont.Json.mem (Jsont.Json.name key) value)
-       fields)
-
-let json fields =
-  let value = object_json fields in
-  match Jsont_bytesrw.encode_string Jsont.json value with
-  | Ok text -> text
-  | Error _ -> failwith "Could not encode knowledge command result"
-
-let error message = json [ ("error", Jsont.Json.string message) ]
+let error message = Output.Error message
 
 let protect ~json_output ~command run =
   Console_eio.setup ();
@@ -27,9 +18,9 @@ let protect ~json_output ~command run =
   Logs.set_reporter (Logs_fmt.reporter ());
   let started = Unix.gettimeofday () in
   let emit result code =
-    if json_output then print_endline result
+    if json_output then print_endline (Output.encode result)
     else
-      Knowledge_output.print
+      Knowledge_output.print_value
         ~elapsed:(max 0. (Unix.gettimeofday () -. started))
         ~command result;
     code
@@ -75,24 +66,22 @@ let offset =
 let positional name doc =
   Arg.(required & pos 0 (some string) None & info [] ~docv:name ~doc)
 
-let with_store_env env config action =
+let with_store_env ?(refresh = false) ?(write = false) env config action =
   Eio.Switch.run (fun sw ->
       let fetch = Fetch_curl.v ~sw ~timeout:(Duration.of_sec 60) () in
-      Store.with_store ?config_file:config ~fs:(Eio.Stdenv.fs env)
-        ~clock:(Eio.Stdenv.clock env) ~fetch ~check:Eio.Fiber.check action)
+      Store.with_store ?config_file:config ~refresh ~write
+        ~fs:(Eio.Stdenv.fs env) ~clock:(Eio.Stdenv.clock env) ~fetch
+        ~check:Eio.Fiber.check action)
 
-let with_store config action =
-  Eio_main.run (fun env -> with_store_env env config action)
+let with_store ?refresh ?write config action =
+  Eio_main.run (fun env -> with_store_env ?refresh ?write env config action)
 
-let invoke ~json_output ~command config name fields =
+let invoke ~json_output ~command config request =
   protect ~json_output ~command (fun () ->
-      let arguments = json fields in
       with_store config (fun store ->
-          let agent = Bushel_agent.of_store store ~max_bytes:65536 in
-          match
-            Bushel_agent.invoke agent ~check:Eio.Fiber.check name arguments
-          with
-          | Ok value -> (value, 0)
+          let service = Service.of_store store ~max_bytes:65536 in
+          match Service.call service ~check:Eio.Fiber.check request with
+          | Ok value -> (Output.Result value, 0)
           | Error message -> (error message, 1)))
 
 let command name doc term = Cmd.v (Cmd.info name ~doc) term
@@ -228,13 +217,7 @@ let configure_command ~images =
                       Bushel_config.configure_embeddings ?file:config settings))
         in
         match saved with
-        | Ok path ->
-            ( json
-                [
-                  ("configured", Jsont.Json.bool true);
-                  ("config_file", Jsont.Json.string path);
-                ],
-              0 )
+        | Ok path -> (Output.Configured path, 0)
         | Error message -> (error message, 1))
   in
   command "configure" "Configure the shared embedding provider."
@@ -267,17 +250,17 @@ let models_command ~images =
         (fun total (_, size) -> Int64.add total size)
         0L model.files
     in
-    object_json
-      [
-        ("name", Jsont.Json.string model.name);
-        ("repo", Jsont.Json.string model.repo);
-        ("revision", Jsont.Json.string model.revision);
-        ("dimensions", Jsont.Json.int model.dimensions);
-        ("size_bytes", Jsont.Json.number (Int64.to_float size));
-        ("cached", Jsont.Json.bool (Model.present model));
-        ("model_dir", Jsont.Json.string (Model.dir model));
-        ("default", Jsont.Json.bool (model.name = default.name));
-      ]
+    Output.
+      {
+        name = model.name;
+        repo = model.repo;
+        revision = model.revision;
+        dimensions = model.dimensions;
+        size_bytes = size;
+        cached = Model.present model;
+        model_dir = Model.dir model;
+        is_default = model.name = default.name;
+      }
   in
   command "models" "List local embedding models and their cache status."
     Term.(
@@ -285,22 +268,32 @@ let models_command ~images =
           protect ~json_output
             ~command:(if images then "images-models" else "models")
             (fun () ->
-              ( json
-                  [
-                    ("default", Jsont.Json.string default.name);
-                    ("models", Jsont.Json.list (List.map describe catalog));
-                  ],
+              ( Output.Models
+                  { default = default.name; models = List.map describe catalog },
                 0 )))
       $ json_output)
 
 let models_cmd = models_command ~images:false
 
 let status_cmd =
-  command "status" "Refresh local sources and report shared index coverage."
+  command "status" "Report shared index coverage from the published snapshot."
     Term.(
       const (fun json_output config ->
           protect ~json_output ~command:"status" (fun () ->
-              (with_store config Store.status, 0)))
+              (Output.Status (with_store config Store.status), 0)))
+      $ json_output $ config_file)
+
+let refresh_command ~images =
+  command "refresh" "Publish changed local sources without embedding them."
+    Term.(
+      const (fun json_output config ->
+          protect ~json_output
+            ~command:(if images then "images-status" else "status")
+            (fun () ->
+              ( Output.Status
+                  (with_store ~refresh:true config
+                     (if images then Store.image_status else Store.status)),
+                0 )))
       $ json_output $ config_file)
 
 let with_progress_interrupt ~clock run =
@@ -424,7 +417,8 @@ let index_command ~images =
               let output =
                 Eio_main.run (fun env ->
                     let run ?on_progress () =
-                      with_store_env env config (fun store ->
+                      with_store_env ~refresh:true ~write:true env config
+                        (fun store ->
                           match max_batches with
                           | None ->
                               (if images then Store.index_images_all
@@ -447,7 +441,7 @@ let index_command ~images =
                         (fun ~on_progress () -> run ~on_progress ())
                     else run ())
               in
-              (output, 0)))
+              (Output.Status output, 0)))
       $ json_output $ config_file $ max_batches $ no_progress)
 
 let index_cmd = index_command ~images:false
@@ -470,26 +464,13 @@ let search_cmd =
   in
   let run json_output config query mode kind tag contact project since until
       offset =
-    let optional_fields =
-      List.filter_map
-        (fun (name, value) ->
-          Option.map (fun value -> (name, Jsont.Json.string value)) value)
-        [
-          ("kind", kind);
-          ("tag", tag);
-          ("contact", contact);
-          ("project", project);
-          ("since", since);
-          ("until", until);
-        ]
-    in
-    invoke ~json_output ~command:"search" config "knowledge_search"
-      ([
-         ("query", Jsont.Json.string query);
-         ("mode", Jsont.Json.string mode);
-         ("offset", Jsont.Json.int offset);
-       ]
-      @ optional_fields)
+    invoke ~json_output ~command:"search" config
+      (Service.Search
+         {
+           bushel = false;
+           search =
+             { query; mode; kind; tag; contact; project; since; until; offset };
+         })
   in
   command "search" "Search the shared Bushel and Sortal corpus."
     Term.(
@@ -508,8 +489,8 @@ let get_cmd =
   command "get" "Read a source by its stable ID, in bounded UTF-8 pages."
     Term.(
       const (fun json_output config id offset ->
-          invoke ~json_output ~command:"get" config "knowledge_get"
-            [ ("id", Jsont.Json.string id); ("offset", Jsont.Json.int offset) ])
+          invoke ~json_output ~command:"get" config
+            (Service.Read { id; offset }))
       $ json_output $ config_file
       $ positional "ID" "Source ID returned by search."
       $ offset)
@@ -518,11 +499,8 @@ let contacts_cmd =
   command "contacts" "Resolve a name, handle, email or account to contacts."
     Term.(
       const (fun json_output config query offset ->
-          invoke ~json_output ~command:"contacts" config "contacts_resolve"
-            [
-              ("query", Jsont.Json.string query);
-              ("offset", Jsont.Json.int offset);
-            ])
+          invoke ~json_output ~command:"contacts" config
+            (Service.Resolve { query; offset }))
       $ json_output $ config_file
       $ positional "QUERY" "Contact name, handle or account."
       $ offset)
@@ -534,7 +512,7 @@ let images_cmd =
       Term.(
         const (fun json_output config ->
             protect ~json_output ~command:"images-status" (fun () ->
-                (with_store config Store.image_status, 0)))
+                (Output.Status (with_store config Store.image_status), 0)))
         $ json_output $ config_file)
   in
   let search =
@@ -556,9 +534,11 @@ let images_cmd =
       Term.(
         const (fun json_output config query mode offset ->
             protect ~json_output ~command:"images-search" (fun () ->
-                ( with_store config (fun store ->
-                      Store.images_search store ~check:Eio.Fiber.check ~query
-                        ~mode ~offset),
+                ( Output.Result
+                    (Response.Search
+                       (with_store config (fun store ->
+                            Store.images_search store ~check:Eio.Fiber.check
+                              ~query ~mode ~offset))),
                   0 )))
         $ json_output $ config_file
         $ positional "QUERY" "Describe the image to find."
@@ -569,8 +549,11 @@ let images_cmd =
       Term.(
         const (fun json_output config id offset ->
             protect ~json_output ~command:"images-get" (fun () ->
-                ( with_store config (fun store ->
-                      Store.images_get store ~check:Eio.Fiber.check ~id ~offset),
+                ( Output.Result
+                    (Response.Source
+                       (with_store config (fun store ->
+                            Store.images_get store ~check:Eio.Fiber.check ~id
+                              ~offset))),
                   0 )))
         $ json_output $ config_file
         $ positional "ID" "Image ID returned by search."
@@ -582,6 +565,7 @@ let images_cmd =
       configure_command ~images:true;
       models_command ~images:true;
       status;
+      refresh_command ~images:true;
       index_command ~images:true;
       search;
       get;
@@ -608,6 +592,7 @@ let cmd =
       models_cmd;
       index_cmd;
       status_cmd;
+      refresh_command ~images:false;
       search_cmd;
       get_cmd;
       contacts_cmd;

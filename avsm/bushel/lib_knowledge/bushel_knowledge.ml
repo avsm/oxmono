@@ -137,6 +137,70 @@ let contact_indexes contacts =
   in
   (exact, prefixes)
 
+let post_codec =
+  Jsont.Object.map (fun id date -> (id, date))
+  |> Jsont.Object.mem "id" Jsont.string ~enc:fst
+  |> Jsont.Object.mem "date" Jsont.string ~enc:snd
+  |> Jsont.Object.finish
+
+let contact_codec =
+  Jsont.Object.map (fun id value -> { id; value })
+  |> Jsont.Object.mem "id" Jsont.string ~enc:(fun c -> c.id)
+  |> Jsont.Object.mem "value" C.json_t ~enc:(fun c -> c.value)
+  |> Jsont.Object.finish
+
+let edge_codec =
+  Jsont.Object.map (fun source target relation evidence ->
+      { source; target; relation; evidence })
+  |> Jsont.Object.mem "source" Jsont.string ~enc:(fun e -> e.source)
+  |> Jsont.Object.mem "target" Jsont.string ~enc:(fun e -> e.target)
+  |> Jsont.Object.mem "relation" Jsont.string ~enc:(fun e -> e.relation)
+  |> Jsont.Object.mem "evidence" Jsont.string ~enc:(fun e -> e.evidence)
+  |> Jsont.Object.finish
+
+let snapshot_codec =
+  Jsont.Object.map (fun posts contacts edges generation skipped ->
+      (posts, contacts, edges, generation, skipped))
+  |> Jsont.Object.mem "posts" (Jsont.list post_codec)
+       ~enc:(fun (x, _, _, _, _) -> x)
+  |> Jsont.Object.mem "contacts" (Jsont.list contact_codec)
+       ~enc:(fun (_, x, _, _, _) -> x)
+  |> Jsont.Object.mem "edges" (Jsont.list edge_codec)
+       ~enc:(fun (_, _, x, _, _) -> x)
+  |> Jsont.Object.mem "generation" Jsont.string ~enc:(fun (_, _, _, x, _) -> x)
+  |> Jsont.Object.mem "skipped_images" Jsont.int ~enc:(fun (_, _, _, _, x) -> x)
+  |> Jsont.Object.finish
+
+let snapshot_metadata snapshot skipped =
+  ( "bushel_snapshot_v1",
+    J.encode snapshot_codec
+      ( snapshot.posts,
+        snapshot.contacts,
+        snapshot.edges,
+        snapshot.generation,
+        skipped ) )
+
+let restore t =
+  match I.metadata t.index "bushel_snapshot_v1" with
+  | None -> false
+  | Some encoded ->
+      let posts, contacts, edges, generation, skipped_images =
+        J.decode snapshot_codec encoded
+      in
+      let exact, prefixes = contact_indexes contacts in
+      let adjacency =
+        List.concat_map
+          (fun e ->
+            if e.source = e.target then [ (e.source, e) ]
+            else [ (e.source, e); (e.target, e) ])
+          edges
+        |> group
+      in
+      t.snapshot <-
+        { posts; contacts; edges; adjacency; exact; prefixes; generation };
+      t.skipped_images <- skipped_images;
+      true
+
 let resolve t query =
   let q = normal query in
   if q = "" then invalid_arg "A contact query must not be empty";
@@ -150,7 +214,7 @@ let resolve t query =
           else None)
         t.snapshot.prefixes
 
-let refresh ?(base_url = "") ?(links = []) t ~entries ~contacts ~feeds =
+let refresh ?(metadata = []) ?(base_url = "") ?(links = []) t ~entries ~contacts ~feeds =
   let base_url =
     if String.ends_with ~suffix:"/" base_url then
       String.sub base_url 0 (String.length base_url - 1)
@@ -457,10 +521,10 @@ let refresh ?(base_url = "") ?(links = []) t ~entries ~contacts ~feeds =
   let snapshot =
     { posts; contacts; edges; adjacency; exact; prefixes; generation }
   in
-  I.replace t.index documents;
+  I.replace ~metadata:(snapshot_metadata snapshot 0 :: metadata) t.index documents;
   t.snapshot <- snapshot
 
-let load ?(base_url = "") t ~fs ~bushel_dir ~sortal_dir =
+let load ?(metadata = []) ?(base_url = "") t ~fs ~bushel_dir ~sortal_dir =
   List.iter
     (fun dir ->
       if (Eio.Path.stat ~follow:true Eio.Path.(fs / dir)).kind <> `Directory
@@ -507,7 +571,7 @@ let load ?(base_url = "") t ~fs ~bushel_dir ~sortal_dir =
         Bushel.Link.load_links_file ~strict:true
           (Filename.concat bushel_dir "links.yml"))
   in
-  refresh ~base_url ~links t ~entries ~contacts ~feeds
+  refresh ~metadata ~base_url ~links t ~entries ~contacts ~feeds
 
 let latest_posts t ~until =
   t.snapshot.posts
@@ -574,7 +638,7 @@ let pixel_hash path =
       then raise I.Conflict;
       digest)
 
-let load_images t ~fs ~output_dir ~check =
+let load_images ?(metadata = []) t ~fs ~output_dir ~check =
   check ();
   let root =
     Eio_unix.run_in_systhread (fun () ->
@@ -687,9 +751,8 @@ let load_images t ~fs ~output_dir ~check =
           })
       groups
   in
-  I.replace t.index documents;
-  t.skipped_images <- List.length skipped;
-  t.snapshot <-
+  let skipped_images = List.length skipped in
+  let snapshot =
     {
       t.snapshot with
       generation =
@@ -699,6 +762,11 @@ let load_images t ~fs ~output_dir ~check =
                 (fun (d : I.document) -> key [ d.id; d.revision ])
                 documents));
     }
+  in
+  I.replace ~metadata:(snapshot_metadata snapshot skipped_images :: metadata)
+    t.index documents;
+  t.skipped_images <- skipped_images;
+  t.snapshot <- snapshot
 
 let image_backend t =
   let backend = I.backend t.index { I.all with kind = Some "image" } in

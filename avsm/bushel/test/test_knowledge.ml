@@ -348,6 +348,16 @@ let () =
   let semantic =
     Bushel_agent.create ~clock ~corpus ~provider ~max_bytes:65536 ()
   in
+  let unindexed =
+    Bushel_agent.invoke semantic ~check:noop "bushel_search"
+      {|{"query":"bushelneedle","mode":"semantic"}|}
+    |> Result.get_ok
+  in
+  check "semantic reads do not embed missing documents"
+    (ids unindexed = [] && K.coverage corpus provider = (0, 125)
+     && List.for_all (fun (task, _) -> task = `Query) !embedded);
+  ignore (K.index ~filter:{ Retrieval.Index.all with kind = Some "note" }
+            corpus provider ~check:noop ~max_batches:8);
   let result =
     Bushel_agent.invoke semantic ~check:noop "bushel_search"
       {|{"query":"bushelneedle","mode":"semantic"}|}
@@ -355,7 +365,7 @@ let () =
   in
   check "semantic Bushel search excludes feeds before ranking"
     (List.length (ids result) = 5);
-  check "semantic Bushel search indexes only matching local site entries"
+  check "explicit indexing can restrict work to matching local site entries"
     (K.coverage corpus provider = (5, 125));
   let before = List.length !embedded in
   let generation = K.generation corpus in

@@ -6,7 +6,7 @@
   bushel.eio
   bushel.config
   bushel.sync
-  bushel.agent
+  bushel.knowledge.service
   bushel.knowledge.store
   apple-mlx-embeddings
   fetch-curl

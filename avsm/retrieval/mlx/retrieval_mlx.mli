@@ -1,11 +1,25 @@
+module Runtime : sig
+  type t
+
+  val create : sw:Eio.Switch.t -> t
+  (** [create ~sw] owns the lazily loaded text and vision models until [sw]
+      finishes. Providers cannot be used after the switch closes. *)
+
+  val release : t -> unit
+  (** [release t] releases retained weights after active inference completes.
+      Existing providers reload on their next request. Cleanup also waits in a
+      cancelled context. *)
+end
+
 val create :
+  runtime:Runtime.t ->
   model_dir:string ->
   dimensions:int ->
   max_tokens:int ->
   query_instruction:string ->
   check:(unit -> unit) ->
   Retrieval.Embedding.provider
-(** [create ~model_dir ~dimensions ~max_tokens ~query_instruction ~check]
+(** [create ~runtime ~model_dir ~dimensions ~max_tokens ~query_instruction ~check]
     fingerprints local model files without loading GPU weights. The identity
     includes their contents, tokenizer files, inference settings and bridge
     version. Documents are embedded unchanged. Queries use Qwen3's instruction
@@ -13,18 +27,14 @@ val create :
     limited to 8192 bytes and must not contain NUL. Batches contain at most four
     inputs.
 
-    The process retains one lazily loaded model, serializing inference and
+    The runtime retains one lazily loaded model, serializing inference and
     replacing it when the model identity changes. File changes between provider
     creation and inference reject the request. Recreate the provider to use the
     new revision. File hashing runs outside the Eio domain. *)
 
-val release : unit -> unit
-(** [release ()] closes the retained model after any active inference completes.
-    Cleanup waits even in a cancelled context. Existing providers reload the
-    model on their next request. This function requires an Eio scheduler. *)
-
 module Vision : sig
   val create :
+    runtime:Runtime.t ->
     model_dir:string ->
     dimensions:int ->
     max_tokens:int ->
@@ -37,8 +47,4 @@ module Vision : sig
       The model loads lazily, independently of the text provider. Batches have
       at most two inputs. Its identity includes preprocessing bridge version,
       model contents, instruction and dimensions. *)
-
-  val release : unit -> unit
-  (** [release ()] closes the retained vision model after active inference,
-      including in a cancelled context. This function requires an Eio scheduler. *)
 end

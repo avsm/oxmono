@@ -21,6 +21,8 @@ homepage: "https://tangled.org/anil.recoil.org/ocaml-bushel"
 bug-reports: "https://tangled.org/anil.recoil.org/ocaml-bushel/issues"
 depends: [
   "dune" {>= "3.21"}
+  "eioext"
+  "sekrit"
   "retrieval"
   "srcsetter"
   "digestif"

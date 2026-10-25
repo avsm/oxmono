@@ -14,7 +14,7 @@ val create :
     [refresh] runs before each invocation. [max_bytes] must be at least 1024. *)
 
 val of_store : Bushel_knowledge_store.t -> max_bytes:int -> t
-(** [of_store store ~max_bytes] uses the shared store's refreshed corpus and
+(** [of_store store ~max_bytes] uses the shared store's published corpus and
     provider and clock. Provider construction is deferred until semantic or
     hybrid search. Lexical search, source reads and contact lookups do not
     fingerprint model weights. Invoke its tools inside the store session. *)
@@ -26,10 +26,11 @@ val system_prompt : string
 
 val invoke :
   t -> check:(unit -> unit) -> string -> string -> (string, string) result
-(** [invoke t ~check name arguments] refreshes the corpus and returns complete,
-    bounded JSON. Semantic queries index at most eight batches and report
-    coverage. [check] must enforce current authority and cancellation. Callers
-    serialize invocations on a shared corpus and own audit logging. *)
+(** [invoke t ~check name arguments] runs the configured refresh callback and
+    returns complete, bounded JSON. Semantic queries report existing embedding
+    coverage without changing the index. [check] must enforce current authority
+    and cancellation. Callers serialize invocations on a shared corpus and own
+    audit logging. *)
 
 val bind : t -> check:(unit -> unit) -> Agentkit.Agent.Tool.t list
 (** [bind t ~check] attaches handlers for direct Agentkit use. *)

@@ -1,0 +1,11 @@
+(library
+ (name bushel_knowledge_service)
+ (public_name bushel.knowledge.service)
+ (libraries
+  bushel.knowledge
+  bushel.knowledge.store
+  retrieval
+  ptime
+  eio
+  jsont
+  jsont.bytesrw))

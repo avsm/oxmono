@@ -116,21 +116,47 @@ let revision root =
                 | [] -> []);
               digest))
 
-let model_lock = Eio.Mutex.create ()
-let loaded : (string * Native.t) option ref = ref None
+type 'a slot = { lock : Eio.Mutex.t; mutable loaded : (string * 'a) option }
 
-let clear () =
+let slot () = { lock = Eio.Mutex.create (); loaded = None }
+
+let clear_slot close slot =
   Eio.Cancel.protect (fun () ->
-      match !loaded with
+      match slot.loaded with
       | None -> ()
       | Some (_, model) ->
-          loaded := None;
-          Native.close model)
+          slot.loaded <- None;
+          close model)
 
-let release () =
-  Eio.Cancel.protect (fun () -> Eio.Mutex.use_ro model_lock clear)
+module Runtime = struct
+  type t = {
+    text : Native.t slot;
+    vision : Native.Vision.t slot;
+    mutable closed : bool;
+  }
 
-let create ~model_dir ~dimensions ~max_tokens ~query_instruction ~check =
+  let check t = if t.closed then invalid_arg "Embedding runtime is closed"
+
+  let release t =
+    Eio.Cancel.protect (fun () ->
+        Fun.protect
+          ~finally:(fun () ->
+            Eio.Mutex.use_ro t.vision.lock (fun () ->
+                clear_slot Native.Vision.close t.vision))
+          (fun () ->
+            Eio.Mutex.use_ro t.text.lock (fun () ->
+                clear_slot Native.close t.text)))
+
+  let create ~sw =
+    let t = { text = slot (); vision = slot (); closed = false } in
+    Eio.Switch.on_release sw (fun () ->
+        t.closed <- true;
+        release t);
+    t
+end
+
+let create ~runtime ~model_dir ~dimensions ~max_tokens ~query_instruction ~check
+    =
   if
     String.length query_instruction > 8192
     || String.contains query_instruction '\000'
@@ -177,20 +203,21 @@ let create ~model_dir ~dimensions ~max_tokens ~query_instruction ~check =
         inputs
       |> Array.of_list
     in
-    Eio.Mutex.use_ro model_lock (fun () ->
+    Eio.Mutex.use_ro runtime.Runtime.text.lock (fun () ->
+        Runtime.check runtime;
         check ();
         unchanged ();
         check ();
         let model =
-          match !loaded with
+          match runtime.Runtime.text.loaded with
           | Some (previous, model) when previous = identity -> model
           | _ ->
-              clear ();
+              clear_slot Native.close runtime.text;
               Eio.Cancel.protect (fun () ->
                   let model = Native.load ~model_dir ~max_tokens in
                   match unchanged () with
                   | () ->
-                      loaded := Some (identity, model);
+                      runtime.text.loaded <- Some (identity, model);
                       model
                   | exception exn ->
                       let bt = Printexc.get_raw_backtrace () in
@@ -212,21 +239,9 @@ let create ~model_dir ~dimensions ~max_tokens ~query_instruction ~check =
 module Vision = struct
   module Vision_native = Apple_mlx_embeddings.Vision
 
-  let model_lock = Eio.Mutex.create ()
-  let loaded : (string * Vision_native.t) option ref = ref None
-
-  let clear () =
-    Eio.Cancel.protect (fun () ->
-        match !loaded with
-        | None -> ()
-        | Some (_, model) ->
-            loaded := None;
-            Vision_native.close model)
-
-  let release () =
-    Eio.Cancel.protect (fun () -> Eio.Mutex.use_ro model_lock clear)
-
-  let create ~model_dir ~dimensions ~max_tokens ~query_instruction ~check =
+  let create ~runtime ~model_dir ~dimensions ~max_tokens ~query_instruction
+      ~check =
+    Runtime.check runtime;
     if
       String.length query_instruction > 8192
       || String.contains query_instruction '\000'
@@ -290,21 +305,22 @@ module Vision = struct
         Array.of_list
           (match task with `Query -> inputs | `Document -> List.map fst paths)
       in
-      Eio.Mutex.use_ro model_lock (fun () ->
+      Eio.Mutex.use_ro runtime.Runtime.vision.lock (fun () ->
+          Runtime.check runtime;
           check ();
           unchanged ();
           verify_pixels ();
           check ();
           let model =
-            match !loaded with
+            match runtime.Runtime.vision.loaded with
             | Some (previous, model) when previous = identity -> model
             | _ ->
-                clear ();
+                clear_slot Vision_native.close runtime.vision;
                 Eio.Cancel.protect (fun () ->
                     let model = Vision_native.load ~model_dir ~max_tokens in
                     match unchanged () with
                     | () ->
-                        loaded := Some (identity, model);
+                        runtime.vision.loaded <- Some (identity, model);
                         model
                     | exception exn ->
                         let bt = Printexc.get_raw_backtrace () in

@@ -4,4 +4,10 @@
 (test
  (name test_output)
  (modules test_output knowledge_output)
- (libraries console fmt jsont jsont.bytesrw apple-mlx-embeddings))
+ (libraries
+  bushel.knowledge.store
+  console
+  fmt
+  jsont
+  jsont.bytesrw
+  apple-mlx-embeddings))

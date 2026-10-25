@@ -1,8 +1,11 @@
+module Response = Response
 module K = Bushel_knowledge
 module E = Retrieval.Embedding
 module J = Retrieval.Json
 
 type images = {
+  path : Eio.Fs.dir_ty Eio.Path.t;
+  write : bool;
   corpus : K.t;
   provider : E.provider option Eio.Lazy.t;
   settings : Bushel_config.mlx_embeddings option;
@@ -10,6 +13,8 @@ type images = {
 }
 
 type t = {
+  path : Eio.Fs.dir_ty Eio.Path.t;
+  write : bool;
   corpus : K.t;
   provider : E.provider option Eio.Lazy.t;
   settings : Bushel_config.embeddings option;
@@ -99,13 +104,7 @@ let private_file path =
         invalid_arg
           ("Knowledge file must be owned by you with mode 0600: " ^ path))
 
-let data_home () =
-  match Sys.getenv_opt "XDG_DATA_HOME" with
-  | Some path when path <> "" -> path
-  | _ ->
-      Filename.concat
-        (Option.value ~default:"." (Sys.getenv_opt "HOME"))
-        ".local/share"
+let data_home = Xdge.Paths.data_home
 
 let location ~fs ~bushel ~sortal =
   let canonical path = Unix.realpath Eio.Path.(native_exn (fs / path)) in
@@ -119,69 +118,47 @@ let location ~fs ~bushel ~sortal =
   private_directory dir;
   (bushel, sortal, Filename.concat (Unix.realpath dir) "knowledge.sqlite3")
 
-(* POSIX record locks are process scoped. A second fiber must not open and
-   close another descriptor for a lock held by this process. *)
-let registry_lock = Mutex.create ()
-let locks = Hashtbl.create 4
-
-let local_lock path =
-  Mutex.lock registry_lock;
-  Fun.protect
-    ~finally:(fun () -> Mutex.unlock registry_lock)
-    (fun () ->
-      match Hashtbl.find_opt locks path with
-      | Some lock -> lock
-      | None ->
-          let lock = Eio.Mutex.create () in
-          Hashtbl.add locks path lock;
-          lock)
-
 let with_lock ~clock ~check path f =
-  Eio.Mutex.use_ro (local_lock path) (fun () ->
-      let fd =
-        Eio_unix.run_in_systhread (fun () ->
-            private_file path;
-            Unix.openfile path [ Unix.O_RDWR; Unix.O_CLOEXEC ] 0)
-      in
-      Fun.protect
-        ~finally:(fun () -> Unix.close fd)
-        (fun () ->
-          let rec acquire () =
-            check ();
-            match Unix.lockf fd Unix.F_TLOCK 0 with
-            | () -> ()
-            | exception Unix.Unix_error ((Unix.EACCES | Unix.EAGAIN), _, _) ->
-                Eio.Time.sleep clock 0.05;
-                acquire ()
-            | exception Unix.Unix_error (Unix.EINTR, _, _) -> acquire ()
-          in
-          acquire ();
-          Fun.protect
-            ~finally:(fun () -> Unix.lockf fd Unix.F_ULOCK 0)
-            (fun () ->
-              check ();
-              f ())))
+  let wait () =
+    check ();
+    Eio.Time.sleep clock 0.05
+  in
+  Eioext.Native.with_lock ~wait ~path (fun () ->
+      check ();
+      f ())
 
 let read_key path =
-  if not (private_stat Unix.S_REG (Unix.lstat path)) then
-    invalid_arg "Embedding API key must be an owned private regular file";
-  let fd =
-    Unix.openfile path [ Unix.O_RDONLY; Unix.O_CLOEXEC; Unix.O_NONBLOCK ] 0
-  in
-  let ic = Unix.in_channel_of_descr fd in
-  Fun.protect
-    ~finally:(fun () -> close_in_noerr ic)
-    (fun () ->
-      let stat = Unix.fstat fd in
-      if
-        (not (private_stat Unix.S_REG stat))
-        || not (private_stat Unix.S_REG (Unix.lstat path))
-      then invalid_arg "Embedding API key must be an owned private regular file";
-      if stat.st_size > 16384 then invalid_arg "Embedding API key is too large";
-      let key = really_input_string ic stat.st_size |> String.trim in
-      if key = "" || String.contains key '\n' || String.contains key '\r' then
-        invalid_arg "Embedding API key must contain one nonempty line";
-      key)
+  try Sekrit.read_reference ~max_bytes:16384 path
+  with Sekrit.Error message -> invalid_arg message
+
+let manifest roots =
+  Eio_unix.run_in_systhread (fun () ->
+      let rec scan ancestors path acc =
+        let stat = Unix.stat path in
+        match stat.Unix.st_kind with
+        | Unix.S_DIR ->
+            let identity = (stat.st_dev, stat.st_ino) in
+            if List.mem identity ancestors then
+              invalid_arg ("Source directory cycle: " ^ path);
+            Sys.readdir path |> Array.to_list |> List.sort String.compare
+            |> List.fold_left
+                 (fun acc name ->
+                   if name = ".git" then acc
+                   else
+                     scan (identity :: ancestors)
+                       (Filename.concat path name)
+                       acc)
+                 acc
+        | Unix.S_REG ->
+            Printf.sprintf "%s:%d:%d:%d:%.17g:%.17g" path stat.st_dev
+              stat.st_ino stat.st_size stat.st_mtime stat.st_ctime
+            :: acc
+        | _ -> acc
+      in
+      List.fold_left (fun acc root -> scan [] root acc) [] roots
+      |> List.rev
+      |> J.encode (Jsont.list Jsont.string)
+      |> E.hash)
 
 let http_provider ~sw ~fetch (settings : Bushel_config.http_embeddings) =
   let make ?api_key () =
@@ -205,14 +182,15 @@ let http_provider ~sw ~fetch (settings : Bushel_config.http_embeddings) =
         (Eio.Lazy.force configured).embed ~task ~check inputs);
   }
 
-let make_provider ~sw ~fetch ~check = function
+let make_provider ~runtime ~sw ~fetch ~check = function
   | Bushel_config.Http settings -> http_provider ~sw ~fetch settings
   | Bushel_config.Mlx settings ->
-      Retrieval_mlx.create ~model_dir:settings.model_dir
+      Retrieval_mlx.create ~runtime ~model_dir:settings.model_dir
         ~dimensions:settings.dimensions ~max_tokens:settings.max_tokens
         ~query_instruction:settings.query_instruction ~check
 
-let with_store ?config_file ~fs ~clock ~fetch ~check f =
+let with_store ?config_file ?runtime ?(refresh = false) ?(write = false) ~fs
+    ~clock ~fetch ~check f =
   check ();
   let clock = (clock :> float Eio.Time.clock_ty Eio.Resource.t) in
   let settings = config config_file in
@@ -220,120 +198,172 @@ let with_store ?config_file ~fs ~clock ~fetch ~check f =
   let bushel, sortal, database =
     Eio_unix.run_in_systhread (fun () -> location ~fs ~bushel ~sortal)
   in
-  with_lock ~clock ~check (database ^ ".lock") (fun () ->
-      Eio.Switch.run @@ fun sw ->
-      Eio_unix.run_in_systhread (fun () -> private_file database);
-      let index = Retrieval.Index.open_db ~sw Eio.Path.(fs / database) in
+  Eio.Switch.run @@ fun sw ->
+  let runtime =
+    match runtime with
+    | Some runtime -> runtime
+    | None -> Retrieval_mlx.Runtime.create ~sw
+  in
+  let open_corpus ~refresh database load roots =
+    let path = Eio.Path.(fs / database) in
+    let update () =
+      with_lock ~clock ~check (database ^ ".lock") (fun () ->
+          Eio.Switch.run @@ fun update_sw ->
+          Eio_unix.run_in_systhread (fun () -> private_file database);
+          let index = Retrieval.Index.open_db ~sw:update_sw path in
+          let corpus = K.create index in
+          let restored = K.restore corpus in
+          let fingerprint = manifest roots in
+          if
+            (not restored)
+            || Retrieval.Index.metadata index "source_manifest_v1"
+               <> Some fingerprint
+          then load corpus [ ("source_manifest_v1", fingerprint) ])
+    in
+    let initialized () =
+      Eio_unix.run_in_systhread (fun () ->
+          match Unix.lstat database with
+          | stat when private_stat Unix.S_REG stat -> stat.st_size > 0
+          | _ ->
+              invalid_arg
+                "Knowledge index must be an owned private regular file"
+          | exception Unix.Unix_error (Unix.ENOENT, _, _) -> false)
+    in
+    if refresh || not (initialized ()) then update ();
+    let open_index () =
+      if write then Retrieval.Index.open_db ~sw path
+      else Retrieval.Index.open_snapshot ~sw path
+    in
+    let index = open_index () in
+    let corpus = K.create index in
+    if not (K.restore corpus) then (
+      (* Old indexes have vectors but no domain snapshot. Publish metadata once
+         before opening a new pinned reader, preserving their existing vectors. *)
+      update ();
+      let index = open_index () in
       let corpus = K.create index in
-      (try K.load corpus ~fs ~bushel_dir:bushel ~sortal_dir:sortal
-       with Sortal_carddav.Common.Error message ->
-         failwith ("Sortal source: " ^ message));
-      check ();
-      let provider =
-        Eio.Lazy.from_fun ~cancel:`Record (fun () ->
-            Option.map (make_provider ~sw ~fetch ~check) settings.embeddings)
-      in
-      let images =
-        Eio.Lazy.from_fun ~cancel:`Record (fun () ->
-            check ();
-            let output_dir =
-              Eio_unix.run_in_systhread (fun () ->
-                  Unix.realpath
-                    Eio.Path.(native_exn (fs / settings.images_output_dir)))
-            in
-            let image_database =
-              Filename.concat
-                (Filename.dirname database)
-                ("images-" ^ E.hash output_dir ^ ".sqlite3")
-            in
-            Eio_unix.run_in_systhread (fun () -> private_file image_database);
-            let image_index =
-              Retrieval.Index.open_db ~sw Eio.Path.(fs / image_database)
-            in
-            let image_corpus = K.create image_index in
-            K.load_images image_corpus ~fs ~output_dir ~check;
-            let image_provider =
-              Eio.Lazy.from_fun ~cancel:`Record (fun () ->
-                  Option.map
-                    (fun (s : Bushel_config.mlx_embeddings) ->
-                      Retrieval_mlx.Vision.create ~model_dir:s.model_dir
-                        ~dimensions:s.dimensions ~max_tokens:s.max_tokens
-                        ~query_instruction:s.query_instruction ~check)
-                    settings.image_embeddings)
-            in
-            {
-              corpus = image_corpus;
-              provider = image_provider;
-              settings = settings.image_embeddings;
-              database = image_database;
-            })
-      in
-      let result =
-        f
-          {
-            corpus;
-            provider;
-            settings = settings.embeddings;
-            database;
-            images;
-            clock;
-          }
-      in
-      check ();
-      result)
-
-let obj fields =
-  Jsont.Json.object'
-    (List.map
-       (fun (key, value) -> Jsont.Json.mem (Jsont.Json.name key) value)
-       fields)
-
-let status_fields (t : t) =
-  let documents, passages = K.counts t.corpus in
-  let coverage =
-    match Eio.Lazy.force t.provider with
-    | None -> Jsont.Json.null ()
-    | Some provider ->
-        let indexed, total = K.coverage t.corpus provider in
-        obj
-          [
-            ("indexed", Jsont.Json.int indexed); ("total", Jsont.Json.int total);
-          ]
+      if not (K.restore corpus) then failwith "Knowledge snapshot is missing";
+      corpus)
+    else corpus
   in
+  let corpus =
+    open_corpus ~refresh database
+      (fun corpus metadata ->
+        try K.load ~metadata corpus ~fs ~bushel_dir:bushel ~sortal_dir:sortal
+        with Sortal_carddav.Common.Error message ->
+          failwith ("Sortal source: " ^ message))
+      [ bushel; sortal ]
+  in
+  check ();
   let provider =
-    match t.settings with
-    | None -> Jsont.Json.null ()
-    | Some (Bushel_config.Http settings) ->
-        obj
-          [
-            ("backend", Jsont.Json.string "http");
-            ("url", Jsont.Json.string settings.url);
-            ("model", Jsont.Json.string settings.model);
-            ("dimensions", Jsont.Json.int settings.dimensions);
-          ]
-    | Some (Bushel_config.Mlx settings) ->
-        obj
-          [
-            ("backend", Jsont.Json.string "mlx");
-            ("model_dir", Jsont.Json.string settings.model_dir);
-            ("dimensions", Jsont.Json.int settings.dimensions);
-            ("max_tokens", Jsont.Json.int settings.max_tokens);
-            ("query_instruction", Jsont.Json.string settings.query_instruction);
-            ( "model_identity",
-              Jsont.Json.string (Option.get (Eio.Lazy.force t.provider)).model
-            );
-          ]
+    Eio.Lazy.from_fun ~cancel:`Record (fun () ->
+        Option.map
+          (make_provider ~runtime ~sw ~fetch ~check)
+          settings.embeddings)
   in
-  [
-    ("database", Jsont.Json.string t.database);
-    ("generation", Jsont.Json.string (K.generation t.corpus));
-    ("documents", Jsont.Json.int documents);
-    ("passages", Jsont.Json.int passages);
-    ("embedding_provider", provider);
-    ("embedding_coverage", coverage);
-  ]
+  let images =
+    Eio.Lazy.from_fun ~cancel:`Record (fun () ->
+        check ();
+        let output_dir =
+          Eio_unix.run_in_systhread (fun () ->
+              Unix.realpath
+                Eio.Path.(native_exn (fs / settings.images_output_dir)))
+        in
+        let image_database =
+          Filename.concat
+            (Filename.dirname database)
+            ("images-" ^ E.hash output_dir ^ ".sqlite3")
+        in
+        let image_corpus =
+          open_corpus ~refresh image_database
+            (fun corpus metadata ->
+              K.load_images ~metadata corpus ~fs ~output_dir ~check)
+            [ output_dir ]
+        in
+        let image_provider =
+          Eio.Lazy.from_fun ~cancel:`Record (fun () ->
+              Option.map
+                (fun (s : Bushel_config.mlx_embeddings) ->
+                  Retrieval_mlx.Vision.create ~runtime ~model_dir:s.model_dir
+                    ~dimensions:s.dimensions ~max_tokens:s.max_tokens
+                    ~query_instruction:s.query_instruction ~check)
+                settings.image_embeddings)
+        in
+        {
+          path = Eio.Path.(fs / image_database);
+          write;
+          corpus = image_corpus;
+          provider = image_provider;
+          settings = settings.image_embeddings;
+          database = image_database;
+        })
+  in
+  let result =
+    f
+      {
+        path = Eio.Path.(fs / database);
+        write;
+        corpus;
+        provider;
+        settings = settings.embeddings;
+        images;
+        database;
+        clock;
+      }
+  in
+  check ();
+  result
 
-let status t = J.encode Jsont.json (obj (status_fields t))
+let provider_details ?(vision = false) settings provider =
+  match (settings, provider) with
+  | Some (Bushel_config.Http s), _ ->
+      Some
+        (Response.Http
+           { url = s.url; model = s.model; dimensions = s.dimensions })
+  | Some (Bushel_config.Mlx s), Some provider ->
+      Some
+        (Response.Mlx
+           {
+             backend = (if vision then "mlx-vision" else "mlx");
+             model_dir = s.model_dir;
+             dimensions = s.dimensions;
+             max_tokens = s.max_tokens;
+             query_instruction = s.query_instruction;
+             model_identity = provider.E.model;
+           })
+  | _ -> None
+
+let with_read_snapshot ~path ~write corpus f =
+  if not write then f corpus
+  else
+    Eio.Switch.run (fun sw ->
+        let index = Retrieval.Index.open_snapshot ~sw path in
+        let corpus = K.create index in
+        if not (K.restore corpus) then failwith "Knowledge snapshot is missing";
+        f corpus)
+
+let status (t : t) =
+  with_read_snapshot ~path:t.path ~write:t.write t.corpus (fun corpus ->
+      let documents, passages = K.counts corpus in
+      let provider = Eio.Lazy.force t.provider in
+      let coverage =
+        Option.map
+          (fun p ->
+            let indexed, total = K.coverage corpus p in
+            Response.{ indexed; total })
+          provider
+      in
+      Response.
+        {
+          database = t.database;
+          generation = K.generation corpus;
+          documents;
+          passages;
+          provider = provider_details t.settings provider;
+          coverage;
+          skipped_images = None;
+          newly_indexed = None;
+        })
 
 let index_provider (t : t) =
   match Eio.Lazy.force t.provider with
@@ -349,8 +379,7 @@ let index_progress (t : t) provider on_progress =
     on_progress
 
 let index_result t count =
-  J.encode Jsont.json
-    (obj (("newly_indexed", Jsont.Json.int count) :: status_fields t))
+  { (status t) with Response.newly_indexed = Some count }
 
 let index ?on_progress t ~check ~max_batches =
   if max_batches < 1 || max_batches > 10000 then
@@ -378,45 +407,33 @@ let index_all ?on_progress t ~check =
   in
   index_result t (loop 0)
 
-let image_status_fields t =
+let image_status t =
   let images = Eio.Lazy.force t.images in
-  let documents, passages = K.counts images.corpus in
-  let provider = Eio.Lazy.force images.provider in
-  let coverage =
-    match provider with
-    | None -> Jsont.Json.null ()
-    | Some provider ->
-        let indexed, total = K.image_coverage images.corpus provider in
-        obj
-          [
-            ("indexed", Jsont.Json.int indexed); ("total", Jsont.Json.int total);
-          ]
-  in
-  let configured =
-    match (images.settings, provider) with
-    | Some s, Some provider ->
-        obj
-          [
-            ("backend", Jsont.Json.string "mlx-vision");
-            ("model_dir", Jsont.Json.string s.model_dir);
-            ("dimensions", Jsont.Json.int s.dimensions);
-            ("max_tokens", Jsont.Json.int s.max_tokens);
-            ("query_instruction", Jsont.Json.string s.query_instruction);
-            ("model_identity", Jsont.Json.string provider.model);
-          ]
-    | _ -> Jsont.Json.null ()
-  in
-  [
-    ("database", Jsont.Json.string images.database);
-    ("generation", Jsont.Json.string (K.generation images.corpus));
-    ("documents", Jsont.Json.int documents);
-    ("passages", Jsont.Json.int passages);
-    ("skipped_images", Jsont.Json.int (K.skipped_images images.corpus));
-    ("embedding_provider", configured);
-    ("embedding_coverage", coverage);
-  ]
-
-let image_status t = J.encode Jsont.json (obj (image_status_fields t))
+  with_read_snapshot ~path:images.path ~write:images.write images.corpus
+    (fun corpus ->
+      let documents, passages = K.counts corpus in
+      let provider = Eio.Lazy.force images.provider in
+      let coverage =
+        Option.map
+          (fun p ->
+            let indexed, total = K.image_coverage corpus p in
+            Response.{ indexed; total })
+          provider
+      in
+      Response.
+        {
+          database = images.database;
+          generation = K.generation corpus;
+          documents;
+          passages;
+          provider =
+            provider_details ~vision:true
+              (Option.map (fun s -> Bushel_config.Mlx s) images.settings)
+              provider;
+          coverage;
+          skipped_images = Some (K.skipped_images corpus);
+          newly_indexed = None;
+        })
 
 let run_image_index ?on_progress t ~check ~max_batches =
   check ();
@@ -450,8 +467,7 @@ let run_image_index ?on_progress t ~check ~max_batches =
     else loop count
   in
   let count = loop 0 in
-  J.encode Jsont.json
-    (obj (("newly_indexed", Jsont.Json.int count) :: image_status_fields t))
+  { (image_status t) with Response.newly_indexed = Some count }
 
 let index_images ?on_progress t ~check ~max_batches =
   if max_batches < 1 || max_batches > 10000 then
@@ -463,20 +479,19 @@ let index_images_all ?on_progress t ~check =
 
 let image_hit (chunk : Retrieval.Index.chunk) =
   let d = chunk.document in
-  let str = Jsont.Json.string in
-  obj
-    [
-      ("id", str d.id);
-      ("revision", str d.revision);
-      ("kind", str d.kind);
-      ("title", str d.title);
-      ("url", str d.url);
-      ("date", str d.date);
-      ("passage", Jsont.Json.int chunk.ordinal);
-      ("snippet", str (E.clip 1000 chunk.text));
-      ("pixel_path", str (List.assoc "pixel_path" d.facets));
-      ("source_path", str (List.assoc "source_path" d.facets));
-    ]
+  Response.
+    {
+      id = d.id;
+      revision = d.revision;
+      kind = d.kind;
+      title = d.title;
+      url = d.url;
+      date = d.date;
+      passage = chunk.ordinal;
+      snippet = E.clip 1000 chunk.text;
+      pixel_path = List.assoc_opt "pixel_path" d.facets;
+      source_path = List.assoc_opt "source_path" d.facets;
+    }
 
 let images_search ?(mode = "semantic") ?(offset = 0) t ~check ~query =
   check ();
@@ -485,38 +500,38 @@ let images_search ?(mode = "semantic") ?(offset = 0) t ~check ~query =
     if mode = "lexical" then None else Eio.Lazy.force images.provider
   in
   if offset < 0 then invalid_arg "Image offset must be nonnegative";
-  let hits = K.search_images images.corpus ?provider ~check ~mode query in
-  let total = List.length hits in
-  let hits = List.filteri (fun n _ -> n >= offset && n - offset < 20) hits in
+  let all_hits = K.search_images images.corpus ?provider ~check ~mode query in
+  let total = List.length all_hits in
+  let hits =
+    List.filteri (fun n _ -> n >= offset && n - offset < 20) all_hits
+  in
   let coverage =
-    match provider with
-    | None -> Jsont.Json.null ()
-    | Some provider ->
-        let indexed, total = K.image_coverage images.corpus provider in
-        obj
-          [
-            ("indexed", Jsont.Json.int indexed); ("total", Jsont.Json.int total);
-          ]
+    Option.map
+      (fun p ->
+        let indexed, total = K.image_coverage images.corpus p in
+        Response.{ indexed; total })
+      provider
   in
   check ();
-  J.encode Jsont.json
-    (obj
-       [
-         ("items", Jsont.Json.list (List.map image_hit hits));
-         ("embedding_coverage", coverage);
-         ("mode", Jsont.Json.string mode);
-         ("bounded_results", Jsont.Json.bool true);
-         ( "source_ids",
-           Jsont.Json.list
-             (List.map
-                (fun (c : Retrieval.Index.chunk) ->
-                  Jsont.Json.string c.document.id)
-                hits) );
-         ( "next_offset",
-           if offset + List.length hits < total then
-             Jsont.Json.int (offset + List.length hits)
-           else Jsont.Json.null () );
-       ])
+  Response.
+    {
+      page =
+        {
+          generation = K.generation images.corpus;
+          items = List.map image_hit hits;
+          next_offset =
+            (if offset + List.length hits < total then
+               Some (offset + List.length hits)
+             else None);
+        };
+      mode = Some mode;
+      coverage;
+      source = None;
+      order = None;
+      as_of = None;
+      source_ids =
+        Some (List.map (fun (c : Retrieval.Index.chunk) -> c.document.id) hits);
+    }
 
 let images_get t ~check ~id ~offset =
   check ();
@@ -535,20 +550,20 @@ let images_get t ~check ~id ~offset =
   let text = E.clip 8192 (String.sub document.text offset (length - offset)) in
   let next = offset + String.length text in
   check ();
-  J.encode Jsont.json
-    (obj
-       [
-         ("id", Jsont.Json.string id);
-         ("revision", Jsont.Json.string document.revision);
-         ("title", Jsont.Json.string document.title);
-         ("kind", Jsont.Json.string "image");
-         ("url", Jsont.Json.string document.url);
-         ( "pixel_path",
-           Jsont.Json.string (List.assoc "pixel_path" document.facets) );
-         ( "source_path",
-           Jsont.Json.string (List.assoc "source_path" document.facets) );
-         ("text", Jsont.Json.string text);
-         ("offset", Jsont.Json.int offset);
-         ( "next_offset",
-           if next < length then Jsont.Json.int next else Jsont.Json.null () );
-       ])
+  Response.
+    {
+      id;
+      revision = document.revision;
+      title = document.title;
+      kind = "image";
+      url = document.url;
+      text;
+      offset = Some offset;
+      width = Option.map int_of_string (List.assoc_opt "width" document.facets);
+      height =
+        Option.map int_of_string (List.assoc_opt "height" document.facets);
+      media_type = None;
+      next_offset = (if next < length then Some next else None);
+      pixel_path = List.assoc_opt "pixel_path" document.facets;
+      source_path = List.assoc_opt "source_path" document.facets;
+    }

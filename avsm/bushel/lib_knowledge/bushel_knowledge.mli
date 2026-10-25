@@ -15,6 +15,9 @@ type candidate = { contact : contact; matched_on : string; exact : bool }
 type t
 
 val create : I.t -> t
+val restore : t -> bool
+(** [restore t] restores the domain snapshot published with its index. It is
+    false for an index that predates persisted snapshots. *)
 val key : string list -> string
 val entry_id : string -> string
 
@@ -40,6 +43,7 @@ val resolve : t -> string -> candidate list
     candidates if there are none. Multiple exact matches remain ambiguous. *)
 
 val refresh :
+  ?metadata:(string * string) list ->
   ?base_url:string ->
   ?links:Bushel.Link.t list ->
   t ->
@@ -52,6 +56,7 @@ val refresh :
     and annotated Bushel slugs. Associations do not imply authorship. *)
 
 val load :
+  ?metadata:(string * string) list ->
   ?base_url:string ->
   t ->
   fs:Eio.Fs.dir_ty Eio.Path.t ->
@@ -97,6 +102,7 @@ val image_id : string -> string
     Relative subdirectories distinguish images with the same basename. *)
 
 val load_images :
+  ?metadata:(string * string) list ->
   t ->
   fs:Eio.Fs.dir_ty Eio.Path.t ->
   output_dir:string ->

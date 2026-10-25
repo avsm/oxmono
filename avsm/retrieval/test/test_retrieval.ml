@@ -49,6 +49,28 @@ let snapshots env =
           in
           let a = version 'a' and b = version 'b' in
           I.replace writer [ a ];
+          I.replace ~metadata:[ "generation", "a" ] writer [ a ];
+          Eio.Switch.run (fun snapshot_sw ->
+              let snapshot = I.open_snapshot ~sw:snapshot_sw path in
+              check "snapshot pins matching domain metadata"
+                (I.metadata snapshot "generation" = Some "a");
+              let provider = provider (ref 0) in
+              check "unindexed snapshot semantic search is read-only and empty"
+                (E.search (I.backend snapshot I.all) provider ~check:noop "query" = []);
+              let previous = (I.backend writer I.all).documents () |> List.hd in
+              let backend = I.backend writer I.all in
+              let index = backend.index ~model:provider.model ~dimensions:provider.dimensions
+                  ~normalization:"snapshot-test" in
+              I.replace ~metadata:[ "generation", "b" ] writer [ b ];
+              check "writer publishes while snapshot stays on its generation"
+                ((Option.get (I.get snapshot "shared")).revision = "a"
+                 && I.metadata snapshot "generation" = Some "a"
+                 && (Option.get (I.get writer "shared")).revision = "b");
+              check "refresh invalidates in-flight embedding writes"
+                (try
+                   backend.put ~index ~document:previous ~input_hash:"old" [ 1.; 0. ];
+                   false
+                 with I.Conflict -> true));
           let backend = I.backend reader I.all in
           Eio.Fiber.pair
             (fun () ->
@@ -66,7 +88,13 @@ let snapshots env =
                        (List.map (fun (c : I.chunk) -> c.text) chunks)
                      = document.text)
               done)
-          |> ignore))
+          |> ignore;
+          let raw = Sqlite3.db_open file in
+          Fun.protect ~finally:(fun () -> ignore (Sqlite3.db_close raw))
+            (fun () -> Sqlite3.Rc.check (Sqlite3.exec raw "PRAGMA user_version=2"));
+          check "read snapshots reject a newer database schema"
+            (try ignore (I.open_snapshot ~sw path); false
+             with Failure message -> message = "Knowledge index was written by a newer version")))
 
 let () =
   Eio_main.run @@ fun env ->

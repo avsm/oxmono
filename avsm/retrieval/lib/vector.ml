@@ -16,14 +16,20 @@ let init db =
      TEXT NOT NULL, dimensions INTEGER NOT NULL, normalization TEXT NOT NULL)"
     []
 
-let index db ~model ~dimensions ~normalization =
+let identity ~model ~dimensions ~normalization =
   if dimensions < 1 || dimensions > 4096 || model = "" || normalization = ""
   then invalid_arg "Invalid embedding identity or dimensions";
   let identity =
     Json.encode (Jsont.list Jsont.string)
       [ model; string_of_int dimensions; normalization ]
   in
-  let table = "vec_" ^ Embedding.hash identity in
+  "vec_" ^ Embedding.hash identity
+
+let exists db index =
+  rows db "SELECT 1 FROM vector_indexes WHERE name=?" [ txt (name index) ] <> []
+
+let index db ~model ~dimensions ~normalization =
+  let table = identity ~model ~dimensions ~normalization in
   execute db "INSERT OR IGNORE INTO vector_indexes VALUES(?,?,?,?)"
     [ txt table; txt model; int dimensions; txt normalization ];
   execute db

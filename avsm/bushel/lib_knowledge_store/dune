@@ -9,6 +9,9 @@
   retrieval
   retrieval.mlx
   fetch
+  eioext
+  xdge
+  sekrit
   eio
   eio.unix
   unix

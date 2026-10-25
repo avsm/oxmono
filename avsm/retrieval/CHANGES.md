@@ -1,5 +1,8 @@
 # Unreleased
 
+- Pin read-only index snapshots while writers publish updates. Scope retained
+  MLX models to an application runtime with explicit release.
+
 - Finish releasing cached MLX models even when the caller is cancelled while
   waiting for active inference. Roll back transactions when COMMIT fails.
 

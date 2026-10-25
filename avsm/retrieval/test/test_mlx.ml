@@ -46,22 +46,36 @@ let () =
       write (file "model.safetensors") "fixture weights";
       write (file "tokenizer.json") "tokenizer one";
       Eio_main.run (fun _ ->
+          Eio.Switch.run @@ fun sw ->
+          let runtime = Retrieval_mlx.Runtime.create ~sw in
           let make ?(dimensions = 32) ?(max_tokens = 128)
               ?(query_instruction = "Find relevant passages.") () =
-            Retrieval_mlx.create ~model_dir:root ~dimensions ~max_tokens
-              ~query_instruction ~check:noop
+            Retrieval_mlx.create ~runtime ~model_dir:root ~dimensions
+              ~max_tokens ~query_instruction ~check:noop
           in
           List.iter
             (fun query_instruction ->
               check "invalid instructions rejected before filesystem access"
                 (try
                    ignore
-                     (Retrieval_mlx.create ~model_dir:(file "missing")
+                     (Retrieval_mlx.create ~runtime ~model_dir:(file "missing")
                         ~dimensions:32 ~max_tokens:128 ~query_instruction
                         ~check:noop);
                    false
                  with Invalid_argument _ -> true))
             [ String.make 8193 'x'; "invalid\000instruction" ];
+          let closed =
+            Eio.Switch.run (fun scope ->
+                let runtime = Retrieval_mlx.Runtime.create ~sw:scope in
+                Retrieval_mlx.create ~runtime ~model_dir:root ~dimensions:32
+                  ~max_tokens:128 ~query_instruction:"" ~check:noop)
+          in
+          check "providers cannot outlive their application switch"
+            (try
+               ignore (closed.embed ~task:`Query ~check:noop [ "query" ]);
+               false
+             with Invalid_argument message ->
+               message = "Embedding runtime is closed");
           let first = make () in
           check "identical local contents reuse their identity"
             (first.model = (make ()).model);
@@ -106,16 +120,18 @@ let () =
              with Exit -> true);
           let vision ?(dimensions = 64) ?(max_tokens = 128)
               ?(query_instruction = "Represent the user's input.") () =
-            Retrieval_mlx.Vision.create ~model_dir:root ~dimensions ~max_tokens
-              ~query_instruction ~check:noop
+            Retrieval_mlx.Vision.create ~runtime ~model_dir:root ~dimensions
+              ~max_tokens ~query_instruction ~check:noop
           in
           let image = vision () in
           check "vision and text identities never collide"
             (image.model <> (make ~dimensions:64 ()).model);
           check "vision model remains lazy and reusable"
             (image.model = (vision ()).model && image.max_batch = 2);
-          cancelled_release (make ()) Retrieval_mlx.release;
-          cancelled_release image Retrieval_mlx.Vision.release;
+          cancelled_release (make ()) (fun () ->
+              Retrieval_mlx.Runtime.release runtime);
+          cancelled_release image (fun () ->
+              Retrieval_mlx.Runtime.release runtime);
           check "vision settings participate in identity"
             (image.model <> (vision ~max_tokens:256 ()).model
             && image.model <> (vision ~dimensions:128 ()).model
@@ -144,6 +160,5 @@ let () =
           write (file "preprocessor_config.json") "changed image processing";
           check "image preprocessing changes model identity"
             (image.model <> (vision ()).model);
-          Retrieval_mlx.Vision.release ();
-          Retrieval_mlx.release ()));
+          Retrieval_mlx.Runtime.release runtime));
   print_endline "MLX lazy identity, revision and task boundary tests passed"

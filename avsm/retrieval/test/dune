@@ -1,7 +1,7 @@
 (test
  (name test_retrieval)
  (modules test_retrieval)
- (libraries retrieval eio_main))
+ (libraries retrieval eio_main sqlite3))
 
 (test
  (name test_http)

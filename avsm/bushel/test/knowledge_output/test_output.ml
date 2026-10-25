@@ -34,11 +34,116 @@ let capture ppf run =
       Format.pp_print_flush ppf ();
       (result, Buffer.contents buffer))
 
+(* Presentation fixtures supply explicit neutral metadata that the real typed
+   service always includes. Malformed values are left intact for codec checks. *)
+let complete command encoded =
+  match Jsont_bytesrw.decode_string Jsont.json encoded with
+  | Error _ -> encoded
+  | Ok (Jsont.Object _ as value) -> (
+      let fields = function
+        | Jsont.Object (xs, _) ->
+            List.map (fun ((name, _), value) -> (name, value)) xs
+        | _ -> []
+      in
+      let obj xs =
+        Jsont.Json.object'
+          (List.map (fun (k, v) -> Jsont.Json.mem (Jsont.Json.name k) v) xs)
+      in
+      let add defaults value =
+        let values = fields value in
+        obj
+          (values
+          @ List.filter (fun (k, _) -> not (List.mem_assoc k values)) defaults)
+      in
+      let str = Jsont.Json.string and num = Jsont.Json.int in
+      let empty = Jsont.Json.null () in
+      let value =
+        if List.mem_assoc "error" (fields value) then value
+        else
+          match command with
+          | "index" | "images-index" | "status" | "images-status" ->
+              let value =
+                add
+                  [
+                    ("database", str "");
+                    ("generation", str "fixture");
+                    ("documents", num 0);
+                    ("passages", num 0);
+                    ("embedding_provider", empty);
+                    ("embedding_coverage", empty);
+                  ]
+                  value
+              in
+              obj
+                (List.map
+                   (fun (k, v) ->
+                     if k = "embedding_provider" then
+                       match v with
+                       | Jsont.Object _ ->
+                           ( k,
+                             add
+                               [
+                                 ("max_tokens", num 128);
+                                 ("query_instruction", str "");
+                                 ("model_identity", str "fixture");
+                               ]
+                               v )
+                       | _ -> (k, v)
+                     else if
+                       k = "documents" && List.mem_assoc "images" (fields value)
+                     then (k, List.assoc "images" (fields value))
+                     else (k, v))
+                   (fields value))
+          | "images-get" | "get" ->
+              add
+                [
+                  ("revision", str "fixture");
+                  ("url", str "");
+                  ("next_offset", empty);
+                ]
+                value
+          | "images-search" | "search" | "contacts" ->
+              let value =
+                add
+                  [ ("generation", str "fixture"); ("next_offset", empty) ]
+                  value
+              in
+              let value =
+                if command = "contacts" then value
+                else add [ ("bounded_results", Jsont.Json.bool true) ] value
+              in
+              obj
+                (List.map
+                   (fun (k, v) ->
+                     match (k, v) with
+                     | "items", Jsont.Array (items, _) ->
+                         ( k,
+                           Jsont.Json.list
+                             (List.map
+                                (add
+                                   (if command = "contacts" then
+                                      [ ("matched_on", str "") ]
+                                    else
+                                      [
+                                        ("revision", str "fixture");
+                                        ("date", str "");
+                                        ("passage", num 0);
+                                      ]))
+                                items) )
+                     | _ -> (k, v))
+                   (fields value))
+          | _ -> value
+      in
+      match Jsont_bytesrw.encode_string Jsont.json value with
+      | Ok s -> s
+      | Error e -> failwith e)
+  | Ok _ -> encoded
+
 let render command json =
   let ((), stdout), stderr =
     capture Fmt.stderr (fun () ->
         capture Fmt.stdout (fun () ->
-            Knowledge_output.print ~elapsed:92. ~command json))
+            Knowledge_output.print ~elapsed:92. ~command (complete command json)))
   in
   check "terminal controls escaped"
     ((not (String.contains stdout '\027'))
@@ -113,9 +218,26 @@ let () =
     (contains text "3 images"
     && contains text "bushel knowledge images configure"
     && not (contains text "--backend"));
-  let text, _ =
-    render "images-models"
-      {|{"models":[{"name":"qwen3-vl-2b","dimensions":2048,"size_bytes":1073741824,"cached":true,"default":true}]}|}
+  let (), text =
+    capture Fmt.stdout (fun () ->
+        Knowledge_output.print_value ~command:"images-models"
+          (Knowledge_output.Models
+             {
+               default = "qwen3-vl-2b";
+               models =
+                 [
+                   {
+                     name = "qwen3-vl-2b";
+                     repo = "fixture";
+                     revision = "fixture";
+                     dimensions = 2048;
+                     size_bytes = 1073741824L;
+                     cached = true;
+                     model_dir = "/fixture";
+                     is_default = true;
+                   };
+                 ];
+             }))
   in
   check "image catalogue display"
     (contains text "qwen3-vl-2b"
@@ -168,4 +290,16 @@ let () =
        ignore (render "unknown-command" "{}");
        false
      with Failure _ -> true);
+  List.iter
+    (fun encoded ->
+      check "missing or wrongly typed status fields are rejected"
+        (try
+           Knowledge_output.print ~command:"status" encoded;
+           false
+         with Failure _ | Invalid_argument _ -> true))
+    [
+      "{}";
+      {|{"documents":"many"}|};
+      {|{"database":"x","generation":"g","documents":1,"passages":1,"embedding_provider":null,"embedding_coverage":{"indexed":2,"total":1}}|};
+    ];
   print_endline "Human text and image knowledge output passed"

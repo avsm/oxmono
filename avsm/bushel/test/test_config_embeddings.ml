@@ -66,6 +66,8 @@ let without_embeddings text =
   | _ -> failwith "invalid test document"
 
 let test_validation () =
+  check "invalid named secret is a configuration error"
+    (error (validate_http { settings with api_key_file = Some "sekrit:../invalid" }));
   check "missing section defaults to None"
     ((ok (Bushel_config.of_string "")).embeddings = None);
   check "default has no embeddings"
@@ -481,7 +483,16 @@ let run () =
     (fun () ->
       test_files dir;
       test_native_files dir;
-      test_config_lock dir);
+      test_config_lock dir;
+      let file = Filename.concat dir "named-secret.toml" in
+      let reference = "sekrit:embedding/main" in
+      ignore
+        (ok
+           (configure_http ~file
+              { settings with api_key_file = Some reference }));
+      let loaded = http (ok (Bushel_config.load_file file)).embeddings in
+      check "named secret reference survives path resolution"
+        (loaded.api_key_file = Some reference));
   print_endline
     "Bushel embeddings configuration, preservation and validation passed"
 

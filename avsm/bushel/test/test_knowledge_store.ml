@@ -1,4 +1,17 @@
-module S = Bushel_knowledge_store
+module S = struct
+  include Bushel_knowledge_store
+  let encode = Retrieval.Json.encode Response.status_codec
+  let status store = encode (status store)
+  let image_status store = encode (image_status store)
+  let index ?on_progress store ~check ~max_batches =
+    encode (index ?on_progress store ~check ~max_batches)
+  let index_all ?on_progress store ~check =
+    encode (index_all ?on_progress store ~check)
+  let images_search ?mode ?offset store ~check ~query =
+    Response.encode (Response.Search (images_search ?mode ?offset store ~check ~query))
+  let images_get store ~check ~id ~offset =
+    Response.encode (Response.Source (images_get store ~check ~id ~offset))
+end
 module K = Bushel_knowledge
 module J = Retrieval.Json
 
@@ -84,7 +97,7 @@ let index_until_killed config_file =
               ("{\"data\":[" ^ String.concat "," rows ^ "]}")
               request)
       in
-      S.with_store ~config_file ~fs:(Eio.Stdenv.fs env)
+      S.with_store ~refresh:true ~write:true ~config_file ~fs:(Eio.Stdenv.fs env)
         ~clock:(Eio.Stdenv.clock env) ~fetch ~check:noop (fun store ->
           ignore
             (S.index_all store ~check:noop
@@ -208,7 +221,7 @@ let run () =
               request)
       in
       let session ?(check = noop) f =
-        S.with_store ~config_file ~fs ~clock ~fetch ~check f
+        S.with_store ~refresh:true ~write:true ~config_file ~fs ~clock ~fetch ~check f
       in
       check "discovers both sources"
         (S.sources ~config_file ~fs () = (bushel, sortal));
@@ -434,7 +447,7 @@ let run () =
                     ~check:noop ~mode:"semantic" ~filter:Retrieval.Index.all
                     "query"));
            false
-         with Unix.Unix_error (Unix.ENOENT, _, _) -> true);
+         with Invalid_argument _ -> true);
       Unix.mkfifo missing_key 0o600;
       check "non-regular key cannot block the scheduler"
         (try
@@ -478,13 +491,15 @@ let run () =
           Fun.protect
             ~finally:(fun () -> Eio.Promise.resolve unlock ())
             (fun () ->
-              check "waiting fiber can be cancelled"
-                (try
-                   Eio.Time.with_timeout_exn clock 0.03 (fun () ->
-                       session (fun _ -> ()));
-                   false
-                 with Eio.Time.Timeout -> true)));
+              Eio.Time.with_timeout_exn clock 1. (fun () ->
+                  S.with_store ~config_file ~fs ~clock ~fetch ~check:noop
+                    (fun store ->
+                      check "reader proceeds during an active indexing session"
+                        (K.counts (S.corpus store) = (19, 19))))));
       with_external_lock (path ^ ".lock") (fun () ->
+          Eio.Time.with_timeout_exn clock 1. (fun () ->
+              S.with_store ~config_file ~fs ~clock ~fetch ~check:noop
+                (fun store -> ignore (S.status store)));
           check "cross-process contention yields and can be cancelled"
             (try
                Eio.Time.with_timeout_exn clock 0.03 (fun () ->
@@ -581,6 +596,20 @@ let run () =
              (fun _ -> allowed := false);
            false
          with Failure _ -> true);
+      allowed := true;
+      S.with_store ~config_file ~fs ~clock ~fetch ~check:noop (fun old ->
+          let generation = K.generation (S.corpus old) in
+          let counts = K.counts (S.corpus old) in
+          let fresh = Filename.concat notes "fresh.md" in
+          write fresh "---\ntitle: Fresh snapshot\ndate: 2026-01-01\n---\nfreshmarker\n";
+          Fun.protect ~finally:(fun () -> Sys.remove fresh) (fun () ->
+              session (fun current ->
+                  check "refresh publishes a different generation"
+                    (K.generation (S.corpus current) <> generation));
+              check "open readers retain matching corpus and domain generations"
+                (K.generation (S.corpus old) = generation
+                 && K.counts (S.corpus old) = counts
+                 && K.get (S.corpus old) (K.entry_id "fresh") = None)));
       print_endline
         "shared knowledge indexing, reuse, locking and configuration tests \
          passed")

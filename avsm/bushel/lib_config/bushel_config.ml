@@ -49,6 +49,13 @@ let validate_http_embeddings (e : http_embeddings) =
       ~some:(fun path -> String.trim path = "" || String.contains path '\000')
       e.api_key_file
   then Error "Embeddings API key file path must be nonempty and contain no NUL"
+  else if
+    Option.fold ~none:false
+      ~some:(fun reference ->
+        try ignore (Sekrit.Reference.of_string reference); false
+        with Sekrit.Error _ -> true)
+      e.api_key_file
+  then Error "Invalid embeddings secret reference"
   else
     match Uriz.of_string e.url with
     | Null -> invalid_url
@@ -122,19 +129,13 @@ type t = {
   images_sync : Gitops.Sync.Config.t;
 }
 
-let xdg_config_home () =
-  match Sys.getenv_opt "XDG_CONFIG_HOME" with
-  | Some dir -> dir
-  | None -> (
-      match Sys.getenv_opt "HOME" with
-      | Some home -> Filename.concat home ".config"
-      | None -> ".config")
+let xdg_config_home = Xdge.Paths.config_home
+let config_dir () = Xdge.Paths.config_dir "bushel"
 
-let config_dir () = Filename.concat (xdg_config_home ()) "bushel"
 let config_file () = Filename.concat (config_dir ()) "config.toml"
 
 let default () =
-  let home = Sys.getenv_opt "HOME" |> Option.value ~default:"." in
+  let home = Xdge.Paths.home () in
   {
     data_dir = Filename.concat home "bushel/data";
     images_dir = Filename.concat home "bushel/images";
@@ -153,15 +154,19 @@ let default () =
   }
 
 let expand_path path =
-  if String.length path > 0 && path.[0] = '~' then
-    match Sys.getenv_opt "HOME" with
-    | Some home -> home ^ String.sub path 1 (String.length path - 1)
-    | None -> path
+  if path = "~" || String.starts_with ~prefix:"~/" path then
+    Xdge.Paths.expand ~base:"." path
   else path
 
 let resolve_embedding_path ~directory path =
   let path = expand_path path in
   if Filename.is_relative path then Filename.concat directory path else path
+
+let resolve_secret_path ~directory value =
+  let reference = Sekrit.Reference.of_string value in
+  match Sekrit.Reference.source reference with
+  | `Named _ -> Sekrit.Reference.to_string reference
+  | `File path -> Xdge.Paths.expand ~base:directory path
 
 let resolve_embedding_paths ~directory = function
   | Http e ->
@@ -169,7 +174,7 @@ let resolve_embedding_paths ~directory = function
         {
           e with
           api_key_file =
-            Option.map (resolve_embedding_path ~directory) e.api_key_file;
+            Option.map (resolve_secret_path ~directory) e.api_key_file;
         }
   | Mlx e ->
       Mlx { e with model_dir = resolve_embedding_path ~directory e.model_dir }
@@ -626,12 +631,8 @@ let configure_image_embeddings ?file settings =
 
 let read_api_key path =
   let path = expand_path path in
-  try
-    In_channel.with_open_bin path (fun ic -> Ok (input_line ic |> String.trim))
-  with
-  | Sys_error msg ->
-      Error (Printf.sprintf "Failed to read API key from %s: %s" path msg)
-  | End_of_file -> Error (Printf.sprintf "API key file %s is empty" path)
+  try Ok (Sekrit.read_reference ~max_bytes:16384 path)
+  with Sekrit.Error message -> Error message
 
 let pp ppf t =
   let open Fmt in

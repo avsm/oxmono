@@ -1,0 +1,4 @@
+(library
+ (name sekrit_eio)
+ (public_name sekrit.eio)
+ (libraries sekrit eioext eio.unix mirage-crypto-rng.unix))

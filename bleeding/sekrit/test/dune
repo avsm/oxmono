@@ -1,0 +1,12 @@
+(test
+ (name test_sekrit)
+ (modules test_sekrit)
+ (libraries sekrit sekrit.eio eioext eio_main unix))
+
+(cram
+ (deps ../bin/main.exe))
+
+(test
+ (name test_capability)
+ (modules test_capability)
+ (libraries sekrit sekrit.eio eioext eio_main unix))

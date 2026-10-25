@@ -1,6 +1,5 @@
 type t = {
-  dispatch :
-    check:(unit -> unit) -> string -> string -> (string, string) result;
+  dispatch : check:(unit -> unit) -> string -> string -> (string, string) result;
   allowed : actor:string -> room:string -> bool;
 }
 (** Operator-configured access to the shared Bushel and Sortal corpus. *)
@@ -31,12 +30,13 @@ let authorized store ~actor ~room =
   && (List.mem room (Store.rooms store)
      || Store.direct_peer store room = Some actor)
 
-let load ~fs ~clock ~fetch ~store ~max_bytes () =
+let load ~sw ~fs ~clock ~fetch ~store ~max_bytes () =
   if not (Bushel_knowledge_store.available ~fs ()) then None
   else
+    let runtime = Retrieval_mlx.Runtime.create ~sw in
     let dispatch ~check name arguments =
-      Bushel_knowledge_store.with_store ~fs ~clock ~fetch ~check
-        (fun shared ->
+      Bushel_knowledge_store.with_store ~runtime ~refresh:true ~fs ~clock ~fetch
+        ~check (fun shared ->
           let tools = Bushel_agent.of_store shared ~max_bytes in
           Bushel_agent.invoke tools ~check name arguments)
     in

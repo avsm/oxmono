@@ -33,26 +33,10 @@ let private_file path =
   then invalid_arg "secret and state files must be owned by you with mode 0600"
 
 let read_secret path =
-  private_file path;
-  let ic = open_in_bin path in
-  Fun.protect ~finally:(fun () -> close_in ic) @@ fun () ->
-  let size = in_channel_length ic in
-  if size > 16384 then invalid_arg "secret file is too large";
-  let value = really_input_string ic size in
-  let value =
-    if String.ends_with ~suffix:"\n" value then
-      String.sub value 0 (String.length value - 1)
-    else value
-  in
-  let value =
-    if String.ends_with ~suffix:"\r" value then
-      String.sub value 0 (String.length value - 1)
-    else value
-  in
-  if String.contains value '\n' || String.contains value '\r' then
-    invalid_arg "secret file must contain one line";
-  if value = "" then invalid_arg "secret file is empty";
-  value
+  try
+    Eio_unix.run_in_systhread (fun () ->
+        Sekrit.read_reference ~max_bytes:16384 path)
+  with Sekrit.Error message -> invalid_arg message
 
 let load dir =
   let path = Eio.Path.(dir / filename) in

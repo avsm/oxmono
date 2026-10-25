@@ -3,6 +3,9 @@
  (public_name crowthebot)
  (private_modules profile persistence email_json tool_args public_http)
  (libraries
+  sekrit
+  sekrit.eio
+  eioext
   caldav.eio
   caldav
   ical
@@ -18,6 +21,7 @@
   dooit.agent
   bushel.agent
   bushel.knowledge.store
+  retrieval.mlx
   agentkit-osm
   agentkit-ds4
   ds4

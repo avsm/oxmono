@@ -1,4 +1,9 @@
-type t = { dir : Eio.Fs.dir_ty Eio.Path.t }
+type t = {
+  dir : Eio.Fs.dir_ty Eio.Path.t;
+  key_file : Eio.Fs.dir_ty Eio.Path.t;
+  context : string;
+}
+
 type entry = { name : string; value : Jsont.json }
 type file = { version : int; selected : string option; entries : entry list }
 
@@ -13,9 +18,9 @@ let jsont =
       { version; selected; entries })
   |> Jsont.Object.mem "version" Jsont.int ~enc:(fun f -> f.version)
   |> Jsont.Object.mem "selected" (Jsont.option Jsont.string) ~enc:(fun f ->
-      f.selected)
+         f.selected)
   |> Jsont.Object.mem "entries" (Jsont.list entry_jsont) ~enc:(fun f ->
-      f.entries)
+         f.entries)
   |> Jsont.Object.finish
 
 let validate_name name =
@@ -46,27 +51,20 @@ let private_dir dir =
   (match stat dir with None -> Eio.Path.mkdir ~perm:0o700 dir | Some _ -> ());
   private_stat Unix.S_DIR 0o700 (Option.get (stat dir))
 
-let with_dir ~sw dir f =
+let with_dir ~sw ~key_file dir f =
   private_dir dir;
+  let context = "crowthebot/" ^ Filename.basename (Eio.Path.native_exn dir) in
   let dir = Eio.Path.open_subtree ~sw dir in
-  let path = Eio.Path.(dir / ".lock") in
-  (match stat path with
-  | None -> Eio.Path.save ~create:(`Exclusive 0o600) path ""
-  | Some s -> private_stat Unix.S_REG 0o600 s);
-  let before = Option.get (stat path) in
-  let fd =
-    Unix.openfile (Eio.Path.native_exn path) [ Unix.O_RDWR; Unix.O_CLOEXEC ] 0
-  in
-  Fun.protect ~finally:(fun () -> Unix.close fd) @@ fun () ->
-  let after = Unix.fstat fd in
-  private_stat Unix.S_REG 0o600 after;
-  if before.st_dev <> after.st_dev || before.st_ino <> after.st_ino then
-    invalid_arg "Secret configuration lock changed while opening.";
-  (try Unix.lockf fd Unix.F_TLOCK 0
-   with Unix.Unix_error ((Unix.EACCES | Unix.EAGAIN), _, _) ->
-     failwith
-       "Secret configuration is in use. Retry after the other command finishes.");
-  f { dir }
+  try
+    Eioext.Path.with_lock
+      Eio.Path.(dir / ".lock")
+      (fun () -> f { dir; key_file; context })
+  with
+  | Eioext.Path.Busy _ ->
+      failwith
+        "Secret configuration is in use. Retry after the other command \
+         finishes."
+  | Eioext.Path.Error message | Sekrit.Error message -> invalid_arg message
 
 let with_xdg ~sw ~fs ~profile ~profile_dir f =
   Matrix_client.Profile_store.validate_profile_name profile;
@@ -86,22 +84,39 @@ let with_xdg ~sw ~fs ~profile ~profile_dir f =
        by others.";
   let root = Eio.Path.(config / "secrets") in
   private_dir root;
-  with_dir ~sw Eio.Path.(root / profile) f
+  with_dir ~sw
+    ~key_file:Eio.Path.(fs / Sekrit.Paths.key_file ())
+    Eio.Path.(root / profile)
+    f
 
 let path t tool =
   validate_name tool;
   Eio.Path.(t.dir / (tool ^ ".json"))
 
-let load t tool =
+let load ?(allow_plaintext = false) t tool =
   let path = path t tool in
   match stat path with
   | None -> { version = 1; selected = None; entries = [] }
   | Some s ->
       private_stat Unix.S_REG 0o600 s;
-      if s.st_size > 1024 * 1024 then
+      if s.st_size > (1024 * 1024) + 36 then
         invalid_arg "Secret configuration is too large.";
       let file =
-        match Jsont_bytesrw.decode_string jsont (Eio.Path.load path) with
+        let raw =
+          Eioext.Path.read_private ~max_bytes:((4 * 1024 * 1024) + 36) path
+        in
+        let raw =
+          if Sekrit.Sealed_file.is_sealed raw then
+            Sekrit_eio.Sealed_file.read ~key_file:t.key_file
+              ~context:(t.context ^ "/" ^ tool)
+              path
+          else if allow_plaintext then raw
+          else
+            invalid_arg
+              "Legacy plaintext configuration. Run sekrit init, then \
+               crowthebot config migrate for this profile."
+        in
+        match Jsont_bytesrw.decode_string jsont raw with
         | Ok file -> file
         | Error _ -> invalid_arg "Invalid secret configuration file."
       in
@@ -120,21 +135,32 @@ let load t tool =
 let save t tool file =
   let encoded =
     match Jsont_bytesrw.encode_string ~format:Jsont.Indent jsont file with
-    | Ok value when String.length value <= 1024 * 1024 -> value ^ "\n"
+    | Ok value when String.length value < 1024 * 1024 -> value ^ "\n"
     | _ -> invalid_arg "Cannot encode secret configuration."
   in
-  let target = path t tool in
-  let tmp = Eio.Path.(t.dir / (tool ^ ".pending")) in
-  (* A fixed temporary name is safe under the operator lock. A stale file
-     from an interrupted write is validated before it is removed. *)
-  (match stat tmp with
-  | None -> ()
-  | Some s ->
-      private_stat Unix.S_REG 0o600 s;
-      Eio.Path.unlink tmp);
-  Eio.Path.save ~create:(`Exclusive 0o600) tmp encoded;
-  Fun.protect ~finally:(fun () -> if stat tmp <> None then Eio.Path.unlink tmp)
-  @@ fun () -> Eio.Path.rename tmp target
+  Sekrit_eio.Sealed_file.write ~key_file:t.key_file
+    ~context:(t.context ^ "/" ^ tool)
+    (path t tool) encoded
+
+let migrate t =
+  Eio.Path.read_dir t.dir
+  |> List.filter (String.ends_with ~suffix:".json")
+  |> List.fold_left
+       (fun count filename ->
+         let tool = String.sub filename 0 (String.length filename - 5) in
+         validate_name tool;
+         let raw =
+           Eioext.Path.read_private
+             ~max_bytes:((4 * 1024 * 1024) + 36)
+             Eio.Path.(t.dir / filename)
+         in
+         if Sekrit.Sealed_file.is_sealed raw then (
+           ignore (load t tool);
+           count)
+         else (
+           save t tool (load ~allow_plaintext:true t tool);
+           count + 1))
+       0
 
 let list t ~tool =
   let file = load t tool in

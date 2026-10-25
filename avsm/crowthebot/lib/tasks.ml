@@ -88,8 +88,7 @@ let existing ~fs =
           true
         with Unix.Unix_error (Unix.ENOENT, _, _) -> false
       in
-      if not exists then None
-      else Some (Dooit.Store.open_ config.root, config.backend, config.git))
+      if not exists then None else Some (Dooit.Store.open_ config.root, config))
 
 let load ~fs ~process_mgr ~store ~profile ~max_bytes () =
   if max_bytes < 1024 then invalid_arg "Dooit tool budget must be at least 1024";
@@ -104,34 +103,11 @@ let load ~fs ~process_mgr ~store ~profile ~max_bytes () =
           check ();
           match current with
           | None -> Error "Dooit task store is unavailable"
-          | Some (current, backend, git) ->
-              let write = name = "dooit_create" || name = "dooit_update" in
-              if backend = Dooit.Config.Webdav && write then
-                Error
-                  "Crow does not support task writes with the WebDAV backend. \
-                   Use the Dooit CLI with the configured backend."
-              else
-                let tools =
-                  match backend with
-                  | Dooit.Config.Git ->
-                      Dooit_agent.create ~process_mgr ~git ~store:current
-                        ~max_bytes
-                  | Dooit.Config.Local | Dooit.Config.Webdav ->
-                      Dooit_agent.create_local ~store:current ~max_bytes
-                in
-                let result =
-                  dispatch ~tools ~store_id:current.id ~profile ~check ~actor
-                    ~room ~event ~source_event ~call_id name arguments
-                in
-                if backend = Dooit.Config.Local && write then
-                  Result.map
-                    (fun result ->
-                      let open Dooit.Common in
-                      json result
-                      |> set "sync" (str "local_only")
-                      |> json_string)
-                    result
-                else result
+          | Some (current, config) ->
+              let client = Dooit.Client.of_config ~process_mgr current config in
+              let tools = Dooit_agent.of_client ~max_bytes client in
+              dispatch ~tools ~store_id:current.id ~profile ~check ~actor ~room
+                ~event ~source_event ~call_id name arguments
         in
         Some { dispatch; allowed = Knowledge.authorized store }
   with Dooit.Common.Error message -> failwith message

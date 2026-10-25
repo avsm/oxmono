@@ -61,7 +61,7 @@
  (libraries crowthebot eio_main))
 
 (cram
- (deps ../bin/main.exe))
+ (deps ../bin/main.exe ../../../bleeding/sekrit/bin/main.exe))
 
 (test
  (name test_feeds)
@@ -88,7 +88,7 @@
 (test
  (name test_secrets)
  (modules test_secrets)
- (libraries crowthebot eio_main fetch.mock http jsont jsont.bytesrw))
+ (libraries crowthebot sekrit eio_main fetch.mock http jsont jsont.bytesrw))
 
 (test
  (name test_locations)

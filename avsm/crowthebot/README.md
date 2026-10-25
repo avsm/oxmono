@@ -310,6 +310,7 @@ config directory. The config area must be outside every Matrix profile's data
 directory, including its file-tool workspace.
 
 ```sh
+sekrit init
 crowthebot config openrouter add personal --profile crow-home \
   --api-key-file /path/to/openrouter-key
 crowthebot config openrouter add work --profile crow-home \
@@ -337,7 +338,26 @@ Named endpoints require HTTPS unless the operator
 passes `--allow-http` for that connection. A named key is bound to its saved
 endpoint, independently of the profile's `base_url`.
 
-Configuration is plaintext in owned 0600 files inside 0700 secret directories.
+Configuration is encrypted by Sekrit in owned 0600 files inside 0700 secret
+directories. Initialize the central key once, then migrate each existing Crow
+profile before restarting it:
+
+```sh
+sekrit init
+crowthebot config migrate --profile crow-home
+```
+
+The key defaults to `$XDG_CONFIG_HOME/sekrit/master.key`, outside Crow's secret
+directory. `SEKRIT_KEY_FILE` selects a separately supplied key. Back it up
+separately. Copying the encrypted configuration without the key does not expose
+its values. Reading both files or inspecting the running process does.
+
+Normal reads reject legacy plaintext. Migration is explicit and can be rerun
+after interruption. It never regenerates a missing key. New configurations are
+encrypted automatically. `--api-key-file sekrit:NAME` and other secret-file
+options can import a named Sekrit value. Crow snapshots these values in its
+encrypted configuration, so replacing a named value requires importing it again
+and restarting Crow. Imported credential source files are never deleted.
 Symlinks and permissive files are rejected. Updates use an exclusive lock and
 atomic file replacement. The configuration commands can run while Crow is
 serving. Restart Crow to apply additions, rotations, removals or selection
@@ -1674,10 +1694,13 @@ independent. Crow reads updated source and embedding settings on each invocation
 Bushel and every Crow profile share the derived SQLite index under
 `${XDG_DATA_HOME:-$HOME/.local/share}/bushel/knowledge/<corpus>/knowledge.sqlite3`.
 The corpus directory is identified by the canonical Bushel and Sortal source
-roots. Each operation refreshes local sources within a serialized shared
-session. Changed or deleted sources invalidate old vectors. Semantic requests
-index at most eight provider batches per call and return `embedding_coverage`
-with indexed and total passage counts. Further semantic calls continue indexing.
+roots. Crow checks source manifests on each invocation and publishes changed
+files before reading a consistent generation. The source lock is released before
+model inference. Run `bushel knowledge index` to embed changed passages.
+Changed or deleted sources invalidate old vectors. Semantic requests return
+`embedding_coverage` with indexed and total
+passage counts and do not start document indexing. Models are retained within
+Crow's application switch and released when it closes.
 Missing provider configuration is an explicit error for semantic/hybrid mode.
 Lexical search needs no provider.
 

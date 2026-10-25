@@ -646,7 +646,7 @@ let run ~env ~sw ~profile ~api_key_file ~recovery_key_file =
          ~max_result_bytes:config.tool_result_bytes ())
     |> fun engine ->
     (match
-       Knowledge.load ~fs:(Eio.Stdenv.fs env) ~clock:(Eio.Stdenv.clock env)
+       Knowledge.load ~sw ~fs:(Eio.Stdenv.fs env) ~clock:(Eio.Stdenv.clock env)
          ~fetch:(fetch env) ~store ~max_bytes:config.tool_result_bytes ()
      with
     | None -> engine

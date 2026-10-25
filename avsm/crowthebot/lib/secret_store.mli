@@ -4,10 +4,18 @@ type t
 
 val validate_name : string -> unit
 
-val with_dir : sw:Eio.Switch.t -> Eio.Fs.dir_ty Eio.Path.t -> (t -> 'a) -> 'a
-(** [with_dir ~sw dir f] opens a private directory and locks configuration
-    updates for the duration of [f]. Files must be owned by the current user
-    with mode 0600. Directories must have mode 0700. Symlinks are rejected. *)
+val with_dir :
+  sw:Eio.Switch.t ->
+  key_file:Eio.Fs.dir_ty Eio.Path.t ->
+  Eio.Fs.dir_ty Eio.Path.t ->
+  (t -> 'a) ->
+  'a
+(** [with_dir ~sw ~key_file dir f] opens a private directory and locks
+    configuration updates for the duration of [f]. Files must be owned by the
+    current user with mode 0600. Directories must have mode 0700. Symlinks are
+    rejected. Writes are encrypted with Sekrit. Legacy plaintext requires an
+    explicit migration, so a normal read cannot downgrade encrypted data to
+    plaintext. *)
 
 val with_xdg :
   sw:Eio.Switch.t ->
@@ -27,3 +35,8 @@ val put : t -> tool:string -> name:string -> replace:bool -> Jsont.json -> unit
 val remove : t -> tool:string -> name:string -> unit
 val rename : t -> tool:string -> name:string -> into:string -> unit
 val select : t -> tool:string -> name:string -> unit
+
+val migrate : t -> int
+(** [migrate store] encrypts legacy plaintext configurations and returns the
+    number migrated. Existing encrypted files are authenticated. Run
+    [sekrit init] first. The central key is never created or replaced here. *)

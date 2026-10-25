@@ -25,6 +25,7 @@ val authorized : Store.t -> actor:string -> room:string -> bool
     enabled rooms and accepted direct rooms. *)
 
 val load :
+  sw:Eio.Switch.t ->
   fs:Eio.Fs.dir_ty Eio.Path.t ->
   clock:[> float Eio.Time.clock_ty ] Eio.Resource.t ->
   fetch:_ Fetch.t ->
@@ -34,5 +35,5 @@ val load :
   t option
 (** [load ...] discovers the existing Bushel and Sortal installation without
     opening its index. Missing source directories leave tools disabled. Each
-    authorized invocation opens the shared Bushel store using current source
-    and embedding configuration. *)
+    authorized invocation reads the published Bushel snapshot using current
+    configuration. Native models are owned by [sw]. *)

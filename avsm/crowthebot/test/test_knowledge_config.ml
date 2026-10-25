@@ -33,12 +33,10 @@ let () =
   let write text =
     Out_channel.with_open_bin config_file (fun oc -> output_string oc text)
   in
-  let configure path =
-    write (Printf.sprintf "[data]\nlocal_dir = %S\n" path)
-  in
+  let configure path = write (Printf.sprintf "[data]\nlocal_dir = %S\n" path) in
   let note directory marker =
     let notes = Filename.concat directory "notes" in
-    Unix.mkdir notes 0o700;
+    if not (Sys.file_exists notes) then Unix.mkdir notes 0o700;
     Out_channel.with_open_bin (Filename.concat notes "fixture.md") (fun oc ->
         Printf.fprintf oc
           "---\ntitle: Fixture\ndate: 2026-01-01\nslug: fixture\n---\n%s\n"
@@ -71,19 +69,16 @@ let () =
       let fs = Eio.Stdenv.fs env in
       let store = Store.create (Sqlite3_eio.open_memory ~sw ()) ~admin in
       Store.add_room store "!room:example.org";
-      check "library config discovery"
-        (Knowledge.sources ~fs = (bushel, sortal));
+      check "library config discovery" (Knowledge.sources ~fs = (bushel, sortal));
       let fetch =
         Fetch_mock.client (fun _ -> failwith "Unexpected embedding request")
       in
       let load store =
-        Knowledge.load ~fs ~clock:(Eio.Stdenv.clock env) ~fetch ~store
+        Knowledge.load ~sw ~fs ~clock:(Eio.Stdenv.clock env) ~fetch ~store
           ~max_bytes:2048 ()
       in
       let knowledge = Option.get (load store) in
-      let other_store =
-        Store.create (Sqlite3_eio.open_memory ~sw ()) ~admin
-      in
+      let other_store = Store.create (Sqlite3_eio.open_memory ~sw ()) ~admin in
       Store.add_room other_store "!room:example.org";
       let other = Option.get (load other_store) in
       check "availability does not open the shared index"
@@ -112,8 +107,7 @@ let () =
         (Knowledge.available knowledge ~actor:friend ~room:"!room:example.org");
       check "other person's DM rejected"
         (not
-           (Knowledge.available knowledge ~actor:friend
-              ~room:"!dm:example.org"));
+           (Knowledge.available knowledge ~actor:friend ~room:"!dm:example.org"));
       Store.set_person store ~actor:admin ~user:friend ~role:Friend
         ~allowed:false;
       check "revocation rechecked"
@@ -122,12 +116,14 @@ let () =
               ~room:"!room:example.org"));
       let legacy = Filename.concat profile "knowledge.sqlite3" in
       Out_channel.with_open_bin legacy (fun oc -> output_string oc "legacy");
-      let first =
-        invoke knowledge {|{"query":"initialcorpusmarker"}|} |> get
-      in
+      let first = invoke knowledge {|{"query":"initialcorpusmarker"}|} |> get in
       let second = invoke other {|{"query":"initialcorpusmarker"}|} |> get in
       check "two Crow consumers read the same shared corpus"
         (first = second && contains first "initialcorpusmarker");
+      note bushel "updatedexistingcorpusmarker";
+      check "loaded consumer refreshes changed files in the same source"
+        ( invoke knowledge {|{"query":"updatedexistingcorpusmarker"}|} |> get
+        |> fun result -> contains result "updatedexistingcorpusmarker" );
       check "two Crow consumers create one shared index"
         (List.length (indexes knowledge_root) = 1);
       check "legacy Crow index is left alone"
@@ -164,8 +160,7 @@ let () =
       check "cancellation propagates before opening the shared store"
         (try
            ignore
-             (Knowledge.invoke knowledge ~actor:admin
-                ~room:"!room:example.org"
+             (Knowledge.invoke knowledge ~actor:admin ~room:"!room:example.org"
                 ~check:(fun () -> raise (Eio.Cancel.Cancelled Exit))
                 "contacts_resolve" {|{"query":"Alex"}|});
            false

@@ -1,5 +1,8 @@
 # Changes
 
+- Encrypt named tool configurations with Sekrit and add explicit plaintext
+  migration using the central master key.
+
 - Use existing Dooit tasks with audit, retries and current permissions. Git
   writes synchronize, Local stays local, and WebDAV writes fail explicitly.
 

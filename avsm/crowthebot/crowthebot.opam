@@ -5,6 +5,8 @@ maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"
 depends: [
+  "eioext"
+  "sekrit"
   "dooit"
   "bushel"
   "retrieval"

@@ -205,7 +205,17 @@ let config =
   Cmd.group
     (Cmd.info "config"
        ~doc:"Maintain private named tool configurations outside chat.")
-    (List.map
+    (command "migrate"
+       "Encrypt legacy tool configurations using the Sekrit master key."
+       Term.(
+         const (fun profile ->
+             run (fun env sw ->
+                 Crowthebot.App.configure ~env ~sw ~profile (fun store ->
+                     let count = Crowthebot.Secret_store.migrate store in
+                     Printf.printf "Encrypted %d legacy configuration(s).\n"
+                       count)))
+         $ profile)
+     :: List.map
        (Crowthebot.Tool_config.command ~profile ~run:(fun ~profile action ->
             run (fun env sw ->
                 Crowthebot.App.configure ~env ~sw ~profile action)))

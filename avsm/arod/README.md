@@ -78,7 +78,10 @@ checkouts must have that origin and branch and a clean working tree. Updates
 are fast-forward only. Divergence, a failed fetch, and a non-repository
 destination are errors. Failed clones use a `.arod-clone` sibling directory
 which must be inspected and removed before retrying. Sortal's XDG data path
-is linked to its checkout only if absent or already mapped there.
+is linked to its checkout if absent, empty, or already mapped there. If that
+path already contains a Sortal Git checkout, set the manifest's top-level
+`sortal_dir` to that path to reuse it. Other existing data must be backed up or
+moved explicitly before pulling.
 
 Repositories and Sortal data are restored before loading entries. Processing
 runs paper thumbnails, contact portraits, video thumbnails, Srcsetter, and

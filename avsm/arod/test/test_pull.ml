@@ -169,6 +169,15 @@ let () =
       Unix.symlink unrelated (P.sortal_path env#fs);
       rejects (fun () -> P.check_mapping ~fs:env#fs scanned);
       Unix.unlink (P.sortal_path env#fs);
+      P.mkdir (P.sortal_path env#fs);
+      write (P.sortal_path env#fs ^ "/contact.json") "existing contact";
+      rejects (fun () -> P.check_mapping ~fs:env#fs scanned);
+      check (M.read (P.sortal_path env#fs ^ "/contact.json") =
+        "existing contact") "existing Sortal data changed";
+      Unix.unlink (P.sortal_path env#fs ^ "/contact.json");
+      let before = snapshot root in
+      P.check_mapping ~fs:env#fs scanned;
+      check (snapshot root = before) "empty Sortal preflight wrote files";
       P.mkdir scanned.sortal_dir;
       P.map_sortal ~fs:env#fs scanned;
       P.check_mapping ~fs:env#fs scanned;

@@ -1,5 +1,8 @@
 # Changes
 
+- Allow pull to replace an empty Sortal data directory with its checkout link.
+  Explain how to reuse an existing checkout when the paths differ.
+
 - Keep shared embedding settings, key paths and MLX model directories portable
   in setup exports.
 

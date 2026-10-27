@@ -71,6 +71,10 @@ let restore_repo ?(non_interactive = false) path (cfg : Gitops.Sync.Config.t) =
       "refs/remotes/origin/" ^ cfg.branch]
   end
 
+let empty_directory path =
+  exists path && (Unix.lstat path).st_kind = Unix.S_DIR &&
+  Sys.readdir path = [||]
+
 let check_mapping ~fs t =
   let path = sortal_path fs in
   if path <> t.sortal_dir && exists path then begin
@@ -81,13 +85,20 @@ let check_mapping ~fs t =
         else p
       else path in
     let expected = try Unix.realpath t.sortal_dir with _ -> t.sortal_dir in
-    if target <> expected then
-      failwith ("Existing Sortal data path differs: " ^ path)
+    if target <> expected && not (empty_directory path) then
+      failwith ("Existing Sortal data path differs: " ^ path ^
+        ". If this is your Sortal Git checkout, set the manifest's " ^
+        "top-level sortal_dir to this path. Otherwise back up or move " ^
+        "the existing store before retrying. No files were changed.")
   end
 
 let map_sortal ~fs t =
   check_mapping ~fs t;
   let path = sortal_path fs in
+  if empty_directory path &&
+     Unix.realpath path <> Unix.realpath t.sortal_dir then
+    (* rmdir fails if another process has populated the directory. *)
+    Unix.rmdir path;
   if path <> t.sortal_dir && not (exists path) then begin
     mkdir (Filename.dirname path);
     Unix.symlink t.sortal_dir path

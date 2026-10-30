@@ -21,7 +21,15 @@ val configured :
   string ->
   string
 (** [configured ~sw ~fs db profile ~selected question] uses the configured
-    OpenRouter model and SIFTBOT_OPENROUTER_API_KEY. Missing settings fail. *)
+    OpenRouter-compatible model endpoint. *)
 
-val completion : sw:Eio.Switch.t -> Profile.t -> string * Agentkit.Chat.complete
-(** [completion ~sw profile] constructs the explicitly configured chat adapter. *)
+val completion :
+  ?json_schema:Jsont.json ->
+  fetch:_ Fetch.t ->
+  Profile.t ->
+  string * Agentkit.Chat.complete
+(** [completion ~fetch profile] returns the endpoint/model cache identity and
+    chat adapter. Hosted OpenRouter requires [SIFTBOT_OPENROUTER_API_KEY]. A
+    custom [chat_base_url] may be anonymous and never inherits that key.
+    [SIFTBOT_CHAT_API_KEY] explicitly supplies a key for the selected endpoint.
+    [json_schema] requests strict schema-constrained output. *)

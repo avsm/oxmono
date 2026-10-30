@@ -59,6 +59,8 @@ type snapshot = {
 }
 [@@deriving sexp]
 
+type rule_scope = Sender | Mailing_list [@@deriving sexp]
+
 type edit =
   | Approve of string
   | Rename of string * string
@@ -66,11 +68,13 @@ type edit =
   | Merge of string * string
   | Define of string * string * string
   | Assign of assignment
+  | Assign_rule of rule_scope * assignment
   | Undo
 [@@deriving sexp]
 
 type request =
   | Inspect of string
+  | Inspect_message of string * source
   | Discuss of string * source option
   | Edit of int * edit * string * string
 [@@deriving sexp]
@@ -112,3 +116,7 @@ val begin_request : ui -> (ui * int) option
 
 val receive : ui -> int -> response -> ui
 (** [receive ui id response] ignores stale requests and preserves selection. *)
+
+val rule_key : rule_scope -> message -> string
+(** [rule_key scope message] returns the exact, case-insensitive sender or
+    List-ID match key. Invalid or ambiguous identities raise [Invalid_argument]. *)

@@ -16,7 +16,9 @@ let describe store (p : Profile.t) : S.profile =
     has_token =
       (match jp with
       | Ok p -> (
-          match P.credential p with Bearer _ -> true | Basic _ -> false)
+          match P.credential p with
+          | Bearer _ | Bearer_ref _ -> true
+          | Basic _ | Basic_ref _ -> false)
       | Error _ -> false);
   }
 
@@ -45,18 +47,19 @@ let save store (p : S.profile) token fresh =
     if Profile.exists p.name then Profile.load p.name
     else Profile.defaults ~name:p.name ~jmap_profile:p.jmap_profile
   in
-  let token =
-    if token <> "" then token
+  let credential =
+    if token <> "" then P.Bearer token
     else
       match P.load store p.jmap_profile with
       | Ok existing when P.session_url existing = url -> (
           match P.credential existing with
-          | Bearer token -> token
-          | Basic _ -> fail "Enter a bearer access token for this profile")
+          | (Bearer _ | Bearer_ref _) as credential -> credential
+          | Basic _ | Basic_ref _ ->
+              fail "Enter a bearer access token for this profile")
       | _ -> fail "Enter an access token for a new or changed server URL"
   in
   let jp =
-    match P.v ~name:p.jmap_profile ~session_url:url (Bearer token) with
+    match P.v ~name:p.jmap_profile ~session_url:url credential with
     | Ok p -> p
     | Error _ -> fail "Invalid session URL or bearer access token"
   in

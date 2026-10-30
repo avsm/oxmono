@@ -20,8 +20,15 @@ an ambiguous collaboration, duplicate delivery and a suspicious message in
 an otherwise legitimate conversation. Demo commands never load credentials
 or contact a model provider.
 
-Tab selects a pane. `j` and `k` select an area in the left pane or a message
-in the other panes. PageUp and PageDown scroll source evidence. `/` searches
+The message list sits beside a wider reading pane. `j` and `k` select messages.
+PageUp and PageDown scroll the message. Coloured labels show the saved
+classification in a fixed column beside the subject and sender. `t` groups the
+current matches by thread, with the most recently active threads first and
+newest messages first within each thread. Counts refer to loaded matches
+(up to 100), not the full conversation. Press `t` again for the original
+search order. `e` shows the reasoning behind each label. `g` opens optional
+topics in the reading pane, where `j` and `k` select a topic. Press `g` or
+Escape to return to the message. Tab switches focus between panes. `/` searches
 with SQLite FTS5 syntax. `r` refreshes. `a` previews approval of the selected
 area, `n` renames it, and `x` archives it. `v` assigns the selected area to
 the current message. Keys `1` through `4` preview relevant, social, spam and
@@ -29,12 +36,30 @@ uncertain triage. `u` previews undo. Enter commits after an explanation has
 been entered. Escape cancels. `c` opens a model discussion in configured live
 profiles. `p` opens connection profiles. `q` quits when no operation is pending.
 
+Press `l` to correct attention or delivery. Choose a label, then `m` for this
+message, `s` for this sender, or `l` for this mailing list. Review the exact
+match, type an explanation, and press Enter to save. For a Zulip notification,
+use `l`, `1`, `s` to mark mail from that sender as no reply / information.
+Repeat with `l`, `6`, `s` to mark its delivery as automated.
+
+Sender and List-ID rules apply immediately to existing and future mail in the
+same account. They preserve model results and do not require classification to
+run again. A message correction wins over a sender rule, which wins over a list
+rule. `u` previews undo, including removal or replacement of a saved rule.
+Rules use exact case-insensitive identities, not substrings or domains. A
+no-reply label does not decide whether a notification needs action in Zulip.
+
 ## Live profile
 
-Open the connection form with `siftbot review --setup`. A missing profile
+Open the connection form with `siftbot setup --profile NAME`. A missing profile
 opens setup automatically. The picker uses `j`/`k` to select, Enter to open,
 `n` to create and `e` to edit. Tab or Enter advances through the form.
-Ctrl-U clears a field. Enter on **Save profile** saves. Escape cancels.
+Shift-Tab or Up moves to the previous field. Down moves to the next field.
+Left/Right, Home/End, Backspace and Delete edit within a field. Ctrl-U clears it.
+The selected field stays visible in a small terminal. Enter on **Save profile**
+saves. Escape cancels. Ctrl-C always quits, including during a request or paste.
+Setup requests time out after ten seconds. Exiting stops outstanding helpers and
+restores the terminal. `review --setup` also opens the same form.
 
 Set the Siftbot profile name, shared JMAP profile name, HTTPS session URL,
 bearer access token, optional account ID and optional chat model. The account
@@ -46,18 +71,40 @@ preserved when the form is saved.
 
 Setup makes no network requests. Opening another profile starts a fresh review
 screen for its separate corpus. Open setup again with `p`. Saving does not
-import mail. Run `learn` to populate the selected profile:
+import mail. Review can display already imported messages while sync is
+incomplete. Run `sync` to populate the selected profile:
 
 ```sh
-siftbot review --setup
-siftbot learn --profile personal --since 1y
+siftbot setup --profile personal
+siftbot sync --profile personal --since 1y
 ```
+
+For a fresh six-month corpus, choose a new profile name:
+
+```sh
+dune exec siftbot -- setup --profile mail-sixmonths
+dune exec siftbot -- sync --profile mail-sixmonths --since 6m
+dune exec siftbot -- discover --profile mail-sixmonths
+dune exec siftbot -- review --profile mail-sixmonths
+```
+
+In setup, use `mail-sixmonths` as the Siftbot profile and a dedicated shared
+JMAP profile such as `sift-readonly`. Supply a read-only mail bearer token.
+Leave the chat model blank to start with local import, search and baseline
+discovery. `sync` makes JMAP reads but no model requests. It runs until the
+interval, thread context and change catch-up are complete. The terminal shows
+phase progress, counts and elapsed time. Ctrl-C stops safely. Run the same
+command to resume. `--no-progress` uses plain status lines. `--max-steps N`
+explicitly limits one invocation. `learn` remains an alias for `sync`. If the
+shared JMAP profile already
+exists, use `siftbot init --profile mail-sixmonths --jmap-profile sift-readonly`
+instead of creating credentials through setup.
 
 To reuse an existing shared JMAP profile from the command line:
 
 ```sh
 siftbot init --profile personal --jmap-profile personal
-siftbot learn --profile personal --since 1y
+siftbot sync --profile personal --since 1y
 siftbot inspect --profile personal
 siftbot discover --profile personal --cutoff 2026-07-01T00:00:00Z
 siftbot review --profile personal
@@ -70,7 +117,13 @@ Configuration is `$XDG_CONFIG_HOME/siftbot/NAME/profile.json`, falling back to
 0700. Source bodies, transcripts and audit records belong to this private
 profile. Credentials remain in `$XDG_CONFIG_HOME/jmap/profiles` (or the
 corresponding HOME fallback), with files mode 0600 and directories mode 0700.
-Terminal status logs contain identifiers and outcomes.
+Review shows the latest 100 matching messages with their classification labels
+and loads the selected body on demand. Bordered panes highlight the current
+selection and show its position. An animated activity bar indicates pending
+requests. Use `/` to search the full corpus and Ctrl-C to exit while loading.
+Bodies above 256 KiB are shortened for display and marked truncated. Full
+imported sources remain in the database. Terminal status logs contain identifiers
+and outcomes.
 
 The JSON configuration fields are:
 
@@ -81,14 +134,19 @@ The JSON configuration fields are:
 | `account` | Explicit account ID, or null for its primary mail account. |
 | `sortalRoots` | Read-only Sortal store roots used by discussion tools. |
 | `bodyLimit` | Maximum bytes per JMAP body value, default 65536, maximum 1048576. |
-| `maxSteps` | Work budget per command, default 100. |
-| `chatModel` | Explicit OpenRouter model ID, or null. |
+| `maxSteps` | Classification and embedding batch budget, default 100. Sync has no default step limit. |
+| `chatModel` | Model ID served by the configured chat endpoint, or null. |
+| `chatBaseUrl` | OpenRouter-compatible API base URL. Omit for hosted OpenRouter. |
 | `embeddingUrl` | OpenAI-compatible embeddings endpoint, or null. |
 | `embeddingModel` | Embedding model ID, independent of chat. |
 | `embeddingDimensions` | Expected vector width, 1 through 4096 when enabled. |
 
-`learn` resolves `1y` to 365 days and persists both endpoints before listing.
-Restarting retains that interval. The default discovery/evaluation cutoff is
+`sync --since` accepts `Nd`, `Nw`, `Nm`, `Ny` or an RFC3339 start timestamp.
+Months and years use calendar arithmetic in UTC, clamping to the last valid day
+when needed. Days and weeks use 24-hour days. The default is `1y`.
+The first import persists both endpoints before listing. Restarting retains
+that interval even if `--since` changes. Use a fresh Siftbot profile for a
+different initial interval. The default discovery/evaluation cutoff is
 three calendar months before its persisted end, with an explicit `--cutoff`
 override. Import commits each source batch, hydration
 queue update and cursor atomically. A changing query restarts its listing.
@@ -96,10 +154,15 @@ Expired change states reconcile existing sources before restarting. New mail
 after the initial interval is accepted during change tracking. Thread context
 outside the interval and truncated body values are marked explicitly.
 
-The shared `Jmap_eio.Mail` capability confines every request to one discovered
-account and HTTPS origin. Siftbot receives a reader without mutation methods.
+The shared `Jmap_eio.Mail` capability confines mail requests to one discovered
+account and the exact HTTPS API URL advertised by the authenticated session.
+The API may use another origin or a query. Redirects to other endpoints are
+rejected. Siftbot receives a reader without mutation methods.
 The transport rejects mutation calls and mixed batches before transport even
 if the server token grants broader permissions. Reading never changes flags.
+Shared bearer credentials may be literal tokens, private-file references or
+`sekrit:NAME` references. Setup retains an existing reference when the token
+field is blank and the URL is unchanged. It never resolves one into the form.
 
 ## Classification, retrieval and discussion
 
@@ -109,20 +172,53 @@ It does not claim semantic clustering. An area must be approved before it can
 receive predictions. Header rules identify list and automated delivery but do
 not infer spam from an unsubscribe header or broadcast from a list header.
 
-Set `chatModel` and provide `SIFTBOT_OPENROUTER_API_KEY` to enable:
+Set `chatModel` to enable classification, discussion and overviews. For Sequoia:
+
+```json
+"chatBaseUrl": "http://sequoia:8000/v1",
+"chatModel": "Qwen/Qwen3.8-27B-FP8"
+```
+
+Sequoia needs no API key. Omit `chatBaseUrl` for hosted OpenRouter and provide
+`SIFTBOT_OPENROUTER_API_KEY`. That key is never inherited by custom endpoints.
+`SIFTBOT_CHAT_API_KEY` explicitly supplies a key for the selected endpoint if
+needed. Credentialed endpoints require HTTPS. Classification caches distinguish
+custom endpoints as well as model IDs. Setup preserves `chatBaseUrl` when editing
+other profile fields.
+
+Run:
 
 ```sh
 siftbot classify --profile personal
+siftbot classify --profile personal --all
+siftbot classify --profile personal --all --jobs 4
 siftbot overview --profile personal --area AREA --maintain
 siftbot watch --profile personal
 ```
 
-Classification runs bounded Agentkit turns, validates their output, uses only
-confirmed examples, and records model, prompt and source revisions. It stores
+`classify` processes up to `maxSteps` pending messages by default. `--all`
+processes every pending local email found at startup. Both modes skip current
+results. Repeating `--all` after syncing processes new or changed emails;
+changing the model or approved classification context also refreshes results.
+`classify` and `watch` use four concurrent model requests by default. Set
+`--jobs N` (or `-j N`) to choose 1 to 32. Results are saved atomically as replies
+finish. A failure cancels outstanding work; a later run resumes saved progress.
+
+The progress bar shows completed count, percentage and elapsed time. Beneath it,
+the latest saved labels and email subject replace the previous preview. The
+final summary reports how many messages remain. `--no-progress` prints results
+as plain lines. Ctrl-C preserves completed results; rerun to resume. The same
+preview is shown during `watch`. Each worker loads one email body at a time.
+
+Classification makes bounded, tool-free model requests with reasoning disabled.
+It requests JSON Schema output, validates replies and retries malformed or
+truncated output once. The model provider must support JSON Schema. It uses
+only confirmed examples and records model, prompt and source revisions. It stores
 suggestions separately from admin decisions. Human decisions take precedence.
 Changing provider versions reuses their cached inference when the complete
-input identity still matches. `watch` follows changes with separate sync and
-classification budgets. Model output cannot create rules, confirm labels or
+input identity still matches. `watch` keeps syncing and checking for changes
+every 30 seconds until interrupted. Each pass limits classification to
+`maxSteps` messages. Model output cannot create rules, confirm labels or
 capture tasks. The discussion tools can search, inspect source records, read
 area definitions and resolve contacts at the message date.
 

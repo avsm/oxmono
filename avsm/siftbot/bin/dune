@@ -1,9 +1,9 @@
 (executable
  (name siftbot_cli)
  (public_name siftbot)
- (modules siftbot_cli)
+ (modules siftbot_cli cli_progress)
  (link_deps siftbot_review.exe)
- (libraries siftbot cmdliner unix))
+ (libraries siftbot cmdliner fetch-curl console console-eio unix))
 
 (executable
  (name siftbot_worker)

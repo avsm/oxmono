@@ -24,6 +24,8 @@ let () =
   Unix.unlink root;
   Unix.mkdir root 0o700;
   Unix.putenv "XDG_CONFIG_HOME" root;
+  Unix.putenv "SEKRIT_STORE_DIR" (Filename.concat root "vault");
+  Unix.putenv "SEKRIT_KEY_FILE" (Filename.concat root "keys/master.key");
   Fun.protect
     ~finally:(fun () -> remove root)
     (fun () ->
@@ -59,6 +61,7 @@ let () =
               local with
               body_limit = 1234;
               max_steps = 42;
+              chat_base_url = Some "http://sequoia:8000/v1";
               sortal_roots = [ "/example/sortal" ];
             };
           ignore
@@ -68,6 +71,7 @@ let () =
           check "advanced settings preserved"
             (local.body_limit = 1234 && local.max_steps = 42
             && local.sortal_roots = [ "/example/sortal" ]
+            && local.chat_base_url = Some "http://sequoia:8000/v1"
             && local.account = Some "account-2");
           rejected
             (call
@@ -102,6 +106,47 @@ let () =
           check "invalid parse does not echo secret"
             (S.parse_request ("broken " ^ token) = Error "Invalid setup request");
           check "bounded parse"
-            (Result.is_error (S.parse_request (String.make 65537 'x')))));
+            (Result.is_error (S.parse_request (String.make 65537 'x')));
+          let reference = P.Bearer_ref "sekrit:sift/mail" in
+          ok
+            (P.save store
+               (ok (P.v ~name:p.jmap_profile ~session_url:p.url reference)));
+          let preserved = saved (call (Save (p, "", false))) in
+          check "named reference shown without resolving it" preserved.has_token;
+          check "blank retains unresolved reference" (credential () = reference);
+          rejected
+            (call
+               (Save ({ p with url = "https://other.test/session" }, "", false)));
+          Eio.Switch.run (fun sw ->
+              let fs = Eio.Stdenv.fs env in
+              let root = Eio.Path.(fs / Sekrit.Paths.root ()) in
+              let key_file = Eio.Path.(fs / Sekrit.Paths.key_file ()) in
+              Sekrit_eio.Store.init ~root ~key_file;
+              let secrets = Sekrit_eio.Store.open_ ~sw ~root ~key_file in
+              Sekrit_eio.Store.put secrets ~name:"sift/mail" ~replace:false
+                (Sekrit.Secret.of_string "vault-only-token");
+              let calls = ref 0 in
+              let fetch =
+                Fetch_mock.client (fun r ->
+                    incr calls;
+                    check "reference resolves for session authentication"
+                      (Http.Header.get r.headers "authorization"
+                      = Some "Bearer vault-only-token");
+                    check "discovery only" (r.meth = `GET);
+                    let headers =
+                      Http.Header.of_list
+                        [ ("content-type", "application/json") ]
+                    in
+                    Fetch_mock.respond ~headers
+                      {|{"capabilities":{"urn:ietf:params:jmap:core":{"maxSizeUpload":1000,"maxConcurrentUpload":1,"maxSizeRequest":100000,"maxConcurrentRequests":1,"maxCallsInRequest":4,"maxObjectsInGet":10,"maxObjectsInSet":10,"collationAlgorithms":[]},"urn:ietf:params:jmap:mail":{}},"accounts":{"account-1":{"name":"Mail","isPersonal":true,"isReadOnly":true,"accountCapabilities":{"urn:ietf:params:jmap:mail":{"maxMailboxesPerEmail":null,"maxMailboxDepth":null,"maxSizeMailboxName":256,"maxSizeAttachmentsPerEmail":50000000,"emailQuerySortOptions":["receivedAt"],"mayCreateTopLevelMailbox":false}}}},"primaryAccounts":{"urn:ietf:params:jmap:mail":"account-1"},"username":"owner","apiUrl":"https://example.test/api","downloadUrl":"https://example.test/download/{accountId}/{blobId}/{name}?type={type}","uploadUrl":"https://example.test/upload/{accountId}","eventSourceUrl":"https://example.test/events?types={types}&close={closeafter}&ping={ping}","state":"session1"}|}
+                      r)
+              in
+              let remote =
+                Siftbot.Profile.connect ~sw ~fetch env
+                  (Siftbot.Profile.load "work")
+              in
+              check "named secret opens restricted account"
+                (remote.account = "account-1" && !calls = 1);
+              check "connection preserves reference" (credential () = reference))));
   print_endline
     "Profile setup: storage, preservation, validation and redaction passed"

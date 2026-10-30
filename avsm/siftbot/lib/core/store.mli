@@ -8,6 +8,12 @@ val revision : t -> int
 val get : t -> Siftbot_model.source -> Siftbot_model.message option
 val messages : t -> Siftbot_model.message list
 
+val sources_needing_cache :
+  t -> kind:string -> value:string -> Siftbot_model.source list
+(** [sources_needing_cache db ~kind ~value] lists sources without that cached
+    value at their current revision, ordered by date and source key. It does not
+    load message bodies. *)
+
 val message_ids_after :
   t ->
   service:string ->
@@ -42,7 +48,19 @@ val commit_batch :
 
 exception Conflict
 
-val snapshot : t -> query:string -> Siftbot_model.snapshot
+val snapshot :
+  ?visible_messages_only:bool -> t -> query:string -> Siftbot_model.snapshot
+(** [snapshot ~visible_messages_only:true db ~query] restricts assignments to
+    the returned messages and their conversations. The default includes all live
+    assignments. *)
+
+val areas : t -> Siftbot_model.area list
+(** [areas db] lists all area definitions, ordered by ID. *)
+
+val confirmed_assignments : t -> limit:int -> Siftbot_model.assignment list
+(** [confirmed_assignments db ~limit] returns at most [limit] human decisions on
+    current message revisions, ordered by source, dimension and value.
+    Conversation decisions and deleted sources are excluded. *)
 
 val propose :
   t -> Siftbot_model.area list -> Siftbot_model.assignment list -> unit
@@ -61,6 +79,23 @@ val cache :
   unit
 
 val cached : t -> source:Siftbot_model.source -> kind:string -> string option
+
+val save_classification :
+  t ->
+  expected_revision:int ->
+  source:Siftbot_model.source ->
+  revision:string ->
+  kind:string ->
+  model:string ->
+  prompt_version:string ->
+  question:string ->
+  answer:string ->
+  Siftbot_model.assignment list ->
+  int
+(** [save_classification db ~expected_revision ~source ~revision ~kind ~model ~prompt_version ~question ~answer assignments]
+    atomically replaces model predictions for [source], saves both inference
+    caches and records the audit. Returns the new database revision. A changed
+    database or source revision raises [Conflict] without saving anything. *)
 
 val audit :
   t ->
@@ -147,3 +182,14 @@ val hydration :
 
 val checkpoints : t -> (string * string) list
 (** [checkpoints db] returns durable job identifiers and cursors. *)
+
+val hydration_count : t -> service:string -> account:string -> int
+(** [hydration_count db ~service ~account] counts pending threads. *)
+
+val message_count : t -> int
+(** [message_count db] counts messages available in the local corpus. *)
+
+val labels : t -> Siftbot_model.source -> Siftbot_model.assignment list
+(** [labels db source] returns effective labels for a message and conversation.
+    Message confirmations override sender rules, which override list rules and
+    predictions. Rules are scoped to the source service and account. *)

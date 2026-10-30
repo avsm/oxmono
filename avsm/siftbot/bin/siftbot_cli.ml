@@ -26,6 +26,11 @@ let protect f =
     f ();
     `Ok ()
   with
+  | Sys.Break ->
+      `Error
+        ( false,
+          "Interrupted. Completed work is saved; rerun the command to resume."
+        )
   | Siftbot.Store.Conflict ->
       `Error (false, "Revision conflict. Refresh and retry.")
   | Invalid_argument s | Failure s | Sys_error s -> `Error (false, s)
@@ -96,60 +101,78 @@ let evaluate profile demo cutoff =
           Printf.printf "Frozen baseline evaluation %s\n" id;
           List.iter print_endline reports))
 
-let learn profile demo since watch =
+let learn profile demo since watch max_steps no_progress jobs =
   protect (fun () ->
-      if since <> "1y" then
-        invalid_arg "The supported relative interval is --since 1y";
+      let interval = Siftbot.Interval.parse since in
+      Option.iter
+        (fun n -> if n < 1 then invalid_arg "--max-steps must be positive")
+        max_steps;
       with_db profile demo (fun env sw db ->
           if demo then print_endline "Synthetic corpus ready."
           else
             let p = Siftbot.Profile.load profile in
-            let remote = Siftbot.Profile.connect ~sw env p in
-            let now = Unix.gettimeofday () in
-            let timestamp seconds =
-              Ptime.of_float_s seconds |> Option.get
-              |> Ptime.to_rfc3339 ~tz_offset_s:0
+            let now =
+              Eio.Time.now (Eio.Stdenv.clock env)
+              |> Ptime.of_float_s |> Option.get
             in
-            Siftbot.Import.start db remote
-              ~since:(timestamp (now -. (365. *. 86400.)))
+            let start = Siftbot.Interval.since ~now interval in
+            Printf.printf "Connecting to %s...\n%!" profile;
+            let remote =
+              Siftbot.Profile.connect ~sw ~fetch:(Fetch_curl.v ~sw ()) env p
+            in
+            let timestamp = Ptime.to_rfc3339 ~tz_offset_s:0 in
+            Siftbot.Import.start db remote ~since:(timestamp start)
               ~until:(timestamp now);
             let first, last = Option.get (Siftbot.Import.interval db remote) in
-            Printf.printf
-              "Account %s; interval %s to %s; at most %d sync steps and %d \
-               classifications; body limit %d bytes; chat %s.\n\
-               %!"
-              (M.sanitize remote.account)
-              first last p.max_steps p.max_steps p.body_limit
-              (Option.value ~default:"none" p.chat_model);
-            let remaining = ref p.max_steps in
-            let classifier =
-              if watch && p.chat_model <> None then
-                Some (Siftbot.Assistant.completion ~sw p)
-              else None
+            Printf.printf "Syncing %s: %s to %s.\n%!" profile
+              (String.sub first 0 10) (String.sub last 0 10);
+            let clock = Eio.Stdenv.clock env in
+            let sync () =
+              Cli_progress.sync ~clock ~enabled:(not no_progress)
+                (fun ~on_progress ->
+                  Siftbot.Import.sync ?max_steps ~on_progress
+                    ~check:Eio.Fiber.check db remote)
             in
-            let rec loop n =
-              if n = 0 then
-                print_endline "Work limit reached. Re-run to resume."
-              else
-                let done_ = Siftbot.Import.step db remote in
-                (match classifier with
-                | Some (model, complete) when done_ && !remaining > 0 ->
-                    let count =
-                      Siftbot.Classifier.run db ~complete ~model
-                        ~max_messages:(min 10 !remaining)
-                    in
-                    remaining := !remaining - count;
-                    Printf.printf "Stored %d changed classifications.\n%!" count
-                | _ -> ());
-                if done_ && not watch then
-                  print_endline "Import and catch-up complete."
-                else (
-                  if done_ then (
-                    print_endline "Change checkpoint committed.";
-                    Eio.Time.sleep (Eio.Stdenv.clock env) 30.);
-                  loop (n - 1))
+            let rec run () =
+              match sync () with
+              | Siftbot.Import.Paused ->
+                  Printf.printf
+                    "Paused at your step limit. Resume with: siftbot sync \
+                     --profile %s\n\
+                     %!"
+                    profile
+              | Complete ->
+                  Printf.printf
+                    "Sync complete. %d emails available locally.\n%!"
+                    (Siftbot.Store.message_count db);
+                  if watch then (
+                    (match p.chat_model with
+                    | None -> ()
+                    | Some _ ->
+                        let model, complete =
+                          Siftbot.Assistant.completion
+                            ~json_schema:(Siftbot.Classifier.schema db)
+                            ~fetch:(Fetch_curl.v ~sw ()) p
+                        in
+                        let count, _ =
+                          Cli_progress.classify ~clock
+                            ~enabled:(not no_progress)
+                            (fun ~on_progress ~on_classified ->
+                              Siftbot.Classifier.run ~on_progress ~on_classified
+                                ~jobs db ~complete ~model
+                                ~max_messages:p.max_steps)
+                        in
+                        Printf.printf
+                          "Stored %d classification suggestions.\n%!" count);
+                    Cli_progress.interruptible ~clock (fun () ->
+                        Eio.Time.sleep clock 30.);
+                    run ())
+                  else
+                    Printf.printf
+                      "Browse and search: siftbot review --profile %s\n%!"
+                      profile
             in
-            loop p.max_steps))
+            run ()))
 
 let embedding profile demo query =
   protect (fun () ->
@@ -182,15 +205,27 @@ let embedding profile demo query =
                      (M.sanitize (M.key m.M.source))
                      (M.sanitize m.subject))))
 
-let classify profile demo =
+let classify profile demo all no_progress jobs =
   protect (fun () ->
       if demo then invalid_arg "Demo mode does not use model credentials";
-      with_db profile false (fun _ sw db ->
+      with_db profile false (fun env sw db ->
           let p = Siftbot.Profile.load profile in
-          let model, complete = Siftbot.Assistant.completion ~sw p in
-          Printf.printf "Stored suggestions for %d messages.\n"
-            (Siftbot.Classifier.run db ~complete ~model
-               ~max_messages:p.max_steps)))
+          let model, complete =
+            Siftbot.Assistant.completion
+              ~json_schema:(Siftbot.Classifier.schema db)
+              ~fetch:(Fetch_curl.v ~sw ()) p
+          in
+          let count, remaining =
+            Cli_progress.classify ~clock:(Eio.Stdenv.clock env)
+              ~enabled:(not no_progress) (fun ~on_progress ~on_classified ->
+                Siftbot.Classifier.run ~on_progress ~on_classified ~jobs db
+                  ~complete ~model
+                  ?max_messages:(if all then None else Some p.max_steps))
+          in
+          Printf.printf
+            "Stored suggestions for %d messages. %d still need classification.\n\
+             %!"
+            count remaining))
 
 let capture profile demo service account email_id title deadline area root
     confirm =
@@ -230,7 +265,9 @@ let overview profile demo area maintain =
           if maintain then (
             if demo then invalid_arg "Demo mode never contacts a model";
             let p = Siftbot.Profile.load profile in
-            let model, complete = Siftbot.Assistant.completion ~sw p in
+            let model, complete =
+              Siftbot.Assistant.completion ~fetch:(Fetch_curl.v ~sw ()) p
+            in
             ignore
               (Siftbot.Overview.maintain db ~area_id:area ~model ~complete
                  ~max_merges:10));
@@ -252,6 +289,10 @@ let undo profile demo explanation =
 
 let review profile demo setup =
   protect (fun () ->
+      if not (Unix.isatty Unix.stdin && Unix.isatty Unix.stdout) then
+        invalid_arg
+          "Setup and review need an interactive terminal. Use inspect for \
+           plain output.";
       let dir = Filename.dirname Sys.executable_name in
       let name =
         if Filename.check_suffix Sys.executable_name ".exe" then
@@ -269,6 +310,38 @@ let review profile demo setup =
 let command name doc term = Cmd.v (Cmd.info name ~doc) Term.(ret term)
 let required_opt name = Arg.(required & opt (some string) None & info [ name ])
 
+let jobs =
+  let parse s =
+    match int_of_string_opt s with
+    | Some n when n >= 1 && n <= 32 -> Ok n
+    | _ -> Error (`Msg "jobs must be an integer from 1 to 32")
+  in
+  Arg.(
+    value
+    & opt (conv (parse, Format.pp_print_int)) 4
+    & info [ "j"; "jobs" ] ~docv:"N"
+        ~doc:"Classify up to N emails concurrently (1 to 32).")
+
+let sync_term =
+  Term.(
+    const (fun p d s limit no_progress -> learn p d s false limit no_progress 1)
+    $ profile $ demo
+    $ Arg.(
+        value & opt string "1y"
+        & info [ "since" ] ~docv:"INTERVAL"
+            ~doc:
+              "Initial interval: Nd, Nw, Nm, Ny or RFC3339. Resumes the stored \
+               interval.")
+    $ Arg.(
+        value
+        & opt (some int) None
+        & info [ "max-steps" ] ~docv:"N"
+            ~doc:"Stop after N sync steps. By default, run until caught up.")
+    $ Arg.(
+        value & flag
+        & info [ "no-progress" ]
+            ~doc:"Use plain status lines instead of an animated progress bar."))
+
 let commands =
   [
     command "overview" "Read or update an evidence-linked area overview"
@@ -285,7 +358,20 @@ let commands =
         $ required_opt "dooit-root"
         $ Arg.(value & opt (some int) None & info [ "confirm-revision" ]));
     command "classify" "Classify changed inputs with the configured model"
-      Term.(const classify $ profile $ demo);
+      Term.(
+        const classify $ profile $ demo
+        $ Arg.(
+            value & flag
+            & info [ "all" ]
+                ~doc:
+                  "Classify all pending local emails. Skip current results and \
+                   resume saved progress. Overrides the profile batch limit.")
+        $ Arg.(
+            value & flag
+            & info [ "no-progress" ]
+                ~doc:
+                  "Use plain status lines instead of an animated progress bar.")
+        $ jobs);
     command "embed" "Index source passages or query their vector index"
       Term.(const embedding $ profile $ demo $ query);
     command "init" "Create a local profile"
@@ -298,13 +384,12 @@ let commands =
       Term.(const discover $ profile $ demo $ cutoff);
     command "evaluate" "Report baseline diagnostics on reviewed examples"
       Term.(const evaluate $ profile $ demo $ cutoff);
-    command "learn" "Import a fixed year and catch up read-only"
+    command "sync" "Sync the requested mail interval to completion" sync_term;
+    command "learn" "Alias for sync" sync_term;
+    command "watch" "Keep syncing new mail and configured classifications"
       Term.(
-        const (fun p d s -> learn p d s false)
-        $ profile $ demo
-        $ Arg.(value & opt string "1y" & info [ "since" ]));
-    command "watch" "Follow changes with durable bounded work"
-      Term.(const (fun p d -> learn p d "1y" true) $ profile $ demo);
+        const (fun p d j -> learn p d "1y" true None false j)
+        $ profile $ demo $ jobs);
     command "approve" "Approve a proposed area"
       Term.(
         const approve $ profile $ demo
@@ -312,6 +397,8 @@ let commands =
         $ explain);
     command "undo" "Reverse the latest local review decision"
       Term.(const undo $ profile $ demo $ explain);
+    command "setup" "Configure JMAP profiles in the Bonsai terminal form"
+      Term.(const (fun profile -> review profile false true) $ profile);
     command "review" "Open the Bonsai terminal workspace"
       Term.(
         const review $ profile $ demo

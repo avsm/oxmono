@@ -68,6 +68,8 @@ type snapshot = {
 }
 [@@deriving sexp]
 
+type rule_scope = Sender | Mailing_list [@@deriving sexp]
+
 type edit =
   | Approve of string
   | Rename of string * string
@@ -75,11 +77,13 @@ type edit =
   | Merge of string * string
   | Define of string * string * string
   | Assign of assignment
+  | Assign_rule of rule_scope * assignment
   | Undo
 [@@deriving sexp]
 
 type request =
   | Inspect of string
+  | Inspect_message of string * source
   | Discuss of string * source option
   | Edit of int * edit * string * string
 [@@deriving sexp]
@@ -232,3 +236,45 @@ let receive t id result =
               Option.map (fun m -> m.source) (List.nth_opt snapshot.messages 0)
         in
         { t with snapshot; selected; pending = None; error = None }
+
+let rule_key scope (m : message) =
+  let normalize = String.lowercase_ascii in
+  match scope with
+  | Sender ->
+      let sender = String.trim m.sender in
+      if
+        sender = ""
+        || String.length sender > 1024
+        || String.contains sender ','
+        || not (String.contains sender '@')
+      then invalid_arg "Sender rules require one email address";
+      normalize sender
+  | Mailing_list ->
+      let values =
+        List.filter_map
+          (fun (name, value) ->
+            if normalize name = "list-id" then Some value else None)
+          m.headers
+      in
+      let value =
+        match values with
+        | [ value ] -> String.trim value
+        | _ -> invalid_arg "This message must have exactly one List-ID header"
+      in
+      let value =
+        match (String.index_opt value '<', String.rindex_opt value '>') with
+        | Some first, Some last when last > first ->
+            String.sub value (first + 1) (last - first - 1)
+        | None, None -> value
+        | _ -> invalid_arg "Invalid List-ID header"
+      in
+      let value = normalize (String.trim value) in
+      if
+        value = ""
+        || String.length value > 1024
+        || String.exists
+             (function
+               | ' ' | '\t' | '\r' | '\n' | '<' | '>' -> true | _ -> false)
+             value
+      then invalid_arg "Invalid List-ID header";
+      value

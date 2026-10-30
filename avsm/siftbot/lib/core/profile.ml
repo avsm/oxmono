@@ -6,6 +6,7 @@ type t = {
   body_limit : int;
   max_steps : int;
   chat_model : string option;
+  chat_base_url : string option;
   embedding_url : string option;
   embedding_model : string option;
   embedding_dimensions : int;
@@ -13,7 +14,8 @@ type t = {
 
 let codec =
   let make name jmap_profile account sortal_roots body_limit max_steps
-      chat_model embedding_url embedding_model embedding_dimensions =
+      chat_model chat_base_url embedding_url embedding_model
+      embedding_dimensions =
     {
       name;
       jmap_profile;
@@ -22,6 +24,7 @@ let codec =
       body_limit;
       max_steps;
       chat_model;
+      chat_base_url;
       embedding_url;
       embedding_model;
       embedding_dimensions;
@@ -40,6 +43,10 @@ let codec =
        (Jsont.option Jsont.string)
        ~dec_absent:(fun () -> None)
        ~enc:(fun x -> x.chat_model)
+  |> Jsont.Object.mem "chatBaseUrl"
+       (Jsont.option Jsont.string)
+       ~dec_absent:(fun () -> None)
+       ~enc:(fun x -> x.chat_base_url)
   |> Jsont.Object.mem "embeddingUrl"
        (Jsont.option Jsont.string)
        ~dec_absent:(fun () -> None)
@@ -95,6 +102,7 @@ let defaults ~name ~jmap_profile =
     body_limit = 65536;
     max_steps = 100;
     chat_model = None;
+    chat_base_url = None;
     embedding_url = None;
     embedding_model = None;
     embedding_dimensions = 0;
@@ -152,7 +160,7 @@ let load name =
   valid p.jmap_profile;
   p
 
-let connect ~sw env p =
+let connect ~sw ~fetch env p =
   let checked = function
     | Ok x -> x
     | Error e -> failwith (Jmap_eio.Profile.error_to_string e)
@@ -162,13 +170,20 @@ let connect ~sw env p =
   let token =
     match Jmap_eio.Profile.credential jp with
     | Bearer token -> token
-    | Basic _ ->
+    | Bearer_ref reference -> (
+        match
+          Jmap_eio.Auth.read_secret_file ~fs:(Eio.Stdenv.fs env) reference
+        with
+        | Ok token -> token
+        | Error _ -> failwith "Cannot resolve the shared JMAP bearer credential"
+        )
+    | Basic _ | Basic_ref _ ->
         invalid_arg "Siftbot requires a shared bearer-token JMAP profile"
   in
   let service = Jmap_eio.Profile.session_url jp in
   let reader =
-    Jmap_eio.Mail.connect_read_only ~sw ~fetch:(Fetch_curl.v ~sw ())
-      ~clock:(Eio.Stdenv.clock env) ~token ?account_id:p.account service
+    Jmap_eio.Mail.connect_read_only ~sw ~fetch ~clock:(Eio.Stdenv.clock env)
+      ~token ?account_id:p.account service
   in
   Import.remote ~service ~body_limit:p.body_limit reader
 

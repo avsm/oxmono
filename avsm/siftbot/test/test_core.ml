@@ -444,19 +444,129 @@ let import sw =
   check "new conversation hydration survives checkpoint"
     (S.hydration db ~service:remote.service ~account:remote.account = None)
 
+let full_sync sw =
+  let db = S.memory ~sw () in
+  let queries = ref 0 in
+  let remote : I.remote =
+    {
+      service = "https://example.test/session";
+      account = "a";
+      username = "owner";
+      batch_size = 10;
+      state = (fun () -> "s1");
+      query =
+        (fun ~since:_ ~until:_ ~position ->
+          incr queries;
+          let query =
+            Jmap_eio.Codec.decode_exn P.Method.query_response_jsont
+              (Printf.sprintf
+                 {|{"accountId":"a","queryState":"q1","canCalculateChanges":false,"position":%d,"ids":["%d"],"total":125}|}
+                 position position)
+          in
+          {
+            Jmap_eio.Mail.query;
+            next_position =
+              (if position < 124 then Some (Int64.of_int (position + 1))
+               else None);
+          });
+      read =
+        (fun ids ->
+          get (List.map (fun name -> email name "thread" "2026-05-01") ids));
+      thread =
+        (fun tid ~position ->
+          {
+            Jmap_eio.Mail.thread_id = id tid;
+            position;
+            total = 0;
+            email_ids = [];
+            emails = None;
+            next_position = None;
+          });
+      changes =
+        (fun since ->
+          P.Method.
+            {
+              account_id = id "a";
+              old_state = since;
+              new_state = "s2";
+              has_more_changes = false;
+              created = [];
+              updated = [];
+              destroyed = [];
+            });
+    }
+  in
+  I.start db remote ~since:"2026-04-25T00:00:00Z" ~until:"2026-10-25T00:00:00Z";
+  check "explicit step limit pauses"
+    (I.sync ~max_steps:5 ~check:(fun () -> ()) db remote = I.Paused);
+  check "partial mail is already visible"
+    (S.message_count db = 5 && List.length (S.search db "") = 5);
+  let job, raw =
+    List.find
+      (fun (job, _) -> String.starts_with ~prefix:"import:" job)
+      (S.checkpoints db)
+  in
+  let legacy =
+    match Jmap_eio.Codec.decode_exn Jsont.json raw with
+    | Jsont.Object (fields, meta) ->
+        Jsont.Object
+          ( List.filter
+              (fun ((key, _), _) -> key <> "listed" && key <> "total")
+              fields,
+            meta )
+    | _ -> assert false
+  in
+  S.commit_batch db ~job ~expected:(Some raw)
+    ~cursor:(Jmap_eio.Codec.encode_exn Jsont.json legacy)
+    [] [];
+  check "old checkpoints resume with their saved position"
+    ((I.progress db remote).listed = 5);
+  let checks = ref 0 in
+  check "sync remains cancellable"
+    (try
+       ignore
+         (I.sync
+            ~check:(fun () ->
+              incr checks;
+              if !checks = 3 then raise Sys.Break)
+            db remote);
+       false
+     with Sys.Break -> true);
+  check "cancelled sync retains committed batches"
+    ((I.progress db remote).listed = 7);
+  let phases = ref [] in
+  let on_progress (p : I.progress) =
+    phases := p.phase :: !phases;
+    check "listing progress respects server total" (p.listed <= 125);
+    check "server total is retained" (p.total = Some 125)
+  in
+  check "default sync passes 100 steps and completes"
+    (I.sync ~on_progress ~check:(fun () -> ()) db remote = I.Complete);
+  check "resumed sync does not relist committed pages" (!queries = 125);
+  check "all interval mail is available" (S.message_count db = 125);
+  check "thread context and catch-up also finish"
+    (List.mem I.Hydrating !phases
+    && List.mem I.Catching_up !phases
+    && (I.progress db remote).phase = I.Idle
+    && (I.progress db remote).pending_threads = 0)
+
 let keyset sw =
   let db = S.memory ~sw () in
   let ids = [ "z"; "a"; "A"; "é"; "aa"; "a\000b" ] in
   let messages =
-    List.map (fun id -> { first with M.source = source id; thread = "shared" })
+    List.map
+      (fun id -> { first with M.source = source id; thread = "shared" })
       ids
   in
   let other =
-    { first with M.source = { (source "a0") with account = "other" };
-      thread = "foreign" }
+    {
+      first with
+      M.source = { (source "a0") with account = "other" };
+      thread = "foreign";
+    }
   in
-  S.commit_batch db ~job:"keyset" ~expected:None ~cursor:"1"
-    (other :: messages) [];
+  S.commit_batch db ~job:"keyset" ~expected:None ~cursor:"1" (other :: messages)
+    [];
   let service = first.source.service and account = first.source.account in
   let page after limit =
     S.message_ids_after db ~service ~account ~after ~limit
@@ -482,8 +592,7 @@ let keyset sw =
   S.commit_batch db ~job:"keyset" ~expected:(Some "1") ~cursor:"2" []
     (List.map source ids);
   check "deletion empties keyset and thread membership"
-    (page "" 10 = []
-    && not (S.has_thread db ~service ~account ~thread:"shared"))
+    (page "" 10 = [] && not (S.has_thread db ~service ~account ~thread:"shared"))
 
 let () =
   protocol ();
@@ -494,5 +603,6 @@ let () =
       Eio.Switch.run (fun sw ->
           store sw;
           keyset sw;
-          import sw));
+          import sw;
+          full_sync sw));
   print_endline "Siftbot core tests passed"

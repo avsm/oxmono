@@ -14,6 +14,7 @@
   agentkit
   agentkit-openrouter
   openrouter
+  fetch
   fetch-curl
   ptime
   digestif

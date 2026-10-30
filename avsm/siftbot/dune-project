@@ -21,6 +21,8 @@
   retrieval
   sqlite3-eio
   jmap
+  (sekrit :with-test)
+  (conf-python-3 :with-test)
   fetch
   fetch-curl
   sortal
@@ -38,7 +40,10 @@
   sexplib
   ppx_sexp_conv
   cmdliner
+  console
+  console-eio
   bonsai_term
+  bonsai_term_components
   bonsai
   core
   async

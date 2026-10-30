@@ -65,10 +65,21 @@ let () =
               (Some
                  {|[{"dimension":"triage","value":"relevant","score":0.8,"explanation":"Supervision request"},{"dimension":"delivery","value":"direct","score":0.7,"explanation":"Personal request"},{"dimension":"attention","value":"needs-reply","score":0.8,"explanation":"Please review"}]|})
           in
+          let progress = ref [] in
+          let on_progress p = progress := p :: !progress in
+          let waiting = S.message_count db in
           check "bounded model classification"
-            (Siftbot.Classifier.run db ~complete ~model:"fake/v1"
+            (Siftbot.Classifier.run ~on_progress db ~complete ~model:"fake/v1"
                ~max_messages:1
             = 1);
+          check
+            "classification reports saved results and work outside the batch"
+            (List.rev !progress
+            = Siftbot.Classifier.
+                [
+                  { completed = 0; total = 1; remaining = waiting };
+                  { completed = 1; total = 1; remaining = waiting - 1 };
+                ]);
           let first_calls = !inference_calls in
           ignore
             (Siftbot.Classifier.run db ~complete ~model:"fake/v1"
@@ -81,10 +92,15 @@ let () =
           ignore
             (Siftbot.Classifier.run db2 ~complete ~model:"fake/v1"
                ~max_messages:1);
+          progress := [];
           check "unchanged inference cache"
-            (Siftbot.Classifier.run db2 ~complete ~model:"fake/v1"
+            (Siftbot.Classifier.run ~on_progress db2 ~complete ~model:"fake/v1"
                ~max_messages:1
             = 0);
+          check "cached results report no pending classification"
+            (!progress
+            = Siftbot.Classifier.[ { completed = 0; total = 0; remaining = 0 } ]
+            );
           ignore
             (Siftbot.Classifier.run db2 ~complete ~model:"fake/v2"
                ~max_messages:1);
@@ -96,4 +112,46 @@ let () =
             (!inference_calls = calls_before);
           check "provider suggestions replace superseded predictions"
             (List.length (S.snapshot db2 ~query:"").assignments = 3);
-          print_endline "Agentkit evidence boundary tests passed"))
+          let db3 = S.memory ~sw () in
+          S.commit_batch db3 ~job:"fixture" ~expected:None ~cursor:"1"
+            [
+              message;
+              { message with source = { message.source with id = "second" } };
+            ]
+            [];
+          let attempts = ref 0 in
+          let failing request =
+            incr attempts;
+            if !attempts >= 2 then failwith "synthetic model failure";
+            complete request
+          in
+          progress := [];
+          check "model failure interrupts the batch"
+            (try
+               ignore
+                 (Siftbot.Classifier.run ~on_progress db3 ~complete:failing
+                    ~model:"fake/v1" ~max_messages:2);
+               false
+             with Failure _ -> true);
+          check "failure does not advance completed count"
+            (List.rev !progress
+            = Siftbot.Classifier.
+                [
+                  { completed = 0; total = 2; remaining = 2 };
+                  { completed = 1; total = 2; remaining = 1 };
+                ]);
+          progress := [];
+          check "retry resumes without reclassifying saved work"
+            (Siftbot.Classifier.run ~on_progress db3 ~complete ~model:"fake/v1"
+               ~max_messages:2
+            = 1);
+          check "retry progress describes remaining work"
+            (List.rev !progress
+            = Siftbot.Classifier.
+                [
+                  { completed = 0; total = 1; remaining = 1 };
+                  { completed = 1; total = 1; remaining = 0 };
+                ]);
+          print_endline
+            "Agentkit evidence boundary and classification progress tests \
+             passed"))

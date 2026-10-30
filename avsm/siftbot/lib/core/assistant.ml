@@ -167,22 +167,49 @@ let discuss ?(people = []) db ~complete ~model ~selected question =
       save "failed" "Discussion failed. No review decisions were changed.";
       Printexc.raise_with_backtrace e bt
 
-let completion ~sw (profile : Profile.t) =
+let completion ?json_schema ~fetch (profile : Profile.t) =
   let model =
     match profile.chat_model with
     | Some m when String.trim m <> "" -> m
     | _ -> invalid_arg "Configure chatModel in the Siftbot profile first"
   in
-  let api_key =
-    match Sys.getenv_opt "SIFTBOT_OPENROUTER_API_KEY" with
-    | Some key when key <> "" -> key
-    | _ -> invalid_arg "Set SIFTBOT_OPENROUTER_API_KEY for discussion"
+  let default_url = "https://openrouter.ai/api/v1" in
+  let base_url = Option.value profile.chat_base_url ~default:default_url in
+  let base_url =
+    match Fetch.Middleware.Url.of_string base_url with
+    | Ok url
+      when (not (Fetch.Middleware.Url.has_query url))
+           && not (Fetch.Middleware.Url.has_fragment url) ->
+        Fetch.Middleware.Url.to_string url
+    | _ ->
+        invalid_arg
+          "chatBaseUrl must be an HTTP(S) API base URL without credentials, \
+           query or fragment"
   in
-  let client = Openrouter.of_fetch ~api_key (Fetch_curl.v ~sw ()) in
-  (model, Agentkit_openrouter.complete client ~model)
+  let hosted = base_url = default_url || base_url = default_url ^ "/" in
+  let key name =
+    match Sys.getenv_opt name with
+    | Some value when String.trim value <> "" -> Some value
+    | _ -> None
+  in
+  let api_key =
+    match key "SIFTBOT_CHAT_API_KEY" with
+    | Some _ as key -> key
+    | None when hosted -> (
+        match key "SIFTBOT_OPENROUTER_API_KEY" with
+        | Some _ as key -> key
+        | None ->
+            invalid_arg
+              "Set SIFTBOT_OPENROUTER_API_KEY for hosted OpenRouter, or \
+               configure chatBaseUrl for your own server")
+    | None -> None
+  in
+  let client = Openrouter.of_fetch ~base_url ?api_key fetch in
+  let identity = if hosted then model else base_url ^ "#" ^ model in
+  (identity, Agentkit_openrouter.complete ?json_schema client ~model)
 
 let configured ~sw ~fs db profile ~selected question =
-  let model, complete = completion ~sw profile in
+  let model, complete = completion ~fetch:(Fetch_curl.v ~sw ()) profile in
   let people =
     List.concat_map
       (fun root -> Identity.load ~fs ~root)

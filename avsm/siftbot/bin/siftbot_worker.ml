@@ -20,7 +20,9 @@ let run profile demo =
                       if demo then Siftbot.Demo.seed db;
                       match request with
                       | Siftbot_model.Inspect query ->
-                          Ok (Siftbot.Store.snapshot db ~query)
+                          Ok (Siftbot.Review.snapshot db ~query ())
+                      | Inspect_message (query, selected) ->
+                          Ok (Siftbot.Review.snapshot db ~query ~selected ())
                       | Discuss (question, selected) ->
                           if demo then
                             invalid_arg
@@ -30,10 +32,10 @@ let run profile demo =
                                ~fs:(Eio.Stdenv.fs env) db
                                (Siftbot.Profile.load profile)
                                ~selected question);
-                          Ok (Siftbot.Store.snapshot db ~query:"")
+                          Ok (Siftbot.Review.snapshot db ~query:"" ?selected ())
                       | Edit (revision, edit, explanation, query) ->
                           Siftbot.Store.edit db ~revision edit ~explanation;
-                          Ok (Siftbot.Store.snapshot db ~query))))
+                          Ok (Siftbot.Review.snapshot db ~query ()))))
     with
     | Siftbot.Store.Conflict -> Error "Revision conflict. Refresh and retry."
     | Invalid_argument e | Failure e -> Error e

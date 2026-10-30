@@ -149,11 +149,13 @@ type cursor = {
   phase : string;
   position : int;
   query_state : string;
+  listed : int;
+  total : int option;
 }
 
 let codec =
-  let make since until anchor phase position query_state =
-    { since; until; anchor; phase; position; query_state }
+  let make since until anchor phase position query_state listed total =
+    { since; until; anchor; phase; position; query_state; listed; total }
   in
   Jsont.Object.map make
   |> Jsont.Object.mem "since" Jsont.string ~enc:(fun x -> x.since)
@@ -162,6 +164,12 @@ let codec =
   |> Jsont.Object.mem "phase" Jsont.string ~enc:(fun x -> x.phase)
   |> Jsont.Object.mem "position" Jsont.int ~enc:(fun x -> x.position)
   |> Jsont.Object.mem "queryState" Jsont.string ~enc:(fun x -> x.query_state)
+  |> Jsont.Object.mem "listed" Jsont.int
+       ~enc:(fun x -> x.listed)
+       ~dec_absent:(fun () -> 0)
+  |> Jsont.Object.mem "total" (Jsont.option Jsont.int)
+       ~enc:(fun x -> x.total)
+       ~dec_absent:(fun () -> None)
   |> Jsont.Object.finish
 
 let job r =
@@ -197,6 +205,8 @@ let start db r ~since ~until =
         until;
         anchor = r.state ();
         phase = "listing";
+        listed = 0;
+        total = None;
         position = 0;
         query_state = "";
       }
@@ -204,7 +214,6 @@ let start db r ~since ~until =
     Store.commit_batch db ~job:(job r) ~expected:None ~cursor:(encode c) [] []
 
 let take n xs = List.filteri (fun i _ -> i < n) xs
-
 let source (r : remote) id = M.{ service = r.service; account = r.account; id }
 
 let step db r =
@@ -242,6 +251,8 @@ let step db r =
       {
         c with
         phase = "reconcile";
+        listed = 0;
+        total = None;
         position = 0;
         query_state = "";
         anchor = r.state ();
@@ -254,10 +265,22 @@ let step db r =
     | "listing" ->
         let page = r.query ~since:c.since ~until:c.until ~position:c.position in
         if c.query_state <> "" && c.query_state <> page.query.query_state then (
-          save { c with position = 0; query_state = "" } [] [];
+          save
+            { c with position = 0; listed = 0; total = None; query_state = "" }
+            [] [];
           false)
         else
           let ms, gone = read (List.map P.Id.to_string page.query.ids) in
+          let c =
+            {
+              c with
+              listed = c.position + List.length page.query.ids;
+              total =
+                Option.map
+                  (fun n -> Int64.to_int (min n (Int64.of_int max_int)))
+                  page.query.total;
+            }
+          in
           let next =
             match page.next_position with
             | Some n ->
@@ -351,6 +374,56 @@ let step db r =
   when e.P.Error.Method_error.type_ = `Cannot_calculate_changes
   ->
     reset ()
+
+type phase = Listing | Hydrating | Catching_up | Reconciling | Idle
+
+type progress = {
+  phase : phase;
+  listed : int;
+  total : int option;
+  pending_threads : int;
+}
+
+type outcome = Complete | Paused
+
+let progress db r =
+  let c =
+    match Store.checkpoint db (job r) with
+    | Some raw -> decode raw
+    | None -> invalid_arg "Start the import first"
+  in
+  let phase =
+    match c.phase with
+    | "listing" -> Listing
+    | "hydrate" -> Hydrating
+    | "changes" -> Catching_up
+    | "reconcile" -> Reconciling
+    | "done" -> Idle
+    | _ -> failwith "Unknown import phase"
+  in
+  {
+    phase;
+    listed = (if phase = Listing then c.position else c.listed);
+    total = c.total;
+    pending_threads =
+      Store.hydration_count db ~service:r.service ~account:r.account;
+  }
+
+let sync ?max_steps ?(on_progress = fun _ -> ()) ~check db r =
+  Option.iter
+    (fun n -> if n < 1 then invalid_arg "Sync step limit must be positive")
+    max_steps;
+  on_progress (progress db r);
+  let rec loop remaining =
+    check ();
+    match remaining with
+    | Some 0 -> Paused
+    | remaining ->
+        let done_ = step db r in
+        on_progress (progress db r);
+        if done_ then Complete else loop (Option.map (fun n -> n - 1) remaining)
+  in
+  loop max_steps
 
 let evaluation_cutoff db =
   let intervals =

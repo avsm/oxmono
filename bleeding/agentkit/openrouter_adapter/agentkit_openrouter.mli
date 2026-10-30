@@ -11,14 +11,16 @@ val messages : Agentkit.Chat.message list -> Openrouter.Message.t list
 
 val complete :
   ?parallel_tool_calls:bool ->
+  ?json_schema:Jsont.json ->
   Openrouter.t ->
   model:string ->
   Agentkit.Chat.complete
 (** [complete client ~model] sends each request as one non-streaming chat
     completion and returns the first choice. [parallel_tool_calls] permits
     multiple calls in a response, false by default. A reasoning effort is sent
-    as [reasoning_effort], which OpenRouter and vLLM accept. Raises [Failure]
-    when the response has no choice. *)
+    as [reasoning_effort], which OpenRouter and vLLM accept. [json_schema]
+    requests strict schema-constrained output for each completion. Raises
+    [Failure] when the response has no choice. *)
 
 module Agent : sig
   include Agentkit.Agent.S

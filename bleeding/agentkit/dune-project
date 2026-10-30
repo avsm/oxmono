@@ -139,6 +139,7 @@
  (depends
   (ocaml (>= 5.2.0))
   openrouter
+  (jsont (>= 0.2.0))
   (agentkit (= :version))))
 
 (package

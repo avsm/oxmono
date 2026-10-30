@@ -466,7 +466,20 @@ let test_images () =
     (Agentkit_openrouter.complete client ~model:"m"
        (Chat.request ~tools:[ tool "t" ] [ Chat.User "hi" ]));
   check "existing adapters retain sequential default"
-    (contains {|"parallel_tool_calls":false|})
+    (contains {|"parallel_tool_calls":false|});
+  check "ordinary completions do not force JSON"
+    (not (contains "response_format"));
+  let json_schema =
+    Jsont.Json.object'
+      [ (("type", Jsont.Meta.none), Jsont.Json.string "array") ]
+  in
+  ignore
+    (Agentkit_openrouter.complete ~json_schema client ~model:"m"
+       (Chat.request [ Chat.User "Classify" ]));
+  check "schema reaches the provider with strict output enabled"
+    (contains {|"response_format":{"type":"json_schema"|}
+    && contains {|"strict":true|}
+    && contains {|"schema":{"type":"array"}|})
 
 let test_truncated_calls () =
   List.iter

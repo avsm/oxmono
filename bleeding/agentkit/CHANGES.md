@@ -1,5 +1,7 @@
 # unreleased
 
+- Allow OpenRouter completions to request strict JSON Schema output.
+
 - Index memo keys for allocation-free membership checks and avoid rebuilding
   the episode tree twice when saving a summary.
 

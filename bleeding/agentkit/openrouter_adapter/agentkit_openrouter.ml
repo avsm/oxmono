@@ -50,17 +50,20 @@ let finish = function
   | Content_filter -> Chat.Other "content_filter"
   | Other s -> Chat.Other s
 
-let wire_request ?(parallel_tool_calls = false) ~model (r : Chat.request) =
+let wire_request ?(parallel_tool_calls = false) ?json_schema ~model
+    (r : Chat.request) =
   let tools = List.map Tool.to_openrouter r.tools in
   Openrouter.Chat.request ~model ?max_tokens:r.max_tokens
     ~messages:(messages r.messages)
     ?tools:(if tools = [] then None else Some tools)
     ?parallel_tool_calls:(if tools = [] then None else Some parallel_tool_calls)
-    ?reasoning_effort:r.reasoning ()
+    ?reasoning_effort:r.reasoning ?json_schema ()
 
-let complete ?parallel_tool_calls client ~model (r : Chat.request) =
+let complete ?parallel_tool_calls ?json_schema client ~model (r : Chat.request)
+    =
   let result =
-    Openrouter.Chat.complete client (wire_request ?parallel_tool_calls ~model r)
+    Openrouter.Chat.complete client
+      (wire_request ?parallel_tool_calls ?json_schema ~model r)
   in
   match
     List.find_opt

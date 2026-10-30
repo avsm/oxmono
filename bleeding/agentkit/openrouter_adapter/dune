@@ -2,4 +2,4 @@
  (name agentkit_openrouter)
  (public_name agentkit-openrouter)
  (modes native)
- (libraries agentkit openrouter eio))
+ (libraries agentkit openrouter eio jsont))

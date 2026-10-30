@@ -22,6 +22,7 @@ type t = private { name : string; steps : step list; accepts : context -> bool }
 
 val v : ?accepts:(context -> bool) -> string -> step list -> t
 (** [v ~accepts name steps] defines a workflow in trusted OCaml. [accepts]
-    selects events using repository, trigger, branch and changed paths. *)
+    selects events using repository, trigger and ref. Knots do not report
+    changed paths, so [changed_files] is empty for their pushes. *)
 
 val inspect : t

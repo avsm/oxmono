@@ -1,0 +1,140 @@
+name: oxmono-tangled
+
+# knot2 from a sibling Tangled checkout and the OCaml spindle, on the local
+# ATP stack's network. Run through stack.py, which builds the images and
+# writes .state/stack.env.
+
+x-hardened: &hardened
+  read_only: true
+  tmpfs: [/tmp]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  networks: [atp]
+
+services:
+  # knot2 creates its keys on demand but expects its directories to exist,
+  # and its image has no shell.
+  knot-init:
+    image: caddy:alpine@sha256:77c07d5ebfa5be9fd6c820d2094ae662c9e7eeb9bf98346b7f639900263ee2a2
+    entrypoint: [mkdir, -p, /data/repositories, /data/lfs, /data/keys]
+    volumes: [knot:/data]
+    networks: [atp]
+
+  knot:
+    <<: *hardened
+    image: oxmono-knot2:dev
+    depends_on:
+      knot-init: {condition: service_completed_successfully}
+    environment:
+      KNOT_HOSTNAME: knot.tangled.test
+      KNOT_ADMINS: ${OWNER:?run stack.py}
+      KNOT_CONTACT_EMAIL: admin@knot.tangled.test
+      KNOT_LISTEN_ADDR: 0.0.0.0:5555
+      KNOT_SSH_LISTEN_ADDR: 0.0.0.0:2222
+      KNOT_SCAN_PATH: /data/repositories
+      KNOT_LFS_STORE_PATH: /data/lfs
+      KNOT_SSH_HOST_KEY_FILE: /data/keys/host_key
+      KNOT_SEALED_KEY_FILE: /data/keys/sealed.bin
+      KNOT_MASTER_KEY_ENV: KNOT_MASTER_KEY
+      KNOT_MASTER_KEY: ${KNOT_MASTER_KEY:?run stack.py}
+      KNOT_PLC_DIRECTORY: https://plc.tangled.test
+      KNOT_APPVIEW_ENDPOINT: https://appview.tangled.test
+      KNOT_EXTRA_CA_FILE: /certs/ca.crt
+      # Every peer is on the Docker network.
+      KNOT_HTTP_BLOCK_PRIVATE_ADDRESSES: "false"
+      KNOT_TLS_HTTP3: "false"
+      KNOT_ADMISSION: open
+      KNOT_CONTRIBUTION_POLICY: anyone
+      RUST_LOG: info
+    volumes:
+      - knot:/data
+      - ./knot.toml:/etc/knot/config.toml:ro
+      - ../../atp/testbed/.state/certs/ca.crt:/certs/ca.crt:ro
+    ports: ["127.0.0.1:5555:5555", "127.0.0.1:2222:2222"]
+
+  # Follows the knot's firehose, which carries the repository-account records
+  # the spindle needs: manifests and patches.
+  knot-jetstream:
+    image: ghcr.io/bluesky-social/jetstream:sha-d5a3b62@sha256:ff26ddce185fcaa97519f8aac8e06424cf37263d3c8fdb04e5e14fae6701d4e7
+    environment:
+      JETSTREAM_DATA_DIR: /data
+      JETSTREAM_LIVENESS_TTL: 8760h
+      JETSTREAM_WS_URL: ws://knot:5555/xrpc/com.atproto.sync.subscribeRepos
+    volumes: [knot-jetstream:/data]
+    depends_on: [knot]
+    networks: [atp]
+
+  # Named apart from compose.yml's spindle, which shares the network.
+  stack-spindle:
+    <<: *hardened
+    # Eio's io_uring backend is the only one built here, and Docker's
+    # default seccomp profile refuses io_uring.
+    security_opt: [no-new-privileges:true, seccomp=unconfined]
+    image: oxmono-spindle:dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    user: "${UID_GID:?run stack.py}"
+    command:
+      - --addr=0.0.0.0
+      - --port=9000
+      - --hostname=spindle.tangled.test
+      - --plc=https://plc.tangled.test
+      - --owner=${OWNER}
+      - --jetstream=wss://knot.tangled.test/subscribe
+      - --state-dir=/state
+    environment:
+      SSL_CERT_FILE: /certs/ca.crt
+    volumes:
+      - ../../atp/testbed/.state/certs/ca.crt:/certs/ca.crt:ro
+      - ./.state/stack-spindle:/state
+    pids_limit: 128
+    mem_limit: 512m
+
+  stack-gateway:
+    image: caddy:alpine@sha256:77c07d5ebfa5be9fd6c820d2094ae662c9e7eeb9bf98346b7f639900263ee2a2
+    volumes:
+      - ./stack.Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../../atp/testbed/.state/certs:/certs:ro
+    networks:
+      atp:
+        aliases: [knot.tangled.test, spindle.tangled.test]
+
+  client:
+    image: oxmono-tangled-client:dev
+    build:
+      context: .
+      dockerfile: Dockerfile.client
+    profiles: [test]
+    user: "${UID_GID}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true, seccomp=unconfined]
+    tmpfs: ["/tmp:exec", "/home/client"]
+    environment:
+      HOME: /home/client
+      SSL_CERT_FILE: /certs/ca.crt
+      GIT_SSL_CAINFO: /certs/ca.crt
+      TANGLED_PDS: https://pds.tangled.test
+      TANGLED_PLC: https://plc.tangled.test
+      PYTHONDONTWRITEBYTECODE: "1"
+    entrypoint: [python3, /test/e2e.py]
+    volumes:
+      # OpenSSH needs a passwd entry for the host user that runs the test.
+      - ./.state/passwd:/etc/passwd:ro
+      - ./e2e.py:/test/e2e.py:ro
+      - ./.state/tangled:/test/tangled:ro
+      - ./.state/id_ed25519:/test/id_ed25519:ro
+      - ./.state/id_ed25519.pub:/test/id_ed25519.pub:ro
+      - ../../atp/testbed/.state:/atp:ro
+      - ../../atp/testbed/.state/certs/ca.crt:/certs/ca.crt:ro
+    networks: [atp]
+
+volumes:
+  knot:
+  knot-jetstream:
+
+networks:
+  atp:
+    external: true
+    name: oxmono-atp_default

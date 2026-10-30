@@ -2,6 +2,7 @@
 module Job = Job
 module Service_auth = Auth
 module Operations = Operations
+module Catalog = Catalog
 open Json
 open Proffer
 module Status = Httpz.Res
@@ -10,6 +11,8 @@ module Method = Httpz.Method
 type config = {
   hostname : string;
   owner : string;
+  admins : string list;
+  admission : Catalog.admission;
   repo : (string * string) option;
   plc : string;
   state_dir : string;
@@ -54,17 +57,15 @@ let authorize state meth req =
         let now = Eio.Time.now state.system#clock in
         expires > now
         && Store.consume state.engine.store ~now ~issuer ~jti ~expires)
-      ~audience:("did:web:" ^ state.config.hostname)
+      ~audience:(Catalog.web_did state.config.hostname)
       ~meth ~now token
   in
   actor
 
-let check_repo state repo = ignore (Engine.managed state.engine repo)
-
-let find state id =
+let find state ~repo id =
   match Engine.find state.engine id with
-  | Some p -> p
-  | None -> reject Status.Not_found "PipelineNotFound" "pipeline not found"
+  | Some p when p.repo = repo -> p
+  | _ -> reject Status.Not_found "PipelineNotFound" "pipeline not found"
 
 let query req k =
   match List.filter (fun (name, _) -> name = k) (Req.query req) with
@@ -94,14 +95,9 @@ let query_pipelines state req =
   Option.iter
     (fun id -> if not (Atp.Tid.is_valid id) then invalid "invalid cursor")
     cursor;
-  let kinds = query_list req "kinds" in
-  if
-    List.exists
-      (fun k -> not (List.mem k [ "manual"; "push"; "pull_request" ]))
-      kinds
-  then invalid "invalid trigger kind";
+  let triggers = query_list req "triggers" in
   let commits = query_list req "commits" in
-  Engine.query state.engine ~repo ~limit ~cursor ~kinds ~commits
+  Engine.query state.engine ~repo ~limit ~cursor ~triggers ~commits
 
 let frame event =
   let kind = get "type" event in
@@ -186,7 +182,8 @@ let logs state workflows socket =
 
 let upgrade state req respond =
   if Req.meth req <> Method.Get then invalid "logs require GET";
-  let p = find state (query_required req "pipeline") in
+  let repo = did (query_required req "repo") in
+  let p = find state ~repo (query_required req "pipeline") in
   let workflows = Engine.select_workflows p (query_list req "workflows") in
   let fields = ref [] in
   Headers.iter
@@ -224,21 +221,98 @@ let respond_json respond ?(status = Status.Success) ?(headers = Headers.empty)
   Resp.v respond ~status ~headers ~content_type:(This "application/json")
     (Body.String text)
 
+let workflows state =
+  List.map
+    (fun (job : Job.t) -> Engine.definition state.config.hostname job.name)
+    state.config.jobs
+
+let ci_output ids =
+  obj [ ("ci", obj [ ("pipelines", arr (List.map str ids)) ]) ]
+
+(* Only refs/heads and refs/tags trigger CI. A deleted ref has nothing to run,
+   and the skip-ci and ci-skip push options suppress the run. *)
+let runnable_push event =
+  let ref_ = get "ref" event in
+  (String.starts_with ~prefix:"refs/heads/" ref_
+  || String.starts_with ~prefix:"refs/tags/" ref_)
+  && (not (zero_sha (get "newSha" event)))
+  && not
+       (List.exists
+          (fun o -> List.mem o [ "skip-ci"; "ci-skip" ])
+          (strings "pushOptions" event))
+
+let notify state ~issuer body =
+  let repo = did (get "repo" body) in
+  let event = required "event" body in
+  if get "repo" event <> repo then invalid "event names another repository";
+  let engine = state.engine in
+  let created =
+    match get "$type" event with
+    | t when t = Engine.push ->
+        (* Only the knot named by the repository's DID document reports its
+           pushes. *)
+        if issuer <> Catalog.knot_did engine.catalog repo then
+          raise Auth.Rejected;
+        let actor = did (get "actor" event) in
+        let new_sha = sha (get "newSha" event) in
+        if not (runnable_push event) then None
+        else
+          let managed = Engine.managed engine repo in
+          let ref_ = get "ref" event in
+          let default_ref =
+            match Catalog.default_branch engine.catalog managed with
+            | Some branch -> ref_ = "refs/heads/" ^ branch
+            | None -> false
+          in
+          Engine.create engine
+            ~dedup:
+              (String.concat "/"
+                 [ "push"; repo; ref_; get "oldSha" event; new_sha ])
+            ~automatic:true ~default_ref ~actor
+            (obj [ ("repo", str repo); ("trigger", event) ])
+    | t when t = Engine.manual ->
+        let fields =
+          [ ("repo", str repo); ("trigger", event) ]
+          @
+          match field "workflows" event with
+          | Some names -> [ ("workflows", names) ]
+          | None -> []
+        in
+        Engine.create engine ~automatic:false ~actor:issuer (obj fields)
+    | _ -> invalid "unsupported event type"
+  in
+  ci_output (Option.to_list created)
+
+let served state req =
+  ignore (Engine.managed state.engine (did (query_required req "repo")))
+
+let require_admin state actor =
+  if not (Catalog.admin state.engine.catalog actor) then raise Auth.Rejected
+
+let procedures =
+  [
+    "org.tangled.event.notifyEvent";
+    "org.tangled.ci.cancelPipeline";
+    "org.tangled.ci.approvePipeline";
+    "org.tangled.ci.retryPipeline";
+    "org.tangled.temp.spindle.allowList.add";
+    "org.tangled.temp.spindle.allowList.remove";
+  ]
+
 let handle state name req respond =
   try
-    if name = "sh.tangled.ci.subscribePipelineLogs" then
+    if name = "org.tangled.ci.subscribePipelineLogs" then
       upgrade state req respond
     else
-      let post =
-        name = "sh.tangled.ci.triggerPipeline"
-        || name = "sh.tangled.ci.cancelPipeline"
-      in
+      let post = List.mem name procedures in
       if
         (post && Req.meth req <> Method.Post)
         || (not post)
            && Req.meth req <> Method.Get
            && Req.meth req <> Method.Head
       then reject Status.Method_not_allowed "InvalidRequest" "wrong HTTP method";
+      let body () = decode (Req.globalize (Req.body req)) in
+      let catalog = state.engine.catalog in
       let result =
         match name with
         | "_health" ->
@@ -252,7 +326,7 @@ let handle state name req respond =
             if not ready then raise (Not_ready report);
             report
         | "_did" ->
-            let id = "did:web:" ^ state.config.hostname in
+            let id = Catalog.self catalog in
             obj
               [
                 ("@context", arr [ str "https://www.w3.org/ns/did/v1" ]);
@@ -262,7 +336,7 @@ let handle state name req respond =
                     [
                       obj
                         [
-                          ("id", str (id ^ "#tangled_spindle"));
+                          ("id", str "#tangled_spindle");
                           ("type", str "TangledSpindle");
                           ( "serviceEndpoint",
                             str
@@ -272,46 +346,86 @@ let handle state name req respond =
                         ];
                     ] );
               ]
-        | "sh.tangled.owner" -> obj [ ("owner", str state.config.owner) ]
-        | "sh.tangled.ci.getPipeline" ->
-            Engine.view (find state (query_required req "pipeline"))
-        | "sh.tangled.ci.queryPipelines" -> query_pipelines state req
-        | "sh.tangled.ci.describeWorkflowDefinition" ->
-            check_repo state (query_required req "repo");
-            ignore (sha (query_required req "sha"));
-            Option.iter
-              (fun repo -> ignore (Catalog.verified state.engine.catalog repo))
-              (query req "sourceRepo");
+        | "org.tangled.spindle.describeSpindle" ->
             obj
               [
-                ("derived", bool false);
-                ( "workflows",
-                  arr
-                    (List.map
-                       (fun (job : Job.t) -> str job.name)
-                       state.config.jobs) );
+                ("did", str (Catalog.self catalog));
+                ("version", str "oxmono");
+                ("capabilities", arr [ str "tangled1.0" ]);
               ]
-        | "sh.tangled.ci.triggerPipeline" -> (
-            let actor = authorize state name req in
-            let request = decode (Req.globalize (Req.body req)) in
+        | "org.tangled.ci.getPipeline" ->
+            let repo = did (query_required req "repo") in
+            Engine.view state.engine
+              (find state ~repo (query_required req "pipeline"))
+        | "org.tangled.ci.queryPipelines" -> query_pipelines state req
+        | "org.tangled.ci.listWorkflowDefinitions" ->
+            served state req;
+            obj [ ("workflows", arr (workflows state)) ]
+        | "org.tangled.ci.getWorkflowDefinition" -> (
+            served state req;
+            let name = query_required req "workflow" in
             match
-              Engine.create state.engine ~automatic:false ~actor request
+              List.find_opt
+                (fun (job : Job.t) -> job.name = name)
+                state.config.jobs
             with
-            | None -> invalid "no workflows match this event"
-            | Some id ->
+            | None ->
+                reject Status.Not_found "WorkflowNotFound" "workflow not found"
+            | Some job ->
                 obj
                   [
-                    ( "pipeline",
-                      str
-                        ("at://did:web:" ^ state.config.hostname
-                       ^ "/sh.tangled.pipeline/" ^ id) );
+                    ( "workflow",
+                      Engine.definition state.config.hostname job.name );
                   ])
-        | "sh.tangled.ci.cancelPipeline" ->
+        | "org.tangled.event.notifyEvent" ->
+            let issuer = authorize state name req in
+            notify state ~issuer (body ())
+        | "org.tangled.ci.cancelPipeline" ->
             let actor = authorize state name req in
-            let body = decode (Req.globalize (Req.body req)) in
-            ignore (find state (get "pipeline" body));
-            Engine.cancel state.engine ~actor ~repo:(get "repo" body)
-              ~id:(get "pipeline" body) ~names:(strings "workflows" body);
+            let body = body () in
+            let repo = did (get "repo" body) in
+            let p = find state ~repo (get "pipeline" body) in
+            Engine.cancel state.engine ~actor ~repo ~id:p.id
+              ~names:(strings "workflows" body);
+            obj []
+        | "org.tangled.ci.approvePipeline" ->
+            let actor = authorize state name req in
+            let body = body () in
+            let repo = did (get "repo" body) in
+            let p = find state ~repo (get "pipeline" body) in
+            if
+              not
+                (List.exists
+                   (fun (r : Runner.t) -> r.status = "blocked")
+                   p.workflows)
+            then
+              reject Status.Bad_request "PipelineNotBlocked"
+                "pipeline has no workflow waiting for approval";
+            Engine.approve state.engine ~actor ~repo ~id:p.id;
+            obj []
+        | "org.tangled.ci.retryPipeline" -> (
+            let actor = authorize state name req in
+            let body = body () in
+            let repo = did (get "repo" body) in
+            let p = find state ~repo (get "pipeline" body) in
+            match
+              Engine.retry state.engine ~actor ~repo ~id:p.id
+                ~names:(strings "workflows" body)
+            with
+            | Some id -> obj [ ("pipeline", str id) ]
+            | None ->
+                reject Status.Bad_request "PipelineNotRetryable"
+                  "no workflow matches the original trigger")
+        | "org.tangled.temp.spindle.allowList.list" ->
+            require_admin state (authorize state name req);
+            obj [ ("dids", arr (List.map str (Catalog.allowed catalog))) ]
+        | "org.tangled.temp.spindle.allowList.add" ->
+            require_admin state (authorize state name req);
+            Catalog.allow catalog (did (get "did" (body ())));
+            obj []
+        | "org.tangled.temp.spindle.allowList.remove" ->
+            require_admin state (authorize state name req);
+            Catalog.disallow catalog (did (get "did" (body ())));
             obj []
         | _ -> reject Status.Not_found "MethodNotFound" "unknown XRPC method"
       in
@@ -340,14 +454,6 @@ let handle state name req respond =
              ("error", str "CapacityExceeded");
              ("message", str "job queue is full");
            ])
-  | Catalog.Pending ->
-      respond_json respond ~status:Status.Service_unavailable
-        ~headers:(Headers.of_list [ ("Retry-After", "2") ])
-        (obj
-           [
-             ("error", str "CatalogPending");
-             ("message", str "repository discovery is refreshing");
-           ])
   | Http_error (status, code, message) ->
       let headers =
         if status <> Status.Method_not_allowed then Headers.empty
@@ -355,16 +461,22 @@ let handle state name req respond =
           Headers.of_list
             [
               ( "Allow",
-                if
-                  name = "sh.tangled.ci.triggerPipeline"
-                  || name = "sh.tangled.ci.cancelPipeline"
-                then "POST"
+                if List.mem name procedures then "POST"
                 else "GET, HEAD" );
             ]
       in
       respond_json respond ~status ~headers
         (obj [ ("error", str code); ("message", str message) ])
   | Eio.Cancel.Cancelled _ as exn -> raise exn
+  | Eio.Io _ as exn ->
+      (* An unreachable knot, PDS or DID host. The knot retries a 5xx push. *)
+      Printf.eprintf "spindle XRPC %s: %s\n%!" name (Printexc.to_string exn);
+      respond_json respond ~status:Status.Service_unavailable
+        (obj
+           [
+             ("error", str "UpstreamUnavailable");
+             ("message", str "a repository's knot or identity is unreachable");
+           ])
   | exn ->
       Printf.eprintf "spindle XRPC %s: %s\n%!" name (Printexc.to_string exn);
       respond_json respond ~status:Status.Internal_server_error
@@ -376,9 +488,7 @@ let handle state name req respond =
 
 let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   ignore (did config.owner);
-  ignore (did ("did:web:" ^ config.hostname));
-  if config.repo = None && config.jetstream = None then
-    invalid "configure Jetstream or a static repository";
+  ignore (did (Catalog.web_did config.hostname));
   Option.iter
     (fun url ->
       let uri = Httpz_uri.of_string_exn url in
@@ -416,15 +526,18 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
         {
           Catalog.did = did repo;
           owner = config.owner;
-          rkey = "";
+          name = "";
           knot = "";
           source;
         })
       config.repo
   in
   let catalog =
-    Catalog.v ~store ~network ~owner:config.owner ~hostname:config.hostname
-      ~static
+    Catalog.v ~store ~network ~owner:config.owner ~admins:config.admins
+      ~hostname:config.hostname ~admission:config.admission ~static
+      ~ttl:(float_of_int operations.reconcile_seconds)
+      ~now:(fun () -> Eio.Time.now system#clock)
+      ()
   in
   let engine =
     Engine.v ~store ~catalog ~hostname:config.hostname ~jobs:config.jobs ~system

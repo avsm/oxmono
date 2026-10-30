@@ -3,10 +3,13 @@
 module Job = Job
 module Service_auth = Auth
 module Operations = Operations
+module Catalog = Catalog
 
 type config = {
   hostname : string;
   owner : string;
+  admins : string list;
+  admission : Catalog.admission;
   repo : (string * string) option;
   plc : string;
   state_dir : string;
@@ -15,10 +18,13 @@ type config = {
   jetstream : string option;
   allow_http : bool;
 }
-(** [config] discovers member repositories through the explicitly configured
-    [jetstream]. [repo] optionally maps a static repository DID to a Git source.
-    [plc] selects the PLC directory; no live ATP endpoints are implicit.
-    [allow_http] permits cleartext HTTP and WS for development networks. *)
+(** [config] serves repositories whose knot manifest names this spindle and
+    whose owner is admitted. [owner] and [admins] administer the spindle and
+    its allow-list. [admission] admits every owner when [Open]. [repo]
+    optionally maps a static repository DID to a Git source. [jetstream]
+    follows pull requests. [plc] selects the PLC directory. No live ATP
+    endpoints are implicit. [allow_http] permits cleartext HTTP and WS for
+    development networks. *)
 
 val run :
   ?addr:string ->

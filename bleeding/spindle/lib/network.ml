@@ -137,3 +137,17 @@ let records t owner collection =
     | _ -> List.rev acc
   in
   pages None 0 []
+
+let record t ~service ~did ~collection ~rkey =
+  let result =
+    json t
+      (query
+         (service ^ "/xrpc/com.atproto.repo.getRecord")
+         [ ("repo", did); ("collection", collection); ("rkey", rkey) ])
+  in
+  match field "error" result with
+  | None -> Some result
+  | Some error -> (
+      match string error with
+      | "RecordNotFound" | "RepoNotFound" | "NotFound" -> None
+      | error -> failwith ("getRecord " ^ collection ^ ": " ^ error))

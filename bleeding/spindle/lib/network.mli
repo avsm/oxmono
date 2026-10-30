@@ -23,3 +23,14 @@ val pds : t -> string -> string
 val records : t -> string -> string -> Jsont.json list
 (** [records network owner collection] reads the owner's current collection from
     its PDS, with bounded pagination. *)
+
+val record :
+  t ->
+  service:string ->
+  did:string ->
+  collection:string ->
+  rkey:string ->
+  Jsont.json option
+(** [record network ~service ~did ~collection ~rkey] is the
+    [com.atproto.repo.getRecord] answer of [service], or [None] if it has no
+    such record or repository. Other XRPC errors raise [Failure]. *)

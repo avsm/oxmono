@@ -1,0 +1,284 @@
+#!/usr/bin/env python3
+"""Drive the Tangled CLI against knot2 and the OCaml spindle.
+
+Runs in the client container of stack.yml. Every service is local: the PDS,
+PLC directory, knot, its Jetstream and the spindle."""
+
+import json
+import os
+from pathlib import Path
+import secrets
+import shutil
+import subprocess
+import sys
+import time
+
+KNOT = "knot.tangled.test"
+# The gateway serves the knot's HTTPS name. SSH goes to the container.
+KNOT_SSH = "knot"
+SPINDLE = "spindle.tangled.test"
+WORK = Path("/tmp/e2e")
+HANDLES = {"alice": "alice.pds.tangled.test", "bob": "bob.pds.tangled.test"}
+
+
+def step(message):
+    print(f"--- {message}", flush=True)
+
+
+def tangled(*args, user="alice", ok=True, stdin=None):
+    env = dict(os.environ, XDG_CONFIG_HOME=str(WORK / user / "config"),
+               XDG_STATE_HOME=str(WORK / user / "state"),
+               XDG_DATA_HOME=str(WORK / user / "data"),
+               TANGLED_PASSWORD="local-password")
+    result = subprocess.run(["/test/tangled", *args], env=env, input=stdin,
+                            capture_output=True, text=True, timeout=60)
+    if (result.returncode == 0) != ok:
+        raise SystemExit(f"tangled {' '.join(args)} as {user}: "
+                         f"exit {result.returncode}\n{result.stdout}{result.stderr}")
+    return result.stdout
+
+
+def git(*args, cwd=None):
+    result = subprocess.run(["git", *args], cwd=cwd, text=True,
+                            capture_output=True)
+    if result.returncode != 0:
+        raise SystemExit(f"git {' '.join(args)}: {result.stderr}")
+    return result.stdout.strip()
+
+
+def wait(what, check, timeout=90):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        value = check()
+        if value:
+            return value
+        time.sleep(1)
+    raise SystemExit(f"timed out waiting for {what}")
+
+
+def pipelines(repo, user="alice"):
+    return json.loads(tangled("pipeline", "list", "--repo", repo, "--json",
+                              user=user))["pipelines"]
+
+
+def finished(repo, commit, trigger, user="alice"):
+    def check():
+        for p in pipelines(repo, user):
+            if p["commit"] == commit and p["trigger"]["$type"] == trigger:
+                states = {w["status"] for w in p["workflows"]}
+                if states <= {"success", "failed", "timeout", "cancelled"}:
+                    return p
+        return None
+    return wait(f"{trigger} pipeline at {commit}", check)
+
+
+def main():
+    shutil.rmtree(WORK, ignore_errors=True)
+    WORK.mkdir()
+    key = WORK / "id_ed25519"
+    shutil.copyfile("/test/id_ed25519", key)
+    key.chmod(0o600)
+    os.environ["GIT_SSH_COMMAND"] = (
+        f"ssh -i {key} -p 2222 -o IdentitiesOnly=yes "
+        "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
+        "-o LogLevel=ERROR")
+    os.environ.update(GIT_AUTHOR_NAME="E2E", GIT_AUTHOR_EMAIL="e2e@tangled.test",
+                      GIT_COMMITTER_NAME="E2E",
+                      GIT_COMMITTER_EMAIL="e2e@tangled.test")
+    owner = Path("/atp/owner-did").read_text().strip()
+    name = "e2e-" + secrets.token_hex(3)
+
+    step("log in and describe the services")
+    for user, handle in HANDLES.items():
+        tangled("auth", "login", "--pds", "https://pds.tangled.test",
+                "--handle", handle, user=user)
+    assert json.loads(tangled("knot", "describe", KNOT))["did"] == \
+        "did:web:" + KNOT
+    assert json.loads(tangled("spindle", "describe", SPINDLE))["did"] == \
+        "did:web:" + SPINDLE
+
+    step("publish an SSH key")
+    public = Path("/test/id_ed25519.pub").read_text().strip()
+    keys = json.loads(tangled("key", "list"))
+    if not any(k["value"]["publicKey"] == public for k in keys):
+        tangled("key", "add", "/test/id_ed25519.pub", "--name", "e2e")
+
+    step(f"create {name} on the knot with the spindle assigned")
+    tangled("repo", "create", name, "--knot", KNOT, "--spindle", SPINDLE,
+            "--description", "end-to-end test")
+    info = tangled("repo", "info", name)
+    did = next(line.split()[1] for line in info.splitlines()
+               if line.startswith("DID:"))
+    assert f"Spindle: did:web:{SPINDLE}" in info, info
+    assert any(d["repo"] == did for d in json.loads(
+        tangled("repo", "list", "--json")))
+    assert json.loads(tangled("repo", "info", did, "--json"))[
+        "declaration"]["owner"] == owner
+
+    step("clone over HTTPS and push a commit over SSH")
+    checkout = WORK / name
+    tangled("repo", "clone", name, str(checkout))
+    (checkout / "README.md").write_text("Pushed by the end-to-end test.\n")
+    git("add", "README.md", cwd=checkout)
+    git("commit", "-m", "First commit", cwd=checkout)
+    git("push", f"ssh://git@{KNOT_SSH}/{did}", "HEAD:refs/heads/main",
+        cwd=checkout)
+    head = git("rev-parse", "HEAD", cwd=checkout)
+
+    step("the knot notifies the spindle, which runs the push")
+    pushed = finished(name, head, "org.tangled.event.push")
+    assert pushed["repo"] == did
+    assert [w["status"] for w in pushed["workflows"]] == ["success"], pushed
+    assert pushed["trigger"]["ref"] == "refs/heads/main"
+    log = tangled("pipeline", "logs", pushed["id"], "--repo", name)
+    assert "README.md" in log, log
+    shown = json.loads(tangled("pipeline", "show", pushed["id"], "--repo",
+                               name, "--json"))
+    assert shown["id"] == pushed["id"]
+
+    step("manual runs, retry, cancellation and definitions")
+    out = tangled("pipeline", "trigger", "--repo", name, "--commit", head,
+                  "--ref", "refs/heads/main", "--input", "reason=e2e")
+    manual = out.split()[0]
+    run = finished(name, head, "org.tangled.ci.trigger.manual")
+    assert run["id"] == manual
+    assert run["trigger"]["inputs"] == [{"key": "reason", "value": "e2e"}]
+    only = json.loads(tangled("pipeline", "list", "--repo", name, "--json",
+                              "--trigger", "org.tangled.ci.trigger.manual"))
+    assert [p["id"] for p in only["pipelines"]] == [manual], only
+    retried = tangled("pipeline", "retry", pushed["id"], "--repo", name).strip()
+    assert retried not in (pushed["id"], manual)
+    wait("the retried pipeline", lambda: any(
+        p["id"] == retried and p["workflows"][0]["status"] == "success"
+        for p in pipelines(name)))
+    tangled("pipeline", "cancel", retried, "--repo", name)
+    tangled("pipeline", "approve", retried, "--repo", name, ok=False)
+    definitions = json.loads(tangled("pipeline", "definitions", "--repo", name))
+    assert [w["id"] for w in definitions["workflows"]] == ["inspect"]
+
+    step("collaborators may run CI, others may not")
+    tangled("pipeline", "trigger", "--repo", f"{HANDLES['alice']}/{name}",
+            "--commit", head, user="bob", ok=False)
+    tangled("repo", "add-collaborator", name, HANDLES["bob"])
+    assert tangled("repo", "collaborators", name).split()
+    tangled("pipeline", "trigger", "--repo", f"{HANDLES['alice']}/{name}",
+            "--commit", head, user="bob")
+    tangled("repo", "remove-collaborator", name, HANDLES["bob"])
+    tangled("pipeline", "trigger", "--repo", f"{HANDLES['alice']}/{name}",
+            "--commit", head, user="bob", ok=False)
+
+    step("issues and a pull request revision")
+    issue = json.loads(tangled("issue", "create", name, "--title",
+                               "Tracked by the end-to-end test"))["uri"]
+    number = issue.rsplit("/", 1)[1]
+    tangled("issue", "close", name, number)
+    assert json.loads(tangled("issue", "show", name, number))["state"] == \
+        "closed"
+    tangled("issue", "reopen", name, number)
+    git("checkout", "-b", "feature", cwd=checkout)
+    (checkout / "feature.txt").write_text("A change under review.\n")
+    git("add", "feature.txt", cwd=checkout)
+    git("commit", "-m", "Add a feature", cwd=checkout)
+    git("push", f"ssh://git@{KNOT_SSH}/{did}", "HEAD:refs/heads/feature",
+        cwd=checkout)
+    feature = git("rev-parse", "HEAD", cwd=checkout)
+    pull = json.loads(tangled("pull", "create", name, "--title", "Feature",
+                              "--target", "main"))["uri"].rsplit("/", 1)[1]
+    assert pull in tangled("pull", "list", name)
+    assert pull not in tangled("issue", "list", name)
+    tangled("pull", "submit", name, pull, "--base", head, "--head", feature,
+            "--branch", "feature")
+    reviewed = finished(name, feature, "org.tangled.event.pullRequest")
+    assert reviewed["trigger"]["targetBranch"] == "main", reviewed
+    assert reviewed["trigger"]["pull"].endswith("/" + pull), reviewed
+    assert reviewed["workflows"][0]["status"] == "success", reviewed
+
+    step("a revision from someone without push access waits for approval")
+    git("checkout", "-b", "outside", cwd=checkout)
+    (checkout / "outside.txt").write_text("From a contributor.\n")
+    git("add", "outside.txt", cwd=checkout)
+    git("commit", "-m", "Contribute", cwd=checkout)
+    git("push", f"ssh://git@{KNOT_SSH}/{did}", "HEAD:refs/heads/outside",
+        cwd=checkout)
+    outside = git("rev-parse", "HEAD", cwd=checkout)
+    target = f"{HANDLES['alice']}/{name}"
+    contribution = json.loads(tangled(
+        "pull", "create", target, "--title", "Outside", "--target", "main",
+        user="bob"))["uri"].rsplit("/", 1)[1]
+    tangled("pull", "submit", target, contribution, "--base", head, "--head",
+            outside, "--branch", "outside", user="bob")
+
+    def blocked():
+        for p in pipelines(name):
+            if (p["commit"] == outside and p["trigger"]["$type"]
+                    == "org.tangled.event.pullRequest"):
+                return p
+        return None
+    waiting = wait("the contributed revision", blocked)
+    assert waiting["workflows"][0]["status"] == "blocked", waiting
+    tangled("pipeline", "approve", waiting["id"], "--repo", target,
+            user="bob", ok=False)
+    tangled("pipeline", "approve", waiting["id"], "--repo", name)
+    wait("the approved revision", lambda: any(
+        p["id"] == waiting["id"] and p["workflows"][0]["status"] == "success"
+        for p in pipelines(name)))
+
+    step("a closed spindle serves allow-listed owners only")
+    bob_key = WORK / "bob_ed25519"
+    subprocess.run(["ssh-keygen", "-t", "ed25519", "-N", "", "-q", "-f",
+                    str(bob_key)], check=True)
+    tangled("key", "add", str(bob_key) + ".pub", "--name", "e2e-bob",
+            user="bob")
+    bob_ssh = os.environ["GIT_SSH_COMMAND"].replace(str(key), str(bob_key))
+    theirs = "e2e-bob-" + secrets.token_hex(3)
+    tangled("repo", "create", theirs, "--knot", KNOT, "--spindle", SPINDLE,
+            user="bob")
+    their_did = next(line.split()[1] for line in tangled(
+        "repo", "info", theirs, user="bob").splitlines()
+        if line.startswith("DID:"))
+
+    def push_as_bob(message):
+        (checkout / "bob.txt").write_text(message + "\n")
+        git("add", "bob.txt", cwd=checkout)
+        git("commit", "-m", message, cwd=checkout)
+        env = dict(os.environ, GIT_SSH_COMMAND=bob_ssh)
+        subprocess.run(["git", "push", "-f", f"ssh://git@{KNOT_SSH}/{their_did}",
+                        "HEAD:refs/heads/main"], cwd=checkout, env=env,
+                       check=True, capture_output=True)
+        return git("rev-parse", "HEAD", cwd=checkout)
+
+    refused = push_as_bob("Before admission")
+    time.sleep(5)
+    assert not [p for p in pipelines(theirs, "bob") if p["commit"] == refused]
+    tangled("spindle", "add-member", SPINDLE, HANDLES["bob"])
+    members = json.loads(tangled("spindle", "members", SPINDLE))["dids"]
+    assert len(members) == 1, members
+    tangled("spindle", "members", SPINDLE, user="bob", ok=False)
+    admitted = push_as_bob("After admission")
+    finished(theirs, admitted, "org.tangled.event.push", user="bob")
+    tangled("spindle", "remove-member", SPINDLE, HANDLES["bob"])
+    assert json.loads(tangled("spindle", "members", SPINDLE))["dids"] == []
+
+    step("skip-ci suppresses a push")
+    git("checkout", "--detach", head, cwd=checkout)
+    (checkout / "skipped.txt").write_text("No CI for this.\n")
+    git("add", "skipped.txt", cwd=checkout)
+    git("commit", "-m", "Skip CI", cwd=checkout)
+    git("push", "-o", "skip-ci", f"ssh://git@{KNOT_SSH}/{did}",
+        "HEAD:refs/heads/main", cwd=checkout)
+    skipped = git("rev-parse", "HEAD", cwd=checkout)
+    time.sleep(5)
+    assert not [p for p in pipelines(name) if p["commit"] == skipped]
+
+    step("delete the repositories")
+    tangled("repo", "delete", name, "--force")
+    tangled("repo", "delete", theirs, "--force", user="bob")
+    tangled("repo", "info", name, ok=False)
+
+    print("PASS: knot2 and the OCaml spindle: pushes, manual runs, retry, "
+          "collaborators, admission, issues, pull requests, approval and "
+          "deletion", flush=True)
+
+
+if __name__ == "__main__":
+    main()

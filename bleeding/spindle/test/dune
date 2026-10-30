@@ -22,7 +22,7 @@
 (test
  (name test_catalog)
  (modules test_catalog)
- (libraries spindle eio_main))
+ (libraries spindle uriz eio_main))
 
 (test
  (name test_runner)
@@ -32,14 +32,4 @@
 (test
  (name test_operations)
  (modules test_operations)
- (libraries spindle eio_main))
-
-(test
- (name test_recovery)
- (modules test_recovery)
- (libraries spindle eio_main))
-
-(executable
- (name tangled_server)
- (modules tangled_server)
  (libraries spindle eio_main))

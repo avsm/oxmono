@@ -28,14 +28,40 @@ exception Capacity
 
 let terminal p = List.for_all Runner.terminal p.workflows
 
+let push = "org.tangled.event.push"
+let pull_request = "org.tangled.event.pullRequest"
+let manual = "org.tangled.ci.trigger.manual"
+
 let kind trigger =
   match get "$type" trigger with
-  | "sh.tangled.ci.trigger#push" -> Job.Push
-  | "sh.tangled.ci.trigger#pullRequest" -> Job.Pull_request
-  | "sh.tangled.ci.trigger#manual" -> Job.Manual
+  | t when t = push -> Job.Push
+  | t when t = pull_request -> Job.Pull_request
+  | t when t = manual -> Job.Manual
   | _ -> invalid "unknown trigger type"
 
-let view p =
+(* Workflows are trusted OCaml values configured by the operator, so their
+   definition is external to the repository. *)
+let definition hostname name =
+  obj
+    [
+      ("id", str name);
+      ("name", str name);
+      ( "source",
+        obj
+          [
+            ("$type", str "org.tangled.ci.defs#externalSource");
+            ("name", str "OCaml workflow");
+            ("link", str ("https://" ^ hostname));
+          ] );
+      ("triggers", arr []);
+    ]
+
+let view_run hostname (run : Runner.t) =
+  obj
+    (members (Runner.view run)
+    @ [ ("definition", definition hostname run.job.name) ])
+
+let view_in hostname p =
   obj
     ([
        ("id", str p.id);
@@ -43,18 +69,18 @@ let view p =
        ("trigger", required "trigger" p.request);
        ("commit", str p.commit);
        ("createdAt", str p.created);
-       ("workflows", arr (List.map Runner.view p.workflows));
+       ("workflows", arr (List.map (view_run hostname) p.workflows));
      ]
     @
     match field "sourceRepo" (required "trigger" p.request) with
     | None -> []
     | Some value -> [ ("sourceRepo", value) ])
 
-let snapshot p =
+let snapshot t p =
   encode
     (obj
        [
-         ("pipeline", view p);
+         ("pipeline", view_in t.hostname p);
          ("source", str p.source);
          ("request", p.request);
          ("metadata", p.metadata);
@@ -72,8 +98,8 @@ let persist t p =
       Store.batch ~logs t.store
         ~puts:
           [
-            ("pipeline", p.id, snapshot p);
-            ("pipeline-view", p.id, encode (view p));
+            ("pipeline", p.id, snapshot t p);
+            ("pipeline-view", p.id, encode (view_in t.hostname p));
           ]
         ~deletes:[];
       if finished then Hashtbl.remove t.pipelines p.id)
@@ -81,7 +107,7 @@ let persist t p =
 let start t p =
   List.iter
     (fun workflow ->
-      if not (Runner.terminal workflow) then
+      if workflow.Runner.status = "pending" then
         Eio.Fiber.fork ~sw:t.sw (fun () ->
             let input : Runner.input =
               {
@@ -247,7 +273,7 @@ let load t =
       let active =
         list (required "workflows" (decode raw))
         |> List.exists (fun w ->
-            List.mem (get "status" w) [ "pending"; "running" ])
+            List.mem (get "status" w) [ "pending"; "running"; "blocked" ])
       in
       if active then (
         let p = restore t id (Option.get (Store.get t.store "pipeline" id)) in
@@ -276,6 +302,8 @@ let load t =
         start t p))
     ()
 
+let view t p = view_in t.hostname p
+
 let managed t id =
   match Catalog.managed t.catalog id with
   | Some repo -> repo
@@ -290,22 +318,17 @@ let find t id =
   | Some p -> Some p
   | None -> Option.map (restore t id) (Store.get t.store "pipeline" id)
 
-let query t ~repo ~limit ~cursor ~kinds ~commits =
+let query t ~repo ~limit ~cursor ~triggers ~commits =
   let seen = Hashtbl.create (List.length commits) in
   let total, count, page =
     Store.fold t.store "pipeline-view" ~descending:true ~init:(0, 0, [])
       ~f:(fun ((total, count, page) as acc) (id, raw) ->
         let p = decode raw in
-        let kind =
-          match kind (required "trigger" p) with
-          | Job.Push -> "push"
-          | Job.Manual -> "manual"
-          | Job.Pull_request -> "pull_request"
-        in
+        let trigger = get "$type" (required "trigger" p) in
         let commit = get "commit" p in
         if
           get "repo" p <> repo
-          || (kinds <> [] && not (List.mem kind kinds))
+          || (triggers <> [] && not (List.mem trigger triggers))
           || commits <> []
              && ((not (List.mem commit commits)) || Hashtbl.mem seen commit)
         then acc
@@ -336,8 +359,8 @@ let select_workflows p names =
     (fun (r : Runner.t) -> names = [] || List.mem r.job.name names)
     p.workflows
 
-let create t ?dedup ?(changed_files = []) ?(default_ref = false) ~automatic
-    ~actor request =
+let create t ?dedup ?(changed_files = []) ?(default_ref = false)
+    ?(blocked = false) ~automatic ~actor request =
   let repo = managed t (get "repo" request) in
   if not automatic then check_actor t repo actor;
   let trigger = required "trigger" request in
@@ -350,7 +373,7 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false) ~automatic
          (match kind with
          | Job.Push -> "newSha"
          | Job.Pull_request -> "sourceSha"
-         | Job.Manual -> "sha")
+         | Job.Manual -> "commit")
          trigger)
   in
   let ref_ =
@@ -362,7 +385,8 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false) ~automatic
   (match kind with
   | Job.Push ->
       ignore (get "ref" trigger);
-      ignore (sha (get "oldSha" trigger))
+      let old = get "oldSha" trigger in
+      if not (zero_sha old) then ignore (sha old)
   | Job.Pull_request ->
       ignore (get "targetBranch" trigger);
       Option.iter
@@ -384,12 +408,10 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false) ~automatic
         (field "inputs" trigger));
   let source =
     match field "sourceRepo" trigger with
-    | None -> repo
-    | Some id -> Catalog.verified t.catalog (did (string id))
+    | Some id when string id <> repo.did ->
+        Catalog.locate t.catalog (did (string id))
+    | _ -> repo.source
   in
-  (* Static mappings may expose private local mirrors. A member's public
-     target repository does not authorize reading the operator's mirror. *)
-  if source.did <> repo.did && source.knot = "" then check_actor t source actor;
   let context : Job.context =
     {
       repo = repo.did;
@@ -452,16 +474,25 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false) ~automatic
         {
           id;
           repo = repo.did;
-          source = source.source;
+          source;
           request;
           metadata;
           commit;
           created;
-          workflows = List.map Runner.v jobs;
+          workflows =
+            List.map
+              (fun job ->
+                let run = Runner.v job in
+                if blocked then run.status <- "blocked";
+                run)
+              jobs;
         }
       in
       let puts =
-        [ ("pipeline", id, snapshot p); ("pipeline-view", id, encode (view p)) ]
+        [
+          ("pipeline", id, snapshot t p);
+          ("pipeline-view", id, encode (view t p));
+        ]
         @ match dedup with None -> [] | Some key -> [ ("dispatch", key, id) ]
       in
       Store.batch t.store ~puts ~deletes:[];
@@ -481,3 +512,48 @@ let cancel t ~actor ~repo ~id ~names =
       List.iter
         (Runner.cancel ~persist:(fun () -> persist t p))
         (select_workflows p names)
+
+let approve t ~actor ~repo ~id =
+  let canonical = managed t repo in
+  check_actor t canonical actor;
+  match find t id with
+  | None -> invalid "pipeline not found"
+  | Some p ->
+      if p.repo <> repo then invalid "pipeline belongs to another repository";
+      let blocked =
+        List.filter (fun (r : Runner.t) -> r.status = "blocked") p.workflows
+      in
+      if blocked = [] then invalid "pipeline is not blocked";
+      Lock.protect t.lock (fun () ->
+          if not (Hashtbl.mem t.pipelines p.id) then
+            Hashtbl.add t.pipelines p.id p);
+      List.iter (fun (r : Runner.t) -> r.status <- "pending") blocked;
+      persist t p;
+      start t p
+
+let retry t ~actor ~repo ~id ~names =
+  let canonical = managed t repo in
+  check_actor t canonical actor;
+  match find t id with
+  | None -> invalid "pipeline not found"
+  | Some p ->
+      if p.repo <> repo then invalid "pipeline belongs to another repository";
+      let names =
+        match names with
+        | [] -> List.map (fun (r : Runner.t) -> r.job.name) p.workflows
+        | names ->
+            List.map
+              (fun (r : Runner.t) -> r.job.name)
+              (select_workflows p names)
+      in
+      let request =
+        obj
+          [
+            ("repo", str repo);
+            ("trigger", required "trigger" p.request);
+            ("workflows", arr (List.map str names));
+          ]
+      in
+      (* The actor's push access was checked above. The original trigger may be
+         a push, which only a verified event may otherwise create. *)
+      create t ~automatic:true ~actor request

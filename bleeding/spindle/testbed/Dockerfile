@@ -1,7 +1,8 @@
-FROM ubuntu:26.04@sha256:2260313b31c8c011cd2eebe728008efac1b3982be73eb71348ea2648d2c0e09b
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git ca-certificates libssl3t64 libgmp10 libzstd1 \
-    && rm -rf /var/lib/apt/lists/*
+# Runs the host-built spindle. OCaml executables link the host's glibc, so
+# the base image must be at least as new as the build host's.
+FROM archlinux:base@sha256:e82623936fa1a69700b48e98b058df6eaab18b737c27473a7234a40fdecb9413
+RUN pacman -Sy --noconfirm --needed git ca-certificates gmp openssl zstd brotli \
+    && pacman -Scc --noconfirm
 COPY .state/spindle /usr/local/bin/spindle
 USER 1000:1000
 ENTRYPOINT ["spindle"]

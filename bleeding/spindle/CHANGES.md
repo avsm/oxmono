@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Speak Tangled core's `org.tangled.*` protocol. Run pushes that knots report
+  through `notifyEvent`, manual runs, retries, cancellation and approval of
+  blocked pull requests, and serve repositories by manifest, declaration and
+  an admission allow-list.
+- Accept SHA-256 commit IDs, which knots now create by default.
+- Answer 503 when a repository's knot, PDS or DID host is unreachable, so that
+  a knot retries the push.
+- Test against knot2 built from a Tangled core checkout with
+  `testbed/stack.py`. The spindle and client images use Arch Linux and allow
+  io_uring.
+
 - Wait for the client's WebSocket close acknowledgement after the last log
   event, preventing completed log reads from failing with a broken pipe.
 

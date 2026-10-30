@@ -1,0 +1,18 @@
+{
+    auto_https disable_redirects
+    admin off
+}
+# The knot's Jetstream shares the knot's name and certificate.
+https://knot.tangled.test {
+    tls /certs/server.crt /certs/server.key
+    handle /subscribe* {
+        reverse_proxy knot-jetstream:6008
+    }
+    handle {
+        reverse_proxy knot:5555
+    }
+}
+https://spindle.tangled.test {
+    tls /certs/server.crt /certs/server.key
+    reverse_proxy stack-spindle:9000
+}

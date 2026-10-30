@@ -22,7 +22,8 @@ if "--lifecycle" in sys.argv or "--interrupted" in sys.argv:
     SPINDLE = "http://slow:9000/xrpc/"
 REPO = "did:web:repo.tangled.test"
 AUDIENCE = "did:web:spindle.tangled.test"
-TRIGGER = "sh.tangled.ci.triggerPipeline"
+TRIGGER = "org.tangled.event.notifyEvent"
+CANCEL = "org.tangled.ci.cancelPipeline"
 
 
 def request(url, data=None, token=None, status=200, raw=None, content_type="application/json", extra_headers=None):
@@ -58,6 +59,16 @@ def auth(session, method=TRIGGER, audience=AUDIENCE):
                    token=session["accessJwt"])["token"]
 
 
+def manual(commit, **fields):
+    return {"repo": REPO, "event": dict(
+        {"$type": "org.tangled.ci.trigger.manual", "repo": REPO,
+         "commit": commit}, **fields)}
+
+
+def dispatch(body, token):
+    return request(SPINDLE + TRIGGER, body, token)["ci"]["pipelines"][0]
+
+
 def wait_health():
     deadline = time.monotonic() + 30
     while True:
@@ -72,7 +83,7 @@ def wait_health():
 def wait_pipeline(pipeline):
     deadline = time.monotonic() + 30
     while True:
-        result = get("sh.tangled.ci.getPipeline", pipeline=pipeline)
+        result = get("org.tangled.ci.getPipeline", repo=REPO, pipeline=pipeline)
         if result["workflows"][0]["status"] not in ("pending", "running"):
             return result
         assert time.monotonic() < deadline, result
@@ -115,7 +126,8 @@ def logs(pipeline, workflows=("inspect",), until=None):
     sock = socket.create_connection((endpoint.hostname, endpoint.port), 10)
     sock.settimeout(20)
     key = base64.b64encode(os.urandom(16)).decode()
-    path = "/xrpc/sh.tangled.ci.subscribePipelineLogs?pipeline=" + pipeline
+    path = "/xrpc/org.tangled.ci.subscribePipelineLogs?" + urllib.parse.urlencode(
+        {"repo": REPO, "pipeline": pipeline})
     path += "&" + urllib.parse.urlencode({"workflows": workflows}, doseq=True)
     sock.sendall((f"GET {path} HTTP/1.1\r\nHost: {endpoint.netloc}\r\n"
                   "Connection: Upgrade\r\nUpgrade: websocket\r\n"
@@ -181,15 +193,12 @@ def main():
         return
     if "--lifecycle" in sys.argv:
         alice = login("alice")
-        cancel_method = "sh.tangled.ci.cancelPipeline"
+        cancel_method = CANCEL
         cancel_token = auth(alice, cancel_method)
-        body = {"repo": REPO, "trigger": {
-            "$type": "sh.tangled.ci.trigger#manual",
-            "sha": (state / "commit").read_text().strip()}}
+        body = manual((state / "commit").read_text().strip())
 
         def sleeping_job():
-            uri = request(SPINDLE + TRIGGER, body, auth(alice))["pipeline"]
-            pipeline = uri.rsplit("/", 1)[1]
+            pipeline = dispatch(body, auth(alice))
             deadline = time.monotonic() + 15
             path = state / "slow-data" / "spindle.db"
             while True:
@@ -223,13 +232,11 @@ def main():
         return
 
     alice = login("alice")
-    assert get("sh.tangled.owner")["owner"] == alice["did"]
+    assert get("org.tangled.spindle.describeSpindle")["did"] == AUDIENCE
     token = auth(alice)
     sha = (state / "commit").read_text().strip()
-    body = {"repo": REPO, "trigger": {
-        "$type": "sh.tangled.ci.trigger#manual", "sha": sha,
-        "ref": "refs/heads/main", "inputs": [
-            {"key": "note", "value": "hello $(touch /tmp/should-not-exist)"}]}}
+    body = manual(sha, ref="refs/heads/main", inputs=[
+        {"key": "note", "value": "hello $(touch /tmp/should-not-exist)"}])
 
     request(SPINDLE + TRIGGER, body, status=401)
     request(SPINDLE + TRIGGER, status=405)
@@ -237,7 +244,7 @@ def main():
     request(SPINDLE + TRIGGER, body,
             auth(alice, audience="did:web:wrong.tangled.test"), status=401)
     request(SPINDLE + TRIGGER, body,
-            auth(alice, method="sh.tangled.ci.cancelPipeline"), status=401)
+            auth(alice, method=CANCEL), status=401)
     parts = token.split(".")
     forged = bytearray(base64.urlsafe_b64decode(parts[2] + "=="))
     forged[0] ^= 1
@@ -245,20 +252,22 @@ def main():
     request(SPINDLE + TRIGGER, body, ".".join(parts), status=401)
     request(SPINDLE + TRIGGER, token=auth(alice), raw=b'{"repo":1,"repo":2}',
             status=400)
-    request(SPINDLE + TRIGGER, dict(body, workflows=["missing"]), auth(alice),
-            status=400)
-    request(SPINDLE + TRIGGER, dict(body, repo="did:web:unconfigured.test"),
+    request(SPINDLE + TRIGGER,
+            dict(body, event=dict(body["event"], workflows=["missing"])),
             auth(alice), status=400)
-    malformed = dict(body, trigger=dict(body["trigger"], sha="--help"))
+    for other, status in (("did:plc:" + "u" * 24, 400),
+                          ("did:web:unconfigured.test", 503)):
+        request(SPINDLE + TRIGGER,
+                {"repo": other, "event": dict(body["event"], repo=other)},
+                auth(alice), status=status)
+    malformed = dict(body, event=dict(body["event"], commit="--help"))
     request(SPINDLE + TRIGGER, malformed, auth(alice), status=400)
-    definition = get("sh.tangled.ci.describeWorkflowDefinition", repo=REPO,
-                     sha=sha)
-    assert definition == {"derived": False, "workflows": ["inspect"]}
-    dispatched = request(SPINDLE + TRIGGER, body, token)
+    definitions = get("org.tangled.ci.listWorkflowDefinitions", repo=REPO)
+    assert [w["id"] for w in definitions["workflows"]] == ["inspect"]
+    pipeline = dispatch(body, token)
     request(SPINDLE + TRIGGER, body, token, status=401)
     (state / "replay-token").write_text(token)
     (state / "replay-token").chmod(0o600)
-    pipeline = dispatched["pipeline"].rsplit("/", 1)[1]
     events, frames = logs(pipeline)
     result = wait_pipeline(pipeline)
     assert result["workflows"][0]["status"] == "success", result
@@ -267,7 +276,7 @@ def main():
     assert "spindle-marker.txt" in text, text
     echoed = next(json.loads(e["content"]) for e in events
                   if e["type"] == "data" and e["step"] == 1)
-    assert echoed["request"] == body
+    assert echoed["request"]["trigger"] == body["event"]
     assert echoed["actor"] == alice["did"]
     assert token not in text
     starts = [e["step"] for e in events
@@ -275,20 +284,20 @@ def main():
     ends = [e["step"] for e in events
             if e["type"] == "control" and e["status"] == "end"]
     assert starts == ends == [0, 1, 2]
-    queried = get("sh.tangled.ci.queryPipelines", repo=REPO, commits=sha)
+    queried = get("org.tangled.ci.queryPipelines", repo=REPO, commits=sha)
     assert len(queried["pipelines"]) == 1
     assert queried["pipelines"][0]["id"] == pipeline
     (state / "last-run.json").write_text(json.dumps(
         {"id": pipeline, "events": events, "frames": frames, "request": body}, indent=2))
-    bad = dict(body, trigger=dict(body["trigger"], sha="0" * 40))
-    failed = request(SPINDLE + TRIGGER, bad, auth(alice))["pipeline"].rsplit("/", 1)[1]
+    bad = dict(body, event=dict(body["event"], commit="0" * 40))
+    failed = dispatch(bad, auth(alice))
     assert wait_pipeline(failed)["workflows"][0]["status"] == "failed"
-    page = get("sh.tangled.ci.queryPipelines", repo=REPO, limit=1)
+    page = get("org.tangled.ci.queryPipelines", repo=REPO, limit=1)
     assert "cursor" in page
-    next_page = get("sh.tangled.ci.queryPipelines", repo=REPO, limit=1,
+    next_page = get("org.tangled.ci.queryPipelines", repo=REPO, limit=1,
                     cursor=page["cursor"])
     assert next_page["pipelines"][0]["id"] != page["pipelines"][0]["id"]
-    cancel_method = "sh.tangled.ci.cancelPipeline"
+    cancel_method = CANCEL
     cancellation = {"repo": REPO, "pipeline": pipeline}
     request(SPINDLE + cancel_method, cancellation, token, status=401)
     request(SPINDLE + cancel_method, cancellation, auth(alice, cancel_method))

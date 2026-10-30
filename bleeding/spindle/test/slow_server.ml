@@ -9,6 +9,8 @@ let () =
     {
       hostname = "spindle.tangled.test";
       owner = Sys.getenv "SPINDLE_OWNER";
+      admins = [];
+      admission = Spindle.Catalog.Closed;
       repo = Some ("did:web:repo.tangled.test", "/fixture");
       plc = "http://oxmono-atp-plc-1:8080";
       state_dir = "/state";

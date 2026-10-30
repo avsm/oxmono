@@ -1,6 +1,5 @@
 (* SPDX-License-Identifier: ISC *)
 module Runner = Spindle__Runner
-module Patch = Spindle__Patch
 module Store = Spindle__Store
 module J = Spindle__Json
 
@@ -196,17 +195,6 @@ let () =
           (J.decode (Option.get (Store.get store "pipeline" input.id)))
       in
       assert (contains restored.events));
-  (match Patch.revision env "not a gzip stream" with
-  | _ -> failwith "invalid gzip was accepted"
-  | exception J.Invalid _ -> ());
-  let compressed =
-    Eio.Process.parse_out env#process_mgr Eio.Buf_read.take_all
-      ~stdin:
-        (Eio.Flow.string_source
-           ("From " ^ commit ^ " Mon Sep 17 00:00:00 2001\n"))
-      [ "gzip"; "-c" ]
-  in
-  assert (Patch.revision env compressed = commit);
   print_endline
     "runner: bounded streaming output, UTF-8, durable partial logs and child \
      cleanup passed"

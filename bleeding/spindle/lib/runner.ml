@@ -32,7 +32,10 @@ type input = {
 exception Cancelled
 
 let now () = Ptime.to_rfc3339 ~tz_offset_s:0 (Ptime_clock.now ())
-let terminal p = p.status <> "pending" && p.status <> "running"
+(* A blocked workflow waits for a collaborator's approval. It is live, so
+   cancellation and restart keep it, but it does not run until approved. *)
+let terminal p =
+  p.status <> "pending" && p.status <> "running" && p.status <> "blocked"
 
 let v job =
   {
@@ -255,7 +258,7 @@ let execute state input ~record ~persist p =
   Eio.Semaphore.acquire state.slots;
   Fun.protect ~finally:(fun () -> Eio.Semaphore.release state.slots)
   @@ fun () ->
-  if not p.cancelled then (
+  if (not p.cancelled) && p.status = "pending" then (
     p.status <- "running";
     p.started <- Some (now ());
     persist ();

@@ -74,11 +74,16 @@ let encode j =
   | Ok s -> s
   | Error e -> failwith e
 
+(* Knots create SHA-256 repositories by default and keep SHA-1 for migrated
+   ones, so an object ID has 40 or 64 digits. *)
 let sha s =
-  if String.length s <> 40 || not (String.for_all (function
+  if (String.length s <> 40 && String.length s <> 64)
+     || not (String.for_all (function
       | '0' .. '9' | 'a' .. 'f' -> true | _ -> false) s)
-  then invalid "commit must be a lowercase 40-digit SHA-1";
+  then invalid "commit must be a lowercase 40- or 64-digit object ID";
   s
+
+let zero_sha s = String.for_all (( = ) '0') s
 
 let did s =
   if not (Atp.Did.is_valid s) then invalid "invalid DID";

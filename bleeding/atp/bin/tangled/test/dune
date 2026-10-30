@@ -14,3 +14,14 @@
  (deps
   (glob_files fixtures/*.json))
  (libraries tangled atp-lexicon-tangled fetch.mock http eio_main))
+
+(rule
+ (action
+  (with-stdout-to
+   client-metadata.json
+   (run %{exe:../cli/main.exe} auth client-metadata))))
+
+(rule
+ (alias runtest)
+ (action
+  (diff ../web/tangled-oauth-client.json client-metadata.json)))

@@ -23,16 +23,17 @@ tangled auth profile --help
 authorization URL and opens it in a browser unless `--no-browser` is given.
 The browser may run on any machine. After approval it shows a
 `code=...&state=...` line to paste at the CLI's prompt. The whole URL of that
-page is accepted too. The page and the client metadata are the ocaml-atp
-CLI's, published at `https://www.cl.cam.ac.uk/~avsm2/`. Their scope is
-`atproto transition:generic`, the access an app password has.
-`--client-id` and `--redirect-uri` select other published copies.
+page is accepted too. The CLI requests write access to the `org.tangled.*`
+record collections and service tokens for the methods it calls, and no more.
+Its client metadata, `web/tangled-oauth-client.json`, is published at
+`https://www.cl.cam.ac.uk/~avsm2/` beside the paste page. `--client-id` and
+`--redirect-uri` select other published copies, such as the ocaml-atp CLI's
+`oauth-client.json` with `--scope "atproto transition:generic"` for the
+access an app password has.
 
 `--oauth --loopback` instead returns the browser to a listener on
 `127.0.0.1`, so the browser must run on the same host. It needs no published
-metadata and requests only write access to the `org.tangled.*` record
-collections and service tokens for the methods the CLI calls. `--scope`
-overrides either default. The tokens are bound to a key saved with the
+metadata. `--scope` overrides either default. The tokens are bound to a key saved with the
 session and refresh automatically.
 
 Password login prompts for the password without terminal echo.

@@ -8,7 +8,9 @@
   scope limited to Tangled records and the methods the CLI calls.
 - `tangled auth login --oauth` ends on a published page showing a line to
   paste into the CLI, so the browser need not share the host. `--loopback`
-  keeps the 127.0.0.1 listener and the narrower scope.
+  keeps the 127.0.0.1 listener.
+- Request only Tangled records and methods in the paste flow too, through
+  Tangled CLI client metadata that `tangled auth client-metadata` prints.
 
 - Refresh the Tangled lexicons to 418 documents from core `a6c5b30` and move
   the CLI to `org.tangled.*`: repositories by DID with declaration and

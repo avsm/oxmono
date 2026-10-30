@@ -54,7 +54,8 @@ let loopback_arg =
 let client_id_arg =
   let doc =
     "HTTPS URL of the OAuth client metadata for paste mode. The default is \
-     the ocaml-atp CLI's published metadata."
+     the Tangled CLI's published metadata, whose scope covers only Tangled \
+     records and the methods the CLI calls."
   in
   Arg.(value & opt (some string) None & info [ "client-id" ] ~docv:"URL" ~doc)
 
@@ -68,9 +69,10 @@ let redirect_uri_arg =
 
 let scope_arg =
   let doc =
-    "OAuth scope to request. Paste mode defaults to $(b,atproto \
-     transition:generic), which its client metadata declares. Loopback mode \
-     defaults to the Tangled records and methods the CLI uses."
+    "OAuth scope to request. The default is the Tangled records and methods \
+     the CLI uses, or $(b,atproto transition:generic) with another \
+     $(b,--client-id). A scope must be within the one the client metadata \
+     declares."
   in
   Arg.(value & opt (some string) None & info [ "scope" ] ~docv:"SCOPE" ~doc)
 
@@ -80,25 +82,55 @@ let no_browser_arg =
 
 (* Record collections the CLI may write, and the methods it needs service
    tokens for. Legacy sh.tangled collections are read-only here. *)
-let oauth_scope () =
-  let records =
-    List.filter_map
-      (fun (nsid, _) ->
-        if
-          String.starts_with ~prefix:"org.tangled." nsid
-          && Tangled.Schema.kind nsid = "record"
-        then Some ("collection=" ^ nsid)
-        else None)
-      Tangled.Schema.documents
-  in
+let records () =
+  List.filter_map
+    (fun (nsid, _) ->
+      if
+        String.starts_with ~prefix:"org.tangled." nsid
+        && Tangled.Schema.kind nsid = "record"
+      then Some nsid
+      else None)
+    Tangled.Schema.documents
+
+(* A loopback client ID carries its scope, so keep it compact. *)
+let loopback_scope () =
   String.concat " "
     [
       "atproto";
-      "repo?" ^ String.concat "&" records;
+      "repo?"
+      ^ String.concat "&" (List.map (( ^ ) "collection=") (records ()));
       "rpc?"
       ^ String.concat "&"
           (List.map (fun m -> "lxm=" ^ m) Tangled.Api.service_methods)
       ^ "&aud=*";
+    ]
+
+(* One scope per grant, as Tangled's own published client lists them. A
+   server grants only scopes the metadata declares, token by token, so the
+   paste flow must request exactly this string. *)
+let hosted_scope () =
+  String.concat " "
+    (("atproto" :: List.map (( ^ ) "repo:") (records ()))
+    @ List.map (fun m -> "rpc:" ^ m ^ "?aud=*") Tangled.Api.service_methods)
+
+let tangled_client_id =
+  "https://www.cl.cam.ac.uk/~avsm2/tangled-oauth-client.json"
+
+let client_metadata ~client_id ~redirect_uri =
+  let s = Common.string in
+  let strings l = Jsont.Json.list (List.map s l) in
+  Common.object_
+    [
+      ("client_id", s client_id);
+      ("client_name", s "Tangled CLI (paste mode)");
+      ("client_uri", s "https://www.cl.cam.ac.uk/~avsm2/");
+      ("application_type", s "web");
+      ("grant_types", strings [ "authorization_code"; "refresh_token" ]);
+      ("response_types", strings [ "code" ]);
+      ("redirect_uris", strings [ redirect_uri ]);
+      ("scope", s (hosted_scope ()));
+      ("token_endpoint_auth_method", s "none");
+      ("dpop_bound_access_tokens", Jsont.Json.bool true);
     ]
 
 let open_url ~no_browser url =
@@ -174,8 +206,7 @@ let oauth_login ~pds ~handle ~scope ~no_browser ~loopback ~client_id
     else
       Paste
         {
-          client_id =
-            Option.value ~default:Xrpc_auth.Oauth.hosted_client_id client_id;
+          client_id = Option.value ~default:tangled_client_id client_id;
           redirect_uri =
             Option.value ~default:Xrpc_auth.Oauth.hosted_redirect_uri
               redirect_uri;
@@ -185,7 +216,8 @@ let oauth_login ~pds ~handle ~scope ~no_browser ~loopback ~client_id
   let scope =
     match (scope, redirect) with
     | Some s, _ -> s
-    | None, Loopback -> oauth_scope ()
+    | None, Loopback -> loopback_scope ()
+    | None, Paste _ when client_id = None -> hosted_scope ()
     | None, Paste _ -> Xrpc_auth.Oauth.default_scope
   in
   Tangled.Api.login_oauth api ~net:env#net ?identifier:handle ~redirect ~scope
@@ -322,10 +354,32 @@ let status_cmd =
 
 (* Auth command group *)
 
+let client_metadata_cmd =
+  let doc =
+    "Print the OAuth client metadata that the paste flow's default client ID \
+     must serve. Publish it at the $(b,--client-id) URL with the paste page \
+     at $(b,--redirect-uri)."
+  in
+  let action client_id redirect_uri =
+    Common.json
+      (client_metadata
+         ~client_id:(Option.value ~default:tangled_client_id client_id)
+         ~redirect_uri:
+           (Option.value ~default:Xrpc_auth.Oauth.hosted_redirect_uri
+              redirect_uri))
+  in
+  Cmd.v
+    (Cmd.info "client-metadata" ~doc)
+    Term.(const action $ client_id_arg $ redirect_uri_arg)
+
 let cmd =
   let doc = "Authentication commands." in
   let info = Cmd.info "auth" ~doc in
   Cmd.group info
     [
-      login_cmd; logout_cmd; status_cmd; Xrpc_auth.Cmd.profile_cmd ~app_name ();
+      login_cmd;
+      logout_cmd;
+      status_cmd;
+      client_metadata_cmd;
+      Xrpc_auth.Cmd.profile_cmd ~app_name ();
     ]

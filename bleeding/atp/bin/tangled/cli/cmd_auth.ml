@@ -122,7 +122,12 @@ let oauth_login ~pds ~handle ~scope ~no_browser env =
   let pds =
     match (handle, pds) with
     | Some handle, _ -> (
-        match Xrpc.Identity.pds_of_handle ~plc http handle with
+        let resolve =
+          if String.starts_with ~prefix:"did:" handle then
+            Xrpc.Identity.pds_of_did
+          else Xrpc.Identity.pds_of_handle
+        in
+        match resolve ~plc http handle with
         | Ok pds -> pds
         | Error message -> failwith message)
     | None, Some pds -> pds

@@ -93,8 +93,11 @@ let camel_to_snake s =
 let escape_keyword name = if is_reserved name then name ^ "_" else name
 let field_name name = escape_keyword (camel_to_snake name)
 
+(* NSID authority segments are domain labels and may contain hyphens, which
+   OCaml module names cannot. Domain labels cannot contain underscores, so the
+   mapping is injective. *)
 let module_name_of_segment segment =
-  if String.length segment = 0 then segment else String.capitalize_ascii segment
+  String.capitalize_ascii (String.map (function '-' -> '_' | c -> c) segment)
 
 let module_path_of_nsid nsid =
   String.split_on_char '.' nsid |> List.map module_name_of_segment
@@ -173,7 +176,10 @@ let union_type_name refs =
       | [] -> "unknown_union")
 
 (* convert nsid to flat file path and module name *)
-let flat_name_of_nsid nsid = String.split_on_char '.' nsid |> String.concat "_"
+let flat_name_of_nsid nsid =
+  String.split_on_char '.' nsid
+  |> List.map (String.map (function '-' -> '_' | c -> c))
+  |> String.concat "_"
 let file_path_of_nsid nsid = flat_name_of_nsid nsid ^ ".ml"
 
 let flat_module_name_of_nsid nsid =
@@ -207,7 +213,7 @@ let relative_module_path ~from_nsid ~to_nsid =
     if n <= 0 then lst else match lst with [] -> [] | _ :: t -> drop (n - 1) t
   in
   let target_suffix = drop prefix_len to_segs in
-  target_suffix |> List.map String.capitalize_ascii |> String.concat "."
+  target_suffix |> List.map module_name_of_segment |> String.concat "."
 
 let needs_key_annotation original_name ocaml_name = original_name <> ocaml_name
 

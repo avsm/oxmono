@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Generate valid module names for NSIDs whose authority contains a hyphen,
+  such as `com.bad-example.pocket`.
+
 - Add `Tangled.Api.list_artifacts` and `artifact_version`, which list the
   release artifacts of a repository and read the version from a file name.
 

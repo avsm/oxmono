@@ -1567,7 +1567,7 @@ let gen_unified_module ~module_name (lexicons : lexicon_doc list) =
         match child with
         | Naming.Module nsid ->
             (* Generate module with lexicon content only *)
-            let mod_name = String.capitalize_ascii key in
+            let mod_name = Naming.module_name_of_segment key in
             emitln out (Printf.sprintf "%smodule %s = struct" indent mod_name);
             let ctx =
               {
@@ -1582,13 +1582,13 @@ let gen_unified_module ~module_name (lexicons : lexicon_doc list) =
             emitln out (Printf.sprintf "%send" indent)
         | Naming.Node subchildren ->
             (* Generate module with children only (no content at this level) *)
-            let mod_name = String.capitalize_ascii key in
+            let mod_name = Naming.module_name_of_segment key in
             emitln out (Printf.sprintf "%smodule %s = struct" indent mod_name);
             gen_trie (indent ^ "  ") child_prefix subchildren;
             emitln out (Printf.sprintf "%send" indent)
         | Naming.ModuleWithChildren (nsid, subchildren) ->
             (* Generate module with BOTH lexicon content AND children *)
-            let mod_name = String.capitalize_ascii key in
+            let mod_name = Naming.module_name_of_segment key in
             emitln out (Printf.sprintf "%smodule %s = struct" indent mod_name);
             let ctx =
               {
@@ -1862,7 +1862,7 @@ let gen_unified_interface ~module_name (lexicons : lexicon_doc list) =
         let child_prefix = if prefix = "" then key else prefix ^ "." ^ key in
         match child with
         | Naming.Module nsid ->
-            let mod_name = String.capitalize_ascii key in
+            let mod_name = Naming.module_name_of_segment key in
             emitln out (Printf.sprintf "%smodule %s : sig" indent mod_name);
             let ctx =
               {
@@ -1876,13 +1876,13 @@ let gen_unified_interface ~module_name (lexicons : lexicon_doc list) =
             | None -> ());
             emitln out (Printf.sprintf "%send" indent)
         | Naming.Node subchildren ->
-            let mod_name = String.capitalize_ascii key in
+            let mod_name = Naming.module_name_of_segment key in
             emitln out (Printf.sprintf "%smodule %s : sig" indent mod_name);
             gen_trie_sig (indent ^ "  ") child_prefix subchildren;
             emitln out (Printf.sprintf "%send" indent)
         | Naming.ModuleWithChildren (nsid, subchildren) ->
             (* Generate module signature with BOTH content AND children *)
-            let mod_name = String.capitalize_ascii key in
+            let mod_name = Naming.module_name_of_segment key in
             emitln out (Printf.sprintf "%smodule %s : sig" indent mod_name);
             let ctx =
               {

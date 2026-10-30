@@ -37,6 +37,22 @@ let pds_of_document json =
             services
       | _ -> None)
 
+let service_of_document ~id json =
+  match Jsont_bytesrw.decode_string Jsont.json json with
+  | Error _ -> None
+  | Ok doc -> (
+      let full = Option.map (fun did -> did ^ id) (str (member "id" doc)) in
+      match member "service" doc with
+      | Some (Jsont.Array (services, _)) ->
+          List.find_map
+            (fun s ->
+              let sid = str (member "id" s) in
+              if sid = Some id || (sid <> None && sid = full) then
+                str (member "serviceEndpoint" s)
+              else None)
+            services
+      | _ -> None)
+
 (* The host of a [did:web] is a domain, with its port written as [%3A]. Nothing
    else may be encoded, so the host cannot reach another host or a path. *)
 let web_host encoded =
@@ -70,12 +86,12 @@ let web_host encoded =
   | [ host; port ] when is_host host && is_port port -> Some (host ^ ":" ^ port)
   | _ -> None
 
-let document_url did =
+let document_url ?(plc = "https://plc.directory") did =
   match Atp.Did.of_string did with
   | Error _ -> Error (Printf.sprintf "%S is not a DID" did)
   | Ok _ -> (
       match String.split_on_char ':' did with
-      | [ "did"; "plc"; _ ] -> Ok ("https://plc.directory/" ^ did)
+      | [ "did"; "plc"; _ ] -> Ok (plc ^ "/" ^ did)
       | [ "did"; "web"; host ] -> (
           match web_host host with
           | Some host ->
@@ -95,13 +111,22 @@ let did_of_handle http handle =
       | Ok _ -> Ok did
       | Error _ -> Error (Printf.sprintf "%s does not publish a DID" handle))
 
-let pds_of_did http did =
-  let* url = document_url did in
-  let* body = get http url in
+let document ?plc http did =
+  let* url = document_url ?plc did in
+  get http url
+
+let pds_of_did ?plc http did =
+  let* body = document ?plc http did in
   match pds_of_document body with
   | Some pds -> Ok pds
   | None -> Error (Printf.sprintf "%s lists no data server" did)
 
-let pds_of_handle http handle =
+let service_of_did ?plc http did ~id =
+  let* body = document ?plc http did in
+  match service_of_document ~id body with
+  | Some endpoint -> Ok endpoint
+  | None -> Error (Printf.sprintf "%s lists no %s service" did id)
+
+let pds_of_handle ?plc http handle =
   let* did = did_of_handle http handle in
-  pds_of_did http did
+  pds_of_did ?plc http did

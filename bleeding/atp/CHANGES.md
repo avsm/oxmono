@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Let `Xrpc.Identity` resolve `did:plc` through another PLC directory and
+  look up a DID document service by id, such as `#tangled_knot`.
+
 - Generate valid module names for NSIDs whose authority contains a hyphen,
   such as `com.bad-example.pocket`.
 

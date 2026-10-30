@@ -9,6 +9,9 @@
   knot. The PDS records that older repositories used are read by
   `list_legacy_artifacts`.
 - Add `Xrpc_auth.Client.http`, the HTTP client a session shares.
+- Add `tangled pull submit` for pull request revisions. Write datetimes with
+  an explicit UTC offset and accept knot2's null cursors and empty grant
+  answers.
 
 - Let `Xrpc.Identity` resolve `did:plc` through another PLC directory and
   look up a DID document service by id, such as `#tangled_knot`.

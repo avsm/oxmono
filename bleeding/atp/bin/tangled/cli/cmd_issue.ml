@@ -117,6 +117,35 @@ let state name value =
          ("Set a ticket's state to " ^ value ^ ". The knot checks authority."))
     Term.(term_result (const action $ repo $ rkey $ Common.knot))
 
+let submit =
+  let commit name doc =
+    Arg.(required & opt (some string) None & info [ name ] ~docv:"SHA" ~doc)
+  in
+  let source =
+    Common.optional [ "source" ] "REPO"
+      "Repository holding the head commit (default: the target)."
+  in
+  let branch = Common.optional [ "branch" ] "BRANCH" "Branch of the head." in
+  let action repo rkey knot base head source branch =
+    Common.run (fun env ->
+        Common.with_api env (fun api ->
+            let repository = Api.resolve_repo api ?knot repo in
+            let source =
+              Option.map (fun s -> (Api.resolve_repo api s).did) source
+            in
+            Common.print Api.Lex.Review.SubmitPatch.output_jsont
+              (Api.submit_patch api repository ~ticket:rkey ~base ~head
+                 ?source ?branch ())))
+  in
+  Cmd.v
+    (Cmd.info "submit" ~doc:"Submit a revision of a pull request.")
+    Term.(
+      term_result
+        (const action $ repo $ rkey $ Common.knot
+        $ commit "base" "Commit the revision is based on."
+        $ commit "head" "Head commit of the revision."
+        $ source $ branch))
+
 let cmd =
   Cmd.group
     (Cmd.info "issue" ~doc:"Query, open and update issues.")
@@ -132,13 +161,12 @@ let cmd =
 let pull_cmd =
   Cmd.group
     (Cmd.info "pull"
-       ~doc:
-         "Query and open pull requests. Submit revisions with \
-          org.tangled.review.submitPatch.")
+       ~doc:"Query, open and revise pull requests.")
     [
       list ~pulls:true;
       show;
       create ~pulls:true;
+      submit;
       state "close" "closed";
       state "reopen" "open";
     ]

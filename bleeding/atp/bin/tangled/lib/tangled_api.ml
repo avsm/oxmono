@@ -131,7 +131,9 @@ let rkey_of_uri uri =
   | Some uri -> uri.rkey
   | None -> invalid_arg ("Invalid record URI: " ^ uri)
 
-let now () = Ptime.to_rfc3339 (Ptime_clock.now ())
+(* AT Protocol datetimes must name their offset. Without [tz_offset_s] Ptime
+   writes -00:00, the RFC 3339 form for an unknown offset. *)
+let now () = Ptime.to_rfc3339 ~tz_offset_s:0 ~frac_s:3 (Ptime_clock.now ())
 
 let reader t ?service _did =
   match service with
@@ -143,6 +145,14 @@ let reader t ?service _did =
 let home t did =
   if is_logged_in t && did = get_did t then None else Some (pds_of t did)
 
+(* knot2 writes an absent cursor as null, which the lexicon does not allow. *)
+let without_nulls = function
+  | Jsont.Object (fields, meta) ->
+      Jsont.Object
+        ( List.filter (function _, Jsont.Null _ -> false | _ -> true) fields,
+          meta )
+  | json -> json
+
 let list_records t ?service ~did ~collection () =
   let client = reader t ?service did in
   let rec pages seen cursor acc =
@@ -152,7 +162,9 @@ let list_records t ?service ~did ~collection () =
     in
     let page =
       Xrpc.Client.query client ~nsid:"com.atproto.repo.listRecords" ~params
-        ~decoder:Atproto.Repo.ListRecords.output_jsont
+        ~decoder:Jsont.json
+      |> without_nulls
+      |> decode Atproto.Repo.ListRecords.output_jsont
     in
     let acc = List.rev_append page.records acc in
     match page.cursor with
@@ -188,7 +200,7 @@ let typed collection record =
           meta )
   | _ -> invalid_arg "A record must be a JSON object"
 
-let create_in client ~repo ~collection ?rkey record =
+let create_in ~decoder client ~repo ~collection ?rkey record =
   let input : Atproto.Repo.CreateRecord.input =
     {
       repo;
@@ -201,7 +213,7 @@ let create_in client ~repo ~collection ?rkey record =
   in
   Xrpc.Client.procedure client ~nsid:"com.atproto.repo.createRecord"
     ~params:[] ~input:(Some Atproto.Repo.CreateRecord.input_jsont)
-    ~input_data:(Some input) ~decoder:Atproto.Repo.CreateRecord.output_jsont
+    ~input_data:(Some input) ~decoder
 
 let put_in client ~repo ~collection ~rkey ~swap_record record =
   let input : Atproto.Repo.PutRecord.input =
@@ -229,7 +241,8 @@ let delete_in client ~repo ~collection ~rkey ~swap_record =
        ~input_data:(Some input) ~decoder:Atproto.Repo.DeleteRecord.output_jsont)
 
 let create_record t ~collection ?rkey record =
-  create_in (get_client t) ~repo:(get_did t) ~collection ?rkey record
+  create_in ~decoder:Atproto.Repo.CreateRecord.output_jsont (get_client t)
+    ~repo:(get_did t) ~collection ?rkey record
 
 let put_record t ~collection ~rkey ~swap_record record =
   put_in (get_client t) ~repo:(get_did t) ~collection ~rkey ~swap_record record
@@ -469,10 +482,13 @@ let clone t ~repo ?knot ?dir () =
 let repo_client t repository nsid =
   service_client t ~service:repository.knot ~audience:repository.did ~nsid ()
 
-let repo_create_record t repository ~collection ?rkey record =
-  create_in
+let repo_create ~decoder t repository ~collection ?rkey record =
+  create_in ~decoder
     (repo_client t repository "com.atproto.repo.createRecord")
     ~repo:repository.did ~collection ?rkey record
+
+let repo_create_record =
+  repo_create ~decoder:Atproto.Repo.CreateRecord.output_jsont
 
 let repo_put_record t repository ~collection ~rkey ~swap_record record =
   put_in
@@ -537,9 +553,10 @@ let collaborators t repository =
 let add_collaborator t repository subject =
   require_owner t repository;
   let record : Lex.Graph.Collaborator.main = { created_at = now () } in
+  (* The knot answers a grant with an empty object, not a record reference. *)
   ignore
-    (repo_create_record t repository ~collection:collaborator_collection
-       ~rkey:subject
+    (repo_create ~decoder:Jsont.json t repository
+       ~collection:collaborator_collection ~rkey:subject
        (encode Lex.Graph.Collaborator.main_jsont record))
 
 let cid_of (r : Atproto.Repo.GetRecord.output) =
@@ -568,7 +585,7 @@ let knot_client t ~knot ?audience nsid =
 let add_knot_member t ~knot ?audience subject =
   let record : Lex.Knot.Member.main = { created_at = now () } in
   ignore
-    (create_in
+    (create_in ~decoder:Jsont.json
        (knot_client t ~knot ?audience "com.atproto.repo.createRecord")
        ~repo:(service_did knot) ~collection:member_collection ~rkey:subject
        (encode Lex.Knot.Member.main_jsont record))
@@ -636,6 +653,40 @@ let set_ticket_state t repository ~rkey state =
       ignore
         (repo_put_record t repository ~collection:ticket_collection ~rkey
            ~swap_record:(cid_of r) value)
+
+let submit_patch t repository ~ticket ~base ~head ?source ?branch () =
+  let nsid = "org.tangled.review.submitPatch" in
+  let oid value =
+    Jsont.Json.object'
+      [ Jsont.Json.mem ("oid", Jsont.Meta.none) (Jsont.Json.string value) ]
+  in
+  let mem k v = Jsont.Json.mem (k, Jsont.Meta.none) v in
+  let patch =
+    Jsont.Json.object'
+      ([
+         mem "ticket" (Jsont.Json.string ticket);
+         mem "base" (oid base);
+         mem "head" (oid head);
+         mem "sourceRepo"
+           (Jsont.Json.string (Option.value ~default:repository.did source));
+       ]
+      @ Option.to_list
+          (Option.map
+             (fun b -> mem "sourceBranch" (Jsont.Json.string b))
+             branch)
+      )
+  in
+  Xrpc.Client.procedure
+    (repo_client t repository nsid)
+    ~nsid ~params:[] ~input:(Some Jsont.json)
+    ~input_data:
+      (Some
+         (Jsont.Json.object'
+            [
+              mem "repo" (Jsont.Json.string repository.did);
+              mem "patch" patch;
+            ]))
+    ~decoder:Lex.Review.SubmitPatch.output_jsont
 
 let list_artifacts t repository =
   repo_records t repository ~collection:artifact_collection

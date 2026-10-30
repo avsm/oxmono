@@ -134,6 +134,7 @@ tangled issue complete alice.example/demo 7
 tangled issue reopen alice.example/demo 7
 tangled pull list alice.example/demo
 tangled pull create alice.example/demo --title "Fix" --target main
+tangled pull submit alice.example/demo 8 --base BASE --head HEAD --branch fix
 tangled key add ~/.ssh/id_ed25519.pub --name laptop --sign
 tangled key list
 tangled key remove RKEY
@@ -144,9 +145,9 @@ tangled star remove did:plc:REPO
 
 Issues and pull requests are `org.tangled.track.ticket` records in the
 repository account. A pull request is a ticket with a target branch. The knot
-writes them, mints their keys and checks who may change their state. Patch
-revisions are written with `org.tangled.review.submitPatch` through `api
-call`.
+writes them, mints their keys and checks who may change their state. `pull
+submit` adds a revision. The knot fetches its head commit from `--source`, the
+target repository by default.
 
 Keys are `org.tangled.key.sshKey` records. A key is published for push
 authentication, and `--sign` also publishes it for signature checks. Keys
@@ -197,6 +198,8 @@ python3 bleeding/spindle/testbed/stack.py test
 
 The first suite uses temporary XDG directories and loopback TLS fixtures for
 the PDS, PLC directory, knot and spindle. The Docker test runs a local PLC,
-PDS, knot2 built from a sibling Tangled checkout, and the OCaml spindle, and
-drives this CLI through repository creation, SSH keys, Git push, CI, logs and
-deletion. No test contacts a live ATP service.
+PDS, knot2 built from a sibling Tangled checkout, and the OCaml spindle. It
+drives this CLI through SSH keys, repository creation, Git pushes, CI, logs,
+collaborators, issues, pull requests and deletion. See the [spindle
+README](../../../spindle/README.md#local-docker-integration). No test
+contacts a live ATP service.

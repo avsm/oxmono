@@ -71,7 +71,9 @@ def cbor(value):
 # on a knot are addressed to the repository DID, everything else to the
 # service's own DID.
 def audience(role, method, data):
-    if role == "knot" and method.startswith("com.atproto.repo.") and data["repo"] == REPO:
+    if role == "knot" and data.get("repo") == REPO and (
+            method.startswith("com.atproto.repo.")
+            or method == "org.tangled.review.submitPatch"):
         return REPO
     return web_did(urls[role])
 
@@ -156,6 +158,8 @@ class Handler(BaseHTTPRequestHandler):
             out = {"records": values[index:index + 1]}
             if index + 1 < len(values):
                 out["cursor"] = str(index + 1)
+            elif role == "knot":
+                out["cursor"] = None  # knot2 writes an absent cursor as null
             if fault == "repeat-cursor":
                 out["cursor"] = "1"
             return self.json(out)
@@ -167,6 +171,7 @@ class Handler(BaseHTTPRequestHandler):
             coll = data["collection"]
             assert data.get("validate") is None
             assert data["record"]["$type"] == coll
+            assert data["record"]["createdAt"].endswith("Z"), data["record"]
             if role == "knot" and coll == "org.tangled.track.ticket":
                 assert "rkey" not in data, "the knot mints ticket keys"
                 assert data["record"]["state"] == "open"
@@ -177,6 +182,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 key = data.get("rkey", "3k" + str(len(records)))
             records[data["repo"], coll, key] = data["record"]
+            if role == "knot" and key.startswith("did:"):
+                return self.json({})
             return self.json({"uri": f"at://{data['repo']}/{coll}/{key}", "cid": cid(data["record"])})
         if method == "com.atproto.repo.putRecord":
             k = data["repo"], data["collection"], data["rkey"]
@@ -208,6 +215,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Length", "0")
             return self.end_headers()
+        if method == "org.tangled.review.submitPatch":
+            patch = data["patch"]
+            assert patch == {"ticket": "2", "base": {"oid": SHA},
+                             "head": {"oid": "b" * 40}, "sourceRepo": REPO,
+                             "sourceBranch": "feature"}, patch
+            return self.json({"uri": f"at://{REPO}/org.tangled.review.patch/x",
+                              "cid": cid(patch)})
         if method == "org.tangled.spindle.describeSpindle":
             return self.json({"did": web_did(urls["spindle"]), "version": "fixture"})
         if method.startswith("org.tangled.temp.spindle.allowList."):
@@ -363,6 +377,8 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
         run("pull", "create", "demo", "--title", "A change", "--target", "main")
         assert run("issue", "list", "demo").split()[0] == "1"
         assert run("pull", "list", "demo").split()[0] == "2"
+        run("pull", "submit", "demo", "2", "--base", SHA, "--head", "b" * 40,
+            "--branch", "feature")
         assert json.loads(run("issue", "show", "demo", "1"))["state"] == "open"
         key_file = Path(directory) / "id.pub"
         key_file.write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockFixtureOnly fixture")

@@ -246,6 +246,20 @@ val set_ticket_state : t -> repository -> rkey:string -> string -> unit
 (** [set_ticket_state t r ~rkey state] sets a ticket to [open], [closed] or
     [completed]. Only its author or a maintainer may. *)
 
+val submit_patch :
+  t ->
+  repository ->
+  ticket:string ->
+  base:string ->
+  head:string ->
+  ?source:string ->
+  ?branch:string ->
+  unit ->
+  Lex.Review.SubmitPatch.output
+(** [submit_patch t r ~ticket ~base ~head ()] adds a revision to pull request
+    [ticket]. The knot fetches [head] from repository [source], [r] by
+    default, optionally from [branch]. *)
+
 (** {1 Artifacts} *)
 
 val list_artifacts :

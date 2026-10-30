@@ -89,7 +89,12 @@ def oauth_login(user, handle):
                                "password": "local-password",
                                "remember": True})["account"]
     did = account.get("sub") or account["did"]
-    redirect = api("/consent", {"did": did})["url"]
+    # The UI sends back the scope it showed, which the client ID declares.
+    client_id = urllib.parse.parse_qs(urllib.parse.urlsplit(url).query)[
+        "client_id"][0]
+    scope = urllib.parse.parse_qs(urllib.parse.urlsplit(client_id).query)[
+        "scope"][0]
+    redirect = api("/consent", {"did": did, "scope": scope})["url"]
     try:
         browser.open(urllib.request.Request(redirect, headers={
             "Referer": url, "Sec-Fetch-Mode": "navigate",

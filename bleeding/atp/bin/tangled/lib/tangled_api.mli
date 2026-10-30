@@ -42,11 +42,12 @@ val login_oauth :
   t ->
   net:_ Eio.Net.t ->
   ?identifier:string ->
+  ?redirect:Xrpc_auth.Oauth.redirect ->
   ?scope:string ->
   open_url:(string -> unit) ->
   unit ->
   unit
-(** [login_oauth t ~net ?identifier ?scope ~open_url ()] signs in through the
+(** [login_oauth t ~net ?identifier ?redirect ?scope ~open_url ()] signs in through the
     PDS's OAuth server and saves the session, as {!Xrpc_auth.Oauth.authorize}
     describes. [t]'s PDS must host the account. *)
 

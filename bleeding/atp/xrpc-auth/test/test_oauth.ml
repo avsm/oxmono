@@ -182,9 +182,13 @@ let server (req : Fetch.Middleware.request) =
       as_nonce req (fun params ->
           check "S256" (List.assoc "code_challenge_method" params = "S256");
           check "login hint" (List.assoc "login_hint" params = did);
-          check "loopback client"
+          let client_id = List.assoc "client_id" params in
+          check "client"
             (String.starts_with ~prefix:"http://localhost?redirect_uri="
-               (List.assoc "client_id" params));
+               client_id
+            || client_id = "https://client.test/meta.json"
+               && List.assoc "redirect_uri" params
+                  = "https://client.test/paste.html");
           st.par <- params;
           reply ~status:201 {|{"request_uri":"urn:req:1","expires_in":60}|} req)
   | "https://as.test/token" ->
@@ -267,6 +271,20 @@ let browse ~sw ~net ?(iss = as_) ?(state_override = None) url =
         (Printf.sprintf "/callback?code=code-1&state=%s&iss=%s" state
            (String.concat "%3A" (String.split_on_char ':' iss))))
 
+(* Paste mode: the user copies the page's line, or the URL it opened at. *)
+let paste ?(state = None) ~full () =
+  let state = Option.value ~default:(List.assoc "state" st.par) state in
+  let line = Printf.sprintf "code=code-1&state=%s" state in
+  if full then "  https://client.test/paste.html?" ^ line ^ "\n" else line
+
+let paste_mode read : Xrpc_auth.Oauth.redirect =
+  Paste
+    {
+      client_id = "https://client.test/meta.json";
+      redirect_uri = "https://client.test/paste.html";
+      read;
+    }
+
 let raises expected f =
   st.jwk <- None;
   match f () with
@@ -306,6 +324,23 @@ let () =
            ~scope:"atproto"
            ~open_url:(browse ~sw ~net ~iss:"https://evil.test")
            ()));
+  List.iter
+    (fun full ->
+      st.jwk <- None;
+      let pasted =
+        Xrpc_auth.Oauth.authorize ~net ~clock ~http ~plc ~identifier:did
+          ~redirect:(paste_mode (paste ~full)) ~scope:"atproto"
+          ~open_url:ignore ()
+      in
+      check "pasted grant" (pasted.did = did);
+      check "pasted client"
+        ((Option.get pasted.oauth).client_id = "https://client.test/meta.json"))
+    [ false; true ];
+  check "wrong pasted state refused"
+    (raises "Authorization response has the wrong state" (fun () ->
+         Xrpc_auth.Oauth.authorize ~net ~clock ~http ~plc ~identifier:did
+           ~redirect:(paste_mode (paste ~state:(Some "forged") ~full:false))
+           ~scope:"atproto" ~open_url:ignore ()));
   (* Rebuild the session the grant above produced; the failed grants
      replaced the mock's token state. *)
   st.jwk <- None;

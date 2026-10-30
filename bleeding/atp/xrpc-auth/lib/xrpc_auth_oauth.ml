@@ -391,8 +391,34 @@ let pds_of ?plc ~http identifier =
   | Ok pds -> (did, pds)
   | Error e -> failwith e
 
-let authorize ~net ~clock ~http ?plc ?pds ?identifier ?(timeout = 300.) ~scope
-    ~open_url () =
+type redirect =
+  | Loopback
+  | Paste of {
+      client_id : string;
+      redirect_uri : string;
+      read : unit -> string;
+    }
+
+let hosted_client_id = "https://www.cl.cam.ac.uk/~avsm2/oauth-client.json"
+let hosted_redirect_uri = "https://www.cl.cam.ac.uk/~avsm2/oauth-login.html"
+
+(* Accepts the page's "code=...&state=..." line or the whole redirected URL. *)
+let pasted text =
+  let text = String.trim text in
+  let query =
+    match String.index_opt text '?' with
+    | Some i -> String.sub text (i + 1) (String.length text - i - 1)
+    | None -> text
+  in
+  let query =
+    match String.index_opt query '#' with
+    | Some i -> String.sub query 0 i
+    | None -> query
+  in
+  snd (query_params ("?" ^ query))
+
+let authorize ~net ~clock ~http ?plc ?pds ?identifier ?(timeout = 300.)
+    ?(redirect = Loopback) ~scope ~open_url () =
   let http = Fetch.restrict http in
   let expected, pds =
     match (identifier, pds) with
@@ -405,16 +431,32 @@ let authorize ~net ~clock ~http ?plc ?pds ?identifier ?(timeout = 300.) ~scope
   let server = server_of_pds ~http pds in
   let dpop = { key = generate_key (); nonces = Hashtbl.create 2 } in
   Eio.Switch.run @@ fun sw ->
-  let socket =
-    Eio.Net.listen ~sw ~backlog:4 net (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
+  let client_id, redirect_uri, await =
+    match redirect with
+    | Paste p -> (p.client_id, p.redirect_uri, fun () -> pasted (p.read ()))
+    | Loopback ->
+        let socket =
+          Eio.Net.listen ~sw ~backlog:4 net
+            (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
+        in
+        let port =
+          match Eio.Net.listening_addr socket with
+          | `Tcp (_, port) -> port
+          | _ -> failwith "Loopback listener has no port"
+        in
+        let redirect_uri =
+          Printf.sprintf "http://127.0.0.1:%d/callback" port
+        in
+        let await () =
+          match
+            Eio.Time.with_timeout clock timeout (fun () ->
+                Ok (await_callback ~sw socket))
+          with
+          | Ok params -> params
+          | Error `Timeout -> failwith "Timed out waiting for the browser"
+        in
+        (loopback_client_id ~redirect_uri ~scope, redirect_uri, await)
   in
-  let port =
-    match Eio.Net.listening_addr socket with
-    | `Tcp (_, port) -> port
-    | _ -> failwith "Loopback listener has no port"
-  in
-  let redirect_uri = Printf.sprintf "http://127.0.0.1:%d/callback" port in
-  let client_id = loopback_client_id ~redirect_uri ~scope in
   let verifier = random 32 in
   let state = random 16 in
   let par =
@@ -436,18 +478,14 @@ let authorize ~net ~clock ~http ?plc ?pds ?identifier ?(timeout = 300.) ~scope
   open_url
     (server.authorization_endpoint ^ "?"
     ^ encode_query [ ("client_id", client_id); ("request_uri", request_uri) ]);
-  let params =
-    match
-      Eio.Time.with_timeout clock timeout (fun () ->
-          Ok (await_callback ~sw socket))
-    with
-    | Ok params -> params
-    | Error `Timeout -> failwith "Timed out waiting for the browser"
-  in
+  let params = await () in
   if List.assoc_opt "state" params <> Some state then
     failwith "Authorization response has the wrong state";
-  (match List.assoc_opt "iss" params with
-  | Some iss when strip_slash iss = server.issuer -> ()
+  (* A pasted line may omit the issuer. PKCE and the DPoP key still bind the
+     code to this request. *)
+  (match (List.assoc_opt "iss" params, redirect) with
+  | Some iss, _ when strip_slash iss = server.issuer -> ()
+  | None, Paste _ -> ()
   | _ -> failwith "Authorization response names the wrong issuer");
   (match List.assoc_opt "error" params with
   | Some error ->

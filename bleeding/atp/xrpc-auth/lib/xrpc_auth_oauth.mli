@@ -26,6 +26,32 @@ val loopback_client_id : redirect_uri:string -> scope:string -> string
 
 (** {1 Login} *)
 
+(** How the browser returns the authorization code. *)
+type redirect =
+  | Loopback
+      (** To a one-shot listener on [127.0.0.1], with a [http://localhost]
+          client ID. The browser must run on the same host. *)
+  | Paste of {
+      client_id : string;
+          (** HTTPS URL of a published client metadata document. *)
+      redirect_uri : string;
+          (** Page declared in that document that shows the code. *)
+      read : unit -> string;
+          (** Reads what the user pastes: the page's [code=...&state=...]
+              line or the whole URL it was opened at. *)
+    }
+      (** To a page that shows the code for the user to paste into the
+          client. The browser may run anywhere. The scope must be within the
+          one the client metadata declares. *)
+
+val hosted_client_id : string
+(** [hosted_client_id] is the published metadata of the ocaml-atp CLI,
+    whose scope is {!default_scope}. *)
+
+val hosted_redirect_uri : string
+(** [hosted_redirect_uri] is the paste page that {!hosted_client_id}
+    declares. *)
+
 val authorize :
   net:_ Eio.Net.t ->
   clock:_ Eio.Time.clock ->
@@ -34,6 +60,7 @@ val authorize :
   ?pds:string ->
   ?identifier:string ->
   ?timeout:float ->
+  ?redirect:redirect ->
   scope:string ->
   open_url:(string -> unit) ->
   unit ->
@@ -45,8 +72,9 @@ val authorize :
     [did:plc], selects the authorization server, and the server is asked to
     sign in that account. Without [identifier], [pds] selects the server and
     the user picks the account. [open_url] is given the authorization URL to
-    show the user. The grant fails if the browser does not return within
-    [timeout] seconds, 300 by default.
+    show the user. [redirect] is [Loopback] by default. A loopback grant fails
+    if the browser does not return within [timeout] seconds, 300 by
+    default.
 
     The returned account must be [identifier] when one was given. Otherwise
     its PDS must name the same authorization server.

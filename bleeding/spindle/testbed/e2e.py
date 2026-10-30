@@ -57,8 +57,8 @@ def oauth_login(user, handle):
     env = user_env(user)
     del env["TANGLED_PASSWORD"]
     cli = subprocess.Popen(
-        ["/test/tangled", "auth", "login", "--oauth", "--no-browser",
-         "--handle", handle], env=env, stdout=subprocess.PIPE,
+        ["/test/tangled", "auth", "login", "--oauth", "--loopback",
+         "--no-browser", "--handle", handle], env=env, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True)
     url = None
     for line in cli.stdout:

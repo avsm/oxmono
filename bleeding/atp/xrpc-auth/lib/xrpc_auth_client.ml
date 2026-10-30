@@ -84,11 +84,11 @@ let resume t ~session =
       let client = Xrpc.Credential.resume t.cred ~session:xrpc_session () in
       t.client <- Some client
 
-let login_oauth t ~net ?plc ?identifier ?scope ~open_url () =
+let login_oauth t ~net ?plc ?identifier ?redirect ?scope ~open_url () =
   let scope = Option.value ~default:Xrpc_auth_oauth.default_scope scope in
   let session =
     Xrpc_auth_oauth.authorize ~net ~clock:t.clock ~http:t.http ?plc
-      ~pds:t.pds ?identifier ~scope ~open_url ()
+      ~pds:t.pds ?identifier ?redirect ~scope ~open_url ()
   in
   if Xrpc.Client.normalize_service session.pds <> t.pds then
     failwith

@@ -16,9 +16,9 @@ let create ~sw ~env ~app_name ?profile ?(plc = default_plc) ~pds ?http () =
 
 let login t = Xrpc_auth.Client.login t.client
 
-let login_oauth t ~net ?identifier ?scope ~open_url () =
-  Xrpc_auth.Client.login_oauth t.client ~net ~plc:t.plc ?identifier ?scope
-    ~open_url ()
+let login_oauth t ~net ?identifier ?redirect ?scope ~open_url () =
+  Xrpc_auth.Client.login_oauth t.client ~net ~plc:t.plc ?identifier ?redirect
+    ?scope ~open_url ()
 
 let service_methods =
   [

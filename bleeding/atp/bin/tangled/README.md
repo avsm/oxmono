@@ -21,11 +21,19 @@ tangled auth profile --help
 
 `--oauth` signs in through the PDS's OAuth server. The CLI prints an
 authorization URL and opens it in a browser unless `--no-browser` is given.
-The browser returns to a listener on `127.0.0.1`. The CLI requests write
-access to the `org.tangled.*` record collections and service tokens for the
-methods it calls, and no more. `--scope` requests a different scope, such as
-`"atproto transition:generic"` for the access an app password has. The tokens
-are bound to a key saved with the session and refresh automatically.
+The browser may run on any machine. After approval it shows a
+`code=...&state=...` line to paste at the CLI's prompt. The whole URL of that
+page is accepted too. The page and the client metadata are the ocaml-atp
+CLI's, published at `https://www.cl.cam.ac.uk/~avsm2/`. Their scope is
+`atproto transition:generic`, the access an app password has.
+`--client-id` and `--redirect-uri` select other published copies.
+
+`--oauth --loopback` instead returns the browser to a listener on
+`127.0.0.1`, so the browser must run on the same host. It needs no published
+metadata and requests only write access to the `org.tangled.*` record
+collections and service tokens for the methods the CLI calls. `--scope`
+overrides either default. The tokens are bound to a key saved with the
+session and refresh automatically.
 
 Password login prompts for the password without terminal echo.
 `TANGLED_PASSWORD` can supply an app password. Sessions use XDG directories and the selected auth

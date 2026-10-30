@@ -71,6 +71,7 @@ val login_oauth :
   net:_ Eio.Net.t ->
   ?plc:string ->
   ?identifier:string ->
+  ?redirect:Xrpc_auth_oauth.redirect ->
   ?scope:string ->
   open_url:(string -> unit) ->
   unit ->

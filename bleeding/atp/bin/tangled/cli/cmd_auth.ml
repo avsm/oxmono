@@ -38,12 +38,40 @@ let save_password_arg =
 let oauth_arg =
   let doc =
     "Sign in through the PDS's OAuth server in a browser instead of with a \
-     password. The CLI asks only for the Tangled access it uses."
+     password. The browser ends on a page showing a line to paste back here."
   in
   Arg.(value & flag & info [ "oauth" ] ~doc)
 
+let loopback_arg =
+  let doc =
+    "With $(b,--oauth), have the browser return to a listener on 127.0.0.1 \
+     instead of a paste page. The browser must run on this host. This mode \
+     needs no published client metadata, so it can request only the Tangled \
+     access the CLI uses."
+  in
+  Arg.(value & flag & info [ "loopback" ] ~doc)
+
+let client_id_arg =
+  let doc =
+    "HTTPS URL of the OAuth client metadata for paste mode. The default is \
+     the ocaml-atp CLI's published metadata."
+  in
+  Arg.(value & opt (some string) None & info [ "client-id" ] ~docv:"URL" ~doc)
+
+let redirect_uri_arg =
+  let doc =
+    "Paste page declared in the $(b,--client-id) metadata. The default is \
+     the ocaml-atp CLI's page."
+  in
+  Arg.(
+    value & opt (some string) None & info [ "redirect-uri" ] ~docv:"URL" ~doc)
+
 let scope_arg =
-  let doc = "OAuth scope to request instead of the Tangled default." in
+  let doc =
+    "OAuth scope to request. Paste mode defaults to $(b,atproto \
+     transition:generic), which its client metadata declares. Loopback mode \
+     defaults to the Tangled records and methods the CLI uses."
+  in
   Arg.(value & opt (some string) None & info [ "scope" ] ~docv:"SCOPE" ~doc)
 
 let no_browser_arg =
@@ -103,7 +131,14 @@ let prompt_or label = function
             read_line ())
       else read_line ()
 
-let oauth_login ~pds ~handle ~scope ~no_browser env =
+let read_pasted () =
+  Fmt.pr "Paste the line shown in the browser: @?";
+  match In_channel.input_line stdin with
+  | Some line -> line
+  | None -> failwith "No authorization code was pasted"
+
+let oauth_login ~pds ~handle ~scope ~no_browser ~loopback ~client_id
+    ~redirect_uri env =
   Eio.Switch.run @@ fun sw ->
   let fs = env#fs in
   let xdg = Xdge.create fs app_name in
@@ -134,8 +169,26 @@ let oauth_login ~pds ~handle ~scope ~no_browser env =
     | None, None -> assert false
   in
   let api = Common.create_api ~sw ~env ~app_name ~pds () in
-  let scope = match scope with Some s -> s | None -> oauth_scope () in
-  Tangled.Api.login_oauth api ~net:env#net ?identifier:handle ~scope
+  let redirect : Xrpc_auth.Oauth.redirect =
+    if loopback then Loopback
+    else
+      Paste
+        {
+          client_id =
+            Option.value ~default:Xrpc_auth.Oauth.hosted_client_id client_id;
+          redirect_uri =
+            Option.value ~default:Xrpc_auth.Oauth.hosted_redirect_uri
+              redirect_uri;
+          read = read_pasted;
+        }
+  in
+  let scope =
+    match (scope, redirect) with
+    | Some s, _ -> s
+    | None, Loopback -> oauth_scope ()
+    | None, Paste _ -> Xrpc_auth.Oauth.default_scope
+  in
+  Tangled.Api.login_oauth api ~net:env#net ?identifier:handle ~redirect ~scope
     ~open_url:(open_url ~no_browser) ();
   match Tangled.Api.get_session api with
   | Some session ->
@@ -190,12 +243,17 @@ let login_action ~pds ~handle ~password ~save_password env =
 let login_cmd =
   let doc = "Login to Tangled." in
   let info = Cmd.info "login" ~doc in
-  let login' pds handle password save_password oauth scope no_browser =
+  let login' pds handle password save_password oauth scope no_browser loopback
+      client_id redirect_uri =
     Common.run (fun env ->
         if oauth then begin
           if password <> None || save_password then
             invalid_arg "--oauth does not take a password";
-          oauth_login ~pds ~handle ~scope ~no_browser env
+          if loopback && (client_id <> None || redirect_uri <> None) then
+            invalid_arg
+              "--loopback does not take --client-id or --redirect-uri";
+          oauth_login ~pds ~handle ~scope ~no_browser ~loopback ~client_id
+            ~redirect_uri env
         end
         else login_action ~pds ~handle ~password ~save_password env)
   in
@@ -203,7 +261,8 @@ let login_cmd =
     Term.(
       term_result
         (const login' $ pds $ handle_arg $ password_arg $ save_password_arg
-       $ oauth_arg $ scope_arg $ no_browser_arg))
+       $ oauth_arg $ scope_arg $ no_browser_arg $ loopback_arg $ client_id_arg
+       $ redirect_uri_arg))
 
 (* Auth logout command *)
 

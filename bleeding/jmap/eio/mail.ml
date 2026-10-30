@@ -99,7 +99,7 @@ let connect ~writable ~sw ~fetch ~clock ~token ?account_id
     { client; pinned = { account; username = s.username }; writable; page_size }
   in
   ignore (validate c);
-  bind ~account ~api_url:(Client.api_url client);
+  bind ~account ~api_url:s.api_url;
   c
 
 let connect_read_only ~sw ~fetch ~clock ~token ?account_id ?max_body url =

@@ -1,5 +1,8 @@
 # Changes
 
+- Accept authenticated session API URLs on other HTTPS origins or with queries.
+  Keep mail requests pinned to the exact endpoint, account and permitted methods.
+
 - Share named encrypted credentials through `sekrit:NAME` and profile
   `secret_ref` fields. Resolve lazily at connection time and preserve references
   in the CLI, profile example and Mosaic forms. Legacy literal profiles still load.

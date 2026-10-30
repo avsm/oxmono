@@ -65,7 +65,7 @@ let policy sw =
   bind_rw ~account:"a" ~api_url:"https://example.test/api";
   check "cannot rebind account"
     (rejected (fun () -> bind ~account:"b" ~api_url:"https://example.test/api"));
-  check "cannot bind cross origin"
+  check "cannot change bound API endpoint"
     (rejected (fun () -> bind_rw ~account:"a" ~api_url:"https://evil.test/api"));
   let send client ?(headers = Fetch.Header.[])
       ?(url = "https://example.test/api") ?(meth = `POST) body =
@@ -150,24 +150,114 @@ let policy sw =
       send c ~meth:`GET ~url:"https://example.test/session" Fetch.Empty)
     [ ro; rw ]
 
-let operations env sw ~relative_api =
+let endpoint_policy sw =
+  let count = ref 0 and redirect = ref None in
+  let backend =
+    Fetch_mock.client (fun r ->
+        incr count;
+        match !redirect with
+        | None -> Fetch_mock.respond "{}" r
+        | Some location ->
+            Fetch_mock.respond ~status:307
+              ~headers:(Http.Header.of_list [ ("location", location) ])
+              "" r)
+  in
+  let session_url = "https://example.test/session" in
+  check "session fragment rejected before normalization"
+    (rejected (fun () ->
+         Mail.Http.create
+           ~url:(session_url ^ "#fragment")
+           ~writable:false backend));
+  let api = "https://api.example.test:8443/jmap/api?tenant=a%2Fb" in
+  let ro, bind = Mail.Http.create ~url:session_url ~writable:false backend in
+  let safe = envelope "Email/get" {|{"accountId":"a","ids":["e1"]}|} in
+  let send ?(meth = `POST) ?(body = Fetch.String safe) url =
+    let response = Fetch.fetch ~sw ~body ro meth url in
+    Fetch.close response
+  in
+  let blocked ?meth ?body url =
+    let before = !count in
+    check
+      ("unadvertised request rejected before transport: " ^ url)
+      (denied (fun () -> send ?meth ?body url) && !count = before)
+  in
+  send ~meth:`GET ~body:Fetch.Empty session_url;
+  blocked api;
+  List.iter
+    (fun api_url ->
+      check "invalid API rejected at binding"
+        (rejected (fun () -> bind ~account:"a" ~api_url)))
+    [
+      "http://api.example.test/api";
+      "https://api.example.test/api#fragment";
+      "https://user:password@api.example.test/api";
+    ];
+  bind ~account:"a" ~api_url:api;
+  bind ~account:"a" ~api_url:api;
+  send api;
+  List.iter blocked
+    [
+      session_url;
+      "https://api.example.test:8443/jmap/api";
+      "https://api.example.test:8443/jmap/api?tenant=other";
+      "https://api.example.test/jmap/api?tenant=a%2Fb";
+      api ^ "#fragment";
+      "https://unadvertised.test/api";
+    ];
+  blocked ~meth:`GET ~body:Fetch.Empty api;
+  blocked
+    ~body:
+      (Fetch.String (envelope "Email/get" {|{"accountId":"b","ids":["e1"]}|}))
+    api;
+  blocked
+    ~body:
+      (Fetch.String
+         (envelope "Email/set" {|{"accountId":"a","destroy":["e1"]}|}))
+    api;
+  List.iter
+    (fun location ->
+      redirect := Some location;
+      let before = !count in
+      check "API redirects cannot change the pinned destination"
+        (denied (fun () -> send api) && !count = before + 1))
+    [
+      "https://api.example.test:8443/other";
+      "https://api.example.test:8443/jmap/api?tenant=other";
+      "https://unadvertised.test/api";
+    ];
+  redirect := None;
+  let confined = Fetch.restrict ~under:[ "https://example.test/" ] backend in
+  let confined, bind =
+    Mail.Http.create ~url:session_url ~writable:false confined
+  in
+  bind ~account:"a" ~api_url:api;
+  let before = !count in
+  check "mail adapter cannot widen caller's restrictions"
+    (denied (fun () ->
+         let response = Fetch.post ~sw ~body:(Fetch.String safe) confined api in
+         Fetch.close response)
+    && !count = before)
+
+let operations env sw ~api_url =
   let calls = ref []
   and failure = ref ""
   and mailbox_ids = ref [ "inbox"; "keep" ] in
   let initial_session =
-    if not relative_api then decode session
-    else
-      match decode session with
-      | Jsont.Object (fields, meta) ->
-          Jsont.Object
-            ( List.map
-                (fun (((name, _) as key), value) ->
-                  ( key,
-                    if name = "apiUrl" then Jsont.Json.string "/api" else value
-                  ))
-                fields,
-              meta )
-      | _ -> assert false
+    match decode session with
+    | Jsont.Object (fields, meta) ->
+        Jsont.Object
+          ( List.map
+              (fun (((name, _) as key), value) ->
+                ( key,
+                  if name = "apiUrl" then Jsont.Json.string api_url else value
+                ))
+              fields,
+            meta )
+    | _ -> assert false
+  in
+  let expected_api =
+    let base = Result.get_ok (M.Url.of_string "https://example.test/session") in
+    Result.get_ok (M.Url.resolve ~base api_url) |> M.Url.to_string
   in
   let session_value = ref initial_session in
   let query_total = ref (Some 3) and query_ids = ref [ "e1"; "e2" ] in
@@ -185,6 +275,8 @@ let operations env sw ~relative_api =
             | _ -> assert false)
         | _ -> assert false
       in
+      check "uses exact advertised API URL"
+        (M.Url.to_string r.url = expected_api);
       let token = Option.get (Http.Header.get r.headers "authorization") in
       calls := (name, token, args) :: !calls;
       check "account selected" (str (field "accountId" args) = "a");
@@ -346,20 +438,25 @@ let operations env sw ~relative_api =
          Mail.update_labels rw ~id:(id "e1")
            ~add:[ id "work" ]
            ~remove:[ id "work" ]));
-  session_value :=
-    obj
-      (List.map
-         (fun ((k, _), v) ->
-           ( k,
-             if k = "apiUrl" then Jsont.Json.string "https://evil.test/api"
-             else v ))
-         (match decode session with
-         | Jsont.Object (fs, _) -> fs
-         | _ -> assert false));
-  check "cross-origin discovery rejected"
-    (rejected (fun () ->
-         Mail.connect_read_only ~sw ~fetch ~clock ~token:"ro-fixture"
-           "https://example.test/session"))
+  List.iter
+    (fun api_url ->
+      session_value :=
+        obj
+          (List.map
+             (fun ((k, _), v) ->
+               (k, if k = "apiUrl" then Jsont.Json.string api_url else v))
+             (match decode session with
+             | Jsont.Object (fs, _) -> fs
+             | _ -> assert false));
+      check "HTTP and fragment API discovery rejected"
+        (rejected (fun () ->
+             Mail.connect_read_only ~sw ~fetch ~clock ~token:"ro-fixture"
+               "https://example.test/session")))
+    [
+      "http://example.test/api";
+      "https://api.example.test/api#fragment";
+      "/api#fragment";
+    ]
 
 let incremental env sw =
   let calls = ref [] in
@@ -437,8 +534,16 @@ let () =
   Eio_main.run (fun env ->
       Eio.Switch.run (fun sw ->
           policy sw;
+          endpoint_policy sw;
           incremental env sw;
-          operations env sw ~relative_api:false;
-          operations env sw ~relative_api:true));
+          List.iter
+            (fun api_url -> operations env sw ~api_url)
+            [
+              "https://example.test/api";
+              "/api";
+              "/api?tenant=a%2Fb";
+              "https://api.example.test/jmap/api";
+              "https://api.example.test:8443/jmap/api?tenant=a%2Fb";
+            ]));
   print_endline
     "JMAP mail reads, paging, label updates and capability confinement passed."

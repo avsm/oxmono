@@ -15,9 +15,12 @@ val connect_read_only :
   reader
 (** [connect_read_only ~sw ~fetch ~clock ~token ?account_id ?max_body url]
     connects a bearer token to one mail account. The HTTP capability permits
-    only session discovery, Email/query, Email/get, Thread/get and Mailbox/get.
-    Endpoints remain on the configured HTTPS origin. Responses default to a 32
-    MiB limit and each HTTP exchange has a 20-second deadline. *)
+    only session discovery, Email/query, Email/get, Email/changes, Thread/get
+    and Mailbox/get. Discovery is pinned to [url]. Mail requests are pinned to
+    the exact HTTPS API URL advertised by the authenticated session, which may
+    have a different origin or a query. API fragments and redirects to other
+    endpoints are rejected. Responses default to a 32 MiB limit and each HTTP
+    exchange has a 20-second deadline. *)
 
 val connect_read_write :
   sw:Eio.Switch.t ->

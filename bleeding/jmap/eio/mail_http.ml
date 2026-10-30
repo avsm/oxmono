@@ -2,7 +2,6 @@ module J = Mail_json
 module U = Fetch.Middleware.Url
 
 let url s = match U.of_string s with Ok u -> u | Error _ -> J.invalid ()
-let normalized s = U.to_string (url s)
 
 let patch args =
   J.only [ "accountId"; "ifInState"; "update" ] args;
@@ -96,16 +95,23 @@ let allowed ~writable ~account body =
   with _ -> false
 
 let create ~url:session_url ~writable fetch =
-  let session_url = normalized session_url in
   let base = url session_url in
   if U.scheme base <> `Https || U.has_query base || U.has_fragment base then
     invalid_arg
       "Mail requires an HTTPS session URL without a query or fragment.";
+  let session_url = U.to_string base in
   let destination = ref None in
   let bind ~account ~api_url =
-    let api = url api_url in
-    if (not (U.same_origin base api)) || U.has_query api || U.has_fragment api
-    then invalid_arg "JMAP mail API must remain on the configured HTTPS origin.";
+    let api =
+      match U.resolve ~base api_url with
+      | Ok api -> api
+      | Error _ ->
+          invalid_arg "The JMAP session advertised an invalid mail API URL."
+    in
+    if U.scheme api <> `Https then
+      invalid_arg "The JMAP session advertised a non-HTTPS mail API URL.";
+    if U.has_fragment api then
+      invalid_arg "The JMAP session advertised a mail API URL with a fragment.";
     let value = (J.id account, U.to_string api) in
     match !destination with
     | Some previous when previous <> value ->
@@ -127,10 +133,10 @@ let create ~url:session_url ~writable fetch =
           U.to_string r.url = api && allowed ~writable ~account body
       | _ -> false
     in
-    if valid && headers then `Allow
+    if valid && headers && not (U.has_fragment r.url) then `Allow
     else `Reject "JMAP mail capability rejected the request"
   in
-  ( Fetch.restrict
-      ~under:[ U.origin base ^ "/" ]
-      ~methods:[ `GET; `POST ] ~filter fetch,
-    bind )
+  (* The authenticated session may advertise an API on another HTTPS origin.
+     The filter pins its complete URL, including its query, and applies to
+     every request, including redirect hops. *)
+  (Fetch.restrict ~methods:[ `GET; `POST ] ~filter fetch, bind)

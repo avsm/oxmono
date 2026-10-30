@@ -332,9 +332,20 @@ def main():
         git("add", "bob.txt", cwd=checkout)
         git("commit", "-m", message, cwd=checkout)
         env = dict(os.environ, GIT_SSH_COMMAND=bob_ssh)
-        subprocess.run(["git", "push", "-f", f"ssh://git@{KNOT_SSH}/{their_did}",
-                        "HEAD:refs/heads/main"], cwd=checkout, env=env,
-                       check=True, capture_output=True)
+
+        # The knot may not yet accept a key or repository created moments
+        # ago.
+        def push():
+            result = subprocess.run(
+                ["git", "push", "-f", f"ssh://git@{KNOT_SSH}/{their_did}",
+                 "HEAD:refs/heads/main"], cwd=checkout, env=env,
+                text=True, capture_output=True)
+            push.error = result.stderr
+            return result.returncode == 0
+        try:
+            wait("bob's push", push, timeout=30)
+        except SystemExit:
+            raise SystemExit(f"bob's push failed: {push.error}")
         return git("rev-parse", "HEAD", cwd=checkout)
 
     refused = push_as_bob("Before admission")

@@ -139,16 +139,20 @@ module Chat : sig
     ?tool_choice:tool_choice ->
     ?parallel_tool_calls:bool ->
     ?reasoning_effort:string ->
+    ?json_schema:Jsont.json ->
     model:string ->
     messages:Message.t list ->
     unit ->
     request
   (** [request ~model ~messages ()] builds a request usable with both
       {!complete} and {!stream}. [max_tokens] is the completion-token
-      budget, which includes any reasoning tokens. [reasoning_effort] is sent
-      as the top-level [reasoning_effort] field, such as ["none"] to disable
-      reasoning. OpenRouter and vLLM both accept that field. Invalid sampling
-      options, empty models and empty messages are rejected before I/O. *)
+      budget, which includes any reasoning tokens. [reasoning_effort] is
+      sent as the top-level [reasoning_effort] field, such as ["none"] to
+      disable reasoning. OpenRouter and vLLM both accept that field.
+      [json_schema] requests strict schema-constrained output via
+      [response_format]. The schema must be a JSON object and the provider
+      must support it. Invalid sampling options, empty models and empty
+      messages are rejected before I/O. *)
 
   type usage = {
     prompt_tokens : int;

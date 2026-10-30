@@ -298,6 +298,10 @@ let test_invalid_requests () =
         O.Chat.request ~model:"m"
           ~messages:[ O.Message.user "hi" ]
           ~max_tokens:0 ());
+      (fun () ->
+        O.Chat.request ~model:"m"
+          ~messages:[ O.Message.user "hi" ]
+          ~json_schema:(Jsont.Json.bool true) ());
     ]
 
 let test_tool_responses () =

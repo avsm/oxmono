@@ -341,10 +341,12 @@ module Chat = struct
     tool_choice : tool_choice option;
     parallel_tool_calls : bool option;
     reasoning_effort : string option;
+    json_schema : Jsont.json option;
   }
 
   let request ?max_tokens ?temperature ?top_p ?seed ?stop ?tools
-      ?tool_choice ?parallel_tool_calls ?reasoning_effort ~model ~messages () =
+      ?tool_choice ?parallel_tool_calls ?reasoning_effort ?json_schema
+      ~model ~messages () =
     let invalid message =
       invalid_arg ("Openrouter.Chat.request: " ^ message)
     in
@@ -368,6 +370,11 @@ module Chat = struct
     Option.iter
       (fun e -> if String.trim e = "" then invalid "empty reasoning_effort")
       reasoning_effort;
+    Option.iter
+      (function
+        | Jsont.Object _ -> ()
+        | _ -> invalid "json_schema must be an object")
+      json_schema;
     {
       model;
       messages;
@@ -380,6 +387,7 @@ module Chat = struct
       tool_choice;
       parallel_tool_calls;
       reasoning_effort;
+      json_schema;
     }
 
   let to_wire ~stream request =
@@ -412,6 +420,21 @@ module Chat = struct
       ?parallel_tool_calls:
         (Option.map Option.some request.parallel_tool_calls)
       ?reasoning_effort:(Option.map Option.some request.reasoning_effort)
+      ?response_format:
+        (Option.map
+           (fun schema ->
+             object_
+               [
+                 ("type", Jsont.Json.string "json_schema");
+                 ( "json_schema",
+                   object_
+                     [
+                       ("name", Jsont.Json.string "response");
+                       ("strict", Jsont.Json.bool true);
+                       ("schema", schema);
+                     ] );
+               ])
+           request.json_schema)
       ?stream_options:
         (if stream then
            Some (Some (object_ [ ("include_usage", Jsont.Json.bool true) ]))

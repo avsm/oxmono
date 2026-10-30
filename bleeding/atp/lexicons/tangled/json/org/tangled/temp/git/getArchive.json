@@ -1,0 +1,56 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.git.getArchive",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "ref", "prefix"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Git reference (branch, tag, or commit SHA)"
+          },
+          "format": {
+            "type": "string",
+            "description": "Archive format",
+            "enum": ["tar.gz", "zip"],
+            "default": "tar.gz"
+          },
+          "prefix": {
+            "type": "string",
+            "description": "Prefix for files in the archive"
+          }
+        }
+      },
+      "output": {
+        "encoding": "*/*",
+        "description": "Binary archive data"
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RefNotFound",
+          "description": "Git reference not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        },
+        {
+          "name": "ArchiveTooLarge",
+          "description": "Archive exceeds the size limit"
+        }
+      ]
+    }
+  }
+}

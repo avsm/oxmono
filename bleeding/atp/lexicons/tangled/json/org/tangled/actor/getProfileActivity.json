@@ -1,0 +1,205 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.actor.getProfileActivity",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Get recent Tangled activity for an actor, grouped by calendar month.",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "actor"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "format": "did",
+            "description": "Actor whose activity to return."
+          },
+          "months": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "default": 7,
+            "description": "Number of UTC calendar months to include, including the current month."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "months",
+            "truncated"
+          ],
+          "properties": {
+            "months": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#activityMonth"
+              }
+            },
+            "truncated": {
+              "type": "boolean",
+              "description": "True when the result reached the server activity-item safety limit."
+            }
+          }
+        }
+      }
+    },
+    "activityMonth": {
+      "type": "object",
+      "required": [
+        "start",
+        "commits",
+        "repos",
+        "issues",
+        "pulls"
+      ],
+      "properties": {
+        "start": {
+          "type": "string",
+          "format": "datetime",
+          "description": "Start of this UTC calendar month."
+        },
+        "commits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "repos": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#repoActivity"
+          }
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#issueActivity"
+          }
+        },
+        "pulls": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#pullActivity"
+          }
+        }
+      }
+    },
+    "repoRef": {
+      "type": "object",
+      "required": [
+        "uri",
+        "ownerDid",
+        "ownerHandle",
+        "name"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "did": {
+          "type": "string",
+          "format": "did"
+        },
+        "ownerDid": {
+          "type": "string",
+          "format": "did"
+        },
+        "ownerHandle": {
+          "type": "string",
+          "format": "handle"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "repoActivity": {
+      "type": "object",
+      "required": [
+        "repo",
+        "kind"
+      ],
+      "properties": {
+        "repo": {
+          "type": "ref",
+          "ref": "#repoRef"
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": [
+            "created",
+            "forked"
+          ]
+        }
+      }
+    },
+    "issueActivity": {
+      "type": "object",
+      "required": [
+        "uri",
+        "title",
+        "state",
+        "repo"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "title": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "open",
+            "closed",
+            "completed"
+          ]
+        },
+        "repo": {
+          "type": "ref",
+          "ref": "#repoRef"
+        }
+      }
+    },
+    "pullActivity": {
+      "type": "object",
+      "required": [
+        "uri",
+        "title",
+        "state",
+        "repo"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "title": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "open",
+            "closed",
+            "completed"
+          ]
+        },
+        "repo": {
+          "type": "ref",
+          "ref": "#repoRef"
+        }
+      }
+    }
+  }
+}

@@ -1,9 +1,9 @@
 (* SPDX-License-Identifier: ISC *)
 open Cmdliner
 module Api = Tangled.Api
-module Star = Atp_lexicon_tangled.Sh.Tangled.Feed.Star
+module Star = Tangled.Api.Lex.Feed.Star
 
-let collection = "sh.tangled.feed.star"
+let collection = "org.tangled.feed.star"
 let repo = Common.positional 0 "REPO" "Repository DID."
 
 let list_cmd =
@@ -12,7 +12,8 @@ let list_cmd =
         Common.with_api env (fun api ->
             Common.print
               (Jsont.list Star.main_jsont)
-              (List.map snd (Api.list_stars api ~did:(Common.did api user) ()))))
+              (List.map snd
+                 (Api.list_stars api ~did:(Common.did api user) ()))))
   in
   Cmd.v
     (Cmd.info "list" ~doc:"List starred repositories and strings.")
@@ -21,12 +22,12 @@ let list_cmd =
 let subject repo =
   Common.object_
     [
-      ("$type", Common.string "sh.tangled.feed.star#repo");
-      ("did", Common.string repo);
+      ("$type", Common.string "org.tangled.feed.star#repo");
+      ("identity", Common.string repo);
     ]
 
 let matches repo (star : Star.main) =
-  Tangled.Schema.member "did" star.subject
+  Tangled.Schema.member "identity" star.subject
   |> Option.fold ~none:false ~some:(fun did -> Tangled.Schema.text did = repo)
 
 let add_cmd =
@@ -56,7 +57,7 @@ let remove_cmd =
   let action repo =
     Common.run (fun env ->
         Common.with_api env (fun api ->
-            Api.list_records api ~did:(Api.get_did api) ~collection
+            Api.list_records api ~did:(Api.get_did api) ~collection ()
             |> List.iter (fun (record : Api.Atproto.Repo.ListRecords.record) ->
                 if matches repo (Api.decode Star.main_jsont record.value) then
                   Api.delete_record api ~collection

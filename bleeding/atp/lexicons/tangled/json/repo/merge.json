@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Merge a patch into a repository branch",
+      "description": "DEPRECATED: Merge a patch into a repository branch",
       "input": {
         "encoding": "application/json",
         "schema": {

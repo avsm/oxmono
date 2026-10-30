@@ -1,0 +1,147 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.ci.subscribePipelineLogs",
+  "defs": {
+    "main": {
+      "type": "subscription",
+      "description": "Pipeline logs stream",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "repo",
+          "pipeline"
+        ],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "Repository DID"
+          },
+          "pipeline": {
+            "type": "string",
+            "description": "Pipeline ID"
+          },
+          "workflows": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Workflow name"
+            },
+            "description": "filter logs by specific workflows"
+          }
+        }
+      },
+      "message": {
+        "schema": {
+          "type": "union",
+          "refs": [
+            "#control",
+            "#data"
+          ]
+        }
+      },
+      "errors": [
+        {
+          "name": "PipelineNotFound",
+          "description": "Pipeline not found"
+        },
+        {
+          "name": "WorkflowNotFound",
+          "description": "Workflow not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    },
+    "control": {
+      "type": "object",
+      "required": [
+        "time",
+        "workflow",
+        "step",
+        "content"
+      ],
+      "properties": {
+        "time": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "workflow": {
+          "type": "string",
+          "description": "workflow name"
+        },
+        "step": {
+          "type": "integer",
+          "description": "Step ID"
+        },
+        "content": {
+          "type": "string"
+        },
+        "command": {
+          "type": "string",
+          "description": "Step command"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "start",
+            "end"
+          ],
+          "description": "Step status"
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "system",
+            "user"
+          ],
+          "description": "Step kind"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": [
+            "success",
+            "failed"
+          ],
+          "description": "How the step ended, only set on end frames for steps that can fail"
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "required": [
+        "time",
+        "workflow",
+        "step",
+        "content",
+        "stream"
+      ],
+      "properties": {
+        "time": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "workflow": {
+          "type": "string",
+          "description": "workflow name"
+        },
+        "step": {
+          "type": "integer",
+          "description": "Step ID"
+        },
+        "content": {
+          "type": "string"
+        },
+        "stream": {
+          "type": "string",
+          "enum": [
+            "stdout",
+            "stderr"
+          ]
+        }
+      }
+    }
+  }
+}

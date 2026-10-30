@@ -11,6 +11,7 @@ type t = {
   app_name : string;
   profile : string option ref;
   make_client : service:string -> Xrpc.Client.t;
+  http : Fetch.plain;
 }
 
 let create ~sw ~env ~app_name ?profile ~pds ?http () =
@@ -37,7 +38,16 @@ let create ~sw ~env ~app_name ?profile ~pds ?http () =
   Xrpc.Credential.on_session_expired cred (fun () ->
     Xrpc_auth_session.clear fs ~app_name ?profile:!profile_ref ());
   let make_client ~service = Xrpc.Client.create ~sw ~env ~service ~http () in
-  { cred; client = None; fs; pds; app_name; profile = profile_ref; make_client }
+  {
+    cred;
+    client = None;
+    fs;
+    pds;
+    app_name;
+    profile = profile_ref;
+    make_client;
+    http;
+  }
 
 let login t ~identifier ~password =
   let first_login = Xrpc_auth_session.list_profiles t.fs ~app_name:t.app_name = [] in
@@ -81,3 +91,5 @@ let get_app_name t = t.app_name
 let get_profile t = !(t.profile)
 let get_fs t = t.fs
 let make_client t = t.make_client
+
+let http t = t.http

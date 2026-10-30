@@ -32,7 +32,7 @@ let list_cmd =
         Common.with_api env (fun api ->
             Common.print
               (Jsont.list Api.Atproto.Repo.ListRecords.record_jsont)
-              (Api.list_records api ~collection ~did:(Common.did api user))))
+              (Api.list_records api ~collection ~did:(Common.did api user) ())))
   in
   Cmd.v
     (Cmd.info "list" ~doc:"Read all pages of a Tangled record collection.")
@@ -44,7 +44,7 @@ let get_cmd =
         require_record collection;
         Common.with_api env (fun api ->
             match
-              Api.get_record api ~collection ~rkey ~did:(Common.did api user)
+              Api.get_record api ~collection ~rkey ~did:(Common.did api user) ()
             with
             | Some value ->
                 Common.print Api.Atproto.Repo.GetRecord.output_jsont value
@@ -95,7 +95,7 @@ let delete_cmd =
         require_record collection;
         Common.with_api env (fun api ->
             match
-              Api.get_record api ~collection ~rkey ~did:(Api.get_did api)
+              Api.get_record api ~collection ~rkey ~did:(Api.get_did api) ()
             with
             | None -> failwith "Record not found"
             | Some record ->

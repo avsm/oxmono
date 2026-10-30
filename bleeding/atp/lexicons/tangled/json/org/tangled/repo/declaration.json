@@ -1,0 +1,26 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.repo.declaration",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "description": "Git repository declaration. Record is owned by the repository owner and record-key is slug of the git repository.",
+      "record": {
+        "type": "object",
+        "required": ["repo", "createdAt"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repo"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

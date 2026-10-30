@@ -1,0 +1,24 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.spindle.allowList.add",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Add a DID to this spindle's allow-list, so the spindle runs CI for its repos while admission is closed. Only callable by a spindle admin.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["did"],
+          "properties": {
+            "did": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of account that should be allowed to enroll repos on this here spindle."
+            }
+          }
+        }
+      }
+    }
+  }
+}

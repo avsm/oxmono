@@ -6,15 +6,15 @@
 open Cmdliner
 
 (* Type aliases for convenience *)
-module Profile = Atp_lexicon_tangled.Sh.Tangled.Actor.Profile
-module PublicKey = Atp_lexicon_tangled.Sh.Tangled.PublicKey
+module Profile = Tangled.Api.Lex.Actor.Profile
+module SshKey = Tangled.Api.Lex.Key.SshKey
 
 let with_api = Common.with_api
 
 (* Pretty printers *)
 
 let pp_profile ppf (p : Profile.main) =
-  Fmt.pf ppf "@[<v>%a%a%a%a%a@]"
+  Fmt.pf ppf "@[<v>%a%a%a%a%a%a@]"
     Fmt.(option (fmt "Description: %s@,"))
     p.description
     Fmt.(option (fmt "Location: %s@,"))
@@ -28,11 +28,16 @@ let pp_profile ppf (p : Profile.main) =
           List.iter (fun link -> Fmt.pf ppf "  - %s@," link) l
       | _ -> ())
     p.links
-    (fun ppf -> function true -> Fmt.pf ppf "Bluesky: linked@," | false -> ())
-    p.bluesky
+    Fmt.(option (fmt "Preferred handle: %s@,"))
+    p.preferred_handle
+    (fun ppf -> function
+      | Some true -> Fmt.pf ppf "Organization@," | _ -> ())
+    p.is_organization
 
-let pp_public_key ppf (rkey, (k : PublicKey.main)) =
-  Fmt.pf ppf "@[<v>%s (%s)@,  %s@,  Created: %s@]" k.name rkey k.key
+let pp_public_key ppf (rkey, (k : SshKey.main)) =
+  Fmt.pf ppf "@[<v>%s (%s)@,  %s@,  Usages: %s@,  Created: %s@]" k.name rkey
+    k.public_key
+    (String.concat ", " (Option.value ~default:[ "auth"; "sign" ] k.usages))
     k.created_at
 
 (* Profile view command *)
@@ -81,7 +86,7 @@ let keys_action ~user env =
         else Tangled.Api.resolve_handle api u
     | None -> Tangled.Api.get_did api
   in
-  let keys = Tangled.Api.list_public_keys api ~did () in
+  let keys = Tangled.Api.list_ssh_keys api ~did () in
   if keys = [] then Fmt.pr "No SSH keys found.@."
   else begin
     Fmt.pr "SSH Keys for %s:@.@." did;

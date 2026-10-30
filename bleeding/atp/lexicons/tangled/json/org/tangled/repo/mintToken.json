@@ -1,0 +1,59 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.repo.mintToken",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Mint a service-auth JWT whose issuer is this repo's DID, signed by the knot that owns the repo's signing key. When calling this, you'll need the same perms as git push, ie. being repo owner/collaborator/knot-admin.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "repo",
+            "aud",
+            "lxm",
+            "exp"
+          ],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the repo that becomes the token's issuer. Must be the audience of a given calling session."
+            },
+            "aud": {
+              "type": "string",
+              "format": "did",
+              "description": "Audience of the minted token, a DID service ref for the service, that the token is addressed to."
+            },
+            "lxm": {
+              "type": "string",
+              "format": "nsid",
+              "description": "Lexicon method to which minted token binds."
+            },
+            "exp": {
+              "type": "integer",
+              "format": "int64",
+              "description": "Unix seconds. Must be in the future, and at most 60s after mint time."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "token"
+          ],
+          "properties": {
+            "token": {
+              "type": "string",
+              "description": "The signed service-auth JWT."
+            }
+          }
+        }
+      }
+    }
+  }
+}

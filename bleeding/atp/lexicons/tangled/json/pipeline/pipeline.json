@@ -41,8 +41,14 @@
           "enum": [
             "push",
             "pull_request",
-            "manual"
+            "manual",
+            "schedule"
           ]
+        },
+        "actor": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the account that caused this run: the pushing account, the pull request author, the manual triggerer, or the repo owner for scheduled runs."
         },
         "repo": {
           "type": "ref",
@@ -59,6 +65,10 @@
         "manual": {
           "type": "ref",
           "ref": "#manualTriggerData"
+        },
+        "schedule": {
+          "type": "ref",
+          "ref": "#scheduleTriggerData"
         },
         "sourceRepo": {
           "type": "string",
@@ -180,6 +190,31 @@
         }
       }
     },
+    "scheduleTriggerData": {
+      "type": "object",
+      "required": [
+        "sha",
+        "ref",
+        "scheduledAt"
+      ],
+      "properties": {
+        "sha": {
+          "type": "string",
+          "description": "commit SHA the scheduled run targets",
+          "minLength": 40,
+          "maxLength": 40
+        },
+        "ref": {
+          "type": "string",
+          "description": "default branch ref resolved for the scheduled run"
+        },
+        "scheduledAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "UTC minute selected by the cron schedule"
+        }
+      }
+    },
     "workflow": {
       "type": "object",
       "required": [
@@ -207,6 +242,11 @@
         },
         "raw": {
           "type": "string"
+        },
+        "audience": {
+          "type": "string",
+          "maxLength": 150,
+          "description": "OIDC audience (aud claim) of the ID token minted for this workflow. omit to run without a token."
         }
       }
     },

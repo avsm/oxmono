@@ -1,0 +1,18 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.git.oid",
+  "description": "Git object-id similar to concrete `cid-link` type.",
+  "defs": {
+    "main": {
+      "type": "object",
+      "required": ["oid"],
+      "properties": {
+        "oid": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 64
+        }
+      }
+    }
+  }
+}

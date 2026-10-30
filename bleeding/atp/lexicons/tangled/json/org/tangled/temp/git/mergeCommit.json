@@ -1,0 +1,85 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.git.mergeCommit",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Merge a commit into repository's branch",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["target", "source", "style"],
+          "properties": {
+            "target": {
+              "type": "ref",
+              "ref": "#target"
+            },
+            "source": {
+              "type": "ref",
+              "ref": "#source"
+            },
+            "style": {
+              "type": "string",
+              "enum": [
+                "rebase",
+                "merge",
+                "rebase-merge",
+                "squash-rebase",
+                "squash-rebase-merge",
+                "fast-forward-only"
+              ]
+            },
+            "mergeCommit": {
+              "type": "ref",
+              "ref": "#mergeCommitContent",
+              "description": "Merge commit content. Used when merge commit is created."
+            }
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "required": ["repo", "branch", "commit"],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of target git repository"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Target branch to merge into"
+        },
+        "commit": {
+          "type": "string",
+          "description": "Head commit ID of target branch"
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["repo", "commit"],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of source git repository"
+        },
+        "commit": {
+          "type": "string",
+          "description": "Head commit ID to merge"
+        }
+      }
+    },
+    "mergeCommitContent": {
+      "type": "object",
+      "description": "Merge commit content. Used when merge commit is created.",
+      "properties": {
+        "author": { "type": "ref", "ref": "org.tangled.git.defs#signature" },
+        "message": { "type": "string", "maxLength": 1000000 }
+      }
+    }
+  }
+}

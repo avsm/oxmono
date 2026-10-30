@@ -1,0 +1,48 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.repo.getImportStatus",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "How far the knot got importing a repository from its source. Only the repository owner and knot admins see the real reason; everyone else gets a generic one.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "knownValues": ["fetching", "present", "partial", "failed"],
+              "description": "Where the import from the source is. Omitted when the repository wasn't created from a source."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Why a partial or failed import ended that way"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repo is not registered on this knot"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    }
+  }
+}

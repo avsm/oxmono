@@ -1,0 +1,53 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.identity.resolveCommitters",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Resolve an actor DID to its verified Git committer identities.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "actor"
+          ],
+          "properties": {
+            "actor": {
+              "type": "string",
+              "format": "did"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "committers"
+          ],
+          "properties": {
+            "committers": {
+              "type": "array",
+              "maxLength": 251,
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "The actor is not a valid DID"
+        },
+        {
+          "name": "Forbidden",
+          "description": "The calling service is not authorized"
+        }
+      ]
+    }
+  }
+}

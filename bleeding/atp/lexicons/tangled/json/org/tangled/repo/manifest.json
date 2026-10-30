@@ -1,0 +1,76 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.repo.manifest",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Git repository manifest record. This record is used for git repository discovery like how `org.tangled.actor.profile` is used to find users.",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "declaration",
+          "createdAt"
+        ],
+        "properties": {
+          "declaration": {
+            "type": "ref",
+            "ref": "#declaration"
+          },
+          "spindle": {
+            "type": "string",
+            "format": "did"
+          },
+          "description": {
+            "type": "string",
+            "minGraphemes": 1,
+            "maxGraphemes": 140
+          },
+          "website": {
+            "type": "string",
+            "format": "uri",
+            "description": "Any URI related to the repo"
+          },
+          "topics": {
+            "type": "array",
+            "description": "Topics related to the repo",
+            "items": {
+              "type": "string",
+              "maxLength": 50
+            },
+            "maxLength": 50
+          },
+          "source": {
+            "type": "union",
+            "description": "source of the repo",
+            "refs": [
+              "org.tangled.repo.defs#sourceTangled",
+              "org.tangled.repo.defs#sourceExternal"
+            ]
+          },
+          "contributionPolicy": {
+            "type": "string",
+            "knownValues": ["anyone", "members", "collaborators"],
+            "description": "Who may open tickets and patches on this repo. anyone = any DID, members = the knot's member roll, collaborators = the owner plus repo collaborators. Absent means the knot-wide default."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    },
+    "declaration": {
+      "type": "object",
+      "required": ["owner", "name"],
+      "properties": {
+        "owner": { "type": "string", "format": "did" },
+        "name": {
+          "type": "string",
+          "format": "record-key",
+          "description": "repository name; the slug (rkey of org.tangled.repo.declaration) is lowercase(name)"
+        }
+      }
+    }
+  }
+}

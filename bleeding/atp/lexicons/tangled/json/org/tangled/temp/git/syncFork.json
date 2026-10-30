@@ -1,0 +1,36 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.git.syncFork",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Update a branch on a fork to match the same branch on its upstream",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "repo",
+            "source",
+            "branch"
+          ],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the fork repository"
+            },
+            "source": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the upstream repository"
+            },
+            "branch": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.repo.artifact",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "subject",
+          "name",
+          "createdAt",
+          "artifact"
+        ],
+        "properties": {
+          "subject": {
+            "type": "union",
+            "refs": ["org.tangled.git.oid"]
+          },
+          "name": {
+            "type": "string",
+            "description": "name of the artifact"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime",
+            "description": "time of creation of this artifact"
+          },
+          "artifact": {
+            "type": "blob",
+            "description": "the artifact",
+            "accept": [
+              "*/*"
+            ],
+            "maxSize": 52428800
+          }
+        }
+      }
+    }
+  }
+}

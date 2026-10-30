@@ -1,0 +1,76 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.track.defs",
+  "defs": {
+    "ticketState": {
+      "type": "string",
+      "enum": [
+        "open",
+        "closed",
+        "completed"
+      ]
+    },
+    "ticketViewDetailed": {
+      "type": "object",
+      "required": [
+        "uri",
+        "cid",
+        "author",
+        "repo",
+        "title",
+        "state",
+        "createdAt"
+      ],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "cid": {
+          "type": "string",
+          "format": "cid"
+        },
+        "repo": {
+          "type": "ref",
+          "ref": "org.tangled.repo.defs#repoViewBasic"
+        },
+        "author": {
+          "type": "ref",
+          "description": "The account that opened the ticket, the editor of its first version. Not the account that last edited or closed it.",
+          "ref": "org.tangled.actor.defs#profileViewBasic"
+        },
+        "title": {
+          "type": "union",
+          "refs": [
+            "org.tangled.markup.markdown#inline"
+          ]
+        },
+        "body": {
+          "type": "union",
+          "refs": [
+            "org.tangled.markup.markdown"
+          ]
+        },
+        "state": {
+          "type": "ref",
+          "ref": "#ticketState"
+        },
+        "tangledLabels": {
+          "type": "array",
+          "items": {
+            "type": "union",
+            "refs": ["org.tangled.label.defs#labelToken"]
+          }
+        },
+        "targetBranch": {
+          "type": "string",
+          "description": "Present when the ticket is a pull request."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    }
+  }
+}

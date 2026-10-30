@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Refresh the Tangled lexicons to 418 documents from core `a6c5b30` and move
+  the CLI to `org.tangled.*`: repositories by DID with declaration and
+  manifest checks, tickets, grants and manual CI runs through `notifyEvent`.
+- `Tangled.Api.list_artifacts` takes a resolved repository and reads its
+  knot. The PDS records that older repositories used are read by
+  `list_legacy_artifacts`.
+- Add `Xrpc_auth.Client.http`, the HTTP client a session shares.
+
 - Let `Xrpc.Identity` resolve `did:plc` through another PLC directory and
   look up a DID document service by id, such as `#tangled_knot`.
 

@@ -4,53 +4,49 @@ module Api = Tangled.Api
 
 let knot = Common.positional 0 "KNOT" "Knot hostname or HTTP(S) origin."
 
-let query name nsid ~paged ~subject =
-  let action knot limit cursor =
+let describe_cmd =
+  let action knot =
     Common.run (fun env ->
         Common.with_api ~authenticated:false env (fun api ->
-            let params =
-              (if subject then [ ("subject", Api.service_host knot) ] else [])
-              @ (if paged then [ ("limit", string_of_int limit) ] else [])
-              @ Option.to_list (Option.map (fun x -> ("cursor", x)) cursor)
-            in
-            Tangled.Schema.params nsid params;
-            Common.json
+            Common.print Api.Lex.Knot.DescribeKnot.output_jsont
               (Xrpc.Client.query
                  (Api.public_client api ~service:knot)
-                 ~nsid ~params ~decoder:Jsont.json)))
+                 ~nsid:"org.tangled.knot.describeKnot" ~params:[]
+                 ~decoder:Api.Lex.Knot.DescribeKnot.output_jsont)))
   in
-  let term =
-    if paged then Term.(const action $ knot $ Common.limit $ Common.cursor)
-    else Term.(const action $ knot $ const 50 $ const None)
-  in
-  Cmd.v (Cmd.info name ~doc:("Read knot " ^ name ^ ".")) Term.(term_result term)
+  Cmd.v
+    (Cmd.info "describe" ~doc:"Show a knot's DID, version and capabilities.")
+    Term.(term_result (const action $ knot))
 
-let member name method_ =
+let members_cmd =
+  let action knot =
+    Common.run (fun env ->
+        Common.with_api env (fun api ->
+            List.iter print_endline (Api.knot_members api ~knot)))
+  in
+  Cmd.v
+    (Cmd.info "members" ~doc:"List the DIDs granted knot membership.")
+    Term.(term_result (const action $ knot))
+
+let member name ~add =
   let user = Common.positional 1 "USER" "Member handle or DID." in
   let action knot user audience =
     Common.run (fun env ->
         Common.with_api env (fun api ->
-            let nsid = "sh.tangled.knot." ^ method_ in
-            let input =
-              Common.object_
-                [ ("subject", Common.string (Api.resolve_handle api user)) ]
-            in
-            Tangled.Schema.validate_input nsid input;
-            Xrpc.Client.procedure_unit
-              (Api.service_client api ~service:knot ?audience ~nsid ())
-              ~nsid ~params:[] ~input:(Some Jsont.json) ~input_data:(Some input)))
+            let user = Api.resolve_handle api user in
+            if add then Api.add_knot_member api ~knot ?audience user
+            else Api.remove_knot_member api ~knot ?audience user))
   in
   Cmd.v
-    (Cmd.info name ~doc:"Change knot membership using its authoritative API.")
+    (Cmd.info name ~doc:"Change knot membership. Log in as a knot admin.")
     Term.(term_result (const action $ knot $ user $ Common.audience))
 
 let cmd =
   Cmd.group
     (Cmd.info "knot" ~doc:"Inspect a knot and manage its members.")
     [
-      query "version" "sh.tangled.knot.version" ~paged:false ~subject:false;
-      query "keys" "sh.tangled.knot.listKeys" ~paged:true ~subject:false;
-      query "members" "sh.tangled.knot.listMembers" ~paged:true ~subject:true;
-      member "add-member" "addMember";
-      member "remove-member" "removeMember";
+      describe_cmd;
+      members_cmd;
+      member "add-member" ~add:true;
+      member "remove-member" ~add:false;
     ]

@@ -1,0 +1,18 @@
+{
+  "lexicon": 1,
+  "id": "com.bad-example.pocket.defs",
+  "defs": {
+    "preferences": {
+      "type": "array",
+      "items": {
+        "type": "union",
+        "refs": [
+          "org.tangled.temp.actor.defs#savedKnotPref",
+          "org.tangled.temp.actor.defs#savedSpindlePref",
+          "org.tangled.temp.actor.defs#onboardingPref",
+          "org.tangled.temp.actor.defs#recentsPref"
+        ]
+      }
+    }
+  }
+}

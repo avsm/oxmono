@@ -1,0 +1,75 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.repo.listCollaboratorInvitesBy",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Collaboration offers an actor DID has waiting for them. The inverse of sh.tangled.repo.listCollaboratorInvites, which knots serve only for their own repo.",
+      "parameters": {
+        "type": "params",
+        "required": ["subject"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "did",
+            "description": "Actor DID offered collaboration."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["items", "pending", "truncated"],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#inviteItem" }
+            },
+            "pending": {
+              "type": "array",
+              "description": "Knots that this index hasn't read yet",
+              "items": { "type": "string", "format": "did" }
+            },
+            "truncated": {
+              "type": "boolean",
+              "description": "Per-subject dropped offers from items. If truncated is true, missing offers won't say if they were withdrawn, same with pending knots."
+            }
+          }
+        }
+      }
+    },
+    "inviteItem": {
+      "type": "object",
+      "description": "An offer awaiting the subject's acceptance.",
+      "required": ["uri", "knot", "repo", "addedBy", "createdAt"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri",
+          "description": "Invite record on the repository."
+        },
+        "knot": {
+          "type": "string",
+          "format": "did",
+          "description": "did:web of knot hosting this repo."
+        },
+        "repo": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of repo that made the offer."
+        },
+        "addedBy": {
+          "type": "string",
+          "format": "did",
+          "description": "DID that made the offer."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When the repository made the offer. This listing sorts it by newest first."
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.webhook.createWebhook",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create a new webhook for a repository.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repo", "url", "events"],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the repository as minted by the knot."
+            },
+            "url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Endpoint URL that will receive webhook payloads."
+            },
+            "active": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whether the webhook should be active immediately."
+            },
+            "events": {
+              "type": "array",
+              "description": "Event types to subscribe to.",
+              "items": {
+                "type": "ref",
+                "ref": "org.tangled.webhook.defs#eventType"
+              }
+            },
+            "secret": {
+              "type": "string",
+              "description": "Optional HMAC secret used to sign payloads. If omitted, payloads are not signed."
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["id"],
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "ID of the newly created webhook."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "NoEventsSelected", "description": "At least one event type must be specified." }
+      ]
+    }
+  }
+}

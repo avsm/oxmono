@@ -1,135 +1,144 @@
 (* SPDX-License-Identifier: ISC *)
 open Cmdliner
 module Api = Tangled.Api
-module S = Tangled.Schema
+module Ticket = Api.Lex.Track.Ticket
 
-let appview =
-  Arg.(
-    value
-    & opt string "https://tangled.org"
-    & info [ "appview" ] ~docv:"URL"
-        ~doc:"Appview origin for indexed issue and pull queries.")
+let repo =
+  Common.positional 0 "REPO" "Repository DID, owner/name, or declaration URI."
 
-let repo = Common.positional 0 "REPO" "Repository DID."
-let uri = Common.positional 0 "URI" "Issue or pull record URI."
+let rkey = Common.positional 1 "ID" "Ticket record key."
 
-let list kind =
+let text_of field =
+  match Tangled.Schema.member "text" field with
+  | Some text -> Tangled.Schema.text text
+  | None -> ""
+
+let state_of (t : Ticket.main) = Tangled.Schema.text t.state
+
+(* A ticket with a target branch is a pull request. *)
+let is_pull (t : Ticket.main) = Option.is_some t.target_branch
+
+let list ~pulls =
   let state =
     Common.optional [ "state" ] "STATE"
-      "Filter by state (open, closed, or merged for pulls)."
+      "Show only tickets in this state: open, closed or completed."
   in
-  let author = Common.optional [ "author" ] "DID" "Filter by author DID." in
-  let action repo appview state author limit cursor =
+  let action repo knot state json =
     Common.run (fun env ->
-        let field = if kind = "Issue" then "state" else "status" in
-        let nsid = "sh.tangled.repo.list" ^ kind ^ "s" in
-        let params =
-          [ ("subject", repo); ("limit", string_of_int limit) ]
-          @ List.filter_map Fun.id
-              [
-                Option.map (fun x -> (field, x)) state;
-                Option.map (fun x -> ("author", x)) author;
-                Option.map (fun x -> ("cursor", x)) cursor;
-              ]
-        in
-        S.params nsid params;
-        Common.with_api ~authenticated:false env (fun api ->
-            Common.json
-              (Xrpc.Client.query
-                 (Api.public_client api ~service:appview)
-                 ~nsid ~params ~decoder:Jsont.json)))
+        Common.with_api env (fun api ->
+            let repository = Api.resolve_repo api ?knot repo in
+            let tickets =
+              Api.tickets api repository
+              |> List.filter (fun (_, t) ->
+                  is_pull t = pulls
+                  && match state with None -> true | Some s -> state_of t = s)
+            in
+            if json then
+              Common.json
+                (Jsont.Json.list
+                   (List.map
+                      (fun (rkey, t) ->
+                        Common.object_
+                          [
+                            ("id", Common.string rkey);
+                            ("record", Api.encode Ticket.main_jsont t);
+                          ])
+                      tickets))
+            else
+              List.iter
+                (fun (rkey, (t : Ticket.main)) ->
+                  Fmt.pr "%-6s %-9s %s%a@." rkey (state_of t) (text_of t.title)
+                    Fmt.(option (fmt " -> %s"))
+                    t.target_branch)
+                tickets))
   in
   Cmd.v
-    (Cmd.info "list" ~doc:"List indexed records with filters and pagination.")
+    (Cmd.info "list" ~doc:"List tickets in the repository account.")
     Term.(
       term_result
-        (const action $ repo $ appview $ state $ author $ Common.limit
-       $ Common.cursor))
+        (const action $ repo $ Common.knot $ state $ Common.json_flag))
 
-let show kind =
-  let action uri appview =
+let show =
+  let action repo rkey knot =
     Common.run (fun env ->
-        let nsid = "sh.tangled.repo.get" ^ kind in
-        let params = [ (String.lowercase_ascii kind, uri) ] in
-        S.params nsid params;
-        Common.with_api ~authenticated:false env (fun api ->
-            Common.json
-              (Xrpc.Client.query
-                 (Api.public_client api ~service:appview)
-                 ~nsid ~params ~decoder:Jsont.json)))
+        Common.with_api env (fun api ->
+            let repository = Api.resolve_repo api ?knot repo in
+            match Api.ticket api repository rkey with
+            | None -> failwith "Ticket not found"
+            | Some t -> Common.print Ticket.main_jsont t))
   in
   Cmd.v
-    (Cmd.info "show" ~doc:"Read an indexed record from an appview.")
-    Term.(term_result (const action $ uri $ appview))
+    (Cmd.info "show" ~doc:"Show one ticket.")
+    Term.(term_result (const action $ repo $ rkey $ Common.knot))
 
-let create =
+let create ~pulls =
   let title =
     Arg.(required & opt (some string) None & info [ "title" ] ~docv:"TITLE")
   in
   let body =
-    Common.optional [ "body-file" ] "FILE" "Issue body file, or - for stdin."
+    Common.optional [ "body-file" ] "FILE" "Body file, or - for stdin."
   in
-  let action repo title body =
+  let target =
+    if pulls then
+      Term.(
+        const Option.some
+        $ Arg.(
+            required
+            & opt (some string) None
+            & info [ "target" ] ~docv:"BRANCH"
+                ~doc:"Branch the pull request targets."))
+    else Term.const None
+  in
+  let action repo knot title body target_branch =
     Common.run (fun env ->
-        let collection = "sh.tangled.repo.issue" in
-        let pairs =
-          [
-            ("$type", Common.string collection);
-            ("repo", Common.string repo);
-            ("title", Common.string title);
-            ("createdAt", Common.string (Api.now ()));
-          ]
-          @ Option.to_list
-              (Option.map
-                 (fun file -> ("body", Common.string (Common.read_file file)))
-                 body)
-        in
-        let value = Common.object_ pairs in
-        S.validate ~nsid:collection (S.main collection) value;
+        let body = Option.map Common.read_file body in
         Common.with_api env (fun api ->
+            let repository = Api.resolve_repo api ?knot repo in
             Common.print Api.Atproto.Repo.CreateRecord.output_jsont
-              (Api.create_record api ~collection value)))
+              (Api.open_ticket api repository ~title ?body ?target_branch ())))
   in
   Cmd.v
-    (Cmd.info "create" ~doc:"Create an issue in your PDS.")
-    Term.(term_result (const action $ repo $ title $ body))
+    (Cmd.info "create"
+       ~doc:"Open a ticket. The knot writes it into the repository account.")
+    Term.(
+      term_result (const action $ repo $ Common.knot $ title $ body $ target))
 
 let state name value =
-  let action uri =
+  let action repo rkey knot =
     Common.run (fun env ->
-        let collection = "sh.tangled.repo.issue.state" in
-        let record =
-          Common.object_
-            [
-              ("$type", Common.string collection);
-              ("issue", Common.string uri);
-              ("createdAt", Common.string (Api.now ()));
-              ("state", Common.string (collection ^ "." ^ value));
-            ]
-        in
-        S.validate ~nsid:collection (S.main collection) record;
         Common.with_api env (fun api ->
-            Common.print Api.Atproto.Repo.CreateRecord.output_jsont
-              (Api.create_record api ~collection record)))
+            Api.set_ticket_state api
+              (Api.resolve_repo api ?knot repo)
+              ~rkey value))
   in
   Cmd.v
     (Cmd.info name
-       ~doc:"Publish an issue state update. The appview checks your authority.")
-    Term.(term_result (const action $ uri))
+       ~doc:
+         ("Set a ticket's state to " ^ value ^ ". The knot checks authority."))
+    Term.(term_result (const action $ repo $ rkey $ Common.knot))
 
 let cmd =
   Cmd.group
-    (Cmd.info "issue" ~doc:"Query, create and update issues.")
+    (Cmd.info "issue" ~doc:"Query, open and update issues.")
     [
-      list "Issue";
-      show "Issue";
-      create;
+      list ~pulls:false;
+      show;
+      create ~pulls:false;
       state "close" "closed";
+      state "complete" "completed";
       state "reopen" "open";
     ]
 
 let pull_cmd =
   Cmd.group
     (Cmd.info "pull"
-       ~doc:"Query pull requests. Use record commands to publish revisions.")
-    [ list "Pull"; show "Pull" ]
+       ~doc:
+         "Query and open pull requests. Submit revisions with \
+          org.tangled.review.submitPatch.")
+    [
+      list ~pulls:true;
+      show;
+      create ~pulls:true;
+      state "close" "closed";
+      state "reopen" "open";
+    ]

@@ -1,0 +1,44 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.key.sshKey",
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "ssh public key",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "required": [
+          "name",
+          "publicKey",
+          "createdAt"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "description": "human-readable name for this key"
+          },
+          "publicKey": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "public key in OpenSSH authorized_keys format"
+          },
+          "usages": {
+            "type": "array",
+            "description": "default to `[\"auth\", \"sign\"]` when omitted.",
+            "minLength": 1,
+            "items": {
+              "type": "string",
+              "knownValues": ["auth", "sign"]
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "datetime"
+          }
+        }
+      }
+    }
+  }
+}

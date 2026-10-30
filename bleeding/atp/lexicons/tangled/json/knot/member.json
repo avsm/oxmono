@@ -6,9 +6,11 @@
   "defs": {
     "main": {
       "type": "record",
+      "description": "DEPRECATED: replaced by org.tangled.knot.member.",
       "key": "tid",
       "record": {
         "type": "object",
+        "description": "DEPRECATED: replaced by org.tangled.knot.member.",
         "required": [
           "subject",
           "domain",

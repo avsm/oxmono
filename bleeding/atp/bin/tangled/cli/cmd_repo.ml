@@ -1,14 +1,14 @@
 (* SPDX-License-Identifier: ISC *)
 open Cmdliner
 module Api = Tangled.Api
-module Repo = Atp_lexicon_tangled.Sh.Tangled.Repo
 module C = Console
+
 let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
 let muted = C.Style.fg C.Color.bright_black
 let styled style value = C.Span.sanitize (C.Span.styled style value)
 
 let repo =
-  Common.positional 0 "REPO" "Repository DID, owner/name, or record URI."
+  Common.positional 0 "REPO" "Repository DID, owner/name, or declaration URI."
 
 let name = Common.positional 0 "NAME" "New repository name."
 
@@ -24,66 +24,71 @@ let description =
 let branch = Common.optional [ "branch"; "b" ] "BRANCH" "Default Git branch."
 let source = Common.optional [ "source" ] "REPO" "Repository to fork."
 
-let pp_repository ppf (rkey, (r : Repo.main)) =
-  Fmt.pf ppf "%s  %s@,  %s%a%a@."
-    (Option.value ~default:rkey r.name)
-    r.knot
-    (Option.value ~default:"(legacy repository without DID)" r.repo_did)
-    Fmt.(option (fmt "@,  %s"))
-    r.description
-    Fmt.(option (fmt "@,  spindle: %s"))
-    r.spindle
+let spindle_opt =
+  Common.optional [ "spindle"; "s" ] "SPINDLE" "Spindle hostname to run CI."
 
 let list_cmd =
   let action user json =
     Common.run (fun env ->
         Common.with_api env (fun api ->
-            let repos = Api.list_repos api ~did:(Common.did api user) () in
+            let repos =
+              Api.list_declarations api ~did:(Common.did api user) ()
+            in
             if json then
-              Common.print (Jsont.list Repo.main_jsont) (List.map snd repos)
+              Common.print
+                (Jsont.list Api.Lex.Repo.Declaration.main_jsont)
+                (List.map snd repos)
             else if Console_eio.is_tty () then begin
-              let rows = List.map (fun (rkey, (r : Repo.main)) ->
-                [styled accent (Option.value ~default:rkey r.name);
-                 styled muted r.knot;
-                 styled muted (Option.value ~default:"(no DID)" r.repo_did);
-                 C.Span.sanitize (C.Span.text
-                   (Option.value ~default:"" r.description));
-                 styled muted (Option.value ~default:"" r.spindle)]) repos in
-              Fmt.pr "%a  %a@.%a@." C.Span.pp (styled accent "Repositories")
+              let rows =
+                List.map
+                  (fun (slug, (d : Api.Lex.Repo.Declaration.main)) ->
+                    [ styled accent slug; styled muted d.repo ])
+                  repos
+              in
+              Fmt.pr "%a  %a@.%a@." C.Span.pp
+                (styled accent "Repositories")
                 C.Span.pp
-                  (styled muted (Printf.sprintf "%d total" (List.length repos)))
+                (styled muted (Printf.sprintf "%d total" (List.length repos)))
                 C.Table.pp
                 (C.Table.of_rows ~border:C.Border.rounded
-                   C.Table.[column "Name"; column "Knot"; column "DID";
-                            column ~max_width:32 "Description";
-                            column "Spindle"] rows)
+                   C.Table.[ column "Name"; column "DID" ]
+                   rows)
             end
-            else List.iter (fun r -> Fmt.pr "%a" pp_repository r) repos))
+            else
+              List.iter
+                (fun (slug, (d : Api.Lex.Repo.Declaration.main)) ->
+                  Fmt.pr "%s  %s@." slug d.repo)
+                repos))
   in
   Cmd.v
-    (Cmd.info "list" ~doc:"List all repository records on the configured PDS.")
+    (Cmd.info "list" ~doc:"List the repositories an account declares.")
     Term.(term_result (const action $ Common.user $ Common.json_flag))
 
+let pp_repository ppf (r : Api.repository) =
+  Fmt.pf ppf "@[<v>%s/%s@,DID: %s@,Knot: %s@,Clone: %s%a%a@]@." r.owner r.name
+    r.did r.knot (Api.git_url r)
+    Fmt.(option (fmt "@,Description: %s"))
+    r.manifest.description
+    Fmt.(option (fmt "@,Spindle: %s"))
+    r.manifest.spindle
+
 let create_cmd =
-  let action name knot audience description branch source =
+  let action name knot audience description branch spindle source =
     Common.run (fun env ->
         Common.with_api env (fun api ->
             let source = Option.map (Api.resolve_repo api) source in
             let repository =
               Api.create_repo api ~name ~knot ?audience ?description
-                ?default_branch:branch ?source ()
+                ?default_branch:branch ?spindle ?source ()
             in
-            Fmt.pr "Repository DID: %s@.Clone URL: %s@.AT URI: %s@."
-              (Api.repo_did repository) (Api.git_url repository)
-              (Tangled.Types.make_at_uri ~did:repository.owner
-                 ~collection:"sh.tangled.repo" ~rkey:repository.rkey)))
+            Fmt.pr "%a" pp_repository repository))
   in
   Cmd.v
     (Cmd.info "create" ~doc:"Create a repository, or fork one with --source.")
     Term.(
       term_result
         (const action $ name $ knot_required $ Common.audience $ description
-       $ branch $ source))
+       $ branch $ spindle_opt $ source))
 
 let clone_cmd =
   let dir = Arg.(value & pos 1 (some string) None & info [] ~docv:"DIR") in
@@ -92,19 +97,20 @@ let clone_cmd =
         Common.with_api env (fun api -> Api.clone api ~repo ?knot ?dir ()))
   in
   Cmd.v
-    (Cmd.info "clone" ~doc:"Clone a repository using its stable DID.")
+    (Cmd.info "clone" ~doc:"Clone a repository by its stable DID.")
     Term.(term_result (const action $ repo $ Common.knot $ dir))
 
 let info_cmd =
-  let action repo knot =
+  let action repo knot json =
     Common.run (fun env ->
         Common.with_api env (fun api ->
-            let repository = Api.resolve_repo api ?knot repo in
-            Common.print Repo.main_jsont repository.record))
+            let r = Api.resolve_repo api ?knot repo in
+            if json then Common.json r.manifest_value
+            else Fmt.pr "%a" pp_repository r))
   in
   Cmd.v
-    (Cmd.info "info" ~doc:"Show the repository record and its stable identity.")
-    Term.(term_result (const action $ repo $ Common.knot))
+    (Cmd.info "info" ~doc:"Show a repository's identity and manifest.")
+    Term.(term_result (const action $ repo $ Common.knot $ Common.json_flag))
 
 let delete_cmd =
   let force =
@@ -120,7 +126,7 @@ let delete_cmd =
             let confirmed =
               force
               ||
-              (Fmt.pr "Delete %s? [y/N] @?" (Api.repo_did repository);
+              (Fmt.pr "Delete %s? [y/N] @?" repository.did;
                match String.lowercase_ascii (read_line ()) with
                | "y" | "yes" -> true
                | _ -> false)
@@ -129,7 +135,8 @@ let delete_cmd =
   in
   Cmd.v
     (Cmd.info "delete"
-       ~doc:"Remove the PDS record, then tear down the knot repository.")
+       ~doc:
+         "Remove the PDS declaration, then delete the repository on its knot.")
     Term.(
       term_result (const action $ repo $ Common.knot $ Common.audience $ force))
 
@@ -139,111 +146,45 @@ let spindle_cmd =
       value
       & pos 1 (some string) None
       & info [] ~docv:"SPINDLE"
-          ~doc:"Assign this spindle. Omit to remove the assignment.")
+          ~doc:"Assign the spindle at this hostname. Omit to remove it.")
   in
   let action repo knot spindle =
     Common.run (fun env ->
         Common.with_api env (fun api ->
-            let repository = Api.resolve_repo api ?knot repo in
-            if repository.owner <> Api.get_did api then
-              failwith "Only the owner can assign a spindle";
-            let existing =
-              match
-                Api.get_record api ~did:repository.owner
-                  ~collection:"sh.tangled.repo" ~rkey:repository.rkey
-              with
-              | Some record -> record
-              | None -> failwith "Repository disappeared"
-            in
-            let current = Api.decode Repo.main_jsont existing.value in
-            if
-              current.repo_did <> repository.record.repo_did
-              || current.knot <> repository.record.knot
-            then failwith "Repository identity changed. Resolve it again.";
-            let fields =
-              match existing.value with
-              | Jsont.Object (fields, _) -> fields
-              | _ -> assert false
-            in
-            let fields =
-              List.filter (fun ((name, _), _) -> name <> "spindle") fields
-            in
-            let fields =
-              match spindle with
-              | None -> fields
-              | Some spindle ->
-                  Jsont.Json.mem
-                    ("spindle", Jsont.Meta.none)
-                    (Common.string (Api.service_host spindle))
-                  :: fields
-            in
-            let cid =
-              match existing.cid with
-              | Some cid -> cid
-              | None -> failwith "PDS did not return a record CID"
-            in
-            ignore
-              (Api.put_record api ~collection:"sh.tangled.repo"
-                 ~rkey:repository.rkey ~swap_record:(Some cid)
-                 (Jsont.Json.object' fields))))
+            Api.set_spindle api (Api.resolve_repo api ?knot repo) spindle))
   in
   Cmd.v
     (Cmd.info "spindle"
-       ~doc:
-         "Assign or remove a repository's spindle, preserving other metadata.")
+       ~doc:"Assign or remove a repository's spindle in its manifest.")
     Term.(term_result (const action $ repo $ Common.knot $ spindle))
 
 let collaborators_cmd =
-  let action repo knot limit cursor =
+  let action repo knot =
     Common.run (fun env ->
         Common.with_api env (fun api ->
-            let repository = Api.resolve_repo api ?knot repo in
-            let params =
-              [
-                ("subject", Api.repo_did repository);
-                ("limit", string_of_int limit);
-              ]
-              @ Option.to_list
-                  (Option.map (fun value -> ("cursor", value)) cursor)
-            in
-            Tangled.Schema.params "sh.tangled.repo.listCollaborators" params;
-            Common.json
-              (Xrpc.Client.query
-                 (Api.public_client api ~service:repository.service)
-                 ~nsid:"sh.tangled.repo.listCollaborators" ~params
-                 ~decoder:Jsont.json)))
+            Api.collaborators api (Api.resolve_repo api ?knot repo)
+            |> List.iter print_endline))
   in
   Cmd.v
-    (Cmd.info "collaborators"
-       ~doc:"List the knot's authoritative collaborators.")
-    Term.(
-      term_result
-        (const action $ repo $ Common.knot $ Common.limit $ Common.cursor))
+    (Cmd.info "collaborators" ~doc:"List the DIDs granted collaboration.")
+    Term.(term_result (const action $ repo $ Common.knot))
 
-let collaborator_cmd name method_ =
+let collaborator_cmd name ~add =
   let subject = Common.positional 1 "USER" "Collaborator handle or DID." in
-  let action repo subject knot audience =
+  let action repo subject knot =
     Common.run (fun env ->
         Common.with_api env (fun api ->
             let repository = Api.resolve_repo api ?knot repo in
-            let nsid = "sh.tangled.repo." ^ method_ in
-            let input =
-              Common.object_
-                [
-                  ("repo", Common.string (Api.repo_did repository));
-                  ("subject", Common.string (Api.resolve_handle api subject));
-                ]
-            in
-            Tangled.Schema.validate_input nsid input;
-            Xrpc.Client.procedure_unit
-              (Api.service_client api ~service:repository.service ?audience
-                 ~nsid ())
-              ~nsid ~params:[] ~input:(Some Jsont.json) ~input_data:(Some input)))
+            let subject = Api.resolve_handle api subject in
+            if add then Api.add_collaborator api repository subject
+            else Api.remove_collaborator api repository subject))
   in
   Cmd.v
-    (Cmd.info name ~doc:"Change the knot's authoritative collaborators.")
-    Term.(
-      term_result (const action $ repo $ subject $ Common.knot $ Common.audience))
+    (Cmd.info name
+       ~doc:
+         (if add then "Grant a user collaboration."
+          else "Revoke collaboration."))
+    Term.(term_result (const action $ repo $ subject $ Common.knot))
 
 let cmd =
   Cmd.group
@@ -257,6 +198,6 @@ let cmd =
       delete_cmd;
       spindle_cmd;
       collaborators_cmd;
-      collaborator_cmd "add-collaborator" "addCollaborator";
-      collaborator_cmd "remove-collaborator" "removeCollaborator";
+      collaborator_cmd "add-collaborator" ~add:true;
+      collaborator_cmd "remove-collaborator" ~add:false;
     ]

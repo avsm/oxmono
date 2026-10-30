@@ -78,7 +78,7 @@ let () =
     Tangled.Api.create ~sw ~env ~app_name:"tangled-test"
       ~pds:"https://pds.example" ~http:(data_server gets) ()
   in
-  let artifacts repo = Tangled.Api.list_artifacts api ~did ~repo in
+  let artifacts repo = Tangled.Api.list_legacy_artifacts api ~did ~repo in
   check "a repository named by its record"
     (names (artifacts "ocaml-json-pointer") = [ "json-pointer-1.0.tbz" ]);
   check "a repository named by its rkey"
@@ -99,10 +99,12 @@ let () =
   in
   let broken = api_with ~bad:[ "ocaml-tdmrep" ] () in
   check "the other repositories are still listed"
-    (names (Tangled.Api.list_artifacts broken ~did ~repo:"ocaml-json-pointer")
+    (names
+       (Tangled.Api.list_legacy_artifacts broken ~did
+          ~repo:"ocaml-json-pointer")
     = [ "json-pointer-1.0.tbz" ]);
   check "the unreadable repository has none"
-    (Tangled.Api.list_artifacts broken ~did ~repo:"ocaml-tdmrep" = []);
+    (Tangled.Api.list_legacy_artifacts broken ~did ~repo:"ocaml-tdmrep" = []);
 
   (* An artifact that points at another account's repository is not ours, even
      when one of our repositories has the same record key. *)
@@ -115,5 +117,5 @@ let () =
   check "the replacement changed the data" (foreign <> read "artifacts.json");
   let other = api_with ~artifacts:foreign () in
   check "another account's repository is not attributed to us"
-    (Tangled.Api.list_artifacts other ~did ~repo:"dune-rpc-eio" = []);
+    (Tangled.Api.list_legacy_artifacts other ~did ~repo:"dune-rpc-eio" = []);
   print_endline "ok"

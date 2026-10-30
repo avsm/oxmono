@@ -1,0 +1,54 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.git.temp.getMergeBase",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "base", "head"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "base": {
+            "type": "string",
+            "description": "Ref used to find the common base."
+          },
+          "head": {
+            "type": "string",
+            "description": "Ref to list history for."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["commit"],
+          "properties": {
+            "commit": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RefNotFound",
+          "description": "Git reference not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    }
+  }
+}

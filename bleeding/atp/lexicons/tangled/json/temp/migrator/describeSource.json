@@ -1,0 +1,48 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.migrator.describeSource",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Describe the git repository at a source URL before migrating it.",
+      "parameters": {
+        "type": "params",
+        "required": ["sourceUrl"],
+        "properties": {
+          "sourceUrl": {
+            "type": "string",
+            "description": "HTTPS clone URL of the source repository."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["name", "defaultBranch"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 100,
+              "description": "Repository name derived from the URL."
+            },
+            "defaultBranch": {
+              "type": "string",
+              "description": "Branch HEAD points at on the remote."
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidSource",
+          "description": "The source URL is one the migrator refuses."
+        },
+        {
+          "name": "UnreachableSource",
+          "description": "The repository could not be reached."
+        }
+      ]
+    }
+  }
+}

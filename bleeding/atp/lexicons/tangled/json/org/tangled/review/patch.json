@@ -1,0 +1,39 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.review.patch",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "description": "Immutable patch attached to the ticket. Record-key must be CID of this record.",
+      "record": {
+        "type": "object",
+        "required": [
+          "ticket",
+          "base",
+          "head",
+          "createdAt"
+        ],
+        "properties": {
+          "ticket": {
+            "type": "string",
+            "format": "record-key",
+            "description": "ticket-id"
+          },
+          "base": { "type": "ref", "ref": "org.tangled.git.oid" },
+          "head": { "type": "ref", "ref": "org.tangled.git.oid" },
+          "source": { "type": "ref", "ref": "#source" },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["repo", "branch"],
+      "properties": {
+        "repo": { "type": "string", "format": "did" },
+        "branch": { "type": "string", "maxLength": 244 }
+      }
+    }
+  }
+}

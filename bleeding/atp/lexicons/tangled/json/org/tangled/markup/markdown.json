@@ -1,0 +1,43 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.markup.markdown",
+  "defs": {
+    "main": {
+      "type": "object",
+      "required": ["text"],
+      "description": "Tangled Flavored Markdown format text",
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxGraphemes": 65536,
+          "maxLength": 262144,
+          "description": "Final post-processed markdown content that will be rendered"
+        },
+        "blobs": {
+          "type": "array",
+          "items": {
+            "type": "union",
+            "refs": [
+              "org.tangled.markup.embed.image",
+              "org.tangled.markup.embed.video"
+            ]
+          },
+          "description": "list of blobs referenced in markdown"
+        }
+      }
+    },
+    "inline": {
+      "type": "object",
+      "required": ["text"],
+      "description": "Tangled Flavored Markdown format text (inline)",
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxGraphemes": 256,
+          "maxLength": 1024,
+          "description": "Final post-processed markdown content that will be rendered"
+        }
+      }
+    }
+  }
+}

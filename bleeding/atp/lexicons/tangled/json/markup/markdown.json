@@ -19,8 +19,7 @@
           "type": "array",
           "items": {
             "type": "blob",
-            "accept": ["image/*"],
-            "maxSize": 1000000
+            "maxSize": 200000000
           },
           "description": "list of blobs referenced in markdown"
         }

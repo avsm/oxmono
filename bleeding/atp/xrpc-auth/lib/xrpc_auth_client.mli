@@ -106,3 +106,7 @@ val get_fs : t -> Eio.Fs.dir_ty Eio.Path.t
 val make_client : t -> service:string -> Xrpc.Client.t
 (** [make_client t ~service] creates a new XRPC client for a different service.
     Useful for connecting to knot servers, spindles, etc. *)
+
+val http : t -> Fetch.plain
+(** [http t] is the HTTP client that every request of [t] shares, for plain
+    requests such as reading a DID document. *)

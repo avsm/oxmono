@@ -1,0 +1,156 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.blame",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "repo",
+          "ref",
+          "path"
+        ],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "AT-URI of the sh.tangled.repo record"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Git reference (branch, tag, or commit SHA)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Path to the file within the repository"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "commit",
+            "commits",
+            "runs"
+          ],
+          "properties": {
+            "commit": {
+              "type": "string",
+              "description": "The resolved git commit object ID"
+            },
+            "commits": {
+              "type": "array",
+              "description": "Unique commits referenced by blame runs",
+              "items": {
+                "type": "ref",
+                "ref": "#commit"
+              }
+            },
+            "runs": {
+              "type": "array",
+              "description": "Complete, gap-free one-based line ranges sorted by start",
+              "items": {
+                "type": "ref",
+                "ref": "#run"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RefNotFound",
+          "description": "Git reference not found"
+        },
+        {
+          "name": "FileNotFound",
+          "description": "File not found at the specified path"
+        },
+        {
+          "name": "BlameTooLarge",
+          "description": "Blame exceeds file byte, line, or run limits"
+        },
+        {
+          "name": "BlameTimeout",
+          "description": "Blame exceeded its computation time budget"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    },
+    "run": {
+      "type": "object",
+      "required": [
+        "start",
+        "count",
+        "commit"
+      ],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "First one-based line in this run"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of consecutive lines in this run"
+        },
+        "commit": {
+          "type": "string",
+          "description": "SHA of the commit in the output commits array"
+        }
+      }
+    },
+    "commit": {
+      "type": "object",
+      "required": [
+        "sha",
+        "subject",
+        "authoredAt",
+        "author"
+      ],
+      "properties": {
+        "sha": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "author": {
+          "type": "ref",
+          "ref": "#author"
+        },
+        "authoredAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "Git author timestamp"
+        }
+      }
+    },
+    "author": {
+      "type": "object",
+      "required": [
+        "name",
+        "email"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

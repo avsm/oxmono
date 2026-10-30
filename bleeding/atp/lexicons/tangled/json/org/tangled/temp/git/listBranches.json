@@ -1,0 +1,92 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.git.listBranches",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of branches to return",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["branches", "total"],
+          "properties": {
+            "branches": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#branchInfo"
+              }
+            },
+            "cursor": { "type": "string" },
+            "total": {
+              "type": "integer",
+              "description": "Total number of branches in the repository"
+            },
+            "defaultBranch": {
+              "type": "string",
+              "description": "Name of the default branch"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    },
+    "branchInfo": {
+      "type": "object",
+      "required": ["name", "oid", "message", "author", "committer"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Branch name"
+        },
+        "oid": {
+          "type": "string",
+          "description": "Latest commit oid on this branch"
+        },
+        "message": {
+          "type": "string",
+          "description": "Latest commit message"
+        },
+        "author": {
+          "type": "ref",
+          "ref": "org.tangled.git.defs#signature"
+        },
+        "committer": {
+          "type": "ref",
+          "ref": "org.tangled.git.defs#signature"
+        }
+      }
+    }
+  }
+}

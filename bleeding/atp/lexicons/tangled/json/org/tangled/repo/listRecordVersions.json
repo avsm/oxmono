@@ -1,0 +1,100 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.repo.listRecordVersions",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Every version of a record this knot hosts, oldest first unless order says otherwise. A version's bytes are fetched by content id through com.atproto.sync.getBlocks.",
+      "parameters": {
+        "type": "params",
+        "required": ["uri"],
+        "properties": {
+          "uri": {
+            "type": "string",
+            "format": "at-uri",
+            "description": "Record in a repo this knot hosts"
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "default": 100
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "order": {
+            "type": "string",
+            "knownValues": ["asc", "desc"],
+            "default": "asc",
+            "description": "asc lists the oldest version first, desc the newest."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri", "versions"],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri"
+            },
+            "versions": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#version"
+              }
+            },
+            "cursor": {
+              "type": "string",
+              "description": "Cursor for the next page, left out when the page already reaches the newest version"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "The uri isn't an at-uri, or the collection isn't versioned"
+        },
+        {
+          "name": "NotFound",
+          "description": "No such record on this knot"
+        },
+        {
+          "name": "ProjectionWarming",
+          "description": "The record's change history is still being folded; retry shortly"
+        }
+      ]
+    },
+    "version": {
+      "type": "object",
+      "required": ["changeId", "editor", "createdAt"],
+      "properties": {
+        "changeId": {
+          "type": "string",
+          "description": "Object ID of the git change that produced this version"
+        },
+        "editor": {
+          "type": "string",
+          "format": "did",
+          "description": "The account that authored the change"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "When this knot wrote the commit this version rides in. Not the record's own `createdAt`."
+        },
+        "cid": {
+          "type": "string",
+          "format": "cid",
+          "description": "Content id of this version. Missing when the version was removed or the change is a deletion."
+        }
+      }
+    }
+  }
+}

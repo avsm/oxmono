@@ -1,0 +1,137 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.migrator.defs",
+  "defs": {
+    "newJob": {
+      "type": "object",
+      "description": "A repository to migrate.",
+      "required": [
+        "name",
+        "knotDid",
+        "sourceUrl"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "Repository name reserved on the destination knot."
+        },
+        "knotDid": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the destination knot."
+        },
+        "sourceUrl": {
+          "type": "string",
+          "format": "uri",
+          "description": "HTTPS URL of the source repository."
+        },
+        "description": {
+          "type": "string",
+          "maxGraphemes": 140,
+          "description": "Repository description."
+        },
+        "private": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the source repository is private."
+        }
+      }
+    },
+    "job": {
+      "type": "object",
+      "description": "Migration status of a repository.",
+      "required": [
+        "id",
+        "name",
+        "knotDid",
+        "sourceUrl",
+        "private",
+        "status",
+        "attempts"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique job ID."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "repoDid": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the created repository, once created on the knot."
+        },
+        "knotDid": {
+          "type": "string",
+          "format": "did"
+        },
+        "sourceUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "private": {
+          "type": "boolean"
+        },
+        "status": {
+          "type": "string",
+          "knownValues": [
+            "queued",
+            "cloning",
+            "importing",
+            "completed",
+            "failed",
+            "authorization_required"
+          ],
+          "description": "Current status of the migration job."
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of migration attempts."
+        },
+        "error": {
+          "type": "string",
+          "description": "Error message from the last failed attempt."
+        }
+      }
+    },
+    "task": {
+      "type": "object",
+      "description": "A migration task containing repository jobs.",
+      "required": [
+        "id",
+        "ownerDid",
+        "createdAt",
+        "jobs"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "ownerDid": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the user who created the task."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "jobs": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#job"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,4 +1,5 @@
 module L = Atp_lexicon_tangled.Sh.Tangled
+module O = Atp_lexicon_tangled.Org.Tangled
 
 let get = function Ok v -> v | Error e -> failwith e
 let decode codec s = get (Jsont_bytesrw.decode_string codec s)
@@ -11,7 +12,7 @@ let rejects f =
   | exception Failure _ -> ()
 
 let () =
-  check "complete catalogue" (List.length Tangled.Schema.documents = 231);
+  check "complete catalogue" (List.length Tangled.Schema.documents = 418);
   List.iter
     (fun (nsid, _) -> ignore (Tangled.Schema.kind nsid))
     Tangled.Schema.documents;
@@ -25,9 +26,15 @@ let () =
   check "required null re-encoded" (String.contains encoded 'n');
   rejects (fun () -> decode L.Repo.Languages.output_jsont {|{"ref":"HEAD"}|});
   ignore
-    (decode L.Ci.SubscribePipelineLogs.data_jsont
+    (decode O.Ci.SubscribePipelineLogs.data_jsont
        {|{"time":"2026-01-01T00:00:00Z","workflow":"inspect","step":1,"content":"partial","stream":"stdout"}|});
-  ignore (decode L.Knot.SubscribeRepos.params_jsont "{}");
+  ignore
+    (decode O.Event.Push.main_jsont
+       {|{"repo":"did:plc:r","ref":"refs/heads/main","oldSha":"0","newSha":"1"}|});
+  ignore
+    (decode
+       Atp_lexicon_tangled.Com.Bad_example.Pocket.GetPreferences.output_jsont
+       {|{"preferences":{}}|});
   let put = Atp_lexicon_atproto.Com.Atproto.Repo.PutRecord.input_jsont in
   let absent =
     decode put
@@ -39,26 +46,26 @@ let () =
   in
   check "absent and explicit null remain distinct"
     (absent.swap_record = None && null.swap_record = Some None);
-  Tangled.Schema.params "sh.tangled.ci.queryPipelines"
+  Tangled.Schema.params "org.tangled.ci.queryPipelines"
     [
       ("repo", "did:plc:repo");
       ("limit", "250");
-      ("kinds", "push");
-      ("kinds", "manual");
+      ("triggers", "org.tangled.event.push");
+      ("triggers", "org.tangled.ci.trigger.manual");
     ];
   rejects (fun () ->
-      Tangled.Schema.params "sh.tangled.ci.queryPipelines"
+      Tangled.Schema.params "org.tangled.ci.queryPipelines"
         [ ("repo", "did:plc:repo"); ("limit", "251") ]);
   rejects (fun () ->
-      Tangled.Schema.params "sh.tangled.ci.queryPipelines"
+      Tangled.Schema.params "org.tangled.ci.queryPipelines"
         [ ("repo", "not-a-did") ]);
   rejects (fun () ->
-      Tangled.Schema.params "sh.tangled.ci.queryPipelines"
-        [ ("repo", "did:plc:repo"); ("kinds", "typo") ]);
+      Tangled.Schema.params "org.tangled.ci.queryPipelines"
+        [ ("repo", "did:plc:repo"); ("pipeline", "x"); ("pipeline", "y") ]);
   rejects (fun () ->
-      Tangled.Schema.params "sh.tangled.ci.queryPipelines"
+      Tangled.Schema.params "org.tangled.ci.queryPipelines"
         [ ("repo", "did:plc:repo"); ("limit", "1"); ("limit", "2") ]);
-  rejects (fun () -> Tangled.Schema.params "sh.tangled.ci.getPipeline" []);
+  rejects (fun () -> Tangled.Schema.params "org.tangled.ci.getPipeline" []);
   check "service audience with port"
     (Tangled.Api.service_did "http://localhost:9000/"
     = "did:web:localhost%3A9000");
@@ -70,7 +77,8 @@ let () =
       "https://example.com?query";
     ];
   check "record URI validates"
-    (Tangled.Types.parse_at_uri "at://did:plc:alice/sh.tangled.repo/name"
+    (Tangled.Types.parse_at_uri
+       "at://did:plc:alice/org.tangled.repo.declaration/name"
     <> None);
   check "partial URI rejected"
     (Tangled.Types.parse_at_uri "at://did:plc:alice" = None);

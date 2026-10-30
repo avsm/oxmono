@@ -35,6 +35,20 @@
               "type": "string",
               "format": "record-key",
               "description": "Current rkey of the sh.tangled.repo record tracked by this knot"
+            },
+            "content": {
+              "type": "string",
+              "knownValues": [
+                "fetching",
+                "present",
+                "partial",
+                "failed"
+              ],
+              "description": "Status of the clone from source. Omitted if not created from a source."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Reason for partial or failed content."
             }
           }
         }

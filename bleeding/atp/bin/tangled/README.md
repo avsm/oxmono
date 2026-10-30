@@ -21,98 +21,120 @@ tangled auth profile --help
 Login prompts for the password without terminal echo. `TANGLED_PASSWORD` can
 supply an app password. Sessions use XDG directories and the selected auth
 profile. `TANGLED_PDS` selects the PDS for subsequent commands. An override
-never forwards a saved session to a different origin.
+never forwards a saved session to a different origin. `TANGLED_PLC` selects
+the PLC directory, `https://plc.directory` by default.
+`SSL_CERT_FILE` selects a CA bundle for HTTPS and WebSocket connections.
 
-PDS record operations read the configured PDS. To read a user on another PDS,
-set `TANGLED_PDS` to that user's PDS and supply `--user`. PDS discovery is not
-automatic. Public knot, spindle and appview queries work without login.
-`SSL_CERT_FILE` selects a CA bundle for HTTPz HTTP and WebSocket connections.
+The logged-in account's records are read from the configured PDS. Another
+account's records are read from the PDS its DID document names. Public knot,
+spindle and PDS reads work without login.
 
-Service mutations obtain a fresh PDS-issued JWT with the destination's
-`did:web` audience, a 60-second expiry and the exact method in `lxm`.
-`--audience DID` overrides the audience for local test gateways. PDS bearer
-tokens stay on the PDS origin. Authenticated bearer requests require HTTPS.
+Every service call carries a fresh PDS-issued JWT with a 60-second expiry and
+the exact method in `lxm`. Knots accept each token once. Knot-level calls
+such as repository creation and membership are addressed to the knot's
+`did:web`. Writes into a repository account are addressed to the repository
+DID. Spindle calls are addressed to the spindle's `did:web`. `--audience DID`
+overrides the knot or spindle audience for local test gateways. PDS bearer
+tokens stay on the PDS origin.
 
 ## Repositories and access
 
+Each repository has its own `did:plc`, minted and hosted by its knot. The
+knot holds the repository's `org.tangled.repo.manifest`, which names the
+owner and repository name. The owner's PDS holds an
+`org.tangled.repo.declaration` keyed by the lowercased name, naming the
+repository DID back. Commands resolve a repository only while both agree.
+
 ```sh
-tangled repo create demo --knot knot.example --branch main
+tangled repo create demo --knot knot.example --branch main --spindle ci.example
 tangled repo create fork --knot knot.example --source alice.example/demo
 tangled repo list --json
 tangled repo info alice.example/demo
-tangled repo info did:plc:REPO --knot knot.example
+tangled repo info did:plc:REPO
 tangled repo clone alice.example/demo ./demo
 tangled repo spindle alice.example/demo spindle.example
 tangled repo collaborators alice.example/demo
 tangled repo add-collaborator alice.example/demo bob.example
 tangled repo remove-collaborator alice.example/demo bob.example
+tangled knot describe knot.example
 tangled knot members knot.example
 tangled knot add-member knot.example bob.example
 tangled knot remove-member knot.example bob.example
-tangled spindle members spindle.example --user did:plc:SPINDLE_OWNER
+tangled spindle describe spindle.example
+tangled spindle members spindle.example
 tangled spindle add-member spindle.example bob.example
 tangled spindle remove-member spindle.example bob.example
 ```
 
-Repository names are cosmetic. CI, cloning and knot operations use repository
-DIDs. Record URIs identify the owner's PDS record. A bare repo DID needs
-`--knot` when resolving owner metadata. Repository creation requires a current
-knot that returns a repo DID.
+A repository is named by `owner/name`, a bare name of the logged-in account,
+its declaration AT-URI, or its DID. The knot comes from the repository DID's
+`#tangled_knot` service unless `--knot` overrides it. Clones use the DID form
+of the URL, which survives renames.
 
-Knot membership and collaborators use the knot's authoritative API. Spindle
-membership commands publish or remove grants in the logged-in user's PDS.
-Only records published by the configured spindle owner grant access.
+Collaborators are `org.tangled.graph.collaborator` records in the repository
+account, keyed by the collaborator's DID. Only the owner may change them.
+Knot members are `org.tangled.knot.member` records in the knot's own
+account, and need a knot admin. Spindle membership is the spindle's
+allow-list, which needs a spindle admin.
 
-`repo spindle REPO` with no hostname removes the assignment. Updates retain
-unknown metadata and use a CID precondition. Deletion removes the PDS record
-before requesting knot teardown:
+`repo spindle REPO` with no hostname removes the assignment. Manifest updates
+retain unknown fields and use a CID precondition. Deletion removes the
+declaration first, because the knot refuses to delete a repository that is
+still declared:
 
 ```sh
 tangled repo delete alice.example/demo
 ```
 
-Creation and deletion span two services and are not atomic. Failed publication
-reports the minted DID and rkey so the record can be published with `record
-create`. After failed knot teardown, retry `sh.tangled.repo.delete` through
-`api call` using the repo DID. Do not recreate the PDS record during teardown.
+Creation and deletion span two services and are not atomic. If the
+declaration cannot be written after the knot mints a repository, the error
+names the DID and rkey so that the declaration can be written with `record
+create`. After a failed knot deletion, retry `org.tangled.repo.deleteRepo`
+through `api call`. Do not recreate the declaration in between.
 
 ## CI
 
 ```sh
-tangled pipeline list --repo did:plc:REPO --spindle spindle.example \
-  --limit 20 --kind push --commit COMMIT --json
-tangled pipeline show PIPELINE --spindle spindle.example
-tangled pipeline trigger --repo did:plc:REPO --spindle spindle.example \
-  --sha COMMIT --workflow inspect --input message=hello
-tangled pipeline logs PIPELINE --spindle spindle.example
-tangled pipeline retry PIPELINE --spindle spindle.example
-tangled pipeline cancel PIPELINE --repo did:plc:REPO --spindle spindle.example
-tangled pipeline definition --repo did:plc:REPO --spindle spindle.example \
-  --sha COMMIT
+tangled pipeline list --repo alice.example/demo --limit 20 \
+  --trigger org.tangled.event.push --commit COMMIT --json
+tangled pipeline show PIPELINE --repo alice.example/demo
+tangled pipeline trigger --repo alice.example/demo --commit COMMIT \
+  --ref refs/heads/main --workflow inspect --input message=hello
+tangled pipeline logs PIPELINE --repo alice.example/demo
+tangled pipeline retry PIPELINE --repo alice.example/demo
+tangled pipeline cancel PIPELINE --repo alice.example/demo
+tangled pipeline approve PIPELINE --repo alice.example/demo
+tangled pipeline definitions --repo alice.example/demo
 ```
 
-`--cursor` continues a pipeline query. `--commit`, `--kind`, `--workflow` and
-`--input` can repeat. Owner/name and record-URI forms of `--repo` can discover
-the assigned spindle from the configured PDS.
+The spindle is the one named in the repository manifest unless `--spindle`
+names another. A repository DID together with `--spindle` needs no knot or
+PDS lookup. Pipeline IDs are local to their spindle and are always paired
+with the repository DID. `--cursor` continues a query. `--commit`,
+`--trigger`, `--workflow` and `--input` can repeat.
 
-Logs use the current CBOR WebSocket API. Text mode preserves stdout, stderr,
-newlines and partial lines. `--json` includes control events and metadata.
-The command reads until the server closes the stream. It does not reconnect
-automatically. Retry creates a new pipeline at the original commit and
-retains the original workflow selection. Manual and pull-request trigger
-metadata is retained. Push retries become manual dispatches at that commit.
+`trigger` sends an `org.tangled.ci.trigger.manual` event through
+`org.tangled.event.notifyEvent` and prints the new pipeline IDs. The account
+must be able to push to the repository. `retry` asks the spindle to run a
+pipeline again and prints the new ID. `approve` releases a pipeline that is
+blocked waiting for a collaborator.
+
+Logs use the CBOR WebSocket API. Text mode preserves stdout, stderr, newlines
+and partial lines. `--json` includes control events. The command reads until
+the server closes the stream. It does not reconnect.
 
 ## Issues, pulls, keys and stars
 
 ```sh
-tangled issue list did:plc:REPO --appview https://tangled.org --state open
-tangled issue show at://did:plc:AUTHOR/sh.tangled.repo.issue/RKEY
-tangled issue create did:plc:REPO --title "Build fails" --body-file issue.md
-tangled issue close at://did:plc:AUTHOR/sh.tangled.repo.issue/RKEY
-tangled issue reopen at://did:plc:AUTHOR/sh.tangled.repo.issue/RKEY
-tangled pull list did:plc:REPO --state open
-tangled pull show at://did:plc:AUTHOR/sh.tangled.repo.pull/RKEY
-tangled key add ~/.ssh/id_ed25519.pub --name laptop
+tangled issue list alice.example/demo --state open
+tangled issue show alice.example/demo 7
+tangled issue create alice.example/demo --title "Build fails" --body-file issue.md
+tangled issue close alice.example/demo 7
+tangled issue complete alice.example/demo 7
+tangled issue reopen alice.example/demo 7
+tangled pull list alice.example/demo
+tangled pull create alice.example/demo --title "Fix" --target main
+tangled key add ~/.ssh/id_ed25519.pub --name laptop --sign
 tangled key list
 tangled key remove RKEY
 tangled star add did:plc:REPO
@@ -120,44 +142,49 @@ tangled star list
 tangled star remove did:plc:REPO
 ```
 
-Issue state records are subject to appview authority checks. Advanced pull
-revisions and comments use the record interface below. Keys print complete
-public material. Private key files are rejected.
+Issues and pull requests are `org.tangled.track.ticket` records in the
+repository account. A pull request is a ticket with a target branch. The knot
+writes them, mints their keys and checks who may change their state. Patch
+revisions are written with `org.tangled.review.submitPatch` through `api
+call`.
+
+Keys are `org.tangled.key.sshKey` records. A key is published for push
+authentication, and `--sign` also publishes it for signature checks. Keys
+print complete public material. Private key files are rejected. Stars name a
+repository by its DID.
 
 ## Complete lexicon access
 
-All 231 vendored documents are available offline. `api call` handles queries,
+All 418 vendored documents are available offline. `api call` handles queries,
 procedures, binary responses and public CBOR subscriptions:
 
 ```sh
-tangled api list org.tangled.temp.spindle
+tangled api list org.tangled.ci
 tangled api schema org.tangled.temp.spindle.quota.set
-tangled api call sh.tangled.repo.listIssues --service https://tangled.org \
-  -q subject=did:plc:REPO -q limit=20
+tangled api call org.tangled.git.listBranches --service https://knot.example \
+  -q repo=did:plc:REPO -q limit=20
 tangled api call org.tangled.temp.spindle.quota.set \
   --service https://spindle.example --auth service --input quota.json
 ```
 
-Choose the service implementing the method. New lexicons do not imply that
-every knot, appview or spindle implements them. Authentication modes are
-`none` (default), `service` and `pds`. The latter requires the configured PDS
-origin. Browser-session-only APIs do not gain browser authentication here.
-Parameters repeat with `-q KEY=VALUE`. JSON bodies come from `--input FILE`
-or `--input -`. Binary results are written unchanged to stdout.
+Choose the service implementing the method. A vendored lexicon does not imply
+that every knot or spindle implements it. Authentication modes are `none`
+(default), `service` and `pds`. The latter requires the configured PDS origin.
+Parameters repeat with `-q KEY=VALUE`. JSON bodies come from `--input FILE` or
+`--input -`. Binary results are written unchanged to stdout.
 
-All vendored record collections have CRUD access:
+All vendored record collections have CRUD access on the configured PDS:
 
 ```sh
-tangled record list sh.tangled.repo.issue --user did:plc:AUTHOR
-tangled record get sh.tangled.repo.issue RKEY --user did:plc:AUTHOR
-tangled record create sh.tangled.feed.comment --input comment.json
-tangled record put sh.tangled.repo.issue RKEY --cid CURRENT_CID --input issue.json
-tangled record delete sh.tangled.repo.issue RKEY
+tangled record list org.tangled.feed.star --user did:plc:AUTHOR
+tangled record get org.tangled.actor.profile self
+tangled record create org.tangled.graph.follow --rkey did:plc:BOB --input follow.json
+tangled record put org.tangled.actor.profile self --cid CURRENT_CID --input profile.json
+tangled record delete org.tangled.feed.star RKEY
 ```
 
-Records must include the matching `$type`. Use `--rkey self` when creating a
-literal-key record such as a profile. Replacements require the previous CID.
-Lists follow all PDS pages and report malformed records and server errors.
+Records must include the matching `$type`. Replacements require the previous
+CID. Lists follow all pages and report malformed records and server errors.
 
 ## Verification
 
@@ -165,13 +192,11 @@ Lists follow all PDS pages and report malformed records and server errors.
 opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force \
   bleeding/atp/atp/test bleeding/atp/hermest/test bleeding/atp/bin/tangled/test
 
-python3 bleeding/spindle/testbed/parity.py up
-python3 bleeding/atp/bin/tangled/testbed/run.py
+python3 bleeding/spindle/testbed/stack.py test
 ```
 
-The first suite uses temporary XDG directories and loopback TLS fixtures.
-The Docker test reuses the local PLC/PDS/knot/spindle stack, creates disposable
-repositories and exercises service JWTs, memberships, Git clone/push, CI,
-logs, retry, cancellation and deletion. Its ATP endpoints are local Docker
-aliases. Updating Docker images or building Tangled may download dependencies.
-No test contacts a live ATP service.
+The first suite uses temporary XDG directories and loopback TLS fixtures for
+the PDS, PLC directory, knot and spindle. The Docker test runs a local PLC,
+PDS, knot2 built from a sibling Tangled checkout, and the OCaml spindle, and
+drives this CLI through repository creation, SSH keys, Git push, CI, logs and
+deletion. No test contacts a live ATP service.

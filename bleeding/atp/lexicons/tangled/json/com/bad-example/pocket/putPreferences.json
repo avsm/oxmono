@@ -1,0 +1,32 @@
+{
+  "lexicon": 1,
+  "id": "com.bad-example.pocket.putPreferences",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["preferences"],
+          "nullable": ["swapRev"],
+          "properties": {
+            "preferences": {
+              "type": "ref",
+              "ref": "com.bad-example.pocket.defs#preferences"
+            },
+            "swapRev": {
+              "type": "string",
+              "description": "write only if the stored rev is still this one, or only if nothing is stored yet when null. absent means a blind write"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidSwap"
+        }
+      ]
+    }
+  }
+}

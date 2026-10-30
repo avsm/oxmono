@@ -1,0 +1,69 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.git.listCommitsByRef",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "ranges": { "type": "array", "items": { "type": "string" } },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of commits to return",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "skip": {
+            "type": "integer",
+            "description": "Number of matching commits to skip. A poor man's pagination.",
+            "minimum": 0,
+            "default": 0
+          },
+          "includeStats": {
+            "type": "boolean",
+            "description": "Diff each commit against its first parent and include a line stat",
+            "default": false
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["commits"],
+          "properties": {
+            "commits": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "org.tangled.temp.git.listCommits#commit"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RefNotFound",
+          "description": "Git reference not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    }
+  }
+}

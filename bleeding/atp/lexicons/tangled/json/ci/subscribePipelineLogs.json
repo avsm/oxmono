@@ -11,7 +11,6 @@
         "properties": {
           "pipeline": {
             "type": "string",
-            "format": "tid",
             "description": "Pipeline ID"
           },
           "workflows": {
@@ -59,6 +58,11 @@
           "type": "string",
           "enum": ["system", "user"],
           "description": "Step kind"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["success", "failed"],
+          "description": "How the step ended, only set on end frames for steps that can fail"
         }
       }
     },

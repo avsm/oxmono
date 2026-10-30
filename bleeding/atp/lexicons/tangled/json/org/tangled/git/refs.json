@@ -1,0 +1,30 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.git.refs",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "literal:self",
+      "record": {
+        "type": "object",
+        "required": [
+          "defaultBranch",
+          "refs"
+        ],
+        "properties": {
+          "defaultBranch": {
+            "type": "string",
+            "description": "Default branch name without refs/heads/ prefix.",
+            "examples": ["main", "master"],
+            "maxLength": 244
+          },
+          "refs": {
+            "type": "bytes",
+            "description": "List of git refs in `git show-ref` format.",
+            "maxLength": 1000000
+          }
+        }
+      }
+    }
+  }
+}

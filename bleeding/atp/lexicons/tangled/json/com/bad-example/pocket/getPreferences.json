@@ -1,0 +1,30 @@
+{
+  "lexicon": 1,
+  "id": "com.bad-example.pocket.getPreferences",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "properties": {}
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["preferences"],
+          "properties": {
+            "preferences": {
+              "type": "ref",
+              "ref": "com.bad-example.pocket.defs#preferences"
+            },
+            "rev": {
+              "type": "string",
+              "description": "opaque revision of the stored preferences, pass as swapRev. pockets without compare-and-swap leave it out"
+            }
+          }
+        }
+      }
+    }
+  }
+}

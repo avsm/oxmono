@@ -1,0 +1,171 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.actor.defs",
+  "defs": {
+    "savedService": {
+      "type": "object",
+      "required": ["id", "value"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      }
+    },
+    "onboardingPref": {
+      "type": "object",
+      "required": ["startedAt"],
+      "properties": {
+        "startedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "completedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "nudgeDismissedAt": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    },
+    "savedKnotPref": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#savedService"
+          }
+        }
+      }
+    },
+    "savedSpindlePref": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#savedService"
+          }
+        }
+      }
+    },
+    "recentsPref": {
+      "type": "object",
+      "required": ["items"],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxLength": 5,
+          "items": {
+            "type": "union",
+            "refs": ["#recentRepo", "#recentIssue", "#recentPull"]
+          }
+        }
+      }
+    },
+    "recentRepo": {
+      "type": "object",
+      "required": ["ownerHandle", "name", "visited"],
+      "properties": {
+        "ownerHandle": {
+          "type": "string",
+          "maxLength": 253
+        },
+        "ownerDid": {
+          "type": "string",
+          "format": "did"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "visited": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    },
+    "recentIssue": {
+      "type": "object",
+      "required": [
+        "ownerHandle",
+        "repoName",
+        "title",
+        "rkey",
+        "open",
+        "visited"
+      ],
+      "properties": {
+        "ownerHandle": {
+          "type": "string",
+          "maxLength": 253
+        },
+        "repoName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "rkey": {
+          "type": "string",
+          "format": "record-key"
+        },
+        "open": {
+          "type": "boolean"
+        },
+        "visited": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    },
+    "recentPull": {
+      "type": "object",
+      "required": [
+        "ownerHandle",
+        "repoName",
+        "title",
+        "rkey",
+        "state",
+        "visited"
+      ],
+      "properties": {
+        "ownerHandle": {
+          "type": "string",
+          "maxLength": 253
+        },
+        "repoName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "rkey": {
+          "type": "string",
+          "format": "record-key"
+        },
+        "state": {
+          "type": "string",
+          "knownValues": ["open", "closed", "completed"]
+        },
+        "visited": {
+          "type": "string",
+          "format": "datetime"
+        }
+      }
+    }
+  }
+}

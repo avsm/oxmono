@@ -14,8 +14,8 @@
         "properties": {
           "repo": {
             "type": "string",
-            "format": "did",
-            "description": "DID of the repository"
+            "format": "at-uri",
+            "description": "AT-URI of the sh.tangled.repo record"
           },
           "ref": {
             "type": "string",

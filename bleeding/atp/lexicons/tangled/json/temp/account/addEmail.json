@@ -1,0 +1,26 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.account.addEmail",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Add an email address to the authenticated account. Sends a verification code; the address remains unverified until the code is submitted via verifyEmail. Calling again for an already-added unverified address resends a fresh code.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["email"],
+          "properties": {
+            "email": {
+              "type": "string",
+              "description": "Email address to add."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "EmailAlreadyRegistered", "description": "An account already exists for this email address." }
+      ]
+    }
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.git.temp2.mergeCheck",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "3-way merge check between a target branch tip (ours) and a source commit (theirs). Read-only: the merged tree is never persisted.",
+      "parameters": {
+        "type": "params",
+        "required": ["targetRepo", "targetCommit", "sourceRepo", "sourceCommit"],
+        "properties": {
+          "targetRepo": { "type": "string", "format": "did" },
+          "targetCommit": {
+            "type": "string",
+            "description": "Target branch tip to merge into (ours)"
+          },
+          "sourceRepo": { "type": "string", "format": "did" },
+          "sourceCommit": {
+            "type": "string",
+            "description": "Source commit to merge (theirs)"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["isConflicted", "conflicts"],
+          "properties": {
+            "isConflicted": {
+              "type": "boolean",
+              "description": "Whether the merge has unresolved conflicts"
+            },
+            "conflicts": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#conflict" }
+            },
+            "message": {
+              "type": "string",
+              "description": "Additional detail, e.g. unrelated histories"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RevisionNotFound",
+          "description": "One or both commits not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    },
+    "conflict": {
+      "type": "object",
+      "required": ["filename", "reason"],
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "Path of the conflicted file"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Short classification of the conflict"
+        }
+      }
+    }
+  }
+}

@@ -4,7 +4,8 @@ module Api = Tangled.Api
 
 let create_api ~sw ~env ~app_name ~pds () =
   let http = Fetch_httpz.std env in
-  Api.create ~sw ~env ~app_name ~pds ~http ()
+  let plc = Sys.getenv_opt "TANGLED_PLC" in
+  Api.create ~sw ~env ~app_name ?plc ~pds ~http ()
 
 let with_api ?(authenticated = true) env f =
   Eio.Switch.run @@ fun sw ->

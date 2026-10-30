@@ -1,0 +1,73 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.webhook.defs",
+  "defs": {
+    "eventType": {
+      "type": "string",
+      "knownValues": [
+        "push",
+        "repository:renamed",
+        "pull_request:created",
+        "pull_request:resubmitted",
+        "pull_request:merged",
+        "pull_request:closed",
+        "pull_request:reopened",
+        "org.tangled.event.pullRequest"
+      ]
+    },
+    "webhook": {
+      "type": "object",
+      "required": ["id", "url", "active", "events", "createdAt"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Webhook identifier."
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Endpoint URL that receives webhook payloads."
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether the webhook is currently enabled."
+        },
+        "events": {
+          "type": "array",
+          "description": "Event types this webhook is subscribed to.",
+          "items": {
+            "type": "ref",
+            "ref": "#eventType"
+          }
+        },
+        "createdAt": { "type": "string", "format": "datetime" },
+        "updatedAt": { "type": "string", "format": "datetime" }
+      }
+    },
+    "delivery": {
+      "type": "object",
+      "required": ["id", "webhook", "event", "url", "success", "createdAt"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique ID for tracking this delivery attempt."
+        },
+        "webhook": {
+          "type": "string",
+          "description": "ID of the webhook this delivery belongs to."
+        },
+        "event": {
+          "type": "ref",
+          "ref": "#eventType",
+          "description": "Event type that triggered the delivery."
+        },
+        "url": { "type": "string", "format": "uri" },
+        "requestBody": { "type": "bytes" },
+        "responseCode": { "type": "integer" },
+        "responseBody": { "type": "bytes" },
+        "success": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "datetime" }
+      }
+    }
+  }
+}

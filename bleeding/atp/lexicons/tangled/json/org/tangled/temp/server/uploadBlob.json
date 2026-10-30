@@ -1,0 +1,36 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.server.uploadBlob",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Upload a blob into a fostered repo on this knot. This endpoint is possible only when legacy admin secret is in use.",
+      "parameters": {
+        "type": "params",
+        "required": ["repoDid"],
+        "properties": {
+          "repoDid": {
+            "type": "string",
+            "format": "did",
+            "description": "Repo DID hosted on this knot that the blob belongs to."
+          }
+        }
+      },
+      "input": {
+        "encoding": "*/*"
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["blob"],
+          "properties": {
+            "blob": {
+              "type": "blob"
+            }
+          }
+        }
+      }
+    }
+  }
+}

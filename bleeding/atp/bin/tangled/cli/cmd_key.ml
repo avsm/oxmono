@@ -1,9 +1,9 @@
 (* SPDX-License-Identifier: ISC *)
 open Cmdliner
 module Api = Tangled.Api
-module Key = Atp_lexicon_tangled.Sh.Tangled.PublicKey
+module Key = Tangled.Api.Lex.Key.SshKey
 
-let collection = "sh.tangled.publicKey"
+let collection = "org.tangled.key.sshKey"
 
 let list =
   let action user =
@@ -12,7 +12,7 @@ let list =
             let did = Common.did api user in
             Common.print
               (Jsont.list Api.Atproto.Repo.ListRecords.record_jsont)
-              (Api.list_records api ~did ~collection)))
+              (Api.list_records api ~did ~collection ())))
   in
   Cmd.v
     (Cmd.info "list"
@@ -24,7 +24,13 @@ let add =
   let name =
     Arg.(required & opt (some string) None & info [ "name" ] ~docv:"NAME")
   in
-  let action file name =
+  let sign =
+    Arg.(
+      value & flag
+      & info [ "sign" ]
+          ~doc:"Also publish the key for commit signature verification.")
+  in
+  let action file name sign =
     Common.run (fun env ->
         let key = String.trim (Common.read_file file) in
         let words = String.split_on_char ' ' key |> List.filter (( <> ) "") in
@@ -38,7 +44,14 @@ let add =
         | _ ->
             invalid_arg
               "Expected one OpenSSH public key, not private key material");
-        let record : Key.main = { key; name; created_at = Api.now () } in
+        let record : Key.main =
+          {
+            public_key = key;
+            name;
+            usages = Some (if sign then [ "auth"; "sign" ] else [ "auth" ]);
+            created_at = Api.now ();
+          }
+        in
         let value = Api.encode Key.main_jsont record in
         Tangled.Schema.validate ~nsid:collection
           (Tangled.Schema.main collection)
@@ -49,7 +62,7 @@ let add =
   in
   Cmd.v
     (Cmd.info "add" ~doc:"Publish an SSH public key.")
-    Term.(term_result (const action $ file $ name))
+    Term.(term_result (const action $ file $ name $ sign))
 
 let remove =
   let rkey = Common.positional 0 "RKEY" "SSH key record key." in
@@ -57,7 +70,7 @@ let remove =
     Common.run (fun env ->
         Common.with_api env (fun api ->
             match
-              Api.get_record api ~did:(Api.get_did api) ~collection ~rkey
+              Api.get_record api ~did:(Api.get_did api) ~collection ~rkey ()
             with
             | None -> failwith "Key not found"
             | Some record ->

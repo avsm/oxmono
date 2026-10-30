@@ -1,0 +1,65 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.actor.defs",
+  "defs": {
+    "profileViewBasic": {
+      "type": "object",
+      "required": ["did", "handle"],
+      "properties": {
+        "did": {
+          "type": "string",
+          "format": "did"
+        },
+        "handle": {
+          "type": "string",
+          "format": "handle"
+        },
+        "avatar": {
+          "type": "string",
+          "format": "uri"
+        },
+        "avatarCid": {
+          "type": "string",
+          "format": "cid",
+          "description": "The cid of the avatar blob in the account's profile record. Absent when the record has no avatar or bobbin couldn't read it."
+        },
+        "viewer": {
+          "type": "ref",
+          "ref": "#viewerState"
+        }
+      }
+    },
+    "profileViewDetailed": {
+      "type": "object",
+      "description": "profileViewBasic + follow counts",
+      "required": ["did", "handle"],
+      "properties": {
+        "did": { "type": "string", "format": "did" },
+        "handle": { "type": "string", "format": "handle" },
+        "avatar": { "type": "string", "format": "uri" },
+        "avatarCid": {
+          "type": "string",
+          "format": "cid",
+          "description": "The cid of the avatar blob in the account's profile record. Absent when the record has no avatar or bobbin couldn't read it."
+        },
+        "followersCount": { "type": "integer" },
+        "followsCount": { "type": "integer" },
+        "viewer": { "type": "ref", "ref": "#viewerState" }
+      }
+    },
+    "viewerState": {
+      "type": "object",
+      "description": "Metadata about the requesting account's relationship with the subject account. Only has meaningful content for authed requests.",
+      "properties": {
+        "following": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "followedBy": {
+          "type": "string",
+          "format": "at-uri"
+        }
+      }
+    }
+  }
+}

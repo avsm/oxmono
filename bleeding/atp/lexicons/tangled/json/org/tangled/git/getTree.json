@@ -1,0 +1,105 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.git.getTree",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "repo"
+        ],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Git revision (branch, tag, or commit Object ID)",
+            "default": "HEAD"
+          },
+          "path": {
+            "type": "string",
+            "description": "Path within the repository tree",
+            "default": ""
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "entries"
+          ],
+          "properties": {
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#treeEntry"
+              }
+            },
+            "lastCommit": {
+              "type": "ref",
+              "ref": "org.tangled.git.defs#commit"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RefNotFound",
+          "description": "Git reference not found"
+        },
+        {
+          "name": "PathNotFound",
+          "description": "Path not found in repository tree"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    },
+    "treeEntry": {
+      "type": "object",
+      "required": [
+        "name",
+        "mode",
+        "size"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Relative file or directory name"
+        },
+        "mode": {
+          "type": "string",
+          "description": "File mode",
+          "enum": [
+            "0040000",
+            "0100644",
+            "0100755",
+            "0120000",
+            "0160000"
+          ]
+        },
+        "size": {
+          "type": "integer",
+          "description": "File size in bytes"
+        },
+        "lastCommit": {
+          "type": "ref",
+          "ref": "org.tangled.git.defs#commit"
+        }
+      }
+    }
+  }
+}

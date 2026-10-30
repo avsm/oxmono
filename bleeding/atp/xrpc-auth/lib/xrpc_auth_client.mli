@@ -66,12 +66,30 @@ val login : t -> identifier:string -> password:string -> unit
 (** [login client ~identifier ~password] authenticates with the PDS. The session
     is automatically saved to the profile directory. *)
 
+val login_oauth :
+  t ->
+  net:_ Eio.Net.t ->
+  ?plc:string ->
+  ?identifier:string ->
+  ?scope:string ->
+  open_url:(string -> unit) ->
+  unit ->
+  unit
+(** [login_oauth t ~net ~open_url ()] signs in through the PDS's OAuth
+    authorization server and saves the session, as
+    {!Xrpc_auth_oauth.authorize} describes. [scope] defaults to
+    {!Xrpc_auth_oauth.default_scope}.
+
+    @raise Failure if the account is not hosted on [t]'s PDS. *)
+
 val resume : t -> session:Xrpc_auth_session.t -> unit
 (** [resume client ~session] resumes from a saved session. Refreshes the access
-    token if needed. *)
+    token if needed. An OAuth session's requests to the PDS carry DPoP
+    proofs, and each refresh is saved. *)
 
 val logout : t -> unit
-(** [logout client] logs out and clears the session from disk. *)
+(** [logout client] logs out and clears the session from disk. An OAuth
+    session's refresh token is revoked. *)
 
 val get_session : t -> Xrpc_auth_session.t option
 (** [get_session client] returns the current session, if authenticated. *)

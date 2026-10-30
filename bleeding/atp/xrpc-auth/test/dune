@@ -1,3 +1,10 @@
 (test
  (name test_session)
+ (modules test_session)
  (libraries xrpc-auth fetch.mock eio_main unix jsont.bytesrw))
+
+(test
+ (name test_oauth)
+ (modules test_oauth)
+ (libraries xrpc-auth atp-xrpc fetch fetch.mock eio_main http jsonwt digestif
+  jsont jsont.bytesrw))

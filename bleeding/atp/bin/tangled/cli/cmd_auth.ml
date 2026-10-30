@@ -35,6 +35,58 @@ let save_password_arg =
   in
   Arg.(value & flag & info [ "save-password" ] ~doc)
 
+let oauth_arg =
+  let doc =
+    "Sign in through the PDS's OAuth server in a browser instead of with a \
+     password. The CLI asks only for the Tangled access it uses."
+  in
+  Arg.(value & flag & info [ "oauth" ] ~doc)
+
+let scope_arg =
+  let doc = "OAuth scope to request instead of the Tangled default." in
+  Arg.(value & opt (some string) None & info [ "scope" ] ~docv:"SCOPE" ~doc)
+
+let no_browser_arg =
+  let doc = "Print the OAuth URL without opening a browser." in
+  Arg.(value & flag & info [ "no-browser" ] ~doc)
+
+(* Record collections the CLI may write, and the methods it needs service
+   tokens for. Legacy sh.tangled collections are read-only here. *)
+let oauth_scope () =
+  let records =
+    List.filter_map
+      (fun (nsid, _) ->
+        if
+          String.starts_with ~prefix:"org.tangled." nsid
+          && Tangled.Schema.kind nsid = "record"
+        then Some ("collection=" ^ nsid)
+        else None)
+      Tangled.Schema.documents
+  in
+  String.concat " "
+    [
+      "atproto";
+      "repo?" ^ String.concat "&" records;
+      "rpc?"
+      ^ String.concat "&"
+          (List.map (fun m -> "lxm=" ^ m) Tangled.Api.service_methods)
+      ^ "&aud=*";
+    ]
+
+let open_url ~no_browser url =
+  Fmt.pr "Open this URL to sign in:@.  %s@." url;
+  if not no_browser then
+    let null = Unix.openfile "/dev/null" [ Unix.O_RDWR ] 0 in
+    let spawn prog =
+      ignore (Unix.create_process prog [| prog; url |] null null null)
+    in
+    Fun.protect
+      ~finally:(fun () -> Unix.close null)
+      (fun () ->
+        try spawn "xdg-open"
+        with Unix.Unix_error _ -> (
+          try spawn "open" with Unix.Unix_error _ -> ()))
+
 let prompt_or label = function
   | Some v -> v
   | None ->
@@ -50,6 +102,42 @@ let prompt_or label = function
               { original with c_echo = false };
             read_line ())
       else read_line ()
+
+let oauth_login ~pds ~handle ~scope ~no_browser env =
+  Eio.Switch.run @@ fun sw ->
+  let fs = env#fs in
+  let xdg = Xdge.create fs app_name in
+  let config = Tangled.Config.load fs xdg in
+  let handle =
+    match (handle, config, pds) with
+    | Some h, _, _ -> Some h
+    | None, _, Some _ -> None
+    | None, Some c, None -> Some c.handle
+    | None, None, None -> Some (prompt_or "Handle" None)
+  in
+  let http = Fetch_httpz.std env in
+  let plc =
+    Option.value ~default:Tangled.Api.default_plc (Sys.getenv_opt "TANGLED_PLC")
+  in
+  let pds =
+    match (handle, pds) with
+    | Some handle, _ -> (
+        match Xrpc.Identity.pds_of_handle ~plc http handle with
+        | Ok pds -> pds
+        | Error message -> failwith message)
+    | None, Some pds -> pds
+    | None, None -> assert false
+  in
+  let api = Common.create_api ~sw ~env ~app_name ~pds () in
+  let scope = match scope with Some s -> s | None -> oauth_scope () in
+  Tangled.Api.login_oauth api ~net:env#net ?identifier:handle ~scope
+    ~open_url:(open_url ~no_browser) ();
+  match Tangled.Api.get_session api with
+  | Some session ->
+      Tangled.Config.save fs xdg { handle = session.handle; pds };
+      Tangled.Config.clear_password fs xdg;
+      Fmt.pr "Logged in as %s (%s)@." session.handle session.did
+  | None -> failwith "Login failed"
 
 let login_action ~pds ~handle ~password ~save_password env =
   Eio.Switch.run @@ fun sw ->
@@ -97,14 +185,20 @@ let login_action ~pds ~handle ~password ~save_password env =
 let login_cmd =
   let doc = "Login to Tangled." in
   let info = Cmd.info "login" ~doc in
-  let login' pds handle password save_password =
+  let login' pds handle password save_password oauth scope no_browser =
     Common.run (fun env ->
-        login_action ~pds ~handle ~password ~save_password env)
+        if oauth then begin
+          if password <> None || save_password then
+            invalid_arg "--oauth does not take a password";
+          oauth_login ~pds ~handle ~scope ~no_browser env
+        end
+        else login_action ~pds ~handle ~password ~save_password env)
   in
   Cmd.v info
     Term.(
       term_result
-        (const login' $ pds $ handle_arg $ password_arg $ save_password_arg))
+        (const login' $ pds $ handle_arg $ password_arg $ save_password_arg
+       $ oauth_arg $ scope_arg $ no_browser_arg))
 
 (* Auth logout command *)
 

@@ -15,6 +15,27 @@ let create ~sw ~env ~app_name ?profile ?(plc = default_plc) ~pds ?http () =
   { client; plc = Xrpc.Client.normalize_service plc }
 
 let login t = Xrpc_auth.Client.login t.client
+
+let login_oauth t ~net ?identifier ?scope ~open_url () =
+  Xrpc_auth.Client.login_oauth t.client ~net ~plc:t.plc ?identifier ?scope
+    ~open_url ()
+
+let service_methods =
+  [
+    "com.atproto.repo.createRecord";
+    "com.atproto.repo.putRecord";
+    "com.atproto.repo.deleteRecord";
+    "org.tangled.repo.createRepo";
+    "org.tangled.repo.deleteRepo";
+    "org.tangled.review.submitPatch";
+    "org.tangled.event.notifyEvent";
+    "org.tangled.ci.cancelPipeline";
+    "org.tangled.ci.approvePipeline";
+    "org.tangled.ci.retryPipeline";
+    "org.tangled.temp.spindle.allowList.list";
+    "org.tangled.temp.spindle.allowList.add";
+    "org.tangled.temp.spindle.allowList.remove";
+  ]
 let resume t = Xrpc_auth.Client.resume t.client
 let logout t = Xrpc_auth.Client.logout t.client
 let get_session t = Xrpc_auth.Client.get_session t.client

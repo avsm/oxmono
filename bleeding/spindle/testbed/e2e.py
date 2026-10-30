@@ -4,6 +4,7 @@
 Runs in the client container of stack.yml. Every service is local: the PDS,
 PLC directory, knot, its Jetstream and the spindle."""
 
+import http.cookiejar
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 
 KNOT = "knot.tangled.test"
 # The gateway serves the knot's HTTPS name. SSH goes to the container.
@@ -25,17 +28,83 @@ def step(message):
     print(f"--- {message}", flush=True)
 
 
+def user_env(user):
+    return dict(os.environ, XDG_CONFIG_HOME=str(WORK / user / "config"),
+                XDG_STATE_HOME=str(WORK / user / "state"),
+                XDG_DATA_HOME=str(WORK / user / "data"),
+                TANGLED_PASSWORD="local-password")
+
+
 def tangled(*args, user="alice", ok=True, stdin=None):
-    env = dict(os.environ, XDG_CONFIG_HOME=str(WORK / user / "config"),
-               XDG_STATE_HOME=str(WORK / user / "state"),
-               XDG_DATA_HOME=str(WORK / user / "data"),
-               TANGLED_PASSWORD="local-password")
+    env = user_env(user)
     result = subprocess.run(["/test/tangled", *args], env=env, input=stdin,
                             capture_output=True, text=True, timeout=60)
     if (result.returncode == 0) != ok:
         raise SystemExit(f"tangled {' '.join(args)} as {user}: "
                          f"exit {result.returncode}\n{result.stdout}{result.stderr}")
     return result.stdout
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args):
+        return None
+
+
+def oauth_login(user, handle):
+    """Run tangled auth login --oauth and play the browser: sign in and
+    consent through the PDS's authorization UI API, then follow the
+    redirect to the CLI's loopback listener."""
+    env = user_env(user)
+    del env["TANGLED_PASSWORD"]
+    cli = subprocess.Popen(
+        ["/test/tangled", "auth", "login", "--oauth", "--no-browser",
+         "--handle", handle], env=env, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True)
+    url = None
+    for line in cli.stdout:
+        if line.startswith("  https://"):
+            url = line.strip()
+            break
+    if url is None:
+        raise SystemExit("tangled printed no authorization URL")
+    origin = "{0.scheme}://{0.netloc}".format(urllib.parse.urlsplit(url))
+    jar = http.cookiejar.CookieJar()
+    browser = urllib.request.build_opener(
+        urllib.request.HTTPCookieProcessor(jar), NoRedirect)
+    browser.open(urllib.request.Request(url, headers={
+        "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none",
+        "Sec-Fetch-Dest": "document"})).read()
+    csrf = next(c.value for c in jar if c.name == "csrf-token")
+
+    def api(endpoint, body):
+        request = urllib.request.Request(
+            origin + "/@atproto/oauth-provider/~api" + endpoint,
+            data=json.dumps(body).encode(), method="POST", headers={
+                "Content-Type": "application/json", "Origin": origin,
+                "Referer": url, "Sec-Fetch-Mode": "same-origin",
+                "Sec-Fetch-Site": "same-origin", "x-csrf-token": csrf})
+        return json.loads(browser.open(request).read())
+
+    account = api("/sign-in", {"locale": "en", "username": handle,
+                               "password": "local-password",
+                               "remember": True})["account"]
+    did = account.get("sub") or account["did"]
+    redirect = api("/consent", {"did": did})["url"]
+    try:
+        browser.open(urllib.request.Request(redirect, headers={
+            "Referer": url, "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "document"}))
+        raise SystemExit("authorization server did not redirect")
+    except urllib.error.HTTPError as e:
+        if e.code != 303:
+            raise
+        callback = e.headers["Location"]
+    assert callback.startswith("http://127.0.0.1:"), callback
+    urllib.request.urlopen(callback).read()
+    output = cli.stdout.read()
+    if cli.wait(timeout=60) != 0:
+        raise SystemExit(f"tangled auth login --oauth: {output}")
+    return output
 
 
 def git(*args, cwd=None):
@@ -88,10 +157,26 @@ def main():
     owner = Path("/atp/owner-did").read_text().strip()
     name = "e2e-" + secrets.token_hex(3)
 
-    step("log in and describe the services")
-    for user, handle in HANDLES.items():
-        tangled("auth", "login", "--pds", "https://pds.tangled.test",
-                "--handle", handle, user=user)
+    step("log alice in with OAuth and bob with a password")
+    assert "Logged in as " + HANDLES["alice"] in oauth_login(
+        "alice", HANDLES["alice"])
+    assert "Login: OAuth via https://pds.tangled.test" in tangled(
+        "auth", "status")
+    tangled("auth", "login", "--pds", "https://pds.tangled.test",
+            "--handle", HANDLES["bob"], user="bob")
+
+    step("an expired OAuth token is refreshed and the rotation saved")
+    saved = next((WORK / "alice" / "config").glob(
+        "tangled/profiles/*/session.json"))
+    session = json.loads(saved.read_text())
+    session["oauth"]["expires_at"] = "2000-01-01T00:00:00Z"
+    saved.write_text(json.dumps(session))
+    tangled("repo", "list", "--json")
+    refreshed = json.loads(saved.read_text())
+    assert refreshed["refresh_jwt"] != session["refresh_jwt"]
+    assert refreshed["oauth"]["expires_at"] > "2001"
+
+    step("describe the services")
     assert json.loads(tangled("knot", "describe", KNOT))["did"] == \
         "did:web:" + KNOT
     assert json.loads(tangled("spindle", "describe", SPINDLE))["did"] == \

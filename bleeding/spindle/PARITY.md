@@ -72,4 +72,5 @@ replay rejection across restart, cancellation and interrupted work. The stack
 harness runs knot2 built from the core checkout with the local PDS and PLC and
 a Jetstream on the knot's firehose. It exercises SSH pushes, manual runs,
 retry, collaborator authority, admission, issues, pull requests, approval,
-`skip-ci` and deletion through the Tangled CLI.
+`skip-ci` and deletion through the Tangled CLI. The repository owner signs in
+with OAuth and the collaborator with a password.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Add ATProto OAuth login as `Xrpc_auth.Oauth` and
+  `Xrpc_auth.Client.login_oauth`, with DPoP-bound tokens that refresh and
+  are saved in the session. `tangled auth login --oauth` uses it with a
+  scope limited to Tangled records and the methods the CLI calls.
+
 - Refresh the Tangled lexicons to 418 documents from core `a6c5b30` and move
   the CLI to `org.tangled.*`: repositories by DID with declaration and
   manifest checks, tickets, grants and manual CI runs through `notifyEvent`.

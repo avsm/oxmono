@@ -13,13 +13,22 @@ Examples below call it `tangled`.
 ## Authentication and routing
 
 ```sh
+tangled auth login --oauth --handle alice.example
 tangled auth login --pds https://your-pds.example --handle alice.example
 tangled auth status
 tangled auth profile --help
 ```
 
-Login prompts for the password without terminal echo. `TANGLED_PASSWORD` can
-supply an app password. Sessions use XDG directories and the selected auth
+`--oauth` signs in through the PDS's OAuth server. The CLI prints an
+authorization URL and opens it in a browser unless `--no-browser` is given.
+The browser returns to a listener on `127.0.0.1`. The CLI requests write
+access to the `org.tangled.*` record collections and service tokens for the
+methods it calls, and no more. `--scope` requests a different scope, such as
+`"atproto transition:generic"` for the access an app password has. The tokens
+are bound to a key saved with the session and refresh automatically.
+
+Password login prompts for the password without terminal echo.
+`TANGLED_PASSWORD` can supply an app password. Sessions use XDG directories and the selected auth
 profile. `TANGLED_PDS` selects the PDS for subsequent commands. An override
 never forwards a saved session to a different origin. `TANGLED_PLC` selects
 the PLC directory, `https://plc.directory` by default.

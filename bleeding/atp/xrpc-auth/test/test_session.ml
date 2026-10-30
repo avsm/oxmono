@@ -14,7 +14,7 @@ let () =
   Fun.protect ~finally:(fun () -> Eio.Path.rmtree Eio.Path.(env#fs / root)) @@ fun () ->
   let session : Xrpc_auth.Session.t = {access_jwt = "access"; refresh_jwt = "refresh";
     did = "did:plc:alice"; handle = "alice.example"; pds = "https://example.com";
-    created_at = "2026-01-01T00:00:00Z"} in
+    created_at = "2026-01-01T00:00:00Z"; oauth = None} in
   Xrpc_auth.Session.save env#fs ~app_name:"xrpc-test" ~profile:"alice" session;
   Xrpc_auth.Session.set_current_profile env#fs ~app_name:"xrpc-test" "alice";
   let dir = Xrpc_auth.Session.config_dir env#fs ~app_name:"xrpc-test" () in

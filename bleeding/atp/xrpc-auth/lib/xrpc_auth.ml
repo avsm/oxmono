@@ -9,5 +9,6 @@
     across multiple AT Protocol CLI applications. *)
 
 module Session = Xrpc_auth_session
+module Oauth = Xrpc_auth_oauth
 module Client = Xrpc_auth_client
 module Cmd = Xrpc_auth_cmd

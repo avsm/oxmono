@@ -38,6 +38,22 @@ val create :
 val login : t -> identifier:string -> password:string -> unit
 (** [login t ~identifier ~password] starts a PDS session and saves it. *)
 
+val login_oauth :
+  t ->
+  net:_ Eio.Net.t ->
+  ?identifier:string ->
+  ?scope:string ->
+  open_url:(string -> unit) ->
+  unit ->
+  unit
+(** [login_oauth t ~net ?identifier ?scope ~open_url ()] signs in through the
+    PDS's OAuth server and saves the session, as {!Xrpc_auth.Oauth.authorize}
+    describes. [t]'s PDS must host the account. *)
+
+val service_methods : string list
+(** [service_methods] are the methods this module asks the PDS to sign
+    service tokens for. An OAuth session needs an [rpc] scope for each. *)
+
 val resume : t -> session:Xrpc_auth.Session.t -> unit
 (** [resume t ~session] resumes a saved session, refreshing it if needed. *)
 

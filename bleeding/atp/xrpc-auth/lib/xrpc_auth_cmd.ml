@@ -188,7 +188,7 @@ let profile_list_action ~app_name env =
   end
 
 let profile_list_cmd ~app_name () =
-  let doc = "List available profiles." in
+  let doc = "List the saved logins, marking the one in use." in
   let info = Cmd.info "list" ~doc in
   let list' () = Eio_main.run @@ fun env -> profile_list_action ~app_name env in
   Cmd.v info Term.(const list' $ const ())
@@ -196,7 +196,7 @@ let profile_list_cmd ~app_name () =
 (* Profile switch command *)
 
 let profile_name_arg =
-  let doc = "Profile name to switch to." in
+  let doc = "The saved login to use, by the name list shows." in
   Arg.(required & pos 0 (some string) None & info [] ~docv:"PROFILE" ~doc)
 
 let profile_switch_action ~app_name ~profile env =
@@ -214,7 +214,7 @@ let profile_switch_action ~app_name ~profile env =
   end
 
 let profile_switch_cmd ~app_name () =
-  let doc = "Switch to a different profile." in
+  let doc = "Use another saved login from now on." in
   let info = Cmd.info "switch" ~doc in
   let switch' profile =
     Eio_main.run @@ fun env -> profile_switch_action ~app_name ~profile env
@@ -229,7 +229,7 @@ let profile_current_action ~app_name env =
   Fmt.pr "%s@." current
 
 let profile_current_cmd ~app_name () =
-  let doc = "Show current profile name." in
+  let doc = "Show the name of the saved login in use." in
   let info = Cmd.info "current" ~doc in
   let current' () =
     Eio_main.run @@ fun env -> profile_current_action ~app_name env
@@ -240,7 +240,15 @@ let profile_current_cmd ~app_name () =
 
 let profile_cmd ?(name = "profile") ~app_name () =
   let doc = "Switch between saved logins." in
-  let info = Cmd.info name ~doc in
+  let man =
+    [
+      `S Manpage.s_description;
+      `P
+        "Each login is saved under a name, usually its handle. Commands use \
+         the one in use until you switch to another.";
+    ]
+  in
+  let info = Cmd.info name ~doc ~man in
   Cmd.group info
     [
       profile_list_cmd ~app_name ();

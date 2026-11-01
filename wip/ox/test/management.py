@@ -69,6 +69,12 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
     git(root,'add','.')
     git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture')
     write(root/'wip/shared/value','uncommitted must not escape\n')
+    # Dune quoted-line strings are not ordinary S-expressions.
+    dune_project=root/'wip/shared/dune-project'
+    dune_project.write_text(dune_project.read_text()+'(package (name shared) (description\n "\\> A description with (parentheses) and an unclosed quote: \"\n))\n')
+    write(root/'wip/shared/shared.opam','opam-version: "2.0"\nversion: "1.0"\n')
+    git(root,'add','wip/shared/dune-project','wip/shared/shared.opam')
+    git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','Dune string')
     # Use an explicit fake upstream guard, preserving its build/post filters.
     guards=tmp/'guards'
     write(guards/'repo','opam-version: "2.0"\n')
@@ -97,6 +103,7 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
             assert tar.extractfile('value').read()==b'original\n'
             project=tar.extractfile('dune-project').read().decode()
             assert 'generate_opam_files false' in project
+            if unit['project']=='wip/shared': assert 'A description with (parentheses)' in project
     opam=(a/'opam-repository/packages/app/app.1.0+ox/opam').read_text()
     assert '5.2.0minus39' in opam and 'shared' in opam and '1.0+ox' in opam
     marker=(a/'opam-repository/packages/oxcaml-shared-patches/oxcaml-shared-patches.enabled/opam').read_text()

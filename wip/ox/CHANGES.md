@@ -1,5 +1,7 @@
 # Changes
 
+- Preserve Dune quoted-line strings when freezing source release metadata.
+
 - Read committed project release bases from `release-versions.json`.
 
 - Validate release plans and previous releases before export, and reject source

@@ -89,27 +89,75 @@ let metadata snapshot p =
   |> OpamFile.OPAM.with_conflicts conflicts
 
 let freeze_project path packages =
-  let open Sexplib0.Sexp in
   let file = path / "dune-project" in
-  let sexps = Parsexp.Many.parse_string_exn (read file) in
+  let text = read file in
+  let length = String.length text in
+  let depth = ref 0 and start = ref 0 and spans = ref [] in
+  let rec line_end i =
+    if i >= length || text.[i] = '\n' then i else line_end (i + 1)
+  in
+  let rec quoted i =
+    if i >= length then fail "Unterminated string in %s" file
+    else
+      match text.[i] with
+      | '\\' -> quoted (i + 2)
+      | '"' -> i + 1
+      | _ -> quoted (i + 1)
+  in
+  let rec scan i =
+    if i < length then
+      match text.[i] with
+      | ';' -> scan (line_end i)
+      | '#' when i + 1 < length && text.[i + 1] = ';' ->
+          fail "S-expression comments are unsupported in release metadata: %s"
+            file
+      | '"'
+        when i + 2 < length
+             && text.[i + 1] = '\\'
+             && (text.[i + 2] = '>' || text.[i + 2] = '|') ->
+          scan (line_end i)
+      | '"' -> scan (quoted (i + 1))
+      | '(' ->
+          if !depth = 0 then start := i;
+          incr depth;
+          scan (i + 1)
+      | ')' ->
+          decr depth;
+          if !depth < 0 then fail "Unbalanced project: %s" file;
+          if !depth = 0 then spans := (!start, i + 1) :: !spans;
+          scan (i + 1)
+      | _ -> scan (i + 1)
+  in
+  scan 0;
+  if !depth <> 0 then fail "Unbalanced project: %s" file;
+  let whitespace = function ' ' | '\n' | '\r' | '\t' -> true | _ -> false in
+  let head a b =
+    let rec skip i = if i < b && whitespace text.[i] then skip (i + 1) else i in
+    let a = skip (a + 1) in
+    let rec stop i =
+      if i < b && (not (whitespace text.[i])) && text.[i] <> ')' then
+        stop (i + 1)
+      else i
+    in
+    String.sub text a (stop a - a)
+  in
+  (* Preserve Dune's quoted-line strings and unrelated source formatting. *)
+  let buffer = Buffer.create length and cursor = ref 0 in
+  List.rev !spans
+  |> List.iter (fun (a, b) ->
+         if List.mem (head a b) [ "version"; "generate_opam_files" ] then (
+           Buffer.add_substring buffer text !cursor (a - !cursor);
+           cursor := b));
+  Buffer.add_substring buffer text !cursor (length - !cursor);
+  Buffer.add_string buffer "\n(generate_opam_files false)\n";
   let versions =
     List.map (fun p -> p.Stamp.version) packages
     |> List.sort_uniq String.compare
   in
-  let sexps =
-    List.filter
-      (function
-        | List (Atom ("generate_opam_files" | "version") :: _) -> false
-        | _ -> true)
-      sexps
-  in
-  let sexps =
-    sexps
-    @ [ List [ Atom "generate_opam_files"; Atom "false" ] ]
-    @
-    match versions with [ v ] -> [ List [ Atom "version"; Atom v ] ] | _ -> []
-  in
-  write file (String.concat "\n" (List.map to_string_hum sexps) ^ "\n")
+  (match versions with
+  | [ v ] -> Buffer.add_string buffer (Printf.sprintf "(version %S)\n" v)
+  | _ -> ());
+  write file (Buffer.contents buffer)
 
 let copy_guards repository output packages =
   (* Preserve the upstream guard chain and allow only explicit new versions. *)

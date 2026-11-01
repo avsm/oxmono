@@ -61,9 +61,10 @@ val status_cmd : app_name:string -> unit -> unit Cmd.t
 (** [status_cmd ~app_name ()] builds a status subcommand. Supports [--profile]
     to show a specific profile's status. *)
 
-val profile_cmd : app_name:string -> unit -> unit Cmd.t
-(** [profile_cmd ~app_name ()] builds a profile command group with [list],
-    [switch], and [current] subcommands. *)
+val profile_cmd : ?name:string -> app_name:string -> unit -> unit Cmd.t
+(** [profile_cmd ?name ~app_name ()] builds a command group [name], ["profile"]
+    by default, with [list], [switch], and [current] subcommands over saved
+    logins. *)
 
 val auth_cmd : app_name:string -> ?default_pds:string -> unit -> unit Cmd.t
 (** [auth_cmd ~app_name ?default_pds ()] builds a complete auth command group

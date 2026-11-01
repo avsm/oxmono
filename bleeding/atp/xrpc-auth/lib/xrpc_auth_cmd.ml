@@ -238,9 +238,9 @@ let profile_current_cmd ~app_name () =
 
 (* Profile command group *)
 
-let profile_cmd ~app_name () =
-  let doc = "Profile management commands." in
-  let info = Cmd.info "profile" ~doc in
+let profile_cmd ?(name = "profile") ~app_name () =
+  let doc = "Switch between saved logins." in
+  let info = Cmd.info name ~doc in
   Cmd.group info
     [
       profile_list_cmd ~app_name ();

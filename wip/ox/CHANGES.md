@@ -1,5 +1,8 @@
 # Changes
 
+- Version source releases as `BASE+ox-YYYYMMDD-EPOCH` using an existing Git
+  tag. Add `ox release tag` and reject tags moved after planning.
+
 - Remove Git subpaths from extracted source archives and fill missing port
   maintainers from the declared release metadata.
 

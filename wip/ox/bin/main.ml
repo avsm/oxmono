@@ -578,8 +578,8 @@ let release_cmd =
     Arg.(
       required & opt (some string) None & info [ "o"; "output" ] ~docv:"PATH")
   in
-  let ox_revision =
-    Arg.(value & opt int 1 & info [ "ox-revision" ] ~docv:"N")
+  let tag =
+    Arg.(value & opt string "" & info [ "tag" ] ~docv:"YYYYMMDD-EPOCH")
   in
   let base_url =
     Arg.(value & opt (some string) None & info [ "base-url" ] ~docv:"URL")
@@ -607,15 +607,14 @@ let release_cmd =
     | Some s -> s
     | None -> S.fail "Supply --base-url or --plan"
   in
-  let plan repo revision packages owner ox_revision base_url guard_repository
-      output =
+  let plan repo revision packages owner tag base_url guard_repository output =
     guard @@ fun () ->
     Eio_main.run @@ fun env ->
     if S.exists output then S.fail "Output already exists: %s" output;
     let json =
       Ox_lib.Release.plan
         (Eio.Stdenv.process_mgr env)
-        ~repo ~revision ~packages ~owner ~ox_revision ~base_url:(url base_url)
+        ~repo ~revision ~packages ~owner ~tag ~base_url:(url base_url)
         ~guard_repository
     in
     S.atomic_write output (OpamJson.to_string json)
@@ -625,28 +624,21 @@ let release_cmd =
       (Cmd.info "plan" ~doc:"Record a committed release request for review.")
       Term.(
         ret
-          (const plan $ repo $ revision $ roots_arg $ user_arg $ ox_revision
-         $ base_url $ guards $ output))
+          (const plan $ repo $ revision $ roots_arg $ user_arg $ tag $ base_url
+         $ guards $ output))
   in
-  let export repo revision packages owner ox_revision base_url guard_repository
-      previous plan_file output =
+  let export repo revision packages owner tag base_url guard_repository previous
+      plan_file output =
     guard @@ fun () ->
     Eio_main.run @@ fun env ->
-    let repo, revision, packages, owner, ox_revision, base_url, guard_repository
-        =
+    let repo, revision, packages, owner, tag, base_url, guard_repository =
       match plan_file with
       | None ->
-          ( repo,
-            revision,
-            packages,
-            owner,
-            ox_revision,
-            url base_url,
-            guard_repository )
+          (repo, revision, packages, owner, tag, url base_url, guard_repository)
       | Some path ->
           if
             repo <> "." || revision <> "HEAD" || packages <> [] || owner <> None
-            || ox_revision <> 1 || base_url <> None || guard_repository <> None
+            || tag <> "" || base_url <> None || guard_repository <> None
           then S.fail "--plan cannot be combined with release selection options";
           let fields =
             match OpamJson.of_string (S.read path) with
@@ -675,13 +667,7 @@ let release_cmd =
                   xs
             | _ -> S.fail "Missing plan packages"
           in
-          let ox_revision =
-            match List.assoc_opt "ox_revision" fields with
-            | Some (`Float n)
-              when n >= 1. && n <= float_of_int max_int && floor n = n ->
-                int_of_float n
-            | _ -> S.fail "Invalid OxCaml revision"
-          in
+          let tag = str "tag" in
           let guards = optional "guard_repository" in
           if Option.map S.tree_hash guards <> optional "guard_hash" then
             S.fail "Release guard inputs changed since planning";
@@ -689,13 +675,13 @@ let release_cmd =
             str "commit",
             packages,
             optional "owner",
-            ox_revision,
+            tag,
             str "base_url",
             guards )
     in
     Ox_lib.Release.export
       (Eio.Stdenv.process_mgr env)
-      ~repo ~revision ~packages ~owner ~ox_revision ~base_url ~guard_repository
+      ~repo ~revision ~packages ~owner ~tag ~base_url ~guard_repository
       ~previous ~output
   in
   let export_cmd =
@@ -704,7 +690,7 @@ let release_cmd =
          ~doc:"Export committed project archives and an opam overlay.")
       Term.(
         ret
-          (const export $ repo $ revision $ roots_arg $ user_arg $ ox_revision
+          (const export $ repo $ revision $ roots_arg $ user_arg $ tag
          $ base_url $ guards $ previous $ plan_file $ output))
   in
   let directory =
@@ -720,10 +706,39 @@ let release_cmd =
       (Cmd.info "verify" ~doc:"Verify release archive and metadata checksums.")
       Term.(ret (const verify $ directory))
   in
+  let create_tag repo revision tag =
+    guard @@ fun () ->
+    if not (Ox_lib.Release.valid_tag tag) then
+      S.fail "Supply --tag YYYYMMDD-EPOCH with a valid date and positive epoch";
+    Eio_main.run @@ fun env ->
+    let proc = Eio.Stdenv.process_mgr env in
+    if S.git proc repo [ "status"; "--porcelain" ] <> "" then
+      S.fail "Commit working-tree changes before creating a release tag";
+    S.command proc
+      [
+        "git";
+        "-C";
+        repo;
+        "tag";
+        "-a";
+        tag;
+        "-m";
+        "OxMono release " ^ tag;
+        revision;
+      ]
+  in
+  let tag_cmd =
+    Cmd.v
+      (Cmd.info "tag"
+         ~doc:
+           "Create an annotated YYYYMMDD-EPOCH release tag from committed \
+            sources.")
+      Term.(ret (const create_tag $ repo $ revision $ tag))
+  in
   Cmd.group
     (Cmd.info "release"
        ~doc:"Create and verify source releases for ordinary opam clients.")
-    [ plan_cmd; export_cmd; verify_cmd ]
+    [ tag_cmd; plan_cmd; export_cmd; verify_cmd ]
 
 let () =
   let cmd =

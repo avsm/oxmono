@@ -349,7 +349,8 @@ OxCaml repository and check out the revision in `toolchain.lock.json` before
 planning a release:
 
 ```sh
-ox release plan bytesrw --guard-repository /path/to/oxcaml-opam-repository \
+ox release tag --tag 20261101-1
+ox release plan bytesrw --tag 20261101-1 --guard-repository /path/to/oxcaml-opam-repository \
   --base-url https://downloads.example.org/releases/one --output /tmp/release.json
 ox release export --plan /tmp/release.json --output dist/one
 ox release verify dist/one
@@ -363,9 +364,14 @@ Vendor packages with unknown upstream revisions cannot be released.
 Projects need an explicit release base version; missing versions and `dev`
 placeholders are rejected. Committed `release-versions.json` can declare
 project base versions centrally, with a reason for each entry, without
-modifying imported source metadata. Versions use the package base followed by `+ox`, then `+ox2` and later revisions
-selected with `--ox-revision`. Historical `bleeding/` shared projects can also
-be selected by commit. `--previous dist/one` carries previous opam entries
+modifying imported source metadata. Versions have the form
+`BASE+ox-YYYYMMDD-EPOCH`, for example `0.4.1+ox-20261101-1`.
+Create an annotated tag with `ox release tag --tag YYYYMMDD-EPOCH` after
+committing the sources. Epochs are positive integers, incremented for another
+release on the same date. Every package in a release uses the same tag.
+Planning requires that tag to exist. Export verifies it still resolves to the
+planned commit. Historical `bleeding/` projects can also be tagged and exported.
+`--previous dist/one` carries previous opam entries
 forward and rejects changes to an existing source package/version. Keep the
 previous archives at their original URLs.
 
@@ -390,8 +396,7 @@ package requires one exact `oxmono-snapshot` policy version. Independently
 exported cohorts cannot currently be mixed in a switch, even when their
 package sets are disjoint. `--previous` retains older install choices, not
 permission to mix cohorts. It verifies the earlier release before copying
-its metadata. The current `--ox-revision` applies to the entire selected
-closure. Incremental reuse of unchanged package versions is future work.
+its metadata. The release tag applies to the entire selected closure. Incremental reuse of unchanged package versions is future work.
 
 For hosting, choose the final HTTPS base URL before planning. Upload the
 archives to that location, keeping their `sources/` paths, before making the

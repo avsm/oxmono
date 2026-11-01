@@ -1,10 +1,14 @@
+val valid_tag : string -> bool
+(** [valid_tag name] checks the calendar date and positive epoch of a release
+    tag. *)
+
 val plan :
   Support.proc ->
   repo:string ->
   revision:string ->
   packages:string list ->
   owner:string option ->
-  ox_revision:int ->
+  tag:string ->
   base_url:string ->
   guard_repository:string option ->
   OpamJson.t
@@ -17,7 +21,7 @@ val export :
   revision:string ->
   packages:string list ->
   owner:string option ->
-  ox_revision:int ->
+  tag:string ->
   base_url:string ->
   guard_repository:string option ->
   previous:string option ->
@@ -25,7 +29,8 @@ val export :
   unit
 (** [export proc ... ~output] writes deterministic project archives, an opam
     overlay and a checksum manifest from a committed revision. [output] must not
-    exist. [ox_revision] is a positive revision within each base version.
+    exist. [tag] is an existing YYYYMMDD-EPOCH Git tag. An explicit [revision]
+    must resolve to the same commit. HEAD selects the tag's commit.
     [guard_repository] must be [Some path] and supplies the pinned upstream
     guard metadata. [previous] optionally carries an earlier overlay forward.
     The caller must allocate a fresh version before changing published bytes. *)

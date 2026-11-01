@@ -31,19 +31,38 @@ let digest path = OpamHash.compute ~kind:`SHA256 path |> OpamHash.to_string
 let json_string s = `String s
 let compiler = "5.2.0minus39"
 
-let version base revision =
-  if revision < 1 then fail "OxCaml revision must be positive";
+let valid_tag tag =
+  let digits s =
+    s <> "" && String.for_all (function '0' .. '9' -> true | _ -> false) s
+  in
+  match String.split_on_char '-' tag with
+  | [ date; epoch ] when String.length date = 8 && digits date && digits epoch
+    -> (
+      match int_of_string_opt epoch with
+      | Some n when n > 0 && string_of_int n = epoch ->
+          let year = int_of_string (String.sub date 0 4) in
+          let month = int_of_string (String.sub date 4 2) in
+          let day = int_of_string (String.sub date 6 2) in
+          let leap =
+            year mod 4 = 0 && (year mod 100 <> 0 || year mod 400 = 0)
+          in
+          let days =
+            match month with
+            | 2 -> if leap then 29 else 28
+            | 4 | 6 | 9 | 11 -> 30
+            | _ -> 31
+          in
+          year > 0 && month >= 1 && month <= 12 && day >= 1 && day <= days
+      | _ -> false)
+  | _ -> false
+
+let version base tag =
   let base =
     match OpamStd.String.cut_at base '+' with
-    | Some (base, suffix)
-      when String.starts_with ~prefix:"ox" suffix
-           && String.for_all
-                (function '0' .. '9' -> true | _ -> false)
-                (String.sub suffix 2 (String.length suffix - 2)) ->
-        base
+    | Some (base, suffix) when String.starts_with ~prefix:"ox" suffix -> base
     | _ -> base
   in
-  base ^ "+ox" ^ if revision = 1 then "" else string_of_int revision
+  base ^ "+ox-" ^ tag
 
 let exact name version =
   OpamFormula.Atom
@@ -220,11 +239,18 @@ let committed_json proc root commit path =
     | Some json -> json
     | None -> fail "Invalid committed JSON: %s" path
 
-let prepare proc ~repo ~revision ~roots ~owner ~ox_revision =
+let prepare proc ~repo ~revision ~roots ~owner ~tag =
   let root = git proc repo [ "rev-parse"; "--show-toplevel" ] in
+  if not (valid_tag tag) then
+    fail "Supply --tag YYYYMMDD-EPOCH with a valid date and positive epoch";
   let commit =
-    git proc root [ "rev-parse"; "--verify"; revision ^ "^{commit}" ]
+    git proc root [ "rev-parse"; "--verify"; "refs/tags/" ^ tag ^ "^{commit}" ]
   in
+  if
+    revision <> "HEAD"
+    && git proc root [ "rev-parse"; "--verify"; revision ^ "^{commit}" ]
+       <> commit
+  then fail "Release tag %s does not match the planned commit" tag;
   let selected =
     Layout.select ~working:false ~revision:commit ~shared_only:(owner = None)
       proc ~repo:root ~owner ()
@@ -294,7 +320,7 @@ let prepare proc ~repo ~revision ~roots ~owner ~ox_revision =
            if List.mem p.Stamp.base [ "0.0.0"; "dev"; "development" ] then
              fail "Declare a release base version for %s in %s/dune-project"
                p.name p.project;
-           { p with Stamp.version = version p.Stamp.base ox_revision })
+           { p with Stamp.version = version p.Stamp.base tag })
   in
   if packages = [] then fail "No release packages selected";
   let snapshot = { selected.snapshot with Stamp.packages } in
@@ -444,8 +470,8 @@ let validate_versions guard_repository packages =
               / "opam")
           then
             fail
-              "Version %s.%s already exists in the upstream overlay; increase \
-               --ox-revision"
+              "Version %s.%s already exists in the upstream overlay; choose a \
+               new release tag"
               p.name p.version)
         packages)
     guard_repository
@@ -471,11 +497,11 @@ let validate_source stage packages =
         fail "Release metadata must be a regular file: %s" path)
     ("dune-project" :: List.map (fun p -> p.Stamp.name ^ ".opam") packages)
 
-let plan proc ~repo ~revision ~packages ~owner ~ox_revision ~base_url
-    ~guard_repository =
+let plan proc ~repo ~revision ~packages ~owner ~tag ~base_url ~guard_repository
+    =
   validate_inputs ~base_url ~guard_repository;
   let root, commit, snapshot =
-    prepare proc ~repo ~revision ~roots:packages ~owner ~ox_revision
+    prepare proc ~repo ~revision ~roots:packages ~owner ~tag
   in
   let _ = guard_lock proc root commit guard_repository in
   let _ = provenance proc root commit snapshot.Stamp.packages in
@@ -493,7 +519,7 @@ let plan proc ~repo ~revision ~packages ~owner ~ox_revision ~base_url
              (fun p -> `String (p.Stamp.name ^ "." ^ p.version))
              snapshot.packages) );
       ("owner", match owner with None -> `Null | Some s -> `String s);
-      ("ox_revision", `Float (float_of_int ox_revision));
+      ("tag", `String tag);
       ("base_url", `String base_url);
       ( "guard_repository",
         match guard_repository with
@@ -505,13 +531,13 @@ let plan proc ~repo ~revision ~packages ~owner ~ox_revision ~base_url
         | Some s -> `String (tree_hash s) );
     ]
 
-let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
+let export proc ~repo ~revision ~packages:roots ~owner ~tag ~base_url
     ~guard_repository ~previous ~output =
   validate_inputs ~base_url ~guard_repository;
   if exists output then fail "Output already exists: %s" output;
   Option.iter (fun directory -> verify proc ~directory) previous;
   let root, commit, snapshot =
-    prepare proc ~repo ~revision ~roots ~owner ~ox_revision
+    prepare proc ~repo ~revision ~roots ~owner ~tag
   in
   let maintainers =
     match committed_json proc root commit "release-versions.json" with
@@ -549,7 +575,7 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
         if exists path && read path <> text then
           fail
             "Package version already exists with different metadata: %s. \
-             Increase --ox-revision."
+             Choose a new release tag."
             path;
         write path text
       in
@@ -590,8 +616,8 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
             in
             let tree = git proc root [ "rev-parse"; commit ^ ":" ^ project ] in
             let filename =
-              name ^ "-" ^ tree ^ "-" ^ String.sub commit 0 12 ^ "-ox"
-              ^ string_of_int ox_revision ^ ".tar.gz"
+              name ^ "-" ^ tree ^ "-" ^ String.sub commit 0 12 ^ "-ox" ^ tag
+              ^ ".tar.gz"
             in
             let stage = tmp / "staging" / name in
             mkdir stage;
@@ -694,7 +720,8 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
                ("schema_version", `Float 1.);
                ("commit", json_string commit);
                ("compiler", json_string compiler);
-               ("export_recipe", `Float 1.);
+               ("export_recipe", `Float 2.);
+               ("tag", `String tag);
                ("toolchain_lock", lock);
                ("provenance", provenance);
                ( "guard_hash",

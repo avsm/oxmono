@@ -65,11 +65,11 @@ Sources: [root guard](https://github.com/oxcaml/opam-repository/blob/afddc833795
 ## Our overlay
 
 Use repository priority: our overlay, pinned OxCaml overlay, pinned public
-opam repository. Package versions start at `BASE+ox`, then advance to
-`BASE+ox2`, `BASE+ox3` as source or packaging changes. Keep the original base,
-and account for already allocated upstream-overlay versions. Never overwrite
-a source package/version with different bytes. Keep dates and commits in
-release manifests rather than the package version.
+opam repository. Package versions use `BASE+ox-YYYYMMDD-EPOCH`, preserving
+the upstream or declared base. The corresponding annotated OxMono Git tag
+identifies the source commit. Increment the positive epoch for another release
+on the same date. Never move a release tag or overwrite a source package/version
+with different bytes. Plans and manifests record both tag and full commit.
 
 Generate metadata using opam's structured types, with these rules:
 

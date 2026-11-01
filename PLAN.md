@@ -25,7 +25,7 @@ patched vendor packages needed to install them. Produce deterministic source
 archives under `dist/`, then publish those bytes to configurable storage.
 Keep package extraction separate from upload and repository publication.
 
-Use simple OxCaml package versions: `BASE+ox`, then `BASE+ox2`, `BASE+ox3`
+Use dated OxCaml package versions: `BASE+ox-YYYYMMDD-EPOCH`
 for subsequent revisions of that base. Keep commit hashes and release IDs in
 manifests. Run our own source-package overlay over the pinned OxCaml and
 public opam repositories, with the compiler fixed at minus39. The immediate
@@ -512,17 +512,13 @@ build configuration, licenses and required generated assets.
 
 ### Versioning
 
-Use the overlay's simple `+ox` convention for every exported source package.
-For example, Digestif starts at `1.4.0+ox`; changed source or packaging under
-the same base becomes `1.4.0+ox2`. Preserve the upstream or declared first-party
-base. Do not add date, publisher or commit components to package versions.
-If a version already exists with different bytes in our overlay or the pinned
-OxCaml overlay, allocate the next unused revision rather than overwrite it.
-Do not append `+ox` repeatedly to versions already carrying an OxCaml suffix.
-
-Release manifests can retain `YYYYMMDD-N` IDs for grouping artifacts, independent
-of package versions. Record full commits and hashes there. Re-running the same
-plan must reproduce its metadata and bytes without allocating new revisions.
+Use `BASE+ox-YYYYMMDD-EPOCH` for every exported source package, such as
+`0.4.1+ox-20261101-1`. Preserve the upstream or declared first-party base.
+Create one annotated `YYYYMMDD-EPOCH` Git tag for the source snapshot and use
+it for every package in that release. The positive epoch increases for another
+release on the same date. Never move an existing tag or overwrite published
+package bytes. Record the full commit and checksums in the release manifest.
+Plans bind the tag to its commit and reject moved tags during export.
 Keep the existing personal `ox stamp` behavior until its callers migrate.
 
 The suffix is part of opam's version ordering, not ignored SemVer metadata.
@@ -714,7 +710,7 @@ Confirmed on 2026-11-01:
   owner designates an upstream.
 - Initial targets are Linux amd64 and arm64. Prioritise runnable binaries and
   per-user containers. Binary package publication is out of scope for now.
-- Maintain our own source opam overlay, use `BASE+ox` / `BASE+oxN` package
+- Maintain our own source opam overlay, use `BASE+ox-YYYYMMDD-EPOCH` package
   versions, pin minus39 and integrate the upstream patch guards.
 
 Proceed with glibc-based runtime images and bundled dependencies. Fully static

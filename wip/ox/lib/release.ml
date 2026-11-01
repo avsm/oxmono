@@ -152,6 +152,17 @@ let copy_guards repository output packages =
           (sorted_dir dir))
     packages
 
+let committed_json proc root commit path =
+  let files = git proc root [ "ls-tree"; "--name-only"; commit; "--"; path ] in
+  if files = "" then `Null
+  else
+    match
+      OpamJson.of_string
+        (capture proc [ "git"; "-C"; root; "show"; commit ^ ":" ^ path ])
+    with
+    | Some json -> json
+    | None -> fail "Invalid committed JSON: %s" path
+
 let prepare proc ~repo ~revision ~roots ~owner ~ox_revision =
   let root = git proc repo [ "rev-parse"; "--show-toplevel" ] in
   let commit =
@@ -161,7 +172,28 @@ let prepare proc ~repo ~revision ~roots ~owner ~ox_revision =
     Layout.select ~working:false ~revision:commit ~shared_only:(owner = None)
       proc ~repo:root ~owner ()
   in
-  let all = selected.snapshot.Stamp.packages in
+  let release_versions =
+    match committed_json proc root commit "release-versions.json" with
+    | `Null -> []
+    | `O fields when List.assoc_opt "schema_version" fields = Some (`Float 1.)
+      -> (
+        match List.assoc_opt "projects" fields with
+        | Some (`O projects) -> projects
+        | _ -> fail "Missing release version projects")
+    | _ -> fail "Invalid release-versions.json"
+  in
+  let all =
+    List.map
+      (fun p ->
+        match List.assoc_opt p.Stamp.project release_versions with
+        | None -> p
+        | Some (`O fields) -> (
+            match List.assoc_opt "base_version" fields with
+            | Some (`String base) when base <> "" -> { p with Stamp.base }
+            | _ -> fail "Missing release base for %s" p.project)
+        | _ -> fail "Invalid release base for %s" p.project)
+      selected.snapshot.Stamp.packages
+  in
   let roots =
     if roots <> [] then roots
     else
@@ -210,17 +242,6 @@ let prepare proc ~repo ~revision ~roots ~owner ~ox_revision =
   if packages = [] then fail "No release packages selected";
   let snapshot = { selected.snapshot with Stamp.packages } in
   (root, commit, snapshot)
-
-let committed_json proc root commit path =
-  let files = git proc root [ "ls-tree"; "--name-only"; commit; "--"; path ] in
-  if files = "" then `Null
-  else
-    match
-      OpamJson.of_string
-        (capture proc [ "git"; "-C"; root; "show"; commit ^ ":" ^ path ])
-    with
-    | Some json -> json
-    | None -> fail "Invalid committed JSON: %s" path
 
 let guard_lock proc root commit guard_repository =
   let lock = committed_json proc root commit "toolchain.lock.json" in
@@ -277,35 +298,69 @@ let provenance proc root commit packages =
          | _ -> fail "Missing vendor provenance for %s" name)
        names)
 
-let plan proc ~repo ~revision ~packages ~owner ~ox_revision ~base_url
-    ~guard_repository =
-  let root, commit, snapshot =
-    prepare proc ~repo ~revision ~roots:packages ~owner ~ox_revision
+let verify _proc ~directory =
+  let obj = function
+    | `O fields -> fields
+    | _ -> fail "Expected manifest object"
   in
-  let _ = guard_lock proc root commit guard_repository in
-  let _ = provenance proc root commit snapshot.Stamp.packages in
-  `O
-    [
-      ("schema_version", `Float 1.);
-      ("repo", `String root);
-      ("commit", `String commit);
-      ( "packages",
-        `A (List.map (fun p -> `String p.Stamp.name) snapshot.packages) );
-      ("owner", match owner with None -> `Null | Some s -> `String s);
-      ("ox_revision", `Float (float_of_int ox_revision));
-      ("base_url", `String base_url);
-      ( "guard_repository",
-        match guard_repository with
-        | None -> `Null
-        | Some s -> `String (Unix.realpath s) );
-      ( "guard_hash",
-        match guard_repository with
-        | None -> `Null
-        | Some s -> `String (tree_hash s) );
-    ]
+  let str fields name =
+    match List.assoc_opt name fields with
+    | Some (`String s) -> s
+    | _ -> fail "Missing manifest field %s" name
+  in
+  let arr fields name =
+    match List.assoc_opt name fields with
+    | Some (`A xs) -> xs
+    | _ -> fail "Missing manifest array %s" name
+  in
+  let fields =
+    match OpamJson.of_string (read (directory / "manifest.json")) with
+    | Some json -> obj json
+    | None -> fail "Invalid release manifest"
+  in
+  if List.assoc_opt "schema_version" fields <> Some (`Float 1.) then
+    fail "Unsupported release manifest schema";
+  if str fields "compiler" <> compiler then fail "Unsupported release compiler";
+  if arr fields "archives" = [] || arr fields "metadata" = [] then
+    fail "Empty release manifest";
+  let root = Unix.realpath directory in
+  let check field record =
+    let fields = obj record in
+    let path = str fields field in
+    if
+      (not (Filename.is_relative path))
+      || List.exists (( = ) "..") (String.split_on_char '/' path)
+    then fail "Unsafe manifest path %s" path;
+    let actual = Unix.realpath (directory / path) in
+    if not (String.starts_with ~prefix:(root ^ "/") actual) then
+      fail "Manifest link escapes release: %s" path;
+    if digest (directory / path) <> str fields "checksum" then
+      fail "Checksum mismatch: %s" path
+  in
+  List.iter (check "archive") (arr fields "archives");
+  List.iter (check "path") (arr fields "metadata");
+  let expected =
+    List.map (fun r -> str (obj r) "archive") (arr fields "archives")
+    @ List.map (fun r -> str (obj r) "path") (arr fields "metadata")
+    |> List.sort String.compare
+  in
+  let rec files rel =
+    sorted_dir (directory / rel)
+    |> List.concat_map (fun name ->
+           let path = rel / name in
+           match (Unix.lstat (directory / path)).Unix.st_kind with
+           | Unix.S_DIR -> files path
+           | Unix.S_REG -> [ path ]
+           | _ -> fail "Unexpected release entry: %s" path)
+  in
+  let actual =
+    files "sources" @ files "opam-repository" |> List.sort String.compare
+  in
+  if actual <> expected then
+    fail "Release contains missing, duplicate or unrecorded files";
+  log "Verified release %s" (str fields "commit")
 
-let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
-    ~guard_repository ~previous ~output =
+let validate_inputs ~base_url ~guard_repository =
   if guard_repository = None then
     fail
       "Source exports require --guard-repository with the pinned OxCaml overlay";
@@ -314,18 +369,13 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
       if not (exists (path / "repo")) then
         fail "Not an opam guard repository: %s" path)
     guard_repository;
-  if exists output then fail "Output already exists: %s" output;
   if
     not
       (String.starts_with ~prefix:"https://" base_url
       || String.starts_with ~prefix:"file://" base_url)
-  then fail "Archive base URL must use https:// or file://";
-  let root, commit, snapshot =
-    prepare proc ~repo ~revision ~roots ~owner ~ox_revision
-  in
-  let lock = guard_lock proc root commit guard_repository in
-  let packages = snapshot.Stamp.packages in
-  let provenance = provenance proc root commit packages in
+  then fail "Archive base URL must use https:// or file://"
+
+let validate_versions guard_repository packages =
   Option.iter
     (fun path ->
       List.iter
@@ -341,7 +391,75 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
                --ox-revision"
               p.name p.version)
         packages)
-    guard_repository;
+    guard_repository
+
+let validate_source stage packages =
+  let root = Unix.realpath stage in
+  let rec walk path =
+    match (Unix.lstat path).Unix.st_kind with
+    | Unix.S_DIR -> List.iter (fun name -> walk (path / name)) (sorted_dir path)
+    | Unix.S_REG -> ()
+    | Unix.S_LNK ->
+        let target = Unix.realpath path in
+        if
+          (not (Filename.is_relative (Unix.readlink path)))
+          || not (String.starts_with ~prefix:(root ^ "/") target)
+        then fail "Source symlink escapes project: %s" path
+    | _ -> fail "Unsupported source entry: %s" path
+  in
+  walk stage;
+  List.iter
+    (fun path ->
+      if (Unix.lstat (stage / path)).Unix.st_kind <> Unix.S_REG then
+        fail "Release metadata must be a regular file: %s" path)
+    ("dune-project" :: List.map (fun p -> p.Stamp.name ^ ".opam") packages)
+
+let plan proc ~repo ~revision ~packages ~owner ~ox_revision ~base_url
+    ~guard_repository =
+  validate_inputs ~base_url ~guard_repository;
+  let root, commit, snapshot =
+    prepare proc ~repo ~revision ~roots:packages ~owner ~ox_revision
+  in
+  let _ = guard_lock proc root commit guard_repository in
+  let _ = provenance proc root commit snapshot.Stamp.packages in
+  validate_versions guard_repository snapshot.packages;
+  `O
+    [
+      ("schema_version", `Float 1.);
+      ("repo", `String root);
+      ("commit", `String commit);
+      ( "packages",
+        `A (List.map (fun p -> `String p.Stamp.name) snapshot.packages) );
+      ( "versions",
+        `A
+          (List.map
+             (fun p -> `String (p.Stamp.name ^ "." ^ p.version))
+             snapshot.packages) );
+      ("owner", match owner with None -> `Null | Some s -> `String s);
+      ("ox_revision", `Float (float_of_int ox_revision));
+      ("base_url", `String base_url);
+      ( "guard_repository",
+        match guard_repository with
+        | None -> `Null
+        | Some s -> `String (Unix.realpath s) );
+      ( "guard_hash",
+        match guard_repository with
+        | None -> `Null
+        | Some s -> `String (tree_hash s) );
+    ]
+
+let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
+    ~guard_repository ~previous ~output =
+  validate_inputs ~base_url ~guard_repository;
+  if exists output then fail "Output already exists: %s" output;
+  Option.iter (fun directory -> verify proc ~directory) previous;
+  let root, commit, snapshot =
+    prepare proc ~repo ~revision ~roots ~owner ~ox_revision
+  in
+  let lock = guard_lock proc root commit guard_repository in
+  let packages = snapshot.Stamp.packages in
+  let provenance = provenance proc root commit packages in
+  validate_versions guard_repository packages;
   let projects =
     List.map (fun p -> p.Stamp.project) packages
     |> List.sort_uniq String.compare
@@ -395,7 +513,10 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
             let unit_packages =
               List.filter (fun p -> p.Stamp.project = project) packages
             in
-            let name = String.concat "-" (String.split_on_char '/' project) in
+            let name =
+              String.concat "-" (String.split_on_char '/' project)
+              ^ "-" ^ hash project
+            in
             let tree = git proc root [ "rev-parse"; commit ^ ":" ^ project ] in
             let filename =
               name ^ "-" ^ tree ^ "-" ^ String.sub commit 0 12 ^ "-ox"
@@ -416,6 +537,7 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
                 commit ^ ":" ^ project;
               ];
             command proc [ "tar"; "-xf"; raw; "-C"; stage ];
+            validate_source stage unit_packages;
             freeze_project stage unit_packages;
             if not (exists (stage / "dune-workspace")) then
               write (stage / "dune-workspace")
@@ -511,65 +633,3 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
                ("archives", `A records);
                ("metadata", `A metadata_files);
              ])))
-
-let verify _proc ~directory =
-  let obj = function
-    | `O fields -> fields
-    | _ -> fail "Expected manifest object"
-  in
-  let str fields name =
-    match List.assoc_opt name fields with
-    | Some (`String s) -> s
-    | _ -> fail "Missing manifest field %s" name
-  in
-  let arr fields name =
-    match List.assoc_opt name fields with
-    | Some (`A xs) -> xs
-    | _ -> fail "Missing manifest array %s" name
-  in
-  let fields =
-    match OpamJson.of_string (read (directory / "manifest.json")) with
-    | Some json -> obj json
-    | None -> fail "Invalid release manifest"
-  in
-  if List.assoc_opt "schema_version" fields <> Some (`Float 1.) then
-    fail "Unsupported release manifest schema";
-  if str fields "compiler" <> compiler then fail "Unsupported release compiler";
-  if arr fields "archives" = [] || arr fields "metadata" = [] then
-    fail "Empty release manifest";
-  let root = Unix.realpath directory in
-  let check field record =
-    let fields = obj record in
-    let path = str fields field in
-    if
-      (not (Filename.is_relative path))
-      || List.exists (( = ) "..") (String.split_on_char '/' path)
-    then fail "Unsafe manifest path %s" path;
-    let actual = Unix.realpath (directory / path) in
-    if not (String.starts_with ~prefix:(root ^ "/") actual) then
-      fail "Manifest link escapes release: %s" path;
-    if digest (directory / path) <> str fields "checksum" then
-      fail "Checksum mismatch: %s" path
-  in
-  List.iter (check "archive") (arr fields "archives");
-  List.iter (check "path") (arr fields "metadata");
-  let expected =
-    List.map (fun r -> str (obj r) "archive") (arr fields "archives")
-    @ List.map (fun r -> str (obj r) "path") (arr fields "metadata")
-    |> List.sort String.compare
-  in
-  let rec files rel =
-    sorted_dir (directory / rel)
-    |> List.concat_map (fun name ->
-           let path = rel / name in
-           match (Unix.lstat (directory / path)).Unix.st_kind with
-           | Unix.S_DIR -> files path
-           | Unix.S_REG -> [ path ]
-           | _ -> fail "Unexpected release entry: %s" path)
-  in
-  let actual =
-    files "sources" @ files "opam-repository" |> List.sort String.compare
-  in
-  if actual <> expected then
-    fail "Release contains missing, duplicate or unrecorded files";
-  log "Verified release %s" (str fields "commit")

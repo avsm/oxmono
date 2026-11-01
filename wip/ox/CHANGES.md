@@ -1,5 +1,10 @@
 # Changes
 
+- Read committed project release bases from `release-versions.json`.
+
+- Validate release plans and previous releases before export, and reject source
+  links before rewriting metadata. Keep distinct project archive paths unique.
+
 - Add isolated owner workspaces, owner templates, install bundles and Linux
   image commands using pinned minus39 repositories.
 - Export deterministic committed source releases and cumulative opam overlays

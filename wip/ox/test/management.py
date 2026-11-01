@@ -77,6 +77,9 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
     def export(out):
         call(root,'release','export','--user','alice','--base-url','https://example.invalid/releases/one',
              '--guard-repository',guards,'--output',out)
+    call(root,'release','plan','--user','alice','--base-url','https://example.invalid','--output',tmp/'missing-guards',ok=False)
+    call(root,'release','plan','--user','alice','--base-url','http://example.invalid',
+         '--guard-repository',guards,'--output',tmp/'bad-url',ok=False)
     a,b=tmp/'one',tmp/'two'
     export(a)
     plan=tmp/'plan.json'
@@ -131,6 +134,9 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
     assert not (tmp/'collision').exists()
     with (a/manifest['archives'][0]['archive']).open('ab') as f:f.write(b'bad')
     assert 'Checksum mismatch' in call(root,'release','verify',a,ok=False).stderr
+    assert 'Checksum mismatch' in call(root,'release','export','--user','alice',
+        '--base-url','https://example.invalid/next','--guard-repository',guards,
+        '--previous',a,'--ox-revision','3','--output',tmp/'corrupt-previous',ok=False).stderr
     # New owners get a concrete executable and substituted container recipe.
     write(root/'tools/user-template/Dockerfile', 'owner @OWNER@\n')
     write(root/'tools/user-template/Dockerfile.dockerignore', '!u/@OWNER@/**\n')
@@ -138,6 +144,27 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
     assert (root/'u/charlie/Dockerfile').read_text()=='owner charlie\n'
     assert (root/'u/charlie/hello/hello-charlie.opam').exists()
     call(root,'init','--user','charlie',ok=False)
+    # Flattened project names must not share an extraction directory.
+    pkg('wip/a-b','flat')
+    pkg('wip/a/b','nested')
+    write(root/'wip/a-b/only-flat','must not leak\n')
+    git(root,'add','.')
+    git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','paths')
+    paths=tmp/'paths'
+    call(root,'release','export','flat','nested','--base-url','https://example.invalid/paths',
+         '--guard-repository',guards,'--output',paths)
+    for unit in json.loads((paths/'manifest.json').read_text())['archives']:
+        with tarfile.open(paths/unit['archive']) as tar:
+            assert ('only-flat' in tar.getnames()) == (unit['project']=='wip/a-b')
+    # Release bases can be declared centrally without modifying vendored sources.
+    write(root/'release-versions.json',json.dumps({'schema_version':1,'projects':{
+        'wip/a-b':{'base_version':'2.1.0','reason':'Initial port release'}}}))
+    git(root,'add','release-versions.json')
+    git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','release base')
+    overrides=tmp/'overrides'
+    call(root,'release','export','flat','--base-url','https://example.invalid/overrides',
+         '--guard-repository',guards,'--output',overrides)
+    assert (overrides/'opam-repository/packages/flat/flat.2.1.0+ox/opam').exists()
     # Reject source links which could pull data from outside a release unit.
     (root/'wip/shared/escape').symlink_to('/etc/passwd')
     git(root,'add','wip/shared/escape')
@@ -145,4 +172,18 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
     call(root,'release','export','--user','alice','--base-url','https://example.invalid',
          '--guard-repository',guards,'--output',tmp/'bad',ok=False)
     assert not (tmp/'bad').exists()
+    (root/'wip/shared/escape').unlink()
+    victim=tmp/'untouched-project'
+    victim.write_text('(lang dune 3.21)\n(name shared)\n(version 1.0)\n')
+    (root/'wip/shared/dune-project').unlink()
+    (root/'wip/shared/dune-project').symlink_to(victim)
+    # A version in the opam file lets discovery reach the extraction check.
+    write(root/'wip/shared/shared.opam','opam-version: "2.0"\nversion: "1.0"\n')
+    git(root,'add','.')
+    git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','metadata link')
+    before=victim.read_bytes()
+    call(root,'release','export','--user','alice','--base-url','https://example.invalid',
+         '--guard-repository',guards,'--output',tmp/'metadata-link',ok=False)
+    assert victim.read_bytes()==before
+
 print('ox management: isolated owners, committed deterministic exports, guards and verification: OK')

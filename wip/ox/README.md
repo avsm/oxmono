@@ -361,7 +361,9 @@ The output contains deterministic `sources/*.tar.gz`, `opam-repository/` and
 package closure and guard content hash. Export requires the guard repository at the locked revision with a clean tree.
 Vendor packages with unknown upstream revisions cannot be released.
 Projects need an explicit release base version; missing versions and `dev`
-placeholders are rejected. Versions use the package base followed by `+ox`, then `+ox2` and later revisions
+placeholders are rejected. Committed `release-versions.json` can declare
+project base versions centrally, with a reason for each entry, without
+modifying imported source metadata. Versions use the package base followed by `+ox`, then `+ox2` and later revisions
 selected with `--ox-revision`. Historical `bleeding/` shared projects can also
 be selected by commit. `--previous dist/one` carries previous opam entries
 forward and rejects changes to an existing source package/version. Keep the
@@ -375,3 +377,25 @@ Verification checks archive and metadata hashes, not buildability. Validate
 extracted packages and both Linux architectures before publishing. Uploads,
 remote publication and recovery of unknown vendor provenance remain separate
 release work; these commands do not publish anything.
+
+For a local trial, use `--base-url "file://$PWD/dist/local-1"` and export to
+`dist/local-1`. Register its `opam-repository` directory with opam, followed by
+the two repositories at the revisions recorded in `toolchain.lock.json`.
+Create a separate switch with those repositories in that priority order and
+compiler `oxcaml-compiler.5.2.0minus39`. The exported repository contains only
+our packages and guard overrides, so it needs both external repositories.
+
+Select packages you want to install together in one export. Each source
+package requires one exact `oxmono-snapshot` policy version. Independently
+exported cohorts cannot currently be mixed in a switch, even when their
+package sets are disjoint. `--previous` retains older install choices, not
+permission to mix cohorts. It verifies the earlier release before copying
+its metadata. The current `--ox-revision` applies to the entire selected
+closure. Incremental reuse of unchanged package versions is future work.
+
+For hosting, choose the final HTTPS base URL before planning. Upload the
+archives to that location, keeping their `sources/` paths, before making the
+opam repository available. Keep old archive URLs working for cumulative
+repositories. Switching a local trial to HTTPS requires a new export because
+URLs are part of package metadata. `release verify` checks bytes and inventory;
+it does not perform an opam solve or build the selected closure.

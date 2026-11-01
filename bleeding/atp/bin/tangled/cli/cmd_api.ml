@@ -116,7 +116,7 @@ let call_cmd =
     Common.run (fun env ->
         call_action env ~nsid ~service ~auth ~audience ~input ~params)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "call"
        ~doc:"Call a vendored API, including binary responses and subscriptions.")
     Term.(
@@ -124,7 +124,7 @@ let call_cmd =
         (const action $ nsid $ service $ auth $ Common.audience $ input $ params))
 
 let schema_cmd =
-  Cmd.v
+  Common.cmd
     (Cmd.info "schema" ~doc:"Print a vendored lexicon without network access.")
     Term.(
       term_result
@@ -203,7 +203,7 @@ let tree nsids =
 
 let list_cmd =
   let prefix = Arg.(value & pos 0 string "" & info [] ~docv:"PREFIX") in
-  Cmd.v
+  Common.cmd
     (Cmd.info "list"
        ~doc:"List all vendored APIs, records and definitions offline.")
     Term.(

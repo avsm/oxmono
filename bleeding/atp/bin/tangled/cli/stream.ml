@@ -11,8 +11,23 @@ let subscribe env ~service ~nsid ~params consume =
       "wss:" ^ String.sub url 6 (String.length url - 6)
     else "ws:" ^ String.sub url 5 (String.length url - 5)
   in
-  Httpz_websocket_eio.with_connection ~max_message:(1024 * 1024) env url
+  let start = Unix.gettimeofday () in
+  let trace ?status () =
+    let host = Tangled.Api.service_host service in
+    let target =
+      "/xrpc/" ^ nsid ^ "?"
+      ^ String.concat "&" (List.map (fun (k, v) -> k ^ "=" ^ v) params)
+    in
+    Xrpc.Trace.exchange ~meth:"GET" ~host ~target ?status
+      ~elapsed:(Unix.gettimeofday () -. start) ()
+  in
+  (try
+     Httpz_websocket_eio.with_connection ~max_message:(1024 * 1024) env url
+   with ex ->
+     trace ();
+     raise ex)
   @@ fun socket ->
+  trace ~status:101 ();
   let receive kind bytes ~off ~len =
     if kind <> Httpz_websocket.Binary then
       invalid_arg "Expected an XRPC binary event";

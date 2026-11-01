@@ -24,6 +24,9 @@ depends: [
   "ptime" {>= "1.0"}
   "cmdliner" {>= "1.2"}
   "eio_main"
+  "console"
+  "console-eio"
+  "logs"
   "fmt"
   "odoc" {with-doc}
 ]

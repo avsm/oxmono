@@ -626,9 +626,18 @@ let remove_collaborator t repository subject =
         ~rkey:subject ~swap_record:(cid_of r)
 
 let knot_members t ~knot =
-  list_records t ~service:(service_url knot) ~did:(service_did knot)
-    ~collection:member_collection ()
-  |> List.map (fun (r : Atproto.Repo.ListRecords.record) -> rkey_of_uri r.uri)
+  (* The knot's own repository exists only once it holds a record. *)
+  match
+    list_records t ~service:(service_url knot) ~did:(service_did knot)
+      ~collection:member_collection ()
+  with
+  | records ->
+      List.map
+        (fun (r : Atproto.Repo.ListRecords.record) -> rkey_of_uri r.uri)
+        records
+  | exception
+      Eio.Io (Xrpc.Error.E (Xrpc_error { error = "RepoNotFound"; _ }), _) ->
+      []
 
 let knot_client t ~knot ?audience nsid =
   service_client t ~service:knot ?audience ~nsid ()

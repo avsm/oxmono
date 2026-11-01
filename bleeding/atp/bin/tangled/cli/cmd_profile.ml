@@ -100,7 +100,7 @@ let view_action ~user env =
 let view_cmd =
   let doc = "View a user's Tangled profile." in
   let info = Cmd.info "view" ~doc in
-  Cmd.v info
+  Common.cmd info
     Term.(
       term_result
         (const (fun user -> Common.run (fun env -> view_action ~user env))
@@ -130,7 +130,7 @@ let keys_action ~user env =
 let keys_cmd =
   let doc = "List a user's SSH public keys." in
   let info = Cmd.info "keys" ~doc in
-  Cmd.v info
+  Common.cmd info
     Term.(
       term_result
         (const (fun user -> Common.run (fun env -> keys_action ~user env))

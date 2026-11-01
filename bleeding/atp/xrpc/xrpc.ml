@@ -9,6 +9,7 @@ module Types = Xrpc_types
 module Client = Xrpc_client
 module Credential = Xrpc_cred
 module Identity = Xrpc_identity
+module Trace = Xrpc_trace
 
 type client = Xrpc_client.t
 type session = Xrpc_types.session

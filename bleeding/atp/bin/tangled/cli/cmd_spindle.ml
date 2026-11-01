@@ -22,7 +22,7 @@ let describe_cmd =
           Ui.service ~kind:"Spindle" ~host:spindle ~did:d.did ~version:d.version
             ~capabilities:d.capabilities ~contact:(Common.email d.contact))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "describe"
        ~doc:"Show a spindle's DID, version and capabilities. Pipes get JSON.")
     Term.(term_result (const action $ spindle $ Common.json_flag))
@@ -50,7 +50,7 @@ let members_cmd =
         if rich then Ui.accounts "Allowed owners" accounts
         else Common.json list)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "members"
        ~doc:"List the spindle's allow-list. Log in as a spindle admin.")
     Term.(
@@ -67,7 +67,7 @@ let change name ~add =
         if add then Ui.ok "%s may now run CI on %s" subject spindle
         else Ui.ok "%s may no longer run CI on %s" subject spindle)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info name
        ~doc:
          (if add then "Admit a repository owner to the spindle."

@@ -123,7 +123,7 @@ let show name =
         else if Ui.tty () then show_pipeline value
         else Fmt.pr "%a" pp_pipeline value)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info name ~doc:"Show a pipeline and its workflow statuses.")
     Term.(
       term_result (const action $ pipeline $ repo $ spindle $ Common.json_flag))
@@ -183,7 +183,7 @@ let list_cmd =
           Option.iter (fun c -> Fmt.pr "Next cursor: %s@." c) page.cursor
         end)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "list" ~doc:"Query pipelines with filters and pagination.")
     Term.(
       term_result
@@ -207,7 +207,7 @@ let trigger_cmd =
                  ?workflows:(Common.nonempty workflows)
                  ~inputs ())))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "trigger"
        ~doc:"Run workflows at an explicit commit. Prints the pipeline IDs.")
     Term.(
@@ -227,7 +227,7 @@ let retry_cmd =
         in
         if Ui.tty () then Ui.ok "Started pipeline %s" id else print_endline id)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "retry" ~doc:"Run a pipeline again as a new pipeline.")
     Term.(
       term_result
@@ -244,7 +244,7 @@ let cancel_cmd =
               ());
         Ui.ok "Cancelled pipeline %s" pipeline)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "cancel" ~doc:"Cancel a pipeline or selected workflows.")
     Term.(
       term_result
@@ -259,7 +259,7 @@ let approve_cmd =
             Api.approve_pipeline api ~spindle ?audience ~repo ~pipeline ());
         Ui.ok "Approved pipeline %s" pipeline)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "approve" ~doc:"Approve a pipeline blocked for review.")
     Term.(
       term_result (const action $ pipeline $ repo $ spindle $ Common.audience))
@@ -301,7 +301,7 @@ let logs_cmd =
               flush channel
             end))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "logs"
        ~doc:"Stream workflow logs, preserving partial lines and stderr.")
     Term.(
@@ -335,7 +335,7 @@ let definitions_cmd =
                  ])
                workflows))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "definitions"
        ~doc:"List the workflows a spindle would run. Pipes get JSON.")
     Term.(term_result (const action $ repo $ spindle $ ref_ $ Common.json_flag))

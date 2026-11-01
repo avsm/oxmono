@@ -39,7 +39,8 @@
   (ptime (>= 1.0))
   uriz
   (eio (>= 1.0))
-  fmt))
+  fmt
+  logs))
 
 (package
  (name xrpc-auth)
@@ -61,6 +62,9 @@
   (ptime (>= 1.0))
   (cmdliner (>= 1.2))
   eio_main
+  console
+  console-eio
+  logs
   fmt))
 
 (package

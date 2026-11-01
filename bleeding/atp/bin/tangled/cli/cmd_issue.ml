@@ -95,7 +95,7 @@ let list ~pulls =
                 t.target_branch)
             tickets)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "list" ~doc:"List tickets in the repository account.")
     Term.(
       term_result
@@ -113,7 +113,7 @@ let show =
             Common.print Ticket.main_jsont t
         | Some t -> show_ticket rkey t)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "show" ~doc:"Show one ticket. Pipes get JSON.")
     Term.(
       term_result (const action $ repo $ rkey $ Common.knot $ Common.json_flag))
@@ -153,7 +153,7 @@ let create ~pulls =
             created.uri
         else Common.print Api.Atproto.Repo.CreateRecord.output_jsont created)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "create"
        ~doc:"Open a ticket. The knot writes it into the repository account.")
     Term.(
@@ -168,7 +168,7 @@ let state name value =
               ~rkey value);
         Ui.ok "Ticket #%s is now %s" rkey value)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info name
        ~doc:
          ("Set a ticket's state to " ^ value ^ ". The knot checks authority."))
@@ -199,7 +199,7 @@ let submit =
             (Ui.short_sha head) rkey
         else Common.print Api.Lex.Review.SubmitPatch.output_jsont submitted)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "submit" ~doc:"Submit a revision of a pull request.")
     Term.(
       term_result

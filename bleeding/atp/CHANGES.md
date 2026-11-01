@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Add `Xrpc.Trace`, which logs each HTTP exchange with its XRPC method,
+  status and time, and `Xrpc_auth.Cli.term`, which gives a CLI `-v`,
+  `--color` and `--theme` and renders the trace with Console. The Tangled
+  CLI takes them on every command. `--color=always` keeps its tables and
+  colour through a pipe, as into `less -R`.
+
 - The Tangled CLI shows accounts by verified handle on a terminal, and names
   starred repositories as handle/name. `star add` and `star remove` take a
   repository name as other commands do. Add `Tangled.Api.handle_of_did`.

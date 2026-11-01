@@ -210,7 +210,7 @@ let oauth_login ~pds ~handle ~scope ~no_browser ~loopback ~client_id
     | None, Some c, None -> Some c.handle
     | None, None, None -> Some (prompt_or "Handle" None)
   in
-  let http = Fetch_httpz.std env in
+  let http = Xrpc.Trace.wrap (Fetch_httpz.std env) in
   let plc =
     Option.value ~default:Tangled.Api.default_plc (Sys.getenv_opt "TANGLED_PLC")
   in
@@ -319,7 +319,7 @@ let login_cmd =
         end
         else login_action ~pds ~handle ~password ~save_password env)
   in
-  Cmd.v info
+  Common.cmd info
     Term.(
       term_result
         (const login' $ pds $ handle_arg $ password_arg $ save_password_arg
@@ -352,7 +352,7 @@ let logout_cmd =
   let doc = "Logout from Tangled." in
   let info = Cmd.info "logout" ~doc in
   let logout' () = Common.run logout_action in
-  Cmd.v info Term.(term_result (const logout' $ const ()))
+  Common.cmd info Term.(term_result (const logout' $ const ()))
 
 (* Auth status command *)
 
@@ -445,7 +445,7 @@ let status_cmd =
   let doc = "Show current authentication status." in
   let info = Cmd.info "status" ~doc in
   let status' () = Eio_main.run @@ fun env -> status_action env in
-  Cmd.v info Term.(const status' $ const ())
+  Common.cmd info Term.(const status' $ const ())
 
 (* Auth command group *)
 
@@ -463,7 +463,7 @@ let client_metadata_cmd =
            (Option.value ~default:Xrpc_auth.Oauth.hosted_redirect_uri
               redirect_uri))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "client-metadata" ~doc)
     Term.(const action $ client_id_arg $ redirect_uri_arg)
 

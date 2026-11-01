@@ -12,5 +12,6 @@
   ptime
   ptime.clock.os
   fmt
+  logs
   eio
   uriz))

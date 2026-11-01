@@ -49,7 +49,7 @@ let list_cmd =
               Fmt.pr "%s  %s@." slug d.repo)
             repos)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "list" ~doc:"List the repositories an account declares.")
     Term.(term_result (const action $ Common.user $ Common.json_flag))
 
@@ -100,7 +100,7 @@ let create_cmd =
                  ?default_branch:branch ?spindle ?source ()
                |> with_owner api)))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "create" ~doc:"Create a repository, or fork one with --source.")
     Term.(
       term_result
@@ -113,7 +113,7 @@ let clone_cmd =
     Common.run (fun env ->
         Common.with_api env (fun api -> Api.clone api ~repo ?knot ?dir ()))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "clone"
        ~doc:"Clone a repository. The remote names it by its DID, which \
              survives renames.")
@@ -128,7 +128,7 @@ let info_cmd =
         in
         if json then Common.json r.manifest_value else show_repository shown)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "info" ~doc:"Show a repository's identity and manifest.")
     Term.(term_result (const action $ repo $ Common.knot $ Common.json_flag))
 
@@ -152,7 +152,7 @@ let delete_cmd =
               Ui.ok "Deleted %s (%s)" repository.name repository.did
             end))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "delete"
        ~doc:
          "Remove the PDS declaration, then delete the repository on its knot.")
@@ -175,7 +175,7 @@ let spindle_cmd =
         | Some s -> Ui.ok "CI for %s runs on %s" repo s
         | None -> Ui.ok "Removed the spindle of %s" repo)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "spindle"
        ~doc:"Assign or remove a repository's spindle in its manifest.")
     Term.(term_result (const action $ repo $ Common.knot $ spindle))
@@ -195,7 +195,7 @@ let collaborators_cmd =
         if tty then Ui.accounts "Collaborators" dids
         else List.iter (fun (d, _) -> print_endline d) dids)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "collaborators" ~doc:"List the DIDs granted collaboration.")
     Term.(term_result (const action $ repo $ Common.knot))
 
@@ -212,7 +212,7 @@ let collaborator_cmd name ~add =
         if add then Ui.ok "%s may now push to %s" who repo
         else Ui.ok "%s may no longer push to %s" who repo)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info name
        ~doc:
          (if add then "Grant a user collaboration."

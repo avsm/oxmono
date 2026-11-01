@@ -19,4 +19,9 @@
   unix
   ptime
   ptime.clock.os
-  cmdliner))
+  cmdliner
+  console
+  console.tty
+  console-eio
+  logs
+  fmt.cli))

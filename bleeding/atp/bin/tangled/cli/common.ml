@@ -3,7 +3,7 @@ open Cmdliner
 module Api = Tangled.Api
 
 let create_api ~sw ~env ~app_name ~pds () =
-  let http = Fetch_httpz.std env in
+  let http = Xrpc.Trace.wrap (Fetch_httpz.std env) in
   let plc = Sys.getenv_opt "TANGLED_PLC" in
   Api.create ~sw ~env ~app_name ?plc ~pds ~http ()
 
@@ -32,6 +32,12 @@ let with_api ?(authenticated = true) ?busy env f =
     session;
   f api
 
+(* [cmd info term] is a command whose output options, from
+   {!Xrpc_auth.Cli.term}, take effect before [term] runs. *)
+let cmd info term =
+  Cmd.v info
+    Term.(const (fun () r -> r) $ Xrpc_auth.Cli.term ~env:"TANGLED" () $ term)
+
 let run f =
   try
     Eio_main.run (fun env ->
@@ -39,6 +45,8 @@ let run f =
         f env);
     Ok ()
   with
+  (* A reader such as [head] that has seen enough is not an error. *)
+  | Sys_error "Broken pipe" -> Ok ()
   | Failure message | Invalid_argument message | Sys_error message ->
       Error (`Msg message)
   | Eio.Io (Xrpc.Error.E e, _) -> Error (`Msg (Xrpc.Error.to_string e))

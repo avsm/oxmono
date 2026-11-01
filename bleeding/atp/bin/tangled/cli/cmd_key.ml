@@ -52,7 +52,7 @@ let list =
                  (Api.rkey_of_uri r.uri, Api.decode Key.main_jsont r.value))
                records))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "list"
        ~doc:
          "List SSH keys with their record keys and complete public material. \
@@ -104,7 +104,7 @@ let add =
           Ui.ok "Published key %s as %s" name (Api.rkey_of_uri created.uri)
         else Common.print Api.Atproto.Repo.CreateRecord.output_jsont created)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "add" ~doc:"Publish an SSH public key.")
     Term.(term_result (const action $ file $ name $ sign))
 
@@ -126,7 +126,7 @@ let remove =
                 Api.delete_record api ~collection ~rkey ~swap_record:cid ());
         Ui.ok "Removed key %s" rkey)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "remove" ~doc:"Remove your SSH public key record.")
     Term.(term_result (const action $ rkey))
 

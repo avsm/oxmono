@@ -1,30 +1,15 @@
 (* SPDX-License-Identifier: ISC *)
 (* Terminal views. Each command keeps its plain output for pipes, which
    scripts and the tests read, and draws these only when standard output is
-   a terminal. *)
+   a terminal or [--color=always] asks for them. *)
 
 module C = Console
 module V = Console.View
 
-let tty () = Console_tty.is_terminal Unix.stdout
+let tty () = Xrpc_auth.Cli.rich ()
 
-let setup () =
-  let theme =
-    match Sys.getenv_opt "TANGLED_THEME" with
-    | None | Some "" -> None
-    | Some name -> (
-        match List.assoc_opt name C.Theme.all with
-        | Some theme -> Some theme
-        | None ->
-            Fmt.epr "tangled: unknown TANGLED_THEME %S, one of: %s@." name
-              (String.concat ", " (List.map fst C.Theme.all));
-            None)
-  in
-  Console_tty.setup ?theme ();
-  (* Widgets are no wider than the formatter's margin, 80 by default. *)
-  Option.iter
-    (fun size -> Format.pp_set_margin Fmt.stdout (max 40 (fst (size ()))))
-    (Console_eio.size Fmt.stdout)
+(* Commands outside {!Common.cmd}, and errors, get the defaults. *)
+let setup () = Console_tty.setup ()
 
 (* The clock of the running Eio main loop, which spinners need. *)
 let clock : Eio.Time.Mono.ty Eio.Resource.t option ref = ref None
@@ -32,7 +17,9 @@ let set_clock c = clock := Some (Console_eio.clock c)
 
 let busy label f =
   match !clock with
-  | Some clock when Console_tty.is_terminal Unix.stderr ->
+  | Some clock
+    when Console_tty.is_terminal Unix.stderr && not (Xrpc_auth.Cli.tracing ())
+    ->
       (* Rows show only after [delay], so quick calls draw nothing. The
          finished task leaves nothing in the scrollback. *)
       Console_eio.run ~clock ~delay:0.2
@@ -75,7 +62,7 @@ let heading name n =
 let column ?align name = C.Table.column ?align (V.text name)
 
 let table ?heading:h columns rows =
-  let table = C.Table.view columns rows in
+  let table = if rows = [] then muted "None." else C.Table.view columns rows in
   print (match h with None -> table | Some h -> V.vcat [ h; table ])
 
 (* Labelled values, one per line, with the labels aligned and each value in

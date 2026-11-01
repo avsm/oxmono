@@ -34,7 +34,7 @@ let list_cmd =
               (Jsont.list Api.Atproto.Repo.ListRecords.record_jsont)
               (Api.list_records api ~collection ~did:(Common.did api user) ())))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "list" ~doc:"Read all pages of a Tangled record collection.")
     Term.(term_result (const action $ collection $ Common.user))
 
@@ -50,7 +50,7 @@ let get_cmd =
                 Common.print Api.Atproto.Repo.GetRecord.output_jsont value
             | None -> failwith "Record not found"))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "get" ~doc:"Read a record with its URI and CID.")
     Term.(term_result (const action $ collection $ rkey $ Common.user))
 
@@ -66,7 +66,7 @@ let create_cmd =
             Common.print Api.Atproto.Repo.CreateRecord.output_jsont
               (Api.create_record api ~collection ?rkey value)))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "create" ~doc:"Create a validated Tangled record on your PDS.")
     Term.(term_result (const action $ collection $ rkey $ input))
 
@@ -85,7 +85,7 @@ let put_cmd =
               (Api.put_record api ~collection ~rkey ~swap_record:(Some cid)
                  value)))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "put" ~doc:"Replace a record only if its CID still matches.")
     Term.(term_result (const action $ collection $ rkey $ cid $ input))
 
@@ -106,7 +106,7 @@ let delete_cmd =
                 in
                 Api.delete_record api ~collection ~rkey ~swap_record:cid ()))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "delete"
        ~doc:"Delete one of your Tangled records with a CID precondition.")
     Term.(term_result (const action $ collection $ rkey))

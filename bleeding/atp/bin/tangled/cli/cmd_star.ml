@@ -65,7 +65,7 @@ let list_cmd =
                stars)
         else Common.print (Jsont.list Star.main_jsont) (List.map fst stars))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "list"
        ~doc:"List starred repositories and strings. Pipes get JSON.")
     Term.(term_result (const action $ Common.user $ Common.json_flag))
@@ -106,7 +106,7 @@ let add_cmd =
         | Some created ->
             Common.print Api.Atproto.Repo.CreateRecord.output_jsont created)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "add" ~doc:"Star a repository.")
     Term.(term_result (const action $ repo))
 
@@ -123,7 +123,7 @@ let remove_cmd =
                     ~swap_record:record.cid ()));
         Ui.ok "Unstarred %s" repo)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "remove" ~doc:"Unstar a repository.")
     Term.(term_result (const action $ repo))
 

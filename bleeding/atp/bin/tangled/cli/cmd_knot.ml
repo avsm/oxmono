@@ -21,7 +21,7 @@ let describe_cmd =
           Ui.service ~kind:"Knot" ~host:knot ~did:d.did ~version:d.version
             ~capabilities:d.capabilities ~contact:(Common.email d.contact))
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "describe"
        ~doc:"Show a knot's DID, version and capabilities. Pipes get JSON.")
     Term.(term_result (const action $ knot $ Common.json_flag))
@@ -39,7 +39,7 @@ let members_cmd =
         if tty then Ui.accounts "Members" members
         else List.iter (fun (d, _) -> print_endline d) members)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info "members" ~doc:"List the DIDs granted knot membership.")
     Term.(term_result (const action $ knot))
 
@@ -55,7 +55,7 @@ let member name ~add =
         if add then Ui.ok "%s is now a member of %s" who knot
         else Ui.ok "%s is no longer a member of %s" who knot)
   in
-  Cmd.v
+  Common.cmd
     (Cmd.info name ~doc:"Change knot membership. Log in as a knot admin.")
     Term.(term_result (const action $ knot $ user $ Common.audience))
 

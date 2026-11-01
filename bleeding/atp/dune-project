@@ -187,5 +187,5 @@
   (ptime (>= 1.0))
   (cmdliner (>= 1.2))
   eio_main
-  console console-eio
+  console
   fmt))

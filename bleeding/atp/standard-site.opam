@@ -23,7 +23,6 @@ depends: [
   "cmdliner" {>= "1.2"}
   "eio_main"
   "console"
-  "console-eio"
   "fmt"
   "odoc" {with-doc}
 ]

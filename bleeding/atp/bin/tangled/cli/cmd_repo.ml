@@ -5,7 +5,7 @@ module C = Console
 
 let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
 let muted = C.Style.fg C.Color.bright_black
-let styled style value = C.Span.sanitize (C.Span.styled style value)
+let styled style value = C.View.styled style (C.View.text value)
 
 let repo =
   Common.positional 0 "REPO" "Repository DID, owner/name, or declaration URI."
@@ -38,20 +38,20 @@ let list_cmd =
               Common.print
                 (Jsont.list Api.Lex.Repo.Declaration.main_jsont)
                 (List.map snd repos)
-            else if Console_eio.is_tty () then begin
+            else if Console_tty.is_terminal Unix.stdout then begin
               let rows =
                 List.map
                   (fun (slug, (d : Api.Lex.Repo.Declaration.main)) ->
                     [ styled accent slug; styled muted d.repo ])
                   repos
               in
-              Fmt.pr "%a  %a@.%a@." C.Span.pp
+              Fmt.pr "%a  %a@.%a@." C.View.pp
                 (styled accent "Repositories")
-                C.Span.pp
+                C.View.pp
                 (styled muted (Printf.sprintf "%d total" (List.length repos)))
-                C.Table.pp
-                (C.Table.of_rows ~border:C.Border.rounded
-                   C.Table.[ column "Name"; column "DID" ]
+                C.View.pp
+                (C.Table.view ~border:C.Border.rounded
+                   C.Table.[ column (C.View.text "Name"); column (C.View.text "DID") ]
                    rows)
             end
             else

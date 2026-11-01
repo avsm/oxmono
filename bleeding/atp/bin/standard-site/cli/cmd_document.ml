@@ -8,7 +8,7 @@ open Cmdliner
 module C = Console
 let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
 let muted = C.Style.fg C.Color.bright_black
-let styled style value = C.Span.sanitize (C.Span.styled style value)
+let styled style value = C.View.styled style (C.View.text value)
 
 (* Type alias for convenience *)
 module Document = Atp_lexicon_standard_site.Site.Standard.Document
@@ -112,16 +112,16 @@ let list_action ~user env =
   in
   let docs = Standard_site.Api.list_documents api ~did () in
   if docs = [] then Fmt.pr "No documents found.@."
-  else if Console_eio.is_tty () then begin
+  else if Console_tty.is_terminal Unix.stdout then begin
     let rows = List.map (fun (rkey, (doc : Document.main)) ->
-      [styled accent rkey; C.Span.sanitize (C.Span.text doc.title);
+      [styled accent rkey; (C.View.text doc.title);
        styled muted doc.site; styled muted doc.published_at]) docs in
-    Fmt.pr "%a  %a@.%a@." C.Span.pp (styled accent "Documents")
-      C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length docs)))
-      C.Table.pp
-      (C.Table.of_rows ~border:C.Border.rounded
-         C.Table.[column "Key"; column "Title"; column "Site";
-                  column "Published"] rows)
+    Fmt.pr "%a  %a@.%a@." C.View.pp (styled accent "Documents")
+      C.View.pp (styled muted (Printf.sprintf "%d total" (List.length docs)))
+      C.View.pp
+      (C.Table.view ~border:C.Border.rounded
+         C.Table.[column (C.View.text "Key"); column (C.View.text "Title"); column (C.View.text "Site");
+                  column (C.View.text "Published")] rows)
   end
   else begin
     Fmt.pr "Documents:@.@.";
@@ -151,11 +151,10 @@ let show_action ~rkey ~user env =
   in
   match Standard_site.Api.get_document api ~did ~rkey with
   | Some doc ->
-      if Console_eio.is_tty () then
-        Fmt.pr "%a@." C.Panel.pp
-          (C.Panel.v ~title:(styled accent doc.title)
-             (C.Span.sanitize (C.Span.text
-                (Fmt.str "%a" pp_document_detail (rkey, doc)))))
+      if Console_tty.is_terminal Unix.stdout then
+        Fmt.pr "%a@." C.View.pp
+          (C.Panel.view ~title:(styled accent doc.title)
+             (C.View.text (Fmt.str "%a" pp_document_detail (rkey, doc))))
       else Fmt.pr "%a@." pp_document_detail (rkey, doc)
   | None ->
       Fmt.epr "Document not found: %s@." rkey;

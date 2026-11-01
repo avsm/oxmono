@@ -29,5 +29,5 @@ let main_cmd =
     ]
 
 let () =
-  Console_eio.setup ();
+  Console_tty.setup ();
   exit (Cmd.eval main_cmd)

@@ -107,6 +107,7 @@ val run :
   ?tls:tls ->
   ?on_listening:(Eio.Net.Sockaddr.stream -> unit) ->
   ?on_event:(event @ local -> unit) ->
+  ?on_connection:(int -> unit) ->
   ?on_error:(exn -> unit) ->
   ?stop:'a Eio.Promise.t ->
   < net : _ Eio.Net.t;
@@ -153,6 +154,11 @@ val run :
     socket, so an exception escaping either is reported and dropped: an
     [on_event] failure goes to [on_error], and an [on_error] failure is printed
     to standard error along with the exception it was called with.
+
+    [on_connection] receives [+1] when an accepted connection starts and [-1]
+    when its handler finishes, including cancellation and failed TLS handshakes.
+    It includes idle keep-alive connections, but excludes sockets still in the
+    listen backlog. It should not block. Callback failures go to [on_error].
 
     Resolving [stop] makes the server stop accepting connections; it returns
     once the connections already open have finished. Cancelling the fibre

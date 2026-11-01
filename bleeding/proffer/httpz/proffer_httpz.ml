@@ -1245,30 +1245,37 @@ let with_http_flow ~mono_clock ~config tls raw fn =
         (fun () -> fn flow)
 
 let serve ~sw ~net ~mono_clock ~addr ~config ~tls ~on_listening ~on_event
-    ~on_error ~stop ~env site =
+    ~on_error ~on_connection ~stop ~env site =
   let sock = Eio.Net.listen net ~sw ~backlog:config.backlog ~reuse_addr:true addr in
   (* The caller's switch may outlive this invocation, so release the listener
      on return and on callback failure. *)
   Fun.protect ~finally:(fun () -> Eio.Net.close sock) @@ fun () ->
   on_listening (Eio.Net.listening_addr sock);
   let on_error = protect on_error in
+  let notify delta =
+    match on_connection with
+    | None -> ()
+    | Some f -> (try f delta with exn -> on_error exn)
+  in
   let handler flow client_addr =
-    with_http_flow ~mono_clock ~config tls (flow :> Httpz_tls.flow) @@ fun flow ->
-    let transport = if Option.is_some tls then Proffer.Req.Secure else
-      match client_addr with
-      | `Tcp (ip, _) when ip = Eio.Net.Ipaddr.V4.loopback ||
-          ip = Eio.Net.Ipaddr.V6.loopback -> Proffer.Req.Loopback
-      | _ -> Proffer.Req.Insecure in
-    let conn = create_conn flow ~mono_clock ~config ~transport in
-    prepare_sink conn;
-    handle_connection conn ~config ~addr_str:(addr_string client_addr) ~site
-      ~env ~on_event ~on_error
+    notify 1;
+    Fun.protect ~finally:(fun () -> notify (-1)) (fun () ->
+      with_http_flow ~mono_clock ~config tls (flow :> Httpz_tls.flow) @@ fun flow ->
+      let transport = if Option.is_some tls then Proffer.Req.Secure else
+        match client_addr with
+        | `Tcp (ip, _) when ip = Eio.Net.Ipaddr.V4.loopback ||
+            ip = Eio.Net.Ipaddr.V6.loopback -> Proffer.Req.Loopback
+        | _ -> Proffer.Req.Insecure in
+      let conn = create_conn flow ~mono_clock ~config ~transport in
+      prepare_sink conn;
+      handle_connection conn ~config ~addr_str:(addr_string client_addr) ~site
+        ~env ~on_event ~on_error)
   in
   Eio.Net.run_server sock ~max_connections:config.max_connections ~on_error
     ?stop handler |> ignore
 
 let run ?sw ?port ?addr ?(config = default_config) ?tls ?on_listening ?on_event
-    ?(on_error = default_on_error) ?stop stdenv ~env site =
+    ?on_connection ?(on_error = default_on_error) ?stop stdenv ~env site =
   let positive name n =
     if n <= 0 then
       invalid_arg
@@ -1302,6 +1309,6 @@ let run ?sw ?port ?addr ?(config = default_config) ?tls ?on_listening ?on_event
   in
   let go sw =
     serve ~sw ~net ~mono_clock ~addr ~config ~tls ~on_listening ~on_event
-      ~on_error ~stop ~env site
+      ~on_error ~on_connection ~stop ~env site
   in
   match sw with Some sw -> go sw | None -> Eio.Switch.run go

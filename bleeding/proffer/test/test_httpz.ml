@@ -300,14 +300,14 @@ let wrapped_flow counts flow : Httpz_tls.flow =
   Eio.Resource.T ({ Wrapped_flow.flow; counts }, handler)
 
 (* Wait for [on_listening] so tests never guess or race the selected port. *)
-let with_server ~net ~clock ~mono_clock ?config ?tls ?on_event
+let with_server ~net ~clock ~mono_clock ?config ?tls ?on_event ?on_connection
     ?(on_error = on_error) f =
   let bound, set_bound = Eio.Promise.create () in
   Eio.Fiber.first
     (fun () ->
       Proffer_httpz.run ~port:0 ?config ?tls
         ~on_listening:(Eio.Promise.resolve set_bound)
-        ?on_event ~on_error
+        ?on_event ?on_connection ~on_error
         object
           method net = net
           method clock = clock
@@ -1101,6 +1101,22 @@ let stop_releases_port_tests ~clock ~mono_clock ~net =
       in
       check "a stopped server releases its port before returning" refused)
 
+let connection_gauge_tests ~net ~clock ~mono_clock =
+  let active = ref 0 and opened = ref 0 and minimum = ref 0 in
+  let on_connection delta =
+    active := !active + delta;
+    if delta = 1 then incr opened;
+    minimum := min !minimum !active
+  in
+  with_server ~net ~clock ~mono_clock ~on_connection (fun addr ->
+      with_conn ~net addr (fun _flow ->
+          within ~clock "accepted connection gauge" (fun () ->
+              while !active = 0 do Eio.Fiber.yield () done);
+          check "idle accepted socket counts" (!active = 1)));
+  check "cancellation closes connection gauge" (!active = 0 && !opened = 1);
+  check "connection gauge never negative" (!minimum = 0)
+
+
 let () =
   Eio_main.run @@ fun stdenv ->
   let net = Eio.Stdenv.net stdenv in
@@ -1111,6 +1127,7 @@ let () =
       tests ~clock ~net addr);
   with_server ~net ~clock ~mono_clock ~config:short_config (fun addr ->
       timeout_tests ~clock ~net addr);
+  connection_gauge_tests ~clock ~mono_clock ~net;
   tls_wrapper_test ~clock ~mono_clock ~net;
   overrun_tests ~clock ~mono_clock ~net;
   callback_tests ~clock ~mono_clock ~net;

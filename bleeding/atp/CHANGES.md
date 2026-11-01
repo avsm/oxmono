@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The Tangled CLI shows accounts by verified handle on a terminal, and names
+  starred repositories as handle/name. `star add` and `star remove` take a
+  repository name as other commands do. Add `Tangled.Api.handle_of_did`.
+
 - `Xrpc.Error.Xrpc_error` names the method and service, and prints as a
   sentence such as "knot.example does not implement org.tangled.x (HTTP
   404)". The Tangled CLI prints it in place of the raw exception.

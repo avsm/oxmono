@@ -4,7 +4,9 @@ module Api = Tangled.Api
 module Ticket = Api.Lex.Track.Ticket
 
 let repo =
-  Common.positional 0 "REPO" "Repository DID, owner/name, or declaration URI."
+  Common.positional 0 "REPO"
+    "Repository as handle/name, or a name of your own. Its DID or declaration \
+     URI also work."
 
 let rkey = Common.positional 1 "ID" "Ticket record key."
 

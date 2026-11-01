@@ -75,6 +75,13 @@ let did api = function
   | Some user -> Api.resolve_handle api user
   | None -> Api.get_did api
 
+(* [handles api dids] pairs each DID with its verified handle, looked up a
+   few at a time. *)
+let handles api dids =
+  Eio.Fiber.List.map ~max_fibers:8
+    (fun did -> (did, Api.handle_of_did api did))
+    dids
+
 let email contact =
   Option.bind contact (fun c ->
       Option.map Tangled.Schema.text (Tangled.Schema.member "email" c))

@@ -30,24 +30,25 @@ let describe_cmd =
 let members_cmd =
   let action spindle audience json =
     Common.run (fun env ->
-        let list =
+        let rich = not (json || not (Ui.tty ())) in
+        let list, accounts =
           Common.with_api ~busy:("Reading allow-list of " ^ spindle) env
             (fun api ->
-              Api.allow_list api
-                ~spindle:(Api.spindle_url api spindle)
-                ?audience ())
+              let list =
+                Api.allow_list api
+                  ~spindle:(Api.spindle_url api spindle)
+                  ?audience ()
+              in
+              let dids =
+                match Tangled.Schema.member "dids" list with
+                | Some (Jsont.Array (dids, _)) ->
+                    List.map Tangled.Schema.text dids
+                | _ -> []
+              in
+              (list, if rich then Common.handles api dids else []))
         in
-        if json || not (Ui.tty ()) then Common.json list
-        else
-          let dids =
-            match Tangled.Schema.member "dids" list with
-            | Some (Jsont.Array (dids, _)) -> List.map Tangled.Schema.text dids
-            | _ -> []
-          in
-          Ui.table
-            ~heading:(Ui.heading "Allowed owners" (List.length dids))
-            [ Ui.column "DID" ]
-            (List.map (fun d -> [ Ui.accent d ]) dids))
+        if rich then Ui.accounts "Allowed owners" accounts
+        else Common.json list)
   in
   Cmd.v
     (Cmd.info "members"

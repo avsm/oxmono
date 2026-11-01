@@ -12,7 +12,9 @@ let repo =
     required
     & opt (some string) None
     & info [ "repo"; "r" ] ~docv:"REPO"
-        ~doc:"Repository DID, owner/name, or declaration URI.")
+        ~doc:
+          "Repository as handle/name, or a name of your own. Its DID or \
+           declaration URI also work.")
 
 let pipeline = Common.positional 0 "PIPELINE" "Spindle-local pipeline ID."
 

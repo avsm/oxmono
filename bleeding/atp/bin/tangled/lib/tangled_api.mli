@@ -99,6 +99,11 @@ val service_client :
     The token's audience is [audience], or the [did:web] of [service]. Knots
     accept each token once, so obtain one per request. *)
 
+val handle_of_did : t -> string -> string option
+(** [handle_of_did t did] is the handle that the DID document of [did] lists,
+    if that handle resolves back to [did]. It is [None] when either lookup
+    fails or they disagree. *)
+
 val pds_of : t -> string -> string
 (** [pds_of t did] is the PDS named in the DID document of [did]. *)
 

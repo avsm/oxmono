@@ -3,7 +3,9 @@ open Cmdliner
 module Api = Tangled.Api
 
 let repo =
-  Common.positional 0 "REPO" "Repository DID, owner/name, or declaration URI."
+  Common.positional 0 "REPO"
+    "Repository as handle/name, or a name of your own. Its DID or declaration \
+     URI also work."
 
 let name = Common.positional 0 "NAME" "New repository name."
 
@@ -59,14 +61,29 @@ let pp_repository ppf (r : Api.repository) =
     Fmt.(option (fmt "@,Spindle: %s"))
     r.manifest.spindle
 
-let show_repository (r : Api.repository) =
+(* [with_owner api r] is [r] with its owner's handle, looked up only for a
+   terminal, which shows it. *)
+let with_owner api (r : Api.repository) =
+  (r, if Ui.tty () then Api.handle_of_did api r.owner else None)
+
+let show_repository ((r : Api.repository), owner) =
   if Ui.tty () then
-    Ui.panel (Ui.title r.name)
+    let name =
+      match owner with Some h -> h ^ "/" ^ r.name | None -> r.name
+    in
+    Ui.panel (Ui.title name)
       (Ui.fields
          [
            ("Description", Option.map Ui.text r.manifest.description);
            ("DID", Some (Ui.accent r.did));
-           ("Owner", Some (Ui.text r.owner));
+           ( "Owner",
+             Some
+               (Ui.V.concat
+                  [
+                    Ui.account (r.owner, owner);
+                    (if owner = None then Ui.V.empty
+                     else Ui.muted ("  " ^ r.owner));
+                  ]) );
            ("Knot", Some (Ui.text r.knot));
            ("Spindle", Option.map Ui.text r.manifest.spindle);
            ("Clone", Some (Ui.link (Api.git_url r)));
@@ -80,7 +97,8 @@ let create_cmd =
           (Common.with_api ~busy:("Creating " ^ name) env (fun api ->
                let source = Option.map (Api.resolve_repo api) source in
                Api.create_repo api ~name ~knot ?audience ?description
-                 ?default_branch:branch ?spindle ?source ())))
+                 ?default_branch:branch ?spindle ?source ()
+               |> with_owner api)))
   in
   Cmd.v
     (Cmd.info "create" ~doc:"Create a repository, or fork one with --source.")
@@ -96,17 +114,19 @@ let clone_cmd =
         Common.with_api env (fun api -> Api.clone api ~repo ?knot ?dir ()))
   in
   Cmd.v
-    (Cmd.info "clone" ~doc:"Clone a repository by its stable DID.")
+    (Cmd.info "clone"
+       ~doc:"Clone a repository. The remote names it by its DID, which \
+             survives renames.")
     Term.(term_result (const action $ repo $ Common.knot $ dir))
 
 let info_cmd =
   let action repo knot json =
     Common.run (fun env ->
-        let r =
+        let ((r : Api.repository), _) as shown =
           Common.with_api ~busy:"Resolving repository" env (fun api ->
-              Api.resolve_repo api ?knot repo)
+              with_owner api (Api.resolve_repo api ?knot repo))
         in
-        if json then Common.json r.manifest_value else show_repository r)
+        if json then Common.json r.manifest_value else show_repository shown)
   in
   Cmd.v
     (Cmd.info "info" ~doc:"Show a repository's identity and manifest.")
@@ -163,16 +183,17 @@ let spindle_cmd =
 let collaborators_cmd =
   let action repo knot =
     Common.run (fun env ->
+        let tty = Ui.tty () in
         let dids =
           Common.with_api ~busy:"Reading collaborators" env (fun api ->
-              Api.collaborators api (Api.resolve_repo api ?knot repo))
+              let dids =
+                Api.collaborators api (Api.resolve_repo api ?knot repo)
+              in
+              if tty then Common.handles api dids
+              else List.map (fun d -> (d, None)) dids)
         in
-        if Ui.tty () then
-          Ui.table
-            ~heading:(Ui.heading "Collaborators" (List.length dids))
-            [ Ui.column "DID" ]
-            (List.map (fun d -> [ Ui.accent d ]) dids)
-        else List.iter print_endline dids)
+        if tty then Ui.accounts "Collaborators" dids
+        else List.iter (fun (d, _) -> print_endline d) dids)
   in
   Cmd.v
     (Cmd.info "collaborators" ~doc:"List the DIDs granted collaboration.")

@@ -137,6 +137,36 @@ let resolve_handle t handle =
         |> Jsont.Object.mem "did" Jsont.string ~enc:Fun.id
         |> Jsont.Object.finish)
 
+let handle_of_did t did =
+  let claimed =
+    match
+      Xrpc.Identity.document ~plc:t.plc (Xrpc_auth.Client.http t.client) did
+    with
+    | Error _ -> None
+    | Ok text -> (
+        let aka =
+          Jsont.Object.map Fun.id
+          |> Jsont.Object.mem "alsoKnownAs" (Jsont.list Jsont.string)
+               ~dec_absent:(fun () -> []) ~enc:Fun.id
+          |> Jsont.Object.skip_unknown |> Jsont.Object.finish
+        in
+        match Jsont_bytesrw.decode_string aka text with
+        | Error _ -> None
+        | Ok names ->
+            List.find_map
+              (fun s ->
+                if String.starts_with ~prefix:"at://" s then
+                  Some (String.sub s 5 (String.length s - 5))
+                else None)
+              names)
+  in
+  (* A document may claim any handle. Show it only if it names [did] back. *)
+  Option.bind claimed (fun handle ->
+      match resolve_handle t handle with
+      | resolved when resolved = did -> Some handle
+      | _ -> None
+      | exception Eio.Io _ -> None)
+
 let encode codec value =
   match Jsont.Json.encode codec value with
   | Ok json -> json

@@ -29,16 +29,15 @@ let describe_cmd =
 let members_cmd =
   let action knot =
     Common.run (fun env ->
+        let tty = Ui.tty () in
         let members =
           Common.with_api ~busy:("Reading members of " ^ knot) env (fun api ->
-              Api.knot_members api ~knot)
+              let dids = Api.knot_members api ~knot in
+              if tty then Common.handles api dids
+              else List.map (fun d -> (d, None)) dids)
         in
-        if Ui.tty () then
-          Ui.table
-            ~heading:(Ui.heading "Members" (List.length members))
-            [ Ui.column "DID" ]
-            (List.map (fun d -> [ Ui.accent d ]) members)
-        else List.iter print_endline members)
+        if tty then Ui.accounts "Members" members
+        else List.iter (fun (d, _) -> print_endline d) members)
   in
   Cmd.v
     (Cmd.info "members" ~doc:"List the DIDs granted knot membership.")

@@ -94,6 +94,17 @@ let fields pairs =
            [ muted (k ^ String.make (width - String.length k) ' '); v ])
        pairs)
 
+(* An account by its handle, or by its DID when it has no verified one. *)
+let account (did, handle) =
+  match handle with Some h -> accent h | None -> accent did
+
+(* A table of accounts, by handle with the DID beside it. *)
+let accounts name rows =
+  table
+    ~heading:(heading name (List.length rows))
+    [ column "Account"; column "DID" ]
+    (List.map (fun ((did, _) as a) -> [ account a; muted did ]) rows)
+
 let panel ?subtitle heading body =
   print (C.Panel.view ~title:heading ?subtitle body)
 

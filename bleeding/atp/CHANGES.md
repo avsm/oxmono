@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The Tangled CLI draws tables, panels, trees and spinners on a terminal with
+  Console, and confirms each change. Piped output is unchanged. Add `--json`
+  to commands that print JSON only when piped, and `TANGLED_THEME`.
+
 - Add ATProto OAuth login as `Xrpc_auth.Oauth` and
   `Xrpc_auth.Client.login_oauth`, with DPoP-bound tokens that refresh and
   are saved in the session. `tangled auth login --oauth` uses it with a

@@ -134,7 +134,21 @@ let client_metadata ~client_id ~redirect_uri =
     ]
 
 let open_url ~no_browser url =
-  Fmt.pr "Open this URL to sign in:@.  %s@." url;
+  if Ui.tty () then
+    Ui.print
+      (Ui.V.vcat
+         [
+           Ui.V.concat
+             [
+               Ui.V.role `Accent (Ui.text "→ ");
+               Ui.bold "Open this link to sign in";
+               Ui.muted
+                 (if no_browser then "  (works once, for five minutes)"
+                  else "  (opening your browser; open it only once)");
+             ];
+           Ui.V.concat [ Ui.text "  "; Ui.link url ];
+         ])
+  else Fmt.pr "Open this URL to sign in:@.  %s@." url;
   if not no_browser then
     let null = Unix.openfile "/dev/null" [ Unix.O_RDWR ] 0 in
     let spawn prog =
@@ -150,7 +164,12 @@ let open_url ~no_browser url =
 let prompt_or label = function
   | Some v -> v
   | None ->
-      Fmt.pr "%s: @?" label;
+      if Ui.tty () then
+        Fmt.pr "%a %a @?" Ui.V.pp
+          (Ui.V.role `Accent (Ui.text "?"))
+          Ui.V.pp
+          (Ui.bold (label ^ ":"))
+      else Fmt.pr "%s: @?" label;
       if label = "Password" && Unix.isatty Unix.stdin then
         let original = Unix.tcgetattr Unix.stdin in
         Fun.protect
@@ -164,10 +183,19 @@ let prompt_or label = function
       else read_line ()
 
 let read_pasted () =
-  Fmt.pr "Paste the line shown in the browser: @?";
+  if Ui.tty () then
+    Fmt.pr "%a %a @?" Ui.V.pp
+      (Ui.V.role `Accent (Ui.text "?"))
+      Ui.V.pp
+      (Ui.bold "Paste the line shown in the browser:")
+  else Fmt.pr "Paste the line shown in the browser: @?";
   match In_channel.input_line stdin with
   | Some line -> line
   | None -> failwith "No authorization code was pasted"
+
+let logged_in (session : Xrpc_auth.Session.t) =
+  if Ui.tty () then Ui.ok "Logged in as %s (%s)" session.handle session.did
+  else Fmt.pr "Logged in as %s (%s)@." session.handle session.did
 
 let oauth_login ~pds ~handle ~scope ~no_browser ~loopback ~client_id
     ~redirect_uri env =
@@ -226,7 +254,7 @@ let oauth_login ~pds ~handle ~scope ~no_browser ~loopback ~client_id
   | Some session ->
       Tangled.Config.save fs xdg { handle = session.handle; pds };
       Tangled.Config.clear_password fs xdg;
-      Fmt.pr "Logged in as %s (%s)@." session.handle session.did
+      logged_in session
   | None -> failwith "Login failed"
 
 let login_action ~pds ~handle ~password ~save_password env =
@@ -259,8 +287,8 @@ let login_action ~pds ~handle ~password ~save_password env =
         | None -> prompt_or "Password" None)
   in
 
-  (* Login *)
-  Tangled.Api.login api ~identifier:handle ~password;
+  Ui.busy ("Signing in as " ^ handle) (fun () ->
+      Tangled.Api.login api ~identifier:handle ~password);
 
   match Tangled.Api.get_session api with
   | Some session ->
@@ -268,8 +296,10 @@ let login_action ~pds ~handle ~password ~save_password env =
       let config : Tangled.Config.t = { handle = session.handle; pds } in
       Tangled.Config.save fs xdg config;
       if save_password then Tangled.Config.save_password fs xdg password;
-      Fmt.pr "Logged in as %s (%s)@." session.handle session.did;
-      if save_password then Fmt.pr "Password saved to config.@."
+      logged_in session;
+      if save_password then
+        if Ui.tty () then Ui.ok "Password saved to config"
+        else Fmt.pr "Password saved to config.@."
   | None -> failwith "Login failed"
 
 let login_cmd =
@@ -308,12 +338,15 @@ let logout_action env =
       Tangled.Config.clear_password fs xdg)
     (fun () ->
       match Xrpc_auth.Session.load fs ~app_name () with
-      | None -> Fmt.pr "Not logged in.@."
+      | None ->
+          if Ui.tty () then Ui.print (Ui.muted "Not logged in.")
+          else Fmt.pr "Not logged in.@."
       | Some session ->
           let api = Common.create_api ~sw ~env ~app_name ~pds:session.pds () in
           Tangled.Api.resume api ~session;
           Tangled.Api.logout api;
-          Fmt.pr "Logged out.@.")
+          if Ui.tty () then Ui.ok "Logged out of %s" session.handle
+          else Fmt.pr "Logged out.@.")
 
 let logout_cmd =
   let doc = "Logout from Tangled." in
@@ -323,9 +356,66 @@ let logout_cmd =
 
 (* Auth status command *)
 
-let status_action env =
-  let fs = env#fs in
-  let xdg = Xdge.create fs app_name in
+(* [access scope] says in a few words what an OAuth scope grants. *)
+let access scope =
+  let tokens = String.split_on_char ' ' scope in
+  let count prefix =
+    List.length (List.filter (String.starts_with ~prefix) tokens)
+  in
+  if List.mem "transition:generic" tokens then
+    Ui.V.role `Warning (Ui.text "whole account (transition:generic)")
+  else
+    Ui.V.role `Succeeded
+      (Ui.text
+         (Printf.sprintf "%d record types, %d service methods" (count "repo")
+            (count "rpc")))
+
+let show_status fs xdg =
+  let session = Xrpc_auth.Session.load fs ~app_name () in
+  let password = Tangled.Config.load_password fs xdg <> None in
+  let subtitle =
+    Ui.muted
+      (Option.value ~default:""
+         (Eio.Path.native (Xdge.config_dir xdg)))
+  in
+  match session with
+  | None ->
+      Ui.panel ~subtitle (Ui.title "Not logged in")
+        (Ui.V.concat
+           [
+             Ui.muted "Run ";
+             Ui.bold "tangled auth login --oauth";
+             Ui.muted " to sign in.";
+           ])
+  | Some s ->
+      let expired = Xrpc_auth.Session.is_expired s in
+      Ui.panel ~subtitle
+        (Ui.V.concat [ Ui.muted "Logged in as "; Ui.title s.handle ])
+        (Ui.fields
+           [
+             ("DID", Some (Ui.accent s.did));
+             ("PDS", Some (Ui.link s.pds));
+             ( "Login",
+               Some
+                 (match s.oauth with
+                 | Some o -> Ui.text ("OAuth via " ^ o.issuer)
+                 | None ->
+                     Ui.text
+                       (if password then "password (saved)" else "password")) );
+             ( "Access",
+               Option.map (fun o -> access o.Xrpc_auth.Session.scope) s.oauth );
+             ( "Token",
+               Some
+                 (if expired then
+                    Ui.V.role `Warning
+                      (Ui.text "expired, renewed on the next request")
+                  else
+                    match s.oauth with
+                    | Some o -> Ui.muted ("valid until " ^ o.expires_at)
+                    | None -> Ui.muted "valid") );
+           ])
+
+let print_status fs xdg =
   Fmt.pr "@[<v>Config directory: %a@,@]" Eio.Path.pp (Xdge.config_dir xdg);
   (match Tangled.Config.load fs xdg with
   | Some config -> Fmt.pr "@[<v>Config:@,  %a@]@." Tangled.Config.pp config
@@ -345,6 +435,11 @@ let status_action env =
         Fmt.pr
           "@[<v>@,\
            Note: Access token is expired, will refresh on next request.@]@."
+
+let status_action env =
+  let fs = env#fs in
+  let xdg = Xdge.create fs app_name in
+  if Ui.tty () then show_status fs xdg else print_status fs xdg
 
 let status_cmd =
   let doc = "Show current authentication status." in

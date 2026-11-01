@@ -7,7 +7,12 @@ let create_api ~sw ~env ~app_name ~pds () =
   let plc = Sys.getenv_opt "TANGLED_PLC" in
   Api.create ~sw ~env ~app_name ?plc ~pds ~http ()
 
-let with_api ?(authenticated = true) env f =
+let with_api ?(authenticated = true) ?busy env f =
+  let f =
+    match busy with
+    | None -> f
+    | Some l -> fun api -> Ui.busy l (fun () -> f api)
+  in
   Eio.Switch.run @@ fun sw ->
   let session = Xrpc_auth.Session.load env#fs ~app_name:"tangled" () in
   let pds =
@@ -29,7 +34,9 @@ let with_api ?(authenticated = true) env f =
 
 let run f =
   try
-    Eio_main.run f;
+    Eio_main.run (fun env ->
+        Ui.set_clock (Eio.Stdenv.mono_clock env);
+        f env);
     Ok ()
   with
   | Failure message | Invalid_argument message | Sys_error message ->
@@ -66,6 +73,10 @@ let user =
 let did api = function
   | Some user -> Api.resolve_handle api user
   | None -> Api.get_did api
+
+let email contact =
+  Option.bind contact (fun c ->
+      Option.map Tangled.Schema.text (Tangled.Schema.member "email" c))
 
 let json_flag = Arg.(value & flag & info [ "json" ] ~doc:"Print JSON.")
 

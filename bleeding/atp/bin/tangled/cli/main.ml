@@ -41,5 +41,5 @@ let main_cmd =
     ]
 
 let () =
-  Console_tty.setup ();
+  Ui.setup ();
   exit (Cmd.eval main_cmd)

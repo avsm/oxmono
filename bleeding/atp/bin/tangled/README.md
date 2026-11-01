@@ -10,6 +10,16 @@ opam exec --switch=5.2.0+ox -- dune build --profile release-check \
 The binary is `_build/default/bleeding/atp/bin/tangled/cli/main.exe`.
 Examples below call it `tangled`.
 
+## Output
+
+On a terminal, commands draw tables, panels and trees in colour, show a
+spinner while they wait on the network, and confirm each change. Pipes get
+the plain lines or JSON that scripts read, unchanged. `--json` prints JSON on
+a terminal too. `TANGLED_THEME` picks one of Console's themes, such as
+`dracula` or `ascii`. `NO_COLOR` turns colour off. Workflow logs keep their
+colours on a terminal, but lose escapes that would move the cursor or retitle
+the window.
+
 ## Authentication and routing
 
 ```sh

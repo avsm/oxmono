@@ -1,11 +1,6 @@
 (* SPDX-License-Identifier: ISC *)
 open Cmdliner
 module Api = Tangled.Api
-module C = Console
-
-let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
-let muted = C.Style.fg C.Color.bright_black
-let styled style value = C.View.styled style (C.View.text value)
 
 let repo =
   Common.positional 0 "REPO" "Repository DID, owner/name, or declaration URI."
@@ -30,35 +25,27 @@ let spindle_opt =
 let list_cmd =
   let action user json =
     Common.run (fun env ->
-        Common.with_api env (fun api ->
-            let repos =
-              Api.list_declarations api ~did:(Common.did api user) ()
-            in
-            if json then
-              Common.print
-                (Jsont.list Api.Lex.Repo.Declaration.main_jsont)
-                (List.map snd repos)
-            else if Console_tty.is_terminal Unix.stdout then begin
-              let rows =
-                List.map
-                  (fun (slug, (d : Api.Lex.Repo.Declaration.main)) ->
-                    [ styled accent slug; styled muted d.repo ])
-                  repos
-              in
-              Fmt.pr "%a  %a@.%a@." C.View.pp
-                (styled accent "Repositories")
-                C.View.pp
-                (styled muted (Printf.sprintf "%d total" (List.length repos)))
-                C.View.pp
-                (C.Table.view ~border:C.Border.rounded
-                   C.Table.[ column (C.View.text "Name"); column (C.View.text "DID") ]
-                   rows)
-            end
-            else
-              List.iter
-                (fun (slug, (d : Api.Lex.Repo.Declaration.main)) ->
-                  Fmt.pr "%s  %s@." slug d.repo)
-                repos))
+        let repos =
+          Common.with_api ~busy:"Reading repositories" env (fun api ->
+              Api.list_declarations api ~did:(Common.did api user) ())
+        in
+        if json then
+          Common.print
+            (Jsont.list Api.Lex.Repo.Declaration.main_jsont)
+            (List.map snd repos)
+        else if Ui.tty () then
+          Ui.table
+            ~heading:(Ui.heading "Repositories" (List.length repos))
+            [ Ui.column "Name"; Ui.column "DID" ]
+            (List.map
+               (fun (slug, (d : Api.Lex.Repo.Declaration.main)) ->
+                 [ Ui.accent slug; Ui.muted d.repo ])
+               repos)
+        else
+          List.iter
+            (fun (slug, (d : Api.Lex.Repo.Declaration.main)) ->
+              Fmt.pr "%s  %s@." slug d.repo)
+            repos)
   in
   Cmd.v
     (Cmd.info "list" ~doc:"List the repositories an account declares.")
@@ -72,16 +59,28 @@ let pp_repository ppf (r : Api.repository) =
     Fmt.(option (fmt "@,Spindle: %s"))
     r.manifest.spindle
 
+let show_repository (r : Api.repository) =
+  if Ui.tty () then
+    Ui.panel (Ui.title r.name)
+      (Ui.fields
+         [
+           ("Description", Option.map Ui.text r.manifest.description);
+           ("DID", Some (Ui.accent r.did));
+           ("Owner", Some (Ui.text r.owner));
+           ("Knot", Some (Ui.text r.knot));
+           ("Spindle", Option.map Ui.text r.manifest.spindle);
+           ("Clone", Some (Ui.link (Api.git_url r)));
+         ])
+  else Fmt.pr "%a" pp_repository r
+
 let create_cmd =
   let action name knot audience description branch spindle source =
     Common.run (fun env ->
-        Common.with_api env (fun api ->
-            let source = Option.map (Api.resolve_repo api) source in
-            let repository =
-              Api.create_repo api ~name ~knot ?audience ?description
-                ?default_branch:branch ?spindle ?source ()
-            in
-            Fmt.pr "%a" pp_repository repository))
+        show_repository
+          (Common.with_api ~busy:("Creating " ^ name) env (fun api ->
+               let source = Option.map (Api.resolve_repo api) source in
+               Api.create_repo api ~name ~knot ?audience ?description
+                 ?default_branch:branch ?spindle ?source ())))
   in
   Cmd.v
     (Cmd.info "create" ~doc:"Create a repository, or fork one with --source.")
@@ -103,10 +102,11 @@ let clone_cmd =
 let info_cmd =
   let action repo knot json =
     Common.run (fun env ->
-        Common.with_api env (fun api ->
-            let r = Api.resolve_repo api ?knot repo in
-            if json then Common.json r.manifest_value
-            else Fmt.pr "%a" pp_repository r))
+        let r =
+          Common.with_api ~busy:"Resolving repository" env (fun api ->
+              Api.resolve_repo api ?knot repo)
+        in
+        if json then Common.json r.manifest_value else show_repository r)
   in
   Cmd.v
     (Cmd.info "info" ~doc:"Show a repository's identity and manifest.")
@@ -122,16 +122,15 @@ let delete_cmd =
   let action repo knot audience force =
     Common.run (fun env ->
         Common.with_api env (fun api ->
-            let repository = Api.resolve_repo api ?knot repo in
-            let confirmed =
-              force
-              ||
-              (Fmt.pr "Delete %s? [y/N] @?" repository.did;
-               match String.lowercase_ascii (read_line ()) with
-               | "y" | "yes" -> true
-               | _ -> false)
+            let repository =
+              Ui.busy "Resolving repository" (fun () ->
+                  Api.resolve_repo api ?knot repo)
             in
-            if confirmed then Api.delete_repo api ?audience repository))
+            if force || Ui.confirm ("Delete " ^ repository.did ^ "?") then begin
+              Ui.busy ("Deleting " ^ repository.name) (fun () ->
+                  Api.delete_repo api ?audience repository);
+              Ui.ok "Deleted %s (%s)" repository.name repository.did
+            end))
   in
   Cmd.v
     (Cmd.info "delete"
@@ -150,8 +149,11 @@ let spindle_cmd =
   in
   let action repo knot spindle =
     Common.run (fun env ->
-        Common.with_api env (fun api ->
-            Api.set_spindle api (Api.resolve_repo api ?knot repo) spindle))
+        Common.with_api ~busy:"Updating manifest" env (fun api ->
+            Api.set_spindle api (Api.resolve_repo api ?knot repo) spindle);
+        match spindle with
+        | Some s -> Ui.ok "CI for %s runs on %s" repo s
+        | None -> Ui.ok "Removed the spindle of %s" repo)
   in
   Cmd.v
     (Cmd.info "spindle"
@@ -161,9 +163,16 @@ let spindle_cmd =
 let collaborators_cmd =
   let action repo knot =
     Common.run (fun env ->
-        Common.with_api env (fun api ->
-            Api.collaborators api (Api.resolve_repo api ?knot repo)
-            |> List.iter print_endline))
+        let dids =
+          Common.with_api ~busy:"Reading collaborators" env (fun api ->
+              Api.collaborators api (Api.resolve_repo api ?knot repo))
+        in
+        if Ui.tty () then
+          Ui.table
+            ~heading:(Ui.heading "Collaborators" (List.length dids))
+            [ Ui.column "DID" ]
+            (List.map (fun d -> [ Ui.accent d ]) dids)
+        else List.iter print_endline dids)
   in
   Cmd.v
     (Cmd.info "collaborators" ~doc:"List the DIDs granted collaboration.")
@@ -173,11 +182,14 @@ let collaborator_cmd name ~add =
   let subject = Common.positional 1 "USER" "Collaborator handle or DID." in
   let action repo subject knot =
     Common.run (fun env ->
-        Common.with_api env (fun api ->
+        let who = subject in
+        Common.with_api ~busy:"Updating collaborators" env (fun api ->
             let repository = Api.resolve_repo api ?knot repo in
             let subject = Api.resolve_handle api subject in
             if add then Api.add_collaborator api repository subject
-            else Api.remove_collaborator api repository subject))
+            else Api.remove_collaborator api repository subject);
+        if add then Ui.ok "%s may now push to %s" who repo
+        else Ui.ok "%s may no longer push to %s" who repo)
   in
   Cmd.v
     (Cmd.info name

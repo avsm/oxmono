@@ -60,11 +60,42 @@ let view_action ~user env =
     | Some u when not (String.starts_with ~prefix:"did:" u) -> u
     | _ -> did
   in
-  Fmt.pr "Profile: %s@." handle;
-  Fmt.pr "DID: %s@.@." did;
-  match Tangled.Api.get_profile api ~did with
-  | Some profile -> Fmt.pr "%a@." pp_profile profile
-  | None -> Fmt.pr "(No Tangled profile set)@."
+  let profile =
+    Ui.busy "Reading profile" (fun () -> Tangled.Api.get_profile api ~did)
+  in
+  if Ui.tty () then
+    let get f = Option.bind profile (fun (p : Profile.main) -> f p) in
+    Ui.panel (Ui.title handle)
+      (Ui.V.vcat ~gap:1
+         [
+           Ui.fields
+             [
+               ("DID", Some (Ui.accent did));
+               ("Pronouns", Option.map Ui.text (get (fun p -> p.pronouns)));
+               ("Location", Option.map Ui.text (get (fun p -> p.location)));
+               ( "Handle",
+                 Option.map Ui.text (get (fun p -> p.preferred_handle)) );
+               ( "Kind",
+                 if get (fun p -> p.is_organization) = Some true then
+                   Some (Ui.text "organization")
+                 else None );
+               ( "Links",
+                 match get (fun p -> p.links) with
+                 | Some (_ :: _ as l) -> Some (Ui.V.vcat (List.map Ui.link l))
+                 | _ -> None );
+             ];
+           (match (profile, get (fun p -> p.description)) with
+           | None, _ -> Ui.muted "No Tangled profile set."
+           | Some _, Some d -> Ui.para d
+           | Some _, None -> Ui.V.empty);
+         ])
+  else begin
+    Fmt.pr "Profile: %s@." handle;
+    Fmt.pr "DID: %s@.@." did;
+    match profile with
+    | Some profile -> Fmt.pr "%a@." pp_profile profile
+    | None -> Fmt.pr "(No Tangled profile set)@."
+  end
 
 let view_cmd =
   let doc = "View a user's Tangled profile." in
@@ -86,8 +117,11 @@ let keys_action ~user env =
         else Tangled.Api.resolve_handle api u
     | None -> Tangled.Api.get_did api
   in
-  let keys = Tangled.Api.list_ssh_keys api ~did () in
-  if keys = [] then Fmt.pr "No SSH keys found.@."
+  let keys =
+    Ui.busy "Reading SSH keys" (fun () -> Tangled.Api.list_ssh_keys api ~did ())
+  in
+  if Ui.tty () then Cmd_key.show_keys keys
+  else if keys = [] then Fmt.pr "No SSH keys found.@."
   else begin
     Fmt.pr "SSH Keys for %s:@.@." did;
     List.iter (fun k -> Fmt.pr "%a@.@." pp_public_key k) keys

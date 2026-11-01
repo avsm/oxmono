@@ -131,6 +131,76 @@ let schema_cmd =
         (const (fun nsid -> Common.run (fun _ -> Common.json (S.document nsid)))
         $ nsid))
 
+let kind_view kind =
+  let role =
+    match kind with
+    | "query" -> `Accent
+    | "procedure" -> `Warning
+    | "subscription" -> `Succeeded
+    | _ -> `Muted
+  in
+  Ui.V.role role (Ui.text kind)
+
+(* The NSIDs as a tree of their segments, with the shared prefix of the
+   whole list as its root. *)
+let tree nsids =
+  let split = List.map (fun n -> (String.split_on_char '.' n, n)) nsids in
+  let rec node label entries =
+    let leaves, inner =
+      List.partition (fun (path, _) -> List.length path = 1) entries
+    in
+    let groups =
+      List.fold_left
+        (fun acc (path, nsid) ->
+          match path with
+          | head :: rest ->
+              let previous =
+                Option.value ~default:[] (List.assoc_opt head acc)
+              in
+              (head, (rest, nsid) :: previous) :: List.remove_assoc head acc
+          | [] -> acc)
+        [] inner
+      |> List.rev_map (fun (k, v) -> (k, List.rev v))
+      |> List.sort (fun (a, _) (b, _) -> String.compare a b)
+    in
+    let children =
+      List.map (fun (head, entries) -> node (Ui.bold head) entries) groups
+      @ List.map
+          (fun (path, nsid) ->
+            Console.Tree.v
+              (Ui.V.concat
+                 [
+                   Ui.text (List.hd path);
+                   Ui.text "  ";
+                   kind_view (S.kind nsid);
+                 ])
+              [])
+          (List.sort compare leaves)
+    in
+    Console.Tree.v label children
+  in
+  (* Fold single-child chains such as org > tangled into org.tangled. *)
+  let rec root prefix entries =
+    match
+      ( List.sort_uniq String.compare
+          (List.filter_map
+             (fun (p, _) ->
+               match p with [ _ ] | [] -> None | h :: _ -> Some h)
+             entries),
+        List.exists (fun (p, _) -> List.length p <= 1) entries )
+    with
+    | [ head ], false ->
+        root
+          (if prefix = "" then head else prefix ^ "." ^ head)
+          (List.map (fun (p, n) -> (List.tl p, n)) entries)
+    | _ -> node (Ui.title (if prefix = "" then "APIs" else prefix)) entries
+  in
+  Ui.V.vcat
+    [
+      Ui.heading "Lexicons" (List.length nsids);
+      Console.Tree.view (root "" split);
+    ]
+
 let list_cmd =
   let prefix = Arg.(value & pos 0 string "" & info [] ~docv:"PREFIX") in
   Cmd.v
@@ -138,11 +208,15 @@ let list_cmd =
        ~doc:"List all vendored APIs, records and definitions offline.")
     Term.(
       const (fun prefix ->
-          List.iter
-            (fun (nsid, _) ->
-              if String.starts_with ~prefix nsid then
-                Fmt.pr "%s\t%s@." (S.kind nsid) nsid)
-            S.documents)
+          let nsids =
+            List.filter_map
+              (fun (nsid, _) ->
+                if String.starts_with ~prefix nsid then Some nsid else None)
+              S.documents
+          in
+          if Ui.tty () then Ui.print (tree nsids)
+          else
+            List.iter (fun nsid -> Fmt.pr "%s\t%s@." (S.kind nsid) nsid) nsids)
       $ prefix)
 
 let cmd =

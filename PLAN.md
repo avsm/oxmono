@@ -1,6 +1,7 @@
 # A forkable OxMono workspace and release pipeline
 
-Status: proposed design, 2026-11-01. This plan changes no source locations.
+Status: design with confirmed ownership, platforms and overlay policy,
+2026-11-01. This plan changes no source locations.
 Implementation should proceed as separately reviewable migrations.
 
 ## Recommended direction
@@ -15,17 +16,21 @@ containers and releases:
 
 Move `avsm/` to `u/avsm/` and the complete `taposaur/` project to
 `u/etap/taposaur/`. Give each owner a Dockerfile and a small build manifest.
-Move the shared release engine out of the personal `ox` application before
-making it infrastructure on which other users depend.
+Promote `avsm/ox` to `wip/ox` as the shared management CLI, preserving the
+`ox` binary and `ox.lib` library. Extend its existing build and solver machinery
+for owner selection, containers and source-overlay releases.
 
 Generate one ordinary opam repository containing shared packages and the
 patched vendor packages needed to install them. Produce deterministic source
 archives under `dist/`, then publish those bytes to configurable storage.
 Keep package extraction separate from upload and repository publication.
 
-Use `YYYYMMDD-N` for a release ID. For opam versions, retain the upstream or
-declared base: `BASE+ox.YYYYMMDD.N.PUBLISHER.gREV`. This extends the existing
-`ox stamp` approach instead of introducing incompatible date-only versions.
+Use simple OxCaml package versions: `BASE+ox`, then `BASE+ox2`, `BASE+ox3`
+for subsequent revisions of that base. Keep commit hashes and release IDs in
+manifests. Run our own source-package overlay over the pinned OxCaml and
+public opam repositories, with the compiler fixed at minus39. The immediate
+deliverable is usable Linux binaries and per-user containers, not published
+binary packages. Source publication remains a later phase.
 
 ## What is here today
 
@@ -110,7 +115,7 @@ vendor/
   <upstream>/
 wip/
   <shared-project>/
-  monorepo/                 # shared discovery, extraction and release engine
+  ox/                       # shared management CLI and ox.lib
 u/
   avsm/
     user.json
@@ -164,16 +169,16 @@ confirm provenance before release, not invent a commit.
 | gitops | `wip/gitops` |
 | hf | `wip/hf` |
 | httpz | `wip/httpz`; retain and improve embedded-source provenance |
-| idk | `vendor/ocaml-jscontact`; imported contact/calendar package family |
+| idk | `wip/idk`; IDKit is maintained here until an upstream is designated |
 | imap | `wip/imap`; repair its cross-project oracle fixture dependency |
 | immich | `wip/immich` |
-| jmap | `vendor/ocaml-jmap`; explicitly account for disabled jmap-mosaic |
+| jmap | `wip/jmap`; maintained here; explicitly account for disabled jmap-mosaic |
 | json-pointer | `vendor/ocaml-json-pointer`; examples are not release roots |
 | jsonwt | `wip/jsonwt` |
 | karakeep | `wip/karakeep` |
 | linkedin | `wip/linkedin` |
 | maildir | `wip/maildir` |
-| matrix | `vendor/ocaml-matrix`; package remains matrix-chat |
+| matrix | `wip/matrix`; maintained here; package remains matrix-chat |
 | memento | `wip/memento` |
 | mqttz | `wip/mqttz`; retain provenance of its inherited codec |
 | nx-oxcaml | `vendor/nx-oxcaml`; recorded upstream port, paired with Nx |
@@ -197,14 +202,16 @@ confirm provenance before release, not invent a commit.
 | zarrz | `wip/zarrz` |
 | zotero-translation | `wip/zotero-translation` |
 | zstdz | `wip/zstdz` |
-| zulip | `vendor/ocaml-zulip`; retain its documented upstream port |
+| zulip | `wip/zulip`; maintained here; retain historical provenance |
 
 The oi group retains three independently buildable Dune projects under one
 upstream provenance entry. Its source mapping must describe the original oi
 subdirectories and the local rearrangement.
 
-Do not merge `vendor/ocaml-matrix` with existing `vendor/matrix`. The latter
-is terminal infrastructure imported from Mosaic, not the Matrix chat SDK.
+Keep `wip/matrix` separate from existing `vendor/matrix`. The latter is
+terminal infrastructure imported from Mosaic, not the Matrix chat SDK.
+Matrix, JMAP, IDKit and Zulip stay first-party until the owner explicitly
+designates an upstream. Preserve their historical provenance.
 
 ### All current avsm directories
 
@@ -214,7 +221,7 @@ is terminal infrastructure imported from Mosaic, not the Matrix chat SDK.
 | bushel | `u/avsm/bushel` |
 | crowthebot | `u/avsm/crowthebot` |
 | dooit | `u/avsm/dooit` |
-| ox | `u/avsm/ox`; extract reusable release/discovery code to `wip/monorepo` |
+| ox | `wip/ox`; shared management CLI and reusable `ox.lib` |
 | recoilnet | `u/avsm/recoilnet`; operations data, excluded from images/archives |
 | retrieval | Promote to `wip/retrieval`; generic storage and retrieval library |
 | siftbot | `u/avsm/siftbot` |
@@ -360,44 +367,98 @@ Linux Docker cannot supply Apple frameworks or Metal, even on a Mac host.
 Declare CPU/CUDA/macOS support explicitly. Build portable applications with
 their supported Linux backends and document unavailable optional features.
 A genuinely macOS-only executable must appear in the exclusion report, with
-a native macOS bundle/test route. Never claim a Linux image contains functional
-Apple services because a stub linked successfully.
+a documented native macOS route outside the initial deliverables. Never claim
+a Linux image contains functional Apple services because a stub linked
+successfully.
 
-Test amd64 and arm64 natively where available. Keep CUDA as a deliberate image
-variant. Derive native build and runtime dependencies from package metadata
-plus reviewed platform overrides; do not assume the existing global apt list
+The initial platform matrix is Linux amd64 and arm64, using glibc. Test both
+natively where available. CUDA images and native macOS bundles are deferred.
+Derive native build and runtime dependencies from package metadata plus
+reviewed platform overrides; do not assume the existing global apt list
 is the runtime closure.
 
-## Shared release engine
+### Binary linking and delivery
 
-Extract the reusable parts of `ox` into `wip/monorepo`, exposing small OCaml
-interfaces for discovery, release planning, source export, metadata emission
-and transport. Keep its package independent of `u/avsm/ox`. The existing `ox`
-CLI can call it, alongside a neutral `oxmono` command.
+Use native OCaml executables with their required system shared libraries in
+small glibc-based runtime images. Also support a per-owner install directory
+with `bin/`, assets and a recorded system-library inventory for compatible
+Linux hosts. A loose executable is not promised to run on arbitrary distros.
+No Debian/RPM packages or public binary-release service are needed initially.
+
+Fully static linking is an optional later optimisation, evaluated per binary.
+The inspected OxCaml overlay explicitly says musl is unsupported. Do not base
+the initial build on Alpine or assume that adding `-static` suffices. C/C++
+dependencies such as BLAS, compression and DS4, external helper programs,
+certificates and data files all need an inventory even with static linking.
+Start with an agreed glibc runtime image and smoke-test the complete bundle
+on both architectures, including DNS, TLS and helper discovery.
+
+## Shared management through ox
+
+Promote the entire existing `avsm/ox` project to `wip/ox`, preserving its `ox`
+package, binary and `ox.lib` library names. Owner bundles can include `ox` as
+a shared CLI. Do not introduce a competing `oxmono` binary or a second solver,
+cache, metadata parser or build executor.
+
+The existing implementation supplies:
+
+| Existing component | Reuse |
+| --- | --- |
+| `Stamp` | Discover packages, Dune projects and binaries; rewrite dependency formulas |
+| `Repository` / `Solve` | Ordered overlays, package solving and snapshot constraints |
+| `Source` / `Recipe` / `Build` / `Runner` | Fetch sources, execute recipes, cache day10 layers and assemble prefixes |
+| `Workspace` | Build working trees with prepared dependencies and scoped Dune aliases |
+| `Dist` | Source bundles, platform/dependency inventories and Docker build plumbing |
+
+Keep `ox build`, `test`, `show`, `run`, `env` and `exec`. Add owner selection
+to those existing workflows. Preserve `ox dist pkg` for existing callers, but
+use its lower-level machinery for install trees and runtime images without
+requiring Debian/RPM generation. Keep the public `ox.lib` interfaces cohesive;
+split modules internally as responsibilities grow rather than create an
+owner-specific dependency for shared infrastructure.
+
+The main gaps to implement are:
+
+- Owner manifests and staging workspaces which exclude unrelated owner trees.
+  Current `Workspace` selects scoped aliases but still operates at the Git root.
+- Checked-in compiler/repository locks, with exact minus39 selection. Today
+  `--toolchain oxcaml-compiler.5.2.0minus39` can select that compiler explicitly;
+  the default toolchain is the less restrictive `oxcaml` meta-package.
+- A release policy using `+ox` revisions and deterministic subtree archives.
+  Existing `ox stamp` uses `BASE+ox.COUNT.COMMIT` and Git subdirectory sources.
+- Exportable guard metadata. Current `Repository.constrain` removes local
+  package atoms from upstream guards and adds an internal `ox-local-snapshot`
+  solver root that rejects other versions of those names. This supports ox's
+  snapshot execution, but is not the standalone opam overlay guard design.
+  Share the new guard-policy implementation between ox and overlay exports.
+- Per-owner install-tree and runtime-image output, with helper, library and
+  asset inventories and smoke tests on Linux amd64/arm64.
 
 Use Eio capabilities for filesystem, process, network and clocks. Publication
 should accept an explicit validated release manifest. Keep pure opam formula
 and version transformations separate from I/O. Reuse existing opam-format,
 gitops, archive and checksum facilities rather than a shell/regex metadata
-rewriter.
+rewriter. Preserve the existing stamp workflow until its callers migrate.
 
-Proposed commands, not commands implemented by this plan:
+Proposed additions, not commands implemented by this plan:
 
 ```sh
-oxmono inventory --check
-oxmono build --user avsm
-oxmono image --user etap
-oxmono release plan --ref COMMIT --publisher oxmono --id 20261101-1
-oxmono release export --plan RELEASE-PLAN --output dist
-oxmono release verify --manifest dist/releases/oxmono/20261101-1/manifest.json
-oxmono release publish --manifest MANIFEST --transport https
-oxmono release publish --manifest MANIFEST --transport tangled
+ox inventory --check
+ox build --user avsm
+ox test --user etap
+ox dist bundle --user avsm --output dist/avsm
+ox dist image --user etap --arch arm64
+ox release plan --ref COMMIT --id 20261101-1
+ox release export --plan RELEASE-PLAN --output dist
+ox release verify --manifest MANIFEST
+ox release publish --manifest MANIFEST --transport https
 ```
 
-Bootstrap must not require an already installed `oxmono` executable. Provide
-a small script using a pinned supported switch or builder image to build the
-release tool and its closure. Test this from a fresh clone without the author's
-opam switch, home-directory configuration or binary cache.
+Bootstrap must not require an already installed `ox` executable. Provide a
+small script using a pinned supported switch or builder image to build `ox`
+and its closure. Once installed, ox can build its compiler/dependencies through
+day10 without an opam CLI or switch. Test bootstrap from a fresh clone without
+the author's opam switch, home-directory configuration or binary cache.
 
 ### Source units, packages and scope
 
@@ -451,26 +512,18 @@ build configuration, licenses and required generated assets.
 
 ### Versioning
 
-Separate the human release ID from package compatibility versions:
+Use the overlay's simple `+ox` convention for every exported source package.
+For example, Digestif starts at `1.4.0+ox`; changed source or packaging under
+the same base becomes `1.4.0+ox2`. Preserve the upstream or declared first-party
+base. Do not add date, publisher or commit components to package versions.
+If a version already exists with different bytes in our overlay or the pinned
+OxCaml overlay, allocate the next unused revision rather than overwrite it.
+Do not append `+ox` repeatedly to versions already carrying an OxCaml suffix.
 
-| Identifier | Suggested example |
-| --- | --- |
-| Release ID | `20261101-1` |
-| Publisher | `oxmono`, or a fork's stable configured name |
-| Digestif package | `1.4.0+ox.20261101.1.oxmono.ga5d2197b3` |
-| Project without a declared base | `0.0.0+ox.20261101.1.oxmono.ga5d2197b3` |
-
-Here N is a publisher-assigned increasing release sequence within the UTC
-date, not Unix time or an ABI epoch. Persist its allocation in release records.
-Re-running the same approved plan reuses the same ID and bytes. Reject a
-different commit/configuration under an existing ID. Include the full commit
-and all hashes in the manifest; short hashes are only display identifiers.
-
-This is preferable to bare `YYYYMMDD-EPOCH` package versions because existing
-upstream dependency bounds refer to upstream version families. It also avoids
-requiring full Git history merely to derive a revision count, as current
-`ox stamp` does. Retain the current stamp format for its existing development
-workflow until migration is tested.
+Release manifests can retain `YYYYMMDD-N` IDs for grouping artifacts, independent
+of package versions. Record full commits and hashes there. Re-running the same
+plan must reproduce its metadata and bytes without allocating new revisions.
+Keep the existing personal `ox stamp` behavior until its callers migrate.
 
 The suffix is part of opam's version ordering, not ignored SemVer metadata.
 Test comparisons using the repository's opam library. Do not assume a suffix
@@ -490,16 +543,24 @@ The current stamper is a starting point, not proof that every formula is
 handled. Diagnose unsatisfied bounds instead of dropping them to make a solve
 succeed.
 
-Compiler/ABI compatibility needs an explicit package dependency on the
-supported OxCaml compiler cohort. `ocaml >= 5.2` alone is not sufficient.
-Avoid mixing independently built patched packages with incompatible installed
-upstream interfaces. Reuse or extend ox's existing snapshot-coherence guards.
+Every exported library/application package must require
+`oxcaml-compiler = "5.2.0minus39"`. The switch name `5.2.0+ox` and the
+`oxcaml.latest` meta-package alone do not constrain the compiler to minus39.
+Pin both external repository commits and resolved dependency versions.
 
-Fork package versions must not collide with another publisher's different
-bytes. Publisher identity and commit suffixes distinguish them. A repository
-must reject duplicate package/version entries with differing checksums.
-Repository priority alone is not a substitute for selecting a coherent
-snapshot.
+Integrate the upstream guard mechanism, not just version suffixes. Extend the
+allowlist in each applicable `oxcaml-P-patches.enabled` package with our
+validated versions of `P`, preserving its conflicts and post-dependency chain.
+For locally patched packages whose upstream guards permit ordinary upstream
+versions, add an overlay-specific guard to prevent incompatible mixtures in
+our switches. New guards must be reachable from an installed switch root.
+Never remove `oxcaml-patch-guards` or edit a guard to allow arbitrary versions.
+See [the inspected guard design](docs/oxcaml-overlay.md) for exact examples.
+
+Repository priority selects metadata for identical names and versions; it is
+not an ABI or snapshot constraint. Reject duplicate package/version entries
+with different bytes. Forks using simple `+oxN` versions must coordinate
+revision allocation or use separate, explicitly locked repository sets.
 
 ### Export and repository structure
 
@@ -607,7 +668,9 @@ Acceptance gates:
   docs, gitignore entries, ox discovery and provenance tooling.
 - Each owner image's installed binary/asset inventory matches its manifest.
   Smoke tests exercise helper discovery as well as top-level `--help`.
-- Native macOS and Linux CI distinguish unsupported features from real passes.
+- Linux amd64 and arm64 CI distinguish unsupported features from real passes.
+- Solver tests reject stock/incorrect compilers and incompatible upstream
+  libraries, and accept each generated minus39 package closure.
 - Export the same commit/configuration twice and compare archive bytes.
 - Unpack every archive away from the monorepo. Install using only the generated
   repository and declared external repositories, with an empty build cache.
@@ -629,10 +692,10 @@ Acceptance gates:
    identified imports, update every active path reference, and remove the
    empty samoht entry. Preserve package names. Test before semantic changes.
 3. **Independent owner builds.** Introduce user manifests, selected workspaces,
-   compiler/dependency locks and the fork template. Extract shared tooling
-   from ox without changing its existing CLI behavior.
+   compiler/dependency locks and the fork template. Promote ox to `wip/ox`
+   and extend its existing workflows without breaking existing commands.
 4. **Containers.** Add the two owner Dockerfiles, source-context allowlists,
-   runtime inventories and Linux/native-platform CI.
+   runtime inventories and Linux amd64/arm64 CI.
 5. **Local releases.** Implement plan/export/verify, deterministic project
    archives, version-policy tests and the cumulative local opam repository.
    Demonstrate clean installs of several small packages, then every supported
@@ -643,21 +706,22 @@ Acceptance gates:
 7. **Optimisation.** Add incremental releases, remote build caches and richer
    platform matrices only after standalone correctness is established.
 
-## Decisions to confirm during implementation
+## Confirmed decisions and remaining configuration
 
-The proposed defaults are sufficient to start phases 1 and 2; these are design
-choices, not reasons to stop the current planning task:
+Confirmed on 2026-11-01:
 
-- Confirm the imported-package maintenance direction, especially Matrix/JMAP,
-  IDKit and Zulip, before making vendor placement permanent.
-- Choose a stable publisher ID and public archive/repository URLs.
-- Confirm `YYYYMMDD-N` release IDs and base-preserving opam versions.
-- Set the initial Linux platform matrix and supported optional backends.
-- Decide whether user application packages are published by default. Proposed
-  default: shared packages plus their patched vendor closure; owners opt in.
-- Decide the later graduation policy once a wip project reaches public opam.
-  Proposed default: retain a maintained local port under vendor, or remove the
-  local source when the external release really supplies the required ABI.
+- Matrix, JMAP, IDKit and Zulip remain maintained here under `wip/` until the
+  owner designates an upstream.
+- Initial targets are Linux amd64 and arm64. Prioritise runnable binaries and
+  per-user containers. Binary package publication is out of scope for now.
+- Maintain our own source opam overlay, use `BASE+ox` / `BASE+oxN` package
+  versions, pin minus39 and integrate the upstream patch guards.
 
-No directory moves, Docker builds, release uploads or commits are performed
-by this planning change.
+Proceed with glibc-based runtime images and bundled dependencies. Fully static
+linking is not an initial acceptance requirement. Shared packages and required
+patched vendors enter the overlay; user applications opt in when needed.
+Hosting URLs and upload credentials can wait until local source releases work.
+An upstream or graduation change requires an explicit owner decision.
+
+No source-layout migration, container build or publication is performed by
+this design update.

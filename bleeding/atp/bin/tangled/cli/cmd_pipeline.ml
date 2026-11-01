@@ -12,19 +12,21 @@ let pipeline =
     & pos 0 (some string) None
     & info [] ~docv:"PIPELINE"
         ~doc:
-          "Pipeline ID, as list shows it (default: the latest for the \
-           checked-out commit, or else the latest).")
+          "The pipeline's ID, as $(b,list) shows it. Without it, the latest \
+           pipeline for the checked-out commit, or else the latest of all.")
 
 let commit =
   Common.optional [ "commit"; "sha" ] "SHA"
-    "Commit to run (default: the checked-out commit)."
+    "Run on commit SHA instead of the checked-out commit."
 
 let ref_ =
   Common.optional [ "ref" ] "REF"
-    "Git reference the commit was resolved from (default: the current branch)."
+    "Run as if pushed to REF, such as $(i,refs/heads/main), instead of the \
+     current branch. Workflows may run differently on different branches."
 
 let inputs =
-  Common.strings [ "input" ] "KEY=VALUE" "Workflow input (repeatable)."
+  Common.strings [ "input" ] "KEY=VALUE"
+    "Give the workflows the input KEY with VALUE. Repeat the option for more."
 
 let target api ~repo ~spindle = Common.spindle_target api ~repo ~spindle
 
@@ -148,17 +150,21 @@ let show_cmd =
         else Fmt.pr "%a" pp_pipeline value)
   in
   Common.cmd
-    (Cmd.info "show" ~doc:"Show a pipeline and its workflow statuses.")
+    (Cmd.info "show" ~doc:"Show a pipeline and how each of its workflows went.")
     Term.(
       term_result (const action $ pipeline $ repo $ spindle $ Common.json_flag))
 
 let list_cmd =
   let commits =
-    Common.strings [ "commit" ] "SHA" "Filter by commit (repeatable)."
+    Common.strings [ "commit" ] "SHA"
+      "Show only pipelines for commit SHA. Repeat the option for more."
   in
   let triggers =
-    Common.strings [ "trigger" ] "NSID"
-      "Filter by trigger, such as org.tangled.event.push (repeatable)."
+    Common.strings [ "trigger" ] "EVENT"
+      "Show only pipelines started by EVENT, such as \
+       $(b,org.tangled.event.push) for pushes or \
+       $(b,org.tangled.event.pullRequest) for pull requests. Repeat the option \
+       for more."
   in
   let action repo spindle limit cursor commits triggers json =
     Common.run (fun env ->
@@ -208,7 +214,7 @@ let list_cmd =
         end)
   in
   Common.cmd
-    (Cmd.info "list" ~doc:"Query pipelines with filters and pagination.")
+    (Cmd.info "list" ~doc:"List the repository's pipelines, newest first.")
     Term.(
       term_result
         (const action $ repo $ spindle $ Common.limit $ Common.cursor $ commits
@@ -245,8 +251,15 @@ let trigger_cmd =
                  ~inputs ())))
   in
   Common.cmd
-    (Cmd.info "trigger"
-       ~doc:"Run workflows on a commit the knot has. Prints the pipeline IDs.")
+    (Cmd.info "trigger" ~doc:"Start a pipeline by hand."
+       ~man:
+         (Common.man
+            [
+              "Runs the repository's workflows on the checked-out commit, \
+               which must be pushed, and prints the new pipeline's ID. Use it \
+               for workflows that run only when asked, or to run again without \
+               pushing. It needs push access.";
+            ]))
     Term.(
       term_result
         (const action $ repo $ spindle $ Common.audience $ commit $ ref_
@@ -267,7 +280,8 @@ let retry_cmd =
         if Ui.tty () then Ui.ok "Started pipeline %s" id else print_endline id)
   in
   Common.cmd
-    (Cmd.info "retry" ~doc:"Run a pipeline again as a new pipeline.")
+    (Cmd.info "retry"
+       ~doc:"Run a pipeline's workflows again, as a new pipeline.")
     Term.(
       term_result
         (const action $ pipeline $ repo $ spindle $ Common.audience
@@ -289,7 +303,8 @@ let cancel_cmd =
         Ui.ok "Cancelled pipeline %s" pipeline)
   in
   Common.cmd
-    (Cmd.info "cancel" ~doc:"Cancel a pipeline or selected workflows.")
+    (Cmd.info "cancel"
+       ~doc:"Stop a running pipeline, or some of its workflows.")
     Term.(
       term_result
         (const action $ pipeline $ repo $ spindle $ Common.audience
@@ -309,7 +324,14 @@ let approve_cmd =
         Ui.ok "Approved pipeline %s" pipeline)
   in
   Common.cmd
-    (Cmd.info "approve" ~doc:"Approve a pipeline blocked for review.")
+    (Cmd.info "approve" ~doc:"Let a waiting pipeline run."
+       ~man:
+         (Common.man
+            [
+              "A pull request from someone without push access does not run CI \
+               until someone with push access has read its changes and \
+               approves it, so that untrusted code does not run unchecked.";
+            ]))
     Term.(
       term_result (const action $ pipeline $ repo $ spindle $ Common.audience))
 
@@ -352,7 +374,7 @@ let logs_cmd =
   in
   Common.cmd
     (Cmd.info "logs"
-       ~doc:"Stream workflow logs, preserving partial lines and stderr.")
+       ~doc:"Show a pipeline's output, following it while it runs.")
     Term.(
       term_result
         (const action $ pipeline $ repo $ spindle $ Common.workflows
@@ -369,12 +391,18 @@ let source_text source =
       | _ -> field "path")
   | None -> None
 
+let workflows_ref =
+  Common.optional [ "ref" ] "REF"
+    "Read the workflows of REF, a branch, tag or commit, instead of the \
+     default branch."
+
 let workflows_cmd =
   let name =
     Arg.(
       value
       & pos 0 (some string) None
-      & info [] ~docv:"NAME" ~doc:"Show this workflow's definition.")
+      & info [] ~docv:"NAME"
+          ~doc:"Show the workflow NAME in full instead of listing them.")
   in
   let action repo spindle ref_ name json =
     Common.run (fun env ->
@@ -425,12 +453,11 @@ let workflows_cmd =
   in
   Common.cmd
     (Cmd.info "workflows"
-       ~doc:
-         "List the workflows the spindle would run, or show one. Pipes get \
-          JSON.")
+       ~doc:"List the workflows a push would run, or show one.")
     Term.(
       term_result
-        (const action $ repo $ spindle $ ref_ $ name $ Common.json_flag))
+        (const action $ repo $ spindle $ workflows_ref $ name
+       $ Common.json_flag))
 
 let secret_list =
   let action repo spindle audience json =
@@ -455,18 +482,20 @@ let secret_list =
         else List.iter (fun (s : S.secret) -> print_endline s.key) secrets)
   in
   Common.cmd
-    (Cmd.info "list" ~doc:"List the names of the repository's CI secrets.")
+    (Cmd.info "list"
+       ~doc:"List the names of the secrets, but not their values.")
     Term.(
       term_result
         (const action $ repo $ spindle $ Common.audience $ Common.json_flag))
 
-let secret_key = Common.positional 0 "KEY" "Secret name, as workflows see it."
+let secret_key =
+  Common.positional 0 "KEY" "The secret's name, as workflows read it."
 
 let secret_set =
   let value =
     Common.optional [ "value" ] "VALUE"
-      "Secret value. Without it the value is read from standard input, which \
-       keeps it out of the shell history."
+      "The secret's value. Without this option, it is read from standard \
+       input, which keeps it out of your shell's history."
   in
   let action repo spindle audience key value =
     Common.run (fun env ->
@@ -490,7 +519,7 @@ let secret_set =
         Ui.ok "Set secret %s" key)
   in
   Common.cmd
-    (Cmd.info "set" ~doc:"Add a CI secret.")
+    (Cmd.info "set" ~doc:"Add a secret.")
     Term.(
       term_result
         (const action $ repo $ spindle $ Common.audience $ secret_key $ value))
@@ -504,7 +533,7 @@ let secret_remove =
         Ui.ok "Removed secret %s" key)
   in
   Common.cmd
-    (Cmd.info "remove" ~doc:"Remove a CI secret.")
+    (Cmd.info "remove" ~doc:"Remove a secret.")
     Term.(
       term_result
         (const action $ repo $ spindle $ Common.audience $ secret_key))
@@ -512,15 +541,31 @@ let secret_remove =
 let secret_group =
   Cmd.group
     (Cmd.info "secret"
-       ~doc:"Manage the secrets a repository's workflows can read.")
+       ~doc:"Manage the secrets a repository's workflows can read."
+       ~man:
+         (Common.man
+            [
+              "A secret, such as a token for publishing a release, is given to \
+               the workflows as an environment variable and hidden from their \
+               logs. Once set, a secret's value cannot be read back. Managing \
+               secrets needs push access.";
+            ]))
     [ secret_list; secret_set; secret_remove ]
 
 let cmd =
   Cmd.group
-    (Cmd.info "pipeline"
-       ~doc:
-         "Follow and control CI. A missing pipeline ID means the latest for \
-          the checked-out commit.")
+    (Cmd.info "pipeline" ~doc:"Follow and control a repository's CI."
+       ~man:
+         (Common.man
+            [
+              "A repository's CI runs on the spindle it names. The workflows \
+               are YAML files in the repository's $(i,.tangled/workflows) \
+               directory, and each says when it runs, such as on a push to a \
+               branch or a pull request. Each time, the spindle starts a \
+               pipeline: one run of those workflows on one commit.";
+              "Commands that take a pipeline ID use, without one, the latest \
+               pipeline for the commit checked out in the current directory.";
+            ]))
     [
       list_cmd;
       show_cmd;

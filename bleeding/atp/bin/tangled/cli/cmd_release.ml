@@ -5,7 +5,8 @@ module Api = Tangled.Api
 module Artifact = Api.Lex.Repo.Artifact
 module Tags = Api.Lex.Git.ListTags
 
-let tag = Common.positional 0 "TAG" "Tag, or a full commit ID."
+let tag =
+  Common.positional 0 "TAG" "The release's Git tag, or a full commit hash."
 
 let all_tags api r =
   let rec pages cursor acc =
@@ -41,7 +42,7 @@ let size n =
   else Printf.sprintf "%.1f MiB" (n /. 1048576.)
 
 let list_cmd =
-  let tag_opt = Common.optional [ "tag" ] "TAG" "Only the artifacts of TAG." in
+  let tag_opt = Common.optional [ "tag" ] "TAG" "Show only the files of TAG." in
   let action repo knot only json =
     Common.run (fun env ->
         let artifacts, names =
@@ -100,7 +101,7 @@ let list_cmd =
             artifacts)
   in
   Common.cmd
-    (Cmd.info "list" ~doc:"List release artifacts by tag.")
+    (Cmd.info "list" ~doc:"List the files attached to each release.")
     Term.(
       term_result
         (const action $ Common.repo $ Common.knot $ tag_opt $ Common.json_flag))
@@ -120,7 +121,7 @@ let upload_cmd =
   let files =
     Arg.(
       non_empty & pos_right 0 file []
-      & info [] ~docv:"FILE" ~doc:"Files to attach.")
+      & info [] ~docv:"FILE" ~doc:"The files to attach.")
   in
   let action repo knot tag files =
     Common.run (fun env ->
@@ -142,7 +143,13 @@ let upload_cmd =
               files))
   in
   Common.cmd
-    (Cmd.info "upload" ~doc:"Attach files to a tag, each at most 50 MiB.")
+    (Cmd.info "upload" ~doc:"Attach files to a release."
+       ~man:
+         (Common.man
+            [
+              "Attaches each FILE to the release of TAG under its own name. \
+               Push the tag first. A file may be at most 50 MiB.";
+            ]))
     Term.(term_result (const action $ Common.repo $ Common.knot $ tag $ files))
 
 let select api r tag name =
@@ -166,12 +173,13 @@ let download_cmd =
       value
       & pos 1 (some string) None
       & info [] ~docv:"NAME"
-          ~doc:"Artifact to download (default: all of them).")
+          ~doc:"Download only the file NAME instead of all of them.")
   in
   let dir =
     Arg.(
       value & opt string "."
-      & info [ "dir"; "D" ] ~docv:"DIR" ~doc:"Directory to write into.")
+      & info [ "dir"; "D" ] ~docv:"DIR"
+          ~doc:"Write into DIR instead of the current directory.")
   in
   let action repo knot tag name dir =
     Common.run (fun env ->
@@ -196,12 +204,12 @@ let download_cmd =
               artifacts))
   in
   Common.cmd
-    (Cmd.info "download" ~doc:"Download a tag's artifacts.")
+    (Cmd.info "download" ~doc:"Download the files attached to a release.")
     Term.(
       term_result (const action $ Common.repo $ Common.knot $ tag $ name $ dir))
 
 let delete_cmd =
-  let name = Common.positional 1 "NAME" "Artifact to delete." in
+  let name = Common.positional 1 "NAME" "The file to delete." in
   let action repo knot tag name =
     Common.run (fun env ->
         Common.with_api ~busy:("Deleting " ^ name) env (fun api ->
@@ -212,10 +220,18 @@ let delete_cmd =
         Ui.ok "Deleted %s from %s" name tag)
   in
   Common.cmd
-    (Cmd.info "delete" ~doc:"Delete an artifact from a tag.")
+    (Cmd.info "delete" ~doc:"Delete a file from a release.")
     Term.(term_result (const action $ Common.repo $ Common.knot $ tag $ name))
 
 let cmd =
   Cmd.group
-    (Cmd.info "release" ~doc:"Attach files to tags, and fetch them.")
+    (Cmd.info "release"
+       ~doc:"Publish files, such as builds, for a tagged version."
+       ~man:
+         (Common.man
+            [
+              "A release is a Git tag with files attached, such as source \
+               archives or builds, for people to download. Tag a commit and \
+               push the tag, then attach files with $(b,upload).";
+            ]))
     [ list_cmd; upload_cmd; download_cmd; delete_cmd ]

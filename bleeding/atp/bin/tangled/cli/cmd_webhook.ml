@@ -4,17 +4,20 @@ open Cmdliner
 module Api = Tangled.Api
 module Defs = Api.Lex.Webhook.Defs
 
-let webhook = Common.positional 0 "WEBHOOK" "Webhook ID, as list shows it."
+let webhook =
+  Common.positional 0 "WEBHOOK" "The webhook's ID, as $(b,list) shows it."
 
 let events =
   Common.strings [ "event"; "e" ] "EVENT"
-    "Send on EVENT (repeatable): push, repository:renamed, \
-     pull_request:created, pull_request:resubmitted, pull_request:merged, \
-     pull_request:closed or pull_request:reopened."
+    "Notify on EVENT. Repeat the option for more. The events are $(b,push), \
+     $(b,repository:renamed), $(b,pull_request:created), \
+     $(b,pull_request:resubmitted), $(b,pull_request:merged), \
+     $(b,pull_request:closed) and $(b,pull_request:reopened)."
 
 let secret =
   Common.optional [ "secret" ] "SECRET"
-    "Sign each delivery with SECRET, so the receiver can check it."
+    "Sign each notification with SECRET, so that the receiver can tell it came \
+     from here."
 
 let with_target ?busy env repo spindle f =
   Common.with_api ?busy env (fun api ->
@@ -57,14 +60,14 @@ let list_cmd =
             hooks)
   in
   Common.cmd
-    (Cmd.info "list" ~doc:"List a repository's webhooks.")
+    (Cmd.info "list" ~doc:"List the repository's webhooks.")
     Term.(
       term_result
         (const action $ Common.repo $ Common.spindle $ Common.audience
        $ Common.json_flag))
 
 let add_cmd =
-  let url = Common.positional 0 "URL" "Address to deliver to." in
+  let url = Common.positional 0 "URL" "The address to send notifications to." in
   let action repo spindle audience url events secret =
     Common.run (fun env ->
         let events = if events = [] then [ "push" ] else events in
@@ -77,21 +80,29 @@ let add_cmd =
         if Ui.tty () then Ui.ok "Added webhook %s" id else print_endline id)
   in
   Common.cmd
-    (Cmd.info "add" ~doc:"Deliver events to a URL. The default event is push.")
+    (Cmd.info "add" ~doc:"Send notifications to a URL."
+       ~man:
+         (Common.man
+            [
+              "Sends a notification to URL each time one of the events \
+               happens, by default each push.";
+            ]))
     Term.(
       term_result
         (const action $ Common.repo $ Common.spindle $ Common.audience $ url
        $ events $ secret))
 
 let edit_cmd =
-  let url = Common.optional [ "url" ] "URL" "New address." in
+  let url =
+    Common.optional [ "url" ] "URL" "Send notifications to URL instead."
+  in
   let active =
     Arg.(
       value
       & vflag None
           [
-            (Some true, info [ "enable" ] ~doc:"Resume deliveries.");
-            (Some false, info [ "disable" ] ~doc:"Pause deliveries.");
+            (Some true, info [ "enable" ] ~doc:"Resume notifications.");
+            (Some false, info [ "disable" ] ~doc:"Pause notifications.");
           ])
   in
   let action repo spindle audience webhook url events secret active =
@@ -103,8 +114,13 @@ let edit_cmd =
         Ui.ok "Updated webhook %s" webhook)
   in
   Common.cmd
-    (Cmd.info "edit"
-       ~doc:"Change a webhook. Events given replace the old ones.")
+    (Cmd.info "edit" ~doc:"Change a webhook."
+       ~man:
+         (Common.man
+            [
+              "Changes what the options name and leaves the rest as it is. \
+               Events given replace the ones the webhook had.";
+            ]))
     Term.(
       term_result
         (const action $ Common.repo $ Common.spindle $ Common.audience $ webhook
@@ -167,14 +183,18 @@ let deliveries_cmd =
             deliveries)
   in
   Common.cmd
-    (Cmd.info "deliveries" ~doc:"List a webhook's recent deliveries.")
+    (Cmd.info "deliveries"
+       ~doc:"List a webhook's recent notifications and whether they arrived.")
     Term.(
       term_result
         (const action $ Common.repo $ Common.spindle $ Common.audience $ webhook
        $ Common.limit $ Common.json_flag))
 
 let redeliver_cmd =
-  let delivery = Common.positional 1 "DELIVERY" "Delivery ID." in
+  let delivery =
+    Common.positional 1 "DELIVERY"
+      "The notification's ID, as $(b,deliveries) shows it."
+  in
   let action repo spindle audience webhook delivery =
     Common.run (fun env ->
         with_target ~busy:"Redelivering" env repo spindle
@@ -184,7 +204,7 @@ let redeliver_cmd =
         Ui.ok "Redelivered %s" delivery)
   in
   Common.cmd
-    (Cmd.info "redeliver" ~doc:"Send a delivery again.")
+    (Cmd.info "redeliver" ~doc:"Send a notification again.")
     Term.(
       term_result
         (const action $ Common.repo $ Common.spindle $ Common.audience $ webhook
@@ -192,5 +212,14 @@ let redeliver_cmd =
 
 let cmd =
   Cmd.group
-    (Cmd.info "webhook" ~doc:"Send a repository's events to other services.")
+    (Cmd.info "webhook" ~doc:"Notify other services of a repository's events."
+       ~man:
+         (Common.man
+            [
+              "A webhook sends an HTTP request to a URL each time something \
+               happens in the repository, such as a push, so that another \
+               service can act on it. The spindle that runs the repository's \
+               CI sends them, so the repository needs one. Managing webhooks \
+               needs push access.";
+            ]))
     [ list_cmd; add_cmd; edit_cmd; remove_cmd; deliveries_cmd; redeliver_cmd ]

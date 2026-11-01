@@ -4,7 +4,12 @@ module Api = Tangled.Api
 module Ticket = Api.Lex.Track.Ticket
 module Patch = Api.Lex.Review.Patch
 
-let id = Common.positional 0 "ID" "Ticket number, as list shows it."
+let kind ~pulls = if pulls then "pull request" else "issue"
+let an ~pulls = if pulls then "a pull request" else "an issue"
+
+let id ~pulls =
+  Common.positional 0 "ID"
+    (Printf.sprintf "The %s's number, as $(b,list) shows it." (kind ~pulls))
 
 let text_of field =
   match Tangled.Schema.member "text" field with
@@ -15,7 +20,6 @@ let state_of (t : Ticket.main) = Tangled.Schema.text t.state
 
 (* A ticket with a target branch is a pull request. *)
 let is_pull (t : Ticket.main) = Option.is_some t.target_branch
-let kind ~pulls = if pulls then "pull request" else "issue"
 let date s = if String.length s >= 10 then String.sub s 0 10 else s
 
 let source_of (p : Patch.main) =
@@ -164,7 +168,7 @@ let show_detail d =
 let list ~pulls =
   let state =
     Common.optional [ "state" ] "STATE"
-      "Show only those in STATE, which is open, closed or completed."
+      "Show only those in STATE: $(b,open), $(b,closed) or $(b,completed)."
   in
   let label =
     Common.optional [ "label" ] "LABEL" "Show only those carrying LABEL."
@@ -248,7 +252,9 @@ let list ~pulls =
   in
   Common.cmd
     (Cmd.info "list"
-       ~doc:(if pulls then "List pull requests." else "List issues."))
+       ~doc:
+         (if pulls then "List a repository's pull requests."
+          else "List a repository's issues."))
     Term.(
       term_result
         (const action $ Common.repo $ Common.knot $ state $ label
@@ -267,22 +273,22 @@ let show ~pulls =
   Common.cmd
     (Cmd.info "show"
        ~doc:
-         (Printf.sprintf "Show %s with its comments%s. Pipes get JSON."
-            (if pulls then "a pull request" else "an issue")
-            (if pulls then " and revisions" else "")))
+         (if pulls then "Show a pull request, its revisions and its comments."
+          else "Show an issue and its comments."))
     Term.(
       term_result
-        (const action $ Common.repo $ id $ Common.knot $ Common.json_flag))
+        (const action $ Common.repo $ id ~pulls $ Common.knot
+       $ Common.json_flag))
 
 let title =
   Arg.(
     required
     & opt (some string) None
-    & info [ "title"; "t" ] ~docv:"TITLE" ~doc:"Title, in Markdown.")
+    & info [ "title"; "t" ] ~docv:"TITLE" ~doc:"The title, in Markdown.")
 
 let labels_opt =
   Common.strings [ "label"; "l" ] "LABEL"
-    "Put LABEL on it. Repeat the option for more than one label."
+    "Put LABEL on it. Repeat the option for more."
 
 let opened ~pulls (created : Api.Atproto.Repo.CreateRecord.output) =
   if Ui.tty () then
@@ -300,7 +306,14 @@ let create_issue =
                  ())))
   in
   Common.cmd
-    (Cmd.info "create" ~doc:"Open an issue.")
+    (Cmd.info "create" ~doc:"Open an issue."
+       ~man:
+         (Common.man
+            [
+              "Opens an issue in the repository. Anyone logged in may open \
+               one, unless the knot allows fewer. Give the description with \
+               $(b,--body), or write it in a file and give $(b,--body-file).";
+            ]))
     Term.(
       term_result
         (const action $ Common.repo $ Common.knot $ title $ Common.body
@@ -309,20 +322,21 @@ let create_issue =
 (* Where a revision comes from. *)
 let branch_opt =
   Common.optional [ "branch" ] "BRANCH"
-    "Branch holding the change (default: the current branch)."
+    "Propose BRANCH instead of the current branch."
 
 let source_opt =
   Common.optional [ "source" ] "REPO"
-    "Repository holding the branch, such as a fork (default: the target \
-     repository)."
+    "Take the branch from REPO, such as your fork, instead of the repository \
+     the pull request is for."
 
 let base_opt =
   Common.optional [ "base" ] "SHA"
-    "Commit the change is based on (default: where the branch left the target)."
+    "Propose the changes since commit SHA instead of since the branch left the \
+     target."
 
 let head_opt =
   Common.optional [ "head" ] "SHA"
-    "Commit to propose (default: the tip of the branch on the knot)."
+    "Propose up to commit SHA instead of the branch's latest pushed commit."
 
 (* [revision api repository ~target ...] is the base, head, source and branch
    of a revision to propose to [target]. The head is the branch's tip on the
@@ -380,7 +394,7 @@ let revision api (repository : Api.repository) ~target ?branch ?source ?base
 let create_pull =
   let target =
     Common.optional [ "target" ] "BRANCH"
-      "Branch to merge into (default: the repository's default branch)."
+      "Propose merging into BRANCH instead of the default branch."
   in
   let action repo knot title body labels target branch source base head =
     Common.run (fun env ->
@@ -427,10 +441,20 @@ let create_pull =
         else Common.print Api.Atproto.Repo.CreateRecord.output_jsont created)
   in
   Common.cmd
-    (Cmd.info "create"
-       ~doc:
-         "Propose a branch. Push it first. The current branch is proposed into \
-          the default branch unless options say otherwise.")
+    (Cmd.info "create" ~doc:"Propose merging a branch."
+       ~man:
+         (Common.man
+            [
+              "Opens a pull request proposing the current branch for merging \
+               into the repository's default branch. Push the branch first: \
+               what is proposed is what the knot has, and you are warned if \
+               your branch has commits it lacks.";
+              "To propose from a fork, push the branch to your fork and give \
+               it with $(b,--source). The other options choose a different \
+               branch or target, or exact commits.";
+              "After pushing more commits, run $(b,tangled pull update) so \
+               reviewers see them.";
+            ]))
     Term.(
       term_result
         (const action $ Common.repo $ Common.knot $ title $ Common.body
@@ -481,13 +505,19 @@ let update_pull =
   in
   Common.cmd
     (Cmd.info "update"
-       ~doc:
-         "Submit a new revision of a pull request, from the branch it was \
-          proposed from. Push it first.")
+       ~doc:"Propose the latest commits of a pull request's branch."
+       ~man:
+         (Common.man
+            [
+              "Adds a revision to the pull request from the branch it was \
+               proposed from, so that reviewers see the commits pushed since. \
+               Push them first. Earlier revisions stay, and $(b,pull diff) can \
+               show any of them.";
+            ]))
     Term.(
       term_result
-        (const action $ Common.repo $ id $ Common.knot $ branch_opt $ source_opt
-       $ base_opt $ head_opt))
+        (const action $ Common.repo $ id ~pulls:true $ Common.knot $ branch_opt
+       $ source_opt $ base_opt $ head_opt))
 
 (* [nth_revision d n] is revision [n], counted from 1, or the latest. *)
 let nth_revision api repository id n =
@@ -506,11 +536,13 @@ let revision_opt =
     value
     & opt (some int) None
     & info [ "revision" ] ~docv:"N"
-        ~doc:"Revision, counted from 1 (default: the latest).")
+        ~doc:"Use revision N, counting the first as 1, instead of the latest.")
 
 let diff_pull =
   let stat =
-    Arg.(value & flag & info [ "stat" ] ~doc:"Show only the files changed.")
+    Arg.(
+      value & flag
+      & info [ "stat" ] ~doc:"List the files changed instead of the changes.")
   in
   let action repo id knot n stat =
     Common.run (fun env ->
@@ -544,15 +576,17 @@ let diff_pull =
                   show repository)))
   in
   Common.cmd
-    (Cmd.info "diff" ~doc:"Show the change a pull request proposes.")
+    (Cmd.info "diff" ~doc:"Show the changes a pull request proposes.")
     Term.(
       term_result
-        (const action $ Common.repo $ id $ Common.knot $ revision_opt $ stat))
+        (const action $ Common.repo $ id ~pulls:true $ Common.knot
+       $ revision_opt $ stat))
 
 let checkout_pull =
   let name =
     Common.optional [ "branch" ] "BRANCH"
-      "Local branch to create or reset (default: pull/ID)."
+      "Put the commits on BRANCH instead of $(i,pull/ID). An existing branch \
+       of that name is reset."
   in
   let action repo id knot n name =
     Common.run (fun env ->
@@ -584,13 +618,20 @@ let checkout_pull =
         Ui.ok "Switched to %s at %s" name (Ui.short_sha head))
   in
   Common.cmd
-    (Cmd.info "checkout"
-       ~doc:"Fetch a pull request's head into a local branch and switch to it.")
+    (Cmd.info "checkout" ~doc:"Try out a pull request in your clone."
+       ~man:
+         (Common.man
+            [
+              "Fetches the pull request's commits, from a fork if it came from \
+               one, onto the branch $(i,pull/ID) and switches to it. Run it in \
+               a clone of the repository.";
+            ]))
     Term.(
       term_result
-        (const action $ Common.repo $ id $ Common.knot $ revision_opt $ name))
+        (const action $ Common.repo $ id ~pulls:true $ Common.knot
+       $ revision_opt $ name))
 
-let comment =
+let comment ~pulls =
   let action repo id knot body =
     Common.run (fun env ->
         let body =
@@ -608,13 +649,21 @@ let comment =
         else Common.print Api.Atproto.Repo.CreateRecord.output_jsont created)
   in
   Common.cmd
-    (Cmd.info "comment" ~doc:"Comment on a ticket.")
+    (Cmd.info "comment"
+       ~doc:(Printf.sprintf "Comment on %s." (an ~pulls))
+       ~man:
+         (Common.man
+            [
+              "Adds a comment, written in Markdown. Give it with $(b,--body), \
+               or write it in a file and give $(b,--body-file).";
+            ]))
     Term.(
-      term_result (const action $ Common.repo $ id $ Common.knot $ Common.body))
+      term_result
+        (const action $ Common.repo $ id ~pulls $ Common.knot $ Common.body))
 
-let edit =
+let edit ~pulls =
   let title =
-    Common.optional [ "title"; "t" ] "TITLE" "New title, in Markdown."
+    Common.optional [ "title"; "t" ] "TITLE" "The new title, in Markdown."
   in
   let users names doc = Common.strings names "USER" doc in
   let action repo id knot title body assign unassign label unlabel =
@@ -640,15 +689,19 @@ let edit =
            `S Manpage.s_description;
            `P
              "Changes what the options name and leaves the rest as it is. An \
-              empty body removes the body.";
+              empty $(b,--body) removes the description.";
            `P
-             "Anyone who may edit the issue or pull request may change its \
-              labels, but only the repository's maintainers may change who is \
-              assigned to it.";
+             (Printf.sprintf
+                "The %s's author, the repository's owner and its collaborators \
+                 may edit it. Only the owner and collaborators may assign it \
+                 to someone."
+                (kind ~pulls));
+           `P "A label must first be defined with $(b,tangled repo label add).";
          ])
     Term.(
       term_result
-        (const action $ Common.repo $ id $ Common.knot $ title $ Common.body
+        (const action $ Common.repo $ id ~pulls $ Common.knot $ title
+       $ Common.body
         $ users [ "assign" ] "Assign USER. Repeat the option for more."
         $ users [ "unassign" ] "Unassign USER. Repeat the option for more."
         $ Common.strings [ "label"; "l" ] "LABEL"
@@ -656,7 +709,7 @@ let edit =
         $ Common.strings [ "unlabel" ] "LABEL"
             "Take LABEL off. Repeat the option for more."))
 
-let history =
+let history ~pulls =
   let action repo id knot json =
     Common.run (fun env ->
         let versions, names =
@@ -696,12 +749,17 @@ let history =
                versions))
   in
   Common.cmd
-    (Cmd.info "history" ~doc:"List every version of a ticket, oldest first.")
+    (Cmd.info "history"
+       ~doc:
+         (Printf.sprintf
+            "List each change to %s, oldest first, and who made it."
+            (an ~pulls)))
     Term.(
       term_result
-        (const action $ Common.repo $ id $ Common.knot $ Common.json_flag))
+        (const action $ Common.repo $ id ~pulls $ Common.knot
+       $ Common.json_flag))
 
-let state name value =
+let state ~pulls name value ~doc =
   let action repo id knot =
     Common.run (fun env ->
         Common.with_api ~busy:("Updating #" ^ id) env (fun api ->
@@ -710,38 +768,84 @@ let state name value =
               ~rkey:id value);
         Ui.ok "#%s is now %s" id value)
   in
-  Common.cmd
-    (Cmd.info name ~doc:("Mark a ticket " ^ value ^ "."))
-    Term.(term_result (const action $ Common.repo $ id $ Common.knot))
+  Common.cmd (Cmd.info name ~doc)
+    Term.(term_result (const action $ Common.repo $ id ~pulls $ Common.knot))
+
+let issue_states =
+  [
+    ("close", "closed", "Close an issue without resolving it.");
+    ("complete", "completed", "Close an issue as resolved.");
+    ("reopen", "open", "Reopen a closed issue.");
+  ]
+
+let pull_states =
+  [
+    ("close", "closed", "Close a pull request without merging it.");
+    ("reopen", "open", "Reopen a closed pull request.");
+  ]
+
+let states ~pulls =
+  List.map
+    (fun (name, value, doc) -> state ~pulls name value ~doc)
+    (if pulls then pull_states else issue_states)
+
+let state_man ~pulls =
+  Printf.sprintf
+    "Only the %s's author, the repository's owner and its collaborators may \
+     close or reopen it."
+    (kind ~pulls)
 
 let cmd =
   Cmd.group
-    (Cmd.info "issue" ~doc:"Open, discuss and close issues.")
-    [
-      list ~pulls:false;
-      show ~pulls:false;
-      create_issue;
-      comment;
-      edit;
-      history;
-      state "close" "closed";
-      state "complete" "completed";
-      state "reopen" "open";
-    ]
+    (Cmd.info "issue" ~doc:"Open, discuss and close a repository's issues."
+       ~man:
+         (Common.man
+            [
+              "An issue reports a problem or asks for a change. People discuss \
+               it in comments, and it is closed once dealt with, as \
+               $(b,completed) if resolved. Each issue has a number within its \
+               repository, which the commands take.";
+              "Anyone may read issues. Anyone logged in may open one or \
+               comment, unless the knot hosting the repository allows fewer.";
+              state_man ~pulls:false;
+            ]))
+    ([
+       list ~pulls:false;
+       show ~pulls:false;
+       create_issue;
+       comment ~pulls:false;
+       edit ~pulls:false;
+       history ~pulls:false;
+     ]
+    @ states ~pulls:false)
 
 let pull_cmd =
   Cmd.group
-    (Cmd.info "pull" ~doc:"Propose, review and revise pull requests.")
-    [
-      list ~pulls:true;
-      show ~pulls:true;
-      create_pull;
-      update_pull;
-      diff_pull;
-      checkout_pull;
-      comment;
-      edit;
-      history;
-      state "close" "closed";
-      state "reopen" "open";
-    ]
+    (Cmd.info "pull" ~doc:"Propose, review and revise pull requests."
+       ~man:
+         (Common.man
+            [
+              "A pull request proposes merging the commits on a branch into \
+               another, usually the default branch. Its author pushes the \
+               branch, then opens the pull request. Reviewers read its diff \
+               and comment. Each time the author pushes more commits and runs \
+               $(b,pull update), the pull request gains a revision, and \
+               earlier ones stay for comparison.";
+              "The branch may be in the repository itself, for those who may \
+               push to it, or in a fork, for everyone else.";
+              "Merging a pull request is done with Git: merge the branch and \
+               push, then close the pull request.";
+              state_man ~pulls:true;
+            ]))
+    ([
+       list ~pulls:true;
+       show ~pulls:true;
+       create_pull;
+       update_pull;
+       diff_pull;
+       checkout_pull;
+       comment ~pulls:true;
+       edit ~pulls:true;
+       history ~pulls:true;
+     ]
+    @ states ~pulls:true)

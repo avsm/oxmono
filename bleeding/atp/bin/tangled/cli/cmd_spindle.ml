@@ -2,8 +2,8 @@
 open Cmdliner
 module Api = Tangled.Api
 
-let spindle = Common.positional 0 "SPINDLE" "Spindle hostname or DID."
-let subject = Common.positional 1 "USER" "User handle or DID."
+let spindle = Common.positional 0 "SPINDLE" "The spindle's hostname."
+let subject = Common.positional 1 "USER" "The user, by handle."
 
 let describe_cmd =
   let action spindle json =
@@ -23,8 +23,7 @@ let describe_cmd =
             ~capabilities:d.capabilities ~contact:(Common.email d.contact))
   in
   Common.cmd
-    (Cmd.info "describe"
-       ~doc:"Show a spindle's DID, version and capabilities. Pipes get JSON.")
+    (Cmd.info "describe" ~doc:"Show what a spindle runs and who operates it.")
     Term.(term_result (const action $ spindle $ Common.json_flag))
 
 let members_cmd =
@@ -52,9 +51,7 @@ let members_cmd =
   in
   Common.cmd
     (Cmd.info "list"
-       ~doc:
-         "List the owners whose repositories may run CI. Log in as a spindle \
-          admin.")
+       ~doc:"List the users whose repositories may run CI on the spindle.")
     Term.(
       term_result (const action $ spindle $ Common.audience $ Common.json_flag))
 
@@ -72,14 +69,19 @@ let change name ~add =
   Common.cmd
     (Cmd.info name
        ~doc:
-         (if add then "Admit a repository owner to the spindle."
-          else "Withdraw an owner's admission."))
+         (if add then "Let a user's repositories run CI on the spindle."
+          else "Stop a user's repositories running CI on the spindle."))
     Term.(term_result (const action $ spindle $ subject $ Common.audience))
 
 let member_group =
   Cmd.group
-    (Cmd.info "member"
-       ~doc:"Manage whose repositories may run CI on a spindle.")
+    (Cmd.info "member" ~doc:"Manage whose repositories may run CI on a spindle."
+       ~man:
+         (Common.man
+            [
+              "A spindle that is not open to all runs CI only for its members' \
+               repositories. Only its operators may add or remove members.";
+            ]))
     [ members_cmd; change "add" ~add:true; change "remove" ~add:false ]
 
 (* A ban names a repository or an account, by handle, repository name or DID. *)
@@ -99,13 +101,13 @@ let bans_cmd =
   in
   Common.cmd
     (Cmd.info "bans"
-       ~doc:"List the repositories and owners banned from a spindle.")
+       ~doc:"List the repositories and users banned from a spindle.")
     Term.(term_result (const action $ spindle $ Common.audience))
 
 let ban name ~ban =
   let subject =
     Common.positional 1 "SUBJECT"
-      "Account handle, owner/name of a repository, or a DID."
+      "A user, by handle, or a repository, as $(i,owner/name)."
   in
   let action spindle subject audience =
     Common.run (fun env ->
@@ -119,9 +121,16 @@ let ban name ~ban =
   Common.cmd
     (Cmd.info name
        ~doc:
+         (if ban then "Ban a repository or user from the spindle."
+          else "Lift a ban.")
+       ~man:
          (if ban then
-            "Ban a repository or owner, wiping its state on the spindle."
-          else "Lift a ban."))
+            Common.man
+              [
+                "The spindle stops running CI for them and deletes all it \
+                 keeps for them, such as logs, secrets and webhooks.";
+              ]
+          else []))
     Term.(term_result (const action $ spindle $ subject $ Common.audience))
 
 let quota_list =
@@ -134,12 +143,14 @@ let quota_list =
                  ?audience ())))
   in
   Common.cmd
-    (Cmd.info "list" ~doc:"List quota overrides.")
+    (Cmd.info "list"
+       ~doc:"List the limits set for particular users and repositories.")
     Term.(term_result (const action $ spindle $ Common.audience))
 
 let quota_usage =
   let who =
-    Common.optional [ "for" ] "SUBJECT" "Only this repository or owner."
+    Common.optional [ "for" ] "SUBJECT"
+      "Show only SUBJECT, a user by handle or a repository as $(i,owner/name)."
   in
   let action spindle audience who =
     Common.run (fun env ->
@@ -152,16 +163,20 @@ let quota_usage =
                  ())))
   in
   Common.cmd
-    (Cmd.info "usage" ~doc:"Show resource usage by repository and owner.")
+    (Cmd.info "usage" ~doc:"Show what each repository and user is using.")
     Term.(term_result (const action $ spindle $ Common.audience $ who))
 
 let resource =
   Common.positional 2 "RESOURCE"
-    "Resource: workflows, vcpus, memory_mib, disk_mib or cache_storage_bytes."
+    "What to limit. Across all running workflows: $(b,workflows), how many run \
+     at once, $(b,vcpus), $(b,memory_mib) and $(b,disk_mib). For any one \
+     workflow: $(b,workflow_vcpus), $(b,workflow_memory_mib) and \
+     $(b,workflow_disk_mib). Kept between runs: $(b,cache_storage_bytes) and \
+     $(b,webhooks)."
 
 let quota_subject =
   Common.positional 1 "SUBJECT"
-    "Account handle, owner/name of a repository, or a DID."
+    "A user, by handle, or a repository, as $(i,owner/name)."
 
 let quota_set =
   let limit =
@@ -169,7 +184,9 @@ let quota_set =
       value
       & pos 3 (some string) None
       & info [] ~docv:"LIMIT"
-          ~doc:"Maximum, in the resource's own units, or unlimited.")
+          ~doc:
+            "The limit, in the unit RESOURCE names. Without it, there is no \
+             limit.")
   in
   let action spindle audience subject resource limit =
     Common.run (fun env ->
@@ -188,7 +205,7 @@ let quota_set =
         Ui.ok "Set %s for %s" resource subject)
   in
   Common.cmd
-    (Cmd.info "set" ~doc:"Override a quota. Without LIMIT it is unlimited.")
+    (Cmd.info "set" ~doc:"Set a limit for one user or repository.")
     Term.(
       term_result
         (const action $ spindle $ Common.audience $ quota_subject $ resource
@@ -204,7 +221,8 @@ let quota_unset =
         Ui.ok "%s for %s is back to the default" resource subject)
   in
   Common.cmd
-    (Cmd.info "unset" ~doc:"Remove a quota override.")
+    (Cmd.info "unset"
+       ~doc:"Return a user or repository to the spindle's usual limit.")
     Term.(
       term_result
         (const action $ spindle $ Common.audience $ quota_subject $ resource))
@@ -212,14 +230,32 @@ let quota_unset =
 let quota_group =
   Cmd.group
     (Cmd.info "quota"
-       ~doc:"Inspect usage and override quotas. Log in as a spindle admin.")
+       ~doc:"See what CI uses, and set limits for particular users."
+       ~man:
+         (Common.man
+            [
+              "A spindle limits how much each user and repository may use at \
+               once, such as how many workflows run together. Its operators \
+               may raise or lower the limit for particular users and \
+               repositories.";
+            ]))
     [ quota_list; quota_usage; quota_set; quota_unset ]
 
 let spindle_service api spindle = Api.spindle_url api spindle
 
 let cmd =
   Cmd.group
-    (Cmd.info "spindle" ~doc:"Inspect and administer a spindle, which runs CI.")
+    (Cmd.info "spindle" ~doc:"Look after a spindle, a server that runs CI."
+       ~man:
+         (Common.man
+            [
+              "A spindle runs the CI of the repositories that name it. Anyone \
+               can run one. Its operators choose whose repositories it serves, \
+               and set limits on what they use.";
+              "Most of these commands are for a spindle's operators. Anyone \
+               may $(b,describe) a spindle, and $(b,join) one with an invite \
+               code.";
+            ]))
     [
       describe_cmd;
       member_group;

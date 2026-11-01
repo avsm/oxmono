@@ -10,19 +10,25 @@ let app_name = "tangled"
 (* Common options *)
 
 let pds =
-  let doc = "PDS base URL." in
+  let doc =
+    "The address of your account's server. Give it to log in with a password \
+     to an account hosted outside Bluesky."
+  in
   let env = Cmd.Env.info "TANGLED_PDS" in
   Arg.(value & opt (some string) None & info [ "pds" ] ~env ~docv:"URL" ~doc)
 
 (* Auth login command *)
 
 let handle_arg =
-  let doc = "Handle or DID to login as." in
+  let doc = "Log in as HANDLE, such as $(i,alice.bsky.social)." in
   Arg.(
     value & opt (some string) None & info [ "handle"; "u" ] ~docv:"HANDLE" ~doc)
 
 let password_arg =
-  let doc = "Password or app password." in
+  let doc =
+    "The password. Prefer an app password, which you can revoke on its own. \
+     Without this option you are asked for it."
+  in
   let env = Cmd.Env.info "TANGLED_PASSWORD" in
   Arg.(
     value
@@ -31,53 +37,50 @@ let password_arg =
 
 let save_password_arg =
   let doc =
-    "Save password to config (stored in separate file with 600 permissions)."
+    "Save the password, readable only by you, so that later logins need not \
+     ask for it."
   in
   Arg.(value & flag & info [ "save-password" ] ~doc)
 
 let oauth_arg =
   let doc =
-    "Sign in through the PDS's OAuth server in a browser instead of with a \
-     password. The browser ends on a page showing a line to paste back here."
+    "Log in through your browser instead of with a password. The browser ends \
+     on a page showing a line to paste back here. Commands that are new since \
+     your last OAuth login may need you to log in again."
   in
   Arg.(value & flag & info [ "oauth" ] ~doc)
 
 let loopback_arg =
   let doc =
-    "With $(b,--oauth), have the browser return to a listener on 127.0.0.1 \
-     instead of a paste page. The browser must run on this host. This mode \
-     needs no published client metadata, so it can request only the Tangled \
-     access the CLI uses."
+    "With $(b,--oauth), have the browser hand the login straight back to this \
+     command instead of showing a line to paste. The browser must run on this \
+     computer."
   in
   Arg.(value & flag & info [ "loopback" ] ~doc)
 
 let client_id_arg =
   let doc =
-    "HTTPS URL of the OAuth client metadata for paste mode. The default is \
-     the Tangled CLI's published metadata, whose scope covers only Tangled \
-     records and the methods the CLI calls."
+    "With $(b,--oauth), identify this program by the client metadata published \
+     at URL instead of the Tangled CLI's own."
   in
   Arg.(value & opt (some string) None & info [ "client-id" ] ~docv:"URL" ~doc)
 
 let redirect_uri_arg =
   let doc =
-    "Paste page declared in the $(b,--client-id) metadata. The default is \
-     the ocaml-atp CLI's page."
+    "The page, named in the $(b,--client-id) metadata, that shows the line to \
+     paste."
   in
   Arg.(
     value & opt (some string) None & info [ "redirect-uri" ] ~docv:"URL" ~doc)
 
 let scope_arg =
   let doc =
-    "OAuth scope to request. The default is the Tangled records and methods \
-     the CLI uses, or $(b,atproto transition:generic) with another \
-     $(b,--client-id). A scope must be within the one the client metadata \
-     declares."
+    "The access to ask for. By default, only what Tangled commands need."
   in
   Arg.(value & opt (some string) None & info [ "scope" ] ~docv:"SCOPE" ~doc)
 
 let no_browser_arg =
-  let doc = "Print the OAuth URL without opening a browser." in
+  let doc = "Print the login address instead of opening a browser." in
   Arg.(value & flag & info [ "no-browser" ] ~doc)
 
 (* Record collections the CLI may write, and the methods it needs service
@@ -303,8 +306,19 @@ let login_action ~pds ~handle ~password ~save_password env =
   | None -> failwith "Login failed"
 
 let login_cmd =
-  let doc = "Login to Tangled." in
-  let info = Cmd.info "login" ~doc in
+  let doc = "Log in to your account." in
+  let man =
+    Common.man
+      [
+        "Logs in and saves the login for the commands that follow. With \
+         $(b,--oauth), you approve the login in a browser and this command \
+         never sees your password. Otherwise it logs in with a password, \
+         preferably an app password made for it.";
+        "Each login is saved under its handle. $(b,tangled auth account) \
+         switches between them.";
+      ]
+  in
+  let info = Cmd.info "login" ~doc ~man in
   let login' pds handle password save_password oauth scope no_browser loopback
       client_id redirect_uri =
     Common.run (fun env ->
@@ -349,7 +363,7 @@ let logout_action env =
           else Fmt.pr "Logged out.@.")
 
 let logout_cmd =
-  let doc = "Logout from Tangled." in
+  let doc = "Log out and forget the saved login." in
   let info = Cmd.info "logout" ~doc in
   let logout' () = Common.run logout_action in
   Common.cmd info Term.(term_result (const logout' $ const ()))
@@ -442,7 +456,7 @@ let status_action env =
   if Ui.tty () then show_status fs xdg else print_status fs xdg
 
 let status_cmd =
-  let doc = "Show current authentication status." in
+  let doc = "Show who you are logged in as, and what you may do." in
   let info = Cmd.info "status" ~doc in
   let status' () = Eio_main.run @@ fun env -> status_action env in
   Common.cmd info Term.(const status' $ const ())
@@ -451,9 +465,8 @@ let status_cmd =
 
 let client_metadata_cmd =
   let doc =
-    "Print the OAuth client metadata that the paste flow's default client ID \
-     must serve. Publish it at the $(b,--client-id) URL with the paste page \
-     at $(b,--redirect-uri)."
+    "Print the client metadata to publish for $(b,auth login --oauth), for \
+     those hosting their own copy."
   in
   let action client_id redirect_uri =
     Common.json
@@ -468,8 +481,15 @@ let client_metadata_cmd =
     Term.(const action $ client_id_arg $ redirect_uri_arg)
 
 let cmd =
-  let doc = "Authentication commands." in
-  let info = Cmd.info "auth" ~doc in
+  let doc = "Log in and out, and switch between accounts." in
+  let man =
+    Common.man
+      [
+        "Most commands that change something need you to be logged in. Reading \
+         public repositories, issues and CI does not.";
+      ]
+  in
+  let info = Cmd.info "auth" ~doc ~man in
   Cmd.group info
     [
       login_cmd;

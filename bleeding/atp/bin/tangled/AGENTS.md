@@ -110,13 +110,40 @@ Rules learned this way, which the client already keeps:
   when a default falls back.
 - A positional argument with no value must never do something destructive.
   Give removal its own command or flag.
-- Keep `--audience` on service calls but out of the manual, through
-  `Common.audience`.
+- Keep test overrides working but out of the manual: `--audience` on
+  service calls, and `--knot` and `--spindle` on commands that find the
+  knot or spindle from the repository. `Common.audience`, `Common.knot` and
+  `Common.spindle` do this with `~docs:Manpage.s_none`.
 - Piped output is plain, stable text that scripts and the tests parse. Draw
   tables and panels only when `Ui.tty ()` holds. Offer `--json` wherever
   there is structured output. Confirm a change with `Ui.ok`, which prints
   nothing to a pipe.
 - Wrap slow calls in `Common.with_api ~busy:"..."` or `Ui.busy`.
+
+## Writing help
+
+The manual is for someone who knows Git but not Tangled or AT Protocol.
+
+- Write full sentences, ending with a full stop, in the voice of a manual
+  page. A command's `~doc` is one short sentence saying what it does. Put
+  anything more in `~man`, through `Common.man`.
+- Give each group a description that says what its thing is, in plain
+  words, and who may change it. The top-level page defines the shared
+  words: account, knot, repository, issue, pull request, label, spindle and
+  pipeline. Reuse them rather than inventing synonyms.
+- Name things as a user sees them: an issue or pull request, not a ticket.
+  A user by handle, not a DID. A repository as `owner/name`. A key or ID
+  as the `list` command shows it.
+- Say what an option does, then what happens without it: "Run on commit SHA
+  instead of the checked-out commit."
+- Leave out how it works: record types, NSIDs, PDS writes, tokens and
+  attestation. `tangled api` is the exception, being for raw access.
+- State who may do something only after checking the server's code in
+  `../core`. Knot permissions are in `knot2/crates/knot-types/src/policy.rs`
+  and the handlers that call it.
+- Review the result by dumping every page with `--help=plain`, since a
+  sentence that reads well in the source can read badly beside its
+  neighbours.
 
 ## Checking a change
 

@@ -6,7 +6,7 @@ module Star = Tangled.Api.Lex.Feed.Star
 let collection = "org.tangled.feed.star"
 let repo =
   Common.positional 0 "REPO"
-    "Repository as handle/name, or a name of your own. Its DID also works."
+    "The repository, as $(i,owner/name), or just $(i,name) for one of your own."
 
 (* The DID of [repo]. A DID is taken as it is, so that a deleted repository
    can still be unstarred. *)
@@ -66,8 +66,7 @@ let list_cmd =
         else Common.print (Jsont.list Star.main_jsont) (List.map fst stars))
   in
   Common.cmd
-    (Cmd.info "list"
-       ~doc:"List starred repositories and strings. Pipes get JSON.")
+    (Cmd.info "list" ~doc:"List what a user has starred.")
     Term.(term_result (const action $ Common.user $ Common.json_flag))
 
 let subject repo =
@@ -124,10 +123,16 @@ let remove_cmd =
         Ui.ok "Unstarred %s" repo)
   in
   Common.cmd
-    (Cmd.info "remove" ~doc:"Unstar a repository.")
+    (Cmd.info "remove" ~doc:"Take the star off a repository.")
     Term.(term_result (const action $ repo))
 
 let cmd =
   Cmd.group
-    (Cmd.info "star" ~doc:"Manage stars.")
+    (Cmd.info "star" ~doc:"Star repositories you like or want to follow."
+       ~man:
+         (Common.man
+            [
+              "A star marks a repository you like or want to keep track of. \
+               Stars are public.";
+            ]))
     [ list_cmd; add_cmd; remove_cmd ]

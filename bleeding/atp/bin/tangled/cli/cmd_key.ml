@@ -53,22 +53,29 @@ let list =
                records))
   in
   Common.cmd
-    (Cmd.info "list"
-       ~doc:
-         "List SSH keys with their record keys and complete public material. \
-          Pipes get JSON.")
+    (Cmd.info "list" ~doc:"List a user's SSH public keys.")
     Term.(term_result (const action $ Common.user $ Common.json_flag))
 
 let add =
-  let file = Common.positional 0 "FILE" "OpenSSH public key file." in
+  let file =
+    Common.positional 0 "FILE"
+      "The public key file, such as $(i,~/.ssh/id_ed25519.pub)."
+  in
   let name =
-    Arg.(required & opt (some string) None & info [ "name" ] ~docv:"NAME")
+    Arg.(
+      required
+      & opt (some string) None
+      & info [ "name" ] ~docv:"NAME"
+          ~doc:
+            "A name to tell the key apart by, such as the computer it is on.")
   in
   let sign =
     Arg.(
       value & flag
       & info [ "sign" ]
-          ~doc:"Also publish the key for commit signature verification.")
+          ~doc:
+            "Also use the key to verify commits you sign with it, which then \
+             show as verified.")
   in
   let action file name sign =
     Common.run (fun env ->
@@ -105,11 +112,13 @@ let add =
         else Common.print Api.Atproto.Repo.CreateRecord.output_jsont created)
   in
   Common.cmd
-    (Cmd.info "add" ~doc:"Publish an SSH public key.")
+    (Cmd.info "add" ~doc:"Add an SSH public key, so that you can push with it.")
     Term.(term_result (const action $ file $ name $ sign))
 
 let remove =
-  let rkey = Common.positional 0 "RKEY" "SSH key record key." in
+  let rkey =
+    Common.positional 0 "ID" "The key's ID, as $(b,key list) shows it."
+  in
   let action rkey =
     Common.run (fun env ->
         Common.with_api ~busy:"Removing key" env (fun api ->
@@ -127,10 +136,17 @@ let remove =
         Ui.ok "Removed key %s" rkey)
   in
   Common.cmd
-    (Cmd.info "remove" ~doc:"Remove your SSH public key record.")
+    (Cmd.info "remove" ~doc:"Remove one of your SSH keys.")
     Term.(term_result (const action $ rkey))
 
 let cmd =
   Cmd.group
-    (Cmd.info "key" ~doc:"Manage SSH public keys.")
+    (Cmd.info "key" ~doc:"Manage the SSH keys you push with."
+       ~man:
+         (Common.man
+            [
+              "Knots let you push over SSH with the keys added here. Your keys \
+               are public, so anyone can list them, and only the public half \
+               of a key is ever added.";
+            ]))
     [ list; add; remove ]

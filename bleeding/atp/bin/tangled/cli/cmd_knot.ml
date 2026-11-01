@@ -2,7 +2,7 @@
 open Cmdliner
 module Api = Tangled.Api
 
-let knot = Common.positional 0 "KNOT" "Knot hostname or HTTP(S) origin."
+let knot = Common.positional 0 "KNOT" "The knot's hostname."
 
 let describe_cmd =
   let action knot json =
@@ -22,8 +22,7 @@ let describe_cmd =
             ~capabilities:d.capabilities ~contact:(Common.email d.contact))
   in
   Common.cmd
-    (Cmd.info "describe"
-       ~doc:"Show a knot's DID, version and capabilities. Pipes get JSON.")
+    (Cmd.info "describe" ~doc:"Show what a knot runs and who operates it.")
     Term.(term_result (const action $ knot $ Common.json_flag))
 
 let members_cmd =
@@ -40,10 +39,10 @@ let members_cmd =
         else List.iter (fun (d, _) -> print_endline d) members)
   in
   Common.cmd
-    (Cmd.info "list" ~doc:"List the accounts that may host repositories.")
+    (Cmd.info "list" ~doc:"List the users who may create repositories.")
     Term.(term_result (const action $ knot))
 
-let user = Common.positional 1 "USER" "Handle or DID."
+let user = Common.positional 1 "USER" "The user, by handle."
 
 let member name ~add =
   let action knot user audience =
@@ -59,13 +58,20 @@ let member name ~add =
   Common.cmd
     (Cmd.info name
        ~doc:
-         (if add then "Let a user host repositories. Log in as a knot admin."
-          else "Remove a member. Log in as a knot admin."))
+         (if add then "Let a user create repositories on the knot."
+          else "Stop a user creating repositories on the knot."))
     Term.(term_result (const action $ knot $ user $ Common.audience))
 
 let member_group =
   Cmd.group
-    (Cmd.info "member" ~doc:"Manage who may host repositories on a knot.")
+    (Cmd.info "member" ~doc:"Manage who may create repositories on a knot."
+       ~man:
+         (Common.man
+            [
+              "A knot's members may create repositories on it. Only the knot's \
+               operators may add or remove them, or hand out invite codes with \
+               $(b,tangled knot invite).";
+            ]))
     [ members_cmd; member "add" ~add:true; member "remove" ~add:false ]
 
 let bans_cmd =
@@ -82,7 +88,7 @@ let bans_cmd =
         else List.iter (fun (d, _) -> print_endline d) banned)
   in
   Common.cmd
-    (Cmd.info "bans" ~doc:"List the accounts banned from a knot.")
+    (Cmd.info "bans" ~doc:"List the users banned from a knot.")
     Term.(term_result (const action $ knot))
 
 let ban name ~ban =
@@ -99,8 +105,8 @@ let ban name ~ban =
   Common.cmd
     (Cmd.info name
        ~doc:
-         (if ban then "Ban an account from a knot. Log in as a knot admin."
-          else "Lift a ban. Log in as a knot admin."))
+         (if ban then "Ban a user from taking part in the knot's repositories."
+          else "Lift a ban."))
     Term.(term_result (const action $ knot $ user $ Common.audience))
 
 (* Invite codes admit members to knots and spindles alike. *)
@@ -108,10 +114,11 @@ let invite_cmd ~kind ~service =
   let uses =
     Arg.(
       value & opt int 1
-      & info [ "uses" ] ~docv:"N" ~doc:"How many accounts the code admits.")
+      & info [ "uses" ] ~docv:"N"
+          ~doc:"Let N users join with the code instead of one.")
   in
   let for_ =
-    Common.optional [ "for" ] "USER" "Admit only USER, a handle or DID."
+    Common.optional [ "for" ] "USER" "Let only USER, by handle, join with it."
   in
   let action service_name audience uses for_ =
     Common.run (fun env ->
@@ -140,18 +147,17 @@ let invite_cmd ~kind ~service =
   in
   Common.cmd
     (Cmd.info "invite"
-       ~doc:
-         (Printf.sprintf "Create an invite code. Log in as a %s admin." kind))
+       ~doc:(Printf.sprintf "Make an invite code for joining the %s." kind))
     Term.(
       term_result
         (const action
         $ Common.positional 0
             (String.uppercase_ascii kind)
-            (Printf.sprintf "%s hostname." (String.capitalize_ascii kind))
+            (Printf.sprintf "The %s's hostname." kind)
         $ Common.audience $ uses $ for_))
 
 let join_cmd ~kind ~service =
-  let code = Common.positional 1 "CODE" "Invite code." in
+  let code = Common.positional 1 "CODE" "The invite code you were given." in
   let action service_name audience code =
     Common.run (fun env ->
         Common.with_api ~busy:("Joining " ^ service_name) env (fun api ->
@@ -167,15 +173,23 @@ let join_cmd ~kind ~service =
         (const action
         $ Common.positional 0
             (String.uppercase_ascii kind)
-            (Printf.sprintf "%s hostname." (String.capitalize_ascii kind))
+            (Printf.sprintf "The %s's hostname." kind)
         $ Common.audience $ code))
 
 let knot_service _ knot = Api.service_url knot
 
 let cmd =
   Cmd.group
-    (Cmd.info "knot"
-       ~doc:"Inspect and administer a knot, which hosts repositories.")
+    (Cmd.info "knot" ~doc:"Look after a knot, a server that hosts repositories."
+       ~man:
+         (Common.man
+            [
+              "A knot hosts Git repositories, and their issues and pull \
+               requests. Anyone can run one. Its operators choose who may \
+               create repositories on it, and may ban users who misbehave.";
+              "Most of these commands are for a knot's operators. Anyone may \
+               $(b,describe) a knot, and $(b,join) one with an invite code.";
+            ]))
     [
       describe_cmd;
       member_group;

@@ -31,6 +31,9 @@
   `--unlabel` to put them on issues and pull requests, and `list --label`.
   Removing a label takes it off the issues carrying it, and edits drop
   labels deleted elsewhere, which the knot would refuse.
+- Rewrite the Tangled CLI's help in plain sentences, with a guide to
+  Tangled's terms on the top-level page and a description for each group.
+  `--knot` and `--spindle` overrides are unlisted.
 - `Xrpc_auth.Cmd.profile_cmd` takes the group's name.
 
 - Add `Xrpc.Trace`, which logs each HTTP exchange with its XRPC method,

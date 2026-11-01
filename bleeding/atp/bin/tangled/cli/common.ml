@@ -58,6 +58,10 @@ let run f =
         (`Msg (Printf.sprintf "WebSocket upgrade rejected (HTTP %d)" status))
   | Eio.Io _ as ex -> Error (`Msg (Printexc.to_string ex))
 
+(* [man paragraphs] is a manual page section describing a command. *)
+let man paragraphs =
+  `S Manpage.s_description :: List.map (fun p -> `P p) paragraphs
+
 let json value =
   match Jsont_bytesrw.encode_string ~format:Jsont.Indent Jsont.json value with
   | Ok text -> print_endline text
@@ -71,7 +75,13 @@ let optional names docv doc =
 let positional index docv doc =
   Arg.(required & pos index (some string) None & info [] ~docv ~doc)
 
-let knot = optional [ "knot"; "k" ] "KNOT" "Knot hostname or HTTP(S) origin."
+(* An override for testing, so it stays out of the manual. *)
+let knot =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "knot"; "k" ] ~docv:"KNOT" ~docs:Manpage.s_none
+        ~doc:"Reach the repository through KNOT instead of the knot it names.")
 
 (* For test gateways only, so it stays out of the manual. *)
 let audience =
@@ -83,9 +93,8 @@ let audience =
         ~doc:"Override the audience of service tokens.")
 
 let repo_doc =
-  "Repository as handle/name, or a name of your own. Its DID or declaration \
-   URI also work. The default is the repository the current directory is a \
-   clone of."
+  "The repository, as $(i,owner/name), or just $(i,name) for one of your own. \
+   Without it, the repository is the one the current directory is a clone of."
 
 (* The repository a command acts in. *)
 let repo =
@@ -111,7 +120,8 @@ let repo_spec = function
 let resolve api ?knot spec = Api.resolve_repo api ?knot (repo_spec spec)
 
 let user =
-  optional [ "user"; "u" ] "USER" "Handle or DID (default: logged-in user)."
+  optional [ "user"; "u" ] "USER"
+    "The user, by handle. Without this option, the logged-in user."
 
 let did api = function
   | Some user -> Api.resolve_handle api user
@@ -128,20 +138,25 @@ let email contact =
   Option.bind contact (fun c ->
       Option.map Tangled.Schema.text (Tangled.Schema.member "email" c))
 
-let json_flag = Arg.(value & flag & info [ "json" ] ~doc:"Print JSON.")
+let json_flag =
+  Arg.(value & flag & info [ "json" ] ~doc:"Print the result as JSON.")
 
 let cursor =
-  optional [ "cursor" ] "CURSOR" "Continuation cursor from the previous page."
+  optional [ "cursor" ] "CURSOR"
+    "Continue from where the previous page stopped, using the cursor it \
+     printed."
 
 let limit =
   Arg.(
-    value & opt int 50 & info [ "limit"; "l" ] ~doc:"Maximum results per page.")
+    value & opt int 50
+    & info [ "limit"; "l" ] ~docv:"N" ~doc:"Show at most N results.")
 
 let strings names docv doc =
   Arg.(value & opt_all string [] & info names ~docv ~doc)
 
 let workflows =
-  strings [ "workflow"; "w" ] "NAME" "Select a workflow (repeatable)."
+  strings [ "workflow"; "w" ] "NAME"
+    "Act only on the workflow NAME. Repeat the option for more."
 
 let nonempty = function [] -> None | values -> Some values
 
@@ -155,7 +170,8 @@ let pair text =
   match String.index_opt text '=' with
   | None -> invalid_arg "Expected KEY=VALUE"
   | Some i when i > 0 ->
-      (String.sub text 0 i, String.sub text (i + 1) (String.length text - i - 1))
+      ( String.sub text 0 i,
+        String.sub text (i + 1) (String.length text - i - 1) )
   | Some _ -> invalid_arg "Empty parameter name"
 
 let read_file path =
@@ -188,14 +204,14 @@ let body =
     Arg.(
       value
       & opt (some string) None
-      & info [ "body"; "b" ] ~docv:"TEXT" ~doc:"Body text, in Markdown.")
+      & info [ "body"; "b" ] ~docv:"TEXT" ~doc:"The text, in Markdown.")
   in
   let file =
     Arg.(
       value
       & opt (some string) None
       & info [ "body-file"; "F" ] ~docv:"FILE"
-          ~doc:"Read the body from FILE, or from standard input for -.")
+          ~doc:"Read the text from FILE, or from standard input if FILE is -.")
   in
   let choose inline file =
     match (inline, file) with
@@ -209,9 +225,14 @@ let body =
   in
   Term.(term_result ~usage:true (const choose $ inline $ file))
 
+(* An override for testing, so it stays out of the manual. *)
 let spindle =
-  optional [ "spindle"; "s" ] "SPINDLE"
-    "Spindle hostname or DID (default: the repository's spindle)."
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "spindle"; "s" ] ~docv:"SPINDLE" ~docs:Manpage.s_none
+        ~doc:
+          "Ask SPINDLE instead of the spindle that runs the repository's CI.")
 
 (* The repository DID and spindle origin for [repo]. A repository DID with an
    explicit spindle needs no knot or PDS lookup. *)

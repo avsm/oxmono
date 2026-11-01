@@ -46,7 +46,7 @@ let color =
     value
     & pos 1 (some string) None
     & info [] ~docv:"COLOUR"
-        ~doc:"Colour to show the label in, written in hex, as #e11d48.")
+        ~doc:"The colour to show the label in, in hex, such as #e11d48.")
 
 let list_cmd =
   let action repo knot json =
@@ -120,7 +120,7 @@ let add_cmd =
 
 let edit_cmd =
   let rename =
-    Common.optional [ "name"; "n" ] "NAME" "New name for the label."
+    Common.optional [ "name"; "n" ] "NAME" "Rename the label to NAME."
   in
   let action repo knot name rename color =
     Common.run (fun env ->
@@ -133,10 +133,13 @@ let edit_cmd =
         Ui.ok "Edited the label %s" name)
   in
   Common.cmd
-    (Cmd.info "edit"
-       ~doc:
-         "Rename or recolour a label. Issues and pull requests that carry it \
-          keep it.")
+    (Cmd.info "edit" ~doc:"Rename or recolour a label."
+       ~man:
+         (Common.man
+            [
+              "Issues and pull requests that carry the label keep it under its \
+               new name and colour.";
+            ]))
     Term.(
       term_result
         (const action $ Common.repo $ Common.knot $ name_arg $ rename $ color))
@@ -150,10 +153,14 @@ let remove_cmd =
         Ui.ok "Removed the label %s" name)
   in
   Common.cmd
-    (Cmd.info "remove"
-       ~doc:
-         "Remove a label from the repository. Its name cannot be used for a \
-          new label afterwards.")
+    (Cmd.info "remove" ~doc:"Remove a label from the repository."
+       ~man:
+         (Common.man
+            [
+              "Takes the label off the issues and pull requests that carry it, \
+               then removes it. A label of the same name cannot be added \
+               afterwards.";
+            ]))
     Term.(term_result (const action $ Common.repo $ Common.knot $ name_arg))
 
 let cmd =

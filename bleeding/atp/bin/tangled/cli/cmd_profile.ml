@@ -39,7 +39,8 @@ let user_arg =
   Arg.(
     value
     & pos 0 (some string) None
-    & info [] ~docv:"USER" ~doc:"Handle or DID (default: logged-in user).")
+    & info [] ~docv:"USER"
+        ~doc:"The user, by handle. Without it, the logged-in user.")
 
 let view_action ~user env =
   with_api env @@ fun api ->
@@ -94,8 +95,7 @@ let view_action ~user env =
 
 let cmd =
   Common.cmd
-    (Cmd.info "profile"
-       ~doc:"Show a user's Tangled profile. Their keys are under key list.")
+    (Cmd.info "profile" ~doc:"Show a user's Tangled profile.")
     Term.(
       term_result
         (const (fun user -> Common.run (fun env -> view_action ~user env))

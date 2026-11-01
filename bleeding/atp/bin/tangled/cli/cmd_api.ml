@@ -3,7 +3,9 @@ open Cmdliner
 module S = Tangled.Schema
 module Api = Tangled.Api
 
-let nsid = Common.positional 0 "NSID" "Vendored lexicon identifier."
+let nsid =
+  Common.positional 0 "NAME"
+    "The method or record type, such as $(b,org.tangled.git.listBranches)."
 
 let service =
   Arg.(
@@ -11,24 +13,27 @@ let service =
     & opt (some string) None
     & info [ "service" ] ~docv:"URL"
         ~doc:
-          "Service origin. Choose the knot, spindle, appview or PDS serving \
-           this method.")
+          "The server to call, which must be one that serves the method: a \
+           knot, a spindle or an account's server.")
 
 let auth =
   Arg.(
     value
     & opt (enum [ ("none", `None); ("service", `Service); ("pds", `Pds) ]) `None
-    & info [ "auth" ]
+    & info [ "auth" ] ~docv:"MODE"
         ~doc:
-          "Authentication: none (public), service (method-bound JWT), pds \
-           (saved PDS session).")
+          "How to log in: $(b,none) for a public method, $(b,service) for a \
+           method of a knot or spindle that needs a login, or $(b,pds) for a \
+           method of your own account's server.")
 
 let input =
-  Common.optional [ "input" ] "FILE" "Request body file, or - for stdin."
+  Common.optional [ "input" ] "FILE"
+    "Send the JSON in FILE as the input, or standard input if FILE is -."
 
 let params =
   Common.strings [ "param"; "q" ] "KEY=VALUE"
-    "Query parameter (repeat for arrays)."
+    "Pass the parameter KEY with VALUE. Repeat the option for more, or to give \
+     a list."
 
 let call_action env ~nsid ~service ~auth ~audience ~input ~params =
   let params = List.map Common.pair params in
@@ -117,15 +122,15 @@ let call_cmd =
         call_action env ~nsid ~service ~auth ~audience ~input ~params)
   in
   Common.cmd
-    (Cmd.info "call"
-       ~doc:"Call a vendored API, including binary responses and subscriptions.")
+    (Cmd.info "call" ~doc:"Call a method and print its answer.")
     Term.(
       term_result
-        (const action $ nsid $ service $ auth $ Common.audience $ input $ params))
+        (const action $ nsid $ service $ auth $ Common.audience $ input
+       $ params))
 
 let schema_cmd =
   Common.cmd
-    (Cmd.info "schema" ~doc:"Print a vendored lexicon without network access.")
+    (Cmd.info "schema" ~doc:"Print the definition of a method or record type.")
     Term.(
       term_result
         (const (fun nsid -> Common.run (fun _ -> Common.json (S.document nsid)))
@@ -202,10 +207,14 @@ let tree nsids =
     ]
 
 let list_cmd =
-  let prefix = Arg.(value & pos 0 string "" & info [] ~docv:"PREFIX") in
+  let prefix =
+    Arg.(
+      value & pos 0 string ""
+      & info [] ~docv:"PREFIX" ~doc:"List only names starting with PREFIX.")
+  in
   Common.cmd
     (Cmd.info "list"
-       ~doc:"List all vendored APIs, records and definitions offline.")
+       ~doc:"List the methods and record types this program knows.")
     Term.(
       const (fun prefix ->
           let nsids =
@@ -222,7 +231,14 @@ let list_cmd =
 let cmd =
   Cmd.group
     (Cmd.info "api"
-       ~doc:
-         "Discover and call any Tangled method, or read and write raw records. \
-          For what the other commands do not cover.")
+       ~doc:"Call any Tangled method, or read and write records directly."
+       ~man:
+         (Common.man
+            [
+              "These commands reach what the others do not cover. Tangled is \
+               built from methods, which servers answer, and records, which \
+               accounts store. Each has a name such as \
+               $(b,org.tangled.git.listBranches). $(b,list) and $(b,schema) \
+               show what there is, and $(b,call) and $(b,record) use them.";
+            ]))
     [ list_cmd; schema_cmd; call_cmd; Cmd_record.cmd ]

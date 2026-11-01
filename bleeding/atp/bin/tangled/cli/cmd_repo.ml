@@ -2,7 +2,7 @@
 open Cmdliner
 module Api = Tangled.Api
 
-let name = Common.positional 0 "NAME" "New repository name."
+let name = Common.positional 0 "NAME" "The new repository's name."
 
 let knot_required =
   Arg.(
@@ -10,21 +10,28 @@ let knot_required =
     & opt (some string) None
     & info [ "knot"; "k" ] ~docv:"KNOT"
         ~env:(Cmd.Env.info "TANGLED_KNOT")
-        ~doc:"Knot hostname or HTTP(S) origin to host the repository.")
+        ~doc:"The knot to host the repository on, by hostname.")
 
 let description =
-  Common.optional [ "description"; "d" ] "TEXT" "Repository description."
+  Common.optional [ "description"; "d" ] "TEXT"
+    "A one-line description of the repository."
 
-let branch = Common.optional [ "branch"; "b" ] "BRANCH" "Default Git branch."
-let fork = Common.optional [ "fork" ] "REPO" "Create a fork of REPO."
+let branch =
+  Common.optional [ "branch"; "b" ] "BRANCH"
+    "The default branch, which pull requests target unless they name another."
+
+let fork =
+  Common.optional [ "fork" ] "REPO"
+    "Start as a copy of REPO, whose pull requests can then come from it."
 
 let import =
   Common.optional [ "import" ] "URL"
-    "Import the Git repository at URL. The knot clones it after creating the \
-     repository."
+    "Start as a copy of the Git repository at URL, hosted anywhere. The knot \
+     copies it in the background. $(b,repo info) shows how far it has got."
 
 let spindle_opt =
-  Common.optional [ "spindle"; "s" ] "SPINDLE" "Spindle hostname to run CI."
+  Common.optional [ "spindle"; "s" ] "SPINDLE"
+    "Run CI on SPINDLE, given by hostname."
 
 let list_cmd =
   let action user json =
@@ -52,7 +59,7 @@ let list_cmd =
             repos)
   in
   Common.cmd
-    (Cmd.info "list" ~doc:"List the repositories an account declares.")
+    (Cmd.info "list" ~doc:"List a user's repositories.")
     Term.(term_result (const action $ Common.user $ Common.json_flag))
 
 let pp_repository ppf (r : Api.repository) =
@@ -118,10 +125,16 @@ let create_cmd =
             (Option.get import) name)
   in
   Common.cmd
-    (Cmd.info "create"
-       ~doc:
-         "Create a repository, empty, as a fork with --fork, or imported with \
-          --import. The knot defaults to $(b,TANGLED_KNOT).")
+    (Cmd.info "create" ~doc:"Create a repository."
+       ~man:
+         (Common.man
+            [
+              "Creates a repository owned by you on a knot. It starts empty, \
+               as a fork of another Tangled repository with $(b,--fork), or as \
+               a copy of one hosted elsewhere with $(b,--import).";
+              "Clone it with $(b,tangled repo clone) $(i,NAME) and push to it. \
+               Pushing needs an SSH key added with $(b,tangled key add).";
+            ]))
     Term.(
       term_result
         (const action $ name $ knot_required $ Common.audience $ description
@@ -130,19 +143,30 @@ let create_cmd =
 let clone_cmd =
   let repo =
     Common.positional 0 "REPO"
-      "Repository as handle/name, or a name of your own. Its DID or \
-       declaration URI also work."
+      "The repository, as $(i,owner/name), or just $(i,name) for one of your \
+       own."
   in
-  let dir = Arg.(value & pos 1 (some string) None & info [] ~docv:"DIR") in
+  let dir =
+    Arg.(
+      value
+      & pos 1 (some string) None
+      & info [] ~docv:"DIR"
+          ~doc:
+            "The directory to clone into. Without it, the repository's name.")
+  in
   let action repo knot dir =
     Common.run (fun env ->
         Common.with_api env (fun api -> Api.clone api ~repo ?knot ?dir ()))
   in
   Common.cmd
-    (Cmd.info "clone"
-       ~doc:
-         "Clone a repository. The remote names it by its DID, which survives \
-          renames.")
+    (Cmd.info "clone" ~doc:"Clone a repository with Git."
+       ~man:
+         (Common.man
+            [
+              "Clones the repository with $(b,git clone). The clone's remote \
+               keeps working if the repository is renamed, and commands run in \
+               the clone act on the repository without $(b,--repo).";
+            ]))
     Term.(term_result (const action $ repo $ Common.knot $ dir))
 
 let info_cmd =
@@ -167,8 +191,8 @@ let info_cmd =
   Common.cmd
     (Cmd.info "info"
        ~doc:
-         "Show a repository's identity, manifest, default branch and \
-          import.")
+         "Show where a repository is hosted, how to clone it, its default \
+          branch and its CI.")
     Term.(
       term_result
         (const action $ Common.repo_arg $ Common.knot $ Common.json_flag))
@@ -177,8 +201,7 @@ let delete_cmd =
   let force =
     Arg.(
       value & flag
-      & info [ "force"; "f" ]
-          ~doc:"Confirm deletion without an interactive prompt.")
+      & info [ "force"; "f" ] ~doc:"Delete without asking for confirmation.")
   in
   let action repo knot audience force =
     Common.run (fun env ->
@@ -200,8 +223,14 @@ let delete_cmd =
   in
   Common.cmd
     (Cmd.info "delete"
-       ~doc:
-         "Remove the PDS declaration, then delete the repository on its knot.")
+       ~doc:"Delete a repository, with its issues and pull requests."
+       ~man:
+         (Common.man
+            [
+              "Deletes the repository from its knot for good, with everything \
+               in it: its branches, issues, pull requests and releases. Only \
+               its owner may. Clones keep their copy of the history.";
+            ]))
     Term.(
       term_result
         (const action $ Common.repo_arg $ Common.knot $ Common.audience
@@ -209,7 +238,7 @@ let delete_cmd =
 
 let spindle_cmd ~set =
   let spindle =
-    Common.positional 0 "SPINDLE" "Spindle hostname to run the repository's CI."
+    Common.positional 0 "SPINDLE" "The spindle to run CI on, by hostname."
   in
   let action repo knot spindle =
     Common.run (fun env ->
@@ -225,14 +254,22 @@ let spindle_cmd ~set =
   in
   if set then
     Common.cmd
-      (Cmd.info "set-spindle" ~doc:"Run the repository's CI on a spindle.")
+      (Cmd.info "set-spindle" ~doc:"Run the repository's CI on a spindle."
+         ~man:
+           (Common.man
+              [
+                "From now on, pushes and pull requests start pipelines on \
+                 SPINDLE, which runs the workflows in $(i,.tangled/workflows). \
+                 The spindle's operator may first need to admit you with \
+                 $(b,tangled spindle member add).";
+              ]))
       Term.(
         term_result
           (const action $ Common.repo $ Common.knot
           $ (const Option.some $ spindle)))
   else
     Common.cmd
-      (Cmd.info "unset-spindle" ~doc:"Stop running the repository's CI.")
+      (Cmd.info "unset-spindle" ~doc:"Stop running CI for the repository.")
       Term.(term_result (const action $ Common.repo $ Common.knot $ const None))
 
 let collaborators_cmd =
@@ -251,11 +288,11 @@ let collaborators_cmd =
         else List.iter (fun (d, _) -> print_endline d) dids)
   in
   Common.cmd
-    (Cmd.info "list" ~doc:"List the accounts that may push.")
+    (Cmd.info "list" ~doc:"List the collaborators.")
     Term.(term_result (const action $ Common.repo $ Common.knot))
 
 let collaborator_cmd name ~add =
-  let subject = Common.positional 0 "USER" "Collaborator handle or DID." in
+  let subject = Common.positional 0 "USER" "The user, by handle." in
   let action repo subject knot =
     Common.run (fun env ->
         let who = subject in
@@ -272,12 +309,21 @@ let collaborator_cmd name ~add =
   in
   Common.cmd
     (Cmd.info name
-       ~doc:(if add then "Let a user push." else "Stop a user pushing."))
+       ~doc:
+         (if add then "Let a user push and manage issues."
+          else "Withdraw a user's push access."))
     Term.(term_result (const action $ Common.repo $ subject $ Common.knot))
 
 let collaborator_group =
   Cmd.group
-    (Cmd.info "collaborator" ~doc:"Manage who may push to a repository.")
+    (Cmd.info "collaborator" ~doc:"Manage who may push to a repository."
+       ~man:
+         (Common.man
+            [
+              "A collaborator may push to the repository, close and edit \
+               anyone's issues and pull requests, assign them and run its CI. \
+               Only the owner may add or remove collaborators.";
+            ]))
     [
       collaborators_cmd;
       collaborator_cmd "add" ~add:true;
@@ -286,12 +332,20 @@ let collaborator_group =
 
 let cmd =
   Cmd.group
-    (Cmd.info "repo"
-       ~doc:
-         "Create, browse and configure repositories. Commands that act in a \
-          repository take it with --repo, and those about one take it as an \
-          argument. Both default to the repository the current directory is a \
-          clone of.")
+    (Cmd.info "repo" ~doc:"Create, browse and configure repositories."
+       ~man:
+         (Common.man
+            [
+              "A repository is named $(i,owner/name), such as \
+               $(i,alice.bsky.social/demo). Your own can be named by $(i,name) \
+               alone.";
+              "Commands about a repository, such as $(b,info), take it as an \
+               argument. Commands that work inside one, such as $(b,log), take \
+               it with $(b,--repo). Either way, the default is the repository \
+               the current directory is a clone of.";
+              "$(b,log), $(b,ls), $(b,cat), $(b,diff), $(b,tags) and \
+               $(b,branch) read from the knot, so they need no clone.";
+            ]))
     ([
        list_cmd;
        create_cmd;

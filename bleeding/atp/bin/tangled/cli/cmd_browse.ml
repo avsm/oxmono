@@ -6,7 +6,7 @@ module Git = Api.Lex.Git
 
 let ref_opt =
   Common.optional [ "ref" ] "REF"
-    "Branch, tag or commit (default: the default branch)."
+    "Read REF, a branch, tag or commit, instead of the default branch."
 
 let signature json = Api.decode Git.Defs.signature_jsont json
 let date s = if String.length s >= 10 then String.sub s 0 10 else s
@@ -51,12 +51,12 @@ let branch_list =
             branches)
   in
   Common.cmd
-    (Cmd.info "list" ~doc:"List branches, marking the default.")
+    (Cmd.info "list" ~doc:"List the branches, marking the default.")
     Term.(
       term_result (const action $ Common.repo $ Common.knot $ Common.json_flag))
 
 let branch_change name ~doc f done_ =
-  let branch = Common.positional 0 "BRANCH" "Branch name." in
+  let branch = Common.positional 0 "BRANCH" "The branch's name." in
   let action repo knot branch =
     Common.run (fun env ->
         Common.with_api ~busy:"Updating branches" env (fun api ->
@@ -68,10 +68,17 @@ let branch_change name ~doc f done_ =
 
 let branch_group =
   Cmd.group
-    (Cmd.info "branch" ~doc:"List branches and change the default.")
+    (Cmd.info "branch" ~doc:"List branches, delete them and choose the default."
+       ~man:
+         (Common.man
+            [
+              "The default branch is the one a clone checks out and that pull \
+               requests target unless they name another. Changing it or \
+               deleting a branch needs push access.";
+            ]))
     [
       branch_list;
-      branch_change "delete" ~doc:"Delete a branch on the knot."
+      branch_change "delete" ~doc:"Delete a branch from the repository."
         Api.delete_branch "Deleted %s";
       branch_change "default" ~doc:"Make a branch the default."
         Api.set_default_branch "%s is now the default branch";
@@ -104,7 +111,7 @@ let tags_cmd =
             tags)
   in
   Common.cmd
-    (Cmd.info "tags" ~doc:"List tags.")
+    (Cmd.info "tags" ~doc:"List the repository's tags.")
     Term.(
       term_result (const action $ Common.repo $ Common.knot $ Common.json_flag))
 
@@ -114,9 +121,13 @@ let log_cmd =
       value
       & pos 0 (some string) None
       & info [] ~docv:"REF"
-          ~doc:"Where to start (default: the default branch).")
+          ~doc:
+            "Start from REF, a branch, tag or commit, instead of the default \
+             branch.")
   in
-  let path = Common.optional [ "path" ] "PATH" "Only commits touching PATH." in
+  let path =
+    Common.optional [ "path" ] "PATH" "Show only commits that change PATH."
+  in
   let count =
     Arg.(
       value & opt int 20
@@ -162,21 +173,23 @@ let log_cmd =
             commits)
   in
   Common.cmd
-    (Cmd.info "log" ~doc:"Show commit history, newest first.")
+    (Cmd.info "log" ~doc:"Show the commit history, newest first.")
     Term.(
       term_result
         (const action $ Common.repo $ Common.knot $ ref_ $ path $ count
        $ Common.json_flag))
 
 let path_arg ~required =
-  if required then Common.positional 0 "PATH" "File path in the repository."
+  if required then
+    Common.positional 0 "PATH" "The file, as a path from the repository's top."
   else
     Term.(
       const (Option.value ~default:"")
       $ Arg.(
           value
           & pos 0 (some string) None
-          & info [] ~docv:"PATH" ~doc:"Directory (default: the top)."))
+          & info [] ~docv:"PATH"
+              ~doc:"The directory to list instead of the top one."))
 
 let ls_cmd =
   let action repo knot path ref_ json =
@@ -211,7 +224,7 @@ let ls_cmd =
             entries)
   in
   Common.cmd
-    (Cmd.info "ls" ~doc:"List the files in a directory.")
+    (Cmd.info "ls" ~doc:"List the files in a directory of the repository.")
     Term.(
       term_result
         (const action $ Common.repo $ Common.knot $ path_arg ~required:false
@@ -225,17 +238,23 @@ let cat_cmd =
                Api.blob api (Common.resolve api ?knot repo) ?ref_ ~path ())))
   in
   Common.cmd
-    (Cmd.info "cat" ~doc:"Print a file.")
+    (Cmd.info "cat" ~doc:"Print a file from the repository.")
     Term.(
       term_result
         (const action $ Common.repo $ Common.knot $ path_arg ~required:true
        $ ref_opt))
 
 let diff_cmd =
-  let base = Common.positional 0 "BASE" "Revision to compare from." in
-  let head = Common.positional 1 "HEAD" "Revision to compare to." in
+  let base =
+    Common.positional 0 "BASE" "The branch, tag or commit to compare from."
+  in
+  let head =
+    Common.positional 1 "HEAD" "The branch, tag or commit to compare to."
+  in
   let stat =
-    Arg.(value & flag & info [ "stat" ] ~doc:"Show only the files changed.")
+    Arg.(
+      value & flag
+      & info [ "stat" ] ~doc:"List the files changed instead of the changes.")
   in
   let action repo knot base head stat =
     Common.run (fun env ->
@@ -247,7 +266,7 @@ let diff_cmd =
             Diff_view.show api r ~base ~head ~stat))
   in
   Common.cmd
-    (Cmd.info "diff" ~doc:"Show the change between two revisions.")
+    (Cmd.info "diff" ~doc:"Show the changes between two commits.")
     Term.(
       term_result
         (const action $ Common.repo $ Common.knot $ base $ head $ stat))

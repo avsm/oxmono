@@ -276,8 +276,12 @@ def main():
         "labels"] == ["Needs review"]
     assert number in tangled("issue", "list", "-r", name, "--label",
                              "needs-review")
-    tangled("issue", "edit", "-r", name, number, "--unlabel", "Needs review")
+    # Removing a label in use leaves the issue editable.
     tangled("repo", "label", "remove", "-r", name, "Needs review")
+    tangled("issue", "close", "-r", name, number)
+    tangled("issue", "reopen", "-r", name, number)
+    assert json.loads(tangled("issue", "show", "-r", name, number))[
+        "labels"] == []
     tangled("repo", "label", "add", "-r", name, "Needs review", ok=False)
     git("checkout", "-b", "feature", cwd=checkout)
     (checkout / "feature.txt").write_text("A change under review.\n")

@@ -212,6 +212,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.json({"uri": f"at://{data['repo']}/{coll}/{key}", "cid": cid(data["record"])})
         if method == "com.atproto.repo.putRecord":
             k = data["repo"], data["collection"], data["rkey"]
+            # As the knot, refuse a ticket citing a label that is not defined.
+            for token in data["record"].get("tangledLabels", []):
+                if (data["repo"], "org.tangled.label.definition", token["key"]) not in records:
+                    return self.json({"error": "InvalidRequest"}, 400)
             assert data["swapRecord"] == cid(records[k]), "stale swapRecord"
             assert not any(f.startswith("x-tngl-") for f in data["record"]), "stamp written back"
             records[k] = data["record"]
@@ -561,8 +565,17 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
         run("repo", "label", "edit", "-r", "demo", "bug", "#123",
             "--name", "Defect")
         assert records[REPO, "org.tangled.label.definition", "bug"]["name"] == "Defect"
+        # Removing a label takes it off the issues carrying it first, and a
+        # label deleted elsewhere is dropped by the next write.
+        run("issue", "edit", "-r", "demo", "1", "--label", "Defect")
         run("repo", "label", "remove", "-r", "demo", "Defect")
         assert (REPO, "org.tangled.label.definition", "bug") not in records
+        tokens = records[REPO, "org.tangled.track.ticket", "1"]["tangledLabels"]
+        assert tokens == [{"key": "good-first-issue"}], tokens
+        records.pop((REPO, "org.tangled.label.definition", "good-first-issue"))
+        run("issue", "close", "-r", "demo", "1")
+        run("issue", "reopen", "-r", "demo", "1")
+        assert "tangledLabels" not in records[REPO, "org.tangled.track.ticket", "1"]
         shown = json.loads(run("issue", "show", "-r", "demo", "1"))
         assert shown["record"]["state"] == "open"
         assert [c["record"]["body"]["text"] for c in shown["comments"]] == ["Looks *good*"]

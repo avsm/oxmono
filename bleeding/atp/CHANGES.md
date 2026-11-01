@@ -29,6 +29,8 @@
 - The published OAuth client metadata covers the new methods.
 - Add `repo label` to define a repository's labels, `--label` and
   `--unlabel` to put them on issues and pull requests, and `list --label`.
+  Removing a label takes it off the issues carrying it, and edits drop
+  labels deleted elsewhere, which the knot would refuse.
 - `Xrpc_auth.Cmd.profile_cmd` takes the group's name.
 
 - Add `Xrpc.Trace`, which logs each HTTP exchange with its XRPC method,

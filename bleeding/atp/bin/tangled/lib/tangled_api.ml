@@ -790,15 +790,58 @@ let open_ticket t repository ~title ?body ?target_branch ?(labels = []) () =
   repo_create_record t repository ~collection:ticket_collection
     (encode Lex.Track.Ticket.main_jsont ticket)
 
+(* Labels *)
+
+let label_collection = "org.tangled.label.definition"
+
+type label = { key : string; definition : Lex.Label.Definition.main }
+
+let labels t repository =
+  repo_records t repository ~collection:label_collection
+  |> List.filter_map (fun (r : Atproto.Repo.ListRecords.record) ->
+      match decode Lex.Label.Definition.main_jsont r.value with
+      | definition -> Some { key = rkey_of_uri r.uri; definition }
+      | exception Failure _ -> None)
+
+let ticket_labels (ticket : Lex.Track.Ticket.main) =
+  List.filter_map
+    (fun json ->
+      match decode Lex.Label.Defs.label_token_jsont json with
+      | token -> Some token.key
+      | exception Failure _ -> None)
+    (Option.value ~default:[] ticket.tangled_labels)
+
+let set_labels keys value =
+  set_field "tangledLabels"
+    (match keys with
+    | [] -> None
+    | l -> Some (Jsont.Json.list (label_tokens l)))
+    value
+
+(* The knot refuses to store a ticket that carries a deleted label, so every
+   write of a ticket keeps only the labels still defined. *)
+let live_labels t repository ticket =
+  match ticket_labels ticket with
+  | [] -> []
+  | keys ->
+      let defined = List.map (fun l -> l.key) (labels t repository) in
+      List.filter (fun k -> List.mem k defined) keys
+
+let drop_deleted t repository ticket value =
+  let live = live_labels t repository ticket in
+  if live = ticket_labels ticket then value else set_labels live value
+
 let set_ticket_state t repository ~rkey state =
   if not (List.mem state [ "open"; "closed"; "completed" ]) then
     invalid_arg "Ticket state must be open, closed or completed";
   match repo_record t repository ~collection:ticket_collection ~rkey with
   | None -> failwith "Ticket not found"
   | Some r ->
+      let ticket = decode Lex.Track.Ticket.main_jsont r.value in
       let value =
         strip_stamps r.value
         |> set_field "state" (Some (Jsont.Json.string state))
+        |> drop_deleted t repository ticket
       in
       ignore
         (repo_put_record t repository ~collection:ticket_collection ~rkey
@@ -1247,14 +1290,6 @@ let ticket_author t repository rkey =
   Option.bind (repo_record t repository ~collection:ticket_collection ~rkey)
     (fun (r : Atproto.Repo.GetRecord.output) -> editor r.value)
 
-let ticket_labels (ticket : Lex.Track.Ticket.main) =
-  List.filter_map
-    (fun json ->
-      match decode Lex.Label.Defs.label_token_jsont json with
-      | token -> Some token.key
-      | exception Failure _ -> None)
-    (Option.value ~default:[] ticket.tangled_labels)
-
 (* [revise before ~add ~remove] is [before] without [remove], then with those
    of [add] it lacked, in order. *)
 let revise before ~add ~remove =
@@ -1267,11 +1302,7 @@ let edit_ticket t repository ~rkey ?title ?body ?(assign = []) ?(unassign = [])
   | None -> failwith "Ticket not found"
   | Some r ->
       let current = decode Lex.Track.Ticket.main_jsont r.value in
-      let set_list name to_json changed = function
-        | _ when not changed -> Fun.id
-        | [] -> set_field name None
-        | l -> set_field name (Some (Jsont.Json.list (to_json l)))
-      in
+      let live = live_labels t repository current in
       let value = strip_stamps r.value in
       let value =
         match title with
@@ -1285,36 +1316,27 @@ let edit_ticket t repository ~rkey ?title ?body ?(assign = []) ?(unassign = [])
         | Some s -> set_field "body" (Some (markdown s)) value
       in
       let value =
-        set_list "assignees"
-          (List.map Jsont.Json.string)
-          (assign <> [] || unassign <> [])
-          (revise
-             (Option.value ~default:[] current.assignees)
-             ~add:assign ~remove:unassign)
-          value
+        if assign = [] && unassign = [] then value
+        else
+          set_field "assignees"
+            (match
+               revise
+                 (Option.value ~default:[] current.assignees)
+                 ~add:assign ~remove:unassign
+             with
+            | [] -> None
+            | l -> Some (Jsont.Json.list (List.map Jsont.Json.string l)))
+            value
       in
       let value =
-        set_list "tangledLabels" label_tokens
-          (label <> [] || unlabel <> [])
-          (revise (ticket_labels current) ~add:label ~remove:unlabel)
-          value
+        let keys = revise live ~add:label ~remove:unlabel in
+        if keys = ticket_labels current then value else set_labels keys value
       in
       ignore
         (repo_put_record t repository ~collection:ticket_collection ~rkey
            ~swap_record:(cid_of r) value)
 
 (* Labels *)
-
-let label_collection = "org.tangled.label.definition"
-
-type label = { key : string; definition : Lex.Label.Definition.main }
-
-let labels t repository =
-  repo_records t repository ~collection:label_collection
-  |> List.filter_map (fun (r : Atproto.Repo.ListRecords.record) ->
-      match decode Lex.Label.Definition.main_jsont r.value with
-      | definition -> Some { key = rkey_of_uri r.uri; definition }
-      | exception Failure _ -> None)
 
 (* The web client's slug, so that both name a label alike. *)
 let label_key name =
@@ -1387,6 +1409,13 @@ let delete_label t repository ~key =
   match repo_record t repository ~collection:label_collection ~rkey:key with
   | None -> failwith ("No label " ^ key)
   | Some r ->
+      (* Taken off first, so that the tickets carrying it stay editable in
+         other clients too. *)
+      List.iter
+        (fun (rkey, ticket) ->
+          if List.mem key (ticket_labels ticket) then
+            edit_ticket t repository ~rkey ~unlabel:[ key ] ())
+        (tickets t repository);
       repo_delete_record t repository ~collection:label_collection ~rkey:key
         ~swap_record:(cid_of r)
 

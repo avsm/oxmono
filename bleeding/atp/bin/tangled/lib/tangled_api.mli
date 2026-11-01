@@ -508,7 +508,8 @@ val edit_ticket :
   unit
 (** [edit_ticket t r ~rkey ()] changes the fields given and keeps the rest. An
     empty [body] removes it. [assign] and [unassign] are DIDs. [label] and
-    [unlabel] are label keys. *)
+    [unlabel] are label keys. Labels deleted since are dropped, as the knot
+    refuses them. {!set_ticket_state} does the same. *)
 
 val ticket_labels : Lex.Track.Ticket.main -> string list
 (** [ticket_labels ticket] is the keys of the labels on [ticket]. *)
@@ -539,7 +540,8 @@ val edit_label :
 (** [edit_label t r ~key ()] renames or recolours a label. Tickets keep it. *)
 
 val delete_label : t -> repository -> key:string -> unit
-(** [delete_label t r ~key] deletes a label. *)
+(** [delete_label t r ~key] takes a label off the tickets carrying it, then
+    deletes it. *)
 
 val patches : t -> repository -> ticket:string -> Lex.Review.Patch.main list
 (** [patches t r ~ticket] is the revisions of pull request [ticket], oldest

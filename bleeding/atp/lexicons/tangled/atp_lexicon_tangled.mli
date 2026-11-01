@@ -1989,6 +1989,16 @@ val output_jsont : output Jsont.t
       end
       module GetProfileActivity : sig
 
+type commit_activity = {
+  committed_at : string;
+  sha : string;
+  subject : string;
+}
+
+(** Jsont codec for {!type:commit_activity}. *)
+val commit_activity_jsont : commit_activity Jsont.t
+
+
 type repo_ref = {
   did : string option;
   name : string;
@@ -1999,6 +2009,16 @@ type repo_ref = {
 
 (** Jsont codec for {!type:repo_ref}. *)
 val repo_ref_jsont : repo_ref Jsont.t
+
+
+type commit_repo_activity = {
+  commits : int;
+  recent : Jsont.json list;  (** Most recent commits in this repo during the month. *)
+  repo : Jsont.json;
+}
+
+(** Jsont codec for {!type:commit_repo_activity}. *)
+val commit_repo_activity_jsont : commit_repo_activity Jsont.t
 
 
 type issue_activity = {
@@ -2024,6 +2044,7 @@ val pull_activity_jsont : pull_activity Jsont.t
 
 
 type repo_activity = {
+  description : string option;
   kind : string;
   repo : Jsont.json;
 }
@@ -2033,6 +2054,7 @@ val repo_activity_jsont : repo_activity Jsont.t
 
 
 type activity_month = {
+  commit_repos : Jsont.json list option;  (** Repos the actor committed to this month, busiest first. *)
   commits : int;
   issues : Jsont.json list;
   pulls : Jsont.json list;
@@ -4572,6 +4594,14 @@ type header = {
 val header_jsont : header Jsont.t
 
 
+type ssh_signature = {
+  fingerprint : string;  (** SHA256 fingerprint of the signing key, `SHA256:...` *)
+}
+
+(** Jsont codec for {!type:ssh_signature}. *)
+val ssh_signature_jsont : ssh_signature Jsont.t
+
+
 type commit = {
   author : Jsont.json;
   committer : Jsont.json;
@@ -4579,6 +4609,7 @@ type commit = {
   message : string;
   oid : string;
   parents : string list;
+  signature : Jsont.json option;  (** Set only when the commit's signature verifies against the key embedded in it. Says nothing about who owns that key. *)
   stat : Jsont.json option;
   tree : string;
 }
@@ -8115,15 +8146,36 @@ val output_jsont : output Jsont.t
         end
         module GetCommitStats : sig
 
+type commit = {
+  committed_at : string;
+  sha : string;
+  subject : string;
+}
+
+(** Jsont codec for {!type:commit}. *)
+val commit_jsont : commit Jsont.t
+
+
+type repo_commits = {
+  commits : int;
+  recent : commit list;  (** Most recent commits in this repo during the month. *)
+  repo : string;  (** DID of the repo the commits were first seen in. *)
+}
+
+(** Jsont codec for {!type:repo_commits}. *)
+val repo_commits_jsont : repo_commits Jsont.t
+
+
 type month = {
   commits : int;  (** Commits attributed to the actor during this month. *)
+  repos : repo_commits list option;  (** Repos the actor committed to this month, busiest first. *)
   start : string;  (** Start of this UTC calendar month. *)
 }
 
 (** Jsont codec for {!type:month}. *)
 val month_jsont : month Jsont.t
 
-(** Get an actor's monthly commit counts. *)
+(** Get an actor's monthly commit counts, with the repos they committed to. *)
 
 (** Query/procedure parameters. *)
 type params = {

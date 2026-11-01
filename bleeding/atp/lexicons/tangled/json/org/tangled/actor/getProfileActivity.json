@@ -88,6 +88,14 @@
             "type": "ref",
             "ref": "#pullActivity"
           }
+        },
+        "commitRepos": {
+          "type": "array",
+          "description": "Repos the actor committed to this month, busiest first.",
+          "items": {
+            "type": "ref",
+            "ref": "#commitRepoActivity"
+          }
         }
       }
     },
@@ -138,6 +146,56 @@
             "created",
             "forked"
           ]
+        },
+        "description": {
+          "type": "string",
+          "maxGraphemes": 140
+        }
+      }
+    },
+    "commitRepoActivity": {
+      "type": "object",
+      "required": [
+        "repo",
+        "commits",
+        "recent"
+      ],
+      "properties": {
+        "repo": {
+          "type": "ref",
+          "ref": "#repoRef"
+        },
+        "commits": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "recent": {
+          "type": "array",
+          "description": "Most recent commits in this repo during the month.",
+          "items": {
+            "type": "ref",
+            "ref": "#commitActivity"
+          }
+        }
+      }
+    },
+    "commitActivity": {
+      "type": "object",
+      "required": [
+        "sha",
+        "subject",
+        "committedAt"
+      ],
+      "properties": {
+        "sha": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "committedAt": {
+          "type": "string",
+          "format": "datetime"
         }
       }
     },

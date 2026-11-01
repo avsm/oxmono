@@ -2895,6 +2895,21 @@ let output_jsont =
 
       end
       module GetProfileActivity = struct
+type commit_activity = {
+  committed_at : string;
+  sha : string;
+  subject : string;
+}
+
+let commit_activity_jsont =
+  Jsont.Object.map ~kind:"Commit_activity"
+    (fun _typ committed_at sha subject -> { committed_at; sha; subject })
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "org.tangled.actor.getProfileActivity#commitActivity") ~enc:(fun _ -> "org.tangled.actor.getProfileActivity#commitActivity")
+  |> Jsont.Object.mem "committedAt" Jsont.string ~enc:(fun r -> r.committed_at)
+  |> Jsont.Object.mem "sha" Jsont.string ~enc:(fun r -> r.sha)
+  |> Jsont.Object.mem "subject" Jsont.string ~enc:(fun r -> r.subject)
+  |> Jsont.Object.finish
+
 type repo_ref = {
   did : string option;
   name : string;
@@ -2912,6 +2927,21 @@ let repo_ref_jsont =
   |> Jsont.Object.mem "ownerDid" Jsont.string ~enc:(fun r -> r.owner_did)
   |> Jsont.Object.mem "ownerHandle" Jsont.string ~enc:(fun r -> r.owner_handle)
   |> Jsont.Object.mem "uri" Jsont.string ~enc:(fun r -> r.uri)
+  |> Jsont.Object.finish
+
+type commit_repo_activity = {
+  commits : int;
+  recent : Jsont.json list;
+  repo : Jsont.json;
+}
+
+let commit_repo_activity_jsont =
+  Jsont.Object.map ~kind:"Commit_repo_activity"
+    (fun _typ commits recent repo -> { commits; recent; repo })
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "org.tangled.actor.getProfileActivity#commitRepoActivity") ~enc:(fun _ -> "org.tangled.actor.getProfileActivity#commitRepoActivity")
+  |> Jsont.Object.mem "commits" Jsont.int ~enc:(fun r -> r.commits)
+  |> Jsont.Object.mem "recent" (Jsont.list Jsont.json) ~enc:(fun r -> r.recent)
+  |> Jsont.Object.mem "repo" Jsont.json ~enc:(fun r -> r.repo)
   |> Jsont.Object.finish
 
 type issue_activity = {
@@ -2949,19 +2979,22 @@ let pull_activity_jsont =
   |> Jsont.Object.finish
 
 type repo_activity = {
+  description : string option;
   kind : string;
   repo : Jsont.json;
 }
 
 let repo_activity_jsont =
   Jsont.Object.map ~kind:"Repo_activity"
-    (fun _typ kind repo -> { kind; repo })
+    (fun _typ description kind repo -> { description; kind; repo })
   |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "org.tangled.actor.getProfileActivity#repoActivity") ~enc:(fun _ -> "org.tangled.actor.getProfileActivity#repoActivity")
+  |> Jsont.Object.opt_mem "description" Jsont.string ~enc:(fun r -> r.description)
   |> Jsont.Object.mem "kind" Jsont.string ~enc:(fun r -> r.kind)
   |> Jsont.Object.mem "repo" Jsont.json ~enc:(fun r -> r.repo)
   |> Jsont.Object.finish
 
 type activity_month = {
+  commit_repos : Jsont.json list option;
   commits : int;
   issues : Jsont.json list;
   pulls : Jsont.json list;
@@ -2971,8 +3004,9 @@ type activity_month = {
 
 let activity_month_jsont =
   Jsont.Object.map ~kind:"Activity_month"
-    (fun _typ commits issues pulls repos start -> { commits; issues; pulls; repos; start })
+    (fun _typ commit_repos commits issues pulls repos start -> { commit_repos; commits; issues; pulls; repos; start })
   |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "org.tangled.actor.getProfileActivity#activityMonth") ~enc:(fun _ -> "org.tangled.actor.getProfileActivity#activityMonth")
+  |> Jsont.Object.opt_mem "commitRepos" (Jsont.list Jsont.json) ~enc:(fun r -> r.commit_repos)
   |> Jsont.Object.mem "commits" Jsont.int ~enc:(fun r -> r.commits)
   |> Jsont.Object.mem "issues" (Jsont.list Jsont.json) ~enc:(fun r -> r.issues)
   |> Jsont.Object.mem "pulls" (Jsont.list Jsont.json) ~enc:(fun r -> r.pulls)
@@ -6585,6 +6619,17 @@ let header_jsont =
   |> Jsont.Object.mem "value" Jsont.string ~enc:(fun r -> r.value)
   |> Jsont.Object.finish
 
+type ssh_signature = {
+  fingerprint : string;
+}
+
+let ssh_signature_jsont =
+  Jsont.Object.map ~kind:"Ssh_signature"
+    (fun _typ fingerprint -> { fingerprint })
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "org.tangled.temp.git.listCommits#sshSignature") ~enc:(fun _ -> "org.tangled.temp.git.listCommits#sshSignature")
+  |> Jsont.Object.mem "fingerprint" Jsont.string ~enc:(fun r -> r.fingerprint)
+  |> Jsont.Object.finish
+
 type commit = {
   author : Jsont.json;
   committer : Jsont.json;
@@ -6592,13 +6637,14 @@ type commit = {
   message : string;
   oid : string;
   parents : string list;
+  signature : Jsont.json option;
   stat : Jsont.json option;
   tree : string;
 }
 
 let commit_jsont =
   Jsont.Object.map ~kind:"Commit"
-    (fun _typ author committer extra_headers message oid parents stat tree -> { author; committer; extra_headers; message; oid; parents; stat; tree })
+    (fun _typ author committer extra_headers message oid parents signature stat tree -> { author; committer; extra_headers; message; oid; parents; signature; stat; tree })
   |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "org.tangled.temp.git.listCommits#commit") ~enc:(fun _ -> "org.tangled.temp.git.listCommits#commit")
   |> Jsont.Object.mem "author" Jsont.json ~enc:(fun r -> r.author)
   |> Jsont.Object.mem "committer" Jsont.json ~enc:(fun r -> r.committer)
@@ -6606,6 +6652,7 @@ let commit_jsont =
   |> Jsont.Object.mem "message" Jsont.string ~enc:(fun r -> r.message)
   |> Jsont.Object.mem "oid" Jsont.string ~enc:(fun r -> r.oid)
   |> Jsont.Object.mem "parents" (Jsont.list Jsont.string) ~enc:(fun r -> r.parents)
+  |> Jsont.Object.opt_mem "signature" Jsont.json ~enc:(fun r -> r.signature)
   |> Jsont.Object.opt_mem "stat" Jsont.json ~enc:(fun r -> r.stat)
   |> Jsont.Object.mem "tree" Jsont.string ~enc:(fun r -> r.tree)
   |> Jsont.Object.finish
@@ -11896,16 +11943,48 @@ let output_jsont =
 
         end
         module GetCommitStats = struct
+type commit = {
+  committed_at : string;
+  sha : string;
+  subject : string;
+}
+
+let commit_jsont =
+  Jsont.Object.map ~kind:"Commit"
+    (fun _typ committed_at sha subject -> { committed_at; sha; subject })
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "sh.tangled.git.temp2.getCommitStats#commit") ~enc:(fun _ -> "sh.tangled.git.temp2.getCommitStats#commit")
+  |> Jsont.Object.mem "committedAt" Jsont.string ~enc:(fun r -> r.committed_at)
+  |> Jsont.Object.mem "sha" Jsont.string ~enc:(fun r -> r.sha)
+  |> Jsont.Object.mem "subject" Jsont.string ~enc:(fun r -> r.subject)
+  |> Jsont.Object.finish
+
+type repo_commits = {
+  commits : int;
+  recent : commit list;
+  repo : string;
+}
+
+let repo_commits_jsont =
+  Jsont.Object.map ~kind:"Repo_commits"
+    (fun _typ commits recent repo -> { commits; recent; repo })
+  |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "sh.tangled.git.temp2.getCommitStats#repoCommits") ~enc:(fun _ -> "sh.tangled.git.temp2.getCommitStats#repoCommits")
+  |> Jsont.Object.mem "commits" Jsont.int ~enc:(fun r -> r.commits)
+  |> Jsont.Object.mem "recent" (Jsont.list commit_jsont) ~enc:(fun r -> r.recent)
+  |> Jsont.Object.mem "repo" Jsont.string ~enc:(fun r -> r.repo)
+  |> Jsont.Object.finish
+
 type month = {
   commits : int;
+  repos : repo_commits list option;
   start : string;
 }
 
 let month_jsont =
   Jsont.Object.map ~kind:"Month"
-    (fun _typ commits start -> { commits; start })
+    (fun _typ commits repos start -> { commits; repos; start })
   |> Jsont.Object.mem "$type" Jsont.string ~dec_absent:(fun () -> "sh.tangled.git.temp2.getCommitStats#month") ~enc:(fun _ -> "sh.tangled.git.temp2.getCommitStats#month")
   |> Jsont.Object.mem "commits" Jsont.int ~enc:(fun r -> r.commits)
+  |> Jsont.Object.opt_mem "repos" (Jsont.list repo_commits_jsont) ~enc:(fun r -> r.repos)
   |> Jsont.Object.mem "start" Jsont.string ~enc:(fun r -> r.start)
   |> Jsont.Object.finish
 

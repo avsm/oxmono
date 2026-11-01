@@ -93,7 +93,19 @@
           "type": "array",
           "items": { "type": "ref", "ref": "#header" }
         },
-        "stat": { "type": "ref", "ref": "org.tangled.git.defs#diffStat" }
+        "stat": { "type": "ref", "ref": "org.tangled.git.defs#diffStat" },
+        "signature": {
+          "type": "union",
+          "refs": ["#sshSignature"],
+          "description": "Set only when the commit's signature verifies against the key embedded in it. Says nothing about who owns that key."
+        }
+      }
+    },
+    "sshSignature": {
+      "type": "object",
+      "required": ["fingerprint"],
+      "properties": {
+        "fingerprint": { "type": "string", "description": "SHA256 fingerprint of the signing key, `SHA256:...`" }
       }
     },
     "header": {

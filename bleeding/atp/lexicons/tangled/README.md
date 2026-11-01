@@ -2,7 +2,7 @@
 
 The JSON documents are verbatim copies of `lexicons/` in
 <https://tangled.org/tangled.org/core> at
-`a6c5b305424aa51a8b6643c20023b57105f7769f`, reviewed 2026-10-30.
+`52549bde582beb2ce71cc88d6fa726c41cbc8fe7`, reviewed 2026-11-01.
 
 The complete set contains 418 documents. Current records and methods are
 under `org.tangled.*`, including temporary APIs under `org.tangled.temp.*`.

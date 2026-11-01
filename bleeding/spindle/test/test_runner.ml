@@ -24,6 +24,17 @@ let () =
     Eio.Process.parse_out env#process_mgr Eio.Buf_read.line ~cwd:directory
       [ "git"; "rev-parse"; "HEAD" ]
   in
+  (* Each step's end event, as (step, kind, outcome). *)
+  let ends (workflow : Runner.t) =
+    List.rev workflow.events
+    |> List.filter_map (fun event ->
+        if J.get "type" event = "control" && J.get "status" event = "end" then
+          Some
+            ( int_of_float (J.number (J.required "step" event)),
+              J.get "kind" event,
+              J.get "outcome" event )
+        else None)
+  in
   let runner : Runner.env =
     { system = env; directory; slots = Eio.Semaphore.make 1 }
   in
@@ -63,6 +74,12 @@ let () =
         wait ();
         if cancel then Runner.cancel ~persist:(fun () -> ()) workflow);
     assert (workflow.status = if cancel then "cancelled" else "success");
+    assert (
+      ends workflow
+      = [
+          (0, "system", "success");
+          (1, "user", if cancel then "failed" else "success");
+        ]);
     Eio.Time.sleep env#clock 0.8;
     assert (not (Sys.file_exists leaked));
     assert (not (Sys.file_exists (name ^ "/" ^ id ^ ".children.work")))
@@ -114,6 +131,10 @@ let () =
       assert (workflow.status = "success");
       assert (output "stdout" = "€");
       assert (output "stderr" = "��"));
+  log_job "fails" "exit 3" (fun workflow _ ->
+      assert (workflow.status = "failed");
+      assert (
+        ends workflow = [ (0, "system", "success"); (1, "user", "failed") ]));
   log_job "limit" "head -c 1100000 /dev/zero | tr '\\000' x" (fun workflow _ ->
       assert (workflow.status = "failed");
       assert (workflow.log_bytes <= 1024 * 1024));

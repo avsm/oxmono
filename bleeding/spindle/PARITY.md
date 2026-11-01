@@ -1,8 +1,10 @@
 # Tangled compatibility review
 
-Reviewed 2026-10-30 against Tangled core
-`a6c5b305424aa51a8b6643c20023b57105f7769f` in `../core`: the Go spindle in
+Reviewed 2026-11-01 against Tangled core
+`52549bde582beb2ce71cc88d6fa726c41cbc8fe7` in `../core`: the Go spindle in
 `spindle/`, knot2 in `knot2/` and the lexicons in `lexicons/org/tangled/`.
+Upstream's later commits to `c76eedefe` change the Go spindle's caches and
+timing and add assignees to ticket views, none of which this spindle reads.
 
 The target is the reference spindle's wire behaviour, with trusted OCaml
 workflow definitions in place of repository YAML and the local process runner
@@ -20,6 +22,7 @@ in place of microVM and Nixery engines.
 | Pull requests from `track.ticket` and `review.patch` records | Patch records on Jetstream; patch and ticket re-read from the knot |
 | Blocked pull requests and `approvePipeline` | Same, when the patch's editor cannot push |
 | `queryPipelines`, `getPipeline`, `subscribePipelineLogs` | Same parameters, objects and CBOR frames |
+| Step end events with `outcome`, checkout as a `system` step | Same, including for a failed or cancelled step |
 | `cancelPipeline`, `retryPipeline` | Same |
 | `listWorkflowDefinitions`, `getWorkflowDefinition` | The configured OCaml workflows, as external sources |
 | `describeSpindle` and `#tangled_spindle` DID service | Same |

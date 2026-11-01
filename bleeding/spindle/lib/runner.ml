@@ -120,15 +120,36 @@ let emit record p ~step ~kind fields =
   p.log_bytes <- p.log_bytes + size;
   p.events <- event :: p.events
 
-let control record persist p ~step ~status command =
+let control record persist p ~step ~kind ?outcome ~status command =
   emit record p ~step ~kind:"control"
-    [
-      ("content", str command);
-      ("command", str command);
-      ("status", str status);
-      ("kind", str "user");
-    ];
+    ([
+       ("content", str command);
+       ("command", str command);
+       ("status", str status);
+       ("kind", str kind);
+     ]
+    @ Option.fold ~none:[] ~some:(fun o -> [ ("outcome", str o) ]) outcome);
   persist ()
+
+(* [run_step record persist p ~step ~kind name f] runs [f] between a start
+   and an end event. The end event carries the outcome, as the reference spindle
+   sends it, even when [f] fails or is cancelled, so that viewers can mark
+   the step that failed. *)
+let run_step record persist p ~step ~kind name f =
+  control record persist p ~step ~kind ~status:"start" name;
+  match f () with
+  | () ->
+      control record persist p ~step ~kind ~outcome:"success" ~status:"end"
+        name
+  | exception exn ->
+      let bt = Printexc.get_raw_backtrace () in
+      (* A full log budget or a closed store must not hide the failure. *)
+      (try
+         Eio.Cancel.protect (fun () ->
+             control record persist p ~step ~kind ~outcome:"failed"
+               ~status:"end" name)
+       with _ -> ());
+      Printexc.raise_with_backtrace exn bt
 
 let data record p ~step ~stream content =
   emit record p ~step ~kind:"data"
@@ -268,21 +289,21 @@ let execute state input ~record ~persist p =
         Eio.Time.with_timeout_exn state.system#clock 60. @@ fun () ->
         Eio.Switch.run @@ fun sw ->
         p.cancel <- Some (fun () -> Eio.Switch.fail sw Cancelled);
-        control record persist p ~step:0 ~status:"start" "checkout";
-        command state input ~output:(data record p ~step:0) ~text:true
-          ~cwd:state.directory
-          (git
-             [
-               "clone";
-               "--no-checkout";
-               "--no-hardlinks";
-               "--";
-               input.source;
-               native_exn work;
-             ]);
-        command state input ~output:(data record p ~step:0) ~text:true ~cwd:work
-          (git [ "checkout"; "--detach"; input.commit ]);
-        control record persist p ~step:0 ~status:"end" "checkout";
+        run_step record persist p ~step:0 ~kind:"system" "checkout" (fun () ->
+            command state input ~output:(data record p ~step:0) ~text:true
+              ~cwd:state.directory
+              (git
+                 [
+                   "clone";
+                   "--no-checkout";
+                   "--no-hardlinks";
+                   "--";
+                   input.source;
+                   native_exn work;
+                 ]);
+            command state input ~output:(data record p ~step:0) ~text:true
+              ~cwd:work
+              (git [ "checkout"; "--detach"; input.commit ]));
         List.iteri
           (fun index action ->
             let step = index + 1 in
@@ -291,16 +312,15 @@ let execute state input ~record ~persist p =
               | Job.Metadata -> "spindle request metadata"
               | Job.Command argv -> String.concat " " argv
             in
-            control record persist p ~step ~status:"start" name;
-            (match action with
-            | Job.Metadata ->
-                let text = encode input.metadata in
-                data record p ~step ~stream:"stdout" (text ^ "\n");
-                Printf.printf "%s\n%!" text
-            | Job.Command argv ->
-                command state input ~output:(data record p ~step) ~text:true
-                  ~cwd:work argv);
-            control record persist p ~step ~status:"end" name)
+            run_step record persist p ~step ~kind:"user" name (fun () ->
+                match action with
+                | Job.Metadata ->
+                    let text = encode input.metadata in
+                    data record p ~step ~stream:"stdout" (text ^ "\n");
+                    Printf.printf "%s\n%!" text
+                | Job.Command argv ->
+                    command state input ~output:(data record p ~step)
+                      ~text:true ~cwd:work argv))
           p.job.steps;
         Ok ()
       with exn -> Error exn

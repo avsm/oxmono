@@ -423,9 +423,10 @@
       "name": "sqlite3",
       "url": "https://github.com/mmottl/sqlite3-ocaml.git",
       "branch": "HEAD",
-      "revision": null,
+      "revision": "4c8892f6dd4a4ff2ba35f6e1f94a0403a4b9c010",
       "base_version": "5.3.1",
-      "scope": "Adapted bindings with bundled SQLite and Eio extension. Exact binding base is unverified; provenance verification is required before publication."
+      "scope": "Bindings based on upstream 5.3.1, verified against original import 5ab071c5d. Local interrupt binding, bundled SQLite, Eio extension, OxCaml modes and build adaptations. See sqlite3/UPSTREAM.md.",
+      "verified_on": "2026-11-01"
     },
     {
       "name": "swhid_core",

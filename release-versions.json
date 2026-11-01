@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "projects": {
+    "vendor/console": {
+      "base_version": "0.9.0",
+      "reason": "Release base from the recorded upstream version; local changes use the +ox suffix."
+    },
+    "vendor/k7": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/matrix": {
+      "base_version": "0.1.0",
+      "reason": "Release base from the recorded upstream version; local changes use the +ox suffix."
+    },
+    "vendor/nx-oxcaml": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-apple-fm": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-codec": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-json-pointer": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-json-pointer/example/1-pointers": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-json-pointer/example/2-evaluation": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-json-pointer/example/3-uri-fragments": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-json-pointer/example/4-json-patch": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-json-pointer/example/5-jsont-codecs": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-json-pointer/example/6-jmap": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-proj": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono port version for the recorded unreleased upstream snapshot."
+    },
+    "vendor/ocaml-uri": {
+      "base_version": "4.4.0",
+      "reason": "Release base from the recorded upstream version; local changes use the +ox suffix."
+    },
+    "vendor/optint": {
+      "base_version": "0.3.0",
+      "reason": "Release base from the recorded upstream version; local changes use the +ox suffix."
+    },
+    "vendor/sqlite3": {
+      "base_version": "5.3.1",
+      "reason": "Release base from the recorded upstream version; local changes use the +ox suffix."
+    },
+    "vendor/swhid_core": {
+      "base_version": "0.1",
+      "reason": "Release base from the recorded upstream version; local changes use the +ox suffix."
+    },
+    "wip/agentkit": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/apple-mlx-embeddings": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/apple-speech": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/apubt": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/atp": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/bloscz": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/bytesrw-eio": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/cbort": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/ds4": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/ecosystems": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/eioext": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/fetch": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/finger": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/frontmatter": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/gitops": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/hf": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/httpz": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/idk": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/imap": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/immich": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/jmap": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/jsonwt": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/karakeep": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/linkedin": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/maildir": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/matrix": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/memento": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/mqttz": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/openapi": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/openrouter": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/osm": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/owntracks": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/peertube": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/proffer": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/retrieval": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/sekrit": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/spindle": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/tessera": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/tomlt": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/webfinger": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/xdge": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/yamlrw": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/yamlt": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/zarrz": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/zotero-translation": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/zstdz": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    },
+    "wip/zulip": {
+      "base_version": "0.1.0",
+      "reason": "Initial OxMono release base for this unreleased project."
+    }
+  }
+}

@@ -1,0 +1,4 @@
+(library
+ (name taposaur_audit_cli)
+ (public_name taposaur.audit-cli)
+ (libraries taposaur.audit cmdliner eio eio_main unix))

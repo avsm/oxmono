@@ -1,0 +1,4 @@
+(library
+ (name taposaur_review)
+ (public_name taposaur.review)
+ (libraries taposaur jsont jsont.bytesrw digestif))

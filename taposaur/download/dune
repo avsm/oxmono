@@ -1,0 +1,17 @@
+(library
+ (name taposaur_download)
+ (public_name taposaur.download)
+ (libraries
+  taposaur.audit
+  taposaur
+  taposaur.services
+  taposaur.store
+  fetch
+  eio
+  jsont
+  jsont.bytesrw
+  uri
+  xmlm
+  ptime
+  cstruct
+  optint))

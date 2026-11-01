@@ -1,0 +1,11 @@
+(library
+ (name taposaur_review_run)
+ (public_name taposaur.review-run)
+ (libraries
+  taposaur
+  taposaur.review
+  taposaur.review-store
+  taposaur.catalog
+  jsont
+  jsont.bytesrw
+  unix))

@@ -1,0 +1,17 @@
+(library
+ (name taposaur_indexing)
+ (public_name taposaur.indexing)
+ (libraries
+  taposaur.audit
+  taposaur
+  taposaur.archive
+  taposaur.catalog
+  taposaur.paper
+  taposaur.reader
+  taposaur.document
+  digestif
+  jsont
+  jsont.bytesrw
+  eio
+  sqlite3
+  optint))

@@ -1,0 +1,17 @@
+(library
+ (name taposaur_mirrors)
+ (public_name taposaur.mirrors)
+ (libraries
+  taposaur
+  taposaur.services
+  taposaur.audit
+  sqlite3
+  sqlite3-eio
+  fetch
+  eio
+  unix
+  jsont
+  jsont.bytesrw
+  digestif
+  uri
+  uriz))

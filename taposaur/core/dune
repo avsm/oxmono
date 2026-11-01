@@ -1,0 +1,5 @@
+(library
+ (name taposaur)
+ (public_name taposaur)
+ (private_modules json)
+ (libraries jsont jsont.bytesrw digestif uriz fmt))

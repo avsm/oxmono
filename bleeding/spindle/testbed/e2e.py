@@ -270,6 +270,15 @@ def main():
     shown = json.loads(tangled("issue", "show", "-r", name, number))
     assert [c["record"]["body"]["text"] for c in shown["comments"]] == \
         ["Noted."], shown
+    tangled("repo", "label", "add", "-r", name, "Needs review", "#e11d48")
+    tangled("issue", "edit", "-r", name, number, "--label", "needs review")
+    assert json.loads(tangled("issue", "show", "-r", name, number))[
+        "labels"] == ["Needs review"]
+    assert number in tangled("issue", "list", "-r", name, "--label",
+                             "needs-review")
+    tangled("issue", "edit", "-r", name, number, "--unlabel", "Needs review")
+    tangled("repo", "label", "remove", "-r", name, "Needs review")
+    tangled("repo", "label", "add", "-r", name, "Needs review", ok=False)
     git("checkout", "-b", "feature", cwd=checkout)
     (checkout / "feature.txt").write_text("A change under review.\n")
     git("add", "feature.txt", cwd=checkout)
@@ -381,7 +390,7 @@ def main():
     tangled("repo", "info", name, ok=False)
 
     print("PASS: knot2 and the OCaml spindle: pushes, manual runs, retry, "
-          "collaborators, admission, issues, pull requests, approval and "
+          "collaborators, admission, issues, labels, pull requests, approval and "
           "deletion", flush=True)
 
 

@@ -197,6 +197,10 @@ class Handler(BaseHTTPRequestHandler):
                 if coll == "org.tangled.track.ticket":
                     assert data["record"]["state"] == "open"
                 key = str(1 + sum(1 for (_, c, _) in records if c == coll))
+            elif role == "knot" and coll == "org.tangled.label.definition":
+                key = data["rkey"]
+                if (data["repo"], coll, key) in records:
+                    return self.json({"error": "Conflict"}, 409)
             elif role == "knot":
                 key = data["rkey"]
                 assert key.startswith("did:"), "grants are keyed by subject DID"
@@ -535,6 +539,30 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
         assert ticket["title"]["text"] == "Renamed" and ticket["assignees"] == [BOB]
         run("issue", "edit", "-r", "demo", "1", "--unassign", BOB)
         assert "assignees" not in records[REPO, "org.tangled.track.ticket", "1"]
+        # Labels are defined by key, applied by name and shown by name.
+        assert run("repo", "label", "add", "-r", "demo", "Good first issue",
+                   "#e11d48").strip() == "good-first-issue"
+        run("repo", "label", "add", "-r", "demo", "bug")
+        run("repo", "label", "add", "-r", "demo", "bug", ok=False)
+        run("repo", "label", "add", "-r", "demo", "x", "red", ok=False)
+        assert run("repo", "label", "list", "-r", "demo").splitlines() == [
+            "good-first-issue\tGood first issue", "bug\tbug"]
+        run("issue", "edit", "-r", "demo", "1", "--label", "good first issue",
+            "--label", "BUG")
+        tokens = records[REPO, "org.tangled.track.ticket", "1"]["tangledLabels"]
+        assert tokens == [{"key": "good-first-issue"}, {"key": "bug"}], tokens
+        run("issue", "edit", "-r", "demo", "1", "--label", "nope", ok=False)
+        assert run("issue", "list", "-r", "demo", "--label", "bug").split()[0] == "1"
+        assert run("issue", "list", "-r", "demo", "--label", "good-first-issue",
+                   "--state", "closed") == ""
+        run("issue", "edit", "-r", "demo", "1", "--unlabel", "bug")
+        assert json.loads(run("issue", "show", "-r", "demo", "1"))["labels"] == [
+            "Good first issue"]
+        run("repo", "label", "edit", "-r", "demo", "bug", "#123",
+            "--name", "Defect")
+        assert records[REPO, "org.tangled.label.definition", "bug"]["name"] == "Defect"
+        run("repo", "label", "remove", "-r", "demo", "Defect")
+        assert (REPO, "org.tangled.label.definition", "bug") not in records
         shown = json.loads(run("issue", "show", "-r", "demo", "1"))
         assert shown["record"]["state"] == "open"
         assert [c["record"]["body"]["text"] for c in shown["comments"]] == ["Looks *good*"]

@@ -36,6 +36,26 @@ let muted s = V.role `Muted (V.text s)
 let bold s = V.styled C.Style.bold (V.text s)
 let title s = V.styled C.Style.bold (V.role `Accent (V.text s))
 
+(* A label in its own colour, which is hex as #rgb or #rrggbb, with an
+   optional alpha digit or pair that a terminal cannot show. *)
+let label ?color name =
+  let hex s = int_of_string_opt ("0x" ^ s) in
+  let rgb =
+    match color with
+    | Some c when String.length c > 0 && c.[0] = '#' -> (
+        let d = String.sub c 1 (String.length c - 1) in
+        let pick n i = String.sub d (i * n) n in
+        let wide n = if n = 1 then fun s -> s ^ s else Fun.id in
+        let n = if String.length d <= 4 then 1 else 2 in
+        match List.map (fun i -> hex (wide n (pick n i))) [ 0; 1; 2 ] with
+        | [ Some r; Some g; Some b ] -> Some (r, g, b)
+        | _ | (exception Invalid_argument _) -> None)
+    | _ -> None
+  in
+  match rgb with
+  | Some (r, g, b) -> V.styled C.Style.(fg (C.Color.rgb r g b)) (V.text name)
+  | None -> accent name
+
 (* Prose, wrapped at words to the room it is laid out in. *)
 let para s =
   V.fit (fun room ->

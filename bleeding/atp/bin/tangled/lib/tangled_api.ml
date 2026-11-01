@@ -766,7 +766,14 @@ let ticket t repository rkey =
       decode Lex.Track.Ticket.main_jsont r.value)
     (repo_record t repository ~collection:ticket_collection ~rkey)
 
-let open_ticket t repository ~title ?body ?target_branch () =
+let label_tokens keys =
+  List.map
+    (fun key ->
+      Jsont.Json.object'
+        [ Jsont.Json.mem ("key", Jsont.Meta.none) (Jsont.Json.string key) ])
+    keys
+
+let open_ticket t repository ~title ?body ?target_branch ?(labels = []) () =
   let ticket : Lex.Track.Ticket.main =
     {
       title = markdown ~inline:true title;
@@ -776,7 +783,8 @@ let open_ticket t repository ~title ?body ?target_branch () =
       target_branch;
       assignees = None;
       labels = None;
-      tangled_labels = None;
+      tangled_labels =
+        (match labels with [] -> None | keys -> Some (label_tokens keys));
     }
   in
   repo_create_record t repository ~collection:ticket_collection
@@ -1239,16 +1247,30 @@ let ticket_author t repository rkey =
   Option.bind (repo_record t repository ~collection:ticket_collection ~rkey)
     (fun (r : Atproto.Repo.GetRecord.output) -> editor r.value)
 
+let ticket_labels (ticket : Lex.Track.Ticket.main) =
+  List.filter_map
+    (fun json ->
+      match decode Lex.Label.Defs.label_token_jsont json with
+      | token -> Some token.key
+      | exception Failure _ -> None)
+    (Option.value ~default:[] ticket.tangled_labels)
+
+(* [revise before ~add ~remove] is [before] without [remove], then with those
+   of [add] it lacked, in order. *)
+let revise before ~add ~remove =
+  let kept = List.filter (fun x -> not (List.mem x remove)) before in
+  kept @ List.filter (fun x -> not (List.mem x kept)) add
+
 let edit_ticket t repository ~rkey ?title ?body ?(assign = []) ?(unassign = [])
-    () =
+    ?(label = []) ?(unlabel = []) () =
   match repo_record t repository ~collection:ticket_collection ~rkey with
   | None -> failwith "Ticket not found"
   | Some r ->
       let current = decode Lex.Track.Ticket.main_jsont r.value in
-      let assignees =
-        let before = Option.value ~default:[] current.assignees in
-        List.filter (fun d -> not (List.mem d unassign)) before
-        @ List.filter (fun d -> not (List.mem d before)) assign
+      let set_list name to_json changed = function
+        | _ when not changed -> Fun.id
+        | [] -> set_field name None
+        | l -> set_field name (Some (Jsont.Json.list (to_json l)))
       in
       let value = strip_stamps r.value in
       let value =
@@ -1263,17 +1285,110 @@ let edit_ticket t repository ~rkey ?title ?body ?(assign = []) ?(unassign = [])
         | Some s -> set_field "body" (Some (markdown s)) value
       in
       let value =
-        if assign = [] && unassign = [] then value
-        else
-          set_field "assignees"
-            (match assignees with
-            | [] -> None
-            | l -> Some (Jsont.Json.list (List.map Jsont.Json.string l)))
-            value
+        set_list "assignees"
+          (List.map Jsont.Json.string)
+          (assign <> [] || unassign <> [])
+          (revise
+             (Option.value ~default:[] current.assignees)
+             ~add:assign ~remove:unassign)
+          value
+      in
+      let value =
+        set_list "tangledLabels" label_tokens
+          (label <> [] || unlabel <> [])
+          (revise (ticket_labels current) ~add:label ~remove:unlabel)
+          value
       in
       ignore
         (repo_put_record t repository ~collection:ticket_collection ~rkey
            ~swap_record:(cid_of r) value)
+
+(* Labels *)
+
+let label_collection = "org.tangled.label.definition"
+
+type label = { key : string; definition : Lex.Label.Definition.main }
+
+let labels t repository =
+  repo_records t repository ~collection:label_collection
+  |> List.filter_map (fun (r : Atproto.Repo.ListRecords.record) ->
+      match decode Lex.Label.Definition.main_jsont r.value with
+      | definition -> Some { key = rkey_of_uri r.uri; definition }
+      | exception Failure _ -> None)
+
+(* The web client's slug, so that both name a label alike. *)
+let label_key name =
+  let b = Buffer.create (String.length name) in
+  let gap = ref false in
+  String.iter
+    (fun c ->
+      match Char.lowercase_ascii c with
+      | ('a' .. 'z' | '0' .. '9' | '.' | '_' | '~' | '-') as c ->
+          if !gap then Buffer.add_char b '-';
+          gap := false;
+          Buffer.add_char b c
+      | _ -> gap := true)
+    (String.trim name);
+  if !gap then Buffer.add_char b '-';
+  let key = Buffer.contents b in
+  let first = ref 0 and last = ref (String.length key) in
+  while !first < !last && key.[!first] = '-' do incr first done;
+  while !last > !first && key.[!last - 1] = '-' do decr last done;
+  let key = String.sub key !first (min 64 (!last - !first)) in
+  if key = "" then invalid_arg ("A label name needs a letter or digit: " ^ name)
+  else key
+
+let valid_color = function
+  | None -> ()
+  | Some c ->
+      let hex = String.sub c 1 (max 0 (String.length c - 1)) in
+      if
+        not
+          (List.mem (String.length c) [ 4; 5; 7; 9 ]
+          && c.[0] = '#'
+          && String.for_all
+               (function
+                 | '0' .. '9' | 'a' .. 'f' | 'A' .. 'F' -> true | _ -> false)
+               hex)
+      then invalid_arg ("A colour is written in hex, as #e11d48, not " ^ c)
+
+let create_label t repository ~name ?color () =
+  valid_color color;
+  let definition : Lex.Label.Definition.main =
+    { name; color; created_at = now () }
+  in
+  let key = label_key name in
+  ignore
+    (repo_create_record t repository ~collection:label_collection ~rkey:key
+       (encode Lex.Label.Definition.main_jsont definition));
+  key
+
+let edit_label t repository ~key ?name ?color () =
+  valid_color color;
+  match repo_record t repository ~collection:label_collection ~rkey:key with
+  | None -> failwith ("No label " ^ key)
+  | Some r ->
+      let value = strip_stamps r.value in
+      let value =
+        match name with
+        | None -> value
+        | Some n -> set_field "name" (Some (Jsont.Json.string n)) value
+      in
+      let value =
+        match color with
+        | None -> value
+        | Some c -> set_field "color" (Some (Jsont.Json.string c)) value
+      in
+      ignore
+        (repo_put_record t repository ~collection:label_collection ~rkey:key
+           ~swap_record:(cid_of r) value)
+
+let delete_label t repository ~key =
+  match repo_record t repository ~collection:label_collection ~rkey:key with
+  | None -> failwith ("No label " ^ key)
+  | Some r ->
+      repo_delete_record t repository ~collection:label_collection ~rkey:key
+        ~swap_record:(cid_of r)
 
 let patch_collection = "org.tangled.review.patch"
 

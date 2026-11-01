@@ -27,6 +27,8 @@
   `auth profile`, and `profile [USER]` replaces `profile view`.
   `--audience` is unlisted and `TANGLED_AUDIENCE` sets it.
 - The published OAuth client metadata covers the new methods.
+- Add `repo label` to define a repository's labels, `--label` and
+  `--unlabel` to put them on issues and pull requests, and `list --label`.
 - `Xrpc_auth.Cmd.profile_cmd` takes the group's name.
 
 - Add `Xrpc.Trace`, which logs each HTTP exchange with its XRPC method,

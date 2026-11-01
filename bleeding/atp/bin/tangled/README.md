@@ -237,7 +237,9 @@ tangled issue list --state open
 tangled issue show 7
 tangled issue create --title "Build fails" --body-file issue.md
 tangled issue comment 7 --body "Fixed in v1.1."
-tangled issue edit 7 --assign bob.example
+tangled issue edit 7 --assign bob.example --label bug
+tangled issue list --label "good first issue"
+tangled repo label add bug "#e11d48"
 tangled issue history 7
 tangled issue complete 7
 tangled pull create --title "Fix the build"
@@ -255,6 +257,12 @@ repository account. A pull request is a ticket with a target branch. The knot
 writes them, mints their keys and checks who may change their state.
 Comments are `org.tangled.feed.comment` records beside them. `show` lists
 them, and pipes get the ticket, its comments and its revisions as JSON.
+
+Labels such as `bug` are defined per repository by its owner, as
+`org.tangled.label.definition` records keyed by a slug of the name.
+`repo label` lists, adds, renames and removes them. `--label` on `issue
+create`, `pull create` and `edit` applies one by name, and `--unlabel` takes
+it off. The key of a removed label cannot be used again.
 
 `pull create` proposes the current branch, or `--branch`, into the default
 branch, or `--target`. Push the branch first. The head is the branch's tip

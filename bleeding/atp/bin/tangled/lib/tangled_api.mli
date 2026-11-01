@@ -265,8 +265,11 @@ val open_ticket :
   title:string ->
   ?body:string ->
   ?target_branch:string ->
+  ?labels:string list ->
   unit ->
   Atproto.Repo.CreateRecord.output
+(** [open_ticket t r ~title ()] opens a ticket in [r]. A [target_branch] makes
+    it a pull request. [labels] are the keys of labels defined in [r]. *)
 
 val set_ticket_state : t -> repository -> rkey:string -> string -> unit
 (** [set_ticket_state t r ~rkey state] sets a ticket to [open], [closed] or
@@ -499,10 +502,44 @@ val edit_ticket :
   ?body:string ->
   ?assign:string list ->
   ?unassign:string list ->
+  ?label:string list ->
+  ?unlabel:string list ->
   unit ->
   unit
 (** [edit_ticket t r ~rkey ()] changes the fields given and keeps the rest. An
-    empty [body] removes it. [assign] and [unassign] are DIDs. *)
+    empty [body] removes it. [assign] and [unassign] are DIDs. [label] and
+    [unlabel] are label keys. *)
+
+val ticket_labels : Lex.Track.Ticket.main -> string list
+(** [ticket_labels ticket] is the keys of the labels on [ticket]. *)
+
+(** {1 Labels}
+
+    A label is defined once per repository, by its owner, and applied to
+    tickets by key. *)
+
+type label = { key : string; definition : Lex.Label.Definition.main }
+
+val labels : t -> repository -> label list
+(** [labels t r] is the labels defined in [r]. *)
+
+val label_key : string -> string
+(** [label_key name] is the key a label called [name] is stored under: its
+    letters and digits in lower case, with other runs replaced by a hyphen.
+    Raises [Invalid_argument] if [name] has no letter or digit. *)
+
+val create_label :
+  t -> repository -> name:string -> ?color:string -> unit -> string
+(** [create_label t r ~name ?color ()] defines a label and is its key. [color]
+    is a hex colour such as [#e11d48]. Only the owner of [r] may. The key of a
+    deleted label cannot be used again. *)
+
+val edit_label :
+  t -> repository -> key:string -> ?name:string -> ?color:string -> unit -> unit
+(** [edit_label t r ~key ()] renames or recolours a label. Tickets keep it. *)
+
+val delete_label : t -> repository -> key:string -> unit
+(** [delete_label t r ~key] deletes a label. *)
 
 val patches : t -> repository -> ticket:string -> Lex.Review.Patch.main list
 (** [patches t r ~ticket] is the revisions of pull request [ticket], oldest

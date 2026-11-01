@@ -30,8 +30,22 @@ type detail = {
   author : string option;
   comments : Api.comment list;
   revisions : Patch.main list;
+  labels : Api.label list;
   names : (string * string option) list;
 }
+
+(* [labels_of defined t] is the labels on [t], in its order. A label deleted
+   since is left out. *)
+let labels_of (defined : Api.label list) t =
+  List.filter_map
+    (fun key -> List.find_opt (fun (l : Api.label) -> l.key = key) defined)
+    (Api.ticket_labels t)
+
+let label_names labels =
+  List.map (fun (l : Api.label) -> l.definition.name) labels
+
+let label_views labels =
+  Ui.V.concat ~sep:(Ui.text ", ") (List.map Cmd_label.view labels)
 
 let detail api repository rkey =
   match Api.ticket api repository rkey with
@@ -42,6 +56,10 @@ let detail api repository rkey =
       let revisions =
         if is_pull ticket then Api.patches api repository ~ticket:rkey else []
       in
+      let labels =
+        if Api.ticket_labels ticket = [] then []
+        else labels_of (Api.labels api repository) ticket
+      in
       let names =
         if Ui.tty () then
           Common.handles api
@@ -51,7 +69,7 @@ let detail api repository rkey =
                @ Option.value ~default:[] ticket.assignees))
         else []
       in
-      { rkey; ticket; author; comments; revisions; names }
+      { rkey; ticket; author; comments; revisions; labels; names }
 
 let who d did = Ui.account (did, Option.join (List.assoc_opt did d.names))
 
@@ -62,6 +80,8 @@ let detail_json d =
       ("id", Common.string d.rkey);
       ("author", opt d.author);
       ("record", Api.encode Ticket.main_jsont d.ticket);
+      ( "labels",
+        Jsont.Json.list (List.map Common.string (label_names d.labels)) );
       ( "comments",
         Jsont.Json.list
           (List.map
@@ -117,6 +137,8 @@ let show_detail d =
             ("Author", Option.map (who d) d.author);
             ("Target", Option.map Ui.accent t.target_branch);
             ("Opened", Some (Ui.muted t.created_at));
+            ( "Labels",
+              if d.labels = [] then None else Some (label_views d.labels) );
             ( "Assignees",
               Option.map
                 (fun a -> Ui.V.concat ~sep:(Ui.text ", ") (List.map (who d) a))
@@ -142,17 +164,41 @@ let show_detail d =
 let list ~pulls =
   let state =
     Common.optional [ "state" ] "STATE"
-      "Show only tickets in this state: open, closed or completed."
+      "Show only those in STATE, which is open, closed or completed."
   in
-  let action repo knot state json =
+  let label =
+    Common.optional [ "label" ] "LABEL" "Show only those carrying LABEL."
+  in
+  let action repo knot state label json =
     Common.run (fun env ->
-        let tickets =
+        let tickets, defined =
           Common.with_api ~busy:"Reading tickets" env (fun api ->
-              Api.tickets api (Common.resolve api ?knot repo))
-          |> List.filter (fun (_, t) ->
-              is_pull t = pulls
-              && match state with None -> true | Some s -> state_of t = s)
+              let r = Common.resolve api ?knot repo in
+              let tickets =
+                List.filter
+                  (fun (_, t) ->
+                    is_pull t = pulls
+                    && match state with None -> true | Some s -> state_of t = s)
+                  (Api.tickets api r)
+              in
+              let labelled =
+                List.exists (fun (_, t) -> Api.ticket_labels t <> []) tickets
+              in
+              ( tickets,
+                if label <> None || (labelled && Ui.tty ()) then
+                  Api.labels api r
+                else [] ))
         in
+        let tickets =
+          match label with
+          | None -> tickets
+          | Some name ->
+              let key = (Cmd_label.find defined name).key in
+              List.filter
+                (fun (_, t) -> List.mem key (Api.ticket_labels t))
+                tickets
+        in
+        let show_labels = defined <> [] in
         if json then
           Common.json
             (Jsont.Json.list
@@ -176,6 +222,7 @@ let list ~pulls =
                Ui.column "Title";
              ]
             @ (if pulls then [ Ui.column "Target" ] else [])
+            @ (if show_labels then [ Ui.column "Labels" ] else [])
             @ [ Ui.column "Opened" ])
             (List.map
                (fun (rkey, (t : Ticket.main)) ->
@@ -186,6 +233,8 @@ let list ~pulls =
                  ]
                  @ (if pulls then
                       [ Ui.accent (Option.value ~default:"" t.target_branch) ]
+                    else [])
+                 @ (if show_labels then [ label_views (labels_of defined t) ]
                     else [])
                  @ [ Ui.muted t.created_at ])
                tickets)
@@ -202,7 +251,8 @@ let list ~pulls =
        ~doc:(if pulls then "List pull requests." else "List issues."))
     Term.(
       term_result
-        (const action $ Common.repo $ Common.knot $ state $ Common.json_flag))
+        (const action $ Common.repo $ Common.knot $ state $ label
+       $ Common.json_flag))
 
 let show ~pulls =
   let action repo id knot json =
@@ -230,25 +280,31 @@ let title =
     & opt (some string) None
     & info [ "title"; "t" ] ~docv:"TITLE" ~doc:"Title, in Markdown.")
 
+let labels_opt =
+  Common.strings [ "label"; "l" ] "LABEL"
+    "Put LABEL on it. Repeat the option for more than one label."
+
 let opened ~pulls (created : Api.Atproto.Repo.CreateRecord.output) =
   if Ui.tty () then
     Ui.ok "Opened %s #%s" (kind ~pulls) (Api.rkey_of_uri created.uri)
   else Common.print Api.Atproto.Repo.CreateRecord.output_jsont created
 
 let create_issue =
-  let action repo knot title body =
+  let action repo knot title body labels =
     Common.run (fun env ->
         opened ~pulls:false
           (Common.with_api ~busy:"Opening issue" env (fun api ->
-               Api.open_ticket api
-                 (Common.resolve api ?knot repo)
-                 ~title ?body ())))
+               let r = Common.resolve api ?knot repo in
+               Api.open_ticket api r ~title ?body
+                 ~labels:(Cmd_label.keys api r labels)
+                 ())))
   in
   Common.cmd
     (Cmd.info "create" ~doc:"Open an issue.")
     Term.(
       term_result
-        (const action $ Common.repo $ Common.knot $ title $ Common.body))
+        (const action $ Common.repo $ Common.knot $ title $ Common.body
+       $ labels_opt))
 
 (* Where a revision comes from. *)
 let branch_opt =
@@ -326,7 +382,7 @@ let create_pull =
     Common.optional [ "target" ] "BRANCH"
       "Branch to merge into (default: the repository's default branch)."
   in
-  let action repo knot title body target branch source base head =
+  let action repo knot title body labels target branch source base head =
     Common.run (fun env ->
         let created, submitted =
           Common.with_api ~busy:"Opening pull request" env (fun api ->
@@ -344,7 +400,9 @@ let create_pull =
               in
               let created =
                 Api.open_ticket api repository ~title ?body
-                  ~target_branch:target ()
+                  ~target_branch:target
+                  ~labels:(Cmd_label.keys api repository labels)
+                  ()
               in
               let ticket = Api.rkey_of_uri created.uri in
               (match
@@ -375,8 +433,8 @@ let create_pull =
           the default branch unless options say otherwise.")
     Term.(
       term_result
-        (const action $ Common.repo $ Common.knot $ title $ Common.body $ target
-       $ branch_opt $ source_opt $ base_opt $ head_opt))
+        (const action $ Common.repo $ Common.knot $ title $ Common.body
+       $ labels_opt $ target $ branch_opt $ source_opt $ base_opt $ head_opt))
 
 let update_pull =
   let action repo id knot branch source base head =
@@ -559,28 +617,44 @@ let edit =
     Common.optional [ "title"; "t" ] "TITLE" "New title, in Markdown."
   in
   let users names doc = Common.strings names "USER" doc in
-  let action repo id knot title body assign unassign =
+  let action repo id knot title body assign unassign label unlabel =
     Common.run (fun env ->
-        if title = None && body = None && assign = [] && unassign = [] then
-          failwith "Nothing to change. See --help.";
+        if
+          title = None && body = None
+          && List.for_all (( = ) []) [ assign; unassign; label; unlabel ]
+        then failwith "Nothing to change. See --help.";
         Common.with_api ~busy:("Editing #" ^ id) env (fun api ->
+            let r = Common.resolve api ?knot repo in
             let dids = List.map (Api.resolve_handle api) in
-            Api.edit_ticket api
-              (Common.resolve api ?knot repo)
-              ~rkey:id ?title ?body ~assign:(dids assign)
-              ~unassign:(dids unassign) ());
+            let keys = Cmd_label.keys api r in
+            Api.edit_ticket api r ~rkey:id ?title ?body ~assign:(dids assign)
+              ~unassign:(dids unassign) ~label:(keys label)
+              ~unlabel:(keys unlabel) ());
         Ui.ok "Edited #%s" id)
   in
   Common.cmd
     (Cmd.info "edit"
-       ~doc:
-         "Change a ticket's title, body or assignees. An empty body \
-          removes it.")
+       ~doc:"Change the title, body, assignees or labels."
+       ~man:
+         [
+           `S Manpage.s_description;
+           `P
+             "Changes what the options name and leaves the rest as it is. An \
+              empty body removes the body.";
+           `P
+             "Anyone who may edit the issue or pull request may change its \
+              labels, but only the repository's maintainers may change who is \
+              assigned to it.";
+         ])
     Term.(
       term_result
         (const action $ Common.repo $ id $ Common.knot $ title $ Common.body
-        $ users [ "assign" ] "Assign a user (repeatable)."
-        $ users [ "unassign" ] "Unassign a user (repeatable)."))
+        $ users [ "assign" ] "Assign USER. Repeat the option for more."
+        $ users [ "unassign" ] "Unassign USER. Repeat the option for more."
+        $ Common.strings [ "label"; "l" ] "LABEL"
+            "Add LABEL. Repeat the option for more."
+        $ Common.strings [ "unlabel" ] "LABEL"
+            "Take LABEL off. Repeat the option for more."))
 
 let history =
   let action repo id knot json =

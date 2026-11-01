@@ -301,6 +301,7 @@ let cmd =
        spindle_cmd ~set:true;
        spindle_cmd ~set:false;
        collaborator_group;
+       Cmd_label.cmd;
        Cmd_release.cmd;
        Cmd_webhook.cmd;
      ]

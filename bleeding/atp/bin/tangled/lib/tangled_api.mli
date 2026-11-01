@@ -200,12 +200,14 @@ val create_repo :
   ?default_branch:string ->
   ?spindle:string ->
   ?source:repository ->
+  ?import:string ->
   unit ->
   repository
 (** [create_repo t ~name ~knot ()] asks [knot] to mint a repository, then
-    declares it on the session's PDS. [source] makes it a fork. If the
-    declaration fails the error names the minted DID, so that the declaration
-    can be written by hand. *)
+    declares it on the session's PDS. [source] makes it a fork. [import] is the
+    clone URL of a repository for the knot to import, which it does after
+    returning. If the declaration fails the error names the minted DID, so that
+    the declaration can be written by hand. *)
 
 val delete_repo : t -> ?audience:string -> repository -> unit
 (** [delete_repo t repository] removes the owner's declaration, then asks the
@@ -235,7 +237,9 @@ val repo_create_record :
   Atproto.Repo.CreateRecord.output
 (** [repo_create_record t r ~collection record] writes [record] into the
     repository account of [r] through its knot. The knot mints the key of
-    tickets, comments and reactions, and refuses one given by the caller. *)
+    tickets, comments and reactions, and refuses one given by the caller. The
+    session then attests the record in its own account, as the author. A failed
+    attestation is logged as a warning, since the record exists. *)
 
 (** {1 Knots} *)
 
@@ -389,3 +393,284 @@ val allow_list_change :
   t -> spindle:string -> ?audience:string -> add:bool -> string -> unit
 (** [allow_list_change t ~spindle ~add did] admits [did] to the spindle, or
     withdraws it. The session must be a spindle admin. *)
+
+(** {1 Git}
+
+    Reads of a repository's Git data, served by its knot. *)
+
+val branches :
+  t ->
+  repository ->
+  ?limit:int ->
+  ?cursor:string ->
+  unit ->
+  Lex.Git.ListBranches.output
+
+val branch : t -> repository -> string -> Lex.Git.GetBranch.output option
+(** [branch t r name] is the branch [name] of [r], or [None] if [r] has no such
+    branch. *)
+
+val default_branch : t -> repository -> string option
+
+val tags :
+  t ->
+  repository ->
+  ?limit:int ->
+  ?cursor:string ->
+  unit ->
+  Lex.Git.ListTags.output
+
+val commits :
+  t ->
+  repository ->
+  ref_:string ->
+  ?path:string ->
+  ?limit:int ->
+  ?cursor:string ->
+  unit ->
+  Lex.Git.ListCommits.output
+(** [commits t r ~ref_ ()] is the history from [ref_], newest first. The cursor
+    of the next page is the last commit of this one. *)
+
+val tree :
+  t ->
+  repository ->
+  ?ref_:string ->
+  ?path:string ->
+  unit ->
+  Lex.Git.GetTree.output
+
+val blob : t -> repository -> ?ref_:string -> path:string -> unit -> string
+(** [blob t r ~path ()] is the content of the file [path], at [ref_] or the
+    default branch. *)
+
+val diff :
+  t ->
+  repository ->
+  base:string ->
+  head:string ->
+  ?paths:string list ->
+  unit ->
+  Lex.Git.GetDiff.output
+(** [diff t r ~base ~head ()] is the change from [base] to [head]. Each file
+    names its blobs and the novel lines of each side, not their content. *)
+
+val delete_branch : t -> repository -> string -> unit
+val set_default_branch : t -> repository -> string -> unit
+
+val import_status : t -> repository -> Lex.Repo.GetImportStatus.output
+(** [import_status t r] is how far the knot got importing [r] from its source.
+    Its status is absent if [r] was not imported. *)
+
+(** {1 Record history} *)
+
+val record_versions :
+  t -> repository -> uri:string -> Lex.Repo.ListRecordVersions.version list
+(** [record_versions t r ~uri] is every version of the record [uri] that the
+    knot of [r] holds, oldest first. *)
+
+(** {1 Comments} *)
+
+type comment = {
+  rkey : string;
+  author : string option;  (** The DID the knot names as its writer. *)
+  comment : Lex.Feed.Comment.main;
+}
+
+val comments : t -> repository -> ticket:string -> comment list
+(** [comments t r ~ticket] is the comments on ticket [ticket], oldest first. *)
+
+val add_comment :
+  t -> repository -> ticket:string -> string -> Atproto.Repo.CreateRecord.output
+(** [add_comment t r ~ticket body] comments [body], in Markdown, on the current
+    version of ticket [ticket]. *)
+
+val ticket_uri : repository -> string -> string
+
+(** {1 Ticket edits and revisions} *)
+
+val ticket_author : t -> repository -> string -> string option
+
+val edit_ticket :
+  t ->
+  repository ->
+  rkey:string ->
+  ?title:string ->
+  ?body:string ->
+  ?assign:string list ->
+  ?unassign:string list ->
+  unit ->
+  unit
+(** [edit_ticket t r ~rkey ()] changes the fields given and keeps the rest. An
+    empty [body] removes it. [assign] and [unassign] are DIDs. *)
+
+val patches : t -> repository -> ticket:string -> Lex.Review.Patch.main list
+(** [patches t r ~ticket] is the revisions of pull request [ticket], oldest
+    first. *)
+
+val oid_of : Jsont.json -> string
+(** [oid_of v] is the object ID in an [org.tangled.git.oid] value. *)
+
+(** {1 Releases}
+
+    A release artifact is a file attached to a commit, usually that of a tag.
+    Its bytes are a blob in the repository account. *)
+
+val upload_artifact :
+  t ->
+  repository ->
+  oid:string ->
+  name:string ->
+  ?content_type:string ->
+  string ->
+  Atproto.Repo.CreateRecord.output
+(** [upload_artifact t r ~oid ~name data] attaches [data] to commit [oid] as the
+    file [name].
+
+    @raise Invalid_argument if [data] exceeds 50 MiB. *)
+
+val download_artifact : t -> repository -> Lex.Repo.Artifact.main -> string
+val delete_artifact : t -> repository -> rkey:string -> unit
+
+(** {1 Service administration}
+
+    Knots and spindles admit members through invite codes. Each call needs the
+    session to be an admin of [service], except [redeem_invite]. *)
+
+val invite_code :
+  t ->
+  service:string ->
+  ?audience:string ->
+  ?uses:int ->
+  ?for_account:string ->
+  unit ->
+  string
+(** [invite_code t ~service ()] is a new code that admits [uses] accounts, 1 by
+    default, or only [for_account]. *)
+
+val redeem_invite : t -> service:string -> ?audience:string -> string -> unit
+(** [redeem_invite t ~service code] makes the session a member of [service]. *)
+
+val knot_bans : t -> knot:string -> string list
+val ban_from_knot : t -> knot:string -> ?audience:string -> string -> unit
+val unban_from_knot : t -> knot:string -> ?audience:string -> string -> unit
+
+(** {1 Spindle settings}
+
+    Secrets and webhooks belong to a repository on a spindle. The session must
+    be able to push to [repo]. *)
+
+val secrets :
+  t ->
+  spindle:string ->
+  ?audience:string ->
+  repo:string ->
+  unit ->
+  Lex.Secret.ListSecrets.secret list
+
+val add_secret :
+  t ->
+  spindle:string ->
+  ?audience:string ->
+  repo:string ->
+  key:string ->
+  string ->
+  unit
+
+val remove_secret :
+  t -> spindle:string -> ?audience:string -> repo:string -> string -> unit
+
+val webhooks :
+  t ->
+  spindle:string ->
+  ?audience:string ->
+  repo:string ->
+  unit ->
+  Lex.Webhook.Defs.webhook list
+
+val create_webhook :
+  t ->
+  spindle:string ->
+  ?audience:string ->
+  repo:string ->
+  url:string ->
+  events:string list ->
+  ?secret:string ->
+  unit ->
+  string
+(** [create_webhook] is the ID of the new, active webhook. *)
+
+val update_webhook :
+  t ->
+  spindle:string ->
+  ?audience:string ->
+  repo:string ->
+  webhook:string ->
+  ?url:string ->
+  ?events:string list ->
+  ?secret:string ->
+  ?active:bool ->
+  unit ->
+  unit
+
+val delete_webhook :
+  t -> spindle:string -> ?audience:string -> repo:string -> string -> unit
+
+val webhook_deliveries :
+  t ->
+  spindle:string ->
+  ?audience:string ->
+  repo:string ->
+  webhook:string ->
+  ?limit:int ->
+  unit ->
+  Lex.Webhook.Defs.delivery list
+
+val redeliver_webhook :
+  t ->
+  spindle:string ->
+  ?audience:string ->
+  repo:string ->
+  webhook:string ->
+  string ->
+  unit
+
+val workflow_definition :
+  t -> spindle:string -> repo:string -> string -> Lex.Ci.Defs.workflow
+
+(** {1 Spindle moderation}
+
+    Each call needs the session to be an admin of [spindle]. These methods are
+    under [org.tangled.temp], so they may change. *)
+
+val spindle_bans : t -> spindle:string -> ?audience:string -> unit -> Jsont.json
+
+val spindle_ban :
+  t -> spindle:string -> ?audience:string -> ban:bool -> string -> unit
+(** [spindle_ban t ~spindle ~ban did] bans the repository or owner [did], wiping
+    its state on the spindle, or lifts the ban. *)
+
+val quotas : t -> spindle:string -> ?audience:string -> unit -> Jsont.json
+
+val quota_usage :
+  t -> spindle:string -> ?audience:string -> ?did:string -> unit -> Jsont.json
+
+val set_quota :
+  t ->
+  spindle:string ->
+  ?audience:string ->
+  did:string ->
+  resource:string ->
+  int option ->
+  unit
+(** [set_quota t ~spindle ~did ~resource limit] overrides the quota of [did] for
+    [resource], such as [workflows] or [memory_mib]. [None] is unlimited. *)
+
+val unset_quota :
+  t ->
+  spindle:string ->
+  ?audience:string ->
+  did:string ->
+  resource:string ->
+  unit ->
+  unit

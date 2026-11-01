@@ -35,6 +35,27 @@ let service_methods =
     "org.tangled.temp.spindle.allowList.list";
     "org.tangled.temp.spindle.allowList.add";
     "org.tangled.temp.spindle.allowList.remove";
+    "com.atproto.repo.uploadBlob";
+    "org.tangled.git.deleteBranch";
+    "org.tangled.git.setDefaultBranch";
+    "org.tangled.secret.listSecrets";
+    "org.tangled.secret.addSecret";
+    "org.tangled.secret.removeSecret";
+    "org.tangled.webhook.listWebhooks";
+    "org.tangled.webhook.createWebhook";
+    "org.tangled.webhook.updateWebhook";
+    "org.tangled.webhook.deleteWebhook";
+    "org.tangled.webhook.listWebhookDeliveries";
+    "org.tangled.webhook.retryWebhookDelivery";
+    "org.tangled.temp.server.createInviteCode";
+    "org.tangled.temp.server.redeemInviteCode";
+    "org.tangled.temp.spindle.moderation.listBans";
+    "org.tangled.temp.spindle.moderation.ban";
+    "org.tangled.temp.spindle.moderation.unban";
+    "org.tangled.temp.spindle.quota.list";
+    "org.tangled.temp.spindle.quota.usage";
+    "org.tangled.temp.spindle.quota.set";
+    "org.tangled.temp.spindle.quota.unset";
   ]
 let resume t = Xrpc_auth.Client.resume t.client
 let logout t = Xrpc_auth.Client.logout t.client
@@ -440,8 +461,16 @@ let source_tangled did =
       Jsont.Json.mem ("did", Jsont.Meta.none) (Jsont.Json.string did);
     ]
 
+let source_external uri =
+  Jsont.Json.object'
+    [
+      Jsont.Json.mem ("$type", Jsont.Meta.none)
+        (Jsont.Json.string "org.tangled.repo.defs#sourceExternal");
+      Jsont.Json.mem ("uri", Jsont.Meta.none) (Jsont.Json.string uri);
+    ]
+
 let create_repo t ~name ~knot ?audience ?description ?default_branch ?spindle
-    ?source () =
+    ?source ?import () =
   if not (valid_name name) then invalid_arg "Invalid repository name";
   let owner = get_did t in
   if declared_repo t ~owner ~slug:(slug name) <> None then
@@ -454,7 +483,12 @@ let create_repo t ~name ~knot ?audience ?description ?default_branch ?spindle
       default_branch;
       description;
       did = None;
-      source = Option.map (fun r -> source_tangled r.did) source;
+      source =
+        (match (source, import) with
+        | Some _, Some _ -> invalid_arg "A repository is a fork or an import"
+        | Some r, None -> Some (source_tangled r.did)
+        | None, Some uri -> Some (source_external uri)
+        | None, None -> None);
       spindle = Option.map service_did spindle;
       topics = None;
       website = None;
@@ -538,14 +572,62 @@ let repo_create ~decoder t repository ~collection ?rkey record =
     (repo_client t repository "com.atproto.repo.createRecord")
     ~repo:repository.did ~collection ?rkey record
 
-let repo_create_record =
-  repo_create ~decoder:Atproto.Repo.CreateRecord.output_jsont
+(* A knot answers a write with the record's reference and the change that
+   made it. *)
+type write = { uri : string; cid : string; change : string option }
+
+let write_jsont =
+  Jsont.Object.map (fun uri cid change -> { uri; cid; change })
+  |> Jsont.Object.mem "uri" Jsont.string ~enc:(fun w -> w.uri)
+  |> Jsont.Object.mem "cid" Jsont.string ~enc:(fun w -> w.cid)
+  |> Jsont.Object.opt_mem "x-tngl-change" Jsont.string ~enc:(fun w -> w.change)
+  |> Jsont.Object.skip_unknown |> Jsont.Object.finish
+
+let attestation_collection = "org.tangled.graph.attestation"
+
+(* The knot says who wrote a record in a repository account. The record is
+   tied to its author only once the author says so too, with an attestation
+   in their own account. The write has landed by then, so a failure to
+   attest is reported rather than raised. *)
+let attest t (w : write) =
+  let mem k v = Jsont.Json.mem (k, Jsont.Meta.none) v in
+  let record =
+    Jsont.Json.object'
+      ([
+         mem "subject"
+           (Jsont.Json.object'
+              [
+                mem "uri" (Jsont.Json.string w.uri);
+                mem "cid" (Jsont.Json.string w.cid);
+              ]);
+         mem "createdAt" (Jsont.Json.string (now ()));
+       ]
+      @ Option.to_list
+          (Option.map (fun c -> mem "change" (Jsont.Json.string c)) w.change))
+  in
+  match create_record t ~collection:attestation_collection record with
+  | _ -> ()
+  | exception ((Eio.Io _ | Failure _) as ex) ->
+      Logs.warn (fun m ->
+          m "The knot wrote %s, but attesting it failed: %s" w.uri
+            (Printexc.to_string ex))
+
+let repo_create_record t repository ~collection ?rkey record =
+  let json =
+    repo_create ~decoder:Jsont.json t repository ~collection ?rkey record
+  in
+  attest t (decode write_jsont json);
+  decode Atproto.Repo.CreateRecord.output_jsont json
 
 let repo_put_record t repository ~collection ~rkey ~swap_record record =
-  put_in
-    (repo_client t repository "com.atproto.repo.putRecord")
-    ~repo:repository.did ~collection ~rkey ~swap_record:(Some swap_record)
-    record
+  let output =
+    put_in
+      (repo_client t repository "com.atproto.repo.putRecord")
+      ~repo:repository.did ~collection ~rkey ~swap_record:(Some swap_record)
+      record
+  in
+  attest t { uri = output.uri; cid = output.cid; change = None };
+  output
 
 let repo_delete_record t repository ~collection ~rkey ~swap_record =
   delete_in
@@ -956,3 +1038,519 @@ let allow_list_change t ~spindle ?audience ~add did =
     (spindle_procedure t ~spindle ?audience ~nsid
        (Jsont.Json.object'
           [ Jsont.Json.mem ("did", Jsont.Meta.none) (Jsont.Json.string did) ]))
+
+(* Git *)
+
+let param name = Option.map (fun v -> (name, v))
+let int_param name = Option.map (fun v -> (name, string_of_int v))
+
+let knot_query t repository ~nsid params decoder =
+  Xrpc.Client.query
+    (public_client t ~service:repository.knot)
+    ~nsid
+    ~params:(("repo", repository.did) :: List.filter_map Fun.id params)
+    ~decoder
+
+let not_found names = function
+  | Eio.Io (Xrpc.Error.E (Xrpc_error { error; _ }), _) -> List.mem error names
+  | _ -> false
+
+let branches t repository ?limit ?cursor () =
+  knot_query t repository ~nsid:"org.tangled.git.listBranches"
+    [ int_param "limit" limit; param "cursor" cursor ]
+    Lex.Git.ListBranches.output_jsont
+
+let branch t repository name =
+  match
+    knot_query t repository ~nsid:"org.tangled.git.getBranch"
+      [ Some ("name", name) ]
+      Lex.Git.GetBranch.output_jsont
+  with
+  | b -> Some b
+  | exception ex when not_found [ "BranchNotFound"; "RefNotFound" ] ex -> None
+
+let default_branch t repository =
+  (branches t repository ~limit:1 ()).default_branch
+
+let tags t repository ?limit ?cursor () =
+  knot_query t repository ~nsid:"org.tangled.git.listTags"
+    [ int_param "limit" limit; param "cursor" cursor ]
+    Lex.Git.ListTags.output_jsont
+
+let commits t repository ~ref_ ?path ?limit ?cursor () =
+  knot_query t repository ~nsid:"org.tangled.git.listCommits"
+    [
+      Some ("ref", ref_);
+      param "path" path;
+      int_param "limit" limit;
+      param "cursor" cursor;
+    ]
+    Lex.Git.ListCommits.output_jsont
+
+let tree t repository ?ref_ ?path () =
+  knot_query t repository ~nsid:"org.tangled.git.getTree"
+    [ param "ref" ref_; param "path" path ]
+    Lex.Git.GetTree.output_jsont
+
+let blob t repository ?ref_ ~path () =
+  fst
+    (Xrpc.Client.query_bytes
+       (public_client t ~service:repository.knot)
+       ~nsid:"org.tangled.git.getBlob"
+       ~params:
+         ([ ("repo", repository.did); ("path", path) ]
+         @ Option.to_list (param "ref" ref_)))
+
+let diff t repository ~base ~head ?paths () =
+  knot_query t repository ~nsid:"org.tangled.git.getDiff"
+    [
+      Some ("base", base);
+      Some ("head", head);
+      Option.map (fun p -> ("paths", String.concat "," p)) paths;
+    ]
+    Lex.Git.GetDiff.output_jsont
+
+(* Branch changes are addressed to the repository, as its records are. *)
+let branch_procedure t repository ~nsid branch =
+  Xrpc.Client.procedure
+    (repo_client t repository nsid)
+    ~nsid ~params:[] ~input:(Some Jsont.json)
+    ~input_data:
+      (Some
+         (Jsont.Json.object'
+            [
+              Jsont.Json.mem ("repo", Jsont.Meta.none)
+                (Jsont.Json.string repository.did);
+              Jsont.Json.mem
+                ("branch", Jsont.Meta.none)
+                (Jsont.Json.string branch);
+            ]))
+    ~decoder:Jsont.json
+
+let delete_branch t repository branch =
+  ignore
+    (branch_procedure t repository ~nsid:"org.tangled.git.deleteBranch" branch)
+
+let set_default_branch t repository branch =
+  ignore
+    (branch_procedure t repository ~nsid:"org.tangled.git.setDefaultBranch"
+       branch)
+
+let import_status t repository =
+  knot_query t repository ~nsid:"org.tangled.repo.getImportStatus" []
+    Lex.Repo.GetImportStatus.output_jsont
+
+(* Record history *)
+
+let record_versions t repository ~uri =
+  let client = public_client t ~service:repository.knot in
+  let rec pages cursor acc =
+    let page =
+      Xrpc.Client.query client ~nsid:"org.tangled.repo.listRecordVersions"
+        ~params:
+          ([ ("uri", uri); ("limit", "100") ]
+          @ Option.to_list (param "cursor" cursor))
+        ~decoder:Jsont.json
+      |> without_nulls
+      |> decode Lex.Repo.ListRecordVersions.output_jsont
+    in
+    let acc =
+      List.rev_append
+        (List.map
+           (decode Lex.Repo.ListRecordVersions.version_jsont)
+           page.versions)
+        acc
+    in
+    match page.cursor with
+    | Some next when next <> "" && Some next <> cursor -> pages (Some next) acc
+    | _ -> List.rev acc
+  in
+  pages None []
+
+(* Comments *)
+
+let comment_collection = "org.tangled.feed.comment"
+
+type comment = {
+  rkey : string;
+  author : string option;
+  comment : Lex.Feed.Comment.main;
+}
+
+let editor = function
+  | Jsont.Object (fields, _) -> (
+      match List.find_opt (fun ((n, _), _) -> n = "x-tngl-editor") fields with
+      | Some (_, Jsont.String (did, _)) -> Some did
+      | _ -> None)
+  | _ -> None
+
+let uri_of strong_ref =
+  match strong_ref with
+  | Jsont.Object (fields, _) -> (
+      match List.find_opt (fun ((n, _), _) -> n = "uri") fields with
+      | Some (_, Jsont.String (uri, _)) -> Some uri
+      | _ -> None)
+  | _ -> None
+
+let ticket_uri repository rkey =
+  Printf.sprintf "at://%s/%s/%s" repository.did ticket_collection rkey
+
+let comments t repository ~ticket =
+  let subject = ticket_uri repository ticket in
+  repo_records t repository ~collection:comment_collection
+  |> List.filter_map (fun (r : Atproto.Repo.ListRecords.record) ->
+      match decode Lex.Feed.Comment.main_jsont r.value with
+      | exception Failure _ -> None
+      | c when uri_of c.subject = Some subject ->
+          Some
+            { rkey = rkey_of_uri r.uri; author = editor r.value; comment = c }
+      | _ -> None)
+  |> List.stable_sort (fun a b ->
+      String.compare a.comment.created_at b.comment.created_at)
+
+let strong_ref ~uri ~cid =
+  Jsont.Json.object'
+    [
+      Jsont.Json.mem ("$type", Jsont.Meta.none)
+        (Jsont.Json.string "com.atproto.repo.strongRef");
+      Jsont.Json.mem ("uri", Jsont.Meta.none) (Jsont.Json.string uri);
+      Jsont.Json.mem ("cid", Jsont.Meta.none) (Jsont.Json.string cid);
+    ]
+
+let add_comment t repository ~ticket body =
+  match repo_record t repository ~collection:ticket_collection ~rkey:ticket with
+  | None -> failwith "Ticket not found"
+  | Some r ->
+      let comment : Lex.Feed.Comment.main =
+        {
+          subject = strong_ref ~uri:r.uri ~cid:(cid_of r);
+          reply_to = None;
+          body = markdown body;
+          embed = None;
+          created_at = now ();
+        }
+      in
+      repo_create_record t repository ~collection:comment_collection
+        (encode Lex.Feed.Comment.main_jsont comment)
+
+(* Tickets *)
+
+let ticket_author t repository rkey =
+  Option.bind (repo_record t repository ~collection:ticket_collection ~rkey)
+    (fun (r : Atproto.Repo.GetRecord.output) -> editor r.value)
+
+let edit_ticket t repository ~rkey ?title ?body ?(assign = []) ?(unassign = [])
+    () =
+  match repo_record t repository ~collection:ticket_collection ~rkey with
+  | None -> failwith "Ticket not found"
+  | Some r ->
+      let current = decode Lex.Track.Ticket.main_jsont r.value in
+      let assignees =
+        let before = Option.value ~default:[] current.assignees in
+        List.filter (fun d -> not (List.mem d unassign)) before
+        @ List.filter (fun d -> not (List.mem d before)) assign
+      in
+      let value = strip_stamps r.value in
+      let value =
+        match title with
+        | None -> value
+        | Some s -> set_field "title" (Some (markdown ~inline:true s)) value
+      in
+      let value =
+        match body with
+        | None -> value
+        | Some "" -> set_field "body" None value
+        | Some s -> set_field "body" (Some (markdown s)) value
+      in
+      let value =
+        if assign = [] && unassign = [] then value
+        else
+          set_field "assignees"
+            (match assignees with
+            | [] -> None
+            | l -> Some (Jsont.Json.list (List.map Jsont.Json.string l)))
+            value
+      in
+      ignore
+        (repo_put_record t repository ~collection:ticket_collection ~rkey
+           ~swap_record:(cid_of r) value)
+
+let patch_collection = "org.tangled.review.patch"
+
+let patches t repository ~ticket =
+  repo_records t repository ~collection:patch_collection
+  |> List.filter_map (fun (r : Atproto.Repo.ListRecords.record) ->
+      match decode Lex.Review.Patch.main_jsont r.value with
+      | exception Failure _ -> None
+      | p when p.ticket = ticket -> Some p
+      | _ -> None)
+  |> List.stable_sort (fun (a : Lex.Review.Patch.main) b ->
+      String.compare a.created_at b.created_at)
+
+let oid_of json =
+  match json with
+  | Jsont.Object (fields, _) -> (
+      match List.find_opt (fun ((n, _), _) -> n = "oid") fields with
+      | Some (_, Jsont.String (oid, _)) -> oid
+      | _ -> failwith "Expected a Git object ID")
+  | _ -> failwith "Expected a Git object ID"
+
+(* Releases *)
+
+let git_oid oid =
+  Jsont.Json.object'
+    [
+      Jsont.Json.mem ("$type", Jsont.Meta.none)
+        (Jsont.Json.string "org.tangled.git.oid");
+      Jsont.Json.mem ("oid", Jsont.Meta.none) (Jsont.Json.string oid);
+    ]
+
+let max_artifact_bytes = 52_428_800
+
+let upload_artifact t repository ~oid ~name
+    ?(content_type = "application/octet-stream") data =
+  if String.length data > max_artifact_bytes then
+    invalid_arg "An artifact can be at most 50 MiB";
+  let nsid = "com.atproto.repo.uploadBlob" in
+  let blob =
+    Xrpc.Client.procedure_blob
+      (repo_client t repository nsid)
+      ~nsid ~params:[] ~blob:data ~content_type
+      ~decoder:
+        (Jsont.Object.map Fun.id
+        |> Jsont.Object.mem "blob" Atp.Blob_ref.jsont ~enc:Fun.id
+        |> Jsont.Object.skip_unknown |> Jsont.Object.finish)
+  in
+  let artifact : Lex.Repo.Artifact.main =
+    { subject = git_oid oid; name; created_at = now (); artifact = blob }
+  in
+  repo_create_record t repository ~collection:artifact_collection
+    (encode Lex.Repo.Artifact.main_jsont artifact)
+
+let download_artifact t repository (artifact : Lex.Repo.Artifact.main) =
+  fst
+    (Xrpc.Client.query_bytes
+       (public_client t ~service:repository.knot)
+       ~nsid:"com.atproto.sync.getBlob"
+       ~params:
+         [
+           ("did", repository.did);
+           ("cid", Atp.Cid.to_string artifact.artifact.cid);
+         ])
+
+let delete_artifact t repository ~rkey =
+  match repo_record t repository ~collection:artifact_collection ~rkey with
+  | None -> failwith "Artifact not found"
+  | Some r ->
+      repo_delete_record t repository ~collection:artifact_collection ~rkey
+        ~swap_record:(cid_of r)
+
+(* Knot administration *)
+
+let invite_code t ~service ?audience ?(uses = 1) ?for_account () =
+  let nsid = "org.tangled.temp.server.createInviteCode" in
+  let input : Lex.Temp.Server.CreateInviteCode.input =
+    { use_count = uses; for_account }
+  in
+  (Xrpc.Client.procedure
+     (service_client t ~service ?audience ~nsid ())
+     ~nsid ~params:[] ~input:(Some Lex.Temp.Server.CreateInviteCode.input_jsont)
+     ~input_data:(Some input)
+     ~decoder:Lex.Temp.Server.CreateInviteCode.output_jsont)
+    .code
+
+let redeem_invite t ~service ?audience code =
+  let nsid = "org.tangled.temp.server.redeemInviteCode" in
+  ignore
+    (Xrpc.Client.procedure
+       (service_client t ~service ?audience ~nsid ())
+       ~nsid ~params:[] ~input:(Some Jsont.json)
+       ~input_data:
+         (Some
+            (Jsont.Json.object'
+               [
+                 Jsont.Json.mem ("code", Jsont.Meta.none)
+                   (Jsont.Json.string code);
+               ]))
+       ~decoder:Jsont.json)
+
+let block_collection = "org.tangled.knot.block"
+
+let knot_bans t ~knot =
+  match
+    list_records t ~service:(service_url knot) ~did:(service_did knot)
+      ~collection:block_collection ()
+  with
+  | records ->
+      List.map
+        (fun (r : Atproto.Repo.ListRecords.record) -> rkey_of_uri r.uri)
+        records
+  | exception ex when not_found [ "RepoNotFound" ] ex -> []
+
+let ban_from_knot t ~knot ?audience subject =
+  let record : Lex.Knot.Block.main = { created_at = now () } in
+  ignore
+    (create_in ~decoder:Jsont.json
+       (knot_client t ~knot ?audience "com.atproto.repo.createRecord")
+       ~repo:(service_did knot) ~collection:block_collection ~rkey:subject
+       (encode Lex.Knot.Block.main_jsont record))
+
+let unban_from_knot t ~knot ?audience subject =
+  let did = service_did knot in
+  match
+    get_record t ~service:(service_url knot) ~did ~collection:block_collection
+      ~rkey:subject ()
+  with
+  | None -> failwith "Not banned"
+  | Some r ->
+      delete_in
+        (knot_client t ~knot ?audience "com.atproto.repo.deleteRecord")
+        ~repo:did ~collection:block_collection ~rkey:subject
+        ~swap_record:(Some (cid_of r))
+
+(* Spindle administration *)
+
+let spindle_query t ~spindle ?audience ~nsid params decoder =
+  Xrpc.Client.query
+    (service_client t ~service:spindle ?audience ~nsid ())
+    ~nsid ~params ~decoder
+
+let object_ pairs =
+  Jsont.Json.object'
+    (List.filter_map
+       (fun (k, v) ->
+         Option.map (fun v -> Jsont.Json.mem (k, Jsont.Meta.none) v) v)
+       pairs)
+
+let str s = Some (Jsont.Json.string s)
+
+let secrets t ~spindle ?audience ~repo () =
+  (spindle_query t ~spindle ?audience ~nsid:"org.tangled.secret.listSecrets"
+     [ ("repo", repo) ]
+     Lex.Secret.ListSecrets.output_jsont)
+    .secrets
+  |> List.map (decode Lex.Secret.ListSecrets.secret_jsont)
+
+let add_secret t ~spindle ?audience ~repo ~key value =
+  ignore
+    (spindle_procedure t ~spindle ?audience ~nsid:"org.tangled.secret.addSecret"
+       (object_ [ ("repo", str repo); ("key", str key); ("value", str value) ]))
+
+let remove_secret t ~spindle ?audience ~repo key =
+  ignore
+    (spindle_procedure t ~spindle ?audience
+       ~nsid:"org.tangled.secret.removeSecret"
+       (object_ [ ("repo", str repo); ("key", str key) ]))
+
+let webhooks t ~spindle ?audience ~repo () =
+  (spindle_query t ~spindle ?audience ~nsid:"org.tangled.webhook.listWebhooks"
+     [ ("repo", repo) ]
+     Lex.Webhook.ListWebhooks.output_jsont)
+    .webhooks
+  |> List.map (decode Lex.Webhook.Defs.webhook_jsont)
+
+let strings l = Some (Jsont.Json.list (List.map Jsont.Json.string l))
+
+let create_webhook t ~spindle ?audience ~repo ~url ~events ?secret () =
+  let output =
+    spindle_procedure t ~spindle ?audience
+      ~nsid:"org.tangled.webhook.createWebhook"
+      (object_
+         [
+           ("repo", str repo);
+           ("url", str url);
+           ("events", strings events);
+           ("secret", Option.map Jsont.Json.string secret);
+           ("active", Some (Jsont.Json.bool true));
+         ])
+  in
+  (decode Lex.Webhook.CreateWebhook.output_jsont output).id
+
+let update_webhook t ~spindle ?audience ~repo ~webhook ?url ?events ?secret
+    ?active () =
+  ignore
+    (spindle_procedure t ~spindle ?audience
+       ~nsid:"org.tangled.webhook.updateWebhook"
+       (object_
+          [
+            ("repo", str repo);
+            ("webhook", str webhook);
+            ("url", Option.map Jsont.Json.string url);
+            ("events", Option.bind events strings);
+            ("secret", Option.map Jsont.Json.string secret);
+            ("active", Option.map Jsont.Json.bool active);
+          ]))
+
+let delete_webhook t ~spindle ?audience ~repo webhook =
+  ignore
+    (spindle_procedure t ~spindle ?audience
+       ~nsid:"org.tangled.webhook.deleteWebhook"
+       (object_ [ ("repo", str repo); ("webhook", str webhook) ]))
+
+let webhook_deliveries t ~spindle ?audience ~repo ~webhook ?limit () =
+  (spindle_query t ~spindle ?audience
+     ~nsid:"org.tangled.webhook.listWebhookDeliveries"
+     ([ ("repo", repo); ("webhooks", webhook) ]
+     @ Option.to_list (int_param "limit" limit))
+     Lex.Webhook.ListWebhookDeliveries.output_jsont)
+    .deliveries
+  |> List.map (decode Lex.Webhook.Defs.delivery_jsont)
+
+let redeliver_webhook t ~spindle ?audience ~repo ~webhook delivery =
+  ignore
+    (spindle_procedure t ~spindle ?audience
+       ~nsid:"org.tangled.webhook.retryWebhookDelivery"
+       (object_
+          [
+            ("repo", str repo);
+            ("webhook", str webhook);
+            ("delivery", str delivery);
+          ]))
+
+let workflow_definition t ~spindle ~repo workflow =
+  decode Lex.Ci.Defs.workflow_jsont
+    (Xrpc.Client.query
+       (public_client t ~service:spindle)
+       ~nsid:"org.tangled.ci.getWorkflowDefinition"
+       ~params:[ ("repo", repo); ("workflow", workflow) ]
+       ~decoder:Lex.Ci.GetWorkflowDefinition.output_jsont)
+      .workflow
+
+let moderation = "org.tangled.temp.spindle.moderation."
+
+let spindle_bans t ~spindle ?audience () =
+  spindle_query t ~spindle ?audience ~nsid:(moderation ^ "listBans") []
+    Jsont.json
+
+let spindle_ban t ~spindle ?audience ~ban did =
+  ignore
+    (spindle_procedure t ~spindle ?audience
+       ~nsid:(moderation ^ if ban then "ban" else "unban")
+       (object_ [ ("did", str did) ]))
+
+let quota = "org.tangled.temp.spindle.quota."
+
+let quotas t ~spindle ?audience () =
+  spindle_query t ~spindle ?audience ~nsid:(quota ^ "list") [] Jsont.json
+
+let quota_usage t ~spindle ?audience ?did () =
+  spindle_query t ~spindle ?audience ~nsid:(quota ^ "usage")
+    (Option.to_list (param "did" did))
+    Jsont.json
+
+let set_quota t ~spindle ?audience ~did ~resource limit =
+  ignore
+    (spindle_procedure t ~spindle ?audience ~nsid:(quota ^ "set")
+       (object_
+          [
+            ("did", str did);
+            ("resource", str resource);
+            ("limit", Option.map (fun n -> Jsont.Json.int n) limit);
+            ( "unlimited",
+              if limit = None then Some (Jsont.Json.bool true) else None );
+          ]))
+
+let unset_quota t ~spindle ?audience ~did ~resource () =
+  ignore
+    (spindle_procedure t ~spindle ?audience ~nsid:(quota ^ "unset")
+       (object_ [ ("did", str did); ("resource", str resource) ]))

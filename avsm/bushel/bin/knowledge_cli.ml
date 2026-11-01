@@ -13,7 +13,7 @@ module Response = Store.Response
 let error message = Output.Error message
 
 let protect ~json_output ~command run =
-  Console_eio.setup ();
+  Console_tty.setup ();
   Logs.set_level (Some Logs.Warning);
   Logs.set_reporter (Logs_fmt.reporter ());
   let started = Unix.gettimeofday () in
@@ -303,7 +303,7 @@ let with_progress_interrupt ~clock run =
       (Sys.Signal_handle (fun _ -> Atomic.set interrupted true))
   in
   let rec watch () =
-    Eio.Time.sleep clock 0.05;
+    Eio.Time.Mono.sleep clock 0.05;
     (if Atomic.exchange interrupted false then
        match previous with
        | Sys.Signal_ignore -> ()
@@ -316,51 +316,42 @@ let with_progress_interrupt ~clock run =
     (fun () -> Eio.Fiber.first run watch)
 
 let index_progress ~noun ~clock ~is_tty run =
-  let module D = Console.Display in
-  let dimensions () =
-    try
-      let size = Eio_unix.Pty.get_window_size Eio_unix.Fd.stderr in
-      if size.cols > 0 && size.rows > 0 then (min 96 size.cols, size.rows)
-      else Console_eio.dimensions ()
-    with Unix.Unix_error _ -> Console_eio.dimensions ()
-  in
-  let ctx =
-    D.ctx ~ppf:Fmt.stderr
-      ~now:(fun () -> Eio.Time.now clock)
-      ~wait:(Eio.Time.sleep clock) ~dimensions ~is_tty ()
-  in
-  let bar =
-    D.Line.(
-      v
-        [
-          spinner;
-          text " ";
-          label;
-          text " ";
-          bar 18;
-          text " ";
-          count;
-          text " ";
-          percent;
-          text " ";
-          elapsed;
-        ])
+  let module D = Console.Task in
+  let layout =
+    let open Console.Progress.Layout in
+    let space = const (Console.View.text " ") in
+    list
+      [
+        spinner;
+        space;
+        label ();
+        space;
+        bar ~width:18 ();
+        space;
+        count;
+        space;
+        percent;
+        space;
+        elapsed;
+      ]
   in
   with_progress_interrupt ~clock (fun () ->
-      Console_eio.run_on ~ctx ~mode:`Activity ~bar (fun display ->
+      Console_eio.run ~clock ~layout ~ppf:Fmt.stderr
+        ~progress:(if is_tty then `Tty else `Plain)
+        (fun display ->
           let task =
-            D.task ~transient:true display
+            D.start ~transient:true display
               (if noun = "images" then "Reading image library"
                else "Reading knowledge sources")
           in
-          D.tick display;
+          Eio.Fiber.yield ();
           let initial = ref None in
           let coverage = ref None in
           let on_progress ~indexed ~total =
             if !initial = None then initial := Some indexed;
             coverage := Some (indexed, total);
             D.set_label task ("Indexing " ^ noun);
-            D.set_count task ~cur:indexed ~total
+            D.set_items task ~count:indexed ~total
           in
           match run ~on_progress () with
           | result ->
@@ -437,7 +428,8 @@ let index_command ~images =
                     then
                       index_progress
                         ~noun:(if images then "images" else "passages")
-                        ~clock:(Eio.Stdenv.clock env) ~is_tty
+                        ~clock:(Eio.Stdenv.mono_clock env)
+                        ~is_tty
                         (fun ~on_progress () -> run ~on_progress ())
                     else run ())
               in

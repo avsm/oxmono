@@ -1,0 +1,345 @@
+{0 A first CLI}
+
+This tutorial writes [check], a command that runs test suites and shows
+them as progress rows while they run, before printing a table of their
+results. By the end, [check] has:
+
+{ul
+{- [--color], [--theme] and [--progress] options;}
+{- plain lines on a pipe, or with [--progress=plain];}
+{- a cram test whose output is the same on every machine.}}
+
+Each section adds to the one before it.
+
+{1:setup Setup}
+
+[check] uses the [console] and [console-eio] packages, with [eio_main] to
+run {{:https://github.com/ocaml-multicore/eio}Eio}, {{:https://erratique.ch/software/cmdliner}Cmdliner} for its options
+and {{:https://erratique.ch/software/logs}Logs} for its messages:
+
+{v
+opam install console console-eio eio_main cmdliner logs
+v}
+
+Its [dune] file lists the libraries it uses:
+
+{v
+(executable
+ (public_name check)
+ (libraries
+  console console.tty console-eio
+  eio eio_main fmt fmt.cli cmdliner logs))
+v}
+
+{1:options Colour and theme}
+
+A program decides on colour once, before it prints. {!Console_tty.setup}
+reads {{:https://no-color.org/}[NO_COLOR]}, [TERM], [COLORTERM]
+and the locale, and from them sets colour, colour depth and UTF-8 on the
+standard outputs. Given a style renderer, [setup] uses that one instead, so
+a [--color=auto|always|never] option read by [Fmt_cli.style_renderer] has
+the last word.
+
+A formatter also keeps a {{!Console.Theme}theme}. The table prints on
+standard output and the progress rows on standard error, so [setup] gives
+both outputs the theme that a [--theme] option reads:
+
+{@ocaml[
+let setup color theme =
+  Console_tty.setup ?style_renderer:color ~theme ();
+  Logs.set_level (Some Logs.Info)
+
+let theme =
+  Cmdliner.Arg.(
+    value
+    & opt (enum Console.Theme.all) Console.Theme.default
+    & info [ "theme" ] ~doc:"The look of the output.")
+
+let options = Cmdliner.Term.(const setup $ Fmt_cli.style_renderer () $ theme)
+]}
+
+{!Console.Theme.all} lists the predefined themes under their names, which
+are the values [--theme] accepts:
+
+{@ocaml[
+# List.map fst Console.Theme.all;;
+- : string list =
+["default"; "ascii"; "dos"; "matrix"; "rainbow"; "dracula"; "nord";
+ "solarized-dark"; "solarized-light"; "gruvbox-dark"; "gruvbox-light";
+ "catppuccin-latte"; "catppuccin-mocha"; "tokyo-night"; "one-dark";
+ "monokai"; "github-dark"; "github-light"]
+]}
+
+{!Console.Theme.default} takes the terminal's own colours, while a theme named
+after a colour scheme, such as [dracula], is meant for a terminal that uses
+that scheme.
+
+{1:table A table}
+
+A table is a list of columns and rows of {{!Console.View}views}. It is as
+wide as its content needs, and no wider than the formatter's margin. Its
+frame, header style and colours come from the theme of the formatter that
+prints it:
+
+{@ocaml[
+# let suites = [ ("parser", 3); ("layout", 2) ];;
+val suites : (string * int) list = [("parser", 3); ("layout", 2)]
+# let results suites =
+    let row (name, n) =
+      [ Console.View.text name; Console.View.text (Int.to_string n) ]
+    in
+    Console.Table.(
+      view
+        [
+          column (Console.View.text "Suite");
+          column ~align:`Right (Console.View.text "Tests");
+        ]
+        (List.map row suites));;
+val results : (string * int) list -> Console.View.t = <fun>
+# Fmt.pr "%a@." Console.View.pp (results suites);;
+╭────────┬───────╮
+│ Suite  │ Tests │
+├────────┼───────┤
+│ parser │     3 │
+│ layout │     2 │
+╰────────┴───────╯
+- : unit = ()
+]}
+
+{1:progress Progress rows}
+
+{!Console_eio.run} shows progress rows on standard error, passes the
+root of the work to a function, and ends the work when that function
+returns. Inside, the function uses {!Console.Task.run} to run each piece
+of work as a task under the root, whose row shows while it runs. The task
+succeeds when its function returns and fails when it raises, and
+{!Console.Task.set_items} says how much of its work is done:
+
+{@ocaml[
+let test root (name, total) =
+  Console.Task.run root name @@ fun task ->
+  for count = 1 to total do
+    Console.Task.set_items task ~count ~total
+  done;
+  Logs.info (fun m -> m "%d tests passed" total)
+
+let run_all ~clock ~progress suites =
+  Console_eio.run ~clock ~progress ~label:"Testing" (fun root ->
+      Eio.Fiber.List.iter (test root) suites)
+]}
+
+[Eio.Fiber.List.iter] runs each suite in a fiber of its own, so suites
+that wait, for a child process for example, run side by side with one row
+each. A row reads from the left: the suite's name, then its bar, up to 40
+cells wide, then [count/total] and the time. The bars of all the rows start
+in one column, one cell after the longest name, so each bar sits next to
+its name and the counts line up. Below the rows, the summary line names the work given as [~label],
+with its time and the count of suites that ended. It stays the last line
+while the rows above it come and go, and it is the last line printed when
+the work ends, before the message a program may end the root with
+({!Console.Task.succeed}).
+
+A suite that ends goes above the rows, into the terminal's scrollback,
+where it stays: a task with tasks under it goes when it ends, with all of
+them, each under its parent, so the scrollback reads as a tree.
+
+A task's output shows under its row while it runs, and stays there if the
+task fails. That output is made of:
+
+{ul
+{- the [Logs] messages logged inside it, as here;}
+{- the lines it prints with [Fmt.pr];}
+{- the lines it hands to {!Console.Task.log}.}}
+
+Output printed outside any task goes above the rows instead, as
+{{!Console_eio.output}where text goes} explains in more detail.
+
+The rows and the summary are the default view, {!Console.Progress.view}.
+A program can put its own view together from views: the table of results
+above the rows, for instance, filled in as the suites run, which stays once
+they are done. A {!Console.View.fit} part is laid out again at every frame,
+so it shows the results so far:
+
+{@ocaml[
+let with_table ~table root =
+  Console.View.vcat
+    [
+      Console.View.fit (fun _ -> Console.View.sized ~width:100 (table ()));
+      Console.Progress.view root;
+    ]
+]}
+
+[Console_eio.run ~view:(with_table ~table)] draws it, with [table] a
+function that gives the table of the results so far. The display draws
+the last lines of the view that fit on the terminal, so the table gives way
+before the rows.
+
+{1:program The whole program}
+
+[check] sets up the outputs, runs the suites and then prints the table. It
+also takes a [--progress] option, which says how progress is shown, as the
+option of the same name does for
+{{:https://docs.docker.com/reference/cli/docker/buildx/build/}[docker build]}:
+
+{ul
+{- [auto], the default, redraws the rows on a terminal;}
+{- [tty] redraws them on any output;}
+{- [plain] prints lines in turn, as on a pipe, even on a terminal;}
+{- [quiet] prints only what fails;}
+{- [json] writes one JSON object for each event
+   ({{!Console.Task.json}JSON events}).}}
+
+{!Console.Progress.all} lists these values in the form Cmdliner reads, for
+the [progress] argument of {!Console_eio.run}:
+
+{@ocaml[
+let progress =
+  Cmdliner.Arg.(
+    value
+    & opt (enum Console.Progress.all) `Auto
+    & info [ "progress" ]
+        ~doc:
+          "How progress shows: $(b,auto), $(b,tty), $(b,plain), $(b,quiet) or \
+           $(b,json).")
+
+let check () progress =
+  Eio_main.run @@ fun env ->
+  run_all ~clock:(Eio.Stdenv.mono_clock env) ~progress suites;
+  Fmt.pr "%a@." Console.View.pp (results suites)
+
+let cmd =
+  Cmdliner.Cmd.v (Cmdliner.Cmd.info "check")
+    Cmdliner.Term.(const check $ options $ progress)
+
+let main () = exit (Cmdliner.Cmd.eval cmd)
+]}
+
+The program's entry point is then [let () = main ()].
+
+{1:pipe Output on a pipe}
+
+When the output is not a terminal, as in a pipe or a CI log, nothing is
+redrawn, and [check] prints lines in turn instead:
+
+{ul
+{- a task prints a line when it starts;}
+{- each of its messages follows, after its path, the labels from its top
+   task down to it;}
+{- it prints a line when it ends, with its count and its time, then
+   [failed] or [cancelled] if it did not succeed;}
+{- the summary comes last, then the message the work ended with, if any.}}
+
+Unless [--color=always] asks for it, a pipe gets no colour. Here [check]
+runs with its output captured and with [CONSOLE_DETERMINISTIC_CLOCK] set,
+which the {{!testing}next section} explains:
+
+{@ocaml[
+# Unix.putenv "CONSOLE_DETERMINISTIC_CLOCK" "1";;
+- : unit = ()
+# Cmdliner.Cmd.eval ~argv:[| "check"; "--theme=dos" |] cmd;;
+[-] parser
+  parser: 3 tests passed
+[+] parser  3/3  0.0s
+[-] layout
+  layout: 2 tests passed
+[+] layout  2/2  0.0s
+[+] Testing 0.0s (2/2)
+╔════════╤═══════╗
+║ Suite  │ Tests ║
+╟────────┼───────╢
+║ parser │     3 ║
+║ layout │     2 ║
+╚════════╧═══════╝
+- : int = 0
+]}
+
+The marks at the start of each line come from the theme, here
+{!Console.Theme.dos}. Console flushes standard output before each line it
+writes, so [check 2>&1 | cat] keeps the two outputs in the order they were
+written.
+
+[check --progress=plain] prints the same lines on a terminal. With
+[--progress=quiet] it prints none of them, because no suite fails, and
+only the table remains:
+
+{@ocaml[
+# Cmdliner.Cmd.eval ~argv:[| "check"; "--progress=quiet" |] cmd;;
+╭────────┬───────╮
+│ Suite  │ Tests │
+├────────┼───────┤
+│ parser │     3 │
+│ layout │     2 │
+╰────────┴───────╯
+- : int = 0
+]}
+
+With [--progress=json], [check] writes the events for another program to
+read instead, one JSON object to a line ({{!Console.Task.json}JSON
+events}). An OCaml program reads each line back as a
+{!Console.Task.Event.t} with {!Console.Task.Event.of_string}, which
+decodes it with the jsont codec {!Console.Task.Event.jsont}, and reads
+its members with accessors such as {!Console.Task.Event.val-kind} and
+{!Console.Task.Event.text}.
+
+{1:testing Testing the output}
+
+The elapsed times are the only part of the output that changes from one
+machine to another. When [CONSOLE_DETERMINISTIC_CLOCK] is set to a value
+other than the empty string, {!Console_eio.run} reads a clock stopped at
+zero, unless the program gives it one of {!Console_eio.clock} (below):
+
+{ul
+{- every time reads [0.0s];}
+{- no rate shows;}
+{- the spinners and the motion stand still.}}
+
+A {{:https://dune.build/}Dune} cram test of [check] then reads
+the same on every machine. Dune runs it without a UTF-8 locale, so [check]
+draws its marks and its table in ASCII. It needs a [dune] stanza that
+makes [check] available:
+
+{v
+(cram
+ (deps %{bin:check}))
+v}
+
+and a file, [check.t], with the session it expects:
+
+{v
+  $ export CONSOLE_DETERMINISTIC_CLOCK=1
+  $ check 2>&1
+  [-] parser
+    parser: 3 tests passed
+  [+] parser  3/3  0.0s
+  [-] layout
+    layout: 2 tests passed
+  [+] layout  2/2  0.0s
+  [+] Testing 0.0s (2/2)
+  +--------+-------+
+  | Suite  | Tests |
+  +--------+-------+
+  | parser |     3 |
+  | layout |     2 |
+  +--------+-------+
+v}
+
+A program that sleeps on the clock {!Console_eio.clock} gives it, and
+passes that clock to {!Console_eio.run}, keeps its times: the clock's time
+is virtual, a sleep waking at the time it started plus its duration,
+whatever the program computes between them, so the times read the same on
+every machine
+({{!Console_eio.section-deterministic}a deterministic clock}).
+
+The widgets need no clock at all. [Console.View.to_string] and the other
+[to_string] functions return the text that a unit test compares, without
+escape codes unless [~styled:true] asks for them.
+
+{1:next Next}
+
+{ul
+{- {!Console.Progress} has the rules of the rows: nested tasks, byte
+   counts, what gives way, and where a task goes when it ends.}
+{- {!Console.Display} has what a live region guarantees on a terminal.}
+{- {!Console.Theme} describes each theme and makes new ones.}
+{- {!Console_eio.Prompt} asks questions on the terminal, passwords
+   included.}}

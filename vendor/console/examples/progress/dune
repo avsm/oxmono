@@ -1,0 +1,3 @@
+(executable
+ (name main)
+ (libraries console_compat console console-eio eio eio_main fmt cmdliner))

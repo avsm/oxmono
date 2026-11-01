@@ -1,5 +1,7 @@
 # Changes
 
+- Use the vendored Console 0.9 views and monotonic progress displays.
+
 - Keep knowledge searches responsive during indexing. Add explicit source refresh
   and typed service results shared by the CLI and agent tools.
 

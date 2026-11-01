@@ -1,0 +1,6 @@
+(lang dune 3.21)
+(name matrix)
+(generate_opam_files true)
+(license ISC)
+(source (github invariant-hq/mosaic))
+(package (name matrix) (synopsis "Terminal primitives for Console and K7") (depends (ocaml (>= 5.2))))

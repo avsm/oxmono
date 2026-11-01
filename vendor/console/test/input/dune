@@ -1,0 +1,16 @@
+(copy_files ../../lib/input/width.{ml,mli})
+
+(test
+ (name test)
+ (package console)
+ (deps widths.txt)
+ (libraries console_compat
+  console.input
+  console.text
+  console_vte
+  display_harness
+  matrix.vte
+  uucp
+  uuseg
+  fmt
+  alcotest))

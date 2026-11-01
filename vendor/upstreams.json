@@ -2,6 +2,20 @@
   "verified_on": "2026-10-03",
   "vendors": [
     {
+      "name": "0install-solver",
+      "version": "2.18",
+      "archive_url": "https://github.com/0install/0install/releases/download/v2.18/0install-2.18.tbz",
+      "archive_checksums": [
+        "sha256=648c4b318c1a26dfcb44065c226ab8ca723795924ad80a3bf39ae1ce0e9920c3"
+      ],
+      "revision": "b58af5db6afd496cfd4a5f85fb23f30ba8dfbc87",
+      "url": "https://github.com/0install/0install.git",
+      "branch": "HEAD",
+      "base_version": "v2.18",
+      "verified_on": "2026-10-03",
+      "scope": "Generic solver library only. Retained implementation sources are unchanged. Application CLIs and switch contexts are omitted."
+    },
+    {
       "name": "asn1-combinators",
       "url": "https://github.com/mirleft/ocaml-asn1-combinators.git",
       "branch": "HEAD",
@@ -49,6 +63,15 @@
       "revision": "247a041aa63affa6166f0dce6efce6b157c0e803",
       "base_version": "v0.4.0-8-g247a041",
       "scope": "Core modules directly under src/ are at the vendor root. Upstream CLI, generators and tests are omitted; Arod exercises the port."
+    },
+    {
+      "name": "console",
+      "url": "https://github.com/samoht/ocaml-console.git",
+      "branch": "HEAD",
+      "revision": "de6681a6956fd57f759d761b6eecaf515e41159c",
+      "base_version": "0.9.0",
+      "verified_on": "2026-11-01",
+      "scope": "Full upstream tree except Git and CI metadata. Replaces samoht/console. See VENDORED.md for OxCaml patches."
     },
     {
       "name": "cstruct",
@@ -159,6 +182,15 @@
       "scope": "Core and Bytesrw codec are included; optional Typegist and Brr libraries are omitted."
     },
     {
+      "name": "k7",
+      "url": "https://github.com/samoht/ocaml-k7.git",
+      "branch": "HEAD",
+      "revision": "dcc79a8ca8b24ce834471357390019cf76d2abcb",
+      "base_version": "dcc79a8",
+      "verified_on": "2026-11-01",
+      "scope": "Full upstream tree except Git and CI metadata, including upstream matrix_backport."
+    },
+    {
       "name": "kdf",
       "url": "https://github.com/robur-coop/kdf.git",
       "branch": "HEAD",
@@ -171,6 +203,15 @@
       "branch": "HEAD",
       "revision": "6231707f2590a181b259febb8828258cf420cdb4",
       "base_version": "v1.1.0-2-g6231707"
+    },
+    {
+      "name": "matrix",
+      "url": "https://github.com/invariant-hq/mosaic.git",
+      "branch": "refs/tags/0.1.0",
+      "revision": "bbaec9a2b49eccc7be958df1a3fc3f53443787b8",
+      "base_version": "0.1.0",
+      "verified_on": "2026-11-01",
+      "scope": "Only matrix/lib/{ansi,glyph,grid,vte,pty}, mapped to the vendor root, and LICENSE. Terminal primitives required by Console and K7."
     },
     {
       "name": "mirage-crypto",
@@ -208,12 +249,33 @@
       ]
     },
     {
+      "name": "ocaml-apple-fm",
+      "url": "https://tangled.org/anil.recoil.org/ocaml-apple-fm",
+      "branch": "HEAD",
+      "revision": "f9c546ec406de09c2ab428d78d8bc1bddcce4b1c",
+      "base_version": "f9c546e",
+      "scope": "Complete Apple Foundation Models binding and Swift bridge sources, excluding upstream build artifacts."
+    },
+    {
       "name": "ocaml-codec",
       "url": "git@github.com:samoht/ocaml-codec.git",
       "branch": "HEAD",
       "revision": "fd9ecc5dd4e1296cc2555c74461495e002e9683f",
       "base_version": "fd9ecc5",
       "scope": "TOML subset: lib/ascii, lib/utf8, lib/loc and lib/toml, excluding TOML JSON adapters. Two Result.Syntax opens use equivalent local Result.bind/Result.map operators for OxCaml 5.2. Dune package metadata adapted and upstream MDX stanzas omitted."
+    },
+    {
+      "name": "ocaml-dockerfile",
+      "url": "https://github.com/ocurrent/ocaml-dockerfile.git",
+      "branch": "HEAD",
+      "revision": "5443a9c42cd4392da1d35cafc6eeb1bd3f62f87b",
+      "base_version": "8.4.5",
+      "scope": "Dockerfile and Dockerfile-opam libraries and tests. The CLI is omitted from this import.",
+      "verified_on": "2026-10-15",
+      "archive_url": "https://codeload.github.com/ocurrent/ocaml-dockerfile/tar.gz/8.4.5",
+      "archive_checksums": [
+        "sha256=402b902c65d1d2945784ef94fa7cae1e479c19a727c25d6befc10e0a5d3dec69"
+      ]
     },
     {
       "name": "ocaml-proj",
@@ -231,11 +293,65 @@
       "scope": "Uriz is an OxCaml rewrite derived from ocaml-uri, not a file-for-file snapshot. Upstream changes through this revision are incorporated or have equivalent behavior; path_unencoded aliases path_decoded. Package identity stays uriz."
     },
     {
+      "name": "ocamlgraph",
+      "url": "https://github.com/backtracking/ocamlgraph.git",
+      "branch": "HEAD",
+      "revision": "710007690fb2286f9f2ce10e19fa47a67b634670",
+      "base_version": "2.2.0",
+      "scope": "Library and tests. GUI tools and examples omitted from this import.",
+      "verified_on": "2026-10-03"
+    },
+    {
+      "name": "opam",
+      "url": "https://github.com/ocaml/opam.git",
+      "branch": "HEAD",
+      "revision": "921b53bf7fca5467b65ccbe714b78618bebd5e97",
+      "base_version": "2.6.1",
+      "scope": "Core and format libraries and shell build support only. No opam CLI, state, repository or solver libraries. OxCaml eta expansions in opamConsole.ml, opamProcess.ml and get_version.ml. See OXMONO.md.",
+      "verified_on": "2026-10-15",
+      "archive_url": "https://codeload.github.com/ocaml/opam/tar.gz/2.6.1",
+      "archive_checksums": [
+        "sha256=a1d89ca7110a28eaec59620b37c8138f58476ed8715f545e4adcadb4fa25f32b"
+      ]
+    },
+    {
+      "name": "opam-0install",
+      "version": "0.6.0",
+      "archive_url": "https://github.com/ocaml-opam/opam-0install-solver/releases/download/v0.6.0/opam-0install-0.6.0.tbz",
+      "archive_checksums": [
+        "sha256=637aa8f87acfe76c8dd2d9f86bee42fac161523aecbfa06f208c45b93c1a5e39"
+      ],
+      "revision": "4b66206f9fa8df5eecf7d463ea18f7f8abc3e275",
+      "url": "https://github.com/ocaml-opam/opam-0install-solver.git",
+      "branch": "HEAD",
+      "base_version": "v0.6.0",
+      "verified_on": "2026-10-03",
+      "scope": "Generic solver library only. Retained implementation sources are unchanged. Application CLIs and switch contexts are omitted."
+    },
+    {
+      "name": "opam-file-format",
+      "url": "https://github.com/ocaml/opam-file-format",
+      "branch": "HEAD",
+      "revision": "59d9a6b585ac3fd141004f155a459e78f39993ac",
+      "base_version": "2.2.0",
+      "scope": "Upstream library, parser generator and tests, unchanged.",
+      "verified_on": "2026-10-03"
+    },
+    {
       "name": "optint",
       "url": "https://github.com/mirage/optint.git",
       "branch": "HEAD",
       "revision": "e14bff4dd851cffcdd5e21373fb44bb2620274cb",
       "base_version": "v0.3.0-7-ge14bff4"
+    },
+    {
+      "name": "patch",
+      "url": "https://github.com/hannesm/patch.git",
+      "branch": "HEAD",
+      "revision": "1b977a11d5e3c80c325aed6ea8a85a9801cbe57c",
+      "base_version": "v3.1.2",
+      "scope": "Library and tests. The opatch CLI is omitted from this import.",
+      "verified_on": "2026-10-03"
     },
     {
       "name": "progress",
@@ -253,11 +369,42 @@
       "scope": "Core src/ptime files and native src/clock/ backend are mapped to the root and clock/, with replacement tests and local Dune packaging."
     },
     {
+      "name": "sha",
+      "url": "https://github.com/djs55/ocaml-sha.git",
+      "branch": "HEAD",
+      "revision": "c743398abee8f822fc0d12f229121e431d60dd5d",
+      "base_version": "v1.15.4",
+      "scope": "Upstream SHA C bindings, unchanged. Optional OUnit2 tests excluded from workspace traversal. SHA algorithms exercised by the d10 opam differential fixture.",
+      "verified_on": "2026-10-03"
+    },
+    {
       "name": "sitemap",
       "url": "https://github.com/avsm/ocaml-sitemap.git",
       "branch": "HEAD",
       "revision": "0a551e344e46a7ae4218fd4b540b8dfcc430f416",
       "base_version": "v1.0-1-g0a551e3"
+    },
+    {
+      "name": "sqlite-vec",
+      "url": "https://github.com/asg017/sqlite-vec.git",
+      "branch": "HEAD",
+      "revision": "e9f598abfa0c06b328d8fe5da9c3760cce74be10",
+      "base_version": "v0.1.9",
+      "verified_on": "2026-10-15",
+      "archive_url": "https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-amalgamation.tar.gz",
+      "archive_checksums": [
+        "sha256=3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61"
+      ],
+      "scope": "Unmodified release amalgamation. Local static OCaml bindings compile against the workspace SQLite with filesystem readers disabled."
+    },
+    {
+      "name": "swhid_core",
+      "url": "https://github.com/ocamlpro/swhid_core.git",
+      "branch": "HEAD",
+      "revision": "1eff590933290be2b565306c89a28b2537a0659f",
+      "base_version": "0.1",
+      "scope": "Upstream library and tests, unchanged.",
+      "verified_on": "2026-10-03"
     },
     {
       "name": "syndic",
@@ -310,126 +457,6 @@
       "revision": "7bbc77f0080bc66acf49daff5a9a170266f0b616",
       "base_version": "release-1.14-20-g7bbc77f",
       "scope": "OCaml and C library sources with retained OxCaml patches and Dune build integration. The upstream Makefile is omitted; the imported configure script still supplies C flags."
-    },
-    {
-      "name": "ocaml-apple-fm",
-      "url": "https://tangled.org/anil.recoil.org/ocaml-apple-fm",
-      "branch": "HEAD",
-      "revision": "f9c546ec406de09c2ab428d78d8bc1bddcce4b1c",
-      "base_version": "f9c546e",
-      "scope": "Complete Apple Foundation Models binding and Swift bridge sources, excluding upstream build artifacts."
-    },
-    {
-      "name": "ocaml-dockerfile",
-      "url": "https://github.com/ocurrent/ocaml-dockerfile.git",
-      "branch": "HEAD",
-      "revision": "5443a9c42cd4392da1d35cafc6eeb1bd3f62f87b",
-      "base_version": "8.4.5",
-      "scope": "Dockerfile and Dockerfile-opam libraries and tests. The CLI is omitted from this import.",
-      "verified_on": "2026-10-15",
-      "archive_url": "https://codeload.github.com/ocurrent/ocaml-dockerfile/tar.gz/8.4.5",
-      "archive_checksums": [
-        "sha256=402b902c65d1d2945784ef94fa7cae1e479c19a727c25d6befc10e0a5d3dec69"
-      ]
-    },
-    {
-      "name": "ocamlgraph",
-      "url": "https://github.com/backtracking/ocamlgraph.git",
-      "branch": "HEAD",
-      "revision": "710007690fb2286f9f2ce10e19fa47a67b634670",
-      "base_version": "2.2.0",
-      "scope": "Library and tests. GUI tools and examples omitted from this import.",
-      "verified_on": "2026-10-03"
-    },
-    {
-      "name": "opam",
-      "url": "https://github.com/ocaml/opam.git",
-      "branch": "HEAD",
-      "revision": "921b53bf7fca5467b65ccbe714b78618bebd5e97",
-      "base_version": "2.6.1",
-      "scope": "Core and format libraries and shell build support only. No opam CLI, state, repository or solver libraries. OxCaml eta expansions in opamConsole.ml, opamProcess.ml and get_version.ml. See OXMONO.md.",
-      "verified_on": "2026-10-15",
-      "archive_url": "https://codeload.github.com/ocaml/opam/tar.gz/2.6.1",
-      "archive_checksums": [
-        "sha256=a1d89ca7110a28eaec59620b37c8138f58476ed8715f545e4adcadb4fa25f32b"
-      ]
-    },
-    {
-      "name": "opam-file-format",
-      "url": "https://github.com/ocaml/opam-file-format",
-      "branch": "HEAD",
-      "revision": "59d9a6b585ac3fd141004f155a459e78f39993ac",
-      "base_version": "2.2.0",
-      "scope": "Upstream library, parser generator and tests, unchanged.",
-      "verified_on": "2026-10-03"
-    },
-    {
-      "name": "patch",
-      "url": "https://github.com/hannesm/patch.git",
-      "branch": "HEAD",
-      "revision": "1b977a11d5e3c80c325aed6ea8a85a9801cbe57c",
-      "base_version": "v3.1.2",
-      "scope": "Library and tests. The opatch CLI is omitted from this import.",
-      "verified_on": "2026-10-03"
-    },
-    {
-      "name": "sha",
-      "url": "https://github.com/djs55/ocaml-sha.git",
-      "branch": "HEAD",
-      "revision": "c743398abee8f822fc0d12f229121e431d60dd5d",
-      "base_version": "v1.15.4",
-      "scope": "Upstream SHA C bindings, unchanged. Optional OUnit2 tests excluded from workspace traversal. SHA algorithms exercised by the d10 opam differential fixture.",
-      "verified_on": "2026-10-03"
-    },
-    {
-      "name": "swhid_core",
-      "url": "https://github.com/ocamlpro/swhid_core.git",
-      "branch": "HEAD",
-      "revision": "1eff590933290be2b565306c89a28b2537a0659f",
-      "base_version": "0.1",
-      "scope": "Upstream library and tests, unchanged.",
-      "verified_on": "2026-10-03"
-    },
-    {
-      "name": "0install-solver",
-      "version": "2.18",
-      "archive_url": "https://github.com/0install/0install/releases/download/v2.18/0install-2.18.tbz",
-      "archive_checksums": [
-        "sha256=648c4b318c1a26dfcb44065c226ab8ca723795924ad80a3bf39ae1ce0e9920c3"
-      ],
-      "revision": "b58af5db6afd496cfd4a5f85fb23f30ba8dfbc87",
-      "url": "https://github.com/0install/0install.git",
-      "branch": "HEAD",
-      "base_version": "v2.18",
-      "verified_on": "2026-10-03",
-      "scope": "Generic solver library only. Retained implementation sources are unchanged. Application CLIs and switch contexts are omitted."
-    },
-    {
-      "name": "opam-0install",
-      "version": "0.6.0",
-      "archive_url": "https://github.com/ocaml-opam/opam-0install-solver/releases/download/v0.6.0/opam-0install-0.6.0.tbz",
-      "archive_checksums": [
-        "sha256=637aa8f87acfe76c8dd2d9f86bee42fac161523aecbfa06f208c45b93c1a5e39"
-      ],
-      "revision": "4b66206f9fa8df5eecf7d463ea18f7f8abc3e275",
-      "url": "https://github.com/ocaml-opam/opam-0install-solver.git",
-      "branch": "HEAD",
-      "base_version": "v0.6.0",
-      "verified_on": "2026-10-03",
-      "scope": "Generic solver library only. Retained implementation sources are unchanged. Application CLIs and switch contexts are omitted."
-    },
-    {
-      "name": "sqlite-vec",
-      "url": "https://github.com/asg017/sqlite-vec.git",
-      "branch": "HEAD",
-      "revision": "e9f598abfa0c06b328d8fe5da9c3760cce74be10",
-      "base_version": "v0.1.9",
-      "verified_on": "2026-10-15",
-      "archive_url": "https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-amalgamation.tar.gz",
-      "archive_checksums": [
-        "sha256=3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61"
-      ],
-      "scope": "Unmodified release amalgamation. Local static OCaml bindings compile against the workspace SQLite with filesystem readers disabled."
     }
   ]
 }

@@ -17,7 +17,7 @@
   eio_main
   eio.unix
   console
-  console-eio
+  console-eio console.tty console.text
   logs
   logs.cli
   logs.fmt

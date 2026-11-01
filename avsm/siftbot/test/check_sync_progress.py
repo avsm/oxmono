@@ -44,8 +44,11 @@ def check_terminal(kind, interrupt=False, empty=False):
             assert b"Interrupted" in output, output
         else:
             label = b"Classifying emails" if kind == "classify" else b"Loading thread context"
-            assert label in output and b"Complete" in output, output
-            assert b"%" in output, output
+            assert b"Complete" in output, output
+            if empty:
+                assert b"Classification up to date" in output, output
+            else:
+                assert label in output and b"%" in output, output
             if kind == "classify" and not empty:
                 assert b"triage=relevant" in output, output
                 assert b"delivery=direct" in output, output

@@ -2,6 +2,8 @@ Siftbot now shares embedding inference, vector storage primitives and hybrid ran
 
 # Changes
 
+- Use the vendored Console 0.9 views and monotonic progress displays.
+
 - Retrieve relevant examples from all manual corrections, with optional cached
   semantic matching, visible provenance and selective `--refresh-feedback`.
 

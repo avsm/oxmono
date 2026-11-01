@@ -1,0 +1,17 @@
+# OCaml build artifacts
+_build/
+*.install
+*.merlin
+
+# Dune package management
+dune.lock/
+
+# Editor and OS files
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+
+# Opam local switch
+_opam/

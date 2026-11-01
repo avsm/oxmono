@@ -1,0 +1,3 @@
+(executables
+ (names dump_progress frames ordering)
+ (libraries console_compat console console_vte fmt))

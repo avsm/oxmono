@@ -6,7 +6,7 @@
  (modules test_output knowledge_output)
  (libraries
   bushel.knowledge.store
-  console
+  console console.text
   fmt
   jsont
   jsont.bytesrw

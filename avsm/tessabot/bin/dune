@@ -8,7 +8,7 @@
   sortal.feed
   eio_main
   console
-  console-eio
+  console.tty
   cmdliner
   xdge
   logs

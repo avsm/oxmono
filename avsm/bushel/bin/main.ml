@@ -10,7 +10,7 @@ open Cmdliner
 module C = Console
 let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
 let muted = C.Style.fg C.Color.bright_black
-let styled style value = C.Span.sanitize (C.Span.styled style value)
+let styled style value = C.View.styled style (C.View.text value)
 
 module Table = struct
   type row = string list
@@ -36,16 +36,16 @@ module Table = struct
     else s ^ String.make (width - len) ' '
 
   let print t =
-    if Console_eio.is_tty () then
-      let columns = List.map C.Table.column t.headers in
+    if Console_tty.is_terminal Unix.stdout then
+      let columns = List.map (fun text -> C.Table.column (C.View.text text)) t.headers in
       let rows = List.map (function
         | kind :: slug :: rest ->
           styled muted kind :: styled accent slug
-          :: List.map (fun value -> C.Span.sanitize (C.Span.text value)) rest
-        | row -> List.map (fun value -> C.Span.sanitize (C.Span.text value)) row
+          :: List.map (fun value -> (C.View.text value)) rest
+        | row -> List.map (fun value -> (C.View.text value)) row
       ) t.rows in
-      Fmt.pr "%a@." C.Table.pp
-        (C.Table.of_rows ~border:C.Border.rounded columns rows)
+      Fmt.pr "%a@." C.View.pp
+        (C.Table.view ~border:C.Border.rounded columns rows)
     else
       let widths = column_widths t in
       let print_row row =
@@ -84,7 +84,7 @@ let config_file =
   Arg.(value & opt (some string) None & info ["c"; "config"] ~docv:"FILE" ~doc)
 
 let setup_log style_renderer level =
-  Console_eio.setup ?style_renderer ();
+  Console_tty.setup ?style_renderer ();
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 
@@ -169,9 +169,9 @@ let list_cmd =
         rows
       in
       Table.print table;
-      if Console_eio.is_tty () then
-        Fmt.pr "@.%a  %a@." C.Span.pp (styled accent "Entries")
-          C.Span.pp (styled muted (string_of_int (List.length limited)))
+      if Console_tty.is_terminal Unix.stdout then
+        Fmt.pr "@.%a  %a@." C.View.pp (styled accent "Entries")
+          C.View.pp (styled muted (string_of_int (List.length limited)))
       else Printf.printf "\nTotal: %d entries\n" (List.length limited);
       0
   in
@@ -196,8 +196,8 @@ let stats_cmd =
       let contacts = List.length (Bushel.Entry.contacts entries) in
       let images = List.length (Bushel_eio.Bushel_loader.load_images fs
         ~output_dir:config.Bushel_config.images_output_dir) in
-      if Console_eio.is_tty () then
-        Fmt.pr "%a@." C.Span.pp (styled accent "Bushel Statistics")
+      if Console_tty.is_terminal Unix.stdout then
+        Fmt.pr "%a@." C.View.pp (styled accent "Bushel Statistics")
       else Printf.printf "Bushel Statistics\n";
       Printf.printf "=================\n";
       Printf.printf "Papers:   %4d\n" papers;
@@ -231,7 +231,7 @@ let show_cmd =
         Printf.eprintf "Entry not found: %s\n" slug;
         1
       | Some entry ->
-        if Console_eio.is_tty () then begin
+        if Console_tty.is_terminal Unix.stdout then begin
           let content = match entry with
             | `Note n -> Fmt.str "%a" Bushel.Note.pp n
             | `Paper p -> Fmt.str "%a" Bushel.Paper.pp p
@@ -239,9 +239,9 @@ let show_cmd =
             | `Idea i -> Fmt.str "%a" Bushel.Idea.pp i
             | `Project p -> Fmt.str "%a" Bushel.Project.pp p
           in
-          Fmt.pr "%a@." C.Panel.pp
-            (C.Panel.v ~title:(styled accent (Bushel.Entry.title entry))
-               (C.Span.sanitize (C.Span.text content)))
+          Fmt.pr "%a@." C.View.pp
+            (C.Panel.view ~title:(styled accent (Bushel.Entry.title entry))
+               (C.View.text content))
         end else begin
           (match entry with
            | `Note n -> Bushel.Note.pp Fmt.stdout n

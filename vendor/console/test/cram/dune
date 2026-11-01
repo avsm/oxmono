@@ -1,0 +1,5 @@
+(cram
+ (applies_to :whole_subtree)
+ (package console)
+ (deps helpers/dump_progress.exe helpers/frames.exe helpers/ordering.exe)
+ (setup_scripts helpers.sh))

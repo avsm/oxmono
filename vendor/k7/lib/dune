@@ -1,0 +1,65 @@
+(library
+ (name k7)
+ (public_name k7)
+ (private_modules
+  asciicast
+  casefold
+  casefold_data
+  native
+  palette
+  pty_reader
+  quote
+  regexp_match
+  regexp_syntax
+  screen
+  svg
+  tape_syntax
+  themes
+  unicode
+  unicode_data)
+ (flags
+  (:standard -open Matrix_backport))
+ (foreign_stubs
+  (language c)
+  (names terminal_stubs))
+ (libraries k7_compat
+  cstruct
+  eio
+  eio.unix
+  fmt
+  jsont
+  jsont.bytesrw
+  matrix_backport
+  matrix.pty
+  mtime
+  re
+  unix))
+
+(rule
+ (targets casefold_data.ml)
+ (deps casefold.txt)
+ (action
+  (with-stdout-to
+   %{targets}
+   (progn
+    (echo "let table = {|")
+    (cat casefold.txt)
+    (echo "|}\n")))))
+
+(rule
+ (targets unicode_data.ml)
+ (deps unicode.txt)
+ (action
+  (with-stdout-to
+   %{targets}
+   (progn
+    (echo "let table = {|")
+    (cat unicode.txt)
+    (echo "|}\n")))))
+
+(mdx
+ (package k7)
+ (files k7.mli)
+ (libraries k7_compat k7))
+
+(vendored_dirs matrix_backport)

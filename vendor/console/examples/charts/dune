@@ -1,0 +1,31 @@
+(executable
+ (name main)
+ (libraries console_compat console console.tty cmdliner fmt))
+
+(rule
+ (target charts.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    LINES
+    21
+    (run ./main.exe)))))
+
+(rule
+ (target charts.generated.svg)
+ (action
+  (run
+   %{bin:k7}
+   play
+   --show
+   "dune exec -- examples/charts/main.exe"
+   -o
+   %{target}
+   %{dep:charts.cast})))
+
+(rule
+ (alias runtest)
+ (action
+  (diff charts.svg charts.generated.svg)))

@@ -12,7 +12,6 @@ depends: [
   "eio"
   "eio_main"
   "console"
-  "console-eio"
   "cmdliner"
   "xdge"
   "tomlt"

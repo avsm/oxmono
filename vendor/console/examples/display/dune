@@ -1,0 +1,131 @@
+(executable
+ (name main)
+ (libraries console_compat console console.tty console-eio eio eio_main fmt logs))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target display.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    LINES
+    21
+    (run ./main.exe)))))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target display.generated.svg)
+ (action
+  (run
+   %{bin:k7}
+   play
+   --show
+   "dune exec -- examples/display/main.exe"
+   -o
+   %{target}
+   %{dep:display.cast})))
+
+(rule
+ (alias runtest)
+ (enabled_if %{lib-available:console-eio})
+ (action
+  (diff display.svg display.generated.svg)))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target matrix.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    LINES
+    21
+    (run ./main.exe matrix)))))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target matrix.generated.svg)
+ (action
+  (run
+   %{bin:k7}
+   play
+   --show
+   "dune exec -- examples/display/main.exe matrix"
+   --theme
+   "{\"name\": \"demo\", \"background\": \"#000000\", \"foreground\": \"#dddddd\", \"cursor\": \"#dddddd\", \"selection\": \"#dddddd\"}"
+   -o
+   %{target}
+   %{dep:matrix.cast})))
+
+(rule
+ (alias runtest)
+ (enabled_if %{lib-available:console-eio})
+ (action
+  (diff matrix.svg matrix.generated.svg)))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target rainbow.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    LINES
+    21
+    (run ./main.exe rainbow)))))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target rainbow.generated.svg)
+ (action
+  (run
+   %{bin:k7}
+   play
+   --show
+   "dune exec -- examples/display/main.exe rainbow"
+   -o
+   %{target}
+   %{dep:rainbow.cast})))
+
+(rule
+ (alias runtest)
+ (enabled_if %{lib-available:console-eio})
+ (action
+  (diff rainbow.svg rainbow.generated.svg)))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target tokyo-night.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    LINES
+    21
+    (run ./main.exe tokyo-night)))))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target tokyo-night.generated.svg)
+ (action
+  (run
+   %{bin:k7}
+   play
+   --show
+   "dune exec -- examples/display/main.exe tokyo-night"
+   --theme
+   "{\"name\": \"demo\", \"background\": \"#1a1b26\", \"foreground\": \"#dddddd\", \"cursor\": \"#dddddd\", \"selection\": \"#dddddd\"}"
+   -o
+   %{target}
+   %{dep:tokyo-night.cast})))
+
+(rule
+ (alias runtest)
+ (enabled_if %{lib-available:console-eio})
+ (action
+  (diff tokyo-night.svg tokyo-night.generated.svg)))

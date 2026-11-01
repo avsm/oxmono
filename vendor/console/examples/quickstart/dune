@@ -1,0 +1,57 @@
+(executable
+ (name main)
+ (libraries console_compat
+  console
+  console.tty
+  console-eio
+  eio
+  eio_main
+  fmt
+  fmt.cli
+  cmdliner))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target quickstart.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    LINES
+    25
+    (run ./main.exe)))))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target rainbow.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    LINES
+    25
+    (run ./main.exe --theme=rainbow)))))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target quickstart.generated.svg)
+ (action
+  (run
+   %{bin:k7}
+   play
+   --show
+   "dune exec -- examples/quickstart/main.exe"
+   --show
+   "dune exec -- examples/quickstart/main.exe --theme=rainbow"
+   -o
+   %{target}
+   %{dep:quickstart.cast}
+   %{dep:rainbow.cast})))
+
+(rule
+ (alias runtest)
+ (enabled_if %{lib-available:console-eio})
+ (action
+  (diff quickstart.svg quickstart.generated.svg)))

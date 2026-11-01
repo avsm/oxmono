@@ -143,8 +143,8 @@ let learn profile demo since watch max_steps no_progress jobs =
               (String.sub first 0 10) (String.sub last 0 10);
             let clock = Eio.Stdenv.clock env in
             let sync () =
-              Cli_progress.sync ~clock ~enabled:(not no_progress)
-                (fun ~on_progress ->
+              Cli_progress.sync ~clock:(Eio.Stdenv.mono_clock env)
+                ~enabled:(not no_progress) (fun ~on_progress ->
                   Siftbot.Import.sync ?max_steps ~on_progress
                     ~check:Eio.Fiber.check db remote)
             in
@@ -170,7 +170,8 @@ let learn profile demo since watch max_steps no_progress jobs =
                             ~fetch:(Fetch_curl.v ~sw ()) p
                         in
                         let count, _ =
-                          Cli_progress.classify ~clock
+                          Cli_progress.classify
+                            ~clock:(Eio.Stdenv.mono_clock env)
                             ~enabled:(not no_progress)
                             (fun ~on_progress ~on_classified ->
                               Siftbot.Classifier.run ~on_progress ~on_classified
@@ -180,7 +181,8 @@ let learn profile demo since watch max_steps no_progress jobs =
                         in
                         Printf.printf
                           "Stored %d classification suggestions.\n%!" count);
-                    Cli_progress.interruptible ~clock (fun () ->
+                    Cli_progress.interruptible
+                      ~clock:(Eio.Stdenv.mono_clock env) (fun () ->
                         Eio.Time.sleep clock 30.);
                     run ())
                   else
@@ -232,7 +234,7 @@ let classify profile demo all no_progress jobs refresh_feedback =
               ~fetch:(Fetch_curl.v ~sw ()) p
           in
           let count, remaining =
-            Cli_progress.classify ~clock:(Eio.Stdenv.clock env)
+            Cli_progress.classify ~clock:(Eio.Stdenv.mono_clock env)
               ~enabled:(not no_progress) (fun ~on_progress ~on_classified ->
                 Siftbot.Classifier.run ~on_progress ~on_classified ~jobs
                   ?feedback_provider:(feedback_provider ~sw p) ~refresh_feedback

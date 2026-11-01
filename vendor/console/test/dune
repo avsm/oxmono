@@ -1,0 +1,24 @@
+(copy_files ../lib/input/width.{ml,mli})
+
+(copy_files ../lib/slot.{ml,mli})
+
+(test
+ (name test)
+ (package console)
+ (libraries console_compat
+  console
+  console.text
+  console_vte
+  matrix.ansi
+  display_harness
+  view_harness
+  matrix.grid
+  matrix.vte
+  alcotest
+  astring
+  re
+  jsont
+  jsont.bytesrw
+  uucp
+  uuseg
+  fmt))

@@ -1,0 +1,1 @@
+(library (name k7_compat) (public_name k7.compat) (flags -w -a) (foreign_stubs (language c) (names signal_stubs)))

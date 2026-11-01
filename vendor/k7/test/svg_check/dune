@@ -1,0 +1,5 @@
+(library
+ (name svg_check)
+ (flags
+  (:standard -open Matrix_backport))
+ (libraries k7_compat fmt markup matrix_backport))

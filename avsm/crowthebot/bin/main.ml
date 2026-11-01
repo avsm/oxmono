@@ -27,7 +27,7 @@ let verbose =
            stderr. Includes identifiers, but not message bodies or secrets.")
 
 let run ?(verbose = false) action =
-  Console_eio.setup ();
+  Console_tty.setup ();
   Logs.set_reporter (Logs_fmt.reporter ());
   Crowthebot.Diagnostics.configure ~verbose;
   try

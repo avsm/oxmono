@@ -1,0 +1,18 @@
+(library
+ (name console_eio)
+ (public_name console-eio)
+ (private_modules interrupt session terminal)
+ (flags
+  (:standard -open Console__))
+ (libraries console_compat
+  console
+  console.input
+  console.tty
+  console.text
+  eio
+  eio.unix
+  fmt
+  logs
+  mtime
+  threads.posix
+  unix))

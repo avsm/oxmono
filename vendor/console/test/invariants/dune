@@ -1,0 +1,9 @@
+(test
+ (name test)
+ (package console)
+ (deps
+  %{project_root}/INVARIANTS.md
+  %{project_root}/lib/input/width.ml
+  (source_tree %{project_root}/test)
+  (source_tree %{project_root}/fuzz))
+ (libraries console_compat alcotest))

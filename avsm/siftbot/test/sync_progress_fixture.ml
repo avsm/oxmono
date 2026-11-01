@@ -1,6 +1,6 @@
 let () =
   Eio_main.run (fun env ->
-      let clock = Eio.Stdenv.clock env in
+      let clock = Eio.Stdenv.mono_clock env in
       try
         let has arg = Array.exists (( = ) arg) Sys.argv in
         if has "classify" then (
@@ -11,7 +11,7 @@ let () =
                 on_progress
                   Siftbot.Classifier.
                     { completed = 0; total = expected; remaining = expected };
-                Eio.Time.sleep clock 0.05;
+                Eio.Time.Mono.sleep clock 0.05;
                 if has "interrupt" then Eio.Fiber.await_cancel ();
                 for completed = 1 to expected do
                   let m = List.hd Siftbot.Demo.messages in
@@ -44,7 +44,7 @@ let () =
                         total = expected;
                         remaining = expected - completed;
                       };
-                  Eio.Time.sleep clock 0.05
+                  Eio.Time.Mono.sleep clock 0.05
                 done;
                 expected)
           in
@@ -56,7 +56,7 @@ let () =
                 let update phase listed total pending_threads =
                   on_progress
                     Siftbot.Import.{ phase; listed; total; pending_threads };
-                  Eio.Time.sleep clock 0.05
+                  Eio.Time.Mono.sleep clock 0.05
                 in
                 update Listing 0 (Some 200) 0;
                 if has "interrupt" then Eio.Fiber.await_cancel ();

@@ -1,0 +1,5 @@
+(library
+ (name console_input)
+ (public_name console.input)
+ (private_modules width)
+ (libraries console_compat console.text uucp uuseg))

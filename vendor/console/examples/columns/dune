@@ -1,0 +1,34 @@
+(executable
+ (name main)
+ (libraries console_compat console console.tty console-eio eio eio_main fmt))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target columns.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    LINES
+    16
+    (run ./main.exe)))))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target columns.generated.svg)
+ (action
+  (run
+   %{bin:k7}
+   play
+   --show
+   "dune exec -- examples/columns/main.exe"
+   -o
+   %{target}
+   %{dep:columns.cast})))
+
+(rule
+ (alias runtest)
+ (enabled_if %{lib-available:console-eio})
+ (action
+  (diff columns.svg columns.generated.svg)))

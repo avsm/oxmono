@@ -6,7 +6,7 @@ module C = Console
 
 let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
 let muted = C.Style.fg C.Color.bright_black
-let styled style value = C.Span.sanitize (C.Span.styled style value)
+let styled style value = C.View.styled style (C.View.text value)
 let opt names doc = Arg.(value & opt (some string) None & info names ~doc)
 let flag names doc = Arg.(value & flag & info names ~doc)
 let pos n name = Arg.(required & pos n (some string) None & info [] ~docv:name)
@@ -47,18 +47,18 @@ let output json note =
     else "  #" ^ String.concat " #" (Doc.tags note)
   in
   if json then print_endline (json_string ~pretty:true (Doc.public note))
-  else if Console_eio.is_tty () then
+  else if Console_tty.is_terminal Unix.stdout then
     let finished = Doc.status note = "done" || Doc.status note = "cancelled" in
-    Fmt.pr "%a  %a  %a%a@." C.Span.pp
+    Fmt.pr "%a  %a  %a%a@." C.View.pp
       (styled muted (Doc.id note))
-      C.Span.pp
+      C.View.pp
       (styled
          (if finished then muted else accent)
          ("[" ^ Doc.status note ^ "]"))
-      C.Span.pp
+      C.View.pp
       (if finished then styled muted (Doc.title note)
-       else C.Span.sanitize (C.Span.text (Doc.title note)))
-      C.Span.pp (styled muted details)
+       else C.View.text (Doc.title note))
+      C.View.pp (styled muted details)
   else
     Printf.printf "%s  [%s] %s%s\n" (Doc.id note) (Doc.status note)
       (Doc.title note) details
@@ -72,8 +72,8 @@ let outputs json notes =
               ("schema", str "dooit.list/v1");
               ("notes", arr (List.map Doc.public notes));
             ]))
-  else if Console_eio.is_tty () then (
-    Fmt.pr "%a  %a@.@." C.Span.pp (styled accent "Tasks") C.Span.pp
+  else if Console_tty.is_terminal Unix.stdout then (
+    Fmt.pr "%a  %a@.@." C.View.pp (styled accent "Tasks") C.View.pp
       (styled muted (Printf.sprintf "%d total" (List.length notes)));
     List.iter (output false) notes)
   else if notes = [] then print_endline "No tasks found."
@@ -466,11 +466,15 @@ let commands environment =
             guard (fun () ->
                 let d = Store.get (open_store c) id in
                 if json then output true d
-                else if Console_eio.is_tty () then (
-                  Fmt.pr "%a@.@." C.Panel.pp
-                    (C.Panel.lines
+                else if Console_tty.is_terminal Unix.stdout then (
+                  Fmt.pr "%a@.@." C.View.pp
+                    (C.Panel.view
                        ~title:(styled accent (Doc.title d))
-                       [ styled muted (Doc.id d); styled accent (Doc.status d) ]);
+                       (C.View.vcat
+                          [
+                            styled muted (Doc.id d);
+                            styled accent (Doc.status d);
+                          ]));
                   print_string d.raw)
                 else print_string d.raw))
         $ ctx $ pos 0 "ID" $ json_arg)
@@ -977,7 +981,7 @@ let commands environment =
   ]
 
 let () =
-  Console_eio.setup ();
+  Console_tty.setup ();
   Eio_main.run (fun environment ->
       let cmd =
         Cmd.group

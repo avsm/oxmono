@@ -1,3 +1,0 @@
-(executable
- (name bench_color)
- (libraries console mtime mtime.clock.os))

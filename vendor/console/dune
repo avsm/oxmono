@@ -1,0 +1,26 @@
+(env
+ (dev
+  (flags :standard -open Console_compat)
+  (env-vars
+   (LC_ALL en_US.UTF-8)))
+ (_
+  (flags :standard -open Console_compat)
+  (env-vars
+   (LC_ALL en_US.UTF-8)
+   (EIO_BACKEND posix))))
+
+(mdx
+ (package console-eio)
+ (files README.md)
+ (libraries console_compat
+  console
+  console.input
+  console.text
+  console.tty
+  console-eio
+  eio
+  eio.unix
+  eio_main
+  fmt
+  fmt.cli
+  cmdliner))

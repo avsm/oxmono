@@ -1,0 +1,15 @@
+; Verbatim copy of matrix's terminal core: do not edit, see README.md.
+
+(library
+ (name matrix_backport)
+ (package k7)
+ (libraries k7_compat bigarray)
+ (private_modules
+  segment
+  grapheme_tracker
+  grapheme_store
+  grid_data
+  packed_cell
+  unicode
+  unicode_data
+  uuseg_grapheme_cluster))

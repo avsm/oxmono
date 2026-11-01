@@ -13,7 +13,7 @@
   proffer-httpz
   eio
   eio_main
-  console-eio
+  console.tty
   console
   xdge
   cmdliner

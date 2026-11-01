@@ -1,0 +1,37 @@
+(executable
+ (name main)
+ (libraries console_compat console console.tty console-eio eio eio_main fmt))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target nix.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    COLUMNS
+    120
+    (setenv
+     LINES
+     24
+     (run ./main.exe))))))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target nix.generated.svg)
+ (action
+  (run
+   %{bin:k7}
+   play
+   --show
+   "dune exec -- examples/nix/main.exe"
+   -o
+   %{target}
+   %{dep:nix.cast})))
+
+(rule
+ (alias runtest)
+ (enabled_if %{lib-available:console-eio})
+ (action
+  (diff nix.svg nix.generated.svg)))

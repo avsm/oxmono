@@ -1,3 +1,11 @@
+(* A compact elapsed: "1.3s" below a minute, then "1m05s", then "1h02m". *)
+let duration secs =
+  if secs < 60. then Fmt.str "%.1fs" (Float.max 0. secs)
+  else
+    let s = int_of_float secs in
+    if s < 3600 then Fmt.str "%dm%02ds" (s / 60) (s mod 60)
+    else Fmt.str "%dh%02dm" (s / 3600) (s / 60 mod 60)
+
 module Response = Bushel_knowledge_store.Response
 
 type model = {
@@ -78,15 +86,16 @@ let grouped n =
 let line ?(ppf = Fmt.stdout) ?(bold = false) text =
   let style = if bold then Console.Style.bold else Console.Style.none in
   let span =
-    Console.Span.styled style (Console.sanitize ~keep_newlines:false text)
+    Console.View.styled style
+      (Console.View.text (Console_text.sanitize ~keep_newlines:false text))
   in
-  Console.Span.wrap 78 span
-  |> List.iter (fun span -> Fmt.pf ppf "%a@." Console.Span.pp span)
+  Console.View.wrap 78 span
+  |> List.iter (fun span -> Fmt.pf ppf "%a@." Console.View.pp span)
 
 let blank () = Fmt.pf Fmt.stdout "@."
 
 let command_line text =
-  Fmt.pf Fmt.stdout "%s@." (Console.sanitize ~keep_newlines:false text)
+  Fmt.pf Fmt.stdout "%s@." (Console_text.sanitize ~keep_newlines:false text)
 
 let prefix images =
   if images then "bushel knowledge images " else "bushel knowledge "
@@ -131,7 +140,7 @@ let index ~images ?elapsed (status : Response.status) =
   | Some coverage ->
       let duration =
         Option.fold ~none:""
-          ~some:(fun seconds -> " in " ^ Console.Display.span seconds)
+          ~some:(fun seconds -> " in " ^ duration seconds)
           elapsed
       in
       line ~bold:true
@@ -200,7 +209,7 @@ let models ~images models =
         [
           model.name;
           string_of_int model.dimensions;
-          Console.Display.bytes model.size_bytes;
+          Fmt.str "%a" Console.Progress.pp_bytes model.size_bytes;
           (if model.cached then "Ready" else "Not downloaded");
           (if model.is_default then "default" else "");
         ])
@@ -208,22 +217,22 @@ let models ~images models =
   in
   let module T = Console.Table in
   let table =
-    T.of_string_rows ~border:Console.Border.none
+    T.view ~border:Console.Border.none
       [
-        T.column "Model";
-        T.column ~align:`Right "Dimensions";
-        T.column ~align:`Right "Download";
-        T.column "Cache";
-        T.column "";
+        T.column (Console.View.text "Model");
+        T.column ~align:`Right (Console.View.text "Dimensions");
+        T.column ~align:`Right (Console.View.text "Download");
+        T.column (Console.View.text "Cache");
+        T.column (Console.View.text "");
       ]
-      rows
+      (List.map (List.map Console.View.text) rows)
   in
   let old_margin = Format.pp_get_margin Fmt.stdout () in
   Fun.protect
     ~finally:(fun () -> Format.pp_set_margin Fmt.stdout old_margin)
     (fun () ->
       Format.pp_set_margin Fmt.stdout 78;
-      Fmt.pf Fmt.stdout "%a@." T.pp table);
+      Fmt.pf Fmt.stdout "%a@." Console.View.pp table);
   blank ();
   command_line
     ("Configure default: " ^ prefix images ^ "configure"
@@ -292,7 +301,7 @@ let get ~images (source : Response.source) =
     | _ -> ());
     Option.iter line source.media_type);
   blank ();
-  Console.sanitize source.text
+  Console_text.sanitize source.text
   |> String.split_on_char '\n'
   |> List.iter (fun text -> if text = "" then blank () else line text);
   page_hint ~images ~command:"get" ~id:source.id source.next_offset

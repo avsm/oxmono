@@ -1,0 +1,167 @@
+(*---------------------------------------------------------------------------
+  Copyright (c) 2026 Thomas Gazagnaire. All rights reserved.
+  SPDX-License-Identifier: ISC
+  ---------------------------------------------------------------------------*)
+
+open Native_test
+
+let format = {|hello W\303\266rld 42 x>y end\n|}
+
+let record_waits waits =
+  with_dir @@ fun env cwd ->
+  record env cwd
+    (tape ([ K7.type' ("printf '" ^ format ^ "'\n"); K7.wait Prompt ] @ waits))
+
+let test_matching () =
+  let patterns =
+    [
+      "hello";
+      {|W\x{f6}rld|};
+      "(?i)HELLO";
+      {|\d+ x>y|};
+      {|\bend\b|};
+      "[[:digit:]]{2}";
+      "[^a-z ]rld";
+      {|\Qx>y\E|};
+      {|^> printf|};
+      "(?m)^hello";
+      "(?s)end.>";
+      "a|42";
+      {|(?m)^>$|};
+      "W.rld";
+      "[ö]";
+      {|4\d|};
+    ]
+  in
+  match
+    record_waits
+      (List.map (fun p -> K7.wait ~timeout:(Ms 3000) (Screen p)) patterns)
+  with
+  | Ok _ -> ()
+  | Error e -> Alcotest.failf "%a" K7.pp_error e
+
+let test_not_matching () =
+  List.iter
+    (fun p ->
+      match record_waits [ K7.wait ~timeout:(Ms 200) (Screen p) ] with
+      | Error (Timeout _) -> ()
+      | Ok _ -> Alcotest.failf "%S matched" p
+      | Error e -> Alcotest.failf "%S: %a" p K7.pp_error e)
+    [ "helloo"; "^hello"; "W[^\\x{f6}]rld"; "end.>"; {|\bell|}; "x{3}" ]
+
+let test_unicode_class () =
+  (match
+     record_waits
+       [ K7.wait ~timeout:(Ms 3000) (Screen {|W\p{Ll}rld \pN+ \p{Latin}|}) ]
+   with
+  | Ok _ -> ()
+  | Error e -> Alcotest.failf "%a" K7.pp_error e);
+  match record_waits [ K7.wait ~timeout:(Ms 200) (Screen {|\p{Greek}|}) ] with
+  | Error (Timeout _) -> ()
+  | Ok _ -> Alcotest.fail "\\p{Greek} matched"
+  | Error e -> Alcotest.failf "%a" K7.pp_error e
+
+let test_go_semantics () =
+  List.iter
+    (fun (p, t, expected) ->
+      Alcotest.(check bool)
+        (Fmt.str "%S on %S" p t) expected
+        (Regexp_match.matches (Regexp_match.compile p) t))
+    [
+      ("(?i)k", "\xe2\x84\xaa", true);
+      ("(?i)\xc3\xa9", "\xc3\x89", true);
+      ("(?i)\\x{3c3}", "\xcf\x82", true);
+      ("(?i)[a-z]", "\xc5\xbf", true);
+      ("(?i)\\W", "\xc5\xbf", false);
+      ("(?i)[^\\w]", "\xe2\x84\xaa", false);
+      ("\\bcaf\\b", "caf\xc3\xa9", true);
+      ("\\b\xc3\xa9", " \xc3\xa9", false);
+      ("x\\B", "x\xc3\xa9", false);
+      ("a(?i)|B", "b", true);
+      ("(a(?i))B", "aB", true);
+      ("(a(?i))b", "aB", false);
+      ("a(?s){2}", "aa", true);
+      ("\\p{Greek}", "\xce\xb1", true);
+      ("\\pL", "1", false);
+      ("\\PL", "1", true);
+      ("(?i)\\p{Lu}", "a", true);
+      ("\\P{Lu}", "A", false);
+      ("[\\p{^Lu}]", "a", true);
+      ("(?i)[\\P{Lu}]", "a", false);
+      ("\\p{Assigned}", "\xcd\xb8", false);
+      ("\\p{Any}", "\n", true);
+      ("(?i)\\p{Ascii}", "\xc5\xbf", true);
+      ("\\p{Ascii}", "\xc5\xbf", false);
+      ("\\p{Letter}", "\xc3\xa9", true);
+      ("\\p{old_italic}", "\xf0\x90\x8c\x80", true);
+      ("\\p{Lc}", "a", true);
+    ]
+
+(* Written by match_oracle.go; too many to wait on each. *)
+let test_go_oracle () =
+  let unhex h =
+    String.init
+      (String.length h / 2)
+      (fun i -> Char.chr (int_of_string ("0x" ^ String.sub h (2 * i) 2)))
+  in
+  In_channel.with_open_bin "match_cases.txt" In_channel.input_all
+  |> String.split_on_char '\n'
+  |> List.iter (fun line ->
+      match String.split_on_char '\t' line with
+      | [ v; p; t ] ->
+          let p = unhex p and t = unhex t in
+          Alcotest.(check bool)
+            (Fmt.str "%S on %S" p t) (v = "1")
+            (Regexp_match.matches (Regexp_match.compile p) t)
+      | [ "" ] -> ()
+      | _ -> Alcotest.failf "bad case %S" line)
+
+let test_vhs_oracle () =
+  with_dir @@ fun env cwd ->
+  let clock = Eio_mock.Clock.Mono.make ()
+  and proc = Eio.Stdenv.process_mgr env in
+  let text = {|\307\204 \305\277tra\303\237e K caf\303\251|} in
+  let tape waits =
+    match
+      K7.tape ~outputs:[ "out.txt" ]
+        (K7.type' ("printf '" ^ text ^ "\\n'\n") :: K7.wait Prompt :: waits)
+    with
+    | Ok t -> t
+    | Error e -> Alcotest.failf "%a" K7.pp_error e
+  in
+  let both t =
+    ( K7.record ~engine:Vhs ?vhs:oracle ~clock ~proc ~cwd t,
+      Native_test.play env cwd t )
+  in
+  let holds =
+    List.map
+      (fun re -> K7.wait ~timeout:(Ms 2000) (Screen re))
+      [
+        "(?i)\xc7\x86 ";
+        "(?i)STRA\xe1\xba\x9eE";
+        "(?i)\xe2\x84\xaa ";
+        {|\bcaf\b|};
+        {|(?i)[^\W]af|};
+      ]
+  in
+  (match both (tape holds) with
+  | Ok (), Ok _ -> ()
+  | Error e, _ | _, Error e -> Alcotest.failf "%a" K7.pp_error e);
+  match both (tape [ K7.wait ~timeout:(Ms 1000) (Screen {|caf\B|}) ]) with
+  | Error (Vhs_failed _), Error (Timeout _) -> ()
+  | _ -> Alcotest.fail "a wait that does not hold ended a recording"
+
+let suite =
+  ( "regexp_match",
+    List.map
+      (fun (name, fn) -> Alcotest.test_case name `Quick fn)
+      ([
+         ("matching", test_matching);
+         ("not matching", test_not_matching);
+         ("Unicode class", test_unicode_class);
+         ("Go semantics", test_go_semantics);
+         ("Go oracle", test_go_oracle);
+       ]
+      @
+      if Option.is_some oracle then [ ("vhs oracle", test_vhs_oracle) ] else []
+      ) )

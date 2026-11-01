@@ -1,0 +1,86 @@
+(copy_files ../lib/input/width.{ml,mli})
+
+(rule
+ (with-stdout-to
+  matrix_version.ml
+  (echo "let v = \"%{version:matrix}\"\n")))
+
+(executable
+ (name fuzz)
+ (modules :standard \ fuzz_eio fuzz_console_eio)
+ (libraries console_compat
+  console
+  console.input
+  console.text
+  matrix.ansi
+  matrix.grid
+  console_vte
+  display_harness
+  view_harness
+  matrix.vte
+  fmt
+  re
+  jsont
+  jsont.bytesrw
+  uucp
+  uuseg
+  alcobar))
+
+(rule
+ (alias runtest)
+ (package console)
+ (enabled_if
+  (<> %{profile} afl))
+ (deps fuzz.exe)
+ (action
+  (run %{exe:fuzz.exe} --budget 0.3 --timeout 120)))
+
+(rule
+ (alias fuzz)
+ (package console)
+ (enabled_if
+  (= %{profile} afl))
+ (deps fuzz.exe)
+ (action
+  (progn
+   (run %{exe:fuzz.exe} --gen-corpus corpus)
+   (run afl-fuzz -V 60 -i corpus -o _fuzz -- %{exe:fuzz.exe} @@))))
+
+(executable
+ (name fuzz_eio)
+ (modules fuzz_eio fuzz_console_eio)
+ (libraries console_compat
+  console
+  console-eio
+  console_vte
+  console.text
+  eio
+  eio.mock
+  mtime
+  cmdliner
+  unix
+  logs
+  fmt
+  jsont
+  jsont.bytesrw
+  alcobar))
+
+(rule
+ (alias runtest)
+ (package console-eio)
+ (deps ../test/eio/tty.exe ../test/eio/teardown.exe)
+ (enabled_if
+  (<> %{profile} afl))
+ (action
+  (run %{exe:fuzz_eio.exe} --budget 0.3 --timeout 120)))
+
+(rule
+ (alias fuzz)
+ (package console-eio)
+ (deps ../test/eio/tty.exe ../test/eio/teardown.exe)
+ (enabled_if
+  (= %{profile} afl))
+ (action
+  (progn
+   (run %{exe:fuzz_eio.exe} --gen-corpus corpus-eio)
+   (run afl-fuzz -V 60 -i corpus-eio -o _fuzz_eio -- %{exe:fuzz_eio.exe} @@))))

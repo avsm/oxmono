@@ -1,0 +1,184 @@
+{0 Widgets and themes}
+
+This page shows the widgets of {!Console} that the README leaves out, and
+how the themes draw them. Each example prints without colour, as it would
+on a pipe, so its output is exactly the text a terminal shows.
+
+{1:text Styled text}
+
+A {{!Console.View}view} is text in one or more styles. Parts of it can be
+links, which a terminal that supports them opens on a click. Without colour
+a link prints as its label:
+
+{@ocaml[
+# let docs =
+    Console.View.(
+      styled Console.Style.bold (text "Read ")
+      ++ link ~uri:"https://ocaml.org/docs"
+           (styled Console.Style.underline (text "the manual")));;
+val docs : Console.View.t = <abstr>
+# Fmt.pr "%a@." Console.View.pp docs;;
+Read the manual
+- : unit = ()
+]}
+
+A role gives a view one of the theme's colours, chosen only when the view is
+printed:
+
+{ul
+{- {!Console.View.role} styles any view, as [View.(role `Succeeded (text "passed"))]
+   does, a link for example.}
+{- The roles are [`Accent], [`Succeeded], [`Warning], [`Failed], [`Muted] and
+   [`Header] ({!Console.Theme.type-role}).}}
+
+{!Console.View.gradient} grades text through the colours it is given, or
+through the theme's palette, one grapheme cluster at a time. Without colour
+it is its text:
+
+{@ocaml[
+# Fmt.pr "%a@." Console.View.pp
+    (Console.View.gradient ~colors:Console.Color.[ red; blue ]
+       (Console.View.text "console"));;
+console
+- : unit = ()
+]}
+
+{1:tables Table borders and rules}
+
+{!Console.Border.simple} draws no frame, only a rule under the header:
+
+{@ocaml[
+# print_endline
+    (Console.View.to_string (Console.Table.view ~border:Console.Border.simple
+     [
+      Console.Table.column (Console.View.text "Name");
+      Console.Table.column ~align:`Right (Console.View.text "Size");
+     ]
+     [
+      [ Console.View.text "README.md"; Console.View.text "2.4K" ];
+      [ Console.View.text "src/"; Console.View.text "4.0K" ];
+     ]));;
+Name       Size
+───────────────
+README.md  2.4K
+src/       4.0K
+- : unit = ()
+]}
+
+[~rules:true] draws a rule between the rows, which helps the eye when cells
+hold several lines:
+
+{@ocaml[
+# print_endline
+    (Console.View.to_string (Console.Table.view ~rules:true
+     [
+      Console.Table.column (Console.View.text "Step");
+      Console.Table.column (Console.View.text "Status");
+     ]
+     [
+      [ Console.View.text "fetch"; Console.View.text "done" ];
+      [ Console.View.text "compile"; Console.View.text "2 warnings\n1 error" ];
+     ]));;
+╭─────────┬────────────╮
+│ Step    │ Status     │
+├─────────┼────────────┤
+│ fetch   │ done       │
+├─────────┼────────────┤
+│ compile │ 2 warnings │
+│         │ 1 error    │
+╰─────────┴────────────╯
+- : unit = ()
+]}
+
+{1:nesting Widgets side by side}
+
+Every widget is a view, laid out only when it is printed, in the room it
+is given. {!Console.View.hcat} puts views side by side, each at its
+natural width, or at the width {!Console.View.sized} gives it, and in its
+own colours. The result is one more view, which can go in a cell, a panel
+or a display's view. {!Console.View.vcat} puts views one under the other:
+
+{@ocaml[
+# let tree =
+    Console.Tree.v (Console.View.text "src")
+      [ Console.Tree.v (Console.View.text "lib") [] ]
+  and panel = Console.Panel.view (Console.View.text "2 files") in
+  Fmt.pr "%a@." Console.View.pp
+    (Console.View.hcat
+       [ Console.Tree.view tree; panel ]);;
+src      ╭─────────╮
+└── lib  │ 2 files │
+         ╰─────────╯
+- : unit = ()
+]}
+
+{1:themes Themes}
+
+A {{!Console.Theme}theme} holds the choices the widgets share:
+
+{ul
+{- the main colour, and the colours of a success, a warning and a failure;}
+{- a muted colour for frames and annotations, and the style of headers;}
+{- the marks that say how a task ended;}
+{- the frame of tables and panels, and how it moves;}
+{- the lines of a tree, the glyphs of a bar and the spinner.}}
+
+A formatter has one theme, which {!Console.Theme.set} chooses much as
+[Fmt.set_style_renderer] chooses its colours, and every widget printed on
+that formatter is drawn in its theme.
+
+{2:choosing Choosing a theme}
+
+{ul
+{- {!Console.Theme.default} is drawn in the terminal's own named colours,
+   with faint text for what is muted, so it reads on whatever background
+   the terminal's user chose. Keep it when nothing is known of the
+   terminal.}
+{- A theme named after a colour scheme, such as {!Console.Theme.dracula},
+   is for a terminal that uses that scheme. Its colours are chosen for the
+   scheme's background, which console does not paint, so some of them may
+   be hard to read on another one.}
+{- On a terminal of 16 colours, as [TERM=xterm] announces without a
+   [COLORTERM], every theme is drawn in the terminal's named colours. Their
+   contrast is that of the terminal's own scheme.}
+{- Every theme falls back to ASCII on a formatter that is not UTF-8.
+   {!Console.Theme.ascii} always draws in ASCII.}}
+
+{!Console.Theme.all} lists the themes under their names, the values of a
+[--theme] option:
+
+{@ocaml[
+# List.map fst Console.Theme.all;;
+- : string list =
+["default"; "ascii"; "dos"; "matrix"; "rainbow"; "dracula"; "nord";
+ "solarized-dark"; "solarized-light"; "gruvbox-dark"; "gruvbox-light";
+ "catppuccin-latte"; "catppuccin-mocha"; "tokyo-night"; "one-dark";
+ "monokai"; "github-dark"; "github-light"]
+]}
+
+{2:motion Frames that move}
+
+In a theme with {{!Console.Theme.type-motion}motion}, the frame of a table
+or a panel in a {!Console.Display}'s view moves, by the time since the
+display started, while the display draws in colour:
+
+{ul
+{- {!Console.Theme.matrix} runs digital rain round it ([`Rain]);}
+{- {!Console.Theme.rainbow} sweeps its palette round it ([`Sweep]);}
+{- every theme named after a colour scheme sends a highlight of its main
+   colour round it ([`Shimmer]);}
+{- {!Console.Theme.default}, {!Console.Theme.ascii} and
+   {!Console.Theme.dos} stand still.}}
+
+Only the colours and the glyphs of straight lines change, and each glyph
+keeps its width, so the columns stay aligned in every frame.
+
+A frame stands still when it is printed with [Fmt], on a pipe or without
+colour, and a rainbow frame then keeps its colours.
+
+{!Console.Theme.still} takes all motion out of a theme, the spinner
+included, for the users who ask for no animation:
+
+{@ocaml[
+let theme ~no_motion t = if no_motion then Console.Theme.still t else t
+]}

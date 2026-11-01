@@ -10,6 +10,7 @@ homepage: "https://tangled.org/anil.recoil.org/srcsetter"
 bug-reports: "https://tangled.org/anil.recoil.org/srcsetter/issues"
 depends: [
   "dune" {>= "3.21"}
+  "console"
   "ocaml" {>= "5.1"}
   "jsont"
   "bytesrw"

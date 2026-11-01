@@ -1,0 +1,13 @@
+(library
+ (name display_harness)
+ (modules display_harness)
+ (flags
+  (:standard -open Console__))
+ (libraries console_compat console console_vte matrix.vte alcotest astring fmt))
+
+(library
+ (name view_harness)
+ (modules view_harness)
+ (flags
+  (:standard -open Console__))
+ (libraries console_compat console))

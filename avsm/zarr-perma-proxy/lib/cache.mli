@@ -1,61 +1,92 @@
-(*---------------------------------------------------------------------------
-   Copyright (c) 2026 Anil Madhavapeddy. All rights reserved.
-   SPDX-License-Identifier: ISC
-  ---------------------------------------------------------------------------*)
+(** Whole-object cache with a transactional URL index and immutable SHA-256
+    blobs. URLs must identify immutable public objects. *)
 
-(** Permanent sparse-object cache.
-
-    Cached bytes are never revalidated on hits. URLs must name immutable
-    objects. Clear the cache while the server is stopped to refresh objects
-    changed in place. Validators are checked on misses to prevent mixing
-    revisions. One server process must own a cache directory. *)
 type t
 type entry
 type selection = Whole | From of int * int option | Suffix of int
+type range = { start : int; stop : int }
+type outcome = Hit | Miss | Shared
+type result = Found of entry | Missing of int
+
+type limits = {
+  max_object_bytes : int;
+  reserve_bytes : int64;
+  downloads : int;
+  timeout : Duration.t;
+  max_entries : int;
+}
+
+val default_limits : limits
+(** Defaults: 8 GiB per object, 5 GiB filesystem reserve, four concurrent
+    downloads, 30 minutes per active fetch, and one million URL entries. *)
+
 exception Unsatisfiable of int
-(** [Unsatisfiable size] reports a range outside a [size]-byte object. *)
 exception Upstream of string
-(** [Upstream message] reports an invalid response or corrupt cache. *)
-val create :
-  dir:Eio.Fs.dir_ty Eio.Path.t -> client:Fetch.plain ->
-  random:Eio.Flow.source_ty Eio.Resource.t -> t
-(** [create ~dir ~client ~random] creates the cache directory and initializes the
-    per-object fiber locks. [random] supplies secure random bytes for data
-    generation IDs, normally [Eio.Stdenv.secure_random env]. Existing
-    manifests and data are reused. *)
-val ensure :
-  t -> url:string -> head_only:bool -> selection ->
-  (entry * Coverage.t) option
-(** [ensure t ~url ~head_only selection] ensures the selected bytes are on
-    disk. Only missing intervals are fetched. HEAD persists object metadata
-    without fetching data. Missing upstream objects return [None]. Failed or
-    cancelled transfers never publish their coverage. Upstream 404 and 410
-    responses are also cached permanently. Data is synced before
-    an atomic manifest replacement. *)
-val cached : t -> url:string -> entry option
-(** [cached t ~url] loads an existing entry without network traffic. *)
+exception Limit of string
+
+val with_open :
+  dir:Eio.Fs.dir_ty Eio.Path.t ->
+  clock:_ Eio.Time.Mono.t ->
+  wall_clock:_ Eio.Time.clock ->
+  random:Eio.Flow.source_ty Eio.Resource.t ->
+  ?client:Fetch.plain ->
+  ?limits:limits ->
+  ?upstreams:string list ->
+  (t -> 'a) ->
+  'a
+(** [with_open ... f] owns the cache directory for [f], including all readers.
+    It refuses another owner, symlinked storage and legacy JSON/sparse caches.
+    Resources close before the ownership lock is released. [client] is required
+    only for misses. [upstreams] must then explicitly allow the roots used by
+    initial requests and redirects. Join all child fibers before returning from
+    [f]. *)
+
+val get : t -> url:string -> result * outcome
+(** [get t ~url] returns the complete cached object, downloading a whole GET on
+    a miss. It sends no Range, cookies or client credentials. Concurrent misses
+    share a download. A cancelled owner allows remaining callers to retry. 404
+    and 410 results are cached permanently. *)
+
 val size : entry -> int
-(** [size entry] is the full object length, including uncovered bytes. *)
 val content_type : entry -> string
-(** [content_type entry] is the upstream media type. *)
 val etag : entry -> string option
-(** [etag entry] is the upstream entity tag. *)
 val modified : entry -> string option
-(** [modified entry] is the upstream Last-Modified field. *)
-val covered : entry -> Coverage.t -> bool
-(** [covered entry range] says whether every requested byte is cached. *)
-val revision : entry -> string
-(** [revision entry] identifies the local data generation. A changed upstream
-    object gets a different generation without overwriting active readers. *)
-val complete : entry -> bool
-(** [complete entry] says whether the entire object is cached. Sparse holes
-    never count as stored data. *)
-val read : entry -> Coverage.t -> string
-(** [read entry range] reads covered bytes into memory. *)
-val write : entry -> Coverage.t -> Proffer.Body.Sink.t -> unit
-(** [write entry range sink] streams covered bytes to [sink] with bounded
-    buffers. Empty ranges do not open a data file. *)
-val resolve : int -> selection -> Coverage.t
-(** [resolve size selection] clamps the selection to an object of [size]
-    bytes. Invalid selections raise [Invalid_argument]. A selection past
-    the object raises [Unsatisfiable size]. *)
+val digest : entry -> string
+val resolve : int -> selection -> range
+
+val write : entry -> range -> Proffer.Body.Sink.t -> unit
+(** [write entry range sink] streams the selected bytes with a 64 KiB buffer.
+    The entry and its cache owner must remain live throughout the call. *)
+
+val logger : t -> Logger.t
+
+val key : string -> string
+(** [key url] is a SHA-256 identity for joining telemetry to the URL index. *)
+
+val forget : t -> url:string -> unit
+(** [forget t ~url] removes its index reference. Existing blobs remain until GC.
+    This is an offline maintenance operation, before serving any requests. *)
+
+type collected = { blobs : int; bytes : int64; temporary : int }
+
+val gc : t -> collected
+(** [gc t] removes orphan blobs and interrupted temporary downloads. Call only
+    during offline maintenance, before starting any requests on [t]. The
+    process-wide ownership lock excludes a running server or another GC. *)
+
+val summary : sw:Eio.Switch.t -> _ Eio.Path.t -> string
+(** [summary ~sw dir] reads cache counts and deduplication totals as JSON
+    without acquiring the writer lock, including while a server is running. *)
+
+type progress = Logger.transfer = {
+  key : string;
+  path : string;
+  bytes : int;
+  total : int option;
+  age : float;
+}
+
+val activity : t -> int * progress list
+(** [activity t] is the number of downloads waiting for a slot and active
+    transfers, with consumed bytes, optional length and monotonic age in
+    seconds. Followers sharing a transfer do not count as queued downloads. *)

@@ -1,4 +1,7 @@
 (library
  (name perma_proxy)
  (public_name zarr-perma-proxy)
- (libraries fetch proffer httpz eio cstruct optint jsont jsont.bytesrw zarrz))
+ (private_modules database disk)
+ (foreign_stubs (language c) (names disk_stubs))
+ (libraries fetch proffer httpz eio eio.unix eioext cstruct optint
+  sqlite3-eio digestif mtime duration jsont jsont.bytesrw unix))

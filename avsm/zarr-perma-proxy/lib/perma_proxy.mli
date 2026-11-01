@@ -1,34 +1,28 @@
-(*---------------------------------------------------------------------------
-   Copyright (c) 2026 Anil Madhavapeddy. All rights reserved.
-   SPDX-License-Identifier: ISC
-  ---------------------------------------------------------------------------*)
+(** Whole-object HTTP cache for immutable public stores, including Zarr. *)
 
-(** HTTP proxy for immutable Zarr stores and other public objects. *)
-module Manifest = Manifest
 module Cache = Cache
-module Coverage = Coverage
-module Shard = Shard
+module Logger = Logger
 
 type mapping
 type t
+
 val mapping : prefix:string -> upstream:string -> mapping
-(** [mapping ~prefix ~upstream] maps a local absolute path to an HTTP store
-    root. Neither root may have a trailing slash. A prefix of ["/"] is allowed.
-    Invalid mappings raise [Invalid_argument]. *)
-val create : cache:Cache.t -> mapping list -> t
-(** [create ~cache mappings] creates a proxy. The longest matching prefix
-    wins. At least one mapping is required. *)
+(** [mapping ~prefix ~upstream] maps an absolute local path to an HTTP root.
+    Trailing slashes are forbidden except for the local root ["/"]. *)
+
+val upstream : mapping -> string
+
+val create : cache:Cache.t -> ?allow_query:bool -> mapping list -> t
+(** [create ~cache mappings] selects the longest matching prefix. Query strings
+    are rejected unless [allow_query] is true (default false). Configure the
+    cache's upstream allowlist to include these roots and approved redirects. *)
+
 val site : t Proffer.Site.t
-(** [site] serves GET, HEAD and CORS OPTIONS. A single explicit, open-ended
-    or suffix byte range is supported. Multi-range requests return 400.
-    Successful cache hits require no upstream request, including HEAD.
+(** [site] serves GET, HEAD and CORS OPTIONS. A cold GET or HEAD downloads and
+    publishes the complete object before responding. Explicit, open-ended and
+    suffix ranges are sliced from immutable local bytes. Multi-range requests
+    return 400. Hits and negative entries are permanent. No Zarr codecs are
+    interpreted and client credentials are not forwarded. *)
 
-    Cached array or consolidated metadata identifies indexed Zarr shards.
-    Missing ranges read and validate their index, then cache complete encoded
-    inner chunks overlapping the request. Unsupported layouts retain ordinary
-    byte-range caching. Whole reads fetch gaps and assemble the original shard
-    without rewriting its index. Full objects stream from disk.
-
-    Hits are permanent. Use immutable dataset URLs and stop the server before
-    clearing its cache to refresh a changed publication. No upstream
-    credentials, cookies or client authorization headers are forwarded. *)
+val object_key : t -> string -> string option
+(** [object_key t target] hashes the mapped upstream URL for telemetry joins. *)

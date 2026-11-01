@@ -1,0 +1,7 @@
+(library
+ (name zarrtop_ui)
+ (public_name zarr-perma-proxy.ui)
+ (allow_overlapping_dependencies)
+ (libraries core bonsai_term bonsai_term_components.border_box
+  bonsai_term_components.scroller yojson)
+ (preprocess (pps ppx_jane bonsai.ppx_bonsai)))

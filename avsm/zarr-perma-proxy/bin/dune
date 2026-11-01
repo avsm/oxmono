@@ -1,5 +1,17 @@
 (executable
  (name main)
+ (modules main)
  (public_name zarr-perma-proxy)
  (package zarr-perma-proxy)
  (libraries zarr-perma-proxy fetch-httpz proffer-httpz eio_main eio.unix unix cmdliner))
+
+
+(executable
+ (name zarrtop)
+ (modules zarrtop)
+ (public_name zarrtop)
+ (package zarr-perma-proxy)
+ (link_deps main.exe)
+ (allow_overlapping_dependencies)
+ (libraries zarr-perma-proxy.ui async core core_unix.command_unix core_unix.filename_unix)
+ (preprocess (pps ppx_jane)))

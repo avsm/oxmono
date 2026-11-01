@@ -1,4 +1,13 @@
 (test
  (name test_proxy)
+ (modules test_proxy)
  (libraries zarr-perma-proxy fetch.mock fetch-httpz proffer.mock proffer-httpz
   zarrz zarrz-fetch eio_main jsont.bytesrw http unix))
+
+
+(test
+ (name test_ui)
+ (modules test_ui)
+ (allow_overlapping_dependencies)
+ (libraries zarr-perma-proxy.ui bonsai_term_test bonsai_test notty-community core)
+ (preprocess (pps ppx_jane)))

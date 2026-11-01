@@ -6,8 +6,11 @@
 (maintainers "Anil Madhavapeddy <anil@recoil.org>")
 (package
  (name zarr-perma-proxy)
- (synopsis "Permanent HTTP range cache for Zarr stores")
+ (synopsis "Content-addressed HTTP object cache for Zarr stores")
  (depends
   (ocaml (>= 5.2.0))
   fetch fetch-httpz proffer proffer-httpz eio eio_main
-  zarrz jsont base_bigstring http httpz cstruct optint cmdliner))
+  sqlite3-eio digestif eioext mtime duration jsont http httpz cstruct optint cmdliner
+  bonsai_term bonsai_term_components bonsai async core core_unix yojson ppx_jane
+  (bonsai_term_test :with-test) (bonsai_test :with-test) (notty-community :with-test)
+  (zarrz :with-test) (zarrz-fetch :with-test) (base_bigstring :with-test)))

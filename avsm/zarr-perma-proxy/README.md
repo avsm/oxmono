@@ -1,107 +1,133 @@
 # zarr-perma-proxy
 
-Permanent disk cache for public HTTP objects, including Zarr V3 shards.
-Uses `fetch-httpz` upstream and `proffer-httpz` for serving. This refresh of
-the former proxy uses the current HTTP libraries and persists partial
-objects across requests and restarts. The cache and shard handling are
-generic. Tessera appears only in the default CLI mapping and examples.
+Permanent disk cache for immutable public HTTP objects, including Zarr V3
+shards. A miss downloads the complete object with one upstream GET. Client
+byte ranges are then served from disk. Concurrent misses for the same URL
+share that download. Original bytes are never decoded or re-encoded.
 
-## Tessera
+## Run
 
     dune build --profile release-check avsm/zarr-perma-proxy/bin/main.exe
-    dune exec --profile release-check -- zarr-perma-proxy \
-      --cache-dir ./tessera-cache --port 9999 --verbose
+    dune exec --profile release-check -- zarr-perma-proxy serve --cache-dir ./tessera-cache --port 9999 --verbose
 
-The default mapping is `/tessera` to the `v1.1-dclimate` Zarr store.
-Keep this process running while reading through it:
+The default mapping is /tessera to
+https://data.source.coop/tessera/tessera/zarr/v1.1-dclimate.
+Use the proxy with existing readers:
 
     tessera info --store http://127.0.0.1:9999/tessera
-    tessera probe --store http://127.0.0.1:9999/tessera \
-      --year 2024 -- 0.12 52.20
+    tessera probe --store http://127.0.0.1:9999/tessera --year 2024 -- 0.12 52.20
 
-Python readers use the same URL:
+Python readers can use the same URL with GeoTesseraZarr. Repeat
+`--map /prefix=https://host/store` for multiple stores. Explicit mappings
+replace the default. The longest matching local prefix wins. Omitting
+`serve` retains the same default invocation.
 
-```python
-from geotessera import GeoTesseraZarr
+The server binds loopback. Put an authenticated reverse proxy in front if
+remote access is needed. Client cookies and credentials are never forwarded.
+Redirects must remain within a mapped upstream root, or a root explicitly
+approved with `--allow-upstream URL`. Queries are rejected unless
+`--allow-query` is set. That option creates a separate permanent entry for
+every distinct query and stores the full URL in the private cache index.
 
-gt = GeoTesseraZarr("http://127.0.0.1:9999/tessera")
-X = gt.sample_points([(0.12, 52.20), (-2.97, 53.44)], year=2024)
-```
+## Responses and limits
 
-Repeat the queries with a fresh reader or after restarting the proxy. Cached
-metadata, HEAD information, indexes, chunks and missing-object responses
-require no upstream requests. No Icechunk or NPY source support is needed.
-Use `--map /other=https://host/store` to replace the default mapping. Repeat
-`--map` for several roots. The longest matching path prefix wins.
+GET supports a single explicit, open-ended or suffix byte range. Multi-range
+requests return 400, and unsatisfiable ranges return 416. HEAD reports the
+complete object size. **A cold HEAD or range request waits for the entire
+object to download.** This trades initial latency and bandwidth for simpler
+caching and local subsequent reads. No upstream HEAD or Range requests are
+sent. Responses expose `X-Cache: HIT|MISS|SHARED` and
+`X-Cache-Complete: true` for cached objects, with CORS headers.
 
-## Partial objects
+| Option | Default | Meaning |
+| --- | --- | --- |
+| --max-object-bytes | 8589934592 | Maximum object size (8 GiB) |
+| --reserve-bytes | 5368709120 | Free disk reserve (5 GiB) |
+| --downloads | 4 | Maximum concurrent upstream downloads |
+| --download-timeout | 1800 | Seconds per active download |
+| --max-entries | 1000000 | Maximum URL entries, including missing objects |
 
-Each URL has an atomic JSON manifest and a sparse data file. The manifest
-records the object size, validators and sorted, merged coverage intervals.
-`Perma_proxy.Manifest.jsont` defines the versioned on-disk format. It
-validates exact nonnegative integer offsets, safe generation IDs, and sorted,
-coalesced coverage within the object. Invalid manifests are rejected rather
-than repaired. Manifests without a version are read as version 1.
-File size alone does not imply completeness. Up to 1024 manifests are kept
-in memory to avoid parsing JSON for every small repeated range. Downloads use identity content
-coding and validate Content-Range, declared lengths and validators. Only
-successfully received and synced bytes gain coverage. Interrupted transfers
-leave their bytes uncovered and can be retried.
+The disk check reserves declared sizes against available space and other
+downloads. A response without a declared length reserves the maximum object
+size. Space limits return 503. The reserve is not a filesystem quota:
+unrelated writers can still consume space. There is no automatic eviction.
 
-Explicit, open-ended and suffix ranges are supported. Only gaps in a requested
-interval are fetched. HEAD uses the saved length without reading the body.
-Concurrent requests for an object serialize, so overlapping misses do not
-fetch the same bytes twice. Full GETs fill the remaining gaps with requests
-of at most 8 MiB, then stream the assembled object from disk using 64 KiB
-buffers. An origin that ignores Range may send the whole object, which is
-cached and sliced correctly. Initial whole-object GETs stream to disk.
+URLs must be immutable. Hits never revalidate. 404 and 410 responses are also
+cached permanently. To refresh a changed URL, stop the server and forget it:
 
-For arrays with the sole outer codec `sharding_indexed`, cached `zarr.json`
-or root consolidated metadata describes the shard geometry. The proxy reads
-the index at its declared start or end, decodes its configured codecs with
-zarrz, checks checksums and offsets, and caches complete encoded inner chunks
-overlapping a requested fragment. Adjacent intervals merge. The response
-still contains exactly the requested bytes. Index decoding is reused for up
-to 64 recently encountered shard generations. Other layouts and data queried
-with URL parameters use ordinary range caching.
+    dune exec -- zarr-perma-proxy forget --cache-dir ./tessera-cache https://host/store/OBJECT
+    dune exec -- zarr-perma-proxy gc --cache-dir ./tessera-cache
 
-Data is never decoded or re-encoded by the proxy. Absent inner chunks remain
-absent in the original index. The full shard becomes complete only when every
-physical byte, including padding, is present. Whole reads fetch any padding
-or other gaps instead of inventing bytes.
+## Storage and recovery
 
-Responses expose `X-Cache: HIT|MISS` and `X-Cache-Complete: true|false`, with
-CORS headers for browser range readers. Multi-range requests return 400.
-The server binds loopback. Upstream mappings grant access to public read-only
-objects. Client cookies and authorization headers are not forwarded.
+Use a new, private directory for this version. Legacy sparse caches with JSON
+manifests are rejected and are not migrated.
 
-## Lifetime
+The directory contains:
 
-This is a permanent cache for immutable published URLs. Hits do not send
-conditional requests or revalidate the origin. 404 and 410 responses are also
-permanent, so repeated reads of missing shards stay local. Changing an object
-in place or publishing new shards at the same URL requires a fresh cache.
-Stop the server before clearing the cache directory. Do not share its cache
-with another server process. The command takes a directory lock. Files, network requests, random
-generation IDs and fiber synchronization use Eio. The lock uses a
-nonblocking POSIX call on an Eio-owned descriptor because Eio has no
-file-lock API.
+- `index.sqlite3`: transactional URL mappings and blob lengths.
+- `blobs/HH/HASH`: immutable SHA-256 objects shared by equal content.
+- `tmp/`: unpublished downloads.
+- `requests.sqlite3`: request and download telemetry.
+- `.lock`: exclusive ownership across fibers and processes.
 
-On a miss, a changed entity tag, modification time, length or failed
-precondition invalidates the old manifest and starts a new data generation.
-Existing readers retain the old generation. Old generations and interrupted
-transfers can leave unused files. There is no eviction or automatic cleanup.
-Coverage manifests are synced and atomically replaced after data is synced.
-Corrupt manifests and truncated data files are reported as errors.
+SQLite uses WAL and FULL synchronization. Downloads are size-checked,
+hashed and synced before publication. The blob rename and its parent
+directories are synced before the URL index transaction commits. A crash
+can leave an orphan blob or temporary file, but cannot expose a partial
+object through a committed URL. Cache hits check file type and length;
+they do not rehash the entire blob on every read.
+
+`gc` removes unreferenced blobs and recognized temporary files. It and
+`forget` require exclusive ownership while the server is stopped. Reads and
+downloads hold ownership for their entire lifetime, so GC cannot delete
+files used by active readers. Restart the server after maintenance. GC
+preserves telemetry and referenced blobs. A missing or truncated referenced
+blob is an error: forget its URLs and collect it before retrying.
+
+Keep storage on a local filesystem with reliable SQLite locking, atomic
+rename and fsync support. Back up both databases and blobs while stopped,
+or use a consistent filesystem snapshot.
+
+## Measure effectiveness
+
+
+Open the live terminal dashboard in another terminal:
+
+    dune exec --profile release-check -- zarrtop --cache-dir ./tessera-cache
+
+The dashboard uses Bonsai terminal components and polls every two seconds
+(configurable with `--interval`, minimum 0.5 seconds). It shows open
+connections, active and queued downloads, byte progress, hit rates,
+request rates and traffic totals. Tab switches between recent requests,
+recent downloads and active transfers. Use / to filter, Enter to finish
+editing, Space to pause, j/k or arrow keys to scroll, and q or Ctrl-C to quit.
+
+Filtering applies to the latest 200 completed events in the selected view.
+Lifetime hit rates include negative cache hits. Rate counters use the time
+between snapshots, while connection and transfer gauges update each second.
+A stopped or unresponsive server is marked stale after five seconds and
+its old gauges are hidden. Historical data remains available offline.
+
+These commands can read a running proxy:
+
+    dune exec -- zarr-perma-proxy stats --cache-dir ./tessera-cache
+    dune exec -- zarr-perma-proxy export --cache-dir ./tessera-cache --kind requests --after 0 --limit 1000
+    dune exec -- zarr-perma-proxy export --cache-dir ./tessera-cache --kind downloads --after 0 --limit 1000
+
+`stats` emits JSON containing cache deduplication totals, lifetime telemetry
+totals and hourly time series. Exports are JSON arrays ordered by row ID.
+Continue with `--after` set to the last returned ID. Use these for later
+plotting, or query SQLite directly. See [TELEMETRY.md](TELEMETRY.md) for the
+schema, metric definitions, retention and example SQL.
 
 ## Verification
 
-    dune runtest --force --profile release-check avsm/zarr-perma-proxy
+    dune build --profile release-check @avsm/zarr-perma-proxy/all
+    dune build --profile release-check @avsm/zarr-perma-proxy/runtest --force
 
-Tests cover interval algebra, overlapping misses, restart reuse, permanent
-negative entries, revision changes, failed downloads, concurrent requests,
-shard index checksums, inner-chunk expansion and full assembly. A loopback
-HTTP test reads a Zarr array through fetch-httpz and checks zero upstream
-requests once its fragments are cached.
-
-The shard layout follows the [Zarr sharding specification](https://zarr-specs.readthedocs.io/en/latest/v3/codecs/sharding-indexed/).
+Tests cover range handling, cold HEAD, restart reuse, negative caching,
+content deduplication, limits, concurrent misses, cancellation, redirect
+restrictions, failed publication, offline GC, schema rejection and telemetry.
+Loopback HTTP tests read real Zarr arrays with shard indexes at either end
+and verify zero upstream requests after caching.

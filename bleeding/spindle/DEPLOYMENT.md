@@ -48,7 +48,7 @@ own deployments use hydrant, a filtering indexer with a compatible
    pipeline setting. With the CLI:
 
    ```sh
-   tangled repo spindle alice.example/demo ci.YOUR_DOMAIN
+   tangled repo set-spindle ci.YOUR_DOMAIN --repo alice.example/demo
    ```
 
    This sets the `spindle` field of the repository's manifest on its knot.
@@ -57,8 +57,8 @@ own deployments use hydrant, a filtering indexer with a compatible
    allow-list:
 
    ```sh
-   tangled spindle add-member ci.YOUR_DOMAIN bob.example
-   tangled spindle members ci.YOUR_DOMAIN
+   tangled spindle member add ci.YOUR_DOMAIN bob.example
+   tangled spindle member list ci.YOUR_DOMAIN
    ```
 
    `--admission=open` serves anyone.

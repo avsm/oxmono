@@ -356,6 +356,11 @@ ox release export --plan /tmp/release.json --output dist/one
 ox release verify dist/one
 ```
 
+Single-package archives use `NAME-VERSION.tar.gz`, such as
+`jsont-0.4.0+ox-20261101-2.tar.gz`. Multi-package archives use
+`PROJECT-TAG.tar.gz`, such as `eio-20261101-2.tar.gz`. A short path hash is added
+only when project names collide. Full provenance stays in the metadata.
+
 The output contains deterministic `sources/*.tar.gz`, `opam-repository/` and
 `manifest.json`. The base URL names the directory containing `sources/`.
 `file://` URLs support local installation tests. The plan freezes the commit,

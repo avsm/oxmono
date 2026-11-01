@@ -793,6 +793,11 @@ let plan proc ~repo ~revision ~packages ~owner ~tag ~base_url ~guard_repository
         | Some s -> `String (tree_hash s) );
     ]
 
+let archive_filename ~project ~packages ~tag =
+  match packages with
+  | [ p ] -> p.Stamp.name ^ "-" ^ p.version ^ ".tar.gz"
+  | _ -> Filename.basename project ^ "-" ^ tag ^ ".tar.gz"
+
 let export proc ~repo ~revision ~packages:roots ~owner ~tag ~base_url
     ~guard_repository ~previous ~output =
   validate_inputs ~base_url ~guard_repository;
@@ -811,6 +816,25 @@ let export proc ~repo ~revision ~packages:roots ~owner ~tag ~base_url
   let snapshot = resolved.snapshot in
   let packages = snapshot.Stamp.packages in
   let projects = projects snapshot in
+  let filenames =
+    List.map
+      (fun project ->
+        ( project,
+          archive_filename ~project
+            ~packages:(project_packages snapshot project)
+            ~tag ))
+      projects
+  in
+  let filename project =
+    let name = List.assoc project filenames in
+    if List.length (List.filter (fun (_, n) -> n = name) filenames) = 1 then
+      name
+    else
+      Filename.chop_suffix name ".tar.gz"
+      ^ "-"
+      ^ String.sub (hash project) 0 12
+      ^ ".tar.gz"
+  in
   let reused project =
     List.find_opt (fun u -> u.project = project) resolved.reused
   in
@@ -848,13 +872,7 @@ let export proc ~repo ~revision ~packages:roots ~owner ~tag ~base_url
                 String.concat "-" (String.split_on_char '/' project)
                 ^ "-" ^ hash project
               in
-              let tree =
-                git proc root [ "rev-parse"; commit ^ ":" ^ project ]
-              in
-              let filename =
-                name ^ "-" ^ tree ^ "-" ^ String.sub commit 0 12 ^ "-ox" ^ tag
-                ^ ".tar.gz"
-              in
+              let filename = filename project in
               match (reused project, previous) with
               | Some u, Some previous ->
                   let fields = json_object u.record in
@@ -936,7 +954,7 @@ let export proc ~repo ~revision ~packages:roots ~owner ~tag ~base_url
                  ("schema_version", `Float 1.);
                  ("commit", json_string commit);
                  ("compiler", json_string compiler);
-                 ("export_recipe", `Float 4.);
+                 ("export_recipe", `Float 5.);
                  ("tag", `String tag);
                  ("toolchain_lock", lock);
                  ("provenance", provenance);

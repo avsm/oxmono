@@ -127,6 +127,7 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
     call(root,'release','verify',a)
     manifest=json.loads((a/'manifest.json').read_text())
     for unit in manifest['archives']:
+        assert Path(unit['archive']).name==unit['packages'][0].replace('.', '-', 1)+'.tar.gz'
         with tarfile.open(a/unit['archive']) as tar:
             assert tar.extractfile('value').read()==b'original\n'
             project=tar.extractfile('dune-project').read().decode()
@@ -254,6 +255,22 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
     for unit in json.loads((paths/'manifest.json').read_text())['archives']:
         with tarfile.open(paths/unit['archive']) as tar:
             assert ('only-flat' in tar.getnames()) == (unit['project']=='wip/a-b')
+    # Multi-package projects use the project name, with a short suffix only on collision.
+    for path,names in [('wip/first/group',['ga','gb']),('wip/second/group',['gc','gd']),('wip/unique',['ua','ub'])]:
+        for name in names:pkg(path,name)
+    git(root,'add','wip/first','wip/second','wip/unique')
+    git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','multi packages')
+    multi=tmp/'multi'
+    call(root,'release','export','ga','gc','ua','--base-url','https://example.invalid/multi',
+         '--guard-repository',guards,'--output',multi)
+    multi_manifest=json.loads((multi/'manifest.json').read_text())
+    names=[Path(r['archive']).name for r in multi_manifest['archives']]
+    assert len(set(names))==3
+    assert 'unique-'+multi_manifest['tag']+'.tar.gz' in names
+    for name in names:
+        if name.startswith('group-'):
+            assert len(name.removesuffix('.tar.gz').rsplit('-',1)[1])==12
+    call(root,'release','verify',multi)
     # Release bases can be declared centrally without modifying vendored sources.
     write(root/'release-versions.json',json.dumps({'schema_version':1,'projects':{
         'wip/a-b':{'base_version':'2.1.0','reason':'Initial port release'}}}))

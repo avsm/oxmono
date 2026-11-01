@@ -1,5 +1,8 @@
 # Changes
 
+- Name single-package distfiles after the package version and multi-package
+  distfiles after the project and release tag. Keep full hashes in metadata.
+
 - Remove the release-wide `oxmono-snapshot` dependency from new exports.
   Packages retain the compiler pin and exact actual local dependencies.
 

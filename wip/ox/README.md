@@ -368,7 +368,8 @@ modifying imported source metadata. Versions have the form
 `BASE+ox-YYYYMMDD-EPOCH`, for example `0.4.1+ox-20261101-1`.
 Create an annotated tag with `ox release tag --tag YYYYMMDD-EPOCH` after
 committing the sources. Epochs are positive integers, incremented for another
-release on the same date. Every package in a release uses the same tag.
+release on the same date. Changed projects use the new tag; reused packages
+keep the tag of their original release.
 Planning requires that tag to exist. Export verifies it still resolves to the
 planned commit. Historical `bleeding/` projects can also be tagged and exported.
 `--previous dist/one` carries previous opam entries
@@ -391,12 +392,34 @@ Create a separate switch with those repositories in that priority order and
 compiler `oxcaml-compiler.5.2.0minus39`. The exported repository contains only
 our packages and guard overrides, so it needs both external repositories.
 
-Select packages you want to install together in one export. Each source
-package requires one exact `oxmono-snapshot` policy version. Independently
-exported cohorts cannot currently be mixed in a switch, even when their
-package sets are disjoint. `--previous` retains older install choices, not
-permission to mix cohorts. It verifies the earlier release before copying
-its metadata. The release tag applies to the entire selected closure. Incremental reuse of unchanged package versions is future work.
+For incremental releases, pass the preceding release to the plan:
+
+```sh
+ox release plan bytesrw --tag 20261101-2 --previous dist/one \
+  --guard-repository /path/to/oxcaml-opam-repository \
+  --base-url https://downloads.example.org/releases/two --output /tmp/next.json
+ox release export --plan /tmp/next.json --output dist/two
+```
+
+The plan records `changed_projects`, `reused_projects`, resolved package
+versions and `no_changes`. It binds the previous manifest as well as the guard
+inputs. Create the new source tag after committing changes, as above.
+
+Each Dune project is a source unit. The exporter rebuilds its archive using
+previous package versions, provenance and timestamps first. Matching SHA-256
+checksums retain the original package versions, archive bytes and URLs. A new
+tag or unrelated monorepo change therefore does not create new packages.
+Changed projects use the new tag. Exact dependency metadata is resolved until
+stable, so a library update can also change its dependents' archives.
+If all archives match, export reports no changes and creates no directory.
+Reused archives are copied into a changed release's inventory for offline
+verification, but retain their original source URLs.
+
+Source package entries are immutable. The metadata-only snapshot policy stays
+at the same version through an incremental lineage, with its permitted local
+versions extended like the upstream patch guards. Exact dependencies continue
+to prevent incompatible combinations. Independent lineages still have distinct
+policies. Use `--previous` to extend the lineage you intend to consume.
 
 For hosting, choose the final HTTPS base URL before planning. Upload the
 archives to that location, keeping their `sources/` paths, before making the

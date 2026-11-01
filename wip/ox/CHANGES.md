@@ -1,5 +1,9 @@
 # Changes
 
+- Reuse previous package versions and URLs when rebuilt distfile checksums
+  match. Plan incremental exports with `--previous`, propagate dependency
+  changes and skip exports with no changed packages.
+
 - Version source releases as `BASE+ox-YYYYMMDD-EPOCH` using an existing Git
   tag. Add `ox release tag` and reject tags moved after planning.
 

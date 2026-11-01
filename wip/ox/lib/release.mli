@@ -11,9 +11,12 @@ val plan :
   tag:string ->
   base_url:string ->
   guard_repository:string option ->
+  previous:string option ->
   OpamJson.t
-(** [plan proc ...] resolves a committed release request and records its package
-    closure and guard input hash without writing archives. *)
+(** [plan proc ...] resolves a committed release request and records its
+    resolved package versions, changed and reused projects, and hashes of its
+    inputs. With [previous], temporary trial archives are rebuilt to compare
+    checksums. Plans do not publish archives. *)
 
 val export :
   Support.proc ->
@@ -32,8 +35,12 @@ val export :
     exist. [tag] is an existing YYYYMMDD-EPOCH Git tag. An explicit [revision]
     must resolve to the same commit. HEAD selects the tag's commit.
     [guard_repository] must be [Some path] and supplies the pinned upstream
-    guard metadata. [previous] optionally carries an earlier overlay forward.
-    The caller must allocate a fresh version before changing published bytes. *)
+    guard metadata. [previous] retains identical archives, package versions and
+    URLs. Dependency metadata changes can require new versions of dependents. If
+    every selected archive matches, no output directory is created. The
+    compatibility policy allowlist is extended while source package entries
+    remain immutable. The caller must allocate a fresh tag before changing
+    published bytes. *)
 
 val verify : Support.proc -> directory:string -> unit
 (** [verify proc ~directory] validates the manifest, archives and metadata

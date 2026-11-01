@@ -81,6 +81,8 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
     pkg('u/bob/private','private')
     assert 'excluded owner' in call(root,'inventory','--user','alice',ok=False).stderr
     write(root/'u/alice/app/app.opam', 'opam-version: "2.0"\ndepends: ["shared"]\n')
+    pkg('wip/unrelated','unrelated')
+    write(root/'u/alice/user.json',json.dumps({'owner':'alice','include':['unrelated']}))
     git(root,'add','.')
     git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture')
     write(root/'wip/shared/value','uncommitted must not escape\n')
@@ -157,14 +159,75 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
         opam('install','--dry-run','app.1.0+ox-20261101-1')
         opam('install','--dry-run','app.1.0+ox-20261101-1','oxcaml-compiler.5.2.0minus40',ok=False)
         opam('install','--dry-run','app.1.0+ox-20261101-1','shared.9.0',ok=False)
+        # Exercise an upgrade with the old metadata-only policy already installed.
+        installed_policy=next((solver_repo/'packages/oxmono-snapshot').iterdir()).name
+        opam('install',installed_policy)
+    # A new tag or source URL alone must not manufacture new packages.
+    noop_plan=tmp/'noop-plan.json'
+    call(root,'release','plan','--user','alice','--tag','20261101-2',
+         '--base-url','https://example.invalid/next','--guard-repository',guards,
+         '--previous',a,'--output',noop_plan)
+    assert json.loads(noop_plan.read_text())['no_changes'] is True
+    assert 'No package changes' in call(root,'release','export','--plan',noop_plan,'--output',tmp/'noop').stderr
+    assert not (tmp/'noop').exists()
+    original_manifest=(a/'manifest.json').read_bytes()
+    changed_manifest=json.loads(original_manifest)
+    changed_manifest['note']='changed after planning'
+    (a/'manifest.json').write_text(json.dumps(changed_manifest))
+    assert 'manifest changed since planning' in call(root,'release','export','--plan',noop_plan,
+        '--output',tmp/'changed-previous',ok=False).stderr
+    (a/'manifest.json').write_bytes(original_manifest)
+
+    original_commit=git(root,'rev-parse','HEAD')
+    write(root/'notes','unrelated monorepo change\n')
+    git(root,'add','notes')
+    git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','unrelated')
+    call(root,'release','export','--user','alice','--base-url','https://example.invalid/next',
+         '--guard-repository',guards,'--previous',a,'--output',tmp/'unrelated-noop')
+    assert not (tmp/'unrelated-noop').exists()
+    write(root/'u/alice/app/value','application changed\n')
+    git(root,'add','u/alice/app/value')
+    git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','application')
     newer=tmp/'newer'
     call(root,'release','export','--user','alice','--base-url','https://example.invalid/releases/two',
-         '--guard-repository',guards,'--previous',a,'--tag','20261101-2','--output',newer)
-    assert (newer/'opam-repository/packages/app/app.1.0+ox-20261101-1/opam').exists()
-    assert (newer/'opam-repository/packages/app/app.1.0+ox-20261101-2/opam').exists()
+         '--guard-repository',guards,'--previous',a,'--output',newer)
+    def records(directory):
+        return {r['project']:r for r in json.loads((directory/'manifest.json').read_text())['archives']}
+    old_records,new_records=records(a),records(newer)
+    for name in ['wip/shared','wip/unrelated']:
+        assert new_records[name]['reused']
+        assert new_records[name]['checksum']==old_records[name]['checksum']
+        assert new_records[name]['packages']==old_records[name]['packages']
+    assert not new_records['u/alice/app']['reused']
+    assert (newer/'opam-repository/packages/shared/shared.1.0+ox-20261101-1/opam').read_bytes()==(a/'opam-repository/packages/shared/shared.1.0+ox-20261101-1/opam').read_bytes()
     call(root,'release','verify',newer)
-    call(root,'release','export','--user','alice','--base-url','https://example.invalid/changed',
-         '--guard-repository',guards,'--previous',a,'--output',tmp/'collision',ok=False)
+    # Updating a dependency changes its dependents' embedded exact constraints.
+    write(root/'wip/shared/value','dependency changed\n')
+    git(root,'add','wip/shared/value')
+    git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','dependency')
+    propagated=tmp/'propagated'
+    call(root,'release','export','--user','alice','--base-url','https://example.invalid/releases/three',
+         '--guard-repository',guards,'--previous',newer,'--output',propagated)
+    active=records(propagated)
+    assert not active['wip/shared']['reused'] and not active['u/alice/app']['reused']
+    assert active['wip/unrelated']['reused']
+    call(root,'release','verify',propagated)
+    if shutil.which('opam'):
+        shutil.copytree(propagated/'opam-repository',solver_repo,dirs_exist_ok=True)
+        opam('update','fixture')
+        new_app=active['u/alice/app']['packages'][0]
+        new_shared=active['wip/shared']['packages'][0]
+        old_unrelated=active['wip/unrelated']['packages'][0]
+        opam('install','--dry-run',new_app,old_unrelated)
+        opam('install','--dry-run',new_app,'shared.1.0+ox-20261101-1',ok=False)
+        opam('install','--dry-run','app.1.0+ox-20261101-1',new_shared,ok=False)
+        opam('install','--dry-run',new_app,'shared.9.0',ok=False)
+    # Even a forcibly moved tag cannot overwrite an existing source version.
+    git(root,'tag','-f','20261101-1','HEAD')
+    call(root,'release','export','--user','alice','--tag','20261101-1',
+         '--base-url','https://example.invalid/collision','--guard-repository',guards,
+         '--previous',a,'--output',tmp/'collision',ok=False)
+    git(root,'tag','-f','20261101-1',original_commit)
     assert not (tmp/'collision').exists()
     with (a/manifest['archives'][0]['archive']).open('ab') as f:f.write(b'bad')
     assert 'Checksum mismatch' in call(root,'release','verify',a,ok=False).stderr
@@ -197,7 +260,7 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
     git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','release base')
     overrides=tmp/'overrides'
     call(root,'release','export','flat','--base-url','https://example.invalid/overrides',
-         '--guard-repository',guards,'--output',overrides)
+         '--guard-repository',guards,'--previous',paths,'--output',overrides)
     assert list((overrides/'opam-repository/packages/flat').glob('flat.2.1.0+ox-20261101-*/opam'))
     # Reject source links which could pull data from outside a release unit.
     (root/'wip/shared/escape').symlink_to('/etc/passwd')

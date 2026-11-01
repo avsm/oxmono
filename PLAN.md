@@ -518,7 +518,12 @@ Create one annotated `YYYYMMDD-EPOCH` Git tag for the source snapshot and use
 it for every package in that release. The positive epoch increases for another
 release on the same date. Never move an existing tag or overwrite published
 package bytes. Record the full commit and checksums in the release manifest.
-Plans bind the tag to its commit and reject moved tags during export.
+Plans bind the tag to its commit and reject moved tags during export. Incremental
+exports rebuild trial distfiles using prior versions and timestamps. Identical
+checksums retain existing package versions and URLs. New tags apply only to
+changed source units, including changes to embedded dependency constraints.
+The compatibility policy's metadata-only allowlist grows within a release
+lineage. If every selected distfile matches, no release output is produced.
 Keep the existing personal `ox stamp` behavior until its callers migrate.
 
 The suffix is part of opam's version ordering, not ignored SemVer metadata.
@@ -614,10 +619,10 @@ Export algorithm:
 7. Atomically install the verified local release into `dist/`. Retrying must
    either reuse identical output or report a conflict.
 
-Start with whole-release cohorts for simplicity. Reuse unchanged package
-versions later only when the source, export recipe, compiler expectations and
-internal dependency selection are all unchanged. Subtree hash alone is not
-enough when dependency metadata changes.
+Reuse package versions when trial distfile checksums match the previous
+release. Compare the actual packaged bytes, including dependency metadata and
+compiler expectations. Resolve dependency versions to a fixed point before
+assigning new versions. Subtree hash alone is insufficient.
 
 ### Publication
 

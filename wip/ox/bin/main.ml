@@ -597,8 +597,8 @@ let release_cmd =
       & opt (some string) None
       & info [ "previous" ] ~docv:"RELEASE-DIR"
           ~doc:
-            "Retain an earlier release's repository and reject version \
-             collisions.")
+            "Reuse unchanged distfiles and package versions from an earlier \
+             release.")
   in
   let plan_file =
     Arg.(value & opt (some string) None & info [ "plan" ] ~docv:"JSON")
@@ -607,7 +607,8 @@ let release_cmd =
     | Some s -> s
     | None -> S.fail "Supply --base-url or --plan"
   in
-  let plan repo revision packages owner tag base_url guard_repository output =
+  let plan repo revision packages owner tag base_url guard_repository previous
+      output =
     guard @@ fun () ->
     Eio_main.run @@ fun env ->
     if S.exists output then S.fail "Output already exists: %s" output;
@@ -615,7 +616,7 @@ let release_cmd =
       Ox_lib.Release.plan
         (Eio.Stdenv.process_mgr env)
         ~repo ~revision ~packages ~owner ~tag ~base_url:(url base_url)
-        ~guard_repository
+        ~guard_repository ~previous
     in
     S.atomic_write output (OpamJson.to_string json)
   in
@@ -625,16 +626,30 @@ let release_cmd =
       Term.(
         ret
           (const plan $ repo $ revision $ roots_arg $ user_arg $ tag $ base_url
-         $ guards $ output))
+         $ guards $ previous $ output))
   in
   let export repo revision packages owner tag base_url guard_repository previous
       plan_file output =
     guard @@ fun () ->
     Eio_main.run @@ fun env ->
-    let repo, revision, packages, owner, tag, base_url, guard_repository =
+    let ( repo,
+          revision,
+          packages,
+          owner,
+          tag,
+          base_url,
+          guard_repository,
+          previous ) =
       match plan_file with
       | None ->
-          (repo, revision, packages, owner, tag, url base_url, guard_repository)
+          ( repo,
+            revision,
+            packages,
+            owner,
+            tag,
+            url base_url,
+            guard_repository,
+            previous )
       | Some path ->
           if
             repo <> "." || revision <> "HEAD" || packages <> [] || owner <> None
@@ -667,6 +682,17 @@ let release_cmd =
                   xs
             | _ -> S.fail "Missing plan packages"
           in
+          let planned_previous = optional "previous" in
+          if
+            previous <> None
+            && Option.map Unix.realpath previous <> planned_previous
+          then S.fail "--previous differs from the release plan";
+          if
+            Option.map
+              (fun p -> S.hash_file (Filename.concat p "manifest.json"))
+              planned_previous
+            <> optional "previous_hash"
+          then S.fail "Previous release manifest changed since planning";
           let tag = str "tag" in
           let guards = optional "guard_repository" in
           if Option.map S.tree_hash guards <> optional "guard_hash" then
@@ -677,7 +703,8 @@ let release_cmd =
             optional "owner",
             tag,
             str "base_url",
-            guards )
+            guards,
+            planned_previous )
     in
     Ox_lib.Release.export
       (Eio.Stdenv.process_mgr env)

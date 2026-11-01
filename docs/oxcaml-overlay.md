@@ -80,10 +80,12 @@ Generate metadata using opam's structured types, with these rules:
    Preserve their existing chain, filters and conflicts. These are explicit,
    reviewed metadata overrides at the upstream guard name/version, not source
    package re-publications. Record both upstream and resulting metadata hashes.
-4. Every exported package requires an `oxmono-snapshot` policy package. Its
-   conflicts reject every other version of packages in that release closure.
-   Unused packages may remain absent. The policy version hashes the source
-   commit and selected package versions, so distinct closures cannot collide.
+4. Every exported package requires an `oxmono-snapshot` compatibility policy.
+   Incremental releases retain that policy version and extend its allowlist of
+   local package versions. This is a metadata-only override like the upstream
+   patch markers. Exact local dependencies retain compatibility constraints.
+   Unused packages may remain absent. Immutable source package entries and
+   checksum-identical archives are reused without assigning new versions.
 5. Test every generated closure with the solver, then build it from extracted
    sources. Reject stock OCaml, minus38, minus40, incompatible upstream ports
    and exact-version conflicts. Test both minimal and full owner installs.

@@ -497,8 +497,357 @@ let validate_source stage packages =
         fail "Release metadata must be a regular file: %s" path)
     ("dune-project" :: List.map (fun p -> p.Stamp.name ^ ".opam") packages)
 
+let json_object = function
+  | `O fields -> fields
+  | _ -> fail "Expected release object"
+
+let json_field fields key =
+  match List.assoc_opt key fields with
+  | Some (`String value) -> value
+  | _ -> fail "Missing release field %s" key
+
+let json_array fields key =
+  match List.assoc_opt key fields with
+  | Some (`A values) -> values
+  | _ -> fail "Missing release array %s" key
+
+let release_maintainers proc root commit =
+  match committed_json proc root commit "release-versions.json" with
+  | `O fields -> (
+      match List.assoc_opt "maintainers" fields with
+      | Some (`A xs) ->
+          List.map
+            (function `String s -> s | _ -> fail "Invalid release maintainer")
+            xs
+      | _ -> [ "OxMono release maintainers" ])
+  | _ -> [ "OxMono release maintainers" ]
+
+let project_packages snapshot project =
+  List.filter (fun p -> p.Stamp.project = project) snapshot.Stamp.packages
+
+let projects snapshot =
+  List.map (fun p -> p.Stamp.project) snapshot.Stamp.packages
+  |> List.sort_uniq String.compare
+
+let make_archive proc ~root ~commit ~snapshot ~maintainers ~policy_version
+    ~metadata_commit ~project ~stage ~archive ~timestamp =
+  if exists stage then remove_tree stage;
+  mkdir stage;
+  let raw = archive ^ ".tar" in
+  command proc
+    [
+      "git";
+      "-C";
+      root;
+      "archive";
+      "--format=tar";
+      "-o";
+      raw;
+      commit ^ ":" ^ project;
+    ];
+  command proc [ "tar"; "-xf"; raw; "-C"; stage ];
+  Unix.unlink raw;
+  let unit_packages = project_packages snapshot project in
+  validate_source stage unit_packages;
+  freeze_project stage unit_packages;
+  if not (exists (stage / "dune-workspace")) then
+    write (stage / "dune-workspace")
+      "(lang dune 3.21)\n\
+       (env (dev (ocamlopt_flags (:standard -zero-alloc-check none))) (release \
+       (ocamlopt_flags (:standard -zero-alloc-check none))) (release-check \
+       (ocamlopt_flags (:standard -O3 -zero-alloc-check all))))\n";
+  let metadata_snapshot = { snapshot with Stamp.commit = metadata_commit } in
+  List.iter
+    (fun p ->
+      let opam = metadata ~maintainers metadata_snapshot p in
+      let opam =
+        OpamFile.OPAM.with_depends
+          (conjunction
+             (OpamFile.OPAM.depends opam)
+             (exact "oxmono-snapshot" policy_version))
+          opam
+      in
+      write_opam
+        (stage / (p.Stamp.name ^ ".opam"))
+        (OpamFile.OPAM.with_url_opt None opam))
+    unit_packages;
+  command proc [ "python3"; "-c"; archive_script; stage; archive; timestamp ];
+  digest archive
+
+type previous_unit = {
+  record : OpamJson.t;
+  project : string;
+  versions : (string * string) list;
+  source_commit : string;
+  timestamp : string;
+}
+
+type resolved = {
+  snapshot : Stamp.snapshot;
+  policy_version : string;
+  reused : previous_unit list;
+}
+
+let extension_string opam key =
+  match OpamStd.String.Map.find_opt key (OpamFile.OPAM.extensions opam) with
+  | Some { OpamParserTypes.FullPos.pelem = String s; _ } -> s
+  | _ -> fail "Missing previous source metadata %s" key
+
+let policy_dependency opam =
+  let found =
+    OpamFormula.fold_left
+      (fun acc (name, condition) ->
+        if OpamPackage.Name.to_string name <> "oxmono-snapshot" then acc
+        else
+          OpamFormula.fold_left
+            (fun acc -> function
+              | OpamTypes.Constraint (`Eq, OpamTypes.FString v) -> v :: acc
+              | _ -> acc)
+            acc condition)
+      []
+      (OpamFile.OPAM.depends opam)
+  in
+  match List.sort_uniq String.compare found with
+  | [ v ] -> v
+  | _ -> fail "Previous package must have one exact snapshot policy"
+
+let resolve_previous proc ~root ~commit ~snapshot ~maintainers ~previous =
+  match previous with
+  | None ->
+      {
+        snapshot;
+        reused = [];
+        policy_version =
+          "0+ox."
+          ^ hash_fields
+              (commit
+              :: List.map
+                   (fun p -> p.Stamp.name ^ "." ^ p.version)
+                   snapshot.Stamp.packages);
+      }
+  | Some directory ->
+      verify proc ~directory;
+      let fields =
+        match OpamJson.of_string (read (directory / "manifest.json")) with
+        | Some json -> json_object json
+        | None -> fail "Invalid previous manifest"
+      in
+      let policies = ref [] in
+      let units =
+        json_array fields "archives"
+        |> List.map (fun record ->
+               let fields = json_object record in
+               let versions =
+                 json_array fields "packages"
+                 |> List.map (function
+                      | `String nv ->
+                          let p = OpamPackage.of_string nv in
+                          ( OpamPackage.Name.to_string (OpamPackage.name p),
+                            OpamPackage.Version.to_string
+                              (OpamPackage.version p) )
+                      | _ -> fail "Invalid previous package")
+               in
+               let opams =
+                 List.map
+                   (fun (name, v) ->
+                     read_opam
+                       (directory / "opam-repository/packages" / name
+                       / (name ^ "." ^ v)
+                       / "opam"))
+                   versions
+               in
+               policies := List.map policy_dependency opams @ !policies;
+               let source_commit =
+                 match opams with
+                 | opam :: rest ->
+                     let c = extension_string opam "x-ox-commit" in
+                     if
+                       not
+                         (List.for_all
+                            (fun o -> extension_string o "x-ox-commit" = c)
+                            rest)
+                     then fail "Previous project contains mixed source commits";
+                     c
+                 | [] -> fail "Empty previous source project"
+               in
+               let timestamp =
+                 match List.assoc_opt "timestamp" fields with
+                 | Some (`String s) -> s
+                 | _ ->
+                     capture proc
+                       [
+                         "python3";
+                         "-c";
+                         "import sys,tarfile\n\
+                          with tarfile.open(sys.argv[1]) as t: \
+                          print(next(iter(t)).mtime)";
+                         directory / json_field fields "archive";
+                       ]
+                     |> String.trim
+               in
+               {
+                 record;
+                 project = json_field fields "project";
+                 versions;
+                 source_commit;
+                 timestamp;
+               })
+      in
+      let policy_version =
+        match List.sort_uniq String.compare !policies with
+        | [ v ] -> v
+        | _ -> fail "Previous release contains incompatible policy lineages"
+      in
+      let changed = Hashtbl.create 32 in
+      let old_unit project =
+        List.find_opt (fun u -> u.project = project) units
+      in
+      let base version =
+        match OpamStd.String.cut_at version '+' with
+        | Some (base, suffix) when String.starts_with ~prefix:"ox" suffix ->
+            base
+        | _ -> version
+      in
+      List.iter
+        (fun project ->
+          let packages = project_packages snapshot project in
+          let reusable =
+            match old_unit project with
+            | Some u ->
+                List.length u.versions = List.length packages
+                && List.for_all
+                     (fun p ->
+                       match List.assoc_opt p.Stamp.name u.versions with
+                       | Some v -> base v = base p.base
+                       | None -> false)
+                     packages
+            | None -> false
+          in
+          if not reusable then Hashtbl.add changed project ())
+        (projects snapshot);
+      let effective () =
+        {
+          snapshot with
+          Stamp.packages =
+            List.map
+              (fun p ->
+                if Hashtbl.mem changed p.Stamp.project then p
+                else
+                  match old_unit p.project with
+                  | Some u ->
+                      { p with Stamp.version = List.assoc p.name u.versions }
+                  | None -> assert false)
+              snapshot.packages;
+        }
+      in
+      let scratch = Filename.temp_file "ox-release-reuse-" "" in
+      Unix.unlink scratch;
+      mkdir scratch;
+      Fun.protect
+        ~finally:(fun () -> remove_tree scratch)
+        (fun () ->
+          (* Dependency versions can change a dependent's distfile. Promote whole
+           source projects monotonically until no candidate changes. *)
+          let rec settle () =
+            let promoted = ref false in
+            List.iter
+              (fun project ->
+                if not (Hashtbl.mem changed project) then
+                  match old_unit project with
+                  | None -> assert false
+                  | Some u ->
+                      let checksum =
+                        make_archive proc ~root ~commit ~snapshot:(effective ())
+                          ~maintainers ~policy_version
+                          ~metadata_commit:u.source_commit ~project
+                          ~stage:(scratch / "source")
+                          ~archive:(scratch / "candidate.tar.gz")
+                          ~timestamp:u.timestamp
+                      in
+                      if
+                        checksum <> json_field (json_object u.record) "checksum"
+                      then (
+                        Hashtbl.add changed project ();
+                        promoted := true))
+              (projects snapshot);
+            if !promoted then settle ()
+          in
+          settle ());
+      let reused =
+        List.filter
+          (fun u ->
+            List.mem u.project (projects snapshot)
+            && not (Hashtbl.mem changed u.project))
+          units
+      in
+      { snapshot = effective (); policy_version; reused }
+
+let policy_opam ~overlay ~maintainers ~policy_version packages =
+  let path =
+    overlay / "packages/oxmono-snapshot"
+    / ("oxmono-snapshot." ^ policy_version)
+    / "opam"
+  in
+  let old =
+    if exists path then read_opam path
+    else
+      OpamFile.OPAM.read_from_string
+        (Printf.sprintf
+           "opam-version: \"2.0\"\n\
+            synopsis: \"OxMono source compatibility policy\"\n\
+            maintainer: [%s]\n\
+            depends: [\"oxcaml-compiler\" {= %S}]\n"
+           (String.concat " " (List.map (Printf.sprintf "%S") maintainers))
+           compiler)
+  in
+  let seen = Hashtbl.create 32 in
+  let conflicts =
+    OpamFormula.map
+      (fun (name, condition) ->
+        let key = OpamPackage.Name.to_string name in
+        Hashtbl.replace seen key ();
+        match List.find_opt (fun p -> p.Stamp.name = key) packages with
+        | None -> OpamFormula.Atom (name, condition)
+        | Some p ->
+            let already =
+              OpamFormula.fold_left
+                (fun found -> function
+                  | OpamTypes.Constraint (`Neq, OpamTypes.FString v)
+                    when v = p.version ->
+                      true
+                  | _ -> found)
+                false condition
+            in
+            let neq =
+              OpamFormula.Atom
+                (OpamTypes.Constraint (`Neq, OpamTypes.FString p.version))
+            in
+            OpamFormula.Atom
+              (name, if already then condition else conjunction condition neq))
+      (OpamFile.OPAM.conflicts old)
+  in
+  let conflicts =
+    List.fold_left
+      (fun acc p ->
+        if Hashtbl.mem seen p.Stamp.name then acc
+        else
+          let atom =
+            OpamFormula.Atom
+              ( OpamPackage.Name.of_string p.name,
+                OpamFormula.Atom
+                  (OpamTypes.Constraint (`Neq, OpamTypes.FString p.version)) )
+          in
+          match acc with
+          | OpamFormula.Empty -> atom
+          | _ -> OpamFormula.Or (acc, atom))
+      conflicts packages
+  in
+  (* Like upstream patch markers, this metadata-only allowlist grows. Source
+     package entries and their archives remain immutable. *)
+  write_opam path (OpamFile.OPAM.with_conflicts conflicts old)
+
 let plan proc ~repo ~revision ~packages ~owner ~tag ~base_url ~guard_repository
-    =
+    ~previous =
   validate_inputs ~base_url ~guard_repository;
   let root, commit, snapshot =
     prepare proc ~repo ~revision ~roots:packages ~owner ~tag
@@ -506,6 +855,13 @@ let plan proc ~repo ~revision ~packages ~owner ~tag ~base_url ~guard_repository
   let _ = guard_lock proc root commit guard_repository in
   let _ = provenance proc root commit snapshot.Stamp.packages in
   validate_versions guard_repository snapshot.packages;
+  let maintainers = release_maintainers proc root commit in
+  let resolved =
+    resolve_previous proc ~root ~commit ~snapshot ~maintainers ~previous
+  in
+  let snapshot = resolved.snapshot in
+  let reused = List.map (fun u -> u.project) resolved.reused in
+
   `O
     [
       ("schema_version", `Float 1.);
@@ -519,6 +875,24 @@ let plan proc ~repo ~revision ~packages ~owner ~tag ~base_url ~guard_repository
              (fun p -> `String (p.Stamp.name ^ "." ^ p.version))
              snapshot.packages) );
       ("owner", match owner with None -> `Null | Some s -> `String s);
+      ( "previous",
+        match previous with
+        | None -> `Null
+        | Some p -> `String (Unix.realpath p) );
+      ( "previous_hash",
+        match previous with
+        | None -> `Null
+        | Some p -> `String (hash_file (p / "manifest.json")) );
+      ("reused_projects", `A (List.map json_string reused));
+      ( "changed_projects",
+        `A
+          (projects snapshot
+          |> List.filter (fun p -> not (List.mem p reused))
+          |> List.map json_string) );
+      ( "no_changes",
+        `Bool
+          (previous <> None
+          && List.length reused = List.length (projects snapshot)) );
       ("tag", `String tag);
       ("base_url", `String base_url);
       ( "guard_repository",
@@ -539,195 +913,151 @@ let export proc ~repo ~revision ~packages:roots ~owner ~tag ~base_url
   let root, commit, snapshot =
     prepare proc ~repo ~revision ~roots ~owner ~tag
   in
-  let maintainers =
-    match committed_json proc root commit "release-versions.json" with
-    | `O fields -> (
-        match List.assoc_opt "maintainers" fields with
-        | Some (`A xs) ->
-            List.map
-              (function
-                | `String s -> s | _ -> fail "Invalid release maintainer")
-              xs
-        | _ -> [ "OxMono release maintainers" ])
-    | _ -> [ "OxMono release maintainers" ]
-  in
+  let maintainers = release_maintainers proc root commit in
   let lock = guard_lock proc root commit guard_repository in
-  let packages = snapshot.Stamp.packages in
-  let provenance = provenance proc root commit packages in
-  validate_versions guard_repository packages;
-  let projects =
-    List.map (fun p -> p.Stamp.project) packages
-    |> List.sort_uniq String.compare
+  let provenance = provenance proc root commit snapshot.Stamp.packages in
+  validate_versions guard_repository snapshot.packages;
+  let resolved =
+    resolve_previous proc ~root ~commit ~snapshot ~maintainers ~previous
   in
-  let timestamp = git proc root [ "show"; "-s"; "--format=%ct"; commit ] in
-  publish_dir output (fun tmp ->
-      let overlay = tmp / "opam-repository" in
-      write (overlay / "repo") "opam-version: \"2.0\"\n";
-      Option.iter
-        (fun path ->
-          let src = path / "opam-repository" in
-          if not (exists (src / "repo")) then
-            fail "No previous release repository at %s" path;
-          copy_files ~src ~dst:overlay)
-        previous;
-      let put path opam =
-        let text = OpamFile.OPAM.write_to_string opam in
-        if exists path && read path <> text then
-          fail
-            "Package version already exists with different metadata: %s. \
-             Choose a new release tag."
-            path;
-        write path text
-      in
-      let policy = "oxmono-snapshot" in
-      let cohort =
-        hash_fields
-          (commit :: List.map (fun p -> p.Stamp.name ^ "." ^ p.version) packages)
-      in
-      let policy_version = "0+ox." ^ cohort in
-      let policy_conflicts =
-        List.map
-          (fun p -> Printf.sprintf "%S {!= %S}" p.Stamp.name p.version)
-          packages
-      in
-      put
-        (overlay / "packages" / policy
-        / (policy ^ "." ^ policy_version)
-        / "opam")
-        (OpamFile.OPAM.read_from_string
-           (Printf.sprintf
-              "opam-version: \"2.0\"\n\
-               synopsis: \"OxMono source cohort\"\n\
-               maintainer: [%s]\n\
-               depends: [\"oxcaml-compiler\" {= %S}]\n\
-               conflicts: [%s]\n"
-              (String.concat " " (List.map (Printf.sprintf "%S") maintainers))
-              compiler
-              (String.concat "\n" policy_conflicts)));
-      let records =
-        List.map
-          (fun project ->
-            let unit_packages =
-              List.filter (fun p -> p.Stamp.project = project) packages
-            in
-            let name =
-              String.concat "-" (String.split_on_char '/' project)
-              ^ "-" ^ hash project
-            in
-            let tree = git proc root [ "rev-parse"; commit ^ ":" ^ project ] in
-            let filename =
-              name ^ "-" ^ tree ^ "-" ^ String.sub commit 0 12 ^ "-ox" ^ tag
-              ^ ".tar.gz"
-            in
-            let stage = tmp / "staging" / name in
-            mkdir stage;
-            let raw = tmp / "staging" / (name ^ ".tar") in
-            command proc
-              [
-                "git";
-                "-C";
-                root;
-                "archive";
-                "--format=tar";
-                "-o";
-                raw;
-                commit ^ ":" ^ project;
-              ];
-            command proc [ "tar"; "-xf"; raw; "-C"; stage ];
-            validate_source stage unit_packages;
-            freeze_project stage unit_packages;
-            if not (exists (stage / "dune-workspace")) then
-              write (stage / "dune-workspace")
-                "(lang dune 3.21)\n\
-                 (env (dev (ocamlopt_flags (:standard -zero-alloc-check \
-                 none))) (release (ocamlopt_flags (:standard -zero-alloc-check \
-                 none))) (release-check (ocamlopt_flags (:standard -O3 \
-                 -zero-alloc-check all))))\n";
-            List.iter
-              (fun p ->
-                let opam = metadata ~maintainers snapshot p in
-                let opam =
-                  OpamFile.OPAM.with_depends
-                    (conjunction
-                       (OpamFile.OPAM.depends opam)
-                       (exact policy policy_version))
-                    opam
-                in
-                (* The archive does not contain its own download checksum. *)
-                write_opam
-                  (stage / (p.name ^ ".opam"))
-                  (OpamFile.OPAM.with_url_opt None opam))
-              unit_packages;
-            let rel = "sources" / filename in
-            mkdir (tmp / "sources");
-            command proc
-              [ "python3"; "-c"; archive_script; stage; tmp / rel; timestamp ];
-            let checksum = digest (tmp / rel) in
-            List.iter
-              (fun p ->
-                let opam = read_opam (stage / (p.Stamp.name ^ ".opam")) in
-                let url =
-                  OpamFile.URL.create
-                    (OpamUrl.parse (String.trim base_url ^ "/" ^ rel))
-                  |> OpamFile.URL.with_checksum [ OpamHash.of_string checksum ]
-                in
-                put
-                  (overlay / "packages" / p.name
-                  / (p.name ^ "." ^ p.version)
-                  / "opam")
-                  (OpamFile.OPAM.with_url url opam))
-              unit_packages;
-            `O
-              [
-                ("project", json_string project);
-                ("archive", json_string rel);
-                ("checksum", json_string checksum);
-                ( "packages",
-                  `A
-                    (List.map
-                       (fun p -> json_string (p.Stamp.name ^ "." ^ p.version))
-                       unit_packages) );
-              ])
-          projects
-      in
-      Option.iter
-        (fun path -> copy_guards path overlay packages)
-        guard_repository;
-      remove_tree (tmp / "staging");
-      let rec entries dir =
-        sorted_dir dir
-        |> List.concat_map (fun name ->
-               let path = dir / name in
-               if Sys.is_directory path then entries path else [ path ])
-      in
-      let metadata_files =
-        entries overlay
-        |> List.map (fun path ->
-               `O
-                 [
-                   ( "path",
-                     json_string
-                       (String.sub path
-                          (String.length tmp + 1)
-                          (String.length path - String.length tmp - 1)) );
-                   ("checksum", json_string (digest path));
-                 ])
-      in
-      write (tmp / "manifest.json")
-        (OpamJson.to_string
-           (`O
-             [
-               ("schema_version", `Float 1.);
-               ("commit", json_string commit);
-               ("compiler", json_string compiler);
-               ("export_recipe", `Float 2.);
-               ("tag", `String tag);
-               ("toolchain_lock", lock);
-               ("provenance", provenance);
-               ( "guard_hash",
-                 match guard_repository with
-                 | None -> `Null
-                 | Some path -> json_string (tree_hash path) );
-               ("archives", `A records);
-               ("metadata", `A metadata_files);
-             ])))
+  let snapshot = resolved.snapshot in
+  let packages = snapshot.Stamp.packages in
+  let projects = projects snapshot in
+  let reused project =
+    List.find_opt (fun u -> u.project = project) resolved.reused
+  in
+  if previous <> None && List.length resolved.reused = List.length projects then
+    log "No package changes; previous release retained (%d projects reused)"
+      (List.length projects)
+  else
+    let timestamp = git proc root [ "show"; "-s"; "--format=%ct"; commit ] in
+    publish_dir output (fun tmp ->
+        let overlay = tmp / "opam-repository" in
+        write (overlay / "repo") "opam-version: \"2.0\"\n";
+        Option.iter
+          (fun path ->
+            let src = path / "opam-repository" in
+            if not (exists (src / "repo")) then
+              fail "No previous release repository at %s" path;
+            copy_files ~src ~dst:overlay)
+          previous;
+        let put path opam =
+          let text = OpamFile.OPAM.write_to_string opam in
+          if exists path && read path <> text then
+            fail
+              "Package version already exists with different metadata: %s. \
+               Choose a new release tag."
+              path;
+          write path text
+        in
+        let policy_version = resolved.policy_version in
+        policy_opam ~overlay ~maintainers ~policy_version packages;
+        let records =
+          List.map
+            (fun project ->
+              let unit_packages =
+                List.filter (fun p -> p.Stamp.project = project) packages
+              in
+              let name =
+                String.concat "-" (String.split_on_char '/' project)
+                ^ "-" ^ hash project
+              in
+              let tree =
+                git proc root [ "rev-parse"; commit ^ ":" ^ project ]
+              in
+              let filename =
+                name ^ "-" ^ tree ^ "-" ^ String.sub commit 0 12 ^ "-ox" ^ tag
+                ^ ".tar.gz"
+              in
+              match (reused project, previous) with
+              | Some u, Some previous ->
+                  let fields = json_object u.record in
+                  let rel = json_field fields "archive" in
+                  write (tmp / rel) (read (previous / rel));
+                  `O
+                    (("reused", `Bool true)
+                    :: ("timestamp", `String u.timestamp)
+                    :: List.filter
+                         (fun (k, _) -> k <> "reused" && k <> "timestamp")
+                         fields)
+              | _ ->
+                  let stage = tmp / "staging" / name in
+                  let rel = "sources" / filename in
+                  mkdir (tmp / "sources");
+                  let checksum =
+                    make_archive proc ~root ~commit ~snapshot ~maintainers
+                      ~policy_version ~metadata_commit:commit ~project ~stage
+                      ~archive:(tmp / rel) ~timestamp
+                  in
+                  List.iter
+                    (fun p ->
+                      let opam = read_opam (stage / (p.Stamp.name ^ ".opam")) in
+                      let url =
+                        OpamFile.URL.create
+                          (OpamUrl.parse (String.trim base_url ^ "/" ^ rel))
+                        |> OpamFile.URL.with_checksum
+                             [ OpamHash.of_string checksum ]
+                      in
+                      put
+                        (overlay / "packages" / p.name
+                        / (p.name ^ "." ^ p.version)
+                        / "opam")
+                        (OpamFile.OPAM.with_url url opam))
+                    unit_packages;
+                  `O
+                    [
+                      ("project", json_string project);
+                      ("reused", `Bool false);
+                      ("timestamp", `String timestamp);
+                      ("archive", json_string rel);
+                      ("checksum", json_string checksum);
+                      ( "packages",
+                        `A
+                          (List.map
+                             (fun p ->
+                               json_string (p.Stamp.name ^ "." ^ p.version))
+                             unit_packages) );
+                    ])
+            projects
+        in
+        Option.iter
+          (fun path -> copy_guards path overlay packages)
+          guard_repository;
+        remove_tree (tmp / "staging");
+        let rec entries dir =
+          sorted_dir dir
+          |> List.concat_map (fun name ->
+                 let path = dir / name in
+                 if Sys.is_directory path then entries path else [ path ])
+        in
+        let metadata_files =
+          entries overlay
+          |> List.map (fun path ->
+                 `O
+                   [
+                     ( "path",
+                       json_string
+                         (String.sub path
+                            (String.length tmp + 1)
+                            (String.length path - String.length tmp - 1)) );
+                     ("checksum", json_string (digest path));
+                   ])
+        in
+        write (tmp / "manifest.json")
+          (OpamJson.to_string
+             (`O
+               [
+                 ("schema_version", `Float 1.);
+                 ("commit", json_string commit);
+                 ("compiler", json_string compiler);
+                 ("export_recipe", `Float 3.);
+                 ("tag", `String tag);
+                 ("toolchain_lock", lock);
+                 ("provenance", provenance);
+                 ( "guard_hash",
+                   match guard_repository with
+                   | None -> `Null
+                   | Some path -> json_string (tree_hash path) );
+                 ("archives", `A records);
+                 ("metadata", `A metadata_files);
+               ])))

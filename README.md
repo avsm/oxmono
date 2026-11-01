@@ -17,9 +17,14 @@ Each package declares its dependencies in a `dune-project` and an `.opam`
 file. Public OCaml interfaces are documented in `.mli` files. Dune builds
 local libraries and vendored dependencies together across the workspace.
 
+## Development
+
+Read [AGENTS.md](AGENTS.md) for contribution and verification rules and
+[TODO.md](TODO.md) for open work. Package documentation lives beside its code.
+
 ## HTTP examples
 
-Start with the [HTTP guide](HTTPZ.md). It runs a Proffer server, then a Fetch
+Start with the [HTTP guide](docs/http.md). It runs a Proffer server, then a Fetch
 client against it. The [example index](example/README.md) covers routing,
 forms, streaming, authentication, JSON and request policies.
 
@@ -115,7 +120,7 @@ The workspace uses opam dependencies and the sources under `vendor/`.
 Vendored package READMEs describe their interfaces and local changes.
 Generating API documentation requires an OxCaml-compatible `odoc`.
 
-[HTTPZ_SYNC.md](HTTPZ_SYNC.md) records the source revision and update procedure
+[SYNC.md](bleeding/httpz/SYNC.md) records the source revision and update procedure
 for the HTTP libraries.
 
 The [osrel](bleeding/osrel/README.md), [d10](bleeding/d10/README.md) and

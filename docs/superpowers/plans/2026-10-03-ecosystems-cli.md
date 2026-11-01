@@ -19,7 +19,7 @@
 - A failing API call prints one line to stderr and exits 1. It never prints a backtrace.
 - No test reaches the network. Fixtures are recorded API responses.
 - Branch `ecosystems-cli`. Commits: one line, imperative, no trailers. A reformat is its own commit.
-- Prose per CLAUDE.md. 80 columns. `eio_main` becomes `:with-test` in package `ecosystems`.
+- Prose per AGENTS.md. 80 columns. `eio_main` becomes `:with-test` in package `ecosystems`.
 - No AI-disclosure tags.
 - Build with `dune build @bleeding/ecosystems/all @bleeding/ecosystems/runtest --force`.
 

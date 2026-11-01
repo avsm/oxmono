@@ -14,7 +14,7 @@ Timeout and delay values use the external `Duration.t`. Add `duration` to
 your Dune libraries when constructing these values.
 
 The [public interface](lib/fetch.mli) describes the API. The
-[repository guide](../../HTTPZ.md) describes library selection, setup
+[repository guide](../../docs/http.md) describes library selection, setup
 and backend limits. All examples are under the top-level `example/` directory.
 
 The optional [`fetch.dav`](dav/README.md) library adds WebDAV client operations

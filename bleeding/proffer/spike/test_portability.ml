@@ -1,4 +1,4 @@
-(* Spike for the proffer design (see PROFFER.md).
+(* Spike for the proffer design (see bleeding/proffer/README.md).
 
    Checks, against the vendored Eio with a [portable] annotation on
    [Eio.Domain_manager.run], that:

@@ -4,9 +4,9 @@ HTTPz supplies the bounded HTTP/1.1 parser and writer used by Fetch and Proffer.
 Server applications use `proffer` and `proffer-httpz`; HTTP clients use `fetch`
 with `fetch-httpz` or `fetch-curl`.
 
-The [HTTP guide](../../HTTPZ.md) explains library selection and backend limits.
+The [HTTP guide](../../docs/http.md) explains library selection and backend limits.
 The [examples](../../example/README.md) provide complete client and server
-programs. [HTTPZ_SYNC.md](../../HTTPZ_SYNC.md) records synchronization with the
+programs. [SYNC.md](SYNC.md) records synchronization with the
 standalone OxCaml checkout and intentional monorepo adaptations.
 
 ## Libraries

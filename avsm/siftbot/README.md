@@ -3,7 +3,7 @@
 Siftbot imports JMAP mail into a local SQLite corpus and reviews independent
 area, triage, delivery and attention assignments. It never writes to JMAP.
 The implementation status and remaining work are recorded in
-[../../SIFT.md](../../SIFT.md).
+[DESIGN.md](DESIGN.md).
 
 ## Build and demo
 

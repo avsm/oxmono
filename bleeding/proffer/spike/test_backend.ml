@@ -1,4 +1,4 @@
-(* Spike for the proffer backend architecture (see PROFFER.md).
+(* Spike for the proffer backend architecture (see bleeding/proffer/README.md).
 
    A miniature multi-domain accept loop in the shape a proffer backend
    would use, on the annotated vendored Eio:

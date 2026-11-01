@@ -18,7 +18,7 @@
 - No test reaches the network. Fixtures are recorded once and committed.
 - Work on a branch. Generated output is committed apart from hand-written code.
 - Build with `dune build @bleeding/ecosystems/all @bleeding/ecosystems/runtest --force`. `ocamlformat` is absent, so match formatting by hand within 80 columns.
-- Prose follows CLAUDE.md: no em-dashes, no semicolons joining clauses, `[foo x] is ...` doc style.
+- Prose follows AGENTS.md: no em-dashes, no semicolons joining clauses, `[foo x] is ...` doc style.
 - No `ai_disclosure` attributes and no `x-ai` opam fields.
 - Never regenerate a golden file to make a test pass.
 

@@ -308,7 +308,7 @@ codec whose name is unknown is an error unless its `must_understand` is
 false, in which case it is skipped, matching `CodecChain::from_metadata`.
 
 The registry is a match function from name to constructor, not a mutable
-table (the portability escape rules in CLAUDE.md forbid module-level
+table (the portability escape rules in AGENTS.md forbid module-level
 tables, and a match keeps the door open to annotating the core `portable`
 later). `Array.open_` takes an optional `?codecs:(string -> constructor
 option)` resolver consulted before the built-ins.
@@ -461,7 +461,7 @@ Stub rules:
   zstd codec keeps one `dctx` per bound codec instance, which is safe
   because Eio fibers cannot switch inside a C call.
 - Externals that are pure functions of their arguments are annotated
-  `@@ portable` only after a compiler probe confirms it, per CLAUDE.md.
+  `@@ portable` only after a compiler probe confirms it, per AGENTS.md.
 
 Tests: round trips at several sizes and levels against fixed vectors,
 `content_size` on known frames, error paths (truncated frame, wrong dst
@@ -625,7 +625,7 @@ randomness), so its output is testable.
 
 ## Build and verification
 
-Per CLAUDE.md, scoped aliases:
+Per AGENTS.md, scoped aliases:
 
     dune build @bleeding/zstdz/all @bleeding/zstdz/runtest
     dune build @bleeding/zarrz/all @bleeding/zarrz/runtest --force

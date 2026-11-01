@@ -24,7 +24,7 @@ mapping, insert its lowercase extension in sorted order and cover it in
 [test_mime.ml](test/test_mime.ml).
 
 The [public interface](lib/proffer.mli) describes the API. The
-[repository guide](../../HTTPZ.md) describes library selection, setup
+[repository guide](../../docs/http.md) describes library selection, setup
 and backend limits. All examples are under the top-level `example/` directory.
 
 Measure framework allocations with

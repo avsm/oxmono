@@ -16,7 +16,7 @@
 - Never run `dune build @fmt --auto-promote` unscoped. It reformats `dune` files across the whole repository.
 - One commit per self-contained change, one-line imperative message, no trailers or sign-off.
 - Keep a mechanical change, such as a reformat, out of the commit that changes behaviour.
-- Prose in `.mli` files follows `CLAUDE.md`: document a value as `[foo x y] is ...`, name its arguments, no em-dashes, do not join two clauses with a semicolon.
+- Prose in `.mli` files follows `AGENTS.md`: document a value as `[foo x y] is ...`, name its arguments, no em-dashes, do not join two clauses with a semicolon.
 - Every new module gets an `.mli`.
 - **Decode errors must carry position.** When mapping a JSON string to a variant or a parsed value, use `Jsont.Base.string (Jsont.Base.map ~kind ~dec ~enc ())`, whose `dec` has type `meta -> string -> 'a` and so can forward a real `meta` into `Jsont.Error.msgf meta ...`. The precedent is `avsm/sortal/lib/schema/sortal_schema_temporal.ml:120-129`. Do NOT use the top-level `Jsont.map` for this: its `dec` is `'a -> 'b` and never receives a `meta`, so `Jsont.Meta.none` is the only thing you can pass and the error loses its position. Inside a `Jsont.Object.map` constructor closure no `meta` exists either, so `Jsont.Meta.none` is acceptable there, but the message must then name the field it concerns so it stays locatable.
 - A parser exposed as `string -> 'a option` must reject what its `.mli` says it rejects. `int_of_string_opt` accepts `0x10`, `0o17`, `2_006` and `+2001`, so it is not by itself a decimal-digit check.

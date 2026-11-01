@@ -3,7 +3,7 @@
 This file covers libraries embedded inside the HTTPz source tree. The separate
 TLS/X.509 dependency closure under the repository-level `vendor/` directory,
 and its synchronization with `oxcaml-httpz`, are documented in
-[`HTTPZ_SYNC.md`](../../HTTPZ_SYNC.md).
+[`SYNC.md`](SYNC.md).
 
 Three libraries under `httpz/` began life as separate projects and were copied
 into this tree rather than depended on. They are maintained here now, so an

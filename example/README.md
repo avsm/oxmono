@@ -4,7 +4,7 @@ The examples introduce Proffer servers first and Fetch clients second.
 Each lesson contains a complete OCaml program, its Dune dependencies and
 commands to run from the repository root.
 
-Follow the [repository setup](../HTTPZ.md#build) and select its opam switch
+Follow the [repository setup](../docs/http.md#build) and select its opam switch
 before running the commands.
 
 ## First request

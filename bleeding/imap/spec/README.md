@@ -1,7 +1,7 @@
 # IMAP implementation references
 
-See the root [IMAP-SPEC.md](../../../IMAP-SPEC.md) for the implementation plan,
-feature priorities, repository references and test requirements.
+See [acceptance requirements](../ACCEPTANCE.md) for verification scope and
+[production gates](../PRODUCTION-GATES.md) for outstanding evidence.
 
 `sources.json` records the URL, retrieval date, byte length and SHA-256 checksum
 of 60 RFC texts, the pinned OBJECTID+ Internet-Draft revision -06, and three IANA
@@ -25,13 +25,10 @@ print(f"Verified {len(manifest['sources'])} reference documents")
 PY
 ```
 
-`cyrus-probe.json` is a research observation, not an OCaml test result or a
-portable golden transcript. It records an independent Python IMAP/HTTP/LMTP
-probe against an isolated copy of the existing JMAP Cyrus image. Generated
-mailbox IDs, UIDVALIDITY values and MODSEQs are intentionally not assertions for
-future runs. The probe container and synthetic data were removed after testing;
-the existing `jmap-oracle` was left unchanged. IMAP-SPEC.md describes the exact
-fixture coverage and the reproducible integration harness to implement.
+`cyrus-probe.json` is a historical Python IMAP/HTTP/LMTP observation, not
+an OCaml test result or a portable golden. See the
+[current Cyrus oracle](../test/oracle/README.md) for IMAP/JMAP round trips
+and fixture configuration. Corpus integrity does not prove interoperability.
 
 Before implementing an RFC feature, consult its current RFC Editor errata.
 Verified RFC 9698 erratum 8635 corrects the example command to GETJMAPACCESS.

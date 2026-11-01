@@ -66,7 +66,7 @@ let with_errors f =
   | Eio.Io _ as ex ->
       raise (Xrpc_error.err (Network_error { reason = Printexc.to_string ex }))
 
-let raise_on_error response =
+let raise_on_error t ~nsid response =
   let status = Fetch.status response in
   if not (is_success status) then begin
     let body = try Fetch.decode ~limit:(64 * 1024) Fetch.Media.octets response
@@ -76,15 +76,17 @@ let raise_on_error response =
     let error, message = match payload with
       | Ok payload -> payload.error, payload.message
       | Error _ -> "UnknownError", Some (String.sub body 0 (min 100 (String.length body))) in
-    raise (Xrpc_error.err (Xrpc_error { status; error; message }))
+    raise
+      (Xrpc_error.err
+         (Xrpc_error { status; error; message; nsid; service = t.service }))
   end
 
-let handle_response t decoder response =
-  raise_on_error response;
+let handle_response t ~nsid decoder response =
+  raise_on_error t ~nsid response;
   Fetch.decode ~limit:t.max_response_bytes (Fetch.Json.v decoder) response
 
-let handle_bytes_response t response =
-  raise_on_error response;
+let handle_bytes_response t ~nsid response =
+  raise_on_error t ~nsid response;
   let body = Fetch.decode ~limit:t.max_response_bytes Fetch.Media.octets response in
   let content_type = Option.value ~default:"application/octet-stream"
     (Http.Header.get (Fetch.headers response) "content-type") in
@@ -98,7 +100,8 @@ let request t ~nsid ~params ~headers ?(body = Fetch.Empty) meth handle =
   Fetch.with_response ~headers ~body ?redirects (request_client t) meth url handle
 
 let query t ~nsid ~params ~decoder =
-  request t ~nsid ~params ~headers:json_accept `GET (handle_response t decoder)
+  request t ~nsid ~params ~headers:json_accept `GET
+    (handle_response t ~nsid decoder)
 
 let encode_input input input_data =
   match input, input_data with
@@ -109,26 +112,29 @@ let encode_input input input_data =
 let procedure t ~nsid ~params ~input ~input_data ~decoder =
   let headers, body = encode_input input input_data in
   let headers = Fetch.Header.append headers json_accept in
-  request t ~nsid ~params ~headers ~body `POST (handle_response t decoder)
+  request t ~nsid ~params ~headers ~body `POST (handle_response t ~nsid decoder)
 
 let procedure_unit t ~nsid ~params ~input ~input_data =
   let headers, body = encode_input input input_data in
   let headers = Fetch.Header.append headers any_accept in
-  request t ~nsid ~params ~headers ~body `POST raise_on_error
+  request t ~nsid ~params ~headers ~body `POST (raise_on_error t ~nsid)
 
 let content_type_header mime = Fetch.Header.[raw "Content-Type" mime]
 
 let procedure_blob t ~nsid ~params ~blob ~content_type ~decoder =
   let headers = Fetch.Header.append (content_type_header content_type) json_accept in
-  request t ~nsid ~params ~headers ~body:(Fetch.String blob) `POST (handle_response t decoder)
+  request t ~nsid ~params ~headers ~body:(Fetch.String blob) `POST
+    (handle_response t ~nsid decoder)
 
 let query_bytes t ~nsid ~params =
-  request t ~nsid ~params ~headers:any_accept `GET (handle_bytes_response t)
+  request t ~nsid ~params ~headers:any_accept `GET
+    (handle_bytes_response t ~nsid)
 
 let procedure_bytes t ~nsid ~params ~body ~content_type =
   let headers, body = match body with
     | Some body -> Fetch.Header.append (content_type_header content_type) any_accept, Fetch.String body
     | None -> any_accept, Fetch.Empty in
   request t ~nsid ~params ~headers ~body `POST @@ fun response ->
-  raise_on_error response;
-  if Fetch.status response = 204 then None else Some (handle_bytes_response t response)
+  raise_on_error t ~nsid response;
+  if Fetch.status response = 204 then None
+  else Some (handle_bytes_response t ~nsid response)

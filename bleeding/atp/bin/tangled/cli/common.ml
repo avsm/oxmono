@@ -41,6 +41,7 @@ let run f =
   with
   | Failure message | Invalid_argument message | Sys_error message ->
       Error (`Msg message)
+  | Eio.Io (Xrpc.Error.E e, _) -> Error (`Msg (Xrpc.Error.to_string e))
   | Httpz_websocket.Protocol_error (_, message) | Httpz_tls.Error message ->
       Error (`Msg message)
   | Httpz_websocket_eio.Upgrade_rejected status ->

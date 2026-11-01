@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `Xrpc.Error.Xrpc_error` names the method and service, and prints as a
+  sentence such as "knot.example does not implement org.tangled.x (HTTP
+  404)". The Tangled CLI prints it in place of the raw exception.
+
 - The Tangled CLI draws tables, panels, trees and spinners on a terminal with
   Console, and confirms each change. Piped output is unchanged. Add `--json`
   to commands that print JSON only when piped, and `TANGLED_THEME`.

@@ -6,7 +6,13 @@
 type error =
   | Network_error of { reason : string }
   | Parse_error of { reason : string; body_preview : string option }
-  | Xrpc_error of { status : int; error : string; message : string option }
+  | Xrpc_error of {
+      status : int;
+      error : string;
+      message : string option;
+      nsid : string;
+      service : string;
+    }
   | Token_expired
   | Session_required
 
@@ -34,10 +40,26 @@ let pp ppf = function
       | Some preview ->
           Fmt.pf ppf "parse error: %s (body: %s...)" reason preview
       | None -> Fmt.pf ppf "parse error: %s" reason)
-  | Xrpc_error { status; error; message } -> (
-      match message with
-      | Some msg -> Fmt.pf ppf "XRPC error %d %s: %s" status error msg
-      | None -> Fmt.pf ppf "XRPC error %d %s" status error)
+  | Xrpc_error { status; error; message; nsid; service } -> (
+      let host =
+        match String.index_opt service ':' with
+        | Some i when String.length service > i + 3 ->
+            String.sub service (i + 3) (String.length service - i - 3)
+        | _ -> service
+      in
+      match (status, error) with
+      | 404, ("UnknownError" | "MethodNotImplemented" | "XRPCNotSupported") ->
+          (* A server without the method answers with its own 404 page, which
+             says nothing more. *)
+          Fmt.pf ppf "%s does not implement %s (HTTP 404)" host nsid
+      | _ -> (
+          let message = Option.map String.trim message in
+          match message with
+          | Some msg when msg <> "" ->
+              Fmt.pf ppf "%s refused %s: %s (%s, HTTP %d)" host nsid msg error
+                status
+          | _ ->
+              Fmt.pf ppf "%s refused %s: %s (HTTP %d)" host nsid error status))
   | Token_expired -> Fmt.pf ppf "session token expired"
   | Session_required -> Fmt.pf ppf "authentication required"
 

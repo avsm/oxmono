@@ -6,7 +6,8 @@
 (** Logging of the HTTP exchanges that an AT Protocol client makes.
 
     {!wrap} logs each exchange on {!src}: at [Info] the method, the target
-    and the status with the time to the response's head, and at [Debug] also
+    and the status with the time to the response's head, or the failure, and
+    at [Debug] also
     the request and response fields. Secret headers and query parameters are
     redacted, as {!Fetch.Middleware.pp_request} does. Nothing is logged
     unless the source's level lets it through. Each message carries the

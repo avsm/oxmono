@@ -75,7 +75,7 @@ let middleware next ~sw (request : M.request) =
         response
     | exception (Eio.Io _ as ex) ->
         let tags = Logs.Tag.add elapsed (since start) tags in
-        Log.warn (fun m ->
+        Log.info (fun m ->
             m ~tags "%s %s%s failed: %a"
               (Http.Method.to_string request.meth)
               (M.Url.host request.url) target_ Eio.Exn.pp ex);
@@ -95,4 +95,4 @@ let exchange ~meth:m ~host:h ~target:t ?status:code ~elapsed:e () =
   | Some code ->
       Log.info (fun f ->
           f ~tags:(Logs.Tag.add status code tags) "%s %s%s -> %d" m h t code)
-  | None -> Log.warn (fun f -> f ~tags "%s %s%s failed" m h t)
+  | None -> Log.info (fun f -> f ~tags "%s %s%s failed" m h t)

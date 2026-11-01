@@ -5,11 +5,11 @@
 
 (** Output options shared by AT Protocol command-line tools.
 
-    {!term} reads [--color], [--theme] and [-v]/[-q], and sets up the standard
-    outputs before the command runs. [-v] traces each HTTP exchange that
-    {!Xrpc.Trace.wrap} logs, one line each on standard error, naming the XRPC
-    method, its status and its time. [-v -v] adds the request and response
-    fields, with secrets redacted.
+    {!term} reads [--color], [--theme], [-v] (or [--trace]) and [--quiet],
+    and sets up the standard outputs before the command runs. [-v] traces
+    each HTTP exchange that {!Xrpc.Trace.wrap} logs, one line each on
+    standard error, naming the XRPC method, its status and its time.
+    [-v -v] adds the request and response fields, with secrets redacted.
 
     [--color=always] keeps colour, and {!rich} output, when standard output
     is a pipe, so that [cmd --color=always | less -R] shows what a terminal

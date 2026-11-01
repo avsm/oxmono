@@ -45,8 +45,9 @@ let run f =
         f env);
     Ok ()
   with
-  (* A reader such as [head] that has seen enough is not an error. *)
-  | Sys_error "Broken pipe" -> Ok ()
+  (* A reader such as [head] that has seen enough is not an error. The
+     runtime words a failed write as strerror does. *)
+  | Sys_error message when message = Unix.error_message Unix.EPIPE -> Ok ()
   | Failure message | Invalid_argument message | Sys_error message ->
       Error (`Msg message)
   | Eio.Io (Xrpc.Error.E e, _) -> Error (`Msg (Xrpc.Error.to_string e))

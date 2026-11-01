@@ -136,7 +136,7 @@ let term ?env () =
   let verbosity =
     Arg.(
       value & flag_all
-      & info [ "v"; "verbose" ] ~docs
+      & info [ "v"; "verbose"; "trace" ] ~docs
           ~doc:
             "Trace each HTTP exchange on standard error. Repeat to show \
              request and response fields, with secrets redacted.")

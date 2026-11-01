@@ -9,7 +9,7 @@ patch is the twelve hunks listed below, all of them in `xmlm.ml` and
 
 The copy exists for two reasons.
 
-`avsm/sortal/lib/feed` and `avsm/sortal/test` call `Xmlm` directly, so the
+`u/avsm/sortal/lib/feed` and `u/avsm/sortal/test` call `Xmlm` directly, so the
 workspace has a first-party caller whose portability depends on this
 interface, independently of anything else.
 
@@ -32,7 +32,7 @@ annotation land here at all.
 ### DAV packaging
 
 HTTPz also packages these two codec files privately in `httpz.dav`. Keep them
-identical to `bleeding/httpz/dav/xmlm.ml` and `xmlm.mli`; the DAV synchronization
+identical to `wip/httpz/dav/xmlm.ml` and `xmlm.mli`; the DAV synchronization
 checker detects drift. Unused parser bindings and a signature-only functor
 parameter name have been cleaned up so this copy builds under ordinary project
 warnings as well as Dune's vendor policy.
@@ -160,7 +160,7 @@ this workspace only ever uses the default instantiation.
 
 ### Tests
 
-`avsm/arod/test/test_xmlm.ml`, 14 checks, is the guard. It lives outside
+`u/avsm/arod/test/test_xmlm.ml`, 14 checks, is the guard. It lives outside
 `vendor/` because the root `dune` declares `(vendored_dirs vendor)` and dune
 skips aliases there, so a `runtest` alias under this directory would never
 run. It ascribes `@ portable` to each closure that touches `Xmlm`, so it fails
@@ -173,7 +173,7 @@ It also pins the two replaced tables: one check per UTF-8 sequence length, two
 malformed lead bytes, all five predefined entities, and an entity that falls
 through to the `~entity` callback.
 
-`avsm/sortal/test/test_feed.ml` and `avsm/sortal/test/test_feed_sync.ml`
+`u/avsm/sortal/test/test_feed.ml` and `u/avsm/sortal/test/test_feed_sync.ml`
 drive this copy through syndic on real feed documents and are the behavioural
 gate.
 
@@ -197,8 +197,8 @@ annotation of its own, which this copy is what makes possible.
    compiling.
 3. Update the version in `xmlm.opam` and in the first line of this file.
 4. Rebuild every consumer, since this copy shadows the installed package for
-   all of them: `dune build @avsm/arod/all @avsm/arod/runtest
-   @avsm/sortal/all @avsm/sortal/runtest`. Arod reaches this copy through
+   all of them: `dune build @u/avsm/arod/all @u/avsm/arod/runtest
+   @u/avsm/sortal/all @u/avsm/sortal/runtest`. Arod reaches this copy through
    `vendor/sitemap`, sortal through `vendor/syndic` and through its own direct
    dependency. Do not add `@vendor/xmlm/all` or any other alias under
    `vendor/`. The root `dune` declares `(vendored_dirs vendor)`, so dune skips

@@ -45,7 +45,7 @@ Consumer regression tests run outside the inert vendor aliases:
 
 ```sh
 opam exec --switch=5.2.0+ox -- dune runtest --profile release-check \
-  --force bleeding/httpz/test bleeding/fetch/lib/tests
+  --force wip/httpz/test wip/fetch/lib/tests
 ```
 
 When updating, import the complete core snapshot, repeat the immutable-table

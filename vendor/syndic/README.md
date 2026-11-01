@@ -81,7 +81,7 @@ below how it was determined.
   portability annotation" below.
 
   Provenance: certain. This hunk is the commit "Annotate syndic for OxCaml
-  portability", which touches this directory, `avsm/arod/test` and this file.
+  portability", which touches this directory, `u/avsm/arod/test` and this file.
 
 The uriz port
 =============
@@ -161,7 +161,7 @@ Two consequences of the section above reach out of this directory.
 `Arod.Ctx` keys its feed annotation file on the rendered entry URL. Keys
 written before the swap carry uri's spelling, so `Arod.Ctx.annotation_index`
 re-keys the file through `Arod.Ctx.normalise_url` on load, and
-`arod feed associate` writes that form. `avsm/arod/test/test_feed_annotations.ml`
+`arod feed associate` writes that form. `u/avsm/arod/test/test_feed_annotations.ml`
 pins both halves. Any other store keyed on a rendered URL needs the same
 treatment.
 
@@ -179,7 +179,7 @@ than the one bad entry.
 Tests
 =====
 
-`avsm/sortal/test/test_feed.ml` holds the regression tests. Without the
+`u/avsm/sortal/test/test_feed.ml` holds the regression tests. Without the
 `<updated>` hunk its excerpt raises `Syndic.Error.Error`, and
 `test_rfc822_month_names` walks the twelve month names and checks that an
 unknown month is rejected. It cannot see `Not_found` itself, since every call
@@ -187,7 +187,7 @@ site catches every exception. The trim and the RFC 3339 fallback have no test
 of their own, which is a second reason to re-derive them rather than reapply
 them from this list.
 
-`avsm/arod/test/test_syndic.ml` holds the portability guard. See "The
+`u/avsm/arod/test/test_syndic.ml` holds the portability guard. See "The
 portability annotation" below for what it pins.
 
 The portability annotation
@@ -211,7 +211,7 @@ imposes, and passing one in as an argument is unaffected.
 None of the published types needed a kind annotation. They are concrete
 records and variants, so the compiler derives their kinds from their fields.
 
-`avsm/arod/test/test_syndic.ml` is the guard, 12 checks. It lives outside
+`u/avsm/arod/test/test_syndic.ml` is the guard, 12 checks. It lives outside
 `vendor/` because the root `dune` declares `(vendored_dirs vendor)` and dune
 skips aliases there, so a `runtest` alias under this directory would never
 run. Strip the `@@ portable` from `syndic_atom.mli` and the guard stops
@@ -387,14 +387,14 @@ Re-vendoring checklist
    replaying the patch, because a new release moves the parsers around.
 6. Update the version in `syndic.opam`, in `dune-project` and in the first
    line of this file.
-7. `dune build @avsm/sortal/all @avsm/sortal/runtest`, which reaches the
+7. `dune build @u/avsm/sortal/all @u/avsm/sortal/runtest`, which reaches the
    `test_feed` suite. That pins the `<updated>` hunk, the three tiers of
    `uri_of_string` and its totality, and `test_rfc822_month_names` in the
    same file pins all twelve arms of `month_to_int` and that an unknown month
    is rejected. Nothing pins the trim or the RFC 3339 fallback, so a green
    build does not show that those two survived.
-8. `dune build @avsm/arod/all @avsm/arod/runtest @avsm/bushel/all`.
-   `test_syndic` under `avsm/arod/test` is what pins the annotation and the
+8. `dune build @u/avsm/arod/all @u/avsm/arod/runtest @u/avsm/bushel/all`.
+   `test_syndic` under `u/avsm/arod/test` is what pins the annotation and the
    four replaced tables.
 
 Check whether `uriz`, `ptime` and `xmlm` have moved before assuming the

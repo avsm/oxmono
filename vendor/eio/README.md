@@ -96,7 +96,7 @@ See [Awesome Multicore OCaml][] for links to other projects using Eio.
 ## Getting OCaml
 
 You'll need OCaml 5.2.0 or later.
-You can either install it yourself or build the included [Dockerfile](./Dockerfile).
+You can either install it yourself or build the included [Dockerfile](Dockerfile).
 
 To install it yourself:
 
@@ -116,7 +116,7 @@ Install `eio_main` (and `utop` if you want to try it interactively):
 opam install eio_main utop
 ```
 
-If you want to install the latest unreleased development version of Eio, see [HACKING.md](./HACKING.md).
+If you want to install the latest unreleased development version of Eio, see [HACKING.md](HACKING.md).
 
 ## Running Eio
 
@@ -157,7 +157,7 @@ Note that:
 - `Eio_main.run` automatically calls the appropriate run function for your platform.
   For example, on Linux this will call `Eio_linux.run`. For non-portable code you can use the platform-specific library directly.
 
-This example can also be built using dune; see [examples/hello](./examples/hello/).
+This example can also be built using dune; see [examples/hello](examples/hello).
 
 ## Testing with Mocks
 
@@ -234,7 +234,7 @@ Note that the output from `traceln` appears in the trace as well as on the conso
 In the eio-trace window, scrolling with the mouse or touchpad will zoom in or out of the diagram.
 
 Third-party tools, such as [Olly][], can also consume this data.
-[examples/trace](./examples/trace/) shows how to consume the events manually.
+[examples/trace](examples/trace) shows how to consume the events manually.
 
 ## Cancellation
 
@@ -457,7 +457,7 @@ the test would never finish.
   <img src="./doc/traces/net-posix.svg"/>
 </p>
 
-See [examples/net](./examples/net/) for a more complete example.
+See [examples/net](examples/net) for a more complete example.
 
 ## Design Note: Capabilities
 
@@ -834,7 +834,7 @@ perhaps with `open_subtree` to constrain all access to be within that directory.
 
 On systems that provide the [cap_enter][] system call, you can ask the OS to reject accesses
 that don't use capabilities.
-[examples/capsicum/](./examples/capsicum/) contains an example that
+[examples/capsicum/](examples/capsicum) contains an example that
 restricts itself to using a directory passed on the command-line, and then
 tries reading `/etc/passwd` via the stdlib.
 Running on FreeBSD, you should see:
@@ -934,7 +934,7 @@ This is especially useful if you need to insert a delay for some quick debugging
 OCaml allows a program to create multiple *domains* in which to run code, allowing multiple CPUs to be used at once.
 Fibers are scheduled cooperatively within a single domain, but fibers in different domains run in parallel.
 This is useful to perform CPU-intensive operations quickly
-(though extra care needs to be taken when using multiple cores; see the [Multicore Guide](./doc/multicore.md) for details).
+(though extra care needs to be taken when using multiple cores; see the [Multicore Guide](doc/multicore.md) for details).
 
 ### Domain Manager
 
@@ -1852,7 +1852,7 @@ end
 
 - [API reference][Eio API]
 - [doc/rationale.md](doc/rationale.md) describes some of Eio's design tradeoffs in more detail.
-- [HACKING.md](./HACKING.md) describes how to work with the Eio source code.
+- [HACKING.md](HACKING.md) describes how to work with the Eio source code.
 
 Some background about the effects system can be found in:
 

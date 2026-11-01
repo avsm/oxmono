@@ -42,8 +42,8 @@ The switch has `duration.0.3.1` installed, but its interface carries no mode
 annotations, so a `Duration.t` timeout cannot be read from the portable
 closures the serving path is built out of. Nothing in the switch requires
 `duration` at a version this copy would shadow badly: it has no dependencies
-beyond `ocaml` and `dune`, and the in-tree consumers, `avsm/arod`,
-`bleeding/httpz`, `bleeding/fetch`, `bleeding/proffer` and `bleeding/apubt`,
+beyond `ocaml` and `dune`, and the in-tree consumers, `u/avsm/arod`,
+`wip/httpz`, `wip/fetch`, `wip/proffer` and `wip/apubt`,
 all name the library `duration` and link unchanged.
 
 ### Behaviour identity
@@ -52,7 +52,7 @@ all name the library `duration` and link unchanged.
 difference to establish. `diff` against the opam source tree is the whole
 proof, and the re-vendoring checklist repeats it.
 
-`avsm/arod/test/test_duration.ml` is the standing guard. It pins the scale of
+`u/avsm/arod/test/test_duration.ml` is the standing guard. It pins the scale of
 every constructor, the truncation direction of the projections, the four `pp`
 forms and the microsecond spelling, the parser including the repeated-metric
 rejection and both microsecond signs, and the bounds checks. It bites: with
@@ -76,9 +76,9 @@ the `@@ portable` hunk reverted it fails to compile at its first ascription,
    reach anything here, and the upstream `tests.ml` never runs. Verify through
    the consumer aliases instead:
 
-       dune build @avsm/arod/all @avsm/arod/runtest --force
-       dune build @bleeding/httpz/all @bleeding/fetch/all
-       dune build @bleeding/proffer/all @bleeding/apubt/all
+       dune build @u/avsm/arod/all @u/avsm/arod/runtest --force
+       dune build @wip/httpz/all @wip/fetch/all
+       dune build @wip/proffer/all @wip/apubt/all
 
-   `avsm/arod/test/test_duration.ml` is the gate. It fails if the annotation
+   `u/avsm/arod/test/test_duration.ml` is the gate. It fails if the annotation
    is dropped, and it fails if a release moves a conversion or a `pp` form.

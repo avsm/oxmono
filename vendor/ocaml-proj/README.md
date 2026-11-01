@@ -19,7 +19,7 @@ northing by up to 0.5 m before PROJ ever saw it. Changed the four
 until the fix. Worth an upstream pull request.
 
 The copy is here because no opam release of `proj` exists to install,
-and `bleeding/tessera` needs CRS transformations (WGS84 to the UTM
+and `wip/tessera` needs CRS transformations (WGS84 to the UTM
 zones of the Tessera store). Two of the three packages are usable:
 
 - `proj` is a virtual library carrying the interface.
@@ -42,7 +42,7 @@ latitude first.
 2. Confirm the copy is unpatched with a diff against the upstream
    checkout.
 3. Vendored `runtest` aliases are inert, so verify through the
-   consumer: `dune build @bleeding/tessera/all @bleeding/tessera/runtest
+   consumer: `dune build @wip/tessera/all @wip/tessera/runtest
    --force`. The tessera projection tests compare against
    pyproj-generated golden vectors and are the guard tests for this
    copy.

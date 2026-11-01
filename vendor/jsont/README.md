@@ -64,7 +64,7 @@ complete strings, even when their kind is named `ignore`. Numeric conversion
 and member-name materialization remain unchanged to preserve errors.
 
 This is an Oxmono performance patch, not an upstream change.
-`avsm/arod/test/test_jsont_skip.ml` guards malformed UTF-8, escapes, surrogate
+`u/avsm/arod/test/test_jsont_skip.ml` guards malformed UTF-8, escapes, surrogate
 pairs, fragmented readers, retained fields, metadata and allocation scaling.
 The implementation was also compared with the pre-patch streaming decoder and
 pristine upstream 0.4.0 on 155,904 valid, truncated and mutated JSON cases under
@@ -109,7 +109,7 @@ opam exec --switch=5.2.0+ox -- dune build --profile release-check @all
 4. Update the version, commit, and checked date here, in `jsont.opam`, and in
    the root `VENDORED.md`.
 5. Reapply the ignored-string scanner patch and run
-   `dune exec --profile release-check avsm/arod/test/test_jsont_skip.exe`.
+   `dune exec --profile release-check u/avsm/arod/test/test_jsont_skip.exe`.
    Differential-test against the pristine upstream streaming decoder before
    relying on changed scanner behavior.
 6. Run all three commands in the validation section.

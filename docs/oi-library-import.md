@@ -6,9 +6,9 @@ Each project records its import scope in `oxmono/upstream.json`:
 
 | Project | Libraries | Upstream scope |
 | --- | --- | --- |
-| [osrel](../bleeding/osrel/README.md) | `osrel` | [manifest](../bleeding/osrel/oxmono/upstream.json) |
-| [d10](../bleeding/d10/README.md) | `d10`, `d10.ir` | [manifest](../bleeding/d10/oxmono/upstream.json) |
-| [osdist](../bleeding/osdist/README.md) | `osdist` | [manifest](../bleeding/osdist/oxmono/upstream.json) |
+| [osrel](../vendor/oi/osrel/README.md) | `osrel` | [manifest](../vendor/oi/osrel/oxmono/upstream.json) |
+| [d10](../vendor/oi/d10/README.md) | `d10`, `d10.ir` | [manifest](../vendor/oi/d10/oxmono/upstream.json) |
+| [osdist](../vendor/oi/osdist/README.md) | `osdist` | [manifest](../vendor/oi/osdist/oxmono/upstream.json) |
 
 ## Scope
 
@@ -128,15 +128,15 @@ HTTP behavior/cancellation, child environments and osdist generators.
 An additional differential fixture compares opam parsing, effective metadata,
 MD5/SHA256/SHA512 and child environment behavior with stock OCaml and
 opam-format 2.5.2. Its baseline is
-[`bleeding/d10/test/compat/opam.expected`](../bleeding/d10/test/compat/opam.expected).
+[`vendor/oi/d10/test/compat/opam.expected`](../vendor/oi/d10/test/compat/opam.expected).
 
 Build and test the projects in the workspace's OxCaml environment:
 
 ```sh
 dune build --profile release-check \
-  @bleeding/osrel/all @bleeding/d10/all @bleeding/osdist/all
+  @vendor/oi/osrel/all @vendor/oi/d10/all @vendor/oi/osdist/all
 dune runtest --profile release-check --force \
-  bleeding/osrel bleeding/d10 bleeding/osdist
+  vendor/oi/osrel vendor/oi/d10 vendor/oi/osdist
 ```
 
 The explicit vendor suites pass for the opam parser (64 cases), patch,

@@ -159,9 +159,9 @@ The `tests` directory contains some more examples.
 
 ## License
 
-This library is released under the ISC license (see [LICENSE.md](./LICENSE.md)),
+This library is released under the ISC license (see [LICENSE.md](LICENSE.md)),
 but note that the repository also vendors [liburing][] -
-see [vendor/liburing/README](./vendor/liburing/README).
+see [vendor/liburing/README](vendor/liburing/README).
 
 [liburing]: https://github.com/axboe/liburing
 [Eio]: https://github.com/ocaml-multicore/eio

@@ -2,9 +2,9 @@
 
 ## Implemented foundation
 
-The reviewed oi constituent libraries are the `bleeding/osrel`, `bleeding/d10`
-and `bleeding/osdist` projects. The
-[`ox` runner](../avsm/ox/README.md) uses opam metadata, an in-process
+The reviewed oi constituent libraries are the `vendor/oi/osrel`, `vendor/oi/d10`
+and `vendor/oi/osdist` projects. The
+[`ox` runner](../wip/ox/README.md) uses opam metadata, an in-process
 opam-0install solver and day10 package layers. The generic solver libraries
 are vendored with provenance and unchanged implementation sources. Ox
 supplies the repository context adapted from oi.

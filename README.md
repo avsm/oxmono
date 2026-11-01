@@ -1,16 +1,15 @@
 # OxMono
 
 OxMono contains OCaml libraries and applications built with OxCaml. Libraries
-under development live in `bleeding/`; application projects live in `avsm/`.
+under development live in `wip/`; user applications live in `u/<owner>/`.
 
 ## Repository layout
 
-- [`bleeding/`](bleeding/) contains libraries, including Httpz, Proffer and Fetch.
-- [`samoht/`](samoht/) contains imported libraries adapted to this workspace.
-- [`avsm/`](avsm/) contains applications such as Sortal, Bushel and Arod.
-- [`vendor/`](vendor/) contains dependency sources with OxCaml adaptations.
-- [`example/`](example/README.md) contains the HTTP server and client examples.
-- [`taposaur/`](taposaur/README.md) contains paper archive readers, SQLite
+- [`wip/`](wip/) contains shared projects, including Httpz, Proffer, Fetch and ox.
+- [`u/avsm/`](u/avsm/) contains applications such as Sortal, Bushel and Arod.
+- [`vendor/`](vendor) contains dependency sources with OxCaml adaptations.
+- [`examples/`](examples/README.md) contains the HTTP server and client examples.
+- [`u/etap/taposaur/`](u/etap/taposaur/README.md) contains paper archive readers, SQLite
   search, inspection commands and a read-only Proffer browser.
 
 Each package declares its dependencies in a `dune-project` and an `.opam`
@@ -25,11 +24,11 @@ Read [AGENTS.md](AGENTS.md) for contribution and verification rules and
 ## HTTP examples
 
 Start with the [HTTP guide](docs/http.md). It runs a Proffer server, then a Fetch
-client against it. The [example index](example/README.md) covers routing,
+client against it. The [example index](examples/README.md) covers routing,
 forms, streaming, authentication, JSON and request policies.
 
-The examples live under `example/proffer/` and `example/fetch/`. Later Fetch
-examples use the Proffer server in `example/localhost/`, linked as the
+The examples live under `examples/proffer/` and `examples/fetch/`. Later Fetch
+examples use the Proffer server in `examples/localhost/`, linked as the
 example-only Dune library `localhost`.
 
 ## Setup
@@ -79,39 +78,39 @@ dune build --profile release-check @all
 Build selected applications or run the HTTP tests with explicit targets.
 
 ```sh
-dune build --profile release-check avsm/sortal avsm/bushel avsm/arod
-dune runtest --profile release-check bleeding/httpz bleeding/proffer bleeding/fetch
+dune build --profile release-check u/avsm/sortal u/avsm/bushel u/avsm/arod
+dune runtest --profile release-check wip/httpz wip/proffer wip/fetch
 ```
 
 The HTTP examples compile as part of `@all`. Their READMEs give commands to
 run each program. Server examples continue running until stopped with Ctrl-C.
 
-The unreleased [Matrix SDK](bleeding/matrix/OXMONO.md) and
-[Zulip bindings](bleeding/zulip/OXMONO.md) live under `bleeding/`. Their import
+The unreleased [Matrix SDK](wip/matrix/OXMONO.md) and
+[Zulip bindings](wip/zulip/OXMONO.md) live under `wip/`. Their import
 notes record upstream revisions, local adaptations and scoped test commands.
 
-The [OpenRouter client](bleeding/openrouter/README.md) provides Eio-native
+The [OpenRouter client](wip/openrouter/README.md) provides Eio-native
 chat, vision inputs, function tools and streaming over Fetch.
 
-The [mqttz client and codecs](bleeding/mqttz/README.md) support MQTT 3.1.1 and
+The [mqttz client and codecs](wip/mqttz/README.md) support MQTT 3.1.1 and
 5.0 with borrowed byte payloads, Eio TCP/TLS and a Docker interoperability suite.
 
-The [OwnTracks client](bleeding/owntracks/README.md) uses mqttz for location
+The [OwnTracks client](wip/owntracks/README.md) uses mqttz for location
 messages and exports live tracks and Recorder history as GeoJSON.
 
-The [IMAP client](bleeding/imap/README.md) provides a pure protocol library,
+The [IMAP client](wip/imap/README.md) provides a pure protocol library,
 an Eio client, a SQLite store and a durable IMAP to Maildir synchronizer with
 the `imap-sync` command.
 
-The [Maildir library](bleeding/maildir/README.md) stores messages in the
+The [Maildir library](wip/maildir/README.md) stores messages in the
 Dovecot Maildir layout for the IMAP synchronizer and other Eio programs.
 
-The unreleased [JMAP client](bleeding/jmap/OXMONO.md),
-[IDKit contact and calendar libraries](bleeding/idk/OXMONO.md), and
-[JSON Pointer library](bleeding/json-pointer/OXMONO.md) retain their upstream
+The unreleased [JMAP client](wip/jmap/OXMONO.md),
+[IDKit contact and calendar libraries](wip/idk/OXMONO.md), and
+[JSON Pointer library](vendor/ocaml-json-pointer/OXMONO.md) retain their upstream
 source layouts and record local adaptations beside them.
 
-The [Crowthebot Matrix assistant](avsm/crowthebot/README.md) uses OpenRouter,
+The [Crowthebot Matrix assistant](u/avsm/crowthebot/README.md) uses OpenRouter,
 profile-local SQLite authority and context, and Sortal OPML blogroll tools.
 
 ## Dependencies
@@ -120,18 +119,18 @@ The workspace uses opam dependencies and the sources under `vendor/`.
 Vendored package READMEs describe their interfaces and local changes.
 Generating API documentation requires an OxCaml-compatible `odoc`.
 
-[SYNC.md](bleeding/httpz/SYNC.md) records the source revision and update procedure
+[SYNC.md](wip/httpz/SYNC.md) records the source revision and update procedure
 for the HTTP libraries.
 
-The [osrel](bleeding/osrel/README.md), [d10](bleeding/d10/README.md) and
-[osdist](bleeding/osdist/README.md) projects provide platform detection,
+The [osrel](vendor/oi/osrel/README.md), [d10](vendor/oi/d10/README.md) and
+[osdist](vendor/oi/osdist/README.md) projects provide platform detection,
 binary layers, build recipes and distro packaging. The
 [oi import review](docs/oi-library-import.md) records their provenance and
 OxCaml adaptations. The [ox plan](docs/ox-plan.md) describes the workspace roadmap.
 
-The [ox runner](avsm/ox/README.md) builds and runs committed monorepo packages from opam
+The [ox runner](wip/ox/README.md) builds and runs committed monorepo packages from opam
 metadata, with generated snapshot versions and local day10 layers. It builds
 the OxCaml toolchain from source without invoking opam or creating switches.
 
-The [DS4 bindings](bleeding/ds4/README.md) provide local DeepSeek, GLM and Qwen
+The [DS4 bindings](wip/ds4/README.md) provide local DeepSeek, GLM and Qwen
 inference, with DeepSeek V4.1 Flash 1017 preferred when downloaded.

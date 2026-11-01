@@ -42,13 +42,13 @@ checks. No local NPY parser or dtype encoding is duplicated in Tessera.
    from that release and retain its licenses and provenance.
 2. Reapply the isolated build metadata, layout-switch and NPY API patches.
    Refresh `upstream/npy.ml` from the pristine release.
-3. Build `vendor/nx/lib/backend_c/nx_c.cmxa`, `@bleeding/nx-oxcaml/all` and
-   `@bleeding/tessera/all` with the workspace OxCaml compiler.
+3. Build `vendor/nx/lib/backend_c/nx_c.cmxa`, `@vendor/nx-oxcaml/all` and
+   `@wip/tessera/all` with the workspace OxCaml compiler.
 4. Run `dune build --profile release-check @@vendor/nx/test/io/runtest --force`
    explicitly: recursive workspace aliases skip vendored tests. This suite
    uses Nx's C backend, compares streamed NPY bytes with the pristine writer
    and reads streamed files through Nx. In an extracted Nx project use
    `dune build --profile release-check @test/io/runtest --force`.
-5. Force tests under `bleeding/nx-oxcaml` and `bleeding/tessera` for backend
+5. Force tests under `vendor/nx-oxcaml` and `wip/tessera` for backend
    and application integration, including Tessera's NumPy golden bytes. Scalar
    headers are compared separately because the pristine file writer rejects rank-zero arrays in Unix.map_file.

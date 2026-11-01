@@ -13,12 +13,12 @@ parser.add_argument('--port-switch', default='5.2.0+ox')
 args = parser.parse_args()
 root = Path(__file__).resolve().parents[2]
 source = args.upstream.resolve()
-probe = root / 'bleeding/mqttz/test/toml_probe.ml'
+probe = root / 'wip/mqttz/test/toml_probe.ml'
 subprocess.run(['opam', 'exec', '--switch=' + args.port_switch, '--',
                 'dune', 'build', '--profile', 'release-check',
-                'bleeding/mqttz/test/toml_probe.exe'], cwd=root, check=True)
+                'wip/mqttz/test/toml_probe.exe'], cwd=root, check=True)
 ported = subprocess.check_output(
-    [root / '_build/default/bleeding/mqttz/test/toml_probe.exe'], cwd=root)
+    [root / '_build/default/wip/mqttz/test/toml_probe.exe'], cwd=root)
 with tempfile.TemporaryDirectory(prefix='mqttz-toml-pristine-') as name:
     pristine = Path(name)
     shutil.copy2(root / 'vendor/ocaml-codec/dune-project', pristine)

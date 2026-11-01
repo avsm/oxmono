@@ -38,6 +38,6 @@ and it must be run by name:
 
     dune exec vendor/base64/test/test_base64.exe
 
-Because that test is inert in an ordinary build, `avsm/arod/test/test_base64.ml`
+Because that test is inert in an ordinary build, `u/avsm/arod/test/test_base64.ml`
 holds a smaller copy of the same two guarantees, outside `vendor/` and so under
 `dune runtest`. A re-vendor that drops the patch fails there.

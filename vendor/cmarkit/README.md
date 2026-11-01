@@ -88,7 +88,7 @@ the container with code, or move to `iarray`. All three appear below.
   real narrowing of the public interface: a metadata value whose type does not
   cross is now refused. It costs nothing in this tree. Nothing in `avsm/` or
   `bleeding/` calls `Meta.add`, and the thirteen calls to `Meta.tag` and
-  `Meta.find` in `avsm/bushel/lib/bushel_md.ml` all carry `unit`.
+  `Meta.find` in `u/avsm/bushel/lib/bushel_md.ml` all carry `unit`.
 
 * `cmarkit_base.mli`, the `Dict` doc comment. It said `Dict` is used by
   `Cmarkit.Meta`, which is no longer true. It names the renderer state
@@ -141,7 +141,7 @@ portable function, and most of cmarkit's types cannot carry one in any case:
   reads it from a portable function, and it has no choice about that: a key
   minted twice is two identities and `Meta.find` matches on identity, so
   moving the key inside its reader would silently return `None` for ever.
-  `avsm/bushel/lib/bushel_md.ml` holds two.
+  `u/avsm/bushel/lib/bushel_md.ml` holds two.
 * `Cmarkit.Meta.t` and `Cmarkit_base.Meta.t`, `immutable_data`, which the key's
   own use forces.
 * `Cmarkit.Textloc.t` and `Cmarkit_base.Textloc.t`, `immutable_data`, which
@@ -197,7 +197,7 @@ tree calls either function.
   modality, so a renderer does not cross and cannot be held at module level
   and read from a portable closure.** A renderer built inside the closure
   works, which is what `Cmarkit_html.of_doc` does and what
-  `avsm/arod/test/test_cmarkit_portable.ml` does. The modality was tried. It
+  `u/avsm/arod/test/test_cmarkit_portable.ml` does. The modality was tried. It
   is achievable in the sense that `type t : value mod portable contended` is
   then accepted, and it is rejected by two of the four renderers this
   workspace builds, because `make` would demand portable callbacks. Applied on
@@ -208,7 +208,7 @@ tree calls either function.
                                      ^^^^^^^^^^^^
       Error: This value is "nonportable" but is expected to be "portable".
 
-      File "avsm/arod/lib/arod_md.ml", line 659, characters 15-59:
+      File "u/avsm/arod/lib/arod_md.ml", line 659, characters 15-59:
       659 |        ~inline:(custom_inline_renderer ~entries ~sidenotes)
                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       Error: This value is "nonportable" but is expected to be "portable".
@@ -226,7 +226,7 @@ tree calls either function.
   through `Img.name` at `arod_md.ml:53`, where `Img` is `Srcsetter`, aliased
   at `arod_md.ml:8`, then through `render_sidenote` to
   `Bushel.Entry.thumbnail`, which parses markdown with a mapper that read
-  `Cmarkit.Mapper.default`. `avsm/srcsetter/lib/srcsetter.mli` carries a
+  `Cmarkit.Mapper.default`. `u/avsm/srcsetter/lib/srcsetter.mli` carries a
   floating `@@ portable` and the mapper is written with the literals per the
   entry below, so ascribing `let custom_inline_renderer : _ @ portable` now
   compiles with no error at all.
@@ -253,8 +253,8 @@ tree calls either function.
   Every in-tree mapper and folder is written with the literals for that
   reason, and a reader who reaches for the constant out of habit should know
   that this is why. The rewrite was 57 sites: 44 in
-  `avsm/bushel/lib/bushel_md.ml`, of which one is `Mapper.delete`, 9 in
-  `avsm/bushel/lib/bushel_entry.ml` and 4 in `avsm/arod/lib/arod_md.ml`.
+  `u/avsm/bushel/lib/bushel_md.ml`, of which one is `Mapper.delete`, 9 in
+  `u/avsm/bushel/lib/bushel_entry.ml` and 4 in `u/avsm/arod/lib/arod_md.ml`.
   `Mapper.ret` and `Folder.ret` are function calls and were left alone. It
   bought the floating `@@ portable` on `bushel_md.mli` for the three exported
   mappers and lifted the `@@ nonportable` from `Bushel.Entry.thumbnail` and
@@ -266,13 +266,13 @@ tree calls either function.
 
 Four independent checks.
 
-`avsm/arod/test/test_md_golden.ml` renders four documents through the three
+`u/avsm/arod/test/test_md_golden.ml` renders four documents through the three
 markdown renderers and the sidenote collector and compares 34 results against
 checked-in bytes. All 34 pass unchanged. It bites: a `Meta_dict.add` that drops
 its binding, which is what a wrong dictionary would look like, fails it at
 `links.article.html` byte 183.
 
-`avsm/arod/test/test_cmarkit_tables.ml` is the standing guard on the tables.
+`u/avsm/arod/test/test_cmarkit_tables.ml` is the standing guard on the tables.
 6665 checks, all of them against the generated arrays the
 tables are built from rather than against checked-in expectations, so new
 Unicode data in a later release needs no edit. Every listed whitespace,
@@ -289,7 +289,7 @@ ends of the search window the first nine left untested, and both fail it: an
 entity search that starts at index 1, so the first entry is unreachable, and
 one that gives up on a one-element window by testing `lo >= hi` for `lo > hi`.
 
-`avsm/arod/test/test_cmarkit_portable.ml` is the standing guard on the
+`u/avsm/arod/test/test_cmarkit_portable.ml` is the standing guard on the
 annotations. 7 checks. It holds two `Cmarkit.Meta.key` values and a
 `Cmarkit_renderer.Context.State.t` at module level and reads all three from
 `@ portable` closures that parse a document with their own resolver, render it
@@ -373,8 +373,8 @@ which is a correct binary search.
 Nothing in the switch requires cmarkit. A sweep of every `META` under
 `~/.opam/5.2.0+ox/lib` for a `cmarkit` requirement matched only cmarkit's own,
 so shadowing the installed package with this one pulls no other package into
-the workspace build. The three in-tree consumers, `avsm/arod/lib`,
-`avsm/arod/bin` and `avsm/bushel/lib`, name the library `cmarkit` and link
+the workspace build. The three in-tree consumers, `u/avsm/arod/lib`,
+`u/avsm/arod/bin` and `u/avsm/bushel/lib`, name the library `cmarkit` and link
 unchanged.
 
 ### Re-vendoring checklist
@@ -387,17 +387,17 @@ unchanged.
 4. Dune skips aliases under a vendored directory, so `dune runtest` does not
    reach anything here. Verify through the consumer aliases instead:
 
-       dune build @avsm/arod/all @avsm/arod/runtest --force
-       dune build @avsm/bushel/all @avsm/sortal/all @avsm/sortal/runtest
+       dune build @u/avsm/arod/all @u/avsm/arod/runtest --force
+       dune build @u/avsm/bushel/all @u/avsm/sortal/all @u/avsm/sortal/runtest
 
-   Three tests there are the gate. `avsm/arod/test/test_md_golden.ml`
+   Three tests there are the gate. `u/avsm/arod/test/test_md_golden.ml`
    byte-compares 34 rendered results against checked-in files, so a cmarkit
    change that alters one byte of output fails there. Never regenerate the
-   goldens to make it pass. `avsm/arod/test/test_cmarkit_tables.ml` checks the
+   goldens to make it pass. `u/avsm/arod/test/test_cmarkit_tables.ml` checks the
    four tables against the generated arrays they are built from, so it
    survives new Unicode data but not a mis-built table. Its two lists of tag
    names are the one thing in it that a release could legitimately move.
-   `avsm/arod/test/test_cmarkit_portable.ml` fails if any of the annotations
+   `u/avsm/arod/test/test_cmarkit_portable.ml` fails if any of the annotations
    or the kinds is dropped.
 5. Rebuild the differential harness described above, since the three tests
    reach only what their corpus and their tag lists reach. Two scratch dune

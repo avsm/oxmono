@@ -34,7 +34,7 @@ Keep upstream README.md and LICENSE. Reapply the adaptations above and update
 `../upstreams.json`. Build the CLI consumers under `avsm/`, then run:
 
 ```
-dune build --force @avsm/arod/test/console_port/runtest @avsm/siftbot/runtest @avsm/bushel/test/knowledge_output/runtest
+dune build --force @u/avsm/arod/test/console_port/runtest @u/avsm/siftbot/runtest @u/avsm/bushel/test/knowledge_output/runtest
 dune build --force @@vendor/console/test/runtest @@vendor/console/test/input/runtest @@vendor/console/test/text/runtest @@vendor/console/test/tty/runtest @@vendor/console/test/eio/runtest @@vendor/console/test/invariants/runtest @@vendor/console/test/cram/runtest
 ```
 

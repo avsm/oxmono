@@ -29,6 +29,6 @@ would buy nothing until jsont is annotated.
    keeping `dune`, `dune-project`, `jsonfeed.opam`, `LICENSE.md` and this
    file. Do not copy `jsonfeed__.ml`.
 2. Update the version in `jsonfeed.opam` and in the first line of this file.
-3. `dune build @avsm/sortal/all @avsm/sortal/runtest @avsm/arod/all`.
+3. `dune build @u/avsm/sortal/all @u/avsm/sortal/runtest @u/avsm/arod/all`.
 
 This copy can be dropped when `vendor/ptime` is dropped, and not before.

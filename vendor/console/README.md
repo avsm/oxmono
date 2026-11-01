@@ -700,7 +700,7 @@ character that reorders the text around it:
 
 ## Examples
 
-Each example is a program under [examples/](examples/). From a checkout of
+Each example is a program under [examples/](examples). From a checkout of
 this repository, `dune exec` runs one, as in
 `dune exec -- examples/columns/main.exe`.
 

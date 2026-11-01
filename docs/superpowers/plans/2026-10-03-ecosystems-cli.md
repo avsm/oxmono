@@ -4,7 +4,7 @@
 
 **Goal:** `oecosystems`, a command-line tool that queries packages.ecosyste.ms through the `ecosystems` client.
 
-**Architecture:** Package `ecosystems-cli` in `bleeding/ecosystems/`. Library `ecosystems_cli` (`cli/`) holds the cmdliner commands and renderers and takes its output formatter as an argument. `bin/main.ml` is a thin `Eio_main.run`. Tests evaluate the commands against a loopback server that serves recorded fixtures.
+**Architecture:** Package `ecosystems-cli` in `wip/ecosystems/`. Library `ecosystems_cli` (`cli/`) holds the cmdliner commands and renderers and takes its output formatter as an argument. `bin/main.ml` is a thin `Eio_main.run`. Tests evaluate the commands against a loopback server that serves recorded fixtures.
 
 **Tech Stack:** cmdliner, Eio, `ecosystems`, `ecosystems.client`, `openapi` (for JSON encoding).
 
@@ -21,7 +21,7 @@
 - Branch `ecosystems-cli`. Commits: one line, imperative, no trailers. A reformat is its own commit.
 - Prose per AGENTS.md. 80 columns. `eio_main` becomes `:with-test` in package `ecosystems`.
 - No AI-disclosure tags.
-- Build with `dune build @bleeding/ecosystems/all @bleeding/ecosystems/runtest --force`.
+- Build with `dune build @wip/ecosystems/all @wip/ecosystems/runtest --force`.
 
 ## Review Focus
 

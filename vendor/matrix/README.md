@@ -14,5 +14,5 @@ arrays. Per-call segmenter state remains private to the caller.
 
 On re-vendoring, retain the subset and Unicode tables together, reapply the
 annotations and lookup changes, update `../upstreams.json`, and run Console
-and K7's explicit test aliases plus `@avsm/arod/test/console_port/runtest`.
+and K7's explicit test aliases plus `@u/avsm/arod/test/console_port/runtest`.
 The latter compares segmentation with the unmodified Uuseg implementation.

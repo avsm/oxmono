@@ -103,16 +103,16 @@ jsonfeed v1.1.0 and present only to keep the link consistent.
 2. Reapply the hunks above. The three tables are the only ones that are more
    than an annotation.
 3. Update the version in `ptime.opam` and in the first line of this file.
-4. `dune build @avsm/arod/all @avsm/arod/runtest`, which reaches the
-   portability ascriptions in `avsm/arod/test/test_ptime.ml`.
+4. `dune build @u/avsm/arod/all @u/avsm/arod/runtest`, which reaches the
+   portability ascriptions in `u/avsm/arod/test/test_ptime.ml`.
 5. `dune exec vendor/ptime/test/test_ptime.exe`.
 6. Rebuild every consumer, since this copy shadows the installed package for
-   all of them: `dune build @avsm/sortal/all @avsm/sortal/runtest
-   @avsm/bushel/all @avsm/tessabot/all @bleeding/proffer/all
-   @bleeding/httpz/all @bleeding/atp/all @bleeding/apubt/all
-   @bleeding/tomlt/all @bleeding/jsonwt/all @bleeding/httpz/all
-   @bleeding/openapi/all @bleeding/immich/all @bleeding/karakeep/all
-   @bleeding/peertube/all @bleeding/frontmatter/all @vendor/x509/all
+   all of them: `dune build @u/avsm/sortal/all @u/avsm/sortal/runtest
+   @u/avsm/bushel/all @u/avsm/tessabot/all @wip/proffer/all
+   @wip/httpz/all @wip/atp/all @wip/apubt/all
+   @wip/tomlt/all @wip/jsonwt/all @wip/httpz/all
+   @wip/openapi/all @wip/immich/all @wip/karakeep/all
+   @wip/peertube/all @wip/frontmatter/all @vendor/x509/all
    @vendor/tls/all @vendor/ca-certs/all @vendor/syndic/all
    @vendor/asn1-combinators/all @vendor/cohttp-eio/all @vendor/jsonfeed/all`.
 
@@ -122,7 +122,7 @@ by name:
 
     dune exec vendor/ptime/test/test_ptime.exe
 
-Because that test is inert in an ordinary build, `avsm/arod/test/test_ptime.ml`
+Because that test is inert in an ordinary build, `u/avsm/arod/test/test_ptime.ml`
 holds the portability guarantees outside `vendor/`, and so under `dune
 runtest`. A re-vendor that drops the patch fails there.
 

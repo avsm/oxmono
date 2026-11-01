@@ -29,7 +29,7 @@ bindings and the partial Dune layout. Update this file and `../upstreams.json`.
 
 ```sh
 python3 vendor/ocaml-codec/check-port.py ../ocaml-codec
-opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force bleeding/mqttz
+opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force wip/mqttz
 ```
 
 The differential builds pristine source with the `5.5.0` switch in a temporary

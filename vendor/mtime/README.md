@@ -61,7 +61,7 @@ diverging from upstream over.
 ### Why the copy exists
 
 `mtime` is not installed in the `5.2.0+ox` switch at all, so the in-tree
-consumers, `avsm/srcsetter`, `bleeding/fetch` and `bleeding/proffer`, and the
+consumers, `u/avsm/srcsetter`, `wip/fetch` and `wip/proffer`, and the
 vendored `vendor/eio` and `vendor/progress`, had nothing to link against. A
 switch copy would not have helped in any case, since its interface carries no
 mode annotations and a `Mtime.span` timeout cannot be read from the portable
@@ -78,7 +78,7 @@ installed package is forced into the workspace build by it.
 there is no behavioural difference to establish. `diff` against the opam
 source tree is the whole proof, and the re-vendoring checklist repeats it.
 
-`avsm/arod/test/test_mtime.ml` is the standing guard, 50 checks. It pins the
+`u/avsm/arod/test/test_mtime.ml` is the standing guard, 50 checks. It pins the
 scale of every duration constant, the unsigned comparisons that make
 `max_span` the longest span rather than the shortest, span and timestamp
 arithmetic including the overflow and underflow cases, the float conversions
@@ -138,9 +138,9 @@ not cross anything.
 4. Dune skips aliases under a vendored directory, so `dune runtest` does not
    reach anything here. Verify through the consumer aliases instead:
 
-       dune build @avsm/arod/all @avsm/arod/runtest --force
-       dune build @avsm/srcsetter/all @bleeding/fetch/all
-       dune build @bleeding/proffer/all @vendor/eio/all @vendor/progress/all
+       dune build @u/avsm/arod/all @u/avsm/arod/runtest --force
+       dune build @u/avsm/srcsetter/all @wip/fetch/all
+       dune build @wip/proffer/all @vendor/eio/all @vendor/progress/all
 
-   `avsm/arod/test/test_mtime.ml` is the gate. It fails if an annotation is
+   `u/avsm/arod/test/test_mtime.ml` is the gate. It fails if an annotation is
    dropped, and it fails if a release moves a constant or a `pp` form.

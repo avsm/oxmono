@@ -17,7 +17,7 @@ caching. A handler can attach a `Cache_control` policy and an `Etag` to a
 response. Proffer handles conditional GET requests and HEAD responses
 consistently across its live and mock backends. `Cache.memoize` retains
 generated bodies for a specified lifetime. The
-[cache example](../example/proffer/7-cache/README.md) shows both HTTP cache policy
+[cache example](../examples/proffer/7-cache/README.md) shows both HTTP cache policy
 and caching within the server.
 
 Fetch treats a client as a capability that grants authority to make HTTP
@@ -33,8 +33,8 @@ can add restrictions but cannot remove those already imposed through the
 client. Libraries can therefore share HTTP access without each receiving
 unrestricted network access or constructing its own transport. The same
 library can accept a mock client in tests. The
-[restriction](../example/fetch/6-restrict/README.md) and
-[credential](../example/fetch/7-credentials/README.md) examples show these policies.
+[restriction](../examples/fetch/6-restrict/README.md) and
+[credential](../examples/fetch/7-credentials/README.md) examples show these policies.
 
 Fetch and Proffer separate their frontend APIs from the backends that perform
 I/O. A library can depend on `fetch` and accept a client from its caller. The
@@ -49,57 +49,57 @@ dispatches requests to the same site in memory.
 
 ## Examples
 
-Each [example](../example/README.md) contains a complete program, its Dune
+Each [example](../examples/README.md) contains a complete program, its Dune
 dependencies and commands to run it.
 
 ### Proffer
 
-- [Greeting server](../example/proffer/1-hello/README.md) serves a text response at `/`.
-- [Routing](../example/proffer/2-router/README.md) matches paths and captures strings, integers and remaining path segments.
-- [Request logging](../example/proffer/3-log/README.md) reports completed requests through `on_event`.
-- [Application state](../example/proffer/4-counter/README.md) shares a request counter between handlers through `~env`.
-- [Form handling](../example/proffer/5-form/README.md) reads URL-encoded forms, multipart files and query parameters.
-- [Fallback handling](../example/proffer/6-error/README.md) provides a custom error page, a permanent redirect and response headers.
-- [Caching](../example/proffer/7-cache/README.md) sets cache headers and ETags, and caches a generated response in server memory.
-- [Streaming](../example/proffer/8-stream/README.md) writes response bytes as they become available, with or without a declared length.
-- [Authentication](../example/proffer/9-auth/README.md) protects routes beneath `/admin` with HTTP Basic credentials.
-- [Content negotiation](../example/proffer/a-negotiate/README.md) selects HTML, JSON or plain text from the request's `Accept` field.
-- [Site composition](../example/proffer/b-mount/README.md) mounts a group of API routes beneath `/api/v1`.
-- [Mock dispatch](../example/proffer/c-mock/README.md) exercises handlers without opening a network connection.
-- [Server configuration](../example/proffer/d-config/README.md) sets connection limits and timeouts, and selects an unused port.
-- [JSON API](../example/proffer/e-json/README.md) decodes submitted records, serves typed responses and exports JSON Lines.
-- [Markdown response](../example/proffer/f-markdown/README.md) serves a document as HTML or Markdown.
+- [Greeting server](../examples/proffer/1-hello/README.md) serves a text response at `/`.
+- [Routing](../examples/proffer/2-router/README.md) matches paths and captures strings, integers and remaining path segments.
+- [Request logging](../examples/proffer/3-log/README.md) reports completed requests through `on_event`.
+- [Application state](../examples/proffer/4-counter/README.md) shares a request counter between handlers through `~env`.
+- [Form handling](../examples/proffer/5-form/README.md) reads URL-encoded forms, multipart files and query parameters.
+- [Fallback handling](../examples/proffer/6-error/README.md) provides a custom error page, a permanent redirect and response headers.
+- [Caching](../examples/proffer/7-cache/README.md) sets cache headers and ETags, and caches a generated response in server memory.
+- [Streaming](../examples/proffer/8-stream/README.md) writes response bytes as they become available, with or without a declared length.
+- [Authentication](../examples/proffer/9-auth/README.md) protects routes beneath `/admin` with HTTP Basic credentials.
+- [Content negotiation](../examples/proffer/a-negotiate/README.md) selects HTML, JSON or plain text from the request's `Accept` field.
+- [Site composition](../examples/proffer/b-mount/README.md) mounts a group of API routes beneath `/api/v1`.
+- [Mock dispatch](../examples/proffer/c-mock/README.md) exercises handlers without opening a network connection.
+- [Server configuration](../examples/proffer/d-config/README.md) sets connection limits and timeouts, and selects an unused port.
+- [JSON API](../examples/proffer/e-json/README.md) decodes submitted records, serves typed responses and exports JSON Lines.
+- [Markdown response](../examples/proffer/f-markdown/README.md) serves a document as HTML or Markdown.
 
 ### Fetch
 
 Start the greeting server before running the first client. Most later clients
 start their own server through the shared
-[Localhost library](../example/localhost/README.md). The mock example needs no
+[Localhost library](../examples/localhost/README.md). The mock example needs no
 server, and the HTTPS example contacts a public URL by default.
 
-- [Reading a response](../example/fetch/1-read/README.md) retrieves the greeting from the first Proffer server.
-- [Response inspection](../example/fetch/2-response/README.md) reads status, URL, headers and a streaming body.
-- [POST submission](../example/fetch/3-post/README.md) sends plain text, URL-encoded forms and multipart bodies.
-- [Redirect following](../example/fetch/4-redirect/README.md) follows a redirect and reports the final URL.
-- [Error handling](../example/fetch/5-errors/README.md) distinguishes HTTP error responses from URL, connection and timeout failures.
-- [Client restriction](../example/fetch/6-restrict/README.md) narrows a client to one origin, then denies methods outside its read-only policy.
-- [Credential scoping](../example/fetch/7-credentials/README.md) scopes a bearer token to an API and supplies default request headers.
-- [Cookie storage](../example/fetch/8-cookies/README.md) retains a login cookie and sends it on a later request.
-- [Retry policy](../example/fetch/9-retry/README.md) repeats a temporarily failing request until it succeeds.
-- [Request pacing](../example/fetch/a-limits/README.md) bounds concurrency and spaces out request starts.
-- [Body streaming](../example/fetch/b-stream/README.md) downloads to a file and uploads from a flow.
-- [Mock client](../example/fetch/c-mock/README.md) tests client code with supplied responses and no network connection.
-- [Curl transport](../example/fetch/d-curl/README.md) makes requests through libcurl.
-- [HTTPS transport](../example/fetch/e-https/README.md) uses the OCaml transport with system trust anchors.
-- [Typed JSON](../example/fetch/f-json/README.md) decodes records, handles unsuccessful responses, posts JSON and reads JSON Lines.
-- [Markdown decoding](../example/fetch/g-markdown/README.md) reads a document and renders it as HTML.
+- [Reading a response](../examples/fetch/1-read/README.md) retrieves the greeting from the first Proffer server.
+- [Response inspection](../examples/fetch/2-response/README.md) reads status, URL, headers and a streaming body.
+- [POST submission](../examples/fetch/3-post/README.md) sends plain text, URL-encoded forms and multipart bodies.
+- [Redirect following](../examples/fetch/4-redirect/README.md) follows a redirect and reports the final URL.
+- [Error handling](../examples/fetch/5-errors/README.md) distinguishes HTTP error responses from URL, connection and timeout failures.
+- [Client restriction](../examples/fetch/6-restrict/README.md) narrows a client to one origin, then denies methods outside its read-only policy.
+- [Credential scoping](../examples/fetch/7-credentials/README.md) scopes a bearer token to an API and supplies default request headers.
+- [Cookie storage](../examples/fetch/8-cookies/README.md) retains a login cookie and sends it on a later request.
+- [Retry policy](../examples/fetch/9-retry/README.md) repeats a temporarily failing request until it succeeds.
+- [Request pacing](../examples/fetch/a-limits/README.md) bounds concurrency and spaces out request starts.
+- [Body streaming](../examples/fetch/b-stream/README.md) downloads to a file and uploads from a flow.
+- [Mock client](../examples/fetch/c-mock/README.md) tests client code with supplied responses and no network connection.
+- [Curl transport](../examples/fetch/d-curl/README.md) makes requests through libcurl.
+- [HTTPS transport](../examples/fetch/e-https/README.md) uses the OCaml transport with system trust anchors.
+- [Typed JSON](../examples/fetch/f-json/README.md) decodes records, handles unsuccessful responses, posts JSON and reads JSON Lines.
+- [Markdown decoding](../examples/fetch/g-markdown/README.md) reads a document and renders it as HTML.
 
 ## Repository layout
 
-- [`bleeding/proffer/`](../bleeding/proffer/) contains the server library and its backends.
-- [`bleeding/fetch/`](../bleeding/fetch/) contains the client library, middleware and backends.
-- [`bleeding/httpz/`](../bleeding/httpz/) contains the protocol and supporting libraries.
-- [`example/`](../example/README.md) contains the Proffer and Fetch lessons and their shared local server.
+- [`wip/proffer/`](../wip/proffer) contains the server library and its backends.
+- [`wip/fetch/`](../wip/fetch) contains the client library, middleware and backends.
+- [`wip/httpz/`](../wip/httpz) contains the protocol and supporting libraries.
+- [`example/`](../examples/README.md) contains the Proffer and Fetch lessons and their shared local server.
 
 Public interfaces are documented in `.mli` files beside their implementations.
 The examples are separate executables and are not installed library modules.
@@ -110,14 +110,14 @@ Select an OxCaml switch. The commands below use `5.2.0+ox`.
 
 ```sh
 eval "$(opam env --switch=5.2.0+ox)"
-dune build --profile release-check @bleeding/httpz/all @bleeding/fetch/all @bleeding/proffer/all @example/all
+dune build --profile release-check @wip/httpz/all @wip/fetch/all @wip/proffer/all @example/all
 ```
 
 The [repository setup](../README.md#setup) describes the workspace dependencies.
 
 ## Start a server
 
-The [first Proffer example](../example/proffer/1-hello/README.md) serves a
+The [first Proffer example](../examples/proffer/1-hello/README.md) serves a
 greeting on loopback port 8765.
 
 ```ocaml
@@ -138,7 +138,7 @@ Its Dune dependencies are `(libraries proffer proffer-httpz eio_main)`.
 From the repository root, run it in one terminal and leave it running.
 
 ```sh
-dune exec --profile release-check ./example/proffer/1-hello/hello.exe
+dune exec --profile release-check ./examples/proffer/1-hello/hello.exe
 ```
 
 `get root` matches `GET /`. `Resp.text` produces a text response. The handler
@@ -147,7 +147,7 @@ The server uses plaintext HTTP by default.
 
 ## Make a request
 
-The [first Fetch example](../example/fetch/1-read/README.md) calls that server.
+The [first Fetch example](../examples/fetch/1-read/README.md) calls that server.
 
 ```ocaml
 let () =
@@ -160,7 +160,7 @@ Its Dune dependencies are `(libraries fetch fetch-httpz eio_main)`.
 From another terminal at the repository root, run the client.
 
 ```sh
-dune exec --profile release-check ./example/fetch/1-read/read.exe
+dune exec --profile release-check ./examples/fetch/1-read/read.exe
 ```
 
 ```text
@@ -172,10 +172,10 @@ limit of 16 MiB. `Fetch.get` exposes status, headers and a streaming body.
 `Fetch.read_as` decodes a successful response using a media codec.
 
 Stop the server with Ctrl-C when finished. Continue through the
-[examples](../example/README.md), which introduce server features before client
+[examples](../examples/README.md), which introduce server features before client
 features. Most later Fetch examples start their own server through
-[`Localhost`](../example/localhost/README.md). That module comes from
-`example/localhost/localhost.ml` and the private Dune library `localhost`.
+[`Localhost`](../examples/localhost/README.md). That module comes from
+`examples/localhost/localhost.ml` and the private Dune library `localhost`.
 
 ## Select libraries
 
@@ -230,15 +230,15 @@ supports streamed uploads and downloads; the server examples use small
 uploads to stay within the Proffer backend's limit.
 
 The native libraries target 64-bit little-endian systems. The
-[Proffer interface](../bleeding/proffer/lib/proffer.mli),
-[Fetch interface](../bleeding/fetch/lib/fetch.mli) and
-[Httpz interface](../bleeding/httpz/lib/httpz.mli) describe the public APIs.
+[Proffer interface](../wip/proffer/lib/proffer.mli),
+[Fetch interface](../wip/fetch/lib/fetch.mli) and
+[Httpz interface](../wip/httpz/lib/httpz.mli) describe the public APIs.
 
 OxMono also includes `fetch-main` for platform selection, `fetch-macos` for
 NSURLSession, `fetch-cmdliner` for command-line configuration and
 `fetch-signature` for HTTP Message Signatures. Server applications use Proffer
 and the `proffer-httpz` backend.
 
-WebDAV protocol values live in [`httpz.dav`](../bleeding/httpz/dav/README.md).
-The [`fetch.dav` client](../bleeding/fetch/dav/README.md) supplies scoped operations
+WebDAV protocol values live in [`httpz.dav`](../wip/httpz/dav/README.md).
+The [`fetch.dav` client](../wip/fetch/dav/README.md) supplies scoped operations
 and explicit locks; `proffer.dav` re-exports it.

@@ -20,7 +20,7 @@ Local patches are confined to four files:
 
 The compiler checks the C backend's portable declarations. Its 695 upstream
 cases pass on both OxCaml and pristine stock OCaml 5.4.1. The pristine OCaml
-backend passes 694 quick cases. `bleeding/d10/test/compat/digestif_probe.ml`
+backend passes 694 quick cases. `vendor/oi/d10/test/compat/digestif_probe.ml`
 checks the added portable BLAKE3 helpers against the upstream module API.
 
 On refresh, merge against the recorded upstream commit, retain these patches,

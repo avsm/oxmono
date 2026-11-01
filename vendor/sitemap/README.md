@@ -70,7 +70,7 @@ All three are exercised that way in the guard test.
 
 ### Tests
 
-`avsm/arod/test/test_sitemap.ml`, 11 checks, is the guard. It lives outside
+`u/avsm/arod/test/test_sitemap.ml`, 11 checks, is the guard. It lives outside
 `vendor/` because the root `dune` declares `(vendored_dirs vendor)` and dune
 skips aliases there, so a `runtest` alias under this directory would never
 run. It binds a `Sitemap.url list` at module level and reads it inside a
@@ -83,7 +83,7 @@ element order within a `url`, an absent optional member, the seven change
 frequencies, the clamping and one-decimal rounding of a priority, and the
 2048-character refusal on a location.
 
-`avsm/arod/test/render_capture.sh` fetches the real `/sitemap.xml` and is the
+`u/avsm/arod/test/render_capture.sh` fetches the real `/sitemap.xml` and is the
 behavioural gate.
 
 ### Re-vendoring checklist
@@ -94,7 +94,7 @@ behavioural gate.
 2. Re-apply the hunk above. Upstream carries none of it, so a straight copy
    loses the annotation and `Arod_render.sitemap` stops compiling.
 3. Update the version in `sitemap.opam` and in the first line of this file.
-4. `dune build @avsm/arod/all @avsm/arod/runtest`, which is where the
+4. `dune build @u/avsm/arod/all @u/avsm/arod/runtest`, which is where the
    consumers are. Do not add `@vendor/sitemap/all`. The root `dune` declares
    `(vendored_dirs vendor)`, so dune skips aliases there: such a build exits 0
    having compiled nothing, which reads as a pass and is not one.

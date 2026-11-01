@@ -18,6 +18,6 @@ files are local additions.
 
 When refreshing, compare both amalgamation files byte for byte with the
 release archive, record the version, commit and archive hash, then run
-`opam exec --switch=5.2.0+ox -- dune runtest avsm/siftbot --force`.
+`opam exec --switch=5.2.0+ox -- dune runtest u/avsm/siftbot --force`.
 Consumer tests check nearest neighbours, deletion, revision invalidation,
 provider changes and dimensions. The vendored runtest alias is not a guard.

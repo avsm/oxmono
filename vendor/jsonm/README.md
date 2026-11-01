@@ -30,5 +30,5 @@ Vendor test aliases are inert in this workspace.
 
 ```sh
 opam exec --switch=5.2.0+ox -- python3 vendor/jsonm/check-port.py UPSTREAM
-opam exec --switch=5.2.0+ox -- dune runtest --force --profile release-check bleeding/jmap
+opam exec --switch=5.2.0+ox -- dune runtest --force --profile release-check wip/jmap
 ```

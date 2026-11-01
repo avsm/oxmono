@@ -10,7 +10,7 @@ authentication.
 
 ## Layout
 
-The package is `bleeding/ecosystems/`, modelled on `bleeding/karakeep`.
+The package is `wip/ecosystems/`, modelled on `wip/karakeep`.
 
     ecosystems/
       dune-project, ecosystems.opam
@@ -61,13 +61,13 @@ beyond what the generator emits, and caching.
 
 ## Repository obligations
 
-Work on a branch. Build with `dune build @bleeding/ecosystems/all
-@bleeding/ecosystems/runtest --force`. Add an entry to `CHANGES.md` grouped
+Work on a branch. Build with `dune build @wip/ecosystems/all
+@wip/ecosystems/runtest --force`. Add an entry to `CHANGES.md` grouped
 by commit. Add no AI-disclosure tags. Commit generated output separately
 from the hand-written layer.
 
 ## Risks
 
 The generator may not handle every construct in the spec. If it fails, the
-fix belongs in `bleeding/openapi` and becomes its own commit, or the
+fix belongs in `wip/openapi` and becomes its own commit, or the
 construct is patched in the pinned YAML with the patch recorded here.

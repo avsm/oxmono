@@ -88,7 +88,7 @@ silently coerced.
 
 Arod's saved annotation keys deliberately retain their older comparison rules
 at the storage boundary. That application-specific equivalence is tested in
-`avsm/arod/test/test_feed_annotations.ml`; it is not the identity of `Uriz.t`.
+`u/avsm/arod/test/test_feed_annotations.ml`; it is not the identity of `Uriz.t`.
 The Uri-dependent corpus differential was retired after its original 4,659-URL
 run found no link-classification changes; its source is in commit `50fca1889`.
 

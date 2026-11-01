@@ -46,7 +46,7 @@ identify the vendored source version.
 - `b7063e1750018e47b39a6ef038d0927ba2ad9ad1`: portability for fiber keys, `Io`
   tests, system threads, timeouts and native paths. No signature is
   tightened, since every closure argument keeps its legacy mode. The guard
-  test is `bleeding/imap/test/vendor_modes/`, and each claim below was
+  test is `wip/imap/test/vendor_modes/`, and each claim below was
   confirmed to fail it, or the Eio build, when removed.
   - [Fiber keys](lib_eio/core/fiber.ml): `'a key` is an unboxed record whose
     `Hmap.key` field carries `@@ portable contended`, and
@@ -134,7 +134,7 @@ the upstream tree. The shared checking workflow and validation limitations are
 in [../README.md](../README.md).
 
 Verify the local patches through consumer aliases, since the vendored tests
-are inert. `dune build @bleeding/imap/test/vendor_modes/runtest --force`
+are inert. `dune build @wip/imap/test/vendor_modes/runtest --force`
 guards the portability claims of `b7063e17`, and the IMAP, Maildir and
 sqlite3 `runtest` aliases exercise fiber keys, system threads and paths.
 

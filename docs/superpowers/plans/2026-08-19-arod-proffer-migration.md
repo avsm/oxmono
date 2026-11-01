@@ -2,27 +2,27 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fill in proffer's deferred core (static serving, ETag cache, content negotiation, redirect routes, scoped auth, richer log events), then port `avsm/arod` from `httpz.route`/`httpz.eio_server` onto `proffer` and `proffer-httpz`.
+**Goal:** Fill in proffer's deferred core (static serving, ETag cache, content negotiation, redirect routes, scoped auth, richer log events), then port `u/avsm/arod` from `httpz.route`/`httpz.eio_server` onto `proffer` and `proffer-httpz`.
 
 **Architecture:** Proffer's new features land first, each as a package-internal module with an `.mli` surface and mock-driven tests, so proffer stays releasable at every commit. Only then does arod change: its handlers become `'env -> Req.t -> Resp.t` functions over an env record of closures, its server shrinks to a `Proffer_httpz.run` call, and the `send_*`/`is_head`/`cached`/`mime_type_of_path`/`check_stats_auth`/`wants_markdown` boilerplate is deleted. Arod's access log keeps every field it records today, so proffer's log event is extended to carry them rather than arod losing data.
 
-**Tech Stack:** OCaml 5.2.0+ox, dune 3.21, `eio` for I/O, `proffer` + `proffer-httpz` (this repo, `bleeding/proffer`), `httpz` (this repo, `bleeding/httpz`), `sqlite3-eio` for the access log, `base64` for Basic auth.
+**Tech Stack:** OCaml 5.2.0+ox, dune 3.21, `eio` for I/O, `proffer` + `proffer-httpz` (this repo, `wip/proffer`), `httpz` (this repo, `wip/httpz`), `sqlite3-eio` for the access log, `base64` for Basic auth.
 
 **Spec:** `/Users/avsm/src/git/avsm/ox2/PROFFER.md`. This plan implements its "Next, in order" items 1 (deferred core) and 2 (port arod), plus the observability extension arod's real access log demands. The spec is authoritative where this plan is silent, except that the spec's claim "Compression is out of scope. Deployment fronts the origin with Caddy, which compresses" and its implication that Caddy normalises paths is **false in production** (verified: `via: 1.1 Caddy` passed a raw `..` through to the origin), so the origin confines paths itself.
 
 ## Global Constraints
 
-- Before every commit, `dune build` must be clean for the packages touched, and the relevant `dune runtest` must pass. No red commits. Scope builds to the package under change (`dune build @bleeding/proffer/all`, `@avsm/arod/all`) rather than repo-wide, because unrelated packages (`bleeding/atp`, `bleeding/immich`, `cascade`, `yamlrw`, `frontmatter`) do not build in this tree and predate this work.
-- `dune build @fmt` is **suspended**: stock `ocamlformat` 0.29 cannot parse OxCaml mode syntax (`@@ portable`, `@ portable`, `type t : immutable_data`), so it fails on every file. Do not add a `.ocamlformat` to `bleeding/proffer`. Match surrounding formatting by hand, keeping lines within 80 columns.
+- Before every commit, `dune build` must be clean for the packages touched, and the relevant `dune runtest` must pass. No red commits. Scope builds to the package under change (`dune build @wip/proffer/all`, `@u/avsm/arod/all`) rather than repo-wide, because unrelated packages (`wip/atp`, `wip/immich`, `cascade`, `yamlrw`, `frontmatter`) do not build in this tree and predate this work.
+- `dune build @fmt` is **suspended**: stock `ocamlformat` 0.29 cannot parse OxCaml mode syntax (`@@ portable`, `@ portable`, `type t : immutable_data`), so it fails on every file. Do not add a `.ocamlformat` to `wip/proffer`. Match surrounding formatting by hand, keeping lines within 80 columns.
 - `dune build @doc` cannot run: neither `odoc` nor an ox-compatible odoc that reads this compiler's `.cmt` files is installed in the `5.2.0+ox` switch. Review docs by hand.
 - Prose in `.mli` files and comments follows `AGENTS.md`: POSIX manpage density, complete sentences, no em-dashes, never join two clauses with a semicolon, document a value as `[foo x y] is ...` naming its arguments, a comment explains what the code cannot.
 - Proffer's core is portable by construction. Every route handler is taken at `@ portable`, so it cannot capture domain-bound state. A value a portable function reads at the top level must carry a portable kind (`type t : immutable_data` or `: value mod portable`), or it reads as `contended`. When a new core value is defined, annotate it as the neighbouring code in the same file does, and let the build tell you if a kind is missing.
 - Every new module gets an `.mli`.
 - Copyright header: proffer files carry none today, so add none. Arod files carry the ISC header block at the top of every `.ml`; copy it verbatim into any new arod file.
 - One commit per self-contained change, one-line imperative message, no trailers or sign-off. Keep a mechanical change (a reformat, a rename sweep) out of the commit that changes behaviour.
-- Tests are plain executables: a `check name bool` helper, no framework, a final `Printf.printf "<suite>: %d checks ok\n"`. This matches `bleeding/proffer/test/test_resp.ml`. Do not introduce alcotest.
+- Tests are plain executables: a `check name bool` helper, no framework, a final `Printf.printf "<suite>: %d checks ok\n"`. This matches `wip/proffer/test/test_resp.ml`. Do not introduce alcotest.
 - The mock backend is the test vehicle for proffer core features. `Proffer_mock.request` returns a `response` with `status`, `headers`, `header` (case-insensitive), `body` and `content_length`. Assert through it, never by reaching into backend types.
-- **Filesystem capability discipline.** `Eio.Stdenv.fs` is the unrestricted capability. It may appear only in `avsm/arod/bin/main.ml`, and only during startup, for the config and context load and the XDG log path, where the configured paths are absolute. A configured path that is relative is resolved against `Eio.Stdenv.cwd` instead. Every directory the server reads while answering requests is opened once at startup with `Eio.Path.open_subtree ~sw` (eio 1.4, `path.mli:142`; `open_dir` is its deprecated alias), which refuses `..` and symlink escapes at the OS level, and handlers reach files only through closures over those confined capabilities. No value reachable from a request handler may capture `fs`. `Static.confine` stays on top of that as defence in depth, and is what turns an escape attempt into a clean 404 rather than an exception. Proffer's core never touches Eio, so this constraint binds the arod tasks (11, 14) and the optional backend static path (Task 8).
+- **Filesystem capability discipline.** `Eio.Stdenv.fs` is the unrestricted capability. It may appear only in `u/avsm/arod/bin/main.ml`, and only during startup, for the config and context load and the XDG log path, where the configured paths are absolute. A configured path that is relative is resolved against `Eio.Stdenv.cwd` instead. Every directory the server reads while answering requests is opened once at startup with `Eio.Path.open_subtree ~sw` (eio 1.4, `path.mli:142`; `open_dir` is its deprecated alias), which refuses `..` and symlink escapes at the OS level, and handlers reach files only through closures over those confined capabilities. No value reachable from a request handler may capture `fs`. `Static.confine` stays on top of that as defence in depth, and is what turns an escape attempt into a clean 404 rather than an exception. Proffer's core never touches Eio, so this constraint binds the arod tasks (11, 14) and the optional backend static path (Task 8).
 
 ## Prerequisite state (already done, do not redo)
 
@@ -30,14 +30,14 @@ These landed in the session that produced this plan. Verify with `git log` and `
 
 - Proffer core restructured: `Serve` renamed to `Backend`; `private_modules` hides every internal module; `Headers.t` returned by `Req.headers`/`Resp.headers`; `Proffer_mock` has its own `response` type; `Resp.v` raises `Invalid_argument` on an unwritable header, entity-tag or date; `Route.int'` renamed to `Route.int`; `Body.string` deleted; `Status.t` extended to 30 codes; `Date` guards non-finite and out-of-range times.
 - `proffer-httpz` `run` gained `clock:_ Eio.Time.clock`, a `config` with `backlog`/`max_connections`/`idle_timeout`/`request_timeout`, `?on_listening`, and a flattened top-level `type event`.
-- Package files added: `bleeding/proffer/README.md`, `CHANGES.md`, `LICENSE.md`, `doc/index.mld`, `doc/dune`; tests attributed to packages; spikes detached from `runtest`.
-- **Arod path-traversal fixed:** `Arod_handlers.confined_path` rejects `""`/`"."`/`".."`/`'/'`/NUL, `static_file` takes `string list`, and `avsm/arod/test/test_static.ml` pins it. This fix is preserved by Phase 3 below, not reverted. The live site was patched separately.
+- Package files added: `wip/proffer/README.md`, `CHANGES.md`, `LICENSE.md`, `doc/index.mld`, `doc/dune`; tests attributed to packages; spikes detached from `runtest`.
+- **Arod path-traversal fixed:** `Arod_handlers.confined_path` rejects `""`/`"."`/`".."`/`'/'`/NUL, `static_file` takes `string list`, and `u/avsm/arod/test/test_static.ml` pins it. This fix is preserved by Phase 3 below, not reverted. The live site was patched separately.
 
 ---
 
 ## File Structure
 
-Proffer, created under `bleeding/proffer/lib/`:
+Proffer, created under `wip/proffer/lib/`:
 - `mime.ml` / `mime.mli` — extension-to-MIME table. One responsibility: a filename's Content-Type.
 - `static.ml` / `static.mli` — the safe path-join (`confine`) and the `Static.t` site node describing a served directory.
 - `cache.ml` / `cache.mli` — TTL memoization cache storing body and ETag, crosses domains.
@@ -52,20 +52,20 @@ Proffer, modified:
 - `lib/backend.ml` — map a `Static.t` node to a served response; apply scoped wrappers.
 - `httpz/proffer_httpz.ml` / `.mli` — extend `event` with the request/response fields arod's log needs; serve `Static` from the httpz `Static` path.
 
-Proffer tests, created under `bleeding/proffer/test/`:
+Proffer tests, created under `wip/proffer/test/`:
 - `test_mime.ml`, `test_static.ml`, `test_cache.ml`, `test_negotiate.ml`, `test_wrappers.ml` (mount/auth/headers/redirect).
 
 Arod, created:
-- `avsm/arod/lib_handlers/arod_env.ml` / `.mli` — the capability record handlers receive as `'env`.
-- `avsm/arod/lib/server/arod_site.ml` / `.mli` — builds the `Proffer.Site.t` from handlers (the proffer successor of `all_routes`).
+- `u/avsm/arod/lib_handlers/arod_env.ml` / `.mli` — the capability record handlers receive as `'env`.
+- `u/avsm/arod/lib/server/arod_site.ml` / `.mli` — builds the `Proffer.Site.t` from handlers (the proffer successor of `all_routes`).
 
 Arod, modified:
-- `avsm/arod/lib_handlers/arod_handlers.ml` / `.mli` — handlers become `Arod_env.t -> Proffer.Req.t -> Proffer.Resp.t`; delete the boilerplate block.
-- `avsm/arod/lib_handlers/arod_handlers_stats.ml` — the four stats handlers become proffer handlers.
-- `avsm/arod/lib/arod_cache.ml` — deleted; callers use `Proffer.Cache`.
-- `avsm/arod/lib/server/arod_server.ml` — shrinks to a `Proffer_httpz.run` call with the log bridge.
-- `avsm/arod/lib_log/arod_log.ml` — `log_request` consumes `Proffer_httpz.event` instead of `Httpz_eio_server.request_info`.
-- `avsm/arod/bin/main.ml` — builds the env record and the compiled site, passes them to `Arod_server.run`.
+- `u/avsm/arod/lib_handlers/arod_handlers.ml` / `.mli` — handlers become `Arod_env.t -> Proffer.Req.t -> Proffer.Resp.t`; delete the boilerplate block.
+- `u/avsm/arod/lib_handlers/arod_handlers_stats.ml` — the four stats handlers become proffer handlers.
+- `u/avsm/arod/lib/arod_cache.ml` — deleted; callers use `Proffer.Cache`.
+- `u/avsm/arod/lib/server/arod_server.ml` — shrinks to a `Proffer_httpz.run` call with the log bridge.
+- `u/avsm/arod/lib_log/arod_log.ml` — `log_request` consumes `Proffer_httpz.event` instead of `Httpz_eio_server.request_info`.
+- `u/avsm/arod/bin/main.ml` — builds the env record and the compiled site, passes them to `Arod_server.run`.
 - the four `dune` files that list `httpz.route`/`httpz.eio_server` — swap to `proffer`, `proffer-httpz`.
 
 ---
@@ -77,16 +77,16 @@ Each task in this phase is self-contained: a new module, its `.mli`, its test, r
 ### Task 1: MIME table
 
 **Files:**
-- Create: `bleeding/proffer/lib/mime.ml`, `bleeding/proffer/lib/mime.mli`
-- Create: `bleeding/proffer/test/test_mime.ml`
-- Modify: `bleeding/proffer/lib/proffer.ml`, `bleeding/proffer/lib/proffer.mli`, `bleeding/proffer/test/dune`
+- Create: `wip/proffer/lib/mime.ml`, `wip/proffer/lib/mime.mli`
+- Create: `wip/proffer/test/test_mime.ml`
+- Modify: `wip/proffer/lib/proffer.ml`, `wip/proffer/lib/proffer.mli`, `wip/proffer/test/dune`
 
 **Interfaces:**
 - Produces: `Proffer.Mime.of_path : string -> string` (a filename or path to a Content-Type, defaulting to `application/octet-stream`).
 
 - [ ] **Step 1: Write the failing test**
 
-Create `bleeding/proffer/test/test_mime.ml`:
+Create `wip/proffer/test/test_mime.ml`:
 
 ```ocaml
 open Proffer
@@ -116,11 +116,11 @@ let () =
 
 - [ ] **Step 2: Add the suite to `test/dune`**
 
-In `bleeding/proffer/test/dune`, add `test_mime` to the first `(tests (names ...) (modules ...))` stanza (the `proffer`-package one). Names and modules lists must both gain `test_mime`.
+In `wip/proffer/test/dune`, add `test_mime` to the first `(tests (names ...) (modules ...))` stanza (the `proffer`-package one). Names and modules lists must both gain `test_mime`.
 
 - [ ] **Step 3: Run to verify it fails**
 
-Run: `dune build @bleeding/proffer/runtest --force`
+Run: `dune build @wip/proffer/runtest --force`
 Expected: FAIL, `Unbound module Mime` (or `test_mime` unbound value).
 
 - [ ] **Step 4: Write `mime.mli`**
@@ -137,7 +137,7 @@ val of_path : string -> string
 
 - [ ] **Step 5: Write `mime.ml`**
 
-Port arod's `mime_type_of_path` (`avsm/arod/lib_handlers/arod_handlers.ml`, the 16 suffixes) to an extension lookup. Fold case, and treat a leading-dot-only name as extensionless.
+Port arod's `mime_type_of_path` (`u/avsm/arod/lib_handlers/arod_handlers.ml`, the 16 suffixes) to an extension lookup. Fold case, and treat a leading-dot-only name as extensionless.
 
 ```ocaml
 let table =
@@ -172,7 +172,7 @@ let of_path name =
 
 - [ ] **Step 6: Re-export from proffer**
 
-In `bleeding/proffer/lib/proffer.ml` add `module Mime = Mime`. In `bleeding/proffer/lib/proffer.mli`, under the `{1 Protocol vocabulary}` section, add:
+In `wip/proffer/lib/proffer.ml` add `module Mime = Mime`. In `wip/proffer/lib/proffer.mli`, under the `{1 Protocol vocabulary}` section, add:
 
 ```ocaml
 module Mime : sig
@@ -187,24 +187,24 @@ Note the `@@ portable` on the value in the `.mli` even though `mime.mli` does no
 
 - [ ] **Step 7: Run to verify it passes**
 
-Run: `dune build @bleeding/proffer/all @bleeding/proffer/runtest --force`
+Run: `dune build @wip/proffer/all @wip/proffer/runtest --force`
 Expected: PASS, `test_mime: 8 checks ok`, and the four existing suites still pass.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add bleeding/proffer/lib/mime.ml bleeding/proffer/lib/mime.mli \
-  bleeding/proffer/lib/proffer.ml bleeding/proffer/lib/proffer.mli \
-  bleeding/proffer/test/test_mime.ml bleeding/proffer/test/dune
+git add wip/proffer/lib/mime.ml wip/proffer/lib/mime.mli \
+  wip/proffer/lib/proffer.ml wip/proffer/lib/proffer.mli \
+  wip/proffer/test/test_mime.ml wip/proffer/test/dune
 git commit -m "Add Proffer.Mime content-type table"
 ```
 
 ### Task 2: Static path confinement and the Static site node
 
 **Files:**
-- Create: `bleeding/proffer/lib/static.ml`, `bleeding/proffer/lib/static.mli`
-- Create: `bleeding/proffer/test/test_static.ml`
-- Modify: `bleeding/proffer/lib/proffer.ml`, `bleeding/proffer/lib/proffer.mli`, `bleeding/proffer/test/dune`
+- Create: `wip/proffer/lib/static.ml`, `wip/proffer/lib/static.mli`
+- Create: `wip/proffer/test/test_static.ml`
+- Modify: `wip/proffer/lib/proffer.ml`, `wip/proffer/lib/proffer.mli`, `wip/proffer/test/dune`
 
 **Interfaces:**
 - Produces: `Proffer.Static.confine : string list -> string option` — the segment confinement extracted from arod, now owned by proffer so no backend re-invents it.
@@ -214,7 +214,7 @@ Rationale from real usage: arod serves `/images/**` and `/papers/*.pdf` from dis
 
 - [ ] **Step 1: Write the failing test**
 
-Create `bleeding/proffer/test/test_static.ml`:
+Create `wip/proffer/test/test_static.ml`:
 
 ```ocaml
 open Proffer
@@ -244,7 +244,7 @@ let () =
 
 - [ ] **Step 2: Register in `test/dune`, run to verify it fails**
 
-Add `test_static` to the `proffer`-package `(tests ...)` stanza. Run `dune build @bleeding/proffer/runtest --force`. Expected: FAIL, `Unbound module Static`.
+Add `test_static` to the `proffer`-package `(tests ...)` stanza. Run `dune build @wip/proffer/runtest --force`. Expected: FAIL, `Unbound module Static`.
 
 - [ ] **Step 3: Write `static.mli`**
 
@@ -299,24 +299,24 @@ let cache t = t.cache
 
 - [ ] **Step 6: Run to verify it passes**
 
-Run: `dune build @bleeding/proffer/all @bleeding/proffer/runtest --force`
+Run: `dune build @wip/proffer/all @wip/proffer/runtest --force`
 Expected: PASS, `test_static: 9 checks ok`.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add bleeding/proffer/lib/static.ml bleeding/proffer/lib/static.mli \
-  bleeding/proffer/lib/proffer.ml bleeding/proffer/lib/proffer.mli \
-  bleeding/proffer/test/test_static.ml bleeding/proffer/test/dune
+git add wip/proffer/lib/static.ml wip/proffer/lib/static.mli \
+  wip/proffer/lib/proffer.ml wip/proffer/lib/proffer.mli \
+  wip/proffer/test/test_static.ml wip/proffer/test/dune
 git commit -m "Add Proffer.Static confinement and served-directory node"
 ```
 
 ### Task 3: ETag cache
 
 **Files:**
-- Create: `bleeding/proffer/lib/cache.ml`, `bleeding/proffer/lib/cache.mli`
-- Create: `bleeding/proffer/test/test_cache.ml`
-- Modify: `bleeding/proffer/lib/proffer.ml`, `bleeding/proffer/lib/proffer.mli`, `bleeding/proffer/test/dune`
+- Create: `wip/proffer/lib/cache.ml`, `wip/proffer/lib/cache.mli`
+- Create: `wip/proffer/test/test_cache.ml`
+- Modify: `wip/proffer/lib/proffer.ml`, `wip/proffer/lib/proffer.mli`, `wip/proffer/test/dune`
 
 **Interfaces:**
 - Produces:
@@ -325,11 +325,11 @@ git commit -m "Add Proffer.Static confinement and served-directory node"
   - `Proffer.Cache.memoize : t -> now:float -> key:string -> (unit -> string) -> string * Etag.t` — returns the body and an ETag over it, so a caller builds a `Resp.v ~etag`. A hit and a miss are indistinguishable to the caller except through `stats`.
   - `Proffer.Cache.stats : t -> int * int` — hits, misses.
 
-Rationale: arod's `Arod.Cache` (`avsm/arod/lib/arod_cache.ml`) is a `Hashtbl` keyed by string, storing only the body, with a `Unix.gettimeofday` TTL, and it sends `X-Cache: hit/miss` but never an ETag or a 304. Proffer's cache stores the ETag so revalidation costs a hash compare. `now` is passed in rather than read from a clock, so the core stays free of `Unix`. The implementation is an `Atomic.t` over an immutable `Map` (per PROFFER.md "The shared cache"), so it crosses domains without a lock.
+Rationale: arod's `Arod.Cache` (`u/avsm/arod/lib/arod_cache.ml`) is a `Hashtbl` keyed by string, storing only the body, with a `Unix.gettimeofday` TTL, and it sends `X-Cache: hit/miss` but never an ETag or a 304. Proffer's cache stores the ETag so revalidation costs a hash compare. `now` is passed in rather than read from a clock, so the core stays free of `Unix`. The implementation is an `Atomic.t` over an immutable `Map` (per PROFFER.md "The shared cache"), so it crosses domains without a lock.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `bleeding/proffer/test/test_cache.ml`:
+Create `wip/proffer/test/test_cache.ml`:
 
 ```ocaml
 open Proffer
@@ -365,7 +365,7 @@ let () =
 
 - [ ] **Step 2: Register in `test/dune`, run to verify it fails**
 
-Add `test_cache` to the `proffer`-package `(tests ...)` stanza. Run `dune build @bleeding/proffer/runtest --force`. Expected: FAIL, `Unbound module Cache`.
+Add `test_cache` to the `proffer`-package `(tests ...)` stanza. Run `dune build @wip/proffer/runtest --force`. Expected: FAIL, `Unbound module Cache`.
 
 - [ ] **Step 3: Write `cache.mli`**
 
@@ -432,7 +432,7 @@ let memoize t ~now ~key gen =
       (body, `Weak etag)
 ```
 
-Note: `bump` for the hit path re-reads and CAS-loops for the counter, which is correct but races the entry read against a concurrent miss. That is acceptable, a stale hit count is harmless. If the OxCaml kind checker rejects `state Atomic.t` as non-portable, wrap the record fields as the vendored cache in `bleeding/proffer/spike` does, or fall back to `Atomic.t` over a tuple of immutable data. Resolve against what the compiler reports.
+Note: `bump` for the hit path re-reads and CAS-loops for the counter, which is correct but races the entry read against a concurrent miss. That is acceptable, a stale hit count is harmless. If the OxCaml kind checker rejects `state Atomic.t` as non-portable, wrap the record fields as the vendored cache in `wip/proffer/spike` does, or fall back to `Atomic.t` over a tuple of immutable data. Resolve against what the compiler reports.
 
 - [ ] **Step 5: Re-export from proffer**
 
@@ -440,24 +440,24 @@ Note: `bump` for the hit path re-reads and CAS-loops for the counter, which is c
 
 - [ ] **Step 6: Run to verify it passes**
 
-Run: `dune build @bleeding/proffer/all @bleeding/proffer/runtest --force`
+Run: `dune build @wip/proffer/all @wip/proffer/runtest --force`
 Expected: PASS, `test_cache: 7 checks ok`.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add bleeding/proffer/lib/cache.ml bleeding/proffer/lib/cache.mli \
-  bleeding/proffer/lib/proffer.ml bleeding/proffer/lib/proffer.mli \
-  bleeding/proffer/test/test_cache.ml bleeding/proffer/test/dune
+git add wip/proffer/lib/cache.ml wip/proffer/lib/cache.mli \
+  wip/proffer/lib/proffer.ml wip/proffer/lib/proffer.mli \
+  wip/proffer/test/test_cache.ml wip/proffer/test/dune
 git commit -m "Add Proffer.Cache with per-entry ETag"
 ```
 
 ### Task 4: Content negotiation
 
 **Files:**
-- Create: `bleeding/proffer/lib/negotiate.ml`, `bleeding/proffer/lib/negotiate.mli`
-- Create: `bleeding/proffer/test/test_negotiate.ml`
-- Modify: `bleeding/proffer/lib/proffer.ml`, `bleeding/proffer/lib/proffer.mli`, `bleeding/proffer/test/dune`
+- Create: `wip/proffer/lib/negotiate.ml`, `wip/proffer/lib/negotiate.mli`
+- Create: `wip/proffer/test/test_negotiate.ml`
+- Modify: `wip/proffer/lib/proffer.ml`, `wip/proffer/lib/proffer.mli`, `wip/proffer/test/dune`
 
 **Interfaces:**
 - Produces:
@@ -465,11 +465,11 @@ git commit -m "Add Proffer.Cache with per-entry ETag"
   - `Proffer.Negotiate.of_accept : string option -> media list` — the client's ordered preference from an Accept header, best first, `[]` when the header is absent.
   - `Proffer.Negotiate.v : (media * 'env Route.handler) list -> 'env Route.handler` — a handler that picks the first offered variant the client accepts, defaulting to the first in the list, and adds `Vary: Accept` to the chosen response.
 
-Rationale: arod's `negotiated`/`wants_markdown` (`avsm/arod/lib_handlers/arod_handlers.ml`) hand-parse Accept for `text/markdown` only, across 15 routes. Proffer parses q-values once and offers an ordered choice. The `Vary: Accept` is added by wrapping the chosen `Resp.t`. Because a handler is `@ portable`, the variant list is captured portably.
+Rationale: arod's `negotiated`/`wants_markdown` (`u/avsm/arod/lib_handlers/arod_handlers.ml`) hand-parse Accept for `text/markdown` only, across 15 routes. Proffer parses q-values once and offers an ordered choice. The `Vary: Accept` is added by wrapping the chosen `Resp.t`. Because a handler is `@ portable`, the variant list is captured portably.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `bleeding/proffer/test/test_negotiate.ml`. Build a two-variant handler and drive it through the mock with different Accept headers.
+Create `wip/proffer/test/test_negotiate.ml`. Build a two-variant handler and drive it through the mock with different Accept headers.
 
 ```ocaml
 open Proffer
@@ -515,7 +515,7 @@ let () =
 
 - [ ] **Step 2: Register in `test/dune`, run to verify it fails**
 
-Add `test_negotiate` to the `proffer`-package `(tests ...)` stanza. Run `dune build @bleeding/proffer/runtest --force`. Expected: FAIL, `Unbound module Negotiate`.
+Add `test_negotiate` to the `proffer`-package `(tests ...)` stanza. Run `dune build @wip/proffer/runtest --force`. Expected: FAIL, `Unbound module Negotiate`.
 
 - [ ] **Step 3: Write `negotiate.mli`**
 
@@ -545,7 +545,7 @@ Parse Accept into `(media, q)` pairs, stable-sort by descending q, map each medi
 
 - [ ] **Step 4a: Add `Resp.vary` to the core**
 
-In `bleeding/proffer/lib/resp.ml`, add:
+In `wip/proffer/lib/resp.ml`, add:
 
 ```ocaml
 (* [vary name t] adds [name] to [t]'s Vary field, or sets it. It is how a
@@ -632,25 +632,25 @@ The `List.assoc_opt m variants` uses polymorphic equality on `media`, which is a
 
 - [ ] **Step 6: Run to verify it passes**
 
-Run: `dune build @bleeding/proffer/all @bleeding/proffer/runtest --force`
+Run: `dune build @wip/proffer/all @wip/proffer/runtest --force`
 Expected: PASS, `test_negotiate: 7 checks ok`.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add bleeding/proffer/lib/negotiate.ml bleeding/proffer/lib/negotiate.mli \
-  bleeding/proffer/lib/resp.ml bleeding/proffer/lib/proffer.ml \
-  bleeding/proffer/lib/proffer.mli bleeding/proffer/test/test_negotiate.ml \
-  bleeding/proffer/test/dune
+git add wip/proffer/lib/negotiate.ml wip/proffer/lib/negotiate.mli \
+  wip/proffer/lib/resp.ml wip/proffer/lib/proffer.ml \
+  wip/proffer/lib/proffer.mli wip/proffer/test/test_negotiate.ml \
+  wip/proffer/test/dune
 git commit -m "Add Proffer.Negotiate and Resp.vary"
 ```
 
 ### Task 5: Redirect route constructors
 
 **Files:**
-- Modify: `bleeding/proffer/lib/route.ml`, `bleeding/proffer/lib/proffer.mli`
-- Create: `bleeding/proffer/test/test_wrappers.ml` (this suite grows in Tasks 6 and 7 too)
-- Modify: `bleeding/proffer/test/dune`
+- Modify: `wip/proffer/lib/route.ml`, `wip/proffer/lib/proffer.mli`
+- Create: `wip/proffer/test/test_wrappers.ml` (this suite grows in Tasks 6 and 7 too)
+- Modify: `wip/proffer/test/dune`
 
 **Interfaces:**
 - Produces:
@@ -661,7 +661,7 @@ Rationale: arod has 21 routes that are `fun _ respond -> R.redirect respond ~sta
 
 - [ ] **Step 1: Write the failing test**
 
-Create `bleeding/proffer/test/test_wrappers.ml`:
+Create `wip/proffer/test/test_wrappers.ml`:
 
 ```ocaml
 open Proffer
@@ -701,7 +701,7 @@ let () = Printf.printf "test_wrappers: %d checks ok\n" !checks
 
 - [ ] **Step 2: Register in `test/dune`, run to verify it fails**
 
-Add `test_wrappers` to the `proffer`-package `(tests ...)` stanza. Run `dune build @bleeding/proffer/runtest --force`. Expected: FAIL, `Unbound value moved`.
+Add `test_wrappers` to the `proffer`-package `(tests ...)` stanza. Run `dune build @wip/proffer/runtest --force`. Expected: FAIL, `Unbound value moved`.
 
 - [ ] **Step 3: Implement in `route.ml`**
 
@@ -730,22 +730,22 @@ val found : ('env handler, 'env handler) pat -> string -> 'env t @@ portable
 
 - [ ] **Step 5: Run to verify it passes**
 
-Run: `dune build @bleeding/proffer/all @bleeding/proffer/runtest --force`
+Run: `dune build @wip/proffer/all @wip/proffer/runtest --force`
 Expected: PASS, `test_wrappers: 4 checks ok`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add bleeding/proffer/lib/route.ml bleeding/proffer/lib/proffer.mli \
-  bleeding/proffer/test/test_wrappers.ml bleeding/proffer/test/dune
+git add wip/proffer/lib/route.ml wip/proffer/lib/proffer.mli \
+  wip/proffer/test/test_wrappers.ml wip/proffer/test/dune
 git commit -m "Add Route.moved and Route.found redirect constructors"
 ```
 
 ### Task 6: Site.mount, with_headers, and scoped auth
 
 **Files:**
-- Modify: `bleeding/proffer/lib/site.ml`, `bleeding/proffer/lib/compiled.ml`, `bleeding/proffer/lib/backend.ml`, `bleeding/proffer/lib/proffer.mli`
-- Modify: `bleeding/proffer/test/test_wrappers.ml`, and its `Printf` line moves to the end (Task 7 finalises)
+- Modify: `wip/proffer/lib/site.ml`, `wip/proffer/lib/compiled.ml`, `wip/proffer/lib/backend.ml`, `wip/proffer/lib/proffer.mli`
+- Modify: `wip/proffer/test/test_wrappers.ml`, and its `Printf` line moves to the end (Task 7 finalises)
 
 **Interfaces:**
 - Produces:
@@ -797,7 +797,7 @@ let () =
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `dune build @bleeding/proffer/runtest --force`. Expected: FAIL, `Unbound value Site.with_auth`.
+Run: `dune build @wip/proffer/runtest --force`. Expected: FAIL, `Unbound value Site.with_auth`.
 
 - [ ] **Step 3: Extend `site.ml`**
 
@@ -928,29 +928,29 @@ Ensure the file ends with exactly one `let () = Printf.printf "test_wrappers: %d
 
 - [ ] **Step 7: Run to verify it passes**
 
-Run: `dune build @bleeding/proffer/all @bleeding/proffer/runtest --force`
+Run: `dune build @wip/proffer/all @wip/proffer/runtest --force`
 Expected: PASS, `test_wrappers: 11 checks ok` (4 from Task 5, 4 auth+headers, 2 mount, plus one adjust as counted).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add bleeding/proffer/lib/site.ml bleeding/proffer/lib/route.ml \
-  bleeding/proffer/lib/resp.ml bleeding/proffer/lib/compiled.ml \
-  bleeding/proffer/lib/backend.ml bleeding/proffer/lib/proffer.mli \
-  bleeding/proffer/test/test_wrappers.ml
+git add wip/proffer/lib/site.ml wip/proffer/lib/route.ml \
+  wip/proffer/lib/resp.ml wip/proffer/lib/compiled.ml \
+  wip/proffer/lib/backend.ml wip/proffer/lib/proffer.mli \
+  wip/proffer/test/test_wrappers.ml
 git commit -m "Add Site.mount, with_headers and scoped with_auth"
 ```
 
 ### Task 7: Extend the httpz backend log event
 
 **Files:**
-- Modify: `bleeding/proffer/httpz/proffer_httpz.ml`, `bleeding/proffer/httpz/proffer_httpz.mli`
-- Modify: `bleeding/proffer/test/test_httpz.ml`
+- Modify: `wip/proffer/httpz/proffer_httpz.ml`, `wip/proffer/httpz/proffer_httpz.mli`
+- Modify: `wip/proffer/test/test_httpz.ml`
 
 **Interfaces:**
 - Produces: an `event` record extended so arod's access log keeps every field it records today. New fields, all immutable data so the event still crosses domains: `path : string`, `request_headers : (string * string) list`, `response_content_type : string option`, `cache_status : string option`. `remote_addr`, `meth`, `target`, `status`, `body_size` (renamed nothing), `duration_us` stay.
 
-Rationale (critical): arod's `Arod_log.log_request` (`avsm/arod/lib_log/arod_log.ml`) writes `remote_addr, forwarded_for, forwarded_proto, target, path, host, user_agent, referer, accept, request_headers (as JSON), status, response_content_type, cache_status, timestamp, response_body_size, duration_us`. Proffer's `event` carries only six of these. `forwarded_for`, `forwarded_proto`, `host`, `user_agent`, `referer`, `accept` are all request headers, so carrying `request_headers` lets the log derive them (arod already stores the full header JSON). `response_content_type` and `cache_status` come from the response, which the backend has. Without this extension the port loses access-log fidelity, which is real data loss, so this task is mandatory before Phase 3.
+Rationale (critical): arod's `Arod_log.log_request` (`u/avsm/arod/lib_log/arod_log.ml`) writes `remote_addr, forwarded_for, forwarded_proto, target, path, host, user_agent, referer, accept, request_headers (as JSON), status, response_content_type, cache_status, timestamp, response_body_size, duration_us`. Proffer's `event` carries only six of these. `forwarded_for`, `forwarded_proto`, `host`, `user_agent`, `referer`, `accept` are all request headers, so carrying `request_headers` lets the log derive them (arod already stores the full header JSON). `response_content_type` and `cache_status` come from the response, which the backend has. Without this extension the port loses access-log fidelity, which is real data loss, so this task is mandatory before Phase 3.
 
 - [ ] **Step 1: Write the failing test (extend `test_httpz.ml`)**
 
@@ -984,7 +984,7 @@ let () =
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `dune build @bleeding/proffer/runtest --force`. Expected: FAIL, `Unbound record field path`.
+Run: `dune build @wip/proffer/runtest --force`. Expected: FAIL, `Unbound record field path`.
 
 - [ ] **Step 3: Extend the `event` record and its construction**
 
@@ -996,22 +996,22 @@ Add a doc comment to each new field in the house style. Note that `request_heade
 
 - [ ] **Step 5: Run to verify it passes**
 
-Run: `dune build @bleeding/proffer/all @bleeding/proffer/runtest --force`
+Run: `dune build @wip/proffer/all @wip/proffer/runtest --force`
 Expected: PASS, `test_httpz` check count up by four.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add bleeding/proffer/httpz/proffer_httpz.ml \
-  bleeding/proffer/httpz/proffer_httpz.mli bleeding/proffer/test/test_httpz.ml
+git add wip/proffer/httpz/proffer_httpz.ml \
+  wip/proffer/httpz/proffer_httpz.mli wip/proffer/test/test_httpz.ml
 git commit -m "Carry request headers, path, content type and cache status in the log event"
 ```
 
 ### Task 8: Map the Static node in the httpz backend
 
 **Files:**
-- Modify: `bleeding/proffer/lib/site.ml`, `bleeding/proffer/lib/compiled.ml`, `bleeding/proffer/lib/proffer.mli`, `bleeding/proffer/httpz/proffer_httpz.ml`, `bleeding/proffer/httpz/proffer_httpz.mli`
-- Modify: `bleeding/proffer/test/test_httpz.ml`
+- Modify: `wip/proffer/lib/site.ml`, `wip/proffer/lib/compiled.ml`, `wip/proffer/lib/proffer.mli`, `wip/proffer/httpz/proffer_httpz.ml`, `wip/proffer/httpz/proffer_httpz.mli`
+- Modify: `wip/proffer/test/test_httpz.ml`
 
 **Interfaces:**
 - Produces: `Proffer.Site.static : at:string list -> Static.t -> 'env t -> 'env t` — mounts a served directory at a path prefix. The backend resolves it against a `dir` mapping supplied to `run`.
@@ -1030,7 +1030,7 @@ Design note: this is the one core feature that needs backend cooperation, so it 
 ### Task 9: Update docs and changelog for the new surface
 
 **Files:**
-- Modify: `bleeding/proffer/README.md`, `bleeding/proffer/CHANGES.md`, `bleeding/proffer/doc/index.mld`, `PROFFER.md`
+- Modify: `wip/proffer/README.md`, `wip/proffer/CHANGES.md`, `wip/proffer/doc/index.mld`, `PROFFER.md`
 
 - [ ] **Step 1:** In `CHANGES.md`, under `## v0.1.0 (unreleased)`, add one line per new module: `Mime`, `Static`, `Cache`, `Negotiate`, `Route.moved`/`found`, `Site.mount`/`with_auth`/`with_headers`, and the richer log event.
 - [ ] **Step 2:** In `README.md`, add a short "Combinators" section showing `Negotiate.v`, `Site.static`/`with_auth`, and the ETag cache, adapted from arod's usage.
@@ -1039,28 +1039,28 @@ Design note: this is the one core feature that needs backend cooperation, so it 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add bleeding/proffer/README.md bleeding/proffer/CHANGES.md \
-  bleeding/proffer/doc/index.mld PROFFER.md
+git add wip/proffer/README.md wip/proffer/CHANGES.md \
+  wip/proffer/doc/index.mld PROFFER.md
 git commit -m "Document the filled-in proffer core"
 ```
 
 ### Task 10: Full proffer verification gate
 
-- [ ] **Step 1:** `dune build @bleeding/proffer/all @bleeding/proffer/runtest @bleeding/proffer/spike --force` — all green, every suite prints its count.
-- [ ] **Step 2:** `dune build -p proffer @bleeding/proffer/install @bleeding/proffer/runtest` — the `proffer` package builds and tests in release mode. (`-p proffer-httpz` cannot be verified locally because it masks the workspace-local `httpz`; note this, do not treat it as a failure.)
+- [ ] **Step 1:** `dune build @wip/proffer/all @wip/proffer/runtest @wip/proffer/spike --force` — all green, every suite prints its count.
+- [ ] **Step 2:** `dune build -p proffer @wip/proffer/install @wip/proffer/runtest` — the `proffer` package builds and tests in release mode. (`-p proffer-httpz` cannot be verified locally because it masks the workspace-local `httpz`; note this, do not treat it as a failure.)
 - [ ] **Step 3:** No commit; this is a gate. If anything is red, fix it in the task that introduced it before proceeding to Phase 3.
 
 ---
 
 ## Phase 3 — Port arod onto proffer
 
-This phase changes arod. It does not change proffer. Every task keeps `dune build @avsm/arod/all` green. The path-traversal fix from the prerequisite state is preserved: `static_file`'s confinement becomes `Static.confine`.
+This phase changes arod. It does not change proffer. Every task keeps `dune build @u/avsm/arod/all` green. The path-traversal fix from the prerequisite state is preserved: `static_file`'s confinement becomes `Static.confine`.
 
 ### Task 11: The arod env capability record
 
 **Files:**
-- Create: `avsm/arod/lib_handlers/arod_env.ml`, `avsm/arod/lib_handlers/arod_env.mli`
-- Modify: `avsm/arod/lib_handlers/dune`
+- Create: `u/avsm/arod/lib_handlers/arod_env.ml`, `u/avsm/arod/lib_handlers/arod_env.mli`
+- Modify: `u/avsm/arod/lib_handlers/dune`
 
 **Interfaces:**
 - Produces: `Arod_env.t`, a record of the capabilities handlers need, built once per domain. Fields, from the current handler arguments (`~ctx ~cache ~search ~log ~fs`):
@@ -1103,20 +1103,20 @@ The concrete wrappers built in `main.ml` (Task 14): `search = (fun ~limit q -> A
 
 - [ ] **Step 2: Write `arod_env.ml`** — just `type t = { ... }` matching the mli (a record, no functions).
 
-- [ ] **Step 3:** Add `proffer` and `arod.search` to `arod_handlers`' `dune` libraries if not present. Build `dune build @avsm/arod/all` — expect it to still compile (nothing uses `Arod_env` yet).
+- [ ] **Step 3:** Add `proffer` and `arod.search` to `arod_handlers`' `dune` libraries if not present. Build `dune build @u/avsm/arod/all` — expect it to still compile (nothing uses `Arod_env` yet).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add avsm/arod/lib_handlers/arod_env.ml avsm/arod/lib_handlers/arod_env.mli \
-  avsm/arod/lib_handlers/dune
+git add u/avsm/arod/lib_handlers/arod_env.ml u/avsm/arod/lib_handlers/arod_env.mli \
+  u/avsm/arod/lib_handlers/dune
 git commit -m "Add arod env capability record"
 ```
 
 ### Task 12: Port the handlers
 
 **Files:**
-- Modify: `avsm/arod/lib_handlers/arod_handlers.ml`, `avsm/arod/lib_handlers/arod_handlers.mli`
+- Modify: `u/avsm/arod/lib_handlers/arod_handlers.ml`, `u/avsm/arod/lib_handlers/arod_handlers.mli`
 
 This is the largest task. It rewrites ~1100 lines. Because it is one coherent interface change, it is one task, but its steps are grouped by handler family so a reviewer can check each family. Keep the file compiling by porting bottom-up: the helpers first, then each family, then `all_routes`.
 
@@ -1146,33 +1146,33 @@ where `page_cache` is a module-level `Cache_control.t`. The `X-Cache: hit/miss` 
 
 - [ ] **Step 7: Update `arod_handlers.mli`** to export the ported handlers with their new `Arod_env.t -> Proffer.Req.t -> Proffer.Resp.t` (or curried) types, and keep `confined_path` exported (now delegating to `Static.confine`, or removed in favour of it — prefer removing arod's copy and re-exporting `Proffer.Static.confine`, updating `test_static.ml` to call `Proffer.Static.confine`).
 
-- [ ] **Step 8: Build.** `dune build @avsm/arod/all` — resolve every type error. This step is done when arod compiles against the new handler types, even though `all_routes` may be temporarily broken (it is replaced in Task 13).
+- [ ] **Step 8: Build.** `dune build @u/avsm/arod/all` — resolve every type error. This step is done when arod compiles against the new handler types, even though `all_routes` may be temporarily broken (it is replaced in Task 13).
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add avsm/arod/lib_handlers/arod_handlers.ml avsm/arod/lib_handlers/arod_handlers.mli
+git add u/avsm/arod/lib_handlers/arod_handlers.ml u/avsm/arod/lib_handlers/arod_handlers.mli
 git commit -m "Port arod handlers to proffer responses"
 ```
 
 ### Task 13: The arod site builder
 
 **Files:**
-- Create: `avsm/arod/lib/server/arod_site.ml`, `avsm/arod/lib/server/arod_site.mli`
-- Modify: `avsm/arod/lib_handlers/arod_handlers.ml` (remove `all_routes`), `avsm/arod/lib/server/dune`
+- Create: `u/avsm/arod/lib/server/arod_site.ml`, `u/avsm/arod/lib/server/arod_site.mli`
+- Modify: `u/avsm/arod/lib_handlers/arod_handlers.ml` (remove `all_routes`), `u/avsm/arod/lib/server/dune`
 
 **Interfaces:**
 - Produces: `Arod_site.build : unit -> Arod_env.t Proffer.Compiled.t` — the compiled site, built from the ported handlers with the route table, wrapped with `Site.with_auth ~scope:[["action"]]` and `Site.with_headers` for security headers.
 
 - [ ] **Step 1:** Move `all_routes`' body into `Arod_site.build`, translating each `get_/get/get_h1` to `Proffer.Route.get`/`moved`/`found` and the negotiated handlers to `Negotiate.v`. The stats routes under `/action` drop their per-handler `check_stats_auth` (now `Site.with_auth`). Compile the site.
-- [ ] **Step 2:** `dune build @avsm/arod/all`.
+- [ ] **Step 2:** `dune build @u/avsm/arod/all`.
 - [ ] **Step 3: Commit** `git commit -m "Build the arod site from proffer routes"`.
 
 ### Task 14: Swap the server and the access-log bridge
 
 **Files:**
-- Modify: `avsm/arod/lib/server/arod_server.ml`, `avsm/arod/lib_log/arod_log.ml`, `avsm/arod/bin/main.ml`, the `dune` files
-- Delete: `avsm/arod/lib/arod_cache.ml` (and its `.mli` if any)
+- Modify: `u/avsm/arod/lib/server/arod_server.ml`, `u/avsm/arod/lib_log/arod_log.ml`, `u/avsm/arod/bin/main.ml`, the `dune` files
+- Delete: `u/avsm/arod/lib/arod_cache.ml` (and its `.mli` if any)
 
 **Interfaces:**
 - Consumes: `Proffer_httpz.run`, `Proffer_httpz.event`, `Arod_site.build`, `Arod_env.t`.
@@ -1195,14 +1195,14 @@ let papers_dir = confined_dir ~sw cfg.paths.papers_dir in
 ```
 
 `read_image`/`read_paper` close over `images_dir`/`papers_dir` only. After `Arod.Ctx.create` and the XDG log path are built, `fs` must not be captured by anything reachable from a handler. Verify by grepping `main.ml`'s serve command for `fs`: every use is startup-only (`Ctx.create`, `Xdge.create`, `confined_dir`).
-- [ ] **Step 4:** Delete `avsm/arod/lib/arod_cache.ml`. Remove `Cache` from `avsm/arod/lib/arod.ml` if it re-exports it. Grep for `Arod.Cache` and `Arod_cache` and fix every use (they should all be gone after Task 12).
+- [ ] **Step 4:** Delete `u/avsm/arod/lib/arod_cache.ml`. Remove `Cache` from `u/avsm/arod/lib/arod.ml` if it re-exports it. Grep for `Arod.Cache` and `Arod_cache` and fix every use (they should all be gone after Task 12).
 - [ ] **Step 5:** Update the four `dune` files: `arod_handlers`, `arod_server` drop `httpz.route`/`httpz.eio_server` and gain `proffer`, `proffer-httpz`; `arod_log` drops `httpz.eio_server`. Keep `httpz` only if still referenced.
-- [ ] **Step 6:** `dune build @avsm/arod/all @avsm/arod/runtest` — green, `test_static` still passes (now via `Proffer.Static.confine`).
+- [ ] **Step 6:** `dune build @u/avsm/arod/all @u/avsm/arod/runtest` — green, `test_static` still passes (now via `Proffer.Static.confine`).
 - [ ] **Step 7: Commit** `git commit -m "Serve arod through proffer-httpz"`.
 
 ### Task 15: Manual smoke test and traversal re-verification
 
-- [ ] **Step 1:** Run arod locally against a test data dir (`dune exec avsm/arod/bin/main.exe -- serve --config <test config>` or the project's run recipe). Confirm the home page, a paper page, a `.md` variant (with `Accept: text/markdown`), an atom feed, an image, and the stats dashboard behind Basic auth all respond.
+- [ ] **Step 1:** Run arod locally against a test data dir (`dune exec u/avsm/arod/bin/main.exe -- serve --config <test config>` or the project's run recipe). Confirm the home page, a paper page, a `.md` variant (with `Accept: text/markdown`), an atom feed, an image, and the stats dashboard behind Basic auth all respond.
 - [ ] **Step 2:** Re-run the traversal probes against the local server, not production: `curl --path-as-is 'http://localhost:<port>/images/../../../../etc/hostname'` must be 404. Also `/papers/../../../etc/hostname.pdf`.
 - [ ] **Step 2a:** Probe the symlink escape the string check cannot see: `ln -s /etc/hostname <test images dir>/leak` and confirm `curl 'http://localhost:<port>/images/leak'` is 404, then remove the link. This is new behaviour from `Eio.Path.open_subtree`. The old server, whose `images_dir` hung off `Eio.Stdenv.fs`, would have served it.
 - [ ] **Step 3:** Confirm a conditional request now works: fetch a cached page, note its `ETag`, re-fetch with `If-None-Match` and confirm a 304. This is new behaviour arod never had.

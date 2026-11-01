@@ -16,8 +16,8 @@ Library and tests. The opatch CLI is omitted from this import.
 2. Preserve the documented build scope and compiler adaptations. Verify the
    downloaded archive checksum and record its commit in `OXMONO.json` and
    `../upstreams.json`.
-3. Build `@bleeding/d10/all` and `@bleeding/osdist/all` with `release-check`.
-   Run `dune runtest --profile release-check --force bleeding/d10 bleeding/osdist`.
+3. Build `@vendor/oi/d10/all` and `@vendor/oi/osdist/all` with `release-check`.
+   Run `dune runtest --profile release-check --force vendor/oi/d10 vendor/oi/osdist`.
    Use the `5.2.0+ox` switch. The HTTP regressions need loopback sockets.
 4. Run the explicit vendor test aliases listed in
    `../../docs/oi-library-import.md`. Recursive vendor aliases skip tests.

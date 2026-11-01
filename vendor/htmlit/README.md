@@ -43,7 +43,7 @@ reach it and it must be run by name:
 
     dune exec vendor/htmlit/test/test_htmlit.exe
 
-Because that test is inert in an ordinary build, `avsm/arod/test/test_htmlit.ml`
+Because that test is inert in an ordinary build, `u/avsm/arod/test/test_htmlit.ml`
 holds a smaller copy of the same two guarantees, outside `vendor/` and so under
 `dune runtest`. A re-vendor that drops the patch fails there.
 
@@ -55,9 +55,9 @@ holds a smaller copy of the same two guarantees, outside `vendor/` and so under
 2. Reapply the three patch items above. The set is the only one that is more
    than an annotation.
 3. Update the version in `htmlit.opam` and in the first line of this file.
-4. `dune build @avsm/arod/all @avsm/arod/runtest`, which reaches both the
+4. `dune build @u/avsm/arod/all @u/avsm/arod/runtest`, which reaches both the
    portability ascriptions and the rendered page bodies pinned by
-   `avsm/arod/test/test_routes.ml`.
+   `u/avsm/arod/test/test_routes.ml`.
 5. `dune exec vendor/htmlit/test/test_htmlit.exe`.
 
 One thing to know before writing a portable ascription against this library. A

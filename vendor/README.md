@@ -77,7 +77,7 @@ python3 vendor/test_check_upstreams.py
 
 Eio's detailed import and patch history is in [eio/VENDORED.md](eio/VENDORED.md).
 Libraries embedded inside HTTPz are tracked separately in
-[bleeding/httpz/VENDORED.md](../bleeding/httpz/VENDORED.md).
+[wip/httpz/VENDORED.md](../wip/httpz/VENDORED.md).
 
 ## 2026-10-15 release refresh
 
@@ -242,8 +242,8 @@ for ox. Only generic solver libraries are retained. Implementations match the
 checksum-verified upstream archives. Directory/switch contexts and application
 CLIs are omitted, so the library depends on opam-format without opam-state.
 See each directory's `OXMONO.md` and `OXMONO.json` for scope and provenance.
-Validate through `dune runtest avsm/ox --force` and
-`dune build --profile release-check @avsm/ox/all`.
+Validate through `dune runtest wip/ox --force` and
+`dune build --profile release-check @wip/ox/all`.
 
 Upstream source, changelog and license whitespace is preserved. The two new
 solver imports contribute eight unchanged whitespace diagnostics to

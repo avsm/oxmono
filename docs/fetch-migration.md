@@ -1,6 +1,6 @@
 # Migrating `requests` → `fetch`
 
-Analysis of replacing `bleeding/requests` with `bleeding/fetch` (vendored from
+Analysis of replacing `bleeding/requests` with `wip/fetch` (vendored from
 taposaur) as the HTTP client across the monorepo. Produced 2026-08-05.
 
 **STATUS: COMPLETE (2026-08-05).** All 14 consumers migrated and
@@ -96,7 +96,7 @@ Sharp edges:
 | `~params` query args | typesense (1 site) | build queries with `Uriz.with_query_params` |
 
 `fetch.cookies` vendors its own `publicsuffix`, duplicating
-`bleeding/httpz/pubsuffix` — reconcile before both end up linked in one binary.
+`wip/httpz/pubsuffix` — reconcile before both end up linked in one binary.
 
 ## Migration order (easiest → hardest)
 
@@ -115,6 +115,6 @@ Sharp edges:
 
 ## Hygiene (unrelated, fix while touching)
 
-`bleeding/atp/xrpc-auth.opam`, `bleeding/atp/bin/standard-site/standard-site.opam`
-and `bleeding/atp/bin/tangled/tangled.opam` list `requests` in dune `libraries`
+`wip/atp/xrpc-auth.opam`, `wip/atp/bin/standard-site/standard-site.opam`
+and `wip/atp/bin/tangled/tangled.opam` list `requests` in dune `libraries`
 but omit it from opam `depends` (relying on transitivity through `atp-xrpc`).

@@ -442,7 +442,7 @@ what makes the closed platform variant safe for a future two-way sync.
 
 ## Specification impact
 
-`avsm/sortal/spec/draft-madhavapeddy-sortal-00.txt` normatively describes the
+`u/avsm/sortal/spec/draft-madhavapeddy-sortal-00.txt` normatively describes the
 V1 model. Sections 2 (Temporal Range), 4 (Email Object), 5 (Organisation
 Object), 6 (URL Entry Object), 7 (Service Object) and 8 (AT Protocol Object)
 all change, along with Appendix A (JSON Schema) and Appendix B (ABNF for

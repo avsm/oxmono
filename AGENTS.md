@@ -18,9 +18,9 @@ Use the repository's OxCaml switch. Scope builds and tests to changed packages
 and affected consumers. For example, from the repository root:
 
 ```sh
-dune build @avsm/siftbot/all
-dune build --force @avsm/siftbot/runtest
-dune build @avsm/siftbot/fmt
+dune build @u/avsm/siftbot/all
+dune build --force @u/avsm/siftbot/runtest
+dune build @u/avsm/siftbot/fmt
 ```
 
 Use `--root .` in a worktree if Dune would otherwise select the parent
@@ -38,7 +38,7 @@ report that substitution. Avoid unrelated reformatting.
 
 Never regenerate goldens merely to make a failure pass. Inspect behavior
 changes. For Arod serving-path changes, use
-[render_capture.sh](avsm/arod/test/render_capture.sh) before and after and
+[render_capture.sh](u/avsm/arod/test/render_capture.sh) before and after and
 compare outputs, respecting the script's documented clock-dependent output.
 
 ## OxCaml and Eio

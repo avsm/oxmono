@@ -8,8 +8,8 @@ and OUnit tests are omitted. Package metadata removes the unused test
 dependency. Consumer tests exercise the solver with opam dependency graphs.
 
 On refresh, compare all retained implementation files with the verified release,
-preserve this scope, then force `dune runtest avsm/ox` and build
-`@avsm/ox/all` with the OxCaml `release-check` profile.
+preserve this scope, then force `dune runtest wip/ox` and build
+`@wip/ox/all` with the OxCaml `release-check` profile.
 
 The retained sources compile with OxCaml without mode annotations or behavior
 patches. Solver state is mutable. Ox uses it within one Eio domain and does not

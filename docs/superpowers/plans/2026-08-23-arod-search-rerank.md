@@ -12,13 +12,13 @@
 
 ## Global Constraints
 
-- Build, test and format must be clean before each commit, scoped to arod: `dune build @avsm/arod/all @avsm/arod/runtest --force`. `ocamlformat` is not installed in the `5.2.0+ox` switch, so match surrounding formatting by hand and keep lines within 80 columns.
+- Build, test and format must be clean before each commit, scoped to arod: `dune build @u/avsm/arod/all @u/avsm/arod/runtest --force`. `ocamlformat` is not installed in the `5.2.0+ox` switch, so match surrounding formatting by hand and keep lines within 80 columns.
 - Handlers are `@ portable`. The search handle is domain-bound, so anything that reads it is reached through a closure field in `Arod_env.t`, never captured by a handler.
 - Prose and docstrings: `[foo x y] is ...`, no em-dashes, no semicolons joining clauses. Comments explain what the code cannot.
 - Commit messages: one line, imperative, no trailers. Mechanical changes (the Tailwind regen) get their own commit.
-- Never regenerate a golden to make a test pass. The goldens under `avsm/arod/test/fixtures/golden` cover markdown renders, not the nav, so none should change here.
-- New Tailwind utility classes in OCaml markup require `avsm/arod/tailwind/regen.sh`. Prefer custom `sp-*` classes defined in `Theme.custom_css`, which is inlined into every page, so the regen is only needed if a utility class not already in `assets/tw.css` is introduced.
-- Work in `avsm/arod`. All paths below are relative to it unless they start with `docs/`.
+- Never regenerate a golden to make a test pass. The goldens under `u/avsm/arod/test/fixtures/golden` cover markdown renders, not the nav, so none should change here.
+- New Tailwind utility classes in OCaml markup require `u/avsm/arod/tailwind/regen.sh`. Prefer custom `sp-*` classes defined in `Theme.custom_css`, which is inlined into every page, so the regen is only needed if a utility class not already in `assets/tw.css` is introduced.
+- Work in `u/avsm/arod`. All paths below are relative to it unless they start with `docs/`.
 
 ---
 
@@ -161,7 +161,7 @@ Add to `test/dune`:
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `dune build @avsm/arod/test/runtest --force 2>&1 | head -20`
+Run: `dune build @u/avsm/arod/test/runtest --force 2>&1 | head -20`
 Expected: a compile error, `Unbound value Arod_search.index`.
 
 - [ ] **Step 3: Implement `index` and route `rebuild` through it**
@@ -260,13 +260,13 @@ val index :
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `dune build @avsm/arod/all @avsm/arod/runtest --force 2>&1 | tail -5`
+Run: `dune build @u/avsm/arod/all @u/avsm/arod/runtest --force 2>&1 | tail -5`
 Expected: `test_search: 2 checks ok` and no errors.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add avsm/arod/lib_search avsm/arod/test/test_search.ml avsm/arod/test/dune
+git add u/avsm/arod/lib_search u/avsm/arod/test/test_search.ml u/avsm/arod/test/dune
 git commit -m "Expose the search indexer so tests can build an index"
 ```
 
@@ -274,7 +274,7 @@ git commit -m "Expose the search indexer so tests can build an index"
 
 ### Task 2: Tiered `results` with work and link ranking, dedupe and own-host exclusion
 
-This task changes the type of `search`, which breaks `Arod_render`, `Arod_env`, `bin/main.ml` and `test_json`. Task 3 repairs them. Build the library and test alone here with `dune build @avsm/arod/lib_search/all @avsm/arod/test/runtest --force 2>&1 | grep -v arod_render` and commit at the end of Task 3, so the tree is never committed broken.
+This task changes the type of `search`, which breaks `Arod_render`, `Arod_env`, `bin/main.ml` and `test_json`. Task 3 repairs them. Build the library and test alone here with `dune build @u/avsm/arod/lib_search/all @u/avsm/arod/test/runtest --force 2>&1 | grep -v arod_render` and commit at the end of Task 3, so the tree is never committed broken.
 
 **Files:**
 - Modify: `lib_search/arod_search.ml`, `lib_search/arod_search.mli`, `lib_search/dune`
@@ -412,7 +412,7 @@ let () =
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `dune build @avsm/arod/test/runtest --force 2>&1 | head -10`
+Run: `dune build @u/avsm/arod/test/runtest --force 2>&1 | head -10`
 Expected: compile errors naming `Arod_search.hit` and `Arod_search.search`.
 
 - [ ] **Step 3: Implement the types and the ranking**
@@ -749,7 +749,7 @@ val pp_results : Format.formatter -> results -> unit
 
 - [ ] **Step 4: Run the library test to verify it passes**
 
-Run: `dune build @avsm/arod/lib_search/all @avsm/arod/test/runtest --force 2>&1 | grep -v "arod_render\|arod_env\|main.ml\|test_json" | tail -20`
+Run: `dune build @u/avsm/arod/lib_search/all @u/avsm/arod/test/runtest --force 2>&1 | grep -v "arod_render\|arod_env\|main.ml\|test_json" | tail -20`
 Expected: `test_search: 16 checks ok`. Other targets fail to compile, which Task 3 fixes. If the freshness check fails on rounding, compare with `Float.abs (x -. 1.25) < 1e-9`.
 
 - [ ] **Step 5: Do not commit yet**
@@ -871,7 +871,7 @@ and the checks near line 300 to:
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
-Run: `dune build @avsm/arod/all 2>&1 | head -20`
+Run: `dune build @u/avsm/arod/all 2>&1 | head -20`
 Expected: compile errors in `arod_render.ml` about `Arod_search.result`.
 
 - [ ] **Step 4: Update `Arod_render.search`**
@@ -1065,18 +1065,18 @@ and in `search_cmd` replace the block from `let results = ...` to the end of the
 
 - [ ] **Step 7: Build and run every arod test**
 
-Run: `dune build @avsm/arod/all @avsm/arod/runtest --force 2>&1 | tail -8`
+Run: `dune build @u/avsm/arod/all @u/avsm/arod/runtest --force 2>&1 | tail -8`
 Expected: clean, with `test_search: 16 checks ok`, `test_json: N checks ok` and `test_routes` passing.
 
 - [ ] **Step 8: Try it on the real index**
 
-Run: `dune exec -- avsm/arod/bin/main.exe index && dune exec -- avsm/arod/bin/main.exe search ocaml 2>/dev/null | head -30`
+Run: `dune exec -- u/avsm/arod/bin/main.exe index && dune exec -- u/avsm/arod/bin/main.exe search ocaml 2>/dev/null | head -30`
 Expected: a `== on this site` heading, notes and papers first, then `== links`. The index command rebuilds `~/.cache/arod/search.db` so the CLI sees the new row shape.
 
 - [ ] **Step 9: Commit Tasks 2 and 3 together**
 
 ```bash
-git add avsm/arod/lib_search avsm/arod/lib_handlers avsm/arod/bin/main.ml avsm/arod/test
+git add u/avsm/arod/lib_search u/avsm/arod/lib_handlers u/avsm/arod/bin/main.ml u/avsm/arod/test
 git commit -m "Rank search results in tiers of local work then cited links"
 ```
 
@@ -1153,7 +1153,7 @@ let () =
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `dune build @avsm/arod/test/runtest --force 2>&1 | grep FAIL`
+Run: `dune build @u/avsm/arod/test/runtest --force 2>&1 | grep FAIL`
 Expected: `FAIL: a project whose title starts with the word is a go-to hit`.
 
 - [ ] **Step 3: Implement go-to matching and facets**
@@ -1311,13 +1311,13 @@ type goto = { ... }
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `dune build @avsm/arod/all @avsm/arod/runtest --force 2>&1 | tail -5`
+Run: `dune build @u/avsm/arod/all @u/avsm/arod/runtest --force 2>&1 | tail -5`
 Expected: `test_search: 24 checks ok`, everything else clean.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add avsm/arod/lib_search avsm/arod/test/test_search.ml
+git add u/avsm/arod/lib_search u/avsm/arod/test/test_search.ml
 git commit -m "Add go-to hits and facets to search results"
 ```
 
@@ -1465,7 +1465,7 @@ Add to `test/dune`:
 
 - [ ] **Step 2: Run the test to verify it fails**
 
-Run: `dune build @avsm/arod/test/runtest --force 2>&1 | head -5`
+Run: `dune build @u/avsm/arod/test/runtest --force 2>&1 | head -5`
 Expected: `Unbound module Arod_component.Search`.
 
 - [ ] **Step 3: Implement the component**
@@ -1769,13 +1769,13 @@ In `lib_component/theme.ml`, inside `custom_css`, after the `.search-modal` bloc
 
 - [ ] **Step 5: Run the test to verify it passes**
 
-Run: `dune build @avsm/arod/all @avsm/arod/runtest --force 2>&1 | tail -5`
+Run: `dune build @u/avsm/arod/all @u/avsm/arod/runtest --force 2>&1 | tail -5`
 Expected: `test_search_page: 16 checks ok`. Adjust the `in </span>Xen Hypervisor` expectation to what Htmlit emits for the `sp-via` span, but only its serialisation, not the content.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add avsm/arod/lib_component avsm/arod/test/test_search_page.ml avsm/arod/test/dune
+git add u/avsm/arod/lib_component u/avsm/arod/test/test_search_page.ml u/avsm/arod/test/dune
 git commit -m "Add the search page component"
 ```
 
@@ -1822,7 +1822,7 @@ and after the search API checks:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `dune build @avsm/arod/test/runtest --force 2>&1 | head -5`
+Run: `dune build @u/avsm/arod/test/runtest --force 2>&1 | head -5`
 Expected: a compile error, `search_page` is not a field of `Arod_handlers.Env.t`.
 
 - [ ] **Step 3: Add the render**
@@ -1999,15 +1999,15 @@ In `lib/server/arod_site.ml` before the `api` routes:
 
 - [ ] **Step 6: Build, run the tests, and try the page**
 
-Run: `dune build @avsm/arod/all @avsm/arod/runtest --force 2>&1 | tail -5`
+Run: `dune build @u/avsm/arod/all @u/avsm/arod/runtest --force 2>&1 | tail -5`
 Expected: clean, `test_routes` passes with the four new checks.
 
-Then serve and look: `dune exec -- avsm/arod/bin/main.exe serve` in the background, open `http://localhost:8080/search?q=xen`, type, click a facet, press the arrow keys, click `Show N more`. Check the layout at a narrow width. Stop the server.
+Then serve and look: `dune exec -- u/avsm/arod/bin/main.exe serve` in the background, open `http://localhost:8080/search?q=xen`, type, click a facet, press the arrow keys, click `Show N more`. Check the layout at a narrow width. Stop the server.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add avsm/arod
+git add u/avsm/arod
 git commit -m "Serve a /search page with live tiered results"
 ```
 
@@ -2036,7 +2036,7 @@ In `test/test_routes.ml` after the front page checks:
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run: `dune build @avsm/arod/test/runtest --force 2>&1 | grep FAIL`
+Run: `dune build @u/avsm/arod/test/runtest --force 2>&1 | grep FAIL`
 Expected: `FAIL: the nav search button is a link to the search page`.
 
 - [ ] **Step 3: Replace the button and delete the modal**
@@ -2076,18 +2076,18 @@ and in `by_name`'s `site.js` list replace `search_js` with `search_shortcut_js`.
 
 In `lib_component/theme.ml`, delete the modal rules: `.search-modal-overlay`, `.search-modal`, `.search-results-area`, `.search-empty-state`, `.search-no-results`, every `.search-result` rule, the `.sr-icon-*` rules, and the `.search-filter-pill` rules below `@layer`. Keep `.tag-search-link` and `.kind-search-link`, which other markup uses. Grep for each deleted class across `lib_component` to confirm nothing else emits it:
 
-Run: `grep -rn "search-result\|search-filter-pill\|search-modal\|sr-icon" avsm/arod/lib_component avsm/arod/lib_handlers avsm/arod/lib`
+Run: `grep -rn "search-result\|search-filter-pill\|search-modal\|sr-icon" u/avsm/arod/lib_component u/avsm/arod/lib_handlers u/avsm/arod/lib`
 Expected: no output.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
-Run: `dune build @avsm/arod/all @avsm/arod/runtest --force 2>&1 | tail -5`
+Run: `dune build @u/avsm/arod/all @u/avsm/arod/runtest --force 2>&1 | tail -5`
 Expected: clean.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add avsm/arod
+git add u/avsm/arod
 git commit -m "Replace the search modal with a link to the search page"
 ```
 
@@ -2097,15 +2097,15 @@ git commit -m "Replace the search modal with a link to the search page"
 
 **Files:**
 - Possibly modify: `assets/tw.css`
-- Modify: `CHANGES.md` (repository root or `avsm/arod/CHANGES.md`, whichever exists)
+- Modify: `CHANGES.md` (repository root or `u/avsm/arod/CHANGES.md`, whichever exists)
 
 - [ ] **Step 1: Regenerate Tailwind and see whether it changed**
 
-Run: `cd avsm/arod/tailwind && ./regen.sh && cd - && git status --short avsm/arod/assets/tw.css`
+Run: `cd u/avsm/arod/tailwind && ./regen.sh && cd - && git status --short u/avsm/arod/assets/tw.css`
 Expected: either no change, or a modified `tw.css`. The new markup uses `sp-*` classes from `custom_css`, so a change means a utility class slipped in. Either way, if it changed, commit it alone:
 
 ```bash
-git add avsm/arod/assets/tw.css
+git add u/avsm/arod/assets/tw.css
 git commit -m "Regenerate tw.css"
 ```
 
@@ -2128,7 +2128,7 @@ Add under the unreleased heading in `CHANGES.md`:
 
 - [ ] **Step 4: Final verification and commit**
 
-Run: `dune build @avsm/arod/all @avsm/arod/runtest --force 2>&1 | tail -3 && dune build @fmt 2>&1 | grep -v ocamlformat | head`
+Run: `dune build @u/avsm/arod/all @u/avsm/arod/runtest --force 2>&1 | tail -3 && dune build @fmt 2>&1 | grep -v ocamlformat | head`
 Expected: clean.
 
 ```bash

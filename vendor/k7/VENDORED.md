@@ -21,7 +21,7 @@ reapply these changes and update `../upstreams.json`. Verify:
 
 ```
 dune build vendor/k7/bin/main.exe
-dune build --force @@vendor/k7/test/runtest @avsm/arod/test/console_port/runtest
+dune build --force @@vendor/k7/test/runtest @u/avsm/arod/test/console_port/runtest
 ```
 
 The external guard checks signal-number conversion. K7's tests exercise PTY

@@ -249,6 +249,13 @@
       ]
     },
     {
+      "name": "nx-oxcaml",
+      "url": "https://github.com/raven-ml/nx-oxcaml.git",
+      "branch": "HEAD",
+      "revision": "e0800f150544990412e690a8ad881858424ac6a5",
+      "scope": "Backend library, C stubs and 963 tests. See README.md for local changes."
+    },
+    {
       "name": "ocaml-apple-fm",
       "url": "https://tangled.org/anil.recoil.org/ocaml-apple-fm",
       "branch": "HEAD",
@@ -278,6 +285,13 @@
       ]
     },
     {
+      "name": "ocaml-json-pointer",
+      "url": "https://tangled.org/anil.recoil.org/ocaml-json-pointer",
+      "branch": "HEAD",
+      "revision": "c5008382648f9da8ba2b7eb9ecec945243cba08b",
+      "scope": "Existing import; see OXMONO.md and oxmono/upstream.json."
+    },
+    {
       "name": "ocaml-proj",
       "url": "https://github.com/geocaml/ocaml-proj.git",
       "branch": "HEAD",
@@ -300,6 +314,14 @@
       "base_version": "2.2.0",
       "scope": "Library and tests. GUI tools and examples omitted from this import.",
       "verified_on": "2026-10-03"
+    },
+    {
+      "name": "oi",
+      "url": "https://github.com/avsm/oi.git",
+      "branch": "HEAD",
+      "revision": "ca8c59ff26bd7350e909324dc804982f0e4cee5b",
+      "base_version": "0.14.2",
+      "scope": "lib/d10, lib/d10ir, lib/osrel and lib/osdist mapped to d10/, osrel/ and osdist/ projects. See their oxmono/upstream.json records."
     },
     {
       "name": "opam",
@@ -396,6 +418,14 @@
         "sha256=3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61"
       ],
       "scope": "Unmodified release amalgamation. Local static OCaml bindings compile against the workspace SQLite with filesystem readers disabled."
+    },
+    {
+      "name": "sqlite3",
+      "url": "https://github.com/mmottl/sqlite3-ocaml.git",
+      "branch": "HEAD",
+      "revision": null,
+      "base_version": "5.3.1",
+      "scope": "Adapted bindings with bundled SQLite and Eio extension. Exact binding base is unverified; provenance verification is required before publication."
     },
     {
       "name": "swhid_core",

@@ -5,7 +5,7 @@
      dune exec vendor/ptime/test/test_ptime.exe
 
    The smaller, runtest-visible copy of the portability guarantees lives in
-   avsm/arod/test/test_ptime.ml. *)
+   u/avsm/arod/test/test_ptime.ml. *)
 
 let checks = ref 0
 let fail name = prerr_endline ("FAIL: " ^ name); exit 1

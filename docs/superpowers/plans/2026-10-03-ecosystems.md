@@ -4,7 +4,7 @@
 
 **Goal:** An OCaml client for packages.ecosyste.ms, generated from its OpenAPI spec with a thin hand-written layer.
 
-**Architecture:** `bleeding/ecosystems/` follows `bleeding/karakeep`. `openapi-gen` turns the pinned upstream YAML into a checked-in `ecosystems.ml` and `ecosystems.mli`. A small library `ecosystems.client` adds a base-URL and User-Agent constructor and a page iterator.
+**Architecture:** `wip/ecosystems/` follows `wip/karakeep`. `openapi-gen` turns the pinned upstream YAML into a checked-in `ecosystems.ml` and `ecosystems.mli`. A small library `ecosystems.client` adds a base-URL and User-Agent constructor and a page iterator.
 
 **Tech Stack:** OxCaml `5.2.0+ox`, dune 3.21, `openapi`, `fetch`, `fetch-curl`, `eio`, `jsont`.
 
@@ -12,12 +12,12 @@
 
 ## Global Constraints
 
-- Package and library name `ecosystems`, directory `bleeding/ecosystems/`.
+- Package and library name `ecosystems`, directory `wip/ecosystems/`.
 - The pinned spec is `ecosystems-openapi-spec.yaml`, the unmodified upstream 1.1.0 file.
 - Default base URL `https://packages.ecosyste.ms/api/v1`.
 - No test reaches the network. Fixtures are recorded once and committed.
 - Work on a branch. Generated output is committed apart from hand-written code.
-- Build with `dune build @bleeding/ecosystems/all @bleeding/ecosystems/runtest --force`. `ocamlformat` is absent, so match formatting by hand within 80 columns.
+- Build with `dune build @wip/ecosystems/all @wip/ecosystems/runtest --force`. `ocamlformat` is absent, so match formatting by hand within 80 columns.
 - Prose follows AGENTS.md: no em-dashes, no semicolons joining clauses, `[foo x] is ...` doc style.
 - No `ai_disclosure` attributes and no `x-ai` opam fields.
 - Never regenerate a golden file to make a test pass.
@@ -36,7 +36,7 @@
 ## Task 1: Scaffold and generated core
 
 **Files:**
-- Create: `bleeding/ecosystems/{dune-project,ecosystems.opam,dune,dune.inc,ecosystems-openapi-spec.yaml,ecosystems.ml,ecosystems.mli,test/dune,test/test.ml}`
+- Create: `wip/ecosystems/{dune-project,ecosystems.opam,dune,dune.inc,ecosystems-openapi-spec.yaml,ecosystems.ml,ecosystems.mli,test/dune,test/test.ml}`
 
 **Interfaces:**
 - Produces: library `ecosystems` exposing `Ecosystems.t`, `Ecosystems.create`, `Ecosystems.of_fetch`, and modules `Registry`, `Package`, `Version`, `Maintainer`, `Namespace`, `Advisory`, `Keyword`, `Dependency`, `CodeMeta`, `PackageWithRegistry`, `VersionWithPackage`, `VersionWithDependencies`, `VersionLookup`, `KeywordWithPackages`, and `Client`. Operations such as `Client.get_registries : ?ecosystem:string -> ?page:string -> ?per_page:string -> t -> unit -> Registry.T.t list` live in `Client`.
@@ -45,15 +45,15 @@
 
 ```bash
 git checkout -b ecosystems
-mkdir -p bleeding/ecosystems/test
+mkdir -p wip/ecosystems/test
 ```
 
 - [ ] **Step 2: Pin the spec**
 
 ```bash
-curl -sL -o bleeding/ecosystems/ecosystems-openapi-spec.yaml \
+curl -sL -o wip/ecosystems/ecosystems-openapi-spec.yaml \
   https://packages.ecosyste.ms/docs/api/v1/openapi.yaml
-head -3 bleeding/ecosystems/ecosystems-openapi-spec.yaml
+head -3 wip/ecosystems/ecosystems-openapi-spec.yaml
 ```
 
 Expected: `openapi: 3.0.1`.
@@ -122,14 +122,14 @@ Expected: `openapi: 3.0.1`.
 
 - [ ] **Step 5: Generate**
 
-Run: `dune build @bleeding/ecosystems/gen --auto-promote`
+Run: `dune build @wip/ecosystems/gen --auto-promote`
 Expected: `ecosystems.ml` (about 1700 lines) and `ecosystems.mli` (about 1060 lines) appear. A scratch run on 2026-10-03 parsed the spec and emitted both files without error.
 
 - [ ] **Step 6: Compile the generated code**
 
-Run: `dune build @bleeding/ecosystems/all`
+Run: `dune build @wip/ecosystems/all`
 
-Expected: success. If the generator emitted code that does not compile, fix the generator in `bleeding/openapi/lib/`, add a regression test beside the existing ones in `bleeding/openapi/test/`, rerun Step 5, and commit the generator fix on its own before continuing. The user pre-authorised this.
+Expected: success. If the generator emitted code that does not compile, fix the generator in `wip/openapi/lib/`, add a regression test beside the existing ones in `wip/openapi/test/`, rerun Step 5, and commit the generator fix on its own before continuing. The user pre-authorised this.
 
 - [ ] **Step 7: Smoke test**
 
@@ -154,20 +154,20 @@ let () =
   assert (Ecosystems.base_url c = "https://packages.ecosyste.ms/api/v1")
 ```
 
-Run: `dune build @bleeding/ecosystems/runtest --force`
+Run: `dune build @wip/ecosystems/runtest --force`
 Expected: PASS.
 
 - [ ] **Step 8: Commit the generated core**
 
 ```bash
-git add bleeding/ecosystems
+git add wip/ecosystems
 git commit -m "Add ecosystems client generated from the packages.ecosyste.ms spec"
 ```
 
 ## Task 2: Spec and generated code stay in sync
 
 **Files:**
-- Modify: `bleeding/ecosystems/dune.inc`
+- Modify: `wip/ecosystems/dune.inc`
 
 **Interfaces:**
 - Consumes: Task 1 spec and generated files.
@@ -188,15 +188,15 @@ git commit -m "Add ecosystems client generated from the packages.ecosyste.ms spe
 
 - [ ] **Step 2: Run it, expecting pass**
 
-Run: `dune build @bleeding/ecosystems/runtest --force`
+Run: `dune build @wip/ecosystems/runtest --force`
 Expected: PASS.
 
 - [ ] **Step 3: Prove it detects drift**
 
 ```bash
-echo "(* drift *)" >> bleeding/ecosystems/ecosystems.mli
-dune build @bleeding/ecosystems/runtest --force 2>&1 | head
-git checkout bleeding/ecosystems/ecosystems.mli
+echo "(* drift *)" >> wip/ecosystems/ecosystems.mli
+dune build @wip/ecosystems/runtest --force 2>&1 | head
+git checkout wip/ecosystems/ecosystems.mli
 ```
 
 Expected: the first run FAILS with a diff, and the checkout restores a passing tree.
@@ -204,15 +204,15 @@ Expected: the first run FAILS with a diff, and the checkout restores a passing t
 - [ ] **Step 4: Commit**
 
 ```bash
-git add bleeding/ecosystems/dune.inc
+git add wip/ecosystems/dune.inc
 git commit -m "Check generated ecosystems code against the pinned spec"
 ```
 
 ## Task 3: Page iterator
 
 **Files:**
-- Create: `bleeding/ecosystems/lib/{dune,ecosystems_client.ml,ecosystems_client.mli}`, `bleeding/ecosystems/test/test_pages.ml`
-- Modify: `bleeding/ecosystems/test/dune`
+- Create: `wip/ecosystems/lib/{dune,ecosystems_client.ml,ecosystems_client.mli}`, `wip/ecosystems/test/test_pages.ml`
+- Modify: `wip/ecosystems/test/dune`
 
 **Interfaces:**
 - Produces: `Ecosystems_client.pages : ?per_page:int -> (page:string -> per_page:string -> 'a list) -> 'a Seq.t`. It yields the items of each page in order, starting at page 1. It stops after a page with no items or with fewer than `per_page` items. `per_page` defaults to 100.
@@ -256,7 +256,7 @@ Add to `test/dune`:
 
 - [ ] **Step 2: Run, expecting failure**
 
-Run: `dune build @bleeding/ecosystems/runtest --force 2>&1 | head`
+Run: `dune build @wip/ecosystems/runtest --force 2>&1 | head`
 Expected: FAIL, unbound library `ecosystems.client`.
 
 - [ ] **Step 3: Implement**
@@ -300,20 +300,20 @@ let pages ?(per_page = 100) f =
 
 - [ ] **Step 4: Run, expecting pass**
 
-Run: `dune build @bleeding/ecosystems/runtest --force`
+Run: `dune build @wip/ecosystems/runtest --force`
 Expected: PASS. The last assertion in the test proves laziness.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add bleeding/ecosystems
+git add wip/ecosystems
 git commit -m "Add a page iterator to the ecosystems client"
 ```
 
 ## Task 4: Constructor with base URL and User-Agent
 
 **Files:**
-- Modify: `bleeding/ecosystems/lib/ecosystems_client.{ml,mli}`, `bleeding/ecosystems/test/test.ml`
+- Modify: `wip/ecosystems/lib/ecosystems_client.{ml,mli}`, `wip/ecosystems/test/test.ml`
 
 **Interfaces:**
 - Produces: `Ecosystems_client.default_base_url : string` and `Ecosystems_client.create : ?user_agent:string -> ?base_url:string -> sw:Eio.Switch.t -> env -> Ecosystems.t`, where `env` has the same object type as `Ecosystems.create`.
@@ -369,21 +369,21 @@ let create ?(user_agent = "ocaml-ecosystems") ?(base_url = default_base_url)
   Ecosystems.create ~session ~sw env ~base_url
 ```
 
-If `Fetch_curl.v` returns a type `Ecosystems.create ~session` rejects, read `bleeding/fetch/curl/fetch_curl.mli` and use its documented conversion. Do not guess.
+If `Fetch_curl.v` returns a type `Ecosystems.create ~session` rejects, read `wip/fetch/curl/fetch_curl.mli` and use its documented conversion. Do not guess.
 
 - [ ] **Step 4: Run, expecting pass, then commit**
 
 ```bash
-dune build @bleeding/ecosystems/all @bleeding/ecosystems/runtest --force
-git add bleeding/ecosystems
+dune build @wip/ecosystems/all @wip/ecosystems/runtest --force
+git add wip/ecosystems
 git commit -m "Add a constructor to the ecosystems client with a User-Agent"
 ```
 
 ## Task 5: Decode fixtures
 
 **Files:**
-- Create: `bleeding/ecosystems/test/fixtures/*.json`, `bleeding/ecosystems/test/test_decode.ml`
-- Modify: `bleeding/ecosystems/test/dune`
+- Create: `wip/ecosystems/test/fixtures/*.json`, `wip/ecosystems/test/test_decode.ml`
+- Modify: `wip/ecosystems/test/dune`
 
 **Interfaces:**
 - Consumes: `Ecosystems.<M>.T.jsont` for each schema `<M>`.
@@ -391,7 +391,7 @@ git commit -m "Add a constructor to the ecosystems client with a User-Agent"
 - [ ] **Step 1: Record one live response per schema, once**
 
 ```bash
-cd bleeding/ecosystems/test && mkdir -p fixtures && cd fixtures
+cd wip/ecosystems/test && mkdir -p fixtures && cd fixtures
 B=https://packages.ecosyste.ms/api/v1
 curl -s "$B/registries?per_page=1"                          -o registries.json
 curl -s "$B/registries/crates.io/packages/serde"            -o package.json
@@ -443,9 +443,9 @@ let () =
 
 - [ ] **Step 3: Run**
 
-Run: `dune build @bleeding/ecosystems/runtest --force`
+Run: `dune build @wip/ecosystems/runtest --force`
 
-Expected: each decode either passes or names the failing fixture. The `Error` payload type of `Openapi.Runtime.Json.decode` may not be `string`. If the compiler objects, match the real type from `bleeding/openapi/lib/` and adjust `ok`.
+Expected: each decode either passes or names the failing fixture. The `Error` payload type of `Openapi.Runtime.Json.decode` may not be `string`. If the compiler objects, match the real type from `wip/openapi/lib/` and adjust `ok`.
 
 - [ ] **Step 4: Fix any decode failure at its cause**
 
@@ -454,25 +454,25 @@ A failure on a `null` the schema forbids is a spec or generator issue, as in kar
 - [ ] **Step 5: Commit**
 
 ```bash
-git add bleeding/ecosystems/test
+git add wip/ecosystems/test
 git commit -m "Test ecosystems decoders against recorded API responses"
 ```
 
 ## Task 6: Docs, changelog, final verification
 
 **Files:**
-- Create: `bleeding/ecosystems/README.md`
+- Create: `wip/ecosystems/README.md`
 - Modify: `CHANGES.md`
 
-- [ ] **Step 1: README.** Say what the package is, show `Ecosystems_client.create` and `pages` in one example, state that `page` and `per_page` are strings, that `bulk_lookup_packages` takes a raw `Jsont.json` body, and how to regenerate (`dune build @bleeding/ecosystems/gen --auto-promote`) and re-pin the spec.
+- [ ] **Step 1: README.** Say what the package is, show `Ecosystems_client.create` and `pages` in one example, state that `page` and `per_page` are strings, that `bulk_lookup_packages` takes a raw `Jsont.json` body, and how to regenerate (`dune build @wip/ecosystems/gen --auto-promote`) and re-pin the spec.
 
 - [ ] **Step 2: CHANGES.md.** Add one or two lines under the commit group for this work, naming the new `ecosystems` client and its page iterator.
 
 - [ ] **Step 3: Verify**
 
 ```bash
-dune build @bleeding/ecosystems/all @bleeding/ecosystems/runtest --force
-dune build @bleeding/ecosystems/doc 2>&1 | head
+dune build @wip/ecosystems/all @wip/ecosystems/runtest --force
+dune build @wip/ecosystems/doc 2>&1 | head
 ```
 
 Expected: both clean. `@fmt` for OCaml cannot run here, so check formatting by eye.
@@ -480,6 +480,6 @@ Expected: both clean. `@fmt` for OCaml cannot run here, so check formatting by e
 - [ ] **Step 4: Commit**
 
 ```bash
-git add bleeding/ecosystems/README.md CHANGES.md
+git add wip/ecosystems/README.md CHANGES.md
 git commit -m "Document the ecosystems client"
 ```

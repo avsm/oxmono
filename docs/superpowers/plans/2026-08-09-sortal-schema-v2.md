@@ -10,23 +10,23 @@
 
 ## Global Constraints
 
-- Before every commit, `dune build` must be clean repo-wide and `dune runtest avsm/sortal` must be clean. No red commits.
-- `dune build @fmt` is **suspended** for this plan: `ocamlformat` is not installed in the `5.2.0+ox` switch, so it fails on untouched files too. Run it once, scoped to `avsm/sortal`, if the switch ever gains it. Match the surrounding formatting by hand meanwhile.
-- Repo-wide `dune runtest` fails at `bleeding/atp/atp/test/dune:6` and `bleeding/fetch/main/tests/main.md:1`. Both predate this work and are out of scope. Do not attempt to fix them, and do not let them gate a commit.
+- Before every commit, `dune build` must be clean repo-wide and `dune runtest u/avsm/sortal` must be clean. No red commits.
+- `dune build @fmt` is **suspended** for this plan: `ocamlformat` is not installed in the `5.2.0+ox` switch, so it fails on untouched files too. Run it once, scoped to `u/avsm/sortal`, if the switch ever gains it. Match the surrounding formatting by hand meanwhile.
+- Repo-wide `dune runtest` fails at `wip/atp/atp/test/dune:6` and `wip/fetch/main/tests/main.md:1`. Both predate this work and are out of scope. Do not attempt to fix them, and do not let them gate a commit.
 - Never run `dune build @fmt --auto-promote` unscoped. It reformats `dune` files across the whole repository.
 - One commit per self-contained change, one-line imperative message, no trailers or sign-off.
 - Keep a mechanical change, such as a reformat, out of the commit that changes behaviour.
 - Prose in `.mli` files follows `AGENTS.md`: document a value as `[foo x y] is ...`, name its arguments, no em-dashes, do not join two clauses with a semicolon.
 - Every new module gets an `.mli`.
-- **Decode errors must carry position.** When mapping a JSON string to a variant or a parsed value, use `Jsont.Base.string (Jsont.Base.map ~kind ~dec ~enc ())`, whose `dec` has type `meta -> string -> 'a` and so can forward a real `meta` into `Jsont.Error.msgf meta ...`. The precedent is `avsm/sortal/lib/schema/sortal_schema_temporal.ml:120-129`. Do NOT use the top-level `Jsont.map` for this: its `dec` is `'a -> 'b` and never receives a `meta`, so `Jsont.Meta.none` is the only thing you can pass and the error loses its position. Inside a `Jsont.Object.map` constructor closure no `meta` exists either, so `Jsont.Meta.none` is acceptable there, but the message must then name the field it concerns so it stays locatable.
+- **Decode errors must carry position.** When mapping a JSON string to a variant or a parsed value, use `Jsont.Base.string (Jsont.Base.map ~kind ~dec ~enc ())`, whose `dec` has type `meta -> string -> 'a` and so can forward a real `meta` into `Jsont.Error.msgf meta ...`. The precedent is `u/avsm/sortal/lib/schema/sortal_schema_temporal.ml:120-129`. Do NOT use the top-level `Jsont.map` for this: its `dec` is `'a -> 'b` and never receives a `meta`, so `Jsont.Meta.none` is the only thing you can pass and the error loses its position. Inside a `Jsont.Object.map` constructor closure no `meta` exists either, so `Jsont.Meta.none` is acceptable there, but the message must then name the field it concerns so it stays locatable.
 - A parser exposed as `string -> 'a option` must reject what its `.mli` says it rejects. `int_of_string_opt` accepts `0x10`, `0o17`, `2_006` and `+2001`, so it is not by itself a decimal-digit check.
-- Tests are plain executables using `assert` and `print_endline`, matching `avsm/sortal/test/test_schema.ml`. Do not introduce alcotest.
+- Tests are plain executables using `assert` and `print_endline`, matching `u/avsm/sortal/test/test_schema.ml`. Do not introduce alcotest.
 - Copyright header on every new file, copied verbatim from an existing file in the same directory.
 - The design spec is `docs/superpowers/specs/2026-08-09-sortal-schema-v2-design.md`. It is authoritative where this plan is silent.
 
 ## File Structure
 
-Created in `avsm/sortal/lib/schema/`:
+Created in `u/avsm/sortal/lib/schema/`:
 
 | file | responsibility |
 |---|---|
@@ -45,8 +45,8 @@ Modified: `sortal_schema.ml{,i}`, `lib/core/sortal_store.ml{,i}`, `lib/core/sort
 ### Task 1: Date module
 
 **Files:**
-- Create: `avsm/sortal/lib/schema/sortal_schema_date.ml`, `avsm/sortal/lib/schema/sortal_schema_date.mli`
-- Modify: `avsm/sortal/test/test_schema.ml`
+- Create: `u/avsm/sortal/lib/schema/sortal_schema_date.ml`, `u/avsm/sortal/lib/schema/sortal_schema_date.mli`
+- Modify: `u/avsm/sortal/test/test_schema.ml`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -54,7 +54,7 @@ Modified: `sortal_schema.ml{,i}`, `lib/core/sortal_store.ml{,i}`, `lib/core/sort
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `avsm/sortal/test/test_schema.ml`, and add a call to it in the `main` at the bottom of that file:
+Add to `u/avsm/sortal/test/test_schema.ml`, and add a call to it in the `main` at the bottom of that file:
 
 ```ocaml
 let test_date () =
@@ -72,12 +72,12 @@ let test_date () =
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dune build @avsm/sortal/runtest`
+Run: `dune build @u/avsm/sortal/runtest`
 Expected: FAIL, `Unbound module Sortal_schema.Date`.
 
 - [ ] **Step 3: Write the interface**
 
-Create `avsm/sortal/lib/schema/sortal_schema_date.mli` with the copyright header from `sortal_schema_temporal.mli`, then:
+Create `u/avsm/sortal/lib/schema/sortal_schema_date.mli` with the copyright header from `sortal_schema_temporal.mli`, then:
 
 ```ocaml
 (** ISO 8601 calendar dates.
@@ -108,7 +108,7 @@ val json_t : t Jsont.t
 
 - [ ] **Step 4: Write the implementation**
 
-Create `avsm/sortal/lib/schema/sortal_schema_date.ml` with the same copyright header, then:
+Create `u/avsm/sortal/lib/schema/sortal_schema_date.ml` with the same copyright header, then:
 
 ```ocaml
 type t = Ptime.date
@@ -151,7 +151,7 @@ let json_t =
 
 - [ ] **Step 5: Run the tests**
 
-Run: `dune build @avsm/sortal/runtest 2>&1 | tail -20`
+Run: `dune build @u/avsm/sortal/runtest 2>&1 | tail -20`
 Expected: the date test prints and passes. If `Jsont.Error.msgf` does not typecheck, check its arity against `/Users/avsm/.opam/5.2.0+ox/lib/jsont/jsont.mli` and adjust. Do not silently fall back to `failwith`, because a decode error must carry position information.
 
 - [ ] **Step 6: Format and commit**
@@ -159,7 +159,7 @@ Expected: the date test prints and passes. If `Jsont.Error.msgf` does not typech
 ```bash
 dune build @fmt --auto-promote
 dune build && dune runtest
-git add avsm/sortal/lib/schema/sortal_schema_date.ml* avsm/sortal/test/test_schema.ml
+git add u/avsm/sortal/lib/schema/sortal_schema_date.ml* u/avsm/sortal/test/test_schema.ml
 git commit -m "Add date module for schema V2"
 ```
 
@@ -168,8 +168,8 @@ git commit -m "Add date module for schema V2"
 ### Task 2: Platform vocabulary
 
 **Files:**
-- Create: `avsm/sortal/lib/schema/sortal_schema_platform.ml`, `avsm/sortal/lib/schema/sortal_schema_platform.mli`
-- Modify: `avsm/sortal/test/test_schema.ml`
+- Create: `u/avsm/sortal/lib/schema/sortal_schema_platform.ml`, `u/avsm/sortal/lib/schema/sortal_schema_platform.mli`
+- Modify: `u/avsm/sortal/test/test_schema.ml`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -179,7 +179,7 @@ This task defines the vocabulary and URL derivation only. The `probe` field of t
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `avsm/sortal/test/test_schema.ml` and call it from `main`:
+Add to `u/avsm/sortal/test/test_schema.ml` and call it from `main`:
 
 ```ocaml
 let test_platform () =
@@ -218,12 +218,12 @@ let test_platform () =
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dune build @avsm/sortal/runtest`
+Run: `dune build @u/avsm/sortal/runtest`
 Expected: FAIL, `Unbound module Sortal_schema.Platform`.
 
 - [ ] **Step 3: Write the interface**
 
-Create `avsm/sortal/lib/schema/sortal_schema_platform.mli` with the copyright header, then:
+Create `u/avsm/sortal/lib/schema/sortal_schema_platform.mli` with the copyright header, then:
 
 ```ocaml
 (** The platform vocabulary.
@@ -288,7 +288,7 @@ val check_atproto_handle : string -> (unit, string) result
 
 - [ ] **Step 4: Write the implementation**
 
-Create `avsm/sortal/lib/schema/sortal_schema_platform.ml` with the copyright header, then:
+Create `u/avsm/sortal/lib/schema/sortal_schema_platform.ml` with the copyright header, then:
 
 ```ocaml
 type simple =
@@ -424,7 +424,7 @@ let check_atproto_handle h =
 
 - [ ] **Step 5: Run the tests**
 
-Run: `dune build @avsm/sortal/runtest 2>&1 | tail -20`
+Run: `dune build @u/avsm/sortal/runtest 2>&1 | tail -20`
 Expected: PASS. If the ORCID assertion fails, verify `orcid_checksum_ok` against the known-good `0000-0001-8954-2428` by hand before changing the test, because the test value is taken from live data and is correct.
 
 - [ ] **Step 6: Format and commit**
@@ -432,7 +432,7 @@ Expected: PASS. If the ORCID assertion fails, verify `orcid_checksum_ok` against
 ```bash
 dune build @fmt --auto-promote
 dune build && dune runtest
-git add avsm/sortal/lib/schema/sortal_schema_platform.ml* avsm/sortal/test/test_schema.ml
+git add u/avsm/sortal/lib/schema/sortal_schema_platform.ml* u/avsm/sortal/test/test_schema.ml
 git commit -m "Add closed platform vocabulary for schema V2"
 ```
 
@@ -441,8 +441,8 @@ git commit -m "Add closed platform vocabulary for schema V2"
 ### Task 3: Account type and codec
 
 **Files:**
-- Create: `avsm/sortal/lib/schema/sortal_schema_account.ml`, `avsm/sortal/lib/schema/sortal_schema_account.mli`
-- Modify: `avsm/sortal/test/test_schema.ml`
+- Create: `u/avsm/sortal/lib/schema/sortal_schema_account.ml`, `u/avsm/sortal/lib/schema/sortal_schema_account.mli`
+- Modify: `u/avsm/sortal/test/test_schema.ml`
 
 **Interfaces:**
 - Consumes: `Sortal_schema_platform` from Task 2.
@@ -452,7 +452,7 @@ Note that `json_t` maps the whole `accounts` mapping, not a single account, beca
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `avsm/sortal/test/test_schema.ml` and call it from `main`:
+Add to `u/avsm/sortal/test/test_schema.ml` and call it from `main`:
 
 ```ocaml
 let decode_accounts s =
@@ -519,12 +519,12 @@ let test_account_codec () =
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dune build @avsm/sortal/runtest`
+Run: `dune build @u/avsm/sortal/runtest`
 Expected: FAIL, `Unbound module Sortal_schema.Account`.
 
 - [ ] **Step 3: Write the interface**
 
-Create `avsm/sortal/lib/schema/sortal_schema_account.mli` with the copyright header, then:
+Create `u/avsm/sortal/lib/schema/sortal_schema_account.mli` with the copyright header, then:
 
 ```ocaml
 (** Accounts a contact holds on a platform.
@@ -593,7 +593,7 @@ val json_t : t list Jsont.t
 
 - [ ] **Step 4: Write the implementation**
 
-Create `avsm/sortal/lib/schema/sortal_schema_account.ml` with the copyright header, then:
+Create `u/avsm/sortal/lib/schema/sortal_schema_account.ml` with the copyright header, then:
 
 ```ocaml
 module Platform = Sortal_schema_platform
@@ -746,7 +746,7 @@ let json_t =
 
 - [ ] **Step 5: Run the tests**
 
-Run: `dune build @avsm/sortal/runtest 2>&1 | tail -30`
+Run: `dune build @u/avsm/sortal/runtest 2>&1 | tail -30`
 
 Expected: PASS. Two things commonly need adjusting against the real `jsont` interface at `/Users/avsm/.opam/5.2.0+ox/lib/jsont/jsont.mli`:
 
@@ -760,7 +760,7 @@ Do not weaken the "unknown platform key is an error" assertion to make the build
 ```bash
 dune build @fmt --auto-promote
 dune build && dune runtest
-git add avsm/sortal/lib/schema/sortal_schema_account.ml* avsm/sortal/test/test_schema.ml
+git add u/avsm/sortal/lib/schema/sortal_schema_account.ml* u/avsm/sortal/test/test_schema.ml
 git commit -m "Add account type and mapping codec for schema V2"
 ```
 
@@ -769,8 +769,8 @@ git commit -m "Add account type and mapping codec for schema V2"
 ### Task 4: V2 contact record
 
 **Files:**
-- Create: `avsm/sortal/lib/schema/sortal_schema_contact_v2.ml`, `avsm/sortal/lib/schema/sortal_schema_contact_v2.mli`
-- Modify: `avsm/sortal/test/test_schema.ml`
+- Create: `u/avsm/sortal/lib/schema/sortal_schema_contact_v2.ml`, `u/avsm/sortal/lib/schema/sortal_schema_contact_v2.mli`
+- Modify: `u/avsm/sortal/test/test_schema.ml`
 
 **Interfaces:**
 - Consumes: `Sortal_schema_date` (Task 1), `Sortal_schema_platform` (Task 2), `Sortal_schema_account` (Task 3), the existing `Sortal_schema_feed`.
@@ -778,7 +778,7 @@ git commit -m "Add account type and mapping codec for schema V2"
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `avsm/sortal/test/test_schema.ml` and call it from `main`:
+Add to `u/avsm/sortal/test/test_schema.ml` and call it from `main`:
 
 ```ocaml
 let test_contact_v2 () =
@@ -843,12 +843,12 @@ let contains haystack needle =
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dune build @avsm/sortal/runtest`
+Run: `dune build @u/avsm/sortal/runtest`
 Expected: FAIL, `Unbound module Sortal_schema.V2`.
 
 - [ ] **Step 3: Write the interface**
 
-Create `avsm/sortal/lib/schema/sortal_schema_contact_v2.mli` with the copyright header, then:
+Create `u/avsm/sortal/lib/schema/sortal_schema_contact_v2.mli` with the copyright header, then:
 
 ```ocaml
 (** Contact schema V2.
@@ -981,7 +981,7 @@ val json_t : t Jsont.t
 
 - [ ] **Step 4: Write the implementation**
 
-Create `avsm/sortal/lib/schema/sortal_schema_contact_v2.ml` with the copyright header. Follow the codec style of `sortal_schema_contact_v1.ml:417-545`, which uses `Jsont.Object.map ~kind ... |> mem ... |> opt_mem ... |> finish`.
+Create `u/avsm/sortal/lib/schema/sortal_schema_contact_v2.ml` with the copyright header. Follow the codec style of `sortal_schema_contact_v1.ml:417-545`, which uses `Jsont.Object.map ~kind ... |> mem ... |> opt_mem ... |> finish`.
 
 ```ocaml
 module Account = Sortal_schema_account
@@ -1177,7 +1177,7 @@ let pp ppf t =
 
 - [ ] **Step 5: Run the tests**
 
-Run: `dune build @avsm/sortal/runtest 2>&1 | tail -30`
+Run: `dune build @u/avsm/sortal/runtest 2>&1 | tail -30`
 
 Expected: PASS. Likely adjustments against the real `jsont` interface:
 
@@ -1189,7 +1189,7 @@ Expected: PASS. Likely adjustments against the real `jsont` interface:
 ```bash
 dune build @fmt --auto-promote
 dune build && dune runtest
-git add avsm/sortal/lib/schema/sortal_schema_contact_v2.ml* avsm/sortal/test/test_schema.ml
+git add u/avsm/sortal/lib/schema/sortal_schema_contact_v2.ml* u/avsm/sortal/test/test_schema.ml
 git commit -m "Add V2 contact record"
 ```
 
@@ -1198,7 +1198,7 @@ git commit -m "Add V2 contact record"
 ### Task 5: Wire V2 into the schema library
 
 **Files:**
-- Modify: `avsm/sortal/lib/schema/sortal_schema.ml`, `avsm/sortal/lib/schema/sortal_schema.mli`
+- Modify: `u/avsm/sortal/lib/schema/sortal_schema.ml`, `u/avsm/sortal/lib/schema/sortal_schema.mli`
 
 **Interfaces:**
 - Consumes: Tasks 1 to 4.
@@ -1206,7 +1206,7 @@ git commit -m "Add V2 contact record"
 
 - [ ] **Step 1: Update the interface**
 
-Replace the body of `avsm/sortal/lib/schema/sortal_schema.mli` below its existing header comment with:
+Replace the body of `u/avsm/sortal/lib/schema/sortal_schema.mli` below its existing header comment with:
 
 ```ocaml
 (** {1 Schema Version 1}
@@ -1245,7 +1245,7 @@ module Contact = V1.Contact
 
 - [ ] **Step 2: Update the implementation**
 
-Mirror the same structure in `avsm/sortal/lib/schema/sortal_schema.ml`.
+Mirror the same structure in `u/avsm/sortal/lib/schema/sortal_schema.ml`.
 
 - [ ] **Step 3: Verify the build and tests**
 
@@ -1256,7 +1256,7 @@ Expected: clean. Nothing outside the schema library changes, because `Contact` a
 
 ```bash
 dune build @fmt --auto-promote
-git add avsm/sortal/lib/schema/sortal_schema.ml*
+git add u/avsm/sortal/lib/schema/sortal_schema.ml*
 git commit -m "Expose schema V2 alongside V1"
 ```
 
@@ -1265,8 +1265,8 @@ git commit -m "Expose schema V2 alongside V1"
 ### Task 6: V1 to V2 migration
 
 **Files:**
-- Create: `avsm/sortal/lib/schema/sortal_schema_migrate.ml`, `avsm/sortal/lib/schema/sortal_schema_migrate.mli`
-- Modify: `avsm/sortal/lib/schema/sortal_schema.ml`, `avsm/sortal/lib/schema/sortal_schema.mli`, `avsm/sortal/test/test_schema.ml`
+- Create: `u/avsm/sortal/lib/schema/sortal_schema_migrate.ml`, `u/avsm/sortal/lib/schema/sortal_schema_migrate.mli`
+- Modify: `u/avsm/sortal/lib/schema/sortal_schema.ml`, `u/avsm/sortal/lib/schema/sortal_schema.mli`, `u/avsm/sortal/test/test_schema.ml`
 
 **Interfaces:**
 - Consumes: `Sortal_schema.V1.Contact`, `Sortal_schema.V2.Contact`, `Sortal_schema.Account`, `Sortal_schema.Platform`.
@@ -1276,7 +1276,7 @@ The migration is a pure function so it can be tested without I/O. It returns `Er
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `avsm/sortal/test/test_schema.ml` and call it from `main`:
+Add to `u/avsm/sortal/test/test_schema.ml` and call it from `main`:
 
 ```ocaml
 let test_migrate () =
@@ -1357,12 +1357,12 @@ let test_migrate () =
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dune build @avsm/sortal/runtest`
+Run: `dune build @u/avsm/sortal/runtest`
 Expected: FAIL, `Unbound module Sortal_schema.Migrate`.
 
 - [ ] **Step 3: Write the interface**
 
-Create `avsm/sortal/lib/schema/sortal_schema_migrate.mli` with the copyright header, then:
+Create `u/avsm/sortal/lib/schema/sortal_schema_migrate.mli` with the copyright header, then:
 
 ```ocaml
 (** Migration from schema V1 to V2.
@@ -1393,7 +1393,7 @@ val platform_of_host : string -> Sortal_schema_platform.id option
 
 - [ ] **Step 4: Write the implementation**
 
-Create `avsm/sortal/lib/schema/sortal_schema_migrate.ml` with the copyright header. The `Result` plumbing uses `let*`, matching `ocaml-dev:result` conventions used elsewhere in the repo.
+Create `u/avsm/sortal/lib/schema/sortal_schema_migrate.ml` with the copyright header. The `Result` plumbing uses `let*`, matching `ocaml-dev:result` conventions used elsewhere in the repo.
 
 ```ocaml
 module V1 = Sortal_schema_contact_v1
@@ -1645,7 +1645,7 @@ Add `module Migrate = Sortal_schema_migrate` to both `sortal_schema.ml` and `sor
 
 - [ ] **Step 6: Run the tests**
 
-Run: `dune build @avsm/sortal/runtest 2>&1 | tail -40`
+Run: `dune build @u/avsm/sortal/runtest 2>&1 | tail -40`
 
 Expected: PASS. Two likely problems:
 
@@ -1657,8 +1657,8 @@ Expected: PASS. Two likely problems:
 ```bash
 dune build @fmt --auto-promote
 dune build && dune runtest
-git add avsm/sortal/lib/schema/sortal_schema_migrate.ml* avsm/sortal/lib/schema/sortal_schema.ml*
-git add avsm/sortal/test/test_schema.ml
+git add u/avsm/sortal/lib/schema/sortal_schema_migrate.ml* u/avsm/sortal/lib/schema/sortal_schema.ml*
+git add u/avsm/sortal/test/test_schema.ml
 git commit -m "Add V1 to V2 contact migration"
 ```
 
@@ -1667,8 +1667,8 @@ git commit -m "Add V1 to V2 contact migration"
 ### Task 7: Golden test against the live database
 
 **Files:**
-- Create: `avsm/sortal/test/test_migrate_golden.ml`
-- Modify: `avsm/sortal/test/dune`
+- Create: `u/avsm/sortal/test/test_migrate_golden.ml`
+- Modify: `u/avsm/sortal/test/dune`
 
 **Interfaces:**
 - Consumes: `Sortal_schema.Migrate.v1_to_v2`, `Sortal_schema.V1.Contact.json_t`, `Sortal_schema.V2.Contact.json_t`.
@@ -1686,7 +1686,7 @@ Expected: 460. The test locates the store from `SORTAL_DATA_DIR` if set, and oth
 
 - [ ] **Step 2: Write the test**
 
-Create `avsm/sortal/test/test_migrate_golden.ml` with the copyright header:
+Create `u/avsm/sortal/test/test_migrate_golden.ml` with the copyright header:
 
 ```ocaml
 (** Every contact in the live store must migrate, and the result must
@@ -1759,7 +1759,7 @@ let () =
 
 - [ ] **Step 3: Wire it into dune**
 
-Append to `avsm/sortal/test/dune`:
+Append to `u/avsm/sortal/test/dune`:
 
 ```
 (test
@@ -1772,7 +1772,7 @@ Append to `avsm/sortal/test/dune`:
 
 - [ ] **Step 4: Run it**
 
-Run: `dune build @avsm/sortal/runtest 2>&1 | tail -40`
+Run: `dune build @u/avsm/sortal/runtest 2>&1 | tail -40`
 
 Expected: `✓ 460 contacts migrate cleanly`. A skip message means the store was not found, which is a failure of this step even though the test exits 0. If contacts fail, fix `Sortal_schema_migrate`, not the test. Every failure is a real case the migration does not yet handle. Do not add a catch-all that turns an unknown field into a link, because that is exactly the silent truncation the spec forbids.
 
@@ -1785,7 +1785,7 @@ Write a scratch binary or use the existing CLI to print the migrated form of `av
 ```bash
 dune build @fmt --auto-promote
 dune build && dune runtest
-git add avsm/sortal/test/test_migrate_golden.ml avsm/sortal/test/dune
+git add u/avsm/sortal/test/test_migrate_golden.ml u/avsm/sortal/test/dune
 git commit -m "Pin V1 to V2 migration against the live contact store"
 ```
 
@@ -1794,12 +1794,12 @@ git commit -m "Pin V1 to V2 migration against the live contact store"
 ### Task 8: Switch the store and CLI to V2
 
 **Files:**
-- Modify: `avsm/sortal/lib/schema/sortal_schema.ml`, `avsm/sortal/lib/schema/sortal_schema.mli`
-- Modify: `avsm/sortal/lib/core/sortal_store.ml`, `avsm/sortal/lib/core/sortal_store.mli`
-- Modify: `avsm/sortal/lib/core/sortal_cmd.ml`
-- Modify: `avsm/sortal/bin/sortal_cli.ml`
-- Modify: `avsm/sortal/lib/web/pages.ml`, `avsm/sortal/lib/web/sortal_web.ml`
-- Modify: `avsm/sortal/test/test_sortal.ml`, `avsm/sortal/test/test_web.ml`
+- Modify: `u/avsm/sortal/lib/schema/sortal_schema.ml`, `u/avsm/sortal/lib/schema/sortal_schema.mli`
+- Modify: `u/avsm/sortal/lib/core/sortal_store.ml`, `u/avsm/sortal/lib/core/sortal_store.mli`
+- Modify: `u/avsm/sortal/lib/core/sortal_cmd.ml`
+- Modify: `u/avsm/sortal/bin/sortal_cli.ml`
+- Modify: `u/avsm/sortal/lib/web/pages.ml`, `u/avsm/sortal/lib/web/sortal_web.ml`
+- Modify: `u/avsm/sortal/test/test_sortal.ml`, `u/avsm/sortal/test/test_web.ml`
 
 **Interfaces:**
 - Consumes: everything from Tasks 1 to 7.
@@ -1835,7 +1835,7 @@ This is the authoritative worklist for the rest of this task. Work down it.
 
 - [ ] **Step 3: Update the store**
 
-In `avsm/sortal/lib/core/sortal_store.mli`, delete these values, which have no V2 meaning because nothing carries a date any more except an affiliation:
+In `u/avsm/sortal/lib/core/sortal_store.mli`, delete these values, which have no V2 meaning because nothing carries a date any more except an affiliation:
 
 - `find_by_email_at`
 - `list_at`
@@ -1868,7 +1868,7 @@ Delete `add_email`, `remove_email`, `add_service`, `remove_service`, `add_organi
 
 - [ ] **Step 4: Update the CLI**
 
-In `avsm/sortal/lib/core/sortal_cmd.ml`, replace the eight `add_*_info` and `remove_*_info` command descriptions at lines 543 to 552 with two:
+In `u/avsm/sortal/lib/core/sortal_cmd.ml`, replace the eight `add_*_info` and `remove_*_info` command descriptions at lines 543 to 552 with two:
 
 ```ocaml
 let set_info =
@@ -1877,7 +1877,7 @@ let unset_info =
   Cmd.info "unset" ~doc:"Remove a contact's account on a platform"
 ```
 
-In `avsm/sortal/bin/sortal_cli.ml`, replace the corresponding sub-command terms at lines 288 to 443 with `set` and `unset`. The `set` term takes three positional arguments, a handle, a platform key and a value:
+In `u/avsm/sortal/bin/sortal_cli.ml`, replace the corresponding sub-command terms at lines 288 to 443 with `set` and `unset`. The `set` term takes three positional arguments, a handle, a platform key and a value:
 
 ```ocaml
 let set_cmd =
@@ -1903,7 +1903,7 @@ exit 1
 
 - [ ] **Step 5: Update the web pages**
 
-Work through the errors in `avsm/sortal/lib/web/pages.ml` and `sortal_web.ml`. The mapping is mechanical:
+Work through the errors in `u/avsm/sortal/lib/web/pages.ml` and `sortal_web.ml`. The mapping is mechanical:
 
 | V1 | V2 |
 |---|---|
@@ -1942,7 +1942,7 @@ Expected: both clean, including the golden migration test.
 ```bash
 dune build @fmt --auto-promote
 dune build && dune runtest
-git add avsm/sortal
+git add u/avsm/sortal
 git commit -m "Switch sortal store and CLI to schema V2"
 ```
 
@@ -1951,11 +1951,11 @@ git commit -m "Switch sortal store and CLI to schema V2"
 ### Task 9: Update the consumer packages
 
 **Files:**
-- Modify: `avsm/arod/lib_component/sidebar.ml`, `layout.ml`, `links.ml`, `network.ml`, `common.ml`, `markdown_export.ml`
-- Modify: `avsm/arod/lib/arod_jsonld.ml`, `arod_md.ml`, `arod_ctx.ml`
-- Modify: `avsm/arod/lib_handlers/arod_handlers.ml`, `avsm/arod/bin/main.ml`
-- Modify: `avsm/bushel/lib/bushel_entry.ml`
-- Modify: `avsm/tessabot/lib/tessabot_config.ml`, `avsm/tessabot/bin/main.ml`
+- Modify: `u/avsm/arod/lib_component/sidebar.ml`, `layout.ml`, `links.ml`, `network.ml`, `common.ml`, `markdown_export.ml`
+- Modify: `u/avsm/arod/lib/arod_jsonld.ml`, `arod_md.ml`, `arod_ctx.ml`
+- Modify: `u/avsm/arod/lib_handlers/arod_handlers.ml`, `u/avsm/arod/bin/main.ml`
+- Modify: `u/avsm/bushel/lib/bushel_entry.ml`
+- Modify: `u/avsm/tessabot/lib/tessabot_config.ml`, `u/avsm/tessabot/bin/main.ml`
 
 **Interfaces:**
 - Consumes: the V2 `Contact` interface from Task 4 and the mapping table in Task 8 Step 5.
@@ -1969,7 +1969,7 @@ Task 8 leaves these packages broken, so in practice Tasks 8 and 9 are one commit
 dune build 2>&1 | grep -E "^File" | sort -u
 ```
 
-The known call sites, from a survey of the tree, are roughly 45 across these files. `avsm/arod/lib_component/sidebar.ml` holds about 20 of them and is by far the largest.
+The known call sites, from a survey of the tree, are roughly 45 across these files. `u/avsm/arod/lib_component/sidebar.ml` holds about 20 of them and is by far the largest.
 
 - [ ] **Step 2: Update tessabot and bushel first**
 
@@ -2023,8 +2023,8 @@ git commit -m "Update arod, bushel and tessabot for schema V2"
 ### Task 10: The migrate command
 
 **Files:**
-- Modify: `avsm/sortal/lib/core/sortal_store.ml`, `avsm/sortal/lib/core/sortal_store.mli`
-- Modify: `avsm/sortal/bin/sortal_cli.ml`
+- Modify: `u/avsm/sortal/lib/core/sortal_store.ml`, `u/avsm/sortal/lib/core/sortal_store.mli`
+- Modify: `u/avsm/sortal/bin/sortal_cli.ml`
 
 **Interfaces:**
 - Consumes: `Sortal_schema.Migrate.v1_to_v2`, the V2 store from Task 8.
@@ -2032,7 +2032,7 @@ git commit -m "Update arod, bushel and tessabot for schema V2"
 
 - [ ] **Step 1: Add the store function to the interface**
 
-In `avsm/sortal/lib/core/sortal_store.mli`:
+In `u/avsm/sortal/lib/core/sortal_store.mli`:
 
 ```ocaml
 val migrate : t -> dry_run:bool -> int * (string * string) list
@@ -2047,7 +2047,7 @@ val migrate : t -> dry_run:bool -> int * (string * string) list
 
 - [ ] **Step 2: Implement it**
 
-In `avsm/sortal/lib/core/sortal_store.ml`, following the directory scan at `sortal_store.ml:259`:
+In `u/avsm/sortal/lib/core/sortal_store.ml`, following the directory scan at `sortal_store.ml:259`:
 
 ```ocaml
 let migrate t ~dry_run =
@@ -2078,7 +2078,7 @@ let migrate t ~dry_run =
 
 - [ ] **Step 3: Add the CLI sub-command**
 
-In `avsm/sortal/bin/sortal_cli.ml`, alongside the existing `sync` sub-command:
+In `u/avsm/sortal/bin/sortal_cli.ml`, alongside the existing `sync` sub-command:
 
 ```ocaml
 let migrate_cmd =
@@ -2120,7 +2120,7 @@ Adjust `store_of_env` and `common_term` to match how the neighbouring `sync` sub
 ```bash
 rm -rf /tmp/sortal-migrate-test
 cp -r ~/.local/share/sortal /tmp/sortal-migrate-test
-SORTAL_DATA_DIR=/tmp/sortal-migrate-test dune exec avsm/sortal/bin/sortal_cli.exe -- migrate --dry-run
+SORTAL_DATA_DIR=/tmp/sortal-migrate-test dune exec u/avsm/sortal/bin/sortal_cli.exe -- migrate --dry-run
 ```
 
 Expected: `460 contacts would be migrated`, no failures.
@@ -2128,7 +2128,7 @@ Expected: `460 contacts would be migrated`, no failures.
 Then run it for real against the copy and inspect:
 
 ```bash
-SORTAL_DATA_DIR=/tmp/sortal-migrate-test dune exec avsm/sortal/bin/sortal_cli.exe -- migrate
+SORTAL_DATA_DIR=/tmp/sortal-migrate-test dune exec u/avsm/sortal/bin/sortal_cli.exe -- migrate
 diff <(cat ~/.local/share/sortal/avsm.yaml) /tmp/sortal-migrate-test/avsm.yaml
 wc -l /tmp/sortal-migrate-test/*.yaml | tail -1
 ```
@@ -2140,7 +2140,7 @@ Expected: the total is close to 3655 lines, against 4412 before. Read the new `a
 ```bash
 dune build @fmt --auto-promote
 dune build && dune runtest
-git add avsm/sortal/lib/core/sortal_store.ml* avsm/sortal/bin/sortal_cli.ml
+git add u/avsm/sortal/lib/core/sortal_store.ml* u/avsm/sortal/bin/sortal_cli.ml
 git commit -m "Add sortal migrate command"
 ```
 
@@ -2150,7 +2150,7 @@ This step changes the owner's data. Confirm with them before running it.
 
 ```bash
 cd ~/.local/share/sortal && git status --short   # must be clean
-dune exec avsm/sortal/bin/sortal_cli.exe -- migrate
+dune exec u/avsm/sortal/bin/sortal_cli.exe -- migrate
 cd ~/.local/share/sortal && git diff --stat | tail -3
 ```
 
@@ -2161,8 +2161,8 @@ Review the diff before committing it in the store's own repository.
 ### Task 11: Revise the specification drafts
 
 **Files:**
-- Create: `avsm/sortal/spec/draft-madhavapeddy-sortal-01.txt`
-- Modify: `avsm/sortal/spec/draft-madhavapeddy-sortal-impl-00.txt`
+- Create: `u/avsm/sortal/spec/draft-madhavapeddy-sortal-01.txt`
+- Modify: `u/avsm/sortal/spec/draft-madhavapeddy-sortal-impl-00.txt`
 
 **Interfaces:**
 - Consumes: the implemented V2 schema.
@@ -2173,8 +2173,8 @@ Review the diff before committing it in the store's own repository.
 - [ ] **Step 1: Copy the draft and bump its version**
 
 ```bash
-cp avsm/sortal/spec/draft-madhavapeddy-sortal-00.txt \
-   avsm/sortal/spec/draft-madhavapeddy-sortal-01.txt
+cp u/avsm/sortal/spec/draft-madhavapeddy-sortal-00.txt \
+   u/avsm/sortal/spec/draft-madhavapeddy-sortal-01.txt
 ```
 
 Update the header, the expiry date and every self-reference from `-00` to `-01`.
@@ -2205,7 +2205,7 @@ Read `draft-madhavapeddy-sortal-impl-00.txt` and correct any V1 reference. `draf
 - [ ] **Step 4: Commit**
 
 ```bash
-git add avsm/sortal/spec
+git add u/avsm/sortal/spec
 git commit -m "Revise sortal data model draft for schema V2"
 ```
 
@@ -2214,11 +2214,11 @@ git commit -m "Revise sortal data model draft for schema V2"
 ### Task 12: Remove V1 and record the change
 
 **Files:**
-- Delete: `avsm/sortal/lib/schema/sortal_schema_contact_v1.ml{,i}`, `sortal_schema_temporal.ml{,i}`, `sortal_schema_migrate.ml{,i}`
-- Modify: `avsm/sortal/lib/schema/sortal_schema.ml{,i}`, `avsm/sortal/test/dune`
-- Delete: `avsm/sortal/test/test_migrate_golden.ml`
-- Modify: `avsm/sortal/README.md`
-- Create or modify: `avsm/sortal/CHANGES.md`
+- Delete: `u/avsm/sortal/lib/schema/sortal_schema_contact_v1.ml{,i}`, `sortal_schema_temporal.ml{,i}`, `sortal_schema_migrate.ml{,i}`
+- Modify: `u/avsm/sortal/lib/schema/sortal_schema.ml{,i}`, `u/avsm/sortal/test/dune`
+- Delete: `u/avsm/sortal/test/test_migrate_golden.ml`
+- Modify: `u/avsm/sortal/README.md`
+- Create or modify: `u/avsm/sortal/CHANGES.md`
 
 Do this only after Task 10 Step 6 has migrated the real store and the owner has committed the result. Until then V1 must stay readable.
 
@@ -2228,15 +2228,15 @@ Ask the owner to confirm every sortal store they use has been migrated. There is
 
 - [ ] **Step 2: Delete the modules and their wiring**
 
-Remove the `V1` module from `sortal_schema.ml` and `.mli`, along with `module Temporal = V1.Temporal` and `module Migrate = Sortal_schema_migrate`. Also remove `module Temporal = Sortal_schema.Temporal` from `avsm/sortal/lib/core/sortal.ml:6`, which re-exports it to every consumer. Delete the files and the golden test stanza from `test/dune`.
+Remove the `V1` module from `sortal_schema.ml` and `.mli`, along with `module Temporal = V1.Temporal` and `module Migrate = Sortal_schema_migrate`. Also remove `module Temporal = Sortal_schema.Temporal` from `u/avsm/sortal/lib/core/sortal.ml:6`, which re-exports it to every consumer. Delete the files and the golden test stanza from `test/dune`.
 
 - [ ] **Step 3: Update the README**
 
-`avsm/sortal/README.md` documents the V1 field list under "Metadata Fields" and shows V1 examples under "Usage Example". Replace both with the V2 model, and replace the `add-email` and `add-service` CLI examples with `set` and `unset`.
+`u/avsm/sortal/README.md` documents the V1 field list under "Metadata Fields" and shows V1 examples under "Usage Example". Replace both with the V2 model, and replace the `add-email` and `add-service` CLI examples with `set` and `unset`.
 
 - [ ] **Step 4: Write the changelog**
 
-Create `avsm/sortal/CHANGES.md` if it does not exist, using the exact format of `bleeding/xdge/CHANGES.md`, which is a version heading underlined with dashes and one bullet per user-visible change attributed to its author:
+Create `u/avsm/sortal/CHANGES.md` if it does not exist, using the exact format of `wip/xdge/CHANGES.md`, which is a version heading underlined with dashes and one bullet per user-visible change attributed to its author:
 
 ```markdown
 v2.0.0 (dev)
@@ -2261,7 +2261,7 @@ v2.0.0 (dev)
 
 ```bash
 dune build && dune runtest && dune build @fmt
-git add -A avsm/sortal
+git add -A u/avsm/sortal
 git commit -m "Remove schema V1 after migration"
 ```
 
@@ -2269,4 +2269,4 @@ git commit -m "Remove schema V1 after migration"
 
 ## Follow-on work, not in this plan
 
-Per-platform probes are specified in the design document under "Probes" and are a separate plan. They add a `probe` field to the platform spec record, a `Sortal_probe` module over `Fetch.read_only`, a verdict cache under `XDG_CACHE_HOME`, and a `sortal check` command. They build on `bleeding/webfinger` and `bleeding/atp`, and they depend on nothing in this plan beyond `Sortal_schema_platform` and `Sortal_schema_account`.
+Per-platform probes are specified in the design document under "Probes" and are a separate plan. They add a `probe` field to the platform spec record, a `Sortal_probe` module over `Fetch.read_only`, a verdict cache under `XDG_CACHE_HOME`, and a `sortal check` command. They build on `wip/webfinger` and `wip/atp`, and they depend on nothing in this plan beyond `Sortal_schema_platform` and `Sortal_schema_account`.

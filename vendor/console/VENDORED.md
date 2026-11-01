@@ -20,6 +20,10 @@ Local adaptations:
   arithmetic, using the compiler-provided `stdlib_upstream_compatible`. Differential tests compare
   it with pristine upstream arithmetic.
 - Fmt callbacks are eta-expanded to avoid escaping local partial applications.
+- `dune` and `examples/dune` set `LC_ALL=C.UTF-8` for their actions in
+  place of upstream's `en_US.UTF-8`. glibc always provides `C.UTF-8`, while
+  `en_US.UTF-8` exists only where it was generated. Each shell an action
+  starts otherwise warns that it cannot set the locale.
 - The cross-domain rejection test uses Eio's explicitly unsafe test entry
   point to exercise rejection of the nonportable display API. Assertions run
   on the main domain.

@@ -6,4 +6,4 @@
    (TERM xterm-256color)
    (COLORTERM "")
    (NO_COLOR "")
-   (LC_ALL en_US.UTF-8))))
+   (LC_ALL C.UTF-8))))

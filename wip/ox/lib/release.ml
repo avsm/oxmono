@@ -56,8 +56,17 @@ let conjunction a b =
   | OpamFormula.Empty, x | x, OpamFormula.Empty -> x
   | _ -> OpamFormula.And (a, b)
 
-let metadata snapshot p =
+let metadata ~maintainers snapshot p =
   let opam = OpamFile.OPAM.read_from_string (Stamp.stamped_opam snapshot p) in
+  let opam =
+    OpamFile.OPAM.remove_extension opam "x-subpath"
+    |> OpamFile.OPAM.with_url_opt None
+  in
+  let opam =
+    if OpamFile.OPAM.maintainer opam = [] then
+      OpamFile.OPAM.with_maintainer maintainers opam
+    else opam
+  in
   let conflicts =
     OpamFormula.map
       (fun (name, condition) ->
@@ -504,6 +513,18 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
   let root, commit, snapshot =
     prepare proc ~repo ~revision ~roots ~owner ~ox_revision
   in
+  let maintainers =
+    match committed_json proc root commit "release-versions.json" with
+    | `O fields -> (
+        match List.assoc_opt "maintainers" fields with
+        | Some (`A xs) ->
+            List.map
+              (function
+                | `String s -> s | _ -> fail "Invalid release maintainer")
+              xs
+        | _ -> [ "OxMono release maintainers" ])
+    | _ -> [ "OxMono release maintainers" ]
+  in
   let lock = guard_lock proc root commit guard_repository in
   let packages = snapshot.Stamp.packages in
   let provenance = provenance proc root commit packages in
@@ -551,8 +572,10 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
            (Printf.sprintf
               "opam-version: \"2.0\"\n\
                synopsis: \"OxMono source cohort\"\n\
+               maintainer: [%s]\n\
                depends: [\"oxcaml-compiler\" {= %S}]\n\
                conflicts: [%s]\n"
+              (String.concat " " (List.map (Printf.sprintf "%S") maintainers))
               compiler
               (String.concat "\n" policy_conflicts)));
       let records =
@@ -596,7 +619,7 @@ let export proc ~repo ~revision ~packages:roots ~owner ~ox_revision ~base_url
                  -zero-alloc-check all))))\n";
             List.iter
               (fun p ->
-                let opam = metadata snapshot p in
+                let opam = metadata ~maintainers snapshot p in
                 let opam =
                   OpamFile.OPAM.with_depends
                     (conjunction

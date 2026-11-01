@@ -105,6 +105,7 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
             assert 'generate_opam_files false' in project
             if unit['project']=='wip/shared': assert 'A description with (parentheses)' in project
     opam=(a/'opam-repository/packages/app/app.1.0+ox/opam').read_text()
+    assert 'x-subpath' not in opam
     assert '5.2.0minus39' in opam and 'shared' in opam and '1.0+ox' in opam
     marker=(a/'opam-repository/packages/oxcaml-shared-patches/oxcaml-shared-patches.enabled/opam').read_text()
     assert '1.0+ox' in marker and '0.1+ox' in marker and 'build' in marker and 'post' in marker

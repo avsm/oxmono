@@ -1,5 +1,8 @@
 # Changes
 
+- Remove Git subpaths from extracted source archives and fill missing port
+  maintainers from the declared release metadata.
+
 - Preserve Dune quoted-line strings when freezing source release metadata.
 
 - Read committed project release bases from `release-versions.json`.

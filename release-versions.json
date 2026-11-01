@@ -261,5 +261,8 @@
       "base_version": "0.1.0",
       "reason": "Initial OxMono release base for this unreleased project."
     }
-  }
+  },
+  "maintainers": [
+    "Anil Madhavapeddy <anil@recoil.org>"
+  ]
 }

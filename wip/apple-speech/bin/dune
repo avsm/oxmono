@@ -3,4 +3,4 @@
  (public_name apple-speech)
  (package apple-speech)
  (modes native)
- (libraries apple-speech cmdliner eio eio_main console console-eio))
+ (libraries apple-speech cmdliner eio eio_main console console-eio console.tty unix))

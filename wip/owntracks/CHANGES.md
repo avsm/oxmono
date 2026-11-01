@@ -1,5 +1,7 @@
 # Unreleased
 
+- Update CLI rendering to the current Console View and terminal APIs.
+
 Read `ssid` and `bssid` in lower case too, as the iOS app and the Recorder
 send them, preferring the specified `SSID` and `BSSID` when both appear.
 

@@ -1,5 +1,7 @@
 # Changes
 
+- Update CLI rendering to the current Console View and terminal APIs.
+
 ## Unreleased
 
 - CAR writers now accept blocks with empty content.

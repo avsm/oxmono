@@ -8,7 +8,7 @@ open Cmdliner
 let version = "0.1.0"
 
 let () =
-  Console_eio.setup ();
+  Console_tty.setup ();
   let exit_code =
     try
       Eio_main.run @@ fun env ->

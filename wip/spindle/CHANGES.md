@@ -1,5 +1,7 @@
 # Changes
 
+- Update CLI rendering to the current Console View and terminal APIs.
+
 ## Unreleased
 
 - Wait for the client's WebSocket close acknowledgement after the last log

@@ -1252,7 +1252,7 @@ let main =
     [ tree_cmd_t; info_cmd_t; stats_cmd_t ]
 
 let () =
-  Console_eio.setup ();
+  Console_tty.setup ();
   match Cmd.eval_value main with
   | Ok (`Ok code) -> exit code
   | Ok (`Help | `Version) -> exit Cmd.Exit.ok

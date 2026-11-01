@@ -1,5 +1,7 @@
 # Changes
 
+- Update CLI rendering to the current Console View and terminal APIs.
+
 ## Unreleased
 
 - Add speech synthesis to M4A, WAV or AIFF with any installed voice, `duration`,

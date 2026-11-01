@@ -13,7 +13,7 @@ open Cmdliner
 module C = Console
 let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
 let muted = C.Style.fg C.Color.bright_black
-let styled style value = C.Span.sanitize (C.Span.styled style value)
+let styled style value = C.View.styled style (C.View.text value)
 
 let version = "0.1.0"
 
@@ -71,9 +71,9 @@ let run spec depth f =
    values line up whatever the subcommand. *)
 let field name fmt =
   Printf.ksprintf (fun value ->
-    if Console_eio.is_tty () then
-      Format.printf "%a  %a@." C.Span.pp (styled muted name)
-        C.Span.pp (styled accent value)
+    if Console_tty.is_terminal Unix.stdout then
+      Format.printf "%a  %a@." C.View.pp (styled muted name)
+        C.View.pp (styled accent value)
     else Printf.printf "%-11s%s\n" name value) fmt
 
 let status_name = function
@@ -112,8 +112,8 @@ let write_npy path slab =
 
 let info_cmd store depth =
   run store depth @@ fun t ->
-  if Console_eio.is_tty () then
-    Format.printf "%a@." C.Span.pp (styled accent "Tessera store");
+  if Console_tty.is_terminal Unix.stdout then
+    Format.printf "%a@." C.View.pp (styled accent "Tessera store");
   let g = Tessera.geoemb t in
   let zones = Tessera.zones t in
   let head = List.filteri (fun i _ -> i < 8) zones in
@@ -141,8 +141,8 @@ let info_cmd store depth =
 
 let probe_cmd store depth lon lat year cross_zone search_px =
   run store depth @@ fun t ->
-  if Console_eio.is_tty () then
-    Format.printf "%a@." C.Span.pp (styled accent "Probe");
+  if Console_tty.is_terminal Unix.stdout then
+    Format.printf "%a@." C.View.pp (styled accent "Probe");
   let v, st = Tessera.probe t ~lon ~lat ~year ~cross_zone ~search_px () in
   field "point" "%.6f %.6f" lon lat;
   field "zone" "utm%02d" (Tessera.Zone.for_lon lon);
@@ -389,7 +389,7 @@ let main =
     [ info_cmd_t; probe_cmd_t; region_cmd_t; patch_cmd_t ]
 
 let () =
-  Console_eio.setup ();
+  Console_tty.setup ();
   match Cmd.eval_value main with
   | Ok (`Ok code) -> exit code
   | Ok (`Help | `Version) -> exit Cmd.Exit.ok

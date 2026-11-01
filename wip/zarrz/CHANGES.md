@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Update CLI rendering to the current Console View and terminal APIs.
+
 - Stage present shard payloads without allocating an option per chunk.
 
 - Accept zero-element shapes regardless of dimension order and reject

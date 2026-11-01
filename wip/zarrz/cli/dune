@@ -9,7 +9,7 @@
   zarrz_fetch
   base_bigstring
   fetch-curl
-  eio_main console console-eio
+  eio_main console console-eio console.tty
   cmdliner
   jsont
   jsont.bytesrw))

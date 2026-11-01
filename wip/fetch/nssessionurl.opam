@@ -6,8 +6,8 @@ description:
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"
-homepage: "https://tangled.org/@anil.recoil.org/taposaur"
-bug-reports: "https://tangled.org/@anil.recoil.org/u/etap/taposaur/issues"
+homepage: "https://github.com/avsm/oxmono"
+bug-reports: "https://github.com/avsm/oxmono/issues"
 depends: [
   "dune" {>= "3.22"}
   "ocaml" {>= "5.2.0"}
@@ -31,5 +31,5 @@ build: [
     "@doc" {with-doc}
   ]
 ]
-dev-repo: "git+https://tangled.org/@anil.recoil.org/taposaur"
+dev-repo: "git+https://github.com/avsm/oxmono.git"
 x-maintenance-intent: ["(latest)"]

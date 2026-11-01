@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Update CLI rendering to the current Console View and terminal APIs.
+
 - Reduce projection allocations and use one byte per pixel for zone ownership
   in patches crossing a zone seam.
 

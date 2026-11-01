@@ -3,7 +3,7 @@ open Cmdliner
 module C = Console
 let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
 let muted = C.Style.fg C.Color.bright_black
-let styled style value = C.Span.sanitize (C.Span.styled style value)
+let styled style value = C.View.styled style (C.View.text value)
 
 let locale =
   Arg.(
@@ -62,12 +62,12 @@ let locales =
         let locales =
           if installed then Apple_speech.installed_locales ()
           else Apple_speech.supported_locales () in
-        if Console_eio.is_tty () then begin
-          Format.printf "%a  %a@." C.Span.pp (styled accent "Locales")
-            C.Span.pp (styled muted
+        if Console_tty.is_terminal Unix.stdout then begin
+          Format.printf "%a  %a@." C.View.pp (styled accent "Locales")
+            C.View.pp (styled muted
               (Printf.sprintf "%d total" (List.length locales)));
           List.iter (fun locale ->
-            Format.printf "  %a@." C.Span.pp (styled accent locale)) locales
+            Format.printf "  %a@." C.View.pp (styled accent locale)) locales
         end else List.iter print_endline locales)
   in
   Cmd.v
@@ -135,14 +135,14 @@ let voices =
   let go () =
     run_env (fun mgr ->
         let voices = Apple_speech.voices mgr in
-        if Console_eio.is_tty () then begin
+        if Console_tty.is_terminal Unix.stdout then begin
           let rows = List.map (fun (v : Apple_speech.voice) ->
             [styled accent v.name; styled muted v.locale]) voices in
-          Format.printf "%a  %a@.%a@." C.Span.pp (styled accent "Voices")
-            C.Span.pp (styled muted
+          Format.printf "%a  %a@.%a@." C.View.pp (styled accent "Voices")
+            C.View.pp (styled muted
               (Printf.sprintf "%d total" (List.length voices)))
-            C.Table.pp (C.Table.of_rows ~border:C.Border.rounded
-              C.Table.[column "Name"; column "Locale"] rows)
+            C.View.pp (C.Table.view ~border:C.Border.rounded
+              C.Table.[column (C.View.text "Name"); column (C.View.text "Locale")] rows)
         end else List.iter
           (fun (v : Apple_speech.voice) ->
             Printf.printf "%-28s %s\n" v.name v.locale) voices)
@@ -152,7 +152,7 @@ let voices =
     Term.(const go $ const ())
 
 let () =
-  Console_eio.setup ();
+  Console_tty.setup ();
   exit
     (Cmd.eval'
        (Cmd.group

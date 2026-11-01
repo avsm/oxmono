@@ -1,5 +1,7 @@
 # Changes
 
+- Update CLI rendering to the current Console View and terminal APIs.
+
 - Make Link encoding/decoding portable and match relation tokens in
   multi-relation Link values. Add typed Content-Location decoding.
 

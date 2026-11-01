@@ -6,7 +6,7 @@
 open Cmdliner
 
 let setup_logging style_renderer level =
-  Console_eio.setup ?style_renderer ();
+  Console_tty.setup ?style_renderer ();
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 

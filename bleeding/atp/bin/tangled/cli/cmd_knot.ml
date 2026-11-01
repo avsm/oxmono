@@ -88,7 +88,7 @@ let bans_cmd =
         else List.iter (fun (d, _) -> print_endline d) banned)
   in
   Common.cmd
-    (Cmd.info "bans" ~doc:"List the users banned from a knot.")
+    (Cmd.info "list" ~doc:"List the users banned from the knot.")
     Term.(term_result (const action $ knot))
 
 let ban name ~ban =
@@ -106,8 +106,19 @@ let ban name ~ban =
     (Cmd.info name
        ~doc:
          (if ban then "Ban a user from taking part in the knot's repositories."
-          else "Lift a ban."))
+          else "Lift a user's ban."))
     Term.(term_result (const action $ knot $ user $ Common.audience))
+
+let ban_group =
+  Cmd.group
+    (Cmd.info "ban" ~doc:"Manage who is banned from a knot."
+       ~man:
+         (Common.man
+            [
+              "A banned user may not take part in the knot's repositories. \
+               Only the knot's operators may ban or unban users.";
+            ]))
+    [ bans_cmd; ban "add" ~ban:true; ban "remove" ~ban:false ]
 
 (* Invite codes admit members to knots and spindles alike. *)
 let invite_cmd ~kind ~service =
@@ -195,7 +206,5 @@ let cmd =
       member_group;
       invite_cmd ~kind:"knot" ~service:knot_service;
       join_cmd ~kind:"knot" ~service:knot_service;
-      bans_cmd;
-      ban "ban" ~ban:true;
-      ban "unban" ~ban:false;
+      ban_group;
     ]

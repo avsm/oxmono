@@ -100,8 +100,8 @@ let bans_cmd =
                  ?audience ())))
   in
   Common.cmd
-    (Cmd.info "bans"
-       ~doc:"List the repositories and users banned from a spindle.")
+    (Cmd.info "list"
+       ~doc:"List the repositories and users banned from the spindle.")
     Term.(term_result (const action $ spindle $ Common.audience))
 
 let ban name ~ban =
@@ -122,7 +122,7 @@ let ban name ~ban =
     (Cmd.info name
        ~doc:
          (if ban then "Ban a repository or user from the spindle."
-          else "Lift a ban.")
+          else "Lift a repository's or user's ban.")
        ~man:
          (if ban then
             Common.man
@@ -132,6 +132,18 @@ let ban name ~ban =
               ]
           else []))
     Term.(term_result (const action $ spindle $ subject $ Common.audience))
+
+let ban_group =
+  Cmd.group
+    (Cmd.info "ban" ~doc:"Manage which repositories and users a spindle bans."
+       ~man:
+         (Common.man
+            [
+              "The spindle runs no CI for a banned repository, or for any \
+               repository of a banned user. Only the spindle's operators may \
+               ban or unban.";
+            ]))
+    [ bans_cmd; ban "add" ~ban:true; ban "remove" ~ban:false ]
 
 let quota_list =
   let action spindle audience =
@@ -261,8 +273,6 @@ let cmd =
       member_group;
       Cmd_knot.invite_cmd ~kind:"spindle" ~service:spindle_service;
       Cmd_knot.join_cmd ~kind:"spindle" ~service:spindle_service;
-      bans_cmd;
-      ban "ban" ~ban:true;
-      ban "unban" ~ban:false;
+      ban_group;
       quota_group;
     ]

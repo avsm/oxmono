@@ -502,18 +502,18 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
         assert (knot_did, "org.tangled.knot.member", BOB) in records
         assert run("knot", "member", "list", knot).split() == [BOB]
         run("knot", "member", "remove", knot, BOB)
-        run("knot", "ban", knot, "bob.test")
-        assert run("knot", "bans", knot).split() == [BOB]
-        run("knot", "unban", knot, BOB)
+        run("knot", "ban", "add", knot, "bob.test")
+        assert run("knot", "ban", "list", knot).split() == [BOB]
+        run("knot", "ban", "remove", knot, BOB)
         assert run("knot", "invite", knot, "--uses", "2").strip() == "invite-knot"
         run("knot", "join", knot, "invite-knot")
         run("spindle", "describe", spindle_host)
         run("spindle", "member", "add", spindle_host, BOB)
         assert json.loads(run("spindle", "member", "list", spindle_host))["dids"] == [BOB]
         run("spindle", "member", "remove", spindle_host, BOB)
-        run("spindle", "ban", spindle_host, "bob.test")
-        run("spindle", "unban", spindle_host, BOB)
-        run("spindle", "bans", spindle_host)
+        run("spindle", "ban", "add", spindle_host, "bob.test")
+        run("spindle", "ban", "remove", spindle_host, BOB)
+        run("spindle", "ban", "list", spindle_host)
         run("spindle", "quota", "set", spindle_host, "bob.test", "vcpus", "4")
         run("spindle", "quota", "unset", spindle_host, BOB, "vcpus")
         run("spindle", "quota", "usage", spindle_host)

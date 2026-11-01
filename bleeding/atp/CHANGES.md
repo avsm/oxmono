@@ -34,6 +34,8 @@
 - Rewrite the Tangled CLI's help in plain sentences, with a guide to
   Tangled's terms on the top-level page and a description for each group.
   `--knot` and `--spindle` overrides are unlisted.
+- `knot ban` and `spindle ban` are groups of `list`, `add` and `remove`,
+  as `member` is. They replace `ban`, `unban` and `bans`.
 - `Xrpc_auth.Cmd.profile_cmd` takes the group's name.
 
 - Add `Xrpc.Trace`, which logs each HTTP exchange with its XRPC method,

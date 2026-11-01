@@ -123,7 +123,7 @@ tangled knot member list knot.example
 tangled knot member add knot.example bob.example
 tangled knot invite knot.example --uses 5
 tangled knot join knot.example CODE
-tangled knot ban knot.example mallory.example
+tangled knot ban add knot.example mallory.example
 tangled spindle member add spindle.example bob.example
 tangled spindle quota set spindle.example bob.example vcpus 4
 ```

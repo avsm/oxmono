@@ -98,7 +98,9 @@ val chain_exts : chain -> Ext.t list
 
 val encoded_size : chain -> repr -> size
 (** [encoded_size c r] is the stored byte size of a chunk whose decoded
-    representation is [r]. *)
+    representation is [r]. A bound that cannot fit in an [int] is [Unbounded].
+    Raw [bytes] representations whose decoded byte count overflows an [int]
+    raise [Invalid_argument]. *)
 
 val decode_chunk : chain -> repr -> Base_bigstring.t -> Slab.t
 (** [decode_chunk c r bytes] decodes one whole chunk. [r] is the chunk's

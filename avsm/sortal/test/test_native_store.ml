@@ -55,6 +55,70 @@ let fixture env f =
 
 let loaded store = Option.get (Sortal.Store.lookup store "ada")
 
+let transaction_test env () =
+  fixture env (fun _ path store ->
+      let expired =
+        Sortal.Store.with_transaction store (fun transaction ->
+            let started, start = Eio.Promise.create () in
+            Eio.Fiber.both
+              (fun () ->
+                Eio.Promise.resolve start ();
+                Eio.Fiber.yield ();
+                Sortal.Store.Transaction.save transaction (loaded store))
+              (fun () ->
+                Eio.Promise.await started;
+                rejects (fun () -> Sortal.Store.save store (loaded store)));
+            transaction)
+      in
+      let before = read path in
+      (try
+         Sortal.Store.Transaction.delete expired "ada";
+         failwith "expired contact transaction was accepted"
+       with Invalid_argument _ -> ());
+      check (read path = before) "expired transaction changed contact")
+
+let git_transaction_test env () =
+  fixture env (fun root path store ->
+      let git args =
+        Eio.Process.run env#process_mgr ([ "git"; "-C"; root ] @ args)
+      in
+      git [ "init"; "-q" ];
+      git [ "config"; "user.name"; "Sortal tests" ];
+      git [ "config"; "user.email"; "sortal@example.test" ];
+      git [ "config"; "commit.gpgsign"; "false" ];
+      git [ "add"; "store.json"; "cards" ];
+      git [ "commit"; "-qm"; "Initial fixture" ];
+      let hook = Filename.concat root ".git/hooks/pre-commit" in
+      let waiting = Filename.concat root ".git/waiting"
+      and release = Filename.concat root ".git/release" in
+      write ~mode:0o700 hook
+        ("#!/bin/sh\n: > " ^ Filename.quote waiting ^ "\nwhile [ ! -f "
+       ^ Filename.quote release ^ " ]; do /bin/sleep 0.01; done\n");
+      let versioned = Sortal.Git_store.create store env in
+      Eio.Time.with_timeout_exn env#clock 5. (fun () ->
+          Eio.Fiber.both
+            (fun () ->
+              get_ok
+                (Sortal.Git_store.update_contact versioned "ada"
+                   (fun _ ->
+                     Contact.make ~handle:"ada" ~names:[ "Ada updated" ] ())
+                   ~msg:"Update contact under lock"))
+            (fun () ->
+              let rec wait () =
+                if not (exists waiting) then (
+                  Eio.Time.sleep env#clock 0.01;
+                  wait ())
+              in
+              wait ();
+              rejects (fun () ->
+                  Sortal.Store.save store
+                    (Contact.make ~handle:"ada" ~names:[ "Contending edit" ] ()));
+              write release "release\n"));
+      check
+        (Contact.name (loaded store) = "Ada updated")
+        "Git transaction committed another writer's contact";
+      git [ "diff"; "--exit-code"; "HEAD"; "--"; path ])
+
 let tests =
   [
     ( "cards move between stores without rewriting their identity",
@@ -279,5 +343,11 @@ let () =
                 Alcotest.test_case name `Quick (fun () -> fixture env f))
               tests );
           ( "git",
-            [ Alcotest.test_case "version the actual store" `Quick git_test ] );
+            [
+              Alcotest.test_case "version the actual store" `Quick git_test;
+              Alcotest.test_case "same-process transaction exclusion" `Quick
+                (transaction_test env);
+              Alcotest.test_case "hold store lock through Git commit" `Quick
+                (git_transaction_test env);
+            ] );
         ])

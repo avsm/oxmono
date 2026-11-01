@@ -14,10 +14,10 @@ open Cmdliner
 module C = Console
 let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
 let muted = C.Style.fg C.Color.bright_black
-let styled style value = C.Span.sanitize (C.Span.styled style value)
+let styled style value = C.View.styled style (C.View.text value)
 
 let setup_logging style_renderer level =
-  Console_eio.setup ?style_renderer ();
+  Console_tty.setup ?style_renderer ();
   Logs.set_level level;
   Logs.set_reporter (Logs_fmt.reporter ())
 
@@ -173,8 +173,8 @@ let search_cmd =
         Printf.printf "No results.\n";
         0
       end else begin
-        if Console_eio.is_tty () then
-          Fmt.pr "%a@." C.Span.pp (styled accent "Search results");
+        if Console_tty.is_terminal Unix.stdout then
+          Fmt.pr "%a@." C.View.pp (styled accent "Search results");
         Fmt.pr "%a@." Arod_search.pp_results results;
         0
       end
@@ -712,18 +712,18 @@ let standardsite_cmd =
         Printf.printf "No documents found.\n";
         0
       end else begin
-        if Console_eio.is_tty () then begin
+        if Console_tty.is_terminal Unix.stdout then begin
           let rows = List.map (fun (rkey, (d : Document.main)) ->
             [styled accent rkey;
-             C.Span.sanitize (C.Span.text d.title);
+             (C.View.text d.title);
              styled muted d.site;
              styled muted d.published_at]) docs in
-          Fmt.pr "%a  %a@.%a@." C.Span.pp (styled accent "Documents")
-            C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length docs)))
-            C.Table.pp
-            (C.Table.of_rows ~border:C.Border.rounded
-               C.Table.[column "Key"; column "Title"; column "Site";
-                        column "Published"] rows)
+          Fmt.pr "%a  %a@.%a@." C.View.pp (styled accent "Documents")
+            C.View.pp (styled muted (Printf.sprintf "%d total" (List.length docs)))
+            C.View.pp
+            (C.Table.view ~border:C.Border.rounded
+               C.Table.[column (C.View.text "Key"); column (C.View.text "Title"); column (C.View.text "Site");
+                        column (C.View.text "Published")] rows)
         end else begin
           Printf.printf "Documents:\n\n";
           List.iter (fun d -> Fmt.pr "%a@.@." pp_document d) docs
@@ -751,11 +751,11 @@ let standardsite_cmd =
       in
       match Standard_site.Api.get_document api ~did ~rkey with
       | Some doc ->
-        if Console_eio.is_tty () then
-          Fmt.pr "%a@." C.Panel.pp
-            (C.Panel.v ~title:(styled accent doc.title)
-               (C.Span.sanitize (C.Span.text
-                  (Fmt.str "%a" pp_document_detail (rkey, doc)))))
+        if Console_tty.is_terminal Unix.stdout then
+          Fmt.pr "%a@." C.View.pp
+            (C.Panel.view ~title:(styled accent doc.title)
+               (C.View.text
+                  (Fmt.str "%a" pp_document_detail (rkey, doc))))
         else Fmt.pr "%a@." pp_document_detail (rkey, doc);
         0
       | None ->
@@ -811,6 +811,66 @@ let stats_cmd =
   let info = Cmd.info "stats" ~doc ~man in
   Cmd.v info Term.(const run $ logging_t $ hours)
 
+let pull_cmd =
+  let run () config manifest scan export dry_run non_interactive skip_auth
+      skip_process =
+    try
+      if export <> None && not scan then
+        failwith "--export requires --scan";
+      if scan && manifest <> None then
+        failwith "--scan and --manifest are mutually exclusive";
+      if dry_run && export <> None then
+        failwith "--dry-run cannot export a file";
+      Eio_main.run @@ fun env ->
+      Eio.Switch.run @@ fun sw ->
+      let module M = Arod_setup.Manifest in
+      let module P = Arod_setup.Pull in
+      let saved = M.default_path () in
+      let t = match manifest with
+        | Some path -> M.load path
+        | None when not scan && Sys.file_exists saved -> M.load saved
+        | None -> M.scan ~fs:env#fs ?config () in
+      if scan then begin
+        P.report_scan t;
+        Option.iter (fun path -> P.write_new path (M.encode t);
+          Printf.printf "Exported public setup to %s\n" path) export;
+        0
+      end else begin
+        let result = P.run ~sw ~env ?config ~dry_run ~non_interactive
+            ~skip_auth ~skip_process t in
+        if not dry_run && not (P.exists saved) then
+          P.write_new saved (M.encode t);
+        result
+      end
+    with
+    | Failure message -> Printf.eprintf "Setup: %s\n" message; 1
+    | _ -> Printf.eprintf "Setup failed. Check paths and configuration.\n"; 1
+  in
+  let flag names doc = Arg.(value & flag & info names ~doc) in
+  let file names doc = Arg.(value & opt (some string) None
+    & info names ~docv:"FILE" ~doc) in
+  let info = Cmd.info "pull"
+      ~doc:"Restore or refresh website repositories, assets and service logins."
+      ~man:[`S Manpage.s_description;
+        `P "Scan a working machine with --scan --export website.toml. On a new \
+            machine use --manifest website.toml. Without a saved manifest, \
+            local configuration and Anil's public service defaults are used.";
+        `P "Credentials are never exported. Existing configuration and dirty \
+            repositories are preserved. PDF sources must be configured \
+            explicitly. Login prompts require a terminal. No content is \
+            published and Karakeep bookmark creation is not run.";
+        `P "The manifest is saved as $XDG_CONFIG_HOME/arod/pull.toml on first \
+            application. Edit it to change future pulls. An existing saved \
+            manifest is never replaced implicitly."] in
+  Cmd.v info Term.(const run $ logging_t $ config_file
+    $ file ["manifest"] "Read a portable setup manifest."
+    $ flag ["scan"] "Inspect local configuration without changing it."
+    $ file ["export"] "Write the scanned public setup to a new file."
+    $ flag ["n"; "dry-run"] "Show the plan without writes or network access."
+    $ flag ["non-interactive"] "Report missing logins without prompting."
+    $ flag ["skip-auth"] "Leave authentication unchanged and unchecked."
+    $ flag ["skip-process"] "Skip asset processing, but check serving readiness.")
+
 let main_cmd =
   let doc = "Arod - a webserver for Bushel content" in
   let man =
@@ -825,7 +885,7 @@ let main_cmd =
     ]
   in
   let info = Cmd.info "arod" ~version:"0.1.0" ~doc ~man in
-  Cmd.group info [ serve_cmd; init_cmd; config_cmd; index_cmd; search_cmd;
+  Cmd.group info [ serve_cmd; init_cmd; config_cmd; pull_cmd; index_cmd; search_cmd;
                    annotate_cmd; publish_cmd; publish_bulk_cmd;
                    standardsite_cmd; stats_cmd ]
 

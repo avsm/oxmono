@@ -1,0 +1,4 @@
+(library
+ (name console_text)
+ (public_name console.text)
+ (libraries console_compat uucp))

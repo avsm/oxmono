@@ -1268,3 +1268,33 @@ let encode c v = c.enc v
 
 module Toml = Toml
 module Error = Toml.Error
+
+module Fields = struct
+  exception Invalid of string
+
+  let fail fmt = Printf.ksprintf (fun message -> raise (Invalid message)) fmt
+
+  let known allowed table =
+    if not (Toml.is_table table) then fail "expected a TOML table";
+    List.iter (fun key ->
+        if not (List.mem key allowed) then fail "unknown config key: %s" key)
+      (Toml.keys table)
+
+  let nonempty field value =
+    if String.trim value = "" then fail "%s must not be empty" field;
+    value
+
+  let string_opt field table =
+    if not (Toml.is_table table) then fail "expected a TOML table";
+    match Toml.find_opt field table with
+    | None -> None
+    | Some value ->
+        match Toml.to_string_opt value with
+        | Some value -> Some value
+        | None -> fail "config %s must be a string" field
+
+  let required_string field table =
+    match string_opt field table with
+    | Some value -> nonempty field value
+    | None -> fail "missing config %s" field
+end

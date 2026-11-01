@@ -6,10 +6,18 @@
   bushel.eio
   bushel.config
   bushel.sync
+  bushel.knowledge.service
+  bushel.knowledge.store
+  apple-mlx-embeddings
+  fetch-curl
+  duration
+  jsont
+  jsont.bytesrw
   cmdliner
   eio_main
+  eio.unix
   console
-  console-eio
+  console-eio console.tty console.text
   logs
   logs.cli
   logs.fmt

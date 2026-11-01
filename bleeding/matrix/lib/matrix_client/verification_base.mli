@@ -117,6 +117,11 @@ module Transaction : sig
       different transport, transaction identifier, room identifier or event
       identifier. Two flows are the same exactly when their identifiers are. *)
 
+  val wire_id : t -> string
+  (** [wire_id t] is the request's transaction identifier for a to-device
+      flow, or its event identifier for an in-room flow. Use it in SAS
+      derivation and QR payloads. Use {!id} to index local sessions. *)
+
   val room_id : t -> Matrix_proto.Id.Room_id.t option
   (** [room_id t] is the room an in-room flow runs in, and [None] for a
       to-device flow. *)

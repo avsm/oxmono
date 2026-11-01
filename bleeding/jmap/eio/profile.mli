@@ -28,7 +28,9 @@
     primary accounts. After connecting, select an explicit account or use
     {!Jmap.Proto.Session.primary_account_for} on {!Client.session}.
 
-    A profile file holds its secret in plain text. Stores created by {!save}
+    A profile records either a secret reference or a legacy plaintext value.
+    Prefer [secret_ref=sekrit:NAME] to share encrypted central storage.
+    Stores created by {!save}
     have mode [0700] and files have mode [0600]; {!load} refuses a file with any
     group or other permission bits, a non-regular file, or a file larger than 64
     KiB. Replacing a profile is atomic.
@@ -46,6 +48,10 @@ type credential =
   | Bearer of string  (** An RFC 6750 bearer token issued by the service. *)
   | Basic of { user : string; password : string }
       (** An RFC 7617 user and password. *)
+  | Bearer_ref of string
+      (** A [sekrit:NAME] or absolute file containing a bearer token. *)
+  | Basic_ref of string
+      (** A [sekrit:NAME] or absolute file containing [user:password]. *)
 
 type t
 (** The type for a validated profile. *)
@@ -71,7 +77,9 @@ val v : name:string -> session_url:string -> credential -> (t, error) result
     must satisfy the syntax enforced by {!Auth.bearer}, and a basic user and
     password the syntax enforced by {!Auth.basic}, which admits printable ASCII
     alone, so no stored value can carry a control character. A basic user must
-    be non-empty and contain no colon. Empty secrets are rejected. *)
+    be non-empty and contain no colon. Empty secrets are rejected. References
+    must be absolute file paths or [sekrit:NAME], and contain no control bytes.
+    Referenced values are not read during validation, saving or printing. *)
 
 val valid_name : string -> bool
 (** [valid_name name] reports whether [name] can safely be a profile file name,
@@ -84,11 +92,13 @@ val session_url : t -> string
 (** [session_url profile] is its JMAP session-resource URL. *)
 
 val credential : t -> credential
-(** [credential profile] is its credential. This exposes the secret and should
-    not be printed or retained longer than the profile needs to be used. *)
+(** [credential profile] is its literal credential or unresolved reference.
+    Literal values expose the secret and should not be printed or retained
+    longer than the profile needs to be used. *)
 
-val auth : t -> Auth.t
-(** [auth profile] is the credential as an {!Auth.t}. *)
+val auth : ?fs:Eio.Fs.dir_ty Eio.Path.t -> t -> Auth.t
+(** [auth ~fs profile] is the credential as an {!Auth.t}. References are resolved
+    lazily through [fs], or through native I/O when omitted. *)
 
 val pp : t Fmt.t
 (** [pp] prints a profile with its secret redacted. *)
@@ -120,8 +130,12 @@ val error_to_string : error -> string
 
 val load : store -> string -> (t, error) result
 (** [load store name] reads [name] from [store]. The file consists of
-    [key=value] lines for [url], [auth], [user] and [secret]. [auth] is [bearer]
-    or [basic], and [user] is required only for basic authentication. Unknown
+    [key=value] lines for [url], [auth], [user], [secret] and [secret_ref].
+    [auth] is [bearer] or [basic]. Exactly one of [secret] and [secret_ref] must
+    appear. [secret_ref] names [sekrit:NAME] or an absolute private file and is
+    never resolved during load or save. A Basic reference contains the whole
+    [user:password] credential, so [user] must be omitted or empty. A legacy
+    Basic [secret] is a password and requires a separate [user]. Unknown
     lines are ignored so a newer writer can extend the format.
 
     A [secret] keeps the whitespace around it, the secret being whatever the
@@ -131,7 +145,8 @@ val load : store -> string -> (t, error) result
 
     The file must be regular, at most 64 KiB, and have no group or other
     permission bits. The store directory must have no group or other permission
-    bits. Symlinks are checked at their target. Eio cancellation propagates;
+    bits. Files must be owned by the current user. Symlinks are refused.
+    Eio cancellation propagates;
     filesystem failures are returned as {!Storage_error}. *)
 
 val list : store -> (t list, error) result

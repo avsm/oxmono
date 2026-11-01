@@ -1,0 +1,9 @@
+(env
+ (_
+  (env-vars
+   (CONSOLE_DETERMINISTIC_CLOCK 1)
+   (COLUMNS 100)
+   (TERM xterm-256color)
+   (COLORTERM "")
+   (NO_COLOR "")
+   (LC_ALL en_US.UTF-8))))

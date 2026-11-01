@@ -345,7 +345,7 @@ let sync_video_thumbnails ~dry_run ~http config entries =
         results
     in
 
-    { step = Videos; success = true;
+    { step = Videos; success = error_count = 0;
       message = Printf.sprintf "%d fetched, %d skipped, %d errors"
         ok_count skipped_count error_count;
       details = List.filter_map (fun (uuid, r) ->
@@ -569,7 +569,7 @@ let sync_dois ~dry_run ~retry_errors ~http ~data_dir ~config =
     let ok_count = List.length (List.filter (fun e ->
       e.Bushel.Doi_entry.status = Resolved) resolved) in
     let fail_count = List.length resolved - ok_count in
-    { step = Dois; success = true;
+    { step = Dois; success = fail_count = 0;
       message = Printf.sprintf "Resolved %d entries (%d failed)" ok_count fail_count;
       details = List.map (fun e ->
         let status = match e.Bushel.Doi_entry.status with

@@ -1,0 +1,36 @@
+(copy_files input/width.{ml,mli})
+
+(library
+ (name console)
+ (public_name console)
+ (libraries matrix.glyph stdlib_upstream_compatible console_compat console.text fmt jsont jsont.bytesrw uucp uuseg)
+ (private_modules
+  border_motion
+  ctx
+  event
+  frames
+  widget
+  width
+  display_core
+  progress_layout
+  progress_row
+  progress_show
+  progress_tree
+  task_core
+  task_text
+  inked
+  look
+  sgr
+  view_core))
+
+(mdx
+ (package console)
+ (files
+  tree.mli
+  display.mli
+  console.mli
+  view.mli
+  bar.mli
+  task.mli
+  progress.mli)
+ (libraries matrix.glyph stdlib_upstream_compatible console_compat console fmt))

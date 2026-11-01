@@ -121,22 +121,9 @@ let write ?(mode = 0o600) path data =
       flush oc;
       Unix.fsync fd)
 
-let atomic_write ?(mode = 0o600) ?(check = fun () -> ()) path data =
-  let temp, oc =
-    Filename.open_temp_file ~temp_dir:(Filename.dirname path) ".sortal-" ".tmp"
-  in
-  Fun.protect
-    ~finally:(fun () ->
-      close_out_noerr oc;
-      if exists temp then Unix.unlink temp)
-    (fun () ->
-      Unix.fchmod (Unix.descr_of_out_channel oc) mode;
-      output_string oc data;
-      flush oc;
-      Unix.fsync (Unix.descr_of_out_channel oc);
-      close_out oc;
-      check ();
-      Unix.rename temp path)
+let atomic_write ?mode ?check path data =
+  try Eioext.Native.atomic_write ?mode ?check path data
+  with Eioext.Native.Error message -> fail "%s" message
 
 let inventory root =
   let rec walk relative =

@@ -16,13 +16,16 @@
   >         f.write(value)
   >     os.chmod(path, 0o600)
   > PY
+  $ ../../../bleeding/sekrit/bin/main.exe init
+  Encrypted secret store initialized.
   $ ../bin/main.exe config owntracks add home --profile one --user alice --device 'Anil Phone' </dev/null
   Configuration saved. Restart Crow to apply it.
   $ python3 - <<'PY'
   > import json, os
-  > with open('config/crowthebot/secrets/one/owntracks.json') as f:
-  >     config = json.load(f)['entries'][0]['value']
-  > assert config == {'config_file': os.path.join(os.getcwd(), 'config/owntracks/owntracks.toml'), 'user': 'alice', 'device': 'phone', 'allow_http': False, 'lookback_days': 7}
+  > with open('config/crowthebot/secrets/one/owntracks.json', 'rb') as f:
+  >     encrypted = f.read()
+  > assert encrypted.startswith(b'SEKRIT\x00\x01')
+  > assert b'recorder-only-secret' not in encrypted
   > PY
   $ ../bin/main.exe config owntracks add spare --profile one --owntracks-config alternate.toml --user bob --device other --allow-http
   Configuration saved. Restart Crow to apply it.
@@ -53,12 +56,12 @@
   > import json, os, stat
   > for name in ['secrets', 'secrets/one', 'secrets/one/owntracks.json', 'secrets/one/openrouter.json']:
   >     print(oct(stat.S_IMODE(os.stat('config/crowthebot/' + name).st_mode))[2:])
-  > with open('config/crowthebot/secrets/one/openrouter.json') as f:
-  >     assert json.load(f)['entries'][0]['value']['api_key'] == 'fixture-secret'
-  > with open('config/crowthebot/secrets/one/owntracks.json') as f:
+  > with open('config/crowthebot/secrets/one/openrouter.json', 'rb') as f:
   >     data = f.read()
-  > assert 'recorder-only-secret' not in data and 'mqtt-only-secret' not in data
-  > assert 'password' not in data and 'username' not in data and 'url' not in data
+  > assert data.startswith(b'SEKRIT\x00\x01') and b'fixture-secret' not in data
+  > with open('config/crowthebot/secrets/one/owntracks.json', 'rb') as f:
+  >     data = f.read()
+  > assert b'recorder-only-secret' not in data and b'mqtt-only-secret' not in data
   > assert not os.path.exists('data/matrix/profiles/one/crowthebot.sqlite3')
   > PY
   700
@@ -101,16 +104,19 @@
   $ python3 - <<'PY'
   > import json
   > path = 'config/crowthebot/secrets/one/owntracks.json'
-  > with open(path) as f:
-  >     config = json.load(f)
-  > config['entries'][0]['value'] = {'url': 'https://recorder.example', 'password': 'legacy-duplicated-secret'}
+  > config = {'version': 1, 'selected': 'spare', 'entries': [{'name': 'spare', 'value': {'url': 'https://recorder.example', 'password': 'legacy-duplicated-secret'}}]}
   > with open(path, 'w') as f:
   >     json.dump(config, f)
   > PY
+  $ ../bin/main.exe config migrate --profile one
+  Encrypted 1 legacy configuration(s).
   $ ../bin/main.exe config owntracks set spare --profile one --user alice --device 'Anil Phone'
   Configuration saved. Restart Crow to apply it.
   $ python3 - <<'PY'
-  > with open('config/crowthebot/secrets/one/owntracks.json') as f:
+  > with open('config/crowthebot/secrets/one/owntracks.json', 'rb') as f:
   >     data = f.read()
-  > assert 'legacy-duplicated-secret' not in data and 'password' not in data
+  > assert data.startswith(b'SEKRIT\x00\x01')
+  > assert b'legacy-duplicated-secret' not in data and b'password' not in data
   > PY
+  $ ../bin/main.exe config migrate --profile one
+  Encrypted 0 legacy configuration(s).

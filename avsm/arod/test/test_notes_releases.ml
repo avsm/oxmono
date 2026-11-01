@@ -66,7 +66,7 @@ let render ?releases ?(notes = notes) () =
       (Bushel.Entry.v ~papers:[] ~notes ~projects:[] ~ideas:[] ~videos:[]
          ~contacts:[] ~images:[ picture ] ~data_dir:"." ())
   in
-  let article, _sidebar = Arod_component.Note.notes_list ~ctx in
+  let article, _sidebar = Arod_component.Note.notes_list ~ctx ~art:(fun _ -> None) in
   Htmlit.El.to_string ~doctype:false article
 
 let () =
@@ -106,6 +106,18 @@ let () =
   check "a registry is an icon that names it"
     (contains html {|aria-label="opam.ocaml.org on ecosyste.ms"|}
     && contains html {|title="opam.ocaml.org on ecosyste.ms"|});
+  (* The row of mdx 2.6.0 is read from its name onwards, since other rows have
+     dates and summaries of their own. *)
+  let row =
+    match index_of html "mdx 2.6.0" with
+    | Some i -> String.sub html i (String.length html - i)
+    | None -> ""
+  in
+  check "the registry icons sit beside the name, before the date and summary"
+    (before row {|aria-label="opam.ocaml.org on ecosyste.ms"|}
+       {|class="release-date"|}
+    && before row {|aria-label="opam.ocaml.org on ecosyste.ms"|}
+         "Executable code blocks");
   check "the registry icon is the one for that registry"
     (contains html (Arod.Icons.registry_icon ~size:12 "opam.ocaml.org"));
   (* The page is one timeline. The weeknote rail is folded into it. *)
@@ -129,38 +141,95 @@ let () =
   (* Tags come most popular first, and say how many notes carry them. *)
   let tagged =
     [ { (note "t1" "First" (2026, 8, 3)) with
-        Bushel.Note.tags = [ "rare"; "eio"; "ocaml" ] };
+        Bushel.Note.tags = [ "rare"; "eio"; "ocaml"; "plainword" ] };
       { (note "t2" "Second" (2026, 8, 2)) with
-        Bushel.Note.tags = [ "eio"; "ocaml" ] };
+        Bushel.Note.tags = [ "eio"; "ocaml"; "plainword" ] };
       { (note "t3" "Third" (2026, 8, 1)) with
         Bushel.Note.tags = [ "ocaml" ] } ]
   in
   let tags_html = render ~notes:tagged () in
   check "the most popular tag comes first"
-    (before tags_html {|data-tag="ocaml"|} {|data-tag="eio"|}
-    && before tags_html {|data-tag="eio"|} {|data-tag="rare"|});
-  check "a tag says how many notes carry it"
-    (contains tags_html {|title="3 notes"|}
-    && contains tags_html {|title="1 note"|});
-  check "a tag is a chip with no hash"
-    (contains tags_html {|>ocaml</a>|} && not (contains tags_html "#ocaml"));
-  (* A title that already ends in punctuation, even a multibyte one, is not
-     given a full stop before its synopsis. *)
-  let stops =
+    (before tags_html {|data-tag="ocaml"|} {|data-tag="eio"|});
+  check "a tag says, in its tooltip and label, how many notes carry it"
+    (contains tags_html {|title="ocaml, 3 notes"|}
+    && contains tags_html {|aria-label="ocaml, 3 notes"|}
+    && not (contains tags_html "rare, 1 note"));
+  check "a tag only one note carries is left out"
+    (not (contains tags_html {|data-tag="rare"|}));
+  check "a tag is shown by its icon, not by its word"
+    (contains tags_html {|class="sn-ico no-underline"|}
+    && not (contains tags_html ">ocaml</a>")
+    && contains tags_html {|class="ti mono"|});
+  check "a tag with a picture shows the picture"
+    (let art = function
+       | "ocaml" -> Some {|<svg class="ti col"></svg>|}
+       | _ -> None
+     in
+     let ctx =
+       Arod.Ctx.of_entries ~config:cfg
+         (Bushel.Entry.v ~papers:[] ~notes:tagged ~projects:[] ~ideas:[]
+            ~videos:[] ~contacts:[] ~data_dir:"." ())
+     in
+     let article, _ = Arod_component.Note.notes_list ~ctx ~art in
+     contains (Htmlit.El.to_string ~doctype:false article) {|class="ti col"|});
+  (* A row is as tall as its text needs, so a long synopsis is not cut to two
+     lines, and the rows after it move down. *)
+  let long_text = String.concat " " (List.init 80 (fun _ -> "wordy words")) in
+  let tall =
     render
       ~notes:
-        [ { (note "e1" "Trailing off\xE2\x80\xA6" (2026, 8, 3)) with
-            Bushel.Note.synopsis = Some "Then more." };
-          { (note "e2" "Plain title" (2026, 8, 2)) with
-            Bushel.Note.synopsis = Some "Then more." } ]
+        [ { (note "lg" "Long One" (2026, 8, 3)) with
+            Bushel.Note.synopsis = Some long_text };
+          { (note "sh" "Short One" (2026, 8, 2)) with
+            Bushel.Note.synopsis = Some "Brief." } ]
       ()
   in
-  check "a title ending in an ellipsis gets no full stop"
-    (contains stops "Trailing off\xE2\x80\xA6<" && not (contains stops "\xE2\x80\xA6."));
-  check "a plain title gets a full stop before its synopsis"
-    (contains stops "Plain title.<");
-  check "a note's heading says how many words it has"
-    (before html ">10 Aug<" " word" && before html " word" "An August note");
+  check "a long synopsis gets more lines than a short one"
+    (contains tall "--lines:5" && contains tall "--lines:2");
+  check "a row with a long synopsis is taller, and the next row is lower"
+    (let top_of marker =
+       match index_of tall marker with
+       | None -> -1.
+       | Some i ->
+         let j = Option.get (index_of (String.sub tall i (String.length tall - i)) "top:") in
+         let rest = String.sub tall (i + j + 4) 16 in
+         float_of_string (String.sub rest 0 (String.index rest 'e' - 0))
+     in
+     let lg = top_of {|id="note-lg"|} and sh = top_of {|id="note-sh"|} in
+     lg >= 0. && sh -. lg > 4.8 +. 3.);
+  (* Releases that follow one another sit closer together than a release does
+     from the entry above it. *)
+  let run =
+    render
+      ~releases:
+        (List.map (fun (repo, d) ->
+           repo_of ~repo [ release ~version:"1.0.0" ~date:(2026, 8, d) "x" "https://example.org/r" ])
+           [ ("o/a", 20); ("o/b", 19); ("o/c", 18) ])
+      ~notes:[] ()
+  in
+  let release_tops =
+    let rec go from acc =
+      match index_of (String.sub run from (String.length run - from)) "sn-item sn-release" with
+      | None -> List.rev acc
+      | Some i ->
+        let at = from + i in
+        let rest = String.sub run at (String.length run - at) in
+        let j = Option.get (index_of rest "top:") in
+        let tail = String.sub rest (j + 4) 16 in
+        let top = float_of_string (String.sub tail 0 (String.index tail 'e')) in
+        go (at + 10) (top :: acc)
+    in
+    go 0 []
+  in
+  check "three releases in a row are found"
+    (List.length release_tops = 3);
+  check "releases in a run are closer together than the usual release row"
+    (match release_tops with
+     | [ a; b; c ] -> b -. a < 2.0 && c -. b < 2.0
+     | _ -> false);
+  check "a note says how many words it has after its text, not in its heading"
+    (before html "An August note" "1 word"
+    && not (before html "1 word" ">10 Aug<"));
   check "a note's date is a caption above its title"
     (before html {|>10 Aug<|} "An August note");
   let occurrences html sub =

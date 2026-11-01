@@ -1,0 +1,75 @@
+{0 console}
+
+Colours, tables, trees and progress rows for OCaml command-line tools.
+
+[console] prints into the terminal's normal scrollback and, while work
+runs, redraws only the progress rows of a {!Console.Display}.
+
+Its widgets lay out text in a style and print with
+{{:https://erratique.ch/software/fmt}Fmt}, in the colours and the
+{!Console.Theme} of the formatter that prints them, or as plain text on a
+pipe:
+
+{@ocaml[
+# let sizes =
+    Console.Table.(
+      view
+        [
+          column (Console.View.text "Package");
+          column ~align:`Right (Console.View.text "Size");
+        ]
+        [
+          [ Console.View.text "console"; Console.View.text "42 KiB" ];
+          [ Console.View.text "console-eio"; Console.View.text "9 KiB" ];
+        ]);;
+val sizes : Console.View.t = <abstr>
+# Fmt.pr "%a@." Console.View.pp sizes;;
+╭─────────────┬────────╮
+│ Package     │   Size │
+├─────────────┼────────┤
+│ console     │ 42 KiB │
+│ console-eio │  9 KiB │
+╰─────────────┴────────╯
+- : unit = ()
+]}
+
+{1:manuals Manuals}
+
+{ul
+{- {{!page-widgets}Widgets and themes} shows the widgets with the text they
+   print, and how the themes draw them.}
+{- The [console-eio] package runs the progress rows with
+   {{:https://github.com/ocaml-multicore/eio}Eio}. Its documentation opens
+   with a tutorial, {i A first CLI}, which builds a whole command step by
+   step, with options for colour and theme, a table, progress rows and a
+   test of its output.}}
+
+{1:libraries Libraries}
+
+The [console] package has four libraries:
+
+{ul
+{- [console], the module {!Console}: styles, views, the widgets, the
+   themes, tasks, the live {!Console.Display} and how tasks show on it,
+   {!Console.Progress}. It needs neither Eio nor Unix.}
+{- [console.tty], the module {!Console_tty}: colour, colour depth and UTF-8
+   for the standard outputs, decided from the terminal and the environment
+   or from a [--color] option.}
+{- [console.text], the module {!Console_text}: untrusted text made safe to
+   print, without the rest of [console].}
+{- [console.input], the module {!Console_input}: a line editor that turns
+   the bytes typed into echo and lines, and does no input or output
+   itself.}}
+
+{1:start Where to start}
+
+{ul
+{- {!Console.View} and {!Console.Style} for text in colour.}
+{- {!Console.Table}, {!Console.Tree}, {!Console.Panel}, {!Console.Rule} and
+   {!Console.Bar} for the widgets.}
+{- {!Console.Theme} to choose a look, and to let users choose one with a
+   [--theme] option.}
+{- {!Console.Task} and {!Console.Progress} for the progress rows and what a pipe
+   gets, [Console_eio], in the [console-eio] package, for where the
+   program's text goes, and {!Console.Display} for what a live region
+   guarantees.}}

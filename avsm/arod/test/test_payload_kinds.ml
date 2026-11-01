@@ -390,6 +390,8 @@ let () =
           "";
           "Notes and blog posts.";
           "";
+          "## January 2025";
+          "";
           "- [Hello Note](http://localhost:8080/notes/hello-note) (2025-01-05)";
           "";
           "---";

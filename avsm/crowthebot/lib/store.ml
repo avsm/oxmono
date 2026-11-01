@@ -19,6 +19,7 @@ type t = {
   admin : string;
   mutex : Eio.Mutex.t;
   now : unit -> float;
+  mutable memory : (Agentkit.Memo.source list * Agentkit.Memo.t) option;
 }
 
 let timestamp now =
@@ -42,7 +43,7 @@ let create ?(now = Unix.gettimeofday) db ~admin =
   if
     not
       (List.mem version
-         [ [ 0 ]; [ 1 ]; [ 2 ]; [ 3 ]; [ 4 ]; [ 5 ]; [ 6 ]; [ 7 ]; [ 8 ] ])
+         [ [ 0 ]; [ 1 ]; [ 2 ]; [ 3 ]; [ 4 ]; [ 5 ]; [ 6 ]; [ 7 ]; [ 8 ]; [ 9 ] ])
   then invalid_arg "unsupported crowthebot database version";
   sql db
     "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;";
@@ -55,6 +56,8 @@ CREATE TABLE IF NOT EXISTS people (
  user TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('friend','bot','unknown')),
  allowed INTEGER NOT NULL CHECK(allowed IN (0,1)));
 CREATE TABLE IF NOT EXISTS rooms (room TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS room_requests (
+ room TEXT PRIMARY KEY, approved INTEGER CHECK(approved IN (0,1)));
 CREATE TABLE IF NOT EXISTS direct_rooms (room TEXT PRIMARY KEY, peer TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS history (
  id INTEGER PRIMARY KEY, room TEXT NOT NULL, user TEXT NOT NULL,
@@ -75,6 +78,12 @@ CREATE TABLE IF NOT EXISTS facts (
  id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT NOT NULL,
  author TEXT NOT NULL, room TEXT NOT NULL, event TEXT NOT NULL,
  source TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS memory_summaries (
+ key TEXT PRIMARY KEY, body TEXT NOT NULL);
+CREATE TRIGGER IF NOT EXISTS facts_invalidate_summaries
+AFTER DELETE ON facts BEGIN
+ DELETE FROM memory_summaries;
+END;
 CREATE VIRTUAL TABLE IF NOT EXISTS facts_fts USING fts5(
  body, content='facts', content_rowid='id', tokenize='unicode61');
 CREATE TRIGGER IF NOT EXISTS facts_insert AFTER INSERT ON facts BEGIN
@@ -100,7 +109,7 @@ CREATE TABLE IF NOT EXISTS reminder_runs (
  scheduled_at REAL NOT NULL, started_at TEXT NOT NULL, finished_at TEXT,
  status TEXT NOT NULL, UNIQUE(reminder_id,scheduled_at));
 |};
-    if not (List.mem version [ [ 5 ]; [ 6 ]; [ 7 ]; [ 8 ] ]) then
+    if not (List.mem version [ [ 5 ]; [ 6 ]; [ 7 ]; [ 8 ]; [ 9 ] ]) then
       sql db
         {|
 ALTER TABLE reminders RENAME TO reminders_v4;
@@ -127,7 +136,7 @@ CREATE INDEX reminders_due ON reminders(state,next_at);
     Caldav_agenda_store.init db;
     Email_cache.init db;
     Room_context.init db;
-    if version <> [ 8 ] then
+    if not (List.mem version [ [ 8 ]; [ 9 ] ]) then
       sql db
         {|
 ALTER TABLE history RENAME TO history_v7;
@@ -142,7 +151,7 @@ DROP TABLE history_v7;
 CREATE INDEX history_thread ON history(room,user,id);
 |};
     Compaction.init db;
-    sql db "PRAGMA user_version=8";
+    sql db "PRAGMA user_version=9";
     execute db "INSERT OR IGNORE INTO settings VALUES ('admin',?)"
       [ text admin ];
     let stored =
@@ -164,7 +173,7 @@ CREATE INDEX history_thread ON history(room,user,id);
        status='running'"
       [ text started_at ];
     sql db "COMMIT";
-    { db; admin; mutex = Eio.Mutex.create (); now }
+    { db; admin; mutex = Eio.Mutex.create (); now; memory = None }
   with exn ->
     let bt = Printexc.get_raw_backtrace () in
     Eio.Cancel.protect (fun () -> sql db "ROLLBACK");
@@ -260,6 +269,29 @@ let rooms t =
   locked t (fun () ->
       rows t.db "SELECT room FROM rooms ORDER BY room" [] (fun s ->
           Sqlite3.column_text s 0))
+
+let request_room t room =
+  ignore (Matrix_proto.Id.Room_id.of_string_exn room);
+  locked t (fun () ->
+      execute t.db "INSERT OR IGNORE INTO room_requests VALUES (?,NULL)"
+        [ text room ])
+
+let room_requests t =
+  locked t (fun () ->
+      rows t.db
+        "SELECT room FROM room_requests WHERE approved IS NULL AND room NOT IN \
+         (SELECT room FROM rooms) ORDER BY room" []
+        (fun s -> Sqlite3.column_text s 0))
+
+let decide_room t ~actor ~room ~approve =
+  if actor <> t.admin then invalid_arg "room approval requires the primary admin";
+  ignore (Matrix_proto.Id.Room_id.of_string_exn room);
+  locked t (fun () ->
+      transaction t.db @@ fun () ->
+      execute t.db "UPDATE room_requests SET approved=? WHERE room=?"
+        [ Sqlite3.Data.INT (if approve then 1L else 0L); text room ];
+      if approve then
+        execute t.db "INSERT OR IGNORE INTO rooms VALUES (?)" [ text room ])
 
 let add_direct_room t ~room ~peer =
   ignore (Matrix_proto.Id.Room_id.of_string_exn room);
@@ -399,6 +431,7 @@ let add_fact t ~actor ~room ~event ~source ~body =
       text source;
       text body;
     ];
+  t.memory <- None;
   Int64.to_int (Sqlite3.last_insert_rowid (Sqlite3_eio.db t.db))
 
 let get_fact t ~actor id =
@@ -431,7 +464,53 @@ let erase_fact t ~actor id =
   locked t @@ fun () ->
   require_friend t actor;
   execute t.db "DELETE FROM facts WHERE id=?" [ integer id ];
+  t.memory <- None;
   Sqlite3.changes (Sqlite3_eio.db t.db) > 0
+
+let memory_tree_unlocked t =
+  let facts = rows t.db "SELECT * FROM facts ORDER BY id" [] fact_row in
+  let sources =
+    List.map
+      (fun (f : fact) ->
+        {
+          Agentkit.Memo.id = string_of_int f.fact_id;
+          revision = f.created_at;
+          text =
+            Printf.sprintf "%s (%s, %s, room %s, event %s)\n%s" f.created_at
+              f.author f.source f.room f.event f.body;
+        })
+      facts
+  in
+  (* Reload every source before reuse, so writes through other connections also
+     invalidate the snapshot. Summary writes do not change its source content. *)
+  match t.memory with
+  | Some (before, tree) when before = sources -> tree
+  | _ ->
+      let tree = Agentkit.Memo.create sources in
+      t.memory <- Some (sources, tree);
+      tree
+
+let memory_tree t ~actor =
+  locked t @@ fun () ->
+  require_friend t actor;
+  let tree = memory_tree_unlocked t in
+  let summaries =
+    rows t.db "SELECT key,body FROM memory_summaries" [] (fun s ->
+        (Sqlite3.column_text s 0, Sqlite3.column_text s 1))
+  in
+  (tree, summaries)
+
+let save_memory_summary t ~actor ~key ~body =
+  Agentkit.Memo.validate_summary ~limit:512 body;
+  locked t @@ fun () ->
+  require_friend t actor;
+  if Agentkit.Memo.mem (memory_tree_unlocked t) key then begin
+    execute t.db
+      "INSERT OR REPLACE INTO memory_summaries(key,body) VALUES (?,?)"
+      [ text key; text body ];
+    true
+  end
+  else false
 
 type tool_use = {
   log_id : int;

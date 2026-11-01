@@ -15,60 +15,16 @@ module FeedEntry = Sortal_feed.Entry
 module Idea = Bushel.Idea
 module I = Arod.Icons
 
-type timeline_item = Feed_item of Arod.Ctx.feed_item * (int * int * int)
+type timeline_item = Arod.Collections.timeline_item = Feed_item of Arod.Ctx.feed_item * (int * int * int)
 
 let timeline_date (Feed_item (_, d)) = d
 
-type month_section = {
+type month_section = Arod.Collections.month_section = {
   year : int;
   month : int;
   collaborators : Contact.t list;
   items : timeline_item list;
 }
-
-(** [month_collaborators ~ctx entries feed_items] is the month's collaborator
-    list ordered by appearance count. *)
-let month_collaborators ~ctx bushel_entries feed_items =
-  let counts : (string, int) Hashtbl.t = Hashtbl.create 16 in
-  let contact_map : (string, Contact.t) Hashtbl.t = Hashtbl.create 16 in
-  let bump contact =
-    let h = Contact.handle contact in
-    Hashtbl.replace contact_map h contact;
-    let cur = Option.value ~default:0 (Hashtbl.find_opt counts h) in
-    Hashtbl.replace counts h (cur + 1)
-  in
-  List.iter (fun ent ->
-    let tags = Bushel.Entry.tags_of_ent ent in
-    List.iter (function
-      | `Contact handle ->
-        (match Arod.Ctx.lookup_by_handle ctx handle with
-         | Some c -> bump c
-         | None -> ())
-      | _ -> ()
-    ) tags
-  ) bushel_entries;
-  List.iter (fun ent ->
-    match ent with
-    | `Paper paper ->
-      List.iter (fun author_name ->
-        match Arod.Ctx.lookup_by_name ctx author_name with
-        | Some c -> bump c
-        | None -> ()
-      ) (Paper.authors paper)
-    | _ -> ()
-  ) bushel_entries;
-  List.iter (fun (item : Arod.Ctx.feed_item) ->
-    bump item.contact
-  ) feed_items;
-  let contacts_with_counts =
-    Hashtbl.fold (fun h count acc ->
-      match Hashtbl.find_opt contact_map h with
-      | Some c -> (c, count) :: acc
-      | None -> acc
-    ) counts []
-  in
-  let sorted = List.sort (fun (_, a) (_, b) -> compare b a) contacts_with_counts in
-  List.map fst sorted
 
 (** [render_avatar ~entries contact] is the avatar for [contact]. *)
 let render_avatar ~entries contact =
@@ -88,6 +44,23 @@ let render_avatar ~entries contact =
               At.v "title" name]
       [El.span ~at:[At.class' "network-avatar-initials"]
          [El.txt initials]]
+
+(** [forward_entries ~ctx fe] is the entries that the post [fe] links to, which
+    the page lists under it. *)
+let forward_entries ~ctx fe =
+  let entries = Arod.Ctx.entries ctx in
+  match fe.FeedEntry.url with
+  | Some u ->
+    Arod.Ctx.forward_slugs ctx (Uriz.to_string u)
+    |> List.filter_map (fun slug -> Entry.lookup entries slug)
+  | None -> []
+
+(** [student_ideas ~idea_index contact] is the ideas, as slug and title, that
+    [contact] takes part in as a student. *)
+let student_ideas ~idea_index contact =
+  match Bushel.Smap.find_or_null (Contact.handle contact) idea_index with
+  | Null -> []
+  | This ideas -> ideas
 
 (** [render_feed_item ~ctx ~entries ~idea_index item date] is a timeline row. *)
 let render_feed_item ~ctx ~entries ~idea_index (item : Arod.Ctx.feed_item) ((_y, _m, day) : int * int * int) =
@@ -134,29 +107,20 @@ let render_feed_item ~ctx ~entries ~idea_index (item : Arod.Ctx.feed_item) ((_y,
         ) mentions)
   in
   let forward_els =
-    match fe.FeedEntry.url with
-    | Some u ->
-      let slugs = Arod.Ctx.forward_slugs ctx (Uriz.to_string u) in
-      let forward_entries = List.filter_map (fun slug ->
-        Entry.lookup entries slug
-      ) slugs in
-      (match forward_entries with
-       | [] -> El.void
-       | fwds ->
-         El.div ~at:[At.class' "feed-item-mentions pl-0"]
-           (List.map (fun entry ->
-             let fwd_icon = I.outline ~cl:"opacity-60" ~size:10 I.external_link_o in
-             El.a ~at:[At.href (Entry.site_url entry);
-                       At.class' "link-backlink-chip no-underline"]
-               [El.unsafe_raw fwd_icon;
-                El.txt (Entry.title entry)]
-           ) fwds))
-    | None -> El.void
+    match forward_entries ~ctx fe with
+    | [] -> El.void
+    | fwds ->
+      El.div ~at:[At.class' "feed-item-mentions pl-0"]
+        (List.map (fun entry ->
+          let fwd_icon = I.outline ~cl:"opacity-60" ~size:10 I.external_link_o in
+          El.a ~at:[At.href (Entry.site_url entry);
+                    At.class' "link-backlink-chip no-underline"]
+            [El.unsafe_raw fwd_icon;
+             El.txt (Entry.title entry)]
+        ) fwds)
   in
   let idea_els =
-    let handle = Contact.handle contact in
-    let ideas = try Hashtbl.find idea_index handle with Not_found -> [] in
-    match ideas with
+    match student_ideas ~idea_index contact with
     | [] -> El.void
     | ideas ->
       El.div ~at:[At.class' "feed-item-mentions pl-0"]
@@ -193,69 +157,10 @@ let render_month ~ctx ~entries ~idea_index section =
     El.div ~at:[At.class' "network-month-body"] item_els]
 
 let compute_month_sections ~ctx =
-  let all_entries = Arod.Ctx.all_entries ctx in
-  let all_feed_items = Arod.Ctx.feed_items ctx in
+  Arod.Collections.to_list (Arod.Collections.months (Arod.Ctx.collections ctx))
 
-  let bushel_by_month : (int * int, Entry.entry list) Hashtbl.t = Hashtbl.create 64 in
-  List.iter (fun ent ->
-    let (y, m, _d) = Entry.date ent in
-    let key = (y, m) in
-    let cur = Option.value ~default:[] (Hashtbl.find_opt bushel_by_month key) in
-    Hashtbl.replace bushel_by_month key (ent :: cur)
-  ) all_entries;
-
-  let feed_by_month : (int * int, Arod.Ctx.feed_item list) Hashtbl.t = Hashtbl.create 64 in
-  List.iter (fun (item : Arod.Ctx.feed_item) ->
-    match item.entry.FeedEntry.date with
-    | Some d ->
-      let (y, m, _d), _ = Ptime.to_date_time d in
-      let key = (y, m) in
-      let cur = Option.value ~default:[] (Hashtbl.find_opt feed_by_month key) in
-      Hashtbl.replace feed_by_month key (item :: cur)
-    | None -> ()
-  ) all_feed_items;
-
-  let months =
-    Hashtbl.fold (fun k _ acc -> k :: acc) feed_by_month []
-    |> List.sort (fun (y1, m1) (y2, m2) ->
-      let c = compare y2 y1 in if c <> 0 then c else compare m2 m1)
-  in
-
-  List.map (fun (y, m) ->
-    let bushel_ents =
-      Hashtbl.find_opt bushel_by_month (y, m)
-      |> Option.value ~default:[] |> List.rev
-    in
-    let feed_items =
-      Hashtbl.find_opt feed_by_month (y, m)
-      |> Option.value ~default:[] |> List.rev
-    in
-    let collaborators = month_collaborators ~ctx bushel_ents feed_items in
-    let timeline =
-      List.map (fun (item : Arod.Ctx.feed_item) ->
-        let d = match item.entry.FeedEntry.date with
-          | Some pt -> let (y, m, d), _ = Ptime.to_date_time pt in (y, m, d)
-          | None -> (y, m, 1)
-        in
-        Feed_item (item, d)
-      ) feed_items
-      |> List.sort (fun a b -> compare (timeline_date b) (timeline_date a))
-    in
-    { year = y; month = m; collaborators; items = timeline }
-  ) months
-
-(** [build_idea_index ~ctx] maps students to their ideas. *)
 let build_idea_index ~ctx =
-  let tbl : (string, (string * string) list) Hashtbl.t = Hashtbl.create 64 in
-  List.iter (fun idea ->
-    List.iter (fun handle ->
-      let cur = Option.value ~default:[] (Hashtbl.find_opt tbl handle) in
-      let pair = (Idea.slug idea, Idea.title idea) in
-      if not (List.mem pair cur) then
-        Hashtbl.replace tbl handle (pair :: cur)
-    ) (Idea.student_handles idea)
-  ) (Arod.Ctx.ideas ctx);
-  tbl
+  Arod.Collections.student_ideas (Arod.Ctx.collections ctx)
 
 (** [render_months_html ~ctx sections] is the pagination fragment for [sections]. *)
 let render_months_html ~ctx sections =
@@ -268,6 +173,53 @@ let render_months_html ~ctx sections =
 let all_months ~ctx = compute_month_sections ~ctx
 
 let page_size = 6
+
+(** The text that opens the network page, as the words before and after its two
+    links, which are to the blogroll as OPML and to an address for
+    suggestions. *)
+let list_intro_first =
+  "I track a number of online blogs and connect relevant ones to things I am \
+   working on. You can grab my blogroll "
+
+let list_intro_opml = ("OPML here", "/network/blogroll.opml")
+
+let list_intro_middle =
+  ", or just browse it below. If you have your own blog that I've missed, do "
+
+let list_intro_mail = ("let me know", "mailto:anil@recoil.org")
+let list_intro_last = "!"
+
+(** [blogroll ~ctx] is the contacts with feeds that the sidebar lists, as
+    people and organisations. The people come most recently posting first,
+    those who have not posted last, and the organisations alphabetically. *)
+let blogroll ~ctx =
+  let contacts_with_feeds = Common.contacts_with_feeds (Arod.Ctx.contacts ctx) in
+  let people, orgs = List.partition (fun (contact, _) ->
+    match Contact.kind contact with
+    | Contact.Person -> true
+    | Contact.Organization -> false
+  ) contacts_with_feeds in
+  let latest_dates = Hashtbl.create 64 in
+  List.iter (fun (fi : Arod.Ctx.feed_item) ->
+    match fi.entry.Sortal_feed.Entry.date with
+    | None -> ()
+    | Some date ->
+      let handle = Contact.handle fi.contact in
+      match Hashtbl.find_opt latest_dates handle with
+      | Some old when Ptime.compare old date >= 0 -> ()
+      | _ -> Hashtbl.replace latest_dates handle date
+  ) (Arod.Ctx.feed_items ctx);
+  let latest_date_for handle = Hashtbl.find_opt latest_dates handle in
+  let people_sorted = List.sort (fun (a, _) (b, _) ->
+    let da = latest_date_for (Contact.handle a) in
+    let db = latest_date_for (Contact.handle b) in
+    match da, db with
+    | Some a, Some b -> Ptime.compare b a
+    | Some _, None -> -1
+    | None, Some _ -> 1
+    | None, None -> String.compare (Contact.name a) (Contact.name b)
+  ) people in
+  (people_sorted, orgs)
 
 (** [network_page ~ctx] is the network timeline and its sidebar. *)
 let network_page ~ctx =
@@ -316,15 +268,15 @@ let network_page ~ctx =
 
   let intro =
     El.p ~at:[At.class' "text-sm text-gray-600 dark:text-gray-400 mb-6"] [
-      El.txt "I track a number of online blogs and connect relevant ones to things I am working on. You can grab my blogroll ";
-      El.a ~at:[At.href "/network/blogroll.opml";
+      El.txt list_intro_first;
+      El.a ~at:[At.href (snd list_intro_opml);
                 At.class' "text-accent hover:underline"] [
-        El.txt "OPML here"];
-      El.txt ", or just browse it below. If you have your own blog that I've missed, do ";
-      El.a ~at:[At.href "mailto:anil@recoil.org";
+        El.txt (fst list_intro_opml)];
+      El.txt list_intro_middle;
+      El.a ~at:[At.href (snd list_intro_mail);
                 At.class' "text-accent hover:underline"] [
-        El.txt "let me know"];
-      El.txt "!"]
+        El.txt (fst list_intro_mail)];
+      El.txt list_intro_last]
   in
 
   let article =
@@ -354,7 +306,6 @@ let network_page ~ctx =
        El.div ~at:[At.class' "cal-grid"] []]
   in
 
-  let blogroll_contacts = contacts_with_feeds in
   let render_blogroll_row (contact, feeds) =
     let name = Contact.name contact in
     let thumb = Entry.contact_thumbnail entries contact in
@@ -385,31 +336,7 @@ let network_page ~ctx =
       El.span ~at:[At.class' "sidebar-meta-val text-dim"] [name_el];
       El.span ~at:[At.class' "feed-blogroll-badges"] feed_badges]
   in
-  let people, orgs = List.partition (fun (contact, _) ->
-    match Contact.kind contact with
-    | Contact.Person -> true
-    | Contact.Organization -> false
-  ) blogroll_contacts in
-  let latest_dates = Hashtbl.create 64 in
-  List.iter (fun (fi : Arod.Ctx.feed_item) ->
-    match fi.entry.Sortal_feed.Entry.date with
-    | None -> ()
-    | Some date ->
-      let handle = Contact.handle fi.contact in
-      match Hashtbl.find_opt latest_dates handle with
-      | Some old when Ptime.compare old date >= 0 -> ()
-      | _ -> Hashtbl.replace latest_dates handle date
-  ) all_feed_items;
-  let latest_date_for handle = Hashtbl.find_opt latest_dates handle in
-  let people_sorted = List.sort (fun (a, _) (b, _) ->
-    let da = latest_date_for (Contact.handle a) in
-    let db = latest_date_for (Contact.handle b) in
-    match da, db with
-    | Some a, Some b -> Ptime.compare b a
-    | Some _, None -> -1
-    | None, Some _ -> 1
-    | None, None -> String.compare (Contact.name a) (Contact.name b)
-  ) people in
+  let people_sorted, orgs = blogroll ~ctx in
   let max_people = 5 in
   let total_people = List.length people_sorted in
   let people_blogroll = match people_sorted with

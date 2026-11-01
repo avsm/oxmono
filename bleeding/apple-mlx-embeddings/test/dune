@@ -1,0 +1,49 @@
+(test
+ (name test_contract)
+ (modules test_contract)
+ (modes native)
+ (libraries apple-mlx-embeddings eio_main unix))
+
+(executable
+ (name test_inference)
+ (modules test_inference)
+ (modes native)
+ (libraries apple-mlx-embeddings eio eio_main))
+
+(rule
+ (alias runtest-model)
+ (action
+  (run %{exe:test_inference.exe} %{env:APPLE_MLX_TEST_MODEL=})))
+
+(test
+ (name test_model)
+ (modules test_model)
+ (modes native)
+ (libraries apple-mlx-embeddings eio eio_main unix))
+
+(executable
+ (name test_memory)
+ (modules test_memory)
+ (modes native)
+ (libraries apple-mlx-embeddings eio_main))
+
+(rule
+ (alias runtest-memory)
+ (action
+  (run %{exe:test_memory.exe} %{env:APPLE_MLX_TEST_MODEL=})))
+
+(executable
+ (name test_vision)
+ (modules test_vision)
+ (modes native)
+ (libraries apple-mlx-embeddings eio eio_main))
+
+(rule
+ (alias runtest-vision)
+ (deps
+  (source_tree vision-fixtures))
+ (action
+  (run
+   %{exe:test_vision.exe}
+   %{env:APPLE_MLX_VISION_TEST_MODEL=}
+   vision-fixtures)))

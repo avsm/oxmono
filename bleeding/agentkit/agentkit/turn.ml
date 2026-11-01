@@ -11,6 +11,7 @@ type event =
   | Cut_off
 
 exception Budget_exceeded
+exception Context_exceeded of { bytes : int; limit : int }
 
 let clip ~bytes text =
   if String.length text <= bytes then text
@@ -33,11 +34,9 @@ let execute ~guard ~dispatch ~around ~max_result_bytes call =
       in
       match decision with
       | Error _ as e -> e
-      | Ok () ->
-          Result.map (clip ~bytes:max_result_bytes) (dispatch call))
+      | Ok () -> Result.map (clip ~bytes:max_result_bytes) (dispatch call))
 
-let bind ~guard ~dispatch ?(around = render) ?(max_result_bytes = 32768) tools
-    =
+let bind ~guard ~dispatch ?(around = render) ?(max_result_bytes = 32768) tools =
   List.map
     (fun tool ->
       Agent.Tool.with_invoke tool
@@ -78,9 +77,21 @@ let instruct instruction messages =
 
 let run ~complete ~tools ~guard ~dispatch ?(around = render)
     ?(check = fun () -> ()) ?(on_event = fun _ -> ()) ?(budget = 6) ?max_tokens
-    ?(max_result_bytes = 32768) ?(max_answer_bytes = 12000)
-    ?(fallback = default_fallback) messages =
+    ?max_request_bytes ?(max_result_bytes = 32768) ?(max_answer_bytes = 12000)
+    ?(max_parallel_calls = 1) ?(fallback = default_fallback) messages =
   if budget < 0 then invalid_arg "Agentkit.Turn.run: negative budget";
+  if max_parallel_calls < 1 then
+    invalid_arg "Agentkit.Turn.run: nonpositive parallel call limit";
+  let complete request =
+    Option.iter
+      (fun limit ->
+        if limit < 1 then
+          invalid_arg "Agentkit.Turn.run: invalid request budget";
+        let bytes = Chat.text_bytes request in
+        if bytes > limit then raise (Context_exceeded { bytes; limit }))
+      max_request_bytes;
+    complete request
+  in
   let round = ref 0 and tools_used = ref false in
   let answer = clip ~bytes:max_answer_bytes in
   let finished (r : Chat.response) =
@@ -97,8 +108,7 @@ let run ~complete ~tools ~guard ~dispatch ?(around = render)
     incr round;
     let result =
       try
-        Some
-          (complete (Chat.request ?max_tokens (instruct retry messages)))
+        Some (complete (Chat.request ?max_tokens (instruct retry messages)))
       with
       | Eio.Cancel.Cancelled _ as exn -> raise exn
       | _ -> None
@@ -124,6 +134,20 @@ let run ~complete ~tools ~guard ~dispatch ?(around = render)
     incr round;
     check ();
     on_event (Request { round = !round; budget });
+    let native_calls = ref 0 in
+    let native_call call =
+      if !native_calls = budget then begin
+        tools_used := true;
+        on_event (Budget_exceeded { calls = !native_calls + 1; budget });
+        ignore (around call (fun () -> Error "Tool-call budget exceeded."));
+        raise Budget_exceeded
+      end;
+      incr native_calls;
+      run_call call
+    in
+    let tools =
+      List.map (fun tool -> Agent.Tool.with_invoke tool native_call) tools
+    in
     let request =
       if budget = 0 then Chat.request ?max_tokens (instruct synthesis messages)
       else Chat.request ~tools ?max_tokens messages
@@ -132,7 +156,10 @@ let run ~complete ~tools ~guard ~dispatch ?(around = render)
     | exception (Eio.Cancel.Cancelled _ as exn) -> raise exn
     | exception exn when budget = 0 -> recover ~error:exn messages
     | (r : Chat.response) -> (
-        let n = List.length r.calls in
+        let budget = budget - !native_calls in
+        let n =
+          if r.finish = Some Chat.Length then 0 else List.length r.calls
+        in
         if n > budget then begin
           on_event (Budget_exceeded { calls = n; budget });
           List.iter
@@ -143,14 +170,16 @@ let run ~complete ~tools ~guard ~dispatch ?(around = render)
             r.calls;
           raise Budget_exceeded
         end;
-        match r.calls with
-        | [] -> (
-            match finished r with
-            | Some text -> text
-            | None -> recover messages)
-        | calls ->
+        (* A length stop does not establish that any returned call finished. *)
+        match (r.finish, r.calls) with
+        | Some Chat.Length, _ -> (
+            match finished r with Some text -> text | None -> recover messages)
+        | _, [] -> (
+            match finished r with Some text -> text | None -> recover messages)
+        | _, calls ->
             let results =
-              List.map
+              (if max_parallel_calls = 1 then List.map
+               else Eio.Fiber.List.map ~max_fibers:max_parallel_calls)
                 (fun (call : Agent.tool_call) ->
                   Chat.Tool_result { id = call.id; content = run_call call })
                 calls

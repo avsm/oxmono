@@ -12,13 +12,20 @@ let temp f =
     ~f:(fun () -> f path)
     ~finally:(fun () -> Sortal_carddav.Common.remove_tree path)
 
+
+let capture_local store message =
+  Eio_main.run (fun _ -> Termanil_tasks.capture (Dooit.Client.local store) message)
+
+let complete_local store task =
+  Eio_main.run (fun _ -> Termanil_tasks.complete (Dooit.Client.local store) task)
+
 let%expect_test
     "task capture is idempotent and completing a stale note preserves edits" =
   temp (fun root ->
       let store = Dooit.Store.init root in
       let m = List.hd_exn Termanil_demo.messages in
-      let a = List.hd_exn (Termanil_tasks.capture store m) in
-      let b = List.hd_exn (Termanil_tasks.capture store m) in
+      let a = List.hd_exn (capture_local store m) in
+      let b = List.hd_exn (capture_local store m) in
       printf "same id: %b\n" (String.equal a.id b.id);
       let doc = Dooit.Store.get store a.id in
       let edited =
@@ -26,13 +33,13 @@ let%expect_test
       in
       C.atomic_write (Dooit.Store.note_path store a.id) edited.raw;
       (try
-         ignore (Termanil_tasks.complete store a);
+         ignore (complete_local store a);
          print_endline "unexpected success"
        with C.Error _ -> print_endline "stale completion refused");
       printf "title: %s\n" (Dooit.Doc.title (Dooit.Store.get store a.id));
       let fresh = Termanil_tasks.task (Dooit.Store.get store a.id) in
-      ignore (Termanil_tasks.complete store fresh);
-      let again = List.hd_exn (Termanil_tasks.capture store m) in
+      ignore (complete_local store fresh);
+      let again = List.hd_exn (capture_local store m) in
       printf "recapture: %s\n" again.status);
   [%expect
     {|
@@ -170,11 +177,11 @@ let%expect_test "direct edits reorder tasks by filesystem modification time" =
       let store = Dooit.Store.init root in
       let a =
         List.hd_exn
-          (Termanil_tasks.capture store (List.nth_exn Termanil_demo.messages 0))
+          (capture_local store (List.nth_exn Termanil_demo.messages 0))
       in
       let b =
         List.hd_exn
-          (Termanil_tasks.capture store (List.nth_exn Termanil_demo.messages 1))
+          (capture_local store (List.nth_exn Termanil_demo.messages 1))
       in
       let touch n time =
         File_time.utimes (Dooit.Store.note_path store n.M.id) time time
@@ -211,3 +218,101 @@ let%expect_test
     ( "-- \
      \nAnil")
     |}]
+
+let%expect_test "task synchronization follows the configured backend" =
+  temp (fun root ->
+      let store = Dooit.Store.init (Filename.concat root "tasks") in
+      let task =
+        List.hd_exn
+          (capture_local store (List.hd_exn Termanil_demo.messages))
+      in
+      let config_file = Filename.concat root "dooit.toml" in
+      let remote = Filename.concat root "remote.git" in
+      let config =
+        Termanil_backend.Config.parse
+          ~path:(Filename.concat root "termanil.toml")
+          (Printf.sprintf "[dooit]\nconfig = %S\n" config_file)
+      in
+      let write backend =
+        C.atomic_write config_file
+          (Printf.sprintf
+             "root = %S\nbackend = %S\n[git]\nremote = %S\nbranch = \"main\"\n"
+             store.root backend remote)
+      in
+      let execute dry_run =
+        match Termanil_backend.execute config (M.Sync_tasks { dry_run }) with
+        | Ok (M.Synced lines) -> lines
+        | Ok _ -> failwith "Expected sync response"
+        | Error message -> failwith message
+      in
+      write "local";
+      let lines = execute false in
+      printf "local result: %b, no Git setup: %b\n"
+        (List.exists lines ~f:(fun line ->
+             String.is_substring line ~substring:"Local backend"))
+        (not (C.exists (Filename.concat store.root ".git")));
+      write "git";
+      let lines = execute true in
+      printf "Git preview: %b, no Git setup: %b\n"
+        (List.exists lines ~f:(fun line ->
+             String.is_substring line ~substring:"not initialized"))
+        (not (C.exists (Filename.concat store.root ".git")));
+      let git args =
+        Eio_main.run (fun env ->
+            let output = Buffer.create 128 and errors = Buffer.create 128 in
+            Eio.Process.run
+              (Eio.Stdenv.process_mgr env)
+              ~stdout:(Eio.Flow.buffer_sink output)
+              ~stderr:(Eio.Flow.buffer_sink errors)
+              ("git" :: args);
+            String.strip (Buffer.contents output))
+      in
+      ignore (git [ "init"; "--bare"; remote ]);
+      ignore (git [ "init"; "--initial-branch=main"; store.root ]);
+      ignore (git [ "-C"; store.root; "config"; "user.name"; "Termanil test" ]);
+      ignore
+        (git [ "-C"; store.root; "config"; "user.email"; "test@example.org" ]);
+      ignore (execute false);
+      printf "Git task pushed: %b\n"
+        (String.equal
+           (git
+              [ "--git-dir=" ^ remote; "show"; "main:notes/" ^ task.id ^ ".md" ])
+           (String.strip (C.read (Dooit.Store.note_path store task.id))));
+      (match Termanil_backend.execute config (M.Complete task) with
+      | Ok (M.Completed _) -> ()
+      | Error message -> failwith message
+      | Ok _ -> failwith "Expected completed task");
+      let completed =
+        git [ "--git-dir=" ^ remote; "show"; "main:notes/" ^ task.id ^ ".md" ]
+        |> Dooit.Doc.parse
+      in
+      printf "Completion immediately pushed: %b\n"
+        (String.equal (Dooit.Doc.status completed) "done");
+      (match Termanil_backend.execute config
+          (M.Capture (List.nth_exn Termanil_demo.messages 1)) with
+      | Ok (M.Captured [task]) ->
+          let captured = git [ "--git-dir=" ^ remote; "show";
+              "main:notes/" ^ task.id ^ ".md" ] |> Dooit.Doc.parse in
+          printf "Capture immediately pushed: %b\n"
+            (String.equal (Dooit.Doc.title captured) task.title)
+      | Error message -> failwith message
+      | Ok _ -> failwith "Expected captured task");
+      write "local";
+      File_time.rename remote (remote ^ ".unavailable");
+      printf "Local ignores unreachable Git remote: %b\n"
+        (not (List.is_empty (execute false))));
+  [%expect
+    {|
+    local result: true, no Git setup: true
+    Git preview: true, no Git setup: true
+    Git task pushed: true
+    Completion immediately pushed: true
+    Capture immediately pushed: true
+    Local ignores unreachable Git remote: true
+    |}]
+
+let%expect_test "named CardDAV secret is not expanded as a relative file" =
+  let config = Termanil_backend.Config.parse ~path:"/tmp/config/termanil.toml"
+      "[contacts.carddav]\nurl='https://example.invalid/'\nusername='test'\npassword_file='sekrit:shared/dav'\n" in
+  print_endline (Option.value_exn config.carddav).password_file;
+  [%expect {| sekrit:shared/dav |}]

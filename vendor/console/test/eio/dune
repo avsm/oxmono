@@ -1,0 +1,94 @@
+(copy_files ../../lib/eio/terminal.{ml,mli})
+
+(executable
+ (name teardown)
+ (modules teardown)
+ (libraries console_compat
+  console
+  console.tty
+  console-eio
+  eio
+  eio.mock
+  eio_main
+  fmt
+  logs
+  unix))
+
+(library
+ (name pty_reader)
+ (modules pty_reader)
+ (libraries console_compat cstruct eio eio.unix unix))
+
+(executable
+ (name tty)
+ (modules tty)
+ (libraries console_compat
+  pty_reader
+  console
+  console_vte
+  cstruct
+  eio
+  eio.unix
+  eio_main
+  jsont.bytesrw
+  matrix.vte
+  unix))
+
+(executable
+ (name piped)
+ (modules piped)
+ (libraries console_compat console console-eio eio eio.mock eio_main fmt logs logs.fmt unix))
+
+(executable
+ (name events)
+ (modules events)
+ (libraries console_compat console fmt jsont jsont.bytesrw))
+
+(cram
+ (package console-eio)
+ (deps
+  tty.exe
+  piped.exe
+  events.exe
+  ../../examples/progress/main.exe
+  ../../examples/columns/main.exe
+  ../../examples/charts/main.exe))
+
+(cram
+ (applies_to cast deterministic exit progress size)
+ (enabled_if
+  (= %{profile} dev)))
+
+(test
+ (name test)
+ (modules :standard \ teardown tty piped events pty_reader)
+ (package console-eio)
+ (deps teardown.exe)
+ (libraries console_compat
+  console
+  console.tty
+  console-eio
+  pty_reader
+  display_harness
+  console_vte
+  cstruct
+  eio
+  eio.unix
+  eio.mock
+  mtime
+  eio_main
+  matrix.ansi
+  matrix.grid
+  matrix.vte
+  alcotest
+  jsont
+  jsont.bytesrw
+  astring
+  fmt
+  logs
+  unix))
+
+(rule
+ (alias report-domains)
+ (action
+  (run ./test.exe test report_domains)))

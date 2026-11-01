@@ -139,6 +139,7 @@
  (depends
   (ocaml (>= 5.2.0))
   openrouter
+  (jsont (>= 0.2.0))
   (agentkit (= :version))))
 
 (package
@@ -148,3 +149,11 @@
  (depends
   (ocaml (>= 5.2.0))
   (agentkit (= :version))))
+
+(package
+ (name agentkit-osm)
+ (synopsis "Address lookup tools for Agentkit")
+ (depends
+  (ocaml (>= 5.2.0))
+  (agentkit (= :version))
+  osm fetch eio jsont))

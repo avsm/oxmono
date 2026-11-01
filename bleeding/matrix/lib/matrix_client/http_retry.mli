@@ -18,9 +18,10 @@ val retry_request : homeserver:Client.Url.t -> Fetch.Middleware.request -> bool
 
 val v : ?max_retries:int -> homeserver:Uriz.t -> unit -> Fetch.Retry.config
 (** [v ~homeserver ()] is [Fetch.Retry.default] with [POST] added to its allowed
-    methods and {!retry_request} installed as the request-level veto.
-    [max_retries] overrides Fetch's retry count; the other backoff, status and
-    [Retry-After] defaults are unchanged.
+    methods and {!retry_request} installed as the request-level veto. Retryable
+    HTTP statuses are [408], [429], [500], [502], [503], [504], [507] and [520].
+    [max_retries] overrides Fetch's retry count; backoff and [Retry-After]
+    defaults are unchanged.
 
     Raises [Invalid_argument] if [homeserver] is not a valid HTTP(S) homeserver
     URL, or contains a query or fragment. *)

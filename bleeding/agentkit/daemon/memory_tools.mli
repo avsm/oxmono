@@ -6,10 +6,11 @@
 (** The tools an agent changes its memory through.
 
     A wake-up's context does not survive it and memory does, so these are how
-    anything the agent wants to know next time is written down. Each mutation
-    mints one version and appends one {!Agentkit.Journal.Memory_write} record,
-    so a version corresponds to one tool call and the audit trace lines up with
-    the model's actions one to one.
+    anything the agent wants to know next time is written down. Each entry
+    mutation mints one version and appends one {!Agentkit.Journal.Memory_write}
+    record, so a version corresponds to one tool call and the audit trace lines
+    up with the model's actions one to one. Derived summary writes do not mint
+    memory versions. Their tool calls and results remain in the journal.
 
     The journal record is appended between the fsynced snapshot and the move of
     [current], which is the order {!Agentkit.Memory} imposes. A journal that
@@ -36,4 +37,15 @@ val forget :
 
 val all :
   memory:Agentkit.Memory.t -> journal:Agentkit.Journal.t -> Ds4.Tool.t list
-(** [all ~memory ~journal] are the four, in the order a model meets them. *)
+(** [all ~memory ~journal] are the entry and episode tools, in the order a model
+    meets them. *)
+
+val overview : memory:Agentkit.Memory.t -> Ds4.Tool.t
+(** [overview ~memory] is a bounded map of episodic memory. *)
+
+val expand : memory:Agentkit.Memory.t -> Ds4.Tool.t
+(** [expand ~memory] drills into a current episode range. *)
+
+val summarize : memory:Agentkit.Memory.t -> Ds4.Tool.t
+(** [summarize ~memory] accepts a bounded agent-written derived summary after
+    the agent has read the range's sources. Obsolete keys are refused. *)

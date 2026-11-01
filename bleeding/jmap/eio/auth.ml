@@ -46,85 +46,18 @@ let reset s =
 let denied fmt = Fmt.kstr (fun msg -> raise (Fetch.err (Fetch.Denied msg))) fmt
 let diagnostic = Httpz_media.sanitize_diagnostic
 
-let first_line ~subject line =
-  match String.trim line with
-  | "" -> Error (Fmt.str "%s is empty" subject)
-  | line -> Ok line
-
-let max_secret_bytes = 64 * 1024
-
-let file_size_error ~subject =
-  Fmt.str "the first line of %s exceeds %d bytes" subject max_secret_bytes
-
-let eio_first_line ~subject file =
-  let reader = Eio.Buf_read.of_flow ~max_size:(max_secret_bytes + 1) file in
-  match Eio.Buf_read.line reader with
-  | line when String.length line <= max_secret_bytes -> first_line ~subject line
-  | _ -> Error (file_size_error ~subject)
-  | exception End_of_file -> first_line ~subject ""
-  | exception Eio.Buf_read.Buffer_limit_exceeded ->
-      Error (file_size_error ~subject)
-
-let native_first_line ~subject input =
-  let bytes = Bytes.create max_secret_bytes in
-  let rec read length =
-    match In_channel.input_char input with
-    | Some '\n' -> first_line ~subject (Bytes.sub_string bytes 0 length)
-    | Some _ when length = max_secret_bytes -> Error (file_size_error ~subject)
-    | Some character ->
-        Bytes.set bytes length character;
-        read (length + 1)
-    | None -> first_line ~subject (Bytes.sub_string bytes 0 length)
-  in
-  read 0
-
 let read_secret_file ?fs path =
   let subject = Fmt.str "the credential file %s" (diagnostic path) in
-  match fs with
-  | Some fs -> (
-      let read () =
-        Secret_file.with_open_in ~subject
-          ~refused:(fun message -> Error message)
-          Eio.Path.(fs / path)
-          (fun file -> eio_first_line ~subject file)
-      in
-      match read () with
-      | result -> result
-      | exception (Eio.Io _ as exn) ->
-          Error
-            (Error_context.describe
-               ~operation:(Fmt.str "reading %s" subject)
-               exn))
-  | None -> (
-      match
-        let fd =
-          (* Without [O_NONBLOCK] the open of a FIFO left in place of the
-             credential file waits for a writer; with it the open returns and
-             the kind below refuses the file. *)
-          Unix.openfile path [ Unix.O_RDONLY; O_NONBLOCK; O_CLOEXEC ] 0
-        in
-        let ic = Unix.in_channel_of_descr fd in
-        Fun.protect
-          ~finally:(fun () -> In_channel.close ic)
-          (fun () ->
-            let stat = Unix.fstat (Unix.descr_of_in_channel ic) in
-            if stat.Unix.st_kind <> Unix.S_REG then
-              Error (Secret_file.not_regular ~subject)
-            else if stat.Unix.st_perm land 0o077 <> 0 then
-              Error (Secret_file.too_open ~subject stat.Unix.st_perm)
-            else native_first_line ~subject ic)
-      with
-      | result -> result
-      | exception Sys_error msg ->
-          Error (Fmt.str "cannot read %s: %s" subject (diagnostic msg))
-      | exception Unix.Unix_error (error, operation, argument) ->
-          Error
-            (Fmt.str "cannot read %s: %s" subject
-               (diagnostic
-                  (Unix.error_message error
-                  ^
-                  if String.equal argument "" then " (" ^ operation ^ ")"
-                  else " (" ^ operation ^ " " ^ argument ^ ")"))))
+  try
+    Ok
+      (match fs with
+      | Some fs -> Sekrit_eio.read_reference ~fs path
+      | None -> Sekrit.read_reference path)
+  with
+  | Sekrit.Error message -> Error (Fmt.str "%s: %s" subject message)
+  | Eio.Io _ as exn ->
+      Error
+        (Error_context.describe ~operation:(Fmt.str "reading %s" subject) exn)
 
 let read_file ?fs path () =
   match read_secret_file ?fs path with
@@ -202,7 +135,7 @@ let to_credentials = function
   | Bearer s -> [ Fetch.Credential.Bearer (fun () -> get s) ]
   | Basic s -> [ Fetch.Credential.Basic (fun () -> split_basic (get s)) ]
 
-let redact s = if String.length s <= 4 then "***" else String.sub s 0 4 ^ "***"
+let redact _ = "***"
 
 let pp_secret ~scheme ~show ppf s =
   match (s.source, !(s.cache)) with

@@ -2,6 +2,9 @@
  (name sortal_carddav)
  (public_name sortal.carddav)
  (libraries
+  xdge
+  sekrit
+  eioext
   sortal.schema
   sortal.config
   jsont

@@ -18,7 +18,8 @@ type room_key = {
   sender_claimed_keys : (string * string) list;
       (** Signing keys claimed by the original sender, keyed by algorithm. *)
   forwarding_curve25519_key_chain : string list;
-  shared_history : bool;  (** The stable [m.shared_history] flag from MSC3061. *)
+  shared_history : bool;
+      (** The [shared_history] flag; legacy spellings are accepted on input. *)
 }
 (** One entry in the decrypted JSON array. Unknown encryption algorithms and key
     strings are retained so callers can decide which entries they support. *)

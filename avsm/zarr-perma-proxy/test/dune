@@ -1,0 +1,4 @@
+(test
+ (name test_proxy)
+ (libraries zarr-perma-proxy fetch.mock fetch-httpz proffer.mock proffer-httpz
+  zarrz zarrz-fetch eio_main jsont.bytesrw http unix))

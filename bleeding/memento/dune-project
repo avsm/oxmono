@@ -1,0 +1,13 @@
+(lang dune 3.21)
+(name memento)
+(generate_opam_files true)
+(license ISC)
+(authors "Anil Madhavapeddy")
+(maintainers "anil@recoil.org")
+(package
+ (name memento)
+ (synopsis "Memento datetime negotiation and TimeMaps")
+ (description "RFC 7089 protocol helpers and typed JSON TimeMaps with Fetch and Proffer integration.")
+ (depends (ocaml (>= "5.2.0")) fetch proffer httpz
+  (jsont (>= "0.4.0")) ptime eio eio_main fetch-httpz cmdliner stdlib_stable
+  stdlib_upstream_compatible (odoc :with-doc)))

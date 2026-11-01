@@ -271,6 +271,42 @@ let test_bad_crs () =
         true
         (substring (Crs.name crs) msg)
 
+let test_projection_reference () =
+  let check crs lon lat =
+    let tr =
+      Proj.Transformation.of_string ~src:"EPSG:4326" (Crs.name crs)
+      |> Proj.Transformation.normalize_for_visualization
+    in
+    let reference direction x y =
+      let c = Proj.Coord.make ~x ~y ~z:0. ~t:0. in
+      let r = Proj.Transformation.transform ~direction tr c in
+      (Proj.Coord.x r, Proj.Coord.y r)
+    in
+    let same label (x, y) (x', y') =
+      Alcotest.(check int64) (label ^ " x")
+        (Int64.bits_of_float x) (Int64.bits_of_float x');
+      Alcotest.(check int64) (label ^ " y")
+        (Int64.bits_of_float y) (Int64.bits_of_float y')
+    in
+    List.iter
+      (fun delta ->
+        let lon = lon +. delta in
+        let expected = reference Proj.Forward lon lat in
+        let e, n = Crs.forward crs ~lon ~lat in
+        same "forward bits" expected (e, n);
+        same "inverse bits" (reference Proj.Inverse e n)
+          (Crs.inverse crs ~e ~n))
+      [ -2.9; -0.001; 0.; 0.001; 2.9 ]
+  in
+  for zone = 1 to 60 do
+    List.iter
+      (fun lat -> check (Crs.utm_north ~zone) (Zone.centre_lon zone) lat)
+      [ -79.; -52.; -0.; 0.; 52.; 83. ]
+  done;
+  List.iter
+    (fun (lon, lat) -> check (Crs.patch ~lon ~lat) lon lat)
+    [ (-180., 52.); (0., -30.); (0., 52.); (180., 52.) ]
+
 let () =
   Alcotest.run "geodesy"
     [
@@ -291,6 +327,8 @@ let () =
       ( "crs",
         [
           Alcotest.test_case "utm golden vectors" `Quick test_utm_vectors;
+          Alcotest.test_case "projection reference" `Quick
+            test_projection_reference;
           Alcotest.test_case "southern northings" `Quick test_southern_northing;
           Alcotest.test_case "patch golden vectors" `Quick test_patch_vectors;
           Alcotest.test_case "patch identities" `Quick test_patch_identities;

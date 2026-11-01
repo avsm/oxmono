@@ -266,10 +266,10 @@ The caller remains responsible for the initial file and directory authority.
 
 ### Credential files and CLI defaults are hardened
 
-Credential files must be regular, have no group or other permission bits, and
-hold their secret on a first line no longer than 64 KiB. Both the Eio and native
-paths inspect the opened handle, so a symlink is checked at its target and there
-is no separate stat-then-open race. The CLI warns that `--api-key` is visible in
+Credential files must be owned regular files with no group or other permission
+bits and contain one line in at most 64 KiB. Both the Eio and native paths use
+Sekrit, refuse symlinks, preserve password spaces and inspect the opened handle.
+The CLI warns that `--api-key` is visible in
 the process list and points to a private key file or environment variable.
 
 ### Misleading or missing contracts are corrected

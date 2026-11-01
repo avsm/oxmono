@@ -3,6 +3,7 @@
  (public_name arod)
  (libraries
   bushel
+  stdlib_stable
   bushel.eio
   sortal.schema
   sortal.feed

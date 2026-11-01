@@ -5,6 +5,8 @@
 
 open Bytesrw
 
+module I64 = Stdlib_upstream_compatible.Int64_u
+
 (* CBOR Major Types *)
 let major_uint = 0
 let major_nint = 1
@@ -94,6 +96,7 @@ let write_u64_be enc v =
   enc.buf_pos <- enc.buf_pos + 8
 
 let write_type_arg enc major arg =
+  if arg < 0 then invalid_arg "Cbor_rw.write_type_arg: negative argument";
   let base = major lsl 5 in
   if arg < 24 then write_byte enc (base lor arg)
   else if arg < 0x100 then begin
@@ -143,6 +146,8 @@ let write_bool enc b =
   write_byte enc ((major_simple lsl 5) lor v)
 
 let write_simple enc n =
+  if n < 0 || n > 255 || (n >= 24 && n < 32) then
+    invalid_arg "Cbor_rw.write_simple: invalid simple value";
   if n < 24 then write_byte enc ((major_simple lsl 5) lor n)
   else begin
     write_byte enc ((major_simple lsl 5) lor ai_1byte);
@@ -418,7 +423,7 @@ let read_u32_be dec =
          (shift_left (of_int b1) 16)
          (logor (shift_left (of_int b2) 8) (of_int b3))))
 
-let read_u64_be dec =
+let read_u64_be_u dec =
   let b0 = read_byte dec in
   let b1 = read_byte dec in
   let b2 = read_byte dec in
@@ -427,7 +432,7 @@ let read_u64_be dec =
   let b5 = read_byte dec in
   let b6 = read_byte dec in
   let b7 = read_byte dec in
-  Int64.(
+  I64.(
     logor
       (shift_left (of_int b0) 56)
       (logor
@@ -442,6 +447,8 @@ let read_u64_be dec =
                      (shift_left (of_int b5) 16)
                      (logor (shift_left (of_int b6) 8) (of_int b7))))))))
 
+let read_u64_be dec = I64.to_int64 (read_u64_be_u dec)
+
 (* Read unsigned 64-bit as Z.t to handle full range *)
 let read_uint64_as_z dec =
   let bytes = read_bytes dec 8 in
@@ -449,45 +456,69 @@ let read_uint64_as_z dec =
 
 type header = { major : int; info : int }
 
-let read_header dec =
+let read_header_u dec =
   let b = read_byte dec in
-  { major = b lsr 5; info = b land 0x1f }
+  #(b lsr 5, b land 0x1f)
+
+let read_header dec =
+  let #(major, info) = read_header_u dec in
+  { major; info }
 
 (* Read argument as Z.t to handle full unsigned range *)
-let read_argument_z dec hdr =
-  let info = hdr.info in
+let read_argument_z dec info =
   if info < 24 then Z.of_int info
   else if info = ai_1byte then Z.of_int (read_byte dec)
   else if info = ai_2byte then Z.of_int (read_u16_be dec)
   else if info = ai_4byte then
     Z.of_int64 (Int64.logand (Int64.of_int32 (read_u32_be dec)) 0xffffffffL)
   else if info = ai_8byte then read_uint64_as_z dec
-  else if info = ai_indefinite then Z.minus_one
+  else if info = ai_indefinite then failwith "Indefinite integer"
   else failwith (Printf.sprintf "Invalid additional info: %d" info)
 
-let read_argument dec hdr =
-  let info = hdr.info in
-  if info < 24 then Int64.of_int info
-  else if info = ai_1byte then Int64.of_int (read_byte dec)
-  else if info = ai_2byte then Int64.of_int (read_u16_be dec)
+let read_argument_u dec info =
+  if info < 24 then I64.of_int info
+  else if info = ai_1byte then I64.of_int (read_byte dec)
+  else if info = ai_2byte then I64.of_int (read_u16_be dec)
   else if info = ai_4byte then
-    Int64.logand (Int64.of_int32 (read_u32_be dec)) 0xffffffffL
-  else if info = ai_8byte then read_u64_be dec
-  else if info = ai_indefinite then -1L
-  else failwith (Printf.sprintf "Invalid additional info: %d" info)
+    I64.logand (I64.of_int32 (read_u32_be dec)) #0xffffffffL
+  else if info = ai_8byte then read_u64_be_u dec
+  else if info = ai_indefinite then -#1L
+  else
+    I64.of_int64
+      (failwith (Printf.sprintf "Invalid additional info: %d" info))
+
+let read_argument dec hdr = I64.to_int64 (read_argument_u dec hdr.info)
+
+(* Only additional info 31 denotes an indefinite length. The high bit of
+   an unsigned argument must never be mistaken for that sentinel. *)
+let read_length dec info limit =
+  if info = ai_indefinite then -1
+  else
+    let arg = read_argument_u dec info in
+    if I64.compare arg #0L < 0 || I64.compare arg (I64.of_int limit) > 0 then
+      failwith "CBOR length or tag exceeds supported range";
+    I64.to_int arg
+
+let read_tag_argument dec info =
+  let tag = read_length dec info max_int in
+  if tag < 0 then failwith "Indefinite tag";
+  tag
 
 let read_int dec =
-  let hdr = read_header dec in
-  let arg = read_argument dec hdr in
-  if hdr.major = major_uint then arg
-  else if hdr.major = major_nint then Int64.(neg (succ arg))
-  else failwith "Expected integer"
+  let #(major, info) = read_header_u dec in
+  if major <> major_uint && major <> major_nint then
+    failwith "Expected integer";
+  if info = ai_indefinite then failwith "Indefinite integer";
+  let arg = read_argument_u dec info in
+  if I64.compare arg #0L < 0 then failwith "Integer exceeds signed int64 range";
+  if major = major_uint then I64.to_int64 arg
+  else I64.(to_int64 (neg (succ arg)))
 
 let read_text dec =
-  let hdr = read_header dec in
-  if hdr.major <> major_text then failwith "Expected text string";
-  let arg = read_argument dec hdr in
-  if arg >= 0L then read_bytes dec (Int64.to_int arg)
+  let #(major, info) = read_header_u dec in
+  if major <> major_text then failwith "Expected text string";
+  let arg = read_length dec info Sys.max_string_length in
+  if arg >= 0 then read_bytes dec arg
   else begin
     let buf = Buffer.create 64 in
     while
@@ -497,20 +528,20 @@ let read_text dec =
           false
       | _ -> true
     do
-      let hdr = read_header dec in
-      if hdr.major <> major_text then failwith "Expected text chunk";
-      let len = read_argument dec hdr in
-      if len < 0L then failwith "Nested indefinite text";
-      Buffer.add_string buf (read_bytes dec (Int64.to_int len))
+      let #(major, info) = read_header_u dec in
+      if major <> major_text then failwith "Expected text chunk";
+      let len = read_length dec info Sys.max_string_length in
+      if len < 0 then failwith "Nested indefinite text";
+      Buffer.add_string buf (read_bytes dec len)
     done;
     Buffer.contents buf
   end
 
 let read_bytes_data dec =
-  let hdr = read_header dec in
-  if hdr.major <> major_bytes then failwith "Expected byte string";
-  let arg = read_argument dec hdr in
-  if arg >= 0L then read_bytes dec (Int64.to_int arg)
+  let #(major, info) = read_header_u dec in
+  if major <> major_bytes then failwith "Expected byte string";
+  let arg = read_length dec info Sys.max_string_length in
+  if arg >= 0 then read_bytes dec arg
   else begin
     let buf = Buffer.create 64 in
     while
@@ -520,63 +551,68 @@ let read_bytes_data dec =
           false
       | _ -> true
     do
-      let hdr = read_header dec in
-      if hdr.major <> major_bytes then failwith "Expected bytes chunk";
-      let len = read_argument dec hdr in
-      if len < 0L then failwith "Nested indefinite bytes";
-      Buffer.add_string buf (read_bytes dec (Int64.to_int len))
+      let #(major, info) = read_header_u dec in
+      if major <> major_bytes then failwith "Expected bytes chunk";
+      let len = read_length dec info Sys.max_string_length in
+      if len < 0 then failwith "Nested indefinite bytes";
+      Buffer.add_string buf (read_bytes dec len)
     done;
     Buffer.contents buf
   end
 
 let read_float dec =
-  let hdr = read_header dec in
-  if hdr.major <> major_simple then failwith "Expected float";
-  if hdr.info = ai_2byte then decode_half (read_u16_be dec)
-  else if hdr.info = ai_4byte then Int32.float_of_bits (read_u32_be dec)
-  else if hdr.info = ai_8byte then Int64.float_of_bits (read_u64_be dec)
+  let #(major, info) = read_header_u dec in
+  if major <> major_simple then failwith "Expected float";
+  if info = ai_2byte then decode_half (read_u16_be dec)
+  else if info = ai_4byte then Int32.float_of_bits (read_u32_be dec)
+  else if info = ai_8byte then I64.float_of_bits (read_u64_be_u dec)
   else failwith "Expected float"
 
 let read_bool dec =
-  let hdr = read_header dec in
-  if hdr.major <> major_simple then failwith "Expected boolean";
-  if hdr.info = simple_false then false
-  else if hdr.info = simple_true then true
+  let #(major, info) = read_header_u dec in
+  if major <> major_simple then failwith "Expected boolean";
+  if info = simple_false then false
+  else if info = simple_true then true
   else failwith "Expected boolean"
 
 let read_null dec =
-  let hdr = read_header dec in
-  if hdr.major <> major_simple || hdr.info <> simple_null then
+  let #(major, info) = read_header_u dec in
+  if major <> major_simple || info <> simple_null then
     failwith "Expected null"
 
 let read_undefined dec =
-  let hdr = read_header dec in
-  if hdr.major <> major_simple || hdr.info <> simple_undefined then
+  let #(major, info) = read_header_u dec in
+  if major <> major_simple || info <> simple_undefined then
     failwith "Expected undefined"
 
+let read_simple_argument dec =
+  let value = read_byte dec in
+  if value < 32 then failwith "Reserved simple value encoding";
+  value
+
 let read_simple dec =
-  let hdr = read_header dec in
-  if hdr.major <> major_simple then failwith "Expected simple value";
-  if hdr.info < 24 then hdr.info
-  else if hdr.info = ai_1byte then read_byte dec
+  let #(major, info) = read_header_u dec in
+  if major <> major_simple then failwith "Expected simple value";
+  if info < 24 then info
+  else if info = ai_1byte then read_simple_argument dec
   else failwith "Expected simple value"
 
 let read_array_start dec =
-  let hdr = read_header dec in
-  if hdr.major <> major_array then failwith "Expected array";
-  let arg = read_argument dec hdr in
-  if arg < 0L then None else Some (Int64.to_int arg)
+  let #(major, info) = read_header_u dec in
+  if major <> major_array then failwith "Expected array";
+  let arg = read_length dec info max_int in
+  if arg < 0 then None else Some arg
 
 let read_map_start dec =
-  let hdr = read_header dec in
-  if hdr.major <> major_map then failwith "Expected map";
-  let arg = read_argument dec hdr in
-  if arg < 0L then None else Some (Int64.to_int arg)
+  let #(major, info) = read_header_u dec in
+  if major <> major_map then failwith "Expected map";
+  let arg = read_length dec info max_int in
+  if arg < 0 then None else Some arg
 
 let read_tag dec =
-  let hdr = read_header dec in
-  if hdr.major <> major_tag then failwith "Expected tag";
-  Int64.to_int (read_argument dec hdr)
+  let #(major, info) = read_header_u dec in
+  if major <> major_tag then failwith "Expected tag";
+  read_tag_argument dec info
 
 let is_break dec = match peek_byte dec with Some 0xff -> true | _ -> false
 
@@ -584,22 +620,39 @@ let skip_break dec =
   let b = read_byte dec in
   if b <> break_code then failwith "Expected break"
 
+let rec skip_bytes dec remaining =
+  if remaining > 0 then begin
+    if dec.slice_pos >= Bytes.Slice.length dec.slice then refill dec;
+    let take = min remaining (Bytes.Slice.length dec.slice - dec.slice_pos) in
+    dec.slice_pos <- dec.slice_pos + take;
+    dec.position <- dec.position + take;
+    skip_bytes dec (remaining - take)
+  end
+
 let rec skip dec =
-  let hdr = read_header dec in
-  match hdr.major with
-  | 0 | 1 -> ignore (read_argument dec hdr)
+  let #(major, info) = read_header_u dec in
+  match major with
+  | 0 | 1 ->
+      if info = ai_indefinite then failwith "Indefinite integer";
+      let _ = read_argument_u dec info in
+      ()
   | 2 | 3 ->
-      let arg = read_argument dec hdr in
-      if arg >= 0L then ignore (read_bytes dec (Int64.to_int arg))
-      else
+      let arg = read_length dec info max_int in
+      if arg >= 0 then skip_bytes dec arg
+      else begin
         while not (is_break dec) do
-          skip dec
+          let #(chunk_major, chunk_info) = read_header_u dec in
+          if chunk_major <> major then failwith "Invalid string chunk type";
+          let len = read_length dec chunk_info max_int in
+          if len < 0 then failwith "Nested indefinite string";
+          skip_bytes dec len
         done;
-      skip_break dec
+        skip_break dec
+      end
   | 4 ->
-      let arg = read_argument dec hdr in
-      if arg >= 0L then
-        for _ = 1 to Int64.to_int arg do
+      let arg = read_length dec info max_int in
+      if arg >= 0 then
+        for _ = 1 to arg do
           skip dec
         done
       else begin
@@ -609,9 +662,9 @@ let rec skip dec =
         skip_break dec
       end
   | 5 ->
-      let arg = read_argument dec hdr in
-      if arg >= 0L then
-        for _ = 1 to Int64.to_int arg do
+      let arg = read_length dec info max_int in
+      if arg >= 0 then
+        for _ = 1 to arg do
           skip dec;
           skip dec
         done
@@ -623,15 +676,19 @@ let rec skip dec =
         skip_break dec
       end
   | 6 ->
-      ignore (read_argument dec hdr);
+      if info = ai_indefinite then failwith "Indefinite tag";
+      let _ = read_argument_u dec info in
       skip dec
   | 7 ->
-      let info = hdr.info in
       if info < 24 then ()
-      else if info = ai_1byte then ignore (read_byte dec)
+      else if info = ai_1byte then ignore (read_simple_argument dec)
       else if info = ai_2byte then ignore (read_u16_be dec)
       else if info = ai_4byte then ignore (read_u32_be dec)
-      else if info = ai_8byte then ignore (read_u64_be dec)
+      else if info = ai_8byte then begin
+        let _ = read_u64_be_u dec in
+        ()
+      end
+      else failwith "Invalid simple/float encoding"
   | _ -> failwith "Invalid major type"
 
 (* ========== CBOR Value I/O ========== *)
@@ -661,48 +718,48 @@ let rec write_cbor enc (v : Cbor.t) =
   | Cbor.Float f -> write_float enc f
 
 let rec read_cbor dec : Cbor.t =
-  let hdr = read_header dec in
-  match hdr.major with
+  let #(major, info) = read_header_u dec in
+  match major with
   | 0 ->
-      let arg = read_argument_z dec hdr in
+      let arg = read_argument_z dec info in
       Cbor.Int arg
   | 1 ->
-      let arg = read_argument_z dec hdr in
+      let arg = read_argument_z dec info in
       Cbor.Int (Z.neg (Z.succ arg))
   | 2 ->
-      let arg = read_argument dec hdr in
-      if arg >= 0L then Cbor.Bytes (read_bytes dec (Int64.to_int arg))
+      let arg = read_length dec info Sys.max_string_length in
+      if arg >= 0 then Cbor.Bytes (read_bytes dec arg)
       else begin
         let buf = Buffer.create 64 in
         while not (is_break dec) do
-          let hdr = read_header dec in
-          if hdr.major <> major_bytes then failwith "Expected bytes chunk";
-          let len = read_argument dec hdr in
-          if len < 0L then failwith "Nested indefinite bytes";
-          Buffer.add_string buf (read_bytes dec (Int64.to_int len))
+          let #(major, info) = read_header_u dec in
+          if major <> major_bytes then failwith "Expected bytes chunk";
+          let len = read_length dec info Sys.max_string_length in
+          if len < 0 then failwith "Nested indefinite bytes";
+          Buffer.add_string buf (read_bytes dec len)
         done;
         skip_break dec;
         Cbor.Bytes (Buffer.contents buf)
       end
   | 3 ->
-      let arg = read_argument dec hdr in
-      if arg >= 0L then Cbor.Text (read_bytes dec (Int64.to_int arg))
+      let arg = read_length dec info Sys.max_string_length in
+      if arg >= 0 then Cbor.Text (read_bytes dec arg)
       else begin
         let buf = Buffer.create 64 in
         while not (is_break dec) do
-          let hdr = read_header dec in
-          if hdr.major <> major_text then failwith "Expected text chunk";
-          let len = read_argument dec hdr in
-          if len < 0L then failwith "Nested indefinite text";
-          Buffer.add_string buf (read_bytes dec (Int64.to_int len))
+          let #(major, info) = read_header_u dec in
+          if major <> major_text then failwith "Expected text chunk";
+          let len = read_length dec info Sys.max_string_length in
+          if len < 0 then failwith "Nested indefinite text";
+          Buffer.add_string buf (read_bytes dec len)
         done;
         skip_break dec;
         Cbor.Text (Buffer.contents buf)
       end
   | 4 ->
-      let arg = read_argument dec hdr in
-      if arg >= 0L then begin
-        let n = Int64.to_int arg in
+      let arg = read_length dec info max_int in
+      if arg >= 0 then begin
+        let n = arg in
         let items = List.init n (fun _ -> read_cbor dec) in
         Cbor.Array items
       end
@@ -715,9 +772,9 @@ let rec read_cbor dec : Cbor.t =
         Cbor.Array (List.rev !items)
       end
   | 5 ->
-      let arg = read_argument dec hdr in
-      if arg >= 0L then begin
-        let n = Int64.to_int arg in
+      let arg = read_length dec info max_int in
+      if arg >= 0 then begin
+        let n = arg in
         let pairs =
           List.init n (fun _ ->
               let k = read_cbor dec in
@@ -737,7 +794,7 @@ let rec read_cbor dec : Cbor.t =
         Cbor.Map (List.rev !pairs)
       end
   | 6 ->
-      let tag = Int64.to_int (read_argument dec hdr) in
+      let tag = read_tag_argument dec info in
       let content = read_cbor dec in
       (* Handle bignum tags specially *)
       if tag = tag_positive_bignum then begin
@@ -752,17 +809,16 @@ let rec read_cbor dec : Cbor.t =
       end
       else Cbor.Tag (tag, content)
   | 7 ->
-      let info = hdr.info in
       if info = simple_false then Cbor.Bool false
       else if info = simple_true then Cbor.Bool true
       else if info = simple_null then Cbor.Null
       else if info = simple_undefined then Cbor.Undefined
       else if info < 24 then Cbor.Simple info
-      else if info = ai_1byte then Cbor.Simple (read_byte dec)
+      else if info = ai_1byte then Cbor.Simple (read_simple_argument dec)
       else if info = ai_2byte then Cbor.Float (decode_half (read_u16_be dec))
       else if info = ai_4byte then
         Cbor.Float (Int32.float_of_bits (read_u32_be dec))
       else if info = ai_8byte then
-        Cbor.Float (Int64.float_of_bits (read_u64_be dec))
+        Cbor.Float (I64.float_of_bits (read_u64_be_u dec))
       else failwith "Invalid simple/float encoding"
   | _ -> failwith "Invalid major type"

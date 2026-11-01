@@ -17,7 +17,13 @@ let wire_synthesis env ~mode =
   let db = Sqlite3_eio.open_memory ~sw () in
   let store = Store.create db ~admin in
   Store.add_room store room;
-  let config = Config.default ~admin ~homeserver:"https://example.test" in
+  let config =
+    {
+      (Config.default ~admin ~homeserver:"https://example.test") with
+      tool_calls = 6;
+      parallel_tool_calls = 1;
+    }
+  in
   let rounds = ref 0 and terminal = ref 0 and original_system = ref None in
   let seen_requests = ref [] in
   let fetch =
@@ -160,7 +166,13 @@ let () =
   let store = Store.create (Sqlite3_eio.open_memory ~sw ()) ~admin in
   Store.add_room store room;
   let round = ref 0 and reply = ref "" in
-  let config = Config.default ~admin ~homeserver:"https://example.test" in
+  let config =
+    {
+      (Config.default ~admin ~homeserver:"https://example.test") with
+      tool_calls = 6;
+      parallel_tool_calls = 1;
+    }
+  in
   let engine =
     Engine.create ~config ~store ~self:"@crow:example.test" ~plugins:[]
       ~now:(fun () -> 0.)

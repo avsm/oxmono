@@ -165,3 +165,9 @@ module Calendars = Calendars
 
 module Mirror = Jmap.Mirror
 (** Alias for the storage-independent mirror state machine in [jmap]. *)
+
+module Mail = Mail
+(** Account-bound mail readers and restricted label writers. *)
+
+module Mail_text = Mail_text
+(** HTML mail text extraction without resource access. *)

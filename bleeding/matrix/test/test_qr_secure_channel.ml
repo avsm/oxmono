@@ -31,8 +31,7 @@ let test_auth_message_fixtures () =
   ignore (auth_fixture {|{"type":"m.login.success"}|});
   ignore (auth_fixture {|{"type":"m.login.declined"}|});
   ignore
-    (auth_fixture
-       {|{"type":"m.login.failure","reason":"unsupported_protocol","homeserver":null}|});
+    (auth_fixture {|{"type":"m.login.failure","reason":"unsupported_protocol"}|});
   ignore
     (auth_fixture
        {|{"type":"m.login.secrets","cross_signing":{"master_key":"master","user_signing_key":"user","self_signing_key":"self"},"backup":{"algorithm":"m.megolm_backup.v1.curve25519-aes-sha2","backup_version":"2","key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}}|})
@@ -43,8 +42,7 @@ let test_auth_message_optional_fields () =
       {
         device_authorization_grant =
           {
-            verification_uri =
-              Uriz.of_string_exn "https://id.matrix.org/device";
+            verification_uri = Uriz.of_string_exn "https://id.matrix.org/device";
             verification_uri_complete = None;
           };
         protocol = M.Device_authorization_grant;
@@ -55,6 +53,29 @@ let test_auth_message_optional_fields () =
   ignore
     (auth_fixture
        {|{"type":"m.login.failure","reason":"user_cancelled","homeserver":"https://matrix.example"}|});
+  List.iter
+    (fun homeserver ->
+      let fixture =
+        Printf.sprintf
+          {|{"type":"m.login.failure","reason":"unsupported_protocol","homeserver":"%s"}|}
+          homeserver
+      in
+      match auth_fixture fixture with
+      | M.Login_failure { homeserver = Some actual; _ } ->
+          check_string "homeserver preserved" homeserver actual
+      | _ -> Alcotest.fail "missing suggested homeserver")
+    [
+      "matrix.org";
+      "matrix.org:8448";
+      "[::1]:8448";
+      "https://matrix.example/a%2Fb?x=y";
+    ];
+  let absent = {|{"type":"m.login.failure","reason":"user_cancelled"}|} in
+  let explicit_null =
+    {|{"type":"m.login.failure","reason":"user_cancelled","homeserver":null}|}
+  in
+  check_string "null homeserver omitted" absent
+    (Result.get_ok (M.to_string (Result.get_ok (M.of_string explicit_null))));
   let padded =
     {|{"type":"m.login.secrets","cross_signing":{"master_key":"master","user_signing_key":"user","self_signing_key":"self"},"backup":{"algorithm":"m.megolm_backup.v1.curve25519-aes-sha2","backup_version":"2","key":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}}|}
   in
@@ -86,8 +107,7 @@ let test_auth_message_failure_reasons () =
       let message = M.Login_failure { reason; homeserver = None } in
       let encoded = Result.get_ok (M.to_string message) in
       let expected =
-        Printf.sprintf
-          {|{"type":"m.login.failure","reason":"%s","homeserver":null}|} wire
+        Printf.sprintf {|{"type":"m.login.failure","reason":"%s"}|} wire
       in
       check_string "failure reason fixture" expected encoded)
     reasons

@@ -2,6 +2,7 @@
  (name zarrz)
  (public_name zarrz)
  (libraries
+  base
   base64
   jsont
   jsont.bytesrw

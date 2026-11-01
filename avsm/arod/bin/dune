@@ -2,8 +2,10 @@
  (name main)
  (public_name arod)
  (package arod)
- (libraries duration
+ (libraries
+  duration
   arod
+  arod.setup
   arod.handlers
   arod.log
   arod.search
@@ -20,7 +22,7 @@
   ptime.clock
   uriz
   eio_main
-  console-eio
+  console.tty
   console
   unix
   cmdliner

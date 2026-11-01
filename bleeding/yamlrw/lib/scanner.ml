@@ -5,6 +5,20 @@
 
 (** YAML tokenizer/scanner with lookahead for ambiguity resolution *)
 
+(* Keep the scanner's option patterns while allocating their wrappers locally. *)
+module Input = struct
+  include Input
+
+  let peek t = exclave_
+    match peek_or_null t with This c -> Some c | Null -> None
+
+  let peek_nth t n = exclave_
+    match peek_nth_or_null t n with This c -> Some c | Null -> None
+
+  let peek_back t = exclave_
+    match peek_back_or_null t with This c -> Some c | Null -> None
+end
+
 type simple_key = {
   sk_possible : bool;
   sk_required : bool;
@@ -72,7 +86,7 @@ let emit t span token =
   t.token_number <- t.token_number + 1
 
 (** Get current column (1-indexed) *)
-let column t = (Input.position t.input).column
+let column t = Input.column t.input
 
 (** Get current indent level *)
 let current_indent t =
@@ -85,7 +99,7 @@ let skip_whitespace_and_comment t =
   (* Skip blanks (spaces and tabs) *)
   while Input.next_is_blank t.input do
     has_whitespace := true;
-    ignore (Input.next t.input)
+    Input.skip t.input 1
   done;
   (* Check for comment *)
   if Input.next_is (( = ) '#') t.input then begin
@@ -101,7 +115,7 @@ let skip_whitespace_and_comment t =
     end;
     (* Skip to end of line *)
     while (not (Input.is_eof t.input)) && not (Input.next_is_break t.input) do
-      ignore (Input.next t.input)
+      Input.skip t.input 1
     done
   end
 
@@ -114,7 +128,7 @@ let skip_blanks_check_tabs t =
     | Some '\t' -> found_tab := true
     | Some ' ' -> found_space := true
     | _ -> ());
-    ignore (Input.next t.input)
+    Input.skip t.input 1
   done;
   (!found_tab, !found_space)
 
@@ -129,7 +143,7 @@ let rec skip_to_next_token t =
       (* Skip to end of line to check if line has content *)
       let start_pos = Input.mark t.input in
       while Input.next_is_blank t.input do
-        ignore (Input.next t.input)
+        Input.skip t.input 1
       done;
       (* If we have content on this line with a tab, raise error *)
       if (not (Input.next_is_break t.input)) && not (Input.is_eof t.input) then
@@ -158,7 +172,7 @@ let rec skip_to_next_token t =
         (* Tab at start of line in flow context - skip tabs and check position *)
         let start_mark = Input.mark t.input in
         while Input.next_is (( = ) '\t') t.input do
-          ignore (Input.next t.input)
+          Input.skip t.input 1
         done;
         (* If only tabs were used (no spaces) and column < flow_indent, error *)
         if
@@ -170,7 +184,7 @@ let rec skip_to_next_token t =
       skip_to_next_token t
     end
     else begin
-      ignore (Input.next t.input);
+      Input.skip t.input 1;
       skip_to_next_token t
     end
   end
@@ -245,7 +259,7 @@ let stale_simple_keys t =
         match sk_opt with
         | Some sk
           when sk.sk_possible
-               && (Input.position t.input).line > sk.sk_position.line
+               && Input.line t.input > sk.sk_position.line
                && t.flow_level = 0 ->
             if sk.sk_required then Error.raise_at sk.sk_position Expected_key;
             None
@@ -268,7 +282,7 @@ let scan_anchor_alias t =
            && (not (Input.is_flow_indicator c))
            && c <> '\x00' ->
         Buffer.add_char buf c;
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         true
     | _ -> false
   do
@@ -287,14 +301,14 @@ let scan_tag_handle t =
   (match Input.peek t.input with
   | Some '!' ->
       Buffer.add_char buf '!';
-      ignore (Input.next t.input)
+      Input.skip t.input 1
   | _ -> Error.raise_at start (Invalid_tag "expected '!'"));
   (* Read word chars *)
   while
     match Input.peek t.input with
     | Some c when Input.is_alnum c || c = '-' ->
         Buffer.add_char buf c;
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         true
     | _ -> false
   do
@@ -304,7 +318,7 @@ let scan_tag_handle t =
   (match Input.peek t.input with
   | Some '!' ->
       Buffer.add_char buf '!';
-      ignore (Input.next t.input)
+      Input.skip t.input 1
   | _ -> ());
   Buffer.contents buf
 
@@ -325,11 +339,11 @@ let scan_tag_suffix t =
     match Input.peek t.input with
     | Some '%' -> (
         (* Percent-encoded character *)
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         match (Input.peek t.input, Input.peek_nth t.input 1) with
         | Some c1, Some c2 when is_hex_digit c1 && is_hex_digit c2 ->
-            ignore (Input.next t.input);
-            ignore (Input.next t.input);
+            Input.skip t.input 1;
+            Input.skip t.input 1;
             let code = (hex_val c1 * 16) + hex_val c2 in
             Buffer.add_char buf (Char.chr code);
             true
@@ -340,7 +354,7 @@ let scan_tag_suffix t =
     | Some c
       when (not (Input.is_whitespace c)) && not (Input.is_flow_indicator c) ->
         Buffer.add_char buf c;
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         true
     | _ -> false
   do
@@ -351,20 +365,20 @@ let scan_tag_suffix t =
 (** Scan a tag *)
 let scan_tag t =
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
   (* consume ! *)
   let handle, suffix =
     match Input.peek t.input with
     | Some '<' ->
         (* Verbatim tag: !<...> - handle is empty, suffix is full URI *)
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         let buf = Buffer.create 32 in
         while
           match Input.peek t.input with
           | Some '>' -> false
           | Some c ->
               Buffer.add_char buf c;
-              ignore (Input.next t.input);
+              Input.skip t.input 1;
               true
           | None ->
               Error.raise_at (Input.mark t.input)
@@ -372,7 +386,7 @@ let scan_tag t =
         do
           ()
         done;
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         (* consume > *)
         ("", Buffer.contents buf)
     | Some c when Input.is_whitespace c || Input.is_flow_indicator c ->
@@ -380,7 +394,7 @@ let scan_tag t =
         ("!", "")
     | Some '!' ->
         (* Secondary handle: !! *)
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         (* consume second ! *)
         let suffix = scan_tag_suffix t in
         ("!!", suffix)
@@ -392,7 +406,7 @@ let scan_tag t =
           match Input.peek t.input with
           | Some c when Input.is_alnum c || c = '-' ->
               Buffer.add_char buf c;
-              ignore (Input.next t.input);
+              Input.skip t.input 1;
               true
           | _ -> false
         do
@@ -402,7 +416,7 @@ let scan_tag t =
         match Input.peek t.input with
         | Some '!' ->
             (* Named handle like !e! *)
-            ignore (Input.next t.input);
+            Input.skip t.input 1;
             let handle_name = Buffer.contents buf in
             let suffix = scan_tag_suffix t in
             ("!" ^ handle_name ^ "!", suffix)
@@ -424,7 +438,7 @@ let scan_tag t =
 (** Scan single-quoted scalar *)
 let scan_single_quoted t =
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
   (* consume opening single-quote *)
   let buf = Buffer.create 64 in
   let whitespace = Buffer.create 16 in
@@ -441,21 +455,21 @@ let scan_single_quoted t =
     match Input.peek t.input with
     | None -> Error.raise_at start Unclosed_single_quote
     | Some '\'' -> (
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         (* Check for escaped quote ('') *)
         match Input.peek t.input with
         | Some '\'' ->
             flush_whitespace ();
             Buffer.add_char buf '\'';
-            ignore (Input.next t.input);
+            Input.skip t.input 1;
             loop ()
         | _ ->
             (* End of string - flush any trailing whitespace *)
             flush_whitespace ())
     | Some ' ' | Some '\t' ->
         (* Track whitespace - don't add to buf yet *)
-        Buffer.add_char whitespace (Option.get (Input.peek t.input));
-        ignore (Input.next t.input);
+        Buffer.add_char whitespace (Input.peek_exn t.input);
+        Input.skip t.input 1;
         loop ()
     | Some '\n' | Some '\r' ->
         (* Discard trailing whitespace before line break *)
@@ -463,7 +477,7 @@ let scan_single_quoted t =
         Input.consume_break t.input;
         (* Skip leading whitespace on next line *)
         while Input.next_is_blank t.input do
-          ignore (Input.next t.input)
+          Input.skip t.input 1
         done;
         (* Check for document boundary *)
         if Input.at_document_boundary t.input then
@@ -485,7 +499,7 @@ let scan_single_quoted t =
           incr empty_lines;
           Input.consume_break t.input;
           while Input.next_is_blank t.input do
-            ignore (Input.next t.input)
+            Input.skip t.input 1
           done;
           if Input.at_document_boundary t.input then
             Error.raise_at start Unclosed_single_quote;
@@ -515,7 +529,7 @@ let scan_single_quoted t =
     | Some c ->
         flush_whitespace ();
         Buffer.add_char buf c;
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         loop ()
   in
   loop ();
@@ -530,7 +544,7 @@ let decode_hex t len =
     match Input.peek t.input with
     | Some c when Input.is_hex c ->
         Buffer.add_char buf c;
-        ignore (Input.next t.input)
+        Input.skip t.input 1
     | _ -> Error.raise_at start (Invalid_hex_escape (Buffer.contents buf))
   done;
   let code = int_of_string ("0x" ^ Buffer.contents buf) in
@@ -559,7 +573,7 @@ let decode_hex t len =
 (** Scan double-quoted scalar *)
 let scan_double_quoted t =
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
   (* consume opening double-quote *)
   let buf = Buffer.create 64 in
   let whitespace = Buffer.create 16 in
@@ -578,85 +592,85 @@ let scan_double_quoted t =
     | Some '"' ->
         (* Flush trailing whitespace before closing quote to preserve it *)
         flush_whitespace ();
-        ignore (Input.next t.input)
+        Input.skip t.input 1
     | (Some ' ' | Some '\t') as c_opt ->
         (* Track whitespace - don't add to buf yet *)
         let c = match c_opt with Some c -> c | None -> assert false in
         Buffer.add_char whitespace c;
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         loop ()
     | Some '\\' ->
         (* Escape sequence - this is non-whitespace content *)
         flush_whitespace ();
         (* Commit any pending whitespace *)
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         (match Input.peek t.input with
         | None -> Error.raise_at start (Invalid_escape_sequence "\\<EOF>")
         | Some '0' ->
             Buffer.add_char buf '\x00';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some 'a' ->
             Buffer.add_char buf '\x07';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some 'b' ->
             Buffer.add_char buf '\x08';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some 't' | Some '\t' ->
             Buffer.add_char buf '\t';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some 'n' ->
             Buffer.add_char buf '\n';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some 'v' ->
             Buffer.add_char buf '\x0B';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some 'f' ->
             Buffer.add_char buf '\x0C';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some 'r' ->
             Buffer.add_char buf '\r';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some 'e' ->
             Buffer.add_char buf '\x1B';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some ' ' ->
             Buffer.add_char buf ' ';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some '"' ->
             Buffer.add_char buf '"';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some '/' ->
             Buffer.add_char buf '/';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some '\\' ->
             Buffer.add_char buf '\\';
-            ignore (Input.next t.input)
+            Input.skip t.input 1
         | Some 'N' ->
             Buffer.add_string buf "\xC2\x85";
-            ignore (Input.next t.input) (* NEL *)
+            Input.skip t.input 1 (* NEL *)
         | Some '_' ->
             Buffer.add_string buf "\xC2\xA0";
-            ignore (Input.next t.input) (* NBSP *)
+            Input.skip t.input 1 (* NBSP *)
         | Some 'L' ->
             Buffer.add_string buf "\xE2\x80\xA8";
-            ignore (Input.next t.input) (* LS *)
+            Input.skip t.input 1 (* LS *)
         | Some 'P' ->
             Buffer.add_string buf "\xE2\x80\xA9";
-            ignore (Input.next t.input) (* PS *)
+            Input.skip t.input 1 (* PS *)
         | Some 'x' ->
-            ignore (Input.next t.input);
+            Input.skip t.input 1;
             Buffer.add_string buf (decode_hex t 2)
         | Some 'u' ->
-            ignore (Input.next t.input);
+            Input.skip t.input 1;
             Buffer.add_string buf (decode_hex t 4)
         | Some 'U' ->
-            ignore (Input.next t.input);
+            Input.skip t.input 1;
             Buffer.add_string buf (decode_hex t 8)
         | Some '\n' | Some '\r' ->
             (* Line continuation escape *)
             Input.consume_break t.input;
             while Input.next_is_blank t.input do
-              ignore (Input.next t.input)
+              Input.skip t.input 1
             done
         | Some c ->
             Error.raise_at (Input.mark t.input)
@@ -675,7 +689,7 @@ let scan_double_quoted t =
           if Input.next_is (( = ) '\t') t.input then started_with_tab := true;
           (* Skip blanks (spaces/tabs) on the line *)
           while Input.next_is_blank t.input do
-            ignore (Input.next t.input)
+            Input.skip t.input 1
           done;
           (* Check if we hit another line break (empty line) *)
           if Input.next_is_break t.input then begin
@@ -719,7 +733,7 @@ let scan_double_quoted t =
         flush_whitespace ();
         (* Commit any pending whitespace *)
         Buffer.add_char buf c;
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         loop ()
   in
   loop ();
@@ -770,7 +784,7 @@ let scan_plain_scalar t =
     | Some c when Input.is_blank c && can_continue_plain t c ~in_flow ->
         (* Blank character within a line - save to whitespace buffer *)
         Buffer.add_char whitespace c;
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         scan_line ()
     | Some c when can_continue_plain t c ~in_flow ->
         (* Non-blank character - process any pending breaks/whitespace first *)
@@ -795,7 +809,7 @@ let scan_plain_scalar t =
           end;
           (* Add the character *)
           Buffer.add_char buf c;
-          ignore (Input.next t.input);
+          Input.skip t.input 1;
           leading_blanks := false;
           scan_line ()
         end
@@ -826,9 +840,9 @@ let scan_plain_scalar t =
          the scalar ends and skip_to_next_token processes line breaks. *)
       (* Skip leading blanks on the next line *)
       while Input.next_is_blank t.input do
-        ignore (Input.next t.input)
+        Input.skip t.input 1
       done;
-      let col = (Input.position t.input).column in
+      let col = Input.column t.input in
       (* Check indentation - stop if we're at or before the containing block's indent *)
       (* However, allow empty lines (line breaks) to continue even if dedented *)
       if Input.next_is_break t.input then
@@ -860,7 +874,7 @@ let scan_plain_scalar t =
 (** Scan block scalar (literal | or folded >) *)
 let scan_block_scalar t literal =
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
 
   (* consume | or > *)
 
@@ -872,26 +886,26 @@ let scan_block_scalar t literal =
   (match Input.peek t.input with
   | Some c when Input.is_digit c && c <> '0' ->
       explicit_indent := Some (Char.code c - Char.code '0');
-      ignore (Input.next t.input)
+      Input.skip t.input 1
   | Some '-' ->
       chomping := Chomping.Strip;
-      ignore (Input.next t.input)
+      Input.skip t.input 1
   | Some '+' ->
       chomping := Chomping.Keep;
-      ignore (Input.next t.input)
+      Input.skip t.input 1
   | _ -> ());
 
   (* Second character of header *)
   (match Input.peek t.input with
   | Some c when Input.is_digit c && c <> '0' && !explicit_indent = None ->
       explicit_indent := Some (Char.code c - Char.code '0');
-      ignore (Input.next t.input)
+      Input.skip t.input 1
   | Some '-' when !chomping = Chomping.Clip ->
       chomping := Chomping.Strip;
-      ignore (Input.next t.input)
+      Input.skip t.input 1
   | Some '+' when !chomping = Chomping.Clip ->
       chomping := Chomping.Keep;
-      ignore (Input.next t.input)
+      Input.skip t.input 1
   | _ -> ());
 
   (* Skip whitespace and optional comment *)
@@ -934,7 +948,7 @@ let scan_block_scalar t literal =
         !spaces_skipped < !content_indent && Input.next_is (( = ) ' ') t.input
       do
         incr spaces_skipped;
-        ignore (Input.next t.input)
+        Input.skip t.input 1
       done;
 
       (* Check if this line is empty (only spaces/tabs until break/eof) *)
@@ -971,7 +985,7 @@ let scan_block_scalar t literal =
           | None | Some '\n' | Some '\r' ->
               (* Empty/whitespace-only line in folded - skip spaces *)
               while Input.next_is_blank t.input do
-                ignore (Input.next t.input)
+                Input.skip t.input 1
               done;
               Buffer.add_char trailing_breaks '\n';
               Input.consume_break t.input;
@@ -1010,7 +1024,7 @@ let scan_block_scalar t literal =
             (* Track max indent of empty lines for later validation *)
             if !idx > !max_empty_line_indent then max_empty_line_indent := !idx;
             while Input.next_is (( = ) ' ') t.input do
-              ignore (Input.next t.input)
+              Input.skip t.input 1
             done;
             Buffer.add_char trailing_breaks '\n';
             Input.consume_break t.input;
@@ -1042,7 +1056,7 @@ let scan_block_scalar t literal =
       let extra_spaces = ref 0 in
       while Input.next_is (( = ) ' ') t.input do
         incr extra_spaces;
-        ignore (Input.next t.input)
+        Input.skip t.input 1
       done;
 
       (* Calculate actual line indentation *)
@@ -1156,7 +1170,7 @@ let scan_block_scalar t literal =
 (** Scan directive (after %) *)
 let scan_directive t =
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
 
   (* consume % *)
 
@@ -1166,7 +1180,7 @@ let scan_directive t =
     match Input.peek t.input with
     | Some c when Input.is_alnum c || c = '-' ->
         Buffer.add_char name_buf c;
-        ignore (Input.next t.input);
+        Input.skip t.input 1;
         true
     | _ -> false
   do
@@ -1176,7 +1190,7 @@ let scan_directive t =
 
   (* Skip blanks *)
   while Input.next_is_blank t.input do
-    ignore (Input.next t.input)
+    Input.skip t.input 1
   done;
 
   match name with
@@ -1191,7 +1205,7 @@ let scan_directive t =
       done;
       (* Expect . *)
       (match Input.peek t.input with
-      | Some '.' -> ignore (Input.next t.input)
+      | Some '.' -> Input.skip t.input 1
       | _ ->
           Error.raise_at (Input.mark t.input)
             (Invalid_yaml_version "expected '.'"));
@@ -1212,7 +1226,7 @@ let scan_directive t =
       let handle = scan_tag_handle t in
       (* Skip blanks *)
       while Input.next_is_blank t.input do
-        ignore (Input.next t.input)
+        Input.skip t.input 1
       done;
       (* Read prefix *)
       let prefix_buf = Buffer.create 32 in
@@ -1220,7 +1234,7 @@ let scan_directive t =
         match Input.peek t.input with
         | Some c when not (Input.is_whitespace c) ->
             Buffer.add_char prefix_buf c;
-            ignore (Input.next t.input);
+            Input.skip t.input 1;
             true
         | _ -> false
       do
@@ -1233,7 +1247,7 @@ let scan_directive t =
       (* Reserved/Unknown directive - skip to end of line and ignore *)
       (* Per YAML spec, reserved directives should be ignored with a warning *)
       while (not (Input.is_eof t.input)) && not (Input.next_is_break t.input) do
-        ignore (Input.next t.input)
+        Input.skip t.input 1
       done;
       let span = Span.make ~start ~stop:(Input.mark t.input) in
       (* Return an empty tag directive token to indicate directive was processed but ignored *)
@@ -1256,7 +1270,7 @@ let rec fetch_next_token t =
   else begin
     match Input.peek t.input with
     | None -> fetch_stream_end t
-    | Some '%' when (Input.position t.input).column = 1 -> fetch_directive t
+    | Some '%' when Input.column t.input = 1 -> fetch_directive t
     | Some '[' -> fetch_flow_collection_start t Token.Flow_sequence_start
     | Some '{' -> fetch_flow_collection_start t Token.Flow_mapping_start
     | Some ']' -> fetch_flow_collection_end t Token.Flow_sequence_end
@@ -1306,7 +1320,7 @@ and fetch_document_indicator t =
     t.document_has_content <- false;
     (* After document end marker, skip whitespace and check for end of line or comment *)
     while Input.next_is_blank t.input do
-      ignore (Input.next t.input)
+      Input.skip t.input 1
     done;
     match Input.peek t.input with
     | None -> () (* EOF is ok *)
@@ -1347,7 +1361,7 @@ and fetch_flow_collection_start t token_type =
   t.simple_keys <- None :: t.simple_keys;
   t.document_has_content <- true;
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
   let span = Span.make ~start ~stop:(Input.mark t.input) in
   emit t span token_type
 
@@ -1359,7 +1373,7 @@ and fetch_flow_collection_end t token_type =
   t.simple_keys <- (match t.simple_keys with _ :: rest -> rest | [] -> []);
   t.allow_simple_key <- false;
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
   (* Allow adjacent values after flow collection ends *)
   if t.flow_level > 0 then
     t.adjacent_value_allowed_at <- Some (Input.position t.input);
@@ -1370,7 +1384,7 @@ and fetch_flow_entry t =
   remove_simple_key t;
   t.allow_simple_key <- true;
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
   let span = Span.make ~start ~stop:(Input.mark t.input) in
   emit t span Token.Flow_entry
 
@@ -1397,7 +1411,7 @@ and fetch_block_entry t =
   t.allow_simple_key <- true;
   t.document_has_content <- true;
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
 
   (* Check for tabs after - : pattern like -\t- is invalid *)
   let found_tabs, _found_spaces = skip_blanks_check_tabs t in
@@ -1437,7 +1451,7 @@ and fetch_key t =
   t.allow_simple_key <- t.flow_level = 0;
   t.document_has_content <- true;
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
 
   (* Check for tabs after ? : pattern like ?\t- or ?\tkey is invalid *)
   let found_tabs, _found_spaces = skip_blanks_check_tabs t in
@@ -1462,8 +1476,8 @@ and check_value t =
       &&
       match t.adjacent_value_allowed_at with
       | Some pos ->
-          pos.Position.line = (Input.position t.input).Position.line
-          && pos.Position.column = (Input.position t.input).Position.column
+          pos.Position.line = Input.line t.input
+          && pos.Position.column = Input.column t.input
       | None -> false)
 
 and fetch_value t =
@@ -1482,7 +1496,7 @@ and fetch_value t =
         in
         if
           is_implicit_flow_mapping
-          && sk.sk_position.line < (Input.position t.input).line
+          && sk.sk_position.line < Input.line t.input
         then Error.raise_at start Illegal_flow_key_line;
         (* Insert KEY token before the simple key value *)
         let key_span = Span.point sk.sk_position in
@@ -1540,7 +1554,7 @@ and fetch_value t =
   t.allow_simple_key <- (not used_simple_key) && t.flow_level = 0;
   t.document_has_content <- true;
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
 
   (* Check for tabs after : : patterns like :\t- or :\tkey: are invalid in block context (Y79Y/09)
      However, :\t bar (tab followed by space then content) is valid (6BCT) *)
@@ -1569,7 +1583,7 @@ and fetch_anchor_or_alias t ~is_alias =
   t.allow_simple_key <- false;
   t.document_has_content <- true;
   let start = Input.mark t.input in
-  ignore (Input.next t.input);
+  Input.skip t.input 1;
   (* consume * or & *)
   let name, span = scan_anchor_alias t in
   let span = Span.make ~start ~stop:span.stop in

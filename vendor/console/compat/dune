@@ -1,0 +1,1 @@
+(library (name console_compat) (public_name console.compat) (flags -w -a))

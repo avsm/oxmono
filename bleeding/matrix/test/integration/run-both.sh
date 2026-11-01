@@ -156,8 +156,8 @@ run_synapse_suite() {
   log "run-both.sh: running the full Synapse reference suite"
   env MATRIX_TEST_PROFILE= MATRIX_REQUIRE_HOMESERVER=1 \
     MATRIX_TEST_HOMESERVER="http://127.0.0.1:$SYNAPSE_PORT" \
-    dune exec --only-packages matrix-chat --build-dir "$DUNE_BUILD_DIR" \
-    test/integration/test_homeserver.exe -- test --color=never
+    MATRIX_TEST_DUNE_BUILD_DIR="$DUNE_BUILD_DIR" \
+    bash "$HERE/run-homeserver.sh"
 }
 
 run_dendrite_core() {

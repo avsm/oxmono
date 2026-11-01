@@ -56,7 +56,7 @@ let () =
     if !rounds mod 2 = 0 then (Some "Reply", [])
     else begin
       check "Matrix tools exposed to approved model requests"
-        (List.length tools = 10);
+        (List.length tools = 12);
       ( None,
         [
           Agentkit.Agent.
@@ -100,7 +100,7 @@ let () =
   in
   let initial =
     Printf.sprintf
-      {|{"next_batch":"initial","rooms":{"join":{%s,"!room:example.org":{"state":{"events":[{"type":"m.room.topic","state_key":"","content":{"topic":"Robot workshop"}},{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}},"!dm:example.org":{"state":{"events":[{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}}}}}|}
+      {|{"next_batch":"initial","rooms":{"join":{%s,"!room:example.org":{"state":{"events":[{"type":"m.room.canonical_alias","state_key":"","content":{"alias":"#workshop:example.org"}},{"type":"m.room.name","state_key":"","content":{"name":"Workshop"}},{"type":"m.room.topic","state_key":"","content":{"topic":"Robot workshop"}},{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join","displayname":"Anil Madhavapeddy"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}},"!dm:example.org":{"state":{"events":[{"type":"m.room.member","state_key":"@admin:example.org","content":{"membership":"join","displayname":"Anil Madhavapeddy"}},{"type":"m.room.member","state_key":"@crow:example.org","content":{"membership":"join"}}]},"timeline":{"events":[],"limited":false}}}}}|}
       (String.concat "," rooms)
   in
   let pending = ref [ initial ] in
@@ -191,7 +191,41 @@ let () =
           check "live topic and current room"
             (field "topic" Jsont.string info = "Robot workshop"
             && field "current" Jsont.bool info);
+          let aliases =
+            field "rooms" (Jsont.list Jsont.json) last
+            |> List.map (encode Jsont.json)
+          in
+          check "room listing supplies readable aliases"
+            (List.exists (fun text ->
+               field "canonical_alias" (Jsont.option Jsont.string) text
+               = Some "#workshop:example.org") aliases);
+          let aliased = Result.get_ok
+              (query "matrix_room_info" {|{"room":"#workshop:example.org"}|}) in
+          check "room inspection accepts aliases"
+            (field "room" Jsont.string aliased = room);
+          let metadata = Option.get (Matrix_client.Base_client.find_room
+              ((Option.get !state) ()) (Id.Room_id.of_string_exn room)) in
+          check "alias preferred to name"
+            (Matrix_rooms.room_label metadata = "#workshop:example.org");
+          check "name fallback"
+            (Matrix_rooms.room_label {metadata with canonical_alias = None}
+             = "Workshop");
+          check "ID fallback for unnamed room"
+            (Matrix_rooms.room_label
+               {metadata with canonical_alias = None; name = None} = room);
           check "membership metadata" (field "known_members" Jsont.int info = 2);
+          let members = field "members" (Jsont.list Jsont.json) info
+              |> List.map (encode Jsont.json) in
+          check "member IDs retain room display names for mention resolution"
+            (List.exists (fun member ->
+               field "user" Jsont.string member = admin
+               && field "display_name" (Jsont.option Jsont.string) member
+                  = Some "Anil Madhavapeddy") members);
+          check "missing display names remain explicit"
+            (List.exists (fun member ->
+               field "user" Jsont.string member = self
+               && field "display_name" (Jsont.option Jsont.string) member = None)
+               members);
           check "nonjoined room refused"
             (Result.is_error
                (query "matrix_room_info" {|{"room":"!absent:example.org"}|}));
@@ -209,15 +243,18 @@ let () =
             (Result.is_error
                (query ~actor:"@guest:example.org" "matrix_rooms" "{}"));
           let post ?actor args = query ?actor "matrix_send" args in
+          let posted = Result.get_ok (post
+              {|{"room":"#workshop:example.org","text":"Link test."}|}) in
+          check "successful posts include an event permalink"
+            (field "permalink" Jsont.string posted =
+               "https://matrix.to/#/%21room%3Aexample.org/%24sent");
+          sent := [];
           check "requester posts to a room they belong to"
             (Result.is_ok
                (post {|{"room":"!room:example.org","text":"Read **this**."}|})
             && (match !sent with
                | [ ("!room:example.org", text) ] ->
-                   String.starts_with ~prefix:"Read **this**." text
-                   && String.ends_with
-                        ~suffix:"(sent at the request of @admin:example.org)"
-                        text
+                   text = "Read **this**."
                | _ -> false));
           Store.set_person store ~actor:admin ~user:"@guest:example.org"
             ~role:Friend ~allowed:true;

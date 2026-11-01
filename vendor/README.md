@@ -25,7 +25,9 @@ working tree. `--jobs` controls concurrency and `--timeout` bounds each query.
 It also checks that every vendor directory has a manifest entry.
 
 `branch: "HEAD"` follows the repository's default branch. An explicit branch
-name can be recorded when maintaining a particular upstream branch.
+name can be recorded when maintaining a particular upstream branch. A full
+`refs/tags/TAG` value follows a release tag and resolves annotated tags to
+their commits.
 
 | Status | Meaning |
 | --- | --- |
@@ -76,6 +78,44 @@ python3 vendor/test_check_upstreams.py
 Eio's detailed import and patch history is in [eio/VENDORED.md](eio/VENDORED.md).
 Libraries embedded inside HTTPz are tracked separately in
 [bleeding/httpz/VENDORED.md](../bleeding/httpz/VENDORED.md).
+
+## 2026-10-15 release refresh
+
+Merged Checkseum 0.5.4, Digestif 1.4.0, Dockerfile 8.4.5, opam core/format
+2.6.1 and sqlite-vec 0.1.9 against their recorded bases. Local compiler
+adaptations and import scopes are retained. Provenance records include the
+new revisions and downloaded archive SHA-256 checksums. The opam archive
+also matches the published opam-repository SHA-512. The sqlite-vec archive
+matches its published GitHub asset digest, and both amalgamation files remain
+byte-for-byte upstream sources.
+
+The manifest now covers sqlite-vec. Nx tracks its existing alpha3 tag through
+`refs/tags/1.0.0_alpha3`, including annotated-tag resolution in the checker.
+Eio remains at 1.6. Mirage Crypto remains before ARC4 removal.
+
+Validation with `5.2.0+ox` and `release-check`:
+
+- Siftbot, D10, Osdist, ox and HTTPz consumer tests passed, including ox's
+  repository/build integration and the existing opam compatibility fixture.
+- Digestif's C backend passed all 695 upstream cases. Pristine Digestif 1.4.0
+  on stock OCaml 5.4.1 passed the same 695 C cases and 694 OCaml quick cases.
+  Portable BLAKE3 helper checks and sqlite-vec long-metadata deletion checks
+  passed in consumer tests.
+- Both Checkseum backends passed 21 cases after fixing the path-dependent
+  bibliography fixture. The checksum of the raw bytes was independently
+  checked with zlib. Pristine upstream also passes 21 cases per backend.
+- Both Dockerfile test suites passed. Its retained implementation sources
+  match upstream exactly. The pristine opam 2.6.1 probe on stock OCaml 5.4.1
+  matches the existing canonical-format/hash/environment fixture byte for byte.
+- The upstream checker's offline tests passed, including lightweight,
+  annotated and missing release tags. The updated Nx and sqlite-vec records
+  were checked live.
+
+The optional Digestif OCaml backend retains its pre-existing OxCaml
+local-buffer callback type errors. Its upstream optimized sources are
+included, but only the C backend is validated in the OxCaml workspace.
+Formatting retains the installed formatter/version mismatch. Six whitespace
+diagnostics in sqlite-vec's C source are preserved from the upstream archive.
 
 ## 2026-10-03 refresh and validation
 
@@ -187,3 +227,24 @@ Jsonm 1.0.2 was added on 2026-09-08 for JMAP's I-JSON validation. Its
 [port notes](jsonm/README.md) record the release base, compiler-checked
 annotations and differential test against pristine sources. With the earlier
 Uunf import, the manifest now records 38 vendors.
+
+## oi library dependencies
+
+The [oi library import](../docs/oi-library-import.md) adds opam core/format,
+opam-file-format, ocamlgraph, SHA, swhid_core, patch and Dockerfile sources.
+Their individual `OXMONO.md` and `OXMONO.json` files record release checksums,
+compiler adaptations and scoped validation.
+
+## Runner solver libraries
+
+`opam-0install` 0.6.0 and `0install-solver` 2.18 supply the in-process solver
+for ox. Only generic solver libraries are retained. Implementations match the
+checksum-verified upstream archives. Directory/switch contexts and application
+CLIs are omitted, so the library depends on opam-format without opam-state.
+See each directory's `OXMONO.md` and `OXMONO.json` for scope and provenance.
+Validate through `dune runtest avsm/ox --force` and
+`dune build --profile release-check @avsm/ox/all`.
+
+Upstream source, changelog and license whitespace is preserved. The two new
+solver imports contribute eight unchanged whitespace diagnostics to
+`git diff --check`.

@@ -1,0 +1,30 @@
+(test
+ (name test_retrieval)
+ (modules test_retrieval)
+ (libraries retrieval eio_main sqlite3))
+
+(test
+ (name test_http)
+ (modules test_http)
+ (libraries retrieval eio_main fetch.mock))
+
+(test
+ (name test_algorithms)
+ (modules test_algorithms)
+ (libraries retrieval))
+
+(test
+ (name test_vector)
+ (modules test_vector)
+ (libraries retrieval sqlite3 sqlite-vec))
+
+(test
+ (name test_sql)
+ (modules test_sql)
+ (libraries retrieval sqlite3))
+
+(test
+ (name test_mlx)
+ (modules test_mlx)
+ (enabled_if %{lib-available:apple-mlx-embeddings})
+ (libraries retrieval.mlx retrieval jsont eio_main unix))

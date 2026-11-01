@@ -71,6 +71,7 @@ let backlinks g slug = find g.backlinks slug
 let outbound g slug = find g.outbound slug
 let external_urls g slug = find g.external_by_entry slug
 let all_external_links g = g.external_links
+let all_internal_links g = g.internal_links
 
 let entry_type_of_entry = function
   | `Paper _ -> `Paper

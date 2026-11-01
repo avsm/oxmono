@@ -102,7 +102,7 @@ let api_key_term =
 let api_key_file_term =
   let doc =
     Printf.sprintf
-      "File containing JMAP API key. Can also be set with %s environment \
+      "Private file or sekrit:NAME containing the JMAP API key. Set with %s environment \
        variable."
       (env_var_name "API_KEY_FILE")
   in
@@ -323,10 +323,12 @@ let resolve env cfg =
       let* profile =
         Profile.load store name |> Result.map_error Profile.error_to_string
       in
-      let profile_auth, profile_key =
+      let profile_auth, profile_key, profile_file =
         match Profile.credential profile with
-        | Profile.Bearer token -> (Bearer, token)
-        | Profile.Basic { user; password } -> (Basic, user ^ ":" ^ password)
+        | Profile.Bearer token -> (Bearer, token, None)
+        | Profile.Basic { user; password } -> (Basic, user ^ ":" ^ password, None)
+        | Profile.Bearer_ref source -> (Bearer, "", Some source)
+        | Profile.Basic_ref source -> (Basic, "", Some source)
       in
       Ok
         {
@@ -340,6 +342,8 @@ let resolve env cfg =
             (if use_profile_credential then profile_key else cfg.api_key);
           api_key_source =
             (if use_profile_credential then Profile name else cfg.api_key_source);
+          api_key_file =
+            (if use_profile_credential then profile_file else cfg.api_key_file);
           auth =
             (if use_profile_credential && cfg.auth_source = Default then
                profile_auth

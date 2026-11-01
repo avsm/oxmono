@@ -65,7 +65,7 @@ let policy sw =
   bind_rw ~account:"a" ~api_url:"https://example.test/api";
   check "cannot rebind account"
     (rejected (fun () -> bind ~account:"b" ~api_url:"https://example.test/api"));
-  check "cannot bind cross origin"
+  check "cannot change bound API endpoint"
     (rejected (fun () -> bind_rw ~account:"a" ~api_url:"https://evil.test/api"));
   let send client ?(headers = Fetch.Header.[])
       ?(url = "https://example.test/api") ?(meth = `POST) body =
@@ -351,12 +351,12 @@ let operations env sw ~relative_api =
       (List.map
          (fun ((k, _), v) ->
            ( k,
-             if k = "apiUrl" then Jsont.Json.string "https://evil.test/api"
+             if k = "apiUrl" then Jsont.Json.string "http://example.test/api"
              else v ))
          (match decode session with
          | Jsont.Object (fs, _) -> fs
          | _ -> assert false));
-  check "cross-origin discovery rejected"
+  check "HTTP API discovery rejected"
     (rejected (fun () ->
          Mail.connect_read_only ~sw ~fetch ~clock ~token:"ro-fixture"
            "https://example.test/session"))

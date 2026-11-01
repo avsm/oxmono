@@ -17,6 +17,10 @@ operators allow the source to compile on OxCaml's OCaml 5.2 base. Dune metadata
 declares this partial package and removes upstream MDX stanzas. No parsing or
 encoding algorithm is changed.
 
+`codec.opam` is generated from this partial package's `dune-project` and is
+checked in so ox can discover it. Regenerate it with
+`dune build vendor/ocaml-codec/codec.opam` after changing package metadata.
+
 ## Refresh and verify
 
 Copy the four source directories from the recorded base or a reviewed newer

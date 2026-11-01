@@ -1,5 +1,7 @@
 # Unreleased
 
+Avoid copying singleton owned packet encodings in `V5.Packet.to_bytes`.
+
 Encode outgoing headers once into bytes, preserve sessions after oversized
 requests, validate CONNECT settings and expose a composable TOML codec.
 

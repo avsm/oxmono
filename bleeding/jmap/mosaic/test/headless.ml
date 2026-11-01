@@ -55,18 +55,26 @@ let credentials (cfg : Cli.config) =
           url = cfg.session_url;
           scheme;
           user = String.sub cfg.api_key 0 i;
+          secret_ref = cfg.api_key_file;
           secret =
             String.sub cfg.api_key (i + 1) (String.length cfg.api_key - i - 1);
         }
   | _ ->
-      Model.{ url = cfg.session_url; scheme; user = ""; secret = cfg.api_key }
+      Model.
+        {
+          url = cfg.session_url;
+          scheme;
+          user = "";
+          secret = cfg.api_key;
+          secret_ref = cfg.api_key_file;
+        }
 
 (* The Cyrus test server accepts any password for its users, so a credential
    it refuses has to name a user it does not have. *)
 let wrong (c : Model.credentials) =
   match c.scheme with
-  | Model.Bearer -> { c with secret = c.secret ^ "-wrong" }
-  | Model.Basic -> { c with user = c.user ^ "-wrong" }
+  | Model.Bearer -> { c with secret_ref = None; secret = c.secret ^ "-wrong" }
+  | Model.Basic -> { c with secret_ref = None; user = c.user ^ "-wrong" }
 
 let listed client ~account_id box =
   Client.call_exn client ~capabilities:Io.capabilities

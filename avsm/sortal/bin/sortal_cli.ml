@@ -11,10 +11,10 @@ let accent = C.Color.rgb 0x4b 0xc9 0xc3
 let highlight = C.Style.(bold + fg accent)
 let muted = C.Style.fg C.Color.bright_black
 
-let styled style value = C.Span.sanitize (C.Span.styled style value)
+let styled style value = C.View.styled style (C.View.text value)
 
 let list_contacts xdg =
-  if not (Console_eio.is_tty ()) then Sortal.Cmd.list_cmd xdg
+  if not (Console_tty.is_terminal Unix.stdout) then Sortal.Cmd.list_cmd xdg
   else
     let contacts =
       Sortal.list (Sortal.create_from_xdg xdg)
@@ -22,19 +22,19 @@ let list_contacts xdg =
     in
     let rows = List.map (fun contact ->
       [ styled highlight ("@" ^ Sortal.Contact.handle contact);
-        C.Span.sanitize (C.Span.text (Sortal.Contact.name contact)) ])
+        (C.View.text (Sortal.Contact.name contact)) ])
       contacts in
-    let summary = C.Span.concat
+    let summary = C.View.concat
       [ styled highlight "Contacts";
-        C.Span.text "  ";
+        C.View.text "  ";
         styled muted (Fmt.str "%d total" (List.length contacts)) ] in
-    Fmt.pr "%a@.%a@." C.Span.pp summary C.Table.pp
-      (C.Table.of_rows ~border:C.Border.rounded
-         C.Table.[column "Handle"; column "Name"] rows);
+    Fmt.pr "%a@.%a@." C.View.pp summary C.View.pp
+      (C.Table.view ~border:C.Border.rounded
+         C.Table.[column (C.View.text "Handle"); column (C.View.text "Name")] rows);
     0
 
 let show_contact handle xdg =
-  if not (Console_eio.is_tty ()) then Sortal.Cmd.show_cmd handle xdg
+  if not (Console_tty.is_terminal Unix.stdout) then Sortal.Cmd.show_cmd handle xdg
   else
     let store = Sortal.create_from_xdg xdg in
     match Sortal.lookup store handle with
@@ -47,27 +47,27 @@ let show_contact handle xdg =
       let kind = match Contact.kind contact with
         | Contact.Person -> "person"
         | Contact.Organization -> "organization" in
-      let identity = C.Panel.lines
+      let identity = C.Panel.view
         ~title:(styled highlight name)
-        [ styled highlight ("@" ^ Contact.handle contact);
-          C.Span.concat
-            [ styled muted "UID  "; C.Span.text uid;
-              styled muted "   Kind  "; C.Span.text kind ] ] in
-      Fmt.pr "%a@." C.Panel.pp identity;
+        (C.View.vcat [ styled highlight ("@" ^ Contact.handle contact);
+          C.View.concat
+            [ styled muted "UID  "; C.View.text uid;
+              styled muted "   Kind  "; C.View.text kind ] ]) in
+      Fmt.pr "%a@." C.View.pp identity;
       let section title values =
         if values <> [] then begin
-          Fmt.pr "@.%a@." C.Span.pp (styled highlight title);
+          Fmt.pr "@.%a@." C.View.pp (styled highlight title);
           List.iter (fun value ->
             Fmt.pr "  %a %a@."
-              C.Span.pp (styled muted "•") C.Span.pp value) values
+              C.View.pp (styled muted "•") C.View.pp value) values
         end in
       let plain values = List.map (fun value ->
-        C.Span.sanitize (C.Span.text value)) values in
+        (C.View.text value)) values in
       section "Names" (plain (Contact.names contact));
       section "Emails" (List.map (fun email ->
         styled C.Style.underline email) (Contact.emails contact));
       section "Accounts" (List.map (fun account ->
-        C.Span.concat
+        C.View.concat
           [ styled muted
               (Sortal_schema.Platform.key
                  (Contact.Account.platform account) ^ "  ");
@@ -78,29 +78,29 @@ let show_contact handle xdg =
           | None -> link.url
           | Some description -> description ^ "  " ^ link.url in
         let link_span =
-          try C.Span.link ~style:C.Style.underline ~uri:link.url label
-          with Invalid_argument _ -> C.Span.text label in
-        C.Span.sanitize link_span) (Contact.links contact));
+          try C.View.link ~uri:link.url (C.View.styled C.Style.underline (C.View.text label))
+          with Invalid_argument _ -> C.View.text label in
+        link_span) (Contact.links contact));
       section "Affiliations" (List.map (fun (a : Contact.affiliation) ->
-        C.Span.sanitize (C.Span.text
+        (C.View.text
           (a.org ^ Option.fold ~none:"" ~some:(fun title -> " · " ^ title)
              a.title))) (Contact.affiliations contact));
       section "Feeds" (List.map (fun feed ->
-        C.Span.concat
+        C.View.concat
           [ styled C.Style.underline (Sortal.Feed.url feed);
             (if Sortal.Feed.paused feed then styled muted "  paused"
-             else C.Span.empty) ]) (Contact.feeds contact));
+             else C.View.empty) ]) (Contact.feeds contact));
       Option.iter (fun photo -> section "Photo" (plain [photo]))
         (Contact.photo contact);
       section "Passthrough properties" (List.map (fun (key, value) ->
-        C.Span.concat [styled muted (key ^ "  "); C.Span.text value]
-        |> C.Span.sanitize) (Contact.vcard contact));
+        C.View.concat [styled muted (key ^ "  "); C.View.text value]
+        ) (Contact.vcard contact));
       0
 
 (* Main command *)
 let () =
   Random.self_init ();
-  Console_eio.setup ();
+  Console_tty.setup ();
 
   let exit_code = Eio_main.run @@ fun env ->
 
@@ -125,7 +125,7 @@ let () =
       and+ main = main_term
       and+ log_level = Logs_cli.level ()
       and+ style_renderer = Fmt_cli.style_renderer () in
-      Console_eio.setup ?style_renderer ();
+      Console_tty.setup ?style_renderer ();
       Logs.set_reporter (Logs_fmt.reporter ~app:Fmt.stdout ~dst:Fmt.stderr ());
       Logs.set_level log_level;
       main xdg

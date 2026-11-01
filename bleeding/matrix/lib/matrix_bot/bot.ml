@@ -620,7 +620,7 @@ let wait_first_response bot =
   in
   loop ()
 
-let start ?params ?on_start ctx the_spec =
+let start ?params ?on_start ?verification ctx the_spec =
   Eio.Switch.run @@ fun sw ->
   let own = Context.user_id ctx in
   let sync =
@@ -630,7 +630,7 @@ let start ?params ?on_start ctx the_spec =
   let the_runtime =
     Ui.Runtime.create ~sw ~clock:(Context.clock ctx)
       ~client:(Context.client ctx) ~sync ?encryption:(Context.encryption ctx)
-      ?event_store:(Context.event_store ctx) ()
+      ?event_store:(Context.event_store ctx) ?verification ()
   in
   let stop_promise, stop_resolver = Eio.Promise.create () in
   let bot =
@@ -675,7 +675,7 @@ let start ?params ?on_start ctx the_spec =
      switch body by an exception is what cancels them. *)
   raise Finished
 
-let run ?params ?on_start ctx the_spec =
+let run ?params ?on_start ?verification ctx the_spec =
   Fun.protect
     ~finally:(fun () -> Eio.Cancel.protect (fun () -> Context.save ctx))
-    (fun () -> try start ?params ?on_start ctx the_spec with Finished -> ())
+    (fun () -> try start ?params ?on_start ?verification ctx the_spec with Finished -> ())

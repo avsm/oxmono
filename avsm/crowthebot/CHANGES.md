@@ -1,5 +1,66 @@
 # Changes
 
+- Encrypt named tool configurations with Sekrit and add explicit plaintext
+  migration using the central master key.
+
+- Use existing Dooit tasks with audit, retries and current permissions. Git
+  writes synchronize, Local stays local, and WebDAV writes fail explicitly.
+
+- Use Bushel's shared index and embedding configuration for knowledge tools,
+  rechecking Crow's existing permissions for every invocation.
+
+- Keep default replies brief in direct messages and shared rooms, with light
+  Markdown formatting. Upgrade built-in prompts while preserving custom ones.
+
+- Route questions about the owner's website and latest posts to dedicated
+  Bushel tools, independently of subscribed feeds.
+
+- Reuse memory summary trees while source content is unchanged. Recheck all
+  authoritative sources before accepting summaries after inference.
+
+- Add shared address search and reverse-geocoding tools using Nominatim,
+  with marpe defaults, bounded results and explicit service errors.
+
+- Allow trusted HTTP model endpoints with an explicit `allow_http_model`
+  profile setting.
+
+- Share the restricted mail reader and label writer with the JMAP library.
+
+- Prefer message links for cross-room confirmations. Include member display
+  names for resolving informal names into Matrix mentions.
+
+- Raise configurable turn limits to 256 calls, 64 KiB results and 8 MiB of tool
+  context. Allow eight concurrent reads and larger Matrix history pages.
+
+- Add paginated room-history review with current membership checks, encrypted
+  excerpts and message references for summaries.
+
+- Manage Crow's account cross-signing keys automatically, sign its saved device
+  and use the identity for live verification. Retain keys across setup retries.
+
+- Post verification emoji in the admin DM and confirm Crow's side automatically.
+  Complete or cancel verification in the Matrix client without a DM reply.
+
+- Use room aliases or names in onboarding notices and accept them in approval
+  commands. Include aliases in Matrix room listings for model replies.
+
+- DM the admin to approve invited groups, recover joined disabled rooms on
+  startup, and perform live SAS device verification without stopping Crow.
+
+- Fetch and analyse public websites with User-Agent crowthebot, bounded text
+  paging and durable tool auditing plus HTTP request/status logs.
+- Add a separate audited HTTP POST tool with typed bodies, bounded responses
+  and no redirects or automatic retries.
+
+- Include a cached memory overview in each authorized turn within the existing
+  context budget, with bounded tool results and request text.
+
+- Keep shared-room posts brief and direct. Remove automatic requester
+  attribution from messages sent through `matrix_send`.
+
+- Add bounded memory overviews and range expansion with model-written summaries.
+  Erasing a fact atomically clears the derived summary cache.
+
 - Add `fresh` to `location_get`, which asks the phone for a new OwnTracks fix
   over MQTT and waits up to 30 seconds for it.
 

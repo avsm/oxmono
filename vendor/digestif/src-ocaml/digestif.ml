@@ -373,6 +373,94 @@ module Make_BLAKE2 (H : Hash_BLAKE2) (D : Desc) = struct
   end
 end
 
+module type Hash_BLAKE3 = sig
+  include Hash
+
+  val init_keyed : string -> ctx
+  val init_derive_key : string -> ctx
+  val unsafe_get_xof : ctx -> seek:int64 -> By.t -> int -> int -> unit
+end
+
+module Make_BLAKE3 (H : Hash_BLAKE3) = struct
+  include
+    Make
+      (H)
+      (struct
+        let digest_size, block_size = (32, 64)
+      end)
+
+  let key_size = 32
+  let init_keyed ~key = H.init_keyed key
+  let init_derive_key ~context = H.init_derive_key context
+
+  let get_xof_into_bytes ctx ?(seek = 0L) ?(off = 0) ?len buf =
+    if seek < 0L then invalid_arg "BLAKE3 XOF seek must be non-negative" ;
+    let len = match len with Some len -> len | None -> By.length buf - off in
+    if off < 0 || len < 0 || off > By.length buf - len
+    then invalid_arg "offset out of bounds" ;
+    H.unsafe_get_xof (H.dup ctx) ~seek buf off len
+
+  let get_xof ctx ?(seek = 0L) len =
+    if len < 0 then invalid_arg "BLAKE3 XOF length must be non-negative" ;
+    let result = By.create len in
+    get_xof_into_bytes ctx ~seek result ;
+    By.unsafe_to_string result
+
+  module Keyed = struct
+    type nonrec t = t
+
+    let maci_bytes ~key iter = feedi_bytes (init_keyed ~key) iter |> get
+    let maci_string ~key iter = feedi_string (init_keyed ~key) iter |> get
+    let maci_bigstring ~key iter = feedi_bigstring (init_keyed ~key) iter |> get
+
+    let mac_bytes ~key ?off ?len buf =
+      feed_bytes (init_keyed ~key) ?off ?len buf |> get
+
+    let mac_string ~key ?off ?len buf =
+      feed_string (init_keyed ~key) ?off ?len buf |> get
+
+    let mac_bigstring ~key ?off ?len buf =
+      feed_bigstring (init_keyed ~key) ?off ?len buf |> get
+
+    let macv_bytes ~key bufs = maci_bytes ~key (fun f -> List.iter f bufs)
+    let macv_string ~key bufs = maci_string ~key (fun f -> List.iter f bufs)
+
+    let macv_bigstring ~key bufs =
+      maci_bigstring ~key (fun f -> List.iter f bufs)
+  end
+
+  module Derive_key = struct
+    type nonrec t = t
+
+    let derive_keyi_bytes ~context iter =
+      feedi_bytes (init_derive_key ~context) iter |> get
+
+    let derive_keyi_string ~context iter =
+      feedi_string (init_derive_key ~context) iter |> get
+
+    let derive_keyi_bigstring ~context iter =
+      feedi_bigstring (init_derive_key ~context) iter |> get
+
+    let derive_key_bytes ~context ?off ?len buf =
+      feed_bytes (init_derive_key ~context) ?off ?len buf |> get
+
+    let derive_key_string ~context ?off ?len buf =
+      feed_string (init_derive_key ~context) ?off ?len buf |> get
+
+    let derive_key_bigstring ~context ?off ?len buf =
+      feed_bigstring (init_derive_key ~context) ?off ?len buf |> get
+
+    let derive_keyv_bytes ~context bufs =
+      derive_keyi_bytes ~context (fun f -> List.iter f bufs)
+
+    let derive_keyv_string ~context bufs =
+      derive_keyi_string ~context (fun f -> List.iter f bufs)
+
+    let derive_keyv_bigstring ~context bufs =
+      derive_keyi_bigstring ~context (fun f -> List.iter f bufs)
+  end
+end
+
 module MD5 : S =
   Make
     (Baijiu_md5.Unsafe)
@@ -477,6 +565,8 @@ end =
       let digest_size, block_size = (32, 64)
     end)
 
+module BLAKE3 = Make_BLAKE3 (Baijiu_blake3)
+
 module RMD160 : S =
   Make
     (Baijiu_rmd160.Unsafe)
@@ -486,7 +576,8 @@ module RMD160 : S =
 
 module Make_BLAKE2B (D : sig
   val digest_size : int
-end) : S = struct
+end) =
+struct
   include
     Make_BLAKE2
       (Baijiu_blake2b.Unsafe)
@@ -497,7 +588,8 @@ end
 
 module Make_BLAKE2S (D : sig
   val digest_size : int
-end) : S = struct
+end) =
+struct
   include
     Make_BLAKE2
       (Baijiu_blake2s.Unsafe)
@@ -522,6 +614,7 @@ type 'k hash =
   | WHIRLPOOL : WHIRLPOOL.t hash
   | BLAKE2B : BLAKE2B.t hash
   | BLAKE2S : BLAKE2S.t hash
+  | BLAKE3 : BLAKE3.t hash
 
 let md5 = MD5
 let sha1 = SHA1
@@ -538,6 +631,7 @@ let sha3_512 = SHA3_512
 let whirlpool = WHIRLPOOL
 let blake2b = BLAKE2B
 let blake2s = BLAKE2S
+let blake3 = BLAKE3
 
 type hash' =
   [ `MD5
@@ -554,7 +648,8 @@ type hash' =
   | `SHA3_512
   | `WHIRLPOOL
   | `BLAKE2B
-  | `BLAKE2S ]
+  | `BLAKE2S
+  | `BLAKE3 ]
 
 let hash_to_hash' : type a. a hash -> hash' = function
   | MD5 -> `MD5
@@ -572,6 +667,7 @@ let hash_to_hash' : type a. a hash -> hash' = function
   | WHIRLPOOL -> `WHIRLPOOL
   | BLAKE2B -> `BLAKE2B
   | BLAKE2S -> `BLAKE2S
+  | BLAKE3 -> `BLAKE3
 
 let module_of_hash' : hash' -> (module S) = function
   | `MD5 -> (module MD5)
@@ -589,12 +685,13 @@ let module_of_hash' : hash' -> (module S) = function
   | `WHIRLPOOL -> (module WHIRLPOOL)
   | `BLAKE2B -> (module BLAKE2B)
   | `BLAKE2S -> (module BLAKE2S)
+  | `BLAKE3 -> (module BLAKE3)
 
 let (digest_size @ portable) : hash' -> int = function
   | `MD5 -> 16
   | `SHA1 | `RMD160 -> 20
   | `SHA224 | `SHA3_224 -> 28
-  | `SHA256 | `SHA3_256 | `KECCAK_256 | `BLAKE2S -> 32
+  | `SHA256 | `SHA3_256 | `KECCAK_256 | `BLAKE2S | `BLAKE3 -> 32
   | `SHA384 | `SHA3_384 -> 48
   | `SHA512 | `SHA3_512 | `WHIRLPOOL | `BLAKE2B -> 64
 
@@ -615,12 +712,13 @@ let digest_string_raw : _ @ portable = fun hash input ->
   | `WHIRLPOOL -> WHIRLPOOL.(to_raw_string (digest_string input))
   | `BLAKE2B -> BLAKE2B.(to_raw_string (digest_string input))
   | `BLAKE2S -> BLAKE2S.(to_raw_string (digest_string input))
+  | `BLAKE3 -> BLAKE3.(to_raw_string (digest_string input))
 
 let (hmacv_string_raw @ portable) hash ~key inputs =
   let block_size =
     match hash with
     | `MD5 | `SHA1 | `RMD160 | `SHA224 | `SHA256 | `WHIRLPOOL
-    | `BLAKE2S -> 64
+    | `BLAKE2S | `BLAKE3 -> 64
     | `SHA384 | `SHA512 | `BLAKE2B -> 128
     | `SHA3_224 -> 144
     | `SHA3_256 | `KECCAK_256 -> 136
@@ -659,6 +757,7 @@ let module_of : type k. k hash -> (module S with type t = k) = function
   | WHIRLPOOL -> (module WHIRLPOOL)
   | BLAKE2B -> (module BLAKE2B)
   | BLAKE2S -> (module BLAKE2S)
+  | BLAKE3 -> (module BLAKE3)
 
 type 'hash t = 'hash
 
@@ -783,3 +882,4 @@ let of_sha3_512 hash = hash
 let of_whirlpool hash = hash
 let of_blake2b hash = hash
 let of_blake2s hash = hash
+let of_blake3 hash = hash

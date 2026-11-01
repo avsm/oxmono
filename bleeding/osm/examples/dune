@@ -1,0 +1,3 @@
+(executable
+ (name smoke)
+ (libraries osm fetch-httpz eio eio_main))

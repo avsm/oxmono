@@ -490,6 +490,85 @@ let test_runs_cover () =
     done
   done
 
+let test_runs_reentrant () =
+  let outer = [: 4; 5; 6 :] in
+  let sub = { Subset.start = [: 1; 1; 1 :]; shape = [: 2; 2; 2 :] } in
+  let seen = ref [] in
+  Subset.iter_runs ~outer sub ~f:(fun ~src ~dst ~len ->
+      let inner =
+        runs ~outer:[: 3; 4 :] { Subset.start = [: 1; 1 :]; shape = [: 2; 2 :] }
+      in
+      Gc.minor ();
+      Alcotest.check run_list "nested walk" [ (5, 0, 2); (9, 2, 2) ] inner;
+      seen := (src, dst, len) :: !seen);
+  Alcotest.check run_list "outer scratch survives nested walk and GC"
+    [ (37, 0, 2); (43, 2, 2); (67, 4, 2); (73, 6, 2) ]
+    (List.rev !seen)
+
+let test_copy_allocation () =
+  let outer = [: 4; 4; 4; 6 :] in
+  let start = [: 1; 1; 1; 1 :] in
+  let shape = [: 2; 2; 2; 3 :] in
+  let src = Base_bigstring.of_string (String.make 384 'x') in
+  let dst = Base_bigstring.create 384 in
+  let copy () =
+    Subset.copy ~elem_size:1 ~src ~src_outer:outer ~src_start:start ~dst
+      ~dst_outer:outer ~dst_start:start ~shape
+  in
+  copy ();
+  let before = Gc.minor_words () in
+  for _ = 1 to 1000 do
+    copy ()
+  done;
+  let words = Gc.minor_words () -. before in
+  (* A bounded closure cost is permitted. Three heap scratch arrays at rank
+     four alone cost fourteen words per call. *)
+  if words > 8000. then
+    Alcotest.failf "Subset.copy allocated %.0f words for 1000 calls" words
+
+let test_copy_byte_size_overflow () =
+  (* These sizes wrap to eight bytes without a checked multiplication. The
+     source offset then wraps to zero and copies an unrelated element. *)
+  let huge = (max_int / 4) + 1 in
+  let src = Base_bigstring.of_string "abcdefgh" in
+  let dst = Base_bigstring.create 8 in
+  raises "source byte size overflow" (fun () ->
+      Subset.copy ~elem_size:8 ~src
+        ~src_outer:[: huge + 1 :]
+        ~src_start:[: huge :] ~dst ~dst_outer:[: 1 :] ~dst_start:[: 0 :]
+        ~shape:[: 1 :]);
+  raises "destination byte size overflow" (fun () ->
+      Subset.copy ~elem_size:8 ~src ~src_outer:[: 1 :] ~src_start:[: 0 :] ~dst
+        ~dst_outer:[: huge + 1 :]
+        ~dst_start:[: huge :] ~shape:[: 1 :])
+
+let test_runs_offset_overflow () =
+  let called = ref false in
+  raises "outer layout cannot overflow offsets" (fun () ->
+      Subset.iter_runs ~outer:[: max_int; 2 :]
+        { Subset.start = [: max_int - 1; 1 :]; shape = [: 1; 1 :] }
+        ~f:(fun ~src:_ ~dst:_ ~len:_ -> called := true));
+  Alcotest.(check bool) "invalid layout rejected before callback" false !called
+
+let test_empty_large_shape () =
+  List.iter (fun outer ->
+    let sub = { Subset.start = [:0; 0; 0:]; shape = outer } in
+    Alcotest.(check int) "empty subset count" 0 (Subset.num_elements sub);
+    Subset.iter_runs ~outer sub ~f:(fun ~src:_ ~dst:_ ~len:_ ->
+      Alcotest.fail "empty subset emitted a run");
+    let slab = Slab.create Dtype.Uint8 outer in
+    Alcotest.(check int) "empty slab count" 0 (Slab.num_elements slab);
+    Alcotest.(check int) "empty slab buffer" 0
+      (Base_bigstring.length (Slab.bigstring slab));
+    Subset.copy ~elem_size:1 ~src:(Slab.bigstring slab) ~src_outer:outer
+      ~src_start:sub.start ~dst:(Slab.bigstring slab) ~dst_outer:outer
+      ~dst_start:sub.start ~shape:outer)
+    [[:max_int; 2; 0:]; [:0; max_int; 2:]];
+  raises "zero does not hide a negative subset dimension" (fun () ->
+    ignore (Subset.num_elements {start = [:0; 0:]; shape = [:0; -1:]}));
+  raises "zero does not hide a negative slab dimension" (fun () ->
+    ignore (Slab.create Dtype.Uint8 [:0; -1:]))
+
 let test_validate () =
   let outer = [: 4; 5 :] in
   Subset.validate ~outer { start = [: 0; 0 :]; shape = [: 4; 5 :] };
@@ -588,6 +667,12 @@ let () =
           Alcotest.test_case "runs 2d" `Quick test_runs_2d;
           Alcotest.test_case "runs 3d" `Quick test_runs_3d;
           Alcotest.test_case "runs cover" `Quick test_runs_cover;
+          Alcotest.test_case "reentrant runs" `Quick test_runs_reentrant;
+          Alcotest.test_case "copy allocation" `Quick test_copy_allocation;
+          Alcotest.test_case "copy byte size overflow" `Quick
+            test_copy_byte_size_overflow;
+          Alcotest.test_case "run offset overflow" `Quick test_runs_offset_overflow;
+          Alcotest.test_case "empty large shape" `Quick test_empty_large_shape;
           Alcotest.test_case "validate" `Quick test_validate;
           Alcotest.test_case "gather and scatter" `Quick test_gather_scatter;
         ] );

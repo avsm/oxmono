@@ -1,0 +1,6 @@
+(library
+ (name siftbot_model)
+ (public_name siftbot.model)
+ (libraries sexplib jsont uutf)
+ (preprocess
+  (pps ppx_sexp_conv)))

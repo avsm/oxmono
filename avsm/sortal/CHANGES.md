@@ -1,5 +1,8 @@
 # Changes
 
+Hold contact mutations and their Git commits under one process-safe store
+lock. Use shared durable writes and bounded subprocess handling.
+
 Treat embedded vCard photos as authoritative and materialize them in the XDG
 cache for file-based callers.
 

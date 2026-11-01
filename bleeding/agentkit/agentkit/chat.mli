@@ -12,7 +12,6 @@
     a {!complete} function for that. *)
 
 type image_format = Png | Jpeg | Webp | Gif
-
 type image = { format : image_format; data : string  (** the encoded file *) }
 
 val image_of_string : string -> image option
@@ -26,8 +25,8 @@ type message =
       (** a user message with images, for a model that accepts them *)
   | Assistant of { text : string; calls : Agent.tool_call list }
   | Tool_result of { id : string; content : string }
-      (** the result of the call with that [id], following its assistant
-          message *)
+      (** the result of the call with that [id], following its assistant message
+      *)
 
 type finish =
   | Stop  (** the model ended its reply *)
@@ -70,3 +69,8 @@ val system_text : message list -> string option
 
 val text_of_response : response -> string option
 (** [text_of_response r] is [r.text] when it holds non-blank text. *)
+
+val text_bytes : request -> int
+(** [text_bytes request] counts message text, call IDs and arguments, and tool
+    names, descriptions and JSON schemas. Encoded image files and provider
+    framing are excluded. This is a byte budget, not a token estimate. *)

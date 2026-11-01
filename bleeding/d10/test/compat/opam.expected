@@ -1,0 +1,20 @@
+opam-version: "2.0"
+name: "demo"
+version: "1.0"
+depends: [
+  "ocaml" {>= "5.2"}
+  "fmt" {with-test}
+]
+build: ["dune" "build" "-p" name "-j" jobs]
+url {
+  src: "https://"
+  checksum:
+    "sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}md5=6efafd3eb36b2cabd3142e000b5f90a9
+sha256=d514eeefa3823f5f87c7c158b256e7c4a1f238ae7fdfdd35a4cfb64a2551a454
+sha512=03d21dd9ecdfa0343c723e42ac630650c0eda3ffd8b5180bb1b7e5356b05bcb8b4c8577f2fd9f9a805f533b73a777d2341c44f8d24e3ec99910f52b3be6a6a3c
+opam-version: "2.0"
+available: os != "win32"md5=3da443bf63b86b2f1de9e1f07bb46485
+sha256=dc52cfa9f6bb443bd5f0699b031e8312940be61805779279ca7fa2718c9a507a
+sha512=2af9b2d3c9c48017848f3da1183929b0e13b3ecbd43942a5df2242d16fc73e868cff740c9e8c630da60d2b981c7a7e14cfc5e06ffc8ca280ed2832028bbc275a
+child-env-ok

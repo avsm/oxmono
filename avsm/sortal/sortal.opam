@@ -18,7 +18,10 @@ homepage: "https://tangled.org/anil.recoil.org/sortal"
 bug-reports: "https://tangled.org/anil.recoil.org/sortal/issues"
 depends: [
   "dune" {>= "3.21"}
+  "console"
+  "sekrit"
   "ocaml" {>= "5.1.0"}
+  "eioext"
   "eio"
   "eio_main"
   "xdge"

@@ -1,0 +1,3 @@
+(tests
+ (names test_process test_path)
+ (libraries eioext eio eio.unix eio_main unix))

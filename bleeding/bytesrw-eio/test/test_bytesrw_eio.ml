@@ -192,6 +192,32 @@ let test_roundtrip () =
 
   Alcotest.(check string) "round-trip data matches" test_data read_data
 
+let test_writer_short_writes () =
+  Eio_main.run @@ fun _env ->
+  let module Sink = struct
+    type t = Buffer.t
+
+    let single_write output (buffers @ local) =
+      match buffers with
+      | [] -> assert false
+      | buffer :: _ ->
+          let n = min 127 (Cstruct.length buffer) in
+          Eio.Fiber.yield ();
+          Gc.full_major ();
+          Buffer.add_string output (Cstruct.to_string ~len:n buffer);
+          n
+
+    let copy t ~src = Eio.Flow.Pi.simple_copy ~single_write t ~src
+  end in
+  let output = Buffer.create 4096 in
+  let flow = Eio.Resource.T (output, Eio.Flow.Pi.sink (module Sink)) in
+  let writer = Bytesrw_eio.bytes_writer_of_flow flow in
+  let bytes = Bytes.init 4109 (fun i -> Char.chr (i land 255)) in
+  let slice = Bytesrw.Bytes.Slice.make bytes ~first:7 ~length:4096 in
+  Bytesrw.Bytes.Writer.write writer slice;
+  Alcotest.(check string) "short writes preserve the whole slice"
+    (Bytes.sub_string bytes 7 4096) (Buffer.contents output)
+
 let () =
   Alcotest.run "Bytesrw_eio"
     [
@@ -211,6 +237,8 @@ let () =
             test_writer_custom_slice_length;
           Alcotest.test_case "eod write" `Quick test_writer_eod;
           Alcotest.test_case "partial slice" `Quick test_writer_partial_slice;
+          Alcotest.test_case "short writes across yields and GC" `Quick
+            test_writer_short_writes;
         ] );
       ("integration", [ Alcotest.test_case "round-trip" `Quick test_roundtrip ]);
     ]

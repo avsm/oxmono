@@ -17,7 +17,7 @@
 
 let _ =
   (* TODO cmdliner *)
-  Console_eio.setup ();
+  Console_tty.setup ();
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun _ ->
   let fs = Eio.Stdenv.fs env in

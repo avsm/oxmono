@@ -1,0 +1,6 @@
+(test
+ (name test_cli)
+ (libraries dooit unix)
+ (deps ../bin/dooit_cli.exe)
+ (action
+  (run %{test} %{exe:../bin/dooit_cli.exe})))

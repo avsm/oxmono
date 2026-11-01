@@ -1,0 +1,72 @@
+# The cells real terminals give a string, from what each documents or
+# implements, and the cells console counts. The matrix emulator the other
+# tests read measures by its own rules, so it cannot say whether console
+# is right; this table can.
+#
+# Each row is: the string as Unicode code points, the cells in xterm, VTE,
+# kitty, WezTerm, Ghostty and iTerm2, then console's; "?" where the
+# terminal's behaviour was not established. Sources, as of 2026-10:
+#
+# - xterm: wcwidth.c (XTermId 1.99), Markus Kuhn's wcwidth as xterm keeps
+#   it, one width per code point; computed by compiling its mk_wcwidth in
+#   the default mode.
+# - VTE: src/unicode-width.hh, _vte_unichar_width, one width per code point;
+#   computed by compiling it.
+# - kitty: docs/text-sizing-protocol.rst, "The algorithm for splitting text
+#   into cells" (Unicode 16): grapheme clusters, a VS16 widening a
+#   Basic_Emoji of emoji-sequences.txt, applied by hand.
+# - WezTerm: wezterm-cell/src/lib.rs, grapheme_column_width, at the default
+#   unicode_version of 9 (docs/config/lua/config/unicode_version.md): a
+#   cluster's code point widths summed, at most 2; applied by hand.
+# - Ghostty: src/unicode/grapheme.zig, graphemeWidth and its tests, the
+#   grapheme clustering of mode 2027: a VS16 widens only a base of
+#   emoji-variation-sequences.txt; applied by hand.
+# - iTerm2: sources/ScreenChar/ScreenChar.m, StringToScreenChars, and
+#   sources/Categories/NSStringITerm.m, enumerateComposedCharacters, at
+#   gnachman/iTerm2@654bb137 and its default settings (Unicode 9 widths;
+#   aggressiveBaseCharacterDetection, vs16SupportedInPrimaryScreen,
+#   fullWidthFlags and zeroWidthSpaceAdvancesCursor on): Apple's composed
+#   character sequences, cut again before a code point that takes a cell of
+#   its own, such as a spacing mark; applied by hand. A VS16 widens its
+#   emoji on the primary screen only.
+# - Unicode 16.0: EastAsianWidth.txt, emoji-data.txt, emoji-sequences.txt
+#   and emoji-variation-sequences.txt.
+#
+# Console's policy is the grapheme clustering of kitty and Ghostty: a
+# cluster takes the cells of its widest code point, an emoji sequence (ZWJ,
+# skin tone, flag, keycap, a valid VS16) two, and each spacing mark (general
+# category Mc) after its first code point one more, as xterm, VTE, Ghostty
+# and iTerm2 draw it. Where every terminal agrees, console must too; where
+# they differ, console takes one of their counts.
+#
+# One exception widens "spacing mark" beyond Mc: Thai SARA AM U+0E33 and Lao
+# AM U+0EB3 are letters (Lo), but UAX #29 makes them SpacingMark, so they
+# join their consonant's cluster, and terminals draw them in a cell of their
+# own. Console counts every Grapheme_Cluster_Break=SpacingMark too, which in
+# Unicode 18 adds exactly these two to Mc. A code point width (xterm, VTE)
+# gives the consonant and its AM one cell each; the clustering terminals were
+# not established for them.
+#
+# code points              | xterm | vte | kitty | wezterm | ghostty | iterm2 | console | what
+0068 0065 006C 006C 006F   | 5     | 5   | 5     | 5       | 5       | 5      | 5       | ASCII
+754C 754C                  | 4     | 4   | 4     | 4       | 4       | 4      | 4       | two CJK ideographs
+0065 0301                  | 1     | 1   | 1     | 1       | 1       | 1      | 1       | a combining mark
+0078 0940                  | 2     | 2   | 1     | ?       | 2       | 2      | 2       | a spacing mark
+0915 093F                  | 2     | 2   | 1     | ?       | 2       | 2      | 2       | a consonant and its vowel sign
+093F                       | 1     | 1   | 1     | ?       | ?       | 1      | 1       | a spacing mark alone
+0E01 0E33                  | 2     | 2   | ?     | ?       | ?       | ?      | 2       | a Thai consonant and SARA AM
+0E81 0EB3                  | 2     | 2   | ?     | ?       | ?       | ?      | 2       | a Lao consonant and AM
+1F389                      | 2     | 2   | 2     | 2       | 2       | 2      | 2       | an emoji
+1F468 200D 1F469 200D 1F467 | 6    | 6   | 2     | 2       | 2       | 2      | 2       | a ZWJ family
+1F1EB 1F1F7                | 2     | 2   | 2     | 2       | 2       | 2      | 2       | a flag
+1F1EB                      | 1     | 1   | 2     | ?       | ?       | 2      | 1       | a lone regional indicator
+0031 FE0F 20E3             | 1     | 1   | 1     | 1       | 2       | 2      | 2       | a keycap
+2764 FE0F                  | 1     | 1   | 2     | 1       | 2       | 2      | 2       | a heart with VS16
+2600 FE0F                  | 1     | 1   | 2     | 1       | 2       | 2      | 2       | a sun with VS16
+2600                       | 1     | 1   | 1     | 1       | 1       | 1      | 1       | a sun, text by default
+0061 FE0F                  | 1     | 1   | 1     | 1       | 1       | 1      | 1       | a VS16 with no emoji to select
+1F44D 1F3FD                | 4     | 4   | 2     | 2       | 2       | 2      | 2       | a skin tone
+231A                       | 2     | 2   | 2     | 2       | 2       | 2      | 2       | a watch, wide
+00B1                       | 1     | 1   | 1     | 1       | 1       | 1      | 1       | an ambiguous sign
+1100 1161 11A8             | 2     | 2   | 2     | ?       | 2       | 2      | 2       | a Hangul syllable of jamo
+0061 200B 0062             | 2     | 2   | 2     | ?       | ?       | 3      | 2       | a zero-width space

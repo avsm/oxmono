@@ -1,0 +1,198 @@
+(*---------------------------------------------------------------------------
+  Copyright (c) 2026 Thomas Gazagnaire. All rights reserved.
+  SPDX-License-Identifier: ISC
+  ---------------------------------------------------------------------------*)
+
+type t = string list list
+
+(* A tab would reach bash's completion and a newline would end the line. *)
+let is_typeable s =
+  s = ""
+  || (not (String.exists (fun c -> c = '\t' || c = '\n') s))
+     && Result.is_ok (K7.tape ~outputs:[ "x.gif" ] [ K7.type' s ])
+
+(* A tab in a command is typed after readline's quoted-insert. *)
+let check_line n line =
+  if not (String.is_valid_utf_8 line) then
+    Fmt.error "line %d: %a is not valid UTF-8" n Quote.pp line
+  else if
+    not (is_typeable (String.map (fun c -> if c = '\t' then ' ' else c) line))
+  then Fmt.error "line %d: %a holds a control character" n Quote.pp line
+  else Ok line
+
+(* As in dune, [  > ] continues a command and a bare [  >] adds an empty
+   line to it. *)
+let parse src =
+  let n = String.length src in
+  let lead i last c =
+    last - i >= 3
+    && src.[i] = ' '
+    && src.[i + 1] = ' '
+    && src.[i + 2] = c
+    && (last - i = 3 || src.[i + 3] = ' ')
+  in
+  let flush cmds = function [] -> cmds | cmd -> List.rev cmd :: cmds in
+  let rec line no i cmds cmd =
+    if i > n then Ok (List.rev (flush cmds cmd))
+    else
+      let stop = Option.value (String.index_from_opt src i '\n') ~default:n in
+      let last = if stop > i && src.[stop - 1] = '\r' then stop - 1 else stop in
+      let start = last - i >= 4 && lead i last '$' in
+      if start || (cmd <> [] && lead i last '>') then
+        let text =
+          if last - i = 3 then "" else String.sub src (i + 4) (last - i - 4)
+        in
+        match check_line no text with
+        | Ok l when start -> line (no + 1) (stop + 1) (flush cmds cmd) [ l ]
+        | Ok l -> line (no + 1) (stop + 1) cmds (l :: cmd)
+        | Error _ as e -> e
+      else line (no + 1) (stop + 1) (flush cmds cmd) []
+  in
+  line 1 0 [] []
+
+let is_empty t = t = []
+
+let command t n =
+  if n < 1 then None
+  else match List.nth_opt t (n - 1) with Some (l :: _) -> Some l | _ -> None
+
+let sh_quote s =
+  "'" ^ String.concat {|'\''|} (String.split_on_char '\'' s) ^ "'"
+
+(* Zero-width bits (U+200B, U+2060) of a digest of [setup] and [t], after the
+   prompt's space: a command's output or another recording never holds them. *)
+let mark ~setup t =
+  let d = Digest.string (String.concat "\n" (setup @ List.concat t)) in
+  let bits = (Char.code d.[0] lsl 8) lor Char.code d.[1] in
+  List.init 16 (fun i -> (bits lsr i) land 1 = 1)
+
+let concat_map f l = String.concat "" (List.map f l)
+let utf_8 b = if b then "\xe2\x81\xa0" else "\xe2\x80\x8b"
+let octal b = if b then {|\342\201\240|} else {|\342\200\213|}
+let regexp b = if b then {|\x{2060}|} else {|\x{200B}|}
+
+(* Not the last bit of [mark], so that a [PS2] line never ends with [mark]. *)
+let tally mark = not (List.nth mark (List.length mark - 1))
+let ready mark = K7.wait (Line (concat_map regexp mark ^ "$"))
+let var = "K7_PROMPT"
+
+(* [__k7_prompt] runs last, after hooks that may rewrite [PS1]; an array
+   [PROMPT_COMMAND] (bash 5.1) is joined into a string every bash runs.
+   readline drops 8-bit input without a UTF-8 locale. *)
+let init mark =
+  String.concat ""
+    [
+      {|bind 'set input-meta on'; bind 'set output-meta on'; bind 'set convert-meta off'; __k7_n=; __k7_prompt() { PS1='\[\e[38;2;90;86;224m\]> \[|};
+      concat_map octal mark;
+      {|\e[0m\]'; __k7_n=$__k7_n'|};
+      octal (tally mark);
+      {|'; PS2='> \[|};
+      concat_map octal mark;
+      {|'$__k7_n'\]'; }; __k7=$(printf '%s\n' ${PROMPT_COMMAND+"${PROMPT_COMMAND[@]}"} __k7_prompt); unset PROMPT_COMMAND; PROMPT_COMMAND=$__k7; unset __k7 |};
+      var;
+    ]
+
+let prepare mark setup =
+  let line =
+    List.map
+      (fun s ->
+        (* bash's [source] looks a name without a slash up in the PATH first. *)
+        let s = if Filename.is_relative s then "./" ^ s else s in
+        "source " ^ sh_quote s)
+      setup
+    @ [ Fmt.str {|eval "$%s"|} var; "clear" ]
+  in
+  K7.hidden
+    [
+      Fmt.kstr K7.raw "Env %s `%s`" var (init mark);
+      K7.type' (String.concat "; " line ^ "\n");
+      ready mark;
+    ]
+
+let typed mark lines =
+  let text = String.concat "\n" lines ^ "\n" in
+  List.concat
+    (List.mapi
+       (fun i part ->
+         (if i = 0 then [] else K7.[ key (Ctrl 'v'); key Tab ])
+         @ [ K7.type' part ])
+       (String.split_on_char '\t' text))
+  @ [ ready mark; K7.sleep (Ms 1000) ]
+
+let actions ~setup t =
+  let mark = mark ~setup t in
+  prepare mark setup :: List.concat_map (typed mark) t
+
+let find sub s ~from =
+  let n = String.length sub in
+  let rec go i =
+    if i + n > String.length s then None
+    else if String.sub s i n = sub then Some i
+    else go (i + 1)
+  in
+  go from
+
+let unfinished ~setup t output =
+  let mark = mark ~setup t in
+  let ps2 = " " ^ concat_map utf_8 mark in
+  let tally = utf_8 (tally mark) in
+  let n = String.length output in
+  let rec count k i =
+    if i + 3 <= n && String.sub output i 3 = tally then count (k + 1) (i + 3)
+    else (k, i)
+  in
+  match
+    Option.bind (find "last value was: " output ~from:0) (fun from ->
+        find ps2 output ~from)
+  with
+  | None -> None
+  | Some i -> (
+      let k, j = count 0 (i + String.length ps2) in
+      let ends = j = n || output.[j] = '\n' || output.[j] = '\r' in
+      match if k >= 1 && ends then List.nth_opt t (k - 1) else None with
+      | Some (line :: _) -> Some (k, line)
+      | _ -> None)
+
+(* Readline's prompt delimiters, and the CSI sequences it writes after a
+   prompt, such as erase in line. *)
+let rec invisible s i =
+  let n = String.length s in
+  if i >= n then true
+  else
+    match s.[i] with
+    | '\001' | '\002' -> invisible s (i + 1)
+    | '\027' when i + 1 < n && s.[i + 1] = '[' ->
+        let rec final j =
+          if j >= n then false
+          else if s.[j] >= '\x40' && s.[j] <= '\x7e' then invisible s (j + 1)
+          else final (j + 1)
+        in
+        final (i + 2)
+    | _ -> false
+
+(* Bash shows [PS2] after each line of a command but the last, unless the
+   command is unfinished; each [PS2] counts the prompts before it. *)
+let waiting ~setup t output =
+  let mark = mark ~setup t in
+  let marks = concat_map utf_8 mark and tally = utf_8 (tally mark) in
+  let n = String.length output in
+  let rec tallies k i =
+    if i + 3 <= n && String.sub output i 3 = tally then tallies (k + 1) (i + 3)
+    else (k, i)
+  in
+  let rec prompts acc from =
+    match find marks output ~from with
+    | None -> acc
+    | Some i ->
+        let k, j = tallies 0 (i + String.length marks) in
+        prompts ((k, j) :: acc) j
+  in
+  match prompts [] 0 with
+  | (k, j) :: _ as all when k >= 1 && invisible output j -> (
+      match List.nth_opt t (k - 1) with
+      | Some (line :: _ as lines)
+        when List.length (List.filter (fun (k', _) -> k' = k) all)
+             >= List.length lines ->
+          Some (k, line)
+      | _ -> None)
+  | _ -> None

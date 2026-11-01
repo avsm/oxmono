@@ -18,6 +18,7 @@ type tool_call = {
 
 module Tool : sig
   type t
+
   val v : name:string -> description:string -> parameters:Jsont.json -> t
   val with_invoke : t -> (tool_call -> string) -> t
   val invoke : t -> tool_call -> string

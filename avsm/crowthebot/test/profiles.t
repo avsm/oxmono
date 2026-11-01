@@ -28,7 +28,7 @@
   >     print(db.execute('SELECT tool,status FROM tool_uses ORDER BY id').fetchall())
   >     print(db.execute('SELECT count(*) FROM facts').fetchone()[0])
   > PY
-  8
+  9
   [('memory_store', 'ok'), ('memory_search', 'ok'), ('memory_get', 'ok'), ('memory_erase', 'ok'), ('memory_search', 'ok')]
   0
   $ ../bin/main.exe init --profile one --admin @other:example.org --homeserver https://matrix.example.org

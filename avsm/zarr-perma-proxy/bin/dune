@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name zarr-perma-proxy)
+ (package zarr-perma-proxy)
+ (libraries zarr-perma-proxy fetch-httpz proffer-httpz eio_main eio.unix unix cmdliner))

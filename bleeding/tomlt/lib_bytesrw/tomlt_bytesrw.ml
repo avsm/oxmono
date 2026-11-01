@@ -120,14 +120,7 @@ let validate_utf8_at_pos_bytes l =
     Toml.Error.raise_lexer ~location:(lexer_loc l) Invalid_utf8;
   if l.pos + byte_len > l.input_len then
     Toml.Error.raise_lexer ~location:(lexer_loc l) Incomplete_utf8;
-  (* Validate using uutf - it checks overlong encodings, surrogates, etc. *)
-  let sub = Bytes.sub_string l.input l.pos byte_len in
-  let valid = ref false in
-  Uutf.String.fold_utf_8 (fun () _ -> function
-    | `Uchar _ -> valid := true
-    | `Malformed _ -> ()
-  ) () sub;
-  if not !valid then
+  if not (Uchar.utf_decode_is_valid (Bytes.get_utf_8_uchar l.input l.pos)) then
     Toml.Error.raise_lexer ~location:(lexer_loc l) Invalid_utf8;
   byte_len
 
@@ -275,7 +268,7 @@ let validate_string_char l c is_multiline =
 (* Validate UTF-8 in string context and add bytes to buffer *)
 let validate_and_add_utf8_to_buffer l buf =
   let byte_len = validate_utf8_at_pos_bytes l in
-  Buffer.add_string buf (sub_string l l.pos byte_len);
+  Buffer.add_subbytes buf l.input l.pos byte_len;
   for _ = 1 to byte_len do advance l done
 
 let parse_basic_string l =

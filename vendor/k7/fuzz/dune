@@ -1,0 +1,54 @@
+(copy_files
+ ../lib/{screen,tape_syntax,quote,regexp_syntax,unicode,unicode_data,pty_reader}.{ml,mli})
+
+(executable
+ (name fuzz)
+ (flags
+  (:standard -open Matrix_backport))
+ (libraries k7_compat
+  k7
+  k7_cli
+  svg_check
+  native_test
+  matrix_backport
+  fmt
+  jsont
+  jsont.bytesrw
+  alcobar
+  eio
+  eio.unix
+  eio.mock
+  eio_main
+  unix))
+
+(rule
+ (alias runtest)
+ (enabled_if
+  (<> %{profile} afl))
+ (action
+  (setenv
+   K7_TEST_EXE
+   %{bin:k7}
+   (run %{exe:fuzz.exe} --budget 0.2 --timeout 60 --seed 42))))
+
+(rule
+ (alias oracle)
+ (enabled_if
+  (<> %{profile} afl))
+ (action
+  (setenv
+   K7_TEST_EXE
+   %{bin:k7}
+   (setenv
+    VHS_ORACLE
+    vhs
+    (run %{exe:fuzz.exe} --budget 5 --timeout 120)))))
+
+(rule
+ (alias fuzz)
+ (enabled_if
+  (= %{profile} afl))
+ (action
+  (progn
+   (run %{exe:fuzz.exe} --gen-corpus corpus)
+   (run afl-fuzz -V 60 -i corpus -o _fuzz -- %{exe:fuzz.exe} @@))))

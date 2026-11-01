@@ -1,3 +1,9 @@
 (executable
  (name bench_alloc)
+ (modules bench_alloc)
  (libraries proffer httpz))
+
+(executable
+ (name bench_httpz_alloc)
+ (modules bench_httpz_alloc)
+ (libraries proffer proffer-httpz httpz eio eio_main cstruct mtime))

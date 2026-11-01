@@ -12,6 +12,11 @@ let rank t = Ia.length t.shape
 let product a =
   let r = Ia.length a in
   let mutable acc = 1 in
+  (* A zero dimension makes the full product zero even when an earlier
+     prefix would overflow. The second pass still rejects every negative. *)
+  for d = 0 to r - 1 do
+    if Ia.get a d = 0 then acc <- 0
+  done;
   for d = 0 to r - 1 do
     let dim = Ia.get a d in
     if dim < 0 then invalid_arg "Zarrz.Subset: negative dimension";
@@ -42,7 +47,10 @@ let check_region ~outer ~start ~shape =
   done
 
 let check_buf what buf outer elem_size =
-  if Base_bigstring.length buf < product outer * elem_size then
+  let n = product outer in
+  if elem_size <> 0 && n > max_int / elem_size then
+    invalid_arg "Zarrz.Subset: byte size overflows an int";
+  if Base_bigstring.length buf < n * elem_size then
     invalid_arg
       ("Zarrz.Subset: the " ^ what ^ " buffer is shorter than its shape")
 
@@ -58,7 +66,8 @@ let walk ~shape ~src_outer ~src_start ~dst_outer ~dst_start ~f =
   let r = Ia.length shape in
   if r = 0 then f ~src:0 ~dst:0 ~len:1
   else if product shape > 0 then begin
-    let sstride = Array.make r 1 and dstride = Array.make r 1 in
+    let local_ sstride = Base.Array.create_local ~len:r 1 in
+    let local_ dstride = Base.Array.create_local ~len:r 1 in
     for d = r - 2 downto 0 do
       sstride.(d) <- sstride.(d + 1) * Ia.unsafe_get src_outer (d + 1);
       dstride.(d) <- dstride.(d + 1) * Ia.unsafe_get dst_outer (d + 1)
@@ -83,7 +92,7 @@ let walk ~shape ~src_outer ~src_start ~dst_outer ~dst_start ~f =
     for d = 0 to split - 1 do
       runs <- runs * Ia.unsafe_get shape d
     done;
-    let idx = Array.make (max split 1) 0 in
+    let local_ idx = Base.Array.create_local ~len:(max split 1) 0 in
     for _ = 1 to runs do
       f ~src:soff ~dst:doff ~len;
       (* Odometer over the dimensions outside the run, carrying into
@@ -109,6 +118,7 @@ let validate ~outer t = check_region ~outer ~start:t.start ~shape:t.shape
 
 let iter_runs ~outer t ~f =
   validate ~outer t;
+  ignore (product outer);
   walk ~shape:t.shape ~src_outer:outer ~src_start:t.start ~dst_outer:t.shape
     ~dst_start:(zeros (Ia.length t.shape)) ~f
 

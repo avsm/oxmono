@@ -142,11 +142,18 @@ profiles are read as a compatibility fallback. The defaults are:
 | Setting | Default |
 | --- | --- |
 | `base_url` | `https://sequoia.cl.cam.ac.uk:8000/v1` |
+| `allow_http_model` | `false`. Enable for a trusted HTTP model endpoint, such as a Tailscale host. |
 | `model` | `Qwen/Qwen3.8-27B-FP8` |
 | `plugins` | `[]` |
 | `context_messages` | 20 |
 | `context_bytes` | 40000 |
-| `max_tokens` | 4096 |
+| `max_tokens` | 16384 |
+| `tool_calls` | 256 |
+| `tool_result_bytes` | 65536 |
+| `tool_request_bytes` | 8388608 |
+| `parallel_tool_calls` | 8 |
+| `model_timeout_seconds` | 900 |
+| `turn_timeout_seconds` | 3600 |
 | `compaction_reasoning_effort` | `none` |
 | `improvements_file` | `improvements.md` |
 | `voice_messages` | `true` |
@@ -157,6 +164,10 @@ profiles are read as a compatibility fallback. The defaults are:
 | `model_path` | unset |
 | `cache_dir` | unset |
 | `log_level` | `info` |
+
+Existing profiles get the new tool settings when those fields are absent.
+Explicit settings are preserved. To raise an existing completion limit, set
+`max_tokens = 16384` in `crowthebot.toml`.
 
 Crow's tool catalogue uses `Agentkit.Agent.Tool.t` and model tool calls use
 `Agentkit.Agent.tool_call`, so the tool schemas and call records are shared by
@@ -206,9 +217,11 @@ crowthebot inspect --profile crow-one --section summaries
 
 `system_prompt` controls Crow's personality. The default takes its cue from
 Crow T. Robot in Mystery Science Theater 3000: terse, wry robot banter, short
-fragments, useful answers first. No double negatives, rambling follow-ons or
-unsolicited offers. Existing profiles using the old built-in prompt adopt this
-default on restart. Custom prompts remain unchanged.
+fragments, useful answers first. Replies default to one to three short sentences
+in direct messages and shared rooms, with more detail when requested or needed.
+Markdown emphasis, inline code, short lists and links are welcome. No rambling
+follow-ons or unsolicited offers. Existing profiles using an old built-in
+prompt adopt this default on restart. Custom prompts remain unchanged.
 Set `plugins` to `[]` to disable
 compiled extension plugins. Shared memory, cron, feeds and location tools are
 built in for the admin and allowed friends. Choose a model in this file and
@@ -219,14 +232,73 @@ owned by you with mode 0600, and its bearer key requires HTTPS. Without named
 model configuration or an override, Crow uses the profile endpoint without a
 key. `base_url` must be HTTPS, except that plain HTTP is accepted for
 `localhost`, `127.0.0.1` and `[::1]`, such as `http://localhost:8000/v1`.
+For a trusted network such as Tailscale, set `allow_http_model = true` to
+use a non-loopback HTTP endpoint. This does not enable HTTP Matrix servers
+or sending `--api-key-file` credentials over HTTP.
 Keys are never read from ambient API-key environment variables.
 
 The primary admin is stored in SQLite at initialization. Changing `admin` in
 JSON alone is rejected. Create a fresh profile to choose another authority.
-Rooms are enabled only by a successful `join`, which resolves an alias to a
-stable room ID. Direct-message invitations from the admin or an allowed account
-are accepted automatically. Other invitations require an explicit `join`.
-Joining another room does not share conversation context with it.
+Rooms are enabled by a successful `join`, which resolves an alias to a stable
+room ID, or by admin approval in a DM. Crow accepts group invitations from the
+primary admin and starts the approval workflow below. Direct-message
+invitations from allowed accounts are accepted automatically. Other invitations
+require an explicit `join`. Joining another room does not share conversation
+context with it.
+
+## Inviting Crow to a group
+
+Invite Crow from the primary admin's account. Crow joins and sends the admin a
+private notice naming the room. It reuses a DM containing only Crow and
+the admin, checking current membership first, or creates an encrypted DM and
+invites the admin. Accept that DM invitation if needed.
+
+Reply in the DM:
+
+- `rooms` lists pending approvals.
+- `room approve #channel:server` enables Crow in that group.
+- `room reject #channel:server` keeps the group disabled and suppresses further
+  approval notices for it. An explicit CLI `join` can still enable it.
+
+Pending requests and decisions survive restarts. On startup Crow also proposes
+already joined, disabled groups containing the admin, including rooms joined
+before this workflow existed. Pending notices are repeated once per restart.
+Room notices and `rooms` use the canonical alias, then the room name, falling
+back to the ID when neither is available. Approval and rejection accept an ID,
+alias or unique name, including names containing spaces.
+Approval checks that Crow and the admin are still members. Other participants
+still require the usual `allow @user:server friend|bot` permission. Send a fresh
+message after approval. Earlier ignored messages are not replayed.
+
+Crow starts an in-room SAS request with the first approval notice of each run.
+Accept verification in your Matrix client and compare all seven emoji or all
+three numbers against Crow's DM message. Crow confirms its side after posting
+that message. Confirm in your Matrix client if they match, or cancel there if
+they differ. No DM reply is needed. `verify` starts another request when no admin
+verification is active. Only the primary admin's flows are confirmed, and the
+message is sent to a DM whose current membership is exactly Crow and the admin.
+These commands bypass the model and the shared conversation mutex.
+
+Group approval and verification are separate. Crow manages its own account
+cross-signing keys. On first encrypted startup it creates a missing identity,
+saves the keys in the private profile and signs its saved Matrix device. Later
+runs reuse those keys and include the account identity in live SAS verification.
+Send `verify` in the admin DM and finish the comparison in your Matrix client.
+
+If the server requires authentication for the first key upload, stop Crow and
+run this once. It prompts for Crow's password only when needed:
+
+```sh
+crowthebot setup-verification --profile crow-one
+crowthebot run --profile crow-one
+```
+
+Account keys live in the profile's `cross-signing.json` with mode 0600. Back up
+the private profile to retain them. Failed setup retains generated keys for a
+retry. An existing server identity without matching local keys is never reset.
+For such an account, use `run --recovery-key-file /path/to/crow-recovery-key`
+with Crow's existing account recovery key. Profiles without encryption cannot
+perform SAS verification. Older messages may retain a device-owner warning.
 
 ## Named tool configuration and secrets
 
@@ -238,6 +310,7 @@ config directory. The config area must be outside every Matrix profile's data
 directory, including its file-tool workspace.
 
 ```sh
+sekrit init
 crowthebot config openrouter add personal --profile crow-home \
   --api-key-file /path/to/openrouter-key
 crowthebot config openrouter add work --profile crow-home \
@@ -265,7 +338,26 @@ Named endpoints require HTTPS unless the operator
 passes `--allow-http` for that connection. A named key is bound to its saved
 endpoint, independently of the profile's `base_url`.
 
-Configuration is plaintext in owned 0600 files inside 0700 secret directories.
+Configuration is encrypted by Sekrit in owned 0600 files inside 0700 secret
+directories. Initialize the central key once, then migrate each existing Crow
+profile before restarting it:
+
+```sh
+sekrit init
+crowthebot config migrate --profile crow-home
+```
+
+The key defaults to `$XDG_CONFIG_HOME/sekrit/master.key`, outside Crow's secret
+directory. `SEKRIT_KEY_FILE` selects a separately supplied key. Back it up
+separately. Copying the encrypted configuration without the key does not expose
+its values. Reading both files or inspecting the running process does.
+
+Normal reads reject legacy plaintext. Migration is explicit and can be rerun
+after interruption. It never regenerates a missing key. New configurations are
+encrypted automatically. `--api-key-file sekrit:NAME` and other secret-file
+options can import a named Sekrit value. Crow snapshots these values in its
+encrypted configuration, so replacing a named value requires importing it again
+and restarting Crow. Imported credential source files are never deleted.
 Symlinks and permissive files are rejected. Updates use an exclusive lock and
 atomic file replacement. The configuration commands can run while Crow is
 serving. Restart Crow to apply additions, rotations, removals or selection
@@ -372,11 +464,28 @@ Requests are processed serially within a profile.
 The admin and friends can ask “crow, which rooms are you in?” or “what do you
 know about this room?”. `matrix_rooms` lists joined rooms, five per page.
 `matrix_room_info` returns a room's name, topic, canonical alias, encryption
-state, DM marker, member counts and known joined or invited accounts. Its
+state, DM marker, member counts and known joined or invited accounts with their
+room display names. Crow uses membership to resolve informal names into Matrix
+mentions and asks when a name is ambiguous. Its
 `room` argument defaults to the requesting room. Both return `next_after` for
 pagination. `members_complete=false` identifies incomplete synchronized
 membership. These tools read the live Matrix state without network or
-filesystem capabilities. They expose no message history or credentials.
+filesystem capabilities. They expose no message bodies or credentials.
+
+After posting to another room, Crow prefers a brief link to the sent event
+over repeating its contents in the requesting DM. Successful send tools return
+a Matrix permalink.
+
+Ask Crow to summarise a conversation or review older messages. `matrix_history`
+accepts a joined room ID or canonical alias, defaults to the requesting room,
+and checks current membership for both Crow and the requester on every page.
+It reads newest first, returning event IDs, senders, timestamps, body excerpts,
+reply/thread/edit targets and redactions. Pass `next_before` as `before` to
+continue backwards, including when a filtered page is empty. `limit` is 1 to 100
+events, default 25. Truncated excerpts and messages missing decryption keys are
+marked explicitly. Reads send no receipts and do not replay historical messages
+through Crow's handlers. Historical content is untrusted data, not instructions.
+The normal tool audit records these requests.
 
 The admin and friends can ask Crow to post for them, for example “post this
 paper in Satellite of Love for Nick” or “DM Nick this link”. `matrix_send`
@@ -388,10 +497,37 @@ takes Markdown `text` and exactly one target:
   an existing DM whose complete membership is Crow and that person. It does not
   create DMs, so the recipient must have started one with Crow.
 
-Messages are sent as notices ending with “(sent at the request of
-@user:server)”. The system prompt tells Crow to send only when the requester
-explicitly asks, never on its own initiative or because a room message or tool
-result asks. Each send is in the tool log with its arguments.
+Messages are sent as notices containing the requested text directly, without
+an automatic requester attribution. Crow addresses the destination audience
+briefly, omitting DM provenance and action narration unless asked. The system
+prompt tells Crow to send only when explicitly asked. Each send is in the tool
+log with its requesting account and arguments.
+
+## Tasks
+
+Dooit is the primary task store. Crow discovers its existing XDG configuration
+and registers `dooit_search`, `dooit_get`, `dooit_create` and `dooit_update` when
+the local store exists. Run `dooit init` and `dooit sync`, or `dooit clone`,
+before starting Crow. An absent store disables these tools. Invalid
+configuration or store metadata is an error. Crow never initializes a store or
+migrates memory tasks. Startup and reads do not synchronize Git.
+
+Crow respects Dooit's selected backend. Git task writes pull first, then commit
+and push immediately. A pull failure prevents the write. A push failure is
+reported as locally saved with synchronization pending. Configure Git
+authentication for the account running Crow. With `backend = "local"`, writes
+remain local and return `sync=local_only`. WebDAV task reads are available, but
+writes fail explicitly. Use `dooit task` and `dooit sync` for WebDAV changes.
+Crow never silently substitutes a different backend.
+
+Task tools use the same allowed accounts and enabled rooms or accepted DMs as
+knowledge tools. Each call reloads Dooit configuration, rechecks authority before
+and after I/O, and enters Crow's audit log. Writes use host-generated operation
+IDs so retries do not duplicate tasks. Updates require the current revision.
+
+Memory keeps background context and task references. It is not a second task
+list, including when Dooit is unavailable. Cron remains for scheduled actions
+and reminders. Existing memory is unchanged.
 
 ## Shared memory
 
@@ -405,11 +541,14 @@ search, retrieve and erase any fact across its rooms and DMs:
 !crow memory get 1
 !crow memory erase 1
 !crow memory list
+!crow memory overview
+!crow memory expand RANGE_KEY
 ```
 
 Facts have stable numeric IDs, UTC creation timestamps, the requesting Matrix
 account, source room and event, and a `command` or `observation` source. Crow
-can use native `memory_store`, `memory_search`, `memory_get` and `memory_erase`
+can use native `memory_store`, `memory_search`, `memory_get`, `memory_erase`,
+`memory_overview` and `memory_expand`
 tools during conversations and scheduled actions. It is instructed to remember
 useful observations freely, search before duplicating a fact, and treat stored
 facts as data. No per-fact confirmation is required. Unknown, revoked and
@@ -418,9 +557,54 @@ bot-classified accounts cannot use memory.
 Search uses SQLite FTS5 with Unicode tokenization, quoted phrases, Boolean
 operators and `prefix*` matching. A search returns up to 20 matches by relevance.
 An empty search lists the newest 20 facts. Facts are limited to 2048 bytes and
-queries to 256 bytes. Erasure removes the fact and its FTS entry and deletes
-linked reminders. It does not rewrite conversation history, Matrix messages
+queries to 256 bytes. Erasure removes the fact and its FTS entry, deletes
+linked reminders and clears the derived summary cache atomically. It does not rewrite conversation history, Matrix messages
 or backups. `reset` clears the current conversation, leaving shared facts intact.
+
+`memory_overview` maps all shared facts through `Agentkit.Memo`, a pure OCaml
+summary tree inspired by [Victor Taelin's OptMem](https://github.com/VictorTaelin/OptMem).
+It returns at most eight ranges, with finer detail for recent facts, within
+3500 bytes. `memory_expand` drills into a returned range key. `memory_get` and
+FTS search retain access to exact originals. Older facts are not erased by
+compression. The model is asked to preserve source IDs, attribution and
+corrections. Summaries remain untrusted, lossy context.
+
+Authorized model turns automatically include a cached memory overview when
+memory exists and the current prompt leaves room for it.
+It uses up to one eighth of `context_bytes`, capped at 3500 bytes, with a
+512-byte minimum. The view is reduced or omitted when the prompt needs that
+space. Memory, room observations, thread summaries, history and the
+current prompt share the existing content budget. Automatic injection makes
+no extra model request. Missing summaries remain explicit source pointers.
+Explicit `memory_overview` requests gradually fill the cache.
+
+`tool_result_bytes` bounds each model-facing result, 64 KiB by default.
+Native and returned calls share `tool_calls`, 256 per turn by default. Request
+text is limited to system/tool definitions plus `context_bytes` and
+`tool_request_bytes`, an additional 8 MiB by default. `max_tokens` bounds each
+completion, including reasoning. The provider enforces its actual context window.
+
+OpenRouter requests allow multiple tool calls. Up to `parallel_tool_calls`,
+eight by default, run concurrently in a returned batch. Matrix history and
+metadata reads and website reads may overlap. Other tools are serialized to
+preserve local state and effects. Dependent calls must be requested in separate
+batches. Audit storage still retains at most 4096 bytes per non-private payload.
+These byte limits complement the backend's token window. They exclude provider
+framing and encoded image files, whose token cost belongs to the backend.
+
+During a model or chat overview request, Crow generates at most one missing
+512-byte summary with the configured model. Cache writes recheck current source
+keys and authorization after inference. The result uses a fresh memory snapshot.
+A failed merge is reported and current source pointers remain available. Local
+CLI overviews read the cache without making model calls. Erasing any fact clears
+all cached summaries, so erased text cannot survive in this derived store.
+Conversation history, tool audit records and backups retain their own contents.
+
+Run the synthetic local model check without connecting to Matrix:
+
+```sh
+dune exec avsm/crowthebot/test/live/memo_probe.exe -- /path/to/MODEL.gguf
+```
 
 Local commands act as the admin while the profile is stopped:
 
@@ -531,7 +715,7 @@ calls the configured OpenRouter client with the linked fact, instruction,
 schedule and original source. The model may use its authorized tools, and its
 answer is sent as a notice replying to the source event. The source room and
 creator's access are checked again before delivery. Scheduled model turns share
-the conversation engine's serialization and 180-second deadline.
+the conversation engine's serialization and `turn_timeout_seconds` deadline.
 
 After a restart, the scheduler waits for live Matrix sync and restored room
 handles before claiming work. While sync is offline, due jobs remain pending.
@@ -589,20 +773,23 @@ Verification is an interactive terminal operation on the saved Matrix device.
 Stop `crowthebot run` for this profile first. It uses the same exclusive profile
 lock, account and device keys, and does not call the model.
 
-For user verification across clients, first set up cross-signing and recovery
-for Crow's account in a Matrix client such as Element. Save **Crow's account**
-recovery key in a file owned by you with mode 0600. Then run:
+Crow normally manages its account identity automatically. To accept a
+verification from another client using the saved account keys, run:
 
 ```sh
-crowthebot verify --profile crow-home --listen \
-  --recovery-key-file /path/to/crow-recovery-key
+crowthebot verify --profile crow-home --listen
 ```
+
+For an account whose identity was created in another Matrix client, supply
+`--recovery-key-file /path/to/crow-recovery-key` once you have that account's
+recovery key. The file must be owned by you with mode 0600.
 
 In your own Matrix client, open Crow's profile and start verification. Choose
 emoji comparison. Accept the named account and device in the terminal, compare
 all seven emoji or all three numbers with your client, and answer `yes` only
-when they match. Confirm in the Matrix client too. Crow imports its existing
-cross-signing keys, signs its saved device, and publishes the peer's signature
+when they match. Confirm in the Matrix client too. Crow loads its managed
+cross-signing keys (or imports the supplied recovery keys), signs its saved
+device, and publishes the peer's signature
 after successful SAS verification. It never resets the account identity or
 creates a replacement device. This supplies the cross-signing trust chain used
 by clients to remove unverified-user warnings. See the
@@ -619,9 +806,10 @@ crowthebot verify --profile crow-home \
 crowthebot run --profile crow-home
 ```
 
-Without `--recovery-key-file`, verification covers individual devices and local
-trust only. It may leave a client-wide user warning. Recovery secrets remain in
-memory during the command. Device keys and local trust persist in the profile.
+Without `--recovery-key-file`, verification uses Crow's locally managed account
+keys. The same `--recovery-key-file` option is available on `run` for live DM
+verification without terminal confirmation. Recovery secrets remain in memory
+during the command. Device keys and local trust persist in the profile.
 Blank answers, `no`, and EOF refuse confirmation. Mismatches, cancellation,
 signature-publication failures and the ten-minute timeout fail the command.
 QR scanning is not supported. Verification never grants Crow access: the admin
@@ -886,6 +1074,34 @@ the app is connected and allows remote commands, which on iOS often means it
 answers on its next wake instead. Each request is a short MQTT connection under
 its own client ID.
 
+## Address lookup
+
+Crow registers the shared `agentkit-osm` tools on startup, independently of
+OwnTracks connections:
+
+- `address_search` takes `query`, optional `limit` (1..5, default 3), and
+  optional `language`.
+- `address_reverse` takes `latitude`, `longitude`, and optional `language`.
+
+For example: “Look up King's College, Cambridge, UK” or “What address is near
+52.2053, 0.1218?” Results contain candidate addresses, coordinates and OSM source
+links. A reverse result identifies the nearest mapped object, not an exact
+verified address or proof of someone's presence.
+
+The service defaults to `http://marpe:8888/nominatim/`. Model arguments cannot
+change it. Admins and allowed friends can use the tools, including scheduled
+model turns. Calls use normal tool budgets and audit records. Address queries
+and responses are omitted from audit payloads like other location data.
+Unmatched searches return no candidates. Service failures are explicit errors.
+Restart Crow after rebuilding to make the tools available to existing profiles.
+
+The opt-in live probe uses Sequoia and marpe with synthetic identities and an
+in-memory database. It makes no Matrix connection and sends no messages:
+
+```sh
+opam exec --switch=5.2.0+ox -- dune exec avsm/crowthebot/test/live/address_probe.exe
+```
+
 ## Read-only CalDAV calendars
 
 Fastmail calendars use CalDAV at `https://caldav.fastmail.com/`. Set up a
@@ -1126,7 +1342,7 @@ description and `run ~query` function. Register it when constructing
 [`Engine.t`](lib/engine.mli), then enable its name in the profile. The engine
 exposes each plugin both as an explicit command and a native model tool with a
 string query argument. Tool arguments and outputs are bounded. A turn permits
-at most six tool calls, followed by a tool-free synthesis request if the budget
+up to `tool_calls` calls, followed by a tool-free synthesis request if the budget
 is exhausted. Synthesis directives extend the opening system message, keeping
 it first for providers that require that ordering. An empty answer or failed
 terminal request triggers one additional synthesis request with tools disabled.
@@ -1269,8 +1485,9 @@ The model receives recent context within both configured bounds, plus the
 system prompt, current request and bounded tool exchange. These are byte and
 message limits, not tokenizer-exact limits. Input is capped at 8192 bytes or
 half the configured context budget, whichever is smaller. Answers are capped
-at 12000 bytes. A model request has a 90-second deadline and a whole turn has
-a 180-second deadline, both measured with a monotonic clock.
+at 12000 bytes. `model_timeout_seconds` bounds each model request, 900 seconds
+by default. `turn_timeout_seconds` bounds a whole user or scheduled turn, 3600
+seconds by default. Both use a monotonic clock.
 
 Event IDs are claimed before effects. The last 2048 per room are retained.
 This suppresses retries but means a crash during a turn can lose its reply.
@@ -1282,8 +1499,8 @@ Failures are logged without prompt text, tokens or raw provider responses.
 
 ## Unfinished features
 
-- SSO/OAuth account setup, cross-signing identity creation, QR verification and
-  room-key recovery are not exposed by the CLI. Existing cross-signing secrets
+- SSO/OAuth account setup, QR verification and room-key recovery are not
+  exposed by the CLI. Existing cross-signing secrets
   can be imported for SAS verification with `--recovery-key-file`.
 - There is no room removal command yet. Stop the profile before changing its
   enabled-room database or create a fresh profile for a different room set.
@@ -1294,8 +1511,8 @@ Failures are logged without prompt text, tokens or raw provider responses.
   execution plugins are registered. OpenRouter supports vision separately.
 - Plugins are compiled into the application. There is no dynamic loading,
   subprocess protocol or interactive approval workflow for future write tools.
-- Replies use plain `m.notice` bodies. Streaming display and Markdown-to-Matrix
-  formatting remain future work.
+- Replies use `m.notice` with sanitized Markdown-to-Matrix HTML and a plain
+  text fallback. Streaming display remains future work.
 - Administrative changes wait behind earlier events in the room. The initial
   implementation favors ordered processing over parallel model turns.
 - Matrix room delivery has not been tested against a live account for this
@@ -1369,3 +1586,132 @@ In the primary
 administrator's confirmed direct Matrix chat, `inspect sessions`, `inspect
 memory`, and `inspect tools` return bounded, body-safe operational views. They
 never expose message or memory bodies in the session summary.
+
+## Website analysis
+
+Admin and allowed friends can ask Crow to read or analyse a public URL.
+`website_fetch` uses GET with `User-Agent: crowthebot`, extracts HTML title,
+readable text and links, and returns a snapshot ID. `website_read` reads
+subsequent pages using `next_offset` without refetching. Plain text and JSON
+are also supported. JavaScript is not executed.
+
+Downloads are limited to 2 MiB, three redirects and 30 seconds. Eight
+snapshots are cached in memory. Results remain below the 4096-byte tool
+budget. Scripts, styles and hidden HTML elements are excluded. Private
+network addresses, including addresses returned by DNS or redirects, are
+refused. The client carries no cookies or configured credentials.
+
+Every tool request is written to the existing SQLite audit log before
+execution, with its arguments, actor, source event and completion status.
+Use `!crow tools` or the local tool-log inspection commands to review it.
+The `crowthebot.tools` logger records HTTP request URLs, response status,
+and tool start/finish metadata. Page bodies are not written to console logs.
+
+## HTTP POST
+
+`http_post` is a separate tool for the admin and allowed friends. Ask Crow
+explicitly to POST a payload to a public HTTP(S) endpoint. Its arguments are:
+
+```json
+{
+  "url": "https://api.example.net/events",
+  "body": "{\"event\":\"test\"}",
+  "content_type": "application/json"
+}
+```
+
+`content_type` defaults to `application/json`. `text/plain` and
+`application/x-www-form-urlencoded` are also accepted. Bodies are limited to
+2048 bytes and checked before sending. Arbitrary headers, configured
+credentials and cookies are not exposed.
+
+The result contains the HTTP status, response content type and a bounded
+response body, including for error statuses. Redirects and automatic retries
+are disabled. Timeouts and network failures report that the POST may already
+have been sent. Do not repeat it automatically.
+
+Every POST tool call is durably audited before sending. HTTP URLs and status
+are logged through `crowthebot.tools`. Request and response bodies are not
+written to console logs.
+
+## Personal knowledge: Bushel and Sortal
+
+Crow uses Bushel's shared knowledge runtime. It discovers Bushel's
+`data.local_dir` through `Bushel_config.load` (normally
+`~/.config/bushel/config.toml`) and Sortal's native store through `Sortal.Store`.
+Sortal's XDG paths and `SORTAL_DATA_DIR` override apply as usual. No additional
+knowledge configuration file is needed.
+
+The tools become available when both source directories exist. They use Crow's
+existing allowed users, enabled rooms and accepted direct rooms, including for
+scheduled work. This exposes the configured corpus, including drafts and contact
+addresses, to those authorized users. Source configuration is reread for each
+invocation. Restart Crow after installing a previously absent corpus.
+
+Use `bushel_search` for the configured owner's website and authored knowledge.
+It defaults to notes/blog posts, with `kind` selecting papers, projects, ideas
+or videos. It excludes Sortal contacts and syndicated feeds before ranking.
+Use `bushel_latest_posts` for “my latest post” or recent writing. It lists up
+to 100 notes by original publication date, excluding drafts, future dates and
+index pages. An edit to an old post does not make it the newest published post.
+Both tools read local sources without feed sync or subscriptions. Read the
+full text with `knowledge_get`. Existing embedding vectors remain reusable.
+
+The other tools are `contacts_resolve`, `contacts_get`, `knowledge_search`,
+`knowledge_get`, and `feeds_context`. Search accepts a query, a mode
+(`lexical`, `semantic`, or `hybrid`), and optional `kind`, `tag`, `contact`
+(Sortal handle), `project` (Bushel slug), `since`, and `until` filters.
+Dates use `YYYY-MM-DD`. Lexical queries use FTS5 syntax. Empty lexical queries
+browse by date. Results contain source IDs, revisions, citation URLs and
+passage snippets. Follow `next_offset` to read another page. If the returned
+corpus generation or source revision changes, restart pagination.
+
+For example, ask Crow: “What is my latest Bushel post? Give me its title and
+link.” Crow's tool instructions route this to `bushel_latest_posts`, not feed
+polling. For conceptual searches, ask it to use `bushel_search` in hybrid mode.
+
+`contacts_resolve` reports ambiguous names rather than choosing a person.
+`feeds_context` accepts either `id` or `url`. It returns recorded relationships
+and their evidence, including annotations, links and associated contacts.
+Feed association does not establish item authorship. Scheduled feed summaries
+can use the same tools under the job creator's current actor and room access.
+
+Lexical search, contacts and feed context need no model configuration. Configure
+vector and hybrid search through Bushel:
+
+```sh
+bushel knowledge configure --url http://127.0.0.1:8080/v1/embeddings --model your-embedding-model --dimensions 768
+bushel knowledge index
+bushel knowledge status
+bushel knowledge search --mode hybrid "your question"
+```
+
+Settings live in the `[embeddings]` section of Bushel's existing configuration.
+Add `--api-key-file /path/to/key` for an authenticated HTTPS endpoint. Corpus
+passages and queries are sent to that endpoint. Chat model selection remains
+independent. Crow reads updated source and embedding settings on each invocation.
+
+Bushel and every Crow profile share the derived SQLite index under
+`${XDG_DATA_HOME:-$HOME/.local/share}/bushel/knowledge/<corpus>/knowledge.sqlite3`.
+The corpus directory is identified by the canonical Bushel and Sortal source
+roots. Crow checks source manifests on each invocation and publishes changed
+files before reading a consistent generation. The source lock is released before
+model inference. Run `bushel knowledge index` to embed changed passages.
+Changed or deleted sources invalidate old vectors. Semantic requests return
+`embedding_coverage` with indexed and total
+passage counts and do not start document indexing. Models are retained within
+Crow's application switch and released when it closes.
+Missing provider configuration is an explicit error for semantic/hybrid mode.
+Lexical search needs no provider.
+
+Legacy Crow embedding settings and profile-local `knowledge.sqlite3` files are
+neither used nor deleted. Reconfigure embeddings through Bushel and run
+`bushel knowledge index` to populate the shared index.
+
+The initial implementation uses exact distance ranking with filters applied
+before the result limit. Its vector-query cost grows with the eligible corpus.
+
+Source files are not changed and feeds are not fetched by these tools. Keep
+using Bushel and Sortal sync to refresh the source data. Corrupt existing notes,
+links, cached feeds or annotations fail the refresh instead of silently deleting
+them from the derived index. All model tool calls use Crow's existing audit log.

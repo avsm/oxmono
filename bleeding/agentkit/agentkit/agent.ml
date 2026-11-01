@@ -7,14 +7,18 @@ module Tool = struct
     parameters : Jsont.json;
     invoke : (tool_call -> string) option;
   }
+
   let v ~name ~description ~parameters =
     if name = "" then invalid_arg "Agentkit.Tool.v: empty name";
     { name; description; parameters; invoke = None }
+
   let with_invoke t invoke = { t with invoke = Some invoke }
+
   let invoke t call =
     match t.invoke with
     | Some invoke -> invoke call
     | None -> "Error: tool execution is not available in this adapter."
+
   let name t = t.name
   let description t = t.description
   let parameters t = t.parameters

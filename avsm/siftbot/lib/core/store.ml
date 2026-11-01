@@ -1,0 +1,1255 @@
+module M = Siftbot_model
+module D = Sqlite3.Data
+
+let check = Sqlite3.Rc.check
+
+exception Conflict
+
+type t = { sql : Sqlite3_eio.t; lock : Eio.Mutex.t }
+
+let statement db sql args f =
+  let s = Sqlite3.prepare db sql in
+  Fun.protect
+    ~finally:(fun () -> check (Sqlite3.finalize s))
+    (fun () ->
+      List.iteri (fun i d -> check (Sqlite3.bind s (i + 1) d)) args;
+      f s)
+
+let execute db sql args =
+  statement db sql args (fun s -> check (Sqlite3.step s))
+
+let rows db sql args =
+  statement db sql args (fun s ->
+      let rec loop acc =
+        match Sqlite3.step s with
+        | ROW -> loop (Sqlite3.row_data s :: acc)
+        | DONE -> List.rev acc
+        | rc ->
+            check rc;
+            assert false
+      in
+      loop [])
+
+let str = function D.TEXT s -> s | _ -> failwith "Invalid database text"
+let num = function D.INT n -> Int64.to_int n | _ -> failwith "Invalid integer"
+let txt s = D.TEXT s
+let int n = D.INT (Int64.of_int n)
+
+let run t f =
+  let result =
+    Eio.Mutex.use_rw ~protect:true t.lock (fun () ->
+        try Ok (Sqlite3_eio.run t.sql f)
+        with e -> Error (e, Printexc.get_raw_backtrace ()))
+  in
+  match result with
+  | Ok x -> x
+  | Error (e, bt) -> Printexc.raise_with_backtrace e bt
+
+let transaction db f =
+  check (Sqlite3.exec db "BEGIN IMMEDIATE");
+  match f () with
+  | x ->
+      check (Sqlite3.exec db "COMMIT");
+      x
+  | exception e ->
+      ignore (Sqlite3.exec db "ROLLBACK");
+      raise e
+
+let revision_db db =
+  match rows db "SELECT value FROM meta WHERE key='revision'" [] with
+  | [ r ] -> num r.(0)
+  | _ -> failwith "Missing revision"
+
+let bump db = execute db "UPDATE meta SET value=value+1 WHERE key='revision'" []
+
+let init sql =
+  let t = { sql; lock = Eio.Mutex.create () } in
+  run t (fun db ->
+      check (Sqlite3.exec db "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;");
+      transaction db (fun () ->
+          let version =
+            match rows db "PRAGMA user_version" [] with
+            | [ r ] -> num r.(0)
+            | _ -> assert false
+          in
+          if version > 8 then
+            failwith "Siftbot database is newer than this binary";
+          if version = 0 then
+            check
+              (Sqlite3.exec db
+                 {|
+CREATE TABLE meta(key TEXT PRIMARY KEY, value INTEGER NOT NULL);
+INSERT INTO meta VALUES('revision',0);
+CREATE TABLE messages(key TEXT PRIMARY KEY, service TEXT NOT NULL,
+ account TEXT NOT NULL, id TEXT NOT NULL, thread TEXT NOT NULL,
+ date TEXT NOT NULL, revision TEXT NOT NULL, payload TEXT NOT NULL,
+ UNIQUE(service,account,id));
+CREATE VIRTUAL TABLE search USING fts5(key UNINDEXED, subject, sender, body);
+CREATE TABLE checkpoints(job TEXT PRIMARY KEY, cursor TEXT NOT NULL);
+CREATE TABLE areas(id TEXT PRIMARY KEY, name TEXT NOT NULL,
+ definition TEXT NOT NULL, exclusions TEXT NOT NULL, parent TEXT,
+ status TEXT NOT NULL, revision INTEGER NOT NULL);
+CREATE TABLE assignments(target TEXT NOT NULL, conversation INTEGER NOT NULL,
+ dimension TEXT NOT NULL, value TEXT NOT NULL, origin TEXT NOT NULL,
+ version TEXT NOT NULL, source_revision TEXT NOT NULL,
+ explanation TEXT NOT NULL, evidence TEXT NOT NULL, score REAL,
+ PRIMARY KEY(target,conversation,dimension,value,origin));
+CREATE TABLE derived(source TEXT NOT NULL, revision TEXT NOT NULL,
+ kind TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(source,kind));
+CREATE TABLE decisions(id INTEGER PRIMARY KEY, explanation TEXT NOT NULL,
+ before_state TEXT NOT NULL, undone INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE history(revision INTEGER PRIMARY KEY, explanation TEXT NOT NULL);
+PRAGMA user_version=1;
+|});
+          if version < 2 then
+            check
+              (Sqlite3.exec db
+                 {|
+CREATE TABLE audit(id INTEGER PRIMARY KEY, model TEXT NOT NULL,
+ prompt_version TEXT NOT NULL, corpus_revision INTEGER NOT NULL,
+ question TEXT NOT NULL, answer TEXT NOT NULL, outcome TEXT NOT NULL,
+ tools TEXT NOT NULL);
+PRAGMA user_version=2;
+|});
+          if version < 3 then
+            check
+              (Sqlite3.exec db
+                 {|
+CREATE TABLE vector_indexes(name TEXT PRIMARY KEY, model TEXT NOT NULL,
+ dimensions INTEGER NOT NULL, normalization TEXT NOT NULL);
+PRAGMA user_version=3;
+|});
+          if version < 4 then
+            check
+              (Sqlite3.exec db
+                 {|
+CREATE TABLE evaluations(id TEXT PRIMARY KEY, corpus_revision INTEGER NOT NULL,
+ payload TEXT NOT NULL);
+PRAGMA user_version=4;
+|});
+          if version < 5 then
+            check
+              (Sqlite3.exec db
+                 {|
+CREATE TABLE task_receipts(key TEXT PRIMARY KEY, source TEXT NOT NULL,
+ title TEXT NOT NULL, status TEXT NOT NULL, receipt TEXT NOT NULL);
+CREATE TABLE snoozes(target TEXT PRIMARY KEY, until_date TEXT NOT NULL,
+ source_revision TEXT NOT NULL, explanation TEXT NOT NULL);
+PRAGMA user_version=5;
+|});
+          if version < 6 then
+            check
+              (Sqlite3.exec db
+                 {|
+CREATE TABLE hydration(source TEXT PRIMARY KEY, service TEXT NOT NULL,
+ account TEXT NOT NULL, position INTEGER NOT NULL);
+PRAGMA user_version=6;
+|});
+          if version < 7 then
+            check
+              (Sqlite3.exec db
+                 "CREATE TABLE label_rules(service TEXT NOT NULL, account TEXT \
+                  NOT NULL, scope TEXT NOT NULL, selector TEXT NOT NULL, \
+                  dimension TEXT NOT NULL, value TEXT NOT NULL, explanation \
+                  TEXT NOT NULL, PRIMARY \
+                  KEY(service,account,scope,selector,dimension)); PRAGMA \
+                  user_version=7;");
+          if version < 8 then
+            check
+              (Sqlite3.exec db
+                 "CREATE TABLE feedback(key TEXT PRIMARY KEY, payload TEXT NOT \
+                  NULL); CREATE TABLE feedback_vectors(key TEXT NOT NULL, \
+                  model TEXT NOT NULL, input_hash TEXT NOT NULL, vector TEXT \
+                  NOT NULL, PRIMARY KEY(key,model)); PRAGMA user_version=8;");
+          execute db
+            "CREATE INDEX IF NOT EXISTS hydration_account ON \
+             hydration(service,account,source)"
+            [];
+          execute db
+            "CREATE INDEX IF NOT EXISTS messages_thread ON \
+             messages(service,account,thread)"
+            []));
+  t
+
+let open_db ~sw path =
+  Sqlite_vec.register ();
+  init (Sqlite3_eio.open_path ~sw ~busy_timeout:5000 path)
+
+let memory ~sw () =
+  Sqlite_vec.register ();
+  init (Sqlite3_eio.open_memory ~sw ())
+
+let revision t = run t revision_db
+let encode = Jmap_eio.Codec.encode_exn M.message_jsont
+let decode = Jmap_eio.Codec.decode_exn M.message_jsont
+
+let get_db db source =
+  match
+    rows db "SELECT payload FROM messages WHERE key=?" [ txt (M.key source) ]
+  with
+  | [ r ] -> Some (decode (str r.(0)))
+  | _ -> None
+
+let get t s = run t (fun db -> get_db db s)
+
+let messages_db db =
+  rows db "SELECT payload FROM messages ORDER BY date,key" []
+  |> List.map (fun r -> decode (str r.(0)))
+
+let messages t = run t messages_db
+
+let sources t =
+  run t (fun db ->
+      rows db "SELECT service,account,id FROM messages ORDER BY date,key" []
+      |> List.map (fun row ->
+             M.
+               {
+                 service = str row.(0);
+                 account = str row.(1);
+                 id = str row.(2);
+               }))
+
+let sources_needing_cache t ~kind ~value =
+  run t (fun db ->
+      rows db
+        "SELECT m.service,m.account,m.id FROM messages m WHERE NOT EXISTS \
+         (SELECT 1 FROM derived d WHERE d.source=m.key AND \
+         d.revision=m.revision AND d.kind=? AND d.value=?) ORDER BY \
+         m.date,m.key"
+        [ txt kind; txt value ]
+      |> List.map (fun row ->
+             M.
+               {
+                 service = str row.(0);
+                 account = str row.(1);
+                 id = str row.(2);
+               }))
+
+let message_ids_after t ~service ~account ~after ~limit =
+  if limit < 0 then invalid_arg "Negative message page limit";
+  run t (fun db ->
+      rows db
+        "SELECT id FROM messages WHERE service=? AND account=? AND id>? ORDER \
+         BY id LIMIT ?"
+        [ txt service; txt account; txt after; int limit ]
+      |> List.map (fun row -> str row.(0)))
+
+let has_thread t ~service ~account ~thread =
+  run t (fun db ->
+      rows db
+        "SELECT 1 FROM messages WHERE service=? AND account=? AND thread=? \
+         LIMIT 1"
+        [ txt service; txt account; txt thread ]
+      <> [])
+
+let checkpoint_db db job =
+  match rows db "SELECT cursor FROM checkpoints WHERE job=?" [ txt job ] with
+  | [ r ] -> Some (str r.(0))
+  | _ -> None
+
+let checkpoint t job = run t (fun db -> checkpoint_db db job)
+let vector_name = Retrieval.Vector.name
+
+let invalidate db key =
+  Retrieval.Vector.invalidate db key;
+  execute db "DELETE FROM derived WHERE source=?" [ txt key ];
+  execute db
+    "DELETE FROM assignments WHERE origin<>'admin' AND (target=? OR EXISTS \
+     (SELECT 1 FROM json_each(evidence) WHERE value=?))"
+    [ txt key; txt key ]
+
+let invalidate_thread db (m : M.message) =
+  let source = { m.source with id = m.thread } in
+  invalidate db (M.key source)
+
+let put db (m : M.message) =
+  let key = M.key m.source in
+  (match get_db db m.source with
+  | Some old when old.revision <> m.revision ->
+      invalidate db key;
+      invalidate_thread db old;
+      invalidate_thread db m
+  | None -> invalidate_thread db m
+  | _ -> ());
+  execute db "INSERT OR REPLACE INTO messages VALUES(?,?,?,?,?,?,?,?)"
+    [
+      txt key;
+      txt m.source.service;
+      txt m.source.account;
+      txt m.source.id;
+      txt m.thread;
+      txt m.date;
+      txt m.revision;
+      txt (encode m);
+    ];
+  execute db "DELETE FROM search WHERE key=?" [ txt key ];
+  execute db "INSERT INTO search VALUES(?,?,?,?)"
+    [ txt key; txt m.subject; txt m.sender; txt m.text ]
+
+let delete db source =
+  let key = M.key source in
+  Option.iter (invalidate_thread db) (get_db db source);
+  invalidate db key;
+  execute db "DELETE FROM messages WHERE key=?" [ txt key ];
+  execute db "DELETE FROM search WHERE key=?" [ txt key ]
+
+let commit_batch ?(hydrate = []) ?hydrated t ~job ~expected ~cursor ms deleted =
+  run t (fun db ->
+      transaction db (fun () ->
+          if checkpoint_db db job <> expected then raise Conflict;
+          List.iter (put db) ms;
+          List.iter (delete db) deleted;
+          List.iter
+            (fun (s : M.source) ->
+              execute db "INSERT OR IGNORE INTO hydration VALUES(?,?,?,0)"
+                [ txt (M.key s); txt s.service; txt s.account ])
+            hydrate;
+          (match hydrated with
+          | None -> ()
+          | Some (s, None) ->
+              execute db "DELETE FROM hydration WHERE source=?"
+                [ txt (M.key s) ]
+          | Some (s, Some position) ->
+              execute db "UPDATE hydration SET position=? WHERE source=?"
+                [ int position; txt (M.key s) ]);
+          execute db "INSERT OR REPLACE INTO checkpoints VALUES(?,?)"
+            [ txt job; txt cursor ];
+          bump db))
+
+let search_db db query =
+  if query = "" then
+    rows db "SELECT payload FROM messages ORDER BY date DESC,key LIMIT 100" []
+  else
+    rows db
+      "SELECT m.payload FROM search JOIN messages m ON search.key=m.key WHERE \
+       search MATCH ? ORDER BY rank LIMIT 100"
+      [ txt query ]
+
+let search t query =
+  run t (fun db -> List.map (fun r -> decode (str r.(0))) (search_db db query))
+
+let area_of_row r : M.area =
+  {
+    id = str r.(0);
+    name = str r.(1);
+    definition = str r.(2);
+    exclusions = str r.(3);
+    parent = (if r.(4) = D.NULL then None else Some (str r.(4)));
+    status = str r.(5);
+    revision = num r.(6);
+  }
+
+let areas_db db =
+  List.map area_of_row (rows db "SELECT * FROM areas ORDER BY id" [])
+
+let areas t = run t areas_db
+let source_of_key s = M.source_of_sexp (Sexplib.Sexp.of_string s)
+
+let dim = function
+  | "area" -> M.Area
+  | "triage" -> Triage
+  | "delivery" -> Delivery
+  | "attention" -> Attention
+  | _ -> failwith "dimension"
+
+let origin = function
+  | "admin" -> M.Admin
+  | "rule" -> Rule
+  | "model" -> Model
+  | "server" -> Server
+  | _ -> failwith "origin"
+
+let origin_name = function
+  | M.Admin -> "admin"
+  | Rule -> "rule"
+  | Model -> "model"
+  | Server -> "server"
+
+let string_list = Jsont.list Jsont.string
+
+let assignment_of_row r =
+  M.
+    {
+      target = source_of_key (str r.(0));
+      conversation = num r.(1) = 1;
+      dimension = dim (str r.(2));
+      value = str r.(3);
+      origin = origin (str r.(4));
+      version = str r.(5);
+      source_revision = str r.(6);
+      explanation = str r.(7);
+      evidence =
+        Jmap_eio.Codec.decode_exn string_list (str r.(8))
+        |> List.map source_of_key;
+      score = (match r.(9) with D.FLOAT f -> Some f | _ -> None);
+    }
+
+let assignments_db db =
+  rows db "SELECT * FROM assignments ORDER BY target,dimension,value,origin" []
+  |> List.map assignment_of_row
+
+let confirmed_assignments t ~limit =
+  if limit < 0 then invalid_arg "Negative confirmed assignment limit";
+  run t (fun db ->
+      rows db
+        "SELECT a.* FROM assignments a JOIN messages m ON a.target=m.key AND \
+         a.source_revision=m.revision WHERE a.origin='admin' AND \
+         a.conversation=0 ORDER BY a.target,a.dimension,a.value,a.origin LIMIT \
+         ?"
+        [ int limit ]
+      |> List.map assignment_of_row)
+
+let visible db assignments =
+  let confirmed = Hashtbl.create 32 in
+  List.iter
+    (fun (a : M.assignment) ->
+      if a.origin = Admin then
+        Hashtbl.replace confirmed (a.target, a.conversation, a.dimension) ())
+    assignments;
+  let live = Hashtbl.create 128 in
+  List.filter
+    (fun (a : M.assignment) ->
+      let key = (a.target, a.conversation) in
+      let exists =
+        match Hashtbl.find_opt live key with
+        | Some exists -> exists
+        | None ->
+            let exists =
+              if a.conversation then
+                rows db
+                  "SELECT 1 FROM messages WHERE service=? AND account=? AND \
+                   thread=? LIMIT 1"
+                  [
+                    txt a.target.service; txt a.target.account; txt a.target.id;
+                  ]
+                <> []
+              else
+                rows db "SELECT 1 FROM messages WHERE key=?"
+                  [ txt (M.key a.target) ]
+                <> []
+            in
+            Hashtbl.add live key exists;
+            exists
+      in
+      exists
+      && (a.origin = Admin
+         || not (Hashtbl.mem confirmed (a.target, a.conversation, a.dimension))
+         ))
+    assignments
+
+let message_assignments_db db messages =
+  let targets =
+    List.concat_map
+      (fun (m : M.message) ->
+        [ (M.key m.source, 0); (M.key { m.source with id = m.thread }, 1) ])
+      messages
+    |> List.sort_uniq compare
+  in
+  List.concat_map
+    (fun (key, conversation) ->
+      rows db
+        "SELECT * FROM assignments WHERE target=? AND conversation=? ORDER BY \
+         dimension,value,origin"
+        [ txt key; int conversation ]
+      |> List.map assignment_of_row)
+    targets
+
+let rule_assignments ?rules db messages =
+  let rules =
+    match rules with
+    | Some rules -> rules
+    | None -> rows db "SELECT * FROM label_rules ORDER BY scope DESC" []
+  in
+  List.concat_map
+    (fun (m : M.message) ->
+      let seen = Hashtbl.create 4 in
+      List.filter_map
+        (fun r ->
+          let scope =
+            if str r.(2) = "sender" then M.Sender else M.Mailing_list
+          in
+          let matches =
+            m.source.service = str r.(0)
+            && m.source.account = str r.(1)
+            &&
+            try M.rule_key scope m = str r.(3)
+            with Invalid_argument _ -> false
+          in
+          let label_dimension = dim (str r.(4)) in
+          if (not matches) || Hashtbl.mem seen label_dimension then None
+          else (
+            Hashtbl.add seen label_dimension ();
+            Some
+              M.
+                {
+                  target = m.source;
+                  conversation = false;
+                  dimension = label_dimension;
+                  value = str r.(5);
+                  origin = Rule;
+                  version = "user-rule/" ^ str r.(2);
+                  source_revision = m.revision;
+                  explanation = str r.(6);
+                  evidence = [ m.source ];
+                  score = None;
+                }))
+        rules)
+    messages
+
+let with_rules db ~visible_messages_only messages assignments =
+  if rows db "SELECT 1 FROM label_rules LIMIT 1" [] = [] then assignments
+  else
+    let messages =
+      if visible_messages_only then messages
+      else
+        rows db
+          "SELECT json_set(payload,'$.original','','$.text','') FROM messages"
+          []
+        |> List.map (fun r -> decode (str r.(0)))
+    in
+    let rules = rule_assignments db messages in
+    let overrides = Hashtbl.create 128 in
+    List.iter
+      (fun (a : M.assignment) ->
+        if a.origin = Admin && not a.conversation then
+          Hashtbl.replace overrides (a.target, a.dimension) ())
+      assignments;
+    let rules =
+      List.filter
+        (fun (a : M.assignment) ->
+          not (Hashtbl.mem overrides (a.target, a.dimension)))
+        rules
+    in
+    let keys = Hashtbl.create 128 in
+    List.iter
+      (fun (a : M.assignment) ->
+        Hashtbl.replace keys (a.target, a.dimension) ())
+      rules;
+    List.filter
+      (fun (a : M.assignment) ->
+        a.conversation || not (Hashtbl.mem keys (a.target, a.dimension)))
+      assignments
+    @ rules
+
+let labels t source =
+  run t (fun db ->
+      match get_db db source with
+      | None -> []
+      | Some message ->
+          with_rules db ~visible_messages_only:true [ message ]
+            (visible db (message_assignments_db db [ message ])))
+
+let feedback_id scope (m : M.message) (a : M.assignment) =
+  let identity =
+    match scope with
+    | None -> "message:" ^ m.source.id
+    | Some scope ->
+        (match scope with M.Sender -> "sender:" | Mailing_list -> "list:")
+        ^ M.rule_key scope m
+  in
+  Digestif.SHA256.(
+    to_hex
+      (digest_string
+         (Sexplib.Sexp.to_string_mach
+            (Sexplib.Sexp.List
+               (List.map
+                  (fun s -> Sexplib.Sexp.Atom s)
+                  [
+                    m.source.service;
+                    m.source.account;
+                    identity;
+                    M.dimension a.dimension;
+                    (if a.dimension = Area then a.value else "");
+                  ])))))
+
+let save_feedback_db db ?(replace = true) ~scope ~previous ~revision
+    (m : M.message) (a : M.assignment) =
+  let id = feedback_id scope m a in
+  let clip s = Agentkit.Memo.clip 8192 s in
+  let message =
+    {
+      m with
+      original = "";
+      text = clip m.text;
+      subject = Agentkit.Memo.clip 1024 m.subject;
+      headers =
+        (try [ ("list-id", M.rule_key M.Mailing_list m) ]
+         with Invalid_argument _ -> []);
+      recipients = [];
+      truncated = m.truncated || String.length m.text > 8192;
+    }
+  in
+  let feedback : M.feedback =
+    {
+      id;
+      message;
+      correction = a;
+      scope;
+      previous;
+      decision_revision = revision;
+    }
+  in
+  execute db
+    (if replace then "INSERT OR REPLACE INTO feedback VALUES(?,?)"
+     else "INSERT OR IGNORE INTO feedback VALUES(?,?)")
+    [ txt id; txt (Sexplib.Sexp.to_string_mach (M.sexp_of_feedback feedback)) ]
+
+let seed_feedback_db db =
+  if rows db "SELECT 1 FROM meta WHERE key='feedback_seeded'" [] = [] then (
+    let revision = revision_db db in
+    rows db "SELECT * FROM assignments WHERE origin='admin' AND conversation=0"
+      []
+    |> List.map assignment_of_row
+    |> List.iter (fun (a : M.assignment) ->
+           match get_db db a.target with
+           | Some m when m.revision = a.source_revision ->
+               save_feedback_db db ~replace:false ~scope:None ~previous:[]
+                 ~revision m a
+           | _ -> ());
+    let rules = rows db "SELECT * FROM label_rules ORDER BY scope DESC" [] in
+    if rules <> [] then
+      statement db "SELECT payload FROM messages ORDER BY key" [] (fun query ->
+          let rec loop () =
+            match Sqlite3.step query with
+            | ROW ->
+                let m = decode (str (Sqlite3.column query 0)) in
+                rule_assignments ~rules db [ m ]
+                |> List.iter (fun (a : M.assignment) ->
+                       let scope =
+                         if a.version = "user-rule/sender" then M.Sender
+                         else M.Mailing_list
+                       in
+                       save_feedback_db db ~replace:false ~scope:(Some scope)
+                         ~previous:[] ~revision m a);
+                loop ()
+            | DONE -> ()
+            | code -> check code
+          in
+          loop ());
+    execute db "INSERT INTO meta VALUES('feedback_seeded',1)" [])
+
+let feedback t =
+  run t (fun db ->
+      transaction db (fun () ->
+          seed_feedback_db db;
+          rows db "SELECT payload FROM feedback ORDER BY key" []
+          |> List.map (fun r ->
+                 M.feedback_of_sexp (Sexplib.Sexp.of_string (str r.(0))))
+          |> List.filter (fun (f : M.feedback) ->
+                 let a = f.correction in
+                 (a.dimension <> Area
+                 || rows db
+                      "SELECT 1 FROM areas WHERE id=? AND status='approved'"
+                      [ txt a.value ]
+                    <> [])
+                 &&
+                 match f.scope with
+                 | None ->
+                     rows db
+                       "SELECT 1 FROM assignments a JOIN messages m ON \
+                        m.key=a.target WHERE a.target=? AND a.dimension=? AND \
+                        a.value=? AND a.origin='admin' AND a.conversation=0 \
+                        AND a.source_revision=m.revision AND m.revision=?"
+                       [
+                         txt (M.key a.target);
+                         txt (M.dimension a.dimension);
+                         txt a.value;
+                         txt f.message.revision;
+                       ]
+                     <> []
+                 | Some scope ->
+                     rows db
+                       "SELECT 1 FROM label_rules WHERE service=? AND \
+                        account=? AND scope=? AND selector=? AND dimension=? \
+                        AND value=? AND explanation=?"
+                       [
+                         txt a.target.service;
+                         txt a.target.account;
+                         txt
+                           (match scope with
+                           | Sender -> "sender"
+                           | Mailing_list -> "list");
+                         txt (M.rule_key scope f.message);
+                         txt (M.dimension a.dimension);
+                         txt a.value;
+                         txt a.explanation;
+                       ]
+                     <> [])))
+
+let feedback_vector t ~key ~model ~input_hash =
+  run t (fun db ->
+      match
+        rows db
+          "SELECT vector FROM feedback_vectors WHERE key=? AND model=? AND \
+           input_hash=?"
+          [ txt key; txt model; txt input_hash ]
+      with
+      | [ r ] ->
+          Some (Jmap_eio.Codec.decode_exn (Jsont.list Jsont.number) (str r.(0)))
+      | _ -> None)
+
+let save_feedback_vector t ~key ~model ~input_hash vector =
+  run t (fun db ->
+      execute db "INSERT OR REPLACE INTO feedback_vectors VALUES(?,?,?,?)"
+        [
+          txt key;
+          txt model;
+          txt input_hash;
+          txt (Jmap_eio.Codec.encode_exn (Jsont.list Jsont.number) vector);
+        ])
+
+let snapshot ?(visible_messages_only = false) t ~query =
+  run t (fun db ->
+      let messages =
+        List.map (fun r -> decode (str r.(0))) (search_db db query)
+      in
+      {
+        M.revision = revision_db db;
+        messages;
+        areas = areas_db db;
+        assignments =
+          with_rules db ~visible_messages_only messages
+            (visible db
+               (if visible_messages_only then message_assignments_db db messages
+                else assignments_db db));
+        feedback_examples = "";
+        discussion =
+          (match
+             rows db
+               "SELECT answer FROM audit WHERE prompt_version LIKE \
+                'siftbot/discussion/%' ORDER BY id DESC LIMIT 1"
+               []
+           with
+          | [ r ] -> str r.(0)
+          | _ -> "");
+        jobs =
+          rows db "SELECT job,cursor FROM checkpoints ORDER BY job" []
+          |> List.map (fun r -> str r.(0) ^ ": " ^ str r.(1));
+      })
+
+let save_area db (a : M.area) =
+  execute db "INSERT OR REPLACE INTO areas VALUES(?,?,?,?,?,?,?)"
+    [
+      txt a.id;
+      txt a.name;
+      txt a.definition;
+      txt a.exclusions;
+      Option.fold ~none:D.NULL ~some:txt a.parent;
+      txt a.status;
+      int a.revision;
+    ]
+
+let save_assignment db (a : M.assignment) =
+  if not (M.valid_value a.dimension a.value) then invalid_arg "Invalid label";
+  (match a.score with
+  | Some f when not (Float.is_finite f) -> invalid_arg "Non-finite score"
+  | _ -> ());
+  execute db "INSERT OR REPLACE INTO assignments VALUES(?,?,?,?,?,?,?,?,?,?)"
+    [
+      txt (M.key a.target);
+      int (if a.conversation then 1 else 0);
+      txt (M.dimension a.dimension);
+      txt a.value;
+      txt (origin_name a.origin);
+      txt a.version;
+      txt a.source_revision;
+      txt a.explanation;
+      txt (Jmap_eio.Codec.encode_exn string_list (List.map M.key a.evidence));
+      Option.fold ~none:D.NULL ~some:(fun f -> D.FLOAT f) a.score;
+    ]
+
+let propose_db db areas assignments =
+  List.iter
+    (fun (a : M.area) ->
+      if a.status <> "proposed" then invalid_arg "Proposal must be unapproved";
+      if not (List.exists (fun (b : M.area) -> b.id = a.id) (areas_db db)) then
+        save_area db a)
+    areas;
+  let groups =
+    List.map
+      (fun (a : M.assignment) ->
+        ( M.key a.target,
+          a.conversation,
+          M.dimension a.dimension,
+          origin_name a.origin ))
+      assignments
+    |> List.sort_uniq compare
+  in
+  List.iter
+    (fun (target, conversation, dimension, origin) ->
+      if origin = "admin" then
+        invalid_arg "Predictions cannot be human decisions";
+      execute db
+        "DELETE FROM assignments WHERE target=? AND conversation=? AND \
+         dimension=? AND origin=?"
+        [
+          txt target;
+          int (if conversation then 1 else 0);
+          txt dimension;
+          txt origin;
+        ])
+    groups;
+  List.iter
+    (fun (a : M.assignment) ->
+      if a.origin = Admin then
+        invalid_arg "Predictions cannot be human decisions";
+      if a.evidence = [] || List.exists (fun s -> get_db db s = None) a.evidence
+      then invalid_arg "Prediction evidence is missing or deleted";
+      (if not a.conversation then
+         match get_db db a.target with
+         | Some m when m.revision = a.source_revision -> ()
+         | _ -> raise Conflict);
+      if
+        a.dimension = Area
+        && not
+             (List.exists
+                (fun (b : M.area) -> b.id = a.value && b.status = "approved")
+                (areas_db db))
+      then invalid_arg "Area is not approved";
+      save_assignment db a)
+    assignments;
+  bump db
+
+let propose t areas assignments =
+  run t (fun db -> transaction db (fun () -> propose_db db areas assignments))
+
+(* History is a JSON array of typed SQL rows. It is private to schema v1. *)
+let row_json row =
+  Jsont.Json.list
+    (Array.to_list row
+    |> List.map (function
+         | D.TEXT s -> Jsont.Json.string s
+         | D.INT n -> Jsont.Json.int (Int64.to_int n)
+         | D.FLOAT f -> Jsont.Json.number f
+         | D.NULL -> Jsont.Json.null ()
+         | _ -> failwith "Unsupported history value"))
+
+let before_state db =
+  Jsont.Json.list
+    [
+      Jsont.Json.list (List.map row_json (rows db "SELECT * FROM areas" []));
+      Jsont.Json.list
+        (List.map row_json
+           (rows db "SELECT * FROM assignments WHERE origin='admin'" []));
+      Jsont.Json.list
+        (List.map row_json (rows db "SELECT * FROM label_rules" []));
+      Jsont.Json.list (List.map row_json (rows db "SELECT * FROM feedback" []));
+    ]
+  |> Jmap_eio.Codec.encode_exn Jsont.json
+
+let restore db state =
+  let array = function Jsont.Array (xs, _) -> xs | _ -> failwith "history" in
+  let data = function
+    | Jsont.String (s, _) -> txt s
+    | Jsont.Number (f, _) ->
+        if Float.is_integer f then int (int_of_float f) else D.FLOAT f
+    | Jsont.Null _ -> D.NULL
+    | _ -> failwith "history value"
+  in
+  match array (Jmap_eio.Codec.decode_exn Jsont.json state) with
+  | ( [ areas; assignments ]
+    | [ areas; assignments; _ ]
+    | [ areas; assignments; _; _ ] ) as state ->
+      (match state with
+      | [ _; _; rules ] | [ _; _; rules; _ ] ->
+          execute db "DELETE FROM label_rules" [];
+          List.iter
+            (fun r ->
+              execute db "INSERT INTO label_rules VALUES(?,?,?,?,?,?,?)"
+                (List.map data (array r)))
+            (array rules)
+      | _ -> ());
+      (match state with
+      | [ _; _; _; feedback ] ->
+          execute db "DELETE FROM feedback" [];
+          List.iter
+            (fun r ->
+              execute db "INSERT INTO feedback VALUES(?,?)"
+                (List.map data (array r)))
+            (array feedback)
+      | _ ->
+          execute db "DELETE FROM feedback" [];
+          execute db "DELETE FROM meta WHERE key='feedback_seeded'" []);
+      execute db "DELETE FROM areas" [];
+      execute db "DELETE FROM assignments WHERE origin='admin'" [];
+      List.iter
+        (fun r ->
+          execute db "INSERT INTO areas VALUES(?,?,?,?,?,?,?)"
+            (List.map data (array r)))
+        (array areas);
+      List.iter
+        (fun r ->
+          execute db "INSERT INTO assignments VALUES(?,?,?,?,?,?,?,?,?,?)"
+            (List.map data (array r)))
+        (array assignments)
+  | _ -> failwith "history state"
+
+let edit t ~revision edit ~explanation =
+  run t (fun db ->
+      transaction db (fun () ->
+          if revision_db db <> revision then raise Conflict;
+          if String.trim explanation = "" then
+            invalid_arg "Explain the decision";
+          seed_feedback_db db;
+          let before = before_state db in
+          let original_areas = areas_db db in
+          let area id f =
+            match
+              List.find_opt (fun (a : M.area) -> a.id = id) (areas_db db)
+            with
+            | None -> invalid_arg "Unknown area"
+            | Some a -> save_area db (f { a with revision = a.revision + 1 })
+          in
+          (match edit with
+          | M.Approve id -> area id (fun a -> { a with status = "approved" })
+          | Archive id -> area id (fun a -> { a with status = "archived" })
+          | Merge (from_id, into_id) ->
+              if from_id = into_id then invalid_arg "Choose two different areas";
+              if
+                not
+                  (List.exists
+                     (fun (a : M.area) ->
+                       a.id = into_id && a.status = "approved")
+                     (areas_db db))
+              then invalid_arg "Merge target must be approved";
+              area from_id (fun a -> { a with status = "archived" });
+              List.iter
+                (fun (a : M.assignment) ->
+                  if a.dimension = Area && a.value = from_id && a.origin = Admin
+                  then
+                    save_assignment db { a with value = into_id; explanation })
+                (assignments_db db);
+              execute db
+                "DELETE FROM assignments WHERE dimension='area' AND value=?"
+                [ txt from_id ]
+          | Rename (id, name) ->
+              if String.trim name = "" then invalid_arg "Empty area name";
+              area id (fun a -> { a with name })
+          | Define (id, definition, exclusions) ->
+              area id (fun a -> { a with definition; exclusions })
+          | Assign_rule (scope, a) ->
+              if
+                a.conversation || a.dimension = Area
+                || not (M.valid_value a.dimension a.value)
+              then
+                invalid_arg
+                  "Rules support message triage, delivery and attention labels";
+              let m =
+                match get_db db a.target with
+                | Some m when m.revision = a.source_revision -> m
+                | _ -> raise Conflict
+              in
+              let selector = M.rule_key scope m in
+              let previous = visible db (message_assignments_db db [ m ]) in
+              save_feedback_db db ~scope:(Some scope) ~previous
+                ~revision:(revision + 1) m
+                { a with origin = Admin; explanation; score = None };
+              execute db
+                "INSERT OR REPLACE INTO label_rules VALUES(?,?,?,?,?,?,?)"
+                [
+                  txt m.source.service;
+                  txt m.source.account;
+                  txt
+                    (match scope with
+                    | Sender -> "sender"
+                    | Mailing_list -> "list");
+                  txt selector;
+                  txt (M.dimension a.dimension);
+                  txt a.value;
+                  txt explanation;
+                ]
+          | Assign a ->
+              if
+                a.dimension = Area
+                && not
+                     (List.exists
+                        (fun (b : M.area) ->
+                          b.id = a.value && b.status = "approved")
+                        (areas_db db))
+              then invalid_arg "Area is not approved";
+              (if a.conversation then (
+                 if
+                   rows db
+                     "SELECT 1 FROM messages WHERE service=? AND account=? AND \
+                      thread=?"
+                     [
+                       txt a.target.service;
+                       txt a.target.account;
+                       txt a.target.id;
+                     ]
+                   = []
+                 then invalid_arg "Unknown conversation")
+               else
+                 match get_db db a.target with
+                 | Some m when m.revision = a.source_revision -> ()
+                 | _ -> raise Conflict);
+              if a.dimension <> Area then
+                execute db
+                  "DELETE FROM assignments WHERE target=? AND conversation=? \
+                   AND dimension=? AND origin='admin'"
+                  [
+                    txt (M.key a.target);
+                    int (if a.conversation then 1 else 0);
+                    txt (M.dimension a.dimension);
+                  ];
+              (if not a.conversation then
+                 match get_db db a.target with
+                 | Some m ->
+                     save_feedback_db db ~scope:None
+                       ~previous:(visible db (message_assignments_db db [ m ]))
+                       ~revision:(revision + 1) m
+                       { a with origin = Admin; explanation; score = None }
+                 | None -> raise Conflict);
+              save_assignment db
+                { a with origin = Admin; score = None; explanation }
+          | Undo -> (
+              match
+                rows db
+                  "SELECT id,before_state FROM decisions WHERE undone=0 ORDER \
+                   BY id DESC LIMIT 1"
+                  []
+              with
+              | [ r ] ->
+                  restore db (str r.(1));
+                  execute db "UPDATE decisions SET undone=1 WHERE id=?"
+                    [ r.(0) ]
+              | _ -> invalid_arg "Nothing to undo"));
+          if edit <> M.Undo then
+            execute db
+              "INSERT INTO decisions(id,explanation,before_state) VALUES(?,?,?)"
+              [ int (revision + 1); txt explanation; txt before ];
+          (match edit with
+          | Assign _ | Assign_rule _ -> ()
+          | Undo when areas_db db = original_areas -> ()
+          | _ ->
+              execute db "DELETE FROM derived" [];
+              execute db "DELETE FROM assignments WHERE origin<>'admin'" []);
+          bump db;
+          execute db "INSERT INTO history VALUES(?,?)"
+            [ int (revision + 1); txt explanation ]))
+
+let cache t ~source ~revision ~kind ~value =
+  run t (fun db ->
+      transaction db (fun () ->
+          match get_db db source with
+          | Some m when m.revision = revision ->
+              execute db "INSERT OR REPLACE INTO derived VALUES(?,?,?,?)"
+                [ txt (M.key source); txt revision; txt kind; txt value ]
+          | _ -> raise Conflict))
+
+let cached t ~source ~kind =
+  run t (fun db ->
+      match
+        rows db
+          "SELECT d.value FROM derived d JOIN messages m ON d.source=m.key AND \
+           d.revision=m.revision WHERE d.source=? AND d.kind=?"
+          [ txt (M.key source); txt kind ]
+      with
+      | [ r ] -> Some (str r.(0))
+      | _ -> None)
+
+let audit_db db ~model ~prompt_version ~corpus_revision ~question ~answer
+    ~outcome ~tools =
+  execute db
+    "INSERT INTO \
+     audit(model,prompt_version,corpus_revision,question,answer,outcome,tools) \
+     VALUES(?,?,?,?,?,?,?)"
+    [
+      txt model;
+      txt prompt_version;
+      int corpus_revision;
+      txt question;
+      txt answer;
+      txt outcome;
+      txt (Jmap_eio.Codec.encode_exn string_list tools);
+    ];
+  bump db
+
+let audit t ~model ~prompt_version ~corpus_revision ~question ~answer ~outcome
+    ~tools =
+  run t (fun db ->
+      transaction db (fun () ->
+          audit_db db ~model ~prompt_version ~corpus_revision ~question ~answer
+            ~outcome ~tools))
+
+let save_classification ?active_kind ?(feedback_trace = "") t ~expected_revision
+    ~source ~revision ~kind ~model ~prompt_version ~question ~answer assignments
+    =
+  run t (fun db ->
+      transaction db (fun () ->
+          if revision_db db <> expected_revision then raise Conflict;
+          (match get_db db source with
+          | Some m when m.revision = revision -> ()
+          | _ -> raise Conflict);
+          if
+            assignments = []
+            || List.exists
+                 (fun (a : M.assignment) ->
+                   a.target <> source
+                   || a.source_revision <> revision
+                   || a.origin <> Model || a.conversation)
+                 assignments
+          then
+            invalid_arg "Classification assignments must belong to their source";
+          (* Replace the entire prediction, including areas omitted by the new model. *)
+          execute db
+            "DELETE FROM assignments WHERE target=? AND conversation=0 AND \
+             origin='model'"
+            [ txt (M.key source) ];
+          propose_db db [] assignments;
+          List.iter
+            (fun (kind, value) ->
+              execute db "INSERT OR REPLACE INTO derived VALUES(?,?,?,?)"
+                [ txt (M.key source); txt revision; txt kind; txt value ])
+            [
+              (kind, answer);
+              ("classification/active", Option.value ~default:kind active_kind);
+              ("classification/feedback", feedback_trace);
+              ("classification/feedback-key", kind);
+            ];
+          audit_db db ~model ~prompt_version ~corpus_revision:expected_revision
+            ~question ~answer ~outcome:"classified" ~tools:[];
+          revision_db db))
+
+let vector_index t ~model ~dimensions ~normalization =
+  run t (fun db ->
+      transaction db (fun () ->
+          Retrieval.Vector.index db ~model ~dimensions ~normalization))
+
+let vector_current t ~index ~source ~revision ~input_hash =
+  run t (fun db ->
+      Retrieval.Vector.current db ~index ~source:(M.key source) ~revision
+        ~input_hash)
+
+let vector_put t ~index ~source ~revision ~input_hash vector =
+  run t (fun db ->
+      transaction db (fun () ->
+          match get_db db source with
+          | Some m when m.revision = revision ->
+              Retrieval.Vector.put db ~index ~source:(M.key source) ~revision
+                ~input_hash vector
+          | _ -> raise Conflict))
+
+let vector_search t ~index ~limit vector =
+  if limit < 1 || limit > 100 then invalid_arg "Vector result limit is 1 to 100";
+  let vector = Retrieval.Vector.binding vector in
+  run t (fun db ->
+      rows db
+        ("WITH nearest AS MATERIALIZED (SELECT source,revision,distance FROM "
+       ^ vector_name index
+       ^ " WHERE embedding MATCH ? AND k=?) SELECT m.payload,v.distance FROM \
+          nearest v JOIN messages m ON m.key=v.source AND \
+          m.revision=v.revision ORDER BY v.distance,m.key")
+        [ vector; int limit ]
+      |> List.map (fun r ->
+             ( decode (str r.(0)),
+               match r.(1) with
+               | D.FLOAT f -> f
+               | _ -> failwith "Invalid vector distance" )))
+
+let freeze t ~id ~revision ~payload =
+  run t (fun db ->
+      transaction db (fun () ->
+          if revision_db db <> revision then raise Conflict;
+          match
+            rows db "SELECT payload FROM evaluations WHERE id=?" [ txt id ]
+          with
+          | [ row ] when str row.(0) = payload -> ()
+          | [] ->
+              execute db "INSERT INTO evaluations VALUES(?,?,?)"
+                [ txt id; int revision; txt payload ]
+          | _ -> raise Conflict))
+
+let evaluations t =
+  run t (fun db ->
+      rows db "SELECT id,payload FROM evaluations ORDER BY id" []
+      |> List.map (fun r -> (str r.(0), str r.(1))))
+
+let reserve_task t ~key ~revision ~source ~source_revision ~title =
+  run t (fun db ->
+      transaction db (fun () ->
+          if revision_db db <> revision then raise Conflict;
+          (match get_db db source with
+          | Some m when m.revision = source_revision -> ()
+          | _ -> raise Conflict);
+          match
+            rows db "SELECT source,title FROM task_receipts WHERE key=?"
+              [ txt key ]
+          with
+          | [ row ] -> (source_of_key (str row.(0)), str row.(1))
+          | [] ->
+              execute db "INSERT INTO task_receipts VALUES(?,?,?,'pending','')"
+                [ txt key; txt (M.key source); txt title ];
+              bump db;
+              (source, title)
+          | _ -> assert false))
+
+let task_receipt t ~key ~status ~receipt =
+  run t (fun db ->
+      transaction db (fun () ->
+          execute db "UPDATE task_receipts SET status=?,receipt=? WHERE key=?"
+            [ txt status; txt receipt; txt key ];
+          bump db))
+
+let snooze t ~revision ~target ~until_date ~explanation =
+  let until_date =
+    match Ptime.of_rfc3339 until_date with
+    | Ok (t, _, _) -> Ptime.to_rfc3339 ~tz_offset_s:0 t
+    | Error _ -> invalid_arg "Use an RFC3339 snooze deadline"
+  in
+  run t (fun db ->
+      transaction db (fun () ->
+          if revision_db db <> revision then raise Conflict;
+          let m =
+            match get_db db target with Some m -> m | None -> raise Conflict
+          in
+          execute db "INSERT OR REPLACE INTO snoozes VALUES(?,?,?,?)"
+            [
+              txt (M.key target);
+              txt until_date;
+              txt m.revision;
+              txt explanation;
+            ];
+          bump db))
+
+let snoozed t ~now target =
+  run t (fun db ->
+      match
+        rows db
+          "SELECT 1 FROM snoozes s JOIN messages m ON m.key=s.target AND \
+           m.revision=s.source_revision WHERE s.target=? AND s.until_date>?"
+          [ txt (M.key target); txt now ]
+      with
+      | [] -> false
+      | _ -> true)
+
+let hydration t ~service ~account =
+  run t (fun db ->
+      match
+        rows db
+          "SELECT source,position FROM hydration WHERE service=? AND account=? \
+           ORDER BY source LIMIT 1"
+          [ txt service; txt account ]
+      with
+      | [ row ] -> Some (source_of_key (str row.(0)), num row.(1))
+      | _ -> None)
+
+let checkpoints t =
+  run t (fun db ->
+      rows db "SELECT job,cursor FROM checkpoints ORDER BY job" []
+      |> List.map (fun r -> (str r.(0), str r.(1))))
+
+let hydration_count t ~service ~account =
+  run t (fun db ->
+      match
+        rows db "SELECT COUNT(*) FROM hydration WHERE service=? AND account=?"
+          [ txt service; txt account ]
+      with
+      | [ row ] -> num row.(0)
+      | _ -> assert false)
+
+let message_count t =
+  run t (fun db ->
+      match rows db "SELECT COUNT(*) FROM messages" [] with
+      | [ row ] -> num row.(0)
+      | _ -> assert false)

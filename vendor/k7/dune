@@ -1,0 +1,8 @@
+(env
+ (_
+  (flags :standard -open K7_compat)))
+
+(mdx
+ (files README.md)
+ (deps %{bin:k7})
+ (libraries k7_compat k7 eio eio.unix eio_main fmt))

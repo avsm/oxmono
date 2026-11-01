@@ -1,0 +1,4 @@
+(library
+ (name memento_proffer)
+ (public_name memento.proffer)
+ (libraries memento proffer fetch httpz.media))

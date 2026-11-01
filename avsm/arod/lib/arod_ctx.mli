@@ -7,7 +7,7 @@
 
 @@ portable
 
-type feed_item = {
+type feed_item = Arod_collections.feed_item = {
   contact : Sortal_schema.Contact.t;
   entry : Sortal_feed.Entry.t;
   mentions : Bushel.Entry.entry list;
@@ -34,6 +34,9 @@ val of_entries :
 (** [of_entries ~config ?releases entries] is a filesystem-free context over
     [entries]. Feed items, backlinks and link metadata are empty. [releases]
     defaults to none. *)
+
+val collections : t -> Arod_collections.t
+(** [collections t] is the immutable pagination and lookup snapshot of [t]. *)
 
 (** {1 Config Accessors} *)
 

@@ -1,5 +1,11 @@
 ## Unreleased
 
+Accept zero-padded literal counts in retained control and FETCH responses.
+Marker validation no longer allocates formatted counts or substrings.
+
+Literal framing reuses whole input chunks. Quoted response tokens without
+escapes are decoded without an intermediate buffer.
+
 `fbbd86ad0` `Proto.Uid_set.of_wire` now rejects a non-canonical UID
 set endpoint, such as a leading zero, and names the bad token.
 `Uid`, `Uidvalidity`, `Modseq` and `Uid_set` gain `equal`, `compare`

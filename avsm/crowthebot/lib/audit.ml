@@ -20,7 +20,8 @@ let tool_name name =
   then name
   else "[invalid-tool-name]"
 
-let run ?(on_finish = fun _ -> ()) store ~actor ~room ~event ~source ~call_id
+let run ?(on_finish = fun _ -> ()) ?(max_result_bytes = 4096)
+    store ~actor ~room ~event ~source ~call_id
     ~tool ~arguments f =
   let memory =
     tool = "memory"
@@ -30,7 +31,9 @@ let run ?(on_finish = fun _ -> ()) store ~actor ~room ~event ~source ~call_id
   in
   let payload text =
     if memory then "[memory content omitted]"
-    else if tool = "location" || String.starts_with ~prefix:"location_" tool
+    else if
+      Agentkit_osm.is_tool tool || tool = "location"
+      || String.starts_with ~prefix:"location_" tool
     then "[location content omitted]"
     else if
       String.starts_with ~prefix:"calendar_" tool
@@ -72,12 +75,12 @@ let run ?(on_finish = fun _ -> ()) store ~actor ~room ~event ~source ~call_id
   match f () with
   | Ok result ->
       let result_bytes = String.length result in
-      let result = Plugin.clip ~bytes:4096 result in
+      let result = Plugin.clip ~bytes:max_result_bytes result in
       finish ~status:"ok" ~result_bytes result;
       result
   | Error result ->
       finish ~status:"rejected" ~result_bytes:(String.length result) result;
-      Plugin.clip ~bytes:4096 result
+      Plugin.clip ~bytes:max_result_bytes result
   | exception exn ->
       let bt = Printexc.get_raw_backtrace () in
       Diagnostics.Tools.err (fun m ->

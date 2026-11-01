@@ -21,6 +21,7 @@ let v ?max_retries ~homeserver () =
     | Error message -> invalid_arg ("Matrix_client.Http_retry.v: " ^ message)
   in
   Fetch.Retry.v ?max_retries
+    ~status_forcelist:[ 408; 429; 500; 502; 503; 504; 507; 520 ]
     ~allowed_methods:(`POST :: Fetch.Retry.default.allowed_methods)
     ~retry_request:(retry_request ~homeserver)
     ()

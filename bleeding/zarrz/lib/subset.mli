@@ -49,7 +49,8 @@ val iter_runs :
     elements yields no runs, and a rank 0 subset yields one run of one
     element.
 
-    Validates as {!validate} does. *)
+    Validates as {!validate} does. Raises [Invalid_argument] before invoking
+    [f] if the number of elements in [outer] cannot fit in an [int]. *)
 
 val copy :
   elem_size:int ->
@@ -74,8 +75,9 @@ val copy :
     two blocks overlap in one buffer.
 
     Raises [Invalid_argument] if the ranks differ, if either block falls
-    outside its array, or if either buffer is shorter than the array it
-    holds. Buffers longer than needed are accepted and the excess is
+    outside its array, if an array's byte size overflows an [int], or if
+    either buffer is shorter than the array it holds. Buffers longer than
+    needed are accepted and the excess is
     untouched. *)
 
 val gather :

@@ -30,6 +30,7 @@ let routes =
     get (s "videos.md") H.videos_markdown;
     get (s "links.md") H.links_markdown;
     get (s "network.md") H.network_markdown;
+    get (s "tags.md") H.tags_markdown;
     (* Feeds *)
     get (s "news.xml") (H.atom_feed "/news.xml");
     get (s "notes" / s "atom.xml") (H.atom_feed "/notes/atom.xml");
@@ -90,6 +91,7 @@ let routes =
     get (s "links") H.links_list;
     get (s "network") H.network_page;
     get (s "network" / s "blogroll.opml") H.blogroll_opml;
+    get (s "tags") H.tags_page;
     (* Pages that moved, and the tag links older markdown still writes *)
     moved (s "feeds") "/network";
     moved (s "wiki") "/notes";
@@ -118,6 +120,7 @@ let routes =
       (H.embedded_file "apple-touch-icon.png");
     get (s "site.webmanifest") (H.embedded_file "site.webmanifest");
     get (s "tw.css") (H.embedded_file_immutable "tw.css");
+    get (s "tag-art.svg") H.tag_sprite;
     get (s "js" / segment) H.js_file;
     get (s "images" / rest) H.image_file;
     (* Stats dashboard, hidden, not cached and not in the sitemap *)

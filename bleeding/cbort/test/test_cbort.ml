@@ -291,6 +291,17 @@ let run_rfc_tests () =
           let _diagnostic_opt = List.assoc_opt "diagnostic" fields in
           let test_name = Printf.sprintf "vector %d (hex: %s)" i hex in
 
+          (* This historical corpus predates RFC 8949 section 3.3, which
+             forbids simple values below 32 after the f8 byte. Keep the
+             original vector as a rejection test. *)
+          if hex = "f818" then
+            test (test_name ^ " rejects reserved simple value") (fun () ->
+                let dec = Cbor_rw.make_decoder
+                    (Bytes.Reader.of_string cbor_bytes) in
+                match Cbor_rw.read_cbor dec with
+                | _ -> failwith "Reserved simple value accepted"
+                | exception Failure _ -> ())
+          else begin
           (* Test decoding *)
           test (test_name ^ " decode") (fun () ->
               let reader = Bytes.Reader.of_string cbor_bytes in
@@ -327,6 +338,7 @@ let run_rfc_tests () =
                     (Printf.sprintf
                        "Roundtrip mismatch: encoded %d bytes, expected %d bytes"
                        (String.length encoded) (String.length cbor_bytes)))
+          end
       | _ -> failwith "Expected object in test vector")
     vectors
 

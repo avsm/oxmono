@@ -1,0 +1,34 @@
+(executable
+ (name main)
+ (libraries console_compat console console-eio eio eio_main fmt))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target docker.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    LINES
+    30
+    (run ./main.exe)))))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target docker.generated.svg)
+ (action
+  (run
+   %{bin:k7}
+   play
+   --show
+   "docker-build ."
+   -o
+   %{target}
+   %{dep:docker.cast})))
+
+(rule
+ (alias runtest)
+ (enabled_if %{lib-available:console-eio})
+ (action
+  (diff docker.svg docker.generated.svg)))

@@ -95,6 +95,7 @@ let cancel = Base.cancel
 let cancel_with_reason = Base.cancel_with_reason
 let forget_room = Base.forget_room
 let unwedge = Base.unwedge
+let retry_expired_tokens = Base.retry_expired_tokens
 let enabled = Base.enabled
 let set_enabled = Base.set_enabled
 let room_enabled = Base.room_enabled
@@ -187,12 +188,19 @@ let start ~sw ~clock ?encryption ?members client queue =
       (fun () -> Eio.Condition.await_no_mutex cond)
       (fun () -> Eio.Time.sleep clock idle_timeout)
   in
+  let revision () = Client.session_revision client in
+  let observed_revision = ref (revision ()) in
+  let recover () =
+    Base.retry_expired_tokens queue;
+    flush ()
+  in
   let run_room room_id =
     let rec loop () =
       Eio.Fiber.check ();
       (match Base.next queue room_id with
       | None -> idle ()
       | Some request -> (
+          let before = revision () in
           let send = sender_for ?encryption ?members request in
           match send_one ?send queue client request with
           | Sent_ok _ -> flush ()
@@ -201,6 +209,9 @@ let start ~sw ~clock ?encryption ?members client queue =
               flush ();
               Eio.Time.sleep clock d
           | Failed _ ->
+              (* A rejection can arrive after the supervisor observed a refresh.
+                 Preserve the retry budget if repeated refreshes still fail. *)
+              if revision () <> before then recover ();
               flush ();
               idle ()));
       loop ()
@@ -209,8 +220,15 @@ let start ~sw ~clock ?encryption ?members client queue =
   in
   let started = Hashtbl.create 8 in
   Eio.Fiber.fork ~sw (fun () ->
+      (* A restarted worker may receive credentials recovered while stopped. *)
+      recover ();
       let rec supervise () =
         Eio.Fiber.check ();
+        let current = revision () in
+        if current <> !observed_revision then begin
+          observed_revision := current;
+          recover ()
+        end;
         List.iter
           (fun rid ->
             let key = Matrix_proto.Id.Room_id.to_string rid in

@@ -1,0 +1,9 @@
+(test
+ (name test_agent)
+ (modules test_agent)
+ (libraries dooit.agent dooit eio_main))
+
+(test
+ (name test_synced)
+ (modules test_synced)
+ (libraries dooit.agent dooit eio_main))

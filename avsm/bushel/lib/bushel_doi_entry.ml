@@ -132,8 +132,9 @@ let to_yaml t =
   let ignore_field = if t.ignore then [("ignore", `Bool true)] else [] in
   `O (base @ source_url_field @ status_fields @ metadata @ ignore_field)
 
-(** [to_yaml_string entries] is [entries] encoded as YAML. *)
+(** [to_yaml_string entries] is [entries] encoded as YAML in DOI order. *)
 let to_yaml_string entries =
+  let entries = List.sort (fun a b -> String.compare a.doi b.doi) entries in
   Yamlrw.to_string (`A (List.map to_yaml entries))
 
 (** [load_file path] is the DOI cache in [path], or the empty list if it cannot

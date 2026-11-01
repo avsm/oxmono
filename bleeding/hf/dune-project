@@ -1,0 +1,26 @@
+(lang dune 3.21)
+
+(name hf)
+
+(generate_opam_files true)
+
+(implicit_transitive_deps false)
+
+(license ISC)
+
+(authors "Anil Madhavapeddy")
+
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(source
+ (github avsm/oxmono))
+
+(package
+ (name hf)
+ (synopsis "Eio adapter for the Hugging Face command-line client")
+ (depends
+  (ocaml
+   (>= 5.2))
+  eio
+  eioext
+  (eio_main :with-test)))

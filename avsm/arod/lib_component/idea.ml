@@ -292,6 +292,28 @@ let tally ~slots is =
   List.map (fun s ->
     (s, List.length (List.filter (fun i -> Idea.status i = s) is))) slots
 
+(** [level_counts ideas] is each level that [ideas] has, with how many, in the
+    order of the level filter. *)
+let level_counts ideas =
+  List.filter_map (fun l ->
+    match List.length (List.filter (fun i -> Idea.level i = l) ideas) with
+    | 0 -> None
+    | count -> Some (l, count))
+    [Idea.PartII; Idea.MPhil; Idea.PhD; Idea.Postdoc; Idea.Any]
+
+(** [status_counts ideas] is each status that [ideas] has, with how many, in
+    display order. *)
+let status_counts ideas =
+  tally ~slots:(statuses_present ideas) ideas
+
+(** [spoken_counts ~slots is] is the counts of [is] as a spoken sentence, such
+    as ["2 open, 1 under way"], leaving out the statuses with none. *)
+let spoken_counts ~slots is =
+  String.concat ", "
+    (List.filter_map (fun (s, n) ->
+       if n = 0 then None
+       else Some (Printf.sprintf "%d %s" n (status_label s))) (tally ~slots is))
+
 (** [status_cls i] is the card classes of [i] up to its status colour. *)
 let status_cls i = "idea-st-" ^ status_key (Idea.status i)
 
@@ -305,39 +327,73 @@ let summary_text ~ctx ~max_len i =
   let first, _ = Bushel.Util.first_and_last_hunks (Idea.body i) in
   Arod.Text.plain_summary ~max_len (Arod.Md.to_plain_html ~ctx first)
 
+(** A sentence of a card is words and the people named in them, who are
+    contact handles. The HTML links the people and the markdown names them. *)
+type part = Say of string | Who of string list
+
+(** [cosupervisors i] is the supervisors of [i] other than the site owner. *)
+let cosupervisors i =
+  List.filter (fun x -> x <> "avsm") i.Idea.supervisor_handles
+
+(** [card_meta_parts i] is the sentence under the title of live idea [i], and
+    whether it is already under discussion with a student. *)
+let card_meta_parts i =
+  let year = Idea.year i in
+  let opening =
+    let lvl = level_past_phrase (Idea.level i) in
+    match Idea.status i, Idea.student_handles i with
+    | Idea.Ongoing, (_ :: _ as hs) ->
+      [Say (lvl ^ ", under way with "); Who hs;
+       Say (Printf.sprintf " since %d" year)]
+    | Ongoing, [] -> [Say (Printf.sprintf "%s, under way since %d" lvl year)]
+    | _ ->
+      [Say (Printf.sprintf "%s, proposed in %d"
+              (level_phrase (Idea.level i)) year)]
+  in
+  let cosup =
+    match cosupervisors i with
+    | [] -> [Say "."]
+    | sups -> [Say ", co-supervised with "; Who sups; Say "."]
+  in
+  (opening @ cosup, Idea.status i = Idea.Discussion)
+
+(** The note on a card that is under discussion. *)
+let discussion_note = "Already under discussion with a student."
+
+(** [past_line_parts i] is the sentence of the row of past idea [i]. *)
+let past_line_parts i =
+  let year = Idea.year i in
+  let lvl = level_past_phrase (Idea.level i) in
+  let say fmt = [Say (Printf.sprintf fmt lvl year)] in
+  match Idea.status i, Idea.student_handles i with
+  | Idea.Completed, (_ :: _ as hs) ->
+    [Say (lvl ^ ", completed by "); Who hs; Say (Printf.sprintf " in %d" year)]
+  | Completed, [] -> say "%s, completed in %d"
+  | Ongoing, (_ :: _ as hs) ->
+    [Say (lvl ^ ", under way with "); Who hs;
+     Say (Printf.sprintf " since %d" year)]
+  | Ongoing, [] -> say "%s, under way since %d"
+  | Expired, _ -> say "%s, offered in %d and no longer open"
+  | (Available | Discussion), _ -> say "%s, offered in %d"
+
+(** [parts_el ~ctx parts] is [parts] as HTML, with the people linked. *)
+let parts_el ~ctx parts =
+  List.map (function
+    | Say t -> El.txt t
+    | Who hs -> render_contacts ~ctx hs) parts
+
 (** [card ~ctx i] is the full list card for live idea [i]. *)
 let card ~ctx i =
   let url = "/ideas/" ^ Idea.slug i in
-  let sups = List.filter (fun x -> x <> "avsm") i.Idea.supervisor_handles in
   let meta =
-    let year = Idea.year i in
-    let opening =
-      let lvl = level_past_phrase (Idea.level i) in
-      match Idea.status i, Idea.student_handles i with
-      | Idea.Ongoing, (_ :: _ as hs) ->
-        [El.txt (lvl ^ ", under way with "); render_contacts ~ctx hs;
-         El.txt (Printf.sprintf " since %d" year)]
-      | Ongoing, [] ->
-        [El.txt (Printf.sprintf "%s, under way since %d" lvl year)]
-      | _ ->
-        [El.txt (Printf.sprintf "%s, proposed in %d"
-                   (level_phrase (Idea.level i)) year)]
-    in
-    let cosup =
-      match sups with
-      | [] -> [El.txt "."]
-      | _ -> [El.txt ", co-supervised with "; render_contacts ~ctx sups;
-              El.txt "."]
-    in
+    let parts, discuss = card_meta_parts i in
     let status =
-      match Idea.status i with
-      | Idea.Discussion ->
+      if discuss then
         [El.txt " ";
-         El.span ~at:[At.class' "idea-card-discuss"]
-           [El.txt "Already under discussion with a student."]]
-      | _ -> []
+         El.span ~at:[At.class' "idea-card-discuss"] [El.txt discussion_note]]
+      else []
     in
-    El.p ~at:[At.class' "idea-card-meta"] (opening @ cosup @ status)
+    El.p ~at:[At.class' "idea-card-meta"] (parts_el ~ctx parts @ status)
   in
   let summary =
     match summary_text ~ctx ~max_len:240 i with
@@ -354,23 +410,7 @@ let card ~ctx i =
 
 (** [past_card ~ctx i] is the compact list row for past idea [i]. *)
 let past_card ~ctx i =
-  let status = Idea.status i in
-  let year = Idea.year i in
-  let lvl = level_past_phrase (Idea.level i) in
-  let line =
-    let say fmt = El.txt (Printf.sprintf fmt lvl year) in
-    match status, Idea.student_handles i with
-    | Idea.Completed, (_ :: _ as hs) ->
-      [El.txt (lvl ^ ", completed by "); render_contacts ~ctx hs;
-       El.txt (Printf.sprintf " in %d" year)]
-    | Completed, [] -> [say "%s, completed in %d"]
-    | Ongoing, (_ :: _ as hs) ->
-      [El.txt (lvl ^ ", under way with "); render_contacts ~ctx hs;
-       El.txt (Printf.sprintf " since %d" year)]
-    | Ongoing, [] -> [say "%s, under way since %d"]
-    | Expired, _ -> [say "%s, offered in %d and no longer open"]
-    | (Available | Discussion), _ -> [say "%s, offered in %d"]
-  in
+  let line = parts_el ~ctx (past_line_parts i) in
   El.div
     ~at:(At.class' ("idea-past-card h-entry " ^ status_cls i) :: filter_at i) [
     El.span ~at:[At.class' "idea-past-line"] [
@@ -421,12 +461,7 @@ let toc_row ~slots ~widest proj is =
   let counts = tally ~slots is in
   let slug = proj.Bushel.Project.slug in
   let total = List.length is in
-  let spoken =
-    String.concat ", "
-      (List.filter_map (fun (s, n) ->
-         if n = 0 then None
-         else Some (Printf.sprintf "%d %s" n (status_label s))) counts)
-  in
+  let spoken = spoken_counts ~slots is in
   let bands =
     List.filter_map (fun (s, n) ->
       if n = 0 then None
@@ -463,8 +498,11 @@ let status_box ~count s =
     El.span ~at:[At.class' "idea-box-name"] [El.txt (status_label s)];
     El.span ~at:[At.class' "idea-box-n"] [El.txt (string_of_int count)]]
 
-(** [ideas_list ~ctx] is the idea index grouped by project. *)
-let ideas_list ~ctx =
+(** [list_groups ~ctx] is the groups of the idea index in the order of the
+    page. Each is a project, its live ideas with the open ones first, its past
+    ideas, and all of its ideas. A project with no ideas has no group. The
+    projects with the most open ideas come first. *)
+let list_groups ~ctx =
   let all_ideas = Arod.Ctx.ideas ctx in
   let projects = Arod.Ctx.projects ctx |> List.sort Bushel.Project.compare in
   let by_project =
@@ -493,6 +531,28 @@ let ideas_list ~ctx =
          | c -> c)
       | c -> c) by_project
   in
+  by_project
+
+(** The paragraphs that open the idea index. The second has one emphasised
+    word. *)
+let list_intro_first =
+  "These are research ideas that include new, ongoing and completed projects. \
+   They are only open to Cambridge students for now, with the occasional \
+   exception for summer interns."
+
+let list_intro_second =
+  ( "I get a vast number of LLM-driven applications and cannot reply to every \
+     one. Your chances are ",
+    "much",
+    " higher if you read some of the ideas here and send a short, specific \
+     enquiry about something concrete you would like to do. Original ideas are \
+     welcome too, but try to relate them to one of the projects here if you \
+     can." )
+
+(** [ideas_list ~ctx] is the idea index grouped by project. *)
+let ideas_list ~ctx =
+  let all_ideas = Arod.Ctx.ideas ctx in
+  let by_project = list_groups ~ctx in
   let groups =
     List.map (fun (proj, live, past, _) ->
       El.section ~at:[At.class' "idea-group";
@@ -516,18 +576,10 @@ let ideas_list ~ctx =
       by_project
   in
   let level_boxes =
-    List.filter_map (fun l ->
-      let at_level i = Idea.level i = l in
-      match List.length (List.filter at_level all_ideas) with
-      | 0 -> None
-      | count -> Some (level_box ~count l)
-    ) [Idea.PartII; Idea.MPhil; Idea.PhD; Idea.Postdoc; Idea.Any]
+    List.map (fun (l, count) -> level_box ~count l) (level_counts all_ideas)
   in
   let status_boxes =
-    List.map (fun s ->
-      let count = List.length (List.filter (fun i -> Idea.status i = s)
-                                 all_ideas) in
-      status_box ~count s) slots
+    List.map (fun (s, count) -> status_box ~count s) (status_counts all_ideas)
   in
   let band =
     El.aside ~at:[At.class' "idea-band not-prose"] [
@@ -545,19 +597,10 @@ let ideas_list ~ctx =
         El.div ~at:[At.class' "idea-toc"] toc_rows]]
   in
   let intro =
+    let before, em, after = list_intro_second in
     El.div ~at:[At.class' "idea-intro mb-4"] [
-      El.p [
-        El.txt "These are research ideas that include new, ongoing and completed projects. They are \
-                only open to Cambridge students for now, with the occasional \
-                exception for summer interns."];
-      El.p [
-        El.txt "I get a vast number of LLM-driven applications and cannot \
-                reply to every one. Your chances are ";
-        El.em [El.txt "much"];
-        El.txt " higher if you read some of the ideas here and send a \
-                short, specific enquiry about something concrete you would \
-                like to do. Original ideas are welcome too, but try to \
-                relate them to one of the projects here if you can."]]
+      El.p [El.txt list_intro_first];
+      El.p [El.txt before; El.em [El.txt em]; El.txt after]]
   in
   let empty =
     El.p ~at:[At.class' "idea-empty"; At.id "idea-empty"; At.v "hidden" ""]

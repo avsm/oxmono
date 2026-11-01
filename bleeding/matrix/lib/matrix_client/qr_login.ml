@@ -508,7 +508,7 @@ module Msc4108 = struct
       | Login_declined
       | Login_failure of {
           reason : login_failure_reason;
-          homeserver : Uriz.t option;
+          homeserver : string option;
         }
       | Login_secrets of secrets_bundle
 
@@ -763,7 +763,10 @@ module Msc4108 = struct
             {
               reason =
                 login_failure_reason_of_string (string_member "reason" json);
-              homeserver = optional_url_member "homeserver" json;
+              homeserver =
+                (match find "homeserver" json with
+                | None | Some (Jsont.Null _) -> None
+                | Some _ -> Some (string_member "homeserver" json));
             }
       | "m.login.secrets" -> Login_secrets (secrets_bundle_of_json json)
       | value ->
@@ -793,11 +796,14 @@ module Msc4108 = struct
       | Login_declined -> object' [ member "type" (string "m.login.declined") ]
       | Login_failure { reason; homeserver } ->
           object'
-            [
-              member "type" (string "m.login.failure");
-              member "reason" (string (login_failure_reason_to_string reason));
-              member "homeserver" (Jsont.Json.option uri homeserver);
-            ]
+            ([
+               member "type" (string "m.login.failure");
+               member "reason" (string (login_failure_reason_to_string reason));
+             ]
+            @
+            match homeserver with
+            | None -> []
+            | Some value -> [ member "homeserver" (string value) ])
       | Login_secrets value ->
           object'
             (member "type" (string "m.login.secrets")
@@ -1368,7 +1374,7 @@ module Msc4108 = struct
       | Unexpected_message of { expected : string; received : Messages.t }
       | Peer_failure of {
           reason : Messages.login_failure_reason;
-          homeserver : Uriz.t option;
+          homeserver : string option;
         }
       | Unsupported_protocol of Messages.login_protocol
       | No_supported_protocol
@@ -1399,8 +1405,7 @@ module Msc4108 = struct
             (Messages.login_failure_reason_to_string reason)
             (match homeserver with
             | None -> ""
-            | Some uri ->
-                Format.asprintf " (homeserver %s)" (Uriz.to_string uri))
+            | Some value -> Format.asprintf " (homeserver %s)" value)
       | Unsupported_protocol protocol ->
           Format.fprintf ppf "unsupported protocol %s"
             (Messages.login_protocol_to_string protocol)

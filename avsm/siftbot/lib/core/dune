@@ -1,0 +1,23 @@
+(library
+ (name siftbot)
+ (public_name siftbot)
+ (libraries
+  siftbot.model
+  siftbot.setup
+  retrieval
+  sqlite3-eio
+  sqlite-vec
+  eio_main
+  jmap.eio
+  sortal
+  dooit
+  agentkit
+  agentkit-openrouter
+  openrouter
+  fetch
+  fetch-curl
+  ptime
+  digestif
+  jsont
+  jsont.bytesrw
+  unix))

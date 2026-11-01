@@ -1,0 +1,49 @@
+(copy_files
+ ../lib/{screen,casefold,casefold_data,unicode,unicode_data,regexp_match}.{ml,mli})
+
+(test
+ (name test)
+ (deps
+  asciinema.cast
+  asciinema-v3.cast
+  regexp_cases.txt
+  tape_cases.txt
+  number_cases.txt
+  theme_cases.txt
+  match_cases.txt)
+ (flags
+  (:standard -open Matrix_backport))
+ (libraries k7_compat
+  k7
+  k7_cli
+  svg_check
+  matrix_backport
+  matrix.pty
+  native_test
+  fmt
+  alcotest
+  cstruct
+  eio
+  eio.unix
+  eio_main
+  eio.mock
+  mtime
+  cmdliner
+  unix))
+
+(rule
+ (alias oracle)
+ (deps
+  regexp_cases.txt
+  tape_cases.txt
+  number_cases.txt
+  theme_cases.txt
+  match_cases.txt)
+ (action
+  (setenv
+   VHS_ORACLE
+   vhs
+   (run %{exe:test.exe}))))
+
+(cram
+ (deps %{bin:k7}))

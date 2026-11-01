@@ -351,6 +351,16 @@ let test_borrowing () =
     "local view" 5
     (Allocation_guard.local_view_sum (S.of_string "\001\002\003"))
 
+let test_owned_encoding () =
+  let first = V5.to_bytes V5.Pingreq in
+  let second = V5.to_bytes V5.Pingreq in
+  Bytes.fill first 0 (Bytes.length first) '\000';
+  Alcotest.(check string) "independent owned encoding" "\192\000"
+    (Bytes.to_string second);
+  let packet = V5.Unsubscribe
+      { packet_id = 1; properties = []; topics = [String.make 10000 'x'] } in
+  rt5 packet
+
 let test_allocations () =
   let wire size =
     V5.to_bytes
@@ -509,6 +519,7 @@ let () =
             ("incremental framing and limits", test_framing);
             ("borrowed buffers and local views", test_borrowing);
             ("payload-independent allocation", test_allocations);
+            ("owned singleton encoding", test_owned_encoding);
             ("10,000 mutations", test_mutations);
           ] );
     ]

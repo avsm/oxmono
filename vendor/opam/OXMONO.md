@@ -1,0 +1,40 @@
+# OxMono import
+
+Imported opam-core.2.6.1 at `921b53bf7fca5467b65ccbe714b78618bebd5e97`.
+`OXMONO.json` records the release archive URL and checksums. Every retained
+source was compared against the checksum-verified release archive on
+2026-10-15. Sources match except for the adaptations below.
+
+## Scope and adaptations
+
+Core and format libraries and shell build support only. No opam CLI, state, repository or solver libraries. OxCaml eta expansions in opamConsole.ml, opamProcess.ml and get_version.ml. See OXMONO.md.
+
+## Refresh
+
+1. Fetch the recorded release and the proposed replacement. Compare their
+   library sources and dependency declarations.
+2. Preserve the documented build scope and compiler adaptations. Verify the
+   downloaded archive checksum and record its commit in `OXMONO.json` and
+   `../upstreams.json`.
+3. Build `@bleeding/d10/all` and `@bleeding/osdist/all` with `release-check`.
+   Run `dune runtest --profile release-check --force bleeding/d10 bleeding/osdist`.
+   Use the `5.2.0+ox` switch. The HTTP regressions need loopback sockets.
+4. Run the explicit vendor test aliases listed in
+   `../../docs/oi-library-import.md`. Recursive vendor aliases skip tests.
+
+## OxCaml patches
+
+- `shell/get_version.ml`: eta-expand `print_endline` for `Scanf.sscanf`.
+- `src/core/opamConsole.ml`: eta-expand the Unix printing branches.
+- `src/core/opamProcess.ml`: eta-expand `Unix.create_process_env` and
+  `Buffer.add_string` to preserve the upstream global callback signatures.
+- `dune-project`: declare only opam-core and opam-format at version 2.6.1.
+- `src/dune`: remove the absent crowbar subtree declaration.
+- `src/core/dune`: omit the Windows opam CLI helper install stanza.
+
+The compiler diagnosed each eta expansion. No opam algorithm was changed.
+`bleeding/d10/test/compat/opam_probe.ml` compares canonical effective
+opam output, MD5/SHA256/SHA512 hashes and child environment behavior against
+opam-format 2.6.1 built with stock OCaml 5.4.1. The output matches the
+existing `opam.expected` fixture byte for byte.
+The fixture does not prove equivalence of every opam API or Windows behavior.

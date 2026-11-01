@@ -1,0 +1,5 @@
+(library
+ (name osm)
+ (public_name osm)
+ (private_modules codec)
+ (libraries fetch uri jsont jsont.bytesrw eio))

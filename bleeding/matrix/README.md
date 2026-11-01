@@ -114,7 +114,13 @@ replay of buffered or GET-stream requests; one-shot POST streams and
 unauthenticated requests are never replayed. Matrix and OAuth refresh tokens
 are retained, and `omatrix` persists rotated credentials atomically. Proactive
 expiry-aware refresh is also available as an opt-in client policy, with Eio
-owning its completion on the client switch. For an encrypted invitation,
+owning its completion on the client switch. Eio send-queue workers retry
+expired-token failures when refresh succeeds, including a refresh that retains
+the same access-token string. An expired-token marker also allows retry after
+worker restart; automatic recovery preserves the retry budget. Other failures
+and exhausted budgets require explicit retry. Persisted refreshes whose
+outcome is uncertain continue to require login recovery.
+For an encrypted invitation,
 `Matrix_ui.Runtime.join` records the inviter's durable MSC4268 acceptance gate
 only after the homeserver confirms the join; `Runtime.join_room` does the same
 for aliases after resolving them before `/join`. `omatrix sync --count N` stops

@@ -762,10 +762,7 @@ let handle_room t client ~room_id ~event_id ~sender ~timestamp ~event_type
         String.equal event_type "m.room.message"
         && not (room_request_is_for_us t content)
       then
-        Logs.warn (fun m ->
-            m
-              "verification: ignoring in-room request not addressed to this \
-               user")
+        ()
       else
         match V.Message.of_json ~event_type ~room_id ~event_id content with
         | Error (`Msg msg) ->

@@ -1,0 +1,23 @@
+(library
+ (name arod_setup)
+ (public_name arod.setup)
+ (libraries
+  arod
+  arod.search
+  bushel.config
+  bushel.sync
+  sortal.config
+  gitops
+  eio
+  xdge
+  unix
+  tomlt
+  tomlt.bytesrw
+  jsont
+  jsont.bytesrw
+  xrpc-auth
+  atp-xrpc
+  apubt.auth
+  karakeep
+  karakeep.auth
+  fetch-curl))

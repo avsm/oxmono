@@ -51,7 +51,7 @@ let materialize_photos t raw =
         Common.atomic_write path bytes)
     photos
 
-let documents t =
+let documents ?(materialize=true) t =
   if not (Common.exists (marker t)) then (
     if Common.exists (root t) then
       Array.iter
@@ -80,13 +80,15 @@ let documents t =
           if name <> uid ^ ".vcf" then
             Common.fail "vCard filename differs from UID: %s" name;
           let contact = Document.contact raw in
-          materialize_photos t raw;
+          if materialize then materialize_photos t raw;
           let handle = Contact.handle contact in
           if handle = "" || Hashtbl.mem handles handle || Hashtbl.mem uids uid
           then Common.fail "duplicate or empty contact identity: %s" handle;
           Hashtbl.add handles handle ();
           Hashtbl.add uids uid ();
           Some (name, contact))
+
+let list_readonly t = List.map snd (documents ~materialize:false t) |> List.sort Contact.compare
 
 let list t = List.map snd (documents t) |> List.sort Contact.compare
 
@@ -104,13 +106,9 @@ let filename t handle =
 
 let with_lock t f =
   Common.mkdir (root t);
-  let lock = Filename.concat (root t) ".sortal.lock" in
-  let fd = Unix.openfile lock [ Unix.O_RDWR; Unix.O_CREAT ] 0o600 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close fd)
-    (fun () ->
-      Unix.lockf fd Unix.F_LOCK 0;
-      Fun.protect ~finally:(fun () -> Unix.lockf fd Unix.F_ULOCK 0) f)
+  try Eioext.Native.with_lock ~path:(Filename.concat (root t) ".sortal.lock") f with
+  | Eioext.Native.Busy _ -> Common.fail "contact store is busy: %s" (root t)
+  | Eioext.Native.Error message -> Common.fail "%s" message
 
 let initialize t =
   if Common.exists (marker t) then identity t
@@ -122,84 +120,88 @@ let initialize t =
       (Common.obj [ ("version", Common.int 1); ("store_id", Common.str id) ]);
     id)
 
-let save t contact =
-  with_lock t (fun () ->
-      let entries = documents t in
-      let original = Contact.source contact in
-      let existing =
-        match original with
-        | None ->
-            List.find_opt
-              (fun (_, c) -> Contact.handle c = Contact.handle contact)
-              entries
-        | Some raw -> (
-            let props = Carddav.Mapping.parse raw in
-            let uid =
-              Carddav.Mapping.untext (Carddav.Mapping.only props "UID").value
-            in
-            match
-              List.find_opt (fun (name, _) -> name = uid ^ ".vcf") entries
-            with
-            | None -> Common.fail "contact was deleted since it was read"
-            | Some (_, c) as found ->
-                if Contact.source c <> original then
-                  Common.fail "contact changed since it was read";
-                found)
-      in
-      List.iter
-        (fun (name, c) ->
-          if
-            Contact.handle c = Contact.handle contact
-            && Option.map fst existing <> Some name
-          then
-            Common.fail "contact handle already exists: %s" (Contact.handle c))
-        entries;
-      ignore (initialize t);
-      let name, before, after =
-        match existing with
-        | Some (name, c) ->
-            let raw = Option.get (Contact.source c) in
-            (name, Some raw, Document.edit ~originals:(cache_root t) raw contact)
-        | None ->
-            let uid = Common.new_uuid () in
-            let data, _ =
-              Carddav.Mapping.encode ~uid ~originals:(root t)
-                (Document.of_contact contact)
-            in
-            (uid ^ ".vcf", None, data)
-      in
-      if before <> Some after then
-        let path = Common.safe_path (cards t) name in
-        let check () =
-          match before with
-          | None -> if Common.exists path then Common.fail "contact appeared"
-          | Some raw ->
-              regular path;
-              if Common.read path <> raw then Common.fail "contact changed"
+let save_unlocked t contact =
+  let entries = documents t in
+  let original = Contact.source contact in
+  let existing =
+    match original with
+    | None ->
+        List.find_opt
+          (fun (_, c) -> Contact.handle c = Contact.handle contact)
+          entries
+    | Some raw -> (
+        let props = Carddav.Mapping.parse raw in
+        let uid =
+          Carddav.Mapping.untext (Carddav.Mapping.only props "UID").value
         in
-        Common.atomic_write ~check path after)
-
-let delete t handle =
-  with_lock t (fun () ->
-      match
-        List.find_opt (fun (_, c) -> Contact.handle c = handle) (documents t)
-      with
-      | None -> ()
-      | Some (name, c) ->
-          let path = Common.safe_path (cards t) name in
+        match
+          List.find_opt (fun (name, _) -> name = uid ^ ".vcf") entries
+        with
+        | None -> Common.fail "contact was deleted since it was read"
+        | Some (_, c) as found ->
+            if Contact.source c <> original then
+              Common.fail "contact changed since it was read";
+            found)
+  in
+  List.iter
+    (fun (name, c) ->
+      if
+        Contact.handle c = Contact.handle contact
+        && Option.map fst existing <> Some name
+      then
+        Common.fail "contact handle already exists: %s" (Contact.handle c))
+    entries;
+  ignore (initialize t);
+  let name, before, after =
+    match existing with
+    | Some (name, c) ->
+        let raw = Option.get (Contact.source c) in
+        (name, Some raw, Document.edit ~originals:(cache_root t) raw contact)
+    | None ->
+        let uid = Common.new_uuid () in
+        let data, _ =
+          Carddav.Mapping.encode ~uid ~originals:(root t)
+            (Document.of_contact contact)
+        in
+        (uid ^ ".vcf", None, data)
+  in
+  if before <> Some after then
+    let path = Common.safe_path (cards t) name in
+    let check () =
+      match before with
+      | None -> if Common.exists path then Common.fail "contact appeared"
+      | Some raw ->
           regular path;
-          if Some (Common.read path) <> Contact.source c then
-            Common.fail "contact changed";
-          Unix.unlink path)
+          if Common.read path <> raw then Common.fail "contact changed"
+    in
+    Common.atomic_write ~check path after
+
+let save t contact = with_lock t (fun () -> save_unlocked t contact)
+
+let delete_unlocked t handle =
+  match
+    List.find_opt (fun (_, c) -> Contact.handle c = handle) (documents t)
+  with
+  | None -> ()
+  | Some (name, c) ->
+      let path = Common.safe_path (cards t) name in
+      regular path;
+      if Some (Common.read path) <> Contact.source c then
+        Common.fail "contact changed";
+      Unix.unlink path
+
+let delete t handle = with_lock t (fun () -> delete_unlocked t handle)
 
 (* Contact modification helpers *)
-let update_contact t handle f =
+let update_using save t handle f =
   match lookup t handle with
   | None -> Error (Printf.sprintf "Contact not found: %s" handle)
   | Some contact ->
       let updated = Contact.with_source (f contact) (Contact.source contact) in
       save t updated;
       Ok ()
+
+let update_contact = update_using save
 
 let with_accounts contact accounts =
   Contact.make ~handle:(Contact.handle contact) ~names:(Contact.names contact)
@@ -209,7 +211,7 @@ let with_accounts contact accounts =
     ?photo:(Contact.photo contact) ~feeds:(Contact.feeds contact)
     ~vcard:(Contact.vcard contact) ()
 
-let set_account t handle account =
+let set_account_using update_contact t handle account =
   match Contact.Account.check account with
   | Error _ as e -> e
   | Ok () ->
@@ -222,7 +224,7 @@ let set_account t handle account =
           in
           with_accounts contact (others @ [ account ]))
 
-let unset_account t handle platform =
+let unset_account_using update_contact t handle platform =
   update_contact t handle (fun contact ->
       let accounts =
         List.filter
@@ -230,6 +232,33 @@ let unset_account t handle platform =
           (Contact.accounts contact)
       in
       with_accounts contact accounts)
+
+let set_account = set_account_using update_contact
+let unset_account = unset_account_using update_contact
+
+module Transaction = struct
+  type store = t
+  type t = { store : store; mutable active : bool }
+
+  let check transaction =
+    if not transaction.active then invalid_arg "expired Sortal transaction";
+    transaction.store
+
+  let save transaction contact = save_unlocked (check transaction) contact
+  let delete transaction handle = delete_unlocked (check transaction) handle
+  let update_contact transaction handle f =
+    update_using save_unlocked (check transaction) handle f
+  let set_account transaction handle account =
+    set_account_using (update_using save_unlocked) (check transaction) handle account
+  let unset_account transaction handle platform =
+    unset_account_using (update_using save_unlocked) (check transaction) handle platform
+end
+
+let with_transaction store f =
+  with_lock store (fun () ->
+      let transaction = Transaction.{ store; active = true } in
+      Fun.protect ~finally:(fun () -> transaction.active <- false)
+        (fun () -> f transaction))
 
 let with_feeds contact feeds =
   Contact.make ~handle:(Contact.handle contact) ~names:(Contact.names contact)
@@ -399,3 +428,9 @@ let pp ppf t =
   Fmt.pf ppf "@[<v>%a: %d contacts stored in XDG data directory@]"
     (Fmt.styled `Bold Fmt.string)
     "Sortal Store" (List.length all)
+
+let uid contact =
+  Option.map (fun raw ->
+    let props = Carddav.Mapping.parse raw in
+    Carddav.Mapping.untext (Carddav.Mapping.only props "UID").value)
+    (Contact.source contact)

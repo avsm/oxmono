@@ -6,6 +6,7 @@ module M = Termanil_model
 module Buffer = Stdlib.Buffer
 module Reply_editor = Reply_editor
 module Metadata = Metadata
+module Input_queue = Input_queue
 
 let wrap = Text_layout.wrap
 let text ?(attrs = []) s = Text_layout.text ~attrs:(Theme.normal @ attrs) s
@@ -215,7 +216,12 @@ let listing ~width ~height t =
                   Attr.fg
                     (match t.tab with
                     | People -> Theme.sky
-                    | Todos -> Theme.green
+                    | Todos ->
+                        if
+                          String.is_prefix row ~prefix:"[done]"
+                          || String.is_prefix row ~prefix:"[cancelled]"
+                        then Theme.muted
+                        else Theme.green
                     | Outbox ->
                         if String.is_substring row ~substring:"[uncertain]" then
                           Theme.red

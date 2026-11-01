@@ -1,11 +1,24 @@
-## Vendored base (2026-10-03)
+## Vendored base (2026-10-15)
 
-Based on `v0.5.3-3-gfef8888`, commit
-`fef8888d9b9a7b48d243a5f444563b0467803da6`. See [../upstreams.json](../upstreams.json)
+Based on `v0.5.4`, commit
+`98141150a967041144cfafe2dbde7454af9dd9e1`. See [../upstreams.json](../upstreams.json)
 for the repository and import scope.
 
-The refresh fixes the `ptrdiff_t` header on 32-bit FreeBSD. Local portable
-interfaces and both checksum implementations are retained.
+The 0.5.4 release completes packaging and test cleanup. Its library sources
+match the preceding vendored snapshot. Local Dune packaging selects the C
+backend by default.
+
+The bibliography fixture uses `copy` rather than `copy#` in both test backends.
+Source-location directives made its input depend on the checkout's directory
+layout. The raw fixture's Adler32 is `0x4bd09e98`, independently verified with
+Python's zlib. The corresponding test expectation in `test/test.ml` uses
+these raw bytes. This fixes the previously documented bibliography failure
+without changing either checksum implementation.
+
+On refresh, preserve the local build integration and raw fixture copying. Run
+`@@vendor/checkseum/test/c/runtest` and
+`@@vendor/checkseum/test/ocaml/runtest`, plus the D10 and HTTPz consumer tests.
+Recursive vendor aliases skip the upstream tests.
 
 Checkseum
 =========

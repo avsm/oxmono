@@ -173,9 +173,7 @@ cmd_run() {
   [ -n "${MATRIX_TEST_HOMESERVER:-}" ] || die "set MATRIX_TEST_HOMESERVER (run: eval \"\$(test/integration/dendrite.sh url --export)\")"
   # Keep the Alcotest subcommand first: its positional filter/test-case
   # arguments otherwise get parsed as global command arguments.
-  dune exec --only-packages matrix-chat \
-    --build-dir "${MATRIX_TEST_DUNE_BUILD_DIR:-_build}" \
-    test/integration/test_homeserver.exe -- test "$@" --color=never
+  bash "$(dirname "${BASH_SOURCE[0]}")/run-homeserver.sh" "$@"
 }
 
 cmd_run_core() {

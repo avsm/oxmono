@@ -2,12 +2,11 @@
 open Dooit
 open Common
 open Cmdliner
-
 module C = Console
+
 let accent = C.Style.(bold + fg (C.Color.rgb 0x4b 0xc9 0xc3))
 let muted = C.Style.fg C.Color.bright_black
-let styled style value = C.Span.sanitize (C.Span.styled style value)
-
+let styled style value = C.View.styled style (C.View.text value)
 let opt names doc = Arg.(value & opt (some string) None & info names ~doc)
 let flag names doc = Arg.(value & flag & info names ~doc)
 let pos n name = Arg.(required & pos n (some string) None & info [] ~docv:name)
@@ -40,27 +39,29 @@ let expected = function
   | Some s -> Some s
   | None -> fail "--if-revision is required"
 
-let context environment =
-  Term.(
-    const (fun path root -> Config.load ~fs:environment#fs ?path ?root ())
-    $ config_arg $ root_arg)
-
 let output json note =
+  let details =
+    Option.fold ~none:"" ~some:(fun date -> "  due " ^ date) (Doc.due note)
+    ^
+    if Doc.tags note = [] then ""
+    else "  #" ^ String.concat " #" (Doc.tags note)
+  in
   if json then print_endline (json_string ~pretty:true (Doc.public note))
-  else if Console_eio.is_tty () then
-    Fmt.pr "%a  %a  %a%a@."
-      C.Span.pp (styled muted (Doc.id note))
-      C.Span.pp (styled accent ("[" ^ Doc.status note ^ "]"))
-      C.Span.pp (C.Span.sanitize (C.Span.text (Doc.title note)))
-      C.Span.pp
-        (styled muted
-           (if Doc.tags note = [] then ""
-            else "  #" ^ String.concat " #" (Doc.tags note)))
+  else if Console_tty.is_terminal Unix.stdout then
+    let finished = Doc.status note = "done" || Doc.status note = "cancelled" in
+    Fmt.pr "%a  %a  %a%a@." C.View.pp
+      (styled muted (Doc.id note))
+      C.View.pp
+      (styled
+         (if finished then muted else accent)
+         ("[" ^ Doc.status note ^ "]"))
+      C.View.pp
+      (if finished then styled muted (Doc.title note)
+       else C.View.text (Doc.title note))
+      C.View.pp (styled muted details)
   else
     Printf.printf "%s  [%s] %s%s\n" (Doc.id note) (Doc.status note)
-      (Doc.title note)
-      (if Doc.tags note = [] then ""
-       else "  #" ^ String.concat " #" (Doc.tags note))
+      (Doc.title note) details
 
 let outputs json notes =
   if json then
@@ -71,11 +72,12 @@ let outputs json notes =
               ("schema", str "dooit.list/v1");
               ("notes", arr (List.map Doc.public notes));
             ]))
-  else if Console_eio.is_tty () then begin
-    Fmt.pr "%a  %a@.@." C.Span.pp (styled accent "Tasks")
-      C.Span.pp (styled muted (Printf.sprintf "%d total" (List.length notes)));
-    List.iter (output false) notes
-  end else List.iter (output false) notes
+  else if Console_tty.is_terminal Unix.stdout then (
+    Fmt.pr "%a  %a@.@." C.View.pp (styled accent "Tasks") C.View.pp
+      (styled muted (Printf.sprintf "%d total" (List.length notes)));
+    List.iter (output false) notes)
+  else if notes = [] then print_endline "No tasks found."
+  else List.iter (output false) notes
 
 let diagnostics errors =
   List.iter
@@ -83,10 +85,7 @@ let diagnostics errors =
     errors
 
 let guard f =
-  try
-    f ();
-    `Ok ()
-  with
+  try `Ok (f ()) with
   | Error s -> `Error (false, s)
   | Fetch_dav.Http_error e ->
       `Error (false, Printf.sprintf "WebDAV HTTP %d" e.status)
@@ -100,6 +99,15 @@ let guard f =
   | Invalid_argument _ ->
       `Error (false, "invalid argument or refused request scope")
 
+let context environment =
+  Term.(
+    ret
+      (const (fun path root ->
+           guard (fun () ->
+               Eio_unix.run_in_systhread (fun () ->
+                   Config.load ~fs:environment#fs ?path ?root ())))
+      $ config_arg $ root_arg))
+
 let command name doc term = Cmd.v (Cmd.info name ~doc) Term.(ret term)
 
 let remote ~sw config ~readonly =
@@ -112,6 +120,7 @@ let remote ~sw config ~readonly =
 
 let sync_output json actions =
   if json then print_endline (json_string ~pretty:true (Sync.summary actions))
+  else if actions = [] then print_endline "Already synchronized."
   else
     List.iter
       (fun a ->
@@ -119,25 +128,74 @@ let sync_output json actions =
           (if a.detail = "" then "" else ": " ^ a.detail))
       actions
 
-let config_example root =
-  Printf.sprintf
-    {|# Dooit configuration. Paths may use ~/ or be relative to this file.
-root = %s
+let backend_arg =
+  Arg.(
+    value
+    & opt
+        (some
+           (enum
+              [
+                ("git", Config.Git);
+                ("webdav", Config.Webdav);
+                ("local", Config.Local);
+              ]))
+        None
+    & info [ "backend" ] ~docv:"BACKEND"
+        ~doc:"Backend for a new configuration: git (default), webdav or local.")
 
-[webdav]
-url = "https://dav.example.net/files/"
-subdir = "personal/dooit"
-username = "your-login"
-password_file = "webdav.password"
-# Alternatively: password = "your-app-password" (this file must be mode 0600).
+let result c ~action ~json message =
+  if json then
+    print_endline
+      (json_string ~pretty:true
+         (obj
+            [
+              ("schema", str "dooit.operation/v1");
+              ("action", str action);
+              ("backend", str (Config.backend_name c.Config.backend));
+              ("root", str c.root);
+              ("message", str message);
+            ]))
+  else print_endline message
 
-# Optional email integration; credentials use the shared JMAP profile store.
-#[jmap]
-#profile = "personal"
-#account = "your-account-id"
-#service = "https://mail.example.net/jmap/session"
-|}
-    (json_string (str root))
+let open_store c =
+  if not (exists (Filename.concat c.Config.root "store.json")) then
+    fail "no Dooit store at %s; run dooit init or dooit clone" c.root;
+  Store.open_ c.root
+
+let store c = Eio_unix.run_in_systhread (fun () -> open_store c)
+
+let config_output c ~json =
+  let git =
+    obj [ ("remote", str c.Config.git.remote); ("branch", str c.git.branch) ]
+  in
+  let webdav =
+    match c.webdav with
+    | None -> `Null
+    | Some w ->
+        obj [ ("collection", str w.collection); ("username", str w.username) ]
+  in
+  if json then
+    print_endline
+      (json_string ~pretty:true
+         (obj
+            [
+              ("schema", str "dooit.config/v1");
+              ("path", str c.path);
+              ("root", str c.root);
+              ("backend", str (Config.backend_name c.backend));
+              ("git", git);
+              ("webdav", webdav);
+            ]))
+  else (
+    Printf.printf "Config:  %s\nStore:   %s\nBackend: %s\n" c.path c.root
+      (Config.backend_name c.backend);
+    match c.backend with
+    | Config.Git ->
+        Printf.printf "Remote:  %s\nBranch:  %s\n" c.git.remote c.git.branch
+    | Config.Webdav ->
+        Printf.printf "Remote:  %s\n" (Config.require_webdav c).collection
+    | Config.Local ->
+        print_endline "Tasks stay local. No remote synchronization.")
 
 let editor store id =
   let original = Store.get store id in
@@ -164,10 +222,12 @@ let editor store id =
       get_ok (Merge.run ~base:original ~local:edited ~remote:current)
     in
     let result =
-      Store.apply store ~id
+      Client.apply (Client.local store) ~policy:Local_only
+        ~check:Eio.Fiber.check ~id
         ~expected:(Some (Doc.revision current))
         ~operation:(new_uuid ()) ~payload:edited.raw
         (fun _ -> merged)
+      |> Client.saved
     in
     Unix.unlink path;
     result
@@ -175,22 +235,202 @@ let editor store id =
 
 let commands environment =
   let ctx = context environment in
-  let init =
-    command "init" "Create a local note store."
+  let process_mgr = environment#process_mgr in
+  let prepare_git c =
+    let git = Config.require_git c in
+    let local = store c in
+    ignore (Git.setup ~process_mgr local git);
+    (local, git)
+  in
+  let direction action run =
+    command action
+      (if action = "pull" then "Git: fetch and fast-forward clean local tasks."
+       else "Git: commit local tasks and push them to the configured remote.")
       Term.(
-        const (fun c ->
+        const (fun c json ->
             guard (fun () ->
-                let s = Store.init c.Config.root in
-                Printf.printf "%s\n%s\n" s.root s.id))
-        $ ctx)
+                let local, git = prepare_git c in
+                result c ~action ~json (run ~process_mgr local git)))
+        $ ctx $ json_arg)
+  in
+  let init =
+    command "init"
+      "Create the configuration, task store and selected backend locally."
+      Term.(
+        const (fun path root backend json ->
+            guard (fun () ->
+                let defaults =
+                  Config.defaults ~fs:environment#fs ?path ?root ()
+                in
+                let present = exists defaults.path in
+                let c =
+                  if present then
+                    Config.load ~fs:environment#fs ~path:defaults.path ?root ()
+                  else
+                    Config.defaults ~fs:environment#fs ?path ?root ?backend ()
+                in
+                Option.iter
+                  (fun selected ->
+                    if selected <> c.Config.backend then
+                      fail "backend is already %s; edit %s to change it"
+                        (Config.backend_name c.backend)
+                        c.path)
+                  backend;
+                let local =
+                  Eio_unix.run_in_systhread (fun () ->
+                      if exists (Filename.concat c.root "store.json") then
+                        Store.open_ c.root
+                      else (
+                        if
+                          exists c.root
+                          && Array.length (Sys.readdir c.root) <> 0
+                        then
+                          fail
+                            "choose an empty directory or an existing Dooit \
+                             store";
+                        Store.init c.root))
+                in
+                (match c.backend with
+                | Config.Git -> ignore (Git.setup ~process_mgr local c.git)
+                | Config.Webdav | Config.Local -> ());
+                if not present then
+                  Eio_unix.run_in_systhread (fun () -> Config.save_new c);
+                result c ~action:"init" ~json
+                  (Printf.sprintf "Dooit ready at %s (%s).%s" local.root
+                     (Config.backend_name c.backend)
+                     (if c.backend = Config.Local then ""
+                      else " Run dooit sync to synchronize."))))
+        $ config_arg $ root_arg $ backend_arg $ json_arg)
+  in
+  let status =
+    command "status"
+      "Show local setup, task counts and cached Git state without network \
+       access."
+      Term.(
+        const (fun c json ->
+            guard (fun () ->
+                let local, notes, errors =
+                  Eio_unix.run_in_systhread (fun () ->
+                      if
+                        not
+                          (exists (Filename.concat c.Config.root "store.json"))
+                      then (None, [], [])
+                      else
+                        let local = Store.open_ c.root in
+                        let notes, errors = Store.scan local in
+                        (Some local, notes, errors))
+                in
+                let git =
+                  match (c.backend, local) with
+                  | Config.Git, Some local ->
+                      Some (Git.status ~process_mgr local c.git)
+                  | _ -> None
+                in
+                let live =
+                  List.filter (fun note -> not (Doc.deleted note)) notes
+                in
+                let number n = `Float (float_of_int n) in
+                let counts =
+                  ("total", number (List.length live))
+                  :: ("deleted", number (List.length notes - List.length live))
+                  :: List.map
+                       (fun status ->
+                         ( status,
+                           number
+                             (List.length
+                                (List.filter
+                                   (fun n -> Doc.status n = status)
+                                   live)) ))
+                       Doc.statuses
+                in
+                if json then
+                  print_endline
+                    (json_string ~pretty:true
+                       (obj
+                          [
+                            ("schema", str "dooit.status/v1");
+                            ("backend", str (Config.backend_name c.backend));
+                            ("root", str c.root);
+                            ("config", str c.path);
+                            ("initialized", `Bool (Option.is_some local));
+                            ( "store_id",
+                              match local with
+                              | None -> `Null
+                              | Some s -> str s.id );
+                            ("tasks", obj counts);
+                            ( "git",
+                              match git with
+                              | None -> `Null
+                              | Some g ->
+                                  obj
+                                    [
+                                      ("initialized", `Bool g.initialized);
+                                      ("branch", opt_string g.branch);
+                                      ("dirty", `Bool g.dirty);
+                                      ( "ahead",
+                                        Option.fold ~none:`Null ~some:number
+                                          g.ahead );
+                                      ( "behind",
+                                        Option.fold ~none:`Null ~some:number
+                                          g.behind );
+                                      ( "conflicts",
+                                        arr (List.map str g.conflicts) );
+                                    ] );
+                            ( "errors",
+                              arr
+                                (List.map
+                                   (fun (name, message) ->
+                                     obj
+                                       [
+                                         ("file", str name);
+                                         ("message", str message);
+                                       ])
+                                   errors) );
+                          ]))
+                else (
+                  config_output c ~json:false;
+                  match local with
+                  | None ->
+                      print_endline
+                        "Store is not initialized. Run dooit init or dooit \
+                         clone."
+                  | Some _ ->
+                      Printf.printf "Tasks:   %d (%d deleted)\n"
+                        (List.length live)
+                        (List.length notes - List.length live);
+                      Option.iter
+                        (fun g ->
+                          if not g.Git.initialized then
+                            print_endline
+                              "Git is not initialized. Run dooit init."
+                          else (
+                            Printf.printf "Git:     %s (%s)\n"
+                              (Option.value g.branch ~default:"detached HEAD")
+                              (if g.dirty then "local changes" else "clean");
+                            (match (g.ahead, g.behind) with
+                            | Some ahead, Some behind ->
+                                Printf.printf
+                                  "History: %d ahead, %d behind (cached; run \
+                                   dooit sync to refresh)\n"
+                                  ahead behind
+                            | _ ->
+                                print_endline
+                                  "History: not fetched yet. Run dooit sync.");
+                            List.iter
+                              (Printf.printf "Conflict: %s\n")
+                              g.conflicts))
+                        git;
+                      diagnostics errors);
+                if errors <> [] then fail "some task files need review"))
+        $ ctx $ json_arg)
   in
   let add =
-    command "new" "Create a task note offline."
+    command "add" "Create a task locally. Run dooit sync to publish it."
       Term.(
         const (fun c title tags body_file due operation json ->
             guard (fun () ->
                 let body = Option.fold ~none:"" ~some:read body_file in
-                let store = Store.open_ c.Config.root in
+                let store = open_store c in
                 let operation = Option.value operation ~default:(new_uuid ()) in
                 check_uuid operation;
                 let id = uuid5 store.id ("create:" ^ operation) in
@@ -205,8 +445,11 @@ let commands environment =
                        ])
                 in
                 let d =
-                  Store.apply store ~id ~expected:None ~operation ~payload
-                    (fun _ -> Doc.create ~id ~title ~tags ~body ?due ())
+                  Client.apply (Client.local store) ~policy:Local_only
+                    ~check:Eio.Fiber.check ~id ~expected:None ~operation
+                    ~payload (fun _ ->
+                      Doc.create ~id ~title ~tags ~body ?due ())
+                  |> Client.saved
                 in
                 output json d))
         $ ctx $ pos 0 "TITLE" $ tags
@@ -221,31 +464,50 @@ let commands environment =
       Term.(
         const (fun c id json ->
             guard (fun () ->
-                let d = Store.get (Store.open_ c.Config.root) id in
+                let d = Store.get (open_store c) id in
                 if json then output true d
-                else if Console_eio.is_tty () then begin
-                  Fmt.pr "%a@.@." C.Panel.pp
-                    (C.Panel.lines ~title:(styled accent (Doc.title d))
-                       [ styled muted (Doc.id d);
-                         styled accent (Doc.status d) ]);
-                  print_string d.raw
-                end else print_string d.raw))
+                else if Console_tty.is_terminal Unix.stdout then (
+                  Fmt.pr "%a@.@." C.View.pp
+                    (C.Panel.view
+                       ~title:(styled accent (Doc.title d))
+                       (C.View.vcat
+                          [
+                            styled muted (Doc.id d);
+                            styled accent (Doc.status d);
+                          ]));
+                  print_string d.raw)
+                else print_string d.raw))
         $ ctx $ pos 0 "ID" $ json_arg)
   in
-  let list_cmd name search =
-    let text = if search then pos 0 "QUERY" else Term.const "" in
-    command name "Search current note files, tags, status and sources."
+  let list_cmd =
+    let query =
+      Arg.(
+        value & pos 0 string ""
+        & info [] ~docv:"QUERY" ~doc:"Optional full-text search query.")
+    in
+    command "list"
+      "List tasks, optionally searching their text and filtering metadata."
       Term.(
         const (fun c text tags status source all json ->
             guard (fun () ->
+                Option.iter
+                  (fun status ->
+                    if not (List.mem status Doc.statuses) then
+                      fail
+                        "invalid status %s; expected open, active, blocked, \
+                         done or cancelled"
+                        status)
+                  status;
                 let notes, errors =
-                  Index.query ~text ~tags ?status ?source ~include_deleted:all
-                    (Store.open_ c.Config.root)
+                  Eio_unix.run_in_systhread (fun () ->
+                      Index.query ~text ~tags ?status ?source
+                        ~include_deleted:all (open_store c))
                 in
                 outputs json notes;
-                diagnostics errors))
-        $ ctx $ text $ tags
-        $ opt [ "status" ] "Filter status."
+                diagnostics errors;
+                if errors <> [] then fail "some task files need review"))
+        $ ctx $ query $ tags
+        $ opt [ "status" ] "Filter task status."
         $ opt [ "source" ] "Filter link type."
         $ flag [ "include-deleted" ] "Include retained deletions."
         $ json_arg)
@@ -254,8 +516,7 @@ let commands environment =
     command "edit" "Edit a task using EDITOR with revision checks."
       Term.(
         const (fun c id json ->
-            guard (fun () ->
-                output json (editor (Store.open_ c.Config.root) id)))
+            guard (fun () -> output json (editor (open_store c) id)))
         $ ctx $ pos 0 "ID" $ json_arg)
   in
   let patch =
@@ -278,10 +539,14 @@ let commands environment =
                 let payload = read path in
                 let patch = Common.json payload in
                 let d =
-                  Store.apply (Store.open_ c.Config.root)
-                    ~id ~expected ~operation ~payload (function
-                    | Some n -> Doc.patch n patch
-                    | None -> fail "task does not exist")
+                  Client.apply
+                    (Client.local (store c))
+                    ~policy:Local_only ~check:Eio.Fiber.check ~id ~expected
+                    ~operation ~payload
+                    (function
+                      | Some n -> Doc.patch n patch
+                      | None -> fail "task does not exist")
+                  |> Client.saved
                 in
                 output json d))
         $ ctx $ pos 0 "ID" $ expected_arg
@@ -294,15 +559,15 @@ let commands environment =
       Term.(
         const (fun c id json ->
             guard (fun () ->
-                output json (Store.modify (Store.open_ c.Config.root) id f)))
+                output json
+                  (Client.modify
+                     (Client.local (store c))
+                     ~policy:Local_only id f
+                  |> Client.saved)))
         $ ctx $ pos 0 "ID" $ json_arg)
   in
   let done_ =
     change "done" "Mark a task done." (Doc.change "status" (Some (str "done")))
-  in
-  let reopen =
-    change "reopen" "Reopen a completed task."
-      (Doc.change "status" (Some (str "open")))
   in
   let delete =
     change "delete"
@@ -314,49 +579,90 @@ let commands environment =
     change "restore" "Restore a retained deletion."
       (Doc.change "deleted_at" None)
   in
-  let status =
-    command "status" "Set a task status."
+  let update =
+    let repeated name doc =
+      Arg.(value & opt_all string [] & info [ name ] ~doc)
+    in
+    command "update"
+      "Change a task's title, status, due date, tags or body in one \
+       revision-checked edit."
       Term.(
-        const (fun c id status json ->
+        const
+          (fun
+            c
+            id
+            title
+            status
+            due
+            clear_due
+            add_tags
+            remove_tags
+            body_file
+            json
+          ->
             guard (fun () ->
-                output json
-                  (Store.modify
-                     (Store.open_ c.Config.root)
-                     id
-                     (Doc.change "status" (Some (str status))))))
-        $ ctx $ pos 0 "ID" $ pos 1 "STATUS" $ json_arg)
-  in
-  let tag name op =
-    command name "Update a freeform task tag."
-      Term.(
-        const (fun c id value json ->
-            guard (fun () ->
+                if clear_due && Option.is_some due then
+                  fail "use either --due or --clear-due";
+                let op name value =
+                  obj [ ("op", str name); ("value", value) ]
+                in
+                let optional name =
+                  Option.fold ~none:[] ~some:(fun s -> [ op name (str s) ])
+                in
+                let operations =
+                  optional "set_title" title
+                  @ optional "set_status" status
+                  @ optional "set_due" due
+                  @ (if clear_due then [ op "set_due" `Null ] else [])
+                  @ List.map (fun s -> op "add_tag" (str s)) add_tags
+                  @ List.map (fun s -> op "remove_tag" (str s)) remove_tags
+                  @ Option.fold ~none:[]
+                      ~some:(fun path ->
+                        [ op "replace_body" (str (read path)) ])
+                      body_file
+                in
+                if operations = [] then
+                  fail
+                    "specify at least one change; see dooit task update --help";
                 let patch =
                   obj
                     [
                       ("schema", str "dooit.patch/v1");
-                      ( "operations",
-                        arr [ obj [ ("op", str op); ("value", str value) ] ] );
+                      ("operations", arr operations);
                     ]
                 in
                 output json
-                  (Store.modify (Store.open_ c.Config.root) id (fun d ->
-                       Doc.patch d patch))))
-        $ ctx $ pos 0 "ID" $ pos 1 "TAG" $ json_arg)
+                  (Client.modify
+                     (Client.local (store c))
+                     ~policy:Local_only id
+                     (fun note -> Doc.patch note patch)
+                  |> Client.saved)))
+        $ ctx $ pos 0 "ID"
+        $ opt [ "title" ] "New task title."
+        $ opt [ "status" ]
+            "Task status: open, active, blocked, done or cancelled."
+        $ opt [ "due" ] "Due date YYYY-MM-DD."
+        $ flag [ "clear-due" ] "Remove the due date."
+        $ repeated "add-tag" "Add a tag; repeat for multiple tags."
+        $ repeated "remove-tag" "Remove a tag; repeat for multiple tags."
+        $ opt [ "body-file" ] "Replace the body with this Markdown file."
+        $ json_arg)
   in
   let adopt =
-    command "adopt" "Copy a valid task document into this store."
+    command "import" "Copy a valid task document into this store."
       Term.(
         const (fun c path json ->
             guard (fun () ->
                 output json
-                  (Store.add
-                     (Store.open_ c.Config.root)
-                     (Doc.parse (read path)))))
+                  (Client.add
+                     (Client.local (store c))
+                     ~policy:Local_only
+                     (Doc.parse (read path))
+                  |> Client.saved)))
         $ ctx $ pos 0 "PATH" $ json_arg)
   in
   let from_email =
-    command "from-email"
+    command "capture"
       "Capture an email as a task, or return existing linked tasks."
       Term.(
         const
@@ -395,9 +701,11 @@ let commands environment =
                 in
                 let body = Option.fold ~none:"" ~some:read body_file in
                 outputs json
-                  (Link.capture ~new_task ~tags ~body ~hints
+                  (Client.capture ~new_task ~tags ~body ~hints
                      ~title:(Option.value title ~default:subject)
-                     (Store.open_ c.root) target)))
+                     ~policy:Local_only
+                     (Client.local (store c))
+                     target)))
         $ ctx $ pos 0 "EMAIL_ID" $ profile_arg $ account_arg $ service_arg
         $ title_arg $ tags
         $ opt [ "body-file" ] "Markdown body or selected email excerpt."
@@ -407,8 +715,7 @@ let commands environment =
         $ json_arg)
   in
   let for_email =
-    command "for-email"
-      "Find task links to an email without accessing the network."
+    command "find" "Find task links to an email without accessing the network."
       Term.(
         const (fun c email account service json ->
             guard (fun () ->
@@ -423,7 +730,7 @@ let commands environment =
                     ~account:(require "--account" account c.jmap_account)
                     ~email
                 in
-                let notes, errors = Store.scan (Store.open_ c.root) in
+                let notes, errors = Store.scan (open_store c) in
                 outputs json (List.filter (Link.matches target) notes);
                 diagnostics errors))
         $ ctx $ pos 0 "EMAIL_ID" $ account_arg $ service_arg $ json_arg)
@@ -434,7 +741,7 @@ let commands environment =
       Term.(
         const (fun c id profile json ->
             guard (fun () ->
-                let note = Store.get (Store.open_ c.Config.root) id in
+                let note = Store.get (open_store c) id in
                 let source =
                   match
                     List.find_opt
@@ -467,74 +774,149 @@ let commands environment =
                     (Option.value body ~default:"")))
         $ ctx $ pos 0 "ID" $ profile_arg $ json_arg)
   in
+  let with_client c f =
+    Eio.Switch.run (fun sw ->
+        let client =
+          Client.of_config ~process_mgr ~remote:(remote ~sw c) (store c) c
+        in
+        f client)
+  in
+  let show_sync c ~json = function
+    | Client.Webdav_synced actions ->
+        sync_output json actions;
+        if
+          List.exists
+            (fun a -> a.Sync.kind = "conflict" || a.kind = "invalid")
+            actions
+        then fail "some tasks need review; see dooit maintenance conflicts"
+    | result_ ->
+        result c ~action:"sync" ~json
+          (String.concat "\n" (Client.sync_lines result_))
+  in
+  let webdav_sync c ~dry ~report ~json =
+    ignore (Config.require_webdav c);
+    with_client c (fun client ->
+        show_sync c ~json (Client.sync ?report ~dry_run:dry client))
+  in
   let sync =
     command "sync"
-      "Synchronize current notes with the configured WebDAV subdirectory."
-      Term.(
-        const (fun c dry report json ->
-            guard (fun () ->
-                Eio.Switch.run (fun sw ->
-                    let r = remote ~sw c ~readonly:dry in
-                    let actions =
-                      Sync.run ?report ~dry_run:dry
-                        (Store.open_ c.Config.root)
-                        r
-                    in
-                    sync_output json actions;
-                    if
-                      List.exists
-                        (fun a ->
-                          a.Sync.kind = "conflict" || a.kind = "invalid")
-                        actions
-                    then fail "some notes need review")))
-        $ ctx
-        $ flag [ "dry-run" ] "Read-only preview; optionally save a report."
-        $ report_arg $ json_arg)
-  in
-  let clone =
-    command "clone"
-      "Download the configured WebDAV store into an empty local root."
-      Term.(
-        const (fun c ->
-            guard (fun () ->
-                Eio.Switch.run (fun sw ->
-                    let r = remote ~sw c ~readonly:true in
-                    let store = Sync.clone ~root:c.Config.root r in
-                    Printf.printf "%s\n" store.root)))
-        $ ctx)
-  in
-  let conflicts =
-    command "conflicts" "List notes with retained unresolved sync conflicts."
+      "Synchronize with the configured backend: Git commit/pull/push or \
+       two-way WebDAV."
       Term.(
         const (fun c json ->
             guard (fun () ->
-                let ids = Store.conflicts (Store.open_ c.Config.root) in
+                with_client c (fun client ->
+                    show_sync c ~json (Client.sync ~dry_run:false client))))
+        $ ctx $ json_arg)
+  in
+  let preview =
+    command "preview"
+      "WebDAV: preview synchronization without applying changes."
+      Term.(
+        const (fun c report json ->
+            guard (fun () ->
+                ignore (Config.require_webdav c);
+                webdav_sync c ~dry:true ~report ~json))
+        $ ctx $ report_arg $ json_arg)
+  in
+  let clone =
+    command "clone"
+      "Download an existing store using the configured backend, preserving its \
+       identity."
+      Term.(
+        const (fun path root json ->
+            guard (fun () ->
+                let defaults =
+                  Config.defaults ~fs:environment#fs ?path ?root ()
+                in
+                let present = exists defaults.path in
+                let c =
+                  if present then
+                    Config.load ~fs:environment#fs ~path:defaults.path ?root ()
+                  else defaults
+                in
+                let local =
+                  match c.Config.backend with
+                  | Config.Git -> Git.clone ~process_mgr ~root:c.root c.git
+                  | Config.Webdav ->
+                      Eio.Switch.run (fun sw ->
+                          Sync.clone ~root:c.root (remote ~sw c ~readonly:true))
+                  | Config.Local ->
+                      fail
+                        "local backend has no remote to clone; use dooit init"
+                in
+                if not present then
+                  Eio_unix.run_in_systhread (fun () -> Config.save_new c);
+                result c ~action:"clone" ~json
+                  ("Cloned Dooit store into " ^ local.root)))
+        $ config_arg $ root_arg $ json_arg)
+  in
+  let conflicts =
+    command "conflicts"
+      "List retained local conflicts and unresolved Git index entries."
+      Term.(
+        const (fun c json ->
+            guard (fun () ->
+                let local = store c in
+                let entries =
+                  match c.Config.backend with
+                  | Config.Git ->
+                      (Git.status ~process_mgr local c.git).conflicts
+                  | Config.Webdav | Config.Local ->
+                      Eio_unix.run_in_systhread (fun () ->
+                          Store.conflicts local)
+                in
                 if json then
                   print_endline
-                    (json_string
+                    (json_string ~pretty:true
                        (obj
                           [
                             ("schema", str "dooit.conflicts/v1");
-                            ("ids", arr (List.map str ids));
+                            ("backend", str (Config.backend_name c.backend));
+                            ("conflicts", arr (List.map str entries));
                           ]))
-                else List.iter print_endline ids))
+                else if entries = [] then
+                  print_endline "No unresolved local conflicts."
+                else List.iter print_endline entries))
         $ ctx $ json_arg)
   in
   let recover =
     command "recover"
       "Finish interrupted local writes whose revisions still match."
       Term.(
-        const (fun c ->
+        const (fun c json ->
             guard (fun () ->
-                List.iter
-                  (fun (id, status) -> Printf.printf "%s %s\n" id status)
-                  (Store.recover (Store.open_ c.Config.root))))
-        $ ctx)
+                let recovered =
+                  Eio_unix.run_in_systhread (fun () ->
+                      Store.recover (open_store c))
+                in
+                if json then
+                  print_endline
+                    (json_string ~pretty:true
+                       (obj
+                          [
+                            ("schema", str "dooit.recovery/v1");
+                            ( "operations",
+                              arr
+                                (List.map
+                                   (fun (id, status) ->
+                                     obj
+                                       [
+                                         ("id", str id); ("status", str status);
+                                       ])
+                                   recovered) );
+                          ]))
+                else if recovered = [] then
+                  print_endline "No interrupted writes."
+                else
+                  List.iter
+                    (fun (id, status) -> Printf.printf "%s %s\n" id status)
+                    recovered))
+        $ ctx $ json_arg)
   in
   let resolve =
     command "resolve"
-      "Apply a reviewed resolution file with fresh local and remote \
-       preconditions."
+      "WebDAV: apply a reviewed conflict resolution with revision checks."
       Term.(
         const (fun c id revision file json ->
             guard (fun () ->
@@ -545,8 +927,7 @@ let commands environment =
                 in
                 Eio.Switch.run (fun sw ->
                     let a =
-                      Sync.resolve
-                        (Store.open_ c.Config.root)
+                      Sync.resolve (open_store c)
                         (remote ~sw c ~readonly:false)
                         ~id ~expected:(expected revision) ~file
                     in
@@ -561,103 +942,73 @@ let commands environment =
       Term.(
         const (fun path ->
             guard (fun () ->
-                let xdg =
-                  Xdge.create ~create_dirs:false environment#fs "dooit"
-                in
-                print_endline
-                  (Option.value path
-                     ~default:
-                       Eio.Path.(
-                         native_exn (Xdge.config_dir xdg / "config.toml")))))
+                print_endline (Config.defaults ~fs:environment#fs ?path ()).path))
         $ config_arg)
   in
   let config_show =
-    command "show" "Show effective settings with credentials omitted."
+    command "show" "Show effective backend settings with credentials omitted."
       Term.(
-        const (fun c ->
-            guard (fun () ->
-                let dav =
-                  match c.Config.webdav with
-                  | None -> `Null
-                  | Some w ->
-                      obj
-                        [
-                          ("collection", str w.collection);
-                          ("username", str w.username);
-                          ("authentication", str "app-password");
-                        ]
-                in
-                print_endline
-                  (json_string ~pretty:true
-                     (obj
-                        [
-                          ("path", str c.path);
-                          ("root", str c.root);
-                          ("webdav", dav);
-                        ]))))
-        $ ctx)
-  in
-  let config_init =
-    command "init" "Write a private example TOML configuration if absent."
-      Term.(
-        const (fun path root ->
-            guard (fun () ->
-                let xdg =
-                  Xdge.create ~create_dirs:false environment#fs "dooit"
-                in
-                let path =
-                  Option.value path
-                    ~default:
-                      Eio.Path.(
-                        native_exn (Xdge.config_dir xdg / "config.toml"))
-                in
-                let root =
-                  Option.value root
-                    ~default:(Eio.Path.native_exn (Xdge.data_dir xdg))
-                in
-                if exists path then fail "config already exists: %s" path;
-                mkdir (Filename.dirname path);
-                create_file path (config_example root);
-                print_endline path))
-        $ config_arg $ root_arg)
+        const (fun c json -> guard (fun () -> config_output c ~json))
+        $ ctx $ json_arg)
   in
   [
     init;
-    add;
-    show;
-    list_cmd "list" false;
-    list_cmd "search" true;
-    edit;
-    patch;
-    done_;
-    reopen;
-    delete;
-    restore;
-    status;
-    adopt;
-    Cmd.group
-      (Cmd.info "tag" ~doc:"Edit freeform tags.")
-      [ tag "add" "add_tag"; tag "remove" "remove_tag" ];
-    from_email;
-    for_email;
-    Cmd.group (Cmd.info "source" ~doc:"Resolve linked sources.") [ source_show ];
-    sync;
     clone;
-    conflicts;
-    recover;
-    resolve;
+    status;
+    sync;
+    direction "pull" Git.pull;
+    direction "push" Git.push;
     Cmd.group
-      (Cmd.info "config" ~doc:"Manage XDG TOML configuration.")
-      [ config_path; config_show; config_init ];
+      (Cmd.info "task"
+         ~doc:"Create, find and update local tasks. Run sync to publish edits.")
+      [
+        add; list_cmd; show; edit; update; done_; delete; restore; adopt; patch;
+      ];
+    Cmd.group
+      (Cmd.info "email"
+         ~doc:"Capture email tasks and inspect their JMAP sources.")
+      [ from_email; for_email; source_show ];
+    Cmd.group
+      (Cmd.info "maintenance"
+         ~doc:
+           "Inspect conflicts, preview WebDAV sync and recover interrupted \
+            writes.")
+      [ conflicts; resolve; recover; preview ];
+    Cmd.group
+      (Cmd.info "config"
+         ~doc:"Inspect shared configuration. Run init for first-time setup.")
+      [ config_path; config_show ];
   ]
 
 let () =
-  Console_eio.setup ();
+  Console_tty.setup ();
   Eio_main.run (fun environment ->
       let cmd =
         Cmd.group
           (Cmd.info "dooit" ~version:"0.1.0"
-             ~doc:"Editable task notes, WebDAV sync and JMAP email capture.")
+             ~doc:"Tasks with one configured synchronization backend."
+             ~man:
+               [
+                 `S Manpage.s_description;
+                 `P
+                   "Start with $(b,dooit init), add a task with $(b,dooit task \
+                    add TITLE), then run $(b,dooit sync). On another machine, \
+                    use $(b,dooit clone).";
+                 `P
+                   "Task edits are local. Sync publishes them using the \
+                    configured Git or WebDAV backend. Git is the default. Pull \
+                    and push are optional Git-only commands.";
+                 `S Manpage.s_examples;
+                 `Pre
+                   "dooit init\n\
+                    dooit task add \"Reply to Alice\" --tag inbox\n\
+                    dooit sync\n\
+                    dooit task list --status open\n\
+                    dooit task update ID --status blocked\n\
+                    dooit status";
+                 `S Manpage.s_see_also;
+                 `P "dooit COMMAND --help, dooit task COMMAND --help";
+               ])
           (commands environment)
       in
       exit (Cmd.eval cmd))

@@ -48,6 +48,24 @@ opam exec --switch=5.2.0+ox -- dune runtest --profile release-check \
 The full Matrix test dependencies include `qcheck-alcotest.0.91`.
 Unset `MATRIX_TEST_HOMESERVER` and `MATRIX_REQUIRE_HOMESERVER` to run offline.
 
+## Docker interoperability tests
+
+From the OxMono root, run the existing isolated homeserver setup with the
+shared build directory:
+
+```sh
+MATRIX_TEST_DUNE_BUILD_DIR="$PWD/_build" \
+  opam exec --switch=5.2.0+ox -- bash bleeding/matrix/test/integration/run-both.sh
+```
+
+The runner detects OxMono and uses the `release-check` profile without
+`--only-packages`, so local dependencies remain available. Container names
+and data directories are unique per run and cleaned on exit. Override
+`MATRIX_TEST_PORT` and `MATRIX_TEST_DENDRITE_PORT` if the defaults are occupied.
+The 2026-10-11 refresh passed 60 Synapse scenarios and five Dendrite scenarios.
+The separate [portable-export verifier](test/interop/README.md) takes an explicit
+Rust SDK checkout and requires that checkout's supported Rust toolchain.
+
 ## Update from upstream
 
 1. Read the recorded revision. Review the source checkout's changes since that

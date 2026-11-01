@@ -1,5 +1,14 @@
 ## Unreleased
 
+- Reduce projection allocations and use one byte per pixel for zone ownership
+  in patches crossing a zone seam.
+
+- Call Nx directly for CLI NumPy output using the nx-oxcaml backend.
+  Preserve existing file bytes and bounded streaming for large regions.
+
+- Default to v1.1-dclimate Zarr, read published embedding depths and interpret
+  source-nodata masks correctly. Use httpz for command-line HTTP reads.
+
 - Link the `proj.c` implementation of the virtual `proj` library from
   the tessera library itself, so every executable that links tessera
   builds without naming the implementation.

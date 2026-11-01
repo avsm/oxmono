@@ -1,0 +1,30 @@
+(lang dune 3.21)
+
+(name sekrit)
+
+(generate_opam_files true)
+
+(license ISC)
+
+(authors "Anil Madhavapeddy")
+
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+
+(source
+ (github avsm/oxmono))
+
+(package
+ (name sekrit)
+ (synopsis "Secret references and authenticated encrypted local storage")
+ (depends
+  ocaml
+  eioext
+  mirage-crypto
+  mirage-crypto-rng
+  jsont
+  bytesrw
+  xdg
+  eio
+  eio_main
+  cmdliner
+  (odoc :with-doc)))

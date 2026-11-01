@@ -1,0 +1,12 @@
+(library
+ (name retrieval)
+ (public_name retrieval)
+ (libraries
+  eio
+  sqlite3-eio
+  sqlite-vec
+  fetch
+  jsont
+  jsont.bytesrw
+  digestif
+  stdlib_upstream_compatible))

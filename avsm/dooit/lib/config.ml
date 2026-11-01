@@ -3,7 +3,17 @@ open Common
 module T = Tomlt.Toml
 module Url = Fetch.Middleware.Url
 
-type secret = File of string | Inline of string
+type secret =
+  | File of string
+  | Inline of string
+  | Reference of Sekrit.Reference.t
+
+type backend = Git | Webdav | Local
+
+let backend_name = function
+  | Git -> "git"
+  | Webdav -> "webdav"
+  | Local -> "local"
 
 type webdav = {
   url : string;
@@ -16,45 +26,23 @@ type webdav = {
 type t = {
   path : string;
   root : string;
+  backend : backend;
+  git : Git.config;
   webdav : webdav option;
   jmap_profile : string option;
   jmap_account : string option;
   jmap_service : string option;
 }
 
-let expand ~base p =
-  let p =
-    if String.starts_with ~prefix:"~/" p then
-      Filename.concat
-        (Option.value (Sys.getenv_opt "HOME")
-           ~default:(Unix.getpwuid (Unix.getuid ())).pw_dir)
-        (String.sub p 2 (String.length p - 2))
-    else p
-  in
-  if Filename.is_relative p then Filename.concat base p else p
+let expand = Xdge.Paths.expand
+let field f = try f () with Tomlt.Fields.Invalid message -> fail "%s" message
+let nonempty key value = field (fun () -> Tomlt.Fields.nonempty key value)
+let text key table = field (fun () -> Tomlt.Fields.string_opt key table)
 
-let nonempty key s =
-  if String.trim s = "" then fail "%s must not be empty" key;
-  s
+let required key table =
+  field (fun () -> Tomlt.Fields.required_string key table)
 
-let text key table =
-  match T.find_opt key table with
-  | None -> None
-  | Some v -> (
-      match T.to_string_opt v with
-      | Some s -> Some s
-      | None -> fail "config %s must be a string" key)
-
-let required k t =
-  match text k t with
-  | Some s -> nonempty k s
-  | None -> fail "missing config %s" k
-
-let known allowed t =
-  if not (T.is_table t) then fail "expected a TOML table";
-  List.iter
-    (fun k -> if not (List.mem k allowed) then fail "unknown config key: %s" k)
-    (T.keys t)
+let known keys table = field (fun () -> Tomlt.Fields.known keys table)
 
 let collection ~url ~subdir =
   if String.contains url '?' || String.contains url '#' then
@@ -93,7 +81,24 @@ let parse ~path ~default_root raw =
     | Ok t -> t
     | Error _ -> fail "invalid TOML in %s" path
   in
-  known [ "root"; "webdav"; "jmap" ] t;
+  known [ "root"; "backend"; "git"; "webdav"; "jmap" ] t;
+  let backend =
+    match text "backend" t with
+    | Some "git" -> Git
+    | Some "webdav" -> Webdav
+    | Some "local" -> Local
+    | Some _ -> fail "backend must be git, webdav or local"
+    | None -> (
+        match (T.find_opt "git" t, T.find_opt "webdav" t) with
+        | Some _, Some _ ->
+            fail
+              "both [git] and [webdav] are configured; select backend \
+               explicitly"
+        | None, Some _ -> Webdav
+        | _ -> Git)
+  in
+  if backend = Webdav && T.find_opt "webdav" t = None then
+    fail "backend webdav requires a [webdav] section";
   let base = Filename.dirname path in
   let root =
     match text "root" t with
@@ -103,21 +108,58 @@ let parse ~path ~default_root raw =
   let webdav =
     Option.map
       (fun w ->
-        known [ "url"; "subdir"; "username"; "password_file"; "password" ] w;
+        known
+          [ "url"; "subdir"; "username"; "password_file"; "password"; "secret" ]
+          w;
         let url = required "url" w
         and subdir = required "subdir" w
         and username = required "username" w in
         let secret =
-          match (text "password_file" w, text "password" w) with
-          | Some p, None -> File (expand ~base (nonempty "password_file" p))
-          | None, Some s -> Inline (nonempty "password" s)
+          match
+            (text "password_file" w, text "password" w, text "secret" w)
+          with
+          | Some p, None, None ->
+              File (expand ~base (nonempty "password_file" p))
+          | None, Some s, None -> Inline (nonempty "password" s)
+          | None, None, Some reference ->
+              let reference =
+                try Sekrit.Reference.of_string reference
+                with Sekrit.Error message -> fail "%s" message
+              in
+              Reference
+                (match Sekrit.Reference.source reference with
+                | `Named _ -> reference
+                | `File p -> Sekrit.Reference.file (expand ~base p))
           | _ ->
               fail
-                "configure exactly one of webdav.password_file or \
-                 webdav.password"
+                "configure exactly one of webdav.secret, webdav.password_file \
+                 or webdav.password"
         in
         { url; subdir; collection = collection ~url ~subdir; username; secret })
       (T.find_opt "webdav" t)
+  in
+  let git =
+    match T.find_opt "git" t with
+    | None -> Git.default
+    | Some g ->
+        known [ "remote"; "branch" ] g;
+        let value key default =
+          match text key g with
+          | None -> default
+          | Some value ->
+              let value = nonempty ("git." ^ key) value in
+              if
+                String.exists
+                  (fun c -> Char.code c < 32 || Char.code c = 127)
+                  value
+              then fail "git.%s must not contain control characters" key;
+              value
+        in
+        Git.
+          {
+            remote = value "remote" default.remote;
+            branch = value "branch" default.branch;
+          }
   in
   let j = T.find_opt "jmap" t in
   Option.iter (known [ "profile"; "account"; "service" ]) j;
@@ -125,6 +167,8 @@ let parse ~path ~default_root raw =
   {
     path;
     root;
+    backend;
+    git;
     webdav;
     jmap_profile = jf "profile";
     jmap_account = jf "account";
@@ -137,55 +181,109 @@ let private_file p =
   if st.st_uid <> Unix.getuid () || st.st_perm land 0o077 <> 0 then
     fail "credential file must be owned by you and mode 0600: %s" p
 
-let load ~fs ?path ?root () =
-  let explicit = Option.is_some path in
-  let xdg = Xdge.create ~create_dirs:false fs "dooit" in
+let defaults ~fs ?path ?root ?(backend = Git) () =
+  if backend = Webdav then
+    fail "configure [webdav] credentials in a config file before initializing";
+  let base = Sys.getcwd () in
   let path =
     Option.value path
-      ~default:Eio.Path.(native_exn (Xdge.config_dir xdg / "config.toml"))
+      ~default:
+        Eio.Path.(
+          native_exn (fs / Xdge.Paths.config_dir "dooit" / "config.toml"))
+    |> nonempty "config path" |> expand ~base
   in
-  let default_root = Eio.Path.native_exn (Xdge.data_dir xdg) in
+  let root =
+    Option.value root
+      ~default:Eio.Path.(native_exn (fs / Xdge.Paths.data_dir "dooit"))
+    |> nonempty "root" |> expand ~base
+  in
+  {
+    path;
+    root;
+    backend;
+    git = Git.default;
+    webdav = None;
+    jmap_profile = None;
+    jmap_account = None;
+    jmap_service = None;
+  }
+
+let load ~fs ?path ?root () =
+  let explicit = Option.is_some path in
+  let fallback = defaults ~fs ?path () in
+  let path = fallback.path in
   let c =
-    if exists path then parse ~path ~default_root (read ~limit:65536 path)
+    if exists path then
+      parse ~path ~default_root:fallback.root (read ~limit:65536 path)
     else if explicit then fail "config file does not exist: %s" path
-    else
-      {
-        path;
-        root = default_root;
-        webdav = None;
-        jmap_profile = None;
-        jmap_account = None;
-        jmap_service = None;
-      }
+    else fallback
   in
   (match c.webdav with
   | Some { secret = Inline _; _ } -> private_file path
   | _ -> ());
   match root with
   | None -> c
-  | Some p -> { c with root = expand ~base:(Sys.getcwd ()) p }
+  | Some p -> { c with root = expand ~base:(Sys.getcwd ()) (nonempty "root" p) }
+
+let save_new c =
+  let path = expand ~base:(Sys.getcwd ()) c.path in
+  if exists path then fail "config file already exists: %s" path;
+  let line key value = key ^ " = " ^ json_string (str value) ^ "\n" in
+  let optional key = function None -> "" | Some value -> line key value in
+  let raw =
+    line "backend" (backend_name c.backend)
+    ^ line "root" (expand ~base:(Sys.getcwd ()) c.root)
+    ^ "\n[git]\n" ^ line "remote" c.git.remote ^ line "branch" c.git.branch
+    ^ (match c.webdav with
+      | None -> ""
+      | Some w -> (
+          "\n[webdav]\n" ^ line "url" w.url ^ line "subdir" w.subdir
+          ^ line "username" w.username
+          ^
+          match w.secret with
+          | Inline password -> line "password" password
+          | Reference reference ->
+              line "secret" (Sekrit.Reference.to_string reference)
+          | File file ->
+              line "password_file" (expand ~base:(Filename.dirname path) file)))
+    ^
+    if c.jmap_profile = None && c.jmap_account = None && c.jmap_service = None
+    then ""
+    else
+      "\n[jmap]\n"
+      ^ optional "profile" c.jmap_profile
+      ^ optional "account" c.jmap_account
+      ^ optional "service" c.jmap_service
+  in
+  ignore (parse ~path ~default_root:c.root raw);
+  if String.length raw > 65536 then fail "config exceeds 64 KiB";
+  mkdir (Filename.dirname path);
+  try create_file path raw
+  with Unix.Unix_error (Unix.EEXIST, _, _) ->
+    fail "config file already exists: %s" path
 
 let password w =
   let s =
     match w.secret with
     | Inline s -> s
-    | File p ->
-        private_file p;
-        let s = read ~limit:65536 p in
-        let s =
-          if String.ends_with ~suffix:"\n" s then
-            String.sub s 0 (String.length s - 1)
-          else s
-        in
-        if String.ends_with ~suffix:"\r" s then
-          String.sub s 0 (String.length s - 1)
-        else s
+    | File p -> (
+        try Sekrit.read_file p with Sekrit.Error message -> fail "%s" message)
+    | Reference reference -> (
+        try Sekrit.read_reference (Sekrit.Reference.to_string reference)
+        with Sekrit.Error message -> fail "%s" message)
   in
   if s = "" || String.exists (fun c -> Char.code c < 32 || Char.code c > 126) s
   then fail "app password must be one nonempty line of printable ASCII";
   s
 
 let require_webdav c =
+  if c.backend <> Webdav then
+    fail "selected backend is %s, not webdav" (backend_name c.backend);
   match c.webdav with
   | Some w -> w
   | None -> fail "configure [webdav] in %s" c.path
+
+let require_git c =
+  if c.backend <> Git then
+    fail "selected backend is %s, not git" (backend_name c.backend);
+  c.git

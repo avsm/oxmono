@@ -169,36 +169,38 @@ let[@zero_alloc] rec index_from (s : string @ local) i stop c =
   else index_from s (i + 1) stop c
 ;;
 
-let rec param_from ~plus (s : string @ local) (name : string @ local) start n =
-  if start > n
-  then None
-  else (
+(* A missing parameter has offset [-1]. Found values are decoded only once,
+   after the scan, into the region chosen by the caller. *)
+let[@zero_alloc] rec param_span ~plus (s : string @ local)
+    (name : string @ local) start n =
+  if start > n then #(-1, 0)
+  else
     let stop =
-      match index_from s start n '&' with
-      | -1 -> n
-      | i -> i
+      match index_from s start n '&' with -1 -> n | i -> i
     in
-    let next = stop + 1 in
-    if stop <= start
-    then if next > n then None else param_from ~plus s name next n
-    else (
+    if stop <= start then param_span ~plus s name (stop + 1) n
+    else
       let eq = index_from s start stop '=' in
-      if eq = -1
-      then
-        if key_is ~plus s start stop name
-        then Some ""
-        else if next > n
-        then None
-        else param_from ~plus s name next n
-      else if key_is ~plus s start eq name
-      then Some (decode_sub ~plus s (eq + 1) (stop - eq - 1))
-      else if next > n
-      then None
-      else param_from ~plus s name next n))
+      let key_stop = if eq = -1 then stop else eq in
+      if key_is ~plus s start key_stop name then
+        let off = if eq = -1 then stop else eq + 1 in
+        #(off, stop - off)
+      else param_span ~plus s name (stop + 1) n
 ;;
 
 let param ~plus (s : string @ local) (name : string @ local) =
-  param_from ~plus s name 0 (String.length s)
+  let #(off, len) = param_span ~plus s name 0 (String.length s) in
+  if off < 0 then None
+  else if len = 0 then Some ""
+  else Some (decode_sub ~plus s off len)
+;;
+
+let[@zero_alloc] param_local ~plus (s : string @ local)
+    (name : string @ local) = exclave_
+  let #(off, len) = param_span ~plus s name 0 (String.length s) in
+  if off < 0 then None
+  else if len = 0 then Some ""
+  else Some (decode_local ~plus s off len)
 ;;
 
 (* Route matching walks the original path and decodes only captures. *)

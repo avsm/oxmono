@@ -1,0 +1,13 @@
+(copy_files ../../bin/knowledge_output.ml)
+(copy_files ../../bin/knowledge_output.mli)
+
+(test
+ (name test_output)
+ (modules test_output knowledge_output)
+ (libraries
+  bushel.knowledge.store
+  console console.text
+  fmt
+  jsont
+  jsont.bytesrw
+  apple-mlx-embeddings))

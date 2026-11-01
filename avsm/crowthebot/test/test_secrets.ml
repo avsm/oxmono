@@ -15,8 +15,10 @@ let () =
   Eio.Switch.run @@ fun sw ->
   let root = Eio.Path.(Eio.Stdenv.cwd env / "test-secret-config") in
   Eio.Path.mkdir ~perm:0o700 root;
+  let key_file = Eio.Path.(root / "master.key") in
+  Sekrit.Key.create (Eio.Path.native_exn key_file);
   let value = json {|{"password":"fixture-secret"}|} in
-  Secret_store.with_dir ~sw
+  Secret_store.with_dir ~sw ~key_file
     Eio.Path.(root / "one")
     (fun store ->
       Secret_store.put store ~tool:"owntracks" ~name:"home" ~replace:false value;
@@ -54,22 +56,43 @@ let () =
         [ "../one"; "/tmp/x"; "x.json"; "" ];
       check "tool traversal denied"
         (bad (fun () -> Secret_store.list store ~tool:"../one")));
-  Secret_store.with_dir ~sw
+  Secret_store.with_dir ~sw ~key_file
     Eio.Path.(root / "two")
     (fun store ->
       check "profiles isolated" (Secret_store.list store ~tool:"owntracks" = []));
-  Secret_store.with_dir ~sw
+  Secret_store.with_dir ~sw ~key_file
     Eio.Path.(root / "one")
     (fun store ->
       check "reopen retains names"
         (Secret_store.list store ~tool:"owntracks" = [ ("away", true) ]));
   let path = Eio.Path.(root / "one/owntracks.json") in
+  check "configuration is encrypted"
+    (Sekrit.Sealed_file.is_sealed (Eio.Path.load path));
+  Eio.Path.save ~create:(`Or_truncate 0o600) path
+    {|{"version":1,"selected":"away","entries":[{"name":"away","value":{"password":"fixture-secret"}}]}|};
+  check "normal reads reject plaintext downgrade"
+    (bad (fun () ->
+         Secret_store.with_dir ~sw ~key_file
+           Eio.Path.(root / "one")
+           (fun store -> Secret_store.list store ~tool:"owntracks")));
+  Secret_store.with_dir ~sw ~key_file
+    Eio.Path.(root / "one")
+    (fun store ->
+      check "explicit migration" (Secret_store.migrate store = 1);
+      check "migration is repeatable" (Secret_store.migrate store = 0);
+      check "migration preserves value and selection"
+        (Secret_store.selected store ~tool:"owntracks" = Some ("away", value));
+      check "same-process configuration exclusion"
+        (try
+           Secret_store.with_dir ~sw ~key_file Eio.Path.(root / "one") ignore;
+           false
+         with Failure _ -> true));
   check "private file permissions"
     ((Unix.stat (Eio.Path.native_exn path)).st_perm = 0o600);
   Unix.chmod (Eio.Path.native_exn path) 0o644;
   check "permissive secrets rejected"
     (bad (fun () ->
-         Secret_store.with_dir ~sw
+         Secret_store.with_dir ~sw ~key_file
            Eio.Path.(root / "one")
            (fun store -> Secret_store.list store ~tool:"owntracks")));
   Unix.chmod (Eio.Path.native_exn path) 0o600;
@@ -77,14 +100,15 @@ let () =
   Eio.Path.symlink ~link_to:"real.json" path;
   check "secret symlinks rejected"
     (bad (fun () ->
-         Secret_store.with_dir ~sw
+         Secret_store.with_dir ~sw ~key_file
            Eio.Path.(root / "one")
            (fun store -> Secret_store.list store ~tool:"owntracks")));
   Eio.Path.unlink path;
   Eio.Path.rename Eio.Path.(root / "one/real.json") path;
   Eio.Path.symlink ~link_to:"one" Eio.Path.(root / "alias");
   check "secret directory aliases rejected"
-    (bad (fun () -> Secret_store.with_dir ~sw Eio.Path.(root / "alias") ignore));
+    (bad (fun () ->
+         Secret_store.with_dir ~sw ~key_file Eio.Path.(root / "alias") ignore));
   Eio.Path.unlink Eio.Path.(root / "alias");
   List.iter
     (fun profile ->
@@ -93,6 +117,7 @@ let () =
         (Eio.Path.read_dir Eio.Path.(root / profile));
       Eio.Path.rmdir Eio.Path.(root / profile))
     [ "one"; "two" ];
+  Eio.Path.unlink key_file;
   Eio.Path.rmdir root;
   let request_count = ref 0 in
   let mock =

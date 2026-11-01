@@ -1,7 +1,6 @@
 (** This module provides portable byte-class scans and token classification.
 
-    {!Scan} is a narrowed alias of this module, selected when no faster
-    architecture-specific implementation is configured.
+    {!Scan} is a narrowed alias of this module on every architecture.
 
     Scans are unchecked. The caller must ensure [0 <= pos <= limit <= Bytes.length buf]. *)
 

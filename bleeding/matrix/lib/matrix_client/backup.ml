@@ -100,6 +100,8 @@ let backed_up_session_data_jsont =
         sender_claimed_keys
         session_key
         shared_history
+        legacy_shared_history
+        unstable_shared_history
       ->
         {
           algorithm;
@@ -107,7 +109,12 @@ let backed_up_session_data_jsont =
           sender_key;
           sender_claimed_keys;
           session_key;
-          shared_history;
+          shared_history =
+            Option.value shared_history
+              ~default:
+                (Option.value legacy_shared_history
+                   ~default:
+                     (Option.value unstable_shared_history ~default:false));
         })
     |> mem "algorithm" Matrix_proto.Json.Codec.string
          ~dec_absent:(fun () -> megolm_algorithm)
@@ -124,9 +131,10 @@ let backed_up_session_data_jsont =
          ~enc:(fun t -> t.sender_claimed_keys)
     |> mem "session_key" Matrix_proto.Json.Codec.string ~enc:(fun t ->
         t.session_key)
-    |> mem "shared_history" Jsont.bool
-         ~dec_absent:(fun () -> false)
-         ~enc:(fun t -> t.shared_history)
+    |> opt_mem "shared_history" Jsont.bool ~enc:(fun t -> Some t.shared_history)
+    |> opt_mem "m.shared_history" Jsont.bool ~enc:(fun _ -> None)
+    |> opt_mem "org.matrix.msc3061.shared_history" Jsont.bool ~enc:(fun _ ->
+        None)
     |> finish)
 
 (* The spec asks for a salt of 32 zero bytes; HMAC pads a short key with

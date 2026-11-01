@@ -1,0 +1,10 @@
+{
+  "url": "https://github.com/avsm/oi.git",
+  "revision": "ca8c59ff26bd7350e909324dc804982f0e4cee5b",
+  "version": "0.14.2",
+  "imported_on": "2026-10-03",
+  "scope": [
+    "lib/osrel",
+    "LICENSE.md"
+  ]
+}

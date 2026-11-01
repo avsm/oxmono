@@ -59,3 +59,8 @@
  (name test_form_boundary)
  (package fetch)
  (libraries fetch alcotest httpz.media))
+
+(test
+ (name test_link)
+ (package fetch)
+ (libraries fetch http))

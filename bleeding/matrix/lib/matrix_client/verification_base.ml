@@ -115,6 +115,10 @@ module Transaction = struct
     | To_device _ -> None
     | In_room { room_id; _ } -> Some room_id
 
+  let wire_id = function
+    | To_device id -> Id.Transaction_id.to_string id
+    | In_room { event_id; _ } -> Id.Event_id.to_string event_id
+
   let transaction_id = function To_device id -> Some id | In_room _ -> None
 
   let relates_to = function

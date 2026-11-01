@@ -1,17 +1,18 @@
 # Yamlrw
 
-A pure OCaml implementation of YAML 1.2 parsing and emission.
+A pure OCaml implementation of YAML 1.2 parsing and emission, requiring
+OxCaml based on OCaml 5.2 or later.
 
 ## Features
 
-- **Pure OCaml**: No C bindings, works on all OCaml platforms
+- **Pure OCaml**: No C bindings
 - **YAML 1.2 Compliant**: Full support for the YAML 1.2 specification
 - **High-level API**: JSON-compatible value representation for simple use cases
 - **Low-level Streaming**: Event-based parsing for fine-grained control
 - **Multiple I/O Backends**:
   - `yamlrw`: Core library with bytesrw-based I/O
   - `yamlrw-unix`: Unix file and channel operations
-  - `yamlrw-eio`: Eio-based streaming I/O (OCaml 5.0+)
+  - `yamlrw-eio`: Eio-based streaming I/O
 
 ## Installation
 

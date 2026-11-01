@@ -226,13 +226,15 @@ let form (l : Model.login) ~busy =
                entry ~focused:(on Model.Scheme_field) "Auth"
                  (Model.scheme_to_string l.scheme);
              ];
-             (if l.scheme = Model.Basic then
+             (if l.scheme = Model.Basic && l.secret_ref = None then
                 [ entry ~focused:(on Model.User_field) "Username" l.user ]
               else []);
              [
                entry ~focused:(on Model.Secret_field)
-                 (String.capitalize_ascii (Model.secret_name l.scheme))
-                 (bullets l.secret);
+                 (if l.secret_ref = None then
+                    String.capitalize_ascii (Model.secret_name l.scheme)
+                  else "Secret reference")
+                 (Option.value l.secret_ref ~default:(bullets l.secret));
              ];
              note;
            ]);

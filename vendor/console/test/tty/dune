@@ -1,0 +1,13 @@
+(copy_files ../../lib/tty/colour.{ml,mli})
+
+(executable
+ (name probe)
+ (modules probe)
+ (libraries console_compat console console.tty fmt))
+
+(test
+ (name test)
+ (modules :standard \ probe)
+ (package console)
+ (deps probe.exe)
+ (libraries console_compat console console.tty alcotest fmt unix))

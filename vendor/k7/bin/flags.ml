@@ -1,0 +1,371 @@
+(*---------------------------------------------------------------------------
+  Copyright (c) 2026 Thomas Gazagnaire. All rights reserved.
+  SPDX-License-Identifier: ISC
+  ---------------------------------------------------------------------------*)
+
+open Cmdliner
+
+let decimal s =
+  if s <> "" && String.for_all Char.Ascii.is_digit s then int_of_string_opt s
+  else None
+
+let positive what s =
+  match decimal s with
+  | Some n when n > 0 -> Ok n
+  | _ -> Fmt.error "%a is not a positive %s" Quote.pp s what
+
+let count ~docv what =
+  Arg.Conv.make ~docv ~parser:(positive what) ~pp:Fmt.int ()
+
+let framerate =
+  let doc =
+    "Record at most $(docv) frames a second (defaults to 50, as in VHS). A \
+     lower rate makes a smaller image of a program that redraws often; 20 \
+     still moves smoothly."
+  in
+  Arg.(
+    value
+    & opt (some (count ~docv:"N" "frame rate")) None
+    & info [ "framerate" ] ~docv:"N" ~doc)
+
+let settings_for ~columns:columns_default ~rows:rows_default =
+  let columns =
+    let doc =
+      Fmt.str
+        "Give the terminal $(docv) columns, and the image the width they need \
+         (defaults to %s)."
+        columns_default
+    in
+    Arg.(
+      value
+      & opt (some (count ~docv:"N" "number of columns")) None
+      & info [ "columns" ] ~docv:"N" ~doc)
+  and rows =
+    let doc =
+      Fmt.str
+        "Give the terminal $(docv) rows, and the image the height they need \
+         (defaults to %s)."
+        rows_default
+    in
+    Arg.(
+      value
+      & opt (some (count ~docv:"N" "number of rows")) None
+      & info [ "rows" ] ~docv:"N" ~doc)
+  and font_size =
+    let doc = "Draw the text $(docv) pixels high (defaults to 22)." in
+    Arg.(
+      value
+      & opt (some (count ~docv:"PX" "font size")) None
+      & info [ "font-size" ] ~docv:"PX" ~doc)
+  and theme =
+    let doc =
+      "Draw the terminal in the colours of the VHS theme $(docv), as $(b,vhs \
+       themes) lists them, or of a theme in JSON."
+    in
+    Arg.(value & opt (some string) None & info [ "theme" ] ~docv:"NAME" ~doc)
+  in
+  let make columns rows font_size theme framerate =
+    List.filter_map Fun.id
+      [
+        Option.map (fun n -> K7.Columns n) columns;
+        Option.map (fun n -> K7.Rows n) rows;
+        Option.map (fun n -> K7.Font_size n) font_size;
+        Option.map (fun t -> K7.Theme t) theme;
+        Option.map (fun n -> K7.Framerate n) framerate;
+      ]
+  in
+  Term.(const make $ columns $ rows $ font_size $ theme $ framerate)
+
+let settings =
+  settings_for
+    ~columns:
+      "as many as a frame of 1200 pixels holds, as in VHS: 75 at the default \
+       font size"
+    ~rows:
+      "as many as a frame of 600 pixels holds, as in VHS: 16 at the default \
+       font size"
+
+let binding s =
+  match String.index_opt s '=' with
+  | Some i when i > 0 ->
+      Ok (String.sub s 0 i, String.sub s (i + 1) (String.length s - i - 1))
+  | _ -> Fmt.error "%a is not VAR=VALUE" Quote.pp s
+
+let env =
+  let doc =
+    "Set the variable $(i,VAR) to $(i,VALUE) in the environment of what k7 \
+     records: the shell of a tape or a cram test, the program of $(b,k7 rec). \
+     Repeatable."
+  in
+  let pp ppf (k, v) = Fmt.pf ppf "%s=%s" k v in
+  Arg.(
+    value
+    & opt_all (Arg.Conv.make ~docv:"VAR=VALUE" ~parser:binding ~pp ()) []
+    & info [ "env" ] ~docv:"VAR=VALUE" ~doc)
+
+(* Go's longest duration, in seconds. *)
+let max_seconds = 9_223_372_036
+
+let seconds s =
+  let too_large () =
+    Fmt.error "%a is too large: a wait lasts at most %d seconds" Quote.pp s
+      max_seconds
+  in
+  match decimal s with
+  | Some n when n > 0 && n <= max_seconds -> Ok n
+  | Some n when n > 0 -> too_large ()
+  (* Digits [int_of_string] cannot read are beyond [max_int]. *)
+  | None when s <> "" && String.for_all Char.Ascii.is_digit s -> too_large ()
+  | _ -> Fmt.error "%a is not a positive number of seconds" Quote.pp s
+
+let wait_timeout =
+  let doc =
+    "Give each command of a cram test $(docv) seconds to give the prompt back \
+     before the recording fails (defaults to VHS's 15)."
+  in
+  Arg.(
+    value
+    & opt
+        (some (Arg.Conv.make ~docv:"SECONDS" ~parser:seconds ~pp:Fmt.int ()))
+        None
+    & info [ "wait-timeout" ] ~docv:"SECONDS" ~doc)
+
+(* Go's longest duration, in milliseconds. *)
+let max_ms = 9_223_372_036_854
+
+(* Seconds as asciinema's [--idle-time-limit] takes them, such as [2] or
+   [0.5], in milliseconds; [none] is no limit. *)
+let idle_seconds s =
+  let number =
+    s <> ""
+    && String.for_all (fun c -> Char.Ascii.is_digit c || c = '.') s
+    && List.length (String.split_on_char '.' s) <= 2
+  in
+  match if number then float_of_string_opt s else None with
+  | _ when s = "none" -> Ok None
+  | Some x when x > 0. && x *. 1000. <= float max_ms ->
+      Ok (Some (max 1 (Float.to_int (Float.round (x *. 1000.)))))
+  | _ -> Fmt.error "%a is not a positive number of seconds, or none" Quote.pp s
+
+let pp_idle ppf = function
+  | None -> Fmt.string ppf "none"
+  | Some ms -> Fmt.pf ppf "%g" (float ms /. 1000.)
+
+let idle_time_limit ~default =
+  let doc =
+    Fmt.str
+      "Shorten each pause of the image longer than $(docv) seconds, such as a \
+       build that prints nothing for a while, to $(docv) seconds, as \
+       asciinema's $(b,idle_time_limit) does (defaults to %s). $(b,none) keeps \
+       every pause."
+      default
+  in
+  Arg.(
+    value
+    & opt
+        (some
+           (Arg.Conv.make ~docv:"SECONDS" ~parser:idle_seconds ~pp:pp_idle ()))
+        None
+    & info [ "idle-time-limit" ] ~docv:"SECONDS" ~doc)
+
+(* Milliseconds, or [none]: the keys show at the times they were typed. *)
+let typing_ms s =
+  match decimal s with
+  | _ when s = "none" -> Ok None
+  | Some n when n <= max_ms -> Ok (Some n)
+  | _ ->
+      Fmt.error "%a is not a number of milliseconds from 0 to %d, or none"
+        Quote.pp s max_ms
+
+let typing_speed =
+  let doc =
+    "Show what was typed one character every $(docv) milliseconds, as a tape \
+     types it (defaults to 50, as in VHS), however fast or slow it was typed. \
+     It applies to the keys the program echoes, as a shell does; $(b,none) \
+     shows them when they were typed."
+  in
+  let pp ppf = function
+    | None -> Fmt.string ppf "none"
+    | Some ms -> Fmt.int ppf ms
+  in
+  Arg.(
+    value
+    & opt (some (Arg.Conv.make ~docv:"MS" ~parser:typing_ms ~pp ())) None
+    & info [ "typing-speed" ] ~docv:"MS" ~doc)
+
+let typing typing =
+  Option.map (fun ms -> K7.Ms ms) (Option.value typing ~default:(Some 50))
+
+let milliseconds =
+  let parser s =
+    match decimal s with
+    | Some n when n <= max_ms -> Ok n
+    | _ ->
+        Fmt.error "%a is not a number of milliseconds from 0 to %d" Quote.pp s
+          max_ms
+  in
+  Arg.Conv.make ~docv:"MS" ~parser ~pp:Fmt.int ()
+
+let vhs =
+  let doc = "The $(b,vhs) executable to run (defaults to $(b,vhs))." in
+  Arg.(value & opt (some string) None & info [ "vhs" ] ~docv:"PATH" ~doc)
+
+let print =
+  let doc =
+    "Print the tape on standard output instead of recording it. An $(b,.svg) \
+     output, which VHS cannot write, has no $(b,Output) line."
+  in
+  Arg.(value & flag & info [ "print" ] ~doc)
+
+let exits =
+  Cmd.Exit.
+    [
+      info ok
+        ~doc:
+          "on success, also when the reader of $(b,--print) closes the pipe \
+           early.";
+      info some_error
+        ~doc:
+          "when the recording fails, when an asciicast recording cannot be \
+           drawn, when $(b,vhs) cannot run or fails, or when the tape of \
+           $(b,--print) or the image cannot be written; the reason is on \
+           standard error.";
+      info 130
+        ~doc:"when interrupted by SIGINT, once what was recorded is written.";
+      info 143 ~doc:"when interrupted by SIGTERM, likewise.";
+      info cli_error ~doc:"on command line parsing errors.";
+      info internal_error ~doc:"on unexpected internal errors (bugs).";
+    ]
+
+let max_load = 10 * 1024 * 1024
+
+let load env path =
+  let read flow =
+    Eio.Buf_read.parse ~max_size:max_load Eio.Buf_read.take_all flow
+  in
+  match Eio.Path.(with_open_in (Eio.Stdenv.fs env / path)) read with
+  | Ok src -> Ok src
+  | Error (`Msg _) -> Fmt.error "%s: larger than 10 MiB" path
+  | exception Eio.Io (Eio.Fs.E (Not_found _), _) ->
+      Fmt.error "%s: no such file" path
+  | exception Eio.Io (Eio.Fs.E (Permission_denied _), _) ->
+      Fmt.error "%s: permission denied" path
+  | exception Eio.Io (err, _) -> Fmt.error "%s: %a" path Eio.Exn.pp_err err
+
+let check_save output =
+  let rec nearest d =
+    let up = Filename.dirname d in
+    if Sys.file_exists d || up = d then d else nearest up
+  in
+  let dir = nearest (Filename.dirname output) in
+  let access path perms msg =
+    match Unix.access path perms with
+    | () -> Ok ()
+    | exception Unix.Unix_error _ -> Fmt.error "%a: %s" Quote.pp output msg
+  in
+  match Unix.stat output with
+  | { st_kind = S_DIR; _ } -> Fmt.error "%a: is a directory" Quote.pp output
+  | _ -> access output [ W_OK ] "permission denied"
+  | exception Unix.Unix_error _ -> (
+      match Unix.stat dir with
+      | { st_kind = S_DIR; _ } ->
+          access dir [ W_OK; X_OK ] (Fmt.str "cannot write in %a" Quote.pp dir)
+      | _ -> Fmt.error "%a: %a is not a directory" Quote.pp output Quote.pp dir
+      | exception Unix.Unix_error (e, _, _) ->
+          Fmt.error "%a: %s" Quote.pp output (Unix.error_message e))
+
+let save env output svg =
+  let file = Eio.Path.(Eio.Stdenv.fs env / output) in
+  match
+    Result.bind (check_save output) @@ fun () ->
+    Option.iter
+      (fun (dir, _) -> Eio.Path.mkdirs ~exists_ok:true ~perm:0o755 dir)
+      (Eio.Path.split file);
+    Ok (Eio.Path.save ~create:(`Or_truncate 0o644) file svg)
+  with
+  | r -> r
+  | exception Eio.Io (Eio.Fs.E (Already_exists _ | Not_found _), _) ->
+      Fmt.error "%a: %a is not a directory" Quote.pp output Quote.pp
+        (Filename.dirname output)
+  | exception Eio.Io (err, _) -> Fmt.error "%s: %a" output Eio.Exn.pp_err err
+
+let write flow s =
+  match Eio.Flow.copy_string s flow with
+  | () -> Ok ()
+  | exception
+      Eio.Io
+        (Eio.Net.E (Connection_reset (Eio_unix.Unix_error (EPIPE, _, _))), _) ->
+      Error None
+  | exception Eio.Io (Eio.Exn.X (Eio_unix.Unix_error (code, _, _)), _) ->
+      Error (Some (Unix.error_message code))
+  | exception Eio.Io (err, _) ->
+      Error (Fmt.kstr Option.some "%a" Eio.Exn.pp_err err)
+
+(* As under SIGPIPE, which Eio ignores: [k7 play --print | head] is quiet. *)
+let print_tape env t =
+  match write (Eio.Stdenv.stdout env) (K7.to_string t) with
+  | Ok () | Error None -> Ok ()
+  | Error (Some msg) -> Fmt.error "standard output: %s" msg
+
+let shown s = Fmt.str "%a" K7.pp_error (Io s)
+
+let pp_error ppf = function
+  | K7.Timeout { wait; line = 0; _ } ->
+      Fmt.pf ppf
+        "timed out waiting for %s; give the tape a longer Set WaitTimeout"
+        (shown wait)
+  | K7.Timeout { wait; line; file; last; _ } ->
+      Fmt.pf ppf
+        "timed out waiting for line %d%s, %s%s; give the wait a longer \
+         timeout, as in Wait@30s, or the tape a longer Set WaitTimeout"
+        line
+        (match file with None -> "" | Some f -> " of " ^ shown f)
+        (shown wait)
+        (if last = "" then "" else "; last value was: " ^ shown last)
+  | e -> K7.pp_error ppf e
+
+let pp_play_error ~vhs ppf = function
+  | K7.Executable_not_found exe as e when exe = vhs ->
+      Fmt.pf ppf
+        "%a; a GIF or a video needs Charm's VHS, see \
+         https://github.com/charmbracelet/vhs#installation, and an .svg output \
+         does not"
+        K7.pp_error e
+  | e -> pp_error ppf e
+
+let interruptible f =
+  let received = Atomic.make None and signalled = Eio.Condition.create () in
+  let handle s =
+    Atomic.set received (Some s);
+    Eio.Condition.broadcast signalled
+  in
+  let signals = [ Sys.sigint; Sys.sigterm ] in
+  let previous =
+    List.map (fun s -> Sys.signal s (Sys.Signal_handle handle)) signals
+  in
+  Fun.protect ~finally:(fun () -> List.iter2 Sys.set_signal signals previous)
+  @@ fun () ->
+  let stop, stopped = Eio.Promise.create () in
+  let result =
+    Eio.Fiber.first
+      (fun () -> f stop)
+      (fun () ->
+        ignore
+          (Eio.Condition.loop_no_mutex signalled (fun () -> Atomic.get received));
+        Eio.Promise.resolve stopped ();
+        Eio.Fiber.await_cancel ())
+  in
+  (result, Atomic.get received)
+
+let fail env msg =
+  (* With standard error closed, the exit code still reports. *)
+  ignore (write (Eio.Stdenv.stderr env) (Fmt.str "k7: %s\n" msg));
+  Cmd.Exit.some_error
+
+let exit env ~ok = function
+  | Ok x, None -> ok x
+  | Error msg, None -> fail env msg
+  | Ok _, Some s -> 128 + Sys.signal_to_int s
+  | Error msg, Some s ->
+      ignore (fail env msg);
+      128 + Sys.signal_to_int s

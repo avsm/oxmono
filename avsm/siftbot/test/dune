@@ -1,0 +1,124 @@
+(test
+ (name test_core)
+ (modules test_core)
+ (libraries siftbot siftbot.protocol eio_main unix))
+
+(test
+ (name test_vector)
+ (modules test_vector)
+ (libraries siftbot eio_main))
+
+(test
+ (name test_assistant)
+ (modules test_assistant)
+ (libraries siftbot agentkit eio_main))
+
+(test
+ (name test_classifier)
+ (modules test_classifier)
+ (libraries siftbot agentkit jsont eio_main))
+
+(test
+ (name test_classify_incremental)
+ (modules test_classify_incremental)
+ (libraries siftbot agentkit eio_main))
+
+(test
+ (name test_classify_parallel)
+ (modules test_classify_parallel)
+ (libraries siftbot agentkit eio_main))
+
+(test
+ (name test_classify_input)
+ (modules test_classify_input)
+ (libraries siftbot agentkit jmap.eio jsont eio_main))
+
+(executable
+ (name classify_live)
+ (modules classify_live)
+ (libraries siftbot fetch-curl eio_main))
+
+(library
+ (name siftbot_ui_tests)
+ (modules test_ui)
+ (inline_tests
+  (flags
+   (-source-tree-root .)))
+ (allow_overlapping_dependencies)
+ (libraries
+  siftbot.ui
+  siftbot.model
+  siftbot.setup
+  bonsai_term_test
+  bonsai_test
+  async
+  core)
+ (preprocess
+  (pps ppx_jane bonsai.ppx_bonsai)))
+
+(test
+ (name test_lifecycle)
+ (modules test_lifecycle)
+ (libraries siftbot dooit eio_main unix))
+
+(test
+ (name test_setup)
+ (modules test_setup)
+ (libraries
+  siftbot
+  siftbot.setup
+  siftbot.protocol
+  jmap.eio
+  sekrit
+  sekrit.eio
+  fetch.mock
+  http
+  eio_main
+  unix))
+
+(test
+ (name test_interval)
+ (modules test_interval)
+ (libraries siftbot ptime))
+
+(rule
+ (alias runtest)
+ (deps check_terminal.py)
+ (action
+  (run python3 %{dep:check_terminal.py} %{exe:../bin/siftbot_review.exe})))
+
+(test
+ (name test_review)
+ (modules test_review)
+ (libraries siftbot siftbot.protocol eio_main))
+
+(copy_files ../bin/cli_progress.ml)
+
+(executable
+ (name sync_progress_fixture)
+ (modules sync_progress_fixture cli_progress)
+ (libraries siftbot eio_main console console-eio unix))
+
+(rule
+ (alias runtest)
+ (deps check_sync_progress.py)
+ (action
+  (run
+   python3
+   %{dep:check_sync_progress.py}
+   %{exe:sync_progress_fixture.exe})))
+
+(test
+ (name test_model_config)
+ (modules test_model_config)
+ (libraries siftbot agentkit fetch.mock http eio_main unix))
+
+(test
+ (name test_label_rules)
+ (modules test_label_rules)
+ (libraries siftbot eio_main sqlite3))
+
+(test
+ (name test_feedback)
+ (modules test_feedback)
+ (libraries siftbot eio_main))

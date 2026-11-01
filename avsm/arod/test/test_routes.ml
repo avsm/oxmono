@@ -318,6 +318,18 @@ let () =
     = "links/5/10");
   check "an out of range limit is clamped"
     (body (get "/api/entries?collection=links&limit=9999") = "links/0/100");
+  List.iter
+    (fun (value, offset, limit) ->
+      check ("numeric query syntax: " ^ value)
+        (body (get ("/api/entries?collection=links&offset=" ^ value
+                    ^ "&limit=" ^ value))
+         = Printf.sprintf "links/%d/%d" offset limit))
+    [ "-1", 0, 1; "%2B5", 5, 5; "0x10", 16, 16;
+      "1_0", 10, 10; "", 0, 25; "bogus", 0, 25;
+      "999999999999999999999999", 0, 25 ];
+  check "the first duplicate numeric parameter wins"
+    (body (get "/api/entries?collection=links&limit=%33&limit=4")
+     = "links/0/3");
   check "the search API reads its query"
     (body (get "/api/search?q=ocaml&limit=3&link_limit=2") = "ocaml/3/2/rel");
   check "and logs before and after"
@@ -336,6 +348,9 @@ let () =
     (body (get "/search?q=xen&sort=up") = "page:xen/20/12/rel/false");
   check "a fragment request is marked"
     (body (get "/search?q=xen&fragment=1") = "page:xen/20/12/rel/true");
+  check "local query comparisons decode values and keep the first match"
+    (body (get "/search?q=xen&sort=d%61te&fragment=%31&fragment=0")
+     = "page:xen/20/12/date/true");
   check "the search page is HTML"
     (header (get "/search") H.Content_type
      = Some "text/html; charset=utf-8");

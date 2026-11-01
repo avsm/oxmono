@@ -1,7 +1,6 @@
 (* What a request costs on the heap.
 
-   TODO.md quotes these numbers to decide where effort goes, so they need an
-   oracle rather than a throwaway. This is a tool, not a test: the figures
+   These numbers guide allocation work. This is a tool, not a test: the figures
    shift with the compiler and pinning them would fail a build for a reason
    nobody wants to chase. Run it and read it.
 
@@ -83,13 +82,13 @@ let stream_writer (o : Backend.outcome @ local) =
 let words ~n f =
   Gc.full_major ();
   let s = Gc.stat () in
-  let a = s.Gc.minor_words +. s.Gc.major_words in
+  let a = s.Gc.minor_words +. s.Gc.major_words -. s.Gc.promoted_words in
   for _ = 1 to n do
     f ()
   done;
   Gc.full_major ();
   let s = Gc.stat () in
-  let b = s.Gc.minor_words +. s.Gc.major_words in
+  let b = s.Gc.minor_words +. s.Gc.major_words -. s.Gc.promoted_words in
   (b -. a) /. float n
 
 (* [site] and [writer] are required, not optional. A [Some] on a module-level
@@ -137,6 +136,14 @@ let () =
          ()));
   (* The query rows subtract a [Req.v] over the same target, so what is left
      is the lookup and not the request it runs against. *)
+  row "Req.v dynamic target with query"
+    (words ~n (fun () ->
+         let target = Sys.opaque_identity "/hello?a=b&c=%20" in
+         let () =
+           let local_ req = Req.v ~meth:Httpz.Method.Get ~target () in
+           let local_ _path = opaque_local (Req.path req) in ()
+         in
+         ()));
   let base =
     words ~n (fun () ->
         let () =
@@ -166,7 +173,32 @@ let () =
            ignore (Sys.opaque_identity (Req.query_param req "z"))
          in
          ())
-    -. base)
+    -. base);
+  List.iter
+    (fun (label, target, name) ->
+      let base =
+        words ~n (fun () ->
+            let () =
+              let local_ req = Req.v ~meth:Httpz.Method.Get ~target () in
+              let local_ _path = opaque_local (Req.path req) in ()
+            in
+            ())
+      in
+      row ("Req.query_param_local, " ^ label)
+        (words ~n (fun () ->
+             let () =
+               let local_ req = Req.v ~meth:Httpz.Method.Get ~target () in
+               let length =
+                 match Req.query_param_local req name with
+                 | None -> -1
+                 | Some value -> String.length (opaque_local value)
+               in
+               ignore (Sys.opaque_identity length)
+             in
+             ()) -. base))
+    [ "present", "/hello?a=b", "a";
+      "absent", "/hello?a=b", "z";
+      "escaped key and value", "/hello?a%20b=c%2Bd+e", "a b" ]
 
 (* Where the words in the rows above go. Each line is the one above it plus a
    single named thing, so the difference is what that thing costs. Read this

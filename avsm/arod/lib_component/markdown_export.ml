@@ -10,6 +10,13 @@
     URLs via {!Bushel.Md.to_markdown}. *)
 
 module Paper_component = Paper
+module Project_component = Project
+module Idea_component = Idea
+module Video_component = Video
+module Note_component = Note
+module Links_component = Links
+module Network_component = Network
+module Tag_cloud_component = Tag_cloud
 module Entry = Bushel.Entry
 module Paper = Bushel.Paper
 module Contact = Sortal_schema.Contact
@@ -21,8 +28,30 @@ module FeedEntry = Sortal_feed.Entry
 let date_str (y, m, d) =
   Printf.sprintf "%04d-%02d-%02d" y m d
 
+(** [one_line s] is [s] with each run of white space made one space. A title
+    with a line break would otherwise end a markdown heading or link early. *)
+let one_line s =
+  String.map (function '\n' | '\t' | '\r' -> ' ' | c -> c) s
+  |> String.split_on_char ' '
+  |> List.filter (fun w -> w <> "")
+  |> String.concat " "
+
+(** [link_text s] is [s] as the text of a markdown link: on one line, with its
+    square brackets escaped. *)
+let link_text s =
+  let b = Buffer.create (String.length s) in
+  String.iter (function
+    | ('[' | ']') as c -> Buffer.add_char b '\\'; Buffer.add_char b c
+    | c -> Buffer.add_char b c) (one_line s);
+  Buffer.contents b
+
 let entry_url ~ctx ent =
   Arod.Ctx.base_url ctx ^ Entry.site_url ent
+
+(* [entry_bullet_link ~ctx ent] is a link to [ent] in markdown. *)
+let entry_bullet_link ~ctx ent =
+  Printf.sprintf "- [%s](%s)" (link_text (Entry.title ent))
+    (entry_url ~ctx ent)
 
 let render_body ~ctx body =
   let base_url = Arod.Ctx.base_url ctx in
@@ -62,52 +91,63 @@ let social_links (s : Bushel.Types.social) =
   | [] -> ""
   | _ -> "\nDiscussion:\n" ^ String.concat "\n" lines ^ "\n"
 
-let resolve_slug ~ctx slug =
-  let entries = Arod.Ctx.entries ctx in
-  match Entry.lookup entries slug with
-  | Some ent -> Some (Entry.title ent, entry_url ~ctx ent, Entry.to_type_string ent, Entry.date ent)
-  | None -> None
+(* [date_opt (y, m, d)] is a date as ISO text, or nothing for the zero date that
+   a post with no date has. *)
+let date_opt ((y, _, _) as d) = if y = 0 then "" else date_str d
 
+(* [related_item_md ~ctx item] is a line of the related content or the activity
+   of an entry, as the HTML row gives it: the title, what it is and its date,
+   and under it the detail line of the row. *)
+let related_item_md ~ctx = function
+  | Sidebar.Entry_item (ent, d) ->
+    let detail =
+      match Sidebar.activity_detail ~ctx ent with
+      | Some text when text <> "" -> "\n  " ^ one_line text
+      | _ -> ""
+    in
+    Printf.sprintf "- [%s](%s) (%s, %s)%s" (link_text (Entry.title ent))
+      (entry_url ~ctx ent) (Entry.to_type_string ent) (date_opt d) detail
+  | Sidebar.Feed_item (bl, d) ->
+    let fe = bl.Arod.Ctx.feed_entry in
+    let title = link_text (Common.feed_entry_title_str fe) in
+    let linked =
+      match fe.FeedEntry.url with
+      | Some u -> Printf.sprintf "[%s](%s)" title (Uriz.to_string u)
+      | None -> title
+    in
+    let name, summary = Sidebar.feed_detail bl in
+    let when_ = match date_opt d with "" -> "feed" | t -> "feed, " ^ t in
+    Printf.sprintf "- %s (%s)\n  %s.%s" linked when_ (one_line name)
+      (match summary with Some text -> " " ^ one_line text | None -> "")
+
+(* [related_entries ~ctx ent] is the related content of [ent], which the HTML
+   page lists after its body. *)
 let related_entries ~ctx ent =
-  let slug = Entry.slug ent in
-  let backlink_slugs = Arod.Ctx.backlinks ctx slug in
-  let outbound_slugs = Arod.Ctx.outbound ctx slug in
-  let feed_bls = Arod.Ctx.feed_backlinks_for_slug ctx slug in
-  let feed_items = List.map (fun (bl : Arod.Ctx.feed_backlink) ->
-    let name = Contact.name bl.contact in
-    let title = match bl.feed_entry.FeedEntry.title with Some t -> t | None -> name in
-    let url = match bl.feed_entry.FeedEntry.url with
-      | Some u -> Uriz.to_string u | None -> "" in
-    let date_str_s = match bl.feed_entry.FeedEntry.date with
-      | Some d -> let (y, m, dd), _ = Ptime.to_date_time d in
-        Printf.sprintf "%04d-%02d-%02d" y m dd
-      | None -> "" in
-    (title, url, "feed", date_str_s)
-  ) feed_bls in
-  let seen = Hashtbl.create 32 in
-  let all_slugs = backlink_slugs @ outbound_slugs in
-  let resolved = List.filter_map (fun s ->
-    if Hashtbl.mem seen s then None
-    else begin
-      Hashtbl.replace seen s ();
-      match resolve_slug ~ctx s with
-      | Some (title, url, typ, date) ->
-        Some (title, url, typ, date_str date)
-      | None -> None
-    end
-  ) all_slugs in
-  let all_items = resolved @ feed_items in
-  let all_items = List.sort (fun (_, _, _, d1) (_, _, _, d2) ->
-    String.compare d2 d1
-  ) all_items in
-  match all_items with
+  match Sidebar.related_items ~ctx (Entry.slug ent) with
   | [] -> ""
   | items ->
-    let lines = List.map (fun (title, url, typ, d) ->
-      if url <> "" then Printf.sprintf "- [%s](%s) (%s, %s)" title url typ d
-      else Printf.sprintf "- %s (%s, %s)" title typ d
-    ) items in
-    "\n## Related\n\n" ^ String.concat "\n" lines ^ "\n"
+    "\n## Related\n\n"
+    ^ String.concat "\n" (List.map (related_item_md ~ctx) items)
+    ^ "\n"
+
+(* [paper_link_set ~ctx paper] is the links of a paper as its HTML gives them:
+   the DOI, the BibTeX, the PDF if the site has one, and the address of its
+   publisher with the host of that address. *)
+let paper_link_set ~ctx paper =
+  let link l u = Printf.sprintf "[%s](%s)" l u in
+  let base = Arod.Ctx.base_url ctx in
+  let slug = Paper.slug paper in
+  let doi = Option.map (fun d -> link "DOI" ("https://doi.org/" ^ d))
+      (Paper.doi paper) in
+  let bib = Some (link "BIB" (Printf.sprintf "%s/papers/%s.bib" base slug)) in
+  let pdf = Option.map (fun _ ->
+      link "PDF" (Printf.sprintf "%s/papers/%s.pdf" base slug))
+      (Paper_component.pdf_path ~ctx paper) in
+  let ext = Option.map (fun u ->
+      let host = Paper_component.host_without_www u in
+      Printf.sprintf "%s (%s)" (link "URL" u) host)
+      (Paper.url paper) in
+  (doi, bib, pdf, ext)
 
 let infobox_md ~ctx ent =
   let buf = Buffer.create 256 in
@@ -170,8 +210,6 @@ let infobox_md ~ctx ent =
     add_social_opt (Bushel.Project.social proj)
   | `Video v ->
     add (Printf.sprintf "Type: %s\n" (if Bushel.Video.talk v then "Talk" else "Video"));
-    let url = Bushel.Video.url v in
-    if url <> "" then add (Printf.sprintf "URL: %s\n" url);
     (match Bushel.Video.project v with
     | Some slug -> add (Printf.sprintf "Project: %s\n" (resolve_to_title slug))
     | None -> ());
@@ -183,32 +221,101 @@ let infobox_md ~ctx ent =
 
 (** {1 Entry to Markdown} *)
 
+(* [references_md ~ctx n] is the works cited by note [n], which its page lists
+   after its body. *)
+let references_md ~ctx n =
+  match Arod.Ctx.note_references ctx (Bushel.Note.slug n) with
+  | [] -> ""
+  | refs ->
+    "\n## References\n\n"
+    ^ String.concat "\n"
+        (List.mapi (fun i (doi, citation, _) ->
+           Printf.sprintf "%d. %s <https://doi.org/%s>" (i + 1)
+             (one_line citation) doi) refs)
+    ^ "\n"
+
+(* [project_sections_md ~ctx proj] is what the page of project [proj] lists
+   under its body, which is its ideas and then its activity. *)
+let project_sections_md ~ctx proj =
+  let ideas, items = Project_component.activity ~ctx proj in
+  let ideas_md =
+    match ideas with
+    | [] -> ""
+    | ideas ->
+      "\n## Ideas\n\n"
+      ^ String.concat "\n"
+          (List.map (fun idea ->
+             Printf.sprintf "%s (%s, %d, %s)"
+               (entry_bullet_link ~ctx (`Idea idea))
+               (Bushel.Idea.status_to_string (Bushel.Idea.status idea))
+               (Bushel.Idea.year idea)
+               (Idea_component.level_label (Bushel.Idea.level idea))) ideas)
+      ^ "\n"
+  in
+  let activity_md =
+    match items with
+    | [] -> ""
+    | items ->
+      "\n## Activity\n\n"
+      ^ String.concat "\n" (List.map (related_item_md ~ctx) items)
+      ^ "\n"
+  in
+  ideas_md ^ activity_md
+
+(* [entry_to_markdown ~ctx ent] is the page of [ent] as markdown, in the order
+   of its HTML page. A paper gives its authors, its links and then its
+   abstract. A video gives where to watch it before its description. An idea
+   gives its status line before its body, as its page does. A note gives the
+   works it cites after its body. A project gives its ideas and its activity
+   after its body, and the others give what is related to them. *)
 let entry_to_markdown ~ctx ent =
   let title = Entry.title ent in
   let d = Entry.date ent in
   let type_str = Entry.to_type_string ent in
-  let header = Printf.sprintf "# %s\n\n*%s — %s*\n\n" title (date_str d) type_str in
+  let header =
+    Printf.sprintf "# %s\n\n*%s — %s*\n\n" (one_line title) (date_str d)
+      type_str
+  in
+  let infobox =
+    match infobox_md ~ctx ent with "" -> "" | box -> "\n" ^ box
+  in
   let body_md = match ent with
     | `Paper p ->
       let abs = Paper.abstract p in
       let authors = String.concat ", " (Paper.authors p) in
-      let doi_line = match Paper.doi p with
-        | Some doi -> Printf.sprintf "DOI: %s\n" doi
-        | None -> ""
+      let doi, bib, pdf, ext = paper_link_set ~ctx p in
+      let links =
+        match List.filter_map Fun.id [ pdf; bib; doi; ext ] with
+        | [] -> ""
+        | links -> "Links: " ^ String.concat ", " links ^ "\n\n"
       in
-      Printf.sprintf "Authors: %s\n\n%s%s" authors
-        (if abs <> "" then render_body ~ctx abs ^ "\n\n" else "")
-        doi_line
+      Printf.sprintf "Authors: %s\n\n%s%s" authors links
+        (if abs = "" then ""
+         else "## Abstract\n\n" ^ render_body ~ctx abs ^ "\n")
     | `Video v ->
+      let watch =
+        match Bushel.Video.url v with
+        | "" -> ""
+        | url -> Printf.sprintf "Watch: <%s>\n\n" url
+      in
       let desc = Bushel.Video.description v in
-      if desc <> "" then render_body ~ctx desc else ""
+      watch ^ (if desc <> "" then render_body ~ctx desc else "")
     | _ ->
       let body = Entry.body ent in
       if body <> "" then render_body ~ctx body else ""
   in
-  let infobox = infobox_md ~ctx ent in
-  let related = related_entries ~ctx ent in
-  header ^ body_md ^ infobox ^ related ^ footer ~ctx ent
+  match ent with
+  | `Idea _ ->
+    header ^ infobox ^ "\n" ^ body_md ^ related_entries ~ctx ent
+    ^ footer ~ctx ent
+  | `Note n ->
+    header ^ body_md ^ references_md ~ctx n ^ infobox
+    ^ related_entries ~ctx ent ^ footer ~ctx ent
+  | `Project proj ->
+    header ^ body_md ^ infobox ^ project_sections_md ~ctx proj
+    ^ footer ~ctx ent
+  | `Paper _ | `Video _ ->
+    header ^ body_md ^ infobox ^ related_entries ~ctx ent ^ footer ~ctx ent
 
 (** {1 List Page Helpers} *)
 
@@ -223,7 +330,7 @@ let entry_bullet ~ctx ent =
   let title = Entry.title ent in
   let url = entry_url ~ctx ent in
   let d = date_str (Entry.date ent) in
-  Printf.sprintf "- [%s](%s) (%s)" title url d
+  Printf.sprintf "- [%s](%s) (%s)" (link_text title) url d
 
 (** {1 List Pages} *)
 
@@ -247,18 +354,7 @@ let paper_md ~ctx paper =
   in
   let link l u = Printf.sprintf "[%s](%s)" l u in
   let publisher = Paper_component.publisher_with ~link paper in
-  let base = Arod.Ctx.base_url ctx in
-  let slug = Paper.slug paper in
-  let doi = Option.map (fun d -> link "DOI" ("https://doi.org/" ^ d))
-      (Paper.doi paper) in
-  let bib = Some (link "BIB" (Printf.sprintf "%s/papers/%s.bib" base slug)) in
-  let pdf = Option.map (fun _ ->
-      link "PDF" (Printf.sprintf "%s/papers/%s.pdf" base slug))
-      (Paper_component.pdf_path ~ctx paper) in
-  let ext = Option.map (fun u ->
-      let host = Paper_component.host_without_www u in
-      Printf.sprintf "%s (%s)" (link "URL" u) host)
-      (Paper.url paper) in
+  let doi, bib, pdf, ext = paper_link_set ~ctx paper in
   let links = List.filter_map Fun.id [ doi; bib; pdf; ext ] in
   Printf.sprintf "- [%s](%s) (%s %d, %s)\n  %s%s.\n  %s"
     title url (Common.month_name m) y cls authors publisher
@@ -292,186 +388,494 @@ let papers_list_md ~ctx =
   ) by_year in
   header ^ String.concat "\n\n" sections ^ "\n" ^ footer
 
+(* [notes_list_md ~ctx] mirrors the HTML timeline. It reads the same months and
+   rows, so a month holds its notes, weeknotes and code releases newest first
+   and the weeks with nothing in them, and the featured notes of the sidebar
+   follow. *)
 let notes_list_md ~ctx =
-  let notes = Arod.Ctx.notes ctx in
-  let weeknotes, journal = List.partition Bushel.Note.weeknote notes in
-  let header, footer = list_header ~ctx ~title:"Notes" ~description:"Notes and blog posts." ~path:"/notes" in
-  let bullet_of note =
-    let bullet = entry_bullet ~ctx (`Note note) in
-    match Bushel.Note.synopsis note with
-    | Some syn when syn <> "" -> bullet ^ "\n  " ^ syn
-    | _ -> bullet
+  let months = Note_component.timeline ~ctx in
+  let popularity = Note_component.tag_popularity ctx in
+  let header, footer =
+    list_header ~ctx ~title:"Notes" ~description:"Notes and blog posts."
+      ~path:"/notes"
   in
-  let items = List.map bullet_of journal in
-  let weeknote_section = match weeknotes with
+  let words n =
+    match Bushel.Note.words n with
+    | 0 -> ""
+    | w ->
+      Printf.sprintf ", %s word%s" (Note_component.format_number w)
+        (if w = 1 then "" else "s")
+  in
+  let synopsis n =
+    match Bushel.Note.synopsis n with
+    | Some text when text <> "" -> "\n  " ^ text
+    | _ -> ""
+  in
+  let tags n =
+    match Note_component.ranked_tags ~popularity n with
     | [] -> ""
-    | _ ->
-      "\n\n## Weeknotes\n\n"
-      ^ String.concat "\n" (List.map bullet_of weeknotes)
+    | tags -> "\n  Tags: " ^ String.concat ", " (List.map fst tags)
   in
-  header ^ String.concat "\n" items ^ weeknote_section ^ "\n" ^ footer
+  let links n =
+    match Note_component.heading_links n with
+    | [] -> ""
+    | links ->
+      "\n  Links: "
+      ^ String.concat ", "
+          (List.map (fun (label, url) -> Printf.sprintf "[%s](%s)" label url)
+             links)
+  in
+  let row = function
+    | Note_component.Journal n ->
+      Printf.sprintf "%s (%s%s)%s%s%s"
+        (entry_bullet_link ~ctx (`Note n))
+        (date_str (Entry.date (`Note n))) (words n) (synopsis n) (tags n)
+        (links n)
+    | Note_component.Weeknote n ->
+      let ((y, _, _) as date) = Entry.date (`Note n) in
+      let _, week = Bushel.Note.week_number n in
+      Printf.sprintf "- [%s](%s) (Week %d, %s %d%s)%s%s%s"
+        (link_text
+           (Note_component.strip_weeknote_prefix (Entry.title (`Note n))))
+        (entry_url ~ctx (`Note n)) week (Note_component.week_range date) y
+        (words n) (synopsis n) (tags n) (links n)
+    | Note_component.Releases (t, rs) ->
+      let r = List.hd rs in
+      let earlier = List.tl rs in
+      let registries =
+        match r.Bushel.Release.registries with
+        | [] -> ""
+        | regs ->
+          "\n  Registries: "
+          ^ String.concat ", "
+              (List.map (fun reg ->
+                 Printf.sprintf "[%s](%s)" reg.Bushel.Release.name
+                   (Bushel.Release.metadata_url reg r)) regs)
+      in
+      Printf.sprintf "- [%s %s](%s) (%s, code release)\n  %s%s%s"
+        (Note_component.release_name t) r.Bushel.Release.version
+        r.Bushel.Release.url (date_str r.Bushel.Release.date)
+        r.Bushel.Release.summary
+        (match earlier with
+         | [] -> ""
+         | _ ->
+           Printf.sprintf "\n  %d earlier: %s" (List.length earlier)
+             (String.concat ", "
+                (List.rev_map (fun (e : Bushel.Release.release) -> e.version)
+                   earlier)))
+        registries
+    | Note_component.Quiet n ->
+      Printf.sprintf "- *%s*"
+        (if n = 1 then "1 quiet week" else Printf.sprintf "%d quiet weeks" n)
+  in
+  let sections =
+    List.map (fun (year, month, rows) ->
+      Printf.sprintf "## %s %d\n\n%s" (Common.month_name_full month) year
+        (String.concat "\n" (List.map row rows))) months
+  in
+  let featured =
+    let journal =
+      List.filter (fun n -> not (Bushel.Note.weeknote n)) (Arod.Ctx.notes ctx)
+    in
+    match Note_component.featured_notes journal with
+    | [] -> ""
+    | notes ->
+      "\n\n## Featured\n\n"
+      ^ String.concat "\n"
+          (List.map (fun n ->
+             let doi =
+               match Bushel.Note.doi n with
+               | Some d -> Printf.sprintf ", [DOI](https://doi.org/%s)" d
+               | None -> ""
+             in
+             Printf.sprintf "%s (%s%s)" (entry_bullet_link ~ctx (`Note n))
+               (date_str (Entry.date (`Note n))) doi) notes)
+  in
+  header ^ String.concat "\n\n" sections ^ featured ^ "\n" ^ footer
 
+(* [join_and items] is [items] as the HTML sentences give them: "a", "a and b",
+   "a, b and c". *)
+let rec join_and = function
+  | [] -> ""
+  | [ a ] -> a
+  | [ a; b ] -> a ^ " and " ^ b
+  | a :: rest -> a ^ ", " ^ join_and rest
+
+(* [parts_md ~ctx parts] is a sentence of an idea card, with the people it names
+   linked as the HTML links them. *)
+let parts_md ~ctx parts =
+  let who handle =
+    match Arod.Ctx.lookup_by_handle ctx handle with
+    | Some contact ->
+      let name = Contact.name contact in
+      (match Contact.best_url contact with
+       | Some url -> Printf.sprintf "[%s](%s)" name url
+       | None -> name)
+    | None -> "@" ^ handle
+  in
+  String.concat "" (List.map (function
+    | Idea_component.Say text -> text
+    | Idea_component.Who handles -> join_and (List.map who handles)) parts)
+
+(* [ideas_list_md ~ctx] mirrors the HTML index: its introduction, the counts of
+   the status and level filters, the contents by project, and then each project
+   in the order of the page with its live ideas, open ones first, and after
+   them its past ideas. *)
 let ideas_list_md ~ctx =
   let ideas = Arod.Ctx.ideas ctx in
-  let entries = Arod.Ctx.entries ctx in
-  let header, footer = list_header ~ctx ~title:"Research Ideas" ~description:"Research ideas." ~path:"/ideas" in
-  let by_project : (string, Bushel.Idea.t list) Hashtbl.t = Hashtbl.create 16 in
-  let order = ref [] in
-  List.iter (fun idea ->
-    let proj = Bushel.Idea.project idea in
-    let cur = try Hashtbl.find by_project proj with Not_found -> [] in
-    if cur = [] then order := proj :: !order;
-    Hashtbl.replace by_project proj (cur @ [idea])
-  ) ideas;
-  let groups = List.rev !order in
-  let sections = List.map (fun proj_slug ->
-    let ideas = Hashtbl.find by_project proj_slug in
-    let proj_title = match Entry.lookup entries proj_slug with
-      | Some ent -> Entry.title ent
-      | None -> if proj_slug <> "" then proj_slug else "Other"
+  let groups = Idea_component.list_groups ~ctx in
+  let before, emphasis, after = Idea_component.list_intro_second in
+  let intro =
+    Printf.sprintf "%s\n\n%s*%s*%s" Idea_component.list_intro_first before
+      emphasis after
+  in
+  let header, footer =
+    list_header ~ctx ~title:"Research Ideas" ~description:intro ~path:"/ideas"
+  in
+  let facets =
+    let status =
+      String.concat ", "
+        (List.map (fun (s, n) ->
+           Printf.sprintf "%d %s" n (Idea_component.status_label s))
+           (Idea_component.status_counts ideas))
     in
-    let items = List.map (fun idea ->
-      let bullet = entry_bullet ~ctx (`Idea idea) in
-      let body = Bushel.Idea.body idea in
-      if body <> "" then
-        let first_line = match String.split_on_char '\n' body with
-          | l :: _ -> String.trim l | [] -> "" in
-        if first_line <> "" then bullet ^ "\n  " ^ first_line
-        else bullet
-      else bullet
-    ) ideas in
-    Printf.sprintf "### %s\n\n%s" proj_title (String.concat "\n" items)
-  ) groups in
-  header ^ String.concat "\n\n" sections ^ "\n" ^ footer
-
-let projects_list_md ~ctx =
-  let projects = Arod.Ctx.projects ctx in
-  let header, footer = list_header ~ctx ~title:"Projects" ~description:"Research projects." ~path:"/projects" in
-  let items = List.map (fun proj ->
-    let bullet = entry_bullet ~ctx (`Project proj) in
-    let body = Bushel.Project.body proj in
-    if body <> "" then
-      let first_line = match String.split_on_char '\n' body with
-        | l :: _ -> String.trim l | [] -> "" in
-      if first_line <> "" then bullet ^ "\n  " ^ first_line
-      else bullet
-    else bullet
-  ) projects in
-  header ^ String.concat "\n" items ^ "\n" ^ footer
-
-let videos_list_md ~ctx =
-  let videos = Arod.Ctx.videos ctx in
-  let header, footer = list_header ~ctx ~title:"Talks" ~description:"Conference talks and presentations." ~path:"/videos" in
-  let items = List.map (fun vid ->
-    entry_bullet ~ctx (`Video vid)
-  ) videos in
-  header ^ String.concat "\n" items ^ "\n" ^ footer
-
-let links_list_md ~ctx =
-  let entries = Arod.Ctx.entries ctx in
-  let all_links = Arod.Ctx.all_external_links ctx in
-  let by_source : (string, Bushel.Link_graph.external_link list) Hashtbl.t =
-    Hashtbl.create 128 in
-  List.iter (fun (link : Bushel.Link_graph.external_link) ->
-    let cur = try Hashtbl.find by_source link.source with Not_found -> [] in
-    if List.exists (fun (l : Bushel.Link_graph.external_link) -> l.url = link.url) cur then ()
-    else Hashtbl.replace by_source link.source (link :: cur)
-  ) all_links;
-  let groups = Hashtbl.fold (fun slug links acc ->
-    match Entry.lookup entries slug with
-    | Some ent -> (ent, links) :: acc
-    | None -> acc
-  ) by_source [] in
-  let groups = List.sort (fun (a, _) (b, _) ->
-    compare (Entry.date b) (Entry.date a)
-  ) groups in
-  let base = Arod.Ctx.base_url ctx in
-  let header = "# Links\n\nOutbound links grouped by source entry.\n\n" in
-  let sections = List.map (fun (ent, links) ->
-    let title = Entry.title ent in
-    let url = entry_url ~ctx ent in
-    let link_lines = List.map (fun (link : Bushel.Link_graph.external_link) ->
-      let label = match Arod.Ctx.link_for_url ctx link.url with
-        | Some l ->
-          let meta = match l.karakeep with Some k -> k.metadata | None -> [] in
-          (match List.assoc_opt "title" meta with Some t -> t | None -> link.domain)
-        | None -> link.domain
-      in
-      Printf.sprintf "  - [%s](%s)" label link.url
-    ) links in
-    Printf.sprintf "- **[%s](%s)**\n%s" title url (String.concat "\n" link_lines)
-  ) groups in
-  let footer = Printf.sprintf "\n---\nCanonical: %s/links\n%s" base license_line in
-  header ^ String.concat "\n" sections ^ "\n" ^ footer
-
-let network_md ~ctx =
-  let all_contacts = Arod.Ctx.contacts ctx in
-  let entries = Arod.Ctx.entries ctx in
-  let contacts_with_feeds = List.filter_map (fun contact ->
-    match Contact.feeds contact with
-    | feeds when feeds <> [] -> Some (contact, feeds)
-    | _ -> None
-  ) all_contacts in
-  let contacts_with_feeds = List.sort (fun (a, _) (b, _) ->
-    String.compare (Contact.name a) (Contact.name b)
-  ) contacts_with_feeds in
-  let base = Arod.Ctx.base_url ctx in
-  let header = "# Network\n\nUnified timeline of activity and contact feeds.\n\n" in
-  (* Blogroll *)
-  let blogroll_items = List.map (fun (contact, feeds) ->
-    let name = Contact.name contact in
-    let feed_links = List.map (fun feed ->
-      let ft = match Feed.feed_type feed with
-        | Feed.Atom -> "Atom" | Feed.Rss -> "RSS" | Feed.Json -> "JSON"
-        | Feed.Manual -> "Manual"
-      in
-      Printf.sprintf "[%s](%s)" ft (Feed.url feed)
-    ) feeds in
-    Printf.sprintf "- **%s**: %s" name (String.concat ", " feed_links)
-  ) contacts_with_feeds in
-  let blogroll_section = "## Blogroll\n\n" ^ String.concat "\n" blogroll_items ^ "\n\n" in
-  (* Feed timeline *)
-  let feed_items = Arod.Ctx.feed_items ctx in
-  let feed_lines = List.map (fun (item : Arod.Ctx.feed_item) ->
-    let fe = item.entry in
-    let name = Contact.name item.contact in
-    let title = match fe.FeedEntry.title with Some t -> t | None -> "(untitled)" in
-    let url_str = match fe.FeedEntry.url with
-      | Some u -> Uriz.to_string u | None -> "" in
-    let date_line = match fe.FeedEntry.date with
-      | Some d ->
-        let (y, m, d), _ = Ptime.to_date_time d in
-        Printf.sprintf " (%04d-%02d-%02d)" y m d
+    let level =
+      String.concat ", "
+        (List.map (fun (l, n) ->
+           Printf.sprintf "%d %s" n (Idea_component.level_label l))
+           (Idea_component.level_counts ideas))
+    in
+    Printf.sprintf "Status: %s\nLevel: %s\n\n" status level
+  in
+  let slots = Idea_component.statuses_present ideas in
+  let contents =
+    "## By project\n\n"
+    ^ String.concat "\n"
+        (List.map (fun (proj, _, _, is) ->
+           Printf.sprintf "- %s: %d (%s)" proj.Bushel.Project.title
+             (List.length is) (Idea_component.spoken_counts ~slots is)) groups)
+    ^ "\n\n"
+  in
+  let live_item idea =
+    let parts, discuss = Idea_component.card_meta_parts idea in
+    let meta =
+      parts_md ~ctx parts
+      ^ (if discuss then " " ^ Idea_component.discussion_note else "")
+    in
+    let summary =
+      match Idea_component.summary_text ~ctx ~max_len:240 idea with
+      | Some text -> "\n  " ^ text
       | None -> ""
     in
-    let mention_strs = List.map (fun ent ->
-      Printf.sprintf "[%s](%s%s)" (Entry.title ent) base (Entry.site_url ent)
-    ) item.mentions in
-    let forward_strs = match fe.FeedEntry.url with
-      | Some u ->
-        let slugs = Arod.Ctx.forward_slugs ctx (Uriz.to_string u) in
-        List.filter_map (fun slug ->
-          match Entry.lookup entries slug with
-          | Some ent ->
-            Some (Printf.sprintf "[%s](%s%s)" (Entry.title ent) base (Entry.site_url ent))
-          | None -> None
-        ) slugs
-      | None -> []
+    Printf.sprintf "%s (%s)\n  %s%s" (entry_bullet_link ~ctx (`Idea idea))
+      (Idea_component.status_label (Bushel.Idea.status idea)) meta summary
+  in
+  let past_item idea =
+    Printf.sprintf "%s (%s)\n  %s" (entry_bullet_link ~ctx (`Idea idea))
+      (Idea_component.status_label (Bushel.Idea.status idea))
+      (parts_md ~ctx (Idea_component.past_line_parts idea))
+  in
+  let section (proj, live, past, _) =
+    let open_n = List.length (List.filter Idea_component.is_open live) in
+    let going_n = List.length live - open_n in
+    let counts =
+      List.filter_map Fun.id
+        [ (if open_n = 0 then None else Some (Printf.sprintf "%d open" open_n));
+          (if going_n = 0 then None
+           else Some (Printf.sprintf "%d under way" going_n));
+          (if past = [] then None
+           else Some (Printf.sprintf "%d previous" (List.length past))) ]
     in
-    let links_line =
-      let all_refs = mention_strs @ forward_strs in
-      match all_refs with
+    let note =
+      match String.trim (Bushel.Project.ideas proj) with
+      | "" -> ""
+      | t -> t ^ "\n\n"
+    in
+    Printf.sprintf "## [%s](%s)\n\n%s\n\n%s%s"
+      (link_text proj.Bushel.Project.title)
+      (entry_url ~ctx (`Project proj))
+      (String.concat ", " counts) note
+      (String.concat "\n" (List.map live_item live @ List.map past_item past))
+  in
+  header ^ facets ^ contents
+  ^ String.concat "\n\n" (List.map section groups)
+  ^ "\n" ^ footer
+
+(* [indented text] is [text] with each of its lines indented to sit inside a
+   list item. A blank line stays empty. *)
+let indented text =
+  String.split_on_char '\n' (String.trim text)
+  |> List.map (fun l -> if l = "" then l else "  " ^ l)
+  |> String.concat "\n"
+
+(* [projects_list_md ~ctx] mirrors the HTML list: the same introduction, the
+   projects in the order the cards use, and for each the years, the opening of
+   its body, its tags and its recent papers, notes and ideas. *)
+let projects_list_md ~ctx =
+  let projects = List.sort Bushel.Project.compare (Arod.Ctx.projects ctx) in
+  let intro =
+    let label, url = Project_component.list_intro_link in
+    Printf.sprintf "%s[%s](%s)%s" Project_component.list_intro_before label url
+      Project_component.list_intro_after
+  in
+  let header, footer =
+    list_header ~ctx ~title:"Projects" ~description:intro ~path:"/projects"
+  in
+  let item proj =
+    let bullet =
+      Printf.sprintf "%s (%s)" (entry_bullet_link ~ctx (`Project proj))
+        (Project_component.list_date_range proj)
+    in
+    let summary =
+      match String.trim (Project_component.list_summary proj) with
+      | "" -> ""
+      | text -> "\n" ^ indented (render_body ~ctx text)
+    in
+    let tags =
+      match Bushel.Project.tags proj with
       | [] -> ""
-      | refs -> "\n  Linked: " ^ String.concat ", " refs
+      | tags -> "\n  Tags: " ^ String.concat ", " tags
     in
-    if url_str <> "" then
-      Printf.sprintf "- **%s**: [%s](%s)%s%s" name title url_str date_line links_line
-    else
-      Printf.sprintf "- **%s**: %s%s%s" name title date_line links_line
-  ) feed_items in
-  let feed_section = "## Timeline\n\n" ^ String.concat "\n" feed_lines ^ "\n" in
-  let footer = Printf.sprintf "\n---\nCanonical: %s/network\n%s" base license_line in
-  header ^ blogroll_section ^ feed_section ^ footer
+    let recent =
+      match Project_component.list_recent ~ctx proj with
+      | [] -> ""
+      | recent ->
+        "\n  Recent:\n"
+        ^ String.concat "\n"
+            (List.map (fun (_, ent) ->
+               Printf.sprintf "  - [%s](%s) (%s, %s)"
+                 (link_text (Entry.title ent)) (entry_url ~ctx ent) (Entry.to_type_string ent)
+                 (date_str (Entry.date ent))) recent)
+    in
+    bullet ^ summary ^ tags ^ recent
+  in
+  header ^ String.concat "\n" (List.map item projects) ^ "\n" ^ footer
+
+(* [videos_list_md ~ctx] mirrors the HTML talks page: the talks, newest first,
+   and for each its month, the video, the opening of its description, its tags
+   and the references that the card shows under it. *)
+let videos_list_md ~ctx =
+  let talks = Video_component.list_talks ~ctx in
+  let header, footer =
+    list_header ~ctx ~title:"Talks"
+      ~description:"Conference talks and presentations." ~path:"/videos"
+  in
+  let item vid =
+    let (y, m, _) = Bushel.Video.date vid in
+    let bullet =
+      Printf.sprintf "%s (%s %d)" (entry_bullet_link ~ctx (`Video vid))
+        (Common.month_name m) y
+    in
+    let watch =
+      match Bushel.Video.url vid with
+      | "" -> ""
+      | url -> Printf.sprintf "\n  Watch: <%s>" url
+    in
+    let desc =
+      match String.trim (Video_component.card_desc vid) with
+      | "" -> ""
+      | text -> "\n" ^ indented (render_body ~ctx text)
+    in
+    let tags =
+      match Bushel.Video.tags vid with
+      | [] -> ""
+      | tags -> "\n  Tags: " ^ String.concat ", " tags
+    in
+    let refs =
+      match Video_component.card_refs ~ctx vid with
+      | [] -> ""
+      | refs ->
+        "\n  References:\n"
+        ^ String.concat "\n"
+            (List.map (fun (r : Video_component.reference) ->
+               Printf.sprintf "  - [%s](%s%s) (%s)" (link_text r.title)
+                 (Arod.Ctx.base_url ctx) r.href r.kind) refs)
+    in
+    bullet ^ watch ^ desc ^ tags ^ refs
+  in
+  header ^ String.concat "\n" (List.map item talks) ^ "\n" ^ footer
+
+(* [links_list_md ~ctx] mirrors the HTML links page: its introduction, the
+   counts of its sidebar, and the groups of links under the entries that make
+   them, newest entry first, each link described as the page describes it. The
+   HTML loads the groups a page at a time, and this lists them all. *)
+let links_list_md ~ctx =
+  let groups = Links_component.compute_groups ~ctx in
+  let stats = Links_component.stats ~ctx groups in
+  let describe = Links_component.displayer ~ctx in
+  let base = Arod.Ctx.base_url ctx in
+  let intro =
+    let label, url = Links_component.list_intro_link in
+    Printf.sprintf "%s[%s](%s)%s" Links_component.list_intro_before label url
+      Links_component.list_intro_after
+  in
+  let filters =
+    String.concat ", "
+      (List.filter_map (fun (kind, label) ->
+         match Hashtbl.find_opt stats.Links_component.filter_counts kind with
+         | Some n when n > 0 -> Some (Printf.sprintf "%s %d" label n)
+         | _ -> None) Links_component.filter_categories)
+  in
+  let top_domains =
+    List.filteri (fun i _ -> i < 50) stats.Links_component.domain_counts
+    |> List.map (fun (d, n) -> Printf.sprintf "- %s: %d" d n)
+    |> String.concat "\n"
+  in
+  let summary =
+    Printf.sprintf
+      "%d links, %d domains.\n\nFilter: %s\n\n## Top domains\n\n%s\n\n"
+      stats.Links_component.total_urls stats.Links_component.total_domains
+      filters top_domains
+  in
+  let header = Printf.sprintf "# Links\n\n%s\n\n%s" intro summary in
+  let sections =
+    List.map (fun (g : Links_component.link_group) ->
+      let (y, m, _) = Entry.date g.ent in
+      let lines =
+        List.map (fun (link : Bushel.Link_graph.external_link) ->
+          let d = describe link.url in
+          let label =
+            match d.Links_component.secondary with
+            | Some sec -> d.Links_component.label ^ " " ^ sec
+            | None -> d.Links_component.label
+          in
+          let hint =
+            if Links_component.show_domain_hint d then
+              " (" ^ link.domain ^ ")"
+            else ""
+          in
+          Printf.sprintf "  - [%s](%s)%s" (link_text label) link.url hint)
+          g.links
+      in
+      Printf.sprintf "- **[%s](%s)** (%s, %s %d)\n%s"
+        (link_text (Entry.title g.ent))
+        (entry_url ~ctx g.ent) (Entry.to_type_string g.ent)
+        (Common.month_name m) y (String.concat "\n" lines)) groups
+  in
+  let footer = Printf.sprintf "\n---\nCanonical: %s/links\n%s" base license_line in
+  header ^ "## Links by entry\n\n" ^ String.concat "\n" sections ^ "\n" ^ footer
+
+(* [network_md ~ctx] mirrors the HTML network page: its introduction, then the
+   timeline by month, newest first, each month with the people who appear in it
+   and its posts, each post with the entries that mention it, the entries it
+   links to and the ideas of its author. The blogroll of the sidebar follows,
+   with the people most recently posting first. *)
+let network_md ~ctx =
+  let base = Arod.Ctx.base_url ctx in
+  let sections = Network_component.compute_month_sections ~ctx in
+  let idea_index = Network_component.build_idea_index ~ctx in
+  let people, orgs = Network_component.blogroll ~ctx in
+  let all_feed_items = Arod.Ctx.feed_items ctx in
+  let intro =
+    let opml, opml_url = Network_component.list_intro_opml in
+    let mail, mail_url = Network_component.list_intro_mail in
+    Printf.sprintf "%s[%s](%s%s)%s[%s](%s)%s"
+      Network_component.list_intro_first opml base opml_url
+      Network_component.list_intro_middle mail mail_url
+      Network_component.list_intro_last
+  in
+  let header = Printf.sprintf "# Network\n\n%s\n\n" intro in
+  let contact_link contact =
+    let name = link_text (Contact.name contact) in
+    match Contact.best_url contact with
+    | Some url -> Printf.sprintf "[%s](%s)" name url
+    | None -> name
+  in
+  let entry_link ent =
+    Printf.sprintf "[%s](%s%s)" (link_text (Entry.title ent)) base
+      (Entry.site_url ent)
+  in
+  let feed_type_name = function
+    | Feed.Atom -> "Atom" | Feed.Rss -> "RSS" | Feed.Json -> "JSON"
+    | Feed.Manual -> "Manual"
+  in
+  let post (Network_component.Feed_item (item, (y, m, d))) =
+    let fe = item.Arod.Ctx.entry in
+    let title = link_text (Common.feed_entry_title_str fe) in
+    let linked =
+      match fe.FeedEntry.url with
+      | Some u -> Printf.sprintf "[%s](%s)" title (Uriz.to_string u)
+      | None -> title
+    in
+    let summary =
+      match Common.feed_entry_summary ~max_len:150 fe with
+      | Some text -> " \xe2\x80\x94 " ^ text
+      | None -> ""
+    in
+    let refs label items =
+      match items with
+      | [] -> ""
+      | items -> "\n  " ^ label ^ ": " ^ String.concat ", " items
+    in
+    let ideas =
+      List.map (fun (slug, title) ->
+        Printf.sprintf "[%s](%s/ideas/%s)" (link_text title) base slug)
+        (Network_component.student_ideas ~idea_index item.Arod.Ctx.contact)
+    in
+    Printf.sprintf "- %s by %s (%s, %s)%s%s%s%s" linked
+      (contact_link item.Arod.Ctx.contact)
+      (feed_type_name fe.FeedEntry.source_type) (date_str (y, m, d)) summary
+      (refs "Mentioned in" (List.map entry_link item.Arod.Ctx.mentions))
+      (refs "Links to"
+         (List.map entry_link (Network_component.forward_entries ~ctx fe)))
+      (refs "Ideas of the author" ideas)
+  in
+  let month (section : Network_component.month_section) =
+    let people_line =
+      match section.collaborators with
+      | [] -> ""
+      | cs ->
+        "People: " ^ String.concat ", " (List.map contact_link cs) ^ "\n\n"
+    in
+    Printf.sprintf "## %s %d\n\n%s%s"
+      (Common.month_name_full section.month) section.year people_line
+      (String.concat "\n" (List.map post section.items))
+  in
+  let blogroll_row (contact, feeds) =
+    let feed_links =
+      List.map (fun feed ->
+        Printf.sprintf "[%s](%s)" (feed_type_name (Feed.feed_type feed))
+          (Feed.url feed)) feeds
+    in
+    Printf.sprintf "- %s: %s" (contact_link contact)
+      (String.concat ", " feed_links)
+  in
+  let counts =
+    Printf.sprintf "%d posts, %d contacts.\n\n" (List.length all_feed_items)
+      (List.length people + List.length orgs)
+  in
+  let blogroll =
+    "\n\n## People\n\n" ^ String.concat "\n" (List.map blogroll_row people)
+    ^ (match orgs with
+       | [] -> ""
+       | _ ->
+         "\n\n## Organisations\n\n"
+         ^ String.concat "\n" (List.map blogroll_row orgs))
+  in
+  let footer =
+    Printf.sprintf "\n---\nCanonical: %s/network\n%s" base license_line
+  in
+  header ^ counts ^ String.concat "\n\n" (List.map month sections) ^ blogroll
+  ^ "\n" ^ footer
+
+(* [tags_md ~ctx ~months] mirrors the tag cloud: the tags of the notes of the
+   last [months] months, most common first, each with its count. *)
+let tags_md ~ctx ~months =
+  let base = Arod.Ctx.base_url ctx in
+  let tags = Tag_cloud_component.counts ~ctx ~months in
+  let description =
+    if months = 0 then "The tags of every note."
+    else Printf.sprintf "The tags of the notes of the last %d months." months
+  in
+  let header, footer =
+    list_header ~ctx ~title:"Tags" ~description ~path:"/tags"
+  in
+  let item (tag, count) =
+    Printf.sprintf "- [%s](%s%s): %d note%s" (link_text tag) base
+      (Tag_cloud_component.search_url tag) count
+      (if count = 1 then "" else "s")
+  in
+  header ^ String.concat "\n" (List.map item tags) ^ "\n" ^ footer
 
 let index_md ~ctx =
   match Arod.Ctx.lookup ctx "index" with

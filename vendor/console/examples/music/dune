@@ -1,0 +1,42 @@
+(executable
+ (name main)
+ (libraries console_compat console console.tty console-eio eio eio_main fmt))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target music.cast)
+ (action
+  (setenv
+   CONSOLE_CAST
+   %{target}
+   (setenv
+    COLUMNS
+    80
+    (setenv
+     LINES
+     24
+     (setenv
+      COLORTERM
+      truecolor
+      (run ./main.exe)))))))
+
+(rule
+ (enabled_if %{lib-available:console-eio})
+ (target music.generated.svg)
+ (action
+  (run
+   %{bin:k7}
+   play
+   --show
+   "dune exec -- examples/music/main.exe"
+   --theme
+   "{\"name\": \"winamp\", \"background\": \"#292939\", \"foreground\": \"#d6d6de\", \"cursor\": \"#d6d6de\", \"selection\": \"#d6d6de\"}"
+   -o
+   %{target}
+   %{dep:music.cast})))
+
+(rule
+ (alias runtest)
+ (enabled_if %{lib-available:console-eio})
+ (action
+  (diff music.svg music.generated.svg)))

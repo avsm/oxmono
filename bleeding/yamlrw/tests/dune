@@ -6,10 +6,16 @@
  (libraries yamlrw test_suite_lib))
 
 ; Unit tests using Alcotest
+
 (test
  (name test_yamlrw)
  (modules test_yamlrw)
  (libraries yamlrw alcotest))
+
+(test
+ (name test_input)
+ (modules test_input)
+ (libraries yamlrw bytesrw alcotest))
 
 (executable
  (name run_all_tests_eio)

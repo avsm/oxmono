@@ -35,6 +35,7 @@ type kind =
   | Open_item  (** work in progress, which is what makes a restart survivable *)
   | Reference  (** a pointer outward, a URL or an identifier *)
   | Procedure  (** how to do something that had to be worked out once *)
+  | Episode  (** an observation or completed activity, compressed in briefs *)
 
 val kind_name : kind -> string
 (** [kind_name k] is [k] as it is written in JSON, such as ["open_item"]. *)
@@ -175,3 +176,18 @@ val recover : t -> journalled:int -> recovered
     A snapshot at or below [journalled] and above [current] was named by the
     journal, so it is a version and [current] is moved forward to the highest
     such. That is the crash between the record and the move. *)
+
+val episode_tree : entry list -> Memo.t
+(** [episode_tree entries] is a derived tree of only the episodic entries, in
+    their creation order. Current facts, procedures and tasks stay outside the
+    tree so their age does not hide them. *)
+
+val summaries : t -> (string * string) list
+(** [summaries t] reads the derived cache and returns only keys valid for
+    current episodes. Invalid files raise [Corrupt]. *)
+
+val save_summary : t -> key:string -> text:string -> unit
+(** [save_summary t ~key ~text] atomically caches at most 512 UTF-8 bytes for a
+    current episode range. Obsolete keys raise [Invalid_argument]. Callers
+    serialize mutations as they do for {!write}. Summaries are expendable and
+    are not new memory versions. Historical snapshots remain authoritative. *)

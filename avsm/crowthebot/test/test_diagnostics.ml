@@ -187,7 +187,8 @@ let () =
   in
   let failing =
     Engine.create
-      ~config:(Config.default ~admin ~homeserver:"https://example.org")
+      ~config:{(Config.default ~admin ~homeserver:"https://example.org") with
+               tool_calls = 6}
       ~store ~self ~plugins:[]
       ~now:(fun () -> 0.)
       ~complete:(Fake_model.v @@ fun _ tools ->

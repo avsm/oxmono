@@ -114,6 +114,20 @@ let[@zero_alloc] rec find_or_null (t : t @ local) (name : name) = exclave_
   | name, f :: tl -> if same_name f.name name then This f.value else find_or_null tl name
 ;;
 
+let find_single (t : t @ local) (spelling : string @ local) = exclave_
+  let rec loop (fields : t @ local) (found : string option @ local) =
+    exclave_
+    match fields with
+    | [] -> Ok found
+    | f :: rest ->
+        if not (same_spelling f.spelling spelling) then loop rest found
+        else match found with
+          | Some _ -> Error `Repeated
+          | None -> loop rest (Some f.value)
+  in
+  loop t None
+;;
+
 let[@zero_alloc] rec mem (t : t @ local) name =
   match name, t with
   | H.Other, _ | _, [] -> false

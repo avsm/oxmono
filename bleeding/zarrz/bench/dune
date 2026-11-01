@@ -7,6 +7,7 @@
 
 (executable
  (name bench_zarrz)
+ (modules bench_zarrz)
  (libraries
   zarrz
   unix
@@ -15,3 +16,8 @@
   base_bigstring
   stdlib_stable
   stdlib_upstream_compatible))
+
+(executable
+ (name bench_alloc)
+ (modules bench_alloc)
+ (libraries zarrz jsont jsont.bytesrw base_bigstring stdlib_stable))

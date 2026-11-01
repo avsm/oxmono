@@ -17,6 +17,7 @@
    error handling with Eio.Io context, and reusable sync configuration
    with Cmdliner integration.")
  (depends
+  eioext
   (ocaml (>= 5.2))
   (eio (>= 1.2))
   (eio_main (>= 1.2))

@@ -47,6 +47,7 @@ let set_media_fetcher t fetcher = Atomic.set t.media_fetcher fetcher
 let homeserver t = Matrix_client.Client.homeserver t.base
 let well_known_policy t = Matrix_client.Client.well_known_policy t.base
 let session t = Matrix_client.Client.session t.base
+let session_revision t = Matrix_client.Client.session_revision t.base
 let is_logged_in t = Option.is_some (session t)
 let sync_presence t = Matrix_client.Client.sync_presence t.base
 

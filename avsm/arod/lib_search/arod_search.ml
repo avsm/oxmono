@@ -520,9 +520,13 @@ let query_table t ~kind q =
   ignore (Sqlite3_eio.finalize t.db stmt);
   List.rev results
 
-let by_score a b =
-  match compare b.score a.score with
-  | 0 -> compare b.date a.date
+module F64 = Stdlib_upstream_compatible.Float_u
+
+type ranked = { hit : hit; rank : float# }
+
+let by_rank a b =
+  match F64.compare b.rank a.rank with
+  | 0 -> compare b.hit.date a.hit.date
   | c -> c
 
 let rec take n = function
@@ -532,17 +536,19 @@ let rec take n = function
 
 let rank_work ~today hits =
   List.map (fun h ->
-    { h with score = h.score *. kind_prior h.kind *. freshness ~today h.date })
+    { hit = h; rank = F64.of_float
+        (h.score *. kind_prior h.kind *. freshness ~today h.date) })
     hits
-  |> List.sort by_score
+  |> List.sort by_rank
 
 (* Two URLs that differ only in scheme, www, a trailing slash or hash are
    one page. So are two links on one host with the same title, which is how
    a redirect and its target both end up cited. The higher-scoring copy
    survives, so this runs after the sort. *)
-let dedupe_links ~own_host hits =
+let dedupe_hits ~hit_of ~own_host hits =
   let seen = Hashtbl.create 64 in
-  List.filter (fun h ->
+  List.filter (fun item ->
+    let h = hit_of item in
     let url_key = normalise_url h.url in
     let host = match String.index_opt url_key '/' with
       | Some i -> String.sub url_key 0 i | None -> url_key in
@@ -556,13 +562,17 @@ let dedupe_links ~own_host hits =
     end
   ) hits
 
+let dedupe_links ~own_host hits =
+  dedupe_hits ~hit_of:Fun.id ~own_host hits
+
 let rank_links ~today ~own_host hits =
   List.map (fun h ->
-    { h with score = h.score *. freshness ~today h.date
-                     *. citation_bonus (List.length h.parent_slugs) })
+    { hit = h; rank = F64.of_float
+        (h.score *. freshness ~today h.date
+         *. citation_bonus (List.length h.parent_slugs)) })
     hits
-  |> List.sort by_score
-  |> dedupe_links ~own_host
+  |> List.sort by_rank
+  |> dedupe_hits ~hit_of:(fun r -> r.hit) ~own_host
 
 (** {1 Tag queries} *)
 
@@ -785,23 +795,33 @@ let count_by key hits =
       (key h)) hits;
   Hashtbl.fold (fun k n acc -> (k, n) :: acc) tbl []
 
-let tag_facet (work : hit list) =
-  count_by (fun (h : hit) -> h.tags) work
+let tag_facet_by (hit_of : 'a -> hit) work =
+  count_by (fun item -> (hit_of item).tags) work
   |> List.sort (fun (a, n) (b, m) ->
        match compare m n with 0 -> compare a b | c -> c)
   |> take 8
 
 (* Every field counts over the work tier, never the links tier, so a facet
    click narrows the same set the results came from. *)
-let facets (work : hit list) =
-  let kinds = count_by (fun (h : hit) -> [h.kind]) work
+let facets_by hit_of work =
+  let kinds = count_by (fun item -> [(hit_of item).kind]) work
               |> List.sort (fun (a, _) (b, _) -> compare a b) in
-  let years = count_by (fun (h : hit) ->
+  let years = count_by (fun item ->
+      let h = hit_of item in
       match int_of_string_opt
               (String.sub h.date 0 (min 4 (String.length h.date)))
       with Some y -> [y] | None -> []) work
     |> List.sort (fun (a, _) (b, _) -> compare a b) in
-  (kinds, years, tag_facet work)
+  (kinds, years, tag_facet_by hit_of work)
+
+let tag_facet work = tag_facet_by Fun.id work
+let facets work = facets_by Fun.id work
+
+let rec take_ranked n = function
+  | [] -> []
+  | _ when n <= 0 -> []
+  | r :: rest ->
+      { r.hit with score = F64.to_float r.rank } :: take_ranked (n - 1) rest
 
 let search t ?today ?(limit = 20) ?(link_limit = 12) ?(order = `Relevance)
     input =
@@ -820,15 +840,16 @@ let search t ?today ?(limit = 20) ?(link_limit = 12) ?(order = `Relevance)
      of a link whichever order is shown. *)
   let reorder hits = match order with
     | `Relevance -> hits
-    | `Date -> List.sort (fun a b -> compare b.date a.date) hits
+    | `Date -> List.sort (fun a b -> compare b.hit.date a.hit.date) hits
   in
   let finish hits =
     let work, links = split_tiers hits in
     let work = rank_work ~today work |> reorder in
     let links =
       rank_links ~today ~own_host:t.own_host links |> reorder in
-    let kinds, years, tags = facets work in
-    { (make_results ~terms ~limit ~link_limit work links) with
+    let kinds, years, tags = facets_by (fun r -> r.hit) work in
+    { terms; work = take_ranked limit work; work_total = List.length work;
+      links = take_ranked link_limit links; links_total = List.length links;
       goto = goto_hits t terms; kinds; years; tags }
   in
   let browse hits =

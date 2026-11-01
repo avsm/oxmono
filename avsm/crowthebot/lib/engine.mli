@@ -17,7 +17,8 @@ val create :
     letters, digits and underscores, up to 64 characters. Command names such as
     [allow], [deny] and [reset] are reserved. [now] is retained for source
     compatibility and is unused. The model callback owns its transport and
-    deadline. A turn permits at most six tool calls. Empty answers and failed
+    deadline. A turn permits [config.tool_calls] calls. Independent reads may
+    overlap up to [config.parallel_tool_calls]. Empty answers and failed
     terminal requests get one tool-free synthesis retry, then a visible fallback
     without replaying tools. Turn directives extend the opening system message
     while preserving the tool transcript. Older conversation context is
@@ -92,3 +93,23 @@ val fire : t -> send:(string -> unit) -> Store.reminder -> run_id:int -> string
 val with_calendars : t -> Calendars.t -> t
 val with_caldav : t -> Caldav_tools.t -> t
 val with_emails : t -> Emails.t -> t
+
+val with_website : t -> Website.t -> t
+(** [with_website t website] adds public website reads for the admin and allowed
+    friends. Each tool request goes through the durable audit log. *)
+
+val with_http_post : t -> Http_post.t -> t
+(** [with_http_post t http_post] adds explicitly requested public HTTP POSTs
+    for the admin and allowed friends. Every invocation is durably audited. *)
+
+val with_addresses : t -> Agentkit_osm.t -> t
+(** [with_addresses t addresses] adds address search and reverse lookup for
+    the admin and allowed friends, with normal tool auditing and budgets. *)
+
+val with_knowledge : t -> Knowledge.t -> t
+(** [with_knowledge t knowledge] enables structured and hybrid personal corpus
+    retrieval in authorized rooms, including scheduled model actions. *)
+
+val with_tasks : t -> Tasks.t -> t
+(** [with_tasks t tasks] enables the existing Dooit task store in authorized
+    rooms. Writes use host-generated retry identifiers and the tool audit log. *)

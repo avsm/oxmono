@@ -372,7 +372,7 @@ let () =
         if !issued then (Some "Subscribed to your feed.", [])
         else begin
           issued := true;
-          check "memory, cron and feed tools available" (List.length tools = 15);
+          check "memory, cron and feed tools available" (List.length tools = 17);
           ( None,
             [
               Agentkit.Agent.

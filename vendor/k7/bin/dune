@@ -1,0 +1,25 @@
+(copy_files ../lib/quote.{ml,mli})
+
+(library
+ (name k7_cli)
+ (modules
+  cram
+  flags
+  play_cram
+  play_tape
+  play_cast
+  play_cmd
+  rec_cmd
+  cli
+  quote)
+ (foreign_stubs
+  (language c)
+  (names window_size_stubs))
+ (libraries k7_compat k7 cmdliner eio eio.unix eio_main fmt unix version))
+
+(executable
+ (name main)
+ (public_name k7)
+ (package k7)
+ (modules main)
+ (libraries k7_compat k7_cli cmdliner unix))

@@ -83,15 +83,6 @@ let contacts sw (config : Config.t) =
   let local, warnings = read local_root Termanil_contacts.local in
   let remote, remote_warnings =
     read config.carddav (fun (c : Config.carddav) ->
-        let secret : Dooit.Config.webdav =
-          {
-            url = c.url;
-            collection = "";
-            subdir = "";
-            username = c.username;
-            secret = File c.password_file;
-          }
-        in
         let fetch =
           Fetch_curl.v ~sw ~timeout:(Duration.of_sec 60)
             ~max_response:(64 * 1024 * 1024)
@@ -99,7 +90,10 @@ let contacts sw (config : Config.t) =
         in
         let remote =
           Sortal_carddav.Remote.make ~fetch ~root:c.url ~username:c.username
-            ~password:(Dooit.Config.password secret)
+            ~password:
+              (Eio_unix.run_in_systhread (fun () ->
+                   try Sekrit.read_reference c.password_file
+                   with Sekrit.Error message -> C.fail "%s" message))
             ~readonly:true
         in
         (Termanil_contacts.remote ?collection:c.collection remote, []))
@@ -114,6 +108,26 @@ let contacts sw (config : Config.t) =
   in
   Contacts_loaded (Termanil_contacts.combine local remote, warnings)
 
+let task_client env sw (config : Dooit.Config.t) store =
+  let remote ~readonly =
+    let fetch =
+      Fetch_curl.v ~sw ~timeout:(Duration.of_sec 60)
+        ~max_response:(16 * 1024 * 1024)
+        ()
+    in
+    Dooit.Remote.make ~fetch
+      ~config:(Dooit.Config.require_webdav config)
+      ~readonly
+  in
+  Dooit.Client.of_config ~process_mgr:env#process_mgr ~remote store config
+
+let sync_tasks env sw (config : Dooit.Config.t) ~dry_run =
+  let store =
+    Eio_unix.run_in_systhread (fun () -> Dooit.Store.open_ config.root)
+  in
+  Dooit.Client.sync ~dry_run (task_client env sw config store)
+  |> Dooit.Client.sync_lines
+
 let execute config request =
   protect (fun () ->
       Eio_main.run (fun env ->
@@ -121,21 +135,24 @@ let execute config request =
               Eio.Switch.run (fun sw ->
                   let mail ?source f = with_mail env sw config source f in
                   let tasks () =
-                    match config.Config.demo_root with
-                    | Some root ->
-                        Dooit.Config.parse
-                          ~path:(Filename.concat root "config.toml")
-                          ~default_root:(Filename.concat root "tasks")
-                          ""
-                    | None ->
-                        Dooit.Config.load ~fs:env#fs
-                          ?path:config.Config.dooit_config
-                          ?root:config.dooit_root ()
+                    Eio_unix.run_in_systhread (fun () ->
+                        match config.Config.demo_root with
+                        | Some root ->
+                            Dooit.Config.parse
+                              ~path:(Filename.concat root "config.toml")
+                              ~default_root:(Filename.concat root "tasks")
+                              ""
+                        | None ->
+                            Dooit.Config.load ~fs:env#fs
+                              ?path:config.Config.dooit_config
+                              ?root:config.dooit_root ())
                   in
                   let task_list () =
                     let c = tasks () in
-                    if not (C.exists c.root) then ([], [])
-                    else Termanil_tasks.list (Dooit.Store.open_ c.root)
+                    Eio_unix.run_in_systhread (fun () ->
+                        if not (C.exists c.root) then
+                          ([], [ "Store not initialized. Run dooit init." ])
+                        else Termanil_tasks.list (Dooit.Store.open_ c.root))
                   in
                   let replies = Config.replies config in
                   (match config.demo_root with
@@ -144,7 +161,10 @@ let execute config request =
                       if not (C.exists c.root) then (
                         let store = Dooit.Store.init c.root in
                         List.iter
-                          (fun m -> ignore (Termanil_tasks.capture store m))
+                          (fun m ->
+                            ignore
+                              (Termanil_tasks.capture (Dooit.Client.local store)
+                                 m))
                           [
                             List.hd Termanil_demo.messages;
                             List.nth Termanil_demo.messages 5;
@@ -210,7 +230,7 @@ let execute config request =
                   | Sync_tasks _ when config.demo_root <> None ->
                       Synced
                         [
-                          "Demo tasks are local. No WebDAV connection is made.";
+                          "Demo tasks are local. No remote connection is made.";
                         ]
                   | Mailboxes ->
                       mail (fun c ->
@@ -237,44 +257,26 @@ let execute config request =
                           Message_changed (source, `Flagged, value))
                   | Contacts -> contacts sw config
                   | Tasks ->
-                      let c = tasks () in
-                      if not (C.exists c.root) then
-                        Tasks_loaded
-                          ( [],
-                            [
-                              "Store not initialized. Capture mail or run \
-                               dooit init.";
-                            ] )
-                      else
-                        let ns, warnings =
-                          Termanil_tasks.list (Dooit.Store.open_ c.root)
-                        in
-                        Tasks_loaded (ns, warnings)
+                      let tasks, warnings = task_list () in
+                      Tasks_loaded (tasks, warnings)
                   | Capture m ->
                       let c = tasks () in
-                      let store = Dooit.Store.init c.root in
+                      let store =
+                        Eio_unix.run_in_systhread (fun () ->
+                            Dooit.Store.open_ c.root)
+                      in
                       Captured
-                        (Termanil_tasks.capture ~tags:config.capture_tags store
+                        (Termanil_tasks.capture ~tags:config.capture_tags
+                           (task_client env sw c store)
                            m)
                   | Complete n ->
                       let c = tasks () in
+                      let store =
+                        Eio_unix.run_in_systhread (fun () ->
+                            Dooit.Store.open_ c.root)
+                      in
                       Completed
-                        (Termanil_tasks.complete (Dooit.Store.open_ c.root) n)
+                        (Termanil_tasks.complete (task_client env sw c store) n)
                   | Sync_tasks { dry_run } ->
                       let c = tasks () in
-                      let store = Dooit.Store.open_ c.root in
-                      let fetch =
-                        Fetch_curl.v ~sw ~timeout:(Duration.of_sec 60)
-                          ~max_response:(16 * 1024 * 1024)
-                          ()
-                      in
-                      let remote =
-                        Dooit.Remote.make ~fetch
-                          ~config:(Dooit.Config.require_webdav c)
-                          ~readonly:dry_run
-                      in
-                      let lines = Termanil_tasks.sync ~dry_run store remote in
-                      Synced
-                        ((if dry_run then "Dry run: no writes"
-                          else "Dooit sync results")
-                        :: lines)))))
+                      Synced (sync_tasks env sw c ~dry_run)))))

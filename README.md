@@ -27,33 +27,43 @@ example-only Dune library `localhost`.
 
 ## Setup
 
-Use an OxCaml 5.2 switch with Dune and the package dependencies installed.
-The commands below select the switch named `5.2.0+ox`. Dependency declarations
-are in the `.opam` files under `bleeding/` and `avsm/`; the sources under
-`vendor/` supply the workspace's adapted libraries.
+Use an OxCaml switch with the OxCaml opam repository configured. The commands
+below select the switch named `5.2.0+ox`. The root `oxmono.opam` installs the
+external development dependencies. Sources under `vendor/` and the other
+workspace projects supply the local libraries.
 
 ```sh
 eval "$(opam env --switch=5.2.0+ox)"
+opam install . --deps-only
 dune build --profile release-check @example/all
 ```
 
-The vendored Eio POSIX backend requires `iomux >= 0.2`, including on macOS.
-An older Eio installation may not have installed it. Add it to the build switch:
+The root dependency list includes test, fuzzing and MDX tools unconditionally
+because `dune build @all` builds their executables. It excludes libraries
+provided by the workspace. Update it when adding an external dependency to
+a local or vendored project. Individual package `.opam` files describe their
+standalone dependencies.
+
+Native builds also require PROJ, Blosc, Zstd, GMP, zlib, libcurl and the
+OpenBLAS/LAPACKE libraries used by Nx. Opam's system dependencies cover Debian
+and Homebrew. For manual installation on Debian or Ubuntu:
 
 ```sh
-opam install --switch=5.2.0+ox 'iomux>=0.2'
+sudo apt install pkg-config libproj-dev proj-data libblosc-dev libzstd-dev \
+  libgmp-dev zlib1g-dev libcurl4-openssl-dev libopenblas-dev liblapacke-dev
 ```
 
-Zarr and Tessera also require the system PROJ, Blosc and Zstd libraries.
-On Debian or Ubuntu, install their development packages.
+On macOS with Homebrew:
 
 ```sh
-sudo apt install pkg-config libproj-dev proj-data libblosc-dev libzstd-dev
+brew install pkg-config proj c-blosc zstd gmp curl openblas lapack libomp
+export PKG_CONFIG_PATH="$(brew --prefix openblas)/lib/pkgconfig:$(brew --prefix lapack)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 ```
 
 ## Build and test
 
-Build the workspace with allocation contracts checked.
+Build the workspace with allocation contracts checked, including
+`[@zero_alloc opt]`, using `-O3`.
 
 ```sh
 dune build --profile release-check @all
@@ -105,3 +115,16 @@ Generating API documentation requires an OxCaml-compatible `odoc`.
 
 [HTTPZ_SYNC.md](HTTPZ_SYNC.md) records the source revision and update procedure
 for the HTTP libraries.
+
+The [osrel](bleeding/osrel/README.md), [d10](bleeding/d10/README.md) and
+[osdist](bleeding/osdist/README.md) projects provide platform detection,
+binary layers, build recipes and distro packaging. The
+[oi import review](docs/oi-library-import.md) records their provenance and
+OxCaml adaptations. The [ox plan](docs/ox-plan.md) describes the workspace roadmap.
+
+The [ox runner](avsm/ox/README.md) builds and runs committed monorepo packages from opam
+metadata, with generated snapshot versions and local day10 layers. It builds
+the OxCaml toolchain from source without invoking opam or creating switches.
+
+The [DS4 bindings](bleeding/ds4/README.md) provide local DeepSeek, GLM and Qwen
+inference, with DeepSeek V4.1 Flash 1017 preferred when downloaded.

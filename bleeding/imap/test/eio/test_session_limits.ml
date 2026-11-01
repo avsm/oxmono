@@ -97,7 +97,21 @@ let test_deferred_wire_error () =
     | exception Session.Failure (Imap_eio_core.Error.Protocol _) -> ()
     | _ -> failwith "lost the deferred wire error")
 
+let test_retained_literal_chunks () =
+  let a = String.make 512 'a' and b = String.make 512 'b' in
+  with_session ["* 1 FETCH (UID 1 BODY[] {1024}\r\n"; a;
+    b ^ ")\r\n* 2 EXISTS\r\n"; "* 3 EXISTS\r\n"] (fun session ->
+    let chunks = ref [] in
+    ignore (Session.read_response
+      ~on_literal:(fun s -> chunks := s :: !chunks) session);
+    ignore (Session.read_response session);
+    ignore (Session.read_response session);
+    Gc.full_major ();
+    if String.concat "" (List.rev !chunks) <> a ^ b then
+      failwith "retained literal changed after reuse of the input buffer")
+
 let () =
+  test_retained_literal_chunks ();
   test_deferred_wire_error ();
   test_notification_flood ();
   test_logout_budget ();

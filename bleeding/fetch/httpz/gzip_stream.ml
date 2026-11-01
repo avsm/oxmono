@@ -3,8 +3,8 @@ open Fetch
 let malformed message =
   raise (err (Protocol_error ("malformed gzip response: " ^ message)))
 
-(* Decompress 1.6.0 has four RFC 1952 header bugs: it does not check CM or
-   reserved FLG bits, reads XLEN as big-endian, and checks FHCRC against a
+(* Decompress 1.6.0 and 1.6.1 have four RFC 1952 header bugs: they do not check
+   CM or reserved FLG bits, read XLEN as big-endian, and check FHCRC against a
    reconstructed (and incomplete) header using the wrong half and byte order
    of its CRC-32.  Validate the original header here, then adjust only the
    bytes handed to that decoder.  The adjusted header has exactly the same
@@ -32,7 +32,7 @@ type header = {
   mutable checksum : bool;
   (* The RFC checksum covers every original header byte. *)
   mutable crc : Optint.t;
-  (* This is the subset decompress 1.6.0 reconstructs for its broken FHCRC
+  (* This is the subset decompress reconstructs for its broken FHCRC
      comparison: the fixed header and the two zero-terminated strings, but no
      XLEN or FEXTRA payload. *)
   mutable decompress_crc : Optint.t;

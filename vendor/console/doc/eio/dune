@@ -1,0 +1,20 @@
+(documentation
+ (package console-eio)
+ (mld_files index tutorial))
+
+(mdx
+ (package console-eio)
+ (files index.mld tutorial.mld)
+ (libraries console_compat
+  console
+  console.tty
+  console-eio
+  eio
+  eio.core
+  eio.unix
+  eio_main
+  fmt
+  fmt.cli
+  cmdliner
+  logs
+  unix))

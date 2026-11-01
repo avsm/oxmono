@@ -2,4 +2,4 @@
  (name dooit_cli)
  (public_name dooit)
  (libraries dooit eio_main
-  console console-eio cmdliner fetch-curl))
+  console console.tty cmdliner fetch-curl))

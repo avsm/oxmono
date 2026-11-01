@@ -296,13 +296,19 @@ let visible_people t =
            )))
     t.people
 
+let compare_tasks (a : task) (b : task) =
+  let finished (n : task) = n.status = "done" || n.status = "cancelled" in
+  match Bool.compare (finished a) (finished b) with
+  | 0 -> String.compare b.updated a.updated
+  | order -> order
+
 let visible_tasks t =
   List.filter
     (fun (n : task) ->
       matches ~query:t.task_query
         (String.concat " " (n.title :: n.status :: n.body :: n.tags)))
     t.tasks
-  |> List.stable_sort (fun (a : task) b -> String.compare b.updated a.updated)
+  |> List.stable_sort compare_tasks
 
 let nth xs n = List.nth_opt xs (max 0 n)
 
@@ -325,6 +331,7 @@ let linked_tasks t (m : message) =
       List.exists (same_email m.source) n.sources
       || List.exists (same_email { m.source with id = m.thread_id }) n.threads)
     t.tasks
+  |> List.stable_sort compare_tasks
 
 let saved_reply t source =
   List.find_opt (fun (d : draft) -> same_email d.source source) t.saved_drafts

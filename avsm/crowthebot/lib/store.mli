@@ -22,7 +22,7 @@ val compaction : t -> Compaction.t
 val create : ?now:(unit -> float) -> Sqlite3_eio.t -> admin:string -> t
 (** [create db ~admin] initializes the schema or verifies its saved primary
     admin. A different admin is rejected. [now] defaults to Unix time. Versions
-    1 through 7 are migrated atomically. Unfinished tool calls and reminder runs
+    1 through 8 are migrated atomically. Unfinished tool calls and reminder runs
     become interrupted on reopening. The caller owns [db]'s switch and must open
     the profile only once at startup. *)
 
@@ -42,6 +42,18 @@ val set_person :
 val people : t -> person list
 val add_room : t -> string -> unit
 val rooms : t -> string list
+
+val request_room : t -> string -> unit
+(** [request_room t room] records a pending group-room approval once. A previous
+    decision is retained. It does not enable the room. *)
+
+val room_requests : t -> string list
+(** [room_requests t] lists pending rooms that have not been enabled. *)
+
+val decide_room : t -> actor:string -> room:string -> approve:bool -> unit
+(** [decide_room t ~actor ~room ~approve] requires the primary admin, records a
+    decision and enables [room] when approved. The caller must validate current
+    room membership and the admin's DM. *)
 
 val add_direct_room : t -> room:string -> peer:string -> unit
 (** [add_direct_room t ~room ~peer] remembers an accepted direct invitation. It
@@ -251,3 +263,13 @@ val emails : t -> Email_cache.t
 val admin_snapshot : t -> string
 (** [admin_snapshot] returns bounded, body-free counts and recent session keys.
     It is intended for the primary administrator only. *)
+
+val memory_tree : t -> actor:string -> Agentkit.Memo.t * (string * string) list
+(** [memory_tree t ~actor] snapshots all shared facts and their derived cache,
+    oldest first. Requires current admin or friend authorization. *)
+
+val save_memory_summary : t -> actor:string -> key:string -> body:string -> bool
+(** [save_memory_summary t ~actor ~key ~body] caches a summary of at most 512
+    UTF-8 bytes if [key] still names current sources. Returns [false] after a
+    source changed. Rechecks authorization. Erasing any fact atomically clears
+    the cache so erased text cannot survive in a derived summary. *)

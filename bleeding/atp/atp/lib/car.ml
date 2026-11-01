@@ -77,12 +77,14 @@ let write_block ?(cid_format = `Standard) (cid, data) writer =
       ~first:0 ~length:(String.length cid_bytes)
   in
   Bytes.Writer.write writer slice;
-  let slice =
-    Bytes.Slice.make
-      (Stdlib.Bytes.of_string data)
-      ~first:0 ~length:(String.length data)
-  in
-  Bytes.Writer.write writer slice
+  if data <> "" then begin
+    let slice =
+      Bytes.Slice.make
+        (Stdlib.Bytes.of_string data)
+        ~first:0 ~length:(String.length data)
+    in
+    Bytes.Writer.write writer slice
+  end
 
 let write ?cid_format header blocks writer =
   write_header ?cid_format header writer;
@@ -116,11 +118,11 @@ let available state =
 
 let read_byte state =
   if available state = 0 then refill state;
-  if available state = 0 then None
+  if available state = 0 then #(false, 0)
   else begin
     let b = Stdlib.Bytes.get_uint8 (Bytes.Slice.bytes state.slice) state.pos in
     state.pos <- state.pos + 1;
-    Some b
+    #(true, b)
   end
 
 let read_exact state len =
@@ -144,25 +146,27 @@ let read_exact state len =
   fill 0 len;
   Stdlib.Bytes.unsafe_to_string buf
 
-let read_varint state =
-  let rec loop acc shift =
-    if shift >= Sys.int_size - 1 then raise_error (`Car_invalid_block "varint overflow")
-    else
-      match read_byte state with
-      | None when shift = 0 -> None
-      | None -> raise_error `Car_unexpected_eof
-      | Some b ->
-          let value = b land 0x7f in
-          if value > (max_int lsr shift) then raise_error (`Car_invalid_block "varint overflow");
-          let acc = acc lor (value lsl shift) in
-          if b land 0x80 = 0 then Some acc else loop acc (shift + 7)
-  in
-  loop 0 0
+let rec read_varint_loop state acc shift =
+  if shift >= Sys.int_size - 1 then
+    #(false, raise_error (`Car_invalid_block "varint overflow"))
+  else
+    match read_byte state with
+    | #(false, _) when shift = 0 -> #(false, 0)
+    | #(false, _) -> #(false, raise_error `Car_unexpected_eof)
+    | #(true, b) ->
+        let value = b land 0x7f in
+        if value > (max_int lsr shift) then
+          raise_error (`Car_invalid_block "varint overflow");
+        let acc = acc lor (value lsl shift) in
+        if b land 0x80 = 0 then #(true, acc)
+        else read_varint_loop state acc (shift + 7)
+
+let read_varint state = read_varint_loop state 0 0
 
 let read_varint_exn state =
   match read_varint state with
-  | Some v -> v
-  | None -> raise_error `Car_unexpected_eof
+  | #(true, v) -> v
+  | #(false, _) -> raise_error `Car_unexpected_eof
 
 let parse_header_value header_value =
   match header_value with
@@ -205,9 +209,9 @@ let read_header ?cid_format reader =
 
 let read_block_internal state =
   match read_varint state with
-  | None -> None
-  | Some 0 -> raise_error (`Car_invalid_block "empty block frame")
-  | Some block_len ->
+  | #(false, _) -> None
+  | #(true, 0) -> raise_error (`Car_invalid_block "empty block frame")
+  | #(true, block_len) ->
       let block_bytes = read_exact state block_len in
       (* Parse CID from beginning of block based on format *)
       let cid, cid_len =

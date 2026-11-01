@@ -52,6 +52,24 @@ showed that logarithmic lookup is possible without a cast, but duplicating a
 balanced-tree implementation was not judged worthwhile for this descriptor
 constructor.
 
+## Ignored string decoding
+
+The local streaming decoder validates ignored strings without accumulating a
+string token. It reuses the existing scanner, escape checks, source positions,
+whitespace handling and object/array error contexts. The optimization applies
+only when the decoder callback is physically the canonical `Base.ignore`
+callback. `Obj.repr` compares callbacks with different result types without
+casting a result or asserting type equality. Custom callbacks still receive
+complete strings, even when their kind is named `ignore`. Numeric conversion
+and member-name materialization remain unchanged to preserve errors.
+
+This is an Oxmono performance patch, not an upstream change.
+`avsm/arod/test/test_jsont_skip.ml` guards malformed UTF-8, escapes, surrogate
+pairs, fragmented readers, retained fields, metadata and allocation scaling.
+The implementation was also compared with the pre-patch streaming decoder and
+pristine upstream 0.4.0 on 155,904 valid, truncated and mutated JSON cases under
+all location/layout combinations and with reused input buffers.
+
 ## Audited unsafe boundaries
 
 The core has one portability assertion: the compiler-created `format6`
@@ -90,7 +108,11 @@ opam exec --switch=5.2.0+ox -- dune build --profile release-check @all
    dependencies belong in this workspace.
 4. Update the version, commit, and checked date here, in `jsont.opam`, and in
    the root `VENDORED.md`.
-5. Run all three commands in the validation section.
+5. Reapply the ignored-string scanner patch and run
+   `dune exec --profile release-check avsm/arod/test/test_jsont_skip.exe`.
+   Differential-test against the pristine upstream streaming decoder before
+   relying on changed scanner behavior.
+6. Run all three commands in the validation section.
 
 ## Legacy recursive codecs
 

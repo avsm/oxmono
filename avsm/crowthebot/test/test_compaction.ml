@@ -122,7 +122,7 @@ let () =
           if compacting then begin
             check "compaction has a separate completion budget"
               (member "max_completion_tokens" json
-              = Some (Jsont.Json.int 4096));
+              = Some (Jsont.Json.int config.max_tokens));
             check "compaction disables reasoning"
               (member "reasoning_effort" json
               = Some (Jsont.Json.string "none"));

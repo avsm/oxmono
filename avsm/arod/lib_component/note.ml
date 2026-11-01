@@ -259,7 +259,7 @@ let sn_links n =
   let link ~icon ~label href =
     El.a ~at:[At.href href; At.class' "sn-link"; At.v "title" label;
               At.v "aria-label" label; At.v "rel" "noopener"]
-      [El.unsafe_raw (I.outline ~size:11 icon)]
+      [El.unsafe_raw (I.outline ~size:13 icon)]
   in
   let doi =
     match Note.doi n with
@@ -275,15 +275,15 @@ let sn_links n =
   in
   let social =
     match Note.social n with
-    | Some soc -> Sidebar.social_icon_links ~size:11 soc
+    | Some soc -> Sidebar.social_icon_links ~size:13 soc
     | None -> []
   in
   match doi @ standardsite @ social with
   | [] -> []
   | links -> [El.span ~at:[At.class' "sn-links"] links]
 
-(** [sn_words n] is the word count of [n] for its heading, or nothing for a note
-    with no words. *)
+(** [sn_words n] is the word count of [n] for the end of its text, or nothing
+    for a note with no words. *)
 let sn_words n =
   match Note.words n with
   | 0 -> []
@@ -305,31 +305,112 @@ let tag_popularity ctx =
       | _ -> ()) (Bushel.Entry.tags_of_ent (`Note n))) (Arod.Ctx.notes ctx);
   fun tag -> Option.value (Hashtbl.find_opt counts tag) ~default:0
 
-(** [sn_tags ?limit ~popularity n] is the column at the right of the row of
-    [n]. It holds its plain and set tags, the most popular first and at most
-    [limit] (default three), each a chip that links to a search for the tag.
-    A chip's tooltip says how many notes carry the tag. *)
-let sn_tags ?(limit = 3) ~popularity n =
+(** [ranked_tags ~popularity n] is the plain and set tags of [n], each with how
+    many notes carry it, the most popular first and then alphabetically. *)
+let ranked_tags ~popularity n =
+  List.filter_map (function
+    | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
+    | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
+  |> List.map (fun t -> (t, popularity t))
+  |> List.stable_sort (fun (a, ca) (b, cb) ->
+       let c = compare cb ca in if c <> 0 then c else String.compare a b)
+
+(** [heading_links n] is the DOI, the StandardSite page and the discussions of
+    [n] as label and address, in the order that the icons of its heading show
+    them. *)
+let heading_links n =
+  (match Note.doi n with
+   | Some d -> [ ("DOI", "https://doi.org/" ^ d) ]
+   | None -> [])
+  @ (match Note.standardsite n with
+     | Some uri -> [ ("StandardSite", "https://pdsls.dev/" ^ uri) ]
+     | None -> [])
+  @ (match Note.social n with
+     | Some soc ->
+       List.map (fun (label, _, url) -> (label, url)) (Sidebar.social_sites soc)
+     | None -> [])
+
+(** [featured_notes journal_notes] is the notes that the featured rail shows.
+    They are the ones marked as featured or, if none is, up to five permanent
+    ones. *)
+let featured_notes journal_notes =
+  match List.filter Note.featured journal_notes with
+  | [] -> List.filter Note.perma journal_notes |> Common.take 5
+  | marked -> marked
+
+(** [sn_tags ?limit ~art ~popularity n] is the icons of the plain and set tags of
+    [n], most popular first and at most [limit] (default five). An icon links to a search for its tag,
+    and its tooltip and label give the tag and how many notes carry it. A tag
+    that only one note carries is left out, and a note with no such tags has
+    nothing. *)
+let sn_tags ?(limit = 5) ~art ~popularity n =
   let tags =
-    List.filter_map (function
-      | (`Text _ | `Set _) as t -> Some (Bushel.Tags.to_raw_string t)
-      | _ -> None) (Bushel.Entry.tags_of_ent (`Note n))
-    |> List.map (fun t -> (t, popularity t))
-    |> List.stable_sort (fun (a, ca) (b, cb) ->
-         let c = compare cb ca in if c <> 0 then c else String.compare a b)
+    ranked_tags ~popularity n
+    |> List.filter (fun (_, count) -> count > 1)
     |> List.filteri (fun i _ -> i < limit)
   in
-  El.div ~at:[At.class' "sn-tags"]
-    (List.map (fun (t, count) ->
-       El.a ~at:[At.href ("#tag=" ^ t); At.v "data-tag" t;
-                 At.class' "sn-tag";
-                 At.v "title"
-                   (Printf.sprintf "%d note%s" count
-                      (if count = 1 then "" else "s"))]
-         [El.txt t]) tags)
+  if tags = [] then []
+  else
+    [ El.span ~at:[At.class' "sn-tagrow"]
+        (List.map (fun (t, count) ->
+           Tag_cloud.icon_link ~art ~noun:"note" ~count t) tags) ]
 
-(** [sn_note ~ctx ~popularity ~y_rel ~y_abs n] is journal note [n] as a row. *)
-let sn_note ~ctx ~popularity ~y_rel ~y_abs n =
+(** [sn_icons ~art ~popularity n] is the icons at the right end of the row of
+    [n], from its tags on the left to its links on the right, with a bar
+    between them when it has both. It is nothing when it has neither. *)
+let sn_icons ~art ~popularity n =
+  let tags = sn_tags ~art ~popularity n and links = sn_links n in
+  match (tags, links) with
+  | [], [] -> El.void
+  | _ ->
+    El.div ~at:[At.class' "sn-icons"]
+      (tags
+       @ (if tags <> [] && links <> []
+          then [El.span ~at:[At.class' "sn-bar"; At.v "aria-hidden" "true"] []]
+          else [])
+       @ links)
+
+(** [text_lines ~title ~synopsis] is how many lines the title and synopsis of an
+    entry are expected to take, from two to five. A line is taken as about 98 characters. The
+    reading column holds about 115 at its widest and about 88 on a page 1024
+    pixels wide, so a row has a little room to spare on a wide page and a
+    narrow page can wrap a line more than this. The text is never cut. A narrower column wraps more, and the
+    text then runs past the estimate into the space below its row. The layout of the timeline is fixed before the page
+    is shown, so this is an estimate, and a narrower column than the page's
+    widest wraps more. *)
+let text_lines ~title ~synopsis =
+  let len =
+    String.length title
+    + (if synopsis = "" then 0 else 2 + String.length synopsis)
+    + 14
+  in
+  min 5 (max 2 ((len + 97) / 98))
+
+(** [line_extra lines] is how much taller than a two line row a row of [lines]
+    lines is, in em. *)
+let line_extra lines = float_of_int (lines - 2) *. 1.25
+
+(** [note_lines n] is [text_lines] of the row of [n], which is a weeknote or a
+    note. *)
+let note_lines n =
+  let title =
+    if Note.weeknote n then strip_weeknote_prefix (Note.title n)
+    else Note.title n
+  in
+  text_lines ~title ~synopsis:(Option.value (Note.synopsis n) ~default:"")
+
+(** [row_height n] is the height of the row of note [n]. *)
+let row_height n =
+  (if Note.weeknote n then Snake.height Snake.Week else Snake.height Snake.Note)
+  +. line_extra (note_lines n)
+
+(** [extra_style n] is the style that makes the text of the row of [n] as tall
+    as its row, with the room that its extra lines need. *)
+let extra_style n =
+  Printf.sprintf ";height:%.2fem" (3.8 +. line_extra (note_lines n))
+
+(** [sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n] is journal note [n] as a row. *)
+let sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n =
   let (y, m, d) = Bushel.Entry.date (`Note n) in
   let url = Bushel.Entry.site_url (`Note n) in
   let tags_data =
@@ -344,32 +425,32 @@ let sn_note ~ctx ~popularity ~y_rel ~y_abs n =
               At.v "data-tags" tags_data;
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
               At.v "style"
-                (pos_style ~top:y_rel ~height:(Snake.height Snake.Note))] [
+                (pos_style ~top:y_rel ~height:(row_height n))] [
     El.unsafe_raw (exit_svg ~plain:(image = None) Snake.Note ~y_abs);
     (match image with
      | Some src -> sn_node ~url ~kind:Snake.Note ~label:"note" src
      | None -> El.void);
-    El.div ~at:[At.class' "sn-text"; At.v "style" text_style] [
+    El.div ~at:[At.class' "sn-text"; At.v "style" (text_style ^ extra_style n)] [
       El.div ~at:[At.class' "sn-body"] [
         El.div ~at:[At.class' "sn-meta"]
           ([El.time ~at:[At.class' "dt-published";
                          At.v "datetime"
                            (Printf.sprintf "%04d-%02d-%02d" y m d)]
-              [El.txt (short_date (y, m, d))]]
-           @ sn_words n @ sn_links n);
-        El.p ~at:[At.class' "sn-line"] [
+              [El.txt (short_date (y, m, d))]]);
+        El.p ~at:[At.class' "sn-line";
+                   At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] ([
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
             [El.txt
                (if synopsis = "" then title else title ^ title_stop title)];
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
-           else El.void)]];
-      sn_tags ~popularity n]]
+           else El.void)] @ sn_words n)];
+      sn_icons ~art ~popularity n]]
 
-(** [sn_week ~ctx ~popularity ~y_rel ~y_abs n] is weeknote [n] as a row. It has
+(** [sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n] is weeknote [n] as a row. It has
     the shape of a note and is told apart by its "Week N" heading. *)
-let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
+let sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n =
   let (y, m, d) = Note.date n in
   let (_, wk) = Note.week_number n in
   let synopsis = Option.value (Note.synopsis n) ~default:"" in
@@ -384,12 +465,12 @@ let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
               At.v "data-tags" tags_data;
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
               At.v "style"
-                (pos_style ~top:y_rel ~height:(Snake.height Snake.Week))] [
+                (pos_style ~top:y_rel ~height:(row_height n))] [
     El.unsafe_raw (exit_svg ~plain:(image = None) Snake.Week ~y_abs);
     (match image with
      | Some src -> sn_node ~url ~kind:Snake.Week ~label:"week" src
      | None -> El.void);
-    El.div ~at:[At.class' "sn-text"; At.v "style" text_style] [
+    El.div ~at:[At.class' "sn-text"; At.v "style" (text_style ^ extra_style n)] [
       El.div ~at:[At.class' "sn-body"] [
         El.div ~at:[At.class' "sn-meta"] ([
           El.txt (Printf.sprintf "Week %d" wk);
@@ -397,33 +478,39 @@ let sn_week ~ctx ~popularity ~y_rel ~y_abs n =
           El.time ~at:[At.class' "dt-published";
                        At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
             [El.txt (week_range (y, m, d))]
-          ] @ sn_words n @ sn_links n);
-        El.p ~at:[At.class' "sn-line"] [
+          ]);
+        El.p ~at:[At.class' "sn-line";
+                   At.v "style" (Printf.sprintf "--lines:%d" (note_lines n))] ([
           El.a ~at:[At.href url; At.class' "sn-title p-name u-url"]
             [El.txt
                (if synopsis = "" then title else title ^ title_stop title)];
           (if synopsis <> "" then
              El.span ~at:[At.class' "sn-synopsis p-summary"]
                [El.txt synopsis]
-           else El.void)]];
-      sn_tags ~popularity n]]
+           else El.void)] @ sn_words n)];
+      sn_icons ~art ~popularity n]]
 
-(** [sn_release ~y_rel ~y_abs t rs] is the row for the releases [rs] of
+(** [release_name t] is the name of the repository of [t] without its owner. *)
+let release_name (t : Bushel.Release.t) =
+  match String.rindex_opt t.repo '/' with
+  | Some i -> String.sub t.repo (i + 1) (String.length t.repo - i - 1)
+  | None -> t.repo
+
+(** [sn_release ?tight ~y_rel ~y_abs t rs] is the row for the releases [rs] of
     repository [t], newest first, made in one month. It is the smallest row: a
     rail from the spine that fades out, the name and version, the date, and one
     line of summary. A month's releases of one repository are one row, the
     newest named and the rest counted. Each registry that carries the newest is
-    an icon linking to its ecosyste.ms metadata. *)
-let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
+    an icon linking to its ecosyste.ms metadata. A row that [tight] is followed
+    by another release is shorter, so that a run of releases sits close
+    together. *)
+let sn_release ?(tight = false) ~y_rel ~y_abs (t : Bushel.Release.t)
     (rs : Bushel.Release.release list) =
+  let kind = if tight then Snake.Release_tight else Snake.Release in
   let r = List.hd rs in
   let earlier = List.tl rs in
   let (y, m, d) = r.date in
-  let name =
-    match String.rindex_opt t.repo '/' with
-    | Some i -> String.sub t.repo (i + 1) (String.length t.repo - i - 1)
-    | None -> t.repo
-  in
+  let name = release_name t in
   let registry reg =
     let label = reg.Bushel.Release.name ^ " on ecosyste.ms" in
     El.a ~at:[At.href (Bushel.Release.metadata_url reg r);
@@ -436,14 +523,19 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
               At.v "data-tags" "";
               At.v "data-month" (Printf.sprintf "%04d-%02d" y m);
               At.v "style"
-                (pos_style ~top:y_rel ~height:(Snake.height Snake.Release))] [
-    El.unsafe_raw (exit_svg ~plain:true Snake.Release ~y_abs);
+                (pos_style ~top:y_rel ~height:(Snake.height kind))] [
+    El.unsafe_raw (exit_svg ~plain:true kind ~y_abs);
     El.div ~at:[At.class' "sn-text release-line";
                 At.v "style" text_style] [
       El.span ~at:[At.class' "sn-sr"] [El.txt "Code release: "];
       El.a ~at:[At.href r.url;
                 At.class' "release-name !text-text !no-underline"]
         [El.txt (name ^ " " ^ r.version)];
+      (match r.registries with
+       | [] -> El.void
+       | regs ->
+         El.span ~at:[At.class' "release-registries"]
+           (List.map registry regs));
       El.time ~at:[At.class' "release-date";
                    At.v "datetime" (Printf.sprintf "%04d-%02d-%02d" y m d)]
         [El.txt (short_date (y, m, d))];
@@ -456,12 +548,7 @@ let sn_release ~y_rel ~y_abs (t : Bushel.Release.t)
                            (List.rev_map (fun (e : Bushel.Release.release) ->
                               e.version) earlier))]
            [El.txt (Printf.sprintf "+%d earlier" (List.length earlier))]);
-      El.span ~at:[At.class' "release-summary"] [El.txt r.summary];
-      (match r.registries with
-       | [] -> El.void
-       | regs ->
-         El.span ~at:[At.class' "release-registries"]
-           (List.map registry regs))]]
+      El.span ~at:[At.class' "release-summary"] [El.txt r.summary]]]
 
 (** [sn_quiet ~y_rel n] is the row that says [n] weeks had nothing in them. *)
 let sn_quiet ~y_rel n =
@@ -521,15 +608,26 @@ let by_week items =
     | _ -> (key, [item]) :: acc) [] items
   |> List.rev_map (fun (k, run) -> (k, List.rev run))
 
-(** [notes_list ~ctx] is the journal article and its sidebar. *)
-let notes_list ~ctx =
+(** A row of the notes timeline. A release row is the releases of one
+    repository in one month. *)
+type row =
+  | Journal of Note.t
+  | Weeknote of Note.t
+  | Releases of Bushel.Release.t * Bushel.Release.release list
+  | Quiet of int
+
+(** [timeline ~ctx] is the months of the notes timeline, newest first, each as
+    its year, its month and its rows. Notes, weeknotes and releases run
+    together, newest first, and on one day a note comes before a release. A row
+    that says how many weeks had nothing in them follows the last week with
+    something. The page and its markdown both read the timeline, so they have
+    one order. *)
+let timeline ~ctx =
   let all_notes =
     Arod.Ctx.notes ctx
     |> List.sort (fun a b -> Bushel.Entry.compare (`Note a) (`Note b))
     |> List.rev
   in
-  let weeknotes, journal_notes = List.partition Note.weeknote all_notes in
-  let popularity = tag_popularity ctx in
   let by_month = Hashtbl.create 32 in
   List.iter (fun n ->
     let (y, m, _d) = Bushel.Entry.date (`Note n) in
@@ -574,55 +672,74 @@ let notes_list ~ctx =
       let c = compare y2 y1 in if c <> 0 then c else compare m2 m1)
       (keys by_month @ keys releases_by_month)
   in
-  (* Months run down the page, each a block of rows. [y] is how far down the
-     timeline the next block begins. *)
-  let y = ref 0. in
-  let marks = ref [] in
-  let month_sections = List.map (fun (yr, mo) ->
+  List.map (fun (yr, mo) ->
     let notes =
       List.rev (try Hashtbl.find by_month (yr, mo) with Not_found -> []) in
     let releases =
       try Hashtbl.find releases_by_month (yr, mo) with Not_found -> [] in
-    let section_id = Printf.sprintf "month-%04d-%02d" yr mo in
-    let month_id = Printf.sprintf "%04d-%02d" yr mo in
-    (* Notes, weeknotes and releases run together, newest first. On one day a
-       note comes before a release. *)
     let items =
       List.map (fun n ->
         (Bushel.Entry.date (`Note n),
-         if Note.weeknote n then `Week n else `Note n)) notes
+         if Note.weeknote n then Weeknote n else Journal n)) notes
       @ List.map (fun (t, rs) ->
-          ((List.hd rs).Bushel.Release.date, `Release (t, rs)))
+          ((List.hd rs).Bushel.Release.date, Releases (t, rs)))
           (group_releases releases)
       |> List.stable_sort (fun (d1, _) (d2, _) -> compare d2 d1)
     in
+    let rows =
+      List.concat_map (fun (key, group) ->
+        let rows = List.map snd group in
+        match Hashtbl.find_opt quiet_after key with
+        | Some q when q > 0 -> rows @ [Quiet q]
+        | _ -> rows) (by_week items)
+    in
+    (yr, mo, rows)) months
+
+(** [notes_list ~ctx ~art] is the journal article and its sidebar. [art tag]
+    is the coloured illustration of [tag], if it has one. *)
+let notes_list ~ctx ~art =
+  let all_notes =
+    Arod.Ctx.notes ctx
+    |> List.sort (fun a b -> Bushel.Entry.compare (`Note a) (`Note b))
+    |> List.rev
+  in
+  let weeknotes, journal_notes = List.partition Note.weeknote all_notes in
+  let popularity = tag_popularity ctx in
+  (* Months run down the page, each a block of rows. [y] is how far down the
+     timeline the next block begins. *)
+  let y = ref 0. in
+  let marks = ref [] in
+  let month_sections = List.map (fun (yr, mo, rows) ->
+    let section_id = Printf.sprintf "month-%04d-%02d" yr mo in
+    let month_id = Printf.sprintf "%04d-%02d" yr mo in
     let month_top = !y in
     let cursor = ref Snake.month_height in
     let rows =
-      List.concat_map (fun (key, group) ->
-        let rows = List.map (fun (_, item) ->
-          let kind, build =
-            match item with
-            | `Note n ->
-              (Snake.Note,
-               fun ~y_rel ~y_abs -> sn_note ~ctx ~popularity ~y_rel ~y_abs n)
-            | `Week n ->
-              (Snake.Week,
-               fun ~y_rel ~y_abs -> sn_week ~ctx ~popularity ~y_rel ~y_abs n)
-            | `Release (t, rs) ->
-              (Snake.Release,
-               fun ~y_rel ~y_abs -> sn_release ~y_rel ~y_abs t rs)
-          in
-          let y_rel = !cursor in
-          cursor := !cursor +. Snake.height kind;
-          build ~y_rel ~y_abs:(month_top +. y_rel)) group
+      let rows_a = Array.of_list rows in
+      let releases_at i =
+        i >= 0 && i < Array.length rows_a
+        && (match rows_a.(i) with Releases _ -> true | _ -> false)
+      in
+      List.mapi (fun i row ->
+        let tight = releases_at i && releases_at (i + 1) in
+        let height, build =
+          match row with
+          | Journal n ->
+            (row_height n,
+             fun ~y_rel ~y_abs -> sn_note ~ctx ~art ~popularity ~y_rel ~y_abs n)
+          | Weeknote n ->
+            (row_height n,
+             fun ~y_rel ~y_abs -> sn_week ~ctx ~art ~popularity ~y_rel ~y_abs n)
+          | Releases (t, rs) ->
+            ((if tight then Snake.height Snake.Release_tight
+              else Snake.height Snake.Release),
+             fun ~y_rel ~y_abs -> sn_release ~tight ~y_rel ~y_abs t rs)
+          | Quiet q ->
+            (Snake.height Snake.Quiet, fun ~y_rel ~y_abs:_ -> sn_quiet ~y_rel q)
         in
-        match Hashtbl.find_opt quiet_after key with
-        | Some q when q > 0 ->
-          let y_rel = !cursor in
-          cursor := !cursor +. Snake.height Snake.Quiet;
-          rows @ [sn_quiet ~y_rel q]
-        | _ -> rows) (by_week items)
+        let y_rel = !cursor in
+        cursor := !cursor +. height;
+        build ~y_rel ~y_abs:(month_top +. y_rel)) rows
     in
     let month_h = !cursor +. Snake.month_gap in
     y := month_top +. month_h;
@@ -635,7 +752,7 @@ let notes_list ~ctx =
       (sn_season ~year:yr ~month:mo ~y0:month_top ~height:month_h
        :: sn_month_pill (Printf.sprintf "%s %d" (Common.month_name_full mo) yr)
        :: rows)
-  ) months in
+  ) (timeline ~ctx) in
   let total = !y in
   let spine =
     let d = Snake.spine_path ~height:total in
@@ -659,11 +776,7 @@ let notes_list ~ctx =
         (spine :: month_sections)]
   in
   let featured_rail =
-    let featured =
-      match List.filter Note.featured journal_notes with
-      | [] -> List.filter Note.perma journal_notes |> Common.take 5
-      | marked -> marked
-    in
+    let featured = featured_notes journal_notes in
     match featured with
     | [] -> El.void
     | _ ->

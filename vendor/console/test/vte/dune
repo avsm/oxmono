@@ -1,0 +1,5 @@
+(copy_files ../../lib/input/width.{ml,mli})
+
+(library
+ (name console_vte)
+ (libraries console_compat matrix.ansi matrix.grid matrix.vte uucp uuseg))

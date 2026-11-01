@@ -1290,3 +1290,13 @@
  (alias runtest)
  (deps test_profile_recovery.exe)
  (action (run ./test_profile_recovery.exe --color=never)))
+
+(executable
+ (name test_send_queue_refresh)
+ (modules test_send_queue_refresh)
+ (libraries matrix-chat.client matrix-chat.eio matrix-chat.proto alcotest eio eio_main fetch fetch.mock http uriz ptime))
+
+(rule
+ (alias runtest)
+ (deps test_send_queue_refresh.exe)
+ (action (run ./test_send_queue_refresh.exe --color=never)))

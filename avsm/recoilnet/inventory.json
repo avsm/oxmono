@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "prefix": "fd96:57e3:eb75::/48",
+  "dns_suffix": "i.recoil.org",
+  "dns_visibility": "public",
+  "mtu": 1280,
+  "nodes": [
+    {
+      "name": "dark",
+      "role": "hub",
+      "platform": "openbsd",
+      "address": "fd96:57e3:eb75:1::1",
+      "public_key": "M23+U9qFr0feosFp+FAPY93UJzcOx7HxBxS08burMWU=",
+      "endpoint": "dark.recoil.org:51820",
+      "interface": "wg0",
+      "owner": "anil"
+    },
+    {
+      "name": "lack",
+      "role": "client",
+      "platform": "macos",
+      "address": "fd96:57e3:eb75:1::100",
+      "public_key": "dgA/gRa3vAsd0Ma3ZADy9V8X7ELGUGFe+NqTdKWqh10=",
+      "hub": "dark",
+      "client": "WireGuard.app",
+      "profile": "recoilnet",
+      "owner": "anil"
+    },
+    {
+      "name": "buck",
+      "role": "client",
+      "platform": "linux",
+      "address": "fd96:57e3:eb75:1::101",
+      "public_key": "POIJk4iZsCm8MNzo8bOcTlWMwER7shdkAruBqEZ1aCE=",
+      "hub": "dark",
+      "interface": "recoilnet",
+      "owner": "anil"
+    },
+    {
+      "name": "sleek",
+      "role": "client",
+      "platform": "macos",
+      "address": "fd96:57e3:eb75:1::103",
+      "public_key": "xz3G0u0EHnX6SJjaLhGdZetIxEOb2T9cFwJx3aYdLXk=",
+      "hub": "dark",
+      "client": "WireGuard.app",
+      "profile": "recoilnet-sleek",
+      "owner": "anil"
+    },
+    {
+      "name": "avsm-ip17",
+      "role": "client",
+      "platform": "ios",
+      "address": "fd96:57e3:eb75:1::102",
+      "public_key": "/IqcTlRlllAxQ8ynfZkfuRTjFElbnV3xPny3CXbNl2k=",
+      "hub": "dark",
+      "client": "WireGuard",
+      "profile": "avsm-ip17",
+      "owner": "anil"
+    },
+    {
+      "name": "sequoia",
+      "owner": "anil",
+      "role": "client",
+      "platform": "linux",
+      "address": "fd96:57e3:eb75:1::104",
+      "public_key": "Im32eHdXtkmets4xvWvA83IdxZMrHcjvdXvUai/vAAk=",
+      "hub": "dark",
+      "interface": "recoilnet"
+    }
+  ],
+  "host_registry": "ssh://avsm@dark.recoil.org/home/avsm/git/recoilnet"
+}

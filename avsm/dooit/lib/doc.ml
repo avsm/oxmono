@@ -29,12 +29,17 @@ let validate m =
     (fun v ->
       let s = string v in
       if String.length s <> 10 then fail "due must be YYYY-MM-DD";
+      String.iteri
+        (fun i c ->
+          if i = 4 || i = 7 then (
+            if c <> '-' then fail "due must be YYYY-MM-DD")
+          else if c < '0' || c > '9' then fail "due must be YYYY-MM-DD")
+        s;
       try
         let y = int_of_string (String.sub s 0 4)
         and mo = int_of_string (String.sub s 5 2)
         and d = int_of_string (String.sub s 8 2) in
-        if s.[4] <> '-' || s.[7] <> '-' || Ptime.of_date (y, mo, d) = None then
-          fail "invalid due date"
+        if Ptime.of_date (y, mo, d) = None then fail "invalid due date"
       with Failure _ -> fail "invalid due date")
     (find "due" m);
   let tags = List.map string (items "tags" m) in
@@ -99,6 +104,7 @@ let id t = field "id" t.meta
 let title t = field "title" t.meta
 let status t = field "status" t.meta
 let tags t = List.map string (items "tags" t.meta)
+let due t = Option.map string (find "due" t.meta)
 let deleted t = Option.is_some (find "deleted_at" t.meta)
 let revision t = digest t.raw
 

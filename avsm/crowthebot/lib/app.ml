@@ -111,16 +111,24 @@ let now env =
   let clock = Eio.Stdenv.mono_clock env in
   fun () -> Int64.to_float (Mtime.to_uint64_ns (Eio.Time.Mono.now clock)) /. 1e9
 
+let public_fetch ?retry env =
+  Fetch_httpz.std ?retry ~cookies:`Off
+    ~connect:(Feed_http.public_connect (Eio.Stdenv.net env))
+    ~connect_timeout:(Duration.of_sec 5) ~idle_timeout:(Duration.of_sec 15)
+    env
+
+let website_tools env =
+  Website.create ~fetch:(public_fetch env) ~clock:(Eio.Stdenv.mono_clock env)
+
+let http_post_tools env =
+  Http_post.create
+    ~fetch:(public_fetch ~retry:{Fetch.Retry.default with max_retries = 0} env)
+    ~clock:(Eio.Stdenv.mono_clock env)
+
 let feed_tools env store =
-  let client =
-    Fetch_httpz.std ~cookies:`Off
-      ~connect:(Feed_http.public_connect (Eio.Stdenv.net env))
-      ~connect_timeout:(Duration.of_sec 5) ~idle_timeout:(Duration.of_sec 15)
-      env
-  in
   Feeds.create ~state:(Store.feeds store)
-    ~download:
-      (Feed_http.create ~fetch:client ~clock:(Eio.Stdenv.mono_clock env))
+    ~download:(Feed_http.create ~fetch:(public_fetch env)
+        ~clock:(Eio.Stdenv.mono_clock env))
 
 let with_secrets ~env ~sw ~profile ~dir f =
   Secret_store.with_xdg ~sw ~fs:(Eio.Stdenv.fs env) ~profile ~profile_dir:dir f
@@ -303,7 +311,9 @@ let logged env (config : Config.t) ~label (complete : Agentkit.Chat.complete)
         (List.length r.messages) (List.length r.tools));
   try
     let response =
-      Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 90.) (fun () ->
+      Eio.Time.Timeout.run_exn
+        (Eio.Time.Timeout.seconds clock (float config.model_timeout_seconds))
+        (fun () ->
           complete r)
     in
     Log.info (fun m ->
@@ -324,7 +334,9 @@ let logged env (config : Config.t) ~label (complete : Agentkit.Chat.complete)
 
 let complete env (config : Config.t) client =
   logged env config ~label:"Model"
-    (Agentkit_openrouter.complete client ~model:config.model)
+    (Agentkit_openrouter.complete
+       ~parallel_tool_calls:(config.parallel_tool_calls > 1)
+       client ~model:config.model)
 
 let complete_ds4 env (config : Config.t) engine =
   logged env config ~label:"DS4 model"
@@ -488,8 +500,73 @@ let probe ~env ~sw ~profile ~api_key_file ~target =
   if not (model_ok && caldav_ok) then
     failwith "One or more probe checks failed."
 
+let cross_signing_identity ~env ~dir ~ctx ~recovery_key_file =
+  let client = Context.client ctx in
+  match recovery_key_file with
+  | None ->
+      Option.map (fun encryption ->
+        with_timeout env 90. (fun () ->
+          let identity = Account_identity.setup ~dir ~client ~encryption
+              ~random:(Matrix_client.Random.of_source
+                         (Eio.Stdenv.secure_random env))
+              ~auth_callback:(fun challenge ->
+                if Matrix_client.Uiaa.has_dummy_flow challenge then
+                  Some (Matrix_client.Uiaa.dummy_auth
+                          ?session:challenge.session ())
+                else None)
+          in
+          Context.save ctx;
+          identity)) (Context.encryption ctx)
+  | Some path ->
+      let encryption = match Context.encryption ctx with
+        | Some encryption -> encryption
+        | None -> failwith "cross-signing requires an encrypted Matrix device"
+      in
+      Some (with_timeout env 90. (fun () ->
+        let secret_store = Matrix_eio.Secrets.open_secret_store client
+            ~credential:(Profile.read_secret path) in
+        let identity = Matrix_eio.Secrets.import_cross_signing secret_store
+            ~encryption in
+        let module Cs = Matrix_client.Cross_signing in
+        if Cs.master_secret identity = None
+           || Cs.self_signing_secret identity = None
+           || Cs.user_signing_secret identity = None then
+          failwith "Crow's recovery store has incomplete cross-signing keys";
+        Context.save ctx;
+        Log.info (fun m -> m "Crow device cross-signed user=%S device=%S"
+          (Id.User_id.to_string (Context.user_id ctx))
+          (Id.Device_id.to_string (Matrix_eio.Client.device_id client)));
+        identity))
+
+let setup_verification ~env ~sw ~profile ~password_file =
+  with_profile ~env ~sw ~profile @@ fun dir config _ ->
+  let ctx = connect ~env ~sw ~profile config () in
+  let encryption = match Context.encryption ctx with
+    | Some encryption -> encryption
+    | None -> failwith "cross-signing requires an encrypted Matrix device"
+  in
+  let password = lazy (match password_file with
+    | Some path -> Profile.read_secret path
+    | None -> password_prompt ()) in
+  let module U = Matrix_client.Uiaa in
+  let auth_callback (challenge : U.uiaa_response) =
+    if U.has_dummy_flow challenge then
+      Some (U.dummy_auth ?session:challenge.session ())
+    else if List.exists (fun (flow : U.auth_flow) -> flow.stages = [U.Password])
+              challenge.flows then
+      Some (U.password_auth ~user:(Id.User_id.to_string (Context.user_id ctx))
+              ~password:(Lazy.force password) ?session:challenge.session ())
+    else None
+  in
+  ignore (with_timeout env 90. (fun () ->
+    Account_identity.setup ~dir ~client:(Context.client ctx) ~encryption
+      ~random:(Matrix_client.Random.of_source (Eio.Stdenv.secure_random env))
+      ~auth_callback));
+  Context.save ctx;
+  print_endline "Crow's account identity and saved device are cross-signed."
+
 let verify ~env ~sw ~profile ~user ~listen ~room ~recovery_key_file =
-  with_profile ~env ~sw ~profile @@ fun _ config _ ->
+  with_profile ~env ~sw ~profile @@ fun dir config _ ->
   if not (Unix.isatty Unix.stdin) then
     invalid_arg "verification requires an interactive terminal";
   let target =
@@ -506,34 +583,10 @@ let verify ~env ~sw ~profile ~user ~listen ~room ~recovery_key_file =
     | None -> failwith "verification requires an encrypted Matrix device"
   in
   let client = Context.client ctx in
-  let private_identity =
-    Option.map
-      (fun path ->
-        with_timeout env 90. (fun () ->
-            let secret_store =
-              Matrix_eio.Secrets.open_secret_store client
-                ~credential:(Profile.read_secret path)
-            in
-            let identity =
-              Matrix_eio.Secrets.import_cross_signing secret_store ~encryption
-            in
-            let module Cs = Matrix_client.Cross_signing in
-            if
-              Cs.master_secret identity = None
-              || Cs.self_signing_secret identity = None
-              || Cs.user_signing_secret identity = None
-            then
-              failwith "Crow's recovery store has incomplete cross-signing keys";
-            identity))
-      recovery_key_file
-  in
+  let private_identity = cross_signing_identity ~env ~dir ~ctx ~recovery_key_file in
   Printf.printf "Crow account: %s\nSaved device: %s\n%!"
     (Id.User_id.to_string (Context.user_id ctx))
     (Id.Device_id.to_string (Matrix_eio.Client.device_id client));
-  if private_identity = None then
-    print_endline
-      "Device-only verification. For user verification across clients, supply \
-       --recovery-key-file with Crow's account recovery key.";
   let input = Eio.Buf_read.of_flow ~max_size:4096 (Eio.Stdenv.stdin env) in
   let ask question =
     print_string question;
@@ -562,7 +615,7 @@ let verify ~env ~sw ~profile ~user ~listen ~room ~recovery_key_file =
         ("Verification cancelled: "
         ^ Matrix_client.Verification.Cancel_code.reason code)
 
-let run ~env ~sw ~profile ~api_key_file =
+let run ~env ~sw ~profile ~api_key_file ~recovery_key_file =
   Log.info (fun m -> m "Starting Crow profile=%S" profile);
   with_profile ~env ~sw ~profile @@ fun dir config store ->
   if config.log_level <> "warning" then Diagnostics.configure_level config.log_level;
@@ -573,6 +626,7 @@ let run ~env ~sw ~profile ~api_key_file =
       m "Profile loaded admin=%S enabled_rooms=%d" config.admin
         (List.length (Store.rooms store)));
   let ctx = connect ~env ~sw ~profile config () in
+  let private_identity = cross_signing_identity ~env ~dir ~ctx ~recovery_key_file in
   let complete_model =
     complete_for_config ~env ~sw ~profile ~dir ~store ~api_key_file config
   in
@@ -586,6 +640,30 @@ let run ~env ~sw ~profile ~api_key_file =
       ~complete:complete_model
       ~now:(now env)
     |> fun engine ->
+    Engine.with_addresses engine
+      (Agentkit_osm.create ~fetch:(fetch env)
+         ~clock:(Eio.Stdenv.mono_clock env)
+         ~max_result_bytes:config.tool_result_bytes ())
+    |> fun engine ->
+    (match
+       Knowledge.load ~sw ~fs:(Eio.Stdenv.fs env) ~clock:(Eio.Stdenv.clock env)
+         ~fetch:(fetch env) ~store ~max_bytes:config.tool_result_bytes ()
+     with
+    | None -> engine
+    | Some knowledge -> Engine.with_knowledge engine knowledge)
+    |> fun engine ->
+    (match
+       Tasks.load ~fs:(Eio.Stdenv.fs env)
+         ~process_mgr:(Eio.Stdenv.process_mgr env) ~store ~profile
+         ~max_bytes:config.tool_result_bytes ()
+     with
+    | None ->
+        Log.info (fun m -> m "Dooit task tools disabled: no existing store");
+        engine
+    | Some tasks -> Engine.with_tasks engine tasks)
+    |> fun engine ->
+    Engine.with_website engine (website_tools env) |> fun engine ->
+    Engine.with_http_post engine (http_post_tools env) |> fun engine ->
     Engine.with_feeds engine (feed_tools env store) |> fun engine ->
     Engine.with_calendars engine (calendar_tools ~env ~sw ~profile ~dir store)
     |> fun engine ->
@@ -597,7 +675,9 @@ let run ~env ~sw ~profile ~api_key_file =
     |> Engine.with_room_observation
     |> fun engine ->
     Engine.with_matrix engine
-      (Matrix_rooms.create ~store
+      (Matrix_rooms.create ~store ~client:(Context.client ctx)
+         ~max_result_bytes:config.tool_result_bytes
+         ?encryption:(Context.encryption ctx)
          ~self:(Id.User_id.to_string (Context.user_id ctx))
          ~state:(fun () -> !matrix_state ())
          ~send:(fun () -> !matrix_sender ())
@@ -622,6 +702,84 @@ let run ~env ~sw ~profile ~api_key_file =
       (match config.backend with Config.Openrouter -> "openrouter" | Config.Ds4 -> "ds4" | Config.Apple_fm -> "apple-fm")
       config.model config.log_level);
   let self = Id.User_id.to_string (Context.user_id ctx) in
+  let running_bot = ref None in
+  let admin = Id.User_id.of_string_exn (Store.admin store) in
+  let client = Context.client ctx in
+  let state () =
+    match !running_bot with
+    | None -> None
+    | Some bot -> Some (Matrix_eio.Sync_service.state
+        (Matrix_ui.Runtime.sync_service (Matrix_bot.Bot.runtime bot)))
+  in
+  let admin_dm = Admin_dm.create ~client ?encryption:(Context.encryption ctx)
+      ~store ~state () in
+  let send_admin text =
+    with_timeout env 30. (fun () -> Admin_dm.send admin_dm text)
+  in
+  let verification = ref None in
+  let verify () =
+    with_timeout env 30. (fun () ->
+      match !verification, Context.encryption ctx with
+      | Some service, Some encryption ->
+          if List.exists (fun session ->
+              Id.User_id.equal admin
+                (Matrix_client.Verification.Flow.session_their_user_id session))
+              (Matrix_eio.Verification_service.sessions service) then
+            send_admin "Verification is already in progress."
+          else begin
+            let room = Admin_dm.room admin_dm in
+            Matrix_eio.Encryption.receive_keys_query encryption
+              (Matrix_eio.Keys.query_keys client
+                 ~users:[ (Context.user_id ctx, []); (admin, []) ] ());
+            ignore (Matrix_eio.Verification_service.request_in_room service client
+                      ~room_id:room
+                      ~methods:[Matrix_client.Verification.Method.Sas_v1] admin);
+            Log.info (fun m -> m "Started admin device verification room=%S"
+                (Id.Room_id.to_string room))
+          end
+      | _ -> send_admin "Device verification is unavailable without encryption.")
+  in
+  let check_room room_id =
+    match !running_bot with
+    | None -> false
+    | Some bot ->
+        let id = Id.Room_id.of_string_exn room_id in
+        match Matrix_bot.Bot.find_room bot id with
+        | None -> false
+        | Some room when Matrix_bot.Room.is_dm room
+                         || Store.direct_peer store room_id <> None -> false
+        | Some room ->
+            let snapshot = Matrix_eio.Rooms.get_members client ~room_id:id () in
+            Matrix_eio.Sync_service.replace_members
+              (Matrix_ui.Runtime.sync_service (Matrix_bot.Bot.runtime bot)) id snapshot;
+            let members = Matrix_bot.Room.members room
+                |> List.map Id.User_id.to_string in
+            List.length members > 2 && List.mem self members
+            && List.mem (Store.admin store) members
+  in
+  let onboarding = Onboarding.create ~store ~self
+      ~check_room
+      ~room_label:(fun room ->
+        match state () with
+        | None -> room
+        | Some snapshot ->
+            match Matrix_client.Base_client.find_room snapshot
+                    (Id.Room_id.of_string_exn room) with
+            | None -> room
+            | Some info -> Matrix_rooms.room_label info)
+      ~send_admin ~verify
+      ~respond:(fun ~flow_id ~accept ->
+        Option.iter (fun service ->
+          Matrix_eio.Verification_service.respond service client ~flow_id ~accept)
+          !verification)
+  in
+  verification := Option.map (fun encryption ->
+    Matrix_eio.Verification_service.create ~client ~encryption ?private_identity
+      ~methods:[Matrix_client.Verification.Method.Sas_v1]
+      ~on_prompt:(Onboarding.prompt onboarding)
+      ~on_result:(fun result ->
+        Context.save ctx;
+        Onboarding.result onboarding result) ()) (Context.encryption ctx);
   let direct_peer bot room ~actor =
     let room_id = Matrix_bot.Room.id room in
     let saved = Store.direct_peer store (Id.Room_id.to_string room_id) in
@@ -808,7 +966,7 @@ let run ~env ~sw ~profile ~api_key_file =
             failwith "Matrix reply could not be confirmed"
       in
       try
-        with_timeout env 180. (fun () ->
+        with_timeout env (float config.turn_timeout_seconds) (fun () ->
             Typing.with_session ~clock:(Eio.Stdenv.mono_clock env)
               ~room:event.room ~event:event.id ~set:(fun typing ->
                 Matrix_eio.Typing.set_typing (Context.client ctx)
@@ -834,9 +992,10 @@ let run ~env ~sw ~profile ~api_key_file =
               then failwith "DM membership changed during the request";
               send text
             in
-            Engine.handle engine ~mentioned ~direct
-              ~on_accept:(fun () -> Typing.start typing)
-              ~attachments ~send event)
+            if not (Onboarding.handle onboarding ~direct ~send event) then
+              Engine.handle engine ~mentioned ~direct
+                ~on_accept:(fun () -> Typing.start typing)
+                ~attachments ~send event)
       with
       | Eio.Cancel.Cancelled _ as exn -> raise exn
       | exn ->
@@ -879,7 +1038,7 @@ let run ~env ~sw ~profile ~api_key_file =
                 | Error error ->
                     Log.err (fun m ->
                         m
-                          "DM join failed room=%S inviter=%S error=%s; \
+                          "Invitation join failed room=%S inviter=%S error=%s; \
                            invitation remains pending"
                           (Id.Room_id.to_string invitation.room_id)
                           (Id.User_id.to_string inviter)
@@ -898,6 +1057,7 @@ let run ~env ~sw ~profile ~api_key_file =
                   "Ignored invitation: requires the admin or a direct invite \
                    from an approved account"))
     |> Matrix_bot.Bot.on_join (fun bot room ->
+        running_bot := Some bot;
         let id = Matrix_bot.Room.id room in
         Log.info (fun m ->
             m
@@ -917,6 +1077,8 @@ let run ~env ~sw ~profile ~api_key_file =
           in
           Hashtbl.replace watchers id stop
         end;
+        with_timeout env 30. (fun () ->
+          Onboarding.request onboarding ~room:(Id.Room_id.to_string id));
         if
           List.mem
             (Id.Room_id.to_string (Matrix_bot.Room.id room))
@@ -972,7 +1134,8 @@ let run ~env ~sw ~profile ~api_key_file =
       m
         "Starting Matrix sync; messages in the initial timeline are skipped. \
          Send a fresh message once sync is live");
-  Matrix_bot.Bot.run ctx spec ~on_start:(fun bot ->
+  Matrix_bot.Bot.run ?verification:!verification ctx spec ~on_start:(fun bot ->
+      running_bot := Some bot;
       (matrix_sender :=
          fun () ->
            Some
@@ -1064,7 +1227,8 @@ let run ~env ~sw ~profile ~api_key_file =
             Log.info (fun m ->
                 m "Reminder firing id=%d run_id=%d room=%S" job.reminder_id
                   run_id job.room);
-            Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock 180.)
+            Eio.Time.Timeout.run_exn (Eio.Time.Timeout.seconds clock
+               (float config.turn_timeout_seconds))
             @@ fun () ->
             let room =
               match

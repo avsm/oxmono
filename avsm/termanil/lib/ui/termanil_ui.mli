@@ -2,6 +2,7 @@
 open Bonsai_term
 module Reply_editor = Reply_editor
 module Metadata = Metadata
+module Input_queue = Input_queue
 
 val app :
   ?initial:Termanil_model.t ->

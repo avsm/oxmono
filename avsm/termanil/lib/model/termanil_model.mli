@@ -198,7 +198,11 @@ val update : t -> action -> t * (int * request) option
     identities and task revisions, never a list index. *)
 
 val visible_people : t -> contact list
+
 val visible_tasks : t -> task list
+(** [visible_tasks t] filters by the task query, with unfinished tasks first and
+    newest updates first within each group. Equal updates retain order. *)
+
 val selected_message : t -> message option
 val selected_contact : t -> contact option
 val selected_task : t -> task option
@@ -211,7 +215,10 @@ val safe_text : string -> string
 
 val same_email : email_ref -> email_ref -> bool
 val request_name : request -> string
+
 val linked_tasks : t -> message -> task list
+(** [linked_tasks t message] uses the same task ordering as [visible_tasks]. *)
+
 val saved_reply : t -> email_ref -> draft option
 val selected_draft : t -> draft option
 val draft_dirty : t -> email_ref -> string -> bool

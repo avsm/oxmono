@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Allow JSON and JSON Lines codec construction inside portable handlers.
+
 - Report WebSocket read activity and expose rejected upgrade status codes.
 
 - Add an Eio WS/WSS client with verified upgrades, TLS, bounded I/O and

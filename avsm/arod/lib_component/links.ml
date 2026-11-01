@@ -77,58 +77,9 @@ let extract_rfc_number url =
   in
   find segs
 
-(** Domains that do not identify a single contact. *)
-let shared_platforms = [
-  "github.com"; "gitlab.com"; "codeberg.org"; "tangled.org"; "bitbucket.org";
-  "twitter.com"; "x.com"; "bsky.app"; "bsky.social";
-  "mastodon.social"; "mastodon.online"; "hachyderm.io";
-  "linkedin.com"; "youtube.com"; "youtu.be";
-  "arxiv.org"; "doi.org"; "orcid.org";
-  "reddit.com"; "news.ycombinator.com";
-  "threads.com";
-  "medium.com"; "substack.com"; "wordpress.com";
-  "en.wikipedia.org"; "wikipedia.org";
-  "scholar.google.com"; "google.com";
-  "stackoverflow.com"; "stackexchange.com";
-  "researchgate.net"; "academia.edu";
-  "amazon.com"; "goodreads.com";
-]
-
 let strip_www = Common.strip_www
-
-(** [build_contact_by_domain contacts] indexes contact URLs by domain and path. *)
-let build_contact_by_domain contacts =
-  let tbl : (string, (string * Contact.t) list) Hashtbl.t = Hashtbl.create 64 in
-  let is_shared h = List.mem h shared_platforms in
-  let add_url c url_str =
-    match host_and_path url_str with
-    | "", _ -> ()
-    | h, path ->
-      let bare = strip_www (String.lowercase_ascii h) in
-      if not (is_shared bare) then begin
-        let cur = Option.value ~default:[] (Hashtbl.find_opt tbl bare) in
-        if not (List.exists (fun (p, _) -> p = path) cur) then
-          Hashtbl.replace tbl bare ((path, c) :: cur)
-      end
-  in
-  List.iter (fun c ->
-    List.iter (fun (l : Contact.link) -> add_url c l.url) (Contact.links c);
-    List.iter (fun a -> add_url c (Contact.Account.url a)) (Contact.accounts c)
-  ) contacts;
-  tbl
-
-(** [find_contact_for_url index host path] is the best matching contact. *)
-let find_contact_for_url contact_by_domain bare_host url_path =
-  match Hashtbl.find_opt contact_by_domain bare_host with
-  | None -> None
-  | Some entries ->
-    List.fold_left (fun best (prefix, contact) ->
-      if not (String.starts_with ~prefix url_path) then best
-      else match best with
-        | Some (old, _) when String.length old >= String.length prefix -> best
-        | _ -> Some (prefix, contact)
-    ) None entries
-    |> Option.map snd
+let build_contact_by_domain = Arod.Collections.build_contact_by_domain
+let find_contact_for_url = Arod.Collections.find_contact_for_url
 
 (** [classify_url ~contact_by_domain ~doi_entries ~ctx url] describes [url]. *)
 let classify_url ~contact_by_domain ~doi_entries ~ctx url =
@@ -359,30 +310,18 @@ let kind_badge ~entries display =
                   At.v "alt" ""] ()
     | None -> El.span ~at:[At.class' "link-kind-badge"] [El.txt "\xc2\xb7"]
 
-type link_group = {
+type link_group = Arod.Collections.link_group = {
   ent : Entry.entry;
   links : Bushel.Link_graph.external_link list;
 }
 
-(** [compute_groups ~ctx] is the external-link groups in reverse date order. *)
 let compute_groups ~ctx =
-  let entries = Arod.Ctx.entries ctx in
-  let all_links = Arod.Ctx.all_external_links ctx in
-  let by_source : (string, Bushel.Link_graph.external_link list) Hashtbl.t =
-    Hashtbl.create 128 in
-  List.iter (fun (link : Bushel.Link_graph.external_link) ->
-    let cur = Option.value ~default:[] (Hashtbl.find_opt by_source link.source) in
-    if List.exists (fun (l : Bushel.Link_graph.external_link) -> l.url = link.url) cur then ()
-    else Hashtbl.replace by_source link.source (link :: cur)
-  ) all_links;
-  let groups = Hashtbl.fold (fun slug links acc ->
-    match Entry.lookup entries slug with
-    | Some ent -> { ent; links } :: acc
-    | None -> acc
-  ) by_source [] in
-  List.sort (fun a b ->
-    compare (Entry.date b.ent) (Entry.date a.ent)
-  ) groups
+  Arod.Collections.to_list (Arod.Collections.links (Arod.Ctx.collections ctx))
+
+(** [show_domain_hint display] is whether the page gives the domain of a link
+    beside its label. *)
+let show_domain_hint display =
+  (display.kind <> Web && display.kind <> Untitled) || display.favicon <> None
 
 (** [render_group ~contact_by_domain ~doi_entries ~entries ~ctx group] renders [group]. *)
 let render_group ~contact_by_domain ~doi_entries ~entries ~ctx group =
@@ -418,7 +357,7 @@ let render_group ~contact_by_domain ~doi_entries ~entries ~ctx group =
                   At.v "rel" "noopener"]
           label_children
     in
-    let show_hint = (display.kind <> Web && display.kind <> Untitled) || display.favicon <> None in
+    let show_hint = show_domain_hint display in
     let domain_hint =
       if show_hint then
         El.span ~at:[At.class' "link-domain-hint"]
@@ -437,9 +376,8 @@ let render_group ~contact_by_domain ~doi_entries ~entries ~ctx group =
 
 (** [render_groups_html ~ctx groups] is the pagination fragment for [groups]. *)
 let render_groups_html ~ctx groups =
-  let contacts = Arod.Ctx.contacts ctx in
   let entries = Arod.Ctx.entries ctx in
-  let contact_by_domain = build_contact_by_domain contacts in
+  let contact_by_domain = Arod.Collections.contact_domains (Arod.Ctx.collections ctx) in
   let doi_entries = Entry.doi_entries entries in
   let els = List.map (render_group ~contact_by_domain ~doi_entries ~entries ~ctx) groups in
   El.to_string ~doctype:false (El.div els)
@@ -449,13 +387,27 @@ let all_groups ~ctx = compute_groups ~ctx
 
 let page_size = 25
 
-(** [links_list ~ctx] is the external-link list and its sidebar. *)
-let links_list ~ctx =
-  let groups = compute_groups ~ctx in
-  let entries = Arod.Ctx.entries ctx in
-  let contacts = Arod.Ctx.contacts ctx in
-  let contact_by_domain = build_contact_by_domain contacts in
+(** The categories of the link filter, in display order, with their labels. *)
+let filter_categories = [
+  (Fp_paper, "paper");
+  (Fp_contact, "contact");
+  (Fp_code, "code");
+  (Fp_titled, "titled");
+  (Fp_untitled, "untitled");
+]
 
+type stats = {
+  total_urls : int;
+  total_domains : int;
+  domain_counts : (string * int) list;
+  filter_counts : (filter_kind, int) Hashtbl.t;
+}
+
+(** [stats ~ctx groups] is the counts that the sidebar of the links page gives:
+    how many distinct links, how many domains and how many links each domain
+    and each filter category has. Domains are most common first. *)
+let stats ~ctx groups =
+  let contact_by_domain = Arod.Collections.contact_domains (Arod.Ctx.collections ctx) in
   let url_set = Hashtbl.create 256 in
   let domain_tbl : (string, int) Hashtbl.t = Hashtbl.create 64 in
   List.iter (fun group ->
@@ -495,8 +447,35 @@ let links_list ~ctx =
       | None -> bump_filter Fp_untitled
   ) url_set;
 
-  let total_urls = Hashtbl.length url_set in
-  let total_domains = List.length domain_counts in
+  { total_urls = Hashtbl.length url_set;
+    total_domains = List.length domain_counts; domain_counts; filter_counts }
+
+(** [displayer ~ctx] is the function that describes a link as the page shows
+    it: its label, secondary text and kind. *)
+let displayer ~ctx =
+  let contact_by_domain = Arod.Collections.contact_domains (Arod.Ctx.collections ctx) in
+  let doi_entries = Entry.doi_entries (Arod.Ctx.entries ctx) in
+  fun url -> classify_url ~contact_by_domain ~doi_entries ~ctx url
+
+(** The paragraph that opens the links page. The link is to the archive. *)
+let list_intro_before =
+  "These are all the outbound links from my site, categorised here for \
+   convenient search. They are archived for offline use through "
+
+let list_intro_link = ("Karakeep", "https://karakeep.app")
+let list_intro_after = "."
+
+(** [links_list ~ctx] is the external-link list and its sidebar. *)
+let links_list ~ctx =
+  let groups = compute_groups ~ctx in
+  let entries = Arod.Ctx.entries ctx in
+  let contact_by_domain = Arod.Collections.contact_domains (Arod.Ctx.collections ctx) in
+
+  let st = stats ~ctx groups in
+  let total_urls = st.total_urls in
+  let total_domains = st.total_domains in
+  let domain_counts = st.domain_counts in
+  let filter_counts = st.filter_counts in
   let total_groups = List.length groups in
 
   let month_links : (string, int list) Hashtbl.t = Hashtbl.create 64 in
@@ -532,11 +511,11 @@ let links_list ~ctx =
 
   let intro =
     El.p ~at:[At.class' "text-sm text-gray-600 dark:text-gray-400 mb-6"] [
-      El.txt "These are all the outbound links from my site, categorised here for convenient search. They are archived for offline use through ";
-      El.a ~at:[At.href "https://karakeep.app";
+      El.txt list_intro_before;
+      El.a ~at:[At.href (snd list_intro_link);
                 At.class' "text-accent hover:underline"] [
-        El.txt "Karakeep"];
-      El.txt "."]
+        El.txt (fst list_intro_link)];
+      El.txt list_intro_after]
   in
 
   let article =
@@ -623,13 +602,7 @@ let links_list ~ctx =
         {|<svg class="inline-block shrink-0" width="12" height="12" viewBox="0 0 16 16" fill="currentColor">%s</svg>|}
         svg_inner)
     in
-    let categories = [
-      (Fp_paper, "paper");
-      (Fp_contact, "contact");
-      (Fp_code, "code");
-      (Fp_titled, "titled");
-      (Fp_untitled, "untitled");
-    ] in
+    let categories = filter_categories in
     let rows = List.filter_map (fun (kind, label) ->
       let count = try Hashtbl.find filter_counts kind with Not_found -> 0 in
       if count = 0 then None

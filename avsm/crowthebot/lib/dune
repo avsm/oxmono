@@ -1,8 +1,11 @@
 (library
  (name crowthebot)
  (public_name crowthebot)
- (private_modules profile persistence email_http email_json tool_args)
+ (private_modules profile persistence email_json tool_args public_http)
  (libraries
+  sekrit
+  sekrit.eio
+  eioext
   caldav.eio
   caldav
   ical
@@ -15,6 +18,11 @@
   matrix-chat.eio
   openrouter
   agentkit
+  dooit.agent
+  bushel.agent
+  bushel.knowledge.store
+  retrieval.mlx
+  agentkit-osm
   agentkit-ds4
   ds4
   ds4.metal
@@ -30,6 +38,7 @@
   cmdliner
   logs
   cmarkit
+  markup
   cstruct
   owntracks
   owntracks.config

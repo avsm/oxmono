@@ -1,0 +1,9 @@
+{
+  "name": "0install-solver",
+  "version": "2.18",
+  "archive_url": "https://github.com/0install/0install/releases/download/v2.18/0install-2.18.tbz",
+  "archive_checksums": [
+    "sha256=648c4b318c1a26dfcb44065c226ab8ca723795924ad80a3bf39ae1ce0e9920c3"
+  ],
+  "revision": "b58af5db6afd496cfd4a5f85fb23f30ba8dfbc87"
+}

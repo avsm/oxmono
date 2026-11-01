@@ -187,11 +187,13 @@ module VideoIndex = struct
     index
 
   let save_file path index =
+    let entries = Hashtbl.to_seq index |> List.of_seq
+      |> List.sort (fun (a, _) (b, _) -> String.compare a b) in
     Out_channel.with_open_bin path (fun oc ->
       output_string oc "# UUID -> PeerTube server name mapping\n";
-      Hashtbl.iter (fun uuid server ->
+      List.iter (fun (uuid, server) ->
         output_string oc (Printf.sprintf "%s: %s\n" uuid server)
-      ) index)
+      ) entries)
 
   let add index ~uuid ~server =
     Hashtbl.replace index uuid server

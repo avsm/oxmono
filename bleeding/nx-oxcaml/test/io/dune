@@ -1,0 +1,8 @@
+(rule
+ (target pristine_npy.ml)
+ (deps ../../../../vendor/nx/upstream/npy.ml)
+ (action (copy %{deps} %{target})))
+
+(test
+ (name test_io)
+ (libraries nx nx.io nx.buffer nx.zip nx-oxcaml unix))

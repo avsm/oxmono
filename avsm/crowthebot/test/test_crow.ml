@@ -56,7 +56,7 @@ let () =
       check "bounded context" (List.length messages <= 10);
       if !tool_mode && !tool_step = 0 then begin
         incr tool_step;
-        check "plugin, memory and cron tools advertised" (List.length tools = 8);
+        check "plugin, memory and cron tools advertised" (List.length tools = 10);
         ( None,
           [
             Agentkit.Agent.
@@ -166,6 +166,17 @@ let () =
   check "HTTP model endpoint rejected"
     (bad (fun () ->
          Config.validate { config with base_url = "http://model.example/v1" }));
+  let trusted = { config with base_url = "http://sequoia:8000/v1";
+                              allow_http_model = true } in
+  Config.validate trusted;
+  check "trusted HTTP opt-in survives TOML roundtrip"
+    (match Config.of_toml_string (Tomlt_bytesrw.encode_string Config.tomlt trusted) with
+     | Ok restored -> restored.allow_http_model && restored.base_url = trusted.base_url
+     | Error _ -> false);
+  check "trusted HTTP opt-in does not permit HTTP Matrix"
+    (bad (fun () -> Config.validate {trusted with homeserver = "http://matrix.example"}));
+  check "trusted HTTP opt-in still rejects URL credentials"
+    (bad (fun () -> Config.validate {trusted with base_url = "http://key@sequoia:8000/v1"}));
   check "HTTP loopback model endpoint accepted"
     (List.for_all
        (fun base_url ->
@@ -184,7 +195,7 @@ base_url = "https://model.example/v1"
 model = "m"
 system_prompt = "p"|}
      with
-    | Ok c -> c.compaction_reasoning_effort = Some "none" && c.max_tokens = 4096
+    | Ok c -> c.compaction_reasoning_effort = Some "none" && c.max_tokens = 16384
     | Error _ -> false);
   check "invalid compaction reasoning rejected"
     (bad (fun () ->
@@ -199,6 +210,35 @@ system_prompt = "p"|}
          ignore
            (Engine.create ~config:{ config with plugins = [ "missing" ] }
               ~store ~self ~plugins:[ plugin ] ~complete:(Fake_model.v complete) ~now:(fun () -> 0.))));
+  let encoded = Result.get_ok (Jsont_bytesrw.encode_string Config.jsont config) in
+  let legacy = Result.get_ok (Jsont_bytesrw.decode_string Jsont.json encoded) in
+  let legacy = match legacy with
+    | Jsont.Object (members, meta) -> Jsont.Object
+        (List.filter (fun ((key, _), _) -> not (List.mem key
+          ["allow_http_model"; "tool_calls"; "tool_result_bytes"; "tool_request_bytes";
+           "parallel_tool_calls"; "model_timeout_seconds";
+           "turn_timeout_seconds"])) members, meta)
+    | _ -> assert false in
+  let restored = Result.get_ok (Jsont.Json.decode Config.jsont legacy) in
+  check "legacy JSON keeps trusted HTTP disabled" (not restored.allow_http_model);
+  check "existing JSON profiles get large tool defaults"
+    (restored.tool_calls = 256 && restored.parallel_tool_calls = 8
+     && restored.tool_result_bytes = 65536);
+  let restored = Result.get_ok (Config.of_toml_string
+    {|admin = "@admin:example.org"
+homeserver = "https://matrix.example.org"
+base_url = "https://model.example.org"
+model = "test"
+system_prompt = "hello"
+|}) in
+  Config.validate restored;
+  check "legacy TOML keeps trusted HTTP disabled" (not restored.allow_http_model);
+  check "existing TOML profiles get large tool defaults"
+    (restored.tool_request_bytes = 8388608
+     && restored.turn_timeout_seconds = 3600);
+  Config.validate {restored with max_tokens = 65536; context_bytes = 2000000};
+  check "invalid tool limits refused"
+    (bad (fun () -> Config.validate {restored with parallel_tool_calls = 0}));
   let native =
     Openrouter.of_fetch ~base_url:"https://model.example/v1"
       (Fetch_mock.client (fun req ->
@@ -267,7 +307,8 @@ system_prompt = "p"|}
          (event ~sender:admin "loop" "!crow ask hello");
        false
      with Failure _ -> true);
-  check "at most six tool calls" (!plugin_calls = before + 6);
+  check "configured tool allowance"
+    (!plugin_calls = before + config.tool_calls);
   let hung = ref true and tick = ref 0. in
   let pending, _ = Eio.Promise.create () in
   let complete _ _ =

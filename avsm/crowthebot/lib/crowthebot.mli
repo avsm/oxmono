@@ -28,6 +28,10 @@ module Email_cache = Email_cache
 module Emails = Emails
 module Feed_http = Feed_http
 module Feed_parse = Feed_parse
+module Website = Website
+module Knowledge = Knowledge
+module Tasks = Tasks
+module Http_post = Http_post
 module Feeds = Feeds
 module Plugin = Plugin
 module Engine = Engine
@@ -36,6 +40,8 @@ module Matrix_input = Matrix_input
 module Matrix_rooms = Matrix_rooms
 module Voice = Voice
 module Verification = Verification
+module Onboarding = Onboarding
+module Admin_dm = Admin_dm
 module App = App
 module Calendar_source = Calendar_source
 module Calendar_store = Calendar_store
@@ -48,3 +54,5 @@ module Caldav_tools : module type of Caldav_tools
 module Caldav_agenda = Caldav_agenda
 module Caldav_agenda_store = Caldav_agenda_store
 module Caldav_text = Caldav_text
+
+module Account_identity = Account_identity

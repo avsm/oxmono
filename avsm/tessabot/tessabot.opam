@@ -21,7 +21,6 @@ depends: [
   "eio" {>= "1.2"}
   "eio_main"
   "console"
-  "console-eio"
   "cmdliner"
   "fmt"
   "logs"

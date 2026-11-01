@@ -36,6 +36,9 @@ identify the vendored source version.
 
 ## Local patch set
 
+- Declare the recorded upstream version in `dune-project` so generated opam
+  metadata and ox snapshot versions satisfy dependent packages' lower bounds.
+
 - `ebcc086d07ffdc272c25fa5a201ee3e7390ba90d`: OxCaml portability annotations
   for the fiber core and public interfaces, effect and shared-state adaptations,
   and a portable callback requirement for `Domain_manager.run`, with an explicit

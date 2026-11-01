@@ -1,0 +1,8 @@
+(executable
+ (name bench)
+ (libraries console_compat console console.input fmt))
+
+(rule
+ (alias bench)
+ (action
+  (run %{exe:bench.exe})))

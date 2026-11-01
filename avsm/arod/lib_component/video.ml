@@ -17,6 +17,73 @@ let strip_scheme url =
     String.sub url 7 (String.length url - 7)
   else url
 
+(** A line of the references under a video card: its project and paper, and the
+    entries that link to it or that it links to. [kind] says what it is. *)
+type reference = { icon : string; kind : string; title : string; href : string }
+
+(** [card_refs ~ctx v] is the references of the card of [v], in the order the
+    card shows them. *)
+let card_refs ~ctx v =
+  let slug = Video.slug v in
+  let own =
+    List.filter_map Fun.id [
+      (match Video.project v with
+       | Some proj_slug ->
+         let title = match Arod.Ctx.lookup ctx proj_slug with
+           | Some (`Project proj) -> Bushel.Project.title proj
+           | _ -> proj_slug
+         in
+         Some { icon = I.outline ~size:11 I.folder_o; kind = "project"; title;
+                href = "/projects/" ^ proj_slug }
+       | None -> None);
+      (match Video.paper v with
+       | Some paper_slug ->
+         let title = match Arod.Ctx.lookup ctx paper_slug with
+           | Some (`Paper paper) -> Bushel.Paper.title paper
+           | _ -> paper_slug
+         in
+         Some { icon = I.outline ~size:11 I.paper_o; kind = "paper"; title;
+                href = "/papers/" ^ paper_slug }
+       | None -> None);
+    ]
+  in
+  let entries = Arod.Ctx.entries ctx in
+  let backlink_slugs = Arod.Ctx.backlinks ctx slug in
+  let outbound_slugs = Arod.Ctx.outbound ctx slug in
+  let all_linked =
+    List.filter_map (Bushel.Entry.lookup entries)
+      (backlink_slugs @ outbound_slugs)
+  in
+  let seen = Hashtbl.create 8 in
+  let exclude_slugs = List.filter_map Fun.id [
+    Video.project v; Video.paper v
+  ] in
+  List.iter (fun s -> Hashtbl.replace seen s ()) (slug :: exclude_slugs);
+  let linked = List.filter_map (fun ent ->
+    let s = Bushel.Entry.slug ent in
+    if Hashtbl.mem seen s then None
+    else begin
+      Hashtbl.replace seen s ();
+      Some { icon = Sidebar.entry_type_icon ~size:11 ent;
+             kind = Bushel.Entry.to_type_string ent;
+             title = Bushel.Entry.title ent;
+             href = Bushel.Entry.site_url ent }
+    end
+  ) all_linked in
+  own @ linked
+
+(** [list_talks ~ctx] is the videos that the talks page lists, which are the
+    talks, newest first. *)
+let list_talks ~ctx =
+  Arod.Ctx.all_entries ctx
+  |> List.filter_map (function
+       | `Video v when Video.talk v -> Some v
+       | _ -> None)
+  |> List.sort (fun a b -> compare (Video.date b) (Video.date a))
+
+(** [card_desc v] is the markdown that the card of [v] opens with. *)
+let card_desc v = Bushel.Util.first_hunk (Video.description v)
+
 (** [video_card ~ctx v] is a list card for [v]. *)
 let video_card ~ctx v =
   let (y, m, _d) = Video.date v in
@@ -29,7 +96,7 @@ let video_card ~ctx v =
     El.div ~at:[At.class' "vid-card-embed"]
       [El.unsafe_raw embed_html]
   in
-  let desc = Bushel.Util.first_hunk (Video.description v) in
+  let desc = card_desc v in
   let desc_el =
     if desc = "" then El.void
     else
@@ -37,51 +104,11 @@ let video_card ~ctx v =
         [El.unsafe_raw (Arod.Md.to_plain_html ~ctx desc)]
   in
   let tags_el = Common.card_tags (Video.tags v) in
-  let links_els = List.filter_map Fun.id [
-    (match Video.project v with
-     | Some proj_slug ->
-       let title = match Arod.Ctx.lookup ctx proj_slug with
-         | Some (`Project proj) -> Bushel.Project.title proj
-         | _ -> proj_slug
-       in
-       Some (Common.card_entry_row
-               ~icon:(I.outline ~size:11 I.folder_o)
-               ~href:("/projects/" ^ proj_slug) ~title)
-     | None -> None);
-    (match Video.paper v with
-     | Some paper_slug ->
-       let title = match Arod.Ctx.lookup ctx paper_slug with
-         | Some (`Paper paper) -> Bushel.Paper.title paper
-         | _ -> paper_slug
-       in
-       Some (Common.card_entry_row
-               ~icon:(I.outline ~size:11 I.paper_o)
-               ~href:("/papers/" ^ paper_slug) ~title)
-     | None -> None);
-  ] in
-  let entries = Arod.Ctx.entries ctx in
-  let backlink_slugs = Arod.Ctx.backlinks ctx slug in
-  let outbound_slugs = Arod.Ctx.outbound ctx slug in
-  let all_linked =
-    List.filter_map (Bushel.Entry.lookup entries) (backlink_slugs @ outbound_slugs)
+  let all_refs =
+    List.map (fun r ->
+      Common.card_entry_row ~icon:r.icon ~href:r.href ~title:r.title)
+      (card_refs ~ctx v)
   in
-  let seen = Hashtbl.create 8 in
-  let exclude_slugs = List.filter_map Fun.id [
-    Video.project v; Video.paper v
-  ] in
-  List.iter (fun s -> Hashtbl.replace seen s ()) (slug :: exclude_slugs);
-  let backlink_rows = List.filter_map (fun ent ->
-    let s = Bushel.Entry.slug ent in
-    if Hashtbl.mem seen s then None
-    else begin
-      Hashtbl.replace seen s ();
-      Some (Common.card_entry_row
-              ~icon:(Sidebar.entry_type_icon ~size:11 ent)
-              ~href:(Bushel.Entry.site_url ent)
-              ~title:(Bushel.Entry.title ent))
-    end
-  ) all_linked in
-  let all_refs = links_els @ backlink_rows in
   let refs_el = match all_refs with
     | [] -> El.void
     | els -> El.div ~at:[At.class' "vid-card-refs"] els
@@ -98,15 +125,7 @@ let video_card ~ctx v =
 
 (** [videos_list ~ctx] is the list of talks. *)
 let videos_list ~ctx =
-  let all_entries = Arod.Ctx.all_entries ctx in
-  let talks = List.filter_map (fun e ->
-    match e with
-    | `Video v when Video.talk v -> Some v
-    | _ -> None
-  ) all_entries in
-  let talks = List.sort (fun a b ->
-    compare (Video.date b) (Video.date a)
-  ) talks in
+  let talks = list_talks ~ctx in
   let cards = List.map (fun v -> video_card ~ctx v) talks in
   El.article ~at:[At.class' "h-feed"]
     [Common.hidden_feed_meta ~ctx "Talks";

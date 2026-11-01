@@ -140,6 +140,11 @@
  (libraries arod bushel))
 
 (test
+ (name test_collections)
+ (modules test_collections)
+ (libraries arod bushel sortal.schema))
+
+(test
  (name test_notes_releases)
  (modules test_notes_releases)
  (deps
@@ -150,3 +155,18 @@
  (name test_snake)
  (modules test_snake)
  (libraries arod arod.component))
+
+(test
+ (name test_markdown_pages)
+ (modules test_markdown_pages)
+ (libraries arod arod.component arod.handlers bushel sortal.schema))
+
+(test
+ (name test_pull)
+ (modules test_pull)
+ (libraries arod.setup arod bushel.config gitops tomlt.bytesrw eio_main unix))
+
+(test
+ (name test_jsont_skip)
+ (modules test_jsont_skip)
+ (libraries jsont jsont.bytesrw bytesrw))

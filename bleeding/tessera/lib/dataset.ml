@@ -34,6 +34,7 @@ type t = {
   height : int;
   width : int;
   bands : int;
+  nan_is_nodata : bool;
   crs : Crs.t;
   emb : Arr.t;
   scales : Arr.t;
@@ -141,7 +142,8 @@ let check_dtype ~name array a want =
     err "%s/%s: data type is %s, not %s" name array (Dtype.name got)
       (Dtype.name want)
 
-let open_ ?(cache_capacity = 256) ?consolidated store ~zone =
+let open_ ?(cache_capacity = 256) ?consolidated
+    ?(embeddings = "embeddings") ?expected_bands store ~zone =
   let name = group_name zone in
   let path = group_path zone in
   let inlined sub =
@@ -173,7 +175,7 @@ let open_ ?(cache_capacity = 256) ?consolidated store ~zone =
     | Some j -> Arr.of_json store ~path j
     | None -> Arr.open_ store ~path
   in
-  let emb = arr "embeddings" and scales = arr "scales" and time = arr "time" in
+  let emb = arr embeddings and scales = arr "scales" and time = arr "time" in
   check_dtype ~name "embeddings" emb Dtype.Int8;
   check_dtype ~name "scales" scales Dtype.Float32;
   check_dtype ~name "time" time Dtype.Int32;
@@ -195,6 +197,14 @@ let open_ ?(cache_capacity = 256) ?consolidated store ~zone =
   if es.(0) < 1 || bands < 1 || height < 1 || width < 1 then
     err "%s/embeddings: shape %dx%dx%dx%d has an empty dimension" name es.(0)
       bands height width;
+  Option.iter (fun n -> if bands <> n then
+      err "%s/%s: %d bands, expected %d" name embeddings bands n)
+    expected_bands;
+  let nan_is_nodata =
+    match Jsont.Json.find_mem "geotessera:mask_source" mems with
+    | Some (_, Jsont.String ("source_nodata", _)) -> true
+    | _ -> false
+  in
   {
     zone;
     epsg;
@@ -203,6 +213,7 @@ let open_ ?(cache_capacity = 256) ?consolidated store ~zone =
     height;
     width;
     bands;
+    nan_is_nodata;
     crs = Crs.utm_north ~zone;
     emb;
     scales;
@@ -324,7 +335,8 @@ let probe t ~e ~n ~year ?(search_px = 1) () =
   let col = nearest (Affine.col_of_x t.transform ~x:e) t.width in
   let row = nearest (Affine.row_of_y t.transform ~y:n) t.height in
   if
-    Float.abs (Affine.x_of_col t.transform ~col:(float_of_int col) -. e) > t.px
+    not (Float.is_finite e && Float.is_finite n)
+    || Float.abs (Affine.x_of_col t.transform ~col:(float_of_int col) -. e) > t.px
     || Float.abs (Affine.y_of_row t.transform ~row:(float_of_int row) -. n)
        > t.px
   then (None, Outside)
@@ -342,7 +354,7 @@ let probe t ~e ~n ~year ?(search_px = 1) () =
     done;
     let ci = row - y0 and cj = col - x0 in
     let centre = win.((ci * ww) + cj) in
-    if Float.is_nan centre then (None, Water)
+    if Float.is_nan centre && not t.nan_is_nodata then (None, Water)
     else
       let best =
         if Float.is_finite centre then Some (ci, cj)

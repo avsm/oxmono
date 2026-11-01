@@ -160,7 +160,14 @@ let test_codec () =
   check_str "lines type" "application/jsonl" (Media.seq_content_type todo_lines)
 ;;
 
+let portable_constructor : (unit -> bool) @ portable = fun () ->
+  let codec = Proffer.Json.v Jsont.string in
+  let lines = Proffer.Json.lines Jsont.string in
+  Media.encode codec "hello" = "\"hello\"" &&
+    Media.encode_items lines (List.to_seq ["hello"]) = "\"hello\"\n"
+
 let test_portable_domains () =
+  Alcotest.(check bool) "portable JSON construction" true (portable_constructor ());
   let start = Atomic.make false in
   let shared_json = Proffer.Json.json in
   let shared_todo = todo in

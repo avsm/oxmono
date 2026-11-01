@@ -45,13 +45,8 @@ let deliver_and_read t =
 
 (* {1 Credentials} *)
 
-(* What {!Auth.pp} redacts to, per its documentation: the first four
-   characters and then three stars, or stars alone for a short secret. *)
-let redacted secret =
-  if String.length secret <= 4 then "***" else String.sub secret 0 4 ^ "***"
-
 let expected_pp () =
-  Printf.sprintf "basic %s:%s" (H.user ()) (redacted (H.password ()))
+  Printf.sprintf "basic %s:***" (H.user ())
 
 let check_session client =
   Alcotest.(check bool)

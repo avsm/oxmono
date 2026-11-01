@@ -22,23 +22,33 @@ let list_profiles () =
 let save_profile config name =
   Eio_main.run @@ fun env ->
   let* config = Cli.resolve env config in
-  let* key =
-    match config.api_key_file with
-    | None -> Ok config.api_key
-    | Some path -> Auth.read_secret_file ~fs:(Eio.Stdenv.fs env) path
-  in
   let* credential =
-    match config.auth with
-    | Auth.Bearer -> Ok (Profile.Bearer key)
-    | Auth.Basic -> (
-        match String.index_opt key ':' with
-        | None -> Error "a Basic key must be user:password"
-        | Some split ->
-            let user = String.sub key 0 split in
-            let password =
-              String.sub key (split + 1) (String.length key - split - 1)
-            in
-            Ok (Profile.Basic { user; password }))
+    match config.api_key_file with
+    | Some source ->
+        let source =
+          if
+            String.starts_with ~prefix:"sekrit:" source
+            || not (Filename.is_relative source)
+          then source
+          else Filename.concat (Sys.getcwd ()) source
+        in
+        Ok
+          (match config.auth with
+          | Auth.Bearer -> Profile.Bearer_ref source
+          | Auth.Basic -> Profile.Basic_ref source)
+    | None -> (
+        let key = config.api_key in
+        match config.auth with
+        | Auth.Bearer -> Ok (Profile.Bearer key)
+        | Auth.Basic -> (
+            match String.index_opt key ':' with
+            | None -> Error "a Basic key must be user:password"
+            | Some split ->
+                let user = String.sub key 0 split in
+                let password =
+                  String.sub key (split + 1) (String.length key - split - 1)
+                in
+                Ok (Profile.Basic { user; password })))
   in
   let* profile =
     profile_result (Profile.v ~name ~session_url:config.session_url credential)

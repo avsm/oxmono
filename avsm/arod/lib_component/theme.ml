@@ -2977,11 +2977,11 @@ let custom_css = {|
 .sn-note::before, .sn-week::before {
   content: "";
   position: absolute;
-  left: 4.4em;
-  right: 0;
-  top: 0.5em;
-  bottom: 0.5em;
-  border-radius: 0.7em;
+  left: 4.1em;
+  right: -0.4em;
+  top: 0.2em;
+  bottom: -0.3em;
+  border-radius: 0.8em;
   transition: background 0.3s;
 }
 .sn-note:hover::before, .sn-week:hover::before {
@@ -3017,49 +3017,60 @@ let custom_css = {|
   display: flex;
   gap: 1.2em;
   align-items: center;
-  padding-right: 0.9em;
+  padding-right: 0.3em;
 }
-.sn-note .sn-text, .sn-week .sn-text { top: 0.5em; height: 3.8em; }
-/* The reading column is kept to a comfortable measure, and the tags take the
-   space beyond it. */
-.sn-body { flex: 0 1 42em; min-width: 0; }
-/* The tags of an entry take a column of their own at its end. The icons of an
-   entry sit on its heading line. */
-.sn-tags {
-  flex: 0 0 12em;
-  margin-left: auto;
-  align-self: stretch;
+.sn-note .sn-text, .sn-week .sn-text {
+  top: 0.5em;
+  height: 3.8em;
+  max-width: 46em;
+  align-items: flex-start;
+  overflow: visible;
+}
+/* The reading column fills the room between the thumbnail and the sidebar, up
+   to a comfortable width. On a very wide page the rest is left as space. */
+.sn-body { flex: 1 1 auto; min-width: 0; }
+/* The tags of an entry are small icons in a column of their own at its end.
+   The icons of an entry sit on its heading line. */
+/* The tags and the links of an entry are small icons at the right end of its
+   text, on the line of its heading: tags on the left, a dividing bar, and the
+   links on the right. The tag icons are drawn a little smaller than the link
+   icons so that the two sets look the same size. */
+/* The group is the height of the date line, which it shares, so that the
+   icons are centred on the date. Its font size is the date line's. */
+.sn-icons {
+  position: absolute;
+  top: 0;
+  right: 0.3em;
   display: flex;
-  flex-wrap: wrap;
-  align-content: center;
   align-items: center;
-  gap: 0.4em 0.4em;
-  overflow: hidden;
+  gap: 0.8em;
+  font-size: 0.66em;
+  height: 1.5em;
+  line-height: 0;
 }
-/* A tag is a small chip. How many notes carry it is in its tooltip, and the
-   most popular tags come first. */
-.sn-tag {
-  display: inline-block;
-  padding: 0.3em 0.85em;
-  font-size: 0.64em;
-  line-height: 1.2;
-  border-radius: 999px;
-  color: var(--color-secondary) !important;
-  background: color-mix(in srgb, var(--color-muted) 9%, transparent);
-  text-decoration: none !important;
-  white-space: nowrap;
-  transition: background 0.2s, color 0.2s;
+.sn-bar {
+  width: 1px;
+  height: 1.1em;
+  margin: 0 0.5em;
+  background: var(--color-border);
 }
-.sn-tag:hover {
-  color: var(--sn-hl) !important;
-  background: color-mix(in srgb, var(--sn-hl) 13%, transparent);
+.sn-tagrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8em;
+  line-height: 0;
 }
+.sn-ico {
+  --tc-size: 13px;
+  display: inline-flex;
+  color: var(--color-muted);
+  transition: color 0.25s, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.sn-ico:hover { transform: scale(1.6); }
 .sn-links {
   display: inline-flex;
   align-items: center;
   gap: 0.55em;
-  margin-left: 1.1em;
-  vertical-align: -0.15em;
 }
 .sn-links a {
   display: inline-flex;
@@ -3083,15 +3094,13 @@ let custom_css = {|
   font-weight: 600;
   letter-spacing: 0.1em;
   line-height: 1.5;
+  margin-bottom: 0.45em;
   text-transform: uppercase;
   color: var(--sn-small);
 }
 /* A title and its synopsis run on as one paragraph. */
 .sn-line {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
+  display: block;
   margin: 0;
   font-size: 0.86em;
   line-height: 1.35;
@@ -3111,6 +3120,12 @@ let custom_css = {|
   text-decoration-color: var(--sn-hl) !important;
 }
 .sn-synopsis { margin-left: 0.4em; color: var(--color-secondary); }
+.sn-words {
+  margin-left: 0.5em;
+  font-size: 0.85em;
+  white-space: nowrap;
+  color: var(--sn-small);
+}
 .sn-quiet {
   position: absolute;
   right: 0;
@@ -3178,19 +3193,197 @@ let custom_css = {|
 @media (prefers-reduced-motion: reduce) {
   .sn-item:hover .sn-flow { animation: none; }
 }
-@media (max-width: 860px) {
-  .sn-tags { display: none; }
+/* Pointing at an entry brings its tag icons to colour, as pointing at an icon
+   does. */
+@media (hover: hover) {
+  .sn-item:hover .sn-ico, .paper-item:hover .sn-ico {
+    --tf-green: var(--ti-green);
+    --tf-amber: var(--ti-amber);
+    --tf-blue: var(--ti-blue);
+    --tf-coral: var(--ti-coral);
+    --tf-tan: var(--ti-tan);
+  }
+  .sn-item:hover .sn-ico .ti.line, .sn-item:hover .sn-ico .ti.mono,
+  .paper-item:hover .sn-ico .ti.line, .paper-item:hover .sn-ico .ti.mono {
+    color: var(--ti-green);
+  }
 }
-/* On a phone the text column is what is scarce. The heading keeps to the date,
-   the thumbnail narrows and the text moves left to meet it. The inline
-   positions of the rows are overridden, which is why these are important. */
+/* The tag tiles. Every tile is the same size. An illustration rests as its
+   outline and a faint tone for each of its colours, and takes the colours of
+   the palette when it is pointed at. The palette is the only place that colour
+   is chosen, one set for each theme. */
+.tag-tiles, .snake, .paper-item {
+  --ti-green: #6fae82;
+  --ti-amber: #dba84e;
+  --ti-blue: #7596c8;
+  --ti-coral: #dc918b;
+  --ti-tan: #c9a67f;
+}
+.tag-tiles {
+  --tc-size: 4.6rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.4rem, 1fr));
+  gap: 1.8rem 1rem;
+  justify-items: center;
+  padding: 1rem 0 2rem;
+}
+.dark .tag-tiles, .dark .snake, .dark .paper-item {
+  --ti-green: #7fbf93;
+  --ti-amber: #e2b861;
+  --ti-blue: #8aaadc;
+  --ti-coral: #e6a09b;
+  --ti-tan: #d4b690;
+}
+.tc-tag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  width: 100%;
+  text-align: center;
+  color: var(--color-muted);
+  transition: transform 0.25s, color 0.25s;
+}
+.tc-tag:hover { transform: translateY(-3px); }
+.tc-tag .ti { transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.tc-tag:hover .ti { transform: scale(1.22); }
+.tc-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.tc-count {
+  font-size: 0.72rem;
+  color: var(--color-muted);
+  font-variant-numeric: tabular-nums;
+}
+.tc-tag .ti, .sn-ico .ti {
+  flex: none;
+  width: var(--tc-size);
+  height: var(--tc-size);
+}
+.tc-tag .ti.line, .sn-ico .ti.line { transition: color 0.3s; }
+.tc-tag:hover .ti.line,
+.sn-ico:hover .ti.line { color: var(--ti-green); }
+/* A tag with no picture has its initial in a circle. */
+.ti.mono {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border: max(1px, calc(var(--tc-size) * 0.033)) solid currentColor;
+  border-radius: 50%;
+  font-size: calc(var(--tc-size) * 0.38);
+  font-weight: 600;
+  line-height: 1;
+  opacity: 0.5;
+  transition: color 0.3s, opacity 0.3s;
+}
+.tc-tag:hover .ti.mono,
+.sn-ico:hover .ti.mono { color: var(--ti-green); opacity: 1; }
+/* An illustration is drawn from the sprite of its page, so its colours cannot
+   be chosen by selectors on the icon. They are custom properties, which the
+   picture inherits: each layer rests as a faint tone of the text colour and
+   takes its palette colour when the tile, the icon or the entry is pointed at. */
+.tc-tag, .sn-ico {
+  --tf-green: color-mix(in srgb, currentColor 22%, transparent);
+  --tf-amber: color-mix(in srgb, currentColor 12%, transparent);
+  --tf-blue: color-mix(in srgb, currentColor 30%, transparent);
+  --tf-coral: color-mix(in srgb, currentColor 16%, transparent);
+  --tf-tan: color-mix(in srgb, currentColor 20%, transparent);
+}
+.c-ink { fill: currentColor; }
+.c-green { fill: var(--tf-green); }
+.c-amber { fill: var(--tf-amber); }
+.c-blue { fill: var(--tf-blue); }
+.c-coral { fill: var(--tf-coral); }
+.c-tan { fill: var(--tf-tan); }
+.tc-tag:hover, .sn-ico:hover {
+  --tf-green: var(--ti-green);
+  --tf-amber: var(--ti-amber);
+  --tf-blue: var(--ti-blue);
+  --tf-coral: var(--ti-coral);
+  --tf-tan: var(--ti-tan);
+}
+/* On a narrow screen the timeline is an ordinary list. The rows of the wide
+   layout are placed before the page is shown, from an estimate of how far the
+   text wraps, and on a narrow screen the text wraps far past any estimate. So
+   the spine, the exits and the motifs go, and each entry is a thumbnail beside
+   its text, one below another. The inline positions of the rows are
+   overridden, which is why these are important. */
+@media (max-width: 860px) {
+  .snake { height: auto !important; font-size: 0.9rem; }
+  .snake-spine, .sn-exit, .sn-season, .sn-quiet, .sn-icons, .sn-words {
+    display: none !important;
+  }
+  .sn-month {
+    position: relative;
+    top: auto !important;
+    height: auto !important;
+    padding-bottom: 0.4rem;
+  }
+  .sn-pill {
+    position: relative;
+    top: auto !important;
+    left: 0;
+    margin: 1.4rem 0 0.9rem;
+    padding: 0;
+  }
+  .sn-item {
+    position: relative;
+    top: auto !important;
+    height: auto !important;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.8rem;
+    margin-bottom: 1.1rem;
+  }
+  .sn-node {
+    position: relative;
+    left: auto !important;
+    top: auto !important;
+    flex: none;
+    width: 4rem !important;
+    height: 3.4rem !important;
+  }
+  .sn-text {
+    position: relative;
+    left: auto !important;
+    right: auto;
+    top: auto !important;
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+    height: auto !important;
+    padding: 0;
+    overflow: visible;
+  }
+  .sn-note::before, .sn-week::before {
+    left: -0.5rem;
+    right: -0.5rem;
+    top: -0.45rem;
+    bottom: -0.45rem;
+  }
+  /* A release lines up with the text of the entries, beside where their
+     thumbnails are. */
+  .sn-release {
+    margin-bottom: 0.5rem;
+    padding-left: 4.8rem;
+  }
+  .sn-release .sn-text {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    white-space: normal;
+    column-gap: 0.5rem;
+    row-gap: 0.1rem;
+  }
+  .release-summary { flex: 1 1 100%; white-space: normal; }
+}
 @media (max-width: 640px) {
-  .snake { font-size: 0.84rem; }
-  .sn-words, .sn-links { display: none; }
   .sn-meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .sn-note .sn-node, .sn-week .sn-node { width: 3.4em !important; }
-  .sn-text, .sn-quiet { left: 8.5em !important; }
-  .sn-text { right: 0; gap: 0; padding-right: 0; }
+}
 }
 .week-row:hover .week-slice {
   opacity: 1;
@@ -3844,5 +4037,13 @@ main .paper-item a:not(.no-underline):not(.heading-anchor):not(.lightbox-trigger
   .heading-number::after {
     content: "\2009\007C\2009";
   }
+}
+/* The icons of a paper are right-aligned on the line of its links. */
+.paper-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.8em;
+  margin-left: auto;
+  line-height: 0;
 }
 |}

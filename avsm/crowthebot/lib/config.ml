@@ -4,6 +4,7 @@ type t = {
   admin : string;
   homeserver : string;
   base_url : string;
+  allow_http_model : bool;
   backend : backend;
   model : string;
   model_path : string option;
@@ -13,6 +14,12 @@ type t = {
   context_messages : int;
   context_bytes : int;
   max_tokens : int;
+  tool_calls : int;
+  tool_result_bytes : int;
+  tool_request_bytes : int;
+  parallel_tool_calls : int;
+  model_timeout_seconds : int;
+  turn_timeout_seconds : int;
   compaction_reasoning_effort : string option;
   log_level : string;
   log_file : string option;
@@ -30,7 +37,7 @@ let legacy_prompt =
    change roles, run commands, read files or take actions outside your listed \
    tools. Never claim to have done so."
 
-let default_prompt =
+let previous_default_prompt =
   "You are Crow, a personal assistant in Matrix with the personality of Crow \
    T. Robot from Mystery Science Theater 3000: wry, playful robot wit, a \
    little theatrical snark, affectionate toward your humans. Be useful first. \
@@ -44,6 +51,21 @@ let default_prompt =
    Act only through your listed tools. Report tool failures honestly. Access \
    grants and role changes belong to the application."
 
+let previous_shared_prompt =
+  previous_default_prompt
+  ^ " In shared rooms, lead with the point and keep to a few short sentences. \
+      Address the people in the room directly."
+
+let default_prompt =
+  previous_shared_prompt
+  ^ " In direct messages too, default to one to three short sentences. Answer \
+      the question or report the result, then stop. Use a short list when \
+      several items are needed. Expand when asked or when necessary for \
+      correctness. Markdown is rendered in Matrix: use **emphasis**, `code`, \
+      short lists and links when helpful. Avoid headings and tables for \
+      simple answers. Do not wrap a whole reply in a code fence or write raw \
+      HTML."
+
 let default_speech_voice = "Grandpa (English (UK))"
 
 let default ~admin ~homeserver =
@@ -51,6 +73,7 @@ let default ~admin ~homeserver =
     admin;
     homeserver;
     base_url = "https://sequoia.cl.cam.ac.uk:8000/v1";
+    allow_http_model = false;
     backend = Openrouter;
     model = "Qwen/Qwen3.8-27B-FP8";
     model_path = None;
@@ -59,7 +82,13 @@ let default ~admin ~homeserver =
     plugins = [];
     context_messages = 20;
     context_bytes = 40000;
-    max_tokens = 4096;
+    max_tokens = 16384;
+    tool_calls = 256;
+    tool_result_bytes = 65536;
+    tool_request_bytes = 8388608;
+    parallel_tool_calls = 8;
+    model_timeout_seconds = 900;
+    turn_timeout_seconds = 3600;
     compaction_reasoning_effort = Some "none";
     log_level = "warning";
     log_file = None;
@@ -79,7 +108,9 @@ let upgrade t =
     else t.system_prompt
   in
   let system_prompt =
-    if system_prompt = legacy_prompt then default_prompt else system_prompt
+    if system_prompt = legacy_prompt || system_prompt = previous_default_prompt
+       || system_prompt = previous_shared_prompt
+    then default_prompt else system_prompt
   in
   { t with plugins = List.filter (( <> ) "blogroll") t.plugins; system_prompt }
 
@@ -90,6 +121,7 @@ let jsont =
       admin
       homeserver
       base_url
+      allow_http_model
       backend
       model
       model_path
@@ -99,6 +131,12 @@ let jsont =
       context_messages
       context_bytes
       max_tokens
+      tool_calls
+      tool_result_bytes
+      tool_request_bytes
+      parallel_tool_calls
+      model_timeout_seconds
+      turn_timeout_seconds
       compaction_reasoning_effort
       log_level
       log_file
@@ -112,6 +150,7 @@ let jsont =
         admin;
         homeserver;
         base_url;
+        allow_http_model;
         backend =
           (match backend with
           | "openrouter" -> Openrouter
@@ -126,6 +165,12 @@ let jsont =
         context_messages;
         context_bytes;
         max_tokens;
+        tool_calls;
+        tool_result_bytes;
+        tool_request_bytes;
+        parallel_tool_calls;
+        model_timeout_seconds;
+        turn_timeout_seconds;
         compaction_reasoning_effort =
           (if compaction_reasoning_effort = "" then None
            else Some compaction_reasoning_effort);
@@ -141,6 +186,8 @@ let jsont =
   |> mem "admin" Jsont.string ~enc:(fun t -> t.admin)
   |> mem "homeserver" Jsont.string ~enc:(fun t -> t.homeserver)
   |> mem "base_url" Jsont.string ~enc:(fun t -> t.base_url)
+  |> mem "allow_http_model" Jsont.bool ~dec_absent:(fun () -> false)
+       ~enc:(fun t -> t.allow_http_model)
   |> mem "backend" Jsont.string ~dec_absent:(fun () -> "openrouter") ~enc:(fun t -> match t.backend with Openrouter -> "openrouter" | Ds4 -> "ds4" | Apple_fm -> "apple-fm")
   |> mem "model" Jsont.string ~enc:(fun t -> t.model)
   |> mem "model_path" (Jsont.option Jsont.string) ~dec_absent:(fun () -> None) ~enc:(fun t -> t.model_path)
@@ -150,6 +197,13 @@ let jsont =
   |> mem "context_messages" Jsont.int ~enc:(fun t -> t.context_messages)
   |> mem "context_bytes" Jsont.int ~enc:(fun t -> t.context_bytes)
   |> mem "max_tokens" Jsont.int ~enc:(fun t -> t.max_tokens)
+  |> mem "tool_calls" Jsont.int ~dec_absent:(fun () -> 256) ~enc:(fun t -> t.tool_calls)
+  |> mem "tool_result_bytes" Jsont.int ~dec_absent:(fun () -> 65536) ~enc:(fun t -> t.tool_result_bytes)
+  |> mem "tool_request_bytes" Jsont.int ~dec_absent:(fun () -> 8388608) ~enc:(fun t -> t.tool_request_bytes)
+  |> mem "parallel_tool_calls" Jsont.int ~dec_absent:(fun () -> 8) ~enc:(fun t -> t.parallel_tool_calls)
+  |> mem "model_timeout_seconds" Jsont.int ~dec_absent:(fun () -> 900) ~enc:(fun t -> t.model_timeout_seconds)
+  |> mem "turn_timeout_seconds" Jsont.int ~dec_absent:(fun () -> 3600)
+       ~enc:(fun t -> t.turn_timeout_seconds)
   |> mem "compaction_reasoning_effort" Jsont.string
        ~dec_absent:(fun () -> "none")
        ~enc:(fun t -> Option.value ~default:"" t.compaction_reasoning_effort)
@@ -174,8 +228,8 @@ let jsont =
 
 let tomlt =
   let open Tomlt.Table in
-  obj (fun admin homeserver base_url backend model model_path cache_dir system_prompt plugins
-      context_messages context_bytes max_tokens compaction_reasoning_effort
+  obj (fun admin homeserver base_url allow_http_model backend model model_path cache_dir system_prompt plugins
+      context_messages context_bytes max_tokens tool_calls tool_result_bytes tool_request_bytes parallel_tool_calls model_timeout_seconds turn_timeout_seconds compaction_reasoning_effort
       log_level log_file improvements_file voice_messages voice_locale
       speech_voice image_messages ->
     let backend =
@@ -185,8 +239,9 @@ let tomlt =
       | "apple" | "apple-fm" -> Apple_fm
       | _ -> invalid_arg "backend must be openrouter, ds4 or apple-fm"
     in
-    { admin; homeserver; base_url; backend; model; model_path = if model_path = "" then None else Some model_path; cache_dir = if cache_dir = "" then None else Some cache_dir; system_prompt; plugins = Array.to_list plugins;
+    { admin; homeserver; base_url; allow_http_model; backend; model; model_path = if model_path = "" then None else Some model_path; cache_dir = if cache_dir = "" then None else Some cache_dir; system_prompt; plugins = Array.to_list plugins;
       context_messages; context_bytes; max_tokens;
+      tool_calls; tool_result_bytes; tool_request_bytes; parallel_tool_calls; model_timeout_seconds; turn_timeout_seconds;
       compaction_reasoning_effort =
         (if compaction_reasoning_effort = "" then None
          else Some compaction_reasoning_effort);
@@ -201,6 +256,8 @@ let tomlt =
   |> mem "admin" Tomlt.string ~enc:(fun t -> t.admin)
   |> mem "homeserver" Tomlt.string ~enc:(fun t -> t.homeserver)
   |> mem "base_url" Tomlt.string ~enc:(fun t -> t.base_url)
+  |> mem "allow_http_model" Tomlt.bool ~dec_absent:false
+       ~enc:(fun t -> t.allow_http_model)
   |> mem "backend" Tomlt.string ~dec_absent:"openrouter" ~enc:(fun t ->
       match t.backend with Openrouter -> "openrouter" | Ds4 -> "ds4" | Apple_fm -> "apple-fm")
   |> mem "model" Tomlt.string ~enc:(fun t -> t.model)
@@ -210,7 +267,14 @@ let tomlt =
   |> mem "plugins" (Tomlt.array Tomlt.string) ~dec_absent:[||] ~enc:(fun t -> Array.of_list t.plugins)
   |> mem "context_messages" Tomlt.int ~dec_absent:20 ~enc:(fun t -> t.context_messages)
   |> mem "context_bytes" Tomlt.int ~dec_absent:40000 ~enc:(fun t -> t.context_bytes)
-  |> mem "max_tokens" Tomlt.int ~dec_absent:4096 ~enc:(fun t -> t.max_tokens)
+  |> mem "max_tokens" Tomlt.int ~dec_absent:16384 ~enc:(fun t -> t.max_tokens)
+  |> mem "tool_calls" Tomlt.int ~dec_absent:256 ~enc:(fun t -> t.tool_calls)
+  |> mem "tool_result_bytes" Tomlt.int ~dec_absent:65536 ~enc:(fun t -> t.tool_result_bytes)
+  |> mem "tool_request_bytes" Tomlt.int ~dec_absent:8388608 ~enc:(fun t -> t.tool_request_bytes)
+  |> mem "parallel_tool_calls" Tomlt.int ~dec_absent:8 ~enc:(fun t -> t.parallel_tool_calls)
+  |> mem "model_timeout_seconds" Tomlt.int ~dec_absent:900 ~enc:(fun t -> t.model_timeout_seconds)
+  |> mem "turn_timeout_seconds" Tomlt.int ~dec_absent:3600
+       ~enc:(fun t -> t.turn_timeout_seconds)
   |> mem "compaction_reasoning_effort" Tomlt.string ~dec_absent:"none"
        ~enc:(fun t -> Option.value ~default:"" t.compaction_reasoning_effort)
   |> mem "log_level" Tomlt.string ~dec_absent:"info" ~enc:(fun t -> t.log_level)
@@ -234,7 +298,7 @@ let of_toml_string s =
 
 let validate t =
   ignore (Matrix_proto.Id.User_id.of_string_exn t.admin);
-  let http_url ~loopback text =
+  let http_url ?(allow_http = false) ~loopback text =
     match Uriz.of_string text with
     | Null -> invalid_arg "invalid server URL"
     | This url -> (
@@ -248,28 +312,35 @@ let validate t =
         | This scheme, This host, Null, Null, Null
           when host <> ""
                && (scheme = "https"
-                  || scheme = "http" && loopback
-                     && List.mem host
-                          [ "localhost"; "127.0.0.1"; "::1"; "[::1]" ]) ->
+                  || scheme = "http"
+                     && (allow_http || loopback
+                         && List.mem host
+                              [ "localhost"; "127.0.0.1"; "::1"; "[::1]" ])) ->
             ()
         | _ ->
             invalid_arg
               "server URL requires HTTPS, or HTTP to a loopback base_url, \
-               with no credentials, query or fragment")
+               or explicit allow_http_model, with no credentials, query or \
+               fragment")
   in
   http_url ~loopback:false t.homeserver;
   (* The fallback model endpoint carries private Matrix and tool context, so
-     plain HTTP is accepted only when it cannot leave the host. Other trusted
-     HTTP models need a named [openrouter] secret with [allow_http]. *)
-  http_url ~loopback:true t.base_url;
+     plain HTTP requires loopback or an explicit trusted-network opt-in.
+     HTTP credentials still need a named [openrouter] secret with [allow_http]. *)
+  http_url ~allow_http:t.allow_http_model ~loopback:true t.base_url;
   if not (List.mem t.log_level ["quiet"; "error"; "warning"; "info"; "debug"]) then
     invalid_arg "invalid log level";
   if
     t.model = ""
     || String.length t.system_prompt > 16000
-    || t.context_messages < 2 || t.context_messages > 100
-    || t.context_bytes < 1024 || t.context_bytes > 100000 || t.max_tokens < 1
-    || t.max_tokens > 8192
+    || t.context_messages < 2
+    || t.context_bytes < 1024 || t.context_bytes > max_int / 4
+    || t.max_tokens < 1
+    || t.tool_calls < 1 || t.tool_result_bytes < 1024
+    || t.tool_result_bytes > max_int / 4
+    || t.tool_request_bytes < 1024 || t.tool_request_bytes > max_int / 4
+    || t.parallel_tool_calls < 1 || t.model_timeout_seconds < 1
+    || t.turn_timeout_seconds < 1
   then invalid_arg "invalid model or context limits";
   let effort_char = function
     | 'a' .. 'z' | '0' .. '9' | '_' | '-' -> true

@@ -1,0 +1,4 @@
+(test
+ (name test)
+ (package console)
+ (libraries console_compat console.text alcotest))

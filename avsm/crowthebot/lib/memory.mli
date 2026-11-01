@@ -10,14 +10,18 @@ val fact_line : Store.fact -> string
 type access
 
 val for_request :
+  ?summarize:(limit:int -> string -> string) ->
   Store.t ->
   actor:string ->
   room:string ->
   event:string ->
   source:string ->
   access
-(** [for_request store ...] binds four memory operations to an authenticated
-    actor and source. The tool receives no general database capability. *)
+(** [for_request store ...] binds memory operations to an authenticated actor
+    and source. The tool receives no general database capability. [summarize]
+    enables at most one cache merge per overview request. Failures are logged
+    and reported in the result, with current source pointers. Authorization is
+    checked again after inference and for every operation. *)
 
 val invoke : access -> string -> string -> (string, string) result
 (** [invoke access name arguments] executes one authorized memory operation. The
@@ -26,3 +30,9 @@ val invoke : access -> string -> string -> (string, string) result
 val command : string -> (string * string, string) result
 (** [command text] translates a memory command to a tool name and JSON
     arguments. *)
+
+val context : Store.t -> actor:string -> limit:int -> string option
+(** [context store ~actor ~limit] is a cached overview for automatic prompt
+    assembly, including its untrusted-data notice within [limit] UTF-8 bytes.
+    [limit] must be at least 512. Requires current authorization. Performs no
+    inference and returns [None] only when there are no original facts. *)

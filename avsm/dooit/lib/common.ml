@@ -116,14 +116,9 @@ let regular p =
   if (Unix.lstat p).Unix.st_kind <> Unix.S_REG then
     fail "not a regular file: %s" p
 
-let read ?(limit = 16 * 1024 * 1024) p =
-  regular p;
-  let st = Unix.stat p in
-  if st.st_size > limit then fail "file exceeds size limit: %s" p;
-  In_channel.with_open_bin p (fun ic ->
-      let data = In_channel.input_all ic in
-      if String.length data > limit then fail "file exceeds size limit: %s" p;
-      data)
+let read ?(limit = 16 * 1024 * 1024) path =
+  try Eioext.Native.read_regular ~max_bytes:limit path
+  with Eioext.Native.Error message -> fail "%s" message
 
 let read_opt p = if exists p then Some (read p) else None
 
@@ -139,42 +134,13 @@ let fsync_dir p =
   let fd = Unix.openfile p [ Unix.O_RDONLY ] 0 in
   Fun.protect ~finally:(fun () -> Unix.close fd) (fun () -> Unix.fsync fd)
 
-let atomic_write ?(check = fun () -> ()) p data =
-  let tmp, oc =
-    Filename.open_temp_file ~temp_dir:(Filename.dirname p) ".dooit-" ".tmp"
-  in
-  Fun.protect
-    ~finally:(fun () ->
-      close_out_noerr oc;
-      if exists tmp then Unix.unlink tmp)
-    (fun () ->
-      Unix.fchmod (Unix.descr_of_out_channel oc) 0o600;
-      output_string oc data;
-      flush oc;
-      Unix.fsync (Unix.descr_of_out_channel oc);
-      close_out oc;
-      check ();
-      Unix.rename tmp p;
-      fsync_dir (Filename.dirname p))
+let atomic_write ?check path data =
+  try Eioext.Native.atomic_write ?check path data
+  with Eioext.Native.Error message -> fail "%s" message
 
-let create_file p data =
-  let tmp, oc =
-    Filename.open_temp_file ~temp_dir:(Filename.dirname p) ".dooit-" ".tmp"
-  in
-  Fun.protect
-    ~finally:(fun () ->
-      close_out_noerr oc;
-      if exists tmp then Unix.unlink tmp)
-    (fun () ->
-      Unix.fchmod (Unix.descr_of_out_channel oc) 0o600;
-      output_string oc data;
-      flush oc;
-      Unix.fsync (Unix.descr_of_out_channel oc);
-      close_out oc;
-      (* Linking a complete temporary file publishes it without a
-         check-then-rename race against another creator. *)
-      Unix.link tmp p;
-      fsync_dir (Filename.dirname p))
+let create_file path data =
+  try Eioext.Native.create_private path data
+  with Eioext.Native.Error message -> fail "%s" message
 
 let save_json p v = atomic_write p (json_string ~pretty:true v ^ "\n")
 let load_json p = json (read p)

@@ -8,7 +8,12 @@ type t = {
   self : string;
   plugins : Plugin.t list;
   feeds : Feeds.t option;
+  website : Website.t option;
+  knowledge : Knowledge.t option;
+  tasks : Tasks.t option;
+  http_post : Http_post.t option;
   locations : Locations.t option;
+  addresses : Agentkit_osm.t option;
   calendars : Calendars.t option;
   caldav : Caldav_tools.t option;
   emails : Emails.t option;
@@ -56,6 +61,11 @@ let create ~config ~store ~self ~plugins ~complete ~now:_ =
              ]
         || String.starts_with ~prefix:"memory_" name
         || String.starts_with ~prefix:"cron_" name
+        || Agentkit_osm.is_tool name
+        || Bushel_agent.is_tool name
+        || Dooit_agent.is_tool name
+        || name = "http_post"
+        || String.starts_with ~prefix:"website_" name
         || String.starts_with ~prefix:"feeds_" name
         || String.starts_with ~prefix:"calendar_" name
         || String.starts_with ~prefix:"caldav_" name
@@ -77,7 +87,12 @@ let create ~config ~store ~self ~plugins ~complete ~now:_ =
     self;
     plugins;
     feeds = None;
+    website = None;
+    knowledge = None;
+    tasks = None;
+    http_post = None;
     locations = None;
+    addresses = None;
     calendars = None;
     caldav = None;
     emails = None;
@@ -88,6 +103,11 @@ let create ~config ~store ~self ~plugins ~complete ~now:_ =
     mutex = Eio.Mutex.create ();
   }
 
+let with_addresses t addresses = { t with addresses = Some addresses }
+let with_http_post t http_post = { t with http_post = Some http_post }
+let with_knowledge t knowledge = { t with knowledge = Some knowledge }
+let with_tasks t tasks = { t with tasks = Some tasks }
+let with_website t website = { t with website = Some website }
 let with_feeds t feeds = { t with feeds = Some feeds }
 let with_locations t locations = { t with locations = Some locations }
 let with_calendars t calendars = { t with calendars = Some calendars }
@@ -117,10 +137,9 @@ let summary_context t scope ~bytes =
       let text = prefix ^ json in
       ([ Agentkit.Chat.User text ], String.length text)
 
-let room_context t room =
-  if not t.observe_rooms then []
+let room_context t ~bytes room =
+  if not t.observe_rooms || bytes < 256 then []
   else
-    let bytes = t.config.context_bytes / 3 in
     let summaries, used =
       summary_context t (Room room) ~bytes:(min bytes (max 256 (bytes / 2)))
     in
@@ -332,8 +351,9 @@ let split text =
 let help =
   "Talk to Crow, use !crow, mention my Matrix ID, or send a DM. Commands: ask \
    TEXT, reset, help. Primary admin: !crow allow @user:server friend|bot, deny \
-   @user:server, people. Admin and friends: memory store|search|get|erase, \
-   memory list, cron create|list|cancel, tools [DAY [AFTER_ID]], note [DAY], \
+   @user:server, people. Admin DM: rooms, room approve|reject ROOM, verify. \
+   Admin and friends: memory store|search|get|erase, \
+   memory list|overview|expand, cron create|list|cancel, tools [DAY [AFTER_ID]], note [DAY], \
    feeds add|list|status|poll|entries|remove. Dates and cron schedules use \
    UTC. Location commands: location sources|list|get|detach. Ask to attach a \
    person to an OwnTracks device."
@@ -343,12 +363,18 @@ let person_line (p : Store.person) =
     (if p.allowed then "allowed" else "awaiting admin approval")
 
 let invoke t e ?on_finish ~source ~call_id ~name ~arguments f =
-  Audit.run ?on_finish t.store ~actor:e.sender ~room:e.room ~event:e.id ~source
+  Audit.run ?on_finish ~max_result_bytes:t.config.tool_result_bytes
+    t.store ~actor:e.sender ~room:e.room ~event:e.id ~source
     ~call_id ~tool:name ~arguments f
 
 let memory t e ~source name arguments =
   let access =
-    Memory.for_request t.store ~actor:e.sender ~room:e.room ~event:e.id ~source
+    Memory.for_request
+      ~summarize:(fun ~limit input ->
+        Agentkit.Summary.run ~complete:t.complete
+          ~instructions:Agentkit.Memo.instructions ~limit
+          ~reasoning:t.config.compaction_reasoning_effort input)
+      t.store ~actor:e.sender ~room:e.room ~event:e.id ~source
   in
   Memory.invoke access name arguments
 
@@ -407,6 +433,8 @@ let posted_room =
 
 let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
     =
+  if String.length prompt > t.config.context_bytes then
+    invalid_arg "Prompt exceeds this profile's content budget";
   let source_event = Option.value ~default:e.id source_event in
   Trace.with_context
     {
@@ -418,6 +446,18 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
     }
   @@ fun () ->
   let history = Store.history t.store ~room:e.room ~user:e.sender in
+  let person = Store.person t.store e.sender in
+  let has_memory = person.allowed && person.role = Store.Friend in
+  let memory_limit =
+    min (max 512 (min 3500 (t.config.context_bytes / 8)))
+      (t.config.context_bytes - String.length prompt)
+  in
+  let memory_context =
+    if not has_memory || memory_limit < 512 then None
+    else Memory.context t.store ~actor:e.sender
+        ~limit:memory_limit
+  in
+  let memory_bytes = Option.fold ~none:0 ~some:String.length memory_context in
   let rec recent n bytes acc = function
     | [] -> acc
     | (m : Store.message) :: rest ->
@@ -428,9 +468,13 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
         then acc
         else recent (n + 1) (bytes + String.length m.body) (m :: acc) rest
   in
-  let background = room_context t e.room in
+  let background = room_context t ~bytes:(min (t.config.context_bytes / 3)
+      (max 0 (t.config.context_bytes - String.length prompt - memory_bytes)))
+      e.room in
   let background_bytes =
-    if background = [] then 0 else t.config.context_bytes / 3
+    List.fold_left (fun n -> function
+        | Agentkit.Chat.User text | System text -> n + String.length text
+        | _ -> assert false) 0 background
   in
   let summaries, summary_bytes =
     summary_context t
@@ -439,13 +483,12 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
         (min
            (t.config.context_bytes / 4)
            (max 0
-              (t.config.context_bytes - String.length prompt - background_bytes)))
+              (t.config.context_bytes - String.length prompt - background_bytes
+                 - memory_bytes)))
   in
   let history =
-    recent 0 (summary_bytes + background_bytes) [] (List.rev history)
+    recent 0 (summary_bytes + background_bytes + memory_bytes) [] (List.rev history)
   in
-  let person = Store.person t.store e.sender in
-  let has_memory = person.allowed && person.role = Store.Friend in
   let identity =
     Printf.sprintf
       "\n\
@@ -479,7 +522,15 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
     ^
     if has_memory then
       Memory.system_prompt ^ Cron.system_prompt
+      ^ (match t.tasks with
+         | Some tasks when Tasks.available tasks ~actor:e.sender ~room:e.room ->
+             Tasks.system_prompt
+         | _ -> Tasks.unavailable_prompt)
+      ^ (if t.http_post = None then "" else Http_post.system_prompt)
+      ^ (if t.website = None then "" else Website.system_prompt)
       ^ (if t.feeds = None then "" else Feeds.system_prompt)
+      ^ (match t.knowledge with Some k when Knowledge.available k ~actor:e.sender ~room:e.room -> Bushel_agent.system_prompt | _ -> "")
+      ^ (if t.addresses = None then "" else Agentkit_osm.system_prompt)
       ^ (if t.locations = None then "" else Locations.system_prompt)
       ^ (if t.calendars = None then "" else Calendars.system_prompt)
       ^ Option.fold ~none:""
@@ -496,6 +547,7 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
   in
   let messages =
     (Agentkit.Chat.System system_prompt :: background)
+    @ Option.fold ~none:[] ~some:(fun text -> [ Agentkit.Chat.User text ]) memory_context
     @ summaries
     @ List.map
         (fun (m : Store.message) ->
@@ -513,7 +565,15 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
     @
     if has_memory then
       Memory.tools @ Cron.tools
+      @ (match t.tasks with
+         | Some tasks when Tasks.available tasks ~actor:e.sender ~room:e.room ->
+             Dooit_agent.tools
+         | _ -> [])
+      @ (if t.http_post = None then [] else Http_post.tools)
+      @ (if t.website = None then [] else Website.tools)
+      @ (match t.knowledge with Some k when Knowledge.available k ~actor:e.sender ~room:e.room -> Bushel_agent.tools | _ -> [])
       @ (if t.feeds = None then [] else Feeds.tools)
+      @ (if t.addresses = None then [] else Agentkit_osm.definitions)
       @ (if t.locations = None then [] else Locations.tools)
       @ (if t.calendars = None then [] else Calendars.tools)
       @ (if t.caldav = None then [] else Caldav_tools.tools)
@@ -546,6 +606,29 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
       memory t e ~source:"observation" call.name call.arguments
     else if Cron.is_tool call.name then
       cron t { e with id = source_event } call.name call.arguments
+    else if Agentkit_osm.is_tool call.name then
+      (match t.addresses with
+       | None -> Error "Address tools are unavailable."
+       | Some addresses -> Agentkit_osm.invoke addresses call.name call.arguments)
+    else if Http_post.is_tool call.name then
+      (match t.http_post with
+       | None -> Error "HTTP POST tools are unavailable."
+       | Some http_post -> Http_post.invoke http_post call.name call.arguments)
+    else if Dooit_agent.is_tool call.name then
+      (match t.tasks with
+       | None -> Error "Dooit task tools are unavailable."
+       | Some tasks ->
+           Tasks.invoke tasks ~actor:e.sender ~room:e.room ~event:e.id
+             ~source_event ~call_id:call.id ~check:check_access
+             call.name call.arguments)
+    else if Bushel_agent.is_tool call.name then
+      (match t.knowledge with
+       | None -> Error "Knowledge tools are unavailable."
+       | Some knowledge -> Knowledge.invoke knowledge ~actor:e.sender ~room:e.room ~check:check_access call.name call.arguments)
+    else if Website.is_tool call.name then
+      (match t.website with
+       | None -> Error "Website tools are unavailable."
+       | Some website -> Website.invoke website call.name call.arguments)
     else if Feeds.is_tool call.name then
       feeds t { e with id = source_event } call.name call.arguments
     else if Calendars.is_tool call.name then
@@ -575,7 +658,8 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
       | None -> Error "This tool is unavailable."
       | Some plugin -> Plugin.invoke_result plugin call.arguments
   in
-  let sequence = ref [] and round = ref 0 and remaining = ref 6 in
+  let sequence = ref [] and round = ref 0
+  and remaining = ref t.config.tool_calls in
   let record summary = sequence := summary :: !sequence in
   let sequence_text () =
     List.rev !sequence
@@ -586,7 +670,9 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
   (* A post to the requesting room is already the reply, so the final text is
      not sent as well. *)
   let posted_here = ref false in
+  let effects = Eio.Mutex.create () in
   let around (call : Agentkit.Agent.tool_call) f =
+    let run () =
     invoke t e ~on_finish:record ~source:"model" ~call_id:call.id
       ~name:call.name ~arguments:call.arguments (fun () ->
         let result = f () in
@@ -598,11 +684,14 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
             | _ -> ())
         | _ -> ());
         result)
-  in
-  let tools =
-    match t.config.backend with
-    | Config.Ds4 -> Agentkit.Turn.bind ~guard ~dispatch ~around tools
-    | Config.Openrouter | Config.Apple_fm -> tools
+    in
+    (* Read-only network queries can overlap. Other tools may update shared
+       state or perform an effect, so keep those calls in order. *)
+    if List.mem call.name
+         [ "matrix_history"; "matrix_rooms"; "matrix_room_info";
+           "website_fetch"; "website_read"; "address_search";
+           "address_reverse" ] then run ()
+    else Eio.Mutex.use_rw ~protect:false effects run
   in
   let on_event = function
     | Agentkit.Turn.Request { round = r; budget } ->
@@ -640,12 +729,21 @@ let answer t e ?(active = fun () -> true) ?source_event ?(images = []) prompt
     try
       let text =
         Agentkit.Turn.run ~complete:t.complete ~tools ~guard ~dispatch ~around
+          ~budget:t.config.tool_calls
+          ~max_parallel_calls:t.config.parallel_tool_calls
+          ~max_result_bytes:t.config.tool_result_bytes
+          ~max_request_bytes:(Agentkit.Chat.text_bytes
+              (Agentkit.Chat.request ~tools [ Agentkit.Chat.System system_prompt ])
+              + t.config.context_bytes + t.config.tool_request_bytes)
           ~check:check_access ~on_event ~max_tokens:t.config.max_tokens
           messages
       in
       (text, !posted_here)
-    with Agentkit.Turn.Budget_exceeded ->
-      failwith "model exceeded the tool-call budget"
+    with
+    | Agentkit.Turn.Budget_exceeded -> failwith "model exceeded the tool-call budget"
+    | Agentkit.Turn.Context_exceeded { bytes; limit } ->
+        failwith (Printf.sprintf "model request text needs %d bytes, limit %d"
+            bytes limit)
   with exn ->
     let bt = Printexc.get_raw_backtrace () in
     Log.err (fun m ->

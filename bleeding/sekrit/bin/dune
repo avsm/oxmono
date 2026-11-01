@@ -1,0 +1,4 @@
+(executable
+ (name main)
+ (public_name sekrit)
+ (libraries sekrit.eio eioext cmdliner eio_main))

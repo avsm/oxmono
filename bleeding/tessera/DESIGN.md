@@ -7,7 +7,7 @@ dequantisation. It is a port of the Zarr read path of the Python
 `geotessera` package (`GeoTesseraZarr` and `TesseraAccessor` in
 `../geotessera/geotessera/store.py`, relative to the monorepo parent),
 built on `zarrz`. The live store is
-`https://data.source.coop/tessera/tessera/zarr/v1`.
+`https://data.source.coop/tessera/tessera/zarr/v1.1-dclimate`.
 
 Out of scope, deliberately: the legacy npy and parquet manifest path,
 store writing, GeoTIFF export, stretch statistics computation and the
@@ -53,7 +53,8 @@ The root group carries the geo-embeddings convention (parsed with
   `Zarrz.Store.t`, so the same code runs over HTTP, a local directory
   or a memory store in tests.
 - `bin/` -> public executable `tessera` (cmdliner). Depends on
-  `tessera`, `zarrz-fetch`, `zarrz-eio`, `fetch-curl`, `eio_main`.
+  `tessera`, `nx.io`, `nx-oxcaml`, `zarrz-fetch`, `zarrz-eio`,
+  `fetch-httpz`, `eio_main`.
 - `test/` -> per-stage test dirs as in zarrz.
 
 ## Modules
@@ -169,7 +170,8 @@ val probe :
 
 Column and row come from the affine index arithmetic. A residual above
 one pixel in either axis is `Outside`. The `(2r+1)` squared scales
-window decides: centre `NaN` is `Water` (never repaired), centre finite
+window decides: centre `NaN` is `Water` (never repaired) in legacy stores. With
+`geotessera:mask_source = source_nodata`, it is repairable nodata, centre finite
 is the pixel itself, else the nearest finite scale in the window by
 squared pixel distance, `Nodata` when none. The winning pixel's
 embedding column is read and multiplied by its scale into a fresh
@@ -220,18 +222,17 @@ Mirrors `GeoTesseraZarr`:
   fills pixels the owner lacks. No rasterio: nearest reprojection is a
   per-pixel double transform and an index lookup.
 
-### Npy
+### NumPy output
 
-Minimal NumPy `.npy` version 1.0 writer for C-order float32 arrays, so
-CLI output interoperates with the Python tooling byte for byte.
-`val write : path:_ -> shape:int array -> Zarrz.Slab.t -> unit` style,
-in `bin/` support code or `lib/` (implementer's call, `lib/` if the
-tests want it).
+The CLI calls `Nx_io.write_npy_genarray` directly on the slab's float32
+genarray. Nx owns dtype, shape, endian and header encoding. Output retains
+64-byte header alignment and streams elements in fragments of at most
+64 KiB. The CLI provides the output-channel callback. No adapter is needed.
 
 ### CLI (`tessera`)
 
 cmdliner, following the ocaml-dev cmdliner conventions. A `--store`
-option accepts an `https://` URL (fetch store via `Fetch_curl.std`) or
+option accepts an `https://` URL (fetch store via `Fetch_httpz.std`) or
 a local directory (`zarrz-eio` store), defaulting to the public URL.
 
 - `tessera info`: model, build version, dimensions, years, zone count.
@@ -269,7 +270,7 @@ a local directory (`zarrz-eio` store), defaulting to the public URL.
 2. `Tessera`, `Dataset`, probe and sample and `read_region`, the
    consolidated metadata fast path, the tile cache, synthetic store
    tests.
-3. `read_patch` (native and merged), `Npy`, the CLI, live smoke
+3. `read_patch` (native and merged), NumPy output, the CLI, live smoke
    verification.
 
 Strictly sequential: 2 builds on 1, 3 on 2.

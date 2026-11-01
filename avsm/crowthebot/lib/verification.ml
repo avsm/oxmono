@@ -8,20 +8,23 @@ let affirmative text =
   | "y" | "yes" -> true
   | _ -> false
 
-let prompt (p : V.prompt) =
+let prompt
+    ?(confirmation =
+      "Do all seven emoji (or all three numbers) match the other client? [y/N] ")
+    (p : V.prompt) =
   let a, b, c = p.decimals in
   Printf.sprintf
     "Verify %s (device %s)\n\
      %s\n\
      Numbers: %d %d %d\n\
-     Do all seven emoji (or all three numbers) match the other client? [y/N] "
+     %s"
     (Id.User_id.to_string p.their_user_id)
     (Option.fold ~none:"unknown" ~some:Id.Device_id.to_string p.their_device_id)
     (String.concat "\n"
        (List.map
           (fun (e : V.emoji) -> "  " ^ e.symbol ^ "  " ^ e.description)
           p.emoji))
-    a b c
+    a b c confirmation
 
 let run ~env ~client ~encryption ?private_identity ~target ~listen ?room ~ask ()
     =

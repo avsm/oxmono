@@ -1,0 +1,138 @@
+{0 osm: OpenStreetMap services in OCaml}
+
+[osm] provides typed Overpass and Nominatim clients using Eio, Fetch and Jsont.
+Link the [osm] library. For the example below also link [fetch-httpz], [eio]
+and [eio_main]. The source uses OxCaml's portability annotations and requires
+an OxCaml toolchain compatible with its dependencies.
+
+{1:start Quick start}
+
+{[
+let () =
+  Eio_main.run @@ fun env ->
+  Eio.Time.with_timeout_exn env#clock 30. @@ fun () ->
+  let client = Osm.v (Fetch_httpz.std env) in
+  match Osm.Nominatim.search client ~q:"Cambridge, UK" ~limit:3 () with
+  | Error error -> Format.eprintf "%a@." Osm.pp_error error
+  | Ok places ->
+      List.iter (fun (place : Osm.Place.t) ->
+        Printf.printf "%s (%g, %g)\n"
+          place.display_name place.point.lat place.point.lon) places
+]}
+
+The defaults are private service URLs, not public OpenStreetMap infrastructure:
+{ul
+{- [http://marpe:8888/nominatim/] for search and reverse geocoding.}
+{- [http://marpe:8888/overpass/api/] for interpreter queries and status.}}
+
+Pass [~nominatim_url] and [~overpass_url] to {!Osm.v} to use other services.
+Supply base URLs, not operation paths. HTTP and HTTPS are accepted. Fetch owns
+TLS, credentials, retries and rate limits. The library adds none of those
+policies. Configure them on the Fetch client as required by your service.
+
+{1:queries Typed queries}
+
+{[
+let nearby_cafes client point =
+  let open Osm in
+  let cafes = Query.select Nwr
+      ~scope:(Query.around ~radius:500. point)
+      ~filters:[Query.eq "amenity" "cafe"] in
+  Overpass.run client (Query.elements ~geometry:Center [cafes])
+
+let count_trees client place =
+  let open Osm in
+  match Place.area place with
+  | None -> invalid_arg "An area needs a way or relation"
+  | Some reference ->
+      let trees = Query.select Nwr ~scope:(Query.area reference)
+          ~filters:[Query.eq "natural" "tree"] in
+      Overpass.run client (Query.count [trees])
+]}
+
+An element query returns {!Osm.Dataset.t}. A count query returns
+{!Osm.Element.count}. The abstract {!Osm.Query.t} ties a query to its result
+codec. Filters in one selection are conjunctive. Multiple selections form a
+union. {!Osm.Query.to_ql} exposes the generated text.
+
+Area queries use [map_to_area]. The server must have generated an area for the
+source way or relation. A source with no area matches nothing. A missing area
+dispatcher is a service error. Radius queries use metres. Coordinates use
+latitude and longitude in degrees, never GeoJSON's longitude-first array order.
+
+Use {!Osm.Overpass.query} for complete QL outside the builder's subset. Include
+an explicit JSON output directive, for example:
+{v [out:json][timeout:10];node(around:50,52.2053,0.1218);out 3; v}
+Use {!Osm.Overpass.query_raw} for XML or CSV responses. The library does not
+parse those formats.
+
+{1:results Reading results}
+
+{[
+let inspect result =
+  List.iter (function
+    | Osm.Element.Node node ->
+        Printf.printf "Node %Ld\n" node.common.id
+    | Osm.Element.Way way ->
+        (match Osm.Dataset.way_nodes result way with
+        | Ok nodes -> Printf.printf "%d way nodes\n" (List.length nodes)
+        | Error Osm.Dataset.Not_requested -> print_endline "Node IDs omitted"
+        | Error (Osm.Dataset.Missing refs) ->
+            Printf.printf "%d referenced nodes missing\n" (List.length refs))
+    | _ -> ()) (Osm.Dataset.elements result)
+]}
+
+Objects are immutable decoded records. Pattern matching distinguishes nodes,
+ways, relations, areas, counts and unknown element types. A missing list is
+[None], while a requested empty list is [Some []]. Cropped geometry retains
+null entries. A center is a bounding-box center, not necessarily a point on
+the feature or an address.
+
+Traversal performs no I/O. {!Osm.Dataset.find} indexes by kind and ID, since
+different kinds can share a numeric ID. Way traversal preserves order and
+repeated closing nodes. Relation traversal preserves roles and stops at direct
+members. Use {!Osm.Query.references} for explicit follow-up requests, or request
+all descendants with [Query.elements ~recurse:true]. Output limits may still
+omit referenced objects.
+
+{1:codecs Codecs and round-trips}
+
+The public [jsont] values work without an HTTP client and compose with Jsont
+objects and lists:
+
+{[
+let decode_places text =
+  Jsont_bytesrw.decode_string (Jsont.list Osm.Place.jsont) text
+]}
+
+Link [jsont] and [jsont.bytesrw] for this example. Coordinates, bounds and IDs
+are validated during decoding. Construct coordinates with {!Osm.Point.v},
+bounds with {!Osm.Bounds.v}, and references with {!Osm.Reference.v}.
+
+Place, element and dataset codecs retain and replay their complete raw JSON,
+including unknown fields and attribution. Their records are private so typed
+fields cannot diverge from raw data. Smaller value codecs encode their known
+fields and may discard unknown fields. Count-query encoding produces a minimal
+envelope containing the count element, not the original response metadata.
+OSM tag keys and address categories remain extensible maps.
+
+{!Osm.Dataset.jsont} maps data and preserves remarks. {!Osm.Overpass.decode}
+also rejects API errors and nonempty remarks, including partial timeout results.
+The HTTP entry points use this stricter behavior.
+
+{1:errors Errors and resource ownership}
+
+Each call owns and closes its HTTP response. Calls need an Eio runtime, but
+client construction opens no connections. HTTP statuses, decoding failures,
+API errors and response limits return {!Osm.error}. Transport failures and
+cancellation propagate as exceptions. Invalid caller arguments raise
+[Invalid_argument] before a request is sent.
+
+Responses default to a 16 MiB byte limit. This bounds wire data read into
+memory, not the total allocation of decoded objects. No overall deadline is
+installed. Use [Eio.Time.with_timeout_exn] around a call. The builder's timeout
+is a server execution limit, not a client network deadline.
+
+{1:api API}
+
+{!modules:Osm}

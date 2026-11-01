@@ -1,5 +1,16 @@
 ## Unreleased
 
+- Stage present shard payloads without allocating an option per chunk.
+
+- Accept zero-element shapes regardless of dimension order and reject
+  unrepresentable unsigned zstd content sizes before allocation.
+
+- Reject overflowing region byte sizes and preserve fill values when partial
+  reads reach the end of a very large sparse shard.
+- Reject overflowing element offsets and decoded byte sizes. Codec bounds
+  that exceed the integer range become unbounded instead of wrapping.
+- Shard index reads and zstd size checks keep header values unboxed.
+  Region copies keep stride and coordinate scratch arrays on the local stack.
 - Creating a node validates its path against the specification's name
   rules, and reading tolerates foreign names.
 - Metadata keeps `must_understand: false` across a round trip, requires

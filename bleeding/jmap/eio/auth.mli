@@ -50,36 +50,36 @@ val basic : user:string -> password:string -> t
       if either part is not printable ASCII or [user] contains a colon. *)
 
 val bearer_from_file : ?fs:Eio.Fs.dir_ty Eio.Path.t -> string -> t
-(** [bearer_from_file ~fs path] is {!bearer} with the token read from the first
-    line of [path], trimmed of surrounding whitespace. [fs] is the filesystem
-    [path] is resolved against and is usually [Eio.Stdenv.fs env]. Without it
-    the file is read with the OCaml standard library instead, which is the
-    fallback for a caller that has to name the file before the event loop
+(** [bearer_from_file ~fs path] is {!bearer} with the token read from the single
+    line in [path], removing only one trailing LF or CRLF. [path] also accepts
+    [sekrit:NAME] to read a named value from the shared encrypted Sekrit store.
+    [fs] is the filesystem [path] is resolved against, usually [Eio.Stdenv.fs env].
+    Without it the file is read with the OCaml standard library instead, which
+    is the fallback for a caller that has to name the file before the event loop
     starts, such as a [Cmdliner] term.
 
     The file is read the first time a request needs the token and the value is
     then kept, so a token rotated on disk is picked up only after {!refresh}.
     Reading is deferred so that a program can name a key file it may not read
-    until it connects. A read that fails, and a file whose first line is empty,
-    exceeds 64 KiB, is not regular, or has nonzero group/other permission bits,
+    until it connects. A read that fails, and a file that is empty, multiline,
+    exceeds 64 KiB, is not an owned regular file, or grants group/other access,
     is reported as a {!Client.constructor-Transport} error carrying
     [Fetch.Denied] on the request that needed it. A token that is not an RFC
-    6750 [b64token] is denied the same way. Symlinks are checked at their
-    target. *)
+    6750 [b64token] is denied the same way. Symlinks are refused. Spaces are
+    preserved, so surrounding whitespace makes a bearer token invalid. *)
 
 val basic_from_file : ?fs:Eio.Fs.dir_ty Eio.Path.t -> string -> t
 (** [basic_from_file ~fs path] is {!basic} with [user:password] read from the
-    first line of [path], on the terms of {!bearer_from_file}. A line with no
+    single line of [path], on the terms of {!bearer_from_file}. A line with no
     colon or with parts that do not satisfy {!basic} is denied as a malformed
     credential. *)
 
 val read_secret_file :
   ?fs:Eio.Fs.dir_ty Eio.Path.t -> string -> (string, string) result
-(** [read_secret_file ~fs path] reads at most 64 KiB from the first line of the
-    regular file [path] and applies the emptiness and permission checks of
-    {!bearer_from_file}. It is intended for applications that must put a
-    file-backed secret into an editable form; clients should normally retain the
-    lazy {!bearer_from_file} or {!basic_from_file} credential instead. *)
+(** [read_secret_file ~fs path] resolves a private file or [sekrit:NAME] through
+    the shared Sekrit reader. File reads are bounded to 64 KiB. Clients should
+    normally retain the lazy {!bearer_from_file} or {!basic_from_file} credential
+    instead of copying resolved secrets into settings or editable forms. *)
 
 val refreshing : refresh:(unit -> string) -> t
 (** [refreshing ~refresh] is a bearer credential whose token is [refresh ()],
@@ -135,8 +135,8 @@ val of_env :
   (t option, string) result
 (** [of_env ~prefix ~fs ()] is the credential the environment describes, as
     {!Cli.config_term} reads it. [JMAP_AUTH] selects the scheme, ["bearer"] or
-    ["basic"], and defaults to ["bearer"]. [JMAP_API_KEY_FILE] names a file
-    whose first line holds the secret. [JMAP_API_KEY] holds the secret itself.
+    ["basic"], and defaults to ["bearer"]. [JMAP_API_KEY_FILE] names a private
+    file or [sekrit:NAME] holding the secret. [JMAP_API_KEY] holds the secret itself.
     The file wins over the direct key, which is the precedence of the command
     line. The settings are read with {!scheme_of_string} and {!of_scheme}, so a
     malformed one is reported in the same words wherever a program takes it
@@ -163,10 +163,9 @@ val refresh : t -> unit
     {!refreshing}, neither of which answers from a cache. *)
 
 val pp : t Fmt.t
-(** [pp ppf t] prints the scheme of [t] and a redacted secret, which is the
-    first four characters of the secret followed by ["***"], or ["***"] alone
-    for a secret of four characters or fewer. A basic credential shows its user
-    in full, the user name not being the secret.
+(** [pp ppf t] prints the scheme of [t] and a redacted secret, always ["***"].
+    No token or password prefix is printed. A basic credential shows its user in
+    full, the user name not being the secret.
 
     It reads nothing. A file credential prints as [bearer <file:PATH>] or
     [basic <file:PATH>] whether or not the file has been read, so that printing

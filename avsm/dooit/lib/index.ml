@@ -1,6 +1,15 @@
 (* Copyright (c) 2026 Anil Madhavapeddy. SPDX-License-Identifier: ISC *)
 open Common
 
+let unfinished_first notes =
+  let pending, finished =
+    List.partition
+      (fun n ->
+        match Doc.status n with "done" | "cancelled" -> false | _ -> true)
+      notes
+  in
+  pending @ finished
+
 let query ?(text = "") ?(tags = []) ?status ?source ?(include_deleted = false)
     store =
   let notes, errors = Store.scan store in
@@ -20,7 +29,7 @@ let query ?(text = "") ?(tags = []) ?status ?source ?(include_deleted = false)
             List.exists (fun l -> field "type" l = s) (items "links" n.meta))
       notes
   in
-  if String.trim text = "" then (notes, errors)
+  if String.trim text = "" then (unfinished_first notes, errors)
   else
     (* A disposable in-memory FTS index means direct file edits are immediately
      searchable and read commands never need to write to the store. *)
@@ -63,7 +72,7 @@ let query ?(text = "") ?(tags = []) ?status ?source ?(include_deleted = false)
           String.split_on_char ' ' (normalize text)
           |> List.filter (fun s -> String.trim s <> "")
           |> List.map (fun s ->
-              "\"" ^ String.concat "\"\"" (String.split_on_char '"' s) ^ "\"")
+                 "\"" ^ String.concat "\"\"" (String.split_on_char '"' s) ^ "\"")
           |> String.concat " AND "
         in
         let stmt =
@@ -85,5 +94,6 @@ let query ?(text = "") ?(tags = []) ?status ?source ?(include_deleted = false)
         in
         ( List.filter_map
             (fun id -> List.find_opt (fun n -> Doc.id n = id) notes)
-            ids,
+            ids
+          |> unfinished_first,
           errors ))

@@ -365,7 +365,11 @@ let read_json_number d = (* [is_number_start d.u] = true *)
   let ws_after = read_ws d; ws_pop d in
   meta_make d ~ws_before ~ws_after textloc
 
-let read_json_string d = (* d.u is 0x0022 *)
+(* Specialize the shared grammar so retained strings do not test a skip flag
+   for every character. *)
+let[@inline always] read_json_string_token ~skip d = (* d.u is 0x0022 *)
+  let[@inline always] token_add d u = if not skip then token_add d u in
+  let[@inline always] accept d = token_add d d.u; nextc d in
   let first_byte = get_last_byte d and first_line = get_line_pos d in
   let rec read_uescape d hi uc count =
     if count > 0 then match d.u with
@@ -413,6 +417,9 @@ let read_json_string d = (* d.u is 0x0022 *)
   let ws_after = nextc d; read_ws d; ws_pop d in
   meta_make d ~ws_before ~ws_after textloc
 
+let read_json_string d = read_json_string_token ~skip:false d
+let skip_json_string d = read_json_string_token ~skip:true d
+
 let read_json_name d =
   let meta = read_json_string d in
   if d.u = 0x003A (* : *) then (nextc d; meta) else err_exp_colon d
@@ -422,6 +429,11 @@ let read_json_mem_sep d =
   if d.u = 0x002C (* , *)
   then (nextc d; read_ws d; if d.u <> 0x0022 then err_exp_mem d)
   else err_exp_comma_or_eoo d
+
+let ignored_string_decoder =
+  match of_t (Jsont.Base.string Jsont.Base.ignore) with
+  | String map -> map.dec
+  | _ -> assert false
 
 let rec decode : type a. decoder -> a t -> a =
 fun d t -> match (read_ws d; t) with
@@ -444,8 +456,13 @@ fun d t -> match (read_ws d; t) with
 | String map ->
     (match d.u with
     | 0x0022 (* DQUOTE *) ->
-        let meta = read_json_string d in
-        map.dec meta (token_pop d)
+        (* Only this exact callback ignores its argument. A user callback
+           with the same kind or result type must receive the full string.
+           [Obj.repr] permits comparing closures with different result types;
+           there is no representation cast or type-equality assumption. *)
+        let skip = Obj.repr map.dec == Obj.repr ignored_string_decoder in
+        let meta = if skip then skip_json_string d else read_json_string d in
+        map.dec meta (if skip then "" else token_pop d)
     | _ -> type_error d t)
 | Array map ->
     (match d.u with

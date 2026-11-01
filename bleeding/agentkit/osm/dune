@@ -1,0 +1,8 @@
+(library
+ (name agentkit_osm)
+ (public_name agentkit-osm)
+ (libraries agentkit osm fetch eio jsont jsont.bytesrw))
+
+(documentation
+ (package agentkit-osm)
+ (mld_files index))

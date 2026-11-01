@@ -14,6 +14,10 @@ let optional names doc = Arg.(value & opt (some string) None & info names ~doc)
 let api_key_file =
   optional [ "api-key-file" ] "0600 file containing the model API key."
 
+let recovery_key_file =
+  optional [ "recovery-key-file" ]
+    "0600 file containing Crow's account recovery key for cross-signing."
+
 let verbose =
   Arg.(
     value & flag
@@ -23,7 +27,7 @@ let verbose =
            stderr. Includes identifiers, but not message bodies or secrets.")
 
 let run ?(verbose = false) action =
-  Console_eio.setup ();
+  Console_tty.setup ();
   Logs.set_reporter (Logs_fmt.reporter ());
   Crowthebot.Diagnostics.configure ~verbose;
   try
@@ -83,10 +87,18 @@ let join =
 let serve =
   command "run" "Run Crow in enabled rooms and approved direct messages."
     Term.(
-      const (fun profile api_key_file verbose ->
+      const (fun profile api_key_file recovery_key_file verbose ->
           run ~verbose (fun env sw ->
-              Crowthebot.App.run ~env ~sw ~profile ~api_key_file))
-      $ profile $ api_key_file $ verbose)
+              Crowthebot.App.run ~env ~sw ~profile ~api_key_file ~recovery_key_file))
+      $ profile $ api_key_file $ recovery_key_file $ verbose)
+
+let setup_verification =
+  command "setup-verification" "Complete Crow's account cross-signing setup."
+    Term.(const (fun profile password_file ->
+      run (fun env sw ->
+        Crowthebot.App.setup_verification ~env ~sw ~profile ~password_file))
+      $ profile $ optional [ "password-file" ]
+          "0600 password file. Otherwise prompt only if the server requires it.")
 
 let verify =
   command "verify" "Verify Crow's saved Matrix device by comparing emoji."
@@ -107,8 +119,7 @@ let verify =
               ~doc:
                 "Wait for USER to request verification in their Matrix client.")
       $ optional [ "room" ] "Use this joined room ID for verification."
-      $ optional [ "recovery-key-file" ]
-          "0600 file containing Crow's account recovery key for cross-signing.")
+      $ recovery_key_file)
 
 let people =
   command "people" "List the whitelist and people awaiting admin approval."
@@ -118,7 +129,7 @@ let people =
       $ profile)
 
 let memory =
-  command "memory" "Store, search, retrieve or erase shared profile facts."
+  command "memory" "Store, search, expand or erase shared profile memory."
     Term.(
       const (fun profile args ->
           run (fun env sw ->
@@ -194,7 +205,17 @@ let config =
   Cmd.group
     (Cmd.info "config"
        ~doc:"Maintain private named tool configurations outside chat.")
-    (List.map
+    (command "migrate"
+       "Encrypt legacy tool configurations using the Sekrit master key."
+       Term.(
+         const (fun profile ->
+             run (fun env sw ->
+                 Crowthebot.App.configure ~env ~sw ~profile (fun store ->
+                     let count = Crowthebot.Secret_store.migrate store in
+                     Printf.printf "Encrypted %d legacy configuration(s).\n"
+                       count)))
+         $ profile)
+     :: List.map
        (Crowthebot.Tool_config.command ~profile ~run:(fun ~profile action ->
             run (fun env sw ->
                 Crowthebot.App.configure ~env ~sw ~profile action)))
@@ -240,6 +261,7 @@ let () =
             login;
             join;
             serve;
+            setup_verification;
             verify;
             people;
             memory;

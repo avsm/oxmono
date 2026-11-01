@@ -1,0 +1,8 @@
+(documentation
+ (package console)
+ (mld_files index widgets))
+
+(mdx
+ (package console)
+ (files index.mld widgets.mld)
+ (libraries console_compat console fmt))

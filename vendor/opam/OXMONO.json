@@ -1,0 +1,11 @@
+{
+  "name": "opam",
+  "package": "opam-core.2.6.1",
+  "archive_url": "https://codeload.github.com/ocaml/opam/tar.gz/2.6.1",
+  "archive_checksums": [
+    "sha256=a1d89ca7110a28eaec59620b37c8138f58476ed8715f545e4adcadb4fa25f32b"
+  ],
+  "url": "https://github.com/ocaml/opam.git",
+  "tag": "2.6.1",
+  "revision": "921b53bf7fca5467b65ccbe714b78618bebd5e97"
+}

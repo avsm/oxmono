@@ -2,4 +2,4 @@
  (name main)
  (public_name crowthebot)
  (libraries crowthebot cmdliner eio_main
-  console-eio logs.fmt))
+  console.tty logs.fmt))

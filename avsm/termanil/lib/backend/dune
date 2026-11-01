@@ -2,6 +2,7 @@
  (name termanil_backend)
  (public_name termanil.backend)
  (libraries
+  sekrit
   termanil.model
   termanil.drafts
   termanil.fake_jmap

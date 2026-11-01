@@ -22,7 +22,7 @@ type event =
   | Request of { round : int; budget : int }
       (** a model request, with the calls still allowed *)
   | Budget_exceeded of { calls : int; budget : int }
-      (** the model asked for more calls than allowed, and none ran *)
+      (** calls exceeded the allowance. Completed native calls remain applied *)
   | Empty of { error : exn option }
       (** the answer request failed or was blank, so it is retried once *)
   | Recovered  (** the retry produced an answer *)
@@ -42,25 +42,38 @@ val run :
   ?on_event:(event -> unit) ->
   ?budget:int ->
   ?max_tokens:int ->
+  ?max_request_bytes:int ->
   ?max_result_bytes:int ->
   ?max_answer_bytes:int ->
+  ?max_parallel_calls:int ->
   ?fallback:(tools_used:bool -> string) ->
   Chat.message list ->
   string
 (** [run ~complete ~tools ~guard ~dispatch messages] answers the transcript
     [messages], whose first message should be the {!Chat.System} prompt.
 
+    Tools are bound for adapters that execute calls inside completion. These
+    calls share the allowance with calls returned in a response.
+
     Each call passes [guard], then [dispatch]. [around call f] wraps every call,
     including refused ones, and renders its result. It is the place to audit.
     The default renders [Error e] as ["Error: " ^ e]. Results are clipped to
     [max_result_bytes], 32768 by default.
 
+    [max_request_bytes] bounds {!Chat.text_bytes} for every model request. An
+    oversized request raises [Context_exceeded] before inference. During the
+    final tool-free answer request, this is handled by the same retry and
+    fallback as other completion failures.
+
     [budget] is the number of calls allowed, 6 by default. Asking for more than
     remain runs [around] on each with an error and raises {!Budget_exceeded}.
-    When the allowance is spent the answer request has no tools. Its
-    instruction is added to the system prompt and repeated as a final user
-    message, because a model part way through a tool plan ignores a distant
-    system message and answers with nothing.
+    [max_parallel_calls] bounds concurrent returned calls, 1 by default. Results
+    retain the model's call order. Dispatch and audit callbacks must support
+    concurrent fibers when this is greater than 1. Native adapter calls follow
+    the adapter's scheduling. When the allowance is spent the answer request has
+    no tools. Its instruction is added to the system prompt and repeated as a
+    final user message, because a model part way through a tool plan ignores a
+    distant system message and answers with nothing.
 
     [check] runs before every request and call and may raise to abort, for
     example when the requester loses access. Transport failures raise, except
@@ -82,3 +95,6 @@ val bind :
 val clip : bytes:int -> string -> string
 (** [clip ~bytes s] is [s], or its longest UTF-8 prefix within [bytes] followed
     by a ["\n[truncated]"] line. *)
+
+exception Context_exceeded of { bytes : int; limit : int }
+(** Raised when a request exceeds the configured text-byte budget. *)

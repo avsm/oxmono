@@ -25,6 +25,7 @@ type credentials = {
   scheme : scheme;
   user : string;
   secret : string;
+  secret_ref : string option;
 }
 
 type field =
@@ -40,6 +41,7 @@ type login = {
   scheme : scheme;
   user : string;
   secret : string;
+  secret_ref : string option;
   field : field;
   error : string;
 }
@@ -53,12 +55,19 @@ let blank =
     scheme = Bearer;
     user = "";
     secret = "";
+    secret_ref = None;
     field = Url_field;
     error = "";
   }
 
 let credentials_of l =
-  { url = l.url; scheme = l.scheme; user = l.user; secret = l.secret }
+  {
+    url = l.url;
+    scheme = l.scheme;
+    user = l.user;
+    secret = l.secret;
+    secret_ref = l.secret_ref;
+  }
 
 (* This must stay in step with [Jmap_eio.Profile.valid_name], which decides
    whether [Login.write_profile] can store a profile under a name this
@@ -74,16 +83,20 @@ let contains_control value =
   not (String.equal value (Format.asprintf "%a" Proto.Error.pp_escaped value))
 
 let fields l =
-  match l.scheme with
-  | Bearer -> [ Profile_field; Url_field; Scheme_field; Secret_field ]
-  | Basic ->
+  match (l.scheme, l.secret_ref) with
+  | Bearer, _ | Basic, Some _ ->
+      [ Profile_field; Url_field; Scheme_field; Secret_field ]
+  | Basic, None ->
       [ Profile_field; Url_field; Scheme_field; User_field; Secret_field ]
 
 (* What a connection needs, in the order the form asks for it, each entry
    naming the field at fault and what to tell the user. [ready], [first_gap]
    and [wanting] all read this, so none of them can disagree about a form. *)
 let requirements (l : login) =
-  let secret = secret_name l.scheme in
+  let secret =
+    if l.secret_ref = None then secret_name l.scheme else "secret reference"
+  in
+  let secret_value = Option.value l.secret_ref ~default:l.secret in
   let control what =
     Printf.sprintf "the %s contains a control character" what
   in
@@ -97,13 +110,15 @@ let requirements (l : login) =
         (Url_field, l.url <> "", "a session URL is needed");
         (Url_field, not (contains_control l.url), control "session URL");
       ];
-      (if l.scheme = Basic then
+      (if l.scheme = Basic && l.secret_ref = None then
          [ (User_field, l.user <> "", "a username is needed") ]
        else []);
       [
         (User_field, not (contains_control l.user), control "username");
-        (Secret_field, l.secret <> "", Printf.sprintf "a %s is needed" secret);
-        (Secret_field, not (contains_control l.secret), control secret);
+        ( Secret_field,
+          secret_value <> "",
+          Printf.sprintf "a %s is needed" secret );
+        (Secret_field, not (contains_control secret_value), control secret);
       ];
     ]
 
@@ -442,7 +457,10 @@ let edit f l =
   | Profile_field -> { l with profile = f l.profile }
   | Url_field -> { l with url = f l.url }
   | User_field -> { l with user = f l.user }
-  | Secret_field -> { l with secret = f l.secret }
+  | Secret_field -> (
+      match l.secret_ref with
+      | None -> { l with secret = f l.secret }
+      | Some source -> { l with secret_ref = Some (f source) })
   | Scheme_field -> l
 
 let drop s =

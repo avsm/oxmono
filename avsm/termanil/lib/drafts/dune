@@ -1,4 +1,4 @@
 (library
  (name termanil_drafts)
  (public_name termanil.drafts)
- (libraries termanil.model dooit unix))
+ (libraries termanil.model dooit unix eioext))

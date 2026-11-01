@@ -43,16 +43,19 @@ let json_t =
         (fun k v acc -> StringMap.add k v acc) tbl (StringMap.create ()))
     map_jsont
 
-let load path =
+let load ?(strict=false) path =
   try
     let data = Eio.Path.load path in
     let reader = Bytesrw.Bytes.Reader.of_string data in
     match Jsont_bytesrw.decode json_t reader with
     | Ok tbl -> tbl
     | Error msg ->
+      if strict then failwith msg;
       Logs.warn (fun m -> m "Failed to decode annotations: %s" msg);
       empty ()
-  with _ -> empty ()
+  with
+  | Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> empty ()
+  | exn -> if strict then raise exn else empty ()
 
 let save path t =
   let buf = Buffer.create 1024 in

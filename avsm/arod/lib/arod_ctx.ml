@@ -6,7 +6,7 @@
 let src = Logs.Src.create "arod.ctx" ~doc:"Arod context"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-type feed_item = {
+type feed_item = Arod_collections.feed_item = {
   contact : Sortal_schema.Contact.t;
   entry : Sortal_feed.Entry.t;
   mentions : Bushel.Entry.entry list;
@@ -19,6 +19,7 @@ type feed_backlink = {
 
 type t = {
   config : Arod_config.t;
+  collections : Arod_collections.t;
   entries : Bushel.Entry.t;
   feed_items : feed_item list;
   feed_backlinks : feed_backlink list Bushel.Smap.t;
@@ -246,9 +247,9 @@ let build_outbound_feed entries feed_by_url =
     let seen = Hashtbl.create 16 in
     List.concat_map
       (fun url ->
-         match Bushel.Smap.find_opt (normalise_url url) feed_by_url with
-         | None -> []
-         | Some bls ->
+         match Bushel.Smap.find_or_null (normalise_url url) feed_by_url with
+         | Null -> []
+         | This bls ->
            List.filter
              (fun (bl : feed_backlink) ->
                 let fe_url =
@@ -304,6 +305,7 @@ let create ~config fs =
   in
   {
     config;
+    collections = Arod_collections.create ~entries ~feed_items;
     entries;
     feed_items;
     feed_backlinks;
@@ -318,6 +320,7 @@ let create ~config fs =
 let of_entries ~config ?(releases = []) entries =
   {
     config;
+    collections = Arod_collections.create ~entries ~feed_items:[];
     entries;
     feed_items = [];
     feed_backlinks = Bushel.Smap.empty;
@@ -329,6 +332,7 @@ let of_entries ~config ?(releases = []) entries =
     note_references = build_note_references ~config entries;
   }
 
+let collections t = t.collections
 let config t = t.config
 let base_url t = t.config.site.base_url
 
@@ -373,7 +377,9 @@ let outbound t slug = Bushel.Entry.outbound t.entries slug
 let all_external_links t = Bushel.Entry.all_external_links t.entries
 
 let find_list map key =
-  Option.value (Bushel.Smap.find_opt key map) ~default:[]
+  match Bushel.Smap.find_or_null key map with
+  | Null -> []
+  | This values -> values
 
 let note_references t slug =
   find_list t.note_references slug

@@ -1,0 +1,11 @@
+{
+  "name": "ocaml-dockerfile",
+  "package": "dockerfile.8.4.5",
+  "archive_url": "https://codeload.github.com/ocurrent/ocaml-dockerfile/tar.gz/8.4.5",
+  "archive_checksums": [
+    "sha256=402b902c65d1d2945784ef94fa7cae1e479c19a727c25d6befc10e0a5d3dec69"
+  ],
+  "url": "https://github.com/ocurrent/ocaml-dockerfile.git",
+  "tag": "8.4.5",
+  "revision": "5443a9c42cd4392da1d35cafc6eeb1bd3f62f87b"
+}

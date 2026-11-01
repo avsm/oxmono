@@ -1,0 +1,4 @@
+(library
+ (name dooit_agent)
+ (public_name dooit.agent)
+ (libraries dooit agentkit eio.unix jsont unix yamlrw))

@@ -1,0 +1,28 @@
+(lang dune 3.20)
+(name d10)
+(version 0.14.2)
+(generate_opam_files true)
+(license ISC)
+(maintainers "Anil Madhavapeddy <anil@recoil.org>")
+(authors "Anil Madhavapeddy" "Mark Elvers" "Ryan Gibb")
+(source (github avsm/oi))
+
+(package
+ (name d10)
+ (synopsis "Content-addressed binary layer cache (day10 format)")
+ (depends
+  (ocaml (>= 5.2.0))
+  (eio (>= 1.0))
+  (osrel (= :version))
+  opam-core
+  (opam-format (>= 2.2.0))
+  (jsont (>= 0.2))
+  (bytesrw (>= 0.2))
+  sqlite3
+  cstruct
+  fetch
+  fetch-curl
+  (alcotest :with-test)
+  (eio_main :with-test)
+  fmt
+  logs))

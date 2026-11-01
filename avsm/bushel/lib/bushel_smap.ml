@@ -50,6 +50,13 @@ let rec find_opt k = function
     let c = String.compare k k' in
     if c = 0 then Some v else if c < 0 then find_opt k l else find_opt k r
 
+let[@zero_alloc] rec find_or_null (k : string @ local) = function
+  | Empty -> Null
+  | Node (l, k', v, r) ->
+    let c = String.compare k k' in
+    if c = 0 then This v
+    else if c < 0 then find_or_null k l else find_or_null k r
+
 let rec find k = function
   | Empty -> raise Not_found
   | Node (l, k', v, r) ->

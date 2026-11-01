@@ -1,0 +1,11 @@
+(test
+ (name test_memento)
+ (libraries memento memento.fetch memento.proffer fetch.mock proffer.mock
+  eio.mock jsont.bytesrw http ptime))
+
+(test
+ (name test_wayback)
+ (libraries memento.wayback memento fetch.mock eio.mock http httpz.uri))
+
+(cram
+ (deps ../bin/memento_cli.exe))

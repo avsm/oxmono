@@ -49,6 +49,13 @@ let test_profiles () =
   Alcotest.(check string)
     "oversized replacement leaves the old profile" "replacement-token"
     after_oversized.secret;
+  Login.write_profile env
+    { login with secret = ""; secret_ref = Some "sekrit:mosaic-fixture" };
+  let referenced = Option.get (Login.read_profile env "work") in
+  Alcotest.(check string)
+    "reference is not resolved into form" "" referenced.secret;
+  Alcotest.(check (option string))
+    "reference round trip" (Some "sekrit:mosaic-fixture") referenced.secret_ref;
   Unix.chmod profile_file 0o644;
   Alcotest.(check bool)
     "public profile is rejected" true

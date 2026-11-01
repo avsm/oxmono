@@ -70,7 +70,30 @@ Body after explicit document end marker
     Printf.printf "Body after ...: %s\n" body;
     String.sub body 0 4 = "Body"
 
+let test_delimiter_allocations () =
+  let source = "---\ntitle: Test\n---\n" ^ String.make 100000 'x' in
+  let measure source =
+    let parse () =
+      match Frontmatter.of_string source with
+      | Ok t -> ignore (Sys.opaque_identity t)
+      | Error e -> failwith e
+    in
+    parse ();
+    Gc.full_major ();
+    let before = Gc.allocated_bytes () in
+    for _ = 1 to 10 do parse () done;
+    (Gc.allocated_bytes () -. before) /. 80.
+  in
+  let plain = measure source and trailing = measure (source ^ "\n") in
+  if trailing > plain +. 128. then
+    failwith "trailing newline copied the entire document";
+  List.iter (fun source ->
+    match Frontmatter.of_string source with
+    | Error _ -> () | Ok _ -> failwith "accepted missing delimiter")
+    [""; " \t\n"; "-"; "--"; " \012 -- "; "x---"]
+
 let () =
+  test_delimiter_allocations ();
   Printf.printf "=== Testing basic frontmatter ===\n";
   let r1 = test_basic () in
   Printf.printf "\n=== Testing no frontmatter ===\n";

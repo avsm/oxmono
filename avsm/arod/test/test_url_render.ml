@@ -137,7 +137,7 @@ let test_degraded_classification () =
       ()
   in
   let tbl = Links.build_contact_by_domain [ hostless ] in
-  check "a contact URL with no host claims no domain" (Hashtbl.length tbl = 0);
+  check "a contact URL with no host claims no domain" (Bushel.Smap.bindings tbl = []);
   let display =
     Links.classify_url ~contact_by_domain:tbl ~doi_entries:[] ~ctx:empty_ctx
       "http://en.wikipedia.org/wiki/Smith\xe2\x80\x93Waterman_algorithm"

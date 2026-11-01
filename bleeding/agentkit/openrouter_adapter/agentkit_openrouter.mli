@@ -9,11 +9,18 @@ end
 val messages : Agentkit.Chat.message list -> Openrouter.Message.t list
 (** [messages ms] is [ms] in OpenRouter's wire form. *)
 
-val complete : Openrouter.t -> model:string -> Agentkit.Chat.complete
+val complete :
+  ?parallel_tool_calls:bool ->
+  ?json_schema:Jsont.json ->
+  Openrouter.t ->
+  model:string ->
+  Agentkit.Chat.complete
 (** [complete client ~model] sends each request as one non-streaming chat
-    completion and returns the first choice. Tools are offered one call at a
-    time. A reasoning effort is sent as [reasoning_effort], which OpenRouter and
-    vLLM accept. Raises [Failure] when the response has no choice. *)
+    completion and returns the first choice. [parallel_tool_calls] permits
+    multiple calls in a response, false by default. A reasoning effort is sent
+    as [reasoning_effort], which OpenRouter and vLLM accept. [json_schema]
+    requests strict schema-constrained output for each completion. Raises
+    [Failure] when the response has no choice. *)
 
 module Agent : sig
   include Agentkit.Agent.S
@@ -30,9 +37,11 @@ module Agent : sig
   (** [create ~client ~model ()] starts a streamed OpenRouter conversation that
       keeps its own history. [send] runs tool calls through
       {!Agentkit.Agent.Tool.invoke}, reporting [Tool_call] then [Tool_result],
-      and asks again until the model answers. After [max_rounds] model
-      requests, 8 by default, it asks once more without tools. A reply stopped
-      by [max_tokens] reports [Cut_off]. *)
+      and asks again until the model answers. After [max_rounds] model requests,
+      8 by default, it asks once more without tools. A reply stopped by
+      [max_tokens] reports [Cut_off]. [cancel] interrupts the active request and
+      prevents further tools from running. [close] cancels before closing.
+      Completed tool results survive a cancelled or failed later request. *)
 end
 
 val models : Openrouter.t -> unit -> Agentkit.Driver.model list

@@ -1,0 +1,71 @@
+{0 console-eio}
+
+Progress rows for OCaml command-line tools, run with
+{{:https://github.com/ocaml-multicore/eio}Eio}.
+
+[console-eio] shows the tasks of a program ({!Console.Task}) as progress
+rows on the terminal. On a pipe or in a CI log it prints plain lines
+instead. The smallest program:
+
+{@ocaml[
+let build root =
+  Console.Task.run root "compile" (fun step ->
+      Console.Task.set_items step ~count:1 ~total:2;
+      Console.Task.log step "ocamlopt parser.ml";
+      Console.Task.set_items step ~count:2 ~total:2)
+
+let main () =
+  Eio_main.run @@ fun env ->
+  Console_eio.run ~clock:(Eio.Stdenv.mono_clock env) ~label:"Building" build
+]}
+
+The program's entry point is then [let () = main ()].
+
+The {!page-tutorial} builds a whole command step by step, with options for
+colour and theme, a table, progress rows and a test of its output.
+
+{1:run What [Console_eio.run] does}
+
+{!Console_eio.run} makes the root of the work and passes it to the
+function, finds out whether the output is a terminal, and how large it is,
+and redraws the progress rows ten times a second. It hands
+each line the program prints, and each
+{{:https://erratique.ch/software/logs}Logs} message, to the task current
+where it is printed, or prints it above the rows outside any task
+({{!Console_eio.output}where text goes}).
+
+The terminal is given back as [run] found it when the function returns or
+raises, when its fiber is cancelled, and when the program exits or is
+stopped by Ctrl-C or SIGTERM.
+
+{1:rules Running tasks}
+
+{ul
+{- The work succeeds when the function returns and fails when it raises,
+   unless the function ended the root itself, with a message, and the
+   tasks still running end with it. An exception the function raises still
+   reaches the caller.}
+{- A {!Console_eio.run} called inside another one, or in a fiber beside
+   it, gets the task current where it is called, or the root, so a library
+   can start one without knowing whether its caller did. The display
+   closes once the last of them ends.}
+{- Call the functions of tasks only from the domain that runs them. A [Logs]
+   message logged in another domain that Eio runs, such as one of an
+   [Eio.Executor_pool], is passed to that domain and printed above the
+   rows.}
+{- What [print_string], [Printf] or a child process writes on the terminal
+   goes past console and garbles the rows, so print it through
+   {!Console_eio.with_output}.}
+{- {!Console_eio.Prompt} asks a question, or a password without echoing it,
+   and takes the rows off the screen while it asks.}}
+
+{1:modules Modules}
+
+{ul
+{- {!Console_eio}: runs a display and decides on colour for the outputs the
+   program left alone.}
+{- {!Console_eio.Prompt}: questions asked on the terminal, a line, a yes or
+   no, or a password.}}
+
+The widgets, the themes and the rules of the display are in the [console]
+package: {!Console}.

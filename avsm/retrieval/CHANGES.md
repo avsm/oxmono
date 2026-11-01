@@ -1,0 +1,25 @@
+# Unreleased
+
+- Pin read-only index snapshots while writers publish updates. Scope retained
+  MLX models to an application runtime with explicit release.
+
+- Finish releasing cached MLX models even when the caller is cancelled while
+  waiting for active inference. Roll back transactions when COMMIT fails.
+
+- Distinguish query and document embedding tasks. Add optional native Qwen3
+  embeddings with lazy model reuse and content-versioned indexes.
+
+- Share document bodies and facets across retrieved passages. Encode ordinary
+  vectors directly as float32 SQLite BLOBs.
+
+- Reduce allocation when chunking long documents and indexing large batches.
+- Normalize embedding vectors with fewer traversals and no intermediate float
+  allocations.
+- Require OxCaml on OCaml 5.2 or later.
+
+- Terminate passage chunking on malformed UTF-8 without discarding bytes, and
+  normalize tiny nonzero embedding vectors without underflow.
+- Scan only enough documents to fill the indexing budget and reuse each
+  inference input's hash when writing its vector.
+- Version the corrected normalization as v2. Existing embedding indexes are
+  refreshed as indexing runs within its configured batch budgets.

@@ -287,14 +287,9 @@ let apply_one store remote a observed =
 
 let sync_lock store f =
   Store.ensure_state store;
-  let path = Store.state_path store "sync.lock" in
-  if exists path then regular path;
-  let fd = Unix.openfile path [ Unix.O_CREAT; Unix.O_RDWR ] 0o600 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close fd)
-    (fun () ->
-      Unix.lockf fd Unix.F_TLOCK 0;
-      f ())
+  try Eioext.Native.with_lock ~path:(Store.state_path store "sync.lock") f with
+  | Eioext.Native.Busy _ -> fail "synchronization is already running for this store"
+  | Eioext.Native.Error message -> fail "%s" message
 
 let run ?report ~dry_run store remote =
   if (not dry_run) && remote.Remote.readonly then

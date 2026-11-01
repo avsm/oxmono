@@ -132,13 +132,13 @@ let to_yaml t =
 
   `O (base_fields @ karakeep_fields @ bushel_fields)
 
-let load_links_file path =
+let load_links_file ?(strict=false) path =
   try
     let yaml_str = In_channel.(with_open_bin path input_all) in
     match Yamlrw.of_string yaml_str with
     | `A links -> List.map t_of_yaml links
-    | _ -> []
-  with _ -> []
+    | _ -> if strict then failwith "Expected a links YAML sequence" else []
+  with exn -> if strict && Sys.file_exists path then raise exn else []
 
 let save_links_file path links =
   let yaml = `A (List.map to_yaml links) in

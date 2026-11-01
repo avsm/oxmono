@@ -228,6 +228,7 @@ type refresh_state = {
   now : unit -> Ptime.t;
   mutex : Eio.Mutex.t;
   mutable generation : int;
+  mutable session_revision : int;
   mutable last_outcome : (int * refresh_decision) option;
   mutable in_flight :
     (string * (refresh_decision Eio.Promise.t * refresh_decision Eio.Promise.u))
@@ -371,6 +372,7 @@ let with_auto_refresh ?spawn_refresh ?on_session_update ~refresh t =
       now = (fun () -> Ptime_clock.now ());
       mutex = Eio.Mutex.create ();
       generation = 0;
+      session_revision = 0;
       last_outcome = None;
       in_flight = None;
     }
@@ -406,6 +408,7 @@ let with_auto_refresh_expiry ?spawn_refresh ?on_session_update ?expires_at
       now;
       mutex = Eio.Mutex.create ();
       generation = 0;
+      session_revision = 0;
       last_outcome = None;
       in_flight = None;
     }
@@ -416,6 +419,12 @@ let session t =
   match t.auto_refresh with
   | Some state -> Eio.Mutex.use_ro state.mutex (fun () -> Some state.current)
   | None -> t.session
+
+let session_revision t =
+  match t.auto_refresh with
+  | None -> 0
+  | Some state ->
+      Eio.Mutex.use_ro state.mutex (fun () -> state.session_revision)
 
 let sync_presence t =
   Eio.Mutex.use_ro t.sync_presence.mutex (fun () -> t.sync_presence.value)
@@ -734,6 +743,7 @@ let apply_refresh state old_session promise resolver =
              never observe a half-updated pair. *)
           Eio.Mutex.use_rw ~protect:true state.mutex (fun () ->
               state.current <- new_session;
+              state.session_revision <- state.session_revision + 1;
               state.expires_at <- expires_at);
           updated := Some (new_session, expires_at);
           Retry_with refreshed_tokens.access_token

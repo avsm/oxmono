@@ -1,0 +1,10 @@
+(library
+ (name sekrit)
+ (public_name sekrit)
+ (libraries
+  eioext
+  unix
+  mirage-crypto
+  mirage-crypto-rng.unix
+  jsont.bytesrw
+  xdg))

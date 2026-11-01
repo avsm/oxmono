@@ -331,7 +331,7 @@ password="unrelated-mqtt-secret"
       ~now:(fun () -> !current)
       ~complete:(fun r ->
         check "location tools available alongside memory and cron"
-          (List.length r.Agentkit.Chat.tools = 15);
+          (List.length r.Agentkit.Chat.tools = 17);
         App.complete env config model r)
     |> fun engine -> Engine.with_locations engine locations
   in

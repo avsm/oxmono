@@ -1,0 +1,4 @@
+# Upstream revision vendored into this directory by vendor.sh.
+repository: https://github.com/antirez/ds4
+revision: 5379c1c9ac315f1540371b06a3db88491d4059ff
+date: 2026-10-19

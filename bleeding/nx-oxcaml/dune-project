@@ -1,0 +1,27 @@
+(lang dune 3.21)
+
+(name nx-oxcaml)
+
+(generate_opam_files true)
+
+(using oxcaml 0.1)
+
+(source
+ (github raven-ml/nx-oxcaml))
+
+(authors "Thibaut Mattio")
+
+(maintainers "Thibaut Mattio <thibaut.mattio@gmail.com>")
+
+(license ISC)
+
+(package
+ (name nx-oxcaml)
+ (synopsis "High-performance Nx backend using OxCaml's unboxed types")
+ (description
+  "An experimental backend for Nx that leverages OxCaml's unboxed types for improved performance.")
+ (depends
+  (ocaml (>= 5.2.0))
+  dune
+  (nx
+   (= 1.0.0~alpha3))))

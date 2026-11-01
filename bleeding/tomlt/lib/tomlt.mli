@@ -824,3 +824,19 @@ module Toml = Toml
 
 module Error = Toml.Error
 (** Error types from the TOML parser. *)
+
+module Fields : sig
+  exception Invalid of string
+  val known : string list -> Toml.t -> unit
+  (** [known fields table] rejects non-tables and unknown keys. *)
+
+  val string_opt : string -> Toml.t -> string option
+  (** [string_opt field table] reads an optional string, rejecting other types.
+      Error messages identify fields without printing their values. *)
+
+  val nonempty : string -> string -> string
+  (** [nonempty field value] rejects an empty or whitespace-only [value]. *)
+
+  val required_string : string -> Toml.t -> string
+  (** [required_string field table] requires a nonempty string field. *)
+end

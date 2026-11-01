@@ -19,7 +19,8 @@ type listing =
   | `Projects
   | `Videos
   | `Links
-  | `Network ]
+  | `Network
+  | `Tags ]
 
 type entry_kind = [ `Paper | `Note | `Idea | `Project | `Video ]
 type feed = [ `Atom of string | `Json | `Perma_atom | `Perma_json ]
@@ -48,8 +49,27 @@ let index_html ~ctx =
 
 (** {1 List pages} *)
 
+(* The tag cloud shows the last six months of notes. Its coloured illustrations
+   are embedded assets, one for each tag that has one. *)
+let tag_months = 6
+
+let tag_art tag =
+  Arod_assets.read ("tag-art/" ^ C.Tag_cloud.alias tag ^ ".svg")
+
+(* [tag_sprite ()] is the sprite of every tag illustration. *)
+let tag_sprite () =
+  let prefix = "tag-art/" in
+  let n = String.length prefix in
+  List.filter_map (fun path ->
+    if String.length path > n && String.sub path 0 n = prefix then
+      Option.map (fun svg ->
+        (Filename.chop_extension (String.sub path n (String.length path - n)),
+         svg)) (Arod_assets.read path)
+    else None) Arod_assets.file_list
+  |> C.Tag_cloud.sprite_doc
+
 let papers_list_html ~ctx =
-  let article, sidebar = C.Paper.papers_list ~ctx in
+  let article, sidebar = C.Paper.papers_list ~ctx ~art:tag_art in
   let cfg = Arod.Ctx.config ctx in
   let base_url = cfg.site.base_url in
   let count = List.length (Arod.Ctx.papers ctx) in
@@ -60,7 +80,7 @@ let papers_list_html ~ctx =
   C.Layout.page ~ctx ~title:"Papers" ~description:"Academic papers" ~url:"/papers" ~current_page:"Papers" ~jsonld ~page_scripts:[Calendar; Checkbox_filter; Tag_cloud_filter; Pagination; Toc] ~article ~sidebar ()
 
 let notes_list_html ~ctx =
-  let article, sidebar = C.Note.notes_list ~ctx in
+  let article, sidebar = C.Note.notes_list ~ctx ~art:tag_art in
   let cfg = Arod.Ctx.config ctx in
   let base_url = cfg.site.base_url in
   let count = List.length (Arod.Ctx.notes ctx) in
@@ -111,6 +131,12 @@ let network_html ~ctx =
   let article, sidebar = C.Network.network_page ~ctx in
   C.Layout.page ~ctx ~title:"Network" ~description:"Network activity" ~url:"/network" ~current_page:"Network" ~page_scripts:[Calendar; Links_modal; Pagination; Toc] ~article ~sidebar ()
 
+let tags_html ~ctx =
+  let art = tag_art in
+  let article = C.Tag_cloud.page ~ctx ~art ~months:tag_months in
+  C.Layout.page ~ctx ~title:"Tags" ~description:"The tags of recent notes"
+    ~url:"/tags" ~current_page:"Notes" ~main_cls:"max-w-4xl" ~article ()
+
 let listing ~ctx (which : listing) (flavour : flavour) =
   match (which, flavour) with
   | `Index, `Html -> index_html ~ctx
@@ -129,6 +155,9 @@ let listing ~ctx (which : listing) (flavour : flavour) =
   | `Links, `Markdown -> C.Markdown_export.links_list_md ~ctx
   | `Network, `Html -> network_html ~ctx
   | `Network, `Markdown -> C.Markdown_export.network_md ~ctx
+  | `Tags, `Html -> tags_html ~ctx
+  | `Tags, `Markdown ->
+    C.Markdown_export.tags_md ~ctx ~months:tag_months
 
 (** {1 Entry pages} *)
 
@@ -417,7 +446,9 @@ let llms_txt ~ctx =
   in
   section "Notes" (function `Note _ -> true | _ -> false);
   section "Papers" (function `Paper _ -> true | _ -> false);
-  section "Talks" (function `Video _ -> true | _ -> false);
+  section "Talks" (function `Video v -> Bushel.Video.talk v | _ -> false);
+  section "Other videos"
+    (function `Video v -> not (Bushel.Video.talk v) | _ -> false);
   section "Projects" (function `Project _ -> true | _ -> false);
   section "Research Ideas" (function `Idea _ -> true | _ -> false);
   Buffer.contents buf
@@ -510,12 +541,22 @@ let pagination ~ctx ~collection ~offset ~limit ~types =
     page_json ~html:(render slice) ~total ~offset ~limit ~count
       ~has_more:(offset + count < total)
   in
+  let paginate_array all render =
+    let total = Arod.Collections.length all in
+    let offset = min offset (max 0 (total - 1)) in
+    let slice = Arod.Collections.page all ~offset ~limit in
+    let count = List.length slice in
+    page_json ~html:(render slice) ~total ~offset ~limit ~count
+      ~has_more:(offset + count < total)
+  in
   match collection with
   | None -> error_json "Missing collection parameter"
   | Some "links" ->
-    paginate (C.Links.all_groups ~ctx) (C.Links.render_groups_html ~ctx)
+    paginate_array (Arod.Collections.links (Arod.Ctx.collections ctx))
+      (C.Links.render_groups_html ~ctx)
   | Some "network" ->
-    paginate (C.Network.all_months ~ctx) (C.Network.render_months_html ~ctx)
+    paginate_array (Arod.Collections.months (Arod.Ctx.collections ctx))
+      (C.Network.render_months_html ~ctx)
   | Some (("feed" | "entries") as collection_type) ->
     let types = List.filter_map C.List_view.entry_type_of_string types in
     let render =

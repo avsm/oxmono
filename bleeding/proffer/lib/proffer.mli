@@ -174,6 +174,14 @@ module Headers : sig
   (** [find_other t spelling] is the first value under a field httpz does not
       name, matched case-insensitively. *)
 
+  val find_single :
+    t @ local -> string @ local ->
+    (string option, [ `Repeated ]) result @ local @@ portable
+  (** [find_single t spelling] finds a known or custom field by its
+      case-insensitive spelling. Absence is [Ok None]. More than one field,
+      including identical values, is [Error `Repeated]. It does not join or
+      parse values. Use this for fields whose grammar requires a singleton. *)
+
   val[@zero_alloc] mem : t @ local -> name -> bool @@ portable
   (** [mem t name] is whether [t] has a field named [name]. It is always [false]
       for {!Httpz.Header_name.Other}. Use {!find_other} to look up a custom
@@ -255,6 +263,7 @@ module Req : sig
     unit ->
     t @ local
     @@ portable
+  [@@zero_alloc]
   (** [v ~meth ~target ()] is a request with the supplied method and raw target.
       [path] and [query] override the values normally derived from [target].
       [transport] defaults to [Insecure]. [version] defaults to HTTP/1.1.
@@ -298,6 +307,12 @@ module Req : sig
   val query_param : t @ local -> string -> string option @@ portable
   (** [query_param t name] is the first value of [name] in {!query}. *)
 
+  val query_param_local :
+    t @ local -> string @ local -> string option @ local @@ portable
+  [@@zero_alloc]
+  (** [query_param_local t name] is the first value of [name], decoded in
+      the caller's region. Copy a value that must outlive that region. *)
+
   val headers : t @ local -> Headers.t @ local @@ portable
   (** [headers t] is the request's field block. *)
 
@@ -310,6 +325,12 @@ module Req : sig
     t @ local -> string @ local -> string option @ local @@ portable
   (** [header_other t spelling] is the first value under a field httpz does not
       name, matched case-insensitively. *)
+
+  val header_single :
+    t @ local -> string @ local ->
+    (string option, [ `Repeated ]) result @ local @@ portable
+  (** [header_single t spelling] is {!Headers.find_single} on the request's
+      fields. It handles known and custom names and rejects repetitions. *)
 
   val cookies : t @ local -> string @@ portable
   (** [cookies t] is the Cookie field values joined with ["; "] in wire order,

@@ -24,32 +24,12 @@ and carddav = {
 
 (** {1 XDG Paths} *)
 
-let xdg_config_home () =
-  match Sys.getenv_opt "XDG_CONFIG_HOME" with
-  | Some dir -> dir
-  | None -> (
-      match Sys.getenv_opt "HOME" with
-      | Some home -> Filename.concat home ".config"
-      | None -> ".config")
-
-let xdg_data_home () =
-  match Sys.getenv_opt "XDG_DATA_HOME" with
-  | Some dir -> dir
-  | None -> (
-      match Sys.getenv_opt "HOME" with
-      | Some home -> Filename.concat home ".local/share"
-      | None -> ".local/share")
-
-let config_dir () = Filename.concat (xdg_config_home ()) "sortal"
+let xdg_config_home = Xdge.Paths.config_home
+let xdg_data_home = Xdge.Paths.data_home
+let config_dir () = Xdge.Paths.config_dir "sortal"
 let config_file () = Filename.concat (config_dir ()) "config.toml"
-let data_dir () = Filename.concat (xdg_data_home ()) "sortal"
-let state_dir () =
-  match Sys.getenv_opt "XDG_STATE_HOME" with
-  | Some dir -> dir
-  | None -> (
-      match Sys.getenv_opt "HOME" with
-      | Some home -> Filename.concat home ".local/state"
-      | None -> ".local/state")
+let data_dir () = Xdge.Paths.data_dir "sortal"
+let state_dir () = Xdge.Paths.state_dir "sortal"
 
 (** {1 Default Configuration} *)
 
@@ -63,7 +43,7 @@ let default () =
         password_file = Filename.concat (config_dir ()) "carddav-password";
         collection = None;
         bundle = Filename.concat (data_dir ()) ".sortal/carddav/bundle";
-        report = Filename.concat (state_dir ()) "sortal/carddav/report";
+        report = Filename.concat (state_dir ()) "carddav/report";
       };
   }
 
@@ -160,7 +140,7 @@ report = %S
 |}
     (Filename.concat (config_dir ()) "carddav-password")
     (Filename.concat (data_dir ()) ".sortal/carddav/bundle")
-    (Filename.concat (state_dir ()) "sortal/carddav/report")
+    (Filename.concat (state_dir ()) "carddav/report")
 
 let write_default_config ?(force = false) () =
   let dir = config_dir () in

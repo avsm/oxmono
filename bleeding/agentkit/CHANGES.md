@@ -1,5 +1,27 @@
 # unreleased
 
+- Allow OpenRouter completions to request strict JSON Schema output.
+
+- Index memo keys for allocation-free membership checks and avoid rebuilding
+  the episode tree twice when saving a summary.
+
+- Preserve DS4 chat roles and reasoning, return calls for host execution, and
+  reject unsupported images. Discard truncated calls before tool dispatch.
+- Cancel OpenRouter requests and tool rounds, report truncated calls correctly,
+  and release daemon sessions and published state on failures.
+
+- Add shared address search and reverse-geocoding tools using Nominatim,
+  with marpe defaults, bounded results and explicit service errors.
+
+- Add bounded concurrent tool execution to `Turn.run` and optional parallel
+  tool requests to the OpenRouter adapter. Sequential execution stays default.
+
+- Bound pinned memory and journal text in numpty briefs. Share call budgets
+  across native and returned tools and check request text before inference.
+
+- Add OptMem-inspired OCaml summary trees and bounded episodic numpty briefs,
+  with persistent derived summaries and expandable source records.
+
 - Build the Apple adapters on non-macOS platforms. Model operations report
   that Foundation Models requires macOS.
 

@@ -1,0 +1,18 @@
+(library
+ (name d10)
+ (public_name d10)
+ (libraries
+  osrel
+  eio
+  eio.unix
+  opam-core
+  opam-format
+  jsont
+  jsont.bytesrw
+  sqlite3
+  fmt
+  logs
+  unix
+  cstruct
+  fetch
+  fetch-curl))

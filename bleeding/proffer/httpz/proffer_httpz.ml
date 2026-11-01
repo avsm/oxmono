@@ -226,12 +226,18 @@ let addr_string (addr : Eio.Net.Sockaddr.stream) =
   | `Tcp (ip, port) -> Format.asprintf "%a:%d" Eio.Net.Ipaddr.pp ip port
   | `Unix path -> Printf.sprintf "unix:%S" path
 
+type output = #{ data : Cstruct.t; off : int; len : int }
+
+let[@zero_alloc] output_slice data off len = #{ data; off; len }
+let empty_output = #{ data = Cstruct.empty; off = 0; len = 0 }
+
 (* Closures erase the flow and clock type parameters from connection state. *)
 type conn = {
   transport : Proffer.Req.transport;
   now : unit -> float#;
   read : float# -> Cstruct.t -> int;
-  write : Cstruct.t list -> unit;
+  write : Cstruct.t -> int -> int -> Cstruct.t or_null -> int -> int
+    -> Cstruct.t or_null -> int -> int -> unit;
   shutdown : unit -> unit;
   read_buf : bytes;
   read_cs : Cstruct.t;
@@ -277,9 +283,26 @@ let create_conn flow ~mono_clock ~config ~transport =
               Eio.Flow.single_read flow cs)
         with Eio.Time.Timeout -> -1);
     write =
-      (fun bufs ->
-        Eio.Time.Timeout.run_exn write_timeout (fun () ->
-            Eio.Flow.write flow bufs));
+      (fun a aoff alen b boff blen c coff clen ->
+        (* The timeout callback captures owners and bounds. Views and iovecs
+           belong to its local region, including across partial writes. *)
+        match b, c with
+        | Null, Null ->
+            Eio.Time.Timeout.run_exn write_timeout (fun () ->
+              let local_ a = Cstruct.sub_local a aoff alen in
+              match Eio.Flow.write flow (stack_ [ a ]) with () -> ())
+        | This b, Null ->
+            Eio.Time.Timeout.run_exn write_timeout (fun () ->
+              let local_ a = Cstruct.sub_local a aoff alen in
+              let local_ b = Cstruct.sub_local b boff blen in
+              match Eio.Flow.write flow (stack_ [ a; b ]) with () -> ())
+        | This b, This c ->
+            Eio.Time.Timeout.run_exn write_timeout (fun () ->
+              let local_ a = Cstruct.sub_local a aoff alen in
+              let local_ b = Cstruct.sub_local b boff blen in
+              let local_ c = Cstruct.sub_local c coff clen in
+              match Eio.Flow.write flow (stack_ [ a; b; c ]) with () -> ())
+        | Null, This _ -> assert false);
     shutdown = (fun () -> Eio.Flow.shutdown flow `All);
     read_buf = Bytes.create Httpz.buffer_size;
     read_cs = Cstruct.create Httpz.buffer_size;
@@ -339,14 +362,21 @@ type connection_mode =
   | Upgrade
   | Advertise_upgrade of bool
 
-(* Cstruct values and the lists Eio consumes are the output-side
-   representation boundary. Keeping them in these assumed functions leaves
-   everything around them checked. *)
-let[@inline never][@zero_alloc assume] cstruct_of_string s = Cstruct.of_string s
-let[@inline never][@zero_alloc assume] cstruct_sub cs off len = Cstruct.sub cs off len
-let[@inline never][@zero_alloc assume] write_one conn a = conn.write [ a ]
-let[@inline never][@zero_alloc assume] write_two conn a b = conn.write [ a; b ]
-let[@inline never][@zero_alloc assume] write_three conn a b c = conn.write [ a; b; c ]
+(* Timeout closures, payload copies and socket I/O remain allocation
+   boundaries. Output descriptors and the surrounding framing are checked. *)
+let[@inline never][@zero_alloc assume] cstruct_of_string s =
+  let data = Cstruct.of_string s in
+  output_slice data 0 (String.length s)
+
+let[@zero_alloc] cstruct_sub cs off len = output_slice cs off len
+let[@inline never][@zero_alloc assume] write_one conn a =
+  conn.write a.#data a.#off a.#len Null 0 0 Null 0 0
+let[@inline never][@zero_alloc assume] write_two conn a b =
+  conn.write a.#data a.#off a.#len (This b.#data) b.#off b.#len
+    Null 0 0
+let[@inline never][@zero_alloc assume] write_three conn a b c =
+  conn.write a.#data a.#off a.#len (This b.#data) b.#off b.#len
+    (This c.#data) c.#off c.#len
 
 (* Proffer's block arrives at [local], and httpz's writers take their strings
    at [local] too, so nothing is copied to write a response. *)
@@ -464,11 +494,11 @@ let[@inline never][@zero_alloc assume] copy_bytes_to_body conn b off len =
   Cstruct.blit_from_bytes b off conn.body_cs 0 len
 
 let[@zero_alloc] write_parts conn before body after =
-  match before, after with
-  | Null, Null -> write_one conn body
-  | This before, Null -> write_two conn before body
-  | Null, This after -> write_two conn body after
-  | This before, This after -> write_three conn before body after
+  if before.#len = 0 then
+    if after.#len = 0 then write_one conn body
+    else write_two conn body after
+  else if after.#len = 0 then write_two conn before body
+  else write_three conn before body after
 
 let[@zero_alloc] rec write_string_range conn s ~off ~len ~before ~after =
   let cap = Cstruct.length conn.body_cs in
@@ -476,9 +506,9 @@ let[@zero_alloc] rec write_string_range conn s ~off ~len ~before ~after =
   copy_string_to_body conn s off n;
   let body = cstruct_sub conn.body_cs 0 n in
   let last = n = len in
-  write_parts conn before body (if last then after else Null);
+  write_parts conn before body (if last then after else empty_output);
   if not last then
-    write_string_range conn s ~off:(off + n) ~len:(len - n) ~before:Null
+    write_string_range conn s ~off:(off + n) ~len:(len - n) ~before:empty_output
       ~after
 
 let[@zero_alloc] write_through conn s ~before ~after =
@@ -490,22 +520,22 @@ let[@zero_alloc] rec write_bytes_range conn b ~off ~len ~before ~after =
   copy_bytes_to_body conn b off n;
   let body = cstruct_sub conn.body_cs 0 n in
   let last = n = len in
-  write_parts conn before body (if last then after else Null);
+  write_parts conn before body (if last then after else empty_output);
   if not last then
-    write_bytes_range conn b ~off:(off + n) ~len:(len - n) ~before:Null
+    write_bytes_range conn b ~off:(off + n) ~len:(len - n) ~before:empty_output
       ~after
 
-let[@inline never][@zero_alloc assume] chunk_framing conn n =
+let[@zero_alloc] chunk_framing conn n =
   let hoff =
     to_int (St.write_chunk_header conn.chunk_buf ~off:(i16 0) ~size:n)
   in
   let foff = to_int (St.write_chunk_footer conn.chunk_buf ~off:(i16 hoff)) in
   Cstruct.blit_from_bytes conn.chunk_buf 0 conn.chunk_cs 0 foff;
-  #( This (Cstruct.sub conn.chunk_cs 0 hoff),
-     This (Cstruct.sub conn.chunk_cs hoff (foff - hoff)) )
+  #(output_slice conn.chunk_cs 0 hoff,
+    output_slice conn.chunk_cs hoff (foff - hoff))
 
 let[@zero_alloc] framing conn n =
-  if not conn.body_chunked then #(Null, Null)
+  if not conn.body_chunked then #(empty_output, empty_output)
   else chunk_framing conn n
 
 let[@cold][@zero_alloc assume error] stream_overrun budget written =
@@ -566,10 +596,10 @@ let[@cold][@zero_alloc assume error] stream_underrun expected written =
        (I64.to_string (I64.of_int64 expected))
        (I64.to_string written))
 
-let[@inline never][@zero_alloc assume] write_final_chunk conn =
+let[@zero_alloc] write_final_chunk conn =
   let off = to_int (St.write_final_chunk conn.chunk_buf ~off:(i16 0)) in
   Cstruct.blit_from_bytes conn.chunk_buf 0 conn.chunk_cs 0 off;
-  conn.write [ Cstruct.sub conn.chunk_cs 0 off ]
+  write_one conn (output_slice conn.chunk_cs 0 off)
 
 let[@zero_alloc] write_final_chunk_with_trailers conn
     (trailers : Proffer.Headers.t @ local) =
@@ -617,7 +647,7 @@ let handoff_socket conn ~idle_timeout =
       | exception End_of_file -> 0
   in
   let write b off len =
-    write_bytes_range conn b ~off ~len ~before:Null ~after:Null
+    write_bytes_range conn b ~off ~len ~before:empty_output ~after:empty_output
   in
   Proffer.Backend.socket ~read ~write ~shutdown:conn.shutdown
 
@@ -717,7 +747,8 @@ let[@zero_alloc] rec head_complete_from b i stop =
 
 let[@zero_alloc] head_complete b ~from ~stop = head_complete_from b (max 0 from) stop
 let continue_cs = Cstruct.of_string continue_line
-let[@inline never][@zero_alloc assume] write_continue conn = conn.write [ continue_cs ]
+let[@zero_alloc] write_continue conn =
+  write_one conn (output_slice continue_cs 0 (String.length continue_line))
 
 (* Compact the unread suffix to [dst]. This is also what preserves a pipelined
    request after dechunking: once the handler consumes the decoded body, the

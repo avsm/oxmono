@@ -1,0 +1,5 @@
+(copy_files ../unit/helpers.ml)
+
+(test
+ (name test_executor)
+ (libraries d10.ir alcotest eio_main))

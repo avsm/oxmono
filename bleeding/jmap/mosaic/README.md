@@ -99,7 +99,7 @@ connect, `n` to create one and `e` to edit one. `q` or `Esc` quits.
 
 Setting `JMAP_SESSION_URL` and `JMAP_API_KEY`, or passing `--url` and
 `--api-key`, skips the screen and connects at once. `JMAP_API_KEY_FILE` and
-`--api-key-file` name a file whose first line holds the secret instead, and
+`--api-key-file` name a private file whose single line holds the secret instead, and
 `JMAP_AUTH` or `--auth` chooses the scheme. A basic key is `user:password`,
 whose halves fill the Username and Password fields. Anything given this way
 wins over the chosen profile, and a setting that is missing is asked for on
@@ -157,3 +157,8 @@ run without server-side identity configuration.
 ```sh
 dune exec mosaic/test/headless.exe
 ```
+
+Profiles may use `secret_ref=sekrit:jmap-work` (or an absolute private-file path)
+instead of `secret=`. The form displays and saves that reference; it resolves the
+secret only when connecting. For Basic authentication, the referenced value is
+`user:password`, so the form does not ask for a separate username.

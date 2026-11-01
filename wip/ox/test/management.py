@@ -133,11 +133,13 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
             assert 'generate_opam_files false' in project
             if unit['project']=='wip/shared': assert 'A description with (parentheses)' in project
     opam=(a/'opam-repository/packages/app/app.1.0+ox-20261101-1/opam').read_text()
+    assert 'oxmono-snapshot' not in opam
+    assert not (a/'opam-repository/packages/oxmono-snapshot').exists()
     assert 'x-subpath' not in opam
     assert '5.2.0minus39' in opam and 'shared' in opam and '1.0+ox' in opam
     marker=(a/'opam-repository/packages/oxcaml-shared-patches/oxcaml-shared-patches.enabled/opam').read_text()
     assert '1.0+ox' in marker and '0.1+ox' in marker and 'build' in marker and 'post' in marker
-    # Ordinary opam must enforce the exported compiler and snapshot policy.
+    # Only actual dependencies constrain installation, not unrelated packages.
     if shutil.which('opam'):
         solver_repo=tmp/'solver-repo'
         shutil.copytree(a/'opam-repository',solver_repo)
@@ -149,6 +151,7 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
         recipe('oxcaml-compiler','5.2.0minus40')
         recipe('oxcaml','latest')
         recipe('shared','9.0')
+        recipe('unrelated','9.0')
         env=dict(os.environ,OPAMROOT=str(tmp/'opam-root'),OPAMYES='1',OPAMCONFIRMLEVEL='unsafe-yes')
         def opam(*args,ok=True):
             result=subprocess.run(['opam',*map(str,args)],env=env,cwd=tmp,
@@ -157,11 +160,9 @@ with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
         opam('init','--bare','--no-setup','--disable-sandboxing','fixture',solver_repo)
         opam('switch','create','fixture','--empty')
         opam('install','--dry-run','app.1.0+ox-20261101-1')
+        opam('install','--dry-run','app.1.0+ox-20261101-1','unrelated.9.0')
         opam('install','--dry-run','app.1.0+ox-20261101-1','oxcaml-compiler.5.2.0minus40',ok=False)
         opam('install','--dry-run','app.1.0+ox-20261101-1','shared.9.0',ok=False)
-        # Exercise an upgrade with the old metadata-only policy already installed.
-        installed_policy=next((solver_repo/'packages/oxmono-snapshot').iterdir()).name
-        opam('install',installed_policy)
     # A new tag or source URL alone must not manufacture new packages.
     noop_plan=tmp/'noop-plan.json'
     call(root,'release','plan','--user','alice','--tag','20261101-2',

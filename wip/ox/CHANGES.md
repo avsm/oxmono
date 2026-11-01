@@ -1,5 +1,8 @@
 # Changes
 
+- Remove the release-wide `oxmono-snapshot` dependency from new exports.
+  Packages retain the compiler pin and exact actual local dependencies.
+
 - Reuse previous package versions and URLs when rebuilt distfile checksums
   match. Plan incremental exports with `--previous`, propagate dependency
   changes and skip exports with no changed packages.

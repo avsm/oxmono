@@ -522,8 +522,8 @@ Plans bind the tag to its commit and reject moved tags during export. Incrementa
 exports rebuild trial distfiles using prior versions and timestamps. Identical
 checksums retain existing package versions and URLs. New tags apply only to
 changed source units, including changes to embedded dependency constraints.
-The compatibility policy's metadata-only allowlist grows within a release
-lineage. If every selected distfile matches, no release output is produced.
+New packages have no release-wide policy dependency. Exact actual local
+dependencies preserve compatibility without coupling unrelated packages. If every selected distfile matches, no release output is produced.
 Keep the existing personal `ox stamp` behavior until its callers migrate.
 
 The suffix is part of opam's version ordering, not ignored SemVer metadata.
@@ -728,8 +728,9 @@ An upstream or graduation change requires an explicit owner decision.
 
 The `oxrel` branch contains the layout migration, owner manifests and templates,
 locked toolchain inputs, owner build/bundle/image commands and deterministic
-source release plan/export/verify commands. Guard extensions and the exported
-snapshot policy preserve compatibility constraints outside ox's own solver.
+source release plan/export/verify commands. Guard extensions, the compiler pin and exact actual local dependencies
+preserve compatibility constraints outside ox's own solver without a global
+snapshot policy.
 
 Owner isolation, bundle relocation, deterministic archives, guard retention,
 version collisions and checksum verification have regression coverage. An

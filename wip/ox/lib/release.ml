@@ -529,8 +529,8 @@ let projects snapshot =
   List.map (fun p -> p.Stamp.project) snapshot.Stamp.packages
   |> List.sort_uniq String.compare
 
-let make_archive proc ~root ~commit ~snapshot ~maintainers ~policy_version
-    ~metadata_commit ~project ~stage ~archive ~timestamp =
+let make_archive proc ~root ~commit ~snapshot ~maintainers ~metadata_commit
+    ~project ~stage ~archive ~timestamp =
   if exists stage then remove_tree stage;
   mkdir stage;
   let raw = archive ^ ".tar" in
@@ -560,13 +560,6 @@ let make_archive proc ~root ~commit ~snapshot ~maintainers ~policy_version
   List.iter
     (fun p ->
       let opam = metadata ~maintainers metadata_snapshot p in
-      let opam =
-        OpamFile.OPAM.with_depends
-          (conjunction
-             (OpamFile.OPAM.depends opam)
-             (exact "oxmono-snapshot" policy_version))
-          opam
-      in
       write_opam
         (stage / (p.Stamp.name ^ ".opam"))
         (OpamFile.OPAM.with_url_opt None opam))
@@ -582,49 +575,16 @@ type previous_unit = {
   timestamp : string;
 }
 
-type resolved = {
-  snapshot : Stamp.snapshot;
-  policy_version : string;
-  reused : previous_unit list;
-}
+type resolved = { snapshot : Stamp.snapshot; reused : previous_unit list }
 
 let extension_string opam key =
   match OpamStd.String.Map.find_opt key (OpamFile.OPAM.extensions opam) with
   | Some { OpamParserTypes.FullPos.pelem = String s; _ } -> s
   | _ -> fail "Missing previous source metadata %s" key
 
-let policy_dependency opam =
-  let found =
-    OpamFormula.fold_left
-      (fun acc (name, condition) ->
-        if OpamPackage.Name.to_string name <> "oxmono-snapshot" then acc
-        else
-          OpamFormula.fold_left
-            (fun acc -> function
-              | OpamTypes.Constraint (`Eq, OpamTypes.FString v) -> v :: acc
-              | _ -> acc)
-            acc condition)
-      []
-      (OpamFile.OPAM.depends opam)
-  in
-  match List.sort_uniq String.compare found with
-  | [ v ] -> v
-  | _ -> fail "Previous package must have one exact snapshot policy"
-
 let resolve_previous proc ~root ~commit ~snapshot ~maintainers ~previous =
   match previous with
-  | None ->
-      {
-        snapshot;
-        reused = [];
-        policy_version =
-          "0+ox."
-          ^ hash_fields
-              (commit
-              :: List.map
-                   (fun p -> p.Stamp.name ^ "." ^ p.version)
-                   snapshot.Stamp.packages);
-      }
+  | None -> { snapshot; reused = [] }
   | Some directory ->
       verify proc ~directory;
       let fields =
@@ -632,7 +592,6 @@ let resolve_previous proc ~root ~commit ~snapshot ~maintainers ~previous =
         | Some json -> json_object json
         | None -> fail "Invalid previous manifest"
       in
-      let policies = ref [] in
       let units =
         json_array fields "archives"
         |> List.map (fun record ->
@@ -656,7 +615,6 @@ let resolve_previous proc ~root ~commit ~snapshot ~maintainers ~previous =
                        / "opam"))
                    versions
                in
-               policies := List.map policy_dependency opams @ !policies;
                let source_commit =
                  match opams with
                  | opam :: rest ->
@@ -692,11 +650,6 @@ let resolve_previous proc ~root ~commit ~snapshot ~maintainers ~previous =
                  source_commit;
                  timestamp;
                })
-      in
-      let policy_version =
-        match List.sort_uniq String.compare !policies with
-        | [ v ] -> v
-        | _ -> fail "Previous release contains incompatible policy lineages"
       in
       let changed = Hashtbl.create 32 in
       let old_unit project =
@@ -758,8 +711,7 @@ let resolve_previous proc ~root ~commit ~snapshot ~maintainers ~previous =
                   | Some u ->
                       let checksum =
                         make_archive proc ~root ~commit ~snapshot:(effective ())
-                          ~maintainers ~policy_version
-                          ~metadata_commit:u.source_commit ~project
+                          ~maintainers ~metadata_commit:u.source_commit ~project
                           ~stage:(scratch / "source")
                           ~archive:(scratch / "candidate.tar.gz")
                           ~timestamp:u.timestamp
@@ -780,71 +732,7 @@ let resolve_previous proc ~root ~commit ~snapshot ~maintainers ~previous =
             && not (Hashtbl.mem changed u.project))
           units
       in
-      { snapshot = effective (); policy_version; reused }
-
-let policy_opam ~overlay ~maintainers ~policy_version packages =
-  let path =
-    overlay / "packages/oxmono-snapshot"
-    / ("oxmono-snapshot." ^ policy_version)
-    / "opam"
-  in
-  let old =
-    if exists path then read_opam path
-    else
-      OpamFile.OPAM.read_from_string
-        (Printf.sprintf
-           "opam-version: \"2.0\"\n\
-            synopsis: \"OxMono source compatibility policy\"\n\
-            maintainer: [%s]\n\
-            depends: [\"oxcaml-compiler\" {= %S}]\n"
-           (String.concat " " (List.map (Printf.sprintf "%S") maintainers))
-           compiler)
-  in
-  let seen = Hashtbl.create 32 in
-  let conflicts =
-    OpamFormula.map
-      (fun (name, condition) ->
-        let key = OpamPackage.Name.to_string name in
-        Hashtbl.replace seen key ();
-        match List.find_opt (fun p -> p.Stamp.name = key) packages with
-        | None -> OpamFormula.Atom (name, condition)
-        | Some p ->
-            let already =
-              OpamFormula.fold_left
-                (fun found -> function
-                  | OpamTypes.Constraint (`Neq, OpamTypes.FString v)
-                    when v = p.version ->
-                      true
-                  | _ -> found)
-                false condition
-            in
-            let neq =
-              OpamFormula.Atom
-                (OpamTypes.Constraint (`Neq, OpamTypes.FString p.version))
-            in
-            OpamFormula.Atom
-              (name, if already then condition else conjunction condition neq))
-      (OpamFile.OPAM.conflicts old)
-  in
-  let conflicts =
-    List.fold_left
-      (fun acc p ->
-        if Hashtbl.mem seen p.Stamp.name then acc
-        else
-          let atom =
-            OpamFormula.Atom
-              ( OpamPackage.Name.of_string p.name,
-                OpamFormula.Atom
-                  (OpamTypes.Constraint (`Neq, OpamTypes.FString p.version)) )
-          in
-          match acc with
-          | OpamFormula.Empty -> atom
-          | _ -> OpamFormula.Or (acc, atom))
-      conflicts packages
-  in
-  (* Like upstream patch markers, this metadata-only allowlist grows. Source
-     package entries and their archives remain immutable. *)
-  write_opam path (OpamFile.OPAM.with_conflicts conflicts old)
+      { snapshot = effective (); reused }
 
 let plan proc ~repo ~revision ~packages ~owner ~tag ~base_url ~guard_repository
     ~previous =
@@ -950,8 +838,6 @@ let export proc ~repo ~revision ~packages:roots ~owner ~tag ~base_url
               path;
           write path text
         in
-        let policy_version = resolved.policy_version in
-        policy_opam ~overlay ~maintainers ~policy_version packages;
         let records =
           List.map
             (fun project ->
@@ -986,7 +872,7 @@ let export proc ~repo ~revision ~packages:roots ~owner ~tag ~base_url
                   mkdir (tmp / "sources");
                   let checksum =
                     make_archive proc ~root ~commit ~snapshot ~maintainers
-                      ~policy_version ~metadata_commit:commit ~project ~stage
+                      ~metadata_commit:commit ~project ~stage
                       ~archive:(tmp / rel) ~timestamp
                   in
                   List.iter
@@ -1050,7 +936,7 @@ let export proc ~repo ~revision ~packages:roots ~owner ~tag ~base_url
                  ("schema_version", `Float 1.);
                  ("commit", json_string commit);
                  ("compiler", json_string compiler);
-                 ("export_recipe", `Float 3.);
+                 ("export_recipe", `Float 4.);
                  ("tag", `String tag);
                  ("toolchain_lock", lock);
                  ("provenance", provenance);

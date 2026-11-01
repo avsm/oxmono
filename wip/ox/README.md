@@ -377,9 +377,8 @@ forward and rejects changes to an existing source package/version. Keep the
 previous archives at their original URLs.
 
 Place the generated repository ahead of the pinned OxCaml and public opam
-repositories. Packages require minus39 and an exported snapshot policy that
-rejects other versions of local packages while allowing unused packages to
-remain absent. Applicable upstream guard allowlists are extended explicitly.
+repositories. Packages require minus39 and exact versions of their actual local
+dependencies. Unrelated packages do not constrain each other. Applicable upstream guard allowlists are extended explicitly.
 Verification checks archive and metadata hashes, not buildability. Validate
 extracted packages and both Linux architectures before publishing. Uploads,
 remote publication and recovery of unknown vendor provenance remain separate
@@ -415,11 +414,13 @@ If all archives match, export reports no changes and creates no directory.
 Reused archives are copied into a changed release's inventory for offline
 verification, but retain their original source URLs.
 
-Source package entries are immutable. The metadata-only snapshot policy stays
-at the same version through an incremental lineage, with its permitted local
-versions extended like the upstream patch guards. Exact dependencies continue
-to prevent incompatible combinations. Independent lineages still have distinct
-policies. Use `--previous` to extend the lineage you intend to consume.
+Source package entries are immutable. New exports have no release-wide
+`oxmono-snapshot` dependency. Packages can be installed independently with
+their actual dependencies, including packages from separate exports. Exact
+local dependencies preserve compatibility where libraries really interact.
+Older versions retain their original snapshot dependency. Removing it changes
+the embedded package metadata and requires a fresh version on the first export
+with this recipe. Subsequent checksum-identical exports are reused as usual.
 
 For hosting, choose the final HTTPS base URL before planning. Upload the
 archives to that location, keeping their `sources/` paths, before making the

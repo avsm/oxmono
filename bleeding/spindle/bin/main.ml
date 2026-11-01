@@ -121,5 +121,5 @@ let command =
   Cmd.v (Cmd.info "spindle" ~doc:"Run an OCaml Tangled inspection job") term
 
 let () =
-  Console_eio.setup ();
+  Console_tty.setup ();
   exit (Cmd.eval command)

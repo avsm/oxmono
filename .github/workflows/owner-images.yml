@@ -1,0 +1,31 @@
+name: Owner Linux images
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        owner: [avsm, etap]
+        target:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.target.runner }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the owner's image
+        run: docker build --platform linux/${{ matrix.target.arch }} -f u/${{ matrix.owner }}/Dockerfile -t oxmono-owner .
+      - name: List installed commands
+        run: docker run --rm oxmono-owner
+      - name: Smoke test the owner command
+        run: |
+          if [ '${{ matrix.owner }}' = avsm ]; then
+            docker run --rm oxmono-owner bushel --help
+          else
+            docker run --rm oxmono-owner taposaur --help
+          fi

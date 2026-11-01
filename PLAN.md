@@ -723,5 +723,19 @@ patched vendors enter the overlay; user applications opt in when needed.
 Hosting URLs and upload credentials can wait until local source releases work.
 An upstream or graduation change requires an explicit owner decision.
 
-No source-layout migration, container build or publication is performed by
-this design update.
+## Implementation status
+
+The `oxrel` branch contains the layout migration, owner manifests and templates,
+locked toolchain inputs, owner build/bundle/image commands and deterministic
+source release plan/export/verify commands. Guard extensions and the exported
+snapshot policy preserve compatibility constraints outside ox's own solver.
+
+Owner isolation, bundle relocation, deterministic archives, guard retention,
+version collisions and checksum verification have regression coverage. An
+exported Bytesrw archive builds independently under `release-check`. Projects
+need declared release base versions before export. Linux
+images still require execution on a host with a Docker daemon. The macOS owner
+build encountered a network failure fetching the MLX wheel. Public hosting,
+uploads, full standalone package certification, execution of architecture CI
+and unknown
+SQLite provenance remain release gates rather than claimed completed work.

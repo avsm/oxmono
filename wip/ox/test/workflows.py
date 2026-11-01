@@ -116,4 +116,17 @@ install: [["mkdir" "-p" "%{lib}%/consumer"] ["cp" "%{lib}%/local-lib/value" "%{l
     pkg("missing-source", 'url { src: "file:///does-not-exist.tar.gz" }\n')
     call(["build", *config, "--fetch", "--dry-run", "missing-source"])
     assert not list((root / "cache").rglob(".opam-switch"))
+    # Refreshing a pinned repository must not follow its branch tip.
+    pkg("pinprobe", "")
+    git(base, "init", "-q")
+    git(base, "add", ".")
+    git(base, "-c", "user.name=Fixture", "-c", "user.email=test@example.invalid", "commit", "-qm", "pinned")
+    pinned=subprocess.check_output(["git","-C",str(base),"rev-parse","HEAD"],text=True).strip()
+    pkg("pinprobe", "", "2")
+    git(base, "add", ".")
+    git(base, "-c", "user.name=Fixture", "-c", "user.email=test@example.invalid", "commit", "-qm", "newer")
+    pinned_config=["--repository",base.as_uri()+"#"+pinned,"--data-dir",str(root/"pinned-data"),"--cache-dir",str(root/"pinned-cache")]
+    assert "Plan pinprobe.1" in call(["show",*pinned_config,"pinprobe"]).stderr
+    assert "Plan pinprobe.1" in call(["show",*pinned_config,"--refresh","pinprobe"]).stderr
+
 print("ox workflows: libraries, repeated tests, environments, dirty workspace, external patch guards: OK")

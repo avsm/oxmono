@@ -313,3 +313,65 @@ and ran this monorepo's `yamlcat`. Snapshot `551112fee9a2`, containing the
 With cached sources and run prefixes removed, the runner restored layers and
 successfully processed YAML offline. Validation is on macOS arm64. Linux
 execution remains unverified.
+
+## Monorepo owners and releases
+
+Run these commands from the repository root. `ox init --user NAME` creates a
+manifest, a minimal executable and a Linux Dockerfile under `u/NAME`.
+`workspace.json` records the fixed `wip/`, `vendor/`, `u/` layout and package
+exclusions. Each `user.json` selects additional shared packages with `include`
+and omits owner projects with `exclude_projects`, mapping paths to reasons.
+
+```sh
+ox inventory --user avsm --check
+ox build --user avsm
+ox test --user avsm
+ox run --user avsm -- bushel --help
+ox dist bundle --user avsm --output dist/avsm
+ox dist image --user avsm --arch arm64 --tag oxmono-avsm:local
+```
+
+Owner selection excludes other owners before parsing their package metadata.
+It retains complete Dune projects and conservatively includes dependencies,
+including optional and test dependencies. Shared packages cannot depend on
+owner packages. Duplicate installed binary names fail validation.
+`inventory --stage DIR` writes the selected working sources for inspection.
+Bundles include Dune-installed assets and `binaries.json`; Linux images also
+include a runtime shared-library inventory. `--prepared` uses the caller's
+compiler and dependencies, which must match the lock. Normal owner commands
+use the exact compiler and repository revisions in `toolchain.lock.json`.
+Docker builds require a running Docker daemon and network access. The manual
+`Owner Linux images` GitHub workflow builds both owners on native amd64 and
+arm64 runners and checks their command help.
+
+Source releases use committed sources, never dirty working files. Clone the
+OxCaml repository and check out the revision in `toolchain.lock.json` before
+planning a release:
+
+```sh
+ox release plan bytesrw --guard-repository /path/to/oxcaml-opam-repository \
+  --base-url https://downloads.example.org/releases/one --output /tmp/release.json
+ox release export --plan /tmp/release.json --output dist/one
+ox release verify dist/one
+```
+
+The output contains deterministic `sources/*.tar.gz`, `opam-repository/` and
+`manifest.json`. The base URL names the directory containing `sources/`.
+`file://` URLs support local installation tests. The plan freezes the commit,
+package closure and guard content hash. Export requires the guard repository at the locked revision with a clean tree.
+Vendor packages with unknown upstream revisions cannot be released.
+Projects need an explicit release base version; missing versions and `dev`
+placeholders are rejected. Versions use the package base followed by `+ox`, then `+ox2` and later revisions
+selected with `--ox-revision`. Historical `bleeding/` shared projects can also
+be selected by commit. `--previous dist/one` carries previous opam entries
+forward and rejects changes to an existing source package/version. Keep the
+previous archives at their original URLs.
+
+Place the generated repository ahead of the pinned OxCaml and public opam
+repositories. Packages require minus39 and an exported snapshot policy that
+rejects other versions of local packages while allowing unused packages to
+remain absent. Applicable upstream guard allowlists are extended explicitly.
+Verification checks archive and metadata hashes, not buildability. Validate
+extracted packages and both Linux architectures before publishing. Uploads,
+remote publication and recovery of unknown vendor provenance remain separate
+release work; these commands do not publish anything.

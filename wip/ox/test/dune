@@ -21,3 +21,9 @@
  (deps workflows.py)
  (action
   (run python3 %{dep:workflows.py} %{exe:../bin/main.exe})))
+
+(rule
+ (alias runtest)
+ (deps management.py)
+ (action
+  (run python3 %{dep:management.py} %{exe:../bin/main.exe})))

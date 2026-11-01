@@ -16,20 +16,49 @@ let prepare proc ~data ~refresh source =
         fail "Not an opam repository: %s" source;
       (path, tree_hash path))
     else
-      let url = git_url source in
+      let raw = git_url source in
+      let url, revision =
+        match String.rindex_opt raw '#' with
+        | None -> (raw, None)
+        | Some i ->
+            ( String.sub raw 0 i,
+              Some (String.sub raw (i + 1) (String.length raw - i - 1)) )
+      in
+      Option.iter
+        (fun rev ->
+          if
+            String.length rev <> 40
+            || not
+                 (String.for_all
+                    (function '0' .. '9' | 'a' .. 'f' -> true | _ -> false)
+                    rev)
+          then fail "Repository pins require a full commit: %s" source)
+        revision;
       let key = hash source in
       let path = data / "repositories" / key in
       if not (exists path) then (
         log "Cloning repository %s" url;
         publish_dir path (fun tmp ->
             command proc [ "git"; "clone"; "--depth=1"; "--"; url; tmp ];
+            Option.iter
+              (fun rev ->
+                command proc
+                  [ "git"; "-C"; tmp; "fetch"; "--depth=1"; "origin"; rev ];
+                command proc [ "git"; "-C"; tmp; "checkout"; "--detach"; rev ])
+              revision;
             if not (exists (tmp / "repo")) then
               fail "No opam repo file in %s" url));
-      if refresh then refresh_checkout proc path;
+      if refresh && revision = None then refresh_checkout proc path;
       if git proc path [ "status"; "--porcelain" ] <> "" then
         fail "Cached repository has local changes: %s. Use --overlay for edits."
           path;
-      (path, git proc path [ "rev-parse"; "HEAD" ])
+      let commit = git proc path [ "rev-parse"; "HEAD" ] in
+      Option.iter
+        (fun expected ->
+          if commit <> expected then
+            fail "Cached repository does not match pinned commit: %s" path)
+        revision;
+      (path, commit)
   in
   { path; digest }
 

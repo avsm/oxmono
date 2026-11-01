@@ -21,6 +21,15 @@ local libraries and vendored dependencies together across the workspace.
 Read [AGENTS.md](AGENTS.md) for contribution and verification rules and
 [TODO.md](TODO.md) for open work. Package documentation lives beside its code.
 
+## Forks and user builds
+
+Use `ox init --user NAME` to create an independent entry under `u/`. Build it
+with `ox build --user NAME`, or create an install tree with
+`ox dist bundle --user NAME --output dist/NAME`. Each owner has a Dockerfile
+for Linux amd64 and arm64. Shared development happens in `wip/` and imported
+ports remain in `vendor/`. See the [ox guide](wip/ox/README.md#monorepo-owners-and-releases)
+for bootstrapping, owner isolation and source opam releases.
+
 ## HTTP examples
 
 Start with the [HTTP guide](docs/http.md). It runs a Proffer server, then a Fetch

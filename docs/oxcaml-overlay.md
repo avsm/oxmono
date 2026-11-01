@@ -80,11 +80,10 @@ Generate metadata using opam's structured types, with these rules:
    Preserve their existing chain, filters and conflicts. These are explicit,
    reviewed metadata overrides at the upstream guard name/version, not source
    package re-publications. Record both upstream and resulting metadata hashes.
-4. Use a separate `oxmono` switch-root policy package to require our additional
-   guard chain and compiler pin. Use the same absent-versus-allowlisted pattern
-   for local ports not adequately constrained by the upstream guards. Ensure
-   exported packages require the applicable policy so installing a single
-   package cannot bypass it. Guards must permit unused packages to stay absent.
+4. Every exported package requires an `oxmono-snapshot` policy package. Its
+   conflicts reject every other version of packages in that release closure.
+   Unused packages may remain absent. The policy version hashes the source
+   commit and selected package versions, so distinct closures cannot collide.
 5. Test every generated closure with the solver, then build it from extracted
    sources. Reject stock OCaml, minus38, minus40, incompatible upstream ports
    and exact-version conflicts. Test both minimal and full owner installs.
@@ -97,7 +96,9 @@ hard-coding it in the exporter.
 Do not run upstream `layout.sh` directly on our overlay. It regenerates and
 removes `oxcaml-*` metadata and contains upstream-specific version exceptions.
 Use it as a reference for the guard semantics, not as our publication command.
-No guards have been generated or solver installs performed by this review.
+The exporter extends these markers and records their output checksums and
+the input guard tree hash. An ordinary opam dry-run regression checks compiler
+and local-version rejection independently of ox's internal solver.
 
 Source: [guard generator](https://github.com/oxcaml/opam-repository/blob/afddc8337950dbc02863fe30ae58735a1cf2719f/layout.sh).
 

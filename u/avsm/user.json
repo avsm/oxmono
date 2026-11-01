@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "owner": "avsm",
+  "include": [
+    "ox"
+  ],
+  "exclude_projects": {
+    "recoilnet": "Operations data, not an application package"
+  }
+}

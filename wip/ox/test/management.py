@@ -1,0 +1,148 @@
+"""Owner isolation and deterministic source releases, without network or compilers."""
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import shutil
+import sys
+import tarfile
+import tempfile
+
+OX = str(Path(sys.argv[1]).resolve())
+
+def write(p, text):
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text)
+
+def git(root, *args):
+    return subprocess.run(['git', '-C', str(root), *args], check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+def call(root, *args, ok=True):
+    p = subprocess.run([OX, *map(str, args)], cwd=root, text=True,
+                       capture_output=True, timeout=90)
+    assert (p.returncode == 0) == ok, (args, p.stdout, p.stderr)
+    return p
+
+with tempfile.TemporaryDirectory(prefix='ox-management-') as tmp:
+    tmp = Path(tmp)
+    root = tmp / 'repo'
+    root.mkdir()
+    git(root, 'init', '-q')
+    write(root / 'dune-project', '(lang dune 3.21)\n(name fixture)\n')
+    write(root / 'dune', '(vendored_dirs vendor)\n')
+    write(root / 'u/alice/user.json', json.dumps({'owner':'alice','include':[]}))
+    def pkg(path, name, deps=''):
+        write(root / path / 'dune-project', f'(lang dune 3.21)\n(name {name})\n(version 1.0)\n(generate_opam_files true)\n')
+        write(root / path / (name+'.opam'), f'opam-version: "2.0"\ndepends: [{deps}]\n')
+        write(root / path / 'value', 'original\n')
+    pkg('u/alice/app', 'app', '"shared"')
+    pkg('wip/shared', 'shared')
+    write(root/'wip/shared/dune', '(library (name shared) (public_name shared))\n')
+    write(root/'wip/shared/shared.ml', 'let value = "owner bundle works"\n')
+    write(root/'u/alice/app/dune', '(executable (name main) (public_name app) (libraries shared))\n(install (section share) (files asset.txt))\n')
+    write(root/'u/alice/app/main.ml', 'let () = print_endline Shared.value\n')
+    write(root/'u/alice/app/asset.txt','installed asset\n')
+    # An invalid unrelated project must not be parsed for Alice.
+    pkg('u/bob/broken', 'app')
+    write(root / 'u/bob/broken/app.opam', 'not opam at all')
+    inventory=json.loads(call(root, 'inventory', '--user', 'alice', '--check').stdout)
+    assert {p['name'] for p in inventory['packages']} == {'app','shared'}
+    stage=tmp/'stage'
+    call(root,'inventory','--user','alice','--stage',stage)
+    assert (stage/'u/alice/app/value').exists()
+    assert not (stage/'u/bob').exists()
+    assert not (stage/'.git').exists()
+    bundle=tmp/'bundle'
+    call(root,'dist','bundle','--prepared','--user','alice','--output',bundle)
+    assert subprocess.check_output([str(bundle/'bin/app')],text=True).strip()=='owner bundle works'
+    assert (bundle/'share/app/asset.txt').read_text()=='installed asset\n'
+    moved=tmp/'moved-bundle'
+    bundle.rename(moved)
+    assert subprocess.check_output([str(moved/'bin/app')],text=True).strip()=='owner bundle works' 
+    # No implicit cross-owner dependency through the repository solver.
+    write(root/'u/alice/app/app.opam', 'opam-version: "2.0"\ndepends: ["private"]\n')
+    pkg('u/bob/private','private')
+    assert 'excluded owner' in call(root,'inventory','--user','alice',ok=False).stderr
+    write(root/'u/alice/app/app.opam', 'opam-version: "2.0"\ndepends: ["shared"]\n')
+    git(root,'add','.')
+    git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture')
+    write(root/'wip/shared/value','uncommitted must not escape\n')
+    # Use an explicit fake upstream guard, preserving its build/post filters.
+    guards=tmp/'guards'
+    write(guards/'repo','opam-version: "2.0"\n')
+    write(guards/'packages/oxcaml-shared-patches/oxcaml-shared-patches.enabled/opam',
+          'opam-version: "2.0"\ndepends: ["shared" {build & = "0.1+ox"} "oxcaml" {post}]\nconflicts: ["oxcaml-shared"]\n')
+    def export(out):
+        call(root,'release','export','--user','alice','--base-url','https://example.invalid/releases/one',
+             '--guard-repository',guards,'--output',out)
+    a,b=tmp/'one',tmp/'two'
+    export(a)
+    plan=tmp/'plan.json'
+    call(root,'release','plan','--user','alice','--base-url','https://example.invalid/releases/one',
+         '--guard-repository',guards,'--output',plan)
+    call(root,'release','export','--plan',plan,'--output',b)
+    def contents(p):
+        return {str(f.relative_to(p)):hashlib.sha256(f.read_bytes()).hexdigest()
+                for f in p.rglob('*') if f.is_file()}
+    assert contents(a)==contents(b)
+    call(root,'release','verify',a)
+    manifest=json.loads((a/'manifest.json').read_text())
+    for unit in manifest['archives']:
+        with tarfile.open(a/unit['archive']) as tar:
+            assert tar.extractfile('value').read()==b'original\n'
+            project=tar.extractfile('dune-project').read().decode()
+            assert 'generate_opam_files false' in project
+    opam=(a/'opam-repository/packages/app/app.1.0+ox/opam').read_text()
+    assert '5.2.0minus39' in opam and 'shared' in opam and '1.0+ox' in opam
+    marker=(a/'opam-repository/packages/oxcaml-shared-patches/oxcaml-shared-patches.enabled/opam').read_text()
+    assert '1.0+ox' in marker and '0.1+ox' in marker and 'build' in marker and 'post' in marker
+    # Ordinary opam must enforce the exported compiler and snapshot policy.
+    if shutil.which('opam'):
+        solver_repo=tmp/'solver-repo'
+        shutil.copytree(a/'opam-repository',solver_repo)
+        def recipe(name,version,body=''):
+            write(solver_repo/'packages'/name/(name+'.'+version)/'opam',
+                  'opam-version: "2.0"\n'+body+'\n')
+        recipe('oxcaml-compiler','5.2.0minus39', 'depends: [("oxcaml-shared" {post} | "oxcaml-shared-patches" {post})]')
+        recipe('oxcaml-shared','guard', 'conflicts: ["shared" "oxcaml-shared-patches"]')
+        recipe('oxcaml-compiler','5.2.0minus40')
+        recipe('oxcaml','latest')
+        recipe('shared','9.0')
+        env=dict(os.environ,OPAMROOT=str(tmp/'opam-root'),OPAMYES='1',OPAMCONFIRMLEVEL='unsafe-yes')
+        def opam(*args,ok=True):
+            result=subprocess.run(['opam',*map(str,args)],env=env,cwd=tmp,
+                                  capture_output=True,text=True,timeout=90)
+            assert (result.returncode==0)==ok,(args,result.stdout,result.stderr)
+        opam('init','--bare','--no-setup','--disable-sandboxing','fixture',solver_repo)
+        opam('switch','create','fixture','--empty')
+        opam('install','--dry-run','app.1.0+ox')
+        opam('install','--dry-run','app.1.0+ox','oxcaml-compiler.5.2.0minus40',ok=False)
+        opam('install','--dry-run','app.1.0+ox','shared.9.0',ok=False)
+    newer=tmp/'newer'
+    call(root,'release','export','--user','alice','--base-url','https://example.invalid/releases/two',
+         '--guard-repository',guards,'--previous',a,'--ox-revision','2','--output',newer)
+    assert (newer/'opam-repository/packages/app/app.1.0+ox/opam').exists()
+    assert (newer/'opam-repository/packages/app/app.1.0+ox2/opam').exists()
+    call(root,'release','verify',newer)
+    call(root,'release','export','--user','alice','--base-url','https://example.invalid/changed',
+         '--guard-repository',guards,'--previous',a,'--output',tmp/'collision',ok=False)
+    assert not (tmp/'collision').exists()
+    with (a/manifest['archives'][0]['archive']).open('ab') as f:f.write(b'bad')
+    assert 'Checksum mismatch' in call(root,'release','verify',a,ok=False).stderr
+    # New owners get a concrete executable and substituted container recipe.
+    write(root/'tools/user-template/Dockerfile', 'owner @OWNER@\n')
+    write(root/'tools/user-template/Dockerfile.dockerignore', '!u/@OWNER@/**\n')
+    call(root,'init','--user','charlie')
+    assert (root/'u/charlie/Dockerfile').read_text()=='owner charlie\n'
+    assert (root/'u/charlie/hello/hello-charlie.opam').exists()
+    call(root,'init','--user','charlie',ok=False)
+    # Reject source links which could pull data from outside a release unit.
+    (root/'wip/shared/escape').symlink_to('/etc/passwd')
+    git(root,'add','wip/shared/escape')
+    git(root,'-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','bad link')
+    call(root,'release','export','--user','alice','--base-url','https://example.invalid',
+         '--guard-repository',guards,'--output',tmp/'bad',ok=False)
+    assert not (tmp/'bad').exists()
+print('ox management: isolated owners, committed deterministic exports, guards and verification: OK')

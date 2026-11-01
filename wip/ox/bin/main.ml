@@ -78,14 +78,63 @@ let with_runtime f =
   in
   f proc fs clock sys
 
-let run config with_packages dry_run target args =
-  guard @@ fun () ->
-  let prepared =
-    with_runtime @@ fun proc fs clock sys ->
-    Ox_lib.Runner.prepare ~sys proc ~clock ~fs config ~target ~with_packages
-      ~dry_run
+let user_arg =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "user" ] ~docv:"OWNER"
+        ~doc:"Select one owner's manifest and an isolated source workspace.")
+
+let owner_workspace config owner =
+  Eio_main.run @@ fun env ->
+  let proc = Eio.Stdenv.process_mgr env in
+  let selected = Ox_lib.Layout.select proc ~repo:"." ~owner:(Some owner) () in
+  let config = Ox_lib.Layout.locked_config ~repo:selected.root config in
+  let output =
+    Filename.concat config.data
+      (Printf.sprintf "owners/%s/%d-%.0f" owner (Unix.getpid ())
+         (Unix.gettimeofday () *. 1e6))
   in
-  if not dry_run then Ox_lib.Runner.exec prepared args
+  Ox_lib.Layout.stage proc selected ~output;
+  S.command proc [ "git"; "init"; "-q"; output ];
+  Unix.chdir output;
+  (config, selected.roots)
+
+let run config with_packages dry_run target args user =
+  guard @@ fun () ->
+  match user with
+  | None ->
+      let prepared =
+        with_runtime @@ fun proc fs clock sys ->
+        Ox_lib.Runner.prepare ~sys proc ~clock ~fs config ~target ~with_packages
+          ~dry_run
+      in
+      if not dry_run then Ox_lib.Runner.exec prepared args
+  | Some owner ->
+      if
+        with_packages <> []
+        || config.Ox_lib.Runner.from <> None
+        || config.revision <> None
+      then S.fail "--user cannot be combined with --with, --from or --ref";
+      let config, roots = owner_workspace config owner in
+      let workspace =
+        with_runtime @@ fun proc fs clock sys ->
+        Ox_lib.Workspace.prepare proc ~clock ~fs ~sys config ~roots
+          ~action:Build ~dry_run
+      in
+      if not dry_run then
+        Ox_lib.Runner.exec_command workspace.prepared
+          ([
+             "dune";
+             "exec";
+             "--root";
+             workspace.root;
+             "--profile";
+             "release";
+             "--";
+             target;
+           ]
+          @ args)
 
 let config_term =
   let toolchain =
@@ -175,7 +224,10 @@ let run_cmd =
   let args = Arg.(value & pos_right 0 string [] & info [] ~docv:"ARG") in
   Cmd.v
     (Cmd.info "run" ~doc:"Fetch dependencies, build, cache and run a binary.")
-    Term.(ret (const run $ config_term $ with_packages $ dry $ target $ args))
+    Term.(
+      ret
+        (const run $ config_term $ with_packages $ dry $ target $ args
+       $ user_arg))
 
 let dry_arg =
   Arg.(
@@ -197,8 +249,23 @@ let all_arg =
         ~doc:"Build all packages from the selected source snapshot.")
 
 let build_command ~test config roots all local deps_only fetch depext dry
-    profile =
+    profile user =
   guard @@ fun () ->
+  let config, roots, local =
+    match user with
+    | None -> (config, roots, local)
+    | Some owner ->
+        if
+          roots <> [] || all
+          || config.Ox_lib.Runner.from <> None
+          || config.revision <> None
+        then
+          S.fail
+            "--user cannot be combined with package roots, --all, --from or \
+             --ref";
+        let config, roots = owner_workspace config owner in
+        (config, roots, true)
+  in
   if (fetch && depext) || ((test || deps_only) && (fetch || depext)) then
     S.fail "--fetch and --depext are separate build actions";
   let local =
@@ -265,13 +332,29 @@ let build_cmd test =
       ret
         (const (build_command ~test)
         $ config_term $ roots_arg $ all_arg $ local_arg $ deps $ fetch $ depext
-        $ dry_arg $ profile))
+        $ dry_arg $ profile $ user_arg))
 
-let environment_command config packages command =
+let environment_command config packages command user =
   guard @@ fun () ->
+  let config, owner_roots =
+    match user with
+    | None -> (config, None)
+    | Some owner ->
+        if
+          packages <> []
+          || config.Ox_lib.Runner.from <> None
+          || config.revision <> None
+        then S.fail "--user cannot be combined with --with, --from or --ref";
+        let config, roots = owner_workspace config owner in
+        (config, Some roots)
+  in
   let prepared =
     with_runtime (fun proc fs clock sys ->
-        if config.Ox_lib.Runner.from <> None || packages <> [] then
+        if owner_roots <> None then
+          (Ox_lib.Workspace.prepare proc ~clock ~fs ~sys config
+             ~roots:(Option.get owner_roots) ~action:Build ~dry_run:false)
+            .prepared
+        else if config.Ox_lib.Runner.from <> None || packages <> [] then
           Ox_lib.Runner.packages proc ~clock ~fs ~sys config ~roots:packages
             ~all:(packages = []) ~action:Build ~dry_run:false ()
         else
@@ -289,8 +372,9 @@ let env_cmd =
        ~doc:"Print shell exports for project or package dependencies.")
     Term.(
       ret
-        (const (fun config packages -> environment_command config packages [])
-        $ config_term $ with_packages))
+        (const (fun config packages user ->
+             environment_command config packages [] user)
+        $ config_term $ with_packages $ user_arg))
 
 let exec_cmd =
   let command = Arg.(non_empty & pos_all string [] & info [] ~docv:"COMMAND") in
@@ -298,17 +382,19 @@ let exec_cmd =
     (Cmd.info "exec"
        ~doc:"Execute a command with project or package dependencies.")
     Term.(
-      ret (const environment_command $ config_term $ with_packages $ command))
+      ret
+        (const environment_command $ config_term $ with_packages $ command
+       $ user_arg))
 
 let show_cmd =
   Cmd.v
     (Cmd.info "show" ~doc:"Resolve and list package build dependencies.")
     Term.(
       ret
-        (const (fun config roots all local ->
+        (const (fun config roots all local user ->
              build_command ~test:false config roots all local false false false
-               true "release")
-        $ config_term $ roots_arg $ all_arg $ local_arg))
+               true "release" user)
+        $ config_term $ roots_arg $ all_arg $ local_arg $ user_arg))
 
 let dist config with_packages tags arch pkg_name pkg_version maintainer output
     build target =
@@ -379,9 +465,265 @@ let dist_cmd =
           (const dist $ config_term $ with_packages $ tags $ arch $ pkg_name
          $ pkg_version $ maintainer $ output $ build $ target))
   in
+  let owner =
+    Arg.(required & opt (some string) None & info [ "user" ] ~docv:"OWNER")
+  in
+  let prepared =
+    Arg.(
+      value & flag
+      & info [ "prepared" ]
+          ~doc:
+            "Use the current compiler environment instead of preparing day10 \
+             dependencies.")
+  in
+  let profile =
+    Arg.(value & opt string "release" & info [ "profile" ] ~docv:"PROFILE")
+  in
+  let bundle config owner prepared profile output =
+    guard @@ fun () ->
+    with_runtime @@ fun proc fs clock sys ->
+    Ox_lib.Bundle.run proc ~clock ~fs ~sys config ~owner ~prepared ~profile
+      ~output
+  in
+  let bundle_cmd =
+    Cmd.v
+      (Cmd.info "bundle"
+         ~doc:"Build and install one owner's commands and assets.")
+      Term.(
+        ret (const bundle $ config_term $ owner $ prepared $ profile $ output))
+  in
+  let image owner arch tag =
+    guard @@ fun () ->
+    if not (Ox_lib.Layout.valid_owner owner) then S.fail "Invalid owner";
+    if not (List.mem arch [ "amd64"; "arm64" ]) then
+      S.fail "Image architecture must be amd64 or arm64";
+    Eio_main.run @@ fun env ->
+    let proc = Eio.Stdenv.process_mgr env in
+    let root = S.git proc "." [ "rev-parse"; "--show-toplevel" ] in
+    S.command proc
+      [
+        "docker";
+        "buildx";
+        "build";
+        "--load";
+        "--platform";
+        "linux/" ^ arch;
+        "-f";
+        Filename.concat root ("u/" ^ owner ^ "/Dockerfile");
+        "-t";
+        tag;
+        root;
+      ]
+  in
+  let image_arch =
+    Arg.(value & opt string "amd64" & info [ "arch" ] ~docv:"ARCH")
+  in
+  let tag =
+    Arg.(required & opt (some string) None & info [ "t"; "tag" ] ~docv:"TAG")
+  in
+  let image_cmd =
+    Cmd.v
+      (Cmd.info "image" ~doc:"Build one owner's Linux runtime image.")
+      Term.(ret (const image $ owner $ image_arch $ tag))
+  in
   Cmd.group
-    (Cmd.info "dist" ~doc:"Generate native Linux distribution packages.")
-    [ pkg ]
+    (Cmd.info "dist"
+       ~doc:"Build owner bundles, images and distribution packages.")
+    [ pkg; bundle_cmd; image_cmd ]
+
+let init_cmd =
+  let owner =
+    Arg.(required & opt (some string) None & info [ "user" ] ~docv:"OWNER")
+  in
+  let run owner =
+    guard @@ fun () ->
+    Eio_main.run @@ fun env ->
+    Ox_lib.Layout.init (Eio.Stdenv.process_mgr env) ~repo:"." ~owner
+  in
+  Cmd.v
+    (Cmd.info "init"
+       ~doc:"Create an independent user workspace and container recipe.")
+    Term.(ret (const run $ owner))
+
+let inventory_cmd =
+  let check =
+    Arg.(
+      value & flag
+      & info [ "check" ] ~doc:"Validate selected package and binary ownership.")
+  in
+  let output =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "stage" ] ~docv:"DIR" ~doc:"Write an isolated source workspace.")
+  in
+  let run owner _check output =
+    guard @@ fun () ->
+    Eio_main.run @@ fun env ->
+    let proc = Eio.Stdenv.process_mgr env in
+    let selected = Ox_lib.Layout.select proc ~repo:"." ~owner () in
+    Option.iter (fun output -> Ox_lib.Layout.stage proc selected ~output) output;
+    print_endline (OpamJson.to_string (Ox_lib.Layout.json selected))
+  in
+  Cmd.v
+    (Cmd.info "inventory" ~doc:"Inspect packages and owner source closures.")
+    Term.(ret (const run $ user_arg $ check $ output))
+
+let release_cmd =
+  let repo = Arg.(value & opt string "." & info [ "repo" ] ~docv:"DIR") in
+  let revision =
+    Arg.(value & opt string "HEAD" & info [ "ref" ] ~docv:"COMMIT")
+  in
+  let output =
+    Arg.(
+      required & opt (some string) None & info [ "o"; "output" ] ~docv:"PATH")
+  in
+  let ox_revision =
+    Arg.(value & opt int 1 & info [ "ox-revision" ] ~docv:"N")
+  in
+  let base_url =
+    Arg.(value & opt (some string) None & info [ "base-url" ] ~docv:"URL")
+  in
+  let guards =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "guard-repository" ] ~docv:"DIR"
+          ~doc:"Pinned OxCaml overlay whose guard allowlists are extended.")
+  in
+  let previous =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "previous" ] ~docv:"RELEASE-DIR"
+          ~doc:
+            "Retain an earlier release's repository and reject version \
+             collisions.")
+  in
+  let plan_file =
+    Arg.(value & opt (some string) None & info [ "plan" ] ~docv:"JSON")
+  in
+  let url = function
+    | Some s -> s
+    | None -> S.fail "Supply --base-url or --plan"
+  in
+  let plan repo revision packages owner ox_revision base_url guard_repository
+      output =
+    guard @@ fun () ->
+    Eio_main.run @@ fun env ->
+    if S.exists output then S.fail "Output already exists: %s" output;
+    let json =
+      Ox_lib.Release.plan
+        (Eio.Stdenv.process_mgr env)
+        ~repo ~revision ~packages ~owner ~ox_revision ~base_url:(url base_url)
+        ~guard_repository
+    in
+    S.atomic_write output (OpamJson.to_string json)
+  in
+  let plan_cmd =
+    Cmd.v
+      (Cmd.info "plan" ~doc:"Record a committed release request for review.")
+      Term.(
+        ret
+          (const plan $ repo $ revision $ roots_arg $ user_arg $ ox_revision
+         $ base_url $ guards $ output))
+  in
+  let export repo revision packages owner ox_revision base_url guard_repository
+      previous plan_file output =
+    guard @@ fun () ->
+    Eio_main.run @@ fun env ->
+    let repo, revision, packages, owner, ox_revision, base_url, guard_repository
+        =
+      match plan_file with
+      | None ->
+          ( repo,
+            revision,
+            packages,
+            owner,
+            ox_revision,
+            url base_url,
+            guard_repository )
+      | Some path ->
+          if
+            repo <> "." || revision <> "HEAD" || packages <> [] || owner <> None
+            || ox_revision <> 1 || base_url <> None || guard_repository <> None
+          then S.fail "--plan cannot be combined with release selection options";
+          let fields =
+            match OpamJson.of_string (S.read path) with
+            | Some (`O f) -> f
+            | _ -> S.fail "Invalid release plan"
+          in
+          let str key =
+            match List.assoc_opt key fields with
+            | Some (`String s) -> s
+            | _ -> S.fail "Missing plan field %s" key
+          in
+          let optional key =
+            match List.assoc_opt key fields with
+            | Some (`String s) -> Some s
+            | Some `Null -> None
+            | _ -> S.fail "Invalid plan field %s" key
+          in
+          if List.assoc_opt "schema_version" fields <> Some (`Float 1.) then
+            S.fail "Unsupported plan schema";
+          let packages =
+            match List.assoc_opt "packages" fields with
+            | Some (`A xs) ->
+                List.map
+                  (function
+                    | `String s -> s | _ -> S.fail "Invalid plan package")
+                  xs
+            | _ -> S.fail "Missing plan packages"
+          in
+          let ox_revision =
+            match List.assoc_opt "ox_revision" fields with
+            | Some (`Float n)
+              when n >= 1. && n <= float_of_int max_int && floor n = n ->
+                int_of_float n
+            | _ -> S.fail "Invalid OxCaml revision"
+          in
+          let guards = optional "guard_repository" in
+          if Option.map S.tree_hash guards <> optional "guard_hash" then
+            S.fail "Release guard inputs changed since planning";
+          ( str "repo",
+            str "commit",
+            packages,
+            optional "owner",
+            ox_revision,
+            str "base_url",
+            guards )
+    in
+    Ox_lib.Release.export
+      (Eio.Stdenv.process_mgr env)
+      ~repo ~revision ~packages ~owner ~ox_revision ~base_url ~guard_repository
+      ~previous ~output
+  in
+  let export_cmd =
+    Cmd.v
+      (Cmd.info "export"
+         ~doc:"Export committed project archives and an opam overlay.")
+      Term.(
+        ret
+          (const export $ repo $ revision $ roots_arg $ user_arg $ ox_revision
+         $ base_url $ guards $ previous $ plan_file $ output))
+  in
+  let directory =
+    Arg.(required & pos 0 (some string) None & info [] ~docv:"RELEASE-DIR")
+  in
+  let verify directory =
+    guard @@ fun () ->
+    Eio_main.run @@ fun env ->
+    Ox_lib.Release.verify (Eio.Stdenv.process_mgr env) ~directory
+  in
+  let verify_cmd =
+    Cmd.v
+      (Cmd.info "verify" ~doc:"Verify release archive and metadata checksums.")
+      Term.(ret (const verify $ directory))
+  in
+  Cmd.group
+    (Cmd.info "release"
+       ~doc:"Create and verify source releases for ordinary opam clients.")
+    [ plan_cmd; export_cmd; verify_cmd ]
 
 let () =
   let cmd =
@@ -389,6 +731,9 @@ let () =
       (Cmd.info "ox" ~version:"0.1.0"
          ~doc:"Build and run opam packages with OxCaml and a local day10 cache.")
       [
+        init_cmd;
+        release_cmd;
+        inventory_cmd;
         run_cmd;
         build_cmd false;
         build_cmd true;

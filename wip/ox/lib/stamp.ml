@@ -37,10 +37,12 @@ let source_url root source =
     fail "Source URL must not contain a revision: %s" s;
   if String.starts_with ~prefix:"git+" s then s else "git+" ^ s
 
-let inspect ?(working = false) proc ~repo ~revision ~source =
+let inspect ?(working = false) ?(select = fun _ -> true)
+    ?(select_package = fun _ -> true) ?(historical_versions = true) proc ~repo
+    ~revision ~source =
   let root = git proc repo [ "rev-parse"; "--show-toplevel" ] in
   if
-    (not working)
+    (not working) && historical_versions
     && git proc root [ "rev-parse"; "--is-shallow-repository" ] = "true"
   then
     fail
@@ -70,10 +72,6 @@ let inspect ?(working = false) proc ~repo ~revision ~source =
     |> List.sort_uniq String.compare
     |> List.filter (fun path -> (not working) || exists (root / path))
   in
-  let blob path =
-    if working then read (root / path)
-    else capture proc [ "git"; "-C"; root; "show"; commit ^ ":" ^ path ]
-  in
   let projects =
     files
     |> List.filter_map (fun p ->
@@ -90,6 +88,43 @@ let inspect ?(working = false) proc ~repo ~revision ~source =
     | p :: _ -> Some p
     | [] -> None
   in
+  let blobs = Hashtbl.create 128 in
+  if not working then (
+    let paths =
+      files
+      |> List.filter (fun path ->
+             (Filename.check_suffix path ".opam"
+             || List.mem (Filename.basename path) [ "dune"; "dune-project" ])
+             && match project_of path with Some p -> select p | None -> false)
+    in
+    List.iter
+      (fun path ->
+        if String.contains path '\n' then
+          fail "Unsupported metadata path: %S" path)
+      paths;
+    let stdin =
+      Eio.Flow.string_source
+        (String.concat ""
+           (List.map (fun path -> commit ^ ":" ^ path ^ "\n") paths))
+    in
+    Eio.Process.parse_out ~env:(clean_env ()) ~stdin proc
+      (fun input ->
+        List.iter
+          (fun path ->
+            let header = Eio.Buf_read.line input in
+            let size =
+              match String.split_on_char ' ' header with
+              | [ _; "blob"; size ] -> int_of_string size
+              | _ -> fail "Invalid Git blob response for %s" path
+            in
+            let contents = Eio.Buf_read.take size input in
+            Eio.Buf_read.char '\n' input;
+            Hashtbl.add blobs path contents)
+          paths)
+      [ "git"; "-C"; root; "cat-file"; "--batch" ]);
+  let blob path =
+    if working then read (root / path) else Hashtbl.find blobs path
+  in
   let commit =
     if working then
       hash_fields
@@ -103,22 +138,45 @@ let inspect ?(working = false) proc ~repo ~revision ~source =
     else commit
   in
   let count =
-    if working then "local" else git proc root [ "rev-list"; "--count"; commit ]
+    if working then "local"
+    else if historical_versions then
+      git proc root [ "rev-list"; "--count"; commit ]
+    else "0"
   in
+  let trees = Hashtbl.create 128 in
+  if not working then (
+    capture proc [ "git"; "-C"; root; "ls-tree"; "-rdz"; commit ]
+    |> nul_lines
+    |> List.iter (fun entry ->
+           match String.index_opt entry '\t' with
+           | None -> fail "Invalid Git tree entry"
+           | Some tab -> (
+               let header = String.sub entry 0 tab in
+               let path =
+                 String.sub entry (tab + 1) (String.length entry - tab - 1)
+               in
+               match String.split_on_char ' ' header with
+               | [ _; "tree"; hash ] -> Hashtbl.add trees path hash
+               | _ -> fail "Invalid Git tree header"));
+    if select "." then
+      Hashtbl.add trees "." (git proc root [ "rev-parse"; commit ^ "^{tree}" ]));
   let metadata =
     files
     |> List.filter_map (fun path ->
            let project = Filename.dirname path in
            if
              not
-               (Filename.check_suffix path ".opam" && List.mem project projects)
+               (Filename.check_suffix path ".opam"
+               && List.mem project projects && select project
+               && select_package
+                    (Filename.chop_extension (Filename.basename path)))
            then None
            else if String.trim (blob path) = "" then (
              log "Skipping empty opam placeholder %s" path;
              None)
            else
              let name = Filename.basename path |> Filename.chop_extension in
-             if name = "ox-local-snapshot" then
+             if List.mem name [ "ox-local-snapshot"; "oxmono-snapshot" ] then
                fail "Reserved ox package name: %s" name;
              let opam =
                OpamFile.OPAM.read_from_string
@@ -135,12 +193,8 @@ let inspect ?(working = false) proc ~repo ~revision ~source =
                            (if project = "." then "dune-project"
                             else project / "dune-project")))
              in
-             let tree =
-               if project = "." then commit ^ "^{tree}"
-               else commit ^ ":" ^ project
-             in
              let source_hash =
-               if working then commit else git proc root [ "rev-parse"; tree ]
+               if working then commit else Hashtbl.find trees project
              in
              let version =
                base ^ "+ox." ^ count ^ "." ^ String.sub commit 0 12
@@ -170,7 +224,7 @@ let inspect ?(working = false) proc ~repo ~revision ~source =
          let owners =
            List.filter (fun p -> Some p.project = project_of path) metadata
          in
-         sexps (blob path)
+         (if owners = [] then [] else sexps (blob path))
          |> List.iter (function
               | Sexplib0.Sexp.List
                   (Atom ("executable" | "executables") :: fields) ->

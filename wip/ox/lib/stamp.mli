@@ -13,6 +13,9 @@ type snapshot = { commit : string; source : string; packages : package list }
 
 val inspect :
   ?working:bool ->
+  ?select:(string -> bool) ->
+  ?select_package:(string -> bool) ->
+  ?historical_versions:bool ->
   Support.proc ->
   repo:string ->
   revision:string ->
@@ -20,8 +23,13 @@ val inspect :
   snapshot
 (** [inspect proc ~repo ~revision ~source] reads committed package metadata.
     Empty opam placeholders are reported and skipped. Duplicate names fail.
-    [working] reads tracked and nonignored working files instead, ignoring
-    [revision]. Its identity covers the checkout path and package metadata. *)
+    [select] and [select_package] default to accepting every project and
+    package. They exclude metadata before parsing. [historical_versions]
+    defaults to true and requires complete Git history for count-based snapshot
+    versions. [select] defaults to all projects and filters before metadata
+    parsing. [working] reads tracked and nonignored working files instead,
+    ignoring [revision]. Its identity covers the checkout path and package
+    metadata. *)
 
 val stamped_opam : snapshot -> package -> string
 (** [stamped_opam snapshot package] pins source and internal dependencies to the

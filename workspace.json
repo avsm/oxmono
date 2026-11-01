@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "shared_roots": [
+    "wip",
+    "vendor"
+  ],
+  "user_root": "u",
+  "exclude_packages": {
+    "oxmono": "Development dependency aggregate",
+    "jmap-mosaic": "Disabled terminal prototype"
+  },
+  "platforms": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "compiler": "oxcaml-compiler.5.2.0minus39"
+}

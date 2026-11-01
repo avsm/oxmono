@@ -1,5 +1,10 @@
 # Changes
 
+- Add isolated owner workspaces, owner templates, install bundles and Linux
+  image commands using pinned minus39 repositories.
+- Export deterministic committed source releases and cumulative opam overlays
+  with explicit compiler, snapshot and upstream guard constraints.
+
 - Add package and editable-workspace builds, tests, environments and source
   preparation, combining local opam definitions with OxCaml repository dependencies.
 

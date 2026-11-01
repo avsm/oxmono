@@ -18,6 +18,11 @@ let () =
   @@ fun () ->
   Eio.Switch.run @@ fun sw ->
   let store = Store.open_ ~sw Eio.Path.(env#fs / name) in
+  let settings =
+    Spindle.Settings.v ~store
+      ~now:(fun () -> 0.)
+      ~defaults:{ repo = []; user = [] }
+  in
   let listener =
     Eio.Net.listen ~sw ~reuse_addr:true ~backlog:8 env#net
       (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
@@ -35,7 +40,7 @@ let () =
   let repo = "did:plc:rrrrrrrrrrrrrrrrrrrrrrrr" in
   let clock = ref 0. in
   let catalog =
-    Catalog.v ~store ~network ~owner ~hostname:"spindle.test"
+    Catalog.v ~store ~settings ~network ~owner ~hostname:"spindle.test"
       ~admission:Catalog.Closed ~static:None ~ttl:60.
       ~now:(fun () -> !clock)
       ()

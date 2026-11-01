@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Run repositories' own YAML workflows from `.tangled/workflows` with
+  `--repository-workflows`, with the reference spindle's `when` rules and CI
+  variables. Steps run on the host.
+- Add secrets, given to trusted pipelines and hidden in their logs, and
+  webhooks for pushes, renames and pull requests, signed and redeliverable.
+- Dispatch pull requests that are closed, reopened or merged.
+- Add bans, which wipe what is kept for a repository or owner, invite codes,
+  and quotas on running workflows, webhooks and monthly CI minutes.
+- `--workflow-timeout` sets how long a workflow may run.
+
 - Log streams end every step with an `outcome`, even when it fails or is
   cancelled, and mark the checkout as a `system` step, as the reference
   spindle does. Tangled's log view uses them to mark the step that failed.

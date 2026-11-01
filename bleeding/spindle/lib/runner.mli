@@ -18,6 +18,7 @@ type env = {
   system : Eio_unix.Stdenv.base;
   directory : Eio.Fs.dir_ty Eio.Path.t;
   slots : Eio.Semaphore.t;
+  timeout : float;  (** Seconds a workflow may run. *)
 }
 
 type input = {
@@ -26,9 +27,17 @@ type input = {
   source : string;
   commit : string;
   metadata : Jsont.json;
+  variables : (string * string) list;  (** CI variables for every step. *)
+  secrets : (string * string) list;
+      (** Secrets for every step but the checkout, hidden in its output. *)
 }
 
 val now : unit -> string
+
+val pairs : (string * string) list -> Jsont.json
+(** [pairs l] is [l] as a JSON object of strings. *)
+
+val unpairs : Jsont.json -> (string * string) list
 val optional : string -> ('a -> 'b) -> 'a option -> (string * 'b) list
 val terminal : t -> bool
 val v : Job.t -> t

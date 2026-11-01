@@ -4,7 +4,7 @@ open Json
 let manifest = "org.tangled.repo.manifest"
 let patch = "org.tangled.review.patch"
 let ticket = "org.tangled.track.ticket"
-let collections = [ manifest; patch ]
+let collections = [ manifest; patch; ticket ]
 
 let report source exn =
   Printf.eprintf "spindle observer %s: %s\n%!" source (Printexc.to_string exn)
@@ -76,71 +76,236 @@ let connect ~system ~store ~url ~health ~policy =
     ()
   done
 
-(* An event only says that a patch exists. Its contents, its ticket and its
-   author are read from the knot, so a forged event can start nothing the
-   knot does not hold. *)
-let pull engine network ~repo ~rkey =
+(* What is known of a pull request between events: its newest head, its
+   author, its number of revisions and the state last seen. Older stores
+   hold only the head. *)
+type seen = { head : string; author : string; rounds : int; state : string }
+
+let load_seen engine uri =
+  Option.map
+    (fun raw ->
+      match decode raw with
+      | Jsont.Object _ as v ->
+          {
+            head = get "head" v;
+            author = get "author" v;
+            rounds = int_of_float (number (required "rounds" v));
+            state = get "state" v;
+          }
+      | _ | (exception Invalid _) ->
+          { head = raw; author = ""; rounds = 1; state = "open" })
+    (Store.get engine.Engine.store "pull-seen" uri)
+
+let save_seen engine uri s =
+  Store.put engine.Engine.store "pull-seen" uri
+    (encode
+       (obj
+          [
+            ("head", str s.head);
+            ("author", str s.author);
+            ("rounds", int s.rounds);
+            ("state", str s.state);
+          ]))
+
+let text field_ value =
+  match Option.bind (field field_ value) (field "text") with
+  | Some t -> string t
+  | None -> ""
+
+(* The [pull_request] object of a webhook payload, as the reference spindle
+   writes it. *)
+let pull_view ~ticket:t ~seen ~source =
+  obj
+    ([
+       ("number", int 0);
+       ("title", str (text "title" t));
+       ("body", str (text "body" t));
+       ( "state",
+         str
+           (match seen.state with
+           | "completed" -> "merged"
+           | "closed" -> "closed"
+           | _ -> "open") );
+       ("target_branch", required "targetBranch" t);
+       ("round_number", int seen.rounds);
+       ("owner", obj [ ("did", str seen.author) ]);
+       ("created_at", Option.value ~default:(str "") (field "createdAt" t));
+     ]
+    @
+    match source with
+    | None -> [ ("source", obj [ ("branch", str ""); ("sha", str seen.head) ]) ]
+    | Some s ->
+        [
+          ( "source",
+            obj
+              [
+                ("branch", required "branch" s);
+                ("repo", required "repo" s);
+                ("sha", str seen.head);
+              ] );
+        ])
+
+(* Dispatch a pull request event and notify its webhooks. A closed or merged
+   pull request runs only workflows that ask for it. *)
+let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
+    ~action ~event ~sender =
+  if
+    Catalog.admitted engine.Engine.catalog served.owner
+    && not
+         (Settings.banned engine.settings seen.author
+         || Settings.banned engine.settings sender)
+  then begin
+    Hooks.pull_request hooks served ~event ~sender
+      (pull_view ~ticket:t ~seen ~source);
+    let trigger =
+      obj
+        ([
+           ("$type", str Engine.pull_request);
+           ("action", str action);
+           ("pull", str uri);
+           ("sourceSha", str seen.head);
+           ("targetBranch", required "targetBranch" t);
+         ]
+        @
+        match source with
+        | None -> []
+        | Some s ->
+            [
+              ("sourceRepo", str (did (get "repo" s)));
+              ("sourceBranch", str (get "branch" s));
+            ])
+    in
+    (* A pull request from someone without push access waits for a
+       collaborator's approval, as does a change by such a sender. *)
+    let blocked =
+      not
+        (Catalog.authorized engine.catalog served seen.author
+        && Catalog.authorized engine.catalog served sender)
+    in
+    ignore
+      (Engine.create engine
+         ~dedup:
+           (String.concat "/"
+              ([ "pull"; uri; seen.head ]
+              @
+              if List.mem action [ "opened"; "synchronize" ] then []
+              else [ action ]))
+         ~blocked ~automatic:true ~actor:sender
+         (obj [ ("repo", str served.did); ("trigger", trigger) ]))
+  end
+
+(* An event only says that a patch or ticket changed. Its contents, its
+   ticket and its author are read from the knot, so a forged event can start
+   nothing the knot does not hold. *)
+let read network (served : Catalog.repo) collection rkey =
+  Option.map (required "value")
+    (Network.record network ~service:served.knot ~did:served.did ~collection
+       ~rkey)
+
+let pull engine network hooks ~repo ~rkey =
   match Catalog.managed engine.Engine.catalog repo with
   | None -> ()
   | Some served -> (
-      let read collection rkey =
-        Option.map (required "value")
-          (Network.record network ~service:served.knot ~did:repo ~collection
-             ~rkey)
-      in
-      match read patch rkey with
+      match read network served patch rkey with
       | None -> ()
       | Some value -> (
           let number = get "ticket" value in
-          match read ticket number with
+          match read network served ticket number with
           | None -> ()
           | Some t -> (
               match field "targetBranch" t with
               | None -> ()
-              | Some target ->
-                  let state = Option.map string (field "state" t) in
-                  if state = Some "open" then begin
+              | Some _ ->
+                  let state =
+                    Option.fold ~none:"open" ~some:string (field "state" t)
+                  in
+                  if state = "open" then begin
                     let author = did (get "x-tngl-editor" value) in
                     let head = sha (get "oid" (required "head" value)) in
                     let uri = "at://" ^ repo ^ "/" ^ ticket ^ "/" ^ number in
-                    let source = field "source" value in
-                    let action =
-                      if Store.get engine.store "pull-seen" uri <> None then
-                        "synchronize"
-                      else "opened"
-                    in
-                    let trigger =
-                      obj
-                        ([
-                           ("$type", str Engine.pull_request);
-                           ("action", str action);
-                           ("pull", str uri);
-                           ("sourceSha", str head);
-                           ("targetBranch", target);
-                         ]
-                        @
-                        match source with
-                        | None -> []
-                        | Some s ->
-                            [
-                              ("sourceRepo", str (did (get "repo" s)));
-                              ("sourceBranch", str (get "branch" s));
-                            ])
-                    in
-                    (* A pull request from someone without push access waits
-                       for a collaborator's approval. *)
-                    let blocked =
-                      not (Catalog.authorized engine.catalog served author)
-                    in
-                    ignore
-                      (Engine.create engine
-                         ~dedup:("pull/" ^ uri ^ "/" ^ head)
-                         ~blocked ~automatic:true ~actor:author
-                         (obj [ ("repo", str repo); ("trigger", trigger) ]));
-                    Store.put engine.store "pull-seen" uri head
+                    let previous = load_seen engine uri in
+                    if Option.map (fun s -> s.head) previous <> Some head
+                    then begin
+                      let seen =
+                        {
+                          head;
+                          author =
+                            (match previous with
+                            | Some { author = first; _ } when first <> "" ->
+                                first
+                            | _ -> author);
+                          rounds =
+                            1
+                            + Option.fold ~none:0
+                                ~some:(fun s -> s.rounds)
+                                previous;
+                          state;
+                        }
+                      in
+                      let action, event =
+                        if previous = None then
+                          ("opened", "pull_request:created")
+                        else ("synchronize", "pull_request:resubmitted")
+                      in
+                      dispatch engine hooks served ~uri ~ticket:t ~seen
+                        ~source:(field "source" value) ~action ~event
+                        ~sender:author;
+                      save_seen engine uri seen
+                    end
                   end)))
 
-let commit engine network event =
+(* A pull request's state changes when its ticket is closed, reopened or
+   completed, which is how a merge is recorded. A ticket seen before its first
+   patch starts nothing, as in the reference spindle. *)
+let lifecycle engine network hooks ~repo ~rkey =
+  match Catalog.managed engine.Engine.catalog repo with
+  | None -> ()
+  | Some served -> (
+      let uri = "at://" ^ repo ^ "/" ^ ticket ^ "/" ^ rkey in
+      match load_seen engine uri with
+      | None -> ()
+      | Some seen -> (
+          match read network served ticket rkey with
+          | None -> ()
+          | Some t ->
+              let state =
+                Option.fold ~none:"open" ~some:string (field "state" t)
+              in
+              if
+                state <> seen.state
+                && List.mem state [ "open"; "closed"; "completed" ]
+              then begin
+                let seen = { seen with state } in
+                let action, event =
+                  match state with
+                  | "completed" -> ("merged", "pull_request:merged")
+                  | "closed" -> ("closed", "pull_request:closed")
+                  | _ -> ("reopened", "pull_request:reopened")
+                in
+                let sender =
+                  Option.fold ~none:seen.author ~some:string
+                    (field "x-tngl-editor" t)
+                in
+                (* The newest patch says where the change comes from. *)
+                let source =
+                  Option.bind
+                    (List.find_opt
+                       (fun p ->
+                         get "ticket" (required "value" p) = rkey
+                         && Option.map
+                              (fun h -> get "oid" h)
+                              (field "head" (required "value" p))
+                            = Some seen.head)
+                       (Network.records_at network ~service:served.knot
+                          ~did:repo patch))
+                    (fun p -> field "source" (required "value" p))
+                in
+                dispatch engine hooks served ~uri ~ticket:t ~seen ~source
+                  ~action ~event ~sender;
+                save_seen engine uri seen
+              end))
+
+let commit engine network hooks event =
   if get "kind" event = "commit" then
     let repo = did (get "did" event) in
     let commit = required "commit" event in
@@ -148,9 +313,11 @@ let commit engine network event =
     let operation = get "operation" commit in
     if collection = manifest then Catalog.forget engine.Engine.catalog repo
     else if collection = patch && operation = "create" then
-      pull engine network ~repo ~rkey:(get "rkey" commit)
+      pull engine network hooks ~repo ~rkey:(get "rkey" commit)
+    else if collection = ticket && operation <> "delete" then
+      lifecycle engine network hooks ~repo ~rkey:(get "rkey" commit)
 
-let run ~engine ~network ~jetstream ~health ~policy =
+let run ~engine ~network ~hooks ~jetstream ~health ~policy =
   let store = engine.Engine.store and system = engine.runner.system in
   let rec retry f =
     Health.starting health "jetstream" ~now:(Eio.Time.now system#clock);
@@ -174,7 +341,7 @@ let run ~engine ~network ~jetstream ~health ~policy =
         (fun (key, raw) ->
           try
             Eio.Time.with_timeout_exn system#clock 30. (fun () ->
-                commit engine network (decode raw));
+                commit engine network hooks (decode raw));
             Store.batch store
               ~puts:[ ("done", key, "") ]
               ~deletes:[ ("inbox", key) ]

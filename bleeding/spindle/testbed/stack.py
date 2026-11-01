@@ -76,7 +76,8 @@ def main():
                 "knot", "knot-jetstream", "stack-spindle", "stack-gateway")
         if args.command == "test":
             compose("--profile", "test", "build", "client")
-            compose("--profile", "test", "run", "--rm", "client")
+            compose("--profile", "test", "run", "--rm", "--use-aliases",
+                    "client")
     else:
         prepare()
         flags = ["--volumes"] if args.command == "reset" else []

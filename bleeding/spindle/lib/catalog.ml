@@ -7,12 +7,15 @@ type repo = {
   name : string;
   knot : string;
   source : string;
+  created : string;
 }
 
 type admission = Open | Closed
 
 type t = {
   store : Store.t;
+  settings : Settings.t;
+  mutable on_rename : repo -> old_name:string -> unit;
   network : Network.t;
   owner : string;
   admins : string list;
@@ -24,11 +27,13 @@ type t = {
   cache : (string, float * repo option) Hashtbl.t;
 }
 
-let v ~store ~network ~owner ?(admins = []) ~hostname ~admission ~static ~ttl
-    ~now () =
+let v ~store ~settings ~network ~owner ?(admins = []) ~hostname ~admission
+    ~static ~ttl ~now () =
   List.iter (fun d -> ignore (did d)) admins;
   {
     store;
+    settings;
+    on_rename = (fun _ ~old_name:_ -> ());
     network;
     owner;
     admins;
@@ -57,9 +62,13 @@ let disallow t subject =
   Store.delete t.store "allow" subject;
   Hashtbl.reset t.cache
 
+(* A ban beats every other admission. *)
 let admitted t owner =
-  admin t owner || t.admission = Open
-  || Store.get t.store "allow" owner <> None
+  (not (Settings.banned t.settings owner))
+  && (admin t owner || t.admission = Open
+     || Store.get t.store "allow" owner <> None)
+
+let on_rename t f = t.on_rename <- f
 
 let knot_of t repo =
   let doc = decode (Network.resolve t.network repo) in
@@ -69,6 +78,8 @@ let knot_of t repo =
       match Network.service doc "atproto_pds" "AtprotoPersonalDataServer" with
       | Some endpoint -> Network.knot t.network endpoint
       | None -> invalid "repository identity names no knot")
+
+let knot_origin = knot_of
 
 let knot_did t repo =
   let origin = knot_of t repo in
@@ -87,33 +98,46 @@ let slug name = String.lowercase_ascii name
    back, and the owner must be admitted. Records are read from their hosts on
    each check, never trusted from an event. *)
 let lookup t id =
-  let knot = knot_of t id in
-  match
-    Network.record t.network ~service:knot ~did:id
-      ~collection:"org.tangled.repo.manifest" ~rkey:"self"
-  with
-  | None -> None
-  | Some manifest ->
-      let value = required "value" manifest in
-      if Option.map string (field "spindle" value) <> Some (self t) then None
-      else
-        let declaration = required "declaration" value in
-        let owner = did (get "owner" declaration) in
-        let name = get "name" declaration in
-        if not (admitted t owner) then None
+  if Settings.banned t.settings id then None
+  else
+    let knot = knot_of t id in
+    match
+      Network.record t.network ~service:knot ~did:id
+        ~collection:"org.tangled.repo.manifest" ~rkey:"self"
+    with
+    | None -> None
+    | Some manifest ->
+        let value = required "value" manifest in
+        if Option.map string (field "spindle" value) <> Some (self t) then None
         else
-          let declared =
-            Network.record t.network ~service:(Network.pds t.network owner)
-              ~did:owner ~collection:"org.tangled.repo.declaration"
-              ~rkey:(slug name)
-          in
-          let names_repo record =
-            Option.map string (field "repo" (required "value" record))
-            = Some id
-          in
-          if Option.fold ~none:false ~some:names_repo declared then
-            Some { did = id; owner; name; knot; source = knot ^ "/" ^ id }
-          else None
+          let declaration = required "declaration" value in
+          let owner = did (get "owner" declaration) in
+          let name = get "name" declaration in
+          if not (admitted t owner) then None
+          else
+            let declared =
+              Network.record t.network
+                ~service:(Network.pds t.network owner)
+                ~did:owner ~collection:"org.tangled.repo.declaration"
+                ~rkey:(slug name)
+            in
+            let names_repo record =
+              Option.map string (field "repo" (required "value" record))
+              = Some id
+            in
+            if Option.fold ~none:false ~some:names_repo declared then (
+              Settings.note_owner t.settings ~repo:id ~owner;
+              Some
+                {
+                  did = id;
+                  owner;
+                  name;
+                  knot;
+                  source = knot ^ "/" ^ id;
+                  created =
+                    Option.fold ~none:"" ~some:string (field "createdAt" value);
+                })
+            else None
 
 let managed t id =
   ignore (did id);
@@ -126,6 +150,17 @@ let managed t id =
       | _ ->
           let repo = lookup t id in
           Hashtbl.replace t.cache id (now +. t.ttl, repo);
+          Option.iter
+            (fun (r : repo) ->
+              match Store.get t.store "repo-name" id with
+              | Some old when old = r.name -> ()
+              | old ->
+                  Store.put t.store "repo-name" id r.name;
+                  Option.iter
+                    (fun old_name ->
+                      if old_name <> "" then t.on_rename r ~old_name)
+                    old)
+            repo;
           repo)
 
 let forget t id = Hashtbl.remove t.cache id

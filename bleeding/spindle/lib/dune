@@ -19,4 +19,6 @@
   jsonwt
   mirage-crypto-ec
   sqlite3-eio
-  ptime.clock.os))
+  ptime.clock.os
+  digestif
+  yamlt))

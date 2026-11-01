@@ -17,13 +17,18 @@ let () =
   @@ fun () ->
   Eio.Switch.run @@ fun sw ->
   let store = Store.open_ ~sw directory in
+  let settings =
+    Spindle.Settings.v ~store
+      ~now:(fun () -> 0.)
+      ~defaults:{ repo = []; user = [] }
+  in
   let network =
     Spindle__Network.v ~allow_http:true ~plc:"http://127.0.0.1:1" env
   in
   let owner = "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa" in
   let repo = "did:web:repo.test" in
   let catalog =
-    Catalog.v ~store ~network ~owner ~hostname:"spindle.test"
+    Catalog.v ~store ~settings ~network ~owner ~hostname:"spindle.test"
       ~admission:Catalog.Closed ~ttl:60.
       ~now:(fun () -> Eio.Time.now env#clock)
       ~static:
@@ -34,13 +39,14 @@ let () =
              name = "";
              knot = "";
              source = name ^ "/missing";
+             created = "";
            })
       ()
   in
   let job = Job.v "push-only" [] ~accepts:(fun c -> c.kind = Job.Push) in
   let engine =
-    Engine.v ~store ~catalog ~hostname:"spindle.test" ~jobs:[ Job.inspect; job ]
-      ~system:env ~directory ~sw
+    Engine.v ~store ~catalog ~settings ~hostname:"spindle.test"
+      ~jobs:[ Job.inspect; job ] ~system:env ~directory ~sw ()
   in
   Eio.Semaphore.acquire engine.runner.slots;
   Eio.Semaphore.acquire engine.runner.slots;

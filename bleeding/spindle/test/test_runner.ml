@@ -36,7 +36,7 @@ let () =
         else None)
   in
   let runner : Runner.env =
-    { system = env; directory; slots = Eio.Semaphore.make 1 }
+    { system = env; directory; slots = Eio.Semaphore.make 1; timeout = 60. }
   in
   let run ~cancel id =
     let ready = name ^ "/" ^ id ^ ".ready" in
@@ -57,6 +57,8 @@ let () =
         source = name;
         commit;
         metadata = J.obj [];
+        variables = [];
+        secrets = [];
       }
     in
     Eio.Fiber.both
@@ -97,6 +99,8 @@ let () =
         source = name;
         commit;
         metadata = J.obj [];
+        variables = [];
+        secrets = [];
       }
     in
     Runner.execute runner input
@@ -165,6 +169,8 @@ let () =
           source = name;
           commit;
           metadata = J.obj [];
+          variables = [];
+          secrets = [];
         }
       in
       let record event =
@@ -216,6 +222,51 @@ let () =
           (J.decode (Option.get (Store.get store "pipeline" input.id)))
       in
       assert (contains restored.events));
+  (* Secrets reach commands but not their logs. A shell step's own variables
+     come last, and the checkout sees neither. *)
+  let workflow =
+    Runner.v
+      (Spindle.Job.workflow
+         ~env:[ ("LEVEL", "workflow"); ("CI", "mine") ]
+         ~clone:true ~definition:(J.obj []) "shell.yml"
+         [
+           Shell
+             {
+               name = "print";
+               command =
+                 {|echo "$TOKEN $LEVEL $CI"; printf '%s' "$TOKEN" | base64|};
+               env = [ ("LEVEL", "step") ];
+             };
+         ])
+  in
+  let input : Runner.input =
+    {
+      id = "3jzfcijpj2z2a";
+      repo = "did:web:repo.test";
+      source = name;
+      commit;
+      metadata = J.obj [];
+      variables = [ ("CI", "true") ];
+      secrets = [ ("TOKEN", "hunter2") ];
+    }
+  in
+  Runner.execute runner input
+    ~record:(fun _ -> 0L)
+    ~persist:(fun () -> ())
+    workflow;
+  assert (workflow.status = "success");
+  let text =
+    List.rev workflow.events
+    |> List.filter_map (fun e ->
+        if J.get "type" e = "data" && J.number (J.required "step" e) = 1. then
+          Some (J.get "content" e)
+        else None)
+    |> String.concat ""
+  in
+  assert (text = "*** step true\n***\n");
+  let restored = Runner.restore (Runner.snapshot workflow) in
+  assert (restored.job.steps = workflow.job.steps);
+  assert (restored.job.env = workflow.job.env);
   print_endline
-    "runner: bounded streaming output, UTF-8, durable partial logs and child \
-     cleanup passed"
+    "runner: bounded streaming output, UTF-8, durable partial logs, child \
+     cleanup, secrets and shell steps passed"

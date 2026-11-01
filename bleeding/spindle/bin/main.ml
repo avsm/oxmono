@@ -2,7 +2,8 @@
 open Cmdliner
 
 let serve hostname owner admins admission repo source plc state_dir port addr
-    jetstream allow_http operations =
+    jetstream allow_http repository_workflows workflow_timeout quota_repo
+    quota_user private_webhooks operations =
   let repo =
     match (repo, source) with
     | None, None -> None
@@ -23,6 +24,10 @@ let serve hostname owner admins admission repo source plc state_dir port addr
       jobs = [ Spindle.Job.inspect ];
       jetstream;
       allow_http;
+      repository_workflows;
+      workflow_timeout;
+      quotas = { repo = quota_repo; user = quota_user };
+      private_webhooks;
     }
 
 let required name doc =
@@ -67,6 +72,18 @@ let operations =
         "How long a repository's acceptance is cached."
     $ integer "maintenance-seconds" 60
         "Interval between automatic retention passes.")
+
+let quota name whose =
+  Arg.(
+    value
+    & opt_all (pair ~sep:'=' string int) []
+    & info [ name ] ~docv:"RESOURCE=N"
+        ~doc:
+          (Printf.sprintf
+             "Limit %s to N of RESOURCE unless an administrator sets \
+              otherwise. The enforced resources are $(b,workflows) running at \
+              once, $(b,webhooks) and $(b,ci_minutes_monthly). Repeatable."
+             whose))
 
 let command =
   let term =
@@ -116,6 +133,27 @@ let command =
           value & flag
           & info [ "allow-http" ]
               ~doc:"Permit HTTP and WS on a development network.")
+      $ Arg.(
+          value & flag
+          & info [ "repository-workflows" ]
+              ~doc:
+                "Also run the YAML workflows in each repository's \
+                 $(b,.tangled/workflows). Their steps run on this host with \
+                 this service's access, without the reference spindle's \
+                 containers or virtual machines, so admit only owners whose \
+                 code you trust.")
+      $ Arg.(
+          value & opt float 60.
+          & info [ "workflow-timeout" ] ~docv:"SECONDS"
+              ~doc:"How long a workflow may run before it is stopped.")
+      $ quota "quota-repo" "a repository"
+      $ quota "quota-user" "an owner's repositories together"
+      $ Arg.(
+          value & flag
+          & info [ "private-webhooks" ]
+              ~doc:
+                "Let webhooks reach loopback and private addresses, on a \
+                 development network.")
       $ operations)
   in
   Cmd.v (Cmd.info "spindle" ~doc:"Run an OCaml Tangled inspection job") term

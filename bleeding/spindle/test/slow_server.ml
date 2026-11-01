@@ -18,4 +18,8 @@ let () =
       jobs = [ job ];
       jetstream = None;
       allow_http = true;
+      repository_workflows = false;
+      workflow_timeout = 60.;
+      quotas = { repo = []; user = [] };
+      private_webhooks = true;
     }

@@ -83,6 +83,9 @@ services:
       - --owner=${OWNER}
       - --jetstream=wss://knot.tangled.test/subscribe
       - --state-dir=/state
+      - --repository-workflows
+      - --workflow-timeout=120
+      - --private-webhooks
     environment:
       SSL_CERT_FILE: /certs/ca.crt
     volumes:
@@ -128,7 +131,9 @@ services:
       - ./.state/id_ed25519.pub:/test/id_ed25519.pub:ro
       - ../../atp/testbed/.state:/atp:ro
       - ../../atp/testbed/.state/certs/ca.crt:/certs/ca.crt:ro
-    networks: [atp]
+    networks:
+      atp:
+        aliases: [hooks.tangled.test]
 
 volumes:
   knot:

@@ -10,6 +10,7 @@ type repo = {
   name : string;
   knot : string;  (** Knot origin. Empty for a static repository. *)
   source : string;  (** Git URL or local path to clone. *)
+  created : string;  (** When the manifest was created, if known. *)
 }
 
 type admission =
@@ -20,6 +21,7 @@ type t
 
 val v :
   store:Store.t ->
+  settings:Settings.t ->
   network:Network.t ->
   owner:string ->
   ?admins:string list ->
@@ -41,7 +43,18 @@ val web_did : string -> string
 (** [web_did host] is the [did:web] of [host], encoding a port as [%3A]. *)
 
 val admin : t -> string -> bool
+
 val admitted : t -> string -> bool
+(** [admitted t owner] holds when [owner]'s repositories may run here. A ban
+    overrides admins, open admission and the allow-list. *)
+
+val on_rename : t -> (repo -> old_name:string -> unit) -> unit
+(** [on_rename t f] calls [f] when a served repository's name changes. *)
+
+val knot_origin : t -> string -> string
+(** [knot_origin t did] is the origin of the knot that repository [did]'s DID
+    document names. *)
+
 val allowed : t -> string list
 
 val allow : t -> string -> unit
@@ -51,9 +64,9 @@ val disallow : t -> string -> unit
 (** [disallow t did] withdraws [did]'s admission and drops cached acceptance. *)
 
 val managed : t -> string -> repo option
-(** [managed t did] is the served repository [did], or [None]. It reads the
-    knot and the owner's PDS unless a cached answer is fresh. Network failures
-    raise. *)
+(** [managed t did] is the served repository [did], or [None]. It reads the knot
+    and the owner's PDS unless a cached answer is fresh. A banned repository or
+    owner is not served. Network failures raise. *)
 
 val forget : t -> string -> unit
 (** [forget t did] drops the cached acceptance of [did]. *)

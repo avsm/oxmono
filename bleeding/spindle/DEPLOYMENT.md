@@ -70,6 +70,25 @@ Collaborators are the knot's `org.tangled.graph.collaborator` records. They may
 start, cancel, retry and approve pipelines. Allow-list membership admits an
 owner's repositories. It grants no access to other owners' repositories.
 
+## Repository workflows, secrets and limits
+
+`--repository-workflows` runs each repository's `.tangled/workflows` YAML as
+well as the OCaml workflows. Its steps run on this host as the service
+account, so admit only owners whose code you would run yourself, keep
+`--admission=closed`, and give the account no more access than CI needs.
+Install the tools those workflows expect, since `dependencies` are not
+installed for them. Raise `--workflow-timeout` above its 60-second default
+for real builds.
+
+Secrets are kept in `spindle.db` in the state directory, which only the
+service account can read. Webhooks refuse private and loopback addresses
+unless `--private-webhooks` is given, which suits only a development network.
+
+`--quota-repo` and `--quota-user` set default limits, such as
+`--quota-repo=workflows=2` or `--quota-user=ci_minutes_monthly=600`.
+Administrators override them with `tangled spindle quota`, ban with
+`tangled spindle ban`, and admit new owners with `tangled spindle invite`.
+
 ## Keep the local Docker service running
 
 From the oxmono root, with Tangled core checked out in `../core`:

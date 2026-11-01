@@ -61,6 +61,27 @@ let read ?(limit = 1048576) t url =
 
 let json t url = decode (read t url)
 
+let read_limited flow limit =
+  let b = Buffer.create 1024 in
+  let chunk = Cstruct.create 4096 in
+  (try
+     while Buffer.length b < limit do
+       let n = Eio.Flow.single_read flow chunk in
+       Buffer.add_string b
+         (Cstruct.to_string ~len:(min n (limit - Buffer.length b)) chunk)
+     done
+   with End_of_file -> ());
+  Buffer.contents b
+
+let fetch_status ?(limit = 1048576) t url =
+  let uri = U.of_string_exn url in
+  let base = U.with_encoded_query uri Null |> fun uri -> U.to_string uri in
+  let host = origin ~allow_http:t.allow_http base in
+  let fetch = Fetch.restrict t.fetch ~under:[ host ] in
+  Eio.Time.Timeout.run_exn t.timeout (fun () ->
+      Fetch.with_response fetch `GET url (fun r ->
+          (Fetch.status r, read_limited (Fetch.body r) limit)))
+
 let query url fields =
   U.of_string_exn url |> fun uri -> U.set_query_params uri fields |> U.to_string
 
@@ -118,8 +139,8 @@ let pds t owner =
       origin ~allow_http:t.allow_http url
   | None -> invalid "identity has no PDS"
 
-let records t owner collection =
-  let url = pds t owner ^ "/xrpc/com.atproto.repo.listRecords" in
+let records_at t ~service ~did:owner collection =
+  let url = service ^ "/xrpc/com.atproto.repo.listRecords" in
   let rec pages cursor count acc =
     if count >= 100 then invalid "record pagination exceeds 100 pages";
     let result =
@@ -137,6 +158,9 @@ let records t owner collection =
     | _ -> List.rev acc
   in
   pages None 0 []
+
+let records t owner collection =
+  records_at t ~service:(pds t owner) ~did:owner collection
 
 let record t ~service ~did ~collection ~rkey =
   let result =

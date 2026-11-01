@@ -4,6 +4,8 @@ A Tangled CI spindle using Proffer, HTTPz, JSONWT and Eio on OxCaml.
 Trusted OCaml definitions select and run workflows. The default `inspect`
 workflow checks out the requested commit, prints request metadata and runs
 `ls -la --`. Tokens and authorization headers are excluded from job metadata.
+With `--repository-workflows`, each repository's own YAML workflows in
+`.tangled/workflows` run too.
 
 The spindle speaks the `org.tangled.*` protocol of Tangled core. A knot
 reports each push to the spindle named in a repository's manifest by calling
@@ -22,9 +24,11 @@ python3 bleeding/spindle/testbed/stack.py test
 This builds knot2 from the core checkout and runs it beside the [local ATP
 stack](../atp/testbed/README.md), with a Jetstream on the knot's firehose and
 this spindle behind a TLS gateway. The test drives the Tangled CLI through
-SSH keys, repository creation, Git pushes over SSH, manual runs, retry,
-cancellation, collaborator authority, a closed spindle's allow-list, issues,
-pull requests, approval of a contributor's revision, `skip-ci` and deletion.
+SSH keys, repository creation, Git pushes over SSH, a repository workflow
+using a secret, signed webhooks and redelivery, manual runs, retry,
+cancellation, collaborator authority, a closed spindle's allow-list, invite
+codes, quotas, bans, issues, pull requests that are closed and reopened,
+approval of a contributor's revision, `skip-ci` and deletion.
 `--core=/path/to/checkout` selects another checkout. Its revision is recorded
 in `.state/core-revision`. `stack.py up`, `down` and `reset` manage the
 services. Volumes persist across `down`.
@@ -84,6 +88,62 @@ Commands receive argument vectors without a shell. Their environment contains
 The configured CA bundle is available to HTTPS Git clones. Workflow discovery
 returns `derived=false`, because definitions belong to the OCaml service.
 
+## Repository workflows
+
+`--repository-workflows` also runs the reference spindle's YAML workflows,
+one per file in `.tangled/workflows`, read from the knot at the commit being
+run and named by their file name. `when` selects events as the reference
+spindle does: `event` is `push`, `pull_request` or `manual`, `branch` and
+`tag` are doublestar globs, and `types` chooses pull request actions, by
+default `opened`, `reopened` and `synchronize`. A manual run runs every
+workflow it names. `environment` sets variables for every step, and each
+step's `command` runs with `bash -c` in the checkout, with its own
+`environment` last. `clone: {skip: true}` skips the checkout.
+
+Steps run on the spindle's host as the service account, not in the
+reference spindle's containers or virtual machines. `engine`, `dependencies`,
+`cache` and `image` are accepted and ignored, so a step finds only the tools
+the host has. Run repository workflows only for owners whose code you would
+run yourself, and give the service account no more access than CI needs.
+
+Every step also sees the reference spindle's CI variables: `CI`,
+`TANGLED_PIPELINE_ID`, `TANGLED_PIPELINE_KIND`, `TANGLED_REPO_*`,
+`TANGLED_REF`, `TANGLED_REF_NAME`, `TANGLED_REF_TYPE`, `TANGLED_SHA`, the
+`TANGLED_PR_*` variables of a pull request and `TANGLED_INPUT_<KEY>` for each
+manual input.
+
+## Secrets, webhooks, quotas, bans and invites
+
+These follow the reference spindle and its error codes.
+
+- **Secrets** are set by a repository's owner and collaborators. Each is
+  given to every step except the checkout as an environment variable of the
+  same name. The value, each of its lines and its base64 forms are replaced
+  by `***` in logs. Only trusted pipelines receive secrets: not a fork's
+  code, nor a pull request that needed approval, nor a retry of one.
+  Values are kept in the state directory's SQLite database, as the reference
+  spindle keeps them by default.
+- **Webhooks** are POSTed for `push`, `repository:renamed` and
+  `pull_request:created`, `resubmitted`, `closed`, `reopened` and `merged`,
+  with `X-Tangled-*` headers and an `X-Tangled-Signature-256` HMAC-SHA256
+  when the webhook has a secret. Each delivery is tried three times, and the
+  last 50 are kept. Webhook URLs may not reach private addresses unless
+  `--private-webhooks` is given.
+- **Pull requests** run when opened and updated. Closing, reopening and
+  completing their ticket dispatch `closed`, `reopened` and `merged`, which
+  run only workflows that ask for them.
+- **Quotas** limit a repository and an owner's repositories together. The
+  enforced resources are `workflows` running at once, `webhooks` and
+  `ci_minutes_monthly`. `--quota-repo` and `--quota-user` set defaults, and
+  administrators override them per DID. Other resources are stored but
+  mean nothing without virtual machines.
+- **Bans** name a repository or an owner. A ban refuses the DID on every
+  authenticated method, stops its pushes and pull requests, and deletes its
+  pipelines, logs, secrets, webhooks and quota settings.
+- **Invite codes** are made by administrators and admit whoever redeems
+  them to the allow-list. `useCount` and `forAccount` are honoured, and a
+  code expires after two days.
+
 ## API and authentication
 
 All Tangled methods are under `/xrpc/`:
@@ -101,6 +161,12 @@ All Tangled methods are under `/xrpc/`:
 | `org.tangled.ci.retryPipeline` | Run a pipeline again as a new pipeline. |
 | `org.tangled.ci.subscribePipelineLogs` | Stream selected workflows as Tangled CBOR WebSocket events. |
 | `org.tangled.temp.spindle.allowList.*` | List, add and remove admitted owners. Admins only. |
+| `org.tangled.secret.*` | List, add and remove a repository's secrets. Owner and collaborators. |
+| `org.tangled.webhook.*` | Manage webhooks, list deliveries and redeliver. Owner and collaborators. |
+| `org.tangled.temp.spindle.moderation.*` | Ban, unban, get and list bans. Admins only. |
+| `org.tangled.temp.spindle.quota.*` | Set, unset, get and list limits, and report usage. Admins only. |
+| `org.tangled.temp.server.createInviteCode` | Make an invite code. Admins only. |
+| `org.tangled.temp.server.redeemInviteCode` | Join the allow-list with a code. |
 | `_health` | Return liveness and observer, queue and maintenance diagnostics. |
 | `_ready` | Return the same report, with HTTP 503 while degraded. |
 
@@ -156,8 +222,9 @@ snapshots compact the journal atomically. Invalid UTF-8 becomes replacement
 characters. Completed logs stay in SQLite and are loaded on demand.
 
 Two workflows run at once; at most 32 pipelines may be outstanding, with up
-to 50 configured workflows. Each workflow has a 60-second execution deadline
-and 1 MiB log budget. Git is a runtime dependency.
+to 50 configured workflows. Each workflow has a 1 MiB log budget and a
+deadline set by `--workflow-timeout`, 60 seconds by default. Git is a
+runtime dependency.
 Automatic maintenance retains completed history for 30 days, at most 1000
 pipelines or 1024 MiB of stored payload. Completed event receipts last seven
 days, capped at 100000 entries. The inbox admits 10000 events or 64 MiB before

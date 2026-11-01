@@ -19,6 +19,7 @@ type env = {
   system : Eio_unix.Stdenv.base;
   directory : Eio.Fs.dir_ty Eio.Path.t;
   slots : Eio.Semaphore.t;
+  timeout : float;
 }
 
 type input = {
@@ -27,6 +28,8 @@ type input = {
   source : string;
   commit : string;
   metadata : Jsont.json;
+  variables : (string * string) list;
+  secrets : (string * string) list;
 }
 
 exception Cancelled
@@ -63,30 +66,69 @@ let view p =
     @ optional "finishedAt" str p.finished
     @ optional "error" str p.error)
 
+let pairs l = obj (List.map (fun (k, v) -> (k, str v)) l)
+let unpairs j = List.map (fun (k, v) -> (k, string v)) (members j)
+
 let snapshot p =
   obj
-    [
-      ("workflow", view p);
-      ("events", arr (List.rev p.events));
-      ( "steps",
-        arr
-          (List.map
-             (function
-               | Job.Metadata -> obj [ ("metadata", bool true) ]
-               | Job.Command argv -> obj [ ("argv", arr (List.map str argv)) ])
-             p.job.steps) );
-    ]
+    ([
+       ("workflow", view p);
+       ("events", arr (List.rev p.events));
+       ( "steps",
+         arr
+           (List.map
+              (function
+                | Job.Metadata -> obj [ ("metadata", bool true) ]
+                | Job.Command argv -> obj [ ("argv", arr (List.map str argv)) ]
+                | Job.Shell { name; command; env } ->
+                    obj
+                      [
+                        ("name", str name);
+                        ("shell", str command);
+                        ("env", pairs env);
+                      ])
+              p.job.steps) );
+     ]
+    @
+    match p.job.definition with
+    | None -> []
+    | Some definition ->
+        [
+          ("definition", definition);
+          ("env", pairs p.job.env);
+          ("clone", bool p.job.clone);
+        ])
 
 let restore raw =
   let workflow = required "workflow" raw in
   let steps =
     list (required "steps" raw)
     |> List.map (fun step ->
-        match field "argv" step with
-        | Some argv -> Job.Command (List.map string (list argv))
-        | None -> Job.Metadata)
+        match (field "argv" step, field "shell" step) with
+        | Some argv, _ -> Job.Command (List.map string (list argv))
+        | None, Some command ->
+            Job.Shell
+              {
+                name = get "name" step;
+                command = string command;
+                env = unpairs (required "env" step);
+              }
+        | None, None -> Job.Metadata)
   in
-  let p = v (Job.v (get "name" workflow) steps) in
+  let name = get "name" workflow in
+  let job =
+    match field "definition" raw with
+    | None -> Job.v name steps
+    | Some definition ->
+        Job.workflow ~definition
+          ~env:(unpairs (required "env" raw))
+          ~clone:
+            (match field "clone" raw with
+            | Some (Jsont.Bool (b, _)) -> b
+            | _ -> true)
+          name steps
+  in
+  let p = v job in
   p.status <- get "status" workflow;
   p.started <- Option.map string (field "startedAt" workflow);
   p.finished <- Option.map string (field "finishedAt" workflow);
@@ -155,27 +197,38 @@ let data record p ~step ~stream content =
   emit record p ~step ~kind:"data"
     [ ("content", str content); ("stream", str stream) ]
 
-let environment input =
-  Eio.Process.Env.of_bindings
-    [
-      ("PATH", "/usr/bin:/bin");
-      ("LANG", "C");
-      ("LC_ALL", "C");
-      ("GIT_CONFIG_NOSYSTEM", "1");
-      ("GIT_CONFIG_GLOBAL", "/dev/null");
-      ("GIT_TERMINAL_PROMPT", "0");
-      ("GIT_ALLOW_PROTOCOL", "file:https:http");
-      ("TANGLED_REPO", input.repo);
-      ("TANGLED_COMMIT_SHA", input.commit);
-      ("TANGLED_PIPELINE_ID", input.id);
-      ( "SSL_CERT_FILE",
-        Option.value ~default:"/etc/ssl/certs/ca-certificates.crt"
-          (Sys.getenv_opt "SSL_CERT_FILE") );
-      ( "GIT_SSL_CAINFO",
-        Option.value ~default:"/etc/ssl/certs/ca-certificates.crt"
-          (Sys.getenv_opt "SSL_CERT_FILE") );
-      ("SPINDLE_REQUEST", encode input.metadata);
-    ]
+(* [base input] is the fixed part of every command's environment, with
+   ambient Git configuration and interactive authentication disabled. *)
+let base input =
+  [
+    ("PATH", "/usr/bin:/bin");
+    ("LANG", "C");
+    ("LC_ALL", "C");
+    ("GIT_CONFIG_NOSYSTEM", "1");
+    ("GIT_CONFIG_GLOBAL", "/dev/null");
+    ("GIT_TERMINAL_PROMPT", "0");
+    ("GIT_ALLOW_PROTOCOL", "file:https:http");
+    ("TANGLED_REPO", input.repo);
+    ("TANGLED_COMMIT_SHA", input.commit);
+    ("TANGLED_PIPELINE_ID", input.id);
+    ( "SSL_CERT_FILE",
+      Option.value ~default:"/etc/ssl/certs/ca-certificates.crt"
+        (Sys.getenv_opt "SSL_CERT_FILE") );
+    ( "GIT_SSL_CAINFO",
+      Option.value ~default:"/etc/ssl/certs/ca-certificates.crt"
+        (Sys.getenv_opt "SSL_CERT_FILE") );
+    ("SPINDLE_REQUEST", encode input.metadata);
+  ]
+
+(* Later bindings win, as in the reference spindle: the workflow's own
+   variables, then the CI variables, then secrets, then the step's. *)
+let merge layers =
+  List.fold_left
+    (fun acc (k, v) -> (k, v) :: List.remove_assoc k acc)
+    [] (List.concat layers)
+  |> List.rev
+
+let environment input = Eio.Process.Env.of_bindings (base input)
 
 (* Log frames contain text. Carry incomplete UTF-8 characters between reads,
    replacing malformed bytes while preserving whitespace and partial lines. *)
@@ -202,12 +255,19 @@ let utf8 ~eof raw =
     in
     loop 0
 
-let command state input ~output:emit_output ~text ~cwd argv =
+(* [command state input ~env ~secrets ~step ~output ~text ~cwd argv] runs
+   [argv] with [env], then [secrets], then [step] over the base environment.
+   Secret values are hidden from the output. *)
+let command state input ?(env = []) ?(secrets = []) ?(step = [])
+    ~output:emit_output ~text ~cwd argv =
   Eio.Switch.run @@ fun sw ->
   let mgr = state.system#process_mgr in
   let output, output_write = Eio.Process.pipe ~sw mgr in
   let errors, errors_write = Eio.Process.pipe ~sw mgr in
-  let env = environment input in
+  let env =
+    Eio.Process.Env.of_bindings (merge [ base input; env; secrets; step ])
+  in
+  let values = List.map snd secrets in
   let stdin = Eio.Path.open_in ~sw Eio.Path.(state.system#fs / "/dev/null") in
   let fd flow = Option.get (Eio_unix.Resource.fd_opt flow) in
   let process =
@@ -231,7 +291,15 @@ let command state input ~output:emit_output ~text ~cwd argv =
   Eio.Flow.close errors_write;
   let read stream flow () =
     let reader = Eio.Buf_read.of_flow ~initial_size:8192 ~max_size:8192 flow in
-    let emit content = if content <> "" then emit_output ~stream content in
+    let mask = Mask.v values in
+    let emit content =
+      let content = Mask.feed mask content in
+      if content <> "" then emit_output ~stream content
+    in
+    let flush () =
+      let content = Mask.finish mask in
+      if content <> "" then emit_output ~stream content
+    in
     let rec loop pending =
       match Eio.Buf_read.ensure reader 1 with
       | () ->
@@ -247,7 +315,8 @@ let command state input ~output:emit_output ~text ~cwd argv =
             emit raw;
             loop "")
       | exception End_of_file ->
-          if text then emit (fst (utf8 ~eof:true pending))
+          if text then emit (fst (utf8 ~eof:true pending));
+          flush ()
     in
     loop ""
   in
@@ -286,24 +355,27 @@ let execute state input ~record ~persist p =
     let result =
       try
         if p.cancelled then raise Cancelled;
-        Eio.Time.with_timeout_exn state.system#clock 60. @@ fun () ->
+        Eio.Time.with_timeout_exn state.system#clock state.timeout @@ fun () ->
         Eio.Switch.run @@ fun sw ->
         p.cancel <- Some (fun () -> Eio.Switch.fail sw Cancelled);
-        run_step record persist p ~step:0 ~kind:"system" "checkout" (fun () ->
-            command state input ~output:(data record p ~step:0) ~text:true
-              ~cwd:state.directory
-              (git
-                 [
-                   "clone";
-                   "--no-checkout";
-                   "--no-hardlinks";
-                   "--";
-                   input.source;
-                   native_exn work;
-                 ]);
-            command state input ~output:(data record p ~step:0) ~text:true
-              ~cwd:work
-              (git [ "checkout"; "--detach"; input.commit ]));
+        if p.job.clone then
+          run_step record persist p ~step:0 ~kind:"system" "checkout" (fun () ->
+              command state input ~output:(data record p ~step:0) ~text:true
+                ~cwd:state.directory
+                (git
+                   [
+                     "clone";
+                     "--no-checkout";
+                     "--no-hardlinks";
+                     "--";
+                     input.source;
+                     native_exn work;
+                   ]);
+              command state input ~output:(data record p ~step:0) ~text:true
+                ~cwd:work
+                (git [ "checkout"; "--detach"; input.commit ]))
+        else Eio.Path.mkdirs ~perm:0o700 work;
+        let env = merge [ p.job.env; input.variables ] in
         List.iteri
           (fun index action ->
             let step = index + 1 in
@@ -311,6 +383,7 @@ let execute state input ~record ~persist p =
               match action with
               | Job.Metadata -> "spindle request metadata"
               | Job.Command argv -> String.concat " " argv
+              | Job.Shell { name; _ } -> name
             in
             run_step record persist p ~step ~kind:"user" name (fun () ->
                 match action with
@@ -319,8 +392,12 @@ let execute state input ~record ~persist p =
                     data record p ~step ~stream:"stdout" (text ^ "\n");
                     Printf.printf "%s\n%!" text
                 | Job.Command argv ->
-                    command state input ~output:(data record p ~step)
-                      ~text:true ~cwd:work argv))
+                    command state input ~env ~secrets:input.secrets
+                      ~output:(data record p ~step) ~text:true ~cwd:work argv
+                | Job.Shell { command = script; env = own; _ } ->
+                    command state input ~env ~secrets:input.secrets ~step:own
+                      ~output:(data record p ~step) ~text:true ~cwd:work
+                      [ "bash"; "-c"; script ]))
           p.job.steps;
         Ok ()
       with exn -> Error exn

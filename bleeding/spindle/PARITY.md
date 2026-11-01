@@ -23,6 +23,13 @@ in place of microVM and Nixery engines.
 | Blocked pull requests and `approvePipeline` | Same, when the patch's editor cannot push |
 | `queryPipelines`, `getPipeline`, `subscribePipelineLogs` | Same parameters, objects and CBOR frames |
 | Step end events with `outcome`, checkout as a `system` step | Same, including for a failed or cancelled step |
+| YAML workflows in `.tangled/workflows` | With `--repository-workflows`, run with `bash -c` on the host |
+| Secrets, masked in logs, for trusted pipelines only | Same |
+| Webhooks, signed, retried and redeliverable | Same events, headers, payloads and limits |
+| Pull request `closed`, `reopened` and `merged` | From ticket state changes, as the reference does |
+| Quotas | `workflows`, `webhooks` and `ci_minutes_monthly` enforced |
+| Bans and wiping | Same subjects and effects |
+| Invite codes | Same, honouring `useCount` and `forAccount` |
 | `cancelPipeline`, `retryPipeline` | Same |
 | `listWorkflowDefinitions`, `getWorkflowDefinition` | The configured OCaml workflows, as external sources |
 | `describeSpindle` and `#tangled_spindle` DID service | Same |
@@ -38,8 +45,16 @@ in place of microVM and Nixery engines.
 - Repository tokens minted by a knot through `org.tangled.repo.mintToken`,
   which act on behalf of a user, are not accepted. Users sign their own
   service tokens.
-- Secrets, webhooks, quotas, bans, invite codes, cron schedules, the mill and
-  executor roles are not implemented. Their routes answer `MethodNotFound`.
+- Repository workflows run on the host, not in microVMs or Nixery
+  containers. `engine`, `dependencies`, `cache` and `image` are ignored, and
+  scheduled workflows, the mill and executor roles are not implemented.
+- Quota resources that measure virtual machines (`vcpus`, `memory_mib`,
+  `disk_mib`, the `workflow_*` caps and `cache_storage_bytes`) are stored but
+  not enforced.
+- A pull request's state is compared with the last state seen, not walked
+  version by version, so a close and reopen between two events is missed.
+- Invite codes honour `useCount` and `forAccount`, which the reference
+  spindle ignores.
 - Discovery is on demand. The reference spindle backfills repositories with an
   embedded hydrant. This spindle checks a repository when a push, manual run
   or patch names it, and caches the answer for `--reconcile-seconds`.

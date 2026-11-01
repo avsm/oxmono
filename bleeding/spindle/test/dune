@@ -33,3 +33,13 @@
  (name test_operations)
  (modules test_operations)
  (libraries spindle eio_main))
+
+(test
+ (name test_settings)
+ (modules test_settings)
+ (libraries spindle eio_main))
+
+(test
+ (name test_workflows)
+ (modules test_workflows)
+ (libraries spindle))

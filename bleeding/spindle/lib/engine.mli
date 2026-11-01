@@ -3,24 +3,36 @@
 type pipeline = {
   id : string;
   repo : string;
+  owner : string;
   source : string;
   request : Jsont.json;
   metadata : Jsont.json;
   commit : string;
   created : string;
+  trusted : bool;
+      (** Whether its workflows receive the repository's secrets. *)
+  variables : (string * string) list;  (** CI variables for its steps. *)
   workflows : Runner.t list;
 }
+
+type reader = did:string -> commit:string -> (string * string) list
+(** [reader ~did ~commit] is each file in [.tangled/workflows] of repository
+    [did] at [commit], with its contents. *)
 
 type t = private {
   store : Store.t;
   catalog : Catalog.t;
+  settings : Settings.t;
   hostname : string;
   jobs : Job.t list;
+  read_workflows : reader option;
   runner : Runner.env;
   sw : Eio.Switch.t;
   pipelines : (string, pipeline) Hashtbl.t;
   lock : Eio.Mutex.t;
   mutable last_tid : int64;
+  running : (string, int) Hashtbl.t;
+  quota_changed : Eio.Condition.t;
 }
 
 exception Capacity
@@ -28,12 +40,19 @@ exception Capacity
 val v :
   store:Store.t ->
   catalog:Catalog.t ->
+  settings:Settings.t ->
   hostname:string ->
   jobs:Job.t list ->
+  ?read_workflows:reader ->
+  ?timeout:float ->
   system:Eio_unix.Stdenv.base ->
   directory:Eio.Fs.dir_ty Eio.Path.t ->
   sw:Eio.Switch.t ->
+  unit ->
   t
+(** [v ~store ~catalog ~settings ~hostname ~jobs ~system ~directory ~sw ()] runs
+    the OCaml [jobs], and with [read_workflows] also each repository's own YAML
+    workflows. A workflow may run for [timeout] seconds, 60 by default. *)
 
 val migrate : t -> (string * string) option -> unit
 
@@ -78,6 +97,7 @@ val create :
   ?changed_files:string list ->
   ?default_ref:bool ->
   ?blocked:bool ->
+  ?untrusted:bool ->
   automatic:bool ->
   actor:string ->
   Jsont.json ->
@@ -85,7 +105,9 @@ val create :
 (** [create engine ~automatic ~actor request] verifies repository ownership,
     selects OCaml workflows and atomically records the dispatch and optional
     deduplication key. Only verified event consumers may set [automatic].
-    [blocked] holds the workflows until {!approve}. *)
+    [blocked] holds the workflows until {!approve}. A blocked or [untrusted]
+    pipeline, or one whose code comes from another repository, receives no
+    secrets. *)
 
 val cancel :
   t -> actor:string -> repo:string -> id:string -> names:string list -> unit
@@ -101,5 +123,12 @@ val retry :
   id:string ->
   names:string list ->
   string option
-(** [retry t ~actor ~repo ~id ~names] runs pipeline [id] again as a new
-    pipeline with the same trigger, limited to [names] when given. *)
+(** [retry t ~actor ~repo ~id ~names] runs pipeline [id] again as a new pipeline
+    with the same trigger, limited to [names] when given. *)
+
+val running : t -> string -> int
+(** [running t did] counts the workflows running for repository or owner [did].
+*)
+
+val wipe : t -> string -> unit
+(** [wipe t repo] cancels and deletes every pipeline of [repo]. *)

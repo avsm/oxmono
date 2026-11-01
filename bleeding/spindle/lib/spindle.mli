@@ -4,6 +4,7 @@ module Job = Job
 module Service_auth = Auth
 module Operations = Operations
 module Catalog = Catalog
+module Settings = Settings
 
 type config = {
   hostname : string;
@@ -17,6 +18,13 @@ type config = {
   jobs : Job.t list;
   jetstream : string option;
   allow_http : bool;
+  repository_workflows : bool;
+      (** Also run each repository's [.tangled/workflows] YAML. Its steps run on
+          this host with the service account's access. *)
+  workflow_timeout : float;  (** Seconds a workflow may run. *)
+  quotas : Settings.defaults;  (** Default limits. *)
+  private_webhooks : bool;
+      (** Let webhooks reach private addresses, on a development network. *)
 }
 (** [config] serves repositories whose knot manifest names this spindle and
     whose owner is admitted. [owner] and [admins] administer the spindle and

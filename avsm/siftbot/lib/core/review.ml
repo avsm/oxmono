@@ -62,5 +62,13 @@ let snapshot db ~query ?selected () =
     snapshot with
     messages;
     assignments;
+    feedback_examples =
+      (match selected with
+      | None -> ""
+      | Some source ->
+          Option.value
+            ~default:"No feedback provenance saved for this classification."
+            (Store.cached db ~source ~kind:"classification/feedback")
+          |> prefix (64 * 1024));
     discussion = prefix (64 * 1024) snapshot.discussion;
   }

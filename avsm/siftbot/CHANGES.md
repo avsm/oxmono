@@ -2,6 +2,9 @@ Siftbot now shares embedding inference, vector storage primitives and hybrid ran
 
 # Changes
 
+- Retrieve relevant examples from all manual corrections, with optional cached
+  semantic matching, visible provenance and selective `--refresh-feedback`.
+
 - Correct attention and delivery with `l`, for one message, sender or List-ID.
   Saved rules apply to existing and future mail without deleting model results.
 

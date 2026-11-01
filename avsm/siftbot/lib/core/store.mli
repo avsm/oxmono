@@ -81,6 +81,8 @@ val cache :
 val cached : t -> source:Siftbot_model.source -> kind:string -> string option
 
 val save_classification :
+  ?active_kind:string ->
+  ?feedback_trace:string ->
   t ->
   expected_revision:int ->
   source:Siftbot_model.source ->
@@ -193,3 +195,16 @@ val labels : t -> Siftbot_model.source -> Siftbot_model.assignment list
 (** [labels db source] returns effective labels for a message and conversation.
     Message confirmations override sender rules, which override list rules and
     predictions. Rules are scoped to the source service and account. *)
+
+val feedback : t -> Siftbot_model.feedback list
+(** [feedback db] returns all active manual corrections with frozen source
+    context. Superseded, undone and stale message corrections are excluded. *)
+
+val feedback_vector :
+  t -> key:string -> model:string -> input_hash:string -> float list option
+
+val save_feedback_vector :
+  t -> key:string -> model:string -> input_hash:string -> float list -> unit
+
+val sources : t -> Siftbot_model.source list
+(** [sources db] returns source identities without loading bodies. *)

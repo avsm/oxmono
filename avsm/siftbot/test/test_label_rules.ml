@@ -153,7 +153,8 @@ let () =
             (fun () ->
               Sqlite3.Rc.check
                 (Sqlite3.exec legacy
-                   "DROP TABLE label_rules; PRAGMA user_version=6;"));
+                   "DROP TABLE label_rules; DROP TABLE feedback; DROP TABLE \
+                    feedback_vectors; PRAGMA user_version=6;"));
           let first = mail "persistent" "noreply@zulip.com" "chat.example" in
           Eio.Switch.run (fun sw ->
               let db = S.open_db ~sw Eio.Path.(Eio.Stdenv.fs env / path) in
@@ -164,6 +165,8 @@ let () =
                 ~explanation:"Notification");
           Eio.Switch.run (fun sw ->
               let db = S.open_db ~sw Eio.Path.(Eio.Stdenv.fs env / path) in
+              check "feedback survives reopening"
+                (List.length (S.feedback db) = 1);
               check "saved rules survive reopening"
                 (List.exists
                    (fun (a : M.assignment) -> a.value = "fyi")

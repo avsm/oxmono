@@ -488,6 +488,9 @@ let render ~phase ~profile_name { Dimensions.width; height } t =
                "Reply suggestions describe this email, not whether you later \
                 replied."
            else [])
+        @ (if t.reasons then
+             [ "" ] @ wrap t.ui.snapshot.feedback_examples @ [ "" ]
+           else [])
         @ (if m.outside_interval then
              wrap "Older or newer thread context, outside your import dates."
            else [])

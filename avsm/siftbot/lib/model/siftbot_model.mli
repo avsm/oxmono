@@ -56,10 +56,21 @@ type snapshot = {
   assignments : assignment list;
   jobs : string list;
   discussion : string;
+  feedback_examples : string;
 }
 [@@deriving sexp]
 
 type rule_scope = Sender | Mailing_list [@@deriving sexp]
+
+type feedback = {
+  id : string;
+  message : message;
+  correction : assignment;
+  scope : rule_scope option;
+  previous : assignment list;
+  decision_revision : int;
+}
+[@@deriving sexp]
 
 type edit =
   | Approve of string

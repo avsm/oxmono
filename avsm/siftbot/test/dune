@@ -117,3 +117,8 @@
  (name test_label_rules)
  (modules test_label_rules)
  (libraries siftbot eio_main sqlite3))
+
+(test
+ (name test_feedback)
+ (modules test_feedback)
+ (libraries siftbot eio_main))

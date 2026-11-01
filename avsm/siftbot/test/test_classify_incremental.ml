@@ -93,8 +93,8 @@ let () =
             ~explanation:"Confirm an example";
           check "current human decision is classifier context"
             (S.confirmed_assignments db ~limit:20 = [ decision ]);
-          check "changed confirmed context refreshes all current results"
-            (run () = 6 && !calls = 13);
+          check "new feedback does not rerun completed mail"
+            (run () = 0 && !calls = 7);
           S.commit_batch db ~job:"fixture" ~expected:(Some "3") ~cursor:"4"
             [ { changed with revision = "changed-again" } ]
             [];

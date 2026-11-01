@@ -1,6 +1,21 @@
 module M = Siftbot_model
 open Cmdliner
 
+let feedback_provider ~sw (p : Siftbot.Profile.t) =
+  match (p.embedding_url, p.embedding_model) with
+  | None, None -> None
+  | Some url, Some model when p.embedding_dimensions > 0 ->
+      Some
+        (Siftbot.Embedding.http ~sw
+           ~fetch:(Fetch_curl.v ~sw ~timeout:(Duration.of_sec 60) ())
+           ~url
+           ?api_key:(Sys.getenv_opt "SIFTBOT_EMBEDDING_API_KEY")
+           ~model ~dimensions:p.embedding_dimensions ())
+  | _ ->
+      invalid_arg
+        "Configure embeddingUrl, embeddingModel and embeddingDimensions \
+         together"
+
 let profile =
   Arg.(value & opt string "personal" & info [ "profile" ] ~docv:"NAME")
 
@@ -159,8 +174,9 @@ let learn profile demo since watch max_steps no_progress jobs =
                             ~enabled:(not no_progress)
                             (fun ~on_progress ~on_classified ->
                               Siftbot.Classifier.run ~on_progress ~on_classified
-                                ~jobs db ~complete ~model
-                                ~max_messages:p.max_steps)
+                                ~jobs
+                                ?feedback_provider:(feedback_provider ~sw p) db
+                                ~complete ~model ~max_messages:p.max_steps)
                         in
                         Printf.printf
                           "Stored %d classification suggestions.\n%!" count);
@@ -205,7 +221,7 @@ let embedding profile demo query =
                      (M.sanitize (M.key m.M.source))
                      (M.sanitize m.subject))))
 
-let classify profile demo all no_progress jobs =
+let classify profile demo all no_progress jobs refresh_feedback =
   protect (fun () ->
       if demo then invalid_arg "Demo mode does not use model credentials";
       with_db profile false (fun env sw db ->
@@ -218,8 +234,9 @@ let classify profile demo all no_progress jobs =
           let count, remaining =
             Cli_progress.classify ~clock:(Eio.Stdenv.clock env)
               ~enabled:(not no_progress) (fun ~on_progress ~on_classified ->
-                Siftbot.Classifier.run ~on_progress ~on_classified ~jobs db
-                  ~complete ~model
+                Siftbot.Classifier.run ~on_progress ~on_classified ~jobs
+                  ?feedback_provider:(feedback_provider ~sw p) ~refresh_feedback
+                  db ~complete ~model
                   ?max_messages:(if all then None else Some p.max_steps))
           in
           Printf.printf
@@ -371,7 +388,13 @@ let commands =
             & info [ "no-progress" ]
                 ~doc:
                   "Use plain status lines instead of an animated progress bar.")
-        $ jobs);
+        $ jobs
+        $ Arg.(
+            value & flag
+            & info [ "refresh-feedback" ]
+                ~doc:
+                  "Revisit completed mail and reclassify only when the \
+                   relevant feedback has changed."));
     command "embed" "Index source passages or query their vector index"
       Term.(const embedding $ profile $ demo $ query);
     command "init" "Create a local profile"

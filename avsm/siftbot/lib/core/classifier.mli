@@ -14,12 +14,17 @@ val run :
   ?on_classified:(subject:string -> Siftbot_model.assignment list -> unit) ->
   ?max_messages:int ->
   ?jobs:int ->
+  ?feedback_provider:Embedding.provider ->
+  ?refresh_feedback:bool ->
   Store.t ->
   complete:Agentkit.Chat.complete ->
   model:string ->
   int
 (** [run db ~complete ~model ~max_messages] classifies changed inputs using
-    approved definitions and confirmed examples. Results are validated before
+    approved definitions and relevant corrections from the entire feedback
+    store. Optional [feedback_provider] adds cached semantic retrieval to
+    sender, list and text matching. New corrections affect new mail without
+    invalidating every completed classification. Results are validated before
     committing, cached by input/model/prompt versions, and audited. Returns the
     number of newly classified messages. Without [max_messages], processes all
     pending sources found at startup. Unchanged, current classifications are

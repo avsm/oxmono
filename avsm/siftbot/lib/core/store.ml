@@ -72,7 +72,7 @@ let init sql =
             | [ r ] -> num r.(0)
             | _ -> assert false
           in
-          if version > 7 then
+          if version > 8 then
             failwith "Siftbot database is newer than this binary";
           if version = 0 then
             check
@@ -154,6 +154,13 @@ PRAGMA user_version=6;
                   TEXT NOT NULL, PRIMARY \
                   KEY(service,account,scope,selector,dimension)); PRAGMA \
                   user_version=7;");
+          if version < 8 then
+            check
+              (Sqlite3.exec db
+                 "CREATE TABLE feedback(key TEXT PRIMARY KEY, payload TEXT NOT \
+                  NULL); CREATE TABLE feedback_vectors(key TEXT NOT NULL, \
+                  model TEXT NOT NULL, input_hash TEXT NOT NULL, vector TEXT \
+                  NOT NULL, PRIMARY KEY(key,model)); PRAGMA user_version=8;");
           execute db
             "CREATE INDEX IF NOT EXISTS hydration_account ON \
              hydration(service,account,source)"
@@ -190,6 +197,17 @@ let messages_db db =
   |> List.map (fun r -> decode (str r.(0)))
 
 let messages t = run t messages_db
+
+let sources t =
+  run t (fun db ->
+      rows db "SELECT service,account,id FROM messages ORDER BY date,key" []
+      |> List.map (fun row ->
+             M.
+               {
+                 service = str row.(0);
+                 account = str row.(1);
+                 id = str row.(2);
+               }))
 
 let sources_needing_cache t ~kind ~value =
   run t (fun db ->
@@ -436,8 +454,12 @@ let message_assignments_db db messages =
       |> List.map assignment_of_row)
     targets
 
-let rule_assignments db messages =
-  let rules = rows db "SELECT * FROM label_rules ORDER BY scope DESC" [] in
+let rule_assignments ?rules db messages =
+  let rules =
+    match rules with
+    | Some rules -> rules
+    | None -> rows db "SELECT * FROM label_rules ORDER BY scope DESC" []
+  in
   List.concat_map
     (fun (m : M.message) ->
       let seen = Hashtbl.create 4 in
@@ -517,6 +539,165 @@ let labels t source =
           with_rules db ~visible_messages_only:true [ message ]
             (visible db (message_assignments_db db [ message ])))
 
+let feedback_id scope (m : M.message) (a : M.assignment) =
+  let identity =
+    match scope with
+    | None -> "message:" ^ m.source.id
+    | Some scope ->
+        (match scope with M.Sender -> "sender:" | Mailing_list -> "list:")
+        ^ M.rule_key scope m
+  in
+  Digestif.SHA256.(
+    to_hex
+      (digest_string
+         (Sexplib.Sexp.to_string_mach
+            (Sexplib.Sexp.List
+               (List.map
+                  (fun s -> Sexplib.Sexp.Atom s)
+                  [
+                    m.source.service;
+                    m.source.account;
+                    identity;
+                    M.dimension a.dimension;
+                    (if a.dimension = Area then a.value else "");
+                  ])))))
+
+let save_feedback_db db ?(replace = true) ~scope ~previous ~revision
+    (m : M.message) (a : M.assignment) =
+  let id = feedback_id scope m a in
+  let clip s = Agentkit.Memo.clip 8192 s in
+  let message =
+    {
+      m with
+      original = "";
+      text = clip m.text;
+      subject = Agentkit.Memo.clip 1024 m.subject;
+      headers =
+        (try [ ("list-id", M.rule_key M.Mailing_list m) ]
+         with Invalid_argument _ -> []);
+      recipients = [];
+      truncated = m.truncated || String.length m.text > 8192;
+    }
+  in
+  let feedback : M.feedback =
+    {
+      id;
+      message;
+      correction = a;
+      scope;
+      previous;
+      decision_revision = revision;
+    }
+  in
+  execute db
+    (if replace then "INSERT OR REPLACE INTO feedback VALUES(?,?)"
+     else "INSERT OR IGNORE INTO feedback VALUES(?,?)")
+    [ txt id; txt (Sexplib.Sexp.to_string_mach (M.sexp_of_feedback feedback)) ]
+
+let seed_feedback_db db =
+  if rows db "SELECT 1 FROM meta WHERE key='feedback_seeded'" [] = [] then (
+    let revision = revision_db db in
+    rows db "SELECT * FROM assignments WHERE origin='admin' AND conversation=0"
+      []
+    |> List.map assignment_of_row
+    |> List.iter (fun (a : M.assignment) ->
+           match get_db db a.target with
+           | Some m when m.revision = a.source_revision ->
+               save_feedback_db db ~replace:false ~scope:None ~previous:[]
+                 ~revision m a
+           | _ -> ());
+    let rules = rows db "SELECT * FROM label_rules ORDER BY scope DESC" [] in
+    if rules <> [] then
+      statement db "SELECT payload FROM messages ORDER BY key" [] (fun query ->
+          let rec loop () =
+            match Sqlite3.step query with
+            | ROW ->
+                let m = decode (str (Sqlite3.column query 0)) in
+                rule_assignments ~rules db [ m ]
+                |> List.iter (fun (a : M.assignment) ->
+                       let scope =
+                         if a.version = "user-rule/sender" then M.Sender
+                         else M.Mailing_list
+                       in
+                       save_feedback_db db ~replace:false ~scope:(Some scope)
+                         ~previous:[] ~revision m a);
+                loop ()
+            | DONE -> ()
+            | code -> check code
+          in
+          loop ());
+    execute db "INSERT INTO meta VALUES('feedback_seeded',1)" [])
+
+let feedback t =
+  run t (fun db ->
+      transaction db (fun () ->
+          seed_feedback_db db;
+          rows db "SELECT payload FROM feedback ORDER BY key" []
+          |> List.map (fun r ->
+                 M.feedback_of_sexp (Sexplib.Sexp.of_string (str r.(0))))
+          |> List.filter (fun (f : M.feedback) ->
+                 let a = f.correction in
+                 (a.dimension <> Area
+                 || rows db
+                      "SELECT 1 FROM areas WHERE id=? AND status='approved'"
+                      [ txt a.value ]
+                    <> [])
+                 &&
+                 match f.scope with
+                 | None ->
+                     rows db
+                       "SELECT 1 FROM assignments a JOIN messages m ON \
+                        m.key=a.target WHERE a.target=? AND a.dimension=? AND \
+                        a.value=? AND a.origin='admin' AND a.conversation=0 \
+                        AND a.source_revision=m.revision AND m.revision=?"
+                       [
+                         txt (M.key a.target);
+                         txt (M.dimension a.dimension);
+                         txt a.value;
+                         txt f.message.revision;
+                       ]
+                     <> []
+                 | Some scope ->
+                     rows db
+                       "SELECT 1 FROM label_rules WHERE service=? AND \
+                        account=? AND scope=? AND selector=? AND dimension=? \
+                        AND value=? AND explanation=?"
+                       [
+                         txt a.target.service;
+                         txt a.target.account;
+                         txt
+                           (match scope with
+                           | Sender -> "sender"
+                           | Mailing_list -> "list");
+                         txt (M.rule_key scope f.message);
+                         txt (M.dimension a.dimension);
+                         txt a.value;
+                         txt a.explanation;
+                       ]
+                     <> [])))
+
+let feedback_vector t ~key ~model ~input_hash =
+  run t (fun db ->
+      match
+        rows db
+          "SELECT vector FROM feedback_vectors WHERE key=? AND model=? AND \
+           input_hash=?"
+          [ txt key; txt model; txt input_hash ]
+      with
+      | [ r ] ->
+          Some (Jmap_eio.Codec.decode_exn (Jsont.list Jsont.number) (str r.(0)))
+      | _ -> None)
+
+let save_feedback_vector t ~key ~model ~input_hash vector =
+  run t (fun db ->
+      execute db "INSERT OR REPLACE INTO feedback_vectors VALUES(?,?,?,?)"
+        [
+          txt key;
+          txt model;
+          txt input_hash;
+          txt (Jmap_eio.Codec.encode_exn (Jsont.list Jsont.number) vector);
+        ])
+
 let snapshot ?(visible_messages_only = false) t ~query =
   run t (fun db ->
       let messages =
@@ -531,6 +712,7 @@ let snapshot ?(visible_messages_only = false) t ~query =
             (visible db
                (if visible_messages_only then message_assignments_db db messages
                 else assignments_db db));
+        feedback_examples = "";
         discussion =
           (match
              rows db
@@ -651,6 +833,7 @@ let before_state db =
            (rows db "SELECT * FROM assignments WHERE origin='admin'" []));
       Jsont.Json.list
         (List.map row_json (rows db "SELECT * FROM label_rules" []));
+      Jsont.Json.list (List.map row_json (rows db "SELECT * FROM feedback" []));
     ]
   |> Jmap_eio.Codec.encode_exn Jsont.json
 
@@ -664,9 +847,11 @@ let restore db state =
     | _ -> failwith "history value"
   in
   match array (Jmap_eio.Codec.decode_exn Jsont.json state) with
-  | ([ areas; assignments ] | [ areas; assignments; _ ]) as state ->
+  | ( [ areas; assignments ]
+    | [ areas; assignments; _ ]
+    | [ areas; assignments; _; _ ] ) as state ->
       (match state with
-      | [ _; _; rules ] ->
+      | [ _; _; rules ] | [ _; _; rules; _ ] ->
           execute db "DELETE FROM label_rules" [];
           List.iter
             (fun r ->
@@ -674,6 +859,17 @@ let restore db state =
                 (List.map data (array r)))
             (array rules)
       | _ -> ());
+      (match state with
+      | [ _; _; _; feedback ] ->
+          execute db "DELETE FROM feedback" [];
+          List.iter
+            (fun r ->
+              execute db "INSERT INTO feedback VALUES(?,?)"
+                (List.map data (array r)))
+            (array feedback)
+      | _ ->
+          execute db "DELETE FROM feedback" [];
+          execute db "DELETE FROM meta WHERE key='feedback_seeded'" []);
       execute db "DELETE FROM areas" [];
       execute db "DELETE FROM assignments WHERE origin='admin'" [];
       List.iter
@@ -694,6 +890,7 @@ let edit t ~revision edit ~explanation =
           if revision_db db <> revision then raise Conflict;
           if String.trim explanation = "" then
             invalid_arg "Explain the decision";
+          seed_feedback_db db;
           let before = before_state db in
           let original_areas = areas_db db in
           let area id f =
@@ -743,6 +940,10 @@ let edit t ~revision edit ~explanation =
                 | _ -> raise Conflict
               in
               let selector = M.rule_key scope m in
+              let previous = visible db (message_assignments_db db [ m ]) in
+              save_feedback_db db ~scope:(Some scope) ~previous
+                ~revision:(revision + 1) m
+                { a with origin = Admin; explanation; score = None };
               execute db
                 "INSERT OR REPLACE INTO label_rules VALUES(?,?,?,?,?,?,?)"
                 [
@@ -791,6 +992,14 @@ let edit t ~revision edit ~explanation =
                     int (if a.conversation then 1 else 0);
                     txt (M.dimension a.dimension);
                   ];
+              (if not a.conversation then
+                 match get_db db a.target with
+                 | Some m ->
+                     save_feedback_db db ~scope:None
+                       ~previous:(visible db (message_assignments_db db [ m ]))
+                       ~revision:(revision + 1) m
+                       { a with origin = Admin; explanation; score = None }
+                 | None -> raise Conflict);
               save_assignment db
                 { a with origin = Admin; score = None; explanation }
           | Undo -> (
@@ -863,8 +1072,9 @@ let audit t ~model ~prompt_version ~corpus_revision ~question ~answer ~outcome
           audit_db db ~model ~prompt_version ~corpus_revision ~question ~answer
             ~outcome ~tools))
 
-let save_classification t ~expected_revision ~source ~revision ~kind ~model
-    ~prompt_version ~question ~answer assignments =
+let save_classification ?active_kind ?(feedback_trace = "") t ~expected_revision
+    ~source ~revision ~kind ~model ~prompt_version ~question ~answer assignments
+    =
   run t (fun db ->
       transaction db (fun () ->
           if revision_db db <> expected_revision then raise Conflict;
@@ -891,7 +1101,12 @@ let save_classification t ~expected_revision ~source ~revision ~kind ~model
             (fun (kind, value) ->
               execute db "INSERT OR REPLACE INTO derived VALUES(?,?,?,?)"
                 [ txt (M.key source); txt revision; txt kind; txt value ])
-            [ (kind, answer); ("classification/active", kind) ];
+            [
+              (kind, answer);
+              ("classification/active", Option.value ~default:kind active_kind);
+              ("classification/feedback", feedback_trace);
+              ("classification/feedback-key", kind);
+            ];
           audit_db db ~model ~prompt_version ~corpus_revision:expected_revision
             ~question ~answer ~outcome:"classified" ~tools:[];
           revision_db db))

@@ -49,6 +49,34 @@ rule. `u` previews undo, including removal or replacement of a saved rule.
 Rules use exact case-insensitive identities, not substrings or domains. A
 no-reply label does not decide whether a notification needs action in Zulip.
 
+Every manual message correction and saved sender/list rule also enters a
+feedback store with its explanation, source context and previous predictions
+(where available).
+Superseded or undone corrections stop influencing classification. Existing
+confirmed labels and rules are imported on first use. Untouched predictions
+never become trusted feedback.
+
+For each new email, Sift retrieves up to eight relevant corrections from the
+whole store, using sender, List-ID and text similarity. If the profile has
+`embeddingUrl`, `embeddingModel` and `embeddingDimensions` configured, it also
+uses semantic similarity. Feedback embeddings are cached locally. Without an
+embedding endpoint, sender/list/text retrieval still works. The message itself,
+its thread and duplicate content are excluded from its examples.
+
+Press `e` in review to see which corrections were supplied to the classifier
+and why they were selected. This records prompt context, not proof that the
+model followed a particular example. Adding feedback does not automatically
+rerun completed classifications. To revisit existing mail selectively:
+
+```sh
+siftbot classify --profile mail-sixmonths --all --refresh-feedback
+```
+
+This scans the corpus but calls the classifier only where the relevant example
+set changed. Explicit rules still override model predictions immediately.
+No model weights are retrained. The evaluation retrieval mode also excludes
+sources later than the held-out email.
+
 ## Live profile
 
 Open the connection form with `siftbot setup --profile NAME`. A missing profile

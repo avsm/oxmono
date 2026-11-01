@@ -4,6 +4,17 @@ module S = Sqlite3
 
 let loader_version = 1
 
+let paths ?(after = "") ~limit t =
+  if limit < 1 || limit > 1000 then invalid_arg "limit must be 1..1000";
+  run t (fun db -> with_stmt db
+    "SELECT path FROM shards WHERE path>? ORDER BY path LIMIT ?" (fun s ->
+    bind s [text after; int limit];
+    let rec loop acc = match S.step s with
+      | S.Rc.ROW -> loop (S.column_text s 0 :: acc)
+      | S.Rc.DONE -> List.rev acc
+      | rc -> check rc; assert false in
+    loop []))
+
 type stamp = { size : int64; mtime : float }
 
 let unchanged t ~shard stamp = run t (fun db ->

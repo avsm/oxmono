@@ -1,8 +1,35 @@
 (executable
+ (name consolidate)
+ (modules consolidate)
+ (public_name taposaur-consolidate)
+ (libraries
+  taposaur.audit
+  taposaur.audit-cli
+  taposaur
+  taposaur.archive
+  taposaur.catalog
+  taposaur.indexing
+  taposaur.services
+  taposaur.regeneration
+  taposaur.review
+  taposaur.review-store
+  fetch
+  fetch-main
+  eio_main
+  cmdliner
+  unix
+  digestif
+  jsont
+  jsont.bytesrw))
+
+(executable
  (name main)
- (modules main)
+ (modules main review_cmd)
  (public_name taposaur)
  (libraries
+  taposaur.mirrors
+  taposaur.audit
+  taposaur.audit-cli
   taposaur
   taposaur.archive
   taposaur.catalog
@@ -13,6 +40,9 @@
   taposaur.services
   taposaur.store
   taposaur.download
+  taposaur.review
+  taposaur.review-store
+  taposaur.review-run
   fetch
   fetch-main
   duration
@@ -27,9 +57,36 @@
  (modules server)
  (public_name taposaur-web)
  (libraries
+  taposaur.mirrors
+  taposaur.audit
+  taposaur.audit-cli
   taposaur.archive
   taposaur.catalog
   taposaur.web
+  taposaur.review-store
   eio_main
   cmdliner
-  proffer-httpz))
+  proffer-httpz
+  unix))
+
+(executable
+ (name publishers)
+ (modules publishers)
+ (public_name taposaur-publishers)
+ (libraries
+  taposaur
+  taposaur.mirrors
+  taposaur.audit
+  taposaur.audit-cli
+  taposaur.catalog
+  taposaur.paper
+  taposaur.review
+  taposaur.review-store
+  taposaur.review-run
+  fetch
+  fetch-main
+  eio_main
+  cmdliner
+  unix
+  jsont
+  jsont.bytesrw))

@@ -1,17 +1,22 @@
 (library
  (name taposaur_web)
  (public_name taposaur.web)
- (private_modules view artifact client)
+ (private_modules audit_view view artifact client review_view katex)
  (libraries
+  taposaur.audit
   taposaur
   taposaur.archive
   taposaur.catalog
   taposaur.document
+  taposaur.download
   taposaur.paper
   taposaur.reader
+  taposaur.review
+  taposaur.review-store
   proffer
   eio
   htmlit
+  taposaur.ui
   uriz
   unix
   cstruct
@@ -26,6 +31,17 @@
   (with-stdout-to
    %{target}
    (progn
-    (echo "let source = {js|")
+    (echo "let source = Taposaur_ui.javascript ^ {js|")
     (cat %{dep:interface.js})
+    (echo "|js}")))))
+
+(rule
+ (target katex.ml)
+ (deps assets/katex.min.js)
+ (action
+  (with-stdout-to
+   %{target}
+   (progn
+    (echo "let source = {js|")
+    (cat %{dep:assets/katex.min.js})
     (echo "|js}")))))

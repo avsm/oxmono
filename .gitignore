@@ -5,3 +5,11 @@ _opam/
 
 .DS_Store
 /taposaur/.local/
+
+/taposaur-audit.db
+/taposaur-audit.db-wal
+/taposaur-audit.db-shm
+
+/taposaur-mirrors.db*
+/taposaur.db*
+/taposaur-reviews.db*

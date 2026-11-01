@@ -6,7 +6,7 @@ type paper
 exception Busy
 exception Limit_exceeded
 exception Empty_artifact
-val open_root : sw:Eio.Switch.t -> _ Eio.Path.t -> t
+val open_root : ?audit:Taposaur_audit.session -> sw:Eio.Switch.t -> _ Eio.Path.t -> t
 (** [open_root ~sw root] opens an existing staging directory. *)
 val with_paper : t -> Taposaur.Uid.t -> (paper -> 'a) -> 'a
 (** [with_paper store uid f] holds an advisory per-paper lock while [f]

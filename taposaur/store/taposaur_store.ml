@@ -3,14 +3,15 @@ let ( / ) = Eio.Path.( / )
 exception Busy
 exception Limit_exceeded
 exception Empty_artifact
-type t = { root : Eio.Fs.dir_ty Eio.Path.t }
+type t = { root : Eio.Fs.dir_ty Eio.Path.t; audit : Taposaur_audit.session option }
 type paper = {
+  audit : Taposaur_audit.session option;
   dir : Eio.Fs.dir_ty Eio.Path.t;
   mutable manifest : Manifest.t;
 }
 let get = function Ok x -> x | Error e -> failwith e
 let manifest p = p.manifest
-let open_root ~sw root = {root = Eio.Path.open_subtree ~sw root}
+let open_root ?audit ~sw root = {root = Eio.Path.open_subtree ~sw root; audit}
 external try_lock : Unix.file_descr -> bool = "taposaur_try_lock"
 let fd file = match Eio_unix.Resource.fd_opt file with
   | Some fd -> fd | None -> failwith "Staging requires Unix files"
@@ -131,7 +132,7 @@ let recover p =
       atomic p.dir "paper.json" (get (Manifest.to_string m));
     p.manifest <- m
   end
-let with_paper t id f =
+let with_paper (t : t) id f =
   let dir = t.root / Layout.paper id in
   Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 dir;
   let rec sync_parents relative =
@@ -156,7 +157,7 @@ let with_paper t id f =
           if load (dir / ".taposaur-stage") <> "1\n" then
             failwith "Unsupported staging writer version"
         end else atomic dir ".taposaur-stage" "1\n";
-        let p = {dir; manifest = empty id} in
+        let p = {dir; manifest = empty id; audit=t.audit} in
         Eio.Cancel.protect (fun () -> recover p);
         f p))
 let append p ~at payload =
@@ -233,3 +234,31 @@ let record_error p ~at ~source message =
     invalid_arg "Converter errors require a conversion writer";
   Eio.Cancel.protect (fun () ->
     append p ~at (Event.Error {message; source = Some source}))
+
+let with_paper (t : t) id f =
+  Taposaur_audit.with_operation ?session:t.audit
+    ~action:"staging.paper" ~subject:(Uid.to_string id)
+    ~details:["directory",Eio.Path.native_exn (t.root / Layout.paper id)]
+    (fun audit -> with_paper {t with audit} id f)
+let identify p ~at bibliography =
+  Taposaur_audit.with_operation ?session:p.audit
+    ~action:"staging.identify" ~subject:(Uid.to_string p.manifest.id)
+    (fun _ -> identify p ~at bibliography)
+let add ?max_bytes p ~at ~source ~format ~strategy ~status ~url ~validate flow =
+  Taposaur_audit.with_operation ?session:p.audit
+    ~action:"staging.artifact.publish" ~subject:(Uid.to_string p.manifest.id)
+    ~details:["source",Manifest.Source.to_string source;
+      "format",Manifest.Format.to_string format;"strategy",strategy;
+      "http_status",string_of_int status]
+    (fun audit ->
+      let a = add ?max_bytes p ~at ~source ~format ~strategy ~status ~url
+        ~validate flow in
+      Option.iter (fun session -> Taposaur_audit.record session
+        ~action:"staging.artifact.stored" ~subject:(Uid.to_string p.manifest.id)
+        ~details:["file",a.file;"sha256",Option.value ~default:"" a.sha256;
+          "bytes",Int64.to_string a.bytes] ()) audit;
+      a)
+let record_error p ~at ~source message =
+  Taposaur_audit.with_operation ?session:p.audit
+    ~action:"staging.failure.record" ~subject:(Uid.to_string p.manifest.id)
+    ~details:["source",source] (fun _ -> record_error p ~at ~source message)

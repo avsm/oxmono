@@ -1,4 +1,86 @@
 (async () => {
+  const debug = document.querySelector('#server-debug');
+  if (debug) {
+    let loaded = false, loading = false;
+    debug.addEventListener('toggle', async () => {
+      if (!debug.open || loaded || loading) return;
+      loading = true;
+      const target = document.querySelector('#server-debug-content');
+      const url = new URL('/debug', location.origin);
+      url.searchParams.set('view', 'panel');
+      const uid = new URL(location.href).searchParams.get('uid');
+      if (uid) url.searchParams.set('uid', uid);
+      target.setAttribute('aria-busy', 'true');
+      try {
+        const response = await fetch(url, {cache:'no-store'});
+        if (!response.ok) throw new Error('Could not load server details');
+        const doc = new DOMParser().parseFromString(await response.text(), 'text/html');
+        const content = doc.querySelector('[data-panel-content]');
+        if (!content) throw new Error('Invalid server details response');
+        target.replaceChildren(content);
+        document.dispatchEvent(new Event('taposaur:content'));
+        loaded = true;
+      } catch (_) {
+        const message = document.createElement('p');
+        message.textContent = 'Server details could not be loaded. Close and reopen to retry.';
+        target.prepend(message);
+      } finally {
+        loading = false;
+        target.removeAttribute('aria-busy');
+      }
+    });
+  }
+  const abstracts = document.querySelector('#show-abstracts');
+  if (abstracts) {
+    const apply = () => document.querySelector('.results')?.classList.toggle(
+      'ui-hide-abstracts', !abstracts.checked);
+    try { abstracts.checked = localStorage.getItem('taposaur.abstracts') !== 'hide'; } catch (_) {}
+    apply();
+    abstracts.addEventListener('change', () => {
+      apply();
+      try { localStorage.setItem('taposaur.abstracts', abstracts.checked ? 'show' : 'hide'); } catch (_) {}
+    });
+  }
+  document.querySelectorAll('.site-nav a').forEach(link => {
+    if (location.pathname.startsWith('/review') && link.pathname === '/reviews' ||
+        !location.pathname.startsWith('/review') && link.pathname === '/search')
+      link.setAttribute('aria-current', 'page');
+  });
+  const renderMath = root => {
+    root.querySelectorAll('[data-tex]').forEach(element => {
+      if (!window.katex || element.dataset.rendered) return;
+      const source = element.textContent;
+      if (source.length > 20000) return;
+      try {
+        window.katex.render(source, element, {
+          output: 'mathml', displayMode: element.dataset.display === 'true',
+          trust: false, strict: 'error', throwOnError: true,
+          maxExpand: 1000, maxSize: 20, macros: {}
+        });
+        element.dataset.rendered = 'true';
+      } catch (_) {
+        element.textContent = source;
+        element.title = 'Formula could not be typeset. Original source shown.';
+      }
+    });
+  };
+  renderMath(document);
+  document.addEventListener('click', event => {
+    const link = event.target.closest('.tei-image-link');
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey ||
+        event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    if (link.nextElementSibling?.tagName === 'IMG') return;
+    const img = document.createElement('img');
+    img.alt = link.closest('figure')?.querySelector('figcaption')?.textContent || 'Figure';
+    img.referrerPolicy = 'no-referrer';
+    img.src = link.href;
+    img.addEventListener('error', () => {
+      img.remove();
+      link.textContent = 'Image could not load. Open image in a new tab.';
+    });
+    link.after(img);
+  });
   const input = document.querySelector('#journal-input');
   if (input) {
     const menu = document.querySelector('#journal-menu');
@@ -130,6 +212,7 @@
         throw new Error('Missing paper details');
       }
       document.querySelector('main').replaceWith(main);
+      document.dispatchEvent(new Event('taposaur:content'));
       document.title = html.title;
     } catch (_) {
       loading.setAttribute('aria-busy', 'false');
@@ -142,6 +225,17 @@
   const panel = document.querySelector('#paper-panel');
   if (!panel) return;
   const body = panel.querySelector('#panel-body');
+  body.addEventListener('click', event => {
+    const link = event.target.closest('a[href^="#tei-"]');
+    if (!link || event.button !== 0 || event.metaKey || event.ctrlKey ||
+        event.shiftKey || event.altKey) return;
+    const target = body.querySelector(link.getAttribute('href'));
+    if (!target) return;
+    event.preventDefault();
+    target.scrollIntoView({block: 'start'});
+    target.setAttribute('tabindex', '-1');
+    target.focus({preventScroll: true});
+  });
   const closeButton = panel.querySelector('#panel-close');
   const openPage = panel.querySelector('#panel-open-page');
   const filename = panel.querySelector('#panel-filename');
@@ -210,6 +304,7 @@
       if (!content) throw new Error('Missing panel content');
       cache.set(key, {node: content, scroll: 0});
       body.replaceChildren(content);
+      renderMath(content);
     } catch (error) {
       if (error.name === 'AbortError' || token !== serial) return;
       const message = document.createElement('p');

@@ -1,9 +1,21 @@
 (test
+ (name test_regeneration)
+ (modules test_regeneration)
+ (libraries
+  taposaur
+  taposaur.regeneration
+  taposaur.audit
+  eio_main
+  alcotest
+  unix))
+
+(test
  (name test_taposaur)
  (modules test_taposaur)
  (deps
   (glob_files fixtures/*))
  (libraries
+  taposaur.audit
   taposaur
   taposaur.archive
   taposaur.catalog
@@ -24,14 +36,72 @@
   jsont.bytesrw))
 
 (test
+ (name test_reviews)
+ (modules test_reviews)
+ (libraries
+  taposaur.audit
+  taposaur
+  taposaur.review
+  taposaur.review-store
+  taposaur.review-run
+  taposaur.catalog
+  taposaur.archive
+  taposaur.web
+  proffer.mock
+  eio_main
+  alcotest
+  sqlite3
+  unix
+  jsont
+  jsont.bytesrw))
+
+(test
  (name test_acquisition)
  (modules test_acquisition)
  (libraries
+  taposaur.audit
   taposaur
   taposaur.archive
   taposaur.services
   taposaur.store
   taposaur.download
+  fetch
+  fetch.mock
+  eio_main
+  alcotest
+  unix
+  jsont
+  jsont.bytesrw))
+
+(test
+ (name test_tei_html)
+ (modules test_tei_html)
+ (libraries taposaur taposaur.document taposaur.web eio alcotest))
+
+(test
+ (name test_audit)
+ (modules test_audit)
+ (libraries
+  taposaur.audit
+  eio_main
+  sqlite3
+  unix
+  alcotest
+  jsont
+  jsont.bytesrw))
+
+(test
+ (name test_mirrors)
+ (modules test_mirrors)
+ (libraries
+  taposaur
+  taposaur.mirrors
+  taposaur.audit
+  taposaur.catalog
+  taposaur.paper
+  taposaur.review
+  taposaur.review-store
+  taposaur.review-run
   fetch
   fetch.mock
   eio_main

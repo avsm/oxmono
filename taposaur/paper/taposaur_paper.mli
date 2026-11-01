@@ -8,6 +8,7 @@ type source =
   | Manifest
   | Index
   | Artifact of Taposaur.Manifest.Artifact.t
+  | Mirror of Taposaur.Publisher_evidence.t
 
 type 'a evidence = { value : 'a; source : source }
 
@@ -51,6 +52,7 @@ type document = {
 }
 
 type t = private {
+  publisher_evidence : Taposaur.Publisher_evidence.t option;
   manifest : Taposaur.Manifest.t;
   index : Taposaur.Index.t option;
   metadata : metadata;
@@ -97,3 +99,6 @@ val of_cache_string :
 (** [of_cache_string ~index json] reconstructs complete resolved details
     without I/O. It checks the cache version, identity and artifact references.
     Source freshness is checked separately by the indexing workflow. *)
+
+val with_publisher : Taposaur.Publisher_evidence.t -> t -> t
+(** Fill a missing publisher from exact-DOI evidence. Existing sources win. *)

@@ -1,4 +1,28 @@
 (executable
+ (name ordering)
+ (modules ordering)
+ (libraries
+  taposaur
+  taposaur.archive
+  taposaur.catalog
+  taposaur.indexing
+  taposaur.paper
+  eio_main
+  unix))
+
+(executable
+ (name ceph)
+ (modules ceph)
+ (libraries
+  taposaur
+  taposaur.archive
+  taposaur.catalog
+  taposaur.paper
+  taposaur.reader
+  eio_main
+  unix))
+
+(executable
  (name catalogue)
  (modules catalogue)
  (libraries taposaur taposaur.catalog eio_main unix))

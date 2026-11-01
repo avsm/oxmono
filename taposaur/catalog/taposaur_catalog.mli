@@ -26,10 +26,29 @@ val find_index : 'a t -> Taposaur.Uid.t -> Taposaur.Index.t option
 (** [find_index catalog uid] returns the original imported index row.
     Derived metadata is never returned as input to its own resolver. *)
 
+module Snapshot : sig
+  type catalog = read t
+  type t
+  type row = {
+    summary : Taposaur.Summary.t; stamp : string;
+    stale : bool; error : string option; diagnostics : string list;
+  }
+  val with_read : catalog -> (t -> 'a) -> 'a
+  (** [with_read catalog f] calls [f] inside one SQLite read transaction.
+      Use only this module's operations inside [f]. The token expires when
+      [f] returns. Do not yield or perform I/O in [f]. Exceptions roll back.
+      Captures should be bounded to avoid retaining the writer's WAL. *)
+  val search : t -> Query.t -> page
+  val find : t -> Taposaur.Uid.t -> row option
+end
+
 (** {1 Atomic shard publication} *)
 
 module Shard : sig
   type stamp = { size : int64; mtime : float }
+  val paths : ?after:string -> limit:int -> 'a t -> string list
+  (** [paths ~limit catalog] lists imported shards in path order.
+      [after] is an exclusive path cursor. [limit] is 1..1000. *)
   val unchanged : 'a t -> shard:string -> stamp -> bool
   (** [unchanged catalog ~shard stamp] compares the stored source stamp
       and requires no outstanding import error. *)
@@ -59,9 +78,19 @@ end
 (** {1 Derived metadata snapshots} *)
 
 module Metadata : sig
+val fill_publisher : write t -> uid:Taposaur.Uid.t -> publisher:string ->
+  update_detail:(Taposaur.Index.t -> string -> string) -> bool
+(** [fill_publisher t ~uid ~publisher ~update_detail] atomically fills a
+    missing publisher and fences concurrent resolver publications. Other fields,
+    cache timestamps and freshness are preserved. [update_detail] runs inside
+    the SQLite transaction and must be pure. Returns false for absent papers
+    or existing publishers. The caller owns audit and evidence retention. *)
+
   type candidate
   val index : candidate -> Taposaur.Index.t
   (** [index candidate] is the original source row for this snapshot. *)
+  val row_id : candidate -> int64
+  (** [row_id candidate] is the cursor within a shard scan. *)
   val source_stamp : candidate -> string option
   (** [source_stamp candidate] is the last successfully read source stamp. *)
   val invalidate : write t -> candidate -> bool
@@ -75,13 +104,16 @@ module Metadata : sig
   (** [status catalog uid] returns source freshness and parse diagnostics. *)
   val pending :
     ?force:bool -> ?retry_errors:bool -> ?need_details:bool ->
-    ?uid:Taposaur.Uid.t -> ?after:string ->
+    ?uid:Taposaur.Uid.t -> ?shard:string -> ?after_row:int64 -> ?after:string ->
     limit:int -> version:int -> 'a t -> candidate list
   (** [pending ~limit ~version catalog] selects at most [limit] snapshots
       in UID order. [limit] is 1..1000 and [version] is positive. Completed
       attempts at this version are skipped unless stale or [force] is set.
       [retry_errors] includes manifest and document failures. [need_details]
-      also selects successful or partial rows without a detail cache. *)
+      also selects successful or partial rows without a detail cache.
+      With [shard], selects only that shard in row-ID order using
+      [after_row] instead of [after]. This uses the existing shard index.
+      Cursors are for one scan, not durable checkpoints across imports. *)
   val publish :
     ?source_stamp:string -> ?detail_cache:string -> ?diagnostics:string list ->
     write t -> candidate -> version:int ->

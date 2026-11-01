@@ -227,7 +227,24 @@ let documents () =
   check "text escaped" true (includes body "Birds &amp; habitats.");
   check "no script element" false (includes body "<script>");
   check "no source URL" false (includes body "javascript:");
-  check "body structure" true (includes body "<h2>Results</h2>");
+  check "body structure" true (includes body ">Results</h2>");
+  let references = {|<TEI xmlns="http://www.tei-c.org/ns/1.0"><text>
+<body><p>See <ref target="#b0">[1]</ref>.</p></body><back><listBibl>
+<biblStruct xml:id="b0"><note type="raw_reference">First &amp; last.</note><idno type="s2corpus">123</idno></biblStruct>
+<biblStruct xml:id="b1"><analytic><author><persName><forename>Ada</forename><surname>Bird</surname></persName></author><title>Birds</title></analytic><monogr><title>Journal</title><imprint><date>2020</date></imprint></monogr></biblStruct>
+</listBibl></back></text></TEI>|} in
+  let rendered = get (Taposaur_document.Tei.render_html
+    (Eio.Flow.string_source references)) in
+  check "reference anchor" true
+    (includes rendered "id=\"tei-6230\" class=\"tei-reference\"");
+  check "citation link" true
+    (includes rendered "href=\"#tei-6230\">[1]</a>");
+  check "raw reference escaped" true
+    (includes rendered "First &amp; last.");
+  check "identifier separated and labelled" true
+    (includes rendered "class=\"tei-identifier\">s2corpus: 123</span>");
+  check "structured names separated" true
+    (includes rendered ">Ada</span> <span");
   check "bounded input" true (rejected (Taposaur_document.Tei.render_html
     ~max_bytes:16 (Eio.Flow.string_source tei)));
   check "bounded output" true (rejected (Taposaur_document.Tei.render_html
@@ -501,7 +518,7 @@ let detail_cache () = with_temp (fun _ sw root ->
   count "previous metadata is backfilled" 1 (E.run c archive).updated;
   count "backfill resumes" 0 (E.run c archive).examined;
   let read = C.open_read ~sw (root / "catalog.db") in
-  let state = Taposaur_web.create ~archive ~catalog:read in
+  let state = Taposaur_web.create ~archive ~catalog:read () in
   Eio.Path.rmtree (root / "papers");
   let q = "?uid=" ^ Uriz.pct_encode ~component:`Unreserved (Uid.to_string id) in
   let request target = W.request ~on_error:(fun ex -> raise ex)
@@ -765,11 +782,28 @@ let website () = with_temp (fun env sw root ->
   let c = C.open_write ~sw (root / "catalog.db") in
   ignore (I.shard c a ~shard);
   let read = C.open_read ~sw (root / "catalog.db") in
-  let state = Taposaur_web.create ~archive:a ~catalog:read in
+  let storage : Taposaur_web.storage = {
+    mirrors_file=None;audit_file=None;archive_root="/host/archive";catalog_file="/host/catalog.db";
+    reviews_file=None;journal_links_file=Some "/host/links<&>.jsonl";
+    working_directory="/host/work";executable="/host/taposaur-web";
+  } in
+  let audit_write = Taposaur_audit.open_write ~sw (root / "audit.db") in
+  let session = Taposaur_audit.session ~component:"test.web" audit_write in
+  Taposaur_audit.record session ~action:"test.event" ~subject:"<script>" ();
+  let audit = Taposaur_audit.open_read ~sw (root / "audit.db") in
+  let state = Taposaur_web.create ~audit ~storage ~archive:a ~catalog:read () in
   let request ?headers ?(meth = Httpz.Method.Get) target =
     W.request ?headers ~on_error:(fun ex -> raise ex) Taposaur_web.site state meth target in
   let code r = Proffer.Status.code (W.status r) in
   count "home" 200 (code (request "/"));
+  let audit_page = request "/audit?actor=system" in
+  count "audit query page" 200 (code audit_page);
+  check "audit subject escaped" true (includes (W.body audit_page) "&lt;script&gt;");
+  let audit_json = request "/audit?format=jsonl&action=test.event" in
+  count "audit JSONL query" 200 (code audit_json);
+  check "audit JSONL event" true (includes (W.body audit_json) "test.event");
+  count "bad audit cursor" 400 (code (request "/audit?before=bad"));
+  count "bad audit phase" 400 (code (request "/audit?phase=bad"));
   let journals = request "/journals?q=birds" in
   count "journal suggestions" 200 (code journals);
   check "journal suggestions contain count" true
@@ -783,6 +817,18 @@ let website () = with_temp (fun env sw root ->
   count "search" 200 (code results);
   check "title escaped" true (includes (W.body results) "&lt;script&gt;");
   let q = "?uid=" ^ Uriz.pct_encode ~component:`Unreserved (Uid.to_string id) in
+  let debug = request ("/debug" ^ q ^ "&view=panel") in
+  count "debug panel" 200 (code debug);
+  check "debug includes configured catalogue" true
+    (includes (W.body debug) "/host/catalog.db");
+  check "debug escapes configured paths" true
+    (includes (W.body debug) "/host/links&lt;&amp;&gt;.jsonl");
+  check "debug includes current paper directory" true
+    (includes (W.body debug) ("/host/archive/papers/" ^ Layout.paper id));
+  check "debug lists publisher strategy" true
+    (includes (W.body debug) "Cambridge University Press");
+  check "debug clarifies CLI access" true
+    (includes (W.body debug) "does not fetch papers or load publisher credentials");
   let preview = request ("/paper" ^ q) in
   count "paper preview" 200 (code preview);
   check "preview uses saved bibliography" true
@@ -873,6 +919,57 @@ let website () = with_temp (fun env sw root ->
   count "bad header preserves paper page" 200
     (code (request ("/paper" ^ q ^ "&view=full"))))
 
+let directory_enrichment () = with_temp (fun _ sw root ->
+  let first = "doi/10.1000/00.jsonl" and second = "doi/10.1000/01.jsonl" in
+  let rec collect n a b =
+    if List.length a = 530 && List.length b = 3 then a, b else
+      let id = uid ("doi:10.1000/order-" ^ string_of_int n) in
+      let shard = Layout.index id in
+      collect (n + 1)
+        (if shard = first && List.length a < 530 then id :: a else a)
+        (if shard = second && List.length b < 3 then id :: b else b) in
+  let a, b = collect 0 [] [] in
+  let c = C.open_write ~sw (root / "catalog.db") in
+  List.iter (fun (shard, ids) ->
+    ignore (C.Shard.replace c ~shard {size = 0L; mtime = 0.} (fun emit ->
+      List.iter (fun id ->
+        save root ("papers/" ^ Layout.paper id ^ "/paper.json")
+          (manifest_json id);
+        emit (get (Index.of_string (index_json id)))) ids)))
+    [first, a; second, b];
+  Alcotest.(check (list string)) "shard cursor" [second]
+    (C.Shard.paths ~after:first ~limit:1 c);
+  let rec page after acc =
+    let rows = C.Metadata.pending ~shard:first ~after_row:after
+      ~limit:73 ~version:P.version c in
+    match List.rev rows with
+    | [] -> acc
+    | last :: _ -> page (C.Metadata.row_id last) (rows @ acc) in
+  let rows = page 0L [] in
+  count "all shard rows paged" 530 (List.length rows);
+  count "no repeated rows" 530 (List.length (List.sort_uniq Int64.compare
+    (List.map C.Metadata.row_id rows)));
+  check "other shard excluded" true (List.for_all (fun row ->
+    Layout.index (C.Metadata.index row).uid = first) rows);
+  let archive = A.open_root ~sw root in
+  let seen = ref [] in
+  count "limit across 512-row batch" 513 (E.run ~jobs:8 ~limit:513
+    ~progress:(fun id _ -> seen := id :: !seen) c archive).updated;
+  check "finish first directory before second" true
+    (List.for_all (fun id -> Layout.index id = first) !seen);
+  count "resume only unfinished rows" 20 (E.run c archive).updated;
+  count "all cached" 533 (C.Metadata.detail_count c);
+  count "completed scan skips everything" 0 (E.run c archive).examined;
+  count "single UID bypasses scan" 1
+    (E.run ~force:true ~uid:(List.hd b) c archive).examined;
+  seen := [];
+  ignore (E.run ~force:true ~order:E.Uid ~jobs:1 ~limit:4
+    ~progress:(fun id _ -> seen := id :: !seen) c archive);
+  let expected = List.sort Uid.compare (a @ b)
+    |> List.filteri (fun i _ -> i < 4) |> List.map Uid.to_string in
+  Alcotest.(check (list string)) "UID order remains available" expected
+    (List.rev_map Uid.to_string !seen))
+
 let () = Alcotest.run "taposaur" [
   "core", [Alcotest.test_case "identities and layouts" `Quick identifiers;
     Alcotest.test_case "records" `Quick records;
@@ -887,6 +984,7 @@ let () = Alcotest.run "taposaur" [
   "paper", [Alcotest.test_case "field evidence and multiple TEIs"
     `Quick resolution];
   "catalogue", [
+    Alcotest.test_case "directory enrichment and resumption" `Quick directory_enrichment;
     Alcotest.test_case "persistent paper details" `Quick detail_cache;
     Alcotest.test_case "journal suggestions and publication" `Quick journal_selection;
     Alcotest.test_case "freshness and partial resolution" `Quick freshness;

@@ -16,9 +16,9 @@ metadata enrichment, source checks and explicit retirement of missing shards.
 Counters are maintained transactionally. Document errors are distinct from
 complete metadata resolution. Cached projections survive failed refreshes.
 
-Remaining: full-corpus import and measurement of disk size, import throughput,
-search latency and enrichment cost. The benchmark in `bench/` exercises
-synthetic rows. Production samples do not establish full-corpus performance.
+The full-corpus search import is complete. Complete paper-detail caching is
+running. Remaining: finish that backfill and measure storage and sustained
+enrichment performance. `bench/` includes synthetic and production probes.
 
 ## 3. Deliver the read-only Proffer browser
 
@@ -66,8 +66,15 @@ after the CLI works.
 
 ## 7. Build reviews and migrate
 
-Pending. Keep review membership, holdings, acquisition attempts and human
-decisions distinct. Store review and job state separately from the rebuildable
-catalogue. Export existing site review metadata and unsuccessful attempts,
-which cannot be reconstructed from archive files. Compare coverage and
-histories alongside production before transferring writing operations.
+The first review implementation stores request identity, versioned query
+definitions, recorded inputs, fixed run membership and immutable metadata
+snapshots in a separate SQLite database. CLI imports and local queries produce
+cached DOI, CSV and JSONL exports. The read-only browser exposes request
+history, source evidence, snapshots and comparisons. See the review section
+of `README.md` for the definition format and commands.
+
+Remaining: external search execution, interactive editing, access controls,
+persistent acquisition jobs, human screening decisions and complete legacy
+migration. Preserve old site review metadata and unsuccessful attempts, which
+cannot be reconstructed from archive files. Compare coverage and histories
+alongside production before transferring archive writing operations.

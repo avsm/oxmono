@@ -101,10 +101,12 @@ let refused_content () = with_temp (fun _ sw root ->
 let mock_pdf data request = Fetch_mock.respond
   ~headers:(Http.Header.of_list ["content-type", "application/pdf"]) data request
 let direct () = with_temp (fun env sw root ->
+  let audit_db = Taposaur_audit.open_write ~sw (root / "audit.db") in
+  let audit = Taposaur_audit.session ~component:"test.fetch" audit_db in
   let calls = ref 0 in
   let http = Fetch_mock.client (fun request -> incr calls; mock_pdf pdf request) in
-  let downloader = D.create ~clock:env#clock http in
-  let store = Store.open_root ~sw root in
+  let downloader = D.create ~audit ~clock:env#clock http in
+  let store = Store.open_root ~audit ~sw root in
   let result = D.fetch_url downloader store uid ~format:Manifest.Format.Pdf
     "https://example.org/paper.pdf?api_key=secret" in
   count "downloaded" 1 (List.length result.artifacts);
@@ -115,15 +117,29 @@ let direct () = with_temp (fun env sw root ->
   count "retry downloads then deduplicates" 2 !calls;
   count "no duplicate event" 1 (List.length
     (lines (root / Layout.paper uid / "events.jsonl")));
-  let bad = D.create ~clock:env#clock (Fetch_mock.client (mock_pdf "<html>login</html>")) in
+  let bad = D.create ~audit ~clock:env#clock (Fetch_mock.client (mock_pdf "<html>login</html>")) in
   let result = D.fetch_url bad store uid ~format:Manifest.Format.Pdf "https://example.org" in
   count "HTML not filed as PDF" 0 (List.length result.artifacts);
   check "invalid content classified" true
     (match (List.hd result.attempts).failure with D.Invalid_content _ -> true | _ -> false);
-  let small = D.create ~clock:env#clock ~max_bytes:4 http in
+  let small = D.create ~audit ~clock:env#clock ~max_bytes:4 http in
   count "size refusal is a typed outcome" 1
     (List.length (D.fetch_url small store uid ~format:Manifest.Format.Pdf
-      "https://example.org").attempts))
+      "https://example.org").attempts);
+  let events = Taposaur_audit.query ~limit:500 audit_db in
+  check "fetch success audited" true
+    (List.exists (fun (e : Taposaur_audit.event) ->
+      e.action="fetch.url" && e.phase=Succeeded) events);
+  check "fetch validation failure audited" true
+    (List.exists (fun (e : Taposaur_audit.event) ->
+      e.action="fetch.transfer" && e.phase=Failed) events);
+  check "artifact publication audited" true
+    (List.exists (fun (e : Taposaur_audit.event) ->
+      e.action="staging.artifact.stored") events);
+  let encoded = String.concat "" (List.map Taposaur_audit.to_json events) in
+  check "credential absent from audit" false
+    (let needle="secret" in let rec contains i = i+String.length needle <= String.length encoded &&
+      (String.sub encoded i (String.length needle)=needle || contains (i+1)) in contains 0))
 
 let fallback () = with_temp (fun env sw root ->
   let requests = ref [] in
@@ -353,6 +369,16 @@ let converter_clients () = with_temp (fun _ sw _ ->
      "http://pub2tei.test/service/processXML";
      "http://grobid.test/api/processFulltextDocument"] !urls)
 
+let publisher_capabilities () =
+  List.iter (fun (name,expected) ->
+    equal name expected (Option.get (D.publisher_capability name)).publisher)
+    ["Elsevier BV","Elsevier";"Springer Nature","Springer";
+     "John Wiley & Sons","Wiley";"Informa UK Limited","Taylor & Francis / Informa";
+     "Cambridge University Press (CUP)","Cambridge University Press";
+     "Public Library of Science (PLoS)","PLOS";"PLOS","PLOS"];
+  List.iter (fun name -> check "no unsupported claims" true
+    (D.publisher_capability name=None)) ["";"Unknown";"MDPI AG"]
+
 let () = Alcotest.run "taposaur acquisition" [
   "store", [
     Alcotest.test_case "locking and idempotent publication" `Quick publication;
@@ -362,6 +388,7 @@ let () = Alcotest.run "taposaur acquisition" [
     `Quick service_contracts;
     Alcotest.test_case "converter clients" `Quick converter_clients];
   "download", [
+    Alcotest.test_case "shared publisher capabilities" `Quick publisher_capabilities;
     Alcotest.test_case "Cambridge routing" `Quick cup;
     Alcotest.test_case "CORE output identity" `Quick core_identity;
     Alcotest.test_case "publisher busy retries" `Quick publisher_retry;

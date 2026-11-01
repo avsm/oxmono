@@ -4,12 +4,14 @@ module C = Taposaur_catalog
 module P = Taposaur_paper
 
 type result = Updated | Partial of string list | Unavailable of string | Superseded
+type order = Directory | Uid
 type stats = {
   examined : int; updated : int; unavailable : int; superseded : int;
   partial : int;
 }
 
-let run ?(retry_errors = false) ?(force = false) ?(limit = max_int) ?uid ?(jobs = 8)
+let run ?audit ?(publisher_lookup = fun _ -> None) ?(retry_errors = false) ?(force = false) ?(limit = max_int) ?uid ?(jobs = 8)
+    ?(order = Directory)
     ?(progress = fun _ _ -> ()) catalog archive =
   if limit < 0 then invalid_arg "limit must be nonnegative";
   if jobs < 1 || jobs > 64 then invalid_arg "jobs must be 1..64";
@@ -24,6 +26,8 @@ let run ?(retry_errors = false) ?(force = false) ?(limit = max_int) ?uid ?(jobs 
       | Some paper ->
           let before = A.fingerprint paper in
           let resolved = Taposaur_reader.load ~index:row paper in
+          let resolved = match Option.bind (Uid.doi row.uid) publisher_lookup with
+            | None -> resolved | Some e -> P.with_publisher e resolved in
           let after = Option.map A.fingerprint (A.find archive row.uid) in
           if after <> Some before then Error "Paper changed during resolution"
           else begin
@@ -47,8 +51,14 @@ let run ?(retry_errors = false) ?(force = false) ?(limit = max_int) ?uid ?(jobs 
       | Ok _ when !diagnostics <> [] -> incr partial; Partial !diagnostics
       | Ok _ -> incr updated; Updated
       | Error e -> incr unavailable; Unavailable e in
+    Option.iter (fun session ->
+      let outcome = match status with Updated -> "updated" | Partial _ -> "partial"
+        | Unavailable _ -> "unavailable" | Superseded -> "superseded" in
+      Taposaur_audit.record session ~action:"catalog.metadata.resolve"
+        ~subject:(Uid.to_string row.uid)
+        ~details:["outcome",outcome;"diagnostics",string_of_int (List.length !diagnostics)] ()) audit;
     incr examined; progress row.uid status in
-  let rec loop () =
+  let rec uid_loop () =
     let remaining = limit - !examined in
     if remaining > 0 then
       let rows = C.Metadata.pending ~force ~retry_errors ~need_details:true
@@ -59,8 +69,28 @@ let run ?(retry_errors = false) ?(force = false) ?(limit = max_int) ?uid ?(jobs 
       | last :: _ ->
           Eio.Fiber.List.iter ~max_fibers:jobs process rows;
           cursor := Uid.to_string (C.Metadata.index last).uid;
-          loop () in
-  loop ();
+          uid_loop () in
+  let rec shard_loop shard after_row =
+    let remaining = limit - !examined in
+    if remaining > 0 then
+      let rows = C.Metadata.pending ~force ~retry_errors ~need_details:true
+        ~shard ~after_row ~limit:(min 512 remaining) ~version:P.version catalog in
+      match List.rev rows with
+      | [] -> ()
+      | last :: _ ->
+          Eio.Fiber.List.iter ~max_fibers:jobs process rows;
+          shard_loop shard (C.Metadata.row_id last) in
+  let rec directories after =
+    if !examined < limit then
+      let shards = C.Shard.paths ~after ~limit:256 catalog in
+      List.iter (fun shard ->
+        if !examined < limit then shard_loop shard 0L) shards;
+      match List.rev shards with
+      | [] -> ()
+      | last :: _ -> directories last in
+  (match order, uid with
+   | Uid, _ | _, Some _ -> uid_loop ()
+   | Directory, None -> directories "");
   { examined = !examined; updated = !updated; unavailable = !unavailable;
     superseded = !superseded; partial = !partial }
 

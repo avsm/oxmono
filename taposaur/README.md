@@ -19,6 +19,9 @@ remaining acquisition, conversion and review work.
 | `taposaur.services` | [Taposaur_services](services/taposaur_services.mli) | Explicitly configured Fetch clients |
 | `taposaur.store` | [Taposaur_store](store/taposaur_store.mli) | Recoverable staging publications |
 | `taposaur.download` | [Taposaur_download](download/taposaur_download.mli) | Single-paper acquisition |
+| `taposaur.review` | [Taposaur_review](review/taposaur_review.mli) | Query definitions, set selection and frozen values |
+| `taposaur.review-store` | [Taposaur_review_store](review_store/taposaur_review_store.mli) | Durable revisions, runs, snapshots and exports |
+| `taposaur.review-run` | [Taposaur_review_run](review_run/taposaur_review_run.mli) | Local query execution and metadata capture |
 | `taposaur.web` | [Taposaur_web](web/taposaur_web.mli) | Proffer routes and views |
 
 [Architecture](ARCHITECTURE.md) describes the dependency boundaries,
@@ -164,6 +167,13 @@ schema versions 1 through 5 migrate when opened for writing,
 preserving existing cached metadata. `taposaur enrich --limit 0` upgrades
 a catalogue without scheduling any metadata reads.
 
+Enrichment defaults to `--order directory`: complete one publisher/hash
+shard before moving to the next. This improves metadata-cache locality on
+Ceph. Selection uses the existing SQLite shard index and row-ID cursors,
+with no new index or schema migration. `--order uid` retains identifier
+ordering for comparisons. Both modes skip saved work on restart. Within
+a directory, up to 512 candidates feed the bounded worker pool.
+
 Enrichment also stores manifests and per-document metadata observations.
 The pure resolver reconstructs complete paper details, preserving alternatives,
 corrections and diagnostics. Existing enriched rows without this cache are
@@ -171,7 +181,8 @@ automatically backfilled. Failed refreshes preserve the previous details and
 their saved timestamp. Reimporting a shard invalidates its details.
 
 Use `--progress-file /local/path/progress.json` to write atomic progress updates
-from the OCaml enrichment process. `stats` and the homepage report the total
+from the OCaml enrichment process, including scan order and the last shard.
+Concurrent progress writes are serialized. `stats` and the homepage report the total
 number of papers with saved details. The cache contains no PDF/TEI bodies or
 event logs.
 
@@ -278,6 +289,186 @@ Results distinguish `tei`, `held`, `no-artifacts` and `not-indexed`.
 and blank lines are skipped. This command does not create a review or
 schedule acquisition.
 
+## Review requests, queries and snapshots
+
+Review state lives in a separate local SQLite database. The website opens it
+read-only. Agents and the CLI append definitions, runs and snapshots. A
+catalogue rebuild cannot remove review membership or previous deliveries.
+
+The public OCaml interfaces are `Taposaur_review` (pure definitions, set
+selection and export codecs), `Taposaur_review_store` (durable state), and
+`Taposaur_review_run` (catalogue execution and capture). The schema is in
+`review_store/schema.sql`. No review command reads Ceph or calls a provider.
+
+Import an existing list and capture available catalogue metadata:
+
+```sh
+taposaur review import education-eef education-eef.doi \
+  --reviews-db reviews.db --db catalog.db \
+  --title 'Education EEF included studies' --requester 'Research group' \
+  --by avsm2 --expected 0 --reason 'Initial supplied list' \
+  --label 'Initial delivery'
+```
+
+Use `--input-format metadata_jsonl` to import one flat bibliography object
+per line. Title and abstract are optional:
+
+```json
+{"doi":"10.1000/example","title":"Title","abstract":"Abstract"}
+```
+
+DOI URLs and prefixed DOIs are normalized using the shared identifier library.
+Duplicates remain in the source evidence but count once in membership.
+Invalid lines abort unless explicitly marked `--partial`. Partial status and
+line diagnostics follow the run into its snapshots and manifests.
+
+For an externally executed query, add `--provider NAME --query 'EXACT QUERY'`.
+Optional `--parameters FILE.json` retains native filters and other parameters.
+This records supplied results. It does not execute the query or establish
+that the provider returned an exhaustive result set. The actor supplies that
+completion declaration. Original result bytes and query text are retained.
+
+### Definition version 1
+
+A definition contains named inputs and a bounded set expression:
+
+1. Union the inputs named in `include_any`.
+2. Intersect that set with each input named in `require_all`.
+3. Subtract the union of inputs named in `exclude_any`.
+
+Every declared input must be referenced. Unknown keys, unsupported versions,
+duplicate keys, invalid source shapes and contradictory metadata predicates
+are rejected. Query definitions contain no pagination or worker settings.
+Local searches select DOI records only. Version 1 uses the catalogue's
+literal words joined by AND, exact journal and publisher filters, inclusive
+year bounds, and AND-combined metadata predicates. Native Boolean syntax is
+preserved only for recorded external queries. It is not translated into FTS.
+
+```json
+{
+  "version": 1,
+  "inputs": [
+    {
+      "key": "soil-carbon",
+      "label": "Local soil carbon literature",
+      "source": {
+        "kind": "catalogue",
+        "local": {
+          "text": "soil carbon",
+          "year_from": 2000,
+          "holdings": "any",
+          "metadata": [
+            {"field": "title", "availability": "present"}
+          ]
+        }
+      }
+    }
+  ],
+  "include_any": ["soil-carbon"],
+  "require_all": [],
+  "exclude_any": []
+}
+```
+
+The three source kinds are:
+
+| Kind | Required fields | Execution |
+| --- | --- | --- |
+| `catalogue` | `local` | Consistent local DOI search. |
+| `list` | `blob`, optional `format` | Fixed SHA-256 input reference. |
+| `recorded_search` | `provider`, `query`, optional `parameters`, `format` | Supplied result file for each run. |
+
+Formats are `doi_lines` (default) and `metadata_jsonl`. A list's blob is
+created with `taposaur review blob FILE --reviews-db reviews.db`. Replace
+that reference in a new revision to change a fixed list. A recorded query
+can receive new results without changing its definition revision.
+
+```sh
+taposaur review define soil-carbon definition.json \
+  --reviews-db reviews.db --title 'Soil carbon' --requester 'Research group' \
+  --by avsm2 --expected 0 --reason 'Initial search definition'
+taposaur review run soil-carbon --revision 1 --by avsm2 \
+  --reviews-db reviews.db --db catalog.db
+taposaur review snapshot 1 --label 'Initial delivery' --by avsm2 \
+  --reviews-db reviews.db --db catalog.db
+```
+
+For recorded inputs, add `--input KEY=FILE` to `review run`. Use
+`--partial-input KEY` for a known incomplete result. Bindings for fixed lists
+must match the retained bytes exactly. `review show SLUG` prints a definition,
+and `review history SLUG` lists the recorded runs and snapshots.
+
+`--expected` is mandatory when creating a revision. Zero creates a review.
+An existing review requires its current revision number. A stale revision
+fails atomically. Requester, owner and title are fixed for this initial
+interface. Actor and reason are recorded per revision. These CLI attributions
+are caller supplied and are not an authentication or access-control system.
+
+### Metadata refresh and exports
+
+Run IDs and snapshot IDs printed by the commands are database-wide identifiers.
+Refresh metadata for an existing run without executing its queries again:
+
+```sh
+taposaur review snapshot RUN --parent PREVIOUS_SNAPSHOT \
+  --label 'Metadata refreshed' --by avsm2 \
+  --reviews-db reviews.db --db catalog.db
+taposaur review compare BEFORE AFTER --reviews-db reviews.db
+taposaur review export SNAPSHOT --format csv --reviews-db reviews.db
+taposaur review export SNAPSHOT --format manifest --reviews-db reviews.db
+```
+
+Snapshots freeze selected bibliographic values, holdings, source references,
+catalogue revisions, diagnostics and request context. Nonblank catalogue
+values precede supplied metadata. Supplied metadata follows input declaration
+order and original row order. Missing catalogue records remain members.
+The snapshot never calls the paper resolver when opened or exported.
+
+DOI text, DOI/title/abstract CSV and provenance JSONL are generated and cached
+when the snapshot is published. All include missing metadata. CSV uses exact
+field values, quoted cells and CRLF record separators. Spreadsheet software
+may interpret leading formula characters. The manifest includes the query
+definition, completion status, counts, input digests and export checksums.
+Repeated exports return the same bytes. `--output FILE` creates a new file
+and refuses to overwrite an existing one.
+
+Inputs are bounded to 32 MiB each and 64 MiB combined. The default budget is
+100,000 source occurrences or snapshot members. `run --max-members` and
+`snapshot --max-members` allow up to 2,000,000. Snapshots default to 256 MiB
+of encoded observations and a 60-second capture deadline. Explicit
+`snapshot --max-bytes` and `--capture-seconds` allow up to 900 MiB and
+3,600 seconds. Large captures need proportionally more memory and retain a
+catalogue WAL read transaction during capture. `blob --max-bytes` permits
+retaining larger original evidence files. Exceeding a budget fails rather
+than truncating a result.
+Capture runs in a background CLI process. A failed or interrupted capture
+publishes no partial snapshot and can be retried from the same run.
+
+The SQLite store deduplicates inputs, observations and exports by SHA-256.
+Publication is one transaction. Use SQLite's online backup API or `sqlite3
+reviews.db '.backup BACKUP.db'` for a consistent backup while writers run.
+Do not copy only the main database file while WAL writes are active.
+
+Enable the read-only website with `taposaur-web --reviews-db reviews.db`
+alongside the existing archive and catalogue options. `/reviews` lists
+requests. Review pages expose revision definitions, run evidence, snapshots,
+comparisons and cached exports. There are no review mutation routes.
+Snapshot pages show cached coverage and missing-data statistics, format
+counts and publisher breakdowns. Click a column header to sort. Compact
+bars show present and missing percentages. Publisher gaps can be sorted
+by either count or percentage. Counts and publisher names link to filtered
+paper lists at `/review-papers`, with DOI cursor pagination and frozen titles
+and abstracts. These lists use the snapshot's membership and metadata,
+so their contents match the displayed counts even after catalogue updates.
+Full-text coverage means a recorded PDF, XML, TEI or S2ORC holding, not
+verified conversion quality. Format counts overlap. Statistics use frozen
+observations and never scan the catalogue when a page opens. For older
+snapshots, run `review cache-statistics SNAPSHOT --reviews-db reviews.db`.
+This adds statistics and browsing indexes without changing the original
+manifest or exports. Review schema 2 adds derived coverage flags and indexed
+publisher filters. Write commands upgrade schema 1 automatically. Older
+snapshots require the cache command before their paper filters can be used.
+
 ## Browse
 
 ```sh
@@ -298,11 +489,39 @@ and file provenance in expandable details. Artifact access uses the UID and the
 manifest, never the absolute index paths. Only listed filenames can be
 opened, inside a confined paper subtree. File symlinks are refused.
 
-PDF responses stream with single-range and HEAD support. TEI text is
-rendered through a fixed HTML vocabulary with escaped text. Source URLs,
-attributes and executable elements are not copied. Input, output, nesting
-and history display sizes are bounded. The renderer is a reading view,
-not a facsimile of the publisher's layout.
+PDF responses stream with single-range and HEAD support. The TEI reader
+renders section hierarchy, contents navigation, abstracts, emphasis, lists,
+glossaries, tables with headers and spans, notes, captions and citations with
+return links. Both citation directions preserve the sidebar. Bibliographies
+separate authors, titles and publication details. DOI links open separately.
+Raw references retain their original evidence in an expandable section.
+Catalogue metadata may replace raw references only after DOI verification.
+
+MathML is rendered through a fixed vocabulary. TeX and LaTeX formulae use
+the locally bundled KaTeX distribution to produce native MathML. No CDN,
+remote fonts or trusted TeX commands are used. Invalid formulae retain their
+source. Remote figure images load on user activation. Missing local figure
+assets are labelled unavailable. The renderer cannot recover missing source
+images, mathematical structure or incorrect citation targets.
+
+`--journal-links FILE.jsonl` loads cached OpenAlex source links. Each object
+contains `source_id` and either `journal`, `doi`, or both. For example:
+
+```json
+{"journal":"Example Journal","source_id":"S123"}
+{"doi":"10.1000/example","source_id":"S123"}
+```
+
+Journal names match ignoring ASCII case and repeated whitespace. Ambiguous
+names or DOI/source assignments remain unlinked. DOI entries can confirm DOI
+boundaries in concatenated raw references even when the cited paper is absent
+from the catalogue. Cache files are supplied by an agent or metadata import.
+No ClickHouse scan or external metadata request runs while rendering a page.
+Only loaded mappings are used. Restart the server after replacing the file.
+
+Input, output, node count and nesting are bounded. Unsafe URLs, executable
+elements and source CSS are omitted. Unknown TEI elements retain readable
+text. Source repair remains separate from display formatting.
 
 The standalone browser has no account system. Keep its loopback listener
 or place an authenticated reverse proxy in front of it when sharing it.
@@ -417,6 +636,25 @@ Acceptance, merging, legacy event replay and conversion are future modules.
 Service clients were adapted from production under ISC. See
 [service provenance](services/PROVENANCE.md) and [roadmap](ROADMAP.md).
 
+## Consolidate review PDF headers
+
+`taposaur-consolidate --snapshot 2 --reviews-db reviews.db --db catalog.db
+--work /local/soil-headers --root /data/papers/taposaur` regenerates archived
+PDFs through GROBID with full header consolidation and reference consolidation
+disabled. The default server is `http://localhost:8070`, with two requests in
+flight. `--doi DOI` runs one member as a pilot. Reuse the same work directory
+to resume. Papers without PDFs are reported and left unchanged.
+
+Publication requires well-formed TEI, an exact header DOI, a nonempty publisher
+and explicit Glutton header provenance. HTTP responses and source PDF hashes
+remain in the work directory. Successful conversions preserve the previous TEI,
+manifest and events there before replacing the GROBID artifact. Publication
+appends conversion and artifact events, updates the manifest and refreshes
+the catalogue. Retain this directory for recovery and audit. Other archive
+writers must be stopped during the batch. Read-only servers and indexing can
+continue. Index JSONL shards and existing review snapshots remain unchanged.
+Create a new review snapshot after the run to capture the refreshed metadata.
+
 ## Catalogue measurement
 
 The synthetic benchmark requires a new database filename:
@@ -431,3 +669,26 @@ an FTS term shared by every paper. See [benchmark results](bench/README.md).
 Run `python3 taposaur/test/http_smoke.py` from the repository root to test
 the built CLI against synthetic loopback HTTP responses.
 A full production import and corpus-wide enrichment remain to be measured.
+
+## Shared website widgets
+
+The `taposaur.ui` library supplies Htmlit tables, badges, metrics, coverage
+indicators and native form controls with shared styles and browser sorting.
+See [the component interface](ui/taposaur_ui.mli) and
+[usage notes](ui/README.md). Sorting applies to the displayed page. Search
+results have a persistent “Show abstracts” preference.
+
+## Operational audit
+
+Mutation-capable CLIs now write a separate SQLite audit log, default
+`taposaur-audit.db`, with actor `system`. Set `TAPOSAUR_AUDIT_DB` to share an
+absolute path across jobs. See [the audit design and operations guide](audit/README.md)
+and [OCaml interface](audit/taposaur_audit.mli). Use `taposaur audit query`
+for JSONL or start the website with `--audit-db FILE` for `/audit`.
+
+## Recover missing publishers
+
+`taposaur-publishers` fills missing review publishers through exact DOI
+queries to configured Crossref and DataCite mirrors, with an original CSV
+fallback. It retains raw evidence, logs operations and publishes a new
+immutable snapshot. See [configuration, CLI and OCaml API](mirrors/README.md).

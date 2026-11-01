@@ -1,6 +1,7 @@
 open Htmlit
 open Taposaur
 module C = Taposaur_catalog
+module Ui = Taposaur_ui
 module P = Taposaur_paper
 let el name children = El.v name children
 let txt = El.txt
@@ -102,6 +103,31 @@ border:1px solid var(--line);background:white}
 .tei{max-width:780px;font:17px/1.7 Georgia,serif;margin:24px auto}
 .tei h2{font:600 21px/1.4 system-ui,sans-serif}.tei table{font-size:13px}
 .tei figure{margin:20px 0}.tei p{margin:12px 0}
+.tei-reference{margin:1.2em 0;padding:1em 1.2em;border:1px solid var(--line);
+border-radius:8px;background:#fff;overflow-wrap:anywhere;
+scroll-margin-top:1em;font:15px/1.65 system-ui,sans-serif}
+.tei-reference-title{font:600 17px/1.5 Georgia,serif;margin:.25em 0}
+.tei-reference-title a{text-decoration:none}.tei-reference-title a:hover{text-decoration:underline}
+.tei-reference-authors,.tei-reference-publication{color:var(--muted)}
+.tei-reference-label{font-weight:700}.tei-reference-source{display:block;color:var(--muted)}
+.tei-reference details{font-size:12px;margin-top:.5em}
+.tei-reference-raw{white-space:pre-wrap}.tei-backlinks{font:12px system-ui,sans-serif}
+.tei h1{font:600 26px/1.3 system-ui,sans-serif}.tei h3,.tei h4,.tei h5,.tei h6{font-family:system-ui,sans-serif}
+.tei table{display:block;overflow:auto;border-collapse:collapse;max-width:100%}
+.tei td,.tei th{border:1px solid var(--line);padding:.5em;vertical-align:top}
+.tei caption{font-weight:600;text-align:left;margin-bottom:.5em}
+.tei figcaption{color:var(--muted);font:14px/1.6 system-ui,sans-serif}
+.tei img{max-width:100%;height:auto}.tei-note{background:#fff;padding:.3em .5em;font-size:.9em}
+.tei-page,.tei-unavailable{color:var(--muted);font:12px/1.5 system-ui,sans-serif}
+.tei-page{display:block;border-top:1px solid var(--line);margin:1em 0}
+.tei-equation{display:block;overflow:auto;padding:1em 0;text-align:center}
+.tei-equation-number{margin-left:1em}.tei-formula{overflow-wrap:normal}
+.tei math{font-size:1.1em}.tei [data-tex]{white-space:pre-wrap}
+.tei-contents{font:14px/1.8 system-ui,sans-serif;padding:1em;border:1px solid var(--line)}
+.tei :focus{outline:2px solid currentColor;outline-offset:3px}
+.tei-reference:target{background:#fff4cc;color:#222}
+.tei-identifier{display:inline-block;font:12px/1.5 system-ui,sans-serif;
+margin-left:.4em;color:var(--muted)}
 @media(max-width:700px){header{gap:20px;padding:14px 16px}
 main{padding:0 16px 24px;margin-top:20px}h1{font-size:21px}
 .filters{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -165,23 +191,30 @@ let page ?(kind = "") title body =
       El.v "meta" ~at:[at "name" "viewport";
         at "content" "width=device-width, initial-scale=1"] [];
       el "title" [txt (title ^ " · Taposaur")];
-      el "style" [El.unsafe_raw (css ^ interface_css)];
+      el "style" [El.unsafe_raw (css ^ interface_css ^ Ui.css)];
+      El.v "script" ~at:[at "src" "/assets/katex.js"; at "defer" ""] [];
       El.v "script" ~at:[at "src" "/assets/interface.js"; at "defer" ""] []];
-    el "body" [el "header" [link "/" "taposaur";
-      link "/search" "Browse & search"];
-      El.v "main" ~at:[at "class" kind] (el "h1" [txt title] :: body)]])
+    el "body" [El.v "a" ~at:[at "class" "skip-link";at "href" "#main"]
+      [txt "Skip to content"];
+      el "header" [El.v "a" ~at:[at "href" "/"]
+        [El.v "span" ~at:[at "class" "brand-mark";at "aria-hidden" "true"]
+          [txt "tp"];txt "taposaur"];
+        El.v "nav" ~at:[at "class" "site-nav";at "aria-label" "Main navigation"]
+          [link "/search" "Browse & search";link "/reviews" "Reviews"]];
+      El.v "main" ~at:[at "id" "main";at "class" kind]
+        (el "h1" [txt title] :: body);
+      classed "footer" "site-footer"
+        [El.v "details" ~at:[at "id" "server-debug"]
+          [el "summary" [txt "Debug · server paths & capabilities"];
+           El.v "div" ~at:[at "id" "server-debug-content"]
+             [p "Server configuration and available fetch strategies.";
+              link "/debug" "Open server details"]]]]])
 
 let form params =
   let get k = Option.value (List.assoc_opt k params) ~default:"" in
-  let input name label kind =
-    el "label" [txt label; El.v "input" ~at:[at "name" name;
-      at "type" kind; at "value" (get name)] []] in
+  let input name label kind = Ui.input ~name ~label ~kind ~value:(get name) in
   let select name label options =
-    el "label" [txt label; El.v "select" ~at:[at "name" name]
-      (List.map (fun (value, label) ->
-        El.v "option" ~at:([at "value" value] @
-          if value = get name then [at "selected" "selected"] else [])
-          [txt label]) options)] in
+    Ui.select ~name ~label ~value:(get name) options in
   El.v "form" ~at:[at "method" "get"; at "action" "/search"] [
     classed "div" "search-line" [input "q" "Search papers" "search";
       el "button" [txt "Search"]];
@@ -217,40 +250,62 @@ let form params =
       input "from" "From year" "number"; input "to" "To year" "number"]]
 
 let home ~details_cached (s : C.stats) errors =
-  let metric name n = el "span"
-    [el "strong" [txt (count n)]; txt (" " ^ name)] in
-  let coverage = match s.discovered_shards with
-    | None -> Printf.sprintf "%s shards loaded · Coverage unknown"
-        (count s.loaded_shards)
-    | Some n -> Printf.sprintf "%s / %s shards loaded"
-        (count s.loaded_shards) (count n) in
-  page "Catalogue" ([form [];
-    classed "div" "summary" [metric "papers" s.papers;
-      metric "PDF" s.pdf; metric "XML" s.xml;
-      metric "TEI" s.tei; metric "S2ORC" s.s2orc;
-      metric "saved paper details" details_cached];
-    classed "p" "status" [
-      link "/search?metadata=title" (count s.titles ^ " titles"); txt " · ";
-      link "/search?metadata=abstract" (count s.abstracts ^ " abstracts");
-      txt " · ";
-      link "/search?metadata=publisher" (count s.publishers ^ " publishers");
-      txt (" · Complete metadata resolution for " ^ count s.enriched ^ " papers");
-      (if s.enrichment_errors = 0 then El.void else
-        txt (" · " ^ count s.enrichment_errors ^ " metadata errors"));
-      txt (" · " ^ count s.partial ^ " partial resolutions · " ^
-        count s.stale ^ " stale")];
-    classed "p" "status" [txt (coverage ^
-      Option.fold ~none:"" ~some:(fun t -> " · Updated " ^ stamp t)
-        s.last_import)]] @
-    if s.errors = 0 then [] else [
-      el "h2" [txt (count s.errors ^ " import errors")];
-      el "ul" (List.map (fun (path, message) -> el "li"
-        [code path; p message]) errors)])
+  let coverage_row label href n =
+    let pct = if s.papers = 0 then 0.
+      else 100. *. float n /. float s.papers in
+    classed "li" "availability-row"
+      [link href label;classed "span" "availability-count"
+        [link href (count n)];
+       Ui.coverage ~present:n ~total:s.papers;
+       classed "small" "numeric" [txt (Printf.sprintf "%.1f%%" pct)]] in
+  let panel title description rows =
+    classed "section" "availability-panel"
+      [el "h2" [txt title];p description;el "ul" rows] in
+  let diagnostic label value = [el "dt" [txt label];el "dd" [txt value]] in
+  let nonzero label n = if n = 0 then [] else diagnostic label (count n) in
+  let shards = match s.discovered_shards with
+    | None -> count s.loaded_shards ^ " loaded; total not yet known"
+    | Some n -> count s.loaded_shards ^ " / " ^ count n ^ " loaded" in
+  page "Catalogue" [
+    p (count s.papers ^ " papers to search and explore.");
+    form [];
+    classed "div" "availability-grid"
+      [panel "Available documents" "Recorded formats; a paper can have more than one."
+         [coverage_row "PDF" "/search?has=pdf" s.pdf;
+          coverage_row "Publisher XML" "/search?has=xml" s.xml;
+          coverage_row "TEI text" "/search?has=tei" s.tei;
+          coverage_row "S2ORC" "/search?has=s2orc" s.s2orc];
+       panel "Searchable metadata" "Coverage across the catalogue, refreshed as indexing progresses."
+         [coverage_row "Title" "/search?metadata=title" s.titles;
+          coverage_row "Abstract" "/search?metadata=abstract" s.abstracts;
+          coverage_row "Publisher" "/search?metadata=publisher" s.publishers]];
+    classed "p" "home-reviews" [txt "Working with a research collection? ";
+      link "/reviews" "Open reviews and snapshots →"];
+    El.v "details" ~at:[at "class" "catalogue-diagnostics"]
+      [el "summary" [txt "Indexing diagnostics";
+        (if s.errors = 0 then El.void else
+          Ui.badge ~tone:`Warning (count s.errors ^ " import issues"))];
+       p "Operational information about the catalogue import and metadata cache.";
+       classed "dl" "metadata"
+         (diagnostic "Saved details" (count details_cached) @
+          diagnostic "Fully resolved" (count s.enriched) @
+          nonzero "Partial resolutions" s.partial @
+          nonzero "Metadata errors" s.enrichment_errors @
+          nonzero "Stale records" s.stale @
+          diagnostic "Index shards" shards @
+          Option.fold ~none:[] ~some:(fun t ->
+            diagnostic "Last shard import" (stamp t)) s.last_import);
+       (if s.errors = 0 then El.void else el "section"
+         [el "h2" [txt "Import issues"];
+          p "These shards need repair. Successfully imported papers remain searchable.";
+          Ui.table ["Shard",false;"Issue",false]
+            (List.map (fun (path,message) ->
+              [Ui.cell path [code path];Ui.cell message [txt message]]) errors)])]]
 
 let entry (summary : Summary.t) =
   let e = summary.bibliography in
   let uid = Uid.to_string summary.uid in
-  let format yes s = if yes then el "span" [txt s] else El.void in
+  let format yes s = if yes then Ui.badge ~tone:(if s = "TEI" then `Good else `Neutral) s else El.void in
   classed "article" "result" [
     classed "div" "result-heading" [
       el "h2" [link (url "/paper" ["uid",uid])
@@ -279,7 +334,10 @@ let search params (result : C.page) =
     (if journal = "" then El.void else classed "div" "selected-journal"
       [txt journal; link (url "/search" clear) "All journals"]);
     (if result.papers = [] then p "No matching papers."
-     else classed "div" "results" (List.map entry result.papers))] @
+     else el "div" [classed "div" "ui-toolbar"
+       [p (Printf.sprintf "%d papers on this page" (List.length result.papers));
+        Ui.checkbox ~id:"show-abstracts" ~label:"Show abstracts" ~checked:true];
+       classed "div" "results" (List.map entry result.papers)])] @
     match result.next with None -> [] | Some after ->
       [classed "p" "pagination" [link (url "/search" (("after",after) ::
         List.remove_assoc "after" params)) "Next page →"]])
@@ -364,16 +422,17 @@ let paper ?catalogue_status (paper : P.t) =
         ~some:Manifest.Confidence.to_string a.confidence;
       "SHA-256", empty a.sha256;
       "Bytes", Int64.to_string a.bytes] in
-    el "tr" [el "td" [
+    [Ui.cell a.file [
       El.v "a" ~at:[at "class" "file-name";
         at "href" (artifact_url "/artifact" a)] [txt a.file];
       el "details" [el "summary" [txt "Details"]; metadata provenance]];
-      el "td" [txt (Manifest.Format.to_string a.format)];
+      el "td" [Ui.badge (String.uppercase_ascii (Manifest.Format.to_string a.format))];
       el "td" [txt (joined [Manifest.Source.to_string a.source;
         empty a.converter])];
       el "td" [txt (Option.fold ~none:"" ~some:Manifest.Version.to_string
         a.version)];
       El.v "td" ~at:[at "class" "numeric";
+        at "data-sort-value" (Int64.to_string a.bytes);
         at "title" (Int64.to_string a.bytes ^ " bytes")] [txt (size a.bytes)];
       classed "td" "file-actions"
         (if a.format = Manifest.Format.Tei then
@@ -382,7 +441,7 @@ let paper ?catalogue_status (paper : P.t) =
           [link (artifact_url "/pdf" a) "View PDF"] else [])] in
   let abstract = string meta.abstract in
   let evidence label show field =
-    List.map (fun (e : _ P.evidence) -> el "tr" [
+    List.map (fun (e : _ P.evidence) -> [
       el "td" [txt label]; el "td" [txt (show e.value)];
       el "td" [txt (P.source_name e.source)]]) (P.Field.candidates field) in
   let sources = List.concat [
@@ -422,18 +481,14 @@ let paper ?catalogue_status (paper : P.t) =
     (if abstract = "" then El.void else el "section" [
       el "h2" [txt "Abstract"]; classed "p" "abstract" [txt abstract]]);
     el "details" [el "summary" [txt "Metadata sources and alternatives"];
-      classed "div" "table-wrap" [el "table" [
-        el "thead" [el "tr" (List.map (fun s -> el "th" [txt s])
-          ["Field"; "Value (preferred first)"; "Source"])];
-        el "tbody" sources]];
+      Ui.table ["Field",false; "Value (preferred first)",false; "Source",false]
+        sources;
       (if errors = [] then El.void else el "ul" errors)];
     el "h2" [txt "Files"];
     (if m.artifacts = [] then p "No files available." else
-      classed "div" "table-wrap" [el "table" [el "thead" [el "tr"
-        [el "th" [txt "File"]; el "th" [txt "Format"];
-         el "th" [txt "Source / converter"]; el "th" [txt "Version"];
-         classed "th" "numeric" [txt "Size"]; el "th" [txt "Open"]]];
-        el "tbody" (List.map artifact m.artifacts)]]);
+      Ui.table ["File",false;"Format",false;"Source / converter",false;
+        "Version",false;"Size",true;"Open",false]
+        (List.map artifact m.artifacts));
     Option.fold ~none:El.void ~some:(fun a ->
       El.v "section" ~at:[at "id" "pdf"] [
         classed "div" "preview-heading" [el "h2" [txt "PDF preview"];

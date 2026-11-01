@@ -1,5 +1,41 @@
 # Changes
 
+- Show publisher download strategies, access requirements and existing full
+  text in snapshot paper lists using the acquisition router.
+
+- Recover missing publishers from configured DOI mirrors and retained CSV
+  inputs, with audited OCaml queries and immutable review snapshots.
+
+- Add a durable SQLite audit trail for acquisition, archive changes, review
+  publication and indexing, with CLI queries and a read-only audit page.
+
+- Add a collapsed debug panel showing configured storage paths, current-paper
+  artifact locations and the implemented publisher acquisition capabilities.
+
+- Unify the website with compact Htmlit widgets, sortable review and file
+  tables, format badges, coverage summaries and an abstract visibility toggle.
+
+- Add resumable GROBID header consolidation for review PDFs, preserving
+  prior TEIs and validating DOI and publisher before archive publication.
+
+- Add sortable snapshot coverage tables with percentage bars and count links
+  to indexed lists of matching papers, preserving frozen snapshot metadata.
+
+- Expand the TEI reader with structured citations, DOI and cached OpenAlex
+  source links, backlinks, tables, notes, figures and mathematical typesetting.
+
+- Show cached snapshot coverage, missing metadata and full text, format
+  counts and publisher breakdowns in place of individual review titles.
+
+- Separate TEI bibliography entries, label identifiers and link citations
+  within the reader sidebar without closing it.
+
+- Add versioned review definitions, recorded DOI batches, frozen metadata
+  snapshots and cached exports through an OCaml CLI and read-only review UI.
+
+- Enrich papers directory by directory to reuse Ceph metadata caches,
+  with resumable indexed scans and serialized progress updates.
+
 - Record oversized manifests as per-paper errors so enrichment can continue.
 
 - Port Cambridge acquisition and GROBID/Pub2TEI clients onto shared Fetch.

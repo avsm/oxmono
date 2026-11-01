@@ -27,7 +27,7 @@ let fts text =
       String.concat "\"\"" (String.split_on_char '"' s) ^ "\"")
   |> String.concat " AND "
 
-let search t (q : Query.t) =
+let search_db db (q : Query.t) =
   if q.limit < 1 || q.limit > 100 then invalid_arg "limit must be 1..100";
   if String.length q.text > 512 then invalid_arg "Search exceeds 512 bytes";
   let clauses = ref [] and args = ref [] in
@@ -57,13 +57,13 @@ let search t (q : Query.t) =
   let sql = "SELECT json,resolved_json,bibliography_json FROM papers WHERE " ^
     String.concat " AND " (holding :: List.rev !clauses) ^
     " ORDER BY uid LIMIT ?" in
-  let rows = run t (fun db -> with_stmt db sql (fun s ->
+  let rows = with_stmt db sql (fun s ->
     bind s (List.rev !args @ [int (q.limit + 1)]);
     let rec loop acc = match S.step s with
       | S.Rc.ROW -> loop (summary s :: acc)
       | S.Rc.DONE -> List.rev acc
       | rc -> check rc; assert false
-    in loop [])) in
+    in loop []) in
   let more = List.length rows > q.limit in
   let papers = List.filteri (fun i _ -> i < q.limit) rows in
   let next = if more then
@@ -72,14 +72,18 @@ let search t (q : Query.t) =
     else None in
   { papers; next }
 
+let search t q = run t (fun db -> search_db db q)
+
 let find_index t uid =
   run t (fun db -> with_stmt db "SELECT json FROM papers WHERE uid=?"
     (fun s -> bind s [text (Uid.to_string uid)];
       match S.step s with S.Rc.ROW -> Some (decode (S.column_text s 0))
       | S.Rc.DONE -> None | rc -> check rc; assert false))
 
-let find t uid = run t (fun db -> with_stmt db
+let find_db db uid = with_stmt db
   "SELECT json,resolved_json,bibliography_json FROM papers WHERE uid=?"
   (fun s -> bind s [text (Uid.to_string uid)];
     match S.step s with S.Rc.ROW -> Some (summary s)
-    | S.Rc.DONE -> None | rc -> check rc; assert false))
+    | S.Rc.DONE -> None | rc -> check rc; assert false)
+
+let find t uid = run t (fun db -> find_db db uid)

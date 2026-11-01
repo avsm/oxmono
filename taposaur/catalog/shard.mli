@@ -1,4 +1,5 @@
 type stamp = { size : int64; mtime : float }
+val paths : ?after:string -> limit:int -> 'a Db.t -> string list
 val unchanged : 'a Db.t -> shard:string -> stamp -> bool
 val replace :
   Db.write Db.t -> shard:string -> stamp ->

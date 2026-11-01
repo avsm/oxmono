@@ -2,6 +2,7 @@
  (name taposaur_store)
  (public_name taposaur.store)
  (libraries
+  taposaur.audit
   taposaur
   eio
   eio.unix

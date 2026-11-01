@@ -19,6 +19,12 @@ let execute f =
   | Eio.Io _ as e -> Error (Printexc.to_string e)
   | Sqlite3.Error e | Sqlite3.SqliteError e -> Error e
 
+let mutate ?(details=[]) action subject f = execute (fun env sw ->
+  let audit = Taposaur_audit_cli.open_session ~sw ~fs:env#fs
+    ~component:"taposaur" in
+  Taposaur_audit.with_operation ~session:audit ~details ~action ~subject
+    (fun scoped -> f env sw (Option.get scoped)))
+
 let archive env sw root = A.open_root ~sw (env#fs / root)
 let catalog env sw db = C.open_read ~sw (env#fs / db)
 let paper a id = match A.find a (identify id) with
@@ -30,10 +36,19 @@ let events root id = execute (fun env sw ->
   A.iter_events (paper (archive env sw root) id) (fun _ e ->
     print_endline (get (Event.to_string e))))
 
-let import root db force limit prefix shard = execute (fun env sw ->
+let import root db force limit prefix shard =
+  mutate ~details:["archive_root",root;"force",string_of_bool force;
+    "prefix",prefix] "catalog.import" db (fun env sw audit ->
   let a = archive env sw root in
   let c = C.open_write ~sw (env#fs / db) in
-  let progress shard result = match result with
+  let progress shard result =
+    let outcome = match result with I.Loaded _ -> "loaded"
+      | I.Unchanged -> "unchanged" | I.Failed _ -> "failed" in
+    (match result with I.Unchanged -> () | _ ->
+      Taposaur_audit.record audit ~action:"catalog.shard.import" ~subject:shard
+        ~details:(["outcome",outcome;"database",db] @
+          match result with I.Loaded n -> ["rows",string_of_int n] | _ -> []) ());
+    match result with
     | I.Loaded n -> Printf.eprintf "%s: loaded %d papers\n%!" shard n
     | I.Unchanged -> ()
     | I.Failed e -> Printf.eprintf "%s: %s\n%!" shard e in
@@ -44,6 +59,9 @@ let import root db force limit prefix shard = execute (fun env sw ->
       (match r with I.Failed e -> failwith e | _ -> ())
   | None ->
       let s = I.sync ~force ?limit ~prefix ~progress c a in
+      Taposaur_audit.record audit ~action:"catalog.import.result" ~subject:db
+        ~details:["scanned",string_of_int s.scanned;"loaded",string_of_int s.loaded;
+          "failed",string_of_int s.failed;"unchanged",string_of_int s.unchanged] ();
       Printf.printf "Discovered %d; loaded %d; unchanged %d; failed %d\n"
         s.scanned s.loaded s.unchanged s.failed;
       if s.failed > 0 then failwith "Some shards failed; see import diagnostics")
@@ -71,26 +89,34 @@ let describe root id = execute (fun env sw ->
     | Error e -> Printf.printf "Metadata error (%s): %s\n" d.artifact.file e)
     p.documents)
 
-let enrich root db force retry_errors limit uid jobs progress_file =
-  execute (fun env sw ->
+let enrich root db force retry_errors limit uid jobs order progress_file =
+  mutate ~details:["archive_root",root;"force",string_of_bool force;
+    "jobs",string_of_int jobs;"uid",Option.value ~default:"" uid]
+    "catalog.enrich" db (fun env sw audit ->
   let a = archive env sw root in
   let c = C.open_write ~sw (env#fs / db) in
   let count = ref 0 in
+  let progress_lock = Eio.Mutex.create () in
   let started = Unix.gettimeofday () and last_uid = ref "" in
-  let save_progress state = Option.iter (fun file ->
+  let last_shard = ref "" in
+  let save_progress state = Eio.Mutex.use_rw ~protect:true progress_lock
+    (fun () -> Option.iter (fun file ->
     let quote s = get (Jsont_bytesrw.encode_string Jsont.string s) in
     let body = Printf.sprintf
       {|{"pid":%d,"state":%s,"started":%.3f,"updated":%.3f,
-"jobs":%d,"examined":%d,"details_cached":%d,"last_uid":%s,
-"database":%s}|}
-      (Unix.getpid ()) (quote state) started (Unix.gettimeofday ()) jobs !count
-      (C.Metadata.detail_count c) (quote !last_uid) (quote db) in
+"jobs":%d,"order":%s,"examined":%d,"details_cached":%d,"last_uid":%s,
+"last_shard":%s,"database":%s}|}
+      (Unix.getpid ()) (quote state) started (Unix.gettimeofday ()) jobs
+      (quote (match order with E.Directory -> "directory" | Uid -> "uid")) !count
+      (C.Metadata.detail_count c) (quote !last_uid) (quote !last_shard)
+      (quote db) in
     Eio.Path.save ~create:(`Or_truncate 0o600)
       (env#fs / (file ^ ".tmp")) (body ^ "\n");
-    Eio.Path.rename (env#fs / (file ^ ".tmp")) (env#fs / file)) progress_file in
+    Eio.Path.rename (env#fs / (file ^ ".tmp")) (env#fs / file)) progress_file) in
   let progress uid result =
     incr count;
     last_uid := Uid.to_string uid;
+    last_shard := Layout.index uid;
     (match result with E.Unavailable message ->
       Printf.eprintf "%s: %s\n%!" (Uid.to_string uid) message | _ -> ());
     if !count mod 100 = 0 then begin
@@ -99,11 +125,18 @@ let enrich root db force retry_errors limit uid jobs progress_file =
       save_progress "running"
     end in
   save_progress "running";
-  let result = try E.run ~force ~retry_errors ?limit
+  let mirrors = Taposaur_mirrors.open_configured ~sw ~fs:env#fs in
+  let publisher_lookup doi = Option.bind mirrors (fun s -> Taposaur_mirrors.find s doi) in
+  let result = try E.run ~publisher_lookup ~audit ~force ~retry_errors ~order ?limit
     ?uid:(Option.map identify uid) ~jobs ~progress c a
     with ex -> save_progress "failed"; raise ex in
   save_progress (if result.unavailable > 0 then "finished_with_errors"
     else "finished");
+  Taposaur_audit.record audit ~action:"catalog.enrich.result" ~subject:db
+    ~details:["examined",string_of_int result.examined;
+      "updated",string_of_int result.updated;"partial",string_of_int result.partial;
+      "unavailable",string_of_int result.unavailable;
+      "superseded",string_of_int result.superseded] ();
   Printf.printf "Examined %d; updated %d; unavailable %d; superseded %d\n%!"
     result.examined result.updated result.unavailable result.superseded;
   Printf.printf "Partial metadata: %d\n" result.partial;
@@ -144,18 +177,26 @@ let coverage db file = execute (fun env sw ->
     Printf.printf "%s\t%s\n" (Uid.to_string uid)
       (Taposaur_indexing.Audit.coverage_name status)))
 
-let freshness root db limit after = execute (fun env sw ->
+let freshness root db limit after =
+  mutate "catalog.freshness.check" db (fun env sw audit ->
   let a = archive env sw root in
   let c = C.open_write ~sw (env#fs / db) in
   let result = E.check ~limit ?after c a in
+  Taposaur_audit.record audit ~action:"catalog.freshness.result" ~subject:db
+    ~details:["checked",string_of_int result.checked;"stale",string_of_int result.stale] ();
   Printf.printf "Checked %d; stale %d\n" result.checked result.stale;
   Option.iter (fun cursor -> Printf.printf "Next cursor: %s\n" cursor)
     result.next)
 
-let retire root db shard = execute (fun env sw ->
+let retire root db shard =
+  mutate ~details:["database",db;"archive_root",root]
+    "catalog.shard.retire" shard (fun env sw _audit ->
   I.retire (C.open_write ~sw (env#fs / db)) (archive env sw root) ~shard)
 
-let fetch staging timeout max_bytes url format publisher_pdf id = execute (fun env sw ->
+let fetch staging timeout max_bytes url format publisher_pdf id =
+  mutate ~details:["staging",staging;"format",format;
+    "explicit_url",string_of_bool (Option.is_some url)]
+    "cli.fetch" (Uid.to_string (identify id)) (fun env sw audit ->
   let module S = Taposaur_services in
   let getenv name = match Sys.getenv_opt name with
     | None | Some "" -> None | Some value -> Some value in
@@ -187,7 +228,7 @@ let fetch staging timeout max_bytes url format publisher_pdf id = execute (fun e
   let repositories = Fetch.with_headers Fetch.Header.[
     user_agent, "Mozilla/5.0 (compatible; taposaur/1.0; +mailto:avsm2@cam.ac.uk)"
   ] (paced 2) in
-  let downloader = Taposaur_download.create ~timeout ~max_bytes
+  let downloader = Taposaur_download.create ~audit ~timeout ~max_bytes
     ?glutton ?datacite ?elsevier ?springer ?wiley ?core
     ~cup ~plos ~tandf ?springer_pdf ~clock:env#clock repositories in
   let uid = identify id in
@@ -195,7 +236,7 @@ let fetch staging timeout max_bytes url format publisher_pdf id = execute (fun e
     | "pdf" -> Manifest.Format.Pdf | "xml" -> Xml
     | _ -> invalid_arg "format must be pdf or xml" in
   Eio.Path.mkdirs ~exists_ok:true ~perm:0o700 (env#fs / staging);
-  let store = Taposaur_store.open_root ~sw (env#fs / staging) in
+  let store = Taposaur_store.open_root ~audit ~sw (env#fs / staging) in
   let result = match url with
     | None -> Taposaur_download.fetch downloader store uid
     | Some url -> Taposaur_download.fetch_url downloader store uid ~format url in
@@ -234,6 +275,8 @@ let force = Arg.(value & flag & info ["force"] ~doc:"Reload unchanged shards.")
 let prefix = Arg.(value & opt string "" & info ["prefix"] ~doc:"Shard path prefix.")
 let command name doc term = Cmd.v (Cmd.info name ~doc) term
 let commands = [
+  Taposaur_audit_cli.command;
+  Review_cmd.command;
   command "audit-tei" "Validate TEI files and report regeneration evidence."
     Term.(const audit_tei $ root $
       Arg.(required & opt (some string) None & info ["work-list"]
@@ -275,6 +318,9 @@ let commands = [
         ~doc:"Resolve one imported identifier.") $
       Arg.(value & opt int 8 & info ["jobs"]
         ~doc:"Concurrent paper reads, 1..64.") $
+      Arg.(value & opt (enum ["directory", E.Directory; "uid", E.Uid])
+        E.Directory & info ["order"]
+        ~doc:"Scan by archive directory (default) or identifier.") $
       Arg.(value & opt (some string) None & info ["progress-file"]
         ~doc:"Atomically write JSON progress for this run to a local file."));
   command "events" "Stream a paper's event log as JSONL."

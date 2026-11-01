@@ -2,6 +2,7 @@
 val el : string -> Htmlit.El.html list -> Htmlit.El.html
 val txt : string -> Htmlit.El.html
 val p : string -> Htmlit.El.html
+val count : int -> string
 val link : string -> string -> Htmlit.El.html
 val url : string -> (string * string) list -> string
 val page : ?kind:string -> string -> Htmlit.El.html list -> string

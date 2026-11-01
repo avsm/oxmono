@@ -2,6 +2,15 @@
     configuration and a staging writer. No environment variables are read. *)
 
 type t
+type capability = { publisher : string; formats : string; access : string;
+  requirements : string }
+val publisher_capabilities : capability list
+(** Implemented acquisition strategies and their CLI prerequisites.
+    This inventory does not assert live credentials or publisher access. *)
+val publisher_capability : string -> capability option
+(** [publisher_capability publisher] uses the same publisher routing as
+    acquisition. A match identifies an implemented strategy, not verified
+    credentials, entitlement or availability for a particular paper. *)
 type failure = Http of int | Timeout | Invalid_content of string
   | Transport | Unavailable of string
 type attempt = { source : string; failure : failure }
@@ -12,6 +21,7 @@ type result = {
 }
 val failure_message : failure -> string
 val create :
+  ?audit:Taposaur_audit.session ->
   ?timeout:float -> ?max_bytes:int ->
   ?lookup_timeout:float -> ?busy_retries:int -> ?busy_wait:float ->
   ?cup:Taposaur_services.Cup.t ->

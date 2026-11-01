@@ -14,9 +14,13 @@ libraries. Neither is an implementation dependency of another library.
 | `taposaur.reader` | Loading document observations and resolving one archive paper | Database handles or persistence |
 | `taposaur.catalog` | SQLite queries, atomic publications and cache snapshots | Archive access, document readers or resolver policy |
 | `taposaur.indexing` | Import, enrichment and audit workflows | SQL implementation or HTML |
+| `taposaur.mirrors` | Exact DOI publisher lookups, retained responses and audit | Paper fetching, archive mutation or catalogue writes |
 | `taposaur.services` | Publisher and metadata HTTP clients | Environment loading or filesystem writes |
 | `taposaur.store` | Staging locks, events and recoverable publication | Accepted archive mutation or acquisition policy |
 | `taposaur.download` | Source selection, transfer and validation | Credentials from the environment or bulk scheduling |
+| `taposaur.review` | Query definitions, DOI sets and frozen metadata | I/O or database handles |
+| `taposaur.review-store` | Durable requests, revisions, runs and snapshots | Catalogue or archive access |
+| `taposaur.review-run` | Local review execution and capture | Network access or HTML |
 | `taposaur.web` | HTTP routing, artifact responses and views | Metadata selection or background indexing |
 
 Arrows show project dependencies. External dependencies are omitted.
@@ -24,6 +28,8 @@ Arrows show project dependencies. External dependencies are omitted.
 ```mermaid
 flowchart TD
   services --> core[taposaur]
+  mirrors --> services
+  mirrors --> core
   store --> core
   download --> services
   download --> store
@@ -148,3 +154,39 @@ legacy schema migration, multi-document resolution, parser limits and HTTP
 behavior. The architecture review also compares rendered preview pages
 before and after the refactor. The read/write handle distinction is checked
 by the OCaml compiler.
+
+## Review definitions and deliveries
+
+`taposaur.review` owns pure, versioned query definitions, input parsing,
+set selection, frozen bibliographic observations and deterministic exports.
+It depends on the core bibliography and identity types. It has no I/O.
+
+`taposaur.review-store` owns a separate local SQLite database. Review identity
+is fixed. Definition revisions use an expected-head comparison. Runs derive
+membership from retained inputs. Snapshots preserve that membership and
+freeze metadata separately. Inputs, observations and exports are deduplicated
+by SHA-256 inside the database. A snapshot, its rows, its manifest and its
+three exports and coverage statistics publish in one transaction. Statistics
+count recorded holdings and metadata presence from frozen observations, with
+publisher groups. The `statistics-v1` cached object uses the exports table.
+Older snapshots can acquire that derived cache without rewriting manifests.
+Schema 2 adds `snapshot_facets`, with frozen presence flags and trimmed
+publisher names. Expression indexes serve each presence filter in DOI order.
+A publisher index serves combined publisher and presence filters. A ready
+marker publishes with the complete cache. `cache-statistics` backfills both
+statistics and browsing indexes transactionally. Pages never resolve papers
+or scan observation JSON to filter membership.
+Public APIs do not mutate history.
+
+`taposaur.review-run` connects the store to read-only catalogue snapshots.
+It executes local DOI searches or accepts externally recorded results. It
+does not access the archive or network. All local queries in one run share a
+read transaction. Metadata capture for a fixed run uses a separate consistent
+read transaction. No review database writes occur while that transaction is
+held. Failed captures publish no snapshot and are restarted from fixed run
+membership. Resource budgets fail explicitly instead of truncating results.
+
+The CLI owns writes and caller-supplied actor attribution. The browser owns
+only read handles and never executes review queries, resolves source papers,
+or regenerates exports. The paper catalogue remains rebuildable. Review state
+must be backed up independently using a consistent SQLite backup.

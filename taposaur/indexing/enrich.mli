@@ -1,16 +1,23 @@
 (** Resolve imported papers and publish searchable metadata. *)
 
 type result = Updated | Partial of string list | Unavailable of string | Superseded
+type order = Directory | Uid
 type stats = {
   examined : int; updated : int; unavailable : int; superseded : int;
   partial : int;
 }
 val run :
+  ?audit:Taposaur_audit.session ->
+  ?publisher_lookup:(Taposaur.Doi.t -> Taposaur.Publisher_evidence.t option) ->
   ?retry_errors:bool -> ?force:bool -> ?limit:int -> ?uid:Taposaur.Uid.t -> ?jobs:int ->
+  ?order:order ->
   ?progress:(Taposaur.Uid.t -> result -> unit) ->
   Taposaur_catalog.write Taposaur_catalog.t -> Taposaur_archive.t -> stats
 (** [run catalog archive] resolves pending papers with the current paper
-    resolver. Reads occur outside SQL transactions, with at most [jobs]
+    resolver. [Directory] (default) completes each imported shard before
+    advancing to the next, reusing filesystem directory metadata. [Uid]
+    retains identifier order. Single-UID runs bypass shard enumeration.
+    Reads occur outside SQL transactions, with at most [jobs]
     concurrent papers (default 8, range 1..64). [limit] counts attempts,
     making limited runs resumable. Successful and partial resolutions also
     publish complete paper details. Older rows without details are backfilled.

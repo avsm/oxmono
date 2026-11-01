@@ -1,0 +1,12 @@
+(library
+ (name taposaur_regeneration)
+ (public_name taposaur.regeneration)
+ (libraries
+  taposaur.audit
+  taposaur
+  taposaur.document
+  unix
+  digestif
+  jsont
+  jsont.bytesrw
+  xmlm))

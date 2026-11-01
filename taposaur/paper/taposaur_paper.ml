@@ -3,7 +3,7 @@ module H = Bibliography
 let version = 1
 
 type source = Correction of Manifest.Correction.t | Manifest | Index
-  | Artifact of Manifest.Artifact.t
+  | Artifact of Manifest.Artifact.t | Mirror of Publisher_evidence.t
 
 type 'a evidence = { value : 'a; source : source }
 module Field = struct
@@ -19,6 +19,7 @@ module Field = struct
 end
 
 let source_name = function
+  | Mirror e -> Publisher_evidence.label e
   | Correction c -> "Correction by " ^ c.by ^ " at " ^ c.at
   | Manifest -> "Manifest"
   | Index -> "Index"
@@ -48,6 +49,7 @@ type document = {
 }
 
 type t = {
+  publisher_evidence : Publisher_evidence.t option;
   manifest : Manifest.t;
   index : Index.t option;
   metadata : metadata;
@@ -152,9 +154,18 @@ let resolve ?index (manifest : Manifest.t) documents =
       (List.find_opt (fun d -> Result.is_ok d.bibliography) teis) in
   let preferred_pdf = List.find_opt (fun (a : Manifest.Artifact.t) ->
     a.format = Manifest.Format.Pdf) manifest.artifacts in
-  { manifest; index; documents; preferred_tei; preferred_pdf;
+  { publisher_evidence=None; manifest; index; documents; preferred_tei; preferred_pdf;
     metadata = { title; authors; journal; publisher; published; year;
       abstract; volume; issue; pages; issn; doi; pmcid; pmid } }
+
+let with_publisher (e : Publisher_evidence.t) p =
+  let doi = match Doi.of_string e.doi with Ok d -> d | Error x -> invalid_arg x in
+  if Uid.doi p.manifest.id <> Some doi then invalid_arg "Publisher evidence DOI mismatch";
+  if String.trim e.publisher = "" || String.length e.sha256 <> 64 then
+    invalid_arg "Invalid publisher evidence";
+  if Field.value p.metadata.publisher <> None then p else
+    {p with publisher_evidence=Some e;metadata={p.metadata with
+      publisher=Field.of_list [{value=e.publisher;source=Mirror e}]}}
 
 let bibliography t =
   let m = t.metadata in
@@ -178,23 +189,25 @@ let observation_codec =
   |> Jsont.Object.finish
 
 let cache_codec =
-  Jsont.Object.map (fun version manifest documents -> version,manifest,documents)
-  |> Jsont.Object.mem "version" Jsont.int ~enc:(fun (v,_,_) -> v)
-  |> Jsont.Object.mem "manifest" Manifest.jsont ~enc:(fun (_,m,_) -> m)
+  Jsont.Object.map (fun version manifest documents publisher -> version,manifest,documents,publisher)
+  |> Jsont.Object.mem "version" Jsont.int ~enc:(fun (v,_,_,_) -> v)
+  |> Jsont.Object.mem "manifest" Manifest.jsont ~enc:(fun (_,m,_,_) -> m)
   |> Jsont.Object.mem "documents" (Jsont.list observation_codec)
-       ~enc:(fun (_,_,d) -> d)
+       ~enc:(fun (_,_,d,_) -> d)
+  |> Jsont.Object.opt_mem "publisher_evidence" Publisher_evidence.jsont
+       ~enc:(fun (_,_,_,p) -> p)
   |> Jsont.Object.finish
 
 let cache_string p =
   let documents = List.map (fun d -> match d.bibliography with
     | Ok b -> d.artifact.file, Some b, None
     | Error e -> d.artifact.file, None, Some e) p.documents in
-  Jsont_bytesrw.encode_string cache_codec (1, p.manifest, documents)
+  Jsont_bytesrw.encode_string cache_codec (1, p.manifest, documents, p.publisher_evidence)
 
 let of_cache_string ~index json =
   match Jsont_bytesrw.decode_string cache_codec json with
   | Error e -> Error e
-  | Ok (version, manifest, observations) ->
+  | Ok (version, manifest, observations, publisher) ->
       try
         if version <> 1 then invalid_arg "Unsupported paper cache version";
         let seen = Hashtbl.create 8 in
@@ -208,5 +221,6 @@ let of_cache_string ~index json =
             | Some b, None -> Ok b | None, Some e -> Error e
             | _ -> invalid_arg "Invalid cached document outcome" in
           {artifact; bibliography}) observations in
-        Ok (resolve ~index manifest documents)
+        let p = resolve ~index manifest documents in
+        Ok (Option.fold ~none:p ~some:(fun e -> with_publisher e p) publisher)
       with Invalid_argument e -> Error e

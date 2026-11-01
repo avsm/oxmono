@@ -13,6 +13,7 @@ type page = Search.page = {
 let search = Search.search
 let find = Search.find
 let find_index = Search.find_index
+module Snapshot = Snapshot
 type stats = Statistics.t = {
   papers : int; pdf : int; xml : int; tei : int; s2orc : int;
   loaded_shards : int; discovered_shards : int option;

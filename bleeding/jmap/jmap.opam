@@ -31,10 +31,12 @@ depends: [
   "mtime"
   "optint"
   "cmdliner"
+  "console"
   "fmt"
   "alcotest" {with-test}
   "mdx" {with-test}
   "http" {with-test}
+  "imap" {with-test}
   "odoc" {with-doc}
 ]
 build: [

@@ -51,6 +51,26 @@ tests never touch the server again. Replace `sync` with `smoke`, `email`,
 `submission`, `push`, … to run one area, or use `@test/oracle/runtest` for
 all of them.
 
+### IMAP/JMAP interoperability
+
+The `cross_protocol` suite links the same local oracle harness and the
+installed `imap` package. It checks exact message bytes and bidirectional
+keyword changes through both protocols without copying sibling source files.
+It also runs offline tests for flags that cannot be represented in JMAP.
+
+From this project's root:
+
+```sh
+dune build --profile release-check @test/oracle/cross_protocol/runtest --force
+```
+
+The live case needs `JMAP_ORACLE_URL` and `IMAP_ORACLE_HOST`.
+`IMAP_ORACLE_PORT` defaults to 18143. Set `IMAP_ORACLE_REQUIRED=1` to fail
+instead of skipping when either endpoint is absent. The fixture scripts can
+publish an IMAP port with `JMAP_ORACLE_IMAP_PORT` and check it with
+`JMAP_ORACLE_CHECK_IMAP=1`. IMAP is a test-only dependency of JMAP; IMAP's
+package no longer has a test dependency on JMAP, avoiding a package cycle.
+
 ### Environment variables
 
 | variable                | default                                    | meaning |

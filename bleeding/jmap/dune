@@ -1,1 +1,12 @@
 (data_only_dirs third_party spec mosaic)
+
+; Keep standalone builds consistent with the monorepo profiles.
+(env
+ (dev
+  (ocamlopt_flags (:standard -zero-alloc-check none)))
+ (release
+  (ocamlopt_flags (:standard -zero-alloc-check none)))
+ (release-check
+  (ocamlopt_flags (:standard -O3 -zero-alloc-check all)))
+ (afl
+  (ocamlopt_flags (:standard -zero-alloc-check none -afl-instrument))))

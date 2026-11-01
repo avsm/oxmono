@@ -27,9 +27,9 @@ depends: [
   "digestif"
   "optint"
   "cmdliner"
+  "console"
   "alcotest" {with-test}
   "ptime" {with-test}
-  "jmap" {with-test}
   "odoc" {with-doc}
 ]
 build: [

@@ -241,7 +241,7 @@
       "branch": "refs/tags/1.0.0_alpha3",
       "revision": "f1c456f7161cfe3a57a9bd4083605175f72989b4",
       "base_version": "1.0.0~alpha3",
-      "scope": "Nx lib/ and bundled vendor/ dependencies from the alpha3 release. Other Raven packages, mdx documentation, examples and upstream test frameworks are omitted.",
+      "scope": "Nx lib/ and bundled vendor/ dependencies from the alpha3 release. Other Raven packages, mdx documentation, examples and most upstream tests are omitted. Retained buffer tests depend on windtrap. Local NPY differential tests use the bundled pristine writer and C backend.",
       "verified_on": "2026-10-07",
       "archive_url": "https://github.com/raven-ml/raven/releases/download/1.0.0_alpha3/raven-1.0.0.alpha3.tbz",
       "archive_checksums": [

@@ -29,6 +29,6 @@
   digestif
   optint
   cmdliner
+  console
   (alcotest :with-test)
-  (ptime :with-test)
-  (jmap :with-test)))
+  (ptime :with-test)))

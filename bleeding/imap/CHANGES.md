@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Use the current Console terminal setup API and declare its dependency.
+- Move the cross-protocol oracle suite into JMAP beside its harness; remove
+  the JMAP test dependency and sibling-source copy. Keep standalone build profiles.
+
 Accept zero-padded literal counts in retained control and FETCH responses.
 Marker validation no longer allocates formatted counts or substrings.
 

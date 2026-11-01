@@ -10,7 +10,8 @@ The release archive SHA-256 is
 The array frontend, buffer, core, effect interface, virtual backend, C backend
 and tensor I/O are imported. Nx's bundled camlzip, stb image readers/writers
 and pocketfft are retained. Other Raven packages, examples, documentation
-builds and upstream test frameworks are omitted. See README.upstream.md for
+builds and most upstream tests are omitted. The retained buffer tests require
+`windtrap`, as declared in `nx.opam`. See README.upstream.md for
 Nx usage. Tessera selects the separately imported `nx-oxcaml` backend.
 
 Nx is ISC licensed. The NPY implementation credits Laurent Mazare's
@@ -43,8 +44,11 @@ checks. No local NPY parser or dtype encoding is duplicated in Tessera.
    Refresh `upstream/npy.ml` from the pristine release.
 3. Build `vendor/nx/lib/backend_c/nx_c.cmxa`, `@bleeding/nx-oxcaml/all` and
    `@bleeding/tessera/all` with the workspace OxCaml compiler.
-4. Force tests under `bleeding/nx-oxcaml` and `bleeding/tessera`.
-   They exercise the backend, compare streamed NPY bytes with the pristine
-   writer, read streamed files through Nx, and preserve Tessera's NumPy
-   golden bytes. Scalar headers are compared separately because the
-   pristine file writer rejects rank-zero arrays in Unix.map_file.
+4. Run `dune build --profile release-check @@vendor/nx/test/io/runtest --force`
+   explicitly: recursive workspace aliases skip vendored tests. This suite
+   uses Nx's C backend, compares streamed NPY bytes with the pristine writer
+   and reads streamed files through Nx. In an extracted Nx project use
+   `dune build --profile release-check @test/io/runtest --force`.
+5. Force tests under `bleeding/nx-oxcaml` and `bleeding/tessera` for backend
+   and application integration, including Tessera's NumPy golden bytes. Scalar
+   headers are compared separately because the pristine file writer rejects rank-zero arrays in Unix.map_file.

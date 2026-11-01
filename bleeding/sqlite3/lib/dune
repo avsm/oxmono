@@ -30,3 +30,8 @@
   sqlite3.h)
  (action
   (run %{cc} %{read-lines:c_vendor_flags} -c -o %{targets} %{c})))
+
+(install
+ (section lib)
+ (package sqlite3)
+ (files sqlite3.h))

@@ -16,7 +16,7 @@
   >         f.write(value)
   >     os.chmod(path, 0o600)
   > PY
-  $ ../../../bleeding/sekrit/bin/main.exe init
+  $ sekrit init
   Encrypted secret store initialized.
   $ ../bin/main.exe config owntracks add home --profile one --user alice --device 'Anil Phone' </dev/null
   Configuration saved. Restart Crow to apply it.

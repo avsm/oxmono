@@ -4,6 +4,9 @@
 
 ### Added
 
+- Install the bundled `sqlite3.h` for extension packages such as sqlite-vec.
+  Keep allocation-check profiles available outside the monorepo.
+
 - `Sqlite3_eio.run` evaluates a function over the handle in one system
   thread, so a loop of statements costs one thread hop instead of one each.
 - Makefile target to generate `compile_commands.json` for improved LSP support

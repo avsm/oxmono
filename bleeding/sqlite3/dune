@@ -1,9 +1,14 @@
 (env
  (dev
+  (ocamlopt_flags (:standard -zero-alloc-check none))
   (flags
    (:standard -w -9 -principal))
   (c_flags
    (:standard -Wall -pedantic -Wextra -Wunused)))
  (release
   (ocamlopt_flags
-   (:standard -O3))))
+   (:standard -O3 -zero-alloc-check none)))
+ (release-check
+  (ocamlopt_flags (:standard -O3 -zero-alloc-check all)))
+ (afl
+  (ocamlopt_flags (:standard -zero-alloc-check none -afl-instrument))))

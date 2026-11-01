@@ -7,7 +7,9 @@ Source: https://github.com/asg017/sqlite-vec/releases/tag/v0.1.9
 Asset: `sqlite-vec-0.1.9-amalgamation.tar.gz`.
 SHA256: `3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61`.
 
-The local Dune file compiles against the repository SQLite header with
+The local Dune file obtains SQLite's header through the installed `sqlite3`
+package, rather than a sibling source path. Use the OxMono SQLite package,
+which installs the header for its bundled SQLite version. It compiles with
 `SQLITE_CORE`, `SQLITE_VEC_STATIC` and `SQLITE_VEC_OMIT_FS`. Filesystem
 vector readers are disabled. The OCaml binding registers the static extension
 through `sqlite3_auto_extension`, so macOS needs no loadable extensions.

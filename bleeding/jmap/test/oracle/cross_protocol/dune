@@ -1,0 +1,21 @@
+(test
+ (name test_cross_protocol)
+ (modules test_cross_protocol)
+ (package jmap)
+ (locks oracle)
+ (deps
+  (env_var IMAP_ORACLE_REQUIRED)
+  (env_var IMAP_ORACLE_HOST)
+  (env_var IMAP_ORACLE_PORT)
+  (env_var JMAP_ORACLE_URL))
+ (libraries
+  oracle_harness
+  imap
+  imap.eio
+  jmap
+  jmap.eio
+  mail-flag
+  eio
+  eio.unix
+  eio_main
+  alcotest))

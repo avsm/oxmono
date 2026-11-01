@@ -2,5 +2,6 @@
  (name httpz_media)
  (public_name httpz.media)
  (modules httpz_media media json markdown urlencoded multipart sse)
- (private_modules media json markdown)
+ ; The public interface re-exports Media, so its CMI must be installed.
+ (private_modules json markdown)
  (libraries base bytesrw httpz httpz.uri jsont jsont.bytesrw cmarkit stdlib_stable))

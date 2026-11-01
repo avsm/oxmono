@@ -1,5 +1,9 @@
 # Changes
 
+- Use the current Console terminal setup API and declare its dependency.
+- Own the cross-protocol IMAP/JMAP oracle suite and declare its IMAP test
+  dependency. Keep standalone build profiles.
+
 - Accept authenticated session API URLs on other HTTPS origins or with queries.
   Keep mail requests pinned to the exact endpoint, account and permitted methods.
 

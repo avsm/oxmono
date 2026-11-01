@@ -15,6 +15,7 @@ export JMAP_ORACLE_MGMT_PORT=0 JMAP_ORACLE_IMAP_PORT=0
 export JMAP_ORACLE_CHECK_IMAP=1
 eval "$(bleeding/jmap/scripts/oracle-up.sh "$name")"
 # Run: dune build --force @bleeding/imap/test/oracle/runtest
+# Cross-protocol: dune build --force @bleeding/jmap/test/oracle/cross_protocol/runtest
 bleeding/jmap/scripts/oracle-down.sh "$name"
 ```
 
@@ -52,16 +53,17 @@ Separate local removal and targeted UID EXPUNGE checks prove that a complete
 scan records tombstones without recreating the missing occurrence.
 The second live test requires RFC 8474 OBJECTID, verifies a selected
 MAILBOXID and fetches typed EMAILID/THREADID metadata for an appended UID.
-`test_cross_protocol` uses the existing JMAP harness (copied only into the test
-build) to import a message and read its exact bytes through IMAP, then APPEND a
-second message and download its exact bytes through JMAP. It checks unseen
+The cross-protocol suite now lives in the JMAP project's
+`test/oracle/cross_protocol/` directory, beside its shared oracle harness.
+It runs with the command above to import a message and read its exact bytes
+through IMAP, then APPEND a second message and download its exact bytes through
+JMAP. It checks unseen
 preservation by BODY.PEEK, JMAP keyword changes observed through IMAP SEARCH,
 and IMAP STORE changes observed through JMAP Email/get, in an isolated mailbox.
-Required mode rejects missing JMAP or IMAP endpoints. Offline mapping cases cover overlength keywords, Recent, unknown system flags
-and colliding names. The live case distinguishes custom `seen` from system
+Required mode rejects missing JMAP or IMAP endpoints. Offline mapping cases
+cover overlength keywords, Recent, unknown system flags and colliding names. The live case distinguishes custom `seen` from system
 Seen, requires Deleted messages to be invisible through JMAP get/query, then
 checks keyword-preserving restoration after removal of Deleted. Mailbox counts
-and the broader MIME/duplicate corpus remain open. Neither IMAP
-oracle executable currently uses LMTP. The server's
-fake authentication accepts arbitrary
-passwords, so it does not test authentication rejection or TLS verification.
+and the broader MIME/duplicate corpus remain open. Neither the IMAP suite nor
+the cross-protocol suite uses LMTP. The server's fake authentication accepts
+arbitrary passwords, so it does not test authentication rejection or TLS verification.

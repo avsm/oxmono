@@ -1,5 +1,8 @@
 # Changes
 
+- Resolve Sekrit through its installed executable in CLI tests, and retain
+  standalone build profiles.
+
 - Encrypt named tool configurations with Sekrit and add explicit plaintext
   migration using the central master key.
 

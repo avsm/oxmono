@@ -1,4 +1,6 @@
-(copy_files ../../bleeding/sqlite3/vendor/sqlite3/sqlite3.h)
+(rule
+ (target sqlite3.h)
+ (action (copy %{lib:sqlite3:sqlite3.h} %{target})))
 
 (library
  (name sqlite_vec)
@@ -13,3 +15,14 @@
    -DSQLITE_CORE
    -DSQLITE_VEC_STATIC
    -DSQLITE_VEC_OMIT_FS)))
+
+; Keep standalone builds consistent with the monorepo profiles.
+(env
+ (dev
+  (ocamlopt_flags (:standard -zero-alloc-check none)))
+ (release
+  (ocamlopt_flags (:standard -zero-alloc-check none)))
+ (release-check
+  (ocamlopt_flags (:standard -O3 -zero-alloc-check all)))
+ (afl
+  (ocamlopt_flags (:standard -zero-alloc-check none -afl-instrument))))

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Install the media interface needed by its public re-export, preserving
+  nested modules and portability guarantees for standalone consumers.
+
 - Allow JSON and JSON Lines codec construction inside portable handlers.
 
 - Report WebSocket read activity and expose rejected upgrade status codes.

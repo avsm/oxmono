@@ -23,8 +23,10 @@ and architecture-selected NEON or SSE kernels. Link `nx-oxcaml` alongside
   upstream's exact `5.4.0+ox` switch.
 - Upstream's library, C stubs and 963 backend checks are retained. Benchmarks
   and their optional ubench dependency are omitted.
-- `test/io` checks the imported Nx NPY extension against the pristine
-  implementation and exercises streaming and Nx reader/writer round trips.
+- The backend tests remain in this project. The Nx NPY differential and
+  streaming tests live in `vendor/nx/test/io`, alongside Nx's pristine
+  reference source and C backend. This project's source archive no longer
+  reads a sibling vendor checkout.
 
 The upstream domain pool is retained. Creating an Nx context starts its
 workers. Its global pool is not designed for simultaneous unrelated calls

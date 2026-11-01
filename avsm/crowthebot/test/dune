@@ -61,7 +61,7 @@
  (libraries crowthebot eio_main))
 
 (cram
- (deps ../bin/main.exe ../../../bleeding/sekrit/bin/main.exe))
+ (deps ../bin/main.exe %{bin:sekrit}))
 
 (test
  (name test_feeds)

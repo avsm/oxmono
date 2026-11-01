@@ -73,9 +73,42 @@ let positional index docv doc =
 
 let knot = optional [ "knot"; "k" ] "KNOT" "Knot hostname or HTTP(S) origin."
 
+(* For test gateways only, so it stays out of the manual. *)
 let audience =
-  optional [ "audience" ] "DID"
-    "Override the service token audience (for test gateways)."
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "audience" ] ~docv:"DID" ~docs:Manpage.s_none
+        ~env:(Cmd.Env.info "TANGLED_AUDIENCE")
+        ~doc:"Override the audience of service tokens.")
+
+let repo_doc =
+  "Repository as handle/name, or a name of your own. Its DID or declaration \
+   URI also work. The default is the repository the current directory is a \
+   clone of."
+
+(* The repository a command acts in. *)
+let repo =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "repo"; "r" ] ~docv:"REPO" ~doc:repo_doc)
+
+(* The repository a command acts on, as its argument. *)
+let repo_arg =
+  Arg.(value & pos 0 (some string) None & info [] ~docv:"REPO" ~doc:repo_doc)
+
+let repo_spec = function
+  | Some spec -> spec
+  | None -> (
+      match Local.repo () with
+      | Some spec -> spec
+      | None ->
+          failwith
+            "This directory is not a clone of a Tangled repository. Name one \
+             with --repo.")
+
+let resolve api ?knot spec = Api.resolve_repo api ?knot (repo_spec spec)
 
 let user =
   optional [ "user"; "u" ] "USER" "Handle or DID (default: logged-in user)."
@@ -148,3 +181,47 @@ let read_json path =
   match Jsont_bytesrw.decode_string Jsont.json (read_file path) with
   | Ok value -> value
   | Error message -> invalid_arg message
+
+(* [body] is a ticket or comment body, given inline or read from a file. *)
+let body =
+  let inline =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "body"; "b" ] ~docv:"TEXT" ~doc:"Body text, in Markdown.")
+  in
+  let file =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "body-file"; "F" ] ~docv:"FILE"
+          ~doc:"Read the body from FILE, or from standard input for -.")
+  in
+  let choose inline file =
+    match (inline, file) with
+    | Some _, Some _ -> Error (`Msg "Give --body or --body-file, not both")
+    | Some text, None -> Ok (Some text)
+    | None, Some path -> (
+        match read_file path with
+        | text -> Ok (Some text)
+        | exception (Sys_error m | Invalid_argument m) -> Error (`Msg m))
+    | None, None -> Ok None
+  in
+  Term.(term_result ~usage:true (const choose $ inline $ file))
+
+let spindle =
+  optional [ "spindle"; "s" ] "SPINDLE"
+    "Spindle hostname or DID (default: the repository's spindle)."
+
+(* The repository DID and spindle origin for [repo]. A repository DID with an
+   explicit spindle needs no knot or PDS lookup. *)
+let spindle_target api ~repo ~spindle =
+  let repo = repo_spec repo in
+  match spindle with
+  | Some s
+    when String.starts_with ~prefix:"did:" repo
+         && not (String.contains repo '/') ->
+      (repo, Api.spindle_url api s)
+  | _ ->
+      let repository = Api.resolve_repo api repo in
+      (repository.did, Api.spindle_of api ?spindle repository)

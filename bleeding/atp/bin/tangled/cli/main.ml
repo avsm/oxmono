@@ -33,7 +33,6 @@ let main_cmd =
       Cmd_star.cmd;
       Cmd_pipeline.cmd;
       Cmd_spindle.cmd;
-      Cmd_record.cmd;
       Cmd_api.cmd;
       Cmd_issue.cmd;
       Cmd_issue.pull_cmd;

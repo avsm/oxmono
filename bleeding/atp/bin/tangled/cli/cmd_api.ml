@@ -221,5 +221,8 @@ let list_cmd =
 
 let cmd =
   Cmd.group
-    (Cmd.info "api" ~doc:"Discover and call every vendored Tangled API.")
-    [ list_cmd; schema_cmd; call_cmd ]
+    (Cmd.info "api"
+       ~doc:
+         "Discover and call any Tangled method, or read and write raw records. \
+          For what the other commands do not cover.")
+    [ list_cmd; schema_cmd; call_cmd; Cmd_record.cmd ]

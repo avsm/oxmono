@@ -476,5 +476,5 @@ let cmd =
       logout_cmd;
       status_cmd;
       client_metadata_cmd;
-      Xrpc_auth.Cmd.profile_cmd ~app_name ();
+      Xrpc_auth.Cmd.profile_cmd ~name:"account" ~app_name ();
     ]

@@ -3,44 +3,66 @@ open Cmdliner
 module Api = Tangled.Api
 module Ci = Api.Lex.Ci
 
-let spindle =
-  Common.optional [ "spindle"; "s" ] "SPINDLE"
-    "Spindle hostname or DID (default: the repository's spindle)."
+let spindle = Common.spindle
+let repo = Common.repo
 
-let repo =
+let pipeline =
   Arg.(
-    required
-    & opt (some string) None
-    & info [ "repo"; "r" ] ~docv:"REPO"
+    value
+    & pos 0 (some string) None
+    & info [] ~docv:"PIPELINE"
         ~doc:
-          "Repository as handle/name, or a name of your own. Its DID or \
-           declaration URI also work.")
-
-let pipeline = Common.positional 0 "PIPELINE" "Spindle-local pipeline ID."
+          "Pipeline ID, as list shows it (default: the latest for the \
+           checked-out commit, or else the latest).")
 
 let commit =
-  Arg.(
-    required
-    & opt (some string) None
-    & info [ "commit"; "sha" ] ~docv:"SHA" ~doc:"Exact commit ID.")
+  Common.optional [ "commit"; "sha" ] "SHA"
+    "Commit to run (default: the checked-out commit)."
 
 let ref_ =
-  Common.optional [ "ref" ] "REF" "Git reference the commit was resolved from."
+  Common.optional [ "ref" ] "REF"
+    "Git reference the commit was resolved from (default: the current branch)."
 
 let inputs =
   Common.strings [ "input" ] "KEY=VALUE" "Workflow input (repeatable)."
 
-(* The repository DID and spindle origin for [repo]. A repository DID with an
-   explicit spindle needs no knot or PDS lookup. *)
-let target api ~repo ~spindle =
-  if
-    String.starts_with ~prefix:"did:" repo
-    && (not (String.contains repo '/'))
-    && spindle <> None
-  then (repo, Api.spindle_url api (Option.get spindle))
-  else
-    let repository = Api.resolve_repo api repo in
-    (repository.did, Api.spindle_of api ?spindle repository)
+let target api ~repo ~spindle = Common.spindle_target api ~repo ~spindle
+
+(* [latest api ~repo ~spindle ~inferred] is the ID of the newest pipeline. In
+   a clone of the repository it prefers one for the checked-out commit. *)
+let latest api ~repo ~spindle ~inferred =
+  let newest commits =
+    match
+      (Api.query_pipelines api ~spindle ~repo ~commits ~limit:1 ()).pipelines
+    with
+    | p :: _ -> Some (Api.decode Ci.Defs.pipeline_jsont p).id
+    | [] -> None
+  in
+  let head = if inferred then Local.head () else None in
+  match Option.bind head (fun h -> newest [ h ]) with
+  | Some id -> id
+  | None -> (
+      match newest [] with
+      | Some id ->
+          Option.iter
+            (fun h ->
+              Logs.warn (fun m ->
+                  m "No pipeline ran on %s. Using the latest, %s."
+                    (Ui.short_sha h) id))
+            head;
+          id
+      | None -> failwith "The repository has no pipelines yet")
+
+(* [resolve api ~repo ~spindle pipeline] is the repository DID, spindle and
+   pipeline a command acts on. *)
+let resolve api ~repo ~spindle pipeline =
+  let did, spindle = target api ~repo ~spindle in
+  let id =
+    match pipeline with
+    | Some id -> id
+    | None -> latest api ~repo:did ~spindle ~inferred:(repo = None)
+  in
+  (did, spindle, id)
 
 let trigger_name trigger =
   match Tangled.Schema.member "$type" trigger with
@@ -111,12 +133,14 @@ let show_pipeline (p : Ci.Defs.pipeline) =
               runs);
        ])
 
-let show name =
+let show_cmd =
   let action pipeline repo spindle json =
     Common.run (fun env ->
         let value =
-          Common.with_api ~busy:("Reading pipeline " ^ pipeline) env (fun api ->
-              let repo, spindle = target api ~repo ~spindle in
+          Common.with_api ~busy:"Reading pipeline" env (fun api ->
+              let repo, spindle, pipeline =
+                resolve api ~repo ~spindle pipeline
+              in
               Api.get_pipeline api ~spindle ~repo ~pipeline)
         in
         if json then Common.print Ci.Defs.pipeline_jsont value
@@ -124,7 +148,7 @@ let show name =
         else Fmt.pr "%a" pp_pipeline value)
   in
   Common.cmd
-    (Cmd.info name ~doc:"Show a pipeline and its workflow statuses.")
+    (Cmd.info "show" ~doc:"Show a pipeline and its workflow statuses.")
     Term.(
       term_result (const action $ pipeline $ repo $ spindle $ Common.json_flag))
 
@@ -200,6 +224,19 @@ let trigger_cmd =
   let action repo spindle audience commit ref_ inputs workflows =
     Common.run (fun env ->
         let inputs = List.map Common.pair inputs in
+        let commit =
+          match commit with
+          | Some c -> c
+          | None -> (
+              match Local.head () with
+              | Some h -> h
+              | None -> failwith "Name the commit to run with --commit.")
+        in
+        let ref_ =
+          match ref_ with
+          | Some _ -> ref_
+          | None -> Option.map (fun b -> "refs/heads/" ^ b) (Local.branch ())
+        in
         print_ci
           (Common.with_api ~busy:"Triggering workflows" env (fun api ->
                let repo, spindle = target api ~repo ~spindle in
@@ -209,7 +246,7 @@ let trigger_cmd =
   in
   Common.cmd
     (Cmd.info "trigger"
-       ~doc:"Run workflows at an explicit commit. Prints the pipeline IDs.")
+       ~doc:"Run workflows on a commit the knot has. Prints the pipeline IDs.")
     Term.(
       term_result
         (const action $ repo $ spindle $ Common.audience $ commit $ ref_
@@ -219,8 +256,10 @@ let retry_cmd =
   let action pipeline repo spindle audience workflows =
     Common.run (fun env ->
         let id =
-          Common.with_api ~busy:("Retrying " ^ pipeline) env (fun api ->
-              let repo, spindle = target api ~repo ~spindle in
+          Common.with_api ~busy:"Retrying" env (fun api ->
+              let repo, spindle, pipeline =
+                resolve api ~repo ~spindle pipeline
+              in
               Api.retry_pipeline api ~spindle ?audience ~repo ~pipeline
                 ?workflows:(Common.nonempty workflows)
                 ())
@@ -237,11 +276,16 @@ let retry_cmd =
 let cancel_cmd =
   let action pipeline repo spindle audience workflows =
     Common.run (fun env ->
-        Common.with_api ~busy:("Cancelling " ^ pipeline) env (fun api ->
-            let repo, spindle = target api ~repo ~spindle in
-            Api.cancel_pipeline api ~spindle ?audience ~repo ~pipeline
-              ?workflows:(Common.nonempty workflows)
-              ());
+        let pipeline =
+          Common.with_api ~busy:"Cancelling" env (fun api ->
+              let repo, spindle, pipeline =
+                resolve api ~repo ~spindle pipeline
+              in
+              Api.cancel_pipeline api ~spindle ?audience ~repo ~pipeline
+                ?workflows:(Common.nonempty workflows)
+                ();
+              pipeline)
+        in
         Ui.ok "Cancelled pipeline %s" pipeline)
   in
   Common.cmd
@@ -254,9 +298,14 @@ let cancel_cmd =
 let approve_cmd =
   let action pipeline repo spindle audience =
     Common.run (fun env ->
-        Common.with_api ~busy:("Approving " ^ pipeline) env (fun api ->
-            let repo, spindle = target api ~repo ~spindle in
-            Api.approve_pipeline api ~spindle ?audience ~repo ~pipeline ());
+        let pipeline =
+          Common.with_api ~busy:"Approving" env (fun api ->
+              let repo, spindle, pipeline =
+                resolve api ~repo ~spindle pipeline
+              in
+              Api.approve_pipeline api ~spindle ?audience ~repo ~pipeline ();
+              pipeline)
+        in
         Ui.ok "Approved pipeline %s" pipeline)
   in
   Common.cmd
@@ -267,8 +316,8 @@ let approve_cmd =
 let logs_cmd =
   let action pipeline repo spindle workflows json =
     Common.run (fun env ->
-        let repo, spindle =
-          Common.with_api env (fun api -> target api ~repo ~spindle)
+        let repo, spindle, pipeline =
+          Common.with_api env (fun api -> resolve api ~repo ~spindle pipeline)
         in
         let params =
           [ ("repo", repo); ("pipeline", pipeline) ]
@@ -309,48 +358,177 @@ let logs_cmd =
         (const action $ pipeline $ repo $ spindle $ Common.workflows
        $ Common.json_flag))
 
-let definitions_cmd =
-  let action repo spindle ref_ json =
+let source_text source =
+  match Tangled.Schema.member "$type" source with
+  | Some t -> (
+      let field name =
+        Option.map Tangled.Schema.text (Tangled.Schema.member name source)
+      in
+      match Tangled.Schema.text t with
+      | "org.tangled.ci.defs#externalSource" -> field "link"
+      | _ -> field "path")
+  | None -> None
+
+let workflows_cmd =
+  let name =
+    Arg.(
+      value
+      & pos 0 (some string) None
+      & info [] ~docv:"NAME" ~doc:"Show this workflow's definition.")
+  in
+  let action repo spindle ref_ name json =
     Common.run (fun env ->
-        let defs =
-          Common.with_api ~busy:"Reading workflow definitions" env (fun api ->
-              let repo, spindle = target api ~repo ~spindle in
-              Api.workflow_definitions api ~spindle ~repo ?ref_ ())
-        in
-        if json || not (Ui.tty ()) then
-          Common.print Ci.ListWorkflowDefinitions.output_jsont defs
-        else
-          let workflows =
-            List.map (Api.decode Ci.Defs.workflow_jsont) defs.workflows
-          in
-          Ui.table
-            ~heading:(Ui.heading "Workflows" (List.length workflows))
-            [ Ui.column "Name"; Ui.column "Triggers"; Ui.column "Hash" ]
-            (List.map
-               (fun (w : Ci.Defs.workflow) ->
-                 [
-                   Ui.bold (Option.value ~default:w.id w.name);
-                   Ui.text (String.concat ", " w.triggers);
-                   Ui.muted (Option.fold ~none:"" ~some:Ui.short_sha w.hash);
-                 ])
-               workflows))
+        match name with
+        | Some workflow ->
+            let w =
+              Common.with_api ~busy:("Reading " ^ workflow) env (fun api ->
+                  let repo, spindle = target api ~repo ~spindle in
+                  Api.workflow_definition api ~spindle ~repo workflow)
+            in
+            if json || not (Ui.tty ()) then
+              Common.print Ci.Defs.workflow_jsont w
+            else
+              Ui.panel
+                (Ui.title (Option.value ~default:w.id w.name))
+                (Ui.fields
+                   [
+                     ("ID", Some (Ui.muted w.id));
+                     ( "Triggers",
+                       Some (Ui.text (String.concat ", " w.triggers)) );
+                     ("Source", Option.map Ui.link (source_text w.source));
+                     ("Hash", Option.map Ui.muted w.hash);
+                   ])
+        | None ->
+            let defs =
+              Common.with_api ~busy:"Reading workflows" env (fun api ->
+                  let repo, spindle = target api ~repo ~spindle in
+                  Api.workflow_definitions api ~spindle ~repo ?ref_ ())
+            in
+            if json || not (Ui.tty ()) then
+              Common.print Ci.ListWorkflowDefinitions.output_jsont defs
+            else
+              let workflows =
+                List.map (Api.decode Ci.Defs.workflow_jsont) defs.workflows
+              in
+              Ui.table
+                ~heading:(Ui.heading "Workflows" (List.length workflows))
+                [ Ui.column "Name"; Ui.column "Triggers"; Ui.column "Hash" ]
+                (List.map
+                   (fun (w : Ci.Defs.workflow) ->
+                     [
+                       Ui.bold (Option.value ~default:w.id w.name);
+                       Ui.text (String.concat ", " w.triggers);
+                       Ui.muted
+                         (Option.fold ~none:"" ~some:Ui.short_sha w.hash);
+                     ])
+                   workflows))
   in
   Common.cmd
-    (Cmd.info "definitions"
-       ~doc:"List the workflows a spindle would run. Pipes get JSON.")
-    Term.(term_result (const action $ repo $ spindle $ ref_ $ Common.json_flag))
+    (Cmd.info "workflows"
+       ~doc:
+         "List the workflows the spindle would run, or show one. Pipes get \
+          JSON.")
+    Term.(
+      term_result
+        (const action $ repo $ spindle $ ref_ $ name $ Common.json_flag))
+
+let secret_list =
+  let action repo spindle audience json =
+    Common.run (fun env ->
+        let secrets =
+          Common.with_api ~busy:"Reading secrets" env (fun api ->
+              let repo, spindle = target api ~repo ~spindle in
+              Api.secrets api ~spindle ?audience ~repo ())
+        in
+        let module S = Api.Lex.Secret.ListSecrets in
+        if json then Common.print (Jsont.list S.secret_jsont) secrets
+        else if Ui.tty () then
+          Ui.table
+            ~heading:(Ui.heading "Secrets" (List.length secrets))
+            [ Ui.column "Key"; Ui.column "Added"; Ui.column "By" ]
+            (List.map
+               (fun (s : S.secret) ->
+                 [
+                   Ui.bold s.key; Ui.muted s.created_at; Ui.muted s.created_by;
+                 ])
+               secrets)
+        else List.iter (fun (s : S.secret) -> print_endline s.key) secrets)
+  in
+  Common.cmd
+    (Cmd.info "list" ~doc:"List the names of the repository's CI secrets.")
+    Term.(
+      term_result
+        (const action $ repo $ spindle $ Common.audience $ Common.json_flag))
+
+let secret_key = Common.positional 0 "KEY" "Secret name, as workflows see it."
+
+let secret_set =
+  let value =
+    Common.optional [ "value" ] "VALUE"
+      "Secret value. Without it the value is read from standard input, which \
+       keeps it out of the shell history."
+  in
+  let action repo spindle audience key value =
+    Common.run (fun env ->
+        let value =
+          match value with
+          | Some v -> v
+          | None ->
+              if Unix.isatty Unix.stdin then
+                Fmt.epr "Value for %s, then Ctrl-D:@." key;
+              let v = In_channel.input_all stdin in
+              (* A value typed or echoed ends in a newline that is not part
+                 of it. *)
+              if String.ends_with ~suffix:"\n" v then
+                String.sub v 0 (String.length v - 1)
+              else v
+        in
+        if value = "" then failwith "A secret cannot be empty";
+        Common.with_api ~busy:("Setting " ^ key) env (fun api ->
+            let repo, spindle = target api ~repo ~spindle in
+            Api.add_secret api ~spindle ?audience ~repo ~key value);
+        Ui.ok "Set secret %s" key)
+  in
+  Common.cmd
+    (Cmd.info "set" ~doc:"Add a CI secret.")
+    Term.(
+      term_result
+        (const action $ repo $ spindle $ Common.audience $ secret_key $ value))
+
+let secret_remove =
+  let action repo spindle audience key =
+    Common.run (fun env ->
+        Common.with_api ~busy:("Removing " ^ key) env (fun api ->
+            let repo, spindle = target api ~repo ~spindle in
+            Api.remove_secret api ~spindle ?audience ~repo key);
+        Ui.ok "Removed secret %s" key)
+  in
+  Common.cmd
+    (Cmd.info "remove" ~doc:"Remove a CI secret.")
+    Term.(
+      term_result
+        (const action $ repo $ spindle $ Common.audience $ secret_key))
+
+let secret_group =
+  Cmd.group
+    (Cmd.info "secret"
+       ~doc:"Manage the secrets a repository's workflows can read.")
+    [ secret_list; secret_set; secret_remove ]
 
 let cmd =
   Cmd.group
-    (Cmd.info "pipeline" ~doc:"Query and control CI on a spindle.")
+    (Cmd.info "pipeline"
+       ~doc:
+         "Follow and control CI. A missing pipeline ID means the latest for \
+          the checked-out commit.")
     [
       list_cmd;
-      show "show";
-      show "status";
+      show_cmd;
+      logs_cmd;
       trigger_cmd;
       retry_cmd;
       cancel_cmd;
       approve_cmd;
-      logs_cmd;
-      definitions_cmd;
+      workflows_cmd;
+      secret_group;
     ]

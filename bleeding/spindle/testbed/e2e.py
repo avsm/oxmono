@@ -35,10 +35,11 @@ def user_env(user):
                 TANGLED_PASSWORD="local-password")
 
 
-def tangled(*args, user="alice", ok=True, stdin=None):
+def tangled(*args, user="alice", ok=True, stdin=None, cwd=None):
     env = user_env(user)
     result = subprocess.run(["/test/tangled", *args], env=env, input=stdin,
-                            capture_output=True, text=True, timeout=60)
+                            capture_output=True, text=True, timeout=60,
+                            cwd=cwd)
     if (result.returncode == 0) != ok:
         raise SystemExit(f"tangled {' '.join(args)} as {user}: "
                          f"exit {result.returncode}\n{result.stdout}{result.stderr}")
@@ -243,28 +244,32 @@ def main():
         for p in pipelines(name)))
     tangled("pipeline", "cancel", retried, "--repo", name)
     tangled("pipeline", "approve", retried, "--repo", name, ok=False)
-    definitions = json.loads(tangled("pipeline", "definitions", "--repo", name))
+    definitions = json.loads(tangled("pipeline", "workflows", "--repo", name))
     assert [w["id"] for w in definitions["workflows"]] == ["inspect"]
 
     step("collaborators may run CI, others may not")
     tangled("pipeline", "trigger", "--repo", f"{HANDLES['alice']}/{name}",
             "--commit", head, user="bob", ok=False)
-    tangled("repo", "add-collaborator", name, HANDLES["bob"])
-    assert tangled("repo", "collaborators", name).split()
+    tangled("repo", "collaborator", "add", HANDLES["bob"], "-r", name)
+    assert tangled("repo", "collaborator", "list", "-r", name).split()
     tangled("pipeline", "trigger", "--repo", f"{HANDLES['alice']}/{name}",
             "--commit", head, user="bob")
-    tangled("repo", "remove-collaborator", name, HANDLES["bob"])
+    tangled("repo", "collaborator", "remove", HANDLES["bob"], "-r", name)
     tangled("pipeline", "trigger", "--repo", f"{HANDLES['alice']}/{name}",
             "--commit", head, user="bob", ok=False)
 
     step("issues and a pull request revision")
-    issue = json.loads(tangled("issue", "create", name, "--title",
+    issue = json.loads(tangled("issue", "create", "-r", name, "--title",
                                "Tracked by the end-to-end test"))["uri"]
     number = issue.rsplit("/", 1)[1]
-    tangled("issue", "close", name, number)
-    assert json.loads(tangled("issue", "show", name, number))["state"] == \
-        "closed"
-    tangled("issue", "reopen", name, number)
+    tangled("issue", "close", "-r", name, number)
+    assert json.loads(tangled("issue", "show", "-r", name, number))[
+        "record"]["state"] == "closed"
+    tangled("issue", "reopen", "-r", name, number)
+    tangled("issue", "comment", "-r", name, number, "--body", "Noted.")
+    shown = json.loads(tangled("issue", "show", "-r", name, number))
+    assert [c["record"]["body"]["text"] for c in shown["comments"]] == \
+        ["Noted."], shown
     git("checkout", "-b", "feature", cwd=checkout)
     (checkout / "feature.txt").write_text("A change under review.\n")
     git("add", "feature.txt", cwd=checkout)
@@ -272,12 +277,12 @@ def main():
     git("push", f"ssh://git@{KNOT_SSH}/{did}", "HEAD:refs/heads/feature",
         cwd=checkout)
     feature = git("rev-parse", "HEAD", cwd=checkout)
-    pull = json.loads(tangled("pull", "create", name, "--title", "Feature",
-                              "--target", "main"))["uri"].rsplit("/", 1)[1]
-    assert pull in tangled("pull", "list", name)
-    assert pull not in tangled("issue", "list", name)
-    tangled("pull", "submit", name, pull, "--base", head, "--head", feature,
-            "--branch", "feature")
+    # In the clone, create proposes the current branch into the default one.
+    pull = json.loads(tangled("pull", "create", "--title", "Feature",
+                              cwd=checkout))["uri"].rsplit("/", 1)[1]
+    assert pull in tangled("pull", "list", cwd=checkout)
+    assert pull not in tangled("issue", "list", "-r", name)
+    assert "+A change under review." in tangled("pull", "diff", pull, "-r", name)
     reviewed = finished(name, feature, "org.tangled.event.pullRequest")
     assert reviewed["trigger"]["targetBranch"] == "main", reviewed
     assert reviewed["trigger"]["pull"].endswith("/" + pull), reviewed
@@ -292,11 +297,9 @@ def main():
         cwd=checkout)
     outside = git("rev-parse", "HEAD", cwd=checkout)
     target = f"{HANDLES['alice']}/{name}"
-    contribution = json.loads(tangled(
-        "pull", "create", target, "--title", "Outside", "--target", "main",
-        user="bob"))["uri"].rsplit("/", 1)[1]
-    tangled("pull", "submit", target, contribution, "--base", head, "--head",
-            outside, "--branch", "outside", user="bob")
+    tangled("pull", "create", "-r", target, "--title", "Outside", "--target",
+            "main", "--base", head, "--head", outside, "--branch", "outside",
+            user="bob")
 
     def blocked():
         for p in pipelines(name):
@@ -351,14 +354,15 @@ def main():
     refused = push_as_bob("Before admission")
     time.sleep(5)
     assert not [p for p in pipelines(theirs, "bob") if p["commit"] == refused]
-    tangled("spindle", "add-member", SPINDLE, HANDLES["bob"])
-    members = json.loads(tangled("spindle", "members", SPINDLE))["dids"]
+    tangled("spindle", "member", "add", SPINDLE, HANDLES["bob"])
+    members = json.loads(tangled("spindle", "member", "list", SPINDLE))["dids"]
     assert len(members) == 1, members
-    tangled("spindle", "members", SPINDLE, user="bob", ok=False)
+    tangled("spindle", "member", "list", SPINDLE, user="bob", ok=False)
     admitted = push_as_bob("After admission")
     finished(theirs, admitted, "org.tangled.event.push", user="bob")
-    tangled("spindle", "remove-member", SPINDLE, HANDLES["bob"])
-    assert json.loads(tangled("spindle", "members", SPINDLE))["dids"] == []
+    tangled("spindle", "member", "remove", SPINDLE, HANDLES["bob"])
+    assert json.loads(tangled("spindle", "member", "list", SPINDLE))[
+        "dids"] == []
 
     step("skip-ci suppresses a push")
     git("checkout", "--detach", head, cwd=checkout)

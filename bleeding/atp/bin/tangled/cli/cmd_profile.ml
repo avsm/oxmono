@@ -7,7 +7,6 @@ open Cmdliner
 
 (* Type aliases for convenience *)
 module Profile = Tangled.Api.Lex.Actor.Profile
-module SshKey = Tangled.Api.Lex.Key.SshKey
 
 let with_api = Common.with_api
 
@@ -34,17 +33,13 @@ let pp_profile ppf (p : Profile.main) =
       | Some true -> Fmt.pf ppf "Organization@," | _ -> ())
     p.is_organization
 
-let pp_public_key ppf (rkey, (k : SshKey.main)) =
-  Fmt.pf ppf "@[<v>%s (%s)@,  %s@,  Usages: %s@,  Created: %s@]" k.name rkey
-    k.public_key
-    (String.concat ", " (Option.value ~default:[ "auth"; "sign" ] k.usages))
-    k.created_at
-
 (* Profile view command *)
 
 let user_arg =
-  let doc = "User handle or DID (default: logged-in user)." in
-  Arg.(value & opt (some string) None & info [ "user"; "u" ] ~docv:"USER" ~doc)
+  Arg.(
+    value
+    & pos 0 (some string) None
+    & info [] ~docv:"USER" ~doc:"Handle or DID (default: logged-in user).")
 
 let view_action ~user env =
   with_api env @@ fun api ->
@@ -97,48 +92,11 @@ let view_action ~user env =
     | None -> Fmt.pr "(No Tangled profile set)@."
   end
 
-let view_cmd =
-  let doc = "View a user's Tangled profile." in
-  let info = Cmd.info "view" ~doc in
-  Common.cmd info
+let cmd =
+  Common.cmd
+    (Cmd.info "profile"
+       ~doc:"Show a user's Tangled profile. Their keys are under key list.")
     Term.(
       term_result
         (const (fun user -> Common.run (fun env -> view_action ~user env))
         $ user_arg))
-
-(* Keys list command *)
-
-let keys_action ~user env =
-  with_api env @@ fun api ->
-  let did =
-    match user with
-    | Some u ->
-        if String.starts_with ~prefix:"did:" u then u
-        else Tangled.Api.resolve_handle api u
-    | None -> Tangled.Api.get_did api
-  in
-  let keys =
-    Ui.busy "Reading SSH keys" (fun () -> Tangled.Api.list_ssh_keys api ~did ())
-  in
-  if Ui.tty () then Cmd_key.show_keys keys
-  else if keys = [] then Fmt.pr "No SSH keys found.@."
-  else begin
-    Fmt.pr "SSH Keys for %s:@.@." did;
-    List.iter (fun k -> Fmt.pr "%a@.@." pp_public_key k) keys
-  end
-
-let keys_cmd =
-  let doc = "List a user's SSH public keys." in
-  let info = Cmd.info "keys" ~doc in
-  Common.cmd info
-    Term.(
-      term_result
-        (const (fun user -> Common.run (fun env -> keys_action ~user env))
-        $ user_arg))
-
-(* Profile command group *)
-
-let cmd =
-  let doc = "User profile commands." in
-  let info = Cmd.info "profile" ~doc in
-  Cmd.group info [ view_cmd; keys_cmd ]

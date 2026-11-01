@@ -43,6 +43,19 @@ def cid(value):
     return "bafyrei" + hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:52]
 
 
+def blob_cid(data):
+    digest = bytes([0x01, 0x55, 0x12, 0x20]) + hashlib.sha256(data).digest()
+    return "b" + base64.b32encode(digest).decode().lower().rstrip("=")
+
+
+blobs = {}
+BASE_TEXT = "a\nb\nc\n"
+HEAD_TEXT = "a\nB\nc\nd\n"
+SIG = {"name": "Alice", "email": "alice@example.com", "when": "2026-01-01T00:00:00Z"}
+WEBHOOK = {"id": "wh1", "url": "https://hooks.example/x", "active": True,
+           "events": ["push"], "createdAt": "2026-01-01T00:00:00Z"}
+
+
 def jwt(expiry=None):
     def b64(v):
         return base64.urlsafe_b64encode(json.dumps(v).encode()).decode().rstrip("=")
@@ -71,9 +84,13 @@ def cbor(value):
 # on a knot are addressed to the repository DID, everything else to the
 # service's own DID.
 def audience(role, method, data):
+    if role == "knot" and method == "com.atproto.repo.uploadBlob":
+        return REPO
     if role == "knot" and data.get("repo") == REPO and (
             method.startswith("com.atproto.repo.")
-            or method == "org.tangled.review.submitPatch"):
+            or method in ("org.tangled.review.submitPatch",
+                          "org.tangled.git.deleteBranch",
+                          "org.tangled.git.setDefaultBranch")):
         return REPO
     return web_did(urls[role])
 
@@ -110,7 +127,8 @@ class Handler(BaseHTTPRequestHandler):
         method = url.path.removeprefix("/xrpc/")
         query = parse_qs(url.query)
         body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
-        data = json.loads(body) if body else None
+        is_json = (self.headers.get("Content-Type") or "").startswith("application/json")
+        data = json.loads(body) if body and is_json else None
         auth = self.headers.get("Authorization")
         calls.append((role, method, query, data, auth))
 
@@ -172,9 +190,12 @@ class Handler(BaseHTTPRequestHandler):
             assert data.get("validate") is None
             assert data["record"]["$type"] == coll
             assert data["record"]["createdAt"].endswith("Z"), data["record"]
-            if role == "knot" and coll == "org.tangled.track.ticket":
-                assert "rkey" not in data, "the knot mints ticket keys"
-                assert data["record"]["state"] == "open"
+            if role == "knot" and coll in ("org.tangled.track.ticket",
+                                           "org.tangled.feed.comment",
+                                           "org.tangled.repo.artifact"):
+                assert "rkey" not in data, "the knot mints COB keys"
+                if coll == "org.tangled.track.ticket":
+                    assert data["record"]["state"] == "open"
                 key = str(1 + sum(1 for (_, c, _) in records if c == coll))
             elif role == "knot":
                 key = data["rkey"]
@@ -217,11 +238,127 @@ class Handler(BaseHTTPRequestHandler):
             return self.end_headers()
         if method == "org.tangled.review.submitPatch":
             patch = data["patch"]
-            assert patch == {"ticket": "2", "base": {"oid": SHA},
+            assert patch == {"ticket": patch["ticket"], "base": {"oid": SHA},
                              "head": {"oid": "b" * 40}, "sourceRepo": REPO,
                              "sourceBranch": "feature"}, patch
-            return self.json({"uri": f"at://{REPO}/org.tangled.review.patch/x",
+            key = "p" + str(len(records))
+            records[REPO, "org.tangled.review.patch", key] = {
+                "$type": "org.tangled.review.patch", "ticket": patch["ticket"],
+                "base": patch["base"], "head": patch["head"],
+                "source": {"repo": REPO, "branch": "feature"},
+                "createdAt": "2026-01-01T00:00:00Z"}
+            return self.json({"uri": f"at://{REPO}/org.tangled.review.patch/{key}",
                               "cid": cid(patch)})
+        if method == "org.tangled.git.listBranches":
+            assert query["repo"] == [REPO]
+            branches = [{"name": n, "oid": o, "message": "msg", "author": SIG,
+                         "committer": SIG} for n, o in (("main", SHA), ("feature", "b" * 40))]
+            return self.json({"branches": branches, "total": 2, "defaultBranch": "main"})
+        if method == "org.tangled.git.getBranch":
+            oid = {"main": SHA, "feature": "b" * 40}.get(query["name"][0])
+            if oid is None:
+                return self.json({"error": "BranchNotFound"}, 404)
+            return self.json({"name": query["name"][0], "hash": oid, "message": "msg",
+                              "author": SIG, "totalCommits": 1})
+        if method == "org.tangled.git.listTags":
+            return self.json({"tags": [{"name": "v1", "oid": SHA, "message": "msg",
+                                        "author": SIG}], "total": 1})
+        if method == "org.tangled.git.listCommits":
+            assert query["ref"] == ["main"]
+            return self.json({"commits": [{"hash": SHA, "author": SIG, "committer": SIG,
+                                           "message": "init\n\nbody", "tree": "c" * 40}]})
+        if method == "org.tangled.git.getTree":
+            return self.json({"entries": [{"name": "src", "mode": "040000", "size": 0},
+                                          {"name": "f.txt", "mode": "100644", "size": 6}]})
+        if method == "org.tangled.git.getBlob":
+            text = HEAD_TEXT if query.get("ref") == ["b" * 40] else BASE_TEXT
+            body = text.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return self.wfile.write(body)
+        if method == "org.tangled.git.getDiff":
+            assert query["base"] == [SHA] and query["head"] == ["b" * 40]
+            side = lambda oid: {"path": "f.txt", "oid": oid, "size": 6,
+                                "isBinary": False, "isSubmodule": False}
+            return self.json({"diffs": [{
+                "lhsSrc": side("1" * 40), "rhsSrc": side("2" * 40),
+                "hasSyntacticChanges": True,
+                "hunks": [{"novelLhs": [1], "novelRhs": [1, 3], "lines": [
+                    {"lhs": 0, "rhs": 0}, {"lhs": 1, "rhs": 1},
+                    {"lhs": 2, "rhs": 2}, {"rhs": 3}]}]}],
+                "stats": {"insertions": 2, "deletions": 1, "filesChanged": 1}})
+        if method in ("org.tangled.git.deleteBranch", "org.tangled.git.setDefaultBranch"):
+            assert data == {"repo": REPO, "branch": "feature"}, data
+            return self.json({"uri": f"at://{REPO}/org.tangled.git.refs/self", "cid": "x"})
+        if method == "org.tangled.repo.getImportStatus":
+            return self.json({"status": "completed"})
+        if method == "org.tangled.repo.listRecordVersions":
+            return self.json({"uri": query["uri"][0], "versions": [
+                {"changeId": "d" * 40, "editor": DID,
+                 "createdAt": "2026-01-01T00:00:00Z", "cid": "bafy"}]})
+        if method == "com.atproto.repo.uploadBlob":
+            ref = blob_cid(body)
+            blobs[ref] = body
+            return self.json({"blob": {"$type": "blob", "ref": {"$link": ref},
+                                       "mimeType": self.headers["Content-Type"],
+                                       "size": len(body)}})
+        if method == "com.atproto.sync.getBlob":
+            assert query["did"] == [REPO]
+            body = blobs[query["cid"][0]]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            return self.wfile.write(body)
+        if method == "org.tangled.temp.server.createInviteCode":
+            assert data["useCount"] == 2
+            return self.json({"code": "invite-" + role})
+        if method == "org.tangled.temp.server.redeemInviteCode":
+            assert data == {"code": "invite-" + role}
+            return self.json({})
+        if method == "org.tangled.secret.listSecrets":
+            return self.json({"secrets": [{"key": k, "createdAt": "2026-01-01T00:00:00Z",
+                                           "createdBy": DID} for k in sorted(self.server.secrets)]})
+        if method == "org.tangled.secret.addSecret":
+            assert data["repo"] == REPO
+            self.server.secrets[data["key"]] = data["value"]
+            return self.json({})
+        if method == "org.tangled.secret.removeSecret":
+            del self.server.secrets[data["key"]]
+            return self.json({})
+        if method == "org.tangled.webhook.listWebhooks":
+            return self.json({"webhooks": [WEBHOOK]})
+        if method == "org.tangled.webhook.createWebhook":
+            assert data["events"] == ["push"] and data["active"] is True
+            return self.json({"id": "wh1"})
+        if method == "org.tangled.webhook.updateWebhook":
+            assert data == {"repo": REPO, "webhook": "wh1", "active": False}, data
+            return self.json({})
+        if method in ("org.tangled.webhook.deleteWebhook",
+                      "org.tangled.webhook.retryWebhookDelivery"):
+            return self.json({})
+        if method == "org.tangled.webhook.listWebhookDeliveries":
+            assert query["webhooks"] == ["wh1"]
+            return self.json({"deliveries": [{"id": "d1", "webhook": "wh1", "event": "push",
+                                              "url": WEBHOOK["url"], "success": True,
+                                              "responseCode": 200,
+                                              "createdAt": "2026-01-01T00:00:00Z"}]})
+        if method == "org.tangled.ci.getWorkflowDefinition":
+            assert query["workflow"] == ["inspect"]
+            return self.json({"workflow": pipeline["workflows"][0]["definition"]})
+        if method.startswith("org.tangled.temp.spindle.moderation."):
+            if method.endswith("listBans"):
+                return self.json({"bans": []})
+            assert data == {"did": BOB}, data
+            return self.json({})
+        if method.startswith("org.tangled.temp.spindle.quota."):
+            if method.endswith(".set"):
+                assert data == {"did": BOB, "resource": "vcpus", "limit": 4}, data
+            if method.endswith((".list", ".usage")):
+                return self.json({"limits": [], "usages": []})
+            return self.json({})
         if method == "org.tangled.spindle.describeSpindle":
             return self.json({"did": web_did(urls["spindle"]), "version": "fixture"})
         if method.startswith("org.tangled.temp.spindle.allowList."):
@@ -291,6 +428,7 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         server.role = role
         server.allowed = set()
+        server.secrets = {}
         server.socket = context.wrap_socket(server.socket, server_side=True)
         servers.append(server)
         threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -302,9 +440,9 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
     env["TANGLED_PDS"] = pds
     env["TANGLED_PLC"] = plc
 
-    def run(*args, ok=True, stdin=None):
+    def run(*args, ok=True, stdin=None, cwd=directory):
         result = subprocess.run([CLI, *args], env=env, input=stdin, capture_output=True,
-                                text=True, timeout=20)
+                                text=True, timeout=20, cwd=cwd)
         assert (result.returncode == 0) == ok, (args, result.stdout, result.stderr)
         return result.stdout
 
@@ -340,26 +478,38 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
         run("repo", "info", "evil", ok=False)
         del records[DID, "org.tangled.repo.declaration", "evil"]
         manifest()["futureField"] = {"preserve": True}
-        run("repo", "spindle", "demo", "other.test")
+        run("repo", "set-spindle", "other.test", "-r", "demo")
         assert manifest()["futureField"] == {"preserve": True}
         assert manifest()["spindle"] == "did:web:other.test"
         assert "x-tngl-editor" not in manifest()
-        run("repo", "spindle", "demo")
+        run("repo", "unset-spindle", "-r", "demo")
         assert "spindle" not in manifest()
-        run("repo", "spindle", "demo", spindle_host)
-        run("repo", "add-collaborator", "demo", "bob.test")
-        assert run("repo", "collaborators", "demo").split() == [BOB]
-        run("repo", "remove-collaborator", "demo", BOB)
-        assert run("repo", "collaborators", "demo").split() == []
+        run("repo", "set-spindle", spindle_host, "-r", "demo")
+        run("repo", "collaborator", "add", "bob.test", "-r", "demo")
+        assert run("repo", "collaborator", "list", "-r", "demo").split() == [BOB]
+        run("repo", "collaborator", "remove", BOB, "-r", "demo")
+        assert run("repo", "collaborator", "list", "-r", "demo").split() == []
         knot_did = web_did(knot)
-        run("knot", "add-member", knot, BOB)
+        run("knot", "member", "add", knot, BOB)
         assert (knot_did, "org.tangled.knot.member", BOB) in records
-        assert run("knot", "members", knot).split() == [BOB]
-        run("knot", "remove-member", knot, BOB)
+        assert run("knot", "member", "list", knot).split() == [BOB]
+        run("knot", "member", "remove", knot, BOB)
+        run("knot", "ban", knot, "bob.test")
+        assert run("knot", "bans", knot).split() == [BOB]
+        run("knot", "unban", knot, BOB)
+        assert run("knot", "invite", knot, "--uses", "2").strip() == "invite-knot"
+        run("knot", "join", knot, "invite-knot")
         run("spindle", "describe", spindle_host)
-        run("spindle", "add-member", spindle_host, BOB)
-        assert json.loads(run("spindle", "members", spindle_host))["dids"] == [BOB]
-        run("spindle", "remove-member", spindle_host, BOB)
+        run("spindle", "member", "add", spindle_host, BOB)
+        assert json.loads(run("spindle", "member", "list", spindle_host))["dids"] == [BOB]
+        run("spindle", "member", "remove", spindle_host, BOB)
+        run("spindle", "ban", spindle_host, "bob.test")
+        run("spindle", "unban", spindle_host, BOB)
+        run("spindle", "bans", spindle_host)
+        run("spindle", "quota", "set", spindle_host, "bob.test", "vcpus", "4")
+        run("spindle", "quota", "unset", spindle_host, BOB, "vcpus")
+        run("spindle", "quota", "usage", spindle_host)
+        assert run("spindle", "invite", spindle_host, "--uses", "2").strip() == "invite-spindle"
         run("star", "add", REPO)
         run("star", "add", REPO)
         stars = json.loads(run("star", "list"))
@@ -367,19 +517,81 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
             {"$type": "org.tangled.feed.star#repo", "identity": REPO}], stars
         run("star", "remove", REPO)
         assert json.loads(run("star", "list")) == []
-        issue = json.loads(run("issue", "create", "demo", "--title", "CLI issue"))["uri"]
+        issue = json.loads(run("issue", "create", "-r", "demo", "--title", "CLI issue"))["uri"]
         assert issue == f"at://{REPO}/org.tangled.track.ticket/1"
         ticket = records[REPO, "org.tangled.track.ticket", "1"]
         assert ticket["title"] == {"$type": "org.tangled.markup.markdown#inline", "text": "CLI issue"}
-        run("issue", "close", "demo", "1")
+        attestations = [k for k in records if k[1] == "org.tangled.graph.attestation"]
+        assert issue in [records[k]["subject"]["uri"] for k in attestations], attestations
+        run("issue", "close", "-r", "demo", "1")
         assert records[REPO, "org.tangled.track.ticket", "1"]["state"] == "closed"
-        run("issue", "reopen", "demo", "1")
-        run("pull", "create", "demo", "--title", "A change", "--target", "main")
-        assert run("issue", "list", "demo").split()[0] == "1"
-        assert run("pull", "list", "demo").split()[0] == "2"
-        run("pull", "submit", "demo", "2", "--base", SHA, "--head", "b" * 40,
-            "--branch", "feature")
-        assert json.loads(run("issue", "show", "demo", "1"))["state"] == "open"
+        run("issue", "reopen", "-r", "demo", "1")
+        run("issue", "comment", "-r", "demo", "1", "--body", "Looks *good*")
+        comment = records[REPO, "org.tangled.feed.comment", "1"]
+        assert comment["subject"]["uri"] == issue and comment["body"]["text"] == "Looks *good*"
+        run("issue", "edit", "-r", "demo", "1", "--title", "Renamed",
+            "--assign", "bob.test")
+        ticket = records[REPO, "org.tangled.track.ticket", "1"]
+        assert ticket["title"]["text"] == "Renamed" and ticket["assignees"] == [BOB]
+        run("issue", "edit", "-r", "demo", "1", "--unassign", BOB)
+        assert "assignees" not in records[REPO, "org.tangled.track.ticket", "1"]
+        shown = json.loads(run("issue", "show", "-r", "demo", "1"))
+        assert shown["record"]["state"] == "open"
+        assert [c["record"]["body"]["text"] for c in shown["comments"]] == ["Looks *good*"]
+        assert json.loads(run("issue", "history", "-r", "demo", "1"))[0]["editor"] == DID
+        # The clone's remote names the repository, so --repo can be left out.
+        clone = Path(directory) / "clone"
+        subprocess.run(["git", "init", "-q", str(clone)], check=True)
+        subprocess.run(["git", "-C", str(clone), "remote", "add", "origin",
+                        f"{knot}/{REPO}"], check=True)
+        assert run("issue", "list", cwd=clone).split()[0] == "1"
+        run("issue", "list", ok=False)
+        run("pull", "create", "-r", "demo", "--title", "A change", "--target", "main",
+            "--base", SHA, "--head", "b" * 40, "--branch", "feature")
+        assert run("issue", "list", "-r", "demo").split()[0] == "1"
+        assert run("pull", "list", "-r", "demo").split()[0] == "2"
+        # Left to itself, create targets the default branch and proposes the
+        # tip of the named branch on the knot.
+        run("pull", "create", "-r", "demo", "--title", "Another", "--branch", "feature")
+        assert records[REPO, "org.tangled.track.ticket", "3"]["targetBranch"] == "main"
+        submitted = [c for c in calls if c[1] == "org.tangled.review.submitPatch"]
+        assert submitted[-1][3]["patch"]["ticket"] == "3", submitted[-1]
+        run("pull", "create", "-r", "demo", "--title", "Bad", "--branch", "nope", ok=False)
+        run("pull", "update", "-r", "demo", "2", "--branch", "feature")
+        shown = json.loads(run("pull", "show", "-r", "demo", "2"))
+        assert len(shown["revisions"]) == 2, shown
+        assert run("pull", "diff", "-r", "demo", "2") == (
+            "diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n"
+            "@@ -1,3 +1,4 @@\n a\n-b\n+B\n c\n+d\n")
+        assert "+2 -1" in run("pull", "diff", "-r", "demo", "2", "--stat")
+        assert run("repo", "branch", "list", "-r", "demo").split()[0] == "*"
+        run("repo", "branch", "default", "feature", "-r", "demo")
+        run("repo", "branch", "delete", "feature", "-r", "demo")
+        assert run("repo", "tags", "-r", "demo").split() == [SHA, "v1"]
+        assert run("repo", "log", "-r", "demo") == SHA + " init\n"
+        assert run("repo", "ls", "-r", "demo").split() == ["src/", "f.txt"]
+        assert run("repo", "cat", "f.txt", "-r", "demo") == BASE_TEXT
+        run("repo", "info", "demo")
+        artifact = Path(directory) / "demo-1.0.tbz"
+        artifact.write_bytes(b"release bytes")
+        run("repo", "release", "upload", "v1", str(artifact), "-r", "demo")
+        assert run("repo", "release", "list", "-r", "demo").split()[:2] == ["v1", "demo-1.0.tbz"]
+        downloads = Path(directory) / "downloads"
+        downloads.mkdir()
+        run("repo", "release", "download", "v1", "--dir", str(downloads), "-r", "demo")
+        assert (downloads / "demo-1.0.tbz").read_bytes() == b"release bytes"
+        run("repo", "release", "delete", "v1", "demo-1.0.tbz", "-r", "demo")
+        assert run("repo", "release", "list", "-r", "demo") == ""
+        assert run("repo", "webhook", "add", "https://hooks.example/x", "-r", "demo").strip() == "wh1"
+        assert run("repo", "webhook", "list", "-r", "demo").split()[0] == "wh1"
+        run("repo", "webhook", "edit", "wh1", "--disable", "-r", "demo")
+        assert run("repo", "webhook", "deliveries", "wh1", "-r", "demo").split()[0] == "d1"
+        run("repo", "webhook", "redeliver", "wh1", "d1", "-r", "demo")
+        run("repo", "webhook", "remove", "wh1", "-r", "demo")
+        run("pipeline", "secret", "set", "TOKEN", "-r", "demo", stdin="s3cret\n")
+        assert run("pipeline", "secret", "list", "-r", "demo").split() == ["TOKEN"]
+        run("pipeline", "secret", "remove", "TOKEN", "-r", "demo")
+        assert run("pipeline", "secret", "list", "-r", "demo") == ""
         key_file = Path(directory) / "id.pub"
         key_file.write_text("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIMockFixtureOnly fixture")
         key_uri = json.loads(run("key", "add", str(key_file), "--name", "fixture"))["uri"]
@@ -403,7 +615,10 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
         run("pipeline", "cancel", PIPELINE, "--repo", "demo", "-w", "inspect")
         assert calls[-1][3]["workflows"] == ["inspect"]
         run("pipeline", "approve", PIPELINE, "--repo", "demo")
-        run("pipeline", "definitions", "--repo", "demo")
+        run("pipeline", "workflows", "--repo", "demo")
+        assert json.loads(run("pipeline", "workflows", "inspect", "--repo", "demo"))["id"] == "inspect"
+        # Without an ID, the latest pipeline.
+        assert PIPELINE in run("pipeline", "show", "--repo", "demo")
         assert run("pipeline", "logs", PIPELINE, "--repo", REPO,
                    "--spindle", spindle_host) == "partial\nmore"
         before = len(calls)

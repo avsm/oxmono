@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- Sync the Tangled lexicons with core `52549bd`.
+
+- The Tangled CLI takes the repository from the clone it runs in. Commands
+  that act in a repository take another with `-r`, and `repo info` and
+  `repo delete` take one as an argument. `pipeline` commands without an ID
+  use the latest pipeline for the checked-out commit.
+- `pull create` opens a pull request and submits its first revision from
+  the current branch in one step. `pull update` replaces `pull submit`.
+  Add `pull diff` and `pull checkout`.
+- Add `issue comment`, `issue edit` and `issue history`, and show comments
+  and revisions in `issue show` and `pull show`. Knot writes are attested
+  in the author's account, as the web client does.
+- Add `repo branch`, `repo tags`, `repo log`, `repo ls`, `repo cat` and
+  `repo diff`, which read from the knot without a clone.
+- Add `repo release` for artifacts on tags, `repo webhook`, `pipeline
+  secret`, and `repo create --import`. `repo info` shows the default branch
+  and the import's progress.
+- Add knot and spindle invite codes, bans and spindle quotas.
+- Regroup commands: `repo set-spindle` and `repo unset-spindle` replace
+  `repo spindle`, `repo collaborator`, `knot member` and `spindle member`
+  group their commands, `pipeline workflows` replaces `pipeline
+  definitions`, `api record` replaces `record`, `auth account` replaces
+  `auth profile`, and `profile [USER]` replaces `profile view`.
+  `--audience` is unlisted and `TANGLED_AUDIENCE` sets it.
+- The published OAuth client metadata covers the new methods.
+- `Xrpc_auth.Cmd.profile_cmd` takes the group's name.
+
 - Add `Xrpc.Trace`, which logs each HTTP exchange with its XRPC method,
   status and time, and `Xrpc_auth.Cli.term`, which gives a CLI `-v`,
   `--color` and `--theme` and renders the trace with Console. The Tangled

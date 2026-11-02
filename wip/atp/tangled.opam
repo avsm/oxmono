@@ -30,6 +30,7 @@ depends: [
   "console"
   "console-eio"
   "fmt"
+  "logs"
   "odoc" {with-doc}
 ]
 build: [

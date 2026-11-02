@@ -13,8 +13,7 @@
           "properties": {
             "uri": {
               "type": "string",
-              "format": "at-uri",
-              "description": "at-uri of the notification to delete."
+              "description": "notification key as returned by listNotifications; pass it back unchanged."
             }
           }
         }

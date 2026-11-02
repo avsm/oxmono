@@ -1,0 +1,67 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.git.getDiff",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Full diff between two revisions of a repository.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "base", "head"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "base": {
+            "type": "string",
+            "description": "Base revision (branch, tag, or commit Object ID)"
+          },
+          "head": {
+            "type": "string",
+            "description": "Head revision (branch, tag, or commit Object ID)"
+          },
+          "paths": {
+            "type": "string",
+            "description": "Only include diffs touching these paths, comma-separated"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["diffs"],
+          "properties": {
+            "diffs": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "org.tangled.git.defs#fileDiff"
+              }
+            },
+            "stats": {
+              "type": "ref",
+              "ref": "org.tangled.git.defs#diffStat"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repo is not registered on this knot"
+        },
+        {
+          "name": "RefNotFound",
+          "description": "A given revision doesn't resolve in this repo"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    }
+  }
+}

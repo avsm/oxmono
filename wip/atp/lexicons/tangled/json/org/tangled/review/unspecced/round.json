@@ -1,0 +1,43 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.repo.review.unspecced.round",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "description": "Review round created by a reviewer.",
+      "record": {
+        "type": "object",
+        "required": [
+          "subject",
+          "commit",
+          "state",
+          "createdAt"
+        ],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "record-key",
+            "description": "ticket-id"
+          },
+          "commit": {
+            "type": "ref",
+            "ref": "org.tangled.git.oid",
+            "description": "ID of commit that is getting reviewed."
+          },
+          "state": {
+            "type": "ref",
+            "ref": "org.tangled.review.unspecced.defs#reviewState",
+            "description": "The reviewed state of that commit. This is one and only meaningful content of this record."
+          },
+          "labels": {
+            "type": "ref",
+            "description": "Self-label values for this record. Most common use-case is 'bot'.",
+            "ref": "com.atproto.label.defs#selfLabels"
+          },
+          "createdAt": { "type": "string", "format": "datetime" }
+        }
+      }
+    }
+  }
+}

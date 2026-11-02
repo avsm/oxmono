@@ -82,6 +82,27 @@
         }
       }
     },
+    "schedule": {
+      "type": "object",
+      "required": ["sha", "ref", "scheduledAt"],
+      "properties": {
+        "sha": {
+          "type": "string",
+          "description": "commit SHA the scheduled run targets",
+          "minLength": 40,
+          "maxLength": 40
+        },
+        "ref": {
+          "type": "string",
+          "description": "default branch ref resolved for the scheduled run"
+        },
+        "scheduledAt": {
+          "type": "string",
+          "format": "datetime",
+          "description": "UTC minute selected by the cron schedule"
+        }
+      }
+    },
     "pair": {
       "type": "object",
       "required": ["key", "value"],

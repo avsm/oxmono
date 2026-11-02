@@ -1,0 +1,98 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.feed.getTimeline",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "properties": {
+          "viewer": {
+            "type": "string",
+            "format": "did",
+            "description": "TODO: deprecate this and use auth instead."
+          },
+          "followingOnly": { "type": "boolean" },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "cursor": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["feed"],
+          "properties": {
+            "feed": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "#timelineItem" }
+            },
+            "cursor": { "type": "string" }
+          }
+        }
+      },
+      "errors": []
+    },
+    "timelineItem": {
+      "type": "object",
+      "required": ["eventAt", "event"],
+      "properties": {
+        "eventAt": { "type": "string", "format": "datetime" },
+        "event": {
+          "type": "union",
+          "refs": ["#repoEvent", "#starEvent", "#followEvent"]
+        }
+      }
+    },
+    "repoEvent": {
+      "type": "object",
+      "description": "A repository was created (or forked). The actor is repo.owner.",
+      "required": ["uri", "cid", "repo"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" },
+        "repo": { "type": "ref", "ref": "org.tangled.repo.defs#repoViewBasic" },
+        "source": {
+          "type": "ref",
+          "ref": "org.tangled.repo.defs#repoViewBasic",
+          "description": "Fork parent, present only if this repo is a fork."
+        }
+      }
+    },
+    "starEvent": {
+      "type": "object",
+      "description": "A repository was starred.",
+      "required": ["uri", "cid", "actor", "repo"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" },
+        "actor": {
+          "type": "ref",
+          "ref": "org.tangled.actor.defs#profileViewBasic",
+          "description": "Who starred."
+        },
+        "repo": {
+          "type": "ref",
+          "ref": "org.tangled.repo.defs#repoViewBasic",
+          "description": "The starred repo."
+        }
+      }
+    },
+    "followEvent": {
+      "type": "object",
+      "description": "A user followed another user.",
+      "required": ["uri", "cid", "actor", "subject"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" },
+        "actor": { "type": "ref", "ref": "org.tangled.actor.defs#profileViewBasic" },
+        "subject": { "type": "ref", "ref": "org.tangled.actor.defs#profileViewDetailed" }
+      }
+    }
+  }
+}

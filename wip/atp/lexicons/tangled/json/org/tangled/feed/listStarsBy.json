@@ -1,0 +1,59 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.feed.listStarsBy",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["subject"],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "format": "did",
+            "description": "Actor DID whose star authorings to list."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Absolute offset for random-access pagination. Mutually exclusive with cursor; offsets drift under concurrent writes, so follow up with the returned cursor."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          },
+          "order": {
+            "type": "string",
+            "knownValues": ["asc", "desc"],
+            "default": "desc",
+            "description": "Sort direction by createdAt."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["items"],
+          "properties": {
+            "items": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "org.tangled.feed.listStars#listItem" }
+            },
+            "cursor": { "type": "string" },
+            "total": {
+              "type": "integer",
+              "description": "Total items in the full list; omitted for filtered or merged views"
+            }
+          }
+        }
+      }
+    }
+  }
+}

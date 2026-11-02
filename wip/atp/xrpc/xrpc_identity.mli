@@ -23,8 +23,14 @@ val pds_of_document : string -> string option
 (** [pds_of_document json] is the personal data server in the DID document
     [json], or [None] if it lists none or is not valid JSON. *)
 
-val document_url : string -> (string, string) result
-(** [document_url did] is where the DID document of [did] is published. Only
+val service_of_document : id:string -> string -> string option
+(** [service_of_document ~id json] is the endpoint of the service named [id] in
+    the DID document [json], such as ["#tangled_knot"]. A service whose id is
+    the document's DID followed by [id] also matches. *)
+
+val document_url : ?plc:string -> string -> (string, string) result
+(** [document_url ?plc did] is where the DID document of [did] is published.
+    [plc] is the PLC directory origin, [https://plc.directory] by default. Only
     [did:plc] and [did:web] identifiers are supported. The host of a [did:web]
     may carry a port written [%3A]. A host with anything else encoded, or
     anything that is not a domain name, is an error. *)
@@ -33,9 +39,18 @@ val did_of_handle : _ Fetch.t -> string -> (string, string) result
 (** [did_of_handle http handle] is the DID that [handle] publishes at
     [https://<handle>/.well-known/atproto-did]. *)
 
-val pds_of_did : _ Fetch.t -> string -> (string, string) result
-(** [pds_of_did http did] is the personal data server in the DID document of
-    [did]. *)
+val document : ?plc:string -> _ Fetch.t -> string -> (string, string) result
+(** [document ?plc http did] is the DID document of [did] as JSON text. *)
 
-val pds_of_handle : _ Fetch.t -> string -> (string, string) result
-(** [pds_of_handle http handle] is [pds_of_did] of [did_of_handle handle]. *)
+val pds_of_did : ?plc:string -> _ Fetch.t -> string -> (string, string) result
+(** [pds_of_did ?plc http did] is the personal data server in the DID document
+    of [did]. *)
+
+val service_of_did :
+  ?plc:string -> _ Fetch.t -> string -> id:string -> (string, string) result
+(** [service_of_did ?plc http did ~id] is [service_of_document ~id] of the DID
+    document of [did]. *)
+
+val pds_of_handle : ?plc:string -> _ Fetch.t -> string -> (string, string) result
+(** [pds_of_handle ?plc http handle] is [pds_of_did] of [did_of_handle handle].
+*)

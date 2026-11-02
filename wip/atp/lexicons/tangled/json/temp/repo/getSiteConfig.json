@@ -28,7 +28,12 @@
             }
           }
         }
-      }
+      },
+      "errors": [
+        { "name": "NotOwner", "description": "The account does not own this repository." },
+        { "name": "RepoNotFound", "description": "No repository record publishes this repo DID." },
+        { "name": "OwnershipUnverifiable", "description": "Repository ownership could not be verified." }
+      ]
     },
     "siteConfig": {
       "type": "object",

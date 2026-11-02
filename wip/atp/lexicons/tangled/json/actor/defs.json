@@ -1,0 +1,37 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.actor.defs",
+  "defs": {
+    "profileViewBasic": {
+      "type": "object",
+      "required": ["did", "handle"],
+      "properties": {
+        "did": { "type": "string", "format": "did" },
+        "handle": { "type": "string", "format": "handle" },
+        "avatar": { "type": "string", "format": "uri" },
+        "viewer": { "type": "ref", "ref": "#viewerState" }
+      }
+    },
+    "profileViewDetailed": {
+      "type": "object",
+      "description": "profileViewBaisc + follow counts",
+      "required": ["did", "handle"],
+      "properties": {
+        "did": { "type": "string", "format": "did" },
+        "handle": { "type": "string", "format": "handle" },
+        "avatar": { "type": "string", "format": "uri" },
+        "followersCount": { "type": "integer" },
+        "followsCount": { "type": "integer" },
+        "viewer": { "type": "ref", "ref": "#viewerState" }
+      }
+    },
+    "viewerState": {
+      "type": "object",
+      "description": "Metadata about the requesting account's relationship with the subject account. Only has meaningful content for authed requests.",
+      "properties": {
+        "following": { "type": "string", "format": "at-uri" },
+        "followedBy": { "type": "string", "format": "at-uri" }
+      }
+    }
+  }
+}

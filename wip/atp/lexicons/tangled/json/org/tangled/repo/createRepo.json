@@ -1,0 +1,84 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.repo.createRepo",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create a new repository",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["name"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "format": "record-key",
+              "description": "Name of the repository."
+            },
+            "did": {
+              "type": "string",
+              "format": "did",
+              "description": "Optional user-provided DID to use as the repo identity instead of minting one."
+            },
+            "defaultBranch": {
+              "type": "string",
+              "description": "Default branch of the repository."
+            },
+            "spindle": {
+              "type": "string",
+              "format": "did"
+            },
+            "description": {
+              "type": "string",
+              "minGraphemes": 1,
+              "maxGraphemes": 140
+            },
+            "website": {
+              "type": "string",
+              "format": "uri",
+              "description": "Any URI related to the repo"
+            },
+            "topics": {
+              "type": "array",
+              "description": "Topics related to the repo",
+              "items": {
+                "type": "string",
+                "maxLength": 50
+              },
+              "maxLength": 50
+            },
+            "source": {
+              "type": "union",
+              "refs": [
+                "org.tangled.repo.defs#sourceTangled",
+                "org.tangled.repo.defs#sourceExternal"
+              ],
+              "description": "A source to clone from, populate this when forking or importing a repository."
+            },
+            "createdAt": {
+              "type": "string",
+              "format": "datetime"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "did": {
+              "type": "string",
+              "format": "did"
+            },
+            "key": {
+              "type": "string",
+              "description": "Multibase-encoded public signing key the knot holds for this repository"
+            }
+          }
+        }
+      }
+    }
+  }
+}

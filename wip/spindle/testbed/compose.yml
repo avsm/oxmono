@@ -24,7 +24,9 @@ services:
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+    # Eio's io_uring backend is the only one built here, and Docker's
+    # default seccomp profile refuses io_uring.
+    security_opt: [no-new-privileges:true, seccomp=unconfined]
     pids_limit: 64
     mem_limit: 512m
     cpus: 2
@@ -55,7 +57,9 @@ services:
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
+    # Eio's io_uring backend is the only one built here, and Docker's
+    # default seccomp profile refuses io_uring.
+    security_opt: [no-new-privileges:true, seccomp=unconfined]
     pids_limit: 64
     mem_limit: 512m
     cpus: 2

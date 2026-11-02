@@ -1,0 +1,43 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.git.temp.formatPatch",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "from", "to"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "encoding": "*/*"
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RevisionNotFound",
+          "description": "One or both revisions not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    }
+  }
+}

@@ -6,9 +6,11 @@
   "defs": {
     "main": {
       "type": "record",
+      "description": "DEPRECATED: use sh.tangled.repo.collaboratorInvite plus sh.tangled.repo.collaboratorAcceptance instead. Existing records keep their meaning and this NSID is never reused, so indexers shouldn't migrate what they have already stored.",
       "key": "tid",
       "record": {
         "type": "object",
+        "description": "DEPRECATED: use sh.tangled.repo.collaboratorInvite plus sh.tangled.repo.collaboratorAcceptance instead. Existing records keep their meaning and this NSID is never reused, so indexers shouldn't migrate what they have already stored.",
         "required": [
           "subject",
           "repo",

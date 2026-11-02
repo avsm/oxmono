@@ -1,8 +1,10 @@
 (* SPDX-License-Identifier: ISC *)
 module Runner = Spindle__Runner
-module Patch = Spindle__Patch
 module Store = Spindle__Store
+module Executor = Spindle.Executor
+module Job = Spindle.Job
 module J = Spindle__Json
+module Mask = Spindle__Mask
 
 let () =
   Eio_main.run @@ fun env ->
@@ -14,139 +16,172 @@ let () =
       Eio.Process.run env#process_mgr [ "rm"; "-rf"; "--"; name ])
   @@ fun () ->
   let directory = Eio.Path.(env#fs / name) in
-  let git args =
-    Eio.Process.run env#process_mgr ~cwd:directory
-      ("git" :: "-c" :: "user.name=Test" :: "-c"
-     :: "user.email=test@example.test" :: args)
+  let runner ?(timeout = 60.) executor : Runner.env =
+    { system = env; directory; slots = Eio.Semaphore.make 1; timeout; executor }
   in
-  git [ "init"; "-q" ];
-  git [ "commit"; "-q"; "--allow-empty"; "-m"; "fixture" ];
-  let commit =
-    Eio.Process.parse_out env#process_mgr Eio.Buf_read.line ~cwd:directory
-      [ "git"; "rev-parse"; "HEAD" ]
+  let input ?(secrets = []) id : Runner.input =
+    {
+      id;
+      repo = "did:web:repo.test";
+      source = "https://knot.test/repo";
+      commit = String.make 40 'a';
+      metadata = J.obj [ ("actor", J.str "did:web:actor.test") ];
+      variables = [ ("CI", "true") ];
+      secrets;
+    }
   in
-  let runner : Runner.env =
-    { system = env; directory; slots = Eio.Semaphore.make 1 }
+  (* Each step's end event, as (step, kind, outcome). *)
+  let ends (workflow : Runner.t) =
+    List.rev workflow.events
+    |> List.filter_map (fun event ->
+        if J.get "type" event = "control" && J.get "status" event = "end" then
+          Some
+            ( int_of_float (J.number (J.required "step" event)),
+              J.get "kind" event,
+              J.get "outcome" event )
+        else None)
   in
-  let run ~cancel id =
-    let ready = name ^ "/" ^ id ^ ".ready" in
-    let leaked = name ^ "/" ^ id ^ ".leaked" in
-    let script =
-      {|(sleep 0.6; echo leaked > "$2") & echo ready > "$1"; |}
-      ^ if cancel then "wait" else "exit 0"
-    in
-    let job =
-      Spindle.Job.v "children"
-        [ Command [ "sh"; "-c"; script; "child-test"; ready; leaked ] ]
-    in
+  let output ?(step = 0) ?(stream = "stdout") (workflow : Runner.t) =
+    List.rev workflow.events
+    |> List.filter_map (fun event ->
+        if
+          J.get "type" event = "data"
+          && J.number (J.required "step" event) = float_of_int step
+          && J.get "stream" event = stream
+        then Some (J.get "content" event)
+        else None)
+    |> String.concat ""
+  in
+  let run ?timeout ?secrets ?(job = Job.v "w" []) executor =
     let workflow = Runner.v job in
-    let input : Runner.input =
-      {
-        id;
-        repo = "did:web:repo.test";
-        source = name;
-        commit;
-        metadata = J.obj [];
-      }
-    in
-    Eio.Fiber.both
-      (fun () ->
-        Runner.execute runner input
-          ~record:(fun _ -> 0L)
-          ~persist:(fun () -> ())
-          workflow)
-      (fun () ->
-        let rec wait () =
-          if not (Sys.file_exists ready) then (
-            Eio.Time.sleep env#clock 0.01;
-            wait ())
-        in
-        wait ();
-        if cancel then Runner.cancel ~persist:(fun () -> ()) workflow);
-    assert (workflow.status = if cancel then "cancelled" else "success");
-    Eio.Time.sleep env#clock 0.8;
-    assert (not (Sys.file_exists leaked));
-    assert (not (Sys.file_exists (name ^ "/" ^ id ^ ".children.work")))
-  in
-  run ~cancel:true "cancel";
-  run ~cancel:false "finish";
-  let log_job id script check =
-    let workflow =
-      Runner.v (Spindle.Job.v "output" [ Command [ "sh"; "-c"; script ] ])
-    in
-    let input : Runner.input =
-      {
-        id;
-        repo = "did:web:repo.test";
-        source = name;
-        commit;
-        metadata = J.obj [];
-      }
-    in
-    Runner.execute runner input
+    Runner.execute (runner ?timeout executor)
+      (input ?secrets "3jzfcijpj2z2a")
       ~record:(fun _ -> 0L)
       ~persist:(fun () -> ())
       workflow;
-    let output stream =
-      List.rev workflow.events
-      |> List.filter_map (fun event ->
-          if
-            J.get "type" event = "data"
-            && J.number (J.required "step" event) = 1.
-            && J.get "stream" event = stream
-          then Some (J.get "content" event)
-          else None)
-      |> String.concat ""
-    in
-    check workflow output
+    workflow
   in
-  log_job "long" "head -c 70000 /dev/zero | tr '\\000' x"
-    (fun workflow output ->
-      assert (workflow.status = "success");
-      assert (output "stdout" = String.make 70000 'x'));
-  log_job "whitespace" "printf 'one\\r\\n\\rprogress'; printf error >&2"
-    (fun workflow output ->
-      assert (workflow.status = "success");
-      assert (output "stdout" = "one\r\n\rprogress");
-      assert (output "stderr" = "error"));
-  log_job "unicode"
-    "printf '\\342'; sleep 0.05; printf '\\202\\254'; printf '\\377\\360\\237' \
-     >&2" (fun workflow output ->
-      assert (workflow.status = "success");
-      assert (output "stdout" = "€");
-      assert (output "stderr" = "��"));
-  log_job "limit" "head -c 1100000 /dev/zero | tr '\\000' x" (fun workflow _ ->
-      assert (workflow.status = "failed");
-      assert (workflow.log_bytes <= 1024 * 1024));
-  (* Hold the command open after writing an unterminated line. An independent
-     reader must find it both in the live stream and in SQLite before exit. *)
+  (* Steps, their outcomes and both streams. *)
+  let w =
+    run (fun ctx _ ->
+        ctx.step "one" (fun () -> ctx.log `Stdout "out");
+        ctx.step "two" (fun () -> ctx.log `Stderr "err"))
+  in
+  assert (w.status = "success");
+  assert (ends w = [ (0, "user", "success"); (1, "user", "success") ]);
+  assert (output w = "out" && output ~step:1 ~stream:"stderr" w = "err");
+  (* A step that raises fails the workflow and is marked failed. *)
+  let w =
+    run (fun ctx _ ->
+        ctx.step "one" ignore;
+        ctx.step "two" (fun () -> failwith "broken"))
+  in
+  assert (w.status = "failed");
+  assert (ends w = [ (0, "user", "success"); (1, "user", "failed") ]);
+  (* Logging outside a step is refused. *)
+  let w = run (fun ctx _ -> ctx.log `Stdout "stray") in
+  assert (w.status = "failed" && w.events = []);
+  (* Malformed UTF-8 is replaced. *)
+  let w = run (fun ctx _ -> ctx.step "s" (fun () -> ctx.log `Stdout "\xff€")) in
+  assert (output w = "\xef\xbf\xbd€");
+  (* The log is bounded. *)
+  let w =
+    run (fun ctx _ ->
+        ctx.step "s" (fun () ->
+            for _ = 1 to 20 do
+              ctx.log `Stdout (String.make 65536 'x')
+            done))
+  in
+  assert (w.status = "failed" && w.log_bytes <= 1024 * 1024);
+  (* The time limit stops a workflow. *)
+  let w =
+    run ~timeout:0.05 (fun ctx _ ->
+        ctx.step "s" (fun () -> Eio.Time.sleep env#clock 5.))
+  in
+  assert (w.status = "timeout");
+  assert (ends w = [ (0, "user", "failed") ]);
+  (* Cancellation stops a running executor. *)
+  let started, started_r = Eio.Promise.create () in
+  let workflow = Runner.v (Job.v "w" []) in
+  Eio.Fiber.both
+    (fun () ->
+      Runner.execute
+        (runner (fun ctx _ ->
+             ctx.step "s" (fun () ->
+                 Eio.Promise.resolve started_r ();
+                 Eio.Time.sleep env#clock 5.)))
+        (input "cancel")
+        ~record:(fun _ -> 0L)
+        ~persist:(fun () -> ())
+        workflow)
+    (fun () ->
+      Eio.Promise.await started;
+      Runner.cancel ~persist:(fun () -> ()) workflow);
+  assert (workflow.status = "cancelled");
+  assert (ends workflow = [ (0, "user", "failed") ]);
+  (* Secret values and their base64 forms are hidden, even split across
+     calls, and text held back at the end of a step is kept. *)
+  let w =
+    run
+      ~secrets:[ ("TOKEN", "hunter2") ]
+      (fun ctx _ ->
+        ctx.step "s" (fun () ->
+            List.iter (ctx.log `Stdout)
+              [ "pass=hun"; "ter2 "; Mask.base64 "hunter2"; " hunt" ]))
+  in
+  assert (output w = "pass=*** *** hunt");
+  (* The executor receives the workflow and its pipeline. *)
+  let yaml = "engine: nixery\nsteps: []\n" in
+  let job =
+    Job.workflow
+      ~env:[ ("LEVEL", "workflow") ]
+      ~clone:false ~definition:(J.obj []) ~yaml "build.yml"
+      [ Job.step ~env:[ ("LEVEL", "step") ] "build" "make" ]
+  in
+  let seen = ref None in
+  let w =
+    run ~job ~secrets:[ ("TOKEN", "hunter2") ] (fun _ r -> seen := Some r)
+  in
+  assert (w.status = "success");
+  let r = Option.get !seen in
+  assert (r.pipeline = "3jzfcijpj2z2a" && r.workflow = "build.yml");
+  assert (r.source = "https://knot.test/repo" && not r.clone);
+  assert (r.yaml = Some yaml && r.env = [ ("LEVEL", "workflow") ]);
+  assert (r.variables = [ ("CI", "true") ]);
+  assert (r.secrets = [ ("TOKEN", "hunter2") ]);
+  assert (r.steps = job.steps);
+  let restored = Runner.restore (Runner.snapshot w) in
+  assert (restored.job.steps = job.steps && restored.job.env = job.env);
+  assert (restored.job.yaml = Some yaml && not restored.job.clone);
+  (* The default executor describes the request with placeholders for
+     secrets and logs each step without running it. *)
+  let w =
+    run ~job
+      ~secrets:[ ("TOKEN", "hunter2") ]
+      (Executor.print ~delay:0. env#clock)
+  in
+  assert (w.status = "success");
+  assert (ends w = [ (0, "user", "success"); (1, "user", "success") ]);
+  let described = output w in
+  let contains s =
+    let n = String.length s in
+    let rec at i =
+      i + n <= String.length described
+      && (String.sub described i n = s || at (i + 1))
+    in
+    at 0
+  in
+  assert (contains "TOKEN=<secret>" && not (contains "hunter2"));
+  assert (contains "  engine: nixery" && contains "LEVEL=workflow");
+  assert (output ~step:1 w = "Command\n  make\nEnvironment\n  LEVEL=step\n");
+  (* An unterminated line is in the live stream and in SQLite before the
+     workflow finishes, but not in the snapshot. *)
   Eio.Switch.run (fun sw ->
       let store = Store.open_ ~sw directory in
-      let release = name ^ "/release-output" in
-      let workflow =
-        Runner.v
-          (Spindle.Job.v "output"
-             [
-               Command
-                 [
-                   "sh";
-                   "-c";
-                   "printf durable-partial; while [ ! -e \"$1\" ]; do sleep \
-                    0.05; done";
-                   "partial-test";
-                   release;
-                 ];
-             ])
-      in
-      let input : Runner.input =
-        {
-          id = "partial";
-          repo = "did:web:repo.test";
-          source = name;
-          commit;
-          metadata = J.obj [];
-        }
-      in
+      let written, written_r = Eio.Promise.create () in
+      let release, release_r = Eio.Promise.create () in
+      let workflow = Runner.v (Job.v "output" []) in
+      let input = input "partial" in
       let record event =
         Store.append_log store ~pipeline:input.id ~workflow:workflow.job.name
           event
@@ -163,15 +198,17 @@ let () =
             J.field "content" event = Some (J.str "durable-partial"))
           events
       in
+      let executor (ctx : Executor.context) _ =
+        ctx.step "s" (fun () ->
+            ctx.log `Stdout "durable-partial";
+            Eio.Promise.resolve written_r ();
+            Eio.Promise.await release)
+      in
       Eio.Fiber.both
-        (fun () -> Runner.execute runner input ~record ~persist workflow)
         (fun () ->
-          let rec wait () =
-            if not (contains workflow.events) then (
-              Eio.Time.sleep env#clock 0.01;
-              wait ())
-          in
-          wait ();
+          Runner.execute (runner executor) input ~record ~persist workflow)
+        (fun () ->
+          Eio.Promise.await written;
           assert (workflow.status = "running");
           Eio.Switch.run (fun reader_sw ->
               let reopened = Store.open_ ~sw:reader_sw directory in
@@ -185,9 +222,7 @@ let () =
                 J.decode (Option.get (Store.get reopened "pipeline" input.id))
               in
               assert (not (contains (J.list (J.required "events" snapshot)))));
-          Eio.Path.save ~create:(`Exclusive 0o600)
-            Eio.Path.(env#fs / release)
-            "");
+          Eio.Promise.resolve release_r ());
       assert (workflow.status = "success");
       assert (
         Store.logs store ~pipeline:input.id ~workflow:workflow.job.name = []);
@@ -196,17 +231,26 @@ let () =
           (J.decode (Option.get (Store.get store "pipeline" input.id)))
       in
       assert (contains restored.events));
-  (match Patch.revision env "not a gzip stream" with
-  | _ -> failwith "invalid gzip was accepted"
-  | exception J.Invalid _ -> ());
-  let compressed =
-    Eio.Process.parse_out env#process_mgr Eio.Buf_read.take_all
-      ~stdin:
-        (Eio.Flow.string_source
-           ("From " ^ commit ^ " Mon Sep 17 00:00:00 2001\n"))
-      [ "gzip"; "-c" ]
+  (* Snapshots from before the executor still restore. *)
+  let old =
+    J.obj
+      [
+        ( "workflow",
+          J.obj [ ("name", J.str "inspect"); ("status", J.str "success") ] );
+        ("events", J.arr []);
+        ( "steps",
+          J.arr
+            [
+              J.obj [ ("metadata", J.bool true) ];
+              J.obj [ ("argv", J.arr [ J.str "ls"; J.str "-la" ]) ];
+            ] );
+      ]
   in
-  assert (Patch.revision env compressed = commit);
+  assert (
+    List.map
+      (fun (s : Job.step) -> (s.name, s.command))
+      (Runner.restore old).job.steps
+    = [ ("spindle request metadata", ""); ("ls -la", "ls -la") ]);
   print_endline
-    "runner: bounded streaming output, UTF-8, durable partial logs and child \
-     cleanup passed"
+    "runner: executor steps, outcomes, cancellation, time limit, bounded and \
+     durable logs, secret masking and the default executor passed"

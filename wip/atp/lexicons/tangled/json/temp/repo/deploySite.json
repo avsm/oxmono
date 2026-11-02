@@ -1,0 +1,33 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.repo.deploySite",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Manually deploy a repository's site now. Authenticated with the caller's serviceauth token (audience = the sites worker's DID); only the repository owner may trigger. Queues the deploy; the outcome is recorded in the repository's deploy history.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repoDid"],
+          "properties": {
+            "repoDid": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the repository to deploy."
+            }
+          }
+        }
+      },
+      "errors": [
+        { "name": "AuthError", "description": "Serviceauth verification failed." },
+        { "name": "NotOwner", "description": "Only the repository owner can deploy." },
+        { "name": "RepoNotFound", "description": "No repository record publishes this repo DID." },
+        { "name": "OwnershipUnverifiable", "description": "Repository ownership could not be verified." },
+        { "name": "SiteConfigDisputed", "description": "The stored site config names a different owner and must be re-saved by the repository owner." },
+        { "name": "SiteNotFound", "description": "The repository has no site configuration or the owner has no active claim." },
+        { "name": "WorkerUnavailable", "description": "The sites Worker could not be reached." }
+      ]
+    }
+  }
+}

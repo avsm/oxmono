@@ -1,49 +1,91 @@
+(** Repositories this spindle serves, and who may use it.
+
+    A repository is served when the [org.tangled.repo.manifest] on its knot
+    names this spindle, the owner's [org.tangled.repo.declaration] names the
+    repository back, and the owner is admitted. *)
+
 type repo = {
   did : string;
   owner : string;
-  rkey : string;
-  knot : string;
-  source : string;
+  name : string;
+  knot : string;  (** Knot origin. Empty for a static repository. *)
+  source : string;  (** Git URL or local path to clone. *)
+  created : string;  (** When the manifest was created, if known. *)
 }
-(** PDS assignments checked against canonical repository identities. *)
+
+type admission =
+  | Open  (** Any owner may use the spindle. *)
+  | Closed  (** Only admins and allow-listed owners may. *)
 
 type t
 
-exception Pending
-(** [Pending] means current assignment or membership reconciliation must finish
-    before a repository can be used. Callers should retry. *)
-
 val v :
   store:Store.t ->
+  settings:Settings.t ->
   network:Network.t ->
   owner:string ->
+  ?admins:string list ->
   hostname:string ->
+  admission:admission ->
   static:repo option ->
+  ttl:float ->
+  now:(unit -> float) ->
+  unit ->
   t
+(** [v ~store ~network ~owner ~hostname ~admission ~static ~ttl ~now ()] is a
+    catalog for the spindle at [hostname]. [owner] and [admins] administer
+    it. [static] is always served. Acceptance is cached for [ttl] seconds. *)
 
-val members : t -> string list
+val self : t -> string
+(** [self t] is the spindle's [did:web]. *)
 
-val member : t -> string -> bool
-(** [member catalog owner] checks membership, raising [Pending] while the
-    spindle owner's grants are being refreshed. *)
+val web_did : string -> string
+(** [web_did host] is the [did:web] of [host], encoding a port as [%3A]. *)
 
-val repositories : t -> string list
+val admin : t -> string -> bool
+
+val admitted : t -> string -> bool
+(** [admitted t owner] holds when [owner]'s repositories may run here. A ban
+    overrides admins, open admission and the allow-list. *)
+
+val on_rename : t -> (repo -> old_name:string -> unit) -> unit
+(** [on_rename t f] calls [f] when a served repository's name changes. *)
+
+val knot_origin : t -> string -> string
+(** [knot_origin t did] is the origin of the knot that repository [did]'s DID
+    document names. *)
+
+val allowed : t -> string list
+
+val allow : t -> string -> unit
+(** [allow t did] admits owner [did] and drops cached acceptance. *)
+
+val disallow : t -> string -> unit
+(** [disallow t did] withdraws [did]'s admission and drops cached acceptance. *)
+
 val managed : t -> string -> repo option
+(** [managed t did] is the served repository [did], or [None]. It reads the knot
+    and the owner's PDS unless a cached answer is fresh. A banned repository or
+    owner is not served. Network failures raise. *)
+
+val forget : t -> string -> unit
+(** [forget t did] drops the cached acceptance of [did]. *)
 
 val current : t -> repo -> bool
-(** [current catalog repo] rechecks local membership and assignment after remote
-    authorization or source resolution. Pending refreshes raise [Pending]. *)
+(** [current t repo] checks that [repo] is still served by the same owner and
+    knot. *)
 
-val verified : t -> string -> repo
-val knots : t -> string list
+val knot_did : t -> string -> string
+(** [knot_did t did] is the [did:web] of the knot that the repository DID
+    document names. *)
+
+val locate : t -> string -> string
+(** [locate t did] is the clone URL of any repository, served or not. *)
+
 val authorized : t -> repo -> string -> bool
-val bootstrap : t -> unit
+(** [authorized t repo actor] holds for the owner and for collaborators the
+    knot currently records. It asks the knot on every call. *)
 
-val refresh : t -> string -> value:string -> unit
-(** [refresh catalog key ~value] replaces a queued collection from its current
-    PDS state if the task generation remains [value]. Newer notices invalidate
-    an in-flight snapshot. Successful grants schedule member collections. *)
-
-val notice : t -> owner:string -> collection:string -> rkey:string -> unit
-(** [notice catalog ~owner ~collection ~rkey] queues a durable refresh for an
-    authorized publisher. Event payloads never grant catalog authority. *)
+val default_branch : t -> repo -> string option
+(** [default_branch t repo] is the branch the knot's [org.tangled.git.refs]
+    record names. *)

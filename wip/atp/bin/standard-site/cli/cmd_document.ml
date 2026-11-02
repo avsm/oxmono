@@ -154,8 +154,7 @@ let show_action ~rkey ~user env =
       if Console_tty.is_terminal Unix.stdout then
         Fmt.pr "%a@." C.View.pp
           (C.Panel.view ~title:(styled accent doc.title)
-             ((C.View.text
-                (Fmt.str "%a" pp_document_detail (rkey, doc)))))
+             (C.View.text (Fmt.str "%a" pp_document_detail (rkey, doc))))
       else Fmt.pr "%a@." pp_document_detail (rkey, doc)
   | None ->
       Fmt.epr "Document not found: %s@." rkey;

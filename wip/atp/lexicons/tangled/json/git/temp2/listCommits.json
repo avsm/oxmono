@@ -1,0 +1,105 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.git.temp2.listCommits",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repo"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "ranges": { "type": "array", "items": { "type": "string" } },
+          "allRefs": { "type": "boolean", "default": false },
+          "after": { "type": "string", "format": "datetime" },
+          "before": { "type": "string", "format": "datetime" },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of commits to return",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "skip": {
+            "type": "integer",
+            "description": "Number of matching commits to skip. A poor man's pagination.",
+            "minimum": 0,
+            "default": 0
+          },
+          "includeStats": {
+            "type": "boolean",
+            "description": "Diff each commit against its first parent and include a line stat",
+            "default": false
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["commits"],
+          "properties": {
+            "commits": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#commit"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RefNotFound",
+          "description": "Git reference not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    },
+    "commit": {
+      "type": "object",
+      "required": [
+        "oid",
+        "parents",
+        "tree",
+        "author",
+        "committer",
+        "message",
+        "extraHeaders"
+      ],
+      "properties": {
+        "oid": { "type": "string" },
+        "parents": { "type": "array", "items": { "type": "string" } },
+        "tree": { "type": "string" },
+        "author": { "type": "ref", "ref": "sh.tangled.git.defs#signature" },
+        "committer": { "type": "ref", "ref": "sh.tangled.git.defs#signature" },
+        "message": { "type": "string" },
+        "extraHeaders": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "#header" }
+        },
+        "stat": { "type": "ref", "ref": "sh.tangled.git.defs#diffStat" }
+      }
+    },
+    "header": {
+      "type": "object",
+      "required": ["key", "value"],
+      "properties": {
+        "key": { "type": "string" },
+        "value": { "type": "string" }
+      }
+    }
+  }
+}

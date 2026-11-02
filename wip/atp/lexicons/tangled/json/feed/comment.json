@@ -31,6 +31,12 @@
             "type": "ref",
             "ref": "com.atproto.repo.strongRef"
           },
+          "embed": {
+            "type": "union",
+            "refs": [
+              "sh.tangled.embed.commit"
+            ]
+          },
           "pullRoundIdx": {
             "type": "integer",
             "minimum": 0,

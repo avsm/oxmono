@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "procedure",
-      "description": "Delete a branch on this repository",
+      "description": "DEPRECATED: use `org.tangled.temp.git.deleteBranch`",
       "input": {
         "encoding": "application/json",
         "schema": {

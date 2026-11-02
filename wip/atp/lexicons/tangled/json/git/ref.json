@@ -1,0 +1,28 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.git.ref",
+  "needsCbor": true,
+  "needsType": true,
+  "defs": {
+    "main": {
+      "type": "record",
+      "description": "Present state of one git ref on this repository, w/ the escaped refname as rkey (every byte outside [A-Za-z0-9_-] as ~xx in hex, ~ itself as ~7e; refs/heads/main is refs~2fheads~2fmain)",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": [
+          "sha"
+        ],
+        "properties": {
+          "sha": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 64,
+            "pattern": "^[0-9a-f]+$",
+            "description": "Object the ref points at"
+          }
+        }
+      }
+    }
+  }
+}

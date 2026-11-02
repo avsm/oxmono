@@ -87,6 +87,9 @@ module Credential = Xrpc_cred
 module Identity = Xrpc_identity
 (** Resolving handles and DIDs to the server that holds their records. *)
 
+module Trace = Xrpc_trace
+(** Logging of HTTP exchanges, for a verbose mode. *)
+
 (** {1 Type Aliases} *)
 
 type client = Xrpc_client.t

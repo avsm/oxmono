@@ -1,0 +1,6 @@
+# Runs the host-built Tangled CLI and the end-to-end driver on the stack's
+# network. The base image must be at least as new as the build host's glibc.
+FROM archlinux:base@sha256:e82623936fa1a69700b48e98b058df6eaab18b737c27473a7234a40fdecb9413
+RUN pacman -Sy --noconfirm --needed git openssh python ca-certificates gmp \
+      openssl zstd brotli curl \
+    && pacman -Scc --noconfirm

@@ -1,0 +1,75 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.git.getRef",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "repo",
+          "ref"
+        ],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Reference name. Such as master, refs/heads/master, or v1.16.0-alpha."
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["name", "oid", "message", "author", "totalCommits"],
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Full reference name. Example: refs/heads/master"
+            },
+            "oid": {
+              "type": "string",
+              "description": "Latest commit oid on this reference."
+            },
+            "message": {
+              "type": "string",
+              "description": "Latest commit message"
+            },
+            "author": {
+              "type": "ref",
+              "ref": "org.tangled.git.defs#signature"
+            },
+            "annotation": {
+              "type": "ref",
+              "ref": "org.tangled.temp.git.listTags#annotation",
+              "description": "Present only for annotated tags"
+            },
+            "totalCommits": {
+              "type": "integer",
+              "description": "Number of commits reachable from this tip"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RefNotFound",
+          "description": "Git reference not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    }
+  }
+}

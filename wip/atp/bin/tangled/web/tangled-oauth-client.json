@@ -1,0 +1,19 @@
+{
+  "client_id": "https://www.cl.cam.ac.uk/~avsm2/tangled-oauth-client.json",
+  "client_name": "Tangled CLI (paste mode)",
+  "client_uri": "https://www.cl.cam.ac.uk/~avsm2/",
+  "application_type": "web",
+  "grant_types": [
+    "authorization_code",
+    "refresh_token"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "redirect_uris": [
+    "https://www.cl.cam.ac.uk/~avsm2/oauth-login.html"
+  ],
+  "scope": "atproto repo:org.tangled.actor.profile repo:org.tangled.feed.comment repo:org.tangled.feed.reaction repo:org.tangled.feed.star repo:org.tangled.feed.subscription repo:org.tangled.git.refs repo:org.tangled.graph.attestation repo:org.tangled.graph.collaborator repo:org.tangled.graph.follow repo:org.tangled.graph.vouch repo:org.tangled.key.sshKey repo:org.tangled.key.unspecced.gpgKey repo:org.tangled.knot.block repo:org.tangled.knot.member repo:org.tangled.label.definition repo:org.tangled.repo.artifact repo:org.tangled.repo.declaration repo:org.tangled.repo.manifest repo:org.tangled.review.patch repo:org.tangled.repo.review.unspecced.round repo:org.tangled.snippet.string repo:org.tangled.track.ticket repo:org.tangled.track.unspecced.milestone rpc:com.atproto.repo.createRecord?aud=* rpc:com.atproto.repo.putRecord?aud=* rpc:com.atproto.repo.deleteRecord?aud=* rpc:org.tangled.repo.createRepo?aud=* rpc:org.tangled.repo.deleteRepo?aud=* rpc:org.tangled.review.submitPatch?aud=* rpc:org.tangled.event.notifyEvent?aud=* rpc:org.tangled.ci.cancelPipeline?aud=* rpc:org.tangled.ci.approvePipeline?aud=* rpc:org.tangled.ci.retryPipeline?aud=* rpc:org.tangled.temp.spindle.allowList.list?aud=* rpc:org.tangled.temp.spindle.allowList.add?aud=* rpc:org.tangled.temp.spindle.allowList.remove?aud=* rpc:com.atproto.repo.uploadBlob?aud=* rpc:org.tangled.git.deleteBranch?aud=* rpc:org.tangled.git.setDefaultBranch?aud=* rpc:org.tangled.secret.listSecrets?aud=* rpc:org.tangled.secret.addSecret?aud=* rpc:org.tangled.secret.removeSecret?aud=* rpc:org.tangled.webhook.listWebhooks?aud=* rpc:org.tangled.webhook.createWebhook?aud=* rpc:org.tangled.webhook.updateWebhook?aud=* rpc:org.tangled.webhook.deleteWebhook?aud=* rpc:org.tangled.webhook.listWebhookDeliveries?aud=* rpc:org.tangled.webhook.retryWebhookDelivery?aud=* rpc:org.tangled.temp.server.createInviteCode?aud=* rpc:org.tangled.temp.server.redeemInviteCode?aud=* rpc:org.tangled.temp.spindle.moderation.listBans?aud=* rpc:org.tangled.temp.spindle.moderation.ban?aud=* rpc:org.tangled.temp.spindle.moderation.unban?aud=* rpc:org.tangled.temp.spindle.quota.list?aud=* rpc:org.tangled.temp.spindle.quota.usage?aud=* rpc:org.tangled.temp.spindle.quota.set?aud=* rpc:org.tangled.temp.spindle.quota.unset?aud=*",
+  "token_endpoint_auth_method": "none",
+  "dpop_bound_access_tokens": true
+}

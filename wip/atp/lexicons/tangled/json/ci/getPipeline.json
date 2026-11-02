@@ -10,7 +10,6 @@
         "properties": {
           "pipeline": {
             "type": "string",
-            "format": "tid",
             "description": "Spindle-local pipeline id"
           }
         }

@@ -66,12 +66,31 @@ val login : t -> identifier:string -> password:string -> unit
 (** [login client ~identifier ~password] authenticates with the PDS. The session
     is automatically saved to the profile directory. *)
 
+val login_oauth :
+  t ->
+  net:_ Eio.Net.t ->
+  ?plc:string ->
+  ?identifier:string ->
+  ?redirect:Xrpc_auth_oauth.redirect ->
+  ?scope:string ->
+  open_url:(string -> unit) ->
+  unit ->
+  unit
+(** [login_oauth t ~net ~open_url ()] signs in through the PDS's OAuth
+    authorization server and saves the session, as
+    {!Xrpc_auth_oauth.authorize} describes. [scope] defaults to
+    {!Xrpc_auth_oauth.default_scope}.
+
+    @raise Failure if the account is not hosted on [t]'s PDS. *)
+
 val resume : t -> session:Xrpc_auth_session.t -> unit
 (** [resume client ~session] resumes from a saved session. Refreshes the access
-    token if needed. *)
+    token if needed. An OAuth session's requests to the PDS carry DPoP
+    proofs, and each refresh is saved. *)
 
 val logout : t -> unit
-(** [logout client] logs out and clears the session from disk. *)
+(** [logout client] logs out and clears the session from disk. An OAuth
+    session's refresh token is revoked. *)
 
 val get_session : t -> Xrpc_auth_session.t option
 (** [get_session client] returns the current session, if authenticated. *)
@@ -106,3 +125,7 @@ val get_fs : t -> Eio.Fs.dir_ty Eio.Path.t
 val make_client : t -> service:string -> Xrpc.Client.t
 (** [make_client t ~service] creates a new XRPC client for a different service.
     Useful for connecting to knot servers, spindles, etc. *)
+
+val http : t -> Fetch.plain
+(** [http t] is the HTTP client that every request of [t] shares, for plain
+    requests such as reading a DID document. *)

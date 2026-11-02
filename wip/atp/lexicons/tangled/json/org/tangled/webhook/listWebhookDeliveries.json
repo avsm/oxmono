@@ -1,0 +1,48 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.webhook.listWebhookDeliveries",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "List recent delivery attempts for a webhook.",
+      "parameters": {
+        "type": "params",
+        "required": ["repo", "webhooks"],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository as minted by the knot."
+          },
+          "webhooks": {
+            "type": "array",
+            "items": { "type": "string", "description": "Webhook ID." },
+            "maxLength": 50
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["deliveries"],
+          "properties": {
+            "deliveries": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "org.tangled.webhook.defs#delivery"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

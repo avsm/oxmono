@@ -34,6 +34,24 @@ let () =
 
   check "plc document url"
     (I.document_url "did:plc:abc" = Ok "https://plc.directory/did:plc:abc");
+  check "plc document url from another directory"
+    (I.document_url ~plc:"https://plc.test" "did:plc:abc"
+    = Ok "https://plc.test/did:plc:abc");
+  let doc =
+    {|{"id":"did:plc:r","service":[
+       {"id":"#atproto_pds","type":"AtprotoPersonalDataServer",
+        "serviceEndpoint":"https://knot.example"},
+       {"id":"did:plc:r#tangled_knot","type":"TangledKnot",
+        "serviceEndpoint":"https://knot.example:8443"}]}|}
+  in
+  check "a service by fragment"
+    (I.service_of_document ~id:"#atproto_pds" doc
+    = Some "https://knot.example");
+  check "a service by its full id"
+    (I.service_of_document ~id:"#tangled_knot" doc
+    = Some "https://knot.example:8443");
+  check "a missing service"
+    (I.service_of_document ~id:"#tangled_spindle" doc = None);
   check "web document url"
     (I.document_url "did:web:example.com"
     = Ok "https://example.com/.well-known/did.json");

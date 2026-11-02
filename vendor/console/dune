@@ -2,11 +2,11 @@
  (dev
   (flags :standard -open Console_compat)
   (env-vars
-   (LC_ALL en_US.UTF-8)))
+   (LC_ALL C.UTF-8)))
  (_
   (flags :standard -open Console_compat)
   (env-vars
-   (LC_ALL en_US.UTF-8)
+   (LC_ALL C.UTF-8)
    (EIO_BACKEND posix))))
 
 (mdx

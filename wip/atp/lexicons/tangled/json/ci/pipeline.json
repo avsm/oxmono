@@ -5,7 +5,7 @@
     "main": {
       "type": "object",
       "description": "A CI pipeline. Record-like, but owned by the spindle rather than a PDS.",
-      "required": ["id", "trigger", "commit", "workflows"],
+      "required": ["id", "repo", "trigger", "commit", "workflows"],
       "properties": {
         "id": {
           "type": "string",
@@ -21,7 +21,8 @@
           "refs": [
             "sh.tangled.ci.trigger#push",
             "sh.tangled.ci.trigger#pullRequest",
-            "sh.tangled.ci.trigger#manual"
+            "sh.tangled.ci.trigger#manual",
+            "sh.tangled.ci.trigger#schedule"
           ],
           "description": "Trigger event metadata"
         },

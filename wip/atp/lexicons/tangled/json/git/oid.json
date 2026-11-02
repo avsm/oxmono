@@ -1,0 +1,17 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.git.oid",
+  "defs": {
+    "main": {
+      "type": "object",
+      "required": ["oid"],
+      "properties": {
+        "oid": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 128
+        }
+      }
+    }
+  }
+}

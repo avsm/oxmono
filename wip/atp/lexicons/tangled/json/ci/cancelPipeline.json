@@ -18,8 +18,7 @@
             },
             "pipeline": {
               "type": "string",
-              "format": "tid",
-              "description": "pipeline TID"
+              "description": "pipeline ID"
             },
             "workflows": {
               "type": "array",

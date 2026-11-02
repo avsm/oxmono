@@ -17,6 +17,11 @@
             "type": "string",
             "description": "Git reference (branch, tag, or commit SHA)",
             "default": "HEAD"
+          },
+          "indexedOnly": {
+            "type": "boolean",
+            "description": "Only serve stored languages, failing with NotIndexed rather than analyzing the commit on demand",
+            "default": false
           }
         }
       },
@@ -52,6 +57,10 @@
         {
           "name": "RefNotFound",
           "description": "Git reference not found"
+        },
+        {
+          "name": "NotIndexed",
+          "description": "No stored languages for this commit yet, only with indexedOnly"
         },
         {
           "name": "InvalidRequest",

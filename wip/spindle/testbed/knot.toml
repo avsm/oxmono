@@ -1,0 +1,5 @@
+# knot2 settings that have no usable environment form. The rest are set in
+# stack.yml.
+[atproto]
+# Never ask a public relay to crawl this local knot.
+crawlers = []

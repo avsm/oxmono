@@ -1,0 +1,92 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.ci.queryPipelines",
+  "defs": {
+    "main": {
+      "type": "query",
+      "description": "Query pipelines in a git repository",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "repo"
+        ],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "DID of the repository"
+          },
+          "commits": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "commit id (SHA-1 or SHA-256)"
+            },
+            "description": "Filter pipelines by commit ids."
+          },
+          "triggers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "knownValues": [
+                "org.tangled.event.push",
+                "org.tangled.event.pullRequest",
+                "org.tangled.ci.trigger.manual",
+                "org.tangled.ci.trigger.schedule"
+              ]
+            },
+            "description": "Filter pipelines by trigger kind. When provided, pipelines matching any listed kind are returned; when omitted, every kind is returned."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of pipelines to return",
+            "minimum": 1,
+            "maximum": 250,
+            "default": 50
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "total",
+            "pipelines"
+          ],
+          "properties": {
+            "cursor": {
+              "type": "string"
+            },
+            "total": {
+              "type": "integer",
+              "description": "Number of matching pipelines"
+            },
+            "pipelines": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "org.tangled.ci.defs#pipeline"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        },
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found"
+        }
+      ]
+    }
+  }
+}

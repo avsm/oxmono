@@ -1,8 +1,9 @@
 (* SPDX-License-Identifier: ISC *)
 open Cmdliner
 
-let serve hostname owner repo source plc state_dir port addr jetstream
-    allow_http operations =
+let serve hostname owner admins admission repo source plc state_dir port addr
+    jetstream allow_http workflow_timeout quota_repo quota_user private_webhooks
+    operations =
   let repo =
     match (repo, source) with
     | None, None -> None
@@ -14,6 +15,8 @@ let serve hostname owner repo source plc state_dir port addr jetstream
     {
       hostname;
       owner;
+      admins;
+      admission;
       repo;
       plc;
       state_dir;
@@ -21,6 +24,10 @@ let serve hostname owner repo source plc state_dir port addr jetstream
       jobs = [ Spindle.Job.inspect ];
       jetstream;
       allow_http;
+      executor = Spindle.Executor.print env#clock;
+      workflow_timeout;
+      quotas = { repo = quota_repo; user = quota_user };
+      private_webhooks;
     }
 
 let required name doc =
@@ -60,11 +67,23 @@ let operations =
         "Maximum pending events before applying backpressure."
     $ integer "inbox-megabytes" 64 "Pending event payload budget in MiB."
     $ integer "replay-hours" 24
-        "Upstream replay window. Older cursors trigger current-state recovery."
+        "Jetstream replay window. An older cursor restarts from now."
     $ integer "reconcile-seconds" 300
-        "Interval between PDS and Git ref reconciliation."
+        "How long a repository's acceptance is cached."
     $ integer "maintenance-seconds" 60
         "Interval between automatic retention passes.")
+
+let quota name whose =
+  Arg.(
+    value
+    & opt_all (pair ~sep:'=' string int) []
+    & info [ name ] ~docv:"RESOURCE=N"
+        ~doc:
+          (Printf.sprintf
+             "Limit %s to N of RESOURCE unless an administrator sets \
+              otherwise. The enforced resources are $(b,workflows) running at \
+              once, $(b,webhooks) and $(b,ci_minutes_monthly). Repeatable."
+             whose))
 
 let command =
   let term =
@@ -72,6 +91,24 @@ let command =
       const serve
       $ option "hostname" "spindle.tangled.test" "Spindle did:web hostname."
       $ required "owner" "Spindle owner DID."
+      $ Arg.(
+          value & opt_all string []
+          & info [ "admin" ] ~docv:"DID"
+              ~doc:"Additional administrator DID (repeatable).")
+      $ Arg.(
+          value
+          & opt
+              (enum
+                 [
+                   ("closed", Spindle.Catalog.Closed);
+                   ("open", Spindle.Catalog.Open);
+                 ])
+              Spindle.Catalog.Closed
+          & info [ "admission" ]
+              ~doc:
+                "Which repository owners are served: $(b,closed) admits \
+                 administrators and allow-listed owners, $(b,open) admits \
+                 anyone.")
       $ Arg.(
           value
           & opt (some string) None
@@ -90,14 +127,27 @@ let command =
           & opt (some string) None
           & info [ "jetstream" ]
               ~doc:
-                "Jetstream WSS URL for automatic Tangled discovery and events.")
+                "Jetstream WSS URL to follow pull requests and manifest \
+                 changes.")
       $ Arg.(
           value & flag
           & info [ "allow-http" ]
               ~doc:"Permit HTTP and WS on a development network.")
+      $ Arg.(
+          value & opt float 60.
+          & info [ "workflow-timeout" ] ~docv:"SECONDS"
+              ~doc:"How long a workflow may run before it is stopped.")
+      $ quota "quota-repo" "a repository"
+      $ quota "quota-user" "an owner's repositories together"
+      $ Arg.(
+          value & flag
+          & info [ "private-webhooks" ]
+              ~doc:
+                "Let webhooks reach loopback and private addresses, on a \
+                 development network.")
       $ operations)
   in
-  Cmd.v (Cmd.info "spindle" ~doc:"Run an OCaml Tangled inspection job") term
+  Cmd.v (Cmd.info "spindle" ~doc:"Run a Tangled spindle") term
 
 let () =
   Console_tty.setup ();

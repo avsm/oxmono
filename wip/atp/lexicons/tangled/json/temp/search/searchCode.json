@@ -13,14 +13,10 @@
             "type": "string",
             "description": "Search query string."
           },
-          "repoDid": {
+          "repo": {
             "type": "string",
             "format": "did",
             "description": "Restrict search to a specific repository, by its DID."
-          },
-          "lang": {
-            "type": "string",
-            "description": "Restrict search to a specific programming language (e.g. 'go', 'rust')."
           },
           "limit": {
             "type": "integer",
@@ -54,23 +50,36 @@
     },
     "fileResult": {
       "type": "object",
-      "required": ["repoDid", "path", "chunks"],
+      "required": ["repo", "path", "commit"],
       "properties": {
-        "repoDid": {
-          "type": "string",
-          "format": "did",
-          "description": "DID of the repository as minted by the knot."
+        "repo": {
+          "type": "ref",
+          "ref": "org.tangled.repo.defs#repoViewBasic"
         },
         "path": {
           "type": "string",
           "description": "File path relative to repository root."
         },
+        "branches": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "commit": { "type": "string" },
         "language": {
           "type": "string",
           "description": "Detected programming language."
         },
+        "ranges": {
+          "type": "array",
+          "description": "set for a filename match",
+          "items": {
+            "type": "ref",
+            "ref": "#highlight"
+          }
+        },
         "chunks": {
           "type": "array",
+          "description": "set for content matches",
           "items": {
             "type": "ref",
             "ref": "#chunk"

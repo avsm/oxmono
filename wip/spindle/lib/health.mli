@@ -1,5 +1,5 @@
 type t
-(** Observer transport, backlog and recovery readiness. *)
+(** Observer transport and backlog readiness. *)
 
 val v : store:Store.t -> enabled:bool -> t
 val require : t -> string -> unit
@@ -12,5 +12,5 @@ val failed : t -> string -> now:float -> exn -> unit
 
 val report : t -> now:float -> bool * Jsont.json
 (** [report health ~now] returns readiness and diagnostics. Quiet streams stay
-    healthy through control-frame traffic. Queued work, pending discovery,
-    recovery and disconnected sources determine readiness. *)
+    healthy through control-frame traffic. Maintenance, queued events and
+    disconnected sources determine readiness. *)

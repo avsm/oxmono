@@ -33,11 +33,15 @@ type error =
       (** Network-level failure (connection refused, timeout, etc.) *)
   | Parse_error of { reason : string; body_preview : string option }
       (** JSON parsing or decoding failed *)
-  | Xrpc_error of { status : int; error : string; message : string option }
-      (** XRPC error response from server.
-          @param status HTTP status code
-          @param error Error code (e.g., ["ExpiredToken"], ["InvalidHandle"])
-          @param message Optional detailed message *)
+  | Xrpc_error of {
+      status : int;  (** HTTP status code. *)
+      error : string;
+          (** Error code, such as ["ExpiredToken"], or ["UnknownError"] for a
+              body that is not an XRPC error. *)
+      message : string option;  (** Detail the server gave, if any. *)
+      nsid : string;  (** Method that was called. *)
+      service : string;  (** Origin of the server that answered. *)
+    }  (** XRPC error response from server. *)
   | Token_expired  (** Session token has expired and could not be refreshed *)
   | Session_required
       (** Operation requires authentication but no session is set *)

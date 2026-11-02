@@ -7,10 +7,21 @@
   fetch-curl
   jsont
   jsont.bytesrw
+  jsonwt
+  digestif
+  mirage-crypto-ec
+  mirage-crypto-rng
+  mirage-crypto-rng.unix
+  http
   fmt
   eio
   eio_main
   unix
   ptime
   ptime.clock.os
-  cmdliner))
+  cmdliner
+  console
+  console.tty
+  console-eio
+  logs
+  fmt.cli))

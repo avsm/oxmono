@@ -129,6 +129,10 @@ val flat_module_name_of_nsid : string -> string
 
     Example: ["app.bsky.feed.post"] -> ["App_bsky_feed_post"]. *)
 
+val module_name_of_segment : string -> string
+(** [module_name_of_segment s] is the OCaml module name for NSID segment [s].
+    It capitalizes [s] and replaces each hyphen with an underscore. *)
+
 val module_path_of_nsid : string -> string list
 (** [module_path_of_nsid nsid] splits NSID into module path segments.
 

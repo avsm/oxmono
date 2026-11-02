@@ -14,11 +14,19 @@ depends: [
   "atp-xrpc" {= version}
   "fetch"
   "fetch-curl"
+  "http"
   "jsont" {>= "0.1"}
+  "jsonwt"
+  "digestif"
+  "mirage-crypto-ec"
+  "mirage-crypto-rng"
   "eio" {>= "1.0"}
   "ptime" {>= "1.0"}
   "cmdliner" {>= "1.2"}
   "eio_main"
+  "console"
+  "console-eio"
+  "logs"
   "fmt"
   "odoc" {with-doc}
 ]

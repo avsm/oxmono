@@ -1,0 +1,56 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.ci.getWorkflowDefinition",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": [
+          "repo",
+          "workflow"
+        ],
+        "properties": {
+          "repo": {
+            "type": "string",
+            "format": "did"
+          },
+          "workflow": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "workflow"
+          ],
+          "properties": {
+            "workflow": {
+              "type": "ref",
+              "ref": "org.tangled.ci.defs#workflow"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        },
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found"
+        },
+        {
+          "name": "WorkflowNotFound",
+          "description": "Workflow not found"
+        }
+      ]
+    }
+  }
+}

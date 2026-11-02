@@ -43,6 +43,19 @@
 
 (** {1 Session Type} *)
 
+type oauth = {
+  issuer : string;  (** Authorization server that issued the tokens. *)
+  token_endpoint : string;
+  revocation_endpoint : string option;
+  client_id : string;
+  dpop_key : string;
+      (** Private P-256 JWK that the tokens are bound to. *)
+  scope : string;  (** Scope the server granted. *)
+  expires_at : string;  (** RFC 3339 expiry of the access token. *)
+}
+(** OAuth grant details. The access and refresh tokens of an OAuth session
+    are DPoP-bound and useless without [dpop_key]. *)
+
 type t = {
   access_jwt : string;
   refresh_jwt : string;
@@ -50,8 +63,11 @@ type t = {
   handle : string;
   pds : string;
   created_at : string;
+  oauth : oauth option;
+      (** [None] for a password session. *)
 }
-(** Saved session data. *)
+(** Saved session data. For an OAuth session [access_jwt] and [refresh_jwt]
+    hold the OAuth access and refresh tokens. *)
 
 val jsont : t Jsont.t
 (** JSON codec for sessions. *)
@@ -114,7 +130,8 @@ val clear :
 (** {1 Session Utilities} *)
 
 val is_expired : ?leeway:Ptime.span -> t -> bool
-(** [is_expired ?leeway session] returns [true] if the access token is expired.
+(** [is_expired ?leeway session] returns [true] if the access token is
+    expired. An OAuth session uses its recorded expiry.
     @param leeway Extra time buffer (default: 60 seconds) *)
 
 val pp : t Fmt.t

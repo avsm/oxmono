@@ -1,0 +1,51 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.git.temp2.getDiff",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["baseRepo", "baseCommit", "headRepo", "headCommit"],
+        "properties": {
+          "baseRepo": { "type": "string", "format": "did" },
+          "baseCommit": { "type": "string" },
+          "headRepo": { "type": "string", "format": "did" },
+          "headCommit": { "type": "string" }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "description": "TBD",
+        "schema": {
+          "type": "object",
+          "required": ["diffs"],
+          "properties": {
+            "diffs": {
+              "type": "array",
+              "items": { "type": "ref", "ref": "sh.tangled.git.defs#fileDiff" }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RevisionNotFound",
+          "description": "One or both revisions not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        },
+        {
+          "name": "CompareError",
+          "description": "Failed to compare revisions"
+        }
+      ]
+    }
+  }
+}

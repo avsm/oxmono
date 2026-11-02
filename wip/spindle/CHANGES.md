@@ -4,6 +4,36 @@
 
 ## Unreleased
 
+- Hand every workflow to an executor callback instead of running commands on
+  the host. The default executor logs the workflow, with secrets as
+  placeholders, waits two seconds and succeeds. `--repository-workflows` is
+  gone, since repository workflows are always read.
+
+- Read repositories' own YAML workflows from `.tangled/workflows`, with the
+  reference spindle's `when` rules and CI variables.
+- Add secrets, given to trusted pipelines and hidden in their logs, and
+  webhooks for pushes, renames and pull requests, signed and redeliverable.
+- Dispatch pull requests that are closed, reopened or merged.
+- Add bans, which wipe what is kept for a repository or owner, invite codes,
+  and quotas on running workflows, webhooks and monthly CI minutes.
+- `--workflow-timeout` sets how long a workflow may run.
+
+- Log streams end every step with an `outcome`, even when it fails or is
+  cancelled, and mark the checkout as a `system` step, as the reference
+  spindle does. Tangled's log view uses them to mark the step that failed.
+- The deployment guide uses the reorganised Tangled CLI commands.
+
+- Speak Tangled core's `org.tangled.*` protocol. Run pushes that knots report
+  through `notifyEvent`, manual runs, retries, cancellation and approval of
+  blocked pull requests, and serve repositories by manifest, declaration and
+  an admission allow-list.
+- Accept SHA-256 commit IDs, which knots now create by default.
+- Answer 503 when a repository's knot, PDS or DID host is unreachable, so that
+  a knot retries the push.
+- Test against knot2 built from a Tangled core checkout with
+  `testbed/stack.py`. The spindle and client images use Arch Linux and allow
+  io_uring.
+
 - Wait for the client's WebSocket close acknowledgement after the last log
   event, preventing completed log reads from failing with a broken pipe.
 

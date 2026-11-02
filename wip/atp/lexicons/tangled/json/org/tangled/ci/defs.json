@@ -1,0 +1,219 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.ci.defs",
+  "defs": {
+    "pipeline": {
+      "type": "object",
+      "description": "A CI pipeline. Record-like, but owned by the spindle rather than a PDS.",
+      "required": [
+        "id",
+        "repo",
+        "trigger",
+        "commit",
+        "workflows"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "record-key",
+          "description": "Spindle-local pipeline id"
+        },
+        "repo": {
+          "type": "string",
+          "format": "did",
+          "description": "Repository DID"
+        },
+        "trigger": {
+          "type": "union",
+          "closed": false,
+          "refs": [
+            "org.tangled.event.push",
+            "org.tangled.event.pullRequest",
+            "org.tangled.ci.trigger.manual",
+            "org.tangled.ci.trigger.schedule"
+          ],
+          "description": "Trigger event that triggered this pipeline."
+        },
+        "commit": {
+          "type": "string",
+          "description": "Commit Id this pipeline is running on"
+        },
+        "sourceRepo": {
+          "type": "string",
+          "format": "did",
+          "description": "Repository DID that the commit was checked out from, if different from repo (e.g. a fork for a fork-based pull request)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "workflows": {
+          "type": "array",
+          "description": "Triggered workflows",
+          "minLength": 1,
+          "maxLength": 50,
+          "items": {
+            "type": "ref",
+            "ref": "#workflowRun"
+          }
+        }
+      }
+    },
+    "workflowRun": {
+      "type": "object",
+      "required": [
+        "definition",
+        "id",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Pipeline-local workflow id, usually same as name.",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name of the workflow",
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "description": "Workflow status",
+          "enum": [
+            "pending",
+            "blocked",
+            "running",
+            "failed",
+            "timeout",
+            "cancelled",
+            "success"
+          ]
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "finishedAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "error": {
+          "type": "string"
+        },
+        "definition": {
+          "type": "ref",
+          "ref": "#workflow",
+          "description": "Workflow definition where this workflow run is originated from."
+        }
+      }
+    },
+    "workflow": {
+      "type": "object",
+      "description": "A workflow definition",
+      "required": [
+        "id",
+        "source",
+        "triggers"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "hash": {
+          "type": "string",
+          "description": "Fingerprint of the workflow definition as resolved by the spindle."
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name of the workflow",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source": {
+          "type": "union",
+          "refs": [
+            "#fileSource",
+            "#externalSource"
+          ]
+        },
+        "triggers": {
+          "type": "array",
+          "description": "Event types that triggers this workflow.",
+          "items": {
+            "type": "string",
+            "knownValues": [
+              "org.tangled.event.push",
+              "org.tangled.event.pullRequest",
+              "org.tangled.ci.trigger.manual",
+              "org.tangled.ci.trigger.schedule"
+            ]
+          }
+        }
+      }
+    },
+    "fileSource": {
+      "type": "object",
+      "required": [
+        "repo",
+        "commit",
+        "path"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "format": "did"
+        },
+        "commit": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 128
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "lines": {
+          "type": "ref",
+          "ref": "#lineRange"
+        }
+      }
+    },
+    "lineRange": {
+      "type": "object",
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "end": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "externalSource": {
+      "type": "object",
+      "required": [
+        "link"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "human-readable name of external source"
+        },
+        "link": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.knot.acceptMembership",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "DEPRECATED: legacy consent flow for the old knotserver; knot2 grants membership on addMember alone. Accept this knot's membership offer. The knot refuses the call unless the acceptance record is already in the actor's own repository.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "acceptance"
+          ],
+          "properties": {
+            "acceptance": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of the sh.tangled.knot.memberAcceptance record, w/ knot-DID as rkey"
+            }
+          }
+        }
+      }
+    }
+  }
+}

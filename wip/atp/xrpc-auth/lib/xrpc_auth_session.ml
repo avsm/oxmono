@@ -3,6 +3,16 @@
    SPDX-License-Identifier: ISC
   ---------------------------------------------------------------------------*)
 
+type oauth = {
+  issuer : string;
+  token_endpoint : string;
+  revocation_endpoint : string option;
+  client_id : string;
+  dpop_key : string;
+  scope : string;
+  expires_at : string;
+}
+
 type t = {
   access_jwt : string;
   refresh_jwt : string;
@@ -10,18 +20,37 @@ type t = {
   handle : string;
   pds : string;
   created_at : string;
+  oauth : oauth option;
 }
+
+let oauth_jsont =
+  Jsont.Object.map ~kind:"OAuth"
+    (fun issuer token_endpoint revocation_endpoint client_id dpop_key scope
+         expires_at ->
+      { issuer; token_endpoint; revocation_endpoint; client_id; dpop_key;
+        scope; expires_at })
+  |> Jsont.Object.mem "issuer" Jsont.string ~enc:(fun o -> o.issuer)
+  |> Jsont.Object.mem "token_endpoint" Jsont.string
+       ~enc:(fun o -> o.token_endpoint)
+  |> Jsont.Object.opt_mem "revocation_endpoint" Jsont.string
+       ~enc:(fun o -> o.revocation_endpoint)
+  |> Jsont.Object.mem "client_id" Jsont.string ~enc:(fun o -> o.client_id)
+  |> Jsont.Object.mem "dpop_key" Jsont.string ~enc:(fun o -> o.dpop_key)
+  |> Jsont.Object.mem "scope" Jsont.string ~enc:(fun o -> o.scope)
+  |> Jsont.Object.mem "expires_at" Jsont.string ~enc:(fun o -> o.expires_at)
+  |> Jsont.Object.finish
 
 let jsont =
   Jsont.Object.map ~kind:"Session"
-    (fun access_jwt refresh_jwt did handle pds created_at ->
-      { access_jwt; refresh_jwt; did; handle; pds; created_at })
+    (fun access_jwt refresh_jwt did handle pds created_at oauth ->
+      { access_jwt; refresh_jwt; did; handle; pds; created_at; oauth })
   |> Jsont.Object.mem "access_jwt" Jsont.string ~enc:(fun s -> s.access_jwt)
   |> Jsont.Object.mem "refresh_jwt" Jsont.string ~enc:(fun s -> s.refresh_jwt)
   |> Jsont.Object.mem "did" Jsont.string ~enc:(fun s -> s.did)
   |> Jsont.Object.mem "handle" Jsont.string ~enc:(fun s -> s.handle)
   |> Jsont.Object.mem "pds" Jsont.string ~enc:(fun s -> s.pds)
   |> Jsont.Object.mem "created_at" Jsont.string ~enc:(fun s -> s.created_at)
+  |> Jsont.Object.opt_mem "oauth" oauth_jsont ~enc:(fun s -> s.oauth)
   |> Jsont.Object.finish
 
 (* App config stores the current profile *)
@@ -130,11 +159,24 @@ let clear fs ~app_name ?profile () =
   with Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> ()
 
 let is_expired ?(leeway = Ptime.Span.of_int_s 60) session =
-  Xrpc.Jwt.is_expired ~leeway session.access_jwt
+  match session.oauth with
+  | None -> Xrpc.Jwt.is_expired ~leeway session.access_jwt
+  | Some oauth -> (
+      match Ptime.of_rfc3339 oauth.expires_at with
+      | Ok (expires, _, _) ->
+          let now = Ptime_clock.now () in
+          not (Ptime.is_later expires ~than:(Option.value ~default:now
+            (Ptime.add_span now leeway)))
+      | Error _ -> true)
 
 let pp ppf session =
-  Fmt.pf ppf "@[<v>Handle: %s@,DID: %s@,PDS: %s@,Created: %s@]" session.handle
-    session.did session.pds session.created_at
+  Fmt.pf ppf "@[<v>Handle: %s@,DID: %s@,PDS: %s@,Created: %s" session.handle
+    session.did session.pds session.created_at;
+  (match session.oauth with
+   | None -> Fmt.pf ppf "@,Login: password"
+   | Some o ->
+       Fmt.pf ppf "@,Login: OAuth via %s@,Scope: %s" o.issuer o.scope);
+  Fmt.pf ppf "@]"
 
 let of_xrpc ~pds (xrpc : Xrpc.Types.session) =
   {
@@ -144,6 +186,7 @@ let of_xrpc ~pds (xrpc : Xrpc.Types.session) =
     handle = xrpc.handle;
     pds;
     created_at = Ptime.to_rfc3339 (Ptime_clock.now ());
+    oauth = None;
   }
 
 let to_xrpc session : Xrpc.Types.session =

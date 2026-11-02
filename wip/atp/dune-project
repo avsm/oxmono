@@ -39,7 +39,8 @@
   (ptime (>= 1.0))
   uriz
   (eio (>= 1.0))
-  fmt))
+  fmt
+  logs))
 
 (package
  (name xrpc-auth)
@@ -51,11 +52,19 @@
   (atp-xrpc (= :version))
   fetch
   fetch-curl
+  http
   (jsont (>= 0.1))
+  jsonwt
+  digestif
+  mirage-crypto-ec
+  mirage-crypto-rng
   (eio (>= 1.0))
   (ptime (>= 1.0))
   (cmdliner (>= 1.2))
   eio_main
+  console
+  console-eio
+  logs
   fmt))
 
 (package
@@ -142,7 +151,8 @@
   (cmdliner (>= 1.2))
   eio_main
   console console-eio
-  fmt))
+  fmt
+  logs))
 
 (package
  (name bsky)
@@ -182,5 +192,5 @@
   (ptime (>= 1.0))
   (cmdliner (>= 1.2))
   eio_main
-  console console-eio
+  console
   fmt))

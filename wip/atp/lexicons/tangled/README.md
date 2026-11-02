@@ -2,18 +2,22 @@
 
 The JSON documents are verbatim copies of `lexicons/` in
 <https://tangled.org/tangled.org/core> at
-`3185226a0cb1862c9e53595319d07072886d092b`, reviewed 2026-09-10.
+`52549bde582beb2ce71cc88d6fa726c41cbc8fe7`, reviewed 2026-11-01.
 
-The complete set contains 231 documents: 187 `sh.tangled.*`, 43
-`org.tangled.temp.*` and the shared `com.atproto.repo.strongRef`.
+The complete set contains 418 documents. Current records and methods are
+under `org.tangled.*`, including temporary APIs under `org.tangled.temp.*`.
+Legacy `sh.tangled.*` documents remain for data written before the move. The
+set also carries the shared `com.atproto` documents Tangled references and
+`com.bad-example.pocket`, a preferences store the Tangled web client uses.
 `LICENSE.upstream` contains Tangled's MIT licence. No JSON schema is patched.
-Temporary APIs are exposed under `Atp_lexicon_tangled.Org.Tangled.Temp`.
+Current APIs are under `Atp_lexicon_tangled.Org.Tangled`, legacy ones under
+`Atp_lexicon_tangled.Sh.Tangled`.
 
 From the monorepo root:
 
 ```sh
-python3 wip/atp/tools/audit_tangled.py ../tangled-core --check
-python3 wip/atp/tools/audit_tangled.py ../tangled-core --sync --check \
+python3 wip/atp/tools/audit_tangled.py ../core --check
+python3 wip/atp/tools/audit_tangled.py ../core --sync --check \
   > wip/atp/tangled-lexicon-audit.json
 opam exec --switch=5.2.0+ox -- dune build --profile release-check \
   @wip/atp/lexicons/tangled/hermest-tangled
@@ -27,7 +31,9 @@ parsed JSON by NSID, including temporary APIs and shared definitions.
 document cannot be parsed. The CLI catalogue is generated from this same JSON
 tree at build time.
 
-Generated codecs preserve absent and explicit-null fields separately. They
+Generated codecs preserve absent and explicit-null fields separately. A
+reference to another definition in the same document decodes as raw JSON, to
+be decoded with that definition's codec. They
 provide OCaml wire types, but do not enforce every lexicon constraint. The CLI
 adds local input checks. Servers remain responsible for authorization,
 grapheme limits, blob constraints and derived state.

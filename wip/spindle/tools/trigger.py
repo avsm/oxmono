@@ -34,7 +34,7 @@ def main():
                         help="Server's configured did:web hostname")
     parser.add_argument("--identifier", required=True, help="Owner handle or DID")
     parser.add_argument("--repo", required=True, help="Configured repository DID")
-    parser.add_argument("--sha", required=True, help="Full Git commit SHA")
+    parser.add_argument("--sha", required=True, help="Full Git commit ID")
     parser.add_argument("--ref", default="refs/heads/main")
     parser.add_argument("--password-env",
                         help="Read app password from this environment variable")
@@ -51,15 +51,15 @@ def main():
     spindle = args.spindle.rstrip("/") + "/xrpc/"
     session = request(pds + "com.atproto.server.createSession", body={
         "identifier": args.identifier, "password": password})
-    method = "sh.tangled.ci.triggerPipeline"
+    method = "org.tangled.event.notifyEvent"
     query = urllib.parse.urlencode({
         "aud": "did:web:" + args.hostname, "lxm": method})
     auth = request(pds + "com.atproto.server.getServiceAuth?" + query,
                    token=session["accessJwt"])
     result = request(spindle + method, token=auth["token"], body={
         "repo": args.repo,
-        "trigger": {"$type": "sh.tangled.ci.trigger#manual",
-                    "sha": args.sha, "ref": args.ref}})
+        "event": {"$type": "org.tangled.ci.trigger.manual", "repo": args.repo,
+                  "commit": args.sha, "ref": args.ref}})
     print(json.dumps(result, indent=2))
 
 

@@ -3,10 +3,16 @@ open Cmdliner
 module Api = Tangled.Api
 
 let create_api ~sw ~env ~app_name ~pds () =
-  let http = Fetch_httpz.std env in
-  Api.create ~sw ~env ~app_name ~pds ~http ()
+  let http = Xrpc.Trace.wrap (Fetch_httpz.std env) in
+  let plc = Sys.getenv_opt "TANGLED_PLC" in
+  Api.create ~sw ~env ~app_name ?plc ~pds ~http ()
 
-let with_api ?(authenticated = true) env f =
+let with_api ?(authenticated = true) ?busy env f =
+  let f =
+    match busy with
+    | None -> f
+    | Some l -> fun api -> Ui.busy l (fun () -> f api)
+  in
   Eio.Switch.run @@ fun sw ->
   let session = Xrpc_auth.Session.load env#fs ~app_name:"tangled" () in
   let pds =
@@ -26,19 +32,35 @@ let with_api ?(authenticated = true) env f =
     session;
   f api
 
+(* [cmd info term] is a command whose output options, from
+   {!Xrpc_auth.Cli.term}, take effect before [term] runs. *)
+let cmd info term =
+  Cmd.v info
+    Term.(const (fun () r -> r) $ Xrpc_auth.Cli.term ~env:"TANGLED" () $ term)
+
 let run f =
   try
-    Eio_main.run f;
+    Eio_main.run (fun env ->
+        Ui.set_clock (Eio.Stdenv.mono_clock env);
+        f env);
     Ok ()
   with
+  (* A reader such as [head] that has seen enough is not an error. The
+     runtime words a failed write as strerror does. *)
+  | Sys_error message when message = Unix.error_message Unix.EPIPE -> Ok ()
   | Failure message | Invalid_argument message | Sys_error message ->
       Error (`Msg message)
+  | Eio.Io (Xrpc.Error.E e, _) -> Error (`Msg (Xrpc.Error.to_string e))
   | Httpz_websocket.Protocol_error (_, message) | Httpz_tls.Error message ->
       Error (`Msg message)
   | Httpz_websocket_eio.Upgrade_rejected status ->
       Error
         (`Msg (Printf.sprintf "WebSocket upgrade rejected (HTTP %d)" status))
   | Eio.Io _ as ex -> Error (`Msg (Printexc.to_string ex))
+
+(* [man paragraphs] is a manual page section describing a command. *)
+let man paragraphs =
+  `S Manpage.s_description :: List.map (fun p -> `P p) paragraphs
 
 let json value =
   match Jsont_bytesrw.encode_string ~format:Jsont.Indent Jsont.json value with
@@ -53,33 +75,88 @@ let optional names docv doc =
 let positional index docv doc =
   Arg.(required & pos index (some string) None & info [] ~docv ~doc)
 
-let knot = optional [ "knot"; "k" ] "KNOT" "Knot hostname or HTTP(S) origin."
+(* An override for testing, so it stays out of the manual. *)
+let knot =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "knot"; "k" ] ~docv:"KNOT" ~docs:Manpage.s_none
+        ~doc:"Reach the repository through KNOT instead of the knot it names.")
 
+(* For test gateways only, so it stays out of the manual. *)
 let audience =
-  optional [ "audience" ] "DID"
-    "Override the service token audience (for test gateways)."
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "audience" ] ~docv:"DID" ~docs:Manpage.s_none
+        ~env:(Cmd.Env.info "TANGLED_AUDIENCE")
+        ~doc:"Override the audience of service tokens.")
+
+let repo_doc =
+  "The repository, as $(i,owner/name), or just $(i,name) for one of your own. \
+   Without it, the repository is the one the current directory is a clone of."
+
+(* The repository a command acts in. *)
+let repo =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "repo"; "r" ] ~docv:"REPO" ~doc:repo_doc)
+
+(* The repository a command acts on, as its argument. *)
+let repo_arg =
+  Arg.(value & pos 0 (some string) None & info [] ~docv:"REPO" ~doc:repo_doc)
+
+let repo_spec = function
+  | Some spec -> spec
+  | None -> (
+      match Local.repo () with
+      | Some spec -> spec
+      | None ->
+          failwith
+            "This directory is not a clone of a Tangled repository. Name one \
+             with --repo.")
+
+let resolve api ?knot spec = Api.resolve_repo api ?knot (repo_spec spec)
 
 let user =
-  optional [ "user"; "u" ] "USER" "Handle or DID (default: logged-in user)."
+  optional [ "user"; "u" ] "USER"
+    "The user, by handle. Without this option, the logged-in user."
 
 let did api = function
   | Some user -> Api.resolve_handle api user
   | None -> Api.get_did api
 
-let json_flag = Arg.(value & flag & info [ "json" ] ~doc:"Print JSON.")
+(* [handles api dids] pairs each DID with its verified handle, looked up a
+   few at a time. *)
+let handles api dids =
+  Eio.Fiber.List.map ~max_fibers:8
+    (fun did -> (did, Api.handle_of_did api did))
+    dids
+
+let email contact =
+  Option.bind contact (fun c ->
+      Option.map Tangled.Schema.text (Tangled.Schema.member "email" c))
+
+let json_flag =
+  Arg.(value & flag & info [ "json" ] ~doc:"Print the result as JSON.")
 
 let cursor =
-  optional [ "cursor" ] "CURSOR" "Continuation cursor from the previous page."
+  optional [ "cursor" ] "CURSOR"
+    "Continue from where the previous page stopped, using the cursor it \
+     printed."
 
 let limit =
   Arg.(
-    value & opt int 50 & info [ "limit"; "l" ] ~doc:"Maximum results per page.")
+    value & opt int 50
+    & info [ "limit"; "l" ] ~docv:"N" ~doc:"Show at most N results.")
 
 let strings names docv doc =
   Arg.(value & opt_all string [] & info names ~docv ~doc)
 
 let workflows =
-  strings [ "workflow"; "w" ] "NAME" "Select a workflow (repeatable)."
+  strings [ "workflow"; "w" ] "NAME"
+    "Act only on the workflow NAME. Repeat the option for more."
 
 let nonempty = function [] -> None | values -> Some values
 
@@ -93,7 +170,8 @@ let pair text =
   match String.index_opt text '=' with
   | None -> invalid_arg "Expected KEY=VALUE"
   | Some i when i > 0 ->
-      (String.sub text 0 i, String.sub text (i + 1) (String.length text - i - 1))
+      ( String.sub text 0 i,
+        String.sub text (i + 1) (String.length text - i - 1) )
   | Some _ -> invalid_arg "Empty parameter name"
 
 let read_file path =
@@ -119,3 +197,52 @@ let read_json path =
   match Jsont_bytesrw.decode_string Jsont.json (read_file path) with
   | Ok value -> value
   | Error message -> invalid_arg message
+
+(* [body] is a ticket or comment body, given inline or read from a file. *)
+let body =
+  let inline =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "body"; "b" ] ~docv:"TEXT" ~doc:"The text, in Markdown.")
+  in
+  let file =
+    Arg.(
+      value
+      & opt (some string) None
+      & info [ "body-file"; "F" ] ~docv:"FILE"
+          ~doc:"Read the text from FILE, or from standard input if FILE is -.")
+  in
+  let choose inline file =
+    match (inline, file) with
+    | Some _, Some _ -> Error (`Msg "Give --body or --body-file, not both")
+    | Some text, None -> Ok (Some text)
+    | None, Some path -> (
+        match read_file path with
+        | text -> Ok (Some text)
+        | exception (Sys_error m | Invalid_argument m) -> Error (`Msg m))
+    | None, None -> Ok None
+  in
+  Term.(term_result ~usage:true (const choose $ inline $ file))
+
+(* An override for testing, so it stays out of the manual. *)
+let spindle =
+  Arg.(
+    value
+    & opt (some string) None
+    & info [ "spindle"; "s" ] ~docv:"SPINDLE" ~docs:Manpage.s_none
+        ~doc:
+          "Ask SPINDLE instead of the spindle that runs the repository's CI.")
+
+(* The repository DID and spindle origin for [repo]. A repository DID with an
+   explicit spindle needs no knot or PDS lookup. *)
+let spindle_target api ~repo ~spindle =
+  let repo = repo_spec repo in
+  match spindle with
+  | Some s
+    when String.starts_with ~prefix:"did:" repo
+         && not (String.contains repo '/') ->
+      (repo, Api.spindle_url api s)
+  | _ ->
+      let repository = Api.resolve_repo api repo in
+      (repository.did, Api.spindle_of api ?spindle repository)

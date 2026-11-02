@@ -58,6 +58,8 @@ let refresh_session t =
                 status = 401;
                 error = "AuthRequired";
                 message = Some "No session to refresh";
+                nsid = "com.atproto.server.refreshSession";
+                service = t.service;
               }))
   | Some session -> (
       let client = make_raw_client t in

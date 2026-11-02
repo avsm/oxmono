@@ -1,0 +1,235 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.git.defs",
+  "defs": {
+    "signature": {
+      "type": "object",
+      "required": [
+        "name",
+        "email",
+        "when"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Person name"
+        },
+        "email": {
+          "type": "string",
+          "description": "Person email"
+        },
+        "when": {
+          "type": "string",
+          "format": "datetime",
+          "description": "Timestamp of the signature"
+        }
+      }
+    },
+    "commit": {
+      "type": "object",
+      "required": [
+        "hash",
+        "author",
+        "committer",
+        "message",
+        "tree"
+      ],
+      "properties": {
+        "hash": {
+          "type": "string",
+          "description": "Commit Object ID"
+        },
+        "author": {
+          "type": "ref",
+          "ref": "#signature"
+        },
+        "committer": {
+          "type": "ref",
+          "ref": "#signature"
+        },
+        "message": {
+          "type": "string"
+        },
+        "tree": {
+          "type": "string",
+          "description": "Tree Object ID"
+        }
+      }
+    },
+    "submodule": {
+      "type": "object",
+      "required": [
+        "name",
+        "url"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Submodule name"
+        },
+        "url": {
+          "type": "string",
+          "description": "Submodule repository URL"
+        },
+        "branch": {
+          "type": "string",
+          "description": "Branch to track in the submodule"
+        }
+      }
+    },
+    "fileDiff": {
+      "type": "object",
+      "required": [
+        "lhsSrc",
+        "rhsSrc",
+        "hunks",
+        "hasSyntacticChanges"
+      ],
+      "properties": {
+        "lhsSrc": {
+          "type": "ref",
+          "ref": "#diffSrc"
+        },
+        "rhsSrc": {
+          "type": "ref",
+          "ref": "#diffSrc"
+        },
+        "hunks": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#diffHunk"
+          }
+        },
+        "hasByteChanges": {
+          "type": "ref",
+          "ref": "#byteChanges",
+          "description": "Byte count per side, present only when the two sides differ"
+        },
+        "hasSyntacticChanges": {
+          "type": "boolean"
+        }
+      }
+    },
+    "diffSrc": {
+      "type": "object",
+      "description": "One side of a file diff.",
+      "required": [
+        "path",
+        "oid",
+        "size",
+        "isBinary",
+        "isSubmodule"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "oid": {
+          "type": "string",
+          "description": "Blob oid, or the commit oid for a submodule"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "isBinary": {
+          "type": "boolean"
+        },
+        "isSubmodule": {
+          "type": "boolean"
+        },
+        "content": {
+          "type": "string",
+          "description": "Inlined content. Used on interdiff's LHS."
+        }
+      }
+    },
+    "diffHunk": {
+      "type": "object",
+      "required": [
+        "novelLhs",
+        "novelRhs",
+        "lines"
+      ],
+      "properties": {
+        "novelLhs": {
+          "type": "array",
+          "description": "0-based line numbers holding novel content on the left side",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "novelRhs": {
+          "type": "array",
+          "description": "0-based line numbers holding novel content on the right side",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#linePair"
+          }
+        }
+      }
+    },
+    "linePair": {
+      "type": "object",
+      "description": "One aligned line pair; a side is absent when that side has no line.",
+      "properties": {
+        "lhs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rhs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "byteChanges": {
+      "type": "object",
+      "required": [
+        "lhs",
+        "rhs"
+      ],
+      "properties": {
+        "lhs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rhs": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "diffStat": {
+      "type": "object",
+      "required": [
+        "insertions",
+        "deletions",
+        "filesChanged"
+      ],
+      "properties": {
+        "insertions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deletions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "filesChanged": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

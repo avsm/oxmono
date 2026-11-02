@@ -10,14 +10,10 @@ def main():
     smoke.SPINDLE = "http://127.0.0.1:9000/xrpc/"
     sha = (Path(__file__).parent / ".state/commit").read_text().strip()
     token = smoke.auth(smoke.login("alice"))
-    result = smoke.request(smoke.SPINDLE + smoke.TRIGGER, {
-        "repo": smoke.REPO, "trigger": {
-            "$type": "sh.tangled.ci.trigger#manual", "sha": sha,
-            "ref": "refs/heads/main", "inputs": [
-                {"key": "message", "value": "Hello from OCaml spindle"}]}},
-        token)
-    pipeline = result["pipeline"].rsplit("/", 1)[1]
-    print(result["pipeline"], flush=True)
+    pipeline = smoke.dispatch(smoke.manual(
+        sha, ref="refs/heads/main",
+        inputs=[{"key": "message", "value": "Hello from OCaml spindle"}]), token)
+    print(pipeline, flush=True)
     events, _ = smoke.logs(pipeline)
     for event in events:
         if event["type"] == "data":

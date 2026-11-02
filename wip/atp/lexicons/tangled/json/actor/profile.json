@@ -54,6 +54,10 @@
             "type": "boolean",
             "description": "Include link to this account on Bluesky."
           },
+          "isOrganization": {
+            "type": "boolean",
+            "description": "Temporary flag indicating that this profile belongs to an organization."
+          },
           "location": {
             "type": "string",
             "description": "Free-form location text.",

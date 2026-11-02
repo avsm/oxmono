@@ -1,0 +1,58 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.track.ticket",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "any",
+      "record": {
+        "type": "object",
+        "required": [
+          "title",
+          "state",
+          "createdAt"
+        ],
+        "properties": {
+          "title": {
+            "type": "union",
+            "refs": [
+              "org.tangled.markup.markdown#inline"
+            ]
+          },
+          "body": {
+            "type": "union",
+            "refs": [
+              "org.tangled.markup.markdown"
+            ]
+          },
+          "state": {
+            "type": "ref",
+            "ref": "org.tangled.track.defs#ticketState"
+          },
+          "labels": {
+            "type": "ref",
+            "description": "Self-label values for this record.",
+            "ref": "com.atproto.label.defs#selfLabels"
+          },
+          "tangledLabels": {
+            "type": "array",
+            "items": {
+              "type": "union",
+              "refs": ["org.tangled.label.defs#labelToken"]
+            }
+          },
+          "assignees": {
+            "type": "array",
+            "items": { "type": "string", "format": "did" }
+          },
+          "createdAt": { "type": "string", "format": "datetime" },
+          "targetBranch": {
+            "type": "string",
+            "description": "Target branch name. Must not include the `refs/heads/` prefix.",
+            "maxLength": 244
+          }
+        }
+      }
+    }
+  }
+}

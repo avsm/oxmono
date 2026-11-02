@@ -1,0 +1,29 @@
+# knot2 from a sibling Tangled checkout, which is the build context.
+# Upstream's knot2/Containerfile copies a knot2/lexicons directory that the
+# checkout no longer has and passes the config path without --config, so this
+# file names the workspace inputs and command itself.
+FROM docker.io/library/rust:1.96-slim-trixie AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates build-essential cmake perl pkg-config clang mold \
+    && rm -rf /var/lib/apt/lists/*
+ENV RUSTFLAGS="-C linker=clang -C link-arg=-fuse-ld=mold"
+WORKDIR /src
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+COPY crates ./crates
+COPY bobbin/crates ./bobbin/crates
+COPY shuttle ./shuttle
+COPY knotmirror/crates ./knotmirror/crates
+COPY lexicons ./lexicons
+COPY knot2/crates ./knot2/crates
+COPY knot2/third_party ./knot2/third_party
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release --package knot-server \
+    && cp target/release/knot-server /usr/local/bin/knot-server \
+    && strip /usr/local/bin/knot-server
+
+FROM gcr.io/distroless/cc-debian13:latest@sha256:1e3c6d9c255be500eb680cdea0ad07554f52ae92dfcbdf07043a2a435b4c1fe3
+COPY --from=builder /usr/local/bin/knot-server /usr/local/bin/knot-server
+EXPOSE 5555 2222
+ENTRYPOINT ["/usr/local/bin/knot-server"]
+CMD ["--config", "/etc/knot/config.toml"]

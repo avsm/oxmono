@@ -28,13 +28,14 @@
               "description": "Default branch to push to"
             },
             "source": {
-              "type": "string",
-              "description": "A source URL to clone from, populate this when forking or importing a repository."
+              "type": "ref",
+              "ref": "#source",
+              "description": "A source to clone from, populate this when forking or importing a repository."
             },
             "repoDid": {
               "type": "string",
               "format": "did",
-              "description": "Optional user-provided did:web to use as the repo identity instead of minting a did:plc."
+              "description": "Optional user-provided DID to use as the repo identity instead of minting one."
             }
           }
         }
@@ -53,6 +54,28 @@
               "description": "Multibase-encoded public signing key the knot holds for this repository"
             }
           }
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "url",
+        "kind"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Git URL to clone from"
+        },
+        "kind": {
+          "type": "string",
+          "knownValues": [
+            "fork",
+            "import"
+          ],
+          "description": "fork tracks the source as upstream; import is a one-time copy."
         }
       }
     }

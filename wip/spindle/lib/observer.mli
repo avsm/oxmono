@@ -1,17 +1,19 @@
-(** Jetstream and verified knot event ingestion with durable retry. *)
+(** Pull requests and assignment changes from a Jetstream source. *)
 
 val run :
   engine:Engine.t ->
   network:Network.t ->
+  hooks:Hooks.t ->
   jetstream:string ->
   health:Health.t ->
   policy:Operations.t ->
   unit
-(** [run ~engine ~network ~jetstream] bootstraps PDS assignments and follows
-    record and knot changes until cancelled. Cursors and pending events are
-    stored together; successful dispatch deduplication survives restart. *)
-
-val recover_once : engine:Engine.t -> network:Network.t -> unit
-(** [recover_once ~engine ~network] attempts bounded batches of current-state
-    recovery. Each repository checks its own catalog dependencies. Unrelated
-    catalog retries and queued events do not prevent recovery. *)
+(** [run ~engine ~network ~hooks ~jetstream ~health ~policy] follows
+    [org.tangled.repo.manifest], [org.tangled.review.patch] and
+    [org.tangled.track.ticket] records until cancelled. A manifest change drops
+    the repository's cached acceptance. A new patch on an open pull request of a
+    served repository dispatches it as [opened] or [synchronize], and a change
+    of its ticket's state as [closed], [merged] or [reopened]. Each also sends
+    the matching [pull_request:*] webhook. A pipeline waits for approval when
+    its author or sender cannot push. Events and the stream cursor are stored
+    together, and a dispatch is deduplicated across restarts. *)

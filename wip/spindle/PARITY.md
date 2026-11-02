@@ -1,138 +1,79 @@
-# Tack and Tangled compatibility review
+# Tangled compatibility review
 
-Reviewed 2026-09-10 against:
+Reviewed 2026-11-01 against Tangled core
+`52549bde582beb2ce71cc88d6fa726c41cbc8fe7` in `../core`: the Go spindle in
+`spindle/`, knot2 in `knot2/` and the lexicons in `lexicons/org/tangled/`.
+Upstream's later commits to `c76eedefe` change the Go spindle's caches and
+timing and add assignees to ticket views, none of which this spindle reads.
 
-- Tack `8e3bd108617fdd83514b2955f47f045029e5577f` in `../tack`.
-- Tangled core `338719d7d4f1e1e32becc4f4d3ef04f3c7daeb32` in
-  `../tangled-core`.
-- [ATProto service authentication](https://atproto.com/specs/xrpc#inter-service-authentication-jwt)
-  and [DID profile](https://atproto.com/specs/did), retrieved 2026-09-09.
-
-The compatibility target is Tack's Tangled CI behaviour with this service's
-trusted OCaml workflow engine. Tack's Buildkite, Tekton and sourcehut provider
-adapters and repository YAML definitions are replaced by OCaml definitions
-and the local process runner.
+The target is the reference spindle's wire behaviour, with an executor
+callback in place of the microVM and Nixery engines.
 
 ## Feature mapping
 
-| Tack/Tangled behaviour | OCaml spindle |
+| Reference spindle | OCaml spindle |
 | --- | --- |
-| Owner discovery and registration | `sh.tangled.owner`; owner PDS registration record |
-| Spindle membership | Owner-issued grants, updates and revocations; PDS bootstrap |
-| Repository discovery | Assignment records checked against DID service and knot `describeRepo` |
-| Dynamic knot subscriptions | Verified WS/WSS origins; membership and assignment changes reconcile subscriptions |
-| Automatic push CI | Branch/tag ref updates, skip-ci options, deletion suppression, changed paths and default-ref context |
-| Automatic branch PR CI | Last-round gzip patch, verified blob CID, final commit and pull-URI/SHA deduplication |
-| Manual retry and fork PR | Authenticated triggers; independently verified source repository |
-| Repository collaborators | Current canonical knot ACL queried on every mutation |
-| Workflow selection | Up to 50 named OCaml workflows and custom predicates; explicit selection |
-| Pipeline queries | Repository, commit and kind filters; latest-per-commit and cursor pagination |
-| Log subscriptions | Tangled binary XRPC/CBOR WebSocket events; selected workflow multiplexing |
-| Tangled UI | Appview reads CI endpoints and renders pipeline/workflow pages |
-| Restart and reconnect | Atomic inbox/cursors, dispatch deduplication, pending-work recovery |
-| Expired upstream replay | Durable gap reports, current Git ref and member PDS reconciliation |
-| Retention | Completed history and receipt budgets, inbox backpressure, live-work protection |
-| Observer health | Connection/activity, queue age, discovery and recovery diagnostics, readiness status |
-| Cancellation | All or selected pending/running workflows |
-| Definition discovery | Configured OCaml workflow names with `derived=false` |
-| Service JWT replay protection | Durable issuer/nonce consumption after signature verification |
-| PDS proxy discovery | `/.well-known/did.json` with `#tangled_spindle` service |
+| `org.tangled.event.notifyEvent` push from the repository's knot | Same. Issuer must be the knot that the repository DID's PLC document names |
+| Manual run as a `ci.trigger.manual` event on `notifyEvent` | Same, for the owner and collaborators |
+| Repository acceptance from manifest, declaration and admission | Same rules, read from the knot and the owner's PDS on demand and cached |
+| Admission: open, or owner, admins and allow-list | `--admission`, `--admin` and `org.tangled.temp.spindle.allowList.*` |
+| Collaborators from `org.tangled.graph.collaborator` | Read from the knot on every mutation |
+| Pull requests from `track.ticket` and `review.patch` records | Patch records on Jetstream; patch and ticket re-read from the knot |
+| Blocked pull requests and `approvePipeline` | Same, when the patch's editor cannot push |
+| `queryPipelines`, `getPipeline`, `subscribePipelineLogs` | Same parameters, objects and CBOR frames |
+| Step end events with `outcome` | Same, for each step the executor reports, including a failed or cancelled one |
+| YAML workflows in `.tangled/workflows` | Selected the same way and handed to the executor with the file's text |
+| Secrets, masked in logs, for trusted pipelines only | Same |
+| Webhooks, signed, retried and redeliverable | Same events, headers, payloads and limits |
+| Pull request `closed`, `reopened` and `merged` | From ticket state changes, as the reference does |
+| Quotas | `workflows`, `webhooks` and `ci_minutes_monthly` enforced |
+| Bans and wiping | Same subjects and effects |
+| Invite codes | Same, honouring `useCount` and `forAccount` |
+| `cancelPipeline`, `retryPipeline` | Same |
+| `listWorkflowDefinitions`, `getWorkflowDefinition` | The configured OCaml workflows as external sources, then the repository's YAML workflows |
+| `describeSpindle` and `#tangled_spindle` DID service | Same |
+| `skip-ci` and `ci-skip` push options, `refs/heads` and `refs/tags` only | Same |
+| Deduplication of `(repo, ref, oldSha, newSha)` | Same key, durable across restart |
+| SHA-1 and SHA-256 object IDs | Both |
 
-Current Tangled uses `repoDid` in `sh.tangled.repo.describeRepo`; Tack's older
-core dependency used `repo`. Collaborator changes now use the knot's
-`addCollaborator`/`removeCollaborator` procedures. The spindle queries the
-current canonical ACL instead of retaining authority from legacy PDS records.
-The appview queries CI APIs directly; a separate spindle event stream is not
-part of the required integration.
+## Differences
+
+- The reference spindle computes changed paths from its own clone. Knots do
+  not send them and this spindle does not compute them, so workflow
+  predicates see an empty `changed_files`.
+- Repository tokens minted by a knot through `org.tangled.repo.mintToken`,
+  which act on behalf of a user, are not accepted. Users sign their own
+  service tokens.
+- Workflows run wherever the executor puts them. The default executor runs
+  nothing: it logs each workflow and succeeds. There is no checkout step.
+  Scheduled workflows and the mill roles are not implemented.
+- Quota resources that measure virtual machines (`vcpus`, `memory_mib`,
+  `disk_mib`, the `workflow_*` caps and `cache_storage_bytes`) are stored but
+  not enforced.
+- A pull request's state is compared with the last state seen, not walked
+  version by version, so a close and reopen between two events is missed.
+- Invite codes honour `useCount` and `forAccount`, which the reference
+  spindle ignores.
+- Discovery is on demand. The reference spindle backfills repositories with an
+  embedded hydrant. This spindle checks a repository when a push, manual run
+  or patch names it, and caches the answer for `--reconcile-seconds`.
+- OCaml workflow definitions do not change with the repository's contents
+  and carry no file source.
 
 ## Review details
 
-A member cannot register another owner's repository by copying its DID into
-a record. The publisher, record key, repository DID, knot origin and spindle
-assignment must agree with the knot's authoritative response. Incoming push
-events must originate from that canonical knot. Membership grants do not
-confer write access to other members' repositories.
-
-Event identity includes collection, record key and operation as well as PDS
-publisher/timestamp, so multiple writes in one repository commit are distinct.
-An event and its stream cursor are committed together, and completed event
-receipts are checked inside that same SQLite transaction. Cursor advancement
-is monotonic. Knot nanosecond timestamps overlap by one microsecond when
-converted from JSON numbers; stable event IDs suppress that overlap.
+A member cannot run CI for another owner's repository by naming its DID. The
+manifest on the knot that the PLC document names must name this spindle, and
+the owner's declaration must name the repository back. A push notification
+must be signed by that knot's `did:web` key. Records on Jetstream only prompt
+a re-read from the knot, so a forged event can start nothing the knot does not
+hold.
 
 Pipeline creation and its deduplication key commit together before execution.
-Transient failures remain in the durable inbox. Invalid records are recorded
-as rejected. Existing assignments are reloaded from PDSes after restart;
-failed member collection refreshes retry independently. Discovery failures
-must not terminate the HTTP service.
-
-Membership and assignment events request authoritative PDS snapshots. Their
-payloads never restore catalog state. A durable generation check discards a
-snapshot if another notice arrives during its fetch. Pending refreshes block
-affected mutations with `503 CatalogPending`. The catalog is checked again
-after remote resolution and authorization. Non-owner membership records do
-not schedule refreshes. These checks cover delayed grants after revocation,
-bootstrap followed by replay, and in-flight snapshot races.
-
-Event work runs in batches of 64 with four processing fibers. Catalog
-refreshes run separately. Failed tasks retain exponential retry delays across
-restart, capped at one minute. HTTP exchanges have a 15-second total deadline,
-and event processing and collection refreshes have 30-second deadlines.
-History queries and startup scan summaries in bounded batches. Query `total`
-counts matches after the cursor, matching Tack and Tangled.
-
-Commands run in separate process groups. Cancellation, timeout and normal
-completion kill descendants that remain in the group. Log subscriptions send
-only newly appended events, ping every 30 seconds and time out stalled reads
-or writes. Invalid gzip patches become permanent event rejections.
-
-The runner stores workflow definitions with accepted pipelines. Pending work
-resumes using those accepted command vectors; running work becomes failed
-after a restart. Completed logs are not retained in the active-work table.
-Maintenance expires completed history and receipts by age and count, and
-history by payload size. It preserves pending jobs, inbox entries and live JWT
-nonces. An inbox count/size limit rejects new events without advancing their
-cursors. Expired receipts leave durable per-source replay floors, so old
-events cannot execute again after their individual receipts are removed.
-
-Reconnects attempt replay within the configured 24-hour window. Older cursors,
-local receipt floors and upstream HTTP 410 responses persist recovery tasks
-before moving to the live stream. Current PDS assignments, member-owned pull
-records and Git refs are reconciled on startup, reconnect and every five
-minutes. Ref checkpoints are monotonic. Stream and recovered pushes share
-repository/ref/SHA deduplication keys. Known skip-ci and deletion events also
-update checkpoints. Recovered requests identify their unknown committer and
-changed paths, and use the spindle DID as actor.
-
-The pinned knot's `eventstream/store.go` queries events after a cursor without
-advertising the earliest available position. The testbed Jetstream dependency
-`e0274250f654` seeks into retained Pebble history and defaults to a 24-hour
-event TTL. Neither proves that an old interval is complete. Recovery reports
-keep `historicalEventsComplete=false` after current-state reconciliation.
-An upstream HTTP 410 is handled explicitly, but is not required for recovery.
-
-`/xrpc/_health` returns HTTP 200 with diagnostics. `/xrpc/_ready` and `/readyz`
-return 503 for disconnected or inactive sources, pending discovery/recovery,
-old inbox work, or maintenance failure. WebSocket control traffic keeps quiet
-sources healthy. Event age remains separately visible.
-
-The execution backend runs trusted commands as the service account, with a
-bounded deadline/log budget and separate checkouts. It does not implement
-Buildkite billing callbacks, Tekton cluster scheduling, sourcehut submission,
-or a separate container per job. Those provider-specific capabilities are
-outside the OCaml backend used here.
-
-## Remaining operational limits
-
-- Purged intermediate commits, deleted refs and records from unknown PR
-  authors cannot always be reconstructed. Current-state reconciliation is
-  explicit about this loss of historical coverage.
-- Storage budgets count payloads. SQLite keeps freed pages for reuse and active
-  work is exempt. History queries still scan stored summaries.
-- Jobs share the service account. Process groups clean up ordinary descendants,
-  but are not a security boundary against jobs that deliberately detach.
-- Automatic PR events cover same-repository branches. Fork PRs use Tangled's
-  authenticated trigger path, as in the pinned Tack baseline.
+Jetstream events and the stream cursor commit together. Transient failures
+remain in the durable inbox. Invalid records are recorded as rejected.
+Network failures while checking a repository answer 503, which a knot retries
+from its outbox for three days.
 
 ## Reproduction
 
@@ -140,23 +81,13 @@ outside the OCaml backend used here.
 opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force \
   wip/spindle/test wip/httpz/websocket_eio/test
 python3 wip/spindle/testbed/run.py test
-python3 wip/spindle/testbed/parity.py test
+python3 wip/spindle/testbed/stack.py test
 ```
 
-The first Docker harness exercises static dispatch, malformed/auth failures,
-state migration, cancellation and completed/interrupted recovery. The Tangled
-harness runs the actual sibling knot and appview with the local PDS, PLC and
-Jetstream. It exercises SSH pushes, two concurrent workflows, pull patches,
-revocation, forks, restart catch-up and UI rendering. Runtime endpoints are
-local; build preparation may download images, packages and Go modules.
-The review regressions also cover replayed grants after revocation, superseded
-PDS snapshots, persisted backoff, pagination and process-group cleanup.
-The Tangled harness then stops Jetstream and checks degraded readiness, removes
-an offline push from the knot's real SQLite journal, verifies current-ref
-recovery without duplicate dispatch after restart, and exercises automatic
-history expiry while preserving pending and recent pipelines.
-It also pushes annotated tags and notes, recovers while an unrelated catalog
-retry remains pending, and kills the spindle during a command after receiving
-70,000 bytes and an unterminated line. Published CBOR frames must survive that
-restart byte-for-byte. Native tests cover chunk boundaries, malformed UTF-8,
-the log budget, journal compaction races and independent recovery queues.
+The static harness exercises dispatch, malformed and unauthorized requests,
+replay rejection across restart, cancellation and interrupted work. The stack
+harness runs knot2 built from the core checkout with the local PDS and PLC and
+a Jetstream on the knot's firehose. It exercises SSH pushes, manual runs,
+retry, collaborator authority, admission, issues, pull requests, approval,
+`skip-ci` and deletion through the Tangled CLI. The repository owner signs in
+with OAuth and the collaborator with a password.

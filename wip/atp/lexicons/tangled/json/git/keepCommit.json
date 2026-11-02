@@ -1,0 +1,89 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.git.keepCommit",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Keep commit for an atproto record.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repo", "source", "record"],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did"
+            },
+            "source": {
+              "type": "union",
+              "refs": ["#commit", "#patches"]
+            },
+            "record": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "at-uri of target record. rkey is required"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["commit"],
+          "properties": {
+            "commit": {
+              "type": "string",
+              "minLength": 40,
+              "maxLength": 128
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        },
+        {
+          "name": "RepoNotFound",
+          "description": "Repo is not registered on this knot"
+        },
+        {
+          "name": "CommitNotFound",
+          "description": "Commit is not found from source Repo"
+        },
+        {
+          "name": "PatchApplyFailed",
+          "description": "Failed to apply patches"
+        }
+      ]
+    },
+    "commit": {
+      "type": "object",
+      "required": ["repo", "oid"],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "format": "did"
+        },
+        "oid": {
+          "type": "string",
+          "minLength": 40,
+          "maxLength": 128
+        }
+      }
+    },
+    "patches": {
+      "type": "object",
+      "required": ["patches"],
+      "properties": {
+        "patches": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

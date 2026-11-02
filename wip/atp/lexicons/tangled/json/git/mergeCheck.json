@@ -1,0 +1,100 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.git.mergeCheck",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Check if a merge is possible between two branches. Performs 3-way merge check",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repo", "branch", "source"],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of Git repository"
+            },
+            "branch": {
+              "type": "string",
+              "description": "Target branch to merge into"
+            },
+            "source": {
+              "type": "ref",
+              "ref": "#source"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["isConflicted"],
+          "properties": {
+            "isConflicted": {
+              "type": "boolean",
+              "description": "Whether the merge has conflicts"
+            },
+            "conflicts": {
+              "type": "array",
+              "description": "List of files with merge conflicts",
+              "items": {
+                "type": "ref",
+                "ref": "#conflictInfo"
+              }
+            },
+            "message": {
+              "type": "string",
+              "description": "Additional message about the merge check"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        },
+        {
+          "name": "RepoNotFound",
+          "description": "Repo is not registered on this knot"
+        },
+        {
+          "name": "CommitNotFound",
+          "description": "Commit is not found from source Repo"
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "required": ["repo", "commit"],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of source git repository"
+        },
+        "commit": {
+          "type": "string",
+          "description": "Head commit ID of PR to merge"
+        }
+      }
+    },
+    "conflictInfo": {
+      "type": "object",
+      "required": ["filename", "reason"],
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "Name of the conflicted file"
+        },
+        "reason": {
+          "type": "string",
+          "description": "Reason for the conflict"
+        }
+      }
+    }
+  }
+}

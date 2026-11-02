@@ -104,11 +104,6 @@ let report t ~now =
         ] )
   in
   let pending, lag, inbox = queue "inbox" in
-  let catalog, _, catalog_json = queue "reconcile" in
-  let recovery, _, recovery_json = queue "recover" in
-  let source_tasks, _, source_tasks_json = queue "recover-source" in
-  let pulls, _, pulls_json = queue "recover-pulls" in
-  let discovery, _, discovery_json = queue "discovery-error" in
   let sources =
     Hashtbl.fold (fun _ source xs -> source :: xs) t.sources []
     |> List.sort (fun a b -> String.compare a.name b.name)
@@ -121,18 +116,10 @@ let report t ~now =
       ~some:(fun value -> field "error" value = None)
       maintenance
   in
-  let gaps =
-    Store.list t.store "gap" |> List.map (fun (_, raw) -> decode raw)
-  in
-  let recovering =
-    List.exists (fun value -> get "status" value = "pending") gaps
-  in
   let ready =
     maintenance_ok
     && ((not t.enabled)
        || Hashtbl.mem t.sources "jetstream"
-          && catalog = 0 && recovery = 0 && pulls = 0 && source_tasks = 0
-          && discovery = 0 && (not recovering)
           && (pending = 0 || lag < 60.)
           && List.for_all
                (fun source -> source.connected && now -. source.activity < 120.)
@@ -155,11 +142,5 @@ let report t ~now =
          ("automatic", bool t.enabled);
          ("observers", arr (List.map source_json sources));
          ("inbox", inbox);
-         ("catalog", catalog_json);
-         ("recovery", recovery_json);
-         ("sourceRecovery", source_tasks_json);
-         ("pullRecovery", pulls_json);
-         ("discovery", discovery_json);
-         ("replay", arr gaps);
        ]
       @ optional "maintenance" Fun.id maintenance) )

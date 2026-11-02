@@ -1,0 +1,72 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.pull.merge",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Merge a pull request by commit. The knot merges the pull's latest version onto its target branch, merging the stack below first, and writes the merged status record in the same critical section as the branch update.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repo", "rkey"],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the repository the pull lives on"
+            },
+            "rkey": {
+              "type": "string",
+              "format": "tid",
+              "description": "Record key of the pull to merge"
+            }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["tip", "merged"],
+          "properties": {
+            "tip": {
+              "type": "string",
+              "description": "Commit id the target branch ended on; the standing tip when the merge needed no move"
+            },
+            "merged": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "at-uri"
+              },
+              "description": "At-uris of the pulls this call marked merged, bottom of the stack first"
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "MergeConflict",
+          "description": "A version's changes don't apply cleanly onto the target branch"
+        },
+        {
+          "name": "ClosedPull",
+          "description": "The pull, or a pull its stack depends on, is closed"
+        },
+        {
+          "name": "AlreadyMerged",
+          "description": "The pull is already merged"
+        },
+        {
+          "name": "BranchMoved",
+          "description": "The target branch kept moving while the merge ran; the merged status stands, and the boot pass finishes the move once the branch is back at the old tip"
+        },
+        {
+          "name": "NoSuchBranch",
+          "description": "The pull's target branch no longer exists on the repository"
+        }
+      ]
+    }
+  }
+}

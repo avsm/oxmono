@@ -2,7 +2,6 @@
 module J = Spindle__Json
 module Store = Spindle__Store
 module Health = Spindle__Health
-module Recovery = Spindle__Recovery
 module Policy = Spindle.Operations
 open J
 
@@ -91,30 +90,11 @@ let () =
       Health.failed health "jetstream" ~now (Failure "offline");
       assert (not (fst (Health.report health ~now)));
       Health.connected health "jetstream" ~now;
-      Store.schedule store "reconcile" "member";
-      assert (not (fst (Health.report health ~now)));
-      Store.delete store "reconcile" "member";
       Store.enqueue store ~source:"jetstream" ~key:"late" ~cursor:"1000"
         ~value:"{}";
       Health.activity health "jetstream" ~now:(now +. 61.);
       assert (not (fst (Health.report health ~now:(now +. 61.))));
       Store.delete store "inbox" "late";
-      let old =
-        Int64.to_string (Int64.of_float ((now -. (2. *. 86400.)) *. 1e6))
-      in
-      Store.put store "cursor" "jetstream" old;
-      assert (
-        Recovery.resume store policy ~source:"jetstream" ~jetstream:true ~now);
-      assert (Store.get store "recover-source" "jetstream" <> None);
-      assert (
-        get "fromCursor"
-          (decode (Option.get (Store.get store "gap" "jetstream")))
-        = old);
-      Recovery.gap store ~source:"jetstream" ~now:(now +. 10.) ~cursor:"new"
-        ~reason:"a later ref mismatch";
-      let gap = decode (Option.get (Store.get store "gap" "jetstream")) in
-      assert (get "fromCursor" gap = old);
-      assert (get "reason" gap = "upstream replay window exceeded");
       Store.put store "done" "legacy" "";
       Store.put store "cursor" "knot" "500";
       ignore (Store.prune store ~now:(now +. (40. *. 86400.)) policy);
@@ -127,22 +107,11 @@ let () =
         ~sha:(String.make 40 'b') ~position:10L;
       assert (
         Store.ref_state store ~repo:"repo" ~ref_:"refs/heads/main"
-        = Some (hash, 20L));
-      let refs =
-        Recovery.parse_refs
-          ("ref: refs/heads/main\tHEAD\n" ^ hash ^ "\trefs/heads/main\n" ^ hash
-         ^ "\trefs/tags/v1\n" ^ String.make 40 'b' ^ "\trefs/tags/v1^{}\n"
-         ^ hash ^ "\trefs/notes/commits\n" ^ hash ^ "\trefs/remotes/test/main\n"
-          )
-      in
-      assert (
-        refs
-        = [ ("refs/heads/main", hash, true); ("refs/tags/v1", hash, false) ]));
+        = Some (hash, 20L)));
   Eio.Switch.run (fun sw ->
       let store = Store.open_ ~sw directory in
       assert (Store.get store "replay-floor" "knot" = Some "500");
-      assert (Store.get store "recover-source" "jetstream" <> None);
       assert (Store.ref_state store ~repo:"repo" ~ref_:"refs/heads/main" <> None));
   print_endline
-    "operations: retention, backpressure, replay floors, recovery obligations \
-     and observer readiness passed"
+    "operations: retention, backpressure, replay floors and observer \
+     readiness passed"

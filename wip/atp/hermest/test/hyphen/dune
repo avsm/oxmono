@@ -1,0 +1,19 @@
+; An NSID authority may contain hyphens. The generated modules must compile
+; and be reachable from another lexicon's reference.
+
+(rule
+ (deps
+  (source_tree json))
+ (targets dune.inc hyphen_lexicons.ml hyphen_lexicons.mli)
+ (action
+  (run %{bin:hermest} generate json -o . -m Hyphen_lexicons)))
+
+(library
+ (name hyphen_lexicons)
+ (modules hyphen_lexicons)
+ (libraries atp jsont jsont.bytesrw))
+
+(test
+ (name test_hyphen)
+ (modules test_hyphen)
+ (libraries hyphen_lexicons))

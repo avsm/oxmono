@@ -1,0 +1,73 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.git.pushEvent",
+  "defs": {
+    "main": {
+      "type": "object",
+      "description": "Represents git-push operation to target repository.",
+      "required": [
+        "seq",
+        "repo",
+        "pusher",
+        "edits",
+        "time",
+        "sig"
+      ],
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "description": "The stream sequence number of this message."
+        },
+        "repo": {
+          "type": "string",
+          "format": "did",
+          "description": "The repo this event comes from."
+        },
+        "pusher": {
+          "type": "string",
+          "format": "did",
+          "description": "The account that performed this push."
+        },
+        "edits": {
+          "type": "array",
+          "items": {
+            "type": "ref",
+            "ref": "#refEdit",
+            "description": "List of git reference update operations in this push."
+          },
+          "maxLength": 200
+        },
+        "time": {
+          "type": "string",
+          "format": "datetime",
+          "description": "Timestamp of when this message was originally broadcast."
+        },
+        "options": {
+          "type": "array",
+          "description": "Git push options.",
+          "items": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Git push option."
+          },
+          "maxLength": 10
+        },
+        "sig": {
+          "type": "bytes",
+          "description": "Signature over the DAG-CBOR of this message with the seq and sig keys absent (repo/pusher DID, edits, time, options), by the repo's atproto signing key. seq is excluded so a relay can reassign it without invalidating the signature."
+        }
+      }
+    },
+    "refEdit": {
+      "type": "object",
+      "description": "A git ref edit.",
+      "required": ["name", "new", "old"],
+      "nullable": ["new", "old"],
+      "properties": {
+        "name": { "type": "string", "description": "Full git reference name, ie refs/heads/main." },
+        "new": { "type": "string", "description": "Full hex object id the ref now points at." },
+        "old": { "type": "string", "description": "Full hex object id the ref pointed at before." }
+      }
+    }
+  }
+}

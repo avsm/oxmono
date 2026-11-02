@@ -4,7 +4,7 @@
   "defs": {
     "main": {
       "type": "query",
-      "description": "Get the active sites domain claim for the authenticated user, if any.",
+      "description": "Get the active sites domain or a verified signup handle for the authenticated user, if any. A signup handle may not have a D1 claim row until the first site write.",
       "output": {
         "encoding": "application/json",
         "schema": {
@@ -12,11 +12,14 @@
           "properties": {
             "domain": {
               "type": "string",
-              "description": "The claimed domain (e.g. 'alice.sites.tangled.sh'). Absent if no active claim."
+              "description": "the site domain (e.g. 'alice.tngl.io') or a verified signup handle, absent if neither exists"
             }
           }
         }
-      }
+      },
+      "errors": [
+        { "name": "ClaimUnverifiable", "description": "The handle authority could not be reached to verify this claim." }
+      ]
     }
   }
 }

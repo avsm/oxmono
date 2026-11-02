@@ -18,6 +18,8 @@ type env = {
   system : Eio_unix.Stdenv.base;
   directory : Eio.Fs.dir_ty Eio.Path.t;
   slots : Eio.Semaphore.t;
+  timeout : float;  (** Seconds a workflow may run. *)
+  executor : Executor.t;
 }
 
 type input = {
@@ -26,24 +28,22 @@ type input = {
   source : string;
   commit : string;
   metadata : Jsont.json;
+  variables : (string * string) list;  (** CI variables for every step. *)
+  secrets : (string * string) list;  (** Secrets, hidden in the log. *)
 }
 
 val now : unit -> string
+
+val pairs : (string * string) list -> Jsont.json
+(** [pairs l] is [l] as a JSON object of strings. *)
+
+val unpairs : Jsont.json -> (string * string) list
 val optional : string -> ('a -> 'b) -> 'a option -> (string * 'b) list
 val terminal : t -> bool
 val v : Job.t -> t
 val view : t -> Jsont.json
 val snapshot : t -> Jsont.json
 val restore : Jsont.json -> t
-
-val environment : input -> Eio.Process.Env.t
-(** [environment input] supplies a fixed command environment with ambient Git
-    configuration and interactive authentication disabled. *)
-
-val capture : env -> input -> string list -> string
-(** [capture env input argv] captures bounded stdout using the same
-    process-group cleanup and environment as jobs. Callers supply a total
-    deadline. *)
 
 val execute :
   env ->
@@ -52,9 +52,9 @@ val execute :
   persist:(unit -> unit) ->
   t ->
   unit
-(** [execute env input ~persist workflow] waits for a worker slot, checks out
-    the source and executes trusted steps. Each transition calls [persist]. Each
-    JSON-encoded event calls [record] before becoming visible to log
+(** [execute env input ~record ~persist workflow] waits for a worker slot and
+    hands [workflow] to the executor of [env]. Each transition calls [persist].
+    Each JSON-encoded event calls [record] before becoming visible to log
     subscribers. [record] returns the durable journal sequence for snapshot
     compaction. *)
 

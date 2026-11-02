@@ -1,0 +1,175 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.search.query",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": [],
+        "properties": {
+          "q": {
+            "type": "string",
+            "maxLength": 1024,
+            "description": "Search query: free text plus key:value qualifiers. See the docs for more information."
+          },
+          "nsid": {
+            "type": "string",
+            "format": "nsid",
+            "description": "Restrict to records of this collection."
+          },
+          "author": {
+            "type": "string",
+            "format": "did",
+            "description": "Restrict to records authored by this DID."
+          },
+          "repo": {
+            "type": "string",
+            "format": "did",
+            "description": "Restrict to records under this repo DID."
+          },
+          "since": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Restrict to records created at or after this time."
+          },
+          "until": {
+            "type": "string",
+            "format": "datetime",
+            "description": "Restrict to records created at or before this time."
+          },
+          "kind": {
+            "type": "string",
+            "knownValues": ["issue", "pull"],
+            "description": "Restrict tickets to issues or pull requests."
+          },
+          "label": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "maxLength": 16,
+            "description": "Restrict tickets to those with all of these label names. Requires repo."
+          },
+          "sort": {
+            "type": "string",
+            "knownValues": ["relevance", "created-desc", "created-asc"],
+            "description": "Result order."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Pagination cursor"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Absolute offset for numbered pages. Mutually exclusive with cursor."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 50
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["hits"],
+          "properties": {
+            "hits": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#hit"
+              }
+            },
+            "cursor": {
+              "type": "string"
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Number of matches across all pages."
+            },
+            "stateCounts": {
+              "type": "ref",
+              "ref": "#stateCounts",
+              "description": "Matches per ticket state, without the state filters."
+            }
+          }
+        }
+      },
+      "description": "Full-text and faceted search over indexed records.",
+      "errors": [
+        {
+          "name": "InvalidQuery",
+          "description": "The query failed to parse."
+        }
+      ]
+    },
+    "hit": {
+      "type": "object",
+      "required": ["uri", "nsid", "score", "value"],
+      "properties": {
+        "uri": {
+          "type": "string",
+          "format": "at-uri"
+        },
+        "cid": {
+          "type": "string",
+          "format": "cid"
+        },
+        "nsid": {
+          "type": "string",
+          "format": "nsid",
+          "description": "Collection of the matched record."
+        },
+        "score": {
+          "type": "unknown",
+          "description": "Relevance score of the hit, a floating-point number where higher ranks first."
+        },
+        "value": {
+          "type": "unknown",
+          "description": "Embedded matched record."
+        },
+        "author": {
+          "type": "string",
+          "format": "did",
+          "description": "Present for tickets. The account that opened the ticket, the editor of its first version."
+        },
+        "state": {
+          "type": "ref",
+          "ref": "org.tangled.track.defs#ticketState",
+          "description": "Present for tickets."
+        },
+        "commentCount": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Present for tickets."
+        }
+      }
+    },
+    "stateCounts": {
+      "type": "object",
+      "required": ["open", "closed", "completed"],
+      "properties": {
+        "open": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "closed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

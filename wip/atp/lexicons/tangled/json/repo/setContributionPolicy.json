@@ -1,0 +1,36 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.setContributionPolicy",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Set who can contribute issues, comments, labels, reactions and pulls to a repository this knot hosts. Only the repository owner and the knot's admins can call it. A repository starts from the knot-wide default at creation.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "repo",
+            "contributionPolicy"
+          ],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the repository this policy change is for"
+            },
+            "contributionPolicy": {
+              "type": "string",
+              "enum": [
+                "anyone",
+                "members",
+                "collaborators"
+              ],
+              "description": "anyone: any account with a DID can contribute. Members: accounts on this knot's member grant list. Collaborators: the owner and the repository's collaborators."
+            }
+          }
+        }
+      }
+    }
+  }
+}

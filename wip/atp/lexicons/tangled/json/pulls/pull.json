@@ -13,7 +13,8 @@
           "target",
           "title",
           "createdAt",
-          "rounds"
+          "rounds",
+          "versions"
         ],
         "properties": {
           "title": {
@@ -24,9 +25,17 @@
           },
           "rounds": {
             "type": "array",
+            "description": "DEPRECATED: always empty",
             "items": {
               "type": "ref",
               "ref": "#round"
+            }
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "ref",
+              "ref": "#version"
             }
           },
           "source": {
@@ -63,8 +72,7 @@
             "type": "array",
             "items": {
               "type": "blob",
-              "accept": ["image/*"],
-              "maxSize": 1000000
+              "maxSize": 200000000
             }
           }
         }
@@ -107,7 +115,7 @@
         "patchBlob",
         "createdAt"
       ],
-      "description": "revisions of this pull request, newer rounds are appended to this array. appviews may reject records do not treat this field as append-only. the blob format is gzipped text-based git-format-patches.",
+      "description": "DEPRECATED: revisions of this pull request, newer rounds are appended to this array. appviews may reject records do not treat this field as append-only. the blob format is gzipped text-based git-format-patches.",
       "properties": {
         "createdAt": {
           "type": "string",
@@ -118,6 +126,28 @@
           "accept": [
             "application/gzip"
           ]
+        }
+      }
+    },
+    "version": {
+      "type": "object",
+      "required": [
+        "base",
+        "head",
+        "createdAt"
+      ],
+      "properties": {
+        "createdAt": {
+          "type": "string",
+          "format": "datetime"
+        },
+        "base": {
+          "type": "string",
+          "description": "merge-base commit ID for combined interdiff"
+        },
+        "head": {
+          "type": "string",
+          "description": "HEAD commit ID"
         }
       }
     }

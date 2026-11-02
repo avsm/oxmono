@@ -1,0 +1,120 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.temp.git.listCommits",
+  "defs": {
+    "main": {
+      "type": "query",
+      "parameters": {
+        "type": "params",
+        "required": ["repos"],
+        "properties": {
+          "repos": {
+            "type": "array",
+            "items": { "type": "string", "format": "did" },
+            "minLength": 1,
+            "maxLength": 2,
+            "description": "DIDs of the repositories to read objects from"
+          },
+          "ranges": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Commit ids or `<commit>..<commit>` ranges"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of commits to return",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          },
+          "skip": {
+            "type": "integer",
+            "description": "Number of matching commits to skip. A poor man's pagination.",
+            "minimum": 0,
+            "default": 0
+          },
+          "includeStats": {
+            "type": "boolean",
+            "description": "Diff each commit against its first parent and include a line stat",
+            "default": false
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["commits"],
+          "properties": {
+            "commits": {
+              "type": "array",
+              "items": {
+                "type": "ref",
+                "ref": "#commit"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        {
+          "name": "RepoNotFound",
+          "description": "Repository not found or access denied"
+        },
+        {
+          "name": "RevisionNotFound",
+          "description": "Commit not found"
+        },
+        {
+          "name": "InvalidRequest",
+          "description": "Invalid request parameters"
+        }
+      ]
+    },
+    "commit": {
+      "type": "object",
+      "required": [
+        "oid",
+        "parents",
+        "tree",
+        "author",
+        "committer",
+        "message",
+        "extraHeaders"
+      ],
+      "properties": {
+        "oid": { "type": "string" },
+        "parents": { "type": "array", "items": { "type": "string" } },
+        "tree": { "type": "string" },
+        "author": { "type": "ref", "ref": "org.tangled.git.defs#signature" },
+        "committer": { "type": "ref", "ref": "org.tangled.git.defs#signature" },
+        "message": { "type": "string" },
+        "extraHeaders": {
+          "type": "array",
+          "items": { "type": "ref", "ref": "#header" }
+        },
+        "stat": { "type": "ref", "ref": "org.tangled.git.defs#diffStat" },
+        "signature": {
+          "type": "union",
+          "refs": ["#sshSignature"],
+          "description": "Set only when the commit's signature verifies against the key embedded in it. Says nothing about who owns that key."
+        }
+      }
+    },
+    "sshSignature": {
+      "type": "object",
+      "required": ["fingerprint"],
+      "properties": {
+        "fingerprint": { "type": "string", "description": "SHA256 fingerprint of the signing key, `SHA256:...`" }
+      }
+    },
+    "header": {
+      "type": "object",
+      "required": ["key", "value"],
+      "properties": {
+        "key": { "type": "string" },
+        "value": { "type": "string" }
+      }
+    }
+  }
+}

@@ -43,8 +43,7 @@
             "type": "array",
             "items": {
               "type": "blob",
-              "accept": ["image/*"],
-              "maxSize": 1000000
+              "maxSize": 200000000
             }
           }
         }

@@ -1,0 +1,67 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.pull.defs",
+  "defs": {
+    "pullView": {
+      "type": "object",
+      "required": ["uri", "cid", "author", "repo", "title", "targetBranch", "createdAt"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" },
+        "repo": { "type": "ref", "ref": "sh.tangled.repo.defs#repoViewBasic" },
+        "author": { "type": "ref", "ref": "sh.tangled.actor.defs#profileViewBasic" },
+        "title": { "type": "string" },
+        "targetBranch": { "type": "string" },
+        "createdAt": { "type": "string", "format": "datetime" },
+        "state": { "type": "string", "enum": [ "open", "closed", "merged" ] }
+      }
+    },
+    "pullViewDetailed": {
+      "type": "object",
+      "required": ["uri", "cid", "author", "repo", "title", "targetBranch", "versions", "createdAt"],
+      "properties": {
+        "uri": { "type": "string", "format": "at-uri" },
+        "cid": { "type": "string", "format": "cid" },
+        "repo": { "type": "ref", "ref": "sh.tangled.repo.defs#repoViewBasic" },
+        "author": { "type": "ref", "ref": "sh.tangled.actor.defs#profileViewBasic" },
+        "title": { "type": "string" },
+        "body": { "type": "ref", "ref": "sh.tangled.markup.markdown" },
+        "targetBranch": { "type": "string" },
+        "source": {
+          "type": "ref",
+          "ref": "#source"
+        },
+        "state": {
+          "type": "string",
+          "enum": ["open", "closed", "merged"]
+        },
+        "versions": {
+          "type": "array",
+          "description": "TODO: this should be paginated maybe even as a separate `listPatches` method",
+          "items": {
+            "type": "ref",
+            "ref": "#patchView"
+          }
+        },
+        "createdAt": { "type": "string", "format": "datetime" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "required": ["branch"],
+      "properties": {
+        "repo": { "type": "ref", "ref": "sh.tangled.repo.defs#repoViewBasic" },
+        "branch": { "type": "string" }
+      }
+    },
+    "patchView": {
+      "type": "object",
+      "required": ["head", "base", "createdAt"],
+      "properties": {
+        "head": { "type": "string" },
+        "base": { "type": "string" },
+        "createdAt": { "type": "string", "format": "datetime" }
+      }
+    }
+  }
+}

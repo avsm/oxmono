@@ -164,13 +164,26 @@ let tangled_artifacts ~sw ~env ~http ~repo =
     let* did = Xrpc.Identity.did_of_handle http (handle_of repo) in
     let* pds = Xrpc.Identity.pds_of_did http did in
     let api = Tangled.Api.create ~sw ~env ~app_name:"bushel" ~pds ~http () in
-    let artifacts = Tangled.Api.list_artifacts api ~did ~repo:(name_of repo) in
+    let legacy =
+      Tangled.Api.list_legacy_artifacts api ~did ~repo:(name_of repo)
+      |> List.map (fun (_, (a : Tangled.Api.Legacy.Repo.Artifact.main)) ->
+          (a.name, a.created_at))
+    in
+    (* A repository that has not moved to a repository DID has no knot-hosted
+       artifacts, so failing to resolve it is not an error. *)
+    let current =
+      match Tangled.Api.resolve_repo api (did ^ "/" ^ name_of repo) with
+      | exception (Failure _ | Invalid_argument _ | Eio.Io _) -> []
+      | r ->
+          Tangled.Api.list_artifacts api r
+          |> List.map (fun (_, (a : Tangled.Api.Lex.Repo.Artifact.main)) ->
+              (a.name, a.created_at))
+    in
     let candidates =
       List.filter_map
-        (fun (_, (a : Tangled.Api.Lex.Repo.Artifact.main)) ->
-          Bushel_forge.tangled_candidate ~repo ~name:a.name
-            ~created_at:a.created_at)
-        artifacts
+        (fun (name, created_at) ->
+          Bushel_forge.tangled_candidate ~repo ~name ~created_at)
+        (current @ legacy)
     in
     Ok (Bushel_forge.one_per_version candidates)
   with ex -> Error (Printexc.to_string ex)

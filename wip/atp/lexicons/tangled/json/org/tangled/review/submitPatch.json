@@ -1,0 +1,59 @@
+{
+  "lexicon": 1,
+  "id": "org.tangled.review.submitPatch",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Create a patch record, fetching its head from the source repository first. The only way to write org.tangled.review.patch records.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["repo", "patch"],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the repository"
+            },
+            "patch": { "type": "ref", "ref": "#patch" }
+          }
+        }
+      },
+      "output": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": ["uri", "cid"],
+          "properties": {
+            "uri": {
+              "type": "string",
+              "format": "at-uri",
+              "description": "AT-URI of created org.tangled.review.patch record."
+            },
+            "cid": {
+              "type": "string",
+              "format": "cid",
+              "description": "CID of created org.tangled.review.patch record."
+            }
+          }
+        }
+      }
+    },
+    "patch": {
+      "type": "object",
+      "required": ["ticket", "base", "head", "sourceRepo"],
+      "properties": {
+        "ticket": { "type": "string", "format": "record-key", "description": "ticket-id" },
+        "base": { "type": "ref", "ref": "org.tangled.git.oid" },
+        "head": { "type": "ref", "ref": "org.tangled.git.oid" },
+        "sourceRepo": {
+          "type": "string",
+          "format": "did",
+          "description": "DID of the repository to fetch `head` from."
+        },
+        "sourceBranch": { "type": "string", "maxLength": 244 }
+      }
+    }
+  }
+}

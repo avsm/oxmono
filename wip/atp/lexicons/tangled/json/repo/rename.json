@@ -1,0 +1,38 @@
+{
+  "lexicon": 1,
+  "id": "sh.tangled.repo.rename",
+  "defs": {
+    "main": {
+      "type": "procedure",
+      "description": "Rename a repository on this knot. The given rkey becomes the canonical record key. Prior rkeys keep resolving as aliases until the repository is deleted.",
+      "input": {
+        "encoding": "application/json",
+        "schema": {
+          "type": "object",
+          "required": [
+            "repo",
+            "rkey",
+            "name"
+          ],
+          "properties": {
+            "repo": {
+              "type": "string",
+              "format": "did",
+              "description": "DID of the repository to rename"
+            },
+            "rkey": {
+              "type": "string",
+              "format": "record-key",
+              "description": "Rkey of the sh.tangled.repo record written for the new name"
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 100,
+              "description": "New display name of the repository"
+            }
+          }
+        }
+      }
+    }
+  }
+}

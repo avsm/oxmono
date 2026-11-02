@@ -10,6 +10,6 @@ retain upstream defaults, including the stock-OCaml Alpine builder image.
 Packaging generation is tested, but OxCaml deployment and native installation
 are not established by these tests.
 
-The [shared import review](../../../docs/oi-library-import.md) records dependency
+The [shared import review](../../docs/oi-library-import.md) records dependency
 provenance and validation. On refresh, compare `lib/osdist`, retain the Jsont
 adaptations, re-extract only the library tests and run the README's scoped checks.

@@ -1,12 +1,15 @@
 # osdist
 
+This unreleased library is maintained in OxMono under `wip/osdist`.
+Its oi source provenance is recorded in [OXMONO.md](OXMONO.md).
+
 Generate Debian, RPM and static distribution packaging for OCaml projects.
 Start with the [Osdist API](lib/osdist.mli) for a usage example, the source
 bundle contract and links to the packaging modules.
 
 ```sh
-dune build --profile release-check @vendor/oi/osdist/all
-dune runtest --profile release-check --force vendor/oi/osdist
+dune build --profile release-check @wip/osdist/all
+dune runtest --profile release-check --force wip/osdist
 ```
 
 Use the workspace's OxCaml build environment. Tests check generated packaging

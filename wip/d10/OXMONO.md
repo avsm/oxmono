@@ -19,7 +19,7 @@ Staging and uncached user-prefix execution remain supported. Tests in
 `test/executor` cover both policies, recipe replay, PATH isolation, dependency
 immutability, failed capture and parallel prefix restoration.
 
-The [shared import review](../../../docs/oi-library-import.md) details these
+The [shared import review](../../docs/oi-library-import.md) details these
 adaptations, caller locking and cache immutability requirements. On refresh,
 map upstream `lib/d10` to `lib/` and `lib/d10ir` to `ir/`, preserve those
 adaptations and local tests, and run the README's scoped checks and the

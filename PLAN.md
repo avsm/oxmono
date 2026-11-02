@@ -159,7 +159,7 @@ confirm provenance before release, not invent a commit.
 | bloscz | `wip/bloscz` |
 | bytesrw-eio | `wip/bytesrw-eio`; separate extension to Bytesrw |
 | cbort | `wip/cbort` |
-| d10 | `vendor/oi/d10`; retain its recorded scoped oi import |
+| d10 | `wip/d10`; retain its recorded scoped oi import |
 | ds4 | `wip/ds4`; register embedded engine sources and CPU/CUDA/Metal support |
 | ecosystems | `wip/ecosystems` |
 | eioext | `wip/eioext`; upstream candidates, not an imported Eio tree |
@@ -184,9 +184,9 @@ confirm provenance before release, not invent a commit.
 | nx-oxcaml | `vendor/nx-oxcaml`; recorded upstream port, paired with Nx |
 | openapi | `wip/openapi` |
 | openrouter | `wip/openrouter` |
-| osdist | `vendor/oi/osdist` |
+| osdist | `wip/osdist` |
 | osm | `wip/osm` |
-| osrel | `vendor/oi/osrel` |
+| osrel | `wip/osrel` |
 | owntracks | `wip/owntracks`; retained import history, actively maintained here |
 | peertube | `wip/peertube` |
 | proffer | `wip/proffer` |
@@ -204,9 +204,9 @@ confirm provenance before release, not invent a commit.
 | zstdz | `wip/zstdz` |
 | zulip | `wip/zulip`; maintained here; retain historical provenance |
 
-The oi group retains three independently buildable Dune projects under one
-upstream provenance entry. Its source mapping must describe the original oi
-subdirectories and the local rearrangement.
+The unreleased oi libraries are maintained as three independently buildable
+projects under `wip/`. Each retains its original oi revision and source mapping
+in `oxmono/upstream.json`. They are not tracked by the vendor update checker.
 
 Keep `wip/matrix` separate from existing `vendor/matrix`. The latter is
 terminal infrastructure imported from Mosaic, not the Matrix chat SDK.

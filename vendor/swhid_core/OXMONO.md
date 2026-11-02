@@ -16,8 +16,8 @@ Upstream library and tests, unchanged.
 2. Preserve the documented build scope and compiler adaptations. Verify the
    downloaded archive checksum and record its commit in `OXMONO.json` and
    `../upstreams.json`.
-3. Build `@vendor/oi/d10/all` and `@vendor/oi/osdist/all` with `release-check`.
-   Run `dune runtest --profile release-check --force vendor/oi/d10 vendor/oi/osdist`.
+3. Build `@wip/d10/all` and `@wip/osdist/all` with `release-check`.
+   Run `dune runtest --profile release-check --force wip/d10 wip/osdist`.
    Use the `5.2.0+ox` switch. The HTTP regressions need loopback sockets.
 4. Run the explicit vendor test aliases listed in
    `../../docs/oi-library-import.md`. Recursive vendor aliases skip tests.

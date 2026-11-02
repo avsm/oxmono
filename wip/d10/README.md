@@ -1,5 +1,8 @@
 # d10
 
+This unreleased library is maintained in OxMono under `wip/d10`.
+Its oi source provenance is recorded in [OXMONO.md](OXMONO.md).
+
 Store binary layers, assemble installation prefixes, index files and lock
 caches. The `d10` package provides two libraries:
 
@@ -28,11 +31,11 @@ prefix and installs selected application binaries and shared data. Deferred
 scalar configuration bindings are resolved from installed dependencies.
 
 ```sh
-dune build --profile release-check @vendor/oi/d10/all
-dune runtest --profile release-check --force vendor/oi/d10
+dune build --profile release-check @wip/d10/all
+dune runtest --profile release-check --force wip/d10
 ```
 
 Use the workspace's OxCaml build environment. HTTP tests require loopback
 sockets but no external services. See [OXMONO.md](OXMONO.md) for adaptations
-and cache constraints. The [ox runner](../../../wip/ox/README.md) uses this layer
+and cache constraints. The [ox runner](../ox/README.md) uses this layer
 store with permanent installation prefixes.

@@ -316,14 +316,6 @@
       "verified_on": "2026-10-03"
     },
     {
-      "name": "oi",
-      "url": "https://github.com/avsm/oi.git",
-      "branch": "HEAD",
-      "revision": "ca8c59ff26bd7350e909324dc804982f0e4cee5b",
-      "base_version": "0.14.2",
-      "scope": "lib/d10, lib/d10ir, lib/osrel and lib/osdist mapped to d10/, osrel/ and osdist/ projects. See their oxmono/upstream.json records."
-    },
-    {
       "name": "opam",
       "url": "https://github.com/ocaml/opam.git",
       "branch": "HEAD",

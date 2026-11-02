@@ -131,10 +131,10 @@ Generating API documentation requires an OxCaml-compatible `odoc`.
 [SYNC.md](wip/httpz/SYNC.md) records the source revision and update procedure
 for the HTTP libraries.
 
-The [osrel](vendor/oi/osrel/README.md), [d10](vendor/oi/d10/README.md) and
-[osdist](vendor/oi/osdist/README.md) projects provide platform detection,
-binary layers, build recipes and distro packaging. The
-[oi import review](docs/oi-library-import.md) records their provenance and
+The [osrel](wip/osrel/README.md), [d10](wip/d10/README.md) and
+[osdist](wip/osdist/README.md) projects are unreleased libraries maintained here.
+They provide platform detection, binary layers, build recipes and distro
+packaging. The [oi import review](docs/oi-library-import.md) records their provenance and
 OxCaml adaptations. The [ox plan](docs/ox-plan.md) describes the workspace roadmap.
 
 The [ox runner](wip/ox/README.md) builds and runs committed monorepo packages from opam

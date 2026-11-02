@@ -7,7 +7,7 @@ Imported `lib/osrel` from oi 0.14.2 at
 The library implementation is unchanged. The standalone Dune project declares
 the `osrel` package. Platform normalization and detection tests live in `test/`.
 
-The [shared import review](../../../docs/oi-library-import.md) records dependency
+The [shared import review](../../docs/oi-library-import.md) records dependency
 provenance and validation. On refresh, compare the recorded `lib/osrel` sources,
 retain the package metadata and local tests, and run the README's scoped checks.
 

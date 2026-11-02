@@ -1,3 +1,8 @@
+## Unreleased
+
+- Maintain this unreleased library under `wip/d10`. Preserve its oi
+  source provenance and package identity.
+
 # Changes
 
 - Expose uncached installation into a caller-prepared prefix through `run_node`,
@@ -11,7 +16,7 @@
 - Share recipe execution across staging and cached permanent prefixes, with
   safe writable assembly, content-based layer capture and source replay.
 
-- Give d10 and d10.ir their own project under `vendor/oi/d10`, preserving library names.
+- Give d10 and d10.ir their own project under `wip/d10`, preserving library names.
 
 - Expose the standalone opam `.install` file handler through `D10ir.Install_file`.
 

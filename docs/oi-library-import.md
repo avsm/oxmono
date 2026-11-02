@@ -2,13 +2,15 @@
 
 Imported oi 0.14.2 at `ca8c59ff26bd7350e909324dc804982f0e4cee5b` from
 `~/src/git/avsm/oi`. The source checkout was clean and was not modified.
-Each project records its import scope in `oxmono/upstream.json`:
+These unreleased libraries are maintained in `wip/`, rather than tracked as
+vendored upstream releases. Each project records its import scope in
+`oxmono/upstream.json`:
 
 | Project | Libraries | Upstream scope |
 | --- | --- | --- |
-| [osrel](../vendor/oi/osrel/README.md) | `osrel` | [manifest](../vendor/oi/osrel/oxmono/upstream.json) |
-| [d10](../vendor/oi/d10/README.md) | `d10`, `d10.ir` | [manifest](../vendor/oi/d10/oxmono/upstream.json) |
-| [osdist](../vendor/oi/osdist/README.md) | `osdist` | [manifest](../vendor/oi/osdist/oxmono/upstream.json) |
+| [osrel](../wip/osrel/README.md) | `osrel` | [manifest](../wip/osrel/oxmono/upstream.json) |
+| [d10](../wip/d10/README.md) | `d10`, `d10.ir` | [manifest](../wip/d10/oxmono/upstream.json) |
+| [osdist](../wip/osdist/README.md) | `osdist` | [manifest](../wip/osdist/oxmono/upstream.json) |
 
 ## Scope
 
@@ -128,15 +130,15 @@ HTTP behavior/cancellation, child environments and osdist generators.
 An additional differential fixture compares opam parsing, effective metadata,
 MD5/SHA256/SHA512 and child environment behavior with stock OCaml and
 opam-format 2.5.2. Its baseline is
-[`vendor/oi/d10/test/compat/opam.expected`](../vendor/oi/d10/test/compat/opam.expected).
+[`wip/d10/test/compat/opam.expected`](../wip/d10/test/compat/opam.expected).
 
 Build and test the projects in the workspace's OxCaml environment:
 
 ```sh
 dune build --profile release-check \
-  @vendor/oi/osrel/all @vendor/oi/d10/all @vendor/oi/osdist/all
+  @wip/osrel/all @wip/d10/all @wip/osdist/all
 dune runtest --profile release-check --force \
-  vendor/oi/osrel vendor/oi/d10 vendor/oi/osdist
+  wip/osrel wip/d10 wip/osdist
 ```
 
 The explicit vendor suites pass for the opam parser (64 cases), patch,

@@ -16,8 +16,8 @@ Core and format libraries and shell build support only. No opam CLI, state, repo
 2. Preserve the documented build scope and compiler adaptations. Verify the
    downloaded archive checksum and record its commit in `OXMONO.json` and
    `../upstreams.json`.
-3. Build `@vendor/oi/d10/all` and `@vendor/oi/osdist/all` with `release-check`.
-   Run `dune runtest --profile release-check --force vendor/oi/d10 vendor/oi/osdist`.
+3. Build `@wip/d10/all` and `@wip/osdist/all` with `release-check`.
+   Run `dune runtest --profile release-check --force wip/d10 wip/osdist`.
    Use the `5.2.0+ox` switch. The HTTP regressions need loopback sockets.
 4. Run the explicit vendor test aliases listed in
    `../../docs/oi-library-import.md`. Recursive vendor aliases skip tests.
@@ -33,7 +33,7 @@ Core and format libraries and shell build support only. No opam CLI, state, repo
 - `src/core/dune`: omit the Windows opam CLI helper install stanza.
 
 The compiler diagnosed each eta expansion. No opam algorithm was changed.
-`vendor/oi/d10/test/compat/opam_probe.ml` compares canonical effective
+`wip/d10/test/compat/opam_probe.ml` compares canonical effective
 opam output, MD5/SHA256/SHA512 hashes and child environment behavior against
 opam-format 2.6.1 built with stock OCaml 5.4.1. The output matches the
 existing `opam.expected` fixture byte for byte.

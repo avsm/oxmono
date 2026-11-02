@@ -2,8 +2,8 @@
 
 ## Implemented foundation
 
-The reviewed oi constituent libraries are the `vendor/oi/osrel`, `vendor/oi/d10`
-and `vendor/oi/osdist` projects. The
+The reviewed oi constituent libraries are the `wip/osrel`, `wip/d10`
+and `wip/osdist` projects. The
 [`ox` runner](../wip/ox/README.md) uses opam metadata, an in-process
 opam-0install solver and day10 package layers. The generic solver libraries
 are vendored with provenance and unchanged implementation sources. Ox

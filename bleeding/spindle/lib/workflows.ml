@@ -182,7 +182,7 @@ let parse contents =
   | Ok _ -> invalid "a workflow must be a mapping"
   | Error e -> invalid e
 
-let job ~repo ~commit name w =
+let job ~repo ~commit name contents w =
   if field "engine" w = None then invalid "missing engine";
   let steps =
     match field "steps" w with
@@ -190,17 +190,14 @@ let job ~repo ~commit name w =
     | Some steps ->
         List.mapi
           (fun i step ->
-            Job.Shell
-              {
-                name =
-                  Option.fold
-                    ~none:(Printf.sprintf "step %d" (i + 1))
-                    ~some:string (field "name" step);
-                (* YAML reads [true] or [1] as other than text, which the
-                   reference spindle takes as the command's text. *)
-                command = scalar (required "command" step);
-                env = environment (field "environment" step);
-              })
+            Job.step
+              ~env:(environment (field "environment" step))
+              (Option.fold
+                 ~none:(Printf.sprintf "step %d" (i + 1))
+                 ~some:string (field "name" step))
+              (* YAML reads [true] or [1] as other than text, which the
+                 reference spindle takes as the command's text. *)
+              (scalar (required "command" step)))
           (list steps)
   in
   let clone =
@@ -212,7 +209,7 @@ let job ~repo ~commit name w =
     ~env:(environment (field "environment" w))
     ~clone
     ~definition:(definition ~repo ~commit name w)
-    name steps
+    ~yaml:contents name steps
 
 let definitions ~repo ~commit files =
   List.filter_map
@@ -233,7 +230,8 @@ let select ~repo ~commit ~trigger ~names files =
       else
         match
           let w = parse contents in
-          if workflow_matches trigger w then Some (job ~repo ~commit name w)
+          if workflow_matches trigger w then
+            Some (job ~repo ~commit name contents w)
           else None
         with
         | Some j -> (j :: jobs, errors)

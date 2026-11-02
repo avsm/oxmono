@@ -1,6 +1,7 @@
 (** Tangled CI with trusted OCaml workflows, durable events and service auth. *)
 
 module Job = Job
+module Executor = Executor
 module Service_auth = Auth
 module Operations = Operations
 module Catalog = Catalog
@@ -18,9 +19,8 @@ type config = {
   jobs : Job.t list;
   jetstream : string option;
   allow_http : bool;
-  repository_workflows : bool;
-      (** Also run each repository's [.tangled/workflows] YAML. Its steps run on
-          this host with the service account's access. *)
+  executor : Executor.t;
+      (** Runs each workflow. The spindle runs no workflow commands itself. *)
   workflow_timeout : float;  (** Seconds a workflow may run. *)
   quotas : Settings.defaults;  (** Default limits. *)
   private_webhooks : bool;
@@ -40,7 +40,7 @@ val run :
   Eio_unix.Stdenv.base ->
   config ->
   unit
-(** [run system config] serves Tangled CI XRPC through Proffer. Workflow
-    definitions are trusted OCaml values; repository code does not configure the
-    runner. State, event cursors, JWT nonces and logs persist in SQLite. Jobs
-    have a 60-second deadline and a 1 MiB log limit per workflow. *)
+(** [run system config] serves Tangled CI XRPC through Proffer. It hands the
+    OCaml [jobs] and each repository's [.tangled/workflows] YAML to
+    [config.executor]. State, event cursors, JWT nonces and logs persist in
+    SQLite. A workflow's log may hold at most 1 MiB. *)

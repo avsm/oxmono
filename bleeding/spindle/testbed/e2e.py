@@ -279,10 +279,13 @@ def main():
     assert {w["id"]: w["status"] for w in pushed["workflows"]} == {
         "inspect": "success", "build.yml": "success"}, pushed
     assert pushed["trigger"]["ref"] == "refs/heads/main"
+    # The default executor describes each workflow instead of running it.
     log = tangled("pipeline", "logs", pushed["id"], "--repo", name)
-    assert "README.md" in log, log
-    assert "token=*** greeting=hello ref=main" in log, log
-    assert SECRET not in log and "aHVudGVyMi1lMmU" not in log, log
+    for shown in ("Workflow    build.yml", "TOKEN=<secret>", "GREETING=hello",
+                  "TANGLED_REF_NAME=main", "engine: nixery",
+                  'echo "token=$TOKEN greeting=$GREETING'):
+        assert shown in log, (shown, log)
+    assert SECRET not in log, log
     build = next(w for w in pushed["workflows"] if w["id"] == "build.yml")
     assert build["definition"]["source"]["path"] == \
         ".tangled/workflows/build.yml", build
@@ -384,8 +387,8 @@ def main():
     assert reviewed["trigger"]["targetBranch"] == "main", reviewed
     assert reviewed["trigger"]["pull"].endswith("/" + pull), reviewed
     assert {w["status"] for w in reviewed["workflows"]} == {"success"}, reviewed
-    assert "token=***" in tangled("pipeline", "logs", reviewed["id"],
-                                  "--repo", name)
+    assert "TOKEN=<secret>" in tangled("pipeline", "logs", reviewed["id"],
+                                       "--repo", name)
     wait("the pull request webhook", lambda: hooks("pull_request:created"))
     created = hooks("pull_request:created")[0][1]
     assert created["action"] == "created", created
@@ -434,7 +437,8 @@ def main():
         for p in pipelines(name)))
     # An approved contribution gets no secrets.
     approved = tangled("pipeline", "logs", waiting["id"], "--repo", name)
-    assert "token= greeting=hello" in approved, approved
+    assert "GREETING=hello" in approved, approved
+    assert "TOKEN=<secret>" not in approved, approved
 
     step("a closed spindle serves allow-listed owners only")
     bob_key = WORK / "bob_ed25519"

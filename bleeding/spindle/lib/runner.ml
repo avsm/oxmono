@@ -20,6 +20,7 @@ type env = {
   directory : Eio.Fs.dir_ty Eio.Path.t;
   slots : Eio.Semaphore.t;
   timeout : float;
+  executor : Executor.t;
 }
 
 type input = {
@@ -77,56 +78,52 @@ let snapshot p =
        ( "steps",
          arr
            (List.map
-              (function
-                | Job.Metadata -> obj [ ("metadata", bool true) ]
-                | Job.Command argv -> obj [ ("argv", arr (List.map str argv)) ]
-                | Job.Shell { name; command; env } ->
-                    obj
-                      [
-                        ("name", str name);
-                        ("shell", str command);
-                        ("env", pairs env);
-                      ])
+              (fun (s : Job.step) ->
+                obj
+                  [
+                    ("name", str s.name);
+                    ("command", str s.command);
+                    ("env", pairs s.env);
+                  ])
               p.job.steps) );
+       ("env", pairs p.job.env);
+       ("clone", bool p.job.clone);
      ]
-    @
-    match p.job.definition with
-    | None -> []
-    | Some definition ->
-        [
-          ("definition", definition);
-          ("env", pairs p.job.env);
-          ("clone", bool p.job.clone);
-        ])
+    @ optional "definition" Fun.id p.job.definition
+    @ optional "yaml" str p.job.yaml)
+
+(* Snapshots from before the executor hold argument vectors, shell scripts or
+   a metadata step, which restore as the text of a command. *)
+let restore_step step =
+  let name = Option.map string (field "name" step) in
+  match (field "command" step, field "shell" step, field "argv" step) with
+  | Some c, _, _ | None, Some c, _ ->
+      Job.step
+        ~env:(Option.fold ~none:[] ~some:unpairs (field "env" step))
+        (Option.value ~default:"" name)
+        (string c)
+  | None, None, Some argv ->
+      let command = String.concat " " (List.map string (list argv)) in
+      Job.step (Option.value ~default:command name) command
+  | None, None, None ->
+      Job.step (Option.value ~default:"spindle request metadata" name) ""
 
 let restore raw =
   let workflow = required "workflow" raw in
-  let steps =
-    list (required "steps" raw)
-    |> List.map (fun step ->
-        match (field "argv" step, field "shell" step) with
-        | Some argv, _ -> Job.Command (List.map string (list argv))
-        | None, Some command ->
-            Job.Shell
-              {
-                name = get "name" step;
-                command = string command;
-                env = unpairs (required "env" step);
-              }
-        | None, None -> Job.Metadata)
-  in
+  let steps = List.map restore_step (list (required "steps" raw)) in
   let name = get "name" workflow in
   let job =
-    match field "definition" raw with
-    | None -> Job.v name steps
-    | Some definition ->
+    match (field "definition" raw, field "yaml" raw) with
+    | Some definition, yaml ->
         Job.workflow ~definition
-          ~env:(unpairs (required "env" raw))
+          ~env:(Option.fold ~none:[] ~some:unpairs (field "env" raw))
           ~clone:
             (match field "clone" raw with
             | Some (Jsont.Bool (b, _)) -> b
             | _ -> true)
+          ~yaml:(Option.fold ~none:"" ~some:string yaml)
           name steps
+    | None, _ -> Job.v name steps
   in
   let p = v job in
   p.status <- get "status" workflow;
@@ -197,154 +194,76 @@ let data record p ~step ~stream content =
   emit record p ~step ~kind:"data"
     [ ("content", str content); ("stream", str stream) ]
 
-(* [base input] is the fixed part of every command's environment, with
-   ambient Git configuration and interactive authentication disabled. *)
-let base input =
-  [
-    ("PATH", "/usr/bin:/bin");
-    ("LANG", "C");
-    ("LC_ALL", "C");
-    ("GIT_CONFIG_NOSYSTEM", "1");
-    ("GIT_CONFIG_GLOBAL", "/dev/null");
-    ("GIT_TERMINAL_PROMPT", "0");
-    ("GIT_ALLOW_PROTOCOL", "file:https:http");
-    ("TANGLED_REPO", input.repo);
-    ("TANGLED_COMMIT_SHA", input.commit);
-    ("TANGLED_PIPELINE_ID", input.id);
-    ( "SSL_CERT_FILE",
-      Option.value ~default:"/etc/ssl/certs/ca-certificates.crt"
-        (Sys.getenv_opt "SSL_CERT_FILE") );
-    ( "GIT_SSL_CAINFO",
-      Option.value ~default:"/etc/ssl/certs/ca-certificates.crt"
-        (Sys.getenv_opt "SSL_CERT_FILE") );
-    ("SPINDLE_REQUEST", encode input.metadata);
-  ]
-
-(* Later bindings win, as in the reference spindle: the workflow's own
-   variables, then the CI variables, then secrets, then the step's. *)
-let merge layers =
-  List.fold_left
-    (fun acc (k, v) -> (k, v) :: List.remove_assoc k acc)
-    [] (List.concat layers)
-  |> List.rev
-
-let environment input = Eio.Process.Env.of_bindings (base input)
-
-(* Log frames contain text. Carry incomplete UTF-8 characters between reads,
-   replacing malformed bytes while preserving whitespace and partial lines. *)
-let utf8 ~eof raw =
-  if String.is_valid_utf_8 raw then (raw, "")
+(* Log frames contain text, so malformed UTF-8 becomes U+FFFD. *)
+let utf8 raw =
+  if String.is_valid_utf_8 raw then raw
   else
     let output = Buffer.create (String.length raw) in
     let rec loop off =
-      if off = String.length raw then (Buffer.contents output, "")
-      else
-        let width =
-          match raw.[off] with
-          | '\194' .. '\223' -> 2
-          | '\224' .. '\239' -> 3
-          | '\240' .. '\244' -> 4
-          | _ -> 1
-        in
-        if (not eof) && String.length raw - off < width then
-          (Buffer.contents output, String.sub raw off (String.length raw - off))
-        else
-          let decoded = String.get_utf_8_uchar raw off in
-          Buffer.add_utf_8_uchar output (Uchar.utf_decode_uchar decoded);
-          loop (off + Uchar.utf_decode_length decoded)
+      if off < String.length raw then (
+        let decoded = String.get_utf_8_uchar raw off in
+        Buffer.add_utf_8_uchar output (Uchar.utf_decode_uchar decoded);
+        loop (off + Uchar.utf_decode_length decoded))
     in
-    loop 0
+    loop 0;
+    Buffer.contents output
 
-(* [command state input ~env ~secrets ~step ~output ~text ~cwd argv] runs
-   [argv] with [env], then [secrets], then [step] over the base environment.
-   Secret values are hidden from the output. *)
-let command state input ?(env = []) ?(secrets = []) ?(step = [])
-    ~output:emit_output ~text ~cwd argv =
-  Eio.Switch.run @@ fun sw ->
-  let mgr = state.system#process_mgr in
-  let output, output_write = Eio.Process.pipe ~sw mgr in
-  let errors, errors_write = Eio.Process.pipe ~sw mgr in
-  let env =
-    Eio.Process.Env.of_bindings (merge [ base input; env; secrets; step ])
-  in
+let request input (job : Job.t) : Executor.request =
+  {
+    pipeline = input.id;
+    workflow = job.name;
+    repo = input.repo;
+    source = input.source;
+    commit = input.commit;
+    clone = job.clone;
+    metadata = input.metadata;
+    definition = job.definition;
+    yaml = job.yaml;
+    env = job.env;
+    variables = input.variables;
+    secrets = input.secrets;
+    steps = job.steps;
+  }
+
+(* [context record persist p ~secrets] numbers the executor's steps from 0 and
+   masks [secrets] in each stream of a step. Text held back by a mask at the
+   end of a step is flushed into that step. *)
+let context record persist p ~secrets : Executor.context =
   let values = List.map snd secrets in
-  let stdin = Eio.Path.open_in ~sw Eio.Path.(state.system#fs / "/dev/null") in
-  let fd flow = Option.get (Eio_unix.Resource.fd_opt flow) in
-  let process =
-    Eio_unix.Process.spawn_unix ~sw mgr ~cwd ~env ~pgid:0
-      ~fds:
-        [
-          (0, fd stdin, `Blocking);
-          (1, fd output_write, `Blocking);
-          (2, fd errors_write, `Blocking);
-        ]
-      argv
+  let next = ref 0 in
+  let current = ref None in
+  let write step stream content =
+    if content <> "" then data record p ~step ~stream (utf8 content)
   in
-  (* Shell pipelines and background children inherit this group. Killing only
-     the immediate child leaves them running after cancellation or timeout. *)
-  let kill_group () =
-    try Unix.kill (-Eio.Process.pid process) Sys.sigkill
-    with Unix.Unix_error (Unix.ESRCH, _, _) -> ()
+  let step name f =
+    let step = !next in
+    incr next;
+    let masks = [ ("stdout", Mask.v values); ("stderr", Mask.v values) ] in
+    run_step record persist p ~step ~kind:"user" name (fun () ->
+        current := Some (step, masks);
+        Fun.protect
+          ~finally:(fun () ->
+            current := None;
+            try
+              Eio.Cancel.protect (fun () ->
+                  List.iter
+                    (fun (stream, mask) -> write step stream (Mask.finish mask))
+                    masks)
+            with _ -> ())
+          f)
   in
-  Fun.protect ~finally:kill_group @@ fun () ->
-  Eio.Flow.close output_write;
-  Eio.Flow.close errors_write;
-  let read stream flow () =
-    let reader = Eio.Buf_read.of_flow ~initial_size:8192 ~max_size:8192 flow in
-    let mask = Mask.v values in
-    let emit content =
-      let content = Mask.feed mask content in
-      if content <> "" then emit_output ~stream content
-    in
-    let flush () =
-      let content = Mask.finish mask in
-      if content <> "" then emit_output ~stream content
-    in
-    let rec loop pending =
-      match Eio.Buf_read.ensure reader 1 with
-      | () ->
-          let raw =
-            Eio.Buf_read.take (Eio.Buf_read.buffered_bytes reader) reader
-          in
-          if text then (
-            let raw = if pending = "" then raw else pending ^ raw in
-            let content, pending = utf8 ~eof:false raw in
-            emit content;
-            loop pending)
-          else (
-            emit raw;
-            loop "")
-      | exception End_of_file ->
-          if text then emit (fst (utf8 ~eof:true pending));
-          flush ()
-    in
-    loop ""
+  let log stream content =
+    match !current with
+    | None -> invalid_arg "Executor log outside a step"
+    | Some (step, masks) ->
+        let stream =
+          match stream with `Stdout -> "stdout" | `Stderr -> "stderr"
+        in
+        write step stream (Mask.feed (List.assoc stream masks) content)
   in
-  Eio.Fiber.all
-    [
-      read "stdout" output;
-      read "stderr" errors;
-      (fun () ->
-        Eio.Process.await_exn process;
-        kill_group ());
-    ]
-
-let git args = "git" :: "-c" :: "core.hooksPath=/dev/null" :: args
-
-let capture state input argv =
-  let output = Buffer.create 4096 in
-  let size = ref 0 in
-  command state input ~cwd:state.directory ~text:false
-    ~output:(fun ~stream content ->
-      size := !size + String.length content;
-      if !size > 1024 * 1024 then failwith "command output exceeds 1 MiB";
-      if stream = "stdout" then Buffer.add_string output content)
-    argv;
-  Buffer.contents output
+  { step; log }
 
 let execute state input ~record ~persist p =
-  let open Eio.Path in
-  let work = state.directory / (input.id ^ "." ^ p.job.name ^ ".work") in
   Eio.Semaphore.acquire state.slots;
   Fun.protect ~finally:(fun () -> Eio.Semaphore.release state.slots)
   @@ fun () ->
@@ -358,47 +277,9 @@ let execute state input ~record ~persist p =
         Eio.Time.with_timeout_exn state.system#clock state.timeout @@ fun () ->
         Eio.Switch.run @@ fun sw ->
         p.cancel <- Some (fun () -> Eio.Switch.fail sw Cancelled);
-        if p.job.clone then
-          run_step record persist p ~step:0 ~kind:"system" "checkout" (fun () ->
-              command state input ~output:(data record p ~step:0) ~text:true
-                ~cwd:state.directory
-                (git
-                   [
-                     "clone";
-                     "--no-checkout";
-                     "--no-hardlinks";
-                     "--";
-                     input.source;
-                     native_exn work;
-                   ]);
-              command state input ~output:(data record p ~step:0) ~text:true
-                ~cwd:work
-                (git [ "checkout"; "--detach"; input.commit ]))
-        else Eio.Path.mkdirs ~perm:0o700 work;
-        let env = merge [ p.job.env; input.variables ] in
-        List.iteri
-          (fun index action ->
-            let step = index + 1 in
-            let name =
-              match action with
-              | Job.Metadata -> "spindle request metadata"
-              | Job.Command argv -> String.concat " " argv
-              | Job.Shell { name; _ } -> name
-            in
-            run_step record persist p ~step ~kind:"user" name (fun () ->
-                match action with
-                | Job.Metadata ->
-                    let text = encode input.metadata in
-                    data record p ~step ~stream:"stdout" (text ^ "\n");
-                    Printf.printf "%s\n%!" text
-                | Job.Command argv ->
-                    command state input ~env ~secrets:input.secrets
-                      ~output:(data record p ~step) ~text:true ~cwd:work argv
-                | Job.Shell { command = script; env = own; _ } ->
-                    command state input ~env ~secrets:input.secrets ~step:own
-                      ~output:(data record p ~step) ~text:true ~cwd:work
-                      [ "bash"; "-c"; script ]))
-          p.job.steps;
+        state.executor
+          (context record persist p ~secrets:input.secrets)
+          (request input p.job);
         Ok ()
       with exn -> Error exn
     in
@@ -413,10 +294,7 @@ let execute state input ~record ~persist p =
                else
                  match exn with Eio.Time.Timeout -> "timeout" | _ -> "failed");
             p.error <- Some (Printexc.to_string exn));
-        persist ();
-        (* Only the generated TID workspace is removed. *)
-        Eio.Process.run state.system#process_mgr
-          [ "rm"; "-rf"; "--"; native_exn work ]))
+        persist ()))
 
 let cancel ~persist p =
   if not (terminal p) then (

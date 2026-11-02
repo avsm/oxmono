@@ -19,6 +19,7 @@ type env = {
   directory : Eio.Fs.dir_ty Eio.Path.t;
   slots : Eio.Semaphore.t;
   timeout : float;  (** Seconds a workflow may run. *)
+  executor : Executor.t;
 }
 
 type input = {
@@ -28,8 +29,7 @@ type input = {
   commit : string;
   metadata : Jsont.json;
   variables : (string * string) list;  (** CI variables for every step. *)
-  secrets : (string * string) list;
-      (** Secrets for every step but the checkout, hidden in its output. *)
+  secrets : (string * string) list;  (** Secrets, hidden in the log. *)
 }
 
 val now : unit -> string
@@ -45,15 +45,6 @@ val view : t -> Jsont.json
 val snapshot : t -> Jsont.json
 val restore : Jsont.json -> t
 
-val environment : input -> Eio.Process.Env.t
-(** [environment input] supplies a fixed command environment with ambient Git
-    configuration and interactive authentication disabled. *)
-
-val capture : env -> input -> string list -> string
-(** [capture env input argv] captures bounded stdout using the same
-    process-group cleanup and environment as jobs. Callers supply a total
-    deadline. *)
-
 val execute :
   env ->
   input ->
@@ -61,9 +52,9 @@ val execute :
   persist:(unit -> unit) ->
   t ->
   unit
-(** [execute env input ~persist workflow] waits for a worker slot, checks out
-    the source and executes trusted steps. Each transition calls [persist]. Each
-    JSON-encoded event calls [record] before becoming visible to log
+(** [execute env input ~record ~persist workflow] waits for a worker slot and
+    hands [workflow] to the executor of [env]. Each transition calls [persist].
+    Each JSON-encoded event calls [record] before becoming visible to log
     subscribers. [record] returns the durable journal sequence for snapshot
     compaction. *)
 

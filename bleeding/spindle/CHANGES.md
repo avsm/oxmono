@@ -2,9 +2,13 @@
 
 ## Unreleased
 
-- Run repositories' own YAML workflows from `.tangled/workflows` with
-  `--repository-workflows`, with the reference spindle's `when` rules and CI
-  variables. Steps run on the host.
+- Hand every workflow to an executor callback instead of running commands on
+  the host. The default executor logs the workflow, with secrets as
+  placeholders, waits two seconds and succeeds. `--repository-workflows` is
+  gone, since repository workflows are always read.
+
+- Read repositories' own YAML workflows from `.tangled/workflows`, with the
+  reference spindle's `when` rules and CI variables.
 - Add secrets, given to trusted pipelines and hidden in their logs, and
   webhooks for pushes, renames and pull requests, signed and redeliverable.
 - Dispatch pull requests that are closed, reopened or merged.

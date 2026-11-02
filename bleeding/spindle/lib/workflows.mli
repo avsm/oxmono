@@ -3,8 +3,7 @@
 
     Each file is one workflow, named by its file name. [when] selects events as
     the reference spindle does, with doublestar globs for branches and tags.
-    Steps run with [bash -c]. Engines, dependencies, caches and images are not
-    provided: steps run on the spindle's host with what it has. *)
+    A selected workflow, with its file's text, goes to the {!Executor}. *)
 
 val directory : string
 

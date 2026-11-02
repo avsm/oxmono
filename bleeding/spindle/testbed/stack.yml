@@ -83,7 +83,6 @@ services:
       - --owner=${OWNER}
       - --jetstream=wss://knot.tangled.test/subscribe
       - --state-dir=/state
-      - --repository-workflows
       - --workflow-timeout=120
       - --private-webhooks
     environment:

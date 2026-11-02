@@ -1,5 +1,6 @@
 (* SPDX-License-Identifier: ISC *)
 module Job = Job
+module Executor = Executor
 module Service_auth = Auth
 module Operations = Operations
 module Catalog = Catalog
@@ -21,7 +22,7 @@ type config = {
   jobs : Job.t list;
   jetstream : string option;
   allow_http : bool;
-  repository_workflows : bool;
+  executor : Executor.t;
   workflow_timeout : float;
   quotas : Settings.defaults;
   private_webhooks : bool;
@@ -235,36 +236,43 @@ let workflows state =
     (fun (job : Job.t) -> Engine.definition state.config.hostname job.name)
     state.config.jobs
 
-(* Repository workflows are read from the knot, or from a static repository's
-   clone. A missing directory has none. *)
-let read_files config catalog network ~did:repo ~commit =
-  let dir = Workflows.directory in
+(* [static config repo] is the local clone of the static repository [repo].
+   It is read with Git, since it has no knot. *)
+let static config repo =
   match config.repo with
-  | Some (static, source) when static = repo ->
-      if Filename.is_relative source || not (Sys.file_exists source) then []
-      else
-        let git args =
+  | Some (did, source)
+    when did = repo
+         && (not (Filename.is_relative source))
+         && Sys.file_exists source ->
+      Some
+        (fun args ->
           let p =
             Unix.open_process_args_in "git"
               (Array.of_list ("git" :: "-C" :: source :: args))
           in
           let out = In_channel.input_all p in
           ignore (Unix.close_process_in p);
-          out
-        in
-        git [ "ls-tree"; "-z"; commit; dir ^ "/" ]
-        |> String.split_on_char '\000'
-        |> List.filter_map (fun line ->
-            match String.index_opt line '\t' with
-            | Some i
-              when String.starts_with ~prefix:"100644 blob" line
-                   || String.starts_with ~prefix:"100755 blob" line ->
-                let path =
-                  String.sub line (i + 1) (String.length line - i - 1)
-                in
-                let name = Filename.basename path in
-                Some (name, git [ "cat-file"; "blob"; commit ^ ":" ^ path ])
-            | _ -> None)
+          out)
+  | _ -> None
+
+(* Repository workflows are read from the knot, or from a static repository's
+   clone. A missing directory has none. *)
+let read_files config catalog network ~did:repo ~commit =
+  let dir = Workflows.directory in
+  match (config.repo, static config repo) with
+  | Some (did, _), None when did = repo -> []
+  | _, Some git ->
+      git [ "ls-tree"; "-z"; commit; dir ^ "/" ]
+      |> String.split_on_char '\000'
+      |> List.filter_map (fun line ->
+          match String.index_opt line '\t' with
+          | Some i
+            when String.starts_with ~prefix:"100644 blob" line
+                 || String.starts_with ~prefix:"100755 blob" line ->
+              let path = String.sub line (i + 1) (String.length line - i - 1) in
+              let name = Filename.basename path in
+              Some (name, git [ "cat-file"; "blob"; commit ^ ":" ^ path ])
+          | _ -> None)
   | _ ->
       let knot = Catalog.knot_origin catalog repo in
       let xrpc nsid params =
@@ -315,26 +323,33 @@ let resolve_commit state repo ref_ =
          ref_
   then Some ref_
   else
-    let knot = Catalog.knot_origin state.engine.catalog repo in
-    let commits =
-      Network.json state.network
-        (Network.query
-           (knot ^ "/xrpc/org.tangled.git.listCommits")
-           [ ("repo", repo); ("ref", ref_); ("limit", "1") ])
-    in
-    match field "commits" commits with
-    | Some (Jsont.Array (c :: _, _)) -> Some (get "hash" c)
-    | _ -> None
+    match static state.config repo with
+    | Some git -> (
+        match
+          String.trim
+            (git [ "rev-parse"; "--verify"; "-q"; "--"; ref_ ^ "^{commit}" ])
+        with
+        | "" -> None
+        | commit -> Some commit)
+    | None -> (
+        let knot = Catalog.knot_origin state.engine.catalog repo in
+        let commits =
+          Network.json state.network
+            (Network.query
+               (knot ^ "/xrpc/org.tangled.git.listCommits")
+               [ ("repo", repo); ("ref", ref_); ("limit", "1") ])
+        in
+        match field "commits" commits with
+        | Some (Jsont.Array (c :: _, _)) -> Some (get "hash" c)
+        | _ -> None)
 
 let repository_definitions state repo ref_ =
-  if not state.config.repository_workflows then []
-  else
-    match resolve_commit state repo ref_ with
-    | None -> []
-    | Some commit ->
-        Workflows.definitions ~repo ~commit
-          (read_files state.config state.engine.catalog state.network ~did:repo
-             ~commit)
+  match resolve_commit state repo ref_ with
+  | None -> []
+  | Some commit ->
+      Workflows.definitions ~repo ~commit
+        (read_files state.config state.engine.catalog state.network ~did:repo
+           ~commit)
 
 let ci_output ids =
   obj [ ("ci", obj [ ("pipelines", arr (List.map str ids)) ]) ]
@@ -944,10 +959,8 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   let engine =
     Engine.v ~store ~catalog ~settings ~hostname:config.hostname
       ~jobs:config.jobs ~timeout:config.workflow_timeout
-      ?read_workflows:
-        (if config.repository_workflows then
-           Some (read_files config catalog network)
-         else None)
+      ~executor:config.executor
+      ~read_workflows:(read_files config catalog network)
       ~system ~directory ~sw ()
   in
   Engine.migrate engine config.repo;

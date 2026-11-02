@@ -231,7 +231,7 @@ let start t p =
     p.workflows
 
 let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?(timeout = 60.)
-    ~system ~directory ~sw () =
+    ~executor ~system ~directory ~sw () =
   if jobs = [] || List.length jobs > 50 then invalid "define 1 to 50 workflows";
   let names =
     List.map
@@ -247,9 +247,6 @@ let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?(timeout = 60.)
                   j.name)
         then
           invalid "workflow names must be 1 to 40 ASCII letters, digits, _ or -";
-        List.iter
-          (function Job.Command [] -> invalid "empty command" | _ -> ())
-          j.steps;
         j.name)
       jobs
   in
@@ -264,7 +261,13 @@ let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?(timeout = 60.)
     read_workflows;
     sw;
     runner =
-      { Runner.system; directory; slots = Eio.Semaphore.make 2; timeout };
+      {
+        Runner.system;
+        directory;
+        slots = Eio.Semaphore.make 2;
+        timeout;
+        executor;
+      };
     pipelines = Hashtbl.create 32;
     lock = Eio.Mutex.create ();
     last_tid = 0L;
@@ -389,20 +392,6 @@ let load t =
       in
       if active then (
         let p = restore t id (Option.get (Store.get t.store "pipeline" id)) in
-        List.iter
-          (fun (run : Runner.t) ->
-            if not (Workflows.valid_name run.job.name) then
-              invalid "invalid stored workflow name";
-            Eio.Process.run t.runner.system#process_mgr
-              [
-                "rm";
-                "-rf";
-                "--";
-                Eio.Path.(
-                  native_exn
-                    (t.runner.directory / (id ^ "." ^ run.job.name ^ ".work")));
-              ])
-          p.workflows;
         Hashtbl.add t.pipelines id p;
         persist t p;
         start t p))

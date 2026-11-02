@@ -62,8 +62,8 @@ own deployments use hydrant, a filtering indexer with a compatible
    ```
 
    `--admission=open` serves anyone.
-4. Push a commit. The knot notifies the spindle, and the default workflow
-   prints metadata and the directory listing. Pipeline status and logs appear
+4. Push a commit. The knot notifies the spindle, and the default executor
+   logs a description of each workflow. Pipeline status and logs appear
    in Tangled and through `tangled pipeline`.
 
 Collaborators are the knot's `org.tangled.graph.collaborator` records. They may
@@ -72,13 +72,11 @@ owner's repositories. It grants no access to other owners' repositories.
 
 ## Repository workflows, secrets and limits
 
-`--repository-workflows` runs each repository's `.tangled/workflows` YAML as
-well as the OCaml workflows. Its steps run on this host as the service
-account, so admit only owners whose code you would run yourself, keep
-`--admission=closed`, and give the account no more access than CI needs.
-Install the tools those workflows expect, since `dependencies` are not
-installed for them. Raise `--workflow-timeout` above its 60-second default
-for real builds.
+The spindle hands each repository's `.tangled/workflows` YAML, and the OCaml
+workflows, to its executor. It runs no workflow commands on this host. The
+`spindle` command's executor only logs each workflow and succeeds. To run
+builds, supply an executor through `Spindle.config.executor` and raise
+`--workflow-timeout` above its 60-second default.
 
 Secrets are kept in `spindle.db` in the state directory, which only the
 service account can read. Webhooks refuse private and loopback addresses
@@ -106,9 +104,8 @@ managed by the host.
 
 ## Install the native service
 
-On a host matching the build system's ABI, install Git, CA certificates and
-the shared libraries required by the executable: OpenSSL 3, GMP, zstd and
-Brotli. The glibc must be at least as new as the build host's. Inspect `ldd`
+On a host matching the build system's ABI, install CA certificates and the
+shared libraries required by the executable: OpenSSL 3, GMP, zstd and Brotli. The glibc must be at least as new as the build host's. Inspect `ldd`
 before moving a binary between hosts. Build from the oxmono root with the
 existing OxCaml switch:
 
@@ -167,8 +164,8 @@ WantedBy=multi-user.target
 ```
 
 Systemd's `StateDirectory` creates the writable service-owned directory and
-exempts it from `ProtectSystem=strict`. Jobs and checkouts run as the service
-account. The default job only prints request metadata and runs `ls -la --`.
+exempts it from `ProtectSystem=strict`. The spindle starts no process for a
+workflow.
 Eio uses io_uring, so a seccomp filter must allow it.
 
 ```sh
@@ -223,13 +220,13 @@ python3 bleeding/spindle/tools/trigger.py \
 
 ## State and operational limits
 
-The state directory contains SQLite state and temporary checkouts. Back it up
+The state directory contains SQLite state. Back it up
 while the service is stopped, or use SQLite's backup API. Preserve `spindle.db`
 with its WAL when copying live storage. Deleting the database also deletes
 pipeline IDs, the event cursor, the allow-list and accepted JWT nonces.
 
 There are two concurrent workflows, 32 outstanding pipelines, a 60-second
-execution deadline and a 1 MiB log limit per workflow. Pending and blocked
+default deadline and a 1 MiB log limit per workflow. Pending and blocked
 work resumes after restart. Interrupted workflows become failed. One process
 may own a state directory.
 

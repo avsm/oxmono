@@ -46,7 +46,9 @@ let () =
   let job = Job.v "push-only" [] ~accepts:(fun c -> c.kind = Job.Push) in
   let engine =
     Engine.v ~store ~catalog ~settings ~hostname:"spindle.test"
-      ~jobs:[ Job.inspect; job ] ~system:env ~directory ~sw ()
+      ~jobs:[ Job.inspect; job ]
+      ~executor:(fun _ _ -> ())
+      ~system:env ~directory ~sw ()
   in
   Eio.Semaphore.acquire engine.runner.slots;
   Eio.Semaphore.acquire engine.runner.slots;

@@ -45,14 +45,15 @@ val v :
   jobs:Job.t list ->
   ?read_workflows:reader ->
   ?timeout:float ->
+  executor:Executor.t ->
   system:Eio_unix.Stdenv.base ->
   directory:Eio.Fs.dir_ty Eio.Path.t ->
   sw:Eio.Switch.t ->
   unit ->
   t
-(** [v ~store ~catalog ~settings ~hostname ~jobs ~system ~directory ~sw ()] runs
-    the OCaml [jobs], and with [read_workflows] also each repository's own YAML
-    workflows. A workflow may run for [timeout] seconds, 60 by default. *)
+(** [v ... ~jobs ~executor ()] hands the OCaml [jobs], and with [read_workflows]
+    also each repository's own YAML workflows, to [executor]. A workflow may run
+    for [timeout] seconds, 60 by default. *)
 
 val migrate : t -> (string * string) option -> unit
 

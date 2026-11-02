@@ -1,11 +1,13 @@
 # Spindle
 
 A Tangled CI spindle using Proffer, HTTPz, JSONWT and Eio on OxCaml.
-Trusted OCaml definitions select and run workflows. The default `inspect`
-workflow checks out the requested commit, prints request metadata and runs
-`ls -la --`. Tokens and authorization headers are excluded from job metadata.
-With `--repository-workflows`, each repository's own YAML workflows in
-`.tangled/workflows` run too.
+Trusted OCaml definitions and each repository's YAML workflows in
+`.tangled/workflows` select workflows for an event. The spindle never runs a
+workflow's commands itself. It hands each workflow to an executor, an Eio
+callback that the operator supplies. The default executor logs what it was
+given, with secret values replaced by placeholders, waits two seconds and
+reports success. Tokens and authorization headers are excluded from job
+metadata.
 
 The spindle speaks the `org.tangled.*` protocol of Tangled core. A knot
 reports each push to the spindle named in a repository's manifest by calling
@@ -63,9 +65,9 @@ Pass a list of trusted definitions in `Spindle.config.jobs`:
 
 ```ocaml
 let open Spindle.Job in
-let inspect = v "inspect" [Metadata; Command ["ls"; "-la"; "--"]] in
+let inspect = v "inspect" [step "list files" "ls -la"] in
 let release =
-  v "release" [Command ["make"; "release"]]
+  v "release" [step "build" "make release"]
     ~accepts:(fun event ->
       event.kind = Push &&
       Option.fold ~none:false ~some:(String.starts_with ~prefix:"refs/tags/")
@@ -80,33 +82,51 @@ so `changed_files` is empty. Definitions can use
 ordinary OCaml analysis to choose workflows. Explicit workflow selections
 still respect each definition's predicate. Workflow names use 1–40 ASCII
 letters, digits, underscores or hyphens. Each workflow has an independent
-checkout, status, cancellation and log stream.
+status, cancellation and log stream. Workflow discovery returns
+`derived=false`, because definitions belong to the OCaml service.
 
-Commands receive argument vectors without a shell. Their environment contains
-`TANGLED_REPO`, `TANGLED_COMMIT_SHA`, `TANGLED_PIPELINE_ID` and
-`SPINDLE_REQUEST` JSON. Git hooks and ambient Git configuration are disabled.
-The configured CA bundle is available to HTTPS Git clones. Workflow discovery
-returns `derived=false`, because definitions belong to the OCaml service.
+## Executors
+
+`Spindle.config.executor` runs each workflow. It receives a
+`Spindle.Executor.request` holding the pipeline and workflow, the repository's
+clone URL and commit, whether to check the commit out, the trigger metadata,
+a repository workflow's definition and YAML text, the workflow's environment,
+the CI variables, the secrets and the steps. Each step has a name, a command
+for a shell and its own environment.
+
+The executor reports through its context. `step name f` runs `f` as the next
+numbered step of the log, and the step fails if `f` raises. `log stream text`
+adds output to the current step, with secret values replaced by `***`. The
+executor returns when the workflow succeeds and raises to fail it.
+Cancellation and `--workflow-timeout` cancel its fiber.
+
+```ocaml
+let executor (ctx : Spindle.Executor.context) (r : Spindle.Executor.request) =
+  List.iter
+    (fun (s : Spindle.Job.step) ->
+      ctx.step s.name (fun () -> ctx.log `Stdout ("would run " ^ s.command)))
+    r.steps
+```
+
+`Spindle.Executor.print clock` is the default, used by the `spindle`
+command. It logs a description of the request as step 0 and each step's
+command and environment as the steps after it, also prints the description
+to standard output, sleeps two seconds and succeeds.
 
 ## Repository workflows
 
-`--repository-workflows` also runs the reference spindle's YAML workflows,
-one per file in `.tangled/workflows`, read from the knot at the commit being
-run and named by their file name. `when` selects events as the reference
+The reference spindle's YAML workflows are read one per file in
+`.tangled/workflows`, from the knot at the commit being run, and named by
+their file name. `when` selects events as the reference
 spindle does: `event` is `push`, `pull_request` or `manual`, `branch` and
 `tag` are doublestar globs, and `types` chooses pull request actions, by
 default `opened`, `reopened` and `synchronize`. A manual run runs every
-workflow it names. `environment` sets variables for every step, and each
-step's `command` runs with `bash -c` in the checkout, with its own
-`environment` last. `clone: {skip: true}` skips the checkout.
+workflow it names. The executor receives the file's text, so it can read
+`engine`, `dependencies`, `cache` and `image` itself. The request carries the
+workflow's `environment`, each step's `command` and `environment`, and
+`clone: {skip: true}` as `clone = false`.
 
-Steps run on the spindle's host as the service account, not in the
-reference spindle's containers or virtual machines. `engine`, `dependencies`,
-`cache` and `image` are accepted and ignored, so a step finds only the tools
-the host has. Run repository workflows only for owners whose code you would
-run yourself, and give the service account no more access than CI needs.
-
-Every step also sees the reference spindle's CI variables: `CI`,
+The CI variables follow the reference spindle: `CI`,
 `TANGLED_PIPELINE_ID`, `TANGLED_PIPELINE_KIND`, `TANGLED_REPO_*`,
 `TANGLED_REF`, `TANGLED_REF_NAME`, `TANGLED_REF_TYPE`, `TANGLED_SHA`, the
 `TANGLED_PR_*` variables of a pull request and `TANGLED_INPUT_<KEY>` for each
@@ -117,9 +137,9 @@ manual input.
 These follow the reference spindle and its error codes.
 
 - **Secrets** are set by a repository's owner and collaborators. Each is
-  given to every step except the checkout as an environment variable of the
-  same name. The value, each of its lines and its base64 forms are replaced
-  by `***` in logs. Only trusted pipelines receive secrets: not a fork's
+  passed to the executor, which the reference spindle gives every step as an
+  environment variable of the same name. The value, each of its lines and its
+  base64 forms are replaced by `***` in what the executor logs. Only trusted pipelines receive secrets: not a fork's
   code, nor a pull request that needed approval, nor a retry of one.
   Values are kept in the state directory's SQLite database, as the reference
   spindle keeps them by default.
@@ -207,7 +227,7 @@ using the [reviewed JSONWT library](../jsonwt/spec/REVIEW.md).
 
 ## Persistence and limits
 
-The state directory holds `spindle.db`, its WAL and temporary checkouts. One
+The state directory holds `spindle.db` and its WAL. One
 process owns its directory lock. SQLite uses WAL with `synchronous=FULL`.
 Jetstream events and the stream cursor commit together. Dispatch records and
 their deduplication keys also commit together, so a knot's retried push or a
@@ -216,15 +236,15 @@ events queued. Malformed events have recorded rejections. Failed events back
 off up to one minute, including after restart.
 
 Pending and blocked workflows resume after restart. Interrupted workflows
-become failed. Output streams without waiting for a newline. Log chunks
-commit before publication and survive interruption of the current step. Step
+become failed. Executor output streams as it is logged. Log chunks commit
+before publication and survive interruption of the current step. Step
 snapshots compact the journal atomically. Invalid UTF-8 becomes replacement
 characters. Completed logs stay in SQLite and are loaded on demand.
 
 Two workflows run at once; at most 32 pipelines may be outstanding, with up
 to 50 configured workflows. Each workflow has a 1 MiB log budget and a
-deadline set by `--workflow-timeout`, 60 seconds by default. Git is a
-runtime dependency.
+deadline set by `--workflow-timeout`, 60 seconds by default. Git is needed
+only to read workflow files from a static `--source`.
 Automatic maintenance retains completed history for 30 days, at most 1000
 pipelines or 1024 MiB of stored payload. Completed event receipts last seven
 days, capped at 100000 entries. The inbox admits 10000 events or 64 MiB before
@@ -241,11 +261,8 @@ the spindle does not replay pushes itself. Jetstream reconnects resume from
 the stored cursor within `--replay-hours`. An older cursor restarts from the
 present, and patches published in between are not run.
 
-Commands execute as child processes with the service account's filesystem
-access. The Docker harness supplies resource limits. Deploy custom commands
-with the privileges and filesystem access intended for those jobs.
-Normal completion, cancellation and timeout kill remaining children in the
-command's process group. Jobs that deliberately detach need external isolation.
+The spindle starts no process for a workflow. Isolation is the executor's
+responsibility.
 
 ## Verification
 

@@ -13,22 +13,27 @@ type context = {
   request : Jsont.json;
 }
 
-type step =
-  | Metadata
-  | Command of string list
-      (** Commands run directly, without a shell, in a detached checkout. *)
-  | Shell of { name : string; command : string; env : (string * string) list }
-      (** A repository workflow's step, run by [bash -c] with [env] added. *)
+type step = {
+  name : string;
+  command : string;  (** The step's command, as text for a shell. *)
+  env : (string * string) list;  (** Added to the step's environment. *)
+}
+(** A step is a description handed to the {!Executor}. The spindle never runs it
+    itself. *)
 
 type t = private {
   name : string;
   steps : step list;
   accepts : context -> bool;
   env : (string * string) list;  (** Added to every step's environment. *)
-  clone : bool;  (** Whether to check out the commit first. *)
+  clone : bool;  (** Whether the commit should be checked out first. *)
   definition : Jsont.json option;
       (** The [org.tangled.ci.defs#workflow] of a repository workflow. *)
+  yaml : string option;  (** The text of a repository workflow's file. *)
 }
+
+val step : ?env:(string * string) list -> string -> string -> step
+(** [step ~env name command] is a step called [name] that runs [command]. *)
 
 val routine : context -> bool
 (** [routine c] holds for every event except a pull request's [closed] and
@@ -44,10 +49,13 @@ val workflow :
   env:(string * string) list ->
   clone:bool ->
   definition:Jsont.json ->
+  yaml:string ->
   string ->
   step list ->
   t
-(** [workflow ~env ~clone ~definition name steps] is a workflow read from a
-    repository's [.tangled/workflows], already selected for its event. *)
+(** [workflow ~env ~clone ~definition ~yaml name steps] is a workflow read from
+    the file [yaml] in a repository's [.tangled/workflows], already selected for
+    its event. *)
 
 val inspect : t
+(** [inspect] lists the files of the checked-out commit. *)

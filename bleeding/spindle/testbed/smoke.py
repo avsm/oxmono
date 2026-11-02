@@ -218,7 +218,7 @@ def main():
         result = wait_pipeline(pipeline)
         assert result["workflows"][0]["status"] == "cancelled", result
         (state / "interrupted-run").write_text(sleeping_job())
-        print("PASS: running child process cancelled through service-auth XRPC")
+        print("PASS: running workflow cancelled through service-auth XRPC")
         return
     if "--recovery" in sys.argv:
         previous = json.loads((state / "last-run.json").read_text())
@@ -273,9 +273,12 @@ def main():
     assert result["workflows"][0]["status"] == "success", result
     assert result["commit"] == sha
     text = "".join(e["content"] for e in events if e["type"] == "data")
-    assert "spindle-marker.txt" in text, text
-    echoed = next(json.loads(e["content"]) for e in events
-                  if e["type"] == "data" and e["step"] == 1)
+    # The default executor describes the workflow instead of running it.
+    assert "Workflow    inspect" in text and "  ls -la" in text, text
+    described = "".join(e["content"] for e in events
+                        if e["type"] == "data" and e["step"] == 0)
+    lines = described.splitlines()
+    echoed = json.loads(lines[lines.index("Metadata") + 1])
     assert echoed["request"]["trigger"] == body["event"]
     assert echoed["actor"] == alice["did"]
     assert token not in text
@@ -283,15 +286,12 @@ def main():
               if e["type"] == "control" and e["status"] == "start"]
     ends = [e["step"] for e in events
             if e["type"] == "control" and e["status"] == "end"]
-    assert starts == ends == [0, 1, 2]
+    assert starts == ends == [0, 1]
     queried = get("org.tangled.ci.queryPipelines", repo=REPO, commits=sha)
     assert len(queried["pipelines"]) == 1
     assert queried["pipelines"][0]["id"] == pipeline
     (state / "last-run.json").write_text(json.dumps(
         {"id": pipeline, "events": events, "frames": frames, "request": body}, indent=2))
-    bad = dict(body, event=dict(body["event"], commit="0" * 40))
-    failed = dispatch(bad, auth(alice))
-    assert wait_pipeline(failed)["workflows"][0]["status"] == "failed"
     page = get("org.tangled.ci.queryPipelines", repo=REPO, limit=1)
     assert "cursor" in page
     next_page = get("org.tangled.ci.queryPipelines", repo=REPO, limit=1,
@@ -302,8 +302,8 @@ def main():
     request(SPINDLE + cancel_method, cancellation, token, status=401)
     request(SPINDLE + cancel_method, cancellation, auth(alice, cancel_method))
     assert wait_pipeline(pipeline)["workflows"][0]["status"] == "success"
-    print(f"PASS: authenticated {pipeline}, checkout, metadata, ls, CBOR logs")
-    print("PASS: forged/unauthorized dispatches, invalid input, failed checkout,")
+    print(f"PASS: authenticated {pipeline}, executor description, CBOR logs")
+    print("PASS: forged/unauthorized dispatches, invalid input,")
     print("      definition discovery, filtering and pagination")
 
 

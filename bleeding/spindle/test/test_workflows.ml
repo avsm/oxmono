@@ -62,12 +62,11 @@ steps:
   let job = List.hd jobs in
   assert (job.env = [ ("CGO_ENABLED", "1"); ("NAME", "build") ]);
   (match job.steps with
-  | [
-   Shell { name = "test"; command; env = [ ("STEP", "one") ] }; Shell second;
-  ] ->
+  | [ { name = "test"; command; env = [ ("STEP", "one") ] }; second ] ->
       assert (command = {|echo "$NAME"|});
       assert (second.name = "step 2" && second.command = "true")
   | _ -> assert false);
+  assert (job.yaml = Some yaml);
   let definition = Option.get job.definition in
   assert (
     J.get "path" (J.required "source" definition)

@@ -6,9 +6,8 @@ Reviewed 2026-11-01 against Tangled core
 Upstream's later commits to `c76eedefe` change the Go spindle's caches and
 timing and add assignees to ticket views, none of which this spindle reads.
 
-The target is the reference spindle's wire behaviour, with trusted OCaml
-workflow definitions in place of repository YAML and the local process runner
-in place of microVM and Nixery engines.
+The target is the reference spindle's wire behaviour, with an executor
+callback in place of the microVM and Nixery engines.
 
 ## Feature mapping
 
@@ -22,8 +21,8 @@ in place of microVM and Nixery engines.
 | Pull requests from `track.ticket` and `review.patch` records | Patch records on Jetstream; patch and ticket re-read from the knot |
 | Blocked pull requests and `approvePipeline` | Same, when the patch's editor cannot push |
 | `queryPipelines`, `getPipeline`, `subscribePipelineLogs` | Same parameters, objects and CBOR frames |
-| Step end events with `outcome`, checkout as a `system` step | Same, including for a failed or cancelled step |
-| YAML workflows in `.tangled/workflows` | With `--repository-workflows`, run with `bash -c` on the host |
+| Step end events with `outcome` | Same, for each step the executor reports, including a failed or cancelled one |
+| YAML workflows in `.tangled/workflows` | Selected the same way and handed to the executor with the file's text |
 | Secrets, masked in logs, for trusted pipelines only | Same |
 | Webhooks, signed, retried and redeliverable | Same events, headers, payloads and limits |
 | Pull request `closed`, `reopened` and `merged` | From ticket state changes, as the reference does |
@@ -31,7 +30,7 @@ in place of microVM and Nixery engines.
 | Bans and wiping | Same subjects and effects |
 | Invite codes | Same, honouring `useCount` and `forAccount` |
 | `cancelPipeline`, `retryPipeline` | Same |
-| `listWorkflowDefinitions`, `getWorkflowDefinition` | The configured OCaml workflows, as external sources |
+| `listWorkflowDefinitions`, `getWorkflowDefinition` | The configured OCaml workflows as external sources, then the repository's YAML workflows |
 | `describeSpindle` and `#tangled_spindle` DID service | Same |
 | `skip-ci` and `ci-skip` push options, `refs/heads` and `refs/tags` only | Same |
 | Deduplication of `(repo, ref, oldSha, newSha)` | Same key, durable across restart |
@@ -45,9 +44,9 @@ in place of microVM and Nixery engines.
 - Repository tokens minted by a knot through `org.tangled.repo.mintToken`,
   which act on behalf of a user, are not accepted. Users sign their own
   service tokens.
-- Repository workflows run on the host, not in microVMs or Nixery
-  containers. `engine`, `dependencies`, `cache` and `image` are ignored, and
-  scheduled workflows, the mill and executor roles are not implemented.
+- Workflows run wherever the executor puts them. The default executor runs
+  nothing: it logs each workflow and succeeds. There is no checkout step.
+  Scheduled workflows and the mill roles are not implemented.
 - Quota resources that measure virtual machines (`vcpus`, `memory_mib`,
   `disk_mib`, the `workflow_*` caps and `cache_storage_bytes`) are stored but
   not enforced.
@@ -58,8 +57,8 @@ in place of microVM and Nixery engines.
 - Discovery is on demand. The reference spindle backfills repositories with an
   embedded hydrant. This spindle checks a repository when a push, manual run
   or patch names it, and caches the answer for `--reconcile-seconds`.
-- Workflow definitions are OCaml values, so they do not change with the
-  repository's contents and carry no file source.
+- OCaml workflow definitions do not change with the repository's contents
+  and carry no file source.
 
 ## Review details
 

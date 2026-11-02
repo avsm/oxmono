@@ -1,4 +1,4 @@
-let check_range what b off len =
+let check_range what (b : bytes @ local) off len =
   if off < 0 || len < 0 || off > Bytes.length b - len then
     invalid_arg ("Proffer.Body." ^ what ^ ": invalid byte range")
 ;;
@@ -13,8 +13,8 @@ module Sink = struct
      streamed response, and a backend that supplies [emit_sub] should not pay for the one
      it does not use. *)
   type t =
-    { emit : string -> unit
-    ; emit_sub : (bytes -> int -> int -> unit) or_null
+    { emit : string @ local -> unit
+    ; emit_sub : (bytes @ local -> int -> int -> unit) or_null
     }
 
   let v ?emit_sub emit =
@@ -26,13 +26,17 @@ module Sink = struct
     { emit; emit_sub }
   ;;
 
-  let write t s = t.emit s
+  let write t (s : string @ local) = t.emit s
 
-  let write_sub t b ~off ~len =
+  let write_sub t (b : bytes @ local) ~off ~len =
     check_range "Sink.write_sub" b off len;
     match t.emit_sub with
     | This f -> if len > 0 then f b off len
-    | Null -> if len > 0 then t.emit (Bytes.sub_string b off len)
+    | Null ->
+        if len > 0 then (
+          let local_ s = Pct.sub_local (Bytes.unsafe_to_string b) off len in
+          let () = t.emit s in
+          ())
   ;;
 end
 
@@ -69,14 +73,14 @@ type handoff_kind =
 
 type t =
   | Empty
-  | String of string @@ global
+  | String of string
   | Delayed of
       { length : int64 option
-      ; gen : unit -> string @@ global
+      ; gen : unit -> string @ local
       }
   | Stream of
       { length : int64 option
-      ; write : Sink.t -> unit @@ global
+      ; write : Sink.t -> unit
       ; trailers : Headers.t
       }
   | Handoff of

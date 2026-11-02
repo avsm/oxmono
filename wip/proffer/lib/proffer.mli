@@ -7,8 +7,8 @@
 
     Nothing that describes a response travels back up, so the description, its
     header block and the backend's outcome all live in the region
-    {!Backend.handle} runs the handler in, at [local]. Answering a request
-    allocates on the heap only what the body itself is made of.
+    {!Backend.handle} runs the handler in, at [local]. These interfaces allow
+    stack allocation. Application callbacks and backend I/O may still allocate.
 
     {2 Quick start}
 
@@ -104,12 +104,9 @@ module Headers : sig
       {{:https://www.rfc-editor.org/rfc/rfc9110#section-5.1}RFC 9110 section
        5.1}.
 
-      A block travels the response path at [local], so its cells are stack
-      allocated and a response costs no heap for them. [spelling] and [value]
-      are [global_] because a string is boxed and a socket write needs it at
-      global. [name] needs no modality, since it is read only to compare and to
-      hand back to httpz's writer. Every operation below takes the block at
-      [local], which a global block also satisfies. *)
+      A block and its strings may be borrowed at [local]. Use the local
+      constructors and [stack_] list cells to avoid heap allocation. Global
+      blocks remain usable wherever a local block is accepted. *)
 
   type name = Httpz.Header_name.t
   (** A [name] identifies an HTTP field. *)
@@ -252,14 +249,14 @@ module Req : sig
 
   val v :
     meth:Method.t ->
-    target:string ->
+    target:string @ local ->
     ?transport:transport ->
     ?version:Httpz.Version.t ->
     ?connection_upgrade:bool ->
-    ?path:string ->
-    ?query:string ->
-    ?headers:Headers.t ->
-    ?body:string ->
+    ?path:string @ local ->
+    ?query:string @ local ->
+    ?headers:Headers.t @ local ->
+    ?body:string @ local ->
     unit ->
     t @ local
     @@ portable
@@ -537,7 +534,7 @@ module Body : sig
 
     type t
 
-    val write : t -> string -> unit @@ portable
+    val write : t -> string @ local -> unit @@ portable
     (** [write t s] is [()] after emitting [s]. The sink is valid only during
         its {!Body.Stream} callback and must not escape it. The backend neither
         mutates nor retains [s] after [write] returns.
@@ -547,7 +544,7 @@ module Body : sig
         encoder writes through, and those take a global function. Lending one
         costs 3 words per streamed response. *)
 
-    val write_sub : t -> bytes -> off:int -> len:int -> unit @@ portable
+    val write_sub : t -> bytes @ local -> off:int -> len:int -> unit @@ portable
     (** [write_sub t b ~off ~len] is [()] after emitting [len] bytes of [b]
         starting at [off]. The backend neither mutates nor retains [b] after
         the call. It raises [Invalid_argument] for an invalid byte range.
@@ -588,16 +585,18 @@ module Body : sig
   (** A [t] is a response body. *)
   type t =
     | Empty  (** [Empty] is no body and a Content-Length of zero. *)
-    | String of string @@ global
-        (** [String s] is the body [s], already in memory. *)
-    | Delayed of { length : int64 option; gen : (unit -> string) @@ global }
+    | String of string
+        (** [String s] is the borrowed body [s], consumed before the responder
+            returns. *)
+    | Delayed of { length : int64 option; gen : (unit -> string @ local) }
         (** [Delayed { length; gen }] is a body generated on demand. [gen] is
-            not called for HEAD or a status that cannot carry content. A
+            not called for HEAD or a status that cannot carry content. Both
+            [gen] and its result may borrow local data. A
             declared [length] must be between zero and [max_int] and equal the
             generated string's byte length. *)
     | Stream of {
         length : int64 option;
-        write : (Sink.t -> unit) @@ global;
+        write : (Sink.t -> unit);
         trailers : Headers.t;
       }
         (** [Stream { length; write; trailers }] is a body written
@@ -686,10 +685,9 @@ module Resp : sig
       backend. Its fields may be inspected, and handlers construct one through
       {!v}.
 
-      It is passed at [local], so it costs no heap. [headers] is left at the
-      record's own mode, because the block is the part worth keeping on the
-      stack. Every other field holds a heap value that has to be readable at
-      global to reach a socket, so each is [global_]. *)
+      The description, headers and string body may borrow the caller's
+      region. The backend consumes them before the responder returns.
+      Handoff callbacks retain global ownership because they run later. *)
 
   type respond = description @ local -> unit
   (** A [respond] accepts one complete response description.
@@ -699,7 +697,7 @@ module Resp : sig
       arrows and an application then reads as complete after the first
       argument. *)
 
-  val v :
+  val[@zero_alloc] v :
     respond @ local ->
     ?status:Status.t ->
     headers:Headers.t @ local ->
@@ -712,12 +710,13 @@ module Resp : sig
     @@ portable
   (** [v respond ~headers ~content_type body] is [()] after passing [respond] a
       response with [body] and the supplied metadata. [status] defaults to 200
-      OK.
+      OK. Its allocation check excludes the responder callback. The callback
+      must finish consuming borrowed data before returning.
 
       The body is taken at [local], so a caller that writes
       [stack_ (Body.String s)] pays nothing for the block naming it. The
-      string inside stays global, which is where a socket needs it. Every
-      constructor below does this, so it matters only to a caller reaching
+      string may also be local. The constructors below build local wrappers,
+      so this matters only to a caller reaching
       for [v] directly.
 
       [headers] and [content_type] are required rather than optional.
@@ -806,7 +805,8 @@ module Resp : sig
   val other : string -> string -> Headers.field @@ portable
   (** [other spelling value] is {!Headers.other}, re-exported. *)
 
-  val h_local : Headers.name -> string -> Headers.field @ local @@ portable
+  val[@zero_alloc] h_local :
+    Headers.name -> string @ local -> Headers.field @ local @@ portable
   (** [h_local] is {!Headers.h_local}, re-exported: the constructor to build a
       block from on a path that answers every request. *)
 
@@ -816,7 +816,7 @@ module Resp : sig
     ?etag:Etag.t @ local ->
     ?cache:Cache_control.t @ local ->
     ?headers:Headers.t @ local ->
-    string ->
+    string @ local ->
     unit
     @@ portable
   (** [html respond s] is [()] after responding with [s] as
@@ -827,7 +827,7 @@ module Resp : sig
     respond @ local ->
     ?status:Status.t ->
     ?headers:Headers.t @ local ->
-    string ->
+    string @ local ->
     unit
     @@ portable
   (** [text respond s] is [()] after responding with [s] as
@@ -840,8 +840,8 @@ module Resp : sig
     ?etag:Etag.t @ local ->
     ?cache:Cache_control.t @ local ->
     ?headers:Headers.t @ local ->
-    string ->
-    string ->
+    string @ local ->
+    string @ local ->
     unit
     @@ portable
   (** [media respond ct s] is [()] after responding with [s] under Content-Type
@@ -855,12 +855,13 @@ module Resp : sig
     ?headers:Headers.t @ local ->
     ?length:int64 ->
     ?trailers:Headers.t @ local ->
-    string ->
-    (Body.Sink.t -> unit) ->
+    string @ local ->
+    (Body.Sink.t -> unit) @ local ->
     unit
     @@ portable
   (** [stream respond ct write] is [()] after responding under Content-Type
-      [ct] with the bytes that [write] emits to its sink.
+      [ct] with the bytes that [write] emits to its sink. [write] may capture
+      local data and finishes before [stream] returns.
 
       This is the constructor for a body that is produced rather than held: an
       encoder writing through a buffer hands each slice straight to the socket
@@ -949,20 +950,20 @@ module Resp : sig
   (** [empty respond ()] is [()] after responding with no body. [status]
       defaults to 200 OK, and [headers] are appended to the response. *)
 
-  val see_other : respond @ local -> string -> unit @@ portable
+  val see_other : respond @ local -> string @ local -> unit @@ portable
   (** [see_other respond location] is [()] after responding with 303 See Other
       and a Location field containing [location]. *)
 
   val redirect :
-    respond @ local -> ?permanent:bool -> string -> unit @@ portable
+    respond @ local -> ?permanent:bool -> string @ local -> unit @@ portable
   (** [redirect respond location] is [()] after responding with 302 Found, or
       301 Moved Permanently when [permanent] is [true]. *)
 
-  val not_found : respond @ local -> ?html:string -> unit -> unit @@ portable
+  val not_found : respond @ local -> ?html:string @ local -> unit -> unit @@ portable
   (** [not_found respond ()] is a 404 carrying [html], or a minimal page. *)
 
   val bad_request :
-    respond @ local -> ?html:string -> unit -> unit @@ portable
+    respond @ local -> ?html:string @ local -> unit -> unit @@ portable
   (** [bad_request respond ()] is a 400 carrying [html], or a minimal page. *)
 end
 
@@ -1424,15 +1425,15 @@ module Backend : sig
   (** A [body] is ready for a backend to write. Delayed generators have already
       run, while HEAD and contentless responses use {!Empty}.
 
-      The payloads carry [global], not the block. A socket write needs the
-      string and the writer at global. It does not need the block holding them,
-      so the block is built in the region and costs nothing. *)
+      Strings and stream callbacks borrow the responder's region. A backend
+      consumes them before returning from its writer. Handoff callbacks and
+      their protocol names retain global ownership. *)
   type body =
     | Empty
-    | String of string @@ global
+    | String of string
     | Stream of {
         length : int64 option;
-        write : (Body.Sink.t -> unit) @@ global;
+        write : (Body.Sink.t -> unit);
         trailers : Headers.t;
       }
     | Handoff of {
@@ -1462,7 +1463,9 @@ module Backend : sig
 
   type writer = outcome @ local -> unit
   (** A [writer] is what a backend gives {!handle} to write one response. It is
-      called exactly once per request. *)
+      called exactly once per request. It must consume borrowed strings and
+      finish stream callbacks before returning. Only global handoff callbacks
+      may be retained for later connection takeover. *)
 
   val[@zero_alloc] request :
     meth:Method.t ->
@@ -1600,13 +1603,13 @@ module Backend : sig
       response without a site. *)
 
   val sink :
-    ?emit_sub:(bytes -> int -> int -> unit) ->
-    (string -> unit) ->
+    ?emit_sub:(bytes @ local -> int -> int -> unit) ->
+    (string @ local -> unit) ->
     Body.Sink.t
     @@ portable
   (** [sink emit] is a stream sink that calls [emit] for strings. When
       [emit_sub] is supplied, byte slices are passed directly to it, otherwise
-      {!Body.Sink.write_sub} copies each slice to a string before calling
+      {!Body.Sink.write_sub} copies each slice to a local string before calling
       [emit]. The fallback is written at the use site rather than made as a
       defaulting closure, so a sink is 3 words either way. *)
 

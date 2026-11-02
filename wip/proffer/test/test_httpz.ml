@@ -94,6 +94,12 @@ let routes =
   [
     get (s "websocket") websocket_route;
     get root (fun _env _req respond -> Resp.html respond index);
+    get (s "borrowed" / str) (fun value _env _req respond ->
+        Resp.text respond value);
+    get (s "borrowed-stream" / str) (fun value _env _req respond ->
+        let () = Resp.stream respond "text/plain"
+            (fun sink -> Body.Sink.write sink value) in
+        ());
     get (s "hello" / str) (fun who env _req respond ->
         Resp.html respond (env.greet (Req.globalize who)));
     get (s "cached") (fun _env _req respond ->
@@ -350,6 +356,11 @@ let tests ~clock ~net addr =
   check "content type"
     (field resp "content-type" = Some "text/html; charset=utf-8");
   check "keep-alive announced" (field resp "connection" = Some "keep-alive");
+
+  let resp = request (get_req "/borrowed/hello%20world") in
+  check "borrowed string body reaches the wire" (resp.body = "hello world");
+  let resp = request (get_req "/borrowed-stream/hello%20world") in
+  check "borrowed stream capture reaches the wire" (resp.body = "hello world");
 
   let resp = request (get_req "/hello/world") in
   check "captured segment" (resp.body = "<p>hello world</p>");
@@ -821,7 +832,7 @@ let tests ~clock ~net addr =
   Eio.Time.sleep clock 0.05;
   let event_count = List.length !events in
   check (Printf.sprintf "one event per parsed request (got %d)" event_count)
-    (event_count = 43);
+    (event_count = 45);
   match !events with
   | last :: _ ->
       check "event method" (Method.equal last.Proffer_httpz.meth M.Get);

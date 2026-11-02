@@ -1,9 +1,9 @@
 type body =
   | Empty
-  | String of string @@ global
+  | String of string
   | Stream of {
       length : int64 option;
-      write : (Body.Sink.t -> unit) @@ global;
+      write : (Body.Sink.t -> unit);
       trailers : Headers.t;
     }
   | Handoff of {

@@ -288,3 +288,27 @@ let () =
          ignore
            (Sys.opaque_identity
               (Backend.sink ~emit_sub:(fun _ _ _ -> ()) (fun _ -> ())))))
+
+let () =
+  let n = 20_000 in
+  let run (describe : Resp.respond @ local -> string @ local -> unit) =
+    words ~n (fun () ->
+      let local_ req =
+        Req.v ~meth:Httpz.Method.Get ~target:"/?q=borrowed%20body" ()
+      in
+      match Req.query_param_local req "q" with
+      | None -> assert false
+      | Some value ->
+          let () = Backend.run req (fun respond ->
+            let () = describe respond value in
+            ()) (fun outcome ->
+              match outcome.Backend.body with
+              | Backend.String value ->
+                  ignore (Sys.opaque_identity (String.length value))
+              | _ -> assert false) in
+          ())
+  in
+  row "borrowed query string as response body"
+    (run (fun (respond : Resp.respond @ local) (value : string @ local) ->
+      let () = Resp.text respond value in
+      ()))

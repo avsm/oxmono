@@ -44,9 +44,10 @@ let[@zero_alloc] split_target (target : string @ local) = exclave_
       #( Pct.sub_local target 0 i,
          Pct.sub_local target (i + 1) (String.length target - i - 1) )
 
-let[@zero_alloc] v ~meth ~target ?(transport = Insecure) ?(version = Httpz.Version.Http_1_1)
-    ?(connection_upgrade = false) ?path ?query ?(headers = Headers.empty)
-    ?(body = "") () =
+let[@zero_alloc] v ~meth ~(target : string @ local) ?(transport = Insecure) ?(version = Httpz.Version.Http_1_1)
+    ?(connection_upgrade = false) ?(path : string option @ local) ?(query : string option @ local)
+    ?(headers : Headers.t @ local = Headers.empty)
+    ?(body : string @ local = "") () =
   exclave_
   let #(path, qs) =
     match path, query with

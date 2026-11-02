@@ -359,10 +359,11 @@ let[@zero_alloc] v (respond : respond @ local) ?(status = Httpz.Res.Success)
 
 let h = Headers.h
 let other = Headers.other
-let h_local = Headers.h_local
+let[@zero_alloc] h_local name (value : string @ local) =
+  exclave_ Headers.h_local name value
 
 let html (respond : respond @ local) ?status ?(etag : Etag.t option @ local) ?(cache : Cache_control.t option @ local)
-    ?(headers : Headers.t @ local = Headers.empty) s =
+    ?(headers : Headers.t @ local = Headers.empty) (s : string @ local) =
   let () =
     v respond ?status ?etag ?cache ~headers ~content_type:(This html_type)
       (stack_ (Body.String s))
@@ -370,7 +371,7 @@ let html (respond : respond @ local) ?status ?(etag : Etag.t option @ local) ?(c
   ()
 
 let text (respond : respond @ local) ?status
-    ?(headers : Headers.t @ local = Headers.empty) s =
+    ?(headers : Headers.t @ local = Headers.empty) (s : string @ local) =
   let () =
     v respond ?status ~headers ~content_type:(This text_type)
       (stack_ (Body.String s))
@@ -378,19 +379,16 @@ let text (respond : respond @ local) ?status
   ()
 
 let media (respond : respond @ local) ?status ?(etag : Etag.t option @ local) ?(cache : Cache_control.t option @ local)
-    ?(headers : Headers.t @ local = Headers.empty) ct s =
+    ?(headers : Headers.t @ local = Headers.empty) (ct : string @ local) (s : string @ local) =
   let () =
     v respond ?status ?etag ?cache ~headers ~content_type:(This ct)
       (stack_ (Body.String s))
   in
   ()
 
-(* [write] is taken at the caller's mode rather than [local], since the
-   backend runs it after the description has been consumed, which is past the
-   point where a local closure would still be alive. *)
 let stream (respond : respond @ local) ?status ?(cache : Cache_control.t option @ local)
     ?(headers : Headers.t @ local = Headers.empty) ?length
-    ?(trailers : Headers.t @ local = Headers.empty) ct write =
+    ?(trailers : Headers.t @ local = Headers.empty) (ct : string @ local) (write : (Body.Sink.t -> unit) @ local) =
   let () =
     v respond ?status ?cache ~headers ~content_type:(This ct)
       (stack_ (Body.Stream { length; write; trailers }))
@@ -417,7 +415,7 @@ let empty (respond : respond @ local) ?(status = Httpz.Res.Success)
     ?(headers : Headers.t @ local = Headers.empty) () =
   v respond ~status ~headers ~content_type:Null Body.Empty
 
-let see_other (respond : respond @ local) location =
+let see_other (respond : respond @ local) (location : string @ local) =
   let () =
     v respond ~status:Httpz.Res.See_other ~content_type:Null
       ~headers:(stack_ [ h_local H.Location location ])
@@ -425,7 +423,7 @@ let see_other (respond : respond @ local) location =
   in
   ()
 
-let redirect (respond : respond @ local) ?(permanent = false) location =
+let redirect (respond : respond @ local) ?(permanent = false) (location : string @ local) =
   let () =
     v respond
       ~status:
@@ -437,14 +435,16 @@ let redirect (respond : respond @ local) ?(permanent = false) location =
   ()
 
 let not_found (respond : respond @ local)
-    ?(html = "<!doctype html>\n<title>Not Found</title>\n") () =
-  v respond ~status:Httpz.Res.Not_found ~headers:Headers.empty
-    ~content_type:(This html_type) (Body.String html)
+    ?(html : string @ local = "<!doctype html>\n<title>Not Found</title>\n") () =
+  let () = v respond ~status:Httpz.Res.Not_found ~headers:Headers.empty
+    ~content_type:(This html_type) (stack_ (Body.String html)) in
+  ()
 
 let bad_request (respond : respond @ local)
-    ?(html = "<!doctype html>\n<title>Bad Request</title>\n") () =
-  v respond ~status:Httpz.Res.Bad_request ~headers:Headers.empty
-    ~content_type:(This html_type) (Body.String html)
+    ?(html : string @ local = "<!doctype html>\n<title>Bad Request</title>\n") () =
+  let () = v respond ~status:Httpz.Res.Bad_request ~headers:Headers.empty
+    ~content_type:(This html_type) (stack_ (Body.String html)) in
+  ()
 
 let encode (respond : respond @ local) ?status ?(etag : Etag.t option @ local) ?(cache : Cache_control.t option @ local)
     ?(headers : Headers.t @ local = Headers.empty) codec x =

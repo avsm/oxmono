@@ -36,3 +36,16 @@ Measure a real keep-alive connection with
 `dune exec --profile release-check wip/proffer/bench/bench_httpz_alloc.exe -- 1000`.
 This includes both the loopback client and server, Eio, clocks and socket I/O.
 Connection setup and 100 warmup requests are excluded.
+
+Request strings can be borrowed directly by `Resp.text`, `Resp.html`,
+`Resp.media`, stream callbacks and delayed generators. These bodies finish
+before the responder returns. A handler can echo `Req.body req` without
+`Req.globalize`. Keep the response call non-tail when it borrows values from
+that handler's region. Handoff callbacks retain global ownership because
+connection takeover happens later.
+
+`@ local` describes lifetimes, not a blanket allocation guarantee. Use
+`stack_` for local wrappers and `Headers.h_local` or `Resp.h_local` for local
+fields. Allocation checks exclude application callbacks at documented
+boundaries. The borrowed-query response benchmark measures the synchronous
+framework path separately from socket I/O.

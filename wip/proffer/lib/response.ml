@@ -6,10 +6,10 @@ module I64 = Stdlib_upstream_compatible.Int64_u
 
 type body =
   | Empty
-  | String of string @@ global
+  | String of string
   | Stream of {
       length : int64 option;
-      write : (Body.Sink.t -> unit) @@ global;
+      write : (Body.Sink.t -> unit);
       trailers : Headers.t;
     }
   | Handoff of {
@@ -33,7 +33,9 @@ let[@inline never][@zero_alloc assume strict] call_writer
     (write : writer @ local) (o : outcome @ local) =
   write o
 
-let[@inline never][@zero_alloc assume] call_gen (gen : unit -> string) = gen ()
+let[@inline never][@zero_alloc assume] call_gen
+    (gen : (unit -> string @ local) @ local) =
+  exclave_ gen ()
 
 (* [exclave_], so the option and the [Int64] box it holds are built in the
    caller's region rather than on the heap. Without it a top-level function

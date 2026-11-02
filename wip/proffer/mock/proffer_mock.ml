@@ -65,7 +65,10 @@ let snapshot out (o : Proffer.Backend.outcome @ local) =
        the sink holds both callbacks at global. *)
     let sink =
       Proffer.Backend.sink
-        ~emit_sub:(fun src pos len -> Buffer.add_subbytes b src pos len)
+        ~emit_sub:(fun src pos len ->
+          for i = pos to pos + len - 1 do
+            Buffer.add_char b (Bytes.unsafe_get src i)
+          done)
         (fun s -> Buffer.add_string b s)
     in
     (match w sink with

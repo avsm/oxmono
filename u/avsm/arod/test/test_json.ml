@@ -97,7 +97,10 @@ let render write =
   let b = Buffer.create 4096 in
   write
     (Proffer.Backend.sink
-       ~emit_sub:(fun s off len -> Buffer.add_subbytes b s off len)
+       ~emit_sub:(fun s off len ->
+         for i = off to off + len - 1 do
+           Buffer.add_char b (Bytes.unsafe_get s i)
+         done)
        (fun s -> Buffer.add_string b s));
   Buffer.contents b
 

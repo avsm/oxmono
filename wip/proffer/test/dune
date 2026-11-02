@@ -78,3 +78,9 @@
  (modules test_markdown)
  (package proffer)
  (libraries proffer cmarkit alcotest httpz.media))
+
+(test
+ (name test_local)
+ (modules test_local)
+ (package proffer)
+ (libraries proffer httpz))

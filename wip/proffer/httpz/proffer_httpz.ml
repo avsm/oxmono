@@ -364,8 +364,9 @@ type connection_mode =
 
 (* Timeout closures, payload copies and socket I/O remain allocation
    boundaries. Output descriptors and the surrounding framing are checked. *)
-let[@inline never][@zero_alloc assume] cstruct_of_string s =
-  let data = Cstruct.of_string s in
+let[@inline never][@zero_alloc assume] cstruct_of_string (s : string @ local) =
+  let local_ view = Cstruct.of_string_local s in
+  let data = Cstruct.globalize view in
   output_slice data 0 (String.length s)
 
 let[@zero_alloc] cstruct_sub cs off len = output_slice cs off len
@@ -560,7 +561,7 @@ let[@zero_alloc] charge conn len =
 (* Ignore empty writes because a zero-length chunk terminates chunked
    framing. *)
 let prepare_sink conn =
-  let emit s =
+  let emit (s : string @ local) =
     let n = String.length s in
     if n > 0 then begin
       charge conn n;
@@ -569,7 +570,7 @@ let prepare_sink conn =
       conn.body_written <- I64.add conn.body_written (I64.of_int n)
     end
   in
-  let emit_sub b off len =
+  let emit_sub (b : bytes @ local) off len =
     if len > 0 then begin
       charge conn len;
       let #(before, after) = framing conn len in
@@ -587,7 +588,7 @@ let[@zero_alloc] sink_for conn =
   | This sink -> sink
   | Null -> uninitialized_sink ()
 
-let[@inline never][@zero_alloc assume] call_stream write sink = write sink
+let[@inline never][@zero_alloc assume] call_stream (write : (Proffer.Body.Sink.t -> unit) @ local) sink = write sink
 
 let[@cold][@zero_alloc assume error] stream_underrun expected written =
   invalid_arg

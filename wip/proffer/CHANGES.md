@@ -1,3 +1,9 @@
+## Unreleased
+
+- Accept borrowed request and response strings, local stream callbacks and
+  local sink writes. Preserve local header and allocation contracts in the
+  public interface.
+
 ## v0.1.0 (unreleased)
 
 - Expose accepted connection open/close notifications in the Httpz backend

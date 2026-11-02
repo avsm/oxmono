@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 # v1.0.3 (2025-05-07)
 
 * Remove extended-validation.badssl.com test case (which used a digicert

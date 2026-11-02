@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 # v1.1.2 (2026-09-23)
 
 * scrypt: bound r * n to be below the maximum string length (#5 @hannesm)

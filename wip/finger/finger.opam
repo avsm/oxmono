@@ -2,9 +2,8 @@
 opam-version: "2.0"
 synopsis: "RFC 1288 Finger protocol library for OCaml with Eio"
 description: """
-An implementation of the Finger User Information Protocol (RFC 1288)
-   for OCaml using Eio for asynchronous I/O. Provides a query parser,
-   TCP client, and TCP server with a configurable handler function."""
+This library implements the Finger protocol specified in RFC 1288. It
+provides a query parser and an Eio TCP client and server."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

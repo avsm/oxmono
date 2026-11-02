@@ -1,7 +1,9 @@
 version: "2.2.0"
 opam-version: "2.0"
 synopsis: "A generic graph library for OCaml"
-description: "Provides both graph data structures and graph algorithms"
+description: """
+Ocamlgraph provides graph data structures and algorithms. This import
+retains the upstream library and tests and omits GUI tools and examples."""
 maintainer: ["jean-christophe.filliatre@cnrs.fr"]
 authors: ["Sylvain Conchon" "Jean-Christophe Filliâtre" "Julien Signoles"]
 license: "LGPL-2.1-only"

@@ -12,9 +12,9 @@
  (name tessera)
  (synopsis "Client for Tessera geospatial embeddings over Zarr")
  (description
-  "Reads Tessera satellite embedding stores: UTM zone routing, pure
-OCaml transverse Mercator projection, point probing, region and patch
-reads and dequantisation, over any zarrz store backend.")
+  "Tessera reads satellite embedding datasets stored in Zarr. It provides UTM
+zone selection, coordinate projection, point queries, region reads and
+dequantization over Zarrz store backends.")
  (depends
   (ocaml (>= 5.2.0))
   (zarrz (= :version))

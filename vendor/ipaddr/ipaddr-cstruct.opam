@@ -21,6 +21,6 @@ build: [
 ]
 dev-repo: "git+https://github.com/mirage/ocaml-ipaddr.git"
 description: """
-Cstruct convertions for macaddr
-"""
+This package converts between Ipaddr values and Cstruct buffers. It is
+imported from ocaml-ipaddr and built against the locally adapted libraries."""
 x-maintenance-intent: [ "(latest)" ]

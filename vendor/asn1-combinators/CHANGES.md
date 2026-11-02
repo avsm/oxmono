@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## v0.3.3 (2026-09-14)
 * Avoid Format.str_formatter (#48 @hannesm)
 

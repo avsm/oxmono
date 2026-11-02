@@ -8,6 +8,11 @@
 (package
  (name owntracks)
  (synopsis "OwnTracks messages, mqttz client and GeoJSON export")
+ (description
+  "This package provides OwnTracks message codecs, MQTT integration and GeoJSON
+export. It derives from ocaml-owntracks and adds byte-slice decoding,
+explicit message validation and Eio operations over existing Mqttz
+connections. Recorder requests use Fetch.")
  (depends
   (ocaml (>= 5.2))
   mqttz jsont bytesrw bytesrw-eio eio eio_main console console-eio codec fetch fetch-httpz

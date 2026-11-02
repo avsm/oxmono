@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## v5.6.2 (2026-02-19)
 
 * Macaddr: use string as internal type t (thus, to_octets and of_octets no

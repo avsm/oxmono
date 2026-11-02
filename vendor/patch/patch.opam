@@ -24,7 +24,6 @@ build: [
 ]
 synopsis: "Patch library purely in OCaml"
 description: """
-This is a library which parses unified diff and git diff output, and can
-apply a patch in memory.
-"""
+Patch parses unified and Git diffs and applies patches in memory. This
+import retains the upstream library and tests and omits the opatch command."""
 x-maintenance-intent: [ "(latest)" ]

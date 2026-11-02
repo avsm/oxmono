@@ -12,6 +12,11 @@
 (package
  (name codec)
  (synopsis "Vendored TOML subset of ocaml-codec")
+ (description
+  "This package contains the TOML parser and supporting ASCII, UTF-8 and
+location modules from ocaml-codec. Local changes replace Result syntax
+helpers for OCaml 5.2 compatibility and provide Dune packaging. TOML JSON
+adapters are omitted.")
  (depends
   (ocaml
    (>= 5.2))

@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 `0ca78db3d` Keywords owns the `dovecot-keywords` letter table in both
 directions, tolerates blank lines and a missing final newline, and
 names the offending line when a mapping cannot be read.

@@ -7,7 +7,9 @@
 (package
  (name memento)
  (synopsis "Memento datetime negotiation and TimeMaps")
- (description "RFC 7089 protocol helpers and typed JSON TimeMaps with Fetch and Proffer integration.")
+ (description
+  "Memento implements RFC 7089 datetime negotiation and typed JSON TimeMaps. It
+integrates with Fetch clients and Proffer servers.")
  (depends (ocaml (>= "5.2.0")) fetch proffer httpz
   (jsont (>= "0.4.0")) ptime eio eio_main fetch-httpz cmdliner stdlib_stable
   stdlib_upstream_compatible (odoc :with-doc)))

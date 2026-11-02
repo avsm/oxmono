@@ -2,11 +2,9 @@
 opam-version: "2.0"
 synopsis: "HTTP/1.1 protocol stack for OxCaml"
 description: """
-A bounded-buffer HTTP/1.1 parser and serializer built on OxCaml's unboxed
-types and local allocations, with OxCaml-native RFC 3986 URI and RFC 6570 URI
-Template implementations. Separate Findlib libraries provide URI operations,
-typed media codecs with bounded JSON and Markdown support, shared
-Eio TLS, Punycode, the Public Suffix List, and HTTP cookies, and bounded WebDAV protocol codecs."""
+Httpz provides a bounded-buffer HTTP/1.1 parser and serializer using OxCaml
+unboxed types and local allocation. It includes URI and URI-template
+implementations, media codecs, Eio TLS support, cookies and WebDAV codecs."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: ["MIT" "ISC" "MPL-2.0"]

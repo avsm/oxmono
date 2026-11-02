@@ -1,5 +1,8 @@
 opam-version: "2.0"
 synopsis: "Compose JSON Pointers with Jsont codecs"
+description: """
+This ocaml-json-pointer example demonstrates composing JSON Pointers with
+Jsont codecs. It is packaged against the locally adapted libraries."""
 maintainer: "Anil Madhavapeddy <anil@recoil.org>"
 authors: "Anil Madhavapeddy"
 license: "ISC"

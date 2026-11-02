@@ -1,5 +1,7 @@
 # Changes
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 ## Unreleased
 
 - Support strict JSON Schema output in chat requests.

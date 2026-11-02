@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## v0.3.1 (2026-04-16)
 
 * Support micro seconds in of_string (#11 @reynir)

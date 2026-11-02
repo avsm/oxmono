@@ -7,6 +7,10 @@
 (package
  (name imap)
  (synopsis "IMAP protocol and Eio client for OCaml")
+ (description
+  "This package implements IMAP4rev1 and IMAP4rev2 with an Eio client. It
+includes durable IMAP-to-Maildir synchronization, SQLite cursors, a message
+archive and the imap-sync command.")
  (depends
   (ocaml (>= 5.2))
   base

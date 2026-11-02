@@ -2,6 +2,10 @@
 opam-version: "2.0"
 version: "0.14.2"
 synopsis: "Native distro packaging (deb/rpm/static) for OCaml projects"
+description: """
+Osdist generates Debian, RPM and static distribution packaging for OCaml
+projects. It is extracted from oi's osdist library with local Jsont default
+factories and standalone Dune packaging."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy" "Mark Elvers" "Ryan Gibb"]
 license: "ISC"

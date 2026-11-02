@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 v1.8.0 27-02-2026 Paris (France)
 --------------------------------
 

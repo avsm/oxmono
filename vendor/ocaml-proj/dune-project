@@ -17,7 +17,10 @@
 (package
  (name proj)
  (synopsis "Platform-agnostic bindings to PROJ4")
- (description "C and Javascript OCaml bindings to the geospatial projection library PROJ4")
+ (description
+  "This package provides the shared interface for PROJ coordinate
+transformations from ocaml-proj. The import includes a local correction to
+the C backend's coordinate argument types to preserve double precision.")
  (depends
    ocaml
    ctypes)
@@ -27,6 +30,10 @@
 (package
   (name proj_c)
   (synopsis "C bindings to PROJ4")
+ (description
+  "This package implements ocaml-proj's C backend for PROJ coordinate
+transformations. A local binding correction uses double-precision coordinate
+arguments as required by PROJ.")
   (depends
     ocaml
     ctypes
@@ -36,6 +43,9 @@
 (package
   (name proj_js)
   (synopsis "Javascript bindings to PROJ4")
+ (description
+  "This package implements ocaml-proj's JavaScript backend for coordinate
+transformations. It is packaged with the local ocaml-proj import.")
   (depends
     ocaml
     brr

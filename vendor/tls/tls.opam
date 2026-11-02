@@ -38,19 +38,8 @@ conflicts: [ "result" {< "1.5"} ]
 tags: [ "org:mirage"]
 synopsis: "Transport Layer Security purely in OCaml"
 description: """
-Transport Layer Security (TLS) is probably the most widely deployed security
-protocol on the Internet. It provides communication privacy to prevent
-eavesdropping, tampering, and message forgery. Furthermore, it optionally
-provides authentication of the involved endpoints. TLS is commonly deployed for
-securing web services ([HTTPS](http://tools.ietf.org/html/rfc2818)), emails,
-virtual private networks, and wireless networks.
-
-TLS uses asymmetric cryptography to exchange a symmetric key, and optionally
-authenticate (using X.509) either or both endpoints. It provides algorithmic
-agility, which means that the key exchange method, symmetric encryption
-algorithm, and hash algorithm are negotiated.
-
-Read our [Usenix Security 2015 paper](https://www.usenix.org/conference/usenixsecurity15/technical-sessions/presentation/kaloper-mersinjak).
-"""
+Tls implements Transport Layer Security in OCaml using Mirage-crypto and
+X509. This ocaml-tls import retains local OxCaml adaptations to handshake,
+buffer and portable interfaces."""
 available: [ arch != "arm32" ] # see SIGBUS failures at https://github.com/ocaml/opam-repository/pull/26387
 x-maintenance-intent: [ "(latest)" ]

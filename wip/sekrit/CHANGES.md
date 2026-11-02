@@ -1,5 +1,7 @@
 # Changes
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Add a repeatable service migration script with previews, verified imports,
   private backups and optional systemd/launchd restarts.
 

@@ -27,8 +27,7 @@ depends: [
 ]
 conflicts: [ "mirage-runtime" {< "3.8.0"} ]
 description: """
-Mirage-crypto-rng provides a random number generator interface, and
-implementations: Fortuna, HMAC-DRBG, getrandom/getentropy based (in the unix
-sublibrary)
-"""
+This package provides Mirage-crypto's random-number generator interface,
+Fortuna and HMAC-DRBG implementations, and Unix entropy integration. It is
+built with the locally adapted cryptographic libraries."""
 x-maintenance-intent: [ "(latest)" ]

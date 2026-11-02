@@ -1,5 +1,7 @@
 # Changes
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Update CLI rendering to the current Console View and terminal APIs.
 
 ## Unreleased

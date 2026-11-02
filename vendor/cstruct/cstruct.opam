@@ -26,7 +26,8 @@ depends: [
 conflicts: [ "js_of_ocaml" {<"3.5.0"} ]
 synopsis: "Access C-like structures directly from OCaml"
 description: """
-Cstruct is a library and syntax extension to make it easier to access C-like
-structures directly from OCaml.  It supports both reading and writing to these
-structures, and they are accessed via the `Bigarray` module."""
+Cstruct reads and writes byte buffers backed by Bigarray storage. This
+import retains the upstream core and adds OxCaml portability and
+local-allocation support. The upstream PPX and Unix, Lwt and Async packages
+are omitted."""
 x-maintenance-intent: [ "(latest)" ]

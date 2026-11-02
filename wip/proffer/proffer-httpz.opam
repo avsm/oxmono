@@ -2,8 +2,8 @@
 opam-version: "2.0"
 synopsis: "Proffer backend on the httpz parser and Eio"
 description: """
-Serves a compiled Proffer site over HTTP/1.1 using httpz and Eio, with
-bounded concurrency, request deadlines, and optional TLS."""
+This package serves Proffer sites over HTTP/1.1 using Httpz and Eio. It
+supports bounded concurrency, request deadlines and optional TLS."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

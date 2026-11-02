@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## v1.15.4
 
 - Fix build on OCaml 4.02 and fix SHA equality bug by @djs55 (#61)

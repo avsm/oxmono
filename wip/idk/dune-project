@@ -13,7 +13,10 @@
  (name idk)
  (synopsis "IDKit, contact data for OCaml")
  (description
-  "The umbrella package of IDKit. It installs jscontact (RFC 9553 and its vCard conversion), vcard (RFC 6350), ical (RFC 5545), carddav (RFC 6352) and caldav (RFC 4791), each with an Eio client on fetch.dav, the packages contact data moves between.")
+  "IDKit groups the JSContact, vCard, iCalendar, CardDAV and CalDAV packages.
+The CardDAV and CalDAV packages provide Eio clients for remote contact and
+calendar stores. It is maintained in OxMono from ocaml-jscontact, with
+OxCaml portable interfaces and adapted Jsont codecs.")
  (depends
   (ocaml (>= 5.2.0))
   jscontact
@@ -32,7 +35,10 @@
  (name jscontact)
  (synopsis "JSContact contact data for OCaml")
  (description
-  "An implementation of JSContact (RFC 9553), the JSON representation of contact data, with jsont codecs for every object type, semantic validation, and the localization algorithm.")
+  "This library implements the JSContact JSON contact format specified in RFC
+9553. It provides Jsont codecs, semantic validation and localization. It is
+maintained in OxMono from ocaml-jscontact, with OxCaml portable interfaces
+and adapted Jsont codecs.")
  (depends
   (ocaml (>= 5.2.0))
   (jsont (>= 0.3.0))
@@ -46,7 +52,11 @@
  (name carddav)
  (synopsis "CardDAV client for OCaml")
  (description
-  "An implementation of CardDAV (RFC 6352) on httpz.dav and fetch.dav, with the address book properties, the addressbook-query and addressbook-multiget reports, the sync-collection report of RFC 6578 and the discovery of RFC 6764. The carddav.eio library is a client on Eio and fetch, and carddav.jscontact reads and writes address objects as JSContact cards through RFC 9555.")
+  "This library implements CardDAV address-book properties, queries,
+synchronization and discovery. It provides an Eio client using Fetch and
+conversion between vCard address objects and JSContact cards. It is
+maintained in OxMono from ocaml-jscontact, with OxCaml portable interfaces
+and adapted Jsont codecs.")
  (depends
   (ocaml (>= 5.2.0))
   httpz
@@ -64,7 +74,11 @@
  (name ical)
  (synopsis "iCalendar for OCaml")
  (description
-  "An implementation of the iCalendar format (RFC 5545) with the properties of RFC 7986. Calendar objects are read and written losslessly, and typed readers read the dates, durations, periods and recurrence rules.")
+  "This library reads and writes iCalendar data as specified in RFC 5545 with
+RFC 7986 properties. It preserves calendar objects and provides typed access
+to dates, durations, periods and recurrence rules. It is maintained in
+OxMono from ocaml-jscontact, with OxCaml portable interfaces and adapted
+Jsont codecs.")
  (depends
   (ocaml (>= 5.2.0))
   vcard
@@ -76,7 +90,11 @@
  (name caldav)
  (synopsis "CalDAV client for OCaml")
  (description
-  "An implementation of CalDAV (RFC 4791) on httpz.dav and fetch.dav, with the calendar properties, MKCALENDAR, the calendar-query, calendar-multiget and free-busy-query reports, and the sync-collection report of RFC 6578. The caldav.eio library is a client on Eio and fetch.")
+  "This library implements CalDAV calendar properties and reports, including
+calendar queries, free-busy queries and collection synchronization. It
+provides an Eio client using Fetch and Httpz WebDAV support. It is
+maintained in OxMono from ocaml-jscontact, with OxCaml portable interfaces
+and adapted Jsont codecs.")
  (depends
   (ocaml (>= 5.2.0))
   httpz
@@ -94,7 +112,11 @@
  (name vcard)
  (synopsis "vCard 4.0 contact data for OCaml")
  (description
-  "An implementation of the vCard 4.0 format (RFC 6350) with the parameter escapes of RFC 6868 and the JSContact extensions of RFC 9554 and RFC 9555. Cards are read and written losslessly, and typed accessors read the value data types, the N and ADR components and the JSCOMPS parameter.")
+  "This library reads and writes vCard 4.0 data with RFC 6868 parameter
+escaping and JSContact extensions. It preserves card data and provides typed
+accessors for values and structured components. It is maintained in OxMono
+from ocaml-jscontact, with OxCaml portable interfaces and adapted Jsont
+codecs.")
  (depends
   (ocaml (>= 5.2.0))
   (ptime (>= 1.0.0))

@@ -10,6 +10,10 @@
 (package
  (name osrel)
  (synopsis "OS and platform detection via Eio")
+ (description
+  "Osrel detects operating systems, distributions and platforms through Eio. It
+is extracted from oi's osrel library with standalone packaging and clarified
+interface documentation. The implementation is unchanged.")
  (depends
   (ocaml (>= 5.2.0))
   (eio (>= 1.0))

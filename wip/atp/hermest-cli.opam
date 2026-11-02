@@ -2,7 +2,7 @@
 opam-version: "2.0"
 synopsis: "CLI for hermest lexicon code generator"
 description:
-  "Command-line interface for generating OCaml code from AT Protocol lexicons."
+  "The hermest command generates OCaml code from AT Protocol lexicon schemas."
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

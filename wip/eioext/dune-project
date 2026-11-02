@@ -18,6 +18,10 @@
 (package
  (name eioext)
  (synopsis "Filesystem and subprocess extensions for Eio")
+ (description
+  "Eioext provides filesystem and subprocess extensions for Eio. It supports
+bounded reads, private files, atomic replacement, file locking, bounded
+process output capture and scoped process groups.")
  (depends
   (ocaml
    (>= 5.2))

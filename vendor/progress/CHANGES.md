@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ### 0.5.0 (2025-09-19)
 
 - Update to `ocamlformat.0.27.0` (@dinosaure, #49)

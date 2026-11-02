@@ -2,14 +2,10 @@
 opam-version: "2.0"
 synopsis: "Colours, tables, trees and progress rows for the terminal"
 description: """
-Colours, tables, trees, panels, bars and progress rows for OCaml
-   command-line tools. console prints styled text and widgets into the
-   terminal's normal scrollback, shows the work a program runs as progress
-   rows under that text and redraws only those rows. It never takes over
-   the whole screen. The console.tty library decides colour and UTF-8 for
-   the standard outputs from the terminal and the environment, with Unix
-   alone. The console.text library makes untrusted text safe to print, and
-   console.input is a line editor that does no I/O."""
+Console renders styled text, tables, trees, panels and progress rows in
+terminal scrollback. This ocaml-console import adds OCaml 5.2 compatibility
+helpers, OxCaml codec and callback adaptations, and unboxed colour
+arithmetic."""
 maintainer: ["Thomas Gazagnaire <thomas@gazagnaire.org>"]
 authors: ["Thomas Gazagnaire <thomas@gazagnaire.org>"]
 license: "ISC"

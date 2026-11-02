@@ -1,5 +1,7 @@
 # Changes
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Name single-package distfiles after the package version and multi-package
   distfiles after the project and release tag. Keep full hashes in metadata.
 

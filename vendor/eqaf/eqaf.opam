@@ -7,10 +7,11 @@ bug-reports:  "https://github.com/mirage/eqaf/issues"
 dev-repo:     "git+https://github.com/mirage/eqaf.git"
 doc:          "https://mirage.github.io/eqaf/"
 license:      "MIT"
-synopsis:     "Constant-time equal function on string"
+synopsis:     "Content-independent string comparisons"
 description: """
-This package provides an equal function on string in constant-time to avoid timing-attack with crypto stuff.
-"""
+Eqaf provides string comparisons and related operations whose execution does
+not depend on operand contents. This copy adds OxCaml portability
+annotations to the upstream library."""
 
 build: [
   [ "dune" "subst" ] {dev}

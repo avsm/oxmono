@@ -12,10 +12,9 @@
  (name zstdz)
  (synopsis "Zstandard compression for OxCaml")
  (description
-  "Bindings to libzstd for OxCaml. Compression and decompression work
-directly on caller-supplied bigstrings, frame probing returns
-stack-allocated results, and the runtime lock is released around the
-larger calls.")
+  "Zstdz binds libzstd for OxCaml. It compresses and decompresses
+caller-supplied bigstrings, returns stack-allocated frame-probing results
+and releases the runtime lock for larger calls.")
  (depends
   (ocaml (>= 5.2.0))
   dune-configurator

@@ -12,12 +12,10 @@
  (name bloscz)
  (synopsis "Blosc1 compression for OxCaml")
  (description
-  "Bindings to the C-Blosc1 context interface for OxCaml. Compression and
-decompression work directly on caller-supplied bigstrings and the runtime
-lock is released around the larger calls. No opam package provides the C
-library, so libblosc 1.21 or later and its headers must be installed
-already: Debian and Ubuntu call them libblosc1 and libblosc-dev,
-Homebrew and Nix call them c-blosc.")
+  "Bloscz binds the C-Blosc1 context interface for OxCaml. It compresses and
+decompresses caller-supplied bigstrings and releases the runtime lock for
+larger calls. It requires an installed libblosc library, version 1.21 or
+later, and its headers.")
  (depends
   (ocaml (>= 5.2.0))
   dune-configurator

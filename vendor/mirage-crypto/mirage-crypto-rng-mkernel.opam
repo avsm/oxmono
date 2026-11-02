@@ -25,7 +25,7 @@ depends: [
   "ohex" {with-test & >= "0.2.0"}
 ]
 description: """
-Mirage-crypto-rng-mkernel feeds the entropy source for Mirage_crypto_rng-based
-random number generator implementations, in a mkernel friendly way.
-"""
+This package supplies mkernel entropy integration for Mirage-crypto
+random-number generators. It is part of the locally integrated Mirage-crypto
+import."""
 x-maintenance-intent: [ "(latest)" ]

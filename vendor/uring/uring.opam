@@ -2,8 +2,10 @@
 opam-version: "2.0"
 version: "v2.15.0"
 synopsis: "OCaml bindings for Linux io_uring"
-description:
-  "Bindings to the Linux io_uring kernel IO interfaces. See https://github.com/ocaml-multicore/eio for a higher-level API using this."
+description: """
+Uring binds Linux io_uring interfaces for asynchronous I/O. This package
+contains the ocaml-uring library with local build integration for the Eio
+Linux backend."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy" "Sadiq Jaffer" "Thomas Leonard"]
 homepage: "https://github.com/ocaml-multicore/ocaml-uring"

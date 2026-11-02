@@ -1,3 +1,7 @@
+## Unreleased
+
+- Clarify opam descriptions of package functionality and interfaces.
+
 v1.0.0 (dev)
 ------
 

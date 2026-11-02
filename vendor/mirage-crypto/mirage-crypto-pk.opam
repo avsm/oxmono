@@ -30,6 +30,6 @@ conflicts: [
   "ocaml-freestanding"
 ]
 description: """
-Mirage-crypto-pk provides public-key cryptography (RSA, DSA, DH).
-"""
+This package provides RSA, DSA and Diffie-Hellman operations from
+Mirage-crypto. It is built with the locally adapted cryptographic libraries."""
 x-maintenance-intent: [ "(latest)" ]

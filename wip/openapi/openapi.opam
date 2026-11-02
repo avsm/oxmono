@@ -2,8 +2,8 @@
 opam-version: "2.0"
 synopsis: "OpenAPI code generator for OCaml with fetch and jsont"
 description: """
-Generate type-safe OCaml API clients from OpenAPI 3.x specifications.
-Uses the fetch HTTP library and jsont for JSON codecs."""
+This package generates OCaml clients from OpenAPI 3.x specifications.
+Generated clients use Fetch for HTTP requests and Jsont for JSON codecs."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

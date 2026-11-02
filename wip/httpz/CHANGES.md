@@ -1,5 +1,7 @@
 # Changes
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 ## Unreleased
 
 - Install the media interface needed by its public re-export, preserving

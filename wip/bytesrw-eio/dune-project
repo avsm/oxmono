@@ -11,7 +11,8 @@
 (package
  (name bytesrw-eio)
  (synopsis "Bytesrw readers and writers for Eio")
- (description "Provides Bytesrw.Bytes.Reader and Writer adapters for Eio Flows")
+ (description
+  "This library adapts Bytesrw byte-stream readers and writers to Eio flows.")
  (depends
   (ocaml (>= 5.0))
   (bytesrw (>= 0.2))

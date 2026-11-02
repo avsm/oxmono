@@ -2,8 +2,9 @@ opam-version: "2.0"
 version: "2.6.1"
 synopsis: "Format library for opam 2.6"
 description: """
-Definition of opam datastructures and its file interface.
-"""
+This package provides opam data structures and file-format interfaces. The
+import contains only opam's core and format libraries and their build
+support. Local changes adapt callbacks for OxCaml."""
 maintainer: "opam-devel@lists.ocaml.org"
 authors: [
   "David Allsopp <david@tarides.com>"

@@ -2,7 +2,10 @@
 opam-version: "2.0"
 version: "1.6"
 synopsis: "Effect-based direct-style IO API for OCaml"
-description: "An effect-based IO API for multicore OCaml with fibers."
+description: """
+Eio provides effect-based I/O with fibers, switches and capability-based
+resources. Local adaptations add OxCaml modes, portable operations and
+support for locally allocated Cstruct buffers."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy" "Thomas Leonard"]
 license: "ISC"

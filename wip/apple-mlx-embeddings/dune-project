@@ -14,9 +14,11 @@
 
 (package
  (name apple-mlx-embeddings)
- (synopsis "Native MLX text embeddings through Swift")
+ (synopsis "Native MLX text and image embeddings through Swift")
  (description
-  "Eio-native Qwen3 embedding inference on Apple silicon using MLX Swift. Models load from local directories without a Python runtime or server.")
+  "This library runs Qwen3 text and Qwen3-VL image embedding models on Apple
+silicon through MLX Swift. It provides an Eio interface and loads models
+from local directories without a Python inference runtime or model server.")
  (depends
   hf
   (ocaml

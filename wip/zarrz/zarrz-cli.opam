@@ -2,9 +2,9 @@
 opam-version: "2.0"
 synopsis: "Inspect Zarr V3 stores"
 description: """
-The zarr command reads the metadata of a local or remote Zarr V3
-store and prints what is in it, what one node is, and what it costs to
-read. Consolidated metadata makes the whole hierarchy one request."""
+The zarr command inspects local and remote Zarr V3 stores. It displays
+hierarchy metadata, individual nodes and estimated read costs, using
+consolidated metadata when available."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

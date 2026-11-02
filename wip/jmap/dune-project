@@ -14,7 +14,9 @@
  (name mail-flag)
  (synopsis "Message flags and mailbox attributes for IMAP/JMAP")
  (description
-  "Message keywords, system flags, and mailbox attributes for email protocols. Supports RFC 9051 (IMAP4rev2), RFC 8621 (JMAP Mail), RFC 6154 (Special-Use), and draft-ietf-mailmaint extensions.")
+  "This library represents message keywords, system flags and mailbox
+attributes shared by IMAP and JMAP. It includes IMAP4rev2, JMAP Mail and
+special-use mailbox flags.")
  (depends
   (ocaml (>= 5.2.0))
   (fmt (>= 0.9))
@@ -25,7 +27,10 @@
  (name jmap)
  (synopsis "JMAP protocol implementation for OCaml")
  (description
-  "An implementation of the JSON Meta Application Protocol (JMAP) as specified in RFC 8620 (core), RFC 8621 (mail) and RFC 9610 (contacts), with typed request builders and an Eio (jmap.eio) client.")
+  "This library implements JMAP core, mail and contacts as specified in RFCs
+8620, 8621 and 9610. It provides typed request builders and an Eio client.
+It is maintained in OxMono from ocaml-jmap, with OxCaml mode annotations and
+adaptations to Jsont codecs and Eio buffers.")
  (depends
   sekrit
   eioext
@@ -60,7 +65,9 @@
  (allow_empty)
  (synopsis "A terminal mail client on JMAP")
  (description
-  "A mail client for the terminal, written on the jmap library and the Mosaic terminal UI library. It reads, labels, files and replies to mail over JMAP, and serves as a worked example of the library at the size of a program rather than of a tutorial step.")
+  "This package describes a terminal mail client using JMAP and Mosaic. The
+client is disabled in this workspace and the package currently installs no
+application.")
  (depends
   (duration (>= 0.3.1))
   (ocaml (>= 5.2))

@@ -20,9 +20,10 @@
 
 (package
  (name swhid_core)
- (synopsis "OCaml library to work with swhids.")
+ (synopsis "Software Heritage persistent identifiers")
  (description
-  "swhid_core is an OCaml library to with with Software Heritage persistent identifiers (swhids). This is the core library, for most use cases you should use the swhid library instead.")
+  "Swhid_core represents Software Heritage persistent identifiers. This import
+retains the upstream core library and tests without implementation changes.")
  (tags
   (swhid_core
    swhid

@@ -2,10 +2,9 @@
 opam-version: "2.0"
 synopsis: "Karakeep API client library for OCaml"
 description: """
-An OCaml client library for the Karakeep bookmark service API,
-   auto-generated from the official OpenAPI specification.
-   Provides full API coverage for bookmarks, tags, lists, highlights,
-   and user operations. Built on Eio for structured concurrency."""
+This library provides a Karakeep bookmark-service client generated from its
+OpenAPI specification. It uses Eio and supports bookmarks, tags, lists,
+highlights and user operations."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

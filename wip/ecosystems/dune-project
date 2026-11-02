@@ -12,9 +12,9 @@
  (name ecosystems)
  (synopsis "Client for the packages.ecosyste.ms API")
  (description
-  "An OCaml client for the read-only packages.ecosyste.ms API, generated
-   from its OpenAPI specification. Covers registries, packages, versions,
-   dependents, maintainers, namespaces, advisories and keywords.")
+  "This library provides a read-only client generated from the
+packages.ecosyste.ms OpenAPI specification. It covers registries, packages,
+versions, dependents, maintainers, namespaces, advisories and keywords.")
  (depends
   (ocaml (>= "5.2.0"))
   (openapi (>= "0.4.0"))
@@ -31,7 +31,8 @@
  (name ecosystems-cli)
  (synopsis "Command-line tool for the packages.ecosyste.ms API")
  (description
-  "oecosystems queries packages.ecosyste.ms for registries, packages, versions, dependents, advisories, maintainers and keywords.")
+  "The oecosystems command queries the packages.ecosyste.ms API for registries,
+packages, versions, dependents, advisories, maintainers and keywords.")
  (depends
   (ocaml (>= "5.2.0"))
   (ecosystems (= :version))

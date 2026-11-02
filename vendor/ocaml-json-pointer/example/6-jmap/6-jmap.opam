@@ -1,5 +1,8 @@
 opam-version: "2.0"
 synopsis: "Evaluate JMAP result-reference wildcards"
+description: """
+This ocaml-json-pointer example demonstrates JMAP result-reference
+wildcards. It is packaged against the locally adapted Json-pointer library."""
 maintainer: "Anil Madhavapeddy <anil@recoil.org>"
 authors: "Anil Madhavapeddy"
 license: "ISC"

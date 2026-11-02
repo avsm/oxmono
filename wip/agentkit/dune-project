@@ -15,7 +15,9 @@
  (synopsis "Durable stores and a journal browser for local agents")
  (tags (org:blacksun llm agent))
  (description
-  "Backend-neutral event types, line framing, journals, memory and schedules for local agents, and a journal browser that loads no model runtime.")
+  "Agentkit provides backend-independent agent events, journals, memory stores
+and schedules. It includes a journal browser that does not load a model
+runtime.")
  (depends
   (ocaml (>= 5.2.0))
   cstruct
@@ -31,7 +33,8 @@
  (synopsis "DS4 adapter for Agentkit")
  (tags (org:blacksun ds4 llm agent))
  (description
-  "Lossless conversion of DS4 agent events to Agentkit's backend-neutral event stream.")
+  "This package converts DS4 agent events into Agentkit's backend-independent
+event stream.")
  (depends
   (ocaml (>= 5.2.0))
   ds4
@@ -43,7 +46,9 @@
  (synopsis "Apple Foundation Models adapter for Agentkit")
  (tags (org:blacksun apple foundation-models llm agent))
  (description
-  "An Agentkit agent over Apple's on-device Foundation Models framework, with instrumented tools, streaming events, transcripts, accounting, cancellation, and compaction.")
+  "This package adapts Apple's on-device Foundation Models framework to
+Agentkit. It provides streaming events, tool calls, transcripts,
+cancellation and conversation compaction.")
  (depends
   (ocaml (>= 5.2.0))
   (apple-fm (>= 0.1))
@@ -56,7 +61,8 @@
  (allow_empty)
  (synopsis "Apple Foundation Models bindings for Agentkit workspace tools")
  (description
-  "Specialised Apple tool schemas over the workspace, network, and memory handlers used by Agentkit commands.")
+  "This package supplies Apple Foundation Models tool schemas for Agentkit's
+workspace, network and memory handlers.")
  (depends
   (ocaml (>= 5.2.0))
   ds4
@@ -71,7 +77,8 @@
  (synopsis "A terminal agent over a local DS4 model")
  (tags (org:blacksun ds4 llm agent tui))
  (description
-  "humpty runs a DeepSeek or GLM model on your own machine, as a single prompt or as an agent with tools, in a terminal interface.")
+  "The humpty command runs a local DS4 model in a terminal interface. It
+supports single prompts and interactive conversations with tools.")
  (depends
   (ocaml (>= 5.2.0))
   ds4
@@ -97,7 +104,9 @@
  (synopsis "A headless agent daemon over a local DS4 model")
  (tags (org:blacksun ds4 llm agent daemon))
  (description
-  "numpty runs a DeepSeek or GLM model unattended on your own machine. It wakes on a schedule you write, reaches the network through a child process, keeps what it learned in a durable memory, and records every prompt, reply and tool call in an append-only journal.")
+  "The numpty daemon runs a local DS4 agent on a configured schedule. It stores
+memory and records prompts, responses and tool calls in an append-only
+journal.")
  (depends
   (ocaml (>= 5.2.0))
   ds4
@@ -117,7 +126,9 @@
  (synopsis "A one-shot agent over a local DS4 model")
  (tags (org:blacksun ds4 llm agent oneshot))
  (description
-  "dumpty runs one prompt through the same tool-using loop humpty holds interactively, streams its journal to standard error, prints one JSON object on standard output, and exits.")
+  "The dumpty command runs a single prompt through a local DS4 model with
+tools. It writes journal events to standard error and a JSON result to
+standard output.")
  (depends
   (ocaml (>= 5.2.0))
   ds4
@@ -135,7 +146,9 @@
 (package
  (name agentkit-openrouter)
  (synopsis "OpenRouter adapter for Agentkit")
- (description "Streaming OpenRouter conversations through Agentkit's backend-neutral event interface.")
+ (description
+  "This package connects OpenRouter conversations to Agentkit's streaming event
+interface.")
  (depends
   (ocaml (>= 5.2.0))
   openrouter
@@ -146,6 +159,9 @@
  (name agentkit-backends)
  (allow_empty)
  (synopsis "Combined Agentkit provider registry")
+ (description
+  "This package combines Agentkit's provider adapters in a shared backend
+registry.")
  (depends
   (ocaml (>= 5.2.0))
   (agentkit (= :version))))
@@ -153,6 +169,9 @@
 (package
  (name agentkit-osm)
  (synopsis "Address lookup tools for Agentkit")
+ (description
+  "This package provides Agentkit tools for address lookup through
+OpenStreetMap services.")
  (depends
   (ocaml (>= 5.2.0))
   (agentkit (= :version))

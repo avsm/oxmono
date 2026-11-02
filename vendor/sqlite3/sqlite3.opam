@@ -2,9 +2,9 @@
 opam-version: "2.0"
 synopsis: "SQLite3 bindings for OCaml"
 description: """
-sqlite3-ocaml is an OCaml library with bindings to the SQLite3 client API.
-Sqlite3 is a self-contained, serverless, zero-configuration, transactional SQL
-database engine with outstanding performance for many use cases."""
+This package binds the SQLite3 database API for OCaml. It derives from
+sqlite3-ocaml and adds an interrupt binding, bundled SQLite, OxCaml modes
+and adapted build metadata."""
 maintainer: ["Markus Mottl <markus.mottl@gmail.com>"]
 authors: [
   "Markus Mottl <markus.mottl@gmail.com>"

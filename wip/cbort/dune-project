@@ -12,9 +12,9 @@
  (name cbort)
  (synopsis "Native CBOR codec with type-safe combinators")
  (description
-  "Type-safe CBOR (RFC 8949) encoding and decoding using a combinator-based
-   approach. Define codecs once and use them for both encoding and decoding
-   OCaml values to and from CBOR binary format.")
+  "Cbort provides combinators for encoding and decoding CBOR as specified in
+RFC 8949. Each codec describes both directions of conversion between OCaml
+values and CBOR data.")
  (depends
   (ocaml (>= 5.2))
   (bytesrw (>= 0.2))

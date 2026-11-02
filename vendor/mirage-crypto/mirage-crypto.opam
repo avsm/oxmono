@@ -26,6 +26,7 @@ conflicts: [
   "result" {< "1.5"}
 ]
 description: """
-Mirage-crypto provides symmetric ciphers (DES, AES, RC4, ChaCha20/Poly1305).
-"""
+Mirage-crypto provides symmetric ciphers and authenticated encryption in
+OCaml with C primitives. This copy adds OxCaml portability annotations to
+cipher interfaces."""
 x-maintenance-intent: [ "(latest)" ]

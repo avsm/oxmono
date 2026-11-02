@@ -2,10 +2,9 @@
 opam-version: "2.0"
 synopsis: "Zstandard compression for OxCaml"
 description: """
-Bindings to libzstd for OxCaml. Compression and decompression work
-directly on caller-supplied bigstrings, frame probing returns
-stack-allocated results, and the runtime lock is released around the
-larger calls."""
+Zstdz binds libzstd for OxCaml. It compresses and decompresses
+caller-supplied bigstrings, returns stack-allocated frame-probing results
+and releases the runtime lock for larger calls."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy <anil@recoil.org>"]
 license: "ISC"

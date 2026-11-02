@@ -1,6 +1,11 @@
 opam-version: "2.0"
 version: "18.0.0"
 synopsis: "Portable Unicode normalization for OxCaml"
+description: """
+Uunf normalizes Unicode text. This import includes the upstream core and
+string normalization modules with immutable lookup tables and OxCaml
+portable interfaces. Generator-only trie builders and the unftrip command
+are omitted."""
 maintainer: "Daniel Bünzli <daniel.buenzli@erratique.ch>"
 authors: "The uunf programmers"
 license: "ISC"

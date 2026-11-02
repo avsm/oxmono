@@ -1,5 +1,7 @@
 # Changes
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 ## Unreleased
 
 - Every `oecosystems` listing takes `--limit`. Long descriptions are cut on a

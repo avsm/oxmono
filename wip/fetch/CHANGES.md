@@ -4,6 +4,8 @@
   Generate explicit owned request copies with ppx_globalize for asynchronous
   backends and retaining mocks.
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Update CLI rendering to the current Console View and terminal APIs.
 
 - Make Link encoding/decoding portable and match relation tokens in

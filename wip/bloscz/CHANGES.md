@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Find the C library through pkg-config, falling back to the Homebrew
   prefixes, so the build works on macOS out of the box.
 - Initial C-Blosc1 bindings: the context interface only, compressing and

@@ -13,6 +13,10 @@
 (package
  (name spindle)
  (synopsis "OCaml-defined Tangled CI jobs served by Proffer")
+ (description
+  "Spindle schedules Tangled CI workflows defined in OCaml or repository YAML.
+It uses Proffer and Eio to serve requests and maintains a durable pipeline
+engine. Workflow execution is delegated to an operator-supplied callback.")
  (depends
   (ocaml
    (>= 5.2))

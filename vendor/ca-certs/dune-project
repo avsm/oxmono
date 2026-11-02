@@ -23,10 +23,8 @@
  (conflicts (result (< 1.5)))
  (synopsis "Detect root CA certificates from the operating system")
  (description
-   "\> TLS requires a set of root anchors (Certificate Authorities) to
-   "\> authenticate servers. This library exposes this list so that it can be
-   "\> registered with ocaml-tls.
- )
+  "Ca-certs locates operating-system root certificates for use with ocaml-tls.
+This copy adds OxCaml portability annotations to the upstream interface.")
  ; tags are not included before (lang dune 2.0)
  ; so an opam template is necessary until then
  (tags (org:mirage)))

@@ -2,7 +2,10 @@
 opam-version: "2.0"
 version: "1.6"
 synopsis: "Effect-based direct-style IO mainloop for OCaml"
-description: "Selects an appropriate Eio backend for the current platform."
+description: """
+This package selects an Eio backend for the current platform. The upstream
+Eio import includes local OxCaml adaptations and explicit main-loop
+dependencies for builds without optional backends."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy" "Thomas Leonard"]
 license: "ISC"

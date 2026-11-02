@@ -2,6 +2,10 @@
 opam-version: "2.0"
 version: "0.1.9+oxmono"
 synopsis: "Static sqlite-vec bindings against the workspace SQLite"
+description: """
+This package binds sqlite-vec for vector search in SQLite. It statically
+compiles the unchanged upstream amalgamation against the workspace SQLite
+library. Local OCaml bindings disable the extension's filesystem readers."""
 license: "MIT"
 depends: [
   "dune" {>= "3.21"}

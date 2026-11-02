@@ -12,7 +12,10 @@
  (name zulip)
  (synopsis "OCaml bindings for the Zulip REST API with bot framework")
  (description
-  "OCaml bindings for the Zulip REST API using Fetch and Eio, with Jsont protocol codecs, composable bots, and XDG profiles.")
+  "This package provides a Zulip REST API client using Fetch and Eio. It
+includes Jsont protocol codecs, composable bot handlers and XDG profiles. It
+is maintained in OxMono from ocaml-zulip, with OxCaml codec adaptations and
+compiler compatibility helpers.")
  (depends
   (ocaml (>= 5.2))
   (eio (>= 1.3))

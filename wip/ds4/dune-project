@@ -16,7 +16,9 @@
  (synopsis "Local LLM inference on the DS4 engine")
  (tags (org:blacksun ds4 llm))
  (description
-  "Library and command to run the DeepSeek V4, DeepSeek V4.1 Flash, GLM 5.3 Flash and Qwen3.8 Flash Next models locally on the DS4 engine, with a selectable inference backend (Apple Metal, CUDA or CPU).")
+  "Ds4 provides a library and command for local language model inference on the
+DS4 engine. It supports DeepSeek V4 and V4.1 Flash, GLM 5.3 Flash and
+Qwen3.8 Flash Next, with selectable Metal, CUDA or CPU backends.")
  (depends
   hf
   (ocaml (>= 5.2.0))

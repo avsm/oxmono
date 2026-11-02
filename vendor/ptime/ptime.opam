@@ -2,30 +2,11 @@ version: "1.2.0"
 opam-version: "2.0"
 name: "ptime"
 synopsis: "POSIX time for OCaml"
-description: """\
-Ptime has platform independent POSIX time support in pure OCaml. It
-provides a type to represent a well-defined range of POSIX timestamps
-with picosecond precision, conversion with date-time values,
-conversion with [RFC 3339 timestamps][rfc3339] and pretty printing to
-a human-readable, locale-independent representation.
-
-The additional Ptime_clock library provides access to a system POSIX
-clock and to the system's current time zone offset.
-
-Ptime is not a calendar library.
-
-Ptime has no dependency. Ptime_clock depends on your system library or
-JavaScript runtime system. Ptime and its libraries are distributed
-under the ISC license.
-
-[rfc3339]: http://tools.ietf.org/html/rfc3339
-
-Home page: <http://erratique.ch/software/ptime>
-
-This is ptime 1.2.0 vendored and patched for OxCaml portability:
-timestamps and time spans are immutable data, the three module-level
-tables the arithmetic used are gone, and both interfaces are annotated
-[@@ portable]."""
+description: """
+Ptime represents POSIX timestamps and time spans with picosecond precision
+and supports calendar and RFC 3339 conversions. This import includes the
+core and native clock backend. Local changes add immutable kinds and
+portable interfaces and replace mutable lookup tables."""
 maintainer: "Daniel Bünzli <daniel.buenzl i@erratique.ch>"
 authors: "The ptime programmers"
 license: "ISC"

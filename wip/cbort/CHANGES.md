@@ -1,5 +1,7 @@
 # Unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Fix string skipping and reject overflowing lengths, invalid indefinite
   headers and reserved simple values. `read_int` rejects signed overflow.
 

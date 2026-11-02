@@ -12,7 +12,9 @@
  (synopsis "OCaml bindings to Apple's on-device speech transcription and synthesis")
  (tags (org:blacksun apple speech transcription eio))
  (description
-  "Eio-native transcription of audio files with the Speech framework's SpeechAnalyzer and SpeechTranscriber on macOS 26 or later, and speech synthesis with the system voices.")
+  "This library binds Apple's Speech framework for audio transcription and
+speech synthesis through Eio. Transcription uses SpeechAnalyzer and
+SpeechTranscriber and requires macOS 26 or later.")
  (depends
   (ocaml (>= 5.2.0))
   (eio (>= 1.5))

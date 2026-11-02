@@ -12,7 +12,10 @@
 (package
  (name eio)
  (synopsis "Effect-based direct-style IO API for OCaml")
- (description "An effect-based IO API for multicore OCaml with fibers.")
+ (description
+  "Eio provides effect-based I/O with fibers, switches and capability-based
+resources. Local adaptations add OxCaml modes, portable operations and
+support for locally allocated Cstruct buffers.")
  (conflicts (seq (< 0.3)))
  (depends
   (ocaml (>= 5.2.0))
@@ -32,7 +35,10 @@
 (package
  (name eio_linux)
  (synopsis "Eio implementation for Linux using io-uring")
- (description "An Eio implementation for Linux using io-uring.")
+ (description
+  "This package implements Eio's Linux backend using io_uring. It is part of
+the upstream Eio import with local OxCaml mode and buffer-handling
+adaptations.")
  (allow_empty)  ; Work-around for dune bug #6938
  (depends
   (alcotest (and (>= 1.7.0) :with-test))
@@ -47,7 +53,9 @@
  (name eio_posix)
  (allow_empty)  ; Work-around for dune bug #6938
  (synopsis "Eio implementation for POSIX systems")
- (description "An Eio implementation for most Unix-like platforms")
+ (description
+  "This package implements Eio's backend for POSIX systems. It is part of the
+upstream Eio import with local OxCaml mode and buffer-handling adaptations.")
  (depends
   (eio (= :version))
   (iomux (>= 0.2))
@@ -58,7 +66,9 @@
 (package
  (name eio_windows)
  (synopsis "Eio implementation for Windows")
- (description "An Eio implementation using OCaml's Unix.select")
+ (description
+  "This package implements Eio's Windows backend using Unix.select. It is part
+of the upstream Eio import adapted for OxCaml.")
  (allow_empty)  ; Work-around for dune bug #6938
  (depends
   (eio (= :version))
@@ -68,7 +78,10 @@
 (package
  (name eio_main)
  (synopsis "Effect-based direct-style IO mainloop for OCaml")
- (description "Selects an appropriate Eio backend for the current platform.")
+ (description
+  "This package selects an Eio backend for the current platform. The upstream
+Eio import includes local OxCaml adaptations and explicit main-loop
+dependencies for builds without optional backends.")
  (depends
   (eio (= :version))
   (fmt (>= 0.8.9))

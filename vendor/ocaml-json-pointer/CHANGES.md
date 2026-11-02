@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 # v1.0 (2026-09-06)
 
 - Implement RFC 6901 parsing, formatting, URI fragment encoding, and

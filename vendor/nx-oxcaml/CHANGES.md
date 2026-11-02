@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 # Changes
 
 - Move Nx I/O differential tests into Nx so backend source archives have no

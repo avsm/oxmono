@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## 0.3.0 (2019-04-20)
 
 * S.union and S.merge could invalidate the invariant:

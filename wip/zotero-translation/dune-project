@@ -12,7 +12,8 @@
  (name zotero-translation)
  (synopsis "API client to the Zotero translation server")
  (description
-  "OCaml bindings to the Zotero Translation Server for DOI/URL resolution and bibliographic format export")
+  "This library accesses the Zotero Translation Server to resolve DOIs and URLs
+and export bibliographic data.")
  (depends
   (ocaml (>= 5.1.0))
   (eio (>= 1.0))

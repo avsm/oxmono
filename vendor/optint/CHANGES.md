@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ### v0.3.0 2022-12-16 Paris (France)
 
 - Add infix operators for bitwise operations (@reynir, #23)

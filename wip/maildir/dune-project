@@ -7,6 +7,10 @@
 (package
  (name maildir)
  (synopsis "Dovecot-compatible Maildir storage for Eio")
+ (description
+  "This library stores messages in Dovecot-compatible Maildir directories
+through Eio. It supports message flags, keyword mappings and scoped locking
+for reads and updates.")
  (depends
   (ocaml (>= 5.2))
   base

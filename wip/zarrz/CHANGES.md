@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Update CLI rendering to the current Console View and terminal APIs.
 
 - Stage present shard payloads without allocating an option per chunk.

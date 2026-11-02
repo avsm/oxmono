@@ -2,12 +2,10 @@ version: "2.4.1"
 opam-version: "2.0"
 synopsis: "Elliptic Curve Cryptography with primitives taken from Fiat"
 description: """
-An implementation of key exchange (ECDH) and digital signature (ECDSA/EdDSA)
-algorithms using code from Fiat (<https://github.com/mit-plv/fiat-crypto>).
-
-The curves P256 (SECP256R1), P384 (SECP384R1),
-P521 (SECP521R1), and 25519 (X25519, Ed25519) are implemented by this package.
-"""
+This package provides elliptic-curve key exchange and signatures from
+Mirage-crypto, using Fiat cryptographic primitives. It supports the NIST
+P-256, P-384 and P-521 curves and Curve25519. Local changes add OxCaml
+portability annotations."""
 maintainer: "Hannes Mehnert <hannes@mehnert.org>"
 authors: [
   "Hannes Mehnert <hannes@mehnert.org>"

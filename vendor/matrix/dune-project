@@ -3,4 +3,9 @@
 (generate_opam_files true)
 (license ISC)
 (source (github invariant-hq/mosaic))
-(package (name matrix) (synopsis "Terminal primitives for Console and K7") (depends (ocaml (>= 5.2))))
+(package (name matrix) (synopsis "Terminal primitives for Console and K7")
+ (description
+  "This package provides terminal escape handling, grapheme processing, grids,
+terminal emulation and pseudo-terminals from Mosaic's Matrix library. The
+import contains only the primitives needed by Console and K7, with local
+OxCaml adaptations and packaging.") (depends (ocaml (>= 5.2))))

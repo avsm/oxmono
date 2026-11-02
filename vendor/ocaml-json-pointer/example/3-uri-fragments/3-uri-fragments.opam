@@ -1,5 +1,8 @@
 opam-version: "2.0"
 synopsis: "Use JSON Pointers in URI fragments"
+description: """
+This ocaml-json-pointer example demonstrates JSON Pointers in URI fragments.
+It is packaged against the locally adapted Json-pointer library."""
 maintainer: "Anil Madhavapeddy <anil@recoil.org>"
 authors: "Anil Madhavapeddy"
 license: "ISC"

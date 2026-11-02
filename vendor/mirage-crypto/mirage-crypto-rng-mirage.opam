@@ -27,6 +27,7 @@ depends: [
   "ohex" {with-test & >= "0.2.0"}
 ]
 description: """
-Mirage-crypto-rng-mirage provides entropy collection code for the RNG.
-"""
+This package supplies MirageOS entropy collection for Mirage-crypto
+random-number generators. It is part of the locally integrated Mirage-crypto
+import."""
 x-maintenance-intent: [ "(latest)" ]

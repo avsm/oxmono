@@ -1,3 +1,9 @@
+Unreleased (OxMono)
+------------------
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 2.2.0 [03 July 2025]
 --------------------
 * No change since 2.2.0~alpha1

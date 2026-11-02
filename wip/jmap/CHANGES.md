@@ -3,6 +3,8 @@
 - Accept borrowed Fetch requests and copy data only where retained or required
   by an owned-input parser.
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Use the current Console terminal setup API and declare its dependency.
 - Own the cross-protocol IMAP/JMAP oracle suite and declare its IMAP test
   dependency. Keep standalone build profiles.

@@ -14,9 +14,9 @@
  (name zarrz)
  (synopsis "Zarr V3 chunked N-dimensional arrays for OxCaml")
  (description
-  "Reads and writes Zarr V3 hierarchies with unboxed, zero-allocation
-access to decoded chunk values. The core is store-agnostic. Companion
-packages provide Eio filesystem and HTTP stores.")
+  "Zarrz reads and writes Zarr V3 array hierarchies. It provides unboxed access
+to decoded chunk values and separates array operations from storage
+backends. Companion packages supply filesystem and HTTP stores.")
  (depends
   (ocaml (>= 5.2.0))
   base
@@ -33,6 +33,9 @@ packages provide Eio filesystem and HTTP stores.")
 (package
  (name zarrz-eio)
  (synopsis "Eio filesystem store for zarrz")
+ (description
+  "This package implements a filesystem store for Zarrz using Eio directory
+capabilities.")
  (depends
   (ocaml (>= 5.2.0))
   (zarrz (= :version))
@@ -47,9 +50,9 @@ packages provide Eio filesystem and HTTP stores.")
  (name zarrz-cli)
  (synopsis "Inspect Zarr V3 stores")
  (description
-  "The zarr command reads the metadata of a local or remote Zarr V3
-store and prints what is in it, what one node is, and what it costs to
-read. Consolidated metadata makes the whole hierarchy one request.")
+  "The zarr command inspects local and remote Zarr V3 stores. It displays
+hierarchy metadata, individual nodes and estimated read costs, using
+consolidated metadata when available.")
  (depends
   (ocaml (>= 5.2.0))
   (zarrz (= :version))
@@ -67,6 +70,8 @@ read. Consolidated metadata makes the whole hierarchy one request.")
 (package
  (name zarrz-fetch)
  (synopsis "HTTP store for zarrz over the fetch client")
+ (description
+  "This package implements an HTTP store for Zarrz using Fetch.")
  (depends
   (ocaml (>= 5.2.0))
   (zarrz (= :version))

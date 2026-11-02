@@ -12,10 +12,8 @@
  (name apubt)
  (synopsis "ActivityPub client library for OCaml with Eio")
  (description
-  "ActivityPub/ActivityStreams protocol implementation for OCaml. \
-   Provides typed representations of ActivityPub actors, activities, \
-   and objects with bidirectional JSON codecs using jsont. Includes \
-   an Eio-based HTTP client for federation with HTTP signature support.")
+  "Apubt implements ActivityPub and ActivityStreams types with Jsont codecs. It
+provides an Eio HTTP client with HTTP signature support for federation.")
  (depends
   (duration (>= 0.3.1))
   (ocaml (>= 5.1.0))

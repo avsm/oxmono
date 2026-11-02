@@ -30,6 +30,6 @@ depends: [
 tags: [ "org:mirage"]
 synopsis: "Transport Layer Security purely in OCaml, Async layer"
 description: """
-Tls-async provides Async-friendly tls bindings
-"""
+This package integrates ocaml-tls with Async. It is packaged with the
+locally adapted TLS implementation."""
 x-maintenance-intent: [ "(latest)" ]

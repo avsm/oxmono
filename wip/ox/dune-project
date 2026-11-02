@@ -8,6 +8,10 @@
 (package
  (name ox)
  (synopsis "Run opam packages from a local OxCaml source and binary cache")
+ (description
+  "Ox manages local OxCaml source builds and cached binaries for opam packages.
+It also inventories monorepo packages, creates tagged source archives and
+exports opam repository overlays.")
  (depends
   (ocaml (>= 5.2))
   opam-core

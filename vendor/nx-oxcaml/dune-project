@@ -19,7 +19,10 @@
  (name nx-oxcaml)
  (synopsis "High-performance Nx backend using OxCaml's unboxed types")
  (description
-  "An experimental backend for Nx that leverages OxCaml's unboxed types for improved performance.")
+  "Nx-oxcaml implements an Nx backend using OxCaml unboxed arrays and NEON or
+SSE kernels. Local changes adapt scalar type names and compiler constraints
+for OxCaml 5.2. The upstream backend tests are retained and benchmarks are
+omitted.")
  (depends
   (ocaml (>= 5.2.0))
   dune

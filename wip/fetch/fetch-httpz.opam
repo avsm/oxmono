@@ -2,8 +2,9 @@
 opam-version: "2.0"
 synopsis: "Httpz backend for Fetch"
 description: """
-A pure OCaml HTTP/1.1 Fetch backend using httpz, with streaming request and
-response bodies, transparent gzip decoding, and system-trust HTTPS by default."""
+This package implements a Fetch HTTP/1.1 backend using Httpz. It supports
+streaming bodies, gzip decoding and HTTPS with system trust roots by
+default."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

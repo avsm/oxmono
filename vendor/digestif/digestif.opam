@@ -12,25 +12,10 @@ doc:          "https://mirage.github.io/digestif/"
 license:      "MIT"
 synopsis:     "Hashes implementations (SHA*, RIPEMD160, BLAKE2*, BLAKE3 and MD5)"
 description: """
-Digestif is a toolbox to provide hashes implementations in C and OCaml.
-
-It uses the linking trick and user can decide at the end to use the C implementation or the OCaml implementation.
-
-We provides implementation of:
- * MD5
- * SHA1
- * SHA224
- * SHA256
- * SHA384
- * SHA512
- * SHA3
- * Keccak-256
- * WHIRLPOOL
- * BLAKE2B
- * BLAKE2S
- * BLAKE3
- * RIPEMD160
-"""
+Digestif provides hash and HMAC implementations, including SHA, BLAKE,
+RIPEMD160 and MD5 families. Upstream supplies C and OCaml backends. Local
+changes adapt the C backend and digest interfaces for OxCaml portability and
+add raw digest and HMAC helpers."""
 
 build: [
   [ "dune" "build" "-p" name "-j" jobs ]

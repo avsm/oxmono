@@ -2,9 +2,9 @@
 opam-version: "2.0"
 synopsis: "Eio wrapper for SQLite3 bindings"
 description: """
-Provides Eio-friendly wrappers for the sqlite3-ocaml bindings.
-Database operations run in system threads so other Eio fibers can
-proceed concurrently. Handles are tied to Eio switches for automatic cleanup."""
+This package adds Eio operations to the locally adapted sqlite3-ocaml
+bindings. It runs database operations in system threads and scopes database
+handles to Eio switches."""
 maintainer: ["Markus Mottl <markus.mottl@gmail.com>"]
 authors: [
   "Markus Mottl <markus.mottl@gmail.com>"

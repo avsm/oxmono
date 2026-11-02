@@ -8,6 +8,10 @@
 (package
  (name openrouter)
  (synopsis "Native Eio chat and vision client for OpenRouter over Fetch")
+ (description
+  "This library provides an Eio client for OpenRouter and compatible inference
+servers using a caller-supplied Fetch client. It supports chat, vision, tool
+calls and streaming responses.")
  (depends
   (ocaml (>= 5.2))
   openapi

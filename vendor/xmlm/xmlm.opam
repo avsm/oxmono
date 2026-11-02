@@ -2,20 +2,11 @@ version: "1.4.0"
 opam-version: "2.0"
 name: "xmlm"
 synopsis: "Streaming XML codec for OCaml"
-description: """\
-Xmlm is a streaming codec to decode and encode the XML data format. It
-can process XML documents without a complete in-memory representation of the
-data.
-
-Xmlm is made of a single independent module and distributed
-under the ISC license.
-
-Home page: http://erratique.ch/software/xmlm
-
-This is xmlm 1.4.0 vendored and patched for OxCaml portability. The
-interface is annotated, and the UTF-8 byte length array and the predefined
-entity table are code rather than module-level mutable data. See
-vendor/xmlm/README.md for the hunk inventory."""
+description: """
+Xmlm incrementally decodes and encodes XML without requiring a complete
+document in memory. Local changes add portable interfaces, replace mutable
+lookup data and provide Dune packaging. The upstream command-line tool and
+build tools are omitted."""
 maintainer: "Daniel Bünzli <daniel.buenzl i@erratique.ch>"
 authors: "The xmlm programmers"
 license: "ISC"

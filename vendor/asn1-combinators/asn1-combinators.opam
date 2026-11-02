@@ -19,11 +19,8 @@ depends: [
   "ohex" {with-test & >= "0.2.0"}
 ]
 description: """
-asn1-combinators is a library for expressing ASN.1 in OCaml. Skip the notation
-part of ASN.1, and embed the abstract syntax directly in the language. These
-abstract syntax representations can be used for parsing, serialization, or
-random testing.
-
-The only ASN.1 encodings currently supported are BER and DER.
-"""
+Asn1-combinators represents ASN.1 grammars as typed OCaml values for
+parsing, serialization and random testing. It supports BER and DER
+encodings. This copy adds OxCaml portability annotations to the upstream
+library."""
 x-maintenance-intent: [ "(latest)" ]

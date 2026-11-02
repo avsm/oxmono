@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## v1.1.0 (2025-04-28)
 
 - Add missing primitive `clear` (@raphael-proust, #7)

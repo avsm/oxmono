@@ -17,14 +17,10 @@
  (synopsis "Colours, tables, trees and progress rows for the terminal")
  (tags (command-line-utilities format))
  (description
-  "Colours, tables, trees, panels, bars and progress rows for OCaml
-   command-line tools. console prints styled text and widgets into the
-   terminal's normal scrollback, shows the work a program runs as progress
-   rows under that text and redraws only those rows. It never takes over
-   the whole screen. The console.tty library decides colour and UTF-8 for
-   the standard outputs from the terminal and the environment, with Unix
-   alone. The console.text library makes untrusted text safe to print, and
-   console.input is a line editor that does no I/O.")
+  "Console renders styled text, tables, trees, panels and progress rows in
+terminal scrollback. This ocaml-console import adds OCaml 5.2 compatibility
+helpers, OxCaml codec and callback adaptations, and unboxed colour
+arithmetic.")
  (depends
   (ocaml (>= 5.2))
   (fmt (>= 0.9))
@@ -48,13 +44,10 @@
  (synopsis "Eio backend for console")
  (tags (command-line-utilities format eio))
  (description
-  "Runs console's progress rows with Eio. It finds whether the output is a
-   terminal and its size, redraws the rows, shows the program's output and
-   its Logs messages under the task that printed them, and gives the
-   terminal back when the run ends, when the program exits and on SIGINT
-   or SIGTERM. On a pipe or in CI each task prints lines instead, or JSON
-   events on request. It also asks for a line, a yes or no or a password
-   on the terminal, and reads keys as they are typed.")
+  "This package runs Console progress displays and terminal input through Eio.
+It handles terminal cleanup and supports line-oriented or JSON output
+outside terminals. Local adaptations account for OxCaml callback modes and
+portable text processing.")
  (depends
   (ocaml (>= 5.2))
   (console (= :version))

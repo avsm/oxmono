@@ -25,9 +25,6 @@ depends: [
 ]
 synopsis: "S-expression serialisers for C-like structures"
 description: """
-Cstruct is a library and syntax extension to make it easier to access C-like
-structures directly from OCaml.  It supports both reading and writing to these
-structures, and they are accessed via the `Bigarray` module.
-
-This library provides Sexplib serialisers for the Cstruct.t values."""
+This package provides Sexplib serializers for Cstruct values. It is imported
+from ocaml-cstruct and built against the locally adapted Cstruct library."""
 x-maintenance-intent: [ "(latest)" ]

@@ -2,10 +2,9 @@
 opam-version: "2.0"
 synopsis: "Git operations library with Eio and dry-run support"
 description: """
-Gitops provides a context-based API for git operations using Eio.
-   Features include dry-run mode for previewing changes, structured
-   error handling with Eio.Io context, and reusable sync configuration
-   with Cmdliner integration."""
+Gitops provides Git operations through Eio, with dry-run support and
+contextual errors. It includes reusable synchronization settings and
+Cmdliner terms."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy <anil@recoil.org>"]
 license: "ISC"

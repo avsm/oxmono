@@ -1,5 +1,7 @@
 # Unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Update CLI rendering to the current Console View and terminal APIs.
 
 Read `ssid` and `bssid` in lower case too, as the iOS app and the Recorder

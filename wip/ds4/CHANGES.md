@@ -1,5 +1,7 @@
 # unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Share Hugging Face download handling. Keep tokens out of process arguments
   and preserve cancellation without launching a fallback download.
 

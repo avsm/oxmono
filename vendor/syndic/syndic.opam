@@ -10,12 +10,9 @@ bug-reports:  "https://github.com/Cumulus/Syndic/issues"
 doc:          "https://cumulus.github.io/Syndic/"
 synopsis:     "RSS1, RSS2, Atom and OPML1 parsing"
 description: """
-Pure OCaml Library for parsing and writing various types of
-feeds and subscriber lists.
-
-This copy is vendored and patched: it parses feeds that real publishers
-emit, it carries URIs as uriz rather than uri, and its interfaces are
-annotated for OxCaml portability. See vendor/syndic/README.md."""
+Syndic parses and writes RSS, Atom and OPML feeds and subscription lists.
+Local changes tolerate selected publisher deviations, replace Uri values
+with Uriz and add OxCaml portability annotations."""
 
 build: [
   [ "dune" "subst" ]

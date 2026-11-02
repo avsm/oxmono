@@ -1,5 +1,8 @@
 opam-version: "2.0"
 synopsis: "Apply RFC 6902 JSON Patch operations"
+description: """
+This ocaml-json-pointer example demonstrates RFC 6902 JSON Patch operations.
+It is packaged against the locally adapted Json-pointer library."""
 maintainer: "Anil Madhavapeddy <anil@recoil.org>"
 authors: "Anil Madhavapeddy"
 license: "ISC"

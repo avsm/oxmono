@@ -2,10 +2,12 @@ version: "0.4.0"
 opam-version: "2.0"
 name: "jsont"
 synopsis: "Portable declarative JSON data manipulation for OxCaml"
-description: """\
-This vendored OxCaml port of Jsont provides portable JSON descriptions and a
-Bytesrw streaming codec. It contains the Jsont 0.4.0 core and jsont.bytesrw;
-the optional brr and typegist libraries are not included."""
+description: """
+Jsont describes typed JSON data for decoding, encoding and transformation.
+This import includes the core and Bytesrw codec. Local changes make
+descriptions portable and contention-safe, adapt callbacks and defaults, and
+optimize ignored-string scanning. The optional Brr and Typegist libraries
+are omitted."""
 maintainer: "Daniel Bünzli <daniel.buenzli@erratique.ch>"
 authors: "The jsont programmers"
 license: "ISC"

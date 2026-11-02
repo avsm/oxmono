@@ -2,8 +2,9 @@
 opam-version: "2.0"
 synopsis: "Libcurl backend for Fetch"
 description: """
-A Fetch backend using libcurl's multi interface with Eio integration,
-connection reuse, HTTP/2 multiplexing, and per-host connection limits."""
+This package implements a Fetch backend using libcurl's multi interface with
+Eio. It supports connection reuse, HTTP/2 multiplexing and per-host
+connection limits."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

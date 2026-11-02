@@ -1,5 +1,7 @@
 # unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Allow OpenRouter completions to request strict JSON Schema output.
 
 - Index memo keys for allocation-free membership checks and avoid rebuilding

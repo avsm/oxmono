@@ -1,5 +1,7 @@
 # Unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 Avoid copying singleton owned packet encodings in `V5.Packet.to_bytes`.
 
 Encode outgoing headers once into bytes, preserve sessions after oversized

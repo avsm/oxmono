@@ -2,10 +2,9 @@
 opam-version: "2.0"
 synopsis: "RFC 7033 WebFinger and RFC 7565 acct URI scheme for OCaml"
 description: """
-A complete implementation of RFC 7033 (WebFinger) and RFC 7565 (acct URI scheme)
-   for discovering information about resources identified by URIs. Includes type-safe
-   JSON Resource Descriptor (JRD) encoding/decoding using jsont, an Eio-based HTTP
-   client using the fetch library, and a command-line tool for WebFinger lookups."""
+This package implements WebFinger resource discovery and the acct URI scheme
+specified in RFCs 7033 and 7565. It provides Jsont codecs, an Eio client
+using Fetch and a command-line lookup tool."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

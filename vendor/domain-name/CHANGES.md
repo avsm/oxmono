@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## v0.5.0 (2025-10-13)
 
 * Disallow trailing hyphen (-) in host labels (#15 @hannes, fixes #14)

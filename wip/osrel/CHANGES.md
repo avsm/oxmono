@@ -3,6 +3,9 @@
 - Maintain this unreleased library under `wip/osrel`. Preserve its oi
   source provenance and package identity.
 
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 # Changes
 
 - Correct platform detection and formatting contracts in the public interface.

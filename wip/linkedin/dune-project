@@ -11,9 +11,8 @@
  (name linkedin)
  (synopsis "LinkedIn API client for OCaml")
  (description
-  "LinkedIn API client using the UGC Posts API (v2) for creating
-   text, article/link, and image shares. Uses the Fetch HTTP
-   library for connection management.")
+  "This library creates LinkedIn text, link and image shares through the
+version 2 UGC Posts API. It uses Fetch for HTTP requests.")
  (depends
   (ocaml (>= 5.2))
   fetch

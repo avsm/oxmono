@@ -2,9 +2,9 @@
 opam-version: "2.0"
 synopsis: "Portable HTTP client capability for Eio and OxCaml"
 description: """
-An abstract HTTP client capability that can be narrowed, appended to, and
-rate-limited before being handed to libraries. A mock backend and cookie-jar
-middleware are included, along with JSON and Markdown media codecs."""
+Fetch provides an HTTP client capability for Eio and OxCaml. It supports
+capability restriction, rate limiting, cookie storage and JSON and Markdown
+codecs. A mock backend supports testing without network access."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

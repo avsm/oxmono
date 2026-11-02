@@ -4,6 +4,8 @@
   local sink writes. Preserve local header and allocation contracts in the
   public interface.
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 ## v0.1.0 (unreleased)
 
 - Expose accepted connection open/close notifications in the Httpz backend

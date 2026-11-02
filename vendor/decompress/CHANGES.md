@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ### v1.6.1 2026-09-30 Paris (France)
 
 - Re-introduce the support of 32 bit architecture (spotted by @kit-ty-kate,

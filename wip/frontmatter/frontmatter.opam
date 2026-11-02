@@ -2,9 +2,8 @@
 opam-version: "2.0"
 synopsis: "Parse YAML frontmatter from Markdown files"
 description: """
-A library for parsing YAML frontmatter (Jekyll-format) from Markdown files.
-   Supports extracting structured metadata and body content from files with
-   YAML headers delimited by '---' markers."""
+This library extracts YAML metadata and body content from Markdown files
+with Jekyll-style frontmatter delimited by three hyphens."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

@@ -12,7 +12,9 @@
  (name atp)
  (synopsis "AT Protocol IPLD implementation for OCaml")
  (description
-  "This library implements IPLD (InterPlanetary Linked Data) with specific support for the AT Protocol's data encoding conventions. It provides Content Identifiers (CID), DAG-CBOR encoding, Merkle Search Trees (MST), repository serialization (CAR format), and synchronization primitives.")
+  "Atp implements the AT Protocol's IPLD data formats. It provides content
+identifiers, DAG-CBOR codecs, Merkle search trees, CAR repository
+serialization and synchronization primitives.")
  (depends
   (ocaml (>= 5.2))
   (bytesrw (>= 0.1))
@@ -28,7 +30,9 @@
  (name atp-xrpc)
  (synopsis "XRPC client for AT Protocol")
  (description
-  "XRPC client library for communicating with AT Protocol Personal Data Servers (PDS). Provides query and procedure calls, session management with automatic JWT token refresh, and structured error handling integrated with Eio.")
+  "This library provides an Eio XRPC client for AT Protocol personal data
+servers. It supports queries, procedures, session management and automatic
+token refresh.")
  (depends
   (atp (= :version))
   fetch
@@ -46,7 +50,9 @@
  (name xrpc-auth)
  (synopsis "Authentication helpers for AT Protocol CLIs")
  (description
-  "Shared authentication library for AT Protocol CLI applications. Provides session persistence, credential management with automatic token refresh, and Cmdliner helpers for building auth commands.")
+  "This library provides session persistence, credential management and token
+refresh for AT Protocol commands. It includes Cmdliner terms for
+authentication commands.")
  (depends
   (ocaml (>= 5.1))
   (atp-xrpc (= :version))
@@ -71,7 +77,8 @@
  (name hermest)
  (synopsis "AT Protocol lexicon code generator for OCaml")
  (description
-  "Hermest generates OCaml types and jsont codecs from AT Protocol lexicon JSON schemas. The generated code uses the atp library for IPLD primitives.")
+  "Hermest generates OCaml types and Jsont codecs from AT Protocol lexicon
+schemas. Generated code uses Atp for IPLD primitives.")
  (depends
   (ocaml (>= 5.1))
   (jsont (>= 0.1))
@@ -81,7 +88,7 @@
  (name hermest-cli)
  (synopsis "CLI for hermest lexicon code generator")
  (description
-  "Command-line interface for generating OCaml code from AT Protocol lexicons.")
+  "The hermest command generates OCaml code from AT Protocol lexicon schemas.")
  (depends
   (ocaml (>= 5.1))
   hermest
@@ -91,7 +98,8 @@
  (name atp-lexicon-atproto)
  (synopsis "AT Protocol core lexicon types for OCaml")
  (description
-  "Generated OCaml types and jsont codecs for com.atproto.* lexicons.")
+  "This package provides generated OCaml types and Jsont codecs for the
+com.atproto lexicons.")
  (depends
   (ocaml (>= 5.1))
   (atp (>= 0.1))
@@ -101,7 +109,8 @@
  (name atp-lexicon-bsky)
  (synopsis "Bluesky lexicon types for OCaml")
  (description
-  "Generated OCaml types and jsont codecs for app.bsky.* lexicons.")
+  "This package provides generated OCaml types and Jsont codecs for the
+app.bsky lexicons.")
  (depends
   (ocaml (>= 5.1))
   (atp (>= 0.1))
@@ -111,7 +120,8 @@
  (name atp-lexicon-tangled)
  (synopsis "Tangled.sh lexicon types for OCaml")
  (description
-  "Generated OCaml types and jsont codecs for sh.tangled.* lexicons.")
+  "This package provides generated OCaml types and Jsont codecs for the
+org.tangled lexicons and retained legacy sh.tangled records.")
  (depends
   (ocaml (>= 5.1))
   (atp (>= 0.1))
@@ -121,7 +131,8 @@
  (name atp-lexicon-standard-site)
  (synopsis "Standard Site lexicon types for OCaml")
  (description
-  "Generated OCaml types and jsont codecs for site.standard.* lexicons.")
+  "This package provides generated OCaml types and Jsont codecs for the
+site.standard lexicons.")
  (depends
   (ocaml (>= 5.1))
   (atp (>= 0.1))
@@ -131,7 +142,8 @@
  (name tangled)
  (synopsis "Tangled client library and CLI for AT Protocol")
  (description
-  "High-level library and command-line interface for interacting with Tangled decentralized git collaboration platform on AT Protocol.")
+  "This package provides a library and command-line interface for the Tangled
+Git collaboration service on the AT Protocol.")
  (depends
   (ocaml (>= 5.1))
   (xrpc-auth (= :version))
@@ -158,7 +170,8 @@
  (name bsky)
  (synopsis "Bluesky client library and CLI")
  (description
-  "Library and command-line interface for Bluesky using AT Protocol.")
+  "This package provides a Bluesky client library and command-line interface
+using the AT Protocol.")
  (depends
   (ocaml (>= 5.1))
   (atp (= :version))
@@ -178,7 +191,8 @@
  (name standard-site)
  (synopsis "Standard Site client library and CLI for AT Protocol")
  (description
-  "High-level library and command-line interface for managing blogs and publications on AT Protocol using the Standard Site lexicons.")
+  "This package provides a library and command-line interface for managing AT
+Protocol blogs and publications using the Standard Site lexicons.")
  (depends
   (ocaml (>= 5.1))
   (xrpc-auth (= :version))

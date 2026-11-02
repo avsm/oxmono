@@ -18,6 +18,10 @@
 (package
  (name hf)
  (synopsis "Eio adapter for the Hugging Face command-line client")
+ (description
+  "Hf invokes the Hugging Face command-line client through Eio. It falls back
+from hf to uvx hf when the executable is absent and passes authentication
+through the child environment.")
  (depends
   (ocaml
    (>= 5.2))

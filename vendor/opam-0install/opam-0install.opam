@@ -3,16 +3,9 @@ version: "0.6.0"
 opam-version: "2.0"
 synopsis: "Opam solver using 0install backend"
 description: """
-Opam's default solver is designed to maintain a set of packages
-over time, minimising disruption when installing new programs and
-finding a compromise solution across all packages.
-
-In many situations (e.g. CI, local roots or duniverse builds) this
-is not necessary, and we can get a solution much faster by using
-a different algorithm.
-
-This package uses 0install's solver algorithm with opam packages.
-"""
+This library applies the 0install dependency solver to opam packages. The
+import retains the upstream generic solver library without application
+commands or switch contexts. The retained implementation is unchanged."""
 maintainer: ["talex5@gmail.com"]
 authors: ["talex5@gmail.com"]
 license: "ISC"

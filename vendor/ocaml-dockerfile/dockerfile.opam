@@ -3,10 +3,9 @@ opam-version: "2.0"
 version: "8.4.5"
 synopsis: "Dockerfile eDSL in OCaml"
 description: """
-This library provides a typed OCaml interface to generating Dockerfiles
-programmatically without having to resort to lots of shell scripting and
-awk/sed-style assembly.
-"""
+Dockerfile provides typed OCaml combinators for generating Dockerfiles. This
+ocaml-dockerfile import retains the library and tests and omits the upstream
+command-line tool."""
 maintainer: [
   "Anil Madhavapeddy <anil@recoil.org>"
   "Antonin Décimo <antonin@tarides.com>"

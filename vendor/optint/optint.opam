@@ -8,12 +8,9 @@ dev-repo:     "git+https://github.com/mirage/optint.git"
 doc:          "https://mirage.github.io/optint/"
 synopsis:     "Efficient integer types on 64-bit architectures"
 description: """
-This library provides two new integer types, `Optint.t` and `Optint.Int63.t`,
-which guarantee efficient representation on 64-bit architectures and provide a
-best-effort boxed representation on 32-bit architectures.
-
-Implementation depends on target architecture.
-"""
+Optint provides integer types with immediate representations on 64-bit
+architectures and boxed fallbacks on 32-bit architectures. This copy adds
+OxCaml portability annotations to the upstream interfaces."""
 
 build: ["dune" "build" "-p" name "-j" jobs]
 run-test: [ "dune" "runtest" "-p" name "-j" jobs ]

@@ -14,11 +14,10 @@
 (package
  (name yamlrw)
  (synopsis "Pure OCaml YAML 1.2 parser and emitter")
- (description "\
-Yamlrw is a pure OCaml implementation of YAML 1.2 parsing and emission. \
-It provides both a high-level JSON-compatible interface for simple data interchange \
-and a lower-level streaming API for fine-grained control over parsing and emission. \
-Requires OxCaml based on OCaml 5.2 or later, without C dependencies.")
+ (description
+  "Yamlrw parses and emits YAML 1.2 in OCaml. It provides a JSON-compatible
+value interface and a lower-level streaming interface. It requires OxCaml
+and has no C dependencies.")
  (depends
   (ocaml (>= 5.2))
   bytesrw
@@ -32,9 +31,9 @@ Requires OxCaml based on OCaml 5.2 or later, without C dependencies.")
 (package
  (name yamlrw-unix)
  (synopsis "Unix I/O for Yamlrw")
- (description "\
-Unix file and channel operations for Yamlrw. \
-Provides convenient functions for reading and writing YAML files using Unix I/O.")
+ (description
+  "This package provides Unix file and channel operations for reading and
+writing YAML with Yamlrw.")
  (depends
   (ocaml (>= 5.2))
   yamlrw
@@ -44,10 +43,8 @@ Provides convenient functions for reading and writing YAML files using Unix I/O.
 (package
  (name yamlrw-eio)
  (synopsis "Eio support for Yamlrw")
- (description "\
-Eio-based streaming I/O for Yamlrw. \
-Provides efficient async YAML parsing and emission using the Eio effects-based concurrency library. \
-Requires OxCaml based on OCaml 5.2 or later.")
+ (description
+  "This package provides Eio streaming readers and writers for Yamlrw.")
  (depends
   (ocaml (>= 5.2))
   yamlrw

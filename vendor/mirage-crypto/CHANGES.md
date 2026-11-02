@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## v2.4.1 (2026-08-26)
 
 - mirage-crypto: CCM avoid padding of already aligned associated data

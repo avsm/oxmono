@@ -19,11 +19,6 @@ build: [
 dev-repo: "git+https://github.com/mirage/lwt-dllist.git"
 synopsis: "Mutable doubly-linked list with Lwt iterators"
 description: """
-A sequence is an object holding a list of elements which support
-the following operations:
-
-- adding an element to the left or the right in time and space O(1)
-- taking an element from the left or the right in time and space O(1)
-- removing a previously added element from a sequence in time and space O(1)
-- removing an element while the sequence is being transversed.
-"""
+Lwt-dllist provides mutable doubly linked lists with insertion and removal
+at either end and removal by element handle. This package contains the
+upstream library with local build integration."""

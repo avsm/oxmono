@@ -1,6 +1,10 @@
 opam-version: "2.0"
 version: "1.0.2"
 synopsis: "Non-blocking JSON codec"
+description: """
+Jsonm provides incremental JSON decoding and encoding without imposing an
+I/O model. This import includes the upstream core codec with local Dune
+packaging and selective OxCaml portability annotations."""
 license: "ISC"
 depends: ["ocaml" "dune" {>= "3.21"} "uutf"]
 build: [["dune" "build" "-p" name "-j" jobs]]

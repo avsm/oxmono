@@ -15,10 +15,9 @@
  (license ISC)
  (synopsis "Declarative HTTP serving with interchangeable backends")
  (description
-  "Proffer describes sites as data: handlers describe responses through a
-callback, routes capture path segments as curried arguments, and caching policy
-and media codecs are typed. JSON and CommonMark adapters are included through
-the httpz media libraries. Route constructors preserve OxCaml portability.")
+  "Proffer describes HTTP routes, responses, cache policies and media codecs as
+typed values. It supports interchangeable serving backends and includes JSON
+and CommonMark adapters.")
  (tags (http server web routing))
  (depends
   (duration (>= 0.3.1))
@@ -45,8 +44,8 @@ the httpz media libraries. Route constructors preserve OxCaml portability.")
  (license ISC)
  (synopsis "Proffer backend on the httpz parser and Eio")
  (description
-  "Serves a compiled Proffer site over HTTP/1.1 using httpz and Eio, with
-bounded concurrency, request deadlines, and optional TLS.")
+  "This package serves Proffer sites over HTTP/1.1 using Httpz and Eio. It
+supports bounded concurrency, request deadlines and optional TLS.")
  (tags (http server web eio))
  (depends
   (duration (>= 0.3.1))

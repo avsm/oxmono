@@ -12,9 +12,9 @@
  (name immich)
  (synopsis "OCaml client library for Immich photo management")
  (description
-  "Type-safe OCaml bindings to the Immich self-hosted photo and video
-   management API. Generated from the OpenAPI specification with support
-   for albums, faces, and server management.")
+  "This library provides an Immich client generated from the service's OpenAPI
+specification. It supports photo and video management, albums, faces and
+server administration.")
  (depends
   (ocaml (>= 5.1))
   (openapi (>= 0.1))

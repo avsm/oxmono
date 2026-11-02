@@ -1,15 +1,10 @@
 version: "v1.0"
 opam-version: "2.0"
 synopsis: "Generate XML sitemaps"
-description: """\
-This project is an OCaml tool to generate XML sitemaps, useful for SEO
-and search engines.
-
-This is sitemap v1.0 vendored unpatched. It is here only because it
-depends on xmlm, and vendor/xmlm shadows the installed xmlm for the
-whole workspace. Two copies of a library named xmlm cannot be linked
-into one executable, so every workspace dependency of xmlm has to be
-built from source alongside it."""
+description: """
+Sitemap generates XML sitemaps for search engines. This copy adds OxCaml
+portability annotations to the upstream interface and uses the locally
+adapted Xmlm library."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy <anil@recoil.org>"]
 license: "ISC"

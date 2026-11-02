@@ -2,7 +2,7 @@
 opam-version: "2.0"
 synopsis: "Eio support for Yamlrw"
 description:
-  "Eio-based streaming I/O for Yamlrw. Provides efficient async YAML parsing and emission using the Eio effects-based concurrency library. Requires OxCaml based on OCaml 5.2 or later."
+  "This package provides Eio streaming readers and writers for Yamlrw."
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

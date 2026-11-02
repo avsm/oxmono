@@ -2,6 +2,9 @@
 
 - Accept local synchronous callbacks in switches, fiber bindings and tracing.
 
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## v1.6
 
 New features:

@@ -1,5 +1,7 @@
 # Changes
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 ## Unreleased
 
 - Update the spindle integration review for ES256, service audiences and

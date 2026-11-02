@@ -2,13 +2,10 @@
 opam-version: "2.0"
 synopsis: "Eio backend for console"
 description: """
-Runs console's progress rows with Eio. It finds whether the output is a
-   terminal and its size, redraws the rows, shows the program's output and
-   its Logs messages under the task that printed them, and gives the
-   terminal back when the run ends, when the program exits and on SIGINT
-   or SIGTERM. On a pipe or in CI each task prints lines instead, or JSON
-   events on request. It also asks for a line, a yes or no or a password
-   on the terminal, and reads keys as they are typed."""
+This package runs Console progress displays and terminal input through Eio.
+It handles terminal cleanup and supports line-oriented or JSON output
+outside terminals. Local adaptations account for OxCaml callback modes and
+portable text processing."""
 maintainer: ["Thomas Gazagnaire <thomas@gazagnaire.org>"]
 authors: ["Thomas Gazagnaire <thomas@gazagnaire.org>"]
 license: "ISC"

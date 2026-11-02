@@ -12,14 +12,9 @@
  (name tomlt)
  (synopsis "TOML 1.1 codec library for OCaml")
  (description
-  "Tomlt is a type-safe TOML 1.1 codec library for OCaml, providing
-bidirectional encoding and decoding using a combinator-based approach
-inspired by Jsont. The core library provides value types and codec
-combinators. Subpackages provide I/O support:
-- tomlt.bytesrw: Streaming parser/encoder using Bytesrw
-- tomlt.eio: Eio integration with system clock
-- tomlt.unix: Unix I/O with system clock
-- tomlt.jsont: Jsont codecs for toml-test JSON format")
+  "Tomlt provides bidirectional TOML 1.1 codecs using combinators inspired by
+Jsont. Separate libraries supply Bytesrw streaming, Eio and Unix I/O, and
+Jsont codecs for the toml-test interchange format.")
  (depends
   (ocaml (>= 4.14.0))
   (ptime (>= 1.0.0))

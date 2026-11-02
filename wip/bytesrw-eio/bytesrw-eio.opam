@@ -2,7 +2,7 @@
 opam-version: "2.0"
 synopsis: "Bytesrw readers and writers for Eio"
 description:
-  "Provides Bytesrw.Bytes.Reader and Writer adapters for Eio Flows"
+  "This library adapts Bytesrw byte-stream readers and writers to Eio flows."
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

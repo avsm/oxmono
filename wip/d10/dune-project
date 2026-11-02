@@ -10,6 +10,11 @@
 (package
  (name d10)
  (synopsis "Content-addressed binary layer cache (day10 format)")
+ (description
+  "D10 stores content-addressed binary layers and executes build recipes in the
+day10 format. It is extracted from oi's d10 and d10ir libraries. Local
+changes add Fetch integration, OxCaml codec adaptations, cached-prefix
+restoration and standalone Makefile export.")
  (depends
   (ocaml (>= 5.2.0))
   (eio (>= 1.0))

@@ -5,6 +5,10 @@
 (package
  (name retrieval)
  (synopsis "Revision-aware lexical and vector retrieval")
+ (description
+  "Retrieval provides lexical and vector search over revisioned document
+corpora. It tracks indexing state so consumers can update changed content
+incrementally.")
  (depopts apple-mlx-embeddings)
  (depends
   (ocaml (>= 5.2))

@@ -1,5 +1,7 @@
 # Unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Pin read-only index snapshots while writers publish updates. Scope retained
   MLX models to an application runtime with explicit release.
 

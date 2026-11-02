@@ -8,6 +8,10 @@
 (package
  (name osm)
  (synopsis "OpenStreetMap Overpass and Nominatim clients")
+ (description
+  "This library provides clients for OpenStreetMap services, including Overpass
+queries and Nominatim address lookup. It uses a caller-supplied Fetch
+client.")
  (depends
   (ocaml (>= 5.2)) fetch fetch-httpz uri jsont eio eio_main
   (http :with-test)))

@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## v1.2.0 (2026-09-11)
 
 * BREAKING: Distinguished_name: separate equality from matching. Introduce

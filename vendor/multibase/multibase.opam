@@ -1,8 +1,10 @@
 version: "0.1.0"
 opam-version: "2.0"
 synopsis: "Self-describing base encodings"
-description:
-  "This library provides self-describing base encodings include Base32, Base58 and Base64"
+description: """
+Multibase encodes and decodes self-describing binary-to-text formats,
+including Base32, Base58 and Base64. This ocaml-multibase import adds OxCaml
+portability annotations."""
 maintainer: ["patrick@sirref.org"]
 authors: ["patrick@sirref.org"]
 license: "MIT"

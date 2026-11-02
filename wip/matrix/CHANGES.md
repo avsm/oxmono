@@ -1,5 +1,7 @@
 ## unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Resume sends blocked by expired access tokens after successful credential
   refresh or worker restart. Persist the failure category without credentials,
   cover refresh/rejection races, and preserve the automatic retry budget.

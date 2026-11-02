@@ -3,6 +3,9 @@
 - Maintain this unreleased library under `wip/osdist`. Preserve its oi
   source provenance and package identity.
 
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 # Changes
 
 - Declare the opam-core dependency used by metadata extraction.

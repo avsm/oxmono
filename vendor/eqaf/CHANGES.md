@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ### v0.10 2024-06-14 Kyoto (Japon)
 
 - Implement functions provided by `eqaf` on bytes (@FantomeBeignet, #41)

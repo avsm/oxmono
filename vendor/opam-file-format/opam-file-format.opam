@@ -1,6 +1,9 @@
 opam-version: "2.0"
 version: "2.2.0"
 synopsis: "Parser and printer for the opam file syntax"
+description: """
+This library parses and prints opam file syntax. The import retains the
+upstream library, parser generator and tests without implementation changes."""
 maintainer: "Louis Gesbert <louis.gesbert@ocamlpro.com>"
 authors: "Louis Gesbert <louis.gesbert@ocamlpro.com>"
 homepage: "https://opam.ocaml.org"

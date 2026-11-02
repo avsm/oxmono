@@ -4,8 +4,8 @@ maintainer: "anil@recoil.org"
 authors: ["David Sheets" "Anil Madhavapeddy" "Hugo Heuzard"]
 synopsis: "A library for manipulation of IP address representations using sexp"
 description: """
-Sexp convertions for ipaddr
-"""
+This package provides S-expression conversions for Ipaddr values. It is
+imported from ocaml-ipaddr and built against the locally adapted library."""
 
 license: "ISC"
 tags: ["org:mirage" "org:xapi-project"]

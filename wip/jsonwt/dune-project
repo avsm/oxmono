@@ -16,6 +16,11 @@
 (package
  (name jsonwt)
  (synopsis "Bounded JSON Web Tokens for OxCaml")
+ (description
+  "Jsonwt implements bounded JWT and CWT decoding, signing and verification. It
+derives from ocaml-jsonwt and adds strict claim and key validation, explicit
+algorithm policies, corrected signature handling and OxCaml mode
+annotations.")
  (depends
   (ocaml
    (>= 5.2))

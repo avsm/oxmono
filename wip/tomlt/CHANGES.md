@@ -1,5 +1,7 @@
 # Unreleased
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 Provide strict TOML field readers that reject unknown keys and wrong types
 without including configuration values in errors.
 

@@ -1,5 +1,7 @@
 # Changes
 
+- Clarify opam descriptions of package functionality and interfaces.
+
 - Share Hugging Face process handling and terminate downloader descendants
   when the wrapper exits or the operation is cancelled.
 

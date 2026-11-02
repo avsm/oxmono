@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ### v1.4.0 2026-10-15 Nantes (France)
 
 - Prefer to use `typedef` internally when it's about C structs (@dinosaure, #174)

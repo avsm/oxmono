@@ -31,10 +31,9 @@
  (name dockerfile)
  (synopsis "Dockerfile eDSL in OCaml")
  (description
-"\| This library provides a typed OCaml interface to generating Dockerfiles
-"\| programmatically without having to resort to lots of shell scripting and
-"\| awk/sed-style assembly.
- )
+  "Dockerfile provides typed OCaml combinators for generating Dockerfiles. This
+ocaml-dockerfile import retains the library and tests and omits the upstream
+command-line tool.")
  (depends
   (ocaml (>= "4.08"))
   (fmt (>= "0.8.7"))
@@ -50,13 +49,9 @@
  (name dockerfile-opam)
  (synopsis "Dockerfile eDSL -- opam support")
  (description
-"\| This library provides a typed OCaml interface to generating Dockerfiles
-"\| programmatically without having to resort to lots of shell scripting and
-"\| awk/sed-style assembly.
-"\|
-"\| The opam subpackage provides opam and Linux-specific distribution support
-"\| for generating dockerfiles.
- )
+  "This package extends ocaml-dockerfile with opam and Linux distribution
+support. The import retains the library and tests and omits the upstream
+command-line tool.")
  (depends
   (dockerfile (= :version))
   (fmt (>= "0.8.7"))

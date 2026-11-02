@@ -25,6 +25,6 @@ build: [
 ]
 dev-repo: "git+https://github.com/mirage/ocaml-ipaddr.git"
 description: """
-Sexp convertions for macaddr
-"""
+This package provides S-expression conversions for Macaddr values. It is
+imported from ocaml-ipaddr and built against the locally adapted library."""
 x-maintenance-intent: [ "(latest)" ]

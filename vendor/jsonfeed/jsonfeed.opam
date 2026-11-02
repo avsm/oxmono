@@ -1,17 +1,10 @@
 version: "v1.1.0"
 opam-version: "2.0"
 synopsis: "JSON Feed format parser and serializer for OCaml"
-description: """\
-This library implements the JSON Feed specification (version 1.1) for
-OCaml. JSON Feed is a syndication format similar to RSS and Atom, but
-using JSON instead of XML. The library provides type-safe parsing and
-serialization using Jsont and Ptime.
-
-This is jsonfeed v1.1.0 vendored unpatched. It is here only because it
-depends on ptime, and vendor/ptime shadows the installed ptime for the
-whole workspace. Two copies of a library named ptime cannot be linked
-into one executable, so every workspace dependency of ptime has to be
-built from source alongside it."""
+description: """
+Jsonfeed parses and serializes JSON Feed 1.1 using Jsont and Ptime. This
+import provides local Dune packaging and builds the upstream sources against
+the workspace libraries."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

@@ -2,11 +2,11 @@ version: "0.4.1"
 opam-version: "2.0"
 name: "bytesrw"
 synopsis: "OxCaml-portable byte stream readers and writers"
-description: """\
-This vendored OxCaml port contains the pure-OCaml Bytesrw 0.4.1 core. It adds
-local and zero-allocation annotations and a selective portable operation
-surface used by Jsont and Httpz media codecs. Optional compression,
-cryptography, Unix, and command-line sublibraries are not included."""
+description: """
+Bytesrw provides byte-stream readers, writers and slice operations. This
+import includes the upstream core, formatting, hexadecimal and UTF support.
+Local changes add allocation contracts and selective portable operations.
+Optional compression, cryptography and backend libraries are omitted."""
 maintainer: "Daniel Bünzli <daniel.buenzli@erratique.ch>"
 authors: "The bytesrw programmers"
 license: "ISC"

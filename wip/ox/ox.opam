@@ -2,6 +2,10 @@
 opam-version: "2.0"
 version: "0.1.0"
 synopsis: "Run opam packages from a local OxCaml source and binary cache"
+description: """
+Ox manages local OxCaml source builds and cached binaries for opam packages.
+It also inventories monorepo packages, creates tagged source archives and
+exports opam repository overlays."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

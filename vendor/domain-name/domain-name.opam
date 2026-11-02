@@ -19,11 +19,7 @@ build: [
 dev-repo: "git+https://github.com/hannesm/domain-name.git"
 synopsis: "RFC 1035 Internet domain names"
 description: """
-A domain name is a sequence of labels separated by dots, such as `foo.example`.
-Each label may contain any bytes. The length of each label may not exceed 63
-charactes.  The total length of a domain name is limited to 253 (byte
-representation is 255), but other protocols (such as SMTP) may apply even
-smaller limits.  A domain name label is case preserving, comparison is done in a
-case insensitive manner.
-"""
+Domain-name represents and validates RFC 1035 domain names. It preserves
+label spelling and provides case-insensitive comparisons. This copy adds
+OxCaml portability annotations to the upstream interface."""
 x-maintenance-intent: [ "(latest)" ]

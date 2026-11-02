@@ -15,11 +15,9 @@
  (name xdge)
  (synopsis "XDG Base Directory Specification support for Eio")
  (description
-  "This library implements the XDG Base Directory Specification \
-   with Eio capabilities to provide safe access to configuration, \
-   data, cache, state, and runtime directories. The library exposes \
-   Cmdliner terms that allow for proper environment variable overrides \
-   and command-line flags.")
+  "Xdge implements the XDG Base Directory Specification using Eio capabilities.
+It provides access to configuration, data, cache, state and runtime
+directories, with Cmdliner terms for environment and command-line overrides.")
  (depends
   (ocaml (>= 5.1.0))
   (eio (>= 1.1))

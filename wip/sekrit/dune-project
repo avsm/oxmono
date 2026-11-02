@@ -16,6 +16,10 @@
 (package
  (name sekrit)
  (synopsis "Secret references and authenticated encrypted local storage")
+ (description
+  "Sekrit resolves secret references and stores named secrets in an
+authenticated encrypted vault. It uses a separate master-key file and
+provides Eio interfaces and a command-line tool for managing the store.")
  (depends
   ocaml
   eioext

@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ## v3.1.2 (2026-07-06)
 
 * opatch: exit with 1 if a patch does not apply (#45 @hannesm)

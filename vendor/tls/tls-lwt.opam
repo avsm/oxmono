@@ -29,6 +29,6 @@ conflicts: [ "result" {< "1.5"} ]
 tags: [ "org:mirage"]
 synopsis: "Transport Layer Security purely in OCaml, Lwt layer"
 description: """
-Tls-lwt provides an effectful Tls_lwt module to be used with Lwt.
-"""
+This package integrates ocaml-tls with Lwt. It is packaged with the locally
+adapted TLS implementation."""
 x-maintenance-intent: [ "(latest)" ]

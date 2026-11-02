@@ -1,3 +1,8 @@
+## Unreleased (OxMono)
+
+- Clarify opam descriptions of package functionality, upstream scope and local
+  adaptations.
+
 ### v0.5.4 2026-10-01 Paris (France)
 
 - Include `stddef.h` correctly for `ptrdiff_t` (@dinosaure, @kit-ty-kate, @hannesm, #90, #91)

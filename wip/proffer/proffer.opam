@@ -2,10 +2,9 @@
 opam-version: "2.0"
 synopsis: "Declarative HTTP serving with interchangeable backends"
 description: """
-Proffer describes sites as data: handlers describe responses through a
-callback, routes capture path segments as curried arguments, and caching policy
-and media codecs are typed. JSON and CommonMark adapters are included through
-the httpz media libraries. Route constructors preserve OxCaml portability."""
+Proffer describes HTTP routes, responses, cache policies and media codecs as
+typed values. It supports interchangeable serving backends and includes JSON
+and CommonMark adapters."""
 maintainer: ["anil@recoil.org"]
 authors: ["Anil Madhavapeddy"]
 license: "ISC"

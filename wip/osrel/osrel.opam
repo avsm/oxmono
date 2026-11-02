@@ -2,6 +2,10 @@
 opam-version: "2.0"
 version: "0.14.2"
 synopsis: "OS and platform detection via Eio"
+description: """
+Osrel detects operating systems, distributions and platforms through Eio. It
+is extracted from oi's osrel library with standalone packaging and clarified
+interface documentation. The implementation is unchanged."""
 maintainer: ["Anil Madhavapeddy <anil@recoil.org>"]
 authors: ["Anil Madhavapeddy" "Mark Elvers" "Ryan Gibb"]
 license: "ISC"

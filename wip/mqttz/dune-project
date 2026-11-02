@@ -15,6 +15,11 @@
 (package
  (name mqttz)
  (synopsis "MQTT 3.1.1 and 5.0 codecs and Eio client for OxCaml")
+ (description
+  "Mqttz provides MQTT 3.1.1 and 5.0 codecs and an Eio client. It derives from
+ocaml-mqtte and replaces packet I/O with bounded byte-slice codecs, explicit
+receive operations and complete QoS acknowledgement handling. Separate
+libraries provide TLS and TOML configuration.")
  (depends
   (ocaml
    (>= 5.2))

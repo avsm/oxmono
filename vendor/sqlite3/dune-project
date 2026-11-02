@@ -22,7 +22,9 @@
  (name sqlite3)
  (synopsis "SQLite3 bindings for OCaml")
  (description
-   "sqlite3-ocaml is an OCaml library with bindings to the SQLite3 client API.\nSqlite3 is a self-contained, serverless, zero-configuration, transactional SQL\ndatabase engine with outstanding performance for many use cases.")
+  "This package binds the SQLite3 database API for OCaml. It derives from
+sqlite3-ocaml and adds an interrupt binding, bundled SQLite, OxCaml modes
+and adapted build metadata.")
  (depends
   (ocaml
    (>= 4.12))
@@ -36,7 +38,9 @@
  (name sqlite3-eio)
  (synopsis "Eio wrapper for SQLite3 bindings")
  (description
-   "Provides Eio-friendly wrappers for the sqlite3-ocaml bindings.\nDatabase operations run in system threads so other Eio fibers can\nproceed concurrently. Handles are tied to Eio switches for automatic cleanup.")
+  "This package adds Eio operations to the locally adapted sqlite3-ocaml
+bindings. It runs database operations in system threads and scopes database
+handles to Eio switches.")
  (depends
   (ocaml (>= 5.1))
   (sqlite3 (= :version))

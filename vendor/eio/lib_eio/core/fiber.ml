@@ -290,11 +290,11 @@ let create_key () = { key = Obj.magic_portable (Hmap.Key.create ()) }
 
 let get key = Hmap.find (hmap_key key) (Cancel.Fiber_context.get_vars ())
 
-let with_binding var value fn =
+let with_binding var value (fn @ local) =
   let ctx = Peff.perform Cancel.Get_context in
   Cancel.Fiber_context.with_vars ctx (Hmap.add (hmap_key var) value ctx.vars) fn
 
-let without_binding var fn =
+let without_binding var (fn @ local) =
   let ctx = Peff.perform Cancel.Get_context in
   Cancel.Fiber_context.with_vars ctx (Hmap.rem (hmap_key var) ctx.vars) fn
 

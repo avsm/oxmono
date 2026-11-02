@@ -1,3 +1,7 @@
+## Unreleased (OxMono)
+
+- Accept local synchronous callbacks in switches, fiber bindings and tracing.
+
 ## v1.6
 
 New features:

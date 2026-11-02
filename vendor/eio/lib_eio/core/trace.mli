@@ -17,7 +17,7 @@ val log : string -> unit
 val name : id -> string -> unit
 (** [name id label] sets [label] as the name for [id]. *)
 
-val with_span : string -> (unit -> 'a) -> 'a
+val with_span : string -> (unit -> 'a) @ local -> 'a
 (** [with_span op fn] runs [fn ()], labelling the timespan during which it runs with [op]. *)
 
 val suspend_fiber : string -> unit

@@ -61,7 +61,7 @@ let error id ex = add_event RE.error (id, ex)
 let suspend_fiber op = add_event RE.suspend_fiber op
 let domain_spawn ~parent = add_event RE.domain_spawn parent
 
-let with_span op fn =
+let with_span op (fn @ local) =
   enter_span op;
   match fn () with
   | r -> exit_span (); r

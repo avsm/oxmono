@@ -34,7 +34,7 @@ module Switch : sig @@ portable
 
   (** {2 Switch creation} *)
 
-  val run : ?name:string -> (t -> 'a) -> 'a
+  val run : ?name:string -> (t -> 'a) @ local -> 'a
   (** [run fn] runs [fn] with a fresh switch (initially on).
 
       When [fn] finishes, [run] waits for all fibers registered with the switch to finish,
@@ -384,7 +384,7 @@ module Fiber : sig @@ portable
   (** [get key] reads [key] from the map of fiber local variables, returning its
       value or [None] if it has not been bound. *)
 
-  val with_binding : 'a key -> 'a -> (unit -> 'b) -> 'b
+  val with_binding : 'a key -> 'a -> (unit -> 'b) @ local -> 'b
   (** [with_binding key value fn] runs [fn] with [key] bound to the provided
       [value].
 
@@ -393,7 +393,7 @@ module Fiber : sig @@ portable
       fibers using an external switch, the bound value may be continue to be
       used after this function returns. *)
 
-  val without_binding : 'a key -> (unit -> 'b) -> 'b
+  val without_binding : 'a key -> (unit -> 'b) @ local -> 'b
   (** [without_binding key value fn] runs [fn] with any binding for [key] removed.
       *)
 end

@@ -109,7 +109,7 @@ let activate t ~parent =
     Lwt_dllist.remove node
 
 (* Runs [fn] with a fresh cancellation context. *)
-let with_cc ~ctx:fiber ~parent ~protected purpose fn =
+let with_cc ~ctx:fiber ~parent ~protected purpose (fn @ local) =
   if not protected then check parent;
   let t = create ~protected purpose in
   let deactivate = activate t ~parent in
@@ -171,12 +171,13 @@ let cancel t ex =
       Printexc.raise_with_backtrace ex bt
   )
 
-let sub_checked ?name purpose fn =
+let sub_checked ?name purpose (fn @ local) =
   let ctx = Peff.perform Get_context in
   let parent = ctx.cancel_context in
-  with_cc ~ctx ~parent ~protected:false purpose @@ fun t ->
-  Option.iter (Trace.name t.id) name;
-  fn t
+  let result = with_cc ~ctx ~parent ~protected:false purpose (fun t ->
+    Option.iter (Trace.name t.id) name;
+    fn t) in
+  result
 
 let sub fn =
   sub_checked Sub fn
@@ -225,7 +226,7 @@ module Fiber_context = struct
   let get_vars () =
     vars (Peff.perform Get_context)
 
-  let with_vars t vars fn =
+  let with_vars t vars (fn @ local) =
     let old_vars = t.vars in
     t.vars <- vars;
     let cleanup () = t.vars <- old_vars in

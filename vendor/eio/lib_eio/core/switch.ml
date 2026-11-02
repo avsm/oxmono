@@ -125,7 +125,7 @@ let create cancel =
     cancel;
   }
 
-let run_internal t fn =
+let run_internal t (fn @ local) =
   match fn t with
   | v ->
     dec_fibers t;
@@ -145,7 +145,9 @@ let run_internal t fn =
     maybe_raise_exs t;
     assert false
 
-let run ?name fn = Cancel.sub_checked ?name Switch (fun cc -> run_internal (create cc) fn)
+let run ?name (fn @ local) =
+  let result = Cancel.sub_checked ?name Switch (fun cc -> run_internal (create cc) fn) in
+  result
 
 let run_protected ?name fn =
   let ctx = Peff.perform Cancel.Get_context in

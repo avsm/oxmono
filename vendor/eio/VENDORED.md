@@ -36,6 +36,11 @@ identify the vendored source version.
 
 ## Local patch set
 
+- Allow local synchronous callbacks in `Switch.run`, fiber bindings and
+  tracing. Callback values are never retained, while switch resources and
+  inherited fiber-variable values remain global. Check borrowed callbacks
+  with the Fetch locality regression and existing switch cancellation tests.
+
 - Declare the recorded upstream version in `dune-project` so generated opam
   metadata and ox snapshot versions satisfy dependent packages' lower bounds.
 

@@ -27,3 +27,9 @@
  (deps management.py)
  (action
   (run python3 %{dep:management.py} %{exe:../bin/main.exe})))
+
+(rule
+ (alias runtest)
+ (deps run_cache.py)
+ (action
+  (run python3 %{dep:run_cache.py} %{exe:../bin/main.exe})))

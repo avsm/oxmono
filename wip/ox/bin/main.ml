@@ -100,41 +100,46 @@ let owner_workspace config owner =
   Unix.chdir output;
   (config, selected.roots)
 
-let run config with_packages dry_run target args user =
+let run config with_packages dry_run target args user local =
   guard @@ fun () ->
-  match user with
-  | None ->
-      let prepared =
-        with_runtime @@ fun proc fs clock sys ->
-        Ox_lib.Runner.prepare ~sys proc ~clock ~fs config ~target ~with_packages
-          ~dry_run
-      in
-      if not dry_run then Ox_lib.Runner.exec prepared args
-  | Some owner ->
-      if
-        with_packages <> []
-        || config.Ox_lib.Runner.from <> None
-        || config.revision <> None
-      then S.fail "--user cannot be combined with --with, --from or --ref";
-      let config, roots = owner_workspace config owner in
-      let workspace =
-        with_runtime @@ fun proc fs clock sys ->
-        Ox_lib.Workspace.prepare proc ~clock ~fs ~sys config ~roots
-          ~action:Build ~dry_run
-      in
-      if not dry_run then
-        Ox_lib.Runner.exec_command workspace.prepared
-          ([
-             "dune";
-             "exec";
-             "--root";
-             workspace.root;
-             "--profile";
-             "release";
-             "--";
-             target;
-           ]
-          @ args)
+  if Filename.basename target <> target || List.mem target [ "."; ".." ] then
+    S.fail "Expected a binary name: %s" target;
+  if local && user <> None then S.fail "--local cannot be combined with --user";
+  if local then (
+    let workspace =
+      with_runtime @@ fun proc fs clock sys ->
+      Ox_lib.Workspace.prepare ~binary:target proc ~clock ~fs ~sys config
+        ~roots:with_packages ~action:Build ~dry_run
+    in
+    if not dry_run then
+      Ox_lib.Workspace.run workspace ~profile:"release" ~jobs:config.jobs
+        ~binary:target args)
+  else
+    match user with
+    | None ->
+        let prepared =
+          with_runtime @@ fun proc fs clock sys ->
+          Ox_lib.Runner.prepare ~sys proc ~clock ~fs config ~target
+            ~with_packages ~dry_run
+        in
+        if not dry_run then Ox_lib.Runner.exec prepared args
+    | Some owner ->
+        if
+          with_packages <> []
+          || config.Ox_lib.Runner.from <> None
+          || config.revision <> None
+        then S.fail "--user cannot be combined with --with, --from or --ref";
+        let cwd = Sys.getcwd () in
+        let config, _roots = owner_workspace config owner in
+        let workspace =
+          with_runtime @@ fun proc fs clock sys ->
+          Ox_lib.Workspace.prepare ~binary:target proc ~clock ~fs ~sys config
+            ~roots:[] ~action:Build ~dry_run
+        in
+        Unix.chdir cwd;
+        if not dry_run then
+          Ox_lib.Workspace.run workspace ~profile:"release" ~jobs:config.jobs
+            ~binary:target args
 
 let config_term =
   let toolchain =
@@ -209,6 +214,12 @@ let with_packages =
     & info [ "with" ] ~docv:"PACKAGE"
         ~doc:"Package atoms to include in the prepared environment.")
 
+let local_arg =
+  Arg.(
+    value & flag
+    & info [ "local" ]
+        ~doc:"Use the editable Git working tree and scoped Dune targets.")
+
 let run_cmd =
   let dry =
     Arg.(
@@ -227,18 +238,12 @@ let run_cmd =
     Term.(
       ret
         (const run $ config_term $ with_packages $ dry $ target $ args
-       $ user_arg))
+       $ user_arg $ local_arg))
 
 let dry_arg =
   Arg.(
     value & flag
     & info [ "n"; "dry-run" ] ~doc:"Display selected packages without building.")
-
-let local_arg =
-  Arg.(
-    value & flag
-    & info [ "local" ]
-        ~doc:"Use the editable Git working tree and scoped Dune targets.")
 
 let roots_arg = Arg.(value & pos_all string [] & info [] ~docv:"PACKAGE")
 
@@ -336,6 +341,7 @@ let build_cmd test =
 
 let environment_command config packages command user =
   guard @@ fun () ->
+  let cwd = Sys.getcwd () in
   let config, owner_roots =
     match user with
     | None -> (config, None)
@@ -362,6 +368,7 @@ let environment_command config packages command user =
              ~action:Build ~dry_run:false)
             .prepared)
   in
+  Unix.chdir cwd;
   match command with
   | [] -> Ox_lib.Runner.exports prepared
   | args -> Ox_lib.Runner.exec_command prepared args

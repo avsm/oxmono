@@ -1,5 +1,11 @@
 # Changes
 
+- Add `ox run --local` for editable binaries, cache binary ownership lookups,
+  and avoid repeated dependency-prefix traversal on warm runs. Owner runs
+  select only the binary's root and preserve the caller's directory. Resolve
+  relative repository paths before staging an owner workspace. Honor the
+  checkout's compiler lock for editable commands too.
+
 - Clarify opam descriptions of package functionality and interfaces.
 
 - Name single-package distfiles after the package version and multi-package

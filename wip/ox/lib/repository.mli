@@ -7,9 +7,12 @@ val prepare : Support.proc -> data:string -> refresh:bool -> string -> t
 (** [prepare proc ~data ~refresh source] opens a local repository or caches a
     Git clone. *)
 
-val resolve_binary : t list -> string -> string list -> string * string list
-(** [resolve_binary repos target packages] returns the executable name and
-    solver roots. Unconstrained snapshot roots select exact snapshot versions. *)
+val resolve_binary :
+  data:string -> t list -> string -> string list -> string * string list
+(** [resolve_binary ~data repos target packages] returns the executable name and
+    solver roots. Unconstrained snapshot roots select exact snapshot versions.
+    Binary ownership is cached under [data], keyed by ordered repository paths
+    and content digests. The caller must hold the metadata lock. *)
 
 val constrain : data:string -> t list -> string list * t list
 (** [constrain ~data repos] retains OxCaml patch guards for external packages.

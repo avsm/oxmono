@@ -27,6 +27,11 @@ val closure : Config.t -> string list -> string list
 (** [closure c hashes] reads layer metadata and returns each layer once, with
     dependencies first. Missing, failed and cyclic dependencies raise. *)
 
+val restore_many : Config.t -> hashes:string list -> unit
+(** [restore_many c ~hashes] reconstructs missing permanent prefixes, visiting
+    the combined dependency graph once. Missing prefixes retain dependency
+    ordering and are rebuilt from their own complete layer closures. *)
+
 val restore : Config.t -> hash:string -> unit
 (** [restore c ~hash] reconstructs missing permanent prefixes for the layer and
     its dependencies using their stored metadata. *)

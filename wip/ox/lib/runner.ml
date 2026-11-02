@@ -86,7 +86,9 @@ let metadata proc config =
 let repositories proc config ~target ~with_packages =
   let repos = metadata proc config in
   let constraints, repos = Repository.constrain ~data:config.data repos in
-  let binary, roots = Repository.resolve_binary repos target with_packages in
+  let binary, roots =
+    Repository.resolve_binary ~data:config.data repos target with_packages
+  in
   if Filename.basename binary <> binary || List.mem binary [ "."; ".." ] then
     fail "Expected a binary name: %s" binary;
   (repos, binary, (config.toolchain :: constraints) @ roots)
@@ -178,7 +180,7 @@ let prepare_request proc ~clock ~fs ~sys ?test_roots config ~select ~action
     let key = hash_fields (request :: layers) in
     let run_prefix = cache / "runs" / key in
     if not dry_run then (
-      List.iter (fun hash -> D10.Prefix.restore d10 ~hash) layers;
+      D10.Prefix.restore_many d10 ~hashes:layers;
       D10.Prefix.ensure d10 ~key ~layer_hashes:layers
         ~dst:Eio.Path.(fs / run_prefix);
       if binary <> "" && not (exists (run_prefix / "bin" / binary)) then
@@ -285,7 +287,9 @@ let prepare_request proc ~clock ~fs ~sys ?test_roots config ~select ~action
 
 let prepare proc ~clock ~fs ~sys config ~target ~with_packages ~dry_run =
   let select repos =
-    let binary, roots = Repository.resolve_binary repos target with_packages in
+    let binary, roots =
+      Repository.resolve_binary ~data:config.data repos target with_packages
+    in
     if Filename.basename binary <> binary || List.mem binary [ "."; ".." ] then
       fail "Expected a binary name: %s" binary;
     (binary, roots)

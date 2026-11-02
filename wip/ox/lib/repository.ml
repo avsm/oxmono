@@ -109,7 +109,69 @@ let snapshot_root repos atom =
       in
       search repos
 
-let resolve_binary repos target with_packages =
+let binary_owners ~data repos target =
+  let key =
+    hash_fields
+      ("ox-binary-owners-v1"
+      :: List.concat_map (fun r -> [ r.path; r.digest ]) repos)
+  in
+  let path = data / "binary-owners" / (key ^ ".sexp") in
+  let load () =
+    let open Sexplib0.Sexp in
+    let contents =
+      try Parsexp.Single.parse_string_exn (read path)
+      with Parsexp.Parse_error _ -> fail "Invalid binary index: %s" path
+    in
+    match contents with
+    | List entries ->
+        List.map
+          (function
+            | List [ Atom binary; Atom owner ] -> (binary, owner)
+            | _ -> fail "Invalid binary index: %s" path)
+          entries
+    | _ -> fail "Invalid binary index: %s" path
+  in
+  let entries =
+    if exists path then load ()
+    else
+      let seen = Hashtbl.create 64 in
+      let entries = ref [] in
+      List.iter
+        (fun r ->
+          let packages = r.path / "packages" in
+          if exists packages then
+            List.iter
+              (fun name ->
+                let dir = packages / name in
+                if Sys.is_directory dir then
+                  List.iter
+                    (fun nv ->
+                      if not (Hashtbl.mem seen nv) then (
+                        Hashtbl.add seen nv ();
+                        let path = dir / nv / "opam" in
+                        if exists path then
+                          List.iter
+                            (fun binary ->
+                              entries := (binary, name) :: !entries)
+                            (binaries (read_opam path))))
+                    (sorted_dir dir))
+              (sorted_dir packages))
+        repos;
+      let entries = List.sort_uniq compare !entries in
+      let open Sexplib0.Sexp in
+      atomic_write path
+        (to_string_hum
+           (List
+              (List.map
+                 (fun (binary, owner) -> List [ Atom binary; Atom owner ])
+                 entries)));
+      entries
+  in
+  List.filter_map
+    (fun (binary, owner) -> if binary = target then Some owner else None)
+    entries
+
+let resolve_binary ~data repos target with_packages =
   let binary, roots =
     if with_packages <> [] then (target, with_packages)
     else
@@ -120,29 +182,8 @@ let resolve_binary repos target with_packages =
       in
       if package_exists then (name_s, [ target ])
       else
-        let seen = Hashtbl.create 64 in
-        let owners = ref [] in
-        List.iter
-          (fun r ->
-            let packages = r.path / "packages" in
-            if exists packages then
-              List.iter
-                (fun name ->
-                  let dir = packages / name in
-                  if Sys.is_directory dir then
-                    List.iter
-                      (fun nv ->
-                        if not (Hashtbl.mem seen nv) then (
-                          Hashtbl.add seen nv ();
-                          let path = dir / nv / "opam" in
-                          if
-                            exists path
-                            && List.mem target (binaries (read_opam path))
-                          then owners := name :: !owners))
-                      (sorted_dir dir))
-                (sorted_dir packages))
-          repos;
-        match List.sort_uniq String.compare !owners with
+        let owners = binary_owners ~data repos target in
+        match List.sort_uniq String.compare owners with
         | [ name ] -> (target, [ name ])
         | [] ->
             fail "No package or binary mapping for %s. Use --with PACKAGE."

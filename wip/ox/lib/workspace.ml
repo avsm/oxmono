@@ -2,7 +2,7 @@ open Support
 
 type t = { root : string; projects : string list; prepared : Runner.prepared }
 
-let prepare proc ~clock ~fs ~sys (config : Runner.config) ~roots ~action
+let prepare ?binary proc ~clock ~fs ~sys (config : Runner.config) ~roots ~action
     ~dry_run =
   if config.from <> None || config.revision <> None then
     fail "Working-tree commands cannot use --from or --ref";
@@ -12,7 +12,24 @@ let prepare proc ~clock ~fs ~sys (config : Runner.config) ~roots ~action
     D10.Lock.with_lock ~clock ~fs ~path:(config.data / "metadata.lock")
     @@ fun _ -> Stamp.working proc ~repo:cwd ~data:config.data
   in
+  let config = Layout.locked_config ~repo:root config in
   let locals = snapshot.Stamp.packages in
+  let roots =
+    match binary with
+    | None -> roots
+    | Some _ when roots <> [] -> roots
+    | Some binary -> (
+        let owners =
+          List.filter (fun p -> List.mem binary p.Stamp.binaries) locals
+        in
+        match owners with
+        | [ p ] -> [ p.name ]
+        | [] ->
+            fail "No local binary mapping for %s. Use --with PACKAGE." binary
+        | ps ->
+            fail "Local binary %s is ambiguous (%s). Use --with PACKAGE." binary
+              (String.concat ", " (List.map (fun p -> p.Stamp.name) ps)))
+  in
   let selected =
     if roots <> [] then
       List.map
@@ -67,3 +84,19 @@ let execute t ~test ~profile ~jobs =
      ]
     @ (if test then [ "--force" ] else [])
     @ List.map target t.projects)
+
+let run t ~profile ~jobs ~binary args =
+  Runner.exec_command t.prepared
+    ([
+       "dune";
+       "exec";
+       "--root";
+       t.root;
+       "--profile";
+       profile;
+       "-j";
+       string_of_int jobs;
+       "--";
+       binary;
+     ]
+    @ args)

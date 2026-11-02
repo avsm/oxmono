@@ -348,7 +348,9 @@ let run proc ~clock ~fs ~sys (config : Runner.config) ~target ~with_packages
     let repos, _, solve_roots =
       Runner.repositories proc config ~target ~with_packages
     in
-    let _, roots = Repository.resolve_binary repos target with_packages in
+    let _, roots =
+      Repository.resolve_binary ~data:config.data repos target with_packages
+    in
     let roots =
       List.map
         (fun atom ->

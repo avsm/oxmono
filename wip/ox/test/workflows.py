@@ -1,5 +1,6 @@
 """Package and working-tree builds share the day10 path and repository policy."""
 import os
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -116,6 +117,28 @@ install: [["mkdir" "-p" "%{lib}%/consumer"] ["cp" "%{lib}%/local-lib/value" "%{l
     pkg("missing-source", 'url { src: "file:///does-not-exist.tar.gz" }\n')
     call(["build", *config, "--fetch", "--dry-run", "missing-source"])
     assert not list((root / "cache").rglob(".opam-switch"))
+    # Owner runs keep the caller's directory and solve only the binary's root.
+    # An unrelated owner package deliberately has an unsatisfiable dependency.
+    write(project / "u/alice/user.json", '{"owner":"alice","include":[]}')
+    write(project / "u/alice/tool/dune-project", '(lang dune 3.21)\n(name owner-tool)\n')
+    write(project / "u/alice/tool/owner-tool.opam", 'opam-version: "2.0"\ndepends: ["external-lib"]\n')
+    write(project / "u/alice/tool/dune", '(executable (name main) (public_name owner-tool))\n')
+    write(project / "u/alice/unused/dune-project", '(lang dune 3.21)\n(name unused)\n')
+    write(project / "u/alice/unused/unused.opam", 'opam-version: "2.0"\ndepends: ["unavailable"]\n')
+    write(dune / "files/dune", '#!/bin/sh\npwd\nprintf "%s\\n" "$@"\n')
+    relative_config = ["--repository", "../base", "--cache-dir", str(root / "cache"),
+                       "--data-dir", str(root / "data")]
+    p = call(["run", *relative_config, "--user", "alice", "owner-tool", "--", "two words"], cwd=project)
+    assert p.stdout.splitlines()[0] == str(project.resolve()), p
+    assert p.stdout.splitlines()[-2:] == ["owner-tool", "two words"], p
+    assert "Building unused" not in p.stderr
+    # Editable commands respect the checkout's compiler lock as owner runs do.
+    pkg("oxcaml-compiler", "", version="5.2.0minus39")
+    write(project / "toolchain.lock.json", json.dumps({
+        "compiler": "oxcaml-compiler.5.2.0minus39", "repositories": []}))
+    p = call(["build", *config, "--local", "--deps-only", "local-lib"], cwd=project)
+    assert "Building oxcaml-compiler.5.2.0minus39" in p.stderr, p
+    (project / "toolchain.lock.json").unlink()
     # Refreshing a pinned repository must not follow its branch tip.
     pkg("pinprobe", "")
     git(base, "init", "-q")

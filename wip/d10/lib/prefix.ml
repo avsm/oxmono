@@ -65,8 +65,8 @@ let closure c hashes =
   List.iter visit hashes;
   List.rev !result
 
-let restore (c : Config.t) ~hash =
-  let layers = closure c [ hash ] in
+let restore_many (c : Config.t) ~hashes =
+  let layers = closure c hashes in
   List.iter
     (fun hash ->
       let dst = path c ~hash in
@@ -74,6 +74,8 @@ let restore (c : Config.t) ~hash =
         ensure c ~key:hash ~layer_hashes:(closure c [ hash ])
           ~dst:Eio.Path.(c.fs / dst))
     layers
+
+let restore c ~hash = restore_many c ~hashes:[ hash ]
 
 let solve_hash hashes =
   (* Overlay order affects the resulting files. Keep it in the cache key. *)

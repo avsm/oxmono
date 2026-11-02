@@ -14,6 +14,20 @@ This clones the `minus39` branch, stamps its committed opam files, builds
 Subsequent runs reuse the local cache. Add `--refresh` before `--` to fetch
 branch updates.
 
+For an editable checkout, use the local path:
+
+```sh
+ox run --local yamlcat -- input.yaml
+```
+
+This selects the package owning `yamlcat`, prepares its dependencies and uses
+Dune's incremental build on working files. It preserves the caller's directory
+and arguments. `--with PACKAGE` selects a local package explicitly when binary
+ownership is ambiguous or generated. `--local` cannot be combined with `--from`,
+`--ref` or `--user`. The first run can still build the compiler and dependencies.
+Local commands honor `toolchain.lock.json` when present.
+Use `--from .` when the command must use committed source instead.
+
 ## Requirements
 
 An installed `ox` executable, Git, tar, patch, make, a C/C++ toolchain and
@@ -266,7 +280,10 @@ completed layer or request receipt and are retried in a fresh build tree.
 Successful requests retain only their ordered layer list and runtime
 environment. Day10 metadata supplies each package's dependency layers for
 prefix restoration. Warm
-execution neither fetches nor solves. Missing installation prefixes are
+execution neither fetches nor solves. Binary ownership indexes are keyed by
+ordered repository content digests, so warm lookups do not parse every opam
+file again. Local repository edits invalidate the index. Prefix restoration
+visits the combined dependency graph once. Missing installation prefixes are
 reconstructed from completed layers. Dependency files are detached before
 installers can modify them. File content and modes determine the installed
 delta. Deleting dependency files is rejected.
@@ -285,6 +302,9 @@ packages require.
 
 ## Scope and tests
 
+[REVIEW.md](REVIEW.md) records the run-workflow review, measurements and
+remaining startup costs.
+
 The runner supports package builds, tests, installed binaries, committed source
 snapshots and editable Dune workspaces. Script dependency headers, automatic
 external pins, independent batch builds and cache cleanup remain future work.
@@ -294,6 +314,7 @@ submodules currently require an explicit source archive.
 
 ```sh
 dune runtest wip/ox --force
+python3 wip/ox/test/run_cache.py _build/default/wip/ox/bin/main.exe --benchmark
 ```
 
 Tests use temporary Git repositories and put a failing `opam` executable on
@@ -330,6 +351,11 @@ ox run --user avsm -- bushel --help
 ox dist bundle --user avsm --output dist/avsm
 ox dist image --user avsm --arch arm64 --tag oxmono-avsm:local
 ```
+
+Owner runs select the requested binary's package for dependency preparation
+and preserve the caller's working directory. Other owner commands continue to
+select the manifest's complete package set. Owner workspaces are staged afresh,
+so use `--local` when incremental compilation in the original checkout matters.
 
 Owner selection excludes other owners before parsing their package metadata.
 It retains complete Dune projects and conservatively includes dependencies,

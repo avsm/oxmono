@@ -279,4 +279,19 @@ with tempfile.TemporaryDirectory(prefix="ox-integration-") as temp:
     write(workspace / "main.ml", 'let () = print_endline ("edited: " ^ Outside.text)\n')
     p = call([OX, "test", *workspace_config], cwd=workspace)
     assert "edited: external Git dependency" in p.stdout + p.stderr
+    # Local runs use editable source and infer the owning package from the
+    # public binary name. Dune must preserve the caller's nested directory.
+    write(workspace / "dune", '(executable (name main) (public_name local-app) (libraries external-lib))\n')
+    nested = workspace / "nested"
+    nested.mkdir()
+    write(workspace / "main.ml", 'let () = Printf.printf "%s|%s|%s\\n" Outside.text (Sys.getcwd ()) Sys.argv.(1)\n')
+    p = call([OX, "run", *workspace_config, "--local", "local-app", "--", "two words"], cwd=nested)
+    assert p.stdout == f"external Git dependency|{nested.resolve()}|two words\n", p
+    write(workspace / "main.ml", 'let () = print_endline "edited local run"\n')
+    p = call([OX, "run", *workspace_config, "--local", "local-app"], cwd=nested)
+    assert p.stdout == "edited local run\n"
+    p = call([OX, "run", *workspace_config, "--local", "unknown"], cwd=nested, code=124)
+    assert "No local binary mapping" in p.stderr
+    p = call([OX, "run", *workspace_config, "--local", "--from", str(workspace), "local-app"], cwd=nested, code=124)
+    assert "cannot use --from" in p.stderr
 print("ox integration: stamps, fork precedence, Git dependencies, concurrent builds, offline native/bytecode, exit status: OK")

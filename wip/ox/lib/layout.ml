@@ -286,7 +286,14 @@ let locked_config ~repo (config : Runner.config) =
       config with
       cache = absolute config.cache;
       data = absolute config.data;
-      overlays = List.map absolute config.overlays;
+      overlays =
+        List.map
+          (fun path -> if exists path then absolute path else path)
+          config.overlays;
+      repositories =
+        List.map
+          (fun path -> if exists path then absolute path else path)
+          config.repositories;
     }
   in
   let path = repo / "toolchain.lock.json" in

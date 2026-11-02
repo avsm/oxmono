@@ -1,5 +1,7 @@
 ## Unreleased
 
+- Restore multiple permanent prefixes with one dependency-graph traversal.
+
 - Maintain this unreleased library under `wip/d10`. Preserve its oi
   source provenance and package identity.
 

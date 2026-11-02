@@ -65,7 +65,7 @@ let parse_url s =
   | Ok u -> u
   | Error msg -> raise (err (Invalid_url (Printf.sprintf "%s (%S)" msg s)))
 
-let make_request ?headers ?(body = Empty) ?(sensitive = []) meth url =
+let make_request ?headers ?(body : body @ local = Empty) ?(sensitive = []) meth url = exclave_
   let headers = Option.value headers ~default:(Http.Header.init ()) in
   {
     meth;
@@ -89,7 +89,7 @@ let restrict ?under ?methods ?filter inner =
   let under =
     Option.map (Scope.list ~what:"prefix" ~caller:"Fetch.restrict") under
   in
-  let check (req : request) =
+  let check (req : request @ local) =
     if not (in_scope under req.url) then
       deny (Fmt.str "url %a not permitted" (pp_url req) req.url);
     (* COPY/MOVE affect a second resource. Every stacked URL restriction
@@ -118,13 +118,14 @@ let restrict ?under ?methods ?filter inner =
   let inner = handler inner in
   of_handler (fun ~sw req ->
       check req;
-      inner ~sw req)
+      let response = inner ~sw req in
+      response)
 
 let read_only inner =
   (* TRACE is safe in RFC 9110 §9.2.1, but can reflect credentials. *)
   let allowed = [ `GET; `HEAD; `OPTIONS ] in
   let inner = handler inner in
-  of_handler (fun ~sw (req : request) ->
+  of_handler (fun ~sw (req : request @ local) ->
       if List.exists (meth_equal req.meth) allowed then inner ~sw req
       else
         deny
@@ -144,7 +145,7 @@ let with_headers ?scope ?(mode = `Set) bs inner =
              name))
     bindings;
   let inner = handler inner in
-  of_handler (fun ~sw (req : request) ->
+  of_handler (fun ~sw (req : request @ local) ->
       let req =
         if not (in_scope scope req.url) then req
         else
@@ -159,7 +160,8 @@ let with_headers ?scope ?(mode = `Set) bs inner =
           in
           { req with headers }
       in
-      inner ~sw req)
+      let response = inner ~sw req in
+      response)
 
 let check_credential = function
   | Credential.Bearer _ | Credential.Basic _ -> ()
@@ -190,14 +192,14 @@ let check_credential = function
    otherwise authenticate as a different, truncated credential than it names.
    The value is read inside the guard, so a lazy one that rejects its own
    material denies here too. *)
-let set_authorization (req : request) ~reason credential =
+let set_authorization (req : request @ local) ~reason credential = exclave_
   let name, value =
     try Header.pair Header.authorization (credential ())
     with Invalid_argument _ -> deny reason
   in
   { req with headers = Http.Header.replace req.headers name value }
 
-let attach_credential (req : request) = function
+let attach_credential (req : request @ local) credential = exclave_ match credential with
   | Credential.Bearer token ->
       set_authorization req
         ~reason:"Bearer credential is not an RFC 6750 b64token" (fun () ->
@@ -235,7 +237,7 @@ let with_credentials ~scope ?(allow_insecure = false) ?(extend = false) creds
   let scope = List.map Scope.to_string scopes in
   List.iter check_credential creds;
   let inner = handler inner in
-  of_handler (fun ~sw (req : request) ->
+  of_handler (fun ~sw (req : request @ local) ->
       let caller_url = req.url in
       (* Classification is independent of attachment: even an out-of-scope
          caller value must not escape on a later redirect. *)
@@ -246,10 +248,11 @@ let with_credentials ~scope ?(allow_insecure = false) ?(extend = false) creds
              creds)
       in
       let req = { req with sensitive } in
+      let request_url = req.url in
       let redirect_scope = if extend then redirect_scope () else [] in
       let extended =
         List.exists
-          (fun origin -> Url.same_origin origin req.url)
+          (fun origin -> Url.same_origin origin request_url)
           redirect_scope
       in
       let req =
@@ -259,7 +262,7 @@ let with_credentials ~scope ?(allow_insecure = false) ?(extend = false) creds
             if
               not
                 (extended
-                || List.exists (fun s -> Scope.matches s req.url) scopes)
+                || List.exists (fun s -> Scope.matches s request_url) scopes)
             then req
             else (
               if Url.scheme req.url = `Http && not allow_insecure then
@@ -267,7 +270,12 @@ let with_credentials ~scope ?(allow_insecure = false) ?(extend = false) creds
                   (Fmt.str
                      "refusing to send credentials over plaintext http (%s)"
                      (Url.origin req.url));
-              List.fold_left attach_credential req creds)
+              let rec attach (req : request @ local) = function
+                | [] -> exclave_ req
+                | credential :: rest -> exclave_
+                    attach (attach_credential req credential) rest
+              in
+              attach req creds)
       in
       let response = inner ~sw req in
       let scope =
@@ -364,26 +372,30 @@ let with_limits ~clock ?scope ?min_interval ?max_concurrent inner =
           This (Option.value (Mtime.add_span now interval) ~default:Mtime.max_stamp)
   in
   let inner = handler inner in
-  of_handler (fun ~sw (req : request) ->
+  of_handler (fun ~sw (req : request @ local) ->
       if not (in_scope scope req.url) then inner ~sw req
       else
         let origin = Url.origin req.url in
         let e = checkout origin in
-        Fun.protect ~finally:(fun () -> checkin e) @@ fun () ->
-        match e.sem with
-        | None ->
-            pace e;
-            inner ~sw req
-        | Some sem ->
-            if Eio.Semaphore.get_value sem = 0 then
-              Trace.log
-                (Fmt.str "fetch: waiting for an in-flight slot (%s)" origin);
-            Eio.Semaphore.acquire sem;
-            Fun.protect
-              ~finally:(fun () -> Eio.Semaphore.release sem)
-              (fun () ->
+        let response =
+          Fun.protect ~finally:(fun () -> checkin e) (fun () ->
+            match e.sem with
+            | None ->
                 pace e;
-                inner ~sw req))
+                inner ~sw req
+            | Some sem ->
+                if Eio.Semaphore.get_value sem = 0 then
+                  Trace.log
+                    (Fmt.str "fetch: waiting for an in-flight slot (%s)" origin);
+                Eio.Semaphore.acquire sem;
+                let response =
+                  Fun.protect
+                    ~finally:(fun () -> Eio.Semaphore.release sem)
+                    (fun () -> pace e; inner ~sw req)
+                in
+                response)
+        in
+        response)
 
 let retry_after ?wall hs =
   match Header.get Header.retry_after hs with
@@ -431,7 +443,7 @@ let with_retry ~clock ~random ?wall ?(config = Retry.default) inner =
     /. float_of_int max_int
   in
   let inner = handler inner in
-  of_handler (fun ~sw (req : request) ->
+  of_handler (fun ~sw (req : request @ local) ->
       let can_retry =
         config.Retry.max_retries > 0
         && body_replayable req.body
@@ -518,7 +530,8 @@ let with_retry ~clock ~random ?wall ?(config = Retry.default) inner =
               let bt = Printexc.get_raw_backtrace () in
               Printexc.raise_with_backtrace ex bt
       in
-      attempt 0)
+      let response = attempt 0 in
+      response)
 
 let is_redirect = function 301 | 302 | 303 | 307 | 308 -> true | _ -> false
 
@@ -538,7 +551,7 @@ let converts_to_get ~status meth =
   | (301 | 302), `POST -> true
   | _ -> false
 
-let redirect_request ~status ~target (req : request) =
+let redirect_request ~status ~target (req : request @ local) = exclave_
   let same_origin = Url.same_origin req.url target in
   let headers =
     if credentials_may_follow ~same_origin ~from:req.url ~target then
@@ -580,7 +593,11 @@ let redirect_request ~status ~target (req : request) =
     if not (body_replayable req.body) then raise (err Body_not_replayable);
     { req with url = target; headers })
 
-let fetch ~sw ?headers:hs ?body:b ?redirects ?allow_downgrade ?redirect
+type redirect_decision =
+  | Return
+  | Follow of { request : request; scope : Url.t list @@ global }
+
+let fetch ~sw ?headers:hs ?body:(b : body option @ local) ?redirects ?allow_downgrade ?redirect
     ?sensitive t meth url =
   let redirect = Option.value redirect ~default:Redirect.default in
   let max_hops =
@@ -599,7 +616,7 @@ let fetch ~sw ?headers:hs ?body:b ?redirects ?allow_downgrade ?redirect
   let u = parse_url url in
   let hs = Option.map Header.to_http hs in
   let req = make_request ?headers:hs ?body:b ?sensitive meth u in
-  let resolve_target (req : request) location =
+  let resolve_target (req : request @ local) location =
     match Url.resolve ~base:req.url location with
     | Ok target -> target
     | Error msg ->
@@ -609,7 +626,7 @@ let fetch ~sw ?headers:hs ?body:b ?redirects ?allow_downgrade ?redirect
                 (Fmt.str "invalid redirect Location %S: %s" location msg)))
   in
   let hops = ref 0 in
-  let rec go req redirect_scope remaining =
+  let rec go (req : request @ local) redirect_scope remaining =
     (* The binding is established even when the scope is empty. It names this
        walk's extension, so an exchange nested inside one must see this walk's
        list rather than inheriting an enclosing walk's. *)
@@ -620,21 +637,21 @@ let fetch ~sw ?headers:hs ?body:b ?redirects ?allow_downgrade ?redirect
     let req = { req with sensitive = Middleware.sensitive resp } in
     let decision =
       match
-        if not (is_redirect (status resp)) then `Return
+        if not (is_redirect (status resp)) then Return
         else
           (* Location has no list syntax. Choosing either value from a duplicate
          field makes security policy depend on a first/last-wins differential,
          so expose the redirect response without following it. *)
           match Http.Header.get_multi (headers resp) "location" with
-          | [] -> `Return
+          | [] -> Return
           | _ :: _ :: _ ->
               Trace.log
                 "fetch: not following a response with multiple Location fields";
-              `Return
+              Return
           | [ location ] -> (
               let target = resolve_target req location in
               match redirect.on_hop ~from:req.url ~to_:target resp with
-              | Redirect.Stop -> `Return
+              | Redirect.Stop -> Return
               | (Redirect.Follow | Redirect.Follow_within_scope) as decision ->
                   if remaining <= 0 then raise (err Too_many_redirects);
                   (match (Url.scheme req.url, Url.scheme target) with
@@ -663,7 +680,7 @@ let fetch ~sw ?headers:hs ?body:b ?redirects ?allow_downgrade ?redirect
                     redirect_request ~status:(status resp) ~target req
                   in
                   close resp;
-                  `Follow (next, next_scope))
+                  Follow { request = next; scope = next_scope })
       with
       | response -> response
       | exception ex ->
@@ -672,10 +689,12 @@ let fetch ~sw ?headers:hs ?body:b ?redirects ?allow_downgrade ?redirect
           Printexc.raise_with_backtrace ex bt
     in
     match decision with
-    | `Return -> resp
-    | `Follow (req, next_scope) -> go req next_scope (remaining - 1)
+    | Return -> resp
+    | Follow { request = req; scope = next_scope } ->
+        let response = go req next_scope (remaining - 1) in
+        response
   in
-  if max_hops <= 0 then
+  let response = if max_hops <= 0 then
     Eio.Fiber.with_binding redirect_scope_key [] (fun () -> request ~sw t req)
   else
     try go req [] max_hops
@@ -684,6 +703,8 @@ let fetch ~sw ?headers:hs ?body:b ?redirects ?allow_downgrade ?redirect
       Eio.Exn.reraise_with_context ex bt "fetching %a (%d redirect%s followed)"
         Url.pp u !hops
         (if !hops = 1 then "" else "s")
+  in
+  response
 
 let get ~sw ?headers ?redirects t url = fetch ~sw ?headers ?redirects t `GET url
 
@@ -696,23 +717,27 @@ let delete ~sw ?headers ?redirects t url =
 let options ~sw ?headers ?redirects t url =
   fetch ~sw ?headers ?redirects t `OPTIONS url
 
-let post ~sw ?headers ?redirects ~body t url =
-  fetch ~sw ?headers ~body ?redirects t `POST url
+let post ~sw ?headers ?redirects ~(body : body @ local) t url =
+  let response = fetch ~sw ?headers ~body ?redirects t `POST url in
+  response
 
-let put ~sw ?headers ?redirects ~body t url =
-  fetch ~sw ?headers ~body ?redirects t `PUT url
+let put ~sw ?headers ?redirects ~(body : body @ local) t url =
+  let response = fetch ~sw ?headers ~body ?redirects t `PUT url in
+  response
 
-let patch ~sw ?headers ?redirects ~body t url =
-  fetch ~sw ?headers ~body ?redirects t `PATCH url
+let patch ~sw ?headers ?redirects ~(body : body @ local) t url =
+  let response = fetch ~sw ?headers ~body ?redirects t `PATCH url in
+  response
 
-let with_response ?headers ?body ?redirects ?allow_downgrade ?redirect
+let with_response ?headers ?(body : body option @ local) ?redirects ?allow_downgrade ?redirect
     ?sensitive t meth url fn =
-  Eio.Switch.run @@ fun sw ->
+  let result = Eio.Switch.run (fun sw ->
   let response =
     fetch ~sw ?headers ?body ?redirects ?allow_downgrade ?redirect ?sensitive t
       meth url
   in
-  Fun.protect ~finally:(fun () -> close response) (fun () -> fn response)
+  Fun.protect ~finally:(fun () -> close response) (fun () -> fn response)) in
+  result
 
 (* Both private body readers receive limits validated by their entry points. *)
 let check_limit caller limit =

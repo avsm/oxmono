@@ -64,3 +64,9 @@
  (name test_link)
  (package fetch)
  (libraries fetch http))
+
+(test
+ (name test_local)
+ (modules test_local)
+ (package fetch)
+ (libraries fetch fetch.mock eio.mock eio http))

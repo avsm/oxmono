@@ -187,7 +187,7 @@ let redacted_debug _handle kind data =
   in
   Fmt.epr "fetch-curl: %s (%d bytes redacted)@." event (String.length data)
 
-let setup_handle cfg h (req : Middleware.request) body =
+let setup_handle cfg h (req : Middleware.request @ local) body =
   Curl.set_followlocation h false;
   Curl.set_protocols h [ Curl.CURLPROTO_HTTP; Curl.CURLPROTO_HTTPS ];
   Curl.set_netrc h Curl.CURL_NETRC_IGNORED;
@@ -258,10 +258,10 @@ let too_large cfg =
   err
     (Invalid_request (Fmt.str "request body exceeds %d bytes" cfg.max_request))
 
-let wire_body_of cfg (req : Middleware.request) =
+let wire_body_of cfg (req : Middleware.request @ local) =
   match req.body with
   | Empty -> No_body
-  | String s -> Fixed s
+  | String s -> Fixed (Bytes.unsafe_to_string (Bytes.of_string s))
   | Stream { length; _ } ->
       (match length with
       | Some l when Int64.compare l 0L < 0 ->
@@ -943,7 +943,7 @@ module Backend = struct
   let closed_error () =
     err (Protocol_error "Fetch_curl: client switch already finished")
 
-  let request eng ~sw (req : Middleware.request) =
+  let request eng ~sw (req : Middleware.request @ local) =
     if Domain.self () <> eng.dom then
       invalid_arg
         "Fetch_curl: client used from a domain other than its creator's";

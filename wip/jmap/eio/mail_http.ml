@@ -31,10 +31,11 @@ let patch args =
            entries
   | _ -> false
 
-let allowed ~writable ~account body =
+let allowed ~writable ~account (body : string @ local) =
   try
     if String.length body > 65536 then false
     else
+      let body = Bytes.unsafe_to_string (Bytes.of_string body) in
       let request = Codec.decode_exn ~max_depth:32 Jsont.json body in
       J.only [ "using"; "methodCalls" ] request;
       let using = List.map J.string (J.array (J.get "using" request)) in
@@ -118,7 +119,7 @@ let create ~url:session_url ~writable fetch =
         invalid_arg "JMAP mail binding changed."
     | _ -> destination := Some value
   in
-  let filter (r : Fetch.Middleware.request) =
+  let filter (r : Fetch.Middleware.request @ local) =
     let headers =
       Http.Header.to_list r.headers
       |> List.for_all (fun (name, _) ->

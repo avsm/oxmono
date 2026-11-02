@@ -18,8 +18,9 @@ let client ~label ~methods fetch =
       with Invalid_argument message -> `Reject message) fetch in
   Fetch.Middleware.middleware (fun next ~sw request ->
       let url = Url.to_string request.Fetch.Middleware.url in
+      let meth = Http.Method.to_string request.meth in
       Diagnostics.Tools.info (fun m -> m "%s request method=%s url=%S"
-          label (Http.Method.to_string request.meth) url);
+          label meth url);
       match next ~sw request with
       | response ->
           Diagnostics.Tools.info (fun m -> m "%s response url=%S status=%d"

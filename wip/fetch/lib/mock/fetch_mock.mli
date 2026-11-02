@@ -1,6 +1,6 @@
 (** This module provides a mock backend for {!Fetch}.
 
-    Any [Fetch.Middleware.request -> Fetch.response] function becomes a client, so code
+    A request handler becomes a client, so code
     written against {!Fetch.type-t} can be tested without sockets. Run it under
     [Eio_mock.Backend.run], or under [run_full] whose auto-advancing clocks suit testing
     {!Fetch.with_limits} and {!Fetch.with_retry}.
@@ -14,7 +14,8 @@
     security-sensitive test that depends on those properties must additionally
     run against [fetch-httpz] or [fetch-curl]. *)
 
-(** [client f] is a client that answers every request with [f request]. *)
+(** [client f] answers requests with [f request]. Each request is copied so
+    that [f] may retain it. Use {!client_local} to borrow without copying. *)
 val client : (Fetch.Middleware.request -> Fetch.response) -> Fetch.plain
 
 (** [respond body req] is a canned response to [req] carrying [body]. It has status 200,
@@ -25,7 +26,7 @@ val respond
   -> ?headers:Http.Header.t
   -> ?version:Fetch.version
   -> string
-  -> Fetch.Middleware.request
+  -> Fetch.Middleware.request @ local
   -> Fetch.response
 
 module Sse : sig
@@ -63,7 +64,7 @@ module Sse : sig
     ?version:Fetch.version ->
     ?retry:int ->
     (sink -> unit) ->
-    Fetch.Middleware.request ->
+    Fetch.Middleware.request @ local ->
     Fetch.response
   (** [respond write request] answers with a finite [text/event-stream] body
       assembled synchronously by [write], plus [Cache-Control: no-store].
@@ -73,3 +74,8 @@ module Sse : sig
       propagate before a response is returned. It is the mock counterpart of
       [Proffer.Sse.respond]. *)
 end
+
+val client_local :
+  (Fetch.Middleware.request @ local -> Fetch.response) -> Fetch.plain
+(** [client_local fn] lends each request to [fn] without copying its body.
+    [fn] must copy any request data it retains after returning. *)

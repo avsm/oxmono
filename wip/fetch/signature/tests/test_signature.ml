@@ -266,7 +266,7 @@ let test_middleware_signs_string_body () =
   let seen = ref None in
   let backend =
     Fetch.Middleware.of_handler (fun ~sw:_ (req : Fetch.Middleware.request) ->
-        seen := Some req;
+        seen := Some (Fetch.Middleware.globalize req);
         Fetch.Middleware.Pi.response ~status:204 ~headers:(Http.Header.init ())
           ~version:`HTTP_1_1
           ~body:(Eio.Flow.string_source "") ~close:ignore

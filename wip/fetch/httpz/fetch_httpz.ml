@@ -617,20 +617,17 @@ module Backend = struct
     | `POST | `PUT | `PATCH -> true
     | _ -> false
 
-  let framing (req : Middleware.request) headers =
+  let framing (req : Middleware.request @ local) headers =
     match req.body with
     | Empty when has_defined_content req.meth ->
-      (`String "", Http.Header.replace headers "content-length" "0")
-    | Empty -> (`None, headers)
+      Http.Header.replace headers "content-length" "0"
+    | Empty -> headers
     | String s ->
-      ( `String s,
-        Http.Header.replace headers "content-length"
-          (string_of_int (String.length s)) )
-    | Stream { length = None; flow } ->
-      (`Chunked flow, Http.Header.replace headers "transfer-encoding" "chunked")
-    | Stream { length = Some length; flow } ->
-      ( `Flow (limited ~length flow),
-        Http.Header.replace headers "content-length" (Int64.to_string length) )
+      Http.Header.replace headers "content-length" (string_of_int (String.length s))
+    | Stream { length = None; _ } ->
+      Http.Header.replace headers "transfer-encoding" "chunked"
+    | Stream { length = Some length; _ } ->
+      Http.Header.replace headers "content-length" (Int64.to_string length)
 
   let connect_transport cfg ~sw url =
     let host = Middleware.Url.host url in
@@ -689,7 +686,7 @@ module Backend = struct
        with ex -> close_transport tr; raise ex);
       tr
 
-  let request cfg ~sw (req : Middleware.request) =
+  let request cfg ~sw (req : Middleware.request @ local) =
     let url = req.url in
     let decode =
       cfg.decode && not (Http.Header.mem req.headers "accept-encoding")
@@ -709,7 +706,7 @@ module Backend = struct
        connection per exchange and drops it afterwards, so saying so lets
        the server release it too (RFC 9112 s9.6). *)
     let headers = Http.Header.replace headers "connection" "close" in
-    let body, headers = framing req headers in
+    let headers = framing req headers in
     let tr =
       try connect_transport cfg ~sw url with ex -> reraise ex
     in
@@ -726,13 +723,13 @@ module Backend = struct
       let wcs = Cstruct.create Httpz.buffer_size in
       Cstruct.blit_from_bytes head 0 wcs 0 head_len;
       let local_ head_cs = Cstruct.sub_local wcs 0 head_len in
-      (match body with
-       | `None -> Eio.Flow.write raw (stack_ [ head_cs ])
-       | `String s ->
+      (match req.body with
+       | Empty -> Eio.Flow.write raw (stack_ [ head_cs ])
+       | String s ->
          Eio.Flow.write raw (stack_ [ head_cs; Cstruct.of_string_local s ])
-       | `Flow flow ->
-         Eio.Flow.write raw (stack_ [ head_cs ]); Eio.Flow.copy flow raw
-       | `Chunked flow ->
+       | Stream { length = Some length; flow } ->
+         Eio.Flow.write raw (stack_ [ head_cs ]); Eio.Flow.copy (limited ~length flow) raw
+       | Stream { length = None; flow } ->
          Eio.Flow.write raw (stack_ [ head_cs ]); send_chunked raw flow);
       (* The head buffer's contents have been sent, so it becomes the
          response's parse window. *)

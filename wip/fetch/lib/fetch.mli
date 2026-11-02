@@ -41,8 +41,8 @@ type body = Middleware.body =
   | Empty  (** [Empty] is a request with no body. *)
   | String of string  (** [String data] is a replayable in-memory body. *)
   | Stream of {
-      length : int64 option;
-      flow : Eio.Flow.source_ty Eio.Resource.t;
+      length : int64 option @@ global;
+      flow : Eio.Flow.source_ty Eio.Resource.t @@ global;
     }
       (** [Stream body] is a one-shot body read from [body.flow]. It is sent
           with [Content-Length] when [body.length] is known and chunked
@@ -58,7 +58,12 @@ module Header = Header
 module Redirect = Redirect
 (** [Redirect] configures redirect following and credential-scope extension. *)
 
-(** {1 Making requests} *)
+(** {1 Making requests}
+
+    In-memory request bodies may be local and are borrowed until the call
+    returns. HTTPZ consumes them during the exchange. Asynchronous backends
+    copy strings they retain. URLs, typed header values and client settings
+    currently require owned storage. Returned responses own their resources. *)
 
 val get :
   sw:Eio.Switch.t ->
@@ -83,7 +88,7 @@ val post :
   sw:Eio.Switch.t ->
   ?headers:Header.headers ->
   ?redirects:int ->
-  body:body ->
+  body:body @ local ->
   _ t ->
   string ->
   response
@@ -94,7 +99,7 @@ val put :
   sw:Eio.Switch.t ->
   ?headers:Header.headers ->
   ?redirects:int ->
-  body:body ->
+  body:body @ local ->
   _ t ->
   string ->
   response
@@ -114,7 +119,7 @@ val patch :
   sw:Eio.Switch.t ->
   ?headers:Header.headers ->
   ?redirects:int ->
-  body:body ->
+  body:body @ local ->
   _ t ->
   string ->
   response
@@ -139,7 +144,7 @@ val read : ?limit:int -> _ t -> string -> string
 val fetch :
   sw:Eio.Switch.t ->
   ?headers:Header.headers ->
-  ?body:body ->
+  ?body:body @ local ->
   ?redirects:int ->
   ?allow_downgrade:bool ->
   ?redirect:Redirect.config ->
@@ -180,7 +185,7 @@ val fetch :
 
 val with_response :
   ?headers:Header.headers ->
-  ?body:body ->
+  ?body:body @ local ->
   ?redirects:int ->
   ?allow_downgrade:bool ->
   ?redirect:Redirect.config ->
@@ -480,7 +485,7 @@ val pp_response : response Fmt.t
 val restrict :
   ?under:string list ->
   ?methods:Http.Method.t list ->
-  ?filter:(Middleware.request -> [ `Allow | `Reject of string ]) ->
+  ?filter:(Middleware.request @ local -> [ `Allow | `Reject of string ]) ->
   _ t ->
   plain
 (** [restrict client] is a client that allows only requests matching every axis

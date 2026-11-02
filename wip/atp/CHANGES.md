@@ -1,5 +1,8 @@
 # Changes
 
+- Accept borrowed Fetch requests and copy data only where retained or required
+  by an owned-input parser.
+
 - Update CLI rendering to the current Console View and terminal APIs.
 
 ## Unreleased

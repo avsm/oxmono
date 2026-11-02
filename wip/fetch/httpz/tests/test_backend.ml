@@ -221,11 +221,17 @@ let test_wire_headers () =
       "user-agent: fetch-httpz" ]
     dump
 
+external create_local : int -> bytes @ local = "caml_create_local_bytes"
+[@@noalloc]
+
 let test_string_body () =
   with_server @@ fun t url ->
   Eio.Switch.run @@ fun sw ->
-  let resp = Fetch.post ~sw t ~body:(String "ping") (url "/echo") in
-  check "echo" "ping" (read_all resp)
+  let local_ bytes = create_local 4 in
+  Bytes.blit_string "ping" 0 bytes 0 4;
+  let local_ text = Bytes.unsafe_to_string bytes in
+  let resp = Fetch.post ~sw t ~body:(stack_ (String text)) (url "/echo") in
+  check "borrowed string body" "ping" (read_all resp)
 
 let test_stream_framing () =
   with_server @@ fun t url ->

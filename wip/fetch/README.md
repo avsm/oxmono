@@ -19,3 +19,19 @@ and backend limits. All examples are under the top-level `example/` directory.
 
 The optional [`fetch.dav`](dav/README.md) library adds WebDAV client operations
 over an existing Fetch capability, using the `httpz.dav` protocol codecs.
+
+Request bodies can borrow local strings through `fetch`, `post`, `put`,
+`patch` and `with_response`. Middleware receives `request @ local` and must
+consume or copy its body before returning. HTTPZ sends the borrowed body
+before returning the response. Curl and macOS copy in-memory uploads into
+owned storage for asynchronous processing.
+
+`Middleware.globalize` creates an owned request snapshot. Its implementation
+uses `ppx_globalize`, preserving global metadata and copying borrowed body
+storage. `Fetch_mock.client` provides owned snapshots for retaining tests.
+`Fetch_mock.client_local` lends requests without copying.
+
+URLs, typed headers, security metadata and returned responses remain owned.
+The URL and security metadata survive in the response, and existing header
+codecs require global values. These interfaces do not promise an allocation-
+free HTTP exchange.

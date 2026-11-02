@@ -1118,7 +1118,8 @@ module Middleware = struct
     let cfg =
       match cfg with None -> config ~key () | Some c -> { c with key }
     in
-    let sign_request (req : Fetch.Middleware.request) =
+    let sign_request (req : Fetch.Middleware.request @ local) =
+      let req = Fetch.Middleware.globalize req in
       let headers = req.headers in
       let headers =
         if add_date && Option.is_none (Http.Header.get headers "date") then

@@ -19,7 +19,7 @@ type t =
       and the user-id must contain no colon; otherwise the request is denied.
       Empty parts and spaces are permitted; a password may contain colons.
       Use {!basic} for a constant pair checked at construction time. *)
-  | Header of string * (Middleware.request -> string)
+  | Header of string * (Middleware.request @ local -> string)
   (** [Header (name, value)] is a credential that sets [name] to [value request]. This
       form supports API-key headers and request signatures. *)
   | Query of (string * string) list

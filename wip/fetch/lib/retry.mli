@@ -35,10 +35,10 @@ type config = {
           [Denied], [Tls_failure], [Body_not_replayable],
           [Invalid_url] and [Invalid_request], which a re-issue cannot
           fix. It defaults to [None]. *)
-  retry_response : (Middleware.request -> Middleware.response -> bool) option;
+  retry_response : (Middleware.request @ local -> Middleware.response -> bool) option;
       (** [retry_response] is the optional predicate selecting additional
           responses to retry. It defaults to [None]. *)
-  retry_request : (Middleware.request -> bool) option;
+  retry_request : (Middleware.request @ local -> bool) option;
       (** [retry_request] is an optional narrowing predicate shared by every
           retry reason, including built-in statuses, connection failures, and
           the additive [retry_response] and [retry_exception] predicates. A
@@ -79,8 +79,8 @@ val v :
   ?respect_retry_after:bool ->
   ?jitter:bool ->
   ?retry_exception:(exn -> bool) ->
-  ?retry_response:(Middleware.request -> Middleware.response -> bool) ->
-  ?retry_request:(Middleware.request -> bool) ->
+  ?retry_response:(Middleware.request @ local -> Middleware.response -> bool) ->
+  ?retry_request:(Middleware.request @ local -> bool) ->
   unit -> config
 (** [v ()] is {!default} with the given fields overridden.
 

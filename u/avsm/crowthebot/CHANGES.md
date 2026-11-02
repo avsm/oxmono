@@ -1,5 +1,8 @@
 # Changes
 
+- Accept borrowed Fetch requests and copy data only where retained or required
+  by an owned-input parser.
+
 - Resolve Sekrit through its installed executable in CLI tests, and retain
   standalone build profiles.
 

@@ -58,25 +58,25 @@ type body =
   | Empty  (** [Empty] is a request with no body. *)
   | String of string  (** [String data] is a replayable in-memory body. *)
   | Stream of {
-      length : int64 option;
+      length : int64 option @@ global;
           (** [length] is the exact byte count when it is known. *)
-      flow : Eio.Flow.source_ty Eio.Resource.t;
+      flow : Eio.Flow.source_ty Eio.Resource.t @@ global;
           (** [flow] is the source supplying the one-shot body. *)
     }
 
 type request = {
-  meth : Http.Method.t;  (** [meth] is the request method. *)
-  url : url;  (** [url] is the validated, canonical target URL. *)
-  headers : Http.Header.t;
+  meth : Http.Method.t @@ global;  (** [meth] is the request method. *)
+  url : url @@ global;  (** [url] is the validated, canonical target URL. *)
+  headers : Http.Header.t @@ global;
       (** [headers] is the request field block before backend-derived framing
           and [Host] fields are added. *)
   body : body;  (** [body] is the request body. *)
-  sensitive : string list;
+  sensitive : string list @@ global;
       (** [sensitive] is the list of case-insensitive header names that carry
           secrets, extending the built-in [Authorization], [Cookie], and
           [Proxy-Authorization] set. A redirect hop that changes origin drops
           them, and {!pp_request} redacts their values. *)
-  sensitive_query : string list;
+  sensitive_query : string list @@ global;
       (** [sensitive_query] is the list of case-sensitive query parameter names
           whose values carry secrets. {!pp_request} and the trace span print the
           URL with those values replaced by ["<redacted>"].
@@ -88,6 +88,11 @@ type request = {
     spelling such as ["HEAD"] must use its standard constructor rather than
     [`Other], so every backend makes the same method-dependent framing
     decision. *)
+
+val globalize : request @ local -> request
+(** [globalize req] copies [req] and its in-memory body into owned storage.
+    Streaming bodies share their source and remain one-shot. Use this only
+    when retaining a request beyond its caller's lifetime. *)
 
 type version = [ Http.Version.t | `HTTP_2 ]
 (** [version] is an HTTP/1.0, HTTP/1.1, or HTTP/2 version. *)
@@ -105,19 +110,22 @@ type 'a t = 'a Eio.Resource.t constraint 'a = [> [> `Generic ] ty ]
 type plain = [ `Generic ] ty Eio.Resource.t
 (** [plain] is a client with no backend-specific interface. *)
 
-type handler = sw:Eio.Switch.t -> request -> response
-(** [handler] is the function that performs one exchange. *)
+type handler = sw:Eio.Switch.t -> request @ local -> response
+(** [handler] performs one exchange using a borrowed request. It must consume
+    or copy the in-memory body before returning. The response owns its metadata
+    and body resources. *)
 
 type middleware = handler -> handler
 (** [middleware] is a transformation of one exchange function into another. *)
 
 (** {1 Exchanges} *)
 
-val request : sw:Eio.Switch.t -> _ t -> request -> response
+val request : sw:Eio.Switch.t -> _ t -> request @ local -> response
 (** [request ~sw client req] is the response to the single exchange [req]. It
-    never follows redirects. *)
+    never follows redirects. The backend must consume or copy borrowed body
+    strings before returning. *)
 
-val pp_url : request -> url Fmt.t
+val pp_url : request @ local -> url Fmt.t
 (** [pp_url request ppf url] prints [url] with the values of the query
     parameters named in [request.sensitive_query] replaced by ["<redacted>"], so
     a wrapper's own diagnostics need not republish a query credential. The
@@ -185,10 +193,10 @@ val of_handler : handler -> plain
 val middleware : middleware -> _ t -> plain
 (** [middleware wrapper client] is [client] transformed by [wrapper]. *)
 
-val body_length : body -> int64 option
+val body_length : body @ local -> int64 option
 (** [body_length body] is [body]'s size in bytes, if known. *)
 
-val body_replayable : body -> bool
+val body_replayable : body @ local -> bool
 (** [body_replayable body] is [true] unless [body] is a [Stream]. *)
 
 (** {1 Header names} *)
@@ -276,7 +284,7 @@ module Pi : sig
     type tag
     (** [tag] is the identifier for the backend's resource interface. *)
 
-    val request : t -> sw:Eio.Switch.t -> request -> response
+    val request : t -> sw:Eio.Switch.t -> request @ local -> response
     (** [request t ~sw req] is the response to one exchange. A backend must
         never follow redirects, and must serialize {!Url.to_string} (or
         {!Url.to_uri}) rather than reparsing a URL string. *)

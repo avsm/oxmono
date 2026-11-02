@@ -96,7 +96,8 @@ module Backend = struct
   type t = config
   type tag = [ `Generic | `Macos ]
 
-  let request cfg ~sw (req : Middleware.request) =
+  let request cfg ~sw (req : Middleware.request @ local) =
+    let req = Middleware.globalize req in
     let caller_encoding = Http.Header.mem req.headers "accept-encoding" in
     let auto_decode = cfg.decode && not caller_encoding in
     let headers = req.headers in

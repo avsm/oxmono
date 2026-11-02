@@ -52,12 +52,13 @@ let sync root =
       | _ -> false)
   | _ -> false
 
-let request_body check = function
-  | M.String body -> (
+let request_body check (body : M.body @ local) = match body with
+  | M.String body when String.length body <= xml_limits.D.max_bytes -> (
+      let body = Bytes.unsafe_to_string (Bytes.of_string body) in
       match D.parse_xml ~limits:xml_limits body with
       | Ok root -> check root
       | Error _ -> false)
-  | Empty | Stream _ -> false
+  | M.String _ | Empty | Stream _ -> false
 
 let rec same_xml a b =
   let attrs e =
@@ -106,7 +107,7 @@ let agenda root =
     same_xml root (Caldav.Report.query_to_xml (Caldav_agenda.query w))
   with _ -> false
 
-let filter (req : M.request) =
+let filter (req : M.request @ local) =
   let reject () =
     `Reject
       "CalDAV mirror permits only discovery, sync and bounded agenda reads"

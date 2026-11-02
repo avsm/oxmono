@@ -41,16 +41,17 @@ let nsid_of path =
     | None -> Some rest
   else None
 
-let middleware next ~sw (request : M.request) =
+let middleware next ~sw (request : M.request @ local) =
   if Logs.Src.level src = None then next ~sw request
   else
+    let metadata = { request with M.body = M.Empty } in
     let start = Ptime_clock.now () in
-    let target_ = redacted_target request in
+    let target_ = redacted_target metadata in
     let tags =
       Logs.Tag.(
         empty
-        |> add meth (Http.Method.to_string request.meth)
-        |> add host (M.Url.host request.url)
+        |> add meth (Http.Method.to_string metadata.meth)
+        |> add host (M.Url.host metadata.url)
         |> add target target_)
     in
     let tags =
@@ -58,7 +59,7 @@ let middleware next ~sw (request : M.request) =
       | Some n -> Logs.Tag.add nsid n tags
       | None -> tags
     in
-    Log.debug (fun m -> m ~tags "%a" M.pp_request request);
+    Log.debug (fun m -> m ~tags "%a" M.pp_request metadata);
     match next ~sw request with
     | response ->
         let code = M.status response in
@@ -69,16 +70,16 @@ let middleware next ~sw (request : M.request) =
         in
         Log.info (fun m ->
             m ~tags "%s %s%s -> %d"
-              (Http.Method.to_string request.meth)
-              (M.Url.host request.url) target_ code);
+              (Http.Method.to_string metadata.meth)
+              (M.Url.host metadata.url) target_ code);
         Log.debug (fun m -> m ~tags "%a" M.pp_response response);
         response
     | exception (Eio.Io _ as ex) ->
         let tags = Logs.Tag.add elapsed (since start) tags in
         Log.info (fun m ->
             m ~tags "%s %s%s failed: %a"
-              (Http.Method.to_string request.meth)
-              (M.Url.host request.url) target_ Eio.Exn.pp ex);
+              (Http.Method.to_string metadata.meth)
+              (M.Url.host metadata.url) target_ Eio.Exn.pp ex);
         raise ex
 
 let wrap http = M.middleware middleware http

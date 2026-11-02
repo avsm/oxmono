@@ -2,6 +2,7 @@
  (name fetch)
  (public_name fetch)
  (private_modules client sse)
+ (preprocess (pps ppx_globalize))
  (libraries duration
   eio
   http

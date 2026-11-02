@@ -253,6 +253,8 @@ end
 let holding ~clock ~span inner =
   Fetch.Middleware.middleware
     (fun handler ~sw req ->
+      (* The timeout races in another fiber, which must own its request. *)
+      let req = Fetch.Middleware.globalize req in
       let deadline = Held.deadline clock span in
       let received = ref None in
       let response =
@@ -417,11 +419,12 @@ let subscribe ~sw client ?types ?ping ?poll ?last_event_id
      of it. A hop discarded on the way keeps its body unread, and one deadline
      covers the walk. *)
   let fetch =
-    Fetch.Middleware.of_handler (fun ~sw (req : Fetch.Middleware.request) ->
-        Fetch.fetch ~sw
+    Fetch.Middleware.of_handler (fun ~sw (req : Fetch.Middleware.request @ local) ->
+        let response = Fetch.fetch ~sw
           ~headers:(Fetch.Header.of_http req.headers)
           ~body:req.body ~sensitive:req.sensitive (Client.fetch client) req.meth
-          (Fetch.Middleware.Url.to_string req.url))
+          (Fetch.Middleware.Url.to_string req.url) in
+        response)
   in
   let fetch =
     match poll_span with

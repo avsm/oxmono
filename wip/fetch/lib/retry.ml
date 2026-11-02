@@ -7,8 +7,8 @@ type config = {
   respect_retry_after : bool;
   jitter : bool;
   retry_exception : (exn -> bool) option;
-  retry_response : (Middleware.request -> Middleware.response -> bool) option;
-  retry_request : (Middleware.request -> bool) option;
+  retry_response : (Middleware.request @ local -> Middleware.response -> bool) option;
+  retry_request : (Middleware.request @ local -> bool) option;
 }
 
 let default = {

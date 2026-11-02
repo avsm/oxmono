@@ -39,28 +39,38 @@ let () =
       | _ -> false
     )
 
+let globalize_string (s : string @ local) =
+  Bytes.unsafe_to_string (Bytes.of_string s)
+
 type body =
   | Empty
   | String of string
-  | Stream of { length : int64 option; flow : Eio.Flow.source_ty Eio.Resource.t }
+  | Stream of {
+      length : int64 option @@ global;
+      flow : Eio.Flow.source_ty Eio.Resource.t @@ global;
+    }
+[@@deriving globalize]
 
-let body_length = function
+let body_length (body : body @ local) = match body with
   | Empty -> Some 0L
   | String s -> Some (Int64.of_int (String.length s))
   | Stream { length; _ } -> length
 
-let body_replayable = function
+let body_replayable (body : body @ local) = match body with
   | Empty | String _ -> true
   | Stream _ -> false
 
 type request = {
-  meth : Http.Method.t;
-  url : Url.t;
-  headers : Http.Header.t;
+  meth : Http.Method.t @@ global;
+  url : Url.t @@ global;
+  headers : Http.Header.t @@ global;
   body : body;
-  sensitive : string list;
-  sensitive_query : string list;
+  sensitive : string list @@ global;
+  sensitive_query : string list @@ global;
 }
+[@@deriving globalize]
+
+let globalize = globalize_request
 
 let is_token = Httpz.Header.Syntax.is_token
 
@@ -79,7 +89,7 @@ let reserved_headers =
   [ "host"; "content-length"; "transfer-encoding"; "connection"; "expect";
     "te"; "upgrade" ]
 
-let check_request (req : request) =
+let check_request (req : request @ local) =
   let meth = Http.Method.to_string req.meth in
   if not (is_token meth) then
     invalid_request (Fmt.str "method %S is not a token" meth);
@@ -141,7 +151,7 @@ let add_absent ?(normalize = Fun.id) existing additions =
          if List.mem entry acc then acc else acc @ [ entry ])
       existing additions
 
-let is_sensitive (req : request) name =
+let is_sensitive (req : request @ local) name =
   let name = String.lowercase_ascii name in
   List.mem name sensitive_headers
   || List.exists (fun s -> String.equal (String.lowercase_ascii s) name)
@@ -152,10 +162,10 @@ let pp_field req f (name, value) =
   else if is_field_value value then Fmt.pf f "%a: %s" pp_token name value
   else Fmt.pf f "%a: %S" pp_token name value
 
-let pp_url req f url =
+let pp_url (req : request @ local) =
   match req.sensitive_query with
-  | [] -> Url.pp f url
-  | names -> Url.pp_redacted ~names f url
+  | [] -> Url.pp
+  | names -> fun f url -> Url.pp_redacted ~names f url
 
 let pp_request f t =
   match Http.Header.to_list t.headers with
@@ -169,13 +179,13 @@ type version = [ Http.Version.t | `HTTP_2 ]
 
 type response = {
   status : int;
-  resp_headers : Http.Header.t;
+  resp_headers : Http.Header.t @@ global;
   resp_version : version;
   resp_body : Eio.Flow.source_ty Eio.Resource.t;
-  resp_url : Url.t;
+  resp_url : Url.t @@ global;
   resp_scope : string list;
   resp_trailers : unit -> Http.Header.t option;
-  resp_sensitive : string list;
+  resp_sensitive : string list @@ global;
   resp_close : unit -> unit;
 }
 
@@ -226,7 +236,7 @@ module Pi = struct
     type t
     type tag
 
-    val request : t -> sw:Eio.Switch.t -> request -> response
+    val request : t -> sw:Eio.Switch.t -> request @ local -> response
   end
 
   type (_, _, _) Eio.Resource.pi +=
@@ -275,11 +285,11 @@ let dispatch ~sw (type tag) (Eio.Resource.T (v, ops) : [> tag ty] Eio.Resource.t
   let module X = (val (Eio.Resource.get ops Pi.Client)) in
   Pi.with_metadata ~sensitive:req.sensitive (X.request v ~sw req)
 
-let request ~sw t (req : request) =
-  Eio.Private.Trace.with_span
+let request ~sw t (req : request @ local) =
+  let response = Eio.Private.Trace.with_span
     (Fmt.str "%a %a" pp_token (Http.Method.to_string req.meth)
        (pp_url req) req.url)
-  @@ fun () ->
+  (fun () ->
   try dispatch ~sw t req
   with Eio.Io _ as ex ->
     let bt = Printexc.get_raw_backtrace () in
@@ -287,13 +297,14 @@ let request ~sw t (req : request) =
        Its response metadata is then unavailable. Never repeat header values
        from the original request in automatic error context. *)
     Eio.Exn.reraise_with_context ex bt "%a %a"
-      pp_token (Http.Method.to_string req.meth) (pp_url req) req.url
+      pp_token (Http.Method.to_string req.meth) (pp_url req) req.url) in
+  response
 
-type handler = sw:Eio.Switch.t -> request -> response
+type handler = sw:Eio.Switch.t -> request @ local -> response
 type middleware = handler -> handler
 
 module Fn_client = struct
-  type t = sw:Eio.Switch.t -> request -> response
+  type t = sw:Eio.Switch.t -> request @ local -> response
   type tag = [ `Generic ]
   let request fn ~sw req = fn ~sw req
 end

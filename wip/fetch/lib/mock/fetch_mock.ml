@@ -1,13 +1,17 @@
 open Fetch
 
-let client fn : Fetch.plain = Fetch.Middleware.of_handler (fun ~sw:_ req -> fn req)
+let client_local fn : Fetch.plain =
+  Fetch.Middleware.of_handler (fun ~sw:_ req -> fn req)
+
+let client fn : Fetch.plain =
+  client_local (fun req -> fn (Fetch.Middleware.globalize req))
 
 let respond
   ?(status = 200)
   ?headers
   ?(version = `HTTP_1_1)
   body
-  (req : Middleware.request)
+  (req : Middleware.request @ local)
   =
   let headers = Option.value headers ~default:(Http.Header.init ()) in
   Fetch.Middleware.Pi.response ~close:(fun () -> ()) ~status ~headers ~version
@@ -24,7 +28,8 @@ module Sse = struct
   let comment sink text = Httpz_media.Sse.comment (emit sink) text
   let retry sink milliseconds = Httpz_media.Sse.retry (emit sink) milliseconds
 
-  let respond ?status ?headers ?version ?retry:retry_ms write req =
+  let respond ?status ?headers ?version ?retry:retry_ms write
+      (req : Middleware.request @ local) =
     let body = Buffer.create 256 in
     Option.iter (retry body) retry_ms;
     write body;

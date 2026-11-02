@@ -1,7 +1,7 @@
 type t =
   | Bearer of (unit -> string)
   | Basic of (unit -> string * string)
-  | Header of string * (Middleware.request -> string)
+  | Header of string * (Middleware.request @ local -> string)
   | Query of (string * string) list
 
 let bearer token =

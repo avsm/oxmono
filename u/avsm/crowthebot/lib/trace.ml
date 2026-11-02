@@ -78,10 +78,10 @@ let finish t id ~response ~http_status ~status ~error =
 let wrap t client =
   let module M = Fetch.Middleware in
   M.middleware
-    (fun next ~sw (request : M.request) ->
+    (fun next ~sw (request : M.request @ local) ->
       let body =
         match request.body with
-        | Fetch.String body -> body
+        | Fetch.String body -> Bytes.unsafe_to_string (Bytes.of_string body)
         | Empty -> ""
         | Stream _ ->
             invalid_arg "Model tracing requires a replayable request body"

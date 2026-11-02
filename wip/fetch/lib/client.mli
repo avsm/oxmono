@@ -10,8 +10,8 @@ type body = Middleware.body =
   | Empty
   | String of string
   | Stream of {
-      length : int64 option;
-      flow : Eio.Flow.source_ty Eio.Resource.t;
+      length : int64 option @@ global;
+      flow : Eio.Flow.source_ty Eio.Resource.t @@ global;
     }
 
 type response = Middleware.response
@@ -40,7 +40,7 @@ val post :
   sw:Eio.Switch.t ->
   ?headers:Header.headers ->
   ?redirects:int ->
-  body:body ->
+  body:body @ local ->
   _ t ->
   string ->
   response
@@ -49,7 +49,7 @@ val put :
   sw:Eio.Switch.t ->
   ?headers:Header.headers ->
   ?redirects:int ->
-  body:body ->
+  body:body @ local ->
   _ t ->
   string ->
   response
@@ -66,7 +66,7 @@ val patch :
   sw:Eio.Switch.t ->
   ?headers:Header.headers ->
   ?redirects:int ->
-  body:body ->
+  body:body @ local ->
   _ t ->
   string ->
   response
@@ -84,7 +84,7 @@ val read : ?limit:int -> _ t -> string -> string
 val fetch :
   sw:Eio.Switch.t ->
   ?headers:Header.headers ->
-  ?body:body ->
+  ?body:body @ local ->
   ?redirects:int ->
   ?allow_downgrade:bool ->
   ?redirect:Redirect.config ->
@@ -96,7 +96,7 @@ val fetch :
 
 val with_response :
   ?headers:Header.headers ->
-  ?body:body ->
+  ?body:body @ local ->
   ?redirects:int ->
   ?allow_downgrade:bool ->
   ?redirect:Redirect.config ->
@@ -174,7 +174,7 @@ val pp_response : response Fmt.t
 val restrict :
   ?under:string list ->
   ?methods:Http.Method.t list ->
-  ?filter:(Middleware.request -> [ `Allow | `Reject of string ]) ->
+  ?filter:(Middleware.request @ local -> [ `Allow | `Reject of string ]) ->
   _ t ->
   plain
 

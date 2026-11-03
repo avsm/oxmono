@@ -181,6 +181,22 @@ let known t id =
   (match t.static with Some repo -> repo.did = id | None -> false)
   || Settings.owner_of t.settings id <> None
 
+let ref_contains t (repo : repo) ~ref_ ~commit =
+  repo.knot = ""
+  ||
+  let page =
+    Network.json t.network
+      (Network.query
+         (repo.knot ^ "/xrpc/org.tangled.git.listCommits")
+         [ ("repo", repo.did); ("ref", ref_); ("limit", "100") ])
+  in
+  match field "commits" page with
+  | Some commits ->
+      List.exists
+        (fun c -> Option.map string (field "hash" c) = Some commit)
+        (list commits)
+  | None -> false
+
 let names_self t manifest =
   Option.map string (field "spindle" manifest) = Some (self t)
 

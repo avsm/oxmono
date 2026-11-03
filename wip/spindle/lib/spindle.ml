@@ -482,6 +482,18 @@ let notify state req ~issuer body =
           | Some names -> [ ("workflows", names) ]
           | None -> []
         in
+        (* A manual run's ref is believed only when it holds the commit, since
+           workflows see it as the ref being built. *)
+        Option.iter
+          (fun ref_ ->
+            let ref_ = string ref_ and commit = get "commit" event in
+            if
+              not
+                (Catalog.ref_contains engine.catalog
+                   (Engine.managed engine repo)
+                   ~ref_ ~commit)
+            then invalid ("ref " ^ ref_ ^ " does not contain commit " ^ commit))
+          (field "ref" event);
         (* A manual run that starts nothing is refused, so its caller does not
            report it as started. *)
         match

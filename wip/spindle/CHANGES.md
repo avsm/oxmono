@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Refuse a manual run whose ref does not hold its commit within 100 commits,
+  as the reference spindle checks it.
+
 - Run a fork's pull request from the target repository at the pull
   request's commit, without the fork's branch, as the reference spindle does.
 

@@ -75,6 +75,11 @@ val known : t -> string -> bool
 (** [known t id] holds for the static repository and for repositories this
     spindle has accepted before. It reads only local state. *)
 
+val ref_contains : t -> repo -> ref_:string -> commit:string -> bool
+(** [ref_contains t repo ~ref_ ~commit] holds when [commit] is among the 100
+    newest commits of [ref_] that [repo]'s knot lists, as deep as the reference
+    spindle looks. A static repository's refs are not checked. *)
+
 val names_self : t -> Jsont.json -> bool
 (** [names_self t manifest] holds when the [org.tangled.repo.manifest] record
     [manifest] names this spindle. *)

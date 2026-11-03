@@ -96,6 +96,14 @@ let () =
       | _ -> ""
     in
     match Uriz.path uri with
+    | "/xrpc/org.tangled.git.listCommits" ->
+        let hashes =
+          if param "ref" = "refs/heads/main" then [ "c1"; "c2" ] else [ "c3" ]
+        in
+        obj
+          [
+            ("commits", arr (List.map (fun h -> obj [ ("hash", str h) ]) hashes));
+          ]
     | "/xrpc/com.atproto.sync.getRepoStatus" ->
         if !gone then
           obj
@@ -242,6 +250,13 @@ let () =
       assert (Catalog.known catalog repo && not (Catalog.known catalog helper));
       assert (Catalog.names_self catalog (rename "Renamed"));
       assert (not (Catalog.names_self catalog (manifest ~spindle:"x" owner)));
+      (* A manual run's ref must hold its commit. *)
+      let r = Option.get (Catalog.managed catalog repo) in
+      assert (
+        Catalog.ref_contains catalog r ~ref_:"refs/heads/main" ~commit:"c2");
+      assert (
+        not
+          (Catalog.ref_contains catalog r ~ref_:"refs/heads/other" ~commit:"c2"));
       assert (not (Catalog.deleted catalog repo));
       gone := true;
       assert (Catalog.deleted catalog repo));

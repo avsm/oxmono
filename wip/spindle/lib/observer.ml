@@ -179,6 +179,14 @@ let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
     if Engine.first engine "pull-hook" dedup then
       Hooks.pull_request hooks served ~event ~sender
         (pull_view ~ticket:t ~seen ~source);
+    (* The target repository's knot holds a pull request's commits, so the
+       pipeline runs from it, as the reference spindle runs it. A fork's
+       branch names nothing in the target, so it is left out. *)
+    let fork =
+      match source with
+      | Some s -> did (get "repo" s) <> served.did
+      | None -> false
+    in
     let trigger =
       obj
         ([
@@ -190,12 +198,8 @@ let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
          ]
         @
         match source with
-        | None -> []
-        | Some s ->
-            [
-              ("sourceRepo", str (did (get "repo" s)));
-              ("sourceBranch", str (get "branch" s));
-            ])
+        | Some s when not fork -> [ ("sourceBranch", str (get "branch" s)) ]
+        | _ -> [])
     in
     (* A pull request from someone without push access waits for a
        collaborator's approval, as does a change by such a sender. *)
@@ -205,7 +209,8 @@ let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
         && Catalog.authorized engine.catalog served sender)
     in
     ignore
-      (Engine.create engine ~dedup ~blocked ~automatic:true ~actor:sender
+      (Engine.create engine ~dedup ~blocked ~untrusted:fork ~automatic:true
+         ~actor:sender
          (obj [ ("repo", str served.did); ("trigger", trigger) ]))
   end
 

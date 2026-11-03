@@ -292,6 +292,8 @@ def main():
     assert queried["pipelines"][0]["id"] == pipeline
     (state / "last-run.json").write_text(json.dumps(
         {"id": pipeline, "events": events, "frames": frames, "request": body}, indent=2))
+    # Pagination needs a second pipeline, even in a fresh state directory.
+    wait_pipeline(dispatch(body, auth(alice)))
     page = get("org.tangled.ci.queryPipelines", repo=REPO, limit=1)
     assert "cursor" in page
     next_page = get("org.tangled.ci.queryPipelines", repo=REPO, limit=1,

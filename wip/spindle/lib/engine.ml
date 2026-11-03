@@ -516,19 +516,21 @@ let ref_variables ref_ =
     String.sub ref_ (String.length prefix)
       (String.length ref_ - String.length prefix)
   in
-  if String.starts_with ~prefix:"refs/heads/" ref_ then
-    [
-      ("TANGLED_REF", ref_);
-      ("TANGLED_REF_NAME", short "refs/heads/");
-      ("TANGLED_REF_TYPE", "branch");
-    ]
-  else if String.starts_with ~prefix:"refs/tags/" ref_ then
-    [
-      ("TANGLED_REF", ref_);
-      ("TANGLED_REF_NAME", short "refs/tags/");
-      ("TANGLED_REF_TYPE", "tag");
-    ]
-  else [ ("TANGLED_REF", ref_); ("TANGLED_REF_NAME", ref_) ]
+  (* Any ref but a tag is a branch, and its name is shortened as Git
+     shortens it, as the reference spindle reports them. *)
+  let name, kind =
+    match
+      List.find_opt
+        (fun prefix -> String.starts_with ~prefix ref_)
+        [ "refs/heads/"; "refs/tags/"; "refs/remotes/" ]
+    with
+    | Some ("refs/tags/" as prefix) -> (short prefix, "tag")
+    | Some prefix -> (short prefix, "branch")
+    | None -> (ref_, "branch")
+  in
+  [
+    ("TANGLED_REF", ref_); ("TANGLED_REF_NAME", name); ("TANGLED_REF_TYPE", kind);
+  ]
 
 (* The reference spindle's CI variables, for every step of every workflow. *)
 let variables (repo : Catalog.repo) ~default_branch ~id ~kind ~trigger
@@ -551,8 +553,8 @@ let variables (repo : Catalog.repo) ~default_branch ~id ~kind ~trigger
     ("TANGLED_SHA", commit);
     ("TANGLED_COMMIT_SHA", commit);
   ]
-  @ opt "TANGLED_REPO_NAME" (Some repo.name)
-  @ opt "TANGLED_REPO_DEFAULT_BRANCH" default_branch
+  @ opt "TANGLED_REPO_NAME" (Some (Catalog.slug repo.name))
+  @ [ ("TANGLED_REPO_DEFAULT_BRANCH", Option.value ~default:"" default_branch) ]
   @
   match kind with
   | Job.Push -> ref_variables (get "ref" trigger)
@@ -567,11 +569,15 @@ let variables (repo : Catalog.repo) ~default_branch ~id ~kind ~trigger
       Option.fold ~none:[]
         ~some:(fun b -> ref_variables ("refs/heads/" ^ b))
         (text "sourceBranch")
-      @ opt "TANGLED_PIPELINE_SOURCE_BRANCH" (text "sourceBranch")
-      @ opt "TANGLED_PIPELINE_TARGET_BRANCH" (text "targetBranch")
-      @ opt "TANGLED_PR_SOURCE_BRANCH" (text "sourceBranch")
-      @ opt "TANGLED_PR_TARGET_BRANCH" (text "targetBranch")
-      @ opt "TANGLED_PR_SOURCE_SHA" (Some commit)
+      @
+      let always k v = (k, Option.value ~default:"" v) in
+      [
+        always "TANGLED_PIPELINE_SOURCE_BRANCH" (text "sourceBranch");
+        always "TANGLED_PIPELINE_TARGET_BRANCH" (text "targetBranch");
+        always "TANGLED_PR_SOURCE_BRANCH" (text "sourceBranch");
+        always "TANGLED_PR_TARGET_BRANCH" (text "targetBranch");
+        ("TANGLED_PR_SOURCE_SHA", commit);
+      ]
 
 let create t ?dedup ?(changed_files = []) ?(default_ref = false)
     ?(blocked = false) ?(untrusted = false) ?principal ~automatic ~actor request

@@ -71,6 +71,11 @@ let () =
     Engine.create engine ~dedup:"event-1" ~automatic:true ~actor:owner request
   in
   assert (first = second && Option.is_some first);
+  (* Refs are named as the reference spindle names them. *)
+  let ref_ r = List.map snd (Engine.ref_variables r) in
+  assert (ref_ "refs/heads/main" = [ "refs/heads/main"; "main"; "branch" ]);
+  assert (ref_ "refs/tags/v1" = [ "refs/tags/v1"; "v1"; "tag" ]);
+  assert (ref_ "refs/pull/1" = [ "refs/pull/1"; "refs/pull/1"; "branch" ]);
   (* A webhook receipt is recorded once. *)
   assert (Engine.first engine "push-hook" "r/refs/heads/main/a/b");
   assert (not (Engine.first engine "push-hook" "r/refs/heads/main/a/b"));

@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Set CI variables as the reference spindle does: `TANGLED_REPO_NAME` is the
+  lowercased name, any ref but a tag has `TANGLED_REF_TYPE=branch`, and the
+  default branch and pull request branch variables are always set.
+
 - Name a webhook's repository by its owner and lowercased name, as the
   reference spindle does, and limit deliveries to one host to two at once
   and 64 waiting.

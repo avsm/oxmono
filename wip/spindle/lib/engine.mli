@@ -123,6 +123,10 @@ val create :
     pipeline, or one whose code comes from another repository, receives no
     secrets. *)
 
+val ref_variables : string -> (string * string) list
+(** [ref_variables ref_] is [TANGLED_REF], [TANGLED_REF_NAME] and
+    [TANGLED_REF_TYPE] for [ref_]. Any ref but a tag is a branch. *)
+
 val first : t -> string -> string -> bool
 (** [first t namespace key] records [key] in [namespace] and holds if it was not
     already recorded. Receipts expire with event receipts. *)

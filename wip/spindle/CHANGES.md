@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Let an executor add workflows to its running pipeline with `spawn`, and
+  add `--executor=solve`, which simulates a dependency solve that spawns a
+  build workflow for each of three compilers.
+
 - Check a manual run's caller before asking the knot about its ref, answer
   503 when a workflow file cannot be fetched, and fetch any workflow by its
   file name.

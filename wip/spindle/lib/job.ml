@@ -22,6 +22,7 @@ type t = {
   clone : bool;
   definition : Jsont.json option;
   yaml : string option;
+  spawned : bool;
 }
 
 let step ?(env = []) name command = { name; command; env }
@@ -44,6 +45,7 @@ let v ?(accepts = routine) name steps =
     clone = true;
     definition = None;
     yaml = None;
+    spawned = false;
   }
 
 let workflow ~env ~clone ~definition ~yaml name steps =
@@ -55,6 +57,10 @@ let workflow ~env ~clone ~definition ~yaml name steps =
     clone;
     definition = Some definition;
     yaml = Some yaml;
+    spawned = false;
   }
+
+let spawned ?(env = []) name steps =
+  { (v ~accepts:(fun _ -> true) name steps) with env; spawned = true }
 
 let inspect = v "inspect" [ step "list files" "ls -la" ]

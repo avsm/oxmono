@@ -89,6 +89,7 @@ let snapshot p =
        ("env", pairs p.job.env);
        ("clone", bool p.job.clone);
      ]
+    @ (if p.job.spawned then [ ("spawned", bool true) ] else [])
     @ optional "definition" Fun.id p.job.definition
     @ optional "yaml" str p.job.yaml)
 
@@ -122,6 +123,10 @@ let restore raw =
             | Some (Jsont.Bool (b, _)) -> b
             | _ -> true)
           ~yaml:(Option.fold ~none:"" ~some:string yaml)
+          name steps
+    | None, _ when field "spawned" raw = Some (Jsont.Json.bool true) ->
+        Job.spawned
+          ~env:(Option.fold ~none:[] ~some:unpairs (field "env" raw))
           name steps
     | None, _ -> Job.v name steps
   in
@@ -273,7 +278,7 @@ let flush record p ~step s =
 (* [context record persist p ~secrets] numbers the executor's steps from 0 and
    masks [secrets] in each stream of a step. Text held back by a mask or an
    unterminated line at the end of a step is flushed into that step. *)
-let context record persist p ~secrets : Executor.context =
+let context record persist p ~secrets ~spawn : Executor.context =
   let values = List.map snd secrets in
   let next = ref 0 in
   let current = ref None in
@@ -304,14 +309,15 @@ let context record persist p ~secrets : Executor.context =
         in
         frame record p ~step s (Mask.feed s.mask content)
   in
-  { step; log }
+  let spawn ?(env = []) name steps = spawn ~env name steps in
+  { step; log; spawn }
 
 (* [message exn] is what a viewer is shown for a failed workflow. *)
 let message = function
   | Failure m | Invalid_argument m -> m
   | exn -> Printexc.to_string exn
 
-let execute state input ~record ~persist p =
+let execute state input ~record ~persist ~spawn p =
   Eio.Semaphore.acquire state.slots;
   Fun.protect ~finally:(fun () -> Eio.Semaphore.release state.slots)
   @@ fun () ->
@@ -326,7 +332,7 @@ let execute state input ~record ~persist p =
         Eio.Switch.run @@ fun sw ->
         p.cancel <- Some (fun () -> Eio.Switch.fail sw Cancelled);
         state.executor
-          (context record persist p ~secrets:input.secrets)
+          (context record persist p ~secrets:input.secrets ~spawn)
           (request input p.job);
         Ok ()
       with exn -> Error exn

@@ -54,14 +54,15 @@ val execute :
   input ->
   record:(string -> int64) ->
   persist:(unit -> unit) ->
+  spawn:(env:(string * string) list -> string -> Job.step list -> unit) ->
   t ->
   unit
-(** [execute env input ~record ~persist workflow] waits for a worker slot and
-    hands [workflow] to the executor of [env]. Each transition calls [persist].
-    Each JSON-encoded event calls [record] before becoming visible to log
-    subscribers. [record] returns the durable journal sequence for snapshot
-    compaction. A cancelled workflow's error is ["User canceled the workflow"],
-    as the reference spindle reports it, and a workflow that ran out of time has
-    none. *)
+(** [execute env input ~record ~persist ~spawn workflow] waits for a worker slot
+    and hands [workflow] to the executor of [env]. The executor's [spawn] calls
+    [spawn]. Each transition calls [persist]. Each JSON-encoded event calls
+    [record] before becoming visible to log subscribers. [record] returns the
+    durable journal sequence for snapshot compaction. A cancelled workflow's
+    error is ["User canceled the workflow"], as the reference spindle reports
+    it, and a workflow that ran out of time has none. *)
 
 val cancel : persist:(unit -> unit) -> t -> unit

@@ -111,6 +111,16 @@ let executor (ctx : Spindle.Executor.context) (r : Spindle.Executor.request) =
     r.steps
 ```
 
+`spawn name steps` adds a workflow to the running pipeline, run by the same
+executor. A planning executor uses it to start one workflow per build it
+decides on, such as one per compiler a dependency solve allows. A retry of a
+spawned workflow reruns the workflow that spawned it.
+
+`spindle --executor=solve` uses `Spindle.Executor.solve`, which simulates
+this: its `solve` workflow pretends to solve for `ocaml-4.14`, `ocaml-5.5`
+and `oxcaml-5.2minus39`, then spawns a workflow for each that logs made-up
+build and test output after short random waits.
+
 `Spindle.Executor.print clock` is the default, used by the `spindle`
 command. It logs a description of the request as system step 0 and each
 step, with its command and environment, after it, also prints the description

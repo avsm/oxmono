@@ -47,7 +47,12 @@ let () =
   let engine =
     Engine.v ~store ~catalog ~settings ~hostname:"spindle.test"
       ~jobs:[ Job.inspect; job ]
-      ~executor:(fun _ _ -> ())
+      ~executor:(fun ctx r ->
+        (* A manual run asks for a spawned workflow with an input. *)
+        match List.assoc_opt "TANGLED_INPUT_SPAWN" r.variables with
+        | Some name when r.workflow = "inspect" ->
+            ctx.spawn name [ Job.step "child step" "true" ]
+        | _ -> ())
       ~system:env ~directory ~sw ()
   in
   Eio.Semaphore.acquire engine.runner.slots;
@@ -245,6 +250,61 @@ let () =
   List.iter cancel (replacement :: List.tl queued);
   Eio.Semaphore.release engine.runner.slots;
   Eio.Semaphore.release engine.runner.slots;
+  (* A workflow may add another to its running pipeline, which runs and is
+     shown with it. A retry reruns the workflow that spawned it. *)
+  let spawner =
+    obj
+      [
+        ("$type", str Engine.manual);
+        ("commit", str (String.make 40 'a'));
+        ("inputs", arr [ obj [ ("key", str "spawn"); ("value", str "child") ] ]);
+      ]
+  in
+  let id =
+    Engine.create engine ~automatic:false ~actor:owner
+      (obj [ ("repo", str repo); ("trigger", spawner) ])
+    |> Option.get
+  in
+  let rec settle n =
+    let p = Option.get (Engine.find engine id) in
+    let names =
+      List.map (fun (r : Spindle__Runner.t) -> r.job.name) p.workflows
+    in
+    if
+      List.mem "child" names
+      && List.for_all
+           (fun (r : Spindle__Runner.t) -> r.status = "success")
+           p.workflows
+    then p
+    else if n = 0 then
+      failwith
+        ("the spawned workflow did not finish: "
+        ^ String.concat ", "
+            (List.map
+               (fun (r : Spindle__Runner.t) ->
+                 r.job.name ^ "=" ^ r.status ^ " "
+                 ^ Option.value ~default:"" r.error)
+               p.workflows))
+    else (
+      Eio.Time.sleep env#clock 0.05;
+      settle (n - 1))
+  in
+  let p = settle 100 in
+  assert (
+    List.map (fun (r : Spindle__Runner.t) -> r.job.name) p.workflows
+    = [ "inspect"; "child" ]);
+  let shown =
+    List.map (get "name") (list (required "workflows" (Engine.view engine p)))
+  in
+  assert (shown = [ "inspect"; "child" ]);
+  let again =
+    Engine.retry engine ~principal:owner ~actor:owner ~repo ~id
+      ~names:[ "child" ]
+    |> Option.get
+  in
+  (match (Option.get (Engine.find engine again)).workflows with
+  | (first : Spindle__Runner.t) :: _ -> assert (first.job.name = "inspect")
+  | [] -> assert false);
   print_endline
-    "events: durable dispatch deduplication, OCaml selection, approval, retry \
-     and cancellation passed"
+    "events: durable dispatch deduplication, OCaml selection, approval, retry, \
+     cancellation and spawning passed"

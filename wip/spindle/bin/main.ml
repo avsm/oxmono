@@ -3,7 +3,8 @@ open Cmdliner
 
 let serve hostname owner admins admission repo source plc state_dir port addr
     jetstream allow_http workflow_timeout quota_repo quota_user private_webhooks
-    cors_origins contact_email privacy_policy terms_of_service operations =
+    cors_origins contact_email privacy_policy terms_of_service executor
+    operations =
   let repo =
     match (repo, source) with
     | None, None -> None
@@ -21,10 +22,17 @@ let serve hostname owner admins admission repo source plc state_dir port addr
       plc;
       state_dir;
       port;
-      jobs = [ Spindle.Job.inspect ];
+      jobs =
+        (match executor with
+        | `Print -> [ Spindle.Job.inspect ]
+        | `Solve ->
+            [ Spindle.Job.v "solve" [ Spindle.Job.step "solve" "opam solve" ] ]);
       jetstream;
       allow_http;
-      executor = Spindle.Executor.print env#clock;
+      executor =
+        (match executor with
+        | `Print -> Spindle.Executor.print env#clock
+        | `Solve -> Spindle.Executor.solve env#clock);
       workflow_timeout;
       quotas = { repo = quota_repo; user = quota_user };
       private_webhooks;
@@ -195,6 +203,15 @@ let command =
           & opt (some string) None
           & info [ "terms-of-service" ] ~docv:"URL"
               ~doc:"Terms of service that $(b,describeSpindle) links to.")
+      $ Arg.(
+          value
+          & opt (enum [ ("print", `Print); ("solve", `Solve) ]) `Print
+          & info [ "executor" ]
+              ~doc:
+                "How workflows are handled. $(b,print) describes each one. \
+                 $(b,solve) runs a $(b,solve) workflow that pretends to solve \
+                 dependencies, then adds a workflow for each compiler that \
+                 logs made-up build and test output. Neither runs anything.")
       $ operations)
   in
   Cmd.v (Cmd.info "spindle" ~doc:"Run a Tangled spindle") term

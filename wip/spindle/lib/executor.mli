@@ -39,11 +39,25 @@ type context = {
           secret replaced by [***]. The log holds one line per frame, so an
           unterminated line waits for its newline, a line longer than 16 KiB or
           the end of the step. It raises [Invalid_argument] outside a step. *)
+  spawn : ?env:(string * string) list -> string -> Job.step list -> unit;
+      (** [spawn ~env name steps] adds workflow [name] to the pipeline, as
+          {!Job.spawned} describes it, and starts it with this executor. It runs
+          alongside the current workflow, for instance one for each build a plan
+          finds. [name] must be a valid workflow file name not already in the
+          pipeline, which holds at most 50 workflows. *)
 }
 
 type t = context -> request -> unit
 (** An executor runs a workflow and returns when it has succeeded. It fails the
     workflow by raising. Cancellation and the time limit cancel its fiber. *)
+
+val solve : ?compilers:string list -> _ Eio.Time.clock -> t
+(** [solve clock] simulates a planning spindle. A workflow it did not spawn is
+    described as {!print} does, then given a [solve] step that pretends to solve
+    the repository's dependencies for each of [compilers], which default to
+    [ocaml-4.14], [ocaml-5.5] and [oxcaml-5.2minus39]. It spawns a workflow for
+    each compiler, which logs made-up dependency installation, build and test
+    output with short random waits and succeeds. Nothing is run. *)
 
 val print : ?delay:float -> _ Eio.Time.clock -> t
 (** [print ~delay clock] logs the request, with each secret's value replaced by

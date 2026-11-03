@@ -12,7 +12,7 @@ type pipeline = {
   created : string;
   trusted : bool;
   variables : (string * string) list;
-  workflows : Runner.t list;
+  mutable workflows : Runner.t list;
 }
 
 type reader = did:string -> commit:string -> (string * string) list
@@ -214,55 +214,71 @@ let minutes_left t p =
 
 let running t did = Option.value ~default:0 (Hashtbl.find_opt t.running did)
 
+(* [start_one t p workflow] runs a pending workflow of [p] in its own fiber,
+   and [spawn] adds one while [p] runs. *)
+let rec start_one t p (workflow : Runner.t) =
+  Eio.Fiber.fork ~sw:t.sw (fun () ->
+      let input () : Runner.input =
+        {
+          id = p.id;
+          repo = p.repo;
+          source = p.source;
+          commit = p.commit;
+          metadata = p.metadata;
+          variables = p.variables;
+          secrets =
+            (if p.trusted then Settings.secrets t.settings p.repo else []);
+        }
+      in
+      let fail message =
+        workflow.status <- "failed";
+        workflow.finished <- Some (Runner.now ());
+        workflow.error <- Some message;
+        persist t p
+      in
+      try
+        match minutes_left t p with
+        | Some message -> fail message
+        | None ->
+            acquire t p workflow;
+            let began = Eio.Time.now t.runner.system#clock in
+            Fun.protect ~finally:(fun () ->
+                release t p;
+                let spent = Eio.Time.now t.runner.system#clock -. began in
+                if workflow.started <> None then
+                  Settings.add_minutes t.settings (counted t p)
+                    (int_of_float (Float.ceil (spent /. 60.))))
+            @@ fun () ->
+            Runner.execute t.runner (input ())
+              ~record:(fun event ->
+                Store.append_log t.store ~pipeline:p.id
+                  ~workflow:workflow.job.name event)
+              ~persist:(fun () -> persist t p)
+              ~spawn:(fun ~env name steps -> spawn t p ~env name steps)
+              workflow
+      with exn ->
+        Eio.Cancel.protect (fun () ->
+            workflow.status <- "failed";
+            workflow.finished <- Some (Runner.now ());
+            workflow.error <- Some (Runner.message exn);
+            persist t p))
+
+and spawn t p ~env name steps =
+  if not (Workflows.valid_name name) then invalid "invalid workflow name";
+  let workflow = Runner.v (Job.spawned ~env name steps) in
+  Lock.protect t.lock (fun () ->
+      if List.exists (fun (r : Runner.t) -> r.job.name = name) p.workflows then
+        invalid ("the pipeline already has a workflow " ^ name);
+      if List.length p.workflows >= 50 then
+        invalid "a pipeline holds at most 50 workflows";
+      p.workflows <- p.workflows @ [ workflow ]);
+  persist t p;
+  start_one t p workflow
+
 let start t p =
   List.iter
-    (fun workflow ->
-      if workflow.Runner.status = "pending" then
-        Eio.Fiber.fork ~sw:t.sw (fun () ->
-            let input () : Runner.input =
-              {
-                id = p.id;
-                repo = p.repo;
-                source = p.source;
-                commit = p.commit;
-                metadata = p.metadata;
-                variables = p.variables;
-                secrets =
-                  (if p.trusted then Settings.secrets t.settings p.repo
-                   else []);
-              }
-            in
-            let fail message =
-              workflow.status <- "failed";
-              workflow.finished <- Some (Runner.now ());
-              workflow.error <- Some message;
-              persist t p
-            in
-            try
-              match minutes_left t p with
-              | Some message -> fail message
-              | None ->
-                  acquire t p workflow;
-                  let began = Eio.Time.now t.runner.system#clock in
-                  Fun.protect ~finally:(fun () ->
-                      release t p;
-                      let spent = Eio.Time.now t.runner.system#clock -. began in
-                      if workflow.started <> None then
-                        Settings.add_minutes t.settings (counted t p)
-                          (int_of_float (Float.ceil (spent /. 60.))))
-                  @@ fun () ->
-                  Runner.execute t.runner (input ())
-                    ~record:(fun event ->
-                      Store.append_log t.store ~pipeline:p.id
-                        ~workflow:workflow.job.name event)
-                    ~persist:(fun () -> persist t p)
-                    workflow
-            with exn ->
-              Eio.Cancel.protect (fun () ->
-                  workflow.status <- "failed";
-                  workflow.finished <- Some (Runner.now ());
-                  workflow.error <- Some (Runner.message exn);
-                  persist t p)))
+    (fun (workflow : Runner.t) ->
+      if workflow.status = "pending" then start_one t p workflow)
     p.workflows
 
 let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?(timeout = 60.)
@@ -798,14 +814,22 @@ let retry t ~principal ~actor ~repo ~id ~names =
   | None -> not_found ()
   | Some p ->
       if p.repo <> repo then not_found ();
-      let names =
-        match names with
-        | [] -> List.map (fun (r : Runner.t) -> r.job.name) p.workflows
-        | names ->
-            List.map
-              (fun (r : Runner.t) -> r.job.name)
-              (select_workflows p names)
+      (* A spawned workflow is retried by rerunning the workflows that
+         spawned it, which spawn it afresh. *)
+      let planned =
+        List.filter (fun (r : Runner.t) -> not r.job.spawned) p.workflows
       in
+      let names =
+        match
+          List.filter
+            (fun (r : Runner.t) -> not r.job.spawned)
+            (select_workflows p names)
+        with
+        | _ when names = [] -> planned
+        | [] -> planned
+        | chosen -> chosen
+      in
+      let names = List.map (fun (r : Runner.t) -> r.job.name) names in
       let request =
         obj
           [

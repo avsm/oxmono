@@ -12,7 +12,8 @@ type pipeline = {
   trusted : bool;
       (** Whether its workflows receive the repository's secrets. *)
   variables : (string * string) list;  (** CI variables for its steps. *)
-  workflows : Runner.t list;
+  mutable workflows : Runner.t list;
+      (** An executor may add workflows while the pipeline runs. *)
 }
 
 type reader = did:string -> commit:string -> (string * string) list

@@ -58,6 +58,7 @@ let () =
       (input ?secrets "3jzfcijpj2z2a")
       ~record:(fun _ -> 0L)
       ~persist:(fun () -> ())
+      ~spawn:(fun ~env:_ _ _ -> ())
       workflow;
     workflow
   in
@@ -152,6 +153,7 @@ let () =
         (input "cancel")
         ~record:(fun _ -> 0L)
         ~persist:(fun () -> ())
+        ~spawn:(fun ~env:_ _ _ -> ())
         workflow)
     (fun () ->
       Eio.Promise.await started;
@@ -219,6 +221,32 @@ let () =
   assert (contains "TOKEN=<secret>" && not (contains "hunter2"));
   assert (contains "  engine: nixery" && contains "LEVEL=workflow");
   assert (output ~step:1 w = "Environment\n  LEVEL=step\n");
+  (* The simulated planner solves, then spawns a build for each compiler,
+     which reports made-up output for its steps. *)
+  let spawned = ref [] in
+  let workflow = Runner.v (Job.v "solve" []) in
+  Runner.execute
+    (runner (Executor.solve ~compilers:[ "ocaml-4.14"; "ocaml-5.5" ] env#clock))
+    (input "solve")
+    ~record:(fun _ -> 0L)
+    ~persist:(fun () -> ())
+    ~spawn:(fun ~env name steps -> spawned := (name, env, steps) :: !spawned)
+    workflow;
+  assert (workflow.status = "success");
+  assert (List.map (fun (n, _, _) -> n) !spawned = [ "ocaml-5.5"; "ocaml-4.14" ]);
+  let _, compiler_env, steps = List.hd !spawned in
+  let build = Runner.v (Job.spawned ~env:compiler_env "ocaml-5.5" steps) in
+  Runner.execute
+    (runner (Executor.solve env#clock))
+    (input "build")
+    ~record:(fun _ -> 0L)
+    ~persist:(fun () -> ())
+    ~spawn:(fun ~env:_ _ _ -> failwith "a build spawned")
+    build;
+  assert (build.status = "success");
+  assert (ends build = List.map (fun i -> (i, "user", "success")) [ 0; 1; 2 ]);
+  let restored = Runner.restore (Runner.snapshot build) in
+  assert (restored.job.spawned && restored.job.env = compiler_env);
   (* A line is in the live stream and in SQLite before the workflow finishes,
      but not in the snapshot. *)
   Eio.Switch.run (fun sw ->
@@ -251,7 +279,9 @@ let () =
       in
       Eio.Fiber.both
         (fun () ->
-          Runner.execute (runner executor) input ~record ~persist workflow)
+          Runner.execute (runner executor) input ~record ~persist
+            ~spawn:(fun ~env:_ _ _ -> ())
+            workflow)
         (fun () ->
           Eio.Promise.await written;
           assert (workflow.status = "running");
@@ -298,4 +328,4 @@ let () =
     = [ ("spindle request metadata", ""); ("ls -la", "ls -la") ]);
   print_endline
     "runner: executor steps, outcomes, cancellation, time limit, bounded and \
-     durable logs, secret masking and the default executor passed"
+     durable logs, secret masking and the default and solving executors passed"

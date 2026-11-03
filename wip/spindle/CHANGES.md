@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Name a webhook's repository by its owner and lowercased name, as the
+  reference spindle does, and limit deliveries to one host to two at once
+  and 64 waiting.
+
 - Serve `GET /_health` and the DID document as `application/did+json`, as
   the reference spindle does. `describeSpindle` sends `links`, and `contact`
   when `--contact-email` is given. `--privacy-policy` and

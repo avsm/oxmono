@@ -36,6 +36,10 @@ val v :
     catalog for the spindle at [hostname]. [owner] and [admins] administer
     it. [static] is always served. Acceptance is cached for [ttl] seconds. *)
 
+val slug : string -> string
+(** [slug name] is the record key of a repository called [name]: [name] in
+    lowercase. *)
+
 val self : t -> string
 (** [self t] is the spindle's [did:web]. *)
 

@@ -25,7 +25,11 @@ type t = {
   workers : Eio.Semaphore.t;
   lock : Eio.Mutex.t;
   mutable queued : int;
+  hosts : (string, host) Hashtbl.t;
 }
+
+(* A host's deliveries in flight and waiting. *)
+and host = { slots : Eio.Semaphore.t; mutable waiting : int }
 
 (* Addresses a webhook may reach, unless private ones are allowed for a
    development network. *)
@@ -88,6 +92,7 @@ let v ~sw ~store ~settings ~allow_private system =
     sw;
     workers = Eio.Semaphore.make 8;
     lock = Eio.Mutex.create ();
+    hosts = Hashtbl.create 16;
     queued = 0;
   }
 
@@ -442,16 +447,36 @@ let send t key w ~event ~agent ~full_name body =
       record t key ~id ~event ~url ~body ~code ~response ~success)
 
 (* Deliveries run in the background, eight at once, with at most 1024
-   waiting. Past that a failed delivery is recorded instead. *)
+   waiting. One host has at most two in flight and 64 waiting, so a dead host
+   cannot hold up the rest, as in the reference spindle. Past either limit a
+   failed delivery is recorded instead. *)
 let enqueue t key w ~event ~agent ~full_name body =
-  if t.queued >= 1024 then
+  let url = get "url" w in
+  let name = try Network.origin ~allow_http:true url with Invalid _ -> url in
+  let host =
+    match Hashtbl.find_opt t.hosts name with
+    | Some h -> h
+    | None ->
+        let h = { slots = Eio.Semaphore.make 2; waiting = 0 } in
+        Hashtbl.replace t.hosts name h;
+        h
+  in
+  if t.queued >= 1024 || host.waiting >= 64 then
     Eio.Mutex.use_rw ~protect:true t.lock (fun () ->
-        record t key ~id:(uuid ()) ~event ~url:(get "url" w) ~body ~code:0
+        record t key ~id:(uuid ()) ~event ~url ~body ~code:0
           ~response:"delivery queue saturated" ~success:false)
   else (
     t.queued <- t.queued + 1;
+    host.waiting <- host.waiting + 1;
     Eio.Fiber.fork ~sw:t.sw (fun () ->
-        Fun.protect ~finally:(fun () -> t.queued <- t.queued - 1) @@ fun () ->
+        Fun.protect ~finally:(fun () ->
+            t.queued <- t.queued - 1;
+            host.waiting <- host.waiting - 1;
+            if host.waiting = 0 then Hashtbl.remove t.hosts name)
+        @@ fun () ->
+        Eio.Semaphore.acquire host.slots;
+        Fun.protect ~finally:(fun () -> Eio.Semaphore.release host.slots)
+        @@ fun () ->
         Eio.Semaphore.acquire t.workers;
         Fun.protect ~finally:(fun () -> Eio.Semaphore.release t.workers)
         @@ fun () ->
@@ -486,8 +511,12 @@ let host_of origin =
       String.sub origin (i + 3) (String.length origin - i - 3)
   | _ -> origin
 
+(* The reference spindle names a repository by its owner and lowercased
+   record key. *)
+let full_name (r : Catalog.repo) = r.owner ^ "/" ^ Catalog.slug r.name
+
 let repository (r : Catalog.repo) =
-  let full_name = r.owner ^ "/" ^ r.name in
+  let full_name = full_name r in
   let web = "https://" ^ host_of r.knot ^ "/" ^ full_name in
   obj
     [
@@ -513,8 +542,7 @@ let fire t (r : Catalog.repo) ~event ~agent payload =
           | Some (Jsont.Bool (b, _)) -> b
           | _ -> false)
         && List.mem event (strings "events" w)
-      then
-        enqueue t key w ~event ~agent ~full_name:(r.owner ^ "/" ^ r.name) body)
+      then enqueue t key w ~event ~agent ~full_name:(full_name r) body)
     (all t)
 
 let push t r ~actor ~ref_ ~before ~after =

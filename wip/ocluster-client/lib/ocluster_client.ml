@@ -12,14 +12,20 @@ let fail = function
   | Ok x -> x
   | Error (`Capnp e) -> raise (Error (Fmt.str "%a" Capnp_rpc.Error.pp e))
 
-let connect ~sw net path =
+type scheduler = Raw.Client.Submission.t Capnp_rpc.Sturdy_ref.t
+
+let scheduler ~sw net path =
   let vat = Capnp_rpc_unix.client_only_vat ~sw net in
   match Capnp_rpc_unix.Cap_file.load vat path with
   | Error (`Msg m) -> raise (Error ("loading " ^ path ^ ": " ^ m))
-  | Ok sturdy -> (
-      match Capnp_rpc.Sturdy_ref.connect sturdy with
-      | Ok cap -> cap
-      | Error e -> raise (Error (Fmt.str "%a" Capnp_rpc.Exception.pp e)))
+  | Ok sturdy -> sturdy
+
+let submission sturdy =
+  match Capnp_rpc.Sturdy_ref.connect sturdy with
+  | Ok cap -> cap
+  | Error e -> raise (Error (Fmt.str "%a" Capnp_rpc.Exception.pp e))
+
+let connect ~sw net path = submission (scheduler ~sw net path)
 
 let submit t ~pool ?(urgent = false) ~cache_hint ?src spec =
   let open Raw.Client.Submission.Submit in
@@ -81,3 +87,5 @@ let cancel t =
        (Capability.Request.create_no_args ()))
 
 let release t = Capability.dec_ref t
+let release_job t = Capability.dec_ref t
+let release_submission t = Capability.dec_ref t

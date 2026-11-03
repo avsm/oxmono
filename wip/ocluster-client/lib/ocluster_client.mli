@@ -12,10 +12,21 @@ type job
 exception Error of string
 (** [Error message] reports a failed RPC or a failed job. *)
 
+type scheduler
+(** Where a submission service is, with a vat to reach it through. *)
+
+val scheduler : sw:Eio.Switch.t -> _ Eio.Net.t -> string -> scheduler
+(** [scheduler ~sw net path] reads the capability file [path], which holds a
+    [capnp://] URI with the scheduler's certificate fingerprint. Its vat, and
+    the connections it makes, last until [sw] finishes. Creating a vat generates
+    a key, so a long-running client keeps one. *)
+
+val submission : scheduler -> submission
+(** [submission s] connects to the submission service, reusing the vat's
+    connection while it lasts. Release it with {!release_submission}. *)
+
 val connect : sw:Eio.Switch.t -> _ Eio.Net.t -> string -> submission
-(** [connect ~sw net path] connects to the submission service named by the
-    capability file [path], which holds a [capnp://] URI with the scheduler's
-    certificate fingerprint. The connection lasts until [sw] finishes. *)
+(** [connect ~sw net path] is [submission (scheduler ~sw net path)]. *)
 
 val submit :
   submission ->
@@ -55,3 +66,9 @@ val cancel : job -> unit
 val release : ticket -> unit
 (** [release ticket] drops the reference to [ticket]. A job whose ticket is
     released is cancelled by the scheduler. *)
+
+val release_job : job -> unit
+(** [release_job job] drops the reference to [job]. *)
+
+val release_submission : submission -> unit
+(** [release_submission s] drops the reference to [s]. *)

@@ -53,7 +53,20 @@ callback in place of the microVM and Nixery engines.
   spindle ignores.
 - Discovery is on demand. The reference spindle backfills repositories with an
   embedded hydrant. This spindle checks a repository when a push, manual run
-  or patch names it, and caches the answer for `--reconcile-seconds`.
+  or manifest naming it arrives, and caches the answer for
+  `--reconcile-seconds`. Patches and tickets are followed only for
+  repositories accepted before.
+- A pull request's author is the editor of its first patch. The reference
+  spindle reads the ticket's first version, which needs the knot's record
+  history.
+- Service tokens get no clock leeway on `exp` and are single-use on every
+  method. The reference spindle allows five seconds and consumes nonces only
+  for push notifications.
+- A malformed workflow file is left out of `listWorkflowDefinitions`. The
+  reference spindle fails the whole listing.
+- Schedules, their `when` validation, the `ci.message` log-viewer hint and
+  `org.tangled.temp.spindle.quota.releaseNars`, which serves the Nix cache,
+  are not implemented.
 - OCaml workflow definitions do not change with the repository's contents
   and carry no file source.
 

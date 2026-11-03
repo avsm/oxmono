@@ -30,15 +30,15 @@ let options =
             ~doc:"Also build with OxCaml 5.2.0minus39, as oxmono does."))
 
 let () =
-  Spindle_cli.main ~name:"ocaml-ci-spindle"
+  Spindle_cli.main ~name:"ocaml-ci-spindle" ~workflow_timeout:10800.
     ~doc:"Run a Tangled spindle that tests OCaml projects on OCluster" options
-    (fun env ~sw:_ (cap, pool, cache, compilers, oxcaml) ->
+    (fun env ~sw (cap, pool, cache, compilers, oxcaml) ->
       let repo name url =
         Opam_repo.v env#process_mgr env#clock ~dir:cache ~name url
       in
       let config =
         {
-          Ci.cap;
+          Ci.scheduler = Ocluster_client.scheduler ~sw env#net cap;
           pool;
           platform = Solve.debian_12_x86_64;
           opam_repository =
@@ -53,4 +53,4 @@ let () =
           compilers;
         }
       in
-      (Ci.jobs, Ci.executor ~net:env#net config))
+      (Ci.jobs, Ci.executor config))

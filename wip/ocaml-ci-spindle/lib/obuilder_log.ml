@@ -22,20 +22,27 @@ let strip_ansi s =
   go 0;
   Buffer.contents b
 
+(* Only OBuilder's own forms count: [(from IMAGE)] alone, or a working
+   directory, a colon and the operation, so build output that happens to start
+   with [(run] is left as output. *)
 let operation line =
   let plain = strip_ansi line in
-  let op =
+  let is op k = String.starts_with ~prefix:("(" ^ k ^ " ") op in
+  if is plain "from" then Some plain
+  else
     match String.index_opt plain ':' with
     | Some i when String.length plain > 0 && plain.[0] = '/' ->
-        String.trim (String.sub plain (i + 1) (String.length plain - i - 1))
-    | _ -> plain
-  in
-  if
-    List.exists
-      (fun k -> String.starts_with ~prefix:("(" ^ k ^ " ") op)
-      [ "from"; "run"; "copy"; "workdir"; "env"; "user"; "shell" ]
-  then Some op
-  else None
+        let dir = String.sub plain 0 i in
+        let op =
+          String.trim (String.sub plain (i + 1) (String.length plain - i - 1))
+        in
+        if
+          (not (String.contains dir ' '))
+          && List.exists (is op)
+               [ "run"; "copy"; "workdir"; "env"; "user"; "shell" ]
+        then Some op
+        else None
+    | _ -> None
 
 (* A step's name is its shell command, or the operation, kept short. *)
 let step_name op =

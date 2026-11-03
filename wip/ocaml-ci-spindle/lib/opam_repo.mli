@@ -15,14 +15,11 @@ val v :
 val name : t -> string
 val url : t -> string
 
-val refresh : ?max_age:float -> t -> unit
-(** [refresh t] fetches the newest commit of the default branch unless it was
-    fetched less than [max_age] seconds ago, 600 by default. The first refresh
-    clones. Concurrent refreshes wait for one fetch. *)
-
-val commit : t -> string
-(** [commit t] is the commit last fetched. It raises [Failure] before the first
-    {!refresh}. *)
-
-val packages : t -> string
-(** [packages t] is the clone's [packages] directory. *)
+val with_snapshot :
+  ?max_age:float -> t -> (commit:string -> packages:string -> 'a) -> 'a
+(** [with_snapshot t f] is [f ~commit ~packages] for the clone's newest commit
+    and its [packages] directory, which do not change until [f] returns. The
+    clone is first fetched unless it was fetched less than [max_age] seconds
+    ago, 600 by default, and the first call clones. A failed fetch keeps the
+    previous commit, or raises when there is none. Calls on [t] run one at a
+    time. *)

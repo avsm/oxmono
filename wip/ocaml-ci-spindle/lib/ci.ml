@@ -1,7 +1,7 @@
 (* SPDX-License-Identifier: ISC *)
 
 type config = {
-  cap : string;
+  scheduler : Ocluster_client.scheduler;
   pool : string;
   platform : Solve.platform;
   opam_repository : Opam_repo.t;
@@ -24,6 +24,16 @@ let first_lines n s =
   |> String.concat "\n"
 
 (* The [ocaml-ci] workflow: find the project, solve, spawn the builds. *)
+(* [snapshots repos f] is [f] applied to each repository's commit and packages
+   directory, all held still while [f] runs. *)
+let rec snapshots repos f =
+  match repos with
+  | [] -> f []
+  | repo :: rest ->
+      Opam_repo.with_snapshot repo (fun ~commit ~packages ->
+          snapshots rest (fun l -> f ((repo, commit, packages) :: l)))
+
+(* The [ocaml-ci] workflow: find the project, solve, spawn the builds. *)
 let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
     =
   let project = ref None in
@@ -38,29 +48,27 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
           List.iter (fun (f, _) -> logf ctx "%s\n" f) a.opam_files);
   Option.iter
     (fun (a : Analysis.t) ->
-      let solved = ref [] in
+      let builds = ref [] in
       ctx.step ~command:"opam-0install" "solve" (fun () ->
           let repos =
             config.opam_repository :: Option.to_list config.oxcaml_repository
           in
+          snapshots repos @@ fun snaps ->
           List.iter
-            (fun repo ->
-              Opam_repo.refresh repo;
-              logf ctx "%s at %s\n" (Opam_repo.url repo) (Opam_repo.commit repo))
-            repos;
-          let default = Opam_repo.packages config.opam_repository in
+            (fun (repo, commit, _) ->
+              logf ctx "%s at %s\n" (Opam_repo.url repo) commit)
+            snaps;
+          let _, default_commit, default = List.hd snaps in
+          let oxcaml = List.nth_opt snaps 1 in
           let variants =
             Variant.choose ~packages:default config.compilers
-            @
-            match config.oxcaml_repository with
-            | Some _ -> [ Variant.oxcaml ]
-            | None -> []
+            @ match oxcaml with Some _ -> [ Variant.oxcaml ] | None -> []
           in
           List.iter
             (fun (v : Variant.t) ->
               let repositories =
-                (match (v.oxcaml, config.oxcaml_repository) with
-                  | true, Some ox -> [ Opam_repo.packages ox ]
+                (match (v.oxcaml, oxcaml) with
+                  | true, Some (_, _, packages) -> [ packages ]
                   | _ -> [])
                 @ [ default ]
               in
@@ -77,68 +85,56 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
               with
               | Ok packages ->
                   logf ctx "%s: %d packages\n" v.name (List.length packages);
-                  solved := (v, packages) :: !solved
+                  let spec =
+                    Spec.v ~variant:v ~opam_repository:default_commit
+                      ?oxcaml_repository:
+                        (Option.map
+                           (fun (repo, commit, _) ->
+                             (Opam_repo.url repo, commit))
+                           oxcaml)
+                      ~opam_files:(List.map fst a.opam_files)
+                      ~packages ()
+                  in
+                  builds := (v, spec) :: !builds
               | Error why ->
                   logf ctx "%s: no solution\n%s\n" v.name (first_lines 20 why))
             variants);
-      if !solved = [] then failwith "no compiler has a solution";
-      let oxcaml_repository =
-        Option.map
-          (fun ox -> (Opam_repo.url ox, Opam_repo.commit ox))
-          config.oxcaml_repository
-      in
+      if !builds = [] then failwith "no compiler has a solution";
       List.iter
-        (fun ((v : Variant.t), packages) ->
-          let spec =
-            Spec.v ~variant:v
-              ~opam_repository:(Opam_repo.commit config.opam_repository)
-              ?oxcaml_repository
-              ~opam_files:(List.map fst a.opam_files)
-              ~packages ()
-          in
+        (fun ((v : Variant.t), spec) ->
           ctx.spawn
             ~env:[ (variant_var, v.name) ]
             v.name
             [ Job.step "obuilder" spec ])
-        (List.rev !solved))
+        (List.rev !builds))
     !project
 
 type line = Line of string | End
 
 (* An [obuilder] workflow: submit its spec and follow the job. *)
-let build config ~net (ctx : Spindle.Executor.context)
-    (r : Spindle.Executor.request) =
+let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
+    =
   let spec =
     match r.steps with
     | s :: _ -> s.command
     | [] -> invalid_arg "an OBuilder workflow has no spec"
   in
-  Eio.Switch.run @@ fun sw ->
   let lines = Eio.Stream.create 4096 in
-  let ticket = ref None in
-  let job () = Option.get !ticket |> Ocluster_client.job in
-  let cancel () =
-    Option.iter
-      (fun t -> try Ocluster_client.cancel_ticket t with _ -> ())
-      !ticket
-  in
-  (* Lines of the job's log, ending with [End]. *)
+  (* Lines of the job's log, ending with [End]. Only a chunk's own text is
+     searched for line ends. *)
   let follow job =
     let partial = Buffer.create 256 in
     Ocluster_client.stream_log job (fun chunk ->
-        Buffer.add_string partial chunk;
-        let text = Buffer.contents partial in
-        let parts = String.split_on_char '\n' text in
-        let rec push = function
-          | [ rest ] ->
+        let start = ref 0 in
+        String.iteri
+          (fun i c ->
+            if c = '\n' then (
+              Buffer.add_substring partial chunk !start (i - !start);
+              Eio.Stream.add lines (Line (Buffer.contents partial));
               Buffer.clear partial;
-              Buffer.add_string partial rest
-          | l :: more ->
-              Eio.Stream.add lines (Line l);
-              push more
-          | [] -> ()
-        in
-        push parts);
+              start := i + 1))
+          chunk;
+        Buffer.add_substring partial chunk !start (String.length chunk - !start));
     if Buffer.length partial > 0 then
       Eio.Stream.add lines (Line (Buffer.contents partial));
     Eio.Stream.add lines End
@@ -169,18 +165,22 @@ let build config ~net (ctx : Spindle.Executor.context)
         section ~kind:`User ~command:op (Obuilder_log.step_name op) job)
       !next
   in
-  let submission = Ocluster_client.connect ~sw net config.cap in
-  let t =
+  let submission = Ocluster_client.submission config.scheduler in
+  Fun.protect ~finally:(fun () -> Ocluster_client.release_submission submission)
+  @@ fun () ->
+  let ticket =
     Ocluster_client.submit submission ~pool:config.pool
       ~cache_hint:(r.repo ^ "/" ^ r.workflow)
       ~src:(r.source, [ r.commit ]) spec
   in
-  ticket := Some t;
-  let job = job () in
-  (* A cancelled workflow cancels its job. Releasing a ticket also cancels
-     its job, so it is released only once the job has finished. *)
+  let job = Ocluster_client.job ticket in
+  (* A cancelled workflow cancels its job, over the scheduler's connection,
+     which outlives the workflow. Releasing a ticket also cancels its job, so
+     it is released only once the job has finished. *)
   Fun.protect
-    ~finally:(fun () -> Ocluster_client.release t)
+    ~finally:(fun () ->
+      Ocluster_client.release_job job;
+      Ocluster_client.release ticket)
     (fun () ->
       try
         Eio.Fiber.both
@@ -190,9 +190,10 @@ let build config ~net (ctx : Spindle.Executor.context)
               ~command:("ocluster submit --pool " ^ config.pool)
               "queue" job)
       with Eio.Cancel.Cancelled _ as e ->
-        Eio.Cancel.protect cancel;
+        Eio.Cancel.protect (fun () ->
+            try Ocluster_client.cancel_ticket ticket with _ -> ());
         raise e)
 
-let executor ~net config ctx (r : Spindle.Executor.request) =
-  if List.mem_assoc variant_var r.env then build config ~net ctx r
+let executor config ctx (r : Spindle.Executor.request) =
+  if List.mem_assoc variant_var r.env then build config ctx r
   else plan config ctx r

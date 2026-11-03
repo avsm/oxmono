@@ -47,7 +47,8 @@ as a step of its own, and the workflow succeeds or fails with the job.
 Cancelling the workflow cancels the job.
 
 Builds wait in the pool's queue, so `--concurrency` should allow every
-build, and `--workflow-timeout` the queue and the build. The spindle needs
+build, and `--workflow-timeout`, three hours by default here, the queue and
+the build. The spindle needs
 `git` to clone opam repositories.
 
 ## Checking a plan

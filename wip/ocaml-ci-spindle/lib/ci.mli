@@ -7,7 +7,8 @@
     apart from Git fetches of the opam repositories. *)
 
 type config = {
-  cap : string;  (** The OCluster submission capability file. *)
+  scheduler : Ocluster_client.scheduler;
+      (** The OCluster scheduler, kept for the spindle's life. *)
   pool : string;  (** The pool builds run on, such as [linux-x86_64]. *)
   platform : Solve.platform;  (** The pool's opam variables. *)
   opam_repository : Opam_repo.t;
@@ -21,6 +22,6 @@ type config = {
 val jobs : Spindle.Job.t list
 (** [jobs] is the [ocaml-ci] workflow, which runs for every event. *)
 
-val executor : net:_ Eio.Net.t -> config -> Spindle.Executor.t
-(** [executor ~net config] plans builds in the [ocaml-ci] workflow and runs the
-    workflows it spawns on OCluster, connecting through [net]. *)
+val executor : config -> Spindle.Executor.t
+(** [executor config] plans builds in the [ocaml-ci] workflow and runs the
+    workflows it spawns on OCluster. *)

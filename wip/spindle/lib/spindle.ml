@@ -379,7 +379,11 @@ let resolve_commit state repo ref_ =
     | Some git -> (
         match
           String.trim
-            (git [ "rev-parse"; "--verify"; "-q"; "--"; ref_ ^ "^{commit}" ])
+            (git
+               [
+                 "rev-parse"; "--verify"; "-q"; "--end-of-options";
+                 ref_ ^ "^{commit}";
+               ])
         with
         | "" -> None
         | commit -> Some commit)

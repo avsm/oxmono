@@ -99,12 +99,14 @@ val create :
   ?default_ref:bool ->
   ?blocked:bool ->
   ?untrusted:bool ->
+  ?principal:string ->
   automatic:bool ->
   actor:string ->
   Jsont.json ->
   string option
-(** [create engine ~automatic ~actor request] checks that [actor] satisfies
-    {!Catalog.permitted} for the repository unless [automatic] is set. It
+(** [create engine ~automatic ~actor request] checks that [principal], which
+    defaults to [actor], satisfies {!Catalog.permitted} for the repository
+    unless [automatic] is set. [actor] is recorded as the pipeline's actor. It
     selects OCaml workflows and atomically records the dispatch and optional
     deduplication key. Only verified event consumers may set [automatic].
     [blocked] holds the workflows until {!approve}. A blocked or [untrusted]
@@ -120,13 +122,16 @@ val approve : t -> actor:string -> repo:string -> id:string -> unit
 
 val retry :
   t ->
+  principal:string ->
   actor:string ->
   repo:string ->
   id:string ->
   names:string list ->
   string option
-(** [retry t ~actor ~repo ~id ~names] runs pipeline [id] again as a new pipeline
-    with the same trigger, limited to [names] when given. *)
+(** [retry t ~principal ~actor ~repo ~id ~names] runs pipeline [id] again as a
+    new pipeline with the same trigger, limited to [names] when given.
+    [principal] must satisfy {!Catalog.permitted} for [repo]. [actor] is
+    recorded as the new pipeline's actor. *)
 
 val running : t -> string -> int
 (** [running t did] counts the workflows running for repository or owner [did].

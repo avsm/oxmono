@@ -247,7 +247,8 @@ let cors state req =
         [ vary; ("Access-Control-Allow-Origin", origin) ]
     | _ -> [ vary ]
 
-let allowed_methods ~post = if post then "POST, OPTIONS" else "GET, HEAD, OPTIONS"
+let allowed_methods ~post =
+  if post then "POST, OPTIONS" else "GET, HEAD, OPTIONS"
 
 (* A preflight is answered here, before authentication, since browsers send
    it without credentials. *)
@@ -408,7 +409,13 @@ let runnable_push event =
           (fun o -> List.mem o [ "skip-ci"; "ci-skip" ])
           (strings "pushOptions" event))
 
-let notify state ~issuer body =
+(* A repository's token names the user acting through it in [act.sub]. Only
+   the repository's own signature makes that claim credible. *)
+let attribution req ~actor repo =
+  if actor <> repo then actor
+  else Option.value ~default:actor (Auth.controller (bearer req))
+
+let notify state req ~issuer body =
   let repo = did (get "repo" body) in
   let event = required "event" body in
   if get "repo" event <> repo then invalid "event names another repository";
@@ -460,7 +467,9 @@ let notify state ~issuer body =
           | Some names -> [ ("workflows", names) ]
           | None -> []
         in
-        Engine.create engine ~automatic:false ~actor:issuer (obj fields)
+        Engine.create engine ~automatic:false ~principal:issuer
+          ~actor:(attribution req ~actor:issuer repo)
+          (obj fields)
     | _ -> invalid "unsupported event type"
   in
   ci_output (Option.to_list created)
@@ -490,12 +499,6 @@ let settings_repo state actor repo =
         reject Status.Forbidden "AccessControl"
           "This repo is banned on this spindle.";
       r
-
-(* A repository's token names the user acting through it in [act.sub]. Only
-   the repository's own signature makes that claim credible. *)
-let attribution req ~actor (r : Catalog.repo) =
-  if actor <> r.did then actor
-  else Option.value ~default:actor (Auth.controller (bearer req))
 
 (* A ban names a repository and an owner alike. Everything kept for them is
    removed, as the reference spindle wipes it. *)
@@ -684,7 +687,7 @@ let handle state name req respond =
                       "workflow not found"))
         | "org.tangled.event.notifyEvent" ->
             let issuer = authorize state name req in
-            notify state ~issuer (body ())
+            notify state req ~issuer (body ())
         | "org.tangled.ci.cancelPipeline" ->
             let actor = authorize state name req in
             let body = body () in
@@ -714,8 +717,9 @@ let handle state name req respond =
             let repo = did (get "repo" body) in
             let p = find state ~repo (get "pipeline" body) in
             match
-              Engine.retry state.engine ~actor ~repo ~id:p.id
-                ~names:(strings "workflows" body)
+              Engine.retry state.engine ~principal:actor
+                ~actor:(attribution req ~actor repo)
+                ~repo ~id:p.id ~names:(strings "workflows" body)
             with
             | Some id -> obj [ ("pipeline", str id) ]
             | None ->
@@ -743,7 +747,8 @@ let handle state name req respond =
             Settings.check_secret ~key ~value:(Some value);
             let r = settings_repo state actor (get "repo" body) in
             Settings.add_secret state.settings ~repo:r.did
-              ~by:(attribution req ~actor r) key value;
+              ~by:(attribution req ~actor r.did)
+              key value;
             obj []
         | "org.tangled.secret.removeSecret" ->
             let actor = authorize state name req in
@@ -920,10 +925,7 @@ let handle state name req respond =
       let headers =
         match status with
         | Status.Method_not_allowed ->
-            Headers.of_list
-              [
-                ("Allow", allowed_methods ~post);
-              ]
+            Headers.of_list [ ("Allow", allowed_methods ~post) ]
         | Status.Unauthorized ->
             Headers.of_list [ ("WWW-Authenticate", "Bearer") ]
         | _ -> Headers.empty

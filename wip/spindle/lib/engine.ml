@@ -523,9 +523,11 @@ let variables (repo : Catalog.repo) ~default_branch ~id ~kind ~trigger
       @ opt "TANGLED_PR_SOURCE_SHA" (Some commit)
 
 let create t ?dedup ?(changed_files = []) ?(default_ref = false)
-    ?(blocked = false) ?(untrusted = false) ~automatic ~actor request =
+    ?(blocked = false) ?(untrusted = false) ?principal ~automatic ~actor request
+    =
   let repo = managed t (get "repo" request) in
-  if not automatic then check_actor t repo actor;
+  if not automatic then
+    check_actor t repo (Option.value principal ~default:actor);
   let trigger = required "trigger" request in
   let kind = kind trigger in
   if (not automatic) && kind = Job.Push then
@@ -732,9 +734,9 @@ let approve t ~actor ~repo ~id =
       persist t p;
       start t p
 
-let retry t ~actor ~repo ~id ~names =
+let retry t ~principal ~actor ~repo ~id ~names =
   let canonical = managed t repo in
-  check_actor t canonical actor;
+  check_actor t canonical principal;
   match find t id with
   | None -> invalid "pipeline not found"
   | Some p ->

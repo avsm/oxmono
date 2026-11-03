@@ -10,8 +10,8 @@
   `https://tangled.org` call XRPC methods, and answer CORS preflights.
 
 - Accept service tokens signed by a repository's own DID for that
-  repository, as Tangled's settings pages send. A secret records the user
-  such a token names as its creator.
+  repository, as Tangled's settings pages send. Secrets, manual runs and
+  retries record the user such a token names.
 
 - Hand every workflow to an executor callback instead of running commands on
   the host. The default executor logs the workflow, with secrets as

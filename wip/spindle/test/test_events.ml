@@ -97,10 +97,34 @@ let () =
   assert (get "id" (required "definition" run) = "inspect");
   assert (get "$type" (required "trigger" view) = Engine.manual);
   let retried =
-    Engine.retry engine ~actor:owner ~repo ~id ~names:[] |> Option.get
+    Engine.retry engine ~principal:owner ~actor:owner ~repo ~id ~names:[]
+    |> Option.get
   in
   assert (retried <> id);
   Engine.cancel engine ~actor:owner ~repo ~id:retried ~names:[];
+  (* A repository's own token is checked as the repository and records the
+     user it names. *)
+  let user = "did:plc:uuuuuuuuuuuuuuuuuuuuuuuu" in
+  let by_repo =
+    Engine.retry engine ~principal:repo ~actor:user ~repo ~id ~names:[]
+    |> Option.get
+  in
+  let actor id = get "actor" (Option.get (Engine.find engine id)).metadata in
+  assert (actor by_repo = user);
+  Engine.cancel engine ~actor:repo ~repo ~id:by_repo ~names:[];
+  let manual =
+    Engine.create engine ~automatic:false ~principal:repo ~actor:user
+      (obj [ ("repo", str repo); ("trigger", trigger) ])
+    |> Option.get
+  in
+  assert (actor manual = user);
+  Engine.cancel engine ~actor:repo ~repo ~id:manual ~names:[];
+  (match
+     Engine.create engine ~automatic:false ~principal:user ~actor:user
+       (obj [ ("repo", str repo); ("trigger", trigger) ])
+   with
+  | _ -> failwith "an unrelated user started a pipeline"
+  | exception Spindle.Service_auth.Rejected -> ());
   Engine.cancel engine ~actor:owner ~repo ~id ~names:[];
   (* A blocked pipeline waits for approval and survives as live work. *)
   let blocked =

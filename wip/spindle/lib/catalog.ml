@@ -125,18 +125,30 @@ let lookup t id =
               Option.map string (field "repo" (required "value" record))
               = Some id
             in
+            let repo name =
+              {
+                did = id;
+                owner;
+                name;
+                knot;
+                source = knot ^ "/" ^ id;
+                created =
+                  Option.fold ~none:"" ~some:string (field "createdAt" value);
+              }
+            in
             if Option.fold ~none:false ~some:names_repo declared then (
               Settings.note_owner t.settings ~repo:id ~owner;
+              Some (repo name))
+            else if
+              declared = None && Settings.owner_of t.settings id = Some owner
+            then
+              (* A rename leaves the owner with no declaration for a while.
+                 The repository stays served under its old name, as the
+                 reference spindle keeps it. *)
               Some
-                {
-                  did = id;
-                  owner;
-                  name;
-                  knot;
-                  source = knot ^ "/" ^ id;
-                  created =
-                    Option.fold ~none:"" ~some:string (field "createdAt" value);
-                })
+                (repo
+                   (Option.value ~default:name
+                      (Store.get t.store "repo-name" id)))
             else None
 
 let managed t id =

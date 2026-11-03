@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Keep serving a repository while a rename leaves its owner without a
+  declaration, so pushes during the rename still run.
+
 - Answer 503 when a DID host, PDS or knot returns a server error, rate
   limits the spindle or times out, so the knot retries the push.
 

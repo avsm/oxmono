@@ -201,7 +201,9 @@ this spindle's `did:web`, the owner's `org.tangled.repo.declaration` names the
 repository back, and the owner is admitted. `--admission=closed`, the
 default, admits the owner, `--admin` DIDs and the allow-list. `--admission=open`
 admits anyone. Acceptance is cached for `--reconcile-seconds`, and a manifest
-change seen on Jetstream drops it at once.
+change seen on Jetstream drops it at once. While a rename leaves the owner
+with no declaration, a repository served before stays served under its old
+name.
 
 A push is accepted only from the knot that the repository DID's PLC document
 names. Pushes outside `refs/heads/` and `refs/tags/`, deletions and pushes

@@ -203,7 +203,30 @@ let () =
       assert (Catalog.default_branch catalog r = None);
       set repo "org.tangled.git.refs" "self"
         (obj [ ("defaultBranch", str "trunk"); ("refs", obj []) ]);
-      assert (Catalog.default_branch catalog r = Some "trunk"));
+      assert (Catalog.default_branch catalog r = Some "trunk");
+      (* During a rename the owner may have no declaration yet. The repository
+         stays served under its old name, and the rename is reported once the
+         new declaration names it. *)
+      let renamed = ref [] in
+      Catalog.on_rename catalog (fun r ~old_name ->
+          renamed := (old_name, r.name) :: !renamed);
+      let rename name =
+        obj
+          [
+            ("$type", str "org.tangled.repo.manifest");
+            ("declaration", obj [ ("owner", str owner); ("name", str name) ]);
+            ("spindle", str self);
+          ]
+      in
+      Hashtbl.remove records (owner, "org.tangled.repo.declaration", "demo");
+      set repo "org.tangled.repo.manifest" "self" (rename "Renamed");
+      assert (refresh ());
+      assert ((Option.get (Catalog.managed catalog repo)).name = "Demo");
+      assert (!renamed = []);
+      set owner "org.tangled.repo.declaration" "renamed" (declaration repo);
+      assert (refresh ());
+      assert ((Option.get (Catalog.managed catalog repo)).name = "Renamed");
+      assert (!renamed = [ ("Demo", "Renamed") ]));
   print_endline
-    "catalog: manifest and declaration agreement, admission, caching and live \
-     collaborator and repository-token checks passed"
+    "catalog: manifest and declaration agreement, admission, caching, renames \
+     and live collaborator and repository-token checks passed"

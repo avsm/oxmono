@@ -11,3 +11,8 @@ val operation : string -> string option
 val step_name : string -> string
 (** [step_name op] is a short name for operation [op]: a [run] operation's shell
     command, or else the operation, at most 72 bytes. *)
+
+val depth : string -> int
+(** [depth op] is how many brackets of [op] are still open, outside strings.
+    OBuilder prints a long operation over several lines, and its first line has
+    a positive depth until the rest follow. *)

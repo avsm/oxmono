@@ -139,6 +139,13 @@ let () =
     Obuilder_log.operation "\027[01;34m(from busybox)\027[0m"
     = Some "(from busybox)");
   assert (Obuilder_log.operation "-> installed dune.3.20.2" = None);
+  (* A long operation spans lines until its brackets close. *)
+  assert (Obuilder_log.depth "(run (cache (x (target /y)))" = 1);
+  assert (Obuilder_log.depth "(run (shell \"echo ) (\\\" (\"))" = 0);
+  assert (
+    Obuilder_log.step_name
+      "(run (cache (x (target /y))) (network host) (shell \"opam update -u\"))"
+    = "opam update -u");
   assert (Obuilder_log.operation "(run (shell \"make\"))" = None);
   assert (
     Obuilder_log.step_name "(run (shell \"opam install $DEPS\"))"

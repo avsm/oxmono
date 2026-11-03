@@ -139,6 +139,17 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
       Eio.Stream.add lines (Line (Buffer.contents partial));
     Eio.Stream.add lines End
   in
+  (* An operation printed over several lines continues until its brackets
+     close. *)
+  let rec rest_of op =
+    if Obuilder_log.depth op <= 0 then op
+    else
+      match Eio.Stream.take lines with
+      | Line l -> rest_of (op ^ " " ^ String.trim (Obuilder_log.strip_ansi l))
+      | End ->
+          Eio.Stream.add lines End;
+          op
+  in
   (* Each section of the log is a step, until the log ends with the job's
      result. *)
   let rec section ~kind ?command name job =
@@ -154,7 +165,7 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
                   failwith message)
           | Line l -> (
               match Obuilder_log.operation l with
-              | Some op -> next := Some op
+              | Some op -> next := Some (rest_of op)
               | None ->
                   ctx.log `Stdout (l ^ "\n");
                   loop ())

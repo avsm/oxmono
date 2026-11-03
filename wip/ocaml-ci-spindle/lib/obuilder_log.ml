@@ -55,3 +55,19 @@ let step_name op =
     | _ -> op
   in
   if String.length text > 72 then String.sub text 0 69 ^ "..." else text
+
+let depth op =
+  let d = ref 0 and quoted = ref false and escaped = ref false in
+  String.iter
+    (fun c ->
+      if !escaped then escaped := false
+      else if !quoted then (
+        if c = '\\' then escaped := true else if c = '"' then quoted := false)
+      else
+        match c with
+        | '"' -> quoted := true
+        | '(' -> incr d
+        | ')' -> decr d
+        | _ -> ())
+    op;
+  !d

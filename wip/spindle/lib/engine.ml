@@ -636,7 +636,7 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false)
   Settings.note_owner t.settings ~repo:repo.did ~owner:repo.owner;
   let default_branch =
     try Catalog.default_branch t.catalog repo
-    with Eio.Io _ | Failure _ | Invalid _ -> None
+    with Eio.Io _ | Network.Unavailable _ | Failure _ | Invalid _ -> None
   in
   Lock.protect t.lock @@ fun () ->
   if not (Catalog.current t.catalog repo) then

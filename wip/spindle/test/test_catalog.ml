@@ -49,6 +49,7 @@ let () =
   assert (self = "did:web:spindle.test");
   let records = Hashtbl.create 8 in
   let reads = ref 0 in
+  let failing = ref false in
   let manifest ?(spindle = self) owner =
     obj
       [
@@ -120,15 +121,18 @@ let () =
       let rec headers () = if Eio.Buf_read.line reader <> "" then headers () in
       headers ();
       let target = List.nth (String.split_on_char ' ' request) 1 in
-      let body = encode (respond target) in
+      let status, body =
+        if !failing then ("503 Service Unavailable", "<html>down</html>")
+        else ("200 OK", encode (respond target))
+      in
       Eio.Flow.copy_string
         (Printf.sprintf
-           "HTTP/1.1 200 OK\r\n\
+           "HTTP/1.1 %s\r\n\
             Content-Length: %d\r\n\
             Connection: close\r\n\
             \r\n\
             %s"
-           (String.length body) body)
+           status (String.length body) body)
         flow
     done
   in
@@ -139,6 +143,12 @@ let () =
         served ()
       in
       assert (not (served ()));
+      (* A host's server error is reported apart from a refusal. *)
+      failing := true;
+      (match refresh () with
+      | _ -> failwith "a server error was taken as an answer"
+      | exception Network.Unavailable _ -> ());
+      failing := false;
       set repo "org.tangled.repo.manifest" "self" (manifest owner);
       assert (not (refresh ()));
       (* The declaration slug is the lowercased name. *)

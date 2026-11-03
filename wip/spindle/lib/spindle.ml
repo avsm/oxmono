@@ -954,7 +954,7 @@ let handle state name req respond =
       respond_json respond ~status ~headers
         (obj [ ("error", str code); ("message", str message) ])
   | Eio.Cancel.Cancelled _ as exn -> raise exn
-  | Eio.Io _ as exn ->
+  | (Eio.Io _ | Network.Unavailable _) as exn ->
       (* An unreachable knot, PDS or DID host. The knot retries a 5xx push. *)
       Printf.eprintf "spindle XRPC %s: %s\n%!" name (Printexc.to_string exn);
       respond_json respond ~status:Status.Service_unavailable

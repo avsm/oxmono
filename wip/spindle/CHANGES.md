@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Answer 503 when a DID host, PDS or knot returns a server error, rate
+  limits the spindle or times out, so the knot retries the push.
+
 - Refuse a manual run that matches no workflow with 400, as the reference
   spindle does, rather than report it started.
 

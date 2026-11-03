@@ -130,7 +130,9 @@ let () =
           (obj [ ("repo", str repo); ("trigger", trigger) ])
       with
       | _ -> failwith "an unauthorized principal started a pipeline"
-      | exception Spindle.Service_auth.Rejected -> ())
+      | exception Spindle__Xrpc_error.E (Httpz.Res.Forbidden, "AccessControl", _)
+        ->
+          ())
     [ user; repo ];
   Engine.cancel engine ~actor:owner ~repo ~id ~names:[];
   (* A blocked pipeline waits for approval and survives as live work. *)
@@ -154,6 +156,7 @@ let () =
   | () -> failwith "an unblocked pipeline was approved"
   | exception J.Invalid _ -> ());
   Engine.cancel engine ~actor:owner ~repo ~id:blocked ~names:[];
+  assert (Engine.find engine "not-a-tid" = None);
   Eio.Semaphore.release engine.runner.slots;
   Eio.Semaphore.release engine.runner.slots;
   Store.batch store ~puts:[]

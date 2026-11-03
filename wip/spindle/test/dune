@@ -17,7 +17,7 @@
 (test
  (name test_events)
  (modules test_events)
- (libraries spindle eio_main))
+ (libraries spindle httpz eio_main))
 
 (test
  (name test_catalog)

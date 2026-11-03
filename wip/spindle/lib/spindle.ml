@@ -114,6 +114,8 @@ let query_pipelines state req =
     cursor;
   let triggers = query_list req "triggers" in
   let commits = query_list req "commits" in
+  if not (Catalog.known state.engine.catalog repo) then
+    ignore (Engine.managed state.engine repo);
   Engine.query state.engine ~repo ~limit ~cursor ~triggers ~commits
 
 let frame event =
@@ -201,7 +203,10 @@ let upgrade state req respond =
   if Req.meth req <> Method.Get then invalid "logs require GET";
   let repo = did (query_required req "repo") in
   let p = find state ~repo (query_required req "pipeline") in
-  let workflows = Engine.select_workflows p (query_list req "workflows") in
+  let names = query_list req "workflows" in
+  if List.length names > 100 then
+    invalid "a stream follows at most 100 workflows, ask for fewer";
+  let workflows = Engine.select_workflows p names in
   let fields = ref [] in
   Headers.iter
     (fun _ name value ->
@@ -400,8 +405,9 @@ let resolve_commit state repo ref_ =
         | _ -> None)
 
 let repository_definitions state repo ref_ =
+  if String.length ref_ > 256 then invalid "ref must be at most 256 bytes";
   match resolve_commit state repo ref_ with
-  | None -> []
+  | None -> reject Status.Not_found "RefNotFound" ("no such ref " ^ ref_)
   | Some commit ->
       Workflows.definitions ~repo ~commit
         (read_files state.config state.engine.catalog state.network ~did:repo
@@ -463,21 +469,25 @@ let notify state req ~issuer body =
                  then
                    Hooks.push state.hooks r ~actor ~ref_ ~before ~after:new_sha
              | _ -> ());
-          if not (runnable_push event) then None
-          else
-            let managed = Engine.managed engine repo in
-            let ref_ = get "ref" event in
-            let default_ref =
-              match Catalog.default_branch engine.catalog managed with
-              | Some branch -> ref_ = "refs/heads/" ^ branch
-              | None -> false
-            in
-            Engine.create engine
-              ~dedup:
-                (String.concat "/"
-                   [ "push"; repo; ref_; get "oldSha" event; new_sha ])
-              ~automatic:true ~default_ref ~actor
-              (obj [ ("repo", str repo); ("trigger", event) ]))
+          (* A push to a repository this spindle does not serve, or whose
+             owner is paused, runs nothing and is not an error, so that the
+             knot does not log it as one. *)
+          match Catalog.managed engine.catalog repo with
+          | None -> None
+          | Some _ when not (runnable_push event) -> None
+          | Some managed ->
+              let ref_ = get "ref" event in
+              let default_ref =
+                match Catalog.default_branch engine.catalog managed with
+                | Some branch -> ref_ = "refs/heads/" ^ branch
+                | None -> false
+              in
+              Engine.create engine
+                ~dedup:
+                  (String.concat "/"
+                     [ "push"; repo; ref_; get "oldSha" event; new_sha ])
+                ~automatic:true ~default_ref ~actor
+                (obj [ ("repo", str repo); ("trigger", event) ]))
     | t when t = Engine.manual -> (
         let fields =
           [ ("repo", str repo); ("trigger", event) ]
@@ -700,7 +710,10 @@ let handle state name req respond =
         | "org.tangled.ci.getWorkflowDefinition" -> (
             served state req;
             let name = query_required req "workflow" in
+            if String.length name < 1 || String.length name > 128 then
+              invalid "workflow length must be between 1 and 128";
             let repo = did (query_required req "repo") in
+            let ref_ = Option.value ~default:"HEAD" (query req "ref") in
             match
               List.find_opt
                 (fun (job : Job.t) -> job.name = name)
@@ -716,7 +729,7 @@ let handle state name req respond =
                 match
                   List.find_opt
                     (fun d -> get "id" d = name)
-                    (repository_definitions state repo "HEAD")
+                    (repository_definitions state repo ref_)
                 with
                 | Some d -> obj [ ("workflow", d) ]
                 | None ->
@@ -729,6 +742,7 @@ let handle state name req respond =
             let actor = authorize state name req in
             let body = body () in
             let repo = did (get "repo" body) in
+            Engine.authorize state.engine ~principal:actor repo;
             let p = find state ~repo (get "pipeline" body) in
             Engine.cancel state.engine ~actor ~repo ~id:p.id
               ~names:(strings "workflows" body);
@@ -737,6 +751,7 @@ let handle state name req respond =
             let actor = authorize state name req in
             let body = body () in
             let repo = did (get "repo" body) in
+            Engine.authorize state.engine ~principal:actor repo;
             let p = find state ~repo (get "pipeline" body) in
             if
               not
@@ -752,6 +767,7 @@ let handle state name req respond =
             let actor = authorize state name req in
             let body = body () in
             let repo = did (get "repo" body) in
+            Engine.authorize state.engine ~principal:actor repo;
             let p = find state ~repo (get "pipeline" body) in
             match
               Engine.retry state.engine ~principal:actor
@@ -759,9 +775,7 @@ let handle state name req respond =
                 ~repo ~id:p.id ~names:(strings "workflows" body)
             with
             | Some id -> obj [ ("pipeline", str id) ]
-            | None ->
-                reject Status.Bad_request "PipelineNotRetryable"
-                  "no workflow matches the original trigger")
+            | None -> invalid "no workflow matches the original trigger")
         | "org.tangled.temp.spindle.allowList.list" ->
             require_admin state (authorize state name req);
             obj [ ("dids", arr (List.map str (Catalog.allowed catalog))) ]

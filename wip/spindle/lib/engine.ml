@@ -408,16 +408,27 @@ let first t namespace key =
 let managed t id =
   match Catalog.managed t.catalog id with
   | Some repo -> repo
-  | None -> invalid "repository is not assigned to spindle"
+  | None ->
+      Xrpc_error.fail Httpz.Res.Not_found "RepoNotFound"
+        "failed to access repository"
 
 let check_actor t repo actor =
-  if not (Catalog.permitted t.catalog repo actor) then raise Auth.Rejected
+  if not (Catalog.permitted t.catalog repo actor) then
+    Xrpc_error.fail Httpz.Res.Forbidden "AccessControl"
+      ("DID does not have sufficient access permissions for this operation: "
+     ^ actor)
+
+let authorize t ~principal repo = check_actor t (managed t repo) principal
 
 let find t id =
-  if not (Atp.Tid.is_valid id) then invalid "pipeline must be a TID";
-  match Hashtbl.find_opt t.pipelines id with
-  | Some p -> Some p
-  | None -> Option.map (restore t id) (Store.get t.store "pipeline" id)
+  if not (Atp.Tid.is_valid id) then None
+  else
+    match Hashtbl.find_opt t.pipelines id with
+    | Some p -> Some p
+    | None -> Option.map (restore t id) (Store.get t.store "pipeline" id)
+
+let not_found () =
+  Xrpc_error.fail Httpz.Res.Not_found "PipelineNotFound" "pipeline not found"
 
 let query t ~repo ~limit ~cursor ~triggers ~commits =
   let seen = Hashtbl.create (List.length commits) in
@@ -454,7 +465,9 @@ let select_workflows p names =
   List.iter
     (fun name ->
       if not (List.exists (fun (r : Runner.t) -> r.job.name = name) p.workflows)
-      then invalid "unknown workflow")
+      then
+        Xrpc_error.fail Httpz.Res.Not_found "WorkflowNotFound"
+          ("unknown workflow " ^ name))
     names;
   List.filter
     (fun (r : Runner.t) -> names = [] || List.mem r.job.name names)
@@ -713,9 +726,9 @@ let cancel t ~actor ~repo ~id ~names =
   if not (Catalog.current t.catalog canonical) then
     invalid "repository assignment changed during cancellation";
   match find t id with
-  | None -> invalid "pipeline not found"
+  | None -> not_found ()
   | Some p ->
-      if p.repo <> repo then invalid "pipeline belongs to another repository";
+      if p.repo <> repo then not_found ();
       List.iter
         (Runner.cancel ~persist:(fun () -> persist t p))
         (select_workflows p names);
@@ -726,9 +739,9 @@ let approve t ~actor ~repo ~id =
   let canonical = managed t repo in
   check_actor t canonical actor;
   match find t id with
-  | None -> invalid "pipeline not found"
+  | None -> not_found ()
   | Some p ->
-      if p.repo <> repo then invalid "pipeline belongs to another repository";
+      if p.repo <> repo then not_found ();
       let blocked =
         List.filter (fun (r : Runner.t) -> r.status = "blocked") p.workflows
       in
@@ -744,9 +757,9 @@ let retry t ~principal ~actor ~repo ~id ~names =
   let canonical = managed t repo in
   check_actor t canonical principal;
   match find t id with
-  | None -> invalid "pipeline not found"
+  | None -> not_found ()
   | Some p ->
-      if p.repo <> repo then invalid "pipeline belongs to another repository";
+      if p.repo <> repo then not_found ();
       let names =
         match names with
         | [] -> List.map (fun (r : Runner.t) -> r.job.name) p.workflows

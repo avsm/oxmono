@@ -76,7 +76,17 @@ val view : t -> pipeline -> Jsont.json
 (** [view t p] is [p] as an [org.tangled.ci.defs#pipeline]. *)
 
 val managed : t -> string -> Catalog.repo
+(** [managed t did] is the served repository [did]. It raises a 404
+    [RepoNotFound] XRPC error for any other. *)
+
+val authorize : t -> principal:string -> string -> unit
+(** [authorize t ~principal repo] checks that [principal] satisfies
+    {!Catalog.permitted} for the served repository [repo], raising a 403
+    [AccessControl] XRPC error otherwise. Callers check before revealing a
+    pipeline's state. *)
+
 val find : t -> string -> pipeline option
+(** [find t id] is pipeline [id], or [None] when [id] is not a TID. *)
 
 val query :
   t ->

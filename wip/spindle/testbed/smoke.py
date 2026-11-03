@@ -269,7 +269,7 @@ def main():
 
     request(SPINDLE + TRIGGER, body, status=401)
     request(SPINDLE + TRIGGER, status=405)
-    request(SPINDLE + TRIGGER, body, auth(login("bob")), status=401)
+    request(SPINDLE + TRIGGER, body, auth(login("bob")), status=403)
     request(SPINDLE + TRIGGER, body,
             auth(alice, audience="did:web:wrong.tangled.test"), status=401)
     request(SPINDLE + TRIGGER, body,

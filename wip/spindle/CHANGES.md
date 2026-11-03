@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+- Answer with the reference spindle's error codes: 404 `RepoNotFound`,
+  `RefNotFound`, `PipelineNotFound` and `WorkflowNotFound`, and 403
+  `AccessControl` for a caller who cannot push. Authorize pipeline changes
+  before reading the pipeline. Answer a push to an unserved repository with
+  nothing to run. Bound refs, workflow names and streamed workflows.
+
 - Refuse a manual run whose ref does not hold its commit within 100 commits,
   as the reference spindle checks it.
 

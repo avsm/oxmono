@@ -9,7 +9,8 @@ let () =
   let executor (ctx : Spindle.Executor.context) (r : Spindle.Executor.request) =
     List.iter
       (fun (s : Spindle.Job.step) ->
-        ctx.step s.name (fun () -> Eio.Time.sleep system#clock 30.))
+        ctx.step ~command:s.command s.name (fun () ->
+            Eio.Time.sleep system#clock 30.))
       r.steps
   in
   Spindle.run ~addr:"0.0.0.0" system

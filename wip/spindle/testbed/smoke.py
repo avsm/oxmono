@@ -303,7 +303,11 @@ def main():
     assert result["commit"] == sha
     text = "".join(e["content"] for e in events if e["type"] == "data")
     # The default executor describes the workflow instead of running it.
-    assert "Workflow    inspect" in text and "  ls -la" in text, text
+    assert "Workflow    inspect" in text, text
+    commands = [(e["content"], e.get("command"), e["kind"]) for e in events
+                if e["type"] == "control" and e["status"] == "start"]
+    assert commands == [("describe the request", None, "system"),
+                        ("list files", "ls -la", "user")], commands
     described = "".join(e["content"] for e in events
                         if e["type"] == "data" and e["step"] == 0)
     lines = described.splitlines()

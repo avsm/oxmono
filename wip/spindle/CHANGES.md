@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Show only a trigger's lexicon fields in pipeline views, so a push's
+  options stay private, and `sourceRepo` only when it differs.
+
 - Report the whole match count on every `queryPipelines` page, and every
   pipeline of a requested commit, as the reference spindle does.
 

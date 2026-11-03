@@ -60,6 +60,7 @@ let () =
         ("newSha", str (String.make 64 'a'));
         ("oldSha", str (String.make 40 '0'));
         ("ref", str "refs/heads/main");
+        ("pushOptions", arr [ str "deploy=now" ]);
       ]
   in
   let request = obj [ ("repo", str repo); ("trigger", trigger) ] in
@@ -76,6 +77,10 @@ let () =
   assert (Hashtbl.length engine.pipelines = 1);
   let pipeline = Option.get (Engine.find engine (Option.get first)) in
   assert (List.length pipeline.workflows = 2);
+  (* A view shows the lexicon's trigger fields only. *)
+  let shown = required "trigger" (Engine.view engine pipeline) in
+  assert (field "pushOptions" shown = None && get "repo" shown = repo);
+  assert (get "ref" shown = "refs/heads/main");
   assert (
     List.length (Engine.select_workflows pipeline [ "inspect"; "inspect" ]) = 1);
   Engine.cancel engine ~actor:owner ~repo ~id:pipeline.id ~names:[];

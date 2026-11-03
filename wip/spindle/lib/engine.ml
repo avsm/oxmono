@@ -75,20 +75,55 @@ let view_run hostname (run : Runner.t) =
           | None -> definition hostname run.job.name );
       ])
 
+(* A view shows the lexicon's fields of a trigger, not everything its sender
+   included, such as a push's options. *)
+let public_trigger p =
+  let trigger = required "trigger" p.request in
+  let keep names =
+    List.filter_map
+      (fun name ->
+        match field name trigger with
+        | Some (Jsont.String ("", _)) | None -> None
+        | Some v -> Some (name, v))
+      names
+  in
+  let kind = get "$type" trigger in
+  obj
+    (("$type", str kind)
+    ::
+    (if kind = push then
+       ("repo", str p.repo) :: keep [ "ref"; "oldSha"; "newSha"; "actor" ]
+     else if kind = pull_request then
+       keep
+         [
+           "action";
+           "pull";
+           "sourceRepo";
+           "sourceBranch";
+           "sourceSha";
+           "targetBranch";
+         ]
+     else if kind = manual then
+       [ ("repo", str p.repo); ("commit", str p.commit) ]
+       @ keep [ "ref" ]
+       @ [ ("inputs", Option.value ~default:(arr []) (field "inputs" trigger)) ]
+     else List.remove_assoc "$type" (members trigger)))
+
 let view_in hostname p =
   obj
     ([
        ("id", str p.id);
        ("repo", str p.repo);
-       ("trigger", required "trigger" p.request);
+       ("trigger", public_trigger p);
        ("commit", str p.commit);
        ("createdAt", str p.created);
        ("workflows", arr (List.map (view_run hostname) p.workflows));
      ]
     @
     match field "sourceRepo" (required "trigger" p.request) with
-    | None -> []
-    | Some value -> [ ("sourceRepo", value) ])
+    | Some (Jsont.String (source, _) as value) when source <> p.repo ->
+        [ ("sourceRepo", value) ]
+    | _ -> [])
 
 let snapshot t p =
   encode
@@ -402,8 +437,9 @@ let view t p = view_in t.hostname p
 let first t namespace key =
   Lock.protect t.lock (fun () ->
       Store.get t.store namespace key = None
-      && (Store.put t.store namespace key "";
-          true))
+      &&
+      (Store.put t.store namespace key "";
+       true))
 
 let managed t id =
   match Catalog.managed t.catalog id with

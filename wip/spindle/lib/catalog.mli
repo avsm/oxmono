@@ -71,6 +71,18 @@ val managed : t -> string -> repo option
 val forget : t -> string -> unit
 (** [forget t did] drops the cached acceptance of [did]. *)
 
+val known : t -> string -> bool
+(** [known t id] holds for the static repository and for repositories this
+    spindle has accepted before. It reads only local state. *)
+
+val names_self : t -> Jsont.json -> bool
+(** [names_self t manifest] holds when the [org.tangled.repo.manifest] record
+    [manifest] names this spindle. *)
+
+val deleted : t -> string -> bool
+(** [deleted t id] holds when the knot of repository [id] reports it deleted
+    through [com.atproto.sync.getRepoStatus]. *)
+
 val current : t -> repo -> bool
 (** [current t repo] checks that [repo] is still served by the same owner and
     knot. *)

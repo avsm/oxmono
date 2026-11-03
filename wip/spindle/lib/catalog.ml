@@ -177,6 +177,24 @@ let managed t id =
 
 let forget t id = Hashtbl.remove t.cache id
 
+let known t id =
+  (match t.static with Some repo -> repo.did = id | None -> false)
+  || Settings.owner_of t.settings id <> None
+
+let names_self t manifest =
+  Option.map string (field "spindle" manifest) = Some (self t)
+
+let deleted t id =
+  let status =
+    Network.json t.network
+      (Network.query
+         (knot_of t id ^ "/xrpc/com.atproto.sync.getRepoStatus")
+         [ ("did", id) ])
+  in
+  field "error" status = None
+  && field "active" status = Some (Jsont.Json.bool false)
+  && Option.map string (field "status" status) = Some "deleted"
+
 let current t (repo : repo) =
   match managed t repo.did with
   | Some r -> r.owner = repo.owner && r.knot = repo.knot

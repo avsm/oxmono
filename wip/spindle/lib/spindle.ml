@@ -1081,8 +1081,9 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   Option.iter
     (fun jetstream ->
       Eio.Fiber.fork ~sw (fun () ->
-          Observer.run ~engine ~network ~hooks ~jetstream ~health
-            ~policy:operations))
+          Observer.run ~engine ~network ~hooks
+            ~wipe:(fun repo -> wipe state repo)
+            ~jetstream ~health ~policy:operations))
     config.jetstream;
   let open Route in
   let handler name env req respond = env (Req.globalize name) req respond in

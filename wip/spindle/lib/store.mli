@@ -53,9 +53,18 @@ val fold :
 val ready : t -> string -> now:float -> limit:int -> (string * string) list
 (** [ready store namespace ~now ~limit] reads up to 128 due tasks. *)
 
-val defer : t -> string -> string -> now:float -> unit
+val defer : t -> string -> string -> now:float -> int
 (** [defer store namespace key ~now] backs off a failed task from one second to
-    one minute. Deleting the task clears its retry state. *)
+    one minute and is the number of times it has failed. Deleting the task
+    clears its retry state. *)
+
+val hold : t -> string -> string -> behind:string -> unit
+(** [hold store namespace key ~behind] makes task [key] due when task [behind]
+    is, without counting a failure, so that it is not handled first. *)
+
+val advance : t -> source:string -> cursor:string -> unit
+(** [advance store ~source ~cursor] moves the stream checkpoint past an event
+    that is not stored. Cursors only move forward. *)
 
 val put : t -> string -> string -> string -> unit
 val delete : t -> string -> string -> unit

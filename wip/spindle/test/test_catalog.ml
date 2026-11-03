@@ -50,6 +50,7 @@ let () =
   let records = Hashtbl.create 8 in
   let reads = ref 0 in
   let failing = ref false in
+  let gone = ref false in
   let manifest ?(spindle = self) owner =
     obj
       [
@@ -95,6 +96,15 @@ let () =
       | _ -> ""
     in
     match Uriz.path uri with
+    | "/xrpc/com.atproto.sync.getRepoStatus" ->
+        if !gone then
+          obj
+            [
+              ("did", str (param "did"));
+              ("active", bool false);
+              ("status", str "deleted");
+            ]
+        else obj [ ("did", str (param "did")); ("active", bool true) ]
     | "/xrpc/com.atproto.repo.getRecord" -> (
         incr reads;
         let key = (param "repo", param "collection", param "rkey") in
@@ -226,7 +236,15 @@ let () =
       set owner "org.tangled.repo.declaration" "renamed" (declaration repo);
       assert (refresh ());
       assert ((Option.get (Catalog.managed catalog repo)).name = "Renamed");
-      assert (!renamed = [ ("Demo", "Renamed") ]));
+      assert (!renamed = [ ("Demo", "Renamed") ]);
+      (* An accepted repository is known without asking the network, and a
+         deletion is what its knot reports. *)
+      assert (Catalog.known catalog repo && not (Catalog.known catalog helper));
+      assert (Catalog.names_self catalog (rename "Renamed"));
+      assert (not (Catalog.names_self catalog (manifest ~spindle:"x" owner)));
+      assert (not (Catalog.deleted catalog repo));
+      gone := true;
+      assert (Catalog.deleted catalog repo));
   print_endline
     "catalog: manifest and declaration agreement, admission, caching, renames \
      and live collaborator and repository-token checks passed"

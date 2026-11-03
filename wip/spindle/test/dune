@@ -43,3 +43,8 @@
  (name test_workflows)
  (modules test_workflows)
  (libraries spindle))
+
+(test
+ (name test_observer)
+ (modules test_observer)
+ (libraries spindle eio_main))

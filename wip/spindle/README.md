@@ -236,9 +236,15 @@ The state directory holds `spindle.db` and its WAL. One
 process owns its directory lock. SQLite uses WAL with `synchronous=FULL`.
 Jetstream events and the stream cursor commit together. Dispatch records and
 their deduplication keys also commit together, so a knot's retried push or a
-replayed patch starts no second pipeline. Transient processing failures leave
-events queued. Malformed events have recorded rejections. Failed events back
-off up to one minute, including after restart.
+replayed patch starts no second pipeline. A repository's events are handled
+in order, and other repositories' in parallel. Transient processing failures
+leave events queued, backing off up to one minute, including after restart.
+An event that fails twelve times, or is malformed, is recorded as rejected.
+Patches and tickets of repositories the spindle has not accepted cost no
+requests, and network-wide identity and account events are not stored.
+
+A deleted repository, as its knot reports it, and the repositories of an
+owner whose account becomes inactive are wiped, as bans wipe them.
 
 Pending and blocked workflows resume after restart. Interrupted workflows
 become failed. Executor output streams a line at a time. Log lines commit
@@ -279,8 +285,9 @@ opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force \
 Native tests cover signed service tokens, issuer-scoped replay prevention,
 concurrent consumption, expiry, database reopening and atomic event receipts.
 They cover repository acceptance against a mock knot, PDS and PLC directory:
-manifest and declaration agreement, admission, caching and live collaborator
-checks. They cover workflow selection, approval, retry, cancellation,
+manifest and declaration agreement, admission, caching, renames, deletions
+and live collaborator checks. They cover event filtering, per-repository
+ordering, workflow selection, approval, retry, cancellation,
 retention budgets, queue backpressure and observer readiness. The WebSocket
 client tests retain frames coalesced with the HTTP upgrade, report activity,
 expose rejected upgrades, and reject bad accepts and HTTP versions. The Docker

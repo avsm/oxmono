@@ -85,8 +85,10 @@ steps:
          ~trigger:manual ~names:[]
          [ ("noengine.yml", "steps: []") ])
     = []);
-  assert (not (W.valid_name ".hidden"));
-  assert (not (W.valid_name "a b.yml"));
+  (* Any printable file name is a workflow, as in the reference spindle. *)
+  assert (W.valid_name ".hidden" && W.valid_name "my ci.yml");
+  assert (not (W.valid_name "a/b" || W.valid_name "" || W.valid_name ".."));
+  assert (not (W.valid_name "line\nbreak" || W.valid_name "\xff.yml"));
   (* Secret values, their lines and base64 forms are hidden in output, even
      split across reads. *)
   let mask = Mask.v [ "hunter2"; "line one\nline two" ] in

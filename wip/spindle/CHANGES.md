@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Read any regular file in `.tangled/workflows` with a printable name, such
+  as `my ci.yml`, as the reference spindle does.
+
 - Refuse a log stream from a browser page on another site unless
   `--cors-origin` allows it, as the reference spindle does.
 

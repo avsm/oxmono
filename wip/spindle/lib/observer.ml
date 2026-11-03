@@ -162,8 +162,8 @@ let pull_view ~ticket:t ~seen ~source =
 
 (* Dispatch a pull request event and notify its webhooks. A closed or merged
    pull request runs only workflows that ask for it. *)
-let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
-    ~action ~event ~sender =
+let dispatch ?round engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen
+    ~source ~action ~event ~sender =
   if
     Catalog.admitted engine.Engine.catalog served.owner
     && not
@@ -173,10 +173,15 @@ let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
     let dedup =
       String.concat "/"
         ([ "pull"; uri; seen.head ]
-        @ if List.mem action [ "opened"; "synchronize" ] then [] else [ action ])
+        @ if List.mem action [ "opened"; "synchronize" ] then [] else [ action ]
+        )
     in
-    (* A retried event notifies webhooks once. *)
-    if Engine.first engine "pull-hook" dedup then
+    (* A retried event notifies webhooks once. Each round of a pull request
+       does, even one resubmitting the same commit. *)
+    if
+      Engine.first engine "pull-hook"
+        (String.concat "/" (dedup :: Option.to_list round))
+    then
       Hooks.pull_request hooks served ~event ~sender
         (pull_view ~ticket:t ~seen ~source);
     (* The target repository's knot holds a pull request's commits, so the
@@ -246,12 +251,22 @@ let pull engine network hooks ~repo ~rkey =
                     Option.fold ~none:"open" ~some:string (field "state" t)
                   in
                   if state = "open" then begin
-                    let author = did (get "x-tngl-editor" value) in
+                    (* A patch without a valid editor has no known author,
+                       so its pipeline waits for approval. *)
+                    let author =
+                      match field "x-tngl-editor" value with
+                      | Some (Jsont.String (editor, _))
+                        when Atp.Did.is_valid editor ->
+                          editor
+                      | _ -> ""
+                    in
                     let head = sha (get "oid" (required "head" value)) in
                     let uri = "at://" ^ repo ^ "/" ^ ticket ^ "/" ^ number in
                     let previous = load_seen engine uri in
-                    if Option.map (fun s -> s.head) previous <> Some head
-                    then begin
+                    (* Each patch record is a round, as the reference spindle
+                       counts them, whatever its head. *)
+                    let round = uri ^ "/" ^ rkey in
+                    if Store.get engine.store "pull-patch" round = None then begin
                       let seen =
                         {
                           head;
@@ -273,10 +288,11 @@ let pull engine network hooks ~repo ~rkey =
                           ("opened", "pull_request:created")
                         else ("synchronize", "pull_request:resubmitted")
                       in
-                      dispatch engine hooks served ~uri ~ticket:t ~seen
-                        ~source:(field "source" value) ~action ~event
+                      dispatch ~round:rkey engine hooks served ~uri ~ticket:t
+                        ~seen ~source:(field "source" value) ~action ~event
                         ~sender:author;
-                      save_seen engine uri seen
+                      save_seen engine uri seen;
+                      Store.put engine.store "pull-patch" round ""
                     end
                   end)))
 

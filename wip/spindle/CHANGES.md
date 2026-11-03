@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Count each patch of a pull request as a round, so resubmitting the same
+  commit sends `pull_request:resubmitted`, and hold a patch without a valid
+  editor for approval instead of rejecting it.
+
 - Read any regular file in `.tangled/workflows` with a printable name, such
   as `my ci.yml`, as the reference spindle does.
 

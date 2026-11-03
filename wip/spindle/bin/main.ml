@@ -3,7 +3,7 @@ open Cmdliner
 
 let serve hostname owner admins admission repo source plc state_dir port addr
     jetstream allow_http workflow_timeout quota_repo quota_user private_webhooks
-    cors_origins operations =
+    cors_origins contact_email privacy_policy terms_of_service operations =
   let repo =
     match (repo, source) with
     | None, None -> None
@@ -29,6 +29,9 @@ let serve hostname owner admins admission repo source plc state_dir port addr
       quotas = { repo = quota_repo; user = quota_user };
       private_webhooks;
       cors_origins;
+      contact_email;
+      privacy_policy;
+      terms_of_service;
     }
 
 let required name doc =
@@ -177,6 +180,21 @@ let command =
                 "Let browser pages from $(docv), such as \
                  $(b,https://tangled.org), call XRPC methods. $(b,*) allows \
                  any origin. Repeatable.")
+      $ Arg.(
+          value
+          & opt (some string) None
+          & info [ "contact-email" ] ~docv:"EMAIL"
+              ~doc:"Operator contact that $(b,describeSpindle) reports.")
+      $ Arg.(
+          value
+          & opt (some string) None
+          & info [ "privacy-policy" ] ~docv:"URL"
+              ~doc:"Privacy policy that $(b,describeSpindle) links to.")
+      $ Arg.(
+          value
+          & opt (some string) None
+          & info [ "terms-of-service" ] ~docv:"URL"
+              ~doc:"Terms of service that $(b,describeSpindle) links to.")
       $ operations)
   in
   Cmd.v (Cmd.info "spindle" ~doc:"Run a Tangled spindle") term

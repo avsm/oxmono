@@ -31,4 +31,7 @@ let () =
       quotas = { repo = []; user = [] };
       private_webhooks = true;
       cors_origins = [];
+      contact_email = None;
+      privacy_policy = None;
+      terms_of_service = None;
     }

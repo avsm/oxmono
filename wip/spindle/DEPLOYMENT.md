@@ -184,7 +184,9 @@ curl --fail http://127.0.0.1:9000/xrpc/_health
 curl --fail http://127.0.0.1:9000/xrpc/org.tangled.spindle.describeSpindle
 ```
 
-`/xrpc/_health` reports liveness and diagnostics. Use `/xrpc/_ready` or
+`/_health` answers `{"status":"ok"}` while the process runs, as the
+reference spindle's does. `/xrpc/_health` reports liveness and diagnostics.
+Use `/xrpc/_ready` or
 `/readyz` for readiness. Submit an authenticated job to check execution and
 caller authorization.
 

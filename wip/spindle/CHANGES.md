@@ -6,6 +6,11 @@
 
 ## Unreleased
 
+- Serve `GET /_health` and the DID document as `application/did+json`, as
+  the reference spindle does. `describeSpindle` sends `links`, and `contact`
+  when `--contact-email` is given. `--privacy-policy` and
+  `--terms-of-service` add its links.
+
 - Show only a trigger's lexicon fields in pipeline views, so a push's
   options stay private, and `sourceRepo` only when it differs.
 

@@ -27,6 +27,9 @@ type config = {
   quotas : Settings.defaults;
   private_webhooks : bool;
   cors_origins : string list;
+  contact_email : string option;
+  privacy_policy : string option;
+  terms_of_service : string option;
 }
 
 type state = {
@@ -283,9 +286,9 @@ let preflight state req respond ~post =
     ()
 
 let respond_json respond ?(status = Status.Success) ?(headers = Headers.empty)
-    json =
+    ?(content_type = "application/json") json =
   let text = encode json in
-  Resp.v respond ~status ~headers ~content_type:(This "application/json")
+  Resp.v respond ~status ~headers ~content_type:(This content_type)
     (Body.String text)
 
 let workflows state =
@@ -637,8 +640,9 @@ let handle state name req respond =
   let cors =
     if name = "_did" then Headers.empty else Headers.of_list (cors state req)
   in
-  let respond_json respond ?status ?(headers = Headers.empty) json =
-    respond_json respond ?status ~headers:(headers @ cors) json
+  let respond_json respond ?status ?(headers = Headers.empty) ?content_type json
+      =
+    respond_json respond ?status ~headers:(headers @ cors) ?content_type json
   in
   try
     if Req.meth req = Method.Options then preflight state req respond ~post
@@ -654,6 +658,7 @@ let handle state name req respond =
       let catalog = state.engine.catalog in
       let result =
         match name with
+        | "_live" -> obj [ ("status", str "ok") ]
         | "_health" ->
             snd
               (Health.report state.health
@@ -686,12 +691,24 @@ let handle state name req respond =
                     ] );
               ]
         | "org.tangled.spindle.describeSpindle" ->
+            let optional key =
+              Option.fold ~none:[] ~some:(fun v -> [ (key, str v) ])
+            in
             obj
-              [
-                ("did", str (Catalog.self catalog));
-                ("version", str "oxmono");
-                ("capabilities", arr [ str "tangled1.0" ]);
-              ]
+              ([
+                 ("did", str (Catalog.self catalog));
+                 ("version", str "oxmono");
+                 ("capabilities", arr [ str "tangled1.0" ]);
+                 ( "links",
+                   obj
+                     (optional "privacyPolicy" state.config.privacy_policy
+                     @ optional "termsOfService" state.config.terms_of_service)
+                 );
+               ]
+              @
+              match state.config.contact_email with
+              | None -> []
+              | Some email -> [ ("contact", obj [ ("email", str email) ]) ])
         | "org.tangled.ci.getPipeline" ->
             let repo = did (query_required req "repo") in
             Engine.view state.engine
@@ -947,7 +964,10 @@ let handle state name req respond =
             obj []
         | _ -> reject Status.Not_found "MethodNotFound" "unknown XRPC method"
       in
-      respond_json respond result
+      let content_type =
+        if name = "_did" then Some "application/did+json" else None
+      in
+      respond_json respond ?content_type result
   with
   | Not_ready report ->
       respond_json respond ~status:Status.Service_unavailable report
@@ -1127,6 +1147,7 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
           (s ".well-known" / s "did.json")
           (fun env req respond -> env "_did" req respond);
         get root (fun env req respond -> env "_health" req respond);
+        get (s "_health") (fun env req respond -> env "_live" req respond);
         get (s "readyz") (fun env req respond -> env "_ready" req respond);
       ]
   in

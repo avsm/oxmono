@@ -26,7 +26,7 @@ val json : t -> string -> Jsont.json
 
 val fetch_status : ?limit:int -> t -> string -> int * string
 (** [fetch_status t url] is the status and at most [limit] bytes of the body of
-    [GET url]. *)
+    [GET url]. It raises {!Unavailable} as {!read} does. *)
 
 val read_limited : _ Eio.Flow.source -> int -> string
 (** [read_limited flow n] reads at most [n] bytes of [flow]. *)

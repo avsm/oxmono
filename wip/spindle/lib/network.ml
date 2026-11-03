@@ -71,9 +71,15 @@ let fetch_status ?(limit = 1048576) t url =
   let base = U.with_encoded_query uri Null |> fun uri -> U.to_string uri in
   let host = origin ~allow_http:t.allow_http base in
   let fetch = Fetch.restrict t.fetch ~under:[ host ] in
-  Eio.Time.Timeout.run_exn t.timeout (fun () ->
-      Fetch.with_response fetch `GET url (fun r ->
-          (Fetch.status r, read_limited (Fetch.body r) limit)))
+  match
+    Eio.Time.Timeout.run_exn t.timeout (fun () ->
+        Fetch.with_response fetch `GET url (fun r ->
+            (Fetch.status r, read_limited (Fetch.body r) limit)))
+  with
+  | exception Eio.Time.Timeout -> raise (Unavailable (host ^ " timed out"))
+  | status, _ when status >= 500 || status = 429 ->
+      raise (Unavailable (Printf.sprintf "%s answered %d" host status))
+  | answer -> answer
 
 (* A server error, rate limit or timeout is the host's trouble, not the
    caller's, so it is reported apart from a malformed answer. *)

@@ -456,10 +456,7 @@ let enqueue t key w ~event ~agent ~full_name body =
   let host =
     match Hashtbl.find_opt t.hosts name with
     | Some h -> h
-    | None ->
-        let h = { slots = Eio.Semaphore.make 2; waiting = 0 } in
-        Hashtbl.replace t.hosts name h;
-        h
+    | None -> { slots = Eio.Semaphore.make 2; waiting = 0 }
   in
   if t.queued >= 1024 || host.waiting >= 64 then
     Eio.Mutex.use_rw ~protect:true t.lock (fun () ->
@@ -468,6 +465,7 @@ let enqueue t key w ~event ~agent ~full_name body =
   else (
     t.queued <- t.queued + 1;
     host.waiting <- host.waiting + 1;
+    Hashtbl.replace t.hosts name host;
     Eio.Fiber.fork ~sw:t.sw (fun () ->
         Fun.protect ~finally:(fun () ->
             t.queued <- t.queued - 1;

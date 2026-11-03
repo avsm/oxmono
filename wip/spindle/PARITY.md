@@ -62,6 +62,8 @@ callback in place of the microVM and Nixery engines.
 - Service tokens get no clock leeway on `exp` and are single-use on every
   method. The reference spindle allows five seconds and consumes nonces only
   for push notifications.
+- `getWorkflowDefinition` accepts any workflow file name of up to 255 bytes.
+  The reference spindle bounds names at 128 bytes.
 - A malformed workflow file is left out of `listWorkflowDefinitions`. The
   reference spindle fails the whole listing.
 - Schedules, their `when` validation, the `ci.message` log-viewer hint and

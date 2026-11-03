@@ -521,11 +521,14 @@ let notify state req ~issuer body =
           | Some names -> [ ("workflows", names) ]
           | None -> []
         in
-        (* A manual run's ref is believed only when it holds the commit, since
+        (* The caller is checked before the knot is asked anything. A manual
+           run's ref is believed only when it holds the commit, since
            workflows see it as the ref being built. *)
+        Engine.authorize engine ~principal:issuer repo;
+        let commit = sha (get "commit" event) in
         Option.iter
           (fun ref_ ->
-            let ref_ = string ref_ and commit = get "commit" event in
+            let ref_ = string ref_ in
             if
               not
                 (Catalog.ref_contains engine.catalog
@@ -749,8 +752,8 @@ let handle state name req respond =
         | "org.tangled.ci.getWorkflowDefinition" -> (
             served state req;
             let name = query_required req "workflow" in
-            if String.length name < 1 || String.length name > 128 then
-              invalid "workflow length must be between 1 and 128";
+            if not (Workflows.valid_name name) then
+              invalid "workflow must be a file name of 1 to 255 bytes";
             let repo = did (query_required req "repo") in
             let ref_ = Option.value ~default:"HEAD" (query req "ref") in
             match

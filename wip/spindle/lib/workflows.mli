@@ -8,8 +8,8 @@
 val directory : string
 
 val valid_name : string -> bool
-(** [valid_name name] holds for a file name this spindle can run: letters,
-    digits, [_], [-] and [.], not starting with [.], at most 128 bytes. *)
+(** [valid_name name] holds for a file name this spindle can run: 1 to 255 bytes
+    of printable UTF-8 without [/], other than [.] and [..]. *)
 
 val matches : string -> string list -> bool
 (** [matches name patterns] holds if a doublestar glob in [patterns] matches

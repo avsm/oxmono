@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Check a manual run's caller before asking the knot about its ref, answer
+  503 when a workflow file cannot be fetched, and fetch any workflow by its
+  file name.
+
 - Count each patch of a pull request as a round, so resubmitting the same
   commit sends `pull_request:resubmitted`, and hold a patch without a valid
   editor for approval instead of rejecting it.

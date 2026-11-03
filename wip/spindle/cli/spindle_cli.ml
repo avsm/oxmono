@@ -123,7 +123,8 @@ let origin =
   in
   Arg.conv (parse, Format.pp_print_string)
 
-let main ?(name = "spindle") ?(doc = "Run a Tangled spindle") extra make =
+let main ?(name = "spindle") ?(doc = "Run a Tangled spindle")
+    ?(workflow_timeout = 60.) extra make =
   let term =
     Term.(
       const (serve make)
@@ -172,7 +173,7 @@ let main ?(name = "spindle") ?(doc = "Run a Tangled spindle") extra make =
           & info [ "allow-http" ]
               ~doc:"Permit HTTP and WS on a development network.")
       $ Arg.(
-          value & opt float 60.
+          value & opt float workflow_timeout
           & info [ "workflow-timeout" ] ~docv:"SECONDS"
               ~doc:"How long a workflow may run before it is stopped.")
       $ quota "quota-repo" "a repository"

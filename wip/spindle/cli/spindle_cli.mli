@@ -13,7 +13,14 @@ type 'a make =
     the value of its own options [extra]. Resources it opens may use [sw], which
     lasts as long as the spindle serves. *)
 
-val main : ?name:string -> ?doc:string -> 'a Cmdliner.Term.t -> 'a make -> unit
+val main :
+  ?name:string ->
+  ?doc:string ->
+  ?workflow_timeout:float ->
+  'a Cmdliner.Term.t ->
+  'a make ->
+  unit
 (** [main ~name ~doc extra make] parses the command line, with [extra] as
     additional options, and serves until stopped. [name] defaults to
-    ["spindle"]. It exits the process. *)
+    ["spindle"], and [workflow_timeout] is the default of [--workflow-timeout],
+    60 seconds unless given. It exits the process. *)

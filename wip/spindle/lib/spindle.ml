@@ -346,7 +346,9 @@ let tree config catalog network ~did:repo ~commit : Executor.files =
       {
         list =
           (fun dir ->
-            git [ "ls-tree"; "-z"; commit; prefix dir ]
+            git
+              ("ls-tree" :: "-z" :: commit
+              :: (if dir = "" then [] else [ prefix dir ]))
             |> String.split_on_char '\000'
             |> List.filter_map (fun line ->
                 match String.index_opt line '\t' with

@@ -431,32 +431,28 @@ let not_found () =
   Xrpc_error.fail Httpz.Res.Not_found "PipelineNotFound" "pipeline not found"
 
 let query t ~repo ~limit ~cursor ~triggers ~commits =
-  let seen = Hashtbl.create (List.length commits) in
-  let total, count, page =
-    Store.fold t.store "pipeline-view" ~descending:true ~init:(0, 0, [])
-      ~f:(fun ((total, count, page) as acc) (id, raw) ->
+  let total, more, count, page =
+    Store.fold t.store "pipeline-view" ~descending:true ~init:(0, false, 0, [])
+      ~f:(fun ((total, more, count, page) as acc) (id, raw) ->
         let p = decode raw in
         let trigger = get "$type" (required "trigger" p) in
         let commit = get "commit" p in
         if
           get "repo" p <> repo
           || (triggers <> [] && not (List.mem trigger triggers))
-          || commits <> []
-             && ((not (List.mem commit commits)) || Hashtbl.mem seen commit)
+          || (commits <> [] && not (List.mem commit commits))
         then acc
-        else (
-          if commits <> [] then Hashtbl.add seen commit ();
-          if
-            Option.fold ~none:false
-              ~some:(fun cursor -> String.compare id cursor >= 0)
-              cursor
-          then acc
-          else if count = limit then (total + 1, count, page)
-          else (total + 1, count + 1, p :: page)))
+        else if
+          Option.fold ~none:false
+            ~some:(fun cursor -> String.compare id cursor >= 0)
+            cursor
+        then (total + 1, more, count, page)
+        else if count = limit then (total + 1, true, count, page)
+        else (total + 1, more, count + 1, p :: page))
       ()
   in
   let next =
-    if total > count then [ ("cursor", str (get "id" (List.hd page))) ] else []
+    if more then [ ("cursor", str (get "id" (List.hd page))) ] else []
   in
   obj ([ ("total", int total); ("pipelines", arr (List.rev page)) ] @ next)
 

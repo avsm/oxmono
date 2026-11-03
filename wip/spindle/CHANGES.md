@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Report the whole match count on every `queryPipelines` page, and every
+  pipeline of a requested commit, as the reference spindle does.
+
 - Answer with the reference spindle's error codes: 404 `RepoNotFound`,
   `RefNotFound`, `PipelineNotFound` and `WorkflowNotFound`, and 403
   `AccessControl` for a caller who cannot push. Authorize pipeline changes

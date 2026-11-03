@@ -97,8 +97,8 @@ val query :
   commits:string list ->
   Jsont.json
 (** [query engine ~repo ~limit ~cursor ~triggers ~commits] returns newest-first
-    summaries with bounded memory. [total] counts matches after the cursor.
-    Commit filtering selects the latest match before applying the cursor. *)
+    summaries with bounded memory. [total] counts every match, on every page,
+    and each pipeline of a commit in [commits] matches. *)
 
 val select_workflows : pipeline -> string list -> Runner.t list
 

@@ -195,13 +195,17 @@ let () =
   assert (number (required "total" page) = 300.);
   assert (get "cursor" page = id 283);
   assert (List.length (list (required "pipelines" page)) = 17);
+  (* Every page reports the whole count, as the reference spindle does. *)
   let page = query ~cursor:(id 283) () in
-  assert (number (required "total" page) = 283.);
+  assert (number (required "total" page) = 300.);
   assert (get "id" (List.hd (list (required "pipelines" page))) = id 282);
+  (* Each of a commit's pipelines matches. *)
+  let ids page = List.map (get "id") (list (required "pipelines" page)) in
   let latest = query ~commits:[ sha 42 ] () in
-  assert (get "id" (List.hd (list (required "pipelines" latest))) = id 128);
+  assert (ids latest = [ id 128; id 127; id 126 ]);
+  assert (number (required "total" latest) = 3.);
   let older = query ~commits:[ sha 42 ] ~cursor:(id 128) () in
-  assert (list (required "pipelines" older) = []);
+  assert (ids older = [ id 127; id 126 ]);
   let manual = query ~commits:[ sha 42 ] ~triggers:[ Engine.manual ] () in
   assert (get "id" (List.hd (list (required "pipelines" manual))) = id 127);
   Eio.Semaphore.acquire engine.runner.slots;

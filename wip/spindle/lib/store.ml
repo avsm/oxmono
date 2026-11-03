@@ -551,7 +551,8 @@ let prune t ~now (policy : Operations.t) =
             ];
           execute t
             {|DELETE FROM kv WHERE namespace IN
-           ('pull-seen','observer','sh.tangled.repo','sh.tangled.spindle.member')
+           ('pull-seen','observer','sh.tangled.repo','sh.tangled.spindle.member',
+            'push-hook','pull-hook')
           AND (namespace,key) IN (SELECT namespace,key FROM age WHERE updated<?)|}
             [
               Sqlite3.Data.FLOAT

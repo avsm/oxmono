@@ -399,6 +399,12 @@ let load t =
 
 let view t p = view_in t.hostname p
 
+let first t namespace key =
+  Lock.protect t.lock (fun () ->
+      Store.get t.store namespace key = None
+      && (Store.put t.store namespace key "";
+          true))
+
 let managed t id =
   match Catalog.managed t.catalog id with
   | Some repo -> repo

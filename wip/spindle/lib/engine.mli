@@ -113,6 +113,10 @@ val create :
     pipeline, or one whose code comes from another repository, receives no
     secrets. *)
 
+val first : t -> string -> string -> bool
+(** [first t namespace key] records [key] in [namespace] and holds if it was not
+    already recorded. Receipts expire with event receipts. *)
+
 val cancel :
   t -> actor:string -> repo:string -> id:string -> names:string list -> unit
 

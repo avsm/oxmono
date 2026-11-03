@@ -155,8 +155,15 @@ let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
          (Settings.banned engine.settings seen.author
          || Settings.banned engine.settings sender)
   then begin
-    Hooks.pull_request hooks served ~event ~sender
-      (pull_view ~ticket:t ~seen ~source);
+    let dedup =
+      String.concat "/"
+        ([ "pull"; uri; seen.head ]
+        @ if List.mem action [ "opened"; "synchronize" ] then [] else [ action ])
+    in
+    (* A retried event notifies webhooks once. *)
+    if Engine.first engine "pull-hook" dedup then
+      Hooks.pull_request hooks served ~event ~sender
+        (pull_view ~ticket:t ~seen ~source);
     let trigger =
       obj
         ([
@@ -183,14 +190,7 @@ let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
         && Catalog.authorized engine.catalog served sender)
     in
     ignore
-      (Engine.create engine
-         ~dedup:
-           (String.concat "/"
-              ([ "pull"; uri; seen.head ]
-              @
-              if List.mem action [ "opened"; "synchronize" ] then []
-              else [ action ]))
-         ~blocked ~automatic:true ~actor:sender
+      (Engine.create engine ~dedup ~blocked ~automatic:true ~actor:sender
          (obj [ ("repo", str served.did); ("trigger", trigger) ]))
   end
 

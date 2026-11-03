@@ -70,6 +70,9 @@ let () =
     Engine.create engine ~dedup:"event-1" ~automatic:true ~actor:owner request
   in
   assert (first = second && Option.is_some first);
+  (* A webhook receipt is recorded once. *)
+  assert (Engine.first engine "push-hook" "r/refs/heads/main/a/b");
+  assert (not (Engine.first engine "push-hook" "r/refs/heads/main/a/b"));
   assert (Hashtbl.length engine.pipelines = 1);
   let pipeline = Option.get (Engine.find engine (Option.get first)) in
   assert (List.length pipeline.workflows = 2);

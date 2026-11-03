@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Fire a push or pull request webhook once when the knot or Jetstream
+  delivers its event again.
+
 - Send executor output one line per log frame, so the web UI numbers lines
   correctly. Steps carry their command and may be marked as system steps,
   and the default executor's description step is one. Cancelled workflows

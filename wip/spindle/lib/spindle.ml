@@ -447,11 +447,17 @@ let notify state req ~issuer body =
         (* A banned pusher's push runs nothing and notifies no one. *)
         if Settings.banned state.settings actor then None
         else (
+          (* A knot resends a push it is unsure was delivered. Its webhook
+             fires once, as the reference spindle's push record allows. *)
           (if changes_ref then
              match Catalog.managed engine.catalog repo with
              | Some r when Catalog.admitted engine.catalog r.owner ->
-                 Hooks.push state.hooks r ~actor ~ref_
-                   ~before:(get "oldSha" event) ~after:new_sha
+                 let before = get "oldSha" event in
+                 if
+                   Engine.first engine "push-hook"
+                     (String.concat "/" [ repo; ref_; before; new_sha ])
+                 then
+                   Hooks.push state.hooks r ~actor ~ref_ ~before ~after:new_sha
              | _ -> ());
           if not (runnable_push event) then None
           else

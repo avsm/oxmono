@@ -1,0 +1,6 @@
+{
+  "name": "capnp",
+  "url": "https://github.com/capnproto/capnp-ocaml.git",
+  "tag": "v3.6.0",
+  "revision": "cc461758431a77e6c7854f8e1875c2f91dca8ef2"
+}

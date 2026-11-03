@@ -1,0 +1,7 @@
+(library
+ (name capnp_rpc)
+ (public_name capnp-rpc)
+ (libraries astring capnp capnp-rpc.proto fmt logs eio uri))
+
+; oxmono: rpc_schema.ml and persistent.ml are generated and checked in, since
+; the capnp compiler is not a build dependency here. See OXMONO.md.

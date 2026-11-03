@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Refuse a manual run that matches no workflow with 400, as the reference
+  spindle does, rather than report it started.
+
 - Fire a push or pull request webhook once when the knot or Jetstream
   delivers its event again.
 

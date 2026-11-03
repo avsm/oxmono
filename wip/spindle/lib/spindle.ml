@@ -474,7 +474,7 @@ let notify state req ~issuer body =
                    [ "push"; repo; ref_; get "oldSha" event; new_sha ])
               ~automatic:true ~default_ref ~actor
               (obj [ ("repo", str repo); ("trigger", event) ]))
-    | t when t = Engine.manual ->
+    | t when t = Engine.manual -> (
         let fields =
           [ ("repo", str repo); ("trigger", event) ]
           @
@@ -482,9 +482,15 @@ let notify state req ~issuer body =
           | Some names -> [ ("workflows", names) ]
           | None -> []
         in
-        Engine.create engine ~automatic:false ~principal:issuer
-          ~actor:(attribution req ~actor:issuer repo)
-          (obj fields)
+        (* A manual run that starts nothing is refused, so its caller does not
+           report it as started. *)
+        match
+          Engine.create engine ~automatic:false ~principal:issuer
+            ~actor:(attribution req ~actor:issuer repo)
+            (obj fields)
+        with
+        | None -> invalid "no workflows match this manual run"
+        | created -> created)
     | _ -> invalid "unsupported event type"
   in
   ci_output (Option.to_list created)

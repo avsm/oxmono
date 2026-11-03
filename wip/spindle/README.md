@@ -238,10 +238,13 @@ Jetstream events and the stream cursor commit together. Dispatch records and
 their deduplication keys also commit together, so a knot's retried push or a
 replayed patch starts no second pipeline. A repository's events are handled
 in order, and other repositories' in parallel. Transient processing failures
-leave events queued, backing off up to one minute, including after restart.
-An event that fails twelve times, or is malformed, is recorded as rejected.
+leave events queued, backing off up to an hour, including after restart. A
+full job queue delays an event without counting against it. An event that
+fails sixteen times, about five hours, or is malformed or refused, is
+recorded as rejected.
 Patches and tickets of repositories the spindle has not accepted cost no
-requests, and network-wide identity and account events are not stored.
+requests. Network-wide identity events, and account events other than an
+accepted owner's deactivation, are not stored.
 
 A deleted repository, as its knot reports it, and the repositories of an
 owner whose account becomes inactive are wiped, as bans wipe them.

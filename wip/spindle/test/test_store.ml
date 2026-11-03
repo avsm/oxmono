@@ -131,6 +131,11 @@ let () =
       assert (
         List.map fst (Store.ready store "tasks" ~now:1100. ~limit:2)
         = [ "000"; "299" ]);
+      (* A delayed task waits without counting a failure, and is listed as
+         waiting. *)
+      Store.delay store "tasks" "298" ~until:1500.;
+      assert (List.mem "298" (Store.waiting store "tasks" ~now:1100.));
+      assert (not (List.mem "298" (Store.waiting store "tasks" ~now:1600.)));
       Store.delete store "tasks" "000";
       Store.put store "tasks" "000" "new";
       assert (

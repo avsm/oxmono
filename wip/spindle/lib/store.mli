@@ -54,13 +54,21 @@ val ready : t -> string -> now:float -> limit:int -> (string * string) list
 (** [ready store namespace ~now ~limit] reads up to 128 due tasks. *)
 
 val defer : t -> string -> string -> now:float -> int
-(** [defer store namespace key ~now] backs off a failed task from one second to
-    one minute and is the number of times it has failed. Deleting the task
-    clears its retry state. *)
+(** [defer store namespace key ~now] backs off a failed task, doubling from one
+    second to one hour, and is the number of times it has failed. Deleting the
+    task clears its retry state. *)
 
 val hold : t -> string -> string -> behind:string -> unit
 (** [hold store namespace key ~behind] makes task [key] due when task [behind]
     is, without counting a failure, so that it is not handled first. *)
+
+val delay : t -> string -> string -> until:float -> unit
+(** [delay store namespace key ~until] makes task [key] due at [until] without
+    counting a failure. *)
+
+val waiting : t -> string -> now:float -> string list
+(** [waiting store namespace ~now] is the keys, in order, of tasks that are not
+    yet due. *)
 
 val advance : t -> source:string -> cursor:string -> unit
 (** [advance store ~source ~cursor] moves the stream checkpoint past an event

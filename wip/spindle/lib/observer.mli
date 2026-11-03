@@ -35,5 +35,7 @@ val run :
     sender cannot push.
 
     Events and the stream cursor are stored together, and a dispatch is
-    deduplicated across restarts. A repository's events are handled in order. A
-    failing event is retried with backoff and rejected after twelve attempts. *)
+    deduplicated across restarts. A repository's events are handled in order,
+    an event waiting behind an earlier one that is due for a retry. A failing
+    event is retried with backoff and rejected after sixteen attempts, and a
+    full job queue delays it without counting. *)

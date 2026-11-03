@@ -50,11 +50,18 @@ let () =
     not
       (Observer.wanted settings
          (obj [ ("kind", str "identity"); ("did", str owner) ])));
-  (* A repository's events stay in order, apart from other repositories'. *)
-  let item key did = (key, encode (obj [ ("did", str did) ])) in
+  (* A repository's events stay in order of their keys, apart from other
+     repositories'. *)
+  let item ts did = (Printf.sprintf "jetstream/%d/%s/c/r/create" ts did, "") in
   let groups =
-    Observer.groups
-      [ item "1" repo; item "2" other; item "3" repo; ("4", "not json") ]
+    Observer.groups [ item 3 repo; item 2 other; item 1 repo; ("bad", "") ]
   in
-  assert (List.map (List.map fst) groups = [ [ "1"; "3" ]; [ "2" ]; [ "4" ] ]);
+  assert (
+    List.sort compare (List.map (List.map fst) groups)
+    = List.sort compare
+        [
+          [ fst (item 1 repo); fst (item 3 repo) ];
+          [ fst (item 2 other) ];
+          [ "bad" ];
+        ]);
   print_endline "observer: event filtering and per-repository ordering passed"

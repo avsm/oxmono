@@ -161,7 +161,7 @@ let defer t namespace key ~now =
         {|INSERT INTO retry(namespace,key,attempts,due) VALUES(?,?,1,?+1)
           ON CONFLICT(namespace,key) DO UPDATE SET
           attempts=retry.attempts+1,
-          due=?+MIN(1 << MIN(retry.attempts,6),60)|}
+          due=?+MIN(1 << MIN(retry.attempts,12),3600)|}
         [
           text namespace;
           text key;
@@ -182,6 +182,22 @@ let hold t namespace key ~behind =
           SELECT ?,?,0,due FROM retry WHERE namespace=? AND key=?
           ON CONFLICT(namespace,key) DO UPDATE SET due=excluded.due|}
         [ text namespace; text key; text namespace; text behind ])
+
+let delay t namespace key ~until =
+  locked t (fun () ->
+      execute t
+        {|INSERT INTO retry(namespace,key,attempts,due) VALUES(?,?,0,?)
+          ON CONFLICT(namespace,key) DO UPDATE SET due=excluded.due|}
+        [ text namespace; text key; Sqlite3.Data.FLOAT until ])
+
+let waiting t namespace ~now =
+  locked t (fun () ->
+      rows t
+        {|SELECT kv.key FROM kv JOIN retry
+          ON retry.namespace=kv.namespace AND retry.key=kv.key
+          WHERE kv.namespace=? AND retry.due>? ORDER BY kv.key|}
+        [ text namespace; Sqlite3.Data.FLOAT now ]
+      |> List.map (fun row -> string row.(0)))
 
 let advance t ~source ~cursor =
   ignore (Int64.of_string cursor);

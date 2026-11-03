@@ -81,7 +81,7 @@ hold.
 
 Pipeline creation and its deduplication key commit together before execution.
 Jetstream events and the stream cursor commit together. Transient failures
-remain in the durable inbox for twelve attempts. Invalid records are recorded
+remain in the durable inbox for sixteen attempts, about five hours. Invalid records are recorded
 as rejected.
 Network failures while checking a repository answer 503, which a knot retries
 from its outbox for three days.

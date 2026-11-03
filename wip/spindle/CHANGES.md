@@ -47,9 +47,10 @@
 - Run a fork's pull request from the target repository at the pull
   request's commit, without the fork's branch, as the reference spindle does.
 
-- Handle a repository's Jetstream events in order, give up on an event after
-  twelve failures, and skip network requests for repositories the spindle
-  has not accepted. Drop network-wide identity and account events.
+- Handle a repository's Jetstream events in order, retry a failed event for
+  about five hours, and skip network requests for repositories the spindle
+  has not accepted. Store only the account events that deactivate an
+  accepted owner.
 - Wipe a repository its knot reports deleted, and the repositories of an
   owner whose account becomes inactive.
 

@@ -40,7 +40,6 @@ depends: [
   "fmt" {>= "0.9.0"}
   "fpath"
   "http" {>= "6.0.0"}
-  "iomux" {>= "0.2"}
   "logs" {>= "0.7.0"}
   "lwt"
   "markup" {>= "1.0.3"}

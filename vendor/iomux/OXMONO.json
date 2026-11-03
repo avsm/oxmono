@@ -1,0 +1,12 @@
+{
+  "name": "iomux",
+  "package": "iomux.0.4",
+  "archive_url": "https://github.com/ocaml-multicore/ocaml-iomux/releases/download/v0.4/iomux-0.4.tbz",
+  "archive_checksums": [
+    "sha256=1e393fae559476848c5c70525076b11070e806a549eebae084b046a9772bab35",
+    "sha512=352c7d92cbc6048cbac2d0b94d1b4e8e81dc20ff2482cad6ed4fc352ac77fcbafb6a6bebb6206967e6a2e215c8b221d38c3ea33cb842153a7e2662bd5780d4b4"
+  ],
+  "url": "https://github.com/ocaml-multicore/ocaml-iomux.git",
+  "tag": "v0.4",
+  "revision": "c2c89ea0198e8119f75766359211d5a3d961535a"
+}

@@ -152,6 +152,19 @@
       "scope": "src/htmlit.ml and src/htmlit.mli are at the vendor root, with local Dune packaging and tests."
     },
     {
+      "name": "iomux",
+      "url": "https://github.com/ocaml-multicore/ocaml-iomux.git",
+      "branch": "HEAD",
+      "revision": "c2c89ea0198e8119f75766359211d5a3d961535a",
+      "base_version": "v0.4",
+      "verified_on": "2026-11-03",
+      "archive_url": "https://github.com/ocaml-multicore/ocaml-iomux/releases/download/v0.4/iomux-0.4.tbz",
+      "archive_checksums": [
+        "sha256=1e393fae559476848c5c70525076b11070e806a549eebae084b046a9772bab35"
+      ],
+      "scope": "Release archive, unchanged. Supplies Eio's POSIX backend."
+    },
+    {
       "name": "ipaddr",
       "url": "https://github.com/mirage/ocaml-ipaddr.git",
       "branch": "HEAD",

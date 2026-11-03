@@ -12,7 +12,8 @@
     (package eio)
     (package eio_linux)
     (package eio_posix)
-    (package eio_main)))
+    (package eio_main)
+    (package iomux)))
 
 (test
  (name test_local_flow)

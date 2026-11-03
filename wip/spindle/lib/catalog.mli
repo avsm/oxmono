@@ -87,9 +87,10 @@ val authorized : t -> repo -> string -> bool
     knot currently records. It asks the knot on every call. *)
 
 val permitted : t -> repo -> string -> bool
-(** [permitted t repo actor] holds when [actor] is [repo]'s own DID or when
-    [authorized t repo actor] holds. Tangled signs a repository's settings and
-    pipeline requests with the repository's key, held by its knot. *)
+(** [permitted t repo actor] holds when [actor] is the DID of [repo], which has
+    a knot, or when [authorized t repo actor] holds. Tangled signs a
+    repository's settings and pipeline requests with the repository's key, held
+    by its knot. A static repository has no knot, so its DID is not accepted. *)
 
 val default_branch : t -> repo -> string option
 (** [default_branch t repo] is the branch the knot's [org.tangled.git.refs]

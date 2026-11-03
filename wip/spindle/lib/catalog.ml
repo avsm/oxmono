@@ -181,7 +181,7 @@ let authorized t (repo : repo) actor =
     <> None
 
 let permitted t (repo : repo) actor =
-  actor = repo.did || authorized t repo actor
+  (actor = repo.did && repo.knot <> "") || authorized t repo actor
 
 let default_branch t (repo : repo) =
   if repo.knot = "" then None

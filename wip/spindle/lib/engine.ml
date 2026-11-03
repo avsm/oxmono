@@ -16,6 +16,7 @@ type pipeline = {
 }
 
 type reader = did:string -> commit:string -> (string * string) list
+type tree = did:string -> commit:string -> Executor.files
 
 type t = {
   store : Store.t;
@@ -24,6 +25,7 @@ type t = {
   hostname : string;
   jobs : Job.t list;
   read_workflows : reader option;
+  tree : tree option;
   runner : Runner.env;
   sw : Eio.Switch.t;
   pipelines : (string, pipeline) Hashtbl.t;
@@ -228,6 +230,10 @@ let rec start_one t p (workflow : Runner.t) =
           variables = p.variables;
           secrets =
             (if p.trusted then Settings.secrets t.settings p.repo else []);
+          files =
+            (match t.tree with
+            | Some tree -> tree ~did:p.repo ~commit:p.commit
+            | None -> { list = (fun _ -> []); read = (fun _ -> None) });
         }
       in
       let fail message =
@@ -281,9 +287,10 @@ let start t p =
       if workflow.status = "pending" then start_one t p workflow)
     p.workflows
 
-let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?(timeout = 60.)
-    ~executor ~system ~directory ~sw () =
+let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?tree
+    ?(timeout = 60.) ?(concurrency = 2) ~executor ~system ~directory ~sw () =
   if jobs = [] || List.length jobs > 50 then invalid "define 1 to 50 workflows";
+  if concurrency < 1 then invalid "concurrency must be at least 1";
   let names =
     List.map
       (fun (j : Job.t) ->
@@ -310,12 +317,13 @@ let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?(timeout = 60.)
     hostname;
     jobs;
     read_workflows;
+    tree;
     sw;
     runner =
       {
         Runner.system;
         directory;
-        slots = Eio.Semaphore.make 2;
+        slots = Eio.Semaphore.make concurrency;
         timeout;
         executor;
       };

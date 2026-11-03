@@ -31,6 +31,9 @@ type config = {
   contact_email : string option;  (** An address [describeSpindle] reports. *)
   privacy_policy : string option;  (** A URL [describeSpindle] links to. *)
   terms_of_service : string option;  (** A URL [describeSpindle] links to. *)
+  concurrency : int;
+      (** Workflows that may run at once. An executor that waits on remote
+          builders can allow many. *)
 }
 (** [config] serves repositories whose knot manifest names this spindle and
     whose owner is admitted. [owner] and [admins] administer the spindle and

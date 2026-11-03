@@ -1,4 +1,6 @@
 (* SPDX-License-Identifier: ISC *)
+type files = { list : string -> string list; read : string -> string option }
+
 type request = {
   pipeline : string;
   workflow : string;
@@ -13,6 +15,7 @@ type request = {
   variables : (string * string) list;
   secrets : (string * string) list;
   steps : Job.step list;
+  files : files;
 }
 
 type kind = [ `User | `System ]

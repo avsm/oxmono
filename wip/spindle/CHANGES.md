@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Give executors read access to the repository at the commit through the
+  request's `files`, add `--concurrency`, and add the `spindle.cli` library
+  so that custom spindles keep the `spindle` command's options.
+
 - Let an executor add workflows to its running pipeline with `spawn`, and
   add `--executor=solve`, which simulates a dependency solve that spawns a
   build workflow for each of three compilers.

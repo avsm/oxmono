@@ -30,6 +30,7 @@ type input = {
   metadata : Jsont.json;
   variables : (string * string) list;  (** CI variables for every step. *)
   secrets : (string * string) list;  (** Secrets, hidden in the log. *)
+  files : Executor.files;  (** The repository at [commit]. *)
 }
 
 val now : unit -> string

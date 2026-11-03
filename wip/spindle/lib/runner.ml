@@ -31,6 +31,7 @@ type input = {
   metadata : Jsont.json;
   variables : (string * string) list;
   secrets : (string * string) list;
+  files : Executor.files;
 }
 
 exception Cancelled
@@ -226,6 +227,7 @@ let request input (job : Job.t) : Executor.request =
     variables = input.variables;
     secrets = input.secrets;
     steps = job.steps;
+    files = input.files;
   }
 
 let max_line = 16 * 1024

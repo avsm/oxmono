@@ -28,6 +28,13 @@ let () =
       metadata = J.obj [ ("actor", J.str "did:web:actor.test") ];
       variables = [ ("CI", "true") ];
       secrets;
+      files =
+        {
+          list = (fun dir -> if dir = "" then [ "demo.opam" ] else []);
+          read =
+            (fun path ->
+              if path = "demo.opam" then Some "opam-version: \"2.0\"" else None);
+        };
     }
   in
   (* Each step's end event, as (step, kind, outcome). *)
@@ -192,6 +199,7 @@ let () =
   assert (r.variables = [ ("CI", "true") ]);
   assert (r.secrets = [ ("TOKEN", "hunter2") ]);
   assert (r.steps = job.steps);
+  assert (r.files.list "" = [ "demo.opam" ] && r.files.read "missing" = None);
   let restored = Runner.restore (Runner.snapshot w) in
   assert (restored.job.steps = job.steps && restored.job.env = job.env);
   assert (restored.job.yaml = Some yaml && not restored.job.clone);

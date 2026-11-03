@@ -34,4 +34,5 @@ let () =
       contact_email = None;
       privacy_policy = None;
       terms_of_service = None;
+      concurrency = 2;
     }

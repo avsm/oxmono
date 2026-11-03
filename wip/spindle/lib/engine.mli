@@ -20,6 +20,9 @@ type reader = did:string -> commit:string -> (string * string) list
 (** [reader ~did ~commit] is each file in [.tangled/workflows] of repository
     [did] at [commit], with its contents. *)
 
+type tree = did:string -> commit:string -> Executor.files
+(** [tree ~did ~commit] reads repository [did] at [commit] for executors. *)
+
 type t = private {
   store : Store.t;
   catalog : Catalog.t;
@@ -27,6 +30,7 @@ type t = private {
   hostname : string;
   jobs : Job.t list;
   read_workflows : reader option;
+  tree : tree option;
   runner : Runner.env;
   sw : Eio.Switch.t;
   pipelines : (string, pipeline) Hashtbl.t;
@@ -45,7 +49,9 @@ val v :
   hostname:string ->
   jobs:Job.t list ->
   ?read_workflows:reader ->
+  ?tree:tree ->
   ?timeout:float ->
+  ?concurrency:int ->
   executor:Executor.t ->
   system:Eio_unix.Stdenv.base ->
   directory:Eio.Fs.dir_ty Eio.Path.t ->
@@ -53,8 +59,10 @@ val v :
   unit ->
   t
 (** [v ... ~jobs ~executor ()] hands the OCaml [jobs], and with [read_workflows]
-    also each repository's own YAML workflows, to [executor]. A workflow may run
-    for [timeout] seconds, 60 by default. *)
+    also each repository's own YAML workflows, to [executor]. [tree] gives
+    executors read access to the repository. A workflow may run for [timeout]
+    seconds, 60 by default, and [concurrency] workflows, 2 by default, run at
+    once. *)
 
 val migrate : t -> (string * string) option -> unit
 

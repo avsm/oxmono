@@ -234,7 +234,8 @@ while the service is stopped, or use SQLite's backup API. Preserve `spindle.db`
 with its WAL when copying live storage. Deleting the database also deletes
 pipeline IDs, the event cursor, the allow-list and accepted JWT nonces.
 
-There are two concurrent workflows, 32 outstanding pipelines, a 60-second
+There are two concurrent workflows unless `--concurrency` allows more, 32
+outstanding pipelines, a 60-second
 default deadline and a 1 MiB log limit per workflow. Pending and blocked
 work resumes after restart. Interrupted workflows become failed. One process
 may own a state directory.

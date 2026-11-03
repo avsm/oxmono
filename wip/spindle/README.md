@@ -92,7 +92,9 @@ status, cancellation and log stream. Workflow discovery returns
 clone URL and commit, whether to check the commit out, the trigger metadata,
 a repository workflow's definition and YAML text, the workflow's environment,
 the CI variables, the secrets and the steps. Each step has a name, a command
-for a shell and its own environment.
+for a shell and its own environment. `files` reads the repository at the
+commit through its knot, with `list dir` and `read path`, without checking it
+out.
 
 The executor reports through its context. `step ?kind ?command name f` runs
 `f` as the next numbered step of the log, and the step fails if `f` raises.
@@ -120,6 +122,12 @@ spawned workflow reruns the workflow that spawned it.
 this: its `solve` workflow pretends to solve for `ocaml-4.14`, `ocaml-5.5`
 and `oxcaml-5.2minus39`, then spawns a workflow for each that logs made-up
 build and test output after short random waits.
+
+A custom spindle is a binary that calls `Spindle_cli.main` from the
+`spindle.cli` library with its own options, OCaml workflows and executor. It
+keeps the `spindle` command's options. `--concurrency` bounds the workflows
+that run at once, 2 by default, and an executor that waits on remote builders
+can allow many. [ocaml-ci-spindle](../ocaml-ci-spindle/README.md) is one.
 
 `Spindle.Executor.print clock` is the default, used by the `spindle`
 command. It logs a description of the request as system step 0 and each
@@ -265,7 +273,8 @@ before publication and survive interruption of the current step. Step
 snapshots compact the journal atomically. Invalid UTF-8 becomes replacement
 characters. Completed logs stay in SQLite and are loaded on demand.
 
-Two workflows run at once; at most 32 pipelines may be outstanding, with up
+Two workflows run at once unless `--concurrency` says otherwise. At most 32
+pipelines may be outstanding, with up
 to 50 configured workflows. Each workflow has a 1 MiB log budget and a
 deadline set by `--workflow-timeout`, 60 seconds by default. Git is needed
 only to read workflow files from a static `--source`.

@@ -30,6 +30,7 @@ type config = {
   contact_email : string option;
   privacy_policy : string option;
   terms_of_service : string option;
+  concurrency : int;
 }
 
 type state = {
@@ -334,65 +335,85 @@ let static config repo =
           out)
   | _ -> None
 
-(* Repository workflows are read from the knot, or from a static repository's
-   clone. A missing directory has none. *)
-let read_files config catalog network ~did:repo ~commit =
-  let dir = Workflows.directory in
+(* A repository is read through its knot, or a static repository through its
+   clone, at one commit. Nothing is checked out. *)
+let tree config catalog network ~did:repo ~commit : Executor.files =
   match (config.repo, static config repo) with
-  | Some (did, _), None when did = repo -> []
+  | Some (did, _), None when did = repo ->
+      { list = (fun _ -> []); read = (fun _ -> None) }
   | _, Some git ->
-      git [ "ls-tree"; "-z"; commit; dir ^ "/" ]
-      |> String.split_on_char '\000'
-      |> List.filter_map (fun line ->
-          match String.index_opt line '\t' with
-          | Some i
-            when String.starts_with ~prefix:"100644 blob" line
-                 || String.starts_with ~prefix:"100755 blob" line ->
-              let path = String.sub line (i + 1) (String.length line - i - 1) in
-              let name = Filename.basename path in
-              Some (name, git [ "cat-file"; "blob"; commit ^ ":" ^ path ])
-          | _ -> None)
+      let prefix dir = if dir = "" then "" else dir ^ "/" in
+      {
+        list =
+          (fun dir ->
+            git [ "ls-tree"; "-z"; commit; prefix dir ]
+            |> String.split_on_char '\000'
+            |> List.filter_map (fun line ->
+                match String.index_opt line '\t' with
+                | Some i
+                  when String.starts_with ~prefix:"100644 blob" line
+                       || String.starts_with ~prefix:"100755 blob" line ->
+                    Some
+                      (Filename.basename
+                         (String.sub line (i + 1) (String.length line - i - 1)))
+                | _ -> None));
+        (* The helper reports no exit status, so an empty file reads as
+           missing. *)
+        read =
+          (fun path ->
+            match git [ "cat-file"; "blob"; commit ^ ":" ^ path ] with
+            | "" -> None
+            | contents -> Some contents);
+      }
   | _ ->
       let knot = Catalog.knot_origin catalog repo in
       let xrpc nsid params =
         Network.query (knot ^ "/xrpc/" ^ nsid) (("repo", repo) :: params)
       in
-      let tree =
-        Network.json network
-          (xrpc "org.tangled.git.getTree" [ ("ref", commit); ("path", dir) ])
-      in
-      if field "error" tree <> None then (
-        Printf.eprintf "spindle: no workflows in %s at %s: %s\n%!" repo commit
-          (encode tree);
-        [])
-      else
-        let files =
-          list (required "entries" tree)
-          |> List.filter (fun e ->
-              let mode = get "mode" e in
-              let mode =
-                String.sub mode
-                  (String.length mode - min 6 (String.length mode))
-                  (min 6 (String.length mode))
-              in
-              mode = "100644" || mode = "100755")
-          |> List.map (get "name")
-        in
-        if List.length files > 32 then
-          invalid "more than 32 files under .tangled/workflows";
-        List.filter_map
-          (fun name ->
+      {
+        list =
+          (fun dir ->
+            let tree =
+              Network.json network
+                (xrpc "org.tangled.git.getTree"
+                   [ ("ref", commit); ("path", dir) ])
+            in
+            if field "error" tree <> None then []
+            else
+              list (required "entries" tree)
+              |> List.filter (fun e ->
+                  let mode = get "mode" e in
+                  let mode =
+                    String.sub mode
+                      (String.length mode - min 6 (String.length mode))
+                      (min 6 (String.length mode))
+                  in
+                  mode = "100644" || mode = "100755")
+              |> List.map (get "name"));
+        read =
+          (fun path ->
             match
-              Network.fetch_status ~limit:262144 network
+              Network.fetch_status ~limit:1048576 network
                 (xrpc "org.tangled.git.getBlob"
-                   [ ("ref", commit); ("path", dir ^ "/" ^ name) ])
+                   [ ("ref", commit); ("path", path) ])
             with
-            | 200, contents -> Some (name, contents)
-            | status, _ ->
-                Printf.eprintf "spindle: %s/%s at %s: HTTP %d\n%!" dir name
-                  commit status;
-                None)
-          files
+            | 200, contents -> Some contents
+            | _ -> None);
+      }
+
+(* Repository workflows are the files of [.tangled/workflows]. *)
+let read_files config catalog network ~did ~commit =
+  let files = tree config catalog network ~did ~commit in
+  let dir = Workflows.directory in
+  let names = files.list dir in
+  if List.length names > 32 then
+    invalid "more than 32 files under .tangled/workflows";
+  List.filter_map
+    (fun name ->
+      Option.map
+        (fun contents -> (name, contents))
+        (files.read (dir ^ "/" ^ name)))
+    names
 
 let resolve_commit state repo ref_ =
   if
@@ -1117,7 +1138,8 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
       ~jobs:config.jobs ~timeout:config.workflow_timeout
       ~executor:config.executor
       ~read_workflows:(read_files config catalog network)
-      ~system ~directory ~sw ()
+      ~tree:(tree config catalog network)
+      ~concurrency:config.concurrency ~system ~directory ~sw ()
   in
   Engine.migrate engine config.repo;
   Engine.load engine;

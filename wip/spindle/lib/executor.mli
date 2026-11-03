@@ -4,6 +4,16 @@
     to an executor with everything needed to run it elsewhere, and records what
     the executor reports as the workflow's log. *)
 
+type files = {
+  list : string -> string list;
+      (** [list dir] is the names of the regular files in directory [dir] of the
+          commit, [""] for its root. It is [[]] for a missing directory. *)
+  read : string -> string option;
+      (** [read path] is the contents of the file [path] of the commit. *)
+}
+(** Read-only access to the repository at the commit being run, through its
+    knot. Nothing is checked out on the spindle's host. *)
+
 type request = {
   pipeline : string;  (** The pipeline's ID. *)
   workflow : string;  (** The workflow's name. *)
@@ -21,6 +31,7 @@ type request = {
   secrets : (string * string) list;
       (** The repository's secrets. Empty unless the pipeline is trusted. *)
   steps : Job.step list;
+  files : files;
 }
 (** A step's environment is [env], then [variables], then [secrets], then the
     step's own [env], with later bindings winning. *)

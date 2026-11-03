@@ -44,6 +44,24 @@ def request(url, data=None, token=None, status=200, raw=None, content_type="appl
         return json.loads(payload) if payload else None
 
 
+def cors(method, origin, preflight):
+    """[cors method origin preflight] is the status and headers answered to a
+    browser on [origin] calling [method]."""
+    headers = {"Origin": origin}
+    if preflight:
+        headers["Access-Control-Request-Method"] = "GET"
+        headers["Access-Control-Request-Headers"] = "authorization"
+    req = urllib.request.Request(SPINDLE + method, headers=headers,
+                                 method="OPTIONS" if preflight else "GET")
+    try:
+        response = urllib.request.urlopen(req, timeout=10)
+    except urllib.error.HTTPError as error:
+        response = error
+    with response:
+        response.read()
+        return response.status, response.headers
+
+
 def get(method, **query):
     return request(SPINDLE + method + "?" + urllib.parse.urlencode(query))
 
@@ -233,6 +251,17 @@ def main():
 
     alice = login("alice")
     assert get("org.tangled.spindle.describeSpindle")["did"] == AUDIENCE
+    secrets = "org.tangled.secret.listSecrets?repo=" + REPO
+    status, headers = cors(secrets, "https://tangled.test", True)
+    assert status == 204, status
+    assert headers["Access-Control-Allow-Origin"] == "https://tangled.test"
+    assert "Authorization" in headers["Access-Control-Allow-Headers"]
+    status, headers = cors(secrets, "https://tangled.test", False)
+    assert status == 401, status
+    assert headers["Access-Control-Allow-Origin"] == "https://tangled.test"
+    status, headers = cors(secrets, "https://other.test", True)
+    assert status == 204 and "Access-Control-Allow-Origin" not in headers
+    print("PASS: CORS answers the configured origin only")
     token = auth(alice)
     sha = (state / "commit").read_text().strip()
     body = manual(sha, ref="refs/heads/main", inputs=[

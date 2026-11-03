@@ -29,4 +29,5 @@ let () =
       workflow_timeout = 60.;
       quotas = { repo = []; user = [] };
       private_webhooks = true;
+      cors_origins = [];
     }

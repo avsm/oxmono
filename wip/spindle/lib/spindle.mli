@@ -25,6 +25,9 @@ type config = {
   quotas : Settings.defaults;  (** Default limits. *)
   private_webhooks : bool;
       (** Let webhooks reach private addresses, on a development network. *)
+  cors_origins : string list;
+      (** Origins whose browser pages may call XRPC methods, or ["*"] for any.
+          The empty list sends no CORS fields. *)
 }
 (** [config] serves repositories whose knot manifest names this spindle and
     whose owner is admitted. [owner] and [admins] administer the spindle and

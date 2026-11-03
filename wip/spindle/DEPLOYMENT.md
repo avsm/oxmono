@@ -27,7 +27,12 @@ cached acceptance expires.
 Use HTTPS/WSS for remote services. TLS verifies hostnames and system trust;
 `SSL_CERT_FILE` can select a private CA bundle. `--allow-http` enables HTTP/WS
 for a development network, but knots refuse a spindle without HTTPS. No PLC or
-Jetstream endpoint defaults to the live network.
+Jetstream endpoint defaults to the live network. Tangled's public Jetstream is
+`wss://index.tangled.network/subscribe`.
+
+Tangled's repository settings pages call the spindle from the browser.
+`--cors-origin=https://tangled.org` lets them. Without it, browsers refuse the
+responses and the pages report `Load failed`.
 
 ## Jetstream version
 
@@ -37,7 +42,7 @@ Jetstream v2 path `/xrpc/network.bsky.jetstream.subscribeEvents`. The
 Jetstream must follow a relay that crawls the knots, or a knot's
 `com.atproto.sync.subscribeRepos` directly, as the Docker test does. Tangled's
 own deployments use hydrant, a filtering indexer with a compatible
-`/subscribe` endpoint.
+`/subscribe` endpoint. `index.tangled.network` serves this protocol.
 
 ## Serve repositories
 
@@ -129,8 +134,9 @@ use `--repo=did:plc:REPOSITORY --source=/absolute/path/to/repo` and omit
 Jetstream. This static mapping accepts only its configured owner's mutations.
 
 Save this as `/etc/systemd/system/ocaml-spindle.service`, replacing every
-uppercase placeholder. `--hostname` is a DNS hostname without a scheme, path
-or trailing slash. `--plc` is an origin without a trailing slash.
+uppercase placeholder. The other endpoints shown are Tangled's live network.
+`--hostname` is a DNS hostname without a scheme, path or trailing slash.
+`--plc` is an origin without a trailing slash.
 
 ```ini
 [Unit]
@@ -148,8 +154,9 @@ ExecStart=/usr/local/bin/ocaml-spindle \
   --addr=127.0.0.1 --port=9000 \
   --hostname=ci.YOUR_DOMAIN \
   --owner=did:plc:OWNER \
-  --jetstream=wss://YOUR_JETSTREAM/subscribe \
-  --plc=https://YOUR_PLC_HOST \
+  --jetstream=wss://index.tangled.network/subscribe \
+  --cors-origin=https://tangled.org \
+  --plc=https://plc.directory \
   --state-dir=/var/lib/ocaml-spindle
 Restart=on-failure
 RestartSec=5

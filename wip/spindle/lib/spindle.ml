@@ -26,6 +26,7 @@ type config = {
   workflow_timeout : float;
   quotas : Settings.defaults;
   private_webhooks : bool;
+  cors_origins : string list;
 }
 
 type state = {
@@ -43,14 +44,19 @@ exception Not_ready of Jsont.json
 let reject = Xrpc_error.fail
 let optional = Runner.optional
 
-let bearer req =
+(* [fields req name] is every value of the request field [name], which must
+   be lowercase. *)
+let fields req name =
   let values = ref [] in
   Headers.iter
-    (fun _ name value ->
-      if String.lowercase_ascii (Req.globalize name) = "authorization" then
+    (fun _ field value ->
+      if String.lowercase_ascii (Req.globalize field) = name then
         values := Req.globalize value :: !values)
     (Req.headers req);
-  match !values with
+  !values
+
+let bearer req =
+  match fields req "authorization" with
   | [ s ] when String.starts_with ~prefix:"Bearer " s ->
       String.sub s 7 (String.length s - 7)
   | _ -> raise Auth.Rejected
@@ -225,6 +231,41 @@ let upgrade state req respond =
               (* The upgrade has already committed the HTTP response. *)
               Printf.eprintf "spindle log stream: %s\n%!"
                 (Printexc.to_string exn))
+
+(* Browsers on the Tangled site call XRPC methods directly. A configured
+   origin, or any origin for ["*"], receives CORS fields, as the reference
+   spindle's CORS_ORIGINS gives them. *)
+let cors state req =
+  let allowed = state.config.cors_origins in
+  if allowed = [] then []
+  else
+    let vary = ("Vary", "Origin") in
+    match fields req "origin" with
+    | [ _ ] when List.mem "*" allowed ->
+        [ vary; ("Access-Control-Allow-Origin", "*") ]
+    | [ origin ] when List.mem origin allowed ->
+        [ vary; ("Access-Control-Allow-Origin", origin) ]
+    | _ -> [ vary ]
+
+let allowed_methods ~post = if post then "POST, OPTIONS" else "GET, HEAD, OPTIONS"
+
+(* A preflight is answered here, before authentication, since browsers send
+   it without credentials. *)
+let preflight state req respond ~post =
+  let fields = cors state req in
+  let fields =
+    if List.mem_assoc "Access-Control-Allow-Origin" fields then
+      fields
+      @ [
+          ("Access-Control-Allow-Methods", "GET, POST");
+          ("Access-Control-Allow-Headers", "Authorization, Content-Type");
+          ("Access-Control-Max-Age", "86400");
+        ]
+    else fields
+  in
+  Resp.empty respond ~status:Status.No_content
+    ~headers:(Headers.of_list (("Allow", allowed_methods ~post) :: fields))
+    ()
 
 let respond_json respond ?(status = Status.Success) ?(headers = Headers.empty)
     json =
@@ -542,16 +583,22 @@ let procedures =
   ]
 
 let handle state name req respond =
+  let post = List.mem name procedures in
+  let cors =
+    if name = "_did" then Headers.empty else Headers.of_list (cors state req)
+  in
+  let respond_json respond ?status ?(headers = Headers.empty) json =
+    respond_json respond ?status ~headers:(headers @ cors) json
+  in
   try
-    if name = "org.tangled.ci.subscribePipelineLogs" then
+    if Req.meth req = Method.Options then preflight state req respond ~post
+    else if name = "org.tangled.ci.subscribePipelineLogs" then
       upgrade state req respond
     else
-      let post = List.mem name procedures in
+      let meth = Req.meth req in
       if
-        (post && Req.meth req <> Method.Post)
-        || (not post)
-           && Req.meth req <> Method.Get
-           && Req.meth req <> Method.Head
+        (post && meth <> Method.Post)
+        || ((not post) && meth <> Method.Get && meth <> Method.Head)
       then reject Status.Method_not_allowed "InvalidRequest" "wrong HTTP method";
       let body () = decode (Req.globalize (Req.body req)) in
       let catalog = state.engine.catalog in
@@ -875,8 +922,7 @@ let handle state name req respond =
         | Status.Method_not_allowed ->
             Headers.of_list
               [
-                ( "Allow",
-                  if List.mem name procedures then "POST" else "GET, HEAD" );
+                ("Allow", allowed_methods ~post);
               ]
         | Status.Unauthorized ->
             Headers.of_list [ ("WWW-Authenticate", "Bearer") ]
@@ -1022,6 +1068,7 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
       [
         get (s "xrpc" / str) handler;
         post (s "xrpc" / str) handler;
+        route Method.Options (s "xrpc" / str) handler;
         get
           (s ".well-known" / s "did.json")
           (fun env req respond -> env "_did" req respond);

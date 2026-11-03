@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Add `--cors-origin`, which lets browser pages from an origin such as
+  `https://tangled.org` call XRPC methods, and answer CORS preflights.
+
 - Accept service tokens signed by a repository's own DID for that
   repository, as Tangled's settings pages send. A secret records the user
   such a token names as its creator.

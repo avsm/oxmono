@@ -3,7 +3,7 @@ open Cmdliner
 
 let serve hostname owner admins admission repo source plc state_dir port addr
     jetstream allow_http workflow_timeout quota_repo quota_user private_webhooks
-    operations =
+    cors_origins operations =
   let repo =
     match (repo, source) with
     | None, None -> None
@@ -28,6 +28,7 @@ let serve hostname owner admins admission repo source plc state_dir port addr
       workflow_timeout;
       quotas = { repo = quota_repo; user = quota_user };
       private_webhooks;
+      cors_origins;
     }
 
 let required name doc =
@@ -145,6 +146,13 @@ let command =
               ~doc:
                 "Let webhooks reach loopback and private addresses, on a \
                  development network.")
+      $ Arg.(
+          value & opt_all string []
+          & info [ "cors-origin" ] ~docv:"ORIGIN"
+              ~doc:
+                "Let browser pages from $(docv), such as \
+                 $(b,https://tangled.org), call XRPC methods. $(b,*) allows \
+                 any origin. Repeatable.")
       $ operations)
   in
   Cmd.v (Cmd.info "spindle" ~doc:"Run a Tangled spindle") term

@@ -14,6 +14,7 @@ services:
       - --repo=did:web:repo.tangled.test
       - --source=/fixture
       - --state-dir=/state
+      - --cors-origin=https://tangled.test
     environment:
       SSL_CERT_FILE: /certs/ca.crt
     volumes:

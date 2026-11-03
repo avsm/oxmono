@@ -86,6 +86,30 @@ let quota name whose =
               once, $(b,webhooks) and $(b,ci_minutes_monthly). Repeatable."
              whose))
 
+(* An origin is a scheme and host, with an optional port, and no path. *)
+let origin =
+  let parse s =
+    let ok =
+      s = "*"
+      ||
+      match String.index_opt s ':' with
+      | Some i when i > 0 && String.length s > i + 3 ->
+          String.sub s i 3 = "://"
+          &&
+          let rest = String.sub s (i + 3) (String.length s - i - 3) in
+          rest <> ""
+          && not (String.exists (fun c -> c = '/' || c = '?' || c = '#') rest)
+      | _ -> false
+    in
+    if ok then Ok s
+    else
+      Error
+        (`Msg
+           (Printf.sprintf
+              "%S is not an origin such as https://tangled.org, or *" s))
+  in
+  Arg.conv (parse, Format.pp_print_string)
+
 let command =
   let term =
     Term.(
@@ -147,7 +171,7 @@ let command =
                 "Let webhooks reach loopback and private addresses, on a \
                  development network.")
       $ Arg.(
-          value & opt_all string []
+          value & opt_all origin []
           & info [ "cors-origin" ] ~docv:"ORIGIN"
               ~doc:
                 "Let browser pages from $(docv), such as \

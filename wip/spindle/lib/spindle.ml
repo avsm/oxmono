@@ -234,16 +234,17 @@ let upgrade state req respond =
 
 (* Browsers on the Tangled site call XRPC methods directly. A configured
    origin, or any origin for ["*"], receives CORS fields, as the reference
-   spindle's CORS_ORIGINS gives them. *)
-let cors state req =
-  let allowed = state.config.cors_origins in
+   spindle's CORS_ORIGINS gives them. Origins compare without regard to
+   ASCII case. *)
+let cors ?(vary = [ "Origin" ]) state req =
+  let allowed = List.map String.lowercase_ascii state.config.cors_origins in
   if allowed = [] then []
   else
-    let vary = ("Vary", "Origin") in
+    let vary = ("Vary", String.concat ", " vary) in
     match fields req "origin" with
     | [ _ ] when List.mem "*" allowed ->
         [ vary; ("Access-Control-Allow-Origin", "*") ]
-    | [ origin ] when List.mem origin allowed ->
+    | [ origin ] when List.mem (String.lowercase_ascii origin) allowed ->
         [ vary; ("Access-Control-Allow-Origin", origin) ]
     | _ -> [ vary ]
 
@@ -253,7 +254,15 @@ let allowed_methods ~post =
 (* A preflight is answered here, before authentication, since browsers send
    it without credentials. *)
 let preflight state req respond ~post =
-  let fields = cors state req in
+  let fields =
+    cors state req
+      ~vary:
+        [
+          "Origin";
+          "Access-Control-Request-Method";
+          "Access-Control-Request-Headers";
+        ]
+  in
   let fields =
     if List.mem_assoc "Access-Control-Allow-Origin" fields then
       fields

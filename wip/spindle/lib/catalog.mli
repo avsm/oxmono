@@ -86,6 +86,11 @@ val authorized : t -> repo -> string -> bool
 (** [authorized t repo actor] holds for the owner and for collaborators the
     knot currently records. It asks the knot on every call. *)
 
+val permitted : t -> repo -> string -> bool
+(** [permitted t repo actor] holds when [actor] is [repo]'s own DID or when
+    [authorized t repo actor] holds. Tangled signs a repository's settings and
+    pipeline requests with the repository's key, held by its knot. *)
+
 val default_branch : t -> repo -> string option
 (** [default_branch t repo] is the branch the knot's [org.tangled.git.refs]
     record names. *)

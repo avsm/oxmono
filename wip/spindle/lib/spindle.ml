@@ -43,19 +43,20 @@ exception Not_ready of Jsont.json
 let reject = Xrpc_error.fail
 let optional = Runner.optional
 
-let authorize state meth req =
+let bearer req =
   let values = ref [] in
   Headers.iter
     (fun _ name value ->
       if String.lowercase_ascii (Req.globalize name) = "authorization" then
         values := Req.globalize value :: !values)
     (Req.headers req);
-  let token =
-    match !values with
-    | [ s ] when String.starts_with ~prefix:"Bearer " s ->
-        String.sub s 7 (String.length s - 7)
-    | _ -> raise Auth.Rejected
-  in
+  match !values with
+  | [ s ] when String.starts_with ~prefix:"Bearer " s ->
+      String.sub s 7 (String.length s - 7)
+  | _ -> raise Auth.Rejected
+
+let authorize state meth req =
+  let token = bearer req in
   let now = Eio.Time.now state.system#clock in
   let actor =
     Auth.authenticate
@@ -433,17 +434,27 @@ let require_admin state actor =
      ^ actor)
 
 (* Secrets and webhooks are the settings of a served repository, which its
-   owner and collaborators may change. *)
+   owner and collaborators may change. Tangled also signs these requests with
+   the repository's own key. *)
 let settings_repo state actor repo =
   let repo = did repo in
   match Catalog.managed state.engine.catalog repo with
   | None -> reject Status.Not_found "RepoNotFound" "failed to access repository"
   | Some r ->
-      if not (Catalog.authorized state.engine.catalog r actor) then
+      if not (Catalog.permitted state.engine.catalog r actor) then
         reject Status.Forbidden "AccessControl"
           ("DID does not have sufficient access permissions for this \
             operation: " ^ actor);
+      if actor = r.did && Settings.banned state.settings r.owner then
+        reject Status.Forbidden "AccessControl"
+          "This repo is banned on this spindle.";
       r
+
+(* A repository's token names the user acting through it in [act.sub]. Only
+   the repository's own signature makes that claim credible. *)
+let attribution req ~actor (r : Catalog.repo) =
+  if actor <> r.did then actor
+  else Option.value ~default:actor (Auth.controller (bearer req))
 
 (* A ban names a repository and an owner alike. Everything kept for them is
    removed, as the reference spindle wipes it. *)
@@ -684,7 +695,8 @@ let handle state name req respond =
             let key = get "key" body and value = get "value" body in
             Settings.check_secret ~key ~value:(Some value);
             let r = settings_repo state actor (get "repo" body) in
-            Settings.add_secret state.settings ~repo:r.did ~by:actor key value;
+            Settings.add_secret state.settings ~repo:r.did
+              ~by:(attribution req ~actor r) key value;
             obj []
         | "org.tangled.secret.removeSecret" ->
             let actor = authorize state name req in

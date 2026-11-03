@@ -103,7 +103,8 @@ val create :
   actor:string ->
   Jsont.json ->
   string option
-(** [create engine ~automatic ~actor request] verifies repository ownership,
+(** [create engine ~automatic ~actor request] checks that [actor] satisfies
+    {!Catalog.permitted} for the repository unless [automatic] is set. It
     selects OCaml workflows and atomically records the dispatch and optional
     deduplication key. Only verified event consumers may set [automatic].
     [blocked] holds the workflows until {!approve}. A blocked or [untrusted]
@@ -115,7 +116,7 @@ val cancel :
 
 val approve : t -> actor:string -> repo:string -> id:string -> unit
 (** [approve t ~actor ~repo ~id] starts the blocked workflows of pipeline [id].
-    [actor] must be able to push to [repo]. *)
+    [actor] must satisfy {!Catalog.permitted} for [repo]. *)
 
 val retry :
   t ->

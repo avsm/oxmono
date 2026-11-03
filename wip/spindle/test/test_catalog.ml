@@ -185,10 +185,15 @@ let () =
       assert (Catalog.authorized catalog r helper);
       Hashtbl.remove records (repo, "org.tangled.graph.collaborator", helper);
       assert (not (Catalog.authorized catalog r helper));
+      (* The repository's own token acts for it, as Tangled's settings send. *)
+      assert (Catalog.permitted catalog r repo);
+      assert (not (Catalog.authorized catalog r repo));
+      assert (Catalog.permitted catalog r owner);
+      assert (not (Catalog.permitted catalog r helper));
       assert (Catalog.default_branch catalog r = None);
       set repo "org.tangled.git.refs" "self"
         (obj [ ("defaultBranch", str "trunk"); ("refs", obj []) ]);
       assert (Catalog.default_branch catalog r = Some "trunk"));
   print_endline
     "catalog: manifest and declaration agreement, admission, caching and live \
-     collaborator checks passed"
+     collaborator and repository-token checks passed"

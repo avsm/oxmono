@@ -180,6 +180,9 @@ let authorized t (repo : repo) actor =
       ~collection:"org.tangled.graph.collaborator" ~rkey:actor
     <> None
 
+let permitted t (repo : repo) actor =
+  actor = repo.did || authorized t repo actor
+
 let default_branch t (repo : repo) =
   if repo.knot = "" then None
   else

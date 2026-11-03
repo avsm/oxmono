@@ -405,7 +405,7 @@ let managed t id =
   | None -> invalid "repository is not assigned to spindle"
 
 let check_actor t repo actor =
-  if not (Catalog.authorized t.catalog repo actor) then raise Auth.Rejected
+  if not (Catalog.permitted t.catalog repo actor) then raise Auth.Rejected
 
 let find t id =
   if not (Atp.Tid.is_valid id) then invalid "pipeline must be a TID";

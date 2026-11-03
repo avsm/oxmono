@@ -41,9 +41,6 @@ callback in place of the microVM and Nixery engines.
 - The reference spindle computes changed paths from its own clone. Knots do
   not send them and this spindle does not compute them, so workflow
   predicates see an empty `changed_files`.
-- Repository tokens minted by a knot through `org.tangled.repo.mintToken`,
-  which act on behalf of a user, are not accepted. Users sign their own
-  service tokens.
 - Workflows run wherever the executor puts them. The default executor runs
   nothing: it logs each workflow and succeeds. There is no checkout step.
   Scheduled workflows and the mill roles are not implemented.

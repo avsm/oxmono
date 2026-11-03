@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Accept service tokens signed by a repository's own DID for that
+  repository, as Tangled's settings pages send. A secret records the user
+  such a token names as its creator.
+
 - Hand every workflow to an executor callback instead of running commands on
   the host. The default executor logs the workflow, with secrets as
   placeholders, waits two seconds and succeeds. `--repository-workflows` is

@@ -1,5 +1,38 @@
 # Arod
 
+## Serve with a live dashboard
+
+`arod serve` serves the site on the configured port. When standard error is
+a terminal it also draws a dashboard at the bottom of it, redrawn in place
+while log lines scroll above:
+
+```sh
+arod serve -v
+arod serve --theme=tokyo-night
+arod serve --no-dashboard
+```
+
+The dashboard counts every request the server answers since it started. It
+shows request and byte rates over the last second, ten seconds, minute and
+quarter hour with a sparkline of the last minute, latency percentiles and a
+histogram of latency buckets, status classes with the commonest error codes
+and methods, response cache hits, the latest requests with their visitor and
+user agent family, the busiest and slowest paths, user agent and content type
+mixes, open connections against the server limit, and the process's CPU,
+heap and allocation rate. A panel reads the last day from the access log
+database at most once a minute. Panels drop from the right in a narrow
+terminal and from the bottom in a short one, so the display never scrolls.
+
+The dashboard is idle between requests. A frame is drawn when a request
+arrives, bursts coalesced into at most ten frames a second, and once a second
+for a minute after the last request so that the rate windows settle to zero.
+Process and access log figures are read when a frame is drawn, never on a
+timer, so a quiet server draws nothing and computes nothing.
+
+`--theme` picks one of console's themes and `--no-dashboard` keeps the plain
+log, which is also what a pipe or a service manager gets. Interrupting the
+server prints the last frame and leaves it in the scrollback.
+
 ## Restore a website
 
 `arod pull` restores repositories, local configuration, service logins and

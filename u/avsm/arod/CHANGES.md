@@ -1,5 +1,12 @@
 # Changes
 
+- Draw a live dashboard under `arod serve` when standard error is a
+  terminal: request rates, latencies, status classes, cache outcomes, top and
+  slowest paths, agents, visitors, process load and the last day from the
+  access log. It redraws only when requests arrive, settling for a minute
+  afterwards, so an idle server draws nothing. `--theme` picks its colours
+  and `--no-dashboard` disables it.
+
 - Allow pull to replace an empty Sortal data directory with its checkout link.
   Explain how to reuse an existing checkout when the paths differ.
 

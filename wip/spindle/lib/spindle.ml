@@ -202,8 +202,27 @@ let logs state workflows socket =
       in
       send ())
 
+(* A browser page may stream logs only from this spindle's own site or an
+   origin allowed CORS, as the reference spindle's WebSocket upgrade checks.
+   Clients other than browsers send no Origin. *)
+let origin_allowed state req =
+  match fields req "origin" with
+  | [] -> true
+  | [ origin ] ->
+      let origin = String.lowercase_ascii origin in
+      let allowed = List.map String.lowercase_ascii state.config.cors_origins in
+      List.mem "*" allowed || List.mem origin allowed
+      || List.exists
+           (fun scheme ->
+             origin = scheme ^ String.lowercase_ascii state.config.hostname)
+           [ "https://"; "http://" ]
+  | _ -> false
+
 let upgrade state req respond =
   if Req.meth req <> Method.Get then invalid "logs require GET";
+  if not (origin_allowed state req) then
+    reject Status.Forbidden "AccessControl"
+      "this origin may not stream logs, unless --cors-origin allows it";
   let repo = did (query_required req "repo") in
   let p = find state ~repo (query_required req "pipeline") in
   let names = query_list req "workflows" in
@@ -389,7 +408,10 @@ let resolve_commit state repo ref_ =
           String.trim
             (git
                [
-                 "rev-parse"; "--verify"; "-q"; "--end-of-options";
+                 "rev-parse";
+                 "--verify";
+                 "-q";
+                 "--end-of-options";
                  ref_ ^ "^{commit}";
                ])
         with

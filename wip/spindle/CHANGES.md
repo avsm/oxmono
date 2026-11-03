@@ -6,6 +6,9 @@
 
 ## Unreleased
 
+- Refuse a log stream from a browser page on another site unless
+  `--cors-origin` allows it, as the reference spindle does.
+
 - Set CI variables as the reference spindle does: `TANGLED_REPO_NAME` is the
   lowercased name, any ref but a tag has `TANGLED_REF_TYPE=branch`, and the
   default branch and pull request branch variables are always set.

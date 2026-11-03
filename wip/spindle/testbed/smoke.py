@@ -261,6 +261,9 @@ def main():
     assert headers["Access-Control-Allow-Origin"] == "https://tangled.test"
     status, headers = cors(secrets, "https://other.test", True)
     assert status == 204 and "Access-Control-Allow-Origin" not in headers
+    stream = "org.tangled.ci.subscribePipelineLogs?repo=" + REPO + "&pipeline=x"
+    status, _ = cors(stream, "https://other.test", False)
+    assert status == 403, status
     print("PASS: CORS answers the configured origin only")
     token = auth(alice)
     sha = (state / "commit").read_text().strip()

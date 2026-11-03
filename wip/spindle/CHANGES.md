@@ -6,6 +6,11 @@
 
 ## Unreleased
 
+- Send executor output one line per log frame, so the web UI numbers lines
+  correctly. Steps carry their command and may be marked as system steps,
+  and the default executor's description step is one. Cancelled workflows
+  report "User canceled the workflow", and timed-out ones no error.
+
 - Add `--cors-origin`, which lets browser pages from an origin such as
   `https://tangled.org` call XRPC methods, and answer CORS preflights.
 

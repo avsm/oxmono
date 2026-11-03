@@ -25,14 +25,20 @@ type request = {
 (** A step's environment is [env], then [variables], then [secrets], then the
     step's own [env], with later bindings winning. *)
 
+type kind = [ `User | `System ]
+(** A [`User] step comes from the workflow. A [`System] step is one the executor
+    adds, such as a checkout, which viewers fold by default. *)
+
 type context = {
-  step : string -> (unit -> unit) -> unit;
-      (** [step name f] runs [f] as the next step of the log, called [name]. The
-          step fails if [f] raises. *)
+  step : ?kind:kind -> ?command:string -> string -> (unit -> unit) -> unit;
+      (** [step ~kind ~command name f] runs [f] as the next step of the log,
+          called [name]. [kind] defaults to [`User]. [command], when given, is
+          shown with the step's name. The step fails if [f] raises. *)
   log : [ `Stdout | `Stderr ] -> string -> unit;
       (** [log stream text] adds [text] to the current step's log, with every
-          secret replaced by [***]. It raises [Invalid_argument] outside a
-          step. *)
+          secret replaced by [***]. The log holds one line per frame, so an
+          unterminated line waits for its newline, a line longer than 16 KiB or
+          the end of the step. It raises [Invalid_argument] outside a step. *)
 }
 
 type t = context -> request -> unit

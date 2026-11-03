@@ -94,9 +94,11 @@ a repository workflow's definition and YAML text, the workflow's environment,
 the CI variables, the secrets and the steps. Each step has a name, a command
 for a shell and its own environment.
 
-The executor reports through its context. `step name f` runs `f` as the next
-numbered step of the log, and the step fails if `f` raises. `log stream text`
-adds output to the current step, with secret values replaced by `***`. The
+The executor reports through its context. `step ?kind ?command name f` runs
+`f` as the next numbered step of the log, and the step fails if `f` raises.
+`command` is shown with the step's name, and a `` `System `` step, such as a
+checkout, is folded by viewers. `log stream text` adds output to the current
+step, with secret values replaced by `***`, one line per log frame. The
 executor returns when the workflow succeeds and raises to fail it.
 Cancellation and `--workflow-timeout` cancel its fiber.
 
@@ -104,13 +106,14 @@ Cancellation and `--workflow-timeout` cancel its fiber.
 let executor (ctx : Spindle.Executor.context) (r : Spindle.Executor.request) =
   List.iter
     (fun (s : Spindle.Job.step) ->
-      ctx.step s.name (fun () -> ctx.log `Stdout ("would run " ^ s.command)))
+      ctx.step ~command:s.command s.name (fun () ->
+          ctx.log `Stdout "would run it\n"))
     r.steps
 ```
 
 `Spindle.Executor.print clock` is the default, used by the `spindle`
-command. It logs a description of the request as step 0 and each step's
-command and environment as the steps after it, also prints the description
+command. It logs a description of the request as system step 0 and each
+step, with its command and environment, after it, also prints the description
 to standard output, sleeps two seconds and succeeds.
 
 ## Repository workflows
@@ -236,7 +239,7 @@ events queued. Malformed events have recorded rejections. Failed events back
 off up to one minute, including after restart.
 
 Pending and blocked workflows resume after restart. Interrupted workflows
-become failed. Executor output streams as it is logged. Log chunks commit
+become failed. Executor output streams a line at a time. Log lines commit
 before publication and survive interruption of the current step. Step
 snapshots compact the journal atomically. Invalid UTF-8 becomes replacement
 characters. Completed logs stay in SQLite and are loaded on demand.

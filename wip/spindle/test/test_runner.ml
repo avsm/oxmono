@@ -76,8 +76,47 @@ let () =
         ctx.step "one" ignore;
         ctx.step "two" (fun () -> failwith "broken"))
   in
-  assert (w.status = "failed");
+  assert (w.status = "failed" && w.error = Some "broken");
   assert (ends w = [ (0, "user", "success"); (1, "user", "failed") ]);
+  (* The log has one line per frame. An unterminated line waits for its
+     newline or the end of the step, and a long one is split between UTF-8
+     characters. *)
+  let frames ?(step = 0) (workflow : Runner.t) =
+    List.rev workflow.events
+    |> List.filter_map (fun event ->
+        if
+          J.get "type" event = "data"
+          && J.number (J.required "step" event) = float_of_int step
+        then Some (J.get "content" event)
+        else None)
+  in
+  let w =
+    run (fun ctx _ ->
+        ctx.step "s" (fun () ->
+            List.iter (ctx.log `Stdout) [ "a\nb"; "c\n\nd" ]))
+  in
+  assert (frames w = [ "a\n"; "bc\n"; "\n"; "d" ]);
+  let long = String.make 16383 'x' ^ "€" in
+  let w = run (fun ctx _ -> ctx.step "s" (fun () -> ctx.log `Stdout long)) in
+  assert (frames w = [ String.make 16383 'x'; "€" ]);
+  (* A step may carry its command and be marked as the executor's own. *)
+  let starts (workflow : Runner.t) =
+    List.rev workflow.events
+    |> List.filter_map (fun event ->
+        if J.get "type" event = "control" && J.get "status" event = "start" then
+          Some
+            ( J.get "content" event,
+              Option.map J.string (J.field "command" event),
+              J.get "kind" event )
+        else None)
+  in
+  let w =
+    run (fun ctx _ ->
+        ctx.step ~kind:`System "setup" ignore;
+        ctx.step ~command:"make" "build" ignore)
+  in
+  assert (
+    starts w = [ ("setup", None, "system"); ("build", Some "make", "user") ]);
   (* Logging outside a step is refused. *)
   let w = run (fun ctx _ -> ctx.log `Stdout "stray") in
   assert (w.status = "failed" && w.events = []);
@@ -98,7 +137,7 @@ let () =
     run ~timeout:0.05 (fun ctx _ ->
         ctx.step "s" (fun () -> Eio.Time.sleep env#clock 5.))
   in
-  assert (w.status = "timeout");
+  assert (w.status = "timeout" && w.error = None);
   assert (ends w = [ (0, "user", "failed") ]);
   (* Cancellation stops a running executor. *)
   let started, started_r = Eio.Promise.create () in
@@ -118,6 +157,7 @@ let () =
       Eio.Promise.await started;
       Runner.cancel ~persist:(fun () -> ()) workflow);
   assert (workflow.status = "cancelled");
+  assert (workflow.error = Some "User canceled the workflow");
   assert (ends workflow = [ (0, "user", "failed") ]);
   (* Secret values and their base64 forms are hidden, even split across
      calls, and text held back at the end of a step is kept. *)
@@ -161,7 +201,12 @@ let () =
       (Executor.print ~delay:0. env#clock)
   in
   assert (w.status = "success");
-  assert (ends w = [ (0, "user", "success"); (1, "user", "success") ]);
+  assert (ends w = [ (0, "system", "success"); (1, "user", "success") ]);
+  assert (
+    starts w
+    = [
+        ("describe the request", None, "system"); ("build", Some "make", "user");
+      ]);
   let described = output w in
   let contains s =
     let n = String.length s in
@@ -173,9 +218,9 @@ let () =
   in
   assert (contains "TOKEN=<secret>" && not (contains "hunter2"));
   assert (contains "  engine: nixery" && contains "LEVEL=workflow");
-  assert (output ~step:1 w = "Command\n  make\nEnvironment\n  LEVEL=step\n");
-  (* An unterminated line is in the live stream and in SQLite before the
-     workflow finishes, but not in the snapshot. *)
+  assert (output ~step:1 w = "Environment\n  LEVEL=step\n");
+  (* A line is in the live stream and in SQLite before the workflow finishes,
+     but not in the snapshot. *)
   Eio.Switch.run (fun sw ->
       let store = Store.open_ ~sw directory in
       let written, written_r = Eio.Promise.create () in
@@ -195,12 +240,12 @@ let () =
       let contains events =
         List.exists
           (fun event ->
-            J.field "content" event = Some (J.str "durable-partial"))
+            J.field "content" event = Some (J.str "durable-partial\n"))
           events
       in
       let executor (ctx : Executor.context) _ =
         ctx.step "s" (fun () ->
-            ctx.log `Stdout "durable-partial";
+            ctx.log `Stdout "durable-partial\n";
             Eio.Promise.resolve written_r ();
             Eio.Promise.await release)
       in

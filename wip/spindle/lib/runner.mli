@@ -45,6 +45,10 @@ val view : t -> Jsont.json
 val snapshot : t -> Jsont.json
 val restore : Jsont.json -> t
 
+val message : exn -> string
+(** [message exn] is the error shown for a workflow that failed with [exn]: the
+    text of a [Failure] or [Invalid_argument], or else the exception. *)
+
 val execute :
   env ->
   input ->
@@ -56,6 +60,8 @@ val execute :
     hands [workflow] to the executor of [env]. Each transition calls [persist].
     Each JSON-encoded event calls [record] before becoming visible to log
     subscribers. [record] returns the durable journal sequence for snapshot
-    compaction. *)
+    compaction. A cancelled workflow's error is ["User canceled the workflow"],
+    as the reference spindle reports it, and a workflow that ran out of time has
+    none. *)
 
 val cancel : persist:(unit -> unit) -> t -> unit

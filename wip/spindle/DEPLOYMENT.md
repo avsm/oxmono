@@ -237,8 +237,9 @@ default deadline and a 1 MiB log limit per workflow. Pending and blocked
 work resumes after restart. Interrupted workflows become failed. One process
 may own a state directory.
 
-Output streams in bounded chunks without waiting for newlines. Valid UTF-8,
-including characters split across reads, is preserved. Malformed bytes become
+Output streams one line per frame, as the reference spindle sends it. A line
+waits for its newline, the end of its step or 16 KiB. Valid UTF-8, including
+characters split across reads, is preserved. Malformed bytes become
 replacement characters. Each event commits to SQLite before log subscribers
 can see it. Step transitions atomically fold acknowledged journal entries into
 the pipeline snapshot. Restart restores any remaining journal entries, so
@@ -248,10 +249,6 @@ A knot that cannot reach the spindle keeps the push in its outbox and retries
 for three days. The spindle answers 503 while a repository's knot, PDS or DID
 host is unreachable, so such a push is retried too. A retried push starts no
 second pipeline while its deduplication key is retained.
-
-Each command gets a process group. Cancellation, deadlines and normal exit
-kill remaining group members. This cleans up shell children but does not
-isolate jobs that deliberately detach or access the service account's files.
 
 ## Retention and readiness
 

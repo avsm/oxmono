@@ -15,8 +15,10 @@ type request = {
   steps : Job.step list;
 }
 
+type kind = [ `User | `System ]
+
 type context = {
-  step : string -> (unit -> unit) -> unit;
+  step : ?kind:kind -> ?command:string -> string -> (unit -> unit) -> unit;
   log : [ `Stdout | `Stderr ] -> string -> unit;
 }
 
@@ -63,13 +65,10 @@ let print ?(delay = 2.) clock ctx r =
   let text = describe r in
   print_string text;
   flush stdout;
-  ctx.step "describe the request" (fun () -> ctx.log `Stdout text);
+  ctx.step ~kind:`System "describe the request" (fun () -> ctx.log `Stdout text);
   List.iter
     (fun (s : Job.step) ->
-      ctx.step s.name (fun () ->
-          ctx.log `Stdout
-            ("Command\n" ^ indent s.command
-            ^ (if String.ends_with ~suffix:"\n" s.command then "" else "\n")
-            ^ "Environment\n" ^ bindings s.env)))
+      ctx.step ~command:s.command s.name (fun () ->
+          ctx.log `Stdout ("Environment\n" ^ bindings s.env)))
     r.steps;
   Eio.Time.sleep clock delay

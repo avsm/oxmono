@@ -226,7 +226,7 @@ let start t p =
               Eio.Cancel.protect (fun () ->
                   workflow.status <- "failed";
                   workflow.finished <- Some (Runner.now ());
-                  workflow.error <- Some (Printexc.to_string exn);
+                  workflow.error <- Some (Runner.message exn);
                   persist t p)))
     p.workflows
 

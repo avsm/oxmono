@@ -324,8 +324,10 @@ def main():
             if e["type"] == "control" and e["status"] == "end"]
     assert starts == ends == [0, 1]
     queried = get("org.tangled.ci.queryPipelines", repo=REPO, commits=sha)
-    assert len(queried["pipelines"]) == 1
+    # Every pipeline of the commit matches, newest first, including any from
+    # earlier runs on this state directory.
     assert queried["pipelines"][0]["id"] == pipeline
+    assert all(p["commit"] == sha for p in queried["pipelines"])
     (state / "last-run.json").write_text(json.dumps(
         {"id": pipeline, "events": events, "frames": frames, "request": body}, indent=2))
     # Pagination needs a second pipeline, even in a fresh state directory.

@@ -243,8 +243,8 @@ let rows model now =
 let app ~poll ~interval ~exit ~dimensions (local_ graph) =
   let apply_action context model = function
     | Key (event, fallback) -> (
-        let run effect =
-          Bonsai.Apply_action_context.schedule_event context effect;
+        let run scheduled =
+          Bonsai.Apply_action_context.schedule_event context scheduled;
           model
         in
         match event with

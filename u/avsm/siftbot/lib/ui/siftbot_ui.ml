@@ -717,12 +717,12 @@ let app ?(profile_name = "personal") ?configure ~execute ~exit ~dimensions
   let apply_action context t action =
     let t, request = update t action in
     Option.iter request ~f:(fun (id, request) ->
-        let effect =
+        let event =
           let open Effect.Let_syntax in
           let%bind response = execute request in
           Bonsai.Apply_action_context.inject context (Finished (id, response))
         in
-        Bonsai.Apply_action_context.schedule_event context effect);
+        Bonsai.Apply_action_context.schedule_event context event);
     t
   in
   let model, inject =

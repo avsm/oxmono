@@ -716,6 +716,10 @@ let create ~xdg ~profile =
   let store = Profile_store.create ~xdg ~profile in
   { store; generation = generation_at_create store }
 
+let create_at ~root ~profile =
+  let store = Profile_store.create_at ~root ~profile in
+  { store; generation = generation_at_create store }
+
 let state_path t = Eio.Path.(Profile_store.dir t.store / "crypto_state.json")
 
 (* A file that will not parse still means the profile has an account. Saying

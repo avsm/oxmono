@@ -1,5 +1,8 @@
 ## unreleased
 
+- Add `Crypto_store.create_at`, which keeps the encryption state in a profile
+  directory under a given root, as `Profile_store.create_at` does.
+
 - Clarify opam descriptions of package functionality and interfaces.
 
 - Resume sends blocked by expired access tokens after successful credential

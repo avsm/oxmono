@@ -14,6 +14,7 @@ type t = {
   log_lock : Eio.Mutex.t;
   mutable cancel : (unit -> unit) option;
   mutable cancelled : bool;
+  mutable queued : bool;
 }
 
 type env = {
@@ -59,6 +60,7 @@ let v ?parent job =
     log_lock = Eio.Mutex.create ();
     cancel = None;
     cancelled = false;
+    queued = false;
   }
 
 let optional k f = function None -> [] | Some v -> [ (k, f v) ]
@@ -95,12 +97,21 @@ let snapshot p =
        ("clone", bool p.job.clone);
      ]
     @ (if p.job.spawned then [ ("spawned", bool true) ] else [])
+    @ (if p.queued then [ ("queued", bool true) ] else [])
     @ optional "parent" str p.parent
     @ optional "definition" Fun.id p.job.definition
     @ optional "yaml" str p.job.yaml)
 
 (* Snapshots from before the executor hold argument vectors, shell scripts or
    a metadata step, which restore as the text of a command. *)
+(* A workflow waiting in a builder's queue shows as pending, but it was
+   running. *)
+let interrupted raw =
+  match get "status" (required "workflow" raw) with
+  | "running" -> true
+  | "pending" -> field "queued" raw = Some (Jsont.Json.bool true)
+  | _ -> false
+
 let restore_step step =
   let name = Option.map string (field "name" step) in
   match (field "command" step, field "shell" step, field "argv" step) with
@@ -137,6 +148,7 @@ let restore ?(resume = false) raw =
     | None, _ -> Job.v name steps
   in
   let p = v ?parent:(Option.map string (field "parent" raw)) job in
+  p.queued <- false;
   p.status <- get "status" workflow;
   p.started <- Option.map string (field "startedAt" workflow);
   p.finished <- Option.map string (field "finishedAt" workflow);
@@ -144,7 +156,7 @@ let restore ?(resume = false) raw =
   p.events <- List.rev (list (required "events" raw));
   p.log_bytes <-
     List.fold_left (fun n e -> n + String.length (encode e)) 0 p.events;
-  if p.status = "running" then
+  if interrupted raw then
     if resume then (
       (* It runs again from the start, so the interrupted log goes. *)
       p.status <- "pending";
@@ -160,6 +172,7 @@ let restore ?(resume = false) raw =
 (* A workflow interrupted in this process, by a lost lease, runs again too. *)
 let reset p =
   p.cancel <- None;
+  p.queued <- false;
   p.status <- "pending";
   p.started <- None;
   p.finished <- None;
@@ -188,12 +201,11 @@ let emit record p ~step ~kind fields =
   p.events <- event :: p.events
 
 let control record persist p ~step ~kind ?command ?outcome ~status name =
-  let optional key = Option.fold ~none:[] ~some:(fun v -> [ (key, str v) ]) in
   emit record p ~step ~kind:"control"
     ([ ("content", str name) ]
-    @ optional "command" command
+    @ optional "command" str command
     @ [ ("status", str status); ("kind", str kind) ]
-    @ optional "outcome" outcome);
+    @ optional "outcome" str outcome);
   persist ()
 
 (* [run_step record persist p ~step ~kind ?command name f] runs [f] between a
@@ -280,7 +292,7 @@ let frame record p ~step s text =
   let rec loop start =
     let rest = String.length all - start in
     match String.index_from_opt all start '\n' with
-    | Some i when i - start < max_line ->
+    | Some i when i - start <= max_line ->
         send (String.sub all start (i - start + 1));
         loop (i + 1)
     | _ when rest > max_line ->
@@ -305,6 +317,7 @@ let flush record p ~step s =
 let context record persist p ~secrets ~spawn ~await ~watch ~finished ~seconds
     ~queued_for : Executor.context =
   let values = List.map snd secrets in
+  let hide = Mask.hide values in
   let next = ref 0 in
   let current = ref None in
   let step ?(kind = `User) ?command name f =
@@ -312,16 +325,23 @@ let context record persist p ~secrets ~spawn ~await ~watch ~finished ~seconds
     incr next;
     let streams = [ stream "stdout" values; stream "stderr" values ] in
     let kind = match kind with `User -> "user" | `System -> "system" in
+    let name = hide name and command = Option.map hide command in
+    (* What a step's streams still hold is part of it, so a log that cannot
+       take it fails the step. After a failure it is kept if it fits. *)
     run_step record persist p ~step ~kind ?command name (fun () ->
         current := Some (step, streams);
-        Fun.protect
-          ~finally:(fun () ->
+        match f () with
+        | () ->
             current := None;
-            try
-              Eio.Cancel.protect (fun () ->
-                  List.iter (flush record p ~step) streams)
-            with _ -> ())
-          f)
+            List.iter (flush record p ~step) streams
+        | exception exn ->
+            let bt = Printexc.get_raw_backtrace () in
+            current := None;
+            (try
+               Eio.Cancel.protect (fun () ->
+                   List.iter (flush record p ~step) streams)
+             with _ -> ());
+            Printexc.raise_with_backtrace exn bt)
   in
   let log stream content =
     match !current with
@@ -342,16 +362,27 @@ let context record persist p ~secrets ~spawn ~await ~watch ~finished ~seconds
    fun f ->
     p.status <- "pending";
     p.started <- None;
+    p.queued <- true;
     persist ();
     let began = seconds () in
-    Fun.protect
-      ~finally:(fun () ->
-        queued_for (seconds () -. began);
-        if p.status = "pending" then (
-          p.status <- "running";
-          p.started <- Some (now ());
-          persist ()))
-      f
+    let waited () =
+      Eio.Cancel.protect (fun () -> queued_for (seconds () -. began))
+    in
+    match f () with
+    | x ->
+        waited ();
+        Eio.Cancel.protect (fun () ->
+            p.queued <- false;
+            if p.status = "pending" then (
+              p.status <- "running";
+              p.started <- Some (now ());
+              persist ()));
+        x
+    | exception exn ->
+        (* A stopping spindle leaves it queued, so it runs again. *)
+        let bt = Printexc.get_raw_backtrace () in
+        waited ();
+        Printexc.raise_with_backtrace exn bt
   in
   { step; log; spawn; await_spawned = await; spawned; finished; queued }
 
@@ -423,14 +454,16 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
   Fun.protect ~finally:(fun () ->
       if !held then Eio.Semaphore.release state.slots)
   @@ fun () ->
-  let released f =
-    held := false;
-    Eio.Semaphore.release state.slots;
-    let x = f () in
-    Eio.Semaphore.acquire state.slots;
-    held := true;
-    x
+  let gate =
+    Gate.v
+      ~release:(fun () ->
+        held := false;
+        Eio.Semaphore.release state.slots)
+      ~acquire:(fun () ->
+        Eio.Semaphore.acquire state.slots;
+        held := true)
   in
+  let released f = Gate.run gate f in
   let await () = List.map outcome (released await) in
   let watch = function
     | None -> watch None
@@ -463,25 +496,36 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
              workflow stays running, to run again, and its switch is gone. *)
           p.cancel <- None;
           raise e
-      | exn -> Error exn
+      | exn -> Error (exn, Printexc.get_raw_backtrace ())
     in
     Eio.Cancel.protect (fun () ->
         p.cancel <- None;
         p.finished <- Some (now ());
         (match result with
         | Ok () -> p.status <- "success"
-        | Error exn ->
+        | Error (exn, _) ->
             let status, error =
               if p.cancelled then
                 ("cancelled", Some "User canceled the workflow")
               else
                 match exn with
                 | Eio.Time.Timeout -> ("timeout", None)
-                | exn -> ("failed", Some (message exn))
+                | Eio.Cancel.Cancelled _ ->
+                    ("failed", Some "the spindle stopped during the workflow")
+                | exn ->
+                    ( "failed",
+                      Some
+                        (Mask.hide (List.map snd input.secrets) (message exn))
+                    )
             in
             p.status <- status;
             p.error <- error);
-        persist ()))
+        persist ());
+    (* A workflow stopped from outside is recorded, and the stop goes on. *)
+    match result with
+    | Error ((Eio.Cancel.Cancelled _ as exn), bt) when not p.cancelled ->
+        Printexc.raise_with_backtrace exn bt
+    | _ -> ())
 
 let cancel ~persist p =
   if not (terminal p) then (

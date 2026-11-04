@@ -14,6 +14,8 @@ type t = {
   log_lock : Eio.Mutex.t;
   mutable cancel : (unit -> unit) option;
   mutable cancelled : bool;
+  mutable queued : bool;
+      (** Whether it waits in a builder's queue, shown as pending meanwhile. *)
 }
 
 type env = {
@@ -48,8 +50,12 @@ val v : ?parent:string -> Job.t -> t
 val view : t -> Jsont.json
 val snapshot : t -> Jsont.json
 
+val interrupted : Jsont.json -> bool
+(** [interrupted raw] holds when the workflow that snapshot [raw] holds was
+    running, or waiting in a builder's queue, when it was taken. *)
+
 val restore : ?resume:bool -> Jsont.json -> t
-(** [restore ~resume raw] is the workflow [raw] holds. One that was running when
+(** [restore ~resume raw] is the workflow [raw] holds. One {!interrupted} when
     the spindle stopped is failed, unless [resume], when it is pending again
     with an empty log, to run from the start. *)
 

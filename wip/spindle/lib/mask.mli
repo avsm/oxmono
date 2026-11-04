@@ -19,3 +19,7 @@ val feed : t -> string -> string
 
 val finish : t -> string
 (** [finish t] is the text still held back, masked, at the end of the stream. *)
+
+val hide : string list -> string -> string
+(** [hide values s] is [s] with every pattern of [values] replaced by [***], as
+    one whole stream. *)

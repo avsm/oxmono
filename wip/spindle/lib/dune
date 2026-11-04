@@ -30,4 +30,5 @@
   sqlite3-eio
   ptime.clock.os
   digestif
+  base64
   yamlt))

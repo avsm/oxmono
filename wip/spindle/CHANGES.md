@@ -6,6 +6,16 @@
 
 ## Unreleased
 
+- Hide a secret whole when a shorter secret it begins with is complete first
+  and the rest arrives in a later write, and hide secrets in step names,
+  commands and errors too.
+- Treat a workflow stopped while it waits in a builder's queue as
+  interrupted, so that it does not run again on top of its old log. Fail a
+  step whose last output no longer fits the log, record a workflow stopped
+  from outside as failed and pass the stop on, keep a line of exactly 16 KiB
+  whole, and balance worker slots and limits when an executor waits in
+  several fibers at once.
+
 - Keep pipelines waiting for approval when pruning history, and report a
   failed SQLite statement's own error.
 - Let a workflow waiting for its repository's or owner's limit be cancelled,

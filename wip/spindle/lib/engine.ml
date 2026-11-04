@@ -348,17 +348,20 @@ and run t p (workflow : Runner.t) =
         (* Waiting for spawned workflows gives up the workflow's place in
                its repository's and owner's limits, and is not charged. *)
         let held = ref true and waited = ref 0. in
+        let gate =
+          Gate.v
+            ~release:(fun () ->
+              held := false;
+              release t p)
+            ~acquire:(fun () ->
+              acquire t p workflow;
+              held := true)
+        in
         let released f =
-          held := false;
-          release t p;
           let start = seconds () in
-          let x =
-            Fun.protect f ~finally:(fun () ->
-                waited := !waited +. (seconds () -. start))
-          in
-          acquire t p workflow;
-          held := true;
-          x
+          Gate.run gate (fun () ->
+              Fun.protect f ~finally:(fun () ->
+                  waited := !waited +. (seconds () -. start)))
         in
         let await () = released (fun () -> await_spawned t p workflow) in
         let watch = function
@@ -565,9 +568,7 @@ let restore ?(resume = false) t id raw =
     workflows =
       List.map
         (fun raw ->
-          let was_running =
-            get "status" (required "workflow" raw) = "running"
-          in
+          let was_running = Runner.interrupted raw in
           let run = Runner.restore ~resume raw in
           (* A workflow that runs again starts with an empty log. Its stored
              log is deleted only when it does run, so a workflow that cannot

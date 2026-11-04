@@ -286,15 +286,7 @@ let wipe t repo =
         delete t ~repo (string_of_int (int_of_string key)))
     (all t)
 
-let unpadded s =
-  let e = Mask.base64 s in
-  let n = ref (String.length e) in
-  while !n > 0 && e.[!n - 1] = '=' do
-    decr n
-  done;
-  String.sub e 0 !n
-
-let bytes s = obj [ ("$bytes", str (unpadded s)) ]
+let bytes s = obj [ ("$bytes", str (Base64.encode_string ~pad:false s)) ]
 
 let deliveries t ~repo ~ids ~limit =
   if ids = [] then

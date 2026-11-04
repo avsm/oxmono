@@ -101,5 +101,13 @@ steps:
   in
   let out = out ^ Mask.finish mask in
   assert (out = "pass=*** and *** *** hunt");
+  (* A secret that begins with a shorter one is hidden whole, even when it is
+     split across reads after the shorter one. *)
+  let mask = Mask.v [ "secret"; "secretlonger" ] in
+  let first = Mask.feed mask "xx secret" in
+  let second = Mask.feed mask "longer yy" in
+  let out = first ^ second ^ Mask.finish mask in
+  assert (out = "xx *** yy");
+  assert (Mask.hide [ "hunter2" ] "a hunter2 b" = "a *** b");
   print_endline
     "workflows: globs, when, YAML steps, definitions and masking passed"

@@ -199,6 +199,40 @@ let () =
               [ "pass=hun"; "ter2 "; Mask.base64 "hunter2"; " hunt" ]))
   in
   assert (output w = "pass=*** *** hunt");
+  (* Secrets are hidden in step names, commands and errors too. *)
+  let w =
+    run
+      ~secrets:[ ("TOKEN", "hunter2") ]
+      (fun ctx _ ->
+        ctx.step ~command:"login hunter2" "use hunter2" (fun () -> ());
+        failwith "bad token hunter2")
+  in
+  let log =
+    J.encode (Runner.view w) ^ String.concat "" (List.map J.encode w.events)
+  in
+  let has s sub =
+    let n = String.length sub in
+    let rec at i =
+      i + n <= String.length s && (String.sub s i n = sub || at (i + 1))
+    in
+    at 0
+  in
+  assert (not (has log "hunter2"));
+  assert (w.error = Some "bad token ***");
+  (* A workflow stopped while it waits in a builder's queue was running. *)
+  let w = Runner.v (Job.v "q" []) in
+  w.status <- "pending";
+  w.queued <- true;
+  let raw = Runner.snapshot w in
+  assert (Runner.interrupted raw);
+  assert ((Runner.restore raw).status = "failed");
+  assert ((Runner.restore ~resume:true raw).status = "pending");
+  w.queued <- false;
+  assert (not (Runner.interrupted (Runner.snapshot w)));
+  (* A line of exactly 16 KiB is one line. *)
+  let line = String.make 16384 'x' ^ "\n" in
+  let w = run (fun ctx _ -> ctx.step "s" (fun () -> ctx.log `Stdout line)) in
+  assert (output w = line);
   (* The executor receives the workflow and its pipeline. *)
   let yaml = "engine: nixery\nsteps: []\n" in
   let job =

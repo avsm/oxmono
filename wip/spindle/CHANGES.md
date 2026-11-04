@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Refuse service-auth tokens whose ES256K or ES256 signature is in its
+  high-S form, as atproto requires. The test fixtures are now generated with
+  low-S signatures and include high-S copies.
+
 - Run Git for a static repository without blocking the scheduler, refuse the
   internal health and DID names through `/xrpc/`, keep maintenance errors out
   of the public health report, list no repository workflows when they do not

@@ -26,6 +26,22 @@ let verification_key algorithm raw =
       Jwt.Jwk.p256_pub ~x:(String.sub pub 1 32) ~y:(String.sub pub 33 32)
   | _ -> reject ()
 
+(* atproto accepts only low-S signatures, whose [s] is at most half the
+   curve order, so that a signature has one form. Equal-length big-endian
+   strings compare as their numbers. *)
+let low_s alg signature =
+  let half =
+    match alg with
+    | Jwt.Algorithm.ES256K ->
+        "7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0"
+    | _ -> "7fffffff800000007fffffffffffffffde737d56d38bcf4279dce5617e3192a8"
+  in
+  let half =
+    String.init 32 (fun i ->
+        Char.chr (int_of_string ("0x" ^ String.sub half (2 * i) 2)))
+  in
+  String.length signature = 64 && String.sub signature 32 32 <= half
+
 let authenticate ~resolve ~consume ~audience ~meth ~now token =
   try
     let token = jwt_result (Jwt.parse ~max_size:8192 token) in
@@ -73,6 +89,7 @@ let authenticate ~resolve ~consume ~audience ~meth ~now token =
       | _ -> reject ()
     in
     let key = verification_key header.alg raw in
+    check (low_s header.alg (Jwt.signature token));
     jwt_result
       (Jwt.verify ~key ~allowed_algs:[ Jwt.Algorithm.ES256K; ES256 ] token);
     (* Persist only after verification, so forged claims cannot consume a

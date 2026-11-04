@@ -22,6 +22,18 @@ def base58(data):
     return result
 
 
+ORDER = {"ES256K": 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141,
+         "ES256": 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551}
+
+
+def high_s(token, alg):
+    """The same signature in its high-S form, which atproto refuses."""
+    text, sig = token.rsplit(".", 1)
+    raw = base64.urlsafe_b64decode(sig + "==")
+    s = int.from_bytes(raw[32:], "big")
+    return text + "." + b64(raw[:32] + (ORDER[alg] - s).to_bytes(32, "big"))
+
+
 def main():
     actor = "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa"
     claims = {"iss": actor, "aud": "did:web:spindle.test", "iat": 990,
@@ -51,6 +63,10 @@ def main():
             assert der[4 + rlen] == 2
             slen = der[5 + rlen]
             s = int.from_bytes(der[6 + rlen:6 + rlen + slen], "big")
+            # atproto signers give the low-S form.
+            order = ORDER.get(header.get("alg") if isinstance(header, dict)
+                              else "ES256K", ORDER["ES256K"])
+            s = min(s, order - s)
             return text + "." + b64(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
 
         tests = [{"name": "valid", "valid": True,
@@ -105,7 +121,8 @@ def main():
             ("missing signature", valid.rsplit(".", 1)[0] + "."),
             ("wrong signature", valid.rsplit(".", 1)[0] + "." + b64(b"\0" * 64)),
             ("padded signature", valid + "="),
-            ("extra component", valid + ".x"), ("oversized", "x" * 8193)]:
+            ("extra component", valid + ".x"), ("oversized", "x" * 8193),
+            ("high-S signature", high_s(valid, "ES256K"))]:
             tests.append({"name": name, "valid": False, "token": token})
         service_claims = dict(claims, aud="did:web:spindle.test#tangled_spindle")
         tests.append({"name": "PDS proxy service audience", "valid": True,
@@ -135,6 +152,9 @@ def main():
                       "token": token, "document": json.dumps(p256)})
         tests.append({"name": "curve and algorithm mismatch", "valid": False,
                       "token": token})
+        tests.append({"name": "high-S P-256 signature", "valid": False,
+                      "token": high_s(token, "ES256"),
+                      "document": json.dumps(p256)})
     path = Path(__file__).with_name("auth-fixtures.json")
     path.write_text(json.dumps({"actor": actor, "document": json.dumps(document),
                                "tests": tests}, indent=2) + "\n")

@@ -11,4 +11,16 @@
 (test
  (name test_plan)
  (modules test_plan)
- (libraries ocaml-ci-spindle ocluster-client spindle eio eio_main jsont))
+ (libraries
+  ocaml-ci-spindle
+  ocluster-client
+  spindle
+  eio
+  eio_main
+  fetch-httpz
+  jsont))
+
+(executable
+ (name diagnose)
+ (modules diagnose)
+ (libraries ocaml-ci-spindle spindle eio_main fetch-httpz httpz.tls))

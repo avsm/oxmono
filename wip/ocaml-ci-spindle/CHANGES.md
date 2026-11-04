@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- End the `ocaml-ci` workflow with a `summary` step that waits for every
+  build and lists how each ended.
+- Add `--diagnose`, off by default, which asks a language model with no
+  tools about failed builds in a `diagnose` workflow, through an
+  OpenAI-compatible API such as OpenRouter's.
+- Default `--workflow-timeout` to six hours, since the summary waits for
+  every platform's build.
 - Name workflows after their compiler, distribution and architecture, such
   as `OCaml 5.4.1 on Debian 13 (x86_64)`.
 - Build on Debian 13 with opam 2.6, as OCaml-CI does.

@@ -21,12 +21,15 @@ type config = {
   platforms : Variant.platform list;
       (** Platforms that build the newest of [compilers] once its x86_64 build
           passes. *)
+  diagnose : Diagnose.t option;
+      (** A model that a [diagnose] workflow asks about failed builds. [None]
+          sends nothing to any model. *)
 }
 
 val jobs : Spindle.Job.t list
 (** [jobs] is the [ocaml-ci] workflow, which runs for every event. *)
 
 val executor : config -> Spindle.Executor.t
-(** [executor config] plans builds in the [ocaml-ci] workflow and runs the
-    workflows it spawns on OCluster. It fails a repository's own workflow, so
-    the spindle should not offer them. *)
+(** [executor config] is a new executor, which plans builds in the [ocaml-ci]
+    workflow and runs the workflows it spawns on OCluster. It fails a
+    repository's own workflow, so the spindle should not offer them. *)

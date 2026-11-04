@@ -7,12 +7,19 @@ type config = {
   oxcaml_repository : Opam_repo.t option;
   compilers : string list;
   platforms : Variant.platform list;
+  diagnose : Diagnose.t option;
 }
 
 module Job = Spindle.Job
 
 let variant_var = "OCAMLCI_VARIANT"
 let pool_var = "OCAMLCI_POOL"
+let diagnose_var = "OCAMLCI_DIAGNOSE"
+
+(* The failed builds of each pipeline whose [diagnose] workflow has yet to
+   read them. A spindle restart loses them, as it loses the waiting plan. *)
+type pending = (string, Diagnose.failure list * string list) Hashtbl.t
+
 let jobs = [ Job.v "ocaml-ci" [ Job.step "plan" "opam-0install" ] ]
 
 let logf (ctx : Spindle.Executor.context) fmt =
@@ -38,8 +45,73 @@ let env_of (v : Variant.t) = [ (variant_var, v.name); (pool_var, v.pool) ]
 (* The [ocaml-ci] workflow: find the project, solve, spawn the builds. The
    newest OCaml's build carries the builds for the other platforms as further
    steps, which it spawns once it passes. *)
-let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
-    =
+let label = function
+  | `Success -> "passed"
+  | `Failed -> "FAILED"
+  | `Cancelled -> "cancelled"
+  | `Timeout -> "timed out"
+
+(* The [summary] step waits for every build, including those spawned once
+   the newest compiler's passed, and reports them all. Failures are handed to
+   a [diagnose] workflow when a model is configured. *)
+let summary config pending (ctx : Spindle.Executor.context)
+    (r : Spindle.Executor.request) ~primary ~later =
+  ctx.step ~command:"await builds" "summary" (fun () ->
+      let outcomes = ctx.await_spawned () in
+      List.iter
+        (fun (o : Spindle.Executor.outcome) ->
+          logf ctx "%-9s  %s%s\n" (label o.status) o.workflow
+            (match o.error with
+            | Some e when o.status <> `Success -> " (" ^ e ^ ")"
+            | _ -> ""))
+        outcomes;
+      let ran name =
+        List.exists
+          (fun (o : Spindle.Executor.outcome) -> o.workflow = name)
+          outcomes
+      in
+      (match primary with
+      | Some (p : Variant.t) ->
+          List.iter
+            (fun ((v : Variant.t), _) ->
+              if not (ran v.name) then
+                logf ctx "%-9s  %s (%s did not pass)\n" "skipped" v.name p.name)
+            later
+      | None -> ());
+      let passed =
+        List.filter_map
+          (fun (o : Spindle.Executor.outcome) ->
+            if o.status = `Success then Some o.workflow else None)
+          outcomes
+      in
+      let failed =
+        List.filter
+          (fun (o : Spindle.Executor.outcome) -> o.status = `Failed)
+          outcomes
+      in
+      logf ctx "\n%d of %d builds passed.\n" (List.length passed)
+        (List.length outcomes);
+      if failed <> [] && config.diagnose <> None then (
+        if Hashtbl.length pending > 256 then Hashtbl.reset pending;
+        Hashtbl.replace pending r.pipeline
+          ( List.map
+              (fun (o : Spindle.Executor.outcome) ->
+                { Diagnose.workflow = o.workflow; error = o.error; log = o.log })
+              failed,
+            passed );
+        ctx.spawn
+          ~env:[ (diagnose_var, "1") ]
+          "diagnose"
+          [ Job.step "diagnose" "chat completion" ];
+        logf ctx "The diagnose workflow is asking a model about the failures.\n");
+      if List.length passed < List.length outcomes then
+        failwith
+          (Printf.sprintf "%d of %d builds did not pass"
+             (List.length outcomes - List.length passed)
+             (List.length outcomes)))
+
+let plan config pending (ctx : Spindle.Executor.context)
+    (r : Spindle.Executor.request) =
   let project = ref None in
   ctx.step ~command:"ls *.opam" "analyse" (fun () ->
       match Analysis.find r.files with
@@ -137,8 +209,39 @@ let plan config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
             else []
           in
           ctx.spawn ~env:(env_of v) v.name (Job.step "obuilder" spec :: after))
-        !builds)
+        !builds;
+      summary config pending ctx r ~primary:(Option.map fst primary)
+        ~later:!later)
     !project
+
+(* The [diagnose] workflow: one question to the model, with no tools. *)
+let diagnose config pending (ctx : Spindle.Executor.context)
+    (r : Spindle.Executor.request) =
+  let d =
+    match config.diagnose with
+    | Some d -> d
+    | None -> failwith "no model is configured"
+  in
+  let failures, passed =
+    match Hashtbl.find_opt pending r.pipeline with
+    | Some x ->
+        Hashtbl.remove pending r.pipeline;
+        x
+    | None -> failwith "the failed builds' logs are gone, so rerun the pipeline"
+  in
+  let prompt = ref "" in
+  ctx.step ~kind:`System ~command:"prepare prompt" "collect logs" (fun () ->
+      prompt := Diagnose.prompt ~files:r.files ~passed failures;
+      List.iter
+        (fun (f : Diagnose.failure) -> logf ctx "%s\n" f.workflow)
+        failures;
+      logf ctx "%d KiB for %s at %s\n"
+        (String.length !prompt / 1024)
+        (Diagnose.model d) (Diagnose.url d));
+  ctx.step ~command:(Diagnose.model d) "diagnose" (fun () ->
+      match Diagnose.ask d ~prompt:!prompt with
+      | Ok answer -> logf ctx "%s\n" answer
+      | Error why -> failwith why)
 
 type line = Line of string | End
 
@@ -267,8 +370,11 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
       ctx.spawn ~env:s.env s.name [ Job.step "obuilder" s.command ])
     after
 
-let executor config ctx (r : Spindle.Executor.request) =
-  if r.definition <> None then
-    failwith "this spindle runs only its own workflows, not the repository's"
-  else if List.mem_assoc variant_var r.env then build config ctx r
-  else plan config ctx r
+let executor config =
+  let pending : pending = Hashtbl.create 7 in
+  fun ctx (r : Spindle.Executor.request) ->
+    if r.definition <> None then
+      failwith "this spindle runs only its own workflows, not the repository's"
+    else if List.mem_assoc variant_var r.env then build config ctx r
+    else if List.mem_assoc diagnose_var r.env then diagnose config pending ctx r
+    else plan config pending ctx r

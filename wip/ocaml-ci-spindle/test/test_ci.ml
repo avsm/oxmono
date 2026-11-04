@@ -215,6 +215,21 @@ let () =
     match Analysis.find (files [ "b.opam"; "README.md"; "a.opam" ]) with
     | Some a -> List.map fst a.opam_files = [ "a.opam"; "b.opam" ]
     | None -> false);
+  (* A model's reasoning is dropped, and only project paths are read. *)
+  assert (Diagnose.strip_thinking "<think>a\nb</think>\n\n- fix" = "- fix");
+  assert (Diagnose.strip_thinking " - fix " = "- fix");
+  assert (
+    Diagnose.mentioned
+      "File \"src/a.ml\", line 1\n\
+       File \"/usr/x.ml\", line 2\n\
+       File \"../y.ml\", line 3\n\
+       File \"src/a.ml\", line 4"
+    = [ "src/a.ml" ]);
+  assert (
+    Diagnose.answer {|{"error":{"message":"no such model"}}|}
+    = Error "no such model");
+  assert (
+    Diagnose.answer {|{"choices":[{"message":{"content":"ok"}}]}|} = Ok "ok");
   print_endline
     "ocaml-ci: compiler choice, platforms, overlays, avoided versions, test \
-     dependencies, specs and OBuilder log steps passed"
+     dependencies, specs, OBuilder log steps and diagnosis helpers passed"

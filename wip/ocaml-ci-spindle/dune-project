@@ -29,5 +29,10 @@ OCluster pool, reporting every build as its own Tangled workflow.")
   eio
   eio_main
   mtime
+  fetch
+  fetch-httpz
+  httpz
+  jsont
+  bytesrw
   fmt
   cmdliner))

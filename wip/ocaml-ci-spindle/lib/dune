@@ -9,5 +9,9 @@
   opam-0install
   eio
   eio.unix
+  fetch
+  fetch-httpz
+  jsont
+  jsont.bytesrw
   mtime
   fmt))

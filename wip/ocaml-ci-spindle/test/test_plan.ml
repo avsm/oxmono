@@ -53,12 +53,77 @@ let cap_file () =
        ^ String.make 43 'B' ^ "\n"));
   path
 
+(* A chat completions server that answers one request with [reply], and
+   resolves to the request's head and body. *)
+let model_server ~sw net reply =
+  let sock =
+    Eio.Net.listen ~sw ~backlog:1 ~reuse_addr:true net
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, 0))
+  in
+  let port =
+    match Eio.Net.listening_addr sock with
+    | `Tcp (_, p) -> p
+    | _ -> assert false
+  in
+  let got, resolve = Eio.Promise.create () in
+  Eio.Fiber.fork ~sw (fun () ->
+      let flow, _ = Eio.Net.accept ~sw sock in
+      let r = Eio.Buf_read.of_flow flow ~max_size:(1 lsl 24) in
+      let rec head acc =
+        match Eio.Buf_read.line r with
+        | "" -> List.rev acc
+        | l -> head (l :: acc)
+      in
+      let head = head [] in
+      let length =
+        List.find_map
+          (fun l ->
+            match String.index_opt l ':' with
+            | Some i
+              when String.lowercase_ascii (String.sub l 0 i) = "content-length"
+              ->
+                int_of_string_opt
+                  (String.trim (String.sub l (i + 1) (String.length l - i - 1)))
+            | _ -> None)
+          head
+      in
+      let body = Eio.Buf_read.take (Option.get length) r in
+      Eio.Promise.resolve resolve (head, body);
+      Eio.Flow.copy_string
+        (Printf.sprintf
+           "HTTP/1.1 200 OK\r\n\
+            Content-Type: application/json\r\n\
+            Content-Length: %d\r\n\
+            Connection: close\r\n\
+            \r\n\
+            %s"
+           (String.length reply) reply)
+        flow;
+      Eio.Flow.close flow);
+  (port, got)
+
+let has s sub =
+  let n = String.length sub in
+  let rec at i =
+    i + n <= String.length s && (String.sub s i n = sub || at (i + 1))
+  in
+  at 0
+
+let x86 = "OCaml 5.4.1 on Debian 13 (x86_64)"
+and old = "OCaml 4.14.2 on Debian 13 (x86_64)"
+and arm = "OCaml 5.4.1 on Debian 13 (arm64)"
+and win = "OCaml 5.4.1 on Windows, mingw-w64 (x86_64)"
+
 let () =
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
   let root = repository () in
   let cache = Filename.temp_file "ocaml-ci-cache-" "" in
   Sys.remove cache;
+  let port, asked =
+    model_server ~sw env#net
+      {|{"choices":[{"message":{"role":"assistant","content":"<think>hmm</think>\n- Define `x` before `y`."}}]}|}
+  in
   let config =
     {
       Ci.scheduler = Ocluster_client.scheduler ~sw env#net (cap_file ());
@@ -69,7 +134,29 @@ let () =
       oxcaml_repository = None;
       compilers = [ "auto" ];
       platforms = [ Debian Arm64; Debian X86_64; Windows ];
+      diagnose =
+        Some
+          (Diagnose.v ~key:"sekrit" ~model:"test-model" ~clock:env#mono_clock
+             (Fetch_httpz.v env#net ~clock:env#mono_clock ())
+             (Printf.sprintf "http://127.0.0.1:%d/v1" port));
     }
+  in
+  (* The builds end as these outcomes say, the newest one failing. *)
+  let outcomes : Spindle.Executor.outcome list =
+    [
+      {
+        workflow = x86;
+        status = `Failed;
+        error = Some "Failed: Build failed";
+        log =
+          "## queue\nqueued\n## opam exec -- dune build\n"
+          ^ String.concat ""
+              (List.init 20 (Printf.sprintf "(cd _build && ocamlopt m%d.ml)\n"))
+          ^ "File \"src/a.ml\", line 1, characters 8-9:\n\
+             Error: Unbound value x\n";
+      };
+      { workflow = old; status = `Success; error = None; log = "" };
+    ]
   in
   let spawned = ref [] and log = Buffer.create 256 in
   let ctx : Spindle.Executor.context =
@@ -79,12 +166,17 @@ let () =
       spawn =
         (fun ?(env = []) name steps ->
           spawned := (name, env, steps) :: !spawned);
+      await_spawned = (fun () -> outcomes);
     }
   in
   let files : Spindle.Executor.files =
     {
       list = (fun _ -> [ "demo.opam"; "README.md" ]);
-      read = (function "demo.opam" -> Some (opam "\"ocaml\"") | _ -> None);
+      read =
+        (function
+        | "demo.opam" -> Some (opam "\"ocaml\"")
+        | "src/a.ml" -> Some "let y = x\n"
+        | _ -> None);
     }
   in
   let request : Spindle.Executor.request =
@@ -105,16 +197,15 @@ let () =
       files;
     }
   in
-  Ci.executor config ctx request;
-  let spawned = List.rev !spawned in
-  let x86 = "OCaml 5.4.1 on Debian 13 (x86_64)"
-  and arm = "OCaml 5.4.1 on Debian 13 (arm64)"
-  and win = "OCaml 5.4.1 on Windows, mingw-w64 (x86_64)" in
-  (* One build per compiler, the newest first. *)
-  assert (
-    List.map (fun (n, _, _) -> n) spawned
-    = [ x86; "OCaml 4.14.2 on Debian 13 (x86_64)" ]);
-  let _, env, steps = List.hd spawned in
+  let executor = Ci.executor config in
+  (* The summary fails the plan, since a build failed. *)
+  (match executor ctx request with
+  | () -> failwith "the summary passed with a failed build"
+  | exception Failure m -> assert (m = "1 of 2 builds did not pass"));
+  let order = List.rev !spawned in
+  (* One build per compiler, the newest first, then the diagnosis. *)
+  assert (List.map (fun (n, _, _) -> n) order = [ x86; old; "diagnose" ]);
+  let _, env, steps = List.hd order in
   assert (List.assoc "OCAMLCI_POOL" env = "linux-x86_64");
   (* The newest build carries the other platforms, without x86_64 again, each
      with its own pool and solution. *)
@@ -125,22 +216,47 @@ let () =
   in
   assert (List.assoc "OCAMLCI_POOL" (step arm).env = "linux-arm64");
   assert (List.assoc "OCAMLCI_VARIANT" (step win).env = win);
-  let has s sub =
-    let n = String.length sub in
-    let rec at i =
-      i + n <= String.length s && (String.sub s i n = sub || at (i + 1))
-    in
-    at 0
-  in
   assert (has (step win).command "host-system-mingw.1");
   assert (not (has (step arm).command "host-system-mingw"));
-  let _, _, older = List.nth spawned 1 in
+  let _, _, older = List.nth order 1 in
   assert (List.length older = 1);
-  assert (has (Buffer.contents log) ("Once " ^ x86 ^ " passes:"));
+  (* The summary lists every build, and those never started. *)
+  let summary = Buffer.contents log in
+  assert (has summary ("Once " ^ x86 ^ " passes:"));
+  assert (has summary ("FAILED     " ^ x86 ^ " (Failed: Build failed)"));
+  assert (has summary ("passed     " ^ old));
+  assert (has summary ("skipped    " ^ arm ^ " (" ^ x86 ^ " did not pass)"));
+  assert (has summary "1 of 2 builds passed.");
+  (* The diagnosis asks the model once, with the failed step and the file it
+     names, and shows only its answer. *)
+  let _, denv, _ = List.nth order 2 in
+  Buffer.clear log;
+  executor ctx { request with workflow = "diagnose"; env = denv };
+  let head, body = Eio.Promise.await asked in
+  assert (List.hd head = "POST /v1/chat/completions HTTP/1.1");
+  assert (List.mem "Authorization: Bearer sekrit" head);
+  assert (has body "\"model\":\"test-model\"");
+  assert (has body "Unbound value x" && has body "let y = x");
+  assert (has body old);
+  assert (not (has body "tools"));
+  assert (not (has body "## queue"));
+  let answer = Buffer.contents log in
+  assert (has answer "- Define `x` before `y`.");
+  assert (not (has answer "hmm"));
+  (* The failures are handed over once. *)
+  (match executor ctx { request with workflow = "diagnose"; env = denv } with
+  | () -> failwith "diagnosed twice"
+  | exception Failure _ -> ());
+  (* Without a model, nothing is diagnosed. *)
+  spawned := [];
+  (match Ci.executor { config with diagnose = None } ctx request with
+  | () -> failwith "the summary passed with a failed build"
+  | exception Failure _ -> ());
+  assert (not (List.exists (fun (n, _, _) -> n = "diagnose") !spawned));
   (* A repository's own workflow never reaches OCluster, whatever its
      environment says. *)
   (match
-     Ci.executor config ctx
+     executor ctx
        {
          request with
          workflow = "evil.yml";
@@ -152,5 +268,5 @@ let () =
   | () -> failwith "ran a repository workflow"
   | exception Failure _ -> ());
   print_endline
-    "ocaml-ci plan: builds, later platforms, their pools and refusing \
-     repository workflows passed"
+    "ocaml-ci plan: builds, later platforms, their pools, the summary, the \
+     diagnosis and refusing repository workflows passed"

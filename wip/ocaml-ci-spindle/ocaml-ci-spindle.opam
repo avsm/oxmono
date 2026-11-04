@@ -20,6 +20,11 @@ depends: [
   "eio"
   "eio_main"
   "mtime"
+  "fetch"
+  "fetch-httpz"
+  "httpz"
+  "jsont"
+  "bytesrw"
   "fmt"
   "cmdliner"
   "odoc" {with-doc}

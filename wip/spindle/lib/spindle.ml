@@ -422,7 +422,9 @@ let tree ~process config catalog network ~did:repo ~commit : Executor.files =
                    [ ("ref", commit); ("path", path) ])
             with
             | 200, contents -> Some contents
-            | _ -> None);
+            | _ -> None
+            (* A file over 1 MiB is not read. *)
+            | exception Invalid _ -> None);
       }
 
 (* Repository workflows are the files of [.tangled/workflows]. *)

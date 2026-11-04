@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Refuse an answer over its size limit from any knot or PDS read instead of
+  using it cut short, so a repository file over 1 MiB is unreadable rather
+  than truncated.
+
 - Export only the `admission` and `defaults` types of `Spindle.Catalog` and
   `Spindle.Settings`, whose functions took types the library does not
   export.

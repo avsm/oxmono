@@ -1,16 +1,17 @@
-type t = private {
-  history_days : int;
-  history_limit : int;
-  history_megabytes : int;
-  receipt_days : int;
-  receipt_limit : int;
-  inbox_limit : int;
-  inbox_megabytes : int;
-  replay_hours : int;
-  reconcile_seconds : int;
-  maintenance_seconds : int;
-}
 (** Storage and observer policy for a spindle process. *)
+
+type t = private {
+  history_days : int;  (** Days a completed pipeline is kept. *)
+  history_limit : int;  (** Completed pipelines kept at most. *)
+  history_megabytes : int;  (** MiB of completed pipelines kept at most. *)
+  receipt_days : int;  (** Days a handled event's receipt is kept. *)
+  receipt_limit : int;  (** Receipts kept at most. *)
+  inbox_limit : int;  (** Events waiting to be handled at most. *)
+  inbox_megabytes : int;  (** MiB of waiting events at most. *)
+  replay_hours : int;  (** Hours of a stream replayed on reconnecting. *)
+  reconcile_seconds : int;  (** Seconds between checks of refs. *)
+  maintenance_seconds : int;  (** Seconds between maintenance passes. *)
+}
 
 val v :
   ?history_days:int ->
@@ -34,3 +35,4 @@ val v :
     removed to satisfy these limits. *)
 
 val default : t
+(** [default] is [v ()]. *)

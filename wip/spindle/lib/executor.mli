@@ -9,7 +9,8 @@ type files = {
       (** [list dir] is the names of the regular files in directory [dir] of the
           commit, [""] for its root. It is [[]] for a missing directory. *)
   read : string -> string option;
-      (** [read path] is the contents of the file [path] of the commit. *)
+      (** [read path] is the contents of the file [path] of the commit, or
+          [None] for a missing file or one over 1 MiB. *)
 }
 (** Read-only access to the repository at the commit being run, through its
     knot. Nothing is checked out on the spindle's host. *)

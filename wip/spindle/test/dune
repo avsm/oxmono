@@ -57,4 +57,4 @@
 (test
  (name test_web)
  (modules test_web)
- (libraries spindle proffer proffer.mock httpz uriz eio_main unix))
+ (libraries spindle proffer proffer.mock httpz uriz duraml.sqlite eio_main unix))

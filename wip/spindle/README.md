@@ -324,9 +324,13 @@ responsibility.
 
 ## Web pages
 
-With `--web`, the spindle serves pages at `/ui` for its users. A visitor
+With `--web`, the spindle serves pages at `/ui` for its users. Logs are
+shown with their terminal colours. Admins also get a jobs tab, at
+`/ui/jobs`, showing the Duraml queue: how many jobs are in each state, those
+running, the newest activity, and for each job its timeline and the
+workflow it runs. A visitor
 logs in with their atproto handle or DID. The spindle is a confidential
-OAuth client, at `https://HOSTNAME/oauth/client-metadata.json`, that signs
+OAuth client, at `https://HOSTNAME/oauth-client-metadata.json`, that signs
 its requests with a P-256 key kept in `web-client.key` in the state
 directory and publishes its public half at `/oauth/jwks.json`. The key is
 replaced when the spindle starts after 90 days of use. The spindle keeps no

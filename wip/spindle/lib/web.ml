@@ -15,6 +15,8 @@ type t = {
   clock : float Eio.Time.clock_ty Eio.Resource.t;
   plc : string option;
   site : S.site;
+  admin_site : S.site;  (** With the jobs tab, which only admins may see. *)
+  jobs : Duraml.plain option;
   collaborates : (string * string, float * bool) Hashtbl.t;
       (* Whether a user collaborates on a repository, and when the knot said
          so, so that a page does not ask the knot about every repository. *)
@@ -139,7 +141,8 @@ let sweep t =
       | _ -> Store.delete t.store "web-login" key)
     (Store.list t.store "web-login")
 
-let v ~sw ~engine ~store ~catalog ~directory ~hostname ?plc ?origin ?http env =
+let v ~sw ~engine ~store ~catalog ~directory ~hostname ?jobs ?plc ?origin ?http
+    env =
   let origin = Option.value ~default:("https://" ^ hostname) origin in
   let key = client_key ~now:(Eio.Time.now env#clock) directory in
   let kid =
@@ -152,7 +155,10 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?plc ?origin ?http env =
   in
   let client =
     Oauth.Client.v
-      ~client_id:(origin ^ "/oauth/client-metadata.json")
+      (* Bluesky's login page names a client by its host alone when its
+         metadata is at this conventional path, and by its whole URL
+         otherwise. *)
+      ~client_id:(origin ^ "/oauth-client-metadata.json")
       ~redirect_uri:(origin ^ "/oauth/callback")
       ~jwks_uri:(origin ^ "/oauth/jwks.json")
       (* Bluesky's authorization server requires the client's address to be a
@@ -187,6 +193,16 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?plc ?origin ?http env =
         ~home:(S.Url.path [ "ui" ])
         ~nav:[ S.nav "Repositories" (S.Url.path [ "ui" ]) ]
         ();
+    admin_site =
+      S.site ~name:hostname ~brand:"sp"
+        ~home:(S.Url.path [ "ui" ])
+        ~nav:
+          [
+            S.nav "Repositories" (S.Url.path [ "ui" ]);
+            S.nav "Jobs" (S.Url.path [ "ui"; "jobs" ]);
+          ]
+        ();
+    jobs;
     collaborates = Hashtbl.create 16;
     lock = Eio.Mutex.create ();
     logins = 0;
@@ -271,14 +287,24 @@ let json (respond @ local) j =
          ])
     "application/json" (encode Jsont.json j)
 
-let page t ?account ~title body =
-  S.page t.site ~current:"/ui" ?account ~title (S.state_sprite :: body)
-
-let account t s =
+let account s =
   S.account
     ~name:(Session.data s)
     ~logout:(S.Url.path [ "ui"; "logout" ])
     ~csrf:(Session.csrf_field, Session.csrf_token s)
+
+(* A page for someone logged in shows their account, and to admins the jobs
+   tab. *)
+let page t ?session ?(current = "/ui") ~title body =
+  let site, account =
+    match session with
+    | Some s ->
+        ( (if Catalog.admin t.catalog (Session.subject s) then t.admin_site
+           else t.site),
+          Some (account s) )
+    | None -> (t.site, None)
+  in
+  S.page site ~current ?account ~title (S.state_sprite :: body)
 
 let paragraph s = Htmlit.El.p [ S.text s ]
 
@@ -553,7 +579,7 @@ let home t s (respond @ local) =
       (visible t ~user)
   in
   html respond
-    (page t ~account:(account t s) ~title:"Repositories"
+    (page t ~session:s ~title:"Repositories"
        (if rows = [] then
           [ paragraph "None of your repositories run CI on this spindle yet." ]
         else
@@ -611,7 +637,7 @@ let repo t s (req @ local) (respond @ local) =
     | None -> []
   in
   html respond
-    (page t ~account:(account t s) ~title:(repo_name t repo)
+    (page t ~session:s ~title:(repo_name t repo)
        ((if rows = [] then [ paragraph "No pipelines yet." ]
          else
            [
@@ -660,7 +686,7 @@ let pipeline t s (req @ local) (respond @ local) =
       p.workflows
   in
   html respond
-    (page t ~account:(account t s) ~title:("Pipeline " ^ p.id)
+    (page t ~session:s ~title:("Pipeline " ^ p.id)
        [
          S.facts
            [
@@ -690,7 +716,7 @@ let log t s (req @ local) (respond @ local) =
   | None -> raise Missing
   | Some w ->
       html respond
-        (page t ~account:(account t s) ~title:name
+        (page t ~session:s ~title:name
            [
              S.facts
                [
@@ -703,7 +729,213 @@ let log t s (req @ local) (respond @ local) =
                  ("Status", Some (status w.status));
                  ("Error", Option.map S.text w.error);
                ];
-             S.log (Runner.outcome w).log;
+             S.terminal (Runner.outcome w).log;
+           ])
+
+(* {1 Jobs} *)
+
+(* The Duraml queue holds every repository's work, so only admins see it. *)
+let jobs_of t s =
+  if not (admin t (Session.subject s)) then raise Forbidden;
+  match t.jobs with Some j -> j | None -> raise Missing
+
+let state_name = function
+  | Duraml.Queued -> "queued"
+  | Running -> "running"
+  | Done -> "done"
+  | Failed_job -> "failed"
+  | Cancelled -> "cancelled"
+
+let states =
+  Duraml.[ Queued; Running; Done; Failed_job; Cancelled ]
+
+let state_of_string v =
+  match List.find_opt (fun st -> state_name st = v) states with
+  | Some st -> st
+  | None -> raise Missing
+
+(* What an event did to its job, as a state icon. *)
+let event_icon = function
+  | "enqueued" | "retry_scheduled" -> "queued"
+  | "claimed" -> "running"
+  | "succeeded" -> "done"
+  | "failed" | "lease_expired" -> "failed"
+  | "cancelled" -> "cancelled"
+  | _ -> "notice"
+
+let job_link id =
+  S.link
+    (S.Url.path [ "ui"; "job" ] ~query:[ ("id", Duraml.Id.to_string id) ])
+    (Duraml.Id.to_string id)
+
+(* A workflow job's key names its pipeline and workflow, and its lane is the
+   repository, which together name the workflow's log. *)
+let workflow_link spec =
+  match Option.map (String.split_on_char '/') (Duraml.Spec.key spec) with
+  | Some [ "workflow"; id; name ] ->
+      S.link
+        (S.Url.path [ "ui"; "log" ]
+           ~query:
+             [ ("repo", Duraml.Spec.lane spec); ("id", id); ("workflow", name) ])
+        (name ^ " of " ^ id)
+  | _ -> S.text (Option.value ~default:"" (Duraml.Spec.key spec))
+
+let outcome_text = function
+  | None -> ""
+  | Some (Duraml.Succeeded _) -> "succeeded"
+  | Some (Retry { at; reason }) -> "retry at " ^ S.time at ^ ": " ^ reason
+  | Some (Failed { code; detail }) -> code ^ ": " ^ detail
+
+let job_row (j : Duraml.job) =
+  let spec = Duraml.Job.spec j in
+  [
+    S.cell ~sort:(Duraml.Id.to_string (Duraml.Job.id j)) [ job_link (Duraml.Job.id j) ];
+    S.cell [ S.state (state_name (Duraml.Job.state j)) ];
+    S.cell [ workflow_link spec ];
+    S.cell [ S.text (string_of_int (Duraml.Job.attempt j)) ];
+    S.cell [ S.text (S.time (Duraml.Job.updated_at j)) ];
+    S.cell [ S.text (outcome_text (Duraml.Job.outcome j)) ];
+  ]
+
+let job_columns =
+  [
+    ("Job", `Number);
+    ("State", `Text);
+    ("Workflow", `Text);
+    ("Attempt", `Number);
+    ("Updated", `Text);
+    ("Outcome", `Text);
+  ]
+
+let event_rows events =
+  List.map
+    (fun e ->
+      [
+        S.cell [ S.text (S.time (Duraml.Event.time e)) ];
+        S.cell
+          [
+            S.state ~label:(Duraml.Event.kind e)
+              (event_icon (Duraml.Event.kind e));
+          ];
+        S.cell [ job_link (Duraml.Event.job e) ];
+        S.cell [ S.text (string_of_int (Duraml.Event.attempt e)) ];
+        S.cell [ S.text (Duraml.Event.detail e) ];
+      ])
+    events
+
+let event_columns =
+  [
+    ("Time", `Text);
+    ("Event", `Text);
+    ("Job", `Number);
+    ("Attempt", `Number);
+    ("Detail", `Text);
+  ]
+
+let jobs_page t s (req @ local) (respond @ local) =
+  let store = jobs_of t s in
+  let state = Option.map state_of_string (Req.query_param req "state") in
+  let after =
+    Option.map
+      (fun a ->
+        match Duraml.Id.of_string a with Ok id -> id | Error _ -> raise Missing)
+      (Req.query_param req "after")
+  in
+  let count st = Duraml.count store (Duraml.query ~state:st ()) in
+  let metrics =
+    S.metrics
+      (List.map
+         (fun st ->
+           S.metric ~label:(state_name st)
+             (S.link
+                (S.Url.path [ "ui"; "jobs" ] ~query:[ ("state", state_name st) ])
+                (S.count (count st))))
+         states)
+  in
+  let listing =
+    match state with
+    | None ->
+        (* Without a filter, what is happening now. *)
+        let running =
+          Duraml.list store (Duraml.query ~state:Running ~limit:200 ())
+        in
+        [
+          Htmlit.El.h2 [ S.text "Running" ];
+          (if running = [] then paragraph "Nothing is running."
+           else S.table job_columns (List.map job_row running));
+        ]
+    | Some st ->
+        let jobs = Duraml.list store (Duraml.query ~state:st ?after ~limit:100 ()) in
+        [
+          Htmlit.El.h2 [ S.text (String.capitalize_ascii (state_name st)) ];
+          (if jobs = [] then paragraph "No jobs."
+           else S.table job_columns (List.map job_row jobs));
+        ]
+        @ (match List.rev jobs with
+          | last :: _ when List.length jobs = 100 ->
+              [
+                S.next_page
+                  (S.Url.path [ "ui"; "jobs" ]
+                     ~query:
+                       [
+                         ("state", state_name st);
+                         ("after", Duraml.Id.to_string (Duraml.Job.id last));
+                       ])
+                  "Later jobs →";
+              ]
+          | _ -> [])
+  in
+  let recent = Duraml.tail ~limit:100 store in
+  html respond
+    (page t ~session:s ~current:"/ui/jobs" ~title:"Jobs"
+       ([ metrics ] @ listing
+       @ [
+           Htmlit.El.h2 [ S.text "Recent activity" ];
+           S.table event_columns (event_rows recent);
+         ]))
+
+let job_page t s (req @ local) (respond @ local) =
+  let store = jobs_of t s in
+  let id =
+    match Duraml.Id.of_string (required req "id") with
+    | Ok id -> id
+    | Error _ -> raise Missing
+  in
+  match Duraml.find store id with
+  | None -> raise Missing
+  | Some j ->
+      let spec = Duraml.Job.spec j in
+      let events =
+        List.rev
+          (List.filter
+             (fun e -> Duraml.Id.compare (Duraml.Event.job e) id = 0)
+             (Duraml.tail ~limit:1000 store))
+      in
+      html respond
+        (page t ~session:s ~current:"/ui/jobs"
+           ~title:("Job " ^ Duraml.Id.to_string id)
+           [
+             S.facts
+               [
+                 ("State", Some (S.state (state_name (Duraml.Job.state j))));
+                 ("Workflow", Some (workflow_link spec));
+                 ("Queue", Some (S.text (Duraml.Spec.queue spec)));
+                 ("Repository", Some (S.text (Duraml.Spec.lane spec)));
+                 ("Attempt", Some (S.text (string_of_int (Duraml.Job.attempt j))));
+                 ("Created", Some (S.text (S.time (Duraml.Job.created_at j))));
+                 ("Updated", Some (S.text (S.time (Duraml.Job.updated_at j))));
+                 ( (if Duraml.Job.state j = Running then "Lease until"
+                    else "Available"),
+                   Some (S.text (S.time (Duraml.Job.available_at j))) );
+                 ( "Outcome",
+                   match outcome_text (Duraml.Job.outcome j) with
+                   | "" -> None
+                   | o -> Some (S.text o) );
+               ];
+             Htmlit.El.h2 [ S.text "Timeline" ];
+             (if events = [] then
+                paragraph "No events among the newest thousand."
+              else S.table event_columns (event_rows events));
            ])
 
 let handle t name (req @ local) (respond @ local) =
@@ -725,6 +957,8 @@ let handle t name (req @ local) (respond @ local) =
             | "pipeline" -> pipeline t s req respond
             | "log" -> log t s req respond
             | "logout" -> logout t s req respond
+            | "jobs" -> jobs_page t s req respond
+            | "job" -> job_page t s req respond
             | _ -> raise Missing))
   with
   | Eio.Cancel.Cancelled _ as e -> raise e
@@ -749,6 +983,8 @@ let routes () =
         (s "ui" / s "pipeline")
         (fun env req respond -> env "web:pipeline" req respond);
       get (s "ui" / s "log") (fun env req respond -> env "web:log" req respond);
+      get (s "ui" / s "jobs") (fun env req respond -> env "web:jobs" req respond);
+      get (s "ui" / s "job") (fun env req respond -> env "web:job" req respond);
       post
         (s "ui" / s "login")
         (fun env req respond -> env "web:login" req respond);
@@ -759,7 +995,7 @@ let routes () =
         (s "oauth" / s "callback")
         (fun env req respond -> env "web:callback" req respond);
       get
-        (s "oauth" / s "client-metadata.json")
+        (s "oauth-client-metadata.json")
         (fun env req respond -> env "web:metadata" req respond);
       get
         (s "oauth" / s "jwks.json")

@@ -14,7 +14,10 @@
   kept in the spindle's store. Logins are bounded in number, time and
   storage, and expired sessions are swept. Visitors may log in by naming
   their account's server, OAuth answers are read up to 1 MiB, and the
-  client's signing key is replaced after 90 days.
+  client's signing key is replaced after 90 days. The client's metadata is
+  at the conventional `/oauth-client-metadata.json`, so Bluesky's login
+  page names it by host. Logs show their terminal colours, and admins have
+  a jobs tab showing the Duraml queue's activity.
 - Fix durable workflows cancelled while waiting to run again, keep the logs
   of a workflow that cannot run again, and never run one workflow twice at
   once after a lost lease. Reading a pipeline no longer deletes logs.

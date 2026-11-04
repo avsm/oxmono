@@ -22,13 +22,15 @@ val v :
   catalog:Catalog.t ->
   directory:Eio.Fs.dir_ty Eio.Path.t ->
   hostname:string ->
+  ?jobs:Duraml.plain ->
   ?plc:string ->
   ?origin:string ->
   ?http:Fetch.plain ->
   Eio_unix.Stdenv.base ->
   t
 (** [v ~engine ~store ~catalog ~directory ~hostname env] serves pages at
-    [https://hostname], or at [origin] for tests. The OAuth client's signing
+    [https://hostname], or at [origin] for tests. With [jobs], the spindle's
+    Duraml store, admins also see its jobs and their activity. The OAuth client's signing
     key is [directory/web-client.key], created readable only by its owner on
     first use. [http] makes the OAuth requests, by default an HTTPS client
     that refuses private and loopback addresses, since identity resolution

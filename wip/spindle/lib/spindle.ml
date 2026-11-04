@@ -1144,6 +1144,10 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   in
   Catalog.on_rename catalog (fun r ~old_name ->
       if Catalog.admitted catalog r.owner then Hooks.renamed hooks r ~old_name);
+  let jobs =
+    Duraml_sqlite.open_ ~sw ~clock:system#clock ~random:system#secure_random
+      Eio.Path.(directory / "jobs.sqlite")
+  in
   let engine =
     Engine.v ~store ~catalog ~settings ~hostname:config.hostname
       ~jobs:config.jobs ~timeout:config.workflow_timeout
@@ -1153,12 +1157,7 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
            Some (read_files config catalog network)
          else None)
       ~tree:(tree config catalog network)
-      ~concurrency:config.concurrency
-      ~durable:
-        (Duraml_sqlite.open_ ~sw ~clock:system#clock
-           ~random:system#secure_random
-           Eio.Path.(directory / "jobs.sqlite"))
-      ~system ~directory ~sw ()
+      ~concurrency:config.concurrency ~durable:jobs ~system ~directory ~sw ()
   in
   Engine.migrate engine config.repo;
   Engine.load engine;
@@ -1168,7 +1167,7 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
     if config.web then
       Some
         (Web.v ~sw ~engine ~store ~catalog ~directory ~hostname:config.hostname
-           ~plc:config.plc system)
+           ~jobs ~plc:config.plc system)
     else None
   in
   let state =

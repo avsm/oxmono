@@ -262,7 +262,7 @@ let () =
   let w =
     run ~job
       ~secrets:[ ("TOKEN", "hunter2") ]
-      (Executor.print ~delay:0. env#clock)
+      (Spindle.Demo.print ~delay:0. env#clock)
   in
   assert (w.status = `Success);
   assert (ends w = [ (0, "system", "success"); (1, "user", "success") ]);
@@ -288,7 +288,8 @@ let () =
   let spawned = ref [] in
   let workflow = Runner.v (Job.v "solve" []) in
   Runner.execute
-    (runner (Executor.solve ~compilers:[ "ocaml-4.14"; "ocaml-5.5" ] env#clock))
+    (runner
+       (Spindle.Demo.solve ~compilers:[ "ocaml-4.14"; "ocaml-5.5" ] env#clock))
     (input "solve")
     ~record:(fun _ -> 0L)
     ~persist:(fun () -> ())
@@ -299,7 +300,7 @@ let () =
   let _, compiler_env, steps = List.hd !spawned in
   let build = Runner.v (Job.spawned ~env:compiler_env "ocaml-5.5" steps) in
   Runner.execute
-    (runner (Executor.solve env#clock))
+    (runner (Spindle.Demo.solve env#clock))
     (input "build")
     ~record:(fun _ -> 0L)
     ~persist:(fun () -> ())

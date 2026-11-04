@@ -1,7 +1,8 @@
 (* SPDX-License-Identifier: ISC *)
 module Job = Job
 module Executor = Executor
-module Service_auth = Auth
+module Demo = Demo
+module Service_auth = Service_auth
 module Operations = Operations
 module Catalog = Catalog
 module Settings = Settings
@@ -66,13 +67,13 @@ let bearer req =
   match fields req "authorization" with
   | [ s ] when String.starts_with ~prefix:"Bearer " s ->
       String.sub s 7 (String.length s - 7)
-  | _ -> raise Auth.Rejected
+  | _ -> raise Service_auth.Rejected
 
 let authorize state meth req =
   let token = bearer req in
   let now = Eio.Time.now state.system#clock in
   let actor =
-    Auth.authenticate
+    Service_auth.authenticate
       ~resolve:(Network.resolve state.network)
       ~consume:(fun ~issuer ~jti ~expires ->
         let now = Eio.Time.now state.system#clock in
@@ -505,7 +506,7 @@ let runnable_push event =
    the repository's own signature makes that claim credible. *)
 let attribution req ~actor repo =
   if actor <> repo then actor
-  else Option.value ~default:actor (Auth.controller (bearer req))
+  else Option.value ~default:actor (Service_auth.controller (bearer req))
 
 let notify state req ~issuer body =
   let repo = did (get "repo" body) in
@@ -518,7 +519,7 @@ let notify state req ~issuer body =
         (* Only the knot named by the repository's DID document reports its
            pushes. *)
         if issuer <> Catalog.knot_did (Engine.catalog engine) repo then
-          raise Auth.Rejected;
+          raise Service_auth.Rejected;
         let actor = did (get "actor" event) in
         let new_sha = sha (get "newSha" event) in
         let ref_ = get "ref" event in
@@ -1062,7 +1063,7 @@ and handle_xrpc state name req respond =
   | Invalid message ->
       respond_json respond ~status:Status.Bad_request
         (obj [ ("error", str "InvalidRequest"); ("message", str message) ])
-  | Auth.Rejected ->
+  | Service_auth.Rejected ->
       respond_json respond ~status:Status.Unauthorized
         ~headers:(Headers.of_list [ ("WWW-Authenticate", "Bearer") ])
         (obj

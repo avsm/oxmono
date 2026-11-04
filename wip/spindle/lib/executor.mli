@@ -70,7 +70,9 @@ type context = {
   step : ?kind:kind -> ?command:string -> string -> (unit -> unit) -> unit;
       (** [step ~kind ~command name f] runs [f] as the next step of the log,
           called [name]. [kind] defaults to [`User]. [command], when given, is
-          shown with the step's name. The step fails if [f] raises. *)
+          shown with the step's name. Secrets in [name] and [command] are
+          hidden. The step fails if [f] raises, or if what it wrote last no
+          longer fits the log. Steps run one at a time and do not nest. *)
   log : [ `Stdout | `Stderr ] -> string -> unit;
       (** [log stream text] adds [text] to the current step's log, with every
           secret replaced by [***]. The log holds one line per frame, so an
@@ -81,7 +83,10 @@ type context = {
           {!Job.spawned} describes it, and starts it with this executor. It runs
           alongside the current workflow, for instance one for each build a plan
           finds. [name] must be a valid workflow file name not already in the
-          pipeline, which holds at most 50 workflows. *)
+          pipeline, which holds at most 50 workflows, unless this workflow
+          spawned it before. A workflow that runs again after a restart spawns
+          what it spawned before, and each earlier one stands, even if [steps]
+          differ. *)
   await_spawned : unit -> outcome list;
       (** [await_spawned ()] waits until every workflow this one spawned, and
           every workflow those spawned, has finished, and is their outcomes in
@@ -109,17 +114,3 @@ type context = {
 type t = context -> request -> unit
 (** An executor runs a workflow and returns when it has succeeded. It fails the
     workflow by raising. Cancellation and the time limit cancel its fiber. *)
-
-val solve : ?compilers:string list -> _ Eio.Time.clock -> t
-(** [solve clock] simulates a planning spindle. A workflow it did not spawn is
-    described as {!print} does, then given a [solve] step that pretends to solve
-    the repository's dependencies for each of [compilers], which default to
-    [ocaml-4.14], [ocaml-5.5] and [oxcaml-5.2minus39]. It spawns a workflow for
-    each compiler, which logs made-up dependency installation, build and test
-    output with short random waits and succeeds. Nothing is run. *)
-
-val print : ?delay:float -> _ Eio.Time.clock -> t
-(** [print ~delay clock] logs the request, with each secret's value replaced by
-    a placeholder, and logs each step without running it. It also prints the
-    request to standard output. It then sleeps [delay] seconds, 2 by default,
-    and succeeds. *)

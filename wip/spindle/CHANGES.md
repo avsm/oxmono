@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Move the demonstration executors `solve` and `print` from
+  `Spindle.Executor` to `Spindle.Demo`. `solve` no longer treats a
+  repository workflow that sets `SPINDLE_COMPILER` as one of its builds.
+
 - Verify handles in the web pages with `Xrpc.Identity.verified_handle`.
 
 - Bound the repository acceptance cache, which any caller could grow, read

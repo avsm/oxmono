@@ -14,7 +14,7 @@ let executor =
 
 let () =
   Spindle_cli.main executor (fun env ~sw:_ -> function
-    | `Print -> ([ Spindle.Job.inspect ], Spindle.Executor.print env#clock)
+    | `Print -> ([ Spindle.Job.inspect ], Spindle.Demo.print env#clock)
     | `Solve ->
         ( [ Spindle.Job.v "solve" [ Spindle.Job.step "solve" "opam solve" ] ],
-          Spindle.Executor.solve env#clock ))
+          Spindle.Demo.solve env#clock ))

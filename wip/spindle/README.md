@@ -135,7 +135,7 @@ running and in which step, or ended. Given the progress it last saw, it
 waits for the next change, on the same terms as `await_spawned`. A planner
 can use it to log its builds' progress as it happens.
 
-`spindle --executor=solve` uses `Spindle.Executor.solve`, which simulates
+`spindle --executor=solve` uses `Spindle.Demo.solve`, which simulates
 this: its `solve` workflow pretends to solve for `ocaml-4.14`, `ocaml-5.5`
 and `oxcaml-5.2minus39`, then spawns a workflow for each that logs made-up
 build and test output after short random waits.
@@ -146,7 +146,7 @@ keeps the `spindle` command's options. `--concurrency` bounds the workflows
 that run at once, 2 by default, and an executor that waits on remote builders
 can allow many. [ocaml-ci-spindle](../ocaml-ci-spindle/README.md) is one.
 
-`Spindle.Executor.print clock` is the default, used by the `spindle`
+`Spindle.Demo.print clock` is the default, used by the `spindle`
 command. It logs a description of the request as system step 0 and each
 step, with its command and environment, after it, also prints the description
 to standard output, sleeps two seconds and succeeds.

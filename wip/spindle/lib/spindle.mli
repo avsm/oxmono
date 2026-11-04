@@ -2,7 +2,8 @@
 
 module Job = Job
 module Executor = Executor
-module Service_auth = Auth
+module Demo = Demo
+module Service_auth = Service_auth
 module Operations = Operations
 module Catalog = Catalog
 module Settings = Settings

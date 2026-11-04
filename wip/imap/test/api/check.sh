@@ -41,7 +41,7 @@ then
   printf 'Public interface lets a lease stand in for a Move witness\n' >&2
   exit 1
 fi
-if ! grep -F "This expression has type" "$scratch/error" > /dev/null; then
+if ! grep -E "This expression has type|The value [a-z_]+ has type" "$scratch/error" > /dev/null; then
   cat "$scratch/error" >&2
   exit 1
 fi

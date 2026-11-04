@@ -70,6 +70,46 @@ module type S = sig
       val of_message : 'cap message_t -> t
       val of_builder : struct_t builder_t -> t
     end
+    module Day10 : sig
+      type struct_t = [`Day10_a3fa907d15d846a2]
+      type t = struct_t reader_t
+      val has_verb : t -> bool
+      val verb_get : t -> string
+      val has_opam_repository : t -> bool
+      val opam_repository_get : t -> string
+      val has_opam_repository_commit : t -> bool
+      val opam_repository_commit_get : t -> string
+      val has_opam_repository_base : t -> bool
+      val opam_repository_base_get : t -> string
+      val has_ocaml_version : t -> bool
+      val ocaml_version_get : t -> string
+      val has_package : t -> bool
+      val package_get : t -> string
+      val with_test_get : t -> bool
+      val with_doc_get : t -> bool
+      val lower_bound_get : t -> bool
+      val has_dune_args : t -> bool
+      val dune_args_get : t -> (ro, string, array_t) Capnp.Array.t
+      val dune_args_get_list : t -> string list
+      val dune_args_get_array : t -> string array
+      val has_arch : t -> bool
+      val arch_get : t -> string
+      val has_os : t -> bool
+      val os_get : t -> string
+      val has_os_family : t -> bool
+      val os_family_get : t -> string
+      val has_os_distribution : t -> bool
+      val os_distribution_get : t -> string
+      val has_os_version : t -> bool
+      val os_version_get : t -> string
+      val has_only_packages : t -> bool
+      val only_packages_get : t -> (ro, string, array_t) Capnp.Array.t
+      val only_packages_get_list : t -> string list
+      val only_packages_get_array : t -> string array
+      val update_invariant_get : t -> bool
+      val of_message : 'cap message_t -> t
+      val of_builder : struct_t builder_t -> t
+    end
     module Secret : sig
       type struct_t = [`Secret_d3d0bc06b7e0ea84]
       type t = struct_t reader_t
@@ -709,6 +749,72 @@ module type S = sig
       val payload_set : t -> pointer_t -> pointer_t
       val payload_set_reader : t -> Reader.pointer_t -> pointer_t
       val payload_set_interface : t -> 'a MessageWrapper.Capability.t option -> unit
+      val of_message : rw message_t -> t
+      val to_message : t -> rw message_t
+      val to_reader : t -> struct_t reader_t
+      val init_root : ?message_size:int -> unit -> t
+      val init_pointer : pointer_t -> t
+    end
+    module Day10 : sig
+      type struct_t = [`Day10_a3fa907d15d846a2]
+      type t = struct_t builder_t
+      val has_verb : t -> bool
+      val verb_get : t -> string
+      val verb_set : t -> string -> unit
+      val has_opam_repository : t -> bool
+      val opam_repository_get : t -> string
+      val opam_repository_set : t -> string -> unit
+      val has_opam_repository_commit : t -> bool
+      val opam_repository_commit_get : t -> string
+      val opam_repository_commit_set : t -> string -> unit
+      val has_opam_repository_base : t -> bool
+      val opam_repository_base_get : t -> string
+      val opam_repository_base_set : t -> string -> unit
+      val has_ocaml_version : t -> bool
+      val ocaml_version_get : t -> string
+      val ocaml_version_set : t -> string -> unit
+      val has_package : t -> bool
+      val package_get : t -> string
+      val package_set : t -> string -> unit
+      val with_test_get : t -> bool
+      val with_test_set : t -> bool -> unit
+      val with_doc_get : t -> bool
+      val with_doc_set : t -> bool -> unit
+      val lower_bound_get : t -> bool
+      val lower_bound_set : t -> bool -> unit
+      val has_dune_args : t -> bool
+      val dune_args_get : t -> (rw, string, array_t) Capnp.Array.t
+      val dune_args_get_list : t -> string list
+      val dune_args_get_array : t -> string array
+      val dune_args_set : t -> (rw, string, array_t) Capnp.Array.t -> (rw, string, array_t) Capnp.Array.t
+      val dune_args_set_list : t -> string list -> (rw, string, array_t) Capnp.Array.t
+      val dune_args_set_array : t -> string array -> (rw, string, array_t) Capnp.Array.t
+      val dune_args_init : t -> int -> (rw, string, array_t) Capnp.Array.t
+      val has_arch : t -> bool
+      val arch_get : t -> string
+      val arch_set : t -> string -> unit
+      val has_os : t -> bool
+      val os_get : t -> string
+      val os_set : t -> string -> unit
+      val has_os_family : t -> bool
+      val os_family_get : t -> string
+      val os_family_set : t -> string -> unit
+      val has_os_distribution : t -> bool
+      val os_distribution_get : t -> string
+      val os_distribution_set : t -> string -> unit
+      val has_os_version : t -> bool
+      val os_version_get : t -> string
+      val os_version_set : t -> string -> unit
+      val has_only_packages : t -> bool
+      val only_packages_get : t -> (rw, string, array_t) Capnp.Array.t
+      val only_packages_get_list : t -> string list
+      val only_packages_get_array : t -> string array
+      val only_packages_set : t -> (rw, string, array_t) Capnp.Array.t -> (rw, string, array_t) Capnp.Array.t
+      val only_packages_set_list : t -> string list -> (rw, string, array_t) Capnp.Array.t
+      val only_packages_set_array : t -> string array -> (rw, string, array_t) Capnp.Array.t
+      val only_packages_init : t -> int -> (rw, string, array_t) Capnp.Array.t
+      val update_invariant_get : t -> bool
+      val update_invariant_set : t -> bool -> unit
       val of_message : rw message_t -> t
       val to_message : t -> rw message_t
       val to_reader : t -> struct_t reader_t
@@ -1664,6 +1770,80 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
       let of_message x = RA_.get_root_struct (RA_.Message.readonly x)
       let of_builder x = Some (RA_.StructStorage.readonly x)
     end
+    module Day10 = struct
+      type struct_t = [`Day10_a3fa907d15d846a2]
+      type t = struct_t reader_t
+      let has_verb x =
+        RA_.has_field x 0
+      let verb_get x =
+        RA_.get_text ~default:"" x 0
+      let has_opam_repository x =
+        RA_.has_field x 1
+      let opam_repository_get x =
+        RA_.get_text ~default:"" x 1
+      let has_opam_repository_commit x =
+        RA_.has_field x 2
+      let opam_repository_commit_get x =
+        RA_.get_text ~default:"" x 2
+      let has_opam_repository_base x =
+        RA_.has_field x 3
+      let opam_repository_base_get x =
+        RA_.get_text ~default:"" x 3
+      let has_ocaml_version x =
+        RA_.has_field x 4
+      let ocaml_version_get x =
+        RA_.get_text ~default:"" x 4
+      let has_package x =
+        RA_.has_field x 5
+      let package_get x =
+        RA_.get_text ~default:"" x 5
+      let with_test_get x =
+        RA_.get_bit ~default:false x ~byte_ofs:0 ~bit_ofs:0
+      let with_doc_get x =
+        RA_.get_bit ~default:false x ~byte_ofs:0 ~bit_ofs:1
+      let lower_bound_get x =
+        RA_.get_bit ~default:false x ~byte_ofs:0 ~bit_ofs:2
+      let has_dune_args x =
+        RA_.has_field x 6
+      let dune_args_get x =
+        RA_.get_text_list x 6
+      let dune_args_get_list x =
+        Capnp.Array.to_list (dune_args_get x)
+      let dune_args_get_array x =
+        Capnp.Array.to_array (dune_args_get x)
+      let has_arch x =
+        RA_.has_field x 7
+      let arch_get x =
+        RA_.get_text ~default:"" x 7
+      let has_os x =
+        RA_.has_field x 8
+      let os_get x =
+        RA_.get_text ~default:"" x 8
+      let has_os_family x =
+        RA_.has_field x 9
+      let os_family_get x =
+        RA_.get_text ~default:"" x 9
+      let has_os_distribution x =
+        RA_.has_field x 10
+      let os_distribution_get x =
+        RA_.get_text ~default:"" x 10
+      let has_os_version x =
+        RA_.has_field x 11
+      let os_version_get x =
+        RA_.get_text ~default:"" x 11
+      let has_only_packages x =
+        RA_.has_field x 12
+      let only_packages_get x =
+        RA_.get_text_list x 12
+      let only_packages_get_list x =
+        Capnp.Array.to_list (only_packages_get x)
+      let only_packages_get_array x =
+        Capnp.Array.to_array (only_packages_get x)
+      let update_invariant_get x =
+        RA_.get_bit ~default:false x ~byte_ofs:0 ~bit_ofs:3
+      let of_message x = RA_.get_root_struct (RA_.Message.readonly x)
+      let of_builder x = Some (RA_.StructStorage.readonly x)
+    end
     module Secret = struct
       type struct_t = [`Secret_d3d0bc06b7e0ea84]
       type t = struct_t reader_t
@@ -2543,6 +2723,139 @@ module MakeRPC(MessageWrapper : Capnp.RPC.S) = struct
         BA_.alloc_root_struct ?message_size ~data_words:0 ~pointer_words:2 ()
       let init_pointer ptr =
         BA_.init_struct_pointer ptr ~data_words:0 ~pointer_words:2
+    end
+    module Day10 = struct
+      type struct_t = [`Day10_a3fa907d15d846a2]
+      type t = struct_t builder_t
+      let has_verb x =
+        BA_.has_field x 0
+      let verb_get x =
+        BA_.get_text ~default:"" x 0
+      let verb_set x v =
+        BA_.set_text x 0 v
+      let has_opam_repository x =
+        BA_.has_field x 1
+      let opam_repository_get x =
+        BA_.get_text ~default:"" x 1
+      let opam_repository_set x v =
+        BA_.set_text x 1 v
+      let has_opam_repository_commit x =
+        BA_.has_field x 2
+      let opam_repository_commit_get x =
+        BA_.get_text ~default:"" x 2
+      let opam_repository_commit_set x v =
+        BA_.set_text x 2 v
+      let has_opam_repository_base x =
+        BA_.has_field x 3
+      let opam_repository_base_get x =
+        BA_.get_text ~default:"" x 3
+      let opam_repository_base_set x v =
+        BA_.set_text x 3 v
+      let has_ocaml_version x =
+        BA_.has_field x 4
+      let ocaml_version_get x =
+        BA_.get_text ~default:"" x 4
+      let ocaml_version_set x v =
+        BA_.set_text x 4 v
+      let has_package x =
+        BA_.has_field x 5
+      let package_get x =
+        BA_.get_text ~default:"" x 5
+      let package_set x v =
+        BA_.set_text x 5 v
+      let with_test_get x =
+        BA_.get_bit ~default:false x ~byte_ofs:0 ~bit_ofs:0
+      let with_test_set x v =
+        BA_.set_bit ~default:false x ~byte_ofs:0 ~bit_ofs:0 v
+      let with_doc_get x =
+        BA_.get_bit ~default:false x ~byte_ofs:0 ~bit_ofs:1
+      let with_doc_set x v =
+        BA_.set_bit ~default:false x ~byte_ofs:0 ~bit_ofs:1 v
+      let lower_bound_get x =
+        BA_.get_bit ~default:false x ~byte_ofs:0 ~bit_ofs:2
+      let lower_bound_set x v =
+        BA_.set_bit ~default:false x ~byte_ofs:0 ~bit_ofs:2 v
+      let has_dune_args x =
+        BA_.has_field x 6
+      let dune_args_get x =
+        BA_.get_text_list x 6
+      let dune_args_get_list x =
+        Capnp.Array.to_list (dune_args_get x)
+      let dune_args_get_array x =
+        Capnp.Array.to_array (dune_args_get x)
+      let dune_args_set x v =
+        BA_.set_text_list x 6 v
+      let dune_args_init x n =
+        BA_.init_text_list x 6 n
+      let dune_args_set_list x v =
+        let builder = dune_args_init x (List.length v) in
+        let () = List.iteri (fun i a -> Capnp.Array.set builder i a) v in
+        builder
+      let dune_args_set_array x v =
+        let builder = dune_args_init x (Array.length v) in
+        let () = Array.iteri (fun i a -> Capnp.Array.set builder i a) v in
+        builder
+      let has_arch x =
+        BA_.has_field x 7
+      let arch_get x =
+        BA_.get_text ~default:"" x 7
+      let arch_set x v =
+        BA_.set_text x 7 v
+      let has_os x =
+        BA_.has_field x 8
+      let os_get x =
+        BA_.get_text ~default:"" x 8
+      let os_set x v =
+        BA_.set_text x 8 v
+      let has_os_family x =
+        BA_.has_field x 9
+      let os_family_get x =
+        BA_.get_text ~default:"" x 9
+      let os_family_set x v =
+        BA_.set_text x 9 v
+      let has_os_distribution x =
+        BA_.has_field x 10
+      let os_distribution_get x =
+        BA_.get_text ~default:"" x 10
+      let os_distribution_set x v =
+        BA_.set_text x 10 v
+      let has_os_version x =
+        BA_.has_field x 11
+      let os_version_get x =
+        BA_.get_text ~default:"" x 11
+      let os_version_set x v =
+        BA_.set_text x 11 v
+      let has_only_packages x =
+        BA_.has_field x 12
+      let only_packages_get x =
+        BA_.get_text_list x 12
+      let only_packages_get_list x =
+        Capnp.Array.to_list (only_packages_get x)
+      let only_packages_get_array x =
+        Capnp.Array.to_array (only_packages_get x)
+      let only_packages_set x v =
+        BA_.set_text_list x 12 v
+      let only_packages_init x n =
+        BA_.init_text_list x 12 n
+      let only_packages_set_list x v =
+        let builder = only_packages_init x (List.length v) in
+        let () = List.iteri (fun i a -> Capnp.Array.set builder i a) v in
+        builder
+      let only_packages_set_array x v =
+        let builder = only_packages_init x (Array.length v) in
+        let () = Array.iteri (fun i a -> Capnp.Array.set builder i a) v in
+        builder
+      let update_invariant_get x =
+        BA_.get_bit ~default:false x ~byte_ofs:0 ~bit_ofs:3
+      let update_invariant_set x v =
+        BA_.set_bit ~default:false x ~byte_ofs:0 ~bit_ofs:3 v
+      let of_message x = BA_.get_root_struct ~data_words:1 ~pointer_words:13 x
+      let to_message x = x.BA_.NM.StructStorage.data.MessageWrapper.Slice.msg
+      let to_reader x = Some (RA_.StructStorage.readonly x)
+      let init_root ?message_size () =
+        BA_.alloc_root_struct ?message_size ~data_words:1 ~pointer_words:13 ()
+      let init_pointer ptr =
+        BA_.init_struct_pointer ptr ~data_words:1 ~pointer_words:13
     end
     module Secret = struct
       type struct_t = [`Secret_d3d0bc06b7e0ea84]

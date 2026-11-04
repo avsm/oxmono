@@ -41,6 +41,39 @@ val submit :
     worker checks out before building. [cache_hint] groups jobs that share
     caches on a worker. [urgent] defaults to [false]. *)
 
+type day10 = {
+  opam_repository : string;
+      (** The opam repository's Git URL, which names the worker's mirror of it.
+          Empty is ocaml/opam-repository. *)
+  opam_repository_commit : string;  (** The commit to build against. *)
+  ocaml_version : string;  (** Such as [ocaml.5.4.1]. *)
+  with_test : bool;  (** Whether to build and run the tests. *)
+  dune_args : string list;  (** Such as [["@install"; "@runtest"]]. *)
+  only_packages : string list;
+      (** The project's packages to build, or all of them when empty. *)
+  arch : string;
+  os : string;
+  os_family : string;
+  os_distribution : string;
+  os_version : string;
+      (** The platform's opam variables. Empty ones are the worker's own. *)
+}
+(** What a [day10 build] job builds, as Mark Elvers's day10 branch of OCluster
+    defines it. *)
+
+val submit_day10 :
+  submission ->
+  pool:string ->
+  ?urgent:bool ->
+  cache_hint:string ->
+  src:string * string list ->
+  day10 ->
+  ticket
+(** [submit_day10 s ~pool ~cache_hint ~src d] submits a [day10 build] of the
+    project checked out from [src], as {!submit} does an OBuilder spec. Only
+    workers started with [--day10-cache] accept it. day10 solves and builds the
+    project itself. *)
+
 val job : ticket -> job
 (** [job ticket] is the job of [ticket]. Calls on it wait until a worker takes
     it. *)

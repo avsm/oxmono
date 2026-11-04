@@ -70,6 +70,46 @@ module type S = sig
       val of_message : 'cap message_t -> t
       val of_builder : struct_t builder_t -> t
     end
+    module Day10 : sig
+      type struct_t = [`Day10_a3fa907d15d846a2]
+      type t = struct_t reader_t
+      val has_verb : t -> bool
+      val verb_get : t -> string
+      val has_opam_repository : t -> bool
+      val opam_repository_get : t -> string
+      val has_opam_repository_commit : t -> bool
+      val opam_repository_commit_get : t -> string
+      val has_opam_repository_base : t -> bool
+      val opam_repository_base_get : t -> string
+      val has_ocaml_version : t -> bool
+      val ocaml_version_get : t -> string
+      val has_package : t -> bool
+      val package_get : t -> string
+      val with_test_get : t -> bool
+      val with_doc_get : t -> bool
+      val lower_bound_get : t -> bool
+      val has_dune_args : t -> bool
+      val dune_args_get : t -> (ro, string, array_t) Capnp.Array.t
+      val dune_args_get_list : t -> string list
+      val dune_args_get_array : t -> string array
+      val has_arch : t -> bool
+      val arch_get : t -> string
+      val has_os : t -> bool
+      val os_get : t -> string
+      val has_os_family : t -> bool
+      val os_family_get : t -> string
+      val has_os_distribution : t -> bool
+      val os_distribution_get : t -> string
+      val has_os_version : t -> bool
+      val os_version_get : t -> string
+      val has_only_packages : t -> bool
+      val only_packages_get : t -> (ro, string, array_t) Capnp.Array.t
+      val only_packages_get_list : t -> string list
+      val only_packages_get_array : t -> string array
+      val update_invariant_get : t -> bool
+      val of_message : 'cap message_t -> t
+      val of_builder : struct_t builder_t -> t
+    end
     module Secret : sig
       type struct_t = [`Secret_d3d0bc06b7e0ea84]
       type t = struct_t reader_t
@@ -709,6 +749,72 @@ module type S = sig
       val payload_set : t -> pointer_t -> pointer_t
       val payload_set_reader : t -> Reader.pointer_t -> pointer_t
       val payload_set_interface : t -> 'a MessageWrapper.Capability.t option -> unit
+      val of_message : rw message_t -> t
+      val to_message : t -> rw message_t
+      val to_reader : t -> struct_t reader_t
+      val init_root : ?message_size:int -> unit -> t
+      val init_pointer : pointer_t -> t
+    end
+    module Day10 : sig
+      type struct_t = [`Day10_a3fa907d15d846a2]
+      type t = struct_t builder_t
+      val has_verb : t -> bool
+      val verb_get : t -> string
+      val verb_set : t -> string -> unit
+      val has_opam_repository : t -> bool
+      val opam_repository_get : t -> string
+      val opam_repository_set : t -> string -> unit
+      val has_opam_repository_commit : t -> bool
+      val opam_repository_commit_get : t -> string
+      val opam_repository_commit_set : t -> string -> unit
+      val has_opam_repository_base : t -> bool
+      val opam_repository_base_get : t -> string
+      val opam_repository_base_set : t -> string -> unit
+      val has_ocaml_version : t -> bool
+      val ocaml_version_get : t -> string
+      val ocaml_version_set : t -> string -> unit
+      val has_package : t -> bool
+      val package_get : t -> string
+      val package_set : t -> string -> unit
+      val with_test_get : t -> bool
+      val with_test_set : t -> bool -> unit
+      val with_doc_get : t -> bool
+      val with_doc_set : t -> bool -> unit
+      val lower_bound_get : t -> bool
+      val lower_bound_set : t -> bool -> unit
+      val has_dune_args : t -> bool
+      val dune_args_get : t -> (rw, string, array_t) Capnp.Array.t
+      val dune_args_get_list : t -> string list
+      val dune_args_get_array : t -> string array
+      val dune_args_set : t -> (rw, string, array_t) Capnp.Array.t -> (rw, string, array_t) Capnp.Array.t
+      val dune_args_set_list : t -> string list -> (rw, string, array_t) Capnp.Array.t
+      val dune_args_set_array : t -> string array -> (rw, string, array_t) Capnp.Array.t
+      val dune_args_init : t -> int -> (rw, string, array_t) Capnp.Array.t
+      val has_arch : t -> bool
+      val arch_get : t -> string
+      val arch_set : t -> string -> unit
+      val has_os : t -> bool
+      val os_get : t -> string
+      val os_set : t -> string -> unit
+      val has_os_family : t -> bool
+      val os_family_get : t -> string
+      val os_family_set : t -> string -> unit
+      val has_os_distribution : t -> bool
+      val os_distribution_get : t -> string
+      val os_distribution_set : t -> string -> unit
+      val has_os_version : t -> bool
+      val os_version_get : t -> string
+      val os_version_set : t -> string -> unit
+      val has_only_packages : t -> bool
+      val only_packages_get : t -> (rw, string, array_t) Capnp.Array.t
+      val only_packages_get_list : t -> string list
+      val only_packages_get_array : t -> string array
+      val only_packages_set : t -> (rw, string, array_t) Capnp.Array.t -> (rw, string, array_t) Capnp.Array.t
+      val only_packages_set_list : t -> string list -> (rw, string, array_t) Capnp.Array.t
+      val only_packages_set_array : t -> string array -> (rw, string, array_t) Capnp.Array.t
+      val only_packages_init : t -> int -> (rw, string, array_t) Capnp.Array.t
+      val update_invariant_get : t -> bool
+      val update_invariant_set : t -> bool -> unit
       val of_message : rw message_t -> t
       val to_message : t -> rw message_t
       val to_reader : t -> struct_t reader_t

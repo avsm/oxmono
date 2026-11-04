@@ -26,8 +26,11 @@ pool. A job whose ticket is released is cancelled by the scheduler.
 
 ## Schema
 
-`lib/schema.capnp` is `api/schema.capnp` from OCluster at
-`8905eb66b8c2491ca625c752a5b993a379460008`, unchanged. `lib/schema.ml` and
+`lib/schema.capnp` is `api/schema.capnp` from Mark Elvers's `day10` branch
+of OCluster, <https://github.com/mtelvers/ocluster/tree/day10>, at
+`5dc6523379bf7ef75d31c17665367bd7045f0dd2`, unchanged. It is upstream's
+`8905eb66b8c2491ca625c752a5b993a379460008` with the `Day10` payload of
+`day10` custom jobs added. `lib/schema.ml` and
 `lib/schema.mli` are generated from it and checked in, as described in
 [capnp's notes](../../vendor/capnp/OXMONO.md). Regenerate them when the
 schema changes.

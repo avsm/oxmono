@@ -27,15 +27,14 @@ let submission sturdy =
 
 let connect ~sw net path = submission (scheduler ~sw net path)
 
-let submit t ~pool ?(urgent = false) ~cache_hint ?src spec =
+let submit_action t ~pool ~urgent ~cache_hint ?src set_action =
   let open Raw.Client.Submission.Submit in
   let module JD = Raw.Builder.JobDescr in
   let request, params = Capability.Request.create Params.init_pointer in
   Params.pool_set params pool;
   Params.urgent_set params urgent;
   let descr = Params.descr_get params in
-  let action = JD.action_init descr in
-  Raw.Builder.OBuilder.spec_set (JD.Action.obuilder_init action) spec;
+  set_action (JD.action_init descr);
   JD.cache_hint_set descr cache_hint;
   Option.iter
     (fun (repo, commits) ->
@@ -43,6 +42,47 @@ let submit t ~pool ?(urgent = false) ~cache_hint ?src spec =
       JD.repository_set descr repo)
     src;
   Capability.call_for_caps t method_id request Results.ticket_get_pipelined
+
+let submit t ~pool ?(urgent = false) ~cache_hint ?src spec =
+  submit_action t ~pool ~urgent ~cache_hint ?src (fun action ->
+      Raw.Builder.OBuilder.spec_set
+        (Raw.Builder.JobDescr.Action.obuilder_init action)
+        spec)
+
+type day10 = {
+  opam_repository : string;
+  opam_repository_commit : string;
+  ocaml_version : string;
+  with_test : bool;
+  dune_args : string list;
+  only_packages : string list;
+  arch : string;
+  os : string;
+  os_family : string;
+  os_distribution : string;
+  os_version : string;
+}
+
+(* A day10 job is a custom job, whose payload the fork's schema defines. *)
+let submit_day10 t ~pool ?(urgent = false) ~cache_hint ~src (d : day10) =
+  submit_action t ~pool ~urgent ~cache_hint ~src (fun action ->
+      let module C = Raw.Builder.Custom in
+      let module D = Raw.Builder.Day10 in
+      let custom = Raw.Builder.JobDescr.Action.custom_init action in
+      C.kind_set custom "day10";
+      let p = D.init_pointer (C.payload_get custom) in
+      D.verb_set p "build";
+      D.opam_repository_set p d.opam_repository;
+      D.opam_repository_commit_set p d.opam_repository_commit;
+      D.ocaml_version_set p d.ocaml_version;
+      D.with_test_set p d.with_test;
+      ignore (D.dune_args_set_list p d.dune_args : _ Capnp.Array.t);
+      ignore (D.only_packages_set_list p d.only_packages : _ Capnp.Array.t);
+      D.arch_set p d.arch;
+      D.os_set p d.os;
+      D.os_family_set p d.os_family;
+      D.os_distribution_set p d.os_distribution;
+      D.os_version_set p d.os_version)
 
 let job t =
   let open Raw.Client.Ticket.Job in

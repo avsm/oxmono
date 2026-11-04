@@ -49,6 +49,65 @@ struct Custom {
   # A custom job with a dynamic payload
 }
 
+struct Day10 {
+  # Payload for Custom jobs with kind "day10". The worker resolves
+  # opamRepositoryCommit against its local opam-repository Git mirror and runs
+  # `day10 <verb> --opam-repository <mirror>:<commit> ...`, streaming output to
+  # the job log. See worker/day10_dispatch.ml.
+
+  verb @0 :Text;
+  # day10 sub-command: "health-check" | "revdeps" | "list" | "build" | "solve".
+
+  opamRepository @1 :Text;
+  # opam-repository Git URL, used to locate the worker's mirror.
+  # Empty means the default ocaml/opam-repository.
+
+  opamRepositoryCommit @2 :Text;
+  # opam-repository commit the job reads (via `git archive` from the mirror).
+
+  opamRepositoryBase @3 :Text;
+  # Optional base commit (master) for a PR merge (opam-repo-ci). When set, the
+  # worker 3-way merges opamRepositoryCommit (the PR head) onto it with
+  # `git merge-tree` and reads the merged tree; empty means opamRepositoryCommit
+  # is read directly. See Context.merge_tree in worker/context.ml.
+
+  ocamlVersion @4 :Text;
+  # --ocaml-version, e.g. "ocaml.5.3.0". Empty means day10's default.
+
+  package @5 :Text;
+  # Target package for health-check / revdeps.
+
+  withTest @6 :Bool;
+  withDoc @7 :Bool;
+  lowerBound @8 :Bool;
+
+  duneArgs @9 :List(Text);
+  # Extra dune arguments (build verb only).
+
+  arch @10 :Text;
+  os @11 :Text;
+  osFamily @12 :Text;
+  osDistribution @13 :Text;
+  osVersion @14 :Text;
+  # Target variant overrides; empty means day10 detects from the host.
+
+  onlyPackages @15 :List(Text);
+  # --only-packages for the build/exec verbs: the project's local root packages
+  # to treat as buildable, rather than every .opam file in the checkout. Empty
+  # means all (day10's default). Used to pass ocaml-ci's per-variant compatible
+  # subset, so packages gated to a newer compiler are dropped instead of failing
+  # the whole solve (e.g. prometheus-eio on the 4.14 variant).
+
+  updateInvariant @16 :Bool;
+  # --update-invariant: let day10's solver change the compiler when the target
+  # is itself a compiler package (ocaml-base-compiler / ocaml-variants /
+  # ocaml-compiler), matching opam's --update-invariant. Without it, pinning
+  # both ocaml (the variant) and the target compiler demands two compilers and
+  # yields no solution. opam-repo-ci sets this for such targets.
+
+  # lowerBound @8 -> day10 --prefer-oldest (opam-repo-ci's lower-bounds test).
+}
+
 struct Secret {
   id @0 :Text;
   # The secret id.

@@ -39,6 +39,7 @@ type t = private {
   running : (string, int) Hashtbl.t;
   quota_changed : Eio.Condition.t;
   changed : Eio.Condition.t;
+  durable : (string, string) Duraml_client.Queue.t option;
 }
 
 exception Capacity
@@ -53,6 +54,7 @@ val v :
   ?tree:tree ->
   ?timeout:float ->
   ?concurrency:int ->
+  ?durable:Duraml.plain ->
   executor:Executor.t ->
   system:Eio_unix.Stdenv.base ->
   directory:Eio.Fs.dir_ty Eio.Path.t ->
@@ -63,16 +65,30 @@ val v :
     also each repository's own YAML workflows, to [executor]. [tree] gives
     executors read access to the repository. A workflow may run for [timeout]
     seconds, 60 by default, and [concurrency] workflows, 2 by default, run at
-    once. *)
+    once.
+
+    With [durable], each workflow is a job of that Duraml store, keyed by its
+    pipeline and name and laned by its repository, run once {!serve} starts the
+    store's workers. A workflow interrupted when the spindle stops stays running
+    and runs again from the start when its job's lease runs out, with a fresh
+    log, up to three times. Without it, an interrupted workflow fails. *)
 
 val migrate : t -> (string * string) option -> unit
 
 val load : t -> unit
-(** [load engine] resumes pending work and marks interrupted workflows failed.
-    Completed histories are read from SQLite when requested. *)
+(** [load engine] resumes pending work. Interrupted workflows are failed, or
+    with a durable store run again. Completed histories are read from SQLite
+    when requested. *)
+
+val serve : ?lease:float -> t -> unit
+(** [serve ~lease engine] starts the workers of a durable engine on its switch,
+    after {!load}. A job's lease is [lease] seconds, 60 by default, so an
+    interrupted workflow runs again that long after the spindle restarts. It
+    does nothing without a durable store. *)
 
 val push : string
 val pull_request : string
+
 val manual : string
 (** The trigger NSIDs. *)
 

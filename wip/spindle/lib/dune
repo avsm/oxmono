@@ -3,6 +3,9 @@
  (public_name spindle)
  (libraries
   atp
+  duraml
+  duraml.client
+  duraml.sqlite
   proffer
   proffer-httpz
   httpz.websocket

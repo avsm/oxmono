@@ -94,6 +94,10 @@ type context = {
           waits until that progress differs from [since], giving up the worker
           slot as {!await_spawned} does. Without it, it does not wait. A step
           that starts or ends is a change. *)
+  finished : unit -> outcome list;
+      (** [finished ()] is how every other workflow of the pipeline that has
+          finished ended, in the order they were added, as the spindle's store
+          holds them, so it is the same after a restart. *)
 }
 
 type t = context -> request -> unit

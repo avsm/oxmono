@@ -284,8 +284,15 @@ accepted owner's deactivation, are not stored.
 A deleted repository, as its knot reports it, and the repositories of an
 owner whose account becomes inactive are wiped, as bans wipe them.
 
-Pending and blocked workflows resume after restart. Interrupted workflows
-become failed. Executor output streams a line at a time. Log lines commit
+Pending and blocked workflows resume after restart. Each workflow is also a
+job of a [Duraml](../duraml/README.md) store, `jobs.sqlite` in the state
+directory, keyed by its pipeline and name and laned by its repository. A
+workflow interrupted by a stop or a crash stays running, and runs again from
+the start once its job's 60-second lease runs out, with a fresh log. What it
+spawned before is not spawned again. After three interruptions it fails.
+Re-running repeats the workflow's effects, so executors should make them
+safe to repeat. An executor library built without a durable store keeps the
+older behaviour, in which interrupted workflows fail. Executor output streams a line at a time. Log lines commit
 before publication and survive interruption of the current step. Step
 snapshots compact the journal atomically. Invalid UTF-8 becomes replacement
 characters. Completed logs stay in SQLite and are loaded on demand.

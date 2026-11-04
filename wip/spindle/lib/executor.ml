@@ -41,6 +41,7 @@ type context = {
   spawn : ?env:(string * string) list -> string -> Job.step list -> unit;
   await_spawned : unit -> outcome list;
   spawned : ?since:progress list -> unit -> progress list;
+  finished : unit -> outcome list;
 }
 
 type t = context -> request -> unit

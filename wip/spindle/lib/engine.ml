@@ -34,6 +34,7 @@ type t = {
   running : (string, int) Hashtbl.t;
   quota_changed : Eio.Condition.t;
   changed : Eio.Condition.t;
+  durable : (string, string) Duraml_client.Queue.t option;
 }
 
 exception Capacity
@@ -270,95 +271,144 @@ let pull_labels t p =
       | None -> [])
   | _ -> []
 
-(* [start_one t p workflow] runs a pending workflow of [p] in its own fiber,
-   and [spawn] adds one while [p] runs. *)
+(* A durable workflow is a Duraml job keyed by its pipeline and name. *)
+let job_key p (workflow : Runner.t) =
+  "workflow/" ^ p.id ^ "/" ^ workflow.job.name
+
+(* The other finished workflows of [p], for executors that report on them. *)
+let finished p (workflow : Runner.t) () =
+  List.filter
+    (fun (r : Runner.t) -> r != workflow && Runner.terminal r)
+    p.workflows
+
+(* [start_one t p workflow] runs a pending workflow of [p]: in its own fiber,
+   or, with a durable queue, as a job of it. [spawn] adds one while [p] runs. *)
 let rec start_one t p (workflow : Runner.t) =
-  Eio.Fiber.fork ~sw:t.sw (fun () ->
-      let input () : Runner.input =
-        {
-          id = p.id;
-          repo = p.repo;
-          source = p.source;
-          commit = p.commit;
-          metadata = p.metadata;
-          variables = p.variables;
-          secrets =
-            (if p.trusted then Settings.secrets t.settings p.repo else []);
-          files =
-            (match t.tree with
-            | Some tree -> tree ~did:p.repo ~commit:p.commit
-            | None -> { list = (fun _ -> []); read = (fun _ -> None) });
-          labels = (fun () -> pull_labels t p);
-        }
-      in
-      let fail message =
-        workflow.status <- "failed";
-        workflow.finished <- Some (Runner.now ());
-        workflow.error <- Some message;
-        persist t p
-      in
-      try
-        match minutes_left t p with
-        | Some message -> fail message
-        | None ->
-            acquire t p workflow;
-            let clock = t.runner.system#mono_clock in
-            let seconds () =
-              Int64.to_float (Mtime.to_uint64_ns (Eio.Time.Mono.now clock))
-              /. 1e9
-            in
-            let began = seconds () in
-            (* Waiting for spawned workflows gives up the workflow's place in
+  match t.durable with
+  | None -> Eio.Fiber.fork ~sw:t.sw (fun () -> run t p workflow)
+  | Some queue -> (
+      match
+        Duraml_client.Queue.submit ~key:(job_key p workflow) ~lane:p.repo queue
+          (job_key p workflow)
+      with
+      | Added _ -> ()
+      | Existing job -> (
+          (* After a restart the job is usually still there, and runs again
+             once its lease runs out. One that ended without its workflow
+             ending was given up. *)
+          match Duraml_client.Job.inspect job with
+          | Queued | Running -> ()
+          | Done _ | Failed _ | Cancelled | Invalid_result _ | Missing ->
+              lost t p workflow "the spindle could not run this workflow")
+      | Conflict _ -> lost t p workflow "the workflow's job conflicts")
+
+and lost t p (workflow : Runner.t) message =
+  if not (Runner.terminal workflow) then (
+    workflow.status <- "failed";
+    workflow.finished <- Some (Runner.now ());
+    workflow.error <- Some message;
+    persist t p)
+
+and run t p (workflow : Runner.t) =
+  let input () : Runner.input =
+    {
+      id = p.id;
+      repo = p.repo;
+      source = p.source;
+      commit = p.commit;
+      metadata = p.metadata;
+      variables = p.variables;
+      secrets = (if p.trusted then Settings.secrets t.settings p.repo else []);
+      files =
+        (match t.tree with
+        | Some tree -> tree ~did:p.repo ~commit:p.commit
+        | None -> { list = (fun _ -> []); read = (fun _ -> None) });
+      labels = (fun () -> pull_labels t p);
+    }
+  in
+  let fail message =
+    workflow.status <- "failed";
+    workflow.finished <- Some (Runner.now ());
+    workflow.error <- Some message;
+    persist t p
+  in
+  try
+    match minutes_left t p with
+    | Some message -> fail message
+    | None ->
+        acquire t p workflow;
+        let clock = t.runner.system#mono_clock in
+        let seconds () =
+          Int64.to_float (Mtime.to_uint64_ns (Eio.Time.Mono.now clock)) /. 1e9
+        in
+        let began = seconds () in
+        (* Waiting for spawned workflows gives up the workflow's place in
                its repository's and owner's limits, and is not charged. *)
-            let held = ref true and waited = ref 0. in
-            let released f =
-              held := false;
-              release t p;
-              let start = seconds () in
-              let x = f () in
-              waited := !waited +. (seconds () -. start);
-              acquire t p workflow;
-              held := true;
-              x
-            in
-            let await () = released (fun () -> await_spawned t p workflow) in
-            let watch = function
-              | None -> watch t p workflow ~since:None
-              | since -> released (fun () -> watch t p workflow ~since)
-            in
-            Fun.protect ~finally:(fun () ->
-                if !held then release t p;
-                let spent = seconds () -. began -. !waited in
-                if workflow.started <> None then
-                  Settings.add_minutes t.settings (counted t p)
-                    (int_of_float (Float.ceil (spent /. 60.))))
-            @@ fun () ->
-            Runner.execute t.runner (input ())
-              ~record:(fun event ->
-                Store.append_log t.store ~pipeline:p.id
-                  ~workflow:workflow.job.name event)
-              ~persist:(fun () -> persist t p)
-              ~spawn:(fun ~env name steps ->
-                spawn t p ~parent:workflow.job.name ~env name steps)
-              ~await ~watch workflow
-      with exn ->
-        Eio.Cancel.protect (fun () ->
-            workflow.status <- "failed";
-            workflow.finished <- Some (Runner.now ());
-            workflow.error <- Some (Runner.message exn);
-            persist t p))
+        let held = ref true and waited = ref 0. in
+        let released f =
+          held := false;
+          release t p;
+          let start = seconds () in
+          let x = f () in
+          waited := !waited +. (seconds () -. start);
+          acquire t p workflow;
+          held := true;
+          x
+        in
+        let await () = released (fun () -> await_spawned t p workflow) in
+        let watch = function
+          | None -> watch t p workflow ~since:None
+          | since -> released (fun () -> watch t p workflow ~since)
+        in
+        Fun.protect ~finally:(fun () ->
+            if !held then release t p;
+            let spent = seconds () -. began -. !waited in
+            if workflow.started <> None then
+              Settings.add_minutes t.settings (counted t p)
+                (int_of_float (Float.ceil (spent /. 60.))))
+        @@ fun () ->
+        Runner.execute t.runner (input ())
+          ~record:(fun event ->
+            Store.append_log t.store ~pipeline:p.id ~workflow:workflow.job.name
+              event)
+          ~persist:(fun () -> persist t p)
+          ~spawn:(fun ~env name steps ->
+            spawn t p ~parent:workflow.job.name ~env name steps)
+          ~await ~watch ~finished:(finished p workflow)
+          ~interruptible:(t.durable <> None) workflow
+  with
+  | Eio.Cancel.Cancelled _ as e when t.durable <> None -> raise e
+  | exn ->
+      Eio.Cancel.protect (fun () ->
+          workflow.status <- "failed";
+          workflow.finished <- Some (Runner.now ());
+          workflow.error <- Some (Runner.message exn);
+          persist t p)
 
 and spawn t p ~parent ~env name steps =
   if not (Workflows.valid_name name) then invalid "invalid workflow name";
   let workflow = Runner.v ~parent (Job.spawned ~env name steps) in
-  Lock.protect t.lock (fun () ->
-      if List.exists (fun (r : Runner.t) -> r.job.name = name) p.workflows then
-        invalid ("the pipeline already has a workflow " ^ name);
-      if List.length p.workflows >= 50 then
-        invalid "a pipeline holds at most 50 workflows";
-      p.workflows <- p.workflows @ [ workflow ]);
-  persist t p;
-  start_one t p workflow
+  (* A workflow that runs again after a restart spawns what it spawned
+     before, which is already there. *)
+  let again =
+    Lock.protect t.lock (fun () ->
+        match
+          List.find_opt (fun (r : Runner.t) -> r.job.name = name) p.workflows
+        with
+        | Some r
+          when r.parent = Some parent && r.job.steps = steps && r.job.env = env
+          ->
+            true
+        | Some _ -> invalid ("the pipeline already has a workflow " ^ name)
+        | None ->
+            if List.length p.workflows >= 50 then
+              invalid "a pipeline holds at most 50 workflows";
+            p.workflows <- p.workflows @ [ workflow ];
+            false)
+  in
+  if not again then (
+    persist t p;
+    start_one t p workflow)
 
 let start t p =
   List.iter
@@ -367,7 +417,8 @@ let start t p =
     p.workflows
 
 let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?tree
-    ?(timeout = 60.) ?(concurrency = 2) ~executor ~system ~directory ~sw () =
+    ?(timeout = 60.) ?(concurrency = 2) ?durable ~executor ~system ~directory
+    ~sw () =
   if jobs = [] || List.length jobs > 50 then invalid "define 1 to 50 workflows";
   if concurrency < 1 then invalid "concurrency must be at least 1";
   let names =
@@ -412,6 +463,13 @@ let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?tree
     running = Hashtbl.create 16;
     quota_changed = Eio.Condition.create ();
     changed = Eio.Condition.create ();
+    durable =
+      Option.map
+        (fun store ->
+          Duraml_client.Queue.v store ~name:"workflows" ~kind:"workflow"
+            ~version:1 ~request:Duraml_client.Codec.utf8
+            ~result:Duraml_client.Codec.utf8)
+        durable;
   }
 
 let migrate t static =
@@ -501,7 +559,13 @@ let restore t id raw =
     workflows =
       List.map
         (fun raw ->
-          let run = Runner.restore raw in
+          let was_running =
+            get "status" (required "workflow" raw) = "running"
+          in
+          let resume = t.durable <> None in
+          let run = Runner.restore ~resume raw in
+          if resume && was_running then
+            Store.delete_logs t.store ~pipeline:id ~workflow:run.job.name;
           Store.logs t.store ~pipeline:id ~workflow:run.job.name
           |> List.iter (fun (seq, raw) ->
               run.events <- decode raw :: run.events;
@@ -535,6 +599,55 @@ let load t =
         persist t p;
         start t p))
     ()
+
+(* How many times a durable workflow may be interrupted before it fails. *)
+let max_restarts = 3
+
+let parse_key key =
+  match String.split_on_char '/' key with
+  | [ "workflow"; id; name ] -> Some (id, name)
+  | _ -> None
+
+let serve ?(lease = 60.) t =
+  match t.durable with
+  | None -> ()
+  | Some queue ->
+      let lease = Option.get (Ptime.Span.of_float_s lease) in
+      (* Concurrency is limited by the runner's slots and the quotas, which
+         waiting workflows give up, so the pool itself does not limit it. *)
+      Duraml_client.Queue.start ~sw:t.sw ~mono_clock:t.runner.system#mono_clock
+        ~concurrency:1024 ~lease ~max_attempts:(max_restarts + 2) queue
+        (fun ~sw:_ key ->
+          (match parse_key key with
+          | None -> ()
+          | Some (id, name) -> (
+              match Hashtbl.find_opt t.pipelines id with
+              | None -> ()
+              | Some p -> (
+                  match
+                    List.find_opt
+                      (fun (r : Runner.t) -> r.job.name = name)
+                      p.workflows
+                  with
+                  | Some w when not (Runner.terminal w) ->
+                      let attempt =
+                        Option.fold ~none:1 ~some:snd (Duraml_client.attempt ())
+                      in
+                      if attempt > max_restarts + 1 then
+                        lost t p w
+                          (Printf.sprintf
+                             "the spindle stopped %d times while this workflow \
+                              ran"
+                             (attempt - 1))
+                      else (
+                        if w.status = "running" then (
+                          Runner.reset w;
+                          Store.delete_logs t.store ~pipeline:p.id
+                            ~workflow:w.job.name;
+                          persist t p);
+                        run t p w)
+                  | _ -> ())));
+          Duraml_client.Completion.succeed "")
 
 let view t p = view_in t.hostname p
 

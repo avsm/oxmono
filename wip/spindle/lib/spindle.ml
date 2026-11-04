@@ -1143,10 +1143,16 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
            Some (read_files config catalog network)
          else None)
       ~tree:(tree config catalog network)
-      ~concurrency:config.concurrency ~system ~directory ~sw ()
+      ~concurrency:config.concurrency
+      ~durable:
+        (Duraml_sqlite.open_ ~sw ~clock:system#clock
+           ~random:system#secure_random
+           Eio.Path.(directory / "jobs.sqlite"))
+      ~system ~directory ~sw ()
   in
   Engine.migrate engine config.repo;
   Engine.load engine;
+  Engine.serve engine;
   let health = Health.v ~store ~enabled:(config.jetstream <> None) in
   let state = { config; engine; network; system; health; settings; hooks } in
   Eio.Fiber.fork ~sw (fun () ->

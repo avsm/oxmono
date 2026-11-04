@@ -207,6 +207,7 @@ let () =
           spawned := (name, env, steps) :: !spawned);
       await_spawned = (fun () -> outcomes);
       spawned = spawned_;
+      finished = (fun () -> outcomes);
     }
   in
   let files : Spindle.Executor.files =
@@ -304,9 +305,14 @@ let () =
   let answer = Buffer.contents log in
   assert (has answer "- Define `x` before `y`.");
   assert (not (has answer "hmm"));
-  (* The failures are handed over once. *)
-  (match executor ctx { request with workflow = "diagnose"; env = denv } with
-  | () -> failwith "diagnosed twice"
+  (* The failures are read back from the finished builds, so a pipeline
+     without failed builds has nothing to diagnose. *)
+  (match
+     executor
+       { ctx with finished = (fun () -> [ List.nth outcomes 1 ]) }
+       { request with workflow = "diagnose"; env = denv }
+   with
+  | () -> failwith "diagnosed a pipeline without failures"
   | exception Failure _ -> ());
   (* Without a model, nothing is diagnosed. *)
   spawned := [];

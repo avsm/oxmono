@@ -252,6 +252,11 @@ let append_log t ~pipeline ~workflow value =
       | [ row ] -> Sqlite3.Data.to_int64_exn row.(0)
       | _ -> assert false)
 
+let delete_logs t ~pipeline ~workflow =
+  locked t (fun () ->
+      execute t "DELETE FROM workflow_log WHERE pipeline=? AND workflow=?"
+        [ text pipeline; text workflow ])
+
 let logs t ~pipeline ~workflow =
   locked t (fun () ->
       rows t

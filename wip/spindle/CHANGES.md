@@ -6,6 +6,14 @@
 
 ## Unreleased
 
+- Run each workflow as a job of a Duraml store in the state directory, so a
+  workflow interrupted by a restart runs again from the start with a fresh
+  log instead of failing. Spawning a workflow that the pipeline already has,
+  with the same steps, is a no-op.
+- Keep each workflow's parent across restarts, so `await_spawned` still
+  finds what a restored workflow spawned.
+- Give executors `finished`, how the pipeline's other workflows ended.
+
 - Give executors a pull request's labels, counting only those that the
   repository's owner or a collaborator added, checked against every version
   of the pull request on its knot.

@@ -47,7 +47,14 @@ val terminal : t -> bool
 val v : ?parent:string -> Job.t -> t
 val view : t -> Jsont.json
 val snapshot : t -> Jsont.json
-val restore : Jsont.json -> t
+
+val restore : ?resume:bool -> Jsont.json -> t
+(** [restore ~resume raw] is the workflow [raw] holds. One that was running when
+    the spindle stopped is failed, unless [resume], when it is pending again
+    with an empty log, to run from the start. *)
+
+val reset : t -> unit
+(** [reset t] makes [t] pending again with an empty log. *)
 
 val outcome : t -> Executor.outcome
 (** [outcome t] is how finished workflow [t] ended, with its log as text. *)
@@ -67,15 +74,20 @@ val execute :
   spawn:(env:(string * string) list -> string -> Job.step list -> unit) ->
   ?await:(unit -> t list) ->
   ?watch:(Executor.progress list option -> Executor.progress list) ->
+  ?finished:(unit -> t list) ->
+  ?interruptible:bool ->
   t ->
   unit
 (** [execute env input ~record ~persist ~spawn workflow] waits for a worker slot
     and hands [workflow] to the executor of [env]. The executor's [spawn] calls
     [spawn], and its [await_spawned] calls [await], with the worker slot given
     up meanwhile. Its [spawned] calls [watch], with the slot given up when it
-    waits. [await] and [watch] return [[]] by default. Each transition calls
-    [persist]. Each JSON-encoded event calls [record] before becoming visible to
-    log subscribers. [record] returns the durable journal sequence for snapshot
+    waits. Its [finished] calls [finished]. [await], [watch] and [finished]
+    return [[]] by default. With [interruptible], a workflow whose fiber is
+    cancelled other than by {!cancel}, as when the spindle stops, is left
+    running and the cancellation is raised. Each transition calls [persist].
+    Each JSON-encoded event calls [record] before becoming visible to log
+    subscribers. [record] returns the durable journal sequence for snapshot
     compaction. A cancelled workflow's error is ["User canceled the workflow"],
     as the reference spindle reports it, and a workflow that ran out of time has
     none. *)

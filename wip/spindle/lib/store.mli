@@ -105,6 +105,10 @@ val append_log : t -> pipeline:string -> workflow:string -> string -> int64
 (** [append_log store ~pipeline ~workflow event] durably appends [event] and
     returns its sequence. Sequences are never reused after compaction. *)
 
+val delete_logs : t -> pipeline:string -> workflow:string -> unit
+(** [delete_logs t ~pipeline ~workflow] removes every log event of a workflow,
+    for one that runs again from the start. *)
+
 val logs : t -> pipeline:string -> workflow:string -> (int64 * string) list
 (** [logs store ~pipeline ~workflow] reads journal entries in sequence order.
     Workflow admission bounds their total encoded size to 1 MiB. *)

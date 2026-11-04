@@ -95,6 +95,7 @@ let snapshot p =
        ("clone", bool p.job.clone);
      ]
     @ (if p.job.spawned then [ ("spawned", bool true) ] else [])
+    @ optional "parent" str p.parent
     @ optional "definition" Fun.id p.job.definition
     @ optional "yaml" str p.job.yaml)
 
@@ -114,7 +115,7 @@ let restore_step step =
   | None, None, None ->
       Job.step (Option.value ~default:"spindle request metadata" name) ""
 
-let restore raw =
+let restore ?(resume = false) raw =
   let workflow = required "workflow" raw in
   let steps = List.map restore_step (list (required "steps" raw)) in
   let name = get "name" workflow in
@@ -135,7 +136,7 @@ let restore raw =
           name steps
     | None, _ -> Job.v name steps
   in
-  let p = v job in
+  let p = v ?parent:(Option.map string (field "parent" raw)) job in
   p.status <- get "status" workflow;
   p.started <- Option.map string (field "startedAt" workflow);
   p.finished <- Option.map string (field "finishedAt" workflow);
@@ -143,11 +144,27 @@ let restore raw =
   p.events <- List.rev (list (required "events" raw));
   p.log_bytes <-
     List.fold_left (fun n e -> n + String.length (encode e)) 0 p.events;
-  if p.status = "running" then (
-    p.status <- "failed";
-    p.error <- Some "spindle restarted during workflow";
-    p.finished <- Some (now ()));
+  if p.status = "running" then
+    if resume then (
+      (* It runs again from the start, so the interrupted log goes. *)
+      p.status <- "pending";
+      p.started <- None;
+      p.events <- [];
+      p.log_bytes <- 0)
+    else (
+      p.status <- "failed";
+      p.error <- Some "spindle restarted during workflow";
+      p.finished <- Some (now ()));
   p
+
+(* A workflow interrupted in this process, by a lost lease, runs again too. *)
+let reset p =
+  p.status <- "pending";
+  p.started <- None;
+  p.finished <- None;
+  p.error <- None;
+  p.events <- [];
+  p.log_bytes <- 0
 
 let emit record p ~step ~kind fields =
   Lock.protect p.log_lock @@ fun () ->
@@ -284,7 +301,8 @@ let flush record p ~step s =
 (* [context record persist p ~secrets] numbers the executor's steps from 0 and
    masks [secrets] in each stream of a step. Text held back by a mask or an
    unterminated line at the end of a step is flushed into that step. *)
-let context record persist p ~secrets ~spawn ~await ~watch : Executor.context =
+let context record persist p ~secrets ~spawn ~await ~watch ~finished :
+    Executor.context =
   let values = List.map snd secrets in
   let next = ref 0 in
   let current = ref None in
@@ -317,7 +335,7 @@ let context record persist p ~secrets ~spawn ~await ~watch : Executor.context =
   in
   let spawn ?(env = []) name steps = spawn ~env name steps in
   let spawned ?since () = watch since in
-  { step; log; spawn; await_spawned = await; spawned }
+  { step; log; spawn; await_spawned = await; spawned; finished }
 
 (* [text p] is [p]'s log as a person reads it. *)
 let text p =
@@ -378,7 +396,8 @@ let message = function
   | exn -> Printexc.to_string exn
 
 let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
-    ?(watch = fun _ -> []) p =
+    ?(watch = fun _ -> []) ?(finished = fun () -> []) ?(interruptible = false) p
+    =
   Eio.Semaphore.acquire state.slots;
   (* The slot is given up while the workflow waits for those it spawned, so
      that waiting workflows cannot occupy every slot their children need. *)
@@ -410,10 +429,16 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
         Eio.Switch.run @@ fun sw ->
         p.cancel <- Some (fun () -> Eio.Switch.fail sw Cancelled);
         state.executor
-          (context record persist p ~secrets:input.secrets ~spawn ~await ~watch)
+          (context record persist p ~secrets:input.secrets ~spawn ~await ~watch
+             ~finished:(fun () -> List.map outcome (finished ())))
           (request input p.job);
         Ok ()
-      with exn -> Error exn
+      with
+      | Eio.Cancel.Cancelled _ as e when interruptible && not p.cancelled ->
+          (* The spindle is stopping. The workflow stays running, to run again
+             once it is back. *)
+          raise e
+      | exn -> Error exn
     in
     Eio.Cancel.protect (fun () ->
         p.cancel <- None;

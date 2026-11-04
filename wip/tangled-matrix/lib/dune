@@ -1,0 +1,17 @@
+(library
+ (name tangled_matrix)
+ (public_name tangled-matrix)
+ (libraries
+  tangled
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  eio
+  eio.unix
+  jsont
+  jsont.bytesrw
+  logs
+  ptime
+  ptime.clock.os
+  uriz
+  fmt))

@@ -1,0 +1,9 @@
+(test
+ (name test_tangled_matrix)
+ (modules test_tangled_matrix)
+ (libraries tangled-matrix tangled jsont jsont.bytesrw eio_main unix))
+
+(executable
+ (name live)
+ (modules live)
+ (libraries tangled-matrix eio_main))

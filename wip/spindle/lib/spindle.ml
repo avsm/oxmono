@@ -50,7 +50,6 @@ type state = {
 exception Not_ready of Jsont.json
 
 let reject = Xrpc_error.fail
-let optional = Runner.optional
 
 (* [fields req name] is every value of the request field [name], which must
    be lowercase. *)

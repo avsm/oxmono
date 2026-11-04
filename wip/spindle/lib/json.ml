@@ -31,6 +31,9 @@ let list = function
   | _ -> invalid "expected an array"
 
 let get k j = string (required k j)
+let optional k f = function None -> [] | Some v -> [ (k, f v) ]
+let pairs l = obj (List.map (fun (k, v) -> (k, str v)) l)
+let unpairs j = List.map (fun (k, v) -> (k, string v)) (members j)
 let strings k j =
   match field k j with None -> [] | Some v -> List.map string (list v)
 

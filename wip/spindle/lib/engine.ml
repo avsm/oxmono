@@ -139,7 +139,7 @@ let snapshot t p =
          ("metadata", p.metadata);
          ("owner", str p.owner);
          ("trusted", bool p.trusted);
-         ("variables", Runner.pairs p.variables);
+         ("variables", Json.pairs p.variables);
          ("runs", arr (List.map Runner.snapshot p.workflows));
        ])
 
@@ -574,8 +574,7 @@ let restore ?(resume = false) t id raw =
       (match field "trusted" data with
       | Some (Jsont.Bool (b, _)) -> b
       | _ -> false);
-    variables =
-      Option.fold ~none:[] ~some:Runner.unpairs (field "variables" data);
+    variables = Option.fold ~none:[] ~some:Json.unpairs (field "variables" data);
     workflows =
       List.map
         (fun raw ->

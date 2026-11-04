@@ -63,8 +63,6 @@ let v ?parent job =
     queued = false;
   }
 
-let optional k f = function None -> [] | Some v -> [ (k, f v) ]
-
 let view p =
   obj
     ([
@@ -73,9 +71,6 @@ let view p =
     @ optional "startedAt" str p.started
     @ optional "finishedAt" str p.finished
     @ optional "error" str p.error)
-
-let pairs l = obj (List.map (fun (k, v) -> (k, str v)) l)
-let unpairs j = List.map (fun (k, v) -> (k, string v)) (members j)
 
 let snapshot p =
   obj

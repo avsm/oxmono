@@ -39,16 +39,21 @@ type input = {
 }
 
 val now : unit -> string
+(** [now ()] is the current time in RFC 3339, in UTC, as workflows record their
+    start and end. *)
 
-val pairs : (string * string) list -> Jsont.json
-(** [pairs l] is [l] as a JSON object of strings. *)
-
-val unpairs : Jsont.json -> (string * string) list
-val optional : string -> ('a -> 'b) -> 'a option -> (string * 'b) list
 val terminal : t -> bool
+(** [terminal t] holds once [t] has ended. A blocked workflow has not. *)
+
 val v : ?parent:string -> Job.t -> t
+(** [v ~parent job] is a pending workflow running [job], spawned by the workflow
+    called [parent], if any. *)
+
 val view : t -> Jsont.json
+(** [view t] is [t] as an [org.tangled.ci.defs#workflow] status. *)
+
 val snapshot : t -> Jsont.json
+(** [snapshot t] is everything {!restore} needs to bring [t] back. *)
 
 val interrupted : Jsont.json -> bool
 (** [interrupted raw] holds when the workflow that snapshot [raw] holds was
@@ -100,3 +105,5 @@ val execute :
     reports it, and a workflow that ran out of time has none. *)
 
 val cancel : persist:(unit -> unit) -> t -> unit
+(** [cancel ~persist t] cancels [t] unless it has ended: a running workflow's
+    fiber is cancelled, and a waiting one ends at once, calling [persist]. *)

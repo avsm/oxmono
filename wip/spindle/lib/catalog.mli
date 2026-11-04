@@ -113,6 +113,14 @@ val permitted : t -> repo -> string -> bool
     repository's settings and pipeline requests with the repository's key, held
     by its knot. A static repository has no knot, so its DID is not accepted. *)
 
+val pull_labels : t -> repo -> pull:string -> string list
+(** [pull_labels t repo ~pull] is the keys of the labels on the pull request
+    [pull], an AT-URI of a ticket of [repo], that its owner or a collaborator
+    added. A pull request's author may label it too, so a label counts only when
+    the version that last added it was made by someone [authorized] for [repo].
+    It asks the knot for every version of the ticket and checks each one's
+    content id. It is [[]] when anything fails. *)
+
 val default_branch : t -> repo -> string option
 (** [default_branch t repo] is the branch the knot's [org.tangled.git.refs]
     record names. *)

@@ -35,6 +35,7 @@ let () =
             (fun path ->
               if path = "demo.opam" then Some "opam-version: \"2.0\"" else None);
         };
+      labels = (fun () -> []);
     }
   in
   (* Each step's end event, as (step, kind, outcome). *)

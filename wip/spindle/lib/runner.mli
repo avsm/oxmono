@@ -33,6 +33,7 @@ type input = {
   variables : (string * string) list;  (** CI variables for every step. *)
   secrets : (string * string) list;  (** Secrets, hidden in the log. *)
   files : Executor.files;  (** The repository at [commit]. *)
+  labels : unit -> string list;  (** As {!Executor.request} describes. *)
 }
 
 val now : unit -> string

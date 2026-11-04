@@ -32,6 +32,12 @@ type request = {
       (** The repository's secrets. Empty unless the pipeline is trusted. *)
   steps : Job.step list;
   files : files;
+  labels : unit -> string list;
+      (** [labels ()] is the keys of the labels that the repository's owner or a
+          collaborator put on the pull request that started the pipeline, as
+          they are now. A pull request's author may label it too, and those
+          labels are left out. It is [[]] for other triggers and when the knot
+          cannot say. Each call asks the knot. *)
 }
 (** A step's environment is [env], then [variables], then [secrets], then the
     step's own [env], with later bindings winning. *)

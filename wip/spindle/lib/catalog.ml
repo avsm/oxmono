@@ -229,6 +229,103 @@ let authorized t (repo : repo) actor =
 let permitted t (repo : repo) actor =
   (actor = repo.did && repo.knot <> "") || authorized t repo actor
 
+(* A ticket's labels, as its version [data] holds them. *)
+let labels_in data =
+  match Atp.Dagcbor.decode_string data with
+  | `Map fields -> (
+      match List.assoc_opt "tangledLabels" fields with
+      | Some (`List tokens) ->
+          List.filter_map
+            (function
+              | `Map token -> (
+                  match List.assoc_opt "key" token with
+                  | Some (`String key) -> Some key
+                  | _ -> None)
+              | _ -> None)
+            tokens
+      | _ -> [])
+  | _ -> []
+
+(* Every version of a record, oldest first, as its editor and content id. *)
+let versions t (repo : repo) uri =
+  let rec pages cursor n acc =
+    let page =
+      Network.json t.network
+        (Network.query
+           (repo.knot ^ "/xrpc/org.tangled.repo.listRecordVersions")
+           ([ ("uri", uri); ("limit", "500"); ("order", "asc") ]
+           @ Option.fold ~none:[] ~some:(fun c -> [ ("cursor", c) ]) cursor))
+    in
+    if field "error" page <> None then
+      failwith ("the knot lists no versions of " ^ uri);
+    let acc =
+      acc
+      @ List.map
+          (fun v ->
+            (string (required "editor" v), Option.map string (field "cid" v)))
+          (list (required "versions" page))
+    in
+    match Option.map string (field "cursor" page) with
+    | Some c when n < 4 -> pages (Some c) (n + 1) acc
+    | Some _ -> failwith (uri ^ " has too many versions")
+    | None -> acc
+  in
+  pages None 0 []
+
+let pull_labels t (repo : repo) ~pull =
+  if repo.knot = "" then []
+  else
+    try
+      let versions = versions t repo pull in
+      let cids = List.sort_uniq String.compare (List.filter_map snd versions) in
+      let blocks =
+        if cids = [] then []
+        else
+          let status, body =
+            Network.fetch_status
+              ~limit:(16 * 1024 * 1024)
+              t.network
+              (Network.query
+                 (repo.knot ^ "/xrpc/com.atproto.sync.getBlocks")
+                 (("did", repo.did) :: List.map (fun c -> ("cids", c)) cids))
+          in
+          if status <> 200 then failwith "the knot served no versions";
+          snd (Atp.Car.of_string body)
+          |> List.map (fun (cid, data) ->
+              (* A block counts only if it is what its content id names. *)
+              if not (Atp.Cid.equal cid (Atp.Cid.create `Dag_cbor data)) then
+                failwith "the knot served a block that does not match its id";
+              (Atp.Cid.to_string cid, data))
+      in
+      let labels = function
+        | None -> []
+        | Some cid -> (
+            match List.assoc_opt cid blocks with
+            | Some data -> labels_in data
+            | None -> failwith ("the knot did not serve version " ^ cid))
+      in
+      (* Who last added each label still on the ticket. *)
+      let added = Hashtbl.create 8 in
+      let last =
+        List.fold_left
+          (fun before (editor, cid) ->
+            let now = labels cid in
+            List.iter
+              (fun l ->
+                if not (List.mem l before) then Hashtbl.replace added l editor)
+              now;
+            now)
+          [] versions
+      in
+      List.sort_uniq String.compare last
+      |> List.filter (fun l -> authorized t repo (Hashtbl.find added l))
+    with
+    | Eio.Cancel.Cancelled _ as e -> raise e
+    | e ->
+        Printf.eprintf "spindle: no labels of %s: %s\n%!" pull
+          (Printexc.to_string e);
+        []
+
 let default_branch t (repo : repo) =
   if repo.knot = "" then None
   else

@@ -33,6 +33,7 @@ type input = {
   variables : (string * string) list;
   secrets : (string * string) list;
   files : Executor.files;
+  labels : unit -> string list;
 }
 
 exception Cancelled
@@ -230,6 +231,7 @@ let request input (job : Job.t) : Executor.request =
     secrets = input.secrets;
     steps = job.steps;
     files = input.files;
+    labels = input.labels;
   }
 
 let max_line = 16 * 1024

@@ -256,6 +256,20 @@ let watch t p (workflow : Runner.t) ~since =
           let now = now () in
           if now <> since then Some now else None)
 
+(* Only a ticket of the pipeline's own repository is asked about. *)
+let pull_labels t p =
+  let trigger = required "trigger" p.request in
+  match (Option.map string (field "$type" trigger), field "pull" trigger) with
+  | Some kind, Some (Jsont.String (uri, _))
+    when kind = pull_request
+         && String.starts_with
+              ~prefix:("at://" ^ p.repo ^ "/org.tangled.track.ticket/")
+              uri -> (
+      match Catalog.managed t.catalog p.repo with
+      | Some repo -> Catalog.pull_labels t.catalog repo ~pull:uri
+      | None -> [])
+  | _ -> []
+
 (* [start_one t p workflow] runs a pending workflow of [p] in its own fiber,
    and [spawn] adds one while [p] runs. *)
 let rec start_one t p (workflow : Runner.t) =
@@ -274,6 +288,7 @@ let rec start_one t p (workflow : Runner.t) =
             (match t.tree with
             | Some tree -> tree ~did:p.repo ~commit:p.commit
             | None -> { list = (fun _ -> []); read = (fun _ -> None) });
+          labels = (fun () -> pull_labels t p);
         }
       in
       let fail message =

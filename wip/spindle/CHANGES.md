@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Give executors a pull request's labels, counting only those that the
+  repository's owner or a collaborator added, checked against every version
+  of the pull request on its knot.
+
 - Let an executor wait for the workflows it spawned, and read how each
   ended and its log, with `await_spawned`.
 

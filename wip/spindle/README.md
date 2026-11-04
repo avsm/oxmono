@@ -94,7 +94,11 @@ a repository workflow's definition and YAML text, the workflow's environment,
 the CI variables, the secrets and the steps. Each step has a name, a command
 for a shell and its own environment. `files` reads the repository at the
 commit through its knot, with `list dir` and `read path`, without checking it
-out.
+out. `labels ()` is the keys of the labels on the pull request that started
+the pipeline. A pull request's author may label it, so only labels that the
+repository's owner or a collaborator last added are given. The spindle reads
+every version of the pull request from its knot, checks each one against its
+content id and asks the knot who collaborates.
 
 The executor reports through its context. `step ?kind ?command name f` runs
 `f` as the next numbered step of the log, and the step fails if `f` raises.

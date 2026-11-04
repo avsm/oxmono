@@ -51,6 +51,21 @@ let () =
   let reads = ref 0 in
   let failing = ref false in
   let gone = ref false in
+  (* A pull request's versions, oldest first, as editor and labels, and
+     whether the knot corrupts the blocks it serves. *)
+  let pull = "at://" ^ repo ^ "/org.tangled.track.ticket/t1" in
+  let pull_versions = ref [] and corrupt = ref false in
+  let block labels =
+    let data =
+      Atp.Dagcbor.encode_string
+        (`Map
+           [
+             ( "tangledLabels",
+               `List (List.map (fun k -> `Map [ ("key", `String k) ]) labels) );
+           ])
+    in
+    (Atp.Cid.create `Dag_cbor data, data)
+  in
   let manifest ?(spindle = self) owner =
     obj
       [
@@ -113,6 +128,24 @@ let () =
               ("status", str "deleted");
             ]
         else obj [ ("did", str (param "did")); ("active", bool true) ]
+    | "/xrpc/org.tangled.repo.listRecordVersions" ->
+        assert (param "uri" = pull);
+        obj
+          [
+            ("uri", str pull);
+            ( "versions",
+              arr
+                (List.map
+                   (fun (editor, labels) ->
+                     obj
+                       [
+                         ("changeId", str "c");
+                         ("editor", str editor);
+                         ("createdAt", str "2026-01-01T00:00:00Z");
+                         ("cid", str (Atp.Cid.to_string (fst (block labels))));
+                       ])
+                   !pull_versions) );
+          ]
     | "/xrpc/com.atproto.repo.getRecord" -> (
         incr reads;
         let key = (param "repo", param "collection", param "rkey") in
@@ -141,15 +174,24 @@ let () =
       let target = List.nth (String.split_on_char ' ' request) 1 in
       let status, body =
         if !failing then ("503 Service Unavailable", "<html>down</html>")
+        else if
+          String.starts_with ~prefix:"/xrpc/com.atproto.sync.getBlocks" target
+        then
+          let blocks =
+            List.map
+              (fun (_, labels) ->
+                let cid, data = block labels in
+                (cid, if !corrupt then data ^ "x" else data))
+              !pull_versions
+          in
+          ( "200 OK",
+            Atp.Car.to_string { version = 1; roots = [] } (List.to_seq blocks)
+          )
         else ("200 OK", encode (respond target))
       in
       Eio.Flow.copy_string
         (Printf.sprintf
-           "HTTP/1.1 %s\r\n\
-            Content-Length: %d\r\n\
-            Connection: close\r\n\
-            \r\n\
-            %s"
+           "HTTP/1.1 %s\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s"
            status (String.length body) body)
         flow
     done
@@ -257,9 +299,42 @@ let () =
       assert (
         not
           (Catalog.ref_contains catalog r ~ref_:"refs/heads/other" ~commit:"c2"));
+      (* A label counts when someone with push access last added it, not the
+         pull request's author. *)
+      let labels () = Catalog.pull_labels catalog r ~pull in
+      pull_versions :=
+        [
+          (stranger, [ "ci-full" ]);
+          (owner, [ "ci-full"; "ci-diagnose" ]);
+          (stranger, [ "ci-full"; "ci-diagnose"; "other" ]);
+        ];
+      assert (labels () = [ "ci-diagnose" ]);
+      (* Removed and added again by a collaborator, it counts. *)
+      set repo "org.tangled.graph.collaborator" helper
+        (obj [ ("createdAt", str "2026-01-01T00:00:00Z") ]);
+      pull_versions :=
+        !pull_versions
+        @ [
+            (helper, [ "ci-diagnose" ]); (helper, [ "ci-diagnose"; "ci-full" ]);
+          ];
+      assert (labels () = [ "ci-diagnose"; "ci-full" ]);
+      (* A revoked collaborator's labels stop counting. *)
+      Hashtbl.remove records (repo, "org.tangled.graph.collaborator", helper);
+      assert (labels () = [ "ci-diagnose" ]);
+      (* Re-added by the author after a collaborator removed it, it does not. *)
+      pull_versions :=
+        [ (owner, [ "ci-full" ]); (owner, []); (stranger, [ "ci-full" ]) ];
+      assert (labels () = []);
+      (* Blocks that do not match their content ids are refused. *)
+      pull_versions := [ (owner, [ "ci-diagnose" ]) ];
+      assert (labels () = [ "ci-diagnose" ]);
+      corrupt := true;
+      assert (labels () = []);
+      corrupt := false;
       assert (not (Catalog.deleted catalog repo));
       gone := true;
       assert (Catalog.deleted catalog repo));
   print_endline
-    "catalog: manifest and declaration agreement, admission, caching, renames \
-     and live collaborator and repository-token checks passed"
+    "catalog: manifest and declaration agreement, admission, caching, renames, \
+     live collaborator and repository-token checks and pull request labels \
+     passed"

@@ -16,6 +16,7 @@ type request = {
   secrets : (string * string) list;
   steps : Job.step list;
   files : files;
+  labels : unit -> string list;
 }
 
 type kind = [ `User | `System ]

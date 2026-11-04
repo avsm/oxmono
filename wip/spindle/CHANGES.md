@@ -6,6 +6,13 @@
 
 ## Unreleased
 
+- Bound the repository acceptance cache, which any caller could grow, read
+  a long pull request's label versions in batches and stop at an empty
+  cursor, and keep a repository's new name only after its rename is handled.
+- Keep a webhook delivery's response as valid UTF-8, so that one binary
+  answer no longer breaks listing and retrying deliveries, and keep no
+  delivery of a webhook deleted meanwhile.
+
 - Refuse service-auth tokens whose ES256K or ES256 signature is in its
   high-S form, as atproto requires. The test fixtures are now generated with
   low-S signatures and include high-S copies.

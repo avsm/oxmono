@@ -326,37 +326,56 @@ let attempt t ~url ~headers body =
   | exception (Eio.Cancel.Cancelled _ as e) -> raise e
   | exception e -> Error (Some (0, Printexc.to_string e))
 
+(* [utf8 s] is [s] with each byte that is not part of valid UTF-8 replaced by
+   U+FFFD, since a response may be binary or cut in a character and JSON
+   text must be valid. *)
+let utf8 s =
+  if String.is_valid_utf_8 s then s
+  else
+    let b = Buffer.create (String.length s) in
+    let rec go i =
+      if i < String.length s then (
+        let d = String.get_utf_8_uchar s i in
+        Buffer.add_utf_8_uchar b (Uchar.utf_decode_uchar d);
+        go (i + Uchar.utf_decode_length d))
+    in
+    go 0;
+    Buffer.contents b
+
+(* A delivery to a webhook deleted meanwhile is not kept. *)
 let record t key ~id ~event ~url ~body ~code ~response ~success =
-  let seq =
-    1
-    + Option.fold ~none:0 ~some:int_of_string
-        (Store.get t.store "seq" "delivery")
-  in
-  let stale =
-    let mine = deliveries_of t key in
-    let excess = List.length mine + 1 - 50 in
-    List.filteri (fun i _ -> i < excess) mine
-    |> List.map (fun (k, _) -> ("delivery", k))
-  in
-  Store.batch t.store ~deletes:stale
-    ~puts:
-      [
-        ("seq", "delivery", string_of_int seq);
-        ( "delivery",
-          key ^ " " ^ pad seq,
-          encode
-            (obj
-               [
-                 ("id", str id);
-                 ("event", str event);
-                 ("url", str url);
-                 ("requestBody", str body);
-                 ("responseCode", int code);
-                 ("responseBody", str response);
-                 ("success", bool success);
-                 ("createdAt", str (stamp t));
-               ]) );
-      ]
+  if Store.get t.store "webhook" key <> None then
+    let response = utf8 response in
+    let seq =
+      1
+      + Option.fold ~none:0 ~some:int_of_string
+          (Store.get t.store "seq" "delivery")
+    in
+    let stale =
+      let mine = deliveries_of t key in
+      let excess = List.length mine + 1 - 50 in
+      List.filteri (fun i _ -> i < excess) mine
+      |> List.map (fun (k, _) -> ("delivery", k))
+    in
+    Store.batch t.store ~deletes:stale
+      ~puts:
+        [
+          ("seq", "delivery", string_of_int seq);
+          ( "delivery",
+            key ^ " " ^ pad seq,
+            encode
+              (obj
+                 [
+                   ("id", str id);
+                   ("event", str event);
+                   ("url", str url);
+                   ("requestBody", str body);
+                   ("responseCode", int code);
+                   ("responseBody", str response);
+                   ("success", bool success);
+                   ("createdAt", str (stamp t));
+                 ]) );
+        ]
 
 let send t key w ~event ~agent ~full_name body =
   let url = get "url" w in

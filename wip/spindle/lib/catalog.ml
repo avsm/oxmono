@@ -125,18 +125,30 @@ let lookup t id =
               Option.map string (field "repo" (required "value" record))
               = Some id
             in
+            let repo name =
+              {
+                did = id;
+                owner;
+                name;
+                knot;
+                source = knot ^ "/" ^ id;
+                created =
+                  Option.fold ~none:"" ~some:string (field "createdAt" value);
+              }
+            in
             if Option.fold ~none:false ~some:names_repo declared then (
               Settings.note_owner t.settings ~repo:id ~owner;
+              Some (repo name))
+            else if
+              declared = None && Settings.owner_of t.settings id = Some owner
+            then
+              (* A rename leaves the owner with no declaration for a while.
+                 The repository stays served under its old name, as the
+                 reference spindle keeps it. *)
               Some
-                {
-                  did = id;
-                  owner;
-                  name;
-                  knot;
-                  source = knot ^ "/" ^ id;
-                  created =
-                    Option.fold ~none:"" ~some:string (field "createdAt" value);
-                })
+                (repo
+                   (Option.value ~default:name
+                      (Store.get t.store "repo-name" id)))
             else None
 
 let managed t id =
@@ -165,6 +177,40 @@ let managed t id =
 
 let forget t id = Hashtbl.remove t.cache id
 
+let known t id =
+  (match t.static with Some repo -> repo.did = id | None -> false)
+  || Settings.owner_of t.settings id <> None
+
+let ref_contains t (repo : repo) ~ref_ ~commit =
+  repo.knot = ""
+  ||
+  let page =
+    Network.json t.network
+      (Network.query
+         (repo.knot ^ "/xrpc/org.tangled.git.listCommits")
+         [ ("repo", repo.did); ("ref", ref_); ("limit", "100") ])
+  in
+  match field "commits" page with
+  | Some commits ->
+      List.exists
+        (fun c -> Option.map string (field "hash" c) = Some commit)
+        (list commits)
+  | None -> false
+
+let names_self t manifest =
+  Option.map string (field "spindle" manifest) = Some (self t)
+
+let deleted t id =
+  let status =
+    Network.json t.network
+      (Network.query
+         (knot_of t id ^ "/xrpc/com.atproto.sync.getRepoStatus")
+         [ ("did", id) ])
+  in
+  field "error" status = None
+  && field "active" status = Some (Jsont.Json.bool false)
+  && Option.map string (field "status" status) = Some "deleted"
+
 let current t (repo : repo) =
   match managed t repo.did with
   | Some r -> r.owner = repo.owner && r.knot = repo.knot
@@ -179,6 +225,106 @@ let authorized t (repo : repo) actor =
     Network.record t.network ~service:repo.knot ~did:repo.did
       ~collection:"org.tangled.graph.collaborator" ~rkey:actor
     <> None
+
+let permitted t (repo : repo) actor =
+  (actor = repo.did && repo.knot <> "") || authorized t repo actor
+
+(* A ticket's labels, as its version [data] holds them. *)
+let labels_in data =
+  match Atp.Dagcbor.decode_string data with
+  | `Map fields -> (
+      match List.assoc_opt "tangledLabels" fields with
+      | Some (`List tokens) ->
+          List.filter_map
+            (function
+              | `Map token -> (
+                  match List.assoc_opt "key" token with
+                  | Some (`String key) -> Some key
+                  | _ -> None)
+              | _ -> None)
+            tokens
+      | _ -> [])
+  | _ -> []
+
+(* Every version of a record, oldest first, as its editor and content id. *)
+let versions t (repo : repo) uri =
+  let rec pages cursor n acc =
+    let page =
+      Network.json t.network
+        (Network.query
+           (repo.knot ^ "/xrpc/org.tangled.repo.listRecordVersions")
+           ([ ("uri", uri); ("limit", "500"); ("order", "asc") ]
+           @ Option.fold ~none:[] ~some:(fun c -> [ ("cursor", c) ]) cursor))
+    in
+    if field "error" page <> None then
+      failwith ("the knot lists no versions of " ^ uri);
+    let acc =
+      acc
+      @ List.map
+          (fun v ->
+            (string (required "editor" v), Option.map string (field "cid" v)))
+          (list (required "versions" page))
+    in
+    match Option.map string (field "cursor" page) with
+    | Some c when n < 4 -> pages (Some c) (n + 1) acc
+    | Some _ -> failwith (uri ^ " has too many versions")
+    | None -> acc
+  in
+  pages None 0 []
+
+let pull_labels t (repo : repo) ~pull =
+  if repo.knot = "" then []
+  else
+    try
+      let versions = versions t repo pull in
+      let cids = List.sort_uniq String.compare (List.filter_map snd versions) in
+      let blocks =
+        if cids = [] then []
+        else
+          let status, body =
+            Network.fetch_status
+              ~limit:(16 * 1024 * 1024)
+              t.network
+              (Network.query
+                 (repo.knot ^ "/xrpc/com.atproto.sync.getBlocks")
+                 (("did", repo.did) :: List.map (fun c -> ("cids", c)) cids))
+          in
+          if status <> 200 then failwith "the knot served no versions";
+          snd (Atp.Car.of_string body)
+          |> List.map (fun (cid, data) ->
+              (* A block counts only if it is what its content id names. *)
+              if not (Atp.Cid.equal cid (Atp.Cid.create `Dag_cbor data)) then
+                failwith "the knot served a block that does not match its id";
+              (Atp.Cid.to_string cid, data))
+      in
+      let labels = function
+        | None -> []
+        | Some cid -> (
+            match List.assoc_opt cid blocks with
+            | Some data -> labels_in data
+            | None -> failwith ("the knot did not serve version " ^ cid))
+      in
+      (* Who last added each label still on the ticket. *)
+      let added = Hashtbl.create 8 in
+      let last =
+        List.fold_left
+          (fun before (editor, cid) ->
+            let now = labels cid in
+            List.iter
+              (fun l ->
+                if not (List.mem l before) then Hashtbl.replace added l editor)
+              now;
+            now)
+          [] versions
+      in
+      List.sort_uniq String.compare last
+      |> List.filter (fun l -> authorized t repo (Hashtbl.find added l))
+    with
+    | Eio.Cancel.Cancelled _ as e -> raise e
+    | e ->
+        Printf.eprintf "spindle: no labels of %s: %s\n%!" pull
+          (Printexc.to_string e);
+        []
 
 let default_branch t (repo : repo) =
   if repo.knot = "" then None

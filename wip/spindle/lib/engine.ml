@@ -12,10 +12,11 @@ type pipeline = {
   created : string;
   trusted : bool;
   variables : (string * string) list;
-  workflows : Runner.t list;
+  mutable workflows : Runner.t list;
 }
 
 type reader = did:string -> commit:string -> (string * string) list
+type tree = did:string -> commit:string -> Executor.files
 
 type t = {
   store : Store.t;
@@ -24,6 +25,7 @@ type t = {
   hostname : string;
   jobs : Job.t list;
   read_workflows : reader option;
+  tree : tree option;
   runner : Runner.env;
   sw : Eio.Switch.t;
   pipelines : (string, pipeline) Hashtbl.t;
@@ -31,12 +33,12 @@ type t = {
   mutable last_tid : int64;
   running : (string, int) Hashtbl.t;
   quota_changed : Eio.Condition.t;
+  changed : Eio.Condition.t;
 }
 
 exception Capacity
 
 let terminal p = List.for_all Runner.terminal p.workflows
-
 let push = "org.tangled.event.push"
 let pull_request = "org.tangled.event.pullRequest"
 let manual = "org.tangled.ci.trigger.manual"
@@ -75,20 +77,55 @@ let view_run hostname (run : Runner.t) =
           | None -> definition hostname run.job.name );
       ])
 
+(* A view shows the lexicon's fields of a trigger, not everything its sender
+   included, such as a push's options. *)
+let public_trigger p =
+  let trigger = required "trigger" p.request in
+  let keep names =
+    List.filter_map
+      (fun name ->
+        match field name trigger with
+        | Some (Jsont.String ("", _)) | None -> None
+        | Some v -> Some (name, v))
+      names
+  in
+  let kind = get "$type" trigger in
+  obj
+    (("$type", str kind)
+    ::
+    (if kind = push then
+       ("repo", str p.repo) :: keep [ "ref"; "oldSha"; "newSha"; "actor" ]
+     else if kind = pull_request then
+       keep
+         [
+           "action";
+           "pull";
+           "sourceRepo";
+           "sourceBranch";
+           "sourceSha";
+           "targetBranch";
+         ]
+     else if kind = manual then
+       [ ("repo", str p.repo); ("commit", str p.commit) ]
+       @ keep [ "ref" ]
+       @ [ ("inputs", Option.value ~default:(arr []) (field "inputs" trigger)) ]
+     else List.remove_assoc "$type" (members trigger)))
+
 let view_in hostname p =
   obj
     ([
        ("id", str p.id);
        ("repo", str p.repo);
-       ("trigger", required "trigger" p.request);
+       ("trigger", public_trigger p);
        ("commit", str p.commit);
        ("createdAt", str p.created);
        ("workflows", arr (List.map (view_run hostname) p.workflows));
      ]
     @
     match field "sourceRepo" (required "trigger" p.request) with
-    | None -> []
-    | Some value -> [ ("sourceRepo", value) ])
+    | Some (Jsont.String (source, _) as value) when source <> p.repo ->
+        [ ("sourceRepo", value) ]
+    | _ -> [])
 
 let snapshot t p =
   encode
@@ -110,6 +147,8 @@ let wiped t p =
   Settings.banned t.settings p.repo || Settings.banned t.settings p.owner
 
 let persist t p =
+  Fun.protect ~finally:(fun () -> Eio.Condition.broadcast t.changed)
+  @@ fun () ->
   if wiped t p then
     Lock.protect t.lock (fun () -> Hashtbl.remove t.pipelines p.id)
   else
@@ -179,60 +218,158 @@ let minutes_left t p =
 
 let running t did = Option.value ~default:0 (Hashtbl.find_opt t.running did)
 
-let start t p =
-  List.iter
-    (fun workflow ->
-      if workflow.Runner.status = "pending" then
-        Eio.Fiber.fork ~sw:t.sw (fun () ->
-            let input () : Runner.input =
-              {
-                id = p.id;
-                repo = p.repo;
-                source = p.source;
-                commit = p.commit;
-                metadata = p.metadata;
-                variables = p.variables;
-                secrets =
-                  (if p.trusted then Settings.secrets t.settings p.repo
-                   else []);
-              }
-            in
-            let fail message =
-              workflow.status <- "failed";
-              workflow.finished <- Some (Runner.now ());
-              workflow.error <- Some message;
-              persist t p
-            in
-            try
-              match minutes_left t p with
-              | Some message -> fail message
-              | None ->
-                  acquire t p workflow;
-                  let began = Eio.Time.now t.runner.system#clock in
-                  Fun.protect ~finally:(fun () ->
-                      release t p;
-                      let spent = Eio.Time.now t.runner.system#clock -. began in
-                      if workflow.started <> None then
-                        Settings.add_minutes t.settings (counted t p)
-                          (int_of_float (Float.ceil (spent /. 60.))))
-                  @@ fun () ->
-                  Runner.execute t.runner (input ())
-                    ~record:(fun event ->
-                      Store.append_log t.store ~pipeline:p.id
-                        ~workflow:workflow.job.name event)
-                    ~persist:(fun () -> persist t p)
-                    workflow
-            with exn ->
-              Eio.Cancel.protect (fun () ->
-                  workflow.status <- "failed";
-                  workflow.finished <- Some (Runner.now ());
-                  workflow.error <- Some (Printexc.to_string exn);
-                  persist t p)))
+(* [descendants p name] is every workflow of [p] spawned by [name], or by a
+   workflow it spawned, in the order they were added. *)
+let descendants p name =
+  let rec grow names =
+    let more =
+      List.filter_map
+        (fun (r : Runner.t) ->
+          match r.parent with
+          | Some parent
+            when List.mem parent names && not (List.mem r.job.name names) ->
+              Some r.job.name
+          | _ -> None)
+        p.workflows
+    in
+    if more = [] then names else grow (names @ more)
+  in
+  let names = grow [ name ] in
+  List.filter
+    (fun (r : Runner.t) -> r.job.name <> name && List.mem r.job.name names)
     p.workflows
 
-let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?(timeout = 60.)
-    ~executor ~system ~directory ~sw () =
+(* Every change of a workflow is persisted, which wakes [await_spawned]. *)
+let await_spawned t p (workflow : Runner.t) =
+  Eio.Condition.loop_no_mutex t.changed (fun () ->
+      let ds = descendants p workflow.job.name in
+      if List.for_all Runner.terminal ds then Some ds else None)
+
+(* [watch t p workflow ~since] is the progress of [workflow]'s descendants,
+   once it differs from [since]. *)
+let watch t p (workflow : Runner.t) ~since =
+  let now () = List.map Runner.progress (descendants p workflow.job.name) in
+  match since with
+  | None -> now ()
+  | Some since ->
+      Eio.Condition.loop_no_mutex t.changed (fun () ->
+          let now = now () in
+          if now <> since then Some now else None)
+
+(* Only a ticket of the pipeline's own repository is asked about. *)
+let pull_labels t p =
+  let trigger = required "trigger" p.request in
+  match (Option.map string (field "$type" trigger), field "pull" trigger) with
+  | Some kind, Some (Jsont.String (uri, _))
+    when kind = pull_request
+         && String.starts_with
+              ~prefix:("at://" ^ p.repo ^ "/org.tangled.track.ticket/")
+              uri -> (
+      match Catalog.managed t.catalog p.repo with
+      | Some repo -> Catalog.pull_labels t.catalog repo ~pull:uri
+      | None -> [])
+  | _ -> []
+
+(* [start_one t p workflow] runs a pending workflow of [p] in its own fiber,
+   and [spawn] adds one while [p] runs. *)
+let rec start_one t p (workflow : Runner.t) =
+  Eio.Fiber.fork ~sw:t.sw (fun () ->
+      let input () : Runner.input =
+        {
+          id = p.id;
+          repo = p.repo;
+          source = p.source;
+          commit = p.commit;
+          metadata = p.metadata;
+          variables = p.variables;
+          secrets =
+            (if p.trusted then Settings.secrets t.settings p.repo else []);
+          files =
+            (match t.tree with
+            | Some tree -> tree ~did:p.repo ~commit:p.commit
+            | None -> { list = (fun _ -> []); read = (fun _ -> None) });
+          labels = (fun () -> pull_labels t p);
+        }
+      in
+      let fail message =
+        workflow.status <- "failed";
+        workflow.finished <- Some (Runner.now ());
+        workflow.error <- Some message;
+        persist t p
+      in
+      try
+        match minutes_left t p with
+        | Some message -> fail message
+        | None ->
+            acquire t p workflow;
+            let clock = t.runner.system#mono_clock in
+            let seconds () =
+              Int64.to_float (Mtime.to_uint64_ns (Eio.Time.Mono.now clock))
+              /. 1e9
+            in
+            let began = seconds () in
+            (* Waiting for spawned workflows gives up the workflow's place in
+               its repository's and owner's limits, and is not charged. *)
+            let held = ref true and waited = ref 0. in
+            let released f =
+              held := false;
+              release t p;
+              let start = seconds () in
+              let x = f () in
+              waited := !waited +. (seconds () -. start);
+              acquire t p workflow;
+              held := true;
+              x
+            in
+            let await () = released (fun () -> await_spawned t p workflow) in
+            let watch = function
+              | None -> watch t p workflow ~since:None
+              | since -> released (fun () -> watch t p workflow ~since)
+            in
+            Fun.protect ~finally:(fun () ->
+                if !held then release t p;
+                let spent = seconds () -. began -. !waited in
+                if workflow.started <> None then
+                  Settings.add_minutes t.settings (counted t p)
+                    (int_of_float (Float.ceil (spent /. 60.))))
+            @@ fun () ->
+            Runner.execute t.runner (input ())
+              ~record:(fun event ->
+                Store.append_log t.store ~pipeline:p.id
+                  ~workflow:workflow.job.name event)
+              ~persist:(fun () -> persist t p)
+              ~spawn:(fun ~env name steps ->
+                spawn t p ~parent:workflow.job.name ~env name steps)
+              ~await ~watch workflow
+      with exn ->
+        Eio.Cancel.protect (fun () ->
+            workflow.status <- "failed";
+            workflow.finished <- Some (Runner.now ());
+            workflow.error <- Some (Runner.message exn);
+            persist t p))
+
+and spawn t p ~parent ~env name steps =
+  if not (Workflows.valid_name name) then invalid "invalid workflow name";
+  let workflow = Runner.v ~parent (Job.spawned ~env name steps) in
+  Lock.protect t.lock (fun () ->
+      if List.exists (fun (r : Runner.t) -> r.job.name = name) p.workflows then
+        invalid ("the pipeline already has a workflow " ^ name);
+      if List.length p.workflows >= 50 then
+        invalid "a pipeline holds at most 50 workflows";
+      p.workflows <- p.workflows @ [ workflow ]);
+  persist t p;
+  start_one t p workflow
+
+let start t p =
+  List.iter
+    (fun (workflow : Runner.t) ->
+      if workflow.status = "pending" then start_one t p workflow)
+    p.workflows
+
+let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?tree
+    ?(timeout = 60.) ?(concurrency = 2) ~executor ~system ~directory ~sw () =
   if jobs = [] || List.length jobs > 50 then invalid "define 1 to 50 workflows";
+  if concurrency < 1 then invalid "concurrency must be at least 1";
   let names =
     List.map
       (fun (j : Job.t) ->
@@ -259,12 +396,13 @@ let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?(timeout = 60.)
     hostname;
     jobs;
     read_workflows;
+    tree;
     sw;
     runner =
       {
         Runner.system;
         directory;
-        slots = Eio.Semaphore.make 2;
+        slots = Eio.Semaphore.make concurrency;
         timeout;
         executor;
       };
@@ -273,6 +411,7 @@ let v ~store ~catalog ~settings ~hostname ~jobs ?read_workflows ?(timeout = 60.)
     last_tid = 0L;
     running = Hashtbl.create 16;
     quota_changed = Eio.Condition.create ();
+    changed = Eio.Condition.create ();
   }
 
 let migrate t static =
@@ -399,47 +538,61 @@ let load t =
 
 let view t p = view_in t.hostname p
 
+let first t namespace key =
+  Lock.protect t.lock (fun () ->
+      Store.get t.store namespace key = None
+      &&
+      (Store.put t.store namespace key "";
+       true))
+
 let managed t id =
   match Catalog.managed t.catalog id with
   | Some repo -> repo
-  | None -> invalid "repository is not assigned to spindle"
+  | None ->
+      Xrpc_error.fail Httpz.Res.Not_found "RepoNotFound"
+        "failed to access repository"
 
 let check_actor t repo actor =
-  if not (Catalog.authorized t.catalog repo actor) then raise Auth.Rejected
+  if not (Catalog.permitted t.catalog repo actor) then
+    Xrpc_error.fail Httpz.Res.Forbidden "AccessControl"
+      ("DID does not have sufficient access permissions for this operation: "
+     ^ actor)
+
+let authorize t ~principal repo = check_actor t (managed t repo) principal
 
 let find t id =
-  if not (Atp.Tid.is_valid id) then invalid "pipeline must be a TID";
-  match Hashtbl.find_opt t.pipelines id with
-  | Some p -> Some p
-  | None -> Option.map (restore t id) (Store.get t.store "pipeline" id)
+  if not (Atp.Tid.is_valid id) then None
+  else
+    match Hashtbl.find_opt t.pipelines id with
+    | Some p -> Some p
+    | None -> Option.map (restore t id) (Store.get t.store "pipeline" id)
+
+let not_found () =
+  Xrpc_error.fail Httpz.Res.Not_found "PipelineNotFound" "pipeline not found"
 
 let query t ~repo ~limit ~cursor ~triggers ~commits =
-  let seen = Hashtbl.create (List.length commits) in
-  let total, count, page =
-    Store.fold t.store "pipeline-view" ~descending:true ~init:(0, 0, [])
-      ~f:(fun ((total, count, page) as acc) (id, raw) ->
+  let total, more, count, page =
+    Store.fold t.store "pipeline-view" ~descending:true ~init:(0, false, 0, [])
+      ~f:(fun ((total, more, count, page) as acc) (id, raw) ->
         let p = decode raw in
         let trigger = get "$type" (required "trigger" p) in
         let commit = get "commit" p in
         if
           get "repo" p <> repo
           || (triggers <> [] && not (List.mem trigger triggers))
-          || commits <> []
-             && ((not (List.mem commit commits)) || Hashtbl.mem seen commit)
+          || (commits <> [] && not (List.mem commit commits))
         then acc
-        else (
-          if commits <> [] then Hashtbl.add seen commit ();
-          if
-            Option.fold ~none:false
-              ~some:(fun cursor -> String.compare id cursor >= 0)
-              cursor
-          then acc
-          else if count = limit then (total + 1, count, page)
-          else (total + 1, count + 1, p :: page)))
+        else if
+          Option.fold ~none:false
+            ~some:(fun cursor -> String.compare id cursor >= 0)
+            cursor
+        then (total + 1, more, count, page)
+        else if count = limit then (total + 1, true, count, page)
+        else (total + 1, more, count + 1, p :: page))
       ()
   in
   let next =
-    if total > count then [ ("cursor", str (get "id" (List.hd page))) ] else []
+    if more then [ ("cursor", str (get "id" (List.hd page))) ] else []
   in
   obj ([ ("total", int total); ("pipelines", arr (List.rev page)) ] @ next)
 
@@ -448,7 +601,9 @@ let select_workflows p names =
   List.iter
     (fun name ->
       if not (List.exists (fun (r : Runner.t) -> r.job.name = name) p.workflows)
-      then invalid "unknown workflow")
+      then
+        Xrpc_error.fail Httpz.Res.Not_found "WorkflowNotFound"
+          ("unknown workflow " ^ name))
     names;
   List.filter
     (fun (r : Runner.t) -> names = [] || List.mem r.job.name names)
@@ -465,19 +620,21 @@ let ref_variables ref_ =
     String.sub ref_ (String.length prefix)
       (String.length ref_ - String.length prefix)
   in
-  if String.starts_with ~prefix:"refs/heads/" ref_ then
-    [
-      ("TANGLED_REF", ref_);
-      ("TANGLED_REF_NAME", short "refs/heads/");
-      ("TANGLED_REF_TYPE", "branch");
-    ]
-  else if String.starts_with ~prefix:"refs/tags/" ref_ then
-    [
-      ("TANGLED_REF", ref_);
-      ("TANGLED_REF_NAME", short "refs/tags/");
-      ("TANGLED_REF_TYPE", "tag");
-    ]
-  else [ ("TANGLED_REF", ref_); ("TANGLED_REF_NAME", ref_) ]
+  (* Any ref but a tag is a branch, and its name is shortened as Git
+     shortens it, as the reference spindle reports them. *)
+  let name, kind =
+    match
+      List.find_opt
+        (fun prefix -> String.starts_with ~prefix ref_)
+        [ "refs/heads/"; "refs/tags/"; "refs/remotes/" ]
+    with
+    | Some ("refs/tags/" as prefix) -> (short prefix, "tag")
+    | Some prefix -> (short prefix, "branch")
+    | None -> (ref_, "branch")
+  in
+  [
+    ("TANGLED_REF", ref_); ("TANGLED_REF_NAME", name); ("TANGLED_REF_TYPE", kind);
+  ]
 
 (* The reference spindle's CI variables, for every step of every workflow. *)
 let variables (repo : Catalog.repo) ~default_branch ~id ~kind ~trigger
@@ -500,8 +657,8 @@ let variables (repo : Catalog.repo) ~default_branch ~id ~kind ~trigger
     ("TANGLED_SHA", commit);
     ("TANGLED_COMMIT_SHA", commit);
   ]
-  @ opt "TANGLED_REPO_NAME" (Some repo.name)
-  @ opt "TANGLED_REPO_DEFAULT_BRANCH" default_branch
+  @ opt "TANGLED_REPO_NAME" (Some (Catalog.slug repo.name))
+  @ [ ("TANGLED_REPO_DEFAULT_BRANCH", Option.value ~default:"" default_branch) ]
   @
   match kind with
   | Job.Push -> ref_variables (get "ref" trigger)
@@ -516,16 +673,22 @@ let variables (repo : Catalog.repo) ~default_branch ~id ~kind ~trigger
       Option.fold ~none:[]
         ~some:(fun b -> ref_variables ("refs/heads/" ^ b))
         (text "sourceBranch")
-      @ opt "TANGLED_PIPELINE_SOURCE_BRANCH" (text "sourceBranch")
-      @ opt "TANGLED_PIPELINE_TARGET_BRANCH" (text "targetBranch")
-      @ opt "TANGLED_PR_SOURCE_BRANCH" (text "sourceBranch")
-      @ opt "TANGLED_PR_TARGET_BRANCH" (text "targetBranch")
-      @ opt "TANGLED_PR_SOURCE_SHA" (Some commit)
+      @
+      let always k v = (k, Option.value ~default:"" v) in
+      [
+        always "TANGLED_PIPELINE_SOURCE_BRANCH" (text "sourceBranch");
+        always "TANGLED_PIPELINE_TARGET_BRANCH" (text "targetBranch");
+        always "TANGLED_PR_SOURCE_BRANCH" (text "sourceBranch");
+        always "TANGLED_PR_TARGET_BRANCH" (text "targetBranch");
+        ("TANGLED_PR_SOURCE_SHA", commit);
+      ]
 
 let create t ?dedup ?(changed_files = []) ?(default_ref = false)
-    ?(blocked = false) ?(untrusted = false) ~automatic ~actor request =
+    ?(blocked = false) ?(untrusted = false) ?principal ~automatic ~actor request
+    =
   let repo = managed t (get "repo" request) in
-  if not automatic then check_actor t repo actor;
+  if not automatic then
+    check_actor t repo (Option.value principal ~default:actor);
   let trigger = required "trigger" request in
   let kind = kind trigger in
   if (not automatic) && kind = Job.Push then
@@ -628,7 +791,7 @@ let create t ?dedup ?(changed_files = []) ?(default_ref = false)
   Settings.note_owner t.settings ~repo:repo.did ~owner:repo.owner;
   let default_branch =
     try Catalog.default_branch t.catalog repo
-    with Eio.Io _ | Failure _ | Invalid _ -> None
+    with Eio.Io _ | Network.Unavailable _ | Failure _ | Invalid _ -> None
   in
   Lock.protect t.lock @@ fun () ->
   if not (Catalog.current t.catalog repo) then
@@ -705,9 +868,9 @@ let cancel t ~actor ~repo ~id ~names =
   if not (Catalog.current t.catalog canonical) then
     invalid "repository assignment changed during cancellation";
   match find t id with
-  | None -> invalid "pipeline not found"
+  | None -> not_found ()
   | Some p ->
-      if p.repo <> repo then invalid "pipeline belongs to another repository";
+      if p.repo <> repo then not_found ();
       List.iter
         (Runner.cancel ~persist:(fun () -> persist t p))
         (select_workflows p names);
@@ -718,9 +881,9 @@ let approve t ~actor ~repo ~id =
   let canonical = managed t repo in
   check_actor t canonical actor;
   match find t id with
-  | None -> invalid "pipeline not found"
+  | None -> not_found ()
   | Some p ->
-      if p.repo <> repo then invalid "pipeline belongs to another repository";
+      if p.repo <> repo then not_found ();
       let blocked =
         List.filter (fun (r : Runner.t) -> r.status = "blocked") p.workflows
       in
@@ -732,21 +895,29 @@ let approve t ~actor ~repo ~id =
       persist t p;
       start t p
 
-let retry t ~actor ~repo ~id ~names =
+let retry t ~principal ~actor ~repo ~id ~names =
   let canonical = managed t repo in
-  check_actor t canonical actor;
+  check_actor t canonical principal;
   match find t id with
-  | None -> invalid "pipeline not found"
+  | None -> not_found ()
   | Some p ->
-      if p.repo <> repo then invalid "pipeline belongs to another repository";
-      let names =
-        match names with
-        | [] -> List.map (fun (r : Runner.t) -> r.job.name) p.workflows
-        | names ->
-            List.map
-              (fun (r : Runner.t) -> r.job.name)
-              (select_workflows p names)
+      if p.repo <> repo then not_found ();
+      (* A spawned workflow is retried by rerunning the workflows that
+         spawned it, which spawn it afresh. *)
+      let planned =
+        List.filter (fun (r : Runner.t) -> not r.job.spawned) p.workflows
       in
+      let names =
+        match
+          List.filter
+            (fun (r : Runner.t) -> not r.job.spawned)
+            (select_workflows p names)
+        with
+        | _ when names = [] -> planned
+        | [] -> planned
+        | chosen -> chosen
+      in
+      let names = List.map (fun (r : Runner.t) -> r.job.name) names in
       let request =
         obj
           [

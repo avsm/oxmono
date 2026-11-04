@@ -132,6 +132,14 @@ class Handler(BaseHTTPRequestHandler):
         auth = self.headers.get("Authorization")
         calls.append((role, method, query, data, auth))
 
+        if role == "matrix":
+            if url.path == "/.well-known/matrix/client":
+                return self.json({"m.homeserver": {"base_url": urls["matrix"] + "/"}})
+            alias = "#ci:" + urlparse(urls["matrix"]).netloc
+            if url.path == "/_matrix/client/v3/directory/room/" + alias.replace("#", "%23").replace(":", "%3A"):
+                assert auth is None
+                return self.json({"room_id": "!room:localhost", "servers": ["localhost"]})
+            return self.json({"errcode": "M_NOT_FOUND"}, 404)
         if role == "plc":
             did = url.path.lstrip("/")
             if did == REPO:
@@ -216,7 +224,10 @@ class Handler(BaseHTTPRequestHandler):
             for token in data["record"].get("tangledLabels", []):
                 if (data["repo"], "org.tangled.label.definition", token["key"]) not in records:
                     return self.json({"error": "InvalidRequest"}, 400)
-            assert data["swapRecord"] == cid(records[k]), "stale swapRecord"
+            if k in records:
+                assert data["swapRecord"] == cid(records[k]), "stale swapRecord"
+            else:
+                assert data.get("swapRecord") is None, "swap of a missing record"
             assert not any(f.startswith("x-tngl-") for f in data["record"]), "stamp written back"
             records[k] = data["record"]
             return self.json({"uri": "at://{}/{}/{}".format(*k), "cid": cid(data["record"])})
@@ -446,7 +457,9 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
         urls[role] = f"https://localhost:{server.server_port}"
         return urls[role]
 
-    pds, knot, spindle, plc = (server(r) for r in ("pds", "knot", "spindle", "plc"))
+    pds, knot, spindle, plc, matrix = (
+        server(r) for r in ("pds", "knot", "spindle", "plc", "matrix"))
+    matrix_host = urlparse(matrix).netloc
     spindle_host = urlparse(spindle).netloc
     env["TANGLED_PDS"] = pds
     env["TANGLED_PLC"] = plc
@@ -672,6 +685,48 @@ with tempfile.TemporaryDirectory(prefix="tangled-cli-") as directory:
         run("api", "call", "org.tangled.event.notifyEvent", "--service", spindle,
             "--auth", "service", "--input", "-", stdin="{}", ok=False)
         assert len(calls) == before
+        # A watch reports only pipelines that are running or change while it
+        # watches, with the commands to run next.
+        assert run("pipeline", "watch", "--once") == ""
+        workflow = pipeline["workflows"][0]
+        workflow["status"] = "running"
+        started = json.loads(run("pipeline", "watch", "--once", "--json", "demo"))
+        assert started["event"] == "started" and started["status"] == "running", started
+        assert started["pipeline"] == PIPELINE and started["trigger"] == "manual", started
+        watch = subprocess.Popen(
+            [CLI, "pipeline", "watch", "--interval", "0.2", "--until-finished",
+             "--commit", SHA[:7]],
+            env=env, cwd=directory, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True)
+        time.sleep(1.5)
+        workflow["status"], workflow["error"] = "failed", "exit status 2"
+        out, err = watch.communicate(timeout=20)
+        assert watch.returncode != 0 and "finished failed" in err, (out, err)
+        lines = out.splitlines()
+        assert any("started manual" in l for l in lines), out
+        assert any("inspect running -> failed: exit status 2" in l for l in lines), out
+        assert f"  next: tangled pipeline logs -r {DID}/demo {PIPELINE} -w inspect" in lines, out
+        assert f"  next: tangled pipeline retry -r {DID}/demo {PIPELINE}" in lines, out
+        workflow["status"] = "success"
+        del workflow["error"]
+        # A Matrix binding is a record keyed by the repository, naming the
+        # room the alias resolves to.
+        run("pipeline", "matrix", "set", "-r", "demo", "--bot", ":bot@localhost",
+            "--room", f"#ci:{matrix_host}")
+        binding = records[DID, "org.recoil.tangled.matrix", REPO]
+        assert binding["bot"] == "@bot:localhost" and binding["room"] == "!room:localhost", binding
+        assert binding["alias"] == f"#ci:{matrix_host}" and binding["repo"] == REPO, binding
+        run("pipeline", "matrix", "set", "-r", "demo", "--bot", "@bot:localhost",
+            "--room", "!other:localhost")
+        assert records[DID, "org.recoil.tangled.matrix", REPO]["room"] == "!other:localhost"
+        assert run("pipeline", "matrix", "show", "-r", "demo").split() == [
+            DID, "@bot:localhost", "!other:localhost"]
+        run("pipeline", "matrix", "set", "-r", "demo", "--bot", "@bot:localhost",
+            "--room", f"#nope:{matrix_host}", ok=False)
+        run("pipeline", "matrix", "set", "-r", "demo", "--bot", "bot", "--room",
+            "!r:localhost", ok=False)
+        run("pipeline", "matrix", "remove", "-r", "demo")
+        assert (DID, "org.recoil.tangled.matrix", REPO) not in records
         run("repo", "delete", "demo", "--force")
         assert calls[-1][1] == "org.tangled.repo.deleteRepo"
         assert (DID, "org.tangled.repo.declaration", "demo") not in records

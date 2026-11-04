@@ -41,9 +41,6 @@ callback in place of the microVM and Nixery engines.
 - The reference spindle computes changed paths from its own clone. Knots do
   not send them and this spindle does not compute them, so workflow
   predicates see an empty `changed_files`.
-- Repository tokens minted by a knot through `org.tangled.repo.mintToken`,
-  which act on behalf of a user, are not accepted. Users sign their own
-  service tokens.
 - Workflows run wherever the executor puts them. The default executor runs
   nothing: it logs each workflow and succeeds. There is no checkout step.
   Scheduled workflows and the mill roles are not implemented.
@@ -56,7 +53,22 @@ callback in place of the microVM and Nixery engines.
   spindle ignores.
 - Discovery is on demand. The reference spindle backfills repositories with an
   embedded hydrant. This spindle checks a repository when a push, manual run
-  or patch names it, and caches the answer for `--reconcile-seconds`.
+  or manifest naming it arrives, and caches the answer for
+  `--reconcile-seconds`. Patches and tickets are followed only for
+  repositories accepted before.
+- A pull request's author is the editor of its first patch. The reference
+  spindle reads the ticket's first version, which needs the knot's record
+  history.
+- Service tokens get no clock leeway on `exp` and are single-use on every
+  method. The reference spindle allows five seconds and consumes nonces only
+  for push notifications.
+- `getWorkflowDefinition` accepts any workflow file name of up to 255 bytes.
+  The reference spindle bounds names at 128 bytes.
+- A malformed workflow file is left out of `listWorkflowDefinitions`. The
+  reference spindle fails the whole listing.
+- Schedules, their `when` validation, the `ci.message` log-viewer hint and
+  `org.tangled.temp.spindle.quota.releaseNars`, which serves the Nix cache,
+  are not implemented.
 - OCaml workflow definitions do not change with the repository's contents
   and carry no file source.
 
@@ -71,7 +83,8 @@ hold.
 
 Pipeline creation and its deduplication key commit together before execution.
 Jetstream events and the stream cursor commit together. Transient failures
-remain in the durable inbox. Invalid records are recorded as rejected.
+remain in the durable inbox for sixteen attempts, about five hours. Invalid records are recorded
+as rejected.
 Network failures while checking a repository answer 503, which a knot retries
 from its outbox for three days.
 

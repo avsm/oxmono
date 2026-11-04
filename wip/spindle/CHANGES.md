@@ -6,6 +6,103 @@
 
 ## Unreleased
 
+- Give executors a pull request's labels, counting only those that the
+  repository's owner or a collaborator added, checked against every version
+  of the pull request on its knot.
+
+- Let an executor wait for the workflows it spawned, and read how each
+  ended and its log, with `await_spawned`.
+
+- Let an executor follow its spawned workflows' progress, step by step,
+  with `spawned`.
+
+- Let a custom spindle turn off repositories' own workflows with
+  `Spindle_cli.main ~repository_workflows:false`.
+
+- Give executors read access to the repository at the commit through the
+  request's `files`, add `--concurrency`, and add the `spindle.cli` library
+  so that custom spindles keep the `spindle` command's options.
+
+- Let an executor add workflows to its running pipeline with `spawn`, and
+  add `--executor=solve`, which simulates a dependency solve that spawns a
+  build workflow for each of three compilers.
+
+- Check a manual run's caller before asking the knot about its ref, answer
+  503 when a workflow file cannot be fetched, and fetch any workflow by its
+  file name.
+
+- Count each patch of a pull request as a round, so resubmitting the same
+  commit sends `pull_request:resubmitted`, and hold a patch without a valid
+  editor for approval instead of rejecting it.
+
+- Read any regular file in `.tangled/workflows` with a printable name, such
+  as `my ci.yml`, as the reference spindle does.
+
+- Refuse a log stream from a browser page on another site unless
+  `--cors-origin` allows it, as the reference spindle does.
+
+- Set CI variables as the reference spindle does: `TANGLED_REPO_NAME` is the
+  lowercased name, any ref but a tag has `TANGLED_REF_TYPE=branch`, and the
+  default branch and pull request branch variables are always set.
+
+- Name a webhook's repository by its owner and lowercased name, as the
+  reference spindle does, and limit deliveries to one host to two at once
+  and 64 waiting.
+
+- Serve `GET /_health` and the DID document as `application/did+json`, as
+  the reference spindle does. `describeSpindle` sends `links`, and `contact`
+  when `--contact-email` is given. `--privacy-policy` and
+  `--terms-of-service` add its links.
+
+- Show only a trigger's lexicon fields in pipeline views, so a push's
+  options stay private, and `sourceRepo` only when it differs.
+
+- Report the whole match count on every `queryPipelines` page, and every
+  pipeline of a requested commit, as the reference spindle does.
+
+- Answer with the reference spindle's error codes: 404 `RepoNotFound`,
+  `RefNotFound`, `PipelineNotFound` and `WorkflowNotFound`, and 403
+  `AccessControl` for a caller who cannot push. Authorize pipeline changes
+  before reading the pipeline. Answer a push to an unserved repository with
+  nothing to run. Bound refs, workflow names and streamed workflows.
+
+- Refuse a manual run whose ref does not hold its commit within 100 commits,
+  as the reference spindle checks it.
+
+- Run a fork's pull request from the target repository at the pull
+  request's commit, without the fork's branch, as the reference spindle does.
+
+- Handle a repository's Jetstream events in order, retry a failed event for
+  about five hours, and skip network requests for repositories the spindle
+  has not accepted. Store only the account events that deactivate an
+  accepted owner.
+- Wipe a repository its knot reports deleted, and the repositories of an
+  owner whose account becomes inactive.
+
+- Keep serving a repository while a rename leaves its owner without a
+  declaration, so pushes during the rename still run.
+
+- Answer 503 when a DID host, PDS or knot returns a server error, rate
+  limits the spindle or times out, so the knot retries the push.
+
+- Refuse a manual run that matches no workflow with 400, as the reference
+  spindle does, rather than report it started.
+
+- Fire a push or pull request webhook once when the knot or Jetstream
+  delivers its event again.
+
+- Send executor output one line per log frame, so the web UI numbers lines
+  correctly. Steps carry their command and may be marked as system steps,
+  and the default executor's description step is one. Cancelled workflows
+  report "User canceled the workflow", and timed-out ones no error.
+
+- Add `--cors-origin`, which lets browser pages from an origin such as
+  `https://tangled.org` call XRPC methods, and answer CORS preflights.
+
+- Accept service tokens signed by a repository's own DID for that
+  repository, as Tangled's settings pages send. Secrets, manual runs and
+  retries record the user such a token names.
+
 - Hand every workflow to an executor callback instead of running commands on
   the host. The default executor logs the workflow, with secrets as
   placeholders, waits two seconds and succeeds. `--repository-workflows` is

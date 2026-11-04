@@ -1,0 +1,9 @@
+(library
+ (name ocluster_client)
+ (public_name ocluster-client)
+ (flags
+  (:standard -w -53-55))
+ (libraries capnp capnp-rpc capnp-rpc-net capnp-rpc-unix eio fmt))
+
+; schema.ml and schema.mli are generated from schema.capnp and checked in,
+; since the capnp compiler is not a build dependency. See README.md.

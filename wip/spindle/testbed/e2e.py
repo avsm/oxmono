@@ -479,7 +479,13 @@ def main():
     tangled("spindle", "member", "remove", SPINDLE, HANDLES["bob"])
     refused = push_as_bob("Before admission")
     time.sleep(5)
-    assert not [p for p in pipelines(theirs, "bob") if p["commit"] == refused]
+    # An unadmitted owner's repository is not served, so the spindle knows it
+    # as RepoNotFound, as the reference spindle does.
+    try:
+        assert not [p for p in pipelines(theirs, "bob")
+                    if p["commit"] == refused]
+    except SystemExit as error:
+        assert "RepoNotFound" in str(error), error
     tangled("spindle", "member", "add", SPINDLE, HANDLES["bob"])
     members = json.loads(tangled("spindle", "member", "list", SPINDLE))["dids"]
     assert len(members) == 1, members

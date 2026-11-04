@@ -6,13 +6,14 @@
 (** Serving the arod site over proffer-httpz. *)
 
 module Site = Arod_site
+module Dashboard = Arod_dashboard
 open Base
 
 let src = Logs.Src.create "arod.server" ~doc:"Arod server adapter"
 
 module Log = (val Logs.src_log src : Logs.LOG)
 
-let run ~sw ~stdenv ~(config : Arod.Config.t) ~log ~env site =
+let run ~sw ~stdenv ~(config : Arod.Config.t) ~log ?dashboard ~env site =
   let clock = Eio.Stdenv.clock stdenv in
   let addr = `Tcp (Eio.Net.Ipaddr.V4.any, config.server.port) in
   let on_listening _ =
@@ -25,6 +26,9 @@ let run ~sw ~stdenv ~(config : Arod.Config.t) ~log ~env site =
        owns the log database. Serving from several domains would need this
        to hand the event to a fiber on that domain through a queue. *)
     Arod_log.log_request log ~timestamp:(Eio.Time.now clock) event;
+    (match dashboard with
+     | Some d -> Arod_dashboard.record d event
+     | None -> ());
     let cache = match event.cache_status with Some s -> " " ^ s | None -> "" in
     Log.info (fun m ->
         m "%s %s - %d (%dus%s)"
@@ -34,7 +38,15 @@ let run ~sw ~stdenv ~(config : Arod.Config.t) ~log ~env site =
           event.duration_us cache)
   in
   let on_error exn =
+    (match dashboard with
+     | Some d -> Arod_dashboard.error d exn
+     | None -> ());
     Log.err (fun m -> m "Server error: %s" (Exn.to_string exn))
   in
-  Proffer_httpz.run ~sw ~addr ~on_listening ~on_event ~on_error stdenv
-    ~env site
+  let on_connection delta =
+    match dashboard with
+    | Some d -> Arod_dashboard.connection d delta
+    | None -> ()
+  in
+  Proffer_httpz.run ~sw ~addr ~on_listening ~on_event ~on_connection
+    ~on_error stdenv ~env site

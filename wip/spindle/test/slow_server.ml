@@ -9,7 +9,8 @@ let () =
   let executor (ctx : Spindle.Executor.context) (r : Spindle.Executor.request) =
     List.iter
       (fun (s : Spindle.Job.step) ->
-        ctx.step s.name (fun () -> Eio.Time.sleep system#clock 30.))
+        ctx.step ~command:s.command s.name (fun () ->
+            Eio.Time.sleep system#clock 30.))
       r.steps
   in
   Spindle.run ~addr:"0.0.0.0" system
@@ -29,4 +30,10 @@ let () =
       workflow_timeout = 60.;
       quotas = { repo = []; user = [] };
       private_webhooks = true;
+      cors_origins = [];
+      contact_email = None;
+      privacy_policy = None;
+      terms_of_service = None;
+      concurrency = 2;
+      repository_workflows = true;
     }

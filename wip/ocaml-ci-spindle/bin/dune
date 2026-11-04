@@ -1,0 +1,13 @@
+(executable
+ (name main)
+ (public_name ocaml-ci-spindle)
+ (package ocaml-ci-spindle)
+ (libraries
+  ocaml-ci-spindle
+  ocluster-client
+  spindle
+  spindle.cli
+  cmdliner
+  eio
+  fetch-httpz
+  httpz.tls))

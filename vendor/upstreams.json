@@ -45,6 +45,24 @@
       "base_version": "v1.0.3"
     },
     {
+      "name": "capnp",
+      "url": "https://github.com/capnproto/capnp-ocaml.git",
+      "branch": "HEAD",
+      "revision": "cc461758431a77e6c7854f8e1875c2f91dca8ef2",
+      "base_version": "v3.6.0",
+      "verified_on": "2026-11-03",
+      "scope": "src/runtime, src/unix and src/compiler, unchanged. Tests, examples and benchmarks are omitted. The capnpc-ocaml plugin generates checked-in schema code."
+    },
+    {
+      "name": "capnp-rpc",
+      "url": "https://github.com/mirage/capnp-rpc.git",
+      "branch": "HEAD",
+      "revision": "d9edc3b1f4e8e68e2e9c0a80555883c1390d76ee",
+      "base_version": "v2.1.2",
+      "verified_on": "2026-11-03",
+      "scope": "capnp-rpc, capnp-rpc-net and unix with the package metadata. Tests, examples, fuzzing and benchmarks are omitted. Generated schema code is checked in, Prometheus metrics are removed, and X.509 names are typed."
+    },
+    {
       "name": "checkseum",
       "url": "https://github.com/mirage/checkseum.git",
       "branch": "HEAD",
@@ -150,6 +168,19 @@
       "revision": "75f92401421c1d443343671fd778ccef3c128e4f",
       "base_version": "v0.2.0-6-g75f9240",
       "scope": "src/htmlit.ml and src/htmlit.mli are at the vendor root, with local Dune packaging and tests."
+    },
+    {
+      "name": "iomux",
+      "url": "https://github.com/ocaml-multicore/ocaml-iomux.git",
+      "branch": "HEAD",
+      "revision": "c2c89ea0198e8119f75766359211d5a3d961535a",
+      "base_version": "v0.4",
+      "verified_on": "2026-11-03",
+      "archive_url": "https://github.com/ocaml-multicore/ocaml-iomux/releases/download/v0.4/iomux-0.4.tbz",
+      "archive_checksums": [
+        "sha256=1e393fae559476848c5c70525076b11070e806a549eebae084b046a9772bab35"
+      ],
+      "scope": "Release archive, unchanged. Supplies Eio's POSIX backend."
     },
     {
       "name": "ipaddr",
@@ -383,6 +414,15 @@
       "scope": "Core src/ptime files and native src/clock/ backend are mapped to the root and clock/, with replacement tests and local Dune packaging."
     },
     {
+      "name": "res",
+      "url": "https://github.com/mmottl/res.git",
+      "branch": "HEAD",
+      "revision": "72b8cde143b3ab2d427c1b35340d181fd0daf34e",
+      "base_version": "5.0.2",
+      "verified_on": "2026-11-03",
+      "scope": "src/ with the package metadata, unchanged. Examples are omitted. Supplies capnp's resizable arrays."
+    },
+    {
       "name": "sha",
       "url": "https://github.com/djs55/ocaml-sha.git",
       "branch": "HEAD",
@@ -419,6 +459,15 @@
       "base_version": "5.3.1",
       "scope": "Bindings based on upstream 5.3.1, verified against original import 5ab071c5d. Local interrupt binding, bundled SQLite, Eio extension, OxCaml modes and build adaptations. See sqlite3/UPSTREAM.md.",
       "verified_on": "2026-11-01"
+    },
+    {
+      "name": "stdint",
+      "url": "https://github.com/andrenth/ocaml-stdint.git",
+      "branch": "HEAD",
+      "revision": "11c1e6b4e6ef4142cff0f82b685b317284e354c5",
+      "base_version": "0.7.2",
+      "verified_on": "2026-11-03",
+      "scope": "lib/ with the package metadata, unchanged. Tests, generators and specs are omitted. Supplies capnp's fixed-width integers."
     },
     {
       "name": "swhid_core",

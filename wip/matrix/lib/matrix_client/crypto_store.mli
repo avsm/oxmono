@@ -25,6 +25,11 @@ val create : xdg:Xdge.t -> profile:string -> t
 
     Raises [Eio.Io] if the directory cannot be created. *)
 
+val create_at : root:Eio.Fs.dir_ty Eio.Path.t -> profile:string -> t
+(** [create_at ~root ~profile] is {!create} for the profile directory that
+    {!Profile_store.create_at} uses under [root], for an application that keeps
+    its state outside the XDG directories. *)
+
 val exists : t -> bool
 (** [exists t] is [true] when this profile holds an Olm account or an
     interrupted transaction that must be recovered with {!load}. *)

@@ -1,0 +1,20 @@
+(executable
+ (name main)
+ (public_name tangled-matrix)
+ (package tangled-matrix)
+ (libraries
+  tangled-matrix
+  tangled
+  matrix-chat.client
+  matrix-chat.eio
+  matrix-chat.proto
+  xrpc-auth
+  fetch-httpz
+  cmdliner
+  eio
+  eio_main
+  logs
+  logs.fmt
+  logs.cli
+  fmt.cli
+  fmt.tty))

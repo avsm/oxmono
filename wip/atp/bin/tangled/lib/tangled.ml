@@ -8,3 +8,5 @@ module Types = Tangled_types
 module Api = Tangled_api
 module Config = Tangled_config
 module Schema = Tangled_schema
+module Watch = Tangled_watch
+module Matrix = Tangled_matrix

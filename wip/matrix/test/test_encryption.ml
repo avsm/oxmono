@@ -663,6 +663,45 @@ let encrypt_test_event machine =
     ~members:[ bob_id ]
   |> ok_value
 
+(* An encrypted edit keeps its relation in the clear, for the server. *)
+let test_relation_in_clear () =
+  let alice =
+    make ~seed:"relation-alice" ~user:alice_id ~device:(did "ALICEDEV") ()
+  in
+  let bob = make ~seed:"relation-bob" ~user:bob_id ~device:(did "BOBDEV") () in
+  introduce ~from:bob ~into:alice;
+  let relation =
+    jobj [ ("rel_type", jstr "m.replace"); ("event_id", jstr "$original") ]
+  in
+  let encrypted, _ =
+    Encryption.encrypt_room_event alice room ~event_type:"m.room.message"
+      ~content:
+        (jobj
+           [
+             ("msgtype", jstr "m.text");
+             ("body", jstr "* edited");
+             ( "m.new_content",
+               jobj [ ("msgtype", jstr "m.text"); ("body", jstr "edited") ] );
+             ("m.relates_to", relation);
+           ])
+      ~members:[ bob_id ]
+    |> ok_value
+  in
+  let member k = function
+    | Jsont.Object (mems, _) ->
+        List.find_map (fun ((n, _), v) -> if n = k then Some v else None) mems
+    | _ -> None
+  in
+  check_string "the relation is in the clear" (json_to_string relation)
+    (json_to_string (Option.get (member "m.relates_to" encrypted)));
+  Alcotest.(check bool)
+    "the new content is not" true
+    (member "m.new_content" encrypted = None && member "body" encrypted = None);
+  let plain, _ = encrypt_test_event alice in
+  Alcotest.(check bool)
+    "an event without a relation has none" true
+    (member "m.relates_to" plain = None)
+
 let test_blacklisted_withheld () =
   let alice =
     make ~seed:"withheld-alice" ~user:alice_id ~device:(did "ALICEDEV") ()
@@ -4791,6 +4830,8 @@ let () =
         [
           Alcotest.test_case "room key share and decrypt" `Quick
             (run test_round_trip);
+          Alcotest.test_case "encrypted relations stay in the clear" `Quick
+            test_relation_in_clear;
           Alcotest.test_case "blacklisted device gets withheld" `Quick
             (run test_blacklisted_withheld);
           Alcotest.test_case "blacklisting rotates a shared session" `Quick

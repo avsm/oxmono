@@ -1,0 +1,5 @@
+(executable
+ (name main)
+ (public_name ocluster-submit)
+ (package ocluster-client)
+ (libraries ocluster-client eio_main cmdliner fmt logs logs.fmt))

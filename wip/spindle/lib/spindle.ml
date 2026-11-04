@@ -26,6 +26,12 @@ type config = {
   workflow_timeout : float;
   quotas : Settings.defaults;
   private_webhooks : bool;
+  cors_origins : string list;
+  contact_email : string option;
+  privacy_policy : string option;
+  terms_of_service : string option;
+  concurrency : int;
+  repository_workflows : bool;
 }
 
 type state = {
@@ -43,19 +49,25 @@ exception Not_ready of Jsont.json
 let reject = Xrpc_error.fail
 let optional = Runner.optional
 
-let authorize state meth req =
+(* [fields req name] is every value of the request field [name], which must
+   be lowercase. *)
+let fields req name =
   let values = ref [] in
   Headers.iter
-    (fun _ name value ->
-      if String.lowercase_ascii (Req.globalize name) = "authorization" then
+    (fun _ field value ->
+      if String.lowercase_ascii (Req.globalize field) = name then
         values := Req.globalize value :: !values)
     (Req.headers req);
-  let token =
-    match !values with
-    | [ s ] when String.starts_with ~prefix:"Bearer " s ->
-        String.sub s 7 (String.length s - 7)
-    | _ -> raise Auth.Rejected
-  in
+  !values
+
+let bearer req =
+  match fields req "authorization" with
+  | [ s ] when String.starts_with ~prefix:"Bearer " s ->
+      String.sub s 7 (String.length s - 7)
+  | _ -> raise Auth.Rejected
+
+let authorize state meth req =
+  let token = bearer req in
   let now = Eio.Time.now state.system#clock in
   let actor =
     Auth.authenticate
@@ -107,6 +119,8 @@ let query_pipelines state req =
     cursor;
   let triggers = query_list req "triggers" in
   let commits = query_list req "commits" in
+  if not (Catalog.known state.engine.catalog repo) then
+    ignore (Engine.managed state.engine repo);
   Engine.query state.engine ~repo ~limit ~cursor ~triggers ~commits
 
 let frame event =
@@ -190,11 +204,33 @@ let logs state workflows socket =
       in
       send ())
 
+(* A browser page may stream logs only from this spindle's own site or an
+   origin allowed CORS, as the reference spindle's WebSocket upgrade checks.
+   Clients other than browsers send no Origin. *)
+let origin_allowed state req =
+  match fields req "origin" with
+  | [] -> true
+  | [ origin ] ->
+      let origin = String.lowercase_ascii origin in
+      let allowed = List.map String.lowercase_ascii state.config.cors_origins in
+      List.mem "*" allowed || List.mem origin allowed
+      || List.exists
+           (fun scheme ->
+             origin = scheme ^ String.lowercase_ascii state.config.hostname)
+           [ "https://"; "http://" ]
+  | _ -> false
+
 let upgrade state req respond =
   if Req.meth req <> Method.Get then invalid "logs require GET";
+  if not (origin_allowed state req) then
+    reject Status.Forbidden "AccessControl"
+      "this origin may not stream logs, unless --cors-origin allows it";
   let repo = did (query_required req "repo") in
   let p = find state ~repo (query_required req "pipeline") in
-  let workflows = Engine.select_workflows p (query_list req "workflows") in
+  let names = query_list req "workflows" in
+  if List.length names > 100 then
+    invalid "a stream follows at most 100 workflows, ask for fewer";
+  let workflows = Engine.select_workflows p names in
   let fields = ref [] in
   Headers.iter
     (fun _ name value ->
@@ -225,10 +261,55 @@ let upgrade state req respond =
               Printf.eprintf "spindle log stream: %s\n%!"
                 (Printexc.to_string exn))
 
+(* Browsers on the Tangled site call XRPC methods directly. A configured
+   origin, or any origin for ["*"], receives CORS fields, as the reference
+   spindle's CORS_ORIGINS gives them. Origins compare without regard to
+   ASCII case. *)
+let cors ?(vary = [ "Origin" ]) state req =
+  let allowed = List.map String.lowercase_ascii state.config.cors_origins in
+  if allowed = [] then []
+  else
+    let vary = ("Vary", String.concat ", " vary) in
+    match fields req "origin" with
+    | [ _ ] when List.mem "*" allowed ->
+        [ vary; ("Access-Control-Allow-Origin", "*") ]
+    | [ origin ] when List.mem (String.lowercase_ascii origin) allowed ->
+        [ vary; ("Access-Control-Allow-Origin", origin) ]
+    | _ -> [ vary ]
+
+let allowed_methods ~post =
+  if post then "POST, OPTIONS" else "GET, HEAD, OPTIONS"
+
+(* A preflight is answered here, before authentication, since browsers send
+   it without credentials. *)
+let preflight state req respond ~post =
+  let fields =
+    cors state req
+      ~vary:
+        [
+          "Origin";
+          "Access-Control-Request-Method";
+          "Access-Control-Request-Headers";
+        ]
+  in
+  let fields =
+    if List.mem_assoc "Access-Control-Allow-Origin" fields then
+      fields
+      @ [
+          ("Access-Control-Allow-Methods", "GET, POST");
+          ("Access-Control-Allow-Headers", "Authorization, Content-Type");
+          ("Access-Control-Max-Age", "86400");
+        ]
+    else fields
+  in
+  Resp.empty respond ~status:Status.No_content
+    ~headers:(Headers.of_list (("Allow", allowed_methods ~post) :: fields))
+    ()
+
 let respond_json respond ?(status = Status.Success) ?(headers = Headers.empty)
-    json =
+    ?(content_type = "application/json") json =
   let text = encode json in
-  Resp.v respond ~status ~headers ~content_type:(This "application/json")
+  Resp.v respond ~status ~headers ~content_type:(This content_type)
     (Body.String text)
 
 let workflows state =
@@ -255,65 +336,87 @@ let static config repo =
           out)
   | _ -> None
 
-(* Repository workflows are read from the knot, or from a static repository's
-   clone. A missing directory has none. *)
-let read_files config catalog network ~did:repo ~commit =
-  let dir = Workflows.directory in
+(* A repository is read through its knot, or a static repository through its
+   clone, at one commit. Nothing is checked out. *)
+let tree config catalog network ~did:repo ~commit : Executor.files =
   match (config.repo, static config repo) with
-  | Some (did, _), None when did = repo -> []
+  | Some (did, _), None when did = repo ->
+      { list = (fun _ -> []); read = (fun _ -> None) }
   | _, Some git ->
-      git [ "ls-tree"; "-z"; commit; dir ^ "/" ]
-      |> String.split_on_char '\000'
-      |> List.filter_map (fun line ->
-          match String.index_opt line '\t' with
-          | Some i
-            when String.starts_with ~prefix:"100644 blob" line
-                 || String.starts_with ~prefix:"100755 blob" line ->
-              let path = String.sub line (i + 1) (String.length line - i - 1) in
-              let name = Filename.basename path in
-              Some (name, git [ "cat-file"; "blob"; commit ^ ":" ^ path ])
-          | _ -> None)
+      let prefix dir = if dir = "" then "" else dir ^ "/" in
+      {
+        list =
+          (fun dir ->
+            git
+              ("ls-tree" :: "-z" :: commit
+              :: (if dir = "" then [] else [ prefix dir ]))
+            |> String.split_on_char '\000'
+            |> List.filter_map (fun line ->
+                match String.index_opt line '\t' with
+                | Some i
+                  when String.starts_with ~prefix:"100644 blob" line
+                       || String.starts_with ~prefix:"100755 blob" line ->
+                    Some
+                      (Filename.basename
+                         (String.sub line (i + 1) (String.length line - i - 1)))
+                | _ -> None));
+        (* The helper reports no exit status, so an empty file reads as
+           missing. *)
+        read =
+          (fun path ->
+            match git [ "cat-file"; "blob"; commit ^ ":" ^ path ] with
+            | "" -> None
+            | contents -> Some contents);
+      }
   | _ ->
       let knot = Catalog.knot_origin catalog repo in
       let xrpc nsid params =
         Network.query (knot ^ "/xrpc/" ^ nsid) (("repo", repo) :: params)
       in
-      let tree =
-        Network.json network
-          (xrpc "org.tangled.git.getTree" [ ("ref", commit); ("path", dir) ])
-      in
-      if field "error" tree <> None then (
-        Printf.eprintf "spindle: no workflows in %s at %s: %s\n%!" repo commit
-          (encode tree);
-        [])
-      else
-        let files =
-          list (required "entries" tree)
-          |> List.filter (fun e ->
-              let mode = get "mode" e in
-              let mode =
-                String.sub mode
-                  (String.length mode - min 6 (String.length mode))
-                  (min 6 (String.length mode))
-              in
-              mode = "100644" || mode = "100755")
-          |> List.map (get "name")
-        in
-        if List.length files > 32 then
-          invalid "more than 32 files under .tangled/workflows";
-        List.filter_map
-          (fun name ->
+      {
+        list =
+          (fun dir ->
+            let tree =
+              Network.json network
+                (xrpc "org.tangled.git.getTree"
+                   [ ("ref", commit); ("path", dir) ])
+            in
+            if field "error" tree <> None then []
+            else
+              list (required "entries" tree)
+              |> List.filter (fun e ->
+                  let mode = get "mode" e in
+                  let mode =
+                    String.sub mode
+                      (String.length mode - min 6 (String.length mode))
+                      (min 6 (String.length mode))
+                  in
+                  mode = "100644" || mode = "100755")
+              |> List.map (get "name"));
+        read =
+          (fun path ->
             match
-              Network.fetch_status ~limit:262144 network
+              Network.fetch_status ~limit:1048576 network
                 (xrpc "org.tangled.git.getBlob"
-                   [ ("ref", commit); ("path", dir ^ "/" ^ name) ])
+                   [ ("ref", commit); ("path", path) ])
             with
-            | 200, contents -> Some (name, contents)
-            | status, _ ->
-                Printf.eprintf "spindle: %s/%s at %s: HTTP %d\n%!" dir name
-                  commit status;
-                None)
-          files
+            | 200, contents -> Some contents
+            | _ -> None);
+      }
+
+(* Repository workflows are the files of [.tangled/workflows]. *)
+let read_files config catalog network ~did ~commit =
+  let files = tree config catalog network ~did ~commit in
+  let dir = Workflows.directory in
+  let names = files.list dir in
+  if List.length names > 32 then
+    invalid "more than 32 files under .tangled/workflows";
+  List.filter_map
+    (fun name ->
+      Option.map
+        (fun contents -> (name, contents))
+        (files.read (dir ^ "/" ^ name)))
+    names
 
 let resolve_commit state repo ref_ =
   if
@@ -327,7 +430,14 @@ let resolve_commit state repo ref_ =
     | Some git -> (
         match
           String.trim
-            (git [ "rev-parse"; "--verify"; "-q"; "--"; ref_ ^ "^{commit}" ])
+            (git
+               [
+                 "rev-parse";
+                 "--verify";
+                 "-q";
+                 "--end-of-options";
+                 ref_ ^ "^{commit}";
+               ])
         with
         | "" -> None
         | commit -> Some commit)
@@ -344,8 +454,9 @@ let resolve_commit state repo ref_ =
         | _ -> None)
 
 let repository_definitions state repo ref_ =
+  if String.length ref_ > 256 then invalid "ref must be at most 256 bytes";
   match resolve_commit state repo ref_ with
-  | None -> []
+  | None -> reject Status.Not_found "RefNotFound" ("no such ref " ^ ref_)
   | Some commit ->
       Workflows.definitions ~repo ~commit
         (read_files state.config state.engine.catalog state.network ~did:repo
@@ -366,7 +477,13 @@ let runnable_push event =
           (fun o -> List.mem o [ "skip-ci"; "ci-skip" ])
           (strings "pushOptions" event))
 
-let notify state ~issuer body =
+(* A repository's token names the user acting through it in [act.sub]. Only
+   the repository's own signature makes that claim credible. *)
+let attribution req ~actor repo =
+  if actor <> repo then actor
+  else Option.value ~default:actor (Auth.controller (bearer req))
+
+let notify state req ~issuer body =
   let repo = did (get "repo" body) in
   let event = required "event" body in
   if get "repo" event <> repo then invalid "event names another repository";
@@ -389,28 +506,38 @@ let notify state ~issuer body =
         (* A banned pusher's push runs nothing and notifies no one. *)
         if Settings.banned state.settings actor then None
         else (
+          (* A knot resends a push it is unsure was delivered. Its webhook
+             fires once, as the reference spindle's push record allows. *)
           (if changes_ref then
              match Catalog.managed engine.catalog repo with
              | Some r when Catalog.admitted engine.catalog r.owner ->
-                 Hooks.push state.hooks r ~actor ~ref_
-                   ~before:(get "oldSha" event) ~after:new_sha
+                 let before = get "oldSha" event in
+                 if
+                   Engine.first engine "push-hook"
+                     (String.concat "/" [ repo; ref_; before; new_sha ])
+                 then
+                   Hooks.push state.hooks r ~actor ~ref_ ~before ~after:new_sha
              | _ -> ());
-          if not (runnable_push event) then None
-          else
-            let managed = Engine.managed engine repo in
-            let ref_ = get "ref" event in
-            let default_ref =
-              match Catalog.default_branch engine.catalog managed with
-              | Some branch -> ref_ = "refs/heads/" ^ branch
-              | None -> false
-            in
-            Engine.create engine
-              ~dedup:
-                (String.concat "/"
-                   [ "push"; repo; ref_; get "oldSha" event; new_sha ])
-              ~automatic:true ~default_ref ~actor
-              (obj [ ("repo", str repo); ("trigger", event) ]))
-    | t when t = Engine.manual ->
+          (* A push to a repository this spindle does not serve, or whose
+             owner is paused, runs nothing and is not an error, so that the
+             knot does not log it as one. *)
+          match Catalog.managed engine.catalog repo with
+          | None -> None
+          | Some _ when not (runnable_push event) -> None
+          | Some managed ->
+              let ref_ = get "ref" event in
+              let default_ref =
+                match Catalog.default_branch engine.catalog managed with
+                | Some branch -> ref_ = "refs/heads/" ^ branch
+                | None -> false
+              in
+              Engine.create engine
+                ~dedup:
+                  (String.concat "/"
+                     [ "push"; repo; ref_; get "oldSha" event; new_sha ])
+                ~automatic:true ~default_ref ~actor
+                (obj [ ("repo", str repo); ("trigger", event) ]))
+    | t when t = Engine.manual -> (
         let fields =
           [ ("repo", str repo); ("trigger", event) ]
           @
@@ -418,7 +545,30 @@ let notify state ~issuer body =
           | Some names -> [ ("workflows", names) ]
           | None -> []
         in
-        Engine.create engine ~automatic:false ~actor:issuer (obj fields)
+        (* The caller is checked before the knot is asked anything. A manual
+           run's ref is believed only when it holds the commit, since
+           workflows see it as the ref being built. *)
+        Engine.authorize engine ~principal:issuer repo;
+        let commit = sha (get "commit" event) in
+        Option.iter
+          (fun ref_ ->
+            let ref_ = string ref_ in
+            if
+              not
+                (Catalog.ref_contains engine.catalog
+                   (Engine.managed engine repo)
+                   ~ref_ ~commit)
+            then invalid ("ref " ^ ref_ ^ " does not contain commit " ^ commit))
+          (field "ref" event);
+        (* A manual run that starts nothing is refused, so its caller does not
+           report it as started. *)
+        match
+          Engine.create engine ~automatic:false ~principal:issuer
+            ~actor:(attribution req ~actor:issuer repo)
+            (obj fields)
+        with
+        | None -> invalid "no workflows match this manual run"
+        | created -> created)
     | _ -> invalid "unsupported event type"
   in
   ci_output (Option.to_list created)
@@ -433,16 +583,20 @@ let require_admin state actor =
      ^ actor)
 
 (* Secrets and webhooks are the settings of a served repository, which its
-   owner and collaborators may change. *)
+   owner and collaborators may change. Tangled also signs these requests with
+   the repository's own key. *)
 let settings_repo state actor repo =
   let repo = did repo in
   match Catalog.managed state.engine.catalog repo with
   | None -> reject Status.Not_found "RepoNotFound" "failed to access repository"
   | Some r ->
-      if not (Catalog.authorized state.engine.catalog r actor) then
+      if not (Catalog.permitted state.engine.catalog r actor) then
         reject Status.Forbidden "AccessControl"
           ("DID does not have sufficient access permissions for this \
             operation: " ^ actor);
+      if actor = r.did && Settings.banned state.settings r.owner then
+        reject Status.Forbidden "AccessControl"
+          "This repo is banned on this spindle.";
       r
 
 (* A ban names a repository and an owner alike. Everything kept for them is
@@ -531,21 +685,29 @@ let procedures =
   ]
 
 let handle state name req respond =
+  let post = List.mem name procedures in
+  let cors =
+    if name = "_did" then Headers.empty else Headers.of_list (cors state req)
+  in
+  let respond_json respond ?status ?(headers = Headers.empty) ?content_type json
+      =
+    respond_json respond ?status ~headers:(headers @ cors) ?content_type json
+  in
   try
-    if name = "org.tangled.ci.subscribePipelineLogs" then
+    if Req.meth req = Method.Options then preflight state req respond ~post
+    else if name = "org.tangled.ci.subscribePipelineLogs" then
       upgrade state req respond
     else
-      let post = List.mem name procedures in
+      let meth = Req.meth req in
       if
-        (post && Req.meth req <> Method.Post)
-        || (not post)
-           && Req.meth req <> Method.Get
-           && Req.meth req <> Method.Head
+        (post && meth <> Method.Post)
+        || ((not post) && meth <> Method.Get && meth <> Method.Head)
       then reject Status.Method_not_allowed "InvalidRequest" "wrong HTTP method";
       let body () = decode (Req.globalize (Req.body req)) in
       let catalog = state.engine.catalog in
       let result =
         match name with
+        | "_live" -> obj [ ("status", str "ok") ]
         | "_health" ->
             snd
               (Health.report state.health
@@ -578,12 +740,24 @@ let handle state name req respond =
                     ] );
               ]
         | "org.tangled.spindle.describeSpindle" ->
+            let optional key =
+              Option.fold ~none:[] ~some:(fun v -> [ (key, str v) ])
+            in
             obj
-              [
-                ("did", str (Catalog.self catalog));
-                ("version", str "oxmono");
-                ("capabilities", arr [ str "tangled1.0" ]);
-              ]
+              ([
+                 ("did", str (Catalog.self catalog));
+                 ("version", str "oxmono");
+                 ("capabilities", arr [ str "tangled1.0" ]);
+                 ( "links",
+                   obj
+                     (optional "privacyPolicy" state.config.privacy_policy
+                     @ optional "termsOfService" state.config.terms_of_service)
+                 );
+               ]
+              @
+              match state.config.contact_email with
+              | None -> []
+              | Some email -> [ ("contact", obj [ ("email", str email) ]) ])
         | "org.tangled.ci.getPipeline" ->
             let repo = did (query_required req "repo") in
             Engine.view state.engine
@@ -602,7 +776,10 @@ let handle state name req respond =
         | "org.tangled.ci.getWorkflowDefinition" -> (
             served state req;
             let name = query_required req "workflow" in
+            if not (Workflows.valid_name name) then
+              invalid "workflow must be a file name of 1 to 255 bytes";
             let repo = did (query_required req "repo") in
+            let ref_ = Option.value ~default:"HEAD" (query req "ref") in
             match
               List.find_opt
                 (fun (job : Job.t) -> job.name = name)
@@ -618,7 +795,7 @@ let handle state name req respond =
                 match
                   List.find_opt
                     (fun d -> get "id" d = name)
-                    (repository_definitions state repo "HEAD")
+                    (repository_definitions state repo ref_)
                 with
                 | Some d -> obj [ ("workflow", d) ]
                 | None ->
@@ -626,11 +803,12 @@ let handle state name req respond =
                       "workflow not found"))
         | "org.tangled.event.notifyEvent" ->
             let issuer = authorize state name req in
-            notify state ~issuer (body ())
+            notify state req ~issuer (body ())
         | "org.tangled.ci.cancelPipeline" ->
             let actor = authorize state name req in
             let body = body () in
             let repo = did (get "repo" body) in
+            Engine.authorize state.engine ~principal:actor repo;
             let p = find state ~repo (get "pipeline" body) in
             Engine.cancel state.engine ~actor ~repo ~id:p.id
               ~names:(strings "workflows" body);
@@ -639,6 +817,7 @@ let handle state name req respond =
             let actor = authorize state name req in
             let body = body () in
             let repo = did (get "repo" body) in
+            Engine.authorize state.engine ~principal:actor repo;
             let p = find state ~repo (get "pipeline" body) in
             if
               not
@@ -654,15 +833,15 @@ let handle state name req respond =
             let actor = authorize state name req in
             let body = body () in
             let repo = did (get "repo" body) in
+            Engine.authorize state.engine ~principal:actor repo;
             let p = find state ~repo (get "pipeline" body) in
             match
-              Engine.retry state.engine ~actor ~repo ~id:p.id
-                ~names:(strings "workflows" body)
+              Engine.retry state.engine ~principal:actor
+                ~actor:(attribution req ~actor repo)
+                ~repo ~id:p.id ~names:(strings "workflows" body)
             with
             | Some id -> obj [ ("pipeline", str id) ]
-            | None ->
-                reject Status.Bad_request "PipelineNotRetryable"
-                  "no workflow matches the original trigger")
+            | None -> invalid "no workflow matches the original trigger")
         | "org.tangled.temp.spindle.allowList.list" ->
             require_admin state (authorize state name req);
             obj [ ("dids", arr (List.map str (Catalog.allowed catalog))) ]
@@ -684,7 +863,9 @@ let handle state name req respond =
             let key = get "key" body and value = get "value" body in
             Settings.check_secret ~key ~value:(Some value);
             let r = settings_repo state actor (get "repo" body) in
-            Settings.add_secret state.settings ~repo:r.did ~by:actor key value;
+            Settings.add_secret state.settings ~repo:r.did
+              ~by:(attribution req ~actor r.did)
+              key value;
             obj []
         | "org.tangled.secret.removeSecret" ->
             let actor = authorize state name req in
@@ -753,8 +934,7 @@ let handle state name req respond =
             require_admin state (authorize state name req);
             let subject = get "did" (body ()) in
             if not (Atp.Did.is_valid subject) then
-              reject Status.Bad_request "InvalidDid"
-                ("invalid DID: " ^ subject);
+              reject Status.Bad_request "InvalidDid" ("invalid DID: " ^ subject);
             Settings.ban state.settings subject;
             wipe state subject;
             obj []
@@ -762,8 +942,7 @@ let handle state name req respond =
             require_admin state (authorize state name req);
             let subject = get "did" (body ()) in
             if not (Atp.Did.is_valid subject) then
-              reject Status.Bad_request "InvalidDid"
-                ("invalid DID: " ^ subject);
+              reject Status.Bad_request "InvalidDid" ("invalid DID: " ^ subject);
             Settings.unban state.settings subject;
             obj []
         | "org.tangled.temp.spindle.quota.list" ->
@@ -832,7 +1011,10 @@ let handle state name req respond =
             obj []
         | _ -> reject Status.Not_found "MethodNotFound" "unknown XRPC method"
       in
-      respond_json respond result
+      let content_type =
+        if name = "_did" then Some "application/did+json" else None
+      in
+      respond_json respond ?content_type result
   with
   | Not_ready report ->
       respond_json respond ~status:Status.Service_unavailable report
@@ -861,11 +1043,7 @@ let handle state name req respond =
       let headers =
         match status with
         | Status.Method_not_allowed ->
-            Headers.of_list
-              [
-                ( "Allow",
-                  if List.mem name procedures then "POST" else "GET, HEAD" );
-              ]
+            Headers.of_list [ ("Allow", allowed_methods ~post) ]
         | Status.Unauthorized ->
             Headers.of_list [ ("WWW-Authenticate", "Bearer") ]
         | _ -> Headers.empty
@@ -873,7 +1051,7 @@ let handle state name req respond =
       respond_json respond ~status ~headers
         (obj [ ("error", str code); ("message", str message) ])
   | Eio.Cancel.Cancelled _ as exn -> raise exn
-  | Eio.Io _ as exn ->
+  | (Eio.Io _ | Network.Unavailable _) as exn ->
       (* An unreachable knot, PDS or DID host. The knot retries a 5xx push. *)
       Printf.eprintf "spindle XRPC %s: %s\n%!" name (Printexc.to_string exn);
       respond_json respond ~status:Status.Service_unavailable
@@ -960,8 +1138,12 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
     Engine.v ~store ~catalog ~settings ~hostname:config.hostname
       ~jobs:config.jobs ~timeout:config.workflow_timeout
       ~executor:config.executor
-      ~read_workflows:(read_files config catalog network)
-      ~system ~directory ~sw ()
+      ?read_workflows:
+        (if config.repository_workflows then
+           Some (read_files config catalog network)
+         else None)
+      ~tree:(tree config catalog network)
+      ~concurrency:config.concurrency ~system ~directory ~sw ()
   in
   Engine.migrate engine config.repo;
   Engine.load engine;
@@ -1000,8 +1182,9 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
   Option.iter
     (fun jetstream ->
       Eio.Fiber.fork ~sw (fun () ->
-          Observer.run ~engine ~network ~hooks ~jetstream ~health
-            ~policy:operations))
+          Observer.run ~engine ~network ~hooks
+            ~wipe:(fun repo -> wipe state repo)
+            ~jetstream ~health ~policy:operations))
     config.jetstream;
   let open Route in
   let handler name env req respond = env (Req.globalize name) req respond in
@@ -1010,10 +1193,12 @@ let run ?(addr = "127.0.0.1") ?(operations = Operations.default) system config =
       [
         get (s "xrpc" / str) handler;
         post (s "xrpc" / str) handler;
+        route Method.Options (s "xrpc" / str) handler;
         get
           (s ".well-known" / s "did.json")
           (fun env req respond -> env "_did" req respond);
         get root (fun env req respond -> env "_health" req respond);
+        get (s "_health") (fun env req respond -> env "_live" req respond);
         get (s "readyz") (fun env req respond -> env "_ready" req respond);
       ]
   in

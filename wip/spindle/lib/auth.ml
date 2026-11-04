@@ -80,3 +80,14 @@ let authenticate ~resolve ~consume ~audience ~meth ~now token =
     check (consume ~issuer:actor ~jti ~expires:exp);
     actor
   with Invalid _ | Invalid_argument _ | Rejected -> raise Rejected
+
+let controller token =
+  match Jwt.parse ~max_size:8192 token with
+  | Error _ -> None
+  | Ok token -> (
+      match Jwt.Claims.get "act" (Jwt.claims token) with
+      | None -> None
+      | Some act -> (
+          match field "sub" act with
+          | Some (Jsont.String (sub, _)) when Atp.Did.is_valid sub -> Some sub
+          | _ | (exception Invalid _) -> None))

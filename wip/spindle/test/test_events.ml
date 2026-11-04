@@ -44,10 +44,33 @@ let () =
       ()
   in
   let job = Job.v "push-only" [] ~accepts:(fun c -> c.kind = Job.Push) in
+  let awaited = ref None and watched = ref [] in
   let engine =
     Engine.v ~store ~catalog ~settings ~hostname:"spindle.test"
       ~jobs:[ Job.inspect; job ]
-      ~executor:(fun _ _ -> ())
+      ~executor:(fun ctx r ->
+        (* A manual run asks for a spawned workflow with an input. *)
+        match List.assoc_opt "TANGLED_INPUT_SPAWN" r.variables with
+        | Some name when r.workflow = "inspect" ->
+            ctx.spawn name [ Job.step "child step" "true" ];
+            (* Progress is watched until every descendant has ended. *)
+            let rec follow since =
+              let now = ctx.spawned ?since () in
+              watched := now :: !watched;
+              if
+                List.exists
+                  (fun (p : Spindle.Executor.progress) ->
+                    p.status = `Pending || p.status = `Running)
+                  now
+              then follow (Some now)
+            in
+            follow None;
+            awaited := Some (ctx.await_spawned ())
+        | Some _ when r.workflow = "child" ->
+            ctx.spawn "grandchild" [ Job.step "grandchild step" "true" ]
+        | Some _ when r.workflow = "grandchild" ->
+            ctx.step "say" (fun () -> ctx.log `Stdout "hello\n")
+        | _ -> ())
       ~system:env ~directory ~sw ()
   in
   Eio.Semaphore.acquire engine.runner.slots;
@@ -60,6 +83,7 @@ let () =
         ("newSha", str (String.make 64 'a'));
         ("oldSha", str (String.make 40 '0'));
         ("ref", str "refs/heads/main");
+        ("pushOptions", arr [ str "deploy=now" ]);
       ]
   in
   let request = obj [ ("repo", str repo); ("trigger", trigger) ] in
@@ -70,9 +94,21 @@ let () =
     Engine.create engine ~dedup:"event-1" ~automatic:true ~actor:owner request
   in
   assert (first = second && Option.is_some first);
+  (* Refs are named as the reference spindle names them. *)
+  let ref_ r = List.map snd (Engine.ref_variables r) in
+  assert (ref_ "refs/heads/main" = [ "refs/heads/main"; "main"; "branch" ]);
+  assert (ref_ "refs/tags/v1" = [ "refs/tags/v1"; "v1"; "tag" ]);
+  assert (ref_ "refs/pull/1" = [ "refs/pull/1"; "refs/pull/1"; "branch" ]);
+  (* A webhook receipt is recorded once. *)
+  assert (Engine.first engine "push-hook" "r/refs/heads/main/a/b");
+  assert (not (Engine.first engine "push-hook" "r/refs/heads/main/a/b"));
   assert (Hashtbl.length engine.pipelines = 1);
   let pipeline = Option.get (Engine.find engine (Option.get first)) in
   assert (List.length pipeline.workflows = 2);
+  (* A view shows the lexicon's trigger fields only. *)
+  let shown = required "trigger" (Engine.view engine pipeline) in
+  assert (field "pushOptions" shown = None && get "repo" shown = repo);
+  assert (get "ref" shown = "refs/heads/main");
   assert (
     List.length (Engine.select_workflows pipeline [ "inspect"; "inspect" ]) = 1);
   Engine.cancel engine ~actor:owner ~repo ~id:pipeline.id ~names:[];
@@ -97,10 +133,40 @@ let () =
   assert (get "id" (required "definition" run) = "inspect");
   assert (get "$type" (required "trigger" view) = Engine.manual);
   let retried =
-    Engine.retry engine ~actor:owner ~repo ~id ~names:[] |> Option.get
+    Engine.retry engine ~principal:owner ~actor:owner ~repo ~id ~names:[]
+    |> Option.get
   in
   assert (retried <> id);
   Engine.cancel engine ~actor:owner ~repo ~id:retried ~names:[];
+  (* Access is checked for [principal], and [actor] is recorded, as for a
+     repository's token naming a user. *)
+  let user = "did:plc:uuuuuuuuuuuuuuuuuuuuuuuu" in
+  let by_owner =
+    Engine.retry engine ~principal:owner ~actor:user ~repo ~id ~names:[]
+    |> Option.get
+  in
+  let actor id = get "actor" (Option.get (Engine.find engine id)).metadata in
+  assert (actor by_owner = user);
+  Engine.cancel engine ~actor:owner ~repo ~id:by_owner ~names:[];
+  let manual =
+    Engine.create engine ~automatic:false ~principal:owner ~actor:user
+      (obj [ ("repo", str repo); ("trigger", trigger) ])
+    |> Option.get
+  in
+  assert (actor manual = user);
+  Engine.cancel engine ~actor:owner ~repo ~id:manual ~names:[];
+  (* A static repository has no knot, so its own DID is no principal. *)
+  List.iter
+    (fun principal ->
+      match
+        Engine.create engine ~automatic:false ~principal ~actor:user
+          (obj [ ("repo", str repo); ("trigger", trigger) ])
+      with
+      | _ -> failwith "an unauthorized principal started a pipeline"
+      | exception Spindle__Xrpc_error.E (Httpz.Res.Forbidden, "AccessControl", _)
+        ->
+          ())
+    [ user; repo ];
   Engine.cancel engine ~actor:owner ~repo ~id ~names:[];
   (* A blocked pipeline waits for approval and survives as live work. *)
   let blocked =
@@ -123,6 +189,7 @@ let () =
   | () -> failwith "an unblocked pipeline was approved"
   | exception J.Invalid _ -> ());
   Engine.cancel engine ~actor:owner ~repo ~id:blocked ~names:[];
+  assert (Engine.find engine "not-a-tid" = None);
   Eio.Semaphore.release engine.runner.slots;
   Eio.Semaphore.release engine.runner.slots;
   Store.batch store ~puts:[]
@@ -138,9 +205,7 @@ let () =
   Store.batch store ~deletes:[]
     ~puts:
       (List.init 300 (fun i ->
-           let trigger =
-             if i mod 2 = 0 then Engine.push else Engine.manual
-           in
+           let trigger = if i mod 2 = 0 then Engine.push else Engine.manual in
            ( "pipeline-view",
              id i,
              encode
@@ -149,10 +214,7 @@ let () =
                     ("id", str (id i));
                     ("repo", str repo);
                     ("commit", str (sha (i / 3)));
-                    ( "trigger",
-                      obj
-                        [ ("$type", str trigger) ]
-                    );
+                    ("trigger", obj [ ("$type", str trigger) ]);
                   ]) )));
   let query ?cursor ?(commits = []) ?(triggers = []) () =
     Engine.query engine ~repo ~limit:17 ~cursor ~triggers ~commits
@@ -161,13 +223,17 @@ let () =
   assert (number (required "total" page) = 300.);
   assert (get "cursor" page = id 283);
   assert (List.length (list (required "pipelines" page)) = 17);
+  (* Every page reports the whole count, as the reference spindle does. *)
   let page = query ~cursor:(id 283) () in
-  assert (number (required "total" page) = 283.);
+  assert (number (required "total" page) = 300.);
   assert (get "id" (List.hd (list (required "pipelines" page))) = id 282);
+  (* Each of a commit's pipelines matches. *)
+  let ids page = List.map (get "id") (list (required "pipelines" page)) in
   let latest = query ~commits:[ sha 42 ] () in
-  assert (get "id" (List.hd (list (required "pipelines" latest))) = id 128);
+  assert (ids latest = [ id 128; id 127; id 126 ]);
+  assert (number (required "total" latest) = 3.);
   let older = query ~commits:[ sha 42 ] ~cursor:(id 128) () in
-  assert (list (required "pipelines" older) = []);
+  assert (ids older = [ id 127; id 126 ]);
   let manual = query ~commits:[ sha 42 ] ~triggers:[ Engine.manual ] () in
   assert (get "id" (List.hd (list (required "pipelines" manual))) = id 127);
   Eio.Semaphore.acquire engine.runner.slots;
@@ -197,6 +263,86 @@ let () =
   List.iter cancel (replacement :: List.tl queued);
   Eio.Semaphore.release engine.runner.slots;
   Eio.Semaphore.release engine.runner.slots;
+  (* A workflow may add another to its running pipeline, which runs and is
+     shown with it, and wait for it and what it spawns. Waiting gives up the
+     only free slot. A retry reruns the workflow that spawned it. *)
+  Eio.Semaphore.acquire engine.runner.slots;
+  let spawner =
+    obj
+      [
+        ("$type", str Engine.manual);
+        ("commit", str (String.make 40 'a'));
+        ("inputs", arr [ obj [ ("key", str "spawn"); ("value", str "child") ] ]);
+      ]
+  in
+  let id =
+    Engine.create engine ~automatic:false ~actor:owner
+      (obj [ ("repo", str repo); ("trigger", spawner) ])
+    |> Option.get
+  in
+  let rec settle n =
+    let p = Option.get (Engine.find engine id) in
+    let names =
+      List.map (fun (r : Spindle__Runner.t) -> r.job.name) p.workflows
+    in
+    if
+      List.mem "grandchild" names
+      && List.for_all
+           (fun (r : Spindle__Runner.t) -> r.status = "success")
+           p.workflows
+    then p
+    else if n = 0 then
+      failwith
+        ("the spawned workflow did not finish: "
+        ^ String.concat ", "
+            (List.map
+               (fun (r : Spindle__Runner.t) ->
+                 r.job.name ^ "=" ^ r.status ^ " "
+                 ^ Option.value ~default:"" r.error)
+               p.workflows))
+    else (
+      Eio.Time.sleep env#clock 0.05;
+      settle (n - 1))
+  in
+  let p = settle 100 in
+  Eio.Semaphore.release engine.runner.slots;
+  assert (
+    List.map (fun (r : Spindle__Runner.t) -> r.job.name) p.workflows
+    = [ "inspect"; "child"; "grandchild" ]);
+  let shown =
+    List.map (get "name") (list (required "workflows" (Engine.view engine p)))
+  in
+  assert (shown = [ "inspect"; "child"; "grandchild" ]);
+  (match !awaited with
+  | Some [ child; grandchild ] ->
+      assert (child.workflow = "child" && child.status = `Success);
+      assert (grandchild.workflow = "grandchild");
+      assert (grandchild.log = "## say\nhello\n")
+  | _ -> failwith "the spawned workflows were not awaited");
+  (* Each observation after the first differs from the one before, and the
+     last shows both descendants ended. *)
+  let rec distinct = function
+    | a :: (b :: _ as rest) -> a <> b && distinct rest
+    | _ -> true
+  in
+  assert (distinct !watched);
+  (match !watched with
+  | last :: _ ->
+      assert (
+        List.map
+          (fun (p : Spindle.Executor.progress) ->
+            (p.workflow, p.status, p.step))
+          last
+        = [ ("child", `Success, None); ("grandchild", `Success, None) ])
+  | [] -> failwith "no progress was watched");
+  let again =
+    Engine.retry engine ~principal:owner ~actor:owner ~repo ~id
+      ~names:[ "child" ]
+    |> Option.get
+  in
+  (match (Option.get (Engine.find engine again)).workflows with
+  | (first : Spindle__Runner.t) :: _ -> assert (first.job.name = "inspect")
+  | [] -> assert false);
   print_endline
-    "events: durable dispatch deduplication, OCaml selection, approval, retry \
-     and cancellation passed"
+    "events: durable dispatch deduplication, OCaml selection, approval, retry, \
+     cancellation, spawning and awaiting passed"

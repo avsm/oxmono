@@ -571,6 +571,8 @@ let cmd =
       show_cmd;
       logs_cmd;
       trigger_cmd;
+      Cmd_watch.cmd;
+      Cmd_matrix.cmd;
       retry_cmd;
       cancel_cmd;
       approve_cmd;

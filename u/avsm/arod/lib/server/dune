@@ -1,4 +1,5 @@
 (library
  (name arod_server)
  (public_name arod.server)
- (libraries arod arod.handlers arod.log base proffer proffer-httpz eio logs))
+ (libraries arod arod.handlers arod.log base console console-eio eio eio.unix logs
+  mtime proffer proffer-httpz sqlite3-eio unix))

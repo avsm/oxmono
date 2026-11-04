@@ -36,6 +36,10 @@ val v :
     catalog for the spindle at [hostname]. [owner] and [admins] administer
     it. [static] is always served. Acceptance is cached for [ttl] seconds. *)
 
+val slug : string -> string
+(** [slug name] is the record key of a repository called [name]: [name] in
+    lowercase. *)
+
 val self : t -> string
 (** [self t] is the spindle's [did:web]. *)
 
@@ -71,6 +75,23 @@ val managed : t -> string -> repo option
 val forget : t -> string -> unit
 (** [forget t did] drops the cached acceptance of [did]. *)
 
+val known : t -> string -> bool
+(** [known t id] holds for the static repository and for repositories this
+    spindle has accepted before. It reads only local state. *)
+
+val ref_contains : t -> repo -> ref_:string -> commit:string -> bool
+(** [ref_contains t repo ~ref_ ~commit] holds when [commit] is among the 100
+    newest commits of [ref_] that [repo]'s knot lists, as deep as the reference
+    spindle looks. A static repository's refs are not checked. *)
+
+val names_self : t -> Jsont.json -> bool
+(** [names_self t manifest] holds when the [org.tangled.repo.manifest] record
+    [manifest] names this spindle. *)
+
+val deleted : t -> string -> bool
+(** [deleted t id] holds when the knot of repository [id] reports it deleted
+    through [com.atproto.sync.getRepoStatus]. *)
+
 val current : t -> repo -> bool
 (** [current t repo] checks that [repo] is still served by the same owner and
     knot. *)
@@ -85,6 +106,20 @@ val locate : t -> string -> string
 val authorized : t -> repo -> string -> bool
 (** [authorized t repo actor] holds for the owner and for collaborators the
     knot currently records. It asks the knot on every call. *)
+
+val permitted : t -> repo -> string -> bool
+(** [permitted t repo actor] holds when [actor] is the DID of [repo], which has
+    a knot, or when [authorized t repo actor] holds. Tangled signs a
+    repository's settings and pipeline requests with the repository's key, held
+    by its knot. A static repository has no knot, so its DID is not accepted. *)
+
+val pull_labels : t -> repo -> pull:string -> string list
+(** [pull_labels t repo ~pull] is the keys of the labels on the pull request
+    [pull], an AT-URI of a ticket of [repo], that its owner or a collaborator
+    added. A pull request's author may label it too, so a label counts only when
+    the version that last added it was made by someone [authorized] for [repo].
+    It asks the knot for every version of the ticket and checks each one's
+    content id. It is [[]] when anything fails. *)
 
 val default_branch : t -> repo -> string option
 (** [default_branch t repo] is the branch the knot's [org.tangled.git.refs]

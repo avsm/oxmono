@@ -1,0 +1,31 @@
+(lang dune 3.21)
+
+(name ocluster-client)
+
+(generate_opam_files true)
+
+(license ISC)
+
+(authors "Anil Madhavapeddy")
+
+(maintainers "anil@recoil.org")
+
+(package
+ (name ocluster-client)
+ (synopsis "Eio client for submitting jobs to an OCluster scheduler")
+ (description
+  "Ocluster-client connects to an OCluster scheduler with a submission
+capability file, submits OBuilder jobs to a pool, streams their logs and
+reads their results. It speaks Cap'n Proto RPC through capnp-rpc on Eio.")
+ (depends
+  (ocaml
+   (>= 5.2))
+  capnp
+  capnp-rpc
+  capnp-rpc-net
+  capnp-rpc-unix
+  eio
+  eio_main
+  fmt
+  logs
+  cmdliner))

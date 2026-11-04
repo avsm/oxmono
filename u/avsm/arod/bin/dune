@@ -24,6 +24,7 @@
   eio_main
   console.tty
   console
+  proffer-httpz
   unix
   cmdliner
   xdge

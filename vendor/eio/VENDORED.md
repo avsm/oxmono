@@ -102,6 +102,9 @@ identify the vendored source version.
   `eio_main.mli` otherwise fails with `Unbound module Eio_unix`. Verified with
   all backend selections disabled in an isolated build, unchanged POSIX
   smoke-test output before and after the patch, and Crowthebot's tests.
+- [MDX closure](tests/dune): list `iomux` among the MDX stanza's packages,
+  since it is vendored in [../iomux](../iomux) and must not mix with an
+  installed copy. Not run, because MDX is not installed here.
 
 These patches do not advance the upstream base. The complete local history is
 available with `git log -- vendor/eio`; include working-tree changes when
@@ -143,11 +146,5 @@ are inert. `dune build @wip/imap/test/vendor_modes/runtest --force`
 guards the portability claims of `b7063e17`, and the IMAP, Maildir and
 sqlite3 `runtest` aliases exercise fiber keys, system threads and paths.
 
-On macOS and other POSIX systems, the current backend requires `iomux >= 0.2`.
-The vendored sources do not install their external dependencies. An older
-installed `eio_posix` may not have brought in `iomux`. Install it in the build
-switch before compiling applications:
-
-```sh
-opam install --switch=5.2.0+ox 'iomux>=0.2'
-```
+The POSIX backend requires `iomux >= 0.2`, vendored in [../iomux](../iomux).
+Without it, `eio_main` silently builds without the POSIX backend.

@@ -1,7 +1,7 @@
 (test
  (name test_auth)
  (modules test_auth)
- (libraries spindle jsont jsont.bytesrw)
+ (libraries spindle jsont jsont.bytesrw base64)
  (deps auth-fixtures.json))
 
 (executable
@@ -17,12 +17,12 @@
 (test
  (name test_events)
  (modules test_events)
- (libraries spindle eio_main))
+ (libraries spindle httpz eio_main))
 
 (test
  (name test_catalog)
  (modules test_catalog)
- (libraries spindle uriz eio_main))
+ (libraries spindle atp uriz eio_main))
 
 (test
  (name test_runner)
@@ -43,3 +43,8 @@
  (name test_workflows)
  (modules test_workflows)
  (libraries spindle))
+
+(test
+ (name test_observer)
+ (modules test_observer)
+ (libraries spindle eio_main))

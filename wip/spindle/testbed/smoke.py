@@ -44,6 +44,24 @@ def request(url, data=None, token=None, status=200, raw=None, content_type="appl
         return json.loads(payload) if payload else None
 
 
+def cors(method, origin, preflight):
+    """[cors method origin preflight] is the status and headers answered to a
+    browser on [origin] calling [method]."""
+    headers = {"Origin": origin}
+    if preflight:
+        headers["Access-Control-Request-Method"] = "GET"
+        headers["Access-Control-Request-Headers"] = "authorization"
+    req = urllib.request.Request(SPINDLE + method, headers=headers,
+                                 method="OPTIONS" if preflight else "GET")
+    try:
+        response = urllib.request.urlopen(req, timeout=10)
+    except urllib.error.HTTPError as error:
+        response = error
+    with response:
+        response.read()
+        return response.status, response.headers
+
+
 def get(method, **query):
     return request(SPINDLE + method + "?" + urllib.parse.urlencode(query))
 
@@ -233,6 +251,20 @@ def main():
 
     alice = login("alice")
     assert get("org.tangled.spindle.describeSpindle")["did"] == AUDIENCE
+    secrets = "org.tangled.secret.listSecrets?repo=" + REPO
+    status, headers = cors(secrets, "https://tangled.test", True)
+    assert status == 204, status
+    assert headers["Access-Control-Allow-Origin"] == "https://tangled.test"
+    assert "Authorization" in headers["Access-Control-Allow-Headers"]
+    status, headers = cors(secrets, "https://tangled.test", False)
+    assert status == 401, status
+    assert headers["Access-Control-Allow-Origin"] == "https://tangled.test"
+    status, headers = cors(secrets, "https://other.test", True)
+    assert status == 204 and "Access-Control-Allow-Origin" not in headers
+    stream = "org.tangled.ci.subscribePipelineLogs?repo=" + REPO + "&pipeline=x"
+    status, _ = cors(stream, "https://other.test", False)
+    assert status == 403, status
+    print("PASS: CORS answers the configured origin only")
     token = auth(alice)
     sha = (state / "commit").read_text().strip()
     body = manual(sha, ref="refs/heads/main", inputs=[
@@ -240,7 +272,7 @@ def main():
 
     request(SPINDLE + TRIGGER, body, status=401)
     request(SPINDLE + TRIGGER, status=405)
-    request(SPINDLE + TRIGGER, body, auth(login("bob")), status=401)
+    request(SPINDLE + TRIGGER, body, auth(login("bob")), status=403)
     request(SPINDLE + TRIGGER, body,
             auth(alice, audience="did:web:wrong.tangled.test"), status=401)
     request(SPINDLE + TRIGGER, body,
@@ -274,7 +306,11 @@ def main():
     assert result["commit"] == sha
     text = "".join(e["content"] for e in events if e["type"] == "data")
     # The default executor describes the workflow instead of running it.
-    assert "Workflow    inspect" in text and "  ls -la" in text, text
+    assert "Workflow    inspect" in text, text
+    commands = [(e["content"], e.get("command"), e["kind"]) for e in events
+                if e["type"] == "control" and e["status"] == "start"]
+    assert commands == [("describe the request", None, "system"),
+                        ("list files", "ls -la", "user")], commands
     described = "".join(e["content"] for e in events
                         if e["type"] == "data" and e["step"] == 0)
     lines = described.splitlines()
@@ -288,10 +324,14 @@ def main():
             if e["type"] == "control" and e["status"] == "end"]
     assert starts == ends == [0, 1]
     queried = get("org.tangled.ci.queryPipelines", repo=REPO, commits=sha)
-    assert len(queried["pipelines"]) == 1
+    # Every pipeline of the commit matches, newest first, including any from
+    # earlier runs on this state directory.
     assert queried["pipelines"][0]["id"] == pipeline
+    assert all(p["commit"] == sha for p in queried["pipelines"])
     (state / "last-run.json").write_text(json.dumps(
         {"id": pipeline, "events": events, "frames": frames, "request": body}, indent=2))
+    # Pagination needs a second pipeline, even in a fresh state directory.
+    wait_pipeline(dispatch(body, auth(alice)))
     page = get("org.tangled.ci.queryPipelines", repo=REPO, limit=1)
     assert "cursor" in page
     next_page = get("org.tangled.ci.queryPipelines", repo=REPO, limit=1,

@@ -30,6 +30,9 @@ type t = private {
   definition : Jsont.json option;
       (** The [org.tangled.ci.defs#workflow] of a repository workflow. *)
   yaml : string option;  (** The text of a repository workflow's file. *)
+  spawned : bool;
+      (** Whether an executor added it to a running pipeline. A retry runs the
+          workflows that spawned it instead. *)
 }
 
 val step : ?env:(string * string) list -> string -> string -> step
@@ -56,6 +59,10 @@ val workflow :
 (** [workflow ~env ~clone ~definition ~yaml name steps] is a workflow read from
     the file [yaml] in a repository's [.tangled/workflows], already selected for
     its event. *)
+
+val spawned : ?env:(string * string) list -> string -> step list -> t
+(** [spawned ~env name steps] is a workflow an executor adds to its pipeline
+    while it runs, with [env] added to every step's environment. *)
 
 val inspect : t
 (** [inspect] lists the files of the checked-out commit. *)

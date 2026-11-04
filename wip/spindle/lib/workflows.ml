@@ -3,16 +3,13 @@ open Json
 
 let directory = ".tangled/workflows"
 
-(* Workflow names become parts of file names in the state directory. *)
+(* Any regular file is a workflow, as in the reference spindle. Its name is
+   shown and logged, so it must be printable UTF-8. *)
 let valid_name name =
-  name <> ""
-  && String.length name <= 128
-  && name.[0] <> '.'
-  && String.for_all
-       (function
-         | 'a' .. 'z' | 'A' .. 'Z' | '0' .. '9' | '_' | '-' | '.' -> true
-         | _ -> false)
-       name
+  name <> "" && name <> "." && name <> ".."
+  && String.length name <= 255
+  && String.is_valid_utf_8 name
+  && String.for_all (fun c -> c <> '/' && c >= ' ' && c <> '\127') name
 
 (* Glob matching as doublestar does it: [*] and [?] stay within a path
    segment, [**] crosses them, and [\[...\]] and [{a,b}] select. *)

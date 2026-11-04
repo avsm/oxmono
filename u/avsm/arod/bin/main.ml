@@ -30,7 +30,7 @@ let config_file =
   Arg.(value & opt (some file) None & info [ "c"; "config" ] ~docv:"FILE" ~doc)
 
 let serve_cmd =
-  let run () config_file =
+  let run () config_file theme no_dashboard =
     let cfg = Arod.Config.load_or_default ?path:config_file () in
     Log.info (fun m -> m "Starting Arod server...");
     Log.info (fun m -> m "Config:@.%a" Arod.Config.pp cfg);
@@ -97,21 +97,76 @@ let serve_cmd =
         ~now:(fun () -> Eio.Time.now clock)
     in
     let site = Arod_server.Site.build cfg in
-    let serve () =
-      Arod_server.run ~sw ~stdenv:env ~config:cfg ~log ~env:henv site
+    (* The dashboard redraws on standard error, so it only makes sense when
+       that is a terminal. Logs then scroll above it. *)
+    let dashboard =
+      if no_dashboard || not (Console_tty.is_terminal Unix.stderr) then None
+      else
+        Some
+          (Arod_server.Dashboard.create ~clock:(Eio.Stdenv.mono_clock env)
+             ~wall:(fun () -> Eio.Time.now clock)
+             ~site:cfg.site.name
+             ~listen:
+               (Printf.sprintf "http://%s:%d" cfg.server.host cfg.server.port)
+             ~content:[
+               ("notes", List.length (Arod.Ctx.notes ctx));
+               ("papers", List.length (Arod.Ctx.papers ctx));
+               ("projects", List.length (Arod.Ctx.projects ctx));
+               ("ideas", List.length (Arod.Ctx.ideas ctx));
+               ("videos", List.length (Arod.Ctx.videos ctx));
+               ("images", List.length (Arod.Ctx.images ctx));
+               ("feed items", List.length (Arod.Ctx.feed_items ctx));
+             ]
+             ~search_entries:(fun () ->
+               match !search_ref with
+               | None -> None
+               | Some _ ->
+                 Some (List.length (Arod.Ctx.all_entries ctx)
+                       + List.length (Arod.Ctx.all_links ctx)))
+             ~cache_stats:(fun () -> Proffer.Cache.stats henv.cache)
+             ~max_connections:Proffer_httpz.default_config.max_connections ())
     in
-    (match cfg.server.finger_port with
-     | Some finger_port ->
-       Eio.Fiber.both serve
-         (fun () ->
-           let handler = Arod_finger.handler ~ctx in
-           Finger.Server.run ~sw ~net ~port:finger_port ~handler ())
-     | None -> serve ());
+    let serve () =
+      Arod_server.run ~sw ~stdenv:env ~config:cfg ~log ?dashboard ~env:henv
+        site
+    in
+    let serve_all () =
+      match cfg.server.finger_port with
+      | Some finger_port ->
+        Eio.Fiber.both serve
+          (fun () ->
+            let handler = Arod_finger.handler ~ctx in
+            Finger.Server.run ~sw ~net ~port:finger_port ~handler ())
+      | None -> serve ()
+    in
+    (match dashboard with
+     | None -> serve_all ()
+     | Some dash ->
+       C.Theme.set Fmt.stderr theme;
+       Arod_server.Dashboard.run ~sw ~clock:(Eio.Stdenv.mono_clock env)
+         ~reader:(Arod_log.reader log) dash serve_all);
     0
   in
+  let theme =
+    let doc = "The theme of the live dashboard." in
+    Arg.(value & opt (enum C.Theme.all) C.Theme.default
+         & info [ "theme" ] ~docv:"THEME" ~doc)
+  in
+  let no_dashboard =
+    let doc = "Do not draw the live dashboard on a terminal." in
+    Arg.(value & flag & info [ "no-dashboard" ] ~doc)
+  in
   let doc = "Start the Arod webserver." in
-  let info = Cmd.info "serve" ~doc in
-  Cmd.v info Term.(const run $ logging_t $ config_file)
+  let man = [
+    `S Manpage.s_description;
+    `P "Serve the site on the configured port. When standard error is a \
+        terminal, a live dashboard of request rates, latencies, statuses, \
+        paths, visitors and process load is redrawn at the bottom of it, \
+        with log lines scrolling above. $(b,--no-dashboard) keeps the plain \
+        log, which is also what a pipe or a service manager gets.";
+  ] in
+  let info = Cmd.info "serve" ~doc ~man in
+  Cmd.v info Term.(const run $ logging_t $ config_file $ theme $ no_dashboard)
 
 let init_cmd =
   let run () =

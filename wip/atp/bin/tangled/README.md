@@ -230,6 +230,51 @@ Logs use the CBOR WebSocket API. Text mode preserves stdout, stderr, newlines
 and partial lines. `--json` includes control events. The command reads until
 the server closes the stream. It does not reconnect.
 
+### Watching pipelines
+
+```sh
+tangled pipeline watch                        # every repository you own with CI
+tangled pipeline watch alice.test/demo --json
+tangled pipeline watch --commit HEAD --until-finished
+tangled pipeline watch --once                 # what is running now
+```
+
+`watch` prints a line when a pipeline starts, when a workflow is added or
+changes status, and when a pipeline finishes. Pipelines that had finished
+before the watch began are not reported. A line about a failed or waiting
+workflow, or a finished pipeline that did not pass, is followed by `next:`
+lines holding the commands to run, such as the failed workflow's logs, a
+retry or an approval. With `--json` each event is one JSON object per line,
+with `event` (`started`, `workflow` or `finished`), the repository,
+pipeline, commit, trigger, statuses, counts, page URL and `next` commands.
+
+Spindles publish no stream of pipeline changes, so `watch` polls each
+repository's spindle every `--interval` seconds, 15 by default, as
+Tangled's web pages do. Without repositories named, it watches every
+repository the logged-in account declares that names a spindle, and lists
+them again now and then. `--until-finished` exits once a reported pipeline
+finishes, successfully only if it passed, and `--commit` limits the watch to
+one commit. [skills/tangled-ci](skills/tangled-ci/SKILL.md) is an agent
+skill built on it.
+
+### Reporting pipelines in Matrix
+
+```sh
+tangled pipeline matrix set --bot @ci:example.org --room '#ci:example.org'
+tangled pipeline matrix show
+tangled pipeline matrix remove
+```
+
+A [tangled-matrix](../../../tangled-matrix/README.md) poster keeps one
+message per pipeline up to date in a Matrix room. `set` asks it to by
+writing an `org.recoil.tangled.matrix` record to your account, keyed by the
+repository's DID, naming the bot and the room. An alias is resolved to the
+room's ID through the directory of the alias's server, found by its
+`.well-known/matrix/client`, without logging in to Matrix. `:bot@server` is
+read as `@bot:server`. `show` lists the bindings that the repository's owner
+and collaborators have made. The record is public and names only the room's
+ID.
+
 ## Issues, pulls, keys and stars
 
 ```sh

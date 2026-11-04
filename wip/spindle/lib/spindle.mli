@@ -25,6 +25,18 @@ type config = {
   quotas : Settings.defaults;  (** Default limits. *)
   private_webhooks : bool;
       (** Let webhooks reach private addresses, on a development network. *)
+  cors_origins : string list;
+      (** Origins whose browser pages may call XRPC methods, or ["*"] for any.
+          The empty list sends no CORS fields. *)
+  contact_email : string option;  (** An address [describeSpindle] reports. *)
+  privacy_policy : string option;  (** A URL [describeSpindle] links to. *)
+  terms_of_service : string option;  (** A URL [describeSpindle] links to. *)
+  concurrency : int;
+      (** Workflows that may run at once. An executor that waits on remote
+          builders can allow many. *)
+  repository_workflows : bool;
+      (** Whether each repository's [.tangled/workflows] also run. A spindle
+          whose executor runs only its own [jobs] turns them off. *)
 }
 (** [config] serves repositories whose knot manifest names this spindle and
     whose owner is admitted. [owner] and [admins] administer the spindle and
@@ -41,6 +53,7 @@ val run :
   config ->
   unit
 (** [run system config] serves Tangled CI XRPC through Proffer. It hands the
-    OCaml [jobs] and each repository's [.tangled/workflows] YAML to
-    [config.executor]. State, event cursors, JWT nonces and logs persist in
-    SQLite. A workflow's log may hold at most 1 MiB. *)
+    OCaml [jobs], and each repository's [.tangled/workflows] YAML when
+    [repository_workflows] is set, to [config.executor]. State, event cursors,
+    JWT nonces and logs persist in SQLite. A workflow's log may hold at most 1
+    MiB. *)

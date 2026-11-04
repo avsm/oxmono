@@ -28,6 +28,14 @@ let () =
       metadata = J.obj [ ("actor", J.str "did:web:actor.test") ];
       variables = [ ("CI", "true") ];
       secrets;
+      files =
+        {
+          list = (fun dir -> if dir = "" then [ "demo.opam" ] else []);
+          read =
+            (fun path ->
+              if path = "demo.opam" then Some "opam-version: \"2.0\"" else None);
+        };
+      labels = (fun () -> []);
     }
   in
   (* Each step's end event, as (step, kind, outcome). *)
@@ -58,6 +66,7 @@ let () =
       (input ?secrets "3jzfcijpj2z2a")
       ~record:(fun _ -> 0L)
       ~persist:(fun () -> ())
+      ~spawn:(fun ~env:_ _ _ -> ())
       workflow;
     workflow
   in
@@ -76,8 +85,47 @@ let () =
         ctx.step "one" ignore;
         ctx.step "two" (fun () -> failwith "broken"))
   in
-  assert (w.status = "failed");
+  assert (w.status = "failed" && w.error = Some "broken");
   assert (ends w = [ (0, "user", "success"); (1, "user", "failed") ]);
+  (* The log has one line per frame. An unterminated line waits for its
+     newline or the end of the step, and a long one is split between UTF-8
+     characters. *)
+  let frames ?(step = 0) (workflow : Runner.t) =
+    List.rev workflow.events
+    |> List.filter_map (fun event ->
+        if
+          J.get "type" event = "data"
+          && J.number (J.required "step" event) = float_of_int step
+        then Some (J.get "content" event)
+        else None)
+  in
+  let w =
+    run (fun ctx _ ->
+        ctx.step "s" (fun () ->
+            List.iter (ctx.log `Stdout) [ "a\nb"; "c\n\nd" ]))
+  in
+  assert (frames w = [ "a\n"; "bc\n"; "\n"; "d" ]);
+  let long = String.make 16383 'x' ^ "€" in
+  let w = run (fun ctx _ -> ctx.step "s" (fun () -> ctx.log `Stdout long)) in
+  assert (frames w = [ String.make 16383 'x'; "€" ]);
+  (* A step may carry its command and be marked as the executor's own. *)
+  let starts (workflow : Runner.t) =
+    List.rev workflow.events
+    |> List.filter_map (fun event ->
+        if J.get "type" event = "control" && J.get "status" event = "start" then
+          Some
+            ( J.get "content" event,
+              Option.map J.string (J.field "command" event),
+              J.get "kind" event )
+        else None)
+  in
+  let w =
+    run (fun ctx _ ->
+        ctx.step ~kind:`System "setup" ignore;
+        ctx.step ~command:"make" "build" ignore)
+  in
+  assert (
+    starts w = [ ("setup", None, "system"); ("build", Some "make", "user") ]);
   (* Logging outside a step is refused. *)
   let w = run (fun ctx _ -> ctx.log `Stdout "stray") in
   assert (w.status = "failed" && w.events = []);
@@ -98,7 +146,7 @@ let () =
     run ~timeout:0.05 (fun ctx _ ->
         ctx.step "s" (fun () -> Eio.Time.sleep env#clock 5.))
   in
-  assert (w.status = "timeout");
+  assert (w.status = "timeout" && w.error = None);
   assert (ends w = [ (0, "user", "failed") ]);
   (* Cancellation stops a running executor. *)
   let started, started_r = Eio.Promise.create () in
@@ -113,11 +161,13 @@ let () =
         (input "cancel")
         ~record:(fun _ -> 0L)
         ~persist:(fun () -> ())
+        ~spawn:(fun ~env:_ _ _ -> ())
         workflow)
     (fun () ->
       Eio.Promise.await started;
       Runner.cancel ~persist:(fun () -> ()) workflow);
   assert (workflow.status = "cancelled");
+  assert (workflow.error = Some "User canceled the workflow");
   assert (ends workflow = [ (0, "user", "failed") ]);
   (* Secret values and their base64 forms are hidden, even split across
      calls, and text held back at the end of a step is kept. *)
@@ -150,6 +200,7 @@ let () =
   assert (r.variables = [ ("CI", "true") ]);
   assert (r.secrets = [ ("TOKEN", "hunter2") ]);
   assert (r.steps = job.steps);
+  assert (r.files.list "" = [ "demo.opam" ] && r.files.read "missing" = None);
   let restored = Runner.restore (Runner.snapshot w) in
   assert (restored.job.steps = job.steps && restored.job.env = job.env);
   assert (restored.job.yaml = Some yaml && not restored.job.clone);
@@ -161,7 +212,12 @@ let () =
       (Executor.print ~delay:0. env#clock)
   in
   assert (w.status = "success");
-  assert (ends w = [ (0, "user", "success"); (1, "user", "success") ]);
+  assert (ends w = [ (0, "system", "success"); (1, "user", "success") ]);
+  assert (
+    starts w
+    = [
+        ("describe the request", None, "system"); ("build", Some "make", "user");
+      ]);
   let described = output w in
   let contains s =
     let n = String.length s in
@@ -173,9 +229,35 @@ let () =
   in
   assert (contains "TOKEN=<secret>" && not (contains "hunter2"));
   assert (contains "  engine: nixery" && contains "LEVEL=workflow");
-  assert (output ~step:1 w = "Command\n  make\nEnvironment\n  LEVEL=step\n");
-  (* An unterminated line is in the live stream and in SQLite before the
-     workflow finishes, but not in the snapshot. *)
+  assert (output ~step:1 w = "Environment\n  LEVEL=step\n");
+  (* The simulated planner solves, then spawns a build for each compiler,
+     which reports made-up output for its steps. *)
+  let spawned = ref [] in
+  let workflow = Runner.v (Job.v "solve" []) in
+  Runner.execute
+    (runner (Executor.solve ~compilers:[ "ocaml-4.14"; "ocaml-5.5" ] env#clock))
+    (input "solve")
+    ~record:(fun _ -> 0L)
+    ~persist:(fun () -> ())
+    ~spawn:(fun ~env name steps -> spawned := (name, env, steps) :: !spawned)
+    workflow;
+  assert (workflow.status = "success");
+  assert (List.map (fun (n, _, _) -> n) !spawned = [ "ocaml-5.5"; "ocaml-4.14" ]);
+  let _, compiler_env, steps = List.hd !spawned in
+  let build = Runner.v (Job.spawned ~env:compiler_env "ocaml-5.5" steps) in
+  Runner.execute
+    (runner (Executor.solve env#clock))
+    (input "build")
+    ~record:(fun _ -> 0L)
+    ~persist:(fun () -> ())
+    ~spawn:(fun ~env:_ _ _ -> failwith "a build spawned")
+    build;
+  assert (build.status = "success");
+  assert (ends build = List.map (fun i -> (i, "user", "success")) [ 0; 1; 2 ]);
+  let restored = Runner.restore (Runner.snapshot build) in
+  assert (restored.job.spawned && restored.job.env = compiler_env);
+  (* A line is in the live stream and in SQLite before the workflow finishes,
+     but not in the snapshot. *)
   Eio.Switch.run (fun sw ->
       let store = Store.open_ ~sw directory in
       let written, written_r = Eio.Promise.create () in
@@ -195,18 +277,20 @@ let () =
       let contains events =
         List.exists
           (fun event ->
-            J.field "content" event = Some (J.str "durable-partial"))
+            J.field "content" event = Some (J.str "durable-partial\n"))
           events
       in
       let executor (ctx : Executor.context) _ =
         ctx.step "s" (fun () ->
-            ctx.log `Stdout "durable-partial";
+            ctx.log `Stdout "durable-partial\n";
             Eio.Promise.resolve written_r ();
             Eio.Promise.await release)
       in
       Eio.Fiber.both
         (fun () ->
-          Runner.execute (runner executor) input ~record ~persist workflow)
+          Runner.execute (runner executor) input ~record ~persist
+            ~spawn:(fun ~env:_ _ _ -> ())
+            workflow)
         (fun () ->
           Eio.Promise.await written;
           assert (workflow.status = "running");
@@ -253,4 +337,4 @@ let () =
     = [ ("spindle request metadata", ""); ("ls -la", "ls -la") ]);
   print_endline
     "runner: executor steps, outcomes, cancellation, time limit, bounded and \
-     durable logs, secret masking and the default executor passed"
+     durable logs, secret masking and the default and solving executors passed"

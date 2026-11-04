@@ -160,14 +160,53 @@ let defer t namespace key ~now =
       execute t
         {|INSERT INTO retry(namespace,key,attempts,due) VALUES(?,?,1,?+1)
           ON CONFLICT(namespace,key) DO UPDATE SET
-          attempts=MIN(retry.attempts+1,6),
-          due=?+MIN(1 << retry.attempts,60)|}
+          attempts=retry.attempts+1,
+          due=?+MIN(1 << MIN(retry.attempts,12),3600)|}
         [
           text namespace;
           text key;
           Sqlite3.Data.FLOAT now;
           Sqlite3.Data.FLOAT now;
-        ])
+        ];
+      match
+        rows t "SELECT attempts FROM retry WHERE namespace=? AND key=?"
+          [ text namespace; text key ]
+      with
+      | [ [| n |] ] -> Int64.to_int (Sqlite3.Data.to_int64_exn n)
+      | _ -> 1)
+
+let hold t namespace key ~behind =
+  locked t (fun () ->
+      execute t
+        {|INSERT INTO retry(namespace,key,attempts,due)
+          SELECT ?,?,0,due FROM retry WHERE namespace=? AND key=?
+          ON CONFLICT(namespace,key) DO UPDATE SET due=excluded.due|}
+        [ text namespace; text key; text namespace; text behind ])
+
+let delay t namespace key ~until =
+  locked t (fun () ->
+      execute t
+        {|INSERT INTO retry(namespace,key,attempts,due) VALUES(?,?,0,?)
+          ON CONFLICT(namespace,key) DO UPDATE SET due=excluded.due|}
+        [ text namespace; text key; Sqlite3.Data.FLOAT until ])
+
+let waiting t namespace ~now =
+  locked t (fun () ->
+      rows t
+        {|SELECT kv.key FROM kv JOIN retry
+          ON retry.namespace=kv.namespace AND retry.key=kv.key
+          WHERE kv.namespace=? AND retry.due>? ORDER BY kv.key|}
+        [ text namespace; Sqlite3.Data.FLOAT now ]
+      |> List.map (fun row -> string row.(0)))
+
+let advance t ~source ~cursor =
+  ignore (Int64.of_string cursor);
+  locked t (fun () ->
+      execute t
+        {|INSERT INTO kv(namespace,key,value) VALUES('cursor',?,?)
+          ON CONFLICT(namespace,key) DO UPDATE SET value=excluded.value
+          WHERE CAST(excluded.value AS INTEGER)>CAST(kv.value AS INTEGER)|}
+        [ text source; text cursor ])
 
 let batch_unlocked ?(logs = []) t ~puts ~deletes =
   check (Sqlite3_eio.exec t.db "BEGIN IMMEDIATE");
@@ -551,7 +590,8 @@ let prune t ~now (policy : Operations.t) =
             ];
           execute t
             {|DELETE FROM kv WHERE namespace IN
-           ('pull-seen','observer','sh.tangled.repo','sh.tangled.spindle.member')
+           ('pull-seen','observer','sh.tangled.repo','sh.tangled.spindle.member',
+            'push-hook','pull-hook','pull-patch')
           AND (namespace,key) IN (SELECT namespace,key FROM age WHERE updated<?)|}
             [
               Sqlite3.Data.FLOAT

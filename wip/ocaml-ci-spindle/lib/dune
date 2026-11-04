@@ -1,0 +1,17 @@
+(library
+ (name ocaml_ci_spindle)
+ (public_name ocaml-ci-spindle)
+ (libraries
+  spindle
+  ocluster-client
+  opam-core
+  opam-format
+  opam-0install
+  eio
+  eio.unix
+  fetch
+  fetch-httpz
+  jsont
+  jsont.bytesrw
+  mtime
+  fmt))

@@ -9,6 +9,8 @@ not promises that historical test runs still apply.
   evaluation, reviewed identities and attention workflows.
 - [Matrix interoperability audit](wip/matrix/TODO.md#verification-interoperability-audit):
   run the independent-client checklist on a Docker host.
+- [ocaml-ci-spindle plans](wip/ocaml-ci-spindle/PLAN.md): estimated build
+  times from earlier runs, and approved candidate fixes from diagnosis.
 - Multi-domain HTTP serving: `Proffer_httpz.run` currently serves connections
   as fibers on one domain. Arod's log database and other capabilities need an
   explicit ownership and dispatch design before adding domains. Start with

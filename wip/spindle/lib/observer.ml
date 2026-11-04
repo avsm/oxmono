@@ -34,7 +34,22 @@ let cursor store (policy : Operations.t) ~now =
       Store.put store "cursor" "jetstream" value;
       value
 
-let connect ~system ~store ~url ~health ~policy =
+(* Jetstream sends identity and account events for the whole network,
+   whatever the wanted collections. Only an owner whose account went inactive
+   concerns this spindle. *)
+let wanted settings event =
+  try
+    match get "kind" event with
+    | "commit" ->
+        List.mem (get "collection" (required "commit" event)) collections
+    | "account" ->
+        let account = required "account" event in
+        field "active" account = Some (Jsont.Json.bool false)
+        && Settings.repos_of settings (did (get "did" event)) <> []
+    | _ -> false
+  with Invalid _ -> false
+
+let connect ~system ~store ~settings ~url ~health ~policy =
   let source = "jetstream" in
   let cursor = cursor store policy ~now:(Eio.Time.now system#clock) in
   let url =
@@ -54,21 +69,31 @@ let connect ~system ~store ~url ~health ~policy =
         if kind <> Httpz_websocket.Text then invalid "event must be JSON text";
         let event = decode (Bytes.sub_string bytes off len) in
         let timestamp = timestamp event in
+        let cursor = Int64.to_string timestamp in
+        (* An event this spindle cannot name or does not want is passed over,
+           so that it cannot stall the stream. *)
         let id =
-          String.concat "/"
-            ([ source; Int64.to_string timestamp; get "did" event ]
-            @
-            match field "commit" event with
-            | None -> [ get "kind" event ]
-            | Some commit ->
-                [
-                  get "collection" commit;
-                  get "rkey" commit;
-                  get "operation" commit;
-                ])
+          try
+            if not (wanted settings event) then None
+            else
+              Some
+                (String.concat "/"
+                   ([ source; cursor; get "did" event ]
+                   @
+                   match field "commit" event with
+                   | None -> [ get "kind" event ]
+                   | Some commit ->
+                       [
+                         get "collection" commit;
+                         get "rkey" commit;
+                         get "operation" commit;
+                       ]))
+          with Invalid _ -> None
         in
-        Store.enqueue store ~source ~cursor:(Int64.to_string timestamp) ~key:id
-          ~value:(encode event);
+        (match id with
+        | None -> Store.advance store ~source ~cursor
+        | Some id ->
+            Store.enqueue store ~source ~cursor ~key:id ~value:(encode event));
         Health.event health source
           ~now:(Eio.Time.now system#clock)
           ~at:(Int64.to_float timestamp /. 1e6))
@@ -147,16 +172,36 @@ let pull_view ~ticket:t ~seen ~source =
 
 (* Dispatch a pull request event and notify its webhooks. A closed or merged
    pull request runs only workflows that ask for it. *)
-let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
-    ~action ~event ~sender =
+let dispatch ?round engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen
+    ~source ~action ~event ~sender =
   if
     Catalog.admitted engine.Engine.catalog served.owner
     && not
          (Settings.banned engine.settings seen.author
          || Settings.banned engine.settings sender)
   then begin
-    Hooks.pull_request hooks served ~event ~sender
-      (pull_view ~ticket:t ~seen ~source);
+    let dedup =
+      String.concat "/"
+        ([ "pull"; uri; seen.head ]
+        @ if List.mem action [ "opened"; "synchronize" ] then [] else [ action ]
+        )
+    in
+    (* A retried event notifies webhooks once. Each round of a pull request
+       does, even one resubmitting the same commit. *)
+    if
+      Engine.first engine "pull-hook"
+        (String.concat "/" (dedup :: Option.to_list round))
+    then
+      Hooks.pull_request hooks served ~event ~sender
+        (pull_view ~ticket:t ~seen ~source);
+    (* The target repository's knot holds a pull request's commits, so the
+       pipeline runs from it, as the reference spindle runs it. A fork's
+       branch names nothing in the target, so it is left out. *)
+    let fork =
+      match source with
+      | Some s -> did (get "repo" s) <> served.did
+      | None -> false
+    in
     let trigger =
       obj
         ([
@@ -168,12 +213,8 @@ let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
          ]
         @
         match source with
-        | None -> []
-        | Some s ->
-            [
-              ("sourceRepo", str (did (get "repo" s)));
-              ("sourceBranch", str (get "branch" s));
-            ])
+        | Some s when not fork -> [ ("sourceBranch", str (get "branch" s)) ]
+        | _ -> [])
     in
     (* A pull request from someone without push access waits for a
        collaborator's approval, as does a change by such a sender. *)
@@ -183,14 +224,8 @@ let dispatch engine hooks (served : Catalog.repo) ~uri ~ticket:t ~seen ~source
         && Catalog.authorized engine.catalog served sender)
     in
     ignore
-      (Engine.create engine
-         ~dedup:
-           (String.concat "/"
-              ([ "pull"; uri; seen.head ]
-              @
-              if List.mem action [ "opened"; "synchronize" ] then []
-              else [ action ]))
-         ~blocked ~automatic:true ~actor:sender
+      (Engine.create engine ~dedup ~blocked ~untrusted:fork ~automatic:true
+         ~actor:sender
          (obj [ ("repo", str served.did); ("trigger", trigger) ]))
   end
 
@@ -202,8 +237,14 @@ let read network (served : Catalog.repo) collection rkey =
     (Network.record network ~service:served.knot ~did:served.did ~collection
        ~rkey)
 
+(* Patches and tickets arrive for every repository on the network. Only one
+   this spindle has accepted is looked up, so the rest cost no requests. *)
 let pull engine network hooks ~repo ~rkey =
-  match Catalog.managed engine.Engine.catalog repo with
+  match
+    if Catalog.known engine.Engine.catalog repo then
+      Catalog.managed engine.catalog repo
+    else None
+  with
   | None -> ()
   | Some served -> (
       match read network served patch rkey with
@@ -220,12 +261,22 @@ let pull engine network hooks ~repo ~rkey =
                     Option.fold ~none:"open" ~some:string (field "state" t)
                   in
                   if state = "open" then begin
-                    let author = did (get "x-tngl-editor" value) in
+                    (* A patch without a valid editor has no known author,
+                       so its pipeline waits for approval. *)
+                    let author =
+                      match field "x-tngl-editor" value with
+                      | Some (Jsont.String (editor, _))
+                        when Atp.Did.is_valid editor ->
+                          editor
+                      | _ -> ""
+                    in
                     let head = sha (get "oid" (required "head" value)) in
                     let uri = "at://" ^ repo ^ "/" ^ ticket ^ "/" ^ number in
                     let previous = load_seen engine uri in
-                    if Option.map (fun s -> s.head) previous <> Some head
-                    then begin
+                    (* Each patch record is a round, as the reference spindle
+                       counts them, whatever its head. *)
+                    let round = uri ^ "/" ^ rkey in
+                    if Store.get engine.store "pull-patch" round = None then begin
                       let seen =
                         {
                           head;
@@ -247,24 +298,25 @@ let pull engine network hooks ~repo ~rkey =
                           ("opened", "pull_request:created")
                         else ("synchronize", "pull_request:resubmitted")
                       in
-                      dispatch engine hooks served ~uri ~ticket:t ~seen
-                        ~source:(field "source" value) ~action ~event
+                      dispatch ~round:rkey engine hooks served ~uri ~ticket:t
+                        ~seen ~source:(field "source" value) ~action ~event
                         ~sender:author;
-                      save_seen engine uri seen
+                      save_seen engine uri seen;
+                      Store.put engine.store "pull-patch" round ""
                     end
                   end)))
 
 (* A pull request's state changes when its ticket is closed, reopened or
    completed, which is how a merge is recorded. A ticket seen before its first
    patch starts nothing, as in the reference spindle. *)
-let lifecycle engine network hooks ~repo ~rkey =
-  match Catalog.managed engine.Engine.catalog repo with
+let lifecycle engine network hooks ~repo ~rkey ~round =
+  let uri = "at://" ^ repo ^ "/" ^ ticket ^ "/" ^ rkey in
+  match load_seen engine uri with
   | None -> ()
-  | Some served -> (
-      let uri = "at://" ^ repo ^ "/" ^ ticket ^ "/" ^ rkey in
-      match load_seen engine uri with
+  | Some seen -> (
+      match Catalog.managed engine.Engine.catalog repo with
       | None -> ()
-      | Some seen -> (
+      | Some served -> (
           match read network served ticket rkey with
           | None -> ()
           | Some t ->
@@ -300,24 +352,87 @@ let lifecycle engine network hooks ~repo ~rkey =
                           ~did:repo patch))
                     (fun p -> field "source" (required "value" p))
                 in
-                dispatch engine hooks served ~uri ~ticket:t ~seen ~source
+                dispatch ~round engine hooks served ~uri ~ticket:t ~seen ~source
                   ~action ~event ~sender;
                 save_seen engine uri seen
               end))
 
-let commit engine network hooks event =
-  if get "kind" event = "commit" then
-    let repo = did (get "did" event) in
-    let commit = required "commit" event in
-    let collection = get "collection" commit in
-    let operation = get "operation" commit in
-    if collection = manifest then Catalog.forget engine.Engine.catalog repo
-    else if collection = patch && operation = "create" then
-      pull engine network hooks ~repo ~rkey:(get "rkey" commit)
-    else if collection = ticket && operation <> "delete" then
-      lifecycle engine network hooks ~repo ~rkey:(get "rkey" commit)
+(* A manifest naming this spindle registers its repository at once, so that
+   its pull requests are followed. A deleted repository's settings and
+   history are wiped, as the reference spindle wipes them. *)
+let assignment engine ~wipe ~repo ~operation commit =
+  let catalog = engine.Engine.catalog in
+  Catalog.forget catalog repo;
+  if operation = "delete" then (
+    if Catalog.known catalog repo && Catalog.deleted catalog repo then wipe repo)
+  else
+    match field "record" commit with
+    | Some record when Catalog.names_self catalog record ->
+        ignore (Catalog.managed catalog repo)
+    | _ -> ()
 
-let run ~engine ~network ~hooks ~jetstream ~health ~policy =
+(* An owner whose account is deactivated, suspended or deleted loses what is
+   kept for their repositories. *)
+let account engine ~wipe event =
+  let owner = did (get "did" event) in
+  Printf.eprintf
+    "spindle observer: account %s is inactive, wiping its repos\n%!" owner;
+  List.iter wipe (Settings.repos_of engine.Engine.settings owner)
+
+let handle engine network hooks ~wipe event =
+  match get "kind" event with
+  | "commit" ->
+      let repo = did (get "did" event) in
+      let commit = required "commit" event in
+      let collection = get "collection" commit in
+      let operation = get "operation" commit in
+      if collection = manifest then
+        assignment engine ~wipe ~repo ~operation commit
+      else if collection = patch && operation = "create" then
+        pull engine network hooks ~repo ~rkey:(get "rkey" commit)
+      else if collection = ticket then
+        if operation = "delete" then
+          Store.delete engine.store "pull-seen"
+            ("at://" ^ repo ^ "/" ^ ticket ^ "/" ^ get "rkey" commit)
+        else
+          (* Each change of the ticket is its own round, so a second close
+             notifies as the first did. *)
+          lifecycle engine network hooks ~repo ~rkey:(get "rkey" commit)
+            ~round:
+              (match field "cid" commit with
+              | Some (Jsont.String (cid, _)) -> cid
+              | _ -> get "rev" commit)
+  | "account" -> account engine ~wipe event
+  | _ -> ()
+
+(* A failing event is retried, its backoff doubling to an hour, and given up
+   after this many attempts, about five hours. *)
+let max_attempts = 16
+
+(* An inbox key is the source, the event's time and its DID, then more. *)
+let repo_of_key key =
+  match String.split_on_char '/' key with
+  | _ :: _ :: did :: _ -> did
+  | _ -> "\000" ^ key
+
+(* Events of one repository are handled in order, since a pull request's
+   state carries from one to the next. Repositories proceed in parallel. *)
+let groups ready =
+  let tagged =
+    List.map (fun ((key, _) as item) -> (repo_of_key key, item)) ready
+    |> List.stable_sort (fun (_, (a, _)) (_, (b, _)) -> String.compare a b)
+  in
+  let repos =
+    List.fold_left
+      (fun seen (r, _) -> if List.mem r seen then seen else r :: seen)
+      [] tagged
+  in
+  List.rev_map
+    (fun r ->
+      List.filter_map (fun (r', i) -> if r = r' then Some i else None) tagged)
+    repos
+
+let run ~engine ~network ~hooks ~wipe ~jetstream ~health ~policy =
   let store = engine.Engine.store and system = engine.runner.system in
   let rec retry f =
     Health.starting health "jetstream" ~now:(Eio.Time.now system#clock);
@@ -337,25 +452,78 @@ let run ~engine ~network ~hooks ~jetstream ~health ~policy =
   Health.require health "jetstream";
   let work () =
     while true do
+      let reject key message =
+        Store.batch store
+          ~puts:[ ("rejected", key, message); ("done", key, "") ]
+          ~deletes:[ ("inbox", key) ]
+      in
+      (* [one key raw] is whether the event is settled. A failure leaves it, and
+         the later events of its repository, for another attempt. *)
+      let one (key, raw) =
+        try
+          Eio.Time.with_timeout_exn system#clock 30. (fun () ->
+              handle engine network hooks ~wipe (decode raw));
+          Store.batch store
+            ~puts:[ ("done", key, "") ]
+            ~deletes:[ ("inbox", key) ];
+          true
+        with
+        | Eio.Cancel.Cancelled _ as exn -> raise exn
+        | Invalid message ->
+            reject key message;
+            report key (Invalid message);
+            true
+        | Xrpc_error.E (status, code, message)
+          when Httpz.Res.status_code status < 500 ->
+            reject key (code ^ ": " ^ message);
+            true
+        | Engine.Capacity ->
+            (* A full queue is no fault of the event. *)
+            Store.delay store "inbox" key
+              ~until:(Eio.Time.now system#clock +. 5.);
+            false
+        | exn ->
+            report key exn;
+            if
+              Store.defer store "inbox" key ~now:(Eio.Time.now system#clock)
+              >= max_attempts
+            then (
+              reject key ("gave up: " ^ Printexc.to_string exn);
+              true)
+            else false
+      in
+      let now = Eio.Time.now system#clock in
+      (* An event waits behind an earlier one of its repository that is
+         waiting to be retried, whichever batch it arrives in. *)
+      let waiting =
+        List.fold_left
+          (fun acc key ->
+            let repo = repo_of_key key in
+            if List.mem_assoc repo acc then acc else (repo, key) :: acc)
+          []
+          (Store.waiting store "inbox" ~now)
+      in
       Eio.Fiber.List.iter ~max_fibers:4
-        (fun (key, raw) ->
-          try
-            Eio.Time.with_timeout_exn system#clock 30. (fun () ->
-                commit engine network hooks (decode raw));
-            Store.batch store
-              ~puts:[ ("done", key, "") ]
-              ~deletes:[ ("inbox", key) ]
-          with
-          | Eio.Cancel.Cancelled _ as exn -> raise exn
-          | Invalid message ->
-              Store.batch store
-                ~puts:[ ("rejected", key, message); ("done", key, "") ]
-                ~deletes:[ ("inbox", key) ];
-              report key (Invalid message)
-          | exn ->
-              Store.defer store "inbox" key ~now:(Eio.Time.now system#clock);
-              report key exn)
-        (Store.ready store "inbox" ~now:(Eio.Time.now system#clock) ~limit:64);
+        (fun items ->
+          ignore
+            (List.fold_left
+               (fun failed ((key, _) as item) ->
+                 let behind =
+                   match failed with
+                   | Some _ -> failed
+                   | None -> (
+                       match List.assoc_opt (repo_of_key key) waiting with
+                       | Some earlier when String.compare earlier key < 0 ->
+                           Some earlier
+                       | _ -> None)
+                 in
+                 match behind with
+                 | None -> if one item then None else Some key
+                 | Some behind ->
+                     Store.hold store "inbox" key ~behind;
+                     Some behind)
+               None items))
+        (groups (Store.ready store "inbox" ~now ~limit:64));
       Eio.Time.sleep system#clock 0.5
     done
   in
@@ -368,4 +536,5 @@ let run ~engine ~network ~hooks ~jetstream ~health ~policy =
     |> Httpz_uri.to_string
   in
   Eio.Fiber.both work (fun () ->
-      retry (fun () -> connect ~system ~store ~url ~health ~policy))
+      retry (fun () ->
+          connect ~system ~store ~settings:engine.settings ~url ~health ~policy))

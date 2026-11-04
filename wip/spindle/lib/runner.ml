@@ -3,6 +3,7 @@ open Json
 
 type t = {
   job : Job.t;
+  parent : string option;
   mutable status : string;
   mutable started : string option;
   mutable finished : string option;
@@ -31,19 +32,23 @@ type input = {
   metadata : Jsont.json;
   variables : (string * string) list;
   secrets : (string * string) list;
+  files : Executor.files;
+  labels : unit -> string list;
 }
 
 exception Cancelled
 
 let now () = Ptime.to_rfc3339 ~tz_offset_s:0 (Ptime_clock.now ())
+
 (* A blocked workflow waits for a collaborator's approval. It is live, so
    cancellation and restart keep it, but it does not run until approved. *)
 let terminal p =
   p.status <> "pending" && p.status <> "running" && p.status <> "blocked"
 
-let v job =
+let v ?parent job =
   {
     job;
+    parent;
     status = "pending";
     started = None;
     finished = None;
@@ -89,6 +94,7 @@ let snapshot p =
        ("env", pairs p.job.env);
        ("clone", bool p.job.clone);
      ]
+    @ (if p.job.spawned then [ ("spawned", bool true) ] else [])
     @ optional "definition" Fun.id p.job.definition
     @ optional "yaml" str p.job.yaml)
 
@@ -122,6 +128,10 @@ let restore raw =
             | Some (Jsont.Bool (b, _)) -> b
             | _ -> true)
           ~yaml:(Option.fold ~none:"" ~some:string yaml)
+          name steps
+    | None, _ when field "spawned" raw = Some (Jsont.Json.bool true) ->
+        Job.spawned
+          ~env:(Option.fold ~none:[] ~some:unpairs (field "env" raw))
           name steps
     | None, _ -> Job.v name steps
   in
@@ -159,27 +169,24 @@ let emit record p ~step ~kind fields =
   p.log_bytes <- p.log_bytes + size;
   p.events <- event :: p.events
 
-let control record persist p ~step ~kind ?outcome ~status command =
+let control record persist p ~step ~kind ?command ?outcome ~status name =
+  let optional key = Option.fold ~none:[] ~some:(fun v -> [ (key, str v) ]) in
   emit record p ~step ~kind:"control"
-    ([
-       ("content", str command);
-       ("command", str command);
-       ("status", str status);
-       ("kind", str kind);
-     ]
-    @ Option.fold ~none:[] ~some:(fun o -> [ ("outcome", str o) ]) outcome);
+    ([ ("content", str name) ]
+    @ optional "command" command
+    @ [ ("status", str status); ("kind", str kind) ]
+    @ optional "outcome" outcome);
   persist ()
 
-(* [run_step record persist p ~step ~kind name f] runs [f] between a start
-   and an end event. The end event carries the outcome, as the reference spindle
-   sends it, even when [f] fails or is cancelled, so that viewers can mark
-   the step that failed. *)
-let run_step record persist p ~step ~kind name f =
-  control record persist p ~step ~kind ~status:"start" name;
+(* [run_step record persist p ~step ~kind ?command name f] runs [f] between a
+   start and an end event. The end event carries the outcome, as the reference
+   spindle sends it, even when [f] fails or is cancelled, so that viewers can
+   mark the step that failed. *)
+let run_step record persist p ~step ~kind ?command name f =
+  control record persist p ~step ~kind ?command ~status:"start" name;
   match f () with
   | () ->
-      control record persist p ~step ~kind ~outcome:"success" ~status:"end"
-        name
+      control record persist p ~step ~kind ~outcome:"success" ~status:"end" name
   | exception exn ->
       let bt = Printexc.get_raw_backtrace () in
       (* A full log budget or a closed store must not hide the failure. *)
@@ -223,50 +230,175 @@ let request input (job : Job.t) : Executor.request =
     variables = input.variables;
     secrets = input.secrets;
     steps = job.steps;
+    files = input.files;
+    labels = input.labels;
   }
 
+let max_line = 16 * 1024
+
+(* [line_end text] is where a frame that must end within [max_line] bytes may
+   stop, short of a UTF-8 character it would split. *)
+let line_end text =
+  let rec back i =
+    if i > 0 && Char.code text.[i] land 0xC0 = 0x80 then back (i - 1) else i
+  in
+  let i = back max_line in
+  if i = 0 then max_line else i
+
+(* A stream of one step. Masked text is framed one line at a time, as the
+   reference spindle's logger sends it. *)
+type stream = { name : string; mask : Mask.t; pending : Buffer.t }
+
+let stream name values =
+  { name; mask = Mask.v values; pending = Buffer.create 256 }
+
+(* [frame record p ~step s text] sends each complete line of [s]'s pending
+   text and [text], keeping an unterminated remainder. *)
+let frame record p ~step s text =
+  Buffer.add_string s.pending text;
+  let all = Buffer.contents s.pending in
+  Buffer.clear s.pending;
+  let send line = data record p ~step ~stream:s.name (utf8 line) in
+  let rec loop start =
+    let rest = String.length all - start in
+    match String.index_from_opt all start '\n' with
+    | Some i when i - start < max_line ->
+        send (String.sub all start (i - start + 1));
+        loop (i + 1)
+    | _ when rest > max_line ->
+        let n = line_end (String.sub all start (max_line + 1)) in
+        send (String.sub all start n);
+        loop (start + n)
+    | _ -> Buffer.add_substring s.pending all start rest
+  in
+  loop 0
+
+(* [flush record p ~step s] sends what [s] still holds at the end of a step. *)
+let flush record p ~step s =
+  frame record p ~step s (Mask.finish s.mask);
+  if Buffer.length s.pending > 0 then (
+    let rest = Buffer.contents s.pending in
+    Buffer.clear s.pending;
+    data record p ~step ~stream:s.name (utf8 rest))
+
 (* [context record persist p ~secrets] numbers the executor's steps from 0 and
-   masks [secrets] in each stream of a step. Text held back by a mask at the
-   end of a step is flushed into that step. *)
-let context record persist p ~secrets : Executor.context =
+   masks [secrets] in each stream of a step. Text held back by a mask or an
+   unterminated line at the end of a step is flushed into that step. *)
+let context record persist p ~secrets ~spawn ~await ~watch : Executor.context =
   let values = List.map snd secrets in
   let next = ref 0 in
   let current = ref None in
-  let write step stream content =
-    if content <> "" then data record p ~step ~stream (utf8 content)
-  in
-  let step name f =
+  let step ?(kind = `User) ?command name f =
     let step = !next in
     incr next;
-    let masks = [ ("stdout", Mask.v values); ("stderr", Mask.v values) ] in
-    run_step record persist p ~step ~kind:"user" name (fun () ->
-        current := Some (step, masks);
+    let streams = [ stream "stdout" values; stream "stderr" values ] in
+    let kind = match kind with `User -> "user" | `System -> "system" in
+    run_step record persist p ~step ~kind ?command name (fun () ->
+        current := Some (step, streams);
         Fun.protect
           ~finally:(fun () ->
             current := None;
             try
               Eio.Cancel.protect (fun () ->
-                  List.iter
-                    (fun (stream, mask) -> write step stream (Mask.finish mask))
-                    masks)
+                  List.iter (flush record p ~step) streams)
             with _ -> ())
           f)
   in
   let log stream content =
     match !current with
     | None -> invalid_arg "Executor log outside a step"
-    | Some (step, masks) ->
-        let stream =
-          match stream with `Stdout -> "stdout" | `Stderr -> "stderr"
+    | Some (step, streams) ->
+        let s =
+          match stream with
+          | `Stdout -> List.hd streams
+          | `Stderr -> List.nth streams 1
         in
-        write step stream (Mask.feed (List.assoc stream masks) content)
+        frame record p ~step s (Mask.feed s.mask content)
   in
-  { step; log }
+  let spawn ?(env = []) name steps = spawn ~env name steps in
+  let spawned ?since () = watch since in
+  { step; log; spawn; await_spawned = await; spawned }
 
-let execute state input ~record ~persist p =
+(* [text p] is [p]'s log as a person reads it. *)
+let text p =
+  let b = Buffer.create 4096 in
+  List.iter
+    (fun event ->
+      let field k = Option.map string (Json.field k event) in
+      match (field "type", field "content") with
+      | Some "control", Some name when field "status" = Some "start" ->
+          Buffer.add_string b ("## " ^ name ^ "\n")
+      | Some "data", Some content ->
+          Buffer.add_string b content;
+          if not (String.ends_with ~suffix:"\n" content) then
+            Buffer.add_char b '\n'
+      | _ -> ())
+    (List.rev p.events);
+  Buffer.contents b
+
+let ended p =
+  match p.status with
+  | "success" -> `Success
+  | "cancelled" -> `Cancelled
+  | "timeout" -> `Timeout
+  | _ -> `Failed
+
+let outcome p : Executor.outcome =
+  { workflow = p.job.name; status = ended p; error = p.error; log = text p }
+
+(* The newest control event says whether a step is open. *)
+let current_step p =
+  List.find_map
+    (fun event ->
+      let field k = Option.map string (Json.field k event) in
+      match (field "type", field "status") with
+      | Some "control", Some "start" -> Some (field "content")
+      | Some "control", _ -> Some None
+      | _ -> None)
+    p.events
+  |> Option.join
+
+let progress p : Executor.progress =
+  let status =
+    match p.status with
+    | "pending" | "blocked" -> `Pending
+    | "running" -> `Running
+    | _ -> ended p
+  in
+  {
+    workflow = p.job.name;
+    status;
+    step = (if status = `Running then current_step p else None);
+    error = p.error;
+  }
+
+(* [message exn] is what a viewer is shown for a failed workflow. *)
+let message = function
+  | Failure m | Invalid_argument m -> m
+  | exn -> Printexc.to_string exn
+
+let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
+    ?(watch = fun _ -> []) p =
   Eio.Semaphore.acquire state.slots;
-  Fun.protect ~finally:(fun () -> Eio.Semaphore.release state.slots)
+  (* The slot is given up while the workflow waits for those it spawned, so
+     that waiting workflows cannot occupy every slot their children need. *)
+  let held = ref true in
+  Fun.protect ~finally:(fun () ->
+      if !held then Eio.Semaphore.release state.slots)
   @@ fun () ->
+  let released f =
+    held := false;
+    Eio.Semaphore.release state.slots;
+    let x = f () in
+    Eio.Semaphore.acquire state.slots;
+    held := true;
+    x
+  in
+  let await () = List.map outcome (released await) in
+  let watch = function
+    | None -> watch None
+    | since -> released (fun () -> watch since)
+  in
   if (not p.cancelled) && p.status = "pending" then (
     p.status <- "running";
     p.started <- Some (now ());
@@ -278,7 +410,7 @@ let execute state input ~record ~persist p =
         Eio.Switch.run @@ fun sw ->
         p.cancel <- Some (fun () -> Eio.Switch.fail sw Cancelled);
         state.executor
-          (context record persist p ~secrets:input.secrets)
+          (context record persist p ~secrets:input.secrets ~spawn ~await ~watch)
           (request input p.job);
         Ok ()
       with exn -> Error exn
@@ -289,11 +421,16 @@ let execute state input ~record ~persist p =
         (match result with
         | Ok () -> p.status <- "success"
         | Error exn ->
-            p.status <-
-              (if p.cancelled then "cancelled"
-               else
-                 match exn with Eio.Time.Timeout -> "timeout" | _ -> "failed");
-            p.error <- Some (Printexc.to_string exn));
+            let status, error =
+              if p.cancelled then
+                ("cancelled", Some "User canceled the workflow")
+              else
+                match exn with
+                | Eio.Time.Timeout -> ("timeout", None)
+                | exn -> ("failed", Some (message exn))
+            in
+            p.status <- status;
+            p.error <- error);
         persist ()))
 
 let cancel ~persist p =

@@ -36,6 +36,11 @@ let () =
         ~key:"event" ~value:"payload";
       assert (Store.get store "inbox" "event" = None);
       assert (Store.get store "cursor" "knot" = Some "1234567890123456789");
+      (* An event that is not stored still moves the cursor forward. *)
+      Store.advance store ~source:"knot" ~cursor:"1234567890123456700";
+      assert (Store.get store "cursor" "knot" = Some "1234567890123456789");
+      Store.advance store ~source:"knot" ~cursor:"1234567890123456799";
+      assert (Store.get store "cursor" "knot" = Some "1234567890123456799");
       Store.batch store ~deletes:[]
         ~puts:(List.init 300 (fun i -> ("tasks", Printf.sprintf "%03d" i, "")));
       let keys =
@@ -51,7 +56,7 @@ let () =
       in
       assert (List.length keys = 300 && List.hd keys = "000");
       assert (List.length (Store.ready store "tasks" ~now:1000. ~limit:64) = 64);
-      Store.defer store "tasks" "000" ~now:1000.;
+      assert (Store.defer store "tasks" "000" ~now:1000. = 1);
       assert (
         fst (List.hd (Store.ready store "tasks" ~now:1000. ~limit:1)) = "001");
       assert (
@@ -112,11 +117,25 @@ let () =
         not
           (List.mem_assoc "000"
              (Store.ready store "tasks" ~now:1000. ~limit:128)));
-      Store.defer store "tasks" "000" ~now:1001.;
+      assert (Store.defer store "tasks" "000" ~now:1001. = 2);
       assert (
         not
           (List.mem_assoc "000"
              (Store.ready store "tasks" ~now:1002. ~limit:128)));
+      (* A held task is due with the task it waits behind. *)
+      Store.hold store "tasks" "299" ~behind:"000";
+      assert (
+        not
+          (List.mem_assoc "299"
+             (Store.ready store "tasks" ~now:1002. ~limit:128)));
+      assert (
+        List.map fst (Store.ready store "tasks" ~now:1100. ~limit:2)
+        = [ "000"; "299" ]);
+      (* A delayed task waits without counting a failure, and is listed as
+         waiting. *)
+      Store.delay store "tasks" "298" ~until:1500.;
+      assert (List.mem "298" (Store.waiting store "tasks" ~now:1100.));
+      assert (not (List.mem "298" (Store.waiting store "tasks" ~now:1600.)));
       Store.delete store "tasks" "000";
       Store.put store "tasks" "000" "new";
       assert (

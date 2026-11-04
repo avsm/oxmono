@@ -20,3 +20,10 @@ val authenticate :
     the explicit [#tangled_spindle] service fragment. Tokens require [typ=JWT],
     [#atproto] key selection, an exact method, a nonempty bounded [jti],
     integral [iat]/[exp], and at most one hour of lifetime. *)
+
+val controller : string -> string option
+(** [controller token] is the DID in the [act.sub] claim of [token], read
+    without verification. It is [None] when the claim is absent or malformed.
+    Callers must trust it only after {!authenticate} accepts [token] and only
+    when its issuer is the repository the request names, whose key the
+    repository's knot holds. *)

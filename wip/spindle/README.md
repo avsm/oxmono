@@ -92,11 +92,19 @@ status, cancellation and log stream. Workflow discovery returns
 clone URL and commit, whether to check the commit out, the trigger metadata,
 a repository workflow's definition and YAML text, the workflow's environment,
 the CI variables, the secrets and the steps. Each step has a name, a command
-for a shell and its own environment.
+for a shell and its own environment. `files` reads the repository at the
+commit through its knot, with `list dir` and `read path`, without checking it
+out. `labels ()` is the keys of the labels on the pull request that started
+the pipeline. A pull request's author may label it, so only labels that the
+repository's owner or a collaborator last added are given. The spindle reads
+every version of the pull request from its knot, checks each one against its
+content id and asks the knot who collaborates.
 
-The executor reports through its context. `step name f` runs `f` as the next
-numbered step of the log, and the step fails if `f` raises. `log stream text`
-adds output to the current step, with secret values replaced by `***`. The
+The executor reports through its context. `step ?kind ?command name f` runs
+`f` as the next numbered step of the log, and the step fails if `f` raises.
+`command` is shown with the step's name, and a `` `System `` step, such as a
+checkout, is folded by viewers. `log stream text` adds output to the current
+step, with secret values replaced by `***`, one line per log frame. The
 executor returns when the workflow succeeds and raises to fail it.
 Cancellation and `--workflow-timeout` cancel its fiber.
 
@@ -104,13 +112,43 @@ Cancellation and `--workflow-timeout` cancel its fiber.
 let executor (ctx : Spindle.Executor.context) (r : Spindle.Executor.request) =
   List.iter
     (fun (s : Spindle.Job.step) ->
-      ctx.step s.name (fun () -> ctx.log `Stdout ("would run " ^ s.command)))
+      ctx.step ~command:s.command s.name (fun () ->
+          ctx.log `Stdout "would run it\n"))
     r.steps
 ```
 
+`spawn name steps` adds a workflow to the running pipeline, run by the same
+executor. A planning executor uses it to start one workflow per build it
+decides on, such as one per compiler a dependency solve allows. A retry of a
+spawned workflow reruns the workflow that spawned it.
+
+`await_spawned ()` waits until every workflow the current one spawned, and
+everything those spawned, has finished, and returns how each ended with its
+log as text. A planner calls it last to summarise its builds. While it
+waits, the workflow gives up its worker slot and its place in the
+repository's and owner's workflow limits, and the wait is not charged as CI
+minutes, so waiting planners cannot starve their own builds. The workflow's
+time limit still covers the wait.
+
+`spawned ~since ()` is how far each of those workflows has got: pending,
+running and in which step, or ended. Given the progress it last saw, it
+waits for the next change, on the same terms as `await_spawned`. A planner
+can use it to log its builds' progress as it happens.
+
+`spindle --executor=solve` uses `Spindle.Executor.solve`, which simulates
+this: its `solve` workflow pretends to solve for `ocaml-4.14`, `ocaml-5.5`
+and `oxcaml-5.2minus39`, then spawns a workflow for each that logs made-up
+build and test output after short random waits.
+
+A custom spindle is a binary that calls `Spindle_cli.main` from the
+`spindle.cli` library with its own options, OCaml workflows and executor. It
+keeps the `spindle` command's options. `--concurrency` bounds the workflows
+that run at once, 2 by default, and an executor that waits on remote builders
+can allow many. [ocaml-ci-spindle](../ocaml-ci-spindle/README.md) is one.
+
 `Spindle.Executor.print clock` is the default, used by the `spindle`
-command. It logs a description of the request as step 0 and each step's
-command and environment as the steps after it, also prints the description
+command. It logs a description of the request as system step 0 and each
+step, with its command and environment, after it, also prints the description
 to standard output, sleeps two seconds and succeeds.
 
 ## Repository workflows
@@ -198,7 +236,9 @@ this spindle's `did:web`, the owner's `org.tangled.repo.declaration` names the
 repository back, and the owner is admitted. `--admission=closed`, the
 default, admits the owner, `--admin` DIDs and the allow-list. `--admission=open`
 admits anyone. Acceptance is cached for `--reconcile-seconds`, and a manifest
-change seen on Jetstream drops it at once.
+change seen on Jetstream drops it at once. While a rename leaves the owner
+with no declaration, a repository served before stays served under its old
+name.
 
 A push is accepted only from the knot that the repository DID's PLC document
 names. Pushes outside `refs/heads/` and `refs/tags/`, deletions and pushes
@@ -231,17 +271,27 @@ The state directory holds `spindle.db` and its WAL. One
 process owns its directory lock. SQLite uses WAL with `synchronous=FULL`.
 Jetstream events and the stream cursor commit together. Dispatch records and
 their deduplication keys also commit together, so a knot's retried push or a
-replayed patch starts no second pipeline. Transient processing failures leave
-events queued. Malformed events have recorded rejections. Failed events back
-off up to one minute, including after restart.
+replayed patch starts no second pipeline. A repository's events are handled
+in order, and other repositories' in parallel. Transient processing failures
+leave events queued, backing off up to an hour, including after restart. A
+full job queue delays an event without counting against it. An event that
+fails sixteen times, about five hours, or is malformed or refused, is
+recorded as rejected.
+Patches and tickets of repositories the spindle has not accepted cost no
+requests. Network-wide identity events, and account events other than an
+accepted owner's deactivation, are not stored.
+
+A deleted repository, as its knot reports it, and the repositories of an
+owner whose account becomes inactive are wiped, as bans wipe them.
 
 Pending and blocked workflows resume after restart. Interrupted workflows
-become failed. Executor output streams as it is logged. Log chunks commit
+become failed. Executor output streams a line at a time. Log lines commit
 before publication and survive interruption of the current step. Step
 snapshots compact the journal atomically. Invalid UTF-8 becomes replacement
 characters. Completed logs stay in SQLite and are loaded on demand.
 
-Two workflows run at once; at most 32 pipelines may be outstanding, with up
+Two workflows run at once unless `--concurrency` says otherwise. At most 32
+pipelines may be outstanding, with up
 to 50 configured workflows. Each workflow has a 1 MiB log budget and a
 deadline set by `--workflow-timeout`, 60 seconds by default. Git is needed
 only to read workflow files from a static `--source`.
@@ -274,8 +324,9 @@ opam exec --switch=5.2.0+ox -- dune runtest --profile release-check --force \
 Native tests cover signed service tokens, issuer-scoped replay prevention,
 concurrent consumption, expiry, database reopening and atomic event receipts.
 They cover repository acceptance against a mock knot, PDS and PLC directory:
-manifest and declaration agreement, admission, caching and live collaborator
-checks. They cover workflow selection, approval, retry, cancellation,
+manifest and declaration agreement, admission, caching, renames, deletions
+and live collaborator checks. They cover event filtering, per-repository
+ordering, workflow selection, approval, retry, cancellation,
 retention budgets, queue backpressure and observer readiness. The WebSocket
 client tests retain frames coalesced with the HTTP upgrade, report activity,
 expose rejected upgrades, and reject bad accepts and HTTP versions. The Docker

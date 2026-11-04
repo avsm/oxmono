@@ -257,6 +257,24 @@ finishes, successfully only if it passed, and `--commit` limits the watch to
 one commit. [skills/tangled-ci](skills/tangled-ci/SKILL.md) is an agent
 skill built on it.
 
+### Reporting pipelines in Matrix
+
+```sh
+tangled pipeline matrix set --bot @ci:example.org --room '#ci:example.org'
+tangled pipeline matrix show
+tangled pipeline matrix remove
+```
+
+A [tangled-matrix](../../../tangled-matrix/README.md) poster keeps one
+message per pipeline up to date in a Matrix room. `set` asks it to by
+writing an `org.recoil.tangled.matrix` record to your account, keyed by the
+repository's DID, naming the bot and the room. An alias is resolved to the
+room's ID through the directory of the alias's server, found by its
+`.well-known/matrix/client`, without logging in to Matrix. `:bot@server` is
+read as `@bot:server`. `show` lists the bindings that the repository's owner
+and collaborators have made. The record is public and names only the room's
+ID.
+
 ## Issues, pulls, keys and stars
 
 ```sh

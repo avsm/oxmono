@@ -98,6 +98,12 @@ type context = {
       (** [finished ()] is how every other workflow of the pipeline that has
           finished ended, in the order they were added, as the spindle's store
           holds them, so it is the same after a restart. *)
+  queued : 'a. (unit -> 'a) -> 'a;
+      (** [queued f] is [f ()], during which the workflow is shown as pending,
+          not running, as while it waits in a remote builder's queue for a
+          worker. Its start time is when [f] returns, and the time [f] takes is
+          not charged as minutes. It keeps its worker slot and its place in its
+          repository's and owner's limits. *)
 }
 
 type t = context -> request -> unit

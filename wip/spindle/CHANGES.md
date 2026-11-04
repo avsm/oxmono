@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Give executors `queued`, which shows a workflow as pending while it waits
+  in a remote builder's queue, starts it when it leaves, and does not charge
+  the wait as minutes.
+
 - Add `--web`, web pages at `/ui` where the spindle's users log in with
   atproto, as a confidential OAuth client, to see their repositories'
   pipelines and logs. Admins see every repository, and other users the

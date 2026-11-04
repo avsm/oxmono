@@ -376,6 +376,7 @@ and run t p (workflow : Runner.t) =
           ~spawn:(fun ~env name steps ->
             spawn t p ~parent:workflow.job.name ~env name steps)
           ~await ~watch ~finished:(finished p workflow)
+          ~queued_for:(fun s -> waited := !waited +. s)
           ~interruptible:(t.durable <> None) workflow
   with
   | Eio.Cancel.Cancelled _ as e when t.durable <> None -> raise e

@@ -42,6 +42,7 @@ type context = {
   await_spawned : unit -> outcome list;
   spawned : ?since:progress list -> unit -> progress list;
   finished : unit -> outcome list;
+  queued : 'a. (unit -> 'a) -> 'a;
 }
 
 type t = context -> request -> unit

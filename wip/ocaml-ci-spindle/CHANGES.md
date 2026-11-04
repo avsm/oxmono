@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Show a build as pending until an OCluster worker takes its job, rather
+  than running from its submission. The build's first step is now `start`,
+  the worker's setup before the first operation.
+
 - Read the failed builds a `diagnose` workflow asks about from the
   spindle's store, so a diagnosis survives a restart.
 

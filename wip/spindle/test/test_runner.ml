@@ -70,6 +70,25 @@ let () =
       workflow;
     workflow
   in
+  (* A workflow waiting in a builder's queue is pending, without a start
+     time, and starts when it leaves the queue. *)
+  let workflow = Runner.v (Job.v "w" []) in
+  let seen = ref [] and queued = ref (-1.) in
+  Runner.execute
+    (runner (fun ctx _ ->
+         ctx.queued (fun () -> ());
+         ctx.step "build" (fun () -> ())))
+    (input "3jzfcijpj2z2a")
+    ~record:(fun _ -> 0L)
+    ~persist:(fun () ->
+      seen := (workflow.status, workflow.started <> None) :: !seen)
+    ~spawn:(fun ~env:_ _ _ -> ())
+    ~queued_for:(fun s -> queued := s)
+    workflow;
+  assert (workflow.status = "success" && !queued >= 0.);
+  (match List.rev !seen with
+  | ("running", true) :: ("pending", false) :: ("running", true) :: _ -> ()
+  | _ -> assert false);
   (* Steps, their outcomes and both streams. *)
   let w =
     run (fun ctx _ ->

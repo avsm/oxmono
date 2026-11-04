@@ -302,8 +302,8 @@ let flush record p ~step s =
 (* [context record persist p ~secrets] numbers the executor's steps from 0 and
    masks [secrets] in each stream of a step. Text held back by a mask or an
    unterminated line at the end of a step is flushed into that step. *)
-let context record persist p ~secrets ~spawn ~await ~watch ~finished :
-    Executor.context =
+let context record persist p ~secrets ~spawn ~await ~watch ~finished ~seconds
+    ~queued_for : Executor.context =
   let values = List.map snd secrets in
   let next = ref 0 in
   let current = ref None in
@@ -336,7 +336,24 @@ let context record persist p ~secrets ~spawn ~await ~watch ~finished :
   in
   let spawn ?(env = []) name steps = spawn ~env name steps in
   let spawned ?since () = watch since in
-  { step; log; spawn; await_spawned = await; spawned; finished }
+  (* A workflow waiting in a builder's queue is pending, and starts when it
+     leaves it. *)
+  let queued : 'a. (unit -> 'a) -> 'a =
+   fun f ->
+    p.status <- "pending";
+    p.started <- None;
+    persist ();
+    let began = seconds () in
+    Fun.protect
+      ~finally:(fun () ->
+        queued_for (seconds () -. began);
+        if p.status = "pending" then (
+          p.status <- "running";
+          p.started <- Some (now ());
+          persist ()))
+      f
+  in
+  { step; log; spawn; await_spawned = await; spawned; finished; queued }
 
 (* [text p] is [p]'s log as a person reads it. *)
 let text p =
@@ -397,8 +414,8 @@ let message = function
   | exn -> Printexc.to_string exn
 
 let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
-    ?(watch = fun _ -> []) ?(finished = fun () -> []) ?(interruptible = false) p
-    =
+    ?(watch = fun _ -> []) ?(finished = fun () -> []) ?(queued_for = ignore)
+    ?(interruptible = false) p =
   Eio.Semaphore.acquire state.slots;
   (* The slot is given up while the workflow waits for those it spawned, so
      that waiting workflows cannot occupy every slot their children need. *)
@@ -431,7 +448,13 @@ let execute state input ~record ~persist ~spawn ?(await = fun () -> [])
         p.cancel <- Some (fun () -> Eio.Switch.fail sw Cancelled);
         state.executor
           (context record persist p ~secrets:input.secrets ~spawn ~await ~watch
-             ~finished:(fun () -> List.map outcome (finished ())))
+             ~finished:(fun () -> List.map outcome (finished ()))
+             ~seconds:(fun () ->
+               Int64.to_float
+                 (Mtime.to_uint64_ns
+                    (Eio.Time.Mono.now state.system#mono_clock))
+               /. 1e9)
+             ~queued_for)
           (request input p.job);
         Ok ()
       with

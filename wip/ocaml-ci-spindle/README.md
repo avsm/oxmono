@@ -60,7 +60,10 @@ x86_64 does not occupy the smaller pools. Each platform builds on its own
 pool: `linux-arm64`, `linux-ppc64`, `linux-riscv64` or `windows-x86_64`.
 
 Each spawned workflow submits its spec to the pool with the repository's
-clone URL and commit, which the worker checks out. The spec resets the
+clone URL and commit, which the worker checks out. The workflow is pending
+while the job waits in the pool's queue, and running from when a worker
+takes it. The scheduler tells a submitter nothing else about the queue, such
+as its place in it, which only its admin interface shows. The spec resets the
 image's opam-repository to the solved commit, pins the project, installs the
 solution and runs `dune build @install @check @runtest`, as OCaml-CI's
 builds do. Windows builds use the `ocaml/opam` mingw-w64 images, with the

@@ -75,6 +75,7 @@ val execute :
   ?await:(unit -> t list) ->
   ?watch:(Executor.progress list option -> Executor.progress list) ->
   ?finished:(unit -> t list) ->
+  ?queued_for:(float -> unit) ->
   ?interruptible:bool ->
   t ->
   unit
@@ -82,14 +83,14 @@ val execute :
     and hands [workflow] to the executor of [env]. The executor's [spawn] calls
     [spawn], and its [await_spawned] calls [await], with the worker slot given
     up meanwhile. Its [spawned] calls [watch], with the slot given up when it
-    waits. Its [finished] calls [finished]. [await], [watch] and [finished]
-    return [[]] by default. With [interruptible], a workflow whose fiber is
-    cancelled other than by {!cancel}, as when the spindle stops, is left
-    running and the cancellation is raised. Each transition calls [persist].
-    Each JSON-encoded event calls [record] before becoming visible to log
-    subscribers. [record] returns the durable journal sequence for snapshot
-    compaction. A cancelled workflow's error is ["User canceled the workflow"],
-    as the reference spindle reports it, and a workflow that ran out of time has
-    none. *)
+    waits. Its [finished] calls [finished]. Its [queued] tells [queued_for] how
+    many seconds the workflow was queued. [await], [watch] and [finished] return
+    [[]] by default. With [interruptible], a workflow whose fiber is cancelled
+    other than by {!cancel}, as when the spindle stops, is left running and the
+    cancellation is raised. Each transition calls [persist]. Each JSON-encoded
+    event calls [record] before becoming visible to log subscribers. [record]
+    returns the durable journal sequence for snapshot compaction. A cancelled
+    workflow's error is ["User canceled the workflow"], as the reference spindle
+    reports it, and a workflow that ran out of time has none. *)
 
 val cancel : persist:(unit -> unit) -> t -> unit

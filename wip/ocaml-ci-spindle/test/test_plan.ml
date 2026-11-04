@@ -150,7 +150,7 @@ let () =
         status = `Failed;
         error = Some "Failed: Build failed";
         log =
-          "## queue\nqueued\n## opam exec -- dune build\n"
+          "## start\nstarting\n## opam exec -- dune build\n"
           ^ String.concat ""
               (List.init 20 (Printf.sprintf "(cd _build && ocamlopt m%d.ml)\n"))
           ^ "File \"src/a.ml\", line 1, characters 8-9:\n\
@@ -166,14 +166,14 @@ let () =
   let script =
     [
       [ progress `Pending None x86; progress `Pending None old ];
-      [ progress `Running (Some "queue") x86; progress `Pending None old ];
+      [ progress `Running (Some "start") x86; progress `Pending None old ];
       [
         progress `Running (Some "opam install") x86;
-        progress `Running (Some "queue") old;
+        progress `Running (Some "start") old;
       ];
       [
         { (progress `Failed None x86) with error = Some "Failed: Build failed" };
-        progress `Running (Some "queue") old;
+        progress `Running (Some "start") old;
       ];
       [
         { (progress `Failed None x86) with error = Some "Failed: Build failed" };
@@ -208,6 +208,7 @@ let () =
       await_spawned = (fun () -> outcomes);
       spawned = spawned_;
       finished = (fun () -> outcomes);
+      queued = (fun f -> f ());
     }
   in
   let files : Spindle.Executor.files =
@@ -301,7 +302,7 @@ let () =
   assert (has body "Unbound value x" && has body "let y = x");
   assert (has body old);
   assert (not (has body "tools"));
-  assert (not (has body "## queue"));
+  assert (not (has body "## start"));
   let answer = Buffer.contents log in
   assert (has answer "- Define `x` before `y`.");
   assert (not (has answer "hmm"));

@@ -61,8 +61,8 @@ module P = struct
   (* What a viewer is told about a build's state. *)
   let phase (p : t) =
     match (p.status, p.step) with
-    | `Pending, _ -> "waiting for a worker slot"
-    | `Running, (None | Some "queue") -> "queued"
+    | `Pending, _ -> "queued"
+    | `Running, (None | Some "start") -> "starting"
     | `Running, Some step -> "building: " ^ step
     | ((`Success | `Failed | `Cancelled | `Timeout) as s), _ -> label s
 end
@@ -509,12 +509,18 @@ let build config (ctx : Spindle.Executor.context) (r : Spindle.Executor.request)
       Ocluster_client.release ticket)
     (fun () ->
       try
+        (* The workflow is pending until a worker takes the job from the
+           pool's queue, which is all the scheduler says of the queue. *)
+        ctx.queued (fun () ->
+            match Ocluster_client.started job with
+            | Ok () -> ()
+            | Error e -> failwith ("OCluster did not start the job: " ^ e));
         Eio.Fiber.both
           (fun () -> follow job)
           (fun () ->
             section ~kind:`System
               ~command:("ocluster submit --pool " ^ pool)
-              "queue" job)
+              "start" job)
       with Eio.Cancel.Cancelled _ as e ->
         (* A scheduler that stops answering must not hold the workflow, and
            its concurrency slot, forever. *)

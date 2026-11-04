@@ -631,8 +631,9 @@ Running at 21:05 UTC: a corpus export of snapshot 3 (PID in
 deliverable with the older frozen abstracts, and the pipeline above, which
 writes `ce-butterflies-snapshot-N.jsonl`, `.parquet` and `.summary.json`
 under `taposaur/.local/exports/` and copies the Parquet file and summary to
-`/data/papers/taposaur/reviews/ce-butterflies/`. Convert the snapshot 3
-file by hand with `corpus-parquet.sh` when it finishes. A native Parquet
+`/data/papers/taposaur/reviews/ce-butterflies/`; `corpus-3-finish.sh`
+(PID in `corpus-3-finish.pid`) converts and copies the snapshot 3 file the
+same way when its export finishes. A native Parquet
 writer in OCaml would remove the duckdb step and is the obvious follow-up;
 reading paper manifests from the catalogue instead of the archive would
 halve the metadata operations per paper.

@@ -71,7 +71,7 @@ let admitted t owner =
 
 let on_rename t f = t.on_rename <- f
 
-let knot_of t repo =
+let knot_origin t repo =
   let doc = decode (Network.resolve t.network repo) in
   match Network.service doc "tangled_knot" "TangledKnot" with
   | Some endpoint -> Network.knot t.network endpoint
@@ -80,17 +80,16 @@ let knot_of t repo =
       | Some endpoint -> Network.knot t.network endpoint
       | None -> invalid "repository identity names no knot")
 
-let knot_origin = knot_of
 
 let knot_did t repo =
-  let origin = knot_of t repo in
+  let origin = knot_origin t repo in
   let start = String.index origin ':' + 3 in
   web_did (String.sub origin start (String.length origin - start))
 
 let locate t repo =
   match t.static with
   | Some r when r.did = repo -> r.source
-  | _ -> knot_of t repo ^ "/" ^ did repo
+  | _ -> knot_origin t repo ^ "/" ^ did repo
 
 let slug name = String.lowercase_ascii name
 
@@ -101,7 +100,7 @@ let slug name = String.lowercase_ascii name
 let lookup t id =
   if Settings.banned t.settings id then None
   else
-    let knot = knot_of t id in
+    let knot = knot_origin t id in
     match
       Network.record t.network ~service:knot ~did:id
         ~collection:"org.tangled.repo.manifest" ~rkey:"self"
@@ -206,7 +205,7 @@ let network t = t.network
 
 let manifest t did =
   match
-    Network.record t.network ~service:(knot_of t did) ~did
+    Network.record t.network ~service:(knot_origin t did) ~did
       ~collection:"org.tangled.repo.manifest" ~rkey:"self"
   with
   | None -> None
@@ -227,7 +226,7 @@ let deleted t id =
   let status =
     Network.json t.network
       (Network.query
-         (knot_of t id ^ "/xrpc/com.atproto.sync.getRepoStatus")
+         (knot_origin t id ^ "/xrpc/com.atproto.sync.getRepoStatus")
          [ ("did", id) ])
   in
   field "error" status = None

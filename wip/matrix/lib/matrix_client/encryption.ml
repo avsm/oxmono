@@ -3725,6 +3725,18 @@ let encrypt_room_event t room ~event_type ~content ~members =
         ciphertext = message.ciphertext;
       }
   in
+  (* A relation is also left in the clear, as matrix-rust-sdk leaves it, so
+     that the server can aggregate edits, replies and threads it cannot read. *)
+  let encrypted =
+    match (content, encrypted) with
+    | Jsont.Object (mems, _), Jsont.Object (out, meta) -> (
+        match
+          List.find_opt (fun ((k, _), _) -> String.equal k "m.relates_to") mems
+        with
+        | Some relation -> Jsont.Object (out @ [ relation ], meta)
+        | None -> encrypted)
+    | _ -> encrypted
+  in
   Ok (encrypted, requests)
 
 let gossip_reply t ~sender ~(req : room_key_request_content) =

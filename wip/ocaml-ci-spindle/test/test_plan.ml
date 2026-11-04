@@ -133,7 +133,8 @@ let () =
           ~name:"opam-repository" ("file://" ^ root);
       oxcaml_repository = None;
       compilers = [ "auto" ];
-      platforms = [ Debian Arm64; Debian X86_64; Windows ];
+      platforms = [ Debian Arm64; Debian X86_64 ];
+      full_platforms = [ Windows ];
       diagnose =
         Some
           (Diagnose.v ~key:"sekrit" ~model:"test-model" ~clock:env#mono_clock
@@ -234,6 +235,7 @@ let () =
       secrets = [];
       steps = [];
       files;
+      labels = (fun () -> [ Ci.full_label; Ci.diagnose_label ]);
     }
   in
   let executor = Ci.executor config in
@@ -313,6 +315,21 @@ let () =
   | () -> failwith "the summary passed with a failed build"
   | exception Failure _ -> ());
   assert (not (List.exists (fun (n, _, _) -> n = "diagnose") !spawned));
+  (* Without the labels, the full platforms are not built and nothing is
+     diagnosed. *)
+  spawned := [];
+  remaining := script;
+  Buffer.clear log;
+  (match executor ctx { request with labels = (fun () -> []) } with
+  | () -> failwith "the summary passed with a failed build"
+  | exception Failure _ -> ());
+  assert (not (List.exists (fun (n, _, _) -> n = "diagnose") !spawned));
+  let _, _, steps = List.find (fun (n, _, _) -> n = x86) !spawned in
+  assert (
+    List.map (fun (s : Spindle.Job.step) -> s.name) steps = [ "obuilder"; arm ]);
+  assert (
+    has (Buffer.contents log)
+      "Windows are built only for a pull request a maintainer labels ci:full.");
   (* A repository's own workflow never reaches OCluster, whatever its
      environment says. *)
   (match

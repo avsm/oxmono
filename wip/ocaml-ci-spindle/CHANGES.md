@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Build only arm64 after x86_64 by default. ppc64le, riscv64 and Windows,
+  `--full-platforms`, are built for pull requests labelled `ci:full`.
+- Diagnose only pull requests labelled `ci:diagnose`. Labels count only
+  when the repository's owner or a collaborator added them.
 - End the `ocaml-ci` workflow with a `summary` step that waits for every
   build and lists how each ended.
 - Show the builds' progress in the `ocaml-ci` workflow as it happens: a

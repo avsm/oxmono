@@ -19,10 +19,11 @@ It takes every option of the `spindle` command, and these of its own:
 | --- | --- |
 | `--ocluster-cap FILE` | The scheduler's submission capability. |
 | `--compilers MINORS` | OCaml minor versions to build on Debian 13 x86_64, such as `4.14,5.4`. `auto`, the default, picks 4.14 and the two newest. |
-| `--platforms LIST` | Platforms that build the newest compiler once its x86_64 build passes, from `arm64`, `ppc64le`, `riscv64` and `windows`. All four by default. |
+| `--platforms LIST` | Platforms that build the newest compiler once its x86_64 build passes, from `arm64`, `ppc64le`, `riscv64` and `windows`. `arm64` by default. |
+| `--full-platforms LIST` | Further such platforms, built only for a pull request labelled `ci:full`. `ppc64le`, `riscv64` and `windows` by default. |
 | `--oxcaml` | Also build with OxCaml 5.2.0minus39, as oxmono does. |
 | `--opam-cache DIR` | Where opam-repository is cloned to solve. |
-| `--diagnose` | Ask a language model about failed builds. Off by default. |
+| `--diagnose` | Ask a language model about the failed builds of pull requests labelled `ci:diagnose`. Off by default. |
 | `--diagnose-url URL` | Its OpenAI-compatible API, `http://sequoia:8000/v1` by default, for testing. `https://openrouter.ai/api/v1` is OpenRouter's. |
 | `--diagnose-model MODEL` | The model, `Qwen/Qwen3.8-27B-FP8` by default. |
 | `--diagnose-key-file FILE` | The API key. `OPENROUTER_API_KEY` is used otherwise, and none is sent when neither is set. |
@@ -73,10 +74,28 @@ build, and `--workflow-timeout`, six hours by default here, the queue and
 the build. Windows builds in particular can wait well over half an hour. The spindle needs
 `git` to clone opam repositories.
 
+## Labels
+
+A repository's owner turns on the slower builds and diagnosis for a pull
+request with labels. They are defined once in the repository's label
+settings, under exactly these names, which Tangled stores as the keys
+`ci-full` and `ci-diagnose`:
+
+- `ci:full` also builds the `--full-platforms`, which have smaller or slower
+  pools.
+- `ci:diagnose` asks the model about the pull request's failed builds.
+
+A pull request's author may label it, so a label counts only when the owner
+or a collaborator last added it. The spindle reads every version of the
+pull request from its knot to see who did. Labels are read when the
+`ocaml-ci` workflow starts and when its summary ends, and a label added
+later takes effect on a retry. Pushes and manual runs have no labels, so
+they build only `--platforms` and are never diagnosed.
+
 ## Diagnosing failures
 
-With `--diagnose`, a pipeline with failed builds gets a `diagnose` workflow
-once its summary is done. It makes one chat completions request to
+With `--diagnose`, a pull request labelled `ci:diagnose` whose builds failed
+gets a `diagnose` workflow once its summary is done. It makes one chat completions request to
 `--diagnose-url`, with no tools, holding:
 
 - the tail of each failed build's last step, at most 24 KiB each,

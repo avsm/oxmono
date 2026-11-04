@@ -26,10 +26,11 @@ let diagnose =
         (flag
         & info [ "diagnose" ]
             ~doc:
-              "When builds fail, add a $(b,diagnose) workflow that asks a \
-               language model, with no tools, to explain the failures from \
-               their logs and suggest fixes. Logs and project files are sent \
-               to $(b,--diagnose-url). Off by default.")
+              "When builds of a pull request that the repository's owner or a \
+               collaborator labels $(b,ci:diagnose) fail, add a $(b,diagnose) \
+               workflow that asks a language model, with no tools, to explain \
+               the failures from their logs and suggest fixes. Logs and \
+               project files are sent to $(b,--diagnose-url). Off by default.")
     $ value
         (opt string Diagnose.default_url
         & info [ "diagnose-url" ] ~docv:"URL"
@@ -49,8 +50,8 @@ let diagnose =
 let options =
   let open Arg in
   Term.(
-    const (fun cap cache compilers platforms oxcaml diagnose ->
-        (cap, cache, compilers, platforms, oxcaml, diagnose))
+    const (fun cap cache compilers platforms full_platforms oxcaml diagnose ->
+        (cap, cache, compilers, (platforms, full_platforms), oxcaml, diagnose))
     $ required
         (opt (some file) None
         & info [ "ocluster-cap" ] ~docv:"FILE"
@@ -66,14 +67,21 @@ let options =
               "OCaml minor versions to build with, such as $(b,4.14,5.4). \
                $(b,auto) picks 4.14 and the two newest.")
     $ value
-        (opt
-           (list (enum Variant.platforms))
-           Variant.[ Debian Arm64; Debian Ppc64le; Debian Riscv64; Windows ]
+        (opt (list (enum Variant.platforms)) Variant.[ Debian Arm64 ]
         & info [ "platforms" ] ~docv:"PLATFORMS"
             ~doc:
               "Platforms that build the newest compiler once its Debian 13 \
                x86_64 build passes, from $(b,arm64), $(b,ppc64le), \
-               $(b,riscv64) and $(b,windows). All four by default.")
+               $(b,riscv64) and $(b,windows). $(b,arm64) by default.")
+    $ value
+        (opt
+           (list (enum Variant.platforms))
+           Variant.[ Debian Ppc64le; Debian Riscv64; Windows ]
+        & info [ "full-platforms" ] ~docv:"PLATFORMS"
+            ~doc:
+              "Further platforms built that way only for a pull request that \
+               the repository's owner or a collaborator labels $(b,ci:full). \
+               $(b,ppc64le), $(b,riscv64) and $(b,windows) by default.")
     $ value
         (flag
         & info [ "oxcaml" ]
@@ -102,7 +110,8 @@ let () =
                     "https://github.com/oxcaml/opam-repository.git")
              else None);
           compilers;
-          platforms;
+          platforms = fst platforms;
+          full_platforms = snd platforms;
           diagnose =
             Option.map
               (fun (url, model, key) ->

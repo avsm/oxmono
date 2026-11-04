@@ -7,8 +7,12 @@ type config = {
   oxcaml_repository : Opam_repo.t option;
   compilers : string list;
   platforms : Variant.platform list;
+  full_platforms : Variant.platform list;
   diagnose : Diagnose.t option;
 }
+
+let full_label = "ci-full"
+let diagnose_label = "ci-diagnose"
 
 module Job = Spindle.Job
 
@@ -226,7 +230,10 @@ let summary config pending (ctx : Spindle.Executor.context)
       in
       logf ctx "\n%d of %d builds passed.\n" (List.length passed)
         (List.length outcomes);
-      if failed <> [] && config.diagnose <> None then (
+      if
+        failed <> [] && config.diagnose <> None
+        && List.mem diagnose_label (r.labels ())
+      then (
         if Hashtbl.length pending > 256 then Hashtbl.reset pending;
         Hashtbl.replace pending r.pipeline
           ( List.map
@@ -247,7 +254,7 @@ let summary config pending (ctx : Spindle.Executor.context)
 
 let plan config pending (ctx : Spindle.Executor.context)
     (r : Spindle.Executor.request) =
-  let project = ref None in
+  let project = ref None and platforms = ref config.platforms in
   ctx.step ~command:"ls *.opam" "analyse" (fun () ->
       match Analysis.find r.files with
       | None ->
@@ -256,7 +263,23 @@ let plan config pending (ctx : Spindle.Executor.context)
              to build.\n"
       | Some a ->
           project := Some a;
-          List.iter (fun (f, _) -> logf ctx "%s\n" f) a.opam_files);
+          List.iter (fun (f, _) -> logf ctx "%s\n" f) a.opam_files;
+          let slow =
+            String.concat ", "
+              (List.map
+                 (fun p ->
+                   fst (List.find (fun (_, q) -> q = p) Variant.platforms))
+                 config.full_platforms)
+          in
+          if config.full_platforms <> [] then
+            if List.mem full_label (r.labels ()) then (
+              platforms := config.platforms @ config.full_platforms;
+              logf ctx "Labelled ci:full, so %s are built too.\n" slow)
+            else
+              logf ctx
+                "%s are built only for a pull request a maintainer labels \
+                 ci:full.\n"
+                (String.capitalize_ascii slow));
   Option.iter
     (fun (a : Analysis.t) ->
       let builds = ref [] and later = ref [] in
@@ -325,7 +348,7 @@ let plan config pending (ctx : Spindle.Executor.context)
                         !builds
                     then None
                     else Some v)
-                  config.platforms
+                  !platforms
               in
               if others <> [] then logf ctx "Once %s passes:\n" primary.name;
               later := List.filter_map solve others);

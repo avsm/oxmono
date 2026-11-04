@@ -3,9 +3,11 @@
     Its [ocaml-ci] workflow finds the repository's opam files, solves their
     dependencies for each compiler and spawns a workflow for every solution. The
     newest compiler's build spawns the builds for the other [platforms] once it
-    passes. Each of those runs as an OBuilder job on an OCluster pool, with each
-    OBuilder step shown as a step of its log. Nothing runs on the spindle's host
-    apart from Git fetches of the opam repositories. *)
+    passes. Labels on a pull request count only when the repository's owner or a
+    collaborator added them, as {!Spindle.Executor.request} describes. Each of
+    those runs as an OBuilder job on an OCluster pool, with each OBuilder step
+    shown as a step of its log. Nothing runs on the spindle's host apart from
+    Git fetches of the opam repositories. *)
 
 type config = {
   scheduler : Ocluster_client.scheduler;
@@ -21,10 +23,21 @@ type config = {
   platforms : Variant.platform list;
       (** Platforms that build the newest of [compilers] once its x86_64 build
           passes. *)
+  full_platforms : Variant.platform list;
+      (** Further such platforms, built only for a pull request labelled
+          {!full_label}. *)
   diagnose : Diagnose.t option;
-      (** A model that a [diagnose] workflow asks about failed builds. [None]
-          sends nothing to any model. *)
+      (** A model that a [diagnose] workflow asks about the failed builds of a
+          pull request labelled {!diagnose_label}. [None] sends nothing to any
+          model. *)
 }
+
+val full_label : string
+(** [full_label] is [ci-full], the key Tangled gives a label named [ci:full]. *)
+
+val diagnose_label : string
+(** [diagnose_label] is [ci-diagnose], the key of a label named [ci:diagnose].
+*)
 
 val jobs : Spindle.Job.t list
 (** [jobs] is the [ocaml-ci] workflow, which runs for every event. *)

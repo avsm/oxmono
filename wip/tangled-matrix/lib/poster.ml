@@ -11,12 +11,23 @@ type pending = {
   mutable held : bool;  (** Whether a not-ready room was already logged. *)
 }
 
-let run ~sw ~clock ~api ~bot ~messages ~accounts ?(interval = 15.)
+let run ~sw ~clock ~api ~bot ~messages ~accounts ?(rooms = []) ?(interval = 15.)
     ?(edit_interval = 10.) ?(bindings_interval = 60.) ?appview () =
   let clock = (clock :> float Eio.Time.clock_ty Eio.Resource.t) in
   let bindings = ref [] in
   let refresh () =
-    bindings := Bindings.read api ~accounts ~bot:(Bot.user_id bot) ();
+    let everything =
+      List.filter_map
+        (fun spec ->
+          match Bot.find_room bot spec with
+          | Some id -> Some id
+          | None ->
+              Logs.warn (fun m -> m "No room %s yet" spec);
+              None)
+        rooms
+    in
+    bindings :=
+      Bindings.read api ~accounts ~bot:(Bot.user_id bot) ~everything ();
     Logs.info (fun m -> m "Reporting %d repositories" (List.length !bindings))
   in
   refresh ();

@@ -298,6 +298,40 @@ let room_id room =
   | Ok r -> r
   | Error (`Msg m) -> Fmt.failwith "Not a room ID, %s: %s" room m
 
+let find_room t spec =
+  if String.length spec > 0 && spec.[0] = '!' then Some spec
+  else
+    match Id.Room_alias.of_string spec with
+    | Error _ -> None
+    | Ok alias -> (
+        match Me.Directory.resolve_alias t.client ~alias with
+        | info -> Some (Id.Room_id.to_string info.room_id)
+        | exception (Eio.Cancel.Cancelled _ as e) -> raise e
+        | exception _ -> (
+            let state = Me.Sync_service.state t.sync in
+            let rooms = Mc.Base_client.rooms_with state Joined in
+            match
+              List.find_opt
+                (fun (i : Mc.Base_client.room_info) ->
+                  Option.map Id.Room_alias.to_string i.canonical_alias
+                  = Some spec)
+                rooms
+            with
+            | Some i -> Some (Id.Room_id.to_string i.room_id)
+            | None -> (
+                let local =
+                  match String.index_opt spec ':' with
+                  | Some n -> String.sub spec 1 (n - 1)
+                  | None -> spec
+                in
+                match
+                  List.filter
+                    (fun (i : Mc.Base_client.room_info) -> i.name = Some local)
+                    rooms
+                with
+                | [ i ] -> Some (Id.Room_id.to_string i.room_id)
+                | _ -> None)))
+
 let ready t ~room =
   t.synced
   &&

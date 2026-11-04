@@ -27,6 +27,7 @@ tangled-matrix --bot @ci:example.org --password-file bot.password \
 | `--bot USER` | The bot's Matrix user ID. |
 | `--password-file FILE` | Its password, for the first login and for creating cross-signing keys. |
 | `--account HANDLE` | A Tangled account whose bindings the bot honours. Repeat it for more. |
+| `--room ROOM` | Also report every repository of the `--account` accounts in ROOM, as a firehose, without bindings. Repeat it for more rooms. |
 | `--state-dir DIR` | Where the session, keys and messages are kept. `tangled-matrix-state` by default. |
 | `--recovery-key-file FILE` | The account's recovery key, to verify a new device of an account that already has cross-signing keys. |
 | `--homeserver URL` | The homeserver, found through `.well-known/matrix/client` by default. |
@@ -51,6 +52,13 @@ binding only when its author owns the repository or is one of the
 collaborators its knot records, and only for a repository that names a
 spindle. The operator's list of accounts is what stops a stranger from
 pointing their own repository at a room the bot is in.
+
+`--room` needs no bindings. It names a room by ID or alias, where every
+repository that a `--account` account owns and that names a spindle is
+reported. An alias that the directory does not know is matched against the
+rooms the bot has joined, by canonical alias and then by a name equal to the
+alias's local part, so `#ci-firehose:example.org` finds a room called
+`ci-firehose` that the bot was invited to.
 
 ## The bot's device
 

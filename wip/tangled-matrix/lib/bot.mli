@@ -51,6 +51,13 @@ val ready : t -> room:string -> bool
 (** [ready t ~room] holds when the bot has synced, has joined [room] and, unless
     [allow_unencrypted], knows [room] is encrypted. *)
 
+val find_room : t -> string -> string option
+(** [find_room t room] is the ID of [room], given by ID or alias. An alias is
+    looked up in its server's directory, then among the rooms the bot is in by
+    canonical alias, then by a room name equal to the alias's local part, such
+    as [tangled-firehose] for [#tangled-firehose:example.org], if exactly one
+    room has it. It is [None] while no room matches. *)
+
 val send : t -> room:string -> Render.t -> string
 (** [send t ~room m] sends [m] to [room] as an [m.notice], and is its event ID.
     Raises [Failure] if it is not sent within two minutes or the server refuses

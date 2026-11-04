@@ -18,7 +18,7 @@ let rooms ~repo ~owner ~collaborators wanted =
     wanted
   |> List.sort_uniq String.compare
 
-let read api ~accounts ~bot ?(on_error = log_error) () =
+let read api ~accounts ~bot ?(everything = []) ?(on_error = log_error) () =
   let guard what f =
     try f () with
     | Eio.Cancel.Cancelled _ as e -> raise e
@@ -36,6 +36,21 @@ let read api ~accounts ~bot ?(on_error = log_error) () =
                 if b.bot = bot then Some (b.repo, (did, b.room)) else None)
               (M.list api ~did)))
       (List.sort_uniq String.compare accounts)
+  in
+  (* The accounts' own repositories go to the firehose rooms. Each is its
+     account's own, so the operator's choice binds it. *)
+  let wanted =
+    if everything = [] then wanted
+    else
+      wanted
+      @ List.concat_map
+          (fun did ->
+            guard did (fun () ->
+                List.concat_map
+                  (fun (_, (d : Api.Lex.Repo.Declaration.main)) ->
+                    List.map (fun room -> (d.repo, (did, room))) everything)
+                  (Api.list_declarations api ~did ())))
+          (List.sort_uniq String.compare accounts)
   in
   let repos = List.sort_uniq String.compare (List.map fst wanted) in
   List.concat_map

@@ -7,7 +7,7 @@ let read_secret path =
   if s = "" then Fmt.failwith "%s is empty" path;
   s
 
-let run () state bot password_file recovery_key_file homeserver accounts
+let run () state bot password_file recovery_key_file homeserver accounts rooms
     interval edit_interval appview allow_unencrypted plc =
   Eio_main.run @@ fun env ->
   Eio.Switch.run @@ fun sw ->
@@ -46,7 +46,7 @@ let run () state bot password_file recovery_key_file homeserver accounts
       m "Posting as %s, device %s, for %s" (Bot.user_id bot) (Bot.device_id bot)
         (String.concat ", " accounts));
   let messages = Messages.load Eio.Path.(state / "messages.json") in
-  Poster.run ~sw ~clock:env#clock ~api ~bot ~messages ~accounts ~interval
+  Poster.run ~sw ~clock:env#clock ~api ~bot ~messages ~accounts ~rooms ~interval
     ~edit_interval ?appview ()
 
 let setup_log =
@@ -113,6 +113,15 @@ let accounts =
            binding counts only when the account owns or collaborates on the \
            repository. Repeat the option for more accounts.")
 
+let rooms =
+  Arg.(
+    value & opt_all string []
+    & info [ "room" ] ~docv:"ROOM"
+        ~doc:
+          "Report every repository of the $(b,--account) accounts that has CI \
+           in ROOM, by alias or ID, without bindings, as a firehose. The bot \
+           must be invited to it. Repeat the option for more rooms.")
+
 let interval =
   Arg.(
     value & opt float 15.
@@ -166,7 +175,7 @@ let cmd =
          ])
     Term.(
       const run $ setup_log $ state $ bot $ password_file $ recovery_key_file
-      $ homeserver $ accounts $ interval $ edit_interval $ appview
+      $ homeserver $ accounts $ rooms $ interval $ edit_interval $ appview
       $ allow_unencrypted $ plc)
 
 let () = exit (Cmd.eval cmd)

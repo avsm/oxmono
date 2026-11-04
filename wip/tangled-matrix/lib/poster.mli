@@ -7,6 +7,7 @@ val run :
   bot:Bot.t ->
   messages:Messages.t ->
   accounts:string list ->
+  ?rooms:string list ->
   ?interval:float ->
   ?edit_interval:float ->
   ?bindings_interval:float ->
@@ -16,7 +17,9 @@ val run :
 (** [run ~sw ~clock ~api ~bot ~messages ~accounts ()] reports, forever, every
     pipeline of the repositories that [accounts] bound to [bot]'s rooms, as
     {!Bindings.read} finds them every [bindings_interval] seconds, 60 by
-    default.
+    default, and every repository [accounts] own that names a spindle in each of
+    [rooms], given by ID or alias as {!Bot.find_room} finds them. A room not
+    found yet is looked for again at the next reading.
 
     A pipeline's message is sent when it is first seen and edited in place as it
     changes, at most once every [edit_interval] seconds, 10 by default, so that

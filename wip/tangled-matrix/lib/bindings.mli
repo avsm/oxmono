@@ -9,6 +9,7 @@ val read :
   Tangled.Api.t ->
   accounts:string list ->
   bot:string ->
+  ?everything:string list ->
   ?on_error:(string -> exn -> unit) ->
   unit ->
   t list
@@ -16,8 +17,10 @@ val read :
     given as DIDs, has bound to a room for the Matrix user [bot] with
     [tangled pipeline matrix set]. A binding counts only when its author owns
     the repository or the repository's knot records them as a collaborator, and
-    the repository names a spindle. An account or binding that cannot be read is
-    passed to [on_error], which logs it by default, and left out. *)
+    the repository names a spindle. Every repository that one of [accounts] owns
+    and that names a spindle is also reported in each of the rooms [everything],
+    as a firehose. An account or binding that cannot be read is passed to
+    [on_error], which logs it by default, and left out. *)
 
 (**/**)
 

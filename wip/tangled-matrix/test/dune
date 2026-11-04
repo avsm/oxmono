@@ -7,3 +7,8 @@
  (name live)
  (modules live)
  (libraries tangled-matrix eio_main))
+
+(executable
+ (name find)
+ (modules find)
+ (libraries tangled-matrix eio_main))

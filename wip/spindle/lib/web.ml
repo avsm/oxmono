@@ -93,15 +93,28 @@ let login_jsont =
 
 let state_key state = Digestif.SHA256.(to_hex (digest_string state))
 
-(* The client's signing key is made once and kept with the spindle's state. *)
-let client_key directory =
+(* How long the client's signing key is used before a new one replaces it. *)
+let key_lifetime = 90. *. 86400.
+
+(* The client's signing key is kept with the spindle's state and replaced
+   when the spindle starts after [key_lifetime]. The spindle keeps no
+   sessions with authorization servers, which only see the key during a
+   login, so the old key need not be published any longer. A login in
+   progress across a rotation must start again. *)
+let client_key ~now directory =
   let path = Eio.Path.(directory / "web-client.key") in
-  match Eio.Path.load path with
-  | s -> Oauth.Key.of_string (String.trim s)
-  | exception Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) ->
-      let key = Oauth.Key.generate () in
-      Eio.Path.save ~create:(`Exclusive 0o600) path (Oauth.Key.to_string key);
-      key
+  let fresh () =
+    let key = Oauth.Key.generate () in
+    let next = Eio.Path.(directory / "web-client.key.new") in
+    (try Eio.Path.unlink next with Eio.Io _ -> ());
+    Eio.Path.save ~create:(`Exclusive 0o600) next (Oauth.Key.to_string key);
+    Eio.Path.rename next path;
+    key
+  in
+  match (Eio.Path.load path, Eio.Path.stat ~follow:false path) with
+  | s, st when now -. st.mtime < key_lifetime -> Oauth.Key.of_string (String.trim s)
+  | _ -> fresh ()
+  | exception Eio.Io (Eio.Fs.E (Eio.Fs.Not_found _), _) -> fresh ()
 
 let idle = 2. *. 3600.
 
@@ -128,7 +141,7 @@ let sweep t =
 
 let v ~sw ~engine ~store ~catalog ~directory ~hostname ?plc ?origin ?http env =
   let origin = Option.value ~default:("https://" ^ hostname) origin in
-  let key = client_key directory in
+  let key = client_key ~now:(Eio.Time.now env#clock) directory in
   let kid =
     String.sub
       Digestif.SHA256.(
@@ -148,11 +161,12 @@ let v ~sw ~engine ~store ~catalog ~directory ~hostname ?plc ?origin ?http env =
     match http with
     | Some h -> h
     | None ->
-        (* Each visitor's login is its own: no cookie jar, and no retries that
-           an unresponsive server could stretch. *)
-        (Fetch_httpz.std ~cookies:`Off
-           ~retry:{ Fetch.Retry.default with max_retries = 0 }
-           ~connect:(Oauth.Public_net.connect env#net) env
+        (* Each visitor's login is its own: no cookie jar, no retries that an
+           unresponsive server could stretch, and no answer over 1 MiB. *)
+        (Fetch_httpz.v env#net ~clock:env#mono_clock ~https:Httpz_tls.system
+           ~connect:(Oauth.Public_net.connect env#net)
+           ~max_response:(1024 * 1024)
+           ()
           :> Fetch.plain)
   in
   {
@@ -281,11 +295,15 @@ let login_page ?error t (respond @ local) =
            paragraph
              "Log in with your atproto account, such as your Bluesky handle, \
               to see the pipelines of the repositories you use this spindle \
-              for.";
+              for. You can also give your account's server, such as \
+              https://bsky.social, to choose the account there.";
            S.post_form
              ~action:(S.Url.path [ "ui"; "login" ])
              ~hidden:[] ~submit:"Log in"
-             [ S.input ~name:"handle" ~label:"Handle or DID" ~value:"" () ];
+             [
+               S.input ~name:"handle" ~label:"Handle, DID or server address"
+                 ~value:"" ();
+             ];
          ]))
 
 (* A login holds one of [max_logins] places while it talks to servers, and
@@ -314,8 +332,18 @@ let login t (req @ local) (respond @ local) =
         else h
     | None -> ""
   in
-  if not (Atp.Handle.is_valid identifier || Atp.Did.is_valid identifier) then
-    login_page t respond ~error:"That is not a handle or a DID."
+  (* An account's server may be named instead, as https://HOST, since a bare
+     host name is read as a handle. *)
+  let server =
+    String.starts_with ~prefix:"https://" identifier
+    && Option.is_some (S.Url.external_ identifier)
+  in
+  if
+    not
+      (Atp.Handle.is_valid identifier || Atp.Did.is_valid identifier || server)
+  then
+    login_page t respond
+      ~error:"That is not a handle, a DID or an https:// server address."
   else if List.length (Store.list t.store "web-login") >= max_pending then (
     sweep t;
     login_page t respond ~error:busy)

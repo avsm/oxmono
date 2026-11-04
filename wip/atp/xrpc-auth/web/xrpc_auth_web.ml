@@ -68,7 +68,8 @@ module Client = struct
       @ opt "client_uri" t.client_uri
       @ [
           ("application_type", str "web");
-          ("grant_types", strs [ "authorization_code"; "refresh_token" ]);
+          (* Logins revoke their tokens at once, so nothing is refreshed. *)
+          ("grant_types", strs [ "authorization_code" ]);
           ("response_types", strs [ "code" ]);
           ("redirect_uris", strs [ t.redirect_uri ]);
           ("scope", str t.scope);
@@ -441,16 +442,17 @@ module Public_net = struct
     else if zeros 10 && b 10 = 0xff && b 11 = 0xff then embedded ()
       (* ::ffff:0:0/96, IPv4-mapped *)
     else if zeros 12 then embedded () (* ::/96, IPv4-compatible *)
-    else if b 0 = 0x00 && b 1 = 0x64 && b 2 = 0xff && b 3 = 0x9b && b 4 = 0
-            && b 5 = 1 then false (* 64:ff9b:1::/48, local NAT64 *)
+    else if
+      b 0 = 0x00 && b 1 = 0x64 && b 2 = 0xff && b 3 = 0x9b && b 4 = 0 && b 5 = 1
+    then false (* 64:ff9b:1::/48, local NAT64 *)
     else if b 0 = 0x00 && b 1 = 0x64 && b 2 = 0xff && b 3 = 0x9b then
       embedded () (* 64:ff9b::/96, NAT64 *)
     else if b 0 = 0x20 && b 1 = 0x02 then v4_public (String.sub a 2 4)
       (* 2002::/16, 6to4 names an IPv4 address *)
-    else if b 0 = 0x20 && b 1 = 0x01 && b 2 = 0 && b 3 = 0 then false
-      (* 2001::/32, Teredo *)
-    else if b 0 = 0x01 && b 1 = 0 && zeros_from 2 6 then false
-      (* 100::/64, discard only *)
+    else if b 0 = 0x20 && b 1 = 0x01 && b 2 = 0 && b 3 = 0 then
+      false (* 2001::/32, Teredo *)
+    else if b 0 = 0x01 && b 1 = 0 && zeros_from 2 6 then
+      false (* 100::/64, discard only *)
     else if b 0 = 0xfe && b 1 land 0xc0 = 0xc0 then false (* fec0::/10 *)
     else if b 0 land 0xfe = 0xfc then false (* fc00::/7, unique local *)
     else if b 0 = 0xfe && b 1 land 0xc0 = 0x80 then false (* fe80::/10 *)

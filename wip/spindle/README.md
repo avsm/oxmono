@@ -328,7 +328,12 @@ With `--web`, the spindle serves pages at `/ui` for its users. A visitor
 logs in with their atproto handle or DID. The spindle is a confidential
 OAuth client, at `https://HOSTNAME/oauth/client-metadata.json`, that signs
 its requests with a P-256 key kept in `web-client.key` in the state
-directory and publishes its public half at `/oauth/jwks.json`. It verifies
+directory and publishes its public half at `/oauth/jwks.json`. The key is
+replaced when the spindle starts after 90 days of use. The spindle keeps no
+sessions with authorization servers, so the old key need not stay
+published, and a login in progress across the change starts again. A
+visitor may also name their account's server, such as
+`https://bsky.social`, instead of a handle. It verifies
 the account once, revokes the tokens it was given and keeps none.
 
 Only the spindle's users get a session: its owner and admins, allow-listed
@@ -345,7 +350,7 @@ Content Security Policy that allows nothing inline and with
 `Cache-Control: no-store`. Logging out takes a CSRF token and is checked
 against the site's origin. OAuth requests go only to public addresses over
 HTTPS, since visitors choose where identity resolution leads, with no
-cookie jar or retries. At most eight logins talk to other servers at once,
+cookie jar or retries, and read at most 1 MiB of any answer. At most eight logins talk to other servers at once,
 each for at most 30 seconds, and at most 500 may be in progress. Expired
 sessions and logins are swept every ten minutes, and a new login ends the
 browser's previous session. Visitors see only generic errors; the details

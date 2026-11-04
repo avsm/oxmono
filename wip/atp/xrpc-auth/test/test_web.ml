@@ -126,7 +126,16 @@ let verify_assertion params =
   check "fresh jti" (not (Hashtbl.mem jtis jti));
   Hashtbl.replace jtis jti ()
 
+(* An atproto authorization server sends a DPoP nonce with every answer. *)
 let reply ?(status = 200) ?(headers = []) body req =
+  let headers =
+    let url = Fetch.Middleware.Url.to_string req.Fetch.Middleware.url in
+    if
+      List.mem_assoc "dpop-nonce" headers
+      || not (String.starts_with ~prefix:"https://as.test/" url)
+    then headers
+    else ("dpop-nonce", "as-n") :: headers
+  in
   Fetch_mock.respond ~status
     ~headers:
       (Http.Header.of_list (("content-type", "application/json") :: headers))
@@ -205,6 +214,9 @@ let server (req : Fetch.Middleware.request) =
       with_nonce ~demand:false req (fun params ->
           revoked := List.assoc "token" params :: !revoked;
           reply "{}" req)
+  | "https://cloudflare-dns.com/dns-query" ->
+      (* No TXT record, so handles resolve over HTTPS. *)
+      reply {|{"Status":3}|} req
   | _ -> failwith ("unexpected request " ^ url)
 
 let ok = function

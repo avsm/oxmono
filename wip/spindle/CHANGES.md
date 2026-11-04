@@ -12,7 +12,9 @@
   repositories they own or collaborate on. Pages are built with Sitekit,
   under a strict Content Security Policy, with `proffer.session` sessions
   kept in the spindle's store. Logins are bounded in number, time and
-  storage, and expired sessions are swept.
+  storage, and expired sessions are swept. Visitors may log in by naming
+  their account's server, OAuth answers are read up to 1 MiB, and the
+  client's signing key is replaced after 90 days.
 - Fix durable workflows cancelled while waiting to run again, keep the logs
   of a workflow that cannot run again, and never run one workflow twice at
   once after a lost lease. Reading a pipeline no longer deletes logs.

@@ -49,12 +49,12 @@ let form body =
   in
   String.split_on_char '&' body
   |> List.filter_map (fun pair ->
-         match String.index_opt pair '=' with
-         | None -> None
-         | Some i ->
-             Some
-               ( dec (String.sub pair 0 i),
-                 dec (String.sub pair (i + 1) (String.length pair - i - 1)) ))
+      match String.index_opt pair '=' with
+      | None -> None
+      | Some i ->
+          Some
+            ( dec (String.sub pair 0 i),
+              dec (String.sub pair (i + 1) (String.length pair - i - 1)) ))
 
 let sha256 s = Digestif.SHA256.(to_raw_string (digest_string s))
 
@@ -120,7 +120,16 @@ let verify_proof (req : Fetch.Middleware.request) =
   check "jti" (Jsonwt.Claims.jti claims <> None);
   claims
 
+(* An atproto authorization server sends a DPoP nonce with every answer. *)
 let reply ?(status = 200) ?(headers = []) body req =
+  let headers =
+    let url = Fetch.Middleware.Url.to_string req.Fetch.Middleware.url in
+    if
+      List.mem_assoc "dpop-nonce" headers
+      || not (String.starts_with ~prefix:"https://as.test/" url)
+    then headers
+    else ("dpop-nonce", "as-n") :: headers
+  in
   Fetch_mock.respond ~status
     ~headers:
       (Http.Header.of_list (("content-type", "application/json") :: headers))
@@ -133,7 +142,8 @@ let as_nonce req k =
   let claims = verify_proof req in
   if Jsonwt.Claims.get_string "nonce" claims <> Some "as-n" then begin
     st.as_nonce_sent <- true;
-    reply ~status:400 ~headers:[ ("dpop-nonce", "as-n") ]
+    reply ~status:400
+      ~headers:[ ("dpop-nonce", "as-n") ]
       {|{"error":"use_dpop_nonce"}|} req
   end
   else k (form (body req))
@@ -144,7 +154,7 @@ let token_reply req =
   reply
     (Printf.sprintf
        ({|{"access_token":"%s","refresh_token":"%s","token_type":"DPoP",|}
-       ^^ {|"sub":"%s","scope":"atproto","expires_in":3600}|})
+      ^^ {|"sub":"%s","scope":"atproto","expires_in":3600}|})
        st.access st.refresh did)
     req
 
@@ -159,22 +169,22 @@ let server (req : Fetch.Middleware.request) =
   | "https://plc.test/did:plc:alice" ->
       reply
         ({|{"id":"did:plc:alice","alsoKnownAs":["at://alice.test"],|}
-        ^ {|"service":[{"id":"#atproto_pds",|}
-        ^ {|"type":"AtprotoPersonalDataServer",|}
-        ^ {|"serviceEndpoint":"https://pds.test"}]}|})
+       ^ {|"service":[{"id":"#atproto_pds",|}
+       ^ {|"type":"AtprotoPersonalDataServer",|}
+       ^ {|"serviceEndpoint":"https://pds.test"}]}|})
         req
   | "https://pds.test/.well-known/oauth-protected-resource" ->
       reply
         ({|{"resource":"https://pds.test",|}
-        ^ {|"authorization_servers":["https://as.test"]}|})
+       ^ {|"authorization_servers":["https://as.test"]}|})
         req
   | "https://as.test/.well-known/oauth-authorization-server" ->
       reply
         ({|{"issuer":"https://as.test",|}
-        ^ {|"authorization_endpoint":"https://as.test/authorize",|}
-        ^ {|"token_endpoint":"https://as.test/token",|}
-        ^ {|"pushed_authorization_request_endpoint":"https://as.test/par",|}
-        ^ {|"revocation_endpoint":"https://as.test/revoke"}|})
+       ^ {|"authorization_endpoint":"https://as.test/authorize",|}
+       ^ {|"token_endpoint":"https://as.test/token",|}
+       ^ {|"pushed_authorization_request_endpoint":"https://as.test/par",|}
+       ^ {|"revocation_endpoint":"https://as.test/revoke"}|})
         req
   | "https://pds.test/xrpc/com.atproto.repo.describeRepo" ->
       reply {|{"handle":"alice.test"}|} req
@@ -287,9 +297,7 @@ let paste_mode read : Xrpc_auth.Oauth.redirect =
 
 let raises expected f =
   st.jwk <- None;
-  match f () with
-  | _ -> false
-  | exception Failure message -> message = expected
+  match f () with _ -> false | exception Failure message -> message = expected
 
 let () =
   Eio_main.run @@ fun env ->
@@ -329,8 +337,8 @@ let () =
       st.jwk <- None;
       let pasted =
         Xrpc_auth.Oauth.authorize ~net ~clock ~http ~plc ~identifier:did
-          ~redirect:(paste_mode (paste ~full)) ~scope:"atproto"
-          ~open_url:ignore ()
+          ~redirect:(paste_mode (paste ~full))
+          ~scope:"atproto" ~open_url:ignore ()
       in
       check "pasted grant" (pasted.did = did);
       check "pasted client"
@@ -387,8 +395,7 @@ let () =
   (match !saved with
   | Some s -> check "saved rotated token" (s.refresh_jwt = "rt2")
   | None -> failwith "refresh not saved");
-  check "session updated"
-    ((Xrpc_auth.Oauth.session live).access_jwt = "at2");
+  check "session updated" ((Xrpc_auth.Oauth.session live).access_jwt = "at2");
   (* Requests to other origins carry nothing. *)
   let other =
     Fetch_mock.client (fun req ->

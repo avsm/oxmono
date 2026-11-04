@@ -32,8 +32,9 @@ val v :
     key is [directory/web-client.key], created readable only by its owner on
     first use. [http] makes the OAuth requests, by default an HTTPS client
     that refuses private and loopback addresses, since identity resolution
-    follows addresses that visitors choose, keeps no cookies and does not
-    retry. At most eight logins talk to other servers at once, each for at
+    follows addresses that visitors choose, keeps no cookies, does not
+    retry and reads at most 1 MiB of an answer. The signing key is replaced
+    when the spindle starts after it has been used for 90 days. At most eight logins talk to other servers at once, each for at
     most 30 seconds, and at most 500 logins may be in progress. A fiber on
     [sw] sweeps away expired sessions and logins every ten minutes. *)
 

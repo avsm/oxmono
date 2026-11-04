@@ -301,7 +301,12 @@ let post_form ~clock ~http dpop ?client url pairs =
     in
     Fetch.with_response ~headers ~body ~redirects:0 ~sensitive:[ "dpop" ] http
       `POST url (fun response ->
-        remember dpop url (Fetch.headers response);
+        let headers = Fetch.headers response in
+        (* atproto makes server nonces mandatory, so an answer to a DPoP
+           request without one is not from a conforming server. *)
+        if Http.Header.get headers "dpop-nonce" = None then
+          failwith (url ^ " sent no DPoP-Nonce");
+        remember dpop url headers;
         (Fetch.status response, read_body response))
   in
   let status, body = send () in
@@ -368,7 +373,10 @@ let server_of_pds ~http pds =
   in
   let issuer =
     match List.assoc_opt "authorization_servers" resource with
-    | Some (`L (issuer :: _)) -> strip_slash issuer
+    | Some (`L [ issuer ]) -> strip_slash issuer
+    | Some (`L (_ :: _ :: _)) ->
+        (* atproto allows exactly one, so the choice is never the client's. *)
+        failwith (pds ^ " names more than one authorization server")
     | _ -> failwith (pds ^ " names no authorization server")
   in
   let what = issuer ^ " metadata" in

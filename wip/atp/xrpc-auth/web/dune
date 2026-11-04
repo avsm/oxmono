@@ -1,0 +1,11 @@
+(library
+ (name xrpc_auth_web)
+ (public_name xrpc-auth.web)
+ (libraries
+  xrpc-auth.protocol
+  atp-xrpc
+  fetch
+  fetch-httpz
+  jsont
+  jsont.bytesrw
+  eio))

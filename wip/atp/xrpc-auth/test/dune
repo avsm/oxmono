@@ -8,3 +8,9 @@
  (modules test_oauth)
  (libraries xrpc-auth atp-xrpc fetch fetch.mock eio_main http jsonwt digestif
   jsont jsont.bytesrw))
+
+(test
+ (name test_web)
+ (modules test_web)
+ (libraries xrpc-auth.web xrpc-auth.protocol fetch fetch.mock eio_main http
+  jsonwt digestif jsont jsont.bytesrw ptime ipaddr))

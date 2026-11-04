@@ -16,11 +16,13 @@ depends: [
   "atp-xrpc" {= version}
   "fetch"
   "fetch-curl"
+  "fetch-httpz"
   "http"
   "jsont" {>= "0.1"}
   "jsonwt"
   "digestif"
   "eqaf"
+  "ipaddr" {with-test}
   "mirage-crypto-ec"
   "mirage-crypto-rng"
   "eio" {>= "1.0"}

@@ -64,6 +64,8 @@ opam pin add -y https://tangled.org/@anil.recoil.org/ocaml-atp.git
 | `atp` | IPLD implementation with CID, DAG-CBOR, MST, CAR format support |
 | `atp-xrpc` | XRPC client for AT Protocol PDS communication |
 | `xrpc-auth` | Authentication helpers for CLI applications |
+| `xrpc-auth.protocol` | AT Protocol OAuth steps shared by every client: DPoP, PAR, server discovery, client assertions |
+| `xrpc-auth.web` | "Log in with atproto" for web sites, as a confidential client |
 
 ### Code Generation
 
@@ -141,3 +143,26 @@ dune build
 ## License
 
 ISC + MPL for bits from Pegasus
+
+## Logging in to a web site
+
+`xrpc-auth.web` makes a web site a confidential OAuth client. The site
+keeps a P-256 key from `Key.generate`, readable only by itself, and serves
+`Client.metadata` at its client ID and `Client.jwks`, which holds only the
+public key, at its JWKS URI. All three URLs are HTTPS on the site's origin.
+
+`start` resolves a handle, DID or server, pushes the authorization request
+with PKCE, a DPoP key and a `private_key_jwt` assertion, and returns a
+pending login and the URL to send the browser to. The site keeps the pending
+login on the server, keyed by its state, and takes it out of its store when
+the browser returns. `finish` requires the callback's state and issuer,
+refuses repeated parameters and expired logins, exchanges the code, checks
+that the token is DPoP-bound, has the `atproto` scope and names the account,
+and revokes the tokens. The site gets the account's DID, its handle if the
+handle and DID name each other, and its PDS, and gives the person a session
+of its own.
+
+Resolving an account fetches hosts that the person logging in names. Build
+the site's HTTP client with `Public_net.connect`, so that those fetches
+cannot reach the site's own network, whatever a name resolves to.
+

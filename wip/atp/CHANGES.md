@@ -9,6 +9,12 @@
 
 ## Unreleased
 
+- Move the OAuth steps the CLI and web clients share into
+  `xrpc-auth.protocol`, and add `xrpc-auth.web`, a confidential web client
+  for "Log in with atproto" with `private_key_jwt` assertions, a public-only
+  JWKS, two-phase login with server-side pending state, verified handles and
+  a public-address connector against server-side request forgery.
+
 - Add `tangled pipeline watch`, which reports pipelines as they start,
   change and finish across a user's repositories, with the commands to run
   next, and `Tangled.Watch`, the polling watcher behind it. Add the

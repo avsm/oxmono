@@ -6,6 +6,12 @@
 
 ## Unreleased
 
+- Require `--hostname`, which defaulted to a test name. Report a bad port,
+  workflow timeout, concurrency, retention limit, quota or `--repo` without
+  `--source` as a usage error before starting. Quotas name one of the
+  enforced resources and a positive limit. `--allow-http` now says that it
+  also lets identity, knot and PDS requests reach private addresses.
+
 - Refuse a fractional or out-of-range quota limit, invite use count or pull
   request round instead of truncating it, and accept only 40 or 64 zeros as
   a missing ref's ID.

@@ -166,7 +166,7 @@ type t =
    (** [code] is the three-digit status code, including unregistered codes. *)
    ; reason : Span.t (** [reason] is the optional, informational reason phrase. *)
    ; body_off : int16# (** [body_off] is the first byte after the response head. *)
-   ; content_length : int64#
+   ; content_length : int64_u
    (** [content_length] is Content-Length, or [-1L] when absent. *)
    ; is_chunked : bool
    (** [is_chunked] is [true] when chunked is the final transfer coding of a body-bearing

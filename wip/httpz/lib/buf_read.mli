@@ -55,7 +55,7 @@ val valid_field_value : local_ bytes -> pos:int16# -> len:int16# -> bool @@ port
 
 (** A [limits] value sets the resource limits applied while parsing an HTTP message. *)
 type limits =
-  #{ max_content_length : int64#
+  #{ max_content_length : int64_u
    (** [max_content_length] is the greatest accepted Content-Length value. *)
    ; max_header_size : int16#
    (** [max_header_size] is the greatest accepted message-head size in bytes. *)

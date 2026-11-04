@@ -12,7 +12,7 @@ type t =
    ; query : Span.t
    ; version : Version.t
    ; body_off : int16#
-   ; content_length : int64#
+   ; content_length : int64_u
    ; is_chunked : bool
    ; keep_alive : bool
    ; connection_upgrade : bool

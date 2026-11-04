@@ -3,10 +3,10 @@ module I64 = Stdlib_upstream_compatible.Int64_u
 module Bits = Ocaml_intrinsics_kernel.Int64.Unboxed
 module Char_u = Stdlib_stable.Char_u
 
-let ones : int64# = I64.of_int64 0x0101010101010101L
-let highs : int64# = I64.of_int64 0x8080808080808080L
-let cr_rep : int64# = I64.of_int64 0x0D0D0D0D0D0D0D0DL
-let sp_rep : int64# = I64.of_int64 0x2020202020202020L
+let ones : int64_u = I64.of_int64 0x0101010101010101L
+let highs : int64_u = I64.of_int64 0x8080808080808080L
+let cr_rep : int64_u = I64.of_int64 0x0D0D0D0D0D0D0D0DL
+let sp_rep : int64_u = I64.of_int64 0x2020202020202020L
 
 (* Sets 0x80 in every zero byte of [w] (Bit Twiddling Hacks' [haszero]).
 
@@ -16,17 +16,17 @@ let sp_rep : int64# = I64.of_int64 0x2020202020202020L
    marked byte rather than by the zero byte. Every caller below resolves the *lowest*
    marked byte, which is always the genuine zero byte that started the borrow, so the
    resolved index is always a true match. *)
-let[@inline always] zero_bytes (w : int64#) : int64# =
+let[@inline always] zero_bytes (w : int64_u) : int64_u =
   I64.logand (I64.logand (I64.sub w ones) (I64.lognot w)) highs
 ;;
 
-let[@inline always] lowest_marked (m : int64#) : int =
+let[@inline always] lowest_marked (m : int64_u) : int =
   I64.to_int (Bits.count_trailing_zeros m) lsr 3
 ;;
 
 (* This native-endian load assumes a little-endian target: [lowest_marked] resolves the
    lowest-addressed byte only when the word's byte 0 is its least significant byte. *)
-let[@inline always] word (local_ (buf : bytes)) p : int64# =
+let[@inline always] word (local_ (buf : bytes)) p : int64_u =
   I64.of_int64 (Bytes.unsafe_get_int64 buf p)
 ;;
 

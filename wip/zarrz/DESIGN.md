@@ -91,7 +91,7 @@ val name : t -> string
 
 Everything is fixed size. In-memory element bytes are always native endian
 after decode. `Uint64` shares representation with `Int64` (the accessor
-returns `int64#` reinterpreted, as in Rust's u64/i64 transmute).
+returns `int64_u` reinterpreted, as in Rust's u64/i64 transmute).
 
 ### Fill_value
 
@@ -230,10 +230,10 @@ module Slab : sig
     val get2 : t -> int -> int -> float#  (* 2-d convenience, row major *)
     val get3 : t -> int -> int -> int -> float#
   end
-  (* F32 : float32#. I64, U64 : int64#. I32, U32 : int32#.
+  (* F32 : float32_u. I64, U64 : int64_u. I32, U32 : int32_u.
      I16, U16 : int16#. I8, U8 : int8#. Bl : bool#.
      F16, BF16 : get returns float# (widened on read, narrowed on set).
-     C64, C128 : get_re / get_im returning float32# / float#. *)
+     C64, C128 : get_re / get_im returning float32_u / float#. *)
 
   val to_genarray :
     t -> ('a, 'b) Bigarray.kind -> ('a, 'b, Bigarray.c_layout) Bigarray.Genarray.t
@@ -430,7 +430,7 @@ val decompress :
   dctx -> src:Base_bigstring.t -> src_off:int -> src_len:int ->
   dst:Base_bigstring.t -> dst_off:int -> dst_len:int -> int
 val content_size :
-  Base_bigstring.t -> off:int -> len:int -> int64#
+  Base_bigstring.t -> off:int -> len:int -> int64_u
 (* Frame header content size. -1L unknown, -2L error, as libzstd. *)
 
 type frame_info = { content_size : int64; window_size : int;

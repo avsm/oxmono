@@ -122,8 +122,8 @@ type range_kind =
 
 type byte_range =
   #{ kind : range_kind
-   ; start : int64#
-   ; end_ : int64#
+   ; start : int64_u
+   ; end_ : int64_u
    }
 
 let max_ranges : int16# = i16 16
@@ -152,14 +152,14 @@ type parse_status =
   | Invalid
 
 type resolved =
-  #{ start : int64#
-   ; end_ : int64#
-   ; length : int64#
+  #{ start : int64_u
+   ; end_ : int64_u
+   ; length : int64_u
    }
 
 let empty_resolved = #{ start = i64 0L; end_ = i64 0L; length = i64 0L }
 
-let max_int64_div_10 : int64# = #922337203685477580L
+let max_int64_div_10 : int64_u = #922337203685477580L
 let max_int64_last_digit = 7
 
 type eval_result =
@@ -173,13 +173,13 @@ let[@inline] skip_ows buf ~pos ~len =
   to_i16 (Buf_read.skip_ows buf ~pos:(i16 pos) ~len:(i16 len))
 ;;
 
-(* Accumulates in [int64#]: the boxed [Int64] version allocated a 24-byte box
+(* Accumulates in [int64_u]: the boxed [Int64] version allocated a 24-byte box
    per digit through Base's arithmetic, which is what made the whole Range
    path allocate despite the interface's zero-allocation claim. *)
 let[@inline] parse_int64 buf ~pos ~len =
   let start = pos in
   let mutable p = pos in
-  let mutable acc : int64# = #0L in
+  let mutable acc : int64_u = #0L in
   let mutable valid = true in
   let mutable overflow = false in
   while valid && p < len do
@@ -305,7 +305,7 @@ let parse_string (s : string) (ranges : byte_range array) : #(parse_status * int
   parse_region buf ~off:0 ~len:(String.length s) ranges
 ;;
 
-let resolve_range (range : byte_range) ~(resource_length : int64#)
+let resolve_range (range : byte_range) ~(resource_length : int64_u)
   : #(bool * resolved)
   =
   let res_len = resource_length in
@@ -340,7 +340,7 @@ let resolve_range (range : byte_range) ~(resource_length : int64#)
 let evaluate
   (ranges : byte_range array)
   ~(count : int16#)
-  ~(resource_length : int64#)
+  ~(resource_length : int64_u)
   (out : resolved array)
   : #(eval_result * int16#)
   =
@@ -370,8 +370,8 @@ let write_accept_ranges_none dst ~off =
   Buf_write.crlf dst ~off
 ;;
 
-let write_content_range dst ~off ~(start : int64#) ~(end_ : int64#)
-  ~(total : int64#)
+let write_content_range dst ~off ~(start : int64_u) ~(end_ : int64_u)
+  ~(total : int64_u)
   =
   let off = Buf_write.string dst ~off "Content-Range: bytes " in
   let off = Buf_write.int64 dst ~off start in
@@ -382,7 +382,7 @@ let write_content_range dst ~off ~(start : int64#) ~(end_ : int64#)
   Buf_write.crlf dst ~off
 ;;
 
-let write_content_range_unsatisfiable dst ~off ~(total : int64#) =
+let write_content_range_unsatisfiable dst ~off ~(total : int64_u) =
   let off = Buf_write.string dst ~off "Content-Range: bytes */" in
   let off = Buf_write.int64 dst ~off total in
   Buf_write.crlf dst ~off

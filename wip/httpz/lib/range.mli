@@ -39,9 +39,9 @@ type range_kind =
 
 type byte_range = private
   #{ kind : range_kind (** [kind] says how the other members are read. *)
-   ; start : int64#
+   ; start : int64_u
        (** [start] is the first offset or suffix length, according to [kind]. *)
-   ; end_ : int64#
+   ; end_ : int64_u
        (** [end_] is the inclusive final offset for an explicit range. *)
    }
 (** A [byte_range] is a specification before it is resolved against a
@@ -74,9 +74,9 @@ type parse_status =
       (** [Invalid] means the field did not contain a valid byte-range set. *)
 
 type resolved =
-  #{ start : int64#  (** [start] is the zero-based first byte. *)
-   ; end_ : int64#  (** [end_] is the inclusive last byte. *)
-   ; length : int64#  (** [length] is the number of selected bytes. *)
+  #{ start : int64_u  (** [start] is the zero-based first byte. *)
+   ; end_ : int64_u  (** [end_] is the inclusive last byte. *)
+   ; length : int64_u  (** [length] is the number of selected bytes. *)
    }
 (** A [resolved] is a satisfiable byte range expressed as inclusive offsets. *)
 
@@ -111,7 +111,7 @@ val parse_string :
 val evaluate :
   byte_range array
   -> count:int16#
-  -> resource_length:int64#
+  -> resource_length:int64_u
   -> resolved array
   -> #(eval_result * int16#)
   @@ portable
@@ -122,7 +122,7 @@ val evaluate :
     large enough for [count], and [count] must be non-negative. *)
 
 val resolve_range :
-  byte_range -> resource_length:int64# -> #(bool * resolved) @@ portable
+  byte_range -> resource_length:int64_u -> #(bool * resolved) @@ portable
 (** [resolve_range range ~resource_length] is [(true, resolved)] when [range]
     selects at least one byte from a positive-length representation. It is
     [(false, empty_resolved)] otherwise. Explicit end offsets are clamped to the
@@ -139,9 +139,9 @@ val write_accept_ranges_none : bytes -> off:int16# -> int16# @@ portable
 val write_content_range :
   bytes
   -> off:int16#
-  -> start:int64#
-  -> end_:int64#
-  -> total:int64#
+  -> start:int64_u
+  -> end_:int64_u
+  -> total:int64_u
   -> int16#
   @@ portable
 (** [write_content_range buf ~off ~start ~end_ ~total] is the next offset after
@@ -149,7 +149,7 @@ val write_content_range :
     relationship is not validated. *)
 
 val write_content_range_unsatisfiable :
-  bytes -> off:int16# -> total:int64# -> int16# @@ portable
+  bytes -> off:int16# -> total:int64_u -> int16# @@ portable
 (** [write_content_range_unsatisfiable buf ~off ~total] is the next offset after
     writing ["Content-Range: bytes */total\r\n"] for a 416 response. *)
 

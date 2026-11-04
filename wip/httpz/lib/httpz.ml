@@ -50,7 +50,7 @@ let one16 : int16# = I16.of_int 1
 
 type header_state =
  #{ count : int16#
-  ; content_len : int64#
+  ; content_len : int64_u
   ; chunked : bool
   ; conn : Parser.conn_value
   ; connection_upgrade : bool
@@ -62,7 +62,7 @@ type header_state =
   ; host : Span.t
   }
 
-let minus_one_i64 : int64# = I64.of_int64 (-1L)
+let minus_one_i64 : int64_u = I64.of_int64 (-1L)
 
 let initial_header_state : header_state =
  #{ count = i16 0

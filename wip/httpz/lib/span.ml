@@ -27,9 +27,9 @@ external str_word
 
 external str_half : (string[@local_opt]) -> int -> int @@ portable = "%caml_string_get16u"
 
-let[@inline always] sword (local_ s) i : int64# = I64.of_int64 (str_word s i)
+let[@inline always] sword (local_ s) i : int64_u = I64.of_int64 (str_word s i)
 
-let[@inline always] bword (local_ (buf : bytes)) i : int64# =
+let[@inline always] bword (local_ (buf : bytes)) i : int64_u =
   I64.of_int64 (Bytes.unsafe_get_int64 buf i)
 ;;
 
@@ -54,18 +54,18 @@ let[@inline always] to_lower16 (w : int) =
   w lor (((w + 0x3F3F) land (0xDADA - w) land 0x8080) lsr 2)
 ;;
 
-let highs : int64# = I64.of_int64 0x8080808080808080L
-let ge_bias : int64# = I64.of_int64 0x3F3F3F3F3F3F3F3FL (* 0x80 - 'A' *)
-let le_bias : int64# = I64.of_int64 0xDADADADADADADADAL (* 0x80 lor 'Z' *)
+let highs : int64_u = I64.of_int64 0x8080808080808080L
+let ge_bias : int64_u = I64.of_int64 0x3F3F3F3F3F3F3F3FL (* 0x80 - 'A' *)
+let le_bias : int64_u = I64.of_int64 0xDADADADADADADADAL (* 0x80 lor 'Z' *)
 
 (* [ascii w] holds when no byte of [w] has its high bit set. [upper_mask] depends on it:
    with a byte above 0x7F its two range tests would carry into the neighbouring byte and
    give a wrong answer. *)
-let[@inline always] ascii (w : int64#) = I64.equal (I64.logand w highs) #0L
+let[@inline always] ascii (w : int64_u) = I64.equal (I64.logand w highs) #0L
 
 (* 0x20 in each byte of [w] that holds an ASCII uppercase letter, 0 elsewhere. Requires
    [ascii w]. *)
-let[@inline always] upper_mask (w : int64#) : int64# =
+let[@inline always] upper_mask (w : int64_u) : int64_u =
   let ge_a = I64.add w ge_bias in
   (* high bit set iff byte >= 'A' *)
   let le_z = I64.sub le_bias w in
@@ -74,7 +74,7 @@ let[@inline always] upper_mask (w : int64#) : int64# =
 ;;
 
 (* ASCII-lowercase every byte of [w]. Requires [ascii w]. *)
-let[@inline always] to_lower_word (w : int64#) = I64.logor w (upper_mask w)
+let[@inline always] to_lower_word (w : int64_u) = I64.logor w (upper_mask w)
 
 let[@inline] equal (local_ (buf : bytes)) (sp : t) s =
   let slen = String.length s in
@@ -150,14 +150,14 @@ let[@inline] is_empty (sp : t) = I16.compare sp.#len (I16.of_int 0) = 0
 
 (* XOR makes matching bytes zero. The has-zero trick can also mark the byte after a match,
    but the lowest marked byte is always a genuine match. *)
-let ones : int64# = I64.of_int64 0x0101010101010101L
+let ones : int64_u = I64.of_int64 0x0101010101010101L
 
-let[@inline always] zero_bytes (w : int64#) : int64# =
+let[@inline always] zero_bytes (w : int64_u) : int64_u =
   I64.logand (I64.logand (I64.sub w ones) (I64.lognot w)) highs
 ;;
 
 (* This trailing-zero-to-byte conversion assumes a little-endian target. *)
-let[@inline always] lowest_marked (m : int64#) : int =
+let[@inline always] lowest_marked (m : int64_u) : int =
   I64.to_int (Bits.count_trailing_zeros m) lsr 3
 ;;
 
@@ -198,14 +198,14 @@ let[@inline] split_on_char (local_ (buf : bytes)) (sp : t) (c : char#) : #(t * t
     #(before, after))
 ;;
 
-let minus_one_i64 : int64# = I64.of_int64 (-1L)
-let max_int64_div_10 : int64# = I64.of_int64 922337203685477580L
+let minus_one_i64 : int64_u = I64.of_int64 (-1L)
+let max_int64_div_10 : int64_u = I64.of_int64 922337203685477580L
 let max_int64_last_digit = 7
 
 let[@inline] parse_content_length (local_ (buf : bytes)) (sp : t)
-  : #(int64# * bool * bool)
+  : #(int64_u * bool * bool)
   =
-  let mutable first : int64# = minus_one_i64 in
+  let mutable first : int64_u = minus_one_i64 in
   let mutable pos = off sp in
   let stop = pos + len sp in
   let mutable invalid = false in
@@ -216,7 +216,7 @@ let[@inline] parse_content_length (local_ (buf : bytes)) (sp : t)
     while pos < stop && Buf_read.is_space (Buf_read.peek buf (I16.of_int pos)) do
       pos <- pos + 1
     done;
-    let mutable acc : int64# = #0L in
+    let mutable acc : int64_u = #0L in
     let mutable digits = 0 in
     let mutable reading_digits = true in
     while reading_digits && pos < stop do

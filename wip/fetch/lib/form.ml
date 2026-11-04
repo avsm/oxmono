@@ -233,7 +233,7 @@ type composite = {
   failure : int array;
   mutable todo : segment list;
   mutable pos : int;
-  mutable seen : int64#;
+  mutable seen : int64_u;
   probe : Cstruct.t;
   mutable matched : int;
 }

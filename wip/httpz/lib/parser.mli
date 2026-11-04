@@ -113,7 +113,7 @@ val content_length_value
   :  local_ bytes
   -> Span.t
   -> has_cl:bool
-  -> current:int64#
-  -> max_content_length:int64#
-  -> int64#
+  -> current:int64_u
+  -> max_content_length:int64_u
+  -> int64_u
   @@ portable

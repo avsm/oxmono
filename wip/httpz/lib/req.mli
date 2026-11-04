@@ -16,7 +16,7 @@ type t =
    ; query : Span.t (** [query] is the query without [?], or an empty span when absent. *)
    ; version : Version.t (** [version] is the request's HTTP version. *)
    ; body_off : int16# (** [body_off] is the first byte after the request head. *)
-   ; content_length : int64#
+   ; content_length : int64_u
    (** [content_length] is Content-Length, or [-1L] when absent. *)
    ; is_chunked : bool
    (** [is_chunked] is [true] when the body uses chunked transfer coding. *)

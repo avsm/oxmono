@@ -45,7 +45,7 @@ val split_on_char : local_ bytes -> t -> char# -> #(t * t) @@ portable
     accepts a comma-separated repetition only when every member is the same decimal value.
     The result is [(value, overflow, conflicting)]; malformed input gives [-1L] with both
     flags clear. *)
-val parse_content_length : local_ bytes -> t -> #(int64# * bool * bool) @@ portable
+val parse_content_length : local_ bytes -> t -> #(int64_u * bool * bool) @@ portable
 
 (** [token_list_last_is buf span token] is the number of non-empty members in the
     comma-separated list and whether its final member equals [token], ignoring ASCII case

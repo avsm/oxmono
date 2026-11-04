@@ -250,13 +250,13 @@ type conn = {
   mutable read_len : int;
   mutable handoff_off : int;
   mutable keep_alive : bool;
-  mutable body_written : int64#;
+  mutable body_written : int64_u;
   mutable body_chunked : bool;
   (* The declared Content-Length of the response body being streamed. The sink
      refuses to put the first byte beyond it on the wire. *)
   (* A negative budget means the response declared no length. Keeping it
      unboxed avoids copying a local [int64 option] out of the outcome. *)
-  mutable body_budget : int64#;
+  mutable body_budget : int64_u;
 }
 
 (* A negative read result denotes a deadline. The connection is discarded if

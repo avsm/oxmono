@@ -207,16 +207,16 @@ module Bytes_codec = struct
      bounds check, which {!swap_into} replaces with one length check per
      call. *)
 
-  external ld_i32 : Base_bigstring.t -> int -> int32#
+  external ld_i32 : Base_bigstring.t -> int -> int32_u
     = "%caml_bigstring_get32u#"
 
-  external st_i32 : Base_bigstring.t -> int -> int32# -> unit
+  external st_i32 : Base_bigstring.t -> int -> int32_u -> unit
     = "%caml_bigstring_set32u#"
 
-  external ld_i64 : Base_bigstring.t -> int -> int64#
+  external ld_i64 : Base_bigstring.t -> int -> int64_u
     = "%caml_bigstring_get64u#"
 
-  external st_i64 : Base_bigstring.t -> int -> int64# -> unit
+  external st_i64 : Base_bigstring.t -> int -> int64_u -> unit
     = "%caml_bigstring_set64u#"
 
   external ld_u16 : Base_bigstring.t -> int -> int = "%caml_bigstring_get16u"
@@ -233,10 +233,10 @@ module Bytes_codec = struct
   external bswap32 : int32 -> int32 = "%bswap_int32"
   external bswap64 : int64 -> int64 = "%bswap_int64"
 
-  let[@inline] bswap32u (x : int32#) : int32# =
+  let[@inline] bswap32u (x : int32_u) : int32_u =
     I32u.of_int32 (bswap32 (I32u.to_int32 x))
 
-  let[@inline] bswap64u (x : int64#) : int64# =
+  let[@inline] bswap64u (x : int64_u) : int64_u =
     I64u.of_int64 (bswap64 (I64u.to_int64 x))
 
   (* The width the declared endianness applies to. A complex value is a

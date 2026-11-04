@@ -97,9 +97,9 @@ let[@inline] int dst ~(off : int16#) n =
     add16 off (i16 digits))
 ;;
 
-(* Stays in [int64#] throughout: routing this through boxed [Int64] costs two
+(* Stays in [int64_u] throughout: routing this through boxed [Int64] costs two
    24-byte boxes per digit, via Base's [%] and [/]. *)
-let[@zero_alloc] int64 dst ~(off : int16#) (n : int64#) =
+let[@zero_alloc] int64 dst ~(off : int16#) (n : int64_u) =
   if I64.compare n #0L < 0 then
     Stdlib.invalid_arg "Buf_write.int64: negative value";
   let off_int = to_int off in

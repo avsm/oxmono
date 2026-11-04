@@ -29,7 +29,7 @@ val[@zero_alloc opt] int : bytes -> off:int16# -> int -> int16# @@ portable
     in decimal. It raises [Invalid_argument] on a negative [value]. *)
 
 val[@zero_alloc opt] int64 :
-  bytes -> off:int16# -> int64# -> int16# @@ portable
+  bytes -> off:int16# -> int64_u -> int16# @@ portable
 (** [int64 buf ~off value] is the next offset after writing non-negative [value]
     in decimal. It raises [Invalid_argument] on a negative [value]. *)
 

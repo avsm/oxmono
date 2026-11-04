@@ -341,14 +341,14 @@ let[@inline always] add16 a b = I16.add a b
 let[@inline always] gt16 a b = I16.compare a b > 0
 let[@inline always] gte16 a b = I16.compare a b >= 0
 let one16 : int16# = i16 1
-let minus_one_i64 : int64# = I64.of_int64 (-1L)
+let minus_one_i64 : int64_u = I64.of_int64 (-1L)
 
 type t =
   #{ version : Version.t
    ; code : int16#
    ; reason : Span.t
    ; body_off : int16#
-   ; content_length : int64#
+   ; content_length : int64_u
    ; is_chunked : bool
    ; transfer_coding_count : int
    ; bodyless : bool
@@ -357,7 +357,7 @@ type t =
 
 type header_state =
   #{ count : int16#
-   ; content_len : int64#
+   ; content_len : int64_u
    ; chunked : bool
    ; te_count : int
    ; conn : Parser.conn_value

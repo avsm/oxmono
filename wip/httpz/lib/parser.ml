@@ -11,16 +11,16 @@ type pstate =
    ; len : int16#
    }
 
-let get_int32 : int32# = I32.of_int32 0x00544547l (* "GET" masked *)
-let put_int32 : int32# = I32.of_int32 0x00545550l (* "PUT" masked *)
-let method_3byte_mask : int32# = I32.of_int32 0x00FFFFFFl
-let post_int32 : int32# = I32.of_int32 0x54534F50l (* "POST" *)
-let head_int32 : int32# = I32.of_int32 0x44414548l (* "HEAD" *)
-let copy_int32 : int32# = I32.of_int32 0x59504F43l (* "COPY" *)
-let lock_int32 : int32# = I32.of_int32 0x4B434F4Cl (* "LOCK" *)
-let move_int32 : int32# = I32.of_int32 0x45564F4Dl (* "MOVE" *)
-let http11_int64 : int64# = I64.of_int64 0x312E312F50545448L (* "HTTP/1.1" *)
-let http10_int64 : int64# = I64.of_int64 0x302E312F50545448L (* "HTTP/1.0" *)
+let get_int32 : int32_u = I32.of_int32 0x00544547l (* "GET" masked *)
+let put_int32 : int32_u = I32.of_int32 0x00545550l (* "PUT" masked *)
+let method_3byte_mask : int32_u = I32.of_int32 0x00FFFFFFl
+let post_int32 : int32_u = I32.of_int32 0x54534F50l (* "POST" *)
+let head_int32 : int32_u = I32.of_int32 0x44414548l (* "HEAD" *)
+let copy_int32 : int32_u = I32.of_int32 0x59504F43l (* "COPY" *)
+let lock_int32 : int32_u = I32.of_int32 0x4B434F4Cl (* "LOCK" *)
+let move_int32 : int32_u = I32.of_int32 0x45564F4Dl (* "MOVE" *)
+let http11_int64 : int64_u = I64.of_int64 0x312E312F50545448L (* "HTTP/1.1" *)
+let http10_int64 : int64_u = I64.of_int64 0x302E312F50545448L (* "HTTP/1.0" *)
 let[@inline always] add16 a b = I16.add a b
 let[@inline always] sub16 a b = I16.sub a b
 let[@inline always] gte16 a b = I16.compare a b >= 0
@@ -71,7 +71,7 @@ let[@inline] http_version st ~(pos : int16#) : #(Version.t * int16#) =
       Err.Invalid_version
   done;
   Err.partial_when (available < 8);
-  let v64 : int64# = I64.of_int64 (Bytes.unsafe_get_int64 st.#buf (to_int pos)) in
+  let v64 : int64_u = I64.of_int64 (Bytes.unsafe_get_int64 st.#buf (to_int pos)) in
   let new_pos = add16 pos (i16 8) in
   let version =
     if I64.equal v64 http11_int64
@@ -101,7 +101,7 @@ let[@inline] parse_method st ~(pos : int16#) : #(Method.t * int16#) =
   let meth =
     match len with
     | 3 ->
-      let v : int32# =
+      let v : int32_u =
         I32.bit_and (I32.of_int32 (Bytes.unsafe_get_int32 st.#buf off)) method_3byte_mask
       in
       if I32.equal v get_int32
@@ -110,7 +110,7 @@ let[@inline] parse_method st ~(pos : int16#) : #(Method.t * int16#) =
       then Method.Put
       else unknown ()
     | 4 ->
-      let v : int32# = I32.of_int32 (Bytes.unsafe_get_int32 st.#buf off) in
+      let v : int32_u = I32.of_int32 (Bytes.unsafe_get_int32 st.#buf off) in
       if I32.equal v post_int32
       then Method.Post
       else if I32.equal v head_int32
@@ -357,9 +357,9 @@ let[@inline] content_length_value
   (local_ (buf : bytes))
   value_span
   ~has_cl
-  ~(current : int64#)
-  ~(max_content_length : int64#)
-  : int64#
+  ~(current : int64_u)
+  ~(max_content_length : int64_u)
+  : int64_u
   =
   let #(parsed_len, overflow, conflicting) = Span.parse_content_length buf value_span in
   Err.when_ overflow Err.Content_length_overflow;

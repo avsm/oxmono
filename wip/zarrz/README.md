@@ -2,7 +2,7 @@
 
 Reads and writes [Zarr V3](https://zarr-specs.readthedocs.io/en/latest/v3/core/)
 chunked N-dimensional arrays. Decoded chunks are exposed through `Zarrz.Slab`,
-whose per-type accessors return unboxed scalars (`float#`, `int64#`, …) and
+whose per-type accessors return unboxed scalars (`float#`, `int64_u`, …) and
 allocate nothing.
 
 The core carries every built-in codec: `bytes`, `transpose`, `gzip`, `zstd`,

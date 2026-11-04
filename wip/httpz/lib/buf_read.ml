@@ -135,7 +135,7 @@ let valid_field_value (local_ (buf : bytes)) ~(pos : int16#) ~(len : int16#) =
 ;;
 
 type limits =
-  #{ max_content_length : int64#
+  #{ max_content_length : int64_u
    ; max_header_size : int16#
    ; max_header_count : int16#
    ; max_chunk_size : int

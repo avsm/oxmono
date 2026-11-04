@@ -26,7 +26,7 @@ let of_bool (b : bool#) = match b with #true -> true | #false -> false
 
 (* [ignore] wants a value layout, so unboxed results need their own. *)
 let drop_f (_ : float#) = ()
-let drop_i64 (_ : int64#) = ()
+let drop_i64 (_ : int64_u) = ()
 let drop_i8 (_ : int8#) = ()
 
 (* The 16 bit pattern a half precision slab stored, read back natively

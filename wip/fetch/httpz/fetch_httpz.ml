@@ -121,8 +121,8 @@ let host_header url =
 module Limited = struct
   type t = {
     src : Eio.Flow.source_ty Eio.Resource.t;
-    length : int64#;
-    mutable left : int64#;
+    length : int64_u;
+    mutable left : int64_u;
   }
 
   let read_methods = []
@@ -323,7 +323,7 @@ type head_info = {
   code : int;
   version : Fetch.version;
   resp_headers : (string * string) list;
-  content_length : int64#;
+  content_length : int64_u;
   chunked : bool;
   coding_count : int;
   bodyless : bool;
@@ -440,7 +440,7 @@ type framing =
 type body = {
   w : window;
   mutable framing : framing;
-  mutable left : int64#;
+  mutable left : int64_u;
   mutable chunk_left : int;
   mutable trailers : Http.Header.t option;
   mutable body_eof : bool;

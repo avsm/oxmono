@@ -134,7 +134,7 @@ val decompress :
 (** {2 Frame inspection} *)
 
 val[@zero_alloc] content_size :
-  Base_bigstring.t -> off:int -> len:int -> int64#
+  Base_bigstring.t -> off:int -> len:int -> int64_u
 (** [content_size buf ~off ~len] is the decompressed size recorded in the
     header of the frame at [off]. [-1L] means the header does not record a
     size, which is what a streaming encoder produces. [-2L] means the bytes

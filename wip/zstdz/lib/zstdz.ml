@@ -47,7 +47,7 @@ external decompress_raw :
 (* An unboxed result needs both halves of the external: the native stub
    returns a raw int64_t and the bytecode stub returns a boxed Int64.
    The native stub only reads the frame header, so it is [@@noalloc]. *)
-external content_size_raw : Base_bigstring.t -> int -> int -> int64#
+external content_size_raw : Base_bigstring.t -> int -> int -> int64_u
   @@ portable = "zstdz_content_size_bytecode" "zstdz_content_size_native"
   [@@noalloc]
 

@@ -112,84 +112,84 @@ module type S_f64 = sig
   [@@zero_alloc]
 end
 
-(** Accessors presenting an element as [float32#]. *)
+(** Accessors presenting an element as [float32_u]. *)
 module type S_f32 = sig
-  val get : t -> int -> float32#
+  val get : t -> int -> float32_u
   [@@zero_alloc]
 
-  val unsafe_get : t -> int -> float32#
+  val unsafe_get : t -> int -> float32_u
   [@@zero_alloc]
 
-  val set : t -> int -> float32# -> unit
+  val set : t -> int -> float32_u -> unit
   [@@zero_alloc]
 
-  val unsafe_set : t -> int -> float32# -> unit
+  val unsafe_set : t -> int -> float32_u -> unit
   [@@zero_alloc]
 
-  val get2 : t -> int -> int -> float32#
+  val get2 : t -> int -> int -> float32_u
   [@@zero_alloc]
 
-  val set2 : t -> int -> int -> float32# -> unit
+  val set2 : t -> int -> int -> float32_u -> unit
   [@@zero_alloc]
 
-  val get3 : t -> int -> int -> int -> float32#
+  val get3 : t -> int -> int -> int -> float32_u
   [@@zero_alloc]
 
-  val set3 : t -> int -> int -> int -> float32# -> unit
+  val set3 : t -> int -> int -> int -> float32_u -> unit
   [@@zero_alloc]
 end
 
-(** Accessors presenting an element as [int64#]. *)
+(** Accessors presenting an element as [int64_u]. *)
 module type S_i64 = sig
-  val get : t -> int -> int64#
+  val get : t -> int -> int64_u
   [@@zero_alloc]
 
-  val unsafe_get : t -> int -> int64#
+  val unsafe_get : t -> int -> int64_u
   [@@zero_alloc]
 
-  val set : t -> int -> int64# -> unit
+  val set : t -> int -> int64_u -> unit
   [@@zero_alloc]
 
-  val unsafe_set : t -> int -> int64# -> unit
+  val unsafe_set : t -> int -> int64_u -> unit
   [@@zero_alloc]
 
-  val get2 : t -> int -> int -> int64#
+  val get2 : t -> int -> int -> int64_u
   [@@zero_alloc]
 
-  val set2 : t -> int -> int -> int64# -> unit
+  val set2 : t -> int -> int -> int64_u -> unit
   [@@zero_alloc]
 
-  val get3 : t -> int -> int -> int -> int64#
+  val get3 : t -> int -> int -> int -> int64_u
   [@@zero_alloc]
 
-  val set3 : t -> int -> int -> int -> int64# -> unit
+  val set3 : t -> int -> int -> int -> int64_u -> unit
   [@@zero_alloc]
 end
 
-(** Accessors presenting an element as [int32#]. *)
+(** Accessors presenting an element as [int32_u]. *)
 module type S_i32 = sig
-  val get : t -> int -> int32#
+  val get : t -> int -> int32_u
   [@@zero_alloc]
 
-  val unsafe_get : t -> int -> int32#
+  val unsafe_get : t -> int -> int32_u
   [@@zero_alloc]
 
-  val set : t -> int -> int32# -> unit
+  val set : t -> int -> int32_u -> unit
   [@@zero_alloc]
 
-  val unsafe_set : t -> int -> int32# -> unit
+  val unsafe_set : t -> int -> int32_u -> unit
   [@@zero_alloc]
 
-  val get2 : t -> int -> int -> int32#
+  val get2 : t -> int -> int -> int32_u
   [@@zero_alloc]
 
-  val set2 : t -> int -> int -> int32# -> unit
+  val set2 : t -> int -> int -> int32_u -> unit
   [@@zero_alloc]
 
-  val get3 : t -> int -> int -> int -> int32#
+  val get3 : t -> int -> int -> int -> int32_u
   [@@zero_alloc]
 
-  val set3 : t -> int -> int -> int -> int32# -> unit
+  val set3 : t -> int -> int -> int -> int32_u -> unit
   [@@zero_alloc]
 end
 
@@ -275,30 +275,30 @@ module type S_bool = sig
 end
 
 (** Accessors presenting the two halves of a complex element as
-    [float32#]. *)
+    [float32_u]. *)
 module type S_c64 = sig
-  val get_re : t -> int -> float32#
+  val get_re : t -> int -> float32_u
   [@@zero_alloc]
 
-  val get_im : t -> int -> float32#
+  val get_im : t -> int -> float32_u
   [@@zero_alloc]
 
-  val unsafe_get_re : t -> int -> float32#
+  val unsafe_get_re : t -> int -> float32_u
   [@@zero_alloc]
 
-  val unsafe_get_im : t -> int -> float32#
+  val unsafe_get_im : t -> int -> float32_u
   [@@zero_alloc]
 
-  val set_re : t -> int -> float32# -> unit
+  val set_re : t -> int -> float32_u -> unit
   [@@zero_alloc]
 
-  val set_im : t -> int -> float32# -> unit
+  val set_im : t -> int -> float32_u -> unit
   [@@zero_alloc]
 
-  val unsafe_set_re : t -> int -> float32# -> unit
+  val unsafe_set_re : t -> int -> float32_u -> unit
   [@@zero_alloc]
 
-  val unsafe_set_im : t -> int -> float32# -> unit
+  val unsafe_set_im : t -> int -> float32_u -> unit
   [@@zero_alloc]
 end
 
@@ -355,7 +355,7 @@ module I64 : S_i64
 (** [Dtype.Int64] elements. *)
 
 module U64 : S_i64
-(** [Dtype.Uint64] elements. The 64 bits are returned as [int64#]
+(** [Dtype.Uint64] elements. The 64 bits are returned as [int64_u]
     unchanged, so a value above [Int64.max_int] reads as negative. This
     is the reinterpretation Rust's [u64 as i64] performs, and the Zarr
     shard index relies on it. *)
@@ -364,7 +364,7 @@ module I32 : S_i32
 (** [Dtype.Int32] elements. *)
 
 module U32 : S_i32
-(** [Dtype.Uint32] elements, reinterpreted as [int32#] as {!U64}
+(** [Dtype.Uint32] elements, reinterpreted as [int32_u] as {!U64}
     reinterprets [Dtype.Uint64]. *)
 
 module I16 : S_i16

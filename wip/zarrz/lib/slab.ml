@@ -25,22 +25,22 @@ external ld_i16 : Base_bigstring.t -> int -> int16#
 external st_i16 : Base_bigstring.t -> int -> int16# -> unit
   = "%caml_bigstring_set16u#"
 
-external ld_i32 : Base_bigstring.t -> int -> int32#
+external ld_i32 : Base_bigstring.t -> int -> int32_u
   = "%caml_bigstring_get32u#"
 
-external st_i32 : Base_bigstring.t -> int -> int32# -> unit
+external st_i32 : Base_bigstring.t -> int -> int32_u -> unit
   = "%caml_bigstring_set32u#"
 
-external ld_i64 : Base_bigstring.t -> int -> int64#
+external ld_i64 : Base_bigstring.t -> int -> int64_u
   = "%caml_bigstring_get64u#"
 
-external st_i64 : Base_bigstring.t -> int -> int64# -> unit
+external st_i64 : Base_bigstring.t -> int -> int64_u -> unit
   = "%caml_bigstring_set64u#"
 
-external ld_f32 : Base_bigstring.t -> int -> float32#
+external ld_f32 : Base_bigstring.t -> int -> float32_u
   = "%caml_bigstring_getf32u#"
 
-external st_f32 : Base_bigstring.t -> int -> float32# -> unit
+external st_f32 : Base_bigstring.t -> int -> float32_u -> unit
   = "%caml_bigstring_setf32u#"
 
 (* The half formats do their field arithmetic on a tagged int, so they
@@ -197,7 +197,7 @@ let[@inline] round_shift x n =
   if rem > half || (rem = half && r land 1 = 1) then r + 1 else r
 
 (* [make_float sign exp mant] is the binary64 with those three fields.
-   The exponent is shifted into place in [int64#] because a biased
+   The exponent is shifted into place in [int64_u] because a biased
    exponent above 1023 puts a bit past the 62 an OCaml int carries. *)
 let[@inline] make_float sign exp mant : float# =
   Fu.of_float
@@ -325,36 +325,36 @@ module type S_f64 = sig
 end
 
 module type S_f32 = sig
-  val get : t -> int -> float32# [@@zero_alloc]
-  val unsafe_get : t -> int -> float32# [@@zero_alloc]
-  val set : t -> int -> float32# -> unit [@@zero_alloc]
-  val unsafe_set : t -> int -> float32# -> unit [@@zero_alloc]
-  val get2 : t -> int -> int -> float32# [@@zero_alloc]
-  val set2 : t -> int -> int -> float32# -> unit [@@zero_alloc]
-  val get3 : t -> int -> int -> int -> float32# [@@zero_alloc]
-  val set3 : t -> int -> int -> int -> float32# -> unit [@@zero_alloc]
+  val get : t -> int -> float32_u [@@zero_alloc]
+  val unsafe_get : t -> int -> float32_u [@@zero_alloc]
+  val set : t -> int -> float32_u -> unit [@@zero_alloc]
+  val unsafe_set : t -> int -> float32_u -> unit [@@zero_alloc]
+  val get2 : t -> int -> int -> float32_u [@@zero_alloc]
+  val set2 : t -> int -> int -> float32_u -> unit [@@zero_alloc]
+  val get3 : t -> int -> int -> int -> float32_u [@@zero_alloc]
+  val set3 : t -> int -> int -> int -> float32_u -> unit [@@zero_alloc]
 end
 
 module type S_i64 = sig
-  val get : t -> int -> int64# [@@zero_alloc]
-  val unsafe_get : t -> int -> int64# [@@zero_alloc]
-  val set : t -> int -> int64# -> unit [@@zero_alloc]
-  val unsafe_set : t -> int -> int64# -> unit [@@zero_alloc]
-  val get2 : t -> int -> int -> int64# [@@zero_alloc]
-  val set2 : t -> int -> int -> int64# -> unit [@@zero_alloc]
-  val get3 : t -> int -> int -> int -> int64# [@@zero_alloc]
-  val set3 : t -> int -> int -> int -> int64# -> unit [@@zero_alloc]
+  val get : t -> int -> int64_u [@@zero_alloc]
+  val unsafe_get : t -> int -> int64_u [@@zero_alloc]
+  val set : t -> int -> int64_u -> unit [@@zero_alloc]
+  val unsafe_set : t -> int -> int64_u -> unit [@@zero_alloc]
+  val get2 : t -> int -> int -> int64_u [@@zero_alloc]
+  val set2 : t -> int -> int -> int64_u -> unit [@@zero_alloc]
+  val get3 : t -> int -> int -> int -> int64_u [@@zero_alloc]
+  val set3 : t -> int -> int -> int -> int64_u -> unit [@@zero_alloc]
 end
 
 module type S_i32 = sig
-  val get : t -> int -> int32# [@@zero_alloc]
-  val unsafe_get : t -> int -> int32# [@@zero_alloc]
-  val set : t -> int -> int32# -> unit [@@zero_alloc]
-  val unsafe_set : t -> int -> int32# -> unit [@@zero_alloc]
-  val get2 : t -> int -> int -> int32# [@@zero_alloc]
-  val set2 : t -> int -> int -> int32# -> unit [@@zero_alloc]
-  val get3 : t -> int -> int -> int -> int32# [@@zero_alloc]
-  val set3 : t -> int -> int -> int -> int32# -> unit [@@zero_alloc]
+  val get : t -> int -> int32_u [@@zero_alloc]
+  val unsafe_get : t -> int -> int32_u [@@zero_alloc]
+  val set : t -> int -> int32_u -> unit [@@zero_alloc]
+  val unsafe_set : t -> int -> int32_u -> unit [@@zero_alloc]
+  val get2 : t -> int -> int -> int32_u [@@zero_alloc]
+  val set2 : t -> int -> int -> int32_u -> unit [@@zero_alloc]
+  val get3 : t -> int -> int -> int -> int32_u [@@zero_alloc]
+  val set3 : t -> int -> int -> int -> int32_u -> unit [@@zero_alloc]
 end
 
 module type S_i16 = sig
@@ -391,14 +391,14 @@ module type S_bool = sig
 end
 
 module type S_c64 = sig
-  val get_re : t -> int -> float32# [@@zero_alloc]
-  val get_im : t -> int -> float32# [@@zero_alloc]
-  val unsafe_get_re : t -> int -> float32# [@@zero_alloc]
-  val unsafe_get_im : t -> int -> float32# [@@zero_alloc]
-  val set_re : t -> int -> float32# -> unit [@@zero_alloc]
-  val set_im : t -> int -> float32# -> unit [@@zero_alloc]
-  val unsafe_set_re : t -> int -> float32# -> unit [@@zero_alloc]
-  val unsafe_set_im : t -> int -> float32# -> unit [@@zero_alloc]
+  val get_re : t -> int -> float32_u [@@zero_alloc]
+  val get_im : t -> int -> float32_u [@@zero_alloc]
+  val unsafe_get_re : t -> int -> float32_u [@@zero_alloc]
+  val unsafe_get_im : t -> int -> float32_u [@@zero_alloc]
+  val set_re : t -> int -> float32_u -> unit [@@zero_alloc]
+  val set_im : t -> int -> float32_u -> unit [@@zero_alloc]
+  val unsafe_set_re : t -> int -> float32_u -> unit [@@zero_alloc]
+  val unsafe_set_im : t -> int -> float32_u -> unit [@@zero_alloc]
 end
 
 module type S_c128 = sig

@@ -1,6 +1,6 @@
 (* SPDX-License-Identifier: ISC *)
 module Store = Spindle__Store
-module Settings = Spindle.Settings
+module Settings = Spindle__Settings
 module E = Spindle__Xrpc_error
 module J = Spindle__Json
 

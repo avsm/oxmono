@@ -19,7 +19,7 @@ let () =
   Eio.Switch.run @@ fun sw ->
   let store = Store.open_ ~sw Eio.Path.(env#fs / name) in
   let settings =
-    Spindle.Settings.v ~store
+    Spindle__Settings.v ~store
       ~now:(fun () -> 0.)
       ~defaults:{ repo = []; user = [] }
   in

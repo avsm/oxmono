@@ -15,14 +15,14 @@ let () =
   Eio.Switch.run @@ fun sw ->
   let store = Store.open_ ~sw Eio.Path.(env#fs / name) in
   let settings =
-    Spindle.Settings.v ~store
+    Spindle__Settings.v ~store
       ~now:(fun () -> 0.)
       ~defaults:{ repo = []; user = [] }
   in
   let owner = "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa" in
   let other = "did:plc:bbbbbbbbbbbbbbbbbbbbbbbb" in
   let repo = "did:plc:rrrrrrrrrrrrrrrrrrrrrrrr" in
-  Spindle.Settings.note_owner settings ~repo ~owner;
+  Spindle__Settings.note_owner settings ~repo ~owner;
   let commit collection =
     obj
       [

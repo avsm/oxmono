@@ -48,7 +48,7 @@ let () =
   let engine sw =
     let store = Store.open_ ~sw directory in
     let settings =
-      Spindle.Settings.v ~store
+      Spindle__Settings.v ~store
         ~now:(fun () -> 0.)
         ~defaults:{ repo = []; user = [] }
     in

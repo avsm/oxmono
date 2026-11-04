@@ -6,6 +6,10 @@
 
 ## Unreleased
 
+- Export only the `admission` and `defaults` types of `Spindle.Catalog` and
+  `Spindle.Settings`, whose functions took types the library does not
+  export.
+
 - Move the demonstration executors `solve` and `print` from
   `Spindle.Executor` to `Spindle.Demo`. `solve` no longer treats a
   repository workflow that sets `SPINDLE_COMPILER` as one of its builds.

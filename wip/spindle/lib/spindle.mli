@@ -5,8 +5,21 @@ module Executor = Executor
 module Demo = Demo
 module Service_auth = Service_auth
 module Operations = Operations
-module Catalog = Catalog
-module Settings = Settings
+
+module Catalog : sig
+  type admission = Catalog.admission =
+    | Open  (** Any owner may use the spindle. *)
+    | Closed  (** Only admins and allow-listed owners may. *)
+end
+
+module Settings : sig
+  type defaults = Settings.defaults = {
+    repo : (string * int) list;
+    user : (string * int) list;
+  }
+  (** Default limits by resource, for repositories and for their owners. A
+      missing or zero limit is unlimited. *)
+end
 
 type config = {
   hostname : string;

@@ -158,15 +158,54 @@ let () =
       { workflow = old; status = `Success; error = None; log = "" };
     ]
   in
-  let spawned = ref [] and log = Buffer.create 256 in
+  (* Meanwhile the builds progress as these say, one change at a time. *)
+  let progress status step workflow : Spindle.Executor.progress =
+    { workflow; status; step; error = None }
+  in
+  let script =
+    [
+      [ progress `Pending None x86; progress `Pending None old ];
+      [ progress `Running (Some "queue") x86; progress `Pending None old ];
+      [
+        progress `Running (Some "opam install") x86;
+        progress `Running (Some "queue") old;
+      ];
+      [
+        { (progress `Failed None x86) with error = Some "Failed: Build failed" };
+        progress `Running (Some "queue") old;
+      ];
+      [
+        { (progress `Failed None x86) with error = Some "Failed: Build failed" };
+        progress `Success None old;
+      ];
+    ]
+  in
+  let remaining = ref script in
+  let spawned_ ?since () =
+    (match since with
+    | Some since ->
+        (* The caller always waits on what it last saw. *)
+        assert (since = List.hd !remaining);
+        remaining := List.tl !remaining
+    | None -> ());
+    List.hd !remaining
+  in
+  let spawned = ref [] and log = Buffer.create 256 and shown = ref [] in
   let ctx : Spindle.Executor.context =
     {
-      step = (fun ?kind:_ ?command:_ _ f -> f ());
+      step =
+        (fun ?kind:_ ?command:_ name f ->
+          match f () with
+          | () -> shown := (name, true) :: !shown
+          | exception e ->
+              shown := (name, false) :: !shown;
+              raise e);
       log = (fun _ s -> Buffer.add_string log s);
       spawn =
         (fun ?(env = []) name steps ->
           spawned := (name, env, steps) :: !spawned);
       await_spawned = (fun () -> outcomes);
+      spawned = spawned_;
     }
   in
   let files : Spindle.Executor.files =
@@ -220,6 +259,26 @@ let () =
   assert (not (has (step arm).command "host-system-mingw"));
   let _, _, older = List.nth order 1 in
   assert (List.length older = 1);
+  (* Until every build ends, a step waits for the next to end, logging each
+     change, and each build gets a step that passes or fails with it. *)
+  assert (
+    List.rev !shown
+    = [
+        ("analyse", true);
+        ("solve", true);
+        ("waiting for 2 of 4 builds", true);
+        (x86 ^ " failed", false);
+        ("waiting for 1 of 2 builds", true);
+        (old ^ " passed", true);
+        ("summary", false);
+      ]);
+  assert (!remaining = [ List.nth script 4 ]);
+  let progress = Buffer.contents log in
+  assert (has progress (x86 ^ "       queued"));
+  assert (has progress (x86 ^ "       building: opam install"));
+  assert (has progress (arm ^ "        planned, once " ^ x86 ^ " passes"));
+  assert (has progress (win ^ "   skipped, since " ^ x86 ^ " did not pass"));
+  assert (has progress "Failed: Build failed\nFAILED after ");
   (* The summary lists every build, and those never started. *)
   let summary = Buffer.contents log in
   assert (has summary ("Once " ^ x86 ^ " passes:"));
@@ -249,6 +308,7 @@ let () =
   | exception Failure _ -> ());
   (* Without a model, nothing is diagnosed. *)
   spawned := [];
+  remaining := script;
   (match Ci.executor { config with diagnose = None } ctx request with
   | () -> failwith "the summary passed with a failed build"
   | exception Failure _ -> ());

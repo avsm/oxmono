@@ -51,12 +51,147 @@ let label = function
   | `Cancelled -> "cancelled"
   | `Timeout -> "timed out"
 
-(* The [summary] step waits for every build, including those spawned once
-   the newest compiler's passed, and reports them all. Failures are handed to
-   a [diagnose] workflow when a model is configured. *)
+module P = struct
+  type t = Spindle.Executor.progress
+
+  let ended (p : t) =
+    match p.status with
+    | `Pending | `Running -> None
+    | (`Success | `Failed | `Cancelled | `Timeout) as s -> Some s
+
+  (* What a viewer is told about a build's state. *)
+  let phase (p : t) =
+    match (p.status, p.step) with
+    | `Pending, _ -> "waiting for a worker slot"
+    | `Running, (None | Some "queue") -> "queued"
+    | `Running, Some step -> "building: " ^ step
+    | ((`Success | `Failed | `Cancelled | `Timeout) as s), _ -> label s
+end
+
+let max_phase = 100
+
+let clip n s =
+  if String.length s <= n then s
+  else
+    let rec cut i =
+      if i > 0 && Char.code s.[i] land 0xc0 = 0x80 then cut (i - 1) else i
+    in
+    String.sub s 0 (cut (n - 3)) ^ "..."
+
+exception Did_not_pass
+
+(* While builds run, the [ocaml-ci] workflow shows their progress. A step
+   waits until a build ends, logging each build's changes as they happen,
+   then a step for that build passes or fails with it. *)
+let follow config (ctx : Spindle.Executor.context) ~primary ~later =
+  let began = Eio.Time.Mono.now config.clock in
+  let elapsed () =
+    let s =
+      Mtime.Span.to_uint64_ns
+        (Mtime.span began (Eio.Time.Mono.now config.clock))
+      |> Int64.to_int
+      |> fun ns -> ns / 1_000_000_000
+    in
+    if s < 3600 then Printf.sprintf "%2dm%02ds" (s / 60) (s mod 60)
+    else Printf.sprintf "%dh%02dm" (s / 3600) (s / 60 mod 60)
+  in
+  let reported = Hashtbl.create 16 in
+  let unreported (now : P.t list) =
+    List.filter
+      (fun (p : P.t) ->
+        P.ended p <> None && not (Hashtbl.mem reported p.workflow))
+      now
+  in
+  let primary_ended (now : P.t list) =
+    match primary with
+    | None -> None
+    | Some (v : Variant.t) ->
+        List.find_opt (fun (p : P.t) -> p.workflow = v.name) now
+        |> Fun.flip Option.bind P.ended
+  in
+  (* The later platforms' builds yet to be spawned, none once the newest
+     compiler's build has failed. *)
+  let planned (now : P.t list) =
+    match primary_ended now with
+    | Some (`Failed | `Cancelled | `Timeout) -> []
+    | Some `Success | None ->
+        List.filter
+          (fun ((v : Variant.t), _) ->
+            not (List.exists (fun (p : P.t) -> p.workflow = v.name) now))
+          later
+  in
+  let after =
+    Option.fold ~none:"" ~some:(fun (v : Variant.t) -> v.name) primary
+  in
+  (* Tangled shows ANSI colours, so an ended build stands out. *)
+  let line (p : P.t) =
+    let colour =
+      match P.ended p with
+      | Some `Success -> "\027[32m"
+      | Some _ -> "\027[31m"
+      | None -> ""
+    in
+    logf ctx "%s  %-28s %s%s%s\n" (elapsed ()) p.workflow colour
+      (clip max_phase (P.phase p))
+      (if colour = "" then "" else "\027[0m")
+  in
+  let report (p : P.t) =
+    Hashtbl.replace reported p.workflow ();
+    let status = Option.get (P.ended p) in
+    let name = p.workflow ^ " " ^ String.lowercase_ascii (label status) in
+    try
+      ctx.step name (fun () ->
+          Option.iter (logf ctx "%s\n") p.error;
+          logf ctx "%s after %s.\n" (label status) (String.trim (elapsed ()));
+          if status <> `Success then raise Did_not_pass)
+    with Did_not_pass -> ()
+  in
+  let running_of = List.filter (fun p -> P.ended p = None) in
+  let rec rounds (now : P.t list) =
+    List.iter report (unreported now);
+    let running = running_of now in
+    if running <> [] then (
+      let latest = ref now in
+      let name =
+        Printf.sprintf "waiting for %d of %d builds" (List.length running)
+          (List.length now + List.length (planned now))
+      in
+      ctx.step ~kind:`System ~command:"await builds" name (fun () ->
+          List.iter line running;
+          List.iter
+            (fun ((v : Variant.t), _) ->
+              logf ctx "%s  %-28s planned, once %s passes\n" (elapsed ()) v.name
+                after)
+            (planned now);
+          let rec wait () =
+            let before = !latest in
+            let next = ctx.spawned ~since:before () in
+            latest := next;
+            List.iter
+              (fun (p : P.t) -> if not (List.mem p before) then line p)
+              next;
+            (match (primary_ended before, primary_ended next) with
+            | None, Some (`Failed | `Cancelled | `Timeout) ->
+                List.iter
+                  (fun ((v : Variant.t), _) ->
+                    logf ctx "%s  %-28s skipped, since %s did not pass\n"
+                      (elapsed ()) v.name after)
+                  (planned before)
+            | _ -> ());
+            if unreported next = [] then wait ()
+          in
+          wait ());
+      rounds !latest)
+  in
+  rounds (ctx.spawned ())
+
+(* The [summary] step reports every build, including those spawned once
+   the newest compiler's passed. Failures are handed to a [diagnose]
+   workflow when a model is configured. *)
 let summary config pending (ctx : Spindle.Executor.context)
     (r : Spindle.Executor.request) ~primary ~later =
-  ctx.step ~command:"await builds" "summary" (fun () ->
+  follow config ctx ~primary ~later;
+  ctx.step "summary" (fun () ->
       let outcomes = ctx.await_spawned () in
       List.iter
         (fun (o : Spindle.Executor.outcome) ->

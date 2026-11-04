@@ -41,10 +41,15 @@ Every push, pull request or manual run starts an `ocaml-ci` workflow:
 3. A workflow is spawned for every compiler with a solution, such as
    `5.4.1:x86_64:Debian-13`. Its first step carries the OBuilder
    spec as its command.
-4. **summary** waits for every build, including those added later, and
-   lists how each ended, with those never started because the newest
-   compiler failed. It fails unless every build passed, so the `ocaml-ci`
-   workflow shows the result of the whole pipeline.
+4. While builds run, a step called `waiting for N of M builds` logs each
+   change as it happens, with the time since the builds began: a build
+   waiting for a worker slot, queued on its pool, building a step, or ended,
+   and the later platforms planned or skipped. Each build that ends then gets
+   a step of its own, such as `5.5.1:x86_64:Debian-13 passed`, which fails if
+   the build did not pass, before the next waiting step.
+5. **summary** lists how each build ended, with those never started because
+   the newest compiler failed. It fails unless every build passed, so the
+   `ocaml-ci` workflow shows the result of the whole pipeline.
 
 The newest compiler's build is also solved for each of `--platforms`, such
 as `5.5.1:riscv64:Debian-13` or

@@ -4,6 +4,9 @@
 
 - End the `ocaml-ci` workflow with a `summary` step that waits for every
   build and lists how each ended.
+- Show the builds' progress in the `ocaml-ci` workflow as it happens: a
+  waiting step logs each build being queued, starting each step and ending,
+  and each build that ends gets a step that passes or fails with it.
 - Add `--diagnose`, off by default, which asks a language model with no
   tools about failed builds in a `diagnose` workflow, through an
   OpenAI-compatible API such as OpenRouter's.

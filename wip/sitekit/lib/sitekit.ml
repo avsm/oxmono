@@ -113,7 +113,7 @@ module Asset = struct
   let url t = t.url
   let media_type t = t.media_type
   let content t = t.content
-  let stylesheet = css ~name:"sitekit" Stylesheet.source
+  let stylesheet = css ~name:"sitekit" (Stylesheet.source ^ Terminal.css)
   let script = js ~name:"sitekit" Script.source
 
   let file t =
@@ -587,6 +587,16 @@ let post_form ~action ~hidden ?(submit = "Submit") fields =
     @ [ el "button" ~at:[ ("type", "submit") ] [ text submit ] ])
 
 let log s = el "pre" ~at:[ ("class", "sk-log") ] [ text s ]
+
+let terminal s =
+  el "pre"
+    ~at:[ ("class", "sk-log sk-term") ]
+    (List.map
+       (fun (st, piece) ->
+         match Terminal.classes st with
+         | [] -> text piece
+         | cs -> el "span" ~at:[ ("class", String.concat " " cs) ] [ text piece ])
+       (Terminal.runs s))
 let sr_only s = el "span" ~at:[ ("class", "sk-sr") ] [ text s ]
 
 let count n =

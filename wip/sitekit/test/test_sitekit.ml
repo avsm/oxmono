@@ -221,8 +221,7 @@ let pages () =
 let post_forms () =
   let html =
     Htmlit.El.to_string ~doctype:false
-      (S.post_form
-         ~action:(S.Url.path [ "login" ])
+      (S.post_form ~action:(S.Url.path [ "login" ])
          ~hidden:[ ("_csrf", "a\"b<c") ]
          ~submit:"Log in"
          [ S.input ~name:"handle" ~label:"Handle" ~value:"<x>" () ])
@@ -232,9 +231,34 @@ let post_forms () =
   assert (has html "&lt;x&gt;" && has html "Log in");
   let f =
     Htmlit.El.to_string ~doctype:false
-      (S.follow (Option.get (S.Url.external_ "https://as.example/a?b=1&c=2")) "Go")
+      (S.follow
+         (Option.get (S.Url.external_ "https://as.example/a?b=1&c=2"))
+         "Go")
   in
   assert (has f {|data-sk-follow|} && has f "b=1&amp;c=2")
+
+let terminal () =
+  let render s = Htmlit.El.to_string ~doctype:false (S.terminal s) in
+  let t = render "\027[1;31mred\027[0m plain" in
+  assert (has t {|<span class="sk-fg1 sk-b">red</span> plain|});
+  assert (has (render "\027[38;5;208mx") {|class="sk-fg208"|});
+  (* Truecolour is drawn as the nearest palette colour. *)
+  assert (has (render "\027[38;2;255;0;0mx") {|class="sk-fg196"|});
+  (* Colours in the colon form are dropped, leaving the text. *)
+  assert (
+    has (render "\027[38:2::0:0:255mx") {|<pre class="sk-log sk-term">x</pre>|});
+  assert (has (render "\027[48;5;232mx") {|class="sk-bg232"|});
+  assert (
+    has
+      (render "\027[92;4mx\027[24;39my")
+      {|<span class="sk-fg10 sk-u">x</span>y|});
+  (* Text is escaped, and escape codes that do anything but style go. *)
+  let t = render "\027[31m<script>alert(1)</script>\027]0;title\007\027[2Jok" in
+  assert (has t "&lt;script&gt;" && not (has t "<script"));
+  assert ((not (has t "title")) && has t "ok");
+  assert ((not (has t "\027")) && not (has t "style="));
+  (* The stylesheet holds the palette. *)
+  assert (has (S.Asset.content S.Asset.stylesheet) ".sk-fg208{color:#ff8700}")
 
 let formatting () =
   assert (S.count 1234567 = "1,234,567");
@@ -250,6 +274,7 @@ let () =
   headers ();
   pages ();
   post_forms ();
+  terminal ();
   formatting ();
   print_endline
     "sitekit: URLs, escaping, no inline styles, security headers, assets and \

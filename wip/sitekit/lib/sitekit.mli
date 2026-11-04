@@ -290,6 +290,16 @@ val post_button :
     to [action] with one button labelled [label]. *)
 
 val log : string -> html
+
+val terminal : string -> html
+(** [terminal s] is the output [s] of a program that wrote to a terminal, as
+    preformatted text with its colours and text attributes: bold, dim,
+    italic, underline, strike-through and inverse, the sixteen colours, which
+    follow the site's theme, the 256-colour palette, and truecolour drawn as
+    the nearest of those. Every other escape code, every control character
+    but tabs and line ends, and every character a terminal draws as nothing
+    is removed first, by [Console_text.strip]. Styles are classes, never
+    inline styles, so pages keep a policy without ['unsafe-inline']. *)
 (** [log s] is [s] as preformatted text. *)
 
 val sr_only : string -> html

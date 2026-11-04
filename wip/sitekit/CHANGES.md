@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add `terminal`, which renders a program's terminal output as HTML with
+  its colours and attributes as classes, after `Console_text.strip` has
+  removed every other escape code.
 - Add `follow`, a link that Sitekit's script follows when the page loads,
   for sending a form's result to another site under `form-action 'self'`.
 - Add `post_form`, a form posting fields and hidden values such as a CSRF

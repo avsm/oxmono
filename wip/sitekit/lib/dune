@@ -1,9 +1,9 @@
 (library
  (name sitekit)
  (public_name sitekit)
- (modules sitekit stylesheet script)
- (private_modules stylesheet script)
- (libraries htmlit proffer uriz digestif ptime))
+ (modules sitekit stylesheet script terminal)
+ (private_modules stylesheet script terminal)
+ (libraries htmlit proffer uriz digestif ptime console.text))
 
 (rule
  (target stylesheet.ml)

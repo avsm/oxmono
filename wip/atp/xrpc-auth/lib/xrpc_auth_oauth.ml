@@ -4,215 +4,36 @@
   ---------------------------------------------------------------------------*)
 
 module Session = Xrpc_auth_session
-module P256 = Mirage_crypto_ec.P256.Dsa
+module P = Xrpc_auth_protocol
 
 let default_scope = "atproto transition:generic"
-let b64 = Jsonwt.base64url_encode
-let sha256 s = Digestif.SHA256.(to_raw_string (digest_string s))
+let b64 = P.b64
+let sha256 = P.sha256
+let random = P.random
+let parse = P.parse
+let field = P.field
+let required = P.required
+let strip_slash = P.strip_slash
+let encode_query = P.encode_query
 
-let ensure_rng () =
-  match Mirage_crypto_rng.default_generator () with
-  | _ -> ()
-  | exception Mirage_crypto_rng.No_default_generator ->
-      Mirage_crypto_rng_unix.use_default ()
+type dpop = P.dpop
 
-let random n =
-  ensure_rng ();
-  b64 (Mirage_crypto_rng.generate n)
-
-let json_string value =
-  match Jsont_bytesrw.encode_string Jsont.json value with
-  | Ok s -> s
-  | Error e -> failwith e
-
-let obj pairs =
-  Jsont.Json.object'
-    (List.map (fun (k, v) -> Jsont.Json.mem (k, Jsont.Meta.none) v) pairs)
-
-let str = Jsont.Json.string
-
-let parse body =
-  match Jsont_bytesrw.decode_string Jsont.json body with
-  | Ok (Jsont.Object (members, _)) ->
-      List.filter_map
-        (fun ((name, _), value) ->
-          match value with
-          | Jsont.String (s, _) -> Some (name, `S s)
-          | Jsont.Number (n, _) -> Some (name, `N n)
-          | Jsont.Array (items, _) ->
-              Some
-                ( name,
-                  `L
-                    (List.filter_map
-                       (function Jsont.String (s, _) -> Some s | _ -> None)
-                       items) )
-          | _ -> None)
-        members
-  | _ -> []
-
-let field fields name =
-  match List.assoc_opt name fields with Some (`S s) -> Some s | _ -> None
-
-let required what fields name =
-  match field fields name with
-  | Some s -> s
-  | None -> failwith (Printf.sprintf "%s lacks %s" what name)
-
-(* DPoP keys *)
-
-type key = { priv : P256.priv; jwk : Jsont.json }
-
-let public_jwk pub =
-  let point = P256.pub_to_octets pub in
-  obj
-    [
-      ("kty", str "EC");
-      ("crv", str "P-256");
-      ("x", str (b64 (String.sub point 1 32)));
-      ("y", str (b64 (String.sub point 33 32)));
-    ]
-
-let generate_key () =
-  ensure_rng ();
-  let priv, pub = P256.generate () in
-  { priv; jwk = public_jwk pub }
-
-let key_to_string key =
-  match key.jwk with
-  | Jsont.Object (members, meta) ->
-      json_string
-        (Jsont.Object
-           ( members
-             @ [
-                 Jsont.Json.mem ("d", Jsont.Meta.none)
-                   (str (b64 (P256.priv_to_octets key.priv)));
-               ],
-             meta ))
-  | _ -> assert false
-
-let key_of_string text =
-  let d =
-    match field (parse text) "d" with
-    | Some d -> d
-    | None -> invalid_arg "DPoP key lacks a private scalar"
-  in
-  match Jsonwt.base64url_decode d with
-  | Error _ -> invalid_arg "Malformed DPoP key"
-  | Ok d -> (
-      match P256.priv_of_octets d with
-      | Ok priv -> { priv; jwk = public_jwk (P256.pub_of_priv priv) }
-      | Error _ -> invalid_arg "Malformed DPoP key")
-
-(* RFC 9449 section 4.2. [htu] excludes the query and fragment. *)
-let proof key ~now ~meth ~url ?nonce ?token () =
-  let htu =
-    match String.index_opt url '?' with
-    | Some i -> String.sub url 0 i
-    | None -> (
-        match String.index_opt url '#' with
-        | Some i -> String.sub url 0 i
-        | None -> url)
-  in
-  let header =
-    obj [ ("alg", str "ES256"); ("typ", str "dpop+jwt"); ("jwk", key.jwk) ]
-  in
-  let opt name = Option.map (fun v -> (name, str v)) in
-  let claims =
-    obj
-      ([
-         ("jti", str (random 16));
-         ("htm", str meth);
-         ("htu", str htu);
-         ("iat", Jsont.Json.int (int_of_float now));
-       ]
-      @ List.filter_map Fun.id
-          [
-            opt "nonce" nonce;
-            opt "ath" (Option.map (fun t -> b64 (sha256 t)) token);
-          ])
-  in
-  let input = b64 (json_string header) ^ "." ^ b64 (json_string claims) in
-  ensure_rng ();
-  let r, s = P256.sign ~mask:`Yes ~key:key.priv (sha256 input) in
-  input ^ "." ^ b64 (r ^ s)
-
-(* Nonces are per origin. A server may hand out a fresh one on any reply. *)
-type dpop = { key : key; nonces : (string, string) Hashtbl.t }
+let proof = P.proof
+let remember = P.remember
+let nonce = P.nonce
+let www_error = P.www_error
 
 let origin url =
   match Fetch.Middleware.Url.of_string url with
   | Ok u -> Fetch.Middleware.Url.origin u
   | Error e -> invalid_arg e
 
-let remember dpop url headers =
-  Option.iter
-    (Hashtbl.replace dpop.nonces (origin url))
-    (Http.Header.get headers "dpop-nonce")
-
-let nonce dpop url = Hashtbl.find_opt dpop.nonces (origin url)
-
-let www_error headers =
-  match Http.Header.get headers "www-authenticate" with
-  | None -> None
-  | Some value ->
-      let marker = "error=\"" in
-      let rec find i =
-        if i + String.length marker > String.length value then None
-        else if String.sub value i (String.length marker) = marker then
-          let start = i + String.length marker in
-          match String.index_from_opt value start '"' with
-          | Some stop -> Some (String.sub value start (stop - start))
-          | None -> None
-        else find (i + 1)
-      in
-      find 0
-
-(* Authorization server requests *)
-
-let read_body response =
-  Fetch.decode ~limit:(1024 * 1024) Fetch.Media.octets response
-
-(* Posts a form with a DPoP proof, retrying once with the nonce the server
-   demands (RFC 9449 section 8). *)
 let post_form ~clock ~http dpop url pairs =
-  let send () =
-    let headers, body = Fetch.Form.urlencoded pairs in
-    let proof =
-      proof dpop.key ~now:(Eio.Time.now clock) ~meth:"POST" ~url
-        ?nonce:(nonce dpop url) ()
-    in
-    let headers =
-      Fetch.Header.append headers [ Fetch.Header.raw "DPoP" proof ]
-    in
-    Fetch.with_response ~headers ~body ~redirects:0 ~sensitive:[ "dpop" ] http
-      `POST url (fun response ->
-        remember dpop url (Fetch.headers response);
-        (Fetch.status response, read_body response))
-  in
-  let status, body = send () in
-  let status, body =
-    if status = 400 && field (parse body) "error" = Some "use_dpop_nonce" then
-      send ()
-    else (status, body)
-  in
-  let fields = parse body in
-  if status >= 200 && status < 300 then fields
-  else
-    failwith
-      (Printf.sprintf "%s refused the request (HTTP %d): %s%s" url status
-         (Option.value ~default:"unknown error" (field fields "error"))
-         (match field fields "error_description" with
-         | Some d -> ": " ^ d
-         | None -> ""))
+  P.post_form ~clock ~http dpop url pairs
 
-let get_json ~http url =
-  Fetch.with_response ~redirects:0 http `GET url (fun response ->
-      let status = Fetch.status response in
-      if status <> 200 then
-        failwith (Printf.sprintf "%s answered HTTP %d" url status);
-      read_body response)
+let get_json = P.get_json
 
-type server = {
+type server = P.server = {
   issuer : string;
   authorization_endpoint : string;
   token_endpoint : string;
@@ -220,71 +41,7 @@ type server = {
   revocation_endpoint : string option;
 }
 
-let strip_slash s =
-  if String.ends_with ~suffix:"/" s then String.sub s 0 (String.length s - 1)
-  else s
-
-let server_of_pds ~http pds =
-  let pds = strip_slash pds in
-  let resource =
-    parse (get_json ~http (pds ^ "/.well-known/oauth-protected-resource"))
-  in
-  let issuer =
-    match List.assoc_opt "authorization_servers" resource with
-    | Some (`L (issuer :: _)) -> strip_slash issuer
-    | _ -> failwith (pds ^ " names no authorization server")
-  in
-  let what = issuer ^ " metadata" in
-  let meta =
-    parse (get_json ~http (issuer ^ "/.well-known/oauth-authorization-server"))
-  in
-  if Option.map strip_slash (field meta "issuer") <> Some issuer then
-    failwith (what ^ " names a different issuer");
-  {
-    issuer;
-    authorization_endpoint = required what meta "authorization_endpoint";
-    token_endpoint = required what meta "token_endpoint";
-    par_endpoint = required what meta "pushed_authorization_request_endpoint";
-    revocation_endpoint = field meta "revocation_endpoint";
-  }
-
-let pct_encode s =
-  let b = Buffer.create (String.length s) in
-  String.iter
-    (fun c ->
-      match c with
-      | 'A' .. 'Z' | 'a' .. 'z' | '0' .. '9' | '-' | '.' | '_' | '~' ->
-          Buffer.add_char b c
-      | c -> Buffer.add_string b (Printf.sprintf "%%%02X" (Char.code c)))
-    s;
-  Buffer.contents b
-
-let pct_decode s =
-  let n = String.length s in
-  let b = Buffer.create n in
-  let rec go i =
-    if i < n then
-      match s.[i] with
-      | '%' when i + 2 < n -> (
-          match int_of_string_opt ("0x" ^ String.sub s (i + 1) 2) with
-          | Some c ->
-              Buffer.add_char b (Char.chr c);
-              go (i + 3)
-          | None ->
-              Buffer.add_char b '%';
-              go (i + 1))
-      | '+' ->
-          Buffer.add_char b ' ';
-          go (i + 1)
-      | c ->
-          Buffer.add_char b c;
-          go (i + 1)
-  in
-  go 0;
-  Buffer.contents b
-
-let encode_query pairs =
-  String.concat "&" (List.map (fun (k, v) -> k ^ "=" ^ pct_encode v) pairs)
+let server_of_pds = P.server_of_pds
 
 let loopback_client_id ~redirect_uri ~scope =
   "http://localhost?"
@@ -296,19 +53,9 @@ let query_params target =
   match String.index_opt target '?' with
   | None -> (target, [])
   | Some i ->
-      let path = String.sub target 0 i in
-      let query = String.sub target (i + 1) (String.length target - i - 1) in
-      ( path,
-        List.filter_map
-          (fun pair ->
-            match String.index_opt pair '=' with
-            | None -> None
-            | Some j ->
-                Some
-                  ( pct_decode (String.sub pair 0 j),
-                    pct_decode
-                      (String.sub pair (j + 1) (String.length pair - j - 1)) ))
-          (String.split_on_char '&' query) )
+      ( String.sub target 0 i,
+        P.decode_query
+          (String.sub target (i + 1) (String.length target - i - 1)) )
 
 let respond flow status text =
   let page =
@@ -317,8 +64,12 @@ let respond flow status text =
   in
   Eio.Flow.copy_string
     (Printf.sprintf
-       "HTTP/1.1 %s\r\nContent-Type: text/html; charset=utf-8\r\n\
-        Content-Length: %d\r\nConnection: close\r\n\r\n%s"
+       "HTTP/1.1 %s\r\n\
+        Content-Type: text/html; charset=utf-8\r\n\
+        Content-Length: %d\r\n\
+        Connection: close\r\n\
+        \r\n\
+        %s"
        status (String.length page) page)
     flow
 
@@ -352,8 +103,9 @@ let rec await_callback ~sw socket =
   in
   match result with Some params -> params | None -> await_callback ~sw socket
 
-let now_rfc3339 clock = Ptime.to_rfc3339 ~tz_offset_s:0 (Option.get
-  (Ptime.of_float_s (Eio.Time.now clock)))
+let now_rfc3339 clock =
+  Ptime.to_rfc3339 ~tz_offset_s:0
+    (Option.get (Ptime.of_float_s (Eio.Time.now clock)))
 
 let expiry clock fields =
   let seconds =
@@ -364,10 +116,7 @@ let expiry clock fields =
   Ptime.to_rfc3339 ~tz_offset_s:0
     (Option.get (Ptime.of_float_s (Eio.Time.now clock +. seconds)))
 
-let check_token_type fields =
-  match field fields "token_type" with
-  | Some t when String.lowercase_ascii t = "dpop" -> ()
-  | _ -> failwith "Authorization server did not issue a DPoP-bound token"
+let check_token_type = P.check_token_type
 
 let handle_of ~http ~pds did =
   let url =
@@ -379,17 +128,7 @@ let handle_of ~http ~pds did =
   | None -> did
   | exception (Failure _ | Eio.Io _) -> did
 
-let pds_of ?plc ~http identifier =
-  let did =
-    if String.starts_with ~prefix:"did:" identifier then identifier
-    else
-      match Xrpc.Identity.did_of_handle http identifier with
-      | Ok did -> did
-      | Error e -> failwith e
-  in
-  match Xrpc.Identity.pds_of_did ?plc http did with
-  | Ok pds -> (did, pds)
-  | Error e -> failwith e
+let pds_of = P.pds_of
 
 type redirect =
   | Loopback
@@ -429,7 +168,7 @@ let authorize ~net ~clock ~http ?plc ?pds ?identifier ?(timeout = 300.)
     | None, None -> invalid_arg "Give an account or a PDS to log in to"
   in
   let server = server_of_pds ~http pds in
-  let dpop = { key = generate_key (); nonces = Hashtbl.create 2 } in
+  let dpop = P.dpop (P.Key.generate ()) in
   Eio.Switch.run @@ fun sw ->
   let client_id, redirect_uri, await =
     match redirect with
@@ -444,9 +183,7 @@ let authorize ~net ~clock ~http ?plc ?pds ?identifier ?(timeout = 300.)
           | `Tcp (_, port) -> port
           | _ -> failwith "Loopback listener has no port"
         in
-        let redirect_uri =
-          Printf.sprintf "http://127.0.0.1:%d/callback" port
-        in
+        let redirect_uri = Printf.sprintf "http://127.0.0.1:%d/callback" port in
         let await () =
           match
             Eio.Time.with_timeout clock timeout (fun () ->
@@ -514,17 +251,7 @@ let authorize ~net ~clock ~http ?plc ?pds ?identifier ?(timeout = 300.)
   let what = "Token response" in
   let did = required what token "sub" in
   let pds =
-    match expected with
-    | Some expected ->
-        if did <> expected then failwith "Signed in as a different account";
-        pds
-    | None ->
-        (* The account's own PDS must trust this issuer, or any server could
-           claim any DID. *)
-        let _, pds = pds_of ?plc ~http did in
-        if (server_of_pds ~http pds).issuer <> server.issuer then
-          failwith "Account is not served by this authorization server";
-        pds
+    P.account_pds ?plc ~http ~issuer:server.issuer ~expected ~pds:(Some pds) did
   in
   {
     Session.access_jwt = required what token "access_token";
@@ -540,7 +267,7 @@ let authorize ~net ~clock ~http ?plc ?pds ?identifier ?(timeout = 300.)
           token_endpoint = server.token_endpoint;
           revocation_endpoint = server.revocation_endpoint;
           client_id;
-          dpop_key = key_to_string dpop.key;
+          dpop_key = P.Key.to_string (P.dpop_key dpop);
           scope = Option.value ~default:scope (field token "scope");
           expires_at = expiry clock token;
         };
@@ -565,9 +292,9 @@ let oauth_of session =
 let v ~clock ~http ?(on_update = ignore) session =
   let oauth = oauth_of session in
   {
-    clock = (clock :> float Eio.Time.clock_ty Eio.Resource.t);
+    clock :> float Eio.Time.clock_ty Eio.Resource.t;
     base = Fetch.restrict http;
-    dpop = { key = key_of_string oauth.dpop_key; nonces = Hashtbl.create 2 };
+    dpop = P.dpop (P.Key.of_string oauth.dpop_key);
     session;
     on_update;
     lock = Eio.Mutex.create ();
@@ -589,8 +316,7 @@ let refresh t ~stale =
             ("client_id", oauth.client_id);
           ]
       with Failure message ->
-        failwith
-          ("OAuth session could not be renewed. Log in again. " ^ message)
+        failwith ("OAuth session could not be renewed. Log in again. " ^ message)
     in
     check_token_type token;
     if field token "sub" <> Some t.session.did then
@@ -632,7 +358,7 @@ let middleware t : Fetch.Middleware.middleware =
     let send () =
       let token = fresh_token t in
       let proof =
-        proof t.dpop.key ~now:(Eio.Time.now t.clock)
+        proof (P.dpop_key t.dpop) ~now:(Eio.Time.now t.clock)
           ~meth:(Http.Method.to_string request.meth)
           ~url ?nonce:(nonce t.dpop url) ~token ()
       in

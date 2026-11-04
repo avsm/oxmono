@@ -2,6 +2,7 @@
  (name xrpc_auth)
  (public_name xrpc-auth)
  (libraries
+  xrpc-auth.protocol
   atp-xrpc
   fetch
   fetch-curl

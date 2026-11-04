@@ -20,6 +20,7 @@ depends: [
   "jsont" {>= "0.1"}
   "jsonwt"
   "digestif"
+  "eqaf"
   "mirage-crypto-ec"
   "mirage-crypto-rng"
   "eio" {>= "1.0"}

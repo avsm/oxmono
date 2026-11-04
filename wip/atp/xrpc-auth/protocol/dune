@@ -1,0 +1,16 @@
+(library
+ (name xrpc_auth_protocol)
+ (public_name xrpc-auth.protocol)
+ (libraries
+  atp-xrpc
+  fetch
+  http
+  jsont
+  jsont.bytesrw
+  jsonwt
+  digestif
+  eqaf
+  mirage-crypto-ec
+  mirage-crypto-rng
+  mirage-crypto-rng.unix
+  eio))

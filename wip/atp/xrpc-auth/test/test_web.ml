@@ -396,6 +396,12 @@ let () =
       ("fe80::1", false);
       ("ff02::1", false);
       ("2001:db8::1", false);
+      ("2002:7f00:1::1", false);
+      ("2002:808:808::1", true);
+      ("2001:0:4136:e378::1", false);
+      ("64:ff9b:1::8.8.8.8", false);
+      ("fec0::1", false);
+      ("100::1", false);
     ];
   (* A host with no public address is refused before dialling. *)
   List.iter

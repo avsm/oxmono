@@ -204,6 +204,15 @@ let start ~clock ~http ?plc ?(ttl = 600.) client ~identifier =
       (Some did, pds, Some identifier)
   in
   let server = P.server_of_pds ~http pds in
+  (* The browser is sent to the authorization endpoint, so it must be a
+     plain HTTPS address. *)
+  if
+    not
+      (String.starts_with ~prefix:"https://" server.authorization_endpoint
+      && String.for_all
+           (fun c -> c > ' ' && c < '\127' && c <> '"' && c <> '<' && c <> '>')
+           server.authorization_endpoint)
+  then failwith "The authorization server's endpoint is not an HTTPS address";
   let dpop = P.dpop (Key.generate ()) in
   let verifier = P.random 32 and state = P.random 32 in
   let par =
@@ -423,14 +432,26 @@ module Public_net = struct
   let v6_public (a : string) =
     let b i = Char.code a.[i] in
     let zeros n = String.for_all (fun c -> c = '\000') (String.sub a 0 n) in
+    let zeros_from i n =
+      String.for_all (fun c -> c = '\000') (String.sub a i n)
+    in
     let embedded () = v4_public (String.sub a 12 4) in
     if zeros 16 then false (* :: *)
     else if zeros 15 && b 15 = 1 then false (* ::1 *)
     else if zeros 10 && b 10 = 0xff && b 11 = 0xff then embedded ()
       (* ::ffff:0:0/96, IPv4-mapped *)
     else if zeros 12 then embedded () (* ::/96, IPv4-compatible *)
+    else if b 0 = 0x00 && b 1 = 0x64 && b 2 = 0xff && b 3 = 0x9b && b 4 = 0
+            && b 5 = 1 then false (* 64:ff9b:1::/48, local NAT64 *)
     else if b 0 = 0x00 && b 1 = 0x64 && b 2 = 0xff && b 3 = 0x9b then
       embedded () (* 64:ff9b::/96, NAT64 *)
+    else if b 0 = 0x20 && b 1 = 0x02 then v4_public (String.sub a 2 4)
+      (* 2002::/16, 6to4 names an IPv4 address *)
+    else if b 0 = 0x20 && b 1 = 0x01 && b 2 = 0 && b 3 = 0 then false
+      (* 2001::/32, Teredo *)
+    else if b 0 = 0x01 && b 1 = 0 && zeros_from 2 6 then false
+      (* 100::/64, discard only *)
+    else if b 0 = 0xfe && b 1 land 0xc0 = 0xc0 then false (* fec0::/10 *)
     else if b 0 land 0xfe = 0xfc then false (* fc00::/7, unique local *)
     else if b 0 = 0xfe && b 1 land 0xc0 = 0x80 then false (* fe80::/10 *)
     else if b 0 = 0xff then false (* ff00::/8, multicast *)

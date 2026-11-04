@@ -223,6 +223,9 @@ let href u = ("href", Url.to_string u)
 let link u label = el "a" ~at:[ href u ] [ text label ]
 let link_to u children = el "a" ~at:[ href u ] children
 
+let follow u label =
+  el "a" ~at:[ href u; ("class", "sk-button"); ("data-sk-follow", "") ] [ text label ]
+
 let page site ~current ?(account = []) ?kind ~title body =
   let kind =
     match kind with

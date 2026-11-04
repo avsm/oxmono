@@ -58,3 +58,16 @@
   else initialize();
   document.addEventListener('sitekit:content', initialize);
 })();
+
+// A page that sends its reader on, such as to an OAuth authorization server
+// after a form, marks the link with data-sk-follow. Following a link is not
+// subject to the form-action policy that a redirect after a form would be.
+(() => {
+  const follow = () => {
+    const link = document.querySelector('a[data-sk-follow]');
+    if (link && /^https?:\/\//.test(link.href)) window.location.assign(link.href);
+  };
+  if (document.readyState === 'loading')
+    document.addEventListener('DOMContentLoaded', follow);
+  else follow();
+})();

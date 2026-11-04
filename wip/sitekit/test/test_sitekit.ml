@@ -229,7 +229,12 @@ let post_forms () =
   in
   assert (has html {|method="post"|} && has html {|action="/login"|});
   assert (has html "a&quot;b&lt;c" && not (has html "a\"b"));
-  assert (has html "&lt;x&gt;" && has html "Log in")
+  assert (has html "&lt;x&gt;" && has html "Log in");
+  let f =
+    Htmlit.El.to_string ~doctype:false
+      (S.follow (Option.get (S.Url.external_ "https://as.example/a?b=1&c=2")) "Go")
+  in
+  assert (has f {|data-sk-follow|} && has f "b=1&amp;c=2")
 
 let formatting () =
   assert (S.count 1234567 = "1,234,567");

@@ -206,6 +206,13 @@ val text : string -> html
 val link : Url.t -> string -> html
 val link_to : Url.t -> html list -> html
 
+val follow : Url.t -> string -> html
+(** [follow url label] is a link that Sitekit's script follows as soon as the
+    page loads, and that the reader can follow without it. A site answers a
+    form whose result is another site, such as a login sent to an OAuth
+    authorization server, with a page holding it, since the form-action
+    policy forbids redirecting a form elsewhere. *)
+
 val badge : ?tone:[ `Neutral | `Good | `Warning | `Danger ] -> string -> html
 (** [badge ~tone label] is a small label, [`Neutral] by default. *)
 

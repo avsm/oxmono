@@ -9,6 +9,10 @@
 
 ## Unreleased
 
+- `Xrpc_auth_web.Public_net` also refuses 6to4 and local NAT64 addresses of
+  private IPv4 ones, Teredo, site-local and discard-only IPv6 addresses, and
+  `start` refuses an authorization endpoint that is not plain HTTPS.
+
 - Move the OAuth steps the CLI and web clients share into
   `xrpc-auth.protocol`, and add `xrpc-auth.web`, a confidential web client
   for "Log in with atproto" with `private_key_jwt` assertions, a public-only
